@@ -1,0 +1,13 @@
+version: v2
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: vectis/api/gen/go
+plugins:
+  - remote: buf.build/protocolbuffers/go
+    out: ./api/gen/go/
+    opt: paths=source_relative
+  - remote: buf.build/grpc/go
+    out: ./api/gen/go/
+    opt: paths=source_relative

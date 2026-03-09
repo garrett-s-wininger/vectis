@@ -1,0 +1,7 @@
+edition = "2023";
+
+message Empty {}
+
+service QueueService {
+    rpc Enqueue(Empty) returns (Empty);
+}
