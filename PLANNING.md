@@ -5,6 +5,7 @@
 **Vectis** is a self-hosted, modern build system inspired by Jenkins, designed for large-scale CI/CD workloads. It provides a component-based architecture with well-defined boundaries, enabling independent replacement, upgrade, and reimplementation of each component.
 
 **Design Goals:**
+
 - Language-agnostic component boundaries (gRPC + JSON REST)
 - Scale to hundreds of builds/day initially; validated scale targets added as benchmarks are performed
 - Easy local development + production-grade deployment
@@ -13,9 +14,10 @@
 - Vectis tests Vectis (dogfooding)
 
 **Naming Conventions:**
+
 - Pipeline file: `.vectis.yml`
 - Binary: `vectis`
-- Docker images: `vectis/*`
+- Docker images: `vectis/`*
 - Config paths: `/etc/vectis/`, `/var/lib/vectis/`
 - Environment variable prefix: `VECTIS_*`
 - gRPC package: `vectis.v1`
@@ -83,6 +85,7 @@ PROTOCOL SUMMARY:
 **Worker Queue Subscription:** Workers are configured to subscribe to specific queue(s) (e.g., `critical`, `default`, `batch`). A worker only pulls jobs from its subscribed queues.
 
 **Component Responsibilities:**
+
 - **Queue**: Job scheduling, persistence (Phase 2+), state transitions, capability-based job filtering
 - **API Server**: Public REST API, authentication, proxies requests to Queue, cancellation via direct gRPC to worker
 - **Heartbeat Service** (Phase 2+): Tracks worker heartbeats, detects orphaned jobs, tracks job-to-worker mapping for cancellation
@@ -90,6 +93,7 @@ PROTOCOL SUMMARY:
 - **Workers**: Execute jobs, fetch secrets, send notifications, report status to database, handle retries internally
 
 **Trigger Service** (single binary, handles all trigger types):
+
 - Webhook endpoint: receives webhooks, maps to project via secret
 - Cron scheduler: executes scheduled builds
 - Polling: checks VCS for changes at intervals
@@ -102,7 +106,9 @@ PROTOCOL SUMMARY:
 ## Testing Strategy
 
 ### Philosophy: Vectis Tests Vectis
+
 Vectis uses itself for CI/CD. Development workflow:
+
 - Local: `make test` runs all tests locally
 - Pre-commit: `make test-quick` runs fast unit tests
 - PR review: Vectis instance runs full test suite on branch
@@ -110,14 +116,17 @@ Vectis uses itself for CI/CD. Development workflow:
 
 ### Test Levels
 
-| Level | Scope | Runtime | Purpose |
-|-------|-------|---------|---------|
-| Unit | Individual packages | <30s | Fast feedback during development |
-| Integration | Component interactions | 2-5 min | Validate API contracts, DB interactions |
-| E2E | Full build pipelines | 10-30 min | Validate real-world scenarios |
-| Self-Test | Vectis building Vectis | Full CI | Production validation |
+
+| Level       | Scope                  | Runtime   | Purpose                                 |
+| ----------- | ---------------------- | --------- | --------------------------------------- |
+| Unit        | Individual packages    | <30s      | Fast feedback during development        |
+| Integration | Component interactions | 2-5 min   | Validate API contracts, DB interactions |
+| E2E         | Full build pipelines   | 10-30 min | Validate real-world scenarios           |
+| Self-Test   | Vectis building Vectis | Full CI   | Production validation                   |
+
 
 ### Local Development Testing
+
 ```bash
 # Quick feedback loop
 make test-unit        # Run unit tests only
@@ -130,6 +139,7 @@ make test-worker
 ```
 
 ### Test Infrastructure
+
 - **Test doubles:** In-memory Queue/DB implementations for fast unit tests
 - **Docker Compose:** Integration tests with real PostgreSQL
 - **Golden files:** Expected log outputs, API responses in `testdata/`
@@ -140,24 +150,27 @@ make test-worker
 
 ### 3.1 API Server → Queue API
 
-| Method | Direction | Purpose |
-|--------|-----------|---------|
-| `POST /api/v1/jobs` | API → Queue | Submit new build job (from project or inline) |
-| `POST /api/v1/jobs/inline` | API → Queue | Submit ad-hoc job (inline pipeline, no project needed) |
-| `GET /api/v1/jobs/:id` | API → Queue | Get job status |
-| `GET /api/v1/jobs` | API → Queue | List/query jobs (paginated, cursor-based) |
-| `POST /api/v1/jobs/:id/cancel` | API → Worker | Cancel job directly (bypasses Queue) |
-| `GET /api/v1/projects` | API → Queue | List projects |
-| `POST /api/v1/projects` | API → Queue | Create project |
-| `GET /api/v1/projects/:id` | API → Queue | Get project details |
-| `PUT /api/v1/projects/:id` | API → Queue | Update project |
-| `DELETE /api/v1/projects/:id` | API → Queue | Delete project |
-| `GET /api/v1/jobs/:id/artifacts` | API → Queue | List job artifacts |
-| `GET /api/v1/artifacts/:id` | API → Storage | Download artifact (proxied by API Server) |
-| `POST /api/v1/artifacts/:id/upload` | API → Storage | Upload artifact (chunked, resumable) |
-| `GET /ws/jobs/:id/logs` | Frontend ← Log Service | Real-time log stream (WebSocket) |
+
+| Method                              | Direction              | Purpose                                                |
+| ----------------------------------- | ---------------------- | ------------------------------------------------------ |
+| `POST /api/v1/jobs`                 | API → Queue            | Submit new build job (from project or inline)          |
+| `POST /api/v1/jobs/inline`          | API → Queue            | Submit ad-hoc job (inline pipeline, no project needed) |
+| `GET /api/v1/jobs/:id`              | API → Queue            | Get job status                                         |
+| `GET /api/v1/jobs`                  | API → Queue            | List/query jobs (paginated, cursor-based)              |
+| `POST /api/v1/jobs/:id/cancel`      | API → Worker           | Cancel job directly (bypasses Queue)                   |
+| `GET /api/v1/projects`              | API → Queue            | List projects                                          |
+| `POST /api/v1/projects`             | API → Queue            | Create project                                         |
+| `GET /api/v1/projects/:id`          | API → Queue            | Get project details                                    |
+| `PUT /api/v1/projects/:id`          | API → Queue            | Update project                                         |
+| `DELETE /api/v1/projects/:id`       | API → Queue            | Delete project                                         |
+| `GET /api/v1/jobs/:id/artifacts`    | API → Queue            | List job artifacts                                     |
+| `GET /api/v1/artifacts/:id`         | API → Storage          | Download artifact (proxied by API Server)              |
+| `POST /api/v1/artifacts/:id/upload` | API → Storage          | Upload artifact (chunked, resumable)                   |
+| `GET /ws/jobs/:id/logs`             | Frontend ← Log Service | Real-time log stream (WebSocket)                       |
+
 
 **Queue Persistence (Phase 2+):**
+
 - Append-only log written to local disk (not DB)
 - On restart: replay log to reconstruct in-memory state
 - Log rotation: configurable retention (e.g., last N events or 24h)
@@ -274,6 +287,7 @@ message LogChunk {
 **Token authentication:** Single token type with role claims. Tokens include permissions (worker, trigger, user) as claims. This simplifies token management - one token type, different roles.
 
 **Token storage:**
+
 - **Production**: External secret manager (Vault, Knox, etc.)
 - **Development**: Local encrypted file (AES-256-GCM, key via `VECTIS_TOKEN_KEY` env var)
 
@@ -298,6 +312,7 @@ message LogChunk {
 Workers pull work at their own pace - this keeps Queue isolated and focused on queuing:
 
 **Worker → Queue:**
+
 ```
 Worker calls: FetchJob() (long poll)
 Queue filters jobs by worker's declared capabilities and subscribed queues
@@ -336,6 +351,7 @@ Worker executes job, periodically calls: ReportJobStatus()
 ```
 
 **Worker responsibilities:**
+
 - Long polling for jobs from subscribed queues
 - Claiming jobs atomically (prevents duplicate execution)
 - Writing job status directly to database (Phase 1+)
@@ -351,13 +367,14 @@ Worker executes job, periodically calls: ReportJobStatus()
 - Managing workspace (VCS checkout, cleanup)
 
 **Job Execution Flow:**
+
 1. Worker fetches job from Queue via `FetchJob()` (filtered by capabilities)
 2. Worker claims job via `ClaimJob()`
 3. Worker fetches VCS credentials from secret manager
 4. Worker checks out repository (including `.vectis.yml`)
 5. Worker checks `vectis/overrides` branch for override (same credentials)
-   - If branch does not exist: no override applied (silent ignore)
-   - If override file does not exist at same path: no override applied
+  - If branch does not exist: no override applied (silent ignore)
+  - If override file does not exist at same path: no override applied
 6. Worker parses and validates `.vectis.yml` - fails fast if invalid
 7. Worker executes steps sequentially
 8. Worker reports status after each step via `ReportJobStatus()`
@@ -367,6 +384,7 @@ Worker executes job, periodically calls: ReportJobStatus()
 12. Worker cleans up workspace
 
 **Heartbeat & Orphan Detection (Phase 2+):**
+
 - Worker sends heartbeat to Heartbeat Service every 30 seconds while job is running
 - Heartbeat Service monitors heartbeats with its own database connection
 - If heartbeat missed for configurable grace period (default: 2 min), Heartbeat Service:
@@ -383,6 +401,7 @@ Worker executes job, periodically calls: ReportJobStatus()
 **Multi-Site Heartbeat:** Each site has its own Heartbeat Service. Workers heartbeat to their local site's Heartbeat Service.
 
 **Graceful Shutdown (Phase 2+):**
+
 - Worker receives SIGTERM:
   1. Stop accepting new jobs
   2. Wait for running job to complete (configurable timeout, default: 5 min)
@@ -399,6 +418,7 @@ Worker executes job, periodically calls: ReportJobStatus()
   4. Shutdown
 
 **Cancellation Flow (Phase 1 - best effort):**
+
 - User initiates cancel via API Server (authenticated)
 - API Server sends `CancelJob` directly to Worker via gRPC
 - Worker receives cancel message
@@ -417,6 +437,7 @@ Worker executes job, periodically calls: ReportJobStatus()
 ### 3.4 Multi-Queue Architecture
 
 **Queue Groups (for scaling high-priority workloads):**
+
 - Multiple independent queues (e.g., `default`, `critical`, `batch`)
 - Each queue has a **drain priority** (order in which queues are checked by default)
 - **Weighted drain**: After N jobs from high-priority, force-check lower queues
@@ -435,6 +456,7 @@ Workers subscribe to queues to pull jobs from. By default, workers subscribe to 
 ```
 
 **Queue Selection Logic:**
+
 ```
 Worker with subscribed_queues = ["critical", "default"]:
 1. Check critical queue first → if jobs available, claim
@@ -447,6 +469,7 @@ Worker with subscribed_queues = ["batch"]:
 ```
 
 **Example configuration:**
+
 ```toml
 [queues]
   [queues.critical]
@@ -461,12 +484,14 @@ Worker with subscribed_queues = ["batch"]:
 ```
 
 **Sensible defaults:**
+
 - If no queues configured: single "default" queue auto-created
 - Queues auto-created on first reference (submit job to "priority" queue → auto-created)
 
 ### 3.5 Filtering & Priority
 
 **Filtering (capability-based, queue-side):**
+
 - Jobs declare required capabilities (e.g., `docker`, `gpu`, `ubuntu-22.04`)
 - Workers declare available capabilities in `FetchJobRequest`
 - **Queue filters jobs server-side** based on worker capabilities
@@ -483,11 +508,13 @@ message FetchJobRequest {
 ```
 
 **Priority within queue:**
+
 - Default: Fair queuing (prevent scheduling stalls)
 - Optional `priority` flag on job: If set, drains before non-priority jobs
 - Within priority level: FIFO or fair by project/age
 
 **Capability Discovery:**
+
 - Workers can auto-detect installed tools at startup
 - Probes for: docker, go, node, python, etc.
 - Or manual configuration
@@ -507,14 +534,17 @@ message FetchJobRequest {
 
 Triggers are standalone components that submit jobs to Queue via gRPC only:
 
-| Method | Direction | Purpose |
-|--------|-----------|---------|
-| `EnqueueJob(Job)` | Trigger → Queue | Submit new build job (gRPC) |
-| `GetJobStatus(JobId)` | Trigger → Queue | Check job status |
+
+| Method                | Direction       | Purpose                     |
+| --------------------- | --------------- | --------------------------- |
+| `EnqueueJob(Job)`     | Trigger → Queue | Submit new build job (gRPC) |
+| `GetJobStatus(JobId)` | Trigger → Queue | Check job status            |
+
 
 Triggers authenticate using tokens with trigger role claim.
 
 **Webhook→Project Mapping:**
+
 - Trigger service maps incoming webhooks to projects using secret-based mapping
 - Webhook secrets are unique per project
 - When webhook received, trigger looks up project by matching the webhook secret
@@ -531,6 +561,7 @@ Triggers authenticate using tokens with trigger role claim.
 ```
 
 Triggers receive job definitions via:
+
 - Pipeline configuration in `.vectis.yml` (stored in repository, fetched on demand)
 - API call from Frontend (manual trigger)
 
@@ -540,14 +571,17 @@ The trigger service reads pipeline configs from the repository to discover which
 
 The unified trigger service handles multiple trigger types:
 
-| Trigger Type | Input Source | Description |
-|--------------|--------------|-------------|
-| webhook | Custom payload parser | Receives webhooks, parses payload, maps to project/job (Phase 1) |
-| cron | Pipeline config | Cron expressions for scheduled builds |
-| polling | Pipeline config | Checks VCS for changes at intervals |
-| manual | Frontend API | User-initiated builds via UI/API |
+
+| Trigger Type | Input Source          | Description                                                      |
+| ------------ | --------------------- | ---------------------------------------------------------------- |
+| webhook      | Custom payload parser | Receives webhooks, parses payload, maps to project/job (Phase 1) |
+| cron         | Pipeline config       | Cron expressions for scheduled builds                            |
+| polling      | Pipeline config       | Checks VCS for changes at intervals                              |
+| manual       | Frontend API          | User-initiated builds via UI/API                                 |
+
 
 **Webhook parsing (Phase 1):**
+
 - Custom parsing for each VCS (GitHub, GitLab, Bitbucket, etc.)
 - Normalize payload to common format (commit SHA, branch, repo URL)
 - Add VCS integrations later as needed
@@ -560,12 +594,14 @@ Job definitions are stored in the repository alongside the code being built, ena
 
 Pipeline definitions can come from multiple sources:
 
-| Source | Description |
-|--------|-------------|
-| In-repo, root | `.vectis.yml` at repo root (default, low friction) |
-| In-repo, custom path | `.vectis/services/foo.yml` (for monorepos) |
-| Separate pipeline repo | Pipeline in a dedicated repo |
-| Inline (no repo) | Pipeline defined in project settings (for manual/ad-hoc jobs) |
+
+| Source                 | Description                                                   |
+| ---------------------- | ------------------------------------------------------------- |
+| In-repo, root          | `.vectis.yml` at repo root (default, low friction)            |
+| In-repo, custom path   | `.vectis/services/foo.yml` (for monorepos)                    |
+| Separate pipeline repo | /Pipeline in a dedicated repo                                 |
+| Inline (no repo)       | Pipeline defined in project settings (for manual/ad-hoc jobs) |
+
 
 ```toml
 [projects.my-project]
@@ -585,6 +621,7 @@ steps:
 ```
 
 **Pipeline resolution order:**
+
 1. If project has `inline_pipeline` defined → use that (repo-less jobs)
 2. If project has `pipeline_repo` → fetch from separate repo
 3. Otherwise → fetch from build's repo (`.vectis.yml`)
@@ -739,11 +776,13 @@ artifacts:
 
 **Concurrency modes:**
 
-| Mode | Behavior (if trigger fires while running) |
-|------|------------------------------------------|
-| `single` | Skip this trigger (default) |
-| `concurrent` | Start new run in parallel |
-| `queue` | Add to queue, run after current completes |
+
+| Mode         | Behavior (if trigger fires while running) |
+| ------------ | ----------------------------------------- |
+| `single`     | Skip this trigger (default)               |
+| `concurrent` | Start new run in parallel                 |
+| `queue`      | Add to queue, run after current completes |
+
 
 **Note:** Pipeline-level concurrency control replaces the deprecated project-level `max_concurrent_jobs` setting.
 
@@ -762,16 +801,19 @@ enforce_pipeline_as_code = true  # false allows manual overrides via UI
 
 ### Error Categories
 
-| Category | Examples | Strategy |
-|----------|----------|----------|
-| Transient | Network timeout, rate limit | Retry with backoff |
-| Permanent | Syntax error, test failure | Fail immediately |
-| Infrastructure | Worker crash, disk full | Orphan detection, reschedule |
-| User | Invalid config, auth failure | Fail fast with clear message |
+
+| Category       | Examples                     | Strategy                     |
+| -------------- | ---------------------------- | ---------------------------- |
+| Transient      | Network timeout, rate limit  | Retry with backoff           |
+| Permanent      | Syntax error, test failure   | Fail immediately             |
+| Infrastructure | Worker crash, disk full      | Orphan detection, reschedule |
+| User           | Invalid config, auth failure | Fail fast with clear message |
+
 
 ### Job Failure Modes
 
 **Step failure (worker-driven):**
+
 - Worker detects step failure (non-zero exit code)
 - Worker reports step status to Queue via `ReportJobStatus()`
 - Worker decides to stop job and mark as failed (unless `continue_on_failure: true`)
@@ -779,12 +821,14 @@ enforce_pipeline_as_code = true  # false allows manual overrides via UI
 - Failed step logs preserved for debugging
 
 **Job-level failure:**
+
 - Worker terminates running steps (SIGTERM, then SIGKILL after grace period)
 - Worker preserves workspace for investigation period (configurable)
 - Worker marks job `failed`, sends notifications
 - Worker reports final status to Queue
 
 **Partial completion:**
+
 - Steps before failure: outputs/artifacts kept
 - Steps after failure: not executed
 - Resume not supported (re-run from beginning)
@@ -792,6 +836,7 @@ enforce_pipeline_as_code = true  # false allows manual overrides via UI
 ### Network Partition Handling
 
 **Worker → Queue partition:**
+
 - Worker continues running current job
 - Job status updates buffered locally, retried periodically until Queue reconnects
 - Logs buffered locally (disk), retried to push to Log Service
@@ -799,6 +844,7 @@ enforce_pipeline_as_code = true  # false allows manual overrides via UI
 - When worker reconnects: flush buffered status updates and logs
 
 **Queue → Database partition:**
+
 - Queue buffers operations in memory (limited size)
 - If buffer full: reject new jobs, return unavailable status
 - In-flight job status updates: buffered in Queue memory, retried periodically until DB reconnects
@@ -813,6 +859,7 @@ enforce_pipeline_as_code = true  # false allows manual overrides via UI
 ### Error Response Format
 
 **REST errors:**
+
 ```json
 {
   "error": {
@@ -835,6 +882,7 @@ enforce_pipeline_as_code = true  # false allows manual overrides via UI
 ### Core Entities
 
 **JobStatus Enum:**
+
 - `pending` - Job queued, waiting for worker
 - `running` - Job claimed by worker, executing
 - `succeeded` - Job completed successfully
@@ -844,6 +892,7 @@ enforce_pipeline_as_code = true  # false allows manual overrides via UI
 - `timeout` - Job exceeded time limit
 
 **Project**
+
 - `id`, `name`, `description`, `created_at`, `updated_at`
 - VCS configuration (repo URL, branch, credentials ref) - optional for repo-less jobs
 - `inline_pipeline` (YAML blob) - pipeline definition for jobs without repo
@@ -851,9 +900,11 @@ enforce_pipeline_as_code = true  # false allows manual overrides via UI
 - `auto_retry_count`
 
 **Queue**
+
 - `id`, `name`, `drain_order`, `description`
 
 **Job**
+
 - `id`, `project_id`, `queue_id`, `status` (JobStatus enum), `priority` (boolean)
 - `trigger_type`, `commit_sha`, `branch`, `required_capabilities`
 - `worker_id` (which worker is running this job - informational only)
@@ -861,10 +912,12 @@ enforce_pipeline_as_code = true  # false allows manual overrides via UI
 - `pipeline_source`: "repo" or "inline"
 
 **Step**
+
 - `id`, `job_id`, `order`, `name`, `type` (shell, script, artifact)
 - `config` (JSON - script content, image, etc.)
 
 **StepResult**
+
 - `id`, `step_id`, `job_id`
 - `status` (pending, running, succeeded, failed, skipped)
 - `exit_code` (int, nullable)
@@ -873,37 +926,44 @@ enforce_pipeline_as_code = true  # false allows manual overrides via UI
 - `duration_ms`
 
 **Artifact**
+
 - `id`, `job_id`, `step_id` (nullable)
 - `filename`, `storage_path`, `storage_backend` (s3, filesystem)
 - `size_bytes`, `checksum_sha256`
 - `created_at`, `expires_at`
 
 **User**
+
 - `id`, `username`, `email`, `password_hash` (if built-in auth)
 - `created_at`, `updated_at`, `last_login_at`
 - `roles` (JSON array of role names)
 
 **Token**
+
 - `id`, `user_id` (nullable for service tokens)
 - `token_hash`, `name`, `roles` (JSON array of role names: worker, trigger, user, admin)
 - `created_at`, `expires_at`, `revoked_at`
 
 **Secret**
+
 - `id`, `project_id`, `key`, `value_encrypted`
 - `created_at`, `updated_at`
 
 **Notification**
+
 - `id`, `job_id`, `type` (webhook, email, slack)
 - `config` (JSON - url, recipients, etc.)
 - `sent_at`, `status` (pending, sent, failed)
 
 **AuditLog**
+
 - `id`, `timestamp`, `actor_type` (user, worker, system)
 - `actor_id`, `action` (cancel_job, modify_project, login, etc.)
 - `target_type`, `target_id`, `metadata` (JSON)
 - `ip_address`, `user_agent`
 
 **Actions tracked:**
+
 - Job: submit, cancel, retry, modify
 - Project: create, update, delete
 - User: login, logout, permission_change
@@ -934,6 +994,7 @@ enforce_pipeline_as_code = true  # false allows manual overrides via UI
 ```
 
 **Migration naming:**
+
 ```
 migrations/
   001_create_projects_table.up.sql
@@ -943,6 +1004,7 @@ migrations/
 ```
 
 **Safe vs Unsafe Changes:**
+
 - Safe: Adding nullable columns, adding tables, adding indexes
 - Unsafe: Dropping columns, renaming, changing types (require coordination)
 
@@ -958,10 +1020,12 @@ migrations/
 **Real-time streaming**: Workers stream logs to Log Service via gRPC → Log Service persists to backend → Log Service multiplexes to frontend clients via WebSocket
 
 **Log Service Endpoints:**
+
 - gRPC `StreamLogs` (Port 8084) - Workers stream logs
 - WebSocket `/ws/jobs/:id/logs` (Port 8084) - Frontend connects for real-time viewing
 
 **Pluggable backends**:
+
 - **Filesystem** (dev) - Simple, local storage
 - **S3-compatible** (prod) - Standard, scalable
 - **Loki** (via Alloy OTEL) - Unified with metrics/traces
@@ -971,6 +1035,7 @@ migrations/
 **Format**: Plain text (shell output cannot be normalized)
 
 **Retention**: Per-project configurable (age-based only)
+
 ```toml
 [projects.my-project]
     log_retention_days = 30
@@ -979,22 +1044,26 @@ migrations/
 ### Log Streaming Reliability
 
 **WebSocket behavior:**
+
 - Client requests: `GET /ws/jobs/:id/logs` with `Authorization: Bearer <token>` header
 - Server validates token on WebSocket upgrade handshake
 - Server streams existing logs + real-time updates
 - Heartbeat/ping every 30s to detect dead connections
 
 **Reconnection:**
+
 - Client can resume with `?offset=<bytes>` parameter
 - Server maintains 5-minute buffer of recent logs (in-memory, not persisted)
 - If offset falls outside the buffered range: return 409 Conflict, client fetches full log via REST
 - Buffer is per-job; when job completes, buffer is retained for 5 minutes then discarded
 
 **Ordering:**
+
 - Worker assigns monotonic sequence numbers to log chunks
 - Log Service reorders if necessary for display
 
 **Log limits:**
+
 ```toml
 [projects.defaults]
   max_log_size = "100MB"
@@ -1002,20 +1071,24 @@ migrations/
 ```
 
 **Truncation behavior:**
+
 - `head`: When log exceeds max_size, discard oldest bytes first (keep recent)
 - `tail`: When log exceeds max_size, discard newest bytes first (keep oldest - useful for debugging startup failures)
 
 **Multiple viewers:**
+
 - Log Service multicasts to all connected clients
 - Max 10 concurrent viewers per job (configurable)
 
 ### 5.2 Artifacts
 
 **Pluggable backends**:
+
 - Filesystem (dev)
 - S3-compatible (prod)
 
 **Artifact API:**
+
 - `GET /api/v1/artifacts/:id` - Download artifact (served by API Server, fetched from storage)
 - `GET /api/v1/jobs/:id/artifacts` - List artifacts for a job
 - `POST /api/v1/artifacts/:id/upload` - Upload artifact (chunked, resumable)
@@ -1025,6 +1098,7 @@ migrations/
 - Upload failures: exponential backoff retry (same as notifications: 3 attempts, 1s initial, 2x multiplier, 30s cap)
 
 **Artifact upload:**
+
 - Chunked upload for large files (1MB chunks)
 - Resumable: track uploaded chunks, resume from last successful
 - Concurrent chunk uploads: up to 4 parallel chunks
@@ -1035,11 +1109,13 @@ migrations/
 **Purpose:** Cache dependencies between jobs to speed up builds
 
 **Pluggable backends**:
+
 - Filesystem (local worker disk)
 - S3-compatible (shared between workers)
 - Redis (metadata/coordination)
 
 **Configuration:**
+
 ```toml
 [cache]
     backend = "s3"  # or "filesystem", "redis"
@@ -1047,6 +1123,7 @@ migrations/
 ```
 
 **Pipeline usage:**
+
 ```yaml
 cache:
   backend: s3
@@ -1058,6 +1135,7 @@ cache:
 ```
 
 **Cache key format:**
+
 - Template in Go `text/template` syntax
 - Functions: `{{.Project}}`, `{{.Branch}}`, `{{.Commit}}`, `{{checksum "filename"}}`
 - Result is hashed (SHA256) to produce the final cache key
@@ -1065,6 +1143,7 @@ cache:
 ### 5.4 Secrets
 
 **Pluggable backends**:
+
 - Built-in encrypted filesystem (dev/local)
 - External (Vault, etc.) for production
 
@@ -1078,6 +1157,7 @@ cache:
 ### 5.5 System Logs
 
 Same pluggable backends as job logs:
+
 - stdout/stderr (containerized/SystemD)
 - Filesystem
 - OTEL
@@ -1103,6 +1183,7 @@ Same pluggable backends as job logs:
 ### VCS Abstraction
 
 Worker-controlled, pluggable checkout:
+
 - **Git plugin** (default)
 - **Null/no-op plugin** (for no-repo jobs, local dev)
 
@@ -1120,6 +1201,7 @@ Worker-controlled, pluggable checkout:
 ### Job Recovery
 
 Configurable per-project:
+
 - **Default**: manual retry (safest)
 - **Optional auto-retry**: configurable N times before requiring manual
 
@@ -1144,20 +1226,24 @@ Configurable per-project:
 ### Workspace Lifecycle
 
 **Creation:**
+
 - Fresh workspace per job start
 - Optional: opt-in workspace reuse for large repos
 
 **Cleanup:**
+
 - **Successful jobs**: immediate cleanup after artifact collection
 - **Failed jobs**: preserved per retention policy, cleaned by background job
 - **Cancelled jobs**: cleanup after grace period
 
 **Cleanup mechanism:**
+
 - Worker cleans up immediately after job completes (normal case)
 - Background cron job handles stale workspace cleanup (orphan detection)
 - Per-job folder structure: `/{project_id}/{job_id}/`
 
 **Failed Workspace Retention:**
+
 ```toml
 [worker]
   preserve_failed_workspaces = true
@@ -1168,10 +1254,12 @@ Configurable per-project:
 ### Artifact Retention
 
 **Policy levels:**
+
 1. Project-level (configured in project settings)
 2. Global system default
 
 **Enforcement:**
+
 - Batched cleanup runs daily at low-traffic hour
 - Or on-demand: `vectis admin cleanup-artifacts`
 
@@ -1220,25 +1308,30 @@ Vectis uses Grafana's open telemetry ecosystem for all observability:
 - **Pluggable backends**: Configure for dev/prod (Loki/Tempo for prod, embedded for dev)
 
 ### Metrics
+
 Every job tracked from trigger → queue → worker → completion:
+
 - `trigger_received` → `job_enqueued` → `job_claimed` → `step_started` → `step_completed` → `job_finished`
 
 **Key Metrics:**
 
-| Metric | Component | Purpose |
-|--------|-----------|---------|
-| Queue depth | Queue | Backlog detection |
-| Worker idle time | Worker | Capacity planning |
-| Job start latency | Queue→Worker | Performance tracking |
-| Time to first step | Worker | Execution efficiency (like TTFI) |
-| DB connection pool | Queue | Database health |
-| Append-only log size | Queue | Storage monitoring (Phase 2+) |
+
+| Metric               | Component    | Purpose                          |
+| -------------------- | ------------ | -------------------------------- |
+| Queue depth          | Queue        | Backlog detection                |
+| Worker idle time     | Worker       | Capacity planning                |
+| Job start latency    | Queue→Worker | Performance tracking             |
+| Time to first step   | Worker       | Execution efficiency (like TTFI) |
+| DB connection pool   | Queue        | Database health                  |
+| Append-only log size | Queue        | Storage monitoring (Phase 2+)    |
+
 
 ### Log Service
 
 **Real-time streaming**: Workers stream logs to Log Service via gRPC → Log Service persists to backend → Log Service multiplexes to frontend clients via WebSocket
 
 **Pluggable backends** (swappable for dev/prod):
+
 - **Filesystem** (dev) - Simple, local storage
 - **S3-compatible** (prod) - Standard, scalable
 - **Loki** (via Alloy OTEL) - Unified with metrics/traces
@@ -1272,6 +1365,7 @@ All components send metrics/traces/logs to Alloy (OTEL protocol). Swap Alloy con
 ### Cluster Catalog
 
 All services (including Frontend) discover each other via a cluster catalog that tracks:
+
 - Service name → address(es) mapping
 - Health status
 - Tags/labels (e.g., site, region)
@@ -1279,6 +1373,7 @@ All services (including Frontend) discover each other via a cluster catalog that
 Components register themselves on startup and periodically send heartbeats.
 
 **Frontend discovery:**
+
 - Frontend queries catalog for Log Service address
 - Frontend connects directly to Log Service WebSocket for real-time logs
 
@@ -1317,15 +1412,18 @@ services:
 ```
 
 ### Development
+
 - Static config with environment variables (`QUEUE_ADDR`, etc.)
 - Config file with queue list
 
 ### Kubernetes
+
 - Use K8s Services for DNS-based discovery
 - Workers discover Queue via service name
 - Built-in load balancing and health checks
 
 ### Production (non-K8s)
+
 - Service registry (Consul/etcd) for large scale
 - Or DNS + health checks
 
@@ -1333,14 +1431,16 @@ services:
 
 All services expose a single health endpoint:
 
-| Service | Endpoint | Response |
-|---------|----------|----------|
-| API Server | `/health` | `{"alive": true, "ready": true, "details": {...}}` |
-| Queue | `/health` | `{"alive": true, "ready": true, "details": {...}}` |
-| Worker | `/health` | `{"alive": true, "ready": true}` (always ready when alive) |
-| Log Service | `/health` | `{"alive": true, "ready": true, "details": {...}}` |
-| Heartbeat Service | `/health` | `{"alive": true, "ready": true, "details": {...}}` |
-| Trigger | `/health` | `{"alive": true, "ready": true, "details": {...}}` |
+
+| Service           | Endpoint  | Response                                                   |
+| ----------------- | --------- | ---------------------------------------------------------- |
+| API Server        | `/health` | `{"alive": true, "ready": true, "details": {...}}`         |
+| Queue             | `/health` | `{"alive": true, "ready": true, "details": {...}}`         |
+| Worker            | `/health` | `{"alive": true, "ready": true}` (always ready when alive) |
+| Log Service       | `/health` | `{"alive": true, "ready": true, "details": {...}}`         |
+| Heartbeat Service | `/health` | `{"alive": true, "ready": true, "details": {...}}`         |
+| Trigger           | `/health` | `{"alive": true, "ready": true, "details": {...}}`         |
+
 
 - **alive**: Process is running and not stuck
 - **ready**: Service can serve traffic (DB connected, queue available, storage connected)
@@ -1354,17 +1454,21 @@ All services expose a single health endpoint:
 
 Vectis separates public and internal APIs to enforce encapsulation:
 
-| API Type | Service | Boundary | Auth |
-|----------|---------|----------|------|
-| Public API | API Server | External clients | Token-based (user or service) |
-| Internal API | Queue | Workers, Triggers | mTLS + Worker/Trigger token |
+
+| API Type     | Service    | Boundary          | Auth                          |
+| ------------ | ---------- | ----------------- | ----------------------------- |
+| Public API   | API Server | External clients  | Token-based (user or service) |
+| Internal API | Queue      | Workers, Triggers | mTLS + Worker/Trigger token   |
+
 
 **Public API** (via API Server):
+
 - Job submission, status, logs
 - Project management
 - User authentication
 
 **Internal API** (direct to Queue):
+
 - Worker token validation (for workers)
 - Trigger token validation (for triggers)
 - Job fetching
@@ -1375,31 +1479,37 @@ This separation ensures internal operations remain implementation details - admi
 ### 11.2 User Authentication
 
 **Production:**
+
 - OIDC (OpenID Connect) - Users authenticate via external identity provider
 - Frontend redirects to OIDC provider, receives token
 - Token used for API requests
 
 **Development:**
+
 - Auth disabled: No authentication required (single-node dev)
 - Built-in username/password: Local user accounts with hashed passwords
 
 **Frontend Auth:**
+
 - Bundled auth backend manages OIDC flow and session state
 - Stores refresh tokens securely
 - API Server validates tokens from frontend
 
 **Initial Admin Setup:**
+
 - **Config-managed**: Configure OIDC settings or DB connection for user/password auth - first user to authenticate becomes admin automatically
 - **Non-config-managed**: Auth disabled by default, no admin required
 
 ### 11.2 RBAC Roles
 
-| Role | Permissions |
-|------|-------------|
-| **Viewer** | Read-only access to jobs, logs, projects |
-| **Trigger** | Submit jobs, view status |
-| **Operator** | Cancel jobs, retry jobs, view all |
-| **Admin** | Modify project config, manage overrides, manage users |
+
+| Role         | Permissions                                           |
+| ------------ | ----------------------------------------------------- |
+| **Viewer**   | Read-only access to jobs, logs, projects              |
+| **Trigger**  | Submit jobs, view status                              |
+| **Operator** | Cancel jobs, retry jobs, view all                     |
+| **Admin**    | Modify project config, manage overrides, manage users |
+
 
 Roles can be assigned per-project or globally.
 
@@ -1420,6 +1530,7 @@ token = "${VECTIS_TRIGGER_TOKEN}"  # Static token in config file
 ```
 
 **Authentication model:**
+
 - mTLS proves "I'm a legitimate host within the certificate domain"
 - Token proves "I'm a legitimate worker/trigger"
 
@@ -1454,6 +1565,7 @@ rate_limit_burst = 50
 ```
 
 **Response headers:**
+
 - `X-RateLimit-Limit`: Maximum requests per window
 - `X-RateLimit-Remaining`: Requests remaining in window
 - `X-RateLimit-Reset`: Unix timestamp when limit resets
@@ -1461,16 +1573,19 @@ rate_limit_burst = 50
 ### 11.6 API Versioning
 
 **Version Strategy:**
+
 - URL path versioning for REST: `/api/v1/jobs`, `/api/v2/jobs`
 - gRPC uses package versioning: `vectis.v1.QueueService`
 - Configuration: `version = "1.0"` field in config.toml
 
 **Compatibility Guarantees:**
+
 - Minor versions: backward compatible additions
 - Major versions: may break compatibility
 - Support N and N-1 major versions simultaneously
 
 **Deprecation Policy:**
+
 - Feature deprecated in vN
 - Warning header returned: `Deprecation: true`
 - Removed in vN+2
@@ -1482,6 +1597,7 @@ rate_limit_burst = 50
 **Production:** Full security controls required
 
 **HMAC signatures (GitHub/GitLab compatible):**
+
 ```yaml
 on:
   webhook:
@@ -1490,6 +1606,7 @@ on:
 ```
 
 **Simple token (generic webhooks):**
+
 ```yaml
 on:
   webhook:
@@ -1497,6 +1614,7 @@ on:
 ```
 
 **Security controls (Production):**
+
 - Reject payloads older than 5 minutes (replay protection, based on server time)
 - Optional IP allowlist per project
 - Rate limiting per webhook source
@@ -1539,6 +1657,7 @@ Vectis supports multi-site deployments where each site operates independently bu
 ### 12.2 Site Model
 
 Each deployment site consists of:
+
 - **Queue service** - Local job queuing and scheduling
 - **Workers** - Local execution capacity
 - **Log service** - Local log storage (accessed via site-specific endpoint)
@@ -1549,15 +1668,17 @@ Sites are independent for execution - no cross-site job routing in orchestration
 
 ### 12.3 Centralized vs Local Data
 
-| Data | Storage | Replication |
-|------|---------|-------------|
-| **Projects** | Central DB | Read-replicas per site |
-| **Secrets** | External (Vault, etc.) | Shared access |
-| **Accounts** | Central (Frontend) | Central only |
-| **Pipelines** | Git repos | Cloned per site |
-| **Jobs** | Local per site | None |
-| **Logs** | Local per site | None |
-| **Artifacts** | Local per site | None |
+
+| Data          | Storage                | Replication            |
+| ------------- | ---------------------- | ---------------------- |
+| **Projects**  | Central DB             | Read-replicas per site |
+| **Secrets**   | External (Vault, etc.) | Shared access          |
+| **Accounts**  | Central (Frontend)     | Central only           |
+| **Pipelines** | Git repos              | Cloned per site        |
+| **Jobs**      | Local per site         | None                   |
+| **Logs**      | Local per site         | None                   |
+| **Artifacts** | Local per site         | None                   |
+
 
 ### 12.4 Site Routing
 
@@ -1584,6 +1705,7 @@ default_site = "us-east-1"
 ```
 
 When a trigger submits a job:
+
 1. Trigger reads project config to determine site
 2. If site is "any", uses default site
 3. Trigger submits directly to that site's API Server
@@ -1630,34 +1752,38 @@ This keeps site selection simple and explicit - no complex routing logic.
 ## 13. Features by Priority
 
 ### Phase 1: Core Loop (POC)
-- [ ] In-memory Queue service (no persistence)
-- [ ] Worker long-polling for jobs
-- [ ] Worker token authentication
-- [ ] Basic job status (pending → running → succeeded/failed)
-- [ ] Worker executes shell commands
-- [ ] Worker writes job status directly to database
-- [ ] Simple REST API for job submission/status
-- [ ] PostgreSQL backend
+
+- In-memory Queue service (no persistence)
+- Worker long-polling for jobs
+- Worker token authentication
+- Basic job status (pending → running → succeeded/failed)
+- Worker executes shell commands
+- Worker writes job status directly to database
+- Simple REST API for job submission/status
+- PostgreSQL backend
 
 ### Phase 2: Persistence & Robustness
-- [ ] Append-only log for queue crash recovery
-- [ ] Basic cgroups resource limits (separate process group, memory limits)
-- [ ] Job timeouts
-- [ ] Graceful worker shutdown
-- [ ] SQLite backend for development
+
+- Append-only log for queue crash recovery
+- Basic cgroups resource limits (separate process group, memory limits)
+- Job timeouts
+- Graceful worker shutdown
+- SQLite backend for development
 
 ### Phase 3: Triggers & Pipeline
-- [ ] Trigger service (unified binary)
-- [ ] Webhook endpoint
-- [ ] Cron scheduler
-- [ ] Pipeline-as-code (`.vectis.yml`)
-- [ ] Manual trigger via API
+
+- Trigger service (unified binary)
+- Webhook endpoint
+- Cron scheduler
+- Pipeline-as-code (`.vectis.yml`)
+- Manual trigger via API
 
 ---
 
 ## 14. Deployment
 
 ### Development
+
 ```bash
 # All-in-one binary (includes all components)
 ./vectis run --dev
@@ -1675,6 +1801,7 @@ This keeps site selection simple and explicit - no complex routing logic.
 ### Production
 
 **Docker**
+
 ```yaml
 services:
   vectis-api:
@@ -1718,6 +1845,7 @@ services:
 ```
 
 **Kubernetes**
+
 - Deployments for API, frontend, queue, log-service, heartbeat-service, workers, triggers
 - ConfigMap for shared config
 - Secret for database and vault credentials
@@ -1795,27 +1923,32 @@ services:
 ## Upgrade & Rollback Strategy
 
 **Phase 1:** Simple stop/start, recreate everything
+
 - Frequent teardown expected
 - No backward compatibility requirements
 
 **Production (Phase 5+):**
 
 **Version Compatibility:**
+
 - Single version for entire Vectis deployment (all components same version)
 - Semantic versioning (MAJOR.MINOR.PATCH)
 - Support N and N-1 major versions
 
 **Rolling Upgrade:**
+
 1. Backup database (recommended)
 2. Apply database migrations
 3. Stop old version, start new version
 4. Verify health checks pass
 
 **Rollback:**
+
 - Restore database from backup if migration fails
 - Redeploy previous version
 
 **Breaking Changes:**
+
 - Deprecation warnings in N
 - Breaking changes in N+2
 - Migration guides published with major releases
@@ -1824,16 +1957,19 @@ services:
 
 ## 15. Technology Recommendations
 
-| Component | Language | Notes |
-|-----------|----------|-------|
-| API Server | Go | REST + internal gRPC |
-| Frontend | TypeScript/React | SPA |
-| Queue | Go | gRPC-first |
-| Worker | Go | VCS may be different language later |
-| Triggers | Go | |
-| Log Service | Go | |
+
+| Component   | Language         | Notes                               |
+| ----------- | ---------------- | ----------------------------------- |
+| API Server  | Go               | REST + internal gRPC                |
+| Frontend    | TypeScript/React | SPA                                 |
+| Queue       | Go               | gRPC-first                          |
+| Worker      | Go               | VCS may be different language later |
+| Triggers    | Go               |                                     |
+| Log Service | Go               |                                     |
+
 
 **Initial Language: Go for all components**
+
 - Single language simplifies development
 - Easy to embed SQLite
 - Excellent gRPC tooling
@@ -1844,11 +1980,13 @@ services:
 ## Configuration
 
 **Configuration file:** `config.toml` (or via `-config` flag)
+
 - Use config files for complex deployments (multiple queues, sites, fine-tuned settings)
 - Use environment variables alone for simple/containerized deployments
 
 **Environment variables:**
-- All settings overridable via `VECTIS_*` prefix
+
+- All settings overridable via `VECTIS_`* prefix
 - Format: `VECTIS_<SECTION>_<KEY>` (e.g., `VECTIS_DATABASE_URL`, `VECTIS_WORKER_TOKEN`)
 - For simple deployments, env vars alone are sufficient (no config file needed)
 
@@ -1857,20 +1995,24 @@ services:
 To minimize configuration friction:
 
 **Queues:**
+
 - Single "default" queue auto-created if no queues defined
 - Queues auto-created when first referenced (no explicit setup needed)
 - No multi-queue config required for simple deployments
 
 **Workers:**
+
 - `subscribed_queues = []` subscribes to all queues
 - Capabilities auto-detected if not explicitly configured
 
 **Pipelines:**
+
 - Default pipeline path: `.vectis.yml` at repo root
 - Step defaults: 10m timeout, no explicit config needed
 - Inline pipeline via API for ad-hoc jobs (no project/repository required)
 
 **Ad-hoc Jobs:**
+
 ```bash
 # Run a script without setting up a project
 curl -X POST http://localhost:8080/api/v1/jobs \
@@ -1885,6 +2027,7 @@ curl -X POST http://localhost:8080/api/v1/jobs \
 ```
 
 **Service Discovery:**
+
 - Single-node: Use environment variables (no catalog needed)
 - Multi-node: Use cluster catalog for dynamic discovery
 - Docker Compose: Add services to `docker-compose.yml`, env vars propagate automatically
@@ -1918,11 +2061,13 @@ services:
 ```
 
 **Validation:**
+
 - Configuration validates at startup
 - Fails fast with clear error messages if required fields missing or invalid
 - Unknown fields logged as warning
 
 **Environment variable example:**
+
 ```bash
 # Equivalent to config above
 VECTIS_SERVER_API_ADDR=":8080" \
@@ -1947,64 +2092,66 @@ VECTIS_DATABASE_CONNECTION="/path/to/db" \
 
 ## 17. Open Questions - RESOLVED
 
-| Question | Decision |
-|----------|----------|
-| Artifact storage | Pluggable: filesystem (dev), S3 (prod); worker uploads directly |
-| Secret management | Pluggable: built-in encrypted (dev), external Vault (prod); worker fetches at runtime |
-| Config format | TOML |
-| Initial language | Go for all components |
-| Web UI | Separate SPA with API Server behind it |
-| Logs | Real-time streaming, pluggable backends, plain text |
-| Log retention | Per-project age-based |
-| Workspace | Ephemeral per-job, opt-in caching |
-| VCS | Worker-controlled, pluggable (Git default, null for no-repo) |
-| Job recovery | Configurable, default manual retry |
-| Job cancellation | API Server → Worker (direct gRPC), best-effort in Phase 1 |
-| Service discovery | Static (dev), K8s (prod), registry (large scale) |
-| Queue backend | In-memory (Phase 1), append-only log (Phase 2+), pluggable |
-| Metrics | Pluggable, push and pull |
-| Rate limiting | Per-project API rate limits |
-| Pipeline definitions | In-repo (`.vectis.yml`), configurable path |
-| Override mechanism | Colocated in override branch (`vectis/overrides`), tied to commit |
-| Trigger config | In pipeline file (webhook/poll/cron) |
-| Concurrency modes | single (default), concurrent, queue (pipeline-level only) |
-| API boundaries | Public (API Server) vs Internal (Queue) |
-| RBAC | viewer/trigger/operator/admin |
-| Worker auth | Static token with role claims + mTLS |
-| Trigger auth | Static token with role claims + mTLS |
-| Multi-site | Central DB with read replicas, local execution per site |
-| Testing | Vectis tests Vectis (dogfooding) |
-| Config env prefix | `VECTIS_*` |
-| Config validation | Fail-fast at startup |
-| Pipeline validation | Strict by default, reject invalid |
-| Secrets scanning | External tools responsibility |
-| Protocol mapping | REST at edge (8080), gRPC internally |
-| Worker registration | None - token-based auth only |
-| Worker tracking | None - Queue doesn't track workers |
-| Heartbeat | Separate Heartbeat Service component (Phase 2+) |
-| Log streaming | Worker → Log Service (gRPC) → Frontend (WebSocket) |
-| Notifications | Sent by worker on completion/failure |
-| Pipeline fetch | Worker fetches during checkout |
-| VCS credentials | Worker fetches from secrets |
-| Orphan recovery | Manual admin intervention only |
-| Worker parallelism | One job per worker process |
-| Step failure | Worker-driven: worker reports and decides |
-| API Gateway | Part of API Server component |
-| Cancellation | API Server → Worker (direct gRPC, Port 8086), best-effort in Phase 1 |
-| Orphan update | Background job marks stale jobs orphaned (Phase 2+) |
-| WebSocket owner | Log Service serves WebSocket |
-| Worker ID validation | No validation in Phase 1; JWT in Phase 2 |
-| Artifact tracking | Artifact entity in data model |
-| Pipeline validation | After claim, before executing steps |
-| Auto-retry | Worker handles internally (re-executes job) |
-| Override access | Same VCS credentials as main checkout |
-| Multi-site heartbeat | Per-site Heartbeat Service (Phase 2+) |
-| Webhook→Project | Secret-based mapping (webhook secret maps to project) |
-| Notifications | Worker reads from pipeline, sends directly |
-| Step results | StepResult entity in data model |
-| Capability filtering | Queue-side filtering (Phase 1) |
-| Queue subscription | Worker config specifies subscribed queues |
-| Heartbeat DB config | Own database config section (Phase 2+) |
+
+| Question             | Decision                                                                              |
+| -------------------- | ------------------------------------------------------------------------------------- |
+| Artifact storage     | Pluggable: filesystem (dev), S3 (prod); worker uploads directly                       |
+| Secret management    | Pluggable: built-in encrypted (dev), external Vault (prod); worker fetches at runtime |
+| Config format        | TOML                                                                                  |
+| Initial language     | Go for all components                                                                 |
+| Web UI               | Separate SPA with API Server behind it                                                |
+| Logs                 | Real-time streaming, pluggable backends, plain text                                   |
+| Log retention        | Per-project age-based                                                                 |
+| Workspace            | Ephemeral per-job, opt-in caching                                                     |
+| VCS                  | Worker-controlled, pluggable (Git default, null for no-repo)                          |
+| Job recovery         | Configurable, default manual retry                                                    |
+| Job cancellation     | API Server → Worker (direct gRPC), best-effort in Phase 1                             |
+| Service discovery    | Static (dev), K8s (prod), registry (large scale)                                      |
+| Queue backend        | In-memory (Phase 1), append-only log (Phase 2+), pluggable                            |
+| Metrics              | Pluggable, push and pull                                                              |
+| Rate limiting        | Per-project API rate limits                                                           |
+| Pipeline definitions | In-repo (`.vectis.yml`), configurable path                                            |
+| Override mechanism   | Colocated in override branch (`vectis/overrides`), tied to commit                     |
+| Trigger config       | In pipeline file (webhook/poll/cron)                                                  |
+| Concurrency modes    | single (default), concurrent, queue (pipeline-level only)                             |
+| API boundaries       | Public (API Server) vs Internal (Queue)                                               |
+| RBAC                 | viewer/trigger/operator/admin                                                         |
+| Worker auth          | Static token with role claims + mTLS                                                  |
+| Trigger auth         | Static token with role claims + mTLS                                                  |
+| Multi-site           | Central DB with read replicas, local execution per site                               |
+| Testing              | Vectis tests Vectis (dogfooding)                                                      |
+| Config env prefix    | `VECTIS_`*                                                                            |
+| Config validation    | Fail-fast at startup                                                                  |
+| Pipeline validation  | Strict by default, reject invalid                                                     |
+| Secrets scanning     | External tools responsibility                                                         |
+| Protocol mapping     | REST at edge (8080), gRPC internally                                                  |
+| Worker registration  | None - token-based auth only                                                          |
+| Worker tracking      | None - Queue doesn't track workers                                                    |
+| Heartbeat            | Separate Heartbeat Service component (Phase 2+)                                       |
+| Log streaming        | Worker → Log Service (gRPC) → Frontend (WebSocket)                                    |
+| Notifications        | Sent by worker on completion/failure                                                  |
+| Pipeline fetch       | Worker fetches during checkout                                                        |
+| VCS credentials      | Worker fetches from secrets                                                           |
+| Orphan recovery      | Manual admin intervention only                                                        |
+| Worker parallelism   | One job per worker process                                                            |
+| Step failure         | Worker-driven: worker reports and decides                                             |
+| API Gateway          | Part of API Server component                                                          |
+| Cancellation         | API Server → Worker (direct gRPC, Port 8086), best-effort in Phase 1                  |
+| Orphan update        | Background job marks stale jobs orphaned (Phase 2+)                                   |
+| WebSocket owner      | Log Service serves WebSocket                                                          |
+| Worker ID validation | No validation in Phase 1; JWT in Phase 2                                              |
+| Artifact tracking    | Artifact entity in data model                                                         |
+| Pipeline validation  | After claim, before executing steps                                                   |
+| Auto-retry           | Worker handles internally (re-executes job)                                           |
+| Override access      | Same VCS credentials as main checkout                                                 |
+| Multi-site heartbeat | Per-site Heartbeat Service (Phase 2+)                                                 |
+| Webhook→Project      | Secret-based mapping (webhook secret maps to project)                                 |
+| Notifications        | Worker reads from pipeline, sends directly                                            |
+| Step results         | StepResult entity in data model                                                       |
+| Capability filtering | Queue-side filtering (Phase 1)                                                        |
+| Queue subscription   | Worker config specifies subscribed queues                                             |
+| Heartbeat DB config  | Own database config section (Phase 2+)                                                |
+
 
 ---
 
@@ -2016,41 +2163,49 @@ Target: Sub-second to 1-second job start time
 
 **Job Fetching:**
 Workers long-poll `FetchJob()` with configurable timeout. When jobs are available:
+
 - Queue responds immediately with matching job
 - Worker claims job via `ClaimJob()`
 - Long poll naturally provides low-latency job delivery
 
 ### 18.2 Scale Thresholds
 
-| Scale | Configuration | Notes |
-|-------|---------------|-------|
-| Hundreds/day | Single Queue instance | Default configuration, validated via benchmarks |
-| Higher scale | Multiple Queue instances | Shard queues across instances as needed |
+
+| Scale        | Configuration            | Notes                                           |
+| ------------ | ------------------------ | ----------------------------------------------- |
+| Hundreds/day | Single Queue instance    | Default configuration, validated via benchmarks |
+| Higher scale | Multiple Queue instances | Shard queues across instances as needed         |
+
 
 **Note:** Scale targets are goals to validate through benchmarking. Initial release targets hundreds of builds/day.
 
 **Queue sharding:**
+
 - Different Queue instances handle different queues (e.g., Queue-A handles `critical`, Queue-B handles `default`)
 - Workers discover Queue instances via service discovery
 - Increases operational complexity - add only when needed
 
 ### 18.3 Known Bottlenecks
 
-| Bottleneck | Mitigation |
-|------------|------------|
+
+| Bottleneck                        | Mitigation                                                               |
+| --------------------------------- | ------------------------------------------------------------------------ |
 | Database contention on job claims | Atomic claims via DB transactions; horizontal scaling via queue sharding |
-| External secrets fetch latency | Visible via distributed tracing; use fast secret manager or cache |
-| External VCS latency | Visible via distributed tracing; use local VCS mirrors |
-| Log WebSocket connections | Low concurrency in practice (typically <5 simultaneous viewers per job) |
+| External secrets fetch latency    | Visible via distributed tracing; use fast secret manager or cache        |
+| External VCS latency              | Visible via distributed tracing; use local VCS mirrors                   |
+| Log WebSocket connections         | Low concurrency in practice (typically <5 simultaneous viewers per job)  |
+
 
 ### 18.4 Performance Targets
 
-| Metric | Target | Architecture Support |
-|--------|--------|---------------------|
-| Job start latency | <1 second | Control Channel push notifications |
-| Job claim throughput | ~10k TPS | PostgreSQL with tuning |
-| Concurrent workers | ~10k per Queue instance | gRPC handles concurrent streams |
-| Concurrent job viewers | <10 per job | Log WebSocket multiplexing |
+
+| Metric                 | Target                  | Architecture Support               |
+| ---------------------- | ----------------------- | ---------------------------------- |
+| Job start latency      | <1 second               | Control Channel push notifications |
+| Job claim throughput   | ~10k TPS                | PostgreSQL with tuning             |
+| Concurrent workers     | ~10k per Queue instance | gRPC handles concurrent streams    |
+| Concurrent job viewers | <10 per job             | Log WebSocket multiplexing         |
+
 
 ---
 
@@ -2062,3 +2217,4 @@ Workers long-poll `FetchJob()` with configurable timeout. When jobs are availabl
 4. Build log service with gRPC input + WebSocket output
 5. Implement triggers
 6. Build API server and frontend SPA
+
