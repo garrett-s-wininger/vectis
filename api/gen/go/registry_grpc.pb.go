@@ -19,7 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	RegistryService_Register_FullMethodName = "/RegistryService/Register"
+	RegistryService_Register_FullMethodName   = "/RegistryService/Register"
+	RegistryService_GetAddress_FullMethodName = "/RegistryService/GetAddress"
 )
 
 // RegistryServiceClient is the client API for RegistryService service.
@@ -27,6 +28,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RegistryServiceClient interface {
 	Register(ctx context.Context, in *Registration, opts ...grpc.CallOption) (*Empty, error)
+	GetAddress(ctx context.Context, in *AddressRequest, opts ...grpc.CallOption) (*AddressResponse, error)
 }
 
 type registryServiceClient struct {
@@ -47,11 +49,22 @@ func (c *registryServiceClient) Register(ctx context.Context, in *Registration, 
 	return out, nil
 }
 
+func (c *registryServiceClient) GetAddress(ctx context.Context, in *AddressRequest, opts ...grpc.CallOption) (*AddressResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AddressResponse)
+	err := c.cc.Invoke(ctx, RegistryService_GetAddress_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RegistryServiceServer is the server API for RegistryService service.
 // All implementations must embed UnimplementedRegistryServiceServer
 // for forward compatibility.
 type RegistryServiceServer interface {
 	Register(context.Context, *Registration) (*Empty, error)
+	GetAddress(context.Context, *AddressRequest) (*AddressResponse, error)
 	mustEmbedUnimplementedRegistryServiceServer()
 }
 
@@ -64,6 +77,9 @@ type UnimplementedRegistryServiceServer struct{}
 
 func (UnimplementedRegistryServiceServer) Register(context.Context, *Registration) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method Register not implemented")
+}
+func (UnimplementedRegistryServiceServer) GetAddress(context.Context, *AddressRequest) (*AddressResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetAddress not implemented")
 }
 func (UnimplementedRegistryServiceServer) mustEmbedUnimplementedRegistryServiceServer() {}
 func (UnimplementedRegistryServiceServer) testEmbeddedByValue()                         {}
@@ -104,6 +120,24 @@ func _RegistryService_Register_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RegistryService_GetAddress_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddressRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RegistryServiceServer).GetAddress(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RegistryService_GetAddress_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RegistryServiceServer).GetAddress(ctx, req.(*AddressRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RegistryService_ServiceDesc is the grpc.ServiceDesc for RegistryService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -114,6 +148,10 @@ var RegistryService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Register",
 			Handler:    _RegistryService_Register_Handler,
+		},
+		{
+			MethodName: "GetAddress",
+			Handler:    _RegistryService_GetAddress_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

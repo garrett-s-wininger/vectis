@@ -12,6 +12,15 @@ message Registration {
     string address = 2;
 }
 
+message AddressRequest {
+    Component component = 1;
+}
+
+message AddressResponse {
+    string address = 1;
+}
+
 service RegistryService {
     rpc Register(Registration) returns (common.Empty);
+    rpc GetAddress(AddressRequest) returns (AddressResponse);
 }

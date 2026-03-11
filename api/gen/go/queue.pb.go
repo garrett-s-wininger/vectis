@@ -24,19 +24,23 @@ var File_queue_proto protoreflect.FileDescriptor
 
 const file_queue_proto_rawDesc = "" +
 	"\n" +
-	"\vqueue.proto\x1a\fcommon.proto27\n" +
+	"\vqueue.proto\x1a\fcommon.proto2^\n" +
 	"\fQueueService\x12'\n" +
-	"\aEnqueue\x12\r.common.Empty\x1a\r.common.EmptyB!B\n" +
+	"\aEnqueue\x12\r.common.Empty\x1a\r.common.Empty\x12%\n" +
+	"\aDequeue\x12\r.common.Empty\x1a\v.common.JobB!B\n" +
 	"QueueProtoP\x01Z\x11vectis/api/gen/gob\beditionsp\xe8\a"
 
 var file_queue_proto_goTypes = []any{
 	(*Empty)(nil), // 0: common.Empty
+	(*Job)(nil),   // 1: common.Job
 }
 var file_queue_proto_depIdxs = []int32{
 	0, // 0: QueueService.Enqueue:input_type -> common.Empty
-	0, // 1: QueueService.Enqueue:output_type -> common.Empty
-	1, // [1:2] is the sub-list for method output_type
-	0, // [0:1] is the sub-list for method input_type
+	0, // 1: QueueService.Dequeue:input_type -> common.Empty
+	0, // 2: QueueService.Enqueue:output_type -> common.Empty
+	1, // 3: QueueService.Dequeue:output_type -> common.Job
+	2, // [2:4] is the sub-list for method output_type
+	0, // [0:2] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name

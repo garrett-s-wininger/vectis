@@ -3,3 +3,12 @@ edition = "2023";
 package common;
 
 message Empty{}
+
+message Job {
+    string id = 1;
+    repeated Step steps = 2;
+}
+
+message Step {
+    string command = 1;
+}
