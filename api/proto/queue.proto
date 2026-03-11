@@ -1,7 +1,7 @@
 edition = "2023";
 
-message Empty {}
+import "common.proto";
 
 service QueueService {
-    rpc Enqueue(Empty) returns (Empty);
+    rpc Enqueue(common.Empty) returns (common.Empty);
 }

@@ -1,0 +1,5 @@
+edition = "2023";
+
+package common;
+
+message Empty{}

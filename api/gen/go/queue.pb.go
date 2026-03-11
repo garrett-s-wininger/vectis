@@ -10,7 +10,6 @@ import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
-	sync "sync"
 	unsafe "unsafe"
 )
 
@@ -21,71 +20,21 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type Empty struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Empty) Reset() {
-	*x = Empty{}
-	mi := &file_queue_proto_msgTypes[0]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Empty) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Empty) ProtoMessage() {}
-
-func (x *Empty) ProtoReflect() protoreflect.Message {
-	mi := &file_queue_proto_msgTypes[0]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Empty.ProtoReflect.Descriptor instead.
-func (*Empty) Descriptor() ([]byte, []int) {
-	return file_queue_proto_rawDescGZIP(), []int{0}
-}
-
 var File_queue_proto protoreflect.FileDescriptor
 
 const file_queue_proto_rawDesc = "" +
 	"\n" +
-	"\vqueue.proto\"\a\n" +
-	"\x05Empty2)\n" +
-	"\fQueueService\x12\x19\n" +
-	"\aEnqueue\x12\x06.Empty\x1a\x06.EmptyB!B\n" +
+	"\vqueue.proto\x1a\fcommon.proto27\n" +
+	"\fQueueService\x12'\n" +
+	"\aEnqueue\x12\r.common.Empty\x1a\r.common.EmptyB!B\n" +
 	"QueueProtoP\x01Z\x11vectis/api/gen/gob\beditionsp\xe8\a"
 
-var (
-	file_queue_proto_rawDescOnce sync.Once
-	file_queue_proto_rawDescData []byte
-)
-
-func file_queue_proto_rawDescGZIP() []byte {
-	file_queue_proto_rawDescOnce.Do(func() {
-		file_queue_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_queue_proto_rawDesc), len(file_queue_proto_rawDesc)))
-	})
-	return file_queue_proto_rawDescData
-}
-
-var file_queue_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_queue_proto_goTypes = []any{
-	(*Empty)(nil), // 0: Empty
+	(*Empty)(nil), // 0: common.Empty
 }
 var file_queue_proto_depIdxs = []int32{
-	0, // 0: QueueService.Enqueue:input_type -> Empty
-	0, // 1: QueueService.Enqueue:output_type -> Empty
+	0, // 0: QueueService.Enqueue:input_type -> common.Empty
+	0, // 1: QueueService.Enqueue:output_type -> common.Empty
 	1, // [1:2] is the sub-list for method output_type
 	0, // [0:1] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
@@ -98,19 +47,19 @@ func file_queue_proto_init() {
 	if File_queue_proto != nil {
 		return
 	}
+	file_common_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_queue_proto_rawDesc), len(file_queue_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   1,
+			NumMessages:   0,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_queue_proto_goTypes,
 		DependencyIndexes: file_queue_proto_depIdxs,
-		MessageInfos:      file_queue_proto_msgTypes,
 	}.Build()
 	File_queue_proto = out.File
 	file_queue_proto_goTypes = nil

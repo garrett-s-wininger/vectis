@@ -12,6 +12,7 @@ import (
 
 var childBinaries = []string{
 	"vectis-queue",
+	"vectis-registry",
 }
 
 func runVectis(cmd *cobra.Command, args []string) {

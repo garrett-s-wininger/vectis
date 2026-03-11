@@ -1,0 +1,17 @@
+edition = "2023";
+
+import "common.proto";
+
+enum Component {
+    COMPONENT_UNKNOWN = 0;
+    COMPONENT_QUEUE = 1;
+}
+
+message Registration {
+    Component component = 1;
+    string address = 2;
+}
+
+service RegistryService {
+    rpc Register(Registration) returns (common.Empty);
+}
