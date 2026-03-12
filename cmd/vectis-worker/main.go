@@ -2,58 +2,32 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
-	"time"
 
 	api "vectis/api/gen/go"
-	"vectis/internal/backoff"
 	"vectis/internal/log"
-	"vectis/internal/server"
+	"vectis/internal/registry"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
-
-var maxTries = 5
-var baseDelay = 500 * time.Millisecond
 
 func main() {
 	ctx := context.Background()
 	logger := log.New("worker")
 
 	logger.Info("Connecting to registry...")
-	registryConn, err := grpc.NewClient(server.RegistryPort, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	registryClient, err := registry.New(ctx, logger)
 	if err != nil {
 		logger.Fatal("Failed to connect to registry: %v", err)
 	}
 
-	defer registryConn.Close()
+	defer registryClient.Close()
 
-	registryClient := api.NewRegistryServiceClient(registryConn)
-
+	// TODO(garrett): Retry to refresh queue address if it's not available.
 	logger.Info("Getting queue service address from registry...")
-	var queueAddr string
-	err = backoff.RetryWithBackoff(maxTries, baseDelay, func() error {
-		resp, err := registryClient.GetAddress(ctx, &api.AddressRequest{
-			Component: api.Component_COMPONENT_QUEUE.Enum(),
-		})
-
-		if err != nil {
-			return err
-		}
-
-		queueAddr = resp.GetAddress()
-		if queueAddr == "" {
-			return fmt.Errorf("queue address not available")
-		}
-
-		return nil
-	}, func(attempt int, delay time.Duration, err error) {
-		logger.Warn("Failed to get queue address (attempt %d): %v. Retrying in %v...", attempt, err, delay)
-	})
-
+	queueAddr, err := registryClient.Address(ctx, api.Component_COMPONENT_QUEUE)
 	if err != nil {
 		logger.Fatal("Failed to get queue address: %v", err)
 	}
@@ -79,6 +53,7 @@ func main() {
 		cmd := exec.Command("sh", "-c", *step.Command)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
+
 		if err := cmd.Run(); err != nil {
 			logger.Fatal("Step %d failed: %v", i+1, err)
 		}

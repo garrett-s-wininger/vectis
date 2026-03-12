@@ -1,4 +1,4 @@
-package server
+package registry
 
 import (
 	"context"
@@ -8,19 +8,19 @@ import (
 	"vectis/internal/log"
 )
 
-type registry struct {
+type reg struct {
 	mu                  sync.RWMutex
 	queueServiceAddress string
 }
 
 type registryServer struct {
 	api.UnimplementedRegistryServiceServer
-	reg *registry
+	reg *reg
 	log *log.Logger
 }
 
 func NewRegistryService(logger *log.Logger) api.RegistryServiceServer {
-	return &registryServer{reg: &registry{}, log: logger}
+	return &registryServer{reg: &reg{}, log: logger}
 }
 
 func (s *registryServer) Register(ctx context.Context, req *api.Registration) (*api.Empty, error) {
