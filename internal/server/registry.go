@@ -2,10 +2,10 @@ package server
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/log"
 )
 
 type registry struct {
@@ -16,10 +16,11 @@ type registry struct {
 type registryServer struct {
 	api.UnimplementedRegistryServiceServer
 	reg *registry
+	log *log.Logger
 }
 
-func NewRegistryService() api.RegistryServiceServer {
-	return &registryServer{reg: &registry{}}
+func NewRegistryService(logger *log.Logger) api.RegistryServiceServer {
+	return &registryServer{reg: &registry{}, log: logger}
 }
 
 func (s *registryServer) Register(ctx context.Context, req *api.Registration) (*api.Empty, error) {
@@ -28,7 +29,7 @@ func (s *registryServer) Register(ctx context.Context, req *api.Registration) (*
 
 	if req.Component != nil && *req.Component == api.Component_COMPONENT_QUEUE && req.Address != nil {
 		s.reg.queueServiceAddress = *req.Address
-		fmt.Printf("Registered queue at: %s\n", *req.Address)
+		s.log.Info("Registered queue at: %s", *req.Address)
 	}
 
 	return &api.Empty{}, nil

@@ -9,6 +9,7 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/backoff"
+	"vectis/internal/log"
 	"vectis/internal/server"
 
 	"google.golang.org/grpc"
@@ -20,19 +21,19 @@ var baseDelay = 500 * time.Millisecond
 
 func main() {
 	ctx := context.Background()
+	logger := log.New("worker")
 
-	fmt.Println("Connecting to registry...")
+	logger.Info("Connecting to registry...")
 	registryConn, err := grpc.NewClient(server.RegistryPort, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to connect to registry: %v\n", err)
-		os.Exit(1)
+		logger.Fatal("Failed to connect to registry: %v", err)
 	}
 
 	defer registryConn.Close()
 
 	registryClient := api.NewRegistryServiceClient(registryConn)
 
-	fmt.Println("Getting queue service address from registry...")
+	logger.Info("Getting queue service address from registry...")
 	var queueAddr string
 	err = backoff.RetryWithBackoff(maxTries, baseDelay, func() error {
 		resp, err := registryClient.GetAddress(ctx, &api.AddressRequest{
@@ -50,42 +51,38 @@ func main() {
 
 		return nil
 	}, func(attempt int, delay time.Duration, err error) {
-		fmt.Fprintf(os.Stderr, "Failed to get queue address (attempt %d): %v. Retrying in %v...\n", attempt, err, delay)
+		logger.Warn("Failed to get queue address (attempt %d): %v. Retrying in %v...", attempt, err, delay)
 	})
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to get queue address: %v\n", err)
-		os.Exit(1)
+		logger.Fatal("Failed to get queue address: %v", err)
 	}
 
-	fmt.Printf("Connecting to queue at %s...\n", queueAddr)
+	logger.Info("Connecting to queue at %s...", queueAddr)
 	queueConn, err := grpc.NewClient(queueAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to connect to queue: %v\n", err)
-		os.Exit(1)
+		logger.Fatal("Failed to connect to queue: %v", err)
 	}
 
 	defer queueConn.Close()
 	queueClient := api.NewQueueServiceClient(queueConn)
 
-	fmt.Println("Dequeuing job...")
+	logger.Info("Dequeuing job...")
 	job, err := queueClient.Dequeue(ctx, &api.Empty{})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to dequeue job: %v\n", err)
-		os.Exit(1)
+		logger.Fatal("Failed to dequeue job: %v", err)
 	}
 
-	fmt.Printf("Executing job: %s\n", *job.Id)
+	logger.Info("Executing job: %s", *job.Id)
 	for i, step := range job.Steps {
-		fmt.Printf("Running step %d: %s\n", i+1, *step.Command)
+		logger.Info("Running step %d: %s", i+1, *step.Command)
 		cmd := exec.Command("sh", "-c", *step.Command)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "Step %d failed: %v\n", i+1, err)
-			os.Exit(1)
+			logger.Fatal("Step %d failed: %v", i+1, err)
 		}
 	}
 
-	fmt.Println("Job completed successfully")
+	logger.Info("Job completed successfully")
 }

@@ -1,10 +1,10 @@
 package main
 
 import (
-	"log"
 	"os"
 	"os/exec"
 
+	"vectis/internal/log"
 	"vectis/internal/supervisor"
 
 	"github.com/spf13/cobra"
@@ -17,12 +17,13 @@ var childBinaries = []string{
 }
 
 func runVectis(cmd *cobra.Command, args []string) {
+	logger := log.New("cli")
 	commands := make([]*exec.Cmd, 0, len(childBinaries))
 
 	for _, b := range childBinaries {
 		path, err := supervisor.FindBinary(b)
 		if err != nil {
-			log.Fatalf("cannot find %s: %v\n", b, err)
+			logger.Fatal("cannot find %s: %v", b, err)
 		}
 
 		command := exec.Command(path)
@@ -32,7 +33,7 @@ func runVectis(cmd *cobra.Command, args []string) {
 
 		if err := command.Start(); err != nil {
 			// TODO(garrett): Abort already started children.
-			log.Fatalf("failed to start %s: %v\n", b, err)
+			logger.Fatal("failed to start %s: %v", b, err)
 		}
 
 		commands = append(commands, command)
@@ -42,7 +43,7 @@ func runVectis(cmd *cobra.Command, args []string) {
 	// TODO(garrett): Propagate signals to children.
 	for i, c := range commands {
 		if err := c.Wait(); err != nil {
-			log.Fatalf("%s exited: %v", childBinaries[i], err)
+			logger.Fatal("%s exited: %v", childBinaries[i], err)
 		}
 	}
 }

@@ -1,12 +1,13 @@
 package main
 
 import (
-	"fmt"
 	"net"
 	"os"
 	"time"
+
 	api "vectis/api/gen/go"
 	"vectis/internal/backoff"
+	"vectis/internal/log"
 	"vectis/internal/server"
 
 	"github.com/spf13/cobra"
@@ -15,12 +16,12 @@ import (
 )
 
 func runVectisQueue(cmd *cobra.Command, args []string) {
-	fmt.Println("Starting queue server...")
+	logger := log.New("queue")
+	logger.Info("Starting queue server...")
 
 	ln, err := net.Listen("tcp", server.QueuePort)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to listen: %v\n", err)
-		os.Exit(1)
+		logger.Fatal("Failed to listen: %v", err)
 	}
 
 	const maxTries = 5
@@ -33,12 +34,11 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 		conn, e = grpc.NewClient(":8082", grpc.WithTransportCredentials(insecure.NewCredentials()))
 		return e
 	}, func(attempt int, nextDelay time.Duration, err error) {
-		fmt.Fprintf(os.Stderr, "Failed to connect to registry service (attempt %d/%d): %v. Retrying in %v...\n", attempt, maxTries, err, nextDelay)
+		logger.Warn("Failed to connect to registry service (attempt %d/%d): %v. Retrying in %v...", attempt, maxTries, err, nextDelay)
 	})
 
 	if lastErr != nil {
-		fmt.Fprintf(os.Stderr, "Failed to connect to registry service after %d attempts: %v\n", maxTries, lastErr)
-		os.Exit(1)
+		logger.Fatal("Failed to connect to registry service after %d attempts: %v", maxTries, lastErr)
 	}
 
 	defer conn.Close()
@@ -57,22 +57,20 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 			})
 			return err
 		}, func(attempt int, nextDelay time.Duration, err error) {
-			fmt.Fprintf(os.Stderr, "Failed to register with registry (attempt %d/%d): %v. Retrying in %v...\n", attempt, maxTries, err, nextDelay)
+			logger.Warn("Failed to register with registry (attempt %d/%d): %v. Retrying in %v...", attempt, maxTries, err, nextDelay)
 		})
 		if regErr != nil {
-			fmt.Fprintf(os.Stderr, "Failed to register with registry after %d attempts: %v\n", maxTries, regErr)
-			os.Exit(1)
+			logger.Fatal("Failed to register with registry after %d attempts: %v", maxTries, regErr)
 		}
 	}
 
-	fmt.Println("Registered with registry service")
+	logger.Info("Registered with registry service")
 	grpcServer := grpc.NewServer()
-	server.RegisterQueueService(grpcServer)
+	server.RegisterQueueService(grpcServer, logger)
 
-	fmt.Printf("Queue server listening on %s\n", server.QueuePort)
+	logger.Info("Queue server listening on %s", server.QueuePort)
 	if err := grpcServer.Serve(ln); err != nil {
-		fmt.Fprintf(os.Stderr, "gRPC server failed: %v\n", err)
-		os.Exit(1)
+		logger.Fatal("gRPC server failed: %v", err)
 	}
 }
 
