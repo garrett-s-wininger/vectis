@@ -8,15 +8,15 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/backoff"
 	"vectis/internal/log"
-	"vectis/internal/server"
+	"vectis/internal/networking"
 )
 
 type Registry struct {
-	*server.Client[api.RegistryServiceClient]
+	*networking.Client[api.RegistryServiceClient]
 }
 
 func New(ctx context.Context, logger *log.Logger) (*Registry, error) {
-	c, err := server.NewClient(ctx, server.RegistryPort, api.NewRegistryServiceClient, logger)
+	c, err := networking.NewClient(ctx, networking.RegistryPort, api.NewRegistryServiceClient, logger)
 	if err != nil {
 		return nil, err
 	}

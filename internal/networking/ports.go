@@ -1,4 +1,4 @@
-package server
+package networking
 
 // TODO(garrett): Make embedded configuration files.
 var (

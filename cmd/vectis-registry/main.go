@@ -6,8 +6,8 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/log"
+	"vectis/internal/networking"
 	"vectis/internal/registry"
-	"vectis/internal/server"
 
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
@@ -17,7 +17,7 @@ func runVectisRegistry(cmd *cobra.Command, args []string) {
 	logger := log.New("registry")
 	logger.Info("Starting registry server...")
 
-	ln, err := net.Listen("tcp", server.RegistryPort)
+	ln, err := net.Listen("tcp", networking.RegistryPort)
 	if err != nil {
 		logger.Fatal("Failed to listen: %v", err)
 	}
@@ -26,7 +26,7 @@ func runVectisRegistry(cmd *cobra.Command, args []string) {
 	grpcServer := grpc.NewServer()
 	api.RegisterRegistryServiceServer(grpcServer, registrySvc)
 
-	logger.Info("Registry server listening on %s", server.RegistryPort)
+	logger.Info("Registry server listening on %s", networking.RegistryPort)
 	if err := grpcServer.Serve(ln); err != nil {
 		logger.Fatal("gRPC server failed: %v", err)
 	}

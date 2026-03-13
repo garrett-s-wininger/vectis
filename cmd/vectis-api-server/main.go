@@ -16,8 +16,8 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/log"
 	"vectis/internal/migrations"
+	"vectis/internal/networking"
 	"vectis/internal/registry"
-	"vectis/internal/server"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -138,8 +138,8 @@ func (s *APIServer) Run() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/jobs/trigger/{id}", s.triggerJob)
 
-	s.logger.Info("API server listening on %s", server.APIPort)
-	return http.ListenAndServe(server.APIPort, mux)
+	s.logger.Info("API server listening on %s", networking.APIPort)
+	return http.ListenAndServe(networking.APIPort, mux)
 }
 
 func runVectisAPI(cmd *cobra.Command, args []string) {
