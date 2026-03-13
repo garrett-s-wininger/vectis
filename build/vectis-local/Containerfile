@@ -1,0 +1,22 @@
+FROM docker.io/library/golang:1.25.7-alpine AS builder
+RUN apk add --no-cache gcc musl-dev
+
+WORKDIR /app
+
+COPY go.mod go.sum ./
+RUN go mod download && go mod verify
+
+COPY . .
+
+ENV CGO_ENABLED=1
+ENV GOARCH=amd64
+ENV GOOS=linux
+
+RUN go build -o bin/ -a -ldflags '-linkmode external -extldflags "-static"' ./...
+
+FROM scratch
+
+ENV XDG_DATA_HOME=/data
+
+COPY --from=builder /app/bin/* /usr/local/bin/
+ENTRYPOINT ["/usr/local/bin/vectis-local"]
