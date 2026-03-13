@@ -4,13 +4,16 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"time"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/log"
 	"vectis/internal/registry"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
 
 func main() {
@@ -41,23 +44,37 @@ func main() {
 	defer queueConn.Close()
 	queueClient := api.NewQueueServiceClient(queueConn)
 
-	logger.Info("Dequeuing job...")
-	job, err := queueClient.Dequeue(ctx, &api.Empty{})
-	if err != nil {
-		logger.Fatal("Failed to dequeue job: %v", err)
-	}
+	for {
+		logger.Debug("Initiating long poll from queue...")
+		pollCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		job, err := queueClient.Dequeue(pollCtx, &api.Empty{})
+		cancel()
 
-	logger.Info("Executing job: %s", *job.Id)
-	for i, step := range job.Steps {
-		logger.Info("Running step %d: %s", i+1, *step.Command)
-		cmd := exec.Command("sh", "-c", *step.Command)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-
-		if err := cmd.Run(); err != nil {
-			logger.Fatal("Step %d failed: %v", i+1, err)
+		if err != nil {
+			st, ok := status.FromError(err)
+			switch {
+			case ok && st.Code() == codes.DeadlineExceeded:
+				// TODO(garrett): Implement exponential backoff and backpressure.
+				// Job retrieval resets backoff but timeouts increase the exponential delay.
+				logger.Debug("Long poll timed out. Retrying...")
+				continue
+			default:
+				logger.Fatal("Failed to dequeue job: %v", err)
+			}
 		}
-	}
 
-	logger.Info("Job completed successfully")
+		logger.Info("Executing job: %s", *job.Id)
+		for i, step := range job.Steps {
+			logger.Info("Running step %d: %s", i+1, *step.Command)
+			cmd := exec.Command("sh", "-c", *step.Command)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+
+			if err := cmd.Run(); err != nil {
+				logger.Fatal("Step %d failed: %v", i+1, err)
+			}
+		}
+
+		logger.Info("Job completed successfully")
+	}
 }

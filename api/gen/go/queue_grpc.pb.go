@@ -27,7 +27,7 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type QueueServiceClient interface {
-	Enqueue(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Empty, error)
+	Enqueue(ctx context.Context, in *Job, opts ...grpc.CallOption) (*Empty, error)
 	Dequeue(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Job, error)
 }
 
@@ -39,7 +39,7 @@ func NewQueueServiceClient(cc grpc.ClientConnInterface) QueueServiceClient {
 	return &queueServiceClient{cc}
 }
 
-func (c *queueServiceClient) Enqueue(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Empty, error) {
+func (c *queueServiceClient) Enqueue(ctx context.Context, in *Job, opts ...grpc.CallOption) (*Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Empty)
 	err := c.cc.Invoke(ctx, QueueService_Enqueue_FullMethodName, in, out, cOpts...)
@@ -63,7 +63,7 @@ func (c *queueServiceClient) Dequeue(ctx context.Context, in *Empty, opts ...grp
 // All implementations must embed UnimplementedQueueServiceServer
 // for forward compatibility.
 type QueueServiceServer interface {
-	Enqueue(context.Context, *Empty) (*Empty, error)
+	Enqueue(context.Context, *Job) (*Empty, error)
 	Dequeue(context.Context, *Empty) (*Job, error)
 	mustEmbedUnimplementedQueueServiceServer()
 }
@@ -75,7 +75,7 @@ type QueueServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedQueueServiceServer struct{}
 
-func (UnimplementedQueueServiceServer) Enqueue(context.Context, *Empty) (*Empty, error) {
+func (UnimplementedQueueServiceServer) Enqueue(context.Context, *Job) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method Enqueue not implemented")
 }
 func (UnimplementedQueueServiceServer) Dequeue(context.Context, *Empty) (*Job, error) {
@@ -103,7 +103,7 @@ func RegisterQueueServiceServer(s grpc.ServiceRegistrar, srv QueueServiceServer)
 }
 
 func _QueueService_Enqueue_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(Empty)
+	in := new(Job)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -115,7 +115,7 @@ func _QueueService_Enqueue_Handler(srv interface{}, ctx context.Context, dec fun
 		FullMethod: QueueService_Enqueue_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(QueueServiceServer).Enqueue(ctx, req.(*Empty))
+		return srv.(QueueServiceServer).Enqueue(ctx, req.(*Job))
 	}
 	return interceptor(ctx, in, info, handler)
 }

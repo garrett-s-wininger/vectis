@@ -1,64 +1,64 @@
 package main
 
 import (
+	"fmt"
+	"net/http"
 	"os"
-	"os/exec"
-
-	"vectis/internal/log"
-	"vectis/internal/supervisor"
 
 	"github.com/spf13/cobra"
 )
 
-var childBinaries = []string{
-	"vectis-registry",
-	"vectis-queue",
-	"vectis-worker",
+func triggerJob(cmd *cobra.Command, args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Error: job-id is required")
+		cmd.Usage()
+		os.Exit(1)
+	}
+
+	// TODO(garrett): Make configurable
+	jobID := args[0]
+	apiAddr := "http://localhost:8080"
+
+	url := fmt.Sprintf("%s/api/v1/jobs/trigger/%s", apiAddr, jobID)
+	resp, err := http.Post(url, "application/json", nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to trigger job: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusNoContent:
+		fmt.Printf("Successfully triggered job: %s\n", jobID)
+	case http.StatusNotFound:
+		fmt.Fprintf(os.Stderr, "Error: job '%s' not found\n", jobID)
+		os.Exit(1)
+	case http.StatusServiceUnavailable:
+		fmt.Fprintf(os.Stderr, "Error: queue service unavailable\n")
+		os.Exit(1)
+	default:
+		fmt.Fprintf(os.Stderr, "Error: unexpected status: %s\n", resp.Status)
+		os.Exit(1)
+	}
 }
 
-func runVectis(cmd *cobra.Command, args []string) {
-	logger := log.New("cli")
-	commands := make([]*exec.Cmd, 0, len(childBinaries))
-
-	for _, b := range childBinaries {
-		path, err := supervisor.FindBinary(b)
-		if err != nil {
-			logger.Fatal("cannot find %s: %v", b, err)
-		}
-
-		command := exec.Command(path)
-		command.Stdin = nil
-		command.Stdout = os.Stdout
-		command.Stderr = os.Stderr
-
-		if err := command.Start(); err != nil {
-			// TODO(garrett): Abort already started children.
-			logger.Fatal("failed to start %s: %v", b, err)
-		}
-
-		commands = append(commands, command)
-	}
-
-	// TODO(garrett): Adjust to kill all children if one fails.
-	// TODO(garrett): Propagate signals to children.
-	for i, c := range commands {
-		if err := c.Wait(); err != nil {
-			logger.Fatal("%s exited: %v", childBinaries[i], err)
-		}
-	}
+var triggerCmd = &cobra.Command{
+	Use:   "trigger [job-id]",
+	Short: "Trigger a stored job",
+	Long:  `Trigger a stored job by its job-id. The job must exist in the database.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   triggerJob,
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "vectis",
-	Short: "A self-hosted, modern build system",
-	Long: `Vectis is a modern, self-hosted build system.
-
-It's designed to be easy to use and deploy for a wide-range of build types
-and execution environments.`,
-	Run: runVectis,
+	Use:   "vectis-cli",
+	Short: "Vectis CLI - Command line interface for Vectis",
+	Long:  `Vectis CLI provides commands to interact with the Vectis build system.`,
 }
 
 func main() {
+	rootCmd.AddCommand(triggerCmd)
+
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}

@@ -3,6 +3,6 @@ edition = "2023";
 import "common.proto";
 
 service QueueService {
-    rpc Enqueue(common.Empty) returns (common.Empty);
+    rpc Enqueue(common.Job) returns (common.Empty);
     rpc Dequeue(common.Empty) returns (common.Job);
 }
