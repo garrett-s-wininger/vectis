@@ -1,0 +1,12 @@
+.containerignore
+.git/
+.gitignore
+.pre-commit-config.yaml
+api/proto/
+bin/
+build/
+buf.gen.yaml
+buf.yaml
+LICENSE
+Makefile
+PLANNING.md
