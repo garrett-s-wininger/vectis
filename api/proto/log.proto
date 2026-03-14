@@ -1,0 +1,7 @@
+edition = "2023";
+
+import "common.proto";
+
+service LogService {
+    rpc StreamLogs(stream common.LogChunk) returns (common.Empty);
+}

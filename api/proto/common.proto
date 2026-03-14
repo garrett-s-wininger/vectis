@@ -12,3 +12,15 @@ message Job {
 message Step {
     string command = 1;
 }
+
+enum Stream {
+    STREAM_STDOUT = 0;
+    STREAM_STDERR = 1;
+}
+
+message LogChunk {
+    string job_id = 1;
+    bytes data = 2;
+    int64 sequence = 3;
+    Stream stream = 4;
+}

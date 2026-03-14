@@ -1,0 +1,32 @@
+package main
+
+import (
+	"context"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"vectis/internal/log"
+	"vectis/internal/logserver"
+)
+
+func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Handle shutdown signals
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		<-sigCh
+		cancel()
+	}()
+
+	logger := log.New("log-aggregator")
+	logger.Info("Starting log service...")
+
+	if err := logserver.Run(ctx, logger); err != nil {
+		logger.Fatal("Log service failed: %v", err)
+	}
+}

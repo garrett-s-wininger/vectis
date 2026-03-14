@@ -21,6 +21,52 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type Stream int32
+
+const (
+	Stream_STREAM_STDOUT Stream = 0
+	Stream_STREAM_STDERR Stream = 1
+)
+
+// Enum value maps for Stream.
+var (
+	Stream_name = map[int32]string{
+		0: "STREAM_STDOUT",
+		1: "STREAM_STDERR",
+	}
+	Stream_value = map[string]int32{
+		"STREAM_STDOUT": 0,
+		"STREAM_STDERR": 1,
+	}
+)
+
+func (x Stream) Enum() *Stream {
+	p := new(Stream)
+	*p = x
+	return p
+}
+
+func (x Stream) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Stream) Descriptor() protoreflect.EnumDescriptor {
+	return file_common_proto_enumTypes[0].Descriptor()
+}
+
+func (Stream) Type() protoreflect.EnumType {
+	return &file_common_proto_enumTypes[0]
+}
+
+func (x Stream) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use Stream.Descriptor instead.
+func (Stream) EnumDescriptor() ([]byte, []int) {
+	return file_common_proto_rawDescGZIP(), []int{0}
+}
+
 type Empty struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -153,6 +199,74 @@ func (x *Step) GetCommand() string {
 	return ""
 }
 
+type LogChunk struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	JobId         *string                `protobuf:"bytes,1,opt,name=job_id,json=jobId" json:"job_id,omitempty"`
+	Data          []byte                 `protobuf:"bytes,2,opt,name=data" json:"data,omitempty"`
+	Sequence      *int64                 `protobuf:"varint,3,opt,name=sequence" json:"sequence,omitempty"`
+	Stream        *Stream                `protobuf:"varint,4,opt,name=stream,enum=common.Stream" json:"stream,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LogChunk) Reset() {
+	*x = LogChunk{}
+	mi := &file_common_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LogChunk) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LogChunk) ProtoMessage() {}
+
+func (x *LogChunk) ProtoReflect() protoreflect.Message {
+	mi := &file_common_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LogChunk.ProtoReflect.Descriptor instead.
+func (*LogChunk) Descriptor() ([]byte, []int) {
+	return file_common_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *LogChunk) GetJobId() string {
+	if x != nil && x.JobId != nil {
+		return *x.JobId
+	}
+	return ""
+}
+
+func (x *LogChunk) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+func (x *LogChunk) GetSequence() int64 {
+	if x != nil && x.Sequence != nil {
+		return *x.Sequence
+	}
+	return 0
+}
+
+func (x *LogChunk) GetStream() Stream {
+	if x != nil && x.Stream != nil {
+		return *x.Stream
+	}
+	return Stream_STREAM_STDOUT
+}
+
 var File_common_proto protoreflect.FileDescriptor
 
 const file_common_proto_rawDesc = "" +
@@ -163,7 +277,15 @@ const file_common_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\"\n" +
 	"\x05steps\x18\x02 \x03(\v2\f.common.StepR\x05steps\" \n" +
 	"\x04Step\x12\x18\n" +
-	"\acommand\x18\x01 \x01(\tR\acommandBd\n" +
+	"\acommand\x18\x01 \x01(\tR\acommand\"y\n" +
+	"\bLogChunk\x12\x15\n" +
+	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x12\x12\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\x12\x1a\n" +
+	"\bsequence\x18\x03 \x01(\x03R\bsequence\x12&\n" +
+	"\x06stream\x18\x04 \x01(\x0e2\x0e.common.StreamR\x06stream*.\n" +
+	"\x06Stream\x12\x11\n" +
+	"\rSTREAM_STDOUT\x10\x00\x12\x11\n" +
+	"\rSTREAM_STDERR\x10\x01Bd\n" +
 	"\n" +
 	"com.commonB\vCommonProtoP\x01Z\x11vectis/api/gen/go\xa2\x02\x03CXX\xaa\x02\x06Common\xca\x02\x06Common\xe2\x02\x12Common\\GPBMetadata\xea\x02\x06Commonb\beditionsp\xe8\a"
 
@@ -179,19 +301,23 @@ func file_common_proto_rawDescGZIP() []byte {
 	return file_common_proto_rawDescData
 }
 
-var file_common_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_common_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_common_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_common_proto_goTypes = []any{
-	(*Empty)(nil), // 0: common.Empty
-	(*Job)(nil),   // 1: common.Job
-	(*Step)(nil),  // 2: common.Step
+	(Stream)(0),      // 0: common.Stream
+	(*Empty)(nil),    // 1: common.Empty
+	(*Job)(nil),      // 2: common.Job
+	(*Step)(nil),     // 3: common.Step
+	(*LogChunk)(nil), // 4: common.LogChunk
 }
 var file_common_proto_depIdxs = []int32{
-	2, // 0: common.Job.steps:type_name -> common.Step
-	1, // [1:1] is the sub-list for method output_type
-	1, // [1:1] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	3, // 0: common.Job.steps:type_name -> common.Step
+	0, // 1: common.LogChunk.stream:type_name -> common.Stream
+	2, // [2:2] is the sub-list for method output_type
+	2, // [2:2] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_common_proto_init() }
@@ -204,13 +330,14 @@ func file_common_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_common_proto_rawDesc), len(file_common_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   3,
+			NumEnums:      1,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_common_proto_goTypes,
 		DependencyIndexes: file_common_proto_depIdxs,
+		EnumInfos:         file_common_proto_enumTypes,
 		MessageInfos:      file_common_proto_msgTypes,
 	}.Build()
 	File_common_proto = out.File

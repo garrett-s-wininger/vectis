@@ -26,6 +26,7 @@ type Component int32
 const (
 	Component_COMPONENT_UNKNOWN Component = 0
 	Component_COMPONENT_QUEUE   Component = 1
+	Component_COMPONENT_LOG     Component = 2
 )
 
 // Enum value maps for Component.
@@ -33,10 +34,12 @@ var (
 	Component_name = map[int32]string{
 		0: "COMPONENT_UNKNOWN",
 		1: "COMPONENT_QUEUE",
+		2: "COMPONENT_LOG",
 	}
 	Component_value = map[string]int32{
 		"COMPONENT_UNKNOWN": 0,
 		"COMPONENT_QUEUE":   1,
+		"COMPONENT_LOG":     2,
 	}
 )
 
@@ -220,10 +223,11 @@ const file_registry_proto_rawDesc = "" +
 	"\tcomponent\x18\x01 \x01(\x0e2\n" +
 	".ComponentR\tcomponent\"+\n" +
 	"\x0fAddressResponse\x12\x18\n" +
-	"\aaddress\x18\x01 \x01(\tR\aaddress*7\n" +
+	"\aaddress\x18\x01 \x01(\tR\aaddress*J\n" +
 	"\tComponent\x12\x15\n" +
 	"\x11COMPONENT_UNKNOWN\x10\x00\x12\x13\n" +
-	"\x0fCOMPONENT_QUEUE\x10\x012l\n" +
+	"\x0fCOMPONENT_QUEUE\x10\x01\x12\x11\n" +
+	"\rCOMPONENT_LOG\x10\x022l\n" +
 	"\x0fRegistryService\x12(\n" +
 	"\bRegister\x12\r.Registration\x1a\r.common.Empty\x12/\n" +
 	"\n" +

@@ -122,7 +122,7 @@ func (s *CronService) CalculateNextRun(spec string, from time.Time) (time.Time, 
 func (s *CronService) GetJobDefinition(ctx context.Context, jobID string) (*api.Job, error) {
 	var definitionJSON string
 	err := s.db.QueryRowContext(ctx,
-		"SELECT definition_json FROM stored_jobs WHERE id = ?", jobID).Scan(&definitionJSON)
+		"SELECT definition_json FROM stored_jobs WHERE job_id = ?", jobID).Scan(&definitionJSON)
 
 	if err != nil {
 		if err == sql.ErrNoRows {

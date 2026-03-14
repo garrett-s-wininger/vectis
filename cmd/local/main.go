@@ -13,6 +13,7 @@ import (
 var childBinaries = []string{
 	"vectis-registry",
 	"vectis-queue",
+	"vectis-log",
 	"vectis-worker",
 	"vectis-cron",
 	"vectis-api",

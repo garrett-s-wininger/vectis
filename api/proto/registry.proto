@@ -5,6 +5,7 @@ import "common.proto";
 enum Component {
     COMPONENT_UNKNOWN = 0;
     COMPONENT_QUEUE = 1;
+    COMPONENT_LOG = 2;
 }
 
 message Registration {
