@@ -1,16 +1,17 @@
 package main
 
 import (
+	"fmt"
 	"net"
 	"os"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/log"
-	"vectis/internal/networking"
 	"vectis/internal/queue"
 	"vectis/internal/registry"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"google.golang.org/grpc"
 )
 
@@ -18,7 +19,13 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 	logger := log.New("queue")
 	logger.Info("Starting queue server...")
 
-	ln, err := net.Listen("tcp", networking.QueuePort)
+	port := viper.GetInt("port")
+	if port <= 0 {
+		port = 8081
+	}
+	addr := fmt.Sprintf(":%d", port)
+
+	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		logger.Fatal("Failed to listen: %v", err)
 	}
@@ -31,7 +38,7 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 
 	defer registryClient.Close()
 
-	if err := registryClient.Register(cmd.Context(), api.Component_COMPONENT_QUEUE, networking.QueuePort); err != nil {
+	if err := registryClient.Register(cmd.Context(), api.Component_COMPONENT_QUEUE, addr); err != nil {
 		logger.Fatal("Failed to register with registry: %v", err)
 	}
 
@@ -39,7 +46,7 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 	grpcServer := grpc.NewServer()
 	queue.RegisterQueueService(grpcServer, logger)
 
-	logger.Info("Queue server listening on %s", networking.QueuePort)
+	logger.Info("Queue server listening on %s", addr)
 	if err := grpcServer.Serve(ln); err != nil {
 		logger.Fatal("gRPC server failed: %v", err)
 	}
@@ -50,6 +57,14 @@ var rootCmd = &cobra.Command{
 	Short: "Vectis Queue Service",
 	Long:  `The Vectis Queue Service is responsible for receiving and processing jobs from the Vectis API.`,
 	Run:   runVectisQueue,
+}
+
+func init() {
+	viper.SetDefault("port", 8081)
+	rootCmd.PersistentFlags().Int("port", 8081, "Port for the queue")
+	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
+	viper.SetEnvPrefix("VECTIS_QUEUE")
+	viper.AutomaticEnv()
 }
 
 func main() {

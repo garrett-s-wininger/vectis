@@ -10,13 +10,13 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/log"
 	"vectis/internal/migrations"
-	"vectis/internal/networking"
 	"vectis/internal/registry"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -134,12 +134,12 @@ func (s *APIServer) triggerJob(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *APIServer) Run() error {
+func (s *APIServer) Run(addr string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/jobs/trigger/{id}", s.triggerJob)
 
-	s.logger.Info("API server listening on %s", networking.APIPort)
-	return http.ListenAndServe(networking.APIPort, mux)
+	s.logger.Info("API server listening on %s", addr)
+	return http.ListenAndServe(addr, mux)
 }
 
 func runVectisAPI(cmd *cobra.Command, args []string) {
@@ -163,7 +163,12 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		logger.Fatal("Failed to connect to services: %v", err)
 	}
 
-	if err := server.Run(); err != nil {
+	port := viper.GetInt("port")
+	if port <= 0 {
+		port = 8080
+	}
+	addr := fmt.Sprintf(":%d", port)
+	if err := server.Run(addr); err != nil {
 		logger.Fatal("Server failed: %v", err)
 	}
 }
@@ -173,6 +178,14 @@ var rootCmd = &cobra.Command{
 	Short: "Vectis API Server",
 	Long:  `The Vectis API Server provides REST endpoints for triggering stored jobs.`,
 	Run:   runVectisAPI,
+}
+
+func init() {
+	viper.SetDefault("port", 8080)
+	rootCmd.PersistentFlags().Int("port", 8080, "Port for the API server")
+	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
+	viper.SetEnvPrefix("VECTIS_API_SERVER")
+	viper.AutomaticEnv()
 }
 
 func main() {
