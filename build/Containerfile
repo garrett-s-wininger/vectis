@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 FROM docker.io/library/golang:1.25.7-alpine AS builder
-RUN apk add --no-cache gcc musl-dev
+RUN apk add --no-cache gcc make musl-dev
 
 WORKDIR /app
 COPY go.mod go.sum ./
@@ -10,40 +10,41 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 COPY api/ ./api/
 COPY cmd/ ./cmd/
 COPY internal/ ./internal/
+COPY Makefile ./Makefile
 
 ENV CGO_ENABLED=1 GOARCH=amd64 GOOS=linux
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    go build -o bin/ -a -ldflags '-s -w -linkmode external -extldflags "-static"' ./...
+    make build-static
 
-FROM scratch AS api-server
+FROM scratch AS api
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
       org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
 ENV XDG_DATA_HOME=/data
-COPY --from=builder /app/bin/vectis-api-server /usr/local/bin/
-ENTRYPOINT ["/usr/local/bin/vectis-api-server"]
+COPY --from=builder /app/bin/vectis-api /usr/local/bin/vectis-api
+ENTRYPOINT ["/usr/local/bin/vectis-api"]
 
 FROM scratch AS queue
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
       org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
-COPY --from=builder /app/bin/vectis-queue /usr/local/bin/
+COPY --from=builder /app/bin/vectis-queue /usr/local/bin/vectis-queue
 ENTRYPOINT ["/usr/local/bin/vectis-queue"]
 
 FROM scratch AS registry
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
       org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
-COPY --from=builder /app/bin/vectis-registry /usr/local/bin/
+COPY --from=builder /app/bin/vectis-registry /usr/local/bin/vectis-registry
 ENTRYPOINT ["/usr/local/bin/vectis-registry"]
 
 FROM scratch AS worker
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
       org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
-COPY --from=builder /app/bin/vectis-worker /usr/local/bin/
+COPY --from=builder /app/bin/vectis-worker /usr/local/bin/vectis-worker
 ENTRYPOINT ["/usr/local/bin/vectis-worker"]
 
 FROM scratch AS all-in-one
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
       org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
 ENV XDG_DATA_HOME=/data
-COPY --from=builder /app/bin/vectis-api-server /app/bin/vectis-queue /app/bin/vectis-registry /app/bin/vectis-worker /app/bin/vectis-local /usr/local/bin/
+COPY --from=builder /app/bin/vectis-api /app/bin/vectis-queue /app/bin/vectis-registry /app/bin/vectis-worker /app/bin/vectis-local /usr/local/bin/
 ENTRYPOINT ["/usr/local/bin/vectis-local"]

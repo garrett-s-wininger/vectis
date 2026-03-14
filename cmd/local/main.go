@@ -14,7 +14,7 @@ var childBinaries = []string{
 	"vectis-registry",
 	"vectis-queue",
 	"vectis-worker",
-	"vectis-api-server",
+	"vectis-api",
 }
 
 func runVectis(cmd *cobra.Command, args []string) {

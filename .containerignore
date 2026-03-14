@@ -7,6 +7,6 @@ bin/
 build/
 buf.gen.yaml
 buf.yaml
+deploy/
 LICENSE
-Makefile
 PLANNING.md
