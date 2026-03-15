@@ -9,12 +9,12 @@ import (
 	"time"
 
 	"vectis/internal/cron"
-	"vectis/internal/database"
 	"vectis/internal/interfaces/mocks"
+	"vectis/internal/testutil/dbtest"
 )
 
 func setupTestCronService(t *testing.T) (*cron.CronService, *mocks.MockLogger, *mocks.MockQueueService, *sql.DB) {
-	db := database.NewTestDB(t)
+	db := dbtest.NewTestDB(t)
 	logger := mocks.NewMockLogger()
 	queueService := mocks.NewMockQueueService()
 

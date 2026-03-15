@@ -3,7 +3,6 @@ package queue_test
 import (
 	"context"
 	"fmt"
-	"net"
 	"sync"
 	"testing"
 	"time"
@@ -11,55 +10,31 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/queue"
+	"vectis/internal/testutil/grpctest"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
-func setupTestServer(t *testing.T) (api.QueueServiceClient, *grpc.Server, net.Listener) {
+func setupQueueClient(t *testing.T) api.QueueServiceClient {
 	t.Helper()
 
 	logger := mocks.NewMockLogger()
 	queueService := queue.NewQueueService(logger)
 
-	listener, err := net.Listen("tcp", "localhost:0")
-	if err != nil {
-		t.Fatalf("failed to create listener: %v", err)
-	}
-
-	server := grpc.NewServer()
-	api.RegisterQueueServiceServer(server, queueService)
-
-	go func() {
-		if err := server.Serve(listener); err != nil && err != grpc.ErrServerStopped {
-			t.Logf("server error: %v", err)
-		}
-	}()
-
-	conn, err := grpc.Dial(listener.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		listener.Close()
-		t.Fatalf("failed to dial: %v", err)
-	}
-
-	client := api.NewQueueServiceClient(conn)
-
-	t.Cleanup(func() {
-		conn.Close()
-		server.Stop()
+	_, _, conn := grpctest.SetupGRPCServer(t, func(s *grpc.Server) {
+		api.RegisterQueueServiceServer(s, queueService)
 	})
 
-	return client, server, listener
+	return api.NewQueueServiceClient(conn)
 }
 
 func TestIntegrationQueue_EnqueueDequeueRoundTrip(t *testing.T) {
-	client, _, _ := setupTestServer(t)
+	client := setupQueueClient(t)
 
 	ctx := context.Background()
 
 	jobID := "test-job-1"
 	uses := "builtins/shell"
-
 	job := &api.Job{
 		Id: &jobID,
 		Root: &api.Node{
@@ -89,8 +64,7 @@ func TestIntegrationQueue_EnqueueDequeueRoundTrip(t *testing.T) {
 }
 
 func TestIntegrationQueue_DequeueBlocksUntilJobAvailable(t *testing.T) {
-	client, _, _ := setupTestServer(t)
-
+	client := setupQueueClient(t)
 	ctx := context.Background()
 
 	dequeueDone := make(chan *api.Job, 1)
@@ -121,9 +95,9 @@ func TestIntegrationQueue_DequeueBlocksUntilJobAvailable(t *testing.T) {
 }
 
 func TestIntegrationQueue_DequeueContextCancellation(t *testing.T) {
-	client, _, _ := setupTestServer(t)
-
+	client := setupQueueClient(t)
 	ctx, cancel := context.WithCancel(context.Background())
+
 	errChan := make(chan error, 1)
 	go func() {
 		_, err := client.Dequeue(ctx, &api.Empty{})
@@ -143,14 +117,14 @@ func TestIntegrationQueue_DequeueContextCancellation(t *testing.T) {
 }
 
 func TestIntegrationQueue_ConcurrentEnqueueDequeue(t *testing.T) {
-	client, _, _ := setupTestServer(t)
+	client := setupQueueClient(t)
 
 	ctx := context.Background()
 	numJobs := 100
 	numWorkers := 10
 
 	var enqueueWg sync.WaitGroup
-	for i := range numJobs {
+	for i := 0; i < numJobs; i++ {
 		enqueueWg.Add(1)
 
 		go func(id int) {
@@ -169,8 +143,10 @@ func TestIntegrationQueue_ConcurrentEnqueueDequeue(t *testing.T) {
 	var mu sync.Mutex
 	var dequeueWg sync.WaitGroup
 
-	for range numWorkers {
-		dequeueWg.Go(func() {
+	for i := 0; i < numWorkers; i++ {
+		dequeueWg.Add(1)
+		go func() {
+			defer dequeueWg.Done()
 			for {
 				ctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
 				job, err := client.Dequeue(ctx, &api.Empty{})
@@ -184,7 +160,7 @@ func TestIntegrationQueue_ConcurrentEnqueueDequeue(t *testing.T) {
 				receivedJobs[job.GetId()] = true
 				mu.Unlock()
 			}
-		})
+		}()
 	}
 
 	dequeueWg.Wait()
@@ -195,7 +171,7 @@ func TestIntegrationQueue_ConcurrentEnqueueDequeue(t *testing.T) {
 }
 
 func TestIntegrationQueue_MultipleDequeueWaiters(t *testing.T) {
-	client, _, _ := setupTestServer(t)
+	client := setupQueueClient(t)
 
 	ctx := context.Background()
 	numWaiters := 5
@@ -207,7 +183,7 @@ func TestIntegrationQueue_MultipleDequeueWaiters(t *testing.T) {
 
 	results := make(chan result, numWaiters)
 
-	for i := range numWaiters {
+	for i := 0; i < numWaiters; i++ {
 		go func(id int) {
 			timeoutCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			defer cancel()
@@ -233,7 +209,6 @@ func TestIntegrationQueue_MultipleDequeueWaiters(t *testing.T) {
 		if res.success {
 			successCount++
 		}
-
 		if len(results) == 0 {
 			timeout.Stop()
 			break
@@ -246,8 +221,7 @@ func TestIntegrationQueue_MultipleDequeueWaiters(t *testing.T) {
 }
 
 func TestIntegrationQueue_DequeueEmptyQueue(t *testing.T) {
-	client, _, _ := setupTestServer(t)
-
+	client := setupQueueClient(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
@@ -258,13 +232,15 @@ func TestIntegrationQueue_DequeueEmptyQueue(t *testing.T) {
 }
 
 func TestIntegrationQueue_EnqueueMultipleDequeueOrder(t *testing.T) {
-	client, _, _ := setupTestServer(t)
+	client := setupQueueClient(t)
+
 	ctx := context.Background()
 
 	for i := 1; i <= 3; i++ {
 		id := fmt.Sprintf("job-%d", i)
 		job := &api.Job{Id: &id}
 		_, err := client.Enqueue(ctx, job)
+
 		if err != nil {
 			t.Fatalf("enqueue %d failed: %v", i, err)
 		}

@@ -11,12 +11,12 @@ import (
 	"testing"
 
 	"vectis/internal/api"
-	"vectis/internal/database"
 	"vectis/internal/interfaces/mocks"
+	"vectis/internal/testutil/dbtest"
 )
 
 func setupTestServer(t *testing.T) (*api.APIServer, *mocks.MockLogger, *mocks.MockQueueService, *sql.DB) {
-	db := database.NewTestDB(t)
+	db := dbtest.NewTestDB(t)
 	logger := mocks.NewMockLogger()
 	queueService := mocks.NewMockQueueService()
 
