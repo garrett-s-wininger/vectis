@@ -9,6 +9,7 @@ import (
 	"net/http"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/interfaces"
 	"vectis/internal/log"
 	"vectis/internal/registry"
 
@@ -20,7 +21,7 @@ type APIServer struct {
 	db             *sql.DB
 	logger         *log.Logger
 	queueClient    api.QueueServiceClient
-	registryClient *registry.Registry
+	registryClient interfaces.RegistryClient
 }
 
 func NewAPIServer(logger *log.Logger, db *sql.DB) *APIServer {
