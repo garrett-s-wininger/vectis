@@ -11,6 +11,7 @@ import (
 type QueueClient interface {
 	Enqueue(ctx context.Context, job *api.Job) error
 	Dequeue(ctx context.Context) (*api.Job, error)
+	TryDequeue(ctx context.Context) (*api.Job, error)
 	Close() error
 }
 
@@ -58,6 +59,14 @@ func (c *GRPCQueueClient) Dequeue(ctx context.Context) (*api.Job, error) {
 	job, err := c.client.Dequeue(ctx, &api.Empty{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to dequeue job: %w", err)
+	}
+	return job, nil
+}
+
+func (c *GRPCQueueClient) TryDequeue(ctx context.Context) (*api.Job, error) {
+	job, err := c.client.TryDequeue(ctx, &api.Empty{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to try dequeue job: %w", err)
 	}
 	return job, nil
 }

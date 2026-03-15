@@ -19,8 +19,9 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	QueueService_Enqueue_FullMethodName = "/QueueService/Enqueue"
-	QueueService_Dequeue_FullMethodName = "/QueueService/Dequeue"
+	QueueService_Enqueue_FullMethodName    = "/QueueService/Enqueue"
+	QueueService_Dequeue_FullMethodName    = "/QueueService/Dequeue"
+	QueueService_TryDequeue_FullMethodName = "/QueueService/TryDequeue"
 )
 
 // QueueServiceClient is the client API for QueueService service.
@@ -29,6 +30,7 @@ const (
 type QueueServiceClient interface {
 	Enqueue(ctx context.Context, in *Job, opts ...grpc.CallOption) (*Empty, error)
 	Dequeue(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Job, error)
+	TryDequeue(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Job, error)
 }
 
 type queueServiceClient struct {
@@ -59,12 +61,23 @@ func (c *queueServiceClient) Dequeue(ctx context.Context, in *Empty, opts ...grp
 	return out, nil
 }
 
+func (c *queueServiceClient) TryDequeue(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Job, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Job)
+	err := c.cc.Invoke(ctx, QueueService_TryDequeue_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // QueueServiceServer is the server API for QueueService service.
 // All implementations must embed UnimplementedQueueServiceServer
 // for forward compatibility.
 type QueueServiceServer interface {
 	Enqueue(context.Context, *Job) (*Empty, error)
 	Dequeue(context.Context, *Empty) (*Job, error)
+	TryDequeue(context.Context, *Empty) (*Job, error)
 	mustEmbedUnimplementedQueueServiceServer()
 }
 
@@ -80,6 +93,9 @@ func (UnimplementedQueueServiceServer) Enqueue(context.Context, *Job) (*Empty, e
 }
 func (UnimplementedQueueServiceServer) Dequeue(context.Context, *Empty) (*Job, error) {
 	return nil, status.Error(codes.Unimplemented, "method Dequeue not implemented")
+}
+func (UnimplementedQueueServiceServer) TryDequeue(context.Context, *Empty) (*Job, error) {
+	return nil, status.Error(codes.Unimplemented, "method TryDequeue not implemented")
 }
 func (UnimplementedQueueServiceServer) mustEmbedUnimplementedQueueServiceServer() {}
 func (UnimplementedQueueServiceServer) testEmbeddedByValue()                      {}
@@ -138,6 +154,24 @@ func _QueueService_Dequeue_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
+func _QueueService_TryDequeue_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(QueueServiceServer).TryDequeue(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: QueueService_TryDequeue_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(QueueServiceServer).TryDequeue(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // QueueService_ServiceDesc is the grpc.ServiceDesc for QueueService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -152,6 +186,10 @@ var QueueService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Dequeue",
 			Handler:    _QueueService_Dequeue_Handler,
+		},
+		{
+			MethodName: "TryDequeue",
+			Handler:    _QueueService_TryDequeue_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

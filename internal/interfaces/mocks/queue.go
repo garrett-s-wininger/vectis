@@ -91,6 +91,23 @@ func (m *MockQueueClient) Dequeue(ctx context.Context) (*api.Job, error) {
 	return job, nil
 }
 
+func (m *MockQueueClient) TryDequeue(ctx context.Context) (*api.Job, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.dequeueErr != nil {
+		return nil, m.dequeueErr
+	}
+
+	if len(m.jobs) == 0 {
+		return nil, nil
+	}
+
+	job := m.jobs[0]
+	m.jobs = m.jobs[1:]
+	return job, nil
+}
+
 func (m *MockQueueClient) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

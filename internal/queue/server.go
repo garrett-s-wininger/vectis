@@ -86,6 +86,21 @@ func (s *queueServer) Dequeue(ctx context.Context, _ *api.Empty) (*api.Job, erro
 	return job, nil
 }
 
+func (s *queueServer) TryDequeue(ctx context.Context, _ *api.Empty) (*api.Job, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if len(s.jobs) == 0 {
+		// Queue is empty, return nil without blocking
+		return nil, nil
+	}
+
+	job := s.jobs[0]
+	s.jobs = s.jobs[1:]
+	s.log.Info("TryDequeue returned job: %s", job.GetId())
+	return job, nil
+}
+
 func RegisterQueueService(s grpc.ServiceRegistrar, logger interfaces.Logger) {
 	api.RegisterQueueServiceServer(s, NewQueueService(logger))
 }

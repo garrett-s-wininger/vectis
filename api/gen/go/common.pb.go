@@ -103,7 +103,6 @@ func (*Empty) Descriptor() ([]byte, []int) {
 	return file_common_proto_rawDescGZIP(), []int{0}
 }
 
-// Job represents a build job with a behavior tree of actions
 type Job struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            *string                `protobuf:"bytes,1,opt,name=id" json:"id,omitempty"`
@@ -156,14 +155,12 @@ func (x *Job) GetRoot() *Node {
 	return nil
 }
 
-// Node represents a single node in the behavior tree
-// Can be a leaf action (checkout, shell) or a composite (sequence, parallel)
 type Node struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            *string                `protobuf:"bytes,1,opt,name=id" json:"id,omitempty"`
-	Uses          *string                `protobuf:"bytes,2,opt,name=uses" json:"uses,omitempty"`                                                                           // e.g., "builtins/sequence", "builtins/shell"
-	With          map[string]string      `protobuf:"bytes,3,rep,name=with" json:"with,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // Action inputs (simplified to string values)
-	Steps         []*Node                `protobuf:"bytes,4,rep,name=steps" json:"steps,omitempty"`                                                                         // Child nodes for composites/decorators
+	Uses          *string                `protobuf:"bytes,2,opt,name=uses" json:"uses,omitempty"`
+	With          map[string]string      `protobuf:"bytes,3,rep,name=with" json:"with,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Steps         []*Node                `protobuf:"bytes,4,rep,name=steps" json:"steps,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }

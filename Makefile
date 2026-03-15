@@ -36,6 +36,14 @@ format:
 
 .PHONY: test
 test:
+	go test -skip '^TestIntegration' ./...
+
+.PHONY: test-integration
+test-integration:
+	go test -run '^TestIntegration' ./...
+
+.PHONY: test-all
+test-all:
 	go test ./...
 
 .PHONY: test-race

@@ -5,4 +5,5 @@ import "common.proto";
 service QueueService {
     rpc Enqueue(common.Job) returns (common.Empty);
     rpc Dequeue(common.Empty) returns (common.Job);
+    rpc TryDequeue(common.Empty) returns (common.Job);
 }
