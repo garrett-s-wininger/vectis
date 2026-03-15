@@ -54,6 +54,57 @@ func (s *APIServer) ConnectToRegistry(ctx context.Context) error {
 	return nil
 }
 
+func (s *APIServer) getJobs(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.db.Query("SELECT job_id, definition_json FROM stored_jobs")
+	if err != nil {
+		s.logger.Error("Database error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	// TODO(garrett): Cursor-based pagination.
+	// TODO(garrett): Option to avoid returning the definition.
+	var jobs []map[string]interface{}
+	for rows.Next() {
+		var jobID string
+		var definitionJSON string
+		if err := rows.Scan(&jobID, &definitionJSON); err != nil {
+			s.logger.Error("Failed to scan row: %v", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		var definition interface{}
+		if err := json.Unmarshal([]byte(definitionJSON), &definition); err != nil {
+			s.logger.Error("Failed to parse job definition for job %s: %v", jobID, err)
+			continue
+		}
+
+		jobs = append(jobs, map[string]interface{}{
+			"name":       jobID,
+			"definition": definition,
+		})
+	}
+
+	if err := rows.Err(); err != nil {
+		s.logger.Error("Row iteration error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if jobs == nil {
+		jobs = make([]map[string]interface{}, 0)
+	}
+
+	if err := json.NewEncoder(w).Encode(jobs); err != nil {
+		s.logger.Error("Failed to encode jobs as JSON: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+}
+
 func (s *APIServer) triggerJob(w http.ResponseWriter, r *http.Request) {
 	jobID := r.PathValue("id")
 	if jobID == "" {
@@ -96,6 +147,7 @@ func (s *APIServer) triggerJob(w http.ResponseWriter, r *http.Request) {
 
 func (s *APIServer) Run(addr string) error {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/jobs", s.getJobs)
 	mux.HandleFunc("POST /api/v1/jobs/trigger/{id}", s.triggerJob)
 
 	s.logger.Info("API server listening on %s", addr)
