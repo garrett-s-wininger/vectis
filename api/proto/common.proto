@@ -6,11 +6,14 @@ message Empty{}
 
 message Job {
     string id = 1;
-    repeated Step steps = 2;
+    Node root = 2;
 }
 
-message Step {
-    string command = 1;
+message Node {
+    string id = 1;
+    string uses = 2;
+    map<string, string> with = 3;
+    repeated Node steps = 4;
 }
 
 enum Stream {

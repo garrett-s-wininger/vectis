@@ -103,10 +103,11 @@ func (*Empty) Descriptor() ([]byte, []int) {
 	return file_common_proto_rawDescGZIP(), []int{0}
 }
 
+// Job represents a build job with a behavior tree of actions
 type Job struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            *string                `protobuf:"bytes,1,opt,name=id" json:"id,omitempty"`
-	Steps         []*Step                `protobuf:"bytes,2,rep,name=steps" json:"steps,omitempty"`
+	Root          *Node                  `protobuf:"bytes,2,opt,name=root" json:"root,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -148,34 +149,39 @@ func (x *Job) GetId() string {
 	return ""
 }
 
-func (x *Job) GetSteps() []*Step {
+func (x *Job) GetRoot() *Node {
 	if x != nil {
-		return x.Steps
+		return x.Root
 	}
 	return nil
 }
 
-type Step struct {
+// Node represents a single node in the behavior tree
+// Can be a leaf action (checkout, shell) or a composite (sequence, parallel)
+type Node struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Command       *string                `protobuf:"bytes,1,opt,name=command" json:"command,omitempty"`
+	Id            *string                `protobuf:"bytes,1,opt,name=id" json:"id,omitempty"`
+	Uses          *string                `protobuf:"bytes,2,opt,name=uses" json:"uses,omitempty"`                                                                           // e.g., "builtins/sequence", "builtins/shell"
+	With          map[string]string      `protobuf:"bytes,3,rep,name=with" json:"with,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // Action inputs (simplified to string values)
+	Steps         []*Node                `protobuf:"bytes,4,rep,name=steps" json:"steps,omitempty"`                                                                         // Child nodes for composites/decorators
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *Step) Reset() {
-	*x = Step{}
+func (x *Node) Reset() {
+	*x = Node{}
 	mi := &file_common_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *Step) String() string {
+func (x *Node) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*Step) ProtoMessage() {}
+func (*Node) ProtoMessage() {}
 
-func (x *Step) ProtoReflect() protoreflect.Message {
+func (x *Node) ProtoReflect() protoreflect.Message {
 	mi := &file_common_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -187,16 +193,37 @@ func (x *Step) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use Step.ProtoReflect.Descriptor instead.
-func (*Step) Descriptor() ([]byte, []int) {
+// Deprecated: Use Node.ProtoReflect.Descriptor instead.
+func (*Node) Descriptor() ([]byte, []int) {
 	return file_common_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *Step) GetCommand() string {
-	if x != nil && x.Command != nil {
-		return *x.Command
+func (x *Node) GetId() string {
+	if x != nil && x.Id != nil {
+		return *x.Id
 	}
 	return ""
+}
+
+func (x *Node) GetUses() string {
+	if x != nil && x.Uses != nil {
+		return *x.Uses
+	}
+	return ""
+}
+
+func (x *Node) GetWith() map[string]string {
+	if x != nil {
+		return x.With
+	}
+	return nil
+}
+
+func (x *Node) GetSteps() []*Node {
+	if x != nil {
+		return x.Steps
+	}
+	return nil
 }
 
 type LogChunk struct {
@@ -272,12 +299,18 @@ var File_common_proto protoreflect.FileDescriptor
 const file_common_proto_rawDesc = "" +
 	"\n" +
 	"\fcommon.proto\x12\x06common\"\a\n" +
-	"\x05Empty\"9\n" +
+	"\x05Empty\"7\n" +
 	"\x03Job\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\"\n" +
-	"\x05steps\x18\x02 \x03(\v2\f.common.StepR\x05steps\" \n" +
-	"\x04Step\x12\x18\n" +
-	"\acommand\x18\x01 \x01(\tR\acommand\"y\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12 \n" +
+	"\x04root\x18\x02 \x01(\v2\f.common.NodeR\x04root\"\xb3\x01\n" +
+	"\x04Node\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04uses\x18\x02 \x01(\tR\x04uses\x12*\n" +
+	"\x04with\x18\x03 \x03(\v2\x16.common.Node.WithEntryR\x04with\x12\"\n" +
+	"\x05steps\x18\x04 \x03(\v2\f.common.NodeR\x05steps\x1a7\n" +
+	"\tWithEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"y\n" +
 	"\bLogChunk\x12\x15\n" +
 	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x12\x12\n" +
 	"\x04data\x18\x02 \x01(\fR\x04data\x12\x1a\n" +
@@ -302,22 +335,25 @@ func file_common_proto_rawDescGZIP() []byte {
 }
 
 var file_common_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_common_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_common_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_common_proto_goTypes = []any{
 	(Stream)(0),      // 0: common.Stream
 	(*Empty)(nil),    // 1: common.Empty
 	(*Job)(nil),      // 2: common.Job
-	(*Step)(nil),     // 3: common.Step
+	(*Node)(nil),     // 3: common.Node
 	(*LogChunk)(nil), // 4: common.LogChunk
+	nil,              // 5: common.Node.WithEntry
 }
 var file_common_proto_depIdxs = []int32{
-	3, // 0: common.Job.steps:type_name -> common.Step
-	0, // 1: common.LogChunk.stream:type_name -> common.Stream
-	2, // [2:2] is the sub-list for method output_type
-	2, // [2:2] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	3, // 0: common.Job.root:type_name -> common.Node
+	5, // 1: common.Node.with:type_name -> common.Node.WithEntry
+	3, // 2: common.Node.steps:type_name -> common.Node
+	0, // 3: common.LogChunk.stream:type_name -> common.Stream
+	4, // [4:4] is the sub-list for method output_type
+	4, // [4:4] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_common_proto_init() }
@@ -331,7 +367,7 @@ func file_common_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_common_proto_rawDesc), len(file_common_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   4,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

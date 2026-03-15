@@ -1,0 +1,30 @@
+{
+  "id": "example-job",
+  "root": {
+    "id": "root-sequence",
+    "uses": "builtins/sequence",
+    "steps": [
+      {
+        "id": "step-1",
+        "uses": "builtins/shell",
+        "with": {
+          "command": "echo 'Hello from Vectis!'"
+        }
+      },
+      {
+        "id": "step-2",
+        "uses": "builtins/shell",
+        "with": {
+          "command": "echo 'Running multiple steps in sequence'"
+        }
+      },
+      {
+        "id": "step-3",
+        "uses": "builtins/shell",
+        "with": {
+          "command": "pwd && ls -la"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,119 @@
+package builtins
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"os/exec"
+	"sync"
+
+	api "vectis/api/gen/go"
+	"vectis/internal/action"
+)
+
+type ShellAction struct{}
+
+func (s *ShellAction) Type() string {
+	return "builtins/shell"
+}
+
+func (s *ShellAction) Execute(ctx context.Context, state *action.ExecutionState, inputs map[string]interface{}, _ []*api.Node) action.Result {
+	commandStr, ok := inputs["command"].(string)
+	if !ok || commandStr == "" {
+		return action.NewFailureResult(fmt.Errorf("shell action requires 'command' input"))
+	}
+
+	state.Logger.Info("Executing shell command: %s", commandStr)
+	sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("$ %s", commandStr))
+
+	cmd := exec.CommandContext(ctx, "sh", "-c", commandStr)
+
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return action.NewFailureResult(fmt.Errorf("failed to create stdout pipe: %w", err))
+	}
+
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return action.NewFailureResult(fmt.Errorf("failed to create stderr pipe: %w", err))
+	}
+
+	if err := cmd.Start(); err != nil {
+		return action.NewFailureResult(fmt.Errorf("failed to start command: %w", err))
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		streamOutput(stdoutPipe, state, api.Stream_STREAM_STDOUT)
+	}()
+
+	go func() {
+		defer wg.Done()
+		streamOutput(stderrPipe, state, api.Stream_STREAM_STDERR)
+	}()
+
+	// NOTE(garrett): We let the command finish, and then the streaming output so that we
+	// can ensure that the log service has received all the necessary data for archiving.
+	cmdErr := cmd.Wait()
+	wg.Wait()
+
+	if cmdErr != nil {
+		state.Logger.Error("Command failed: %v", cmdErr)
+		sendLog(state, api.Stream_STREAM_STDERR, fmt.Sprintf("Command failed: %v", cmdErr))
+		return action.NewFailureResult(fmt.Errorf("command failed: %w", cmdErr))
+	}
+
+	state.Logger.Info("Command completed successfully")
+	sendLog(state, api.Stream_STREAM_STDOUT, "Command completed successfully")
+	return action.NewSuccessResult(nil)
+}
+
+func streamOutput(reader io.Reader, state *action.ExecutionState, streamType api.Stream) {
+	buf := make([]byte, 4096)
+	for {
+		n, err := reader.Read(buf)
+		if n > 0 {
+			data := buf[:n]
+			seq := state.NextSequence()
+			chunk := &api.LogChunk{
+				JobId:    &state.JobID,
+				Data:     data,
+				Sequence: &seq,
+				Stream:   &streamType,
+			}
+
+			if err := state.LogStream.Send(chunk); err != nil {
+				state.Logger.Error("Failed to send log chunk: %v", err)
+			}
+		}
+
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			state.Logger.Error("Error reading output: %v", err)
+			break
+		}
+	}
+}
+
+func sendLog(state *action.ExecutionState, streamType api.Stream, message string) {
+	if state.LogStream == nil {
+		return
+	}
+
+	seq := state.NextSequence()
+	chunk := &api.LogChunk{
+		JobId:    &state.JobID,
+		Data:     []byte(message),
+		Sequence: &seq,
+		Stream:   &streamType,
+	}
+
+	if err := state.LogStream.Send(chunk); err != nil {
+		state.Logger.Error("Failed to send log chunk: %v", err)
+	}
+}

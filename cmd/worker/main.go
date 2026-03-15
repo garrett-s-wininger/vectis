@@ -1,13 +1,8 @@
 package main
 
 import (
-	"bufio"
 	"context"
-	"io"
 	"os"
-	"os/exec"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -18,6 +13,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/job"
 	"vectis/internal/log"
 	"vectis/internal/registry"
 )
@@ -25,7 +21,6 @@ import (
 func runWorker(cmd *cobra.Command, args []string) {
 	ctx := context.Background()
 	logger := log.New("worker")
-	tee := viper.GetBool("tee")
 
 	logger.Info("Connecting to registry...")
 	registryClient, err := registry.New(ctx, logger)
@@ -34,7 +29,6 @@ func runWorker(cmd *cobra.Command, args []string) {
 	}
 	defer registryClient.Close()
 
-	// Get queue address
 	logger.Info("Getting queue service address from registry...")
 	queueAddr, err := registryClient.Address(ctx, api.Component_COMPONENT_QUEUE)
 	if err != nil {
@@ -49,11 +43,10 @@ func runWorker(cmd *cobra.Command, args []string) {
 	defer queueConn.Close()
 	queueClient := api.NewQueueServiceClient(queueConn)
 
-	// Get log service address
 	logger.Info("Getting log service address from registry...")
 	logAddr, err := registryClient.Address(ctx, api.Component_COMPONENT_LOG)
 	if err != nil {
-		logger.Fatal("Failed to get log address: %v", err)
+		logger.Fatal("Failed to get log service address: %v", err)
 	}
 
 	logger.Info("Connecting to log service at %s...", logAddr)
@@ -62,7 +55,9 @@ func runWorker(cmd *cobra.Command, args []string) {
 		logger.Fatal("Failed to connect to log service: %v", err)
 	}
 	defer logConn.Close()
+
 	logClient := api.NewLogServiceClient(logConn)
+	executor := job.NewExecutor()
 
 	for {
 		logger.Debug("Initiating long poll from queue...")
@@ -81,117 +76,27 @@ func runWorker(cmd *cobra.Command, args []string) {
 			}
 		}
 
-		jobID := *job.Id
+		jobID := job.GetId()
 		logger.Info("Executing job: %s", jobID)
 
-		// Create log stream
-		logStream, err := logClient.StreamLogs(ctx)
-		if err != nil {
-			logger.Error("Failed to create log stream: %v", err)
-			continue
-		}
-		logger.Info("Connected to log service for job %s", jobID)
-
-		var sequence int64
-
-		for i, step := range job.Steps {
-			logger.Info("Running step %d: %s", i+1, *step.Command)
-
-			cmd := exec.Command("sh", "-c", *step.Command)
-
-			// Create pipes for stdout and stderr
-			stdoutPipe, err := cmd.StdoutPipe()
-			if err != nil {
-				logger.Fatal("Failed to create stdout pipe: %v", err)
-			}
-
-			stderrPipe, err := cmd.StderrPipe()
-			if err != nil {
-				logger.Fatal("Failed to create stderr pipe: %v", err)
-			}
-
-			// Start the command
-			if err := cmd.Start(); err != nil {
-				logger.Fatal("Failed to start step %d: %v", i+1, err)
-			}
-
-			// Stream both stdout and stderr
-			var wg sync.WaitGroup
-			wg.Add(2)
-
-			go func() {
-				defer wg.Done()
-				streamOutput(stdoutPipe, jobID, api.Stream_STREAM_STDOUT, &sequence, logStream, tee)
-			}()
-
-			go func() {
-				defer wg.Done()
-				streamOutput(stderrPipe, jobID, api.Stream_STREAM_STDERR, &sequence, logStream, tee)
-			}()
-
-			// Wait for both streams to complete
-			wg.Wait()
-
-			// Wait for command to complete
-			if err := cmd.Wait(); err != nil {
-				logger.Fatal("Step %d failed: %v", i+1, err)
-			}
-		}
-
-		logStream.CloseSend()
-		logger.Info("Job completed successfully")
-	}
-}
-
-func streamOutput(reader io.Reader, jobID string, streamType api.Stream, sequence *int64, logStream api.LogService_StreamLogsClient, tee bool) {
-	scanner := bufio.NewScanner(reader)
-	for scanner.Scan() {
-		line := scanner.Text()
-		seq := atomic.AddInt64(sequence, 1)
-
-		// Send to log service
-		chunk := &api.LogChunk{
-			JobId:    &jobID,
-			Data:     []byte(line),
-			Sequence: &seq,
-			Stream:   &streamType,
-		}
-
-		if err := logStream.Send(chunk); err != nil {
-			// Log locally if we can't send to log service
-			if tee {
-				printLine(streamType, line)
-			}
+		if err := executor.ExecuteJob(ctx, job, logClient, logger); err != nil {
+			logger.Error("Job %s failed: %v", jobID, err)
+			// TODO(garrett): Report job failure.
 			continue
 		}
 
-		// Tee to stdout/stderr if enabled
-		if tee {
-			printLine(streamType, line)
-		}
-	}
-}
-
-func printLine(streamType api.Stream, line string) {
-	switch streamType {
-	case api.Stream_STREAM_STDOUT:
-		os.Stdout.WriteString(line + "\n")
-	case api.Stream_STREAM_STDERR:
-		os.Stderr.WriteString(line + "\n")
+		logger.Info("Job completed successfully: %s", jobID)
 	}
 }
 
 var rootCmd = &cobra.Command{
 	Use:   "vectis-worker",
 	Short: "Vectis Worker",
-	Long:  `The Vectis Worker executes jobs from the queue and streams logs.`,
+	Long:  `The Vectis Worker executes jobs from the queue using the action system.`,
 	Run:   runWorker,
 }
 
 func init() {
-	viper.SetDefault("tee", false)
-	rootCmd.PersistentFlags().Bool("tee", false, "Tee output to stdout/stderr in addition to streaming to log service")
-	_ = viper.BindPFlag("tee", rootCmd.PersistentFlags().Lookup("tee"))
 	viper.SetEnvPrefix("VECTIS_WORKER")
 	viper.AutomaticEnv()
 }
