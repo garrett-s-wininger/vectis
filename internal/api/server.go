@@ -35,7 +35,7 @@ func (s *APIServer) SetQueueClient(client interfaces.QueueService) {
 }
 
 func (s *APIServer) ConnectToRegistry(ctx context.Context) error {
-	regClient, err := registry.New(ctx, s.logger)
+	regClient, err := registry.New(ctx, s.logger, interfaces.SystemClock{})
 	if err != nil {
 		return fmt.Errorf("failed to connect to registry: %w", err)
 	}

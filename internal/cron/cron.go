@@ -28,6 +28,7 @@ type CronService struct {
 	logger      interfaces.Logger
 	queueClient interfaces.QueueService
 	parser      cron.Parser
+	clock       interfaces.Clock
 }
 
 func NewCronService(logger interfaces.Logger, db *sql.DB) *CronService {
@@ -35,6 +36,7 @@ func NewCronService(logger interfaces.Logger, db *sql.DB) *CronService {
 		db:     db,
 		logger: logger,
 		parser: cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow),
+		clock:  interfaces.SystemClock{},
 	}
 }
 
@@ -42,8 +44,12 @@ func (s *CronService) SetQueueClient(client interfaces.QueueService) {
 	s.queueClient = client
 }
 
+func (s *CronService) SetClock(clock interfaces.Clock) {
+	s.clock = clock
+}
+
 func (s *CronService) ConnectToQueue(ctx context.Context) error {
-	registryClient, err := registry.New(ctx, s.logger)
+	registryClient, err := registry.New(ctx, s.logger, interfaces.SystemClock{})
 	if err != nil {
 		return fmt.Errorf("failed to connect to registry: %w", err)
 	}
@@ -71,7 +77,7 @@ func (s *CronService) GetReadySchedules(ctx context.Context) ([]CronSchedule, er
 		WHERE next_run_at <= ?
 	`
 
-	rows, err := s.db.QueryContext(ctx, query, time.Now())
+	rows, err := s.db.QueryContext(ctx, query, s.clock.Now())
 	if err != nil {
 		return nil, fmt.Errorf("failed to query schedules: %w", err)
 	}
@@ -172,7 +178,7 @@ func (s *CronService) ProcessSchedules(ctx context.Context) error {
 		return nil
 	}
 
-	now := time.Now()
+	now := s.clock.Now()
 	s.logger.Info("Processing %d schedule(s)", len(schedules))
 
 	for _, sched := range schedules {

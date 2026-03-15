@@ -23,14 +23,19 @@ type Client[T any] struct {
 	Logger    interfaces.Logger
 	MaxTries  int
 	BaseDelay time.Duration
+	Clock     interfaces.Clock
 }
 
-func NewClient[T any](ctx context.Context, addr string, newClient func(grpc.ClientConnInterface) T, logger interfaces.Logger) (*Client[T], error) {
+func NewClient[T any](ctx context.Context, addr string, newClient func(grpc.ClientConnInterface) T, logger interfaces.Logger, clock interfaces.Clock) (*Client[T], error) {
 	if logger == nil {
 		return nil, fmt.Errorf("logger is required")
 	}
 
-	conn, err := connectWithRetry(ctx, addr, logger)
+	if clock == nil {
+		clock = interfaces.SystemClock{}
+	}
+
+	conn, err := connectWithRetry(ctx, addr, logger, clock)
 	if err != nil {
 		return nil, err
 	}
@@ -41,13 +46,21 @@ func NewClient[T any](ctx context.Context, addr string, newClient func(grpc.Clie
 		Logger:    logger,
 		MaxTries:  defaultMaxTries,
 		BaseDelay: defaultBaseDelay,
+		Clock:     clock,
 	}, nil
 }
 
-func connectWithRetry(_ context.Context, addr string, logger interfaces.Logger) (*grpc.ClientConn, error) {
+func connectWithRetry(ctx context.Context, addr string, logger interfaces.Logger, clock interfaces.Clock) (*grpc.ClientConn, error) {
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 	var conn *grpc.ClientConn
-	err := backoff.RetryWithBackoff(defaultMaxTries, defaultBaseDelay, func() error {
+
+	retryer := backoff.NewRetryer(backoff.RetryConfig{
+		MaxTries:  defaultMaxTries,
+		BaseDelay: defaultBaseDelay,
+		Clock:     clock,
+	})
+
+	err := retryer.Do(ctx, func() error {
 		var e error
 		conn, e = grpc.NewClient(addr, opts...)
 		return e

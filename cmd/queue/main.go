@@ -31,7 +31,7 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 	}
 
 	// TODO(garrett): Move to after queue is running.
-	registryClient, err := registry.New(cmd.Context(), logger)
+	registryClient, err := registry.New(cmd.Context(), logger, interfaces.SystemClock{})
 	if err != nil {
 		logger.Fatal("Failed to connect to registry: %v", err)
 	}

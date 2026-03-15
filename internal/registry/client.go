@@ -15,8 +15,8 @@ type Registry struct {
 	*networking.Client[api.RegistryServiceClient]
 }
 
-func New(ctx context.Context, logger interfaces.Logger) (*Registry, error) {
-	c, err := networking.NewClient(ctx, networking.RegistryPort, api.NewRegistryServiceClient, logger)
+func New(ctx context.Context, logger interfaces.Logger, clock interfaces.Clock) (*Registry, error) {
+	c, err := networking.NewClient(ctx, networking.RegistryPort, api.NewRegistryServiceClient, logger, clock)
 	if err != nil {
 		return nil, err
 	}
@@ -25,7 +25,13 @@ func New(ctx context.Context, logger interfaces.Logger) (*Registry, error) {
 }
 
 func (r *Registry) Register(ctx context.Context, component api.Component, address string) error {
-	return backoff.RetryWithBackoff(r.MaxTries, r.BaseDelay, func() error {
+	retryer := backoff.NewRetryer(backoff.RetryConfig{
+		MaxTries:  r.MaxTries,
+		BaseDelay: r.BaseDelay,
+		Clock:     r.Clock,
+	})
+
+	return retryer.Do(ctx, func() error {
 		return r.registerOnce(ctx, component, address)
 	}, func(attempt int, nextDelay time.Duration, err error) {
 		r.Logger.Warn("Failed to register with registry (attempt %d/%d): %v. Retrying in %v...", attempt, r.MaxTries, err, nextDelay)
@@ -45,7 +51,14 @@ func (r *Registry) registerOnce(ctx context.Context, component api.Component, ad
 
 func (r *Registry) Address(ctx context.Context, component api.Component) (string, error) {
 	var address string
-	err := backoff.RetryWithBackoff(r.MaxTries, r.BaseDelay, func() error {
+
+	retryer := backoff.NewRetryer(backoff.RetryConfig{
+		MaxTries:  r.MaxTries,
+		BaseDelay: r.BaseDelay,
+		Clock:     r.Clock,
+	})
+
+	err := retryer.Do(ctx, func() error {
 		var err error
 		address, err = r.getAddressOnce(ctx, component)
 		if err != nil {

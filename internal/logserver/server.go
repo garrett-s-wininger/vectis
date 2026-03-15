@@ -239,7 +239,7 @@ func (s *Server) RunWebSocket(ctx context.Context, port string) error {
 func Run(ctx context.Context, logger interfaces.Logger) error {
 	server := NewServer(logger)
 
-	registryClient, err := registry.New(ctx, logger)
+	registryClient, err := registry.New(ctx, logger, interfaces.SystemClock{})
 	if err != nil {
 		return err
 	}

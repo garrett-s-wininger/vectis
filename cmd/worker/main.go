@@ -23,7 +23,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewLogger("worker")
 
 	logger.Info("Connecting to registry...")
-	registryClient, err := registry.New(ctx, logger)
+	registryClient, err := registry.New(ctx, logger, interfaces.SystemClock{})
 	if err != nil {
 		logger.Fatal("Failed to connect to registry: %v", err)
 	}
