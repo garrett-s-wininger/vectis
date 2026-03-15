@@ -59,11 +59,11 @@ func (m *mockLogStream) CloseSend() error {
 	return nil
 }
 
-func (m *mockLogStream) RecvMsg(msg interface{}) error {
+func (m *mockLogStream) RecvMsg(msg any) error {
 	return errors.New("not implemented")
 }
 
-func (m *mockLogStream) SendMsg(msg interface{}) error {
+func (m *mockLogStream) SendMsg(msg any) error {
 	return errors.New("not implemented")
 }
 
@@ -89,7 +89,7 @@ func TestShellAction_Execute_Success(t *testing.T) {
 	mockStream := &mockLogStream{}
 	state := createTestState(mockStream)
 
-	inputs := map[string]interface{}{
+	inputs := map[string]any{
 		"command": "echo hello",
 	}
 
@@ -166,7 +166,7 @@ func TestShellAction_Execute_CommandFailure(t *testing.T) {
 	mockStream := &mockLogStream{}
 	state := createTestState(mockStream)
 
-	inputs := map[string]interface{}{
+	inputs := map[string]any{
 		"command": "false",
 	}
 	result := shellAction.Execute(context.Background(), state, inputs, nil)
@@ -201,7 +201,7 @@ func TestShellAction_Execute_MissingCommand(t *testing.T) {
 	shellAction := NewShellAction(nil)
 	state := createTestState(nil)
 
-	result := shellAction.Execute(context.Background(), state, map[string]interface{}{}, nil)
+	result := shellAction.Execute(context.Background(), state, map[string]any{}, nil)
 	if result.Status != action.StatusFailure {
 		t.Errorf("expected failure, got %v", result.Status)
 	}
@@ -214,7 +214,7 @@ func TestShellAction_Execute_MissingCommand(t *testing.T) {
 		t.Errorf("expected 'requires command input' error, got: %v", result.Error)
 	}
 
-	result = shellAction.Execute(context.Background(), state, map[string]interface{}{
+	result = shellAction.Execute(context.Background(), state, map[string]any{
 		"command": "",
 	}, nil)
 
@@ -222,7 +222,7 @@ func TestShellAction_Execute_MissingCommand(t *testing.T) {
 		t.Errorf("expected failure, got %v", result.Status)
 	}
 
-	result = shellAction.Execute(context.Background(), state, map[string]interface{}{
+	result = shellAction.Execute(context.Background(), state, map[string]any{
 		"command": 123,
 	}, nil)
 
@@ -238,7 +238,7 @@ func TestShellAction_Execute_StartError(t *testing.T) {
 	shellAction := NewShellAction(mockExecutor)
 	state := createTestState(nil)
 
-	inputs := map[string]interface{}{
+	inputs := map[string]any{
 		"command": "/bin/false",
 	}
 	result := shellAction.Execute(context.Background(), state, inputs, nil)
@@ -268,7 +268,7 @@ func TestShellAction_Execute_StdoutStderrStreaming(t *testing.T) {
 	mockStream := &mockLogStream{}
 	state := createTestState(mockStream)
 
-	inputs := map[string]interface{}{
+	inputs := map[string]any{
 		"command": "echo test",
 	}
 

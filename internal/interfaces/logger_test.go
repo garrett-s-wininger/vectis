@@ -173,12 +173,15 @@ func TestStderrLogger_AllLevels(t *testing.T) {
 	if !strings.Contains(output, "DEBUG") {
 		t.Error("expected output to contain DEBUG level")
 	}
+
 	if !strings.Contains(output, "INFO") {
 		t.Error("expected output to contain INFO level")
 	}
+
 	if !strings.Contains(output, "WARN") {
 		t.Error("expected output to contain WARN level")
 	}
+
 	if !strings.Contains(output, "ERROR") {
 		t.Error("expected output to contain ERROR level")
 	}

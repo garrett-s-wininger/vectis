@@ -14,7 +14,7 @@ func (s *SequenceNode) Type() string {
 	return "builtins/sequence"
 }
 
-func (s *SequenceNode) Execute(ctx context.Context, state *action.ExecutionState, _ map[string]interface{}, children []*api.Node) action.Result {
+func (s *SequenceNode) Execute(ctx context.Context, state *action.ExecutionState, _ map[string]any, children []*api.Node) action.Result {
 	if len(children) == 0 {
 		return action.NewSuccessResult(nil)
 	}
@@ -25,7 +25,7 @@ func (s *SequenceNode) Execute(ctx context.Context, state *action.ExecutionState
 	for i, child := range children {
 		sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Executing step %d/%d", i+1, len(children)))
 
-		childInputs := make(map[string]interface{})
+		childInputs := make(map[string]any)
 		for k, v := range child.GetWith() {
 			childInputs[k] = v
 		}
@@ -43,7 +43,7 @@ func (s *SequenceNode) Execute(ctx context.Context, state *action.ExecutionState
 	return action.NewSuccessResult(nil)
 }
 
-func executeChildNode(ctx context.Context, node *api.Node, state *action.ExecutionState, inputs map[string]interface{}) action.Result {
+func executeChildNode(ctx context.Context, node *api.Node, state *action.ExecutionState, inputs map[string]any) action.Result {
 	act, err := resolveAction(node.GetUses())
 	if err != nil {
 		return action.NewFailureResult(

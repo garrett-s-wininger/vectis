@@ -4,15 +4,34 @@ import (
 	"context"
 	"fmt"
 
-	api "vectis/api/gen/go"
-
 	"google.golang.org/grpc"
+	api "vectis/api/gen/go"
 )
 
 type QueueClient interface {
 	Enqueue(ctx context.Context, job *api.Job) error
 	Dequeue(ctx context.Context) (*api.Job, error)
 	Close() error
+}
+
+type QueueService interface {
+	Enqueue(ctx context.Context, job *api.Job) (*api.Empty, error)
+}
+
+type grpcQueueService struct {
+	client api.QueueServiceClient
+}
+
+func NewQueueService(client api.QueueServiceClient) QueueService {
+	return &grpcQueueService{client: client}
+}
+
+func (c *grpcQueueService) Enqueue(ctx context.Context, job *api.Job) (*api.Empty, error) {
+	return c.client.Enqueue(ctx, job)
+}
+
+type QueueServiceClient interface {
+	Enqueue(ctx context.Context, job *api.Job) (*api.Empty, error)
 }
 
 type GRPCQueueClient struct {

@@ -99,3 +99,43 @@ func (m *MockQueueClient) Close() error {
 }
 
 var _ interfaces.QueueClient = (*MockQueueClient)(nil)
+
+type MockQueueService struct {
+	mu         sync.Mutex
+	jobs       []*api.Job
+	enqueueErr error
+}
+
+func NewMockQueueService() *MockQueueService {
+	return &MockQueueService{
+		jobs: make([]*api.Job, 0),
+	}
+}
+
+func (m *MockQueueService) SetEnqueueError(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.enqueueErr = err
+}
+
+func (m *MockQueueService) GetJobs() []*api.Job {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]*api.Job, len(m.jobs))
+	copy(result, m.jobs)
+	return result
+}
+
+func (m *MockQueueService) Enqueue(ctx context.Context, job *api.Job) (*api.Empty, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.enqueueErr != nil {
+		return nil, m.enqueueErr
+	}
+
+	m.jobs = append(m.jobs, job)
+	return &api.Empty{}, nil
+}
+
+var _ interfaces.QueueService = (*MockQueueService)(nil)

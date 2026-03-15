@@ -30,7 +30,7 @@ func (s Status) String() string {
 
 type Result struct {
 	Status  Status
-	Outputs map[string]interface{}
+	Outputs map[string]any
 	Error   error
 }
 
@@ -48,7 +48,7 @@ func (s *ExecutionState) NextSequence() int64 {
 
 type Node interface {
 	Type() string
-	Execute(ctx context.Context, state *ExecutionState, inputs map[string]interface{}, children []*api.Node) Result
+	Execute(ctx context.Context, state *ExecutionState, inputs map[string]any, children []*api.Node) Result
 }
 
 type ExecutionError struct {
@@ -69,7 +69,7 @@ func (e *ExecutionError) Unwrap() error {
 	return e.Cause
 }
 
-func NewSuccessResult(outputs map[string]interface{}) Result {
+func NewSuccessResult(outputs map[string]any) Result {
 	return Result{
 		Status:  StatusSuccess,
 		Outputs: outputs,

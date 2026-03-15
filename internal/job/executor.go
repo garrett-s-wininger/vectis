@@ -69,7 +69,7 @@ func (e *Executor) executeNode(ctx context.Context, node *api.Node, state *actio
 		)
 	}
 
-	inputs := make(map[string]interface{})
+	inputs := make(map[string]any)
 	for k, v := range node.GetWith() {
 		inputs[k] = v
 	}

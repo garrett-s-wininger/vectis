@@ -127,14 +127,14 @@ func TestMockQueueClient_Close(t *testing.T) {
 func TestMockQueueClient_ConcurrentAccess(t *testing.T) {
 	client := mocks.NewMockQueueClient()
 
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		jobID := fmt.Sprintf("job-%d", i)
 		client.AddJob(&api.Job{Id: &jobID})
 	}
 
 	done := make(chan bool, 20)
 
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		go func(id int) {
 			jobID := fmt.Sprintf("concurrent-%d", id)
 			job := &api.Job{Id: &jobID}
@@ -143,14 +143,14 @@ func TestMockQueueClient_ConcurrentAccess(t *testing.T) {
 		}(i)
 	}
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		go func() {
 			client.Dequeue(context.Background())
 			done <- true
 		}()
 	}
 
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		<-done
 	}
 

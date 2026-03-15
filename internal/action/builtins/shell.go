@@ -28,7 +28,7 @@ func (s *ShellAction) Type() string {
 	return "builtins/shell"
 }
 
-func (s *ShellAction) Execute(ctx context.Context, state *action.ExecutionState, inputs map[string]interface{}, _ []*api.Node) action.Result {
+func (s *ShellAction) Execute(ctx context.Context, state *action.ExecutionState, inputs map[string]any, _ []*api.Node) action.Result {
 	commandStr, ok := inputs["command"].(string)
 	if !ok || commandStr == "" {
 		return action.NewFailureResult(fmt.Errorf("shell action requires 'command' input"))

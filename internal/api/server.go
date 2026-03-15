@@ -19,7 +19,7 @@ import (
 type APIServer struct {
 	db             *sql.DB
 	logger         interfaces.Logger
-	queueClient    api.QueueServiceClient
+	queueClient    interfaces.QueueService
 	registryClient interfaces.RegistryClient
 }
 
@@ -28,6 +28,10 @@ func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
 		db:     db,
 		logger: logger,
 	}
+}
+
+func (s *APIServer) SetQueueClient(client interfaces.QueueService) {
+	s.queueClient = client
 }
 
 func (s *APIServer) ConnectToRegistry(ctx context.Context) error {
@@ -49,13 +53,13 @@ func (s *APIServer) ConnectToRegistry(ctx context.Context) error {
 		return fmt.Errorf("failed to connect to queue: %w", err)
 	}
 
-	s.queueClient = api.NewQueueServiceClient(conn)
+	s.queueClient = interfaces.NewQueueService(api.NewQueueServiceClient(conn))
 	s.logger.Info("Connected to queue at %s", queueAddr)
 
 	return nil
 }
 
-func (s *APIServer) createJob(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("Content-Type") != "application/json" {
 		http.Error(w, "content type must be application/json", http.StatusUnsupportedMediaType)
 		return
@@ -84,7 +88,7 @@ func (s *APIServer) createJob(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 }
 
-func (s *APIServer) deleteJob(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) DeleteJob(w http.ResponseWriter, r *http.Request) {
 	jobID := r.PathValue("id")
 	if jobID == "" {
 		http.Error(w, "id is required", http.StatusBadRequest)
@@ -102,7 +106,7 @@ func (s *APIServer) deleteJob(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *APIServer) getJobs(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) GetJobs(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.db.Query("SELECT job_id, definition_json FROM stored_jobs")
 	if err != nil {
 		s.logger.Error("Database error: %v", err)
@@ -113,7 +117,7 @@ func (s *APIServer) getJobs(w http.ResponseWriter, r *http.Request) {
 
 	// TODO(garrett): Cursor-based pagination.
 	// TODO(garrett): Option to avoid returning the definition.
-	var jobs []map[string]interface{}
+	var jobs []map[string]any
 	for rows.Next() {
 		var jobID string
 		var definitionJSON string
@@ -123,13 +127,13 @@ func (s *APIServer) getJobs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		var definition interface{}
+		var definition any
 		if err := json.Unmarshal([]byte(definitionJSON), &definition); err != nil {
 			s.logger.Error("Failed to parse job definition for job %s: %v", jobID, err)
 			continue
 		}
 
-		jobs = append(jobs, map[string]interface{}{
+		jobs = append(jobs, map[string]any{
 			"name":       jobID,
 			"definition": definition,
 		})
@@ -143,7 +147,7 @@ func (s *APIServer) getJobs(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if jobs == nil {
-		jobs = make([]map[string]interface{}, 0)
+		jobs = make([]map[string]any, 0)
 	}
 
 	if err := json.NewEncoder(w).Encode(jobs); err != nil {
@@ -153,7 +157,7 @@ func (s *APIServer) getJobs(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *APIServer) triggerJob(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 	jobID := r.PathValue("id")
 	if jobID == "" {
 		http.Error(w, "id is required", http.StatusBadRequest)
@@ -193,7 +197,7 @@ func (s *APIServer) triggerJob(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *APIServer) updateJobDefinition(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) {
 	jobID := r.PathValue("id")
 	if jobID == "" {
 		http.Error(w, "id is required", http.StatusBadRequest)
@@ -235,11 +239,11 @@ func (s *APIServer) updateJobDefinition(w http.ResponseWriter, r *http.Request) 
 
 func (s *APIServer) Run(addr string) error {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/v1/jobs", s.getJobs)
-	mux.HandleFunc("POST /api/v1/jobs", s.createJob)
-	mux.HandleFunc("DELETE /api/v1/jobs/{id}", s.deleteJob)
-	mux.HandleFunc("PUT /api/v1/jobs/{id}", s.updateJobDefinition)
-	mux.HandleFunc("POST /api/v1/jobs/trigger/{id}", s.triggerJob)
+	mux.HandleFunc("GET /api/v1/jobs", s.GetJobs)
+	mux.HandleFunc("POST /api/v1/jobs", s.CreateJob)
+	mux.HandleFunc("DELETE /api/v1/jobs/{id}", s.DeleteJob)
+	mux.HandleFunc("PUT /api/v1/jobs/{id}", s.UpdateJobDefinition)
+	mux.HandleFunc("POST /api/v1/jobs/trigger/{id}", s.TriggerJob)
 
 	s.logger.Info("API server listening on %s", addr)
 	return http.ListenAndServe(addr, mux)

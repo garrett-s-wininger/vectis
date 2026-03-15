@@ -81,7 +81,7 @@ func TestMockLogClient_SendMultipleChunks(t *testing.T) {
 
 	stream, _ := client.StreamLogs(context.Background())
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		jobID := "test-job"
 		seq := int64(i)
 		chunk := &api.LogChunk{
@@ -217,7 +217,7 @@ func TestMockLogClient_CloseError(t *testing.T) {
 func TestMockLogClient_MultipleStreams(t *testing.T) {
 	client := mocks.NewMockLogClient()
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		_, err := client.StreamLogs(context.Background())
 		if err != nil {
 			t.Errorf("failed to create stream %d: %v", i, err)
