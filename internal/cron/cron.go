@@ -26,7 +26,7 @@ type CronSchedule struct {
 type CronService struct {
 	db          *sql.DB
 	logger      interfaces.Logger
-	queueClient api.QueueServiceClient
+	queueClient interfaces.QueueService
 	parser      cron.Parser
 }
 
@@ -36,6 +36,10 @@ func NewCronService(logger interfaces.Logger, db *sql.DB) *CronService {
 		logger: logger,
 		parser: cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow),
 	}
+}
+
+func (s *CronService) SetQueueClient(client interfaces.QueueService) {
+	s.queueClient = client
 }
 
 func (s *CronService) ConnectToQueue(ctx context.Context) error {
@@ -55,7 +59,7 @@ func (s *CronService) ConnectToQueue(ctx context.Context) error {
 		return fmt.Errorf("failed to connect to queue: %w", err)
 	}
 
-	s.queueClient = api.NewQueueServiceClient(conn)
+	s.queueClient = interfaces.NewQueueService(api.NewQueueServiceClient(conn))
 	s.logger.Info("Connected to queue at %s", queueAddr)
 	return nil
 }
