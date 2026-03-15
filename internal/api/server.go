@@ -193,11 +193,52 @@ func (s *APIServer) triggerJob(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *APIServer) updateJobDefinition(w http.ResponseWriter, r *http.Request) {
+	jobID := r.PathValue("id")
+	if jobID == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+
+	if r.Header.Get("Content-Type") != "application/json" {
+		http.Error(w, "content type must be application/json", http.StatusUnsupportedMediaType)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "failed to read request body", http.StatusInternalServerError)
+		return
+	}
+
+	var job api.Job
+	if err := json.Unmarshal(body, &job); err != nil {
+		http.Error(w, "invalid job definition", http.StatusBadRequest)
+		return
+	}
+
+	if job.Id == nil || *job.Id != jobID {
+		http.Error(w, "job id mismatch", http.StatusBadRequest)
+		return
+	}
+
+	_, err = s.db.Exec("UPDATE stored_jobs SET definition_json = ? WHERE job_id = ?", body, jobID)
+	if err != nil {
+		s.logger.Error("Database error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	s.logger.Info("Updated job definition: %s", jobID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *APIServer) Run(addr string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/jobs", s.getJobs)
 	mux.HandleFunc("POST /api/v1/jobs", s.createJob)
 	mux.HandleFunc("DELETE /api/v1/jobs/{id}", s.deleteJob)
+	mux.HandleFunc("PUT /api/v1/jobs/{id}", s.updateJobDefinition)
 	mux.HandleFunc("POST /api/v1/jobs/trigger/{id}", s.triggerJob)
 
 	s.logger.Info("API server listening on %s", addr)
