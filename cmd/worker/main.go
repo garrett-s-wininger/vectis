@@ -13,6 +13,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/interfaces"
 	"vectis/internal/job"
 	"vectis/internal/log"
 	"vectis/internal/registry"
@@ -41,7 +42,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 		logger.Fatal("Failed to connect to queue: %v", err)
 	}
 	defer queueConn.Close()
-	queueClient := api.NewQueueServiceClient(queueConn)
+	queueClient := interfaces.NewGRPCQueueClient(queueConn)
 
 	logger.Info("Getting log service address from registry...")
 	logAddr, err := registryClient.Address(ctx, api.Component_COMPONENT_LOG)
@@ -62,7 +63,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 	for {
 		logger.Debug("Initiating long poll from queue...")
 		pollCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		job, err := queueClient.Dequeue(pollCtx, &api.Empty{})
+		job, err := queueClient.Dequeue(pollCtx)
 		cancel()
 
 		if err != nil {
