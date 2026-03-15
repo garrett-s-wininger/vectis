@@ -12,6 +12,7 @@ all: build
 $(OUT_DIR):
 	mkdir -p ${@}
 
+# FIXME(garrett): Not invalidated on changes to internal/
 $(BINARIES): $(OUT_DIR)/vectis-%: cmd/%/main.go | $(OUT_DIR)
 	go build ${BUILD_OPTS} -o ${@} ./cmd/${*}
 

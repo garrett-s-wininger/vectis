@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 
 	api "vectis/api/gen/go"
@@ -52,6 +53,35 @@ func (s *APIServer) ConnectToRegistry(ctx context.Context) error {
 	s.logger.Info("Connected to queue at %s", queueAddr)
 
 	return nil
+}
+
+func (s *APIServer) createJob(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("Content-Type") != "application/json" {
+		http.Error(w, "content type must be application/json", http.StatusUnsupportedMediaType)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "failed to read request body", http.StatusInternalServerError)
+		return
+	}
+
+	var job api.Job
+	if err := json.Unmarshal(body, &job); err != nil {
+		http.Error(w, "invalid job definition", http.StatusBadRequest)
+		return
+	}
+
+	_, err = s.db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", job.Id, body)
+	if err != nil {
+		s.logger.Error("Database error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	s.logger.Info("Stored job: %s", *job.Id)
+	w.WriteHeader(http.StatusCreated)
 }
 
 func (s *APIServer) getJobs(w http.ResponseWriter, r *http.Request) {
@@ -148,6 +178,7 @@ func (s *APIServer) triggerJob(w http.ResponseWriter, r *http.Request) {
 func (s *APIServer) Run(addr string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/jobs", s.getJobs)
+	mux.HandleFunc("POST /api/v1/jobs", s.createJob)
 	mux.HandleFunc("POST /api/v1/jobs/trigger/{id}", s.triggerJob)
 
 	s.logger.Info("API server listening on %s", addr)
