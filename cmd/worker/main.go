@@ -15,13 +15,12 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/interfaces"
 	"vectis/internal/job"
-	"vectis/internal/log"
 	"vectis/internal/registry"
 )
 
 func runWorker(cmd *cobra.Command, args []string) {
 	ctx := context.Background()
-	logger := log.New("worker")
+	logger := interfaces.NewLogger("worker")
 
 	logger.Info("Connecting to registry...")
 	registryClient, err := registry.New(ctx, logger)
@@ -57,7 +56,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 	}
 	defer logConn.Close()
 
-	logClient := api.NewLogServiceClient(logConn)
+	logClient := interfaces.NewGRPCLogClient(logConn)
 	executor := job.NewExecutor()
 
 	for {

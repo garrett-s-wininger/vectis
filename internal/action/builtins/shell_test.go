@@ -9,8 +9,8 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
+	"vectis/internal/interfaces"
 	"vectis/internal/interfaces/mocks"
-	"vectis/internal/log"
 
 	"google.golang.org/grpc/metadata"
 )
@@ -72,7 +72,7 @@ var _ api.LogService_StreamLogsClient = (*mockLogStream)(nil)
 func createTestState(logStream api.LogService_StreamLogsClient) *action.ExecutionState {
 	return &action.ExecutionState{
 		JobID:     "test-job",
-		Logger:    log.New("test"),
+		Logger:    interfaces.NewLogger("test"),
 		LogStream: logStream,
 	}
 }

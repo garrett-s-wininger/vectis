@@ -8,13 +8,13 @@ import (
 
 	"vectis/internal/cron"
 	"vectis/internal/database"
-	"vectis/internal/log"
+	"vectis/internal/interfaces"
 
 	_ "github.com/mattn/go-sqlite3"
 )
 
 func runVectisCron(cmd *cobra.Command, args []string) {
-	logger := log.New("cron")
+	logger := interfaces.NewLogger("cron")
 	logger.Info("Starting cron service...")
 
 	dbPath := database.GetDBPath()

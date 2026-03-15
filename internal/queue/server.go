@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	api "vectis/api/gen/go"
-	"vectis/internal/log"
+	"vectis/internal/interfaces"
 
 	"google.golang.org/grpc"
 )
@@ -15,10 +15,10 @@ type queueServer struct {
 	jobs []*api.Job
 	mu   sync.Mutex
 	cond *sync.Cond
-	log  *log.Logger
+	log  interfaces.Logger
 }
 
-func NewQueueService(logger *log.Logger) api.QueueServiceServer {
+func NewQueueService(logger interfaces.Logger) api.QueueServiceServer {
 	s := &queueServer{
 		jobs: []*api.Job{},
 		log:  logger,
@@ -86,6 +86,6 @@ func (s *queueServer) Dequeue(ctx context.Context, _ *api.Empty) (*api.Job, erro
 	return job, nil
 }
 
-func RegisterQueueService(s grpc.ServiceRegistrar, logger *log.Logger) {
+func RegisterQueueService(s grpc.ServiceRegistrar, logger interfaces.Logger) {
 	api.RegisterQueueServiceServer(s, NewQueueService(logger))
 }

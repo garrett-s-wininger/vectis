@@ -1,0 +1,313 @@
+package job_test
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+
+	api "vectis/api/gen/go"
+	"vectis/internal/interfaces/mocks"
+	"vectis/internal/job"
+)
+
+func TestExecutor_ExecuteJob_Success(t *testing.T) {
+	executor := job.NewExecutor()
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+
+	jobID := "test-job-1"
+	nodeID := "node-1"
+	uses := "builtins/shell"
+	testJob := &api.Job{
+		Id: &jobID,
+		Root: &api.Node{
+			Id:   &nodeID,
+			Uses: &uses,
+			With: map[string]string{
+				"command": "echo hello",
+			},
+		},
+	}
+
+	err := executor.ExecuteJob(context.Background(), testJob, mockLogClient, mockLogger)
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+
+	if mockLogClient.GetStreamCount() != 1 {
+		t.Errorf("expected 1 log stream, got %d", mockLogClient.GetStreamCount())
+	}
+
+	chunks := mockLogClient.GetChunks()
+	if len(chunks) == 0 {
+		t.Fatal("expected log chunks to be sent")
+	}
+
+	for i, chunk := range chunks {
+		if chunk.GetJobId() != jobID {
+			t.Errorf("chunk %d: expected job ID %q, got %q", i, jobID, chunk.GetJobId())
+		}
+	}
+
+	for i, chunk := range chunks {
+		expectedSeq := int64(i + 1)
+		if chunk.GetSequence() != expectedSeq {
+			t.Errorf("chunk %d: expected sequence %d, got %d", i, expectedSeq, chunk.GetSequence())
+		}
+	}
+
+	chunkStrings := make([]string, len(chunks))
+	for i, chunk := range chunks {
+		chunkStrings[i] = string(chunk.GetData())
+	}
+
+	expectedMessages := []string{
+		"Starting job execution: test-job-1",
+		"Executing node: builtins/shell",
+		"echo hello",
+		"Command completed successfully",
+	}
+
+	for _, expected := range expectedMessages {
+		found := false
+		for _, actual := range chunkStrings {
+			if strings.Contains(actual, expected) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected log chunk containing %q not found. Got chunks: %v", expected, chunkStrings)
+		}
+	}
+
+	infoCalls := mockLogger.GetInfoCalls()
+	if len(infoCalls) == 0 {
+		t.Error("expected info log calls")
+	}
+
+	hasStartMsg := false
+	hasCompleteMsg := false
+	for _, msg := range infoCalls {
+		if strings.Contains(msg, "Starting job execution: test-job-1") {
+			hasStartMsg = true
+		}
+		if strings.Contains(msg, "Job completed successfully: test-job-1") {
+			hasCompleteMsg = true
+		}
+	}
+	if !hasStartMsg {
+		t.Error("expected logger to contain 'Starting job execution: test-job-1'")
+	}
+	if !hasCompleteMsg {
+		t.Error("expected logger to contain 'Job completed successfully: test-job-1'")
+	}
+
+	errorCalls := mockLogger.GetErrorCalls()
+	if len(errorCalls) > 0 {
+		t.Errorf("expected no error logs, got: %v", errorCalls)
+	}
+}
+
+func TestExecutor_ExecuteJob_NilRoot(t *testing.T) {
+	executor := job.NewExecutor()
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+
+	jobID := "test-job-1"
+	testJob := &api.Job{
+		Id:   &jobID,
+		Root: nil,
+	}
+
+	err := executor.ExecuteJob(context.Background(), testJob, mockLogClient, mockLogger)
+	if err == nil {
+		t.Error("expected error for nil root")
+	}
+
+	if !errors.Is(err, errors.New("job has no root node")) {
+		if err.Error() != "job has no root node" {
+			t.Errorf("expected 'job has no root node' error, got: %v", err)
+		}
+	}
+}
+
+func TestExecutor_ExecuteJob_StreamLogsError(t *testing.T) {
+	executor := job.NewExecutor()
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+
+	expectedErr := errors.New("stream creation failed")
+	mockLogClient.SetStreamError(expectedErr)
+
+	jobID := "test-job-1"
+	nodeID := "node-1"
+	uses := "builtins/shell"
+	testJob := &api.Job{
+		Id: &jobID,
+		Root: &api.Node{
+			Id:   &nodeID,
+			Uses: &uses,
+			With: map[string]string{
+				"command": "echo hello",
+			},
+		},
+	}
+
+	err := executor.ExecuteJob(context.Background(), testJob, mockLogClient, mockLogger)
+	if err == nil {
+		t.Error("expected error when stream creation fails")
+	}
+
+	if !errors.Is(err, expectedErr) {
+		found := false
+		for {
+			if err == nil {
+				break
+			}
+			if err == expectedErr {
+				found = true
+				break
+			}
+			err = errors.Unwrap(err)
+		}
+		if !found {
+			t.Errorf("expected error to wrap %v, got: %v", expectedErr, err)
+		}
+	}
+}
+
+func TestExecutor_ExecuteJob_UnknownAction(t *testing.T) {
+	executor := job.NewExecutor()
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+
+	jobID := "test-job-1"
+	nodeID := "node-1"
+	uses := "builtins/unknown-action"
+	testJob := &api.Job{
+		Id: &jobID,
+		Root: &api.Node{
+			Id:   &nodeID,
+			Uses: &uses,
+			With: map[string]string{},
+		},
+	}
+
+	err := executor.ExecuteJob(context.Background(), testJob, mockLogClient, mockLogger)
+	if err == nil {
+		t.Error("expected error for unknown action")
+	}
+}
+
+func TestExecutor_ExecuteJob_MissingCommand(t *testing.T) {
+	executor := job.NewExecutor()
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+
+	jobID := "test-job-1"
+	nodeID := "node-1"
+	uses := "builtins/shell"
+	testJob := &api.Job{
+		Id: &jobID,
+		Root: &api.Node{
+			Id:   &nodeID,
+			Uses: &uses,
+			With: map[string]string{},
+		},
+	}
+
+	err := executor.ExecuteJob(context.Background(), testJob, mockLogClient, mockLogger)
+	if err == nil {
+		t.Error("expected error for missing command")
+	}
+}
+
+func TestExecutor_ExecuteJob_CommandFailure(t *testing.T) {
+	executor := job.NewExecutor()
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+
+	jobID := "test-job-fail"
+	nodeID := "node-1"
+	uses := "builtins/shell"
+
+	testJob := &api.Job{
+		Id: &jobID,
+		Root: &api.Node{
+			Id:   &nodeID,
+			Uses: &uses,
+			With: map[string]string{
+				"command": "false", // Always returns exit code 1
+			},
+		},
+	}
+
+	err := executor.ExecuteJob(context.Background(), testJob, mockLogClient, mockLogger)
+	if err == nil {
+		t.Error("expected error when command fails")
+	}
+
+	if !strings.Contains(err.Error(), "command failed") && !strings.Contains(err.Error(), "exit status 1") {
+		t.Errorf("expected error to indicate command failure, got: %v", err)
+	}
+
+	chunks := mockLogClient.GetChunks()
+	if len(chunks) == 0 {
+		t.Fatal("expected log chunks to be sent even on failure")
+	}
+
+	for i, chunk := range chunks {
+		if chunk.GetJobId() != jobID {
+			t.Errorf("chunk %d: expected job ID %q, got %q", i, jobID, chunk.GetJobId())
+		}
+	}
+
+	chunkStrings := make([]string, len(chunks))
+	for i, chunk := range chunks {
+		chunkStrings[i] = string(chunk.GetData())
+	}
+
+	hasErrorChunk := false
+	for _, str := range chunkStrings {
+		if strings.Contains(str, "Command failed") || strings.Contains(str, "exit status") {
+			hasErrorChunk = true
+			break
+		}
+	}
+
+	if !hasErrorChunk {
+		t.Errorf("expected error message in log chunks, got: %v", chunkStrings)
+	}
+
+	errorCalls := mockLogger.GetErrorCalls()
+	if len(errorCalls) == 0 {
+		t.Error("expected error log calls when command fails")
+	}
+
+	hasJobFailMsg := false
+	for _, msg := range errorCalls {
+		if strings.Contains(msg, "Job failed") {
+			hasJobFailMsg = true
+			break
+		}
+	}
+
+	if !hasJobFailMsg {
+		t.Errorf("expected logger to contain 'Job failed', got: %v", errorCalls)
+	}
+
+	infoCalls := mockLogger.GetInfoCalls()
+	hasStartMsg := false
+	for _, msg := range infoCalls {
+		if strings.Contains(msg, "Starting job execution") {
+			hasStartMsg = true
+			break
+		}
+	}
+
+	if !hasStartMsg {
+		t.Error("expected logger to contain 'Starting job execution' even on failure")
+	}
+}

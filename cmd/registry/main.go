@@ -6,7 +6,7 @@ import (
 	"os"
 
 	api "vectis/api/gen/go"
-	"vectis/internal/log"
+	"vectis/internal/interfaces"
 	"vectis/internal/registry"
 
 	"github.com/spf13/cobra"
@@ -15,7 +15,7 @@ import (
 )
 
 func runVectisRegistry(cmd *cobra.Command, args []string) {
-	logger := log.New("registry")
+	logger := interfaces.NewLogger("registry")
 	logger.Info("Starting registry server...")
 
 	port := viper.GetInt("port")

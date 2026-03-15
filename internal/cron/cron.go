@@ -12,7 +12,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	api "vectis/api/gen/go"
-	"vectis/internal/log"
+	"vectis/internal/interfaces"
 	"vectis/internal/registry"
 )
 
@@ -25,12 +25,12 @@ type CronSchedule struct {
 
 type CronService struct {
 	db          *sql.DB
-	logger      *log.Logger
+	logger      interfaces.Logger
 	queueClient api.QueueServiceClient
 	parser      cron.Parser
 }
 
-func NewCronService(logger *log.Logger, db *sql.DB) *CronService {
+func NewCronService(logger interfaces.Logger, db *sql.DB) *CronService {
 	return &CronService{
 		db:     db,
 		logger: logger,

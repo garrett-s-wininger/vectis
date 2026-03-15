@@ -6,7 +6,7 @@ import (
 	"os"
 
 	api "vectis/api/gen/go"
-	"vectis/internal/log"
+	"vectis/internal/interfaces"
 	"vectis/internal/queue"
 	"vectis/internal/registry"
 
@@ -16,7 +16,7 @@ import (
 )
 
 func runVectisQueue(cmd *cobra.Command, args []string) {
-	logger := log.New("queue")
+	logger := interfaces.NewLogger("queue")
 	logger.Info("Starting queue server...")
 
 	port := viper.GetInt("port")

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync/atomic"
 
-	"vectis/internal/log"
+	"vectis/internal/interfaces"
 
 	api "vectis/api/gen/go"
 )
@@ -36,9 +36,9 @@ type Result struct {
 
 type ExecutionState struct {
 	JobID        string
-	Logger       *log.Logger
-	LogClient    api.LogServiceClient
-	LogStream    api.LogService_StreamLogsClient
+	Logger       interfaces.Logger
+	LogClient    interfaces.LogClient
+	LogStream    interfaces.LogStream
 	nextSequence int64
 }
 

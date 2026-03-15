@@ -7,7 +7,7 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
 	"vectis/internal/action/builtins"
-	"vectis/internal/log"
+	"vectis/internal/interfaces"
 )
 
 type Executor struct {
@@ -20,7 +20,7 @@ func NewExecutor() *Executor {
 	}
 }
 
-func (e *Executor) ExecuteJob(ctx context.Context, job *api.Job, logClient api.LogServiceClient, logger *log.Logger) error {
+func (e *Executor) ExecuteJob(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger) error {
 	if job.GetRoot() == nil {
 		return fmt.Errorf("job has no root node")
 	}

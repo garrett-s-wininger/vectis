@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"vectis/internal/backoff"
-	"vectis/internal/log"
+	"vectis/internal/interfaces"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -20,12 +20,12 @@ const (
 type Client[T any] struct {
 	conn      *grpc.ClientConn
 	client    T
-	Logger    *log.Logger
+	Logger    interfaces.Logger
 	MaxTries  int
 	BaseDelay time.Duration
 }
 
-func NewClient[T any](ctx context.Context, addr string, newClient func(grpc.ClientConnInterface) T, logger *log.Logger) (*Client[T], error) {
+func NewClient[T any](ctx context.Context, addr string, newClient func(grpc.ClientConnInterface) T, logger interfaces.Logger) (*Client[T], error) {
 	if logger == nil {
 		return nil, fmt.Errorf("logger is required")
 	}
@@ -44,7 +44,7 @@ func NewClient[T any](ctx context.Context, addr string, newClient func(grpc.Clie
 	}, nil
 }
 
-func connectWithRetry(_ context.Context, addr string, logger *log.Logger) (*grpc.ClientConn, error) {
+func connectWithRetry(_ context.Context, addr string, logger interfaces.Logger) (*grpc.ClientConn, error) {
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 	var conn *grpc.ClientConn
 	err := backoff.RetryWithBackoff(defaultMaxTries, defaultBaseDelay, func() error {

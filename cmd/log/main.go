@@ -6,7 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"vectis/internal/log"
+	"vectis/internal/interfaces"
 	"vectis/internal/logserver"
 )
 
@@ -23,7 +23,7 @@ func main() {
 		cancel()
 	}()
 
-	logger := log.New("log-aggregator")
+	logger := interfaces.NewLogger("log-aggregator")
 	logger.Info("Starting log service...")
 
 	if err := logserver.Run(ctx, logger); err != nil {

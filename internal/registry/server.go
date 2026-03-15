@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	api "vectis/api/gen/go"
-	"vectis/internal/log"
+	"vectis/internal/interfaces"
 )
 
 type reg struct {
@@ -17,10 +17,10 @@ type reg struct {
 type registryServer struct {
 	api.UnimplementedRegistryServiceServer
 	reg *reg
-	log *log.Logger
+	log interfaces.Logger
 }
 
-func NewRegistryService(logger *log.Logger) api.RegistryServiceServer {
+func NewRegistryService(logger interfaces.Logger) api.RegistryServiceServer {
 	return &registryServer{reg: &reg{}, log: logger}
 }
 

@@ -10,7 +10,6 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/interfaces"
-	"vectis/internal/log"
 	"vectis/internal/registry"
 
 	"google.golang.org/grpc"
@@ -19,12 +18,12 @@ import (
 
 type APIServer struct {
 	db             *sql.DB
-	logger         *log.Logger
+	logger         interfaces.Logger
 	queueClient    api.QueueServiceClient
 	registryClient interfaces.RegistryClient
 }
 
-func NewAPIServer(logger *log.Logger, db *sql.DB) *APIServer {
+func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
 	return &APIServer{
 		db:     db,
 		logger: logger,

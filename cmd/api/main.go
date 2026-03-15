@@ -9,13 +9,13 @@ import (
 
 	"vectis/internal/api"
 	"vectis/internal/database"
-	"vectis/internal/log"
+	"vectis/internal/interfaces"
 
 	_ "github.com/mattn/go-sqlite3"
 )
 
 func runVectisAPI(cmd *cobra.Command, args []string) {
-	logger := log.New("api")
+	logger := interfaces.NewLogger("api")
 	logger.Info("Starting API server...")
 
 	// NOTE(garrett): Skip if production.

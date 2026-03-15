@@ -13,7 +13,7 @@ import (
 	"google.golang.org/grpc"
 
 	api "vectis/api/gen/go"
-	"vectis/internal/log"
+	"vectis/internal/interfaces"
 	"vectis/internal/networking"
 	"vectis/internal/registry"
 )
@@ -97,11 +97,11 @@ type Server struct {
 	api.UnimplementedLogServiceServer
 	mu       sync.RWMutex
 	buffers  map[string]*JobBuffer
-	logger   *log.Logger
+	logger   interfaces.Logger
 	upgrader websocket.Upgrader
 }
 
-func NewServer(logger *log.Logger) *Server {
+func NewServer(logger interfaces.Logger) *Server {
 	return &Server{
 		buffers: make(map[string]*JobBuffer),
 		logger:  logger,
@@ -236,7 +236,7 @@ func (s *Server) RunWebSocket(ctx context.Context, port string) error {
 	return server.ListenAndServe()
 }
 
-func Run(ctx context.Context, logger *log.Logger) error {
+func Run(ctx context.Context, logger interfaces.Logger) error {
 	server := NewServer(logger)
 
 	registryClient, err := registry.New(ctx, logger)

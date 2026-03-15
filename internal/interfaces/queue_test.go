@@ -14,8 +14,9 @@ import (
 func TestMockQueueClient_Enqueue(t *testing.T) {
 	client := mocks.NewMockQueueClient()
 
+	jobID := "test-job-1"
 	job := &api.Job{
-		Id: stringPtr("test-job-1"),
+		Id: &jobID,
 	}
 
 	err := client.Enqueue(context.Background(), job)
@@ -38,8 +39,9 @@ func TestMockQueueClient_EnqueueError(t *testing.T) {
 	expectedErr := errors.New("enqueue failed")
 	client.SetEnqueueError(expectedErr)
 
+	jobID := "test-job"
 	job := &api.Job{
-		Id: stringPtr("test-job"),
+		Id: &jobID,
 	}
 
 	err := client.Enqueue(context.Background(), job)
@@ -51,8 +53,10 @@ func TestMockQueueClient_EnqueueError(t *testing.T) {
 func TestMockQueueClient_Dequeue(t *testing.T) {
 	client := mocks.NewMockQueueClient()
 
-	job1 := &api.Job{Id: stringPtr("job-1")}
-	job2 := &api.Job{Id: stringPtr("job-2")}
+	jobID1 := "job-1"
+	jobID2 := "job-2"
+	job1 := &api.Job{Id: &jobID1}
+	job2 := &api.Job{Id: &jobID2}
 	client.AddJob(job1)
 	client.AddJob(job2)
 
@@ -69,6 +73,7 @@ func TestMockQueueClient_Dequeue(t *testing.T) {
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
+
 	if dequeued2.GetId() != "job-2" {
 		t.Errorf("expected job-2, got %s", dequeued2.GetId())
 	}
@@ -123,14 +128,16 @@ func TestMockQueueClient_ConcurrentAccess(t *testing.T) {
 	client := mocks.NewMockQueueClient()
 
 	for i := 0; i < 10; i++ {
-		client.AddJob(&api.Job{Id: stringPtr(fmt.Sprintf("job-%d", i))})
+		jobID := fmt.Sprintf("job-%d", i)
+		client.AddJob(&api.Job{Id: &jobID})
 	}
 
 	done := make(chan bool, 20)
 
 	for i := 0; i < 10; i++ {
 		go func(id int) {
-			job := &api.Job{Id: stringPtr(fmt.Sprintf("concurrent-%d", id))}
+			jobID := fmt.Sprintf("concurrent-%d", id)
+			job := &api.Job{Id: &jobID}
 			client.Enqueue(context.Background(), job)
 			done <- true
 		}(i)
@@ -148,8 +155,4 @@ func TestMockQueueClient_ConcurrentAccess(t *testing.T) {
 	}
 
 	_ = client.GetJobs()
-}
-
-func stringPtr(s string) *string {
-	return &s
 }

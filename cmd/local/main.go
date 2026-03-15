@@ -4,7 +4,7 @@ import (
 	"os"
 	"os/exec"
 
-	"vectis/internal/log"
+	"vectis/internal/interfaces"
 	"vectis/internal/supervisor"
 
 	"github.com/spf13/cobra"
@@ -20,7 +20,7 @@ var childBinaries = []string{
 }
 
 func runVectis(cmd *cobra.Command, args []string) {
-	logger := log.New("cli")
+	logger := interfaces.NewLogger("cli")
 	commands := make([]*exec.Cmd, 0, len(childBinaries))
 
 	for _, b := range childBinaries {
