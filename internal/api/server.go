@@ -84,6 +84,24 @@ func (s *APIServer) createJob(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 }
 
+func (s *APIServer) deleteJob(w http.ResponseWriter, r *http.Request) {
+	jobID := r.PathValue("id")
+	if jobID == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+
+	_, err := s.db.Exec("DELETE FROM stored_jobs WHERE job_id = ?", jobID)
+	if err != nil {
+		s.logger.Error("Database error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	s.logger.Info("Deleted job: %s", jobID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *APIServer) getJobs(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.db.Query("SELECT job_id, definition_json FROM stored_jobs")
 	if err != nil {
@@ -179,6 +197,7 @@ func (s *APIServer) Run(addr string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/jobs", s.getJobs)
 	mux.HandleFunc("POST /api/v1/jobs", s.createJob)
+	mux.HandleFunc("DELETE /api/v1/jobs/{id}", s.deleteJob)
 	mux.HandleFunc("POST /api/v1/jobs/trigger/{id}", s.triggerJob)
 
 	s.logger.Info("API server listening on %s", addr)
