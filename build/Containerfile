@@ -24,6 +24,18 @@ ENV XDG_DATA_HOME=/data
 COPY --from=builder /app/bin/vectis-api /usr/local/bin/vectis-api
 ENTRYPOINT ["/usr/local/bin/vectis-api"]
 
+FROM scratch as cron
+LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
+      org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
+COPY --from=builder /app/bin/vectis-cron /usr/local/bin/vectis-cron
+ENTRYPOINT ["/usr/local/bin/vectis-cron"]
+
+FROM scratch as log
+LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
+      org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
+COPY --from=builder /app/bin/vectis-log /usr/local/bin/vectis-log
+ENTRYPOINT ["/usr/local/bin/vectis-log"]
+
 FROM scratch AS queue
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
       org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
@@ -46,5 +58,13 @@ FROM scratch AS all-in-one
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
       org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
 ENV XDG_DATA_HOME=/data
-COPY --from=builder /app/bin/vectis-api /app/bin/vectis-queue /app/bin/vectis-registry /app/bin/vectis-worker /app/bin/vectis-local /usr/local/bin/
+COPY --from=builder \
+      /app/bin/vectis-api \
+      /app/bin/vectis-cron \
+      /app/bin/vectis-local \
+      /app/bin/vectis-log \
+      /app/bin/vectis-queue \
+      /app/bin/vectis-registry \
+      /app/bin/vectis-worker \
+      /usr/local/bin/
 ENTRYPOINT ["/usr/local/bin/vectis-local"]

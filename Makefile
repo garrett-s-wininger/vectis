@@ -55,7 +55,9 @@ image-internal-%:
 
 .PHONY: $(addprefix image-, $(COMPONENTS))
 image-api: image-internal-api
+image-cron: image-internal-cron
 image-queue: image-internal-queue
+image-log: image-internal-log
 image-registry: image-internal-registry
 image-worker: image-internal-worker
 

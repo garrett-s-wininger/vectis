@@ -29,6 +29,18 @@ spec:
       volumeMounts:
         - name: api-data
           mountPath: /data
+    - name: cron
+      image: vectis-cron:latest
+      imagePullPolicy: Never
+    - name: log
+      image: vectis-log:latest
+      imagePullPolicy: Never
+      ports:
+        - containerPort: 8083
+          protocol: TCP
+        - containerPort: 8084
+          hostPort: 8084
+          protocol: TCP
     - name: queue
       image: vectis-queue:latest
       imagePullPolicy: Never
