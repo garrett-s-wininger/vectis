@@ -30,6 +30,7 @@ proto:
 
 .PHONY: format
 format:
+	go fix ./...
 	go fmt ./...
 	go mod tidy
 

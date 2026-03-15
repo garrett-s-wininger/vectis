@@ -4,14 +4,25 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os/exec"
 	"sync"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
+	"vectis/internal/interfaces"
 )
 
-type ShellAction struct{}
+type ShellAction struct {
+	executor interfaces.CommandExecutor
+}
+
+func NewShellAction(executor interfaces.CommandExecutor) *ShellAction {
+	if executor == nil {
+		executor = interfaces.NewOSExecutor()
+	}
+	return &ShellAction{
+		executor: executor,
+	}
+}
 
 func (s *ShellAction) Type() string {
 	return "builtins/shell"
@@ -26,19 +37,8 @@ func (s *ShellAction) Execute(ctx context.Context, state *action.ExecutionState,
 	state.Logger.Info("Executing shell command: %s", commandStr)
 	sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("$ %s", commandStr))
 
-	cmd := exec.CommandContext(ctx, "sh", "-c", commandStr)
-
-	stdoutPipe, err := cmd.StdoutPipe()
+	process, err := s.executor.Start(ctx, commandStr)
 	if err != nil {
-		return action.NewFailureResult(fmt.Errorf("failed to create stdout pipe: %w", err))
-	}
-
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		return action.NewFailureResult(fmt.Errorf("failed to create stderr pipe: %w", err))
-	}
-
-	if err := cmd.Start(); err != nil {
 		return action.NewFailureResult(fmt.Errorf("failed to start command: %w", err))
 	}
 
@@ -47,17 +47,17 @@ func (s *ShellAction) Execute(ctx context.Context, state *action.ExecutionState,
 
 	go func() {
 		defer wg.Done()
-		streamOutput(stdoutPipe, state, api.Stream_STREAM_STDOUT)
+		streamOutput(process.Stdout(), state, api.Stream_STREAM_STDOUT)
 	}()
 
 	go func() {
 		defer wg.Done()
-		streamOutput(stderrPipe, state, api.Stream_STREAM_STDERR)
+		streamOutput(process.Stderr(), state, api.Stream_STREAM_STDERR)
 	}()
 
 	// NOTE(garrett): We let the command finish, and then the streaming output so that we
 	// can ensure that the log service has received all the necessary data for archiving.
-	cmdErr := cmd.Wait()
+	cmdErr := process.Wait()
 	wg.Wait()
 
 	if cmdErr != nil {

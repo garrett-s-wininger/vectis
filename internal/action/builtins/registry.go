@@ -16,7 +16,7 @@ func NewRegistry() *Registry {
 		nodes: make(map[string]action.Node),
 	}
 
-	r.Register(&ShellAction{})
+	r.Register(NewShellAction(nil))
 	r.Register(&SequenceNode{})
 
 	return r
