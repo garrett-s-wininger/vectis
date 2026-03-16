@@ -77,7 +77,7 @@ func (s *CronService) GetReadySchedules(ctx context.Context) ([]CronSchedule, er
 		WHERE next_run_at <= ?
 	`
 
-	rows, err := s.db.QueryContext(ctx, query, s.clock.Now())
+	rows, err := s.db.QueryContext(ctx, query, s.clock.Now().Format(time.RFC3339))
 	if err != nil {
 		return nil, fmt.Errorf("failed to query schedules: %w", err)
 	}
@@ -226,7 +226,6 @@ func (s *CronService) Run(ctx context.Context) error {
 
 	s.logger.Info("Cron service started, polling every 60 seconds")
 
-	// Process immediately on start
 	if err := s.ProcessSchedules(ctx); err != nil {
 		s.logger.Error("Initial schedule processing failed: %v", err)
 	}
