@@ -4,7 +4,9 @@ BUILD_OPTS ?=
 COMPONENTS := $(filter-out cli local, $(APPS))
 OUT_DIR ?= bin
 
+API := $(shell find api -name '*.go' 2>/dev/null)
 BINARIES := $(addprefix $(OUT_DIR)/vectis-, $(APPS))
+INTERNAL := $(shell find internal -name '*.go' 2>/dev/null)
 
 .PHONY: all
 all: build
@@ -12,8 +14,7 @@ all: build
 $(OUT_DIR):
 	mkdir -p ${@}
 
-# FIXME(garrett): Not invalidated on changes to internal/
-$(BINARIES): $(OUT_DIR)/vectis-%: cmd/%/main.go | $(OUT_DIR)
+$(BINARIES): $(OUT_DIR)/vectis-%: cmd/%/main.go $(API) $(INTERNAL) | $(OUT_DIR)
 	go build ${BUILD_OPTS} -o ${@} ./cmd/${*}
 
 .PHONY: build
