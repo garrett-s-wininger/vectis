@@ -143,6 +143,10 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 			Data:      string(chunk.GetData()),
 		}
 
+		// FIXME(garrett): We currently store logs in arrival order which makes it so clients would
+		// need to reorder them themselves. We should reorder them, as appropriately. A secondary
+		// consideration would be how to handle gaps in the sequence numbers as well as websocket
+		// resumption so we don't have to re-send all the logs to the client.
 		if !buffer.Add(entry) {
 			s.logger.Warn("Log buffer full for job %s, dropping log line", chunk.GetJobId())
 			continue
