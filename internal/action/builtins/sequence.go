@@ -62,7 +62,7 @@ func executeChildNode(ctx context.Context, node *api.Node, state *action.Executi
 func resolveAction(uses string) (action.Node, error) {
 	switch uses {
 	case "builtins/shell", "shell":
-		return &ShellAction{}, nil
+		return NewShellAction(nil), nil
 	case "builtins/sequence", "sequence":
 		return &SequenceNode{}, nil
 	default:

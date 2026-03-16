@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/google/uuid"
 	api "vectis/api/gen/go"
 	"vectis/internal/interfaces"
 	"vectis/internal/registry"
@@ -237,10 +238,52 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("Content-Type") != "application/json" {
+		http.Error(w, "content type must be application/json", http.StatusUnsupportedMediaType)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "failed to read request body", http.StatusInternalServerError)
+		return
+	}
+
+	var job api.Job
+	if err := json.Unmarshal(body, &job); err != nil {
+		http.Error(w, "invalid job definition", http.StatusBadRequest)
+		return
+	}
+
+	if job.GetRoot() == nil {
+		http.Error(w, "job must have a root node", http.StatusBadRequest)
+		return
+	}
+
+	generatedID := uuid.New().String()
+	job.Id = &generatedID
+
+	_, err = s.queueClient.Enqueue(r.Context(), &job)
+	if err != nil {
+		s.logger.Error("Failed to enqueue job: %v", err)
+		http.Error(w, "failed to enqueue job", http.StatusServiceUnavailable)
+		return
+	}
+
+	s.logger.Info("Enqueued ephemeral job: %s", generatedID)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	if err := json.NewEncoder(w).Encode(map[string]string{"id": generatedID}); err != nil {
+		s.logger.Error("Failed to encode response: %v", err)
+	}
+}
+
 func (s *APIServer) Run(addr string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/jobs", s.GetJobs)
 	mux.HandleFunc("POST /api/v1/jobs", s.CreateJob)
+	mux.HandleFunc("POST /api/v1/jobs/run", s.RunJob)
 	mux.HandleFunc("DELETE /api/v1/jobs/{id}", s.DeleteJob)
 	mux.HandleFunc("PUT /api/v1/jobs/{id}", s.UpdateJobDefinition)
 	mux.HandleFunc("POST /api/v1/jobs/trigger/{id}", s.TriggerJob)

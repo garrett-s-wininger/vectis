@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"vectis/internal/api"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/testutil/dbtest"
@@ -459,5 +460,206 @@ func TestAPIServer_UpdateJobDefinition_InvalidJSON(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
+	}
+}
+
+func TestAPIServer_RunJob_Success(t *testing.T) {
+	server, logger, queueService, db := setupTestServer(t)
+
+	jobDef := map[string]any{
+		"root": map[string]any{
+			"id":   "node-1",
+			"uses": "builtins/shell",
+			"with": map[string]string{
+				"command": "echo hello",
+			},
+		},
+	}
+
+	body, _ := json.Marshal(jobDef)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/run", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	server.RunJob(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Errorf("expected status %d, got %d", http.StatusAccepted, rec.Code)
+	}
+
+	var resp struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+
+	if resp.ID == "" {
+		t.Error("expected non-empty id in response")
+	}
+
+	if _, err := uuid.Parse(resp.ID); err != nil {
+		t.Errorf("expected id to be a valid UUID, got %q: %v", resp.ID, err)
+	}
+
+	var count int
+	err := db.QueryRow("SELECT COUNT(*) FROM stored_jobs WHERE job_id = ?", resp.ID).Scan(&count)
+	if err != nil {
+		t.Fatalf("failed to query db: %v", err)
+	}
+
+	if count != 0 {
+		t.Errorf("expected 0 rows in stored_jobs for ephemeral id %q, got %d", resp.ID, count)
+	}
+
+	jobs := queueService.GetJobs()
+	if len(jobs) != 1 {
+		t.Errorf("expected 1 job enqueued, got %d", len(jobs))
+	}
+
+	if jobs[0].GetId() != resp.ID {
+		t.Errorf("expected enqueued job id %q, got %q", resp.ID, jobs[0].GetId())
+	}
+
+	infoCalls := logger.GetInfoCalls()
+	hasEnqueuedMsg := false
+	for _, msg := range infoCalls {
+		if strings.Contains(msg, "Enqueued ephemeral job: "+resp.ID) {
+			hasEnqueuedMsg = true
+			break
+		}
+	}
+
+	if !hasEnqueuedMsg {
+		t.Errorf("expected logger to contain 'Enqueued ephemeral job: %s', got: %v", resp.ID, infoCalls)
+	}
+}
+
+func TestAPIServer_RunJob_OverwritesClientID(t *testing.T) {
+	server, _, queueService, db := setupTestServer(t)
+
+	jobDef := map[string]any{
+		"id": "client-provided-id",
+		"root": map[string]any{
+			"uses": "builtins/shell",
+			"with": map[string]string{"command": "echo test"},
+		},
+	}
+
+	body, _ := json.Marshal(jobDef)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/run", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	server.RunJob(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Errorf("expected status %d, got %d", http.StatusAccepted, rec.Code)
+	}
+
+	var resp struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+
+	if resp.ID == "client-provided-id" {
+		t.Error("expected server to overwrite client id with generated UUID")
+	}
+
+	var count int
+	db.QueryRow("SELECT COUNT(*) FROM stored_jobs WHERE job_id = ?", "client-provided-id").Scan(&count)
+	if count != 0 {
+		t.Errorf("expected no stored job with client id, got %d", count)
+	}
+
+	jobs := queueService.GetJobs()
+	if len(jobs) != 1 || jobs[0].GetId() != resp.ID {
+		t.Errorf("enqueued job id should be %q, got %v", resp.ID, jobs)
+	}
+}
+
+func TestAPIServer_RunJob_InvalidContentType(t *testing.T) {
+	server, _, _, _ := setupTestServer(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/run", strings.NewReader("{}"))
+	req.Header.Set("Content-Type", "text/plain")
+	rec := httptest.NewRecorder()
+
+	server.RunJob(rec, req)
+
+	if rec.Code != http.StatusUnsupportedMediaType {
+		t.Errorf("expected status %d, got %d", http.StatusUnsupportedMediaType, rec.Code)
+	}
+}
+
+func TestAPIServer_RunJob_InvalidJSON(t *testing.T) {
+	server, _, queueService, _ := setupTestServer(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/run", strings.NewReader("not json"))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	server.RunJob(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
+	}
+
+	if len(queueService.GetJobs()) != 0 {
+		t.Error("expected no job enqueued on invalid JSON")
+	}
+}
+
+func TestAPIServer_RunJob_MissingRoot(t *testing.T) {
+	server, _, queueService, _ := setupTestServer(t)
+
+	jobDef := map[string]any{"id": "no-root"}
+	body, _ := json.Marshal(jobDef)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/run", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	server.RunJob(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
+	}
+
+	if len(queueService.GetJobs()) != 0 {
+		t.Error("expected no job enqueued when root is missing")
+	}
+}
+
+func TestAPIServer_RunJob_QueueError(t *testing.T) {
+	server, logger, queueService, _ := setupTestServer(t)
+
+	queueService.SetEnqueueError(errors.New("queue unavailable"))
+	jobDef := map[string]any{
+		"root": map[string]any{"uses": "builtins/shell", "with": map[string]string{"command": "echo"}},
+	}
+	body, _ := json.Marshal(jobDef)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/run", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	server.RunJob(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected status %d, got %d", http.StatusServiceUnavailable, rec.Code)
+	}
+
+	errorCalls := logger.GetErrorCalls()
+	hasQueueError := false
+	for _, msg := range errorCalls {
+		if strings.Contains(msg, "Failed to enqueue job") {
+			hasQueueError = true
+			break
+		}
+	}
+
+	if !hasQueueError {
+		t.Errorf("expected logger error 'Failed to enqueue job', got: %v", errorCalls)
 	}
 }
