@@ -55,10 +55,10 @@ func (s *ShellAction) Execute(ctx context.Context, state *action.ExecutionState,
 		streamOutput(process.Stderr(), state, api.Stream_STREAM_STDERR)
 	}()
 
-	// NOTE(garrett): We let the command finish, and then the streaming output so that we
-	// can ensure that the log service has received all the necessary data for archiving.
-	cmdErr := process.Wait()
+	// NOTE(garrett): We drain stdout/stderr fully before waiting on the process to
+	// avoid reading from pipes that may be closed by Wait.
 	wg.Wait()
+	cmdErr := process.Wait()
 
 	if cmdErr != nil {
 		state.Logger.Error("Command failed: %v", cmdErr)

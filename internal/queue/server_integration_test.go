@@ -124,7 +124,7 @@ func TestIntegrationQueue_ConcurrentEnqueueDequeue(t *testing.T) {
 	numWorkers := 10
 
 	var enqueueWg sync.WaitGroup
-	for i := 0; i < numJobs; i++ {
+	for i := range numJobs {
 		enqueueWg.Add(1)
 
 		go func(id int) {
@@ -143,10 +143,8 @@ func TestIntegrationQueue_ConcurrentEnqueueDequeue(t *testing.T) {
 	var mu sync.Mutex
 	var dequeueWg sync.WaitGroup
 
-	for i := 0; i < numWorkers; i++ {
-		dequeueWg.Add(1)
-		go func() {
-			defer dequeueWg.Done()
+	for range numWorkers {
+		dequeueWg.Go(func() {
 			for {
 				ctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
 				job, err := client.Dequeue(ctx, &api.Empty{})
@@ -160,7 +158,7 @@ func TestIntegrationQueue_ConcurrentEnqueueDequeue(t *testing.T) {
 				receivedJobs[job.GetId()] = true
 				mu.Unlock()
 			}
-		}()
+		})
 	}
 
 	dequeueWg.Wait()
@@ -183,7 +181,7 @@ func TestIntegrationQueue_MultipleDequeueWaiters(t *testing.T) {
 
 	results := make(chan result, numWaiters)
 
-	for i := 0; i < numWaiters; i++ {
+	for i := range numWaiters {
 		go func(id int) {
 			timeoutCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			defer cancel()

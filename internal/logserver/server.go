@@ -33,14 +33,16 @@ type LogEntry struct {
 type JobBuffer struct {
 	mu          sync.RWMutex
 	entries     []LogEntry
-	subscribers map[*websocket.Conn]struct{}
+	subscribers map[*websocket.Conn]chan []byte
 	subMu       sync.RWMutex
+	logger      interfaces.Logger
 }
 
-func NewJobBuffer() *JobBuffer {
+func NewJobBuffer(logger interfaces.Logger) *JobBuffer {
 	return &JobBuffer{
 		entries:     make([]LogEntry, 0, MaxLogLinesPerJob),
-		subscribers: make(map[*websocket.Conn]struct{}),
+		subscribers: make(map[*websocket.Conn]chan []byte),
+		logger:      logger,
 	}
 }
 
@@ -65,30 +67,41 @@ func (jb *JobBuffer) GetEntries() []LogEntry {
 	return entries
 }
 
-func (jb *JobBuffer) Subscribe(conn *websocket.Conn) {
+func (jb *JobBuffer) Subscribe(conn *websocket.Conn, ch chan []byte) {
 	jb.subMu.Lock()
 	defer jb.subMu.Unlock()
-	jb.subscribers[conn] = struct{}{}
+	jb.subscribers[conn] = ch
 }
 
-func (jb *JobBuffer) Unsubscribe(conn *websocket.Conn) {
+func (jb *JobBuffer) Unsubscribe(conn *websocket.Conn) (chan []byte, bool) {
 	jb.subMu.Lock()
 	defer jb.subMu.Unlock()
+
+	ch, ok := jb.subscribers[conn]
+	if !ok {
+		return nil, false
+	}
+
 	delete(jb.subscribers, conn)
+	return ch, true
 }
 
-func (jb *JobBuffer) Broadcast(entry LogEntry) {
-	jb.subMu.RLock()
-	defer jb.subMu.RUnlock()
-
+func (jb *JobBuffer) Broadcast(jobID string, entry LogEntry) {
 	data, err := json.Marshal(entry)
 	if err != nil {
 		return
 	}
 
-	for conn := range jb.subscribers {
-		if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
-			// NOTE(garrett): Client disconnected, will be cleaned up on next write.
+	jb.subMu.RLock()
+	defer jb.subMu.RUnlock()
+
+	for _, ch := range jb.subscribers {
+		select {
+		case ch <- data:
+		default:
+			if jb.logger != nil {
+				jb.logger.Warn("WebSocket buffer full for job %s; dropping log line (seq %d)", jobID, entry.Sequence)
+			}
 		}
 	}
 }
@@ -122,7 +135,7 @@ func (s *Server) getOrCreateBuffer(jobID string) *JobBuffer {
 		return buffer
 	}
 
-	buffer := NewJobBuffer()
+	buffer := NewJobBuffer(s.logger)
 	s.buffers[jobID] = buffer
 	return buffer
 }
@@ -148,11 +161,11 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 		// consideration would be how to handle gaps in the sequence numbers as well as websocket
 		// resumption so we don't have to re-send all the logs to the client.
 		if !buffer.Add(entry) {
-			s.logger.Warn("Log buffer full for job %s, dropping log line", chunk.GetJobId())
+			s.logger.Warn("Log buffer full for job %s, dropping log line (seq %d)", chunk.GetJobId(), entry.Sequence)
 			continue
 		}
 
-		buffer.Broadcast(entry)
+		buffer.Broadcast(chunk.GetJobId(), entry)
 		s.logger.Debug("Received log from job %s (seq %d)", chunk.GetJobId(), chunk.GetSequence())
 	}
 }
@@ -175,8 +188,22 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 
 	buffer := s.getOrCreateBuffer(jobID)
-	buffer.Subscribe(conn)
-	defer buffer.Unsubscribe(conn)
+	outCh := make(chan []byte, 256)
+	buffer.Subscribe(conn, outCh)
+	defer func() {
+		if ch, ok := buffer.Unsubscribe(conn); ok {
+			close(ch)
+		}
+	}()
+
+	go func() {
+		for msg := range outCh {
+			if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+				// NOTE(garrett): Connection errors will be surfaced by the reader loop below.
+				return
+			}
+		}
+	}()
 
 	s.logger.Info("WebSocket client subscribed to job: %s", jobID)
 
@@ -186,9 +213,7 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			continue
 		}
-		if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
-			return
-		}
+		outCh <- data
 	}
 
 	for {

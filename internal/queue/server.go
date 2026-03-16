@@ -12,19 +12,18 @@ import (
 
 type queueServer struct {
 	api.UnimplementedQueueServiceServer
-	jobs []*api.Job
-	mu   sync.Mutex
-	cond *sync.Cond
-	log  interfaces.Logger
+	jobs   []*api.Job
+	mu     sync.Mutex
+	notify chan struct{}
+	log    interfaces.Logger
 }
 
 func NewQueueService(logger interfaces.Logger) api.QueueServiceServer {
 	s := &queueServer{
-		jobs: []*api.Job{},
-		log:  logger,
+		jobs:   []*api.Job{},
+		notify: make(chan struct{}, 1),
+		log:    logger,
 	}
-
-	s.cond = sync.NewCond(&s.mu)
 	return s
 }
 
@@ -35,9 +34,10 @@ func (s *queueServer) Enqueue(ctx context.Context, req *api.Job) (*api.Empty, er
 	s.jobs = append(s.jobs, req)
 	s.log.Info("Enqueued job: %s", req.GetId())
 
-	// NOTE(garrett): For dequeue, we're using this condition as a barrier for the respective
-	// goroutine to wait on.
-	s.cond.Signal()
+	select {
+	case s.notify <- struct{}{}:
+	default:
+	}
 
 	return &api.Empty{}, nil
 }
@@ -52,27 +52,12 @@ func (s *queueServer) Dequeue(ctx context.Context, _ *api.Empty) (*api.Job, erro
 		}
 
 		s.mu.Unlock()
-
-		done := make(chan struct{})
-
-		// NOTE(garrett): On wakeup, we'll signal the done channel to wake up the select.
-		go func() {
-			s.mu.Lock()
-			s.cond.Wait()
-			s.mu.Unlock()
-			close(done)
-		}()
-
 		select {
-		case <-done:
-			// NOTE(garrett): We've been woken up by a new job; loop will re-check len(s.jobs).
+		case <-s.notify:
 		case <-ctx.Done():
-			s.cond.Broadcast()
-			<-done
 			s.mu.Lock()
 			return nil, ctx.Err()
 		}
-
 		s.mu.Lock()
 	}
 
@@ -91,7 +76,6 @@ func (s *queueServer) TryDequeue(ctx context.Context, _ *api.Empty) (*api.Job, e
 	defer s.mu.Unlock()
 
 	if len(s.jobs) == 0 {
-		// Queue is empty, return nil without blocking
 		return nil, nil
 	}
 

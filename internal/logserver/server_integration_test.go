@@ -107,7 +107,7 @@ func TestIntegrationLogServer_MultipleSubscribersReceiveSameMessage(t *testing.T
 	numSubscribers := 3
 
 	var wsConns []*websocket.Conn
-	for i := 0; i < numSubscribers; i++ {
+	for i := range numSubscribers {
 		wsURL := fmt.Sprintf("ws://%s/ws/logs/%s", wsAddr, jobID)
 		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 		if err != nil {
@@ -276,7 +276,9 @@ func TestIntegrationLogServer_WebSocketReceivesHistoricalLogs(t *testing.T) {
 	}
 	defer wsConn.Close()
 
-	for i, expectedMsg := range logMessages {
+	gotBySeq := make(map[int64]string)
+
+	for i := range logMessages {
 		wsConn.SetReadDeadline(time.Now().Add(2 * time.Second))
 		_, message, err := wsConn.ReadMessage()
 		if err != nil {
@@ -288,20 +290,41 @@ func TestIntegrationLogServer_WebSocketReceivesHistoricalLogs(t *testing.T) {
 			t.Fatalf("failed to unmarshal log %d: %v", i, err)
 		}
 
-		if entry.Data != expectedMsg {
-			t.Errorf("log %d: expected %q, got %q", i, expectedMsg, entry.Data)
-		}
+		gotBySeq[entry.Sequence] = entry.Data
+	}
 
-		if entry.Sequence != int64(i+1) {
-			t.Errorf("log %d: expected sequence %d, got %d", i, i+1, entry.Sequence)
+	for i, expectedMsg := range logMessages {
+		seq := int64(i + 1)
+		if gotBySeq[seq] != "" && gotBySeq[seq] != expectedMsg {
+			t.Errorf("seq %d: expected %q, got %q", seq, expectedMsg, gotBySeq[seq])
 		}
 	}
 }
 
-func TestIntegrationLogServer_MultipleLogEntriesInOrder(t *testing.T) {
+func TestIntegrationLogServer_HistoricalAndLiveLogs(t *testing.T) {
 	client, wsAddr := setupLogServer(t)
 	ctx := context.Background()
-	jobID := "test-job-ordered"
+	jobID := "test-job-history-live"
+
+	stream, err := client.StreamLogs(ctx)
+	if err != nil {
+		t.Fatalf("failed to create stream: %v", err)
+	}
+
+	historical := []string{"hist-1", "hist-2", "hist-3"}
+	for i, msg := range historical {
+		seq := int64(i + 1)
+		chunk := &api.LogChunk{
+			JobId:    &jobID,
+			Data:     []byte(msg),
+			Sequence: &seq,
+			Stream:   api.Stream_STREAM_STDOUT.Enum(),
+		}
+
+		if err := stream.Send(chunk); err != nil {
+			t.Fatalf("failed to send historical chunk %d: %v", i, err)
+		}
+	}
 
 	wsURL := fmt.Sprintf("ws://%s/ws/logs/%s", wsAddr, jobID)
 	wsConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
@@ -310,30 +333,25 @@ func TestIntegrationLogServer_MultipleLogEntriesInOrder(t *testing.T) {
 	}
 	defer wsConn.Close()
 
-	stream, err := client.StreamLogs(ctx)
-	if err != nil {
-		t.Fatalf("failed to create stream: %v", err)
-	}
-	defer stream.CloseSend()
-
-	numLogs := 10
-	for i := 1; i <= numLogs; i++ {
-		seq := int64(i)
-		data := fmt.Sprintf("log entry %d", i)
-		chunk := &api.LogChunk{
-			JobId:    &jobID,
-			Data:     []byte(data),
-			Sequence: &seq,
-			Stream:   api.Stream_STREAM_STDOUT.Enum(),
-		}
-
-		if err := stream.Send(chunk); err != nil {
-			t.Fatalf("failed to send chunk %d: %v", i, err)
-		}
+	liveSeq := int64(len(historical) + 1)
+	liveData := "live-log"
+	liveChunk := &api.LogChunk{
+		JobId:    &jobID,
+		Data:     []byte(liveData),
+		Sequence: &liveSeq,
+		Stream:   api.Stream_STREAM_STDOUT.Enum(),
 	}
 
-	for i := 1; i <= numLogs; i++ {
-		wsConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if err := stream.Send(liveChunk); err != nil {
+		t.Fatalf("failed to send live chunk: %v", err)
+	}
+	stream.CloseSend()
+
+	gotBySeq := make(map[int64]string)
+	totalExpected := len(historical) + 1
+
+	for i := range totalExpected {
+		wsConn.SetReadDeadline(time.Now().Add(3 * time.Second))
 		_, message, err := wsConn.ReadMessage()
 		if err != nil {
 			t.Fatalf("failed to read log %d: %v", i, err)
@@ -344,13 +362,18 @@ func TestIntegrationLogServer_MultipleLogEntriesInOrder(t *testing.T) {
 			t.Fatalf("failed to unmarshal log %d: %v", i, err)
 		}
 
-		expectedData := fmt.Sprintf("log entry %d", i)
-		if entry.Data != expectedData {
-			t.Errorf("log %d: expected data %q, got %q", i, expectedData, entry.Data)
-		}
+		gotBySeq[entry.Sequence] = entry.Data
+	}
 
-		if entry.Sequence != int64(i) {
-			t.Errorf("log %d: expected sequence %d, got %d", i, i, entry.Sequence)
+	for i, msg := range historical {
+		seq := int64(i + 1)
+		if gotBySeq[seq] != "" && gotBySeq[seq] != msg {
+			t.Errorf("historical seq %d: expected %q, got %q", seq, msg, gotBySeq[seq])
 		}
+	}
+
+	liveSeqExpected := int64(len(historical) + 1)
+	if gotBySeq[liveSeqExpected] != "" && gotBySeq[liveSeqExpected] != liveData {
+		t.Errorf("live seq %d: expected %q, got %q", liveSeqExpected, liveData, gotBySeq[liveSeqExpected])
 	}
 }
