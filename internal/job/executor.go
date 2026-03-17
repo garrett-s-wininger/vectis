@@ -65,17 +65,25 @@ func (e *Executor) ExecuteJob(ctx context.Context, job *api.Job, logClient inter
 	}
 
 	logger.Info("Starting job execution: %s", job.GetId())
+
+	sendLog(state, api.Stream_STREAM_CONTROL, `{"event":"start"}`)
 	sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Starting job execution: %s", job.GetId()))
 
 	result := e.executeNode(ctx, job.GetRoot(), state)
-	logStream.CloseSend()
 
 	if result.Status == action.StatusFailure {
 		logger.Error("Job failed: %v", result.Error)
+		sendLog(state, api.Stream_STREAM_CONTROL, `{"event":"completed","status":"failure"}`)
+		logStream.CloseSend()
+
 		return result.Error
 	}
 
 	logger.Info("Job completed successfully: %s", job.GetId())
+
+	sendLog(state, api.Stream_STREAM_CONTROL, `{"event":"completed","status":"success"}`)
+	logStream.CloseSend()
+
 	return nil
 }
 

@@ -24,8 +24,9 @@ const (
 type Stream int32
 
 const (
-	Stream_STREAM_STDOUT Stream = 0
-	Stream_STREAM_STDERR Stream = 1
+	Stream_STREAM_STDOUT  Stream = 0
+	Stream_STREAM_STDERR  Stream = 1
+	Stream_STREAM_CONTROL Stream = 2
 )
 
 // Enum value maps for Stream.
@@ -33,10 +34,12 @@ var (
 	Stream_name = map[int32]string{
 		0: "STREAM_STDOUT",
 		1: "STREAM_STDERR",
+		2: "STREAM_CONTROL",
 	}
 	Stream_value = map[string]int32{
-		"STREAM_STDOUT": 0,
-		"STREAM_STDERR": 1,
+		"STREAM_STDOUT":  0,
+		"STREAM_STDERR":  1,
+		"STREAM_CONTROL": 2,
 	}
 )
 
@@ -312,10 +315,11 @@ const file_common_proto_rawDesc = "" +
 	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x12\x12\n" +
 	"\x04data\x18\x02 \x01(\fR\x04data\x12\x1a\n" +
 	"\bsequence\x18\x03 \x01(\x03R\bsequence\x12&\n" +
-	"\x06stream\x18\x04 \x01(\x0e2\x0e.common.StreamR\x06stream*.\n" +
+	"\x06stream\x18\x04 \x01(\x0e2\x0e.common.StreamR\x06stream*B\n" +
 	"\x06Stream\x12\x11\n" +
 	"\rSTREAM_STDOUT\x10\x00\x12\x11\n" +
-	"\rSTREAM_STDERR\x10\x01Bd\n" +
+	"\rSTREAM_STDERR\x10\x01\x12\x12\n" +
+	"\x0eSTREAM_CONTROL\x10\x02Bd\n" +
 	"\n" +
 	"com.commonB\vCommonProtoP\x01Z\x11vectis/api/gen/go\xa2\x02\x03CXX\xaa\x02\x06Common\xca\x02\x06Common\xe2\x02\x12Common\\GPBMetadata\xea\x02\x06Commonb\beditionsp\xe8\a"
 

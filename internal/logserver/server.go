@@ -207,13 +207,16 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	s.logger.Info("WebSocket client subscribed to job: %s", jobID)
 
-	entries := buffer.GetEntries()
-	for _, entry := range entries {
-		data, err := json.Marshal(entry)
-		if err != nil {
-			continue
+	// NOTE(garrett): Quick hack to skip historical logs in continuous mode.
+	if r.URL.Query().Get("history") != "0" {
+		entries := buffer.GetEntries()
+		for _, entry := range entries {
+			data, err := json.Marshal(entry)
+			if err != nil {
+				continue
+			}
+			outCh <- data
 		}
-		outCh <- data
 	}
 
 	for {

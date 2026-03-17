@@ -19,6 +19,7 @@ message Node {
 enum Stream {
     STREAM_STDOUT = 0;
     STREAM_STDERR = 1;
+    STREAM_CONTROL = 2;
 }
 
 message LogChunk {
