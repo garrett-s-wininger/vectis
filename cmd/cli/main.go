@@ -10,7 +10,6 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/spf13/cobra"
@@ -26,12 +25,8 @@ type LogEntry struct {
 	Data      string `json:"data"`
 }
 
-func runLogStream(jobID string, filterStdout, filterStderr, continuous bool) error {
-	wsURL := fmt.Sprintf("ws://localhost%s/ws/logs/%s", networking.LogWebSocketPort, jobID)
-	if continuous {
-		// NOTE(garrett): Quick hack to skip historical logs in continuous mode.
-		wsURL = wsURL + "?history=0"
-	}
+func runLogStream(runID string, filterStdout, filterStderr bool) error {
+	wsURL := fmt.Sprintf("ws://localhost%s/ws/logs/%s", networking.LogWebSocketPort, runID)
 
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
@@ -39,19 +34,13 @@ func runLogStream(jobID string, filterStdout, filterStderr, continuous bool) err
 	}
 	defer conn.Close()
 
-	fmt.Printf("Connected to logs for job %s\n", jobID)
-	if continuous {
-		fmt.Println("Streaming logs for all executions... (press Ctrl+C to exit)")
-	} else {
-		fmt.Println("Streaming logs for a single execution... (press Ctrl+C to exit)")
-	}
+	fmt.Printf("Connected to logs for run %s\n", runID)
+	fmt.Println("Streaming logs... (press Ctrl+C to exit)")
 
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, syscall.SIGINT, syscall.SIGTERM)
 
 	done := make(chan struct{})
-	var completionStatus *string
-	executionCount := 0
 
 	go func() {
 		defer close(done)
@@ -83,31 +72,18 @@ func runLogStream(jobID string, filterStdout, filterStderr, continuous bool) err
 
 				switch meta.Event {
 				case "start":
-					executionCount++
-					fmt.Printf("\n=== Execution %d started for job %s ===\n", executionCount, jobID)
-					completionStatus = nil
+					fmt.Printf("\n=== Run %s started ===\n", runID)
 				case "completed":
 					status := meta.Status
-					completionStatus = &status
 					switch status {
 					case "success":
-						fmt.Printf("Execution %d for job %s finished successfully.\n", executionCount, jobID)
+						fmt.Printf("Run %s finished successfully.\n", runID)
 					case "failure":
-						fmt.Printf("Execution %d for job %s failed.\n", executionCount, jobID)
+						fmt.Printf("Run %s failed.\n", runID)
 					default:
-						fmt.Printf("Execution %d for job %s finished (status: %s).\n", executionCount, jobID, status)
+						fmt.Printf("Run %s finished (status: %s).\n", runID, status)
 					}
-
-					if !continuous {
-						_ = conn.WriteControl(
-							websocket.CloseMessage,
-							websocket.FormatCloseMessage(websocket.CloseNormalClosure, "execution completed"),
-							time.Now().Add(5*time.Second),
-						)
-
-						_ = conn.Close()
-						return
-					}
+					// NOTE(garrett): Server-side close, next ReadMessage will get the status.
 				}
 
 				continue
@@ -132,17 +108,6 @@ func runLogStream(jobID string, filterStdout, filterStderr, continuous bool) err
 
 	select {
 	case <-done:
-		if !continuous && completionStatus != nil {
-			switch *completionStatus {
-			case "success":
-				fmt.Printf("Job %s finished successfully.\n", jobID)
-			case "failure":
-				fmt.Printf("Job %s failed.\n", jobID)
-			default:
-				fmt.Printf("Job %s finished (status: %s).\n", jobID, *completionStatus)
-			}
-		}
-
 		return nil
 	case <-interrupt:
 		fmt.Println("\nDisconnecting...")
@@ -171,15 +136,31 @@ func triggerJob(cmd *cobra.Command, args []string) {
 	defer resp.Body.Close()
 
 	switch resp.StatusCode {
-	case http.StatusNoContent:
+	case http.StatusAccepted:
+		var result struct {
+			JobID    string `json:"job_id"`
+			RunID    string `json:"run_id"`
+			RunIndex int    `json:"run_index"`
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: failed to parse response: %v\n", err)
+			os.Exit(1)
+		}
+
+		if result.RunID == "" {
+			fmt.Fprintln(os.Stderr, "Error: response missing run_id")
+			os.Exit(1)
+		}
+
 		follow, _ := cmd.Flags().GetBool("follow")
 		if follow {
-			if err := runLogStream(jobID, false, false, false); err != nil {
+			if err := runLogStream(result.RunID, false, false); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
 		} else {
-			fmt.Println(jobID)
+			fmt.Println(result.RunID)
 		}
 	case http.StatusNotFound:
 		fmt.Fprintf(os.Stderr, "Error: job '%s' not found\n", jobID)
@@ -193,44 +174,149 @@ func triggerJob(cmd *cobra.Command, args []string) {
 	}
 }
 
-func streamLogs(cmd *cobra.Command, args []string) {
-	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Error: job-id is required")
-		cmd.Usage()
+func runContinuousLogs(jobID string, filterStdout, filterStderr bool) error {
+	apiAddr := "http://localhost:8080"
+	lastIndex := 0
+	fmt.Printf("Streaming logs for job %s (Ctrl+C to stop)\n", jobID)
+
+	interrupt := make(chan os.Signal, 1)
+	signal.Notify(interrupt, syscall.SIGINT, syscall.SIGTERM)
+
+	type runEvent struct {
+		RunID    string `json:"run_id"`
+		RunIndex int    `json:"run_index"`
+	}
+
+outer:
+	for {
+		wsURL := strings.Replace(apiAddr, "http://", "ws://", 1)
+		wsURL = fmt.Sprintf("%s/api/v1/ws/jobs/%s/runs", wsURL, jobID)
+		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+		if err != nil {
+			return fmt.Errorf("connecting to runs WebSocket: %w", err)
+		}
+
+		runChan := make(chan runEvent, 32)
+		go func(c *websocket.Conn) {
+			defer close(runChan)
+			for {
+				_, message, err := c.ReadMessage()
+				if err != nil {
+					if !websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+						return
+					}
+					fmt.Fprintf(os.Stderr, "WebSocket error: %v\n", err)
+					return
+				}
+
+				var ev runEvent
+				if err := json.Unmarshal(message, &ev); err != nil || ev.RunID == "" {
+					continue
+				}
+
+				select {
+				case runChan <- ev:
+				default:
+					fmt.Fprintf(os.Stderr, "Dropping run event (buffer full)\n")
+				}
+			}
+		}(conn)
+
+		catchUpURL := fmt.Sprintf("%s/api/v1/jobs/%s/runs?since=%d", apiAddr, jobID, lastIndex)
+		resp, err := http.Get(catchUpURL)
+		if err != nil {
+			conn.Close()
+			return fmt.Errorf("fetching runs: %w", err)
+		}
+		var runs []struct {
+			RunID    string `json:"run_id"`
+			RunIndex int    `json:"run_index"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&runs); err != nil {
+			resp.Body.Close()
+			conn.Close()
+			return fmt.Errorf("parsing runs: %w", err)
+		}
+		resp.Body.Close()
+		for _, r := range runs {
+			if r.RunIndex > lastIndex {
+				lastIndex = r.RunIndex
+			}
+		}
+
+		for {
+			select {
+			case <-interrupt:
+				conn.Close()
+				fmt.Println("\nStopping.")
+				return fmt.Errorf("interrupted")
+			case ev, ok := <-runChan:
+				if !ok {
+					conn.Close()
+					fmt.Fprintf(os.Stderr, "Runs connection closed; reconnecting...\n")
+					continue outer
+				}
+
+				if ev.RunIndex > lastIndex {
+					lastIndex = ev.RunIndex
+				}
+
+				if err := runLogStream(ev.RunID, filterStdout, filterStderr); err != nil {
+					if err.Error() == "interrupted" {
+						conn.Close()
+						return err
+					}
+					fmt.Fprintf(os.Stderr, "Error streaming run %s: %v\n", ev.RunID, err)
+				}
+			}
+		}
+	}
+}
+
+func resolveLogIDArg(arg string) (string, error) {
+	if arg != "-" {
+		return arg, nil
+	}
+
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil && err != io.EOF {
+		return "", fmt.Errorf("reading from stdin: %w", err)
+	}
+
+	id := strings.TrimSpace(line)
+	if id == "" {
+		return "", fmt.Errorf("empty id from stdin")
+	}
+
+	return id, nil
+}
+
+func runLogsRun(cmd *cobra.Command, args []string) {
+	id, err := resolveLogIDArg(args[0])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	jobIDArg := args[0]
-	var jobID string
-	if jobIDArg == "-" {
-		reader := bufio.NewReader(os.Stdin)
-		line, err := reader.ReadString('\n')
-		if err != nil && err != io.EOF {
-			fmt.Fprintf(os.Stderr, "Error: failed to read job-id from stdin: %v\n", err)
-			os.Exit(1)
-		}
-
-		jobID = strings.TrimSpace(line)
-		if jobID == "" {
-			fmt.Fprintln(os.Stderr, "Error: empty job-id from stdin")
-			os.Exit(1)
-		}
-	} else {
-		jobID = jobIDArg
-	}
-
-	follow, _ := cmd.Flags().GetBool("follow")
 	filterStdout, _ := cmd.Flags().GetBool("stdout")
 	filterStderr, _ := cmd.Flags().GetBool("stderr")
-	continuous, _ := cmd.Flags().GetBool("continuous")
+	if err := runLogStream(id, filterStdout, filterStderr); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
 
-	// NOTE(garrett): Require follow mode for now - we don't have historical log retrieval.
-	if !follow {
-		fmt.Fprintln(os.Stderr, "Error: --follow flag is required (historical log retrieval not yet implemented)")
+func runLogsJob(cmd *cobra.Command, args []string) {
+	jobID, err := resolveLogIDArg(args[0])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	if err := runLogStream(jobID, filterStdout, filterStderr, continuous); err != nil {
+	filterStdout, _ := cmd.Flags().GetBool("stdout")
+	filterStderr, _ := cmd.Flags().GetBool("stderr")
+	if err := runContinuousLogs(jobID, filterStdout, filterStderr); err != nil && err.Error() != "interrupted" {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -287,7 +373,8 @@ func runJob(cmd *cobra.Command, args []string) {
 	switch resp.StatusCode {
 	case http.StatusAccepted:
 		var result struct {
-			ID string `json:"id"`
+			ID    string `json:"id"`
+			RunID string `json:"run_id"`
 		}
 
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -295,19 +382,19 @@ func runJob(cmd *cobra.Command, args []string) {
 			os.Exit(1)
 		}
 
-		if result.ID == "" {
-			fmt.Fprintln(os.Stderr, "Error: response missing id")
+		if result.RunID == "" {
+			fmt.Fprintln(os.Stderr, "Error: response missing run_id")
 			os.Exit(1)
 		}
 
 		follow, _ := cmd.Flags().GetBool("follow")
 		if follow {
-			if err := runLogStream(result.ID, false, false, false); err != nil {
+			if err := runLogStream(result.RunID, false, false); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
 		} else {
-			fmt.Println(result.ID)
+			fmt.Println(result.RunID)
 		}
 	case http.StatusUnsupportedMediaType:
 		fmt.Fprintln(os.Stderr, "Error: content type must be application/json")
@@ -333,11 +420,25 @@ var triggerCmd = &cobra.Command{
 }
 
 var logsCmd = &cobra.Command{
-	Use:   "logs [job-id]",
-	Short: "Stream logs for a job",
-	Long:  `Stream logs for a job via WebSocket. Use --follow to keep streaming new logs. Use "-" as job-id to read from stdin (e.g. from trigger or run).`,
+	Use:   "logs",
+	Short: "Stream logs for runs",
+	Long:  `Stream logs via WebSocket. Use "logs run" for a single run (until it completes). Use "logs job" to follow a job (runs triggered after you connect). Use "-" as the id to read from stdin.`,
+}
+
+var logsRunCmd = &cobra.Command{
+	Use:   "run [run-id]",
+	Short: "Stream logs for a single run until it completes",
+	Long:  `Connect to the log stream for the given run-id and stream output until the run completes (server closes). Argument is a run-id; use "-" to read from stdin.`,
 	Args:  cobra.ExactArgs(1),
-	Run:   streamLogs,
+	Run:   runLogsRun,
+}
+
+var logsJobCmd = &cobra.Command{
+	Use:   "job [job-id]",
+	Short: "Stream logs for a job (next runs only)",
+	Long:  `Subscribe to run events for the job and stream logs for each run triggered after you connect. Does not stream historical runs. Re-subscribes if the runs connection closes. Argument is a job-id; use "-" to read from stdin.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   runLogsJob,
 }
 
 var runCmd = &cobra.Command{
@@ -355,13 +456,16 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	logsCmd.Flags().BoolP("follow", "f", false, "Keep streaming logs (don't exit after existing logs)")
-	logsCmd.Flags().Bool("stdout", false, "Only show stdout")
-	logsCmd.Flags().Bool("stderr", false, "Only show stderr")
-	logsCmd.Flags().BoolP("continuous", "c", false, "Continuously follow all executions of the job-id")
+	logsRunCmd.Flags().Bool("stdout", false, "Only show stdout")
+	logsRunCmd.Flags().Bool("stderr", false, "Only show stderr")
+	logsJobCmd.Flags().Bool("stdout", false, "Only show stdout")
+	logsJobCmd.Flags().Bool("stderr", false, "Only show stderr")
 
-	triggerCmd.Flags().BoolP("follow", "f", false, "After triggering, stream logs (same as logs --follow)")
-	runCmd.Flags().BoolP("follow", "f", false, "After submitting, stream logs (same as logs --follow)")
+	logsCmd.AddCommand(logsRunCmd)
+	logsCmd.AddCommand(logsJobCmd)
+
+	triggerCmd.Flags().BoolP("follow", "f", false, "After triggering, stream logs (same as logs run <run-id>)")
+	runCmd.Flags().BoolP("follow", "f", false, "After submitting, stream logs (same as logs run <run-id>)")
 
 	rootCmd.AddCommand(triggerCmd)
 	rootCmd.AddCommand(logsCmd)

@@ -79,7 +79,7 @@ func streamOutput(reader io.Reader, state *action.ExecutionState, streamType api
 			data := buf[:n]
 			seq := state.NextSequence()
 			chunk := &api.LogChunk{
-				JobId:    &state.JobID,
+				RunId:    &state.RunID,
 				Data:     data,
 				Sequence: &seq,
 				Stream:   &streamType,
@@ -107,7 +107,7 @@ func sendLog(state *action.ExecutionState, streamType api.Stream, message string
 
 	seq := state.NextSequence()
 	chunk := &api.LogChunk{
-		JobId:    &state.JobID,
+		RunId:    &state.RunID,
 		Data:     []byte(message),
 		Sequence: &seq,
 		Stream:   &streamType,

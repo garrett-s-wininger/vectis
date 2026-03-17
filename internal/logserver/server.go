@@ -127,16 +127,16 @@ func NewServer(logger interfaces.Logger) *Server {
 	}
 }
 
-func (s *Server) getOrCreateBuffer(jobID string) *JobBuffer {
+func (s *Server) getOrCreateBuffer(runID string) *JobBuffer {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if buffer, ok := s.buffers[jobID]; ok {
+	if buffer, ok := s.buffers[runID]; ok {
 		return buffer
 	}
 
 	buffer := NewJobBuffer(s.logger)
-	s.buffers[jobID] = buffer
+	s.buffers[runID] = buffer
 	return buffer
 }
 
@@ -147,7 +147,7 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 			return err
 		}
 
-		buffer := s.getOrCreateBuffer(chunk.GetJobId())
+		buffer := s.getOrCreateBuffer(chunk.GetRunId())
 
 		entry := LogEntry{
 			Timestamp: time.Now(),
@@ -161,24 +161,24 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 		// consideration would be how to handle gaps in the sequence numbers as well as websocket
 		// resumption so we don't have to re-send all the logs to the client.
 		if !buffer.Add(entry) {
-			s.logger.Warn("Log buffer full for job %s, dropping log line (seq %d)", chunk.GetJobId(), entry.Sequence)
+			s.logger.Warn("Log buffer full for run %s, dropping log line (seq %d)", chunk.GetRunId(), entry.Sequence)
 			continue
 		}
 
-		buffer.Broadcast(chunk.GetJobId(), entry)
-		s.logger.Debug("Received log from job %s (seq %d)", chunk.GetJobId(), chunk.GetSequence())
+		buffer.Broadcast(chunk.GetRunId(), entry)
+		s.logger.Debug("Received log from run %s (seq %d)", chunk.GetRunId(), chunk.GetSequence())
 	}
 }
 
 func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
-	jobID := r.PathValue("id")
-	if jobID == "" {
-		s.logger.Error("WebSocket connection rejected: missing job id")
-		http.Error(w, "job id is required", http.StatusBadRequest)
+	runID := r.PathValue("id")
+	if runID == "" {
+		s.logger.Error("WebSocket connection rejected: missing run id")
+		http.Error(w, "run id is required", http.StatusBadRequest)
 		return
 	}
 
-	s.logger.Info("WebSocket client connected for job: %s", jobID)
+	s.logger.Info("WebSocket client connected for run: %s", runID)
 
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -187,7 +187,7 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	buffer := s.getOrCreateBuffer(jobID)
+	buffer := s.getOrCreateBuffer(runID)
 	outCh := make(chan []byte, 256)
 	buffer.Subscribe(conn, outCh)
 	defer func() {
@@ -199,24 +199,37 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		for msg := range outCh {
 			if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
-				// NOTE(garrett): Connection errors will be surfaced by the reader loop below.
 				return
 			}
+			// Close connection after sending "completed" so the client can just read until close.
+			// Handles both live stream and replay (replay sends completed as last entry).
+			var entry LogEntry
+			if err := json.Unmarshal(msg, &entry); err != nil {
+				continue
+			}
+			if entry.Stream != api.Stream_STREAM_CONTROL {
+				continue
+			}
+			var meta struct {
+				Event string `json:"event"`
+			}
+			if err := json.Unmarshal([]byte(entry.Data), &meta); err != nil || meta.Event != "completed" {
+				continue
+			}
+			conn.Close()
+			return
 		}
 	}()
 
-	s.logger.Info("WebSocket client subscribed to job: %s", jobID)
+	s.logger.Info("WebSocket client subscribed to run: %s", runID)
 
-	// NOTE(garrett): Quick hack to skip historical logs in continuous mode.
-	if r.URL.Query().Get("history") != "0" {
-		entries := buffer.GetEntries()
-		for _, entry := range entries {
-			data, err := json.Marshal(entry)
-			if err != nil {
-				continue
-			}
-			outCh <- data
+	entries := buffer.GetEntries()
+	for _, entry := range entries {
+		data, err := json.Marshal(entry)
+		if err != nil {
+			continue
 		}
+		outCh <- data
 	}
 
 	for {

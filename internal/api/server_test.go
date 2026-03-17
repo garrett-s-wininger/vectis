@@ -9,11 +9,14 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/google/uuid"
 	"vectis/internal/api"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/testutil/dbtest"
+
+	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 )
 
 func setupTestServer(t *testing.T) (*api.APIServer, *mocks.MockLogger, *mocks.MockQueueService, *sql.DB) {
@@ -263,8 +266,8 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 
 	server.TriggerJob(rec, req)
 
-	if rec.Code != http.StatusNoContent {
-		t.Errorf("expected status %d, got %d", http.StatusNoContent, rec.Code)
+	if rec.Code != http.StatusAccepted {
+		t.Errorf("expected status %d, got %d", http.StatusAccepted, rec.Code)
 	}
 
 	jobs := queueService.GetJobs()
@@ -274,6 +277,10 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 
 	if jobs[0].GetId() != "job-to-trigger" {
 		t.Errorf("expected job id 'job-to-trigger', got %s", jobs[0].GetId())
+	}
+
+	if jobs[0].GetRunId() == "" {
+		t.Errorf("expected run id to be set on enqueued job")
 	}
 
 	infoCalls := logger.GetInfoCalls()
@@ -661,5 +668,58 @@ func TestAPIServer_RunJob_QueueError(t *testing.T) {
 
 	if !hasQueueError {
 		t.Errorf("expected logger error 'Failed to enqueue job', got: %v", errorCalls)
+	}
+}
+
+func TestAPIServer_WebSocketJobRuns_ReceivesRunOnTrigger(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	jobID := "job-ws-test"
+	jobDef := `{"id": "job-ws-test", "root": {"uses": "builtins/shell", "with": {"command": "echo test"}}}`
+	_, err := db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", jobID, jobDef)
+	if err != nil {
+		t.Fatalf("insert job: %v", err)
+	}
+
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http") + "/api/v1/ws/jobs/" + jobID + "/runs"
+	wsConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer wsConn.Close()
+
+	wsConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	resp, err := http.Post(httpServer.URL+"/api/v1/jobs/trigger/"+jobID, "application/json", nil)
+	if err != nil {
+		t.Fatalf("trigger job: %v", err)
+	}
+
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("trigger: expected 202, got %d", resp.StatusCode)
+	}
+
+	_, message, err := wsConn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read ws message: %v", err)
+	}
+
+	var ev struct {
+		RunID    string `json:"run_id"`
+		RunIndex int    `json:"run_index"`
+	}
+
+	if err := json.Unmarshal(message, &ev); err != nil {
+		t.Fatalf("unmarshal run event: %v", err)
+	}
+
+	if ev.RunID == "" {
+		t.Error("expected non-empty run_id")
+	}
+
+	if ev.RunIndex != 1 {
+		t.Errorf("expected run_index 1, got %d", ev.RunIndex)
 	}
 }

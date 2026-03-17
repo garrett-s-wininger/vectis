@@ -7,27 +7,37 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 
-	"github.com/google/uuid"
 	api "vectis/api/gen/go"
 	"vectis/internal/interfaces"
 	"vectis/internal/registry"
 
+	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
+
+var defaultUpgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+}
 
 type APIServer struct {
 	db             *sql.DB
 	logger         interfaces.Logger
 	queueClient    interfaces.QueueService
 	registryClient interfaces.RegistryClient
+	runBroadcaster *RunBroadcaster
 }
 
 func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
 	return &APIServer{
-		db:     db,
-		logger: logger,
+		db:             db,
+		logger:         logger,
+		runBroadcaster: NewRunBroadcaster(logger),
 	}
 }
 
@@ -187,6 +197,39 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 
 	job.Id = &jobID
 
+	var runID string
+	var runIndex int
+	tx, txErr := s.db.BeginTx(r.Context(), nil)
+	if txErr != nil {
+		s.logger.Error("Database error starting transaction: %v", txErr)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if err := tx.QueryRowContext(r.Context(), "SELECT COALESCE(MAX(run_index), 0) + 1 FROM job_runs WHERE job_id = ?", jobID).Scan(&runIndex); err != nil {
+		_ = tx.Rollback()
+		s.logger.Error("Database error computing run index: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	runID = uuid.New().String()
+	if _, err := tx.ExecContext(r.Context(), "INSERT INTO job_runs (run_id, job_id, run_index, status) VALUES (?, ?, ?, ?)", runID, jobID, runIndex, "queued"); err != nil {
+		_ = tx.Rollback()
+		s.logger.Error("Database error inserting job run: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		s.logger.Error("Database error committing job run: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	s.runBroadcaster.Broadcast(jobID, runID, runIndex)
+	job.RunId = &runID
+
 	_, err = s.queueClient.Enqueue(r.Context(), &job)
 	if err != nil {
 		s.logger.Error("Failed to enqueue job: %v", err)
@@ -194,8 +237,16 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.logger.Info("Triggered job: %s", jobID)
-	w.WriteHeader(http.StatusNoContent)
+	s.logger.Info("Triggered job: %s (run %s, index %d)", jobID, runID, runIndex)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	if err := json.NewEncoder(w).Encode(map[string]any{
+		"job_id":    jobID,
+		"run_id":    runID,
+		"run_index": runIndex,
+	}); err != nil {
+		s.logger.Error("Failed to encode trigger response: %v", err)
+	}
 }
 
 func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) {
@@ -262,7 +313,9 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	generatedID := uuid.New().String()
+	runID := uuid.New().String()
 	job.Id = &generatedID
+	job.RunId = &runID
 
 	_, err = s.queueClient.Enqueue(r.Context(), &job)
 	if err != nil {
@@ -271,15 +324,140 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.logger.Info("Enqueued ephemeral job: %s", generatedID)
+	s.logger.Info("Enqueued ephemeral job: %s (run %s)", generatedID, runID)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	if err := json.NewEncoder(w).Encode(map[string]string{"id": generatedID}); err != nil {
+	if err := json.NewEncoder(w).Encode(map[string]string{
+		"id":     generatedID,
+		"run_id": runID,
+	}); err != nil {
 		s.logger.Error("Failed to encode response: %v", err)
 	}
 }
 
-func (s *APIServer) Run(addr string) error {
+func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
+	jobID := r.PathValue("id")
+	if jobID == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+
+	sinceStr := r.URL.Query().Get("since")
+	query := "SELECT run_id, run_index, status, started_at, finished_at FROM job_runs WHERE job_id = ?"
+	args := []any{jobID}
+	if sinceStr != "" {
+		since, err := strconv.Atoi(sinceStr)
+		if err != nil || since < 0 {
+			http.Error(w, "since must be a non-negative integer", http.StatusBadRequest)
+			return
+		}
+		query += " AND run_index > ?"
+		args = append(args, since)
+	}
+
+	query += " ORDER BY run_index ASC"
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		s.logger.Error("Database error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	type runRow struct {
+		RunID      string  `json:"run_id"`
+		RunIndex   int     `json:"run_index"`
+		Status     string  `json:"status"`
+		StartedAt  *string `json:"started_at,omitempty"`
+		FinishedAt *string `json:"finished_at,omitempty"`
+	}
+
+	var runs []runRow
+	for rows.Next() {
+		var row runRow
+		var startedAt, finishedAt sql.NullString
+		if err := rows.Scan(&row.RunID, &row.RunIndex, &row.Status, &startedAt, &finishedAt); err != nil {
+			s.logger.Error("Failed to scan run row: %v", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		if startedAt.Valid {
+			row.StartedAt = &startedAt.String
+		}
+
+		if finishedAt.Valid {
+			row.FinishedAt = &finishedAt.String
+		}
+
+		runs = append(runs, row)
+	}
+
+	if err := rows.Err(); err != nil {
+		s.logger.Error("Row iteration error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if runs == nil {
+		runs = []runRow{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(runs); err != nil {
+		s.logger.Error("Failed to encode runs: %v", err)
+	}
+}
+
+func (s *APIServer) HandleWebSocketJobRuns(w http.ResponseWriter, r *http.Request) {
+	jobID := r.PathValue("id")
+	if jobID == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+
+	conn, err := defaultUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		s.logger.Error("WebSocket upgrade failed: %v", err)
+		return
+	}
+	defer conn.Close()
+
+	ch := s.runBroadcaster.Subscribe(jobID, conn)
+	defer func() {
+		if c, ok := s.runBroadcaster.Unsubscribe(jobID, conn); ok {
+			close(c)
+		}
+	}()
+
+	s.logger.Info("WebSocket client subscribed to runs for job: %s", jobID)
+
+	go func() {
+		for payload := range ch {
+			if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+				if !websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+					return
+				}
+				s.logger.Error("WebSocket write error: %v", err)
+				return
+			}
+		}
+	}()
+
+	for {
+		// NOTE(garrett): We only use read to detect client disconnect; ignore message content
+		if _, _, err := conn.ReadMessage(); err != nil {
+			if !websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				return
+			}
+
+			s.logger.Error("WebSocket read error: %v", err)
+			return
+		}
+	}
+}
+
+func (s *APIServer) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/jobs", s.GetJobs)
 	mux.HandleFunc("POST /api/v1/jobs", s.CreateJob)
@@ -287,7 +465,12 @@ func (s *APIServer) Run(addr string) error {
 	mux.HandleFunc("DELETE /api/v1/jobs/{id}", s.DeleteJob)
 	mux.HandleFunc("PUT /api/v1/jobs/{id}", s.UpdateJobDefinition)
 	mux.HandleFunc("POST /api/v1/jobs/trigger/{id}", s.TriggerJob)
+	mux.HandleFunc("GET /api/v1/jobs/{id}/runs", s.GetJobRuns)
+	mux.HandleFunc("GET /api/v1/ws/jobs/{id}/runs", s.HandleWebSocketJobRuns)
+	return mux
+}
 
+func (s *APIServer) Run(addr string) error {
 	s.logger.Info("API server listening on %s", addr)
-	return http.ListenAndServe(addr, mux)
+	return http.ListenAndServe(addr, s.Handler())
 }

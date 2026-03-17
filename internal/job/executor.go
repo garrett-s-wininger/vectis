@@ -36,7 +36,11 @@ func (e *Executor) ExecuteJob(ctx context.Context, job *api.Job, logClient inter
 		return fmt.Errorf("job has no id")
 	}
 
-	prefix := "vectis-" + sanitizeJobIDForPrefix(job.GetId()) + "-"
+	if job.GetRunId() == "" {
+		return fmt.Errorf("job has no run id")
+	}
+
+	prefix := "vectis-" + sanitizeJobIDForPrefix(job.GetRunId()) + "-"
 	workspace, err := os.MkdirTemp(os.TempDir(), prefix)
 	if err != nil {
 		return fmt.Errorf("failed to create workspace: %w", err)
@@ -57,6 +61,7 @@ func (e *Executor) ExecuteJob(ctx context.Context, job *api.Job, logClient inter
 
 	state := &action.ExecutionState{
 		JobID:     job.GetId(),
+		RunID:     job.GetRunId(),
 		Workspace: workspace,
 		Logger:    logger,
 		LogClient: logClient,
@@ -121,7 +126,7 @@ func sendLog(state *action.ExecutionState, streamType api.Stream, message string
 
 	seq := state.NextSequence()
 	chunk := &api.LogChunk{
-		JobId:    &state.JobID,
+		RunId:    &state.RunID,
 		Data:     []byte(message),
 		Sequence: &seq,
 		Stream:   &streamType,

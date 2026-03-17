@@ -36,6 +36,7 @@ type Result struct {
 
 type ExecutionState struct {
 	JobID        string
+	RunID        string
 	Workspace    string
 	Logger       interfaces.Logger
 	LogClient    interfaces.LogClient

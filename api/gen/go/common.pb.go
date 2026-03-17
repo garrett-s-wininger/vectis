@@ -108,8 +108,9 @@ func (*Empty) Descriptor() ([]byte, []int) {
 
 type Job struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            *string                `protobuf:"bytes,1,opt,name=id" json:"id,omitempty"`
-	Root          *Node                  `protobuf:"bytes,2,opt,name=root" json:"root,omitempty"`
+	Id            *string                `protobuf:"bytes,1,opt,name=id" json:"id,omitempty"`                    // logical job identifier (stored job or ephemeral id)
+	RunId         *string                `protobuf:"bytes,2,opt,name=run_id,json=runId" json:"run_id,omitempty"` // unique identifier for this execution
+	Root          *Node                  `protobuf:"bytes,3,opt,name=root" json:"root,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -147,6 +148,13 @@ func (*Job) Descriptor() ([]byte, []int) {
 func (x *Job) GetId() string {
 	if x != nil && x.Id != nil {
 		return *x.Id
+	}
+	return ""
+}
+
+func (x *Job) GetRunId() string {
+	if x != nil && x.RunId != nil {
+		return *x.RunId
 	}
 	return ""
 }
@@ -228,7 +236,7 @@ func (x *Node) GetSteps() []*Node {
 
 type LogChunk struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	JobId         *string                `protobuf:"bytes,1,opt,name=job_id,json=jobId" json:"job_id,omitempty"`
+	RunId         *string                `protobuf:"bytes,1,opt,name=run_id,json=runId" json:"run_id,omitempty"`
 	Data          []byte                 `protobuf:"bytes,2,opt,name=data" json:"data,omitempty"`
 	Sequence      *int64                 `protobuf:"varint,3,opt,name=sequence" json:"sequence,omitempty"`
 	Stream        *Stream                `protobuf:"varint,4,opt,name=stream,enum=common.Stream" json:"stream,omitempty"`
@@ -266,9 +274,9 @@ func (*LogChunk) Descriptor() ([]byte, []int) {
 	return file_common_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *LogChunk) GetJobId() string {
-	if x != nil && x.JobId != nil {
-		return *x.JobId
+func (x *LogChunk) GetRunId() string {
+	if x != nil && x.RunId != nil {
+		return *x.RunId
 	}
 	return ""
 }
@@ -299,10 +307,11 @@ var File_common_proto protoreflect.FileDescriptor
 const file_common_proto_rawDesc = "" +
 	"\n" +
 	"\fcommon.proto\x12\x06common\"\a\n" +
-	"\x05Empty\"7\n" +
+	"\x05Empty\"N\n" +
 	"\x03Job\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12 \n" +
-	"\x04root\x18\x02 \x01(\v2\f.common.NodeR\x04root\"\xb3\x01\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
+	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12 \n" +
+	"\x04root\x18\x03 \x01(\v2\f.common.NodeR\x04root\"\xb3\x01\n" +
 	"\x04Node\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04uses\x18\x02 \x01(\tR\x04uses\x12*\n" +
@@ -312,7 +321,7 @@ const file_common_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"y\n" +
 	"\bLogChunk\x12\x15\n" +
-	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x12\x12\n" +
+	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x12\n" +
 	"\x04data\x18\x02 \x01(\fR\x04data\x12\x1a\n" +
 	"\bsequence\x18\x03 \x01(\x03R\bsequence\x12&\n" +
 	"\x06stream\x18\x04 \x01(\x0e2\x0e.common.StreamR\x06stream*B\n" +

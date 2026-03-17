@@ -49,10 +49,10 @@ func TestMockLogClient_SendChunk(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	jobID := "test-job"
+	runID := "test-run"
 	seq := int64(1)
 	chunk := &api.LogChunk{
-		JobId:    &jobID,
+		RunId:    &runID,
 		Data:     []byte("test log data"),
 		Sequence: &seq,
 	}
@@ -67,8 +67,8 @@ func TestMockLogClient_SendChunk(t *testing.T) {
 		t.Errorf("expected 1 chunk, got %d", len(chunks))
 	}
 
-	if chunks[0].GetJobId() != "test-job" {
-		t.Errorf("expected job id 'test-job', got '%s'", chunks[0].GetJobId())
+	if chunks[0].GetRunId() != "test-run" {
+		t.Errorf("expected run id 'test-run', got '%s'", chunks[0].GetRunId())
 	}
 
 	if string(chunks[0].GetData()) != "test log data" {
@@ -82,10 +82,10 @@ func TestMockLogClient_SendMultipleChunks(t *testing.T) {
 	stream, _ := client.StreamLogs(context.Background())
 
 	for i := range 3 {
-		jobID := "test-job"
+		runID := "test-run"
 		seq := int64(i)
 		chunk := &api.LogChunk{
-			JobId:    &jobID,
+			RunId:    &runID,
 			Data:     []byte("log line"),
 			Sequence: &seq,
 		}
@@ -106,10 +106,10 @@ func TestMockLogClient_SendError(t *testing.T) {
 	expectedErr := errors.New("send failed")
 	mockStream.SetSendError(expectedErr)
 
-	jobID := "test-job"
+	runID := "test-run"
 	seq := int64(1)
 	chunk := &api.LogChunk{
-		JobId:    &jobID,
+		RunId:    &runID,
 		Data:     []byte("test"),
 		Sequence: &seq,
 	}
@@ -168,10 +168,10 @@ func TestMockLogClient_SendAfterClose(t *testing.T) {
 
 	stream.CloseSend()
 
-	jobID := "test-job"
+	runID := "test-run"
 	seq := int64(1)
 	chunk := &api.LogChunk{
-		JobId:    &jobID,
+		RunId:    &runID,
 		Data:     []byte("test"),
 		Sequence: &seq,
 	}

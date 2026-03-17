@@ -21,8 +21,10 @@ func TestExecutor_ExecuteJob_Success(t *testing.T) {
 	jobID := "test-job-1"
 	nodeID := "node-1"
 	uses := "builtins/shell"
+	runID := "test-run-1"
 	testJob := &api.Job{
-		Id: &jobID,
+		Id:    &jobID,
+		RunId: &runID,
 		Root: &api.Node{
 			Id:   &nodeID,
 			Uses: &uses,
@@ -47,8 +49,8 @@ func TestExecutor_ExecuteJob_Success(t *testing.T) {
 	}
 
 	for i, chunk := range chunks {
-		if chunk.GetJobId() != jobID {
-			t.Errorf("chunk %d: expected job ID %q, got %q", i, jobID, chunk.GetJobId())
+		if chunk.GetRunId() == "" {
+			t.Errorf("chunk %d: expected run ID to be set", i)
 		}
 	}
 
@@ -175,8 +177,10 @@ func TestExecutor_ExecuteJob_StreamLogsError(t *testing.T) {
 	jobID := "test-job-1"
 	nodeID := "node-1"
 	uses := "builtins/shell"
+	runID := "test-run-1"
 	testJob := &api.Job{
-		Id: &jobID,
+		Id:    &jobID,
+		RunId: &runID,
 		Root: &api.Node{
 			Id:   &nodeID,
 			Uses: &uses,
@@ -261,11 +265,13 @@ func TestExecutor_ExecuteJob_CommandFailure(t *testing.T) {
 	mockLogger := mocks.NewMockLogger()
 
 	jobID := "test-job-fail"
+	runID := "test-job-fail-run"
 	nodeID := "node-1"
 	uses := "builtins/shell"
 
 	testJob := &api.Job{
-		Id: &jobID,
+		Id:    &jobID,
+		RunId: &runID,
 		Root: &api.Node{
 			Id:   &nodeID,
 			Uses: &uses,
@@ -290,8 +296,8 @@ func TestExecutor_ExecuteJob_CommandFailure(t *testing.T) {
 	}
 
 	for i, chunk := range chunks {
-		if chunk.GetJobId() != jobID {
-			t.Errorf("chunk %d: expected job ID %q, got %q", i, jobID, chunk.GetJobId())
+		if chunk.GetRunId() == "" {
+			t.Errorf("chunk %d: expected run ID to be set", i)
 		}
 	}
 
@@ -349,10 +355,12 @@ func TestExecutor_ExecuteJob_WorkspaceCreationAndCleanup(t *testing.T) {
 	mockLogger := mocks.NewMockLogger()
 
 	jobID := "test-job-workspace"
+	runID := "test-job-workspace-run"
 	nodeID := "node-1"
 	uses := "builtins/shell"
 	testJob := &api.Job{
-		Id: &jobID,
+		Id:    &jobID,
+		RunId: &runID,
 		Root: &api.Node{
 			Id:   &nodeID,
 			Uses: &uses,

@@ -48,9 +48,9 @@ func setupLogServer(t *testing.T) (api.LogServiceClient, string) {
 func TestIntegrationLogServer_StreamAndWebSocketBroadcast(t *testing.T) {
 	client, wsAddr := setupLogServer(t)
 	ctx := context.Background()
-	jobID := "test-job-broadcast"
+	runID := "test-run-broadcast"
 
-	wsURL := fmt.Sprintf("ws://%s/ws/logs/%s", wsAddr, jobID)
+	wsURL := fmt.Sprintf("ws://%s/ws/logs/%s", wsAddr, runID)
 	wsConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("failed to connect websocket: %v", err)
@@ -66,7 +66,7 @@ func TestIntegrationLogServer_StreamAndWebSocketBroadcast(t *testing.T) {
 	seq := int64(42)
 	logData := "specific test message content"
 	chunk := &api.LogChunk{
-		JobId:    &jobID,
+		RunId:    &runID,
 		Data:     []byte(logData),
 		Sequence: &seq,
 		Stream:   api.Stream_STREAM_STDOUT.Enum(),
@@ -103,12 +103,12 @@ func TestIntegrationLogServer_StreamAndWebSocketBroadcast(t *testing.T) {
 func TestIntegrationLogServer_MultipleSubscribersReceiveSameMessage(t *testing.T) {
 	client, wsAddr := setupLogServer(t)
 	ctx := context.Background()
-	jobID := "test-job-multi"
+	runID := "test-run-multi"
 	numSubscribers := 3
 
 	var wsConns []*websocket.Conn
 	for i := range numSubscribers {
-		wsURL := fmt.Sprintf("ws://%s/ws/logs/%s", wsAddr, jobID)
+		wsURL := fmt.Sprintf("ws://%s/ws/logs/%s", wsAddr, runID)
 		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 		if err != nil {
 			t.Fatalf("failed to connect websocket %d: %v", i, err)
@@ -127,7 +127,7 @@ func TestIntegrationLogServer_MultipleSubscribersReceiveSameMessage(t *testing.T
 	seq := int64(1)
 	logData := "broadcast message"
 	chunk := &api.LogChunk{
-		JobId:    &jobID,
+		RunId:    &runID,
 		Data:     []byte(logData),
 		Sequence: &seq,
 		Stream:   api.Stream_STREAM_STDOUT.Enum(),
@@ -165,19 +165,19 @@ func TestIntegrationLogServer_JobIsolation(t *testing.T) {
 	client, wsAddr := setupLogServer(t)
 	ctx := context.Background()
 
-	job1 := "isolated-job-1"
-	job2 := "isolated-job-2"
-	job1Data := "message for job1 only"
-	job2Data := "message for job2 only"
+	run1 := "isolated-run-1"
+	run2 := "isolated-run-2"
+	job1Data := "message for run1 only"
+	job2Data := "message for run2 only"
 
-	wsURL1 := fmt.Sprintf("ws://%s/ws/logs/%s", wsAddr, job1)
+	wsURL1 := fmt.Sprintf("ws://%s/ws/logs/%s", wsAddr, run1)
 	wsConn1, _, err := websocket.DefaultDialer.Dial(wsURL1, nil)
 	if err != nil {
 		t.Fatalf("failed to connect websocket for job1: %v", err)
 	}
 	defer wsConn1.Close()
 
-	wsURL2 := fmt.Sprintf("ws://%s/ws/logs/%s", wsAddr, job2)
+	wsURL2 := fmt.Sprintf("ws://%s/ws/logs/%s", wsAddr, run2)
 	wsConn2, _, err := websocket.DefaultDialer.Dial(wsURL2, nil)
 	if err != nil {
 		t.Fatalf("failed to connect websocket for job2: %v", err)
@@ -192,7 +192,7 @@ func TestIntegrationLogServer_JobIsolation(t *testing.T) {
 
 	seq1 := int64(1)
 	chunk1 := &api.LogChunk{
-		JobId:    &job1,
+		RunId:    &run1,
 		Data:     []byte(job1Data),
 		Sequence: &seq1,
 		Stream:   api.Stream_STREAM_STDOUT.Enum(),
@@ -203,7 +203,7 @@ func TestIntegrationLogServer_JobIsolation(t *testing.T) {
 
 	seq2 := int64(1)
 	chunk2 := &api.LogChunk{
-		JobId:    &job2,
+		RunId:    &run2,
 		Data:     []byte(job2Data),
 		Sequence: &seq2,
 		Stream:   api.Stream_STREAM_STDOUT.Enum(),
@@ -246,7 +246,7 @@ func TestIntegrationLogServer_JobIsolation(t *testing.T) {
 func TestIntegrationLogServer_WebSocketReceivesHistoricalLogs(t *testing.T) {
 	client, wsAddr := setupLogServer(t)
 	ctx := context.Background()
-	jobID := "test-job-historical"
+	runID := "test-run-historical"
 
 	stream, err := client.StreamLogs(ctx)
 	if err != nil {
@@ -257,7 +257,7 @@ func TestIntegrationLogServer_WebSocketReceivesHistoricalLogs(t *testing.T) {
 	for i, msg := range logMessages {
 		seq := int64(i + 1)
 		chunk := &api.LogChunk{
-			JobId:    &jobID,
+			RunId:    &runID,
 			Data:     []byte(msg),
 			Sequence: &seq,
 			Stream:   api.Stream_STREAM_STDOUT.Enum(),
@@ -269,7 +269,7 @@ func TestIntegrationLogServer_WebSocketReceivesHistoricalLogs(t *testing.T) {
 	}
 	stream.CloseSend()
 
-	wsURL := fmt.Sprintf("ws://%s/ws/logs/%s", wsAddr, jobID)
+	wsURL := fmt.Sprintf("ws://%s/ws/logs/%s", wsAddr, runID)
 	wsConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("failed to connect websocket: %v", err)
@@ -304,7 +304,7 @@ func TestIntegrationLogServer_WebSocketReceivesHistoricalLogs(t *testing.T) {
 func TestIntegrationLogServer_HistoricalAndLiveLogs(t *testing.T) {
 	client, wsAddr := setupLogServer(t)
 	ctx := context.Background()
-	jobID := "test-job-history-live"
+	runID := "test-run-history-live"
 
 	stream, err := client.StreamLogs(ctx)
 	if err != nil {
@@ -315,7 +315,7 @@ func TestIntegrationLogServer_HistoricalAndLiveLogs(t *testing.T) {
 	for i, msg := range historical {
 		seq := int64(i + 1)
 		chunk := &api.LogChunk{
-			JobId:    &jobID,
+			RunId:    &runID,
 			Data:     []byte(msg),
 			Sequence: &seq,
 			Stream:   api.Stream_STREAM_STDOUT.Enum(),
@@ -326,7 +326,7 @@ func TestIntegrationLogServer_HistoricalAndLiveLogs(t *testing.T) {
 		}
 	}
 
-	wsURL := fmt.Sprintf("ws://%s/ws/logs/%s", wsAddr, jobID)
+	wsURL := fmt.Sprintf("ws://%s/ws/logs/%s", wsAddr, runID)
 	wsConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("failed to connect websocket: %v", err)
@@ -336,7 +336,7 @@ func TestIntegrationLogServer_HistoricalAndLiveLogs(t *testing.T) {
 	liveSeq := int64(len(historical) + 1)
 	liveData := "live-log"
 	liveChunk := &api.LogChunk{
-		JobId:    &jobID,
+		RunId:    &runID,
 		Data:     []byte(liveData),
 		Sequence: &liveSeq,
 		Stream:   api.Stream_STREAM_STDOUT.Enum(),
@@ -375,5 +375,59 @@ func TestIntegrationLogServer_HistoricalAndLiveLogs(t *testing.T) {
 	liveSeqExpected := int64(len(historical) + 1)
 	if gotBySeq[liveSeqExpected] != "" && gotBySeq[liveSeqExpected] != liveData {
 		t.Errorf("live seq %d: expected %q, got %q", liveSeqExpected, liveData, gotBySeq[liveSeqExpected])
+	}
+}
+
+func TestIntegrationLogServer_ServerClosesConnectionAfterCompleted(t *testing.T) {
+	client, wsAddr := setupLogServer(t)
+	ctx := context.Background()
+	runID := "test-run-completed-close"
+
+	wsURL := fmt.Sprintf("ws://%s/ws/logs/%s", wsAddr, runID)
+	wsConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("failed to connect websocket: %v", err)
+	}
+	defer wsConn.Close()
+
+	stream, err := client.StreamLogs(ctx)
+	if err != nil {
+		t.Fatalf("failed to create stream: %v", err)
+	}
+	defer stream.CloseSend()
+
+	seq := int64(1)
+	completedData := `{"event":"completed","status":"success"}`
+	chunk := &api.LogChunk{
+		RunId:    &runID,
+		Data:     []byte(completedData),
+		Sequence: &seq,
+		Stream:   api.Stream_STREAM_CONTROL.Enum(),
+	}
+
+	if err := stream.Send(chunk); err != nil {
+		t.Fatalf("failed to send completed chunk: %v", err)
+	}
+
+	stream.CloseSend()
+	wsConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, message, err := wsConn.ReadMessage()
+	if err != nil {
+		t.Fatalf("failed to read completed message: %v", err)
+	}
+
+	var entry logserver.LogEntry
+	if err := json.Unmarshal(message, &entry); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	if entry.Stream != api.Stream_STREAM_CONTROL || entry.Data != completedData {
+		t.Errorf("expected control completed message, got stream=%v data=%q", entry.Stream, entry.Data)
+	}
+
+	wsConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, _, err = wsConn.ReadMessage()
+	if err == nil {
+		t.Fatal("expected connection to be closed by server after completed, got no error")
 	}
 }
