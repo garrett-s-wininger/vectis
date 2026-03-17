@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/gorilla/websocket"
@@ -22,59 +25,8 @@ type LogEntry struct {
 	Data      string `json:"data"`
 }
 
-func triggerJob(cmd *cobra.Command, args []string) {
-	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Error: job-id is required")
-		cmd.Usage()
-		os.Exit(1)
-	}
-
-	jobID := args[0]
-	apiAddr := "http://localhost:8080"
-
-	url := fmt.Sprintf("%s/api/v1/jobs/trigger/%s", apiAddr, jobID)
-	resp, err := http.Post(url, "application/json", nil)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to trigger job: %v\n", err)
-		os.Exit(1)
-	}
-	defer resp.Body.Close()
-
-	switch resp.StatusCode {
-	case http.StatusNoContent:
-		fmt.Printf("Successfully triggered job: %s\n", jobID)
-	case http.StatusNotFound:
-		fmt.Fprintf(os.Stderr, "Error: job '%s' not found\n", jobID)
-		os.Exit(1)
-	case http.StatusServiceUnavailable:
-		fmt.Fprintf(os.Stderr, "Error: queue service unavailable\n")
-		os.Exit(1)
-	default:
-		fmt.Fprintf(os.Stderr, "Error: unexpected status: %s\n", resp.Status)
-		os.Exit(1)
-	}
-}
-
-func streamLogs(cmd *cobra.Command, args []string) {
-	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Error: job-id is required")
-		cmd.Usage()
-		os.Exit(1)
-	}
-
-	jobID := args[0]
-	follow, _ := cmd.Flags().GetBool("follow")
-	filterStdout, _ := cmd.Flags().GetBool("stdout")
-	filterStderr, _ := cmd.Flags().GetBool("stderr")
-
-	// NOTE(garrett): Require follow mode for now - we don't have historical log retrieval.
-	if !follow {
-		fmt.Fprintln(os.Stderr, "Error: --follow flag is required (historical log retrieval not yet implemented)")
-		os.Exit(1)
-	}
-
+func runLogStream(jobID string, filterStdout, filterStderr bool) {
 	wsURL := fmt.Sprintf("ws://localhost%s/ws/logs/%s", networking.LogWebSocketPort, jobID)
-
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: failed to connect to log service: %v\n", err)
@@ -96,6 +48,7 @@ func streamLogs(cmd *cobra.Command, args []string) {
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 					fmt.Fprintf(os.Stderr, "Error: websocket error: %v\n", err)
 				}
+
 				close(done)
 				return
 			}
@@ -109,6 +62,7 @@ func streamLogs(cmd *cobra.Command, args []string) {
 			if filterStdout && entry.Stream != int(api.Stream_STREAM_STDOUT.Number()) {
 				continue
 			}
+
 			if filterStderr && entry.Stream != int(api.Stream_STREAM_STDERR.Number()) {
 				continue
 			}
@@ -131,6 +85,168 @@ func streamLogs(cmd *cobra.Command, args []string) {
 	}
 }
 
+func triggerJob(cmd *cobra.Command, args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Error: job-id is required")
+		cmd.Usage()
+		os.Exit(1)
+	}
+
+	jobID := args[0]
+	apiAddr := "http://localhost:8080"
+
+	url := fmt.Sprintf("%s/api/v1/jobs/trigger/%s", apiAddr, jobID)
+	resp, err := http.Post(url, "application/json", nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to trigger job: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusNoContent:
+		follow, _ := cmd.Flags().GetBool("follow")
+		if follow {
+			runLogStream(jobID, false, false)
+		} else {
+			fmt.Println(jobID)
+		}
+	case http.StatusNotFound:
+		fmt.Fprintf(os.Stderr, "Error: job '%s' not found\n", jobID)
+		os.Exit(1)
+	case http.StatusServiceUnavailable:
+		fmt.Fprintf(os.Stderr, "Error: queue service unavailable\n")
+		os.Exit(1)
+	default:
+		fmt.Fprintf(os.Stderr, "Error: unexpected status: %s\n", resp.Status)
+		os.Exit(1)
+	}
+}
+
+func streamLogs(cmd *cobra.Command, args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Error: job-id is required")
+		cmd.Usage()
+		os.Exit(1)
+	}
+
+	jobIDArg := args[0]
+	var jobID string
+	if jobIDArg == "-" {
+		reader := bufio.NewReader(os.Stdin)
+		line, err := reader.ReadString('\n')
+		if err != nil && err != io.EOF {
+			fmt.Fprintf(os.Stderr, "Error: failed to read job-id from stdin: %v\n", err)
+			os.Exit(1)
+		}
+
+		jobID = strings.TrimSpace(line)
+		if jobID == "" {
+			fmt.Fprintln(os.Stderr, "Error: empty job-id from stdin")
+			os.Exit(1)
+		}
+	} else {
+		jobID = jobIDArg
+	}
+
+	follow, _ := cmd.Flags().GetBool("follow")
+	filterStdout, _ := cmd.Flags().GetBool("stdout")
+	filterStderr, _ := cmd.Flags().GetBool("stderr")
+
+	// NOTE(garrett): Require follow mode for now - we don't have historical log retrieval.
+	if !follow {
+		fmt.Fprintln(os.Stderr, "Error: --follow flag is required (historical log retrieval not yet implemented)")
+		os.Exit(1)
+	}
+
+	runLogStream(jobID, filterStdout, filterStderr)
+}
+
+func runJob(cmd *cobra.Command, args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Error: path or - is required")
+		cmd.Usage()
+		os.Exit(1)
+	}
+
+	source := args[0]
+	var body []byte
+	var err error
+	if source == "-" {
+		body, err = io.ReadAll(os.Stdin)
+	} else {
+		body, err = os.ReadFile(source)
+	}
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to read job definition: %v\n", err)
+		os.Exit(1)
+	}
+
+	var job api.Job
+	if err := json.Unmarshal(body, &job); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: invalid job JSON: %v\n", err)
+		os.Exit(1)
+	}
+
+	if job.GetRoot() == nil {
+		fmt.Fprintln(os.Stderr, "Error: job must have a root node")
+		os.Exit(1)
+	}
+
+	apiAddr := "http://localhost:8080"
+	url := apiAddr + "/api/v1/jobs/run"
+	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader(string(body)))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to submit job: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusAccepted:
+		var result struct {
+			ID string `json:"id"`
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: failed to parse response: %v\n", err)
+			os.Exit(1)
+		}
+
+		if result.ID == "" {
+			fmt.Fprintln(os.Stderr, "Error: response missing id")
+			os.Exit(1)
+		}
+
+		follow, _ := cmd.Flags().GetBool("follow")
+		if follow {
+			runLogStream(result.ID, false, false)
+		} else {
+			fmt.Println(result.ID)
+		}
+	case http.StatusUnsupportedMediaType:
+		fmt.Fprintln(os.Stderr, "Error: content type must be application/json")
+		os.Exit(1)
+	case http.StatusBadRequest:
+		fmt.Fprintln(os.Stderr, "Error: invalid job definition")
+		os.Exit(1)
+	case http.StatusServiceUnavailable:
+		fmt.Fprintln(os.Stderr, "Error: queue service unavailable")
+		os.Exit(1)
+	default:
+		fmt.Fprintf(os.Stderr, "Error: unexpected status: %s\n", resp.Status)
+		os.Exit(1)
+	}
+}
+
 var triggerCmd = &cobra.Command{
 	Use:   "trigger [job-id]",
 	Short: "Trigger a stored job",
@@ -142,9 +258,17 @@ var triggerCmd = &cobra.Command{
 var logsCmd = &cobra.Command{
 	Use:   "logs [job-id]",
 	Short: "Stream logs for a job",
-	Long:  `Stream logs for a job via WebSocket. Use --follow to keep streaming new logs.`,
+	Long:  `Stream logs for a job via WebSocket. Use --follow to keep streaming new logs. Use "-" as job-id to read from stdin (e.g. from trigger or run).`,
 	Args:  cobra.ExactArgs(1),
 	Run:   streamLogs,
+}
+
+var runCmd = &cobra.Command{
+	Use:   "run [path|-]",
+	Short: "Submit an ephemeral job",
+	Long:  `Submit a job definition to run once (ephemeral). Path is a JSON file; use "-" to read from stdin. On success prints the job ID only; use --follow to stream logs.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   runJob,
 }
 
 var rootCmd = &cobra.Command{
@@ -158,8 +282,12 @@ func init() {
 	logsCmd.Flags().Bool("stdout", false, "Only show stdout")
 	logsCmd.Flags().Bool("stderr", false, "Only show stderr")
 
+	triggerCmd.Flags().BoolP("follow", "f", false, "After triggering, stream logs (same as logs --follow)")
+	runCmd.Flags().BoolP("follow", "f", false, "After submitting, stream logs (same as logs --follow)")
+
 	rootCmd.AddCommand(triggerCmd)
 	rootCmd.AddCommand(logsCmd)
+	rootCmd.AddCommand(runCmd)
 }
 
 func main() {
