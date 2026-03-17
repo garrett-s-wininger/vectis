@@ -71,6 +71,82 @@ func (m *MockExecutor) Start(ctx context.Context, command string, workDir string
 	return m.process, nil
 }
 
+type MockExecExecutor struct {
+	mu       sync.Mutex
+	paths    []string
+	args     [][]string
+	workDirs []string
+	process  interfaces.Process
+	err      error
+}
+
+func NewMockExecExecutor() *MockExecExecutor {
+	return &MockExecExecutor{
+		paths:    make([]string, 0),
+		args:     make([][]string, 0),
+		workDirs: make([]string, 0),
+	}
+}
+
+func (m *MockExecExecutor) SetProcess(process interfaces.Process) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.process = process
+}
+
+func (m *MockExecExecutor) SetError(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.err = err
+}
+
+func (m *MockExecExecutor) GetPaths() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]string, len(m.paths))
+	copy(result, m.paths)
+	return result
+}
+
+func (m *MockExecExecutor) GetArgs() [][]string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([][]string, len(m.args))
+	for i, a := range m.args {
+		result[i] = make([]string, len(a))
+		copy(result[i], a)
+	}
+
+	return result
+}
+
+func (m *MockExecExecutor) GetWorkDirs() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]string, len(m.workDirs))
+	copy(result, m.workDirs)
+	return result
+}
+
+func (m *MockExecExecutor) Start(ctx context.Context, path string, args []string, workDir string) (interfaces.Process, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.paths = append(m.paths, path)
+	m.args = append(m.args, args)
+	m.workDirs = append(m.workDirs, workDir)
+
+	if m.err != nil {
+		return nil, m.err
+	}
+
+	if m.process == nil {
+		return nil, errors.New("no process configured in mock")
+	}
+
+	return m.process, nil
+}
+
 type MockProcess struct {
 	mu         sync.Mutex
 	waitErr    error

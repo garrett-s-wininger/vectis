@@ -11,22 +11,17 @@ type CommandExecutor interface {
 	Start(ctx context.Context, command string, workDir string) (Process, error)
 }
 
+type ExecExecutor interface {
+	Start(ctx context.Context, path string, args []string, workDir string) (Process, error)
+}
+
 type Process interface {
 	Wait() error
 	Stdout() io.ReadCloser
 	Stderr() io.ReadCloser
 }
 
-type OSExecutor struct{}
-
-func NewOSExecutor() *OSExecutor {
-	return &OSExecutor{}
-}
-
-func (e *OSExecutor) Start(ctx context.Context, command string, workDir string) (Process, error) {
-	cmd := exec.CommandContext(ctx, "sh", "-c", command)
-	cmd.Dir = workDir
-
+func startProcess(cmd *exec.Cmd) (Process, error) {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
@@ -46,6 +41,30 @@ func (e *OSExecutor) Start(ctx context.Context, command string, workDir string) 
 		stdout: stdout,
 		stderr: stderr,
 	}, nil
+}
+
+func NewDirectExecutor() *DirectExecutor {
+	return &DirectExecutor{}
+}
+
+type DirectExecutor struct{}
+
+func (e *DirectExecutor) Start(ctx context.Context, path string, args []string, workDir string) (Process, error) {
+	cmd := exec.CommandContext(ctx, path, args...)
+	cmd.Dir = workDir
+	return startProcess(cmd)
+}
+
+type OSExecutor struct{}
+
+func NewOSExecutor() *OSExecutor {
+	return &OSExecutor{}
+}
+
+func (e *OSExecutor) Start(ctx context.Context, command string, workDir string) (Process, error) {
+	cmd := exec.CommandContext(ctx, "sh", "-c", command)
+	cmd.Dir = workDir
+	return startProcess(cmd)
 }
 
 type osProcess struct {

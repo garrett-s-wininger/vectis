@@ -78,7 +78,7 @@ func createTestState(logStream api.LogService_StreamLogsClient) *action.Executio
 }
 
 func TestShellAction_Execute_Success(t *testing.T) {
-	mockExecutor := mocks.NewMockExecutor()
+	mockExecutor := mocks.NewMockExecExecutor()
 	mockProcess := mocks.NewMockProcess()
 	mockProcess.SetStdout("hello world\n")
 	mockProcess.SetStderr("")
@@ -99,13 +99,16 @@ func TestShellAction_Execute_Success(t *testing.T) {
 		t.Errorf("expected success, got %v with error: %v", result.Status, result.Error)
 	}
 
-	commands := mockExecutor.GetCommands()
-	if len(commands) != 1 {
-		t.Errorf("expected 1 command, got %d", len(commands))
+	paths := mockExecutor.GetPaths()
+	args := mockExecutor.GetArgs()
+	if len(paths) != 1 || len(args) != 1 {
+		t.Errorf("expected 1 Start call, got paths=%d args=%d", len(paths), len(args))
 	}
-
-	if commands[0] != "echo hello" {
-		t.Errorf("expected 'echo hello', got '%s'", commands[0])
+	if paths[0] != "sh" {
+		t.Errorf("expected path 'sh', got '%s'", paths[0])
+	}
+	if len(args[0]) != 2 || args[0][0] != "-c" || args[0][1] != "echo hello" {
+		t.Errorf("expected args [-c echo hello], got %v", args[0])
 	}
 
 	if !mockProcess.WaitCalled() {
@@ -155,7 +158,7 @@ func TestShellAction_Execute_Success(t *testing.T) {
 }
 
 func TestShellAction_Execute_CommandFailure(t *testing.T) {
-	mockExecutor := mocks.NewMockExecutor()
+	mockExecutor := mocks.NewMockExecExecutor()
 	mockProcess := mocks.NewMockProcess()
 	mockProcess.SetStdout("")
 	mockProcess.SetStderr("error message\n")
@@ -232,7 +235,7 @@ func TestShellAction_Execute_MissingCommand(t *testing.T) {
 }
 
 func TestShellAction_Execute_StartError(t *testing.T) {
-	mockExecutor := mocks.NewMockExecutor()
+	mockExecutor := mocks.NewMockExecExecutor()
 	mockExecutor.SetError(errors.New("failed to start: permission denied"))
 
 	shellAction := NewShellAction(mockExecutor)
@@ -257,7 +260,7 @@ func TestShellAction_Execute_StartError(t *testing.T) {
 }
 
 func TestShellAction_Execute_StdoutStderrStreaming(t *testing.T) {
-	mockExecutor := mocks.NewMockExecutor()
+	mockExecutor := mocks.NewMockExecExecutor()
 	mockProcess := mocks.NewMockProcess()
 	mockProcess.SetStdout("stdout line 1\nstdout line 2\n")
 	mockProcess.SetStderr("stderr line 1\n")
@@ -314,7 +317,7 @@ func TestNewShellAction_DefaultExecutor(t *testing.T) {
 }
 
 func TestShellAction_Execute_WorkspacePassed(t *testing.T) {
-	mockExecutor := mocks.NewMockExecutor()
+	mockExecutor := mocks.NewMockExecExecutor()
 	mockProcess := mocks.NewMockProcess()
 	mockProcess.SetStdout("")
 	mockProcess.SetStderr("")
