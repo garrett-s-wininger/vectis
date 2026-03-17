@@ -44,7 +44,18 @@ func (s *SequenceNode) Execute(ctx context.Context, state *action.ExecutionState
 }
 
 func executeChildNode(ctx context.Context, node *api.Node, state *action.ExecutionState, inputs map[string]any) action.Result {
-	act, err := resolveAction(node.GetUses())
+	if state.Resolver == nil {
+		return action.NewFailureResult(
+			&action.ExecutionError{
+				NodeID:  node.GetId(),
+				Action:  node.GetUses(),
+				Message: "no resolver in execution state (required for sequence steps)",
+				Cause:   nil,
+			},
+		)
+	}
+
+	act, err := state.Resolver.Resolve(node.GetUses())
 	if err != nil {
 		return action.NewFailureResult(
 			&action.ExecutionError{
@@ -57,15 +68,4 @@ func executeChildNode(ctx context.Context, node *api.Node, state *action.Executi
 	}
 
 	return act.Execute(ctx, state, inputs, node.GetSteps())
-}
-
-func resolveAction(uses string) (action.Node, error) {
-	switch uses {
-	case "builtins/shell", "shell":
-		return NewShellAction(nil), nil
-	case "builtins/sequence", "sequence":
-		return &SequenceNode{}, nil
-	default:
-		return nil, fmt.Errorf("unknown action: %s", uses)
-	}
 }

@@ -17,6 +17,7 @@ func NewRegistry() *Registry {
 	}
 
 	r.Register(NewShellAction(nil))
+	r.Register(NewCheckoutAction(nil))
 	r.Register(&SequenceNode{})
 
 	return r

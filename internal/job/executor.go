@@ -61,6 +61,7 @@ func (e *Executor) ExecuteJob(ctx context.Context, job *api.Job, logClient inter
 		Logger:    logger,
 		LogClient: logClient,
 		LogStream: logStream,
+		Resolver:  e.registry,
 	}
 
 	logger.Info("Starting job execution: %s", job.GetId())

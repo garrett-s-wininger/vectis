@@ -40,11 +40,16 @@ type ExecutionState struct {
 	Logger       interfaces.Logger
 	LogClient    interfaces.LogClient
 	LogStream    interfaces.LogStream
+	Resolver     Resolver
 	nextSequence int64
 }
 
 func (s *ExecutionState) NextSequence() int64 {
 	return atomic.AddInt64(&s.nextSequence, 1)
+}
+
+type Resolver interface {
+	Resolve(uses string) (Node, error)
 }
 
 type Node interface {
