@@ -3,6 +3,8 @@ package job_test
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -130,6 +132,35 @@ func TestExecutor_ExecuteJob_NilRoot(t *testing.T) {
 		if err.Error() != "job has no root node" {
 			t.Errorf("expected 'job has no root node' error, got: %v", err)
 		}
+	}
+}
+
+func TestExecutor_ExecuteJob_EmptyID(t *testing.T) {
+	executor := job.NewExecutor()
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+
+	emptyID := ""
+	nodeID := "node-1"
+	uses := "builtins/shell"
+	testJob := &api.Job{
+		Id: &emptyID,
+		Root: &api.Node{
+			Id:   &nodeID,
+			Uses: &uses,
+			With: map[string]string{
+				"command": "echo hello",
+			},
+		},
+	}
+
+	err := executor.ExecuteJob(context.Background(), testJob, mockLogClient, mockLogger)
+	if err == nil {
+		t.Error("expected error for empty job id")
+	}
+
+	if err != nil && err.Error() != "job has no id" {
+		t.Errorf("expected 'job has no id' error, got: %v", err)
 	}
 }
 
@@ -309,5 +340,54 @@ func TestExecutor_ExecuteJob_CommandFailure(t *testing.T) {
 
 	if !hasStartMsg {
 		t.Error("expected logger to contain 'Starting job execution' even on failure")
+	}
+}
+
+func TestExecutor_ExecuteJob_WorkspaceCreationAndCleanup(t *testing.T) {
+	executor := job.NewExecutor()
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+
+	jobID := "test-job-workspace"
+	nodeID := "node-1"
+	uses := "builtins/shell"
+	testJob := &api.Job{
+		Id: &jobID,
+		Root: &api.Node{
+			Id:   &nodeID,
+			Uses: &uses,
+			With: map[string]string{
+				"command": "pwd",
+			},
+		},
+	}
+
+	expectedPrefix := filepath.Join(os.TempDir(), "vectis-"+jobID+"-")
+
+	err := executor.ExecuteJob(context.Background(), testJob, mockLogClient, mockLogger)
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+
+	infoCalls := mockLogger.GetInfoCalls()
+	const createdPrefix = "Created workspace: "
+	var workspacePath string
+	for _, msg := range infoCalls {
+		if strings.HasPrefix(msg, createdPrefix) {
+			workspacePath = strings.TrimPrefix(msg, createdPrefix)
+			break
+		}
+	}
+
+	if workspacePath == "" {
+		t.Errorf("expected workspace creation to be logged. Got logs: %v", infoCalls)
+	}
+
+	if !strings.HasPrefix(workspacePath, expectedPrefix) {
+		t.Errorf("expected workspace path to have prefix %q, got %q", expectedPrefix, workspacePath)
+	}
+
+	if _, err := os.Stat(workspacePath); !os.IsNotExist(err) {
+		t.Errorf("expected workspace %q to be cleaned up after job completion", workspacePath)
 	}
 }

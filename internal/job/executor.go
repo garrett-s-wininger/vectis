@@ -3,6 +3,9 @@ package job
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
@@ -20,10 +23,32 @@ func NewExecutor() *Executor {
 	}
 }
 
+func sanitizeJobIDForPrefix(id string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(id, "/", "-"), string(filepath.Separator), "-")
+}
+
 func (e *Executor) ExecuteJob(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger) error {
 	if job.GetRoot() == nil {
 		return fmt.Errorf("job has no root node")
 	}
+
+	if job.GetId() == "" {
+		return fmt.Errorf("job has no id")
+	}
+
+	prefix := "vectis-" + sanitizeJobIDForPrefix(job.GetId()) + "-"
+	workspace, err := os.MkdirTemp(os.TempDir(), prefix)
+	if err != nil {
+		return fmt.Errorf("failed to create workspace: %w", err)
+	}
+
+	defer func() {
+		if err := os.RemoveAll(workspace); err != nil {
+			logger.Error("Failed to remove workspace %s: %v", workspace, err)
+		}
+	}()
+
+	logger.Info("Created workspace: %s", workspace)
 
 	logStream, err := logClient.StreamLogs(ctx)
 	if err != nil {
@@ -32,6 +57,7 @@ func (e *Executor) ExecuteJob(ctx context.Context, job *api.Job, logClient inter
 
 	state := &action.ExecutionState{
 		JobID:     job.GetId(),
+		Workspace: workspace,
 		Logger:    logger,
 		LogClient: logClient,
 		LogStream: logStream,

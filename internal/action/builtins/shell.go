@@ -37,7 +37,7 @@ func (s *ShellAction) Execute(ctx context.Context, state *action.ExecutionState,
 	state.Logger.Info("Executing shell command: %s", commandStr)
 	sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("$ %s", commandStr))
 
-	process, err := s.executor.Start(ctx, commandStr)
+	process, err := s.executor.Start(ctx, commandStr, state.Workspace)
 	if err != nil {
 		return action.NewFailureResult(fmt.Errorf("failed to start command: %w", err))
 	}

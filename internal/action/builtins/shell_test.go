@@ -312,3 +312,40 @@ func TestNewShellAction_DefaultExecutor(t *testing.T) {
 		t.Error("expected default executor to be set")
 	}
 }
+
+func TestShellAction_Execute_WorkspacePassed(t *testing.T) {
+	mockExecutor := mocks.NewMockExecutor()
+	mockProcess := mocks.NewMockProcess()
+	mockProcess.SetStdout("")
+	mockProcess.SetStderr("")
+	mockProcess.SetWaitError(nil)
+	mockExecutor.SetProcess(mockProcess)
+
+	shellAction := NewShellAction(mockExecutor)
+	mockStream := &mockLogStream{}
+	state := &action.ExecutionState{
+		JobID:     "test-job",
+		Workspace: "/tmp/vectis-test-job",
+		Logger:    interfaces.NewLogger("test"),
+		LogStream: mockStream,
+	}
+
+	inputs := map[string]any{
+		"command": "pwd",
+	}
+
+	result := shellAction.Execute(context.Background(), state, inputs, nil)
+
+	if result.Status != action.StatusSuccess {
+		t.Errorf("expected success, got %v with error: %v", result.Status, result.Error)
+	}
+
+	workDirs := mockExecutor.GetWorkDirs()
+	if len(workDirs) != 1 {
+		t.Errorf("expected 1 workDir, got %d", len(workDirs))
+	}
+
+	if workDirs[0] != "/tmp/vectis-test-job" {
+		t.Errorf("expected workspace '/tmp/vectis-test-job', got '%s'", workDirs[0])
+	}
+}

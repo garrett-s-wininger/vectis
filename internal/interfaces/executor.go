@@ -8,7 +8,7 @@ import (
 )
 
 type CommandExecutor interface {
-	Start(ctx context.Context, command string) (Process, error)
+	Start(ctx context.Context, command string, workDir string) (Process, error)
 }
 
 type Process interface {
@@ -23,8 +23,9 @@ func NewOSExecutor() *OSExecutor {
 	return &OSExecutor{}
 }
 
-func (e *OSExecutor) Start(ctx context.Context, command string) (Process, error) {
+func (e *OSExecutor) Start(ctx context.Context, command string, workDir string) (Process, error) {
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)
+	cmd.Dir = workDir
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

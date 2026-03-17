@@ -13,6 +13,7 @@ import (
 type MockExecutor struct {
 	mu       sync.Mutex
 	commands []string
+	workDirs []string
 	process  interfaces.Process
 	err      error
 }
@@ -20,6 +21,7 @@ type MockExecutor struct {
 func NewMockExecutor() *MockExecutor {
 	return &MockExecutor{
 		commands: make([]string, 0),
+		workDirs: make([]string, 0),
 	}
 }
 
@@ -43,11 +45,20 @@ func (m *MockExecutor) GetCommands() []string {
 	return result
 }
 
-func (m *MockExecutor) Start(ctx context.Context, command string) (interfaces.Process, error) {
+func (m *MockExecutor) GetWorkDirs() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]string, len(m.workDirs))
+	copy(result, m.workDirs)
+	return result
+}
+
+func (m *MockExecutor) Start(ctx context.Context, command string, workDir string) (interfaces.Process, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	m.commands = append(m.commands, command)
+	m.workDirs = append(m.workDirs, workDir)
 
 	if m.err != nil {
 		return nil, m.err
