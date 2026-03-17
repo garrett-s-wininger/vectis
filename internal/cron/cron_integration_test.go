@@ -62,6 +62,26 @@ func TestIntegrationCron_TriggerJob_FullFlow(t *testing.T) {
 		t.Errorf("expected job ID %q, got %q", jobID, jobs[0].GetId())
 	}
 
+	runID := jobs[0].GetRunId()
+	if runID == "" {
+		t.Error("expected run_id to be set on enqueued job")
+	}
+
+	var dbStatus string
+	var runIndex int
+	err = db.QueryRow("SELECT status, run_index FROM job_runs WHERE job_id = ? AND run_id = ?", jobID, runID).Scan(&dbStatus, &runIndex)
+	if err != nil {
+		t.Fatalf("expected job_runs row for cron-triggered job: %v", err)
+	}
+
+	if dbStatus != "queued" {
+		t.Errorf("expected job_runs.status queued, got %s", dbStatus)
+	}
+
+	if runIndex != 1 {
+		t.Errorf("expected run_index 1, got %d", runIndex)
+	}
+
 	var newNextRun time.Time
 	err = db.QueryRow("SELECT next_run_at FROM job_cron_schedules WHERE job_id = ?", jobID).Scan(&newNextRun)
 	if err != nil {

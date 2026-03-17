@@ -84,8 +84,6 @@ func (e *Executor) ExecuteJob(ctx context.Context, job *api.Job, logClient inter
 		return result.Error
 	}
 
-	logger.Info("Job completed successfully: %s", job.GetId())
-
 	sendLog(state, api.Stream_STREAM_CONTROL, `{"event":"completed","status":"success"}`)
 	logStream.CloseSend()
 

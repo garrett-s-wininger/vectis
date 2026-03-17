@@ -13,14 +13,29 @@ import (
 	"google.golang.org/grpc/status"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/database"
 	"vectis/internal/interfaces"
 	"vectis/internal/job"
 	"vectis/internal/registry"
+	"vectis/internal/runstore"
+
+	_ "github.com/mattn/go-sqlite3"
 )
+
+const maxFailureReasonLen = 4096
 
 func runWorker(cmd *cobra.Command, args []string) {
 	ctx := context.Background()
 	logger := interfaces.NewLogger("worker")
+
+	dbPath := database.GetDBPath()
+	logger.Info("Using database: %s", dbPath)
+	db, err := database.InitDB(dbPath)
+	if err != nil {
+		logger.Fatal("Failed to initialize database: %v", err)
+	}
+	defer db.Close()
+	statusStore := runstore.NewStore(db)
 
 	logger.Info("Connecting to registry...")
 	registryClient, err := registry.New(ctx, logger, interfaces.SystemClock{})
@@ -77,12 +92,34 @@ func runWorker(cmd *cobra.Command, args []string) {
 		}
 
 		jobID := job.GetId()
+		runID := job.GetRunId()
 		logger.Info("Executing job: %s", jobID)
+
+		if runID != "" {
+			if err := statusStore.MarkRunRunning(ctx, runID); err != nil {
+				logger.Error("Failed to mark run %s running: %v", runID, err)
+			}
+		}
 
 		if err := executor.ExecuteJob(ctx, job, logClient, logger); err != nil {
 			logger.Error("Job %s failed: %v", jobID, err)
-			// TODO(garrett): Report job failure.
+			if runID != "" {
+				reason := err.Error()
+				if len(reason) > maxFailureReasonLen {
+					reason = reason[:maxFailureReasonLen] + "..."
+				}
+
+				if updateErr := statusStore.MarkRunFailed(ctx, runID, reason); updateErr != nil {
+					logger.Error("Failed to mark run %s failed: %v", runID, updateErr)
+				}
+			}
 			continue
+		}
+
+		if runID != "" {
+			if err := statusStore.MarkRunSucceeded(ctx, runID); err != nil {
+				logger.Error("Failed to mark run %s succeeded: %v", runID, err)
+			}
 		}
 
 		logger.Info("Job completed successfully: %s", jobID)

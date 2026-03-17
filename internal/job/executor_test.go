@@ -92,21 +92,16 @@ func TestExecutor_ExecuteJob_Success(t *testing.T) {
 	}
 
 	hasStartMsg := false
-	hasCompleteMsg := false
 	for _, msg := range infoCalls {
 		if strings.Contains(msg, "Starting job execution: test-job-1") {
 			hasStartMsg = true
-		}
-		if strings.Contains(msg, "Job completed successfully: test-job-1") {
-			hasCompleteMsg = true
+			break
 		}
 	}
 	if !hasStartMsg {
 		t.Error("expected logger to contain 'Starting job execution: test-job-1'")
 	}
-	if !hasCompleteMsg {
-		t.Error("expected logger to contain 'Job completed successfully: test-job-1'")
-	}
+	// "Job completed successfully" is logged by the worker, not the executor.
 
 	errorCalls := mockLogger.GetErrorCalls()
 	if len(errorCalls) > 0 {

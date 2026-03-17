@@ -14,6 +14,7 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/interfaces"
 	"vectis/internal/registry"
+	"vectis/internal/runstore"
 )
 
 type CronSchedule struct {
@@ -156,6 +157,12 @@ func (s *CronService) TriggerJob(ctx context.Context, jobID string) error {
 	}
 
 	job.Id = &jobID
+	runID, _, err := runstore.CreateRun(ctx, s.db, jobID, nil)
+	if err != nil {
+		return err
+	}
+
+	job.RunId = &runID
 	_, err = s.queueClient.Enqueue(ctx, job)
 	return err
 }

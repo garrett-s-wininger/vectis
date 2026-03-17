@@ -13,6 +13,7 @@ import (
 
 	"vectis/internal/api"
 	"vectis/internal/interfaces/mocks"
+	"vectis/internal/runstore"
 	"vectis/internal/testutil/dbtest"
 
 	"github.com/google/uuid"
@@ -279,8 +280,24 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 		t.Errorf("expected job id 'job-to-trigger', got %s", jobs[0].GetId())
 	}
 
-	if jobs[0].GetRunId() == "" {
+	runID := jobs[0].GetRunId()
+	if runID == "" {
 		t.Errorf("expected run id to be set on enqueued job")
+	}
+
+	var dbStatus string
+	var runIndex int
+	err := db.QueryRow("SELECT status, run_index FROM job_runs WHERE job_id = ? AND run_id = ?", "job-to-trigger", runID).Scan(&dbStatus, &runIndex)
+	if err != nil {
+		t.Fatalf("expected job_runs row for triggered job: %v", err)
+	}
+
+	if dbStatus != "queued" {
+		t.Errorf("expected job_runs.status queued, got %s", dbStatus)
+	}
+
+	if runIndex != 1 {
+		t.Errorf("expected run_index 1, got %d", runIndex)
 	}
 
 	infoCalls := logger.GetInfoCalls()
@@ -356,6 +373,78 @@ func TestAPIServer_TriggerJob_QueueError(t *testing.T) {
 
 	if !hasQueueError {
 		t.Errorf("expected logger error 'Failed to enqueue job', got: %v", errorCalls)
+	}
+}
+
+func TestAPIServer_GetJobRuns_ReturnsStatusAndFailureReasonAfterStatusTransitions(t *testing.T) {
+	server, _, queueService, db := setupTestServer(t)
+	jobDef := `{"id": "job-runs-status", "root": {"uses": "builtins/shell", "with": {"command": "echo test"}}}`
+	db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", "job-runs-status", jobDef)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/job-runs-status", nil)
+	req.SetPathValue("id", "job-runs-status")
+	rec := httptest.NewRecorder()
+	server.TriggerJob(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("trigger: expected 202, got %d", rec.Code)
+	}
+
+	jobs := queueService.GetJobs()
+	if len(jobs) != 1 {
+		t.Fatalf("expected 1 job enqueued, got %d", len(jobs))
+	}
+
+	runID := jobs[0].GetRunId()
+	store := runstore.NewStore(db)
+	ctx := req.Context()
+
+	if err := store.MarkRunRunning(ctx, runID); err != nil {
+		t.Fatalf("MarkRunRunning: %v", err)
+	}
+
+	if err := store.MarkRunFailed(ctx, runID, "step failed: exit code 1"); err != nil {
+		t.Fatalf("MarkRunFailed: %v", err)
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-runs-status/runs", nil)
+	getReq.SetPathValue("id", "job-runs-status")
+	getRec := httptest.NewRecorder()
+	server.GetJobRuns(getRec, getReq)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("GetJobRuns: expected 200, got %d", getRec.Code)
+	}
+
+	var runs []struct {
+		RunID         string  `json:"run_id"`
+		RunIndex      int     `json:"run_index"`
+		Status        string  `json:"status"`
+		StartedAt     *string `json:"started_at,omitempty"`
+		FinishedAt    *string `json:"finished_at,omitempty"`
+		FailureReason *string `json:"failure_reason,omitempty"`
+	}
+
+	if err := json.NewDecoder(getRec.Body).Decode(&runs); err != nil {
+		t.Fatalf("decode runs: %v", err)
+	}
+
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(runs))
+	}
+
+	if runs[0].Status != "failed" {
+		t.Errorf("status want failed, got %s", runs[0].Status)
+	}
+
+	if runs[0].FailureReason == nil || *runs[0].FailureReason != "step failed: exit code 1" {
+		t.Errorf("failure_reason want %q, got %v", "step failed: exit code 1", runs[0].FailureReason)
+	}
+
+	if runs[0].StartedAt == nil {
+		t.Error("started_at should be set after MarkRunRunning")
+	}
+
+	if runs[0].FinishedAt == nil {
+		t.Error("finished_at should be set after MarkRunFailed")
 	}
 }
 

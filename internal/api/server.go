@@ -12,6 +12,7 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/interfaces"
 	"vectis/internal/registry"
+	"vectis/internal/runstore"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -197,32 +198,9 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 
 	job.Id = &jobID
 
-	var runID string
-	var runIndex int
-	tx, txErr := s.db.BeginTx(r.Context(), nil)
-	if txErr != nil {
-		s.logger.Error("Database error starting transaction: %v", txErr)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	if err := tx.QueryRowContext(r.Context(), "SELECT COALESCE(MAX(run_index), 0) + 1 FROM job_runs WHERE job_id = ?", jobID).Scan(&runIndex); err != nil {
-		_ = tx.Rollback()
-		s.logger.Error("Database error computing run index: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	runID = uuid.New().String()
-	if _, err := tx.ExecContext(r.Context(), "INSERT INTO job_runs (run_id, job_id, run_index, status) VALUES (?, ?, ?, ?)", runID, jobID, runIndex, "queued"); err != nil {
-		_ = tx.Rollback()
-		s.logger.Error("Database error inserting job run: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	if err := tx.Commit(); err != nil {
-		s.logger.Error("Database error committing job run: %v", err)
+	runID, runIndex, err := runstore.CreateRun(r.Context(), s.db, jobID, nil)
+	if err != nil {
+		s.logger.Error("Database error creating job run: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -313,7 +291,14 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	generatedID := uuid.New().String()
-	runID := uuid.New().String()
+	runIndexOne := 1
+	runID, _, err := runstore.CreateRun(r.Context(), s.db, generatedID, &runIndexOne)
+	if err != nil {
+		s.logger.Error("Database error creating job run: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
 	job.Id = &generatedID
 	job.RunId = &runID
 
@@ -343,7 +328,7 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sinceStr := r.URL.Query().Get("since")
-	query := "SELECT run_id, run_index, status, started_at, finished_at FROM job_runs WHERE job_id = ?"
+	query := "SELECT run_id, run_index, status, started_at, finished_at, failure_reason FROM job_runs WHERE job_id = ?"
 	args := []any{jobID}
 	if sinceStr != "" {
 		since, err := strconv.Atoi(sinceStr)
@@ -365,18 +350,19 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type runRow struct {
-		RunID      string  `json:"run_id"`
-		RunIndex   int     `json:"run_index"`
-		Status     string  `json:"status"`
-		StartedAt  *string `json:"started_at,omitempty"`
-		FinishedAt *string `json:"finished_at,omitempty"`
+		RunID         string  `json:"run_id"`
+		RunIndex      int     `json:"run_index"`
+		Status        string  `json:"status"`
+		StartedAt     *string `json:"started_at,omitempty"`
+		FinishedAt    *string `json:"finished_at,omitempty"`
+		FailureReason *string `json:"failure_reason,omitempty"`
 	}
 
 	var runs []runRow
 	for rows.Next() {
 		var row runRow
-		var startedAt, finishedAt sql.NullString
-		if err := rows.Scan(&row.RunID, &row.RunIndex, &row.Status, &startedAt, &finishedAt); err != nil {
+		var startedAt, finishedAt, failureReason sql.NullString
+		if err := rows.Scan(&row.RunID, &row.RunIndex, &row.Status, &startedAt, &finishedAt, &failureReason); err != nil {
 			s.logger.Error("Failed to scan run row: %v", err)
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
@@ -388,6 +374,10 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 
 		if finishedAt.Valid {
 			row.FinishedAt = &finishedAt.String
+		}
+
+		if failureReason.Valid {
+			row.FailureReason = &failureReason.String
 		}
 
 		runs = append(runs, row)
