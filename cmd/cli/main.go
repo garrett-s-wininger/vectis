@@ -413,6 +413,62 @@ func runJob(cmd *cobra.Command, args []string) {
 	}
 }
 
+func fetchJobDefinitionBody(jobID string) ([]byte, int, error) {
+	apiAddr := "http://localhost:8080"
+	getURL := fmt.Sprintf("%s/api/v1/jobs/%s", apiAddr, jobID)
+
+	resp, err := http.Get(getURL)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to fetch job definition: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return nil, resp.StatusCode, fmt.Errorf("failed to read job definition: %w", readErr)
+	}
+
+	return body, resp.StatusCode, nil
+}
+
+func formatJobDefinitionBody(body []byte, pretty bool) []byte {
+	if !pretty {
+		out := body
+		if len(out) == 0 {
+			return out
+		}
+		if !bytes.HasSuffix(out, []byte("\n")) {
+			out = append(out, '\n')
+		}
+		return out
+	}
+
+	var indented bytes.Buffer
+	if err := json.Indent(&indented, body, "", "  "); err != nil {
+		out := body
+		if len(out) == 0 {
+			return out
+		}
+
+		if !bytes.HasSuffix(out, []byte("\n")) {
+			out = append(out, '\n')
+		}
+
+		return out
+	}
+
+	out := indented.Bytes()
+	if len(out) == 0 {
+		return out
+	}
+
+	if !bytes.HasSuffix(out, []byte("\n")) {
+		out = append(out, '\n')
+	}
+
+	return out
+}
+
 func editJob(cmd *cobra.Command, args []string) {
 	if len(args) < 1 {
 		fmt.Fprintln(os.Stderr, "Error: job-id is required")
@@ -421,39 +477,24 @@ func editJob(cmd *cobra.Command, args []string) {
 	}
 
 	jobID := args[0]
-	apiAddr := "http://localhost:8080"
-
-	getURL := fmt.Sprintf("%s/api/v1/jobs/%s", apiAddr, jobID)
-	resp, err := http.Get(getURL)
+	body, statusCode, err := fetchJobDefinitionBody(jobID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to fetch job definition: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-	defer resp.Body.Close()
 
-	switch resp.StatusCode {
+	switch statusCode {
 	case http.StatusOK:
 		// NOTE(garrett): Continue
 	case http.StatusNotFound:
 		fmt.Fprintf(os.Stderr, "Error: job '%s' not found\n", jobID)
 		os.Exit(1)
 	default:
-		fmt.Fprintf(os.Stderr, "Error: unexpected status fetching job: %s\n", resp.Status)
+		fmt.Fprintf(os.Stderr, "Error: unexpected status fetching job: %d\n", statusCode)
 		os.Exit(1)
 	}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to read job definition: %v\n", err)
-		os.Exit(1)
-	}
-
-	var indented bytes.Buffer
-	if err := json.Indent(&indented, body, "", "  "); err != nil {
-		indented.Reset()
-		indented.Write(body)
-	}
-
+	pretty := formatJobDefinitionBody(body, true)
 	tempFile, err := os.CreateTemp("", "vectis-job-*.json")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: failed to create temp file: %v\n", err)
@@ -462,7 +503,7 @@ func editJob(cmd *cobra.Command, args []string) {
 	tempPath := tempFile.Name()
 	defer os.Remove(tempPath)
 
-	if _, err := indented.WriteTo(tempFile); err != nil {
+	if _, err := tempFile.Write(pretty); err != nil {
 		tempFile.Close()
 		fmt.Fprintf(os.Stderr, "Error: failed to write job definition to temp file: %v\n", err)
 		os.Exit(1)
@@ -526,13 +567,14 @@ func editJob(cmd *cobra.Command, args []string) {
 	}
 
 	// NOTE(garrett): Always re-indent the stored job before updating.
-	pretty, err := json.MarshalIndent(&job, "", "  ")
+	pretty, err = json.MarshalIndent(&job, "", "  ")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: failed to normalize job JSON: %v\n", err)
 		os.Exit(1)
 	}
 	pretty = append(pretty, '\n')
 
+	apiAddr := "http://localhost:8080"
 	putURL := fmt.Sprintf("%s/api/v1/jobs/%s", apiAddr, jobID)
 	req, err := http.NewRequest(http.MethodPut, putURL, bytes.NewReader(pretty))
 	if err != nil {
@@ -564,6 +606,36 @@ func editJob(cmd *cobra.Command, args []string) {
 		fmt.Fprintf(os.Stderr, "Error: unexpected status updating job: %s\n", updateResp.Status)
 		os.Exit(1)
 	}
+}
+
+func getJobDefinition(cmd *cobra.Command, args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Error: job-id is required")
+		cmd.Usage()
+		os.Exit(1)
+	}
+
+	jobID := args[0]
+	body, statusCode, err := fetchJobDefinitionBody(jobID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	switch statusCode {
+	case http.StatusOK:
+		// NOTE(garrett): Continue
+	case http.StatusNotFound:
+		fmt.Fprintf(os.Stderr, "Error: job '%s' not found\n", jobID)
+		os.Exit(1)
+	default:
+		fmt.Fprintf(os.Stderr, "Error: unexpected status fetching job: %d\n", statusCode)
+		os.Exit(1)
+	}
+
+	raw, _ := cmd.Flags().GetBool("raw")
+	out := formatJobDefinitionBody(body, !raw)
+	fmt.Print(string(out))
 }
 
 var triggerCmd = &cobra.Command{
@@ -612,6 +684,14 @@ var editCmd = &cobra.Command{
 	Run:   editJob,
 }
 
+var getCmd = &cobra.Command{
+	Use:   "get [job-id]",
+	Short: "Get a stored job definition",
+	Long:  `Fetch a stored job definition by its job-id and print it as JSON.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   getJobDefinition,
+}
+
 var rootCmd = &cobra.Command{
 	Use:   "vectis-cli",
 	Short: "Vectis CLI - Command line interface for Vectis",
@@ -633,6 +713,8 @@ func init() {
 	rootCmd.AddCommand(triggerCmd)
 	rootCmd.AddCommand(logsCmd)
 	rootCmd.AddCommand(runCmd)
+	getCmd.Flags().Bool("raw", false, "Print definition JSON without reformatting")
+	rootCmd.AddCommand(getCmd)
 	rootCmd.AddCommand(editCmd)
 }
 
