@@ -2,11 +2,13 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strings"
 	"syscall"
@@ -411,6 +413,159 @@ func runJob(cmd *cobra.Command, args []string) {
 	}
 }
 
+func editJob(cmd *cobra.Command, args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Error: job-id is required")
+		cmd.Usage()
+		os.Exit(1)
+	}
+
+	jobID := args[0]
+	apiAddr := "http://localhost:8080"
+
+	getURL := fmt.Sprintf("%s/api/v1/jobs/%s", apiAddr, jobID)
+	resp, err := http.Get(getURL)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to fetch job definition: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		// NOTE(garrett): Continue
+	case http.StatusNotFound:
+		fmt.Fprintf(os.Stderr, "Error: job '%s' not found\n", jobID)
+		os.Exit(1)
+	default:
+		fmt.Fprintf(os.Stderr, "Error: unexpected status fetching job: %s\n", resp.Status)
+		os.Exit(1)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to read job definition: %v\n", err)
+		os.Exit(1)
+	}
+
+	var indented bytes.Buffer
+	if err := json.Indent(&indented, body, "", "  "); err != nil {
+		indented.Reset()
+		indented.Write(body)
+	}
+
+	tempFile, err := os.CreateTemp("", "vectis-job-*.json")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to create temp file: %v\n", err)
+		os.Exit(1)
+	}
+	tempPath := tempFile.Name()
+	defer os.Remove(tempPath)
+
+	if _, err := indented.WriteTo(tempFile); err != nil {
+		tempFile.Close()
+		fmt.Fprintf(os.Stderr, "Error: failed to write job definition to temp file: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := tempFile.Close(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to close temp file: %v\n", err)
+		os.Exit(1)
+	}
+
+	editorEnv := os.Getenv("EDITOR")
+	if editorEnv == "" {
+		editorEnv = "vi"
+	}
+
+	editorParts := strings.Fields(editorEnv)
+	if len(editorParts) == 0 {
+		fmt.Fprintln(os.Stderr, "Error: EDITOR is empty after parsing")
+		os.Exit(1)
+	}
+
+	editorName := editorParts[0]
+	editorArgs := append(append([]string{}, editorParts[1:]...), tempPath)
+
+	editCmd := exec.Command(editorName, editorArgs...)
+	editCmd.Stdin = os.Stdin
+	editCmd.Stdout = os.Stdout
+	editCmd.Stderr = os.Stderr
+
+	if err := editCmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			if exitErr.ExitCode() != 0 {
+				os.Exit(exitErr.ExitCode())
+			}
+		}
+
+		fmt.Fprintf(os.Stderr, "Error: editor failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	edited, err := os.ReadFile(tempPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to read edited job definition: %v\n", err)
+		os.Exit(1)
+	}
+
+	var job api.Job
+	if err := json.Unmarshal(edited, &job); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: invalid job JSON after edit: %v\n", err)
+		os.Exit(1)
+	}
+
+	if job.GetRoot() == nil {
+		fmt.Fprintln(os.Stderr, "Error: job must have a root node")
+		os.Exit(1)
+	}
+
+	if job.Id == nil || *job.Id != jobID {
+		fmt.Fprintf(os.Stderr, "Error: job id mismatch (expected %q, got %v)\n", jobID, job.Id)
+		os.Exit(1)
+	}
+
+	// NOTE(garrett): Always re-indent the stored job before updating.
+	pretty, err := json.MarshalIndent(&job, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to normalize job JSON: %v\n", err)
+		os.Exit(1)
+	}
+	pretty = append(pretty, '\n')
+
+	putURL := fmt.Sprintf("%s/api/v1/jobs/%s", apiAddr, jobID)
+	req, err := http.NewRequest(http.MethodPut, putURL, bytes.NewReader(pretty))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to create update request: %v\n", err)
+		os.Exit(1)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	updateResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to update job: %v\n", err)
+		os.Exit(1)
+	}
+	defer updateResp.Body.Close()
+
+	switch updateResp.StatusCode {
+	case http.StatusNoContent:
+		fmt.Println("Job updated successfully.")
+	case http.StatusBadRequest:
+		fmt.Fprintln(os.Stderr, "Error: invalid job definition or id mismatch")
+		os.Exit(1)
+	case http.StatusUnsupportedMediaType:
+		fmt.Fprintln(os.Stderr, "Error: content type must be application/json")
+		os.Exit(1)
+	case http.StatusNotFound:
+		fmt.Fprintf(os.Stderr, "Error: job '%s' not found\n", jobID)
+		os.Exit(1)
+	default:
+		fmt.Fprintf(os.Stderr, "Error: unexpected status updating job: %s\n", updateResp.Status)
+		os.Exit(1)
+	}
+}
+
 var triggerCmd = &cobra.Command{
 	Use:   "trigger [job-id]",
 	Short: "Trigger a stored job",
@@ -449,6 +604,14 @@ var runCmd = &cobra.Command{
 	Run:   runJob,
 }
 
+var editCmd = &cobra.Command{
+	Use:   "edit [job-id]",
+	Short: "Edit a stored job definition using $EDITOR",
+	Long:  `Fetch a stored job definition, open it in your $EDITOR, and update the job if you save and exit successfully.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   editJob,
+}
+
 var rootCmd = &cobra.Command{
 	Use:   "vectis-cli",
 	Short: "Vectis CLI - Command line interface for Vectis",
@@ -470,6 +633,7 @@ func init() {
 	rootCmd.AddCommand(triggerCmd)
 	rootCmd.AddCommand(logsCmd)
 	rootCmd.AddCommand(runCmd)
+	rootCmd.AddCommand(editCmd)
 }
 
 func main() {

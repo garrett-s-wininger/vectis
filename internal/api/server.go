@@ -169,6 +169,33 @@ func (s *APIServer) GetJobs(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *APIServer) GetJob(w http.ResponseWriter, r *http.Request) {
+	jobID := r.PathValue("id")
+	if jobID == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+
+	var definitionJSON string
+	err := s.db.QueryRow("SELECT definition_json FROM stored_jobs WHERE job_id = ?", jobID).Scan(&definitionJSON)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "job not found", http.StatusNotFound)
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if _, err := io.WriteString(w, definitionJSON); err != nil {
+		s.logger.Error("Failed to write job definition: %v", err)
+	}
+}
+
 func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 	jobID := r.PathValue("id")
 	if jobID == "" {
@@ -450,6 +477,7 @@ func (s *APIServer) HandleWebSocketJobRuns(w http.ResponseWriter, r *http.Reques
 func (s *APIServer) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/jobs", s.GetJobs)
+	mux.HandleFunc("GET /api/v1/jobs/{id}", s.GetJob)
 	mux.HandleFunc("POST /api/v1/jobs", s.CreateJob)
 	mux.HandleFunc("POST /api/v1/jobs/run", s.RunJob)
 	mux.HandleFunc("DELETE /api/v1/jobs/{id}", s.DeleteJob)

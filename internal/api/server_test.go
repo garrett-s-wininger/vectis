@@ -208,6 +208,47 @@ func TestAPIServer_GetJobs_WithJobs(t *testing.T) {
 	}
 }
 
+func TestAPIServer_GetJob_Success(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+
+	jobDef := `{"id": "job-get-1", "root": {"uses": "builtins/shell"}}`
+	if _, err := db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", "job-get-1", jobDef); err != nil {
+		t.Fatalf("insert job: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-get-1", nil)
+	req.SetPathValue("id", "job-get-1")
+	rec := httptest.NewRecorder()
+
+	server.GetJob(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, rec.Code)
+	}
+
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("expected Content-Type application/json, got %s", ct)
+	}
+
+	if strings.TrimSpace(rec.Body.String()) != jobDef {
+		t.Fatalf("expected body %s, got %s", jobDef, rec.Body.String())
+	}
+}
+
+func TestAPIServer_GetJob_NotFound(t *testing.T) {
+	server, _, _, _ := setupTestServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/nonexistent", nil)
+	req.SetPathValue("id", "nonexistent")
+	rec := httptest.NewRecorder()
+
+	server.GetJob(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected status %d, got %d", http.StatusNotFound, rec.Code)
+	}
+}
+
 func TestAPIServer_DeleteJob_Success(t *testing.T) {
 	server, logger, _, db := setupTestServer(t)
 	jobDef := `{"id": "job-to-delete", "root": {"uses": "builtins/shell"}}`
