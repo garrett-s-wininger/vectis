@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"sort"
 	"strings"
 	"syscall"
 
@@ -638,6 +639,43 @@ func getJobDefinition(cmd *cobra.Command, args []string) {
 	fmt.Print(string(out))
 }
 
+func listJobs(cmd *cobra.Command, args []string) {
+	apiAddr := "http://localhost:8080"
+	url := apiAddr + "/api/v1/jobs"
+
+	resp, err := http.Get(url)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to list jobs: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "Error: unexpected status listing jobs: %s\n", resp.Status)
+		os.Exit(1)
+	}
+
+	var jobs []struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&jobs); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to parse jobs response: %v\n", err)
+		os.Exit(1)
+	}
+
+	names := make([]string, 0, len(jobs))
+	for _, j := range jobs {
+		if j.Name != "" {
+			names = append(names, j.Name)
+		}
+	}
+
+	sort.Strings(names)
+	for _, name := range names {
+		fmt.Println(name)
+	}
+}
+
 var triggerCmd = &cobra.Command{
 	Use:   "trigger [job-id]",
 	Short: "Trigger a stored job",
@@ -692,6 +730,14 @@ var getCmd = &cobra.Command{
 	Run:   getJobDefinition,
 }
 
+var listCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List stored job ids",
+	Long:  `Fetch all stored jobs and print each job id on its own line.`,
+	Args:  cobra.NoArgs,
+	Run:   listJobs,
+}
+
 var rootCmd = &cobra.Command{
 	Use:   "vectis-cli",
 	Short: "Vectis CLI - Command line interface for Vectis",
@@ -715,6 +761,7 @@ func init() {
 	rootCmd.AddCommand(runCmd)
 	getCmd.Flags().Bool("raw", false, "Print definition JSON without reformatting")
 	rootCmd.AddCommand(getCmd)
+	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(editCmd)
 }
 
