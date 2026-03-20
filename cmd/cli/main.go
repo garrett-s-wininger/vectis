@@ -18,8 +18,8 @@ import (
 	"github.com/spf13/cobra"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/config"
 	"vectis/internal/database"
-	"vectis/internal/networking"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -32,7 +32,7 @@ type LogEntry struct {
 }
 
 func runLogStream(runID string, filterStdout, filterStderr bool) error {
-	wsURL := fmt.Sprintf("ws://localhost%s/ws/logs/%s", networking.LogWebSocketPort, runID)
+	wsURL := config.PublicLogWebSocketURL(runID)
 
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
@@ -131,7 +131,7 @@ func triggerJob(cmd *cobra.Command, args []string) {
 	}
 
 	jobID := args[0]
-	apiAddr := "http://localhost:8080"
+	apiAddr := config.PublicAPIBaseURL()
 
 	url := fmt.Sprintf("%s/api/v1/jobs/trigger/%s", apiAddr, jobID)
 	resp, err := http.Post(url, "application/json", nil)
@@ -181,7 +181,7 @@ func triggerJob(cmd *cobra.Command, args []string) {
 }
 
 func runContinuousLogs(jobID string, filterStdout, filterStderr bool) error {
-	apiAddr := "http://localhost:8080"
+	apiAddr := config.PublicAPIBaseURL()
 	lastIndex := 0
 	fmt.Printf("Streaming logs for job %s (Ctrl+C to stop)\n", jobID)
 
@@ -360,7 +360,7 @@ func runJob(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	apiAddr := "http://localhost:8080"
+	apiAddr := config.PublicAPIBaseURL()
 	url := apiAddr + "/api/v1/jobs/run"
 	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader(string(body)))
 	if err != nil {
@@ -418,7 +418,7 @@ func runJob(cmd *cobra.Command, args []string) {
 }
 
 func fetchJobDefinitionBody(jobID string) ([]byte, int, error) {
-	apiAddr := "http://localhost:8080"
+	apiAddr := config.PublicAPIBaseURL()
 	getURL := fmt.Sprintf("%s/api/v1/jobs/%s", apiAddr, jobID)
 
 	resp, err := http.Get(getURL)
@@ -578,7 +578,7 @@ func editJob(cmd *cobra.Command, args []string) {
 	}
 	pretty = append(pretty, '\n')
 
-	apiAddr := "http://localhost:8080"
+	apiAddr := config.PublicAPIBaseURL()
 	putURL := fmt.Sprintf("%s/api/v1/jobs/%s", apiAddr, jobID)
 	req, err := http.NewRequest(http.MethodPut, putURL, bytes.NewReader(pretty))
 	if err != nil {
@@ -643,7 +643,7 @@ func getJobDefinition(cmd *cobra.Command, args []string) {
 }
 
 func listJobs(cmd *cobra.Command, args []string) {
-	apiAddr := "http://localhost:8080"
+	apiAddr := config.PublicAPIBaseURL()
 	url := apiAddr + "/api/v1/jobs"
 
 	resp, err := http.Get(url)

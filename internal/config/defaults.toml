@@ -1,0 +1,22 @@
+[api]
+host = "localhost"
+port = 8080
+
+[queue]
+port = 8081
+
+[registry]
+port = 8082
+
+[log]
+host = "localhost"
+
+[log.grpc]
+port = 8083
+
+[log.websocket]
+port = 8084
+
+[database]
+driver = "sqlite3"
+dsn = "{{data_home}}/vectis/db.sqlite3"

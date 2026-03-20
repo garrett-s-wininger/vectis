@@ -6,6 +6,7 @@ import (
 	"os"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/config"
 	"vectis/internal/interfaces"
 	"vectis/internal/queue"
 	"vectis/internal/registry"
@@ -21,7 +22,7 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 
 	port := viper.GetInt("port")
 	if port <= 0 {
-		port = 8081
+		port = config.QueuePort()
 	}
 	addr := fmt.Sprintf(":%d", port)
 
@@ -60,8 +61,8 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	viper.SetDefault("port", 8081)
-	rootCmd.PersistentFlags().Int("port", 8081, "Port for the queue")
+	viper.SetDefault("port", config.QueuePort())
+	rootCmd.PersistentFlags().Int("port", config.QueuePort(), "Port for the queue")
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
 	viper.SetEnvPrefix("VECTIS_QUEUE")
 	viper.AutomaticEnv()

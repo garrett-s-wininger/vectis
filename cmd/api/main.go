@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/viper"
 
 	"vectis/internal/api"
+	"vectis/internal/config"
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
 
@@ -18,11 +19,9 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewLogger("api")
 	logger.Info("Starting API server...")
 
-	// NOTE(garrett): Skip if production.
 	dbPath := database.GetDBPath()
 	logger.Info("Using database: %s", dbPath)
 
-	// TODO(garrett): Skip if production.
 	db, err := database.OpenDB(dbPath)
 	if err != nil {
 		logger.Fatal("Failed to open database: %v", err)
@@ -37,7 +36,7 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 
 	port := viper.GetInt("port")
 	if port <= 0 {
-		port = 8080
+		port = config.APIPort()
 	}
 	addr := fmt.Sprintf(":%d", port)
 	if err := server.Run(addr); err != nil {
@@ -53,8 +52,8 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	viper.SetDefault("port", 8080)
-	rootCmd.PersistentFlags().Int("port", 8080, "Port for the API server")
+	viper.SetDefault("port", config.APIPort())
+	rootCmd.PersistentFlags().Int("port", config.APIPort(), "Port for the API server")
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
 	viper.SetEnvPrefix("VECTIS_API_SERVER")
 	viper.AutomaticEnv()

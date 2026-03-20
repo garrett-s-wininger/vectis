@@ -6,6 +6,7 @@ import (
 	"os"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/config"
 	"vectis/internal/interfaces"
 	"vectis/internal/registry"
 
@@ -20,7 +21,7 @@ func runVectisRegistry(cmd *cobra.Command, args []string) {
 
 	port := viper.GetInt("port")
 	if port <= 0 {
-		port = 8082
+		port = config.RegistryPort()
 	}
 	addr := fmt.Sprintf(":%d", port)
 
@@ -47,8 +48,8 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	viper.SetDefault("port", 8082)
-	rootCmd.PersistentFlags().Int("port", 8082, "Port for the registry")
+	viper.SetDefault("port", config.RegistryPort())
+	rootCmd.PersistentFlags().Int("port", config.RegistryPort(), "Port for the registry")
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
 	viper.SetEnvPrefix("VECTIS_REGISTRY")
 	viper.AutomaticEnv()

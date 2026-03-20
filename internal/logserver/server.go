@@ -13,8 +13,8 @@ import (
 	"google.golang.org/grpc"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/config"
 	"vectis/internal/interfaces"
-	"vectis/internal/networking"
 	"vectis/internal/registry"
 )
 
@@ -290,18 +290,18 @@ func Run(ctx context.Context, logger interfaces.Logger) error {
 	}
 	defer registryClient.Close()
 
-	if err := registryClient.Register(ctx, api.Component_COMPONENT_LOG, networking.LogGRPCPort); err != nil {
+	if err := registryClient.Register(ctx, api.Component_COMPONENT_LOG, config.LogGRPCListenAddr()); err != nil {
 		return err
 	}
 
 	g, ctx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
-		return server.RunGRPC(ctx, networking.LogGRPCPort)
+		return server.RunGRPC(ctx, config.LogGRPCListenAddr())
 	})
 
 	g.Go(func() error {
-		return server.RunWebSocket(ctx, networking.LogWebSocketPort)
+		return server.RunWebSocket(ctx, config.LogWebSocketListenAddr())
 	})
 
 	return g.Wait()

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"vectis/internal/config"
 	"vectis/internal/migrations"
 )
 
@@ -18,16 +19,19 @@ func GetDBPath() string {
 		}
 		dataHome = filepath.Join(home, ".local", "share")
 	}
-	return filepath.Join(dataHome, "vectis", "db.sqlite3")
+	return config.DBDSN(dataHome)
 }
 
 func OpenDB(dbPath string) (*sql.DB, error) {
-	dir := filepath.Dir(dbPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create data directory: %w", err)
+	driver := config.DBDriver()
+	if driver == "sqlite3" {
+		dir := filepath.Dir(dbPath)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return nil, fmt.Errorf("failed to create data directory: %w", err)
+		}
 	}
 
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open(driver, dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
