@@ -20,9 +20,9 @@ func runVectisCron(cmd *cobra.Command, args []string) {
 	dbPath := database.GetDBPath()
 	logger.Info("Using database: %s", dbPath)
 
-	db, err := database.InitDB(dbPath)
+	db, err := database.OpenDB(dbPath)
 	if err != nil {
-		logger.Fatal("Failed to initialize database: %v", err)
+		logger.Fatal("Failed to open database: %v", err)
 	}
 	defer db.Close()
 

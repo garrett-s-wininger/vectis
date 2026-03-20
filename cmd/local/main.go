@@ -4,10 +4,13 @@ import (
 	"os"
 	"os/exec"
 
+	"vectis/internal/database"
 	"vectis/internal/interfaces"
 	"vectis/internal/supervisor"
 
 	"github.com/spf13/cobra"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 var childBinaries = []string{
@@ -21,6 +24,12 @@ var childBinaries = []string{
 
 func runVectis(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewLogger("cli")
+	dbPath := database.GetDBPath()
+	logger.Info("Migrating database: %s", dbPath)
+	if err := database.Migrate(dbPath); err != nil {
+		logger.Fatal("database migrate failed: %v", err)
+	}
+
 	commands := make([]*exec.Cmd, 0, len(childBinaries))
 
 	for _, b := range childBinaries {

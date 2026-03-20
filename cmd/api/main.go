@@ -23,9 +23,9 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 	logger.Info("Using database: %s", dbPath)
 
 	// TODO(garrett): Skip if production.
-	db, err := database.InitDB(dbPath)
+	db, err := database.OpenDB(dbPath)
 	if err != nil {
-		logger.Fatal("Failed to initialize database: %v", err)
+		logger.Fatal("Failed to open database: %v", err)
 	}
 	defer db.Close()
 

@@ -18,7 +18,10 @@ import (
 	"github.com/spf13/cobra"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/database"
 	"vectis/internal/networking"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 type LogEntry struct {
@@ -738,6 +741,25 @@ var listCmd = &cobra.Command{
 	Run:   listJobs,
 }
 
+func runMigrate(cmd *cobra.Command, args []string) {
+	dbPath := database.GetDBPath()
+	fmt.Printf("Migrating database: %s\n", dbPath)
+	if err := database.Migrate(dbPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("Migrations applied.")
+}
+
+var migrateCmd = &cobra.Command{
+	Use:   "migrate",
+	Short: "Apply database migrations",
+	Long:  `Create the data directory if needed and run embedded SQL migrations on the Vectis SQLite database.`,
+	Args:  cobra.NoArgs,
+	Run:   runMigrate,
+}
+
 var rootCmd = &cobra.Command{
 	Use:   "vectis-cli",
 	Short: "Vectis CLI - Command line interface for Vectis",
@@ -763,6 +785,7 @@ func init() {
 	rootCmd.AddCommand(getCmd)
 	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(editCmd)
+	rootCmd.AddCommand(migrateCmd)
 }
 
 func main() {

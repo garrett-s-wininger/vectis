@@ -21,7 +21,7 @@ func GetDBPath() string {
 	return filepath.Join(dataHome, "vectis", "db.sqlite3")
 }
 
-func InitDB(dbPath string) (*sql.DB, error) {
+func OpenDB(dbPath string) (*sql.DB, error) {
 	dir := filepath.Dir(dbPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create data directory: %w", err)
@@ -32,9 +32,19 @@ func InitDB(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
+	return db, nil
+}
+
+func Migrate(dbPath string) error {
+	db, err := OpenDB(dbPath)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
 	if err := migrations.Run(db); err != nil {
-		return nil, fmt.Errorf("failed to run migrations: %w", err)
+		return fmt.Errorf("failed to run migrations: %w", err)
 	}
 
-	return db, nil
+	return nil
 }
