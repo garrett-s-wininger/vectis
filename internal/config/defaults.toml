@@ -14,7 +14,7 @@ host = "localhost"
 [log.grpc]
 port = 8083
 
-[log.websocket]
+[log.sse]
 port = 8084
 
 [database]

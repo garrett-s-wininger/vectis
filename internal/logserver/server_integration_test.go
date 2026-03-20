@@ -1,15 +1,16 @@
 package logserver_test
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"google.golang.org/grpc"
 
 	api "vectis/api/gen/go"
@@ -28,21 +29,44 @@ func setupLogServer(t *testing.T) (api.LogServiceClient, string) {
 		api.RegisterLogServiceServer(s, server)
 	})
 
-	wsListener, err := net.Listen("tcp", "localhost:0")
+	sseListener, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
-		t.Fatalf("failed to create websocket listener: %v", err)
+		t.Fatalf("failed to create sse listener: %v", err)
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/ws/logs/{id}", server.HandleWebSocket)
+	mux.HandleFunc("/sse/logs/{id}", server.HandleSSE)
 
-	go http.Serve(wsListener, mux)
+	go http.Serve(sseListener, mux)
 
 	t.Cleanup(func() {
-		wsListener.Close()
+		sseListener.Close()
 	})
 
-	return api.NewLogServiceClient(conn), wsListener.Addr().String()
+	return api.NewLogServiceClient(conn), sseListener.Addr().String()
+}
+
+func readNextSSEData(r *bufio.Reader) ([]byte, error) {
+	var dataBuf strings.Builder
+	for {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			return nil, err
+		}
+
+		line = strings.TrimRight(line, "\r\n")
+		if line == "" {
+			if dataBuf.Len() == 0 {
+				continue
+			}
+			return []byte(dataBuf.String()), nil
+		}
+
+		if strings.HasPrefix(line, "data:") {
+			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			dataBuf.WriteString(data)
+		}
+	}
 }
 
 func TestIntegrationLogServer_StreamAndWebSocketBroadcast(t *testing.T) {
@@ -50,12 +74,21 @@ func TestIntegrationLogServer_StreamAndWebSocketBroadcast(t *testing.T) {
 	ctx := context.Background()
 	runID := "test-run-broadcast"
 
-	wsURL := fmt.Sprintf("ws://%s/ws/logs/%s", wsAddr, runID)
-	wsConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	sseURL := fmt.Sprintf("http://%s/sse/logs/%s", wsAddr, runID)
+	sseCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(sseCtx, http.MethodGet, sseURL, nil)
 	if err != nil {
-		t.Fatalf("failed to connect websocket: %v", err)
+		t.Fatalf("create sse request: %v", err)
 	}
-	defer wsConn.Close()
+	req.Header.Set("Accept", "text/event-stream")
+
+	sseResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("failed to connect sse: %v", err)
+	}
+	defer sseResp.Body.Close()
 
 	stream, err := client.StreamLogs(ctx)
 	if err != nil {
@@ -76,15 +109,15 @@ func TestIntegrationLogServer_StreamAndWebSocketBroadcast(t *testing.T) {
 		t.Fatalf("failed to send chunk: %v", err)
 	}
 
-	wsConn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	_, message, err := wsConn.ReadMessage()
+	reader := bufio.NewReader(sseResp.Body)
+	message, err := readNextSSEData(reader)
 	if err != nil {
-		t.Fatalf("failed to read websocket message: %v", err)
+		t.Fatalf("failed to read sse message: %v", err)
 	}
 
 	var entry logserver.LogEntry
 	if err := json.Unmarshal(message, &entry); err != nil {
-		t.Fatalf("failed to unmarshal websocket message: %v", err)
+		t.Fatalf("failed to unmarshal sse message: %v", err)
 	}
 
 	if entry.Data != logData {
@@ -106,17 +139,32 @@ func TestIntegrationLogServer_MultipleSubscribersReceiveSameMessage(t *testing.T
 	runID := "test-run-multi"
 	numSubscribers := 3
 
-	var wsConns []*websocket.Conn
+	sseReaders := make([]*bufio.Reader, 0, numSubscribers)
+	sseCancels := make([]context.CancelFunc, 0, numSubscribers)
 	for i := range numSubscribers {
-		wsURL := fmt.Sprintf("ws://%s/ws/logs/%s", wsAddr, runID)
-		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-		if err != nil {
-			t.Fatalf("failed to connect websocket %d: %v", i, err)
-		}
+		sseURL := fmt.Sprintf("http://%s/sse/logs/%s", wsAddr, runID)
+		sseCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		sseCancels = append(sseCancels, cancel)
 
-		wsConns = append(wsConns, conn)
-		defer conn.Close()
+		req, err := http.NewRequestWithContext(sseCtx, http.MethodGet, sseURL, nil)
+		if err != nil {
+			t.Fatalf("create sse request: %v", err)
+		}
+		req.Header.Set("Accept", "text/event-stream")
+
+		sseResp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			cancel()
+			t.Fatalf("failed to connect sse %d: %v", i, err)
+		}
+		sseReaders = append(sseReaders, bufio.NewReader(sseResp.Body))
+		defer sseResp.Body.Close()
 	}
+	defer func() {
+		for _, cancel := range sseCancels {
+			cancel()
+		}
+	}()
 
 	stream, err := client.StreamLogs(ctx)
 	if err != nil {
@@ -137,11 +185,10 @@ func TestIntegrationLogServer_MultipleSubscribersReceiveSameMessage(t *testing.T
 		t.Fatalf("failed to send chunk: %v", err)
 	}
 
-	for i, conn := range wsConns {
-		conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-		_, message, err := conn.ReadMessage()
+	for i, reader := range sseReaders {
+		message, err := readNextSSEData(reader)
 		if err != nil {
-			t.Errorf("subscriber %d: failed to receive message: %v", i, err)
+			t.Errorf("subscriber %d: failed to receive sse message: %v", i, err)
 			continue
 		}
 
@@ -170,19 +217,34 @@ func TestIntegrationLogServer_JobIsolation(t *testing.T) {
 	job1Data := "message for run1 only"
 	job2Data := "message for run2 only"
 
-	wsURL1 := fmt.Sprintf("ws://%s/ws/logs/%s", wsAddr, run1)
-	wsConn1, _, err := websocket.DefaultDialer.Dial(wsURL1, nil)
-	if err != nil {
-		t.Fatalf("failed to connect websocket for job1: %v", err)
-	}
-	defer wsConn1.Close()
+	sseURL1 := fmt.Sprintf("http://%s/sse/logs/%s", wsAddr, run1)
+	sseURL2 := fmt.Sprintf("http://%s/sse/logs/%s", wsAddr, run2)
 
-	wsURL2 := fmt.Sprintf("ws://%s/ws/logs/%s", wsAddr, run2)
-	wsConn2, _, err := websocket.DefaultDialer.Dial(wsURL2, nil)
+	sseCtx1, cancel1 := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel1()
+	sseReq1, err := http.NewRequestWithContext(sseCtx1, http.MethodGet, sseURL1, nil)
 	if err != nil {
-		t.Fatalf("failed to connect websocket for job2: %v", err)
+		t.Fatalf("create sse request1: %v", err)
 	}
-	defer wsConn2.Close()
+	sseReq1.Header.Set("Accept", "text/event-stream")
+	sseResp1, err := http.DefaultClient.Do(sseReq1)
+	if err != nil {
+		t.Fatalf("connect sse1: %v", err)
+	}
+	defer sseResp1.Body.Close()
+
+	sseCtx2, cancel2 := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel2()
+	sseReq2, err := http.NewRequestWithContext(sseCtx2, http.MethodGet, sseURL2, nil)
+	if err != nil {
+		t.Fatalf("create sse request2: %v", err)
+	}
+	sseReq2.Header.Set("Accept", "text/event-stream")
+	sseResp2, err := http.DefaultClient.Do(sseReq2)
+	if err != nil {
+		t.Fatalf("connect sse2: %v", err)
+	}
+	defer sseResp2.Body.Close()
 
 	stream, err := client.StreamLogs(ctx)
 	if err != nil {
@@ -212,8 +274,8 @@ func TestIntegrationLogServer_JobIsolation(t *testing.T) {
 		t.Fatalf("failed to send chunk to job2: %v", err)
 	}
 
-	wsConn1.SetReadDeadline(time.Now().Add(2 * time.Second))
-	_, msg1, err := wsConn1.ReadMessage()
+	reader1 := bufio.NewReader(sseResp1.Body)
+	msg1, err := readNextSSEData(reader1)
 	if err != nil {
 		t.Fatalf("job1 subscriber failed to receive: %v", err)
 	}
@@ -227,8 +289,8 @@ func TestIntegrationLogServer_JobIsolation(t *testing.T) {
 		t.Errorf("job1 subscriber received wrong data: expected %q, got %q", job1Data, entry1.Data)
 	}
 
-	wsConn2.SetReadDeadline(time.Now().Add(2 * time.Second))
-	_, msg2, err := wsConn2.ReadMessage()
+	reader2 := bufio.NewReader(sseResp2.Body)
+	msg2, err := readNextSSEData(reader2)
 	if err != nil {
 		t.Fatalf("job2 subscriber failed to receive: %v", err)
 	}
@@ -243,7 +305,7 @@ func TestIntegrationLogServer_JobIsolation(t *testing.T) {
 	}
 }
 
-func TestIntegrationLogServer_WebSocketReceivesHistoricalLogs(t *testing.T) {
+func TestIntegrationLogServer_SSEReceivesHistoricalLogs(t *testing.T) {
 	client, wsAddr := setupLogServer(t)
 	ctx := context.Background()
 	runID := "test-run-historical"
@@ -269,18 +331,28 @@ func TestIntegrationLogServer_WebSocketReceivesHistoricalLogs(t *testing.T) {
 	}
 	stream.CloseSend()
 
-	wsURL := fmt.Sprintf("ws://%s/ws/logs/%s", wsAddr, runID)
-	wsConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	sseURL := fmt.Sprintf("http://%s/sse/logs/%s", wsAddr, runID)
+	sseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(sseCtx, http.MethodGet, sseURL, nil)
 	if err != nil {
-		t.Fatalf("failed to connect websocket: %v", err)
+		t.Fatalf("create sse request: %v", err)
 	}
-	defer wsConn.Close()
+	req.Header.Set("Accept", "text/event-stream")
+
+	sseResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("failed to connect sse: %v", err)
+	}
+	defer sseResp.Body.Close()
+
+	reader := bufio.NewReader(sseResp.Body)
 
 	gotBySeq := make(map[int64]string)
 
 	for i := range logMessages {
-		wsConn.SetReadDeadline(time.Now().Add(2 * time.Second))
-		_, message, err := wsConn.ReadMessage()
+		message, err := readNextSSEData(reader)
 		if err != nil {
 			t.Fatalf("failed to read historical log %d: %v", i, err)
 		}
@@ -326,12 +398,23 @@ func TestIntegrationLogServer_HistoricalAndLiveLogs(t *testing.T) {
 		}
 	}
 
-	wsURL := fmt.Sprintf("ws://%s/ws/logs/%s", wsAddr, runID)
-	wsConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	sseURL := fmt.Sprintf("http://%s/sse/logs/%s", wsAddr, runID)
+	sseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(sseCtx, http.MethodGet, sseURL, nil)
 	if err != nil {
-		t.Fatalf("failed to connect websocket: %v", err)
+		t.Fatalf("create sse request: %v", err)
 	}
-	defer wsConn.Close()
+	req.Header.Set("Accept", "text/event-stream")
+
+	sseResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("failed to connect sse: %v", err)
+	}
+	defer sseResp.Body.Close()
+
+	reader := bufio.NewReader(sseResp.Body)
 
 	liveSeq := int64(len(historical) + 1)
 	liveData := "live-log"
@@ -351,8 +434,7 @@ func TestIntegrationLogServer_HistoricalAndLiveLogs(t *testing.T) {
 	totalExpected := len(historical) + 1
 
 	for i := range totalExpected {
-		wsConn.SetReadDeadline(time.Now().Add(3 * time.Second))
-		_, message, err := wsConn.ReadMessage()
+		message, err := readNextSSEData(reader)
 		if err != nil {
 			t.Fatalf("failed to read log %d: %v", i, err)
 		}
@@ -383,12 +465,23 @@ func TestIntegrationLogServer_ServerClosesConnectionAfterCompleted(t *testing.T)
 	ctx := context.Background()
 	runID := "test-run-completed-close"
 
-	wsURL := fmt.Sprintf("ws://%s/ws/logs/%s", wsAddr, runID)
-	wsConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	sseURL := fmt.Sprintf("http://%s/sse/logs/%s", wsAddr, runID)
+	sseCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(sseCtx, http.MethodGet, sseURL, nil)
 	if err != nil {
-		t.Fatalf("failed to connect websocket: %v", err)
+		t.Fatalf("create sse request: %v", err)
 	}
-	defer wsConn.Close()
+	req.Header.Set("Accept", "text/event-stream")
+
+	sseResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("failed to connect sse: %v", err)
+	}
+	defer sseResp.Body.Close()
+
+	reader := bufio.NewReader(sseResp.Body)
 
 	stream, err := client.StreamLogs(ctx)
 	if err != nil {
@@ -410,10 +503,10 @@ func TestIntegrationLogServer_ServerClosesConnectionAfterCompleted(t *testing.T)
 	}
 
 	stream.CloseSend()
-	wsConn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	_, message, err := wsConn.ReadMessage()
+
+	message, err := readNextSSEData(reader)
 	if err != nil {
-		t.Fatalf("failed to read completed message: %v", err)
+		t.Fatalf("failed to read completed sse message: %v", err)
 	}
 
 	var entry logserver.LogEntry
@@ -425,9 +518,8 @@ func TestIntegrationLogServer_ServerClosesConnectionAfterCompleted(t *testing.T)
 		t.Errorf("expected control completed message, got stream=%v data=%q", entry.Stream, entry.Data)
 	}
 
-	wsConn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	_, _, err = wsConn.ReadMessage()
+	_, err = readNextSSEData(reader)
 	if err == nil {
-		t.Fatal("expected connection to be closed by server after completed, got no error")
+		t.Fatal("expected SSE response to be closed by server after completed, got no error")
 	}
 }

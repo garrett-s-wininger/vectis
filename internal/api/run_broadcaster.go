@@ -5,8 +5,6 @@ import (
 	"sync"
 
 	"vectis/internal/interfaces"
-
-	"github.com/gorilla/websocket"
 )
 
 type RunEvent struct {
@@ -16,50 +14,50 @@ type RunEvent struct {
 
 type RunBroadcaster struct {
 	mu          sync.RWMutex
-	subscribers map[string]map[*websocket.Conn]chan []byte
+	subscribers map[string]map[chan []byte]struct{}
 	logger      interfaces.Logger
 }
 
 func NewRunBroadcaster(logger interfaces.Logger) *RunBroadcaster {
 	return &RunBroadcaster{
-		subscribers: make(map[string]map[*websocket.Conn]chan []byte),
+		subscribers: make(map[string]map[chan []byte]struct{}),
 		logger:      logger,
 	}
 }
 
-func (b *RunBroadcaster) Subscribe(jobID string, conn *websocket.Conn) chan []byte {
+func (b *RunBroadcaster) Subscribe(jobID string) chan []byte {
 	ch := make(chan []byte, 32)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	if b.subscribers[jobID] == nil {
-		b.subscribers[jobID] = make(map[*websocket.Conn]chan []byte)
+		b.subscribers[jobID] = make(map[chan []byte]struct{})
 	}
 
-	b.subscribers[jobID][conn] = ch
+	b.subscribers[jobID][ch] = struct{}{}
 	return ch
 }
 
-func (b *RunBroadcaster) Unsubscribe(jobID string, conn *websocket.Conn) (chan []byte, bool) {
+func (b *RunBroadcaster) Unsubscribe(jobID string, ch chan []byte) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	m := b.subscribers[jobID]
 
 	if m == nil {
-		return nil, false
+		return false
 	}
 
-	ch, ok := m[conn]
-	if !ok {
-		return nil, false
+	if _, ok := m[ch]; !ok {
+		return false
 	}
 
-	delete(m, conn)
+	delete(m, ch)
 	if len(m) == 0 {
 		delete(b.subscribers, jobID)
 	}
 
-	return ch, true
+	close(ch)
+	return true
 }
 
 func (b *RunBroadcaster) Broadcast(jobID, runID string, runIndex int) {
@@ -70,24 +68,16 @@ func (b *RunBroadcaster) Broadcast(jobID, runID string, runIndex int) {
 
 	b.mu.RLock()
 	m := b.subscribers[jobID]
-	if m == nil {
-		b.mu.RUnlock()
-		return
-	}
-
-	chans := make([]chan []byte, 0, len(m))
-	for _, ch := range m {
-		chans = append(chans, ch)
-	}
-	b.mu.RUnlock()
-
-	for _, ch := range chans {
-		select {
-		case ch <- payload:
-		default:
-			if b.logger != nil {
-				b.logger.Warn("Run broadcast buffer full for job %s; dropping run event", jobID)
+	if m != nil {
+		for ch := range m {
+			select {
+			case ch <- payload:
+			default:
+				if b.logger != nil {
+					b.logger.Warn("Run broadcast buffer full for job %s; dropping run event", jobID)
+				}
 			}
 		}
 	}
+	b.mu.RUnlock()
 }

@@ -5,7 +5,6 @@ go 1.25.7
 require (
 	github.com/golang-migrate/migrate/v4 v4.18.3
 	github.com/google/uuid v1.6.0
-	github.com/gorilla/websocket v1.5.3
 	github.com/mattn/go-sqlite3 v1.14.28
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/robfig/cron/v3 v3.0.1

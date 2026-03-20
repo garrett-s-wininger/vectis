@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"time"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/interfaces"
@@ -15,16 +16,10 @@ import (
 	"vectis/internal/runstore"
 
 	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
-
-var defaultUpgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-}
 
 type APIServer struct {
 	db             *sql.DB
@@ -426,50 +421,61 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *APIServer) HandleWebSocketJobRuns(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) HandleSSEJobRuns(w http.ResponseWriter, r *http.Request) {
 	jobID := r.PathValue("id")
 	if jobID == "" {
 		http.Error(w, "id is required", http.StatusBadRequest)
 		return
 	}
 
-	conn, err := defaultUpgrader.Upgrade(w, r, nil)
-	if err != nil {
-		s.logger.Error("WebSocket upgrade failed: %v", err)
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	// NOTE(garrett): Prevent buffering behind various proxies for lower latency.
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
 		return
 	}
-	defer conn.Close()
 
-	ch := s.runBroadcaster.Subscribe(jobID, conn)
-	defer func() {
-		if c, ok := s.runBroadcaster.Unsubscribe(jobID, conn); ok {
-			close(c)
-		}
-	}()
+	// Ensure headers are flushed immediately so clients don't block waiting
+	// for the first data event.
+	_, _ = w.Write([]byte(": connected\n\n"))
+	flusher.Flush()
 
-	s.logger.Info("WebSocket client subscribed to runs for job: %s", jobID)
+	ctx := r.Context()
+	ch := s.runBroadcaster.Subscribe(jobID)
+	defer s.runBroadcaster.Unsubscribe(jobID, ch)
 
-	go func() {
-		for payload := range ch {
-			if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
-				if !websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-					return
-				}
-				s.logger.Error("WebSocket write error: %v", err)
-				return
-			}
-		}
-	}()
+	s.logger.Info("SSE client subscribed to runs for job: %s", jobID)
+
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
 
 	for {
-		// NOTE(garrett): We only use read to detect client disconnect; ignore message content
-		if _, _, err := conn.ReadMessage(); err != nil {
-			if !websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			_, _ = w.Write([]byte(": keep-alive\n\n"))
+			flusher.Flush()
+		case payload, ok := <-ch:
+			if !ok {
 				return
 			}
-
-			s.logger.Error("WebSocket read error: %v", err)
-			return
+			if _, err := w.Write([]byte("data: ")); err != nil {
+				return
+			}
+			if _, err := w.Write(payload); err != nil {
+				return
+			}
+			if _, err := w.Write([]byte("\n\n")); err != nil {
+				return
+			}
+			flusher.Flush()
 		}
 	}
 }
@@ -484,7 +490,7 @@ func (s *APIServer) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/v1/jobs/{id}", s.UpdateJobDefinition)
 	mux.HandleFunc("POST /api/v1/jobs/trigger/{id}", s.TriggerJob)
 	mux.HandleFunc("GET /api/v1/jobs/{id}/runs", s.GetJobRuns)
-	mux.HandleFunc("GET /api/v1/ws/jobs/{id}/runs", s.HandleWebSocketJobRuns)
+	mux.HandleFunc("GET /api/v1/sse/jobs/{id}/runs", s.HandleSSEJobRuns)
 	return mux
 }
 

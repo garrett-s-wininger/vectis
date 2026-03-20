@@ -3,8 +3,10 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/spf13/cobra"
 	"io"
 	"net/http"
 	"os"
@@ -13,9 +15,6 @@ import (
 	"sort"
 	"strings"
 	"syscall"
-
-	"github.com/gorilla/websocket"
-	"github.com/spf13/cobra"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/config"
@@ -32,13 +31,26 @@ type LogEntry struct {
 }
 
 func runLogStream(runID string, filterStdout, filterStderr bool) error {
-	wsURL := config.PublicLogWebSocketURL(runID)
+	sseURL := config.PublicLogSSEURL(runID)
 
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sseURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create log stream request: %w", err)
+	}
+	req.Header.Set("Accept", "text/event-stream")
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to connect to log service: %w", err)
 	}
-	defer conn.Close()
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("log stream request failed: %s", resp.Status)
+	}
 
 	fmt.Printf("Connected to logs for run %s\n", runID)
 	fmt.Println("Streaming logs... (press Ctrl+C to exit)")
@@ -47,77 +59,113 @@ func runLogStream(runID string, filterStdout, filterStderr bool) error {
 	signal.Notify(interrupt, syscall.SIGINT, syscall.SIGTERM)
 
 	done := make(chan struct{})
+	readErr := make(chan error, 1)
 
 	go func() {
 		defer close(done)
 
+		reader := bufio.NewReader(resp.Body)
+		var dataBuf strings.Builder
+
 		for {
-			_, message, err := conn.ReadMessage()
+			line, err := reader.ReadString('\n')
 			if err != nil {
-				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-					fmt.Fprintf(os.Stderr, "Error: websocket error: %v\n", err)
+				if ctx.Err() != nil {
+					return
 				}
+
+				if err == io.EOF {
+					return
+				}
+
+				readErr <- err
 				return
 			}
 
-			var entry LogEntry
-			if err := json.Unmarshal(message, &entry); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: failed to parse log entry: %v\n", err)
-				continue
-			}
-
-			if entry.Stream == int(api.Stream_STREAM_CONTROL.Number()) {
-				var meta struct {
-					Event  string `json:"event"`
-					Status string `json:"status,omitempty"`
-				}
-
-				if err := json.Unmarshal([]byte(entry.Data), &meta); err != nil {
+			line = strings.TrimRight(line, "\r\n")
+			if line == "" {
+				if dataBuf.Len() == 0 {
 					continue
 				}
 
-				switch meta.Event {
-				case "start":
-					fmt.Printf("\n=== Run %s started ===\n", runID)
-				case "completed":
-					status := meta.Status
-					switch status {
-					case "success":
-						fmt.Printf("Run %s finished successfully.\n", runID)
-					case "failure":
-						fmt.Printf("Run %s failed.\n", runID)
-					default:
-						fmt.Printf("Run %s finished (status: %s).\n", runID, status)
-					}
-					// NOTE(garrett): Server-side close, next ReadMessage will get the status.
+				message := []byte(dataBuf.String())
+				dataBuf.Reset()
+
+				var entry LogEntry
+				if err := json.Unmarshal(message, &entry); err != nil {
+					fmt.Fprintf(os.Stderr, "Error: failed to parse log entry: %v\n", err)
+					continue
 				}
 
+				if entry.Stream == int(api.Stream_STREAM_CONTROL.Number()) {
+					var meta struct {
+						Event  string `json:"event"`
+						Status string `json:"status,omitempty"`
+					}
+
+					if err := json.Unmarshal([]byte(entry.Data), &meta); err != nil {
+						continue
+					}
+
+					switch meta.Event {
+					case "start":
+						fmt.Printf("\n=== Run %s started ===\n", runID)
+					case "completed":
+						status := meta.Status
+						switch status {
+						case "success":
+							fmt.Printf("Run %s finished successfully.\n", runID)
+						case "failure":
+							fmt.Printf("Run %s failed.\n", runID)
+						default:
+							fmt.Printf("Run %s finished (status: %s).\n", runID, status)
+						}
+					}
+
+					if meta.Event == "completed" {
+						return
+					}
+
+					continue
+				}
+
+				if filterStdout && entry.Stream != int(api.Stream_STREAM_STDOUT.Number()) {
+					continue
+				}
+
+				if filterStderr && entry.Stream != int(api.Stream_STREAM_STDERR.Number()) {
+					continue
+				}
+
+				streamPrefix := ""
+				if entry.Stream == int(api.Stream_STREAM_STDERR.Number()) {
+					streamPrefix = "[stderr] "
+				}
+
+				fmt.Printf("%s%s\n", streamPrefix, entry.Data)
 				continue
 			}
 
-			if filterStdout && entry.Stream != int(api.Stream_STREAM_STDOUT.Number()) {
-				continue
+			if strings.HasPrefix(line, "data:") {
+				data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+				dataBuf.WriteString(data)
 			}
-
-			if filterStderr && entry.Stream != int(api.Stream_STREAM_STDERR.Number()) {
-				continue
-			}
-
-			streamPrefix := ""
-			if entry.Stream == int(api.Stream_STREAM_STDERR.Number()) {
-				streamPrefix = "[stderr] "
-			}
-
-			fmt.Printf("%s%s\n", streamPrefix, entry.Data)
 		}
 	}()
 
 	select {
 	case <-done:
+		select {
+		case err := <-readErr:
+			if err != nil {
+				return fmt.Errorf("log stream read error: %w", err)
+			}
+		default:
+		}
 		return nil
 	case <-interrupt:
 		fmt.Println("\nDisconnecting...")
-		_ = conn.Close()
+		cancel()
 		<-done
 		return fmt.Errorf("interrupted")
 	}
@@ -195,43 +243,77 @@ func runContinuousLogs(jobID string, filterStdout, filterStderr bool) error {
 
 outer:
 	for {
-		wsURL := strings.Replace(apiAddr, "http://", "ws://", 1)
-		wsURL = fmt.Sprintf("%s/api/v1/ws/jobs/%s/runs", wsURL, jobID)
-		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-		if err != nil {
-			return fmt.Errorf("connecting to runs WebSocket: %w", err)
-		}
+		sseURL := fmt.Sprintf("%s/api/v1/sse/jobs/%s/runs", apiAddr, jobID)
+		attemptCtx, attemptCancel := context.WithCancel(context.Background())
 
 		runChan := make(chan runEvent, 32)
-		go func(c *websocket.Conn) {
+		go func() {
 			defer close(runChan)
+			req, err := http.NewRequestWithContext(attemptCtx, http.MethodGet, sseURL, nil)
+			if err != nil {
+				return
+			}
+			req.Header.Set("Accept", "text/event-stream")
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				return
+			}
+
+			reader := bufio.NewReader(resp.Body)
+			var dataBuf strings.Builder
+
 			for {
-				_, message, err := c.ReadMessage()
+				line, err := reader.ReadString('\n')
 				if err != nil {
-					if !websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+					if attemptCtx.Err() != nil {
 						return
 					}
-					fmt.Fprintf(os.Stderr, "WebSocket error: %v\n", err)
+					if err == io.EOF {
+						return
+					}
+					fmt.Fprintf(os.Stderr, "SSE error: %v\n", err)
 					return
 				}
 
-				var ev runEvent
-				if err := json.Unmarshal(message, &ev); err != nil || ev.RunID == "" {
+				line = strings.TrimRight(line, "\r\n")
+				if line == "" {
+					if dataBuf.Len() == 0 {
+						continue
+					}
+
+					message := []byte(dataBuf.String())
+					dataBuf.Reset()
+
+					var ev runEvent
+					if err := json.Unmarshal(message, &ev); err != nil || ev.RunID == "" {
+						continue
+					}
+
+					select {
+					case runChan <- ev:
+					default:
+						fmt.Fprintf(os.Stderr, "Dropping run event (buffer full)\n")
+					}
 					continue
 				}
 
-				select {
-				case runChan <- ev:
-				default:
-					fmt.Fprintf(os.Stderr, "Dropping run event (buffer full)\n")
+				if strings.HasPrefix(line, "data:") {
+					data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+					dataBuf.WriteString(data)
 				}
 			}
-		}(conn)
+		}()
 
 		catchUpURL := fmt.Sprintf("%s/api/v1/jobs/%s/runs?since=%d", apiAddr, jobID, lastIndex)
 		resp, err := http.Get(catchUpURL)
 		if err != nil {
-			conn.Close()
+			attemptCancel()
 			return fmt.Errorf("fetching runs: %w", err)
 		}
 		var runs []struct {
@@ -240,7 +322,7 @@ outer:
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&runs); err != nil {
 			resp.Body.Close()
-			conn.Close()
+			attemptCancel()
 			return fmt.Errorf("parsing runs: %w", err)
 		}
 		resp.Body.Close()
@@ -253,12 +335,12 @@ outer:
 		for {
 			select {
 			case <-interrupt:
-				conn.Close()
+				attemptCancel()
 				fmt.Println("\nStopping.")
 				return fmt.Errorf("interrupted")
 			case ev, ok := <-runChan:
 				if !ok {
-					conn.Close()
+					attemptCancel()
 					fmt.Fprintf(os.Stderr, "Runs connection closed; reconnecting...\n")
 					continue outer
 				}
@@ -269,7 +351,7 @@ outer:
 
 				if err := runLogStream(ev.RunID, filterStdout, filterStderr); err != nil {
 					if err.Error() == "interrupted" {
-						conn.Close()
+						attemptCancel()
 						return err
 					}
 					fmt.Fprintf(os.Stderr, "Error streaming run %s: %v\n", ev.RunID, err)

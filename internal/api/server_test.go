@@ -1,7 +1,9 @@
 package api_test
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -17,7 +19,6 @@ import (
 	"vectis/internal/testutil/dbtest"
 
 	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
 )
 
 func setupTestServer(t *testing.T) (*api.APIServer, *mocks.MockLogger, *mocks.MockQueueService, *sql.DB) {
@@ -801,10 +802,10 @@ func TestAPIServer_RunJob_QueueError(t *testing.T) {
 	}
 }
 
-func TestAPIServer_WebSocketJobRuns_ReceivesRunOnTrigger(t *testing.T) {
+func TestAPIServer_SSEJobRuns_ReceivesRunOnTrigger(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
-	jobID := "job-ws-test"
-	jobDef := `{"id": "job-ws-test", "root": {"uses": "builtins/shell", "with": {"command": "echo test"}}}`
+	jobID := "job-sse-test"
+	jobDef := `{"id": "job-sse-test", "root": {"uses": "builtins/shell", "with": {"command": "echo test"}}}`
 	_, err := db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", jobID, jobDef)
 	if err != nil {
 		t.Fatalf("insert job: %v", err)
@@ -813,36 +814,62 @@ func TestAPIServer_WebSocketJobRuns_ReceivesRunOnTrigger(t *testing.T) {
 	httpServer := httptest.NewServer(server.Handler())
 	defer httpServer.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http") + "/api/v1/ws/jobs/" + jobID + "/runs"
-	wsConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	if err != nil {
-		t.Fatalf("dial websocket: %v", err)
-	}
-	defer wsConn.Close()
+	sseURL := httpServer.URL + "/api/v1/sse/jobs/" + jobID + "/runs"
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	wsConn.SetReadDeadline(time.Now().Add(5 * time.Second))
-	resp, err := http.Post(httpServer.URL+"/api/v1/jobs/trigger/"+jobID, "application/json", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sseURL, nil)
+	if err != nil {
+		t.Fatalf("create sse request: %v", err)
+	}
+	req.Header.Set("Accept", "text/event-stream")
+
+	sseResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("connect sse: %v", err)
+	}
+	defer sseResp.Body.Close()
+
+	triggerResp, err := http.Post(httpServer.URL+"/api/v1/jobs/trigger/"+jobID, "application/json", nil)
 	if err != nil {
 		t.Fatalf("trigger job: %v", err)
 	}
-
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusAccepted {
-		t.Fatalf("trigger: expected 202, got %d", resp.StatusCode)
+	triggerResp.Body.Close()
+	if triggerResp.StatusCode != http.StatusAccepted {
+		t.Fatalf("trigger: expected 202, got %d", triggerResp.StatusCode)
 	}
 
-	_, message, err := wsConn.ReadMessage()
-	if err != nil {
-		t.Fatalf("read ws message: %v", err)
-	}
-
+	reader := bufio.NewReader(sseResp.Body)
+	var dataBuf strings.Builder
 	var ev struct {
 		RunID    string `json:"run_id"`
 		RunIndex int    `json:"run_index"`
 	}
 
-	if err := json.Unmarshal(message, &ev); err != nil {
-		t.Fatalf("unmarshal run event: %v", err)
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			t.Fatalf("read sse line: %v", err)
+		}
+
+		line = strings.TrimRight(line, "\r\n")
+		if line == "" {
+			if dataBuf.Len() == 0 {
+				continue
+			}
+			message := []byte(dataBuf.String())
+			dataBuf.Reset()
+
+			if err := json.Unmarshal(message, &ev); err != nil {
+				t.Fatalf("unmarshal run event: %v", err)
+			}
+			break
+		}
+
+		if strings.HasPrefix(line, "data:") {
+			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			dataBuf.WriteString(data)
+		}
 	}
 
 	if ev.RunID == "" {

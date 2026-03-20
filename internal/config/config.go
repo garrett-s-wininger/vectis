@@ -37,14 +37,14 @@ type RegistryDefaults struct {
 type LogDefaults struct {
 	Host string       `toml:"host"`
 	GRPC GRPCDefaults `toml:"grpc"`
-	WS   WSDefaults   `toml:"websocket"`
+	SSE   SSEDefaults   `toml:"sse"`
 }
 
 type GRPCDefaults struct {
 	Port int `toml:"port"`
 }
 
-type WSDefaults struct {
+type SSEDefaults struct {
 	Port int `toml:"port"`
 }
 
@@ -93,7 +93,7 @@ func validateDefaults(d Defaults) {
 	validatePort(d.Queue.Port, "queue.port")
 	validatePort(d.Registry.Port, "registry.port")
 	validatePort(d.Log.GRPC.Port, "log.grpc.port")
-	validatePort(d.Log.WS.Port, "log.websocket.port")
+	validatePort(d.Log.SSE.Port, "log.websocket.port")
 
 	if d.Log.Host == "" {
 		panic("config defaults: log.host must not be empty")
@@ -129,7 +129,7 @@ func LogGRPCPort() int {
 }
 
 func LogWebSocketPort() int {
-	return MustDefaults().Log.WS.Port
+	return MustDefaults().Log.SSE.Port
 }
 
 func APIListenAddr() string {
@@ -156,8 +156,8 @@ func PublicAPIBaseURL() string {
 	return fmt.Sprintf("http://%s:%d", PublicHost(), APIPort())
 }
 
-func PublicLogWebSocketURL(runID string) string {
-	return fmt.Sprintf("ws://%s:%d/ws/logs/%s", MustDefaults().Log.Host, LogWebSocketPort(), runID)
+func PublicLogSSEURL(runID string) string {
+	return fmt.Sprintf("http://%s:%d/sse/logs/%s", MustDefaults().Log.Host, LogWebSocketPort(), runID)
 }
 
 func DBDriver() string {

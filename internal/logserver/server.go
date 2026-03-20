@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 
@@ -20,8 +19,8 @@ import (
 )
 
 const (
-	MaxLogLinesPerJob   = 10000
-	MaxWebSocketClients = 100
+	MaxLogLinesPerJob = 10000
+	MaxSSEClients     = 100
 )
 
 type LogEntry struct {
@@ -34,7 +33,7 @@ type LogEntry struct {
 type JobBuffer struct {
 	mu          sync.RWMutex
 	entries     []LogEntry
-	subscribers map[*websocket.Conn]chan []byte
+	subscribers map[chan []byte]struct{}
 	subMu       sync.RWMutex
 	logger      interfaces.Logger
 }
@@ -42,7 +41,7 @@ type JobBuffer struct {
 func NewJobBuffer(logger interfaces.Logger) *JobBuffer {
 	return &JobBuffer{
 		entries:     make([]LogEntry, 0, MaxLogLinesPerJob),
-		subscribers: make(map[*websocket.Conn]chan []byte),
+		subscribers: make(map[chan []byte]struct{}),
 		logger:      logger,
 	}
 }
@@ -68,23 +67,22 @@ func (jb *JobBuffer) GetEntries() []LogEntry {
 	return entries
 }
 
-func (jb *JobBuffer) Subscribe(conn *websocket.Conn, ch chan []byte) {
+func (jb *JobBuffer) Subscribe(ch chan []byte) {
 	jb.subMu.Lock()
 	defer jb.subMu.Unlock()
-	jb.subscribers[conn] = ch
+	jb.subscribers[ch] = struct{}{}
 }
 
-func (jb *JobBuffer) Unsubscribe(conn *websocket.Conn) (chan []byte, bool) {
+func (jb *JobBuffer) Unsubscribe(ch chan []byte) bool {
 	jb.subMu.Lock()
 	defer jb.subMu.Unlock()
 
-	ch, ok := jb.subscribers[conn]
-	if !ok {
-		return nil, false
+	if _, ok := jb.subscribers[ch]; !ok {
+		return false
 	}
-
-	delete(jb.subscribers, conn)
-	return ch, true
+	delete(jb.subscribers, ch)
+	close(ch)
+	return true
 }
 
 func (jb *JobBuffer) Broadcast(jobID string, entry LogEntry) {
@@ -96,12 +94,12 @@ func (jb *JobBuffer) Broadcast(jobID string, entry LogEntry) {
 	jb.subMu.RLock()
 	defer jb.subMu.RUnlock()
 
-	for _, ch := range jb.subscribers {
+	for ch := range jb.subscribers {
 		select {
 		case ch <- data:
 		default:
 			if jb.logger != nil {
-				jb.logger.Warn("WebSocket buffer full for job %s; dropping log line (seq %d)", jobID, entry.Sequence)
+				jb.logger.Warn("SSE buffer full for job %s; dropping log line (seq %d)", jobID, entry.Sequence)
 			}
 		}
 	}
@@ -109,22 +107,15 @@ func (jb *JobBuffer) Broadcast(jobID string, entry LogEntry) {
 
 type Server struct {
 	api.UnimplementedLogServiceServer
-	mu       sync.RWMutex
-	buffers  map[string]*JobBuffer
-	logger   interfaces.Logger
-	upgrader websocket.Upgrader
+	mu      sync.RWMutex
+	buffers map[string]*JobBuffer
+	logger  interfaces.Logger
 }
 
 func NewServer(logger interfaces.Logger) *Server {
 	return &Server{
 		buffers: make(map[string]*JobBuffer),
 		logger:  logger,
-		upgrader: websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool {
-				// NOTE(garrett): Allow all origins for local development.
-				return true
-			},
-		},
 	}
 }
 
@@ -159,7 +150,7 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 
 		// FIXME(garrett): We currently store logs in arrival order which makes it so clients would
 		// need to reorder them themselves. We should reorder them, as appropriately. A secondary
-		// consideration would be how to handle gaps in the sequence numbers as well as websocket
+		// consideration would be how to handle gaps in the sequence numbers as well as SSE
 		// resumption so we don't have to re-send all the logs to the client.
 		if !buffer.Add(entry) {
 			s.logger.Warn("Log buffer full for run %s, dropping log line (seq %d)", chunk.GetRunId(), entry.Sequence)
@@ -171,58 +162,100 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 	}
 }
 
-func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	runID := r.PathValue("id")
 	if runID == "" {
-		s.logger.Error("WebSocket connection rejected: missing run id")
+		s.logger.Error("SSE connection rejected: missing run id")
 		http.Error(w, "run id is required", http.StatusBadRequest)
 		return
 	}
 
-	s.logger.Info("WebSocket client connected for run: %s", runID)
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
 
-	conn, err := s.upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		s.logger.Error("WebSocket upgrade failed: %v", err)
+	// NOTE(garrett): Prevent buffering behind various proxies for lower latency.
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
 		return
 	}
-	defer conn.Close()
+
+	// Send a small comment immediately so the HTTP response is started.
+	_, _ = w.Write([]byte(": connected\n\n"))
+	flusher.Flush()
+
+	s.logger.Info("SSE client connected for run: %s", runID)
 
 	buffer := s.getOrCreateBuffer(runID)
 	outCh := make(chan []byte, 256)
-	buffer.Subscribe(conn, outCh)
+	buffer.Subscribe(outCh)
 	defer func() {
-		if ch, ok := buffer.Unsubscribe(conn); ok {
-			close(ch)
-		}
+		buffer.Unsubscribe(outCh)
 	}()
 
+	ctx := r.Context()
+	completed := make(chan struct{})
+
 	go func() {
-		for msg := range outCh {
-			if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
-				return
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+
+		writeEvent := func(msg []byte) bool {
+			if _, err := w.Write([]byte("data: ")); err != nil {
+				return false
 			}
-			// Close connection after sending "completed" so the client can just read until close.
+			if _, err := w.Write(msg); err != nil {
+				return false
+			}
+			if _, err := w.Write([]byte("\n\n")); err != nil {
+				return false
+			}
+			flusher.Flush()
+
+			// Close connection after sending "completed" so the client can just read until EOF.
 			// Handles both live stream and replay (replay sends completed as last entry).
 			var entry LogEntry
 			if err := json.Unmarshal(msg, &entry); err != nil {
-				continue
+				return true
 			}
 			if entry.Stream != api.Stream_STREAM_CONTROL {
-				continue
+				return true
 			}
+
 			var meta struct {
 				Event string `json:"event"`
 			}
 			if err := json.Unmarshal([]byte(entry.Data), &meta); err != nil || meta.Event != "completed" {
-				continue
+				return true
 			}
-			conn.Close()
-			return
+
+			close(completed)
+			return false
+		}
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				_, _ = w.Write([]byte(": keep-alive\n\n"))
+				flusher.Flush()
+			case msg, ok := <-outCh:
+				if !ok {
+					return
+				}
+
+				if !writeEvent(msg) {
+					return
+				}
+			}
 		}
 	}()
 
-	s.logger.Info("WebSocket client subscribed to run: %s", runID)
+	s.logger.Info("SSE client subscribed to run: %s", runID)
 
 	entries := buffer.GetEntries()
 	for _, entry := range entries {
@@ -230,17 +263,20 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			continue
 		}
-		outCh <- data
-	}
-
-	for {
-		_, _, err := conn.ReadMessage()
-		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				s.logger.Error("WebSocket error: %v", err)
-			}
+		select {
+		case outCh <- data:
+		case <-ctx.Done():
+			return
+		case <-completed:
 			return
 		}
+	}
+
+	select {
+	case <-ctx.Done():
+		return
+	case <-completed:
+		return
 	}
 }
 
@@ -264,16 +300,16 @@ func (s *Server) RunGRPC(ctx context.Context, port string) error {
 	return err
 }
 
-func (s *Server) RunWebSocket(ctx context.Context, port string) error {
+func (s *Server) RunSSE(ctx context.Context, port string) error {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/ws/logs/{id}", s.HandleWebSocket)
+	mux.HandleFunc("/sse/logs/{id}", s.HandleSSE)
 
 	server := &http.Server{
 		Addr:    port,
 		Handler: mux,
 	}
 
-	s.logger.Info("WebSocket log server listening on %s", port)
+	s.logger.Info("SSE log server listening on %s", port)
 
 	go func() {
 		<-ctx.Done()
@@ -308,7 +344,7 @@ func Run(ctx context.Context, logger interfaces.Logger) error {
 	})
 
 	g.Go(func() error {
-		return server.RunWebSocket(ctx, config.LogWebSocketListenAddr())
+		return server.RunSSE(ctx, config.LogWebSocketListenAddr())
 	})
 
 	return g.Wait()
