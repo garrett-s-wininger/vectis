@@ -3,6 +3,7 @@ package logserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"sync"
@@ -259,7 +260,8 @@ func (s *Server) RunGRPC(ctx context.Context, port string) error {
 		grpcServer.GracefulStop()
 	}()
 
-	return grpcServer.Serve(lis)
+	err = grpcServer.Serve(lis)
+	return err
 }
 
 func (s *Server) RunWebSocket(ctx context.Context, port string) error {
@@ -278,7 +280,12 @@ func (s *Server) RunWebSocket(ctx context.Context, port string) error {
 		server.Shutdown(context.Background())
 	}()
 
-	return server.ListenAndServe()
+	err := server.ListenAndServe()
+	if errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+
+	return err
 }
 
 func Run(ctx context.Context, logger interfaces.Logger) error {
