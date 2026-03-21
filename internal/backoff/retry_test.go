@@ -10,6 +10,16 @@ import (
 	"vectis/internal/interfaces/mocks"
 )
 
+func TestExponentialDelay_Capped(t *testing.T) {
+	got := backoff.ExponentialDelay(500*time.Millisecond, 10, 30*time.Second)
+	if got != 30*time.Second {
+		t.Errorf("expected cap 30s, got %v", got)
+	}
+	if backoff.ExponentialDelay(500*time.Millisecond, 0, 30*time.Second) != 500*time.Millisecond {
+		t.Errorf("attempt 0 should be base delay")
+	}
+}
+
 func TestRetryer_CalculateDelay(t *testing.T) {
 	mockClock := mocks.NewMockClock()
 	retryer := backoff.NewRetryer(backoff.RetryConfig{

@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"os"
+	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"google.golang.org/grpc"
@@ -13,6 +15,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/backoff"
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
 	"vectis/internal/job"
@@ -22,11 +25,18 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-const maxFailureReasonLen = 4096
+const (
+	maxFailureReasonLen = 4096
+	dequeueBackoffBase  = 500 * time.Millisecond
+	dequeueBackoffMax   = 30 * time.Second
+	longPollTimeout     = 30 * time.Second
+)
 
 func runWorker(cmd *cobra.Command, args []string) {
 	ctx := context.Background()
 	logger := interfaces.NewLogger("worker")
+	workerID := uuid.New().String()
+	logger.Info("Worker ID: %s", workerID)
 
 	dbPath := database.GetDBPath()
 	logger.Info("Using database: %s", dbPath)
@@ -35,7 +45,6 @@ func runWorker(cmd *cobra.Command, args []string) {
 		logger.Fatal("Failed to open database: %v", err)
 	}
 	defer db.Close()
-	statusStore := runstore.NewStore(db)
 
 	logger.Info("Connecting to registry...")
 	registryClient, err := registry.New(ctx, logger, interfaces.SystemClock{})
@@ -44,86 +53,236 @@ func runWorker(cmd *cobra.Command, args []string) {
 	}
 	defer registryClient.Close()
 
-	logger.Info("Getting queue service address from registry...")
-	queueAddr, err := registryClient.Address(ctx, api.Component_COMPONENT_QUEUE)
+	queueClient, logClient, cleanupDial, err := dialQueueAndLogClients(ctx, logger, registryClient)
 	if err != nil {
-		logger.Fatal("Failed to get queue address: %v", err)
+		logger.Fatal("Failed to connect to queue or log service: %v", err)
+	}
+	defer cleanupDial()
+
+	w := &worker{
+		ctx:       ctx,
+		logger:    logger,
+		workerID:  workerID,
+		clock:     interfaces.SystemClock{},
+		queue:     queueClient,
+		logClient: logClient,
+		executor:  job.NewExecutor(),
+		store:     runstore.NewStore(db),
+	}
+	w.run()
+}
+
+func dialQueueAndLogClients(ctx context.Context, logger interfaces.Logger, reg *registry.Registry) (interfaces.QueueClient, interfaces.LogClient, func(), error) {
+	queueAddr, err := reg.Address(ctx, api.Component_COMPONENT_QUEUE)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 
 	logger.Info("Connecting to queue at %s...", queueAddr)
 	queueConn, err := grpc.NewClient(queueAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		logger.Fatal("Failed to connect to queue: %v", err)
+		return nil, nil, nil, err
 	}
-	defer queueConn.Close()
-	queueClient := interfaces.NewGRPCQueueClient(queueConn)
+	cleanup := func() { _ = queueConn.Close() }
 
-	logger.Info("Getting log service address from registry...")
-	logAddr, err := registryClient.Address(ctx, api.Component_COMPONENT_LOG)
+	logAddr, err := reg.Address(ctx, api.Component_COMPONENT_LOG)
 	if err != nil {
-		logger.Fatal("Failed to get log service address: %v", err)
+		cleanup()
+		return nil, nil, nil, err
 	}
 
 	logger.Info("Connecting to log service at %s...", logAddr)
 	logConn, err := grpc.NewClient(logAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		logger.Fatal("Failed to connect to log service: %v", err)
+		cleanup()
+		return nil, nil, nil, err
 	}
-	defer logConn.Close()
 
-	logClient := interfaces.NewGRPCLogClient(logConn)
-	executor := job.NewExecutor()
+	prev := cleanup
+	cleanup = func() {
+		_ = logConn.Close()
+		prev()
+	}
 
+	return interfaces.NewGRPCQueueClient(queueConn), interfaces.NewGRPCLogClient(logConn), cleanup, nil
+}
+
+type worker struct {
+	ctx                context.Context
+	logger             interfaces.Logger
+	workerID           string
+	clock              interfaces.Clock
+	queue              interfaces.QueueClient
+	logClient          interfaces.LogClient
+	executor           *job.Executor
+	store              *runstore.Store
+	dequeueFailAttempt int
+}
+
+func (w *worker) run() {
 	for {
-		logger.Debug("Initiating long poll from queue...")
-		pollCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		job, err := queueClient.Dequeue(pollCtx)
-		cancel()
-
-		if err != nil {
-			st, ok := status.FromError(err)
-			switch {
-			case ok && st.Code() == codes.DeadlineExceeded:
-				logger.Debug("Long poll timed out. Retrying...")
-				continue
-			default:
-				logger.Fatal("Failed to dequeue job: %v", err)
-			}
+		job, keepGoing := w.dequeueNext()
+		if !keepGoing {
+			return
 		}
 
-		jobID := job.GetId()
-		runID := job.GetRunId()
-		logger.Info("Executing job: %s", jobID)
-
-		if runID != "" {
-			if err := statusStore.MarkRunRunning(ctx, runID); err != nil {
-				logger.Error("Failed to mark run %s running: %v", runID, err)
-			}
-		}
-
-		if err := executor.ExecuteJob(ctx, job, logClient, logger); err != nil {
-			logger.Error("Job %s failed: %v", jobID, err)
-			if runID != "" {
-				reason := err.Error()
-				if len(reason) > maxFailureReasonLen {
-					reason = reason[:maxFailureReasonLen] + "..."
-				}
-
-				if updateErr := statusStore.MarkRunFailed(ctx, runID, reason); updateErr != nil {
-					logger.Error("Failed to mark run %s failed: %v", runID, updateErr)
-				}
-			}
+		if job == nil {
 			continue
 		}
 
-		if runID != "" {
-			if err := statusStore.MarkRunSucceeded(ctx, runID); err != nil {
-				logger.Error("Failed to mark run %s succeeded: %v", runID, err)
-			}
+		w.handleJob(job)
+	}
+}
+
+func (w *worker) dequeueNext() (*api.Job, bool) {
+	w.logger.Debug("Initiating long poll from queue...")
+	pollCtx, cancelPoll := context.WithTimeout(w.ctx, longPollTimeout)
+	job, err := w.queue.Dequeue(pollCtx)
+	cancelPoll()
+
+	if err != nil {
+		return w.handleDequeueError(err)
+	}
+
+	w.dequeueFailAttempt = 0
+	if job == nil {
+		w.logger.Debug("Dequeue returned nil job, skipping")
+		return nil, true
+	}
+
+	return job, true
+}
+
+func (w *worker) handleDequeueError(err error) (*api.Job, bool) {
+	st, ok := status.FromError(err)
+	if ok && st.Code() == codes.DeadlineExceeded {
+		w.logger.Debug("Long poll timed out. Retrying...")
+		w.dequeueFailAttempt = 0
+		return nil, true
+	}
+
+	delay := backoff.ExponentialDelay(dequeueBackoffBase, w.dequeueFailAttempt, dequeueBackoffMax)
+	w.logger.Warn("Failed to dequeue job: %v; retrying in %v", err, delay)
+	if sleepErr := w.clock.Sleep(w.ctx, delay); sleepErr != nil {
+		w.logger.Info("Stopping worker dequeue loop: %v", sleepErr)
+		return nil, false
+	}
+
+	w.dequeueFailAttempt++
+	return nil, true
+}
+
+func (w *worker) handleJob(job *api.Job) {
+	jobID := job.GetId()
+	runID := job.GetRunId()
+	w.logger.Info("Dequeued job: %s (run %s)", jobID, runID)
+
+	if runID != "" {
+		w.runClaimedJob(job, jobID, runID)
+		return
+	}
+
+	if err := w.executor.ExecuteJob(w.ctx, job, w.logClient, w.logger); err != nil {
+		w.logger.Error("Job %s failed: %v", jobID, err)
+		return
+	}
+
+	w.logger.Info("Job completed successfully: %s", jobID)
+}
+
+func (w *worker) runClaimedJob(job *api.Job, jobID, runID string) {
+	leaseUntil := time.Now().Add(runstore.DefaultLeaseTTL)
+	claimed, claimErr := w.store.TryClaim(w.ctx, runID, w.workerID, leaseUntil)
+	if claimErr != nil {
+		w.logger.Error("TryClaim %s: %v", runID, claimErr)
+		return
+	}
+
+	if !claimed {
+		w.logger.Debug("Run %s not claimed (other worker or not queued); dropping message", runID)
+		return
+	}
+
+	renewFailed, execErr := w.executeWithLeaseRenewal(runID, job)
+	if renewFailed {
+		w.logger.Error("Run %s: lease renewal failed", runID)
+		if err := w.store.MarkRunFailed(w.ctx, runID, "lease renewal failed"); err != nil {
+			w.logger.Error("Failed to mark run %s failed: %v", runID, err)
 		}
 
-		logger.Info("Job completed successfully: %s", jobID)
+		return
 	}
+
+	if execErr != nil {
+		w.logger.Error("Job %s failed: %v", jobID, execErr)
+		reason := truncateFailureReason(execErr.Error())
+		if err := w.store.MarkRunFailed(w.ctx, runID, reason); err != nil {
+			w.logger.Error("Failed to mark run %s failed: %v", runID, err)
+		}
+
+		return
+	}
+
+	if err := w.store.MarkRunSucceeded(w.ctx, runID); err != nil {
+		w.logger.Error("Failed to mark run %s succeeded: %v", runID, err)
+	}
+
+	w.logger.Info("Job completed successfully: %s", jobID)
+}
+
+func (w *worker) executeWithLeaseRenewal(runID string, job *api.Job) (renewFailed bool, err error) {
+	execCtx, execCancel := context.WithCancel(w.ctx)
+	defer execCancel()
+
+	stopRenew := make(chan struct{})
+	doneRenew := make(chan struct{})
+	var renewFailedAtom atomic.Bool
+
+	go w.leaseRenewalLoop(execCtx, execCancel, runID, stopRenew, doneRenew, &renewFailedAtom)
+
+	err = w.executor.ExecuteJob(execCtx, job, w.logClient, w.logger)
+	close(stopRenew)
+	<-doneRenew
+
+	return renewFailedAtom.Load(), err
+}
+
+func (w *worker) leaseRenewalLoop(
+	execCtx context.Context,
+	execCancel context.CancelFunc,
+	runID string,
+	stopRenew <-chan struct{},
+	doneRenew chan<- struct{},
+	renewFailed *atomic.Bool,
+) {
+	defer close(doneRenew)
+
+	ticker := time.NewTicker(runstore.DefaultRenewInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-stopRenew:
+			return
+		case <-execCtx.Done():
+			return
+		case <-ticker.C:
+			next := time.Now().Add(runstore.DefaultLeaseTTL)
+			if err := w.store.RenewLease(w.ctx, runID, w.workerID, next); err != nil {
+				renewFailed.Store(true)
+				execCancel()
+				return
+			}
+		}
+	}
+}
+
+func truncateFailureReason(reason string) string {
+	if len(reason) <= maxFailureReasonLen {
+		return reason
+	}
+
+	return reason[:maxFailureReasonLen] + "..."
 }
 
 var rootCmd = &cobra.Command{

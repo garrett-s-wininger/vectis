@@ -37,7 +37,7 @@ type RegistryDefaults struct {
 type LogDefaults struct {
 	Host string       `toml:"host"`
 	GRPC GRPCDefaults `toml:"grpc"`
-	SSE   SSEDefaults   `toml:"sse"`
+	SSE  SSEDefaults  `toml:"sse"`
 }
 
 type GRPCDefaults struct {

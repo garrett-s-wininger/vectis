@@ -19,6 +19,7 @@ var childBinaries = []string{
 	"vectis-log",
 	"vectis-worker",
 	"vectis-cron",
+	"vectis-reconciler",
 	"vectis-api",
 }
 

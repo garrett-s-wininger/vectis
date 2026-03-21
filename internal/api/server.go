@@ -237,6 +237,10 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := runstore.TouchDispatched(r.Context(), s.db, runID); err != nil {
+		s.logger.Error("TouchDispatched after enqueue (run %s): %v", runID, err)
+	}
+
 	s.logger.Info("Triggered job: %s (run %s, index %d)", jobID, runID, runIndex)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
@@ -289,6 +293,8 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// NOTE(garrett): If enqueue fails or the queue drops the message, the reconciler
+// cannot recover it (no durable definition/versioning path for ephemeral runs yet).
 func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("Content-Type") != "application/json" {
 		http.Error(w, "content type must be application/json", http.StatusUnsupportedMediaType)
@@ -329,6 +335,10 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("Failed to enqueue job: %v", err)
 		http.Error(w, "failed to enqueue job", http.StatusServiceUnavailable)
 		return
+	}
+
+	if err := runstore.TouchDispatched(r.Context(), s.db, runID); err != nil {
+		s.logger.Error("TouchDispatched after enqueue (run %s): %v", runID, err)
 	}
 
 	s.logger.Info("Enqueued ephemeral job: %s (run %s)", generatedID, runID)

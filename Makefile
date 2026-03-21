@@ -1,4 +1,4 @@
-APPS := api cli cron local log queue registry worker
+APPS := api cli cron local log queue reconciler registry worker
 BUF ?= npx @bufbuild/buf
 BUILD_OPTS ?=
 COMPONENTS := $(filter-out cli local, $(APPS))

@@ -7,6 +7,8 @@ import (
 	"vectis/internal/interfaces"
 )
 
+const maxExponentShift = 30
+
 type RetryConfig struct {
 	MaxTries  int
 	BaseDelay time.Duration
@@ -50,8 +52,26 @@ func (r *Retryer) Do(ctx context.Context, operation func() error, onRetry func(a
 	return lastErr
 }
 
+func ExponentialDelay(baseDelay time.Duration, attempt int, maxDelay time.Duration) time.Duration {
+	if attempt < 0 {
+		attempt = 0
+	}
+
+	shift := attempt
+	if shift > maxExponentShift {
+		shift = maxExponentShift
+	}
+
+	d := baseDelay * time.Duration(uint64(1)<<uint(shift))
+	if maxDelay > 0 && d > maxDelay {
+		return maxDelay
+	}
+
+	return d
+}
+
 func (r *Retryer) CalculateDelay(attempt int) time.Duration {
-	return r.config.BaseDelay * time.Duration(1<<attempt)
+	return ExponentialDelay(r.config.BaseDelay, attempt, 0)
 }
 
 func DefaultRetryer(clock interfaces.Clock) *Retryer {

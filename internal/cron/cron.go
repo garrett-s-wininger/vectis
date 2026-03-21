@@ -164,7 +164,14 @@ func (s *CronService) TriggerJob(ctx context.Context, jobID string) error {
 
 	job.RunId = &runID
 	_, err = s.queueClient.Enqueue(ctx, job)
-	return err
+	if err != nil {
+		return err
+	}
+
+	if err := runstore.TouchDispatched(ctx, s.db, runID); err != nil {
+		s.logger.Error("TouchDispatched after enqueue for run %s: %v", runID, err)
+	}
+	return nil
 }
 
 func (s *CronService) UpdateNextRun(ctx context.Context, scheduleID int64, nextRun time.Time) error {

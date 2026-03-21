@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"testing"
+	"time"
 
 	"vectis/internal/testutil/dbtest"
 )
@@ -210,5 +211,107 @@ func TestStore_StatusTransitions_QueuedToRunningToSucceeded(t *testing.T) {
 
 	if status != "succeeded" {
 		t.Errorf("status want succeeded, got %s", status)
+	}
+}
+
+func TestTryClaim_Exclusive(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+
+	runID, _, err := CreateRun(ctx, db, "job-1", nil)
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	s1 := NewStore(db)
+	s2 := NewStore(db)
+	until := time.Now().Add(time.Hour)
+
+	ok1, err := s1.TryClaim(ctx, runID, "worker-a", until)
+	if err != nil || !ok1 {
+		t.Fatalf("first TryClaim: ok=%v err=%v", ok1, err)
+	}
+
+	ok2, err := s2.TryClaim(ctx, runID, "worker-b", until)
+	if err != nil {
+		t.Fatalf("second TryClaim: %v", err)
+	}
+
+	if ok2 {
+		t.Fatal("second TryClaim should lose")
+	}
+
+	var status, owner string
+	var lease sql.NullInt64
+	err = db.QueryRowContext(ctx,
+		"SELECT status, lease_owner, lease_until FROM job_runs WHERE run_id = ?", runID).Scan(&status, &owner, &lease)
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+
+	if status != "running" || owner != "worker-a" || !lease.Valid {
+		t.Errorf("row status=%q owner=%q lease=%v", status, owner, lease)
+	}
+}
+
+func TestRenewLease_Extends(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	store := NewStore(db)
+
+	runID, _, err := CreateRun(ctx, db, "job-1", nil)
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	first := time.Now().Add(10 * time.Minute)
+	ok, err := store.TryClaim(ctx, runID, "w1", first)
+	if err != nil || !ok {
+		t.Fatalf("TryClaim: %v %v", ok, err)
+	}
+
+	second := time.Now().Add(30 * time.Minute)
+	if err := store.RenewLease(ctx, runID, "w1", second); err != nil {
+		t.Fatalf("RenewLease: %v", err)
+	}
+
+	var lease int64
+	if err := db.QueryRowContext(ctx, "SELECT lease_until FROM job_runs WHERE run_id = ?", runID).Scan(&lease); err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+
+	if lease != second.Unix() {
+		t.Errorf("lease_until unix want %d got %d", second.Unix(), lease)
+	}
+}
+
+func TestMarkRunSucceeded_ClearsLease(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	store := NewStore(db)
+
+	runID, _, err := CreateRun(ctx, db, "job-1", nil)
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	ok, err := store.TryClaim(ctx, runID, "w1", time.Now().Add(time.Hour))
+	if err != nil || !ok {
+		t.Fatalf("TryClaim: %v", err)
+	}
+
+	if err := store.MarkRunSucceeded(ctx, runID); err != nil {
+		t.Fatalf("MarkRunSucceeded: %v", err)
+	}
+
+	var owner sql.NullString
+	var lease sql.NullInt64
+	err = db.QueryRowContext(ctx, "SELECT lease_owner, lease_until FROM job_runs WHERE run_id = ?", runID).Scan(&owner, &lease)
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+
+	if owner.Valid || lease.Valid {
+		t.Errorf("expected lease cleared, owner=%v lease=%v", owner, lease)
 	}
 }
