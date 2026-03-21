@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"vectis/internal/api"
+	"vectis/internal/dal"
 	"vectis/internal/interfaces/mocks"
-	"vectis/internal/runstore"
 	"vectis/internal/testutil/dbtest"
 
 	"github.com/google/uuid"
@@ -437,7 +437,7 @@ func TestAPIServer_GetJobRuns_ReturnsStatusAndFailureReasonAfterStatusTransition
 	}
 
 	runID := jobs[0].GetRunId()
-	store := runstore.NewStore(db)
+	store := dal.NewSQLRepositories(db).Runs()
 	ctx := req.Context()
 
 	if err := store.MarkRunRunning(ctx, runID); err != nil {

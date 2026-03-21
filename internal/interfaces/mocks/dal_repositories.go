@@ -1,0 +1,217 @@
+package mocks
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"vectis/internal/dal"
+)
+
+type MockJobsRepository struct {
+	Definitions map[string]string
+
+	CreateErr error
+	DeleteErr error
+	ListErr   error
+	GetErr    error
+	UpdateErr error
+}
+
+func NewMockJobsRepository() *MockJobsRepository {
+	return &MockJobsRepository{
+		Definitions: map[string]string{},
+	}
+}
+
+func (m *MockJobsRepository) Create(ctx context.Context, jobID, definitionJSON string) error {
+	if m.CreateErr != nil {
+		return m.CreateErr
+	}
+	m.Definitions[jobID] = definitionJSON
+	return nil
+}
+
+func (m *MockJobsRepository) Delete(ctx context.Context, jobID string) error {
+	if m.DeleteErr != nil {
+		return m.DeleteErr
+	}
+	delete(m.Definitions, jobID)
+	return nil
+}
+
+func (m *MockJobsRepository) List(ctx context.Context) ([]dal.JobRecord, error) {
+	if m.ListErr != nil {
+		return nil, m.ListErr
+	}
+
+	out := make([]dal.JobRecord, 0, len(m.Definitions))
+	for id, def := range m.Definitions {
+		out = append(out, dal.JobRecord{
+			JobID:          id,
+			DefinitionJSON: def,
+		})
+	}
+
+	return out, nil
+}
+
+func (m *MockJobsRepository) GetDefinition(ctx context.Context, jobID string) (string, error) {
+	if m.GetErr != nil {
+		return "", m.GetErr
+	}
+
+	def, ok := m.Definitions[jobID]
+	if !ok {
+		return "", fmt.Errorf("%w: job %s", dal.ErrNotFound, jobID)
+	}
+	return def, nil
+}
+
+func (m *MockJobsRepository) UpdateDefinition(ctx context.Context, jobID, definitionJSON string) error {
+	if m.UpdateErr != nil {
+		return m.UpdateErr
+	}
+	m.Definitions[jobID] = definitionJSON
+	return nil
+}
+
+var _ dal.JobsRepository = (*MockJobsRepository)(nil)
+
+type MockRunsRepository struct {
+	CreateRunID    string
+	CreateRunIndex int
+
+	CreateRunErr       error
+	TouchDispatchedErr error
+	ListByJobErr       error
+	QueuedListErr      error
+	TryClaimErr        error
+	RenewLeaseErr      error
+	MarkRunRunningErr  error
+	MarkRunSuccessErr  error
+	MarkRunFailedErr   error
+
+	TryClaimResult bool
+
+	ListByJobResults []dal.RunRecord
+	QueuedRuns       []dal.QueuedRun
+
+	TouchedRunIDs []string
+
+	LastCreateJobID string
+	LastListJobID   string
+	LastListSince   *int
+}
+
+func NewMockRunsRepository() *MockRunsRepository {
+	return &MockRunsRepository{
+		CreateRunID:    "mock-run-id",
+		CreateRunIndex: 1,
+		TryClaimResult: false,
+	}
+}
+
+func (m *MockRunsRepository) MarkRunRunning(ctx context.Context, runID string) error {
+	return m.MarkRunRunningErr
+}
+
+func (m *MockRunsRepository) MarkRunSucceeded(ctx context.Context, runID string) error {
+	return m.MarkRunSuccessErr
+}
+
+func (m *MockRunsRepository) MarkRunFailed(ctx context.Context, runID string, reason string) error {
+	return m.MarkRunFailedErr
+}
+
+func (m *MockRunsRepository) TryClaim(ctx context.Context, runID, owner string, leaseUntil time.Time) (bool, error) {
+	if m.TryClaimErr != nil {
+		return false, m.TryClaimErr
+	}
+	return m.TryClaimResult, nil
+}
+
+func (m *MockRunsRepository) RenewLease(ctx context.Context, runID, owner string, leaseUntil time.Time) error {
+	return m.RenewLeaseErr
+}
+
+func (m *MockRunsRepository) TouchDispatched(ctx context.Context, runID string) error {
+	if m.TouchDispatchedErr != nil {
+		return m.TouchDispatchedErr
+	}
+	m.TouchedRunIDs = append(m.TouchedRunIDs, runID)
+	return nil
+}
+
+func (m *MockRunsRepository) CreateRun(ctx context.Context, jobID string, runIndex *int) (string, int, error) {
+	if m.CreateRunErr != nil {
+		return "", 0, m.CreateRunErr
+	}
+	m.LastCreateJobID = jobID
+	return m.CreateRunID, m.CreateRunIndex, nil
+}
+
+func (m *MockRunsRepository) ListByJob(ctx context.Context, jobID string, since *int) ([]dal.RunRecord, error) {
+	if m.ListByJobErr != nil {
+		return nil, m.ListByJobErr
+	}
+
+	m.LastListJobID = jobID
+	if since != nil {
+		v := *since
+		m.LastListSince = &v
+	} else {
+		m.LastListSince = nil
+	}
+
+	return append([]dal.RunRecord(nil), m.ListByJobResults...), nil
+}
+
+func (m *MockRunsRepository) ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]dal.QueuedRun, error) {
+	if m.QueuedListErr != nil {
+		return nil, m.QueuedListErr
+	}
+	return append([]dal.QueuedRun(nil), m.QueuedRuns...), nil
+}
+
+var _ dal.RunsRepository = (*MockRunsRepository)(nil)
+
+type UpdateNextRunCall struct {
+	ID   int64
+	Next time.Time
+}
+
+type MockSchedulesRepository struct {
+	Ready []dal.CronSchedule
+
+	GetReadyErr   error
+	UpdateNextErr error
+
+	GetReadyCalled int
+	UpdateCalls    []UpdateNextRunCall
+}
+
+func NewMockSchedulesRepository() *MockSchedulesRepository {
+	return &MockSchedulesRepository{}
+}
+
+func (m *MockSchedulesRepository) GetReady(ctx context.Context, at time.Time) ([]dal.CronSchedule, error) {
+	m.GetReadyCalled++
+	if m.GetReadyErr != nil {
+		return nil, m.GetReadyErr
+	}
+	return append([]dal.CronSchedule(nil), m.Ready...), nil
+}
+
+func (m *MockSchedulesRepository) UpdateNextRun(ctx context.Context, scheduleID int64, nextRun time.Time) error {
+	if m.UpdateNextErr != nil {
+		return m.UpdateNextErr
+	}
+	m.UpdateCalls = append(m.UpdateCalls, UpdateNextRunCall{
+		ID:   scheduleID,
+		Next: nextRun,
+	})
+	return nil
+}
+
+var _ dal.SchedulesRepository = (*MockSchedulesRepository)(nil)

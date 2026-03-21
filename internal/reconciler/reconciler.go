@@ -8,14 +8,15 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/dal"
 	"vectis/internal/interfaces"
-	"vectis/internal/runstore"
 )
 
 const MinDispatchGap = 30 * time.Second
 
 type Service struct {
-	db          *sql.DB
+	jobs        dal.JobsRepository
+	runs        dal.RunsRepository
 	logger      interfaces.Logger
 	queueClient interfaces.QueueService
 	clock       interfaces.Clock
@@ -23,12 +24,24 @@ type Service struct {
 }
 
 func NewService(logger interfaces.Logger, db *sql.DB, queue interfaces.QueueService, clock interfaces.Clock) *Service {
+	repos := dal.NewSQLRepositories(db)
+	return NewServiceWithRepositories(logger, repos.Jobs(), repos.Runs(), queue, clock)
+}
+
+func NewServiceWithRepositories(
+	logger interfaces.Logger,
+	jobs dal.JobsRepository,
+	runs dal.RunsRepository,
+	queue interfaces.QueueService,
+	clock interfaces.Clock,
+) *Service {
 	if clock == nil {
 		clock = interfaces.SystemClock{}
 	}
 
 	return &Service{
-		db:          db,
+		jobs:        jobs,
+		runs:        runs,
 		logger:      logger,
 		queueClient: queue,
 		clock:       clock,
@@ -48,41 +61,14 @@ func (s *Service) Process(ctx context.Context) error {
 	}
 
 	cutoff := s.clock.Now().Add(-s.minGap).Unix()
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT run_id, job_id
-		FROM job_runs
-		WHERE status = 'queued'
-			AND (last_dispatched_at IS NULL OR last_dispatched_at < ?)
-		ORDER BY id ASC
-	`, cutoff)
-
+	batch, err := s.runs.ListQueuedBeforeDispatchCutoff(ctx, cutoff)
 	if err != nil {
 		return fmt.Errorf("query queued runs: %w", err)
 	}
-	defer rows.Close()
-
-	type row struct {
-		runID string
-		jobID string
-	}
-
-	var batch []row
-	for rows.Next() {
-		var r row
-		if err := rows.Scan(&r.runID, &r.jobID); err != nil {
-			return fmt.Errorf("scan: %w", err)
-		}
-
-		batch = append(batch, r)
-	}
-
-	if err := rows.Err(); err != nil {
-		return err
-	}
 
 	for _, r := range batch {
-		if err := s.dispatchOne(ctx, r.runID, r.jobID); err != nil {
-			s.logger.Error("reconciler: run %s: %v", r.runID, err)
+		if err := s.dispatchOne(ctx, r.RunID, r.JobID); err != nil {
+			s.logger.Error("reconciler: run %s: %v", r.RunID, err)
 		}
 	}
 
@@ -90,12 +76,9 @@ func (s *Service) Process(ctx context.Context) error {
 }
 
 func (s *Service) dispatchOne(ctx context.Context, runID, jobID string) error {
-	var defJSON string
-	err := s.db.QueryRowContext(ctx,
-		`SELECT definition_json FROM stored_jobs WHERE job_id = ?`, jobID).Scan(&defJSON)
-
+	defJSON, err := s.jobs.GetDefinition(ctx, jobID)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if dal.IsNotFound(err) {
 			s.logger.Debug("reconciler: skip run %s (job %q has no stored definition; ephemeral runs are not re-enqueued)", runID, jobID)
 			return nil
 		}
@@ -115,7 +98,7 @@ func (s *Service) dispatchOne(ctx context.Context, runID, jobID string) error {
 		return fmt.Errorf("enqueue: %w", err)
 	}
 
-	if err := runstore.TouchDispatched(ctx, s.db, runID); err != nil {
+	if err := s.runs.TouchDispatched(ctx, runID); err != nil {
 		return fmt.Errorf("touch dispatched: %w", err)
 	}
 

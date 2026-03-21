@@ -16,11 +16,11 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/backoff"
+	"vectis/internal/dal"
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
 	"vectis/internal/job"
 	"vectis/internal/registry"
-	"vectis/internal/runstore"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -67,7 +67,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 		queue:     queueClient,
 		logClient: logClient,
 		executor:  job.NewExecutor(),
-		store:     runstore.NewStore(db),
+		store:     dal.NewSQLRepositories(db).Runs(),
 	}
 	w.run()
 }
@@ -115,7 +115,7 @@ type worker struct {
 	queue              interfaces.QueueClient
 	logClient          interfaces.LogClient
 	executor           *job.Executor
-	store              *runstore.Store
+	store              dal.RunsRepository
 	dequeueFailAttempt int
 }
 
@@ -191,7 +191,7 @@ func (w *worker) handleJob(job *api.Job) {
 }
 
 func (w *worker) runClaimedJob(job *api.Job, jobID, runID string) {
-	leaseUntil := time.Now().Add(runstore.DefaultLeaseTTL)
+	leaseUntil := time.Now().Add(dal.DefaultLeaseTTL)
 	claimed, claimErr := w.store.TryClaim(w.ctx, runID, w.workerID, leaseUntil)
 	if claimErr != nil {
 		w.logger.Error("TryClaim %s: %v", runID, claimErr)
@@ -257,7 +257,7 @@ func (w *worker) leaseRenewalLoop(
 ) {
 	defer close(doneRenew)
 
-	ticker := time.NewTicker(runstore.DefaultRenewInterval)
+	ticker := time.NewTicker(dal.DefaultRenewInterval)
 	defer ticker.Stop()
 
 	for {
@@ -267,7 +267,7 @@ func (w *worker) leaseRenewalLoop(
 		case <-execCtx.Done():
 			return
 		case <-ticker.C:
-			next := time.Now().Add(runstore.DefaultLeaseTTL)
+			next := time.Now().Add(dal.DefaultLeaseTTL)
 			if err := w.store.RenewLease(w.ctx, runID, w.workerID, next); err != nil {
 				renewFailed.Store(true)
 				execCancel()

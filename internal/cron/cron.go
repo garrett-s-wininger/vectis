@@ -12,9 +12,9 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/dal"
 	"vectis/internal/interfaces"
 	"vectis/internal/registry"
-	"vectis/internal/runstore"
 )
 
 type CronSchedule struct {
@@ -25,7 +25,9 @@ type CronSchedule struct {
 }
 
 type CronService struct {
-	db          *sql.DB
+	jobs        dal.JobsRepository
+	runs        dal.RunsRepository
+	schedules   dal.SchedulesRepository
 	logger      interfaces.Logger
 	queueClient interfaces.QueueService
 	parser      cron.Parser
@@ -33,11 +35,23 @@ type CronService struct {
 }
 
 func NewCronService(logger interfaces.Logger, db *sql.DB) *CronService {
+	repos := dal.NewSQLRepositories(db)
+	return NewCronServiceWithRepositories(logger, repos.Jobs(), repos.Runs(), repos.Schedules())
+}
+
+func NewCronServiceWithRepositories(
+	logger interfaces.Logger,
+	jobs dal.JobsRepository,
+	runs dal.RunsRepository,
+	schedules dal.SchedulesRepository,
+) *CronService {
 	return &CronService{
-		db:     db,
-		logger: logger,
-		parser: cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow),
-		clock:  interfaces.SystemClock{},
+		jobs:      jobs,
+		runs:      runs,
+		schedules: schedules,
+		logger:    logger,
+		parser:    cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow),
+		clock:     interfaces.SystemClock{},
 	}
 }
 
@@ -72,39 +86,22 @@ func (s *CronService) ConnectToQueue(ctx context.Context) error {
 }
 
 func (s *CronService) GetReadySchedules(ctx context.Context) ([]CronSchedule, error) {
-	query := `
-		SELECT id, job_id, cron_spec, next_run_at 
-		FROM job_cron_schedules 
-		WHERE next_run_at <= ?
-	`
-
-	rows, err := s.db.QueryContext(ctx, query, s.clock.Now().Format(time.RFC3339))
+	ready, err := s.schedules.GetReady(ctx, s.clock.Now())
 	if err != nil {
 		return nil, fmt.Errorf("failed to query schedules: %w", err)
 	}
 
-	defer rows.Close()
-
-	var schedules []CronSchedule
-	for rows.Next() {
-		var sched CronSchedule
-		var nextRunAt string
-		if err := rows.Scan(&sched.ID, &sched.JobID, &sched.CronSpec, &nextRunAt); err != nil {
-			s.logger.Error("Failed to scan schedule row: %v", err)
-			continue
-		}
-
-		parsedTime, err := time.Parse(time.RFC3339, nextRunAt)
-		if err != nil {
-			s.logger.Error("Failed to parse next_run_at time %s: %v", nextRunAt, err)
-			continue
-		}
-
-		sched.NextRunAt = parsedTime
-		schedules = append(schedules, sched)
+	schedules := make([]CronSchedule, 0, len(ready))
+	for _, sched := range ready {
+		schedules = append(schedules, CronSchedule{
+			ID:        sched.ID,
+			JobID:     sched.JobID,
+			CronSpec:  sched.CronSpec,
+			NextRunAt: sched.NextRunAt,
+		})
 	}
 
-	return schedules, rows.Err()
+	return schedules, nil
 }
 
 func (s *CronService) ValidateCronSpec(spec string, t time.Time) (bool, error) {
@@ -131,12 +128,9 @@ func (s *CronService) CalculateNextRun(spec string, from time.Time) (time.Time, 
 }
 
 func (s *CronService) GetJobDefinition(ctx context.Context, jobID string) (*api.Job, error) {
-	var definitionJSON string
-	err := s.db.QueryRowContext(ctx,
-		"SELECT definition_json FROM stored_jobs WHERE job_id = ?", jobID).Scan(&definitionJSON)
-
+	definitionJSON, err := s.jobs.GetDefinition(ctx, jobID)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if dal.IsNotFound(err) {
 			return nil, fmt.Errorf("job not found: %s", jobID)
 		}
 		return nil, fmt.Errorf("database error: %w", err)
@@ -157,7 +151,7 @@ func (s *CronService) TriggerJob(ctx context.Context, jobID string) error {
 	}
 
 	job.Id = &jobID
-	runID, _, err := runstore.CreateRun(ctx, s.db, jobID, nil)
+	runID, _, err := s.runs.CreateRun(ctx, jobID, nil)
 	if err != nil {
 		return err
 	}
@@ -168,18 +162,14 @@ func (s *CronService) TriggerJob(ctx context.Context, jobID string) error {
 		return err
 	}
 
-	if err := runstore.TouchDispatched(ctx, s.db, runID); err != nil {
+	if err := s.runs.TouchDispatched(ctx, runID); err != nil {
 		s.logger.Error("TouchDispatched after enqueue for run %s: %v", runID, err)
 	}
 	return nil
 }
 
 func (s *CronService) UpdateNextRun(ctx context.Context, scheduleID int64, nextRun time.Time) error {
-	_, err := s.db.ExecContext(ctx,
-		"UPDATE job_cron_schedules SET next_run_at = ? WHERE id = ?",
-		nextRun, scheduleID)
-
-	return err
+	return s.schedules.UpdateNextRun(ctx, scheduleID, nextRun)
 }
 
 func (s *CronService) ProcessSchedules(ctx context.Context) error {

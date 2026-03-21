@@ -11,9 +11,9 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/dal"
 	"vectis/internal/interfaces"
 	"vectis/internal/registry"
-	"vectis/internal/runstore"
 
 	"github.com/google/uuid"
 
@@ -22,7 +22,8 @@ import (
 )
 
 type APIServer struct {
-	db             *sql.DB
+	jobs           dal.JobsRepository
+	runs           dal.RunsRepository
 	logger         interfaces.Logger
 	queueClient    interfaces.QueueService
 	registryClient interfaces.RegistryClient
@@ -30,8 +31,18 @@ type APIServer struct {
 }
 
 func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
+	repos := dal.NewSQLRepositories(db)
+	return NewAPIServerWithRepositories(logger, repos.Jobs(), repos.Runs())
+}
+
+func NewAPIServerWithRepositories(
+	logger interfaces.Logger,
+	jobs dal.JobsRepository,
+	runs dal.RunsRepository,
+) *APIServer {
 	return &APIServer{
-		db:             db,
+		jobs:           jobs,
+		runs:           runs,
 		logger:         logger,
 		runBroadcaster: NewRunBroadcaster(logger),
 	}
@@ -84,7 +95,7 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = s.db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", job.Id, body)
+	err = s.jobs.Create(r.Context(), *job.Id, string(body))
 	if err != nil {
 		s.logger.Error("Database error: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -102,7 +113,7 @@ func (s *APIServer) DeleteJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err := s.db.Exec("DELETE FROM stored_jobs WHERE job_id = ?", jobID)
+	err := s.jobs.Delete(r.Context(), jobID)
 	if err != nil {
 		s.logger.Error("Database error: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -114,42 +125,27 @@ func (s *APIServer) DeleteJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) GetJobs(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.db.Query("SELECT job_id, definition_json FROM stored_jobs")
+	records, err := s.jobs.List(r.Context())
 	if err != nil {
 		s.logger.Error("Database error: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
 
 	// TODO(garrett): Cursor-based pagination.
 	// TODO(garrett): Option to avoid returning the definition.
 	var jobs []map[string]any
-	for rows.Next() {
-		var jobID string
-		var definitionJSON string
-		if err := rows.Scan(&jobID, &definitionJSON); err != nil {
-			s.logger.Error("Failed to scan row: %v", err)
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-			return
-		}
-
+	for _, rec := range records {
 		var definition any
-		if err := json.Unmarshal([]byte(definitionJSON), &definition); err != nil {
-			s.logger.Error("Failed to parse job definition for job %s: %v", jobID, err)
+		if err := json.Unmarshal([]byte(rec.DefinitionJSON), &definition); err != nil {
+			s.logger.Error("Failed to parse job definition for job %s: %v", rec.JobID, err)
 			continue
 		}
 
 		jobs = append(jobs, map[string]any{
-			"name":       jobID,
+			"name":       rec.JobID,
 			"definition": definition,
 		})
-	}
-
-	if err := rows.Err(); err != nil {
-		s.logger.Error("Row iteration error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -171,10 +167,9 @@ func (s *APIServer) GetJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var definitionJSON string
-	err := s.db.QueryRow("SELECT definition_json FROM stored_jobs WHERE job_id = ?", jobID).Scan(&definitionJSON)
+	definitionJSON, err := s.jobs.GetDefinition(r.Context(), jobID)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if dal.IsNotFound(err) {
 			http.Error(w, "job not found", http.StatusNotFound)
 			return
 		}
@@ -198,10 +193,9 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var definitionJSON string
-	err := s.db.QueryRow("SELECT definition_json FROM stored_jobs WHERE job_id = ?", jobID).Scan(&definitionJSON)
+	definitionJSON, err := s.jobs.GetDefinition(r.Context(), jobID)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if dal.IsNotFound(err) {
 			http.Error(w, "job not found", http.StatusNotFound)
 			return
 		}
@@ -220,7 +214,7 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 
 	job.Id = &jobID
 
-	runID, runIndex, err := runstore.CreateRun(r.Context(), s.db, jobID, nil)
+	runID, runIndex, err := s.runs.CreateRun(r.Context(), jobID, nil)
 	if err != nil {
 		s.logger.Error("Database error creating job run: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -237,7 +231,7 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := runstore.TouchDispatched(r.Context(), s.db, runID); err != nil {
+	if err := s.runs.TouchDispatched(r.Context(), runID); err != nil {
 		s.logger.Error("TouchDispatched after enqueue (run %s): %v", runID, err)
 	}
 
@@ -282,7 +276,7 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	_, err = s.db.Exec("UPDATE stored_jobs SET definition_json = ? WHERE job_id = ?", body, jobID)
+	err = s.jobs.UpdateDefinition(r.Context(), jobID, string(body))
 	if err != nil {
 		s.logger.Error("Database error: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -320,7 +314,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 
 	generatedID := uuid.New().String()
 	runIndexOne := 1
-	runID, _, err := runstore.CreateRun(r.Context(), s.db, generatedID, &runIndexOne)
+	runID, _, err := s.runs.CreateRun(r.Context(), generatedID, &runIndexOne)
 	if err != nil {
 		s.logger.Error("Database error creating job run: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -337,7 +331,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := runstore.TouchDispatched(r.Context(), s.db, runID); err != nil {
+	if err := s.runs.TouchDispatched(r.Context(), runID); err != nil {
 		s.logger.Error("TouchDispatched after enqueue (run %s): %v", runID, err)
 	}
 
@@ -360,26 +354,22 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sinceStr := r.URL.Query().Get("since")
-	query := "SELECT run_id, run_index, status, started_at, finished_at, failure_reason FROM job_runs WHERE job_id = ?"
-	args := []any{jobID}
+	var since *int
 	if sinceStr != "" {
-		since, err := strconv.Atoi(sinceStr)
-		if err != nil || since < 0 {
+		parsedSince, err := strconv.Atoi(sinceStr)
+		if err != nil || parsedSince < 0 {
 			http.Error(w, "since must be a non-negative integer", http.StatusBadRequest)
 			return
 		}
-		query += " AND run_index > ?"
-		args = append(args, since)
+		since = &parsedSince
 	}
 
-	query += " ORDER BY run_index ASC"
-	rows, err := s.db.Query(query, args...)
+	runRows, err := s.runs.ListByJob(r.Context(), jobID, since)
 	if err != nil {
 		s.logger.Error("Database error: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
 
 	type runRow struct {
 		RunID         string  `json:"run_id"`
@@ -391,34 +381,15 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var runs []runRow
-	for rows.Next() {
-		var row runRow
-		var startedAt, finishedAt, failureReason sql.NullString
-		if err := rows.Scan(&row.RunID, &row.RunIndex, &row.Status, &startedAt, &finishedAt, &failureReason); err != nil {
-			s.logger.Error("Failed to scan run row: %v", err)
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-			return
-		}
-
-		if startedAt.Valid {
-			row.StartedAt = &startedAt.String
-		}
-
-		if finishedAt.Valid {
-			row.FinishedAt = &finishedAt.String
-		}
-
-		if failureReason.Valid {
-			row.FailureReason = &failureReason.String
-		}
-
-		runs = append(runs, row)
-	}
-
-	if err := rows.Err(); err != nil {
-		s.logger.Error("Row iteration error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
+	for _, rec := range runRows {
+		runs = append(runs, runRow{
+			RunID:         rec.RunID,
+			RunIndex:      rec.RunIndex,
+			Status:        rec.Status,
+			StartedAt:     rec.StartedAt,
+			FinishedAt:    rec.FinishedAt,
+			FailureReason: rec.FailureReason,
+		})
 	}
 
 	if runs == nil {

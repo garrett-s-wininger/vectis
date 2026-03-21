@@ -9,9 +9,9 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/dal"
 	"vectis/internal/interfaces"
 	"vectis/internal/interfaces/mocks"
-	"vectis/internal/runstore"
 	"vectis/internal/testutil/dbtest"
 )
 
@@ -86,7 +86,7 @@ func seedStoredJobAndRun(t *testing.T, db *sql.DB, jobID string) string {
 		t.Fatalf("insert stored job: %v", err)
 	}
 
-	runID, _, err := runstore.CreateRun(ctx, db, jobID, nil)
+	runID, _, err := dal.NewSQLRepositories(db).Runs().CreateRun(ctx, jobID, nil)
 	if err != nil {
 		t.Fatalf("CreateRun: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestService_Process_DuplicateDelivery_AllowsSingleClaimedExecution(t *testi
 		t.Fatalf("expected duplicate enqueue after min-gap expiry, got %d jobs", got)
 	}
 
-	store := runstore.NewStore(db)
+	store := dal.NewSQLRepositories(db).Runs()
 	leaseUntil := time.Now().Add(time.Minute)
 
 	ok1, err := store.TryClaim(ctx, runID, "worker-a", leaseUntil)

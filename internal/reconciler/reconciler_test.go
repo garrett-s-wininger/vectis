@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"vectis/internal/dal"
 	"vectis/internal/interfaces"
 	"vectis/internal/interfaces/mocks"
-	"vectis/internal/runstore"
 	"vectis/internal/testutil/dbtest"
 )
 
@@ -22,7 +22,8 @@ func TestService_Process_ReenqueuesQueuedRun(t *testing.T) {
 		t.Fatalf("insert stored job: %v", err)
 	}
 
-	runID, _, err := runstore.CreateRun(ctx, db, "job-a", nil)
+	runs := dal.NewSQLRepositories(db).Runs()
+	runID, _, err := runs.CreateRun(ctx, "job-a", nil)
 	if err != nil {
 		t.Fatalf("CreateRun: %v", err)
 	}
@@ -57,8 +58,8 @@ func TestService_Process_SkipsEphemeralWithoutStoredJob(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 
-	// Ephemeral-style run: job_id is not in stored_jobs.
-	_, _, err := runstore.CreateRun(ctx, db, "not-in-stored-jobs", nil)
+	runs := dal.NewSQLRepositories(db).Runs()
+	_, _, err := runs.CreateRun(ctx, "not-in-stored-jobs", nil)
 	if err != nil {
 		t.Fatalf("CreateRun: %v", err)
 	}
@@ -87,11 +88,12 @@ func TestService_Process_SkipsRecentDispatch(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	runID, _, err := runstore.CreateRun(ctx, db, "job-b", nil)
+	runs := dal.NewSQLRepositories(db).Runs()
+	runID, _, err := runs.CreateRun(ctx, "job-b", nil)
 	if err != nil {
 		t.Fatalf("CreateRun: %v", err)
 	}
-	if err := runstore.TouchDispatched(ctx, db, runID); err != nil {
+	if err := runs.TouchDispatched(ctx, runID); err != nil {
 		t.Fatalf("TouchDispatched: %v", err)
 	}
 
