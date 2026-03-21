@@ -37,15 +37,11 @@ format:
 
 .PHONY: test
 test:
-	go test -skip '^TestIntegration' ./...
+	go test ./...
 
 .PHONY: test-integration
 test-integration:
-	go test -run '^TestIntegration' ./...
-
-.PHONY: test-all
-test-all:
-	go test ./...
+	go test -tags=integration ./...
 
 .PHONY: test-race
 test-race:

@@ -1,3 +1,5 @@
+//go:build integration
+
 package logserver_test
 
 import (
