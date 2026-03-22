@@ -4,6 +4,7 @@ port = 8080
 
 [queue]
 port = 8081
+register_with_registry = true
 
 [registry]
 port = 8082
@@ -13,9 +14,16 @@ host = "localhost"
 
 [log.grpc]
 port = 8083
+register_with_registry = true
 
 [log.sse]
 port = 8084
+
+[discovery]
+registry_resolver_refresh = "10s"
+
+[reconciler]
+interval = "30s"
 
 [database]
 driver = "sqlite3"

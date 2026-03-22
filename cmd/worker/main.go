@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"sync/atomic"
 	"time"
@@ -9,9 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
 	api "vectis/api/gen/go"
@@ -20,7 +19,7 @@ import (
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
 	"vectis/internal/job"
-	"vectis/internal/registry"
+	"vectis/internal/resolver"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -46,14 +45,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 	}
 	defer db.Close()
 
-	logger.Info("Connecting to registry...")
-	registryClient, err := registry.New(ctx, logger, interfaces.SystemClock{})
-	if err != nil {
-		logger.Fatal("Failed to connect to registry: %v", err)
-	}
-	defer registryClient.Close()
-
-	queueClient, logClient, cleanupDial, err := dialQueueAndLogClients(ctx, logger, registryClient)
+	queueClient, logClient, cleanupDial, err := dialQueueAndLogClients(ctx, logger)
 	if err != nil {
 		logger.Fatal("Failed to connect to queue or log service: %v", err)
 	}
@@ -72,39 +64,22 @@ func runWorker(cmd *cobra.Command, args []string) {
 	w.run()
 }
 
-func dialQueueAndLogClients(ctx context.Context, logger interfaces.Logger, reg *registry.Registry) (interfaces.QueueClient, interfaces.LogClient, func(), error) {
-	queueAddr, err := reg.Address(ctx, api.Component_COMPONENT_QUEUE)
+func dialQueueAndLogClients(ctx context.Context, logger interfaces.Logger) (interfaces.QueueClient, interfaces.LogClient, func(), error) {
+	queueConn, queueCleanup, err := resolver.NewQueueClient(ctx, logger)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, fmt.Errorf("queue client: %w", err)
 	}
 
-	logger.Info("Connecting to queue at %s...", queueAddr)
-	queueConn, err := grpc.NewClient(queueAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	logConn, logCleanup, err := resolver.NewLogClient(ctx, logger)
 	if err != nil {
-		return nil, nil, nil, err
-	}
-	cleanup := func() { _ = queueConn.Close() }
-
-	logAddr, err := reg.Address(ctx, api.Component_COMPONENT_LOG)
-	if err != nil {
-		cleanup()
-		return nil, nil, nil, err
+		queueCleanup()
+		return nil, nil, nil, fmt.Errorf("log client: %w", err)
 	}
 
-	logger.Info("Connecting to log service at %s...", logAddr)
-	logConn, err := grpc.NewClient(logAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		cleanup()
-		return nil, nil, nil, err
-	}
-
-	prev := cleanup
-	cleanup = func() {
-		_ = logConn.Close()
-		prev()
-	}
-
-	return interfaces.NewGRPCQueueClient(queueConn), interfaces.NewGRPCLogClient(logConn), cleanup, nil
+	return interfaces.NewGRPCQueueClient(queueConn), interfaces.NewGRPCLogClient(logConn), func() {
+		queueCleanup()
+		logCleanup()
+	}, nil
 }
 
 type worker struct {

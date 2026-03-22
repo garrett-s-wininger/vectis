@@ -19,10 +19,7 @@ func runVectisRegistry(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewLogger("registry")
 	logger.Info("Starting registry server...")
 
-	port := viper.GetInt("port")
-	if port <= 0 {
-		port = config.RegistryPort()
-	}
+	port := config.RegistryEffectiveListenPort()
 	addr := fmt.Sprintf(":%d", port)
 
 	ln, err := net.Listen("tcp", addr)
@@ -48,7 +45,6 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	viper.SetDefault("port", config.RegistryPort())
 	rootCmd.PersistentFlags().Int("port", config.RegistryPort(), "Port for the registry")
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
 	viper.SetEnvPrefix("VECTIS_REGISTRY")

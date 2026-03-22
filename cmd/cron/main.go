@@ -27,6 +27,7 @@ func runVectisCron(cmd *cobra.Command, args []string) {
 	defer db.Close()
 
 	service := cron.NewCronService(logger, db)
+	defer service.CloseQueueDial()
 
 	if err := service.ConnectToQueue(cmd.Context()); err != nil {
 		logger.Fatal("Failed to connect to queue: %v", err)

@@ -7,7 +7,6 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/backoff"
-	"vectis/internal/config"
 	"vectis/internal/interfaces"
 	"vectis/internal/networking"
 )
@@ -16,8 +15,8 @@ type Registry struct {
 	*networking.Client[api.RegistryServiceClient]
 }
 
-func New(ctx context.Context, logger interfaces.Logger, clock interfaces.Clock) (*Registry, error) {
-	c, err := networking.NewClient(ctx, config.RegistryListenAddr(), api.NewRegistryServiceClient, logger, clock)
+func New(ctx context.Context, addr string, logger interfaces.Logger, clock interfaces.Clock) (*Registry, error) {
+	c, err := networking.NewClient(ctx, addr, api.NewRegistryServiceClient, logger, clock)
 	if err != nil {
 		return nil, err
 	}

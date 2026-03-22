@@ -11,6 +11,9 @@ import (
 
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	healthgrpc "google.golang.org/grpc/health/grpc_health_v1"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/config"
@@ -289,6 +292,10 @@ func (s *Server) RunGRPC(ctx context.Context, port string) error {
 	grpcServer := grpc.NewServer()
 	api.RegisterLogServiceServer(grpcServer, s)
 
+	hs := health.NewServer()
+	healthgrpc.RegisterHealthServer(grpcServer, hs)
+	hs.SetServingStatus("log", healthpb.HealthCheckResponse_SERVING)
+
 	s.logger.Info("gRPC log server listening on %s", port)
 
 	go func() {
@@ -327,14 +334,26 @@ func (s *Server) RunSSE(ctx context.Context, port string) error {
 func Run(ctx context.Context, logger interfaces.Logger) error {
 	server := NewServer(logger)
 
-	registryClient, err := registry.New(ctx, logger, interfaces.SystemClock{})
-	if err != nil {
-		return err
-	}
-	defer registryClient.Close()
+	if config.LogRegisterWithRegistry() {
+		regAddr := config.LogRegistryAddress()
+		if regAddr == "" {
+			regAddr = config.RegistryListenAddr()
+		}
 
-	if err := registryClient.Register(ctx, api.Component_COMPONENT_LOG, config.LogGRPCListenAddr()); err != nil {
-		return err
+		registryClient, err := registry.New(ctx, regAddr, logger, interfaces.SystemClock{})
+		if err != nil {
+			return err
+		}
+
+		defer registryClient.Close()
+
+		if err := registryClient.Register(ctx, api.Component_COMPONENT_LOG, config.LogGRPCListenAddr()); err != nil {
+			return err
+		}
+
+		logger.Info("Registered log service with registry")
+	} else {
+		logger.Info("Skipping registry registration (log.grpc.register_with_registry is false)")
 	}
 
 	g, ctx := errgroup.WithContext(ctx)

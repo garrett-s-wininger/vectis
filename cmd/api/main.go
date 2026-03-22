@@ -30,14 +30,11 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 
 	server := api.NewAPIServer(logger, db)
 
-	if err := server.ConnectToRegistry(cmd.Context()); err != nil {
+	if err := server.ConnectToQueue(cmd.Context()); err != nil {
 		logger.Fatal("Failed to connect to services: %v", err)
 	}
 
-	port := viper.GetInt("port")
-	if port <= 0 {
-		port = config.APIPort()
-	}
+	port := config.APIEffectiveListenPort()
 	addr := fmt.Sprintf(":%d", port)
 	if err := server.Run(addr); err != nil {
 		logger.Fatal("Server failed: %v", err)
@@ -52,7 +49,6 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	viper.SetDefault("port", config.APIPort())
 	rootCmd.PersistentFlags().Int("port", config.APIPort(), "Port for the API server")
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
 	viper.SetEnvPrefix("VECTIS_API_SERVER")

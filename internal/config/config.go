@@ -6,28 +6,58 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/pelletier/go-toml/v2"
+	"github.com/spf13/viper"
 )
 
 //go:embed defaults.toml
 var defaultsToml string
 
+// NOTE(garrett): This custom type allows us to automatically parse durations from the TOML file.
+type tomlDuration time.Duration
+
+func (d *tomlDuration) UnmarshalText(text []byte) error {
+	s := strings.TrimSpace(string(text))
+	if s == "" {
+		*d = 0
+		return nil
+	}
+
+	p, err := time.ParseDuration(s)
+	if err != nil {
+		return fmt.Errorf("duration %q: %w", s, err)
+	}
+
+	*d = tomlDuration(p)
+	return nil
+}
+
 type Defaults struct {
-	API      APIDefaults      `toml:"api"`
-	Queue    QueueDefaults    `toml:"queue"`
-	Registry RegistryDefaults `toml:"registry"`
-	Log      LogDefaults      `toml:"log"`
-	Database DatabaseDefaults `toml:"database"`
+	API        APIDefaults        `toml:"api"`
+	Queue      QueueDefaults      `toml:"queue"`
+	Registry   RegistryDefaults   `toml:"registry"`
+	Log        LogDefaults        `toml:"log"`
+	Discovery  DiscoveryDefaults  `toml:"discovery"`
+	Database   DatabaseDefaults   `toml:"database"`
+	Worker     WorkerDefaults     `toml:"worker"`
+	Cron       CronDefaults       `toml:"cron"`
+	Reconciler ReconcilerDefaults `toml:"reconciler"`
 }
 
 type APIDefaults struct {
-	Host string `toml:"host"`
-	Port int    `toml:"port"`
+	Host            string `toml:"host"`
+	Port            int    `toml:"port"`
+	RegistryAddress string `toml:"registry.address"`
+	QueueAddress    string `toml:"queue.address"`
 }
 
 type QueueDefaults struct {
-	Port int `toml:"port"`
+	Port                 int    `toml:"port"`
+	RegistryAddress      string `toml:"registry.address"`
+	ResolverAddress      string `toml:"resolver.address"`
+	RegisterWithRegistry bool   `toml:"register_with_registry"`
 }
 
 type RegistryDefaults struct {
@@ -35,13 +65,16 @@ type RegistryDefaults struct {
 }
 
 type LogDefaults struct {
-	Host string       `toml:"host"`
-	GRPC GRPCDefaults `toml:"grpc"`
-	SSE  SSEDefaults  `toml:"sse"`
+	Host            string       `toml:"host"`
+	RegistryAddress string       `toml:"registry.address"`
+	GRPC            GRPCDefaults `toml:"grpc"`
+	SSE             SSEDefaults  `toml:"sse"`
 }
 
 type GRPCDefaults struct {
-	Port int `toml:"port"`
+	Port                 int    `toml:"port"`
+	ResolverAddress      string `toml:"resolver.address"`
+	RegisterWithRegistry bool   `toml:"register_with_registry"`
 }
 
 type SSEDefaults struct {
@@ -51,6 +84,32 @@ type SSEDefaults struct {
 type DatabaseDefaults struct {
 	Driver string `toml:"driver"`
 	DSN    string `toml:"dsn"`
+}
+
+type DiscoveryDefaults struct {
+	RegistryAddress         string       `toml:"registry.address"`
+	QueueResolverAddress    string       `toml:"queue.resolver.address"`
+	LogGRPCResolverAddress  string       `toml:"log.grpc.resolver.address"`
+	QueueAddress            string       `toml:"queue.address"`
+	LogAddress              string       `toml:"log.address"`
+	RegistryResolverRefresh tomlDuration `toml:"registry_resolver_refresh"`
+}
+
+type WorkerDefaults struct {
+	RegistryAddress string `toml:"registry.address"`
+	QueueAddress    string `toml:"queue.address"`
+	LogAddress      string `toml:"log.address"`
+}
+
+type CronDefaults struct {
+	RegistryAddress string `toml:"registry.address"`
+	QueueAddress    string `toml:"queue.address"`
+}
+
+type ReconcilerDefaults struct {
+	RegistryAddress string       `toml:"registry.address"`
+	QueueAddress    string       `toml:"queue.address"`
+	Interval        tomlDuration `toml:"interval"`
 }
 
 var (
@@ -93,7 +152,7 @@ func validateDefaults(d Defaults) {
 	validatePort(d.Queue.Port, "queue.port")
 	validatePort(d.Registry.Port, "registry.port")
 	validatePort(d.Log.GRPC.Port, "log.grpc.port")
-	validatePort(d.Log.SSE.Port, "log.websocket.port")
+	validatePort(d.Log.SSE.Port, "log.sse.port")
 
 	if d.Log.Host == "" {
 		panic("config defaults: log.host must not be empty")
@@ -106,6 +165,19 @@ func validateDefaults(d Defaults) {
 	if d.Database.DSN == "" {
 		panic("config defaults: database.dsn must not be empty")
 	}
+
+	if time.Duration(d.Reconciler.Interval) <= 0 {
+		panic("config defaults: reconciler.interval must be > 0")
+	}
+}
+
+func coalesceNonEmpty(strs ...string) string {
+	for _, s := range strs {
+		if s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 func PublicHost() string {
@@ -168,4 +240,230 @@ func DBDSN(dataHome string) string {
 	return strings.NewReplacer(
 		"{{data_home}}", dataHome,
 	).Replace(MustDefaults().Database.DSN)
+}
+
+func RegistryResolverPollInterval() time.Duration {
+	d := time.Duration(MustDefaults().Discovery.RegistryResolverRefresh)
+	if d > 0 {
+		return d
+	}
+
+	return 10 * time.Second
+}
+
+func QueueRegistryAddress() string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("queue.registry.address"),
+		d.Queue.RegistryAddress,
+		viper.GetString("discovery.registry.address"),
+		d.Discovery.RegistryAddress,
+	)
+}
+
+func QueueResolverAddress() string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("queue.resolver.address"),
+		d.Queue.ResolverAddress,
+		viper.GetString("discovery.queue.resolver.address"),
+		d.Discovery.QueueResolverAddress,
+	)
+}
+
+func QueueRegisterWithRegistry() bool {
+	if viper.IsSet("queue.register_with_registry") {
+		return viper.GetBool("queue.register_with_registry")
+	}
+
+	return MustDefaults().Queue.RegisterWithRegistry
+}
+
+func LogRegistryAddress() string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("log.registry.address"),
+		d.Log.RegistryAddress,
+		viper.GetString("discovery.registry.address"),
+		d.Discovery.RegistryAddress,
+	)
+}
+
+func LogResolverAddress() string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("log.grpc.resolver.address"),
+		viper.GetString("log.resolver.address"),
+		d.Log.GRPC.ResolverAddress,
+		viper.GetString("discovery.log.grpc.resolver.address"),
+		d.Discovery.LogGRPCResolverAddress,
+	)
+}
+
+func LogRegisterWithRegistry() bool {
+	if viper.IsSet("log.grpc.register_with_registry") {
+		return viper.GetBool("log.grpc.register_with_registry")
+	}
+	return MustDefaults().Log.GRPC.RegisterWithRegistry
+}
+
+func WorkerRegistryAddress() string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("worker.registry.address"),
+		d.Worker.RegistryAddress,
+		viper.GetString("discovery.registry.address"),
+		d.Discovery.RegistryAddress,
+	)
+}
+
+func WorkerQueueAddress() string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("worker.queue.address"),
+		d.Worker.QueueAddress,
+		viper.GetString("discovery.queue.address"),
+		d.Discovery.QueueAddress,
+	)
+}
+
+func WorkerLogAddress() string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("worker.log.address"),
+		d.Worker.LogAddress,
+		viper.GetString("discovery.log.address"),
+		d.Discovery.LogAddress,
+	)
+}
+
+func APIRegistryAddress() string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("api.registry.address"),
+		d.API.RegistryAddress,
+		viper.GetString("discovery.registry.address"),
+		d.Discovery.RegistryAddress,
+	)
+}
+
+func APIQueueAddress() string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("api.queue.address"),
+		d.API.QueueAddress,
+		viper.GetString("discovery.queue.address"),
+		d.Discovery.QueueAddress,
+	)
+}
+
+func CronRegistryAddress() string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("cron.registry.address"),
+		d.Cron.RegistryAddress,
+		viper.GetString("discovery.registry.address"),
+		d.Discovery.RegistryAddress,
+	)
+}
+
+func CronQueueAddress() string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("cron.queue.address"),
+		d.Cron.QueueAddress,
+		viper.GetString("discovery.queue.address"),
+		d.Discovery.QueueAddress,
+	)
+}
+
+func ReconcilerRegistryAddress() string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("reconciler.registry.address"),
+		d.Reconciler.RegistryAddress,
+		viper.GetString("discovery.registry.address"),
+		d.Discovery.RegistryAddress,
+	)
+}
+
+func ReconcilerQueueAddress() string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("reconciler.queue.address"),
+		d.Reconciler.QueueAddress,
+		viper.GetString("discovery.queue.address"),
+		d.Discovery.QueueAddress,
+	)
+}
+
+func ReconcilerInterval() time.Duration {
+	if d := viper.GetDuration("interval"); d > 0 {
+		return d
+	}
+
+	d := time.Duration(MustDefaults().Reconciler.Interval)
+	if d > 0 {
+		return d
+	}
+
+	return 30 * time.Second
+}
+
+func registryDialAddress(roleRegistry func() string) string {
+	return coalesceNonEmpty(
+		viper.GetString("registry.address"),
+		roleRegistry(),
+		RegistryListenAddr(),
+	)
+}
+
+func QueueRegistrationRegistryAddress() string {
+	return registryDialAddress(QueueRegistryAddress)
+}
+
+func ReconcilerRegistryDialAddress() string {
+	return registryDialAddress(ReconcilerRegistryAddress)
+}
+
+func CronRegistryDialAddress() string {
+	return registryDialAddress(CronRegistryAddress)
+}
+
+func APIRegistryDialAddress() string {
+	return registryDialAddress(APIRegistryAddress)
+}
+
+func effectiveListenPort(defaultPort func() int) int {
+	if p := viper.GetInt("port"); p > 0 {
+		return p
+	}
+	return defaultPort()
+}
+
+func APIEffectiveListenPort() int {
+	return effectiveListenPort(APIPort)
+}
+
+func QueueEffectiveListenPort() int {
+	return effectiveListenPort(QueuePort)
+}
+
+func RegistryEffectiveListenPort() int {
+	return effectiveListenPort(RegistryPort)
+}
+
+func PinnedQueueAddress() string {
+	return coalesceNonEmpty(
+		QueueResolverAddress(),
+		WorkerQueueAddress(),
+		APIQueueAddress(),
+	)
+}
+
+func PinnedLogAddress() string {
+	return coalesceNonEmpty(
+		LogResolverAddress(),
+		WorkerLogAddress(),
+	)
 }

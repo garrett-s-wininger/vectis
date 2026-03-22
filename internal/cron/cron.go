@@ -8,13 +8,12 @@ import (
 	"time"
 
 	"github.com/robfig/cron/v3"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/config"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
-	"vectis/internal/registry"
+	"vectis/internal/resolver"
 )
 
 type CronSchedule struct {
@@ -25,13 +24,14 @@ type CronSchedule struct {
 }
 
 type CronService struct {
-	jobs        dal.JobsRepository
-	runs        dal.RunsRepository
-	schedules   dal.SchedulesRepository
-	logger      interfaces.Logger
-	queueClient interfaces.QueueService
-	parser      cron.Parser
-	clock       interfaces.Clock
+	jobs             dal.JobsRepository
+	runs             dal.RunsRepository
+	schedules        dal.SchedulesRepository
+	logger           interfaces.Logger
+	queueClient      interfaces.QueueService
+	queueDialCleanup func()
+	parser           cron.Parser
+	clock            interfaces.Clock
 }
 
 func NewCronService(logger interfaces.Logger, db *sql.DB) *CronService {
@@ -63,25 +63,47 @@ func (s *CronService) SetClock(clock interfaces.Clock) {
 	s.clock = clock
 }
 
+func (s *CronService) CloseQueueDial() {
+	if s.queueDialCleanup != nil {
+		s.queueDialCleanup()
+		s.queueDialCleanup = nil
+	}
+}
+
 func (s *CronService) ConnectToQueue(ctx context.Context) error {
-	registryClient, err := registry.New(ctx, s.logger, interfaces.SystemClock{})
-	if err != nil {
-		return fmt.Errorf("failed to connect to registry: %w", err)
-	}
-	defer registryClient.Close()
+	s.CloseQueueDial()
 
-	queueAddr, err := registryClient.Address(ctx, api.Component_COMPONENT_QUEUE)
-	if err != nil {
-		return fmt.Errorf("failed to get queue address: %w", err)
+	if pinned := config.CronQueueAddress(); pinned != "" {
+		s.logger.Info("Using pinned queue address: %s", pinned)
+		conn, cleanup, err := resolver.NewClientWithPinnedAddress(ctx, api.Component_COMPONENT_QUEUE, pinned, s.logger)
+		if err != nil {
+			return fmt.Errorf("failed to connect to queue: %w", err)
+		}
+
+		s.queueDialCleanup = cleanup
+		s.queueClient = interfaces.NewQueueService(api.NewQueueServiceClient(conn))
+		return nil
 	}
 
-	conn, err := grpc.NewClient(queueAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	regAddr := config.CronRegistryDialAddress()
+	regClient, err := resolver.NewRegistryClient(ctx, regAddr, s.logger, interfaces.SystemClock{})
 	if err != nil {
+		return fmt.Errorf("failed to create registry client: %w", err)
+	}
+
+	conn, cleanup, err := resolver.NewQueueClientWithRegistry(ctx, s.logger, regClient)
+	if err != nil {
+		regClient.Close()
 		return fmt.Errorf("failed to connect to queue: %w", err)
 	}
 
+	s.queueDialCleanup = func() {
+		cleanup()
+		regClient.Close()
+	}
+
 	s.queueClient = interfaces.NewQueueService(api.NewQueueServiceClient(conn))
-	s.logger.Info("Connected to queue at %s", queueAddr)
+	s.logger.Info("Connected to queue via registry resolution")
 	return nil
 }
 

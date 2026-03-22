@@ -8,6 +8,9 @@ import (
 	"vectis/internal/interfaces"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	healthgrpc "google.golang.org/grpc/health/grpc_health_v1"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
 type queueServer struct {
@@ -117,5 +120,10 @@ func (s *queueServer) grow() {
 }
 
 func RegisterQueueService(s grpc.ServiceRegistrar, logger interfaces.Logger) {
-	api.RegisterQueueServiceServer(s, NewQueueService(logger))
+	qs := NewQueueService(logger)
+	api.RegisterQueueServiceServer(s, qs)
+
+	hs := health.NewServer()
+	healthgrpc.RegisterHealthServer(s, hs)
+	hs.SetServingStatus("queue", healthpb.HealthCheckResponse_SERVING)
 }

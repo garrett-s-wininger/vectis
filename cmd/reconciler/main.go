@@ -9,13 +9,13 @@ import (
 	"github.com/spf13/viper"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/config"
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
 	"vectis/internal/reconciler"
-	"vectis/internal/registry"
+	"vectis/internal/resolver"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -32,32 +32,45 @@ func runReconciler(cmd *cobra.Command, args []string) {
 	}
 	defer db.Close()
 
-	registryClient, err := registry.New(ctx, logger, interfaces.SystemClock{})
-	if err != nil {
-		logger.Fatal("Failed to connect to registry: %v", err)
-	}
-	defer registryClient.Close()
+	var conn *grpc.ClientConn
+	queueCleanup := func() {}
+	defer func() { queueCleanup() }()
 
-	queueAddr, err := registryClient.Address(ctx, api.Component_COMPONENT_QUEUE)
-	if err != nil {
-		logger.Fatal("Failed to get queue address: %v", err)
-	}
+	if pinned := config.ReconcilerQueueAddress(); pinned != "" {
+		logger.Info("Using pinned queue address: %s", pinned)
 
-	conn, err := grpc.NewClient(queueAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		logger.Fatal("Failed to connect to queue: %v", err)
+		var err error
+		conn, queueCleanup, err = resolver.NewClientWithPinnedAddress(ctx, api.Component_COMPONENT_QUEUE, pinned, logger)
+		if err != nil {
+			logger.Fatal("Failed to connect to queue: %v", err)
+		}
+	} else {
+		regAddr := config.ReconcilerRegistryDialAddress()
+
+		regClient, err := resolver.NewRegistryClient(ctx, regAddr, logger, interfaces.SystemClock{})
+		if err != nil {
+			logger.Fatal("Failed to create registry client: %v", err)
+		}
+
+		var dialCleanup func()
+		conn, dialCleanup, err = resolver.NewQueueClientWithRegistry(ctx, logger, regClient)
+		if err != nil {
+			regClient.Close()
+			logger.Fatal("Failed to connect to queue: %v", err)
+		}
+
+		queueCleanup = func() {
+			dialCleanup()
+			regClient.Close()
+		}
+
+		logger.Info("Connected to queue via registry resolution")
 	}
-	defer conn.Close()
 
 	queueClient := interfaces.NewQueueService(api.NewQueueServiceClient(conn))
-	logger.Info("Connected to queue at %s", queueAddr)
-
 	svc := reconciler.NewService(logger, db, queueClient, interfaces.SystemClock{})
 
-	interval := viper.GetDuration("interval")
-	if interval <= 0 {
-		interval = 30 * time.Second
-	}
+	interval := config.ReconcilerInterval()
 	logger.Info("Reconciler polling every %v", interval)
 
 	ticker := time.NewTicker(interval)
@@ -87,8 +100,7 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	viper.SetDefault("interval", 30*time.Second)
-	rootCmd.PersistentFlags().Duration("interval", 30*time.Second, "How often to scan for queued runs")
+	rootCmd.PersistentFlags().Duration("interval", config.ReconcilerInterval(), "How often to scan for queued runs")
 	_ = viper.BindPFlag("interval", rootCmd.PersistentFlags().Lookup("interval"))
 	viper.SetEnvPrefix("VECTIS_RECONCILER")
 	viper.AutomaticEnv()

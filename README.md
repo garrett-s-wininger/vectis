@@ -21,6 +21,21 @@ make build
 - **REST API:** `http://localhost:8080` (defaults in [`internal/config/defaults.toml`](internal/config/defaults.toml))
 - **Default ports:** API `8080`, queue `8081`, registry `8082`, log gRPC `8083`, log SSE `8084`
 
+### Configuration
+
+Embedded defaults live in [`internal/config/defaults.toml`](internal/config/defaults.toml). Each binary sets a **viper env prefix** (`AutomaticEnv()`): nested config keys use underscores and are prefixed (e.g. API listen port flag/env key `port` → `VECTIS_API_SERVER_PORT`; `api.registry.address` → `VECTIS_API_SERVER_API_REGISTRY_ADDRESS`).
+
+| Binary | Env prefix |
+| --- | --- |
+| `vectis-api-server` | `VECTIS_API_SERVER` |
+| `vectis-queue` | `VECTIS_QUEUE` |
+| `vectis-registry` | `VECTIS_REGISTRY` |
+| `vectis-worker` | `VECTIS_WORKER` |
+| `vectis-cron` | `VECTIS_CRON` |
+| `vectis-reconciler` | `VECTIS_RECONCILER` |
+
+The **`[discovery]`** block supplies shared fallbacks (registry URL, optional queue/log resolver pins, `registry_resolver_refresh`). Per-role settings (e.g. `worker.queue.address`, `api.queue.address`) take precedence over `discovery.*` when both are set.
+
 ### SQLite data directory
 
 With default config, the DB file is:

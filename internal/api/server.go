@@ -11,14 +11,14 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/config"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
-	"vectis/internal/registry"
+	"vectis/internal/resolver"
 
 	"github.com/google/uuid"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 type APIServer struct {
@@ -28,6 +28,8 @@ type APIServer struct {
 	logger         interfaces.Logger
 	queueClient    interfaces.QueueService
 	registryClient interfaces.RegistryClient
+	queueConn      *grpc.ClientConn
+	queueCleanup   func()
 	runBroadcaster *RunBroadcaster
 }
 
@@ -55,28 +57,37 @@ func (s *APIServer) SetQueueClient(client interfaces.QueueService) {
 	s.queueClient = client
 }
 
-func (s *APIServer) ConnectToRegistry(ctx context.Context) error {
-	regClient, err := registry.New(ctx, s.logger, interfaces.SystemClock{})
-	if err != nil {
-		return fmt.Errorf("failed to connect to registry: %w", err)
+func (s *APIServer) ConnectToQueue(ctx context.Context) error {
+	if pinned := config.PinnedQueueAddress(); pinned != "" {
+		s.logger.Info("Using pinned queue address: %s", pinned)
+		conn, cleanup, err := resolver.NewClientWithPinnedAddress(ctx, api.Component_COMPONENT_QUEUE, pinned, s.logger)
+		if err != nil {
+			return fmt.Errorf("failed to connect to queue: %w", err)
+		}
+
+		s.queueClient = interfaces.NewQueueService(api.NewQueueServiceClient(conn))
+		s.queueConn = conn
+		s.queueCleanup = cleanup
+		return nil
 	}
 
+	regAddr := config.APIRegistryDialAddress()
+
+	regClient, err := resolver.NewRegistryClient(ctx, regAddr, s.logger, interfaces.SystemClock{})
+	if err != nil {
+		return fmt.Errorf("failed to create registry client: %w", err)
+	}
 	s.registryClient = regClient
 
-	// TODO(garrett): Re-generate queue address when calling Enqueue.
-	queueAddr, err := regClient.Address(ctx, api.Component_COMPONENT_QUEUE)
+	conn, cleanup, err := resolver.NewQueueClientWithRegistry(ctx, s.logger, regClient)
 	if err != nil {
-		return fmt.Errorf("failed to get queue address: %w", err)
-	}
-
-	conn, err := grpc.NewClient(queueAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
+		regClient.Close()
 		return fmt.Errorf("failed to connect to queue: %w", err)
 	}
 
 	s.queueClient = interfaces.NewQueueService(api.NewQueueServiceClient(conn))
-	s.logger.Info("Connected to queue at %s", queueAddr)
-
+	s.queueConn = conn
+	s.queueCleanup = func() { cleanup(); regClient.Close() }
 	return nil
 }
 

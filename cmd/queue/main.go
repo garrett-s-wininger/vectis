@@ -20,10 +20,7 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewLogger("queue")
 	logger.Info("Starting queue server...")
 
-	port := viper.GetInt("port")
-	if port <= 0 {
-		port = config.QueuePort()
-	}
+	port := config.QueueEffectiveListenPort()
 	addr := fmt.Sprintf(":%d", port)
 
 	ln, err := net.Listen("tcp", addr)
@@ -32,18 +29,24 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 	}
 
 	// TODO(garrett): Move to after queue is running.
-	registryClient, err := registry.New(cmd.Context(), logger, interfaces.SystemClock{})
-	if err != nil {
-		logger.Fatal("Failed to connect to registry: %v", err)
+	if config.QueueRegisterWithRegistry() {
+		regAddr := config.QueueRegistrationRegistryAddress()
+
+		registryClient, err := registry.New(cmd.Context(), regAddr, logger, interfaces.SystemClock{})
+		if err != nil {
+			logger.Fatal("Failed to connect to registry: %v", err)
+		}
+		defer registryClient.Close()
+
+		if err := registryClient.Register(cmd.Context(), api.Component_COMPONENT_QUEUE, addr); err != nil {
+			logger.Fatal("Failed to register with registry: %v", err)
+		}
+
+		logger.Info("Registered with registry service")
+	} else {
+		logger.Info("Skipping registry registration (queue.register_with_registry is false)")
 	}
 
-	defer registryClient.Close()
-
-	if err := registryClient.Register(cmd.Context(), api.Component_COMPONENT_QUEUE, addr); err != nil {
-		logger.Fatal("Failed to register with registry: %v", err)
-	}
-
-	logger.Info("Registered with registry service")
 	grpcServer := grpc.NewServer()
 	queue.RegisterQueueService(grpcServer, logger)
 
@@ -61,7 +64,6 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	viper.SetDefault("port", config.QueuePort())
 	rootCmd.PersistentFlags().Int("port", config.QueuePort(), "Port for the queue")
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
 	viper.SetEnvPrefix("VECTIS_QUEUE")
