@@ -27,7 +27,6 @@ type APIServer struct {
 	ephemeralRuns  dal.EphemeralRunStarter
 	logger         interfaces.Logger
 	queueClient    interfaces.QueueService
-	registryClient interfaces.RegistryClient
 	queueConn      *grpc.ClientConn
 	queueCleanup   func()
 	runBroadcaster *RunBroadcaster
@@ -58,36 +57,14 @@ func (s *APIServer) SetQueueClient(client interfaces.QueueService) {
 }
 
 func (s *APIServer) ConnectToQueue(ctx context.Context) error {
-	if pinned := config.PinnedQueueAddress(); pinned != "" {
-		s.logger.Info("Using pinned queue address: %s", pinned)
-		conn, cleanup, err := resolver.NewClientWithPinnedAddress(ctx, api.Component_COMPONENT_QUEUE, pinned, s.logger)
-		if err != nil {
-			return fmt.Errorf("failed to connect to queue: %w", err)
-		}
-
-		s.queueClient = interfaces.NewQueueService(api.NewQueueServiceClient(conn))
-		s.queueConn = conn
-		s.queueCleanup = cleanup
-		return nil
-	}
-
-	regAddr := config.APIRegistryDialAddress()
-
-	regClient, err := resolver.NewRegistryClient(ctx, regAddr, s.logger, interfaces.SystemClock{})
+	conn, cleanup, err := resolver.DialQueue(ctx, s.logger, config.PinnedQueueAddress(), config.APIRegistryDialAddress())
 	if err != nil {
-		return fmt.Errorf("failed to create registry client: %w", err)
-	}
-	s.registryClient = regClient
-
-	conn, cleanup, err := resolver.NewQueueClientWithRegistry(ctx, s.logger, regClient)
-	if err != nil {
-		regClient.Close()
 		return fmt.Errorf("failed to connect to queue: %w", err)
 	}
 
 	s.queueClient = interfaces.NewQueueService(api.NewQueueServiceClient(conn))
 	s.queueConn = conn
-	s.queueCleanup = func() { cleanup(); regClient.Close() }
+	s.queueCleanup = cleanup
 	return nil
 }
 
@@ -238,8 +215,7 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 	s.runBroadcaster.Broadcast(jobID, runID, runIndex)
 	job.RunId = &runID
 
-	_, err = s.queueClient.Enqueue(r.Context(), &job)
-	if err != nil {
+	if err := enqueueWithRetry(r.Context(), s.queueClient, &job, s.logger); err != nil {
 		s.logger.Error("Failed to enqueue job: %v", err)
 		http.Error(w, "failed to enqueue job", http.StatusServiceUnavailable)
 		return
@@ -345,8 +321,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 
 	job.RunId = &runID
 
-	_, err = s.queueClient.Enqueue(r.Context(), &job)
-	if err != nil {
+	if err := enqueueWithRetry(r.Context(), s.queueClient, &job, s.logger); err != nil {
 		s.logger.Error("Failed to enqueue job: %v", err)
 		http.Error(w, "failed to enqueue job", http.StatusServiceUnavailable)
 		return

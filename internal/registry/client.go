@@ -32,10 +32,14 @@ func (r *Registry) Register(ctx context.Context, component api.Component, addres
 	})
 
 	return retryer.Do(ctx, func() error {
-		return r.registerOnce(ctx, component, address)
+		return r.RegisterOnce(ctx, component, address)
 	}, func(attempt int, nextDelay time.Duration, err error) {
-		r.Logger.Warn("Failed to register with registry (attempt %d/%d): %v. Retrying in %v...", attempt, r.MaxTries, err, nextDelay)
+		r.Logger.Debug("Failed to register with registry (attempt %d/%d): %v. Retrying in %v...", attempt, r.MaxTries, err, nextDelay)
 	})
+}
+
+func (r *Registry) RegisterOnce(ctx context.Context, component api.Component, address string) error {
+	return r.registerOnce(ctx, component, address)
 }
 
 func (r *Registry) registerOnce(ctx context.Context, component api.Component, address string) error {
@@ -50,30 +54,13 @@ func (r *Registry) registerOnce(ctx context.Context, component api.Component, ad
 }
 
 func (r *Registry) Address(ctx context.Context, component api.Component) (string, error) {
-	var address string
-
-	retryer := backoff.NewRetryer(backoff.RetryConfig{
-		MaxTries:  r.MaxTries,
-		BaseDelay: r.BaseDelay,
-		Clock:     r.Clock,
-	})
-
-	err := retryer.Do(ctx, func() error {
-		var err error
-		address, err = r.getAddressOnce(ctx, component)
-		if err != nil {
-			return err
-		}
-		if address == "" {
-			return fmt.Errorf("%s address not available", component.String())
-		}
-		return nil
-	}, func(attempt int, delay time.Duration, err error) {
-		r.Logger.Warn("Failed to get %s address (attempt %d): %v. Retrying in %v...", component.String(), attempt, err, delay)
-	})
-
+	address, err := r.getAddressOnce(ctx, component)
 	if err != nil {
 		return "", err
+	}
+
+	if address == "" {
+		return "", fmt.Errorf("%s address not available", component.String())
 	}
 
 	return address, nil

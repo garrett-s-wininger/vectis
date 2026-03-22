@@ -98,6 +98,12 @@ func (jb *JobBuffer) Broadcast(jobID string, entry LogEntry) {
 	defer jb.subMu.RUnlock()
 
 	for ch := range jb.subscribers {
+		// Never drop control events: a dropped "completed" leaves SSE clients blocked forever
+		// waiting for run end (HandleSSE waits on completed). Stdout/stderr may still drop under load.
+		if entry.Stream == api.Stream_STREAM_CONTROL {
+			ch <- data
+			continue
+		}
 		select {
 		case ch <- data:
 		default:
@@ -347,11 +353,19 @@ func Run(ctx context.Context, logger interfaces.Logger) error {
 
 		defer registryClient.Close()
 
-		if err := registryClient.Register(ctx, api.Component_COMPONENT_LOG, config.LogGRPCListenAddr()); err != nil {
+		bindGRPC := config.LogGRPCListenAddr()
+		publishAddr := config.LogGRPCRegistryPublishAddress(bindGRPC)
+		if err := registryClient.Register(ctx, api.Component_COMPONENT_LOG, publishAddr); err != nil {
 			return err
 		}
 
-		logger.Info("Registered log service with registry")
+		stopHeartbeat := registry.StartRegistrationHeartbeat(
+			ctx, registryClient, api.Component_COMPONENT_LOG, publishAddr,
+			config.RegistryRegistrationRefresh(), logger,
+		)
+		defer stopHeartbeat()
+
+		logger.Info("Registered log service with registry at %s", publishAddr)
 	} else {
 		logger.Info("Skipping registry registration (log.grpc.register_with_registry is false)")
 	}

@@ -32,21 +32,24 @@ type LogEntry struct {
 
 func runLogStream(runID string, filterStdout, filterStderr bool) error {
 	sseURL := config.PublicLogSSEURL(runID)
-
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sseURL, nil)
 	if err != nil {
+		cancel()
 		return fmt.Errorf("failed to create log stream request: %w", err)
 	}
 	req.Header.Set("Accept", "text/event-stream")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		cancel()
 		return fmt.Errorf("failed to connect to log service: %w", err)
 	}
-	defer resp.Body.Close()
+
+	defer func() {
+		cancel()
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("log stream request failed: %s", resp.Status)
@@ -259,7 +262,11 @@ outer:
 			if err != nil {
 				return
 			}
-			defer resp.Body.Close()
+
+			defer func() {
+				attemptCancel()
+				_ = resp.Body.Close()
+			}()
 
 			if resp.StatusCode != http.StatusOK {
 				return

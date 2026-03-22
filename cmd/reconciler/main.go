@@ -36,34 +36,13 @@ func runReconciler(cmd *cobra.Command, args []string) {
 	queueCleanup := func() {}
 	defer func() { queueCleanup() }()
 
-	if pinned := config.ReconcilerQueueAddress(); pinned != "" {
-		logger.Info("Using pinned queue address: %s", pinned)
+	pin := config.ReconcilerQueueAddress()
+	conn, queueCleanup, err = resolver.DialQueue(ctx, logger, pin, config.ReconcilerRegistryDialAddress())
+	if err != nil {
+		logger.Fatal("Failed to connect to queue: %v", err)
+	}
 
-		var err error
-		conn, queueCleanup, err = resolver.NewClientWithPinnedAddress(ctx, api.Component_COMPONENT_QUEUE, pinned, logger)
-		if err != nil {
-			logger.Fatal("Failed to connect to queue: %v", err)
-		}
-	} else {
-		regAddr := config.ReconcilerRegistryDialAddress()
-
-		regClient, err := resolver.NewRegistryClient(ctx, regAddr, logger, interfaces.SystemClock{})
-		if err != nil {
-			logger.Fatal("Failed to create registry client: %v", err)
-		}
-
-		var dialCleanup func()
-		conn, dialCleanup, err = resolver.NewQueueClientWithRegistry(ctx, logger, regClient)
-		if err != nil {
-			regClient.Close()
-			logger.Fatal("Failed to connect to queue: %v", err)
-		}
-
-		queueCleanup = func() {
-			dialCleanup()
-			regClient.Close()
-		}
-
+	if pin == "" {
 		logger.Info("Connected to queue via registry resolution")
 	}
 

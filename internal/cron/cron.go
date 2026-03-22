@@ -73,37 +73,17 @@ func (s *CronService) CloseQueueDial() {
 func (s *CronService) ConnectToQueue(ctx context.Context) error {
 	s.CloseQueueDial()
 
-	if pinned := config.CronQueueAddress(); pinned != "" {
-		s.logger.Info("Using pinned queue address: %s", pinned)
-		conn, cleanup, err := resolver.NewClientWithPinnedAddress(ctx, api.Component_COMPONENT_QUEUE, pinned, s.logger)
-		if err != nil {
-			return fmt.Errorf("failed to connect to queue: %w", err)
-		}
-
-		s.queueDialCleanup = cleanup
-		s.queueClient = interfaces.NewQueueService(api.NewQueueServiceClient(conn))
-		return nil
-	}
-
-	regAddr := config.CronRegistryDialAddress()
-	regClient, err := resolver.NewRegistryClient(ctx, regAddr, s.logger, interfaces.SystemClock{})
+	pin := config.CronQueueAddress()
+	conn, cleanup, err := resolver.DialQueue(ctx, s.logger, pin, config.CronRegistryDialAddress())
 	if err != nil {
-		return fmt.Errorf("failed to create registry client: %w", err)
-	}
-
-	conn, cleanup, err := resolver.NewQueueClientWithRegistry(ctx, s.logger, regClient)
-	if err != nil {
-		regClient.Close()
 		return fmt.Errorf("failed to connect to queue: %w", err)
 	}
 
-	s.queueDialCleanup = func() {
-		cleanup()
-		regClient.Close()
-	}
-
+	s.queueDialCleanup = cleanup
 	s.queueClient = interfaces.NewQueueService(api.NewQueueServiceClient(conn))
-	s.logger.Info("Connected to queue via registry resolution")
+	if pin == "" {
+		s.logger.Info("Connected to queue via registry resolution")
+	}
 	return nil
 }
 

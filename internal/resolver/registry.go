@@ -27,7 +27,12 @@ func (b *registryBuilder) Scheme() string {
 }
 
 func (b *registryBuilder) Build(_ resolver.Target, cc resolver.ClientConn, _ resolver.BuildOptions) (resolver.Resolver, error) {
-	return newRegistryResolver(cc, b.reg, b.comp, b.logger, config.RegistryResolverPollInterval()), nil
+	return newRegistryResolver(
+		cc, b.reg, b.comp, b.logger,
+		config.RegistryResolverPollInterval(),
+		config.RegistryResolverPollTimeout(),
+		config.RegistryResolverErrorRefresh(),
+	), nil
 }
 
 type registryResolver struct {
@@ -36,6 +41,8 @@ type registryResolver struct {
 	comp            api.Component
 	logger          interfaces.Logger
 	refreshInterval time.Duration
+	pollTimeout     time.Duration
+	errorRefresh    time.Duration
 	mu              sync.Mutex
 	closed          bool
 	lastGood        string
@@ -43,58 +50,101 @@ type registryResolver struct {
 	closeOnce       sync.Once
 }
 
-func newRegistryResolver(cc resolver.ClientConn, client registryAddressGetter, comp api.Component, logger interfaces.Logger, refreshInterval time.Duration) *registryResolver {
+func newRegistryResolver(cc resolver.ClientConn, client registryAddressGetter, comp api.Component, logger interfaces.Logger, refreshInterval, pollTimeout, errorRefresh time.Duration) *registryResolver {
 	r := &registryResolver{
 		cc: cc, client: client, comp: comp, logger: logger,
 		refreshInterval: refreshInterval,
+		pollTimeout:     pollTimeout,
+		errorRefresh:    errorRefresh,
 		done:            make(chan struct{}),
 	}
-	logger.Debug("resolver: starting registry resolver for %s (interval=%v)", comp.String(), refreshInterval)
-	go r.poll()
+
+	logger.Debug("resolver: starting registry resolver for %s (interval=%v poll_timeout=%v error_refresh=%v)", comp.String(), refreshInterval, pollTimeout, errorRefresh)
+	firstWait := r.resolveNow()
+	go r.pollLoop(firstWait)
+
 	return r
 }
 
-func (r *registryResolver) poll() {
-	ticker := time.NewTicker(r.refreshInterval)
-	defer ticker.Stop()
-	r.resolveNow()
+func (r *registryResolver) pollLoop(initialWait time.Duration) {
+	next := time.NewTimer(sanitizeResolverWait(r, initialWait))
+	defer next.Stop()
+
 	for {
 		select {
 		case <-r.done:
 			return
-		case <-ticker.C:
-			r.resolveNow()
+		case <-next.C:
+			wait := r.resolveNow()
+			wait = sanitizeResolverWait(r, wait)
+
+			if !next.Stop() {
+				select {
+				case <-next.C:
+				default:
+				}
+			}
+
+			next.Reset(wait)
 		}
 	}
 }
 
-func (r *registryResolver) resolveNow() {
+func sanitizeResolverWait(r *registryResolver, wait time.Duration) time.Duration {
+	if wait > 0 {
+		return wait
+	}
+
+	if r.refreshInterval > 0 {
+		return r.refreshInterval
+	}
+
+	return 10 * time.Second
+}
+
+func (r *registryResolver) resolveNow() time.Duration {
 	r.mu.Lock()
 	if r.closed {
 		r.mu.Unlock()
-		return
+		return r.refreshInterval
 	}
 	r.mu.Unlock()
 
-	addr, err := r.client.Address(context.Background(), r.comp)
+	ctx := context.Background()
+	if r.pollTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, r.pollTimeout)
+		defer cancel()
+	}
+
+	addr, err := r.client.Address(ctx, r.comp)
 	if err != nil {
-		r.logger.Warn("resolver: failed to resolve %s: %v", r.comp.String(), err)
 		if r.lastGood != "" {
-			r.logger.Info("resolver: %s falling back to last known good: %s", r.comp.String(), r.lastGood)
+			r.logger.Debug("resolver: registry lookup failed for %s (keeping last known good %s): %v", r.comp.String(), r.lastGood, err)
 			_ = r.cc.UpdateState(resolver.State{Addresses: []resolver.Address{{Addr: r.lastGood}}})
+			return r.refreshInterval
 		}
-		return
+
+		r.logger.Warn("resolver: failed to resolve %s: %v", r.comp.String(), err)
+		r.cc.ReportError(err)
+		if r.errorRefresh > 0 {
+			return r.errorRefresh
+		}
+
+		return r.refreshInterval
 	}
 
 	if addr != r.lastGood {
 		r.logger.Debug("resolver: %s resolved to %s", r.comp.String(), addr)
 	}
+
 	r.lastGood = addr
 	_ = r.cc.UpdateState(resolver.State{Addresses: []resolver.Address{{Addr: addr}}})
+	return r.refreshInterval
 }
 
 func (r *registryResolver) ResolveNow(resolver.ResolveNowOptions) {
-	r.resolveNow()
+	_ = r.resolveNow()
 }
 
 func (r *registryResolver) Close() {

@@ -27,8 +27,9 @@ func (noopLogger) Fatal(string, ...any)                   {}
 func (noopLogger) WithOutput(io.Writer) interfaces.Logger { return noopLogger{} }
 
 type fakeClientConn struct {
-	mu     sync.Mutex
-	states []resolver.State
+	mu         sync.Mutex
+	states     []resolver.State
+	reportErrs []error
 }
 
 func (f *fakeClientConn) UpdateState(s resolver.State) error {
@@ -38,7 +39,11 @@ func (f *fakeClientConn) UpdateState(s resolver.State) error {
 	return nil
 }
 
-func (f *fakeClientConn) ReportError(error) {}
+func (f *fakeClientConn) ReportError(err error) {
+	f.mu.Lock()
+	f.reportErrs = append(f.reportErrs, err)
+	f.mu.Unlock()
+}
 
 func (f *fakeClientConn) NewAddress([]resolver.Address) {}
 
@@ -79,6 +84,7 @@ func TestStaticBuilder_Build(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
+
 	if len(cc.states) != 1 || len(cc.states[0].Addresses) != 1 || cc.states[0].Addresses[0].Addr != "127.0.0.1:9999" {
 		t.Fatalf("unexpected state: %+v", cc.states)
 	}
@@ -96,7 +102,7 @@ func (m *mockRegistry) Address(context.Context, api.Component) (string, error) {
 func TestRegistryResolver_ResolveAndFallback(t *testing.T) {
 	cc := &fakeClientConn{}
 	reg := &mockRegistry{addr: "first:1", err: nil}
-	r := newRegistryResolver(cc, reg, api.Component_COMPONENT_QUEUE, noopLogger{}, time.Hour)
+	r := newRegistryResolver(cc, reg, api.Component_COMPONENT_QUEUE, noopLogger{}, time.Hour, 5*time.Second, time.Second)
 
 	r.ResolveNow(resolver.ResolveNowOptions{})
 	if len(cc.states) == 0 {
@@ -106,9 +112,61 @@ func TestRegistryResolver_ResolveAndFallback(t *testing.T) {
 	reg.addr = ""
 	reg.err = errors.New("boom")
 	r.ResolveNow(resolver.ResolveNowOptions{})
-	// last good should still be reported
+
 	if got := cc.states[len(cc.states)-1].Addresses[0].Addr; got != "first:1" {
 		t.Fatalf("expected fallback to first:1, last state addresses: %+v", cc.states[len(cc.states)-1].Addresses)
+	}
+
+	r.Close()
+}
+
+func TestRegistryResolver_LastGoodPersistsAfterInitialSuccess(t *testing.T) {
+	cc := &fakeClientConn{}
+	reg := &mockRegistry{addr: "stable:1", err: nil}
+	r := newRegistryResolver(cc, reg, api.Component_COMPONENT_QUEUE, noopLogger{}, time.Hour, 5*time.Second, time.Second)
+
+	r.ResolveNow(resolver.ResolveNowOptions{})
+	if len(cc.states) == 0 || cc.states[0].Addresses[0].Addr != "stable:1" {
+		t.Fatalf("expected initial resolve to stable:1, got %+v", cc.states)
+	}
+
+	reg.addr = ""
+	reg.err = errors.New("registry unavailable")
+	for range 3 {
+		r.ResolveNow(resolver.ResolveNowOptions{})
+	}
+	last := cc.states[len(cc.states)-1]
+	if len(last.Addresses) != 1 || last.Addresses[0].Addr != "stable:1" {
+		t.Fatalf("expected lastGood stable:1 after repeated errors, got %+v", last.Addresses)
+	}
+
+	r.Close()
+}
+
+func TestRegistryResolver_ReportErrorOnFailure(t *testing.T) {
+	cc := &fakeClientConn{}
+	reg := &mockRegistry{addr: "", err: errors.New("registry down")}
+	r := newRegistryResolver(cc, reg, api.Component_COMPONENT_QUEUE, noopLogger{}, time.Hour, 5*time.Second, time.Second)
+
+	r.ResolveNow(resolver.ResolveNowOptions{})
+	if len(cc.reportErrs) == 0 {
+		t.Fatal("expected ReportError when discovery fails")
+	}
+
+	r.Close()
+}
+
+func TestRegistryResolver_NoReportErrorWhenFallingBackToLastGood(t *testing.T) {
+	cc := &fakeClientConn{}
+	reg := &mockRegistry{addr: "live:1", err: nil}
+	r := newRegistryResolver(cc, reg, api.Component_COMPONENT_QUEUE, noopLogger{}, time.Hour, 5*time.Second, time.Second)
+
+	r.ResolveNow(resolver.ResolveNowOptions{})
+	reg.err = errors.New("registry down")
+	r.ResolveNow(resolver.ResolveNowOptions{})
+
+	if len(cc.reportErrs) != 0 {
+		t.Fatalf("expected no ReportError when lastGood fallback keeps addresses valid, got %v", cc.reportErrs)
 	}
 
 	r.Close()

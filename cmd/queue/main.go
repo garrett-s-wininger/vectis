@@ -38,11 +38,18 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 		}
 		defer registryClient.Close()
 
-		if err := registryClient.Register(cmd.Context(), api.Component_COMPONENT_QUEUE, addr); err != nil {
+		publishAddr := config.QueueRegistryPublishAddress(addr)
+		if err := registryClient.Register(cmd.Context(), api.Component_COMPONENT_QUEUE, publishAddr); err != nil {
 			logger.Fatal("Failed to register with registry: %v", err)
 		}
 
-		logger.Info("Registered with registry service")
+		stopHeartbeat := registry.StartRegistrationHeartbeat(
+			cmd.Context(), registryClient, api.Component_COMPONENT_QUEUE, publishAddr,
+			config.RegistryRegistrationRefresh(), logger,
+		)
+		defer stopHeartbeat()
+
+		logger.Info("Registered with registry service at %s", publishAddr)
 	} else {
 		logger.Info("Skipping registry registration (queue.register_with_registry is false)")
 	}

@@ -5,6 +5,7 @@ port = 8080
 [queue]
 port = 8081
 register_with_registry = true
+advertise_address = ""
 
 [registry]
 port = 8082
@@ -15,12 +16,16 @@ host = "localhost"
 [log.grpc]
 port = 8083
 register_with_registry = true
+advertise_address = ""
 
 [log.sse]
 port = 8084
 
 [discovery]
 registry_resolver_refresh = "10s"
+registry_resolver_poll_timeout = "5s"
+registry_resolver_error_refresh = "2s"
+registry_registration_refresh = "45s"
 
 [reconciler]
 interval = "30s"

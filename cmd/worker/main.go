@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"sync/atomic"
 	"time"
@@ -19,7 +18,7 @@ import (
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
 	"vectis/internal/job"
-	"vectis/internal/resolver"
+	"vectis/internal/multidial"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -45,7 +44,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 	}
 	defer db.Close()
 
-	queueClient, logClient, cleanupDial, err := dialQueueAndLogClients(ctx, logger)
+	queueClient, logClient, cleanupDial, err := multidial.DialQueueAndLog(ctx, logger)
 	if err != nil {
 		logger.Fatal("Failed to connect to queue or log service: %v", err)
 	}
@@ -62,24 +61,6 @@ func runWorker(cmd *cobra.Command, args []string) {
 		store:     dal.NewSQLRepositories(db).Runs(),
 	}
 	w.run()
-}
-
-func dialQueueAndLogClients(ctx context.Context, logger interfaces.Logger) (interfaces.QueueClient, interfaces.LogClient, func(), error) {
-	queueConn, queueCleanup, err := resolver.NewQueueClient(ctx, logger)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("queue client: %w", err)
-	}
-
-	logConn, logCleanup, err := resolver.NewLogClient(ctx, logger)
-	if err != nil {
-		queueCleanup()
-		return nil, nil, nil, fmt.Errorf("log client: %w", err)
-	}
-
-	return interfaces.NewGRPCQueueClient(queueConn), interfaces.NewGRPCLogClient(logConn), func() {
-		queueCleanup()
-		logCleanup()
-	}, nil
 }
 
 type worker struct {

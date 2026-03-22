@@ -57,6 +57,7 @@ type QueueDefaults struct {
 	Port                 int    `toml:"port"`
 	RegistryAddress      string `toml:"registry.address"`
 	ResolverAddress      string `toml:"resolver.address"`
+	AdvertiseAddress     string `toml:"advertise_address"`
 	RegisterWithRegistry bool   `toml:"register_with_registry"`
 }
 
@@ -74,6 +75,7 @@ type LogDefaults struct {
 type GRPCDefaults struct {
 	Port                 int    `toml:"port"`
 	ResolverAddress      string `toml:"resolver.address"`
+	AdvertiseAddress     string `toml:"advertise_address"`
 	RegisterWithRegistry bool   `toml:"register_with_registry"`
 }
 
@@ -87,12 +89,17 @@ type DatabaseDefaults struct {
 }
 
 type DiscoveryDefaults struct {
-	RegistryAddress         string       `toml:"registry.address"`
-	QueueResolverAddress    string       `toml:"queue.resolver.address"`
-	LogGRPCResolverAddress  string       `toml:"log.grpc.resolver.address"`
-	QueueAddress            string       `toml:"queue.address"`
-	LogAddress              string       `toml:"log.address"`
-	RegistryResolverRefresh tomlDuration `toml:"registry_resolver_refresh"`
+	RegistryAddress              string       `toml:"registry.address"`
+	QueueResolverAddress         string       `toml:"queue.resolver.address"`
+	LogGRPCResolverAddress       string       `toml:"log.grpc.resolver.address"`
+	QueueAddress                 string       `toml:"queue.address"`
+	LogAddress                   string       `toml:"log.address"`
+	QueueAdvertiseAddress        string       `toml:"queue.advertise.address"`
+	LogGRPCAdvertiseAddress      string       `toml:"log.grpc.advertise.address"`
+	RegistryResolverRefresh      tomlDuration `toml:"registry_resolver_refresh"`
+	RegistryResolverPollTimeout  tomlDuration `toml:"registry_resolver_poll_timeout"`
+	RegistryResolverErrorRefresh tomlDuration `toml:"registry_resolver_error_refresh"`
+	RegistryRegistrationRefresh  tomlDuration `toml:"registry_registration_refresh"`
 }
 
 type WorkerDefaults struct {
@@ -251,6 +258,81 @@ func RegistryResolverPollInterval() time.Duration {
 	return 10 * time.Second
 }
 
+func RegistryResolverPollTimeout() time.Duration {
+	if d := viper.GetDuration("discovery.registry_resolver_poll_timeout"); d > 0 {
+		return d
+	}
+
+	d := time.Duration(MustDefaults().Discovery.RegistryResolverPollTimeout)
+	if d > 0 {
+		return d
+	}
+
+	return 5 * time.Second
+}
+
+func RegistryResolverErrorRefresh() time.Duration {
+	if d := viper.GetDuration("discovery.registry_resolver_error_refresh"); d > 0 {
+		return d
+	}
+
+	d := time.Duration(MustDefaults().Discovery.RegistryResolverErrorRefresh)
+	if d > 0 {
+		return d
+	}
+
+	return 2 * time.Second
+}
+
+func RegistryRegistrationRefresh() time.Duration {
+	if d := viper.GetDuration("discovery.registry_registration_refresh"); d > 0 {
+		return d
+	}
+
+	d := time.Duration(MustDefaults().Discovery.RegistryRegistrationRefresh)
+	if d > 0 {
+		return d
+	}
+
+	return 45 * time.Second
+}
+
+func QueueGRPCAdvertiseAddress() string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("queue.advertise_address"),
+		d.Queue.AdvertiseAddress,
+		viper.GetString("discovery.queue.advertise.address"),
+		d.Discovery.QueueAdvertiseAddress,
+	)
+}
+
+func LogGRPCAdvertiseAddress() string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("log.grpc.advertise_address"),
+		d.Log.GRPC.AdvertiseAddress,
+		viper.GetString("discovery.log.grpc.advertise.address"),
+		d.Discovery.LogGRPCAdvertiseAddress,
+	)
+}
+
+func QueueRegistryPublishAddress(bindListenAddr string) string {
+	if a := QueueGRPCAdvertiseAddress(); a != "" {
+		return a
+	}
+
+	return bindListenAddr
+}
+
+func LogGRPCRegistryPublishAddress(bindListenAddr string) string {
+	if a := LogGRPCAdvertiseAddress(); a != "" {
+		return a
+	}
+
+	return bindListenAddr
+}
+
 func QueueRegistryAddress() string {
 	d := MustDefaults()
 	return coalesceNonEmpty(
@@ -315,6 +397,14 @@ func WorkerRegistryAddress() string {
 		viper.GetString("discovery.registry.address"),
 		d.Discovery.RegistryAddress,
 	)
+}
+
+func WorkerRegistryDialAddress() string {
+	if a := WorkerRegistryAddress(); a != "" {
+		return a
+	}
+
+	return RegistryListenAddr()
 }
 
 func WorkerQueueAddress() string {

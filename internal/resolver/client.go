@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	api "vectis/api/gen/go"
-	"vectis/internal/config"
 	"vectis/internal/interfaces"
 	"vectis/internal/registry"
 
@@ -16,41 +15,8 @@ import (
 	_ "google.golang.org/grpc/health"
 )
 
-func NewQueueClient(ctx context.Context, logger interfaces.Logger) (*grpc.ClientConn, func(), error) {
-	return newClient(ctx, api.Component_COMPONENT_QUEUE, logger)
-}
-
-func NewLogClient(ctx context.Context, logger interfaces.Logger) (*grpc.ClientConn, func(), error) {
-	return newClient(ctx, api.Component_COMPONENT_LOG, logger)
-}
-
-func newClient(ctx context.Context, comp api.Component, logger interfaces.Logger) (*grpc.ClientConn, func(), error) {
-	if addr := pinnedAddress(comp); addr != "" {
-		return NewClientWithPinnedAddress(ctx, comp, addr, logger)
-	}
-
-	regAddr := config.WorkerRegistryAddress()
-	if regAddr == "" {
-		regAddr = config.RegistryListenAddr()
-	}
-	regClient, err := registry.New(ctx, regAddr, logger, interfaces.SystemClock{})
-	if err != nil {
-		return nil, nil, fmt.Errorf("resolver: failed to create registry client: %w", err)
-	}
-
-	builder := BuildResolver(comp, regClient, logger)
-	target := BuildTarget(comp)
-
-	conn, cleanup, err := dialWithResolver(comp, target, builder, logger)
-	if err != nil {
-		regClient.Close()
-		return nil, nil, err
-	}
-
-	return conn, func() { cleanup(); regClient.Close() }, nil
-}
-
 func NewClientWithPinnedAddress(ctx context.Context, comp api.Component, addr string, logger interfaces.Logger) (*grpc.ClientConn, func(), error) {
+	_ = ctx
 	serviceName := comp.String()
 	target := fmt.Sprintf("static:///%s", addr)
 	logger.Debug("resolver: connecting to %s at %s (pinned)", serviceName, target)
@@ -70,11 +36,7 @@ func NewRegistryClient(ctx context.Context, addr string, logger interfaces.Logge
 	return registry.New(ctx, addr, logger, clock)
 }
 
-func NewQueueClientWithRegistry(ctx context.Context, logger interfaces.Logger, regClient *registry.Registry) (*grpc.ClientConn, func(), error) {
-	return newClientWithRegistry(ctx, api.Component_COMPONENT_QUEUE, logger, regClient)
-}
-
-func newClientWithRegistry(ctx context.Context, comp api.Component, logger interfaces.Logger, regClient *registry.Registry) (*grpc.ClientConn, func(), error) {
+func NewClientWithRegistry(ctx context.Context, comp api.Component, logger interfaces.Logger, regClient *registry.Registry) (*grpc.ClientConn, func(), error) {
 	if addr := pinnedAddress(comp); addr != "" {
 		return NewClientWithPinnedAddress(ctx, comp, addr, logger)
 	}
@@ -82,7 +44,7 @@ func newClientWithRegistry(ctx context.Context, comp api.Component, logger inter
 	builder := BuildResolver(comp, regClient, logger)
 	target := BuildTarget(comp)
 
-	conn, cleanup, err := dialWithResolver(comp, target, builder, logger)
+	conn, cleanup, err := dialWithResolver(ctx, comp, target, builder, logger)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -108,7 +70,7 @@ func grpcDefaultServiceConfigJSON(comp api.Component) string {
 	)
 }
 
-func dialWithResolver(comp api.Component, target string, builder resolver.Builder, logger interfaces.Logger) (*grpc.ClientConn, func(), error) {
+func dialWithResolver(ctx context.Context, comp api.Component, target string, builder resolver.Builder, logger interfaces.Logger) (*grpc.ClientConn, func(), error) {
 	logger.Debug("resolver: connecting to %s at %s", comp.String(), target)
 
 	conn, err := grpc.NewClient(target,
@@ -118,6 +80,11 @@ func dialWithResolver(comp api.Component, target string, builder resolver.Builde
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolver: failed to connect to %s: %w", comp.String(), err)
+	}
+
+	if err := waitForConnReady(ctx, conn); err != nil {
+		_ = conn.Close()
+		return nil, nil, fmt.Errorf("resolver: %s not ready: %w", comp.String(), err)
 	}
 
 	return conn, func() { conn.Close() }, nil
