@@ -23,7 +23,7 @@ func TestService_Process_ReenqueuesQueuedRun(t *testing.T) {
 	}
 
 	runs := dal.NewSQLRepositories(db).Runs()
-	runID, _, err := runs.CreateRun(ctx, "job-a", nil)
+	runID, _, err := runs.CreateRun(ctx, "job-a", nil, 1)
 	if err != nil {
 		t.Fatalf("CreateRun: %v", err)
 	}
@@ -54,14 +54,16 @@ func TestService_Process_ReenqueuesQueuedRun(t *testing.T) {
 	}
 }
 
-func TestService_Process_SkipsEphemeralWithoutStoredJob(t *testing.T) {
+func TestService_Process_ReenqueuesEphemeralWithJobDefinition(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 
-	runs := dal.NewSQLRepositories(db).Runs()
-	_, _, err := runs.CreateRun(ctx, "not-in-stored-jobs", nil)
+	jobID := "ephemeral-uuid"
+	jobDef := `{"id":"ephemeral-uuid","root":{"uses":"builtins/shell","with":{"command":"echo x"}}}`
+	repos := dal.NewSQLRepositories(db)
+	runID, _, err := repos.CreateDefinitionAndRun(ctx, jobID, jobDef, nil)
 	if err != nil {
-		t.Fatalf("CreateRun: %v", err)
+		t.Fatalf("CreateDefinitionAndRun: %v", err)
 	}
 
 	q := mocks.NewMockQueueService()
@@ -73,8 +75,13 @@ func TestService_Process_SkipsEphemeralWithoutStoredJob(t *testing.T) {
 		t.Fatalf("Process: %v", err)
 	}
 
-	if len(q.GetJobs()) != 0 {
-		t.Fatalf("ephemeral run should not be re-enqueued, got %d jobs", len(q.GetJobs()))
+	jobs := q.GetJobs()
+	if len(jobs) != 1 {
+		t.Fatalf("expected 1 re-enqueued job, got %d", len(jobs))
+	}
+
+	if jobs[0].GetId() != jobID || jobs[0].GetRunId() != runID {
+		t.Fatalf("unexpected payload: id=%q run=%q", jobs[0].GetId(), jobs[0].GetRunId())
 	}
 }
 
@@ -89,7 +96,7 @@ func TestService_Process_SkipsRecentDispatch(t *testing.T) {
 	}
 
 	runs := dal.NewSQLRepositories(db).Runs()
-	runID, _, err := runs.CreateRun(ctx, "job-b", nil)
+	runID, _, err := runs.CreateRun(ctx, "job-b", nil, 1)
 	if err != nil {
 		t.Fatalf("CreateRun: %v", err)
 	}

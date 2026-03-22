@@ -57,10 +57,7 @@ func ExponentialDelay(baseDelay time.Duration, attempt int, maxDelay time.Durati
 		attempt = 0
 	}
 
-	shift := attempt
-	if shift > maxExponentShift {
-		shift = maxExponentShift
-	}
+	shift := min(attempt, maxExponentShift)
 
 	d := baseDelay * time.Duration(uint64(1)<<uint(shift))
 	if maxDelay > 0 && d > maxDelay {

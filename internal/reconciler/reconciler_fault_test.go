@@ -86,7 +86,7 @@ func seedStoredJobAndRun(t *testing.T, db *sql.DB, jobID string) string {
 		t.Fatalf("insert stored job: %v", err)
 	}
 
-	runID, _, err := dal.NewSQLRepositories(db).Runs().CreateRun(ctx, jobID, nil)
+	runID, _, err := dal.NewSQLRepositories(db).Runs().CreateRun(ctx, jobID, nil, 1)
 	if err != nil {
 		t.Fatalf("CreateRun: %v", err)
 	}

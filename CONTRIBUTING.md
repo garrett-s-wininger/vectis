@@ -10,6 +10,7 @@ Everything below still applies if you are building from source, experimenting lo
 
 - **Go** version matching [`go.mod`](go.mod) (currently 1.25.7+)
 - **Git**
+- **SQLite** 3.35.0 or newer for the default database stack: `github.com/mattn/go-sqlite3` links against the system `libsqlite3`, and some migration rollbacks (for example `006_job_definitions_and_run_version.down.sql`) use `ALTER TABLE … DROP COLUMN`, which requires 3.35.0+. Check with `sqlite3 --version` or your OS package metadata if rollback or `migrate down` fails with an unsupported `DROP COLUMN` error.
 
 Optional:
 

@@ -3,7 +3,7 @@ package queue
 import (
 	"context"
 	"runtime"
-	"sort"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -48,7 +48,6 @@ func BenchmarkQueue_RingLatency(b *testing.B) {
 	}
 
 	for _, sc := range scenarios {
-		sc := sc
 		b.Run(sc.name, func(b *testing.B) {
 			runLatencyScenario(b, sc)
 		})
@@ -90,9 +89,7 @@ func runLatencyScenario(b *testing.B, sc latencyScenario) {
 		iterStart := time.Now()
 
 		for i := 0; i < sc.producers; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 
 				samples := make([]int64, 0, 512)
 				var localCount uint64
@@ -128,13 +125,11 @@ func runLatencyScenario(b *testing.B, sc latencyScenario) {
 					}
 					_ = n
 				}
-			}()
+			})
 		}
 
 		for i := 0; i < sc.consumers; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 
 				samples := make([]int64, 0, 512)
 				var localCount uint64
@@ -177,7 +172,7 @@ func runLatencyScenario(b *testing.B, sc latencyScenario) {
 						}
 					}
 				}
-			}()
+			})
 		}
 
 		wg.Wait()
@@ -200,8 +195,8 @@ func runLatencyScenario(b *testing.B, sc latencyScenario) {
 		b.Fatalf("insufficient samples collected (enqueue=%d dequeue=%d)", len(enqueueSamples), len(dequeueSamples))
 	}
 
-	sort.Slice(enqueueSamples, func(i, j int) bool { return enqueueSamples[i] < enqueueSamples[j] })
-	sort.Slice(dequeueSamples, func(i, j int) bool { return dequeueSamples[i] < dequeueSamples[j] })
+	slices.Sort(enqueueSamples)
+	slices.Sort(dequeueSamples)
 
 	b.ReportMetric(float64(quantile(enqueueSamples, 0.50)), "enqueue_p50_ns")
 	b.ReportMetric(float64(quantile(enqueueSamples, 0.95)), "enqueue_p95_ns")

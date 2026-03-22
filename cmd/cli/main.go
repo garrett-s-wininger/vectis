@@ -146,8 +146,8 @@ func runLogStream(runID string, filterStdout, filterStderr bool) error {
 				continue
 			}
 
-			if strings.HasPrefix(line, "data:") {
-				data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if after, ok := strings.CutPrefix(line, "data:"); ok {
+				data := strings.TrimSpace(after)
 				dataBuf.WriteString(data)
 			}
 		}
@@ -303,8 +303,8 @@ outer:
 					continue
 				}
 
-				if strings.HasPrefix(line, "data:") {
-					data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+				if after, ok := strings.CutPrefix(line, "data:"); ok {
+					data := strings.TrimSpace(after)
 					dataBuf.WriteString(data)
 				}
 			}

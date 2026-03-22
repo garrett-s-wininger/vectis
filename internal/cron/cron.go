@@ -151,7 +151,7 @@ func (s *CronService) TriggerJob(ctx context.Context, jobID string) error {
 	}
 
 	job.Id = &jobID
-	runID, _, err := s.runs.CreateRun(ctx, jobID, nil)
+	runID, _, err := s.runs.CreateRun(ctx, jobID, nil, 1)
 	if err != nil {
 		return err
 	}

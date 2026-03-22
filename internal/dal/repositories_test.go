@@ -73,11 +73,11 @@ func TestRunsRepository_CreateRunAndListSinceOrdered(t *testing.T) {
 	runs := dal.NewSQLRepositories(db).Runs()
 	ctx := context.Background()
 
-	_, idx1, err := runs.CreateRun(ctx, "job-order", nil)
+	_, idx1, err := runs.CreateRun(ctx, "job-order", nil, 1)
 	if err != nil {
 		t.Fatalf("create run 1: %v", err)
 	}
-	_, idx2, err := runs.CreateRun(ctx, "job-order", nil)
+	_, idx2, err := runs.CreateRun(ctx, "job-order", nil, 1)
 	if err != nil {
 		t.Fatalf("create run 2: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestRunsRepository_ClaimRenewAndDispatchQueries(t *testing.T) {
 	runs := dal.NewSQLRepositories(db).Runs()
 	ctx := context.Background()
 
-	runID, _, err := runs.CreateRun(ctx, "job-claim", nil)
+	runID, _, err := runs.CreateRun(ctx, "job-claim", nil, 1)
 	if err != nil {
 		t.Fatalf("create run: %v", err)
 	}
@@ -127,6 +127,10 @@ func TestRunsRepository_ClaimRenewAndDispatchQueries(t *testing.T) {
 
 	if len(queued) != 1 || queued[0].RunID != runID {
 		t.Fatalf("expected queued run %s, got %+v", runID, queued)
+	}
+
+	if queued[0].DefinitionVersion != 1 {
+		t.Fatalf("expected definition_version 1, got %d", queued[0].DefinitionVersion)
 	}
 
 	claimed, err := runs.TryClaim(ctx, runID, "worker-1", time.Now().Add(1*time.Minute))
@@ -174,13 +178,13 @@ func TestRunsRepository_CreateRunWithExplicitRunIndex(t *testing.T) {
 	runs := dal.NewSQLRepositories(db).Runs()
 	ctx := context.Background()
 
-	runID, _, err := runs.CreateRun(ctx, "job-explicit", nil)
+	runID, _, err := runs.CreateRun(ctx, "job-explicit", nil, 1)
 	if err != nil {
 		t.Fatalf("create initial run: %v", err)
 	}
 
 	idx := 10
-	runID2, outIdx, err := runs.CreateRun(ctx, "job-explicit", &idx)
+	runID2, outIdx, err := runs.CreateRun(ctx, "job-explicit", &idx, 1)
 	if err != nil {
 		t.Fatalf("create explicit run_index: %v", err)
 	}
@@ -200,6 +204,54 @@ func TestRunsRepository_CreateRunWithExplicitRunIndex(t *testing.T) {
 
 	if all[0].RunID != runID || all[1].RunID != runID2 {
 		t.Fatalf("unexpected run ids in list: %+v", all)
+	}
+}
+
+func TestSQLRepositories_CreateDefinitionAndRun_AndGetDefinitionVersion(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+
+	jobID := "ephemeral-job-id"
+	def := `{"id":"ephemeral-job-id","root":{"uses":"builtins/shell","with":{"command":"echo x"}}}`
+	idx := 1
+
+	runID, outIdx, err := repos.CreateDefinitionAndRun(ctx, jobID, def, &idx)
+	if err != nil {
+		t.Fatalf("CreateDefinitionAndRun: %v", err)
+	}
+
+	if outIdx != idx {
+		t.Fatalf("run index: want %d, got %d", idx, outIdx)
+	}
+
+	got, err := repos.Jobs().GetDefinitionVersion(ctx, jobID, 1)
+	if err != nil {
+		t.Fatalf("GetDefinitionVersion: %v", err)
+	}
+
+	if got != def {
+		t.Fatalf("definition mismatch: got %q", got)
+	}
+
+	var dv int
+	if err := db.QueryRowContext(ctx, "SELECT definition_version FROM job_runs WHERE run_id = ?", runID).Scan(&dv); err != nil {
+		t.Fatalf("scan definition_version: %v", err)
+	}
+
+	if dv != 1 {
+		t.Fatalf("job_runs.definition_version: want 1, got %d", dv)
+	}
+}
+
+func TestJobsRepository_GetDefinitionVersion_NotFound(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	jobs := dal.NewSQLRepositories(db).Jobs()
+	ctx := context.Background()
+
+	_, err := jobs.GetDefinitionVersion(ctx, "missing", 1)
+	if err == nil || !dal.IsNotFound(err) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
 

@@ -22,7 +22,7 @@ func TestAPIServer_TriggerJob_OrchestrationUsesRepositories(t *testing.T) {
 
 	logger := mocks.NewMockLogger()
 	queue := mocks.NewMockQueueService()
-	server := api.NewAPIServerWithRepositories(logger, jobs, runs)
+	server := api.NewAPIServerWithRepositories(logger, jobs, runs, mocks.StubEphemeralRunStarter{})
 	server.SetQueueClient(queue)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/job-1", bytes.NewReader(nil))
@@ -37,6 +37,10 @@ func TestAPIServer_TriggerJob_OrchestrationUsesRepositories(t *testing.T) {
 
 	if runs.LastCreateJobID != "job-1" {
 		t.Fatalf("expected create run for job-1, got %q", runs.LastCreateJobID)
+	}
+
+	if runs.LastDefinitionVersion != 1 {
+		t.Fatalf("expected definition_version 1 for stored trigger, got %d", runs.LastDefinitionVersion)
 	}
 
 	if len(runs.TouchedRunIDs) != 1 || runs.TouchedRunIDs[0] != "run-1" {
@@ -62,7 +66,7 @@ func TestAPIServer_GetJobRuns_OrchestrationUsesRunsRepository(t *testing.T) {
 		Status:   "failed",
 	}}
 
-	server := api.NewAPIServerWithRepositories(mocks.NewMockLogger(), jobs, runs)
+	server := api.NewAPIServerWithRepositories(mocks.NewMockLogger(), jobs, runs, mocks.StubEphemeralRunStarter{})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-1/runs?since=1", nil)
 	req.SetPathValue("id", "job-1")
 	rec := httptest.NewRecorder()

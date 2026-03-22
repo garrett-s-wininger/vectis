@@ -650,6 +650,16 @@ func TestAPIServer_RunJob_Success(t *testing.T) {
 		t.Errorf("expected 0 rows in stored_jobs for ephemeral id %q, got %d", resp.ID, count)
 	}
 
+	var jdCount int
+	err = db.QueryRow("SELECT COUNT(*) FROM job_definitions WHERE job_id = ? AND version = 1", resp.ID).Scan(&jdCount)
+	if err != nil {
+		t.Fatalf("failed to query job_definitions: %v", err)
+	}
+
+	if jdCount != 1 {
+		t.Errorf("expected 1 row in job_definitions for ephemeral id %q, got %d", resp.ID, jdCount)
+	}
+
 	jobs := queueService.GetJobs()
 	if len(jobs) != 1 {
 		t.Errorf("expected 1 job enqueued, got %d", len(jobs))
@@ -866,8 +876,8 @@ func TestAPIServer_SSEJobRuns_ReceivesRunOnTrigger(t *testing.T) {
 			break
 		}
 
-		if strings.HasPrefix(line, "data:") {
-			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if after, ok := strings.CutPrefix(line, "data:"); ok {
+			data := strings.TrimSpace(after)
 			dataBuf.WriteString(data)
 		}
 	}

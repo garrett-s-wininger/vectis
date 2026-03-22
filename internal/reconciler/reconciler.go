@@ -67,7 +67,7 @@ func (s *Service) Process(ctx context.Context) error {
 	}
 
 	for _, r := range batch {
-		if err := s.dispatchOne(ctx, r.RunID, r.JobID); err != nil {
+		if err := s.dispatchOne(ctx, r); err != nil {
 			s.logger.Error("reconciler: run %s: %v", r.RunID, err)
 		}
 	}
@@ -75,15 +75,25 @@ func (s *Service) Process(ctx context.Context) error {
 	return nil
 }
 
-func (s *Service) dispatchOne(ctx context.Context, runID, jobID string) error {
+func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
+	runID, jobID := qr.RunID, qr.JobID
+
 	defJSON, err := s.jobs.GetDefinition(ctx, jobID)
 	if err != nil {
-		if dal.IsNotFound(err) {
-			s.logger.Debug("reconciler: skip run %s (job %q has no stored definition; ephemeral runs are not re-enqueued)", runID, jobID)
-			return nil
+		if !dal.IsNotFound(err) {
+			return fmt.Errorf("load stored job: %w", err)
 		}
 
-		return fmt.Errorf("load stored job: %w", err)
+		defJSON, err = s.jobs.GetDefinitionVersion(ctx, jobID, qr.DefinitionVersion)
+		if err != nil {
+			if dal.IsNotFound(err) {
+				s.logger.Debug("reconciler: skip run %s (no stored job and no job_definitions row for job %q version %d)",
+					runID, jobID, qr.DefinitionVersion)
+				return nil
+			}
+
+			return fmt.Errorf("load job definition version: %w", err)
+		}
 	}
 
 	var job api.Job

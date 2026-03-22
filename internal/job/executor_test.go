@@ -376,8 +376,8 @@ func TestExecutor_ExecuteJob_WorkspaceCreationAndCleanup(t *testing.T) {
 	const createdPrefix = "Created workspace: "
 	var workspacePath string
 	for _, msg := range infoCalls {
-		if strings.HasPrefix(msg, createdPrefix) {
-			workspacePath = strings.TrimPrefix(msg, createdPrefix)
+		if after, ok := strings.CutPrefix(msg, createdPrefix); ok {
+			workspacePath = after
 			break
 		}
 	}

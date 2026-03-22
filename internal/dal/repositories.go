@@ -29,8 +29,13 @@ type RunRecord struct {
 }
 
 type QueuedRun struct {
-	RunID string
-	JobID string
+	RunID             string
+	JobID             string
+	DefinitionVersion int
+}
+
+type EphemeralRunStarter interface {
+	CreateDefinitionAndRun(ctx context.Context, jobID, definitionJSON string, runIndex *int) (runID string, runIndexOut int, err error)
 }
 
 type CronSchedule struct {
@@ -45,6 +50,7 @@ type JobsRepository interface {
 	Delete(ctx context.Context, jobID string) error
 	List(ctx context.Context) ([]JobRecord, error)
 	GetDefinition(ctx context.Context, jobID string) (string, error)
+	GetDefinitionVersion(ctx context.Context, jobID string, version int) (string, error)
 	UpdateDefinition(ctx context.Context, jobID, definitionJSON string) error
 }
 
@@ -55,7 +61,7 @@ type RunsRepository interface {
 	TryClaim(ctx context.Context, runID, owner string, leaseUntil time.Time) (bool, error)
 	RenewLease(ctx context.Context, runID, owner string, leaseUntil time.Time) error
 	TouchDispatched(ctx context.Context, runID string) error
-	CreateRun(ctx context.Context, jobID string, runIndex *int) (runID string, runIndexOut int, err error)
+	CreateRun(ctx context.Context, jobID string, runIndex *int, definitionVersion int) (runID string, runIndexOut int, err error)
 	ListByJob(ctx context.Context, jobID string, since *int) ([]RunRecord, error)
 	ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]QueuedRun, error)
 }
@@ -66,6 +72,7 @@ type SchedulesRepository interface {
 }
 
 type SQLRepositories struct {
+	db        *sql.DB
 	jobs      *SQLJobsRepository
 	runs      *SQLRunsRepository
 	schedules *SQLSchedulesRepository
@@ -73,10 +80,58 @@ type SQLRepositories struct {
 
 func NewSQLRepositories(db *sql.DB) *SQLRepositories {
 	return &SQLRepositories{
+		db:        db,
 		jobs:      &SQLJobsRepository{db: db},
 		runs:      &SQLRunsRepository{db: db},
 		schedules: &SQLSchedulesRepository{db: db},
 	}
+}
+
+var _ EphemeralRunStarter = (*SQLRepositories)(nil)
+
+func (r *SQLRepositories) CreateDefinitionAndRun(ctx context.Context, jobID, definitionJSON string, runIndex *int) (runID string, runIndexOut int, err error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO job_definitions (job_id, version, definition_json) VALUES (?, 1, ?)`,
+		jobID, definitionJSON,
+	); err != nil {
+		return "", 0, normalizeSQLError(err)
+	}
+
+	runID = uuid.New().String()
+
+	var idx int
+	if runIndex != nil {
+		idx = *runIndex
+	} else {
+		if err := tx.QueryRowContext(ctx,
+			"SELECT COALESCE(MAX(run_index), 0) + 1 FROM job_runs WHERE job_id = ?",
+			jobID,
+		).Scan(&idx); err != nil {
+			return "", 0, err
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO job_runs (run_id, job_id, run_index, status, started_at, definition_version) VALUES (?, ?, ?, ?, NULL, 1)`,
+		runID,
+		jobID,
+		idx,
+		"queued",
+	); err != nil {
+		return "", 0, normalizeSQLError(err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", 0, err
+	}
+
+	return runID, idx, nil
 }
 
 func (r *SQLRepositories) Jobs() JobsRepository {
@@ -157,6 +212,23 @@ func (r *SQLJobsRepository) UpdateDefinition(ctx context.Context, jobID, definit
 	)
 
 	return normalizeSQLError(err)
+}
+
+func (r *SQLJobsRepository) GetDefinitionVersion(ctx context.Context, jobID string, version int) (string, error) {
+	var definitionJSON string
+	if err := r.db.QueryRowContext(ctx,
+		"SELECT definition_json FROM job_definitions WHERE job_id = ? AND version = ?",
+		jobID,
+		version,
+	).Scan(&definitionJSON); err != nil {
+		if err == sql.ErrNoRows {
+			return "", fmt.Errorf("%w: job %s version %d", ErrNotFound, jobID, version)
+		}
+
+		return "", normalizeSQLError(err)
+	}
+
+	return definitionJSON, nil
 }
 
 type SQLRunsRepository struct {
@@ -244,7 +316,7 @@ func (r *SQLRunsRepository) TouchDispatched(ctx context.Context, runID string) e
 	return normalizeSQLError(err)
 }
 
-func (r *SQLRunsRepository) CreateRun(ctx context.Context, jobID string, runIndex *int) (runID string, runIndexOut int, err error) {
+func (r *SQLRunsRepository) CreateRun(ctx context.Context, jobID string, runIndex *int, definitionVersion int) (runID string, runIndexOut int, err error) {
 	runID = uuid.New().String()
 
 	tx, err := r.db.BeginTx(ctx, nil)
@@ -264,11 +336,12 @@ func (r *SQLRunsRepository) CreateRun(ctx context.Context, jobID string, runInde
 	}
 
 	_, err = tx.ExecContext(ctx,
-		`INSERT INTO job_runs (run_id, job_id, run_index, status, started_at) VALUES (?, ?, ?, ?, NULL)`,
+		`INSERT INTO job_runs (run_id, job_id, run_index, status, started_at, definition_version) VALUES (?, ?, ?, ?, NULL, ?)`,
 		runID,
 		jobID,
 		idx,
 		"queued",
+		definitionVersion,
 	)
 
 	if err != nil {
@@ -330,7 +403,7 @@ func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, since *
 
 func (r *SQLRunsRepository) ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]QueuedRun, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT run_id, job_id
+		SELECT run_id, job_id, definition_version
 		FROM job_runs
 		WHERE status = 'queued'
 			AND (last_dispatched_at IS NULL OR last_dispatched_at < ?)
@@ -345,7 +418,7 @@ func (r *SQLRunsRepository) ListQueuedBeforeDispatchCutoff(ctx context.Context, 
 	var out []QueuedRun
 	for rows.Next() {
 		var rec QueuedRun
-		if err := rows.Scan(&rec.RunID, &rec.JobID); err != nil {
+		if err := rows.Scan(&rec.RunID, &rec.JobID, &rec.DefinitionVersion); err != nil {
 			return nil, err
 		}
 

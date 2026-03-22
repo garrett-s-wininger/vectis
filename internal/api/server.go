@@ -24,6 +24,7 @@ import (
 type APIServer struct {
 	jobs           dal.JobsRepository
 	runs           dal.RunsRepository
+	ephemeralRuns  dal.EphemeralRunStarter
 	logger         interfaces.Logger
 	queueClient    interfaces.QueueService
 	registryClient interfaces.RegistryClient
@@ -32,17 +33,19 @@ type APIServer struct {
 
 func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
 	repos := dal.NewSQLRepositories(db)
-	return NewAPIServerWithRepositories(logger, repos.Jobs(), repos.Runs())
+	return NewAPIServerWithRepositories(logger, repos.Jobs(), repos.Runs(), repos)
 }
 
 func NewAPIServerWithRepositories(
 	logger interfaces.Logger,
 	jobs dal.JobsRepository,
 	runs dal.RunsRepository,
+	ephemeralRuns dal.EphemeralRunStarter,
 ) *APIServer {
 	return &APIServer{
 		jobs:           jobs,
 		runs:           runs,
+		ephemeralRuns:  ephemeralRuns,
 		logger:         logger,
 		runBroadcaster: NewRunBroadcaster(logger),
 	}
@@ -214,7 +217,7 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 
 	job.Id = &jobID
 
-	runID, runIndex, err := s.runs.CreateRun(r.Context(), jobID, nil)
+	runID, runIndex, err := s.runs.CreateRun(r.Context(), jobID, nil, 1)
 	if err != nil {
 		s.logger.Error("Database error creating job run: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -287,8 +290,7 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// NOTE(garrett): If enqueue fails or the queue drops the message, the reconciler
-// cannot recover it (no durable definition/versioning path for ephemeral runs yet).
+// Ephemeral runs persist definition version 1 in job_definitions so the reconciler can re-enqueue if the queue drops work.
 func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("Content-Type") != "application/json" {
 		http.Error(w, "content type must be application/json", http.StatusUnsupportedMediaType)
@@ -313,15 +315,23 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	generatedID := uuid.New().String()
-	runIndexOne := 1
-	runID, _, err := s.runs.CreateRun(r.Context(), generatedID, &runIndexOne)
+	job.Id = &generatedID
+
+	definitionJSON, err := json.Marshal(&job)
 	if err != nil {
-		s.logger.Error("Database error creating job run: %v", err)
+		s.logger.Error("Failed to marshal job definition: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	job.Id = &generatedID
+	runIndexOne := 1
+	runID, _, err := s.ephemeralRuns.CreateDefinitionAndRun(r.Context(), generatedID, string(definitionJSON), &runIndexOne)
+	if err != nil {
+		s.logger.Error("Database error creating ephemeral job run: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
 	job.RunId = &runID
 
 	_, err = s.queueClient.Enqueue(r.Context(), &job)

@@ -106,6 +106,7 @@ There is no public authentication, projects API, artifact APIs, or HTTP cancel e
 - **Default:** SQLite (`internal/config/defaults.toml`: `driver = sqlite3`, path under XDG data home).
 - **Migrations:** `internal/migrations/` uses the **sqlite3** migrate driver only (`internal/migrations/migrations.go`). PostgreSQL requires driver/schema parity work.
 - **Model:** Jobs (stored definitions) and **runs** (executions, indices, dispatch) via `internal/dal/`.
+- **Ephemeral runs:** `POST /api/v1/jobs/run` writes `job_definitions` `(job_id, version=1, definition_json)` and `job_runs.definition_version=1` (no `stored_jobs` row). The reconciler loads `stored_jobs` first, then falls back to `job_definitions` for recovery. Append-only versions for stored jobs and delete/version retention are future work.
 
 ### 2.6 Job shape
 

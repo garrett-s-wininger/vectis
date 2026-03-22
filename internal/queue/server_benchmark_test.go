@@ -145,7 +145,6 @@ func BenchmarkQueue_SustainedLoad(b *testing.B) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		b.Run(tc.name, func(b *testing.B) {
 			runSustainedLoadScenario(b, tc)
 		})
@@ -187,9 +186,7 @@ func runSustainedLoadScenario(b *testing.B, cfg sustainedLoadConfig) {
 	job := &api.Job{Id: &jobID}
 
 	for i := 0; i < cfg.producers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for {
 				select {
 				case <-ctx.Done():
@@ -211,13 +208,11 @@ func runSustainedLoadScenario(b *testing.B, cfg sustainedLoadConfig) {
 					}
 				}
 			}
-		}()
+		})
 	}
 
 	for i := 0; i < cfg.consumers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for {
 				select {
 				case <-ctx.Done():
@@ -247,7 +242,7 @@ func runSustainedLoadScenario(b *testing.B, cfg sustainedLoadConfig) {
 					}
 				}
 			}
-		}()
+		})
 	}
 
 	wg.Wait()

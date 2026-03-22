@@ -8,8 +8,16 @@ import (
 	"vectis/internal/dal"
 )
 
+type StubEphemeralRunStarter struct{}
+
+func (StubEphemeralRunStarter) CreateDefinitionAndRun(context.Context, string, string, *int) (string, int, error) {
+	return "", 0, fmt.Errorf("stub ephemeral run starter: not configured")
+}
+
 type MockJobsRepository struct {
 	Definitions map[string]string
+	// Versions is jobID -> version -> definition JSON (ephemeral / versioned definitions).
+	Versions map[string]map[int]string
 
 	CreateErr error
 	DeleteErr error
@@ -21,6 +29,7 @@ type MockJobsRepository struct {
 func NewMockJobsRepository() *MockJobsRepository {
 	return &MockJobsRepository{
 		Definitions: map[string]string{},
+		Versions:    map[string]map[int]string{},
 	}
 }
 
@@ -68,6 +77,24 @@ func (m *MockJobsRepository) GetDefinition(ctx context.Context, jobID string) (s
 	return def, nil
 }
 
+func (m *MockJobsRepository) GetDefinitionVersion(ctx context.Context, jobID string, version int) (string, error) {
+	if m.GetErr != nil {
+		return "", m.GetErr
+	}
+
+	byVer, ok := m.Versions[jobID]
+	if !ok {
+		return "", fmt.Errorf("%w: job %s version %d", dal.ErrNotFound, jobID, version)
+	}
+
+	def, ok := byVer[version]
+	if !ok {
+		return "", fmt.Errorf("%w: job %s version %d", dal.ErrNotFound, jobID, version)
+	}
+
+	return def, nil
+}
+
 func (m *MockJobsRepository) UpdateDefinition(ctx context.Context, jobID, definitionJSON string) error {
 	if m.UpdateErr != nil {
 		return m.UpdateErr
@@ -99,9 +126,10 @@ type MockRunsRepository struct {
 
 	TouchedRunIDs []string
 
-	LastCreateJobID string
-	LastListJobID   string
-	LastListSince   *int
+	LastCreateJobID       string
+	LastDefinitionVersion int
+	LastListJobID         string
+	LastListSince         *int
 }
 
 func NewMockRunsRepository() *MockRunsRepository {
@@ -143,11 +171,13 @@ func (m *MockRunsRepository) TouchDispatched(ctx context.Context, runID string) 
 	return nil
 }
 
-func (m *MockRunsRepository) CreateRun(ctx context.Context, jobID string, runIndex *int) (string, int, error) {
+func (m *MockRunsRepository) CreateRun(ctx context.Context, jobID string, runIndex *int, definitionVersion int) (string, int, error) {
 	if m.CreateRunErr != nil {
 		return "", 0, m.CreateRunErr
 	}
+
 	m.LastCreateJobID = jobID
+	m.LastDefinitionVersion = definitionVersion
 	return m.CreateRunID, m.CreateRunIndex, nil
 }
 
