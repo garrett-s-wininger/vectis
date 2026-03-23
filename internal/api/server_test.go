@@ -32,6 +32,32 @@ func setupTestServer(t *testing.T) (*api.APIServer, *mocks.MockLogger, *mocks.Mo
 	return server, logger, queueService, db
 }
 
+func waitForNEnqueuedJobs(t *testing.T, q *mocks.MockQueueService, n int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(q.GetJobs()) >= n {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %d enqueued jobs, got %d", n, len(q.GetJobs()))
+}
+
+func waitForLoggerErrorContaining(t *testing.T, log *mocks.MockLogger, sub string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, msg := range log.GetErrorCalls() {
+			if strings.Contains(msg, sub) {
+				return
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for logger error containing %q", sub)
+}
+
 func TestAPIServer_CreateJob_Success(t *testing.T) {
 	server, logger, _, db := setupTestServer(t)
 
@@ -313,6 +339,7 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 		t.Errorf("expected status %d, got %d", http.StatusAccepted, rec.Code)
 	}
 
+	waitForNEnqueuedJobs(t, queueService, 1)
 	jobs := queueService.GetJobs()
 	if len(jobs) != 1 {
 		t.Errorf("expected 1 job enqueued, got %d", len(jobs))
@@ -342,17 +369,22 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 		t.Errorf("expected run_index 1, got %d", runIndex)
 	}
 
-	infoCalls := logger.GetInfoCalls()
+	deadline := time.Now().Add(2 * time.Second)
 	hasTriggeredMsg := false
-	for _, msg := range infoCalls {
-		if strings.Contains(msg, "Triggered job: job-to-trigger") {
-			hasTriggeredMsg = true
-			break
+	for time.Now().Before(deadline) && !hasTriggeredMsg {
+		for _, msg := range logger.GetInfoCalls() {
+			if strings.Contains(msg, "Triggered job: job-to-trigger") {
+				hasTriggeredMsg = true
+				break
+			}
+		}
+		if !hasTriggeredMsg {
+			time.Sleep(5 * time.Millisecond)
 		}
 	}
 
 	if !hasTriggeredMsg {
-		t.Errorf("expected logger to contain 'Triggered job: job-to-trigger', got: %v", infoCalls)
+		t.Errorf("expected logger to contain 'Triggered job: job-to-trigger', got: %v", logger.GetInfoCalls())
 	}
 }
 
@@ -400,21 +432,13 @@ func TestAPIServer_TriggerJob_QueueError(t *testing.T) {
 
 	server.TriggerJob(rec, req)
 
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Errorf("expected status %d, got %d", http.StatusServiceUnavailable, rec.Code)
+	if rec.Code != http.StatusAccepted {
+		t.Errorf("expected status %d, got %d", http.StatusAccepted, rec.Code)
 	}
 
-	errorCalls := logger.GetErrorCalls()
-	hasQueueError := false
-	for _, msg := range errorCalls {
-		if strings.Contains(msg, "Failed to enqueue job") {
-			hasQueueError = true
-			break
-		}
-	}
-
-	if !hasQueueError {
-		t.Errorf("expected logger error 'Failed to enqueue job', got: %v", errorCalls)
+	waitForLoggerErrorContaining(t, logger, "Failed to enqueue job")
+	if len(queueService.GetJobs()) != 0 {
+		t.Errorf("expected 0 jobs enqueued after queue error, got %d", len(queueService.GetJobs()))
 	}
 }
 
@@ -431,6 +455,7 @@ func TestAPIServer_GetJobRuns_ReturnsStatusAndFailureReasonAfterStatusTransition
 		t.Fatalf("trigger: expected 202, got %d", rec.Code)
 	}
 
+	waitForNEnqueuedJobs(t, queueService, 1)
 	jobs := queueService.GetJobs()
 	if len(jobs) != 1 {
 		t.Fatalf("expected 1 job enqueued, got %d", len(jobs))
@@ -660,6 +685,7 @@ func TestAPIServer_RunJob_Success(t *testing.T) {
 		t.Errorf("expected 1 row in job_definitions for ephemeral id %q, got %d", resp.ID, jdCount)
 	}
 
+	waitForNEnqueuedJobs(t, queueService, 1)
 	jobs := queueService.GetJobs()
 	if len(jobs) != 1 {
 		t.Errorf("expected 1 job enqueued, got %d", len(jobs))
@@ -669,17 +695,22 @@ func TestAPIServer_RunJob_Success(t *testing.T) {
 		t.Errorf("expected enqueued job id %q, got %q", resp.ID, jobs[0].GetId())
 	}
 
-	infoCalls := logger.GetInfoCalls()
+	deadline := time.Now().Add(2 * time.Second)
 	hasEnqueuedMsg := false
-	for _, msg := range infoCalls {
-		if strings.Contains(msg, "Enqueued ephemeral job: "+resp.ID) {
-			hasEnqueuedMsg = true
-			break
+	for time.Now().Before(deadline) && !hasEnqueuedMsg {
+		for _, msg := range logger.GetInfoCalls() {
+			if strings.Contains(msg, "Enqueued ephemeral job: "+resp.ID) {
+				hasEnqueuedMsg = true
+				break
+			}
+		}
+		if !hasEnqueuedMsg {
+			time.Sleep(5 * time.Millisecond)
 		}
 	}
 
 	if !hasEnqueuedMsg {
-		t.Errorf("expected logger to contain 'Enqueued ephemeral job: %s', got: %v", resp.ID, infoCalls)
+		t.Errorf("expected logger to contain 'Enqueued ephemeral job: %s', got: %v", resp.ID, logger.GetInfoCalls())
 	}
 }
 
@@ -722,6 +753,7 @@ func TestAPIServer_RunJob_OverwritesClientID(t *testing.T) {
 		t.Errorf("expected no stored job with client id, got %d", count)
 	}
 
+	waitForNEnqueuedJobs(t, queueService, 1)
 	jobs := queueService.GetJobs()
 	if len(jobs) != 1 || jobs[0].GetId() != resp.ID {
 		t.Errorf("enqueued job id should be %q, got %v", resp.ID, jobs)
@@ -794,21 +826,13 @@ func TestAPIServer_RunJob_QueueError(t *testing.T) {
 
 	server.RunJob(rec, req)
 
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Errorf("expected status %d, got %d", http.StatusServiceUnavailable, rec.Code)
+	if rec.Code != http.StatusAccepted {
+		t.Errorf("expected status %d, got %d", http.StatusAccepted, rec.Code)
 	}
 
-	errorCalls := logger.GetErrorCalls()
-	hasQueueError := false
-	for _, msg := range errorCalls {
-		if strings.Contains(msg, "Failed to enqueue job") {
-			hasQueueError = true
-			break
-		}
-	}
-
-	if !hasQueueError {
-		t.Errorf("expected logger error 'Failed to enqueue job', got: %v", errorCalls)
+	waitForLoggerErrorContaining(t, logger, "Failed to enqueue job")
+	if len(queueService.GetJobs()) != 0 {
+		t.Errorf("expected 0 jobs enqueued after queue error, got %d", len(queueService.GetJobs()))
 	}
 }
 

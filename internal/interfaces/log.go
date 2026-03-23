@@ -3,6 +3,7 @@ package interfaces
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	api "vectis/api/gen/go"
 
@@ -48,12 +49,17 @@ func (c *GRPCLogClient) Close() error {
 
 type grpcLogStream struct {
 	stream api.LogService_StreamLogsClient
+	mu sync.Mutex
 }
 
 func (s *grpcLogStream) Send(chunk *api.LogChunk) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.stream.Send(chunk)
 }
 
 func (s *grpcLogStream) CloseSend() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.stream.CloseSend()
 }

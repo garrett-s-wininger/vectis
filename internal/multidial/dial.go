@@ -56,7 +56,7 @@ func DialQueueAndLog(ctx context.Context, logger interfaces.Logger) (interfaces.
 
 func dialComponent(ctx context.Context, logger interfaces.Logger, reg *registry.Registry, pinned string, comp api.Component) (*grpc.ClientConn, func(), error) {
 	if pinned != "" {
-		return resolver.NewClientWithPinnedAddress(ctx, comp, pinned, logger)
+		return resolver.NewClientWithPinnedAddress(ctx, comp, pinned, logger, nil)
 	}
 
 	if reg == nil {

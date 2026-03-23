@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"sync"
@@ -145,6 +146,10 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 	for {
 		chunk, err := stream.Recv()
 		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+
 			return err
 		}
 
@@ -207,6 +212,7 @@ func (s *Server) HandleSSE(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	completed := make(chan struct{})
+	var completedOnce sync.Once
 
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
@@ -224,7 +230,7 @@ func (s *Server) HandleSSE(w http.ResponseWriter, r *http.Request) {
 			}
 			flusher.Flush()
 
-			// Close connection after sending "completed" so the client can just read until EOF.
+			// NOTE(garrett): Close connection after sending "completed" so the client can just read until EOF.
 			// Handles both live stream and replay (replay sends completed as last entry).
 			var entry LogEntry
 			if err := json.Unmarshal(msg, &entry); err != nil {
@@ -241,8 +247,11 @@ func (s *Server) HandleSSE(w http.ResponseWriter, r *http.Request) {
 				return true
 			}
 
-			close(completed)
-			return false
+			// NOTE(garrett): Do not stop the writer here. If we return false and exit the writer while the main
+			// goroutine is still replaying entries into outCh, it deadlocks (no reader). Main waits
+			// on <-completed and unsubscribes only after that; the writer must keep draining outCh.
+			completedOnce.Do(func() { close(completed) })
+			return true
 		}
 
 		for {

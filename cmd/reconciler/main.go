@@ -8,10 +8,10 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	api "vectis/api/gen/go"
 	"vectis/internal/config"
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
+	"vectis/internal/queueclient"
 	"vectis/internal/reconciler"
 	"vectis/internal/resolver"
 
@@ -21,7 +21,7 @@ import (
 )
 
 func runReconciler(cmd *cobra.Command, args []string) {
-	ctx := context.Background()
+	rootCtx := cmd.Context()
 	logger := interfaces.NewLogger("reconciler")
 
 	dbPath := database.GetDBPath()
@@ -32,22 +32,21 @@ func runReconciler(cmd *cobra.Command, args []string) {
 	}
 	defer db.Close()
 
-	var conn *grpc.ClientConn
-	queueCleanup := func() {}
-	defer func() { queueCleanup() }()
-
 	pin := config.ReconcilerQueueAddress()
-	conn, queueCleanup, err = resolver.DialQueue(ctx, logger, pin, config.ReconcilerRegistryDialAddress())
+	mq, err := queueclient.NewManagingQueueService(rootCtx, logger, func(ctx context.Context) (*grpc.ClientConn, func(), error) {
+		return resolver.DialQueue(ctx, logger, pin, config.ReconcilerRegistryDialAddress())
+	})
+
 	if err != nil {
 		logger.Fatal("Failed to connect to queue: %v", err)
 	}
+	defer func() { _ = mq.Close() }()
 
 	if pin == "" {
 		logger.Info("Connected to queue via registry resolution")
 	}
 
-	queueClient := interfaces.NewQueueService(api.NewQueueServiceClient(conn))
-	svc := reconciler.NewService(logger, db, queueClient, interfaces.SystemClock{})
+	svc := reconciler.NewService(logger, db, mq, interfaces.SystemClock{})
 
 	interval := config.ReconcilerInterval()
 	logger.Info("Reconciler polling every %v", interval)
@@ -55,7 +54,7 @@ func runReconciler(cmd *cobra.Command, args []string) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	if err := svc.Process(ctx); err != nil {
+	if err := svc.Process(rootCtx); err != nil {
 		logger.Error("Initial reconcile failed: %v", err)
 	}
 

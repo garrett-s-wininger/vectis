@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"vectis/internal/api"
 	"vectis/internal/dal"
@@ -41,6 +42,14 @@ func TestAPIServer_TriggerJob_OrchestrationUsesRepositories(t *testing.T) {
 
 	if runs.LastDefinitionVersion != 1 {
 		t.Fatalf("expected definition_version 1 for stored trigger, got %d", runs.LastDefinitionVersion)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(queue.GetJobs()) >= 1 && len(runs.TouchedRunIDs) >= 1 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 
 	if len(runs.TouchedRunIDs) != 1 || runs.TouchedRunIDs[0] != "run-1" {

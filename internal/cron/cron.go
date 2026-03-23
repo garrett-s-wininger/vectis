@@ -13,7 +13,10 @@ import (
 	"vectis/internal/config"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
+	"vectis/internal/queueclient"
 	"vectis/internal/resolver"
+
+	"google.golang.org/grpc"
 )
 
 type CronSchedule struct {
@@ -27,10 +30,10 @@ type CronService struct {
 	jobs             dal.JobsRepository
 	runs             dal.RunsRepository
 	schedules        dal.SchedulesRepository
-	logger           interfaces.Logger
-	queueClient      interfaces.QueueService
-	queueDialCleanup func()
-	parser           cron.Parser
+	logger       interfaces.Logger
+	queueClient  interfaces.QueueService
+	queueClose   func()
+	parser       cron.Parser
 	clock            interfaces.Clock
 }
 
@@ -56,6 +59,11 @@ func NewCronServiceWithRepositories(
 }
 
 func (s *CronService) SetQueueClient(client interfaces.QueueService) {
+	if s.queueClose != nil {
+		s.queueClose()
+		s.queueClose = nil
+	}
+
 	s.queueClient = client
 }
 
@@ -64,26 +72,31 @@ func (s *CronService) SetClock(clock interfaces.Clock) {
 }
 
 func (s *CronService) CloseQueueDial() {
-	if s.queueDialCleanup != nil {
-		s.queueDialCleanup()
-		s.queueDialCleanup = nil
+	if s.queueClose != nil {
+		s.queueClose()
+		s.queueClose = nil
 	}
 }
 
 func (s *CronService) ConnectToQueue(ctx context.Context) error {
 	s.CloseQueueDial()
+	s.queueClient = nil
 
 	pin := config.CronQueueAddress()
-	conn, cleanup, err := resolver.DialQueue(ctx, s.logger, pin, config.CronRegistryDialAddress())
+	mq, err := queueclient.NewManagingQueueService(ctx, s.logger, func(ctx context.Context) (*grpc.ClientConn, func(), error) {
+		return resolver.DialQueue(ctx, s.logger, pin, config.CronRegistryDialAddress())
+	})
+
 	if err != nil {
 		return fmt.Errorf("failed to connect to queue: %w", err)
 	}
 
-	s.queueDialCleanup = cleanup
-	s.queueClient = interfaces.NewQueueService(api.NewQueueServiceClient(conn))
+	s.queueClient = mq
+	s.queueClose = func() { _ = mq.Close() }
 	if pin == "" {
 		s.logger.Info("Connected to queue via registry resolution")
 	}
+
 	return nil
 }
 
@@ -159,8 +172,7 @@ func (s *CronService) TriggerJob(ctx context.Context, jobID string) error {
 	}
 
 	job.RunId = &runID
-	_, err = s.queueClient.Enqueue(ctx, job)
-	if err != nil {
+	if err := queueclient.EnqueueWithRetry(ctx, s.queueClient, job, s.logger); err != nil {
 		return err
 	}
 

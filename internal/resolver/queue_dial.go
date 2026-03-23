@@ -12,7 +12,7 @@ import (
 func DialQueue(ctx context.Context, logger interfaces.Logger, pinnedQueueAddr, registryDialAddr string) (*grpc.ClientConn, func(), error) {
 	if pinnedQueueAddr != "" {
 		logger.Info("Using pinned queue address: %s", pinnedQueueAddr)
-		return NewClientWithPinnedAddress(ctx, api.Component_COMPONENT_QUEUE, pinnedQueueAddr, logger)
+		return NewClientWithPinnedAddress(ctx, api.Component_COMPONENT_QUEUE, pinnedQueueAddr, logger, nil)
 	}
 
 	regClient, err := NewRegistryClient(ctx, registryDialAddr, logger, interfaces.SystemClock{})

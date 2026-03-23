@@ -54,10 +54,13 @@ func (e *Executor) ExecuteJob(ctx context.Context, job *api.Job, logClient inter
 
 	logger.Info("Created workspace: %s", workspace)
 
-	logStream, err := logClient.StreamLogs(ctx)
+	// NOTE(garrett): This has to be a separate context to prevent the normally deferred lease
+	// context from cancelling the log stream before we've sent all of our data.
+	logStream, err := logClient.StreamLogs(context.Background())
 	if err != nil {
 		return fmt.Errorf("failed to create log stream: %w", err)
 	}
+	defer func() { _ = logStream.CloseSend() }()
 
 	state := &action.ExecutionState{
 		JobID:     job.GetId(),
@@ -79,14 +82,10 @@ func (e *Executor) ExecuteJob(ctx context.Context, job *api.Job, logClient inter
 	if result.Status == action.StatusFailure {
 		logger.Error("Job failed: %v", result.Error)
 		sendLog(state, api.Stream_STREAM_CONTROL, `{"event":"completed","status":"failure"}`)
-		logStream.CloseSend()
-
 		return result.Error
 	}
 
 	sendLog(state, api.Stream_STREAM_CONTROL, `{"event":"completed","status":"success"}`)
-	logStream.CloseSend()
-
 	return nil
 }
 

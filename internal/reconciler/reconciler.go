@@ -10,6 +10,7 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
+	"vectis/internal/queueclient"
 )
 
 const MinDispatchGap = 30 * time.Second
@@ -104,7 +105,7 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 	job.Id = &jobID
 	job.RunId = &runID
 
-	if _, err := s.queueClient.Enqueue(ctx, &job); err != nil {
+	if err := queueclient.EnqueueWithRetry(ctx, s.queueClient, &job, s.logger); err != nil {
 		return fmt.Errorf("enqueue: %w", err)
 	}
 

@@ -19,6 +19,7 @@ import (
 	"vectis/internal/interfaces"
 	"vectis/internal/job"
 	"vectis/internal/multidial"
+	"vectis/internal/queueclient"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -44,19 +45,24 @@ func runWorker(cmd *cobra.Command, args []string) {
 	}
 	defer db.Close()
 
-	queueClient, logClient, cleanupDial, err := multidial.DialQueueAndLog(ctx, logger)
+	dial := func(ctx context.Context) (interfaces.QueueClient, interfaces.LogClient, func(), error) {
+		q, l, cleanup, err := multidial.DialQueueAndLog(ctx, logger)
+		return q, l, cleanup, err
+	}
+
+	clients, err := queueclient.NewManagingWorkerDial(ctx, logger, dial)
 	if err != nil {
 		logger.Fatal("Failed to connect to queue or log service: %v", err)
 	}
-	defer cleanupDial()
+	defer func() { _ = clients.Close() }()
 
 	w := &worker{
 		ctx:       ctx,
 		logger:    logger,
 		workerID:  workerID,
 		clock:     interfaces.SystemClock{},
-		queue:     queueClient,
-		logClient: logClient,
+		queue:     clients,
+		logClient: clients,
 		executor:  job.NewExecutor(),
 		store:     dal.NewSQLRepositories(db).Runs(),
 	}

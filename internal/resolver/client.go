@@ -3,8 +3,10 @@ package resolver
 import (
 	"context"
 	"fmt"
+	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/backoff"
 	"vectis/internal/interfaces"
 	"vectis/internal/registry"
 
@@ -15,16 +17,59 @@ import (
 	_ "google.golang.org/grpc/health"
 )
 
-func NewClientWithPinnedAddress(ctx context.Context, comp api.Component, addr string, logger interfaces.Logger) (*grpc.ClientConn, func(), error) {
-	_ = ctx
+const (
+	pinnedDialMaxTries  = 5
+	pinnedDialBaseDelay = 500 * time.Millisecond
+)
+
+func NewClientWithPinnedAddress(ctx context.Context, comp api.Component, addr string, logger interfaces.Logger, clock interfaces.Clock) (*grpc.ClientConn, func(), error) {
+	if clock == nil {
+		clock = interfaces.SystemClock{}
+	}
+
 	serviceName := comp.String()
 	target := fmt.Sprintf("static:///%s", addr)
 	logger.Debug("resolver: connecting to %s at %s (pinned)", serviceName, target)
 
-	conn, err := grpc.NewClient(target,
+	staticB := &staticBuilder{addr: addr, logger: logger}
+
+	opts := []grpc.DialOption{
+		grpc.WithResolvers(staticB),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithDefaultServiceConfig(grpcDefaultServiceConfigJSON(comp)),
-	)
+		grpc.WithDefaultServiceConfig(`{"loadBalancingPolicy":"pick_first"}`),
+	}
+
+	var conn *grpc.ClientConn
+	retryer := backoff.NewRetryer(backoff.RetryConfig{
+		MaxTries:  pinnedDialMaxTries,
+		BaseDelay: pinnedDialBaseDelay,
+		Clock:     clock,
+	})
+
+	err := retryer.Do(ctx, func() error {
+		if conn != nil {
+			_ = conn.Close()
+			conn = nil
+		}
+
+		var e error
+		conn, e = grpc.NewClient(target, opts...)
+		if e != nil {
+			return e
+		}
+
+		if e = waitForConnReady(ctx, conn); e != nil {
+			_ = conn.Close()
+			conn = nil
+			return e
+		}
+
+		return nil
+	}, func(attempt int, nextDelay time.Duration, err error) {
+		logger.Warn("resolver: pinned connect to %s at %s (attempt %d/%d): %v; retrying in %v",
+			serviceName, addr, attempt, pinnedDialMaxTries, err, nextDelay)
+	})
+
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolver: failed to connect to %s at %s: %w", serviceName, addr, err)
 	}
@@ -38,7 +83,7 @@ func NewRegistryClient(ctx context.Context, addr string, logger interfaces.Logge
 
 func NewClientWithRegistry(ctx context.Context, comp api.Component, logger interfaces.Logger, regClient *registry.Registry) (*grpc.ClientConn, func(), error) {
 	if addr := pinnedAddress(comp); addr != "" {
-		return NewClientWithPinnedAddress(ctx, comp, addr, logger)
+		return NewClientWithPinnedAddress(ctx, comp, addr, logger, nil)
 	}
 
 	builder := BuildResolver(comp, regClient, logger)

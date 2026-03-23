@@ -14,6 +14,7 @@ import (
 	"vectis/internal/config"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
+	"vectis/internal/queueclient"
 	"vectis/internal/resolver"
 
 	"github.com/google/uuid"
@@ -27,8 +28,7 @@ type APIServer struct {
 	ephemeralRuns  dal.EphemeralRunStarter
 	logger         interfaces.Logger
 	queueClient    interfaces.QueueService
-	queueConn      *grpc.ClientConn
-	queueCleanup   func()
+	queueClose     func()
 	runBroadcaster *RunBroadcaster
 }
 
@@ -53,18 +53,30 @@ func NewAPIServerWithRepositories(
 }
 
 func (s *APIServer) SetQueueClient(client interfaces.QueueService) {
+	if s.queueClose != nil {
+		s.queueClose()
+		s.queueClose = nil
+	}
 	s.queueClient = client
 }
 
 func (s *APIServer) ConnectToQueue(ctx context.Context) error {
-	conn, cleanup, err := resolver.DialQueue(ctx, s.logger, config.PinnedQueueAddress(), config.APIRegistryDialAddress())
+	if s.queueClose != nil {
+		s.queueClose()
+		s.queueClose = nil
+	}
+	s.queueClient = nil
+
+	mq, err := queueclient.NewManagingQueueService(ctx, s.logger, func(ctx context.Context) (*grpc.ClientConn, func(), error) {
+		return resolver.DialQueue(ctx, s.logger, config.PinnedQueueAddress(), config.APIRegistryDialAddress())
+	})
+
 	if err != nil {
 		return fmt.Errorf("failed to connect to queue: %w", err)
 	}
 
-	s.queueClient = interfaces.NewQueueService(api.NewQueueServiceClient(conn))
-	s.queueConn = conn
-	s.queueCleanup = cleanup
+	s.queueClient = mq
+	s.queueClose = func() { _ = mq.Close() }
 	return nil
 }
 
@@ -215,17 +227,6 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 	s.runBroadcaster.Broadcast(jobID, runID, runIndex)
 	job.RunId = &runID
 
-	if err := enqueueWithRetry(r.Context(), s.queueClient, &job, s.logger); err != nil {
-		s.logger.Error("Failed to enqueue job: %v", err)
-		http.Error(w, "failed to enqueue job", http.StatusServiceUnavailable)
-		return
-	}
-
-	if err := s.runs.TouchDispatched(r.Context(), runID); err != nil {
-		s.logger.Error("TouchDispatched after enqueue (run %s): %v", runID, err)
-	}
-
-	s.logger.Info("Triggered job: %s (run %s, index %d)", jobID, runID, runIndex)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	if err := json.NewEncoder(w).Encode(map[string]any{
@@ -234,7 +235,26 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		"run_index": runIndex,
 	}); err != nil {
 		s.logger.Error("Failed to encode trigger response: %v", err)
+		return
 	}
+
+	// NOTE(garrett): We finish the enqueue asynchronously so that we can response immediately to the client,
+	// rather than them waiting for the enqueue to complete (dual enqueue is idempotent by worker claim).
+	jobCopy := job
+	go s.finishTriggerEnqueue(context.Background(), jobID, runID, runIndex, &jobCopy)
+}
+
+func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID string, runIndex int, job *api.Job) {
+	if err := enqueueWithRetry(ctx, s.queueClient, job, s.logger); err != nil {
+		s.logger.Error("Failed to enqueue job (run %s): %v", runID, err)
+		return
+	}
+
+	if err := s.runs.TouchDispatched(ctx, runID); err != nil {
+		s.logger.Error("TouchDispatched after enqueue (run %s): %v", runID, err)
+	}
+
+	s.logger.Info("Triggered job: %s (run %s, index %d)", jobID, runID, runIndex)
 }
 
 func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) {
@@ -321,17 +341,6 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 
 	job.RunId = &runID
 
-	if err := enqueueWithRetry(r.Context(), s.queueClient, &job, s.logger); err != nil {
-		s.logger.Error("Failed to enqueue job: %v", err)
-		http.Error(w, "failed to enqueue job", http.StatusServiceUnavailable)
-		return
-	}
-
-	if err := s.runs.TouchDispatched(r.Context(), runID); err != nil {
-		s.logger.Error("TouchDispatched after enqueue (run %s): %v", runID, err)
-	}
-
-	s.logger.Info("Enqueued ephemeral job: %s (run %s)", generatedID, runID)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	if err := json.NewEncoder(w).Encode(map[string]string{
@@ -339,7 +348,24 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		"run_id": runID,
 	}); err != nil {
 		s.logger.Error("Failed to encode response: %v", err)
+		return
 	}
+
+	jobCopy := job
+	go s.finishRunJobEnqueue(context.Background(), generatedID, runID, &jobCopy)
+}
+
+func (s *APIServer) finishRunJobEnqueue(ctx context.Context, generatedID, runID string, job *api.Job) {
+	if err := enqueueWithRetry(ctx, s.queueClient, job, s.logger); err != nil {
+		s.logger.Error("Failed to enqueue job (run %s): %v", runID, err)
+		return
+	}
+
+	if err := s.runs.TouchDispatched(ctx, runID); err != nil {
+		s.logger.Error("TouchDispatched after enqueue (run %s): %v", runID, err)
+	}
+
+	s.logger.Info("Enqueued ephemeral job: %s (run %s)", generatedID, runID)
 }
 
 func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
