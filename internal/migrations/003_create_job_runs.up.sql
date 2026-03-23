@@ -9,4 +9,3 @@ CREATE TABLE job_runs (
 );
 
 CREATE INDEX idx_job_runs_job_id_run_index ON job_runs (job_id, run_index DESC);
-

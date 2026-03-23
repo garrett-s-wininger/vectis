@@ -771,10 +771,10 @@ func listJobs(cmd *cobra.Command, args []string) {
 var triggerCmd = &cobra.Command{
 	Use:   "trigger [job-id]",
 	Short: "Trigger a stored job",
-	Long:  `Trigger a stored job by its job-id. The job must exist in the database.
+	Long: `Trigger a stored job by its job-id. The job must exist in the database.
 The API records the run and returns immediately (202 with run_id); enqueue to the queue happens in the background, so a down queue does not block this command.`,
-	Args:  cobra.ExactArgs(1),
-	Run:   triggerJob,
+	Args: cobra.ExactArgs(1),
+	Run:  triggerJob,
 }
 
 var logsCmd = &cobra.Command{
@@ -802,10 +802,10 @@ var logsJobCmd = &cobra.Command{
 var runCmd = &cobra.Command{
 	Use:   "run [path|-]",
 	Short: "Submit an ephemeral job",
-	Long:  `Submit a job definition to run once (ephemeral). Path is a JSON file; use "-" to read from stdin.
+	Long: `Submit a job definition to run once (ephemeral). Path is a JSON file; use "-" to read from stdin.
 On success prints the job ID (and run_id with --follow); the API returns after persisting the run, then enqueues in the background.`,
-	Args:  cobra.ExactArgs(1),
-	Run:   runJob,
+	Args: cobra.ExactArgs(1),
+	Run:  runJob,
 }
 
 var editCmd = &cobra.Command{

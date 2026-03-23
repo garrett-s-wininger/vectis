@@ -49,7 +49,7 @@ func (c *GRPCLogClient) Close() error {
 
 type grpcLogStream struct {
 	stream api.LogService_StreamLogsClient
-	mu sync.Mutex
+	mu     sync.Mutex
 }
 
 func (s *grpcLogStream) Send(chunk *api.LogChunk) error {

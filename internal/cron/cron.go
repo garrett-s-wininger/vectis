@@ -27,14 +27,14 @@ type CronSchedule struct {
 }
 
 type CronService struct {
-	jobs             dal.JobsRepository
-	runs             dal.RunsRepository
-	schedules        dal.SchedulesRepository
-	logger       interfaces.Logger
-	queueClient  interfaces.QueueService
-	queueClose   func()
-	parser       cron.Parser
-	clock            interfaces.Clock
+	jobs        dal.JobsRepository
+	runs        dal.RunsRepository
+	schedules   dal.SchedulesRepository
+	logger      interfaces.Logger
+	queueClient interfaces.QueueService
+	queueClose  func()
+	parser      cron.Parser
+	clock       interfaces.Clock
 }
 
 func NewCronService(logger interfaces.Logger, db *sql.DB) *CronService {
