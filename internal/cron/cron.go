@@ -237,16 +237,26 @@ func (s *CronService) ProcessSchedules(ctx context.Context) error {
 	return nil
 }
 
+func (s *CronService) WaitTimeToNextMinute() time.Duration {
+	now := s.clock.Now()
+	nextMinute := now.Truncate(time.Minute).Add(time.Minute)
+	return nextMinute.Sub(now)
+}
+
 func (s *CronService) Run(ctx context.Context) error {
-	// TODO(garrett): First trigger on actual minute boundary.
+	wait := s.WaitTimeToNextMinute()
+	s.logger.Info("Waiting %v until next minute boundary", wait)
+
+	select {
+	case <-ctx.Done():
+		return nil
+	case <-time.After(wait):
+	}
+
 	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
 
 	s.logger.Info("Cron service started, polling every 60 seconds")
-
-	if err := s.ProcessSchedules(ctx); err != nil {
-		s.logger.Error("Initial schedule processing failed: %v", err)
-	}
 
 	for {
 		select {

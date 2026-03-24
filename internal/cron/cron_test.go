@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"vectis/internal/cron"
+	"vectis/internal/dal"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/testutil/dbtest"
 )
@@ -443,5 +444,68 @@ func TestCronService_TriggerJob_Success(t *testing.T) {
 
 	if jobs[0].GetId() != "trigger-test" {
 		t.Errorf("expected job ID 'trigger-test', got %s", jobs[0].GetId())
+	}
+}
+
+func TestCronService_WaitTimeToNextMinute_AtSecondZero(t *testing.T) {
+	logger := mocks.NewMockLogger()
+	clock := mocks.NewMockClock()
+	clock.SetNow(time.Date(2026, 3, 15, 14, 30, 0, 0, time.UTC))
+
+	db := dbtest.NewTestDB(t)
+	jobs := dal.NewSQLRepositories(db).Jobs()
+	runs := dal.NewSQLRepositories(db).Runs()
+	schedules := dal.NewSQLRepositories(db).Schedules()
+
+	service := cron.NewCronServiceWithRepositories(logger, jobs, runs, schedules)
+	service.SetClock(clock)
+
+	wait := service.WaitTimeToNextMinute()
+	expected := 60 * time.Second
+
+	if wait != expected {
+		t.Errorf("expected wait time %v, got %v", expected, wait)
+	}
+}
+
+func TestCronService_WaitTimeToNextMinute_AtSecond30(t *testing.T) {
+	logger := mocks.NewMockLogger()
+	clock := mocks.NewMockClock()
+	clock.SetNow(time.Date(2026, 3, 15, 14, 30, 30, 0, time.UTC))
+
+	db := dbtest.NewTestDB(t)
+	jobs := dal.NewSQLRepositories(db).Jobs()
+	runs := dal.NewSQLRepositories(db).Runs()
+	schedules := dal.NewSQLRepositories(db).Schedules()
+
+	service := cron.NewCronServiceWithRepositories(logger, jobs, runs, schedules)
+	service.SetClock(clock)
+
+	wait := service.WaitTimeToNextMinute()
+	expected := 30 * time.Second
+
+	if wait != expected {
+		t.Errorf("expected wait time %v, got %v", expected, wait)
+	}
+}
+
+func TestCronService_WaitTimeToNextMinute_AtSecond59(t *testing.T) {
+	logger := mocks.NewMockLogger()
+	clock := mocks.NewMockClock()
+	clock.SetNow(time.Date(2026, 3, 15, 14, 30, 59, 500000000, time.UTC))
+
+	db := dbtest.NewTestDB(t)
+	jobs := dal.NewSQLRepositories(db).Jobs()
+	runs := dal.NewSQLRepositories(db).Runs()
+	schedules := dal.NewSQLRepositories(db).Schedules()
+
+	service := cron.NewCronServiceWithRepositories(logger, jobs, runs, schedules)
+	service.SetClock(clock)
+
+	wait := service.WaitTimeToNextMinute()
+	expected := 500 * time.Millisecond
+
+	if wait != expected {
+		t.Errorf("expected wait time %v, got %v", expected, wait)
 	}
 }
