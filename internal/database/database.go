@@ -11,6 +11,11 @@ import (
 )
 
 func GetDBPath() string {
+	dataHome := DataHome()
+	return config.DBDSN(dataHome)
+}
+
+func DataHome() string {
 	dataHome := os.Getenv("XDG_DATA_HOME")
 	if dataHome == "" {
 		home, err := os.UserHomeDir()
@@ -19,7 +24,8 @@ func GetDBPath() string {
 		}
 		dataHome = filepath.Join(home, ".local", "share")
 	}
-	return config.DBDSN(dataHome)
+
+	return dataHome
 }
 
 func OpenDB(dbPath string) (*sql.DB, error) {

@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/config"
+	"vectis/internal/database"
 	"vectis/internal/interfaces"
 	"vectis/internal/queue"
 	"vectis/internal/registry"
@@ -55,7 +57,25 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 	}
 
 	grpcServer := grpc.NewServer()
-	queue.RegisterQueueService(grpcServer, logger)
+	persistenceDir := viper.GetString("persistence_dir")
+	snapshotEvery := viper.GetInt("persistence_snapshot_every")
+
+	if persistenceDir == "" {
+		logger.Info("Queue persistence disabled")
+	} else {
+		logger.Info("Using queue persistence directory: %s (snapshot every %d mutations)", persistenceDir, snapshotEvery)
+	}
+
+	queueService, err := queue.NewQueueServiceWithOptions(logger, queue.QueueOptions{
+		PersistenceDir: persistenceDir,
+		SnapshotEvery:  snapshotEvery,
+	})
+
+	if err != nil {
+		logger.Fatal("Failed to initialize queue persistence: %v", err)
+	}
+
+	api.RegisterQueueServiceServer(grpcServer, queueService)
 
 	logger.Info("Queue server listening on %s", addr)
 	if err := grpcServer.Serve(ln); err != nil {
@@ -71,8 +91,20 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
+	defaultPersistenceDir := filepath.Join(database.DataHome(), "vectis", "queue")
+
+	viper.SetDefault("port", config.QueuePort())
+	viper.SetDefault("persistence_dir", defaultPersistenceDir)
+	viper.SetDefault("persistence_snapshot_every", 128)
+
 	rootCmd.PersistentFlags().Int("port", config.QueuePort(), "Port for the queue")
+	rootCmd.PersistentFlags().String("persistence-dir", defaultPersistenceDir, "Directory for queue WAL/snapshot persistence")
+	rootCmd.PersistentFlags().Int("persistence-snapshot-every", 128, "Persisted queue snapshot interval in queue mutations")
+
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
+	_ = viper.BindPFlag("persistence_dir", rootCmd.PersistentFlags().Lookup("persistence-dir"))
+	_ = viper.BindPFlag("persistence_snapshot_every", rootCmd.PersistentFlags().Lookup("persistence-snapshot-every"))
+
 	viper.SetEnvPrefix("VECTIS_QUEUE")
 	viper.AutomaticEnv()
 }
