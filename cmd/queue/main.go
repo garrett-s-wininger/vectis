@@ -30,7 +30,34 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 		logger.Fatal("Failed to listen: %v", err)
 	}
 
-	// TODO(garrett): Move to after queue is running.
+	grpcServer := grpc.NewServer()
+	persistenceDir := viper.GetString("persistence_dir")
+	snapshotEvery := viper.GetInt("persistence_snapshot_every")
+
+	if persistenceDir == "" {
+		logger.Info("Queue persistence disabled")
+	} else {
+		logger.Info("Using queue persistence directory: %s (snapshot every %d mutations)", persistenceDir, snapshotEvery)
+	}
+
+	queueService, err := queue.NewQueueServiceWithOptions(logger, queue.QueueOptions{
+		PersistenceDir: persistenceDir,
+		SnapshotEvery:  snapshotEvery,
+	})
+
+	if err != nil {
+		logger.Fatal("Failed to initialize queue persistence: %v", err)
+	}
+
+	api.RegisterQueueServiceServer(grpcServer, queueService)
+
+	logger.Info("Queue server listening on %s", addr)
+
+	serveErr := make(chan error, 1)
+	go func() {
+		serveErr <- grpcServer.Serve(ln)
+	}()
+
 	if config.QueueRegisterWithRegistry() {
 		regAddr := config.QueueRegistrationRegistryAddress()
 
@@ -56,30 +83,15 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 		logger.Info("Skipping registry registration (queue.register_with_registry is false)")
 	}
 
-	grpcServer := grpc.NewServer()
-	persistenceDir := viper.GetString("persistence_dir")
-	snapshotEvery := viper.GetInt("persistence_snapshot_every")
-
-	if persistenceDir == "" {
-		logger.Info("Queue persistence disabled")
-	} else {
-		logger.Info("Using queue persistence directory: %s (snapshot every %d mutations)", persistenceDir, snapshotEvery)
-	}
-
-	queueService, err := queue.NewQueueServiceWithOptions(logger, queue.QueueOptions{
-		PersistenceDir: persistenceDir,
-		SnapshotEvery:  snapshotEvery,
-	})
-
-	if err != nil {
-		logger.Fatal("Failed to initialize queue persistence: %v", err)
-	}
-
-	api.RegisterQueueServiceServer(grpcServer, queueService)
-
-	logger.Info("Queue server listening on %s", addr)
-	if err := grpcServer.Serve(ln); err != nil {
-		logger.Fatal("gRPC server failed: %v", err)
+	select {
+	case <-cmd.Context().Done():
+		logger.Info("Shutting down gRPC server...")
+		grpcServer.GracefulStop()
+		logger.Info("gRPC server stopped")
+	case err := <-serveErr:
+		if err != nil {
+			logger.Error("gRPC server failed: %v", err)
+		}
 	}
 }
 
