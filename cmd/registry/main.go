@@ -32,8 +32,21 @@ func runVectisRegistry(cmd *cobra.Command, args []string) {
 	api.RegisterRegistryServiceServer(grpcServer, registrySvc)
 
 	logger.Info("Registry server listening on %s", addr)
-	if err := grpcServer.Serve(ln); err != nil {
-		logger.Fatal("gRPC server failed: %v", err)
+
+	serveErr := make(chan error, 1)
+	go func() {
+		serveErr <- grpcServer.Serve(ln)
+	}()
+
+	select {
+	case <-cmd.Context().Done():
+		logger.Info("Shutting down gRPC server...")
+		grpcServer.GracefulStop()
+		logger.Info("gRPC server stopped")
+	case err := <-serveErr:
+		if err != nil {
+			logger.Error("gRPC server failed: %v", err)
+		}
 	}
 }
 
