@@ -5,9 +5,10 @@ package common;
 message Empty{}
 
 message Job {
-    string id = 1;      // logical job identifier (stored job or ephemeral id)
-    string run_id = 2;  // unique identifier for this execution
+    string id = 1;
+    string run_id = 2;
     Node root = 3;
+    string delivery_id = 4;
 }
 
 message Node {

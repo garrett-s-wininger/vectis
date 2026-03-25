@@ -22,6 +22,7 @@ const (
 	QueueService_Enqueue_FullMethodName    = "/QueueService/Enqueue"
 	QueueService_Dequeue_FullMethodName    = "/QueueService/Dequeue"
 	QueueService_TryDequeue_FullMethodName = "/QueueService/TryDequeue"
+	QueueService_Ack_FullMethodName        = "/QueueService/Ack"
 )
 
 // QueueServiceClient is the client API for QueueService service.
@@ -31,6 +32,7 @@ type QueueServiceClient interface {
 	Enqueue(ctx context.Context, in *Job, opts ...grpc.CallOption) (*Empty, error)
 	Dequeue(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Job, error)
 	TryDequeue(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Job, error)
+	Ack(ctx context.Context, in *AckRequest, opts ...grpc.CallOption) (*Empty, error)
 }
 
 type queueServiceClient struct {
@@ -71,6 +73,16 @@ func (c *queueServiceClient) TryDequeue(ctx context.Context, in *Empty, opts ...
 	return out, nil
 }
 
+func (c *queueServiceClient) Ack(ctx context.Context, in *AckRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, QueueService_Ack_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // QueueServiceServer is the server API for QueueService service.
 // All implementations must embed UnimplementedQueueServiceServer
 // for forward compatibility.
@@ -78,6 +90,7 @@ type QueueServiceServer interface {
 	Enqueue(context.Context, *Job) (*Empty, error)
 	Dequeue(context.Context, *Empty) (*Job, error)
 	TryDequeue(context.Context, *Empty) (*Job, error)
+	Ack(context.Context, *AckRequest) (*Empty, error)
 	mustEmbedUnimplementedQueueServiceServer()
 }
 
@@ -96,6 +109,9 @@ func (UnimplementedQueueServiceServer) Dequeue(context.Context, *Empty) (*Job, e
 }
 func (UnimplementedQueueServiceServer) TryDequeue(context.Context, *Empty) (*Job, error) {
 	return nil, status.Error(codes.Unimplemented, "method TryDequeue not implemented")
+}
+func (UnimplementedQueueServiceServer) Ack(context.Context, *AckRequest) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method Ack not implemented")
 }
 func (UnimplementedQueueServiceServer) mustEmbedUnimplementedQueueServiceServer() {}
 func (UnimplementedQueueServiceServer) testEmbeddedByValue()                      {}
@@ -172,6 +188,24 @@ func _QueueService_TryDequeue_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _QueueService_Ack_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AckRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(QueueServiceServer).Ack(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: QueueService_Ack_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(QueueServiceServer).Ack(ctx, req.(*AckRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // QueueService_ServiceDesc is the grpc.ServiceDesc for QueueService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -190,6 +224,10 @@ var QueueService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "TryDequeue",
 			Handler:    _QueueService_TryDequeue_Handler,
+		},
+		{
+			MethodName: "Ack",
+			Handler:    _QueueService_Ack_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

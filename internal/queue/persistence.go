@@ -4,9 +4,9 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	api "vectis/api/gen/go"
 
@@ -22,22 +22,36 @@ type walRecordType string
 
 const (
 	walRecordEnqueue walRecordType = "enqueue"
-	walRecordDequeue walRecordType = "dequeue"
+	walRecordDeliver walRecordType = "deliver"
+	walRecordAck     walRecordType = "ack"
 )
 
 type walRecord struct {
-	Index uint64        `json:"index"`
-	Type  walRecordType `json:"type"`
-	Job   []byte        `json:"job,omitempty"`
+	Index         uint64        `json:"index"`
+	Type          walRecordType `json:"type"`
+	Job           []byte        `json:"job,omitempty"`
+	DeliveryID    string        `json:"delivery_id,omitempty"`
+	LeaseUntilUTC int64         `json:"lease_until_utc,omitempty"`
+}
+
+type inflightSnapshot struct {
+	DeliveryID    string `json:"delivery_id"`
+	Job           []byte `json:"job"`
+	LeaseUntilUTC int64  `json:"lease_until_utc"`
 }
 
 type queueSnapshot struct {
-	LastAppliedIndex uint64   `json:"last_applied_index"`
-	Jobs             [][]byte `json:"jobs"`
+	LastAppliedIndex uint64             `json:"last_applied_index"`
+	Jobs             [][]byte           `json:"jobs"`
+	Inflight         []inflightSnapshot `json:"inflight"`
+}
+
+type inflightDelivery struct {
+	Job        *api.Job
+	LeaseUntil time.Time
 }
 
 type persistenceStore struct {
-	dir             string
 	walPath         string
 	snapshotPath    string
 	nextIndex       uint64
@@ -47,12 +61,18 @@ type persistenceStore struct {
 
 type queueState struct {
 	jobs             []*api.Job
+	inflight         map[string]inflightDelivery
 	lastAppliedIndex uint64
+}
+
+type snapshotState struct {
+	pending  []*api.Job
+	inflight map[string]inflightDelivery
 }
 
 func newPersistenceStore(dir string, snapshotEvery int) (*persistenceStore, *queueState, error) {
 	if dir == "" {
-		return nil, &queueState{}, nil
+		return nil, &queueState{inflight: make(map[string]inflightDelivery)}, nil
 	}
 
 	if snapshotEvery <= 0 {
@@ -64,7 +84,6 @@ func newPersistenceStore(dir string, snapshotEvery int) (*persistenceStore, *que
 	}
 
 	p := &persistenceStore{
-		dir:           dir,
 		walPath:       filepath.Join(dir, walFileName),
 		snapshotPath:  filepath.Join(dir, snapshotFileName),
 		nextIndex:     1,
@@ -80,7 +99,7 @@ func newPersistenceStore(dir string, snapshotEvery int) (*persistenceStore, *que
 }
 
 func (p *persistenceStore) loadState() (*queueState, error) {
-	state := &queueState{}
+	state := &queueState{inflight: make(map[string]inflightDelivery)}
 
 	snap, err := p.loadSnapshot()
 	if err != nil {
@@ -92,7 +111,14 @@ func (p *persistenceStore) loadState() (*queueState, error) {
 		if err != nil {
 			return nil, fmt.Errorf("decode snapshot jobs: %w", err)
 		}
+
 		state.jobs = jobs
+		inflight, err := decodeInflight(snap.Inflight)
+		if err != nil {
+			return nil, fmt.Errorf("decode snapshot inflight: %w", err)
+		}
+
+		state.inflight = inflight
 		state.lastAppliedIndex = snap.LastAppliedIndex
 		p.nextIndex = snap.LastAppliedIndex + 1
 	}
@@ -165,20 +191,24 @@ func (p *persistenceStore) replayWAL(state *queueState) error {
 	return nil
 }
 
-func (p *persistenceStore) appendEnqueue(job *api.Job, pending []*api.Job) error {
+func (p *persistenceStore) appendEnqueue(job *api.Job, state snapshotState) error {
 	payload, err := proto.Marshal(job)
 	if err != nil {
 		return fmt.Errorf("marshal enqueue job: %w", err)
 	}
 
-	return p.appendRecord(walRecord{Type: walRecordEnqueue, Job: payload}, pending)
+	return p.appendRecord(walRecord{Type: walRecordEnqueue, Job: payload}, state)
 }
 
-func (p *persistenceStore) appendDequeue(pending []*api.Job) error {
-	return p.appendRecord(walRecord{Type: walRecordDequeue}, pending)
+func (p *persistenceStore) appendDeliver(deliveryID string, leaseUntil time.Time, state snapshotState) error {
+	return p.appendRecord(walRecord{Type: walRecordDeliver, DeliveryID: deliveryID, LeaseUntilUTC: leaseUntil.UTC().Unix()}, state)
 }
 
-func (p *persistenceStore) appendRecord(rec walRecord, pending []*api.Job) error {
+func (p *persistenceStore) appendAck(deliveryID string, state snapshotState) error {
+	return p.appendRecord(walRecord{Type: walRecordAck, DeliveryID: deliveryID}, state)
+}
+
+func (p *persistenceStore) appendRecord(rec walRecord, state snapshotState) error {
 	rec.Index = p.nextIndex
 	p.nextIndex++
 
@@ -209,7 +239,7 @@ func (p *persistenceStore) appendRecord(rec walRecord, pending []*api.Job) error
 
 	p.opSinceSnapshot++
 	if p.opSinceSnapshot >= p.snapshotEvery {
-		if err := p.writeSnapshotAndTruncate(rec.Index, pending); err != nil {
+		if err := p.writeSnapshotAndTruncate(rec.Index, state); err != nil {
 			return err
 		}
 		p.opSinceSnapshot = 0
@@ -218,13 +248,18 @@ func (p *persistenceStore) appendRecord(rec walRecord, pending []*api.Job) error
 	return nil
 }
 
-func (p *persistenceStore) writeSnapshotAndTruncate(lastApplied uint64, pending []*api.Job) error {
-	jobs, err := encodeJobs(pending)
+func (p *persistenceStore) writeSnapshotAndTruncate(lastApplied uint64, state snapshotState) error {
+	jobs, err := encodeJobs(state.pending)
 	if err != nil {
 		return fmt.Errorf("encode pending queue for snapshot: %w", err)
 	}
 
-	snap := queueSnapshot{LastAppliedIndex: lastApplied, Jobs: jobs}
+	inflight, err := encodeInflight(state.inflight)
+	if err != nil {
+		return fmt.Errorf("encode inflight queue for snapshot: %w", err)
+	}
+
+	snap := queueSnapshot{LastAppliedIndex: lastApplied, Jobs: jobs, Inflight: inflight}
 	tmp := p.snapshotPath + ".tmp"
 
 	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
@@ -284,6 +319,37 @@ func decodeJobs(records [][]byte) ([]*api.Job, error) {
 	return jobs, nil
 }
 
+func encodeInflight(inflight map[string]inflightDelivery) ([]inflightSnapshot, error) {
+	out := make([]inflightSnapshot, 0, len(inflight))
+	for deliveryID, item := range inflight {
+		payload, err := proto.Marshal(item.Job)
+		if err != nil {
+			return nil, err
+		}
+
+		out = append(out, inflightSnapshot{
+			DeliveryID:    deliveryID,
+			Job:           payload,
+			LeaseUntilUTC: item.LeaseUntil.UTC().Unix(),
+		})
+	}
+
+	return out, nil
+}
+
+func decodeInflight(rows []inflightSnapshot) (map[string]inflightDelivery, error) {
+	out := make(map[string]inflightDelivery, len(rows))
+	for _, row := range rows {
+		var job api.Job
+		if err := proto.Unmarshal(row.Job, &job); err != nil {
+			return nil, err
+		}
+		out[row.DeliveryID] = inflightDelivery{Job: &job, LeaseUntil: time.Unix(row.LeaseUntilUTC, 0).UTC()}
+	}
+
+	return out, nil
+}
+
 func applyRecord(state *queueState, rec walRecord) error {
 	switch rec.Type {
 	case walRecordEnqueue:
@@ -291,15 +357,23 @@ func applyRecord(state *queueState, rec walRecord) error {
 		if err := proto.Unmarshal(rec.Job, &job); err != nil {
 			return fmt.Errorf("unmarshal enqueue payload: %w", err)
 		}
-
 		state.jobs = append(state.jobs, &job)
 		return nil
-	case walRecordDequeue:
+	case walRecordDeliver:
 		if len(state.jobs) == 0 {
-			return io.ErrUnexpectedEOF
+			return fmt.Errorf("replay deliver on empty pending queue")
 		}
 
+		job := state.jobs[0]
 		state.jobs = state.jobs[1:]
+		state.inflight[rec.DeliveryID] = inflightDelivery{
+			Job:        job,
+			LeaseUntil: time.Unix(rec.LeaseUntilUTC, 0).UTC(),
+		}
+
+		return nil
+	case walRecordAck:
+		delete(state.inflight, rec.DeliveryID)
 		return nil
 	default:
 		return fmt.Errorf("unknown wal record type: %q", rec.Type)

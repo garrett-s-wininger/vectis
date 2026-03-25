@@ -10,6 +10,7 @@ import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
+	sync "sync"
 	unsafe "unsafe"
 )
 
@@ -20,31 +21,96 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type AckRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DeliveryId    *string                `protobuf:"bytes,1,opt,name=delivery_id,json=deliveryId" json:"delivery_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AckRequest) Reset() {
+	*x = AckRequest{}
+	mi := &file_queue_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AckRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AckRequest) ProtoMessage() {}
+
+func (x *AckRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_queue_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AckRequest.ProtoReflect.Descriptor instead.
+func (*AckRequest) Descriptor() ([]byte, []int) {
+	return file_queue_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *AckRequest) GetDeliveryId() string {
+	if x != nil && x.DeliveryId != nil {
+		return *x.DeliveryId
+	}
+	return ""
+}
+
 var File_queue_proto protoreflect.FileDescriptor
 
 const file_queue_proto_rawDesc = "" +
 	"\n" +
-	"\vqueue.proto\x1a\fcommon.proto2\x86\x01\n" +
+	"\vqueue.proto\x1a\fcommon.proto\"-\n" +
+	"\n" +
+	"AckRequest\x12\x1f\n" +
+	"\vdelivery_id\x18\x01 \x01(\tR\n" +
+	"deliveryId2\xa9\x01\n" +
 	"\fQueueService\x12%\n" +
 	"\aEnqueue\x12\v.common.Job\x1a\r.common.Empty\x12%\n" +
 	"\aDequeue\x12\r.common.Empty\x1a\v.common.Job\x12(\n" +
 	"\n" +
-	"TryDequeue\x12\r.common.Empty\x1a\v.common.JobB!B\n" +
+	"TryDequeue\x12\r.common.Empty\x1a\v.common.Job\x12!\n" +
+	"\x03Ack\x12\v.AckRequest\x1a\r.common.EmptyB!B\n" +
 	"QueueProtoP\x01Z\x11vectis/api/gen/gob\beditionsp\xe8\a"
 
+var (
+	file_queue_proto_rawDescOnce sync.Once
+	file_queue_proto_rawDescData []byte
+)
+
+func file_queue_proto_rawDescGZIP() []byte {
+	file_queue_proto_rawDescOnce.Do(func() {
+		file_queue_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_queue_proto_rawDesc), len(file_queue_proto_rawDesc)))
+	})
+	return file_queue_proto_rawDescData
+}
+
+var file_queue_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_queue_proto_goTypes = []any{
-	(*Job)(nil),   // 0: common.Job
-	(*Empty)(nil), // 1: common.Empty
+	(*AckRequest)(nil), // 0: AckRequest
+	(*Job)(nil),        // 1: common.Job
+	(*Empty)(nil),      // 2: common.Empty
 }
 var file_queue_proto_depIdxs = []int32{
-	0, // 0: QueueService.Enqueue:input_type -> common.Job
-	1, // 1: QueueService.Dequeue:input_type -> common.Empty
-	1, // 2: QueueService.TryDequeue:input_type -> common.Empty
-	1, // 3: QueueService.Enqueue:output_type -> common.Empty
-	0, // 4: QueueService.Dequeue:output_type -> common.Job
-	0, // 5: QueueService.TryDequeue:output_type -> common.Job
-	3, // [3:6] is the sub-list for method output_type
-	0, // [0:3] is the sub-list for method input_type
+	1, // 0: QueueService.Enqueue:input_type -> common.Job
+	2, // 1: QueueService.Dequeue:input_type -> common.Empty
+	2, // 2: QueueService.TryDequeue:input_type -> common.Empty
+	0, // 3: QueueService.Ack:input_type -> AckRequest
+	2, // 4: QueueService.Enqueue:output_type -> common.Empty
+	1, // 5: QueueService.Dequeue:output_type -> common.Job
+	1, // 6: QueueService.TryDequeue:output_type -> common.Job
+	2, // 7: QueueService.Ack:output_type -> common.Empty
+	4, // [4:8] is the sub-list for method output_type
+	0, // [0:4] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name
@@ -62,12 +128,13 @@ func file_queue_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_queue_proto_rawDesc), len(file_queue_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   0,
+			NumMessages:   1,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_queue_proto_goTypes,
 		DependencyIndexes: file_queue_proto_depIdxs,
+		MessageInfos:      file_queue_proto_msgTypes,
 	}.Build()
 	File_queue_proto = out.File
 	file_queue_proto_goTypes = nil

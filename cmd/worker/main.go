@@ -137,10 +137,16 @@ func (w *worker) handleDequeueError(err error) (*api.Job, bool) {
 func (w *worker) handleJob(job *api.Job) {
 	jobID := job.GetId()
 	runID := job.GetRunId()
+	deliveryID := job.GetDeliveryId()
 	w.logger.Info("Dequeued job: %s (run %s)", jobID, runID)
 
 	if runID != "" {
-		w.runClaimedJob(job, jobID, runID)
+		w.runClaimedJob(job, jobID, runID, deliveryID)
+		return
+	}
+
+	if err := w.ackDelivery(deliveryID); err != nil {
+		w.logger.Error("Ack delivery %s failed for job %s: %v", deliveryID, jobID, err)
 		return
 	}
 
@@ -152,7 +158,7 @@ func (w *worker) handleJob(job *api.Job) {
 	w.logger.Info("Job completed successfully: %s", jobID)
 }
 
-func (w *worker) runClaimedJob(job *api.Job, jobID, runID string) {
+func (w *worker) runClaimedJob(job *api.Job, jobID, runID, deliveryID string) {
 	leaseUntil := time.Now().Add(dal.DefaultLeaseTTL)
 	claimed, claimErr := w.store.TryClaim(w.ctx, runID, w.workerID, leaseUntil)
 	if claimErr != nil {
@@ -162,6 +168,19 @@ func (w *worker) runClaimedJob(job *api.Job, jobID, runID string) {
 
 	if !claimed {
 		w.logger.Debug("Run %s not claimed (other worker or not queued); dropping message", runID)
+		if err := w.ackDelivery(deliveryID); err != nil {
+			w.logger.Warn("Ack delivery %s for unclaimed run %s failed: %v", deliveryID, runID, err)
+		}
+
+		return
+	}
+
+	if err := w.ackDelivery(deliveryID); err != nil {
+		w.logger.Error("Ack delivery %s failed for claimed run %s: %v", deliveryID, runID, err)
+		if markErr := w.store.MarkRunFailed(w.ctx, runID, "queue ack failed"); markErr != nil {
+			w.logger.Error("Failed to mark run %s failed after ack error: %v", runID, markErr)
+		}
+
 		return
 	}
 
@@ -190,6 +209,14 @@ func (w *worker) runClaimedJob(job *api.Job, jobID, runID string) {
 	}
 
 	w.logger.Info("Job completed successfully: %s", jobID)
+}
+
+func (w *worker) ackDelivery(deliveryID string) error {
+	if deliveryID == "" {
+		return nil
+	}
+
+	return w.queue.Ack(w.ctx, deliveryID)
 }
 
 func (w *worker) executeWithLeaseRenewal(runID string, job *api.Job) (renewFailed bool, err error) {

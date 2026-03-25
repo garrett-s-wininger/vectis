@@ -2,8 +2,13 @@ edition = "2023";
 
 import "common.proto";
 
+message AckRequest {
+    string delivery_id = 1;
+}
+
 service QueueService {
     rpc Enqueue(common.Job) returns (common.Empty);
     rpc Dequeue(common.Empty) returns (common.Job);
     rpc TryDequeue(common.Empty) returns (common.Job);
+    rpc Ack(AckRequest) returns (common.Empty);
 }

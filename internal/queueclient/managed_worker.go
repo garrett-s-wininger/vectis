@@ -154,6 +154,33 @@ func (m *ManagingWorkerDial) TryDequeue(ctx context.Context) (*api.Job, error) {
 	return job, err
 }
 
+func (m *ManagingWorkerDial) Ack(ctx context.Context, deliveryID string) error {
+	m.mu.RLock()
+	var err error
+	if m.queue != nil {
+		err = m.queue.Ack(ctx, deliveryID)
+	}
+	m.mu.RUnlock()
+
+	if err == nil || !IsTransientRPCError(err) {
+		return err
+	}
+
+	if m.reconnectAfterTransient(context.Background(), err) != nil {
+		return err
+	}
+
+	m.mu.RLock()
+	if m.queue != nil {
+		err = m.queue.Ack(ctx, deliveryID)
+	} else {
+		err = fmt.Errorf("queue client not available after reconnect")
+	}
+	m.mu.RUnlock()
+
+	return err
+}
+
 func (m *ManagingWorkerDial) StreamLogs(ctx context.Context) (interfaces.LogStream, error) {
 	m.mu.RLock()
 	var stream interfaces.LogStream

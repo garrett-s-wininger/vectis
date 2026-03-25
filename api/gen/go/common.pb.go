@@ -111,6 +111,7 @@ type Job struct {
 	Id            *string                `protobuf:"bytes,1,opt,name=id" json:"id,omitempty"`                    // logical job identifier (stored job or ephemeral id)
 	RunId         *string                `protobuf:"bytes,2,opt,name=run_id,json=runId" json:"run_id,omitempty"` // unique identifier for this execution
 	Root          *Node                  `protobuf:"bytes,3,opt,name=root" json:"root,omitempty"`
+	DeliveryId    *string                `protobuf:"bytes,4,opt,name=delivery_id,json=deliveryId" json:"delivery_id,omitempty"` // queue-assigned transient delivery token for Ack
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -164,6 +165,13 @@ func (x *Job) GetRoot() *Node {
 		return x.Root
 	}
 	return nil
+}
+
+func (x *Job) GetDeliveryId() string {
+	if x != nil && x.DeliveryId != nil {
+		return *x.DeliveryId
+	}
+	return ""
 }
 
 type Node struct {
@@ -307,11 +315,13 @@ var File_common_proto protoreflect.FileDescriptor
 const file_common_proto_rawDesc = "" +
 	"\n" +
 	"\fcommon.proto\x12\x06common\"\a\n" +
-	"\x05Empty\"N\n" +
+	"\x05Empty\"o\n" +
 	"\x03Job\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12 \n" +
-	"\x04root\x18\x03 \x01(\v2\f.common.NodeR\x04root\"\xb3\x01\n" +
+	"\x04root\x18\x03 \x01(\v2\f.common.NodeR\x04root\x12\x1f\n" +
+	"\vdelivery_id\x18\x04 \x01(\tR\n" +
+	"deliveryId\"\xb3\x01\n" +
 	"\x04Node\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04uses\x18\x02 \x01(\tR\x04uses\x12*\n" +

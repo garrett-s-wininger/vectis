@@ -14,6 +14,7 @@ type MockQueueClient struct {
 	jobs       []*api.Job
 	enqueueErr error
 	dequeueErr error
+	ackErr     error
 	closed     bool
 }
 
@@ -33,6 +34,12 @@ func (m *MockQueueClient) SetDequeueError(err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.dequeueErr = err
+}
+
+func (m *MockQueueClient) SetAckError(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ackErr = err
 }
 
 func (m *MockQueueClient) AddJob(job *api.Job) {
@@ -106,6 +113,17 @@ func (m *MockQueueClient) TryDequeue(ctx context.Context) (*api.Job, error) {
 	job := m.jobs[0]
 	m.jobs = m.jobs[1:]
 	return job, nil
+}
+
+func (m *MockQueueClient) Ack(ctx context.Context, deliveryID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.ackErr != nil {
+		return m.ackErr
+	}
+
+	return nil
 }
 
 func (m *MockQueueClient) Close() error {

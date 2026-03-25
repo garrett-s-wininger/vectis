@@ -12,6 +12,7 @@ type QueueClient interface {
 	Enqueue(ctx context.Context, job *api.Job) error
 	Dequeue(ctx context.Context) (*api.Job, error)
 	TryDequeue(ctx context.Context) (*api.Job, error)
+	Ack(ctx context.Context, deliveryID string) error
 	Close() error
 }
 
@@ -69,6 +70,14 @@ func (c *GRPCQueueClient) TryDequeue(ctx context.Context) (*api.Job, error) {
 		return nil, fmt.Errorf("failed to try dequeue job: %w", err)
 	}
 	return job, nil
+}
+
+func (c *GRPCQueueClient) Ack(ctx context.Context, deliveryID string) error {
+	_, err := c.client.Ack(ctx, &api.AckRequest{DeliveryId: &deliveryID})
+	if err != nil {
+		return fmt.Errorf("failed to ack delivery %q: %w", deliveryID, err)
+	}
+	return nil
 }
 
 func (c *GRPCQueueClient) Close() error {
