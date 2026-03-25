@@ -40,16 +40,10 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 		logger.Info("Using queue persistence directory: %s (snapshot every %d mutations)", persistenceDir, snapshotEvery)
 	}
 
-	queueService, err := queue.NewQueueServiceWithOptions(logger, queue.QueueOptions{
+	queue.RegisterQueueService(grpcServer, logger, queue.QueueOptions{
 		PersistenceDir: persistenceDir,
 		SnapshotEvery:  snapshotEvery,
 	})
-
-	if err != nil {
-		logger.Fatal("Failed to initialize queue persistence: %v", err)
-	}
-
-	api.RegisterQueueServiceServer(grpcServer, queueService)
 
 	logger.Info("Queue server listening on %s", addr)
 

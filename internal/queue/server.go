@@ -341,7 +341,11 @@ func (s *queueServer) grow() {
 	s.head = 0
 }
 
-func RegisterQueueService(s grpc.ServiceRegistrar, logger interfaces.Logger) {
-	qs := NewQueueService(logger)
+func RegisterQueueService(s grpc.ServiceRegistrar, logger interfaces.Logger, opts QueueOptions) {
+	qs, err := newQueueServer(logger, opts)
+	if err != nil {
+		logger.Fatal("Failed to initialize queue: %v", err)
+	}
+
 	api.RegisterQueueServiceServer(s, qs)
 }
