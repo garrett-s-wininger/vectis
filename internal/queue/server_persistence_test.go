@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	api "vectis/api/gen/go"
 )
@@ -123,5 +124,61 @@ func TestQueuePersistence_SnapshotTruncatesWAL(t *testing.T) {
 
 	if walInfo.Size() != 0 {
 		t.Fatalf("expected wal to be truncated after snapshot, size=%d", walInfo.Size())
+	}
+}
+
+func TestQueuePersistence_ExpiredRequeueSurvivesRestartBeforeSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+
+	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{
+		PersistenceDir: dir,
+		SnapshotEvery:  1000,
+		DeliveryTTL:    20 * time.Millisecond,
+	})
+
+	if err != nil {
+		t.Fatalf("create persisted queue: %v", err)
+	}
+
+	job1 := "job-1"
+	if _, err := svc.Enqueue(ctx, &api.Job{Id: &job1}); err != nil {
+		t.Fatalf("enqueue job-1: %v", err)
+	}
+
+	if _, err := svc.Dequeue(ctx, &api.Empty{}); err != nil {
+		t.Fatalf("dequeue job-1: %v", err)
+	}
+
+	time.Sleep(30 * time.Millisecond)
+
+	job2 := "job-2"
+	if _, err := svc.Enqueue(ctx, &api.Job{Id: &job2}); err != nil {
+		t.Fatalf("enqueue job-2: %v", err)
+	}
+
+	restarted, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{
+		PersistenceDir: dir,
+		SnapshotEvery:  1000,
+		DeliveryTTL:    20 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("restart queue: %v", err)
+	}
+
+	first, err := restarted.TryDequeue(ctx, &api.Empty{})
+	if err != nil {
+		t.Fatalf("first dequeue after restart: %v", err)
+	}
+	if first == nil || first.GetId() != "job-1" {
+		t.Fatalf("expected first replayed job-1, got %#v", first)
+	}
+
+	second, err := restarted.TryDequeue(ctx, &api.Empty{})
+	if err != nil {
+		t.Fatalf("second dequeue after restart: %v", err)
+	}
+	if second == nil || second.GetId() != "job-2" {
+		t.Fatalf("expected second job-2, got %#v", second)
 	}
 }

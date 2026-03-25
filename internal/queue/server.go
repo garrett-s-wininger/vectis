@@ -87,7 +87,9 @@ func newQueueServer(logger interfaces.Logger, opts QueueOptions) (*queueServer, 
 func (s *queueServer) Enqueue(ctx context.Context, req *api.Job) (*api.Empty, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.requeueExpiredLocked(time.Now().UTC())
+	if err := s.requeueExpiredLocked(time.Now().UTC()); err != nil {
+		return nil, err
+	}
 
 	if s.persistence != nil {
 		if err := s.persistence.appendEnqueue(req, s.snapshotAfterEnqueueLocked(req)); err != nil {
@@ -117,7 +119,10 @@ func (s *queueServer) Dequeue(ctx context.Context, _ *api.Empty) (*api.Job, erro
 	defer s.mu.Unlock()
 
 	for s.size == 0 {
-		s.requeueExpiredLocked(time.Now().UTC())
+		if err := s.requeueExpiredLocked(time.Now().UTC()); err != nil {
+			return nil, err
+		}
+
 		if s.size > 0 {
 			break
 		}
@@ -163,7 +168,9 @@ func (s *queueServer) Dequeue(ctx context.Context, _ *api.Empty) (*api.Job, erro
 func (s *queueServer) TryDequeue(ctx context.Context, _ *api.Empty) (*api.Job, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.requeueExpiredLocked(time.Now().UTC())
+	if err := s.requeueExpiredLocked(time.Now().UTC()); err != nil {
+		return nil, err
+	}
 
 	if s.size == 0 {
 		return nil, nil
@@ -192,7 +199,9 @@ func (s *queueServer) TryDequeue(ctx context.Context, _ *api.Empty) (*api.Job, e
 func (s *queueServer) Ack(ctx context.Context, req *api.AckRequest) (*api.Empty, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.requeueExpiredLocked(time.Now().UTC())
+	if err := s.requeueExpiredLocked(time.Now().UTC()); err != nil {
+		return nil, err
+	}
 
 	deliveryID := req.GetDeliveryId()
 	if deliveryID == "" {
@@ -254,10 +263,25 @@ func (s *queueServer) copyInflightLocked() map[string]inflightDelivery {
 	return out
 }
 
-func (s *queueServer) requeueExpiredLocked(now time.Time) {
+func (s *queueServer) snapshotAfterExpiredRequeueLocked(deliveryID string, item inflightDelivery) snapshotState {
+	pending := s.pendingJobsLocked()
+	pending = append(pending, item.Job)
+
+	inflight := s.copyInflightLocked()
+	delete(inflight, deliveryID)
+	return snapshotState{pending: pending, inflight: inflight}
+}
+
+func (s *queueServer) requeueExpiredLocked(now time.Time) error {
 	for deliveryID, item := range s.inflight {
 		if item.LeaseUntil.After(now) {
 			continue
+		}
+
+		if s.persistence != nil {
+			if err := s.persistence.appendRequeueExpired(deliveryID, item.Job, s.snapshotAfterExpiredRequeueLocked(deliveryID, item)); err != nil {
+				return fmt.Errorf("persist expired requeue %s: %w", deliveryID, err)
+			}
 		}
 
 		if s.size == len(s.jobs) {
@@ -275,6 +299,8 @@ func (s *queueServer) requeueExpiredLocked(now time.Time) {
 		default:
 		}
 	}
+
+	return nil
 }
 
 func (s *queueServer) loadPending(jobs []*api.Job) {

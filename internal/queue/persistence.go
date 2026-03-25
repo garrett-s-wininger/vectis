@@ -24,6 +24,7 @@ const (
 	walRecordEnqueue walRecordType = "enqueue"
 	walRecordDeliver walRecordType = "deliver"
 	walRecordAck     walRecordType = "ack"
+	walRecordRequeue walRecordType = "requeue_expired"
 )
 
 type walRecord struct {
@@ -208,6 +209,15 @@ func (p *persistenceStore) appendAck(deliveryID string, state snapshotState) err
 	return p.appendRecord(walRecord{Type: walRecordAck, DeliveryID: deliveryID}, state)
 }
 
+func (p *persistenceStore) appendRequeueExpired(deliveryID string, job *api.Job, state snapshotState) error {
+	payload, err := proto.Marshal(job)
+	if err != nil {
+		return fmt.Errorf("marshal requeue job: %w", err)
+	}
+
+	return p.appendRecord(walRecord{Type: walRecordRequeue, DeliveryID: deliveryID, Job: payload}, state)
+}
+
 func (p *persistenceStore) appendRecord(rec walRecord, state snapshotState) error {
 	rec.Index = p.nextIndex
 	p.nextIndex++
@@ -374,6 +384,15 @@ func applyRecord(state *queueState, rec walRecord) error {
 		return nil
 	case walRecordAck:
 		delete(state.inflight, rec.DeliveryID)
+		return nil
+	case walRecordRequeue:
+		var job api.Job
+		if err := proto.Unmarshal(rec.Job, &job); err != nil {
+			return fmt.Errorf("unmarshal requeue payload: %w", err)
+		}
+
+		delete(state.inflight, rec.DeliveryID)
+		state.jobs = append(state.jobs, &job)
 		return nil
 	default:
 		return fmt.Errorf("unknown wal record type: %q", rec.Type)
