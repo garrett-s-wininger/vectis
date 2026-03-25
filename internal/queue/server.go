@@ -17,6 +17,8 @@ type QueueOptions struct {
 	PersistenceDir string
 	SnapshotEvery  int
 	DeliveryTTL    time.Duration
+	WALSegmentMax  int64
+	WALRetainTail  int
 }
 
 type queueServer struct {
@@ -65,7 +67,7 @@ func newQueueServer(logger interfaces.Logger, opts QueueOptions) (*queueServer, 
 		log:         logger,
 	}
 
-	store, state, err := newPersistenceStore(opts.PersistenceDir, opts.SnapshotEvery)
+	store, state, err := newPersistenceStore(opts.PersistenceDir, opts.SnapshotEvery, opts.WALSegmentMax, opts.WALRetainTail)
 	if err != nil {
 		return nil, err
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -106,6 +107,7 @@ func TestQueuePersistence_SnapshotTruncatesWAL(t *testing.T) {
 	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{
 		PersistenceDir: dir,
 		SnapshotEvery:  1,
+		WALRetainTail:  2,
 	})
 
 	if err != nil {
@@ -117,13 +119,9 @@ func TestQueuePersistence_SnapshotTruncatesWAL(t *testing.T) {
 		t.Fatalf("enqueue: %v", err)
 	}
 
-	walInfo, err := os.Stat(filepath.Join(dir, walFileName))
-	if err != nil {
-		t.Fatalf("stat wal: %v", err)
-	}
-
-	if walInfo.Size() != 0 {
-		t.Fatalf("expected wal to be truncated after snapshot, size=%d", walInfo.Size())
+	segments := listWALSegments(t, dir)
+	if len(segments) == 0 || len(segments) > 2 {
+		t.Fatalf("expected 1-2 wal segments after compaction, got %d", len(segments))
 	}
 }
 
@@ -135,6 +133,8 @@ func TestQueuePersistence_ExpiredRequeueSurvivesRestartBeforeSnapshot(t *testing
 		PersistenceDir: dir,
 		SnapshotEvery:  1000,
 		DeliveryTTL:    20 * time.Millisecond,
+		WALSegmentMax:  256,
+		WALRetainTail:  2,
 	})
 
 	if err != nil {
@@ -161,6 +161,8 @@ func TestQueuePersistence_ExpiredRequeueSurvivesRestartBeforeSnapshot(t *testing
 		PersistenceDir: dir,
 		SnapshotEvery:  1000,
 		DeliveryTTL:    20 * time.Millisecond,
+		WALSegmentMax:  256,
+		WALRetainTail:  2,
 	})
 	if err != nil {
 		t.Fatalf("restart queue: %v", err)
@@ -181,4 +183,24 @@ func TestQueuePersistence_ExpiredRequeueSurvivesRestartBeforeSnapshot(t *testing
 	if second == nil || second.GetId() != "job-2" {
 		t.Fatalf("expected second job-2, got %#v", second)
 	}
+}
+
+func listWALSegments(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read dir: %v", err)
+	}
+
+	segments := make([]string, 0)
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if strings.HasPrefix(e.Name(), walSegmentPrefix) {
+			segments = append(segments, filepath.Join(dir, e.Name()))
+		}
+	}
+
+	return segments
 }

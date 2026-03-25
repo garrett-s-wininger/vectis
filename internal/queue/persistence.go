@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	api "vectis/api/gen/go"
@@ -14,8 +17,10 @@ import (
 )
 
 const (
-	walFileName      = "queue.wal"
-	snapshotFileName = "queue.snapshot"
+	snapshotFileName          = "queue.snapshot"
+	walSegmentPrefix          = "queue.wal."
+	defaultSegmentMaxBytes    = 4 * 1024 * 1024
+	defaultRetainTailSegments = 2
 )
 
 type walRecordType string
@@ -53,11 +58,13 @@ type inflightDelivery struct {
 }
 
 type persistenceStore struct {
-	walPath         string
-	snapshotPath    string
-	nextIndex       uint64
-	snapshotEvery   int
-	opSinceSnapshot int
+	dir                string
+	snapshotPath       string
+	nextIndex          uint64
+	snapshotEvery      int
+	opSinceSnapshot    int
+	segmentMaxBytes    int64
+	retainTailSegments int
 }
 
 type queueState struct {
@@ -71,7 +78,7 @@ type snapshotState struct {
 	inflight map[string]inflightDelivery
 }
 
-func newPersistenceStore(dir string, snapshotEvery int) (*persistenceStore, *queueState, error) {
+func newPersistenceStore(dir string, snapshotEvery int, segmentMaxBytes int64, retainTailSegments int) (*persistenceStore, *queueState, error) {
 	if dir == "" {
 		return nil, &queueState{inflight: make(map[string]inflightDelivery)}, nil
 	}
@@ -79,16 +86,25 @@ func newPersistenceStore(dir string, snapshotEvery int) (*persistenceStore, *que
 	if snapshotEvery <= 0 {
 		snapshotEvery = 128
 	}
+	if segmentMaxBytes <= 0 {
+		segmentMaxBytes = defaultSegmentMaxBytes
+	}
+
+	if retainTailSegments <= 0 {
+		retainTailSegments = defaultRetainTailSegments
+	}
 
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, nil, fmt.Errorf("create queue persistence dir: %w", err)
 	}
 
 	p := &persistenceStore{
-		walPath:       filepath.Join(dir, walFileName),
-		snapshotPath:  filepath.Join(dir, snapshotFileName),
-		nextIndex:     1,
-		snapshotEvery: snapshotEvery,
+		dir:                dir,
+		snapshotPath:       filepath.Join(dir, snapshotFileName),
+		nextIndex:          1,
+		snapshotEvery:      snapshotEvery,
+		segmentMaxBytes:    segmentMaxBytes,
+		retainTailSegments: retainTailSegments,
 	}
 
 	state, err := p.loadState()
@@ -150,43 +166,53 @@ func (p *persistenceStore) loadSnapshot() (*queueSnapshot, error) {
 }
 
 func (p *persistenceStore) replayWAL(state *queueState) error {
-	f, err := os.Open(p.walPath)
+	segments, err := p.listWALSegments()
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("open wal: %w", err)
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
-		}
-
-		var rec walRecord
-		if err := json.Unmarshal(line, &rec); err != nil {
-			return fmt.Errorf("decode wal record: %w", err)
-		}
-
-		if rec.Index <= state.lastAppliedIndex {
-			continue
-		}
-
-		if err := applyRecord(state, rec); err != nil {
-			return err
-		}
-
-		state.lastAppliedIndex = rec.Index
-		if rec.Index >= p.nextIndex {
-			p.nextIndex = rec.Index + 1
-		}
+		return err
 	}
 
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("scan wal: %w", err)
+	for _, seg := range segments {
+		f, err := os.Open(seg)
+		if err != nil {
+			return fmt.Errorf("open wal segment %s: %w", seg, err)
+		}
+
+		scanner := bufio.NewScanner(f)
+		for scanner.Scan() {
+			line := scanner.Bytes()
+			if len(line) == 0 {
+				continue
+			}
+
+			var rec walRecord
+			if err := json.Unmarshal(line, &rec); err != nil {
+				_ = f.Close()
+				return fmt.Errorf("decode wal record in %s: %w", seg, err)
+			}
+
+			if rec.Index <= state.lastAppliedIndex {
+				continue
+			}
+
+			if err := applyRecord(state, rec); err != nil {
+				_ = f.Close()
+				return err
+			}
+
+			state.lastAppliedIndex = rec.Index
+			if rec.Index >= p.nextIndex {
+				p.nextIndex = rec.Index + 1
+			}
+		}
+
+		if err := scanner.Err(); err != nil {
+			_ = f.Close()
+			return fmt.Errorf("scan wal segment %s: %w", seg, err)
+		}
+
+		if err := f.Close(); err != nil {
+			return fmt.Errorf("close wal segment %s: %w", seg, err)
+		}
 	}
 
 	return nil
@@ -222,9 +248,14 @@ func (p *persistenceStore) appendRecord(rec walRecord, state snapshotState) erro
 	rec.Index = p.nextIndex
 	p.nextIndex++
 
-	f, err := os.OpenFile(p.walPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	segPath, segSeq, err := p.ensureActiveSegment()
 	if err != nil {
-		return fmt.Errorf("open wal for append: %w", err)
+		return err
+	}
+
+	f, err := os.OpenFile(segPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return fmt.Errorf("open wal segment for append %s: %w", segPath, err)
 	}
 
 	enc, err := json.Marshal(rec)
@@ -240,25 +271,30 @@ func (p *persistenceStore) appendRecord(rec walRecord, state snapshotState) erro
 
 	if err := f.Sync(); err != nil {
 		_ = f.Close()
-		return fmt.Errorf("sync wal: %w", err)
+		return fmt.Errorf("sync wal segment: %w", err)
 	}
 
 	if err := f.Close(); err != nil {
-		return fmt.Errorf("close wal: %w", err)
+		return fmt.Errorf("close wal segment: %w", err)
+	}
+
+	if err := p.rotateIfNeeded(segPath, segSeq); err != nil {
+		return err
 	}
 
 	p.opSinceSnapshot++
 	if p.opSinceSnapshot >= p.snapshotEvery {
-		if err := p.writeSnapshotAndTruncate(rec.Index, state); err != nil {
+		if err := p.writeSnapshotAndCompact(rec.Index, state); err != nil {
 			return err
 		}
+
 		p.opSinceSnapshot = 0
 	}
 
 	return nil
 }
 
-func (p *persistenceStore) writeSnapshotAndTruncate(lastApplied uint64, state snapshotState) error {
+func (p *persistenceStore) writeSnapshotAndCompact(lastApplied uint64, state snapshotState) error {
 	jobs, err := encodeJobs(state.pending)
 	if err != nil {
 		return fmt.Errorf("encode pending queue for snapshot: %w", err)
@@ -296,11 +332,180 @@ func (p *persistenceStore) writeSnapshotAndTruncate(lastApplied uint64, state sn
 		return fmt.Errorf("promote snapshot: %w", err)
 	}
 
-	if err := os.WriteFile(p.walPath, nil, 0o644); err != nil {
-		return fmt.Errorf("truncate wal: %w", err)
+	if err := p.compactSegments(lastApplied); err != nil {
+		return err
 	}
 
 	return nil
+}
+
+func (p *persistenceStore) compactSegments(lastApplied uint64) error {
+	segments, err := p.listWALSegments()
+	if err != nil {
+		return err
+	}
+
+	if len(segments) <= p.retainTailSegments {
+		return nil
+	}
+
+	candidates := segments[:len(segments)-p.retainTailSegments]
+	for _, seg := range candidates {
+		_, maxIdx, count, err := p.segmentBounds(seg)
+		if err != nil {
+			return err
+		}
+
+		if count == 0 || maxIdx <= lastApplied {
+			if err := os.Remove(seg); err != nil {
+				return fmt.Errorf("remove compacted wal segment %s: %w", seg, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func (p *persistenceStore) ensureActiveSegment() (string, int, error) {
+	segments, err := p.listWALSegments()
+	if err != nil {
+		return "", 0, err
+	}
+
+	if len(segments) == 0 {
+		path := p.segmentPath(1)
+		if err := os.WriteFile(path, nil, 0o644); err != nil {
+			return "", 0, fmt.Errorf("create wal segment %s: %w", path, err)
+		}
+
+		return path, 1, nil
+	}
+
+	last := segments[len(segments)-1]
+	seq, err := p.segmentSeq(last)
+	if err != nil {
+		return "", 0, err
+	}
+
+	return last, seq, nil
+}
+
+func (p *persistenceStore) rotateIfNeeded(path string, seq int) error {
+	st, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("stat wal segment %s: %w", path, err)
+	}
+
+	if st.Size() < p.segmentMaxBytes {
+		return nil
+	}
+
+	next := p.segmentPath(seq + 1)
+	if _, err := os.Stat(next); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat next wal segment %s: %w", next, err)
+	}
+
+	if err := os.WriteFile(next, nil, 0o644); err != nil {
+		return fmt.Errorf("create next wal segment %s: %w", next, err)
+	}
+
+	return nil
+}
+
+func (p *persistenceStore) listWALSegments() ([]string, error) {
+	entries, err := os.ReadDir(p.dir)
+	if err != nil {
+		return nil, fmt.Errorf("read wal dir: %w", err)
+	}
+
+	segments := make([]string, 0)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+		if !strings.HasPrefix(name, walSegmentPrefix) {
+			continue
+		}
+
+		segments = append(segments, filepath.Join(p.dir, name))
+	}
+
+	sort.Slice(segments, func(i, j int) bool {
+		si, _ := p.segmentSeq(segments[i])
+		sj, _ := p.segmentSeq(segments[j])
+		return si < sj
+	})
+
+	return segments, nil
+}
+
+func (p *persistenceStore) segmentSeq(path string) (int, error) {
+	base := filepath.Base(path)
+	if !strings.HasPrefix(base, walSegmentPrefix) {
+		return 0, fmt.Errorf("invalid wal segment name %q", base)
+	}
+
+	part := strings.TrimPrefix(base, walSegmentPrefix)
+	seq, err := strconv.Atoi(part)
+	if err != nil {
+		return 0, fmt.Errorf("parse wal segment sequence %q: %w", base, err)
+	}
+
+	return seq, nil
+}
+
+func (p *persistenceStore) segmentPath(seq int) string {
+	return filepath.Join(p.dir, fmt.Sprintf("%s%06d", walSegmentPrefix, seq))
+}
+
+func (p *persistenceStore) segmentBounds(path string) (uint64, uint64, int, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("open wal segment for bounds %s: %w", path, err)
+	}
+	defer f.Close()
+
+	var minIdx uint64
+	var maxIdx uint64
+	count := 0
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+
+		var rec walRecord
+		if err := json.Unmarshal(line, &rec); err != nil {
+			return 0, 0, 0, fmt.Errorf("decode wal record in %s: %w", path, err)
+		}
+
+		if count == 0 {
+			minIdx = rec.Index
+			maxIdx = rec.Index
+		} else {
+			if rec.Index < minIdx {
+				minIdx = rec.Index
+			}
+
+			if rec.Index > maxIdx {
+				maxIdx = rec.Index
+			}
+		}
+
+		count++
+	}
+
+	if err := scanner.Err(); err != nil {
+		return 0, 0, 0, fmt.Errorf("scan wal segment for bounds %s: %w", path, err)
+	}
+
+	return minIdx, maxIdx, count, nil
 }
 
 func encodeJobs(jobs []*api.Job) ([][]byte, error) {
@@ -367,6 +572,7 @@ func applyRecord(state *queueState, rec walRecord) error {
 		if err := proto.Unmarshal(rec.Job, &job); err != nil {
 			return fmt.Errorf("unmarshal enqueue payload: %w", err)
 		}
+
 		state.jobs = append(state.jobs, &job)
 		return nil
 	case walRecordDeliver:
