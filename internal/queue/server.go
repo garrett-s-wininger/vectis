@@ -11,6 +11,9 @@ import (
 
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	healthgrpc "google.golang.org/grpc/health/grpc_health_v1"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
 type QueueOptions struct {
@@ -346,6 +349,10 @@ func RegisterQueueService(s grpc.ServiceRegistrar, logger interfaces.Logger, opt
 	if err != nil {
 		logger.Fatal("Failed to initialize queue: %v", err)
 	}
+
+	hs := health.NewServer()
+	healthgrpc.RegisterHealthServer(s, hs)
+	hs.SetServingStatus("queue", healthpb.HealthCheckResponse_SERVING)
 
 	api.RegisterQueueServiceServer(s, qs)
 }

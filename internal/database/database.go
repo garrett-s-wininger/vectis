@@ -41,17 +41,15 @@ func GetDBPath() string {
 }
 
 func DataHome() string {
-	dataHome := os.Getenv("XDG_DATA_HOME")
-	if dataHome == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			panic(fmt.Sprintf("cannot determine home directory: %v", err))
-		}
-
-		dataHome = filepath.Join(home, ".local", "share")
+	if dataHome := os.Getenv("XDG_DATA_HOME"); dataHome != "" {
+		return dataHome
 	}
 
-	return dataHome
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".local", "share")
+	}
+
+	return filepath.Join(os.TempDir(), ".local", "share")
 }
 
 func OpenDB(dbPath string) (*sql.DB, error) {
@@ -138,7 +136,7 @@ func WaitForMigrations(db *sql.DB) error {
 	deadline := time.Now().Add(schemaWaitDeadline)
 	for time.Now().Before(deadline) {
 		var one int
-		err := db.QueryRow("SELECT 1 FROM stored_jobs LIMIT 1").Scan(&one)
+		err := db.QueryRow("SELECT 1 FROM schema_migrations LIMIT 1").Scan(&one)
 		if err == nil {
 			return nil
 		}

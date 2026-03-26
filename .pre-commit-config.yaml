@@ -5,4 +5,8 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
+        exclude: ^deploy/podman/kube-spec\.yaml$
+      - id: check-yaml
+        files: ^deploy/podman/kube-spec\.yaml$
+        args: ['--allow-multiple-documents']
       - id: check-added-large-files

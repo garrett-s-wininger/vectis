@@ -82,6 +82,8 @@ spec:
         - containerPort: 8081
           protocol: TCP
       env: &queueEnv
+        - name: XDG_DATA_HOME
+          value: /data
         - name: VECTIS_QUEUE_PERSISTENCE_DIR
           value: /data/vectis/queue
       volumeMounts:
