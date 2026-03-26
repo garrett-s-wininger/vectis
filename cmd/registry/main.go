@@ -6,6 +6,7 @@ import (
 	"os"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/cli"
 	"vectis/internal/config"
 	"vectis/internal/interfaces"
 	"vectis/internal/registry"
@@ -20,6 +21,7 @@ import (
 
 func runVectisRegistry(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewLogger("registry")
+	cli.SetLogLevel(logger)
 	logger.Info("Starting registry server...")
 
 	port := config.RegistryEffectiveListenPort()

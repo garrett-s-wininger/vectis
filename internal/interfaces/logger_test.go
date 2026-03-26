@@ -162,6 +162,7 @@ func TestStderrLogger_AllLevels(t *testing.T) {
 	logger := interfaces.NewLogger("test")
 	var buf bytes.Buffer
 	newLogger := logger.WithOutput(&buf)
+	newLogger.SetLevel(interfaces.LevelDebug)
 
 	newLogger.Debug("debug message")
 	newLogger.Info("info message")

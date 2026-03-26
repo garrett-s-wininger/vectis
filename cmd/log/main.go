@@ -6,8 +6,11 @@ import (
 	"os/signal"
 	"syscall"
 
+	"vectis/internal/cli"
 	"vectis/internal/interfaces"
 	"vectis/internal/logserver"
+
+	"github.com/spf13/viper"
 )
 
 func main() {
@@ -22,7 +25,11 @@ func main() {
 		cancel()
 	}()
 
+	viper.SetEnvPrefix("VECTIS_LOG")
+	viper.AutomaticEnv()
+
 	logger := interfaces.NewLogger("log-aggregator")
+	cli.SetLogLevel(logger)
 	logger.Info("Starting log service...")
 
 	if err := logserver.Run(ctx, logger); err != nil {

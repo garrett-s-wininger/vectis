@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"sort"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"vectis/internal/supervisor"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	healthgrpc "google.golang.org/grpc/health/grpc_health_v1"
@@ -84,7 +86,7 @@ func waitForHealthy(port int, serviceName string, timeout time.Duration) error {
 	}
 }
 
-func startService(logger interfaces.Logger, svc serviceStage) (*exec.Cmd, error) {
+func startService(logger interfaces.Logger, svc serviceStage, logLevel string) (*exec.Cmd, error) {
 	path, err := supervisor.FindBinary(svc.binary)
 	if err != nil {
 		return nil, fmt.Errorf("cannot find %s: %w", svc.binary, err)
@@ -98,11 +100,21 @@ func startService(logger interfaces.Logger, svc serviceStage) (*exec.Cmd, error)
 		Setpgid: true,
 	}
 
+	if logLevel != "" {
+		envVar := logLevelEnvVar(svc.binary, logLevel)
+		command.Env = append(os.Environ(), envVar)
+	}
+
 	if err := command.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start %s: %w", svc.binary, err)
 	}
 
 	return command, nil
+}
+
+func logLevelEnvVar(binaryName, logLevel string) string {
+	prefix := strings.ToUpper(strings.TrimPrefix(binaryName, "vectis-"))
+	return fmt.Sprintf("VECTIS_%s_LOG_LEVEL=%s", prefix, logLevel)
 }
 
 func groupByStage(services []serviceStage) map[int][]serviceStage {
@@ -166,6 +178,12 @@ func runVectis(cmd *cobra.Command, args []string) {
 		logger.Fatal("database migrate failed: %v", err)
 	}
 
+	logLevel := viper.GetString("log_level")
+	if !isValidLogLevel(logLevel) {
+		logger.Fatal("invalid log level: %s (must be debug, info, warn, or error)", logLevel)
+	}
+	setLoggerLevel(logger, logLevel)
+
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -200,7 +218,7 @@ func runVectis(cmd *cobra.Command, args []string) {
 			go func(svc serviceStage) {
 				defer wg.Done()
 
-				proc, err := startService(logger, svc)
+				proc, err := startService(logger, svc, logLevel)
 				if err != nil {
 					errCh <- err
 					return
@@ -271,6 +289,26 @@ var rootCmd = &cobra.Command{
 
 It starts the registry, queue, worker, and API server as child processes.`,
 	Run: runVectis,
+}
+
+func init() {
+	rootCmd.PersistentFlags().String("log-level", "info", "Log level: debug, info, warn, error")
+	_ = viper.BindPFlag("log_level", rootCmd.PersistentFlags().Lookup("log-level"))
+	viper.SetEnvPrefix("VECTIS_LOCAL")
+	viper.AutomaticEnv()
+}
+
+func isValidLogLevel(level string) bool {
+	_, err := interfaces.ParseLevel(level)
+	return err == nil
+}
+
+func setLoggerLevel(logger interfaces.Logger, level string) {
+	lvl, err := interfaces.ParseLevel(level)
+	if err != nil {
+		logger.Fatal("%v", err)
+	}
+	logger.SetLevel(lvl)
 }
 
 func main() {

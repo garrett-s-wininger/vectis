@@ -10,6 +10,7 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/interfaces/mocks"
 )
 
 type latencyScenario struct {
@@ -77,7 +78,7 @@ func runLatencyScenario(b *testing.B, sc latencyScenario) {
 	b.ResetTimer()
 
 	for range b.N {
-		svc := NewQueueService(noopLogger{})
+		svc := NewQueueService(mocks.NopLogger{})
 		ctx, cancel := context.WithTimeout(context.Background(), sc.duration)
 
 		var wg sync.WaitGroup

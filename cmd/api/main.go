@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/viper"
 
 	"vectis/internal/api"
+	"vectis/internal/cli"
 	"vectis/internal/config"
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
@@ -17,6 +18,7 @@ import (
 
 func runVectisAPI(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewLogger("api")
+	cli.SetLogLevel(logger)
 	logger.Info("Starting API server...")
 
 	dbPath := database.GetDBPath()

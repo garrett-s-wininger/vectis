@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"vectis/internal/cli"
 	"vectis/internal/cron"
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
@@ -15,6 +16,7 @@ import (
 
 func runVectisCron(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewLogger("cron")
+	cli.SetLogLevel(logger)
 	logger.Info("Starting cron service...")
 
 	dbPath := database.GetDBPath()

@@ -3,28 +3,18 @@ package resolver
 import (
 	"context"
 	"errors"
-	"io"
 	"sync"
 	"testing"
 	"time"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/config"
-	"vectis/internal/interfaces"
+	"vectis/internal/interfaces/mocks"
 
 	"github.com/spf13/viper"
 	"google.golang.org/grpc/resolver"
 	"google.golang.org/grpc/serviceconfig"
 )
-
-type noopLogger struct{}
-
-func (noopLogger) Debug(string, ...any)                   {}
-func (noopLogger) Info(string, ...any)                    {}
-func (noopLogger) Warn(string, ...any)                    {}
-func (noopLogger) Error(string, ...any)                   {}
-func (noopLogger) Fatal(string, ...any)                   {}
-func (noopLogger) WithOutput(io.Writer) interfaces.Logger { return noopLogger{} }
 
 type fakeClientConn struct {
 	mu         sync.Mutex
@@ -79,7 +69,7 @@ func TestGRPCHealthServiceName_MatchesServers(t *testing.T) {
 
 func TestStaticBuilder_Build(t *testing.T) {
 	cc := &fakeClientConn{}
-	b := &staticBuilder{addr: "127.0.0.1:9999", logger: noopLogger{}}
+	b := &staticBuilder{addr: "127.0.0.1:9999", logger: mocks.NopLogger{}}
 	_, err := b.Build(resolver.Target{}, cc, resolver.BuildOptions{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
@@ -102,7 +92,7 @@ func (m *mockRegistry) Address(context.Context, api.Component) (string, error) {
 func TestRegistryResolver_ResolveAndFallback(t *testing.T) {
 	cc := &fakeClientConn{}
 	reg := &mockRegistry{addr: "first:1", err: nil}
-	r := newRegistryResolver(cc, reg, api.Component_COMPONENT_QUEUE, noopLogger{}, time.Hour, 5*time.Second, time.Second)
+	r := newRegistryResolver(cc, reg, api.Component_COMPONENT_QUEUE, mocks.NopLogger{}, time.Hour, 5*time.Second, time.Second)
 
 	r.ResolveNow(resolver.ResolveNowOptions{})
 	if len(cc.states) == 0 {
@@ -123,7 +113,7 @@ func TestRegistryResolver_ResolveAndFallback(t *testing.T) {
 func TestRegistryResolver_LastGoodPersistsAfterInitialSuccess(t *testing.T) {
 	cc := &fakeClientConn{}
 	reg := &mockRegistry{addr: "stable:1", err: nil}
-	r := newRegistryResolver(cc, reg, api.Component_COMPONENT_QUEUE, noopLogger{}, time.Hour, 5*time.Second, time.Second)
+	r := newRegistryResolver(cc, reg, api.Component_COMPONENT_QUEUE, mocks.NopLogger{}, time.Hour, 5*time.Second, time.Second)
 
 	r.ResolveNow(resolver.ResolveNowOptions{})
 	if len(cc.states) == 0 || cc.states[0].Addresses[0].Addr != "stable:1" {
@@ -146,7 +136,7 @@ func TestRegistryResolver_LastGoodPersistsAfterInitialSuccess(t *testing.T) {
 func TestRegistryResolver_ReportErrorOnFailure(t *testing.T) {
 	cc := &fakeClientConn{}
 	reg := &mockRegistry{addr: "", err: errors.New("registry down")}
-	r := newRegistryResolver(cc, reg, api.Component_COMPONENT_QUEUE, noopLogger{}, time.Hour, 5*time.Second, time.Second)
+	r := newRegistryResolver(cc, reg, api.Component_COMPONENT_QUEUE, mocks.NopLogger{}, time.Hour, 5*time.Second, time.Second)
 
 	r.ResolveNow(resolver.ResolveNowOptions{})
 	if len(cc.reportErrs) == 0 {
@@ -159,7 +149,7 @@ func TestRegistryResolver_ReportErrorOnFailure(t *testing.T) {
 func TestRegistryResolver_NoReportErrorWhenFallingBackToLastGood(t *testing.T) {
 	cc := &fakeClientConn{}
 	reg := &mockRegistry{addr: "live:1", err: nil}
-	r := newRegistryResolver(cc, reg, api.Component_COMPONENT_QUEUE, noopLogger{}, time.Hour, 5*time.Second, time.Second)
+	r := newRegistryResolver(cc, reg, api.Component_COMPONENT_QUEUE, mocks.NopLogger{}, time.Hour, 5*time.Second, time.Second)
 
 	r.ResolveNow(resolver.ResolveNowOptions{})
 	reg.err = errors.New("registry down")

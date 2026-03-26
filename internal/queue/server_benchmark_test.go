@@ -3,7 +3,6 @@ package queue
 import (
 	"context"
 	"fmt"
-	"io"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -11,21 +10,8 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
-	"vectis/internal/interfaces"
+	"vectis/internal/interfaces/mocks"
 )
-
-type noopLogger struct{}
-
-func (noopLogger) Debug(string, ...any) {}
-func (noopLogger) Info(string, ...any)  {}
-func (noopLogger) Warn(string, ...any)  {}
-func (noopLogger) Error(string, ...any) {}
-func (noopLogger) Fatal(string, ...any) {}
-func (noopLogger) WithOutput(io.Writer) interfaces.Logger {
-	return noopLogger{}
-}
-
-var _ interfaces.Logger = noopLogger{}
 
 func benchmarkJob() *api.Job {
 	id := "bench-job"
@@ -34,7 +20,7 @@ func benchmarkJob() *api.Job {
 
 func BenchmarkQueue_Enqueue(b *testing.B) {
 	ctx := context.Background()
-	svc := NewQueueService(noopLogger{})
+	svc := NewQueueService(mocks.NopLogger{})
 	job := benchmarkJob()
 
 	b.ReportAllocs()
@@ -49,7 +35,7 @@ func BenchmarkQueue_Enqueue(b *testing.B) {
 
 func BenchmarkQueue_Enqueue_DuplicateRunID(b *testing.B) {
 	ctx := context.Background()
-	svc := NewQueueService(noopLogger{})
+	svc := NewQueueService(mocks.NopLogger{})
 	runID := "same-run-id"
 	id := "bench-job"
 	job := &api.Job{Id: &id, RunId: &runID}
@@ -66,7 +52,7 @@ func BenchmarkQueue_Enqueue_DuplicateRunID(b *testing.B) {
 
 func BenchmarkQueue_EnqueueDequeue_RoundTrip(b *testing.B) {
 	ctx := context.Background()
-	svc := NewQueueService(noopLogger{})
+	svc := NewQueueService(mocks.NopLogger{})
 	job := benchmarkJob()
 
 	b.ReportAllocs()
@@ -90,7 +76,7 @@ func BenchmarkQueue_EnqueueDequeue_RoundTrip(b *testing.B) {
 
 func BenchmarkQueue_ConcurrentEnqueueDequeue(b *testing.B) {
 	ctx := context.Background()
-	svc := NewQueueService(noopLogger{})
+	svc := NewQueueService(mocks.NopLogger{})
 	job := benchmarkJob()
 	var misses atomic.Int64
 
@@ -156,7 +142,7 @@ func runSustainedLoadScenario(b *testing.B, cfg sustainedLoadConfig) {
 		b.Skip("invalid benchmark iteration count")
 	}
 
-	svc := NewQueueService(noopLogger{})
+	svc := NewQueueService(mocks.NopLogger{})
 	queue, ok := svc.(*queueServer)
 	if !ok {
 		b.Fatal("expected queue server implementation")

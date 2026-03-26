@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/cli"
 	"vectis/internal/config"
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
@@ -20,6 +21,7 @@ import (
 
 func runVectisQueue(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewLogger("queue")
+	cli.SetLogLevel(logger)
 	logger.Info("Starting queue server...")
 
 	port := config.QueueEffectiveListenPort()

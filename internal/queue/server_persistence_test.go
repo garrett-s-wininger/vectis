@@ -9,13 +9,14 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/interfaces/mocks"
 )
 
 func TestQueuePersistence_RestorePendingOrder(t *testing.T) {
 	dir := t.TempDir()
 	ctx := context.Background()
 
-	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{
+	svc, err := NewQueueServiceWithOptions(mocks.NopLogger{}, QueueOptions{
 		PersistenceDir: dir,
 		SnapshotEvery:  8,
 	})
@@ -39,7 +40,7 @@ func TestQueuePersistence_RestorePendingOrder(t *testing.T) {
 		t.Fatalf("enqueue job-4: %v", err)
 	}
 
-	restarted, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{
+	restarted, err := NewQueueServiceWithOptions(mocks.NopLogger{}, QueueOptions{
 		PersistenceDir: dir,
 		SnapshotEvery:  8,
 	})
@@ -63,7 +64,7 @@ func TestQueuePersistence_RestoreFromSnapshot(t *testing.T) {
 	dir := t.TempDir()
 	ctx := context.Background()
 
-	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{
+	svc, err := NewQueueServiceWithOptions(mocks.NopLogger{}, QueueOptions{
 		PersistenceDir: dir,
 		SnapshotEvery:  1,
 	})
@@ -81,7 +82,7 @@ func TestQueuePersistence_RestoreFromSnapshot(t *testing.T) {
 
 	_, _ = svc.Dequeue(ctx, &api.Empty{})
 
-	restarted, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{
+	restarted, err := NewQueueServiceWithOptions(mocks.NopLogger{}, QueueOptions{
 		PersistenceDir: dir,
 		SnapshotEvery:  1,
 	})
@@ -104,7 +105,7 @@ func TestQueuePersistence_SnapshotTruncatesWAL(t *testing.T) {
 	dir := t.TempDir()
 	ctx := context.Background()
 
-	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{
+	svc, err := NewQueueServiceWithOptions(mocks.NopLogger{}, QueueOptions{
 		PersistenceDir: dir,
 		SnapshotEvery:  1,
 		WALRetainTail:  2,

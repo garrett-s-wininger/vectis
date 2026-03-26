@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"vectis/internal/cli"
 	"vectis/internal/config"
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
@@ -23,6 +24,7 @@ import (
 func runReconciler(cmd *cobra.Command, args []string) {
 	rootCtx := cmd.Context()
 	logger := interfaces.NewLogger("reconciler")
+	cli.SetLogLevel(logger)
 
 	dbPath := database.GetDBPath()
 	logger.Info("Using database: %s", dbPath)

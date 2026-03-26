@@ -14,6 +14,7 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/backoff"
+	"vectis/internal/cli"
 	"vectis/internal/dal"
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
@@ -34,6 +35,8 @@ const (
 func runWorker(cmd *cobra.Command, args []string) {
 	ctx := context.Background()
 	logger := interfaces.NewLogger("worker")
+	cli.SetLogLevel(logger)
+
 	workerID := uuid.New().String()
 	logger.Info("Worker ID: %s", workerID)
 

@@ -34,6 +34,9 @@ func (m *MockLogger) WithOutput(w io.Writer) interfaces.Logger {
 	}
 }
 
+func (m *MockLogger) SetLevel(level interfaces.Level) {
+}
+
 func (m *MockLogger) GetCalls() []LogCall {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -143,3 +146,17 @@ func (m *MockLogger) Fatal(msg string, args ...any) {
 }
 
 var _ interfaces.Logger = (*MockLogger)(nil)
+
+type NopLogger struct{}
+
+func (NopLogger) Debug(string, ...any) {}
+func (NopLogger) Info(string, ...any)  {}
+func (NopLogger) Warn(string, ...any)  {}
+func (NopLogger) Error(string, ...any) {}
+func (NopLogger) Fatal(string, ...any) {
+	panic("NopLogger Fatal")
+}
+func (NopLogger) WithOutput(io.Writer) interfaces.Logger { return NopLogger{} }
+func (NopLogger) SetLevel(interfaces.Level)              {}
+
+var _ interfaces.Logger = NopLogger{}
