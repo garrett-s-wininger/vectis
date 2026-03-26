@@ -22,7 +22,7 @@ import (
 	"vectis/internal/multidial"
 	"vectis/internal/queueclient"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "vectis/internal/dbdrivers"
 )
 
 const (
@@ -47,6 +47,10 @@ func runWorker(cmd *cobra.Command, args []string) {
 		logger.Fatal("Failed to open database: %v", err)
 	}
 	defer db.Close()
+
+	if err := database.WaitForMigrations(db); err != nil {
+		logger.Fatal("database wait for migrations failed: %v", err)
+	}
 
 	dial := func(ctx context.Context) (interfaces.QueueClient, interfaces.LogClient, func(), error) {
 		q, l, cleanup, err := multidial.DialQueueAndLog(ctx, logger)

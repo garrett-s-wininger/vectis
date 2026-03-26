@@ -24,7 +24,7 @@ import (
 	healthgrpc "google.golang.org/grpc/health/grpc_health_v1"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "vectis/internal/dbdrivers"
 )
 
 type serviceStage struct {
@@ -172,17 +172,20 @@ func killAllStartedAndWait(logger interfaces.Logger) {
 
 func runVectis(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewLogger("cli")
-	dbPath := database.GetDBPath()
-	logger.Info("Migrating database: %s", dbPath)
-	if err := database.Migrate(dbPath); err != nil {
-		logger.Fatal("database migrate failed: %v", err)
-	}
-
 	logLevel := viper.GetString("log_level")
 	if !isValidLogLevel(logLevel) {
 		logger.Fatal("invalid log level: %s (must be debug, info, warn, or error)", logLevel)
 	}
+
 	setLoggerLevel(logger, logLevel)
+
+	if database.EffectiveDBDriver() == "sqlite3" {
+		dbPath := database.GetDBPath()
+		logger.Info("Migrating SQLite database: %s", dbPath)
+		if err := database.Migrate(dbPath); err != nil {
+			logger.Fatal("database migrate failed: %v", err)
+		}
+	}
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)

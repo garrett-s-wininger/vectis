@@ -4,10 +4,38 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
+
+	"vectis/internal/database"
 )
+
+func rebindQueryForPgx(query string) string {
+	if os.Getenv(database.EnvDatabaseDriver) != "pgx" {
+		return query
+	}
+
+	var b strings.Builder
+	b.Grow(len(query) + 8)
+
+	argNum := 1
+	for i := 0; i < len(query); i++ {
+		if query[i] == '?' {
+			b.WriteByte('$')
+			b.WriteString(strconv.Itoa(argNum))
+			argNum++
+			continue
+		}
+
+		b.WriteByte(query[i])
+	}
+
+	return b.String()
+}
 
 const (
 	DefaultLeaseTTL      = 15 * time.Minute
@@ -97,7 +125,7 @@ func (r *SQLRepositories) CreateDefinitionAndRun(ctx context.Context, jobID, def
 	defer func() { _ = tx.Rollback() }()
 
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO job_definitions (job_id, version, definition_json) VALUES (?, 1, ?)`,
+		rebindQueryForPgx(`INSERT INTO job_definitions (job_id, version, definition_json) VALUES (?, 1, ?)`),
 		jobID, definitionJSON,
 	); err != nil {
 		return "", 0, normalizeSQLError(err)
@@ -110,7 +138,7 @@ func (r *SQLRepositories) CreateDefinitionAndRun(ctx context.Context, jobID, def
 		idx = *runIndex
 	} else {
 		if err := tx.QueryRowContext(ctx,
-			"SELECT COALESCE(MAX(run_index), 0) + 1 FROM job_runs WHERE job_id = ?",
+			rebindQueryForPgx("SELECT COALESCE(MAX(run_index), 0) + 1 FROM job_runs WHERE job_id = ?"),
 			jobID,
 		).Scan(&idx); err != nil {
 			return "", 0, err
@@ -118,7 +146,7 @@ func (r *SQLRepositories) CreateDefinitionAndRun(ctx context.Context, jobID, def
 	}
 
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO job_runs (run_id, job_id, run_index, status, started_at, definition_version) VALUES (?, ?, ?, ?, NULL, 1)`,
+		rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, started_at, definition_version) VALUES (?, ?, ?, ?, NULL, 1)`),
 		runID,
 		jobID,
 		idx,
@@ -152,7 +180,7 @@ type SQLJobsRepository struct {
 
 func (r *SQLJobsRepository) Create(ctx context.Context, jobID, definitionJSON string) error {
 	_, err := r.db.ExecContext(ctx,
-		"INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)",
+		rebindQueryForPgx("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)"),
 		jobID,
 		definitionJSON,
 	)
@@ -161,7 +189,7 @@ func (r *SQLJobsRepository) Create(ctx context.Context, jobID, definitionJSON st
 }
 
 func (r *SQLJobsRepository) Delete(ctx context.Context, jobID string) error {
-	_, err := r.db.ExecContext(ctx, "DELETE FROM stored_jobs WHERE job_id = ?", jobID)
+	_, err := r.db.ExecContext(ctx, rebindQueryForPgx("DELETE FROM stored_jobs WHERE job_id = ?"), jobID)
 	return normalizeSQLError(err)
 }
 
@@ -191,7 +219,7 @@ func (r *SQLJobsRepository) List(ctx context.Context) ([]JobRecord, error) {
 func (r *SQLJobsRepository) GetDefinition(ctx context.Context, jobID string) (string, error) {
 	var definitionJSON string
 	if err := r.db.QueryRowContext(ctx,
-		"SELECT definition_json FROM stored_jobs WHERE job_id = ?",
+		rebindQueryForPgx("SELECT definition_json FROM stored_jobs WHERE job_id = ?"),
 		jobID,
 	).Scan(&definitionJSON); err != nil {
 		if err == sql.ErrNoRows {
@@ -206,7 +234,7 @@ func (r *SQLJobsRepository) GetDefinition(ctx context.Context, jobID string) (st
 
 func (r *SQLJobsRepository) UpdateDefinition(ctx context.Context, jobID, definitionJSON string) error {
 	_, err := r.db.ExecContext(ctx,
-		"UPDATE stored_jobs SET definition_json = ? WHERE job_id = ?",
+		rebindQueryForPgx("UPDATE stored_jobs SET definition_json = ? WHERE job_id = ?"),
 		definitionJSON,
 		jobID,
 	)
@@ -217,7 +245,7 @@ func (r *SQLJobsRepository) UpdateDefinition(ctx context.Context, jobID, definit
 func (r *SQLJobsRepository) GetDefinitionVersion(ctx context.Context, jobID string, version int) (string, error) {
 	var definitionJSON string
 	if err := r.db.QueryRowContext(ctx,
-		"SELECT definition_json FROM job_definitions WHERE job_id = ? AND version = ?",
+		rebindQueryForPgx("SELECT definition_json FROM job_definitions WHERE job_id = ? AND version = ?"),
 		jobID,
 		version,
 	).Scan(&definitionJSON); err != nil {
@@ -237,7 +265,7 @@ type SQLRunsRepository struct {
 
 func (r *SQLRunsRepository) MarkRunRunning(ctx context.Context, runID string) error {
 	_, err := r.db.ExecContext(ctx,
-		"UPDATE job_runs SET status = ?, started_at = COALESCE(started_at, CURRENT_TIMESTAMP) WHERE run_id = ?",
+		rebindQueryForPgx("UPDATE job_runs SET status = ?, started_at = COALESCE(started_at, CURRENT_TIMESTAMP) WHERE run_id = ?"),
 		"running", runID)
 
 	return normalizeSQLError(err)
@@ -245,8 +273,8 @@ func (r *SQLRunsRepository) MarkRunRunning(ctx context.Context, runID string) er
 
 func (r *SQLRunsRepository) MarkRunSucceeded(ctx context.Context, runID string) error {
 	_, err := r.db.ExecContext(ctx,
-		`UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP,
-			lease_owner = NULL, lease_until = NULL WHERE run_id = ?`,
+		rebindQueryForPgx(`UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP,
+			lease_owner = NULL, lease_until = NULL WHERE run_id = ?`),
 		"succeeded", runID)
 
 	return normalizeSQLError(err)
@@ -254,8 +282,8 @@ func (r *SQLRunsRepository) MarkRunSucceeded(ctx context.Context, runID string) 
 
 func (r *SQLRunsRepository) MarkRunFailed(ctx context.Context, runID, reason string) error {
 	_, err := r.db.ExecContext(ctx,
-		`UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP, failure_reason = ?,
-			lease_owner = NULL, lease_until = NULL WHERE run_id = ?`,
+		rebindQueryForPgx(`UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP, failure_reason = ?,
+			lease_owner = NULL, lease_until = NULL WHERE run_id = ?`),
 		"failed", reason, runID)
 
 	return normalizeSQLError(err)
@@ -263,7 +291,7 @@ func (r *SQLRunsRepository) MarkRunFailed(ctx context.Context, runID, reason str
 
 func (r *SQLRunsRepository) TryClaim(ctx context.Context, runID, owner string, leaseUntil time.Time) (bool, error) {
 	nowUnix := time.Now().Unix()
-	res, err := r.db.ExecContext(ctx, `
+	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
 		UPDATE job_runs SET
 			lease_owner = ?,
 			lease_until = ?,
@@ -272,7 +300,7 @@ func (r *SQLRunsRepository) TryClaim(ctx context.Context, runID, owner string, l
 		WHERE run_id = ?
 			AND status = 'queued'
 			AND (lease_until IS NULL OR lease_until < ?)
-	`, owner, leaseUntil.Unix(), runID, nowUnix)
+	`), owner, leaseUntil.Unix(), runID, nowUnix)
 
 	if err != nil {
 		return false, normalizeSQLError(err)
@@ -287,10 +315,10 @@ func (r *SQLRunsRepository) TryClaim(ctx context.Context, runID, owner string, l
 }
 
 func (r *SQLRunsRepository) RenewLease(ctx context.Context, runID, owner string, leaseUntil time.Time) error {
-	res, err := r.db.ExecContext(ctx, `
+	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
 		UPDATE job_runs SET lease_until = ?
 		WHERE run_id = ? AND lease_owner = ? AND status = 'running'
-	`, leaseUntil.Unix(), runID, owner)
+	`), leaseUntil.Unix(), runID, owner)
 
 	if err != nil {
 		return normalizeSQLError(err)
@@ -310,7 +338,7 @@ func (r *SQLRunsRepository) RenewLease(ctx context.Context, runID, owner string,
 
 func (r *SQLRunsRepository) TouchDispatched(ctx context.Context, runID string) error {
 	_, err := r.db.ExecContext(ctx,
-		`UPDATE job_runs SET last_dispatched_at = ? WHERE run_id = ?`,
+		rebindQueryForPgx(`UPDATE job_runs SET last_dispatched_at = ? WHERE run_id = ?`),
 		time.Now().Unix(), runID)
 
 	return normalizeSQLError(err)
@@ -329,14 +357,14 @@ func (r *SQLRunsRepository) CreateRun(ctx context.Context, jobID string, runInde
 	if runIndex != nil {
 		idx = *runIndex
 	} else {
-		err = tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(run_index), 0) + 1 FROM job_runs WHERE job_id = ?", jobID).Scan(&idx)
+		err = tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT COALESCE(MAX(run_index), 0) + 1 FROM job_runs WHERE job_id = ?"), jobID).Scan(&idx)
 		if err != nil {
 			return "", 0, err
 		}
 	}
 
 	_, err = tx.ExecContext(ctx,
-		`INSERT INTO job_runs (run_id, job_id, run_index, status, started_at, definition_version) VALUES (?, ?, ?, ?, NULL, ?)`,
+		rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, started_at, definition_version) VALUES (?, ?, ?, ?, NULL, ?)`),
 		runID,
 		jobID,
 		idx,
@@ -365,7 +393,7 @@ func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, since *
 	}
 
 	query += " ORDER BY run_index ASC"
-	rows, err := r.db.QueryContext(ctx, query, args...)
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(query), args...)
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
@@ -402,13 +430,13 @@ func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, since *
 }
 
 func (r *SQLRunsRepository) ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]QueuedRun, error) {
-	rows, err := r.db.QueryContext(ctx, `
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
 		SELECT run_id, job_id, definition_version
 		FROM job_runs
 		WHERE status = 'queued'
 			AND (last_dispatched_at IS NULL OR last_dispatched_at < ?)
 		ORDER BY id ASC
-	`, cutoffUnix)
+	`), cutoffUnix)
 
 	if err != nil {
 		return nil, normalizeSQLError(err)
@@ -437,11 +465,11 @@ type SQLSchedulesRepository struct {
 }
 
 func (r *SQLSchedulesRepository) GetReady(ctx context.Context, at time.Time) ([]CronSchedule, error) {
-	rows, err := r.db.QueryContext(ctx, `
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
 		SELECT id, job_id, cron_spec, next_run_at
 		FROM job_cron_schedules
 		WHERE next_run_at <= ?
-	`, at.Format(time.RFC3339))
+	`), at.Format(time.RFC3339))
 
 	if err != nil {
 		return nil, normalizeSQLError(err)
@@ -474,7 +502,7 @@ func (r *SQLSchedulesRepository) GetReady(ctx context.Context, at time.Time) ([]
 
 func (r *SQLSchedulesRepository) UpdateNextRun(ctx context.Context, scheduleID int64, nextRun time.Time) error {
 	_, err := r.db.ExecContext(ctx,
-		"UPDATE job_cron_schedules SET next_run_at = ? WHERE id = ?",
+		rebindQueryForPgx("UPDATE job_cron_schedules SET next_run_at = ? WHERE id = ?"),
 		nextRun.Format(time.RFC3339),
 		scheduleID,
 	)

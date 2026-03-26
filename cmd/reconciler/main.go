@@ -18,7 +18,7 @@ import (
 
 	"google.golang.org/grpc"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "vectis/internal/dbdrivers"
 )
 
 func runReconciler(cmd *cobra.Command, args []string) {
@@ -33,6 +33,10 @@ func runReconciler(cmd *cobra.Command, args []string) {
 		logger.Fatal("Failed to open database: %v", err)
 	}
 	defer db.Close()
+
+	if err := database.WaitForMigrations(db); err != nil {
+		logger.Fatal("database wait for migrations failed: %v", err)
+	}
 
 	pin := config.ReconcilerQueueAddress()
 	mq, err := queueclient.NewManagingQueueService(rootCtx, logger, func(ctx context.Context) (*grpc.ClientConn, func(), error) {

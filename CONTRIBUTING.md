@@ -10,7 +10,7 @@ Everything below still applies if you are building from source, experimenting lo
 
 - **Go** version matching [`go.mod`](go.mod) (currently 1.25.7+)
 - **Git**
-- **SQLite** 3.35.0 or newer for the default database stack: `github.com/mattn/go-sqlite3` links against the system `libsqlite3`, and some migration rollbacks (for example `006_job_definitions_and_run_version.down.sql`) use `ALTER TABLE … DROP COLUMN`, which requires 3.35.0+. Check with `sqlite3 --version` or your OS package metadata if rollback or `migrate down` fails with an unsupported `DROP COLUMN` error.
+- **SQLite** for the default local database stack: `github.com/mattn/go-sqlite3` links against the system `libsqlite3`. Schema is applied from embedded SQL under [`internal/migrations/sqlite/`](internal/migrations/sqlite/) (baseline `001_initial`).
 
 Optional:
 
@@ -29,6 +29,8 @@ Static binaries (for containers, etc.):
 ```bash
 make build-static
 ```
+
+Container images ([`build/Containerfile`](build/Containerfile)) use **`make build-container`** with **`CGO_ENABLED=0`** and **`-tags=nosqlite`**, so binaries link **pgx only** (Postgres). That produces a **static enough** binary for `scratch` (no C toolchain: pure Go does not need musl/gcc). Local `make build` still includes SQLite via CGO. To build the same way locally: `CGO_ENABLED=0 make build-container`.
 
 ## Tests
 
@@ -70,6 +72,8 @@ Requires a working Buf invocation (`npx` + network on first run, unless Buf is i
 make build
 ./bin/vectis-local
 ```
+
+For Postgres (Podman/Kube), use `make deploy-podman`.
 
 **Single service** (for debugging): run the matching binary from `bin/` after `make build`. Each `cmd/<name>/main.go` defines flags and startup; components discover queue/log addresses via **registry** when that pattern is used (see [PLANNING.md](PLANNING.md) §2).
 

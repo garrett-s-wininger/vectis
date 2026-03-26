@@ -104,7 +104,7 @@ There is no public authentication, projects API, artifact APIs, or HTTP cancel e
 ### 2.5 Persistence
 
 - **Default:** SQLite (`internal/config/defaults.toml`: `driver = sqlite3`, path under XDG data home).
-- **Migrations:** `internal/migrations/` uses the **sqlite3** migrate driver only (`internal/migrations/migrations.go`). PostgreSQL requires driver/schema parity work.
+- **Migrations:** `internal/migrations/migrations.go` embeds **sqlite** (`internal/migrations/sqlite/`) and **postgres** (`internal/migrations/postgres/`) baseline SQL; driver is chosen from the effective DB backend (`sqlite3` vs `pgx`).
 - **Model:** Jobs (stored definitions) and **runs** (executions, indices, dispatch) via `internal/dal/`.
 - **Ephemeral runs:** `POST /api/v1/jobs/run` writes `job_definitions` `(job_id, version=1, definition_json)` and `job_runs.definition_version=1` (no `stored_jobs` row). The reconciler loads `stored_jobs` first, then falls back to `job_definitions` for recovery. Append-only versions for stored jobs and delete/version retention are future work.
 
@@ -227,7 +227,7 @@ The sections below (**§4–§17**) describe **target** architecture and APIs. T
 
 ### Implemented schema
 
-Authoritative DDL is in **`internal/migrations/*.sql`** (embedded via `//go:embed` and applied by **`database.Migrate`** — e.g. `vectis-local` runs migrations on startup). There is **no** `./vectis migrate` CLI today.
+Authoritative DDL is in **`internal/migrations/sqlite/`** and **`internal/migrations/postgres/`** (embedded via `//go:embed`). Runtime services call **`database.WaitForMigrations`** only; `vectis-local` initializes the local SQLite schema for development, and Postgres deployments should run **`vectis-cli migrate`** as an explicit admin/deploy step.
 
 Current migrations include, among others: **stored jobs** (id + JSON definition), **job runs** (indices, lease/dispatch, failure reason), and **cron schedules** for `vectis-cron`.
 
@@ -239,22 +239,20 @@ The long-term design may add first-class **projects**, **queues**, granular **jo
 
 ### Database abstraction
 
-- **Shipped:** SQLite by default; repository interfaces in `internal/dal`
-- **Target:** PostgreSQL for production requires a postgres-compatible migrate driver and tested schema parity (not config-only)
+- **Shipped:** SQLite by default; Postgres via `VECTIS_DATABASE_DRIVER=pgx` and DSN; repository interfaces in `internal/dal`
 
 ### Database migration strategy
 
-- **golang-migrate** with SQL up/down files under `internal/migrations/`
-- Embedded in binaries that call `database.Migrate` (no separate migrate subcommand yet)
+- **golang-migrate** with SQL up/down files under `internal/migrations/sqlite/` and `internal/migrations/postgres/`
+- Embedded in **`vectis-cli migrate`** (and `database.Migrate` for tests/tools); runtime services do not auto-migrate
 
-**Migration naming (example):**
+**Migration layout (baseline):**
 
 ```
-internal/migrations/
-  001_create_stored_jobs.up.sql
-  001_create_stored_jobs.down.sql
-  002_add_job_cron_schedules.up.sql
-  ...
+internal/migrations/sqlite/001_initial.up.sql
+internal/migrations/sqlite/001_initial.down.sql
+internal/migrations/postgres/001_initial.up.sql
+internal/migrations/postgres/001_initial.down.sql
 ```
 
 **Safe vs unsafe changes:** Adding nullable columns/tables/indexes is safer; drops/renames/types need coordination and down-migration discipline.
@@ -424,7 +422,7 @@ services:
 
 ### Upgrade & Rollback Strategy
 
-**Early development:** stop/start; embedded migrations on startup (`database.Migrate`). **Later production:** deploy one consistent version across binaries; backup DB; apply migrations; redeploy; rollback with previous artifacts + DB restore if migrations cannot be reversed.
+**Early development:** stop/start; run **`vectis-cli migrate`** (or `make deploy-podman`) when the schema changes. **Production:** deploy one consistent version across binaries; backup DB; apply migrations before or alongside rollout; redeploy; rollback with previous artifacts + DB restore if migrations cannot be reversed.
 
 ---
 
@@ -450,7 +448,7 @@ Mix of **shipped** behavior and **target** intent (see §2 vs §4). The running 
 | Language & protocols | Go; REST at API edge, gRPC internally | Shipped |
 | Log / run streaming | Worker → log service (gRPC) → clients (**SSE**) | Partial — §2, §6.1 |
 | Queue | In-memory `Dequeue`; optional WAL / Fetch-Claim later | Partial — ring buffer today |
-| Persistence | SQLite + `internal/migrations`; PostgreSQL needs migrate parity | Partial |
+| Persistence | SQLite + Postgres via `internal/migrations/{sqlite,postgres}` | Partial |
 | Registry | Internal service discovery | Shipped — dev stack |
 | Job model | Stored jobs + runs in DB; JSON/proto graph | Partial |
 | Pipeline-as-code | `.vectis.yml`, overrides branch | Planned — JSON jobs today |

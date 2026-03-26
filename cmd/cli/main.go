@@ -20,7 +20,7 @@ import (
 	"vectis/internal/config"
 	"vectis/internal/database"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "vectis/internal/dbdrivers"
 )
 
 type LogEntry struct {
@@ -845,10 +845,12 @@ func runMigrate(cmd *cobra.Command, args []string) {
 
 var migrateCmd = &cobra.Command{
 	Use:   "migrate",
-	Short: "Apply database migrations",
-	Long:  `Create the data directory if needed and run embedded SQL migrations on the Vectis SQLite database.`,
-	Args:  cobra.NoArgs,
-	Run:   runMigrate,
+	Short: "Apply database migrations (admin / one-shot)",
+	Long: `Run embedded SQL migrations against the database selected by VECTIS_DATABASE_DRIVER and VECTIS_DATABASE_DSN (or defaults).
+
+Runtime services only wait for the schema; they do not migrate. Use this command (or CI/deploy automation) before starting the stack.`,
+	Args: cobra.NoArgs,
+	Run:  runMigrate,
 }
 
 var rootCmd = &cobra.Command{

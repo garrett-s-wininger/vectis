@@ -16,7 +16,7 @@ make build
 ./bin/vectis-local
 ```
 
-`vectis-local` migrates SQLite, then starts registry, queue, log, worker, cron, reconciler, and API (see `cmd/local/main.go`).
+`vectis-local` starts registry, queue, log, worker, cron, reconciler, and API and initializes the local SQLite schema (see `cmd/local/main.go`). Runtime binaries only **wait** for the schema—they do not migrate.
 
 - **REST API:** `http://localhost:8080` (defaults in [`internal/config/defaults.toml`](internal/config/defaults.toml))
 - **Default ports:** API `8080`, queue `8081`, registry `8082`, log gRPC `8083`, log SSE `8084`
@@ -43,6 +43,23 @@ With default config, the DB file is:
 `$XDG_DATA_HOME/vectis/db.sqlite3`
 
 If `XDG_DATA_HOME` is unset, that is usually `~/.local/share/vectis/db.sqlite3`.
+
+### Postgres configuration (Podman/Kube)
+
+When using Postgres, set:
+
+- `VECTIS_DATABASE_DRIVER=pgx`
+- `VECTIS_DATABASE_DSN=postgres://USER:PASSWORD@HOST:5432/DB?sslmode=disable`
+
+The Pod spec in [`deploy/podman/kube-spec.yaml`](deploy/podman/kube-spec.yaml) wires these env vars and provisions persistent volumes for Postgres (`vectis-postgres-data`) and queue persistence (`vectis-queue-data`).
+
+For a simple admin workflow, use:
+
+```bash
+make deploy-podman
+```
+
+`make deploy-podman` runs `podman play kube --replace`, then `./bin/vectis-cli migrate` on the **host** against Postgres on **`127.0.0.1` and the `hostPort` published in the spec** (default **15432**, see `postgres` ports in [`deploy/podman/kube-spec.yaml`](deploy/podman/kube-spec.yaml)). Services inside the pod still use the `postgres:5432` DSN. Override `VECTIS_POSTGRES_HOST_PORT` / `VECTIS_DATABASE_DSN` if you change the published port or credentials.
 
 ### CLI
 

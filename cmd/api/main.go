@@ -13,7 +13,7 @@ import (
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "vectis/internal/dbdrivers"
 )
 
 func runVectisAPI(cmd *cobra.Command, args []string) {
@@ -29,6 +29,10 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		logger.Fatal("Failed to open database: %v", err)
 	}
 	defer db.Close()
+
+	if err := database.WaitForMigrations(db); err != nil {
+		logger.Fatal("database wait for migrations failed: %v", err)
+	}
 
 	server := api.NewAPIServer(logger, db)
 

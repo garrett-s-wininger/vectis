@@ -1,7 +1,18 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: vectis-api-data
+  name: vectis-postgres-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vectis-queue-data
 spec:
   accessModes:
     - ReadWriteOnce
@@ -15,10 +26,30 @@ metadata:
   name: vectis
 spec:
   volumes:
-    - name: api-data
+    - name: postgres-data
       persistentVolumeClaim:
-        claimName: vectis-api-data
+        claimName: vectis-postgres-data
+    - name: queue-data
+      persistentVolumeClaim:
+        claimName: vectis-queue-data
   containers:
+    - name: postgres
+      image: docker.io/library/postgres:18-alpine
+      imagePullPolicy: IfNotPresent
+      env: &postgresEnv
+        - name: POSTGRES_USER
+          value: vectis
+        - name: POSTGRES_PASSWORD
+          value: vectis
+        - name: POSTGRES_DB
+          value: vectis
+      volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+      ports:
+        - containerPort: 5432
+          hostPort: 15432
+          protocol: TCP
     - name: api
       image: vectis-api:latest
       imagePullPolicy: Never
@@ -26,12 +57,15 @@ spec:
         - containerPort: 8080
           hostPort: 8080
           protocol: TCP
-      volumeMounts:
-        - name: api-data
-          mountPath: /data
+      env: &dbEnv
+        - name: VECTIS_DATABASE_DRIVER
+          value: pgx
+        - name: VECTIS_DATABASE_DSN
+          value: postgres://vectis:vectis@postgres:5432/vectis?sslmode=disable
     - name: cron
       image: vectis-cron:latest
       imagePullPolicy: Never
+      env: *dbEnv
     - name: log
       image: vectis-log:latest
       imagePullPolicy: Never
@@ -47,6 +81,16 @@ spec:
       ports:
         - containerPort: 8081
           protocol: TCP
+      env: &queueEnv
+        - name: VECTIS_QUEUE_PERSISTENCE_DIR
+          value: /data/vectis/queue
+      volumeMounts:
+        - name: queue-data
+          mountPath: /data
+    - name: reconciler
+      image: vectis-reconciler:latest
+      imagePullPolicy: Never
+      env: *dbEnv
     - name: registry
       image: vectis-registry:latest
       imagePullPolicy: Never
@@ -56,3 +100,4 @@ spec:
     - name: worker
       image: vectis-worker:latest
       imagePullPolicy: Never
+      env: *dbEnv

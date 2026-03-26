@@ -3,10 +3,17 @@ BUF ?= npx @bufbuild/buf
 BUILD_OPTS ?=
 COMPONENTS := $(filter-out cli local, $(APPS))
 OUT_DIR ?= bin
+CGO_ENABLED ?= 1
 
 API := $(shell find api -name '*.go' 2>/dev/null)
 BINARIES := $(addprefix $(OUT_DIR)/vectis-, $(APPS))
 INTERNAL := $(shell find internal -name '*.go' 2>/dev/null)
+
+PODMAN_KUBE_SPEC ?= deploy/podman/kube-spec.yaml
+
+VECTIS_DATABASE_DRIVER ?= pgx
+VECTIS_POSTGRES_HOST_PORT ?= 15432
+VECTIS_DATABASE_DSN ?= postgres://vectis:vectis@127.0.0.1:${VECTIS_POSTGRES_HOST_PORT}/vectis?sslmode=disable
 
 .PHONY: all
 all: build
@@ -15,14 +22,15 @@ $(OUT_DIR):
 	mkdir -p ${@}
 
 $(BINARIES): $(OUT_DIR)/vectis-%: cmd/%/main.go $(API) $(INTERNAL) | $(OUT_DIR)
-	go build ${BUILD_OPTS} -o ${@} ./cmd/${*}
+	CGO_ENABLED=${CGO_ENABLED} go build ${BUILD_OPTS} -o ${@} ./cmd/${*}
 
 .PHONY: build
 build: $(BINARIES)
 
-.PHONY: build-static
-build-static: BUILD_OPTS = -a -ldflags '-s -w -linkmode external -extldflags "-static"'
-build-static: $(BINARIES)
+.PHONY: build-container
+build-container: CGO_ENABLED = 0
+build-container: BUILD_OPTS = -tags=nosqlite -a -ldflags '-s -w'
+build-container: $(BINARIES)
 
 .PHONY: proto
 proto:
@@ -62,9 +70,11 @@ image-internal-%:
 
 .PHONY: $(addprefix image-, $(COMPONENTS))
 image-api: image-internal-api
+image-cli: image-internal-cli
 image-cron: image-internal-cron
 image-queue: image-internal-queue
 image-log: image-internal-log
+image-reconciler: image-internal-reconciler
 image-registry: image-internal-registry
 image-worker: image-internal-worker
 
@@ -72,4 +82,11 @@ image-worker: image-internal-worker
 images-all: image-full images-components
 
 .PHONY: images-components
-images-components: $(addprefix image-, $(COMPONENTS))
+images-components: image-cli $(addprefix image-, $(COMPONENTS))
+
+.PHONY: deploy-podman
+deploy-podman: images-components $(OUT_DIR)/vectis-cli
+	podman play kube --replace $(PODMAN_KUBE_SPEC)
+	VECTIS_DATABASE_DRIVER=$(VECTIS_DATABASE_DRIVER) \
+	VECTIS_DATABASE_DSN="$(VECTIS_DATABASE_DSN)" \
+		$(OUT_DIR)/vectis-cli migrate

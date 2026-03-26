@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 FROM docker.io/library/golang:1.25.7-alpine AS builder
-RUN apk add --no-cache gcc make musl-dev
+RUN apk add --no-cache make
 
 WORKDIR /app
 COPY go.mod go.sum ./
@@ -12,16 +12,22 @@ COPY cmd/ ./cmd/
 COPY internal/ ./internal/
 COPY Makefile ./Makefile
 
-ENV CGO_ENABLED=1
+ENV CGO_ENABLED=0
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    make build-static
+    make build-container
 
 FROM scratch AS api
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
       org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
 COPY --from=builder /app/bin/vectis-api /usr/local/bin/vectis-api
 ENTRYPOINT ["/usr/local/bin/vectis-api"]
+
+FROM scratch AS cli
+LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
+      org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
+COPY --from=builder /app/bin/vectis-cli /usr/local/bin/vectis-cli
+ENTRYPOINT ["/usr/local/bin/vectis-cli"]
 
 FROM scratch as cron
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
