@@ -31,15 +31,20 @@ type serviceStage struct {
 	healthName  string
 }
 
-var orderedServices = []serviceStage{
-	{binary: "vectis-registry", stage: 0, checkHealth: true, portFn: config.RegistryEffectiveListenPort, healthName: "registry"},
-	{binary: "vectis-queue", stage: 1, checkHealth: true, portFn: config.QueueEffectiveListenPort, healthName: "queue"},
-	{binary: "vectis-log", stage: 1, checkHealth: true, portFn: config.LogGRPCPort, healthName: "log"},
-	{binary: "vectis-worker", stage: 2, checkHealth: false},
-	{binary: "vectis-cron", stage: 2, checkHealth: false},
-	{binary: "vectis-reconciler", stage: 2, checkHealth: false},
-	{binary: "vectis-api", stage: 2, checkHealth: false},
-}
+var (
+	orderedServices = []serviceStage{
+		{binary: "vectis-registry", stage: 0, checkHealth: true, portFn: config.RegistryEffectiveListenPort, healthName: "registry"},
+		{binary: "vectis-queue", stage: 1, checkHealth: true, portFn: config.QueueEffectiveListenPort, healthName: "queue"},
+		{binary: "vectis-log", stage: 1, checkHealth: true, portFn: config.LogGRPCPort, healthName: "log"},
+		{binary: "vectis-worker", stage: 2, checkHealth: false},
+		{binary: "vectis-cron", stage: 2, checkHealth: false},
+		{binary: "vectis-reconciler", stage: 2, checkHealth: false},
+		{binary: "vectis-api", stage: 2, checkHealth: false},
+	}
+
+	allStarted   []*exec.Cmd
+	allStartedMu sync.Mutex
+)
 
 const (
 	healthCheckInterval = 50 * time.Millisecond
@@ -101,6 +106,22 @@ func groupByStage(services []serviceStage) map[int][]serviceStage {
 	return byStage
 }
 
+func trackStarted(proc *exec.Cmd) {
+	allStartedMu.Lock()
+	defer allStartedMu.Unlock()
+	allStarted = append(allStarted, proc)
+}
+
+func killAllStarted() {
+	allStartedMu.Lock()
+	defer allStartedMu.Unlock()
+	for _, proc := range allStarted {
+		if proc.Process != nil {
+			proc.Process.Kill()
+		}
+	}
+}
+
 func runVectis(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewLogger("cli")
 	dbPath := database.GetDBPath()
@@ -135,6 +156,8 @@ func runVectis(cmd *cobra.Command, args []string) {
 					errCh <- err
 					return
 				}
+
+				trackStarted(proc)
 				commands = append(commands, proc)
 
 				if svc.checkHealth {
@@ -153,8 +176,16 @@ func runVectis(cmd *cobra.Command, args []string) {
 		wg.Wait()
 		close(errCh)
 
+		var firstErr error
 		for err := range errCh {
-			logger.Fatal("%v", err)
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+
+		if firstErr != nil {
+			killAllStarted()
+			logger.Fatal("%v", firstErr)
 		}
 
 		logger.Info("Stage %d started successfully", stage)
