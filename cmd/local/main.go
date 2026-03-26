@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"sort"
 	"sync"
+	"syscall"
 	"time"
 
 	"vectis/internal/config"
@@ -42,8 +44,10 @@ var (
 		{binary: "vectis-api", stage: 2, checkHealth: false},
 	}
 
-	allStarted   []*exec.Cmd
-	allStartedMu sync.Mutex
+	allStarted     []*exec.Cmd
+	allStartedMu   sync.Mutex
+	shuttingDown   bool
+	shuttingDownMu sync.Mutex
 )
 
 const (
@@ -72,6 +76,7 @@ func waitForHealthy(port int, serviceName string, timeout time.Duration) error {
 			client := healthgrpc.NewHealthClient(conn)
 			resp, err := client.Check(ctx, &healthgrpc.HealthCheckRequest{Service: serviceName})
 			conn.Close()
+
 			if err == nil && resp.GetStatus() == healthpb.HealthCheckResponse_SERVING {
 				return nil
 			}
@@ -89,6 +94,9 @@ func startService(logger interfaces.Logger, svc serviceStage) (*exec.Cmd, error)
 	command.Stdin = nil
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
+	command.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+	}
 
 	if err := command.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start %s: %w", svc.binary, err)
@@ -112,12 +120,40 @@ func trackStarted(proc *exec.Cmd) {
 	allStarted = append(allStarted, proc)
 }
 
-func killAllStarted() {
+func killAllStartedAndWait(logger interfaces.Logger) {
 	allStartedMu.Lock()
 	defer allStartedMu.Unlock()
+
 	for _, proc := range allStarted {
 		if proc.Process != nil {
-			proc.Process.Kill()
+			syscall.Kill(-proc.Process.Pid, syscall.SIGTERM)
+		}
+	}
+
+	waitCh := make(chan struct{}, len(allStarted))
+	for _, proc := range allStarted {
+		go func(p *exec.Cmd) {
+			p.Wait()
+			waitCh <- struct{}{}
+		}(proc)
+	}
+
+	timeout := time.After(5 * time.Second)
+	for range allStarted {
+		select {
+		case <-waitCh:
+		case <-timeout:
+			for _, proc := range allStarted {
+				if proc.Process != nil {
+					syscall.Kill(-proc.Process.Pid, syscall.SIGKILL)
+				}
+			}
+
+			for _, proc := range allStarted {
+				proc.Wait()
+			}
+
+			return
 		}
 	}
 }
@@ -129,6 +165,19 @@ func runVectis(cmd *cobra.Command, args []string) {
 	if err := database.Migrate(dbPath); err != nil {
 		logger.Fatal("database migrate failed: %v", err)
 	}
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		sig := <-sigCh
+		shuttingDownMu.Lock()
+		shuttingDown = true
+		shuttingDownMu.Unlock()
+
+		logger.Info("Received signal (%s), shutting down...", sig.String())
+		killAllStartedAndWait(logger)
+		os.Exit(0)
+	}()
 
 	commands := make([]*exec.Cmd, 0, len(orderedServices))
 	byStage := groupByStage(orderedServices)
@@ -184,7 +233,7 @@ func runVectis(cmd *cobra.Command, args []string) {
 		}
 
 		if firstErr != nil {
-			killAllStarted()
+			killAllStartedAndWait(logger)
 			logger.Fatal("%v", firstErr)
 		}
 
@@ -193,6 +242,14 @@ func runVectis(cmd *cobra.Command, args []string) {
 
 	for i, c := range commands {
 		if err := c.Wait(); err != nil {
+			shuttingDownMu.Lock()
+			ok := shuttingDown
+			shuttingDownMu.Unlock()
+
+			if ok {
+				return
+			}
+
 			logger.Fatal("%s exited: %v", orderedServices[i].binary, err)
 		}
 	}
