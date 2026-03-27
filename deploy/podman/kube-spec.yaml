@@ -21,6 +21,17 @@ spec:
       storage: 1Gi
 ---
 apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vectis-log-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
 kind: Pod
 metadata:
   name: vectis
@@ -32,6 +43,9 @@ spec:
     - name: queue-data
       persistentVolumeClaim:
         claimName: vectis-queue-data
+    - name: log-data
+      persistentVolumeClaim:
+        claimName: vectis-log-data
   containers:
     - name: postgres
       image: docker.io/library/postgres:18-alpine
@@ -69,6 +83,14 @@ spec:
     - name: log
       image: vectis-log:latest
       imagePullPolicy: Never
+      env:
+        - name: XDG_DATA_HOME
+          value: /data
+        - name: VECTIS_LOG_STORAGE_DIR
+          value: /data/vectis/jobs
+      volumeMounts:
+        - name: log-data
+          mountPath: /data
       ports:
         - containerPort: 8083
           protocol: TCP

@@ -9,10 +9,10 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/cli"
 	"vectis/internal/config"
-	"vectis/internal/database"
 	"vectis/internal/interfaces"
 	"vectis/internal/queue"
 	"vectis/internal/registry"
+	"vectis/internal/utils"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -99,7 +99,7 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	defaultPersistenceDir := filepath.Join(database.DataHome(), "vectis", "queue")
+	defaultPersistenceDir := filepath.Join(utils.DataHome(), "vectis", "queue")
 
 	viper.SetDefault("port", config.QueuePort())
 	viper.SetDefault("persistence_dir", defaultPersistenceDir)

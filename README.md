@@ -44,6 +44,12 @@ With default config, the DB file is:
 
 If `XDG_DATA_HOME` is unset, that is usually `~/.local/share/vectis/db.sqlite3`.
 
+`vectis-log` also stores run logs durably by default under:
+
+`$XDG_DATA_HOME/vectis/jobs`
+
+Override with `VECTIS_LOG_STORAGE_DIR` when needed.
+
 ### Postgres configuration (Podman/Kube)
 
 When using Postgres, set:
@@ -51,7 +57,7 @@ When using Postgres, set:
 - `VECTIS_DATABASE_DRIVER=pgx`
 - `VECTIS_DATABASE_DSN=postgres://USER:PASSWORD@HOST:5432/DB?sslmode=disable`
 
-The Pod spec in [`deploy/podman/kube-spec.yaml`](deploy/podman/kube-spec.yaml) wires these env vars and provisions persistent volumes for Postgres (`vectis-postgres-data`) and queue persistence (`vectis-queue-data`).
+The Pod spec in [`deploy/podman/kube-spec.yaml`](deploy/podman/kube-spec.yaml) wires these env vars and provisions persistent volumes for Postgres (`vectis-postgres-data`), queue persistence (`vectis-queue-data`), and durable run logs (`vectis-log-data`).
 
 For a simple admin workflow, use:
 

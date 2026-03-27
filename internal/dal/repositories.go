@@ -290,7 +290,8 @@ func (r *SQLRunsRepository) MarkRunFailed(ctx context.Context, runID, reason str
 }
 
 func (r *SQLRunsRepository) TryClaim(ctx context.Context, runID, owner string, leaseUntil time.Time) (bool, error) {
-	nowUnix := time.Now().Unix()
+	now := time.Now().UTC()
+	nowUnix := now.Unix()
 	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
 		UPDATE job_runs SET
 			lease_owner = ?,
@@ -384,7 +385,7 @@ func (r *SQLRunsRepository) CreateRun(ctx context.Context, jobID string, runInde
 }
 
 func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, since *int) ([]RunRecord, error) {
-	query := "SELECT run_id, run_index, status, started_at, finished_at, failure_reason FROM job_runs WHERE job_id = ?"
+	query := "SELECT run_id, run_index, status, CAST(started_at AS TEXT), CAST(finished_at AS TEXT), failure_reason FROM job_runs WHERE job_id = ?"
 	args := []any{jobID}
 
 	if since != nil {

@@ -120,12 +120,22 @@ type Server struct {
 	mu      sync.RWMutex
 	buffers map[string]*JobBuffer
 	logger  interfaces.Logger
+	store   RunLogStore
 }
 
 func NewServer(logger interfaces.Logger) *Server {
+	return NewServerWithStore(logger, NoopRunLogStore{})
+}
+
+func NewServerWithStore(logger interfaces.Logger, store RunLogStore) *Server {
+	if store == nil {
+		store = NoopRunLogStore{}
+	}
+
 	return &Server{
 		buffers: make(map[string]*JobBuffer),
 		logger:  logger,
+		store:   store,
 	}
 }
 
@@ -166,9 +176,12 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 		// need to reorder them themselves. We should reorder them, as appropriately. A secondary
 		// consideration would be how to handle gaps in the sequence numbers as well as SSE
 		// resumption so we don't have to re-send all the logs to the client.
+		if err := s.store.Append(chunk.GetRunId(), entry); err != nil {
+			return err
+		}
+
 		if !buffer.Add(entry) {
 			s.logger.Warn("Log buffer full for run %s, dropping log line (seq %d)", chunk.GetRunId(), entry.Sequence)
-			continue
 		}
 
 		buffer.Broadcast(chunk.GetRunId(), entry)
@@ -275,7 +288,16 @@ func (s *Server) HandleSSE(w http.ResponseWriter, r *http.Request) {
 
 	s.logger.Info("SSE client subscribed to run: %s", runID)
 
-	entries := buffer.GetEntries()
+	entries, err := s.store.List(runID)
+	if err != nil {
+		s.logger.Warn("Failed to load persisted logs for run %s: %v; falling back to in-memory entries", runID, err)
+		entries = buffer.GetEntries()
+	}
+
+	if len(entries) == 0 {
+		entries = buffer.GetEntries()
+	}
+
 	for _, entry := range entries {
 		data, err := json.Marshal(entry)
 		if err != nil {
@@ -346,8 +368,8 @@ func (s *Server) RunSSE(ctx context.Context, port string) error {
 	return err
 }
 
-func Run(ctx context.Context, logger interfaces.Logger) error {
-	server := NewServer(logger)
+func Run(ctx context.Context, logger interfaces.Logger, store RunLogStore) error {
+	server := NewServerWithStore(logger, store)
 
 	if config.LogRegisterWithRegistry() {
 		regAddr := config.LogRegistryAddress()

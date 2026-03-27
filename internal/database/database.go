@@ -11,6 +11,7 @@ import (
 
 	"vectis/internal/config"
 	"vectis/internal/migrations"
+	"vectis/internal/utils"
 )
 
 const (
@@ -30,26 +31,14 @@ const (
 func GetDBPath() string {
 	if dsn := os.Getenv(EnvDatabaseDSN); dsn != "" {
 		if strings.Contains(dsn, "{{data_home}}") {
-			return strings.NewReplacer("{{data_home}}", DataHome()).Replace(dsn)
+			return strings.NewReplacer("{{data_home}}", utils.DataHome()).Replace(dsn)
 		}
 
 		return dsn
 	}
 
-	dataHome := DataHome()
+	dataHome := utils.DataHome()
 	return config.DBDSN(dataHome)
-}
-
-func DataHome() string {
-	if dataHome := os.Getenv("XDG_DATA_HOME"); dataHome != "" {
-		return dataHome
-	}
-
-	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".local", "share")
-	}
-
-	return filepath.Join(os.TempDir(), ".local", "share")
 }
 
 func OpenDB(dbPath string) (*sql.DB, error) {
