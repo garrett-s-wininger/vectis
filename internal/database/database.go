@@ -20,12 +20,12 @@ const (
 
 	postgresMigrationAdvisoryLockKey int64 = 987654321
 
-	postgresMigrationRetryDeadline    = 60 * time.Second
-	postgresMigrationLockTimeout      = 10 * time.Second
-	postgresMigrationRetrySleep       = 750 * time.Millisecond
+	postgresMigrationRetryDeadline = 60 * time.Second
+	postgresMigrationLockTimeout   = 10 * time.Second
+	postgresMigrationRetrySleep    = 750 * time.Millisecond
 
-	schemaWaitDeadline       = 5 * time.Minute
-	schemaWaitPollInterval   = 750 * time.Millisecond
+	schemaWaitDeadline     = 5 * time.Minute
+	schemaWaitPollInterval = 750 * time.Millisecond
 )
 
 func GetDBPath() string {

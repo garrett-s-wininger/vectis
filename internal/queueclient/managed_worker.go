@@ -7,6 +7,9 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/interfaces"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type ManagingWorkerDial struct {
@@ -111,6 +114,10 @@ func (m *ManagingWorkerDial) Dequeue(ctx context.Context) (*api.Job, error) {
 		return job, err
 	}
 
+	if status.Code(err) == codes.DeadlineExceeded {
+		return job, err
+	}
+
 	if m.reconnectAfterTransient(ctx, err) != nil {
 		return job, err
 	}
@@ -136,6 +143,10 @@ func (m *ManagingWorkerDial) TryDequeue(ctx context.Context) (*api.Job, error) {
 	m.mu.RUnlock()
 
 	if err == nil || !IsTransientRPCError(err) {
+		return job, err
+	}
+
+	if status.Code(err) == codes.DeadlineExceeded {
 		return job, err
 	}
 

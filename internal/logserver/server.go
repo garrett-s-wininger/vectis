@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -121,13 +122,18 @@ type Server struct {
 	buffers map[string]*JobBuffer
 	logger  interfaces.Logger
 	store   RunLogStore
+	runs    RunStatusProvider
 }
 
 func NewServer(logger interfaces.Logger) *Server {
-	return NewServerWithStore(logger, NoopRunLogStore{})
+	return NewServerWithStoreAndStatus(logger, NoopRunLogStore{}, nil)
 }
 
 func NewServerWithStore(logger interfaces.Logger, store RunLogStore) *Server {
+	return NewServerWithStoreAndStatus(logger, store, nil)
+}
+
+func NewServerWithStoreAndStatus(logger interfaces.Logger, store RunLogStore, runs RunStatusProvider) *Server {
 	if store == nil {
 		store = NoopRunLogStore{}
 	}
@@ -136,6 +142,7 @@ func NewServerWithStore(logger interfaces.Logger, store RunLogStore) *Server {
 		buffers: make(map[string]*JobBuffer),
 		logger:  logger,
 		store:   store,
+		runs:    runs,
 	}
 }
 
@@ -312,12 +319,127 @@ func (s *Server) HandleSSE(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	select {
-	case <-ctx.Done():
-		return
-	case <-completed:
-		return
+	if s.runs == nil {
+		select {
+		case <-ctx.Done():
+			return
+		case <-completed:
+			return
+		}
 	}
+
+	if s.tryInjectSyntheticCompletion(ctx, runID, buffer) {
+		select {
+		case <-ctx.Done():
+			return
+		case <-completed:
+			return
+		}
+	}
+
+	poll := time.NewTicker(2 * time.Second)
+	defer poll.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-completed:
+			return
+		case <-poll.C:
+			_ = s.tryInjectSyntheticCompletion(ctx, runID, buffer)
+		}
+	}
+}
+
+func isTerminalRunStatus(status string) bool {
+	return status == "succeeded" || status == "failed"
+}
+
+func completedEventStatus(runStatus string) string {
+	switch runStatus {
+	case "succeeded":
+		return "success"
+	case "failed":
+		return "failure"
+	default:
+		return runStatus
+	}
+}
+
+func nextSequence(entries []LogEntry) int64 {
+	var max int64
+	for _, e := range entries {
+		if e.Sequence > max {
+			max = e.Sequence
+		}
+	}
+
+	return max + 1
+}
+
+func hasCompletedEvent(entries []LogEntry) bool {
+	for _, entry := range entries {
+		if entry.Stream != api.Stream_STREAM_CONTROL {
+			continue
+		}
+
+		var meta struct {
+			Event string `json:"event"`
+		}
+
+		if err := json.Unmarshal([]byte(entry.Data), &meta); err != nil {
+			continue
+		}
+
+		if meta.Event == "completed" {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (s *Server) tryInjectSyntheticCompletion(ctx context.Context, runID string, buffer *JobBuffer) bool {
+	if s.runs == nil {
+		return false
+	}
+
+	entries := buffer.GetEntries()
+	if hasCompletedEvent(entries) {
+		return false
+	}
+
+	status, found, err := s.runs.GetRunStatus(ctx, runID)
+	if err != nil {
+		s.logger.Warn("Run-status lookup failed for run %s: %v", runID, err)
+		return false
+	}
+
+	if !found || !isTerminalRunStatus(status) {
+		return false
+	}
+
+	completedStatus := completedEventStatus(status)
+	entry := LogEntry{
+		Timestamp: time.Now(),
+		Stream:    api.Stream_STREAM_CONTROL,
+		Sequence:  nextSequence(entries),
+		Data:      fmt.Sprintf(`{"event":"completed","status":"%s","synthetic":true}`, completedStatus),
+	}
+
+	if err := s.store.Append(runID, entry); err != nil {
+		s.logger.Warn("Failed to persist synthetic completion entry for run %s: %v", runID, err)
+	}
+
+	if !buffer.Add(entry) {
+		s.logger.Warn("Log buffer full for run %s; dropping synthetic completion entry", runID)
+		return false
+	}
+
+	s.logger.Debug("Injected synthetic completion event for run %s with status %s", runID, completedStatus)
+	buffer.Broadcast(runID, entry)
+	return true
 }
 
 func (s *Server) RunGRPC(ctx context.Context, port string) error {
@@ -368,8 +490,8 @@ func (s *Server) RunSSE(ctx context.Context, port string) error {
 	return err
 }
 
-func Run(ctx context.Context, logger interfaces.Logger, store RunLogStore) error {
-	server := NewServerWithStore(logger, store)
+func Run(ctx context.Context, logger interfaces.Logger, store RunLogStore, runs RunStatusProvider) error {
+	server := NewServerWithStoreAndStatus(logger, store, runs)
 
 	if config.LogRegisterWithRegistry() {
 		regAddr := config.LogRegistryAddress()

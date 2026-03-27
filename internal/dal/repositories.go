@@ -86,6 +86,7 @@ type RunsRepository interface {
 	MarkRunRunning(ctx context.Context, runID string) error
 	MarkRunSucceeded(ctx context.Context, runID string) error
 	MarkRunFailed(ctx context.Context, runID, reason string) error
+	GetRunStatus(ctx context.Context, runID string) (status string, found bool, err error)
 	TryClaim(ctx context.Context, runID, owner string, leaseUntil time.Time) (bool, error)
 	RenewLease(ctx context.Context, runID, owner string, leaseUntil time.Time) error
 	TouchDispatched(ctx context.Context, runID string) error
@@ -287,6 +288,27 @@ func (r *SQLRunsRepository) MarkRunFailed(ctx context.Context, runID, reason str
 		"failed", reason, runID)
 
 	return normalizeSQLError(err)
+}
+
+func (r *SQLRunsRepository) GetRunStatus(ctx context.Context, runID string) (status string, found bool, err error) {
+	if runID == "" {
+		return "", false, nil
+	}
+
+	err = r.db.QueryRowContext(ctx,
+		rebindQueryForPgx("SELECT status FROM job_runs WHERE run_id = ?"),
+		runID,
+	).Scan(&status)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", false, nil
+		}
+
+		return "", false, normalizeSQLError(err)
+	}
+
+	return status, true, nil
 }
 
 func (r *SQLRunsRepository) TryClaim(ctx context.Context, runID, owner string, leaseUntil time.Time) (bool, error) {

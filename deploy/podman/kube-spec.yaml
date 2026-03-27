@@ -84,6 +84,10 @@ spec:
       image: vectis-log:latest
       imagePullPolicy: Never
       env:
+        - name: VECTIS_DATABASE_DRIVER
+          value: pgx
+        - name: VECTIS_DATABASE_DSN
+          value: postgres://vectis:vectis@postgres:5432/vectis?sslmode=disable
         - name: XDG_DATA_HOME
           value: /data
         - name: VECTIS_LOG_STORAGE_DIR

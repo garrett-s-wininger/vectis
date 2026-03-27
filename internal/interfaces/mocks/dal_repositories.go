@@ -118,8 +118,11 @@ type MockRunsRepository struct {
 	MarkRunRunningErr  error
 	MarkRunSuccessErr  error
 	MarkRunFailedErr   error
+	GetRunStatusErr    error
 
 	TryClaimResult bool
+	RunStatus      string
+	RunStatusFound bool
 
 	ListByJobResults []dal.RunRecord
 	QueuedRuns       []dal.QueuedRun
@@ -150,6 +153,13 @@ func (m *MockRunsRepository) MarkRunSucceeded(ctx context.Context, runID string)
 
 func (m *MockRunsRepository) MarkRunFailed(ctx context.Context, runID string, reason string) error {
 	return m.MarkRunFailedErr
+}
+
+func (m *MockRunsRepository) GetRunStatus(ctx context.Context, runID string) (status string, found bool, err error) {
+	if m.GetRunStatusErr != nil {
+		return "", false, m.GetRunStatusErr
+	}
+	return m.RunStatus, m.RunStatusFound, nil
 }
 
 func (m *MockRunsRepository) TryClaim(ctx context.Context, runID, owner string, leaseUntil time.Time) (bool, error) {
