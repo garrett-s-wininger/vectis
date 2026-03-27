@@ -83,7 +83,7 @@ func (m *ManagingWorkerDial) Enqueue(ctx context.Context, job *api.Job) error {
 		return err
 	}
 
-	if m.reconnectAfterTransient(context.Background(), err) != nil {
+	if m.reconnectAfterTransient(ctx, err) != nil {
 		return err
 	}
 
@@ -111,7 +111,7 @@ func (m *ManagingWorkerDial) Dequeue(ctx context.Context) (*api.Job, error) {
 		return job, err
 	}
 
-	if m.reconnectAfterTransient(context.Background(), err) != nil {
+	if m.reconnectAfterTransient(ctx, err) != nil {
 		return job, err
 	}
 
@@ -139,7 +139,7 @@ func (m *ManagingWorkerDial) TryDequeue(ctx context.Context) (*api.Job, error) {
 		return job, err
 	}
 
-	if m.reconnectAfterTransient(context.Background(), err) != nil {
+	if m.reconnectAfterTransient(ctx, err) != nil {
 		return job, err
 	}
 
@@ -166,7 +166,7 @@ func (m *ManagingWorkerDial) Ack(ctx context.Context, deliveryID string) error {
 		return err
 	}
 
-	if m.reconnectAfterTransient(context.Background(), err) != nil {
+	if m.reconnectAfterTransient(ctx, err) != nil {
 		return err
 	}
 
@@ -194,7 +194,7 @@ func (m *ManagingWorkerDial) StreamLogs(ctx context.Context) (interfaces.LogStre
 		return stream, err
 	}
 
-	if m.reconnectAfterTransient(context.Background(), err) != nil {
+	if m.reconnectAfterTransient(ctx, err) != nil {
 		return stream, err
 	}
 

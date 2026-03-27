@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
@@ -15,6 +16,13 @@ import (
 
 type Executor struct {
 	registry *builtins.Registry
+}
+
+const logStreamOpenTimeout = 10 * time.Second
+
+type logStreamOpenResult struct {
+	stream interfaces.LogStream
+	err    error
 }
 
 func NewExecutor() *Executor {
@@ -56,9 +64,25 @@ func (e *Executor) ExecuteJob(ctx context.Context, job *api.Job, logClient inter
 
 	// NOTE(garrett): This has to be a separate context to prevent the normally deferred lease
 	// context from cancelling the log stream before we've sent all of our data.
-	logStream, err := logClient.StreamLogs(context.Background())
-	if err != nil {
-		return fmt.Errorf("failed to create log stream: %w", err)
+	logStreamCtx, cancelLogStream := context.WithCancel(context.Background())
+	defer cancelLogStream()
+
+	openCh := make(chan logStreamOpenResult, 1)
+	go func() {
+		stream, err := logClient.StreamLogs(logStreamCtx)
+		openCh <- logStreamOpenResult{stream: stream, err: err}
+	}()
+
+	var logStream interfaces.LogStream
+	select {
+	case res := <-openCh:
+		if res.err != nil {
+			return fmt.Errorf("failed to create log stream: %w", res.err)
+		}
+		logStream = res.stream
+	case <-time.After(logStreamOpenTimeout):
+		cancelLogStream()
+		return fmt.Errorf("failed to create log stream: timed out after %s", logStreamOpenTimeout)
 	}
 	defer func() { _ = logStream.CloseSend() }()
 
