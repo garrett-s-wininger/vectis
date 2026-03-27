@@ -15,7 +15,7 @@ COPY Makefile ./Makefile
 ENV CGO_ENABLED=0
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    make build-container
+    make -j"$(getconf _NPROCESSORS_ONLN)" build-container
 
 FROM scratch AS api
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
@@ -59,9 +59,10 @@ LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vec
 COPY --from=builder /app/bin/vectis-registry /usr/local/bin/vectis-registry
 ENTRYPOINT ["/usr/local/bin/vectis-registry"]
 
-FROM scratch AS worker
+FROM docker.io/library/alpine:3.23 AS worker
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
       org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
+RUN apk add --no-cache ca-certificates
 COPY --from=builder /app/bin/vectis-worker /usr/local/bin/vectis-worker
 ENTRYPOINT ["/usr/local/bin/vectis-worker"]
 

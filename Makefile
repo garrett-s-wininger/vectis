@@ -29,7 +29,7 @@ build: $(BINARIES)
 
 .PHONY: build-container
 build-container: CGO_ENABLED = 0
-build-container: BUILD_OPTS = -tags=nosqlite -a -ldflags '-s -w'
+build-container: BUILD_OPTS = -tags=nosqlite -ldflags '-s -w'
 build-container: $(BINARIES)
 
 .PHONY: proto
