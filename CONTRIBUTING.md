@@ -85,7 +85,7 @@ Embedded defaults: [`internal/config/defaults.toml`](internal/config/defaults.to
 
 ## Design and roadmap
 
-**As-built** architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). **Configuration** (env, flags): [docs/CONFIGURATION.md](docs/CONFIGURATION.md). **Glossary:** [docs/GLOSSARY.md](docs/GLOSSARY.md). **ADRs** (significant design decisions): [docs/adr/README.md](docs/adr/README.md). **Security:** [docs/SECURITY.md](docs/SECURITY.md). Large design decisions and **target vs shipped** behavior are documented in [docs/PLANNING.md](docs/PLANNING.md). Prefer updating PLANNING (or [docs/FEDERATION.md](docs/FEDERATION.md) for deferred multi-site material) instead of duplicating long design text in this guide; keep topology/protocol details in ARCHITECTURE when they change.
+**As-built** architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). **Configuration** (env, flags): [docs/CONFIGURATION.md](docs/CONFIGURATION.md). **Glossary:** [docs/GLOSSARY.md](docs/GLOSSARY.md). **ADRs** (significant design decisions): [docs/adr/README.md](docs/adr/README.md). **Security:** [docs/SECURITY.md](docs/SECURITY.md). **Design goals** (§1), large design decisions, and **target vs shipped** behavior are documented in [docs/PLANNING.md](docs/PLANNING.md). Prefer updating PLANNING (or [docs/FEDERATION.md](docs/FEDERATION.md) for deferred multi-site material) instead of duplicating long design text in this guide; keep topology/protocol details in ARCHITECTURE when they change.
 
 ## When pull requests are welcome
 

@@ -2,22 +2,33 @@
 
 ## 1. Project Overview
 
-**Vectis** is a self-hosted, modern build system inspired by Jenkins, designed for large-scale CI/CD workloads. It provides a component-based architecture with well-defined boundaries, enabling independent replacement, upgrade, and reimplementation of each component.
+**Vectis** is a self-hosted **orchestrator** for **generic job graphs** and **CI/CD-style** workloads. It is **component-based**: each service has a **clear contract** and can be **replaced or reimplemented** in **any language** that honors those protocols (gRPC, REST, protos), not only the shipped Go implementations.
 
-**Design goals:**
+These goals are **ambitious** and **coherent**: some items (uniform distributed traces, a full audit story, a hook catalog, operator-gated retries everywhere, a **one-reference deploy** with **BYO** database and telemetry at scale) are **design intent** or **roadmap**—§2 onward and [ARCHITECTURE.md](ARCHITECTURE.md) separate **shipped** behavior from **target** detail.
 
-- Language-agnostic component boundaries (gRPC + JSON REST)
-- Scale to hundreds of builds/day initially; validated scale targets added as benchmarks are performed
-- Easy local development + production-grade deployment
-- Database agnostic in principle: **defaults are SQLite**; PostgreSQL-oriented production requires migration driver work, not only configuration (see §2.5)
-- No required external dependencies beyond storage for the current stack
-- Vectis tests Vectis (dogfooding) — aspiration for CI
+**Design goals**
+
+- **Control:** You run the stack; there is no required hosted control plane. Data and execution stay on infrastructure you choose. Trust boundaries for the open HTTP surface are in [SECURITY.md](SECURITY.md).
+- **Operability:** Predictable failure behavior and calm upgrade paths; see [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md). Prefer explicit steps (migrations, Podman/Kube-style deploy) over magic.
+- **Swappable, isolated components:** Any `vectis-*` service may be swapped for another implementation that speaks the **wire contracts**; each component should stay **understandable on its own** with minimal hidden coupling ([ARCHITECTURE.md](ARCHITECTURE.md)).
+- **Auditability (intent):** A durable, reviewable trail of **user** and **automated** platform actions—direction of travel; not every dimension is fully realized in schema and APIs yet.
+- **Distributed observability (intent):** Follow one logical run across **API → queue → worker → log / database**; cross-service correlation is **not uniform** everywhere today.
+- **Scale and recovery:** Components **scale out** where state and contracts allow. **Job-level** automation that **re-executes or mutates external effects** (retries, remediation, “self-heal” of work) is **operator opt-in** and only where work is **explicitly marked safe**. **Process-level** restart or replacement (e.g. a crashed worker) is normal operations and does **not** assume job idempotence.
+- **Explicit safety:** **Generic jobs** and **CI** patterns are first-class, but **no operation is assumed safe by default**—**design intent** where code still defaults broadly today.
+- **Bounded extensibility:** Extend through **documented hooks** and structured surfaces (today: **job actions** and JSON/proto-shaped jobs in [ARCHITECTURE.md](ARCHITECTURE.md)), **not** unconstrained scripting across the control plane. A richer **hook catalog** is **roadmap**; the aim is capability **without** Jenkins-style arbitrary plugin sprawl.
+- **Deploy posture (intent):** Aim for **one primary, fully capable deploy path**: **storage**, **all Vectis components**, and **clear integration points for observability** (metrics, traces, logs toward **OpenTelemetry-compatible** sinks)—**without** mandating a single vendor observability distro. The repo ships **testing- and CI-suitable** defaults (`vectis-local`, Podman Kube spec with Postgres—§14); **production** is expected to use **bring-your-own PostgreSQL** and **bring-your-own telemetry backends** where operators already run them. Instrumentation and env wiring are still **partial**; see §16 (observability) and logging notes in §6.
+
+**Technical baseline (today)**
+
+- **Protocols:** gRPC between internal services; JSON REST at the API edge—[ARCHITECTURE.md](ARCHITECTURE.md).
+- **Persistence:** **SQLite** by default; **PostgreSQL** via `pgx` with the same embedded migrations (§2.5, [CONFIGURATION.md](CONFIGURATION.md)). Supporting **every** SQL vendor or dialect is **not** a goal. Multi-instance and HA are **operational** concerns on the Postgres path.
+- **Dependencies and environments:** No required external services beyond storage for the current stack. Local full stack: **`vectis-local`**; containerized deploy: Podman and **`make deploy-podman`** ([README.md](../README.md), §14). **BYO Postgres and BYO observability sinks** are the expected production shape once you outgrow bundled defaults; telemetry export remains **target-heavy** today. Initial scale target: **hundreds of builds per day** until benchmarks justify more. **Dogfooding** (Vectis builds Vectis in CI) remains an aspiration.
 
 **Naming conventions (implemented vs target):**
 
 - **Pipeline file (target):** `.vectis.yml` — not yet loaded by the runtime; jobs today are JSON matching the protobuf `Job` shape (`api/proto/common.proto`).
 - **Binaries (implemented):** `vectis-local`, `vectis-api`, `vectis-queue`, `vectis-worker`, `vectis-log`, `vectis-registry`, `vectis-cron`, `vectis-reconciler`, `vectis-cli` — built via `Makefile` into `bin/vectis-*`.
-- **Docker images (target / future):** `vectis/*`
+- **Container images (Podman / OCI; target registry naming):** `vectis/*` — built from [`build/Containerfile`](../build/Containerfile) via `make build-container` / `make images-components` (see [README.md](../README.md)).
 - **Config paths (target prod layout):** `/etc/vectis/`, `/var/lib/vectis/`
 - **Environment variable prefix:** `VECTIS_*` (`internal/config`)
 - **API contracts:** Buf protos in `api/proto/`; generated Go in `api/gen/go/`
@@ -27,97 +38,25 @@
 
 ## 2. Architecture and current implementation
 
-**As-built architecture (standalone):** [ARCHITECTURE.md](ARCHITECTURE.md) — components, ports, flows, and persistence at a glance. **Glossary:** [GLOSSARY.md](GLOSSARY.md). **ADRs:** [adr/README.md](adr/README.md).
+**Canonical as-built reference:** [ARCHITECTURE.md](ARCHITECTURE.md) — component diagram, processes, default ports, protocols (including worker **`Dequeue`** / **`TryDequeue`** and **SSE** for runs and logs), primary **data flows**, **persistence** overview, **job** shape and built-in actions, and the **REST** route table.
 
-This section describes **what exists in the repository today**. Forward-looking design (claim-based workers, unified triggers, federation, etc.) lives in **§4 onward** and is **target specification**, not shipped behavior. Log and run streaming to clients use **SSE** (see §2.3–§2.4).
+**Also:** [CONFIGURATION.md](CONFIGURATION.md) (env and flags), [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md) (outages), [SECURITY.md](SECURITY.md) (trust model for the open HTTP API), [GLOSSARY.md](GLOSSARY.md), [adr/README.md](adr/README.md).
 
-### 2.1 Diagram (as implemented)
+**Shipped vs target:** Forward-looking design (**queue Fetch/Claim**, unified triggers, federation, etc.) lives in **§4 onward**. Today, run concurrency uses the **database** (`TryClaim`) with **`Dequeue`** on the queue — [adr/0003-database-claims-and-queue-deliveries.md](adr/0003-database-claims-and-queue-deliveries.md).
 
-```mermaid
-flowchart LR
-  subgraph clients [Clients]
-    CLI[vectis-cli]
-    HTTP[HTTP_clients]
-  end
-  API[vectis-api_REST_8080]
-  REG[vectis-registry_gRPC_8082]
-  Q[vectis-queue_gRPC_8081]
-  LOG[vectis-log_gRPC_8083_SSE_8084]
-  W[vectis-worker]
-  CRON[vectis-cron]
-  REC[vectis-reconciler]
-  DB[(SQLite_default)]
-  CLI --> API
-  HTTP --> API
-  API --> REG
-  API --> Q
-  CRON --> REG
-  CRON --> Q
-  REC --> REG
-  REC --> Q
-  W --> REG
-  W --> Q
-  W --> LOG
-  W --> DB
-  API --> DB
-  CRON --> DB
-  REC --> DB
-```
+### 2.5 Persistence and schema notes
 
-### 2.2 Processes and roles
+Details also summarized in [ARCHITECTURE.md](ARCHITECTURE.md) §Persistence; **migration file layout and operational discipline** in **§5** below.
 
-| Process | Role |
-| --- | --- |
-| **vectis-registry** | gRPC registry: components register and resolve addresses (queue, log). |
-| **vectis-queue** | In-memory FIFO: `Enqueue` / `Dequeue` / `TryDequeue` (`api/proto/queue.proto`, `internal/queue/server.go`). |
-| **vectis-api** | REST API for job definitions and runs; resolves queue via registry; enqueues work; SSE for run events (`internal/api/server.go`). |
-| **vectis-worker** | Blocking dequeue from queue (backoff + timeout in `cmd/worker/main.go`); executes `Job` via `internal/job/executor.go` and `internal/action/`; streams logs to log service; persists run status via DAL. |
-| **vectis-log** | gRPC `StreamLogs` from workers; SSE for log consumers (`internal/logserver/server.go`). |
-| **vectis-cron** | Reads schedules from DB; enqueues via queue (`internal/cron/cron.go`). Separate from a unified “trigger” binary. |
-| **vectis-reconciler** | Dispatches runs stuck in queued state past a cutoff (`internal/reconciler/reconciler.go`) — complements API enqueue / recovery paths. |
-| **vectis-local** | Spawns registry, queue, log, worker, cron, reconciler, api (`cmd/local/main.go`). |
+- **Drivers:** SQLite default (`sqlite3`, XDG data home path in embedded defaults); **PostgreSQL** via `pgx` and `VECTIS_DATABASE_*` — [CONFIGURATION.md](CONFIGURATION.md). **SQL scope:** only these two backends are in scope; abstracting **all** SQL vendors is **not** a design goal.
+- **Migrations:** Embedded under `internal/migrations/sqlite/` and `internal/migrations/postgres/`; runtime binaries **wait** for schema, **`vectis-cli migrate`** applies changes for admin/deploy flows (see §5).
+- **DAL:** Stored job definitions, **runs** (status, dispatch, leases), cron schedules — `internal/dal/`.
+- **Ephemeral runs:** `POST /api/v1/jobs/run` writes `job_definitions` `(job_id, version=1, definition_json)` and `job_runs.definition_version=1` (no `stored_jobs` row). The reconciler loads `stored_jobs` first, then falls back to `job_definitions` for recovery.
+- **Future work:** Append-only versions for stored jobs, delete/version retention.
 
-### 2.3 Protocol summary (shipped)
+### 2.6 Failure domains and outages
 
-- **HTTP:** API default `localhost:8080` (`internal/config/defaults.toml`).
-- **Registry:** gRPC **8082**; queue **8081**; log gRPC **8083**, log SSE **8084**.
-- **Workers → queue:** gRPC `Dequeue` (blocking with context deadline) and `TryDequeue` — not Fetch/Claim as in the target spec.
-- **Workers → log:** gRPC client streaming `StreamLogs`.
-- **Clients → run progress:** **SSE** `GET /api/v1/sse/jobs/{id}/runs` on the API; log service also exposes `/sse/logs/{id}`.
-
-**Worker parallelism:** Each worker process handles one job at a time; run multiple worker processes for parallel execution on one machine.
-
-### 2.4 REST API (shipped)
-
-| Method | Path | Purpose |
-| --- | --- | --- |
-| GET | `/api/v1/jobs` | List jobs (full list; pagination TODO) |
-| POST | `/api/v1/jobs` | Create job (store definition) |
-| GET | `/api/v1/jobs/{id}` | Get job definition JSON |
-| PUT | `/api/v1/jobs/{id}` | Update job definition |
-| DELETE | `/api/v1/jobs/{id}` | Delete job |
-| POST | `/api/v1/jobs/run` | Ephemeral run: enqueue job body |
-| POST | `/api/v1/jobs/trigger/{id}` | New run from stored definition, enqueue |
-| GET | `/api/v1/jobs/{id}/runs` | List runs |
-| GET | `/api/v1/sse/jobs/{id}/runs` | SSE for run events |
-
-There is no public authentication, projects API, artifact APIs, or HTTP cancel endpoint in the current mux.
-
-### 2.5 Persistence
-
-- **Default:** SQLite (`internal/config/defaults.toml`: `driver = sqlite3`, path under XDG data home).
-- **Migrations:** `internal/migrations/migrations.go` embeds **sqlite** (`internal/migrations/sqlite/`) and **postgres** (`internal/migrations/postgres/`) baseline SQL; driver is chosen from the effective DB backend (`sqlite3` vs `pgx`).
-- **Model:** Jobs (stored definitions) and **runs** (executions, indices, dispatch) via `internal/dal/`.
-- **Ephemeral runs:** `POST /api/v1/jobs/run` writes `job_definitions` `(job_id, version=1, definition_json)` and `job_runs.definition_version=1` (no `stored_jobs` row). The reconciler loads `stored_jobs` first, then falls back to `job_definitions` for recovery. Append-only versions for stored jobs and delete/version retention are future work.
-
-### 2.6 Job shape
-
-- `common.Job` in `api/proto/common.proto`: `id`, `run_id`, `root` `Node` tree with `uses`, `with`, nested `steps`.
-- Built-in actions include `shell`, `checkout`, `sequence` (`internal/action/builtins/`).
-
-### 2.7 Failure domains and outages
-
-For **per-component failure isolation**, behavior when dependencies are down, and **operational expectations vs shipped behavior**, see [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md).
+See [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md). **Security:** [SECURITY.md](SECURITY.md).
 
 ---
 
@@ -127,15 +66,15 @@ Milestones build on the current stack; order is indicative.
 
 ### Milestone A — Documentation and planning alignment
 
-- This document: **§2–§3** reflect the repo; **§4+** fenced as target spec.
-- Clarify **JSON/proto job definitions** as current; **`.vectis.yml`** as target.
+- **Largely met:** standalone docs exist ([ARCHITECTURE.md](ARCHITECTURE.md), [CONFIGURATION.md](CONFIGURATION.md), [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md), [GLOSSARY.md](GLOSSARY.md), [SECURITY.md](SECURITY.md), [FEDERATION.md](FEDERATION.md) as deferred target, [adr/README.md](adr/README.md)). **Ongoing:** keep **§2–§3** aligned with the repo on each release; **§4+** remains target spec.
+- **JSON/proto job definitions** are current; **`.vectis.yml`** remains target (Milestone E).
 
 ### Milestone B — Hardening
 
 - **API:** authentication/authorization when exposed beyond trusted networks (current posture: [SECURITY.md](SECURITY.md)).
 - **Cancellation:** API → worker control path (no `WorkerControl` gRPC today).
 - **List jobs:** cursor pagination (`internal/api/server.go` TODOs).
-- **Durability:** close gaps for `RunJob` / failed enqueue (reconciler exists; see `RunJob` commentary in `internal/api/server.go`).
+- **Durability / observability:** **`vectis-reconciler`** covers DB–queue gaps after async enqueue; tighten **monitoring**, client-visible status for failed handoffs, and any remaining edge cases (see `RunJob` commentary in `internal/api/server.go`).
 
 ### Milestone C — Queue evolution (optional)
 
@@ -151,7 +90,7 @@ Milestones build on the current stack; order is indicative.
 
 ### Milestone F — Operations at scale
 
-- PostgreSQL + migrations; queue **WAL / persistence** (target spec); metrics/tracing; benchmarks vs §17 goals.
+- **PostgreSQL** in production (supported today—**HA**, backup, and pool tuning are ops concerns); **queue persistence** is shipped—focus on **backup of queue data**, replication story if needed; **metrics/tracing**; **benchmarks** vs §17 goals.
 
 ---
 
@@ -207,13 +146,14 @@ The sections below (**§4–§17**) describe **target** architecture and APIs. T
 
 **Shipped** — repo is source of truth:
 
-- REST: **§2.4**, `internal/api/server.go`
+- REST: [ARCHITECTURE.md](ARCHITECTURE.md) (REST surface), `internal/api/server.go`
 - gRPC: `api/proto/queue.proto`, `log.proto`, `registry.proto`; job graph: `common.proto`
+- **Queue persistence:** on-disk **WAL / snapshot** for `vectis-queue` (optional; default data directory in `cmd/queue`; see [ARCHITECTURE.md](ARCHITECTURE.md) §Persistence).
 
 **Target / not implemented** (roadmap only):
 
 - Richer REST: projects, artifacts, HTTP cancel, cursor-paginated job lists
-- Optional **v2 queue**: `FetchJob` / `ClaimJob` / status to queue; multi-queue; worker capabilities; optional on-disk queue WAL
+- Optional **v2 queue**: `FetchJob` / `ClaimJob` / status to queue; multi-queue; worker capabilities (today: `Dequeue` + DB **TryClaim** for concurrency; see [adr/0003-database-claims-and-queue-deliveries.md](adr/0003-database-claims-and-queue-deliveries.md))
 - **Worker control** + **heartbeat** for cancel and orphan handling
 - **Unified triggers** (webhook, poll, cron, manual); shipped: **vectis-cron** + API
 - **`.vectis.yml`** in repo, optional `vectis/overrides` branch — not parsed today (jobs are JSON/proto)
@@ -224,7 +164,7 @@ The sections below (**§4–§17**) describe **target** architecture and APIs. T
 
 - **Transient vs permanent:** backoff/retry for network and rate limits; fail fast for bad input and test failures (behavior lives in worker, queue client, and API handlers).
 - **Step/job failure:** executor reports run state via DAL; target design may add queue `ReportJobStatus` — see **§4**.
-- **Partitions / dependencies down:** shipped stack uses local SQLite + in-memory queue; define buffering and orphan policy when heartbeat and durable queue land (**§3**).
+- **Partitions / dependencies down:** shipped stack uses a **SQL** database (SQLite default) and a **queue** with optional persistence (default-on WAL); **reconciler** helps when enqueue lags the DB. Target **heartbeat** and richer orphan policy remain **§3**.
 - **REST errors (target shape):** JSON with `error.code`, `message`, optional `details` — not fully standardized today.
 
 ---
@@ -241,7 +181,7 @@ Data access: **`internal/dal`** repositories over **`database/sql`** — hand-wr
 
 ### Target entity model (not fully implemented)
 
-The long-term design may add first-class **projects**, **queues**, granular **job status**, **steps** / **step results**, **artifacts**, **users** / **tokens**, **notifications**, and **audit logs**. None of that should be assumed without checking `internal/migrations/`. **§4** is a target outline; **§2** is what runs today.
+The long-term design may add first-class **projects**, **queues**, granular **job status**, **steps** / **step results**, **artifacts**, **users** / **tokens**, **notifications**, and **audit logs**. None of that should be assumed without checking `internal/migrations/`. **§4** is a target outline; **§2** and [ARCHITECTURE.md](ARCHITECTURE.md) describe what runs today.
 
 ### Database abstraction
 
@@ -271,7 +211,7 @@ internal/migrations/postgres/001_initial.down.sql
 
 ### 6.1 Logs (shipped + target)
 
-Workers stream **gRPC** `StreamLogs` to the log service (default port **8083**). Clients use **SSE**: `/sse/logs/{id}` on the log service (**8084**) and/or `GET /api/v1/sse/jobs/{id}/runs` on the API (**8080**) — see **§2.3**.
+Workers stream **gRPC** `StreamLogs` to the log service (default port **8083**). Clients use **SSE**: `/sse/logs/{id}` on the log service (**8084**) and/or `GET /api/v1/sse/jobs/{id}/runs` on the API (**8080**) — see [ARCHITECTURE.md](ARCHITECTURE.md) §Protocols and §REST surface.
 
 **Target:** filesystem vs object-store backends; optional Loki/OTEL forwarding; per-project retention and max size — not fully productized in config yet.
 
@@ -299,7 +239,7 @@ Workers stream **gRPC** `StreamLogs` to the log service (default port **8083**).
 
 ## 8. Job recovery, cancellation, cleanup
 
-**Shipped:** **reconciler** redispatches runs stuck in queued state; runs persisted in SQLite; executor cleans temp workspace after a run.
+**Shipped:** **reconciler** redispatches runs stuck in queued state; runs persisted in the **configured SQL database**; executor cleans temp workspace after a run.
 
 **Target:** per-project auto-retry counts; HTTP cancel → worker RPC (needs worker address / heartbeat); optional preserved failed workspaces; artifact/log retention jobs; generic orphan sweeps — distinct from reconciler.
 
@@ -315,13 +255,13 @@ Workers stream **gRPC** `StreamLogs` to the log service (default port **8083**).
 
 **Target:** OTEL-style pipelines (e.g. Alloy → Loki/Tempo/Prometheus) and job lifecycle metrics (queue depth, latency, worker utilization). **Shipped:** minimal; add instrumentation as milestones land.
 
-Operator-facing **log/run streaming** is **§6.1** and **§2.3** (SSE).
+Operator-facing **log/run streaming** is **§6.1** and [ARCHITECTURE.md](ARCHITECTURE.md) (protocols / REST).
 
 ---
 
 ## 11. Service discovery
 
-**Shipped:** **vectis-registry** gRPC — components resolve queue and log addresses (§2).
+**Shipped:** **vectis-registry** gRPC — components resolve queue and log addresses ([ARCHITECTURE.md](ARCHITECTURE.md) §Service discovery).
 
 **Target:** Kubernetes DNS/services; Consul/etcd or static inventory for large bare-metal; optional HTTP `/health` per service — not uniform yet.
 
@@ -329,7 +269,7 @@ Operator-facing **log/run streaming** is **§6.1** and **§2.3** (SSE).
 
 ## 12. Security and authentication
 
-**Shipped:** HTTP API and gRPC peers are largely **unauthenticated** beyond trusted networks — treat as gap (§3 Milestone B).
+**Shipped:** HTTP API and gRPC peers are largely **unauthenticated** beyond trusted networks — see [SECURITY.md](SECURITY.md) and §3 Milestone B.
 
 **Target:** Public REST behind OIDC/session tokens; RBAC (viewer/trigger/operator/admin); worker/trigger static tokens and optional **mTLS** on internal gRPC; rate limits and webhook HMAC/replay controls when triggers exist.
 
@@ -337,7 +277,7 @@ Operator-facing **log/run streaming** is **§6.1** and **§2.3** (SSE).
 
 ## 13. Federation and multi-site deployment
 
-**Status:** Not implemented. The repository targets a **single-site** stack (see §2).
+**Status:** Not implemented. The repository targets a **single-site** stack (see [ARCHITECTURE.md](ARCHITECTURE.md) and §2 above).
 
 Multi-site design (central config, per-site execution, frontend aggregation across sites) is archived for future reference only:
 
@@ -353,7 +293,7 @@ Treat federation as **out of scope** until single-site production hardening and 
 
 **Implemented:** build binaries with `make build` (outputs `bin/vectis-*`). Run the full local stack with `vectis-local` (starts registry, queue, log, worker, cron, reconciler, api — see `cmd/local/main.go`). Individual services are separate binaries (e.g. `bin/vectis-api`, `bin/vectis-worker`).
 
-**Target / not implemented:** a single `./vectis run …` CLI that embeds all components; dedicated `heartbeat-service` and unified `trigger` binary; frontend dev server on port 3000.
+**Target / not implemented:** optional future `./vectis run …` single-binary UX (today `vectis-local` supervises separate `vectis-*` processes and already runs the full shipped stack); dedicated `heartbeat-service`; unified `trigger` binary; frontend dev server on port 3000.
 
 ```bash
 make build
@@ -362,9 +302,13 @@ make build
 
 ### Production
 
-**Docker**
+**Intent:** One coherent deploy (storage + all services + **hooks for** observability); bundled Kube spec and `vectis-local` are **dev/CI-capable** defaults. Operators typically **bring their own Postgres** and **OTEL-compatible** (or equivalent) backends at scale—aligned with §1 **Deploy posture** and §16.
 
-**Example (single-site, aligns with `defaults.toml` ports):** registry **8082**, queue **8081**, log gRPC **8083**, log SSE **8084**, API **8080**. Workers and other services resolve addresses via **registry** in the shipped stack — wire `VECTIS_*` / config to match your images.
+**Podman**
+
+**Shipped reference:** [`deploy/podman/kube-spec.yaml`](../deploy/podman/kube-spec.yaml) and **`make deploy-podman`** (`podman play kube`) — see [README.md](../README.md).
+
+**Compose-style example** (single-site, aligns with `defaults.toml` ports): registry **8082**, queue **8081**, log gRPC **8083**, log SSE **8084**, API **8080**. Workers and other services resolve addresses via **registry** in the shipped stack — wire `VECTIS_*` / config to match your images. Runnable with **`podman compose`** if you prefer that layout over the Kube spec.
 
 ```yaml
 services:
@@ -381,10 +325,11 @@ services:
     image: vectis/api:latest
     ports: ["8080:8080"]
     environment:
-      - DATABASE_URL=sqlite:... # or postgres when supported
+      - VECTIS_DATABASE_DRIVER=sqlite3   # or pgx for Postgres
+      - VECTIS_DATABASE_DSN=/var/lib/vectis/db.sqlite3   # or postgres://… on all DB consumers
   vectis-worker:
     image: vectis/worker:latest
-    # Point at registry + DB; worker discovers queue/log addresses via registry
+    # Same VECTIS_DATABASE_* as other writers; registry + optional pins per CONFIGURATION.md
   vectis-cron:
     image: vectis/cron:latest
   vectis-reconciler:
@@ -400,12 +345,12 @@ services:
 
 ### Configuration
 
-**Shipped defaults** are embedded in `internal/config/defaults.toml` (API, registry, queue, log gRPC/SQLite, database driver/DSN). Production-style `config.toml` fragments below are **illustrative**; many keys (heartbeat, unified triggers, multi-queue) are **target-only**.
+**Shipped defaults** are embedded in `internal/config/defaults.toml` (API, registry, queue, log gRPC/SSE ports, discovery timings, database driver/DSN template). Runtime configuration is primarily **environment variables** per service — see [CONFIGURATION.md](CONFIGURATION.md). The `config.toml` fragment below is **illustrative** only (Viper/TOML file loading is not the primary path today). Keys for heartbeat, unified triggers, multi-queue remain **target-only**.
 
 ```toml
 # Illustrative — not exhaustive
 [database]
-    driver = "sqlite3"   # target: postgres with migrate parity
+    driver = "sqlite3"   # or pgx + postgres DSN; see CONFIGURATION.md / defaults.toml
     dsn = "/var/lib/vectis/db.sqlite3"
 
 [api]
@@ -434,11 +379,11 @@ services:
 
 ## 15. Architectural strengths
 
-Mix of **shipped** behavior and **target** intent (see §2 vs §4). The running system is intentionally smaller than the full target spec.
+Mix of **shipped** behavior and **target** intent (see [ARCHITECTURE.md](ARCHITECTURE.md) / §2 vs §4). The running system is intentionally smaller than the full target spec.
 
-- **Pull-based workers / simple queue:** Workers call `Dequeue`; queue stays a small in-memory component (see §2).
-- **SSE for logs and runs:** Single HTTP-friendly streaming model for browsers and tools (§6.1, §2.3).
-- **Registry for internal discovery:** Queue and log addresses resolved without hard-coding every client (§2).
+- **Pull-based workers / simple queue:** Workers call `Dequeue`; queue is a focused FIFO service with **default on-disk persistence** (see [ARCHITECTURE.md](ARCHITECTURE.md), §4).
+- **SSE for logs and runs:** Single HTTP-friendly streaming model for browsers and tools (§6.1, [ARCHITECTURE.md](ARCHITECTURE.md) §Protocols).
+- **Registry for internal discovery:** Queue and log addresses resolved without hard-coding every client ([ARCHITECTURE.md](ARCHITECTURE.md)).
 - **Pluggable storage (target):** Logs and artifacts — filesystem vs object store (§6).
 - **Pipeline-as-code (target):** `.vectis.yml` and overrides; today jobs are JSON/proto-shaped (§1, §3).
 - **Multi-site (deferred):** See [FEDERATION.md](FEDERATION.md), not the current codebase.
@@ -447,16 +392,16 @@ Mix of **shipped** behavior and **target** intent (see §2 vs §4). The running 
 
 ## 16. Open questions — resolved (summary)
 
-**Status:** Shipped / Partial / Planned / N/A — see **§2** for ground truth. Older detail lived in prior revisions of §4+; **§4** is now a short outline.
+**Status:** Shipped / Partial / Planned / N/A — see **§2** and [ARCHITECTURE.md](ARCHITECTURE.md) for shipped ground truth. Older detail lived in prior revisions of §4+; **§4** is now a short outline.
 
 | Topic | Decision (intent) | Status |
 | --- | --- | --- |
 | Language & protocols | Go; REST at API edge, gRPC internally | Shipped |
-| Log / run streaming | Worker → log service (gRPC) → clients (**SSE**) | Partial — §2, §6.1 |
-| Queue | In-memory `Dequeue`; optional WAL / Fetch-Claim later | Partial — ring buffer today |
-| Persistence | SQLite + Postgres via `internal/migrations/{sqlite,postgres}` | Partial |
-| Registry | Internal service discovery | Shipped — dev stack |
-| Job model | Stored jobs + runs in DB; JSON/proto graph | Partial |
+| Log / run streaming | Worker → log service (gRPC) → clients (**SSE**) | Shipped — [ARCHITECTURE.md](ARCHITECTURE.md), §6.1; retention/Loki-style target |
+| Queue | `Dequeue` + optional disk persistence (WAL); DB **TryClaim** for run concurrency; Fetch/Claim queue API target | Partial — [ARCHITECTURE.md](ARCHITECTURE.md), [adr/0003](adr/0003-database-claims-and-queue-deliveries.md) |
+| Persistence | SQLite + Postgres migrations embedded; queue WAL shipped | Partial — HA / ops hardening roadmap |
+| Registry | Internal service discovery; optional **pinned** addresses | Shipped |
+| Job model | Stored jobs + runs + ephemeral path; JSON/proto graph | Shipped — richer entities (projects, steps table) target |
 | Pipeline-as-code | `.vectis.yml`, overrides branch | Planned — JSON jobs today |
 | Triggers | Cron service + API; webhook / unified trigger | Partial |
 | API security | Auth, RBAC, rate limits | Planned — open HTTP today |
@@ -472,7 +417,7 @@ Mix of **shipped** behavior and **target** intent (see §2 vs §4). The running 
 
 ## 17. Performance and scaling
 
-**Shipped path (§2):** in-memory queue, `Dequeue`, SQLite — suitable for **low to moderate** throughput until measured.
+**Shipped path** ([ARCHITECTURE.md](ARCHITECTURE.md), §2): FIFO queue (`Dequeue`, optional persistence), **TryClaim** in DB, SQLite default or PostgreSQL — suitable for **low to moderate** throughput until measured.
 
 **Target / unvalidated:** sub-second dispatch with claim-based queue + tuned PostgreSQL; horizontal queue shards; SSE fan-out for viewers. **Do not** treat old numeric tables (10k TPS, 10k workers, etc.) as commitments — benchmark after the queue and DB story match that architecture.
 

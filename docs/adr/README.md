@@ -1,6 +1,6 @@
 # Architecture Decision Records (ADRs)
 
-Short, **append-only** notes that capture **why** we made a non-obvious design choice. They complement [ARCHITECTURE.md](../ARCHITECTURE.md) (what exists) and [PLANNING.md](../PLANNING.md) (roadmap).
+Short, **append-only** notes that capture **why** we made a non-obvious design choice. They complement [ARCHITECTURE.md](../ARCHITECTURE.md) (what exists) and [PLANNING.md](../PLANNING.md) (§1 goals, §4+ roadmap).
 
 New decisions add the next numbered file; prefer **superseded** status over deleting history.
 
