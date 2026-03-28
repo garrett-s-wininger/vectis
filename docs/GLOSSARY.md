@@ -74,6 +74,8 @@ Shared vocabulary for Vectis docs and APIs. Canonical job structure: [`api/proto
 
 ## Related terms (elsewhere)
 
+**Security / trust model** — See [SECURITY.md](SECURITY.md).
+
 **Federation / multi-site** — Target design only; see [FEDERATION.md](FEDERATION.md).
 
 **`.vectis.yml`** — Target pipeline file format; not loaded by the shipped runtime ([PLANNING.md](PLANNING.md) §1).

@@ -1,6 +1,6 @@
 # Architecture (as built)
 
-This document describes **what is implemented in the repository today**: processes, protocols, persistence, and how work moves through the system. **Roadmap, target design, and federation** belong in [PLANNING.md](PLANNING.md) (§4 onward) and [FEDERATION.md](FEDERATION.md). **Operational failure behavior** is in [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md). **Terminology** is in [GLOSSARY.md](GLOSSARY.md).
+This document describes **what is implemented in the repository today**: processes, protocols, persistence, and how work moves through the system. **Roadmap, target design, and federation** belong in [PLANNING.md](PLANNING.md) (§4 onward) and [FEDERATION.md](FEDERATION.md). **Operational failure behavior** is in [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md). **Terminology** is in [GLOSSARY.md](GLOSSARY.md). **Security and trust boundaries** are in [SECURITY.md](SECURITY.md).
 
 ## System role
 
@@ -128,4 +128,5 @@ Environment-driven configuration uses **`VECTIS_*`** prefixes per binary; nested
 | Configuration (env, flags, discovery) | [CONFIGURATION.md](CONFIGURATION.md) |
 | Glossary | [GLOSSARY.md](GLOSSARY.md) |
 | Architecture Decision Records | [adr/README.md](adr/README.md) |
+| Security posture | [SECURITY.md](SECURITY.md) |
 | Contributing and dev workflow | [CONTRIBUTING.md](../CONTRIBUTING.md) |

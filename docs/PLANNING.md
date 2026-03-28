@@ -132,7 +132,7 @@ Milestones build on the current stack; order is indicative.
 
 ### Milestone B — Hardening
 
-- **API:** authentication/authorization when exposed beyond trusted networks.
+- **API:** authentication/authorization when exposed beyond trusted networks (current posture: [SECURITY.md](SECURITY.md)).
 - **Cancellation:** API → worker control path (no `WorkerControl` gRPC today).
 - **List jobs:** cursor pagination (`internal/api/server.go` TODOs).
 - **Durability:** close gaps for `RunJob` / failed enqueue (reconciler exists; see `RunJob` commentary in `internal/api/server.go`).

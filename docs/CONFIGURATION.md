@@ -1,6 +1,6 @@
 # Configuration reference
 
-This page is for **people running or integrating Vectis** (operators, platform engineers, and developers wiring staging or prod). It focuses on **what to set**—environment variables, ports, and discovery—not on Go package layout. For service roles and data flow, see [ARCHITECTURE.md](ARCHITECTURE.md). For **job**, **run**, **enqueue**, and related terms, see [GLOSSARY.md](GLOSSARY.md).
+This page is for **people running or integrating Vectis** (operators, platform engineers, and developers wiring staging or prod). It focuses on **what to set**—environment variables, ports, and discovery—not on Go package layout. For service roles and data flow, see [ARCHITECTURE.md](ARCHITECTURE.md). For **job**, **run**, **enqueue**, and related terms, see [GLOSSARY.md](GLOSSARY.md). For **secrets and trust boundaries**, see [SECURITY.md](SECURITY.md).
 
 Executables are built as **`bin/vectis-<name>`** (e.g. `bin/vectis-api` after `make build`). The **environment prefix** for each service (e.g. `VECTIS_API_SERVER`) is what you use when building variable names; it may differ from the binary name or from `--help` titles.
 
@@ -103,6 +103,7 @@ Replace `…` with the correct prefix from the next section (e.g. `VECTIS_WORKER
 | Roadmap / persistence | [PLANNING.md](PLANNING.md) §2.5 |
 | Quick start, Postgres / Podman | [README.md](../README.md) |
 | Glossary | [GLOSSARY.md](GLOSSARY.md) |
+| Security posture | [SECURITY.md](SECURITY.md) |
 
 ---
 
