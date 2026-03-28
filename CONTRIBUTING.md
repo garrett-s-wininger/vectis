@@ -75,7 +75,7 @@ make build
 
 For Postgres (Podman/Kube), use `make deploy-podman`.
 
-**Single service** (for debugging): run the matching binary from `bin/` after `make build`. Each `cmd/<name>/main.go` defines flags and startup; components discover queue/log addresses via **registry** when that pattern is used (see [docs/PLANNING.md](docs/PLANNING.md) §2).
+**Single service** (for debugging): run the matching binary from `bin/` after `make build`. Each `cmd/<name>/main.go` defines flags and startup; components discover queue/log addresses via **registry** when that pattern is used (see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) or [docs/PLANNING.md](docs/PLANNING.md) §2).
 
 Ensure SQLite’s parent directory exists if you open the DB outside `vectis-local` (see `database.OpenDB` / `GetDBPath`).
 
@@ -85,7 +85,7 @@ Embedded defaults: [`internal/config/defaults.toml`](internal/config/defaults.to
 
 ## Design and roadmap
 
-Large design decisions and **target vs shipped** behavior are documented in [docs/PLANNING.md](docs/PLANNING.md). Prefer updating that file (or [docs/FEDERATION.md](docs/FEDERATION.md) for deferred multi-site material) instead of duplicating long architecture text in this guide.
+**As-built** architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Large design decisions and **target vs shipped** behavior are documented in [docs/PLANNING.md](docs/PLANNING.md). Prefer updating PLANNING (or [docs/FEDERATION.md](docs/FEDERATION.md) for deferred multi-site material) instead of duplicating long design text in this guide; keep topology/protocol details in ARCHITECTURE when they change.
 
 ## When pull requests are welcome
 
