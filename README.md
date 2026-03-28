@@ -2,7 +2,7 @@
 
 Vectis is a self-hosted build/CI-style system: multiple Go services (API, queue, worker, log, registry, cron, reconciler) coordinated over gRPC and a small REST surface. Jobs are defined as JSON matching the protobuf [`Job`](api/proto/common.proto) graph (`id`, `run_id`, `root` node tree with `uses` / `with` / `steps`).
 
-**Docs:** [PLANNING.md](PLANNING.md) (architecture, roadmap, target vs shipped). Deferred multi-site notes: [docs/FEDERATION.md](docs/FEDERATION.md). **Contributing:** [CONTRIBUTING.md](CONTRIBUTING.md).
+**Docs:** [docs/PLANNING.md](docs/PLANNING.md) (architecture, roadmap, target vs shipped). Deferred multi-site notes: [docs/FEDERATION.md](docs/FEDERATION.md). **Contributing:** [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Requirements
 

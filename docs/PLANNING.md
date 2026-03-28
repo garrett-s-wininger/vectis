@@ -335,7 +335,7 @@ Operator-facing **log/run streaming** is **§6.1** and **§2.3** (SSE).
 
 Multi-site design (central config, per-site execution, frontend aggregation across sites) is archived for future reference only:
 
-- **[docs/FEDERATION.md](docs/FEDERATION.md)** — full target spec (diagrams, routing, secrets, trigger site selection).
+- **[FEDERATION.md](FEDERATION.md)** — full target spec (diagrams, routing, secrets, trigger site selection).
 
 Treat federation as **out of scope** until single-site production hardening and roadmap milestones are satisfied.
 
@@ -435,7 +435,7 @@ Mix of **shipped** behavior and **target** intent (see §2 vs §4). The running 
 - **Registry for internal discovery:** Queue and log addresses resolved without hard-coding every client (§2).
 - **Pluggable storage (target):** Logs and artifacts — filesystem vs object store (§6).
 - **Pipeline-as-code (target):** `.vectis.yml` and overrides; today jobs are JSON/proto-shaped (§1, §3).
-- **Multi-site (deferred):** See [docs/FEDERATION.md](docs/FEDERATION.md), not the current codebase.
+- **Multi-site (deferred):** See [FEDERATION.md](FEDERATION.md), not the current codebase.
 
 ---
 
@@ -458,7 +458,7 @@ Mix of **shipped** behavior and **target** intent (see §2 vs §4). The running 
 | Cancellation | API → worker control RPC | Planned |
 | Heartbeat / orphans | Dedicated service + admin paths | Planned — reconciler differs today |
 | Artifacts & secrets | Pluggable storage; Vault-style secrets | Planned |
-| Multi-site | Federation model | Planned — **deferred**; [docs/FEDERATION.md](docs/FEDERATION.md) |
+| Multi-site | Federation model | Planned — **deferred**; [FEDERATION.md](FEDERATION.md) |
 | Observability | Metrics/traces/logs (e.g. Alloy / Grafana stack) | Planned |
 | Dogfooding CI | Vectis builds Vectis | Aspiration |
 

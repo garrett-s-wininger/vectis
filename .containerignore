@@ -8,5 +8,5 @@ build/
 buf.gen.yaml
 buf.yaml
 deploy/
+docs/
 LICENSE
-PLANNING.md

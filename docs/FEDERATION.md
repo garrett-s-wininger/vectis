@@ -1,6 +1,6 @@
 # Federation and multi-site deployment (deferred)
 
-This document preserves a **target** design for multi-site Vectis. It is **not implemented** in the codebase. For the current single-site architecture, see [PLANNING.md](../PLANNING.md) §2.
+This document preserves a **target** design for multi-site Vectis. It is **not implemented** in the codebase. For the current single-site architecture, see [PLANNING.md](PLANNING.md) §2.
 
 ## Architecture overview
 
