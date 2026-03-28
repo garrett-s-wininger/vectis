@@ -1,6 +1,6 @@
 # Failure domains, dependency outages, and expectations
 
-This document is for **operators and deployment planning**. It explains how failures are isolated by component, what happens when a dependency is unavailable, reasonable **operational expectations**, and how the current system compares to a heavily hardened production setup. For topology and protocols, see [ARCHITECTURE.md](ARCHITECTURE.md); for the same material in planning context, see [PLANNING.md](PLANNING.md) §2.
+This document is for **operators and deployment planning**. It explains how failures are isolated by component, what happens when a dependency is unavailable, reasonable **operational expectations**, and how the current system compares to a heavily hardened production setup. For topology and protocols, see [ARCHITECTURE.md](ARCHITECTURE.md); for the same material in planning context, see [PLANNING.md](PLANNING.md) §2. For vocabulary (**queue**, **run**, **dispatch**, etc.), see [GLOSSARY.md](GLOSSARY.md).
 
 ## Operational spine
 

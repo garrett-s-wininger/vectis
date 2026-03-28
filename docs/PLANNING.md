@@ -27,7 +27,7 @@
 
 ## 2. Architecture and current implementation
 
-**As-built architecture (standalone):** [ARCHITECTURE.md](ARCHITECTURE.md) — components, ports, flows, and persistence at a glance.
+**As-built architecture (standalone):** [ARCHITECTURE.md](ARCHITECTURE.md) — components, ports, flows, and persistence at a glance. **Glossary:** [GLOSSARY.md](GLOSSARY.md).
 
 This section describes **what exists in the repository today**. Forward-looking design (claim-based workers, unified triggers, federation, etc.) lives in **§4 onward** and is **target specification**, not shipped behavior. Log and run streaming to clients use **SSE** (see §2.3–§2.4).
 

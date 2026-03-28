@@ -2,7 +2,7 @@
 
 Vectis is a self-hosted build/CI-style system: multiple Go services (API, queue, worker, log, registry, cron, reconciler) coordinated over gRPC and a small REST surface. Jobs are defined as JSON matching the protobuf [`Job`](api/proto/common.proto) graph (`id`, `run_id`, `root` node tree with `uses` / `with` / `steps`).
 
-**Docs:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (as-built components, protocols, data flows). [docs/CONFIGURATION.md](docs/CONFIGURATION.md) (environment variables, flags, discovery). [docs/PLANNING.md](docs/PLANNING.md) (roadmap, target vs shipped). [docs/FAILURE_DOMAINS.md](docs/FAILURE_DOMAINS.md) (dependency outages, expectations, current behavior). Deferred multi-site notes: [docs/FEDERATION.md](docs/FEDERATION.md). **Contributing:** [CONTRIBUTING.md](CONTRIBUTING.md).
+**Docs:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (as-built components, protocols, data flows). [docs/CONFIGURATION.md](docs/CONFIGURATION.md) (environment variables, flags, discovery). [docs/GLOSSARY.md](docs/GLOSSARY.md) (terms). [docs/PLANNING.md](docs/PLANNING.md) (roadmap, target vs shipped). [docs/FAILURE_DOMAINS.md](docs/FAILURE_DOMAINS.md) (dependency outages, expectations, current behavior). Deferred multi-site notes: [docs/FEDERATION.md](docs/FEDERATION.md). **Contributing:** [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Requirements
 
