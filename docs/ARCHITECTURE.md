@@ -116,7 +116,7 @@ There is **no** authentication, projects API, artifact API, or HTTP cancel endpo
 
 ## Configuration
 
-Environment-driven configuration uses **`VECTIS_*`** prefixes per binary; nested keys follow the project’s viper conventions. See [README.md](../README.md) (configuration table) and `internal/config/defaults.toml` for defaults.
+Environment-driven configuration uses **`VECTIS_*`** prefixes per binary; nested keys follow the project’s viper conventions. See [CONFIGURATION.md](CONFIGURATION.md) for env names, flags, discovery, and data paths; [README.md](../README.md) for quick-start notes; [`internal/config/defaults.toml`](../internal/config/defaults.toml) for compiled-in defaults.
 
 ## Related documentation
 
@@ -125,4 +125,5 @@ Environment-driven configuration uses **`VECTIS_*`** prefixes per binary; nested
 | Roadmap, naming, target vs shipped | [PLANNING.md](PLANNING.md) |
 | Outages and expectations | [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md) |
 | Deferred multi-site design | [FEDERATION.md](FEDERATION.md) |
+| Configuration (env, flags, discovery) | [CONFIGURATION.md](CONFIGURATION.md) |
 | Contributing and dev workflow | [CONTRIBUTING.md](../CONTRIBUTING.md) |
