@@ -113,6 +113,10 @@ There is no public authentication, projects API, artifact APIs, or HTTP cancel e
 - `common.Job` in `api/proto/common.proto`: `id`, `run_id`, `root` `Node` tree with `uses`, `with`, nested `steps`.
 - Built-in actions include `shell`, `checkout`, `sequence` (`internal/action/builtins/`).
 
+### 2.7 Failure domains and outages
+
+For **per-component failure isolation**, behavior when dependencies are down, and **operational expectations vs shipped behavior**, see [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md).
+
 ---
 
 ## 3. Roadmap
