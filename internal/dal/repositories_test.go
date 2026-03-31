@@ -2,6 +2,7 @@ package dal_test
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 	"time"
 
@@ -170,6 +171,130 @@ func TestRunsRepository_ClaimRenewAndDispatchQueries(t *testing.T) {
 
 	if len(queued) != 0 {
 		t.Fatalf("expected no queued rows after claim, got %+v", queued)
+	}
+
+	if _, err := db.ExecContext(ctx, `UPDATE job_runs SET status = 'orphaned' WHERE run_id = ?`, runID); err != nil {
+		t.Fatalf("force orphaned status: %v", err)
+	}
+
+	if err := runs.RenewLease(ctx, runID, "worker-1", time.Now().Add(3*time.Minute)); err != nil {
+		t.Fatalf("renew lease should recover orphaned run: %v", err)
+	}
+
+	var status string
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&status); err != nil {
+		t.Fatalf("scan status: %v", err)
+	}
+
+	if status != "running" {
+		t.Fatalf("expected status running after orphaned renew, got %q", status)
+	}
+}
+
+func TestRunsRepository_MarkExpiredRunningAsOrphaned(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	runs := repos.Runs()
+	ctx := context.Background()
+
+	runA, _, err := runs.CreateRun(ctx, "job-orphan-a", nil, 1)
+	if err != nil {
+		t.Fatalf("create run A: %v", err)
+	}
+
+	runB, _, err := runs.CreateRun(ctx, "job-orphan-b", nil, 1)
+	if err != nil {
+		t.Fatalf("create run B: %v", err)
+	}
+
+	leaseExpired := time.Now().Add(-1 * time.Minute).Unix()
+	leaseFuture := time.Now().Add(10 * time.Minute).Unix()
+
+	if _, err := db.ExecContext(ctx, `
+		UPDATE job_runs
+		SET status = 'running', lease_owner = 'worker-a', lease_until = ?
+		WHERE run_id = ?
+	`, leaseExpired, runA); err != nil {
+		t.Fatalf("seed run A running expired lease: %v", err)
+	}
+
+	if _, err := db.ExecContext(ctx, `
+		UPDATE job_runs
+		SET status = 'running', lease_owner = 'worker-b', lease_until = ?
+		WHERE run_id = ?
+	`, leaseFuture, runB); err != nil {
+		t.Fatalf("seed run B running active lease: %v", err)
+	}
+
+	orphaned, err := runs.MarkExpiredRunningAsOrphaned(ctx, time.Now().Unix())
+	if err != nil {
+		t.Fatalf("MarkExpiredRunningAsOrphaned: %v", err)
+	}
+
+	if len(orphaned) != 1 || orphaned[0] != runA {
+		t.Fatalf("expected only runA orphaned, got %+v", orphaned)
+	}
+
+	var statusA, statusB string
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runA).Scan(&statusA); err != nil {
+		t.Fatalf("scan run A status: %v", err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runB).Scan(&statusB); err != nil {
+		t.Fatalf("scan run B status: %v", err)
+	}
+
+	if statusA != "orphaned" {
+		t.Fatalf("expected run A orphaned, got %q", statusA)
+	}
+	if statusB != "running" {
+		t.Fatalf("expected run B running, got %q", statusB)
+	}
+}
+
+func TestRunsRepository_MarkRunSucceeded_FromOrphaned(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	runs := dal.NewSQLRepositories(db).Runs()
+	ctx := context.Background()
+
+	runID, _, err := runs.CreateRun(ctx, "job-orphan-finish", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	if _, err := db.ExecContext(ctx, `
+		UPDATE job_runs
+		SET status = 'orphaned', lease_owner = 'worker-a', lease_until = ?
+		WHERE run_id = ?
+	`, time.Now().Add(-1*time.Minute).Unix(), runID); err != nil {
+		t.Fatalf("seed orphaned run: %v", err)
+	}
+
+	if err := runs.MarkRunSucceeded(ctx, runID); err != nil {
+		t.Fatalf("MarkRunSucceeded from orphaned: %v", err)
+	}
+
+	var status string
+	var leaseOwner sql.NullString
+	var leaseUntil sql.NullInt64
+	var finishedAt sql.NullString
+	if err := db.QueryRowContext(ctx, `
+		SELECT status, lease_owner, lease_until, CAST(finished_at AS TEXT)
+		FROM job_runs
+		WHERE run_id = ?
+	`, runID).Scan(&status, &leaseOwner, &leaseUntil, &finishedAt); err != nil {
+		t.Fatalf("query run state: %v", err)
+	}
+
+	if status != "succeeded" {
+		t.Fatalf("expected status succeeded, got %q", status)
+	}
+
+	if leaseOwner.Valid || leaseUntil.Valid {
+		t.Fatalf("expected lease owner/until cleared, got owner=%v lease_until=%v", leaseOwner, leaseUntil)
+	}
+
+	if !finishedAt.Valid || finishedAt.String == "" {
+		t.Fatal("expected finished_at set")
 	}
 }
 

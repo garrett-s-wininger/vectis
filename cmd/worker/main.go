@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"os"
-	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -64,14 +63,15 @@ func runWorker(cmd *cobra.Command, args []string) {
 	defer func() { _ = clients.Close() }()
 
 	w := &worker{
-		ctx:       ctx,
-		logger:    logger,
-		workerID:  workerID,
-		clock:     interfaces.SystemClock{},
-		queue:     clients,
-		logClient: clients,
-		executor:  job.NewExecutor(),
-		store:     dal.NewSQLRepositories(db).Runs(),
+		ctx:           ctx,
+		logger:        logger,
+		workerID:      workerID,
+		clock:         interfaces.SystemClock{},
+		renewInterval: dal.DefaultRenewInterval,
+		queue:         clients,
+		logClient:     clients,
+		executor:      job.NewExecutor(),
+		store:         dal.NewSQLRepositories(db).Runs(),
 	}
 	w.run()
 }
@@ -81,6 +81,7 @@ type worker struct {
 	logger             interfaces.Logger
 	workerID           string
 	clock              interfaces.Clock
+	renewInterval      time.Duration
 	queue              interfaces.QueueClient
 	logClient          interfaces.LogClient
 	executor           *job.Executor
@@ -191,16 +192,7 @@ func (w *worker) runClaimedJob(job *api.Job, jobID, runID, deliveryID string) {
 		return
 	}
 
-	renewFailed, execErr := w.executeWithLeaseRenewal(runID, job)
-	if renewFailed {
-		w.logger.Error("Run %s: lease renewal failed", runID)
-		if err := w.store.MarkRunFailed(w.ctx, runID, "lease renewal failed"); err != nil {
-			w.logger.Error("Failed to mark run %s failed: %v", runID, err)
-		}
-
-		return
-	}
-
+	execErr := w.executeWithLeaseRenewal(runID, job)
 	if execErr != nil {
 		w.logger.Error("Job %s failed: %v", jobID, execErr)
 		reason := truncateFailureReason(execErr.Error())
@@ -226,35 +218,38 @@ func (w *worker) ackDelivery(deliveryID string) error {
 	return w.queue.Ack(w.ctx, deliveryID)
 }
 
-func (w *worker) executeWithLeaseRenewal(runID string, job *api.Job) (renewFailed bool, err error) {
+func (w *worker) executeWithLeaseRenewal(runID string, job *api.Job) error {
 	execCtx, execCancel := context.WithCancel(w.ctx)
 	defer execCancel()
 
 	stopRenew := make(chan struct{})
 	doneRenew := make(chan struct{})
-	var renewFailedAtom atomic.Bool
 
-	go w.leaseRenewalLoop(execCtx, execCancel, runID, stopRenew, doneRenew, &renewFailedAtom)
+	go w.leaseRenewalLoop(execCtx, runID, stopRenew, doneRenew)
 
-	err = w.executor.ExecuteJob(execCtx, job, w.logClient, w.logger)
+	err := w.executor.ExecuteJob(execCtx, job, w.logClient, w.logger)
 	close(stopRenew)
 	<-doneRenew
 
-	return renewFailedAtom.Load(), err
+	return err
 }
 
 func (w *worker) leaseRenewalLoop(
 	execCtx context.Context,
-	execCancel context.CancelFunc,
 	runID string,
 	stopRenew <-chan struct{},
 	doneRenew chan<- struct{},
-	renewFailed *atomic.Bool,
 ) {
 	defer close(doneRenew)
 
-	ticker := time.NewTicker(dal.DefaultRenewInterval)
+	interval := w.renewInterval
+	if interval <= 0 {
+		interval = dal.DefaultRenewInterval
+	}
+
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	renewFailed := false
 
 	for {
 		select {
@@ -265,9 +260,14 @@ func (w *worker) leaseRenewalLoop(
 		case <-ticker.C:
 			next := time.Now().Add(dal.DefaultLeaseTTL)
 			if err := w.store.RenewLease(w.ctx, runID, w.workerID, next); err != nil {
-				renewFailed.Store(true)
-				execCancel()
-				return
+				renewFailed = true
+				w.logger.Warn("Run %s: lease renew failed (will retry): %v", runID, err)
+				continue
+			}
+
+			if renewFailed {
+				w.logger.Info("Run %s: lease renew recovered", runID)
+				renewFailed = false
 			}
 		}
 	}

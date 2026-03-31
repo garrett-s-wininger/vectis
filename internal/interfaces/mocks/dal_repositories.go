@@ -118,11 +118,13 @@ type MockRunsRepository struct {
 	MarkRunRunningErr  error
 	MarkRunSuccessErr  error
 	MarkRunFailedErr   error
+	MarkOrphanedErr    error
 	GetRunStatusErr    error
 
 	TryClaimResult bool
 	RunStatus      string
 	RunStatusFound bool
+	OrphanedRunIDs []string
 
 	ListByJobResults []dal.RunRecord
 	QueuedRuns       []dal.QueuedRun
@@ -153,6 +155,14 @@ func (m *MockRunsRepository) MarkRunSucceeded(ctx context.Context, runID string)
 
 func (m *MockRunsRepository) MarkRunFailed(ctx context.Context, runID string, reason string) error {
 	return m.MarkRunFailedErr
+}
+
+func (m *MockRunsRepository) MarkExpiredRunningAsOrphaned(ctx context.Context, cutoffUnix int64) ([]string, error) {
+	if m.MarkOrphanedErr != nil {
+		return nil, m.MarkOrphanedErr
+	}
+
+	return append([]string(nil), m.OrphanedRunIDs...), nil
 }
 
 func (m *MockRunsRepository) GetRunStatus(ctx context.Context, runID string) (status string, found bool, err error) {

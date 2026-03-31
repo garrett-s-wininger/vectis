@@ -16,6 +16,7 @@ func TestService_Process_ReenqueuesQueuedRun_Orchestration(t *testing.T) {
 	jobsRepo.Definitions["job-a"] = `{"id":"job-a","root":{"uses":"builtins/shell","with":{"command":"echo x"}}}`
 
 	runsRepo := mocks.NewMockRunsRepository()
+	runsRepo.OrphanedRunIDs = []string{"run-orphaned"}
 	runsRepo.QueuedRuns = []dal.QueuedRun{{RunID: "run-1", JobID: "job-a", DefinitionVersion: 1}}
 
 	q := mocks.NewMockQueueService()
@@ -37,6 +38,19 @@ func TestService_Process_ReenqueuesQueuedRun_Orchestration(t *testing.T) {
 
 	if len(runsRepo.TouchedRunIDs) != 1 || runsRepo.TouchedRunIDs[0] != "run-1" {
 		t.Fatalf("expected run-1 touch, got %+v", runsRepo.TouchedRunIDs)
+	}
+}
+
+func TestService_Process_OrphanSweepError_Orchestration(t *testing.T) {
+	ctx := context.Background()
+	jobsRepo := mocks.NewMockJobsRepository()
+	runsRepo := mocks.NewMockRunsRepository()
+	runsRepo.MarkOrphanedErr = dal.ErrNotFound
+	q := mocks.NewMockQueueService()
+	svc := NewServiceWithRepositories(interfaces.NewLogger("test"), jobsRepo, runsRepo, q, interfaces.SystemClock{})
+
+	if err := svc.Process(ctx); err == nil {
+		t.Fatal("expected process to fail when orphan sweep fails")
 	}
 }
 

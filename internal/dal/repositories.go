@@ -86,6 +86,7 @@ type RunsRepository interface {
 	MarkRunRunning(ctx context.Context, runID string) error
 	MarkRunSucceeded(ctx context.Context, runID string) error
 	MarkRunFailed(ctx context.Context, runID, reason string) error
+	MarkExpiredRunningAsOrphaned(ctx context.Context, cutoffUnix int64) ([]string, error)
 	GetRunStatus(ctx context.Context, runID string) (status string, found bool, err error)
 	TryClaim(ctx context.Context, runID, owner string, leaseUntil time.Time) (bool, error)
 	RenewLease(ctx context.Context, runID, owner string, leaseUntil time.Time) error
@@ -290,6 +291,63 @@ func (r *SQLRunsRepository) MarkRunFailed(ctx context.Context, runID, reason str
 	return normalizeSQLError(err)
 }
 
+func (r *SQLRunsRepository) MarkExpiredRunningAsOrphaned(ctx context.Context, cutoffUnix int64) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
+		SELECT run_id
+		FROM job_runs
+		WHERE status = 'running'
+			AND lease_until IS NOT NULL
+			AND lease_until < ?
+		ORDER BY id ASC
+	`), cutoffUnix)
+
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	candidates := make([]string, 0, 16)
+	for rows.Next() {
+		var runID string
+		if err := rows.Scan(&runID); err != nil {
+			return nil, err
+		}
+
+		candidates = append(candidates, runID)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	out := make([]string, 0, len(candidates))
+	for _, runID := range candidates {
+		res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+			UPDATE job_runs
+			SET status = 'orphaned'
+			WHERE run_id = ?
+				AND status = 'running'
+				AND lease_until IS NOT NULL
+				AND lease_until < ?
+		`), runID, cutoffUnix)
+
+		if err != nil {
+			return nil, normalizeSQLError(err)
+		}
+
+		n, err := res.RowsAffected()
+		if err != nil {
+			return nil, err
+		}
+
+		if n == 1 {
+			out = append(out, runID)
+		}
+	}
+
+	return out, nil
+}
+
 func (r *SQLRunsRepository) GetRunStatus(ctx context.Context, runID string) (status string, found bool, err error) {
 	if runID == "" {
 		return "", false, nil
@@ -339,8 +397,11 @@ func (r *SQLRunsRepository) TryClaim(ctx context.Context, runID, owner string, l
 
 func (r *SQLRunsRepository) RenewLease(ctx context.Context, runID, owner string, leaseUntil time.Time) error {
 	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
-		UPDATE job_runs SET lease_until = ?
-		WHERE run_id = ? AND lease_owner = ? AND status = 'running'
+		UPDATE job_runs
+		SET lease_until = ?, status = 'running'
+		WHERE run_id = ?
+			AND lease_owner = ?
+			AND status IN ('running', 'orphaned')
 	`), leaseUntil.Unix(), runID, owner)
 
 	if err != nil {

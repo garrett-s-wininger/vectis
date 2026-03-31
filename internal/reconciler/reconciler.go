@@ -61,7 +61,17 @@ func (s *Service) Process(ctx context.Context) error {
 		return fmt.Errorf("queue client is not set")
 	}
 
-	cutoff := s.clock.Now().Add(-s.minGap).Unix()
+	now := s.clock.Now().UTC()
+	orphaned, err := s.runs.MarkExpiredRunningAsOrphaned(ctx, now.Unix())
+	if err != nil {
+		return fmt.Errorf("mark expired running leases orphaned: %w", err)
+	}
+
+	for _, runID := range orphaned {
+		s.logger.Warn("reconciler: run %s moved to orphaned (lease expired)", runID)
+	}
+
+	cutoff := now.Add(-s.minGap).Unix()
 	batch, err := s.runs.ListQueuedBeforeDispatchCutoff(ctx, cutoff)
 	if err != nil {
 		return fmt.Errorf("query queued runs: %w", err)

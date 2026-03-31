@@ -116,3 +116,43 @@ func TestService_Process_SkipsRecentDispatch(t *testing.T) {
 		t.Errorf("expected no re-enqueue within min gap, got %d jobs", len(q.GetJobs()))
 	}
 }
+
+func TestService_Process_MarksExpiredRunningLeaseAsOrphaned(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+
+	repos := dal.NewSQLRepositories(db)
+	runID, _, err := repos.Runs().CreateRun(ctx, "job-orphaned", nil, 1)
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	if _, err := db.ExecContext(ctx, `
+		UPDATE job_runs
+		SET status = 'running', lease_owner = 'worker-a', lease_until = ?
+		WHERE run_id = ?
+	`, time.Now().Add(-1*time.Minute).Unix(), runID); err != nil {
+		t.Fatalf("seed running lease: %v", err)
+	}
+
+	q := mocks.NewMockQueueService()
+	svc := NewService(interfaces.NewLogger("test"), db, q, interfaces.SystemClock{})
+	svc.SetMinDispatchGap(1 * time.Millisecond)
+
+	if err := svc.Process(ctx); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+
+	var status string
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&status); err != nil {
+		t.Fatalf("scan status: %v", err)
+	}
+
+	if status != "orphaned" {
+		t.Fatalf("expected status orphaned, got %q", status)
+	}
+
+	if got := len(q.GetJobs()); got != 0 {
+		t.Fatalf("expected no queued redispatch from orphan sweep, got %d jobs", got)
+	}
+}
