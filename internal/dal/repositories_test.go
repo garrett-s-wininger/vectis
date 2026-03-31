@@ -448,19 +448,20 @@ func TestRunsRepository_MarkRunOrphaned_WithClaimToken(t *testing.T) {
 		t.Fatalf("expected claim token, got claimed=%v token=%q", claimed, token)
 	}
 
-	if err := runs.MarkRunOrphaned(ctx, runID, token, "manual orphan mark"); err != nil {
+	if err := runs.MarkRunOrphaned(ctx, runID, token, dal.OrphanReasonAckUncertain); err != nil {
 		t.Fatalf("MarkRunOrphaned: %v", err)
 	}
 
 	var status string
 	var reason sql.NullString
+	var orphanReason sql.NullString
 	var leaseOwner sql.NullString
 	var leaseUntil sql.NullInt64
 	var claimToken sql.NullString
 	if err := db.QueryRowContext(ctx, `
-		SELECT status, failure_reason, lease_owner, lease_until, claim_token
+		SELECT status, failure_reason, orphan_reason, lease_owner, lease_until, claim_token
 		FROM job_runs WHERE run_id = ?
-	`, runID).Scan(&status, &reason, &leaseOwner, &leaseUntil, &claimToken); err != nil {
+	`, runID).Scan(&status, &reason, &orphanReason, &leaseOwner, &leaseUntil, &claimToken); err != nil {
 		t.Fatalf("query run: %v", err)
 	}
 
@@ -468,8 +469,11 @@ func TestRunsRepository_MarkRunOrphaned_WithClaimToken(t *testing.T) {
 		t.Fatalf("expected orphaned status, got %q", status)
 	}
 
-	if !reason.Valid || reason.String != "manual orphan mark" {
+	if !reason.Valid || reason.String != dal.OrphanReasonAckUncertain {
 		t.Fatalf("expected orphan reason, got %v", reason)
+	}
+	if !orphanReason.Valid || orphanReason.String != dal.OrphanReasonAckUncertain {
+		t.Fatalf("expected orphan_reason, got %v", orphanReason)
 	}
 
 	if leaseOwner.Valid || leaseUntil.Valid || claimToken.Valid {

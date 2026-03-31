@@ -38,8 +38,10 @@ func rebindQueryForPgx(query string) string {
 }
 
 const (
-	DefaultLeaseTTL      = 15 * time.Minute
-	DefaultRenewInterval = 5 * time.Minute
+	DefaultLeaseTTL          = 15 * time.Minute
+	DefaultRenewInterval     = 5 * time.Minute
+	OrphanReasonLeaseExpired = "lease_expired"
+	OrphanReasonAckUncertain = "ack_uncertain"
 )
 
 type JobRecord struct {
@@ -51,6 +53,7 @@ type RunRecord struct {
 	RunID         string
 	RunIndex      int
 	Status        string
+	OrphanReason  *string
 	StartedAt     *string
 	FinishedAt    *string
 	FailureReason *string
@@ -269,7 +272,7 @@ type SQLRunsRepository struct {
 
 func (r *SQLRunsRepository) MarkRunRunning(ctx context.Context, runID string) error {
 	_, err := r.db.ExecContext(ctx,
-		rebindQueryForPgx("UPDATE job_runs SET status = ?, started_at = COALESCE(started_at, CURRENT_TIMESTAMP) WHERE run_id = ?"),
+		rebindQueryForPgx("UPDATE job_runs SET status = ?, orphan_reason = '', started_at = COALESCE(started_at, CURRENT_TIMESTAMP) WHERE run_id = ?"),
 		"running", runID)
 
 	return normalizeSQLError(err)
@@ -277,7 +280,7 @@ func (r *SQLRunsRepository) MarkRunRunning(ctx context.Context, runID string) er
 
 func (r *SQLRunsRepository) MarkRunSucceeded(ctx context.Context, runID, claimToken string) error {
 	query := `UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP,
-		lease_owner = NULL, lease_until = NULL WHERE run_id = ?`
+		orphan_reason = '', lease_owner = NULL, lease_until = NULL WHERE run_id = ?`
 	args := []any{"succeeded", runID}
 	if claimToken != "" {
 		query += ` AND status IN ('running', 'orphaned') AND claim_token = ?`
@@ -307,7 +310,7 @@ func (r *SQLRunsRepository) MarkRunSucceeded(ctx context.Context, runID, claimTo
 
 func (r *SQLRunsRepository) MarkRunFailed(ctx context.Context, runID, claimToken, reason string) error {
 	query := `UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP, failure_reason = ?,
-		lease_owner = NULL, lease_until = NULL WHERE run_id = ?`
+		orphan_reason = '', lease_owner = NULL, lease_until = NULL WHERE run_id = ?`
 	args := []any{"failed", reason, runID}
 	if claimToken != "" {
 		query += ` AND status IN ('running', 'orphaned') AND claim_token = ?`
@@ -336,9 +339,14 @@ func (r *SQLRunsRepository) MarkRunFailed(ctx context.Context, runID, claimToken
 }
 
 func (r *SQLRunsRepository) MarkRunOrphaned(ctx context.Context, runID, claimToken, reason string) error {
+	if reason == "" {
+		reason = "unknown"
+	}
+	orphanReason := classifyOrphanReason(reason)
+
 	query := `UPDATE job_runs SET status = ?, failure_reason = ?,
-		lease_owner = NULL, lease_until = NULL, claim_token = NULL WHERE run_id = ?`
-	args := []any{"orphaned", reason, runID}
+		orphan_reason = ?, lease_owner = NULL, lease_until = NULL, claim_token = NULL WHERE run_id = ?`
+	args := []any{"orphaned", reason, orphanReason, runID}
 	if claimToken != "" {
 		query += ` AND status IN ('running', 'orphaned') AND claim_token = ?`
 		args = append(args, claimToken)
@@ -365,10 +373,20 @@ func (r *SQLRunsRepository) MarkRunOrphaned(ctx context.Context, runID, claimTok
 	return nil
 }
 
+func classifyOrphanReason(reason string) string {
+	switch reason {
+	case OrphanReasonLeaseExpired, OrphanReasonAckUncertain:
+		return reason
+	default:
+		return "unknown"
+	}
+}
+
 func (r *SQLRunsRepository) RequeueRunForRetry(ctx context.Context, runID string) error {
 	_, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
 		UPDATE job_runs
 		SET status = 'queued',
+			orphan_reason = '',
 			finished_at = NULL,
 			failure_reason = NULL,
 			lease_owner = NULL,
@@ -413,12 +431,13 @@ func (r *SQLRunsRepository) MarkExpiredRunningAsOrphaned(ctx context.Context, cu
 	for _, runID := range candidates {
 		res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
 			UPDATE job_runs
-			SET status = 'orphaned'
+			SET status = 'orphaned',
+				orphan_reason = ?
 			WHERE run_id = ?
 				AND status = 'running'
 				AND lease_until IS NOT NULL
 				AND lease_until < ?
-		`), runID, cutoffUnix)
+		`), OrphanReasonLeaseExpired, runID, cutoffUnix)
 
 		if err != nil {
 			return nil, normalizeSQLError(err)
@@ -468,6 +487,7 @@ func (r *SQLRunsRepository) TryClaim(ctx context.Context, runID, owner string, l
 			lease_until = ?,
 			claim_token = ?,
 			attempt = attempt + 1,
+			orphan_reason = '',
 			status = 'running',
 			started_at = COALESCE(started_at, CURRENT_TIMESTAMP)
 		WHERE run_id = ?
@@ -494,7 +514,7 @@ func (r *SQLRunsRepository) TryClaim(ctx context.Context, runID, owner string, l
 func (r *SQLRunsRepository) RenewLease(ctx context.Context, runID, owner, claimToken string, leaseUntil time.Time) error {
 	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
 		UPDATE job_runs
-		SET lease_until = ?, status = 'running'
+		SET lease_until = ?, orphan_reason = '', status = 'running'
 		WHERE run_id = ?
 			AND lease_owner = ?
 			AND claim_token = ?
@@ -565,7 +585,7 @@ func (r *SQLRunsRepository) CreateRun(ctx context.Context, jobID string, runInde
 }
 
 func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, since *int) ([]RunRecord, error) {
-	query := "SELECT run_id, run_index, status, CAST(started_at AS TEXT), CAST(finished_at AS TEXT), failure_reason FROM job_runs WHERE job_id = ?"
+	query := "SELECT run_id, run_index, status, orphan_reason, CAST(started_at AS TEXT), CAST(finished_at AS TEXT), failure_reason FROM job_runs WHERE job_id = ?"
 	args := []any{jobID}
 
 	if since != nil {
@@ -583,9 +603,12 @@ func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, since *
 	var out []RunRecord
 	for rows.Next() {
 		var rec RunRecord
-		var startedAt, finishedAt, failureReason sql.NullString
-		if err := rows.Scan(&rec.RunID, &rec.RunIndex, &rec.Status, &startedAt, &finishedAt, &failureReason); err != nil {
+		var orphanReason, startedAt, finishedAt, failureReason sql.NullString
+		if err := rows.Scan(&rec.RunID, &rec.RunIndex, &rec.Status, &orphanReason, &startedAt, &finishedAt, &failureReason); err != nil {
 			return nil, err
+		}
+		if orphanReason.Valid && orphanReason.String != "" {
+			rec.OrphanReason = &orphanReason.String
 		}
 
 		if startedAt.Valid {

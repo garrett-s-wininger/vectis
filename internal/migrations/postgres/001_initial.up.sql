@@ -22,6 +22,7 @@ CREATE TABLE job_runs (
     job_id TEXT NOT NULL,
     run_index INTEGER NOT NULL,
     status TEXT NOT NULL,
+    orphan_reason TEXT NOT NULL DEFAULT '',
     started_at TIMESTAMPTZ,
     finished_at TIMESTAMPTZ,
     failure_reason TEXT,

@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -329,9 +328,10 @@ func TestWorkerRunClaimedJob_AckPersistentFailure_OrphansRunWithoutExecution(t *
 
 	var statusVal string
 	var reason sql.NullString
+	var orphanReason sql.NullString
 	var claimToken sql.NullString
-	if err := db.QueryRowContext(ctx, `SELECT status, failure_reason, claim_token FROM job_runs WHERE run_id = ?`, runID).
-		Scan(&statusVal, &reason, &claimToken); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT status, failure_reason, orphan_reason, claim_token FROM job_runs WHERE run_id = ?`, runID).
+		Scan(&statusVal, &reason, &orphanReason, &claimToken); err != nil {
 		t.Fatalf("query final status: %v", err)
 	}
 
@@ -339,8 +339,12 @@ func TestWorkerRunClaimedJob_AckPersistentFailure_OrphansRunWithoutExecution(t *
 		t.Fatalf("expected orphaned on persistent ack failure, got %q", statusVal)
 	}
 
-	if !reason.Valid || !strings.Contains(reason.String, "queue ack failed after retries") {
-		t.Fatalf("expected orphan reason to mention ack retries, got %v", reason)
+	if !reason.Valid || reason.String != dal.OrphanReasonAckUncertain {
+		t.Fatalf("expected failure_reason %q, got %v", dal.OrphanReasonAckUncertain, reason)
+	}
+
+	if !orphanReason.Valid || orphanReason.String != dal.OrphanReasonAckUncertain {
+		t.Fatalf("expected orphan_reason %q, got %v", dal.OrphanReasonAckUncertain, orphanReason)
 	}
 
 	if claimToken.Valid {

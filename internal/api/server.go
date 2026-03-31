@@ -484,6 +484,7 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 		RunID         string  `json:"run_id"`
 		RunIndex      int     `json:"run_index"`
 		Status        string  `json:"status"`
+		OrphanReason  *string `json:"orphan_reason,omitempty"`
 		StartedAt     *string `json:"started_at,omitempty"`
 		FinishedAt    *string `json:"finished_at,omitempty"`
 		FailureReason *string `json:"failure_reason,omitempty"`
@@ -495,6 +496,7 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 			RunID:         rec.RunID,
 			RunIndex:      rec.RunIndex,
 			Status:        rec.Status,
+			OrphanReason:  rec.OrphanReason,
 			StartedAt:     rec.StartedAt,
 			FinishedAt:    rec.FinishedAt,
 			FailureReason: rec.FailureReason,

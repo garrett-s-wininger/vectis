@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"time"
 
@@ -189,8 +188,7 @@ func (w *worker) runClaimedJob(job *api.Job, jobID, runID, deliveryID string) {
 
 	if err := w.ackDeliveryWithRetry(deliveryID); err != nil {
 		w.logger.Error("Ack delivery %s failed for claimed run %s: %v", deliveryID, runID, err)
-		reason := truncateFailureReason(fmt.Sprintf("queue ack failed after retries: %v", err))
-		if markErr := w.store.MarkRunOrphaned(w.ctx, runID, claimToken, reason); markErr != nil {
+		if markErr := w.store.MarkRunOrphaned(w.ctx, runID, claimToken, dal.OrphanReasonAckUncertain); markErr != nil {
 			w.logger.Error("Failed to mark run %s orphaned after ack error: %v", runID, markErr)
 		}
 
