@@ -22,6 +22,8 @@ import (
 	"google.golang.org/grpc"
 )
 
+const defaultForceFailReason = "manually failed via API"
+
 type APIServer struct {
 	jobs           dal.JobsRepository
 	runs           dal.RunsRepository
@@ -78,6 +80,91 @@ func (s *APIServer) ConnectToQueue(ctx context.Context) error {
 	s.queueClient = mq
 	s.queueClose = func() { _ = mq.Close() }
 	return nil
+}
+
+func (s *APIServer) ForceFailRun(w http.ResponseWriter, r *http.Request) {
+	runID := r.PathValue("id")
+	if runID == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+
+	_, found, err := s.runs.GetRunStatus(r.Context(), runID)
+	if err != nil {
+		s.logger.Error("Database error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if !found {
+		http.Error(w, "run not found", http.StatusNotFound)
+		return
+	}
+
+	reason := defaultForceFailReason
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "failed to read request body", http.StatusInternalServerError)
+		return
+	}
+
+	if len(body) > 0 {
+		var req struct {
+			Reason string `json:"reason"`
+		}
+
+		if err := json.Unmarshal(body, &req); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		if req.Reason != "" {
+			reason = req.Reason
+		}
+	}
+
+	if err := s.runs.MarkRunFailed(r.Context(), runID, "", reason); err != nil {
+		s.logger.Error("Force-fail run %s failed: %v", runID, err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	s.logger.Warn("Run force-failed via API: %s", runID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *APIServer) ForceRequeueRun(w http.ResponseWriter, r *http.Request) {
+	runID := r.PathValue("id")
+	if runID == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+
+	status, found, err := s.runs.GetRunStatus(r.Context(), runID)
+	if err != nil {
+		s.logger.Error("Database error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if !found {
+		http.Error(w, "run not found", http.StatusNotFound)
+		return
+	}
+
+	if status == "succeeded" {
+		http.Error(w, "cannot requeue succeeded run", http.StatusConflict)
+		return
+	}
+
+	if err := s.runs.RequeueRunForRetry(r.Context(), runID); err != nil {
+		s.logger.Error("Force-requeue run %s failed: %v", runID, err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	s.logger.Warn("Run force-requeued via API: %s", runID)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
@@ -494,6 +581,8 @@ func (s *APIServer) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/jobs/trigger/{id}", s.TriggerJob)
 	mux.HandleFunc("GET /api/v1/jobs/{id}/runs", s.GetJobRuns)
 	mux.HandleFunc("GET /api/v1/sse/jobs/{id}/runs", s.HandleSSEJobRuns)
+	mux.HandleFunc("POST /api/v1/runs/{id}/force-fail", s.ForceFailRun)
+	mux.HandleFunc("POST /api/v1/runs/{id}/force-requeue", s.ForceRequeueRun)
 	return mux
 }
 

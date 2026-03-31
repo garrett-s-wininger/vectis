@@ -914,3 +914,128 @@ func TestAPIServer_SSEJobRuns_ReceivesRunOnTrigger(t *testing.T) {
 		t.Errorf("expected run_index 1, got %d", ev.RunIndex)
 	}
 }
+
+func TestAPIServer_ForceFailRun_Success(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	ctx := context.Background()
+	runs := dal.NewSQLRepositories(db).Runs()
+
+	runID, _, err := runs.CreateRun(ctx, "job-force-fail", nil, 1)
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runs/"+runID+"/force-fail", strings.NewReader(`{"reason":"manual intervention"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", runID)
+	rec := httptest.NewRecorder()
+
+	server.ForceFailRun(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d", http.StatusNoContent, rec.Code)
+	}
+
+	var status string
+	var reason sql.NullString
+	if err := db.QueryRowContext(ctx, `SELECT status, failure_reason FROM job_runs WHERE run_id = ?`, runID).Scan(&status, &reason); err != nil {
+		t.Fatalf("query run: %v", err)
+	}
+
+	if status != "failed" {
+		t.Fatalf("expected status failed, got %q", status)
+	}
+
+	if !reason.Valid || reason.String != "manual intervention" {
+		t.Fatalf("expected failure reason set, got %v", reason)
+	}
+}
+
+func TestAPIServer_ForceFailRun_NotFound(t *testing.T) {
+	server, _, _, _ := setupTestServer(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runs/missing/force-fail", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", "missing")
+	rec := httptest.NewRecorder()
+
+	server.ForceFailRun(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected status %d, got %d", http.StatusNotFound, rec.Code)
+	}
+}
+
+func TestAPIServer_ForceRequeueRun_Success(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	ctx := context.Background()
+	runs := dal.NewSQLRepositories(db).Runs()
+
+	runID, _, err := runs.CreateRun(ctx, "job-force-requeue", nil, 1)
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	claimed, token, err := runs.TryClaim(ctx, runID, "worker-a", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("TryClaim: %v", err)
+	}
+	if !claimed || token == "" {
+		t.Fatalf("expected claim token, got claimed=%v token=%q", claimed, token)
+	}
+
+	if err := runs.MarkRunFailed(ctx, runID, token, "transient failure"); err != nil {
+		t.Fatalf("MarkRunFailed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runs/"+runID+"/force-requeue", nil)
+	req.SetPathValue("id", runID)
+	rec := httptest.NewRecorder()
+
+	server.ForceRequeueRun(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d", http.StatusNoContent, rec.Code)
+	}
+
+	var status string
+	var failure sql.NullString
+	var claimToken sql.NullString
+	if err := db.QueryRowContext(ctx, `SELECT status, failure_reason, claim_token FROM job_runs WHERE run_id = ?`, runID).
+		Scan(&status, &failure, &claimToken); err != nil {
+		t.Fatalf("query run: %v", err)
+	}
+
+	if status != "queued" {
+		t.Fatalf("expected queued status, got %q", status)
+	}
+
+	if failure.Valid || claimToken.Valid {
+		t.Fatalf("expected cleared failure/token, got failure=%v claim_token=%v", failure, claimToken)
+	}
+}
+
+func TestAPIServer_ForceRequeueRun_SucceededConflict(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	ctx := context.Background()
+	runs := dal.NewSQLRepositories(db).Runs()
+
+	runID, _, err := runs.CreateRun(ctx, "job-force-requeue-succeeded", nil, 1)
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	if err := runs.MarkRunSucceeded(ctx, runID, ""); err != nil {
+		t.Fatalf("MarkRunSucceeded: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runs/"+runID+"/force-requeue", nil)
+	req.SetPathValue("id", runID)
+	rec := httptest.NewRecorder()
+
+	server.ForceRequeueRun(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected status %d, got %d", http.StatusConflict, rec.Code)
+	}
+}

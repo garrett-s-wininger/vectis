@@ -843,6 +843,82 @@ func runMigrate(cmd *cobra.Command, args []string) {
 	fmt.Println("Migrations applied.")
 }
 
+func forceFailRun(cmd *cobra.Command, args []string) {
+	runID := args[0]
+	reason, _ := cmd.Flags().GetString("reason")
+
+	apiAddr := config.PublicAPIBaseURL()
+	url := fmt.Sprintf("%s/api/v1/runs/%s/force-fail", apiAddr, runID)
+
+	body := []byte("{}")
+	if reason != "" {
+		payload, err := json.Marshal(map[string]string{"reason": reason})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: failed to encode request body: %v\n", err)
+			os.Exit(1)
+		}
+		body = payload
+	}
+
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to create request: %v\n", err)
+		os.Exit(1)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: request failed: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusNoContent:
+		fmt.Printf("Run %s force-failed.\n", runID)
+	case http.StatusNotFound:
+		fmt.Fprintf(os.Stderr, "Error: run '%s' not found\n", runID)
+		os.Exit(1)
+	default:
+		fmt.Fprintf(os.Stderr, "Error: unexpected status: %s\n", resp.Status)
+		os.Exit(1)
+	}
+}
+
+func forceRequeueRun(cmd *cobra.Command, args []string) {
+	runID := args[0]
+	apiAddr := config.PublicAPIBaseURL()
+	url := fmt.Sprintf("%s/api/v1/runs/%s/force-requeue", apiAddr, runID)
+
+	req, err := http.NewRequest(http.MethodPost, url, nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to create request: %v\n", err)
+		os.Exit(1)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: request failed: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusNoContent:
+		fmt.Printf("Run %s force-requeued.\n", runID)
+	case http.StatusNotFound:
+		fmt.Fprintf(os.Stderr, "Error: run '%s' not found\n", runID)
+		os.Exit(1)
+	case http.StatusConflict:
+		fmt.Fprintf(os.Stderr, "Error: run '%s' is already succeeded and cannot be requeued\n", runID)
+		os.Exit(1)
+	default:
+		fmt.Fprintf(os.Stderr, "Error: unexpected status: %s\n", resp.Status)
+		os.Exit(1)
+	}
+}
+
 var migrateCmd = &cobra.Command{
 	Use:   "migrate",
 	Short: "Apply database migrations (admin / one-shot)",
@@ -851,6 +927,22 @@ var migrateCmd = &cobra.Command{
 Runtime services only wait for the schema; they do not migrate. Use this command (or CI/deploy automation) before starting the stack.`,
 	Args: cobra.NoArgs,
 	Run:  runMigrate,
+}
+
+var forceFailCmd = &cobra.Command{
+	Use:   "force-fail [run-id]",
+	Short: "Manually mark a run as failed",
+	Long:  `Force a run into failed status in the API/database. Intended for manual intervention flows.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   forceFailRun,
+}
+
+var forceRequeueCmd = &cobra.Command{
+	Use:   "force-requeue [run-id]",
+	Short: "Manually requeue a run",
+	Long:  `Force a run back to queued status for manual retry/recovery. Intended for manual intervention flows.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   forceRequeueRun,
 }
 
 var rootCmd = &cobra.Command{
@@ -879,6 +971,9 @@ func init() {
 	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(editCmd)
 	rootCmd.AddCommand(migrateCmd)
+	forceFailCmd.Flags().String("reason", "", "Failure reason to record")
+	rootCmd.AddCommand(forceFailCmd)
+	rootCmd.AddCommand(forceRequeueCmd)
 }
 
 func main() {
