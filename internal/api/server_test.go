@@ -469,7 +469,7 @@ func TestAPIServer_GetJobRuns_ReturnsStatusAndFailureReasonAfterStatusTransition
 		t.Fatalf("MarkRunRunning: %v", err)
 	}
 
-	if err := store.MarkRunFailed(ctx, runID, "step failed: exit code 1"); err != nil {
+	if err := store.MarkRunFailed(ctx, runID, "", "step failed: exit code 1"); err != nil {
 		t.Fatalf("MarkRunFailed: %v", err)
 	}
 

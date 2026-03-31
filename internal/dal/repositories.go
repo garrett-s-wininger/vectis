@@ -84,12 +84,13 @@ type JobsRepository interface {
 
 type RunsRepository interface {
 	MarkRunRunning(ctx context.Context, runID string) error
-	MarkRunSucceeded(ctx context.Context, runID string) error
-	MarkRunFailed(ctx context.Context, runID, reason string) error
+	MarkRunSucceeded(ctx context.Context, runID, claimToken string) error
+	MarkRunFailed(ctx context.Context, runID, claimToken, reason string) error
+	RequeueRunForRetry(ctx context.Context, runID string) error
 	MarkExpiredRunningAsOrphaned(ctx context.Context, cutoffUnix int64) ([]string, error)
 	GetRunStatus(ctx context.Context, runID string) (status string, found bool, err error)
-	TryClaim(ctx context.Context, runID, owner string, leaseUntil time.Time) (bool, error)
-	RenewLease(ctx context.Context, runID, owner string, leaseUntil time.Time) error
+	TryClaim(ctx context.Context, runID, owner string, leaseUntil time.Time) (bool, string, error)
+	RenewLease(ctx context.Context, runID, owner, claimToken string, leaseUntil time.Time) error
 	TouchDispatched(ctx context.Context, runID string) error
 	CreateRun(ctx context.Context, jobID string, runIndex *int, definitionVersion int) (runID string, runIndexOut int, err error)
 	ListByJob(ctx context.Context, jobID string, since *int) ([]RunRecord, error)
@@ -273,21 +274,78 @@ func (r *SQLRunsRepository) MarkRunRunning(ctx context.Context, runID string) er
 	return normalizeSQLError(err)
 }
 
-func (r *SQLRunsRepository) MarkRunSucceeded(ctx context.Context, runID string) error {
-	_, err := r.db.ExecContext(ctx,
-		rebindQueryForPgx(`UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP,
-			lease_owner = NULL, lease_until = NULL WHERE run_id = ?`),
-		"succeeded", runID)
+func (r *SQLRunsRepository) MarkRunSucceeded(ctx context.Context, runID, claimToken string) error {
+	query := `UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP,
+		lease_owner = NULL, lease_until = NULL WHERE run_id = ?`
+	args := []any{"succeeded", runID}
+	if claimToken != "" {
+		query += ` AND status IN ('running', 'orphaned') AND claim_token = ?`
+		args = append(args, claimToken)
+	}
 
-	return normalizeSQLError(err)
+	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(query), args...)
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if claimToken == "" {
+		return nil
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if n == 0 {
+		return fmt.Errorf("mark run succeeded: no matching active row for run_id=%q claim_token=%q", runID, claimToken)
+	}
+
+	return nil
 }
 
-func (r *SQLRunsRepository) MarkRunFailed(ctx context.Context, runID, reason string) error {
-	_, err := r.db.ExecContext(ctx,
-		rebindQueryForPgx(`UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP, failure_reason = ?,
-			lease_owner = NULL, lease_until = NULL WHERE run_id = ?`),
-		"failed", reason, runID)
+func (r *SQLRunsRepository) MarkRunFailed(ctx context.Context, runID, claimToken, reason string) error {
+	query := `UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP, failure_reason = ?,
+		lease_owner = NULL, lease_until = NULL WHERE run_id = ?`
+	args := []any{"failed", reason, runID}
+	if claimToken != "" {
+		query += ` AND status IN ('running', 'orphaned') AND claim_token = ?`
+		args = append(args, claimToken)
+	}
 
+	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(query), args...)
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if claimToken == "" {
+		return nil
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if n == 0 {
+		return fmt.Errorf("mark run failed: no matching active row for run_id=%q claim_token=%q", runID, claimToken)
+	}
+
+	return nil
+}
+
+func (r *SQLRunsRepository) RequeueRunForRetry(ctx context.Context, runID string) error {
+	_, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE job_runs
+		SET status = 'queued',
+			finished_at = NULL,
+			failure_reason = NULL,
+			lease_owner = NULL,
+			lease_until = NULL,
+			claim_token = NULL,
+			last_dispatched_at = NULL
+		WHERE run_id = ?
+	`), runID)
 	return normalizeSQLError(err)
 }
 
@@ -369,40 +427,48 @@ func (r *SQLRunsRepository) GetRunStatus(ctx context.Context, runID string) (sta
 	return status, true, nil
 }
 
-func (r *SQLRunsRepository) TryClaim(ctx context.Context, runID, owner string, leaseUntil time.Time) (bool, error) {
+func (r *SQLRunsRepository) TryClaim(ctx context.Context, runID, owner string, leaseUntil time.Time) (bool, string, error) {
 	now := time.Now().UTC()
 	nowUnix := now.Unix()
+	claimToken := uuid.NewString()
 	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
 		UPDATE job_runs SET
 			lease_owner = ?,
 			lease_until = ?,
+			claim_token = ?,
+			attempt = attempt + 1,
 			status = 'running',
 			started_at = COALESCE(started_at, CURRENT_TIMESTAMP)
 		WHERE run_id = ?
 			AND status = 'queued'
 			AND (lease_until IS NULL OR lease_until < ?)
-	`), owner, leaseUntil.Unix(), runID, nowUnix)
+	`), owner, leaseUntil.Unix(), claimToken, runID, nowUnix)
 
 	if err != nil {
-		return false, normalizeSQLError(err)
+		return false, "", normalizeSQLError(err)
 	}
 
 	n, err := res.RowsAffected()
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
 
-	return n == 1, nil
+	if n != 1 {
+		return false, "", nil
+	}
+
+	return true, claimToken, nil
 }
 
-func (r *SQLRunsRepository) RenewLease(ctx context.Context, runID, owner string, leaseUntil time.Time) error {
+func (r *SQLRunsRepository) RenewLease(ctx context.Context, runID, owner, claimToken string, leaseUntil time.Time) error {
 	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
 		UPDATE job_runs
 		SET lease_until = ?, status = 'running'
 		WHERE run_id = ?
 			AND lease_owner = ?
+			AND claim_token = ?
 			AND status IN ('running', 'orphaned')
-	`), leaseUntil.Unix(), runID, owner)
+	`), leaseUntil.Unix(), runID, owner, claimToken)
 
 	if err != nil {
 		return normalizeSQLError(err)
@@ -414,7 +480,7 @@ func (r *SQLRunsRepository) RenewLease(ctx context.Context, runID, owner string,
 	}
 
 	if n == 0 {
-		return fmt.Errorf("renew lease: no matching running row for run_id=%q owner=%q", runID, owner)
+		return fmt.Errorf("renew lease: no matching active row for run_id=%q owner=%q claim_token=%q", runID, owner, claimToken)
 	}
 
 	return nil

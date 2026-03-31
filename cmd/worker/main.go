@@ -168,7 +168,7 @@ func (w *worker) handleJob(job *api.Job) {
 
 func (w *worker) runClaimedJob(job *api.Job, jobID, runID, deliveryID string) {
 	leaseUntil := time.Now().Add(dal.DefaultLeaseTTL)
-	claimed, claimErr := w.store.TryClaim(w.ctx, runID, w.workerID, leaseUntil)
+	claimed, claimToken, claimErr := w.store.TryClaim(w.ctx, runID, w.workerID, leaseUntil)
 	if claimErr != nil {
 		w.logger.Error("TryClaim %s: %v", runID, claimErr)
 		return
@@ -185,25 +185,25 @@ func (w *worker) runClaimedJob(job *api.Job, jobID, runID, deliveryID string) {
 
 	if err := w.ackDelivery(deliveryID); err != nil {
 		w.logger.Error("Ack delivery %s failed for claimed run %s: %v", deliveryID, runID, err)
-		if markErr := w.store.MarkRunFailed(w.ctx, runID, "queue ack failed"); markErr != nil {
+		if markErr := w.store.MarkRunFailed(w.ctx, runID, claimToken, "queue ack failed"); markErr != nil {
 			w.logger.Error("Failed to mark run %s failed after ack error: %v", runID, markErr)
 		}
 
 		return
 	}
 
-	execErr := w.executeWithLeaseRenewal(runID, job)
+	execErr := w.executeWithLeaseRenewal(runID, claimToken, job)
 	if execErr != nil {
 		w.logger.Error("Job %s failed: %v", jobID, execErr)
 		reason := truncateFailureReason(execErr.Error())
-		if err := w.store.MarkRunFailed(w.ctx, runID, reason); err != nil {
+		if err := w.store.MarkRunFailed(w.ctx, runID, claimToken, reason); err != nil {
 			w.logger.Error("Failed to mark run %s failed: %v", runID, err)
 		}
 
 		return
 	}
 
-	if err := w.store.MarkRunSucceeded(w.ctx, runID); err != nil {
+	if err := w.store.MarkRunSucceeded(w.ctx, runID, claimToken); err != nil {
 		w.logger.Error("Failed to mark run %s succeeded: %v", runID, err)
 	}
 
@@ -218,14 +218,14 @@ func (w *worker) ackDelivery(deliveryID string) error {
 	return w.queue.Ack(w.ctx, deliveryID)
 }
 
-func (w *worker) executeWithLeaseRenewal(runID string, job *api.Job) error {
+func (w *worker) executeWithLeaseRenewal(runID, claimToken string, job *api.Job) error {
 	execCtx, execCancel := context.WithCancel(w.ctx)
 	defer execCancel()
 
 	stopRenew := make(chan struct{})
 	doneRenew := make(chan struct{})
 
-	go w.leaseRenewalLoop(execCtx, runID, stopRenew, doneRenew)
+	go w.leaseRenewalLoop(execCtx, runID, claimToken, stopRenew, doneRenew)
 
 	err := w.executor.ExecuteJob(execCtx, job, w.logClient, w.logger)
 	close(stopRenew)
@@ -237,6 +237,7 @@ func (w *worker) executeWithLeaseRenewal(runID string, job *api.Job) error {
 func (w *worker) leaseRenewalLoop(
 	execCtx context.Context,
 	runID string,
+	claimToken string,
 	stopRenew <-chan struct{},
 	doneRenew chan<- struct{},
 ) {
@@ -259,7 +260,7 @@ func (w *worker) leaseRenewalLoop(
 			return
 		case <-ticker.C:
 			next := time.Now().Add(dal.DefaultLeaseTTL)
-			if err := w.store.RenewLease(w.ctx, runID, w.workerID, next); err != nil {
+			if err := w.store.RenewLease(w.ctx, runID, w.workerID, claimToken, next); err != nil {
 				renewFailed = true
 				w.logger.Warn("Run %s: lease renew failed (will retry): %v", runID, err)
 				continue

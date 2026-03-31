@@ -118,10 +118,12 @@ type MockRunsRepository struct {
 	MarkRunRunningErr  error
 	MarkRunSuccessErr  error
 	MarkRunFailedErr   error
+	RequeueRunErr      error
 	MarkOrphanedErr    error
 	GetRunStatusErr    error
 
 	TryClaimResult bool
+	ClaimToken     string
 	RunStatus      string
 	RunStatusFound bool
 	OrphanedRunIDs []string
@@ -142,6 +144,7 @@ func NewMockRunsRepository() *MockRunsRepository {
 		CreateRunID:    "mock-run-id",
 		CreateRunIndex: 1,
 		TryClaimResult: false,
+		ClaimToken:     "mock-claim-token",
 	}
 }
 
@@ -149,12 +152,16 @@ func (m *MockRunsRepository) MarkRunRunning(ctx context.Context, runID string) e
 	return m.MarkRunRunningErr
 }
 
-func (m *MockRunsRepository) MarkRunSucceeded(ctx context.Context, runID string) error {
+func (m *MockRunsRepository) MarkRunSucceeded(ctx context.Context, runID, claimToken string) error {
 	return m.MarkRunSuccessErr
 }
 
-func (m *MockRunsRepository) MarkRunFailed(ctx context.Context, runID string, reason string) error {
+func (m *MockRunsRepository) MarkRunFailed(ctx context.Context, runID, claimToken, reason string) error {
 	return m.MarkRunFailedErr
+}
+
+func (m *MockRunsRepository) RequeueRunForRetry(ctx context.Context, runID string) error {
+	return m.RequeueRunErr
 }
 
 func (m *MockRunsRepository) MarkExpiredRunningAsOrphaned(ctx context.Context, cutoffUnix int64) ([]string, error) {
@@ -172,14 +179,14 @@ func (m *MockRunsRepository) GetRunStatus(ctx context.Context, runID string) (st
 	return m.RunStatus, m.RunStatusFound, nil
 }
 
-func (m *MockRunsRepository) TryClaim(ctx context.Context, runID, owner string, leaseUntil time.Time) (bool, error) {
+func (m *MockRunsRepository) TryClaim(ctx context.Context, runID, owner string, leaseUntil time.Time) (bool, string, error) {
 	if m.TryClaimErr != nil {
-		return false, m.TryClaimErr
+		return false, "", m.TryClaimErr
 	}
-	return m.TryClaimResult, nil
+	return m.TryClaimResult, m.ClaimToken, nil
 }
 
-func (m *MockRunsRepository) RenewLease(ctx context.Context, runID, owner string, leaseUntil time.Time) error {
+func (m *MockRunsRepository) RenewLease(ctx context.Context, runID, owner, claimToken string, leaseUntil time.Time) error {
 	return m.RenewLeaseErr
 }
 

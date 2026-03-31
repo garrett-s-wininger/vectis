@@ -25,11 +25,12 @@ func TestLeaseRenewalLoop_ReclaimsOrphanedRun(t *testing.T) {
 	}
 
 	workerID := "worker-test-1"
+	claimToken := "claim-test-1"
 	if _, err := db.ExecContext(ctx, `
 		UPDATE job_runs
-		SET status = 'orphaned', lease_owner = ?, lease_until = ?
+		SET status = 'orphaned', lease_owner = ?, claim_token = ?, lease_until = ?
 		WHERE run_id = ?
-	`, workerID, time.Now().Add(-1*time.Minute).Unix(), runID); err != nil {
+	`, workerID, claimToken, time.Now().Add(-1*time.Minute).Unix(), runID); err != nil {
 		t.Fatalf("seed orphaned run: %v", err)
 	}
 
@@ -46,7 +47,7 @@ func TestLeaseRenewalLoop_ReclaimsOrphanedRun(t *testing.T) {
 
 	stopRenew := make(chan struct{})
 	doneRenew := make(chan struct{})
-	go w.leaseRenewalLoop(execCtx, runID, stopRenew, doneRenew)
+	go w.leaseRenewalLoop(execCtx, runID, claimToken, stopRenew, doneRenew)
 
 	time.Sleep(30 * time.Millisecond)
 	close(stopRenew)

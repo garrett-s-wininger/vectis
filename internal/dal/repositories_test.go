@@ -134,7 +134,7 @@ func TestRunsRepository_ClaimRenewAndDispatchQueries(t *testing.T) {
 		t.Fatalf("expected definition_version 1, got %d", queued[0].DefinitionVersion)
 	}
 
-	claimed, err := runs.TryClaim(ctx, runID, "worker-1", time.Now().Add(1*time.Minute))
+	claimed, claimToken, err := runs.TryClaim(ctx, runID, "worker-1", time.Now().Add(1*time.Minute))
 	if err != nil {
 		t.Fatalf("try claim first: %v", err)
 	}
@@ -143,7 +143,11 @@ func TestRunsRepository_ClaimRenewAndDispatchQueries(t *testing.T) {
 		t.Fatal("expected first claim to succeed")
 	}
 
-	claimed, err = runs.TryClaim(ctx, runID, "worker-2", time.Now().Add(1*time.Minute))
+	if claimToken == "" {
+		t.Fatal("expected non-empty claim token on successful claim")
+	}
+
+	claimed, _, err = runs.TryClaim(ctx, runID, "worker-2", time.Now().Add(1*time.Minute))
 	if err != nil {
 		t.Fatalf("try claim second: %v", err)
 	}
@@ -152,11 +156,11 @@ func TestRunsRepository_ClaimRenewAndDispatchQueries(t *testing.T) {
 		t.Fatal("expected second claim to fail")
 	}
 
-	if err := runs.RenewLease(ctx, runID, "worker-1", time.Now().Add(2*time.Minute)); err != nil {
+	if err := runs.RenewLease(ctx, runID, "worker-1", claimToken, time.Now().Add(2*time.Minute)); err != nil {
 		t.Fatalf("renew lease for owner: %v", err)
 	}
 
-	if err := runs.RenewLease(ctx, runID, "worker-2", time.Now().Add(2*time.Minute)); err == nil {
+	if err := runs.RenewLease(ctx, runID, "worker-2", claimToken, time.Now().Add(2*time.Minute)); err == nil {
 		t.Fatal("expected renew lease by non-owner to fail")
 	}
 
@@ -177,7 +181,7 @@ func TestRunsRepository_ClaimRenewAndDispatchQueries(t *testing.T) {
 		t.Fatalf("force orphaned status: %v", err)
 	}
 
-	if err := runs.RenewLease(ctx, runID, "worker-1", time.Now().Add(3*time.Minute)); err != nil {
+	if err := runs.RenewLease(ctx, runID, "worker-1", claimToken, time.Now().Add(3*time.Minute)); err != nil {
 		t.Fatalf("renew lease should recover orphaned run: %v", err)
 	}
 
@@ -269,7 +273,7 @@ func TestRunsRepository_MarkRunSucceeded_FromOrphaned(t *testing.T) {
 		t.Fatalf("seed orphaned run: %v", err)
 	}
 
-	if err := runs.MarkRunSucceeded(ctx, runID); err != nil {
+	if err := runs.MarkRunSucceeded(ctx, runID, ""); err != nil {
 		t.Fatalf("MarkRunSucceeded from orphaned: %v", err)
 	}
 
@@ -295,6 +299,133 @@ func TestRunsRepository_MarkRunSucceeded_FromOrphaned(t *testing.T) {
 
 	if !finishedAt.Valid || finishedAt.String == "" {
 		t.Fatal("expected finished_at set")
+	}
+}
+
+func TestRunsRepository_FencingTokenRejectsStaleFinalizeAndRenew(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	runs := dal.NewSQLRepositories(db).Runs()
+	ctx := context.Background()
+
+	runID, _, err := runs.CreateRun(ctx, "job-fencing", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	claimed, tokenA, err := runs.TryClaim(ctx, runID, "worker-a", time.Now().Add(1*time.Minute))
+	if err != nil {
+		t.Fatalf("try claim worker-a: %v", err)
+	}
+
+	if !claimed || tokenA == "" {
+		t.Fatalf("expected worker-a claim and token, got claimed=%v token=%q", claimed, tokenA)
+	}
+
+	if _, err := db.ExecContext(ctx, `
+		UPDATE job_runs
+		SET status = 'queued', lease_owner = NULL, lease_until = NULL, claim_token = NULL
+		WHERE run_id = ?
+	`, runID); err != nil {
+		t.Fatalf("force requeue: %v", err)
+	}
+
+	claimed, tokenB, err := runs.TryClaim(ctx, runID, "worker-b", time.Now().Add(1*time.Minute))
+	if err != nil {
+		t.Fatalf("try claim worker-b: %v", err)
+	}
+
+	if !claimed || tokenB == "" {
+		t.Fatalf("expected worker-b claim and token, got claimed=%v token=%q", claimed, tokenB)
+	}
+
+	if tokenA == tokenB {
+		t.Fatal("expected distinct claim tokens across attempts")
+	}
+
+	var attempt int
+	if err := db.QueryRowContext(ctx, `SELECT attempt FROM job_runs WHERE run_id = ?`, runID).Scan(&attempt); err != nil {
+		t.Fatalf("scan attempt: %v", err)
+	}
+	if attempt != 2 {
+		t.Fatalf("expected attempt=2 after two successful claims, got %d", attempt)
+	}
+
+	if err := runs.RenewLease(ctx, runID, "worker-b", tokenA, time.Now().Add(2*time.Minute)); err == nil {
+		t.Fatal("expected stale token renew to fail")
+	}
+
+	if err := runs.MarkRunSucceeded(ctx, runID, tokenA); err == nil {
+		t.Fatal("expected stale token finalize to fail")
+	}
+
+	var status string
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&status); err != nil {
+		t.Fatalf("scan status after stale finalize: %v", err)
+	}
+
+	if status != "running" {
+		t.Fatalf("expected status to remain running for active token, got %q", status)
+	}
+
+	if err := runs.MarkRunSucceeded(ctx, runID, tokenB); err != nil {
+		t.Fatalf("expected active token finalize to succeed: %v", err)
+	}
+
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&status); err != nil {
+		t.Fatalf("scan status after active finalize: %v", err)
+	}
+
+	if status != "succeeded" {
+		t.Fatalf("expected status succeeded after active token finalize, got %q", status)
+	}
+}
+
+func TestRunsRepository_RequeueRunForRetry_ClearsLeaseAndToken(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	runs := dal.NewSQLRepositories(db).Runs()
+	ctx := context.Background()
+
+	runID, _, err := runs.CreateRun(ctx, "job-requeue-retry", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	claimed, token, err := runs.TryClaim(ctx, runID, "worker-a", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("try claim: %v", err)
+	}
+	if !claimed || token == "" {
+		t.Fatalf("expected claim token, got claimed=%v token=%q", claimed, token)
+	}
+
+	if err := runs.MarkRunFailed(ctx, runID, token, "test failure"); err != nil {
+		t.Fatalf("mark run failed: %v", err)
+	}
+
+	if err := runs.RequeueRunForRetry(ctx, runID); err != nil {
+		t.Fatalf("RequeueRunForRetry: %v", err)
+	}
+
+	var status string
+	var failure sql.NullString
+	var claimToken sql.NullString
+	var leaseOwner sql.NullString
+	var leaseUntil sql.NullInt64
+	var lastDispatched sql.NullInt64
+	if err := db.QueryRowContext(ctx, `
+		SELECT status, failure_reason, claim_token, lease_owner, lease_until, last_dispatched_at
+		FROM job_runs WHERE run_id = ?
+	`, runID).Scan(&status, &failure, &claimToken, &leaseOwner, &leaseUntil, &lastDispatched); err != nil {
+		t.Fatalf("query requeued run: %v", err)
+	}
+
+	if status != "queued" {
+		t.Fatalf("expected queued status, got %q", status)
+	}
+
+	if failure.Valid || claimToken.Valid || leaseOwner.Valid || leaseUntil.Valid || lastDispatched.Valid {
+		t.Fatalf("expected queue retry to clear runtime fields; got failure=%v token=%v owner=%v lease_until=%v dispatched=%v",
+			failure, claimToken, leaseOwner, leaseUntil, lastDispatched)
 	}
 }
 

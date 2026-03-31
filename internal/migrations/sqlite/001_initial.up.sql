@@ -25,6 +25,8 @@ CREATE TABLE job_runs (
     started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     finished_at TIMESTAMP,
     failure_reason TEXT,
+    attempt INTEGER NOT NULL DEFAULT 0,
+    claim_token TEXT,
     lease_owner TEXT,
     lease_until INTEGER,
     last_dispatched_at INTEGER,

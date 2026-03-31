@@ -252,7 +252,7 @@ func TestService_Process_DuplicateDelivery_AllowsSingleClaimedExecution(t *testi
 	store := dal.NewSQLRepositories(db).Runs()
 	leaseUntil := time.Now().Add(time.Minute)
 
-	ok1, err := store.TryClaim(ctx, runID, "worker-a", leaseUntil)
+	ok1, _, err := store.TryClaim(ctx, runID, "worker-a", leaseUntil)
 	if err != nil {
 		t.Fatalf("TryClaim worker-a: %v", err)
 	}
@@ -261,7 +261,7 @@ func TestService_Process_DuplicateDelivery_AllowsSingleClaimedExecution(t *testi
 		t.Fatal("expected worker-a to claim run")
 	}
 
-	ok2, err := store.TryClaim(ctx, runID, "worker-b", leaseUntil)
+	ok2, _, err := store.TryClaim(ctx, runID, "worker-b", leaseUntil)
 	if err != nil {
 		t.Fatalf("TryClaim worker-b: %v", err)
 	}
