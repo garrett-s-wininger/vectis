@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"time"
 
@@ -29,6 +30,9 @@ const (
 	dequeueBackoffBase  = 500 * time.Millisecond
 	dequeueBackoffMax   = 30 * time.Second
 	longPollTimeout     = 30 * time.Second
+	ackMaxAttempts      = 4
+	ackBackoffBase      = 150 * time.Millisecond
+	ackBackoffMax       = 2 * time.Second
 )
 
 func runWorker(cmd *cobra.Command, args []string) {
@@ -183,10 +187,11 @@ func (w *worker) runClaimedJob(job *api.Job, jobID, runID, deliveryID string) {
 		return
 	}
 
-	if err := w.ackDelivery(deliveryID); err != nil {
+	if err := w.ackDeliveryWithRetry(deliveryID); err != nil {
 		w.logger.Error("Ack delivery %s failed for claimed run %s: %v", deliveryID, runID, err)
-		if markErr := w.store.MarkRunFailed(w.ctx, runID, claimToken, "queue ack failed"); markErr != nil {
-			w.logger.Error("Failed to mark run %s failed after ack error: %v", runID, markErr)
+		reason := truncateFailureReason(fmt.Sprintf("queue ack failed after retries: %v", err))
+		if markErr := w.store.MarkRunOrphaned(w.ctx, runID, claimToken, reason); markErr != nil {
+			w.logger.Error("Failed to mark run %s orphaned after ack error: %v", runID, markErr)
 		}
 
 		return
@@ -216,6 +221,31 @@ func (w *worker) ackDelivery(deliveryID string) error {
 	}
 
 	return w.queue.Ack(w.ctx, deliveryID)
+}
+
+func (w *worker) ackDeliveryWithRetry(deliveryID string) error {
+	var lastErr error
+	for attempt := 1; attempt <= ackMaxAttempts; attempt++ {
+		err := w.ackDelivery(deliveryID)
+		if err == nil {
+			return nil
+		}
+
+		lastErr = err
+		if attempt == ackMaxAttempts || !queueclient.IsTransientRPCError(err) {
+			return err
+		}
+
+		delay := backoff.ExponentialDelay(ackBackoffBase, attempt-1, ackBackoffMax)
+		w.logger.Warn("Ack delivery %s transient failure (attempt %d/%d): %v; retrying in %v",
+			deliveryID, attempt, ackMaxAttempts, err, delay)
+
+		if sleepErr := w.clock.Sleep(w.ctx, delay); sleepErr != nil {
+			return sleepErr
+		}
+	}
+
+	return lastErr
 }
 
 func (w *worker) executeWithLeaseRenewal(runID, claimToken string, job *api.Job) error {

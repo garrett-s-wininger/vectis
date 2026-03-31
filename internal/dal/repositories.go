@@ -86,6 +86,7 @@ type RunsRepository interface {
 	MarkRunRunning(ctx context.Context, runID string) error
 	MarkRunSucceeded(ctx context.Context, runID, claimToken string) error
 	MarkRunFailed(ctx context.Context, runID, claimToken, reason string) error
+	MarkRunOrphaned(ctx context.Context, runID, claimToken, reason string) error
 	RequeueRunForRetry(ctx context.Context, runID string) error
 	MarkExpiredRunningAsOrphaned(ctx context.Context, cutoffUnix int64) ([]string, error)
 	GetRunStatus(ctx context.Context, runID string) (status string, found bool, err error)
@@ -329,6 +330,36 @@ func (r *SQLRunsRepository) MarkRunFailed(ctx context.Context, runID, claimToken
 
 	if n == 0 {
 		return fmt.Errorf("mark run failed: no matching active row for run_id=%q claim_token=%q", runID, claimToken)
+	}
+
+	return nil
+}
+
+func (r *SQLRunsRepository) MarkRunOrphaned(ctx context.Context, runID, claimToken, reason string) error {
+	query := `UPDATE job_runs SET status = ?, failure_reason = ?,
+		lease_owner = NULL, lease_until = NULL, claim_token = NULL WHERE run_id = ?`
+	args := []any{"orphaned", reason, runID}
+	if claimToken != "" {
+		query += ` AND status IN ('running', 'orphaned') AND claim_token = ?`
+		args = append(args, claimToken)
+	}
+
+	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(query), args...)
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if claimToken == "" {
+		return nil
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if n == 0 {
+		return fmt.Errorf("mark run orphaned: no matching active row for run_id=%q claim_token=%q", runID, claimToken)
 	}
 
 	return nil

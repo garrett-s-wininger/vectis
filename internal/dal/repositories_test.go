@@ -429,6 +429,54 @@ func TestRunsRepository_RequeueRunForRetry_ClearsLeaseAndToken(t *testing.T) {
 	}
 }
 
+func TestRunsRepository_MarkRunOrphaned_WithClaimToken(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	runs := dal.NewSQLRepositories(db).Runs()
+	ctx := context.Background()
+
+	runID, _, err := runs.CreateRun(ctx, "job-mark-orphaned", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	claimed, token, err := runs.TryClaim(ctx, runID, "worker-a", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("try claim: %v", err)
+	}
+
+	if !claimed || token == "" {
+		t.Fatalf("expected claim token, got claimed=%v token=%q", claimed, token)
+	}
+
+	if err := runs.MarkRunOrphaned(ctx, runID, token, "manual orphan mark"); err != nil {
+		t.Fatalf("MarkRunOrphaned: %v", err)
+	}
+
+	var status string
+	var reason sql.NullString
+	var leaseOwner sql.NullString
+	var leaseUntil sql.NullInt64
+	var claimToken sql.NullString
+	if err := db.QueryRowContext(ctx, `
+		SELECT status, failure_reason, lease_owner, lease_until, claim_token
+		FROM job_runs WHERE run_id = ?
+	`, runID).Scan(&status, &reason, &leaseOwner, &leaseUntil, &claimToken); err != nil {
+		t.Fatalf("query run: %v", err)
+	}
+
+	if status != "orphaned" {
+		t.Fatalf("expected orphaned status, got %q", status)
+	}
+
+	if !reason.Valid || reason.String != "manual orphan mark" {
+		t.Fatalf("expected orphan reason, got %v", reason)
+	}
+
+	if leaseOwner.Valid || leaseUntil.Valid || claimToken.Valid {
+		t.Fatalf("expected lease/token cleared, got owner=%v lease=%v token=%v", leaseOwner, leaseUntil, claimToken)
+	}
+}
+
 func TestRunsRepository_CreateRunWithExplicitRunIndex(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	runs := dal.NewSQLRepositories(db).Runs()
