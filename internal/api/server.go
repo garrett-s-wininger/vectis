@@ -158,6 +158,16 @@ func (s *APIServer) ForceRequeueRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.runs.RequeueRunForRetry(r.Context(), runID); err != nil {
+		if dal.IsConflict(err) {
+			http.Error(w, "run cannot be requeued from current status", http.StatusConflict)
+			return
+		}
+
+		if dal.IsNotFound(err) {
+			http.Error(w, "run not found", http.StatusNotFound)
+			return
+		}
+
 		s.logger.Error("Force-requeue run %s failed: %v", runID, err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return

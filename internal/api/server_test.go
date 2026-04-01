@@ -1049,3 +1049,32 @@ func TestAPIServer_ForceRequeueRun_SucceededConflict(t *testing.T) {
 		t.Fatalf("expected status %d, got %d", http.StatusConflict, rec.Code)
 	}
 }
+
+func TestAPIServer_ForceRequeueRun_RunningConflict(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	ctx := context.Background()
+	runs := dal.NewSQLRepositories(db).Runs()
+
+	runID, _, err := runs.CreateRun(ctx, "job-force-requeue-running", nil, 1)
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	claimed, _, err := runs.TryClaim(ctx, runID, "worker-a", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("TryClaim: %v", err)
+	}
+	if !claimed {
+		t.Fatal("expected TryClaim to succeed")
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runs/"+runID+"/force-requeue", nil)
+	req.SetPathValue("id", runID)
+	rec := httptest.NewRecorder()
+
+	server.ForceRequeueRun(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected status %d, got %d", http.StatusConflict, rec.Code)
+	}
+}

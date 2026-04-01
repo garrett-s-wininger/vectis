@@ -390,7 +390,7 @@ func classifyOrphanReason(reason string) string {
 }
 
 func (r *SQLRunsRepository) RequeueRunForRetry(ctx context.Context, runID string) error {
-	_, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
 		UPDATE job_runs
 		SET status = 'queued',
 			orphan_reason = '',
@@ -402,8 +402,32 @@ func (r *SQLRunsRepository) RequeueRunForRetry(ctx context.Context, runID string
 			claim_token = NULL,
 			last_dispatched_at = NULL
 		WHERE run_id = ?
+			AND status IN ('queued', 'failed', 'orphaned')
 	`), runID)
-	return normalizeSQLError(err)
+
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if n == 1 {
+		return nil
+	}
+
+	var status string
+	if err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`SELECT status FROM job_runs WHERE run_id = ?`), runID).Scan(&status); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("%w: run %s", ErrNotFound, runID)
+		}
+
+		return normalizeSQLError(err)
+	}
+
+	return fmt.Errorf("%w: run %s in status %s cannot be requeued", ErrConflict, runID, status)
 }
 
 func (r *SQLRunsRepository) MarkExpiredRunningAsOrphaned(ctx context.Context, cutoffUnix int64) ([]string, error) {

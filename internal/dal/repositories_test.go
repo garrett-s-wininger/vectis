@@ -380,6 +380,64 @@ func TestRunsRepository_FencingTokenRejectsStaleFinalizeAndRenew(t *testing.T) {
 	}
 }
 
+func TestRunsRepository_FencingTokenRejectsStaleFailedAndOrphaned(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	runs := dal.NewSQLRepositories(db).Runs()
+	ctx := context.Background()
+
+	runID, _, err := runs.CreateRun(ctx, "job-fencing-stale-fail", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	claimed, tokenA, err := runs.TryClaim(ctx, runID, "worker-a", time.Now().Add(1*time.Minute))
+	if err != nil {
+		t.Fatalf("try claim worker-a: %v", err)
+	}
+
+	if !claimed || tokenA == "" {
+		t.Fatalf("expected worker-a claim and token, got claimed=%v token=%q", claimed, tokenA)
+	}
+
+	if err := runs.MarkRunFailed(ctx, runID, tokenA, dal.FailureCodeExecution, "first attempt failed"); err != nil {
+		t.Fatalf("mark failed for first attempt: %v", err)
+	}
+
+	if err := runs.RequeueRunForRetry(ctx, runID); err != nil {
+		t.Fatalf("requeue run for retry: %v", err)
+	}
+
+	claimed, tokenB, err := runs.TryClaim(ctx, runID, "worker-b", time.Now().Add(1*time.Minute))
+	if err != nil {
+		t.Fatalf("try claim worker-b: %v", err)
+	}
+
+	if !claimed || tokenB == "" {
+		t.Fatalf("expected worker-b claim and token, got claimed=%v token=%q", claimed, tokenB)
+	}
+
+	if err := runs.MarkRunFailed(ctx, runID, tokenA, dal.FailureCodeExecution, "stale token fail"); err == nil {
+		t.Fatal("expected stale token MarkRunFailed to fail")
+	}
+
+	if err := runs.MarkRunOrphaned(ctx, runID, tokenA, dal.OrphanReasonAckUncertain); err == nil {
+		t.Fatal("expected stale token MarkRunOrphaned to fail")
+	}
+
+	var status string
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&status); err != nil {
+		t.Fatalf("scan status after stale transitions: %v", err)
+	}
+
+	if status != "running" {
+		t.Fatalf("expected status running after stale transitions, got %q", status)
+	}
+
+	if err := runs.MarkRunSucceeded(ctx, runID, tokenB); err != nil {
+		t.Fatalf("mark succeeded with active token: %v", err)
+	}
+}
+
 func TestRunsRepository_RequeueRunForRetry_ClearsLeaseAndToken(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	runs := dal.NewSQLRepositories(db).Runs()
@@ -427,6 +485,31 @@ func TestRunsRepository_RequeueRunForRetry_ClearsLeaseAndToken(t *testing.T) {
 	if failureCode != "" || failure.Valid || claimToken.Valid || leaseOwner.Valid || leaseUntil.Valid || lastDispatched.Valid {
 		t.Fatalf("expected queue retry to clear runtime fields; got failure_code=%q failure=%v token=%v owner=%v lease_until=%v dispatched=%v",
 			failureCode, failure, claimToken, leaseOwner, leaseUntil, lastDispatched)
+	}
+}
+
+func TestRunsRepository_RequeueRunForRetry_RejectsRunning(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	runs := dal.NewSQLRepositories(db).Runs()
+	ctx := context.Background()
+
+	runID, _, err := runs.CreateRun(ctx, "job-requeue-running", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	claimed, _, err := runs.TryClaim(ctx, runID, "worker-a", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("try claim: %v", err)
+	}
+
+	if !claimed {
+		t.Fatal("expected claim to succeed")
+	}
+
+	err = runs.RequeueRunForRetry(ctx, runID)
+	if !dal.IsConflict(err) {
+		t.Fatalf("expected conflict requeueing running run, got %v", err)
 	}
 }
 
