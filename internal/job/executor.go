@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
@@ -16,13 +15,6 @@ import (
 
 type Executor struct {
 	registry *builtins.Registry
-}
-
-const logStreamOpenTimeout = 10 * time.Second
-
-type logStreamOpenResult struct {
-	stream interfaces.LogStream
-	err    error
 }
 
 func NewExecutor() *Executor {
@@ -35,7 +27,7 @@ func sanitizeJobIDForPrefix(id string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(id, "/", "-"), string(filepath.Separator), "-")
 }
 
-func (e *Executor) ExecuteJob(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger) error {
+func (e *Executor) ExecuteJob(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger) (err error) {
 	if job.GetRoot() == nil {
 		return fmt.Errorf("job has no root node")
 	}
@@ -62,29 +54,21 @@ func (e *Executor) ExecuteJob(ctx context.Context, job *api.Job, logClient inter
 
 	logger.Info("Created workspace: %s", workspace)
 
-	// NOTE(garrett): This has to be a separate context to prevent the normally deferred lease
-	// context from cancelling the log stream before we've sent all of our data.
-	logStreamCtx, cancelLogStream := context.WithCancel(context.Background())
-	defer cancelLogStream()
-
-	openCh := make(chan logStreamOpenResult, 1)
-	go func() {
-		stream, err := logClient.StreamLogs(logStreamCtx)
-		openCh <- logStreamOpenResult{stream: stream, err: err}
-	}()
-
-	var logStream interfaces.LogStream
-	select {
-	case res := <-openCh:
-		if res.err != nil {
-			return fmt.Errorf("failed to create log stream: %w", res.err)
-		}
-		logStream = res.stream
-	case <-time.After(logStreamOpenTimeout):
-		cancelLogStream()
-		return fmt.Errorf("failed to create log stream: timed out after %s", logStreamOpenTimeout)
+	logStream, err := newDurableLogStream(logClient, logger, job.GetRunId())
+	if err != nil {
+		return fmt.Errorf("failed to initialize durable log stream: %w", err)
 	}
-	defer func() { _ = logStream.CloseSend() }()
+
+	defer func() {
+		if closeErr := logStream.CloseSend(); closeErr != nil {
+			if err == nil {
+				err = fmt.Errorf("failed to flush log stream: %w", closeErr)
+				return
+			}
+
+			logger.Error("Failed to flush log stream for run %s: %v", job.GetRunId(), closeErr)
+		}
+	}()
 
 	state := &action.ExecutionState{
 		JobID:     job.GetId(),

@@ -63,3 +63,11 @@ func (s *grpcLogStream) CloseSend() error {
 	defer s.mu.Unlock()
 	return s.stream.CloseSend()
 }
+
+func (s *grpcLogStream) CloseAndRecv() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.stream.CloseAndRecv()
+	return err
+}

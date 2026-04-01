@@ -67,7 +67,7 @@ func (m *ManagingWorkerDial) reconnectAfterTransient(ctx context.Context, cause 
 	}
 
 	if err := m.swapAll(ctx); err != nil {
-		m.logger.Warn("worker dial reconnect failed: %v", err)
+		m.logger.Debug("worker dial reconnect failed: %v", err)
 		return cause
 	}
 

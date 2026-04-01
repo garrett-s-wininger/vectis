@@ -164,7 +164,7 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 		chunk, err := stream.Recv()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				return nil
+				return stream.SendAndClose(&api.Empty{})
 			}
 
 			return err

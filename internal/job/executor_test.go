@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/interfaces/mocks"
@@ -39,8 +40,8 @@ func TestExecutor_ExecuteJob_Success(t *testing.T) {
 		t.Errorf("expected no error, got %v", err)
 	}
 
-	if mockLogClient.GetStreamCount() != 1 {
-		t.Errorf("expected 1 log stream, got %d", mockLogClient.GetStreamCount())
+	if mockLogClient.GetStreamCount() < 1 {
+		t.Errorf("expected at least 1 log stream, got %d", mockLogClient.GetStreamCount())
 	}
 
 	chunks := mockLogClient.GetChunks()
@@ -185,26 +186,74 @@ func TestExecutor_ExecuteJob_StreamLogsError(t *testing.T) {
 		},
 	}
 
+	origFlushTimeout := job.LogFlushTimeoutForTest()
+	origRetryBase := job.LogRetryBaseForTest()
+	origRetryMax := job.LogRetryMaxForTest()
+	job.SetLogFlushTimeoutForTest(250 * time.Millisecond)
+	job.SetLogRetryBaseForTest(10 * time.Millisecond)
+	job.SetLogRetryMaxForTest(25 * time.Millisecond)
+	t.Cleanup(func() {
+		job.SetLogFlushTimeoutForTest(origFlushTimeout)
+		job.SetLogRetryBaseForTest(origRetryBase)
+		job.SetLogRetryMaxForTest(origRetryMax)
+	})
+
 	err := executor.ExecuteJob(context.Background(), testJob, mockLogClient, mockLogger)
 	if err == nil {
-		t.Error("expected error when stream creation fails")
+		t.Error("expected error when stream stays unavailable through flush timeout")
 	}
 
-	if !errors.Is(err, expectedErr) {
-		found := false
-		for {
-			if err == nil {
-				break
-			}
-			if err == expectedErr {
-				found = true
-				break
-			}
-			err = errors.Unwrap(err)
-		}
-		if !found {
-			t.Errorf("expected error to wrap %v, got: %v", expectedErr, err)
-		}
+	if err != nil && !strings.Contains(err.Error(), "timed out waiting for log flush") {
+		t.Errorf("expected flush timeout error, got: %v", err)
+	}
+}
+
+func TestExecutor_ExecuteJob_StreamUnavailableAtStart_ThenRecovers(t *testing.T) {
+	executor := job.NewExecutor()
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+	mockLogClient.SetStreamError(errors.New("temporarily unavailable"))
+
+	origFlushTimeout := job.LogFlushTimeoutForTest()
+	origRetryBase := job.LogRetryBaseForTest()
+	origRetryMax := job.LogRetryMaxForTest()
+	job.SetLogFlushTimeoutForTest(2 * time.Second)
+	job.SetLogRetryBaseForTest(10 * time.Millisecond)
+	job.SetLogRetryMaxForTest(30 * time.Millisecond)
+	t.Cleanup(func() {
+		job.SetLogFlushTimeoutForTest(origFlushTimeout)
+		job.SetLogRetryBaseForTest(origRetryBase)
+		job.SetLogRetryMaxForTest(origRetryMax)
+	})
+
+	go func() {
+		time.Sleep(60 * time.Millisecond)
+		mockLogClient.SetStreamError(nil)
+	}()
+
+	jobID := "test-job-recover"
+	nodeID := "node-1"
+	uses := "builtins/shell"
+	runID := "test-run-recover"
+	testJob := &api.Job{
+		Id:    &jobID,
+		RunId: &runID,
+		Root: &api.Node{
+			Id:   &nodeID,
+			Uses: &uses,
+			With: map[string]string{
+				"command": "echo hello",
+			},
+		},
+	}
+
+	err := executor.ExecuteJob(context.Background(), testJob, mockLogClient, mockLogger)
+	if err != nil {
+		t.Fatalf("expected success after stream recovery, got %v", err)
+	}
+
+	if got := len(mockLogClient.GetChunks()); got == 0 {
+		t.Fatal("expected queued logs to flush after stream recovery")
 	}
 }
 
