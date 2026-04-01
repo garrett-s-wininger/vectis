@@ -469,7 +469,7 @@ func TestAPIServer_GetJobRuns_ReturnsStatusAndFailureReasonAfterStatusTransition
 		t.Fatalf("MarkRunRunning: %v", err)
 	}
 
-	if err := store.MarkRunFailed(ctx, runID, "", "step failed: exit code 1"); err != nil {
+	if err := store.MarkRunFailed(ctx, runID, "", dal.FailureCodeExecution, "step failed: exit code 1"); err != nil {
 		t.Fatalf("MarkRunFailed: %v", err)
 	}
 
@@ -485,6 +485,7 @@ func TestAPIServer_GetJobRuns_ReturnsStatusAndFailureReasonAfterStatusTransition
 		RunID         string  `json:"run_id"`
 		RunIndex      int     `json:"run_index"`
 		Status        string  `json:"status"`
+		FailureCode   *string `json:"failure_code,omitempty"`
 		StartedAt     *string `json:"started_at,omitempty"`
 		FinishedAt    *string `json:"finished_at,omitempty"`
 		FailureReason *string `json:"failure_reason,omitempty"`
@@ -504,6 +505,10 @@ func TestAPIServer_GetJobRuns_ReturnsStatusAndFailureReasonAfterStatusTransition
 
 	if runs[0].FailureReason == nil || *runs[0].FailureReason != "step failed: exit code 1" {
 		t.Errorf("failure_reason want %q, got %v", "step failed: exit code 1", runs[0].FailureReason)
+	}
+
+	if runs[0].FailureCode == nil || *runs[0].FailureCode != dal.FailureCodeExecution {
+		t.Errorf("failure_code want %q, got %v", dal.FailureCodeExecution, runs[0].FailureCode)
 	}
 
 	if runs[0].StartedAt == nil {
@@ -937,8 +942,9 @@ func TestAPIServer_ForceFailRun_Success(t *testing.T) {
 	}
 
 	var status string
+	var failureCode string
 	var reason sql.NullString
-	if err := db.QueryRowContext(ctx, `SELECT status, failure_reason FROM job_runs WHERE run_id = ?`, runID).Scan(&status, &reason); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT status, failure_code, failure_reason FROM job_runs WHERE run_id = ?`, runID).Scan(&status, &failureCode, &reason); err != nil {
 		t.Fatalf("query run: %v", err)
 	}
 
@@ -948,6 +954,9 @@ func TestAPIServer_ForceFailRun_Success(t *testing.T) {
 
 	if !reason.Valid || reason.String != "manual intervention" {
 		t.Fatalf("expected failure reason set, got %v", reason)
+	}
+	if failureCode != dal.FailureCodeForceFailed {
+		t.Fatalf("expected failure_code %q, got %q", dal.FailureCodeForceFailed, failureCode)
 	}
 }
 
@@ -984,7 +993,7 @@ func TestAPIServer_ForceRequeueRun_Success(t *testing.T) {
 		t.Fatalf("expected claim token, got claimed=%v token=%q", claimed, token)
 	}
 
-	if err := runs.MarkRunFailed(ctx, runID, token, "transient failure"); err != nil {
+	if err := runs.MarkRunFailed(ctx, runID, token, dal.FailureCodeExecution, "transient failure"); err != nil {
 		t.Fatalf("MarkRunFailed: %v", err)
 	}
 
@@ -999,10 +1008,11 @@ func TestAPIServer_ForceRequeueRun_Success(t *testing.T) {
 	}
 
 	var status string
+	var failureCode string
 	var failure sql.NullString
 	var claimToken sql.NullString
-	if err := db.QueryRowContext(ctx, `SELECT status, failure_reason, claim_token FROM job_runs WHERE run_id = ?`, runID).
-		Scan(&status, &failure, &claimToken); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT status, failure_code, failure_reason, claim_token FROM job_runs WHERE run_id = ?`, runID).
+		Scan(&status, &failureCode, &failure, &claimToken); err != nil {
 		t.Fatalf("query run: %v", err)
 	}
 
@@ -1010,8 +1020,8 @@ func TestAPIServer_ForceRequeueRun_Success(t *testing.T) {
 		t.Fatalf("expected queued status, got %q", status)
 	}
 
-	if failure.Valid || claimToken.Valid {
-		t.Fatalf("expected cleared failure/token, got failure=%v claim_token=%v", failure, claimToken)
+	if failureCode != "" || failure.Valid || claimToken.Valid {
+		t.Fatalf("expected cleared failure fields/token, got failure_code=%q failure=%v claim_token=%v", failureCode, failure, claimToken)
 	}
 }
 

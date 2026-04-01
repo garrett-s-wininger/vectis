@@ -398,7 +398,7 @@ func TestRunsRepository_RequeueRunForRetry_ClearsLeaseAndToken(t *testing.T) {
 		t.Fatalf("expected claim token, got claimed=%v token=%q", claimed, token)
 	}
 
-	if err := runs.MarkRunFailed(ctx, runID, token, "test failure"); err != nil {
+	if err := runs.MarkRunFailed(ctx, runID, token, dal.FailureCodeExecution, "test failure"); err != nil {
 		t.Fatalf("mark run failed: %v", err)
 	}
 
@@ -407,15 +407,16 @@ func TestRunsRepository_RequeueRunForRetry_ClearsLeaseAndToken(t *testing.T) {
 	}
 
 	var status string
+	var failureCode string
 	var failure sql.NullString
 	var claimToken sql.NullString
 	var leaseOwner sql.NullString
 	var leaseUntil sql.NullInt64
 	var lastDispatched sql.NullInt64
 	if err := db.QueryRowContext(ctx, `
-		SELECT status, failure_reason, claim_token, lease_owner, lease_until, last_dispatched_at
+		SELECT status, failure_code, failure_reason, claim_token, lease_owner, lease_until, last_dispatched_at
 		FROM job_runs WHERE run_id = ?
-	`, runID).Scan(&status, &failure, &claimToken, &leaseOwner, &leaseUntil, &lastDispatched); err != nil {
+	`, runID).Scan(&status, &failureCode, &failure, &claimToken, &leaseOwner, &leaseUntil, &lastDispatched); err != nil {
 		t.Fatalf("query requeued run: %v", err)
 	}
 
@@ -423,9 +424,9 @@ func TestRunsRepository_RequeueRunForRetry_ClearsLeaseAndToken(t *testing.T) {
 		t.Fatalf("expected queued status, got %q", status)
 	}
 
-	if failure.Valid || claimToken.Valid || leaseOwner.Valid || leaseUntil.Valid || lastDispatched.Valid {
-		t.Fatalf("expected queue retry to clear runtime fields; got failure=%v token=%v owner=%v lease_until=%v dispatched=%v",
-			failure, claimToken, leaseOwner, leaseUntil, lastDispatched)
+	if failureCode != "" || failure.Valid || claimToken.Valid || leaseOwner.Valid || leaseUntil.Valid || lastDispatched.Valid {
+		t.Fatalf("expected queue retry to clear runtime fields; got failure_code=%q failure=%v token=%v owner=%v lease_until=%v dispatched=%v",
+			failureCode, failure, claimToken, leaseOwner, leaseUntil, lastDispatched)
 	}
 }
 

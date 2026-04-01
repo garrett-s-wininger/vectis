@@ -25,6 +25,7 @@ CREATE TABLE job_runs (
     orphan_reason TEXT NOT NULL DEFAULT '',
     started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     finished_at TIMESTAMP,
+    failure_code TEXT NOT NULL DEFAULT '',
     failure_reason TEXT,
     attempt INTEGER NOT NULL DEFAULT 0,
     claim_token TEXT,

@@ -42,6 +42,8 @@ const (
 	DefaultRenewInterval     = 5 * time.Minute
 	OrphanReasonLeaseExpired = "lease_expired"
 	OrphanReasonAckUncertain = "ack_uncertain"
+	FailureCodeExecution     = "execution_error"
+	FailureCodeForceFailed   = "force_failed"
 )
 
 type JobRecord struct {
@@ -54,6 +56,7 @@ type RunRecord struct {
 	RunIndex      int
 	Status        string
 	OrphanReason  *string
+	FailureCode   *string
 	StartedAt     *string
 	FinishedAt    *string
 	FailureReason *string
@@ -88,7 +91,7 @@ type JobsRepository interface {
 type RunsRepository interface {
 	MarkRunRunning(ctx context.Context, runID string) error
 	MarkRunSucceeded(ctx context.Context, runID, claimToken string) error
-	MarkRunFailed(ctx context.Context, runID, claimToken, reason string) error
+	MarkRunFailed(ctx context.Context, runID, claimToken, failureCode, reason string) error
 	MarkRunOrphaned(ctx context.Context, runID, claimToken, reason string) error
 	RequeueRunForRetry(ctx context.Context, runID string) error
 	MarkExpiredRunningAsOrphaned(ctx context.Context, cutoffUnix int64) ([]string, error)
@@ -272,7 +275,7 @@ type SQLRunsRepository struct {
 
 func (r *SQLRunsRepository) MarkRunRunning(ctx context.Context, runID string) error {
 	_, err := r.db.ExecContext(ctx,
-		rebindQueryForPgx("UPDATE job_runs SET status = ?, orphan_reason = '', started_at = COALESCE(started_at, CURRENT_TIMESTAMP) WHERE run_id = ?"),
+		rebindQueryForPgx("UPDATE job_runs SET status = ?, orphan_reason = '', failure_code = '', started_at = COALESCE(started_at, CURRENT_TIMESTAMP) WHERE run_id = ?"),
 		"running", runID)
 
 	return normalizeSQLError(err)
@@ -280,7 +283,7 @@ func (r *SQLRunsRepository) MarkRunRunning(ctx context.Context, runID string) er
 
 func (r *SQLRunsRepository) MarkRunSucceeded(ctx context.Context, runID, claimToken string) error {
 	query := `UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP,
-		orphan_reason = '', lease_owner = NULL, lease_until = NULL WHERE run_id = ?`
+		orphan_reason = '', failure_code = '', failure_reason = NULL, lease_owner = NULL, lease_until = NULL WHERE run_id = ?`
 	args := []any{"succeeded", runID}
 	if claimToken != "" {
 		query += ` AND status IN ('running', 'orphaned') AND claim_token = ?`
@@ -308,10 +311,14 @@ func (r *SQLRunsRepository) MarkRunSucceeded(ctx context.Context, runID, claimTo
 	return nil
 }
 
-func (r *SQLRunsRepository) MarkRunFailed(ctx context.Context, runID, claimToken, reason string) error {
-	query := `UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP, failure_reason = ?,
+func (r *SQLRunsRepository) MarkRunFailed(ctx context.Context, runID, claimToken, failureCode, reason string) error {
+	if failureCode == "" {
+		failureCode = FailureCodeExecution
+	}
+
+	query := `UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP, failure_code = ?, failure_reason = ?,
 		orphan_reason = '', lease_owner = NULL, lease_until = NULL WHERE run_id = ?`
-	args := []any{"failed", reason, runID}
+	args := []any{"failed", failureCode, reason, runID}
 	if claimToken != "" {
 		query += ` AND status IN ('running', 'orphaned') AND claim_token = ?`
 		args = append(args, claimToken)
@@ -345,7 +352,7 @@ func (r *SQLRunsRepository) MarkRunOrphaned(ctx context.Context, runID, claimTok
 	orphanReason := classifyOrphanReason(reason)
 
 	query := `UPDATE job_runs SET status = ?, failure_reason = ?,
-		orphan_reason = ?, lease_owner = NULL, lease_until = NULL, claim_token = NULL WHERE run_id = ?`
+		orphan_reason = ?, failure_code = '', lease_owner = NULL, lease_until = NULL, claim_token = NULL WHERE run_id = ?`
 	args := []any{"orphaned", reason, orphanReason, runID}
 	if claimToken != "" {
 		query += ` AND status IN ('running', 'orphaned') AND claim_token = ?`
@@ -387,6 +394,7 @@ func (r *SQLRunsRepository) RequeueRunForRetry(ctx context.Context, runID string
 		UPDATE job_runs
 		SET status = 'queued',
 			orphan_reason = '',
+			failure_code = '',
 			finished_at = NULL,
 			failure_reason = NULL,
 			lease_owner = NULL,
@@ -432,7 +440,8 @@ func (r *SQLRunsRepository) MarkExpiredRunningAsOrphaned(ctx context.Context, cu
 		res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
 			UPDATE job_runs
 			SET status = 'orphaned',
-				orphan_reason = ?
+				orphan_reason = ?,
+				failure_code = ''
 			WHERE run_id = ?
 				AND status = 'running'
 				AND lease_until IS NOT NULL
@@ -488,6 +497,7 @@ func (r *SQLRunsRepository) TryClaim(ctx context.Context, runID, owner string, l
 			claim_token = ?,
 			attempt = attempt + 1,
 			orphan_reason = '',
+			failure_code = '',
 			status = 'running',
 			started_at = COALESCE(started_at, CURRENT_TIMESTAMP)
 		WHERE run_id = ?
@@ -515,6 +525,7 @@ func (r *SQLRunsRepository) RenewLease(ctx context.Context, runID, owner, claimT
 	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
 		UPDATE job_runs
 		SET lease_until = ?, orphan_reason = '', status = 'running'
+			, failure_code = ''
 		WHERE run_id = ?
 			AND lease_owner = ?
 			AND claim_token = ?
@@ -585,7 +596,7 @@ func (r *SQLRunsRepository) CreateRun(ctx context.Context, jobID string, runInde
 }
 
 func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, since *int) ([]RunRecord, error) {
-	query := "SELECT run_id, run_index, status, orphan_reason, CAST(started_at AS TEXT), CAST(finished_at AS TEXT), failure_reason FROM job_runs WHERE job_id = ?"
+	query := "SELECT run_id, run_index, status, orphan_reason, failure_code, CAST(started_at AS TEXT), CAST(finished_at AS TEXT), failure_reason FROM job_runs WHERE job_id = ?"
 	args := []any{jobID}
 
 	if since != nil {
@@ -603,8 +614,8 @@ func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, since *
 	var out []RunRecord
 	for rows.Next() {
 		var rec RunRecord
-		var orphanReason, startedAt, finishedAt, failureReason sql.NullString
-		if err := rows.Scan(&rec.RunID, &rec.RunIndex, &rec.Status, &orphanReason, &startedAt, &finishedAt, &failureReason); err != nil {
+		var orphanReason, failureCode, startedAt, finishedAt, failureReason sql.NullString
+		if err := rows.Scan(&rec.RunID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &startedAt, &finishedAt, &failureReason); err != nil {
 			return nil, err
 		}
 		if orphanReason.Valid && orphanReason.String != "" {
@@ -617,6 +628,10 @@ func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, since *
 
 		if finishedAt.Valid {
 			rec.FinishedAt = &finishedAt.String
+		}
+
+		if failureCode.Valid && failureCode.String != "" {
+			rec.FailureCode = &failureCode.String
 		}
 
 		if failureReason.Valid {

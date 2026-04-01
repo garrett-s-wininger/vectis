@@ -123,7 +123,7 @@ func (s *APIServer) ForceFailRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := s.runs.MarkRunFailed(r.Context(), runID, "", reason); err != nil {
+	if err := s.runs.MarkRunFailed(r.Context(), runID, "", dal.FailureCodeForceFailed, reason); err != nil {
 		s.logger.Error("Force-fail run %s failed: %v", runID, err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
@@ -485,6 +485,7 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 		RunIndex      int     `json:"run_index"`
 		Status        string  `json:"status"`
 		OrphanReason  *string `json:"orphan_reason,omitempty"`
+		FailureCode   *string `json:"failure_code,omitempty"`
 		StartedAt     *string `json:"started_at,omitempty"`
 		FinishedAt    *string `json:"finished_at,omitempty"`
 		FailureReason *string `json:"failure_reason,omitempty"`
@@ -497,6 +498,7 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 			RunIndex:      rec.RunIndex,
 			Status:        rec.Status,
 			OrphanReason:  rec.OrphanReason,
+			FailureCode:   rec.FailureCode,
 			StartedAt:     rec.StartedAt,
 			FinishedAt:    rec.FinishedAt,
 			FailureReason: rec.FailureReason,

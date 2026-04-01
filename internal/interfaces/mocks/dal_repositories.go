@@ -160,7 +160,7 @@ func (m *MockRunsRepository) MarkRunSucceeded(ctx context.Context, runID, claimT
 	return m.MarkRunSuccessErr
 }
 
-func (m *MockRunsRepository) MarkRunFailed(ctx context.Context, runID, claimToken, reason string) error {
+func (m *MockRunsRepository) MarkRunFailed(ctx context.Context, runID, claimToken, failureCode, reason string) error {
 	return m.MarkRunFailedErr
 }
 

@@ -199,7 +199,7 @@ func (w *worker) runClaimedJob(job *api.Job, jobID, runID, deliveryID string) {
 	if execErr != nil {
 		w.logger.Error("Job %s failed: %v", jobID, execErr)
 		reason := truncateFailureReason(execErr.Error())
-		if err := w.store.MarkRunFailed(w.ctx, runID, claimToken, reason); err != nil {
+		if err := w.store.MarkRunFailed(w.ctx, runID, claimToken, dal.FailureCodeExecution, reason); err != nil {
 			w.logger.Error("Failed to mark run %s failed: %v", runID, err)
 		}
 
