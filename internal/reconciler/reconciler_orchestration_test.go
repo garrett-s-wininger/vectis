@@ -36,8 +36,9 @@ func TestService_Process_ReenqueuesQueuedRun_Orchestration(t *testing.T) {
 		t.Fatalf("unexpected enqueue payload: id=%q run=%q", enqueued[0].GetId(), enqueued[0].GetRunId())
 	}
 
-	if len(runsRepo.TouchedRunIDs) != 1 || runsRepo.TouchedRunIDs[0] != "run-1" {
-		t.Fatalf("expected run-1 touch, got %+v", runsRepo.TouchedRunIDs)
+	touched := runsRepo.SnapshotTouchedRunIDs()
+	if len(touched) != 1 || touched[0] != "run-1" {
+		t.Fatalf("expected run-1 touch, got %+v", touched)
 	}
 }
 
@@ -72,8 +73,9 @@ func TestService_Process_SkipsWhenNoStoredOrVersionedDefinition_Orchestration(t 
 		t.Fatalf("expected no jobs enqueued, got %d", got)
 	}
 
-	if got := len(runsRepo.TouchedRunIDs); got != 0 {
-		t.Fatalf("expected no touched runs, got %+v", runsRepo.TouchedRunIDs)
+	touched := runsRepo.SnapshotTouchedRunIDs()
+	if got := len(touched); got != 0 {
+		t.Fatalf("expected no touched runs, got %+v", touched)
 	}
 }
 

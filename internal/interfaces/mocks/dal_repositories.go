@@ -3,6 +3,7 @@ package mocks
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"vectis/internal/dal"
@@ -106,6 +107,8 @@ func (m *MockJobsRepository) UpdateDefinition(ctx context.Context, jobID, defini
 var _ dal.JobsRepository = (*MockJobsRepository)(nil)
 
 type MockRunsRepository struct {
+	mu sync.Mutex
+
 	CreateRunID    string
 	CreateRunIndex int
 
@@ -199,7 +202,10 @@ func (m *MockRunsRepository) TouchDispatched(ctx context.Context, runID string) 
 	if m.TouchDispatchedErr != nil {
 		return m.TouchDispatchedErr
 	}
+
+	m.mu.Lock()
 	m.TouchedRunIDs = append(m.TouchedRunIDs, runID)
+	m.mu.Unlock()
 	return nil
 }
 
@@ -208,8 +214,10 @@ func (m *MockRunsRepository) CreateRun(ctx context.Context, jobID string, runInd
 		return "", 0, m.CreateRunErr
 	}
 
+	m.mu.Lock()
 	m.LastCreateJobID = jobID
 	m.LastDefinitionVersion = definitionVersion
+	m.mu.Unlock()
 	return m.CreateRunID, m.CreateRunIndex, nil
 }
 
@@ -218,6 +226,7 @@ func (m *MockRunsRepository) ListByJob(ctx context.Context, jobID string, since 
 		return nil, m.ListByJobErr
 	}
 
+	m.mu.Lock()
 	m.LastListJobID = jobID
 	if since != nil {
 		v := *since
@@ -225,8 +234,31 @@ func (m *MockRunsRepository) ListByJob(ctx context.Context, jobID string, since 
 	} else {
 		m.LastListSince = nil
 	}
+	m.mu.Unlock()
 
 	return append([]dal.RunRecord(nil), m.ListByJobResults...), nil
+}
+
+func (m *MockRunsRepository) SnapshotTouchedRunIDs() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string(nil), m.TouchedRunIDs...)
+}
+
+func (m *MockRunsRepository) SnapshotLastCreate() (string, int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.LastCreateJobID, m.LastDefinitionVersion
+}
+
+func (m *MockRunsRepository) SnapshotLastListSince() *int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.LastListSince == nil {
+		return nil
+	}
+	v := *m.LastListSince
+	return &v
 }
 
 func (m *MockRunsRepository) ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]dal.QueuedRun, error) {

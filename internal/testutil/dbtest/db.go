@@ -17,6 +17,9 @@ func NewTestDB(t *testing.T) *sql.DB {
 		t.Fatalf("failed to open test db: %v", err)
 	}
 
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+
 	if err := migrations.Run(db, "sqlite3"); err != nil {
 		db.Close()
 		t.Fatalf("failed to run migrations: %v", err)

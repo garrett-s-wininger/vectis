@@ -43,8 +43,9 @@ func TestCronService_ProcessSchedules_OrchestrationUsesRepos(t *testing.T) {
 		t.Fatalf("expected one enqueued job, got %d", len(queue.GetJobs()))
 	}
 
-	if len(runs.TouchedRunIDs) != 1 || runs.TouchedRunIDs[0] != "run-1" {
-		t.Fatalf("expected touch for run-1, got %+v", runs.TouchedRunIDs)
+	touched := runs.SnapshotTouchedRunIDs()
+	if len(touched) != 1 || touched[0] != "run-1" {
+		t.Fatalf("expected touch for run-1, got %+v", touched)
 	}
 
 	if len(schedules.UpdateCalls) != 1 || schedules.UpdateCalls[0].ID != 42 {
