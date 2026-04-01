@@ -20,6 +20,7 @@ import (
 	"vectis/internal/job"
 	"vectis/internal/multidial"
 	"vectis/internal/queueclient"
+	"vectis/internal/runpolicy"
 
 	_ "vectis/internal/dbdrivers"
 )
@@ -186,10 +187,12 @@ func (w *worker) runClaimedJob(job *api.Job, jobID, runID, deliveryID string) {
 		return
 	}
 
-	if err := w.ackDeliveryWithRetry(deliveryID); err != nil {
-		w.logger.Error("Ack delivery %s failed for claimed run %s: %v", deliveryID, runID, err)
-		if markErr := w.store.MarkRunOrphaned(w.ctx, runID, claimToken, dal.OrphanReasonAckUncertain); markErr != nil {
-			w.logger.Error("Failed to mark run %s orphaned after ack error: %v", runID, markErr)
+	if ackFailure := w.ackDeliveryWithRetry(deliveryID); ackFailure != nil {
+		w.logger.Error("Ack delivery %s failed for claimed run %s: %v (reason_code=%s)",
+			deliveryID, runID, ackFailure.err, ackFailure.decision.ReasonCode)
+
+		if markErr := w.store.MarkRunOrphaned(w.ctx, runID, claimToken, ackFailure.decision.OrphanReason); markErr != nil {
+			w.logger.Error("Failed to mark run %s orphaned after ack error (%s): %v", runID, ackFailure.decision.ReasonCode, markErr)
 		}
 
 		return
@@ -198,8 +201,9 @@ func (w *worker) runClaimedJob(job *api.Job, jobID, runID, deliveryID string) {
 	execErr := w.executeWithLeaseRenewal(runID, claimToken, job)
 	if execErr != nil {
 		w.logger.Error("Job %s failed: %v", jobID, execErr)
+		decision := runpolicy.Decide(runpolicy.Input{Trigger: runpolicy.TriggerExecutionResult})
 		reason := truncateFailureReason(execErr.Error())
-		if err := w.store.MarkRunFailed(w.ctx, runID, claimToken, dal.FailureCodeExecution, reason); err != nil {
+		if err := w.store.MarkRunFailed(w.ctx, runID, claimToken, decision.FailureCode, reason); err != nil {
 			w.logger.Error("Failed to mark run %s failed: %v", runID, err)
 		}
 
@@ -221,17 +225,28 @@ func (w *worker) ackDelivery(deliveryID string) error {
 	return w.queue.Ack(w.ctx, deliveryID)
 }
 
-func (w *worker) ackDeliveryWithRetry(deliveryID string) error {
-	var lastErr error
+type ackDeliveryFailure struct {
+	err      error
+	attempt  int
+	decision runpolicy.Decision
+}
+
+func (w *worker) ackDeliveryWithRetry(deliveryID string) *ackDeliveryFailure {
 	for attempt := 1; attempt <= ackMaxAttempts; attempt++ {
 		err := w.ackDelivery(deliveryID)
 		if err == nil {
 			return nil
 		}
 
-		lastErr = err
-		if attempt == ackMaxAttempts || !queueclient.IsTransientRPCError(err) {
-			return err
+		decision := runpolicy.Decide(runpolicy.Input{
+			Trigger:     runpolicy.TriggerAckResult,
+			Attempt:     attempt,
+			MaxAttempts: ackMaxAttempts,
+			Transient:   queueclient.IsTransientRPCError(err),
+		})
+
+		if decision.Outcome != runpolicy.OutcomeRetry {
+			return &ackDeliveryFailure{err: err, attempt: attempt, decision: decision}
 		}
 
 		delay := backoff.ExponentialDelay(ackBackoffBase, attempt-1, ackBackoffMax)
@@ -239,11 +254,25 @@ func (w *worker) ackDeliveryWithRetry(deliveryID string) error {
 			deliveryID, attempt, ackMaxAttempts, err, delay)
 
 		if sleepErr := w.clock.Sleep(w.ctx, delay); sleepErr != nil {
-			return sleepErr
+			decision := runpolicy.Decide(runpolicy.Input{
+				Trigger:     runpolicy.TriggerAckResult,
+				Attempt:     attempt,
+				MaxAttempts: ackMaxAttempts,
+				Transient:   false,
+			})
+
+			return &ackDeliveryFailure{err: sleepErr, attempt: attempt, decision: decision}
 		}
 	}
 
-	return lastErr
+	decision := runpolicy.Decide(runpolicy.Input{
+		Trigger:     runpolicy.TriggerAckResult,
+		Attempt:     ackMaxAttempts,
+		MaxAttempts: ackMaxAttempts,
+		Transient:   true,
+	})
+
+	return &ackDeliveryFailure{err: status.Error(codes.Unavailable, "ack retries exhausted"), attempt: ackMaxAttempts, decision: decision}
 }
 
 func (w *worker) executeWithLeaseRenewal(runID, claimToken string, job *api.Job) error {

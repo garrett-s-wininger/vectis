@@ -11,6 +11,7 @@ import (
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
 	"vectis/internal/queueclient"
+	"vectis/internal/runpolicy"
 )
 
 const MinDispatchGap = 30 * time.Second
@@ -68,7 +69,8 @@ func (s *Service) Process(ctx context.Context) error {
 	}
 
 	for _, runID := range orphaned {
-		s.logger.Warn("reconciler: run %s moved to orphaned (lease expired)", runID)
+		decision := runpolicy.Decide(runpolicy.Input{Trigger: runpolicy.TriggerLeaseExpired})
+		s.logger.Warn("reconciler: run %s moved to orphaned (%s)", runID, decision.ReasonCode)
 	}
 
 	cutoff := now.Add(-s.minGap).Unix()
@@ -88,6 +90,11 @@ func (s *Service) Process(ctx context.Context) error {
 
 func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 	runID, jobID := qr.RunID, qr.JobID
+	decision := runpolicy.Decide(runpolicy.Input{Trigger: runpolicy.TriggerDispatchRecover})
+	if decision.Outcome != runpolicy.OutcomeRequeue {
+		s.logger.Debug("reconciler: skip run %s due to disposition policy (%s)", runID, decision.ReasonCode)
+		return nil
+	}
 
 	defJSON, err := s.jobs.GetDefinition(ctx, jobID)
 	if err != nil {
@@ -123,6 +130,6 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 		return fmt.Errorf("touch dispatched: %w", err)
 	}
 
-	s.logger.Info("reconciler: re-enqueued run %s (job %s)", runID, jobID)
+	s.logger.Info("reconciler: re-enqueued run %s (job %s, %s)", runID, jobID, decision.ReasonCode)
 	return nil
 }
