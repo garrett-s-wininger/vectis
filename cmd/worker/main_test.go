@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,6 +19,60 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+type flakyFinalizeRunsStore struct {
+	dal.RunsRepository
+
+	mu                  sync.Mutex
+	renewFailuresLeft   int
+	succeedFailuresLeft int
+	failedFailuresLeft  int
+	orphanFailuresLeft  int
+}
+
+func (s *flakyFinalizeRunsStore) RenewLease(ctx context.Context, runID, owner, claimToken string, leaseUntil time.Time) error {
+	s.mu.Lock()
+	if s.renewFailuresLeft > 0 {
+		s.renewFailuresLeft--
+		s.mu.Unlock()
+		return fmt.Errorf("db unavailable during renew")
+	}
+	s.mu.Unlock()
+	return s.RunsRepository.RenewLease(ctx, runID, owner, claimToken, leaseUntil)
+}
+
+func (s *flakyFinalizeRunsStore) MarkRunSucceeded(ctx context.Context, runID, claimToken string) error {
+	s.mu.Lock()
+	if s.succeedFailuresLeft > 0 {
+		s.succeedFailuresLeft--
+		s.mu.Unlock()
+		return fmt.Errorf("db unavailable on finalize success")
+	}
+	s.mu.Unlock()
+	return s.RunsRepository.MarkRunSucceeded(ctx, runID, claimToken)
+}
+
+func (s *flakyFinalizeRunsStore) MarkRunFailed(ctx context.Context, runID, claimToken, failureCode, reason string) error {
+	s.mu.Lock()
+	if s.failedFailuresLeft > 0 {
+		s.failedFailuresLeft--
+		s.mu.Unlock()
+		return fmt.Errorf("db unavailable on finalize failure")
+	}
+	s.mu.Unlock()
+	return s.RunsRepository.MarkRunFailed(ctx, runID, claimToken, failureCode, reason)
+}
+
+func (s *flakyFinalizeRunsStore) MarkRunOrphaned(ctx context.Context, runID, claimToken, reason string) error {
+	s.mu.Lock()
+	if s.orphanFailuresLeft > 0 {
+		s.orphanFailuresLeft--
+		s.mu.Unlock()
+		return fmt.Errorf("db unavailable on orphan finalize")
+	}
+	s.mu.Unlock()
+	return s.RunsRepository.MarkRunOrphaned(ctx, runID, claimToken, reason)
+}
 
 func TestLeaseRenewalLoop_ReclaimsOrphanedRun(t *testing.T) {
 	db := dbtest.NewTestDB(t)
@@ -357,5 +413,215 @@ func TestWorkerRunClaimedJob_AckPersistentFailure_OrphansRunWithoutExecution(t *
 
 	if logClient.GetStreamCount() != 0 {
 		t.Fatalf("expected job execution to not start after persistent ack failure, got %d log streams", logClient.GetStreamCount())
+	}
+}
+
+func TestWorkerRunClaimedJob_FinalizeSucceededRetriesOnTransientStoreFailure(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositories(db)
+	runs := repos.Runs()
+
+	runID, _, err := runs.CreateRun(ctx, "job-worker-finalize-retry", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	workerID := "worker-test-finalize-retry"
+	clock := mocks.NewMockClock()
+	queue := mocks.NewMockQueueClient()
+	logClient := mocks.NewMockLogClient()
+	store := &flakyFinalizeRunsStore{
+		RunsRepository:      runs,
+		succeedFailuresLeft: 2,
+	}
+
+	w := &worker{
+		ctx:           context.Background(),
+		logger:        interfaces.NewLogger("worker-test"),
+		workerID:      workerID,
+		clock:         clock,
+		renewInterval: time.Hour,
+		queue:         queue,
+		logClient:     logClient,
+		executor:      job.NewExecutor(),
+		store:         store,
+	}
+
+	jobID := "job-worker-finalize-retry"
+	deliveryID := "delivery-finalize-retry"
+	commandNodeID := "node-1"
+	command := "echo finalize-retry"
+	action := "builtins/shell"
+	root := &api.Node{
+		Id:   &commandNodeID,
+		Uses: &action,
+		With: map[string]string{"command": command},
+	}
+
+	j := &api.Job{
+		Id:         &jobID,
+		RunId:      &runID,
+		DeliveryId: &deliveryID,
+		Root:       root,
+	}
+
+	w.runClaimedJob(j, jobID, runID, deliveryID)
+
+	var statusVal string
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&statusVal); err != nil {
+		t.Fatalf("query final status: %v", err)
+	}
+
+	if statusVal != "succeeded" {
+		t.Fatalf("expected succeeded after transient finalize failures, got %q", statusVal)
+	}
+
+	sleeps := clock.GetSleeps()
+	if len(sleeps) != 2 {
+		t.Fatalf("expected 2 finalize-retry sleeps, got %d", len(sleeps))
+	}
+}
+
+func TestWorkerRunClaimedJob_RenewLeaseTransientStoreFailure_StillSucceeds(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositories(db)
+	runs := repos.Runs()
+
+	runID, _, err := runs.CreateRun(ctx, "job-worker-renew-retry", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	workerID := "worker-test-renew-retry"
+	queue := mocks.NewMockQueueClient()
+	logClient := mocks.NewMockLogClient()
+	store := &flakyFinalizeRunsStore{
+		RunsRepository:    runs,
+		renewFailuresLeft: 2,
+	}
+
+	w := &worker{
+		ctx:           context.Background(),
+		logger:        interfaces.NewLogger("worker-test"),
+		workerID:      workerID,
+		clock:         interfaces.SystemClock{},
+		renewInterval: 10 * time.Millisecond,
+		queue:         queue,
+		logClient:     logClient,
+		executor:      job.NewExecutor(),
+		store:         store,
+	}
+
+	jobID := "job-worker-renew-retry"
+	deliveryID := "delivery-renew-retry"
+	commandNodeID := "node-1"
+	command := "echo renew-retry-start; sleep 0.06; echo renew-retry-end"
+	action := "builtins/shell"
+	root := &api.Node{
+		Id:   &commandNodeID,
+		Uses: &action,
+		With: map[string]string{"command": command},
+	}
+
+	j := &api.Job{
+		Id:         &jobID,
+		RunId:      &runID,
+		DeliveryId: &deliveryID,
+		Root:       root,
+	}
+
+	w.runClaimedJob(j, jobID, runID, deliveryID)
+
+	var statusVal string
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&statusVal); err != nil {
+		t.Fatalf("query final status: %v", err)
+	}
+	if statusVal != "succeeded" {
+		t.Fatalf("expected succeeded after transient renew failures, got %q", statusVal)
+	}
+}
+
+func TestWorkerRestartMidRun_LeaseExpiryThenRequeue_AllowsRecovery(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositories(db)
+	runs := repos.Runs()
+
+	runID, _, err := runs.CreateRun(ctx, "job-worker-restart-recovery", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	claimed, tokenA, err := runs.TryClaim(ctx, runID, "worker-a", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("try claim worker-a: %v", err)
+	}
+
+	if !claimed || tokenA == "" {
+		t.Fatalf("expected worker-a claim and token, got claimed=%v token=%q", claimed, tokenA)
+	}
+
+	if _, err := db.ExecContext(ctx, `
+		UPDATE job_runs
+		SET lease_until = ?
+		WHERE run_id = ?
+	`, time.Now().Add(-1*time.Minute).Unix(), runID); err != nil {
+		t.Fatalf("force expired lease: %v", err)
+	}
+
+	orphaned, err := runs.MarkExpiredRunningAsOrphaned(ctx, time.Now().Unix())
+	if err != nil {
+		t.Fatalf("mark expired running as orphaned: %v", err)
+	}
+
+	if len(orphaned) != 1 || orphaned[0] != runID {
+		t.Fatalf("expected run %s orphaned, got %+v", runID, orphaned)
+	}
+
+	if err := runs.RequeueRunForRetry(ctx, runID); err != nil {
+		t.Fatalf("requeue run for retry: %v", err)
+	}
+
+	w := &worker{
+		ctx:           context.Background(),
+		logger:        interfaces.NewLogger("worker-test"),
+		workerID:      "worker-b",
+		clock:         interfaces.SystemClock{},
+		renewInterval: time.Hour,
+		queue:         mocks.NewMockQueueClient(),
+		logClient:     mocks.NewMockLogClient(),
+		executor:      job.NewExecutor(),
+		store:         runs,
+	}
+
+	jobID := "job-worker-restart-recovery"
+	deliveryID := "delivery-restart-recovery"
+	commandNodeID := "node-1"
+	command := "echo restart-recovered"
+	action := "builtins/shell"
+	root := &api.Node{
+		Id:   &commandNodeID,
+		Uses: &action,
+		With: map[string]string{"command": command},
+	}
+
+	j := &api.Job{
+		Id:         &jobID,
+		RunId:      &runID,
+		DeliveryId: &deliveryID,
+		Root:       root,
+	}
+
+	w.runClaimedJob(j, jobID, runID, deliveryID)
+
+	var statusVal string
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&statusVal); err != nil {
+		t.Fatalf("query final status: %v", err)
+	}
+
+	if statusVal != "succeeded" {
+		t.Fatalf("expected succeeded after restart recovery path, got %q", statusVal)
 	}
 }

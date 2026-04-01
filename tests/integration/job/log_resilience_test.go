@@ -26,6 +26,19 @@ type runningLogServer struct {
 	addr     string
 }
 
+func reserveTCPAddr(t *testing.T) string {
+	t.Helper()
+
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve tcp addr: %v", err)
+	}
+
+	addr := lis.Addr().String()
+	_ = lis.Close()
+	return addr
+}
+
 func startLogServer(t *testing.T, addr string, logger interfaces.Logger, store logserver.RunLogStore) *runningLogServer {
 	t.Helper()
 
@@ -204,5 +217,139 @@ func TestIntegrationJob_LogAggregatorDiesMidRunThenRecovers(t *testing.T) {
 	infoJoined := strings.Join(infoCalls, "\n")
 	if !strings.Contains(infoJoined, "Log aggregator reconnected; resumed flushing spooled logs") {
 		t.Fatalf("expected recovery info in worker logs, got: %v", infoCalls)
+	}
+}
+
+func TestIntegrationJob_LogAggregatorDownAtStartThenRecovers(t *testing.T) {
+	baseDir := t.TempDir()
+	store, err := logserver.NewLocalRunLogStore(baseDir)
+	if err != nil {
+		t.Fatalf("new local log store: %v", err)
+	}
+
+	logger := mocks.NewMockLogger()
+	addr := reserveTCPAddr(t)
+
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatalf("new grpc client: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	logClient := interfaces.NewGRPCLogClient(conn)
+	executor := job.NewExecutor()
+
+	jobID := "integration-prerun-log-recovery"
+	runID := "integration-run-prerun-log-recovery"
+	rootID := "root-shell-prerun"
+	uses := "builtins/shell"
+	command := "for i in 1 2 3 4 5 6; do echo prerun-$i; sleep 0.25; done"
+	testJob := &api.Job{
+		Id:    &jobID,
+		RunId: &runID,
+		Root: &api.Node{
+			Id:   &rootID,
+			Uses: &uses,
+			With: map[string]string{"command": command},
+		},
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- executor.ExecuteJob(context.Background(), testJob, logClient, logger)
+	}()
+
+	time.Sleep(700 * time.Millisecond)
+	srv := startLogServer(t, addr, logger, store)
+	t.Cleanup(func() { srv.stop() })
+
+	select {
+	case execErr := <-errCh:
+		if execErr != nil {
+			t.Fatalf("execute job failed: %v", execErr)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("timed out waiting for job to complete")
+	}
+
+	joined := allEntriesJoined(t, store, runID)
+	for i := 1; i <= 6; i++ {
+		needle := fmt.Sprintf("prerun-%d", i)
+		if !strings.Contains(joined, needle) {
+			t.Fatalf("expected persisted logs to contain %q; logs were:\n%s", needle, joined)
+		}
+	}
+
+	if !strings.Contains(joined, `"event":"completed","status":"success"`) {
+		t.Fatalf("expected success completion control event in persisted logs; logs were:\n%s", joined)
+	}
+}
+
+func TestIntegrationJob_LogAggregatorDownNearCompletionThenRecovers(t *testing.T) {
+	baseDir := t.TempDir()
+	store, err := logserver.NewLocalRunLogStore(baseDir)
+	if err != nil {
+		t.Fatalf("new local log store: %v", err)
+	}
+
+	logger := mocks.NewMockLogger()
+	srv := startLogServer(t, "", logger, store)
+	t.Cleanup(func() { srv.stop() })
+
+	conn, err := grpc.NewClient(srv.addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatalf("new grpc client: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	logClient := interfaces.NewGRPCLogClient(conn)
+	executor := job.NewExecutor()
+
+	jobID := "integration-postrun-log-recovery"
+	runID := "integration-run-postrun-log-recovery"
+	rootID := "root-shell-postrun"
+	uses := "builtins/shell"
+	command := "echo postrun-1; sleep 0.2; echo postrun-2; sleep 0.2; echo postrun-3; sleep 0.4"
+	testJob := &api.Job{
+		Id:    &jobID,
+		RunId: &runID,
+		Root: &api.Node{
+			Id:   &rootID,
+			Uses: &uses,
+			With: map[string]string{"command": command},
+		},
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- executor.ExecuteJob(context.Background(), testJob, logClient, logger)
+	}()
+
+	waitForStoreContains(t, store, runID, "postrun-3", 5*time.Second)
+
+	addr := srv.addr
+	srv.stop()
+	time.Sleep(500 * time.Millisecond)
+	srv = startLogServer(t, addr, logger, store)
+
+	select {
+	case execErr := <-errCh:
+		if execErr != nil {
+			t.Fatalf("execute job failed: %v", execErr)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("timed out waiting for job to complete")
+	}
+
+	joined := allEntriesJoined(t, store, runID)
+	for i := 1; i <= 3; i++ {
+		needle := fmt.Sprintf("postrun-%d", i)
+		if !strings.Contains(joined, needle) {
+			t.Fatalf("expected persisted logs to contain %q; logs were:\n%s", needle, joined)
+		}
+	}
+
+	if !strings.Contains(joined, `"event":"completed","status":"success"`) {
+		t.Fatalf("expected success completion control event in persisted logs; logs were:\n%s", joined)
 	}
 }

@@ -33,6 +33,9 @@ const (
 	ackMaxAttempts      = 4
 	ackBackoffBase      = 150 * time.Millisecond
 	ackBackoffMax       = 2 * time.Second
+	finalizeMaxAttempts = 4
+	finalizeBackoffBase = 150 * time.Millisecond
+	finalizeBackoffMax  = 2 * time.Second
 )
 
 func runWorker(cmd *cobra.Command, args []string) {
@@ -191,7 +194,7 @@ func (w *worker) runClaimedJob(job *api.Job, jobID, runID, deliveryID string) {
 		w.logger.Error("Ack delivery %s failed for claimed run %s: %v (reason_code=%s)",
 			deliveryID, runID, ackFailure.err, ackFailure.decision.ReasonCode)
 
-		if markErr := w.store.MarkRunOrphaned(w.ctx, runID, claimToken, ackFailure.decision.OrphanReason); markErr != nil {
+		if markErr := w.markRunOrphanedWithRetry(runID, claimToken, ackFailure.decision.OrphanReason); markErr != nil {
 			w.logger.Error("Failed to mark run %s orphaned after ack error (%s): %v", runID, ackFailure.decision.ReasonCode, markErr)
 		}
 
@@ -203,14 +206,14 @@ func (w *worker) runClaimedJob(job *api.Job, jobID, runID, deliveryID string) {
 		w.logger.Error("Job %s failed: %v", jobID, execErr)
 		decision := runpolicy.Decide(runpolicy.Input{Trigger: runpolicy.TriggerExecutionResult})
 		reason := truncateFailureReason(execErr.Error())
-		if err := w.store.MarkRunFailed(w.ctx, runID, claimToken, decision.FailureCode, reason); err != nil {
+		if err := w.markRunFailedWithRetry(runID, claimToken, decision.FailureCode, reason); err != nil {
 			w.logger.Error("Failed to mark run %s failed: %v", runID, err)
 		}
 
 		return
 	}
 
-	if err := w.store.MarkRunSucceeded(w.ctx, runID, claimToken); err != nil {
+	if err := w.markRunSucceededWithRetry(runID, claimToken); err != nil {
 		w.logger.Error("Failed to mark run %s succeeded: %v", runID, err)
 	}
 
@@ -273,6 +276,81 @@ func (w *worker) ackDeliveryWithRetry(deliveryID string) *ackDeliveryFailure {
 	})
 
 	return &ackDeliveryFailure{err: status.Error(codes.Unavailable, "ack retries exhausted"), attempt: ackMaxAttempts, decision: decision}
+}
+
+func (w *worker) markRunSucceededWithRetry(runID, claimToken string) error {
+	var lastErr error
+	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
+		err := w.store.MarkRunSucceeded(w.ctx, runID, claimToken)
+		if err == nil {
+			return nil
+		}
+
+		lastErr = err
+		if attempt == finalizeMaxAttempts {
+			break
+		}
+
+		delay := backoff.ExponentialDelay(finalizeBackoffBase, attempt-1, finalizeBackoffMax)
+		w.logger.Warn("MarkRunSucceeded run %s failed (attempt %d/%d): %v; retrying in %v",
+			runID, attempt, finalizeMaxAttempts, err, delay)
+
+		if sleepErr := w.clock.Sleep(w.ctx, delay); sleepErr != nil {
+			return sleepErr
+		}
+	}
+
+	return lastErr
+}
+
+func (w *worker) markRunFailedWithRetry(runID, claimToken, failureCode, reason string) error {
+	var lastErr error
+	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
+		err := w.store.MarkRunFailed(w.ctx, runID, claimToken, failureCode, reason)
+		if err == nil {
+			return nil
+		}
+
+		lastErr = err
+		if attempt == finalizeMaxAttempts {
+			break
+		}
+
+		delay := backoff.ExponentialDelay(finalizeBackoffBase, attempt-1, finalizeBackoffMax)
+		w.logger.Warn("MarkRunFailed run %s failed (attempt %d/%d): %v; retrying in %v",
+			runID, attempt, finalizeMaxAttempts, err, delay)
+
+		if sleepErr := w.clock.Sleep(w.ctx, delay); sleepErr != nil {
+			return sleepErr
+		}
+	}
+
+	return lastErr
+}
+
+func (w *worker) markRunOrphanedWithRetry(runID, claimToken, reason string) error {
+	var lastErr error
+	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
+		err := w.store.MarkRunOrphaned(w.ctx, runID, claimToken, reason)
+		if err == nil {
+			return nil
+		}
+
+		lastErr = err
+		if attempt == finalizeMaxAttempts {
+			break
+		}
+
+		delay := backoff.ExponentialDelay(finalizeBackoffBase, attempt-1, finalizeBackoffMax)
+		w.logger.Warn("MarkRunOrphaned run %s failed (attempt %d/%d): %v; retrying in %v",
+			runID, attempt, finalizeMaxAttempts, err, delay)
+
+		if sleepErr := w.clock.Sleep(w.ctx, delay); sleepErr != nil {
+			return sleepErr
+		}
+	}
+
+	return lastErr
 }
 
 func (w *worker) executeWithLeaseRenewal(runID, claimToken string, job *api.Job) error {
