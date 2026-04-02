@@ -3,6 +3,7 @@ package reconciler
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"testing"
 	"time"
 
@@ -154,5 +155,42 @@ func TestService_Process_MarksExpiredRunningLeaseAsOrphaned(t *testing.T) {
 
 	if got := len(q.GetJobs()); got != 0 {
 		t.Fatalf("expected no queued redispatch from orphan sweep, got %d jobs", got)
+	}
+}
+
+func TestService_Process_DBUnavailable_SkipsUntilRecovered(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+
+	jobDef := `{"id":"job-db-down","root":{"uses":"builtins/shell","with":{"command":"echo x"}}}`
+	if _, err := db.ExecContext(ctx, `INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)`, "job-db-down", jobDef); err != nil {
+		t.Fatalf("insert stored job: %v", err)
+	}
+
+	repos := dal.NewSQLRepositories(db)
+	if _, _, err := repos.Runs().CreateRun(ctx, "job-db-down", nil, 1); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	q := mocks.NewMockQueueService()
+	logger := mocks.NewMockLogger()
+	svc := NewService(logger, db, q, interfaces.SystemClock{})
+	svc.SetMinDispatchGap(1 * time.Millisecond)
+
+	if err := db.Close(); err != nil {
+		t.Fatalf("close db: %v", err)
+	}
+
+	if err := svc.Process(ctx); err != nil {
+		t.Fatalf("Process with db down should not error, got: %v", err)
+	}
+
+	if got := len(q.GetJobs()); got != 0 {
+		t.Fatalf("expected no enqueue while db down, got %d", got)
+	}
+
+	warns := strings.Join(logger.GetWarnCalls(), "\n")
+	if !strings.Contains(warns, "database unavailable; skipping processing until recovery") {
+		t.Fatalf("expected db-down warning log, got %v", logger.GetWarnCalls())
 	}
 }

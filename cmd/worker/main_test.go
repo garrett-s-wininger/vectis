@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -126,6 +127,37 @@ func TestLeaseRenewalLoop_ReclaimsOrphanedRun(t *testing.T) {
 
 	if leaseUntil <= time.Now().Unix() {
 		t.Fatalf("expected lease_until to be renewed into the future, got %d", leaseUntil)
+	}
+}
+
+func TestWorkerDBUnavailableSignals_LogOutageAndRecoveryOnce(t *testing.T) {
+	logger := mocks.NewMockLogger()
+	w := &worker{
+		ctx:    context.Background(),
+		logger: logger,
+	}
+
+	w.noteDBError(errors.New("database is closed"))
+	w.noteDBError(errors.New("database is closed"))
+
+	warns := logger.GetWarnCalls()
+	if len(warns) != 1 {
+		t.Fatalf("expected a single outage warning, got %d (%v)", len(warns), warns)
+	}
+
+	w.noteDBRecovered()
+
+	infos := logger.GetInfoCalls()
+	foundRecovery := false
+	for _, msg := range infos {
+		if strings.Contains(msg, "Database connectivity recovered; DB-backed run transitions resumed") {
+			foundRecovery = true
+			break
+		}
+	}
+
+	if !foundRecovery {
+		t.Fatalf("expected recovery info log, got %v", infos)
 	}
 }
 
@@ -623,5 +655,99 @@ func TestWorkerRestartMidRun_LeaseExpiryThenRequeue_AllowsRecovery(t *testing.T)
 
 	if statusVal != "succeeded" {
 		t.Fatalf("expected succeeded after restart recovery path, got %q", statusVal)
+	}
+}
+
+func TestWorkerRunClaimedJob_FinalizeSucceededExhausted_LeavesRunningForOrphanSweep(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositories(db)
+	runs := repos.Runs()
+
+	runID, _, err := runs.CreateRun(ctx, "job-worker-finalize-exhausted", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	workerID := "worker-test-finalize-exhausted"
+	clock := mocks.NewMockClock()
+	queue := mocks.NewMockQueueClient()
+	logClient := mocks.NewMockLogClient()
+	logger := mocks.NewMockLogger()
+	store := &flakyFinalizeRunsStore{
+		RunsRepository:      runs,
+		succeedFailuresLeft: finalizeMaxAttempts,
+	}
+
+	w := &worker{
+		ctx:           context.Background(),
+		logger:        logger,
+		workerID:      workerID,
+		clock:         clock,
+		renewInterval: time.Hour,
+		queue:         queue,
+		logClient:     logClient,
+		executor:      job.NewExecutor(),
+		store:         store,
+	}
+
+	jobID := "job-worker-finalize-exhausted"
+	deliveryID := "delivery-finalize-exhausted"
+	commandNodeID := "node-1"
+	command := "echo finalize-exhausted"
+	action := "builtins/shell"
+	root := &api.Node{
+		Id:   &commandNodeID,
+		Uses: &action,
+		With: map[string]string{"command": command},
+	}
+
+	j := &api.Job{
+		Id:         &jobID,
+		RunId:      &runID,
+		DeliveryId: &deliveryID,
+		Root:       root,
+	}
+
+	w.runClaimedJob(j, jobID, runID, deliveryID)
+
+	sleeps := clock.GetSleeps()
+	if len(sleeps) != finalizeMaxAttempts-1 {
+		t.Fatalf("expected %d finalize-retry sleeps, got %d", finalizeMaxAttempts-1, len(sleeps))
+	}
+
+	var statusVal string
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&statusVal); err != nil {
+		t.Fatalf("query run status: %v", err)
+	}
+
+	if statusVal != "running" {
+		t.Fatalf("expected run to remain running after finalize retries exhausted, got %q", statusVal)
+	}
+
+	joinedInfo := strings.Join(logger.GetInfoCalls(), "\n")
+	if strings.Contains(joinedInfo, "Job completed successfully") {
+		t.Fatalf("should not log successful completion when run finalize exhausted; info logs: %v", logger.GetInfoCalls())
+	}
+
+	if _, err := db.ExecContext(ctx, `UPDATE job_runs SET lease_until = ? WHERE run_id = ?`, time.Now().Add(-1*time.Minute).Unix(), runID); err != nil {
+		t.Fatalf("force lease expiry: %v", err)
+	}
+
+	orphaned, err := runs.MarkExpiredRunningAsOrphaned(ctx, time.Now().Unix())
+	if err != nil {
+		t.Fatalf("mark expired running as orphaned: %v", err)
+	}
+
+	if len(orphaned) != 1 || orphaned[0] != runID {
+		t.Fatalf("expected orphan sweep to include run %s, got %+v", runID, orphaned)
+	}
+
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&statusVal); err != nil {
+		t.Fatalf("query status after orphan sweep: %v", err)
+	}
+
+	if statusVal != "orphaned" {
+		t.Fatalf("expected orphaned after orphan sweep, got %q", statusVal)
 	}
 }

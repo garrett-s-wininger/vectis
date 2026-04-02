@@ -9,6 +9,7 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/dal"
+	"vectis/internal/database"
 	"vectis/internal/interfaces"
 	"vectis/internal/queueclient"
 	"vectis/internal/runpolicy"
@@ -23,6 +24,7 @@ type Service struct {
 	queueClient interfaces.QueueService
 	clock       interfaces.Clock
 	minGap      time.Duration
+	dbDown      bool
 }
 
 func NewService(logger interfaces.Logger, db *sql.DB, queue interfaces.QueueService, clock interfaces.Clock) *Service {
@@ -65,8 +67,14 @@ func (s *Service) Process(ctx context.Context) error {
 	now := s.clock.Now().UTC()
 	orphaned, err := s.runs.MarkExpiredRunningAsOrphaned(ctx, now.Unix())
 	if err != nil {
+		if database.IsUnavailableError(err) {
+			s.noteDBUnavailable(err)
+			return nil
+		}
+
 		return fmt.Errorf("mark expired running leases orphaned: %w", err)
 	}
+	s.noteDBRecovered()
 
 	for _, runID := range orphaned {
 		decision := runpolicy.Decide(runpolicy.Input{Trigger: runpolicy.TriggerLeaseExpired})
@@ -76,16 +84,45 @@ func (s *Service) Process(ctx context.Context) error {
 	cutoff := now.Add(-s.minGap).Unix()
 	batch, err := s.runs.ListQueuedBeforeDispatchCutoff(ctx, cutoff)
 	if err != nil {
+		if database.IsUnavailableError(err) {
+			s.noteDBUnavailable(err)
+			return nil
+		}
+
 		return fmt.Errorf("query queued runs: %w", err)
 	}
+	s.noteDBRecovered()
 
 	for _, r := range batch {
 		if err := s.dispatchOne(ctx, r); err != nil {
+			if database.IsUnavailableError(err) {
+				s.noteDBUnavailable(err)
+				return nil
+			}
+
 			s.logger.Error("reconciler: run %s: %v", r.RunID, err)
 		}
 	}
 
 	return nil
+}
+
+func (s *Service) noteDBUnavailable(err error) {
+	if !database.IsUnavailableError(err) {
+		return
+	}
+
+	if !s.dbDown {
+		s.dbDown = true
+		s.logger.Warn("reconciler: database unavailable; skipping processing until recovery: %v", err)
+	}
+}
+
+func (s *Service) noteDBRecovered() {
+	if s.dbDown {
+		s.dbDown = false
+		s.logger.Info("reconciler: database connectivity recovered; resuming processing")
+	}
 }
 
 func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {

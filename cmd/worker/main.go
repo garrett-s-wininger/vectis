@@ -94,6 +94,8 @@ type worker struct {
 	executor           *job.Executor
 	store              dal.RunsRepository
 	dequeueFailAttempt int
+	dbUnavailable      bool
+	dbFailAttempt      int
 }
 
 func (w *worker) run() {
@@ -149,6 +151,31 @@ func (w *worker) handleDequeueError(err error) (*api.Job, bool) {
 	return nil, true
 }
 
+func (w *worker) noteDBError(err error) {
+	if !database.IsUnavailableError(err) {
+		return
+	}
+
+	if !w.dbUnavailable {
+		w.dbUnavailable = true
+		w.logger.Warn("Database unavailable; DB-backed run transitions will retry/backoff until recovery: %v", err)
+	}
+}
+
+func (w *worker) noteDBRecovered() {
+	if w.dbUnavailable {
+		w.dbUnavailable = false
+		w.dbFailAttempt = 0
+		w.logger.Info("Database connectivity recovered; DB-backed run transitions resumed")
+	}
+}
+
+func (w *worker) sleepDBBackoff() error {
+	delay := backoff.ExponentialDelay(dequeueBackoffBase, w.dbFailAttempt, dequeueBackoffMax)
+	w.dbFailAttempt++
+	return w.clock.Sleep(w.ctx, delay)
+}
+
 func (w *worker) handleJob(job *api.Job) {
 	jobID := job.GetId()
 	runID := job.GetRunId()
@@ -177,9 +204,12 @@ func (w *worker) runClaimedJob(job *api.Job, jobID, runID, deliveryID string) {
 	leaseUntil := time.Now().Add(dal.DefaultLeaseTTL)
 	claimed, claimToken, claimErr := w.store.TryClaim(w.ctx, runID, w.workerID, leaseUntil)
 	if claimErr != nil {
+		w.noteDBError(claimErr)
+		_ = w.sleepDBBackoff()
 		w.logger.Error("TryClaim %s: %v", runID, claimErr)
 		return
 	}
+	w.noteDBRecovered()
 
 	if !claimed {
 		w.logger.Debug("Run %s not claimed (other worker or not queued); dropping message", runID)
@@ -215,6 +245,7 @@ func (w *worker) runClaimedJob(job *api.Job, jobID, runID, deliveryID string) {
 
 	if err := w.markRunSucceededWithRetry(runID, claimToken); err != nil {
 		w.logger.Error("Failed to mark run %s succeeded: %v", runID, err)
+		return
 	}
 
 	w.logger.Info("Job completed successfully: %s", jobID)
@@ -283,8 +314,10 @@ func (w *worker) markRunSucceededWithRetry(runID, claimToken string) error {
 	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
 		err := w.store.MarkRunSucceeded(w.ctx, runID, claimToken)
 		if err == nil {
+			w.noteDBRecovered()
 			return nil
 		}
+		w.noteDBError(err)
 
 		lastErr = err
 		if attempt == finalizeMaxAttempts {
@@ -308,8 +341,10 @@ func (w *worker) markRunFailedWithRetry(runID, claimToken, failureCode, reason s
 	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
 		err := w.store.MarkRunFailed(w.ctx, runID, claimToken, failureCode, reason)
 		if err == nil {
+			w.noteDBRecovered()
 			return nil
 		}
+		w.noteDBError(err)
 
 		lastErr = err
 		if attempt == finalizeMaxAttempts {
@@ -333,8 +368,10 @@ func (w *worker) markRunOrphanedWithRetry(runID, claimToken, reason string) erro
 	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
 		err := w.store.MarkRunOrphaned(w.ctx, runID, claimToken, reason)
 		if err == nil {
+			w.noteDBRecovered()
 			return nil
 		}
+		w.noteDBError(err)
 
 		lastErr = err
 		if attempt == finalizeMaxAttempts {
@@ -396,10 +433,12 @@ func (w *worker) leaseRenewalLoop(
 		case <-ticker.C:
 			next := time.Now().Add(dal.DefaultLeaseTTL)
 			if err := w.store.RenewLease(w.ctx, runID, w.workerID, claimToken, next); err != nil {
+				w.noteDBError(err)
 				renewFailed = true
 				w.logger.Warn("Run %s: lease renew failed (will retry): %v", runID, err)
 				continue
 			}
+			w.noteDBRecovered()
 
 			if renewFailed {
 				w.logger.Info("Run %s: lease renew recovered", runID)

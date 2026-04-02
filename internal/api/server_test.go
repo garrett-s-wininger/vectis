@@ -121,6 +121,32 @@ func TestAPIServer_CreateJob_InvalidContentType(t *testing.T) {
 	}
 }
 
+func TestAPIServer_CreateJob_DBUnavailable(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	if err := db.Close(); err != nil {
+		t.Fatalf("close db: %v", err)
+	}
+
+	jobDef := map[string]any{
+		"id": "test-job-db-down",
+		"root": map[string]any{
+			"uses": "builtins/shell",
+			"with": map[string]string{"command": "echo hi"},
+		},
+	}
+
+	body, _ := json.Marshal(jobDef)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	server.CreateJob(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status %d, got %d", http.StatusServiceUnavailable, rec.Code)
+	}
+}
+
 func TestAPIServer_CreateJob_InvalidJSON(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 

@@ -8,11 +8,13 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/config"
 	"vectis/internal/dal"
+	"vectis/internal/database"
 	"vectis/internal/interfaces"
 	"vectis/internal/queueclient"
 	"vectis/internal/resolver"
@@ -32,6 +34,7 @@ type APIServer struct {
 	queueClient    interfaces.QueueService
 	queueClose     func()
 	runBroadcaster *RunBroadcaster
+	dbUnavailable  atomic.Bool
 }
 
 func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
@@ -52,6 +55,27 @@ func NewAPIServerWithRepositories(
 		logger:         logger,
 		runBroadcaster: NewRunBroadcaster(logger),
 	}
+}
+
+func (s *APIServer) markDBUnavailable(err error) {
+	if database.IsUnavailableError(err) && s.dbUnavailable.CompareAndSwap(false, true) {
+		s.logger.Warn("Database unavailable; write endpoints returning 503 until recovery: %v", err)
+	}
+}
+
+func (s *APIServer) markDBRecovered() {
+	if s.dbUnavailable.CompareAndSwap(true, false) {
+		s.logger.Info("Database connectivity recovered; write endpoints resumed")
+	}
+}
+
+func (s *APIServer) handleWriteDBError(w http.ResponseWriter, err error) bool {
+	if database.IsUnavailableError(err) {
+		s.markDBUnavailable(err)
+		http.Error(w, "database unavailable", http.StatusServiceUnavailable)
+		return true
+	}
+	return false
 }
 
 func (s *APIServer) SetQueueClient(client interfaces.QueueService) {
@@ -91,10 +115,15 @@ func (s *APIServer) ForceFailRun(w http.ResponseWriter, r *http.Request) {
 
 	_, found, err := s.runs.GetRunStatus(r.Context(), runID)
 	if err != nil {
+		if s.handleWriteDBError(w, err) {
+			return
+		}
+
 		s.logger.Error("Database error: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
+	s.markDBRecovered()
 
 	if !found {
 		http.Error(w, "run not found", http.StatusNotFound)
@@ -124,10 +153,15 @@ func (s *APIServer) ForceFailRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.runs.MarkRunFailed(r.Context(), runID, "", dal.FailureCodeForceFailed, reason); err != nil {
+		if s.handleWriteDBError(w, err) {
+			return
+		}
+
 		s.logger.Error("Force-fail run %s failed: %v", runID, err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
+	s.markDBRecovered()
 
 	s.logger.Warn("Run force-failed via API: %s", runID)
 	w.WriteHeader(http.StatusNoContent)
@@ -142,10 +176,15 @@ func (s *APIServer) ForceRequeueRun(w http.ResponseWriter, r *http.Request) {
 
 	status, found, err := s.runs.GetRunStatus(r.Context(), runID)
 	if err != nil {
+		if s.handleWriteDBError(w, err) {
+			return
+		}
+
 		s.logger.Error("Database error: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
+	s.markDBRecovered()
 
 	if !found {
 		http.Error(w, "run not found", http.StatusNotFound)
@@ -158,6 +197,10 @@ func (s *APIServer) ForceRequeueRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.runs.RequeueRunForRetry(r.Context(), runID); err != nil {
+		if s.handleWriteDBError(w, err) {
+			return
+		}
+
 		if dal.IsConflict(err) {
 			http.Error(w, "run cannot be requeued from current status", http.StatusConflict)
 			return
@@ -172,6 +215,7 @@ func (s *APIServer) ForceRequeueRun(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
+	s.markDBRecovered()
 
 	s.logger.Warn("Run force-requeued via API: %s", runID)
 	w.WriteHeader(http.StatusNoContent)
@@ -197,10 +241,15 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 
 	err = s.jobs.Create(r.Context(), *job.Id, string(body))
 	if err != nil {
+		if s.handleWriteDBError(w, err) {
+			return
+		}
+
 		s.logger.Error("Database error: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
+	s.markDBRecovered()
 
 	s.logger.Info("Stored job: %s", *job.Id)
 	w.WriteHeader(http.StatusCreated)
@@ -215,10 +264,15 @@ func (s *APIServer) DeleteJob(w http.ResponseWriter, r *http.Request) {
 
 	err := s.jobs.Delete(r.Context(), jobID)
 	if err != nil {
+		if s.handleWriteDBError(w, err) {
+			return
+		}
+
 		s.logger.Error("Database error: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
+	s.markDBRecovered()
 
 	s.logger.Info("Deleted job: %s", jobID)
 	w.WriteHeader(http.StatusNoContent)
@@ -269,6 +323,10 @@ func (s *APIServer) GetJob(w http.ResponseWriter, r *http.Request) {
 
 	definitionJSON, err := s.jobs.GetDefinition(r.Context(), jobID)
 	if err != nil {
+		if s.handleWriteDBError(w, err) {
+			return
+		}
+
 		if dal.IsNotFound(err) {
 			http.Error(w, "job not found", http.StatusNotFound)
 			return
@@ -278,6 +336,7 @@ func (s *APIServer) GetJob(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
+	s.markDBRecovered()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -316,10 +375,15 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 
 	runID, runIndex, err := s.runs.CreateRun(r.Context(), jobID, nil, 1)
 	if err != nil {
+		if s.handleWriteDBError(w, err) {
+			return
+		}
+
 		s.logger.Error("Database error creating job run: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
+	s.markDBRecovered()
 
 	s.runBroadcaster.Broadcast(jobID, runID, runIndex)
 	job.RunId = &runID
@@ -385,10 +449,15 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 
 	err = s.jobs.UpdateDefinition(r.Context(), jobID, string(body))
 	if err != nil {
+		if s.handleWriteDBError(w, err) {
+			return
+		}
+
 		s.logger.Error("Database error: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
+	s.markDBRecovered()
 
 	s.logger.Info("Updated job definition: %s", jobID)
 	w.WriteHeader(http.StatusNoContent)
@@ -431,10 +500,15 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	runIndexOne := 1
 	runID, _, err := s.ephemeralRuns.CreateDefinitionAndRun(r.Context(), generatedID, string(definitionJSON), &runIndexOne)
 	if err != nil {
+		if s.handleWriteDBError(w, err) {
+			return
+		}
+
 		s.logger.Error("Database error creating ephemeral job run: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
+	s.markDBRecovered()
 
 	job.RunId = &runID
 
