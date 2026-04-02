@@ -55,6 +55,13 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
+	if driver == "pgx" {
+		if err := applyPgxPoolSettings(db); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("configure pgx pool: %w", err)
+		}
+	}
+
 	return db, nil
 }
 

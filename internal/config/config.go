@@ -84,8 +84,16 @@ type SSEDefaults struct {
 }
 
 type DatabaseDefaults struct {
-	Driver string `toml:"driver"`
-	DSN    string `toml:"dsn"`
+	Driver  string          `toml:"driver"`
+	DSN     string          `toml:"dsn"`
+	PgxPool PgxPoolDefaults `toml:"pgx_pool"`
+}
+
+type PgxPoolDefaults struct {
+	MaxOpenConns    int          `toml:"max_open_conns"`
+	MaxIdleConns    int          `toml:"max_idle_conns"`
+	ConnMaxLifetime tomlDuration `toml:"conn_max_lifetime"`
+	ConnMaxIdleTime tomlDuration `toml:"conn_max_idle_time"`
 }
 
 type DiscoveryDefaults struct {
@@ -173,6 +181,19 @@ func validateDefaults(d Defaults) {
 		panic("config defaults: database.dsn must not be empty")
 	}
 
+	p := d.Database.PgxPool
+	if p.MaxOpenConns <= 0 {
+		panic("config defaults: database.pgx_pool.max_open_conns must be > 0")
+	}
+
+	if p.MaxIdleConns < 0 {
+		panic("config defaults: database.pgx_pool.max_idle_conns must be >= 0")
+	}
+
+	if p.MaxIdleConns > p.MaxOpenConns {
+		panic("config defaults: database.pgx_pool.max_idle_conns must be <= max_open_conns")
+	}
+
 	if time.Duration(d.Reconciler.Interval) <= 0 {
 		panic("config defaults: reconciler.interval must be > 0")
 	}
@@ -247,6 +268,48 @@ func DBDSN(dataHome string) string {
 	return strings.NewReplacer(
 		"{{data_home}}", dataHome,
 	).Replace(MustDefaults().Database.DSN)
+}
+
+func DatabasePgxPoolMaxOpenConns() int {
+	if viper.IsSet("database.pgx_pool.max_open_conns") {
+		return viper.GetInt("database.pgx_pool.max_open_conns")
+	}
+
+	return MustDefaults().Database.PgxPool.MaxOpenConns
+}
+
+func DatabasePgxPoolMaxIdleConns() int {
+	if viper.IsSet("database.pgx_pool.max_idle_conns") {
+		return viper.GetInt("database.pgx_pool.max_idle_conns")
+	}
+
+	return MustDefaults().Database.PgxPool.MaxIdleConns
+}
+
+func DatabasePgxConnMaxLifetime() time.Duration {
+	if viper.IsSet("database.pgx_pool.conn_max_lifetime") {
+		return viper.GetDuration("database.pgx_pool.conn_max_lifetime")
+	}
+
+	d := time.Duration(MustDefaults().Database.PgxPool.ConnMaxLifetime)
+	if d > 0 {
+		return d
+	}
+
+	return time.Hour
+}
+
+func DatabasePgxConnMaxIdleTime() time.Duration {
+	if viper.IsSet("database.pgx_pool.conn_max_idle_time") {
+		return viper.GetDuration("database.pgx_pool.conn_max_idle_time")
+	}
+
+	d := time.Duration(MustDefaults().Database.PgxPool.ConnMaxIdleTime)
+	if d > 0 {
+		return d
+	}
+
+	return 15 * time.Minute
 }
 
 func RegistryResolverPollInterval() time.Duration {
