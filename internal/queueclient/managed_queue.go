@@ -136,6 +136,16 @@ func (m *ManagingQueueService) watchConn(ctx context.Context) {
 	}
 }
 
+func (m *ManagingQueueService) GRPCConnectivityState() connectivity.State {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.conn == nil {
+		return connectivity.Shutdown
+	}
+
+	return m.conn.GetState()
+}
+
 func (m *ManagingQueueService) Close() error {
 	if m.cancelFn != nil {
 		m.cancelFn()

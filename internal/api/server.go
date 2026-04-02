@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"sync/atomic"
@@ -22,9 +24,15 @@ import (
 	"github.com/google/uuid"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 )
 
-const defaultForceFailReason = "manually failed via API"
+const (
+	defaultForceFailReason = "manually failed via API"
+
+	defaultShutdownTimeout = 30 * time.Second
+	healthDBPingTimeout    = 2 * time.Second
+)
 
 type APIServer struct {
 	jobs           dal.JobsRepository
@@ -35,11 +43,14 @@ type APIServer struct {
 	queueClose     func()
 	runBroadcaster *RunBroadcaster
 	dbUnavailable  atomic.Bool
+	healthDB *sql.DB
 }
 
 func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
 	repos := dal.NewSQLRepositories(db)
-	return NewAPIServerWithRepositories(logger, repos.Jobs(), repos.Runs(), repos)
+	s := NewAPIServerWithRepositories(logger, repos.Jobs(), repos.Runs(), repos)
+	s.healthDB = db
+	return s
 }
 
 func NewAPIServerWithRepositories(
@@ -76,6 +87,46 @@ func (s *APIServer) handleWriteDBError(w http.ResponseWriter, err error) bool {
 		return true
 	}
 	return false
+}
+
+type grpcQueueConnectivity interface {
+	GRPCConnectivityState() connectivity.State
+}
+
+func queueRPCReady(q interfaces.QueueService) bool {
+	if q == nil {
+		return false
+	}
+
+	wc, ok := q.(grpcQueueConnectivity)
+	if !ok {
+		return true
+	}
+
+	return wc.GRPCConnectivityState() == connectivity.Ready
+}
+
+func (s *APIServer) HealthLive(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *APIServer) HealthReady(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), healthDBPingTimeout)
+	defer cancel()
+
+	if s.healthDB != nil {
+		if err := s.healthDB.PingContext(ctx); err != nil {
+			http.Error(w, "database not ready", http.StatusServiceUnavailable)
+			return
+		}
+	}
+
+	if !queueRPCReady(s.queueClient) {
+		http.Error(w, "queue not ready", http.StatusServiceUnavailable)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
 func (s *APIServer) SetQueueClient(client interfaces.QueueService) {
@@ -660,6 +711,8 @@ func (s *APIServer) HandleSSEJobRuns(w http.ResponseWriter, r *http.Request) {
 
 func (s *APIServer) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health/live", s.HealthLive)
+	mux.HandleFunc("GET /health/ready", s.HealthReady)
 	mux.HandleFunc("GET /api/v1/jobs", s.GetJobs)
 	mux.HandleFunc("GET /api/v1/jobs/{id}", s.GetJob)
 	mux.HandleFunc("POST /api/v1/jobs", s.CreateJob)
@@ -674,7 +727,43 @@ func (s *APIServer) Handler() http.Handler {
 	return mux
 }
 
-func (s *APIServer) Run(addr string) error {
+func (s *APIServer) runHTTPServer(ctx context.Context, srv *http.Server, serve func() error) error {
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- serve()
+	}()
+
+	select {
+	case <-ctx.Done():
+		shutCtx, cancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
+		defer cancel()
+		if err := srv.Shutdown(shutCtx); err != nil {
+			s.logger.Warn("API server shutdown: %v", err)
+		}
+		err := <-errCh
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		return nil
+	case err := <-errCh:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	}
+}
+
+func (s *APIServer) Run(ctx context.Context, addr string) error {
+	srv := &http.Server{
+		Addr:    addr,
+		Handler: s.Handler(),
+	}
 	s.logger.Info("API server listening on %s", addr)
-	return http.ListenAndServe(addr, s.Handler())
+	return s.runHTTPServer(ctx, srv, srv.ListenAndServe)
+}
+
+func (s *APIServer) Serve(ctx context.Context, l net.Listener) error {
+	srv := &http.Server{Handler: s.Handler()}
+	s.logger.Info("API server serving on %s", l.Addr().String())
+	return s.runHTTPServer(ctx, srv, func() error { return srv.Serve(l) })
 }
