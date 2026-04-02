@@ -65,7 +65,11 @@ func connectWithRetry(ctx context.Context, addr string, logger interfaces.Logger
 		conn, e = grpc.NewClient(addr, opts...)
 		return e
 	}, func(attempt int, nextDelay time.Duration, err error) {
-		logger.Warn("Failed to connect (attempt %d/%d): %v. Retrying in %v...", attempt, defaultMaxTries, err, nextDelay)
+		if attempt == 1 {
+			logger.Warn("Failed to connect to %s: %v (retries at debug)", addr, err)
+		} else {
+			logger.Debug("Failed to connect (attempt %d/%d): %v. Retrying in %v...", attempt, defaultMaxTries, err, nextDelay)
+		}
 	})
 
 	if err != nil {

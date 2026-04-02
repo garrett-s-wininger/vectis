@@ -43,7 +43,12 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		logger.Fatal("Failed to connect to services: %v", err)
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	baseCtx := cmd.Context()
+	if baseCtx == nil {
+		baseCtx = context.Background()
+	}
+
+	ctx, stop := signal.NotifyContext(baseCtx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	port := config.APIEffectiveListenPort()

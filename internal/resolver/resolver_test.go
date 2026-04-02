@@ -146,6 +146,26 @@ func TestRegistryResolver_ReportErrorOnFailure(t *testing.T) {
 	r.Close()
 }
 
+func TestRegistryResolver_LogsWarnOnceThenDebug(t *testing.T) {
+	cc := &fakeClientConn{}
+	reg := &mockRegistry{addr: "", err: errors.New("registry down")}
+	log := mocks.NewMockLogger()
+	r := newRegistryResolver(cc, reg, api.Component_COMPONENT_QUEUE, log, time.Hour, 5*time.Second, time.Second)
+
+	for range 3 {
+		r.ResolveNow(resolver.ResolveNowOptions{})
+	}
+	r.Close()
+
+	if n := len(log.GetWarnCalls()); n != 1 {
+		t.Fatalf("expected 1 warn for repeated resolve failures, got %d: %v", n, log.GetWarnCalls())
+	}
+
+	if n := len(log.GetDebugCalls()); n < 2 {
+		t.Fatalf("expected at least 2 debug lines after first failure, got %d", n)
+	}
+}
+
 func TestRegistryResolver_NoReportErrorWhenFallingBackToLastGood(t *testing.T) {
 	cc := &fakeClientConn{}
 	reg := &mockRegistry{addr: "live:1", err: nil}

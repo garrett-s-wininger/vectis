@@ -66,8 +66,12 @@ func NewClientWithPinnedAddress(ctx context.Context, comp api.Component, addr st
 
 		return nil
 	}, func(attempt int, nextDelay time.Duration, err error) {
-		logger.Warn("resolver: pinned connect to %s at %s (attempt %d/%d): %v; retrying in %v",
-			serviceName, addr, attempt, pinnedDialMaxTries, err, nextDelay)
+		if attempt == 1 {
+			logger.Warn("resolver: could not reach pinned %s at %s: %v (retries at debug)", serviceName, addr, err)
+		} else {
+			logger.Debug("resolver: pinned connect to %s at %s (attempt %d/%d): %v; retrying in %v",
+				serviceName, addr, attempt, pinnedDialMaxTries, err, nextDelay)
+		}
 	})
 
 	if err != nil {

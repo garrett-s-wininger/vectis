@@ -36,18 +36,19 @@ func (b *registryBuilder) Build(_ resolver.Target, cc resolver.ClientConn, _ res
 }
 
 type registryResolver struct {
-	cc              resolver.ClientConn
-	client          registryAddressGetter
-	comp            api.Component
-	logger          interfaces.Logger
-	refreshInterval time.Duration
-	pollTimeout     time.Duration
-	errorRefresh    time.Duration
-	mu              sync.Mutex
-	closed          bool
-	lastGood        string
-	done            chan struct{}
-	closeOnce       sync.Once
+	cc                      resolver.ClientConn
+	client                  registryAddressGetter
+	comp                    api.Component
+	logger                  interfaces.Logger
+	refreshInterval         time.Duration
+	pollTimeout             time.Duration
+	errorRefresh            time.Duration
+	mu                      sync.Mutex
+	closed                  bool
+	lastGood                string
+	resolveFailureAnnounced bool
+	done                    chan struct{}
+	closeOnce               sync.Once
 }
 
 func newRegistryResolver(cc resolver.ClientConn, client registryAddressGetter, comp api.Component, logger interfaces.Logger, refreshInterval, pollTimeout, errorRefresh time.Duration) *registryResolver {
@@ -119,13 +120,24 @@ func (r *registryResolver) resolveNow() time.Duration {
 
 	addr, err := r.client.Address(ctx, r.comp)
 	if err != nil {
+		r.mu.Lock()
 		if r.lastGood != "" {
-			r.logger.Debug("resolver: registry lookup failed for %s (keeping last known good %s): %v", r.comp.String(), r.lastGood, err)
-			_ = r.cc.UpdateState(resolver.State{Addresses: []resolver.Address{{Addr: r.lastGood}}})
+			lg := r.lastGood
+			r.mu.Unlock()
+			r.logger.Debug("resolver: registry lookup failed for %s (keeping last known good %s): %v", r.comp.String(), lg, err)
+			_ = r.cc.UpdateState(resolver.State{Addresses: []resolver.Address{{Addr: lg}}})
 			return r.refreshInterval
 		}
 
-		r.logger.Warn("resolver: failed to resolve %s: %v", r.comp.String(), err)
+		if !r.resolveFailureAnnounced {
+			r.resolveFailureAnnounced = true
+			r.mu.Unlock()
+			r.logger.Warn("resolver: %s not yet reachable via registry (retries at debug; ensure registry and service are up)", r.comp.String())
+		} else {
+			r.mu.Unlock()
+			r.logger.Debug("resolver: failed to resolve %s: %v", r.comp.String(), err)
+		}
+
 		r.cc.ReportError(err)
 		if r.errorRefresh > 0 {
 			return r.errorRefresh
@@ -134,11 +146,15 @@ func (r *registryResolver) resolveNow() time.Duration {
 		return r.refreshInterval
 	}
 
+	r.mu.Lock()
 	if addr != r.lastGood {
 		r.logger.Debug("resolver: %s resolved to %s", r.comp.String(), addr)
 	}
 
+	r.resolveFailureAnnounced = false
 	r.lastGood = addr
+	r.mu.Unlock()
+
 	_ = r.cc.UpdateState(resolver.State{Addresses: []resolver.Address{{Addr: addr}}})
 	return r.refreshInterval
 }

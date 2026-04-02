@@ -98,6 +98,7 @@ func TestLeaseRenewalLoop_ReclaimsOrphanedRun(t *testing.T) {
 
 	w := &worker{
 		ctx:           context.Background(),
+		runCtx:        context.Background(),
 		logger:        interfaces.NewLogger("worker-test"),
 		workerID:      workerID,
 		store:         runs,
@@ -177,6 +178,7 @@ func TestWorkerRunClaimedJob_CompletesWhileOrphaned_MarksSucceeded(t *testing.T)
 	logClient := mocks.NewMockLogClient()
 	w := &worker{
 		ctx:           context.Background(),
+		runCtx:        context.Background(),
 		logger:        interfaces.NewLogger("worker-test"),
 		workerID:      workerID,
 		renewInterval: time.Hour,
@@ -310,6 +312,7 @@ func TestWorkerRunClaimedJob_AckTransientThenSuccess_Completes(t *testing.T) {
 	logClient := mocks.NewMockLogClient()
 	w := &worker{
 		ctx:           context.Background(),
+		runCtx:        context.Background(),
 		logger:        interfaces.NewLogger("worker-test"),
 		workerID:      workerID,
 		clock:         clock,
@@ -384,6 +387,7 @@ func TestWorkerRunClaimedJob_AckPersistentFailure_OrphansRunWithoutExecution(t *
 	logClient := mocks.NewMockLogClient()
 	w := &worker{
 		ctx:           context.Background(),
+		runCtx:        context.Background(),
 		logger:        interfaces.NewLogger("worker-test"),
 		workerID:      workerID,
 		clock:         clock,
@@ -470,6 +474,7 @@ func TestWorkerRunClaimedJob_FinalizeSucceededRetriesOnTransientStoreFailure(t *
 
 	w := &worker{
 		ctx:           context.Background(),
+		runCtx:        context.Background(),
 		logger:        interfaces.NewLogger("worker-test"),
 		workerID:      workerID,
 		clock:         clock,
@@ -536,6 +541,7 @@ func TestWorkerRunClaimedJob_RenewLeaseTransientStoreFailure_StillSucceeds(t *te
 
 	w := &worker{
 		ctx:           context.Background(),
+		runCtx:        context.Background(),
 		logger:        interfaces.NewLogger("worker-test"),
 		workerID:      workerID,
 		clock:         interfaces.SystemClock{},
@@ -618,6 +624,7 @@ func TestWorkerRestartMidRun_LeaseExpiryThenRequeue_AllowsRecovery(t *testing.T)
 
 	w := &worker{
 		ctx:           context.Background(),
+		runCtx:        context.Background(),
 		logger:        interfaces.NewLogger("worker-test"),
 		workerID:      "worker-b",
 		clock:         interfaces.SystemClock{},
@@ -681,6 +688,7 @@ func TestWorkerRunClaimedJob_FinalizeSucceededExhausted_LeavesRunningForOrphanSw
 
 	w := &worker{
 		ctx:           context.Background(),
+		runCtx:        context.Background(),
 		logger:        logger,
 		workerID:      workerID,
 		clock:         clock,
@@ -750,4 +758,139 @@ func TestWorkerRunClaimedJob_FinalizeSucceededExhausted_LeavesRunningForOrphanSw
 	if statusVal != "orphaned" {
 		t.Fatalf("expected orphaned after orphan sweep, got %q", statusVal)
 	}
+}
+
+func TestWorkerDrain_ShutdownDuringRun_StillFinalizesRun(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositories(db)
+	runs := repos.Runs()
+
+	runID, _, err := runs.CreateRun(ctx, "job-worker-drain", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	shutdownCtx, cancelShutdown := context.WithCancel(context.Background())
+	runCtx := context.Background()
+
+	queue := mocks.NewMockQueueClient()
+	jobID := "job-worker-drain"
+	deliveryID := "delivery-drain"
+	commandNodeID := "node-1"
+	command := "sleep 0.08"
+	action := "builtins/shell"
+	root := &api.Node{
+		Id:   &commandNodeID,
+		Uses: &action,
+		With: map[string]string{"command": command},
+	}
+	queue.AddJob(&api.Job{
+		Id:         &jobID,
+		RunId:      &runID,
+		DeliveryId: &deliveryID,
+		Root:       root,
+	})
+
+	w := &worker{
+		ctx:           shutdownCtx,
+		runCtx:        runCtx,
+		logger:        interfaces.NewLogger("worker-test"),
+		workerID:      "worker-drain",
+		clock:         interfaces.SystemClock{},
+		renewInterval: time.Hour,
+		queue:         queue,
+		logClient:     mocks.NewMockLogClient(),
+		executor:      job.NewExecutor(),
+		store:         runs,
+	}
+
+	done := make(chan struct{})
+	go func() {
+		w.run()
+		close(done)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		var st string
+		if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&st); err != nil {
+			t.Fatalf("query run status: %v", err)
+		}
+
+		if st == "running" {
+			break
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for run to reach running, last status=%q", st)
+		}
+
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	cancelShutdown()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for worker run() after shutdown")
+	}
+
+	var statusVal string
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&statusVal); err != nil {
+		t.Fatalf("query final status: %v", err)
+	}
+
+	if statusVal != "succeeded" {
+		t.Fatalf("expected run succeeded after drain (shutdown during execution), got %q", statusVal)
+	}
+}
+
+func TestHandleDequeueError_ContextCanceledStops(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	w := &worker{
+		ctx:    ctx,
+		logger: interfaces.NewLogger("worker-test"),
+		clock:  interfaces.SystemClock{},
+	}
+
+	job, keep := w.handleDequeueError(context.Canceled)
+	if job != nil || keep {
+		t.Fatalf("expected exit, got job=%v keep=%v", job, keep)
+	}
+}
+
+func TestHandleDequeueError_GRPCCanceledStops(t *testing.T) {
+	t.Parallel()
+	logger := mocks.NewMockLogger()
+	w := &worker{
+		ctx:    context.Background(),
+		logger: logger,
+		clock:  interfaces.SystemClock{},
+	}
+
+	job, keep := w.handleDequeueError(status.Error(codes.Canceled, "context canceled"))
+	if job != nil || keep {
+		t.Fatalf("expected exit, got job=%v keep=%v", job, keep)
+	}
+
+	if len(logger.GetWarnCalls()) != 0 {
+		t.Fatalf("expected no warn on grpc Canceled shutdown, got %v", logger.GetWarnCalls())
+	}
+}
+
+func TestWorker_Run_ExitsWhenDequeueCanceled(t *testing.T) {
+	t.Parallel()
+	q := mocks.NewMockQueueClient()
+	q.SetDequeueError(context.Canceled)
+	w := &worker{
+		ctx:    context.Background(),
+		logger: interfaces.NewLogger("worker-test"),
+		clock:  interfaces.SystemClock{},
+		queue:  q,
+	}
+	w.run()
 }

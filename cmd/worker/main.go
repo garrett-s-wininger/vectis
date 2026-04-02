@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -39,7 +42,14 @@ const (
 )
 
 func runWorker(cmd *cobra.Command, args []string) {
-	ctx := context.Background()
+	baseCtx := cmd.Context()
+	if baseCtx == nil {
+		baseCtx = context.Background()
+	}
+
+	shutdownCtx, stop := signal.NotifyContext(baseCtx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	logger := interfaces.NewLogger("worker")
 	cli.SetLogLevel(logger)
 
@@ -63,14 +73,20 @@ func runWorker(cmd *cobra.Command, args []string) {
 		return q, l, cleanup, err
 	}
 
-	clients, err := queueclient.NewManagingWorkerDial(ctx, logger, dial)
+	clients, err := queueclient.NewManagingWorkerDial(shutdownCtx, logger, dial)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			logger.Info("Worker graceful shutdown before connecting to queue or log service")
+			return
+		}
+
 		logger.Fatal("Failed to connect to queue or log service: %v", err)
 	}
 	defer func() { _ = clients.Close() }()
 
 	w := &worker{
-		ctx:           ctx,
+		ctx:           shutdownCtx,
+		runCtx:        baseCtx,
 		logger:        logger,
 		workerID:      workerID,
 		clock:         interfaces.SystemClock{},
@@ -80,11 +96,14 @@ func runWorker(cmd *cobra.Command, args []string) {
 		executor:      job.NewExecutor(),
 		store:         dal.NewSQLRepositories(db).Runs(),
 	}
+
 	w.run()
+	logger.Info("Worker graceful shutdown complete")
 }
 
 type worker struct {
-	ctx                context.Context
+	ctx                context.Context // canceled on SIGINT/SIGTERM; dequeue and between-job backoff only
+	runCtx             context.Context // not signal-scoped; execution, lease renew, ack, finalize
 	logger             interfaces.Logger
 	workerID           string
 	clock              interfaces.Clock
@@ -132,18 +151,40 @@ func (w *worker) dequeueNext() (*api.Job, bool) {
 	return job, true
 }
 
+func (w *worker) logGracefulDequeueStop(cause error) {
+	w.logger.Info("Worker graceful shutdown; dequeue loop stopped")
+	if cause != nil {
+		w.logger.Debug("Dequeue shutdown detail: %v", cause)
+	}
+}
+
 func (w *worker) handleDequeueError(err error) (*api.Job, bool) {
-	st, ok := status.FromError(err)
-	if ok && st.Code() == codes.DeadlineExceeded {
-		w.logger.Debug("Long poll timed out. Retrying...")
-		w.dequeueFailAttempt = 0
-		return nil, true
+	if err != nil && errors.Is(err, context.Canceled) {
+		w.logGracefulDequeueStop(err)
+		return nil, false
+	}
+
+	if st, ok := status.FromError(err); ok {
+		switch st.Code() {
+		case codes.Canceled:
+			w.logGracefulDequeueStop(err)
+			return nil, false
+		case codes.DeadlineExceeded:
+			w.logger.Debug("Long poll timed out. Retrying...")
+			w.dequeueFailAttempt = 0
+			return nil, true
+		}
 	}
 
 	delay := backoff.ExponentialDelay(dequeueBackoffBase, w.dequeueFailAttempt, dequeueBackoffMax)
 	w.logger.Warn("Failed to dequeue job: %v; retrying in %v", err, delay)
 	if sleepErr := w.clock.Sleep(w.ctx, delay); sleepErr != nil {
-		w.logger.Info("Stopping worker dequeue loop: %v", sleepErr)
+		if errors.Is(sleepErr, context.Canceled) {
+			w.logGracefulDequeueStop(sleepErr)
+		} else {
+			w.logger.Info("Stopping worker dequeue loop: %v", sleepErr)
+		}
+
 		return nil, false
 	}
 
@@ -173,7 +214,7 @@ func (w *worker) noteDBRecovered() {
 func (w *worker) sleepDBBackoff() error {
 	delay := backoff.ExponentialDelay(dequeueBackoffBase, w.dbFailAttempt, dequeueBackoffMax)
 	w.dbFailAttempt++
-	return w.clock.Sleep(w.ctx, delay)
+	return w.clock.Sleep(w.runCtx, delay)
 }
 
 func (w *worker) handleJob(job *api.Job) {
@@ -192,7 +233,7 @@ func (w *worker) handleJob(job *api.Job) {
 		return
 	}
 
-	if err := w.executor.ExecuteJob(w.ctx, job, w.logClient, w.logger); err != nil {
+	if err := w.executor.ExecuteJob(w.runCtx, job, w.logClient, w.logger); err != nil {
 		w.logger.Error("Job %s failed: %v", jobID, err)
 		return
 	}
@@ -202,7 +243,7 @@ func (w *worker) handleJob(job *api.Job) {
 
 func (w *worker) runClaimedJob(job *api.Job, jobID, runID, deliveryID string) {
 	leaseUntil := time.Now().Add(dal.DefaultLeaseTTL)
-	claimed, claimToken, claimErr := w.store.TryClaim(w.ctx, runID, w.workerID, leaseUntil)
+	claimed, claimToken, claimErr := w.store.TryClaim(w.runCtx, runID, w.workerID, leaseUntil)
 	if claimErr != nil {
 		w.noteDBError(claimErr)
 		_ = w.sleepDBBackoff()
@@ -256,7 +297,7 @@ func (w *worker) ackDelivery(deliveryID string) error {
 		return nil
 	}
 
-	return w.queue.Ack(w.ctx, deliveryID)
+	return w.queue.Ack(w.runCtx, deliveryID)
 }
 
 type ackDeliveryFailure struct {
@@ -287,7 +328,7 @@ func (w *worker) ackDeliveryWithRetry(deliveryID string) *ackDeliveryFailure {
 		w.logger.Warn("Ack delivery %s transient failure (attempt %d/%d): %v; retrying in %v",
 			deliveryID, attempt, ackMaxAttempts, err, delay)
 
-		if sleepErr := w.clock.Sleep(w.ctx, delay); sleepErr != nil {
+		if sleepErr := w.clock.Sleep(w.runCtx, delay); sleepErr != nil {
 			decision := runpolicy.Decide(runpolicy.Input{
 				Trigger:     runpolicy.TriggerAckResult,
 				Attempt:     attempt,
@@ -312,7 +353,7 @@ func (w *worker) ackDeliveryWithRetry(deliveryID string) *ackDeliveryFailure {
 func (w *worker) markRunSucceededWithRetry(runID, claimToken string) error {
 	var lastErr error
 	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
-		err := w.store.MarkRunSucceeded(w.ctx, runID, claimToken)
+		err := w.store.MarkRunSucceeded(w.runCtx, runID, claimToken)
 		if err == nil {
 			w.noteDBRecovered()
 			return nil
@@ -328,7 +369,7 @@ func (w *worker) markRunSucceededWithRetry(runID, claimToken string) error {
 		w.logger.Warn("MarkRunSucceeded run %s failed (attempt %d/%d): %v; retrying in %v",
 			runID, attempt, finalizeMaxAttempts, err, delay)
 
-		if sleepErr := w.clock.Sleep(w.ctx, delay); sleepErr != nil {
+		if sleepErr := w.clock.Sleep(w.runCtx, delay); sleepErr != nil {
 			return sleepErr
 		}
 	}
@@ -339,7 +380,7 @@ func (w *worker) markRunSucceededWithRetry(runID, claimToken string) error {
 func (w *worker) markRunFailedWithRetry(runID, claimToken, failureCode, reason string) error {
 	var lastErr error
 	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
-		err := w.store.MarkRunFailed(w.ctx, runID, claimToken, failureCode, reason)
+		err := w.store.MarkRunFailed(w.runCtx, runID, claimToken, failureCode, reason)
 		if err == nil {
 			w.noteDBRecovered()
 			return nil
@@ -355,7 +396,7 @@ func (w *worker) markRunFailedWithRetry(runID, claimToken, failureCode, reason s
 		w.logger.Warn("MarkRunFailed run %s failed (attempt %d/%d): %v; retrying in %v",
 			runID, attempt, finalizeMaxAttempts, err, delay)
 
-		if sleepErr := w.clock.Sleep(w.ctx, delay); sleepErr != nil {
+		if sleepErr := w.clock.Sleep(w.runCtx, delay); sleepErr != nil {
 			return sleepErr
 		}
 	}
@@ -366,7 +407,7 @@ func (w *worker) markRunFailedWithRetry(runID, claimToken, failureCode, reason s
 func (w *worker) markRunOrphanedWithRetry(runID, claimToken, reason string) error {
 	var lastErr error
 	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
-		err := w.store.MarkRunOrphaned(w.ctx, runID, claimToken, reason)
+		err := w.store.MarkRunOrphaned(w.runCtx, runID, claimToken, reason)
 		if err == nil {
 			w.noteDBRecovered()
 			return nil
@@ -382,7 +423,7 @@ func (w *worker) markRunOrphanedWithRetry(runID, claimToken, reason string) erro
 		w.logger.Warn("MarkRunOrphaned run %s failed (attempt %d/%d): %v; retrying in %v",
 			runID, attempt, finalizeMaxAttempts, err, delay)
 
-		if sleepErr := w.clock.Sleep(w.ctx, delay); sleepErr != nil {
+		if sleepErr := w.clock.Sleep(w.runCtx, delay); sleepErr != nil {
 			return sleepErr
 		}
 	}
@@ -391,7 +432,7 @@ func (w *worker) markRunOrphanedWithRetry(runID, claimToken, reason string) erro
 }
 
 func (w *worker) executeWithLeaseRenewal(runID, claimToken string, job *api.Job) error {
-	execCtx, execCancel := context.WithCancel(w.ctx)
+	execCtx, execCancel := context.WithCancel(w.runCtx)
 	defer execCancel()
 
 	stopRenew := make(chan struct{})
@@ -432,7 +473,7 @@ func (w *worker) leaseRenewalLoop(
 			return
 		case <-ticker.C:
 			next := time.Now().Add(dal.DefaultLeaseTTL)
-			if err := w.store.RenewLease(w.ctx, runID, w.workerID, claimToken, next); err != nil {
+			if err := w.store.RenewLease(w.runCtx, runID, w.workerID, claimToken, next); err != nil {
 				w.noteDBError(err)
 				renewFailed = true
 				w.logger.Warn("Run %s: lease renew failed (will retry): %v", runID, err)
