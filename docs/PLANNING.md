@@ -263,7 +263,7 @@ Operator-facing **log/run streaming** is **§6.1** and [ARCHITECTURE.md](ARCHITE
 
 **Shipped:** **vectis-registry** gRPC — components resolve queue and log addresses ([ARCHITECTURE.md](ARCHITECTURE.md) §Service discovery).
 
-**Target:** Kubernetes DNS/services; Consul/etcd or static inventory for large bare-metal; optional HTTP `/health` per service — not uniform yet.
+**Target:** Kubernetes DNS/services; Consul/etcd or static inventory for large bare-metal. **Shipped:** **`vectis-api`** exposes **`GET /health/live`** and **`GET /health/ready`** (see [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md#vectis-api)); other components rely primarily on **gRPC health** or process-level checks—uniform HTTP health across every binary is not a goal yet.
 
 ---
 

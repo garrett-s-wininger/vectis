@@ -30,7 +30,7 @@ If queue and log addresses are **pinned** in configuration, consumers do not nee
 
 **If the database is offline or returning errors**
 
-- **API:** Creating or updating jobs, triggering runs, listing runs, and healthy startup (including schema migrations) fail or the API process may exit during startup.
+- **API:** Creating or updating jobs, triggering runs, listing runs, and healthy startup (including schema migrations) fail or the API process may exit during startup. After the process is up, many handlers treat **transient database unavailability** (connection loss, certain driver and network errors classified in [`internal/database/errors.go`](../internal/database/errors.go)) as **HTTP 503 Service Unavailable**, so load balancers and clients can distinguish “dependency down” from arbitrary **500** failures. **404** semantics for missing resources are preserved where applicable (e.g. get-by-id flows check not-found before the unavailable path).
 - **Worker:** Cannot claim work, keep leases, or record success or failure.
 - **Cron:** Cannot read schedules or record activity; process typically exits on startup if the database is unreachable.
 - **Reconciler:** Cannot find stuck runs or submit them to the queue; process typically exits on startup if the database is unreachable.
@@ -38,11 +38,13 @@ If queue and log addresses are **pinned** in configuration, consumers do not nee
 **Expectations (what Vectis provides vs what you run)**
 
 - The application ships **embedded schema migrations** and talks to **one configured SQL backend** at a time (SQLite or PostgreSQL). It does **not** implement connection failover, replica routing, or backup/restore—those are entirely the operator’s and database platform’s concern.
+- For **PostgreSQL** (`pgx`), each process configures the shared `*sql.DB` pool (**max open/idle connections**, **connection max lifetime / idle time**) via [CONFIGURATION.md](CONFIGURATION.md#postgresql-connection-pool-pgx-only) and [`internal/config/defaults.toml`](../internal/config/defaults.toml). That bounds total connections across many processes and helps shed stale connections after network blips; it is **not** HA by itself.
 - Every component that writes state must see the **same** logical database and schema. Multi-instance API/workers are only safe when the backend gives you the concurrency semantics you need (see [PLANNING.md](PLANNING.md) §2.5 for persistence scope and roadmap).
 
 **Where we are now**
 
 - No separate “read-only” or degraded API mode when the database is unhealthy.
+- **503** on classified unavailable errors is implemented on **key read and write** API paths, not a full “every possible error code” matrix.
 
 ---
 
@@ -119,6 +121,16 @@ If queue and log addresses are **pinned** in configuration, consumers do not nee
 - Clients cannot drive or query the system over HTTP.
 - Queue, workers, log, cron, and reconciler keep running according to their own dependencies.
 
+**Process lifecycle and probes**
+
+- **Graceful shutdown:** On **SIGINT** / **SIGTERM**, the API stops accepting new HTTP connections and uses **`http.Server.Shutdown`** with a bounded timeout so in-flight requests and SSE streams can finish when clients disconnect cooperatively.
+- **HTTP health (orchestration):** **`GET /health/live`** returns **200** if the process is serving (liveness). **`GET /health/ready`** returns **200** only when the API’s **database** ping succeeds and, when the server uses a managing queue client, the queue’s **gRPC connectivity** is **READY**—so readiness reflects “can this replica do work?” for common paths. Mock-only test servers may skip parts of this check.
+- **Deploy manifests:** Wiring **`livenessProbe` / `readinessProbe`** in [`deploy/podman/kube-spec.yaml`](../deploy/podman/kube-spec.yaml) to these paths (or equivalents) is recommended for Kubernetes-style rollouts; the in-repo spec may not include probes yet.
+
+**If the database or queue is unhealthy while the API is running**
+
+- See the **Database** and **vectis-queue** sections: many API routes return **503** when the database error is classified as **unavailable**; queue connectivity affects **readiness** and enqueue paths, but the API still **fatals on startup** if it cannot connect to the queue before serving (no lazy dial yet).
+
 **Expectations**
 
 - Multiple API replicas do **not** share per-client session state; clients that rely on a single long-lived connection to one instance should plan for reconnects or use another instance explicitly.
@@ -126,6 +138,7 @@ If queue and log addresses are **pinned** in configuration, consumers do not nee
 **Where we are now**
 
 - No built-in authentication on the HTTP API; restrict access at the network or edge.
+- **Background enqueue** after HTTP **202** (`finishTriggerEnqueue` / `finishRunJobEnqueue`) still uses a **detached context**; there is no explicit wait for those goroutines during HTTP shutdown—the **reconciler** remains the backstop for runs stuck in **queued** in the database (see [adr/0001-async-enqueue-after-http-202.md](adr/0001-async-enqueue-after-http-202.md)).
 
 ---
 
@@ -139,15 +152,17 @@ If queue and log addresses are **pinned** in configuration, consumers do not nee
 
 **If a worker stops mid-run**
 
-- Leases, queue **delivery timeouts**, and reconciler timing together determine whether work is retried or stuck. Tune queue persistence, delivery policy, and reconciler interval if you see stranded runs.
+- **SIGINT / SIGTERM (graceful):** The worker stops **dequeuing** new work, but the **current** job—if any—continues on a **non-signal** context: **TryClaim**, **Ack**, **ExecuteJob**, **lease renewal**, and **MarkRunSucceeded / MarkRunFailed / MarkRunOrphaned** are not canceled by the same signal that stops dequeue. That avoids leaving a claimed run without a terminal row update when the process exits cleanly after the job finishes. **`SIGKILL`** and abrupt crashes do **not** run this path; leases, queue **delivery timeouts**, and reconciler behavior still apply.
+- In all hard-stop cases, leases, queue **delivery timeouts**, and reconciler timing together determine whether work is retried or stuck. Tune queue persistence, delivery policy, and reconciler interval if you see stranded runs.
 
 **If a worker loses database access mid-run**
 
-- Lease renewal and final status updates may fail; runs may end as failed or remain in an ambiguous state until an operator or reconciler intervenes.
+- Lease renewal and final status updates may fail; runs may end as failed or remain in an ambiguous state until an operator or reconciler intervenes. The drain path above assumes the database becomes available again for finalize retries; a **long** outage during execution can still strand or fail runs.
 
 **Where we are now**
 
 - Scale by running more worker processes; no built-in autoscaling.
+- **Remote cancel** of a specific run from the API is **not** implemented; stopping a run today is operational (worker/process lifecycle or external action), not an HTTP cancel RPC.
 
 ---
 
@@ -191,7 +206,8 @@ If queue and log addresses are **pinned** in configuration, consumers do not nee
 | **Registry** | Single discovery point; hard dependency at startup unless addresses are pinned | Redundancy, pins, or fixed service addresses |
 | **Queue** | Optional disk persistence; retries on transient errors | Monitored depth, durable storage, capacity planning |
 | **Log** | Required before a run executes | Optional or replicated logging if you need higher availability |
-| **Database** | Embedded migrations; SQLite default and PostgreSQL supported; one DSN for all writers; no in-app failover or replica routing | Roadmap: harden PostgreSQL + multi-instance story in-tree ([PLANNING.md](PLANNING.md) §2.5); backups/HA remain outside the codebase |
-| **API** | Trigger may succeed before work reaches the queue; horizontal replicas are not session-coherent | Client idempotency; run the **reconciler** (it retries handoff for runs queued in the DB but not in the queue); alert on reconciler health or persistent backlog |
+| **Database** | Embedded migrations; SQLite default and PostgreSQL supported; one DSN for all writers; **pgx** pool limits per process ([CONFIGURATION.md](CONFIGURATION.md#postgresql-connection-pool-pgx-only)); **503** on classified unavailable errors on many API paths; no in-app failover or replica routing | Roadmap: harden PostgreSQL + multi-instance story in-tree ([PLANNING.md](PLANNING.md) §2.5); backups/HA remain outside the codebase |
+| **API** | Graceful HTTP **Shutdown** on signal; **`/health/live`** and **`/health/ready`**; trigger may succeed before work reaches the queue; async enqueue not joined on shutdown; horizontal replicas are not session-coherent | Wire Kube/Podman probes to health URLs; client idempotency; run the **reconciler** (it retries handoff for runs queued in the DB but not in the queue); alert on reconciler health or persistent backlog |
+| **Worker** | **SIGINT/SIGTERM:** stop dequeue, **drain** current job for DB finalize; **SIGKILL:** no drain | Same; optional future: remote cancel and bounded drain timeouts |
 | **Cron** | No sharding or leader election; duplicate processes risk double-firing | **Scale:** partition schedules across shards. **HA:** one firing path per schedule (leader election or external trigger → API) |
 | **Auth** | None on the HTTP API | TLS and authentication at the edge or in the application |

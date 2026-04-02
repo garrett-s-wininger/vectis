@@ -49,7 +49,7 @@ flowchart LR
 | --- | --- |
 | **vectis-registry** | Service discovery: queue and log register; consumers resolve addresses when not pinned in config. |
 | **vectis-queue** | FIFO work queue: enqueue from API, cron, reconciler; dequeue to workers. Optional on-disk persistence (WAL/snapshot) for backlog and in-flight delivery metadata. |
-| **vectis-api** | REST API for job definitions and runs; writes to the database; submits work to the queue; exposes HTTP including run-event streaming for connected clients. |
+| **vectis-api** | REST API for job definitions and runs; writes to the database; submits work to the queue; exposes HTTP including run-event streaming, **`/health/live`**, and **`/health/ready`** for orchestration. |
 | **vectis-worker** | Pulls jobs from the queue; opens a log stream to the log service; executes the job graph (built-in and extensible actions); updates run state in the database. One job at a time per process. |
 | **vectis-log** | Accepts log streams from workers; serves log output to consumers over a separate HTTP port. |
 | **vectis-cron** | Reads schedules from the database; enqueues runs when due. |
@@ -102,6 +102,8 @@ Details and roadmap notes: [PLANNING.md](PLANNING.md) §2.5.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
+| GET | `/health/live` | Liveness (process serving HTTP) |
+| GET | `/health/ready` | Readiness (DB + managing queue gRPC **READY** when applicable) |
 | GET | `/api/v1/jobs` | List job definitions |
 | POST | `/api/v1/jobs` | Create job |
 | GET | `/api/v1/jobs/{id}` | Get job definition |

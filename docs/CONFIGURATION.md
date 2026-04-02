@@ -27,6 +27,19 @@ These two variables are **global** (no per-service prefix). Every component that
 
 Applies to: `vectis-api`, `vectis-worker`, `vectis-cron`, `vectis-reconciler`, `vectis-log`, and **`vectis-cli migrate`**.
 
+### PostgreSQL connection pool (`pgx` only)
+
+When **`VECTIS_DATABASE_DRIVER=pgx`**, `database.OpenDB` applies `*sql.DB` pool settings after `sql.Open`. **SQLite** and other drivers ignore this block. Defaults match [`internal/config/defaults.toml`](../internal/config/defaults.toml) (`database.pgx_pool`); override with **global** env (no per-service prefix):
+
+| Variable | Purpose |
+| --- | --- |
+| **`VECTIS_DATABASE_PGX_MAX_OPEN_CONNS`** | Maximum open connections to the server (default **25**). |
+| **`VECTIS_DATABASE_PGX_MAX_IDLE_CONNS`** | Maximum idle connections (default **10**; clamped to ≤ max open). |
+| **`VECTIS_DATABASE_PGX_CONN_MAX_LIFETIME`** | Max lifetime of a connection (default **`1h`**); Go `time.ParseDuration` syntax. |
+| **`VECTIS_DATABASE_PGX_CONN_MAX_IDLE_TIME`** | Max idle time before a connection is closed (default **`15m`**). |
+
+Viper keys `database.pgx_pool.*` apply where a binary loads full config into viper (same semantics as other `database.*` keys). See [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md#database) for why this matters under outages and many processes.
+
 ## Service discovery vs fixed addresses
 
 In most setups either:
@@ -68,7 +81,7 @@ Replace `…` with the correct prefix from the next section (e.g. `VECTIS_WORKER
 | Goal | What to set |
 | --- | --- |
 | Change API HTTP port | `VECTIS_API_SERVER_PORT` or `--port` on `vectis-api` |
-| PostgreSQL | `VECTIS_DATABASE_DRIVER=pgx` and `VECTIS_DATABASE_DSN=postgres://…` on **all** DB consumers |
+| PostgreSQL | `VECTIS_DATABASE_DRIVER=pgx` and `VECTIS_DATABASE_DSN=postgres://…` on **all** DB consumers; tune pool with **`VECTIS_DATABASE_PGX_*`** ([above](#postgresql-connection-pool-pgx-only)) |
 | Pin queue to `host:8081` for workers | `VECTIS_WORKER_WORKER_QUEUE_ADDRESS` (or shared `VECTIS_WORKER_DISCOVERY_QUEUE_ADDRESS`) |
 | Queue backlog on disk | `VECTIS_QUEUE_PERSISTENCE_DIR` (empty disables persistence—see `vectis-queue --help`) |
 | Log files on disk | `VECTIS_LOG_STORAGE_DIR` |
