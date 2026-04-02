@@ -43,7 +43,7 @@ type APIServer struct {
 	queueClose     func()
 	runBroadcaster *RunBroadcaster
 	dbUnavailable  atomic.Bool
-	healthDB *sql.DB
+	healthDB       *sql.DB
 }
 
 func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
@@ -70,22 +70,23 @@ func NewAPIServerWithRepositories(
 
 func (s *APIServer) markDBUnavailable(err error) {
 	if database.IsUnavailableError(err) && s.dbUnavailable.CompareAndSwap(false, true) {
-		s.logger.Warn("Database unavailable; write endpoints returning 503 until recovery: %v", err)
+		s.logger.Warn("Database unavailable; API returning 503 for affected routes until recovery: %v", err)
 	}
 }
 
 func (s *APIServer) markDBRecovered() {
 	if s.dbUnavailable.CompareAndSwap(true, false) {
-		s.logger.Info("Database connectivity recovered; write endpoints resumed")
+		s.logger.Info("Database connectivity recovered; API database operations resumed")
 	}
 }
 
-func (s *APIServer) handleWriteDBError(w http.ResponseWriter, err error) bool {
+func (s *APIServer) handleDBUnavailableError(w http.ResponseWriter, err error) bool {
 	if database.IsUnavailableError(err) {
 		s.markDBUnavailable(err)
 		http.Error(w, "database unavailable", http.StatusServiceUnavailable)
 		return true
 	}
+
 	return false
 }
 
@@ -166,7 +167,7 @@ func (s *APIServer) ForceFailRun(w http.ResponseWriter, r *http.Request) {
 
 	_, found, err := s.runs.GetRunStatus(r.Context(), runID)
 	if err != nil {
-		if s.handleWriteDBError(w, err) {
+		if s.handleDBUnavailableError(w, err) {
 			return
 		}
 
@@ -204,7 +205,7 @@ func (s *APIServer) ForceFailRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.runs.MarkRunFailed(r.Context(), runID, "", dal.FailureCodeForceFailed, reason); err != nil {
-		if s.handleWriteDBError(w, err) {
+		if s.handleDBUnavailableError(w, err) {
 			return
 		}
 
@@ -227,7 +228,7 @@ func (s *APIServer) ForceRequeueRun(w http.ResponseWriter, r *http.Request) {
 
 	status, found, err := s.runs.GetRunStatus(r.Context(), runID)
 	if err != nil {
-		if s.handleWriteDBError(w, err) {
+		if s.handleDBUnavailableError(w, err) {
 			return
 		}
 
@@ -248,7 +249,7 @@ func (s *APIServer) ForceRequeueRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.runs.RequeueRunForRetry(r.Context(), runID); err != nil {
-		if s.handleWriteDBError(w, err) {
+		if s.handleDBUnavailableError(w, err) {
 			return
 		}
 
@@ -292,7 +293,7 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 
 	err = s.jobs.Create(r.Context(), *job.Id, string(body))
 	if err != nil {
-		if s.handleWriteDBError(w, err) {
+		if s.handleDBUnavailableError(w, err) {
 			return
 		}
 
@@ -315,7 +316,7 @@ func (s *APIServer) DeleteJob(w http.ResponseWriter, r *http.Request) {
 
 	err := s.jobs.Delete(r.Context(), jobID)
 	if err != nil {
-		if s.handleWriteDBError(w, err) {
+		if s.handleDBUnavailableError(w, err) {
 			return
 		}
 
@@ -332,10 +333,15 @@ func (s *APIServer) DeleteJob(w http.ResponseWriter, r *http.Request) {
 func (s *APIServer) GetJobs(w http.ResponseWriter, r *http.Request) {
 	records, err := s.jobs.List(r.Context())
 	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
 		s.logger.Error("Database error: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
+	s.markDBRecovered()
 
 	// TODO(garrett): Cursor-based pagination.
 	// TODO(garrett): Option to avoid returning the definition.
@@ -374,12 +380,12 @@ func (s *APIServer) GetJob(w http.ResponseWriter, r *http.Request) {
 
 	definitionJSON, err := s.jobs.GetDefinition(r.Context(), jobID)
 	if err != nil {
-		if s.handleWriteDBError(w, err) {
+		if dal.IsNotFound(err) {
+			http.Error(w, "job not found", http.StatusNotFound)
 			return
 		}
 
-		if dal.IsNotFound(err) {
-			http.Error(w, "job not found", http.StatusNotFound)
+		if s.handleDBUnavailableError(w, err) {
 			return
 		}
 
@@ -410,10 +416,15 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
 		s.logger.Error("Database error: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
+	s.markDBRecovered()
 
 	var job api.Job
 	if err := json.Unmarshal([]byte(definitionJSON), &job); err != nil {
@@ -426,7 +437,7 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 
 	runID, runIndex, err := s.runs.CreateRun(r.Context(), jobID, nil, 1)
 	if err != nil {
-		if s.handleWriteDBError(w, err) {
+		if s.handleDBUnavailableError(w, err) {
 			return
 		}
 
@@ -500,7 +511,7 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 
 	err = s.jobs.UpdateDefinition(r.Context(), jobID, string(body))
 	if err != nil {
-		if s.handleWriteDBError(w, err) {
+		if s.handleDBUnavailableError(w, err) {
 			return
 		}
 
@@ -551,7 +562,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	runIndexOne := 1
 	runID, _, err := s.ephemeralRuns.CreateDefinitionAndRun(r.Context(), generatedID, string(definitionJSON), &runIndexOne)
 	if err != nil {
-		if s.handleWriteDBError(w, err) {
+		if s.handleDBUnavailableError(w, err) {
 			return
 		}
 
@@ -610,10 +621,15 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 
 	runRows, err := s.runs.ListByJob(r.Context(), jobID, since)
 	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
 		s.logger.Error("Database error: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
+	s.markDBRecovered()
 
 	type runRow struct {
 		RunID         string  `json:"run_id"`

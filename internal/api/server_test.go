@@ -147,6 +147,73 @@ func TestAPIServer_CreateJob_DBUnavailable(t *testing.T) {
 	}
 }
 
+func TestAPIServer_GetJobs_DBUnavailable(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	if err := db.Close(); err != nil {
+		t.Fatalf("close db: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
+	rec := httptest.NewRecorder()
+	server.GetJobs(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status %d, got %d", http.StatusServiceUnavailable, rec.Code)
+	}
+}
+
+func TestAPIServer_GetJobs_ListError_ClassifiedUnavailable(t *testing.T) {
+	jobs := mocks.NewMockJobsRepository()
+	jobs.ListErr = errors.New("connection refused")
+	runs := mocks.NewMockRunsRepository()
+	server := api.NewAPIServerWithRepositories(mocks.NewMockLogger(), jobs, runs, mocks.StubEphemeralRunStarter{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
+	rec := httptest.NewRecorder()
+	server.GetJobs(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status %d, got %d", http.StatusServiceUnavailable, rec.Code)
+	}
+}
+
+func TestAPIServer_GetJobRuns_DBUnavailable(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	if err := db.Close(); err != nil {
+		t.Fatalf("close db: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/some-job/runs", nil)
+	req.SetPathValue("id", "some-job")
+	rec := httptest.NewRecorder()
+	server.GetJobRuns(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status %d, got %d", http.StatusServiceUnavailable, rec.Code)
+	}
+}
+
+func TestAPIServer_TriggerJob_DBUnavailableOnGetDefinition(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	jobDef := `{"id": "job-trig-db", "root": {"uses": "builtins/shell"}}`
+	if _, err := db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", "job-trig-db", jobDef); err != nil {
+		t.Fatalf("insert job: %v", err)
+	}
+
+	if err := db.Close(); err != nil {
+		t.Fatalf("close db: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/job-trig-db", nil)
+	req.SetPathValue("id", "job-trig-db")
+	rec := httptest.NewRecorder()
+	server.TriggerJob(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status %d, got %d", http.StatusServiceUnavailable, rec.Code)
+	}
+}
+
 func TestAPIServer_CreateJob_InvalidJSON(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 
@@ -299,6 +366,26 @@ func TestAPIServer_GetJob_NotFound(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected status %d, got %d", http.StatusNotFound, rec.Code)
+	}
+}
+
+func TestAPIServer_GetJob_DBUnavailable(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	jobDef := `{"id": "job-db-down", "root": {"uses": "builtins/shell"}}`
+	if _, err := db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", "job-db-down", jobDef); err != nil {
+		t.Fatalf("insert job: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close db: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-db-down", nil)
+	req.SetPathValue("id", "job-db-down")
+	rec := httptest.NewRecorder()
+	server.GetJob(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status %d, got %d", http.StatusServiceUnavailable, rec.Code)
 	}
 }
 
