@@ -7,9 +7,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -164,7 +166,7 @@ func TestAPIServer_GetJobs_DBUnavailable(t *testing.T) {
 
 func TestAPIServer_GetJobs_ListError_ClassifiedUnavailable(t *testing.T) {
 	jobs := mocks.NewMockJobsRepository()
-	jobs.ListErr = errors.New("connection refused")
+	jobs.ListErr = fmt.Errorf("dial: %w", syscall.ECONNREFUSED)
 	runs := mocks.NewMockRunsRepository()
 	server := api.NewAPIServerWithRepositories(mocks.NewMockLogger(), jobs, runs, mocks.StubEphemeralRunStarter{})
 
