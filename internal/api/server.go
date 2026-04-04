@@ -34,6 +34,7 @@ const (
 	healthDBPingTimeout      = 2 * time.Second
 	defaultReadHeaderTimeout = 10 * time.Second
 	defaultIdleTimeout       = 120 * time.Second
+	defaultHandlerDBTimeout = 60 * time.Second
 )
 
 type APIServer struct {
@@ -109,6 +110,10 @@ func queueRPCReady(q interfaces.QueueService) bool {
 	return wc.GRPCConnectivityState() == connectivity.Ready
 }
 
+func (s *APIServer) handlerDBCtx(r *http.Request) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(r.Context(), defaultHandlerDBTimeout)
+}
+
 func (s *APIServer) HealthLive(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
@@ -167,7 +172,10 @@ func (s *APIServer) ForceFailRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, found, err := s.runs.GetRunStatus(r.Context(), runID)
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	_, found, err := s.runs.GetRunStatus(ctx, runID)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
@@ -206,7 +214,7 @@ func (s *APIServer) ForceFailRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := s.runs.MarkRunFailed(r.Context(), runID, "", dal.FailureCodeForceFailed, reason); err != nil {
+	if err := s.runs.MarkRunFailed(ctx, runID, "", dal.FailureCodeForceFailed, reason); err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
 		}
@@ -228,7 +236,10 @@ func (s *APIServer) ForceRequeueRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	status, found, err := s.runs.GetRunStatus(r.Context(), runID)
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	status, found, err := s.runs.GetRunStatus(ctx, runID)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
@@ -250,7 +261,7 @@ func (s *APIServer) ForceRequeueRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.runs.RequeueRunForRetry(r.Context(), runID); err != nil {
+	if err := s.runs.RequeueRunForRetry(ctx, runID); err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
 		}
@@ -293,7 +304,10 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = s.jobs.Create(r.Context(), *job.Id, string(body))
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	err = s.jobs.Create(ctx, *job.Id, string(body))
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
@@ -316,7 +330,10 @@ func (s *APIServer) DeleteJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := s.jobs.Delete(r.Context(), jobID)
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	err := s.jobs.Delete(ctx, jobID)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
@@ -333,7 +350,10 @@ func (s *APIServer) DeleteJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) GetJobs(w http.ResponseWriter, r *http.Request) {
-	records, err := s.jobs.List(r.Context())
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	records, err := s.jobs.List(ctx)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
@@ -380,7 +400,10 @@ func (s *APIServer) GetJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	definitionJSON, err := s.jobs.GetDefinition(r.Context(), jobID)
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	definitionJSON, err := s.jobs.GetDefinition(ctx, jobID)
 	if err != nil {
 		if dal.IsNotFound(err) {
 			http.Error(w, "job not found", http.StatusNotFound)
@@ -411,7 +434,10 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	definitionJSON, err := s.jobs.GetDefinition(r.Context(), jobID)
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	definitionJSON, err := s.jobs.GetDefinition(ctx, jobID)
 	if err != nil {
 		if dal.IsNotFound(err) {
 			http.Error(w, "job not found", http.StatusNotFound)
@@ -437,7 +463,7 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 
 	job.Id = &jobID
 
-	runID, runIndex, err := s.runs.CreateRun(r.Context(), jobID, nil, 1)
+	runID, runIndex, err := s.runs.CreateRun(ctx, jobID, nil, 1)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
@@ -511,7 +537,10 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	err = s.jobs.UpdateDefinition(r.Context(), jobID, string(body))
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	err = s.jobs.UpdateDefinition(ctx, jobID, string(body))
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
@@ -562,7 +591,10 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	runIndexOne := 1
-	runID, _, err := s.ephemeralRuns.CreateDefinitionAndRun(r.Context(), generatedID, string(definitionJSON), &runIndexOne)
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	runID, _, err := s.ephemeralRuns.CreateDefinitionAndRun(ctx, generatedID, string(definitionJSON), &runIndexOne)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
@@ -621,7 +653,10 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 		since = &parsedSince
 	}
 
-	runRows, err := s.runs.ListByJob(r.Context(), jobID, since)
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	runRows, err := s.runs.ListByJob(ctx, jobID, since)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
