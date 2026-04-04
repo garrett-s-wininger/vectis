@@ -21,6 +21,14 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+type permBadFinalizeStore struct {
+	dal.RunsRepository
+}
+
+func (p *permBadFinalizeStore) MarkRunSucceeded(ctx context.Context, runID, claimToken string) error {
+	return errors.New("simulated bad claim token")
+}
+
 type flakyFinalizeRunsStore struct {
 	dal.RunsRepository
 
@@ -36,9 +44,10 @@ func (s *flakyFinalizeRunsStore) RenewLease(ctx context.Context, runID, owner, c
 	if s.renewFailuresLeft > 0 {
 		s.renewFailuresLeft--
 		s.mu.Unlock()
-		return fmt.Errorf("db unavailable during renew")
+		return fmt.Errorf("renew: %w", sql.ErrConnDone)
 	}
 	s.mu.Unlock()
+
 	return s.RunsRepository.RenewLease(ctx, runID, owner, claimToken, leaseUntil)
 }
 
@@ -47,9 +56,10 @@ func (s *flakyFinalizeRunsStore) MarkRunSucceeded(ctx context.Context, runID, cl
 	if s.succeedFailuresLeft > 0 {
 		s.succeedFailuresLeft--
 		s.mu.Unlock()
-		return fmt.Errorf("db unavailable on finalize success")
+		return fmt.Errorf("finalize success: %w", sql.ErrConnDone)
 	}
 	s.mu.Unlock()
+
 	return s.RunsRepository.MarkRunSucceeded(ctx, runID, claimToken)
 }
 
@@ -58,9 +68,10 @@ func (s *flakyFinalizeRunsStore) MarkRunFailed(ctx context.Context, runID, claim
 	if s.failedFailuresLeft > 0 {
 		s.failedFailuresLeft--
 		s.mu.Unlock()
-		return fmt.Errorf("db unavailable on finalize failure")
+		return fmt.Errorf("finalize failed: %w", sql.ErrConnDone)
 	}
 	s.mu.Unlock()
+
 	return s.RunsRepository.MarkRunFailed(ctx, runID, claimToken, failureCode, reason)
 }
 
@@ -69,9 +80,10 @@ func (s *flakyFinalizeRunsStore) MarkRunOrphaned(ctx context.Context, runID, cla
 	if s.orphanFailuresLeft > 0 {
 		s.orphanFailuresLeft--
 		s.mu.Unlock()
-		return fmt.Errorf("db unavailable on orphan finalize")
+		return fmt.Errorf("finalize orphan: %w", sql.ErrConnDone)
 	}
 	s.mu.Unlock()
+
 	return s.RunsRepository.MarkRunOrphaned(ctx, runID, claimToken, reason)
 }
 
@@ -878,6 +890,68 @@ func TestHandleDequeueError_GRPCCanceledStops(t *testing.T) {
 
 	if len(logger.GetWarnCalls()) != 0 {
 		t.Fatalf("expected no warn on grpc Canceled shutdown, got %v", logger.GetWarnCalls())
+	}
+}
+
+func TestMarkRunSucceededWithRetry_PermanentStoreErrorNoBackoff(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositories(db)
+	runs := repos.Runs()
+
+	runID, _, err := runs.CreateRun(ctx, "job-perm-finalize", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	claimed, token, err := runs.TryClaim(ctx, runID, "worker-perm", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("try claim: %v", err)
+	}
+
+	if !claimed || token == "" {
+		t.Fatalf("expected claim")
+	}
+
+	clock := mocks.NewMockClock()
+	store := &permBadFinalizeStore{RunsRepository: runs}
+	w := &worker{
+		runCtx: ctx,
+		clock:  clock,
+		store:  store,
+	}
+
+	if err := w.markRunSucceededWithRetry(runID, token); err == nil {
+		t.Fatal("expected error from permanent finalize failure")
+	}
+
+	if len(clock.GetSleeps()) != 0 {
+		t.Fatalf("expected no backoff sleep for permanent DB error, got %d sleeps", len(clock.GetSleeps()))
+	}
+}
+
+func TestHandleDequeueError_NonTransientRetriesWithBackoff(t *testing.T) {
+	t.Parallel()
+	logger := mocks.NewMockLogger()
+	clock := mocks.NewMockClock()
+	w := &worker{
+		ctx:    context.Background(),
+		logger: logger,
+		clock:  clock,
+	}
+
+	job, keep := w.handleDequeueError(status.Error(codes.InvalidArgument, "bad request"))
+	if job != nil || !keep {
+		t.Fatalf("expected keep retrying, got job=%v keep=%v", job, keep)
+	}
+
+	if len(clock.GetSleeps()) != 1 {
+		t.Fatalf("expected one backoff sleep, got %v", clock.GetSleeps())
+	}
+
+	errs := logger.GetErrorCalls()
+	if len(errs) != 1 || !strings.Contains(errs[0], "self-healing") {
+		t.Fatalf("expected one error log about self-healing backoff, got %v", errs)
 	}
 }
 

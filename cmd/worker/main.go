@@ -160,20 +160,30 @@ func (w *worker) handleDequeueError(err error) (*api.Job, bool) {
 		return nil, false
 	}
 
-	if st, ok := status.FromError(err); ok {
-		switch st.Code() {
-		case codes.Canceled:
-			w.logGracefulDequeueStop(err)
-			return nil, false
-		case codes.DeadlineExceeded:
-			w.logger.Debug("Long poll timed out. Retrying...")
-			w.dequeueFailAttempt = 0
-			return nil, true
-		}
+	if st, ok := status.FromError(err); ok && st.Code() == codes.Canceled {
+		w.logGracefulDequeueStop(err)
+		return nil, false
+	}
+
+	if errors.Is(err, context.DeadlineExceeded) {
+		w.logger.Debug("Long poll timed out. Retrying...")
+		w.dequeueFailAttempt = 0
+		return nil, true
+	}
+
+	if st, ok := status.FromError(err); ok && st.Code() == codes.DeadlineExceeded {
+		w.logger.Debug("Long poll timed out. Retrying...")
+		w.dequeueFailAttempt = 0
+		return nil, true
 	}
 
 	delay := backoff.ExponentialDelay(dequeueBackoffBase, w.dequeueFailAttempt, dequeueBackoffMax)
-	w.logger.Warn("Failed to dequeue job: %v; retrying in %v", err, delay)
+	if queueclient.IsTransientDequeueError(err) {
+		w.logger.Warn("Failed to dequeue job: %v; retrying in %v", err, delay)
+	} else {
+		w.logger.Error("Dequeue failed with unexpected gRPC code; backing off for self-healing: %v; retry in %v", err, delay)
+	}
+
 	if sleepErr := w.clock.Sleep(w.ctx, delay); sleepErr != nil {
 		if errors.Is(sleepErr, context.Canceled) {
 			w.logGracefulDequeueStop(sleepErr)
@@ -357,6 +367,10 @@ func (w *worker) markRunSucceededWithRetry(runID, claimToken string) error {
 		w.noteDBError(err)
 
 		lastErr = err
+		if !database.IsUnavailableError(err) {
+			break
+		}
+
 		if attempt == finalizeMaxAttempts {
 			break
 		}
@@ -384,6 +398,10 @@ func (w *worker) markRunFailedWithRetry(runID, claimToken, failureCode, reason s
 		w.noteDBError(err)
 
 		lastErr = err
+		if !database.IsUnavailableError(err) {
+			break
+		}
+
 		if attempt == finalizeMaxAttempts {
 			break
 		}
@@ -411,6 +429,10 @@ func (w *worker) markRunOrphanedWithRetry(runID, claimToken, reason string) erro
 		w.noteDBError(err)
 
 		lastErr = err
+		if !database.IsUnavailableError(err) {
+			break
+		}
+
 		if attempt == finalizeMaxAttempts {
 			break
 		}

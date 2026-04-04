@@ -55,6 +55,30 @@ func TestIsTransientRPCError(t *testing.T) {
 		t.Error("InvalidArgument should not be transient")
 	}
 
+	if !queueclient.IsTransientDequeueError(status.Error(codes.Unknown, "x")) {
+		t.Error("Unknown should be transient for dequeue")
+	}
+
+	if !queueclient.IsTransientDequeueError(status.Error(codes.Internal, "x")) {
+		t.Error("Internal should be transient for dequeue")
+	}
+
+	if !queueclient.IsTransientDequeueError(status.Error(codes.Aborted, "x")) {
+		t.Error("Aborted should be transient for dequeue")
+	}
+
+	if queueclient.IsTransientDequeueError(status.Error(codes.InvalidArgument, "x")) {
+		t.Error("InvalidArgument should not be transient for dequeue")
+	}
+
+	if queueclient.IsTransientDequeueError(context.Canceled) {
+		t.Error("context.Canceled should not be transient for dequeue")
+	}
+
+	if queueclient.IsTransientDequeueError(context.DeadlineExceeded) {
+		t.Error("context.DeadlineExceeded should not be transient for dequeue")
+	}
+
 	u := status.Error(codes.Unavailable, "x")
 	if queueclient.IsTransientEnqueueError(u) != queueclient.IsTransientRPCError(u) {
 		t.Error("IsTransientEnqueueError should match IsTransientRPCError")

@@ -2,6 +2,7 @@ package queueclient
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	api "vectis/api/gen/go"
@@ -24,6 +25,31 @@ func IsTransientRPCError(err error) bool {
 
 	switch status.Code(err) {
 	case codes.Unavailable, codes.DeadlineExceeded, codes.ResourceExhausted:
+		return true
+	default:
+		return false
+	}
+}
+
+func IsTransientDequeueError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+
+	if errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+
+	if IsTransientRPCError(err) {
+		return true
+	}
+
+	switch status.Code(err) {
+	case codes.Internal, codes.Unknown, codes.Aborted:
 		return true
 	default:
 		return false
