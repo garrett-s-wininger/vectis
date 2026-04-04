@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -12,6 +14,7 @@ import (
 	"vectis/internal/config"
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
+	"vectis/internal/observability"
 
 	_ "vectis/internal/dbdrivers"
 )
@@ -34,7 +37,21 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		logger.Fatal("database wait for migrations failed: %v", err)
 	}
 
+	metricsHandler, shutdownMetrics, err := observability.InitAPIMetrics(cmd.Context())
+	if err != nil {
+		logger.Fatal("Failed to initialize metrics: %v", err)
+	}
+
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownMetrics(shutCtx); err != nil {
+			logger.Warn("Metrics shutdown: %v", err)
+		}
+	}()
+
 	server := api.NewAPIServer(logger, db)
+	server.MetricsHandler = metricsHandler
 
 	if err := server.ConnectToQueue(cmd.Context()); err != nil {
 		logger.Fatal("Failed to connect to services: %v", err)

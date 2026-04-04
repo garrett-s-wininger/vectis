@@ -286,7 +286,6 @@ func runVectis(cmd *cobra.Command, args []string) {
 	}, len(toWait))
 
 	for _, t := range toWait {
-		t := t
 		go func() {
 			exitCh <- struct {
 				binary string

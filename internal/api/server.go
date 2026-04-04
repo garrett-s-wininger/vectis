@@ -34,7 +34,7 @@ const (
 	healthDBPingTimeout      = 2 * time.Second
 	defaultReadHeaderTimeout = 10 * time.Second
 	defaultIdleTimeout       = 120 * time.Second
-	defaultHandlerDBTimeout = 60 * time.Second
+	defaultHandlerDBTimeout  = 60 * time.Second
 )
 
 type APIServer struct {
@@ -47,6 +47,7 @@ type APIServer struct {
 	runBroadcaster *RunBroadcaster
 	dbUnavailable  atomic.Bool
 	healthDB       *sql.DB
+	MetricsHandler http.Handler
 }
 
 func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
@@ -762,6 +763,11 @@ func (s *APIServer) HandleSSEJobRuns(w http.ResponseWriter, r *http.Request) {
 
 func (s *APIServer) Handler() http.Handler {
 	mux := http.NewServeMux()
+
+	if s.MetricsHandler != nil {
+		mux.Handle("GET /metrics", s.MetricsHandler)
+	}
+
 	mux.HandleFunc("GET /health/live", s.HealthLive)
 	mux.HandleFunc("GET /health/ready", s.HealthReady)
 	mux.HandleFunc("GET /api/v1/jobs", s.GetJobs)
@@ -775,6 +781,7 @@ func (s *APIServer) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/sse/jobs/{id}/runs", s.HandleSSEJobRuns)
 	mux.HandleFunc("POST /api/v1/runs/{id}/force-fail", s.ForceFailRun)
 	mux.HandleFunc("POST /api/v1/runs/{id}/force-requeue", s.ForceRequeueRun)
+
 	return mux
 }
 
