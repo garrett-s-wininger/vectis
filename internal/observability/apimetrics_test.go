@@ -12,6 +12,7 @@ import (
 
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 func TestInitAPIMetrics_servesScrapeEndpoint(t *testing.T) {
@@ -45,6 +46,41 @@ func TestInitAPIMetrics_servesScrapeEndpoint(t *testing.T) {
 
 	if _, ok := names["target_info"]; !ok {
 		t.Fatalf("missing target_info metric; got families: %v", sortedFamilyNames(names))
+	}
+}
+
+func TestInitAPIMetrics_otelHTTPHistogramAfterRequest(t *testing.T) {
+	ctx := context.Background()
+	metricsHandler, shutdown, err := InitAPIMetrics(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = shutdown(context.Background())
+	})
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/jobs", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	api := otelhttp.NewHandler(mux, "")
+	api.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/v1/jobs", http.NoBody))
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/metrics", http.NoBody)
+	req.Header.Set("Accept", string(expfmt.NewFormat(expfmt.TypeOpenMetrics)))
+	metricsHandler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d", rr.Code)
+	}
+
+	names, err := metricFamilyNames(rr.Body.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := names["http_server_request_duration_seconds"]; !ok {
+		t.Fatalf("missing http_server_request_duration_seconds; got: %v", sortedFamilyNames(names))
 	}
 }
 
