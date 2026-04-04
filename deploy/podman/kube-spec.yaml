@@ -32,6 +32,42 @@ spec:
       storage: 1Gi
 ---
 apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vectis-prometheus-config
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+    scrape_configs:
+      - job_name: prometheus
+        static_configs:
+          - targets: ["127.0.0.1:9090"]
+      - job_name: vectis-api
+        static_configs:
+          - targets: ["127.0.0.1:8080"]
+        metrics_path: /metrics
+        scheme: http
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vectis-grafana-datasources
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        orgId: 1
+        uid: vectis-prom
+        url: http://127.0.0.1:9090
+        isDefault: false
+        editable: false
+---
+apiVersion: v1
 kind: Pod
 metadata:
   name: vectis
@@ -46,6 +82,16 @@ spec:
     - name: log-data
       persistentVolumeClaim:
         claimName: vectis-log-data
+    - name: prometheus-config
+      configMap:
+        name: vectis-prometheus-config
+    - name: prometheus-data
+      emptyDir: {}
+    - name: grafana-datasources
+      configMap:
+        name: vectis-grafana-datasources
+    - name: grafana-data
+      emptyDir: {}
   containers:
     - name: postgres
       image: docker.io/library/postgres:18-alpine
@@ -129,3 +175,41 @@ spec:
       image: vectis-worker:latest
       imagePullPolicy: Never
       env: *dbEnv
+    - name: prometheus
+      image: docker.io/prom/prometheus:v3.11.0-distroless
+      imagePullPolicy: IfNotPresent
+      args:
+        - --config.file=/etc/prometheus/prometheus.yml
+        - --storage.tsdb.path=/prometheus
+        - --web.enable-lifecycle
+        - --storage.tsdb.retention.time=24h
+      ports:
+        - containerPort: 9090
+          hostPort: 9090
+          protocol: TCP
+      volumeMounts:
+        - name: prometheus-config
+          mountPath: /etc/prometheus
+        - name: prometheus-data
+          mountPath: /prometheus
+    - name: grafana
+      image: docker.io/grafana/grafana:13.0.0-23943897787
+      imagePullPolicy: IfNotPresent
+      env:
+        - name: GF_SECURITY_ADMIN_USER
+          value: admin
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          value: admin
+        - name: GF_USERS_ALLOW_SIGN_UP
+          value: "false"
+        - name: GF_AUTH_ANONYMOUS_ENABLED
+          value: "false"
+      ports:
+        - containerPort: 3000
+          hostPort: 3000
+          protocol: TCP
+      volumeMounts:
+        - name: grafana-datasources
+          mountPath: /etc/grafana/provisioning/datasources
+        - name: grafana-data
+          mountPath: /var/lib/grafana
