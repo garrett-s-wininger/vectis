@@ -84,9 +84,13 @@ images-all: image-full images-components
 .PHONY: images-components
 images-components: image-cli $(addprefix image-, $(COMPONENTS))
 
+# NOTE(garrett): In certain cases like WSL, the standard network support for nftables
+# may not work due to missing kernel modules. We use the newer standard of PASTA to
+# work around this. Older versions of Podman may need to manually fallback to
+# slirp4netns.
 .PHONY: deploy-podman
 deploy-podman: images-components $(OUT_DIR)/vectis-cli
-	podman play kube --replace $(PODMAN_KUBE_SPEC)
+	podman play kube --replace $(PODMAN_KUBE_SPEC) --network pasta
 	VECTIS_DATABASE_DRIVER=$(VECTIS_DATABASE_DRIVER) \
 	VECTIS_DATABASE_DSN="$(VECTIS_DATABASE_DSN)" \
 		$(OUT_DIR)/vectis-cli migrate
