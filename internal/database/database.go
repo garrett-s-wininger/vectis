@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"vectis/internal/config"
+	"vectis/internal/interfaces"
 	"vectis/internal/migrations"
 	"vectis/internal/utils"
 )
@@ -121,7 +122,7 @@ func migrateWithLock(ctx context.Context, db *sql.DB, advisoryLockKey int64, dri
 	return migrations.Run(db, driver)
 }
 
-func WaitForMigrations(db *sql.DB) error {
+func WaitForMigrations(db *sql.DB, log interfaces.Logger) error {
 	driver := EffectiveDBDriver()
 	switch driver {
 	case "pgx", "sqlite3":
@@ -130,15 +131,38 @@ func WaitForMigrations(db *sql.DB) error {
 	}
 
 	deadline := time.Now().Add(schemaWaitDeadline)
+	var warned bool
+	var hadFailure bool
+
 	for time.Now().Before(deadline) {
 		var one int
 		err := db.QueryRow("SELECT 1 FROM schema_migrations LIMIT 1").Scan(&one)
 		if err == nil {
+			if hadFailure && log != nil {
+				log.Info("Database schema is ready")
+			}
+
 			return nil
+		}
+
+		hadFailure = true
+		if log != nil {
+			if !warned {
+				if schemaWaitConnectFailure(err) {
+					log.Warn("Cannot connect to the database (retries at debug; check DSN, network/DNS, and credentials)")
+				} else {
+					log.Warn("Database is reachable but schema is not ready (retries at debug; apply migrations, e.g. vectis-cli migrate)")
+				}
+
+				log.Debug("database schema poll error: %v", err)
+				warned = true
+			} else {
+				log.Debug("database schema still not ready: %v", err)
+			}
 		}
 
 		time.Sleep(schemaWaitPollInterval)
 	}
 
-	return fmt.Errorf("timed out waiting for database schema; apply migrations with vectis-cli migrate (same VECTIS_DATABASE_DRIVER / VECTIS_DATABASE_DSN)")
+	return fmt.Errorf("timed out waiting for database readiness; check connectivity and apply migrations with vectis-cli migrate (same VECTIS_DATABASE_DRIVER / VECTIS_DATABASE_DSN)")
 }

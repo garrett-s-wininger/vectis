@@ -34,7 +34,7 @@ func runReconciler(cmd *cobra.Command, args []string) {
 	}
 	defer db.Close()
 
-	if err := database.WaitForMigrations(db); err != nil {
+	if err := database.WaitForMigrations(db, logger); err != nil {
 		logger.Fatal("database wait for migrations failed: %v", err)
 	}
 

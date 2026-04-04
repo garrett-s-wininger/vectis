@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"strings"
 	"time"
@@ -35,7 +36,7 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 	}
 	defer db.Close()
 
-	if err := database.WaitForMigrations(db); err != nil {
+	if err := database.WaitForMigrations(db, logger); err != nil {
 		logger.Fatal("database wait for migrations failed: %v", err)
 	}
 
@@ -64,13 +65,25 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		}))
 	}
 
+	port := config.APIEffectiveListenPort()
+	addr := fmt.Sprintf(":%d", port)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		logger.Fatal("Listen: %v", err)
+	}
+
+	serveErr := make(chan error, 1)
+	go func() {
+		serveErr <- server.Serve(cmd.Context(), ln)
+	}()
+
+	logger.Info("Establishing queue client connection...")
 	if err := server.ConnectToQueue(cmd.Context()); err != nil {
 		logger.Fatal("Failed to connect to services: %v", err)
 	}
+	logger.Info("Queue client ready")
 
-	port := config.APIEffectiveListenPort()
-	addr := fmt.Sprintf(":%d", port)
-	if err := server.Run(cmd.Context(), addr); err != nil {
+	if err := <-serveErr; err != nil {
 		logger.Fatal("Server failed: %v", err)
 	}
 }

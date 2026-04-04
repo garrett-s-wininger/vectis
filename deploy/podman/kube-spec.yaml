@@ -75,7 +75,7 @@ spec:
         - name: VECTIS_DATABASE_DRIVER
           value: pgx
         - name: VECTIS_DATABASE_DSN
-          value: postgres://vectis:vectis@postgres:5432/vectis?sslmode=disable
+          value: postgres://vectis:vectis@127.0.0.1:5432/vectis?sslmode=disable
     - name: cron
       image: vectis-cron:latest
       imagePullPolicy: Never
@@ -87,7 +87,7 @@ spec:
         - name: VECTIS_DATABASE_DRIVER
           value: pgx
         - name: VECTIS_DATABASE_DSN
-          value: postgres://vectis:vectis@postgres:5432/vectis?sslmode=disable
+          value: postgres://vectis:vectis@127.0.0.1:5432/vectis?sslmode=disable
         - name: XDG_DATA_HOME
           value: /data
         - name: VECTIS_LOG_STORAGE_DIR

@@ -3,6 +3,7 @@ package queueclient
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	api "vectis/api/gen/go"
@@ -66,6 +67,10 @@ func EnqueueWithRetry(ctx context.Context, q interfaces.QueueService, job *api.J
 }
 
 func EnqueueWithRetryResult(ctx context.Context, q interfaces.QueueService, job *api.Job, log interfaces.Logger) (*api.Empty, error) {
+	if q == nil {
+		return nil, fmt.Errorf("queue service not available")
+	}
+
 	var lastErr error
 	for attempt := 1; attempt <= EnqueueMaxAttempts; attempt++ {
 		empty, err := q.Enqueue(ctx, job)
