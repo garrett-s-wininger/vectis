@@ -35,6 +35,11 @@ type serviceStage struct {
 	healthName  string
 }
 
+type trackedCmd struct {
+	cmd    *exec.Cmd
+	binary string
+}
+
 var (
 	orderedServices = []serviceStage{
 		{binary: "vectis-registry", stage: 0, checkHealth: true, portFn: config.RegistryEffectiveListenPort, healthName: "registry"},
@@ -48,6 +53,8 @@ var (
 
 	allStarted     []*exec.Cmd
 	allStartedMu   sync.Mutex
+	tracked        []trackedCmd
+	trackedMu      sync.Mutex
 	shuttingDown   bool
 	shuttingDownMu sync.Mutex
 )
@@ -134,38 +141,44 @@ func trackStarted(proc *exec.Cmd) {
 
 func killAllStartedAndWait(logger interfaces.Logger) {
 	allStartedMu.Lock()
-	defer allStartedMu.Unlock()
+	procs := make([]*exec.Cmd, len(allStarted))
+	copy(procs, allStarted)
+	allStartedMu.Unlock()
 
-	for _, proc := range allStarted {
+	for _, proc := range procs {
 		if proc.Process != nil {
-			syscall.Kill(-proc.Process.Pid, syscall.SIGTERM)
+			_ = syscall.Kill(-proc.Process.Pid, syscall.SIGTERM)
 		}
 	}
 
-	waitCh := make(chan struct{}, len(allStarted))
-	for _, proc := range allStarted {
+	waitCh := make(chan struct{}, len(procs))
+	for _, proc := range procs {
 		go func(p *exec.Cmd) {
-			p.Wait()
+			_ = p.Wait()
 			waitCh <- struct{}{}
 		}(proc)
 	}
 
-	timeout := time.After(5 * time.Second)
-	for range allStarted {
-		select {
-		case <-waitCh:
-		case <-timeout:
-			for _, proc := range allStarted {
-				if proc.Process != nil {
-					syscall.Kill(-proc.Process.Pid, syscall.SIGKILL)
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+
+	killed := false
+	for received := 0; received < len(procs); {
+		if !killed {
+			select {
+			case <-waitCh:
+				received++
+			case <-timer.C:
+				killed = true
+				for _, proc := range procs {
+					if proc.Process != nil {
+						_ = syscall.Kill(-proc.Process.Pid, syscall.SIGKILL)
+					}
 				}
 			}
-
-			for _, proc := range allStarted {
-				proc.Wait()
-			}
-
-			return
+		} else {
+			<-waitCh
+			received++
 		}
 	}
 }
@@ -200,7 +213,6 @@ func runVectis(cmd *cobra.Command, args []string) {
 		os.Exit(0)
 	}()
 
-	commands := make([]*exec.Cmd, 0, len(orderedServices))
 	byStage := groupByStage(orderedServices)
 
 	stages := make([]int, 0, len(byStage))
@@ -228,7 +240,9 @@ func runVectis(cmd *cobra.Command, args []string) {
 				}
 
 				trackStarted(proc)
-				commands = append(commands, proc)
+				trackedMu.Lock()
+				tracked = append(tracked, trackedCmd{cmd: proc, binary: svc.binary})
+				trackedMu.Unlock()
 
 				if svc.checkHealth {
 					port := svc.portFn()
@@ -261,18 +275,41 @@ func runVectis(cmd *cobra.Command, args []string) {
 		logger.Info("Stage %d started successfully", stage)
 	}
 
-	for i, c := range commands {
-		if err := c.Wait(); err != nil {
-			shuttingDownMu.Lock()
-			ok := shuttingDown
-			shuttingDownMu.Unlock()
+	trackedMu.Lock()
+	toWait := make([]trackedCmd, len(tracked))
+	copy(toWait, tracked)
+	trackedMu.Unlock()
 
-			if ok {
-				return
-			}
+	exitCh := make(chan struct {
+		binary string
+		err    error
+	}, len(toWait))
 
-			logger.Fatal("%s exited: %v", orderedServices[i].binary, err)
+	for _, t := range toWait {
+		t := t
+		go func() {
+			exitCh <- struct {
+				binary string
+				err    error
+			}{t.binary, t.cmd.Wait()}
+		}()
+	}
+
+	for range toWait {
+		ex := <-exitCh
+		if ex.err == nil {
+			continue
 		}
+
+		shuttingDownMu.Lock()
+		ok := shuttingDown
+		shuttingDownMu.Unlock()
+
+		if ok {
+			return
+		}
+
+		logger.Fatal("%s exited: %v", ex.binary, ex.err)
 	}
 }
 
