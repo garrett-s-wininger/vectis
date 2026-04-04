@@ -1,6 +1,7 @@
 [api]
 host = "localhost"
 port = 8080
+log_format = "text"
 
 [queue]
 port = 8081

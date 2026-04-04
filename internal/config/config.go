@@ -49,6 +49,7 @@ type Defaults struct {
 type APIDefaults struct {
 	Host            string `toml:"host"`
 	Port            int    `toml:"port"`
+	LogFormat       string `toml:"log_format"`
 	RegistryAddress string `toml:"registry.address"`
 	QueueAddress    string `toml:"queue.address"`
 }
@@ -596,6 +597,20 @@ func effectiveListenPort(defaultPort func() int) int {
 
 func APIEffectiveListenPort() int {
 	return effectiveListenPort(APIPort)
+}
+
+func APILogFormat() string {
+	d := MustDefaults()
+	s := strings.ToLower(strings.TrimSpace(viper.GetString("log_format")))
+	if s == "" {
+		s = strings.ToLower(strings.TrimSpace(d.API.LogFormat))
+	}
+
+	if s == "" {
+		return "text"
+	}
+
+	return s
 }
 
 func QueueEffectiveListenPort() int {

@@ -16,6 +16,15 @@ Executables are built as **`bin/vectis-<name>`** (e.g. `bin/vectis-api` after `m
 
 **Log verbosity** — Set **`VECTIS_<PREFIX>_LOG_LEVEL`** to `debug`, `info`, `warn`, or `error` (prefix from the table). For **`vectis-local`**, also **`VECTIS_LOCAL_LOG_LEVEL`**; if a child service ignores the level you expect, set that child’s `…_LOG_LEVEL` explicitly (e.g. **`VECTIS_API_SERVER_LOG_LEVEL`** for `vectis-api`).
 
+**API correlation and access logs** (`vectis-api` only) — Shipped default is **`api.log_format` = `text`** in [`internal/config/defaults.toml`](../internal/config/defaults.toml). Override with **`VECTIS_API_SERVER_LOG_FORMAT`**:
+
+| Value | Behavior |
+| --- | --- |
+| **`text`** (default) | Every response still gets a stable **`X-Request-ID`** header (see below), but there is **no** per-request JSON access line on stderr. |
+| **`json`** | One JSON object per HTTP request on stderr (fields include `correlation_id`, `method`, `http_route`, `status`, `duration`). **`/health/*`** and **`/metrics`** are excluded. Access lines use **INFO** so they still appear when **`LOG_LEVEL`** is `warn` or `error`. |
+
+**Incoming request IDs:** If the client sends a valid **`X-Request-ID`** or **`X-Correlation-ID`** (printable ASCII, length ≤ 128), that value is reused and echoed as **`X-Request-ID`**. Otherwise the API generates a new UUID. Invalid or oversized values are ignored.
+
 ## Database (every service that uses the DB)
 
 These two variables are **global** (no per-service prefix). Every component that talks to the database must use the **same** values.
@@ -81,6 +90,8 @@ Replace `…` with the correct prefix from the next section (e.g. `VECTIS_WORKER
 | Goal | What to set |
 | --- | --- |
 | Change API HTTP port | `VECTIS_API_SERVER_PORT` or `--port` on `vectis-api` |
+| Structured API access logs (JSON) | `VECTIS_API_SERVER_LOG_FORMAT=json` |
+| Correlate API requests (header) | Responses include **`X-Request-ID`**; send **`X-Request-ID`** or **`X-Correlation-ID`** to propagate your own ID |
 | PostgreSQL | `VECTIS_DATABASE_DRIVER=pgx` and `VECTIS_DATABASE_DSN=postgres://…` on **all** DB consumers; tune pool with **`VECTIS_DATABASE_PGX_*`** ([above](#postgresql-connection-pool-pgx-only)) |
 | Pin queue to `host:8081` for workers | `VECTIS_WORKER_WORKER_QUEUE_ADDRESS` (or shared `VECTIS_WORKER_DISCOVERY_QUEUE_ADDRESS`) |
 | Queue backlog on disk | `VECTIS_QUEUE_PERSISTENCE_DIR` (empty disables persistence—see `vectis-queue --help`) |

@@ -14,12 +14,7 @@ func instrumentHTTPServer(next http.Handler) http.Handler {
 }
 
 func apiHTTPInstrumentationFilter(r *http.Request) bool {
-	switch r.URL.Path {
-	case "/metrics", "/health/live", "/health/ready":
-		return false
-	default:
-		return true
-	}
+	return !apiHTTPExcludedFromAuxLogging(r)
 }
 
 func apiHTTPSpanName(_ string, r *http.Request) string {

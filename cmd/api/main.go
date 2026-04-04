@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -56,6 +58,11 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 
 	server := api.NewAPIServer(logger, db)
 	server.MetricsHandler = metricsHandler
+	if strings.EqualFold(config.APILogFormat(), "json") {
+		server.AccessLogger = slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+			Level: slog.LevelInfo,
+		}))
+	}
 
 	if err := server.ConnectToQueue(cmd.Context()); err != nil {
 		logger.Fatal("Failed to connect to services: %v", err)

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -1191,5 +1192,59 @@ func TestAPIServer_ForceRequeueRun_RunningConflict(t *testing.T) {
 
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("expected status %d, got %d", http.StatusConflict, rec.Code)
+	}
+}
+
+func TestAPIServer_Handler_SetsXRequestID(t *testing.T) {
+	t.Parallel()
+	srv, _, _, _ := setupTestServer(t)
+	h := srv.Handler()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/health/live", nil)
+	h.ServeHTTP(rec, req)
+
+	if rec.Header().Get("X-Request-ID") == "" {
+		t.Fatal("expected X-Request-ID on response")
+	}
+}
+
+func TestAPIServer_Handler_AccessLogJSON(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	srv, _, _, _ := setupTestServer(t)
+	srv.AccessLogger = slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	h := srv.Handler()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d", rec.Code)
+	}
+
+	var payload struct {
+		Msg           string `json:"msg"`
+		CorrelationID string `json:"correlation_id"`
+		Method        string `json:"method"`
+		Status        int    `json:"status"`
+		HTTPRoute     string `json:"http_route"`
+	}
+
+	if err := json.Unmarshal(buf.Bytes(), &payload); err != nil {
+		t.Fatalf("parse access log: %v, raw=%q", err, buf.String())
+	}
+
+	if payload.Msg != "http_request" {
+		t.Fatalf("msg=%q", payload.Msg)
+	}
+
+	if payload.CorrelationID == "" || payload.Method != "GET" || payload.Status != http.StatusOK {
+		t.Fatalf("%+v", payload)
+	}
+
+	if payload.HTTPRoute != "GET /api/v1/jobs" {
+		t.Fatalf("http_route=%q", payload.HTTPRoute)
 	}
 }

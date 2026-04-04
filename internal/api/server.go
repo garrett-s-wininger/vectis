@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"strconv"
@@ -18,6 +19,7 @@ import (
 	"vectis/internal/dal"
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
+	"vectis/internal/observability"
 	"vectis/internal/queueclient"
 	"vectis/internal/resolver"
 
@@ -48,6 +50,9 @@ type APIServer struct {
 	dbUnavailable  atomic.Bool
 	healthDB       *sql.DB
 	MetricsHandler http.Handler
+	// AccessLogger, when set, writes one structured slog record per HTTP request
+	// (typically JSON on stderr). Health and /metrics are excluded.
+	AccessLogger *slog.Logger
 }
 
 func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
@@ -782,7 +787,10 @@ func (s *APIServer) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/runs/{id}/force-fail", s.ForceFailRun)
 	mux.HandleFunc("POST /api/v1/runs/{id}/force-requeue", s.ForceRequeueRun)
 
-	return instrumentHTTPServer(mux)
+	h := http.Handler(mux)
+	h = accessLogMiddleware(s.AccessLogger, apiHTTPExcludedFromAuxLogging, h)
+	h = observability.CorrelationMiddleware(h)
+	return instrumentHTTPServer(h)
 }
 
 func (s *APIServer) runHTTPServer(ctx context.Context, srv *http.Server, serve func() error) error {
