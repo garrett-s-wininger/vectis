@@ -42,6 +42,10 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		logger.Fatal("Failed to initialize metrics: %v", err)
 	}
 
+	if err := observability.RegisterSQLDBPoolMetrics(db); err != nil {
+		logger.Fatal("Failed to register DB pool metrics: %v", err)
+	}
+
 	defer func() {
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

@@ -2,6 +2,7 @@ package observability
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"os"
@@ -12,7 +13,8 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/prometheus"
-	"go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/metric"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
 )
@@ -34,9 +36,9 @@ func InitAPIMetrics(ctx context.Context) (metrics http.Handler, shutdown func(co
 		return nil, nil, fmt.Errorf("resource: %w", err)
 	}
 
-	mp := metric.NewMeterProvider(
-		metric.WithReader(exp),
-		metric.WithResource(res),
+	mp := sdkmetric.NewMeterProvider(
+		sdkmetric.WithReader(exp),
+		sdkmetric.WithResource(res),
 	)
 	otel.SetMeterProvider(mp)
 
@@ -67,4 +69,40 @@ func apiResource(ctx context.Context) (*resource.Resource, error) {
 			attribute.String("deployment.environment", env),
 		),
 	)
+}
+
+func RegisterSQLDBPoolMetrics(db *sql.DB) error {
+	if db == nil {
+		return fmt.Errorf("RegisterSQLDBPoolMetrics: db is nil")
+	}
+
+	m := otel.Meter("vectis/database/sql")
+
+	openG, err := m.Int64ObservableGauge("db_client_connections_open",
+		metric.WithDescription("Open connections in the database/sql pool"),
+		metric.WithUnit("{connection}"))
+
+	if err != nil {
+		return fmt.Errorf("db_client_connections_open: %w", err)
+	}
+
+	inUseG, err := m.Int64ObservableGauge("db_client_connections_in_use",
+		metric.WithDescription("Connections currently in use (executing a query)"),
+		metric.WithUnit("{connection}"))
+	if err != nil {
+		return fmt.Errorf("db_client_connections_in_use: %w", err)
+	}
+
+	_, err = m.RegisterCallback(func(_ context.Context, o metric.Observer) error {
+		st := db.Stats()
+		o.ObserveInt64(openG, int64(st.OpenConnections))
+		o.ObserveInt64(inUseG, int64(st.InUse))
+		return nil
+	}, openG, inUseG)
+
+	if err != nil {
+		return fmt.Errorf("register db pool callback: %w", err)
+	}
+
+	return nil
 }

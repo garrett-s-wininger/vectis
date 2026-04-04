@@ -782,7 +782,7 @@ func (s *APIServer) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/runs/{id}/force-fail", s.ForceFailRun)
 	mux.HandleFunc("POST /api/v1/runs/{id}/force-requeue", s.ForceRequeueRun)
 
-	return mux
+	return instrumentHTTPServer(mux)
 }
 
 func (s *APIServer) runHTTPServer(ctx context.Context, srv *http.Server, serve func() error) error {
