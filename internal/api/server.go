@@ -30,8 +30,10 @@ import (
 const (
 	defaultForceFailReason = "manually failed via API"
 
-	defaultShutdownTimeout = 30 * time.Second
-	healthDBPingTimeout    = 2 * time.Second
+	defaultShutdownTimeout   = 30 * time.Second
+	healthDBPingTimeout      = 2 * time.Second
+	defaultReadHeaderTimeout = 10 * time.Second
+	defaultIdleTimeout       = 120 * time.Second
 )
 
 type APIServer struct {
@@ -686,16 +688,14 @@ func (s *APIServer) HandleSSEJobRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Ensure headers are flushed immediately so clients don't block waiting
-	// for the first data event.
-	_, _ = w.Write([]byte(": connected\n\n"))
-	flusher.Flush()
-
 	ctx := r.Context()
 	ch := s.runBroadcaster.Subscribe(jobID)
 	defer s.runBroadcaster.Unsubscribe(jobID, ch)
 
 	s.logger.Info("SSE client subscribed to runs for job: %s", jobID)
+
+	_, _ = w.Write([]byte(": connected\n\n"))
+	flusher.Flush()
 
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -771,15 +771,23 @@ func (s *APIServer) runHTTPServer(ctx context.Context, srv *http.Server, serve f
 
 func (s *APIServer) Run(ctx context.Context, addr string) error {
 	srv := &http.Server{
-		Addr:    addr,
-		Handler: s.Handler(),
+		Addr:              addr,
+		Handler:           s.Handler(),
+		ReadHeaderTimeout: defaultReadHeaderTimeout,
+		IdleTimeout:       defaultIdleTimeout,
 	}
+
 	s.logger.Info("API server listening on %s", addr)
 	return s.runHTTPServer(ctx, srv, srv.ListenAndServe)
 }
 
 func (s *APIServer) Serve(ctx context.Context, l net.Listener) error {
-	srv := &http.Server{Handler: s.Handler()}
+	srv := &http.Server{
+		Handler:           s.Handler(),
+		ReadHeaderTimeout: defaultReadHeaderTimeout,
+		IdleTimeout:       defaultIdleTimeout,
+	}
+
 	s.logger.Info("API server serving on %s", l.Addr().String())
 	return s.runHTTPServer(ctx, srv, func() error { return srv.Serve(l) })
 }

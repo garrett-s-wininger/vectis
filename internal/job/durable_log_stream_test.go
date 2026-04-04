@@ -150,11 +150,11 @@ func TestDurableLogStream_FlushesAllChunksOnClose(t *testing.T) {
 	}
 
 	const n = 500
-	for i := 0; i < n; i++ {
+	for i := range n {
 		rid := "run-test"
 		seq := int64(i + 1)
 		st := api.Stream_STREAM_STDOUT
-		if err := d.Send(&api.LogChunk{RunId: &rid, Sequence: &seq, Stream: &st, Data: []byte(fmt.Sprintf("line-%d", i))}); err != nil {
+		if err := d.Send(&api.LogChunk{RunId: &rid, Sequence: &seq, Stream: &st, Data: fmt.Appendf(nil, "line-%d", i)}); err != nil {
 			t.Fatalf("send %d: %v", i, err)
 		}
 	}
@@ -183,14 +183,14 @@ func TestDurableLogStream_FlushesAllChunksWithConcurrentSenders(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(workers)
 
-	for w := 0; w < workers; w++ {
+	for w := range workers {
 		go func(worker int) {
 			defer wg.Done()
-			for i := 0; i < perWorker; i++ {
+			for i := range perWorker {
 				rid := "run-test-concurrent"
 				seq := int64((worker * perWorker) + i + 1)
 				st := api.Stream_STREAM_STDOUT
-				_ = d.Send(&api.LogChunk{RunId: &rid, Sequence: &seq, Stream: &st, Data: []byte(fmt.Sprintf("w%d-%d", worker, i))})
+				_ = d.Send(&api.LogChunk{RunId: &rid, Sequence: &seq, Stream: &st, Data: fmt.Appendf(nil, "w%d-%d", worker, i)})
 			}
 		}(w)
 	}
@@ -208,7 +208,7 @@ func TestDurableLogStream_FlushesAllChunksWithConcurrentSenders(t *testing.T) {
 }
 
 func TestDurableLogStream_NoSpuriousLossAcrossRapidClose(t *testing.T) {
-	for iter := 0; iter < 50; iter++ {
+	for iter := range 50 {
 		logClient := mocks.NewMockLogClient()
 		logger := mocks.NewMockLogger()
 
@@ -218,7 +218,7 @@ func TestDurableLogStream_NoSpuriousLossAcrossRapidClose(t *testing.T) {
 		}
 
 		const n = 80
-		for i := 0; i < n; i++ {
+		for i := range n {
 			rid := fmt.Sprintf("run-%d", iter)
 			seq := int64(i + 1)
 			st := api.Stream_STREAM_STDOUT

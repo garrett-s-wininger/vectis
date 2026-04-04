@@ -105,8 +105,7 @@ func TestLeaseRenewalLoop_ReclaimsOrphanedRun(t *testing.T) {
 		renewInterval: 5 * time.Millisecond,
 	}
 
-	execCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	execCtx := t.Context()
 
 	stopRenew := make(chan struct{})
 	doneRenew := make(chan struct{})

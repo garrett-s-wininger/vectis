@@ -26,6 +26,10 @@ import (
 const (
 	MaxLogLinesPerJob = 10000
 	MaxSSEClients     = 100
+
+	sseReadHeaderTimeout = 10 * time.Second
+	sseIdleTimeout       = 120 * time.Second
+	sseShutdownTimeout   = 30 * time.Second
 )
 
 type LogEntry struct {
@@ -217,18 +221,19 @@ func (s *Server) HandleSSE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Send a small comment immediately so the HTTP response is started.
-	_, _ = w.Write([]byte(": connected\n\n"))
-	flusher.Flush()
-
-	s.logger.Info("SSE client connected for run: %s", runID)
-
 	buffer := s.getOrCreateBuffer(runID)
 	outCh := make(chan []byte, 256)
 	buffer.Subscribe(outCh)
 	defer func() {
 		buffer.Unsubscribe(outCh)
 	}()
+
+	s.logger.Info("SSE client connected for run: %s", runID)
+
+	// Subscribe before any body bytes so log lines are not dropped if the client
+	// or another goroutine races the first flush (same ordering as API run SSE).
+	_, _ = w.Write([]byte(": connected\n\n"))
+	flusher.Flush()
 
 	ctx := r.Context()
 	completed := make(chan struct{})
@@ -471,15 +476,21 @@ func (s *Server) RunSSE(ctx context.Context, port string) error {
 	mux.HandleFunc("/sse/logs/{id}", s.HandleSSE)
 
 	server := &http.Server{
-		Addr:    port,
-		Handler: mux,
+		Addr:              port,
+		Handler:           mux,
+		ReadHeaderTimeout: sseReadHeaderTimeout,
+		IdleTimeout:       sseIdleTimeout,
 	}
 
 	s.logger.Info("SSE log server listening on %s", port)
 
 	go func() {
 		<-ctx.Done()
-		server.Shutdown(context.Background())
+		shutCtx, cancel := context.WithTimeout(context.Background(), sseShutdownTimeout)
+		defer cancel()
+		if err := server.Shutdown(shutCtx); err != nil {
+			s.logger.Warn("SSE log server shutdown: %v", err)
+		}
 	}()
 
 	err := server.ListenAndServe()

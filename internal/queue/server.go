@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -261,9 +262,7 @@ func (s *queueServer) snapshotAfterAckLocked(deliveryID string) snapshotState {
 
 func (s *queueServer) copyInflightLocked() map[string]inflightDelivery {
 	out := make(map[string]inflightDelivery, len(s.inflight))
-	for k, v := range s.inflight {
-		out[k] = v
-	}
+	maps.Copy(out, s.inflight)
 
 	return out
 }
