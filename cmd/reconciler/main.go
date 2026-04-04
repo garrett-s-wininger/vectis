@@ -91,7 +91,7 @@ func init() {
 }
 
 func main() {
-	if err := rootCmd.Execute(); err != nil {
+	if err := cli.ExecuteWithShutdownSignals(rootCmd); err != nil {
 		os.Exit(1)
 	}
 }

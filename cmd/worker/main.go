@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -42,14 +40,12 @@ const (
 )
 
 func runWorker(cmd *cobra.Command, args []string) {
-	baseCtx := cmd.Context()
-	if baseCtx == nil {
-		baseCtx = context.Background()
+	shutdownCtx := cmd.Context()
+	if shutdownCtx == nil {
+		shutdownCtx = context.Background()
 	}
 
-	shutdownCtx, stop := signal.NotifyContext(baseCtx, os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
+	runCtx := context.Background()
 	logger := interfaces.NewLogger("worker")
 	cli.SetLogLevel(logger)
 
@@ -86,7 +82,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 
 	w := &worker{
 		ctx:           shutdownCtx,
-		runCtx:        baseCtx,
+		runCtx:        runCtx,
 		logger:        logger,
 		workerID:      workerID,
 		clock:         interfaces.SystemClock{},
@@ -103,7 +99,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 
 type worker struct {
 	ctx                context.Context // canceled on SIGINT/SIGTERM; dequeue and between-job backoff only
-	runCtx             context.Context // not signal-scoped; execution, lease renew, ack, finalize
+	runCtx             context.Context // Background; execution, lease renew, ack, finalize survive SIGTERM until dequeue stops
 	logger             interfaces.Logger
 	workerID           string
 	clock              interfaces.Clock
@@ -510,7 +506,7 @@ func init() {
 }
 
 func main() {
-	if err := rootCmd.Execute(); err != nil {
+	if err := cli.ExecuteWithShutdownSignals(rootCmd); err != nil {
 		os.Exit(1)
 	}
 }

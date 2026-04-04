@@ -1,11 +1,7 @@
 package main
 
 import (
-	"context"
-	"os"
-	"os/signal"
 	"path/filepath"
-	"syscall"
 
 	"vectis/internal/cli"
 	"vectis/internal/dal"
@@ -20,16 +16,8 @@ import (
 )
 
 func main() {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
-	go func() {
-		<-sigCh
-		cancel()
-	}()
+	ctx, stop := cli.RootContextForShutdown()
+	defer stop()
 
 	viper.SetEnvPrefix("VECTIS_LOG")
 	viper.AutomaticEnv()

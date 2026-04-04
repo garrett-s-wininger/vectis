@@ -1,11 +1,8 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -43,17 +40,9 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		logger.Fatal("Failed to connect to services: %v", err)
 	}
 
-	baseCtx := cmd.Context()
-	if baseCtx == nil {
-		baseCtx = context.Background()
-	}
-
-	ctx, stop := signal.NotifyContext(baseCtx, os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
 	port := config.APIEffectiveListenPort()
 	addr := fmt.Sprintf(":%d", port)
-	if err := server.Run(ctx, addr); err != nil {
+	if err := server.Run(cmd.Context(), addr); err != nil {
 		logger.Fatal("Server failed: %v", err)
 	}
 }
@@ -73,7 +62,7 @@ func init() {
 }
 
 func main() {
-	if err := rootCmd.Execute(); err != nil {
+	if err := cli.ExecuteWithShutdownSignals(rootCmd); err != nil {
 		os.Exit(1)
 	}
 }
