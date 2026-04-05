@@ -48,10 +48,10 @@ flowchart LR
 | Process | Role |
 | --- | --- |
 | **vectis-registry** | Service discovery: queue and log register; consumers resolve addresses when not pinned in config. |
-| **vectis-queue** | FIFO work queue: enqueue from API, cron, reconciler; dequeue to workers. Optional on-disk persistence (WAL/snapshot) for backlog and in-flight delivery metadata. |
-| **vectis-api** | REST API for job definitions and runs; writes to the database; submits work to the queue; exposes HTTP including run-event streaming, **`/health/live`**, and **`/health/ready`** for orchestration. |
-| **vectis-worker** | Pulls jobs from the queue; opens a log stream to the log service; executes the job graph (built-in and extensible actions); updates run state in the database. One job at a time per process. |
-| **vectis-log** | Accepts log streams from workers; serves log output to consumers over a separate HTTP port. |
+| **vectis-queue** | FIFO work queue: enqueue from API, cron, reconciler; dequeue to workers. Optional on-disk persistence (WAL/snapshot) for backlog and in-flight delivery metadata. Separate HTTP **`/metrics`** endpoint (default port **9081**). |
+| **vectis-api** | REST API for job definitions and runs; writes to the database; submits work to the queue; exposes HTTP including run-event streaming, **`/health/live`**, **`/health/ready`**, and **`/metrics`** (Prometheus) on the same listener. |
+| **vectis-worker** | Pulls jobs from the queue; opens a log stream to the log service; executes the job graph (built-in and extensible actions); updates run state in the database. One job at a time per process. Separate HTTP **`/metrics`** (default **9082**). |
+| **vectis-log** | Accepts log streams from workers; serves log output to consumers over a separate HTTP port. Separate HTTP **`/metrics`** (default **9083**). |
 | **vectis-cron** | Reads schedules from the database; enqueues runs when due. |
 | **vectis-reconciler** | Periodically finds runs that are queued in the database but need another queue submission (e.g. after a partial failure path); enqueues them. |
 | **vectis-local** | Single entrypoint that starts registry, queue, log, worker, cron, reconciler, and API together for local development. |
@@ -67,6 +67,8 @@ Default listen addresses are defined in [`internal/config/defaults.toml`](../int
 | Registry gRPC | 8082 | Registration and resolution |
 | Log gRPC | 8083 | Worker log ingest |
 | Log HTTP | 8084 | Log streaming to consumers |
+
+**Prometheus metrics (`/metrics`):** **`vectis-api`** serves metrics on the **same HTTP port as REST** (**8080** by default). **`vectis-queue`**, **`vectis-worker`**, and **`vectis-log`** use **dedicated metrics ports** by default (**9081**, **9082**, **9083**) so gRPC/SSE stay separate. Override via flags/env per [CONFIGURATION.md](CONFIGURATION.md). Implementation: OpenTelemetry Go metrics with a Prometheus exporter (`internal/observability/`).
 
 **gRPC contracts** live under `api/proto/` (generated Go in `api/gen/go/`). **REST** is documented in the table below; there is no OpenAPI artifact in-tree today.
 
@@ -104,6 +106,7 @@ Details and roadmap notes: [PLANNING.md](PLANNING.md) §2.5.
 | --- | --- | --- |
 | GET | `/health/live` | Liveness (process serving HTTP) |
 | GET | `/health/ready` | Readiness (DB + managing queue gRPC **READY** when applicable) |
+| GET | `/metrics` | Prometheus metrics (OTEL → Prometheus; not authenticated) |
 | GET | `/api/v1/jobs` | List job definitions |
 | POST | `/api/v1/jobs` | Create job |
 | GET | `/api/v1/jobs/{id}` | Get job definition |
@@ -118,7 +121,7 @@ There is **no** authentication, projects API, artifact API, or HTTP cancel endpo
 
 ## Configuration
 
-Environment-driven configuration uses **`VECTIS_*`** prefixes per binary; nested keys follow the project’s viper conventions. See [CONFIGURATION.md](CONFIGURATION.md) for env names, flags, discovery, and data paths; [README.md](../README.md) for quick-start notes; [`internal/config/defaults.toml`](../internal/config/defaults.toml) for compiled-in defaults.
+Environment-driven configuration uses **`VECTIS_*`** prefixes per binary; nested keys follow the project’s viper conventions. See [CONFIGURATION.md](CONFIGURATION.md) for env names, flags, discovery, data paths, and **`/metrics`** ports; [PLANNING.md](PLANNING.md) §10 for the metrics/Grafana story; [README.md](../README.md) for quick-start notes; [`internal/config/defaults.toml`](../internal/config/defaults.toml) for compiled-in defaults.
 
 ## Related documentation
 

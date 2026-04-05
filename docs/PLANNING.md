@@ -16,13 +16,13 @@ These goals are **ambitious** and **coherent**: some items (uniform distributed 
 - **Scale and recovery:** Components **scale out** where state and contracts allow. **Job-level** automation that **re-executes or mutates external effects** (retries, remediation, “self-heal” of work) is **operator opt-in** and only where work is **explicitly marked safe**. **Process-level** restart or replacement (e.g. a crashed worker) is normal operations and does **not** assume job idempotence.
 - **Explicit safety:** **Generic jobs** and **CI** patterns are first-class, but **no operation is assumed safe by default**—**design intent** where code still defaults broadly today.
 - **Bounded extensibility:** Extend through **documented hooks** and structured surfaces (today: **job actions** and JSON/proto-shaped jobs in [ARCHITECTURE.md](ARCHITECTURE.md)), **not** unconstrained scripting across the control plane. A richer **hook catalog** is **roadmap**; the aim is capability **without** Jenkins-style arbitrary plugin sprawl.
-- **Deploy posture (intent):** Aim for **one primary, fully capable deploy path**: **storage**, **all Vectis components**, and **clear integration points for observability** (metrics, traces, logs toward **OpenTelemetry-compatible** sinks)—**without** mandating a single vendor observability distro. The repo ships **testing- and CI-suitable** defaults (`vectis-local`, Podman Kube spec with Postgres—§14); **production** is expected to use **bring-your-own PostgreSQL** and **bring-your-own telemetry backends** where operators already run them. Instrumentation and env wiring are still **partial**; see §16 (observability) and logging notes in §6.
+- **Deploy posture (intent):** Aim for **one primary, fully capable deploy path**: **storage**, **all Vectis components**, and **clear integration points for observability** (metrics, traces, logs toward **OpenTelemetry-compatible** sinks)—**without** mandating a single vendor observability distro. The repo ships **testing- and CI-suitable** defaults (`vectis-local`, Podman Kube spec with Postgres—§14); **production** is expected to use **bring-your-own PostgreSQL** and **bring-your-own telemetry backends** where operators already run them. **Prometheus `/metrics`** on **`vectis-api`**, **`vectis-queue`**, **`vectis-worker`**, and **`vectis-log`** (OTEL SDK → Prometheus exporter) is **shipped**, with **ports and env** in [CONFIGURATION.md](CONFIGURATION.md). The **Podman kube spec** also bundles **Prometheus + Grafana** and a reference dashboard (`deploy/grafana/dashboards/`, `make grafana-kube-configmaps`). **Distributed traces**, **centralized service log aggregation**, and **production-grade** alerting/backends remain **roadmap** (see §10, §16, §6.2).
 
 **Technical baseline (today)**
 
 - **Protocols:** gRPC between internal services; JSON REST at the API edge—[ARCHITECTURE.md](ARCHITECTURE.md).
 - **Persistence:** **SQLite** by default; **PostgreSQL** via `pgx` with the same embedded migrations (§2.5, [CONFIGURATION.md](CONFIGURATION.md)). Supporting **every** SQL vendor or dialect is **not** a goal. Multi-instance and HA are **operational** concerns on the Postgres path.
-- **Dependencies and environments:** No required external services beyond storage for the current stack. Local full stack: **`vectis-local`**; containerized deploy: Podman and **`make deploy-podman`** ([README.md](../README.md), §14). **BYO Postgres and BYO observability sinks** are the expected production shape once you outgrow bundled defaults; telemetry export remains **target-heavy** today. Initial scale target: **hundreds of builds per day** until benchmarks justify more. **Dogfooding** (Vectis builds Vectis in CI) remains an aspiration.
+- **Dependencies and environments:** No required external services beyond storage for the current stack. Local full stack: **`vectis-local`**; containerized deploy: Podman and **`make deploy-podman`** ([README.md](../README.md), §14). **BYO Postgres and BYO observability sinks** are the expected production shape once you outgrow bundled defaults; **service metrics** are **scrapable Prometheus** on the four components above, while **full OTEL pipelines** (traces, log export, vendor distros) are still **operator-chosen**. Initial scale target: **hundreds of builds per day** until benchmarks justify more. **Dogfooding** (Vectis builds Vectis in CI) remains an aspiration.
 
 **Naming conventions (implemented vs target):**
 
@@ -74,7 +74,7 @@ Milestones build on the current stack; order is indicative.
 - **API:** authentication/authorization when exposed beyond trusted networks (current posture: [SECURITY.md](SECURITY.md)).
 - **Cancellation:** API → worker control path (no `WorkerControl` gRPC today).
 - **List jobs:** cursor pagination (`internal/api/server.go` TODOs).
-- **Durability / observability:** **`vectis-reconciler`** covers DB–queue gaps after async enqueue; tighten **monitoring**, client-visible status for failed handoffs, and any remaining edge cases (see `RunJob` commentary in `internal/api/server.go`).
+- **Durability / observability:** **`vectis-reconciler`** covers DB–queue gaps after async enqueue; tighten **reconciler- and handoff-specific** visibility (alerts, client-visible status for failed handoffs) and any remaining edge cases (see `RunJob` commentary in `internal/api/server.go`). Baseline **service metrics** for API, queue, worker, and log are **shipped** (§10).
 
 ### Milestone C — Queue evolution (optional)
 
@@ -90,7 +90,7 @@ Milestones build on the current stack; order is indicative.
 
 ### Milestone F — Operations at scale
 
-- **PostgreSQL** in production (supported today—**HA**, backup, and pool tuning are ops concerns); **queue persistence** is shipped—focus on **backup of queue data**, replication story if needed; **metrics/tracing**; **benchmarks** vs §17 goals.
+- **PostgreSQL** in production (supported today—**HA**, backup, and pool tuning are ops concerns); **queue persistence** is shipped—focus on **backup of queue data**, replication story if needed; **distributed tracing**, **Postgres exporter**-class signals, and **benchmarks** vs §17 goals (initial **Prometheus metrics** pass for core services is **done**—§10).
 
 ---
 
@@ -225,7 +225,7 @@ Workers stream **gRPC** `StreamLogs` to the log service (default port **8083**).
 
 **Secrets:** Vault or encrypted local store; worker fetch at runtime — **target** (checkout may use env today).
 
-**System / component logs:** stdout, files, or OTEL — **target** ops concern.
+**System / component logs:** processes still log primarily to **stderr** (structured JSON optional on the API—[CONFIGURATION.md](CONFIGURATION.md)). **Central aggregation** (Loki, cloud log sinks, OTEL log export) is a **target** ops concern. **Prometheus metrics** for core services are **shipped** (§10).
 
 ---
 
@@ -253,9 +253,11 @@ Workers stream **gRPC** `StreamLogs` to the log service (default port **8083**).
 
 ## 10. Metrics and observability
 
-**Target:** OTEL-style pipelines (e.g. Alloy → Loki/Tempo/Prometheus) and job lifecycle metrics (queue depth, latency, worker utilization). **Shipped:** minimal; add instrumentation as milestones land.
+**Shipped (initial metrics pass):** **`vectis-api`**, **`vectis-queue`**, **`vectis-worker`**, and **`vectis-log`** expose **Prometheus** **`/metrics`** (OpenTelemetry Go metrics → Prometheus exporter). Instrumentation includes, among other things, **HTTP request metrics** (API), **queue depth / in-flight deliveries**, **worker job outcomes and duration**, **log gRPC/SSE pressure** (chunks, drops, active SSE), and **`database/sql` pool gauges** where the process uses a DB. **Listen ports** default to **8080** (API, metrics on same HTTP server), **9081** (queue), **9082** (worker), **9083** (log)—overridable; see [CONFIGURATION.md](CONFIGURATION.md). The **Podman kube** reference ([`deploy/podman/kube-spec.yaml`](../deploy/podman/kube-spec.yaml)) runs **Prometheus** scraping those targets and **Grafana** with a bundled overview dashboard (`deploy/grafana/dashboards/`; regenerate `deploy/podman/grafana-configmaps.gen.yaml` via **`make grafana-kube-configmaps`** when dashboards change).
 
-Operator-facing **log/run streaming** is **§6.1** and [ARCHITECTURE.md](ARCHITECTURE.md) (protocols / REST).
+**Target / next passes:** OTEL **traces** end-to-end, **centralized service logs** (Loki/ELK/etc.), **postgres_exporter** or managed DB metrics, richer SLOs and alerting, and optional **Alloy**-style fan-out—without mandating one vendor stack.
+
+Operator-facing **log/run streaming** (job output) is **§6.1** and [ARCHITECTURE.md](ARCHITECTURE.md) (protocols / REST)—distinct from **component** `/metrics`.
 
 ---
 
@@ -302,13 +304,13 @@ make build
 
 ### Production
 
-**Intent:** One coherent deploy (storage + all services + **hooks for** observability); bundled Kube spec and `vectis-local` are **dev/CI-capable** defaults. Operators typically **bring their own Postgres** and **OTEL-compatible** (or equivalent) backends at scale—aligned with §1 **Deploy posture** and §16.
+**Intent:** One coherent deploy (storage + all services + **observability integration points**). Core services **emit Prometheus metrics** (`/metrics`); the bundled Kube spec also runs **Prometheus + Grafana** as a **reference** stack. Operators typically **bring their own Postgres** and may **replace or extend** telemetry (traces, log aggregation, long-term metrics storage) with **OTEL-compatible** or equivalent backends at scale—aligned with §1 **Deploy posture** and §16.
 
 **Podman**
 
-**Shipped reference:** [`deploy/podman/kube-spec.yaml`](../deploy/podman/kube-spec.yaml) and **`make deploy-podman`** (`podman play kube`) — see [README.md](../README.md).
+**Shipped reference:** [`deploy/podman/kube-spec.yaml`](../deploy/podman/kube-spec.yaml) and **`make deploy-podman`** (`podman play kube`) — see [README.md](../README.md). The same spec includes **Prometheus** and **Grafana** alongside Vectis services for a **demo monitoring bundle** (see §10).
 
-**Compose-style example** (single-site, aligns with `defaults.toml` ports): registry **8082**, queue **8081**, log gRPC **8083**, log SSE **8084**, API **8080**. Workers and other services resolve addresses via **registry** in the shipped stack — wire `VECTIS_*` / config to match your images. Runnable with **`podman compose`** if you prefer that layout over the Kube spec.
+**Compose-style example** (single-site, aligns with `defaults.toml` ports): registry **8082**, queue **8081**, log gRPC **8083**, log SSE **8084**, API **8080**; **Prometheus scrape ports** for metrics: queue **9081**, worker **9082**, log **9083** (API metrics on **8080**). Workers and other services resolve addresses via **registry** in the shipped stack — wire `VECTIS_*` / config to match your images. Runnable with **`podman compose`** if you prefer that layout over the Kube spec.
 
 ```yaml
 services:
@@ -317,18 +319,19 @@ services:
     ports: ["8082:8082"]
   vectis-queue:
     image: vectis/queue:latest
-    ports: ["8081:8081"]
+    ports: ["8081:8081", "9081:9081"] # gRPC + /metrics
   vectis-log:
     image: vectis/log:latest
-    ports: ["8083:8083", "8084:8084"] # gRPC + SSE
+    ports: ["8083:8083", "8084:8084", "9083:9083"] # gRPC, SSE, /metrics
   vectis-api:
     image: vectis/api:latest
-    ports: ["8080:8080"]
+    ports: ["8080:8080"] # REST + /metrics
     environment:
       - VECTIS_DATABASE_DRIVER=sqlite3   # or pgx for Postgres
       - VECTIS_DATABASE_DSN=/var/lib/vectis/db.sqlite3   # or postgres://… on all DB consumers
   vectis-worker:
     image: vectis/worker:latest
+    ports: ["9082:9082"] # /metrics (optional; publish if Prometheus runs outside the pod network)
     # Same VECTIS_DATABASE_* as other writers; registry + optional pins per CONFIGURATION.md
   vectis-cron:
     image: vectis/cron:latest
@@ -362,7 +365,13 @@ services:
 
 [queue]
     port = 8081
+    metrics_port = 9081
 
+[worker]
+    metrics_port = 9082
+
+[log]
+    metrics_port = 9083
 [log.grpc]
     port = 8083
 [log.sse]
@@ -410,7 +419,7 @@ Mix of **shipped** behavior and **target** intent (see [ARCHITECTURE.md](ARCHITE
 | Heartbeat / orphans | Dedicated service + admin paths | Planned — reconciler differs today |
 | Artifacts & secrets | Pluggable storage; Vault-style secrets | Planned |
 | Multi-site | Federation model | Planned — **deferred**; [FEDERATION.md](FEDERATION.md) |
-| Observability | Metrics/traces/logs (e.g. Alloy / Grafana stack) | Planned |
+| Observability | Prometheus **metrics** on API, queue, worker, log; **Grafana + Prometheus** in Podman kube demo; traces / centralized logs / full OTEL stack | **Partial** — [CONFIGURATION.md](CONFIGURATION.md), §10, `deploy/grafana/dashboards/` |
 | Dogfooding CI | Vectis builds Vectis | Aspiration |
 
 ---

@@ -75,6 +75,8 @@ make build
 
 For Postgres (Podman/Kube), use `make deploy-podman`.
 
+If you change JSON under [`deploy/grafana/dashboards/`](deploy/grafana/dashboards/), regenerate the kube ConfigMap bundle with **`make grafana-kube-configmaps`** so [`deploy/podman/grafana-configmaps.gen.yaml`](deploy/podman/grafana-configmaps.gen.yaml) stays in sync (see [docs/PLANNING.md](docs/PLANNING.md) §10).
+
 **Single service** (for debugging): run the matching binary from `bin/` after `make build`. Each `cmd/<name>/main.go` defines flags and startup; components discover queue/log addresses via **registry** when that pattern is used (see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) or [docs/PLANNING.md](docs/PLANNING.md) §2).
 
 Ensure SQLite’s parent directory exists if you open the DB outside `vectis-local` (see `database.OpenDB` / `GetDBPath`).

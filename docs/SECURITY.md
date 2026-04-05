@@ -30,6 +30,10 @@ For outage behavior, see [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md). For configura
 
 Registry, queue, and log communicate over **gRPC** between processes. The codebase does not ship a standard **credentials** or **TLS** story for these calls—assume **the same trust zone** as your workers and API (e.g. private network). If you expose any of these ports beyond that zone, **assume compromise** of queue/log/registry implies ability to enqueue, observe, or disrupt work.
 
+## Prometheus `/metrics`
+
+**`vectis-api`** serves **`GET /metrics`** on the **same HTTP listener** as REST (see [ARCHITECTURE.md](ARCHITECTURE.md)). **`vectis-queue`**, **`vectis-worker`**, and **`vectis-log`** expose **`/metrics`** on **separate** listen ports ([CONFIGURATION.md](CONFIGURATION.md)). These endpoints are **not authenticated** and return **Prometheus** text (plus optional OpenMetrics). Restrict them to **trusted networks** (e.g. scrape from Prometheus inside the cluster/pod only) or block them at your edge—same practical posture as internal gRPC.
+
 ## Secrets and configuration
 
 - **Database:** `VECTIS_DATABASE_DSN` (and related env) often contains **passwords**. Follow your platform’s **secret store** practice (Kubernetes secrets, vault agents, etc.); avoid committing DSNs to repos or logging them.
