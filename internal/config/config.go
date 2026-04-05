@@ -116,6 +116,7 @@ type WorkerDefaults struct {
 	RegistryAddress string `toml:"registry.address"`
 	QueueAddress    string `toml:"queue.address"`
 	LogAddress      string `toml:"log.address"`
+	MetricsPort     int    `toml:"metrics_port"`
 }
 
 type CronDefaults struct {
@@ -188,6 +189,11 @@ func validateDefaults(d Defaults) {
 		panic("config defaults: database.dsn must not be empty")
 	}
 
+	validatePort(d.Worker.MetricsPort, "worker.metrics_port")
+	if d.Worker.MetricsPort == d.Queue.MetricsPort {
+		panic("config defaults: worker.metrics_port must differ from queue.metrics_port")
+	}
+
 	p := d.Database.PgxPool
 	if p.MaxOpenConns <= 0 {
 		panic("config defaults: database.pgx_pool.max_open_conns must be > 0")
@@ -229,6 +235,10 @@ func QueuePort() int {
 
 func QueueMetricsPort() int {
 	return MustDefaults().Queue.MetricsPort
+}
+
+func WorkerMetricsPort() int {
+	return MustDefaults().Worker.MetricsPort
 }
 
 func RegistryPort() int {
@@ -633,6 +643,14 @@ func QueueMetricsEffectiveListenPort() int {
 		return p
 	}
 	return QueueMetricsPort()
+}
+
+// WorkerMetricsEffectiveListenPort returns the HTTP /metrics listen port for vectis-worker.
+func WorkerMetricsEffectiveListenPort() int {
+	if p := viper.GetInt("metrics_port"); p > 0 {
+		return p
+	}
+	return WorkerMetricsPort()
 }
 
 func RegistryEffectiveListenPort() int {

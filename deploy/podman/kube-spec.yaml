@@ -54,6 +54,11 @@ data:
           - targets: ["127.0.0.1:9081"]
         metrics_path: /metrics
         scheme: http
+      - job_name: vectis-worker
+        static_configs:
+          - targets: ["127.0.0.1:9082"]
+        metrics_path: /metrics
+        scheme: http
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -189,6 +194,9 @@ spec:
     - name: worker
       image: vectis-worker:latest
       imagePullPolicy: Never
+      ports:
+        - containerPort: 9082
+          protocol: TCP
       env: *dbEnv
     - name: prometheus
       image: docker.io/prom/prometheus:v3.11.0-distroless

@@ -78,7 +78,7 @@ Replace `…` with the correct prefix from the next section (e.g. `VECTIS_WORKER
 | `vectis-api` | `VECTIS_API_SERVER` | `--port` |
 | `vectis-queue` | `VECTIS_QUEUE` | `--port`, `--metrics-port`, `--persistence-dir`, `--persistence-snapshot-every` |
 | `vectis-registry` | `VECTIS_REGISTRY` | `--port` |
-| `vectis-worker` | `VECTIS_WORKER` | — |
+| `vectis-worker` | `VECTIS_WORKER` | `--metrics-port` |
 | `vectis-cron` | `VECTIS_CRON` | — |
 | `vectis-reconciler` | `VECTIS_RECONCILER` | `--interval` (same as **`VECTIS_RECONCILER_INTERVAL`**) |
 | `vectis-log` | `VECTIS_LOG` | — |
@@ -96,6 +96,7 @@ Replace `…` with the correct prefix from the next section (e.g. `VECTIS_WORKER
 | Pin queue to `host:8081` for workers | `VECTIS_WORKER_WORKER_QUEUE_ADDRESS` (or shared `VECTIS_WORKER_DISCOVERY_QUEUE_ADDRESS`) |
 | Queue backlog on disk | `VECTIS_QUEUE_PERSISTENCE_DIR` (empty disables persistence—see `vectis-queue --help`) |
 | Queue metrics HTTP port | `VECTIS_QUEUE_METRICS_PORT` or `--metrics-port` (default **9081**; must differ from queue gRPC port) |
+| Worker metrics HTTP port | `VECTIS_WORKER_METRICS_PORT` or `--metrics-port` (default **9082**; must differ from queue metrics port) |
 | Log files on disk | `VECTIS_LOG_STORAGE_DIR` |
 | How often reconciler scans | `VECTIS_RECONCILER_INTERVAL` |
 
@@ -108,6 +109,7 @@ Replace `…` with the correct prefix from the next section (e.g. `VECTIS_WORKER
 | API HTTP | 8080 |
 | Queue gRPC | 8081 |
 | Queue Prometheus scrape (`/metrics`) | 9081 |
+| Worker Prometheus scrape (`/metrics`) | 9082 |
 | Registry gRPC | 8082 |
 | Log gRPC | 8083 |
 | Log HTTP (streams) | 8084 |

@@ -41,3 +41,6 @@ max_open_conns = 25
 max_idle_conns = 10
 conn_max_lifetime = "1h"
 conn_max_idle_time = "15m"
+
+[worker]
+metrics_port = 9082

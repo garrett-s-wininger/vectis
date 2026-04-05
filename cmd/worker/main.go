@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"time"
 
@@ -15,11 +18,13 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/backoff"
 	"vectis/internal/cli"
+	"vectis/internal/config"
 	"vectis/internal/dal"
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
 	"vectis/internal/job"
 	"vectis/internal/multidial"
+	"vectis/internal/observability"
 	"vectis/internal/queueclient"
 	"vectis/internal/runpolicy"
 
@@ -64,6 +69,59 @@ func runWorker(cmd *cobra.Command, args []string) {
 		logger.Fatal("database wait for migrations failed: %v", err)
 	}
 
+	metricsHandler, shutdownMetrics, err := observability.InitServiceMetrics(shutdownCtx, "vectis-worker")
+	if err != nil {
+		logger.Fatal("Failed to initialize metrics: %v", err)
+	}
+
+	if err := observability.RegisterSQLDBPoolMetrics(db); err != nil {
+		logger.Fatal("Failed to register DB pool metrics: %v", err)
+	}
+
+	workerMetrics, err := observability.NewWorkerMetrics()
+	if err != nil {
+		logger.Fatal("Failed to register worker metrics: %v", err)
+	}
+
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if err := shutdownMetrics(shutCtx); err != nil {
+			logger.Warn("Metrics shutdown: %v", err)
+		}
+	}()
+
+	metricsPort := config.WorkerMetricsEffectiveListenPort()
+	metricsAddr := fmt.Sprintf(":%d", metricsPort)
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("GET /metrics", metricsHandler)
+	metricsSrv := &http.Server{
+		Addr:    metricsAddr,
+		Handler: metricsMux,
+	}
+
+	metricsLn, err := net.Listen("tcp", metricsAddr)
+	if err != nil {
+		logger.Fatal("Failed to listen for metrics: %v", err)
+	}
+
+	go func() {
+		if err := metricsSrv.Serve(metricsLn); err != nil && err != http.ErrServerClosed {
+			logger.Error("Metrics server: %v", err)
+		}
+	}()
+
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := metricsSrv.Shutdown(shutCtx); err != nil {
+			logger.Warn("Metrics HTTP shutdown: %v", err)
+		}
+	}()
+
+	logger.Info("Worker metrics listening on %s (/metrics)", metricsAddr)
+
 	dial := func(ctx context.Context) (interfaces.QueueClient, interfaces.LogClient, func(), error) {
 		q, l, cleanup, err := multidial.DialQueueAndLog(ctx, logger)
 		return q, l, cleanup, err
@@ -91,6 +149,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 		logClient:     clients,
 		executor:      job.NewExecutor(),
 		store:         dal.NewSQLRepositories(db).Runs(),
+		metrics:       workerMetrics,
 	}
 
 	w.run()
@@ -108,6 +167,7 @@ type worker struct {
 	logClient          interfaces.LogClient
 	executor           *job.Executor
 	store              dal.RunsRepository
+	metrics            *observability.WorkerMetrics
 	dequeueFailAttempt int
 	dbUnavailable      bool
 	dbFailAttempt      int
@@ -224,37 +284,52 @@ func (w *worker) sleepDBBackoff() error {
 }
 
 func (w *worker) handleJob(job *api.Job) {
+	start := w.clock.Now()
+	if w.metrics != nil {
+		w.metrics.RecordJobReceived(context.Background())
+	}
+
+	var outcome string
+	defer func() {
+		if w.metrics != nil && outcome != "" {
+			w.metrics.RecordJobFinished(context.Background(), outcome, w.clock.Now().Sub(start))
+		}
+	}()
+
 	jobID := job.GetId()
 	runID := job.GetRunId()
 	deliveryID := job.GetDeliveryId()
 	w.logger.Info("Dequeued job: %s (run %s)", jobID, runID)
 
 	if runID != "" {
-		w.runClaimedJob(job, jobID, runID, deliveryID)
+		outcome = w.runClaimedJob(job, jobID, runID, deliveryID)
 		return
 	}
 
 	if err := w.ackDelivery(deliveryID); err != nil {
 		w.logger.Error("Ack delivery %s failed for job %s: %v", deliveryID, jobID, err)
+		outcome = observability.WorkerOutcomeFailed
 		return
 	}
 
 	if err := w.executor.ExecuteJob(w.runCtx, job, w.logClient, w.logger); err != nil {
 		w.logger.Error("Job %s failed: %v", jobID, err)
+		outcome = observability.WorkerOutcomeFailed
 		return
 	}
 
 	w.logger.Info("Job completed successfully: %s", jobID)
+	outcome = observability.WorkerOutcomeSuccess
 }
 
-func (w *worker) runClaimedJob(job *api.Job, jobID, runID, deliveryID string) {
+func (w *worker) runClaimedJob(job *api.Job, jobID, runID, deliveryID string) string {
 	leaseUntil := time.Now().Add(dal.DefaultLeaseTTL)
 	claimed, claimToken, claimErr := w.store.TryClaim(w.runCtx, runID, w.workerID, leaseUntil)
 	if claimErr != nil {
 		w.noteDBError(claimErr)
 		_ = w.sleepDBBackoff()
 		w.logger.Error("TryClaim %s: %v", runID, claimErr)
-		return
+		return observability.WorkerOutcomeFailed
 	}
 	w.noteDBRecovered()
 
@@ -264,7 +339,7 @@ func (w *worker) runClaimedJob(job *api.Job, jobID, runID, deliveryID string) {
 			w.logger.Warn("Ack delivery %s for unclaimed run %s failed: %v", deliveryID, runID, err)
 		}
 
-		return
+		return observability.WorkerOutcomeSkippedUnclaimed
 	}
 
 	if ackFailure := w.ackDeliveryWithRetry(deliveryID); ackFailure != nil {
@@ -275,7 +350,7 @@ func (w *worker) runClaimedJob(job *api.Job, jobID, runID, deliveryID string) {
 			w.logger.Error("Failed to mark run %s orphaned after ack error (%s): %v", runID, ackFailure.decision.ReasonCode, markErr)
 		}
 
-		return
+		return observability.WorkerOutcomeFailed
 	}
 
 	execErr := w.executeWithLeaseRenewal(runID, claimToken, job)
@@ -287,15 +362,16 @@ func (w *worker) runClaimedJob(job *api.Job, jobID, runID, deliveryID string) {
 			w.logger.Error("Failed to mark run %s failed: %v", runID, err)
 		}
 
-		return
+		return observability.WorkerOutcomeFailed
 	}
 
 	if err := w.markRunSucceededWithRetry(runID, claimToken); err != nil {
 		w.logger.Error("Failed to mark run %s succeeded: %v", runID, err)
-		return
+		return observability.WorkerOutcomeFailed
 	}
 
 	w.logger.Info("Job completed successfully: %s", jobID)
+	return observability.WorkerOutcomeSuccess
 }
 
 func (w *worker) ackDelivery(deliveryID string) error {
@@ -523,6 +599,11 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
+	viper.SetDefault("metrics_port", config.WorkerMetricsPort())
+
+	rootCmd.PersistentFlags().Int("metrics-port", config.WorkerMetricsPort(), "HTTP port for Prometheus /metrics")
+	_ = viper.BindPFlag("metrics_port", rootCmd.PersistentFlags().Lookup("metrics-port"))
+
 	viper.SetEnvPrefix("VECTIS_WORKER")
 	viper.AutomaticEnv()
 }
