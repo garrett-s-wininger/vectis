@@ -81,7 +81,7 @@ Replace `…` with the correct prefix from the next section (e.g. `VECTIS_WORKER
 | `vectis-worker` | `VECTIS_WORKER` | `--metrics-port` |
 | `vectis-cron` | `VECTIS_CRON` | — |
 | `vectis-reconciler` | `VECTIS_RECONCILER` | `--interval` (same as **`VECTIS_RECONCILER_INTERVAL`**) |
-| `vectis-log` | `VECTIS_LOG` | — |
+| `vectis-log` | `VECTIS_LOG` | `--storage-dir`, `--metrics-port` |
 | `vectis-local` | `VECTIS_LOCAL` | `--log-level` |
 | `vectis-cli` | *(none for API)* | **`VECTIS_DATABASE_*`** for `migrate` only. **API and log stream URLs** for other commands follow **shipped defaults** (`api.host`, `api.port`, `log.host`, log stream port)—not the server env prefixes. |
 
@@ -97,10 +97,11 @@ Replace `…` with the correct prefix from the next section (e.g. `VECTIS_WORKER
 | Queue backlog on disk | `VECTIS_QUEUE_PERSISTENCE_DIR` (empty disables persistence—see `vectis-queue --help`) |
 | Queue metrics HTTP port | `VECTIS_QUEUE_METRICS_PORT` or `--metrics-port` (default **9081**; must differ from queue gRPC port) |
 | Worker metrics HTTP port | `VECTIS_WORKER_METRICS_PORT` or `--metrics-port` (default **9082**; must differ from queue metrics port) |
-| Log files on disk | `VECTIS_LOG_STORAGE_DIR` |
+| Log metrics HTTP port | `VECTIS_LOG_METRICS_PORT` or `--metrics-port` (default **9083**; must differ from log gRPC/SSE and other metrics ports) |
+| Log files on disk | `VECTIS_LOG_STORAGE_DIR` or `--storage-dir` |
 | How often reconciler scans | `VECTIS_RECONCILER_INTERVAL` |
 
-**Log service listen ports** (gRPC **8083**, log HTTP **8084** by default) come from shipped defaults only—there is no port flag on `vectis-log` today.
+**Log service listen ports** (gRPC **8083**, log HTTP **8084** by default) come from shipped defaults; **`/metrics`** uses **`--metrics-port`** / **`VECTIS_LOG_METRICS_PORT`** (default **9083**).
 
 ## Default ports
 
@@ -113,6 +114,7 @@ Replace `…` with the correct prefix from the next section (e.g. `VECTIS_WORKER
 | Registry gRPC | 8082 |
 | Log gRPC | 8083 |
 | Log HTTP (streams) | 8084 |
+| Log Prometheus scrape (`/metrics`) | 9083 |
 
 ## Data paths (typical, SQLite / local)
 

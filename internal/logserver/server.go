@@ -20,6 +20,7 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/config"
 	"vectis/internal/interfaces"
+	"vectis/internal/observability"
 	"vectis/internal/registry"
 )
 
@@ -45,13 +46,15 @@ type JobBuffer struct {
 	subscribers map[chan []byte]struct{}
 	subMu       sync.RWMutex
 	logger      interfaces.Logger
+	metrics     *observability.LogMetrics
 }
 
-func NewJobBuffer(logger interfaces.Logger) *JobBuffer {
+func NewJobBuffer(logger interfaces.Logger, metrics *observability.LogMetrics) *JobBuffer {
 	return &JobBuffer{
 		entries:     make([]LogEntry, 0, MaxLogLinesPerJob),
 		subscribers: make(map[chan []byte]struct{}),
 		logger:      logger,
+		metrics:     metrics,
 	}
 }
 
@@ -113,6 +116,10 @@ func (jb *JobBuffer) Broadcast(jobID string, entry LogEntry) {
 		select {
 		case ch <- data:
 		default:
+			if jb.metrics != nil {
+				jb.metrics.RecordSSEChannelDrop(context.Background())
+			}
+
 			if jb.logger != nil {
 				jb.logger.Warn("SSE buffer full for job %s; dropping log line (seq %d)", jobID, entry.Sequence)
 			}
@@ -127,17 +134,18 @@ type Server struct {
 	logger  interfaces.Logger
 	store   RunLogStore
 	runs    RunStatusProvider
+	metrics *observability.LogMetrics
 }
 
 func NewServer(logger interfaces.Logger) *Server {
-	return NewServerWithStoreAndStatus(logger, NoopRunLogStore{}, nil)
+	return NewServerWithStoreAndStatus(logger, NoopRunLogStore{}, nil, nil)
 }
 
 func NewServerWithStore(logger interfaces.Logger, store RunLogStore) *Server {
-	return NewServerWithStoreAndStatus(logger, store, nil)
+	return NewServerWithStoreAndStatus(logger, store, nil, nil)
 }
 
-func NewServerWithStoreAndStatus(logger interfaces.Logger, store RunLogStore, runs RunStatusProvider) *Server {
+func NewServerWithStoreAndStatus(logger interfaces.Logger, store RunLogStore, runs RunStatusProvider, metrics *observability.LogMetrics) *Server {
 	if store == nil {
 		store = NoopRunLogStore{}
 	}
@@ -147,6 +155,7 @@ func NewServerWithStoreAndStatus(logger interfaces.Logger, store RunLogStore, ru
 		logger:  logger,
 		store:   store,
 		runs:    runs,
+		metrics: metrics,
 	}
 }
 
@@ -158,12 +167,13 @@ func (s *Server) getOrCreateBuffer(runID string) *JobBuffer {
 		return buffer
 	}
 
-	buffer := NewJobBuffer(s.logger)
+	buffer := NewJobBuffer(s.logger, s.metrics)
 	s.buffers[runID] = buffer
 	return buffer
 }
 
 func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
+	ctx := stream.Context()
 	for {
 		chunk, err := stream.Recv()
 		if err != nil {
@@ -172,6 +182,10 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 			}
 
 			return err
+		}
+
+		if s.metrics != nil {
+			s.metrics.RecordGRPCChunk(ctx)
 		}
 
 		buffer := s.getOrCreateBuffer(chunk.GetRunId())
@@ -188,10 +202,17 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 		// consideration would be how to handle gaps in the sequence numbers as well as SSE
 		// resumption so we don't have to re-send all the logs to the client.
 		if err := s.store.Append(chunk.GetRunId(), entry); err != nil {
+			if s.metrics != nil {
+				s.metrics.RecordAppendFailure(ctx)
+			}
+
 			return err
 		}
 
 		if !buffer.Add(entry) {
+			if s.metrics != nil {
+				s.metrics.RecordMemoryBufferDrop(ctx)
+			}
 			s.logger.Warn("Log buffer full for run %s, dropping log line (seq %d)", chunk.GetRunId(), entry.Sequence)
 		}
 
@@ -219,6 +240,11 @@ func (s *Server) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
 		return
+	}
+
+	if s.metrics != nil {
+		s.metrics.SSEConnectionOpened()
+		defer s.metrics.SSEConnectionClosed()
 	}
 
 	buffer := s.getOrCreateBuffer(runID)
@@ -434,10 +460,17 @@ func (s *Server) tryInjectSyntheticCompletion(ctx context.Context, runID string,
 	}
 
 	if err := s.store.Append(runID, entry); err != nil {
+		if s.metrics != nil {
+			s.metrics.RecordAppendFailure(context.Background())
+		}
+
 		s.logger.Warn("Failed to persist synthetic completion entry for run %s: %v", runID, err)
 	}
 
 	if !buffer.Add(entry) {
+		if s.metrics != nil {
+			s.metrics.RecordMemoryBufferDrop(context.Background())
+		}
 		s.logger.Warn("Log buffer full for run %s; dropping synthetic completion entry", runID)
 		return false
 	}
@@ -501,8 +534,8 @@ func (s *Server) RunSSE(ctx context.Context, port string) error {
 	return err
 }
 
-func Run(ctx context.Context, logger interfaces.Logger, store RunLogStore, runs RunStatusProvider) error {
-	server := NewServerWithStoreAndStatus(logger, store, runs)
+func Run(ctx context.Context, logger interfaces.Logger, store RunLogStore, runs RunStatusProvider, metrics *observability.LogMetrics) error {
+	server := NewServerWithStoreAndStatus(logger, store, runs, metrics)
 
 	if config.LogRegisterWithRegistry() {
 		regAddr := config.LogRegistryAddress()

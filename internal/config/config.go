@@ -69,6 +69,7 @@ type RegistryDefaults struct {
 
 type LogDefaults struct {
 	Host            string       `toml:"host"`
+	MetricsPort     int          `toml:"metrics_port"`
 	RegistryAddress string       `toml:"registry.address"`
 	GRPC            GRPCDefaults `toml:"grpc"`
 	SSE             SSEDefaults  `toml:"sse"`
@@ -176,6 +177,14 @@ func validateDefaults(d Defaults) {
 	validatePort(d.Registry.Port, "registry.port")
 	validatePort(d.Log.GRPC.Port, "log.grpc.port")
 	validatePort(d.Log.SSE.Port, "log.sse.port")
+	validatePort(d.Log.MetricsPort, "log.metrics_port")
+	if d.Log.MetricsPort == d.Log.GRPC.Port || d.Log.MetricsPort == d.Log.SSE.Port {
+		panic("config defaults: log.metrics_port must differ from log.grpc.port and log.sse.port")
+	}
+
+	if d.Log.MetricsPort == d.Queue.MetricsPort || d.Log.MetricsPort == d.Worker.MetricsPort {
+		panic("config defaults: log.metrics_port must differ from queue.metrics_port and worker.metrics_port")
+	}
 
 	if d.Log.Host == "" {
 		panic("config defaults: log.host must not be empty")
@@ -251,6 +260,18 @@ func LogGRPCPort() int {
 
 func LogWebSocketPort() int {
 	return MustDefaults().Log.SSE.Port
+}
+
+func LogMetricsPort() int {
+	return MustDefaults().Log.MetricsPort
+}
+
+func LogMetricsEffectiveListenPort() int {
+	if p := viper.GetInt("metrics_port"); p > 0 {
+		return p
+	}
+
+	return LogMetricsPort()
 }
 
 func APIListenAddr() string {

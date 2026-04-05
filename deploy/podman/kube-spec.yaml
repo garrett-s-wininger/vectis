@@ -59,6 +59,11 @@ data:
           - targets: ["127.0.0.1:9082"]
         metrics_path: /metrics
         scheme: http
+      - job_name: vectis-log
+        static_configs:
+          - targets: ["127.0.0.1:9083"]
+        metrics_path: /metrics
+        scheme: http
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -164,6 +169,8 @@ spec:
           protocol: TCP
         - containerPort: 8084
           hostPort: 8084
+          protocol: TCP
+        - containerPort: 9083
           protocol: TCP
     - name: queue
       image: vectis-queue:latest

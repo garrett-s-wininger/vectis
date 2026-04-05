@@ -1328,6 +1328,352 @@ data:
           ],
           "title": "Connection Pool Usage",
           "type": "timeseries"
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 63
+          },
+          "id": 38,
+          "panels": [],
+          "title": "Logging",
+          "type": "row"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "vectis-prom"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [
+                {
+                  "options": {
+                    "0": {
+                      "index": 0,
+                      "text": "Down"
+                    },
+                    "1": {
+                      "index": 1,
+                      "text": "Up"
+                    }
+                  },
+                  "type": "value"
+                }
+              ],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": 0
+                  },
+                  {
+                    "color": "green",
+                    "value": 1
+                  }
+                ]
+              },
+              "unit": "none"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 5,
+            "x": 0,
+            "y": 64
+          },
+          "id": 39,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "pluginVersion": "13.0.0-23943897787",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "vectis-prom"
+              },
+              "expr": "up{job=\"vectis-log\"}",
+              "refId": "A"
+            }
+          ],
+          "title": "Logging Status",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "vectis-prom"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 1,
+                "showPoints": "never"
+              },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 9,
+            "x": 5,
+            "y": 64
+          },
+          "id": 40,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "13.0.0-23943897787",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "vectis-prom"
+              },
+              "expr": "sum(rate(vectis_log_grpc_chunks_received_total{job=\"vectis-log\"}[5m]))",
+              "legendFormat": "chunks/s",
+              "refId": "A"
+            }
+          ],
+          "title": "Log Chunk Ingestion Rate",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "vectis-prom"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 1,
+                "showPoints": "never"
+              },
+              "unit": "none"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 10,
+            "x": 14,
+            "y": 64
+          },
+          "id": 41,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "13.0.0-23943897787",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "vectis-prom"
+              },
+              "expr": "vectis_log_sse_connections_active{job=\"vectis-log\"}",
+              "legendFormat": "SSE clients",
+              "refId": "A"
+            }
+          ],
+          "title": "Active SSE Connections",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "vectis-prom"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 1,
+                "showPoints": "never"
+              },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 72
+          },
+          "id": 42,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "13.0.0-23943897787",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "vectis-prom"
+              },
+              "expr": "sum(rate(vectis_log_storage_append_failures_total{job=\"vectis-log\"}[5m]))",
+              "legendFormat": "append failures/s",
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "vectis-prom"
+              },
+              "expr": "sum(rate(vectis_log_memory_buffer_drops_total{job=\"vectis-log\"}[5m]))",
+              "legendFormat": "memory buffer drops/s",
+              "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "vectis-prom"
+              },
+              "expr": "sum(rate(vectis_log_sse_channel_drops_total{job=\"vectis-log\"}[5m]))",
+              "legendFormat": "SSE channel drops/s",
+              "refId": "C"
+            }
+          ],
+          "title": "Log Drop & Storage Error Rate",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "vectis-prom"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 1,
+                "showPoints": "never"
+              },
+              "unit": "none"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 80
+          },
+          "id": 43,
+          "options": {
+            "annotations": {
+              "clustering": -1,
+              "multiLane": false
+            },
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "13.0.0-23943897787",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "vectis-prom"
+              },
+              "expr": "db_client_connections_open{job=\"vectis-log\"}",
+              "legendFormat": "open",
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "vectis-prom"
+              },
+              "expr": "db_client_connections_in_use{job=\"vectis-log\"}",
+              "legendFormat": "in use",
+              "refId": "B"
+            }
+          ],
+          "title": "Connection Pool Usage",
+          "type": "timeseries"
         }
       ],
       "preload": false,
