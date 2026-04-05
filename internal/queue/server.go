@@ -343,7 +343,7 @@ func (s *queueServer) grow() {
 	s.head = 0
 }
 
-func RegisterQueueService(s grpc.ServiceRegistrar, logger interfaces.Logger, opts QueueOptions) {
+func RegisterQueueService(s grpc.ServiceRegistrar, logger interfaces.Logger, opts QueueOptions) api.QueueServiceServer {
 	qs, err := newQueueServer(logger, opts)
 	if err != nil {
 		logger.Fatal("Failed to initialize queue: %v", err)
@@ -354,4 +354,5 @@ func RegisterQueueService(s grpc.ServiceRegistrar, logger interfaces.Logger, opt
 	hs.SetServingStatus("queue", healthpb.HealthCheckResponse_SERVING)
 
 	api.RegisterQueueServiceServer(s, qs)
+	return qs
 }

@@ -1,15 +1,19 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/cli"
 	"vectis/internal/config"
 	"vectis/internal/interfaces"
+	"vectis/internal/observability"
 	"vectis/internal/queue"
 	"vectis/internal/registry"
 	"vectis/internal/utils"
@@ -23,6 +27,20 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewLogger("queue")
 	cli.SetLogLevel(logger)
 	logger.Info("Starting queue server...")
+
+	metricsHandler, shutdownMetrics, err := observability.InitServiceMetrics(cmd.Context(), "vectis-queue")
+	if err != nil {
+		logger.Fatal("Failed to initialize metrics: %v", err)
+	}
+
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if err := shutdownMetrics(shutCtx); err != nil {
+			logger.Warn("Metrics shutdown: %v", err)
+		}
+	}()
 
 	port := config.QueueEffectiveListenPort()
 	addr := fmt.Sprintf(":%d", port)
@@ -42,12 +60,47 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 		logger.Info("Using queue persistence directory: %s (snapshot every %d mutations)", persistenceDir, snapshotEvery)
 	}
 
-	queue.RegisterQueueService(grpcServer, logger, queue.QueueOptions{
+	qSvc := queue.RegisterQueueService(grpcServer, logger, queue.QueueOptions{
 		PersistenceDir: persistenceDir,
 		SnapshotEvery:  snapshotEvery,
 	})
 
+	if err := observability.RegisterQueueGauges(func() (int64, int64) {
+		return queue.MetricsSnapshot(qSvc)
+	}); err != nil {
+		logger.Fatal("Failed to register queue metrics: %v", err)
+	}
+
+	metricsPort := config.QueueMetricsEffectiveListenPort()
+	metricsAddr := fmt.Sprintf(":%d", metricsPort)
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("GET /metrics", metricsHandler)
+	metricsSrv := &http.Server{
+		Addr:    metricsAddr,
+		Handler: metricsMux,
+	}
+
+	metricsLn, err := net.Listen("tcp", metricsAddr)
+	if err != nil {
+		logger.Fatal("Failed to listen for metrics: %v", err)
+	}
+
+	go func() {
+		if err := metricsSrv.Serve(metricsLn); err != nil && err != http.ErrServerClosed {
+			logger.Error("Metrics server: %v", err)
+		}
+	}()
+
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := metricsSrv.Shutdown(shutCtx); err != nil {
+			logger.Warn("Metrics HTTP shutdown: %v", err)
+		}
+	}()
+
 	logger.Info("Queue server listening on %s", addr)
+	logger.Info("Queue metrics listening on %s (/metrics)", metricsAddr)
 
 	serveErr := make(chan error, 1)
 	go func() {
@@ -102,14 +155,17 @@ func init() {
 	defaultPersistenceDir := filepath.Join(utils.DataHome(), "vectis", "queue")
 
 	viper.SetDefault("port", config.QueuePort())
+	viper.SetDefault("metrics_port", config.QueueMetricsPort())
 	viper.SetDefault("persistence_dir", defaultPersistenceDir)
 	viper.SetDefault("persistence_snapshot_every", 128)
 
 	rootCmd.PersistentFlags().Int("port", config.QueuePort(), "Port for the queue")
+	rootCmd.PersistentFlags().Int("metrics-port", config.QueueMetricsPort(), "HTTP port for Prometheus /metrics")
 	rootCmd.PersistentFlags().String("persistence-dir", defaultPersistenceDir, "Directory for queue WAL/snapshot persistence")
 	rootCmd.PersistentFlags().Int("persistence-snapshot-every", 128, "Persisted queue snapshot interval in queue mutations")
 
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
+	_ = viper.BindPFlag("metrics_port", rootCmd.PersistentFlags().Lookup("metrics-port"))
 	_ = viper.BindPFlag("persistence_dir", rootCmd.PersistentFlags().Lookup("persistence-dir"))
 	_ = viper.BindPFlag("persistence_snapshot_every", rootCmd.PersistentFlags().Lookup("persistence-snapshot-every"))
 

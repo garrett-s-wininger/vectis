@@ -49,6 +49,11 @@ data:
           - targets: ["127.0.0.1:8080"]
         metrics_path: /metrics
         scheme: http
+      - job_name: vectis-queue
+        static_configs:
+          - targets: ["127.0.0.1:9081"]
+        metrics_path: /metrics
+        scheme: http
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -160,6 +165,8 @@ spec:
       imagePullPolicy: Never
       ports:
         - containerPort: 8081
+          protocol: TCP
+        - containerPort: 9081
           protocol: TCP
       env: &queueEnv
         - name: XDG_DATA_HOME

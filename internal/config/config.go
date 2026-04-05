@@ -56,6 +56,7 @@ type APIDefaults struct {
 
 type QueueDefaults struct {
 	Port                 int    `toml:"port"`
+	MetricsPort          int    `toml:"metrics_port"`
 	RegistryAddress      string `toml:"registry.address"`
 	ResolverAddress      string `toml:"resolver.address"`
 	AdvertiseAddress     string `toml:"advertise_address"`
@@ -166,6 +167,11 @@ func validateDefaults(d Defaults) {
 
 	validatePort(d.API.Port, "api.port")
 	validatePort(d.Queue.Port, "queue.port")
+	validatePort(d.Queue.MetricsPort, "queue.metrics_port")
+	if d.Queue.MetricsPort == d.Queue.Port {
+		panic("config defaults: queue.metrics_port must differ from queue.port")
+	}
+
 	validatePort(d.Registry.Port, "registry.port")
 	validatePort(d.Log.GRPC.Port, "log.grpc.port")
 	validatePort(d.Log.SSE.Port, "log.sse.port")
@@ -219,6 +225,10 @@ func APIPort() int {
 
 func QueuePort() int {
 	return MustDefaults().Queue.Port
+}
+
+func QueueMetricsPort() int {
+	return MustDefaults().Queue.MetricsPort
 }
 
 func RegistryPort() int {
@@ -615,6 +625,14 @@ func APILogFormat() string {
 
 func QueueEffectiveListenPort() int {
 	return effectiveListenPort(QueuePort)
+}
+
+// QueueMetricsEffectiveListenPort returns the HTTP /metrics listen port for vectis-queue.
+func QueueMetricsEffectiveListenPort() int {
+	if p := viper.GetInt("metrics_port"); p > 0 {
+		return p
+	}
+	return QueueMetricsPort()
 }
 
 func RegistryEffectiveListenPort() int {

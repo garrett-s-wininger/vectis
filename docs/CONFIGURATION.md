@@ -76,7 +76,7 @@ Replace `…` with the correct prefix from the next section (e.g. `VECTIS_WORKER
 | Program | Env prefix | CLI options (override env when present) |
 | --- | --- | --- |
 | `vectis-api` | `VECTIS_API_SERVER` | `--port` |
-| `vectis-queue` | `VECTIS_QUEUE` | `--port`, `--persistence-dir`, `--persistence-snapshot-every` |
+| `vectis-queue` | `VECTIS_QUEUE` | `--port`, `--metrics-port`, `--persistence-dir`, `--persistence-snapshot-every` |
 | `vectis-registry` | `VECTIS_REGISTRY` | `--port` |
 | `vectis-worker` | `VECTIS_WORKER` | — |
 | `vectis-cron` | `VECTIS_CRON` | — |
@@ -95,6 +95,7 @@ Replace `…` with the correct prefix from the next section (e.g. `VECTIS_WORKER
 | PostgreSQL | `VECTIS_DATABASE_DRIVER=pgx` and `VECTIS_DATABASE_DSN=postgres://…` on **all** DB consumers; tune pool with **`VECTIS_DATABASE_PGX_*`** ([above](#postgresql-connection-pool-pgx-only)) |
 | Pin queue to `host:8081` for workers | `VECTIS_WORKER_WORKER_QUEUE_ADDRESS` (or shared `VECTIS_WORKER_DISCOVERY_QUEUE_ADDRESS`) |
 | Queue backlog on disk | `VECTIS_QUEUE_PERSISTENCE_DIR` (empty disables persistence—see `vectis-queue --help`) |
+| Queue metrics HTTP port | `VECTIS_QUEUE_METRICS_PORT` or `--metrics-port` (default **9081**; must differ from queue gRPC port) |
 | Log files on disk | `VECTIS_LOG_STORAGE_DIR` |
 | How often reconciler scans | `VECTIS_RECONCILER_INTERVAL` |
 
@@ -106,6 +107,7 @@ Replace `…` with the correct prefix from the next section (e.g. `VECTIS_WORKER
 | --- | --- |
 | API HTTP | 8080 |
 | Queue gRPC | 8081 |
+| Queue Prometheus scrape (`/metrics`) | 9081 |
 | Registry gRPC | 8082 |
 | Log gRPC | 8083 |
 | Log HTTP (streams) | 8084 |

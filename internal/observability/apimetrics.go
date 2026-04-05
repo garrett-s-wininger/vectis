@@ -23,7 +23,7 @@ const (
 	defaultDeploymentEnv = "development"
 )
 
-func InitAPIMetrics(ctx context.Context) (metrics http.Handler, shutdown func(context.Context) error, err error) {
+func InitServiceMetrics(ctx context.Context, serviceName string) (metrics http.Handler, shutdown func(context.Context) error, err error) {
 	reg := promclient.NewRegistry()
 
 	exp, err := prometheus.New(prometheus.WithRegisterer(reg))
@@ -31,7 +31,7 @@ func InitAPIMetrics(ctx context.Context) (metrics http.Handler, shutdown func(co
 		return nil, nil, fmt.Errorf("prometheus exporter: %w", err)
 	}
 
-	res, err := apiResource(ctx)
+	res, err := serviceResource(ctx, serviceName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("resource: %w", err)
 	}
@@ -50,7 +50,11 @@ func InitAPIMetrics(ctx context.Context) (metrics http.Handler, shutdown func(co
 	return h, shutdown, nil
 }
 
-func apiResource(ctx context.Context) (*resource.Resource, error) {
+func InitAPIMetrics(ctx context.Context) (metrics http.Handler, shutdown func(context.Context) error, err error) {
+	return InitServiceMetrics(ctx, "vectis-api")
+}
+
+func serviceResource(ctx context.Context, serviceName string) (*resource.Resource, error) {
 	ver := "unknown"
 	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
 		ver = info.Main.Version
@@ -64,7 +68,7 @@ func apiResource(ctx context.Context) (*resource.Resource, error) {
 	return resource.New(ctx,
 		resource.WithHost(),
 		resource.WithAttributes(
-			semconv.ServiceName("vectis-api"),
+			semconv.ServiceName(serviceName),
 			semconv.ServiceVersion(ver),
 			attribute.String("deployment.environment", env),
 		),

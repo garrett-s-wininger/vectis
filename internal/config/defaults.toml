@@ -5,6 +5,7 @@ log_format = "text"
 
 [queue]
 port = 8081
+metrics_port = 9081
 register_with_registry = true
 advertise_address = ""
 

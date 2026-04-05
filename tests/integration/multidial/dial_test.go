@@ -72,7 +72,7 @@ func TestDialQueueAndLog_SingleRegistryConnection(t *testing.T) {
 	defer regLis.Close()
 
 	qs := grpc.NewServer()
-	queue.RegisterQueueService(qs, logger, queue.QueueOptions{})
+	_ = queue.RegisterQueueService(qs, logger, queue.QueueOptions{})
 	go func() { _ = qs.Serve(qlis) }()
 	defer qs.Stop()
 
@@ -145,7 +145,7 @@ func TestDialQueueAndLog_BothPinnedSkipsRegistry(t *testing.T) {
 	defer llis.Close()
 
 	qs := grpc.NewServer()
-	queue.RegisterQueueService(qs, logger, queue.QueueOptions{})
+	_ = queue.RegisterQueueService(qs, logger, queue.QueueOptions{})
 	go func() { _ = qs.Serve(qlis) }()
 	defer qs.Stop()
 
