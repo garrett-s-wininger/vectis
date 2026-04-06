@@ -486,7 +486,12 @@ func (s *Server) RunGRPC(ctx context.Context, port string) error {
 		return err
 	}
 
-	grpcServer := grpc.NewServer()
+	srvOpts, err := config.GRPCServerOptions()
+	if err != nil {
+		return err
+	}
+
+	grpcServer := grpc.NewServer(srvOpts...)
 	api.RegisterLogServiceServer(grpcServer, s)
 
 	hs := health.NewServer()
@@ -535,6 +540,11 @@ func (s *Server) RunSSE(ctx context.Context, port string) error {
 }
 
 func Run(ctx context.Context, logger interfaces.Logger, store RunLogStore, runs RunStatusProvider, metrics *observability.LogMetrics) error {
+	if err := config.ValidateGRPCTLSForRole(config.GRPCTLSDaemonLog); err != nil {
+		return err
+	}
+	config.StartGRPCTLSReloadLoop(ctx)
+
 	server := NewServerWithStoreAndStatus(logger, store, runs, metrics)
 
 	if config.LogRegisterWithRegistry() {

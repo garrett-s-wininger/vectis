@@ -28,6 +28,11 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 	cli.SetLogLevel(logger)
 	logger.Info("Starting queue server...")
 
+	if err := config.ValidateGRPCTLSForRole(config.GRPCTLSDaemonQueue); err != nil {
+		logger.Fatal("%v", err)
+	}
+	config.StartGRPCTLSReloadLoop(cmd.Context())
+
 	metricsHandler, shutdownMetrics, err := observability.InitServiceMetrics(cmd.Context(), "vectis-queue")
 	if err != nil {
 		logger.Fatal("Failed to initialize metrics: %v", err)
@@ -50,7 +55,12 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 		logger.Fatal("Failed to listen: %v", err)
 	}
 
-	grpcServer := grpc.NewServer()
+	srvOpts, err := config.GRPCServerOptions()
+	if err != nil {
+		logger.Fatal("grpc tls: %v", err)
+	}
+
+	grpcServer := grpc.NewServer(srvOpts...)
 	persistenceDir := viper.GetString("persistence_dir")
 	snapshotEvery := viper.GetInt("persistence_snapshot_every")
 

@@ -27,6 +27,11 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 	cli.SetLogLevel(logger)
 	logger.Info("Starting API server...")
 
+	if err := config.ValidateGRPCTLSForRole(config.GRPCTLSDaemonClientOnly); err != nil {
+		logger.Fatal("%v", err)
+	}
+	config.StartGRPCTLSReloadLoop(cmd.Context())
+
 	dbPath := database.GetDBPath()
 	logger.Info("Using database: %s", dbPath)
 

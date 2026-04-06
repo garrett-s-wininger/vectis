@@ -7,11 +7,11 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/backoff"
+	"vectis/internal/config"
 	"vectis/internal/interfaces"
 	"vectis/internal/registry"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/resolver"
 
 	_ "google.golang.org/grpc/health"
@@ -33,11 +33,14 @@ func NewClientWithPinnedAddress(ctx context.Context, comp api.Component, addr st
 
 	staticB := &staticBuilder{addr: addr, logger: logger}
 
-	opts := []grpc.DialOption{
-		grpc.WithResolvers(staticB),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithDefaultServiceConfig(`{"loadBalancingPolicy":"pick_first"}`),
+	tc, err := config.GRPCClientDialOptions(addr)
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolver: grpc tls: %w", err)
 	}
+
+	opts := []grpc.DialOption{grpc.WithResolvers(staticB)}
+	opts = append(opts, tc...)
+	opts = append(opts, grpc.WithDefaultServiceConfig(`{"loadBalancingPolicy":"pick_first"}`))
 
 	var conn *grpc.ClientConn
 	retryer := backoff.NewRetryer(backoff.RetryConfig{
@@ -46,7 +49,7 @@ func NewClientWithPinnedAddress(ctx context.Context, comp api.Component, addr st
 		Clock:     clock,
 	})
 
-	err := retryer.Do(ctx, func() error {
+	err = retryer.Do(ctx, func() error {
 		if conn != nil {
 			_ = conn.Close()
 			conn = nil
@@ -122,11 +125,16 @@ func grpcDefaultServiceConfigJSON(comp api.Component) string {
 func dialWithResolver(ctx context.Context, comp api.Component, target string, builder resolver.Builder, logger interfaces.Logger) (*grpc.ClientConn, func(), error) {
 	logger.Debug("resolver: connecting to %s at %s", comp.String(), target)
 
-	conn, err := grpc.NewClient(target,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithResolvers(builder),
-		grpc.WithDefaultServiceConfig(grpcDefaultServiceConfigJSON(comp)),
-	)
+	tc, err := config.GRPCResolverDialOptions()
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolver: grpc tls: %w", err)
+	}
+
+	opts := []grpc.DialOption{grpc.WithResolvers(builder)}
+	opts = append(opts, tc...)
+	opts = append(opts, grpc.WithDefaultServiceConfig(grpcDefaultServiceConfigJSON(comp)))
+
+	conn, err := grpc.NewClient(target, opts...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolver: failed to connect to %s: %w", comp.String(), err)
 	}

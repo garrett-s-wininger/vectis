@@ -6,10 +6,10 @@ import (
 	"time"
 
 	"vectis/internal/backoff"
+	"vectis/internal/config"
 	"vectis/internal/interfaces"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 const (
@@ -51,16 +51,19 @@ func NewClient[T any](ctx context.Context, addr string, newClient func(grpc.Clie
 }
 
 func connectWithRetry(ctx context.Context, addr string, logger interfaces.Logger, clock interfaces.Clock) (*grpc.ClientConn, error) {
-	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
-	var conn *grpc.ClientConn
+	opts, err := config.GRPCClientDialOptions(addr)
+	if err != nil {
+		return nil, err
+	}
 
+	var conn *grpc.ClientConn
 	retryer := backoff.NewRetryer(backoff.RetryConfig{
 		MaxTries:  defaultMaxTries,
 		BaseDelay: defaultBaseDelay,
 		Clock:     clock,
 	})
 
-	err := retryer.Do(ctx, func() error {
+	err = retryer.Do(ctx, func() error {
 		var e error
 		conn, e = grpc.NewClient(addr, opts...)
 		return e

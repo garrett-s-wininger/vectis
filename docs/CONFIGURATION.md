@@ -36,6 +36,31 @@ These two variables are **global** (no per-service prefix). Every component that
 
 Applies to: `vectis-api`, `vectis-worker`, `vectis-cron`, `vectis-reconciler`, `vectis-log`, and **`vectis-cli migrate`**.
 
+## Internal gRPC TLS (global `VECTIS_GRPC_TLS_*`)
+
+These variables are **shared across all `vectis-*` binaries** (bound in code, not via each process’s `VECTIS_<PREFIX>_…` pattern). Defaults keep **plaintext gRPC** (`grpc_tls.insecure = true` in [`internal/config/defaults.toml`](../internal/config/defaults.toml)).
+
+| Variable | Purpose |
+| --- | --- |
+| **`VECTIS_GRPC_TLS_INSECURE`** | If `true` (default), use plaintext gRPC. If `false`, PEM paths below must satisfy the role of each binary (see [SECURITY.md](SECURITY.md)). |
+| **`VECTIS_GRPC_TLS_CA_FILE`** | PEM file with CA certificate(s) used to **verify peer servers** when this process dials gRPC. Required for client-only daemons when TLS is enabled; required for queue/log when they dial the registry. |
+| **`VECTIS_GRPC_TLS_CERT_FILE`** / **`VECTIS_GRPC_TLS_KEY_FILE`** | Server certificate and key for **vectis-registry**, **vectis-queue**, and **vectis-log** gRPC listeners when TLS is enabled. |
+| **`VECTIS_GRPC_TLS_CLIENT_CA_FILE`** | If set, servers require and verify **mTLS** client certificates signed by this CA. |
+| **`VECTIS_GRPC_TLS_CLIENT_CERT_FILE`** / **`VECTIS_GRPC_TLS_CLIENT_KEY_FILE`** | Optional client identity when dialing gRPC (mTLS). |
+| **`VECTIS_GRPC_TLS_SERVER_NAME`** | Optional TLS ServerName / SNI override for **outbound** connections; if unset, a hostname is derived from the dial target when possible. |
+| **`VECTIS_GRPC_TLS_RELOAD_INTERVAL`** | If set to a positive duration (e.g. **`30s`**), PEM files are polled for changes and reloaded without process restart. **`0`** disables polling. |
+
+**Roles when TLS is enabled (`VECTIS_GRPC_TLS_INSECURE=false`):**
+
+| Role | Binaries | Required PEM material |
+| --- | --- | --- |
+| **gRPC server** | `vectis-registry`, `vectis-queue`, `vectis-log` | **`CERT_FILE`** and **`KEY_FILE`** on each host that listens for gRPC. Queue and log also need **`CA_FILE`** so they can verify the registry when registering. |
+| **gRPC client only** | `vectis-api`, `vectis-worker`, **`vectis-cron`**, **`vectis-reconciler`** | **`CA_FILE`** to verify registry/queue/log peers. Optional **`CLIENT_CERT_FILE`** / **`CLIENT_KEY_FILE`** if servers enforce mTLS (`CLIENT_CA_FILE` on servers). |
+
+Cron and reconciler only **dial** the queue (via registry or pinned addresses); they do not expose a gRPC listener.
+
+Per-binary keys such as **`VECTIS_QUEUE_GRPC_TLS_CA_FILE`** also map to the same `grpc_tls.*` settings when you prefer a prefix.
+
 ### PostgreSQL connection pool (`pgx` only)
 
 When **`VECTIS_DATABASE_DRIVER=pgx`**, `database.OpenDB` applies `*sql.DB` pool settings after `sql.Open`. **SQLite** and other drivers ignore this block. Defaults match [`internal/config/defaults.toml`](../internal/config/defaults.toml) (`database.pgx_pool`); override with **global** env (no per-service prefix):

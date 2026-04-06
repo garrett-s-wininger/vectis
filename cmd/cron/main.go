@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/viper"
 
 	"vectis/internal/cli"
+	"vectis/internal/config"
 	"vectis/internal/cron"
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
@@ -18,6 +19,11 @@ func runVectisCron(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewLogger("cron")
 	cli.SetLogLevel(logger)
 	logger.Info("Starting cron service...")
+
+	if err := config.ValidateGRPCTLSForRole(config.GRPCTLSDaemonClientOnly); err != nil {
+		logger.Fatal("%v", err)
+	}
+	config.StartGRPCTLSReloadLoop(cmd.Context())
 
 	dbPath := database.GetDBPath()
 	logger.Info("Using database: %s", dbPath)

@@ -54,6 +54,11 @@ func runWorker(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewLogger("worker")
 	cli.SetLogLevel(logger)
 
+	if err := config.ValidateGRPCTLSForRole(config.GRPCTLSDaemonClientOnly); err != nil {
+		logger.Fatal("%v", err)
+	}
+	config.StartGRPCTLSReloadLoop(shutdownCtx)
+
 	workerID := uuid.New().String()
 	logger.Info("Worker ID: %s", workerID)
 

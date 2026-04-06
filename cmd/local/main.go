@@ -20,7 +20,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	healthgrpc "google.golang.org/grpc/health/grpc_health_v1"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
@@ -77,7 +76,12 @@ func waitForHealthy(port int, serviceName string, timeout time.Duration) error {
 		case <-ctx.Done():
 			return fmt.Errorf("timeout waiting for %s to be healthy", serviceName)
 		case <-ticker.C:
-			conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			opts, err := config.GRPCClientDialOptions(addr)
+			if err != nil {
+				return fmt.Errorf("grpc tls for health check: %w", err)
+			}
+
+			conn, err := grpc.NewClient(addr, opts...)
 			if err != nil {
 				continue
 			}

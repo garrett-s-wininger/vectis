@@ -26,6 +26,11 @@ func runReconciler(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewLogger("reconciler")
 	cli.SetLogLevel(logger)
 
+	if err := config.ValidateGRPCTLSForRole(config.GRPCTLSDaemonClientOnly); err != nil {
+		logger.Fatal("%v", err)
+	}
+	config.StartGRPCTLSReloadLoop(rootCtx)
+
 	dbPath := database.GetDBPath()
 	logger.Info("Using database: %s", dbPath)
 	db, err := database.OpenDB(dbPath)

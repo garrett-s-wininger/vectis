@@ -45,3 +45,14 @@ conn_max_idle_time = "15m"
 
 [worker]
 metrics_port = 9082
+
+[grpc_tls]
+insecure = true
+ca_file = ""
+cert_file = ""
+key_file = ""
+client_ca_file = ""
+client_cert_file = ""
+client_key_file = ""
+server_name = ""
+reload_interval = "0s"

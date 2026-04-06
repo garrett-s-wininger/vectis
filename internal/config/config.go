@@ -44,6 +44,7 @@ type Defaults struct {
 	Worker     WorkerDefaults     `toml:"worker"`
 	Cron       CronDefaults       `toml:"cron"`
 	Reconciler ReconcilerDefaults `toml:"reconciler"`
+	GRPCTLS    GRPCTLSDefaults    `toml:"grpc_tls"`
 }
 
 type APIDefaults struct {
@@ -129,6 +130,18 @@ type ReconcilerDefaults struct {
 	RegistryAddress string       `toml:"registry.address"`
 	QueueAddress    string       `toml:"queue.address"`
 	Interval        tomlDuration `toml:"interval"`
+}
+
+type GRPCTLSDefaults struct {
+	Insecure       bool         `toml:"insecure"`
+	CAFile         string       `toml:"ca_file"`
+	CertFile       string       `toml:"cert_file"`
+	KeyFile        string       `toml:"key_file"`
+	ClientCAFile   string       `toml:"client_ca_file"`
+	ClientCertFile string       `toml:"client_cert_file"`
+	ClientKeyFile  string       `toml:"client_key_file"`
+	ServerName     string       `toml:"server_name"`
+	ReloadInterval tomlDuration `toml:"reload_interval"`
 }
 
 var (

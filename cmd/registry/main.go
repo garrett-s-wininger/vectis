@@ -24,6 +24,11 @@ func runVectisRegistry(cmd *cobra.Command, args []string) {
 	cli.SetLogLevel(logger)
 	logger.Info("Starting registry server...")
 
+	if err := config.ValidateGRPCTLSForRole(config.GRPCTLSDaemonRegistry); err != nil {
+		logger.Fatal("%v", err)
+	}
+	config.StartGRPCTLSReloadLoop(cmd.Context())
+
 	port := config.RegistryEffectiveListenPort()
 	addr := fmt.Sprintf(":%d", port)
 
@@ -33,7 +38,12 @@ func runVectisRegistry(cmd *cobra.Command, args []string) {
 	}
 
 	registrySvc := registry.NewRegistryService(logger)
-	grpcServer := grpc.NewServer()
+	srvOpts, err := config.GRPCServerOptions()
+	if err != nil {
+		logger.Fatal("grpc tls: %v", err)
+	}
+
+	grpcServer := grpc.NewServer(srvOpts...)
 	api.RegisterRegistryServiceServer(grpcServer, registrySvc)
 
 	hs := health.NewServer()

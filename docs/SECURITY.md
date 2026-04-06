@@ -28,7 +28,7 @@ For outage behavior, see [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md). For configura
 
 ## Internal services (gRPC)
 
-Registry, queue, and log communicate over **gRPC** between processes. The codebase does not ship a standard **credentials** or **TLS** story for these calls—assume **the same trust zone** as your workers and API (e.g. private network). If you expose any of these ports beyond that zone, **assume compromise** of queue/log/registry implies ability to enqueue, observe, or disrupt work.
+**Registry**, **queue**, and **log** listen for **gRPC**; **API**, **worker**, **cron**, and **reconciler** are **gRPC clients** (they dial the registry and/or queue). **Optional TLS** for all of that traffic uses global **`VECTIS_GRPC_TLS_*`** variables (see [CONFIGURATION.md](CONFIGURATION.md) §Internal gRPC TLS). The shipped default remains **plaintext** (`VECTIS_GRPC_TLS_INSECURE=true`) for local and backward-compatible runs; when **`VECTIS_GRPC_TLS_INSECURE=false`**, each binary validates required PEM paths for its role (listeners need cert/key; **api**, **worker**, **cron**, and **reconciler** need a CA bundle to verify peers). If you expose any of these ports beyond a trust zone without TLS, **assume compromise** of queue/log/registry implies ability to enqueue, observe, or disrupt work.
 
 ## Prometheus `/metrics`
 
