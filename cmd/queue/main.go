@@ -112,11 +112,6 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 	logger.Info("Queue server listening on %s", addr)
 	logger.Info("Queue metrics listening on %s (/metrics)", metricsAddr)
 
-	serveErr := make(chan error, 1)
-	go func() {
-		serveErr <- grpcServer.Serve(ln)
-	}()
-
 	if config.QueueRegisterWithRegistry() {
 		regAddr := config.QueueRegistrationRegistryAddress()
 
@@ -141,6 +136,11 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 	} else {
 		logger.Info("Skipping registry registration (queue.register_with_registry is false)")
 	}
+
+	serveErr := make(chan error, 1)
+	go func() {
+		serveErr <- grpcServer.Serve(ln)
+	}()
 
 	select {
 	case <-cmd.Context().Done():

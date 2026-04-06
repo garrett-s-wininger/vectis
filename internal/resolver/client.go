@@ -78,6 +78,10 @@ func NewClientWithPinnedAddress(ctx context.Context, comp api.Component, addr st
 	})
 
 	if err != nil {
+		if !config.GRPCTLSInsecure() {
+			logger.Warn("resolver: giving up on pinned %s at %s after %d tries: %v - verify grpc_tls.server_name / VECTIS_GRPC_TLS_SERVER_NAME and cert SANs match the dial target", serviceName, addr, pinnedDialMaxTries, err)
+		}
+
 		return nil, nil, fmt.Errorf("resolver: failed to connect to %s at %s: %w", serviceName, addr, err)
 	}
 
@@ -140,7 +144,15 @@ func dialWithResolver(ctx context.Context, comp api.Component, target string, bu
 	}
 
 	if err := waitForConnReady(ctx, conn); err != nil {
+		st := conn.GetState().String()
 		_ = conn.Close()
+
+		if !config.GRPCTLSInsecure() {
+			logger.Warn("resolver: %s did not become ready (state=%s): %v - with TLS and registry discovery, set grpc_tls.server_name / VECTIS_GRPC_TLS_SERVER_NAME to match the server cert (vectis-local bootstrap uses localhost)", comp.String(), st, err)
+		} else {
+			logger.Warn("resolver: %s did not become ready (state=%s): %v", comp.String(), st, err)
+		}
+
 		return nil, nil, fmt.Errorf("resolver: %s not ready: %w", comp.String(), err)
 	}
 

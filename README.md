@@ -16,7 +16,7 @@ make build
 ./bin/vectis-local
 ```
 
-`vectis-local` starts registry, queue, log, worker, cron, reconciler, and API and initializes the local SQLite schema (see `cmd/local/main.go`). Runtime binaries only **wait** for the schema—they do not migrate.
+`vectis-local` starts registry, queue, log, worker, cron, reconciler, and API and initializes the local SQLite schema (see `cmd/local/main.go`). Runtime binaries only **wait** for the schema—they do not migrate. By default it **bootstraps TLS** for internal gRPC (material under your XDG data dir); use **`--grpc-insecure`** for plaintext gRPC.
 
 - **REST API:** `http://localhost:8080` (defaults in [`internal/config/defaults.toml`](internal/config/defaults.toml))
 - **Default ports:** API `8080`, queue `8081`, registry `8082`, log gRPC `8083`, log SSE `8084`

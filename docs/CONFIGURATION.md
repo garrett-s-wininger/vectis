@@ -38,16 +38,18 @@ Applies to: `vectis-api`, `vectis-worker`, `vectis-cron`, `vectis-reconciler`, `
 
 ## Internal gRPC TLS (global `VECTIS_GRPC_TLS_*`)
 
-These variables are **shared across all `vectis-*` binaries** (bound in code, not via each process’s `VECTIS_<PREFIX>_…` pattern). Defaults keep **plaintext gRPC** (`grpc_tls.insecure = true` in [`internal/config/defaults.toml`](../internal/config/defaults.toml)).
+These variables are **shared across all `vectis-*` binaries** (bound in code, not via each process’s `VECTIS_<PREFIX>_…` pattern). Shipped defaults keep **plaintext gRPC** for processes you start individually (`grpc_tls.insecure = true` in [`internal/config/defaults.toml`](../internal/config/defaults.toml)).
+
+**`vectis-local`** (by default) **bootstraps** a dev CA and server certificate under **`$XDG_DATA_HOME/vectis/local-tls`** (or `~/.local/share/vectis/local-tls` when `XDG_DATA_HOME` is unset), sets **`VECTIS_GRPC_TLS_*`** on every child process, and configures its own gRPC health checks to match. The leaf certificate is issued with **47 days** validity (aligned with short public TLS lifetimes); it is **re-issued** when expired or when fewer than **14 days** remain (the CA is rotated separately when it is within **90 days** of expiry). Use **`--grpc-insecure`** or **`VECTIS_LOCAL_GRPC_INSECURE=true`** on `vectis-local` to skip bootstrap and run **plaintext** gRPC for all children (same as the global default for standalone binaries).
 
 | Variable | Purpose |
 | --- | --- |
-| **`VECTIS_GRPC_TLS_INSECURE`** | If `true` (default), use plaintext gRPC. If `false`, PEM paths below must satisfy the role of each binary (see [SECURITY.md](SECURITY.md)). |
+| **`VECTIS_GRPC_TLS_INSECURE`** | If `true`, use plaintext gRPC (default for **standalone** binaries). If `false`, PEM paths below must satisfy the role of each binary (see [SECURITY.md](SECURITY.md)). **`vectis-local` normally sets this to `false` via bootstrap** unless `--grpc-insecure` / **`VECTIS_LOCAL_GRPC_INSECURE`**. |
 | **`VECTIS_GRPC_TLS_CA_FILE`** | PEM file with CA certificate(s) used to **verify peer servers** when this process dials gRPC. Required for client-only daemons when TLS is enabled; required for queue/log when they dial the registry. |
 | **`VECTIS_GRPC_TLS_CERT_FILE`** / **`VECTIS_GRPC_TLS_KEY_FILE`** | Server certificate and key for **vectis-registry**, **vectis-queue**, and **vectis-log** gRPC listeners when TLS is enabled. |
 | **`VECTIS_GRPC_TLS_CLIENT_CA_FILE`** | If set, servers require and verify **mTLS** client certificates signed by this CA. |
 | **`VECTIS_GRPC_TLS_CLIENT_CERT_FILE`** / **`VECTIS_GRPC_TLS_CLIENT_KEY_FILE`** | Optional client identity when dialing gRPC (mTLS). |
-| **`VECTIS_GRPC_TLS_SERVER_NAME`** | Optional TLS ServerName / SNI override for **outbound** connections; if unset, a hostname is derived from the dial target when possible. |
+| **`VECTIS_GRPC_TLS_SERVER_NAME`** | Optional TLS ServerName / SNI override for **outbound** connections; if unset, a hostname is derived from the dial target when possible (e.g. `localhost:8081` → `localhost`). **Registry discovery often yields `127.0.0.1:*`;** for dev certs whose DNS SAN is `localhost`, you must set this to **`localhost`** ( **`vectis-local` bootstrap does this automatically**). |
 | **`VECTIS_GRPC_TLS_RELOAD_INTERVAL`** | If set to a positive duration (e.g. **`30s`**), PEM files are polled for changes and reloaded without process restart. **`0`** disables polling. |
 
 **Roles when TLS is enabled (`VECTIS_GRPC_TLS_INSECURE=false`):**
@@ -107,7 +109,7 @@ Replace `…` with the correct prefix from the next section (e.g. `VECTIS_WORKER
 | `vectis-cron` | `VECTIS_CRON` | — |
 | `vectis-reconciler` | `VECTIS_RECONCILER` | `--interval` (same as **`VECTIS_RECONCILER_INTERVAL`**) |
 | `vectis-log` | `VECTIS_LOG` | `--storage-dir`, `--metrics-port` |
-| `vectis-local` | `VECTIS_LOCAL` | `--log-level` |
+| `vectis-local` | `VECTIS_LOCAL` | `--log-level`, `--grpc-insecure` (or **`VECTIS_LOCAL_GRPC_INSECURE=true`** for plaintext gRPC) |
 | `vectis-cli` | *(none for API)* | **`VECTIS_DATABASE_*`** for `migrate` only. **API and log stream URLs** for other commands follow **shipped defaults** (`api.host`, `api.port`, `log.host`, log stream port)—not the server env prefixes. |
 
 ## Common operator settings
@@ -125,6 +127,7 @@ Replace `…` with the correct prefix from the next section (e.g. `VECTIS_WORKER
 | Log metrics HTTP port | `VECTIS_LOG_METRICS_PORT` or `--metrics-port` (default **9083**; must differ from log gRPC/SSE and other metrics ports) |
 | Log files on disk | `VECTIS_LOG_STORAGE_DIR` or `--storage-dir` |
 | How often reconciler scans | `VECTIS_RECONCILER_INTERVAL` |
+| `vectis-local` plaintext gRPC (no bootstrap) | `--grpc-insecure` or `VECTIS_LOCAL_GRPC_INSECURE=true` |
 
 **Log service listen ports** (gRPC **8083**, log HTTP **8084** by default) come from shipped defaults; **`/metrics`** uses **`--metrics-port`** / **`VECTIS_LOG_METRICS_PORT`** (default **9083**).
 

@@ -15,7 +15,9 @@ import (
 	"vectis/internal/config"
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
+	"vectis/internal/localpki"
 	"vectis/internal/supervisor"
+	"vectis/internal/utils"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -97,7 +99,7 @@ func waitForHealthy(port int, serviceName string, timeout time.Duration) error {
 	}
 }
 
-func startService(logger interfaces.Logger, svc serviceStage, logLevel string) (*exec.Cmd, error) {
+func startService(logger interfaces.Logger, svc serviceStage, logLevel string, tlsEnv []string) (*exec.Cmd, error) {
 	path, err := supervisor.FindBinary(svc.binary)
 	if err != nil {
 		return nil, fmt.Errorf("cannot find %s: %w", svc.binary, err)
@@ -111,10 +113,12 @@ func startService(logger interfaces.Logger, svc serviceStage, logLevel string) (
 		Setpgid: true,
 	}
 
+	env := append([]string(nil), os.Environ()...)
+	env = append(env, tlsEnv...)
 	if logLevel != "" {
-		envVar := logLevelEnvVar(svc.binary, logLevel)
-		command.Env = append(os.Environ(), envVar)
+		env = append(env, logLevelEnvVar(svc.binary, logLevel))
 	}
+	command.Env = env
 
 	if err := command.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start %s: %w", svc.binary, err)
@@ -196,6 +200,30 @@ func runVectis(cmd *cobra.Command, args []string) {
 
 	setLoggerLevel(logger, logLevel)
 
+	var tlsEnv []string
+	if viper.GetBool("grpc_insecure") {
+		logger.Info("gRPC plaintext mode (--grpc-insecure or VECTIS_LOCAL_GRPC_INSECURE=true)")
+
+		_ = os.Setenv("VECTIS_GRPC_TLS_INSECURE", "true")
+		localpki.ApplyPlaintextParentViper(viper.Set)
+		tlsEnv = []string{"VECTIS_GRPC_TLS_INSECURE=true"}
+	} else {
+		tlsDir := localpki.EnsureDir(utils.DataHome())
+		material, err := localpki.Ensure(tlsDir)
+		if err != nil {
+			logger.Fatal("bootstrap local gRPC TLS: %v", err)
+		}
+
+		tlsEnv = material.EnvVars()
+		material.ApplyParentViper(viper.Set)
+		_ = os.Setenv("VECTIS_GRPC_TLS_INSECURE", "false")
+		_ = os.Setenv("VECTIS_GRPC_TLS_CA_FILE", material.CAFile)
+		_ = os.Setenv("VECTIS_GRPC_TLS_CERT_FILE", material.ServerCert)
+		_ = os.Setenv("VECTIS_GRPC_TLS_KEY_FILE", material.ServerKey)
+
+		logger.Info("Bootstrapped gRPC TLS for local stack (material under %s)", tlsDir)
+	}
+
 	if database.EffectiveDBDriver() == "sqlite3" {
 		dbPath := database.GetDBPath()
 		logger.Info("Migrating SQLite database: %s", dbPath)
@@ -237,7 +265,7 @@ func runVectis(cmd *cobra.Command, args []string) {
 			go func(svc serviceStage) {
 				defer wg.Done()
 
-				proc, err := startService(logger, svc, logLevel)
+				proc, err := startService(logger, svc, logLevel, tlsEnv)
 				if err != nil {
 					errCh <- err
 					return
@@ -330,13 +358,20 @@ var rootCmd = &cobra.Command{
 	Short: "Run Vectis services locally for development",
 	Long: `Vectis Local runs all Vectis services locally for development and testing.
 
-It starts the registry, queue, worker, and API server as child processes.`,
+It starts the registry, queue, worker, and API server as child processes.
+
+By default it bootstraps a dev CA and TLS certificates (under the XDG data directory)
+and sets VECTIS_GRPC_TLS_* for child processes so internal gRPC uses TLS. Use
+--grpc-insecure or VECTIS_LOCAL_GRPC_INSECURE=true for plaintext gRPC.`,
 	Run: runVectis,
 }
 
 func init() {
 	rootCmd.PersistentFlags().String("log-level", "info", "Log level: debug, info, warn, error")
+	rootCmd.PersistentFlags().Bool("grpc-insecure", false, "Use plaintext gRPC instead of bootstrapped local TLS")
 	_ = viper.BindPFlag("log_level", rootCmd.PersistentFlags().Lookup("log-level"))
+	_ = viper.BindPFlag("grpc_insecure", rootCmd.PersistentFlags().Lookup("grpc-insecure"))
+	_ = viper.BindEnv("grpc_insecure", "VECTIS_LOCAL_GRPC_INSECURE")
 	viper.SetEnvPrefix("VECTIS_LOCAL")
 	viper.AutomaticEnv()
 }

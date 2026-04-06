@@ -219,3 +219,21 @@ func TestLogResolverAddress_Key(t *testing.T) {
 		t.Fatalf("log.resolver.address legacy: got %q", got)
 	}
 }
+
+func TestNormalizeRegistryDialAddr(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{"", ""},
+		{":8081", "127.0.0.1:8081"},
+		{"localhost:8081", "localhost:8081"},
+		{"127.0.0.1:8081", "127.0.0.1:8081"},
+		{"[::1]:8081", "[::1]:8081"},
+	}
+
+	for _, tt := range tests {
+		if got := normalizeRegistryDialAddr(tt.in); got != tt.want {
+			t.Errorf("normalizeRegistryDialAddr(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}

@@ -2,6 +2,7 @@ package resolver
 
 import (
 	"context"
+	"net"
 	"sync"
 	"time"
 
@@ -146,17 +147,32 @@ func (r *registryResolver) resolveNow() time.Duration {
 		return r.refreshInterval
 	}
 
+	dialAddr := normalizeRegistryDialAddr(addr)
+
 	r.mu.Lock()
-	if addr != r.lastGood {
-		r.logger.Debug("resolver: %s resolved to %s", r.comp.String(), addr)
+	if dialAddr != r.lastGood {
+		r.logger.Debug("resolver: %s resolved to %s", r.comp.String(), dialAddr)
 	}
 
 	r.resolveFailureAnnounced = false
-	r.lastGood = addr
+	r.lastGood = dialAddr
 	r.mu.Unlock()
 
-	_ = r.cc.UpdateState(resolver.State{Addresses: []resolver.Address{{Addr: addr}}})
+	_ = r.cc.UpdateState(resolver.State{Addresses: []resolver.Address{{Addr: dialAddr}}})
 	return r.refreshInterval
+}
+
+func normalizeRegistryDialAddr(addr string) string {
+	if addr == "" {
+		return addr
+	}
+
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil || host != "" {
+		return addr
+	}
+
+	return net.JoinHostPort("127.0.0.1", port)
 }
 
 func (r *registryResolver) ResolveNow(resolver.ResolveNowOptions) {

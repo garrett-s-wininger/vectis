@@ -77,16 +77,16 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		logger.Fatal("Listen: %v", err)
 	}
 
-	serveErr := make(chan error, 1)
-	go func() {
-		serveErr <- server.Serve(cmd.Context(), ln)
-	}()
-
 	logger.Info("Establishing queue client connection...")
 	if err := server.ConnectToQueue(cmd.Context()); err != nil {
 		logger.Fatal("Failed to connect to services: %v", err)
 	}
 	logger.Info("Queue client ready")
+
+	serveErr := make(chan error, 1)
+	go func() {
+		serveErr <- server.Serve(cmd.Context(), ln)
+	}()
 
 	if err := <-serveErr; err != nil {
 		logger.Fatal("Server failed: %v", err)
