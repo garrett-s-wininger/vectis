@@ -83,6 +83,17 @@ data:
         editable: false
 ---
 apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vectis-grpc-tls-env
+data:
+  VECTIS_GRPC_TLS_INSECURE: "false"
+  VECTIS_GRPC_TLS_CA_FILE: /run/vectis/grpc-tls/ca.pem
+  VECTIS_GRPC_TLS_CERT_FILE: /run/vectis/grpc-tls/server.pem
+  VECTIS_GRPC_TLS_KEY_FILE: /run/vectis/grpc-tls/server-key.pem
+  VECTIS_GRPC_TLS_SERVER_NAME: localhost
+---
+apiVersion: v1
 kind: Pod
 metadata:
   name: vectis
@@ -115,6 +126,29 @@ spec:
         name: vectis-grafana-dashboards
     - name: grafana-data
       emptyDir: {}
+    - name: vectis-grpc-tls
+      emptyDir: {}
+  initContainers:
+    - name: vectis-grpc-tls-init
+      image: docker.io/library/alpine:3.21
+      command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          apk add --no-cache openssl
+          TLS_DIR=/tls-out
+          openssl genrsa -out "$TLS_DIR/ca-key.pem" 4096
+          openssl req -new -x509 -days 3650 -key "$TLS_DIR/ca-key.pem" -out "$TLS_DIR/ca.pem" -subj "/CN=vectis-pod-grpc-ca"
+          openssl genrsa -out "$TLS_DIR/server-key.pem" 2048
+          openssl req -new -key "$TLS_DIR/server-key.pem" -out /tmp/server.csr -subj "/CN=localhost"
+          printf '%s\n' 'subjectAltName=DNS:localhost,IP:127.0.0.1' > /tmp/ext.cnf
+          openssl x509 -req -in /tmp/server.csr -CA "$TLS_DIR/ca.pem" -CAkey "$TLS_DIR/ca-key.pem" -CAcreateserial -out "$TLS_DIR/server.pem" -days 825 -extfile /tmp/ext.cnf
+          chmod 644 "$TLS_DIR/ca.pem" "$TLS_DIR/server.pem"
+          chmod 600 "$TLS_DIR/ca-key.pem" "$TLS_DIR/server-key.pem"
+      volumeMounts:
+        - name: vectis-grpc-tls
+          mountPath: /tls-out
   containers:
     - name: postgres
       image: docker.io/library/postgres:18-alpine
@@ -140,6 +174,14 @@ spec:
         - containerPort: 8080
           hostPort: 8080
           protocol: TCP
+      envFrom: &vectisGrpcTlsEnvFrom
+        - configMapRef:
+            name: vectis-grpc-tls-env
+      volumeMounts: &vectisGrpcTlsOnlyVolumeMounts
+        - &grpcTlsMount
+          name: vectis-grpc-tls
+          mountPath: /run/vectis/grpc-tls
+          readOnly: true
       env: &dbEnv
         - name: VECTIS_DATABASE_DRIVER
           value: pgx
@@ -148,10 +190,17 @@ spec:
     - name: cron
       image: vectis-cron:latest
       imagePullPolicy: Never
+      envFrom: *vectisGrpcTlsEnvFrom
+      volumeMounts: *vectisGrpcTlsOnlyVolumeMounts
       env: *dbEnv
     - name: log
       image: vectis-log:latest
       imagePullPolicy: Never
+      envFrom: *vectisGrpcTlsEnvFrom
+      volumeMounts:
+        - <<: *grpcTlsMount
+        - name: log-data
+          mountPath: /data
       env:
         - name: VECTIS_DATABASE_DRIVER
           value: pgx
@@ -161,9 +210,6 @@ spec:
           value: /data
         - name: VECTIS_LOG_STORAGE_DIR
           value: /data/vectis/jobs
-      volumeMounts:
-        - name: log-data
-          mountPath: /data
       ports:
         - containerPort: 8083
           protocol: TCP
@@ -180,21 +226,27 @@ spec:
           protocol: TCP
         - containerPort: 9081
           protocol: TCP
+      envFrom: *vectisGrpcTlsEnvFrom
       env: &queueEnv
         - name: XDG_DATA_HOME
           value: /data
         - name: VECTIS_QUEUE_PERSISTENCE_DIR
           value: /data/vectis/queue
       volumeMounts:
+        - <<: *grpcTlsMount
         - name: queue-data
           mountPath: /data
     - name: reconciler
       image: vectis-reconciler:latest
       imagePullPolicy: Never
+      envFrom: *vectisGrpcTlsEnvFrom
+      volumeMounts: *vectisGrpcTlsOnlyVolumeMounts
       env: *dbEnv
     - name: registry
       image: vectis-registry:latest
       imagePullPolicy: Never
+      envFrom: *vectisGrpcTlsEnvFrom
+      volumeMounts: *vectisGrpcTlsOnlyVolumeMounts
       ports:
         - containerPort: 8082
           protocol: TCP
@@ -204,6 +256,8 @@ spec:
       ports:
         - containerPort: 9082
           protocol: TCP
+      envFrom: *vectisGrpcTlsEnvFrom
+      volumeMounts: *vectisGrpcTlsOnlyVolumeMounts
       env: *dbEnv
     - name: prometheus
       image: docker.io/prom/prometheus:v3.11.0-distroless
