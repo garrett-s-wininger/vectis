@@ -128,8 +128,10 @@ spec:
       emptyDir: {}
     - name: vectis-grpc-tls
       emptyDir: {}
+    - name: vectis-postgres-tls
+      emptyDir: {}
   initContainers:
-    - name: vectis-grpc-tls-init
+    - name: vectis-pod-tls-init
       image: docker.io/library/alpine:3.21
       command:
         - /bin/sh
@@ -137,22 +139,42 @@ spec:
         - |
           set -e
           apk add --no-cache openssl
-          TLS_DIR=/tls-out
-          openssl genrsa -out "$TLS_DIR/ca-key.pem" 4096
-          openssl req -new -x509 -days 3650 -key "$TLS_DIR/ca-key.pem" -out "$TLS_DIR/ca.pem" -subj "/CN=vectis-pod-grpc-ca"
-          openssl genrsa -out "$TLS_DIR/server-key.pem" 2048
-          openssl req -new -key "$TLS_DIR/server-key.pem" -out /tmp/server.csr -subj "/CN=localhost"
-          printf '%s\n' 'subjectAltName=DNS:localhost,IP:127.0.0.1' > /tmp/ext.cnf
-          openssl x509 -req -in /tmp/server.csr -CA "$TLS_DIR/ca.pem" -CAkey "$TLS_DIR/ca-key.pem" -CAcreateserial -out "$TLS_DIR/server.pem" -days 825 -extfile /tmp/ext.cnf
-          chmod 644 "$TLS_DIR/ca.pem" "$TLS_DIR/server.pem"
-          chmod 600 "$TLS_DIR/ca-key.pem" "$TLS_DIR/server-key.pem"
+          GRPC=/grpc-out
+          PG=/pg-tls-out
+          openssl genrsa -out "$GRPC/ca-key.pem" 4096
+          openssl req -new -x509 -days 3650 -key "$GRPC/ca-key.pem" -out "$GRPC/ca.pem" -subj "/CN=vectis-pod-grpc-ca"
+          openssl genrsa -out "$GRPC/server-key.pem" 2048
+          openssl req -new -key "$GRPC/server-key.pem" -out /tmp/grpc.csr -subj "/CN=localhost"
+          printf '%s\n' 'subjectAltName=DNS:localhost,IP:127.0.0.1' > /tmp/grpc-ext.cnf
+          openssl x509 -req -in /tmp/grpc.csr -CA "$GRPC/ca.pem" -CAkey "$GRPC/ca-key.pem" -CAcreateserial -out "$GRPC/server.pem" -days 825 -extfile /tmp/grpc-ext.cnf
+          chmod 644 "$GRPC/ca.pem" "$GRPC/server.pem"
+          chmod 600 "$GRPC/ca-key.pem" "$GRPC/server-key.pem"
+          openssl genrsa -out "$PG/ca-key.pem" 4096
+          openssl req -new -x509 -days 3650 -key "$PG/ca-key.pem" -out "$PG/ca.pem" -subj "/CN=vectis-pod-postgres-ca"
+          openssl genrsa -out "$PG/server-key.pem" 2048
+          openssl req -new -key "$PG/server-key.pem" -out /tmp/pg.csr -subj "/CN=127.0.0.1"
+          printf '%s\n' 'subjectAltName=DNS:localhost,IP:127.0.0.1' > /tmp/pg-ext.cnf
+          openssl x509 -req -in /tmp/pg.csr -CA "$PG/ca.pem" -CAkey "$PG/ca-key.pem" -CAcreateserial -out "$PG/server.pem" -days 825 -extfile /tmp/pg-ext.cnf
+          chmod 644 "$PG/ca.pem" "$PG/server.pem"
+          chmod 600 "$PG/ca-key.pem" "$PG/server-key.pem"
+          chown 70:70 "$PG/server.pem" "$PG/server-key.pem"
       volumeMounts:
         - name: vectis-grpc-tls
-          mountPath: /tls-out
+          mountPath: /grpc-out
+        - name: vectis-postgres-tls
+          mountPath: /pg-tls-out
   containers:
     - name: postgres
       image: docker.io/library/postgres:18-alpine
       imagePullPolicy: IfNotPresent
+      args:
+        - postgres
+        - -c
+        - ssl=on
+        - -c
+        - ssl_cert_file=/run/postgres-tls/server.pem
+        - -c
+        - ssl_key_file=/run/postgres-tls/server-key.pem
       env: &postgresEnv
         - name: POSTGRES_USER
           value: vectis
@@ -163,6 +185,9 @@ spec:
       volumeMounts:
         - name: postgres-data
           mountPath: /var/lib/postgresql/data
+        - name: vectis-postgres-tls
+          mountPath: /run/postgres-tls
+          readOnly: true
       ports:
         - containerPort: 5432
           hostPort: 15432
@@ -177,21 +202,26 @@ spec:
       envFrom: &vectisGrpcTlsEnvFrom
         - configMapRef:
             name: vectis-grpc-tls-env
-      volumeMounts: &vectisGrpcTlsOnlyVolumeMounts
+      volumeMounts: &vectisGrpcAndPostgresCaVolumeMounts
         - &grpcTlsMount
           name: vectis-grpc-tls
           mountPath: /run/vectis/grpc-tls
+          readOnly: true
+        - &postgresCaMount
+          name: vectis-postgres-tls
+          mountPath: /run/vectis/postgres-tls/ca.pem
+          subPath: ca.pem
           readOnly: true
       env: &dbEnv
         - name: VECTIS_DATABASE_DRIVER
           value: pgx
         - name: VECTIS_DATABASE_DSN
-          value: postgres://vectis:vectis@127.0.0.1:5432/vectis?sslmode=disable
+          value: postgres://vectis:vectis@127.0.0.1:5432/vectis?sslmode=verify-full&sslrootcert=/run/vectis/postgres-tls/ca.pem
     - name: cron
       image: vectis-cron:latest
       imagePullPolicy: Never
       envFrom: *vectisGrpcTlsEnvFrom
-      volumeMounts: *vectisGrpcTlsOnlyVolumeMounts
+      volumeMounts: *vectisGrpcAndPostgresCaVolumeMounts
       env: *dbEnv
     - name: log
       image: vectis-log:latest
@@ -199,13 +229,14 @@ spec:
       envFrom: *vectisGrpcTlsEnvFrom
       volumeMounts:
         - <<: *grpcTlsMount
+        - <<: *postgresCaMount
         - name: log-data
           mountPath: /data
       env:
         - name: VECTIS_DATABASE_DRIVER
           value: pgx
         - name: VECTIS_DATABASE_DSN
-          value: postgres://vectis:vectis@127.0.0.1:5432/vectis?sslmode=disable
+          value: postgres://vectis:vectis@127.0.0.1:5432/vectis?sslmode=verify-full&sslrootcert=/run/vectis/postgres-tls/ca.pem
         - name: XDG_DATA_HOME
           value: /data
         - name: VECTIS_LOG_STORAGE_DIR
@@ -234,19 +265,21 @@ spec:
           value: /data/vectis/queue
       volumeMounts:
         - <<: *grpcTlsMount
+        - <<: *postgresCaMount
         - name: queue-data
           mountPath: /data
     - name: reconciler
       image: vectis-reconciler:latest
       imagePullPolicy: Never
       envFrom: *vectisGrpcTlsEnvFrom
-      volumeMounts: *vectisGrpcTlsOnlyVolumeMounts
+      volumeMounts: *vectisGrpcAndPostgresCaVolumeMounts
       env: *dbEnv
     - name: registry
       image: vectis-registry:latest
       imagePullPolicy: Never
       envFrom: *vectisGrpcTlsEnvFrom
-      volumeMounts: *vectisGrpcTlsOnlyVolumeMounts
+      volumeMounts: &vectisGrpcTlsOnlyVolumeMounts
+        - *grpcTlsMount
       ports:
         - containerPort: 8082
           protocol: TCP
@@ -257,7 +290,7 @@ spec:
         - containerPort: 9082
           protocol: TCP
       envFrom: *vectisGrpcTlsEnvFrom
-      volumeMounts: *vectisGrpcTlsOnlyVolumeMounts
+      volumeMounts: *vectisGrpcAndPostgresCaVolumeMounts
       env: *dbEnv
     - name: prometheus
       image: docker.io/prom/prometheus:v3.11.0-distroless

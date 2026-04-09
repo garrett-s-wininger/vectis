@@ -21,7 +21,7 @@ GRAFANA_KUBE_SOURCES := \
 
 VECTIS_DATABASE_DRIVER ?= pgx
 VECTIS_POSTGRES_HOST_PORT ?= 15432
-VECTIS_DATABASE_DSN ?= postgres://vectis:vectis@127.0.0.1:${VECTIS_POSTGRES_HOST_PORT}/vectis?sslmode=disable
+VECTIS_DATABASE_DSN ?= postgres://vectis:vectis@127.0.0.1:${VECTIS_POSTGRES_HOST_PORT}/vectis?sslmode=require
 
 .PHONY: all
 all: build
