@@ -65,6 +65,18 @@ Cron and reconciler only **dial** the queue (via registry or pinned addresses); 
 
 Per-binary keys such as **`VECTIS_QUEUE_GRPC_TLS_CA_FILE`** also map to the same `grpc_tls.*` settings when you prefer a prefix.
 
+## Metrics HTTPS (`vectis-queue`, `vectis-worker`, `vectis-log` only)
+
+Global **`VECTIS_METRICS_TLS_*`** settings wrap the **dedicated** Prometheus **`/metrics`** HTTP listeners with **TLS**. They do **not** affect **`vectis-api`** (REST and API `/metrics` stay on the main HTTP listener until a separate API TLS story exists).
+
+| Variable | Purpose |
+| --- | --- |
+| **`VECTIS_METRICS_TLS_INSECURE`** | If **`true`** (default in [`internal/config/defaults.toml`](../internal/config/defaults.toml)), metrics HTTP is **plaintext**. If **`false`**, **`CERT_FILE`** and **`KEY_FILE`** are required. |
+| **`VECTIS_METRICS_TLS_CERT_FILE`** / **`VECTIS_METRICS_TLS_KEY_FILE`** | Server certificate and key PEM paths for the metrics-only **`http.Server`**. |
+| **`VECTIS_METRICS_TLS_RELOAD_INTERVAL`** | Optional PEM reload interval (same semantics as gRPC TLS). **`0`** disables. |
+
+**`make deploy-podman`:** ConfigMap **`vectis-grpc-tls-env`** sets **`VECTIS_METRICS_TLS_INSECURE=false`** and reuses the same pod-local leaf as gRPC under **`/run/vectis/grpc-tls/`**. Bundled **Prometheus** scrapes **`scheme: https`** for queue, worker, and log metrics jobs and mounts **`ca_file`** for verification.
+
 ### PostgreSQL connection pool (`pgx` only)
 
 When **`VECTIS_DATABASE_DRIVER=pgx`**, `database.OpenDB` applies `*sql.DB` pool settings after `sql.Open`. **SQLite** and other drivers ignore this block. Defaults match [`internal/config/defaults.toml`](../internal/config/defaults.toml) (`database.pgx_pool`); override with **global** env (no per-service prefix):
@@ -124,9 +136,9 @@ Replace `…` with the correct prefix from the next section (e.g. `VECTIS_WORKER
 | PostgreSQL | `VECTIS_DATABASE_DRIVER=pgx` and `VECTIS_DATABASE_DSN=postgres://…` on **all** DB consumers; tune pool with **`VECTIS_DATABASE_PGX_*`** ([above](#postgresql-connection-pool-pgx-only)) |
 | Pin queue to `host:8081` for workers | `VECTIS_WORKER_WORKER_QUEUE_ADDRESS` (or shared `VECTIS_WORKER_DISCOVERY_QUEUE_ADDRESS`) |
 | Queue backlog on disk | `VECTIS_QUEUE_PERSISTENCE_DIR` (empty disables persistence—see `vectis-queue --help`) |
-| Queue metrics HTTP port | `VECTIS_QUEUE_METRICS_PORT` or `--metrics-port` (default **9081**; must differ from queue gRPC port) |
-| Worker metrics HTTP port | `VECTIS_WORKER_METRICS_PORT` or `--metrics-port` (default **9082**; must differ from queue metrics port) |
-| Log metrics HTTP port | `VECTIS_LOG_METRICS_PORT` or `--metrics-port` (default **9083**; must differ from log gRPC/SSE and other metrics ports) |
+| Queue metrics HTTP port | `VECTIS_QUEUE_METRICS_PORT` or `--metrics-port` (default **9081**; must differ from queue gRPC port); use **`VECTIS_METRICS_TLS_*`** for HTTPS on that listener |
+| Worker metrics HTTP port | `VECTIS_WORKER_METRICS_PORT` or `--metrics-port` (default **9082**; must differ from queue metrics port); TLS via **`VECTIS_METRICS_TLS_*`** |
+| Log metrics HTTP port | `VECTIS_LOG_METRICS_PORT` or `--metrics-port` (default **9083**; must differ from log gRPC/SSE and other metrics ports); TLS via **`VECTIS_METRICS_TLS_*`** |
 | Log files on disk | `VECTIS_LOG_STORAGE_DIR` or `--storage-dir` |
 | How often reconciler scans | `VECTIS_RECONCILER_INTERVAL` |
 | `vectis-local` plaintext gRPC (no bootstrap) | `--grpc-insecure` or `VECTIS_LOCAL_GRPC_INSECURE=true` |

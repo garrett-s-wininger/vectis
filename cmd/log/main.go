@@ -31,6 +31,11 @@ func runLog(cmd *cobra.Command, args []string) {
 	cli.SetLogLevel(logger)
 	logger.Info("Starting log service...")
 
+	if err := config.ValidateMetricsTLS(); err != nil {
+		logger.Fatal("%v", err)
+	}
+	config.StartMetricsTLSReloadLoop(ctx)
+
 	storageDir := viper.GetString("storage_dir")
 	if storageDir == "" {
 		logger.Fatal("log storage_dir must not be empty")
@@ -90,6 +95,11 @@ func runLog(cmd *cobra.Command, args []string) {
 		logger.Fatal("Failed to listen for metrics: %v", err)
 	}
 
+	metricsLn, err = config.MetricsHTTPSListener(metricsLn)
+	if err != nil {
+		logger.Fatal("metrics tls: %v", err)
+	}
+
 	go func() {
 		if err := metricsSrv.Serve(metricsLn); err != nil && err != http.ErrServerClosed {
 			logger.Error("Metrics server: %v", err)
@@ -104,7 +114,11 @@ func runLog(cmd *cobra.Command, args []string) {
 		}
 	}()
 
-	logger.Info("Log metrics listening on %s (/metrics)", metricsAddr)
+	if !config.MetricsTLSInsecure() {
+		logger.Info("Log metrics listening on %s (HTTPS /metrics)", metricsAddr)
+	} else {
+		logger.Info("Log metrics listening on %s (/metrics)", metricsAddr)
+	}
 
 	runStatus := logserver.NewDALRunStatusProvider(dal.NewSQLRepositories(db).Runs())
 

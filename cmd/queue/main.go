@@ -31,7 +31,13 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 	if err := config.ValidateGRPCTLSForRole(config.GRPCTLSDaemonQueue); err != nil {
 		logger.Fatal("%v", err)
 	}
+
+	if err := config.ValidateMetricsTLS(); err != nil {
+		logger.Fatal("%v", err)
+	}
+
 	config.StartGRPCTLSReloadLoop(cmd.Context())
+	config.StartMetricsTLSReloadLoop(cmd.Context())
 
 	metricsHandler, shutdownMetrics, err := observability.InitServiceMetrics(cmd.Context(), "vectis-queue")
 	if err != nil {
@@ -95,6 +101,11 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 		logger.Fatal("Failed to listen for metrics: %v", err)
 	}
 
+	metricsLn, err = config.MetricsHTTPSListener(metricsLn)
+	if err != nil {
+		logger.Fatal("metrics tls: %v", err)
+	}
+
 	go func() {
 		if err := metricsSrv.Serve(metricsLn); err != nil && err != http.ErrServerClosed {
 			logger.Error("Metrics server: %v", err)
@@ -110,7 +121,11 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 	}()
 
 	logger.Info("Queue server listening on %s", addr)
-	logger.Info("Queue metrics listening on %s (/metrics)", metricsAddr)
+	if !config.MetricsTLSInsecure() {
+		logger.Info("Queue metrics listening on %s (HTTPS /metrics)", metricsAddr)
+	} else {
+		logger.Info("Queue metrics listening on %s (/metrics)", metricsAddr)
+	}
 
 	if config.QueueRegisterWithRegistry() {
 		regAddr := config.QueueRegistrationRegistryAddress()

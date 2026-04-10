@@ -32,7 +32,7 @@ For outage behavior, see [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md). For configura
 
 ## Prometheus `/metrics`
 
-**`vectis-api`** serves **`GET /metrics`** on the **same HTTP listener** as REST (see [ARCHITECTURE.md](ARCHITECTURE.md)). **`vectis-queue`**, **`vectis-worker`**, and **`vectis-log`** expose **`/metrics`** on **separate** listen ports ([CONFIGURATION.md](CONFIGURATION.md)). These endpoints are **not authenticated** and return **Prometheus** text (plus optional OpenMetrics). Restrict them to **trusted networks** (e.g. scrape from Prometheus inside the cluster/pod only) or block them at your edge—same practical posture as internal gRPC.
+**`vectis-api`** serves **`GET /metrics`** on the **same HTTP listener** as REST (see [ARCHITECTURE.md](ARCHITECTURE.md)). **`vectis-queue`**, **`vectis-worker`**, and **`vectis-log`** expose **`/metrics`** on **separate** listen ports ([CONFIGURATION.md](CONFIGURATION.md)); the **Podman kube spec** enables **HTTPS** on those three listeners via **`VECTIS_METRICS_TLS_*`**, while the API scrape target remains **HTTP** until API TLS is introduced separately. These endpoints are **not authenticated** and return **Prometheus** text (plus optional OpenMetrics). Restrict them to **trusted networks** (e.g. scrape from Prometheus inside the cluster/pod only) or block them at your edge—same practical posture as internal gRPC.
 
 ## Secrets and configuration
 

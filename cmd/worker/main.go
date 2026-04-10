@@ -57,7 +57,13 @@ func runWorker(cmd *cobra.Command, args []string) {
 	if err := config.ValidateGRPCTLSForRole(config.GRPCTLSDaemonClientOnly); err != nil {
 		logger.Fatal("%v", err)
 	}
+
+	if err := config.ValidateMetricsTLS(); err != nil {
+		logger.Fatal("%v", err)
+	}
+
 	config.StartGRPCTLSReloadLoop(shutdownCtx)
+	config.StartMetricsTLSReloadLoop(shutdownCtx)
 
 	workerID := uuid.New().String()
 	logger.Info("Worker ID: %s", workerID)
@@ -111,6 +117,11 @@ func runWorker(cmd *cobra.Command, args []string) {
 		logger.Fatal("Failed to listen for metrics: %v", err)
 	}
 
+	metricsLn, err = config.MetricsHTTPSListener(metricsLn)
+	if err != nil {
+		logger.Fatal("metrics tls: %v", err)
+	}
+
 	go func() {
 		if err := metricsSrv.Serve(metricsLn); err != nil && err != http.ErrServerClosed {
 			logger.Error("Metrics server: %v", err)
@@ -125,7 +136,11 @@ func runWorker(cmd *cobra.Command, args []string) {
 		}
 	}()
 
-	logger.Info("Worker metrics listening on %s (/metrics)", metricsAddr)
+	if !config.MetricsTLSInsecure() {
+		logger.Info("Worker metrics listening on %s (HTTPS /metrics)", metricsAddr)
+	} else {
+		logger.Info("Worker metrics listening on %s (/metrics)", metricsAddr)
+	}
 
 	dial := func(ctx context.Context) (interfaces.QueueClient, interfaces.LogClient, func(), error) {
 		q, l, cleanup, err := multidial.DialQueueAndLog(ctx, logger)

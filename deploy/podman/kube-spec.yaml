@@ -50,20 +50,26 @@ data:
         metrics_path: /metrics
         scheme: http
       - job_name: vectis-queue
+        scheme: https
+        metrics_path: /metrics
+        tls_config:
+          ca_file: /run/vectis/grpc-tls/ca.pem
         static_configs:
           - targets: ["127.0.0.1:9081"]
-        metrics_path: /metrics
-        scheme: http
       - job_name: vectis-worker
+        scheme: https
+        metrics_path: /metrics
+        tls_config:
+          ca_file: /run/vectis/grpc-tls/ca.pem
         static_configs:
           - targets: ["127.0.0.1:9082"]
-        metrics_path: /metrics
-        scheme: http
       - job_name: vectis-log
+        scheme: https
+        metrics_path: /metrics
+        tls_config:
+          ca_file: /run/vectis/grpc-tls/ca.pem
         static_configs:
           - targets: ["127.0.0.1:9083"]
-        metrics_path: /metrics
-        scheme: http
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -92,6 +98,9 @@ data:
   VECTIS_GRPC_TLS_CERT_FILE: /run/vectis/grpc-tls/server.pem
   VECTIS_GRPC_TLS_KEY_FILE: /run/vectis/grpc-tls/server-key.pem
   VECTIS_GRPC_TLS_SERVER_NAME: localhost
+  VECTIS_METRICS_TLS_INSECURE: "false"
+  VECTIS_METRICS_TLS_CERT_FILE: /run/vectis/grpc-tls/server.pem
+  VECTIS_METRICS_TLS_KEY_FILE: /run/vectis/grpc-tls/server-key.pem
 ---
 apiVersion: v1
 kind: Pod
@@ -309,6 +318,9 @@ spec:
           mountPath: /etc/prometheus
         - name: prometheus-data
           mountPath: /prometheus
+        - name: vectis-grpc-tls
+          mountPath: /run/vectis/grpc-tls
+          readOnly: true
     - name: grafana
       image: docker.io/grafana/grafana:13.0.0-23943897787
       imagePullPolicy: IfNotPresent

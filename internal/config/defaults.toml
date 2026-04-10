@@ -56,3 +56,9 @@ client_cert_file = ""
 client_key_file = ""
 server_name = ""
 reload_interval = "0s"
+
+[metrics_tls]
+insecure = true
+cert_file = ""
+key_file = ""
+reload_interval = "0s"

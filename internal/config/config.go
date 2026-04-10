@@ -45,6 +45,7 @@ type Defaults struct {
 	Cron       CronDefaults       `toml:"cron"`
 	Reconciler ReconcilerDefaults `toml:"reconciler"`
 	GRPCTLS    GRPCTLSDefaults    `toml:"grpc_tls"`
+	MetricsTLS MetricsTLSDefaults `toml:"metrics_tls"`
 }
 
 type APIDefaults struct {
@@ -141,6 +142,13 @@ type GRPCTLSDefaults struct {
 	ClientCertFile string       `toml:"client_cert_file"`
 	ClientKeyFile  string       `toml:"client_key_file"`
 	ServerName     string       `toml:"server_name"`
+	ReloadInterval tomlDuration `toml:"reload_interval"`
+}
+
+type MetricsTLSDefaults struct {
+	Insecure       bool         `toml:"insecure"`
+	CertFile       string       `toml:"cert_file"`
+	KeyFile        string       `toml:"key_file"`
 	ReloadInterval tomlDuration `toml:"reload_interval"`
 }
 
