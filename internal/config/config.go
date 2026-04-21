@@ -49,11 +49,22 @@ type Defaults struct {
 }
 
 type APIDefaults struct {
-	Host            string `toml:"host"`
-	Port            int    `toml:"port"`
-	LogFormat       string `toml:"log_format"`
-	RegistryAddress string `toml:"registry.address"`
-	QueueAddress    string `toml:"queue.address"`
+	Host            string           `toml:"host"`
+	Port            int              `toml:"port"`
+	LogFormat       string           `toml:"log_format"`
+	RegistryAddress string           `toml:"registry.address"`
+	QueueAddress    string           `toml:"queue.address"`
+	Auth            APIAuthDefaults  `toml:"auth"`
+	Authz           APIAuthzDefaults `toml:"authz"`
+}
+
+type APIAuthDefaults struct {
+	Enabled        bool   `toml:"enabled"`
+	BootstrapToken string `toml:"bootstrap_token"`
+}
+
+type APIAuthzDefaults struct {
+	Engine string `toml:"engine"`
 }
 
 type QueueDefaults struct {
@@ -239,6 +250,19 @@ func validateDefaults(d Defaults) {
 
 	if time.Duration(d.Reconciler.Interval) <= 0 {
 		panic("config defaults: reconciler.interval must be > 0")
+	}
+
+	if strings.TrimSpace(d.API.Auth.BootstrapToken) != "" && len(strings.TrimSpace(d.API.Auth.BootstrapToken)) < 16 {
+		panic("config defaults: api.auth.bootstrap_token when set must be at least 16 characters")
+	}
+
+	e := strings.ToLower(strings.TrimSpace(d.API.Authz.Engine))
+	if e == "" {
+		e = "authenticated_full"
+	}
+
+	if e != "authenticated_full" {
+		panic("config defaults: api.authz.engine must be authenticated_full (got " + d.API.Authz.Engine + ")")
 	}
 }
 

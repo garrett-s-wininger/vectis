@@ -63,6 +63,14 @@ test-integration:
 test-race:
 	go test -race ./...
 
+FUZZTIME ?= 30s
+
+.PHONY: fuzz-api-auth
+fuzz-api-auth:
+	go test -fuzz=FuzzBearerToken -fuzztime=$(FUZZTIME) ./internal/api
+	go test -fuzz=FuzzHashAPIToken -fuzztime=$(FUZZTIME) ./internal/api
+	go test -fuzz=FuzzActionForRequest -fuzztime=$(FUZZTIME) ./internal/api/authz
+
 .PHONY: clean
 clean:
 	rm -rf ${OUT_DIR}

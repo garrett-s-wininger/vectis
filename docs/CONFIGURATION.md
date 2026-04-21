@@ -25,6 +25,18 @@ Executables are built as **`bin/vectis-<name>`** (e.g. `bin/vectis-api` after `m
 
 **Incoming request IDs:** If the client sends a valid **`X-Request-ID`** or **`X-Correlation-ID`** (printable ASCII, length ≤ 128), that value is reused and echoed as **`X-Request-ID`**. Otherwise the API generates a new UUID. Invalid or oversized values are ignored.
 
+### HTTP API authentication (`vectis-api`)
+
+Shipped default is **`api.auth.enabled` = `false`** in [`internal/config/defaults.toml`](../internal/config/defaults.toml). When **`true`**, the API enforces Bearer tokens on protected routes after initial setup; setup completion is stored in the database.
+
+**Authentication vs authorization:** **`api.auth.*`** controls whether clients must authenticate (Bearer). **`api.authz.*`** is reserved for coarse and fine-grained authorization after AuthN; today only **`authenticated_full`** is valid (any authenticated principal for non-setup actions). Additional engines (RBAC, DAC, MAC, etc.) will extend **`api.authz.engine`** when implemented.
+
+| Variable / key | Purpose |
+| --- | --- |
+| **`VECTIS_API_AUTH_ENABLED`** / **`api.auth.enabled`** | If `true` (or `1`, `yes`, `on`), enable HTTP API authentication. |
+| **`VECTIS_API_AUTH_BOOTSTRAP_TOKEN`** / **`api.auth.bootstrap_token`** | Shared secret for **`POST /api/v1/setup/complete`** on a **new** database. Must be **at least 16 characters** when auth is enabled and setup is not yet complete; optional after the DB records setup completion. |
+| **`VECTIS_API_AUTHZ_ENGINE`** / **`api.authz.engine`** | Must be **`authenticated_full`** (default). Other values are rejected at startup until supported. |
+
 ## Database (every service that uses the DB)
 
 These two variables are **global** (no per-service prefix). Every component that talks to the database must use the **same** values.
@@ -131,6 +143,7 @@ Replace `…` with the correct prefix from the next section (e.g. `VECTIS_WORKER
 | Goal | What to set |
 | --- | --- |
 | Change API HTTP port | `VECTIS_API_SERVER_PORT` or `--port` on `vectis-api` |
+| Enable HTTP API auth (Bearer after setup) | `VECTIS_API_AUTH_ENABLED=true` and bootstrap token for new DBs — see [HTTP API authentication](#http-api-authentication-vectis-api) and [SECURITY.md](SECURITY.md) |
 | Structured API access logs (JSON) | `VECTIS_API_SERVER_LOG_FORMAT=json` |
 | Correlate API requests (header) | Responses include **`X-Request-ID`**; send **`X-Request-ID`** or **`X-Correlation-ID`** to propagate your own ID |
 | PostgreSQL | `VECTIS_DATABASE_DRIVER=pgx` and `VECTIS_DATABASE_DSN=postgres://…` on **all** DB consumers; tune pool with **`VECTIS_DATABASE_PGX_*`** ([above](#postgresql-connection-pool-pgx-only)) |

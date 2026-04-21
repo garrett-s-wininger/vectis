@@ -44,3 +44,30 @@ CREATE TABLE job_definitions (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (job_id, version)
 );
+
+CREATE TABLE auth_instance_state (
+    id SMALLINT PRIMARY KEY CHECK (id = 1),
+    setup_completed_at TIMESTAMPTZ
+);
+
+INSERT INTO auth_instance_state (id, setup_completed_at) VALUES (1, NULL);
+
+CREATE TABLE local_users (
+    id BIGSERIAL PRIMARY KEY,
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE api_tokens (
+    id BIGSERIAL PRIMARY KEY,
+    local_user_id BIGINT NOT NULL REFERENCES local_users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL,
+    label TEXT NOT NULL DEFAULT '',
+    expires_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    last_used_at TIMESTAMPTZ
+);
+
+CREATE UNIQUE INDEX idx_api_tokens_token_hash ON api_tokens(token_hash);

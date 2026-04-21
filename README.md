@@ -82,7 +82,7 @@ make deploy-podman
 | `GET` | `/api/v1/jobs/{id}/runs` | List runs |
 | `GET` | `/api/v1/sse/jobs/{id}/runs` | SSE for run events |
 
-There is no authentication on the API in the default stack; do not expose it untrusted networks.
+Application-level API authentication is **off** in the default stack (`api.auth.enabled=false`); you can enable it with environment or config—see [docs/CONFIGURATION.md](docs/CONFIGURATION.md) and [docs/SECURITY.md](docs/SECURITY.md). Do not expose the API to untrusted networks without appropriate controls.
 
 ## Development
 

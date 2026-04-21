@@ -15,6 +15,7 @@ import (
 	"vectis/internal/api"
 	"vectis/internal/cli"
 	"vectis/internal/config"
+	"vectis/internal/dal"
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
 	"vectis/internal/observability"
@@ -30,6 +31,7 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 	if err := config.ValidateGRPCTLSForRole(config.GRPCTLSDaemonClientOnly); err != nil {
 		logger.Fatal("%v", err)
 	}
+
 	config.StartGRPCTLSReloadLoop(cmd.Context())
 
 	dbPath := database.GetDBPath()
@@ -43,6 +45,13 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 
 	if err := database.WaitForMigrations(db, logger); err != nil {
 		logger.Fatal("database wait for migrations failed: %v", err)
+	}
+
+	authCtx, authCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer authCancel()
+
+	if err := config.ValidateAPIAuthConfig(authCtx, dal.NewSQLRepositories(db).Auth()); err != nil {
+		logger.Fatal("%v", err)
 	}
 
 	metricsHandler, shutdownMetrics, err := observability.InitAPIMetrics(cmd.Context())

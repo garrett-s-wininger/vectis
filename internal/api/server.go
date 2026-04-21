@@ -15,6 +15,7 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/api/authz"
 	"vectis/internal/config"
 	"vectis/internal/dal"
 	"vectis/internal/database"
@@ -43,6 +44,7 @@ type APIServer struct {
 	jobs           dal.JobsRepository
 	runs           dal.RunsRepository
 	ephemeralRuns  dal.EphemeralRunStarter
+	authRepo       dal.AuthRepository
 	logger         interfaces.Logger
 	queueClient    interfaces.QueueService
 	queueClose     func()
@@ -53,12 +55,16 @@ type APIServer struct {
 	// AccessLogger, when set, writes one structured slog record per HTTP request
 	// (typically JSON on stderr). Health and /metrics are excluded.
 	AccessLogger *slog.Logger
+
+	// authzOverride, if non-nil, replaces SelectAuthorizer(complete) in middleware (tests).
+	authzOverride authz.Authorizer
 }
 
 func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
 	repos := dal.NewSQLRepositories(db)
 	s := NewAPIServerWithRepositories(logger, repos.Jobs(), repos.Runs(), repos)
 	s.healthDB = db
+	s.authRepo = repos.Auth()
 	return s
 }
 
@@ -786,8 +792,11 @@ func (s *APIServer) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/sse/jobs/{id}/runs", s.HandleSSEJobRuns)
 	mux.HandleFunc("POST /api/v1/runs/{id}/force-fail", s.ForceFailRun)
 	mux.HandleFunc("POST /api/v1/runs/{id}/force-requeue", s.ForceRequeueRun)
+	mux.HandleFunc("GET /api/v1/setup/status", s.GetSetupStatus)
+	mux.HandleFunc("POST /api/v1/setup/complete", s.PostSetupComplete)
 
 	h := http.Handler(mux)
+	h = s.accessControlMiddleware(h)
 	h = accessLogMiddleware(s.AccessLogger, apiHTTPExcludedFromAuxLogging, h)
 	h = observability.CorrelationMiddleware(h)
 	return instrumentHTTPServer(h)

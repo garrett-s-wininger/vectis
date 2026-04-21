@@ -15,16 +15,30 @@ For outage behavior, see [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md). For configura
 
 **Largely out of scope in shipped code today**
 
-- Built-in **authentication** or **authorization** on REST.
+- **Full** RBAC, OIDC/LDAP, and internal gRPC peer authentication beyond optional TLS (see below).
 - **mTLS** or token verification between internal gRPC peers (connections are typically **plaintext** unless you wrap transport externally).
 - **Encryption at rest** for SQLite files, queue WALs, or log storage (relies on **disk** or **volume** encryption from the platform).
 - **Secret scanning** of log streams or job output.
 
 ## HTTP API
 
-- There is **no application-level authentication** on the REST surface documented in [ARCHITECTURE.md](ARCHITECTURE.md). Any client that can reach the API can use exposed routes (create/update/delete jobs, trigger runs, list runs, streams where implemented).
-- **Trust boundary:** Treat the API as **exposed only to networks and principals you fully trust**, or place **TLS termination, authentication, and authorization** in front of it (reverse proxy, API gateway, mesh, private VPC, etc.).
-- **TLS:** The default dev-oriented stack does not terminate TLS inside `vectis-api`; use your **edge** or **ingress** for HTTPS in production.
+### Default and optional API authentication
+
+- **Default (`api.auth.enabled=false` in embedded defaults):** the REST surface behaves as before: **no** application-level authentication on job/run routes.
+- **When enabled (`api.auth.enabled=true` or `VECTIS_API_AUTH_ENABLED=true`):** HTTP auth policy is on. Whether initial setup is still required is **read from the database** (not a separate “mode” string). Until setup completes, only health/metrics and **`/api/v1/setup/*`** are usable for normal clients; other routes return **503** `setup_required`. After setup, clients must send **`Authorization: Bearer <api_token>`** for mutating and data routes. For a fresh database, configure the shared bootstrap secret with **`VECTIS_API_AUTH_BOOTSTRAP_TOKEN`** (or `api.auth.bootstrap_token`)—at least **16 characters**—until setup has been completed once; see [CONFIGURATION.md](CONFIGURATION.md).
+- **Password storage:** the first admin password is stored with **bcrypt** (`password_hash`). Bcrypt **embeds a per-password salt and work factor** in the encoded hash string; there is no separate `salt` column.
+- **API tokens:** stored as **SHA-256** hex of the plaintext token (for constant-time lookup by hash). Tokens are generated with **32 random bytes** (64 hex chars); treat leaks of the DB as credential exposure—rotate tokens and bootstrap secrets if the database is compromised.
+- **Stable error codes:** authentication and setup endpoints return JSON with an **`error`** string (e.g. `setup_required`, `authentication_required`, `authorization_denied`, `auth_unavailable`); integrators should key off these values. Definitions live in **`internal/api/auth_errors.go`**. **Authentication** (`api.auth.enabled`) is separate from **authorization** policy in **`internal/api/authz`** (today **`authenticated_full`** after setup; future RBAC/DAC/MAC may extend **`api.authz.engine`**). After a valid Bearer, policy may still deny a request (**403** `authorization_denied`).
+- **Abuse limits:** setup JSON bodies are capped (**64 KiB**); extracted Bearer material is capped (**4096** bytes) to limit CPU/memory work on hostile headers. Admin username/password lengths are bounded (see `internal/api/auth_limits.go`).
+- **Trust boundary:** For production exposure beyond a private network, prefer **TLS at the edge**, **network policy**, and eventually **full IdP integration** (roadmap). Same practical posture as internal gRPC: do not expose the API to untrusted networks without controls.
+
+### TLS
+
+- The default dev-oriented stack does not terminate TLS inside `vectis-api`; use your **edge** or **ingress** for HTTPS in production.
+
+### Review and fuzzing
+
+- Run **`make fuzz-api-auth`** (or `go test -fuzz=...` on targets under `internal/api` and `internal/api/authz`) to stress **Bearer parsing**, **token hashing**, and **route→action** mapping. This complements unit tests; it is not a substitute for a full pentest.
 
 ## Internal services (gRPC)
 
@@ -47,7 +61,7 @@ For outage behavior, see [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md). For configura
 
 ## Roadmap (product)
 
-Authentication, authorization, and related hardening for APIs beyond trusted networks are **planned** at a high level ([PLANNING.md](PLANNING.md) §3 Milestone B). Until shipped, **edge controls** remain the primary mitigation.
+Further **AuthN/AuthZ** (OIDC, LDAP, RBAC, internal gRPC tokens/mTLS) is tracked in [PLANNING.md](PLANNING.md) §3 Milestone B. **Edge controls** remain important even when API auth is enabled.
 
 ## Reporting security issues
 

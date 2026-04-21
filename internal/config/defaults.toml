@@ -3,6 +3,14 @@ host = "localhost"
 port = 8080
 log_format = "text"
 
+[api.auth]
+enabled = false
+bootstrap_token = ""
+
+# Reserved for future RBAC/DAC/MAC; only authenticated_full is supported today.
+[api.authz]
+engine = "authenticated_full"
+
 [queue]
 port = 8081
 metrics_port = 9081

@@ -24,7 +24,9 @@ func normalizeSQLError(err error) error {
 		return nil
 	}
 
-	if strings.Contains(strings.ToLower(err.Error()), "unique constraint failed") {
+	lower := strings.ToLower(err.Error())
+	if strings.Contains(lower, "unique constraint failed") ||
+		strings.Contains(lower, "duplicate key value violates unique constraint") {
 		return fmt.Errorf("%w: %v", ErrConflict, err)
 	}
 

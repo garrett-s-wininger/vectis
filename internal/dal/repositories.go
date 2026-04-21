@@ -114,6 +114,7 @@ type SQLRepositories struct {
 	jobs      *SQLJobsRepository
 	runs      *SQLRunsRepository
 	schedules *SQLSchedulesRepository
+	auth      *SQLAuthRepository
 }
 
 func NewSQLRepositories(db *sql.DB) *SQLRepositories {
@@ -122,6 +123,7 @@ func NewSQLRepositories(db *sql.DB) *SQLRepositories {
 		jobs:      &SQLJobsRepository{db: db},
 		runs:      &SQLRunsRepository{db: db},
 		schedules: &SQLSchedulesRepository{db: db},
+		auth:      NewSQLAuthRepository(db),
 	}
 }
 
@@ -182,6 +184,10 @@ func (r *SQLRepositories) Runs() RunsRepository {
 
 func (r *SQLRepositories) Schedules() SchedulesRepository {
 	return r.schedules
+}
+
+func (r *SQLRepositories) Auth() AuthRepository {
+	return r.auth
 }
 
 type SQLJobsRepository struct {

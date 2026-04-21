@@ -46,6 +46,13 @@ Scoped tests:
 go test ./internal/api/...
 ```
 
+**Fuzzing (API auth helpers):**
+
+```bash
+make fuzz-api-auth              # default 30s per target; override: FUZZTIME=2m make fuzz-api-auth
+go test -fuzz=FuzzBearerToken -fuzztime=1m ./internal/api
+```
+
 ## Formatting and modules
 
 ```bash

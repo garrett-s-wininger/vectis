@@ -44,3 +44,30 @@ CREATE TABLE job_definitions (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (job_id, version)
 );
+
+CREATE TABLE auth_instance_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    setup_completed_at TIMESTAMP
+);
+
+INSERT INTO auth_instance_state (id, setup_completed_at) VALUES (1, NULL);
+
+CREATE TABLE local_users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE api_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    local_user_id INTEGER NOT NULL REFERENCES local_users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL,
+    label TEXT NOT NULL DEFAULT '',
+    expires_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_used_at TIMESTAMP
+);
+
+CREATE UNIQUE INDEX idx_api_tokens_token_hash ON api_tokens(token_hash);
