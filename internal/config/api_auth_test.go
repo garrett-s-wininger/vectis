@@ -39,6 +39,14 @@ func TestAPIAuthBootstrapToken_envOverridesViper(t *testing.T) {
 	}
 }
 
+func TestCLIAPIToken_trimmedFromEnv(t *testing.T) {
+	t.Setenv(envCLIAPIToken, "  token-value  ")
+
+	if got := CLIAPIToken(); got != "token-value" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestValidateAPIAuthConfig_authzEngine(t *testing.T) {
 	ctx := context.Background()
 

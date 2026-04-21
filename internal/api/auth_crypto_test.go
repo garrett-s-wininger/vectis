@@ -42,17 +42,3 @@ func TestBearerToken(t *testing.T) {
 		}
 	}
 }
-
-func TestIsAuthExcludedPath(t *testing.T) {
-	t.Parallel()
-
-	for _, p := range []string{"/health/live", "/health/ready", "/metrics"} {
-		if !isAuthExcludedPath(p) {
-			t.Fatalf("expected excluded: %q", p)
-		}
-	}
-
-	if isAuthExcludedPath("/api/v1/jobs") {
-		t.Fatal("jobs should not be excluded")
-	}
-}

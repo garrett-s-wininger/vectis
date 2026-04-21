@@ -60,6 +60,12 @@ type APIServer struct {
 	authzOverride authz.Authorizer
 }
 
+type routeSpec struct {
+	Pattern string
+	Handler http.Handler
+	Auth    routeAuthPolicy
+}
+
 func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
 	repos := dal.NewSQLRepositories(db)
 	s := NewAPIServerWithRepositories(logger, repos.Jobs(), repos.Runs(), repos)
@@ -776,30 +782,52 @@ func (s *APIServer) Handler() http.Handler {
 	mux := http.NewServeMux()
 
 	if s.MetricsHandler != nil {
-		mux.Handle("GET /metrics", s.MetricsHandler)
+		s.registerRoute(mux, routeSpec{
+			Pattern: "GET /metrics",
+			Handler: s.MetricsHandler,
+			Auth:    routeAuthPolicy{Public: true},
+		})
 	}
 
-	mux.HandleFunc("GET /health/live", s.HealthLive)
-	mux.HandleFunc("GET /health/ready", s.HealthReady)
-	mux.HandleFunc("GET /api/v1/jobs", s.GetJobs)
-	mux.HandleFunc("GET /api/v1/jobs/{id}", s.GetJob)
-	mux.HandleFunc("POST /api/v1/jobs", s.CreateJob)
-	mux.HandleFunc("POST /api/v1/jobs/run", s.RunJob)
-	mux.HandleFunc("DELETE /api/v1/jobs/{id}", s.DeleteJob)
-	mux.HandleFunc("PUT /api/v1/jobs/{id}", s.UpdateJobDefinition)
-	mux.HandleFunc("POST /api/v1/jobs/trigger/{id}", s.TriggerJob)
-	mux.HandleFunc("GET /api/v1/jobs/{id}/runs", s.GetJobRuns)
-	mux.HandleFunc("GET /api/v1/sse/jobs/{id}/runs", s.HandleSSEJobRuns)
-	mux.HandleFunc("POST /api/v1/runs/{id}/force-fail", s.ForceFailRun)
-	mux.HandleFunc("POST /api/v1/runs/{id}/force-requeue", s.ForceRequeueRun)
-	mux.HandleFunc("GET /api/v1/setup/status", s.GetSetupStatus)
-	mux.HandleFunc("POST /api/v1/setup/complete", s.PostSetupComplete)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /health/live", Auth: routeAuthPolicy{Public: true}}, s.HealthLive)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /health/ready", Auth: routeAuthPolicy{Public: true}}, s.HealthReady)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/jobs", Auth: routeAuthPolicy{Action: authz.ActionJobRead}}, s.GetJobs)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/jobs/{id}", Auth: routeAuthPolicy{Action: authz.ActionJobRead}}, s.GetJob)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/jobs", Auth: routeAuthPolicy{Action: authz.ActionJobWrite}}, s.CreateJob)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/jobs/run", Auth: routeAuthPolicy{Action: authz.ActionRunTrigger}}, s.RunJob)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "DELETE /api/v1/jobs/{id}", Auth: routeAuthPolicy{Action: authz.ActionJobWrite}}, s.DeleteJob)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "PUT /api/v1/jobs/{id}", Auth: routeAuthPolicy{Action: authz.ActionJobWrite}}, s.UpdateJobDefinition)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/jobs/trigger/{id}", Auth: routeAuthPolicy{Action: authz.ActionRunTrigger}}, s.TriggerJob)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/jobs/{id}/runs", Auth: routeAuthPolicy{Action: authz.ActionRunRead}}, s.GetJobRuns)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/sse/jobs/{id}/runs", Auth: routeAuthPolicy{Action: authz.ActionRunRead}}, s.HandleSSEJobRuns)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/runs/{id}/force-fail", Auth: routeAuthPolicy{Action: authz.ActionRunOperator}}, s.ForceFailRun)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/runs/{id}/force-requeue", Auth: routeAuthPolicy{Action: authz.ActionRunOperator}}, s.ForceRequeueRun)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/setup/status", Auth: routeAuthPolicy{Action: authz.ActionSetupStatus}}, s.GetSetupStatus)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/setup/complete", Auth: routeAuthPolicy{Action: authz.ActionSetupComplete}}, s.PostSetupComplete)
 
 	h := http.Handler(mux)
-	h = s.accessControlMiddleware(h)
 	h = accessLogMiddleware(s.AccessLogger, apiHTTPExcludedFromAuxLogging, h)
 	h = observability.CorrelationMiddleware(h)
 	return instrumentHTTPServer(h)
+}
+
+func (s *APIServer) registerRoute(mux *http.ServeMux, spec routeSpec) {
+	if spec.Pattern == "" {
+		panic("api route pattern must not be empty")
+	}
+	if spec.Handler == nil {
+		panic("api route handler must not be nil")
+	}
+
+	mux.Handle(spec.Pattern, s.accessControlledHandler(spec.Auth, spec.Handler))
+}
+
+func (s *APIServer) registerRouteFunc(mux *http.ServeMux, spec routeSpec, handler http.HandlerFunc) {
+	s.registerRoute(mux, routeSpec{
+		Pattern: spec.Pattern,
+		Handler: handler,
+		Auth:    spec.Auth,
+	})
 }
 
 func (s *APIServer) runHTTPServer(ctx context.Context, srv *http.Server, serve func() error) error {

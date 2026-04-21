@@ -2,37 +2,10 @@ package authz
 
 import (
 	"context"
-	"net/http"
 	"testing"
 
 	"vectis/internal/api/authn"
 )
-
-func TestActionForRequest(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		method string
-		path   string
-		want   Action
-	}{
-		{http.MethodGet, "/api/v1/setup/status", ActionSetupStatus},
-		{http.MethodPost, "/api/v1/setup/complete", ActionSetupComplete},
-		{http.MethodGet, "/api/v1/jobs", ActionAPI},
-		{http.MethodPost, "/api/v1/jobs/run", ActionAPI},
-	}
-
-	for _, tc := range cases {
-		req, err := http.NewRequest(tc.method, tc.path, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		if got := ActionForRequest(req); got != tc.want {
-			t.Fatalf("%s %s: got %q want %q", tc.method, tc.path, got, tc.want)
-		}
-	}
-}
 
 func TestSelectAuthorizer(t *testing.T) {
 	t.Parallel()

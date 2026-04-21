@@ -59,6 +59,11 @@ func APIAuthBootstrapToken() string {
 	return MustDefaults().API.Auth.BootstrapToken
 }
 
+// CLIAPIToken returns the Bearer token used by the CLI for authenticated HTTP API requests.
+func CLIAPIToken() string {
+	return strings.TrimSpace(os.Getenv(envCLIAPIToken))
+}
+
 func resolvedAuthzEngine() string {
 	if v := strings.TrimSpace(os.Getenv(envAPIAuthzEngine)); v != "" {
 		return strings.ToLower(v)

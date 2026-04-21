@@ -30,6 +30,23 @@ type LogEntry struct {
 	Data      string `json:"data"`
 }
 
+func newAPIRequest(method, path string, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequest(method, config.PublicAPIBaseURL()+path, body)
+	if err != nil {
+		return nil, err
+	}
+
+	if token := config.CLIAPIToken(); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	return req, nil
+}
+
+func doAPIRequest(req *http.Request) (*http.Response, error) {
+	return http.DefaultClient.Do(req)
+}
+
 func runLogStream(runID string, filterStdout, filterStderr bool) error {
 	sseURL := config.PublicLogSSEURL(runID)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -182,10 +199,14 @@ func triggerJob(cmd *cobra.Command, args []string) {
 	}
 
 	jobID := args[0]
-	apiAddr := config.PublicAPIBaseURL()
+	req, err := newAPIRequest(http.MethodPost, fmt.Sprintf("/api/v1/jobs/trigger/%s", jobID), nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to create trigger request: %v\n", err)
+		os.Exit(1)
+	}
+	req.Header.Set("Content-Type", "application/json")
 
-	url := fmt.Sprintf("%s/api/v1/jobs/trigger/%s", apiAddr, jobID)
-	resp, err := http.Post(url, "application/json", nil)
+	resp, err := doAPIRequest(req)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: failed to trigger job: %v\n", err)
 		os.Exit(1)
@@ -232,7 +253,6 @@ func triggerJob(cmd *cobra.Command, args []string) {
 }
 
 func runContinuousLogs(jobID string, filterStdout, filterStderr bool) error {
-	apiAddr := config.PublicAPIBaseURL()
 	lastIndex := 0
 	fmt.Printf("Streaming logs for job %s (Ctrl+C to stop)\n", jobID)
 
@@ -246,19 +266,19 @@ func runContinuousLogs(jobID string, filterStdout, filterStderr bool) error {
 
 outer:
 	for {
-		sseURL := fmt.Sprintf("%s/api/v1/sse/jobs/%s/runs", apiAddr, jobID)
 		attemptCtx, attemptCancel := context.WithCancel(context.Background())
 
 		runChan := make(chan runEvent, 32)
 		go func() {
 			defer close(runChan)
-			req, err := http.NewRequestWithContext(attemptCtx, http.MethodGet, sseURL, nil)
+			req, err := newAPIRequest(http.MethodGet, fmt.Sprintf("/api/v1/sse/jobs/%s/runs", jobID), nil)
 			if err != nil {
 				return
 			}
+			req = req.WithContext(attemptCtx)
 			req.Header.Set("Accept", "text/event-stream")
 
-			resp, err := http.DefaultClient.Do(req)
+			resp, err := doAPIRequest(req)
 			if err != nil {
 				return
 			}
@@ -317,8 +337,13 @@ outer:
 			}
 		}()
 
-		catchUpURL := fmt.Sprintf("%s/api/v1/jobs/%s/runs?since=%d", apiAddr, jobID, lastIndex)
-		resp, err := http.Get(catchUpURL)
+		req, err := newAPIRequest(http.MethodGet, fmt.Sprintf("/api/v1/jobs/%s/runs?since=%d", jobID, lastIndex), nil)
+		if err != nil {
+			attemptCancel()
+			return fmt.Errorf("creating runs request: %w", err)
+		}
+
+		resp, err := doAPIRequest(req)
 		if err != nil {
 			attemptCancel()
 			return fmt.Errorf("fetching runs: %w", err)
@@ -449,16 +474,14 @@ func runJob(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	apiAddr := config.PublicAPIBaseURL()
-	url := apiAddr + "/api/v1/jobs/run"
-	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader(string(body)))
+	req, err := newAPIRequest(http.MethodPost, "/api/v1/jobs/run", bytes.NewReader(body))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := doAPIRequest(req)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: failed to submit job: %v\n", err)
 		os.Exit(1)
@@ -507,10 +530,12 @@ func runJob(cmd *cobra.Command, args []string) {
 }
 
 func fetchJobDefinitionBody(jobID string) ([]byte, int, error) {
-	apiAddr := config.PublicAPIBaseURL()
-	getURL := fmt.Sprintf("%s/api/v1/jobs/%s", apiAddr, jobID)
+	req, err := newAPIRequest(http.MethodGet, fmt.Sprintf("/api/v1/jobs/%s", jobID), nil)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to create job definition request: %w", err)
+	}
 
-	resp, err := http.Get(getURL)
+	resp, err := doAPIRequest(req)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to fetch job definition: %w", err)
 	}
@@ -667,16 +692,14 @@ func editJob(cmd *cobra.Command, args []string) {
 	}
 	pretty = append(pretty, '\n')
 
-	apiAddr := config.PublicAPIBaseURL()
-	putURL := fmt.Sprintf("%s/api/v1/jobs/%s", apiAddr, jobID)
-	req, err := http.NewRequest(http.MethodPut, putURL, bytes.NewReader(pretty))
+	req, err := newAPIRequest(http.MethodPut, fmt.Sprintf("/api/v1/jobs/%s", jobID), bytes.NewReader(pretty))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: failed to create update request: %v\n", err)
 		os.Exit(1)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	updateResp, err := http.DefaultClient.Do(req)
+	updateResp, err := doAPIRequest(req)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: failed to update job: %v\n", err)
 		os.Exit(1)
@@ -732,10 +755,13 @@ func getJobDefinition(cmd *cobra.Command, args []string) {
 }
 
 func listJobs(cmd *cobra.Command, args []string) {
-	apiAddr := config.PublicAPIBaseURL()
-	url := apiAddr + "/api/v1/jobs"
+	req, err := newAPIRequest(http.MethodGet, "/api/v1/jobs", nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to create list jobs request: %v\n", err)
+		os.Exit(1)
+	}
 
-	resp, err := http.Get(url)
+	resp, err := doAPIRequest(req)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: failed to list jobs: %v\n", err)
 		os.Exit(1)
@@ -847,9 +873,6 @@ func forceFailRun(cmd *cobra.Command, args []string) {
 	runID := args[0]
 	reason, _ := cmd.Flags().GetString("reason")
 
-	apiAddr := config.PublicAPIBaseURL()
-	url := fmt.Sprintf("%s/api/v1/runs/%s/force-fail", apiAddr, runID)
-
 	body := []byte("{}")
 	if reason != "" {
 		payload, err := json.Marshal(map[string]string{"reason": reason})
@@ -860,14 +883,14 @@ func forceFailRun(cmd *cobra.Command, args []string) {
 		body = payload
 	}
 
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	req, err := newAPIRequest(http.MethodPost, fmt.Sprintf("/api/v1/runs/%s/force-fail", runID), bytes.NewReader(body))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: failed to create request: %v\n", err)
 		os.Exit(1)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := doAPIRequest(req)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: request failed: %v\n", err)
 		os.Exit(1)
@@ -888,16 +911,13 @@ func forceFailRun(cmd *cobra.Command, args []string) {
 
 func forceRequeueRun(cmd *cobra.Command, args []string) {
 	runID := args[0]
-	apiAddr := config.PublicAPIBaseURL()
-	url := fmt.Sprintf("%s/api/v1/runs/%s/force-requeue", apiAddr, runID)
-
-	req, err := http.NewRequest(http.MethodPost, url, nil)
+	req, err := newAPIRequest(http.MethodPost, fmt.Sprintf("/api/v1/runs/%s/force-requeue", runID), nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: failed to create request: %v\n", err)
 		os.Exit(1)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := doAPIRequest(req)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: request failed: %v\n", err)
 		os.Exit(1)

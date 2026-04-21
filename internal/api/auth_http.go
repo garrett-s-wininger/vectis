@@ -12,13 +12,17 @@ import (
 	"vectis/internal/dal"
 )
 
-func isAuthExcludedPath(path string) bool {
-	switch path {
-	case "/metrics", "/health/live", "/health/ready":
-		return true
-	default:
-		return false
+type routeAuthPolicy struct {
+	Public bool
+	Action authz.Action
+}
+
+func (p routeAuthPolicy) normalized() routeAuthPolicy {
+	if !p.Public && p.Action == "" {
+		p.Action = authz.ActionAdmin
 	}
+
+	return p
 }
 
 func hashAPIToken(plaintext string) string {
@@ -40,14 +44,11 @@ func bearerToken(h string) (string, bool) {
 	return t, true
 }
 
-func (s *APIServer) accessControlMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !config.APIAuthEnabled() {
-			next.ServeHTTP(w, r)
-			return
-		}
+func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Handler) http.Handler {
+	policy = policy.normalized()
 
-		if isAuthExcludedPath(r.URL.Path) {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if policy.Public || !config.APIAuthEnabled() {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -74,7 +75,7 @@ func (s *APIServer) accessControlMiddleware(next http.Handler) http.Handler {
 		}
 
 		z := s.effectiveAuthorizer(complete)
-		action := authz.ActionForRequest(r)
+		action := policy.Action
 
 		if !complete {
 			if z.Allow(ctx, nil, action, authz.Resource{}) {
@@ -142,6 +143,10 @@ func (s *APIServer) accessControlMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r.WithContext(authn.WithPrincipal(r.Context(), p)))
 	})
+}
+
+func (s *APIServer) accessControlMiddleware(next http.Handler) http.Handler {
+	return s.accessControlledHandler(routeAuthPolicy{}, next)
 }
 
 func (s *APIServer) effectiveAuthorizer(setupComplete bool) authz.Authorizer {

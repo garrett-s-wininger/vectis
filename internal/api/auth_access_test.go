@@ -24,6 +24,10 @@ func (denyExceptSetup) Allow(_ context.Context, _ *authn.Principal, a authz.Acti
 	return a == authz.ActionSetupStatus || a == authz.ActionSetupComplete
 }
 
+func wrapTestAccessHandler(s *APIServer, policy routeAuthPolicy, fn http.HandlerFunc) http.Handler {
+	return s.accessControlledHandler(policy, http.HandlerFunc(fn))
+}
+
 func TestAccessControlMiddleware_authDisabled(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 
@@ -32,10 +36,10 @@ func TestAccessControlMiddleware_authDisabled(t *testing.T) {
 	s.SetQueueClient(mocks.NewMockQueueService())
 
 	var hit bool
-	h := s.accessControlMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := wrapTestAccessHandler(s, routeAuthPolicy{}, func(w http.ResponseWriter, r *http.Request) {
 		hit = true
 		w.WriteHeader(http.StatusNoContent)
-	}))
+	})
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
@@ -55,9 +59,9 @@ func TestAccessControlMiddleware_setupRequiredBlocksJobs(t *testing.T) {
 	s.SetQueueClient(mocks.NewMockQueueService())
 
 	var hit bool
-	h := s.accessControlMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := wrapTestAccessHandler(s, routeAuthPolicy{Action: authz.ActionJobRead}, func(w http.ResponseWriter, r *http.Request) {
 		hit = true
-	}))
+	})
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
@@ -90,10 +94,10 @@ func TestAccessControlMiddleware_setupAllowsSetupStatus(t *testing.T) {
 	s.SetQueueClient(mocks.NewMockQueueService())
 
 	var hit bool
-	h := s.accessControlMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := wrapTestAccessHandler(s, routeAuthPolicy{Action: authz.ActionSetupStatus}, func(w http.ResponseWriter, r *http.Request) {
 		hit = true
 		w.WriteHeader(http.StatusNoContent)
-	}))
+	})
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/setup/status", nil)
@@ -124,21 +128,39 @@ func TestAccessControlMiddleware_requiresBearerAfterSetup(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := s.accessControlMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p, ok := authn.PrincipalFromContext(r.Context())
-		if !ok || p.Username != "op" {
-			t.Fatalf("principal missing or wrong: %+v", p)
-		}
+	runHandler := func(policy routeAuthPolicy) http.Handler {
+		return wrapTestAccessHandler(s, policy, func(w http.ResponseWriter, r *http.Request) {
+			p, ok := authn.PrincipalFromContext(r.Context())
+			if !ok || p.Username != "op" {
+				t.Fatalf("principal missing or wrong: %+v", p)
+			}
 
-		w.WriteHeader(http.StatusTeapot)
-	}))
+			w.WriteHeader(http.StatusTeapot)
+		})
+	}
 
 	t.Run("no_auth", func(t *testing.T) {
-		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
-		h.ServeHTTP(rec, req)
-		if rec.Code != http.StatusUnauthorized {
-			t.Fatalf("code=%d", rec.Code)
+		cases := []struct {
+			name   string
+			policy routeAuthPolicy
+			method string
+			path   string
+		}{
+			{name: "read", policy: routeAuthPolicy{Action: authz.ActionJobRead}, method: http.MethodGet, path: "/api/v1/jobs"},
+			{name: "write", policy: routeAuthPolicy{Action: authz.ActionJobWrite}, method: http.MethodPost, path: "/api/v1/jobs"},
+			{name: "operator", policy: routeAuthPolicy{Action: authz.ActionRunOperator}, method: http.MethodPost, path: "/api/v1/runs/run-1/force-fail"},
+			{name: "default_secure", policy: routeAuthPolicy{}, method: http.MethodGet, path: "/api/v1/forgotten"},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				rec := httptest.NewRecorder()
+				req := httptest.NewRequest(tc.method, tc.path, nil)
+				runHandler(tc.policy).ServeHTTP(rec, req)
+				if rec.Code != http.StatusUnauthorized {
+					t.Fatalf("code=%d", rec.Code)
+				}
+			})
 		}
 	})
 
@@ -146,7 +168,7 @@ func TestAccessControlMiddleware_requiresBearerAfterSetup(t *testing.T) {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
 		req.Header.Set("Authorization", "Bearer wrong")
-		h.ServeHTTP(rec, req)
+		runHandler(routeAuthPolicy{Action: authz.ActionJobRead}).ServeHTTP(rec, req)
 		if rec.Code != http.StatusUnauthorized {
 			t.Fatalf("code=%d", rec.Code)
 		}
@@ -157,19 +179,35 @@ func TestAccessControlMiddleware_requiresBearerAfterSetup(t *testing.T) {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
 		req.Header.Set("Authorization", "Bearer "+longTok)
-		h.ServeHTTP(rec, req)
+		runHandler(routeAuthPolicy{Action: authz.ActionJobRead}).ServeHTTP(rec, req)
 		if rec.Code != http.StatusUnauthorized {
 			t.Fatalf("code=%d", rec.Code)
 		}
 	})
 
 	t.Run("ok", func(t *testing.T) {
-		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
-		req.Header.Set("Authorization", "Bearer "+plain)
-		h.ServeHTTP(rec, req)
-		if rec.Code != http.StatusTeapot {
-			t.Fatalf("code=%d", rec.Code)
+		cases := []struct {
+			name   string
+			policy routeAuthPolicy
+			method string
+			path   string
+		}{
+			{name: "read", policy: routeAuthPolicy{Action: authz.ActionJobRead}, method: http.MethodGet, path: "/api/v1/jobs"},
+			{name: "write", policy: routeAuthPolicy{Action: authz.ActionJobWrite}, method: http.MethodPost, path: "/api/v1/jobs"},
+			{name: "operator", policy: routeAuthPolicy{Action: authz.ActionRunOperator}, method: http.MethodPost, path: "/api/v1/runs/run-1/force-fail"},
+			{name: "default_secure", policy: routeAuthPolicy{}, method: http.MethodGet, path: "/api/v1/forgotten"},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				rec := httptest.NewRecorder()
+				req := httptest.NewRequest(tc.method, tc.path, nil)
+				req.Header.Set("Authorization", "Bearer "+plain)
+				runHandler(tc.policy).ServeHTTP(rec, req)
+				if rec.Code != http.StatusTeapot {
+					t.Fatalf("code=%d", rec.Code)
+				}
+			})
 		}
 	})
 }
@@ -195,9 +233,9 @@ func TestAccessControlMiddleware_authorizerDeniesAfterBearerAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := s.accessControlMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := wrapTestAccessHandler(s, routeAuthPolicy{Action: authz.ActionJobRead}, func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler must not run when Authorizer denies")
-	}))
+	})
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
@@ -217,7 +255,7 @@ func TestAccessControlMiddleware_authorizerDeniesAfterBearerAuth(t *testing.T) {
 	}
 }
 
-func TestAccessControlMiddleware_excludesHealthWithSetup(t *testing.T) {
+func TestAccessControlledHandler_publicRouteBypassesAuth(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "true")
 	t.Setenv("VECTIS_API_AUTH_BOOTSTRAP_TOKEN", "sixteenchars----")
 
@@ -226,13 +264,13 @@ func TestAccessControlMiddleware_excludesHealthWithSetup(t *testing.T) {
 	s.SetQueueClient(mocks.NewMockQueueService())
 
 	var hit bool
-	h := s.accessControlMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := wrapTestAccessHandler(s, routeAuthPolicy{Public: true}, func(w http.ResponseWriter, r *http.Request) {
 		hit = true
 		w.WriteHeader(http.StatusNoContent)
-	}))
+	})
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/health/live", nil)
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	h.ServeHTTP(rec, req)
 
 	if !hit || rec.Code != http.StatusNoContent {
@@ -248,9 +286,9 @@ func TestAccessControlMiddleware_nilAuthRepo(t *testing.T) {
 		mocks.NewMockJobsRepository(), mocks.NewMockRunsRepository(), mocks.StubEphemeralRunStarter{})
 	s.authRepo = nil
 
-	h := s.accessControlMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := wrapTestAccessHandler(s, routeAuthPolicy{Action: authz.ActionSetupStatus}, func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("should not reach handler")
-	}))
+	})
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/setup/status", nil)
