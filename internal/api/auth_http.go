@@ -154,5 +154,19 @@ func (s *APIServer) effectiveAuthorizer(setupComplete bool) authz.Authorizer {
 		return s.authzOverride
 	}
 
-	return authz.SelectAuthorizer(setupComplete)
+	if !config.APIAuthEnabled() {
+		return authz.AllowAll{}
+	}
+
+	var namespaces dal.NamespacesRepository
+	var roleBindings dal.RoleBindingsRepository
+	if s.namespaces != nil {
+		namespaces = s.namespaces
+	}
+
+	if s.roleBindings != nil {
+		roleBindings = s.roleBindings
+	}
+
+	return authz.SelectAuthorizer(setupComplete, namespaces, roleBindings)
 }

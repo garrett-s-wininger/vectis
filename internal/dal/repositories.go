@@ -48,6 +48,7 @@ const (
 
 type JobRecord struct {
 	JobID          string
+	NamespaceID    int64
 	DefinitionJSON string
 }
 
@@ -79,15 +80,6 @@ type CronSchedule struct {
 	NextRunAt time.Time
 }
 
-type JobsRepository interface {
-	Create(ctx context.Context, jobID, definitionJSON string) error
-	Delete(ctx context.Context, jobID string) error
-	List(ctx context.Context) ([]JobRecord, error)
-	GetDefinition(ctx context.Context, jobID string) (string, error)
-	GetDefinitionVersion(ctx context.Context, jobID string, version int) (string, error)
-	UpdateDefinition(ctx context.Context, jobID, definitionJSON string) error
-}
-
 type RunsRepository interface {
 	MarkRunRunning(ctx context.Context, runID string) error
 	MarkRunSucceeded(ctx context.Context, runID, claimToken string) error
@@ -102,6 +94,7 @@ type RunsRepository interface {
 	CreateRun(ctx context.Context, jobID string, runIndex *int, definitionVersion int) (runID string, runIndexOut int, err error)
 	ListByJob(ctx context.Context, jobID string, since *int) ([]RunRecord, error)
 	ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]QueuedRun, error)
+	GetRunJobID(ctx context.Context, runID string) (string, error)
 }
 
 type SchedulesRepository interface {
@@ -109,21 +102,36 @@ type SchedulesRepository interface {
 	UpdateNextRun(ctx context.Context, scheduleID int64, nextRun time.Time) error
 }
 
+type JobsRepository interface {
+	Create(ctx context.Context, jobID, definitionJSON string, namespaceID int64) error
+	Delete(ctx context.Context, jobID string) error
+	List(ctx context.Context) ([]JobRecord, error)
+	ListByNamespace(ctx context.Context, namespaceID int64) ([]JobRecord, error)
+	GetDefinition(ctx context.Context, jobID string) (string, error)
+	GetDefinitionVersion(ctx context.Context, jobID string, version int) (string, error)
+	GetNamespaceID(ctx context.Context, jobID string) (int64, error)
+	UpdateDefinition(ctx context.Context, jobID, definitionJSON string) error
+}
+
 type SQLRepositories struct {
-	db        *sql.DB
-	jobs      *SQLJobsRepository
-	runs      *SQLRunsRepository
-	schedules *SQLSchedulesRepository
-	auth      *SQLAuthRepository
+	db           *sql.DB
+	jobs         *SQLJobsRepository
+	runs         *SQLRunsRepository
+	schedules    *SQLSchedulesRepository
+	auth         *SQLAuthRepository
+	namespaces   *SQLNamespacesRepository
+	roleBindings *SQLRoleBindingsRepository
 }
 
 func NewSQLRepositories(db *sql.DB) *SQLRepositories {
 	return &SQLRepositories{
-		db:        db,
-		jobs:      &SQLJobsRepository{db: db},
-		runs:      &SQLRunsRepository{db: db},
-		schedules: &SQLSchedulesRepository{db: db},
-		auth:      NewSQLAuthRepository(db),
+		db:           db,
+		jobs:         &SQLJobsRepository{db: db},
+		runs:         &SQLRunsRepository{db: db},
+		schedules:    &SQLSchedulesRepository{db: db},
+		auth:         NewSQLAuthRepository(db),
+		namespaces:   NewSQLNamespacesRepository(db),
+		roleBindings: NewSQLRoleBindingsRepository(db),
 	}
 }
 
@@ -190,14 +198,23 @@ func (r *SQLRepositories) Auth() AuthRepository {
 	return r.auth
 }
 
+func (r *SQLRepositories) Namespaces() NamespacesRepository {
+	return r.namespaces
+}
+
+func (r *SQLRepositories) RoleBindings() RoleBindingsRepository {
+	return r.roleBindings
+}
+
 type SQLJobsRepository struct {
 	db *sql.DB
 }
 
-func (r *SQLJobsRepository) Create(ctx context.Context, jobID, definitionJSON string) error {
+func (r *SQLJobsRepository) Create(ctx context.Context, jobID, definitionJSON string, namespaceID int64) error {
 	_, err := r.db.ExecContext(ctx,
-		rebindQueryForPgx("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)"),
+		rebindQueryForPgx("INSERT INTO stored_jobs (job_id, namespace_id, definition_json) VALUES (?, ?, ?)"),
 		jobID,
+		namespaceID,
 		definitionJSON,
 	)
 
@@ -210,7 +227,7 @@ func (r *SQLJobsRepository) Delete(ctx context.Context, jobID string) error {
 }
 
 func (r *SQLJobsRepository) List(ctx context.Context) ([]JobRecord, error) {
-	rows, err := r.db.QueryContext(ctx, "SELECT job_id, definition_json FROM stored_jobs")
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx("SELECT job_id, namespace_id, definition_json FROM stored_jobs"))
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
@@ -219,7 +236,35 @@ func (r *SQLJobsRepository) List(ctx context.Context) ([]JobRecord, error) {
 	var out []JobRecord
 	for rows.Next() {
 		var rec JobRecord
-		if err := rows.Scan(&rec.JobID, &rec.DefinitionJSON); err != nil {
+		if err := rows.Scan(&rec.JobID, &rec.NamespaceID, &rec.DefinitionJSON); err != nil {
+			return nil, err
+		}
+
+		out = append(out, rec)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return out, nil
+}
+
+func (r *SQLJobsRepository) ListByNamespace(ctx context.Context, namespaceID int64) ([]JobRecord, error) {
+	rows, err := r.db.QueryContext(ctx,
+		rebindQueryForPgx("SELECT job_id, namespace_id, definition_json FROM stored_jobs WHERE namespace_id = ?"),
+		namespaceID,
+	)
+
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	var out []JobRecord
+	for rows.Next() {
+		var rec JobRecord
+		if err := rows.Scan(&rec.JobID, &rec.NamespaceID, &rec.DefinitionJSON); err != nil {
 			return nil, err
 		}
 		out = append(out, rec)
@@ -246,6 +291,22 @@ func (r *SQLJobsRepository) GetDefinition(ctx context.Context, jobID string) (st
 	}
 
 	return definitionJSON, nil
+}
+
+func (r *SQLJobsRepository) GetNamespaceID(ctx context.Context, jobID string) (int64, error) {
+	var namespaceID int64
+	if err := r.db.QueryRowContext(ctx,
+		rebindQueryForPgx("SELECT namespace_id FROM stored_jobs WHERE job_id = ?"),
+		jobID,
+	).Scan(&namespaceID); err != nil {
+		if err == sql.ErrNoRows {
+			return 0, fmt.Errorf("%w: job %s", ErrNotFound, jobID)
+		}
+
+		return 0, normalizeSQLError(err)
+	}
+
+	return namespaceID, nil
 }
 
 func (r *SQLJobsRepository) UpdateDefinition(ctx context.Context, jobID, definitionJSON string) error {
@@ -707,6 +768,22 @@ func (r *SQLRunsRepository) ListQueuedBeforeDispatchCutoff(ctx context.Context, 
 	}
 
 	return out, nil
+}
+
+func (r *SQLRunsRepository) GetRunJobID(ctx context.Context, runID string) (string, error) {
+	var jobID string
+	if err := r.db.QueryRowContext(ctx,
+		rebindQueryForPgx("SELECT job_id FROM job_runs WHERE run_id = ?"),
+		runID,
+	).Scan(&jobID); err != nil {
+		if err == sql.ErrNoRows {
+			return "", fmt.Errorf("%w: run %s", ErrNotFound, runID)
+		}
+
+		return "", normalizeSQLError(err)
+	}
+
+	return jobID, nil
 }
 
 type SQLSchedulesRepository struct {

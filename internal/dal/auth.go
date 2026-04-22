@@ -13,6 +13,7 @@ type AuthRepository interface {
 	CompleteInitialSetup(ctx context.Context, username, passwordHash, tokenHash, tokenLabel string) (localUserID int64, err error)
 	ResolveAPIToken(ctx context.Context, tokenHash string) (localUserID int64, username string, err error)
 	TouchAPITokenUsed(ctx context.Context, tokenHash string) error
+	UserExists(ctx context.Context, localUserID int64) (bool, error)
 }
 
 type SQLAuthRepository struct {
@@ -80,6 +81,13 @@ WHERE id = 1 AND setup_completed_at IS NULL`),
 		return 0, normalizeSQLError(err)
 	}
 
+	if _, err := tx.ExecContext(ctx,
+		rebindQueryForPgx(`INSERT INTO role_bindings (local_user_id, namespace_id, role) VALUES (?, ?, ?)`),
+		id, 1, "admin",
+	); err != nil {
+		return 0, normalizeSQLError(err)
+	}
+
 	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
@@ -118,6 +126,20 @@ func (r *SQLAuthRepository) TouchAPITokenUsed(ctx context.Context, tokenHash str
 	)
 
 	return normalizeSQLError(err)
+}
+
+func (r *SQLAuthRepository) UserExists(ctx context.Context, localUserID int64) (bool, error) {
+	var exists bool
+	err := r.db.QueryRowContext(ctx,
+		rebindQueryForPgx(`SELECT EXISTS(SELECT 1 FROM local_users WHERE id = ?)`),
+		localUserID,
+	).Scan(&exists)
+
+	if err != nil {
+		return false, normalizeSQLError(err)
+	}
+
+	return exists, nil
 }
 
 var ErrSetupAlreadyComplete = errors.New("setup already complete")

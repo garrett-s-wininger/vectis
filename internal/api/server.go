@@ -15,6 +15,7 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/api/authn"
 	"vectis/internal/api/authz"
 	"vectis/internal/config"
 	"vectis/internal/dal"
@@ -45,6 +46,8 @@ type APIServer struct {
 	runs           dal.RunsRepository
 	ephemeralRuns  dal.EphemeralRunStarter
 	authRepo       dal.AuthRepository
+	namespaces     dal.NamespacesRepository
+	roleBindings   dal.RoleBindingsRepository
 	logger         interfaces.Logger
 	queueClient    interfaces.QueueService
 	queueClose     func()
@@ -71,6 +74,8 @@ func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
 	s := NewAPIServerWithRepositories(logger, repos.Jobs(), repos.Runs(), repos)
 	s.healthDB = db
 	s.authRepo = repos.Auth()
+	s.namespaces = repos.Namespaces()
+	s.roleBindings = repos.RoleBindings()
 	return s
 }
 
@@ -130,6 +135,98 @@ func queueRPCReady(q interfaces.QueueService) bool {
 
 func (s *APIServer) handlerDBCtx(r *http.Request) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(r.Context(), defaultHandlerDBTimeout)
+}
+
+func (s *APIServer) requireNamespaces(w http.ResponseWriter) bool {
+	if s.namespaces == nil {
+		http.Error(w, "namespaces not configured", http.StatusServiceUnavailable)
+		return false
+	}
+	return true
+}
+
+func (s *APIServer) requireRoleBindings(w http.ResponseWriter) bool {
+	if s.roleBindings == nil {
+		http.Error(w, "role bindings not configured", http.StatusServiceUnavailable)
+		return false
+	}
+	return true
+}
+
+func (s *APIServer) requireAuthRepo(w http.ResponseWriter) bool {
+	if s.authRepo == nil {
+		http.Error(w, "auth not configured", http.StatusServiceUnavailable)
+		return false
+	}
+	return true
+}
+
+func (s *APIServer) requirePrincipal(w http.ResponseWriter, r *http.Request) (*authn.Principal, bool) {
+	p, ok := authn.PrincipalFromContext(r.Context())
+	if ok {
+		return p, true
+	}
+
+	if !config.APIAuthEnabled() {
+		return nil, true
+	}
+
+	writeAuthJSON(w, http.StatusUnauthorized, authAPIError{Error: AuthJSONAuthenticationRequired})
+	return nil, false
+}
+
+func (s *APIServer) authorizeNamespace(ctx context.Context, w http.ResponseWriter, p *authn.Principal, action authz.Action, namespacePath string) bool {
+	if !config.APIAuthEnabled() {
+		return true
+	}
+
+	z := s.effectiveAuthorizer(true)
+	if !z.Allow(ctx, p, action, authz.Resource{NamespacePath: namespacePath}) {
+		writeAuthJSON(w, http.StatusForbidden, authAPIError{Error: AuthJSONAuthorizationDenied})
+		return false
+	}
+
+	return true
+}
+
+func (s *APIServer) checkNamespaceAuth(ctx context.Context, p *authn.Principal, action authz.Action, namespacePath string) bool {
+	if !config.APIAuthEnabled() {
+		return true
+	}
+
+	z := s.effectiveAuthorizer(true)
+	return z.Allow(ctx, p, action, authz.Resource{NamespacePath: namespacePath})
+}
+
+func (s *APIServer) getJobNamespacePath(ctx context.Context, jobID string) (string, error) {
+	nsID, err := s.jobs.GetNamespaceID(ctx, jobID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			return "/", nil
+		}
+
+		return "", err
+	}
+
+	if s.namespaces == nil {
+		return "/", nil
+	}
+
+	ns, err := s.namespaces.GetByID(ctx, nsID)
+	if err != nil {
+		return "", err
+	}
+
+	return ns.Path, nil
+}
+
+func (s *APIServer) getRunJobNamespacePath(ctx context.Context, runID string) (string, error) {
+	jobID, err := s.runs.GetRunJobID(ctx, runID)
+	if err != nil {
+		return "", err
+	}
+
+	return s.getJobNamespacePath(ctx, jobID)
 }
 
 func (s *APIServer) HealthLive(w http.ResponseWriter, _ *http.Request) {
@@ -192,6 +289,32 @@ func (s *APIServer) ForceFailRun(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := s.handlerDBCtx(r)
 	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	nsPath, err := s.getRunJobNamespacePath(ctx, runID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			http.Error(w, "run not found", http.StatusNotFound)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunOperator, nsPath) {
+		http.Error(w, "run not found", http.StatusNotFound)
+		return
+	}
 
 	_, found, err := s.runs.GetRunStatus(ctx, runID)
 	if err != nil {
@@ -257,6 +380,32 @@ func (s *APIServer) ForceRequeueRun(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := s.handlerDBCtx(r)
 	defer cancel()
 
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	nsPath, err := s.getRunJobNamespacePath(ctx, runID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			http.Error(w, "run not found", http.StatusNotFound)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunOperator, nsPath) {
+		http.Error(w, "run not found", http.StatusNotFound)
+		return
+	}
+
 	status, found, err := s.runs.GetRunStatus(ctx, runID)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
@@ -316,8 +465,22 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var req struct {
+		Namespace string          `json:"namespace"`
+		Job       json.RawMessage `json:"job"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		// Fallback to legacy format: the body is the job definition itself
+		req.Job = body
+	}
+
+	if req.Job == nil {
+		req.Job = body
+	}
+
 	var job api.Job
-	if err := json.Unmarshal(body, &job); err != nil {
+	if err := json.Unmarshal(req.Job, &job); err != nil {
 		http.Error(w, "invalid job definition", http.StatusBadRequest)
 		return
 	}
@@ -325,7 +488,39 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := s.handlerDBCtx(r)
 	defer cancel()
 
-	err = s.jobs.Create(ctx, *job.Id, string(body))
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireNamespaces(w) {
+		return
+	}
+
+	namespacePath := "/"
+	if req.Namespace != "" {
+		namespacePath = req.Namespace
+	}
+
+	ns, err := s.namespaces.GetByPath(ctx, namespacePath)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			http.Error(w, "namespace not found", http.StatusNotFound)
+			return
+		}
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+		s.logger.Error("Database error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if !s.authorizeNamespace(ctx, w, p, authz.ActionJobWrite, ns.Path) {
+		return
+	}
+
+	err = s.jobs.Create(ctx, *job.Id, string(req.Job), ns.ID)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
@@ -351,7 +546,32 @@ func (s *APIServer) DeleteJob(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := s.handlerDBCtx(r)
 	defer cancel()
 
-	err := s.jobs.Delete(ctx, jobID)
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	nsPath, err := s.getJobNamespacePath(ctx, jobID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			http.Error(w, "job not found", http.StatusNotFound)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if !s.authorizeNamespace(ctx, w, p, authz.ActionJobWrite, nsPath) {
+		return
+	}
+
+	err = s.jobs.Delete(ctx, jobID)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
@@ -371,6 +591,11 @@ func (s *APIServer) GetJobs(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := s.handlerDBCtx(r)
 	defer cancel()
 
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
 	records, err := s.jobs.List(ctx)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
@@ -386,17 +611,37 @@ func (s *APIServer) GetJobs(w http.ResponseWriter, r *http.Request) {
 	// TODO(garrett): Cursor-based pagination.
 	// TODO(garrett): Option to avoid returning the definition.
 	var jobs []map[string]any
+	z := s.effectiveAuthorizer(true)
 	for _, rec := range records {
+		var nsPath string
+		if s.namespaces != nil && config.APIAuthEnabled() {
+			ns, err := s.namespaces.GetByID(ctx, rec.NamespaceID)
+			if err != nil {
+				continue
+			}
+
+			nsPath = ns.Path
+			if !z.Allow(ctx, p, authz.ActionJobRead, authz.Resource{NamespacePath: nsPath}) {
+				continue
+			}
+		}
+
 		var definition any
 		if err := json.Unmarshal([]byte(rec.DefinitionJSON), &definition); err != nil {
 			s.logger.Error("Failed to parse job definition for job %s: %v", rec.JobID, err)
 			continue
 		}
 
-		jobs = append(jobs, map[string]any{
+		job := map[string]any{
 			"name":       rec.JobID,
 			"definition": definition,
-		})
+		}
+
+		if nsPath != "" {
+			job["namespace"] = nsPath
+		}
+
+		jobs = append(jobs, job)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -420,6 +665,32 @@ func (s *APIServer) GetJob(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := s.handlerDBCtx(r)
 	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	nsPath, err := s.getJobNamespacePath(ctx, jobID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			http.Error(w, "job not found", http.StatusNotFound)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if !s.checkNamespaceAuth(ctx, p, authz.ActionJobRead, nsPath) {
+		http.Error(w, "job not found", http.StatusNotFound)
+		return
+	}
 
 	definitionJSON, err := s.jobs.GetDefinition(ctx, jobID)
 	if err != nil {
@@ -454,6 +725,32 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := s.handlerDBCtx(r)
 	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	nsPath, err := s.getJobNamespacePath(ctx, jobID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			http.Error(w, "job not found", http.StatusNotFound)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunTrigger, nsPath) {
+		http.Error(w, "job not found", http.StatusNotFound)
+		return
+	}
 
 	definitionJSON, err := s.jobs.GetDefinition(ctx, jobID)
 	if err != nil {
@@ -558,6 +855,31 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 	ctx, cancel := s.handlerDBCtx(r)
 	defer cancel()
 
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	nsPath, err := s.getJobNamespacePath(ctx, jobID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			http.Error(w, "job not found", http.StatusNotFound)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if !s.authorizeNamespace(ctx, w, p, authz.ActionJobWrite, nsPath) {
+		return
+	}
+
 	err = s.jobs.UpdateDefinition(ctx, jobID, string(body))
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
@@ -587,8 +909,21 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var req struct {
+		Namespace string          `json:"namespace"`
+		Job       json.RawMessage `json:"job"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		req.Job = body
+	}
+
+	if req.Job == nil {
+		req.Job = body
+	}
+
 	var job api.Job
-	if err := json.Unmarshal(body, &job); err != nil {
+	if err := json.Unmarshal(req.Job, &job); err != nil {
 		http.Error(w, "invalid job definition", http.StatusBadRequest)
 		return
 	}
@@ -611,6 +946,40 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	runIndexOne := 1
 	ctx, cancel := s.handlerDBCtx(r)
 	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireNamespaces(w) {
+		return
+	}
+
+	namespacePath := "/"
+	if req.Namespace != "" {
+		namespacePath = req.Namespace
+	}
+
+	ns, err := s.namespaces.GetByPath(ctx, namespacePath)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			http.Error(w, "namespace not found", http.StatusNotFound)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if !s.authorizeNamespace(ctx, w, p, authz.ActionRunTrigger, ns.Path) {
+		return
+	}
 
 	runID, _, err := s.ephemeralRuns.CreateDefinitionAndRun(ctx, generatedID, string(definitionJSON), &runIndexOne)
 	if err != nil {
@@ -674,6 +1043,31 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := s.handlerDBCtx(r)
 	defer cancel()
 
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	nsPath, err := s.getJobNamespacePath(ctx, jobID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			http.Error(w, "job not found", http.StatusNotFound)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if !s.authorizeNamespace(ctx, w, p, authz.ActionRunRead, nsPath) {
+		return
+	}
+
 	runRows, err := s.runs.ListByJob(ctx, jobID, since)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
@@ -728,6 +1122,34 @@ func (s *APIServer) HandleSSEJobRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	nsPath, err := s.getJobNamespacePath(ctx, jobID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			http.Error(w, "job not found", http.StatusNotFound)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if !s.authorizeNamespace(ctx, w, p, authz.ActionRunRead, nsPath) {
+		return
+	}
+
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -741,7 +1163,6 @@ func (s *APIServer) HandleSSEJobRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := r.Context()
 	ch := s.runBroadcaster.Subscribe(jobID)
 	defer s.runBroadcaster.Unsubscribe(jobID, ch)
 
@@ -755,7 +1176,7 @@ func (s *APIServer) HandleSSEJobRuns(w http.ResponseWriter, r *http.Request) {
 
 	for {
 		select {
-		case <-ctx.Done():
+		case <-r.Context().Done():
 			return
 		case <-ticker.C:
 			_, _ = w.Write([]byte(": keep-alive\n\n"))
@@ -804,6 +1225,13 @@ func (s *APIServer) Handler() http.Handler {
 	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/runs/{id}/force-requeue", Auth: routeAuthPolicy{Action: authz.ActionRunOperator}}, s.ForceRequeueRun)
 	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/setup/status", Auth: routeAuthPolicy{Action: authz.ActionSetupStatus}}, s.GetSetupStatus)
 	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/setup/complete", Auth: routeAuthPolicy{Action: authz.ActionSetupComplete}}, s.PostSetupComplete)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/namespaces", Auth: routeAuthPolicy{Action: authz.ActionJobRead}}, s.ListNamespaces)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/namespaces", Auth: routeAuthPolicy{Action: authz.ActionAdmin}}, s.CreateNamespace)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/namespaces/{id}", Auth: routeAuthPolicy{Action: authz.ActionJobRead}}, s.GetNamespace)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "DELETE /api/v1/namespaces/{id}", Auth: routeAuthPolicy{Action: authz.ActionAdmin}}, s.DeleteNamespace)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/namespaces/{id}/bindings", Auth: routeAuthPolicy{Action: authz.ActionJobRead}}, s.ListBindings)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/namespaces/{id}/bindings", Auth: routeAuthPolicy{Action: authz.ActionAdmin}}, s.CreateBinding)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "DELETE /api/v1/namespaces/{id}/bindings/{user_id}", Auth: routeAuthPolicy{Action: authz.ActionAdmin}}, s.DeleteBinding)
 
 	h := http.Handler(mux)
 	h = accessLogMiddleware(s.AccessLogger, apiHTTPExcludedFromAuxLogging, h)

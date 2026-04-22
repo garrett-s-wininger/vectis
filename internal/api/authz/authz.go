@@ -26,8 +26,42 @@ const (
 	ActionAPI           Action = "api:any"
 )
 
+const (
+	RoleViewer   = "viewer"
+	RoleTrigger  = "trigger"
+	RoleOperator = "operator"
+	RoleAdmin    = "admin"
+)
+
+var rolePermissions = map[string][]Action{
+	RoleViewer:   {ActionJobRead, ActionRunRead},
+	RoleTrigger:  {ActionJobRead, ActionRunRead, ActionRunTrigger},
+	RoleOperator: {ActionJobRead, ActionRunRead, ActionRunTrigger, ActionRunOperator},
+	RoleAdmin:    {ActionJobRead, ActionJobWrite, ActionRunRead, ActionRunTrigger, ActionRunOperator, ActionAdmin, ActionAPI},
+}
+
+func roleAllows(role string, action Action) bool {
+	if role == RoleAdmin {
+		return true
+	}
+
+	perms, ok := rolePermissions[role]
+	if !ok {
+		return false
+	}
+
+	for _, a := range perms {
+		if a == action {
+			return true
+		}
+	}
+
+	return false
+}
+
 type Resource struct {
-	JobID string
+	JobID         string
+	NamespacePath string
 }
 
 type Authorizer interface {
@@ -58,4 +92,11 @@ func (SetupPending) Allow(_ context.Context, p *authn.Principal, action Action, 
 	default:
 		return p != nil
 	}
+}
+
+// AllowAll authorizes every request. Used when API authentication is disabled.
+type AllowAll struct{}
+
+func (AllowAll) Allow(_ context.Context, _ *authn.Principal, _ Action, _ Resource) bool {
+	return true
 }

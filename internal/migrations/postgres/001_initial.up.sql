@@ -1,6 +1,18 @@
+CREATE TABLE namespaces (
+    id BIGSERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    parent_id BIGINT REFERENCES namespaces(id),
+    path TEXT UNIQUE NOT NULL,
+    break_inheritance BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO namespaces (id, name, path, break_inheritance) VALUES (1, 'root', '/', false);
+
 CREATE TABLE stored_jobs (
     id BIGSERIAL PRIMARY KEY,
     job_id TEXT UNIQUE NOT NULL,
+    namespace_id BIGINT NOT NULL DEFAULT 1 REFERENCES namespaces(id),
     definition_json TEXT NOT NULL,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
@@ -71,3 +83,16 @@ CREATE TABLE api_tokens (
 );
 
 CREATE UNIQUE INDEX idx_api_tokens_token_hash ON api_tokens(token_hash);
+
+CREATE TABLE role_bindings (
+    id BIGSERIAL PRIMARY KEY,
+    local_user_id BIGINT NOT NULL REFERENCES local_users(id) ON DELETE CASCADE,
+    namespace_id BIGINT NOT NULL REFERENCES namespaces(id) ON DELETE CASCADE,
+    role TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(local_user_id, namespace_id, role)
+);
+
+CREATE INDEX idx_stored_jobs_namespace ON stored_jobs(namespace_id);
+CREATE INDEX idx_role_bindings_user ON role_bindings(local_user_id);
+CREATE INDEX idx_role_bindings_namespace ON role_bindings(namespace_id);

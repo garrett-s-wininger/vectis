@@ -34,10 +34,11 @@ func NewMockJobsRepository() *MockJobsRepository {
 	}
 }
 
-func (m *MockJobsRepository) Create(ctx context.Context, jobID, definitionJSON string) error {
+func (m *MockJobsRepository) Create(ctx context.Context, jobID, definitionJSON string, namespaceID int64) error {
 	if m.CreateErr != nil {
 		return m.CreateErr
 	}
+
 	m.Definitions[jobID] = definitionJSON
 	return nil
 }
@@ -46,6 +47,7 @@ func (m *MockJobsRepository) Delete(ctx context.Context, jobID string) error {
 	if m.DeleteErr != nil {
 		return m.DeleteErr
 	}
+
 	delete(m.Definitions, jobID)
 	return nil
 }
@@ -102,6 +104,35 @@ func (m *MockJobsRepository) UpdateDefinition(ctx context.Context, jobID, defini
 	}
 	m.Definitions[jobID] = definitionJSON
 	return nil
+}
+
+func (m *MockJobsRepository) ListByNamespace(ctx context.Context, namespaceID int64) ([]dal.JobRecord, error) {
+	if m.ListErr != nil {
+		return nil, m.ListErr
+	}
+
+	out := make([]dal.JobRecord, 0, len(m.Definitions))
+	for id, def := range m.Definitions {
+		out = append(out, dal.JobRecord{
+			JobID:          id,
+			NamespaceID:    namespaceID,
+			DefinitionJSON: def,
+		})
+	}
+
+	return out, nil
+}
+
+func (m *MockJobsRepository) GetNamespaceID(ctx context.Context, jobID string) (int64, error) {
+	if m.GetErr != nil {
+		return 0, m.GetErr
+	}
+
+	if _, ok := m.Definitions[jobID]; !ok {
+		return 0, fmt.Errorf("%w: job %s", dal.ErrNotFound, jobID)
+	}
+
+	return 1, nil
 }
 
 var _ dal.JobsRepository = (*MockJobsRepository)(nil)
@@ -266,6 +297,10 @@ func (m *MockRunsRepository) ListQueuedBeforeDispatchCutoff(ctx context.Context,
 		return nil, m.QueuedListErr
 	}
 	return append([]dal.QueuedRun(nil), m.QueuedRuns...), nil
+}
+
+func (m *MockRunsRepository) GetRunJobID(ctx context.Context, runID string) (string, error) {
+	return m.LastCreateJobID, nil
 }
 
 var _ dal.RunsRepository = (*MockRunsRepository)(nil)

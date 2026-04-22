@@ -1,3 +1,7 @@
+DROP INDEX IF EXISTS idx_stored_jobs_namespace;
+DROP INDEX IF EXISTS idx_role_bindings_user;
+DROP INDEX IF EXISTS idx_role_bindings_namespace;
+DROP TABLE IF EXISTS role_bindings;
 DROP TABLE IF EXISTS api_tokens;
 DROP TABLE IF EXISTS local_users;
 DROP TABLE IF EXISTS auth_instance_state;
@@ -6,3 +10,4 @@ DROP TABLE IF EXISTS job_runs;
 DROP INDEX IF EXISTS idx_cron_next_run;
 DROP TABLE IF EXISTS job_cron_schedules;
 DROP TABLE IF EXISTS stored_jobs;
+DROP TABLE IF EXISTS namespaces;

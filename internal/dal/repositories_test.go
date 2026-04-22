@@ -20,11 +20,11 @@ func TestJobsRepository_CRUDAndConflict(t *testing.T) {
 	def1 := `{"id":"job-a","root":{"uses":"builtins/shell"}}`
 	def2 := `{"id":"job-a","root":{"uses":"builtins/shell","with":{"command":"echo hi"}}}`
 
-	if err := jobs.Create(ctx, jobID, def1); err != nil {
+	if err := jobs.Create(ctx, jobID, def1, 1); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
-	if err := jobs.Create(ctx, jobID, def1); !dal.IsConflict(err) {
+	if err := jobs.Create(ctx, jobID, def1, 1); !dal.IsConflict(err) {
 		t.Fatalf("expected conflict on duplicate create, got: %v", err)
 	}
 
@@ -654,7 +654,7 @@ func TestSchedulesRepository_GetReadyAndUpdateNextRun(t *testing.T) {
 	schedules := repos.Schedules()
 	ctx := context.Background()
 
-	if err := jobs.Create(ctx, "cron-job", `{"id":"cron-job"}`); err != nil {
+	if err := jobs.Create(ctx, "cron-job", `{"id":"cron-job"}`, 1); err != nil {
 		t.Fatalf("create stored job: %v", err)
 	}
 

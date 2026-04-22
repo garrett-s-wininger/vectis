@@ -13,6 +13,7 @@ const (
 	envAPIAuthEnabled        = "VECTIS_API_AUTH_ENABLED"
 	envAPIAuthBootstrapToken = "VECTIS_API_AUTH_BOOTSTRAP_TOKEN"
 	envAPIAuthzEngine        = "VECTIS_API_AUTHZ_ENGINE" // must be authenticated_full until more engines ship
+	envCLIAPIToken           = "VECTIS_API_TOKEN"
 
 	// MinBootstrapTokenLen is the minimum length (bytes after trim) for api.auth.bootstrap_token
 	// when HTTP API auth is enabled and initial setup is not yet complete in the database.

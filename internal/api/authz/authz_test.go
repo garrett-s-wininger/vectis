@@ -10,11 +10,11 @@ import (
 func TestSelectAuthorizer(t *testing.T) {
 	t.Parallel()
 
-	if _, ok := SelectAuthorizer(false).(SetupPending); !ok {
+	if _, ok := SelectAuthorizer(false, nil, nil).(SetupPending); !ok {
 		t.Fatal("before setup -> SetupPending")
 	}
 
-	if _, ok := SelectAuthorizer(true).(AuthenticatedFull); !ok {
+	if _, ok := SelectAuthorizer(true, nil, nil).(AuthenticatedFull); !ok {
 		t.Fatal("after setup -> AuthenticatedFull")
 	}
 }
