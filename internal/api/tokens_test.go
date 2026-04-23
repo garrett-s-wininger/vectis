@@ -394,3 +394,160 @@ func TestTokenLifecycle_endToEnd(t *testing.T) {
 func formatInt64(v int64) string {
 	return strconv.FormatInt(v, 10)
 }
+
+func TestTokenScoping_endToEnd(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "true")
+	t.Setenv("VECTIS_API_AUTH_BOOTSTRAP_TOKEN", "sixteenchars----")
+
+	db := dbtest.NewTestDB(t)
+	s := NewAPIServer(mocks.NewMockLogger(), db)
+	s.SetQueueClient(mocks.NewMockQueueService())
+	h := s.Handler()
+
+	var adminToken string
+	t.Run("setup", func(t *testing.T) {
+		body := map[string]string{
+			"bootstrap_token": "sixteenchars----",
+			"admin_username":  "root",
+			"admin_password":  "longenough",
+		}
+
+		b, _ := json.Marshal(body)
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/setup/complete", bytes.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("setup failed: code=%d body=%s", rec.Code, rec.Body.String())
+		}
+
+		var out setupCompleteResponse
+		if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
+			t.Fatal(err)
+		}
+
+		adminToken = out.APIToken
+	})
+
+	// Create a child namespace for testing
+	_, err := db.Exec("INSERT INTO namespaces (name, path, parent_id) VALUES (?, ?, ?)", "child", "/child", 1)
+	if err != nil {
+		t.Fatalf("failed to create namespace: %v", err)
+	}
+
+	var scopedToken string
+	t.Run("create_scoped_token", func(t *testing.T) {
+		body := map[string]any{
+			"label":      "scoped-ci",
+			"expires_in": "1y",
+			"scopes": []map[string]any{
+				{"action": "job:read"},
+				{"action": "run:trigger", "namespace_path": "/", "propagate": false},
+			},
+		}
+
+		b, _ := json.Marshal(body)
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/tokens", bytes.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
+		}
+
+		var out createTokenResponse
+		if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
+			t.Fatal(err)
+		}
+
+		if out.Token == "" {
+			t.Fatal("expected plaintext token")
+		}
+
+		scopedToken = out.Token
+	})
+
+	t.Run("scoped_token_allows_job_read", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/namespaces", nil)
+		req.Header.Set("Authorization", "Bearer "+scopedToken)
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rec.Code)
+		}
+	})
+
+	t.Run("scoped_token_denies_run_operator", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/runs/nonexistent/force-fail", nil)
+		req.Header.Set("Authorization", "Bearer "+scopedToken)
+		h.ServeHTTP(rec, req)
+
+		// run:operator is not in scopes, should be denied (403 before 404)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("expected 403, got %d", rec.Code)
+		}
+	})
+
+	t.Run("scoped_token_denies_admin_action", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces", bytes.NewReader([]byte(`{"name":"test"}`)))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+scopedToken)
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("expected 403, got %d", rec.Code)
+		}
+	})
+
+	var propagatedToken string
+	t.Run("create_propagated_scoped_token", func(t *testing.T) {
+		body := map[string]any{
+			"label":      "propagated",
+			"expires_in": "1y",
+			"scopes": []map[string]any{
+				{"action": "job:read", "namespace_path": "/", "propagate": true},
+			},
+		}
+
+		b, _ := json.Marshal(body)
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/tokens", bytes.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
+		}
+
+		var out createTokenResponse
+		if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
+			t.Fatal(err)
+		}
+
+		propagatedToken = out.Token
+	})
+
+	t.Run("propagated_token_allows_child_namespace", func(t *testing.T) {
+		// Create a job in the child namespace first
+		_, err := db.Exec("INSERT INTO stored_jobs (job_id, namespace_id, definition_json) VALUES (?, ?, ?)", "test-job", 2, "{}")
+		if err != nil {
+			t.Fatalf("failed to create job: %v", err)
+		}
+
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
+		req.Header.Set("Authorization", "Bearer "+propagatedToken)
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rec.Code)
+		}
+	})
+}

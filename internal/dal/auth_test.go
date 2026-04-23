@@ -160,16 +160,16 @@ func TestAuthRepository_ResolveAPIToken(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	uid, name, err := repo.ResolveAPIToken(ctx, tokenHash)
+	uid, name, tokenID, err := repo.ResolveAPIToken(ctx, tokenHash)
 	if err != nil {
 		t.Fatalf("ResolveAPIToken: %v", err)
 	}
 
-	if name != "alice" || uid <= 0 {
-		t.Fatalf("unexpected principal: id=%d name=%q", uid, name)
+	if name != "alice" || uid <= 0 || tokenID <= 0 {
+		t.Fatalf("unexpected principal: id=%d name=%q tokenID=%d", uid, name, tokenID)
 	}
 
-	_, _, err = repo.ResolveAPIToken(ctx, "0000000000000000000000000000000000000000000000000000000000000000")
+	_, _, _, err = repo.ResolveAPIToken(ctx, "0000000000000000000000000000000000000000000000000000000000000000")
 	if !IsNotFound(err) {
 		t.Fatalf("expected ErrNotFound for unknown token hash, got %v", err)
 	}
@@ -202,7 +202,7 @@ func TestAuthRepository_ResolveAPIToken_expired(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _, err = repo.ResolveAPIToken(ctx, tokenHash)
+	_, _, _, err = repo.ResolveAPIToken(ctx, tokenHash)
 	if !IsNotFound(err) {
 		t.Fatalf("expected ErrNotFound for expired token, got %v", err)
 	}

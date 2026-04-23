@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"io"
 	"mime"
@@ -26,10 +27,17 @@ var tokenExpiryPresets = map[string]time.Duration{
 	"never": 0,
 }
 
+type tokenScopeRequest struct {
+	Action        string `json:"action"`
+	NamespacePath string `json:"namespace_path,omitempty"`
+	Propagate     bool   `json:"propagate,omitempty"`
+}
+
 type createTokenRequest struct {
-	Label     string `json:"label"`
-	ExpiresIn string `json:"expires_in"`
-	UserID    *int64 `json:"user_id,omitempty"`
+	Label     string               `json:"label"`
+	ExpiresIn string               `json:"expires_in"`
+	UserID    *int64               `json:"user_id,omitempty"`
+	Scopes    []*tokenScopeRequest `json:"scopes,omitempty"`
 }
 
 type tokenResponse struct {
@@ -261,7 +269,48 @@ func (s *APIServer) CreateToken(w http.ResponseWriter, r *http.Request) {
 		expiresAt = &t
 	}
 
-	id, err := s.authRepo.CreateAPIToken(ctx, targetUserID, tokenHash, req.Label, expiresAt)
+	var id int64
+	if len(req.Scopes) > 0 {
+		if s.namespaces == nil {
+			http.Error(w, "namespace repository unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
+		dalScopes := make([]*dal.TokenScopeRecord, len(req.Scopes))
+		for i, scopeReq := range req.Scopes {
+			scope := &dal.TokenScopeRecord{
+				Action:    scopeReq.Action,
+				Propagate: scopeReq.Propagate,
+			}
+
+			if scopeReq.NamespacePath != "" {
+				ns, err := s.namespaces.GetByPath(ctx, scopeReq.NamespacePath)
+				if err != nil {
+					if dal.IsNotFound(err) {
+						http.Error(w, "namespace not found: "+scopeReq.NamespacePath, http.StatusBadRequest)
+						return
+					}
+
+					if s.handleDBUnavailableError(w, err) {
+						return
+					}
+
+					s.logger.Error("Database error resolving namespace: %v", err)
+					writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+					return
+				}
+
+				scope.NamespaceID = sql.NullInt64{Int64: ns.ID, Valid: true}
+			}
+
+			dalScopes[i] = scope
+		}
+
+		id, err = s.authRepo.CreateAPITokenWithScopes(ctx, targetUserID, tokenHash, req.Label, expiresAt, dalScopes)
+	} else {
+		id, err = s.authRepo.CreateAPIToken(ctx, targetUserID, tokenHash, req.Label, expiresAt)
+	}
+
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return

@@ -25,11 +25,18 @@ type LocalUserRecord struct {
 	CreatedAt sql.NullTime
 }
 
+// TokenScopeRecord represents a scope restriction on an API token.
+type TokenScopeRecord struct {
+	Action      string
+	NamespaceID sql.NullInt64
+	Propagate   bool
+}
+
 // AuthRepository persists HTTP API authentication: bootstrap completion, local users, and API tokens.
 type AuthRepository interface {
 	IsSetupComplete(ctx context.Context) (bool, error)
 	CompleteInitialSetup(ctx context.Context, username, passwordHash, tokenHash, tokenLabel string) (localUserID int64, err error)
-	ResolveAPIToken(ctx context.Context, tokenHash string) (localUserID int64, username string, err error)
+	ResolveAPIToken(ctx context.Context, tokenHash string) (localUserID int64, username string, tokenID int64, err error)
 	TouchAPITokenUsed(ctx context.Context, tokenHash string) error
 	UserExists(ctx context.Context, localUserID int64) (bool, error)
 	UserEnabled(ctx context.Context, localUserID int64) (bool, error)
@@ -39,8 +46,10 @@ type AuthRepository interface {
 	ChangePasswordAndRevokeTokens(ctx context.Context, localUserID int64, passwordHash string) error
 	ListAPITokens(ctx context.Context, localUserID int64) ([]*APITokenRecord, error)
 	CreateAPIToken(ctx context.Context, localUserID int64, tokenHash, label string, expiresAt *time.Time) (int64, error)
+	CreateAPITokenWithScopes(ctx context.Context, localUserID int64, tokenHash, label string, expiresAt *time.Time, scopes []*TokenScopeRecord) (int64, error)
 	DeleteAPIToken(ctx context.Context, id int64) error
 	GetAPITokenOwner(ctx context.Context, id int64) (localUserID int64, err error)
+	GetTokenScopes(ctx context.Context, tokenID int64) ([]*TokenScopeRecord, error)
 	CreateLocalUser(ctx context.Context, username, passwordHash string) (int64, error)
 	ListLocalUsers(ctx context.Context) ([]*LocalUserRecord, error)
 	GetLocalUser(ctx context.Context, id int64) (*LocalUserRecord, error)
@@ -129,10 +138,10 @@ WHERE id = 1 AND setup_completed_at IS NULL`),
 	return id, nil
 }
 
-func (r *SQLAuthRepository) ResolveAPIToken(ctx context.Context, tokenHash string) (localUserID int64, username string, err error) {
+func (r *SQLAuthRepository) ResolveAPIToken(ctx context.Context, tokenHash string) (localUserID int64, username string, tokenID int64, err error) {
 	now := time.Now().UTC()
 	row := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
-SELECT u.id, u.username
+SELECT t.id, u.id, u.username
 FROM api_tokens t
 JOIN local_users u ON u.id = t.local_user_id
 WHERE t.token_hash = ?
@@ -140,17 +149,18 @@ WHERE t.token_hash = ?
   AND (t.expires_at IS NULL OR t.expires_at > ?)
 `), tokenHash, now)
 
+	var tid int64
 	var uid int64
 	var uname string
-	if err := row.Scan(&uid, &uname); err != nil {
+	if err := row.Scan(&tid, &uid, &uname); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return 0, "", ErrNotFound
+			return 0, "", 0, ErrNotFound
 		}
 
-		return 0, "", normalizeSQLError(err)
+		return 0, "", 0, normalizeSQLError(err)
 	}
 
-	return uid, uname, nil
+	return uid, uname, tid, nil
 }
 
 func (r *SQLAuthRepository) TouchAPITokenUsed(ctx context.Context, tokenHash string) error {
@@ -501,6 +511,82 @@ func (r *SQLAuthRepository) IsUserAdmin(ctx context.Context, localUserID int64) 
 	}
 
 	return isAdmin, nil
+}
+
+func (r *SQLAuthRepository) CreateAPITokenWithScopes(ctx context.Context, localUserID int64, tokenHash, label string, expiresAt *time.Time, scopes []*TokenScopeRecord) (int64, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var id int64
+	if expiresAt != nil {
+		err = tx.QueryRowContext(ctx,
+			rebindQueryForPgx(`INSERT INTO api_tokens (local_user_id, token_hash, label, expires_at) VALUES (?, ?, ?, ?) RETURNING id`),
+			localUserID, tokenHash, label, *expiresAt,
+		).Scan(&id)
+	} else {
+		err = tx.QueryRowContext(ctx,
+			rebindQueryForPgx(`INSERT INTO api_tokens (local_user_id, token_hash, label) VALUES (?, ?, ?) RETURNING id`),
+			localUserID, tokenHash, label,
+		).Scan(&id)
+	}
+
+	if err != nil {
+		return 0, normalizeSQLError(err)
+	}
+
+	for _, scope := range scopes {
+		if scope.NamespaceID.Valid {
+			_, err = tx.ExecContext(ctx,
+				rebindQueryForPgx(`INSERT INTO api_token_scopes (api_token_id, action, namespace_id, propagate) VALUES (?, ?, ?, ?)`),
+				id, scope.Action, scope.NamespaceID.Int64, scope.Propagate,
+			)
+		} else {
+			_, err = tx.ExecContext(ctx,
+				rebindQueryForPgx(`INSERT INTO api_token_scopes (api_token_id, action, propagate) VALUES (?, ?, ?)`),
+				id, scope.Action, scope.Propagate,
+			)
+		}
+		if err != nil {
+			return 0, normalizeSQLError(err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+
+	return id, nil
+}
+
+func (r *SQLAuthRepository) GetTokenScopes(ctx context.Context, tokenID int64) ([]*TokenScopeRecord, error) {
+	rows, err := r.db.QueryContext(ctx,
+		rebindQueryForPgx(`SELECT action, namespace_id, propagate FROM api_token_scopes WHERE api_token_id = ?`),
+		tokenID,
+	)
+
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	var scopes []*TokenScopeRecord
+	for rows.Next() {
+		var s TokenScopeRecord
+		if err := rows.Scan(&s.Action, &s.NamespaceID, &s.Propagate); err != nil {
+			return nil, normalizeSQLError(err)
+		}
+
+		scopes = append(scopes, &s)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	return scopes, nil
 }
 
 var ErrSetupAlreadyComplete = errors.New("setup already complete")

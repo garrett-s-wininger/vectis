@@ -24,6 +24,11 @@ func (r *HierarchicalRBAC) Allow(ctx context.Context, p *authn.Principal, action
 		return false
 	}
 
+	// If token has scopes, check them first (scopes are a ceiling)
+	if len(p.TokenScopes) > 0 {
+		return r.tokenScopesAllow(ctx, p, action, res)
+	}
+
 	namespacePath := res.NamespacePath
 	if namespacePath == "" {
 		return r.hasActionAnywhere(ctx, p.LocalUserID, action)
@@ -55,6 +60,98 @@ func (r *HierarchicalRBAC) Allow(ctx context.Context, p *authn.Principal, action
 	}
 
 	return allowed
+}
+
+func (r *HierarchicalRBAC) tokenScopesAllow(ctx context.Context, p *authn.Principal, action Action, res Resource) bool {
+	// Check if the requested action is in any token scope
+	var actionAllowed bool
+	for _, scope := range p.TokenScopes {
+		if scope.Action == string(action) {
+			actionAllowed = true
+			break
+		}
+	}
+
+	if !actionAllowed {
+		return false
+	}
+
+	// For non-namespaced resources, any matching scope is sufficient
+	if res.NamespacePath == "" {
+		return true
+	}
+
+	// For namespaced resources, check if the scope applies to this namespace
+	paths := dal.ParseNamespacePath(res.NamespacePath)
+
+	// Get the current (target) namespace
+	currentPath := paths[len(paths)-1]
+	currentNs, err := r.Namespaces.GetByPath(ctx, currentPath)
+	if err != nil {
+		return false
+	}
+
+	for _, scope := range p.TokenScopes {
+		if scope.Action != string(action) {
+			continue
+		}
+
+		// Scope with no namespace ID applies globally
+		if scope.NamespaceID == 0 {
+			return true
+		}
+
+		// Exact match on current namespace (always allowed)
+		if scope.NamespaceID == currentNs.ID {
+			return true
+		}
+
+		// Non-propagating scope: only exact match allowed, skip
+		if !scope.Propagate {
+			continue
+		}
+
+		// Propagating scope: check if scope's namespace is an ancestor of current
+		for _, ancestorPath := range paths {
+			ancestorNs, err := r.Namespaces.GetByPath(ctx, ancestorPath)
+			if err != nil {
+				return false
+			}
+
+			if ancestorNs.ID != scope.NamespaceID {
+				continue
+			}
+
+			// Found the scope's namespace as an ancestor
+			// Check if inheritance is broken between ancestor and current
+			broken := false
+			for _, intermediatePath := range paths {
+				if intermediatePath == ancestorPath {
+					continue
+				}
+
+				intermediateNs, err := r.Namespaces.GetByPath(ctx, intermediatePath)
+				if err != nil {
+					return false
+				}
+
+				if intermediateNs.BreakInheritance {
+					broken = true
+					break
+				}
+
+				if intermediatePath == currentPath {
+					break
+				}
+			}
+
+			if !broken {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 func (r *HierarchicalRBAC) hasActionAnywhere(ctx context.Context, localUserID int64, action Action) bool {

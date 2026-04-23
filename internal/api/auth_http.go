@@ -112,7 +112,7 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 		}
 
 		tokenKey := hashAPIToken(raw)
-		uid, uname, err := s.authRepo.ResolveAPIToken(ctx, tokenKey)
+		uid, uname, tokenID, err := s.authRepo.ResolveAPIToken(ctx, tokenKey)
 		if err != nil {
 			if dal.IsNotFound(err) {
 				writeAuthJSON(w, http.StatusUnauthorized, authAPIError{Error: AuthJSONAuthenticationRequired})
@@ -132,8 +132,34 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 
 		p := &authn.Principal{
 			LocalUserID: uid,
+			TokenID:     tokenID,
 			Username:    uname,
 			Kind:        authn.KindLocalUser,
+		}
+
+		// Load token scopes if any exist
+		if tokenID > 0 {
+			scopes, err := s.authRepo.GetTokenScopes(ctx, tokenID)
+			if err != nil {
+				if s.handleDBUnavailableError(w, err) {
+					return
+				}
+
+				s.logger.Error("Database error loading token scopes: %v", err)
+				writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+				return
+			}
+
+			if len(scopes) > 0 {
+				p.TokenScopes = make([]authn.TokenScope, len(scopes))
+				for i, s := range scopes {
+					p.TokenScopes[i] = authn.TokenScope{
+						Action:      s.Action,
+						NamespaceID: s.NamespaceID.Int64,
+						Propagate:   s.Propagate,
+					}
+				}
+			}
 		}
 
 		if !z.Allow(ctx, p, action, authz.Resource{}) {

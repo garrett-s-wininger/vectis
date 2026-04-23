@@ -93,6 +93,15 @@ CREATE TABLE role_bindings (
     UNIQUE(local_user_id, namespace_id, role)
 );
 
+CREATE TABLE api_token_scopes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    api_token_id INTEGER NOT NULL REFERENCES api_tokens(id) ON DELETE CASCADE,
+    action TEXT NOT NULL,
+    namespace_id INTEGER REFERENCES namespaces(id),
+    propagate INTEGER NOT NULL DEFAULT 1,
+    UNIQUE(api_token_id, action, namespace_id)
+);
+
 CREATE INDEX idx_stored_jobs_namespace ON stored_jobs(namespace_id);
 CREATE INDEX idx_role_bindings_user ON role_bindings(local_user_id);
 CREATE INDEX idx_role_bindings_namespace ON role_bindings(namespace_id);
