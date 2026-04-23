@@ -7,6 +7,16 @@ import (
 	"time"
 )
 
+// APITokenRecord represents metadata for an API token (never includes the hash).
+type APITokenRecord struct {
+	ID          int64
+	LocalUserID int64
+	Label       string
+	ExpiresAt   sql.NullTime
+	CreatedAt   sql.NullTime
+	LastUsedAt  sql.NullTime
+}
+
 // AuthRepository persists HTTP API authentication: bootstrap completion, local users, and API tokens.
 type AuthRepository interface {
 	IsSetupComplete(ctx context.Context) (bool, error)
@@ -14,6 +24,11 @@ type AuthRepository interface {
 	ResolveAPIToken(ctx context.Context, tokenHash string) (localUserID int64, username string, err error)
 	TouchAPITokenUsed(ctx context.Context, tokenHash string) error
 	UserExists(ctx context.Context, localUserID int64) (bool, error)
+	UserEnabled(ctx context.Context, localUserID int64) (bool, error)
+	ListAPITokens(ctx context.Context, localUserID int64) ([]*APITokenRecord, error)
+	CreateAPIToken(ctx context.Context, localUserID int64, tokenHash, label string, expiresAt *time.Time) (int64, error)
+	DeleteAPIToken(ctx context.Context, id int64) error
+	GetAPITokenOwner(ctx context.Context, id int64) (localUserID int64, err error)
 }
 
 type SQLAuthRepository struct {
@@ -140,6 +155,111 @@ func (r *SQLAuthRepository) UserExists(ctx context.Context, localUserID int64) (
 	}
 
 	return exists, nil
+}
+
+func (r *SQLAuthRepository) UserEnabled(ctx context.Context, localUserID int64) (bool, error) {
+	var enabled bool
+	err := r.db.QueryRowContext(ctx,
+		rebindQueryForPgx(`SELECT EXISTS(SELECT 1 FROM local_users WHERE id = ? AND enabled)`),
+		localUserID,
+	).Scan(&enabled)
+
+	if err != nil {
+		return false, normalizeSQLError(err)
+	}
+
+	return enabled, nil
+}
+
+func (r *SQLAuthRepository) ListAPITokens(ctx context.Context, localUserID int64) ([]*APITokenRecord, error) {
+	rows, err := r.db.QueryContext(ctx,
+		rebindQueryForPgx(`SELECT id, local_user_id, label, expires_at, created_at, last_used_at FROM api_tokens WHERE local_user_id = ? ORDER BY created_at DESC`),
+		localUserID,
+	)
+
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	var tokens []*APITokenRecord
+	for rows.Next() {
+		var t APITokenRecord
+		if err := rows.Scan(&t.ID, &t.LocalUserID, &t.Label, &t.ExpiresAt, &t.CreatedAt, &t.LastUsedAt); err != nil {
+			return nil, normalizeSQLError(err)
+		}
+
+		tokens = append(tokens, &t)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	return tokens, nil
+}
+
+func (r *SQLAuthRepository) CreateAPIToken(ctx context.Context, localUserID int64, tokenHash, label string, expiresAt *time.Time) (int64, error) {
+	var id int64
+	var err error
+
+	if expiresAt != nil {
+		err = r.db.QueryRowContext(ctx,
+			rebindQueryForPgx(`INSERT INTO api_tokens (local_user_id, token_hash, label, expires_at) VALUES (?, ?, ?, ?) RETURNING id`),
+			localUserID, tokenHash, label, *expiresAt,
+		).Scan(&id)
+	} else {
+		err = r.db.QueryRowContext(ctx,
+			rebindQueryForPgx(`INSERT INTO api_tokens (local_user_id, token_hash, label) VALUES (?, ?, ?) RETURNING id`),
+			localUserID, tokenHash, label,
+		).Scan(&id)
+	}
+
+	if err != nil {
+		return 0, normalizeSQLError(err)
+	}
+
+	return id, nil
+}
+
+func (r *SQLAuthRepository) DeleteAPIToken(ctx context.Context, id int64) error {
+	res, err := r.db.ExecContext(ctx,
+		rebindQueryForPgx(`DELETE FROM api_tokens WHERE id = ?`),
+		id,
+	)
+
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if rowsAffected == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
+func (r *SQLAuthRepository) GetAPITokenOwner(ctx context.Context, id int64) (localUserID int64, err error) {
+	var uid int64
+	err = r.db.QueryRowContext(ctx,
+		rebindQueryForPgx(`SELECT local_user_id FROM api_tokens WHERE id = ?`),
+		id,
+	).Scan(&uid)
+
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, ErrNotFound
+		}
+
+		return 0, normalizeSQLError(err)
+	}
+
+	return uid, nil
 }
 
 var ErrSetupAlreadyComplete = errors.New("setup already complete")

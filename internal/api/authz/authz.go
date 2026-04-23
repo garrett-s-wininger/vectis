@@ -24,6 +24,8 @@ const (
 	ActionSetupStatus   Action = "setup:status"
 	ActionSetupComplete Action = "setup:complete"
 	ActionAPI           Action = "api:any"
+	ActionTokenRead     Action = "token:read"
+	ActionTokenWrite    Action = "token:write"
 )
 
 const (
@@ -34,10 +36,10 @@ const (
 )
 
 var rolePermissions = map[string][]Action{
-	RoleViewer:   {ActionJobRead, ActionRunRead},
-	RoleTrigger:  {ActionJobRead, ActionRunRead, ActionRunTrigger},
-	RoleOperator: {ActionJobRead, ActionRunRead, ActionRunTrigger, ActionRunOperator},
-	RoleAdmin:    {ActionJobRead, ActionJobWrite, ActionRunRead, ActionRunTrigger, ActionRunOperator, ActionAdmin, ActionAPI},
+	RoleViewer:   {ActionJobRead, ActionRunRead, ActionTokenRead, ActionTokenWrite},
+	RoleTrigger:  {ActionJobRead, ActionRunRead, ActionRunTrigger, ActionTokenRead, ActionTokenWrite},
+	RoleOperator: {ActionJobRead, ActionRunRead, ActionRunTrigger, ActionRunOperator, ActionTokenRead, ActionTokenWrite},
+	RoleAdmin:    {ActionJobRead, ActionJobWrite, ActionRunRead, ActionRunTrigger, ActionRunOperator, ActionAdmin, ActionAPI, ActionTokenRead, ActionTokenWrite},
 }
 
 func roleAllows(role string, action Action) bool {
