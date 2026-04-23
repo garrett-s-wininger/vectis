@@ -10,6 +10,7 @@ const (
 	AuthJSONBootstrapNotConfigured = "bootstrap_not_configured"
 	AuthJSONSetupAlreadyComplete   = "setup_already_complete"
 	AuthJSONUsernameExists         = "username_already_exists"
+	AuthJSONInvalidPassword        = "invalid_password"
 	AuthJSONUnavailable            = "auth_unavailable"
 	AuthJSONInternal               = "internal_error"
 )

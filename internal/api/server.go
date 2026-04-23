@@ -1228,6 +1228,7 @@ func (s *APIServer) Handler() http.Handler {
 	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/tokens", Auth: routeAuthPolicy{Action: authz.ActionTokenRead}}, s.ListTokens)
 	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/tokens", Auth: routeAuthPolicy{Action: authz.ActionTokenWrite}}, s.CreateToken)
 	s.registerRouteFunc(mux, routeSpec{Pattern: "DELETE /api/v1/tokens/{id}", Auth: routeAuthPolicy{Action: authz.ActionTokenWrite}}, s.DeleteToken)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/users/change-password", Auth: routeAuthPolicy{Action: authz.ActionTokenWrite}}, s.ChangePassword)
 	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/namespaces", Auth: routeAuthPolicy{Action: authz.ActionJobRead}}, s.ListNamespaces)
 	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/namespaces", Auth: routeAuthPolicy{Action: authz.ActionAdmin}}, s.CreateNamespace)
 	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/namespaces/{id}", Auth: routeAuthPolicy{Action: authz.ActionJobRead}}, s.GetNamespace)
