@@ -17,6 +17,14 @@ type APITokenRecord struct {
 	LastUsedAt  sql.NullTime
 }
 
+// LocalUserRecord represents a local user account.
+type LocalUserRecord struct {
+	ID        int64
+	Username  string
+	Enabled   bool
+	CreatedAt sql.NullTime
+}
+
 // AuthRepository persists HTTP API authentication: bootstrap completion, local users, and API tokens.
 type AuthRepository interface {
 	IsSetupComplete(ctx context.Context) (bool, error)
@@ -33,6 +41,13 @@ type AuthRepository interface {
 	CreateAPIToken(ctx context.Context, localUserID int64, tokenHash, label string, expiresAt *time.Time) (int64, error)
 	DeleteAPIToken(ctx context.Context, id int64) error
 	GetAPITokenOwner(ctx context.Context, id int64) (localUserID int64, err error)
+	CreateLocalUser(ctx context.Context, username, passwordHash string) (int64, error)
+	ListLocalUsers(ctx context.Context) ([]*LocalUserRecord, error)
+	GetLocalUser(ctx context.Context, id int64) (*LocalUserRecord, error)
+	UpdateLocalUserEnabled(ctx context.Context, id int64, enabled bool) error
+	DeleteLocalUser(ctx context.Context, id int64) error
+	CountEnabledAdmins(ctx context.Context) (int, error)
+	IsUserAdmin(ctx context.Context, localUserID int64) (bool, error)
 }
 
 type SQLAuthRepository struct {
@@ -350,6 +365,142 @@ func (r *SQLAuthRepository) GetAPITokenOwner(ctx context.Context, id int64) (loc
 	}
 
 	return uid, nil
+}
+
+func (r *SQLAuthRepository) CreateLocalUser(ctx context.Context, username, passwordHash string) (int64, error) {
+	var id int64
+	err := r.db.QueryRowContext(ctx,
+		rebindQueryForPgx(`INSERT INTO local_users (username, password_hash) VALUES (?, ?) RETURNING id`),
+		username, passwordHash,
+	).Scan(&id)
+
+	if err != nil {
+		return 0, normalizeSQLError(err)
+	}
+
+	return id, nil
+}
+
+func (r *SQLAuthRepository) ListLocalUsers(ctx context.Context) ([]*LocalUserRecord, error) {
+	rows, err := r.db.QueryContext(ctx,
+		rebindQueryForPgx(`SELECT id, username, enabled, created_at FROM local_users ORDER BY created_at DESC`),
+	)
+
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	var users []*LocalUserRecord
+	for rows.Next() {
+		var u LocalUserRecord
+		if err := rows.Scan(&u.ID, &u.Username, &u.Enabled, &u.CreatedAt); err != nil {
+			return nil, normalizeSQLError(err)
+		}
+
+		users = append(users, &u)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	return users, nil
+}
+
+func (r *SQLAuthRepository) GetLocalUser(ctx context.Context, id int64) (*LocalUserRecord, error) {
+	var u LocalUserRecord
+	err := r.db.QueryRowContext(ctx,
+		rebindQueryForPgx(`SELECT id, username, enabled, created_at FROM local_users WHERE id = ?`),
+		id,
+	).Scan(&u.ID, &u.Username, &u.Enabled, &u.CreatedAt)
+
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+
+		return nil, normalizeSQLError(err)
+	}
+
+	return &u, nil
+}
+
+func (r *SQLAuthRepository) UpdateLocalUserEnabled(ctx context.Context, id int64, enabled bool) error {
+	res, err := r.db.ExecContext(ctx,
+		rebindQueryForPgx(`UPDATE local_users SET enabled = ? WHERE id = ?`),
+		enabled, id,
+	)
+
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if rowsAffected == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
+func (r *SQLAuthRepository) DeleteLocalUser(ctx context.Context, id int64) error {
+	res, err := r.db.ExecContext(ctx,
+		rebindQueryForPgx(`DELETE FROM local_users WHERE id = ?`),
+		id,
+	)
+
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if rowsAffected == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
+func (r *SQLAuthRepository) CountEnabledAdmins(ctx context.Context) (int, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT COUNT(DISTINCT rb.local_user_id)
+		FROM role_bindings rb
+		JOIN local_users u ON u.id = rb.local_user_id
+		WHERE rb.role = ? AND u.enabled
+	`), "admin").Scan(&count)
+
+	if err != nil {
+		return 0, normalizeSQLError(err)
+	}
+
+	return count, nil
+}
+
+func (r *SQLAuthRepository) IsUserAdmin(ctx context.Context, localUserID int64) (bool, error) {
+	var isAdmin bool
+	err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT EXISTS(
+			SELECT 1 FROM role_bindings rb
+			JOIN local_users u ON u.id = rb.local_user_id
+			WHERE rb.local_user_id = ? AND rb.role = ? AND u.enabled
+		)
+	`), localUserID, "admin").Scan(&isAdmin)
+
+	if err != nil {
+		return false, normalizeSQLError(err)
+	}
+
+	return isAdmin, nil
 }
 
 var ErrSetupAlreadyComplete = errors.New("setup already complete")
