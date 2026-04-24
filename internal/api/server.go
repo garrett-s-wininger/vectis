@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/api/authn"
 	"vectis/internal/api/authz"
+	"vectis/internal/api/ratelimit"
 	"vectis/internal/config"
 	"vectis/internal/dal"
 	"vectis/internal/database"
@@ -61,12 +63,16 @@ type APIServer struct {
 
 	// authzOverride, if non-nil, replaces SelectAuthorizer(complete) in middleware (tests).
 	authzOverride authz.Authorizer
+
+	// rateLimiter, when set, applies rate limiting to API routes.
+	rateLimiter ratelimit.RateLimiter
 }
 
 type routeSpec struct {
-	Pattern string
-	Handler http.Handler
-	Auth    routeAuthPolicy
+	Pattern   string
+	Handler   http.Handler
+	Auth      routeAuthPolicy
+	RateLimit ratelimit.Rule
 }
 
 func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
@@ -258,6 +264,10 @@ func (s *APIServer) SetQueueClient(client interfaces.QueueService) {
 		s.queueClose = nil
 	}
 	s.queueClient = client
+}
+
+func (s *APIServer) SetRateLimiter(limiter ratelimit.RateLimiter) {
+	s.rateLimiter = limiter
 }
 
 func (s *APIServer) ConnectToQueue(ctx context.Context) error {
@@ -1210,37 +1220,39 @@ func (s *APIServer) Handler() http.Handler {
 		})
 	}
 
+	defaultLimits := ratelimit.DefaultCategory()
+
 	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /health/live", Auth: routeAuthPolicy{Public: true}}, s.HealthLive)
 	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /health/ready", Auth: routeAuthPolicy{Public: true}}, s.HealthReady)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/jobs", Auth: routeAuthPolicy{Action: authz.ActionJobRead}}, s.GetJobs)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/jobs/{id}", Auth: routeAuthPolicy{Action: authz.ActionJobRead}}, s.GetJob)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/jobs", Auth: routeAuthPolicy{Action: authz.ActionJobWrite}}, s.CreateJob)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/jobs/run", Auth: routeAuthPolicy{Action: authz.ActionRunTrigger}}, s.RunJob)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "DELETE /api/v1/jobs/{id}", Auth: routeAuthPolicy{Action: authz.ActionJobWrite}}, s.DeleteJob)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "PUT /api/v1/jobs/{id}", Auth: routeAuthPolicy{Action: authz.ActionJobWrite}}, s.UpdateJobDefinition)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/jobs/trigger/{id}", Auth: routeAuthPolicy{Action: authz.ActionRunTrigger}}, s.TriggerJob)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/jobs/{id}/runs", Auth: routeAuthPolicy{Action: authz.ActionRunRead}}, s.GetJobRuns)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/sse/jobs/{id}/runs", Auth: routeAuthPolicy{Action: authz.ActionRunRead}}, s.HandleSSEJobRuns)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/runs/{id}/force-fail", Auth: routeAuthPolicy{Action: authz.ActionRunOperator}}, s.ForceFailRun)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/runs/{id}/force-requeue", Auth: routeAuthPolicy{Action: authz.ActionRunOperator}}, s.ForceRequeueRun)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/setup/status", Auth: routeAuthPolicy{Action: authz.ActionSetupStatus}}, s.GetSetupStatus)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/setup/complete", Auth: routeAuthPolicy{Action: authz.ActionSetupComplete}}, s.PostSetupComplete)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/tokens", Auth: routeAuthPolicy{Action: authz.ActionTokenRead}}, s.ListTokens)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/tokens", Auth: routeAuthPolicy{Action: authz.ActionTokenWrite}}, s.CreateToken)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "DELETE /api/v1/tokens/{id}", Auth: routeAuthPolicy{Action: authz.ActionTokenWrite}}, s.DeleteToken)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/users/change-password", Auth: routeAuthPolicy{Action: authz.ActionTokenWrite}}, s.ChangePassword)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/users", Auth: routeAuthPolicy{Action: authz.ActionAdmin}}, s.CreateUser)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/users", Auth: routeAuthPolicy{Action: authz.ActionAdmin}}, s.ListUsers)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/users/{id}", Auth: routeAuthPolicy{Action: authz.ActionAdmin}}, s.GetUser)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "PUT /api/v1/users/{id}", Auth: routeAuthPolicy{Action: authz.ActionAdmin}}, s.UpdateUser)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "DELETE /api/v1/users/{id}", Auth: routeAuthPolicy{Action: authz.ActionAdmin}}, s.DeleteUser)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/namespaces", Auth: routeAuthPolicy{Action: authz.ActionJobRead}}, s.ListNamespaces)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/namespaces", Auth: routeAuthPolicy{Action: authz.ActionAdmin}}, s.CreateNamespace)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/namespaces/{id}", Auth: routeAuthPolicy{Action: authz.ActionJobRead}}, s.GetNamespace)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "DELETE /api/v1/namespaces/{id}", Auth: routeAuthPolicy{Action: authz.ActionAdmin}}, s.DeleteNamespace)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/namespaces/{id}/bindings", Auth: routeAuthPolicy{Action: authz.ActionJobRead}}, s.ListBindings)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/namespaces/{id}/bindings", Auth: routeAuthPolicy{Action: authz.ActionAdmin}}, s.CreateBinding)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "DELETE /api/v1/namespaces/{id}/bindings/{user_id}", Auth: routeAuthPolicy{Action: authz.ActionAdmin}}, s.DeleteBinding)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/jobs", Auth: routeAuthPolicy{Action: authz.ActionJobRead}, RateLimit: defaultLimits.General}, s.GetJobs)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/jobs/{id}", Auth: routeAuthPolicy{Action: authz.ActionJobRead}, RateLimit: defaultLimits.General}, s.GetJob)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/jobs", Auth: routeAuthPolicy{Action: authz.ActionJobWrite}, RateLimit: defaultLimits.General}, s.CreateJob)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/jobs/run", Auth: routeAuthPolicy{Action: authz.ActionRunTrigger}, RateLimit: defaultLimits.General}, s.RunJob)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "DELETE /api/v1/jobs/{id}", Auth: routeAuthPolicy{Action: authz.ActionJobWrite}, RateLimit: defaultLimits.General}, s.DeleteJob)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "PUT /api/v1/jobs/{id}", Auth: routeAuthPolicy{Action: authz.ActionJobWrite}, RateLimit: defaultLimits.General}, s.UpdateJobDefinition)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/jobs/trigger/{id}", Auth: routeAuthPolicy{Action: authz.ActionRunTrigger}, RateLimit: defaultLimits.General}, s.TriggerJob)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/jobs/{id}/runs", Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General}, s.GetJobRuns)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/sse/jobs/{id}/runs", Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General}, s.HandleSSEJobRuns)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/runs/{id}/force-fail", Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General}, s.ForceFailRun)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/runs/{id}/force-requeue", Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General}, s.ForceRequeueRun)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/setup/status", Auth: routeAuthPolicy{Action: authz.ActionSetupStatus}, RateLimit: defaultLimits.Auth}, s.GetSetupStatus)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/setup/complete", Auth: routeAuthPolicy{Action: authz.ActionSetupComplete}, RateLimit: defaultLimits.Auth}, s.PostSetupComplete)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/tokens", Auth: routeAuthPolicy{Action: authz.ActionTokenRead}, RateLimit: defaultLimits.Token}, s.ListTokens)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/tokens", Auth: routeAuthPolicy{Action: authz.ActionTokenWrite}, RateLimit: defaultLimits.Token}, s.CreateToken)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "DELETE /api/v1/tokens/{id}", Auth: routeAuthPolicy{Action: authz.ActionTokenWrite}, RateLimit: defaultLimits.Token}, s.DeleteToken)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/users/change-password", Auth: routeAuthPolicy{Action: authz.ActionTokenWrite}, RateLimit: defaultLimits.Auth}, s.ChangePassword)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/users", Auth: routeAuthPolicy{Action: authz.ActionAdmin}, RateLimit: defaultLimits.General}, s.CreateUser)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/users", Auth: routeAuthPolicy{Action: authz.ActionAdmin}, RateLimit: defaultLimits.General}, s.ListUsers)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/users/{id}", Auth: routeAuthPolicy{Action: authz.ActionAdmin}, RateLimit: defaultLimits.General}, s.GetUser)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "PUT /api/v1/users/{id}", Auth: routeAuthPolicy{Action: authz.ActionAdmin}, RateLimit: defaultLimits.General}, s.UpdateUser)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "DELETE /api/v1/users/{id}", Auth: routeAuthPolicy{Action: authz.ActionAdmin}, RateLimit: defaultLimits.General}, s.DeleteUser)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/namespaces", Auth: routeAuthPolicy{Action: authz.ActionJobRead}, RateLimit: defaultLimits.General}, s.ListNamespaces)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/namespaces", Auth: routeAuthPolicy{Action: authz.ActionAdmin}, RateLimit: defaultLimits.General}, s.CreateNamespace)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/namespaces/{id}", Auth: routeAuthPolicy{Action: authz.ActionJobRead}, RateLimit: defaultLimits.General}, s.GetNamespace)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "DELETE /api/v1/namespaces/{id}", Auth: routeAuthPolicy{Action: authz.ActionAdmin}, RateLimit: defaultLimits.General}, s.DeleteNamespace)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/namespaces/{id}/bindings", Auth: routeAuthPolicy{Action: authz.ActionJobRead}, RateLimit: defaultLimits.General}, s.ListBindings)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/namespaces/{id}/bindings", Auth: routeAuthPolicy{Action: authz.ActionAdmin}, RateLimit: defaultLimits.General}, s.CreateBinding)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "DELETE /api/v1/namespaces/{id}/bindings/{user_id}", Auth: routeAuthPolicy{Action: authz.ActionAdmin}, RateLimit: defaultLimits.General}, s.DeleteBinding)
 
 	h := http.Handler(mux)
 	h = accessLogMiddleware(s.AccessLogger, apiHTTPExcludedFromAuxLogging, h)
@@ -1256,14 +1268,58 @@ func (s *APIServer) registerRoute(mux *http.ServeMux, spec routeSpec) {
 		panic("api route handler must not be nil")
 	}
 
-	mux.Handle(spec.Pattern, s.accessControlledHandler(spec.Auth, spec.Handler))
+	handler := s.accessControlledHandler(spec.Auth, spec.Handler)
+	if s.rateLimiter != nil && spec.RateLimit.RefillRate > 0 {
+		handler = s.rateLimitMiddleware(spec.RateLimit, handler)
+	}
+
+	mux.Handle(spec.Pattern, handler)
+}
+
+func (s *APIServer) rateLimitMiddleware(rule ratelimit.Rule, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key := s.rateLimitKey(r, rule)
+		allowed, retryAfter, err := s.rateLimiter.Allow(r.Context(), key, rule)
+		if err != nil {
+			s.logger.Error("Rate limiter error: %v", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if !allowed {
+			retrySeconds := int(math.Ceil(retryAfter.Seconds()))
+			w.Header().Set("Retry-After", strconv.Itoa(retrySeconds))
+			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *APIServer) rateLimitKey(r *http.Request, rule ratelimit.Rule) string {
+	// Use Authorization header for authenticated requests, client IP for public
+	var baseKey string
+	if token, ok := bearerToken(r.Header.Get("Authorization")); ok {
+		baseKey = hashAPIToken(token)
+	}
+	if baseKey == "" {
+		// Fall back to client IP
+		ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+		if ip == "" {
+			ip = r.RemoteAddr
+		}
+		baseKey = ip
+	}
+
+	// Include rule parameters in key so different endpoint categories have separate buckets
+	return fmt.Sprintf("%s:%d:%d", baseKey, rule.RefillRate, rule.BurstSize)
 }
 
 func (s *APIServer) registerRouteFunc(mux *http.ServeMux, spec routeSpec, handler http.HandlerFunc) {
 	s.registerRoute(mux, routeSpec{
-		Pattern: spec.Pattern,
-		Handler: handler,
-		Auth:    spec.Auth,
+		Pattern:   spec.Pattern,
+		Handler:   handler,
+		Auth:      spec.Auth,
+		RateLimit: spec.RateLimit,
 	})
 }
 
