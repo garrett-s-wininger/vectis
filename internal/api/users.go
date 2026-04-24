@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"vectis/internal/api/audit"
 	"vectis/internal/dal"
 
 	"golang.org/x/crypto/bcrypt"
@@ -168,13 +169,17 @@ func (s *APIServer) CreateUser(w http.ResponseWriter, r *http.Request) {
 
 	s.markDBRecovered()
 
+	s.auditLog(ctx, audit.EventUserCreated, p.LocalUserID, id, map[string]interface{}{
+		"username":           req.Username,
+		"generated_password": generated,
+	})
+
 	resp := createUserResponse{
 		ID:        id,
 		Username:  req.Username,
 		Enabled:   true,
 		CreatedAt: time.Now().UTC(),
 	}
-
 	if generated {
 		resp.InitialPassword = password
 	}
@@ -383,6 +388,9 @@ func (s *APIServer) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.markDBRecovered()
+	s.auditLog(ctx, audit.EventUserUpdated, p.LocalUserID, id, map[string]interface{}{
+		"enabled": *req.Enabled,
+	})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -466,6 +474,7 @@ func (s *APIServer) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.markDBRecovered()
+	s.auditLog(ctx, audit.EventUserDeleted, p.LocalUserID, id, nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -602,5 +611,8 @@ func (s *APIServer) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.markDBRecovered()
+	s.auditLog(ctx, audit.EventPasswordChanged, p.LocalUserID, targetUserID, map[string]interface{}{
+		"admin_override": isAdmin,
+	})
 	w.WriteHeader(http.StatusNoContent)
 }

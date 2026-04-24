@@ -32,6 +32,17 @@ type TokenScopeRecord struct {
 	Propagate   bool
 }
 
+// AuditEventRecord represents a single audit log entry.
+type AuditEventRecord struct {
+	Type          string
+	ActorID       sql.NullInt64
+	TargetID      sql.NullInt64
+	Metadata      []byte
+	IPAddress     string
+	CorrelationID string
+	CreatedAt     sql.NullTime
+}
+
 // AuthRepository persists HTTP API authentication: bootstrap completion, local users, and API tokens.
 type AuthRepository interface {
 	IsSetupComplete(ctx context.Context) (bool, error)
@@ -55,6 +66,7 @@ type AuthRepository interface {
 	GetLocalUser(ctx context.Context, id int64) (*LocalUserRecord, error)
 	UpdateLocalUserEnabled(ctx context.Context, id int64, enabled bool) error
 	DeleteLocalUser(ctx context.Context, id int64) error
+	InsertAuditEvents(ctx context.Context, events []*AuditEventRecord) error
 	CountEnabledAdmins(ctx context.Context) (int, error)
 	IsUserAdmin(ctx context.Context, localUserID int64) (bool, error)
 }
@@ -587,6 +599,30 @@ func (r *SQLAuthRepository) GetTokenScopes(ctx context.Context, tokenID int64) (
 	}
 
 	return scopes, nil
+}
+
+func (r *SQLAuthRepository) InsertAuditEvents(ctx context.Context, events []*AuditEventRecord) error {
+	if len(events) == 0 {
+		return nil
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	for _, event := range events {
+		_, err := tx.ExecContext(ctx,
+			rebindQueryForPgx(`INSERT INTO audit_log (event_type, actor_id, target_id, metadata, ip_address, correlation_id) VALUES (?, ?, ?, ?, ?, ?)`),
+			event.Type, event.ActorID, event.TargetID, event.Metadata, event.IPAddress, event.CorrelationID,
+		)
+		if err != nil {
+			return normalizeSQLError(err)
+		}
+	}
+
+	return tx.Commit()
 }
 
 var ErrSetupAlreadyComplete = errors.New("setup already complete")

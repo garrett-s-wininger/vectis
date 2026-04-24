@@ -16,6 +16,7 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/api/audit"
 	"vectis/internal/api/authn"
 	"vectis/internal/api/authz"
 	"vectis/internal/api/ratelimit"
@@ -66,6 +67,9 @@ type APIServer struct {
 
 	// rateLimiter, when set, applies rate limiting to API routes.
 	rateLimiter ratelimit.RateLimiter
+
+	// auditor, when set, logs audit events for auth operations.
+	auditor audit.Auditor
 }
 
 type routeSpec struct {
@@ -269,6 +273,34 @@ func (s *APIServer) SetQueueClient(client interfaces.QueueService) {
 func (s *APIServer) SetRateLimiter(limiter ratelimit.RateLimiter) {
 	s.rateLimiter = limiter
 }
+
+func (s *APIServer) SetAuditor(auditor audit.Auditor) {
+	s.auditor = auditor
+}
+
+func (s *APIServer) auditLog(ctx context.Context, eventType string, actorID, targetID int64, metadata map[string]interface{}) {
+	if s.auditor == nil {
+		return
+	}
+	ip := ""
+	if req, ok := ctx.Value(httpRequestKey{}).(*http.Request); ok && req != nil {
+		ip, _, _ = net.SplitHostPort(req.RemoteAddr)
+		if ip == "" {
+			ip = req.RemoteAddr
+		}
+	}
+
+	_ = s.auditor.Log(ctx, audit.Event{
+		Type:          eventType,
+		ActorID:       actorID,
+		TargetID:      targetID,
+		Metadata:      metadata,
+		IPAddress:     ip,
+		CorrelationID: observability.CorrelationID(ctx),
+	})
+}
+
+type httpRequestKey struct{}
 
 func (s *APIServer) ConnectToQueue(ctx context.Context) error {
 	if s.queueClose != nil {

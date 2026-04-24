@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"vectis/internal/api/audit"
 	"vectis/internal/api/authn"
 	"vectis/internal/api/authz"
 	"vectis/internal/dal"
@@ -323,6 +324,13 @@ func (s *APIServer) CreateToken(w http.ResponseWriter, r *http.Request) {
 
 	s.markDBRecovered()
 
+	s.auditLog(ctx, audit.EventTokenCreated, p.LocalUserID, id, map[string]interface{}{
+		"label":       req.Label,
+		"expires_in":  req.ExpiresIn,
+		"target_user": targetUserID,
+		"scoped":      len(req.Scopes) > 0,
+	})
+
 	resp := createTokenResponse{
 		ID:        id,
 		Token:     plainToken,
@@ -405,5 +413,8 @@ func (s *APIServer) DeleteToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.markDBRecovered()
+	s.auditLog(ctx, audit.EventTokenDeleted, p.LocalUserID, id, map[string]interface{}{
+		"owner_id": ownerID,
+	})
 	w.WriteHeader(http.StatusNoContent)
 }

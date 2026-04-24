@@ -102,6 +102,21 @@ CREATE TABLE api_token_scopes (
     UNIQUE(api_token_id, action, namespace_id)
 );
 
+CREATE TABLE audit_log (
+    id BIGSERIAL PRIMARY KEY,
+    event_type TEXT NOT NULL,
+    actor_id BIGINT REFERENCES local_users(id),
+    target_id BIGINT,
+    metadata JSONB,
+    ip_address INET,
+    correlation_id TEXT,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_audit_log_event_type ON audit_log(event_type);
+CREATE INDEX idx_audit_log_actor_id ON audit_log(actor_id);
+CREATE INDEX idx_audit_log_created_at ON audit_log(created_at);
+
 CREATE INDEX idx_stored_jobs_namespace ON stored_jobs(namespace_id);
 CREATE INDEX idx_role_bindings_user ON role_bindings(local_user_id);
 CREATE INDEX idx_role_bindings_namespace ON role_bindings(namespace_id);

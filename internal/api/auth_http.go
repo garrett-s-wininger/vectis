@@ -1,11 +1,13 @@
 package api
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
 	"strings"
 
+	"vectis/internal/api/audit"
 	"vectis/internal/api/authn"
 	"vectis/internal/api/authz"
 	"vectis/internal/config"
@@ -48,6 +50,10 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 	policy = policy.normalized()
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Inject request into context for audit logging
+		ctx := context.WithValue(r.Context(), httpRequestKey{}, r)
+		r = r.WithContext(ctx)
+
 		if policy.Public || !config.APIAuthEnabled() {
 			next.ServeHTTP(w, r)
 			return
@@ -115,6 +121,9 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 		uid, uname, tokenID, err := s.authRepo.ResolveAPIToken(ctx, tokenKey)
 		if err != nil {
 			if dal.IsNotFound(err) {
+				s.auditLog(r.Context(), audit.EventAuthFailure, 0, 0, map[string]interface{}{
+					"reason": "invalid_token",
+				})
 				writeAuthJSON(w, http.StatusUnauthorized, authAPIError{Error: AuthJSONAuthenticationRequired})
 				return
 			}
@@ -126,6 +135,10 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 			writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
 			return
 		}
+
+		s.auditLog(r.Context(), audit.EventAuthSuccess, uid, 0, map[string]interface{}{
+			"token_id": tokenID,
+		})
 
 		// Best-effort; ignore errors so a metrics/update failure does not block the request.
 		_ = s.authRepo.TouchAPITokenUsed(ctx, tokenKey)
