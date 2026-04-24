@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"vectis/internal/api/audit"
+	"vectis/internal/api/authz"
 	"vectis/internal/dal"
 
 	"golang.org/x/crypto/bcrypt"
@@ -342,7 +343,7 @@ func (s *APIServer) UpdateUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		isAdmin, err := s.authRepo.IsUserAdmin(ctx, id)
+		isAdmin, err := s.authRepo.IsUserRootAdmin(ctx, id)
 		if err != nil {
 			if s.handleDBUnavailableError(w, err) {
 				return
@@ -354,7 +355,7 @@ func (s *APIServer) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if isAdmin {
-			adminCount, err := s.authRepo.CountEnabledAdmins(ctx)
+			adminCount, err := s.authRepo.CountEnabledRootAdmins(ctx)
 			if err != nil {
 				if s.handleDBUnavailableError(w, err) {
 					return
@@ -429,7 +430,7 @@ func (s *APIServer) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isAdmin, err := s.authRepo.IsUserAdmin(ctx, id)
+	isAdmin, err := s.authRepo.IsUserRootAdmin(ctx, id)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
@@ -441,7 +442,7 @@ func (s *APIServer) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if isAdmin {
-		adminCount, err := s.authRepo.CountEnabledAdmins(ctx)
+		adminCount, err := s.authRepo.CountEnabledRootAdmins(ctx)
 		if err != nil {
 			if s.handleDBUnavailableError(w, err) {
 				return
@@ -541,8 +542,7 @@ func (s *APIServer) ChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	if req.UserID != nil {
 		if *req.UserID != p.LocalUserID {
-			if !s.isAdminAnywhere(ctx, p) {
-				writeAuthJSON(w, http.StatusForbidden, authAPIError{Error: AuthJSONAuthorizationDenied})
+			if !s.authorizeAction(ctx, w, p, authz.ActionUserAdmin, authz.Resource{}) {
 				return
 			}
 

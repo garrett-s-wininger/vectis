@@ -300,12 +300,71 @@ func TestHierarchicalRBAC_AdminRoleGrantsAllActions(t *testing.T) {
 
 	allActions := allDistinctActions()
 	for _, action := range allActions {
-		if action == ActionSetupStatus || action == ActionSetupComplete {
+		if action == ActionSetupStatus || action == ActionSetupComplete || action == ActionUserAdmin {
 			continue
 		}
 
 		if !z.Allow(ctx, p, action, Resource{NamespacePath: "/"}) {
 			t.Fatalf("admin should allow action %s", action)
 		}
+	}
+}
+
+func TestHierarchicalRBAC_UserAdminRequiresRootAdmin(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	ns := newMockNamespacesRepo()
+	ns.add(1, "root", "/", nil, false)
+	ns.add(2, "team-a", "/team-a", &[]int64{1}[0], false)
+
+	t.Run("root admin allowed", func(t *testing.T) {
+		rb := newMockRoleBindingsRepo()
+		rb.add(42, 1, RoleAdmin)
+		z := &HierarchicalRBAC{Namespaces: ns, RoleBindings: rb}
+		p := &authn.Principal{LocalUserID: 42, Username: "root-admin"}
+
+		if !z.Allow(ctx, p, ActionUserAdmin, Resource{}) {
+			t.Fatal("root admin should be allowed to manage users")
+		}
+	})
+
+	t.Run("namespace admin denied", func(t *testing.T) {
+		rb := newMockRoleBindingsRepo()
+		rb.add(42, 2, RoleAdmin)
+		z := &HierarchicalRBAC{Namespaces: ns, RoleBindings: rb}
+		p := &authn.Principal{LocalUserID: 42, Username: "team-admin"}
+
+		if z.Allow(ctx, p, ActionUserAdmin, Resource{}) {
+			t.Fatal("namespace admin should not become global user admin")
+		}
+	})
+}
+
+func TestHierarchicalRBAC_TokenScopesCannotExpandPermissions(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	ns := newMockNamespacesRepo()
+	ns.add(1, "root", "/", nil, false)
+
+	rb := newMockRoleBindingsRepo()
+	rb.add(42, 1, RoleViewer)
+	z := &HierarchicalRBAC{Namespaces: ns, RoleBindings: rb}
+	p := &authn.Principal{
+		LocalUserID: 42,
+		Username:    "viewer",
+		TokenScopes: []authn.TokenScope{
+			{Action: string(ActionAdmin), NamespaceID: 1},
+			{Action: string(ActionUserAdmin)},
+		},
+	}
+
+	if z.Allow(ctx, p, ActionAdmin, Resource{NamespacePath: "/"}) {
+		t.Fatal("token scopes must not grant namespace admin beyond the user role")
+	}
+
+	if z.Allow(ctx, p, ActionUserAdmin, Resource{}) {
+		t.Fatal("token scopes must not grant global user admin")
 	}
 }

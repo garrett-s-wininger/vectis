@@ -222,8 +222,21 @@ func (r *SQLJobsRepository) Create(ctx context.Context, jobID, definitionJSON st
 }
 
 func (r *SQLJobsRepository) Delete(ctx context.Context, jobID string) error {
-	_, err := r.db.ExecContext(ctx, rebindQueryForPgx("DELETE FROM stored_jobs WHERE job_id = ?"), jobID)
-	return normalizeSQLError(err)
+	res, err := r.db.ExecContext(ctx, rebindQueryForPgx("DELETE FROM stored_jobs WHERE job_id = ?"), jobID)
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("%w: job %s", ErrNotFound, jobID)
+	}
+
+	return nil
 }
 
 func (r *SQLJobsRepository) List(ctx context.Context) ([]JobRecord, error) {

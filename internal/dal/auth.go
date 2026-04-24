@@ -69,6 +69,8 @@ type AuthRepository interface {
 	InsertAuditEvents(ctx context.Context, events []*AuditEventRecord) error
 	CountEnabledAdmins(ctx context.Context) (int, error)
 	IsUserAdmin(ctx context.Context, localUserID int64) (bool, error)
+	CountEnabledRootAdmins(ctx context.Context) (int, error)
+	IsUserRootAdmin(ctx context.Context, localUserID int64) (bool, error)
 }
 
 type SQLAuthRepository struct {
@@ -517,6 +519,41 @@ func (r *SQLAuthRepository) IsUserAdmin(ctx context.Context, localUserID int64) 
 			WHERE rb.local_user_id = ? AND rb.role = ? AND u.enabled
 		)
 	`), localUserID, "admin").Scan(&isAdmin)
+
+	if err != nil {
+		return false, normalizeSQLError(err)
+	}
+
+	return isAdmin, nil
+}
+
+func (r *SQLAuthRepository) CountEnabledRootAdmins(ctx context.Context) (int, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT COUNT(DISTINCT rb.local_user_id)
+		FROM role_bindings rb
+		JOIN local_users u ON u.id = rb.local_user_id
+		JOIN namespaces n ON n.id = rb.namespace_id
+		WHERE rb.role = ? AND u.enabled AND n.path = ?
+	`), "admin", "/").Scan(&count)
+
+	if err != nil {
+		return 0, normalizeSQLError(err)
+	}
+
+	return count, nil
+}
+
+func (r *SQLAuthRepository) IsUserRootAdmin(ctx context.Context, localUserID int64) (bool, error) {
+	var isAdmin bool
+	err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT EXISTS(
+			SELECT 1 FROM role_bindings rb
+			JOIN local_users u ON u.id = rb.local_user_id
+			JOIN namespaces n ON n.id = rb.namespace_id
+			WHERE rb.local_user_id = ? AND rb.role = ? AND u.enabled AND n.path = ?
+		)
+	`), localUserID, "admin", "/").Scan(&isAdmin)
 
 	if err != nil {
 		return false, normalizeSQLError(err)

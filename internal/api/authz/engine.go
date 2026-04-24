@@ -24,14 +24,18 @@ func (r *HierarchicalRBAC) Allow(ctx context.Context, p *authn.Principal, action
 		return false
 	}
 
-	// If token has scopes, check them first (scopes are a ceiling)
+	// Scoped tokens can only reduce a principal's permissions, never expand them.
 	if len(p.TokenScopes) > 0 {
-		return r.tokenScopesAllow(ctx, p, action, res)
+		return r.baseAllow(ctx, p, action, res) && r.tokenScopesAllow(ctx, p, action, res)
 	}
 
+	return r.baseAllow(ctx, p, action, res)
+}
+
+func (r *HierarchicalRBAC) baseAllow(ctx context.Context, p *authn.Principal, action Action, res Resource) bool {
 	namespacePath := res.NamespacePath
 	if namespacePath == "" {
-		return r.hasActionAnywhere(ctx, p.LocalUserID, action)
+		return r.allowNonNamespacedAction(ctx, p.LocalUserID, action)
 	}
 
 	paths := dal.ParseNamespacePath(namespacePath)
@@ -62,23 +66,36 @@ func (r *HierarchicalRBAC) Allow(ctx context.Context, p *authn.Principal, action
 	return allowed
 }
 
-func (r *HierarchicalRBAC) tokenScopesAllow(ctx context.Context, p *authn.Principal, action Action, res Resource) bool {
-	// Check if the requested action is in any token scope
-	var actionAllowed bool
-	for _, scope := range p.TokenScopes {
-		if scope.Action == string(action) {
-			actionAllowed = true
-			break
-		}
-	}
-
-	if !actionAllowed {
-		return false
-	}
-
-	// For non-namespaced resources, any matching scope is sufficient
-	if res.NamespacePath == "" {
+func (r *HierarchicalRBAC) allowNonNamespacedAction(ctx context.Context, localUserID int64, action Action) bool {
+	switch action {
+	case ActionAPI:
 		return true
+	case ActionUserAdmin:
+		return r.hasRootRole(ctx, localUserID, RoleAdmin)
+	default:
+		return r.hasActionAnywhere(ctx, localUserID, action)
+	}
+}
+
+func (r *HierarchicalRBAC) tokenScopesAllow(ctx context.Context, p *authn.Principal, action Action, res Resource) bool {
+	if res.NamespacePath == "" {
+		for _, scope := range p.TokenScopes {
+			if scope.Action != string(action) {
+				continue
+			}
+
+			if action == ActionUserAdmin {
+				if scope.NamespaceID == 0 {
+					return true
+				}
+
+				continue
+			}
+
+			return true
+		}
+
+		return false
 	}
 
 	// For namespaced resources, check if the scope applies to this namespace
@@ -148,6 +165,26 @@ func (r *HierarchicalRBAC) tokenScopesAllow(ctx context.Context, p *authn.Princi
 			if !broken {
 				return true
 			}
+		}
+	}
+
+	return false
+}
+
+func (r *HierarchicalRBAC) hasRootRole(ctx context.Context, localUserID int64, role string) bool {
+	root, err := r.Namespaces.GetByPath(ctx, "/")
+	if err != nil {
+		return false
+	}
+
+	roles, err := r.RoleBindings.GetUserRolesInNamespace(ctx, localUserID, root.ID)
+	if err != nil {
+		return false
+	}
+
+	for _, got := range roles {
+		if got == role {
+			return true
 		}
 	}
 

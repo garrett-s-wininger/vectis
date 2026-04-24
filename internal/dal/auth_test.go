@@ -242,3 +242,72 @@ func TestAuthRepository_TouchAPITokenUsed(t *testing.T) {
 		t.Fatalf("expected last_used_at set for token, count=%d", cnt)
 	}
 }
+
+func TestAuthRepository_RootAdminQueries(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db := dbtest.NewTestDB(t)
+	repo := NewSQLAuthRepository(db)
+
+	passHash, err := bcrypt.GenerateFromPassword([]byte("longenough"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := repo.CompleteInitialSetup(ctx, "root", string(passHash), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "t"); err != nil {
+		t.Fatal(err)
+	}
+
+	rootCount, err := repo.CountEnabledRootAdmins(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rootCount != 1 {
+		t.Fatalf("expected 1 root admin after setup, got %d", rootCount)
+	}
+
+	rootIsRootAdmin, err := repo.IsUserRootAdmin(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rootIsRootAdmin {
+		t.Fatal("setup user should be root admin")
+	}
+
+	teamNS, err := db.ExecContext(ctx, rebindQueryForPgx(`INSERT INTO namespaces (name, path, parent_id) VALUES (?, ?, ?) RETURNING id`), "team-a", "/team-a", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = teamNS
+
+	var teamNSID int64
+	if err := db.QueryRowContext(ctx, rebindQueryForPgx(`SELECT id FROM namespaces WHERE path = ?`), "/team-a").Scan(&teamNSID); err != nil {
+		t.Fatal(err)
+	}
+
+	teamAdminID, err := repo.CreateLocalUser(ctx, "team-admin", string(passHash))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := db.ExecContext(ctx, rebindQueryForPgx(`INSERT INTO role_bindings (local_user_id, namespace_id, role) VALUES (?, ?, ?)`), teamAdminID, teamNSID, "admin"); err != nil {
+		t.Fatal(err)
+	}
+
+	rootCount, err = repo.CountEnabledRootAdmins(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rootCount != 1 {
+		t.Fatalf("expected namespace admin not to count as root admin, got %d", rootCount)
+	}
+
+	isTeamRootAdmin, err := repo.IsUserRootAdmin(ctx, teamAdminID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isTeamRootAdmin {
+		t.Fatal("namespace admin should not be considered root admin")
+	}
+}

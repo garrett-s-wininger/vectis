@@ -442,7 +442,7 @@ func TestTokenScoping_endToEnd(t *testing.T) {
 			"label":      "scoped-ci",
 			"expires_in": "1y",
 			"scopes": []map[string]any{
-				{"action": "job:read"},
+				{"action": "job:read", "namespace_path": "/", "propagate": true},
 				{"action": "run:trigger", "namespace_path": "/", "propagate": false},
 			},
 		}
@@ -468,6 +468,27 @@ func TestTokenScoping_endToEnd(t *testing.T) {
 		}
 
 		scopedToken = out.Token
+	})
+
+	t.Run("namespaced_scope_requires_namespace_path", func(t *testing.T) {
+		body := map[string]any{
+			"label":      "missing-namespace",
+			"expires_in": "1y",
+			"scopes": []map[string]any{
+				{"action": "job:read"},
+			},
+		}
+
+		b, _ := json.Marshal(body)
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/tokens", bytes.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d body=%s", rec.Code, rec.Body.String())
+		}
 	})
 
 	t.Run("scoped_token_allows_job_read", func(t *testing.T) {
@@ -502,6 +523,108 @@ func TestTokenScoping_endToEnd(t *testing.T) {
 
 		if rec.Code != http.StatusForbidden {
 			t.Fatalf("expected 403, got %d", rec.Code)
+		}
+	})
+
+	t.Run("scoped_token_cannot_grant_broader_scopes", func(t *testing.T) {
+		body := map[string]any{
+			"label":      "escalation-attempt",
+			"expires_in": "1y",
+			"scopes": []map[string]any{
+				{"action": "admin:*", "namespace_path": "/"},
+			},
+		}
+
+		b, _ := json.Marshal(body)
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/tokens", bytes.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+scopedToken)
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("expected 403, got %d body=%s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("scoped_token_cannot_create_unscoped_token", func(t *testing.T) {
+		body := map[string]any{
+			"label":      "unscoped-escalation",
+			"expires_in": "1y",
+		}
+
+		b, _ := json.Marshal(body)
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/tokens", bytes.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+scopedToken)
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("expected 403, got %d body=%s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("scoped_token_without_api_scope_cannot_use_token_routes", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/tokens", nil)
+		req.Header.Set("Authorization", "Bearer "+scopedToken)
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("expected 403, got %d body=%s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("scoped_token_cannot_use_namespace_path_for_global_action", func(t *testing.T) {
+		body := map[string]any{
+			"label":      "misleading-scope",
+			"expires_in": "1y",
+			"scopes": []map[string]any{
+				{"action": "api:any", "namespace_path": "/"},
+			},
+		}
+
+		b, _ := json.Marshal(body)
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/tokens", bytes.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d body=%s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("scoped_token_cannot_manage_other_users_tokens", func(t *testing.T) {
+		body := map[string]string{
+			"username": "regular",
+			"password": "regularpass123",
+		}
+
+		b, _ := json.Marshal(body)
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/users", bytes.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("failed to create user: %d %s", rec.Code, rec.Body.String())
+		}
+
+		var created createUserResponse
+		if err := json.NewDecoder(rec.Body).Decode(&created); err != nil {
+			t.Fatal(err)
+		}
+
+		rec = httptest.NewRecorder()
+		req = httptest.NewRequest(http.MethodGet, "/api/v1/tokens?user_id="+formatInt64(created.ID), nil)
+		req.Header.Set("Authorization", "Bearer "+scopedToken)
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("expected 403, got %d body=%s", rec.Code, rec.Body.String())
 		}
 	})
 

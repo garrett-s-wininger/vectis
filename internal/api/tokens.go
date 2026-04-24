@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"io"
@@ -12,7 +11,6 @@ import (
 	"time"
 
 	"vectis/internal/api/audit"
-	"vectis/internal/api/authn"
 	"vectis/internal/api/authz"
 	"vectis/internal/dal"
 )
@@ -78,25 +76,6 @@ func apiTokenRecordToResponse(rec *dal.APITokenRecord) tokenResponse {
 	return resp
 }
 
-func (s *APIServer) isAdminAnywhere(ctx context.Context, principal *authn.Principal) bool {
-	if s.roleBindings == nil {
-		return false
-	}
-
-	bindings, err := s.roleBindings.ListByUser(ctx, principal.LocalUserID)
-	if err != nil {
-		return false
-	}
-
-	for _, b := range bindings {
-		if b.Role == authz.RoleAdmin {
-			return true
-		}
-	}
-
-	return false
-}
-
 func (s *APIServer) ListTokens(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := s.handlerDBCtx(r)
 	defer cancel()
@@ -124,8 +103,7 @@ func (s *APIServer) ListTokens(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if uid != p.LocalUserID {
-			if !s.isAdminAnywhere(ctx, p) {
-				writeAuthJSON(w, http.StatusForbidden, authAPIError{Error: AuthJSONAuthorizationDenied})
+			if !s.authorizeAction(ctx, w, p, authz.ActionUserAdmin, authz.Resource{}) {
 				return
 			}
 
@@ -229,8 +207,7 @@ func (s *APIServer) CreateToken(w http.ResponseWriter, r *http.Request) {
 	targetUserID := p.LocalUserID
 	if req.UserID != nil {
 		if *req.UserID != p.LocalUserID {
-			if !s.isAdminAnywhere(ctx, p) {
-				writeAuthJSON(w, http.StatusForbidden, authAPIError{Error: AuthJSONAuthorizationDenied})
+			if !s.authorizeAction(ctx, w, p, authz.ActionUserAdmin, authz.Resource{}) {
 				return
 			}
 
@@ -253,6 +230,11 @@ func (s *APIServer) CreateToken(w http.ResponseWriter, r *http.Request) {
 		}
 
 		targetUserID = *req.UserID
+	}
+
+	if len(p.TokenScopes) > 0 && len(req.Scopes) == 0 {
+		http.Error(w, "scoped tokens must create explicitly scoped tokens", http.StatusForbidden)
+		return
 	}
 
 	plainToken, err := randomHexToken(apiTokenRandomBytes)
@@ -279,12 +261,29 @@ func (s *APIServer) CreateToken(w http.ResponseWriter, r *http.Request) {
 
 		dalScopes := make([]*dal.TokenScopeRecord, len(req.Scopes))
 		for i, scopeReq := range req.Scopes {
+			action, ok := authz.ParseAction(scopeReq.Action)
+			if !ok || action == authz.ActionSetupStatus || action == authz.ActionSetupComplete {
+				http.Error(w, "invalid scope action", http.StatusBadRequest)
+				return
+			}
+
 			scope := &dal.TokenScopeRecord{
-				Action:    scopeReq.Action,
+				Action:    string(action),
 				Propagate: scopeReq.Propagate,
 			}
 
+			scopeRes := authz.Resource{}
+			if authz.ActionSupportsNamespace(action) && scopeReq.NamespacePath == "" {
+				http.Error(w, "namespace_path is required for namespaced actions", http.StatusBadRequest)
+				return
+			}
+
 			if scopeReq.NamespacePath != "" {
+				if !authz.ActionSupportsNamespace(action) {
+					http.Error(w, "namespace_path is not allowed for global actions", http.StatusBadRequest)
+					return
+				}
+
 				ns, err := s.namespaces.GetByPath(ctx, scopeReq.NamespacePath)
 				if err != nil {
 					if dal.IsNotFound(err) {
@@ -302,6 +301,11 @@ func (s *APIServer) CreateToken(w http.ResponseWriter, r *http.Request) {
 				}
 
 				scope.NamespaceID = sql.NullInt64{Int64: ns.ID, Valid: true}
+				scopeRes.NamespacePath = ns.Path
+			}
+
+			if !s.authorizeAction(ctx, w, p, action, scopeRes) {
+				return
 			}
 
 			dalScopes[i] = scope
@@ -391,8 +395,7 @@ func (s *APIServer) DeleteToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if ownerID != p.LocalUserID {
-		if !s.isAdminAnywhere(ctx, p) {
-			writeAuthJSON(w, http.StatusForbidden, authAPIError{Error: AuthJSONAuthorizationDenied})
+		if !s.authorizeAction(ctx, w, p, authz.ActionUserAdmin, authz.Resource{}) {
 			return
 		}
 	}

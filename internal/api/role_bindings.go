@@ -185,7 +185,7 @@ func (s *APIServer) ListBindings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !s.authorizeNamespace(ctx, w, p, authz.ActionJobRead, ns.Path) {
+	if !s.authorizeNamespace(ctx, w, p, authz.ActionAdmin, ns.Path) {
 		return
 	}
 

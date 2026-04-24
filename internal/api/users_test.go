@@ -603,3 +603,106 @@ func TestUserCRUD_endToEnd(t *testing.T) {
 		}
 	})
 }
+
+func TestNamespaceAdminCannotManageGlobalUsers(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "true")
+	t.Setenv("VECTIS_API_AUTH_BOOTSTRAP_TOKEN", "sixteenchars----")
+
+	db := dbtest.NewTestDB(t)
+	s := NewAPIServer(mocks.NewMockLogger(), db)
+	s.SetQueueClient(mocks.NewMockQueueService())
+	h := s.Handler()
+
+	var rootToken string
+	t.Run("setup", func(t *testing.T) {
+		body := map[string]string{
+			"bootstrap_token": "sixteenchars----",
+			"admin_username":  "root",
+			"admin_password":  "longenough",
+		}
+
+		b, _ := json.Marshal(body)
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/setup/complete", bytes.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("setup failed: code=%d body=%s", rec.Code, rec.Body.String())
+		}
+
+		var out setupCompleteResponse
+		if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
+			t.Fatal(err)
+		}
+		rootToken = out.APIToken
+	})
+
+	var namespaceAdminToken string
+	t.Run("create namespace admin", func(t *testing.T) {
+		_, err := db.Exec("INSERT INTO namespaces (name, path, parent_id) VALUES (?, ?, ?)", "team-a", "/team-a", 1)
+		if err != nil {
+			t.Fatalf("failed to create namespace: %v", err)
+		}
+
+		hash, _ := bcrypt.GenerateFromPassword([]byte("teamadmin123"), bcrypt.DefaultCost)
+		res, err := db.Exec("INSERT INTO local_users (username, password_hash, enabled) VALUES (?, ?, ?)", "team-admin", string(hash), true)
+		if err != nil {
+			t.Fatalf("failed to insert user: %v", err)
+		}
+
+		uid, _ := res.LastInsertId()
+		plainToken, _ := randomHexToken(apiTokenRandomBytes)
+		tokenHash := hashAPIToken(plainToken)
+		_, err = db.Exec("INSERT INTO api_tokens (local_user_id, token_hash, label) VALUES (?, ?, ?)", uid, tokenHash, "team-admin-token")
+		if err != nil {
+			t.Fatalf("failed to insert token: %v", err)
+		}
+
+		_, err = db.Exec("INSERT INTO role_bindings (local_user_id, namespace_id, role) VALUES (?, ?, ?)", uid, 2, "admin")
+		if err != nil {
+			t.Fatalf("failed to insert role binding: %v", err)
+		}
+
+		namespaceAdminToken = plainToken
+	})
+
+	t.Run("namespace admin denied user listing", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/users", nil)
+		req.Header.Set("Authorization", "Bearer "+namespaceAdminToken)
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("expected 403, got %d body=%s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("namespace admin denied password reset", func(t *testing.T) {
+		body := map[string]any{
+			"new_password": "newpassword123",
+			"user_id":      1,
+		}
+
+		b, _ := json.Marshal(body)
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/users/change-password", bytes.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+namespaceAdminToken)
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("expected 403, got %d body=%s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("root admin still allowed user listing", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/users", nil)
+		req.Header.Set("Authorization", "Bearer "+rootToken)
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+		}
+	})
+}

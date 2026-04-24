@@ -27,6 +27,7 @@ func allDistinctActions() []Action {
 		ActionRunRead,
 		ActionRunOperator,
 		ActionAdmin,
+		ActionUserAdmin,
 		ActionSetupStatus,
 		ActionSetupComplete,
 		ActionAPI,
@@ -85,5 +86,17 @@ func TestAuthorizers_Allow_matrix(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestActionSupportsNamespace(t *testing.T) {
+	t.Parallel()
+
+	if !ActionSupportsNamespace(ActionJobRead) {
+		t.Fatal("job:read should support namespace scoping")
+	}
+
+	if ActionSupportsNamespace(ActionUserAdmin) {
+		t.Fatal("user:admin should not support namespace scoping")
 	}
 }

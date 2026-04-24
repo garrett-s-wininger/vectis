@@ -71,6 +71,7 @@ func TestAPIServer_TriggerJob_OrchestrationUsesRepositories(t *testing.T) {
 
 func TestAPIServer_GetJobRuns_OrchestrationUsesRunsRepository(t *testing.T) {
 	jobs := mocks.NewMockJobsRepository()
+	jobs.Definitions["job-1"] = `{"id":"job-1"}`
 	runs := mocks.NewMockRunsRepository()
 	runs.ListByJobResults = []dal.RunRecord{{
 		RunID:    "run-2",
