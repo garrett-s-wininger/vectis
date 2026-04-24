@@ -49,13 +49,23 @@ type Defaults struct {
 }
 
 type APIDefaults struct {
-	Host            string           `toml:"host"`
-	Port            int              `toml:"port"`
-	LogFormat       string           `toml:"log_format"`
-	RegistryAddress string           `toml:"registry.address"`
-	QueueAddress    string           `toml:"queue.address"`
-	Auth            APIAuthDefaults  `toml:"auth"`
-	Authz           APIAuthzDefaults `toml:"authz"`
+	Host            string               `toml:"host"`
+	Port            int                  `toml:"port"`
+	LogFormat       string               `toml:"log_format"`
+	RegistryAddress string               `toml:"registry.address"`
+	QueueAddress    string               `toml:"queue.address"`
+	Auth            APIAuthDefaults      `toml:"auth"`
+	Authz           APIAuthzDefaults     `toml:"authz"`
+	RateLimit       APIRateLimitDefaults `toml:"rate_limit"`
+}
+
+type APIRateLimitDefaults struct {
+	AuthRefillRate    tomlDuration `toml:"auth_refill_rate"`
+	AuthBurstSize     int          `toml:"auth_burst_size"`
+	TokenRefillRate   tomlDuration `toml:"token_refill_rate"`
+	TokenBurstSize    int          `toml:"token_burst_size"`
+	GeneralRefillRate tomlDuration `toml:"general_refill_rate"`
+	GeneralBurstSize  int          `toml:"general_burst_size"`
 }
 
 type APIAuthDefaults struct {
@@ -263,6 +273,31 @@ func validateDefaults(d Defaults) {
 
 	if e != "authenticated_full" {
 		panic("config defaults: api.authz.engine must be authenticated_full (got " + d.API.Authz.Engine + ")")
+	}
+
+	rl := d.API.RateLimit
+	if time.Duration(rl.AuthRefillRate) <= 0 {
+		panic("config defaults: api.rate_limit.auth_refill_rate must be > 0")
+	}
+
+	if rl.AuthBurstSize <= 0 {
+		panic("config defaults: api.rate_limit.auth_burst_size must be > 0")
+	}
+
+	if time.Duration(rl.TokenRefillRate) <= 0 {
+		panic("config defaults: api.rate_limit.token_refill_rate must be > 0")
+	}
+
+	if rl.TokenBurstSize <= 0 {
+		panic("config defaults: api.rate_limit.token_burst_size must be > 0")
+	}
+
+	if time.Duration(rl.GeneralRefillRate) <= 0 {
+		panic("config defaults: api.rate_limit.general_refill_rate must be > 0")
+	}
+
+	if rl.GeneralBurstSize <= 0 {
+		panic("config defaults: api.rate_limit.general_burst_size must be > 0")
 	}
 }
 
@@ -736,4 +771,79 @@ func PinnedLogAddress() string {
 		LogResolverAddress(),
 		WorkerLogAddress(),
 	)
+}
+
+func RateLimitAuthRefillRate() time.Duration {
+	if viper.IsSet("api.rate_limit.auth_refill_rate") {
+		return viper.GetDuration("api.rate_limit.auth_refill_rate")
+	}
+
+	d := time.Duration(MustDefaults().API.RateLimit.AuthRefillRate)
+	if d > 0 {
+		return d
+	}
+
+	return 12 * time.Second
+}
+
+func RateLimitAuthBurstSize() int {
+	if viper.IsSet("api.rate_limit.auth_burst_size") {
+		return viper.GetInt("api.rate_limit.auth_burst_size")
+	}
+
+	if bs := MustDefaults().API.RateLimit.AuthBurstSize; bs > 0 {
+		return bs
+	}
+
+	return 5
+}
+
+func RateLimitTokenRefillRate() time.Duration {
+	if viper.IsSet("api.rate_limit.token_refill_rate") {
+		return viper.GetDuration("api.rate_limit.token_refill_rate")
+	}
+
+	d := time.Duration(MustDefaults().API.RateLimit.TokenRefillRate)
+	if d > 0 {
+		return d
+	}
+
+	return 3 * time.Second
+}
+
+func RateLimitTokenBurstSize() int {
+	if viper.IsSet("api.rate_limit.token_burst_size") {
+		return viper.GetInt("api.rate_limit.token_burst_size")
+	}
+
+	if bs := MustDefaults().API.RateLimit.TokenBurstSize; bs > 0 {
+		return bs
+	}
+
+	return 20
+}
+
+func RateLimitGeneralRefillRate() time.Duration {
+	if viper.IsSet("api.rate_limit.general_refill_rate") {
+		return viper.GetDuration("api.rate_limit.general_refill_rate")
+	}
+
+	d := time.Duration(MustDefaults().API.RateLimit.GeneralRefillRate)
+	if d > 0 {
+		return d
+	}
+
+	return 600 * time.Millisecond
+}
+
+func RateLimitGeneralBurstSize() int {
+	if viper.IsSet("api.rate_limit.general_burst_size") {
+		return viper.GetInt("api.rate_limit.general_burst_size")
+	}
+
+	if bs := MustDefaults().API.RateLimit.GeneralBurstSize; bs > 0 {
+		return bs
+	}
+
+	return 150
 }

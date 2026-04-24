@@ -4,6 +4,8 @@ package ratelimit
 import (
 	"context"
 	"time"
+
+	"vectis/internal/config"
 )
 
 // RateLimiter determines whether a request with the given key should be allowed.
@@ -27,11 +29,11 @@ type Category struct {
 	General Rule // All other endpoints
 }
 
-// DefaultCategory returns sensible default rate limits.
+// DefaultCategory returns rate limits from configuration.
 func DefaultCategory() Category {
 	return Category{
-		Auth:    Rule{RefillRate: 12 * time.Second, BurstSize: 5},         // 5/min
-		Token:   Rule{RefillRate: 3 * time.Second, BurstSize: 20},         // 20/min
-		General: Rule{RefillRate: 600 * time.Millisecond, BurstSize: 150}, // 100/min
+		Auth:    Rule{RefillRate: config.RateLimitAuthRefillRate(), BurstSize: config.RateLimitAuthBurstSize()},
+		Token:   Rule{RefillRate: config.RateLimitTokenRefillRate(), BurstSize: config.RateLimitTokenBurstSize()},
+		General: Rule{RefillRate: config.RateLimitGeneralRefillRate(), BurstSize: config.RateLimitGeneralBurstSize()},
 	}
 }

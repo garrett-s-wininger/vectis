@@ -26,12 +26,16 @@ type Auditor interface {
 
 // EventType constants for audit log entries.
 const (
-	EventTokenCreated    = "token.created"
-	EventTokenDeleted    = "token.deleted"
-	EventPasswordChanged = "password.changed"
-	EventUserCreated     = "user.created"
-	EventUserUpdated     = "user.updated"
-	EventUserDeleted     = "user.deleted"
-	EventAuthSuccess     = "auth.success"
-	EventAuthFailure     = "auth.failure"
+	EventTokenCreated     = "token.created"
+	EventTokenDeleted     = "token.deleted"
+	EventPasswordChanged  = "password.changed"
+	EventUserCreated      = "user.created"
+	EventUserUpdated      = "user.updated"
+	EventUserDeleted      = "user.deleted"
+	EventAuthSuccess      = "auth.success"
+	EventAuthFailure      = "auth.failure"
+	EventNamespaceCreated = "namespace.created"
+	EventNamespaceDeleted = "namespace.deleted"
+	EventBindingCreated   = "binding.created"
+	EventBindingDeleted   = "binding.deleted"
 )

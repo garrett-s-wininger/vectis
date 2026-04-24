@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"vectis/internal/api/audit"
 	"vectis/internal/api/authz"
 	"vectis/internal/dal"
 )
@@ -114,6 +115,17 @@ func (s *APIServer) CreateNamespace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.markDBRecovered()
+
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	s.auditLog(ctx, audit.EventNamespaceCreated, actorID, rec.ID, map[string]interface{}{
+		"name":      rec.Name,
+		"parent_id": req.ParentID,
+		"path":      rec.Path,
+	})
 
 	resp := namespaceRecordToResponse(rec)
 	w.Header().Set("Content-Type", "application/json")
@@ -311,6 +323,16 @@ func (s *APIServer) DeleteNamespace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.markDBRecovered()
+
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	s.auditLog(ctx, audit.EventNamespaceDeleted, actorID, id, map[string]interface{}{
+		"name": rec.Name,
+		"path": rec.Path,
+	})
 
 	w.WriteHeader(http.StatusNoContent)
 }

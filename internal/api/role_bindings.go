@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"vectis/internal/api/audit"
 	"vectis/internal/api/authz"
 	"vectis/internal/dal"
 )
@@ -127,6 +128,16 @@ func (s *APIServer) CreateBinding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.markDBRecovered()
+
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	s.auditLog(ctx, audit.EventBindingCreated, actorID, req.LocalUserID, map[string]interface{}{
+		"namespace_id": nsID,
+		"role":         req.Role,
+	})
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -276,6 +287,16 @@ func (s *APIServer) DeleteBinding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.markDBRecovered()
+
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	s.auditLog(ctx, audit.EventBindingDeleted, actorID, userID, map[string]interface{}{
+		"namespace_id": nsID,
+		"role":         role,
+	})
 
 	w.WriteHeader(http.StatusNoContent)
 }

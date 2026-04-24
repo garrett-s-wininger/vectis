@@ -11,6 +11,14 @@ bootstrap_token = ""
 [api.authz]
 engine = "authenticated_full"
 
+[api.rate_limit]
+auth_refill_rate = "12s"
+auth_burst_size = 5
+token_refill_rate = "3s"
+token_burst_size = 20
+general_refill_rate = "600ms"
+general_burst_size = 150
+
 [queue]
 port = 8081
 metrics_port = 9081
