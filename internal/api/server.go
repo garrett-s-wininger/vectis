@@ -858,8 +858,7 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 
 	// NOTE(garrett): We finish the enqueue asynchronously so that we can response immediately to the client,
 	// rather than them waiting for the enqueue to complete (dual enqueue is idempotent by worker claim).
-	jobCopy := job
-	go s.finishTriggerEnqueue(context.Background(), jobID, runID, runIndex, &jobCopy)
+	go s.finishTriggerEnqueue(context.Background(), jobID, runID, runIndex, &job)
 }
 
 func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID string, runIndex int, job *api.Job) {
@@ -1057,8 +1056,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jobCopy := job
-	go s.finishRunJobEnqueue(context.Background(), generatedID, runID, &jobCopy)
+	go s.finishRunJobEnqueue(context.Background(), generatedID, runID, &job)
 }
 
 func (s *APIServer) finishRunJobEnqueue(ctx context.Context, generatedID, runID string, job *api.Job) {
