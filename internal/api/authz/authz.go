@@ -2,8 +2,8 @@
 //
 // Authentication (api.auth.enabled) is separate from authorization policy: when auth is enabled,
 // middleware validates Bearer tokens before consulting [Authorizer.Allow] on API routes.
-// The only shipped post-setup policy is [AuthenticatedFull]; [SelectAuthorizer] is the hook
-// for future RBAC/DAC/MAC engines. See internal/api/auth_http.go.
+// Shipped post-setup policies are [AuthenticatedFull] and [HierarchicalRBAC];
+// [SelectAuthorizer] picks the active engine based on configuration. See internal/api/auth_http.go.
 package authz
 
 import (
@@ -93,19 +93,32 @@ type Authorizer interface {
 	Allow(ctx context.Context, p *authn.Principal, action Action, res Resource) bool
 }
 
-// AuthenticatedFull allows any authenticated principal for non-setup actions until finer
-// policy (RBAC, DAC, etc.) is implemented.
+// AuthenticatedFull allows any authenticated principal for non-setup actions.
+// When the principal carries token scopes, the action must be present in the scopes.
 type AuthenticatedFull struct{}
 
 func (AuthenticatedFull) Allow(_ context.Context, p *authn.Principal, action Action, _ Resource) bool {
 	switch action {
 	case ActionSetupStatus, ActionSetupComplete:
 		return true
-	case ActionAPI:
-		return p != nil
-	default:
-		return p != nil
 	}
+
+	if p == nil {
+		return false
+	}
+
+	// Scoped tokens can only reduce permissions, never expand them.
+	if len(p.TokenScopes) > 0 {
+		for _, scope := range p.TokenScopes {
+			if scope.Action == string(action) {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	return true
 }
 
 type SetupPending struct{}

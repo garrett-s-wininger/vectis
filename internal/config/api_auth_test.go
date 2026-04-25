@@ -61,6 +61,17 @@ func TestValidateAPIAuthConfig_authzEngine(t *testing.T) {
 		}
 	})
 
+	t.Run("hierarchical_rbac_ok", func(t *testing.T) {
+		viper.Reset()
+		t.Cleanup(viper.Reset)
+		t.Setenv(envAPIAuthzEngine, "hierarchical_rbac")
+		viper.Set("api.auth.enabled", false)
+
+		if err := ValidateAPIAuthConfig(ctx, stubAuthState{}); err != nil {
+			t.Fatal(err)
+		}
+	})
+
 	t.Run("rejects_unknown_engine", func(t *testing.T) {
 		viper.Reset()
 		t.Cleanup(viper.Reset)

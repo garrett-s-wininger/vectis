@@ -10,12 +10,20 @@ import (
 func TestSelectAuthorizer(t *testing.T) {
 	t.Parallel()
 
-	if _, ok := SelectAuthorizer(false, nil, nil).(SetupPending); !ok {
+	if _, ok := SelectAuthorizer(false, "", nil, nil).(SetupPending); !ok {
 		t.Fatal("before setup -> SetupPending")
 	}
 
-	if _, ok := SelectAuthorizer(true, nil, nil).(AuthenticatedFull); !ok {
-		t.Fatal("after setup -> AuthenticatedFull")
+	if _, ok := SelectAuthorizer(true, "", nil, nil).(AuthenticatedFull); !ok {
+		t.Fatal("after setup with no engine -> AuthenticatedFull")
+	}
+
+	if _, ok := SelectAuthorizer(true, "authenticated_full", nil, nil).(AuthenticatedFull); !ok {
+		t.Fatal("authenticated_full -> AuthenticatedFull")
+	}
+
+	if _, ok := SelectAuthorizer(true, "hierarchical_rbac", nil, nil).(AuthenticatedFull); !ok {
+		t.Fatal("hierarchical_rbac without repos -> AuthenticatedFull")
 	}
 }
 
@@ -86,6 +94,29 @@ func TestAuthorizers_Allow_matrix(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestAuthenticatedFull_TokenScopes(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	z := AuthenticatedFull{}
+
+	pScoped := &authn.Principal{
+		LocalUserID: 1,
+		Username:    "scoped",
+		TokenScopes: []authn.TokenScope{
+			{Action: string(ActionJobRead)},
+		},
+	}
+
+	if !z.Allow(ctx, pScoped, ActionJobRead, Resource{}) {
+		t.Fatal("scoped token should allow matching action")
+	}
+
+	if z.Allow(ctx, pScoped, ActionJobWrite, Resource{}) {
+		t.Fatal("scoped token should deny non-matching action")
 	}
 }
 

@@ -207,5 +207,5 @@ func (s *APIServer) effectiveAuthorizer(setupComplete bool) authz.Authorizer {
 		roleBindings = s.roleBindings
 	}
 
-	return authz.SelectAuthorizer(setupComplete, namespaces, roleBindings)
+	return authz.SelectAuthorizer(setupComplete, config.APIAuthzEngine(), namespaces, roleBindings)
 }

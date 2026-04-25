@@ -7,9 +7,8 @@ log_format = "text"
 enabled = false
 bootstrap_token = ""
 
-# Reserved for future RBAC/DAC/MAC; only authenticated_full is supported today.
 [api.authz]
-engine = "authenticated_full"
+engine = "hierarchical_rbac"
 
 [api.rate_limit]
 auth_refill_rate = "12s"

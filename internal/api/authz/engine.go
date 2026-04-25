@@ -207,15 +207,16 @@ func (r *HierarchicalRBAC) hasActionAnywhere(ctx context.Context, localUserID in
 }
 
 // SelectAuthorizer returns the authorizer for the current instance state.
-// Before initial setup completes, only [SetupPending] applies. After setup, it uses
-// [HierarchicalRBAC] when namespace and role binding repositories are available;
-// otherwise it falls back to [AuthenticatedFull].
-func SelectAuthorizer(setupComplete bool, namespaces dal.NamespacesRepository, roleBindings dal.RoleBindingsRepository) Authorizer {
+// Before initial setup completes, only [SetupPending] applies. After setup:
+//   - "hierarchical_rbac" uses [HierarchicalRBAC] when repositories are available.
+//   - "authenticated_full" uses [AuthenticatedFull] (any authenticated principal).
+//   - Any other engine falls back to [AuthenticatedFull] when repositories are unavailable.
+func SelectAuthorizer(setupComplete bool, engine string, namespaces dal.NamespacesRepository, roleBindings dal.RoleBindingsRepository) Authorizer {
 	if !setupComplete {
 		return SetupPending{}
 	}
 
-	if namespaces != nil && roleBindings != nil {
+	if engine == "hierarchical_rbac" && namespaces != nil && roleBindings != nil {
 		return &HierarchicalRBAC{
 			Namespaces:   namespaces,
 			RoleBindings: roleBindings,

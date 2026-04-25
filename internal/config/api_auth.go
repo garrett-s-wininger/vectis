@@ -77,15 +77,26 @@ func resolvedAuthzEngine() string {
 	return strings.ToLower(strings.TrimSpace(MustDefaults().API.Authz.Engine))
 }
 
-// validateAuthzEngine rejects unknown api.authz.engine values until additional engines exist.
+// APIAuthzEngine returns the resolved authorization engine name.
+func APIAuthzEngine() string {
+	return resolvedAuthzEngine()
+}
+
+// validAuthzEngines are the supported values for api.authz.engine.
+var validAuthzEngines = map[string]struct{}{
+	"authenticated_full": {},
+	"hierarchical_rbac":  {},
+}
+
+// validateAuthzEngine rejects unknown api.authz.engine values.
 func validateAuthzEngine() error {
 	e := resolvedAuthzEngine()
 	if e == "" {
 		return nil
 	}
 
-	if e != "authenticated_full" {
-		return fmt.Errorf("api.authz.engine must be authenticated_full (got %q); rbac/dac/mac are not available yet", e)
+	if _, ok := validAuthzEngines[e]; !ok {
+		return fmt.Errorf("api.authz.engine must be one of authenticated_full or hierarchical_rbac (got %q)", e)
 	}
 
 	return nil

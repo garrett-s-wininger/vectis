@@ -268,11 +268,11 @@ func validateDefaults(d Defaults) {
 
 	e := strings.ToLower(strings.TrimSpace(d.API.Authz.Engine))
 	if e == "" {
-		e = "authenticated_full"
+		e = "hierarchical_rbac"
 	}
 
-	if e != "authenticated_full" {
-		panic("config defaults: api.authz.engine must be authenticated_full (got " + d.API.Authz.Engine + ")")
+	if e != "authenticated_full" && e != "hierarchical_rbac" {
+		panic("config defaults: api.authz.engine must be authenticated_full or hierarchical_rbac (got " + d.API.Authz.Engine + ")")
 	}
 
 	rl := d.API.RateLimit
