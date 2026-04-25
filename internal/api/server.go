@@ -418,6 +418,17 @@ func (s *APIServer) ForceFailRun(w http.ResponseWriter, r *http.Request) {
 	}
 	s.markDBRecovered()
 
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	s.auditLog(ctx, audit.EventRunForceFailed, actorID, 0, map[string]interface{}{
+		"run_id":    runID,
+		"namespace": nsPath,
+		"reason":    reason,
+	})
+
 	s.logger.Warn("Run force-failed via API: %s", runID)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -500,6 +511,16 @@ func (s *APIServer) ForceRequeueRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.markDBRecovered()
+
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	s.auditLog(ctx, audit.EventRunForceRequeued, actorID, 0, map[string]interface{}{
+		"run_id":    runID,
+		"namespace": nsPath,
+	})
 
 	s.logger.Warn("Run force-requeued via API: %s", runID)
 	w.WriteHeader(http.StatusNoContent)
@@ -584,6 +605,16 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 	}
 	s.markDBRecovered()
 
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	s.auditLog(ctx, audit.EventJobCreated, actorID, 0, map[string]interface{}{
+		"job_id":    *job.Id,
+		"namespace": ns.Path,
+	})
+
 	s.logger.Info("Stored job: %s", *job.Id)
 	w.WriteHeader(http.StatusCreated)
 }
@@ -634,6 +665,16 @@ func (s *APIServer) DeleteJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.markDBRecovered()
+
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	s.auditLog(ctx, audit.EventJobDeleted, actorID, 0, map[string]interface{}{
+		"job_id":    jobID,
+		"namespace": nsPath,
+	})
 
 	s.logger.Info("Deleted job: %s", jobID)
 	w.WriteHeader(http.StatusNoContent)
@@ -845,6 +886,18 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 	s.runBroadcaster.Broadcast(jobID, runID, runIndex)
 	job.RunId = &runID
 
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	s.auditLog(ctx, audit.EventRunTriggered, actorID, 0, map[string]interface{}{
+		"job_id":    jobID,
+		"run_id":    runID,
+		"run_index": runIndex,
+		"namespace": nsPath,
+	})
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	if err := json.NewEncoder(w).Encode(map[string]any{
@@ -942,6 +995,16 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	s.markDBRecovered()
+
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	s.auditLog(ctx, audit.EventJobUpdated, actorID, 0, map[string]interface{}{
+		"job_id":    jobID,
+		"namespace": nsPath,
+	})
 
 	s.logger.Info("Updated job definition: %s", jobID)
 	w.WriteHeader(http.StatusNoContent)
@@ -1045,6 +1108,18 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	s.markDBRecovered()
 
 	job.RunId = &runID
+
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	s.auditLog(ctx, audit.EventRunTriggered, actorID, 0, map[string]interface{}{
+		"job_id":    generatedID,
+		"run_id":    runID,
+		"namespace": ns.Path,
+		"ephemeral": true,
+	})
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
@@ -1277,6 +1352,7 @@ func (s *APIServer) Handler() http.Handler {
 	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/runs/{id}/force-requeue", Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General}, s.ForceRequeueRun)
 	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/setup/status", Auth: routeAuthPolicy{Action: authz.ActionSetupStatus}, RateLimit: defaultLimits.Auth}, s.GetSetupStatus)
 	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/setup/complete", Auth: routeAuthPolicy{Action: authz.ActionSetupComplete}, RateLimit: defaultLimits.Auth}, s.PostSetupComplete)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/login", Auth: routeAuthPolicy{Public: true}, RateLimit: defaultLimits.Auth}, s.Login)
 	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/tokens", Auth: routeAuthPolicy{Action: authz.ActionAPI}, RateLimit: defaultLimits.Token}, s.ListTokens)
 	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/tokens", Auth: routeAuthPolicy{Action: authz.ActionAPI}, RateLimit: defaultLimits.Token}, s.CreateToken)
 	s.registerRouteFunc(mux, routeSpec{Pattern: "DELETE /api/v1/tokens/{id}", Auth: routeAuthPolicy{Action: authz.ActionAPI}, RateLimit: defaultLimits.Token}, s.DeleteToken)

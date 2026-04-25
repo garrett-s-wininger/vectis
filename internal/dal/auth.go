@@ -51,6 +51,7 @@ type AuthRepository interface {
 	TouchAPITokenUsed(ctx context.Context, tokenHash string) error
 	UserExists(ctx context.Context, localUserID int64) (bool, error)
 	UserEnabled(ctx context.Context, localUserID int64) (bool, error)
+	GetLocalUserByUsername(ctx context.Context, username string) (id int64, passwordHash string, enabled bool, err error)
 	GetUserPasswordHash(ctx context.Context, localUserID int64) (string, error)
 	UpdateUserPassword(ctx context.Context, localUserID int64, passwordHash string) error
 	DeleteAllAPITokensForUser(ctx context.Context, localUserID int64) error
@@ -212,6 +213,23 @@ func (r *SQLAuthRepository) UserEnabled(ctx context.Context, localUserID int64) 
 	}
 
 	return enabled, nil
+}
+
+func (r *SQLAuthRepository) GetLocalUserByUsername(ctx context.Context, username string) (id int64, passwordHash string, enabled bool, err error) {
+	err = r.db.QueryRowContext(ctx,
+		rebindQueryForPgx(`SELECT id, password_hash, enabled FROM local_users WHERE username = ?`),
+		username,
+	).Scan(&id, &passwordHash, &enabled)
+
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, "", false, ErrNotFound
+		}
+
+		return 0, "", false, normalizeSQLError(err)
+	}
+
+	return id, passwordHash, enabled, nil
 }
 
 func (r *SQLAuthRepository) GetUserPasswordHash(ctx context.Context, localUserID int64) (string, error) {

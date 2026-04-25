@@ -7,4 +7,5 @@ const (
 	maxBearerTokenBytes        = 4096
 	maxChangePasswordBodyBytes = 4096
 	maxUserBodyBytes           = 4096
+	maxLoginBodyBytes          = 4096
 )
