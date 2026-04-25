@@ -6,15 +6,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/spf13/cobra"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"strings"
 	"syscall"
+
+	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/config"
@@ -36,7 +39,7 @@ func newAPIRequest(method, path string, body io.Reader) (*http.Request, error) {
 		return nil, err
 	}
 
-	if token := config.CLIAPIToken(); token != "" {
+	if token := effectiveToken(); token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
@@ -45,6 +48,67 @@ func newAPIRequest(method, path string, body io.Reader) (*http.Request, error) {
 
 func doAPIRequest(req *http.Request) (*http.Response, error) {
 	return http.DefaultClient.Do(req)
+}
+
+func cliTokenFilePath() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+
+	return filepath.Join(dir, "vectis", "token"), nil
+}
+
+func readPersistedToken() string {
+	path, err := cliTokenFilePath()
+	if err != nil {
+		return ""
+	}
+
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+
+	return strings.TrimSpace(string(b))
+}
+
+func writePersistedToken(token string) error {
+	path, err := cliTokenFilePath()
+	if err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+
+	if err := os.WriteFile(path, []byte(token), 0o600); err != nil {
+		return err
+	}
+
+	return os.Chmod(path, 0o600)
+}
+
+func deletePersistedToken() error {
+	path, err := cliTokenFilePath()
+	if err != nil {
+		return err
+	}
+
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	return nil
+}
+
+func effectiveToken() string {
+	if token := config.CLIAPIToken(); token != "" {
+		return token
+	}
+
+	return readPersistedToken()
 }
 
 func runLogStream(runID string, filterStdout, filterStderr bool) error {
@@ -965,6 +1029,287 @@ var forceRequeueCmd = &cobra.Command{
 	Run:   forceRequeueRun,
 }
 
+func runLogin(cmd *cobra.Command, args []string) {
+	username, _ := cmd.Flags().GetString("username")
+	password, _ := cmd.Flags().GetString("password")
+
+	if username == "" {
+		fmt.Fprint(os.Stderr, "Username: ")
+		scanner := bufio.NewScanner(os.Stdin)
+		if scanner.Scan() {
+			username = scanner.Text()
+		}
+		if err := scanner.Err(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: failed to read username: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	if password == "" {
+		fmt.Fprint(os.Stderr, "Password: ")
+		b, err := term.ReadPassword(int(os.Stdin.Fd()))
+		if err != nil {
+			// Fallback to plain scanner if not a terminal
+			scanner := bufio.NewScanner(os.Stdin)
+			if scanner.Scan() {
+				password = scanner.Text()
+			}
+			if scanErr := scanner.Err(); scanErr != nil {
+				fmt.Fprintf(os.Stderr, "Error: failed to read password: %v\n", scanErr)
+				os.Exit(1)
+			}
+		} else {
+			password = string(b)
+			fmt.Fprintln(os.Stderr)
+		}
+	}
+
+	if username == "" || password == "" {
+		fmt.Fprintln(os.Stderr, "Error: username and password are required")
+		cmd.Usage()
+		os.Exit(1)
+	}
+
+	body, err := json.Marshal(map[string]string{
+		"username": username,
+		"password": password,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to encode request: %v\n", err)
+		os.Exit(1)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, config.PublicAPIBaseURL()+"/api/v1/login", bytes.NewReader(body))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: login request failed: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var result struct {
+			Token     string `json:"token"`
+			UserID    int64  `json:"user_id"`
+			ExpiresAt string `json:"expires_at"`
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: failed to parse response: %v\n", err)
+			os.Exit(1)
+		}
+
+		if err := writePersistedToken(result.Token); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: failed to save token: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Logged in as %s (user %d). Token expires at %s.\n", username, result.UserID, result.ExpiresAt)
+	case http.StatusUnauthorized:
+		fmt.Fprintln(os.Stderr, "Error: invalid username or password")
+		os.Exit(1)
+	case http.StatusServiceUnavailable:
+		body, _ := io.ReadAll(resp.Body)
+		fmt.Fprintf(os.Stderr, "Error: service unavailable: %s\n", string(body))
+		os.Exit(1)
+	default:
+		fmt.Fprintf(os.Stderr, "Error: unexpected status: %s\n", resp.Status)
+		os.Exit(1)
+	}
+}
+
+var loginCmd = &cobra.Command{
+	Use:   "login",
+	Short: "Authenticate with the Vectis API",
+	Long:  `Log in to the Vectis API using username and password. The token is persisted to the config directory for subsequent commands.`,
+	Run:   runLogin,
+}
+
+func runLogout(cmd *cobra.Command, args []string) {
+	if err := deletePersistedToken(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to remove token: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("Logged out. Token removed.")
+}
+
+var logoutCmd = &cobra.Command{
+	Use:   "logout",
+	Short: "Remove the persisted API token",
+	Long:  `Remove the locally persisted API token. This does not invalidate the token on the server.`,
+	Run:   runLogout,
+}
+
+func runTokenList(cmd *cobra.Command, args []string) {
+	req, err := newAPIRequest(http.MethodGet, "/api/v1/tokens", nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: request failed: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "Error: unexpected status: %s\n", resp.Status)
+		os.Exit(1)
+	}
+
+	var tokens []struct {
+		ID         int64   `json:"id"`
+		Label      string  `json:"label"`
+		ExpiresAt  *string `json:"expires_at,omitempty"`
+		CreatedAt  string  `json:"created_at"`
+		LastUsedAt *string `json:"last_used_at,omitempty"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&tokens); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to parse response: %v\n", err)
+		os.Exit(1)
+	}
+
+	for _, t := range tokens {
+		exp := "never"
+		if t.ExpiresAt != nil {
+			exp = *t.ExpiresAt
+		}
+		used := "never"
+		if t.LastUsedAt != nil {
+			used = *t.LastUsedAt
+		}
+		fmt.Printf("%d\t%s\texpires=%s\tcreated=%s\tlast_used=%s\n", t.ID, t.Label, exp, t.CreatedAt, used)
+	}
+}
+
+func runTokenCreate(cmd *cobra.Command, args []string) {
+	label, _ := cmd.Flags().GetString("label")
+	expiresIn, _ := cmd.Flags().GetString("expires-in")
+	userID, _ := cmd.Flags().GetInt64("user-id")
+
+	if label == "" {
+		fmt.Fprintln(os.Stderr, "Error: --label is required")
+		cmd.Usage()
+		os.Exit(1)
+	}
+
+	reqBody := map[string]interface{}{
+		"label":      label,
+		"expires_in": expiresIn,
+	}
+
+	if userID > 0 {
+		reqBody["user_id"] = userID
+	}
+
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to encode request: %v\n", err)
+		os.Exit(1)
+	}
+
+	req, err := newAPIRequest(http.MethodPost, "/api/v1/tokens", bytes.NewReader(body))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: request failed: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusCreated:
+		var result struct {
+			Token     string `json:"token"`
+			ID        int64  `json:"id"`
+			Label     string `json:"label"`
+			ExpiresAt string `json:"expires_at"`
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: failed to parse response: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Token created: %d (%s)\n%s\n", result.ID, result.Label, result.Token)
+		if result.ExpiresAt != "" {
+			fmt.Printf("Expires: %s\n", result.ExpiresAt)
+		}
+	case http.StatusForbidden:
+		fmt.Fprintln(os.Stderr, "Error: permission denied")
+		os.Exit(1)
+	default:
+		fmt.Fprintf(os.Stderr, "Error: unexpected status: %s\n", resp.Status)
+		os.Exit(1)
+	}
+}
+
+func runTokenDelete(cmd *cobra.Command, args []string) {
+	req, err := newAPIRequest(http.MethodDelete, fmt.Sprintf("/api/v1/tokens/%s", args[0]), nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: request failed: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusNoContent:
+		fmt.Println("Token deleted.")
+	case http.StatusNotFound:
+		fmt.Fprintln(os.Stderr, "Error: token not found")
+		os.Exit(1)
+	default:
+		fmt.Fprintf(os.Stderr, "Error: unexpected status: %s\n", resp.Status)
+		os.Exit(1)
+	}
+}
+
+var tokenCmd = &cobra.Command{
+	Use:   "token",
+	Short: "Manage API tokens",
+	Long:  `List, create, and delete API tokens for the authenticated user.`,
+}
+
+var tokenListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List API tokens",
+	Run:   runTokenList,
+}
+
+var tokenCreateCmd = &cobra.Command{
+	Use:   "create",
+	Short: "Create a new API token",
+	Run:   runTokenCreate,
+}
+
+var tokenDeleteCmd = &cobra.Command{
+	Use:   "delete [token-id]",
+	Short: "Delete an API token",
+	Args:  cobra.ExactArgs(1),
+	Run:   runTokenDelete,
+}
+
 var rootCmd = &cobra.Command{
 	Use:   "vectis-cli",
 	Short: "Vectis CLI - Command line interface for Vectis",
@@ -994,6 +1339,19 @@ func init() {
 	forceFailCmd.Flags().String("reason", "", "Failure reason to record")
 	rootCmd.AddCommand(forceFailCmd)
 	rootCmd.AddCommand(forceRequeueCmd)
+
+	loginCmd.Flags().StringP("username", "u", "", "Username (optional; prompts if omitted)")
+	loginCmd.Flags().StringP("password", "p", "", "Password (optional; prompts if omitted)")
+	rootCmd.AddCommand(loginCmd)
+	rootCmd.AddCommand(logoutCmd)
+
+	tokenCmd.AddCommand(tokenListCmd)
+	tokenCreateCmd.Flags().String("label", "", "Token label (required)")
+	tokenCreateCmd.Flags().String("expires-in", "never", "Expiry preset (1w, 1m, 3m, 6m, 1y, never)")
+	tokenCreateCmd.Flags().Int64("user-id", 0, "Create token for another user (admin only)")
+	tokenCmd.AddCommand(tokenCreateCmd)
+	tokenCmd.AddCommand(tokenDeleteCmd)
+	rootCmd.AddCommand(tokenCmd)
 }
 
 func main() {
