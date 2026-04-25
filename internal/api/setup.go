@@ -139,7 +139,9 @@ func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a := strings.TrimSpace(req.BootstrapToken)
-	if len(a) != len(expected) || subtle.ConstantTimeCompare([]byte(a), []byte(expected)) != 1 {
+	aHash := hashAPIToken(a)
+	expectedHash := hashAPIToken(expected)
+	if subtle.ConstantTimeCompare([]byte(aHash), []byte(expectedHash)) != 1 {
 		writeAuthJSON(w, http.StatusUnauthorized, authAPIError{Error: AuthJSONInvalidBootstrapToken})
 		return
 	}

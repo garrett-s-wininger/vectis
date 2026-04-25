@@ -19,7 +19,8 @@ const loginTokenDefaultExpiry = 7 * 24 * time.Hour
 
 // dummyBcryptHash is a valid bcrypt hash used for constant-time login failure paths
 // when the username does not exist. It ensures timing does not leak username enumeration.
-var dummyBcryptHash = "$2a$10$abcdefghijklmnopqrstuvwxycdefghijklmnopqrstu"
+// Generated with: bcrypt.GenerateFromPassword([]byte("dummy"), bcrypt.DefaultCost)
+var dummyBcryptHash = "$2a$10$RgvvFjOSrsWHTjz69BrUGOXOjgsfHXpxy0wLzBRDoIYPRlpTl/Xly"
 
 type loginRequest struct {
 	Username string `json:"username"`
