@@ -29,13 +29,15 @@ Executables are built as **`bin/vectis-<name>`** (e.g. `bin/vectis-api` after `m
 
 Shipped default is **`api.auth.enabled` = `false`** in [`internal/config/defaults.toml`](../internal/config/defaults.toml). When **`true`**, the API enforces Bearer tokens on protected routes after initial setup; setup completion is stored in the database.
 
-**Authentication vs authorization:** **`api.auth.*`** controls whether clients must authenticate (Bearer). **`api.authz.*`** is reserved for coarse and fine-grained authorization after AuthN; today only **`authenticated_full`** is valid (any authenticated principal for non-setup actions). Additional engines (RBAC, DAC, MAC, etc.) will extend **`api.authz.engine`** when implemented.
+**Authentication vs authorization:** **`api.auth.*`** controls whether clients must authenticate (Bearer). **`api.authz.*`** selects the authorization engine applied after authentication.
 
 | Variable / key | Purpose |
 | --- | --- |
 | **`VECTIS_API_AUTH_ENABLED`** / **`api.auth.enabled`** | If `true` (or `1`, `yes`, `on`), enable HTTP API authentication. |
 | **`VECTIS_API_AUTH_BOOTSTRAP_TOKEN`** / **`api.auth.bootstrap_token`** | Shared secret for **`POST /api/v1/setup/complete`** on a **new** database. Must be **at least 16 characters** when auth is enabled and setup is not yet complete; optional after the DB records setup completion. |
-| **`VECTIS_API_AUTHZ_ENGINE`** / **`api.authz.engine`** | Must be **`authenticated_full`** (default). Other values are rejected at startup until supported. |
+| **`VECTIS_API_AUTHZ_ENGINE`** / **`api.authz.engine`** | `hierarchical_rbac` (default) or `authenticated_full`. See [SECURITY.md](SECURITY.md). |
+
+**CLI authentication:** `vectis-cli login` calls **`POST /api/v1/login`** and persists the returned token to the OS user config directory (`os.UserConfigDir()/vectis/token`, e.g. `~/.config/vectis/token` on Linux or `~/Library/Application Support/vectis/token` on macOS). Subsequent CLI commands read this file automatically (override with **`VECTIS_API_TOKEN`**).
 
 ## Database (every service that uses the DB)
 

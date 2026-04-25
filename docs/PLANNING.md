@@ -71,7 +71,7 @@ Milestones build on the current stack; order is indicative.
 
 ### Milestone B — Hardening
 
-- **API:** authentication/authorization when exposed beyond trusted networks (current posture: [SECURITY.md](SECURITY.md)).
+- **API:** authentication/authorization shipped — local users, API tokens, login endpoint, hierarchical RBAC, rate limits, and audit logging. See [SECURITY.md](SECURITY.md).
 - **Cancellation:** API → worker control path (no `WorkerControl` gRPC today).
 - **List jobs:** cursor pagination (`internal/api/server.go` TODOs).
 - **Durability / observability:** **`vectis-reconciler`** covers DB–queue gaps after async enqueue; tighten **reconciler- and handoff-specific** visibility (alerts, client-visible status for failed handoffs) and any remaining edge cases (see `RunJob` commentary in `internal/api/server.go`). Baseline **service metrics** for API, queue, worker, and log are **shipped** (§10).
@@ -271,9 +271,9 @@ Operator-facing **log/run streaming** (job output) is **§6.1** and [ARCHITECTUR
 
 ## 12. Security and authentication
 
-**Shipped:** HTTP API and gRPC peers are largely **unauthenticated** beyond trusted networks — see [SECURITY.md](SECURITY.md) and §3 Milestone B.
+**Shipped:** HTTP API authentication with local users, bcrypt passwords, API tokens, scoped permissions, login endpoint, and hierarchical RBAC (viewer/trigger/operator/admin roles with namespace inheritance). Rate limits and async audit logging are active. gRPC peers remain **unauthenticated** beyond optional TLS — see [SECURITY.md](SECURITY.md).
 
-**Target:** Public REST behind OIDC/session tokens; RBAC (viewer/trigger/operator/admin); worker/trigger static tokens and optional **mTLS** on internal gRPC; rate limits and webhook HMAC/replay controls when triggers exist.
+**Target:** OIDC/session tokens; worker/trigger static tokens and optional **mTLS** on internal gRPC; webhook HMAC/replay controls when triggers exist.
 
 ---
 
@@ -413,7 +413,7 @@ Mix of **shipped** behavior and **target** intent (see [ARCHITECTURE.md](ARCHITE
 | Job model | Stored jobs + runs + ephemeral path; JSON/proto graph | Shipped — richer entities (projects, steps table) target |
 | Pipeline-as-code | `.vectis.yml`, overrides branch | Planned — JSON jobs today |
 | Triggers | Cron service + API; webhook / unified trigger | Partial |
-| API security | Auth, RBAC, rate limits | Planned — open HTTP today |
+| API security | Auth, RBAC, rate limits, audit logging | **Shipped** — see [SECURITY.md](SECURITY.md) |
 | Worker/trigger auth | Tokens, optional mTLS | Planned |
 | Cancellation | API → worker control RPC | Planned |
 | Heartbeat / orphans | Dedicated service + admin paths | Planned — reconciler differs today |
