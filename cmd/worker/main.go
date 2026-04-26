@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/google/uuid"
@@ -27,6 +28,7 @@ import (
 	"vectis/internal/observability"
 	"vectis/internal/queueclient"
 	"vectis/internal/runpolicy"
+	"vectis/internal/utils"
 
 	_ "vectis/internal/dbdrivers"
 )
@@ -158,6 +160,15 @@ func runWorker(cmd *cobra.Command, args []string) {
 	}
 	defer func() { _ = clients.Close() }()
 
+	logClient := interfaces.LogClient(clients)
+
+	// Prefer the local log-forwarder Unix socket when available.
+	// The PreferForwarderLogClient dynamically checks the socket before
+	// each StreamLogs, so if the forwarder crashes the worker falls back
+	// to direct gRPC automatically.
+	forwarderSocket := forwarderSocketPath()
+	logClient = interfaces.NewPreferForwarderLogClient(forwarderSocket, logClient)
+
 	w := &worker{
 		ctx:           shutdownCtx,
 		runCtx:        runCtx,
@@ -166,13 +177,13 @@ func runWorker(cmd *cobra.Command, args []string) {
 		clock:         interfaces.SystemClock{},
 		renewInterval: dal.DefaultRenewInterval,
 		queue:         clients,
-		logClient:     clients,
+		logClient:     logClient,
 		executor:      job.NewExecutor(),
 		store:         dal.NewSQLRepositories(db).Runs(),
 		metrics:       workerMetrics,
 	}
 
-	forwarder := job.NewLogSpoolForwarder(clients, logger, 5*time.Second)
+	forwarder := job.NewLogSpoolForwarder(logClient, logger, 5*time.Second)
 	forwarderDone := make(chan struct{})
 	go func() {
 		defer close(forwarderDone)
@@ -184,6 +195,10 @@ func runWorker(cmd *cobra.Command, args []string) {
 	// Wait for the forwarder to finish before closing clients.
 	<-forwarderDone
 	logger.Info("Worker graceful shutdown complete")
+}
+
+func forwarderSocketPath() string {
+	return filepath.Join(utils.RuntimeDir(), "log-forwarder.sock")
 }
 
 type worker struct {

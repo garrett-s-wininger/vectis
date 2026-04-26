@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -966,4 +967,24 @@ func TestWorker_Run_ExitsWhenDequeueCanceled(t *testing.T) {
 		queue:  q,
 	}
 	w.run()
+}
+
+func TestForwarderSocketPath_RespectsXDGRuntimeDir(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+	got := forwarderSocketPath()
+	want := "/run/user/1000/vectis/log-forwarder.sock"
+	if got != want {
+		t.Fatalf("forwarderSocketPath() = %q, want %q", got, want)
+	}
+}
+
+func TestForwarderSocketPath_FallsBackToTempDir(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	got := forwarderSocketPath()
+	if !strings.HasSuffix(got, "/log-forwarder.sock") {
+		t.Fatalf("forwarderSocketPath() = %q, expected suffix /log-forwarder.sock", got)
+	}
+	if !strings.Contains(got, fmt.Sprintf("vectis-%d", os.Getuid())) {
+		t.Fatalf("forwarderSocketPath() = %q, expected user-isolated directory", got)
+	}
 }
