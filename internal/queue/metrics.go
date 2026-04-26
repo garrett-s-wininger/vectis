@@ -4,13 +4,13 @@ import (
 	api "vectis/api/gen/go"
 )
 
-func MetricsSnapshot(svc api.QueueServiceServer) (pending int64, inflight int64) {
+func MetricsSnapshot(svc api.QueueServiceServer) (pending int64, inflight int64, dlq int64) {
 	qs, ok := svc.(*queueServer)
 	if !ok {
-		return 0, 0
+		return 0, 0, 0
 	}
 	qs.mu.Lock()
 	defer qs.mu.Unlock()
 
-	return int64(qs.size), int64(len(qs.inflight))
+	return int64(qs.size), int64(len(qs.inflight)), int64(len(qs.deadLetter))
 }

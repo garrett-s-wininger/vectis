@@ -16,4 +16,6 @@ func (n noopLogger) Warn(msg string, args ...any)  {}
 func (n noopLogger) Error(msg string, args ...any) {}
 func (n noopLogger) Fatal(msg string, args ...any) {}
 
-func (n noopLogger) WithOutput(w io.Writer) interfaces.Logger { return n }
+func (n noopLogger) WithOutput(w io.Writer) interfaces.Logger       { return n }
+func (n noopLogger) WithField(string, string) interfaces.Logger     { return n }
+func (n noopLogger) WithFields(map[string]string) interfaces.Logger { return n }

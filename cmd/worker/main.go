@@ -84,6 +84,18 @@ func runWorker(cmd *cobra.Command, args []string) {
 		logger.Fatal("database wait for migrations failed: %v", err)
 	}
 
+	shutdownTracer, err := observability.InitTracer(shutdownCtx, "vectis-worker")
+	if err != nil {
+		logger.Fatal("Failed to initialize tracer: %v", err)
+	}
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownTracer(shutCtx); err != nil {
+			logger.Warn("Tracer shutdown: %v", err)
+		}
+	}()
+
 	metricsHandler, shutdownMetrics, err := observability.InitServiceMetrics(shutdownCtx, "vectis-worker")
 	if err != nil {
 		logger.Fatal("Failed to initialize metrics: %v", err)

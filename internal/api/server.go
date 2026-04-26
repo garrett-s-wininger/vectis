@@ -814,7 +814,8 @@ func (s *APIServer) GetJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	records, err := s.jobs.List(ctx)
+	params := parsePageParams(r)
+	records, nextCursor, err := s.jobs.List(ctx, params.Cursor, params.Limit)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
@@ -826,8 +827,6 @@ func (s *APIServer) GetJobs(w http.ResponseWriter, r *http.Request) {
 	}
 	s.markDBRecovered()
 
-	// TODO(garrett): Cursor-based pagination.
-	// TODO(garrett): Option to avoid returning the definition.
 	var jobs []map[string]any
 	z := s.effectiveAuthorizer(true)
 	for _, rec := range records {
@@ -867,7 +866,8 @@ func (s *APIServer) GetJobs(w http.ResponseWriter, r *http.Request) {
 		jobs = make([]map[string]any, 0)
 	}
 
-	if err := json.NewEncoder(w).Encode(jobs); err != nil {
+	resp := buildPaginatedResponse(jobs, nextCursor)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		s.logger.Error("Failed to encode jobs as JSON: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
@@ -1326,6 +1326,8 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 		since = &parsedSince
 	}
 
+	params := parsePageParams(r)
+
 	ctx, cancel := s.handlerDBCtx(r)
 	defer cancel()
 
@@ -1354,7 +1356,7 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	runRows, err := s.runs.ListByJob(ctx, jobID, since)
+	runRows, nextCursor, err := s.runs.ListByJob(ctx, jobID, since, params.Cursor, params.Limit)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
@@ -1396,8 +1398,85 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(runs); err != nil {
+	resp := buildPaginatedResponse(runs, nextCursor)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		s.logger.Error("Failed to encode runs: %v", err)
+	}
+}
+
+func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
+	runID := r.PathValue("id")
+	if runID == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	rec, err := s.runs.GetRun(ctx, runID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			http.Error(w, "run not found", http.StatusNotFound)
+			return
+		}
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+		s.logger.Error("Database error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	s.markDBRecovered()
+
+	jobID, err := s.runs.GetRunJobID(ctx, runID)
+	if err != nil {
+		s.logger.Error("Database error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	nsPath, err := s.getJobNamespacePath(ctx, jobID)
+	if err != nil {
+		s.logger.Error("Database error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if !s.authorizeNamespace(ctx, w, p, authz.ActionRunRead, nsPath) {
+		return
+	}
+
+	type runRow struct {
+		RunID         string  `json:"run_id"`
+		RunIndex      int     `json:"run_index"`
+		Status        string  `json:"status"`
+		OrphanReason  *string `json:"orphan_reason,omitempty"`
+		FailureCode   *string `json:"failure_code,omitempty"`
+		StartedAt     *string `json:"started_at,omitempty"`
+		FinishedAt    *string `json:"finished_at,omitempty"`
+		FailureReason *string `json:"failure_reason,omitempty"`
+	}
+
+	resp := runRow{
+		RunID:         rec.RunID,
+		RunIndex:      rec.RunIndex,
+		Status:        rec.Status,
+		OrphanReason:  rec.OrphanReason,
+		FailureCode:   rec.FailureCode,
+		StartedAt:     rec.StartedAt,
+		FinishedAt:    rec.FinishedAt,
+		FailureReason: rec.FailureReason,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		s.logger.Error("Failed to encode run: %v", err)
 	}
 }
 
@@ -1633,6 +1712,7 @@ func (s *APIServer) Handler() http.Handler {
 	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/jobs/trigger/{id}", Auth: routeAuthPolicy{Action: authz.ActionRunTrigger}, RateLimit: defaultLimits.General}, s.TriggerJob)
 	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/jobs/{id}/runs", Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General}, s.GetJobRuns)
 	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/sse/jobs/{id}/runs", Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General}, s.HandleSSEJobRuns)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/runs/{id}", Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General}, s.GetRun)
 	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/runs/{id}/cancel", Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General}, s.CancelRun)
 	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/runs/{id}/force-fail", Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General}, s.ForceFailRun)
 	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/runs/{id}/force-requeue", Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General}, s.ForceRequeueRun)

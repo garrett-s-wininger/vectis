@@ -52,9 +52,9 @@ func (m *MockJobsRepository) Delete(ctx context.Context, jobID string) error {
 	return nil
 }
 
-func (m *MockJobsRepository) List(ctx context.Context) ([]dal.JobRecord, error) {
+func (m *MockJobsRepository) List(ctx context.Context, cursor int64, limit int) ([]dal.JobRecord, int64, error) {
 	if m.ListErr != nil {
-		return nil, m.ListErr
+		return nil, 0, m.ListErr
 	}
 
 	out := make([]dal.JobRecord, 0, len(m.Definitions))
@@ -65,7 +65,7 @@ func (m *MockJobsRepository) List(ctx context.Context) ([]dal.JobRecord, error) 
 		})
 	}
 
-	return out, nil
+	return out, 0, nil
 }
 
 func (m *MockJobsRepository) GetDefinition(ctx context.Context, jobID string) (string, int, error) {
@@ -254,9 +254,9 @@ func (m *MockRunsRepository) CreateRun(ctx context.Context, jobID string, runInd
 	return m.CreateRunID, m.CreateRunIndex, nil
 }
 
-func (m *MockRunsRepository) ListByJob(ctx context.Context, jobID string, since *int) ([]dal.RunRecord, error) {
+func (m *MockRunsRepository) ListByJob(ctx context.Context, jobID string, since *int, cursor int64, limit int) ([]dal.RunRecord, int64, error) {
 	if m.ListByJobErr != nil {
-		return nil, m.ListByJobErr
+		return nil, 0, m.ListByJobErr
 	}
 
 	m.mu.Lock()
@@ -269,7 +269,11 @@ func (m *MockRunsRepository) ListByJob(ctx context.Context, jobID string, since 
 	}
 	m.mu.Unlock()
 
-	return append([]dal.RunRecord(nil), m.ListByJobResults...), nil
+	return append([]dal.RunRecord(nil), m.ListByJobResults...), 0, nil
+}
+
+func (m *MockRunsRepository) GetRun(ctx context.Context, runID string) (dal.RunRecord, error) {
+	return dal.RunRecord{RunID: runID, Status: m.RunStatus}, nil
 }
 
 func (m *MockRunsRepository) SnapshotTouchedRunIDs() []string {

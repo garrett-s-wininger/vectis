@@ -34,6 +34,14 @@ func (m *MockLogger) WithOutput(w io.Writer) interfaces.Logger {
 	}
 }
 
+func (m *MockLogger) WithField(key string, value string) interfaces.Logger {
+	return m
+}
+
+func (m *MockLogger) WithFields(fields map[string]string) interfaces.Logger {
+	return m
+}
+
 func (m *MockLogger) SetLevel(level interfaces.Level) {
 }
 
@@ -156,7 +164,9 @@ func (NopLogger) Error(string, ...any) {}
 func (NopLogger) Fatal(string, ...any) {
 	panic("NopLogger Fatal")
 }
-func (NopLogger) WithOutput(io.Writer) interfaces.Logger { return NopLogger{} }
-func (NopLogger) SetLevel(interfaces.Level)              {}
+func (NopLogger) WithOutput(io.Writer) interfaces.Logger         { return NopLogger{} }
+func (NopLogger) WithField(string, string) interfaces.Logger     { return NopLogger{} }
+func (NopLogger) WithFields(map[string]string) interfaces.Logger { return NopLogger{} }
+func (NopLogger) SetLevel(interfaces.Level)                      {}
 
 var _ interfaces.Logger = NopLogger{}

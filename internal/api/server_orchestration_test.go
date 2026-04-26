@@ -95,11 +95,15 @@ func TestAPIServer_GetJobRuns_OrchestrationUsesRunsRepository(t *testing.T) {
 		t.Fatalf("expected since=1 to be passed to repository, got %+v", lastSince)
 	}
 
-	var body []map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+	var resp struct {
+		Data       []map[string]any `json:"data"`
+		NextCursor *int64           `json:"next_cursor,omitempty"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
 
+	body := resp.Data
 	if len(body) != 1 {
 		t.Fatalf("expected one run in response, got %d", len(body))
 	}

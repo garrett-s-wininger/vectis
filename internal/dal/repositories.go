@@ -100,10 +100,11 @@ type RunsRepository interface {
 	RenewLease(ctx context.Context, runID, owner, claimToken string, leaseUntil time.Time) error
 	TouchDispatched(ctx context.Context, runID string) error
 	CreateRun(ctx context.Context, jobID string, runIndex *int, definitionVersion int) (runID string, runIndexOut int, err error)
-	ListByJob(ctx context.Context, jobID string, since *int) ([]RunRecord, error)
+	ListByJob(ctx context.Context, jobID string, since *int, cursor int64, limit int) ([]RunRecord, int64, error)
 	ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]QueuedRun, error)
 	GetRunJobID(ctx context.Context, runID string) (string, error)
 	GetRunForCancel(ctx context.Context, runID string) (RunForCancel, error)
+	GetRun(ctx context.Context, runID string) (RunRecord, error)
 }
 
 type SchedulesRepository interface {
@@ -114,7 +115,7 @@ type SchedulesRepository interface {
 type JobsRepository interface {
 	Create(ctx context.Context, jobID, definitionJSON string, namespaceID int64) error
 	Delete(ctx context.Context, jobID string) error
-	List(ctx context.Context) ([]JobRecord, error)
+	List(ctx context.Context, cursor int64, limit int) ([]JobRecord, int64, error)
 	ListByNamespace(ctx context.Context, namespaceID int64) ([]JobRecord, error)
 	GetDefinition(ctx context.Context, jobID string) (definitionJSON string, version int, err error)
 	GetDefinitionVersion(ctx context.Context, jobID string, version int) (string, error)
@@ -248,28 +249,45 @@ func (r *SQLJobsRepository) Delete(ctx context.Context, jobID string) error {
 	return nil
 }
 
-func (r *SQLJobsRepository) List(ctx context.Context) ([]JobRecord, error) {
-	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx("SELECT job_id, namespace_id, definition_json, version FROM stored_jobs"))
+func (r *SQLJobsRepository) List(ctx context.Context, cursor int64, limit int) ([]JobRecord, int64, error) {
+	query := "SELECT id, job_id, namespace_id, definition_json, version FROM stored_jobs"
+	args := []any{}
+	if cursor > 0 {
+		query += " WHERE id > ?"
+		args = append(args, cursor)
+	}
+	query += " ORDER BY id ASC LIMIT ?"
+	args = append(args, limit+1)
+
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(query), args...)
 	if err != nil {
-		return nil, normalizeSQLError(err)
+		return nil, 0, normalizeSQLError(err)
 	}
 	defer rows.Close()
 
 	var out []JobRecord
+	var lastID int64
 	for rows.Next() {
 		var rec JobRecord
-		if err := rows.Scan(&rec.JobID, &rec.NamespaceID, &rec.DefinitionJSON, &rec.Version); err != nil {
-			return nil, err
+		var id int64
+		if err := rows.Scan(&id, &rec.JobID, &rec.NamespaceID, &rec.DefinitionJSON, &rec.Version); err != nil {
+			return nil, 0, err
 		}
-
+		lastID = id
 		out = append(out, rec)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	return out, nil
+	var nextCursor int64
+	if len(out) > limit {
+		out = out[:limit]
+		nextCursor = lastID
+	}
+
+	return out, nextCursor, nil
 }
 
 func (r *SQLJobsRepository) ListByNamespace(ctx context.Context, namespaceID int64) ([]JobRecord, error) {
@@ -731,29 +749,38 @@ func (r *SQLRunsRepository) CreateRun(ctx context.Context, jobID string, runInde
 	return runID, idx, nil
 }
 
-func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, since *int) ([]RunRecord, error) {
-	query := "SELECT run_id, run_index, status, orphan_reason, failure_code, CAST(started_at AS TEXT), CAST(finished_at AS TEXT), failure_reason FROM job_runs WHERE job_id = ?"
+func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, since *int, cursor int64, limit int) ([]RunRecord, int64, error) {
+	query := "SELECT id, run_id, run_index, status, orphan_reason, failure_code, CAST(started_at AS TEXT), CAST(finished_at AS TEXT), failure_reason FROM job_runs WHERE job_id = ?"
 	args := []any{jobID}
 
 	if since != nil {
 		query += " AND run_index > ?"
 		args = append(args, *since)
 	}
+	if cursor > 0 {
+		query += " AND id > ?"
+		args = append(args, cursor)
+	}
 
-	query += " ORDER BY run_index ASC"
+	query += " ORDER BY id ASC LIMIT ?"
+	args = append(args, limit+1)
+
 	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(query), args...)
 	if err != nil {
-		return nil, normalizeSQLError(err)
+		return nil, 0, normalizeSQLError(err)
 	}
 	defer rows.Close()
 
 	var out []RunRecord
+	var lastID int64
 	for rows.Next() {
 		var rec RunRecord
+		var id int64
 		var orphanReason, failureCode, startedAt, finishedAt, failureReason sql.NullString
-		if err := rows.Scan(&rec.RunID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &startedAt, &finishedAt, &failureReason); err != nil {
-			return nil, err
+		if err := rows.Scan(&id, &rec.RunID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &startedAt, &finishedAt, &failureReason); err != nil {
+			return nil, 0, err
 		}
+		lastID = id
 		if orphanReason.Valid && orphanReason.String != "" {
 			rec.OrphanReason = &orphanReason.String
 		}
@@ -778,10 +805,16 @@ func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, since *
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	return out, nil
+	var nextCursor int64
+	if len(out) > limit {
+		out = out[:limit]
+		nextCursor = lastID
+	}
+
+	return out, nextCursor, nil
 }
 
 func (r *SQLRunsRepository) ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]QueuedRun, error) {
@@ -854,6 +887,37 @@ func (r *SQLRunsRepository) GetRunJobID(ctx context.Context, runID string) (stri
 	}
 
 	return jobID, nil
+}
+
+func (r *SQLRunsRepository) GetRun(ctx context.Context, runID string) (RunRecord, error) {
+	var rec RunRecord
+	var orphanReason, failureCode, startedAt, finishedAt, failureReason sql.NullString
+	err := r.db.QueryRowContext(ctx,
+		rebindQueryForPgx("SELECT run_id, run_index, status, orphan_reason, failure_code, CAST(started_at AS TEXT), CAST(finished_at AS TEXT), failure_reason FROM job_runs WHERE run_id = ?"),
+		runID,
+	).Scan(&rec.RunID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &startedAt, &finishedAt, &failureReason)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return RunRecord{}, fmt.Errorf("%w: run %s", ErrNotFound, runID)
+		}
+		return RunRecord{}, normalizeSQLError(err)
+	}
+	if orphanReason.Valid && orphanReason.String != "" {
+		rec.OrphanReason = &orphanReason.String
+	}
+	if startedAt.Valid {
+		rec.StartedAt = &startedAt.String
+	}
+	if finishedAt.Valid {
+		rec.FinishedAt = &finishedAt.String
+	}
+	if failureCode.Valid && failureCode.String != "" {
+		rec.FailureCode = &failureCode.String
+	}
+	if failureReason.Valid {
+		rec.FailureReason = &failureReason.String
+	}
+	return rec, nil
 }
 
 type SQLSchedulesRepository struct {

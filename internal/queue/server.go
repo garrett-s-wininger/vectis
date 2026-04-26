@@ -9,6 +9,7 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/interfaces"
+	"vectis/internal/observability"
 
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
@@ -39,6 +40,7 @@ type queueServer struct {
 	notify             chan struct{}
 	log                interfaces.Logger
 	persistence        *persistenceStore
+	metrics            *observability.QueueMetrics
 }
 
 type deadLetterItem struct {
@@ -53,18 +55,18 @@ const (
 )
 
 func NewQueueService(logger interfaces.Logger) api.QueueServiceServer {
-	s, err := newQueueServer(logger, QueueOptions{})
+	s, err := newQueueServer(logger, QueueOptions{}, nil)
 	if err != nil {
 		panic(err)
 	}
 	return s
 }
 
-func NewQueueServiceWithOptions(logger interfaces.Logger, opts QueueOptions) (api.QueueServiceServer, error) {
-	return newQueueServer(logger, opts)
+func NewQueueServiceWithOptions(logger interfaces.Logger, opts QueueOptions, metrics *observability.QueueMetrics) (api.QueueServiceServer, error) {
+	return newQueueServer(logger, opts, metrics)
 }
 
-func newQueueServer(logger interfaces.Logger, opts QueueOptions) (*queueServer, error) {
+func newQueueServer(logger interfaces.Logger, opts QueueOptions, metrics *observability.QueueMetrics) (*queueServer, error) {
 	ttl := opts.DeliveryTTL
 	if ttl <= 0 {
 		ttl = defaultDeliveryTTL
@@ -85,6 +87,7 @@ func newQueueServer(logger interfaces.Logger, opts QueueOptions) (*queueServer, 
 		maxRequeueAttempts: maxAttempts,
 		notify:             make(chan struct{}, 1),
 		log:                logger,
+		metrics:            metrics,
 	}
 
 	store, state, err := newPersistenceStore(opts.PersistenceDir, opts.SnapshotEvery, opts.WALSegmentMax, opts.WALRetainTail)
@@ -127,6 +130,9 @@ func (s *queueServer) Enqueue(ctx context.Context, req *api.Job) (*api.Empty, er
 	s.jobs[tail] = req
 	s.size++
 	s.log.Info("Enqueued job: %s", req.GetId())
+	if s.metrics != nil {
+		s.metrics.RecordEnqueued(ctx)
+	}
 
 	select {
 	case s.notify <- struct{}{}:
@@ -187,6 +193,9 @@ func (s *queueServer) Dequeue(ctx context.Context, _ *api.Empty) (*api.Job, erro
 
 	job.DeliveryId = &deliveryID
 	s.log.Info("Dequeued job: %s (delivery %s)", job.GetId(), deliveryID)
+	if s.metrics != nil {
+		s.metrics.RecordDequeued(ctx)
+	}
 	return job, nil
 }
 
@@ -219,6 +228,9 @@ func (s *queueServer) TryDequeue(ctx context.Context, _ *api.Empty) (*api.Job, e
 
 	job.DeliveryId = &deliveryID
 	s.log.Info("TryDequeue returned job: %s (delivery %s)", job.GetId(), deliveryID)
+	if s.metrics != nil {
+		s.metrics.RecordDequeued(ctx)
+	}
 	return job, nil
 }
 
@@ -313,6 +325,9 @@ func (s *queueServer) requeueExpiredLocked(now time.Time) error {
 			delete(s.inflight, deliveryID)
 			s.log.Error("Delivery %s for job %s exceeded max requeue attempts (%d); moved to DLQ",
 				deliveryID, item.Job.GetId(), s.maxRequeueAttempts)
+			if s.metrics != nil {
+				s.metrics.RecordDLQMoved(context.Background())
+			}
 			continue
 		}
 
@@ -410,6 +425,9 @@ func (s *queueServer) RequeueDeadLetter(ctx context.Context, req *api.RequeueDea
 			s.size++
 			s.deadLetter = append(s.deadLetter[:i], s.deadLetter[i+1:]...)
 			s.log.Info("Requeued dead letter delivery %s for job %s", deliveryID, item.job.GetId())
+			if s.metrics != nil {
+				s.metrics.RecordDLQRequeued(ctx)
+			}
 
 			select {
 			case s.notify <- struct{}{}:
@@ -423,8 +441,8 @@ func (s *queueServer) RequeueDeadLetter(ctx context.Context, req *api.RequeueDea
 	return nil, fmt.Errorf("dead letter delivery %s not found", deliveryID)
 }
 
-func RegisterQueueService(s grpc.ServiceRegistrar, logger interfaces.Logger, opts QueueOptions) api.QueueServiceServer {
-	qs, err := newQueueServer(logger, opts)
+func RegisterQueueService(s grpc.ServiceRegistrar, logger interfaces.Logger, opts QueueOptions, metrics *observability.QueueMetrics) api.QueueServiceServer {
+	qs, err := newQueueServer(logger, opts, metrics)
 	if err != nil {
 		logger.Fatal("Failed to initialize queue: %v", err)
 	}

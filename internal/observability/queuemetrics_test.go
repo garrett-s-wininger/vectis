@@ -19,9 +19,9 @@ func TestRegisterQueueGauges_appearsOnScrape(t *testing.T) {
 		_ = shutdown(context.Background())
 	})
 
-	var pending, inflight int64 = 3, 2
-	if err := RegisterQueueGauges(func() (int64, int64) {
-		return pending, inflight
+	var pending, inflight, dlq int64 = 3, 2, 1
+	if err := RegisterQueueGauges(func() (int64, int64, int64) {
+		return pending, inflight, dlq
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,7 @@ func TestRegisterQueueGauges_appearsOnScrape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"vectis_queue_jobs_pending", "vectis_queue_deliveries_inflight"} {
+	for _, want := range []string{"vectis_queue_jobs_pending", "vectis_queue_deliveries_inflight", "vectis_queue_dlq_size"} {
 		if _, ok := names[want]; !ok {
 			t.Fatalf("missing metric %q; got: %v", want, sortedFamilyNames(names))
 		}

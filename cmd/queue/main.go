@@ -39,6 +39,18 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 	config.StartGRPCTLSReloadLoop(cmd.Context())
 	config.StartMetricsTLSReloadLoop(cmd.Context())
 
+	shutdownTracer, err := observability.InitTracer(cmd.Context(), "vectis-queue")
+	if err != nil {
+		logger.Fatal("Failed to initialize tracer: %v", err)
+	}
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownTracer(shutCtx); err != nil {
+			logger.Warn("Tracer shutdown: %v", err)
+		}
+	}()
+
 	metricsHandler, shutdownMetrics, err := observability.InitServiceMetrics(cmd.Context(), "vectis-queue")
 	if err != nil {
 		logger.Fatal("Failed to initialize metrics: %v", err)
@@ -76,12 +88,17 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 		logger.Info("Using queue persistence directory: %s (snapshot every %d mutations)", persistenceDir, snapshotEvery)
 	}
 
+	queueMetrics, err := observability.NewQueueMetrics()
+	if err != nil {
+		logger.Fatal("Failed to initialize queue metrics: %v", err)
+	}
+
 	qSvc := queue.RegisterQueueService(grpcServer, logger, queue.QueueOptions{
 		PersistenceDir: persistenceDir,
 		SnapshotEvery:  snapshotEvery,
-	})
+	}, queueMetrics)
 
-	if err := observability.RegisterQueueGauges(func() (int64, int64) {
+	if err := observability.RegisterQueueGauges(func() (int64, int64, int64) {
 		return queue.MetricsSnapshot(qSvc)
 	}); err != nil {
 		logger.Fatal("Failed to register queue metrics: %v", err)

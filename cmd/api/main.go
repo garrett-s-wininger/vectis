@@ -56,6 +56,18 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		logger.Fatal("%v", err)
 	}
 
+	shutdownTracer, err := observability.InitTracer(cmd.Context(), "vectis-api")
+	if err != nil {
+		logger.Fatal("Failed to initialize tracer: %v", err)
+	}
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownTracer(shutCtx); err != nil {
+			logger.Warn("Tracer shutdown: %v", err)
+		}
+	}()
+
 	metricsHandler, shutdownMetrics, err := observability.InitAPIMetrics(cmd.Context())
 	if err != nil {
 		logger.Fatal("Failed to initialize metrics: %v", err)

@@ -295,13 +295,16 @@ func TestAPIServer_GetJobs_Empty(t *testing.T) {
 		t.Errorf("expected status %d, got %d", http.StatusOK, rec.Code)
 	}
 
-	var jobs []map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &jobs); err != nil {
+	var resp struct {
+		Data       []map[string]any `json:"data"`
+		NextCursor *int64           `json:"next_cursor,omitempty"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to parse response: %v", err)
 	}
 
-	if len(jobs) != 0 {
-		t.Errorf("expected empty array, got %v", jobs)
+	if len(resp.Data) != 0 {
+		t.Errorf("expected empty array, got %v", resp.Data)
 	}
 
 	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
@@ -326,11 +329,15 @@ func TestAPIServer_GetJobs_WithJobs(t *testing.T) {
 		t.Errorf("expected status %d, got %d", http.StatusOK, rec.Code)
 	}
 
-	var jobs []map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &jobs); err != nil {
+	var resp struct {
+		Data       []map[string]any `json:"data"`
+		NextCursor *int64           `json:"next_cursor,omitempty"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to parse response: %v", err)
 	}
 
+	jobs := resp.Data
 	if len(jobs) != 2 {
 		t.Errorf("expected 2 jobs, got %d", len(jobs))
 	}
@@ -623,20 +630,23 @@ func TestAPIServer_GetJobRuns_ReturnsStatusAndFailureReasonAfterStatusTransition
 		t.Fatalf("GetJobRuns: expected 200, got %d", getRec.Code)
 	}
 
-	var runs []struct {
-		RunID         string  `json:"run_id"`
-		RunIndex      int     `json:"run_index"`
-		Status        string  `json:"status"`
-		FailureCode   *string `json:"failure_code,omitempty"`
-		StartedAt     *string `json:"started_at,omitempty"`
-		FinishedAt    *string `json:"finished_at,omitempty"`
-		FailureReason *string `json:"failure_reason,omitempty"`
+	var resp struct {
+		Data []struct {
+			RunID         string  `json:"run_id"`
+			RunIndex      int     `json:"run_index"`
+			Status        string  `json:"status"`
+			FailureCode   *string `json:"failure_code,omitempty"`
+			StartedAt     *string `json:"started_at,omitempty"`
+			FinishedAt    *string `json:"finished_at,omitempty"`
+			FailureReason *string `json:"failure_reason,omitempty"`
+		} `json:"data"`
 	}
 
-	if err := json.NewDecoder(getRec.Body).Decode(&runs); err != nil {
+	if err := json.NewDecoder(getRec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode runs: %v", err)
 	}
 
+	runs := resp.Data
 	if len(runs) != 1 {
 		t.Fatalf("expected 1 run, got %d", len(runs))
 	}

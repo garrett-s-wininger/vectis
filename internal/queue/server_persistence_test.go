@@ -19,7 +19,7 @@ func TestQueuePersistence_RestorePendingOrder(t *testing.T) {
 	svc, err := NewQueueServiceWithOptions(mocks.NopLogger{}, QueueOptions{
 		PersistenceDir: dir,
 		SnapshotEvery:  8,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("create persisted queue: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestQueuePersistence_RestorePendingOrder(t *testing.T) {
 	restarted, err := NewQueueServiceWithOptions(mocks.NopLogger{}, QueueOptions{
 		PersistenceDir: dir,
 		SnapshotEvery:  8,
-	})
+	}, nil)
 
 	if err != nil {
 		t.Fatalf("restart queue: %v", err)
@@ -67,7 +67,7 @@ func TestQueuePersistence_RestoreFromSnapshot(t *testing.T) {
 	svc, err := NewQueueServiceWithOptions(mocks.NopLogger{}, QueueOptions{
 		PersistenceDir: dir,
 		SnapshotEvery:  1,
-	})
+	}, nil)
 
 	if err != nil {
 		t.Fatalf("create persisted queue: %v", err)
@@ -85,7 +85,7 @@ func TestQueuePersistence_RestoreFromSnapshot(t *testing.T) {
 	restarted, err := NewQueueServiceWithOptions(mocks.NopLogger{}, QueueOptions{
 		PersistenceDir: dir,
 		SnapshotEvery:  1,
-	})
+	}, nil)
 
 	if err != nil {
 		t.Fatalf("restart queue: %v", err)
@@ -109,7 +109,7 @@ func TestQueuePersistence_SnapshotTruncatesWAL(t *testing.T) {
 		PersistenceDir: dir,
 		SnapshotEvery:  1,
 		WALRetainTail:  2,
-	})
+	}, nil)
 
 	if err != nil {
 		t.Fatalf("create persisted queue: %v", err)
@@ -136,7 +136,7 @@ func TestQueuePersistence_ExpiredRequeueSurvivesRestartBeforeSnapshot(t *testing
 		DeliveryTTL:    20 * time.Millisecond,
 		WALSegmentMax:  256,
 		WALRetainTail:  2,
-	})
+	}, nil)
 
 	if err != nil {
 		t.Fatalf("create persisted queue: %v", err)
@@ -164,7 +164,7 @@ func TestQueuePersistence_ExpiredRequeueSurvivesRestartBeforeSnapshot(t *testing
 		DeliveryTTL:    20 * time.Millisecond,
 		WALSegmentMax:  256,
 		WALRetainTail:  2,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("restart queue: %v", err)
 	}

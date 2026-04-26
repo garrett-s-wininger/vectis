@@ -1,6 +1,7 @@
 package interfaces
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -26,6 +27,8 @@ type Logger interface {
 	Error(msg string, args ...any)
 	Fatal(msg string, args ...any)
 	WithOutput(w io.Writer) Logger
+	WithField(key string, value string) Logger
+	WithFields(fields map[string]string) Logger
 }
 
 type StderrLogger struct {
@@ -33,13 +36,18 @@ type StderrLogger struct {
 	out       io.Writer
 	mu        sync.Mutex
 	minLevel  Level
+	fields    map[string]string
+	jsonFmt   bool
 }
 
 func NewLogger(component string) Logger {
+	jsonFmt := os.Getenv("VECTIS_LOG_FORMAT") == "json"
 	return &StderrLogger{
 		component: component,
 		out:       os.Stderr,
 		minLevel:  LevelInfo,
+		fields:    nil,
+		jsonFmt:   jsonFmt,
 	}
 }
 
@@ -48,7 +56,46 @@ func (l *StderrLogger) WithOutput(w io.Writer) Logger {
 		component: l.component,
 		out:       w,
 		minLevel:  l.minLevel,
+		fields:    l.copyFields(),
+		jsonFmt:   l.jsonFmt,
 	}
+}
+
+func (l *StderrLogger) WithField(key string, value string) Logger {
+	fields := l.copyFields()
+	fields[key] = value
+	return &StderrLogger{
+		component: l.component,
+		out:       l.out,
+		minLevel:  l.minLevel,
+		fields:    fields,
+		jsonFmt:   l.jsonFmt,
+	}
+}
+
+func (l *StderrLogger) WithFields(m map[string]string) Logger {
+	fields := l.copyFields()
+	for k, v := range m {
+		fields[k] = v
+	}
+	return &StderrLogger{
+		component: l.component,
+		out:       l.out,
+		minLevel:  l.minLevel,
+		fields:    fields,
+		jsonFmt:   l.jsonFmt,
+	}
+}
+
+func (l *StderrLogger) copyFields() map[string]string {
+	if len(l.fields) == 0 {
+		return make(map[string]string)
+	}
+	out := make(map[string]string, len(l.fields))
+	for k, v := range l.fields {
+		out[k] = v
+	}
+	return out
 }
 
 func (l *StderrLogger) SetLevel(level Level) {
@@ -76,11 +123,49 @@ func (l *StderrLogger) shouldLog(level Level) bool {
 }
 
 func (l *StderrLogger) format(level Level, msg string, args ...any) string {
-	ts := time.Now().UTC().Format(time.RFC3339)
-	if len(args) == 0 {
-		return ts + " " + string(level) + " [" + l.component + "] " + msg + "\n"
+	if l.jsonFmt {
+		return l.formatJSON(level, msg, args...)
 	}
-	return ts + " " + string(level) + " [" + l.component + "] " + fmt.Sprintf(msg, args...) + "\n"
+	return l.formatText(level, msg, args...)
+}
+
+func (l *StderrLogger) formatText(level Level, msg string, args ...any) string {
+	ts := time.Now().UTC().Format(time.RFC3339)
+	var msgStr string
+	if len(args) == 0 {
+		msgStr = msg
+	} else {
+		msgStr = fmt.Sprintf(msg, args...)
+	}
+	line := ts + " " + string(level) + " [" + l.component + "] " + msgStr
+	if len(l.fields) > 0 {
+		first := true
+		for k, v := range l.fields {
+			if first {
+				line += " |"
+				first = false
+			}
+			line += " " + k + "=" + v
+		}
+	}
+	return line + "\n"
+}
+
+func (l *StderrLogger) formatJSON(level Level, msg string, args ...any) string {
+	entry := make(map[string]any, 4+len(l.fields))
+	entry["ts"] = time.Now().UTC().Format(time.RFC3339Nano)
+	entry["level"] = string(level)
+	entry["component"] = l.component
+	if len(args) == 0 {
+		entry["msg"] = msg
+	} else {
+		entry["msg"] = fmt.Sprintf(msg, args...)
+	}
+	for k, v := range l.fields {
+		entry[k] = v
+	}
+	b, _ := json.Marshal(entry)
+	return string(b) + "\n"
 }
 
 func (l *StderrLogger) write(level Level, msg string, args ...any) {

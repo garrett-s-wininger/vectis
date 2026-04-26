@@ -10,7 +10,7 @@ import (
 
 func TestQueueDelivery_AckPreventsRedelivery(t *testing.T) {
 	ctx := context.Background()
-	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{DeliveryTTL: 20 * time.Millisecond})
+	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{DeliveryTTL: 20 * time.Millisecond}, nil)
 	if err != nil {
 		t.Fatalf("new queue: %v", err)
 	}
@@ -45,7 +45,7 @@ func TestQueueDelivery_AckPreventsRedelivery(t *testing.T) {
 
 func TestQueueDelivery_UnackedLeaseExpiryRequeues(t *testing.T) {
 	ctx := context.Background()
-	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{DeliveryTTL: 20 * time.Millisecond})
+	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{DeliveryTTL: 20 * time.Millisecond}, nil)
 	if err != nil {
 		t.Fatalf("new queue: %v", err)
 	}

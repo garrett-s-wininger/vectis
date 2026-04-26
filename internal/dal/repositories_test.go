@@ -63,7 +63,7 @@ func TestJobsRepository_CRUDAndConflict(t *testing.T) {
 		t.Fatalf("expected version 2 in DB, got %d", version)
 	}
 
-	list, err := jobs.List(ctx)
+	list, _, err := jobs.List(ctx, 0, 100)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestRunsRepository_CreateRunAndListSinceOrdered(t *testing.T) {
 		t.Fatalf("unexpected run indexes: idx1=%d idx2=%d", idx1, idx2)
 	}
 
-	all, err := runs.ListByJob(ctx, "job-order", nil)
+	all, _, err := runs.ListByJob(ctx, "job-order", nil, 0, 100)
 	if err != nil {
 		t.Fatalf("list all: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestRunsRepository_CreateRunAndListSinceOrdered(t *testing.T) {
 	}
 
 	since := 1
-	after, err := runs.ListByJob(ctx, "job-order", &since)
+	after, _, err := runs.ListByJob(ctx, "job-order", &since, 0, 100)
 	if err != nil {
 		t.Fatalf("list since: %v", err)
 	}
@@ -598,7 +598,7 @@ func TestRunsRepository_CreateRunWithExplicitRunIndex(t *testing.T) {
 		t.Fatalf("expected run_index %d, got %d", idx, outIdx)
 	}
 
-	all, err := runs.ListByJob(ctx, "job-explicit", nil)
+	all, _, err := runs.ListByJob(ctx, "job-explicit", nil, 0, 100)
 	if err != nil {
 		t.Fatalf("list runs: %v", err)
 	}
