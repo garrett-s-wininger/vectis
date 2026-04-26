@@ -61,12 +61,7 @@ func (e *Executor) ExecuteJob(ctx context.Context, job *api.Job, logClient inter
 
 	defer func() {
 		if closeErr := logStream.CloseSend(); closeErr != nil {
-			if err == nil {
-				err = fmt.Errorf("failed to flush log stream: %w", closeErr)
-				return
-			}
-
-			logger.Error("Failed to flush log stream for run %s: %v", job.GetRunId(), closeErr)
+			logger.Warn("Log stream flush incomplete for run %s: %v", job.GetRunId(), closeErr)
 		}
 	}()
 

@@ -361,7 +361,7 @@ func TestDurableLogStream_WarnsWhenWaitingForRecoveryDuringClose(t *testing.T) {
 	warnCalls := logger.GetWarnCalls()
 	waitWarn := false
 	for _, msg := range warnCalls {
-		if strings.Contains(msg, "waiting up to") && strings.Contains(msg, "before failing run") {
+		if strings.Contains(msg, "waiting up to") && strings.Contains(msg, "run outcome is independent") {
 			waitWarn = true
 			break
 		}
@@ -416,7 +416,7 @@ func TestDurableLogStream_BlockingConnectEmitsOutageAndWaitWarnings(t *testing.T
 			outageWarn = true
 		}
 
-		if strings.Contains(msg, "waiting up to") && strings.Contains(msg, "before failing run") {
+		if strings.Contains(msg, "waiting up to") && strings.Contains(msg, "run outcome is independent") {
 			waitWarn = true
 		}
 	}

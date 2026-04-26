@@ -199,12 +199,21 @@ func TestExecutor_ExecuteJob_StreamLogsError(t *testing.T) {
 	})
 
 	err := executor.ExecuteJob(context.Background(), testJob, mockLogClient, mockLogger)
-	if err == nil {
-		t.Error("expected error when stream stays unavailable through flush timeout")
+	if err != nil {
+		t.Errorf("expected no error when stream stays unavailable; run outcome must not depend on log delivery: %v", err)
 	}
 
-	if err != nil && !strings.Contains(err.Error(), "timed out waiting for log flush") {
-		t.Errorf("expected flush timeout error, got: %v", err)
+	warnCalls := mockLogger.GetWarnCalls()
+	foundFlushWarn := false
+	for _, msg := range warnCalls {
+		if strings.Contains(msg, "Log stream flush incomplete") {
+			foundFlushWarn = true
+			break
+		}
+	}
+
+	if !foundFlushWarn {
+		t.Errorf("expected warning about incomplete log flush, got warns: %v", warnCalls)
 	}
 }
 

@@ -181,7 +181,7 @@ func (d *durableLogStream) CloseSend() error {
 	if d.degraded && !d.closeWaitLog {
 		d.closeWaitLog = true
 		if d.logger != nil {
-			d.logger.Warn("Log aggregator still unavailable; waiting up to %s for recovery before failing run", flushTimeout)
+			d.logger.Warn("Log aggregator still unavailable; waiting up to %s to flush buffered logs (run outcome is independent)", flushTimeout)
 		}
 	}
 	d.mu.Unlock()
