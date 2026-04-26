@@ -57,6 +57,7 @@ func startLogServer(t *testing.T, addr string, logger interfaces.Logger, store l
 		if err == nil {
 			break
 		}
+
 		time.Sleep(50 * time.Millisecond)
 	}
 
@@ -128,7 +129,21 @@ func allEntriesJoined(t *testing.T, store *logserver.LocalRunLogStore, runID str
 	return strings.Join(parts, "\n")
 }
 
+func withShortLogRetry(t *testing.T) {
+	t.Helper()
+	origBase := job.LogRetryBaseForTest()
+	origMax := job.LogRetryMaxForTest()
+	job.SetLogRetryBaseForTest(10 * time.Millisecond)
+	job.SetLogRetryMaxForTest(50 * time.Millisecond)
+	t.Cleanup(func() {
+		job.SetLogRetryBaseForTest(origBase)
+		job.SetLogRetryMaxForTest(origMax)
+	})
+}
+
 func TestIntegrationJob_LogAggregatorDiesMidRunThenRecovers(t *testing.T) {
+	withShortLogRetry(t)
+
 	baseDir := t.TempDir()
 	store, err := logserver.NewLocalRunLogStore(baseDir)
 	if err != nil {
@@ -183,6 +198,9 @@ func TestIntegrationJob_LogAggregatorDiesMidRunThenRecovers(t *testing.T) {
 		t.Fatal("timed out waiting for job to complete")
 	}
 
+	// Poll for completion event to give senderLoop time to flush.
+	waitForStoreContains(t, store, runID, `"event":"completed","status":"success"`, 5*time.Second)
+
 	joined := allEntriesJoined(t, store, runID)
 	for i := 1; i <= 8; i++ {
 		needle := fmt.Sprintf("tick-%d", i)
@@ -203,10 +221,6 @@ func TestIntegrationJob_LogAggregatorDiesMidRunThenRecovers(t *testing.T) {
 		t.Fatalf("expected exactly %d tick output lines (no drops/dupes), got %d; logs were:\n%s", want, got, joined)
 	}
 
-	if !strings.Contains(joined, `"event":"completed","status":"success"`) {
-		t.Fatalf("expected success completion control event in persisted logs; logs were:\n%s", joined)
-	}
-
 	warnCalls := logger.GetWarnCalls()
 	warnJoined := strings.Join(warnCalls, "\n")
 	if !strings.Contains(warnJoined, "Log aggregator unavailable; spooling logs locally and retrying") {
@@ -221,6 +235,8 @@ func TestIntegrationJob_LogAggregatorDiesMidRunThenRecovers(t *testing.T) {
 }
 
 func TestIntegrationJob_LogAggregatorDownAtStartThenRecovers(t *testing.T) {
+	withShortLogRetry(t)
+
 	baseDir := t.TempDir()
 	store, err := logserver.NewLocalRunLogStore(baseDir)
 	if err != nil {
@@ -272,6 +288,9 @@ func TestIntegrationJob_LogAggregatorDownAtStartThenRecovers(t *testing.T) {
 		t.Fatal("timed out waiting for job to complete")
 	}
 
+	// Poll for completion event to give senderLoop time to flush.
+	waitForStoreContains(t, store, runID, `"event":"completed","status":"success"`, 5*time.Second)
+
 	joined := allEntriesJoined(t, store, runID)
 	for i := 1; i <= 6; i++ {
 		needle := fmt.Sprintf("prerun-%d", i)
@@ -279,13 +298,11 @@ func TestIntegrationJob_LogAggregatorDownAtStartThenRecovers(t *testing.T) {
 			t.Fatalf("expected persisted logs to contain %q; logs were:\n%s", needle, joined)
 		}
 	}
-
-	if !strings.Contains(joined, `"event":"completed","status":"success"`) {
-		t.Fatalf("expected success completion control event in persisted logs; logs were:\n%s", joined)
-	}
 }
 
 func TestIntegrationJob_LogAggregatorDownNearCompletionThenRecovers(t *testing.T) {
+	withShortLogRetry(t)
+
 	baseDir := t.TempDir()
 	store, err := logserver.NewLocalRunLogStore(baseDir)
 	if err != nil {
@@ -341,15 +358,14 @@ func TestIntegrationJob_LogAggregatorDownNearCompletionThenRecovers(t *testing.T
 		t.Fatal("timed out waiting for job to complete")
 	}
 
+	// Poll for completion event to give senderLoop time to flush.
+	waitForStoreContains(t, store, runID, `"event":"completed","status":"success"`, 5*time.Second)
+
 	joined := allEntriesJoined(t, store, runID)
 	for i := 1; i <= 3; i++ {
 		needle := fmt.Sprintf("postrun-%d", i)
 		if !strings.Contains(joined, needle) {
 			t.Fatalf("expected persisted logs to contain %q; logs were:\n%s", needle, joined)
 		}
-	}
-
-	if !strings.Contains(joined, `"event":"completed","status":"success"`) {
-		t.Fatalf("expected success completion control event in persisted logs; logs were:\n%s", joined)
 	}
 }

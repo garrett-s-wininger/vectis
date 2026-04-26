@@ -27,12 +27,14 @@ import (
 type noopTestLogger struct{}
 
 func (noopTestLogger) Debug(string, ...any)                   {}
-func (noopTestLogger) Info(string, ...any)                    {}
-func (noopTestLogger) Warn(string, ...any)                    {}
-func (noopTestLogger) Error(string, ...any)                   {}
-func (noopTestLogger) Fatal(string, ...any)                   {}
-func (noopTestLogger) SetLevel(interfaces.Level)              {}
-func (noopTestLogger) WithOutput(io.Writer) interfaces.Logger { return noopTestLogger{} }
+func (noopTestLogger) Info(string, ...any)                          {}
+func (noopTestLogger) Warn(string, ...any)                          {}
+func (noopTestLogger) Error(string, ...any)                         {}
+func (noopTestLogger) Fatal(string, ...any)                         {}
+func (noopTestLogger) SetLevel(interfaces.Level)                    {}
+func (noopTestLogger) WithOutput(io.Writer) interfaces.Logger       { return noopTestLogger{} }
+func (noopTestLogger) WithField(string, string) interfaces.Logger   { return noopTestLogger{} }
+func (noopTestLogger) WithFields(map[string]string) interfaces.Logger { return noopTestLogger{} }
 
 type countingListener struct {
 	net.Listener
@@ -72,7 +74,7 @@ func TestDialQueueAndLog_SingleRegistryConnection(t *testing.T) {
 	defer regLis.Close()
 
 	qs := grpc.NewServer()
-	_ = queue.RegisterQueueService(qs, logger, queue.QueueOptions{})
+	_ = queue.RegisterQueueService(qs, logger, queue.QueueOptions{}, nil)
 	go func() { _ = qs.Serve(qlis) }()
 	defer qs.Stop()
 
@@ -145,7 +147,7 @@ func TestDialQueueAndLog_BothPinnedSkipsRegistry(t *testing.T) {
 	defer llis.Close()
 
 	qs := grpc.NewServer()
-	_ = queue.RegisterQueueService(qs, logger, queue.QueueOptions{})
+	_ = queue.RegisterQueueService(qs, logger, queue.QueueOptions{}, nil)
 	go func() { _ = qs.Serve(qlis) }()
 	defer qs.Stop()
 
