@@ -28,7 +28,7 @@ func TestJobsRepository_CRUDAndConflict(t *testing.T) {
 		t.Fatalf("expected conflict on duplicate create, got: %v", err)
 	}
 
-	gotDef, err := jobs.GetDefinition(ctx, jobID)
+	gotDef, version, err := jobs.GetDefinition(ctx, jobID)
 	if err != nil {
 		t.Fatalf("get definition: %v", err)
 	}
@@ -37,17 +37,30 @@ func TestJobsRepository_CRUDAndConflict(t *testing.T) {
 		t.Fatalf("definition mismatch: got %q want %q", gotDef, def1)
 	}
 
-	if err := jobs.UpdateDefinition(ctx, jobID, def2); err != nil {
+	if version != 1 {
+		t.Fatalf("expected initial version 1, got %d", version)
+	}
+
+	newVersion, err := jobs.UpdateDefinition(ctx, jobID, def2)
+	if err != nil {
 		t.Fatalf("update definition: %v", err)
 	}
 
-	gotDef, err = jobs.GetDefinition(ctx, jobID)
+	if newVersion != 2 {
+		t.Fatalf("expected version 2 after update, got %d", newVersion)
+	}
+
+	gotDef, version, err = jobs.GetDefinition(ctx, jobID)
 	if err != nil {
 		t.Fatalf("get definition after update: %v", err)
 	}
 
 	if gotDef != def2 {
 		t.Fatalf("updated definition mismatch: got %q want %q", gotDef, def2)
+	}
+
+	if version != 2 {
+		t.Fatalf("expected version 2 in DB, got %d", version)
 	}
 
 	list, err := jobs.List(ctx)
@@ -63,7 +76,7 @@ func TestJobsRepository_CRUDAndConflict(t *testing.T) {
 		t.Fatalf("delete: %v", err)
 	}
 
-	_, err = jobs.GetDefinition(ctx, jobID)
+	_, _, err = jobs.GetDefinition(ctx, jobID)
 	if !dal.IsNotFound(err) {
 		t.Fatalf("expected not found after delete, got: %v", err)
 	}

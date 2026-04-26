@@ -665,7 +665,7 @@ func TestAPIServer_GetJobRuns_ReturnsStatusAndFailureReasonAfterStatusTransition
 func TestAPIServer_UpdateJobDefinition_Success(t *testing.T) {
 	server, logger, _, db := setupTestServer(t)
 	initialDef := `{"id": "job-to-update", "root": {"uses": "builtins/shell", "with": {"command": "echo old"}}}`
-	db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", "job-to-update", initialDef)
+	db.Exec("INSERT INTO stored_jobs (job_id, definition_json, version) VALUES (?, ?, 1)", "job-to-update", initialDef)
 
 	newDef := map[string]any{
 		"id": "job-to-update",
@@ -687,6 +687,10 @@ func TestAPIServer_UpdateJobDefinition_Success(t *testing.T) {
 
 	if rec.Code != http.StatusNoContent {
 		t.Errorf("expected status %d, got %d", http.StatusNoContent, rec.Code)
+	}
+
+	if rec.Header().Get("X-Vectis-Version") != "2" {
+		t.Errorf("expected X-Vectis-Version header 2, got %s", rec.Header().Get("X-Vectis-Version"))
 	}
 
 	var updatedDef string

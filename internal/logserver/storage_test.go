@@ -58,6 +58,41 @@ func TestLocalRunLogStore_ListMissingRun(t *testing.T) {
 	}
 }
 
+func TestLocalRunLogStore_ListReturnsSortedBySequence(t *testing.T) {
+	store, err := NewLocalRunLogStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new local run log store: %v", err)
+	}
+
+	runID := "run-out-of-order"
+	entries := []LogEntry{
+		{Sequence: 3, Data: "third"},
+		{Sequence: 1, Data: "first"},
+		{Sequence: 2, Data: "second"},
+	}
+
+	for _, entry := range entries {
+		if err := store.Append(runID, entry); err != nil {
+			t.Fatalf("append entry: %v", err)
+		}
+	}
+
+	got, err := store.List(runID)
+	if err != nil {
+		t.Fatalf("list entries: %v", err)
+	}
+
+	if len(got) != 3 {
+		t.Fatalf("expected 3 entries, got %d", len(got))
+	}
+
+	for i, wantSeq := range []int64{1, 2, 3} {
+		if got[i].Sequence != wantSeq {
+			t.Fatalf("entry %d: expected sequence %d, got %d", i, wantSeq, got[i].Sequence)
+		}
+	}
+}
+
 func TestLocalRunLogStore_SanitizesRunIDInPath(t *testing.T) {
 	store, err := NewLocalRunLogStore(t.TempDir())
 	if err != nil {

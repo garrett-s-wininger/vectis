@@ -68,16 +68,17 @@ func (m *MockJobsRepository) List(ctx context.Context) ([]dal.JobRecord, error) 
 	return out, nil
 }
 
-func (m *MockJobsRepository) GetDefinition(ctx context.Context, jobID string) (string, error) {
+func (m *MockJobsRepository) GetDefinition(ctx context.Context, jobID string) (string, int, error) {
 	if m.GetErr != nil {
-		return "", m.GetErr
+		return "", 0, m.GetErr
 	}
 
 	def, ok := m.Definitions[jobID]
 	if !ok {
-		return "", fmt.Errorf("%w: job %s", dal.ErrNotFound, jobID)
+		return "", 0, fmt.Errorf("%w: job %s", dal.ErrNotFound, jobID)
 	}
-	return def, nil
+
+	return def, 1, nil
 }
 
 func (m *MockJobsRepository) GetDefinitionVersion(ctx context.Context, jobID string, version int) (string, error) {
@@ -98,12 +99,13 @@ func (m *MockJobsRepository) GetDefinitionVersion(ctx context.Context, jobID str
 	return def, nil
 }
 
-func (m *MockJobsRepository) UpdateDefinition(ctx context.Context, jobID, definitionJSON string) error {
+func (m *MockJobsRepository) UpdateDefinition(ctx context.Context, jobID, definitionJSON string) (int, error) {
 	if m.UpdateErr != nil {
-		return m.UpdateErr
+		return 0, m.UpdateErr
 	}
+
 	m.Definitions[jobID] = definitionJSON
-	return nil
+	return 1, nil
 }
 
 func (m *MockJobsRepository) ListByNamespace(ctx context.Context, namespaceID int64) ([]dal.JobRecord, error) {

@@ -133,7 +133,7 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 		return nil
 	}
 
-	defJSON, err := s.jobs.GetDefinition(ctx, jobID)
+	defJSON, _, err := s.jobs.GetDefinition(ctx, jobID)
 	if err != nil {
 		if !dal.IsNotFound(err) {
 			return fmt.Errorf("load stored job: %w", err)

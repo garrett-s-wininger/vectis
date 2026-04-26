@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"sort"
 	"sync"
 	"time"
 
@@ -76,6 +77,10 @@ func (jb *JobBuffer) GetEntries() []LogEntry {
 
 	entries := make([]LogEntry, len(jb.entries))
 	copy(entries, jb.entries)
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Sequence < entries[j].Sequence
+	})
+
 	return entries
 }
 
@@ -197,10 +202,6 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 			Data:      string(chunk.GetData()),
 		}
 
-		// FIXME(garrett): We currently store logs in arrival order which makes it so clients would
-		// need to reorder them themselves. We should reorder them, as appropriately. A secondary
-		// consideration would be how to handle gaps in the sequence numbers as well as SSE
-		// resumption so we don't have to re-send all the logs to the client.
 		if err := s.store.Append(chunk.GetRunId(), entry); err != nil {
 			if s.metrics != nil {
 				s.metrics.RecordAppendFailure(ctx)

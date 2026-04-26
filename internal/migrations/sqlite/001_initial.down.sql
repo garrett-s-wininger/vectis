@@ -1,3 +1,7 @@
+DROP INDEX IF EXISTS idx_audit_log_target_id;
+DROP INDEX IF EXISTS idx_job_runs_status;
+DROP INDEX IF EXISTS idx_job_runs_lease_until;
+DROP INDEX IF EXISTS idx_job_runs_status_dispatched;
 DROP INDEX IF EXISTS idx_stored_jobs_namespace;
 DROP INDEX IF EXISTS idx_role_bindings_user;
 DROP INDEX IF EXISTS idx_role_bindings_namespace;

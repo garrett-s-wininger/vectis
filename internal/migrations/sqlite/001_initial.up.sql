@@ -14,6 +14,8 @@ CREATE TABLE stored_jobs (
     job_id TEXT UNIQUE NOT NULL,
     namespace_id INTEGER NOT NULL DEFAULT 1 REFERENCES namespaces(id),
     definition_json TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -118,5 +120,9 @@ CREATE INDEX idx_audit_log_actor_id ON audit_log(actor_id);
 CREATE INDEX idx_audit_log_created_at ON audit_log(created_at);
 
 CREATE INDEX idx_stored_jobs_namespace ON stored_jobs(namespace_id);
+CREATE INDEX idx_job_runs_status_dispatched ON job_runs(status, last_dispatched_at);
+CREATE INDEX idx_job_runs_lease_until ON job_runs(lease_until);
+CREATE INDEX idx_job_runs_status ON job_runs(status);
+CREATE INDEX idx_audit_log_target_id ON audit_log(target_id);
 CREATE INDEX idx_role_bindings_user ON role_bindings(local_user_id);
 CREATE INDEX idx_role_bindings_namespace ON role_bindings(namespace_id);

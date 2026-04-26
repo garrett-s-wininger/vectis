@@ -32,6 +32,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 const (
@@ -795,24 +796,54 @@ func (s *APIServer) GetJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	definitionJSON, err := s.jobs.GetDefinition(ctx, jobID)
-	if err != nil {
-		if dal.IsNotFound(err) {
-			http.Error(w, "job not found", http.StatusNotFound)
+	var definitionJSON string
+	var version int
+
+	if versionParam := r.URL.Query().Get("version"); versionParam != "" {
+		v, err := strconv.Atoi(versionParam)
+		if err != nil {
+			http.Error(w, "invalid version parameter", http.StatusBadRequest)
 			return
 		}
 
-		if s.handleDBUnavailableError(w, err) {
+		definitionJSON, err = s.jobs.GetDefinitionVersion(ctx, jobID, v)
+		if err != nil {
+			if dal.IsNotFound(err) {
+				http.Error(w, "job version not found", http.StatusNotFound)
+				return
+			}
+
+			if s.handleDBUnavailableError(w, err) {
+				return
+			}
+
+			s.logger.Error("Database error: %v", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
 
-		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
+		version = v
+	} else {
+		definitionJSON, version, err = s.jobs.GetDefinition(ctx, jobID)
+		if err != nil {
+			if dal.IsNotFound(err) {
+				http.Error(w, "job not found", http.StatusNotFound)
+				return
+			}
+
+			if s.handleDBUnavailableError(w, err) {
+				return
+			}
+
+			s.logger.Error("Database error: %v", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
 	}
 	s.markDBRecovered()
 
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Vectis-Version", strconv.Itoa(version))
 	w.WriteHeader(http.StatusOK)
 	if _, err := io.WriteString(w, definitionJSON); err != nil {
 		s.logger.Error("Failed to write job definition: %v", err)
@@ -855,7 +886,7 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	definitionJSON, err := s.jobs.GetDefinition(ctx, jobID)
+	definitionJSON, _, err := s.jobs.GetDefinition(ctx, jobID)
 	if err != nil {
 		if dal.IsNotFound(err) {
 			http.Error(w, "job not found", http.StatusNotFound)
@@ -873,9 +904,8 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 	s.markDBRecovered()
 
 	var job api.Job
-	if err := json.Unmarshal([]byte(definitionJSON), &job); err != nil {
-		s.logger.Error("Failed to parse job definition JSON: %v", err)
-		http.Error(w, "invalid job definition", http.StatusInternalServerError)
+	if err := protojson.Unmarshal([]byte(definitionJSON), &job); err != nil {
+		http.Error(w, "invalid job definition stored", http.StatusInternalServerError)
 		return
 	}
 
@@ -994,8 +1024,13 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	err = s.jobs.UpdateDefinition(ctx, jobID, string(body))
+	newVersion, err := s.jobs.UpdateDefinition(ctx, jobID, string(body))
 	if err != nil {
+		if dal.IsNotFound(err) {
+			http.Error(w, "job not found", http.StatusNotFound)
+			return
+		}
+
 		if s.handleDBUnavailableError(w, err) {
 			return
 		}
@@ -1005,6 +1040,8 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	s.markDBRecovered()
+
+	w.Header().Set("X-Vectis-Version", strconv.Itoa(newVersion))
 
 	actorID := int64(0)
 	if p != nil {

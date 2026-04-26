@@ -50,6 +50,7 @@ type JobRecord struct {
 	JobID          string
 	NamespaceID    int64
 	DefinitionJSON string
+	Version        int
 }
 
 type RunRecord struct {
@@ -107,10 +108,10 @@ type JobsRepository interface {
 	Delete(ctx context.Context, jobID string) error
 	List(ctx context.Context) ([]JobRecord, error)
 	ListByNamespace(ctx context.Context, namespaceID int64) ([]JobRecord, error)
-	GetDefinition(ctx context.Context, jobID string) (string, error)
+	GetDefinition(ctx context.Context, jobID string) (definitionJSON string, version int, err error)
 	GetDefinitionVersion(ctx context.Context, jobID string, version int) (string, error)
 	GetNamespaceID(ctx context.Context, jobID string) (int64, error)
-	UpdateDefinition(ctx context.Context, jobID, definitionJSON string) error
+	UpdateDefinition(ctx context.Context, jobID, definitionJSON string) (newVersion int, err error)
 }
 
 type SQLRepositories struct {
@@ -240,7 +241,7 @@ func (r *SQLJobsRepository) Delete(ctx context.Context, jobID string) error {
 }
 
 func (r *SQLJobsRepository) List(ctx context.Context) ([]JobRecord, error) {
-	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx("SELECT job_id, namespace_id, definition_json FROM stored_jobs"))
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx("SELECT job_id, namespace_id, definition_json, version FROM stored_jobs"))
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
@@ -249,7 +250,7 @@ func (r *SQLJobsRepository) List(ctx context.Context) ([]JobRecord, error) {
 	var out []JobRecord
 	for rows.Next() {
 		var rec JobRecord
-		if err := rows.Scan(&rec.JobID, &rec.NamespaceID, &rec.DefinitionJSON); err != nil {
+		if err := rows.Scan(&rec.JobID, &rec.NamespaceID, &rec.DefinitionJSON, &rec.Version); err != nil {
 			return nil, err
 		}
 
@@ -265,7 +266,7 @@ func (r *SQLJobsRepository) List(ctx context.Context) ([]JobRecord, error) {
 
 func (r *SQLJobsRepository) ListByNamespace(ctx context.Context, namespaceID int64) ([]JobRecord, error) {
 	rows, err := r.db.QueryContext(ctx,
-		rebindQueryForPgx("SELECT job_id, namespace_id, definition_json FROM stored_jobs WHERE namespace_id = ?"),
+		rebindQueryForPgx("SELECT job_id, namespace_id, definition_json, version FROM stored_jobs WHERE namespace_id = ?"),
 		namespaceID,
 	)
 
@@ -277,7 +278,7 @@ func (r *SQLJobsRepository) ListByNamespace(ctx context.Context, namespaceID int
 	var out []JobRecord
 	for rows.Next() {
 		var rec JobRecord
-		if err := rows.Scan(&rec.JobID, &rec.NamespaceID, &rec.DefinitionJSON); err != nil {
+		if err := rows.Scan(&rec.JobID, &rec.NamespaceID, &rec.DefinitionJSON, &rec.Version); err != nil {
 			return nil, err
 		}
 		out = append(out, rec)
@@ -290,20 +291,21 @@ func (r *SQLJobsRepository) ListByNamespace(ctx context.Context, namespaceID int
 	return out, nil
 }
 
-func (r *SQLJobsRepository) GetDefinition(ctx context.Context, jobID string) (string, error) {
+func (r *SQLJobsRepository) GetDefinition(ctx context.Context, jobID string) (string, int, error) {
 	var definitionJSON string
+	var version int
 	if err := r.db.QueryRowContext(ctx,
-		rebindQueryForPgx("SELECT definition_json FROM stored_jobs WHERE job_id = ?"),
+		rebindQueryForPgx("SELECT definition_json, version FROM stored_jobs WHERE job_id = ?"),
 		jobID,
-	).Scan(&definitionJSON); err != nil {
+	).Scan(&definitionJSON, &version); err != nil {
 		if err == sql.ErrNoRows {
-			return "", fmt.Errorf("%w: job %s", ErrNotFound, jobID)
+			return "", 0, fmt.Errorf("%w: job %s", ErrNotFound, jobID)
 		}
 
-		return "", normalizeSQLError(err)
+		return "", 0, normalizeSQLError(err)
 	}
 
-	return definitionJSON, nil
+	return definitionJSON, version, nil
 }
 
 func (r *SQLJobsRepository) GetNamespaceID(ctx context.Context, jobID string) (int64, error) {
@@ -322,14 +324,34 @@ func (r *SQLJobsRepository) GetNamespaceID(ctx context.Context, jobID string) (i
 	return namespaceID, nil
 }
 
-func (r *SQLJobsRepository) UpdateDefinition(ctx context.Context, jobID, definitionJSON string) error {
-	_, err := r.db.ExecContext(ctx,
-		rebindQueryForPgx("UPDATE stored_jobs SET definition_json = ? WHERE job_id = ?"),
+func (r *SQLJobsRepository) UpdateDefinition(ctx context.Context, jobID, definitionJSON string) (int, error) {
+	res, err := r.db.ExecContext(ctx,
+		rebindQueryForPgx("UPDATE stored_jobs SET definition_json = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE job_id = ?"),
 		definitionJSON,
 		jobID,
 	)
+	if err != nil {
+		return 0, normalizeSQLError(err)
+	}
 
-	return normalizeSQLError(err)
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return 0, normalizeSQLError(err)
+	}
+
+	if rowsAffected == 0 {
+		return 0, fmt.Errorf("%w: job %s", ErrNotFound, jobID)
+	}
+
+	var newVersion int
+	if err := r.db.QueryRowContext(ctx,
+		rebindQueryForPgx("SELECT version FROM stored_jobs WHERE job_id = ?"),
+		jobID,
+	).Scan(&newVersion); err != nil {
+		return 0, normalizeSQLError(err)
+	}
+
+	return newVersion, nil
 }
 
 func (r *SQLJobsRepository) GetDefinitionVersion(ctx context.Context, jobID string, version int) (string, error) {

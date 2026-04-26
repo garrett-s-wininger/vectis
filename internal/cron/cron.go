@@ -143,7 +143,7 @@ func (s *CronService) CalculateNextRun(spec string, from time.Time) (time.Time, 
 }
 
 func (s *CronService) GetJobDefinition(ctx context.Context, jobID string) (*api.Job, error) {
-	definitionJSON, err := s.jobs.GetDefinition(ctx, jobID)
+	definitionJSON, _, err := s.jobs.GetDefinition(ctx, jobID)
 	if err != nil {
 		if dal.IsNotFound(err) {
 			return nil, fmt.Errorf("job not found: %s", jobID)

@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 )
 
@@ -105,6 +106,10 @@ func (s *LocalRunLogStore) List(runID string) ([]LogEntry, error) {
 
 		entries = append(entries, entry)
 	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Sequence < entries[j].Sequence
+	})
 
 	return entries, nil
 }
