@@ -84,12 +84,14 @@ type durableLogStream struct {
 	logger    interfaces.Logger
 	logClient interfaces.LogClient
 
-	mu          sync.Mutex
-	cond        *sync.Cond
-	spool       *os.File
-	spoolPath   string
-	writeOffset int64
-	closed      bool
+	mu           sync.Mutex
+	cond         *sync.Cond
+	spool        *os.File
+	spoolPath    string
+	writeOffset  int64
+	maxSpoolSize int64
+	closed       bool
+	closeTime    time.Time
 
 	done   chan struct{}
 	stream interfaces.LogStream
@@ -125,13 +127,16 @@ func newDurableLogStream(logClient interfaces.LogClient, logger interfaces.Logge
 		return nil, fmt.Errorf("create spool file: %w", err)
 	}
 
+	maxSize := defaultMaxSpoolBytes()
 	d := &durableLogStream{
-		logger:    logger,
-		logClient: logClient,
-		spool:     spool,
-		spoolPath: spool.Name(),
-		done:      make(chan struct{}),
+		logger:       logger,
+		logClient:    logClient,
+		spool:        spool,
+		spoolPath:    spool.Name(),
+		maxSpoolSize: maxSize,
+		done:         make(chan struct{}),
 	}
+
 	d.streamCtx, d.streamCancel = context.WithCancel(context.Background())
 	d.cond = sync.NewCond(&d.mu)
 
@@ -159,6 +164,14 @@ func (d *durableLogStream) Send(chunk *api.LogChunk) error {
 		return fmt.Errorf("log stream already closed")
 	}
 
+	if d.writeOffset+int64(len(line)) > d.maxSpoolSize {
+		if d.logger != nil {
+			d.logger.Warn("Log spool full for run; dropping log chunk (max %d bytes)", d.maxSpoolSize)
+		}
+
+		return nil
+	}
+
 	n, err := d.spool.WriteString(line)
 	if err != nil {
 		return fmt.Errorf("write spool chunk: %w", err)
@@ -170,35 +183,41 @@ func (d *durableLogStream) Send(chunk *api.LogChunk) error {
 }
 
 func (d *durableLogStream) CloseSend() error {
-	flushTimeout := LogFlushTimeoutForTest()
-
 	d.mu.Lock()
 	if !d.closed {
 		d.closed = true
+		d.closeTime = time.Now()
 		d.cond.Broadcast()
 	}
 
 	if d.degraded && !d.closeWaitLog {
 		d.closeWaitLog = true
 		if d.logger != nil {
-			d.logger.Warn("Log aggregator still unavailable; waiting up to %s to flush buffered logs (run outcome is independent)", flushTimeout)
+			d.logger.Warn("Log aggregator still unavailable; flush will continue in background (run outcome is independent)")
 		}
 	}
 	d.mu.Unlock()
 
+	// Non-blocking: the senderLoop continues flushing in the background.
+	return nil
+}
+
+// WaitForDone blocks until the background senderLoop exits or the timeout expires.
+// It is intended for tests that need to verify async flush behavior.
+func (d *durableLogStream) WaitForDone(timeout time.Duration) error {
 	select {
 	case <-d.done:
-	case <-time.After(flushTimeout):
-		return fmt.Errorf("timed out waiting for log flush after %s", flushTimeout)
+		return nil
+	case <-time.After(timeout):
+		return fmt.Errorf("timed out waiting for sender loop after %s", timeout)
 	}
+}
 
+// SenderErr returns the last sender error, if any. Safe to call after WaitForDone.
+func (d *durableLogStream) SenderErr() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if d.senderErr != nil {
-		return d.senderErr
-	}
-
-	return nil
+	return d.senderErr
 }
 
 func (d *durableLogStream) senderLoop() {
@@ -213,7 +232,17 @@ func (d *durableLogStream) senderLoop() {
 		}
 
 		if d.spoolPath != "" {
-			_ = os.Remove(d.spoolPath)
+			d.mu.Lock()
+			save := d.senderErr != nil
+			d.mu.Unlock()
+
+			if save {
+				if err := d.moveSpoolToPending(); err != nil && d.logger != nil {
+					d.logger.Warn("Failed to move spool to pending: %v", err)
+				}
+			} else {
+				_ = os.Remove(d.spoolPath)
+			}
 		}
 	}()
 
@@ -240,12 +269,26 @@ func (d *durableLogStream) senderLoop() {
 		}
 
 		shouldExit := d.closed && readOffset >= d.writeOffset
+		flushTimeout := LogFlushTimeoutForTest()
+		deadlineExceeded := d.closed && time.Since(d.closeTime) > flushTimeout
 		d.mu.Unlock()
+
 		if shouldExit && pending == "" {
 			if err := d.finalizeCurrentStream(); err != nil {
 				d.setSenderErr(fmt.Errorf("finalize log stream: %w", err))
 			}
 
+			return
+		}
+
+		if deadlineExceeded {
+			if pending != "" {
+				if d.logger != nil {
+					d.logger.Warn("Log flush deadline exceeded with unsent chunks; giving up after %s", flushTimeout)
+				}
+			}
+
+			d.setSenderErr(fmt.Errorf("log flush deadline exceeded after %s", flushTimeout))
 			return
 		}
 
@@ -313,10 +356,18 @@ func (d *durableLogStream) senderLoop() {
 
 func (d *durableLogStream) sendWithRetry(chunk *api.LogChunk, retryAttempt *int) error {
 	for {
+		d.mu.Lock()
+		flushTimeout := LogFlushTimeoutForTest()
+		deadlineExceeded := d.closed && time.Since(d.closeTime) > flushTimeout
+		d.mu.Unlock()
+
+		if deadlineExceeded {
+			return fmt.Errorf("log flush deadline exceeded after %s", flushTimeout)
+		}
+
 		stream, err := d.ensureStream()
 		if err != nil {
 			d.noteAggregatorUnavailable(err)
-			d.noteCloseWaitIfNeeded()
 			delay := backoff.ExponentialDelay(LogRetryBaseForTest(), *retryAttempt, LogRetryMaxForTest())
 			*retryAttempt = *retryAttempt + 1
 			time.Sleep(delay)
@@ -325,7 +376,6 @@ func (d *durableLogStream) sendWithRetry(chunk *api.LogChunk, retryAttempt *int)
 
 		if err := stream.Send(chunk); err != nil {
 			d.noteAggregatorUnavailable(err)
-			d.noteCloseWaitIfNeeded()
 
 			_ = d.closeCurrentStream()
 			delay := backoff.ExponentialDelay(LogRetryBaseForTest(), *retryAttempt, LogRetryMaxForTest())
@@ -347,7 +397,14 @@ func (d *durableLogStream) ensureStream() (interfaces.LogStream, error) {
 		d.mu.Unlock()
 		return stream, nil
 	}
+
+	flushTimeout := LogFlushTimeoutForTest()
+	deadlineExceeded := d.closed && time.Since(d.closeTime) > flushTimeout
 	d.mu.Unlock()
+
+	if deadlineExceeded {
+		return nil, fmt.Errorf("log flush deadline exceeded after %s", flushTimeout)
+	}
 
 	stream, err := d.logClient.StreamLogs(d.streamCtx)
 	if err != nil {
@@ -466,19 +523,30 @@ func (d *durableLogStream) noteAggregatorRecovered() {
 	d.logger.Info("Log aggregator reconnected; resumed flushing spooled logs")
 }
 
-func (d *durableLogStream) noteCloseWaitIfNeeded() {
-	d.mu.Lock()
-	shouldLog := d.closed && d.degraded && !d.closeWaitLog
-	if shouldLog {
-		d.closeWaitLog = true
-	}
-	d.mu.Unlock()
+func defaultMaxSpoolBytes() int64 {
+	return 10 * 1024 * 1024 // 10 MB
+}
 
-	if !shouldLog || d.logger == nil {
-		return
+func pendingSpoolDir() string {
+	return filepath.Join(os.TempDir(), "vectis-log-spool", "pending")
+}
+
+func (d *durableLogStream) moveSpoolToPending() error {
+	dir := pendingSpoolDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create pending dir: %w", err)
 	}
 
-	d.logger.Warn("Log aggregator still unavailable; waiting up to %s for recovery before failing run", logFlushTimeout)
+	name := filepath.Base(d.spoolPath)
+	pendingPath := filepath.Join(dir, name)
+	if err := os.Rename(d.spoolPath, pendingPath); err != nil {
+		return fmt.Errorf("rename spool to pending: %w", err)
+	}
+
+	if d.logger != nil {
+		d.logger.Info("Moved unfinished spool to pending: %s", pendingPath)
+	}
+	return nil
 }
 
 func decodeSpoolLine(line string) (*api.LogChunk, error) {

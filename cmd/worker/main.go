@@ -172,7 +172,17 @@ func runWorker(cmd *cobra.Command, args []string) {
 		metrics:       workerMetrics,
 	}
 
+	forwarder := job.NewLogSpoolForwarder(clients, logger, 5*time.Second)
+	forwarderDone := make(chan struct{})
+	go func() {
+		defer close(forwarderDone)
+		forwarder.Run(shutdownCtx)
+	}()
+
 	w.run()
+
+	// Wait for the forwarder to finish before closing clients.
+	<-forwarderDone
 	logger.Info("Worker graceful shutdown complete")
 }
 

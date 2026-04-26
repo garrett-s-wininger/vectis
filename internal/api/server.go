@@ -246,7 +246,17 @@ func (s *APIServer) getRunJobNamespacePath(ctx context.Context, runID string) (s
 		return "", err
 	}
 
-	return s.getJobNamespacePath(ctx, jobID)
+	nsPath, err := s.getJobNamespacePath(ctx, jobID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			// Ephemeral runs don't have stored_jobs entries;
+			// they run in the default namespace.
+			return "/", nil
+		}
+		return "", err
+	}
+
+	return nsPath, nil
 }
 
 func (s *APIServer) HealthLive(w http.ResponseWriter, _ *http.Request) {
@@ -1324,6 +1334,130 @@ func (s *APIServer) HandleSSEJobRuns(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *APIServer) GetRunLogs(w http.ResponseWriter, r *http.Request) {
+	runID := r.PathValue("id")
+	if runID == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	nsPath, err := s.getRunJobNamespacePath(ctx, runID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			http.Error(w, "run not found", http.StatusNotFound)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if !s.authorizeNamespace(ctx, w, p, authz.ActionRunRead, nsPath) {
+		return
+	}
+
+	logAddr, err := resolver.ResolveLogSSEAddressWithTimeout(s.logger, config.APIRegistryDialAddress())
+	if err != nil {
+		s.logger.Warn("Failed to resolve log SSE address: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error": "log_service_unavailable",
+		})
+
+		return
+	}
+
+	logURL := fmt.Sprintf("http://%s/sse/logs/%s", logAddr, runID)
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, logURL, nil)
+	if err != nil {
+		s.logger.Error("Failed to create log proxy request: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	req.Header.Set("Accept", "text/event-stream")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		s.logger.Warn("Log service unreachable: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error": "log_service_unavailable",
+		})
+
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 500 {
+		s.logger.Warn("Log service returned status %d", resp.StatusCode)
+		_, _ = io.Copy(io.Discard, resp.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error": "log_service_unavailable",
+		})
+
+		return
+	}
+
+	if resp.StatusCode >= 400 {
+		w.WriteHeader(resp.StatusCode)
+		_, _ = io.Copy(w, resp.Body)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	_, _ = w.Write([]byte(": connected\n\n"))
+	flusher.Flush()
+
+	buf := make([]byte, 4096)
+	for {
+		n, err := resp.Body.Read(buf)
+		if n > 0 {
+			_, writeErr := w.Write(buf[:n])
+			if writeErr != nil {
+				return
+			}
+			flusher.Flush()
+		}
+
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return
+			}
+
+			s.logger.Debug("Log proxy read error: %v", err)
+			return
+		}
+	}
+}
+
 func (s *APIServer) Handler() http.Handler {
 	mux := http.NewServeMux()
 
@@ -1350,6 +1484,7 @@ func (s *APIServer) Handler() http.Handler {
 	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/sse/jobs/{id}/runs", Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General}, s.HandleSSEJobRuns)
 	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/runs/{id}/force-fail", Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General}, s.ForceFailRun)
 	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/runs/{id}/force-requeue", Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General}, s.ForceRequeueRun)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/runs/{id}/logs", Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General}, s.GetRunLogs)
 	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/setup/status", Auth: routeAuthPolicy{Action: authz.ActionSetupStatus}, RateLimit: defaultLimits.Auth}, s.GetSetupStatus)
 	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/setup/complete", Auth: routeAuthPolicy{Action: authz.ActionSetupComplete}, RateLimit: defaultLimits.Auth}, s.PostSetupComplete)
 	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/login", Auth: routeAuthPolicy{Public: true}, RateLimit: defaultLimits.Auth}, s.Login)

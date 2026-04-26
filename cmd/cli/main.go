@@ -112,25 +112,38 @@ func effectiveToken() string {
 }
 
 func runLogStream(runID string, filterStdout, filterStderr bool) error {
-	sseURL := config.PublicLogSSEURL(runID)
-	ctx, cancel := context.WithCancel(context.Background())
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sseURL, nil)
+	req, err := newAPIRequest(http.MethodGet, fmt.Sprintf("/api/v1/runs/%s/logs", runID), nil)
 	if err != nil {
-		cancel()
 		return fmt.Errorf("failed to create log stream request: %w", err)
 	}
 	req.Header.Set("Accept", "text/event-stream")
 
-	resp, err := http.DefaultClient.Do(req)
+	ctx, cancel := context.WithCancel(context.Background())
+	req = req.WithContext(ctx)
+
+	resp, err := doAPIRequest(req)
 	if err != nil {
 		cancel()
-		return fmt.Errorf("failed to connect to log service: %w", err)
+		return fmt.Errorf("failed to connect to API for log stream: %w", err)
 	}
 
 	defer func() {
 		cancel()
 		_ = resp.Body.Close()
 	}()
+
+	if resp.StatusCode == http.StatusServiceUnavailable {
+		body, _ := io.ReadAll(resp.Body)
+		var apiErr struct {
+			Error string `json:"error"`
+		}
+
+		if json.Unmarshal(body, &apiErr) == nil && apiErr.Error == "log_service_unavailable" {
+			return fmt.Errorf("log service temporarily unavailable; logs will be backfilled when service recovers")
+		}
+
+		return fmt.Errorf("log stream request failed: %s", resp.Status)
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("log stream request failed: %s", resp.Status)

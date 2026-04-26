@@ -54,6 +54,7 @@ type APIDefaults struct {
 	LogFormat       string               `toml:"log_format"`
 	RegistryAddress string               `toml:"registry.address"`
 	QueueAddress    string               `toml:"queue.address"`
+	LogAddress      string               `toml:"log.address"`
 	Auth            APIAuthDefaults      `toml:"auth"`
 	Authz           APIAuthzDefaults     `toml:"authz"`
 	RateLimit       APIRateLimitDefaults `toml:"rate_limit"`
@@ -378,10 +379,6 @@ func PublicAPIBaseURL() string {
 	return fmt.Sprintf("http://%s:%d", PublicHost(), APIPort())
 }
 
-func PublicLogSSEURL(runID string) string {
-	return fmt.Sprintf("http://%s:%d/sse/logs/%s", MustDefaults().Log.Host, LogWebSocketPort(), runID)
-}
-
 func DBDriver() string {
 	return MustDefaults().Database.Driver
 }
@@ -629,6 +626,18 @@ func APIQueueAddress() string {
 		d.API.QueueAddress,
 		viper.GetString("discovery.queue.address"),
 		d.Discovery.QueueAddress,
+	)
+}
+
+func APILogSSEAddress() string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("api.log.address"),
+		d.API.LogAddress,
+		viper.GetString("discovery.log.address"),
+		d.Discovery.LogAddress,
+		viper.GetString("worker.log.address"),
+		d.Worker.LogAddress,
 	)
 }
 

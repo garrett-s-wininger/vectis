@@ -75,8 +75,14 @@ func (c *flakyConnectLogClient) Close() error { return nil }
 type blockingConnectLogClient struct{}
 
 func (blockingConnectLogClient) StreamLogs(ctx context.Context) (interfaces.LogStream, error) {
-	<-ctx.Done()
-	return nil, ctx.Err()
+	timer := time.NewTimer(30 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-timer.C:
+		return nil, errors.New("simulated connection timeout")
+	}
 }
 
 func (blockingConnectLogClient) Close() error { return nil }
@@ -163,6 +169,10 @@ func TestDurableLogStream_FlushesAllChunksOnClose(t *testing.T) {
 		t.Fatalf("close send: %v", err)
 	}
 
+	if err := d.WaitForDone(5 * time.Second); err != nil {
+		t.Fatalf("wait for done: %v", err)
+	}
+
 	chunks := logClient.GetChunks()
 	if len(chunks) != n {
 		t.Fatalf("expected %d chunks, got %d", n, len(chunks))
@@ -200,6 +210,10 @@ func TestDurableLogStream_FlushesAllChunksWithConcurrentSenders(t *testing.T) {
 		t.Fatalf("close send: %v", err)
 	}
 
+	if err := d.WaitForDone(5 * time.Second); err != nil {
+		t.Fatalf("wait for done: %v", err)
+	}
+
 	want := workers * perWorker
 	chunks := logClient.GetChunks()
 	if len(chunks) != want {
@@ -231,6 +245,10 @@ func TestDurableLogStream_NoSpuriousLossAcrossRapidClose(t *testing.T) {
 			t.Fatalf("iter %d close: %v", iter, err)
 		}
 
+		if err := d.WaitForDone(5 * time.Second); err != nil {
+			t.Fatalf("iter %d wait for done: %v", iter, err)
+		}
+
 		if got := len(logClient.GetChunks()); got != n {
 			t.Fatalf("iter %d expected %d chunks, got %d", iter, n, got)
 		}
@@ -255,8 +273,15 @@ func TestDurableLogStream_CloseSendReturnsFinalizeError(t *testing.T) {
 		t.Fatalf("send: %v", err)
 	}
 
-	err = d.CloseSend()
-	if err == nil {
+	if err := d.CloseSend(); err != nil {
+		t.Fatalf("close send: %v", err)
+	}
+
+	if err := d.WaitForDone(5 * time.Second); err != nil {
+		t.Fatalf("wait for done: %v", err)
+	}
+
+	if d.SenderErr() == nil {
 		t.Fatal("expected finalize error, got nil")
 	}
 
@@ -297,6 +322,10 @@ func TestDurableLogStream_LogsOutageAndRecoveryOnce(t *testing.T) {
 
 	if err := d.CloseSend(); err != nil {
 		t.Fatalf("close send: %v", err)
+	}
+
+	if err := d.WaitForDone(5 * time.Second); err != nil {
+		t.Fatalf("wait for done: %v", err)
 	}
 
 	warnCalls := logger.GetWarnCalls()
@@ -353,15 +382,18 @@ func TestDurableLogStream_WarnsWhenWaitingForRecoveryDuringClose(t *testing.T) {
 		t.Fatalf("send: %v", err)
 	}
 
-	err = d.CloseSend()
-	if err == nil {
-		t.Fatal("expected close timeout error, got nil")
+	if err := d.CloseSend(); err != nil {
+		t.Fatalf("close send: %v", err)
+	}
+
+	if err := d.WaitForDone(5 * time.Second); err != nil {
+		t.Fatalf("wait for done: %v", err)
 	}
 
 	warnCalls := logger.GetWarnCalls()
 	waitWarn := false
 	for _, msg := range warnCalls {
-		if strings.Contains(msg, "waiting up to") && strings.Contains(msg, "run outcome is independent") {
+		if strings.Contains(msg, "flush will continue in background") && strings.Contains(msg, "run outcome is independent") {
 			waitWarn = true
 			break
 		}
@@ -403,10 +435,12 @@ func TestDurableLogStream_BlockingConnectEmitsOutageAndWaitWarnings(t *testing.T
 		t.Fatalf("send: %v", err)
 	}
 
-	err = d.CloseSend()
-	if err == nil {
-		t.Fatal("expected close timeout error, got nil")
+	if err := d.CloseSend(); err != nil {
+		t.Fatalf("close send: %v", err)
 	}
+
+	// With a blocking client, the senderLoop cannot finish; give it time to log warnings.
+	time.Sleep(50 * time.Millisecond)
 
 	warnCalls := logger.GetWarnCalls()
 	outageWarn := false
@@ -416,7 +450,7 @@ func TestDurableLogStream_BlockingConnectEmitsOutageAndWaitWarnings(t *testing.T
 			outageWarn = true
 		}
 
-		if strings.Contains(msg, "waiting up to") && strings.Contains(msg, "run outcome is independent") {
+		if strings.Contains(msg, "flush will continue in background") && strings.Contains(msg, "run outcome is independent") {
 			waitWarn = true
 		}
 	}

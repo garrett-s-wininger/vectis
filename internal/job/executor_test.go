@@ -40,6 +40,11 @@ func TestExecutor_ExecuteJob_Success(t *testing.T) {
 		t.Errorf("expected no error, got %v", err)
 	}
 
+	// TODO(garrett): Avoid flaky sleeps. ExecuteJob does not expose the
+	// internal *durableLogStream, so we cannot call WaitForDone directly.
+	// Consider adding a test helper or callback to synchronize async flush.
+	time.Sleep(100 * time.Millisecond)
+
 	if mockLogClient.GetStreamCount() < 1 {
 		t.Errorf("expected at least 1 log stream, got %d", mockLogClient.GetStreamCount())
 	}
@@ -206,7 +211,7 @@ func TestExecutor_ExecuteJob_StreamLogsError(t *testing.T) {
 	warnCalls := mockLogger.GetWarnCalls()
 	foundFlushWarn := false
 	for _, msg := range warnCalls {
-		if strings.Contains(msg, "Log stream flush incomplete") {
+		if strings.Contains(msg, "flush will continue in background") || strings.Contains(msg, "Log stream flush incomplete") {
 			foundFlushWarn = true
 			break
 		}
@@ -260,6 +265,9 @@ func TestExecutor_ExecuteJob_StreamUnavailableAtStart_ThenRecovers(t *testing.T)
 	if err != nil {
 		t.Fatalf("expected success after stream recovery, got %v", err)
 	}
+
+	// TODO(garrett): Avoid flaky sleeps — see note in TestExecutor_ExecuteJob_Success.
+	time.Sleep(200 * time.Millisecond)
 
 	if got := len(mockLogClient.GetChunks()); got == 0 {
 		t.Fatal("expected queued logs to flush after stream recovery")
@@ -342,6 +350,9 @@ func TestExecutor_ExecuteJob_CommandFailure(t *testing.T) {
 	if !strings.Contains(err.Error(), "command failed") && !strings.Contains(err.Error(), "exit status 1") {
 		t.Errorf("expected error to indicate command failure, got: %v", err)
 	}
+
+	// TODO(garrett): Avoid flaky sleeps — see note in TestExecutor_ExecuteJob_Success.
+	time.Sleep(100 * time.Millisecond)
 
 	chunks := mockLogClient.GetChunks()
 	if len(chunks) == 0 {
