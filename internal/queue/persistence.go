@@ -12,6 +12,7 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/interfaces"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -26,10 +27,12 @@ const (
 type walRecordType string
 
 const (
-	walRecordEnqueue walRecordType = "enqueue"
-	walRecordDeliver walRecordType = "deliver"
-	walRecordAck     walRecordType = "ack"
-	walRecordRequeue walRecordType = "requeue_expired"
+	walRecordEnqueue    walRecordType = "enqueue"
+	walRecordDeliver    walRecordType = "deliver"
+	walRecordAck        walRecordType = "ack"
+	walRecordRequeue    walRecordType = "requeue_expired"
+	walRecordDLQ        walRecordType = "dlq"
+	walRecordDLQRequeue walRecordType = "dlq_requeue"
 )
 
 type walRecord struct {
@@ -38,6 +41,7 @@ type walRecord struct {
 	Job           []byte        `json:"job,omitempty"`
 	DeliveryID    string        `json:"delivery_id,omitempty"`
 	LeaseUntilUTC int64         `json:"lease_until_utc,omitempty"`
+	AttemptCount  int           `json:"attempt_count,omitempty"`
 }
 
 type inflightSnapshot struct {
@@ -47,10 +51,18 @@ type inflightSnapshot struct {
 	AttemptCount  int    `json:"attempt_count"`
 }
 
+type deadLetterSnapshot struct {
+	DeliveryID   string `json:"delivery_id"`
+	Job          []byte `json:"job"`
+	AttemptCount int    `json:"attempt_count"`
+}
+
 type queueSnapshot struct {
-	LastAppliedIndex uint64             `json:"last_applied_index"`
-	Jobs             [][]byte           `json:"jobs"`
-	Inflight         []inflightSnapshot `json:"inflight"`
+	LastAppliedIndex uint64               `json:"last_applied_index"`
+	Jobs             [][]byte             `json:"jobs"`
+	Inflight         []inflightSnapshot   `json:"inflight"`
+	DeadLetter       []deadLetterSnapshot `json:"dead_letter,omitempty"`
+	JobAttempts      map[string]int       `json:"job_attempts,omitempty"`
 }
 
 type inflightDelivery struct {
@@ -67,22 +79,27 @@ type persistenceStore struct {
 	opSinceSnapshot    int
 	segmentMaxBytes    int64
 	retainTailSegments int
+	log                interfaces.Logger
 }
 
 type queueState struct {
 	jobs             []*api.Job
 	inflight         map[string]inflightDelivery
+	deadLetter       []deadLetterItem
+	jobAttempts      map[string]int
 	lastAppliedIndex uint64
 }
 
 type snapshotState struct {
-	pending  []*api.Job
-	inflight map[string]inflightDelivery
+	pending     []*api.Job
+	inflight    map[string]inflightDelivery
+	deadLetter  []deadLetterItem
+	jobAttempts map[string]int
 }
 
-func newPersistenceStore(dir string, snapshotEvery int, segmentMaxBytes int64, retainTailSegments int) (*persistenceStore, *queueState, error) {
+func newPersistenceStore(dir string, snapshotEvery int, segmentMaxBytes int64, retainTailSegments int, log interfaces.Logger) (*persistenceStore, *queueState, error) {
 	if dir == "" {
-		return nil, &queueState{inflight: make(map[string]inflightDelivery)}, nil
+		return nil, &queueState{inflight: make(map[string]inflightDelivery), deadLetter: make([]deadLetterItem, 0), jobAttempts: make(map[string]int)}, nil
 	}
 
 	if snapshotEvery <= 0 {
@@ -107,6 +124,7 @@ func newPersistenceStore(dir string, snapshotEvery int, segmentMaxBytes int64, r
 		snapshotEvery:      snapshotEvery,
 		segmentMaxBytes:    segmentMaxBytes,
 		retainTailSegments: retainTailSegments,
+		log:                log,
 	}
 
 	state, err := p.loadState()
@@ -138,6 +156,15 @@ func (p *persistenceStore) loadState() (*queueState, error) {
 		}
 
 		state.inflight = inflight
+		state.deadLetter, err = decodeDeadLetter(snap.DeadLetter)
+		if err != nil {
+			return nil, fmt.Errorf("decode snapshot dead letter: %w", err)
+		}
+
+		if snap.JobAttempts != nil {
+			state.jobAttempts = snap.JobAttempts
+		}
+
 		state.lastAppliedIndex = snap.LastAppliedIndex
 		p.nextIndex = snap.LastAppliedIndex + 1
 	}
@@ -180,6 +207,7 @@ func (p *persistenceStore) replayWAL(state *queueState) error {
 		}
 
 		scanner := bufio.NewScanner(f)
+		scanner.Buffer(make([]byte, 4096), 1024*1024)
 		for scanner.Scan() {
 			line := scanner.Bytes()
 			if len(line) == 0 {
@@ -188,8 +216,10 @@ func (p *persistenceStore) replayWAL(state *queueState) error {
 
 			var rec walRecord
 			if err := json.Unmarshal(line, &rec); err != nil {
-				_ = f.Close()
-				return fmt.Errorf("decode wal record in %s: %w", seg, err)
+				if p.log != nil {
+					p.log.Error("Skipping corrupted WAL record in %s: %v", seg, err)
+				}
+				continue
 			}
 
 			if rec.Index <= state.lastAppliedIndex {
@@ -229,8 +259,26 @@ func (p *persistenceStore) appendEnqueue(job *api.Job, state snapshotState) erro
 	return p.appendRecord(walRecord{Type: walRecordEnqueue, Job: payload}, state)
 }
 
-func (p *persistenceStore) appendDeliver(deliveryID string, leaseUntil time.Time, state snapshotState) error {
-	return p.appendRecord(walRecord{Type: walRecordDeliver, DeliveryID: deliveryID, LeaseUntilUTC: leaseUntil.UTC().Unix()}, state)
+func (p *persistenceStore) appendDeliver(deliveryID string, leaseUntil time.Time, attemptCount int, state snapshotState) error {
+	return p.appendRecord(walRecord{Type: walRecordDeliver, DeliveryID: deliveryID, LeaseUntilUTC: leaseUntil.UTC().Unix(), AttemptCount: attemptCount}, state)
+}
+
+func (p *persistenceStore) appendDLQ(deliveryID string, job *api.Job, attemptCount int, state snapshotState) error {
+	payload, err := proto.Marshal(job)
+	if err != nil {
+		return fmt.Errorf("marshal dlq job: %w", err)
+	}
+
+	return p.appendRecord(walRecord{Type: walRecordDLQ, DeliveryID: deliveryID, Job: payload, AttemptCount: attemptCount}, state)
+}
+
+func (p *persistenceStore) appendDLQRequeue(deliveryID string, job *api.Job, state snapshotState) error {
+	payload, err := proto.Marshal(job)
+	if err != nil {
+		return fmt.Errorf("marshal dlq requeue job: %w", err)
+	}
+
+	return p.appendRecord(walRecord{Type: walRecordDLQRequeue, DeliveryID: deliveryID, Job: payload}, state)
 }
 
 func (p *persistenceStore) appendAck(deliveryID string, state snapshotState) error {
@@ -307,7 +355,12 @@ func (p *persistenceStore) writeSnapshotAndCompact(lastApplied uint64, state sna
 		return fmt.Errorf("encode inflight queue for snapshot: %w", err)
 	}
 
-	snap := queueSnapshot{LastAppliedIndex: lastApplied, Jobs: jobs, Inflight: inflight}
+	deadLetter, err := encodeDeadLetter(state.deadLetter)
+	if err != nil {
+		return fmt.Errorf("encode dead letter queue for snapshot: %w", err)
+	}
+
+	snap := queueSnapshot{LastAppliedIndex: lastApplied, Jobs: jobs, Inflight: inflight, DeadLetter: deadLetter, JobAttempts: state.jobAttempts}
 	tmp := p.snapshotPath + ".tmp"
 
 	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
@@ -433,7 +486,12 @@ func (p *persistenceStore) listWALSegments() ([]string, error) {
 			continue
 		}
 
-		segments = append(segments, filepath.Join(p.dir, name))
+		path := filepath.Join(p.dir, name)
+		if _, err := p.segmentSeq(path); err != nil {
+			continue
+		}
+
+		segments = append(segments, path)
 	}
 
 	sort.Slice(segments, func(i, j int) bool {
@@ -476,6 +534,7 @@ func (p *persistenceStore) segmentBounds(path string) (uint64, uint64, int, erro
 	count := 0
 
 	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 4096), 1024*1024)
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(line) == 0 {
@@ -572,6 +631,41 @@ func decodeInflight(rows []inflightSnapshot) (map[string]inflightDelivery, error
 	return out, nil
 }
 
+func encodeDeadLetter(items []deadLetterItem) ([]deadLetterSnapshot, error) {
+	out := make([]deadLetterSnapshot, 0, len(items))
+	for _, item := range items {
+		payload, err := proto.Marshal(item.job)
+		if err != nil {
+			return nil, err
+		}
+
+		out = append(out, deadLetterSnapshot{
+			DeliveryID:   item.deliveryID,
+			Job:          payload,
+			AttemptCount: item.attemptCount,
+		})
+	}
+
+	return out, nil
+}
+
+func decodeDeadLetter(rows []deadLetterSnapshot) ([]deadLetterItem, error) {
+	out := make([]deadLetterItem, 0, len(rows))
+	for _, row := range rows {
+		var job api.Job
+		if err := proto.Unmarshal(row.Job, &job); err != nil {
+			return nil, err
+		}
+		out = append(out, deadLetterItem{
+			deliveryID:   row.DeliveryID,
+			job:          &job,
+			attemptCount: row.AttemptCount,
+		})
+	}
+
+	return out, nil
+}
+
 func applyRecord(state *queueState, rec walRecord) error {
 	switch rec.Type {
 	case walRecordEnqueue:
@@ -590,12 +684,22 @@ func applyRecord(state *queueState, rec walRecord) error {
 		job := state.jobs[0]
 		state.jobs = state.jobs[1:]
 		state.inflight[rec.DeliveryID] = inflightDelivery{
-			Job:        job,
-			LeaseUntil: time.Unix(rec.LeaseUntilUTC, 0).UTC(),
+			Job:          job,
+			LeaseUntil:   time.Unix(rec.LeaseUntilUTC, 0).UTC(),
+			AttemptCount: rec.AttemptCount,
 		}
 
+		if state.jobAttempts == nil {
+			state.jobAttempts = make(map[string]int)
+		}
+
+		state.jobAttempts[job.GetId()] = rec.AttemptCount
 		return nil
 	case walRecordAck:
+		if item, ok := state.inflight[rec.DeliveryID]; ok {
+			delete(state.jobAttempts, item.Job.GetId())
+		}
+
 		delete(state.inflight, rec.DeliveryID)
 		return nil
 	case walRecordRequeue:
@@ -606,6 +710,53 @@ func applyRecord(state *queueState, rec walRecord) error {
 
 		delete(state.inflight, rec.DeliveryID)
 		state.jobs = append(state.jobs, &job)
+		if state.jobAttempts == nil {
+			state.jobAttempts = make(map[string]int)
+		}
+
+		state.jobAttempts[job.GetId()]++
+		return nil
+	case walRecordDLQ:
+		var job api.Job
+		if err := proto.Unmarshal(rec.Job, &job); err != nil {
+			return fmt.Errorf("unmarshal dlq payload: %w", err)
+		}
+
+		delete(state.inflight, rec.DeliveryID)
+		if state.jobAttempts == nil {
+			state.jobAttempts = make(map[string]int)
+		}
+
+		state.jobAttempts[job.GetId()] = rec.AttemptCount
+		state.deadLetter = append(state.deadLetter, deadLetterItem{
+			deliveryID:   rec.DeliveryID,
+			job:          &job,
+			attemptCount: rec.AttemptCount,
+		})
+		return nil
+	case walRecordDLQRequeue:
+		var job api.Job
+		if err := proto.Unmarshal(rec.Job, &job); err != nil {
+			return fmt.Errorf("unmarshal dlq requeue payload: %w", err)
+		}
+
+		state.jobs = append(state.jobs, &job)
+		if len(state.deadLetter) > 0 {
+			filtered := make([]deadLetterItem, 0, len(state.deadLetter))
+			for _, item := range state.deadLetter {
+				if item.deliveryID == rec.DeliveryID {
+					continue
+				}
+				filtered = append(filtered, item)
+			}
+			state.deadLetter = filtered
+		}
+
+		if state.jobAttempts == nil {
+			state.jobAttempts = make(map[string]int)
+		}
+
+		delete(state.jobAttempts, job.GetId())
 		return nil
 	default:
 		return fmt.Errorf("unknown wal record type: %q", rec.Type)

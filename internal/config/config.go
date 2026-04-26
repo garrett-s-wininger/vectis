@@ -341,7 +341,7 @@ func WorkerMetricsPort() int {
 }
 
 func WorkerControlMode() string {
-	mode := viper.GetString("control_mode")
+	mode := viper.GetString("worker.control.mode")
 	if mode != "" {
 		return mode
 	}
@@ -370,7 +370,11 @@ func WorkerControlPortMax() int {
 }
 
 func WorkerRegisterWithRegistry() bool {
-	return viper.GetBool("register_with_registry")
+	if viper.IsSet("worker.register_with_registry") {
+		return viper.GetBool("worker.register_with_registry")
+	}
+
+	return MustDefaults().Worker.RegisterWithRegistry
 }
 
 func RegistryPort() int {
@@ -381,7 +385,7 @@ func LogGRPCPort() int {
 	return MustDefaults().Log.GRPC.Port
 }
 
-func LogWebSocketPort() int {
+func LogSSEPort() int {
 	return MustDefaults().Log.SSE.Port
 }
 
@@ -413,8 +417,8 @@ func LogGRPCListenAddr() string {
 	return ":" + strconv.Itoa(LogGRPCPort())
 }
 
-func LogWebSocketListenAddr() string {
-	return ":" + strconv.Itoa(LogWebSocketPort())
+func LogSSEListenAddr() string {
+	return ":" + strconv.Itoa(LogSSEPort())
 }
 
 func PublicAPIBaseURL() string {
@@ -474,6 +478,10 @@ func DatabasePgxConnMaxIdleTime() time.Duration {
 }
 
 func RegistryResolverPollInterval() time.Duration {
+	if d := viper.GetDuration("discovery.registry_resolver_refresh"); d > 0 {
+		return d
+	}
+
 	d := time.Duration(MustDefaults().Discovery.RegistryResolverRefresh)
 	if d > 0 {
 		return d
@@ -773,7 +781,7 @@ func APIEffectiveListenPort() int {
 
 func APILogFormat() string {
 	d := MustDefaults()
-	s := strings.ToLower(strings.TrimSpace(viper.GetString("log_format")))
+	s := strings.ToLower(strings.TrimSpace(viper.GetString("api.log_format")))
 	if s == "" {
 		s = strings.ToLower(strings.TrimSpace(d.API.LogFormat))
 	}

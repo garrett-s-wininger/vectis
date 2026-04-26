@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -11,7 +12,9 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -45,6 +48,15 @@ const (
 	defaultHandlerDBTimeout  = 60 * time.Second
 )
 
+type queueClientHolder struct {
+	client interfaces.QueueService
+	close  func()
+}
+
+type ctxHolder struct {
+	ctx context.Context
+}
+
 type APIServer struct {
 	jobs           dal.JobsRepository
 	runs           dal.RunsRepository
@@ -53,8 +65,7 @@ type APIServer struct {
 	namespaces     dal.NamespacesRepository
 	roleBindings   dal.RoleBindingsRepository
 	logger         interfaces.Logger
-	queueClient    interfaces.QueueService
-	queueClose     func()
+	queueClient    atomic.Pointer[queueClientHolder]
 	runBroadcaster *RunBroadcaster
 	dbUnavailable  atomic.Bool
 	healthDB       *sql.DB
@@ -74,6 +85,9 @@ type APIServer struct {
 
 	// ResolveWorkerAddress, when set, resolves a worker_id to a control address via the registry.
 	ResolveWorkerAddress func(workerID string) (string, error)
+
+	mu     sync.RWMutex
+	srvCtx atomic.Pointer[ctxHolder]
 }
 
 type routeSpec struct {
@@ -278,7 +292,13 @@ func (s *APIServer) HealthReady(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if !queueRPCReady(s.queueClient) {
+	holder := s.queueClient.Load()
+	var qc interfaces.QueueService
+	if holder != nil {
+		qc = holder.client
+	}
+
+	if !queueRPCReady(qc) {
 		http.Error(w, "queue not ready", http.StatusServiceUnavailable)
 		return
 	}
@@ -287,25 +307,33 @@ func (s *APIServer) HealthReady(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) SetQueueClient(client interfaces.QueueService) {
-	if s.queueClose != nil {
-		s.queueClose()
-		s.queueClose = nil
+	old := s.queueClient.Swap(&queueClientHolder{client: client})
+	if old != nil && old.close != nil {
+		old.close()
 	}
-	s.queueClient = client
 }
 
 func (s *APIServer) SetRateLimiter(limiter ratelimit.RateLimiter) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.rateLimiter = limiter
 }
 
 func (s *APIServer) SetAuditor(auditor audit.Auditor) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.auditor = auditor
 }
 
 func (s *APIServer) auditLog(ctx context.Context, eventType string, actorID, targetID int64, metadata map[string]interface{}) {
-	if s.auditor == nil {
+	s.mu.RLock()
+	auditor := s.auditor
+	s.mu.RUnlock()
+
+	if auditor == nil {
 		return
 	}
+
 	ip := ""
 	if req, ok := ctx.Value(httpRequestKey{}).(*http.Request); ok && req != nil {
 		ip, _, _ = net.SplitHostPort(req.RemoteAddr)
@@ -314,7 +342,7 @@ func (s *APIServer) auditLog(ctx context.Context, eventType string, actorID, tar
 		}
 	}
 
-	_ = s.auditor.Log(ctx, audit.Event{
+	_ = auditor.Log(ctx, audit.Event{
 		Type:          eventType,
 		ActorID:       actorID,
 		TargetID:      targetID,
@@ -327,11 +355,10 @@ func (s *APIServer) auditLog(ctx context.Context, eventType string, actorID, tar
 type httpRequestKey struct{}
 
 func (s *APIServer) ConnectToQueue(ctx context.Context) error {
-	if s.queueClose != nil {
-		s.queueClose()
-		s.queueClose = nil
+	old := s.queueClient.Swap(nil)
+	if old != nil && old.close != nil {
+		old.close()
 	}
-	s.queueClient = nil
 
 	mq, err := queueclient.NewManagingQueueService(ctx, s.logger, func(ctx context.Context) (*grpc.ClientConn, func(), error) {
 		return resolver.DialQueue(ctx, s.logger, config.PinnedQueueAddress(), config.APIRegistryDialAddress())
@@ -341,8 +368,7 @@ func (s *APIServer) ConnectToQueue(ctx context.Context) error {
 		return fmt.Errorf("failed to connect to queue: %w", err)
 	}
 
-	s.queueClient = mq
-	s.queueClose = func() { _ = mq.Close() }
+	s.queueClient.Store(&queueClientHolder{client: mq, close: func() { _ = mq.Close() }})
 	return nil
 }
 
@@ -400,7 +426,7 @@ func (s *APIServer) ForceFailRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	reason := defaultForceFailReason
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(io.LimitReader(r.Body, 64*1024))
 	if err != nil {
 		http.Error(w, "failed to read request body", http.StatusInternalServerError)
 		return
@@ -636,7 +662,12 @@ func (s *APIServer) CancelRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) sendCancelToWorker(ctx context.Context, workerAddr, runID, cancelToken string) error {
-	conn, err := grpc.Dial(workerAddr, grpc.WithInsecure())
+	dialOpts, err := config.GRPCClientDialOptions(workerAddr)
+	if err != nil {
+		return fmt.Errorf("worker tls config: %w", err)
+	}
+
+	conn, err := grpc.NewClient(workerAddr, dialOpts...)
 	if err != nil {
 		return fmt.Errorf("dial worker: %w", err)
 	}
@@ -657,7 +688,7 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(io.LimitReader(r.Body, 10*1024*1024))
 	if err != nil {
 		http.Error(w, "failed to read request body", http.StatusInternalServerError)
 		return
@@ -680,6 +711,11 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 	var job api.Job
 	if err := json.Unmarshal(req.Job, &job); err != nil {
 		http.Error(w, "invalid job definition", http.StatusBadRequest)
+		return
+	}
+
+	if job.Id == nil || *job.Id == "" {
+		http.Error(w, "job id is required", http.StatusBadRequest)
 		return
 	}
 
@@ -721,6 +757,11 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 	err = s.jobs.Create(ctx, *job.Id, string(req.Job), ns.ID)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		if dal.IsConflict(err) {
+			http.Error(w, "job already exists", http.StatusConflict)
 			return
 		}
 
@@ -775,7 +816,8 @@ func (s *APIServer) DeleteJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !s.authorizeNamespace(ctx, w, p, authz.ActionJobWrite, nsPath) {
+	if !s.checkNamespaceAuth(ctx, p, authz.ActionJobWrite, nsPath) {
+		http.Error(w, "job not found", http.StatusNotFound)
 		return
 	}
 
@@ -867,11 +909,14 @@ func (s *APIServer) GetJobs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := buildPaginatedResponse(jobs, nextCursor)
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(resp); err != nil {
 		s.logger.Error("Failed to encode jobs as JSON: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
+
+	_, _ = w.Write(buf.Bytes())
 }
 
 func (s *APIServer) GetJob(w http.ResponseWriter, r *http.Request) {
@@ -1054,7 +1099,8 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	if err := json.NewEncoder(w).Encode(map[string]any{
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(map[string]any{
 		"job_id":    jobID,
 		"run_id":    runID,
 		"run_index": runIndex,
@@ -1063,13 +1109,25 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	_, _ = w.Write(buf.Bytes())
+
 	// NOTE(garrett): We finish the enqueue asynchronously so that we can response immediately to the client,
 	// rather than them waiting for the enqueue to complete (dual enqueue is idempotent by worker claim).
-	go s.finishTriggerEnqueue(context.Background(), jobID, runID, runIndex, &job)
+	bgCtx := context.Background()
+	if h := s.srvCtx.Load(); h != nil && h.ctx != nil {
+		bgCtx = h.ctx
+	}
+	go s.finishTriggerEnqueue(bgCtx, jobID, runID, runIndex, &job)
 }
 
 func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID string, runIndex int, job *api.Job) {
-	if err := enqueueWithRetry(ctx, s.queueClient, job, s.logger); err != nil {
+	holder := s.queueClient.Load()
+	var qc interfaces.QueueService
+	if holder != nil {
+		qc = holder.client
+	}
+
+	if err := enqueueWithRetry(ctx, qc, job, s.logger); err != nil {
 		s.logger.Error("Failed to enqueue job (run %s): %v", runID, err)
 		return
 	}
@@ -1093,7 +1151,7 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(io.LimitReader(r.Body, 10*1024*1024))
 	if err != nil {
 		http.Error(w, "failed to read request body", http.StatusInternalServerError)
 		return
@@ -1134,7 +1192,8 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if !s.authorizeNamespace(ctx, w, p, authz.ActionJobWrite, nsPath) {
+	if !s.checkNamespaceAuth(ctx, p, authz.ActionJobWrite, nsPath) {
+		http.Error(w, "job not found", http.StatusNotFound)
 		return
 	}
 
@@ -1178,7 +1237,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(io.LimitReader(r.Body, 10*1024*1024))
 	if err != nil {
 		http.Error(w, "failed to read request body", http.StatusInternalServerError)
 		return
@@ -1201,6 +1260,11 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	if err := json.Unmarshal(req.Job, &job); err != nil {
 		http.Error(w, "invalid job definition", http.StatusBadRequest)
 		return
+	}
+
+	if job.Id == nil || *job.Id == "" {
+		generatedID := uuid.New().String()
+		job.Id = &generatedID
 	}
 
 	if job.GetRoot() == nil {
@@ -1284,7 +1348,8 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	if err := json.NewEncoder(w).Encode(map[string]string{
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(map[string]string{
 		"id":     generatedID,
 		"run_id": runID,
 	}); err != nil {
@@ -1292,11 +1357,24 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go s.finishRunJobEnqueue(context.Background(), generatedID, runID, &job)
+	_, _ = w.Write(buf.Bytes())
+
+	bgCtx := context.Background()
+	if h := s.srvCtx.Load(); h != nil && h.ctx != nil {
+		bgCtx = h.ctx
+	}
+
+	go s.finishRunJobEnqueue(bgCtx, generatedID, runID, &job)
 }
 
 func (s *APIServer) finishRunJobEnqueue(ctx context.Context, generatedID, runID string, job *api.Job) {
-	if err := enqueueWithRetry(ctx, s.queueClient, job, s.logger); err != nil {
+	holder := s.queueClient.Load()
+	var qc interfaces.QueueService
+	if holder != nil {
+		qc = holder.client
+	}
+
+	if err := enqueueWithRetry(ctx, qc, job, s.logger); err != nil {
 		s.logger.Error("Failed to enqueue job (run %s): %v", runID, err)
 		return
 	}
@@ -1352,7 +1430,8 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !s.authorizeNamespace(ctx, w, p, authz.ActionRunRead, nsPath) {
+	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunRead, nsPath) {
+		http.Error(w, "job not found", http.StatusNotFound)
 		return
 	}
 
@@ -1399,9 +1478,14 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	resp := buildPaginatedResponse(runs, nextCursor)
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(resp); err != nil {
 		s.logger.Error("Failed to encode runs: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
 	}
+
+	_, _ = w.Write(buf.Bytes())
 }
 
 func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
@@ -1436,6 +1520,11 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 
 	jobID, err := s.runs.GetRunJobID(ctx, runID)
 	if err != nil {
+		if dal.IsNotFound(err) {
+			http.Error(w, "run not found", http.StatusNotFound)
+			return
+		}
+
 		s.logger.Error("Database error: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
@@ -1443,12 +1532,18 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 
 	nsPath, err := s.getJobNamespacePath(ctx, jobID)
 	if err != nil {
+		if dal.IsNotFound(err) {
+			http.Error(w, "run not found", http.StatusNotFound)
+			return
+		}
+
 		s.logger.Error("Database error: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	if !s.authorizeNamespace(ctx, w, p, authz.ActionRunRead, nsPath) {
+	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunRead, nsPath) {
+		http.Error(w, "run not found", http.StatusNotFound)
 		return
 	}
 
@@ -1475,9 +1570,14 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(resp); err != nil {
 		s.logger.Error("Failed to encode run: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
 	}
+
+	_, _ = w.Write(buf.Bytes())
 }
 
 func (s *APIServer) HandleSSEJobRuns(w http.ResponseWriter, r *http.Request) {
@@ -1511,7 +1611,8 @@ func (s *APIServer) HandleSSEJobRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !s.authorizeNamespace(ctx, w, p, authz.ActionRunRead, nsPath) {
+	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunRead, nsPath) {
+		http.Error(w, "job not found", http.StatusNotFound)
 		return
 	}
 
@@ -1595,7 +1696,8 @@ func (s *APIServer) GetRunLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !s.authorizeNamespace(ctx, w, p, authz.ActionRunRead, nsPath) {
+	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunRead, nsPath) {
+		http.Error(w, "run not found", http.StatusNotFound)
 		return
 	}
 
@@ -1604,14 +1706,16 @@ func (s *APIServer) GetRunLogs(w http.ResponseWriter, r *http.Request) {
 		s.logger.Warn("Failed to resolve log SSE address: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		_ = json.NewEncoder(w).Encode(map[string]string{
+		var buf bytes.Buffer
+		_ = json.NewEncoder(&buf).Encode(map[string]string{
 			"error": "log_service_unavailable",
 		})
 
+		_, _ = w.Write(buf.Bytes())
 		return
 	}
 
-	logURL := fmt.Sprintf("http://%s/sse/logs/%s", logAddr, runID)
+	logURL := fmt.Sprintf("http://%s/sse/logs/%s", logAddr, url.PathEscape(runID))
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, logURL, nil)
 	if err != nil {
 		s.logger.Error("Failed to create log proxy request: %v", err)
@@ -1621,15 +1725,20 @@ func (s *APIServer) GetRunLogs(w http.ResponseWriter, r *http.Request) {
 
 	req.Header.Set("Accept", "text/event-stream")
 
-	resp, err := http.DefaultClient.Do(req)
+	// SSE streams are long-lived; rely on request context cancellation
+	// instead of a fixed client timeout that can terminate healthy streams.
+	client := &http.Client{}
+	resp, err := client.Do(req)
 	if err != nil {
 		s.logger.Warn("Log service unreachable: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		_ = json.NewEncoder(w).Encode(map[string]string{
+		var buf bytes.Buffer
+		_ = json.NewEncoder(&buf).Encode(map[string]string{
 			"error": "log_service_unavailable",
 		})
 
+		_, _ = w.Write(buf.Bytes())
 		return
 	}
 	defer resp.Body.Close()
@@ -1740,7 +1849,26 @@ func (s *APIServer) Handler() http.Handler {
 	h := http.Handler(mux)
 	h = accessLogMiddleware(s.AccessLogger, apiHTTPExcludedFromAuxLogging, h)
 	h = observability.CorrelationMiddleware(h)
+	h = panicRecoveryMiddleware(s.logger, h)
 	return instrumentHTTPServer(h)
+}
+
+func panicRecoveryMiddleware(log interfaces.Logger, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Error("panic in HTTP handler: %v", rec)
+
+				// Only write an error response if headers have not yet been sent.
+				// If they have, the client will see a truncated response; we log it here.
+				if sw, ok := w.(*statusResponseWriter); !ok || !sw.wroteHeader {
+					http.Error(w, "internal server error", http.StatusInternalServerError)
+				}
+			}
+		}()
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *APIServer) registerRoute(mux *http.ServeMux, spec routeSpec) {
@@ -1752,17 +1880,20 @@ func (s *APIServer) registerRoute(mux *http.ServeMux, spec routeSpec) {
 	}
 
 	handler := s.accessControlledHandler(spec.Auth, spec.Handler)
-	if s.rateLimiter != nil && spec.RateLimit.RefillRate > 0 {
-		handler = s.rateLimitMiddleware(spec.RateLimit, handler)
+	s.mu.RLock()
+	rl := s.rateLimiter
+	s.mu.RUnlock()
+	if rl != nil && spec.RateLimit.RefillRate > 0 {
+		handler = s.rateLimitMiddleware(rl, spec.RateLimit, handler)
 	}
 
 	mux.Handle(spec.Pattern, handler)
 }
 
-func (s *APIServer) rateLimitMiddleware(rule ratelimit.Rule, next http.Handler) http.Handler {
+func (s *APIServer) rateLimitMiddleware(rl ratelimit.RateLimiter, rule ratelimit.Rule, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := s.rateLimitKey(r, rule)
-		allowed, retryAfter, err := s.rateLimiter.Allow(r.Context(), key, rule)
+		allowed, retryAfter, err := rl.Allow(r.Context(), key, rule)
 		if err != nil {
 			s.logger.Error("Rate limiter error: %v", err)
 			http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -1793,8 +1924,8 @@ func (s *APIServer) rateLimitKey(r *http.Request, rule ratelimit.Rule) string {
 		baseKey = ip
 	}
 
-	// Include rule parameters in key so different endpoint categories have separate buckets
-	return fmt.Sprintf("%s:%d:%d", baseKey, rule.RefillRate, rule.BurstSize)
+	// Include route pattern and rule parameters so different endpoints have isolated buckets
+	return fmt.Sprintf("%s:%s:%d:%d", baseKey, r.Pattern, rule.RefillRate, rule.BurstSize)
 }
 
 func (s *APIServer) registerRouteFunc(mux *http.ServeMux, spec routeSpec, handler http.HandlerFunc) {
@@ -1833,6 +1964,10 @@ func (s *APIServer) runHTTPServer(ctx context.Context, srv *http.Server, serve f
 }
 
 func (s *APIServer) Run(ctx context.Context, addr string) error {
+	srvCtx, srvCancel := context.WithCancel(ctx)
+	defer srvCancel()
+	s.srvCtx.Store(&ctxHolder{ctx: srvCtx})
+
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           s.Handler(),
@@ -1845,6 +1980,10 @@ func (s *APIServer) Run(ctx context.Context, addr string) error {
 }
 
 func (s *APIServer) Serve(ctx context.Context, l net.Listener) error {
+	srvCtx, srvCancel := context.WithCancel(ctx)
+	defer srvCancel()
+	s.srvCtx.Store(&ctxHolder{ctx: srvCtx})
+
 	srv := &http.Server{
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: defaultReadHeaderTimeout,

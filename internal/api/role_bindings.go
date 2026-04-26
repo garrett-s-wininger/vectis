@@ -35,7 +35,7 @@ func (s *APIServer) CreateBinding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(io.LimitReader(r.Body, 64*1024))
 	if err != nil {
 		http.Error(w, "failed to read request body", http.StatusInternalServerError)
 		return

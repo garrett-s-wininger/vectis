@@ -14,6 +14,7 @@ import (
 
 	apigen "vectis/api/gen/go"
 	"vectis/internal/api"
+	"vectis/internal/api/audit"
 	"vectis/internal/cli"
 	"vectis/internal/config"
 	"vectis/internal/dal"
@@ -30,8 +31,17 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 	cli.SetLogLevel(logger)
 	logger.Info("Starting API server...")
 
+	exitCode := 0
+	defer func() {
+		if exitCode != 0 {
+			os.Exit(exitCode)
+		}
+	}()
+
 	if err := config.ValidateGRPCTLSForRole(config.GRPCTLSDaemonClientOnly); err != nil {
-		logger.Fatal("%v", err)
+		logger.Error("%v", err)
+		exitCode = 1
+		return
 	}
 
 	config.StartGRPCTLSReloadLoop(cmd.Context())
@@ -41,25 +51,34 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 
 	db, err := database.OpenDB(dbPath)
 	if err != nil {
-		logger.Fatal("Failed to open database: %v", err)
+		logger.Error("Failed to open database: %v", err)
+		exitCode = 1
+		return
 	}
 	defer db.Close()
 
 	if err := database.WaitForMigrations(db, logger); err != nil {
-		logger.Fatal("database wait for migrations failed: %v", err)
+		logger.Error("database wait for migrations failed: %v", err)
+		exitCode = 1
+		return
 	}
 
 	authCtx, authCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer authCancel()
 
 	if err := config.ValidateAPIAuthConfig(authCtx, dal.NewSQLRepositories(db).Auth()); err != nil {
-		logger.Fatal("%v", err)
+		logger.Error("%v", err)
+		exitCode = 1
+		return
 	}
 
 	shutdownTracer, err := observability.InitTracer(cmd.Context(), "vectis-api")
 	if err != nil {
-		logger.Fatal("Failed to initialize tracer: %v", err)
+		logger.Error("Failed to initialize tracer: %v", err)
+		exitCode = 1
+		return
 	}
+
 	defer func() {
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -70,11 +89,15 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 
 	metricsHandler, shutdownMetrics, err := observability.InitAPIMetrics(cmd.Context())
 	if err != nil {
-		logger.Fatal("Failed to initialize metrics: %v", err)
+		logger.Error("Failed to initialize metrics: %v", err)
+		exitCode = 1
+		return
 	}
 
 	if err := observability.RegisterSQLDBPoolMetrics(db); err != nil {
-		logger.Fatal("Failed to register DB pool metrics: %v", err)
+		logger.Error("Failed to register DB pool metrics: %v", err)
+		exitCode = 1
+		return
 	}
 
 	defer func() {
@@ -92,6 +115,11 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 			Level: slog.LevelInfo,
 		}))
 	}
+
+	// Wire up async auditor for production audit logging.
+	auditor := audit.NewAsyncAuditor(&audit.DALRepository{Auth: dal.NewSQLRepositories(db).Auth()}, slog.Default())
+	defer auditor.Stop()
+	server.SetAuditor(auditor)
 
 	// Wire up worker address resolution via registry for cancel endpoint.
 	if regAddr := config.APIRegistryAddress(); regAddr != "" {
@@ -112,12 +140,16 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 	addr := fmt.Sprintf(":%d", port)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		logger.Fatal("Listen: %v", err)
+		logger.Error("Listen: %v", err)
+		exitCode = 1
+		return
 	}
 
 	logger.Info("Establishing queue client connection...")
 	if err := server.ConnectToQueue(cmd.Context()); err != nil {
-		logger.Fatal("Failed to connect to services: %v", err)
+		logger.Error("Failed to connect to services: %v", err)
+		exitCode = 1
+		return
 	}
 	logger.Info("Queue client ready")
 
@@ -127,7 +159,9 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 	}()
 
 	if err := <-serveErr; err != nil {
-		logger.Fatal("Server failed: %v", err)
+		logger.Error("Server failed: %v", err)
+		exitCode = 1
+		return
 	}
 }
 

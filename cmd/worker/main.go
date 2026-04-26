@@ -270,7 +270,7 @@ func startControlListener(logger interfaces.Logger) (net.Listener, string, error
 			ln, err := net.Listen("tcp", addr)
 
 			if err == nil {
-				return ln, addr, nil
+				return ln, ln.Addr().String(), nil
 			}
 		}
 
@@ -282,7 +282,7 @@ func startControlListener(logger interfaces.Logger) (net.Listener, string, error
 			return nil, "", fmt.Errorf("listen %s: %w", addr, err)
 		}
 
-		return ln, addr, nil
+		return ln, ln.Addr().String(), nil
 	}
 }
 
@@ -301,10 +301,19 @@ type worker struct {
 	dequeueFailAttempt int
 	dbUnavailable      bool
 	dbFailAttempt      int
+	dbMu               sync.Mutex
 	cancelCh           chan string
 	currentRunID       string
 	currentClaimToken  string
 	currentMu          sync.Mutex
+}
+
+func (w *worker) now() time.Time {
+	if w.clock != nil {
+		return w.clock.Now()
+	}
+
+	return time.Now()
 }
 
 func (w *worker) run() {
@@ -397,6 +406,8 @@ func (w *worker) noteDBError(err error) {
 		return
 	}
 
+	w.dbMu.Lock()
+	defer w.dbMu.Unlock()
 	if !w.dbUnavailable {
 		w.dbUnavailable = true
 		w.logger.Warn("Database unavailable; DB-backed run transitions will retry/backoff until recovery: %v", err)
@@ -404,6 +415,8 @@ func (w *worker) noteDBError(err error) {
 }
 
 func (w *worker) noteDBRecovered() {
+	w.dbMu.Lock()
+	defer w.dbMu.Unlock()
 	if w.dbUnavailable {
 		w.dbUnavailable = false
 		w.dbFailAttempt = 0
@@ -412,13 +425,15 @@ func (w *worker) noteDBRecovered() {
 }
 
 func (w *worker) sleepDBBackoff() error {
+	w.dbMu.Lock()
 	delay := backoff.ExponentialDelay(dequeueBackoffBase, w.dbFailAttempt, dequeueBackoffMax)
 	w.dbFailAttempt++
+	w.dbMu.Unlock()
 	return w.clock.Sleep(w.runCtx, delay)
 }
 
 func (w *worker) handleJob(job *api.Job) {
-	start := w.clock.Now()
+	start := w.now()
 	if w.metrics != nil {
 		w.metrics.RecordJobReceived(context.Background())
 	}
@@ -426,7 +441,7 @@ func (w *worker) handleJob(job *api.Job) {
 	var outcome string
 	defer func() {
 		if w.metrics != nil && outcome != "" {
-			w.metrics.RecordJobFinished(context.Background(), outcome, w.clock.Now().Sub(start))
+			w.metrics.RecordJobFinished(context.Background(), outcome, w.now().Sub(start))
 		}
 	}()
 
@@ -457,7 +472,7 @@ func (w *worker) handleJob(job *api.Job) {
 }
 
 func (w *worker) runClaimedJob(job *api.Job, jobID, runID, deliveryID string) string {
-	leaseUntil := time.Now().Add(dal.DefaultLeaseTTL)
+	leaseUntil := w.now().Add(dal.DefaultLeaseTTL)
 	claimed, claimToken, claimErr := w.store.TryClaim(w.runCtx, runID, w.workerID, leaseUntil)
 	if claimErr != nil {
 		w.noteDBError(claimErr)
@@ -692,7 +707,13 @@ func (w *worker) executeWithLeaseRenewal(runID, claimToken string, job *api.Job)
 	go w.leaseRenewalLoop(execCtx, runID, claimToken, stopRenew, doneRenew)
 
 	// Listen for remote cancel requests.
+	// Drain any stale cancel from a previous job so the buffer is free for this run.
+	select {
+	case <-w.cancelCh:
+	default:
+	}
 	stopCancel := make(chan struct{})
+	defer close(stopCancel)
 	go func() {
 		for {
 			select {
@@ -703,6 +724,8 @@ func (w *worker) executeWithLeaseRenewal(runID, claimToken string, job *api.Job)
 				}
 			case <-stopCancel:
 				return
+			case <-execCtx.Done():
+				return
 			}
 		}
 	}()
@@ -710,7 +733,6 @@ func (w *worker) executeWithLeaseRenewal(runID, claimToken string, job *api.Job)
 	err := w.executor.ExecuteJob(execCtx, job, w.logClient, w.logger)
 	close(stopRenew)
 	<-doneRenew
-	close(stopCancel)
 
 	return err
 }
@@ -740,7 +762,7 @@ func (w *worker) leaseRenewalLoop(
 		case <-execCtx.Done():
 			return
 		case <-ticker.C:
-			next := time.Now().Add(dal.DefaultLeaseTTL)
+			next := w.now().Add(dal.DefaultLeaseTTL)
 			if err := w.store.RenewLease(w.runCtx, runID, w.workerID, claimToken, next); err != nil {
 				w.noteDBError(err)
 				renewFailed = true

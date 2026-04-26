@@ -94,6 +94,8 @@ func (s *APIServer) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	req.Username = strings.TrimSpace(req.Username)
+
 	if req.Username == "" {
 		http.Error(w, "username is required", http.StatusBadRequest)
 		return
@@ -143,11 +145,6 @@ func (s *APIServer) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if p == nil {
-		writeAuthJSON(w, http.StatusUnauthorized, authAPIError{Error: AuthJSONAuthenticationRequired})
-		return
-	}
-
 	if !s.requireAuthRepo(w) {
 		return
 	}
@@ -170,7 +167,12 @@ func (s *APIServer) CreateUser(w http.ResponseWriter, r *http.Request) {
 
 	s.markDBRecovered()
 
-	s.auditLog(ctx, audit.EventUserCreated, p.LocalUserID, id, map[string]interface{}{
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	s.auditLog(ctx, audit.EventUserCreated, actorID, id, map[string]interface{}{
 		"username":           req.Username,
 		"generated_password": generated,
 	})
@@ -196,13 +198,8 @@ func (s *APIServer) ListUsers(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := s.handlerDBCtx(r)
 	defer cancel()
 
-	p, ok := s.requirePrincipal(w, r)
+	_, ok := s.requirePrincipal(w, r)
 	if !ok {
-		return
-	}
-
-	if p == nil {
-		writeAuthJSON(w, http.StatusUnauthorized, authAPIError{Error: AuthJSONAuthenticationRequired})
 		return
 	}
 
@@ -245,13 +242,8 @@ func (s *APIServer) GetUser(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := s.handlerDBCtx(r)
 	defer cancel()
 
-	p, ok := s.requirePrincipal(w, r)
+	_, ok := s.requirePrincipal(w, r)
 	if !ok {
-		return
-	}
-
-	if p == nil {
-		writeAuthJSON(w, http.StatusUnauthorized, authAPIError{Error: AuthJSONAuthenticationRequired})
 		return
 	}
 
@@ -328,17 +320,12 @@ func (s *APIServer) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if p == nil {
-		writeAuthJSON(w, http.StatusUnauthorized, authAPIError{Error: AuthJSONAuthenticationRequired})
-		return
-	}
-
 	if !s.requireAuthRepo(w) {
 		return
 	}
 
 	if !*req.Enabled {
-		if id == p.LocalUserID {
+		if p != nil && id == p.LocalUserID {
 			http.Error(w, "cannot disable yourself", http.StatusBadRequest)
 			return
 		}
@@ -389,9 +376,16 @@ func (s *APIServer) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.markDBRecovered()
-	s.auditLog(ctx, audit.EventUserUpdated, p.LocalUserID, id, map[string]interface{}{
+
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	s.auditLog(ctx, audit.EventUserUpdated, actorID, id, map[string]interface{}{
 		"enabled": *req.Enabled,
 	})
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -411,22 +405,12 @@ func (s *APIServer) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if p == nil {
-		writeAuthJSON(w, http.StatusUnauthorized, authAPIError{Error: AuthJSONAuthenticationRequired})
-		return
-	}
-
 	if !s.requireAuthRepo(w) {
 		return
 	}
 
-	if id == p.LocalUserID {
+	if p != nil && id == p.LocalUserID {
 		http.Error(w, "cannot delete yourself", http.StatusBadRequest)
-		return
-	}
-
-	if id == 1 {
-		http.Error(w, "cannot delete the break-glass admin", http.StatusBadRequest)
 		return
 	}
 
@@ -475,7 +459,13 @@ func (s *APIServer) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.markDBRecovered()
-	s.auditLog(ctx, audit.EventUserDeleted, p.LocalUserID, id, nil)
+
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	s.auditLog(ctx, audit.EventUserDeleted, actorID, id, nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -528,20 +518,19 @@ func (s *APIServer) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if p == nil {
-		writeAuthJSON(w, http.StatusUnauthorized, authAPIError{Error: AuthJSONAuthenticationRequired})
-		return
-	}
-
 	if !s.requireAuthRepo(w) {
 		return
 	}
 
-	targetUserID := p.LocalUserID
+	targetUserID := int64(0)
+	if p != nil {
+		targetUserID = p.LocalUserID
+	}
+
 	isAdmin := false
 
 	if req.UserID != nil {
-		if *req.UserID != p.LocalUserID {
+		if p == nil || *req.UserID != p.LocalUserID {
 			if !s.authorizeAction(ctx, w, p, authz.ActionUserAdmin, authz.Resource{}) {
 				return
 			}
@@ -555,10 +544,12 @@ func (s *APIServer) ChangePassword(w http.ResponseWriter, r *http.Request) {
 				writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
 				return
 			}
+
 			if !enabled {
 				http.Error(w, "user not found or disabled", http.StatusBadRequest)
 				return
 			}
+
 			isAdmin = true
 		}
 		targetUserID = *req.UserID
@@ -611,7 +602,13 @@ func (s *APIServer) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.markDBRecovered()
-	s.auditLog(ctx, audit.EventPasswordChanged, p.LocalUserID, targetUserID, map[string]interface{}{
+
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	s.auditLog(ctx, audit.EventPasswordChanged, actorID, targetUserID, map[string]interface{}{
 		"admin_override": isAdmin,
 	})
 	w.WriteHeader(http.StatusNoContent)

@@ -118,6 +118,7 @@ func (jb *JobBuffer) Broadcast(jobID string, entry LogEntry) {
 			ch <- data
 			continue
 		}
+
 		select {
 		case ch <- data:
 		default:
@@ -466,6 +467,7 @@ func (s *Server) tryInjectSyntheticCompletion(ctx context.Context, runID string,
 		}
 
 		s.logger.Warn("Failed to persist synthetic completion entry for run %s: %v", runID, err)
+		return false
 	}
 
 	if !buffer.Add(entry) {
@@ -585,7 +587,7 @@ func Run(ctx context.Context, logger interfaces.Logger, store RunLogStore, runs 
 	})
 
 	g.Go(func() error {
-		return server.RunSSE(ctx, config.LogWebSocketListenAddr())
+		return server.RunSSE(ctx, config.LogSSEListenAddr())
 	})
 
 	return g.Wait()

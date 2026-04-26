@@ -30,6 +30,12 @@ func (w *statusResponseWriter) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
+func (w *statusResponseWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
 func accessLogMiddleware(log *slog.Logger, skip func(*http.Request) bool, next http.Handler) http.Handler {
 	if log == nil {
 		return next

@@ -14,16 +14,16 @@ func TestSelectAuthorizer(t *testing.T) {
 		t.Fatal("before setup -> SetupPending")
 	}
 
-	if _, ok := SelectAuthorizer(true, "", nil, nil).(AuthenticatedFull); !ok {
-		t.Fatal("after setup with no engine -> AuthenticatedFull")
+	if _, ok := SelectAuthorizer(true, "", nil, nil).(DenyAll); !ok {
+		t.Fatal("after setup with no engine -> DenyAll")
 	}
 
 	if _, ok := SelectAuthorizer(true, "authenticated_full", nil, nil).(AuthenticatedFull); !ok {
 		t.Fatal("authenticated_full -> AuthenticatedFull")
 	}
 
-	if _, ok := SelectAuthorizer(true, "hierarchical_rbac", nil, nil).(AuthenticatedFull); !ok {
-		t.Fatal("hierarchical_rbac without repos -> AuthenticatedFull")
+	if _, ok := SelectAuthorizer(true, "hierarchical_rbac", nil, nil).(DenyAll); !ok {
+		t.Fatal("hierarchical_rbac without repos -> DenyAll")
 	}
 }
 
@@ -67,8 +67,9 @@ func TestAuthorizers_Allow_matrix(t *testing.T) {
 				if gotNil {
 					t.Fatal("must deny nil principal for non-setup actions")
 				}
-				if !gotUser {
-					t.Fatal("must allow authenticated principal")
+
+				if gotUser {
+					t.Fatal("must deny authenticated principal for non-setup actions while setup is pending")
 				}
 			}
 		})
@@ -89,9 +90,23 @@ func TestAuthorizers_Allow_matrix(t *testing.T) {
 				if gotNil {
 					t.Fatal("must deny nil principal")
 				}
+
 				if !gotUser {
 					t.Fatal("must allow authenticated principal")
 				}
+			}
+		})
+
+		t.Run("DenyAll/"+string(action), func(t *testing.T) {
+			t.Parallel()
+
+			var z DenyAll
+			if z.Allow(ctx, nil, action, Resource{}) {
+				t.Fatal("DenyAll must deny nil principal")
+			}
+
+			if z.Allow(ctx, user, action, Resource{}) {
+				t.Fatal("DenyAll must deny any authenticated principal")
 			}
 		})
 	}

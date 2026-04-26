@@ -72,6 +72,25 @@ func TestWorkerRegistryDialAddress_FallbackToListenAddr(t *testing.T) {
 	}
 }
 
+func TestWorkerRegisterWithRegistry_DefaultsTrue(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	if !WorkerRegisterWithRegistry() {
+		t.Fatalf("expected WorkerRegisterWithRegistry() to use defaults and return true")
+	}
+}
+
+func TestWorkerRegisterWithRegistry_OverrideFalse(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("worker.register_with_registry", false)
+
+	if WorkerRegisterWithRegistry() {
+		t.Fatalf("expected WorkerRegisterWithRegistry() to honor worker.register_with_registry=false")
+	}
+}
+
 func TestDiscovery_RegistryFallback(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)

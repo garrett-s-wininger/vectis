@@ -140,10 +140,16 @@ func (r *HierarchicalRBAC) tokenScopesAllow(ctx context.Context, p *authn.Princi
 			}
 
 			// Found the scope's namespace as an ancestor
-			// Check if inheritance is broken between ancestor and current
+			// Check if inheritance is broken strictly between ancestor and current
 			broken := false
+			started := false
 			for _, intermediatePath := range paths {
 				if intermediatePath == ancestorPath {
+					started = true
+					continue
+				}
+
+				if !started {
 					continue
 				}
 
@@ -207,21 +213,36 @@ func (r *HierarchicalRBAC) hasActionAnywhere(ctx context.Context, localUserID in
 }
 
 // SelectAuthorizer returns the authorizer for the current instance state.
+// DenyAll blocks every request. Used when authorization is misconfigured.
+type DenyAll struct{}
+
+func (DenyAll) Allow(_ context.Context, _ *authn.Principal, _ Action, _ Resource) bool {
+	return false
+}
+
 // Before initial setup completes, only [SetupPending] applies. After setup:
 //   - "hierarchical_rbac" uses [HierarchicalRBAC] when repositories are available.
 //   - "authenticated_full" uses [AuthenticatedFull] (any authenticated principal).
-//   - Any other engine falls back to [AuthenticatedFull] when repositories are unavailable.
+//   - Any other configuration falls back to [DenyAll] to fail closed.
 func SelectAuthorizer(setupComplete bool, engine string, namespaces dal.NamespacesRepository, roleBindings dal.RoleBindingsRepository) Authorizer {
 	if !setupComplete {
 		return SetupPending{}
 	}
 
-	if engine == "hierarchical_rbac" && namespaces != nil && roleBindings != nil {
-		return &HierarchicalRBAC{
-			Namespaces:   namespaces,
-			RoleBindings: roleBindings,
+	if engine == "hierarchical_rbac" {
+		if namespaces != nil && roleBindings != nil {
+			return &HierarchicalRBAC{
+				Namespaces:   namespaces,
+				RoleBindings: roleBindings,
+			}
 		}
+
+		return DenyAll{}
 	}
 
-	return AuthenticatedFull{}
+	if engine == "authenticated_full" {
+		return AuthenticatedFull{}
+	}
+
+	return DenyAll{}
 }

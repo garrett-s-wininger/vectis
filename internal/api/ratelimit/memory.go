@@ -30,10 +30,11 @@ type bucket struct {
 
 // MemoryRateLimiter is an in-memory token bucket rate limiter.
 type MemoryRateLimiter struct {
-	buckets map[string]*bucket
-	mu      sync.RWMutex
-	clock   clock
-	done    chan struct{}
+	buckets  map[string]*bucket
+	mu       sync.RWMutex
+	clock    clock
+	done     chan struct{}
+	stopOnce sync.Once
 }
 
 // NewMemoryRateLimiter creates a new in-memory rate limiter.
@@ -53,7 +54,7 @@ func newMemoryRateLimiterWithClock(c clock) *MemoryRateLimiter {
 
 // Stop shuts down the background cleanup goroutine.
 func (r *MemoryRateLimiter) Stop() {
-	close(r.done)
+	r.stopOnce.Do(func() { close(r.done) })
 }
 
 // Allow checks if the request identified by key is within rate limits.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -124,6 +125,14 @@ WHERE id = 1 AND setup_completed_at IS NULL`),
 		return 0, ErrSetupAlreadyComplete
 	}
 
+	var rootNsID int64
+	if err := tx.QueryRowContext(ctx,
+		rebindQueryForPgx(`SELECT id FROM namespaces WHERE path = ?`),
+		"/",
+	).Scan(&rootNsID); err != nil {
+		return 0, fmt.Errorf("lookup root namespace: %w", normalizeSQLError(err))
+	}
+
 	var id int64
 	if err := tx.QueryRowContext(ctx,
 		rebindQueryForPgx(`INSERT INTO local_users (username, password_hash) VALUES (?, ?) RETURNING id`),
@@ -141,7 +150,7 @@ WHERE id = 1 AND setup_completed_at IS NULL`),
 
 	if _, err := tx.ExecContext(ctx,
 		rebindQueryForPgx(`INSERT INTO role_bindings (local_user_id, namespace_id, role) VALUES (?, ?, ?)`),
-		id, 1, "admin",
+		id, rootNsID, "admin",
 	); err != nil {
 		return 0, normalizeSQLError(err)
 	}
@@ -668,10 +677,16 @@ func (r *SQLAuthRepository) InsertAuditEvents(ctx context.Context, events []*Aud
 	defer func() { _ = tx.Rollback() }()
 
 	for _, event := range events {
+		createdAt := event.CreatedAt
+		if !createdAt.Valid {
+			createdAt = sql.NullTime{Time: time.Now().UTC(), Valid: true}
+		}
+
 		_, err := tx.ExecContext(ctx,
-			rebindQueryForPgx(`INSERT INTO audit_log (event_type, actor_id, target_id, metadata, ip_address, correlation_id) VALUES (?, ?, ?, ?, ?, ?)`),
-			event.Type, event.ActorID, event.TargetID, event.Metadata, event.IPAddress, event.CorrelationID,
+			rebindQueryForPgx(`INSERT INTO audit_log (event_type, actor_id, target_id, metadata, ip_address, correlation_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`),
+			event.Type, event.ActorID, event.TargetID, event.Metadata, event.IPAddress, event.CorrelationID, createdAt,
 		)
+
 		if err != nil {
 			return normalizeSQLError(err)
 		}

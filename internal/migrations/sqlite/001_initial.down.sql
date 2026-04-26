@@ -1,3 +1,6 @@
+DROP INDEX IF EXISTS idx_audit_log_event_type;
+DROP INDEX IF EXISTS idx_audit_log_actor_id;
+DROP INDEX IF EXISTS idx_audit_log_created_at;
 DROP INDEX IF EXISTS idx_audit_log_target_id;
 DROP INDEX IF EXISTS idx_job_runs_status;
 DROP INDEX IF EXISTS idx_job_runs_lease_until;
@@ -5,6 +8,8 @@ DROP INDEX IF EXISTS idx_job_runs_status_dispatched;
 DROP INDEX IF EXISTS idx_stored_jobs_namespace;
 DROP INDEX IF EXISTS idx_role_bindings_user;
 DROP INDEX IF EXISTS idx_role_bindings_namespace;
+DROP TABLE IF EXISTS audit_log;
+DROP TABLE IF EXISTS api_token_scopes;
 DROP TABLE IF EXISTS role_bindings;
 DROP TABLE IF EXISTS api_tokens;
 DROP TABLE IF EXISTS local_users;

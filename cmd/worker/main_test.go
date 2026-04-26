@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"sync"
@@ -18,6 +19,7 @@ import (
 	"vectis/internal/job"
 	"vectis/internal/testutil/dbtest"
 
+	"github.com/spf13/viper"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -986,5 +988,56 @@ func TestForwarderSocketPath_FallsBackToTempDir(t *testing.T) {
 	}
 	if !strings.Contains(got, fmt.Sprintf("vectis-%d", os.Getuid())) {
 		t.Fatalf("forwarderSocketPath() = %q, expected user-isolated directory", got)
+	}
+}
+
+func TestStartControlListener_StaticReturnsDialableAddress(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	viper.Set("worker.control.mode", "static")
+	viper.Set("control_port", 0)
+
+	ln, addr, err := startControlListener(mocks.NewMockLogger())
+	if err != nil {
+		t.Fatalf("startControlListener(static): %v", err)
+	}
+	defer ln.Close()
+
+	if strings.HasPrefix(addr, ":") {
+		t.Fatalf("expected dialable host:port address, got %q", addr)
+	}
+
+	conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
+	if err != nil {
+		t.Fatalf("expected returned address to be dialable, got error: %v", err)
+	}
+	_ = conn.Close()
+}
+
+func TestStartControlListener_RangeUsesConfiguredPort(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	// Reserve one port so the listener picks the next one in range.
+	blocker, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatalf("reserve port: %v", err)
+	}
+	defer blocker.Close()
+
+	blockedPort := blocker.Addr().(*net.TCPAddr).Port
+	viper.Set("worker.control.mode", "range")
+	viper.Set("control_port_min", blockedPort)
+	viper.Set("control_port_max", blockedPort+1)
+
+	ln, addr, err := startControlListener(mocks.NewMockLogger())
+	if err != nil {
+		t.Fatalf("startControlListener(range): %v", err)
+	}
+	defer ln.Close()
+
+	if !strings.Contains(addr, fmt.Sprintf(":%d", blockedPort+1)) {
+		t.Fatalf("expected listener to use port %d, got %q", blockedPort+1, addr)
 	}
 }

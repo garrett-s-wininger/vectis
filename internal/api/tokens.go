@@ -85,16 +85,15 @@ func (s *APIServer) ListTokens(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if p == nil {
-		writeAuthJSON(w, http.StatusUnauthorized, authAPIError{Error: AuthJSONAuthenticationRequired})
-		return
-	}
-
 	if !s.requireAuthRepo(w) {
 		return
 	}
 
-	targetUserID := p.LocalUserID
+	targetUserID := int64(0)
+	if p != nil {
+		targetUserID = p.LocalUserID
+	}
+
 	if userIDStr := r.URL.Query().Get("user_id"); userIDStr != "" {
 		uid, err := strconv.ParseInt(userIDStr, 10, 64)
 		if err != nil || uid <= 0 {
@@ -102,7 +101,7 @@ func (s *APIServer) ListTokens(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if uid != p.LocalUserID {
+		if p == nil || uid != p.LocalUserID {
 			if !s.authorizeAction(ctx, w, p, authz.ActionUserAdmin, authz.Resource{}) {
 				return
 			}
@@ -195,18 +194,17 @@ func (s *APIServer) CreateToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if p == nil {
-		writeAuthJSON(w, http.StatusUnauthorized, authAPIError{Error: AuthJSONAuthenticationRequired})
-		return
-	}
-
 	if !s.requireAuthRepo(w) {
 		return
 	}
 
-	targetUserID := p.LocalUserID
+	targetUserID := int64(0)
+	if p != nil {
+		targetUserID = p.LocalUserID
+	}
+
 	if req.UserID != nil {
-		if *req.UserID != p.LocalUserID {
+		if p == nil || *req.UserID != p.LocalUserID {
 			if !s.authorizeAction(ctx, w, p, authz.ActionUserAdmin, authz.Resource{}) {
 				return
 			}
@@ -232,7 +230,7 @@ func (s *APIServer) CreateToken(w http.ResponseWriter, r *http.Request) {
 		targetUserID = *req.UserID
 	}
 
-	if len(p.TokenScopes) > 0 && len(req.Scopes) == 0 {
+	if p != nil && len(p.TokenScopes) > 0 && len(req.Scopes) == 0 {
 		http.Error(w, "scoped tokens must create explicitly scoped tokens", http.StatusForbidden)
 		return
 	}
@@ -328,7 +326,12 @@ func (s *APIServer) CreateToken(w http.ResponseWriter, r *http.Request) {
 
 	s.markDBRecovered()
 
-	s.auditLog(ctx, audit.EventTokenCreated, p.LocalUserID, id, map[string]interface{}{
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	s.auditLog(ctx, audit.EventTokenCreated, actorID, id, map[string]interface{}{
 		"label":       req.Label,
 		"expires_in":  req.ExpiresIn,
 		"target_user": targetUserID,
@@ -369,11 +372,6 @@ func (s *APIServer) DeleteToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if p == nil {
-		writeAuthJSON(w, http.StatusUnauthorized, authAPIError{Error: AuthJSONAuthenticationRequired})
-		return
-	}
-
 	if !s.requireAuthRepo(w) {
 		return
 	}
@@ -394,7 +392,7 @@ func (s *APIServer) DeleteToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if ownerID != p.LocalUserID {
+	if p == nil || ownerID != p.LocalUserID {
 		if !s.authorizeAction(ctx, w, p, authz.ActionUserAdmin, authz.Resource{}) {
 			return
 		}
@@ -416,8 +414,15 @@ func (s *APIServer) DeleteToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.markDBRecovered()
-	s.auditLog(ctx, audit.EventTokenDeleted, p.LocalUserID, id, map[string]interface{}{
+
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	s.auditLog(ctx, audit.EventTokenDeleted, actorID, id, map[string]interface{}{
 		"owner_id": ownerID,
 	})
+
 	w.WriteHeader(http.StatusNoContent)
 }

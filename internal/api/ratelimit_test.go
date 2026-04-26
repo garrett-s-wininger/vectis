@@ -104,9 +104,9 @@ func TestRateLimiting_endToEnd(t *testing.T) {
 	})
 
 	t.Run("auth_endpoint_rate_limited", func(t *testing.T) {
-		// Auth endpoints have burst=5. The setup request consumed 1 token,
-		// so 4 more should succeed, then the 5th should be rate limited.
-		for i := 0; i < 4; i++ {
+		// Auth endpoints have burst=5 and each route has its own bucket.
+		// Exhaust the bucket for /api/v1/setup/status with 5 requests.
+		for i := 0; i < 5; i++ {
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/setup/status", nil)
 			h.ServeHTTP(rec, req)
@@ -115,7 +115,7 @@ func TestRateLimiting_endToEnd(t *testing.T) {
 			}
 		}
 
-		// 5th request should be rate limited (setup + 4 = 5 consumed, burst=5)
+		// 6th request to the same route should be rate limited.
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/setup/status", nil)
 		h.ServeHTTP(rec, req)

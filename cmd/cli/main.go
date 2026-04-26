@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -46,8 +47,10 @@ func newAPIRequest(method, path string, body io.Reader) (*http.Request, error) {
 	return req, nil
 }
 
+var apiHTTPClient = &http.Client{Timeout: 30 * time.Second}
+
 func doAPIRequest(req *http.Request) (*http.Response, error) {
-	return http.DefaultClient.Do(req)
+	return apiHTTPClient.Do(req)
 }
 
 func cliTokenFilePath() (string, error) {
@@ -154,6 +157,7 @@ func runLogStream(runID string, filterStdout, filterStderr bool) error {
 
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(interrupt)
 
 	done := make(chan struct{})
 	readErr := make(chan error, 1)
@@ -335,6 +339,7 @@ func runContinuousLogs(jobID string, filterStdout, filterStderr bool) error {
 
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(interrupt)
 
 	type runEvent struct {
 		RunID    string `json:"run_id"`

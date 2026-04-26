@@ -434,7 +434,7 @@ func TestExecutor_ExecuteJob_WorkspaceCreationAndCleanup(t *testing.T) {
 		},
 	}
 
-	expectedPrefix := filepath.Join(os.TempDir(), "vectis-"+jobID+"-")
+	expectedPrefix := filepath.Join(os.TempDir(), "vectis-"+runID+"-")
 
 	err := executor.ExecuteJob(context.Background(), testJob, mockLogClient, mockLogger)
 	if err != nil {

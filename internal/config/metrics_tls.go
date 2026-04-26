@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -109,6 +110,7 @@ func MetricsHTTPSListener(ln net.Listener) (net.Listener, error) {
 
 	cfg, err := r.ServerTLS()
 	if err != nil {
+		_ = ln.Close()
 		return nil, err
 	}
 
@@ -130,5 +132,10 @@ func StartMetricsTLSReloadLoop(ctx context.Context) {
 		return
 	}
 
-	go func() { _ = r.RunReloadLoop(ctx, interval) }()
+	go func() {
+		if err := r.RunReloadLoop(ctx, interval); err != nil {
+			// Best-effort logging via stderr since we don't have a logger here.
+			_, _ = fmt.Fprintf(os.Stderr, "metrics TLS reload loop error: %v\n", err)
+		}
+	}()
 }

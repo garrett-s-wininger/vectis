@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	api "vectis/api/gen/go"
@@ -25,6 +26,7 @@ type Service struct {
 	clock       interfaces.Clock
 	minGap      time.Duration
 	dbDown      bool
+	dbMu        sync.Mutex
 }
 
 func NewService(logger interfaces.Logger, db *sql.DB, queue interfaces.QueueService, clock interfaces.Clock) *Service {
@@ -112,6 +114,9 @@ func (s *Service) noteDBUnavailable(err error) {
 		return
 	}
 
+	s.dbMu.Lock()
+	defer s.dbMu.Unlock()
+
 	if !s.dbDown {
 		s.dbDown = true
 		s.logger.Warn("reconciler: database unavailable; skipping processing until recovery: %v", err)
@@ -119,6 +124,9 @@ func (s *Service) noteDBUnavailable(err error) {
 }
 
 func (s *Service) noteDBRecovered() {
+	s.dbMu.Lock()
+	defer s.dbMu.Unlock()
+
 	if s.dbDown {
 		s.dbDown = false
 		s.logger.Info("reconciler: database connectivity recovered; resuming processing")

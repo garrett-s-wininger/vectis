@@ -16,6 +16,11 @@ func writeAuthJSON(w http.ResponseWriter, status int, v any) {
 	h.Set("Content-Type", "application/json; charset=utf-8")
 	h.Set("Cache-Control", "no-store")
 	h.Set("X-Content-Type-Options", "nosniff")
+
+	if status == http.StatusUnauthorized {
+		h.Set("WWW-Authenticate", "Bearer")
+	}
+
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }

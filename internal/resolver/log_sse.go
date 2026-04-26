@@ -45,7 +45,7 @@ func ResolveLogSSEAddress(ctx context.Context, logger interfaces.Logger, registr
 		host = grpcAddr
 	}
 
-	ssePort := config.LogWebSocketPort()
+	ssePort := config.LogSSEPort()
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", ssePort))
 	logger.Debug("resolver: derived log SSE address %s from registry gRPC address %s", addr, grpcAddr)
 	return addr, nil

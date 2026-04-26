@@ -34,6 +34,7 @@ type queueServer struct {
 	size               int
 	inflight           map[string]inflightDelivery
 	deadLetter         []deadLetterItem
+	jobAttempts        map[string]int // keyed by job ID, tracks delivery attempts across requeues
 	deliveryTTL        time.Duration
 	maxRequeueAttempts int
 	mu                 sync.Mutex
@@ -83,6 +84,7 @@ func newQueueServer(logger interfaces.Logger, opts QueueOptions, metrics *observ
 		size:               0,
 		inflight:           make(map[string]inflightDelivery),
 		deadLetter:         make([]deadLetterItem, 0),
+		jobAttempts:        make(map[string]int),
 		deliveryTTL:        ttl,
 		maxRequeueAttempts: maxAttempts,
 		notify:             make(chan struct{}, 1),
@@ -90,7 +92,7 @@ func newQueueServer(logger interfaces.Logger, opts QueueOptions, metrics *observ
 		metrics:            metrics,
 	}
 
-	store, state, err := newPersistenceStore(opts.PersistenceDir, opts.SnapshotEvery, opts.WALSegmentMax, opts.WALRetainTail)
+	store, state, err := newPersistenceStore(opts.PersistenceDir, opts.SnapshotEvery, opts.WALSegmentMax, opts.WALRetainTail, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -104,6 +106,15 @@ func newQueueServer(logger interfaces.Logger, opts QueueOptions, metrics *observ
 	if len(state.inflight) > 0 {
 		s.inflight = state.inflight
 		s.log.Info("Restored %d in-flight delivery(s) from queue persistence", len(state.inflight))
+	}
+
+	if len(state.deadLetter) > 0 {
+		s.deadLetter = state.deadLetter
+		s.log.Info("Restored %d dead letter item(s) from queue persistence", len(state.deadLetter))
+	}
+
+	if len(state.jobAttempts) > 0 {
+		s.jobAttempts = state.jobAttempts
 	}
 
 	return s, nil
@@ -169,33 +180,32 @@ func (s *queueServer) Dequeue(ctx context.Context, _ *api.Empty) (*api.Job, erro
 		s.mu.Lock()
 	}
 
-	if s.size == 0 {
-		return nil, nil
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	job := s.jobs[s.head]
 	deliveryID := uuid.NewString()
 	leaseUntil := time.Now().UTC().Add(s.deliveryTTL)
-
-	s.inflight[deliveryID] = inflightDelivery{Job: job, LeaseUntil: leaseUntil, AttemptCount: 0}
-
-	s.inflight[deliveryID] = inflightDelivery{Job: job, LeaseUntil: leaseUntil, AttemptCount: 0}
+	attemptCount := s.jobAttempts[job.GetId()]
 
 	if s.persistence != nil {
-		if err := s.persistence.appendDeliver(deliveryID, leaseUntil, s.snapshotAfterDeliverLocked(deliveryID, job, leaseUntil, 0)); err != nil {
-			return nil, fmt.Errorf("persist trydequeue delivery: %w", err)
+		if err := s.persistence.appendDeliver(deliveryID, leaseUntil, attemptCount, s.snapshotAfterDeliverLocked(deliveryID, job, leaseUntil, attemptCount)); err != nil {
+			return nil, fmt.Errorf("persist dequeue delivery: %w", err)
 		}
 	}
 
 	s.jobs[s.head] = nil
 	s.head = (s.head + 1) % len(s.jobs)
 	s.size--
+	s.inflight[deliveryID] = inflightDelivery{Job: job, LeaseUntil: leaseUntil, AttemptCount: attemptCount}
 
 	job.DeliveryId = &deliveryID
 	s.log.Info("Dequeued job: %s (delivery %s)", job.GetId(), deliveryID)
 	if s.metrics != nil {
 		s.metrics.RecordDequeued(ctx)
 	}
+
 	return job, nil
 }
 
@@ -213,11 +223,10 @@ func (s *queueServer) TryDequeue(ctx context.Context, _ *api.Empty) (*api.Job, e
 	job := s.jobs[s.head]
 	deliveryID := uuid.NewString()
 	leaseUntil := time.Now().UTC().Add(s.deliveryTTL)
-
-	s.inflight[deliveryID] = inflightDelivery{Job: job, LeaseUntil: leaseUntil, AttemptCount: 0}
+	attemptCount := s.jobAttempts[job.GetId()]
 
 	if s.persistence != nil {
-		if err := s.persistence.appendDeliver(deliveryID, leaseUntil, s.snapshotAfterDeliverLocked(deliveryID, job, leaseUntil, 0)); err != nil {
+		if err := s.persistence.appendDeliver(deliveryID, leaseUntil, attemptCount, s.snapshotAfterDeliverLocked(deliveryID, job, leaseUntil, attemptCount)); err != nil {
 			return nil, fmt.Errorf("persist trydequeue delivery: %w", err)
 		}
 	}
@@ -225,12 +234,14 @@ func (s *queueServer) TryDequeue(ctx context.Context, _ *api.Empty) (*api.Job, e
 	s.jobs[s.head] = nil
 	s.head = (s.head + 1) % len(s.jobs)
 	s.size--
+	s.inflight[deliveryID] = inflightDelivery{Job: job, LeaseUntil: leaseUntil, AttemptCount: attemptCount}
 
 	job.DeliveryId = &deliveryID
 	s.log.Info("TryDequeue returned job: %s (delivery %s)", job.GetId(), deliveryID)
 	if s.metrics != nil {
 		s.metrics.RecordDequeued(ctx)
 	}
+
 	return job, nil
 }
 
@@ -248,6 +259,10 @@ func (s *queueServer) Ack(ctx context.Context, req *api.AckRequest) (*api.Empty,
 
 	if _, ok := s.inflight[deliveryID]; !ok {
 		return &api.Empty{}, nil
+	}
+
+	if item, ok := s.inflight[deliveryID]; ok {
+		delete(s.jobAttempts, item.Job.GetId())
 	}
 
 	if s.persistence != nil {
@@ -271,30 +286,50 @@ func (s *queueServer) pendingJobsLocked() []*api.Job {
 func (s *queueServer) snapshotAfterEnqueueLocked(job *api.Job) snapshotState {
 	pending := s.pendingJobsLocked()
 	pending = append(pending, job)
-	return snapshotState{pending: pending, inflight: s.copyInflightLocked()}
+	return snapshotState{pending: pending, inflight: s.copyInflightLocked(), deadLetter: s.copyDeadLetterLocked(), jobAttempts: s.copyJobAttemptsLocked()}
 }
 
 func (s *queueServer) snapshotAfterDeliverLocked(deliveryID string, job *api.Job, leaseUntil time.Time, attemptCount int) snapshotState {
-	pending := make([]*api.Job, 0, s.size-1)
+	capHint := s.size - 1
+	if capHint < 0 {
+		capHint = 0
+	}
+
+	pending := make([]*api.Job, 0, capHint)
 	for i := 1; i < s.size; i++ {
 		pending = append(pending, s.jobs[(s.head+i)%len(s.jobs)])
 	}
 
 	inflight := s.copyInflightLocked()
 	inflight[deliveryID] = inflightDelivery{Job: job, LeaseUntil: leaseUntil, AttemptCount: attemptCount}
-	return snapshotState{pending: pending, inflight: inflight}
+	return snapshotState{pending: pending, inflight: inflight, deadLetter: s.copyDeadLetterLocked(), jobAttempts: s.copyJobAttemptsLocked()}
 }
 
 func (s *queueServer) snapshotAfterAckLocked(deliveryID string) snapshotState {
 	inflight := s.copyInflightLocked()
 	delete(inflight, deliveryID)
 
-	return snapshotState{pending: s.pendingJobsLocked(), inflight: inflight}
+	return snapshotState{pending: s.pendingJobsLocked(), inflight: inflight, deadLetter: s.copyDeadLetterLocked(), jobAttempts: s.copyJobAttemptsLocked()}
 }
 
 func (s *queueServer) copyInflightLocked() map[string]inflightDelivery {
 	out := make(map[string]inflightDelivery, len(s.inflight))
 	maps.Copy(out, s.inflight)
+
+	return out
+}
+
+func (s *queueServer) copyDeadLetterLocked() []deadLetterItem {
+	out := make([]deadLetterItem, len(s.deadLetter))
+	copy(out, s.deadLetter)
+	return out
+}
+
+func (s *queueServer) copyJobAttemptsLocked() map[string]int {
+	out := make(map[string]int, len(s.jobAttempts))
+	for k, v := range s.jobAttempts {
+		out[k] = v
+	}
 
 	return out
 }
@@ -305,7 +340,29 @@ func (s *queueServer) snapshotAfterExpiredRequeueLocked(deliveryID string, item 
 
 	inflight := s.copyInflightLocked()
 	delete(inflight, deliveryID)
-	return snapshotState{pending: pending, inflight: inflight}
+	return snapshotState{pending: pending, inflight: inflight, deadLetter: s.copyDeadLetterLocked(), jobAttempts: s.copyJobAttemptsLocked()}
+}
+
+func (s *queueServer) snapshotAfterDLQLocked(deliveryID string, item inflightDelivery) snapshotState {
+	pending := s.pendingJobsLocked()
+
+	inflight := s.copyInflightLocked()
+	delete(inflight, deliveryID)
+	return snapshotState{pending: pending, inflight: inflight, deadLetter: s.copyDeadLetterLocked(), jobAttempts: s.copyJobAttemptsLocked()}
+}
+
+func (s *queueServer) snapshotAfterDLQRequeueLocked(deliveryID string, item deadLetterItem) snapshotState {
+	pending := s.pendingJobsLocked()
+	pending = append(pending, item.job)
+
+	deadLetter := make([]deadLetterItem, 0, len(s.deadLetter))
+	for _, dl := range s.deadLetter {
+		if dl.deliveryID != deliveryID {
+			deadLetter = append(deadLetter, dl)
+		}
+	}
+
+	return snapshotState{pending: pending, inflight: s.copyInflightLocked(), deadLetter: deadLetter, jobAttempts: s.copyJobAttemptsLocked()}
 }
 
 func (s *queueServer) requeueExpiredLocked(now time.Time) error {
@@ -314,20 +371,32 @@ func (s *queueServer) requeueExpiredLocked(now time.Time) error {
 			continue
 		}
 
-		item.AttemptCount++
-		if item.AttemptCount > s.maxRequeueAttempts {
+		jobID := item.Job.GetId()
+		s.jobAttempts[jobID]++
+		attemptCount := s.jobAttempts[jobID]
+
+		if attemptCount > s.maxRequeueAttempts {
 			// Move to dead letter queue.
 			s.deadLetter = append(s.deadLetter, deadLetterItem{
 				deliveryID:   deliveryID,
 				job:          item.Job,
-				attemptCount: item.AttemptCount,
+				attemptCount: attemptCount,
 			})
 			delete(s.inflight, deliveryID)
+			delete(s.jobAttempts, jobID)
 			s.log.Error("Delivery %s for job %s exceeded max requeue attempts (%d); moved to DLQ",
-				deliveryID, item.Job.GetId(), s.maxRequeueAttempts)
+				deliveryID, jobID, s.maxRequeueAttempts)
+
 			if s.metrics != nil {
 				s.metrics.RecordDLQMoved(context.Background())
 			}
+
+			if s.persistence != nil {
+				if err := s.persistence.appendDLQ(deliveryID, item.Job, attemptCount, s.snapshotAfterDLQLocked(deliveryID, item)); err != nil {
+					return fmt.Errorf("persist dlq move %s: %w", deliveryID, err)
+				}
+			}
+
 			continue
 		}
 
@@ -345,7 +414,7 @@ func (s *queueServer) requeueExpiredLocked(now time.Time) error {
 		s.jobs[tail] = item.Job
 		s.size++
 		delete(s.inflight, deliveryID)
-		s.log.Warn("Re-queued expired delivery %s for job %s (attempt %d)", deliveryID, item.Job.GetId(), item.AttemptCount)
+		s.log.Warn("Re-queued expired delivery %s for job %s (attempt %d)", deliveryID, jobID, attemptCount)
 
 		select {
 		case s.notify <- struct{}{}:
@@ -424,7 +493,16 @@ func (s *queueServer) RequeueDeadLetter(ctx context.Context, req *api.RequeueDea
 			s.jobs[tail] = item.job
 			s.size++
 			s.deadLetter = append(s.deadLetter[:i], s.deadLetter[i+1:]...)
+
+			delete(s.jobAttempts, item.job.GetId())
 			s.log.Info("Requeued dead letter delivery %s for job %s", deliveryID, item.job.GetId())
+
+			if s.persistence != nil {
+				if err := s.persistence.appendDLQRequeue(deliveryID, item.job, s.snapshotAfterDLQRequeueLocked(deliveryID, item)); err != nil {
+					return nil, fmt.Errorf("persist dlq requeue %s: %w", deliveryID, err)
+				}
+			}
+
 			if s.metrics != nil {
 				s.metrics.RecordDLQRequeued(ctx)
 			}

@@ -368,3 +368,32 @@ func TestHierarchicalRBAC_TokenScopesCannotExpandPermissions(t *testing.T) {
 		t.Fatal("token scopes must not grant global user admin")
 	}
 }
+
+func TestHierarchicalRBAC_TokenScopesBreakInheritanceOnAncestorAboveScope(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	ns := newMockNamespacesRepo()
+	ns.add(1, "root", "/", nil, true) // break inheritance at root
+	ns.add(2, "team-a", "/team-a", &[]int64{1}[0], false)
+	ns.add(3, "project-1", "/team-a/project-1", &[]int64{2}[0], false)
+
+	// Give the user a base role that allows the action.
+	rb := newMockRoleBindingsRepo()
+	rb.add(42, 1, RoleViewer)
+	z := &HierarchicalRBAC{Namespaces: ns, RoleBindings: rb}
+	p := &authn.Principal{
+		LocalUserID: 42,
+		Username:    "viewer",
+		TokenScopes: []authn.TokenScope{
+			{Action: string(ActionJobRead), NamespaceID: 2, Propagate: true},
+		},
+	}
+
+	// Scope granted at /team-a should propagate to /team-a/project-1
+	// even though root has break_inheritance, because the scope is
+	// explicitly granted below root.
+	if !z.Allow(ctx, p, ActionJobRead, Resource{NamespacePath: "/team-a/project-1"}) {
+		t.Fatal("propagating scope on team-a should allow access to project-1 despite break_inheritance on root")
+	}
+}

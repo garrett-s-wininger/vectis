@@ -2,6 +2,8 @@ package registry
 
 import (
 	"context"
+	"fmt"
+	"sort"
 	"sync"
 
 	api "vectis/api/gen/go"
@@ -38,7 +40,7 @@ func (s *registryServer) Register(ctx context.Context, req *api.Registration) (*
 	defer s.reg.mu.Unlock()
 
 	if req.Component == nil || req.Address == nil {
-		return &api.Empty{}, nil
+		return nil, fmt.Errorf("component and address are required")
 	}
 
 	comp := *req.Component
@@ -67,13 +69,13 @@ func (s *registryServer) GetAddress(ctx context.Context, req *api.AddressRequest
 	s.reg.mu.RLock()
 	defer s.reg.mu.RUnlock()
 
-	var address string
 	if req.Component == nil {
-		return &api.AddressResponse{Address: &address}, nil
+		return nil, fmt.Errorf("component is required")
 	}
 
 	comp := *req.Component
 	instanceID := req.GetInstanceId()
+	var address string
 
 	if instanceID != "" {
 		// Exact lookup by instance ID
@@ -82,12 +84,16 @@ func (s *registryServer) GetAddress(ctx context.Context, req *api.AddressRequest
 			address = entry.address
 		}
 	} else {
-		// Return first match for this component type
-		for _, entry := range s.reg.registrations {
+		// Return first match for this component type (sorted by instance ID for determinism).
+		var matches []string
+		for key, entry := range s.reg.registrations {
 			if entry.component == comp {
-				address = entry.address
-				break
+				matches = append(matches, key)
 			}
+		}
+		sort.Strings(matches)
+		if len(matches) > 0 {
+			address = s.reg.registrations[matches[0]].address
 		}
 	}
 

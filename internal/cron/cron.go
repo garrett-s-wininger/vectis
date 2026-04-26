@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -35,6 +36,7 @@ type CronService struct {
 	queueClose  func()
 	parser      cron.Parser
 	clock       interfaces.Clock
+	mu          sync.Mutex
 }
 
 func NewCronService(logger interfaces.Logger, db *sql.DB) *CronService {
@@ -59,6 +61,8 @@ func NewCronServiceWithRepositories(
 }
 
 func (s *CronService) SetQueueClient(client interfaces.QueueService) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.queueClose != nil {
 		s.queueClose()
 		s.queueClose = nil
@@ -72,6 +76,8 @@ func (s *CronService) SetClock(clock interfaces.Clock) {
 }
 
 func (s *CronService) CloseQueueDial() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.queueClose != nil {
 		s.queueClose()
 		s.queueClose = nil
@@ -79,7 +85,12 @@ func (s *CronService) CloseQueueDial() {
 }
 
 func (s *CronService) ConnectToQueue(ctx context.Context) error {
-	s.CloseQueueDial()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.queueClose != nil {
+		s.queueClose()
+		s.queueClose = nil
+	}
 	s.queueClient = nil
 
 	pin := config.CronQueueAddress()
@@ -172,7 +183,10 @@ func (s *CronService) TriggerJob(ctx context.Context, jobID string) error {
 	}
 
 	job.RunId = &runID
-	if err := queueclient.EnqueueWithRetry(ctx, s.queueClient, job, s.logger); err != nil {
+	s.mu.Lock()
+	qc := s.queueClient
+	s.mu.Unlock()
+	if err := queueclient.EnqueueWithRetry(ctx, qc, job, s.logger); err != nil {
 		return err
 	}
 

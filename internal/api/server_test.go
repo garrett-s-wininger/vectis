@@ -278,8 +278,8 @@ func TestAPIServer_CreateJob_DuplicateJobID(t *testing.T) {
 	rec2 := httptest.NewRecorder()
 	server.CreateJob(rec2, req2)
 
-	if rec2.Code != http.StatusInternalServerError {
-		t.Errorf("expected status %d for duplicate, got %d", http.StatusInternalServerError, rec2.Code)
+	if rec2.Code != http.StatusConflict {
+		t.Errorf("expected status %d for duplicate, got %d", http.StatusConflict, rec2.Code)
 	}
 }
 

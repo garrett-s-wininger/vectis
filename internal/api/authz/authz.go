@@ -128,7 +128,7 @@ func (SetupPending) Allow(_ context.Context, p *authn.Principal, action Action, 
 	case ActionSetupStatus, ActionSetupComplete:
 		return true
 	default:
-		return p != nil
+		return false
 	}
 }
 

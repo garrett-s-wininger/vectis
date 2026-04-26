@@ -25,6 +25,9 @@ func (r *DALRepository) InsertAuditEvents(ctx context.Context, events []Event) e
 			IPAddress:     event.IPAddress,
 			CorrelationID: event.CorrelationID,
 		}
+		if !event.Timestamp.IsZero() {
+			rec.CreatedAt = sql.NullTime{Time: event.Timestamp, Valid: true}
+		}
 
 		if event.ActorID > 0 {
 			rec.ActorID = sql.NullInt64{Int64: event.ActorID, Valid: true}

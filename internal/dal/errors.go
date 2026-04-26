@@ -1,6 +1,7 @@
 package dal
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -26,6 +27,10 @@ func IsInvalidNamespaceName(err error) bool {
 func normalizeSQLError(err error) error {
 	if err == nil {
 		return nil
+	}
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: %v", ErrNotFound, err)
 	}
 
 	lower := strings.ToLower(err.Error())

@@ -331,7 +331,7 @@ func isPermanentSpoolError(err error) bool {
 	}
 
 	s := err.Error()
-	return containsAny(s, []string{"crc mismatch", "unmarshal chunk", "unsupported spool version", "invalid spool magic", "spool batch count", "EOF"})
+	return containsAny(s, []string{"crc mismatch", "unmarshal chunk", "unsupported spool version", "invalid spool magic", "spool batch count", "read magic"})
 }
 
 func containsAny(s string, subs []string) bool {

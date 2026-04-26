@@ -351,27 +351,10 @@ func (r *SQLJobsRepository) GetNamespaceID(ctx context.Context, jobID string) (i
 }
 
 func (r *SQLJobsRepository) UpdateDefinition(ctx context.Context, jobID, definitionJSON string) (int, error) {
-	res, err := r.db.ExecContext(ctx,
-		rebindQueryForPgx("UPDATE stored_jobs SET definition_json = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE job_id = ?"),
-		definitionJSON,
-		jobID,
-	)
-	if err != nil {
-		return 0, normalizeSQLError(err)
-	}
-
-	rowsAffected, err := res.RowsAffected()
-	if err != nil {
-		return 0, normalizeSQLError(err)
-	}
-
-	if rowsAffected == 0 {
-		return 0, fmt.Errorf("%w: job %s", ErrNotFound, jobID)
-	}
-
 	var newVersion int
 	if err := r.db.QueryRowContext(ctx,
-		rebindQueryForPgx("SELECT version FROM stored_jobs WHERE job_id = ?"),
+		rebindQueryForPgx("UPDATE stored_jobs SET definition_json = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE job_id = ? RETURNING version"),
+		definitionJSON,
 		jobID,
 	).Scan(&newVersion); err != nil {
 		return 0, normalizeSQLError(err)

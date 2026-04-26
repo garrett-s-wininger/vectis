@@ -109,7 +109,6 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 	metricsMux := http.NewServeMux()
 	metricsMux.Handle("GET /metrics", metricsHandler)
 	metricsSrv := &http.Server{
-		Addr:    metricsAddr,
 		Handler: metricsMux,
 	}
 
