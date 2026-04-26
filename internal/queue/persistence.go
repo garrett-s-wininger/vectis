@@ -44,6 +44,7 @@ type inflightSnapshot struct {
 	DeliveryID    string `json:"delivery_id"`
 	Job           []byte `json:"job"`
 	LeaseUntilUTC int64  `json:"lease_until_utc"`
+	AttemptCount  int    `json:"attempt_count"`
 }
 
 type queueSnapshot struct {
@@ -53,8 +54,9 @@ type queueSnapshot struct {
 }
 
 type inflightDelivery struct {
-	Job        *api.Job
-	LeaseUntil time.Time
+	Job          *api.Job
+	LeaseUntil   time.Time
+	AttemptCount int
 }
 
 type persistenceStore struct {
@@ -546,6 +548,7 @@ func encodeInflight(inflight map[string]inflightDelivery) ([]inflightSnapshot, e
 			DeliveryID:    deliveryID,
 			Job:           payload,
 			LeaseUntilUTC: item.LeaseUntil.UTC().Unix(),
+			AttemptCount:  item.AttemptCount,
 		})
 	}
 
@@ -559,7 +562,11 @@ func decodeInflight(rows []inflightSnapshot) (map[string]inflightDelivery, error
 		if err := proto.Unmarshal(row.Job, &job); err != nil {
 			return nil, err
 		}
-		out[row.DeliveryID] = inflightDelivery{Job: &job, LeaseUntil: time.Unix(row.LeaseUntilUTC, 0).UTC()}
+		out[row.DeliveryID] = inflightDelivery{
+			Job:          &job,
+			LeaseUntil:   time.Unix(row.LeaseUntilUTC, 0).UTC(),
+			AttemptCount: row.AttemptCount,
+		}
 	}
 
 	return out, nil

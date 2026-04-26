@@ -25,6 +25,10 @@ func New(ctx context.Context, addr string, logger interfaces.Logger, clock inter
 }
 
 func (r *Registry) Register(ctx context.Context, component api.Component, address string) error {
+	return r.RegisterInstance(ctx, component, "", address)
+}
+
+func (r *Registry) RegisterInstance(ctx context.Context, component api.Component, instanceID, address string) error {
 	retryer := backoff.NewRetryer(backoff.RetryConfig{
 		MaxTries:  r.MaxTries,
 		BaseDelay: r.BaseDelay,
@@ -32,44 +36,63 @@ func (r *Registry) Register(ctx context.Context, component api.Component, addres
 	})
 
 	return retryer.Do(ctx, func() error {
-		return r.RegisterOnce(ctx, component, address)
+		return r.RegisterInstanceOnce(ctx, component, instanceID, address)
 	}, func(attempt int, nextDelay time.Duration, err error) {
 		r.Logger.Debug("Failed to register with registry (attempt %d/%d): %v. Retrying in %v...", attempt, r.MaxTries, err, nextDelay)
 	})
 }
 
 func (r *Registry) RegisterOnce(ctx context.Context, component api.Component, address string) error {
-	return r.registerOnce(ctx, component, address)
+	return r.RegisterInstanceOnce(ctx, component, "", address)
 }
 
-func (r *Registry) registerOnce(ctx context.Context, component api.Component, address string) error {
+func (r *Registry) RegisterInstanceOnce(ctx context.Context, component api.Component, instanceID, address string) error {
 	comp := component
 	addr := address
-	_, err := r.Client.Client().Register(ctx, &api.Registration{
+	req := &api.Registration{
 		Component: &comp,
 		Address:   &addr,
-	})
+	}
 
+	if instanceID != "" {
+		req.InstanceId = &instanceID
+	}
+
+	_, err := r.Client.Client().Register(ctx, req)
 	return err
 }
 
 func (r *Registry) Address(ctx context.Context, component api.Component) (string, error) {
-	address, err := r.getAddressOnce(ctx, component)
+	return r.InstanceAddress(ctx, component, "")
+}
+
+func (r *Registry) InstanceAddress(ctx context.Context, component api.Component, instanceID string) (string, error) {
+	address, err := r.getAddressOnce(ctx, component, instanceID)
 	if err != nil {
 		return "", err
 	}
 
 	if address == "" {
+		if instanceID != "" {
+			return "", fmt.Errorf("%s instance %s address not available", component.String(), instanceID)
+		}
+
 		return "", fmt.Errorf("%s address not available", component.String())
 	}
 
 	return address, nil
 }
 
-func (r *Registry) getAddressOnce(ctx context.Context, component api.Component) (string, error) {
-	resp, err := r.Client.Client().GetAddress(ctx, &api.AddressRequest{
+func (r *Registry) getAddressOnce(ctx context.Context, component api.Component, instanceID string) (string, error) {
+	req := &api.AddressRequest{
 		Component: component.Enum(),
-	})
+	}
+
+	if instanceID != "" {
+		req.InstanceId = &instanceID
+	}
+
+	resp, err := r.Client.Client().GetAddress(ctx, req)
 
 	if err != nil {
 		return "", err

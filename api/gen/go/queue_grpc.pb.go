@@ -19,10 +19,12 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	QueueService_Enqueue_FullMethodName    = "/QueueService/Enqueue"
-	QueueService_Dequeue_FullMethodName    = "/QueueService/Dequeue"
-	QueueService_TryDequeue_FullMethodName = "/QueueService/TryDequeue"
-	QueueService_Ack_FullMethodName        = "/QueueService/Ack"
+	QueueService_Enqueue_FullMethodName           = "/QueueService/Enqueue"
+	QueueService_Dequeue_FullMethodName           = "/QueueService/Dequeue"
+	QueueService_TryDequeue_FullMethodName        = "/QueueService/TryDequeue"
+	QueueService_Ack_FullMethodName               = "/QueueService/Ack"
+	QueueService_ListDeadLetter_FullMethodName    = "/QueueService/ListDeadLetter"
+	QueueService_RequeueDeadLetter_FullMethodName = "/QueueService/RequeueDeadLetter"
 )
 
 // QueueServiceClient is the client API for QueueService service.
@@ -33,6 +35,8 @@ type QueueServiceClient interface {
 	Dequeue(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Job, error)
 	TryDequeue(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Job, error)
 	Ack(ctx context.Context, in *AckRequest, opts ...grpc.CallOption) (*Empty, error)
+	ListDeadLetter(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*ListDeadLetterResponse, error)
+	RequeueDeadLetter(ctx context.Context, in *RequeueDeadLetterRequest, opts ...grpc.CallOption) (*Empty, error)
 }
 
 type queueServiceClient struct {
@@ -83,6 +87,26 @@ func (c *queueServiceClient) Ack(ctx context.Context, in *AckRequest, opts ...gr
 	return out, nil
 }
 
+func (c *queueServiceClient) ListDeadLetter(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*ListDeadLetterResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListDeadLetterResponse)
+	err := c.cc.Invoke(ctx, QueueService_ListDeadLetter_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *queueServiceClient) RequeueDeadLetter(ctx context.Context, in *RequeueDeadLetterRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, QueueService_RequeueDeadLetter_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // QueueServiceServer is the server API for QueueService service.
 // All implementations must embed UnimplementedQueueServiceServer
 // for forward compatibility.
@@ -91,6 +115,8 @@ type QueueServiceServer interface {
 	Dequeue(context.Context, *Empty) (*Job, error)
 	TryDequeue(context.Context, *Empty) (*Job, error)
 	Ack(context.Context, *AckRequest) (*Empty, error)
+	ListDeadLetter(context.Context, *Empty) (*ListDeadLetterResponse, error)
+	RequeueDeadLetter(context.Context, *RequeueDeadLetterRequest) (*Empty, error)
 	mustEmbedUnimplementedQueueServiceServer()
 }
 
@@ -112,6 +138,12 @@ func (UnimplementedQueueServiceServer) TryDequeue(context.Context, *Empty) (*Job
 }
 func (UnimplementedQueueServiceServer) Ack(context.Context, *AckRequest) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method Ack not implemented")
+}
+func (UnimplementedQueueServiceServer) ListDeadLetter(context.Context, *Empty) (*ListDeadLetterResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListDeadLetter not implemented")
+}
+func (UnimplementedQueueServiceServer) RequeueDeadLetter(context.Context, *RequeueDeadLetterRequest) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method RequeueDeadLetter not implemented")
 }
 func (UnimplementedQueueServiceServer) mustEmbedUnimplementedQueueServiceServer() {}
 func (UnimplementedQueueServiceServer) testEmbeddedByValue()                      {}
@@ -206,6 +238,42 @@ func _QueueService_Ack_Handler(srv interface{}, ctx context.Context, dec func(in
 	return interceptor(ctx, in, info, handler)
 }
 
+func _QueueService_ListDeadLetter_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(QueueServiceServer).ListDeadLetter(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: QueueService_ListDeadLetter_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(QueueServiceServer).ListDeadLetter(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _QueueService_RequeueDeadLetter_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RequeueDeadLetterRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(QueueServiceServer).RequeueDeadLetter(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: QueueService_RequeueDeadLetter_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(QueueServiceServer).RequeueDeadLetter(ctx, req.(*RequeueDeadLetterRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // QueueService_ServiceDesc is the grpc.ServiceDesc for QueueService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -228,6 +296,14 @@ var QueueService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Ack",
 			Handler:    _QueueService_Ack_Handler,
+		},
+		{
+			MethodName: "ListDeadLetter",
+			Handler:    _QueueService_ListDeadLetter_Handler,
+		},
+		{
+			MethodName: "RequeueDeadLetter",
+			Handler:    _QueueService_RequeueDeadLetter_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

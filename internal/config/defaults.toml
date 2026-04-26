@@ -61,6 +61,13 @@ conn_max_idle_time = "15m"
 
 [worker]
 metrics_port = 9082
+register_with_registry = true
+
+[worker.control]
+mode = "static"
+port = 9084
+port_min = 20000
+port_max = 30000
 
 [grpc_tls]
 insecure = true

@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	apigen "vectis/api/gen/go"
 	"vectis/internal/api"
 	"vectis/internal/cli"
 	"vectis/internal/config"
@@ -19,6 +20,7 @@ import (
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
 	"vectis/internal/observability"
+	"vectis/internal/registry"
 
 	_ "vectis/internal/dbdrivers"
 )
@@ -77,6 +79,21 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		server.AccessLogger = slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 			Level: slog.LevelInfo,
 		}))
+	}
+
+	// Wire up worker address resolution via registry for cancel endpoint.
+	if regAddr := config.APIRegistryAddress(); regAddr != "" {
+		regCtx, regCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		registryClient, err := registry.New(regCtx, regAddr, logger, interfaces.SystemClock{})
+		regCancel()
+		if err != nil {
+			logger.Warn("Failed to create registry client for worker resolution: %v", err)
+		} else {
+			server.ResolveWorkerAddress = func(workerID string) (string, error) {
+				return registryClient.InstanceAddress(context.Background(), apigen.Component_COMPONENT_WORKER, workerID)
+			}
+			defer registryClient.Close()
+		}
 	}
 
 	port := config.APIEffectiveListenPort()

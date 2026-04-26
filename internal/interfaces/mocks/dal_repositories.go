@@ -305,6 +305,15 @@ func (m *MockRunsRepository) GetRunJobID(ctx context.Context, runID string) (str
 	return m.LastCreateJobID, nil
 }
 
+func (m *MockRunsRepository) GetRunForCancel(ctx context.Context, runID string) (dal.RunForCancel, error) {
+	return dal.RunForCancel{
+		RunID:       runID,
+		Status:      m.RunStatus,
+		LeaseOwner:  "mock-worker",
+		CancelToken: "mock-cancel-token",
+	}, nil
+}
+
 var _ dal.RunsRepository = (*MockRunsRepository)(nil)
 
 type UpdateNextRunCall struct {

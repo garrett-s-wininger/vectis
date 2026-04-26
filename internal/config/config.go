@@ -137,11 +137,20 @@ type DiscoveryDefaults struct {
 	RegistryRegistrationRefresh  tomlDuration `toml:"registry_registration_refresh"`
 }
 
+type WorkerControlDefaults struct {
+	Mode    string `toml:"mode"`
+	Port    int    `toml:"port"`
+	PortMin int    `toml:"port_min"`
+	PortMax int    `toml:"port_max"`
+}
+
 type WorkerDefaults struct {
-	RegistryAddress string `toml:"registry.address"`
-	QueueAddress    string `toml:"queue.address"`
-	LogAddress      string `toml:"log.address"`
-	MetricsPort     int    `toml:"metrics_port"`
+	RegistryAddress      string                `toml:"registry.address"`
+	QueueAddress         string                `toml:"queue.address"`
+	LogAddress           string                `toml:"log.address"`
+	MetricsPort          int                   `toml:"metrics_port"`
+	Control              WorkerControlDefaults `toml:"control"`
+	RegisterWithRegistry bool                  `toml:"register_with_registry"`
 }
 
 type CronDefaults struct {
@@ -329,6 +338,39 @@ func QueueMetricsPort() int {
 
 func WorkerMetricsPort() int {
 	return MustDefaults().Worker.MetricsPort
+}
+
+func WorkerControlMode() string {
+	mode := viper.GetString("control_mode")
+	if mode != "" {
+		return mode
+	}
+	return MustDefaults().Worker.Control.Mode
+}
+
+func WorkerControlPort() int {
+	if p := viper.GetInt("control_port"); p > 0 {
+		return p
+	}
+	return MustDefaults().Worker.Control.Port
+}
+
+func WorkerControlPortMin() int {
+	if p := viper.GetInt("control_port_min"); p > 0 {
+		return p
+	}
+	return MustDefaults().Worker.Control.PortMin
+}
+
+func WorkerControlPortMax() int {
+	if p := viper.GetInt("control_port_max"); p > 0 {
+		return p
+	}
+	return MustDefaults().Worker.Control.PortMax
+}
+
+func WorkerRegisterWithRegistry() bool {
+	return viper.GetBool("register_with_registry")
 }
 
 func RegistryPort() int {

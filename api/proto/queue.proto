@@ -6,9 +6,25 @@ message AckRequest {
     string delivery_id = 1;
 }
 
+message DeadLetterItem {
+    string delivery_id = 1;
+    common.Job job = 2;
+    int32 attempt_count = 3;
+}
+
+message ListDeadLetterResponse {
+    repeated DeadLetterItem items = 1;
+}
+
+message RequeueDeadLetterRequest {
+    string delivery_id = 1;
+}
+
 service QueueService {
     rpc Enqueue(common.Job) returns (common.Empty);
     rpc Dequeue(common.Empty) returns (common.Job);
     rpc TryDequeue(common.Empty) returns (common.Job);
     rpc Ack(AckRequest) returns (common.Empty);
+    rpc ListDeadLetter(common.Empty) returns (ListDeadLetterResponse);
+    rpc RequeueDeadLetter(RequeueDeadLetterRequest) returns (common.Empty);
 }

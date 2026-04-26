@@ -43,6 +43,7 @@ CREATE TABLE job_runs (
     failure_reason TEXT,
     attempt INTEGER NOT NULL DEFAULT 0,
     claim_token TEXT,
+    cancel_token TEXT,
     lease_owner TEXT,
     lease_until INTEGER,
     last_dispatched_at INTEGER,

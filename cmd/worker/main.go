@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -27,6 +28,7 @@ import (
 	"vectis/internal/multidial"
 	"vectis/internal/observability"
 	"vectis/internal/queueclient"
+	"vectis/internal/registry"
 	"vectis/internal/runpolicy"
 	"vectis/internal/utils"
 
@@ -181,6 +183,41 @@ func runWorker(cmd *cobra.Command, args []string) {
 		executor:      job.NewExecutor(),
 		store:         dal.NewSQLRepositories(db).Runs(),
 		metrics:       workerMetrics,
+		cancelCh:      make(chan string, 1),
+	}
+
+	// Start worker control server for remote cancellation.
+	controlListener, controlAddr, err := startControlListener(logger)
+	if err != nil {
+		logger.Warn("Failed to start worker control listener: %v", err)
+	} else {
+		controlServer := newWorkerControlServer(workerID, w.cancelCh, w.getCurrentRunInfo, logger)
+		startWorkerControlServer(shutdownCtx, controlListener, controlServer, logger)
+
+		if config.WorkerRegisterWithRegistry() {
+			regAddr := config.WorkerRegistryAddress()
+			if regAddr == "" {
+				regAddr = config.RegistryListenAddr()
+			}
+
+			registryClient, err := registry.New(shutdownCtx, regAddr, logger, interfaces.SystemClock{})
+			if err != nil {
+				logger.Warn("Failed to create registry client for worker registration: %v", err)
+			} else {
+				defer registryClient.Close()
+				if err := registryClient.RegisterInstance(shutdownCtx, api.Component_COMPONENT_WORKER, workerID, controlAddr); err != nil {
+					logger.Warn("Failed to register worker with registry: %v", err)
+				} else {
+					stopHeartbeat := registry.StartRegistrationHeartbeat(
+						shutdownCtx, registryClient, api.Component_COMPONENT_WORKER, controlAddr,
+						config.RegistryRegistrationRefresh(), logger,
+					)
+
+					defer stopHeartbeat()
+					logger.Info("Registered worker %s with registry at %s", workerID, controlAddr)
+				}
+			}
+		}
 	}
 
 	forwarder := job.NewLogSpoolForwarder(logClient, logger, 5*time.Second)
@@ -201,6 +238,42 @@ func forwarderSocketPath() string {
 	return filepath.Join(utils.RuntimeDir(), "log-forwarder.sock")
 }
 
+func startControlListener(logger interfaces.Logger) (net.Listener, string, error) {
+	mode := config.WorkerControlMode()
+	port := config.WorkerControlPort()
+
+	switch mode {
+	case "ephemeral":
+		ln, err := net.Listen("tcp", ":0")
+		if err != nil {
+			return nil, "", fmt.Errorf("listen ephemeral: %w", err)
+		}
+
+		return ln, ln.Addr().String(), nil
+	case "range":
+		minPort := config.WorkerControlPortMin()
+		maxPort := config.WorkerControlPortMax()
+		for p := minPort; p <= maxPort; p++ {
+			addr := fmt.Sprintf(":%d", p)
+			ln, err := net.Listen("tcp", addr)
+
+			if err == nil {
+				return ln, addr, nil
+			}
+		}
+
+		return nil, "", fmt.Errorf("no available port in range %d-%d", minPort, maxPort)
+	default: // "static"
+		addr := fmt.Sprintf(":%d", port)
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			return nil, "", fmt.Errorf("listen %s: %w", addr, err)
+		}
+
+		return ln, addr, nil
+	}
+}
+
 type worker struct {
 	ctx                context.Context // canceled on SIGINT/SIGTERM; dequeue and between-job backoff only
 	runCtx             context.Context // Background; execution, lease renew, ack, finalize survive SIGTERM until dequeue stops
@@ -216,6 +289,10 @@ type worker struct {
 	dequeueFailAttempt int
 	dbUnavailable      bool
 	dbFailAttempt      int
+	cancelCh           chan string
+	currentRunID       string
+	currentClaimToken  string
+	currentMu          sync.Mutex
 }
 
 func (w *worker) run() {
@@ -570,7 +647,30 @@ func (w *worker) markRunOrphanedWithRetry(runID, claimToken, reason string) erro
 	return lastErr
 }
 
+func (w *worker) setCurrentRun(runID, claimToken string) {
+	w.currentMu.Lock()
+	w.currentRunID = runID
+	w.currentClaimToken = claimToken
+	w.currentMu.Unlock()
+}
+
+func (w *worker) clearCurrentRun() {
+	w.currentMu.Lock()
+	w.currentRunID = ""
+	w.currentClaimToken = ""
+	w.currentMu.Unlock()
+}
+
+func (w *worker) getCurrentRunInfo() (string, string) {
+	w.currentMu.Lock()
+	defer w.currentMu.Unlock()
+	return w.currentRunID, w.currentClaimToken
+}
+
 func (w *worker) executeWithLeaseRenewal(runID, claimToken string, job *api.Job) error {
+	w.setCurrentRun(runID, claimToken)
+	defer w.clearCurrentRun()
+
 	execCtx, execCancel := context.WithCancel(w.runCtx)
 	defer execCancel()
 
@@ -579,9 +679,26 @@ func (w *worker) executeWithLeaseRenewal(runID, claimToken string, job *api.Job)
 
 	go w.leaseRenewalLoop(execCtx, runID, claimToken, stopRenew, doneRenew)
 
+	// Listen for remote cancel requests.
+	stopCancel := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case cancelledRunID := <-w.cancelCh:
+				if cancelledRunID == runID {
+					w.logger.Info("Cancelling run %s via remote request", runID)
+					execCancel()
+				}
+			case <-stopCancel:
+				return
+			}
+		}
+	}()
+
 	err := w.executor.ExecuteJob(execCtx, job, w.logClient, w.logger)
 	close(stopRenew)
 	<-doneRenew
+	close(stopCancel)
 
 	return err
 }

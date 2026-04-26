@@ -81,6 +81,13 @@ type CronSchedule struct {
 	NextRunAt time.Time
 }
 
+type RunForCancel struct {
+	RunID       string
+	Status      string
+	LeaseOwner  string
+	CancelToken string
+}
+
 type RunsRepository interface {
 	MarkRunRunning(ctx context.Context, runID string) error
 	MarkRunSucceeded(ctx context.Context, runID, claimToken string) error
@@ -96,6 +103,7 @@ type RunsRepository interface {
 	ListByJob(ctx context.Context, jobID string, since *int) ([]RunRecord, error)
 	ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]QueuedRun, error)
 	GetRunJobID(ctx context.Context, runID string) (string, error)
+	GetRunForCancel(ctx context.Context, runID string) (RunForCancel, error)
 }
 
 type SchedulesRepository interface {
@@ -616,11 +624,13 @@ func (r *SQLRunsRepository) TryClaim(ctx context.Context, runID, owner string, l
 	now := time.Now().UTC()
 	nowUnix := now.Unix()
 	claimToken := uuid.NewString()
+	cancelToken := uuid.NewString()
 	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
 		UPDATE job_runs SET
 			lease_owner = ?,
 			lease_until = ?,
 			claim_token = ?,
+			cancel_token = ?,
 			attempt = attempt + 1,
 			orphan_reason = '',
 			failure_code = '',
@@ -629,7 +639,7 @@ func (r *SQLRunsRepository) TryClaim(ctx context.Context, runID, owner string, l
 		WHERE run_id = ?
 			AND status = 'queued'
 			AND (lease_until IS NULL OR lease_until < ?)
-	`), owner, leaseUntil.Unix(), claimToken, runID, nowUnix)
+	`), owner, leaseUntil.Unix(), claimToken, cancelToken, runID, nowUnix)
 
 	if err != nil {
 		return false, "", normalizeSQLError(err)
@@ -803,6 +813,31 @@ func (r *SQLRunsRepository) ListQueuedBeforeDispatchCutoff(ctx context.Context, 
 	}
 
 	return out, nil
+}
+
+func (r *SQLRunsRepository) GetRunForCancel(ctx context.Context, runID string) (RunForCancel, error) {
+	var rec RunForCancel
+	var leaseOwner, cancelToken sql.NullString
+	if err := r.db.QueryRowContext(ctx,
+		rebindQueryForPgx("SELECT run_id, status, lease_owner, cancel_token FROM job_runs WHERE run_id = ?"),
+		runID,
+	).Scan(&rec.RunID, &rec.Status, &leaseOwner, &cancelToken); err != nil {
+		if err == sql.ErrNoRows {
+			return RunForCancel{}, fmt.Errorf("%w: run %s", ErrNotFound, runID)
+		}
+
+		return RunForCancel{}, normalizeSQLError(err)
+	}
+
+	if leaseOwner.Valid {
+		rec.LeaseOwner = leaseOwner.String
+	}
+
+	if cancelToken.Valid {
+		rec.CancelToken = cancelToken.String
+	}
+
+	return rec, nil
 }
 
 func (r *SQLRunsRepository) GetRunJobID(ctx context.Context, runID string) (string, error) {

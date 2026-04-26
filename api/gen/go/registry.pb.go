@@ -27,6 +27,7 @@ const (
 	Component_COMPONENT_UNKNOWN Component = 0
 	Component_COMPONENT_QUEUE   Component = 1
 	Component_COMPONENT_LOG     Component = 2
+	Component_COMPONENT_WORKER  Component = 3
 )
 
 // Enum value maps for Component.
@@ -35,11 +36,13 @@ var (
 		0: "COMPONENT_UNKNOWN",
 		1: "COMPONENT_QUEUE",
 		2: "COMPONENT_LOG",
+		3: "COMPONENT_WORKER",
 	}
 	Component_value = map[string]int32{
 		"COMPONENT_UNKNOWN": 0,
 		"COMPONENT_QUEUE":   1,
 		"COMPONENT_LOG":     2,
+		"COMPONENT_WORKER":  3,
 	}
 )
 
@@ -74,6 +77,7 @@ type Registration struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Component     *Component             `protobuf:"varint,1,opt,name=component,enum=Component" json:"component,omitempty"`
 	Address       *string                `protobuf:"bytes,2,opt,name=address" json:"address,omitempty"`
+	InstanceId    *string                `protobuf:"bytes,3,opt,name=instance_id,json=instanceId" json:"instance_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -122,9 +126,17 @@ func (x *Registration) GetAddress() string {
 	return ""
 }
 
+func (x *Registration) GetInstanceId() string {
+	if x != nil && x.InstanceId != nil {
+		return *x.InstanceId
+	}
+	return ""
+}
+
 type AddressRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Component     *Component             `protobuf:"varint,1,opt,name=component,enum=Component" json:"component,omitempty"`
+	InstanceId    *string                `protobuf:"bytes,2,opt,name=instance_id,json=instanceId" json:"instance_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -164,6 +176,13 @@ func (x *AddressRequest) GetComponent() Component {
 		return *x.Component
 	}
 	return Component_COMPONENT_UNKNOWN
+}
+
+func (x *AddressRequest) GetInstanceId() string {
+	if x != nil && x.InstanceId != nil {
+		return *x.InstanceId
+	}
+	return ""
 }
 
 type AddressResponse struct {
@@ -214,20 +233,25 @@ var File_registry_proto protoreflect.FileDescriptor
 
 const file_registry_proto_rawDesc = "" +
 	"\n" +
-	"\x0eregistry.proto\x1a\fcommon.proto\"R\n" +
+	"\x0eregistry.proto\x1a\fcommon.proto\"s\n" +
 	"\fRegistration\x12(\n" +
 	"\tcomponent\x18\x01 \x01(\x0e2\n" +
 	".ComponentR\tcomponent\x12\x18\n" +
-	"\aaddress\x18\x02 \x01(\tR\aaddress\":\n" +
+	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x1f\n" +
+	"\vinstance_id\x18\x03 \x01(\tR\n" +
+	"instanceId\"[\n" +
 	"\x0eAddressRequest\x12(\n" +
 	"\tcomponent\x18\x01 \x01(\x0e2\n" +
-	".ComponentR\tcomponent\"+\n" +
+	".ComponentR\tcomponent\x12\x1f\n" +
+	"\vinstance_id\x18\x02 \x01(\tR\n" +
+	"instanceId\"+\n" +
 	"\x0fAddressResponse\x12\x18\n" +
-	"\aaddress\x18\x01 \x01(\tR\aaddress*J\n" +
+	"\aaddress\x18\x01 \x01(\tR\aaddress*`\n" +
 	"\tComponent\x12\x15\n" +
 	"\x11COMPONENT_UNKNOWN\x10\x00\x12\x13\n" +
 	"\x0fCOMPONENT_QUEUE\x10\x01\x12\x11\n" +
-	"\rCOMPONENT_LOG\x10\x022l\n" +
+	"\rCOMPONENT_LOG\x10\x02\x12\x14\n" +
+	"\x10COMPONENT_WORKER\x10\x032l\n" +
 	"\x0fRegistryService\x12(\n" +
 	"\bRegister\x12\r.Registration\x1a\r.common.Empty\x12/\n" +
 	"\n" +

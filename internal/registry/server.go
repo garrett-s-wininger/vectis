@@ -8,10 +8,15 @@ import (
 	"vectis/internal/interfaces"
 )
 
+type registrationEntry struct {
+	component  api.Component
+	address    string
+	instanceID string
+}
+
 type reg struct {
-	mu                  sync.RWMutex
-	queueServiceAddress string
-	logServiceAddress   string
+	mu            sync.RWMutex
+	registrations map[string]registrationEntry // key: "component:instance_id"
 }
 
 type registryServer struct {
@@ -21,7 +26,11 @@ type registryServer struct {
 }
 
 func NewRegistryService(logger interfaces.Logger) api.RegistryServiceServer {
-	return &registryServer{reg: &reg{}, log: logger}
+	return &registryServer{reg: &reg{registrations: make(map[string]registrationEntry)}, log: logger}
+}
+
+func makeRegKey(component api.Component, instanceID string) string {
+	return component.String() + ":" + instanceID
 }
 
 func (s *registryServer) Register(ctx context.Context, req *api.Registration) (*api.Empty, error) {
@@ -32,13 +41,23 @@ func (s *registryServer) Register(ctx context.Context, req *api.Registration) (*
 		return &api.Empty{}, nil
 	}
 
-	switch *req.Component {
+	comp := *req.Component
+	instanceID := req.GetInstanceId()
+	key := makeRegKey(comp, instanceID)
+
+	s.reg.registrations[key] = registrationEntry{
+		component:  comp,
+		address:    *req.Address,
+		instanceID: instanceID,
+	}
+
+	switch comp {
 	case api.Component_COMPONENT_QUEUE:
-		s.reg.queueServiceAddress = *req.Address
 		s.log.Info("Registered queue at: %s", *req.Address)
 	case api.Component_COMPONENT_LOG:
-		s.reg.logServiceAddress = *req.Address
 		s.log.Info("Registered log at: %s", *req.Address)
+	case api.Component_COMPONENT_WORKER:
+		s.log.Info("Registered worker %s at: %s", instanceID, *req.Address)
 	}
 
 	return &api.Empty{}, nil
@@ -49,12 +68,26 @@ func (s *registryServer) GetAddress(ctx context.Context, req *api.AddressRequest
 	defer s.reg.mu.RUnlock()
 
 	var address string
-	if req.Component != nil {
-		switch *req.Component {
-		case api.Component_COMPONENT_QUEUE:
-			address = s.reg.queueServiceAddress
-		case api.Component_COMPONENT_LOG:
-			address = s.reg.logServiceAddress
+	if req.Component == nil {
+		return &api.AddressResponse{Address: &address}, nil
+	}
+
+	comp := *req.Component
+	instanceID := req.GetInstanceId()
+
+	if instanceID != "" {
+		// Exact lookup by instance ID
+		key := makeRegKey(comp, instanceID)
+		if entry, ok := s.reg.registrations[key]; ok {
+			address = entry.address
+		}
+	} else {
+		// Return first match for this component type
+		for _, entry := range s.reg.registrations {
+			if entry.component == comp {
+				address = entry.address
+				break
+			}
 		}
 	}
 

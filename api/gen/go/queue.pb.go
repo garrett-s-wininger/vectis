@@ -65,6 +65,154 @@ func (x *AckRequest) GetDeliveryId() string {
 	return ""
 }
 
+type DeadLetterItem struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DeliveryId    *string                `protobuf:"bytes,1,opt,name=delivery_id,json=deliveryId" json:"delivery_id,omitempty"`
+	Job           *Job                   `protobuf:"bytes,2,opt,name=job" json:"job,omitempty"`
+	AttemptCount  *int32                 `protobuf:"varint,3,opt,name=attempt_count,json=attemptCount" json:"attempt_count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeadLetterItem) Reset() {
+	*x = DeadLetterItem{}
+	mi := &file_queue_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeadLetterItem) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeadLetterItem) ProtoMessage() {}
+
+func (x *DeadLetterItem) ProtoReflect() protoreflect.Message {
+	mi := &file_queue_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeadLetterItem.ProtoReflect.Descriptor instead.
+func (*DeadLetterItem) Descriptor() ([]byte, []int) {
+	return file_queue_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *DeadLetterItem) GetDeliveryId() string {
+	if x != nil && x.DeliveryId != nil {
+		return *x.DeliveryId
+	}
+	return ""
+}
+
+func (x *DeadLetterItem) GetJob() *Job {
+	if x != nil {
+		return x.Job
+	}
+	return nil
+}
+
+func (x *DeadLetterItem) GetAttemptCount() int32 {
+	if x != nil && x.AttemptCount != nil {
+		return *x.AttemptCount
+	}
+	return 0
+}
+
+type ListDeadLetterResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Items         []*DeadLetterItem      `protobuf:"bytes,1,rep,name=items" json:"items,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListDeadLetterResponse) Reset() {
+	*x = ListDeadLetterResponse{}
+	mi := &file_queue_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListDeadLetterResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListDeadLetterResponse) ProtoMessage() {}
+
+func (x *ListDeadLetterResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_queue_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListDeadLetterResponse.ProtoReflect.Descriptor instead.
+func (*ListDeadLetterResponse) Descriptor() ([]byte, []int) {
+	return file_queue_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ListDeadLetterResponse) GetItems() []*DeadLetterItem {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+type RequeueDeadLetterRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DeliveryId    *string                `protobuf:"bytes,1,opt,name=delivery_id,json=deliveryId" json:"delivery_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RequeueDeadLetterRequest) Reset() {
+	*x = RequeueDeadLetterRequest{}
+	mi := &file_queue_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RequeueDeadLetterRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RequeueDeadLetterRequest) ProtoMessage() {}
+
+func (x *RequeueDeadLetterRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_queue_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RequeueDeadLetterRequest.ProtoReflect.Descriptor instead.
+func (*RequeueDeadLetterRequest) Descriptor() ([]byte, []int) {
+	return file_queue_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *RequeueDeadLetterRequest) GetDeliveryId() string {
+	if x != nil && x.DeliveryId != nil {
+		return *x.DeliveryId
+	}
+	return ""
+}
+
 var File_queue_proto protoreflect.FileDescriptor
 
 const file_queue_proto_rawDesc = "" +
@@ -73,13 +221,25 @@ const file_queue_proto_rawDesc = "" +
 	"\n" +
 	"AckRequest\x12\x1f\n" +
 	"\vdelivery_id\x18\x01 \x01(\tR\n" +
-	"deliveryId2\xa9\x01\n" +
+	"deliveryId\"u\n" +
+	"\x0eDeadLetterItem\x12\x1f\n" +
+	"\vdelivery_id\x18\x01 \x01(\tR\n" +
+	"deliveryId\x12\x1d\n" +
+	"\x03job\x18\x02 \x01(\v2\v.common.JobR\x03job\x12#\n" +
+	"\rattempt_count\x18\x03 \x01(\x05R\fattemptCount\"?\n" +
+	"\x16ListDeadLetterResponse\x12%\n" +
+	"\x05items\x18\x01 \x03(\v2\x0f.DeadLetterItemR\x05items\";\n" +
+	"\x18RequeueDeadLetterRequest\x12\x1f\n" +
+	"\vdelivery_id\x18\x01 \x01(\tR\n" +
+	"deliveryId2\xa2\x02\n" +
 	"\fQueueService\x12%\n" +
 	"\aEnqueue\x12\v.common.Job\x1a\r.common.Empty\x12%\n" +
 	"\aDequeue\x12\r.common.Empty\x1a\v.common.Job\x12(\n" +
 	"\n" +
 	"TryDequeue\x12\r.common.Empty\x1a\v.common.Job\x12!\n" +
-	"\x03Ack\x12\v.AckRequest\x1a\r.common.EmptyB!B\n" +
+	"\x03Ack\x12\v.AckRequest\x1a\r.common.Empty\x128\n" +
+	"\x0eListDeadLetter\x12\r.common.Empty\x1a\x17.ListDeadLetterResponse\x12=\n" +
+	"\x11RequeueDeadLetter\x12\x19.RequeueDeadLetterRequest\x1a\r.common.EmptyB!B\n" +
 	"QueueProtoP\x01Z\x11vectis/api/gen/gob\beditionsp\xe8\a"
 
 var (
@@ -94,26 +254,35 @@ func file_queue_proto_rawDescGZIP() []byte {
 	return file_queue_proto_rawDescData
 }
 
-var file_queue_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_queue_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_queue_proto_goTypes = []any{
-	(*AckRequest)(nil), // 0: AckRequest
-	(*Job)(nil),        // 1: common.Job
-	(*Empty)(nil),      // 2: common.Empty
+	(*AckRequest)(nil),               // 0: AckRequest
+	(*DeadLetterItem)(nil),           // 1: DeadLetterItem
+	(*ListDeadLetterResponse)(nil),   // 2: ListDeadLetterResponse
+	(*RequeueDeadLetterRequest)(nil), // 3: RequeueDeadLetterRequest
+	(*Job)(nil),                      // 4: common.Job
+	(*Empty)(nil),                    // 5: common.Empty
 }
 var file_queue_proto_depIdxs = []int32{
-	1, // 0: QueueService.Enqueue:input_type -> common.Job
-	2, // 1: QueueService.Dequeue:input_type -> common.Empty
-	2, // 2: QueueService.TryDequeue:input_type -> common.Empty
-	0, // 3: QueueService.Ack:input_type -> AckRequest
-	2, // 4: QueueService.Enqueue:output_type -> common.Empty
-	1, // 5: QueueService.Dequeue:output_type -> common.Job
-	1, // 6: QueueService.TryDequeue:output_type -> common.Job
-	2, // 7: QueueService.Ack:output_type -> common.Empty
-	4, // [4:8] is the sub-list for method output_type
-	0, // [0:4] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	4, // 0: DeadLetterItem.job:type_name -> common.Job
+	1, // 1: ListDeadLetterResponse.items:type_name -> DeadLetterItem
+	4, // 2: QueueService.Enqueue:input_type -> common.Job
+	5, // 3: QueueService.Dequeue:input_type -> common.Empty
+	5, // 4: QueueService.TryDequeue:input_type -> common.Empty
+	0, // 5: QueueService.Ack:input_type -> AckRequest
+	5, // 6: QueueService.ListDeadLetter:input_type -> common.Empty
+	3, // 7: QueueService.RequeueDeadLetter:input_type -> RequeueDeadLetterRequest
+	5, // 8: QueueService.Enqueue:output_type -> common.Empty
+	4, // 9: QueueService.Dequeue:output_type -> common.Job
+	4, // 10: QueueService.TryDequeue:output_type -> common.Job
+	5, // 11: QueueService.Ack:output_type -> common.Empty
+	2, // 12: QueueService.ListDeadLetter:output_type -> ListDeadLetterResponse
+	5, // 13: QueueService.RequeueDeadLetter:output_type -> common.Empty
+	8, // [8:14] is the sub-list for method output_type
+	2, // [2:8] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_queue_proto_init() }
@@ -128,7 +297,7 @@ func file_queue_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_queue_proto_rawDesc), len(file_queue_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   1,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

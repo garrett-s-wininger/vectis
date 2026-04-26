@@ -6,15 +6,18 @@ enum Component {
     COMPONENT_UNKNOWN = 0;
     COMPONENT_QUEUE = 1;
     COMPONENT_LOG = 2;
+    COMPONENT_WORKER = 3;
 }
 
 message Registration {
     Component component = 1;
     string address = 2;
+    string instance_id = 3;
 }
 
 message AddressRequest {
     Component component = 1;
+    string instance_id = 2;
 }
 
 message AddressResponse {

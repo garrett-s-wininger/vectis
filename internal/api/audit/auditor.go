@@ -44,4 +44,5 @@ const (
 	EventRunTriggered     = "run.triggered"
 	EventRunForceFailed   = "run.force_failed"
 	EventRunForceRequeued = "run.force_requeued"
+	EventRunCancelled     = "run.cancelled"
 )

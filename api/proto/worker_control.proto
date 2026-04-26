@@ -1,0 +1,12 @@
+edition = "2023";
+
+import "common.proto";
+
+service WorkerControlService {
+    rpc CancelRun(CancelRunRequest) returns (common.Empty);
+}
+
+message CancelRunRequest {
+    string run_id = 1;
+    string cancel_token = 2;
+}

@@ -71,6 +71,9 @@ type APIServer struct {
 
 	// auditor, when set, logs audit events for auth operations.
 	auditor audit.Auditor
+
+	// ResolveWorkerAddress, when set, resolves a worker_id to a control address via the registry.
+	ResolveWorkerAddress func(workerID string) (string, error)
 }
 
 type routeSpec struct {
@@ -535,6 +538,117 @@ func (s *APIServer) ForceRequeueRun(w http.ResponseWriter, r *http.Request) {
 
 	s.logger.Warn("Run force-requeued via API: %s", runID)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *APIServer) CancelRun(w http.ResponseWriter, r *http.Request) {
+	runID := r.PathValue("id")
+	if runID == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	nsPath, err := s.getRunJobNamespacePath(ctx, runID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			http.Error(w, "run not found", http.StatusNotFound)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunOperator, nsPath) {
+		http.Error(w, "run not found", http.StatusNotFound)
+		return
+	}
+
+	rec, err := s.runs.GetRunForCancel(ctx, runID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			http.Error(w, "run not found", http.StatusNotFound)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	s.markDBRecovered()
+
+	if rec.Status != "running" {
+		http.Error(w, "run is not executing", http.StatusConflict)
+		return
+	}
+
+	if rec.LeaseOwner == "" {
+		http.Error(w, "run has no assigned worker", http.StatusConflict)
+		return
+	}
+
+	if s.ResolveWorkerAddress == nil {
+		http.Error(w, "worker resolution not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	workerAddr, err := s.ResolveWorkerAddress(rec.LeaseOwner)
+	if err != nil {
+		s.logger.Error("Failed to resolve worker %s for run %s: %v", rec.LeaseOwner, runID, err)
+		http.Error(w, "worker not reachable", http.StatusBadGateway)
+		return
+	}
+
+	if err := s.sendCancelToWorker(ctx, workerAddr, runID, rec.CancelToken); err != nil {
+		s.logger.Error("Failed to send cancel to worker %s for run %s: %v", rec.LeaseOwner, runID, err)
+		http.Error(w, "failed to send cancel to worker", http.StatusBadGateway)
+		return
+	}
+
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	s.auditLog(ctx, audit.EventRunCancelled, actorID, 0, map[string]interface{}{
+		"run_id":    runID,
+		"namespace": nsPath,
+	})
+
+	s.logger.Warn("Run cancel sent to worker: %s", runID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *APIServer) sendCancelToWorker(ctx context.Context, workerAddr, runID, cancelToken string) error {
+	conn, err := grpc.Dial(workerAddr, grpc.WithInsecure())
+	if err != nil {
+		return fmt.Errorf("dial worker: %w", err)
+	}
+	defer conn.Close()
+
+	client := api.NewWorkerControlServiceClient(conn)
+	_, err = client.CancelRun(ctx, &api.CancelRunRequest{
+		RunId:       &runID,
+		CancelToken: &cancelToken,
+	})
+
+	return err
 }
 
 func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
@@ -1519,6 +1633,7 @@ func (s *APIServer) Handler() http.Handler {
 	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/jobs/trigger/{id}", Auth: routeAuthPolicy{Action: authz.ActionRunTrigger}, RateLimit: defaultLimits.General}, s.TriggerJob)
 	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/jobs/{id}/runs", Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General}, s.GetJobRuns)
 	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/sse/jobs/{id}/runs", Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General}, s.HandleSSEJobRuns)
+	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/runs/{id}/cancel", Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General}, s.CancelRun)
 	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/runs/{id}/force-fail", Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General}, s.ForceFailRun)
 	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/runs/{id}/force-requeue", Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General}, s.ForceRequeueRun)
 	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/runs/{id}/logs", Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General}, s.GetRunLogs)

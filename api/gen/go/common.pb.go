@@ -108,10 +108,10 @@ func (*Empty) Descriptor() ([]byte, []int) {
 
 type Job struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            *string                `protobuf:"bytes,1,opt,name=id" json:"id,omitempty"`                    // logical job identifier (stored job or ephemeral id)
-	RunId         *string                `protobuf:"bytes,2,opt,name=run_id,json=runId" json:"run_id,omitempty"` // unique identifier for this execution
+	Id            *string                `protobuf:"bytes,1,opt,name=id" json:"id,omitempty"`
+	RunId         *string                `protobuf:"bytes,2,opt,name=run_id,json=runId" json:"run_id,omitempty"`
 	Root          *Node                  `protobuf:"bytes,3,opt,name=root" json:"root,omitempty"`
-	DeliveryId    *string                `protobuf:"bytes,4,opt,name=delivery_id,json=deliveryId" json:"delivery_id,omitempty"` // queue-assigned transient delivery token for Ack
+	DeliveryId    *string                `protobuf:"bytes,4,opt,name=delivery_id,json=deliveryId" json:"delivery_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
