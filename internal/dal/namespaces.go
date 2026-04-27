@@ -56,7 +56,7 @@ func (r *SQLNamespacesRepository) Create(ctx context.Context, name string, paren
 			return nil, err
 		}
 
-		path = parent.Path + "/" + name
+		path = BuildNamespacePath(parent.Path, name)
 	}
 
 	var id int64

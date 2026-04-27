@@ -26,6 +26,16 @@ import (
 	_ "vectis/internal/dbdrivers"
 )
 
+func buildAccessLogger(format string) *slog.Logger {
+	if strings.EqualFold(format, "json") {
+		return slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+			Level: slog.LevelInfo,
+		}))
+	}
+
+	return nil
+}
+
 func runVectisAPI(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewLogger("api")
 	cli.SetLogLevel(logger)
@@ -110,11 +120,7 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 
 	server := api.NewAPIServer(logger, db)
 	server.MetricsHandler = metricsHandler
-	if strings.EqualFold(config.APILogFormat(), "json") {
-		server.AccessLogger = slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
-			Level: slog.LevelInfo,
-		}))
-	}
+	server.AccessLogger = buildAccessLogger(config.APILogFormat())
 
 	// Wire up async auditor for production audit logging.
 	auditor := audit.NewAsyncAuditor(&audit.DALRepository{Auth: dal.NewSQLRepositories(db).Auth()}, slog.Default())

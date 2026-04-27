@@ -23,21 +23,44 @@ type AsyncAuditor struct {
 	done          chan struct{}
 	wg            sync.WaitGroup
 	stopped       atomic.Bool
+	stopOnce      sync.Once
 }
 
 // NewAsyncAuditor creates an asynchronous auditor.
 // Events are buffered in memory and flushed in batches.
 func NewAsyncAuditor(repo Repository, logger *slog.Logger) *AsyncAuditor {
+	return NewAsyncAuditorWithOptions(repo, logger, 100, 1*time.Second)
+}
+
+// NewAsyncAuditorWithOptions creates an asynchronous auditor with configurable batch size and flush interval.
+func NewAsyncAuditorWithOptions(repo Repository, logger *slog.Logger, batchSize int, flushInterval time.Duration) *AsyncAuditor {
+	return NewAsyncAuditorWithBuffer(repo, logger, batchSize, flushInterval, 1000)
+}
+
+// NewAsyncAuditorWithBuffer creates an asynchronous auditor with full control over buffering.
+func NewAsyncAuditorWithBuffer(repo Repository, logger *slog.Logger, batchSize int, flushInterval time.Duration, bufferSize int) *AsyncAuditor {
 	if logger == nil {
 		logger = slog.Default()
+	}
+
+	if batchSize <= 0 {
+		batchSize = 100
+	}
+
+	if flushInterval <= 0 {
+		flushInterval = 1 * time.Second
+	}
+
+	if bufferSize <= 0 {
+		bufferSize = 1000
 	}
 
 	a := &AsyncAuditor{
 		repo:          repo,
 		logger:        logger,
-		buffer:        make(chan Event, 1000),
-		batchSize:     100,
-		flushInterval: 1 * time.Second,
+		buffer:        make(chan Event, bufferSize),
+		batchSize:     batchSize,
+		flushInterval: flushInterval,
 		done:          make(chan struct{}),
 	}
 
@@ -49,9 +72,11 @@ func NewAsyncAuditor(repo Repository, logger *slog.Logger) *AsyncAuditor {
 
 // Stop shuts down the background flush goroutine and drains pending events.
 func (a *AsyncAuditor) Stop() {
-	a.stopped.Store(true)
-	close(a.done)
-	a.wg.Wait()
+	a.stopOnce.Do(func() {
+		a.stopped.Store(true)
+		close(a.done)
+		a.wg.Wait()
+	})
 
 	// Drain any events enqueued after the goroutine exited
 	for {

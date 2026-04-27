@@ -1049,7 +1049,7 @@ var forceRequeueCmd = &cobra.Command{
 
 func runLogin(cmd *cobra.Command, args []string) {
 	username, _ := cmd.Flags().GetString("username")
-	password, _ := cmd.Flags().GetString("password")
+	var password string
 
 	if username == "" {
 		fmt.Fprint(os.Stderr, "Username: ")
@@ -1088,26 +1088,38 @@ func runLogin(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
+	token, err := doLogin(username, password)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := writePersistedToken(token); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to save token: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Logged in as %s.\n", username)
+}
+
+func doLogin(username, password string) (string, error) {
 	body, err := json.Marshal(map[string]string{
 		"username": username,
 		"password": password,
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to encode request: %v\n", err)
-		os.Exit(1)
+		return "", fmt.Errorf("failed to encode request: %w", err)
 	}
 
 	req, err := http.NewRequest(http.MethodPost, config.PublicAPIBaseURL()+"/api/v1/login", bytes.NewReader(body))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := apiHTTPClient.Do(req)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: login request failed: %v\n", err)
-		os.Exit(1)
+		return "", fmt.Errorf("login request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -1120,26 +1132,17 @@ func runLogin(cmd *cobra.Command, args []string) {
 		}
 
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: failed to parse response: %v\n", err)
-			os.Exit(1)
+			return "", fmt.Errorf("failed to parse response: %w", err)
 		}
 
-		if err := writePersistedToken(result.Token); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: failed to save token: %v\n", err)
-			os.Exit(1)
-		}
-
-		fmt.Printf("Logged in as %s (user %d). Token expires at %s.\n", username, result.UserID, result.ExpiresAt)
+		return result.Token, nil
 	case http.StatusUnauthorized:
-		fmt.Fprintln(os.Stderr, "Error: invalid username or password")
-		os.Exit(1)
+		return "", fmt.Errorf("invalid username or password")
 	case http.StatusServiceUnavailable:
 		body, _ := io.ReadAll(resp.Body)
-		fmt.Fprintf(os.Stderr, "Error: service unavailable: %s\n", string(body))
-		os.Exit(1)
+		return "", fmt.Errorf("service unavailable: %s", string(body))
 	default:
-		fmt.Fprintf(os.Stderr, "Error: unexpected status: %s\n", resp.Status)
-		os.Exit(1)
+		return "", fmt.Errorf("unexpected status: %s", resp.Status)
 	}
 }
 
@@ -1166,22 +1169,26 @@ var logoutCmd = &cobra.Command{
 }
 
 func runTokenList(cmd *cobra.Command, args []string) {
-	req, err := newAPIRequest(http.MethodGet, "/api/v1/tokens", nil)
-	if err != nil {
+	if err := tokenList(os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
+	}
+}
+
+func tokenList(w io.Writer) error {
+	req, err := newAPIRequest(http.MethodGet, "/api/v1/tokens", nil)
+	if err != nil {
+		return err
 	}
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: request failed: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		fmt.Fprintf(os.Stderr, "Error: unexpected status: %s\n", resp.Status)
-		os.Exit(1)
+		return fmt.Errorf("unexpected status: %s", resp.Status)
 	}
 
 	var tokens []struct {
@@ -1193,8 +1200,7 @@ func runTokenList(cmd *cobra.Command, args []string) {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&tokens); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to parse response: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to parse response: %w", err)
 	}
 
 	for _, t := range tokens {
@@ -1206,8 +1212,9 @@ func runTokenList(cmd *cobra.Command, args []string) {
 		if t.LastUsedAt != nil {
 			used = *t.LastUsedAt
 		}
-		fmt.Printf("%d\t%s\texpires=%s\tcreated=%s\tlast_used=%s\n", t.ID, t.Label, exp, t.CreatedAt, used)
+		fmt.Fprintf(w, "%d\t%s\texpires=%s\tcreated=%s\tlast_used=%s\n", t.ID, t.Label, exp, t.CreatedAt, used)
 	}
+	return nil
 }
 
 func runTokenCreate(cmd *cobra.Command, args []string) {
@@ -1221,6 +1228,13 @@ func runTokenCreate(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
+	if err := tokenCreate(label, expiresIn, userID, os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func tokenCreate(label, expiresIn string, userID int64, w io.Writer) error {
 	reqBody := map[string]interface{}{
 		"label":      label,
 		"expires_in": expiresIn,
@@ -1232,21 +1246,18 @@ func runTokenCreate(cmd *cobra.Command, args []string) {
 
 	body, err := json.Marshal(reqBody)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to encode request: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to encode request: %w", err)
 	}
 
 	req, err := newAPIRequest(http.MethodPost, "/api/v1/tokens", bytes.NewReader(body))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: request failed: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -1260,46 +1271,48 @@ func runTokenCreate(cmd *cobra.Command, args []string) {
 		}
 
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: failed to parse response: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to parse response: %w", err)
 		}
 
-		fmt.Printf("Token created: %d (%s)\n%s\n", result.ID, result.Label, result.Token)
+		fmt.Fprintf(w, "Token created: %d (%s)\n%s\n", result.ID, result.Label, result.Token)
 		if result.ExpiresAt != "" {
-			fmt.Printf("Expires: %s\n", result.ExpiresAt)
+			fmt.Fprintf(w, "Expires: %s\n", result.ExpiresAt)
 		}
+		return nil
 	case http.StatusForbidden:
-		fmt.Fprintln(os.Stderr, "Error: permission denied")
-		os.Exit(1)
+		return fmt.Errorf("permission denied")
 	default:
-		fmt.Fprintf(os.Stderr, "Error: unexpected status: %s\n", resp.Status)
-		os.Exit(1)
+		return fmt.Errorf("unexpected status: %s", resp.Status)
 	}
 }
 
 func runTokenDelete(cmd *cobra.Command, args []string) {
-	req, err := newAPIRequest(http.MethodDelete, fmt.Sprintf("/api/v1/tokens/%s", args[0]), nil)
-	if err != nil {
+	if err := tokenDelete(args[0]); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
+	}
+}
+
+func tokenDelete(tokenID string) error {
+	req, err := newAPIRequest(http.MethodDelete, fmt.Sprintf("/api/v1/tokens/%s", tokenID), nil)
+	if err != nil {
+		return err
 	}
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: request failed: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	switch resp.StatusCode {
 	case http.StatusNoContent:
 		fmt.Println("Token deleted.")
+		return nil
 	case http.StatusNotFound:
-		fmt.Fprintln(os.Stderr, "Error: token not found")
-		os.Exit(1)
+		return fmt.Errorf("token not found")
 	default:
-		fmt.Fprintf(os.Stderr, "Error: unexpected status: %s\n", resp.Status)
-		os.Exit(1)
+		return fmt.Errorf("unexpected status: %s", resp.Status)
 	}
 }
 
@@ -1359,7 +1372,6 @@ func init() {
 	rootCmd.AddCommand(forceRequeueCmd)
 
 	loginCmd.Flags().StringP("username", "u", "", "Username (optional; prompts if omitted)")
-	loginCmd.Flags().StringP("password", "p", "", "Password (optional; prompts if omitted)")
 	rootCmd.AddCommand(loginCmd)
 	rootCmd.AddCommand(logoutCmd)
 

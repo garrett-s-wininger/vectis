@@ -158,6 +158,11 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 					return
 				}
 
+				s.auditLog(r.Context(), audit.EventAuthFailure, uid, 0, map[string]interface{}{
+					"reason":   "token_scope_load_error",
+					"token_id": tokenID,
+				})
+
 				s.logger.Error("Database error loading token scopes: %v", err)
 				writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
 				return

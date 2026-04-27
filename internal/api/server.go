@@ -661,6 +661,8 @@ func (s *APIServer) CancelRun(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+const workerCancelRPCTimeout = 10 * time.Second
+
 func (s *APIServer) sendCancelToWorker(ctx context.Context, workerAddr, runID, cancelToken string) error {
 	dialOpts, err := config.GRPCClientDialOptions(workerAddr)
 	if err != nil {
@@ -674,7 +676,11 @@ func (s *APIServer) sendCancelToWorker(ctx context.Context, workerAddr, runID, c
 	defer conn.Close()
 
 	client := api.NewWorkerControlServiceClient(conn)
-	_, err = client.CancelRun(ctx, &api.CancelRunRequest{
+
+	rpcCtx, cancel := context.WithTimeout(ctx, workerCancelRPCTimeout)
+	defer cancel()
+
+	_, err = client.CancelRun(rpcCtx, &api.CancelRunRequest{
 		RunId:       &runID,
 		CancelToken: &cancelToken,
 	})
