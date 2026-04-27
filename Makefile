@@ -63,6 +63,10 @@ test-integration:
 test-race:
 	go test -race ./...
 
+.PHONY: test-quick
+test-quick:
+	go test -count=1 -timeout=60s ./internal/... ./cmd/... ./api/...
+
 FUZZTIME ?= 30s
 
 .PHONY: fuzz-api-auth

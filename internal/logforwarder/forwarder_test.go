@@ -14,6 +14,78 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+func pollChunkCount(t *testing.T, client *mocks.MockLogClient, want int, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if len(client.GetChunks()) >= want {
+			return
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatalf("timed out waiting for %d chunks, got %d", want, len(client.GetChunks()))
+}
+
+func pollSpoolFiles(t *testing.T, dir string, want int, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				time.Sleep(10 * time.Millisecond)
+				continue
+			}
+
+			t.Fatalf("read spool dir: %v", err)
+		}
+
+		count := 0
+		for _, e := range entries {
+			if filepath.Ext(e.Name()) == spoolExt {
+				count++
+			}
+		}
+
+		if count >= want {
+			return
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatalf("timed out waiting for %d spool files", want)
+}
+
+func assertNoSpoolFiles(t *testing.T, dir string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return
+		}
+
+		found := false
+		for _, e := range entries {
+			if filepath.Ext(e.Name()) == spoolExt {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			return
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatalf("timed out waiting for spool files to be removed")
+}
+
 // TestForwarder_HappyPath verifies that chunks received over the Unix socket
 // are batched and forwarded to the log client.
 func TestForwarder_HappyPath(t *testing.T) {
@@ -59,13 +131,14 @@ func TestForwarder_HappyPath(t *testing.T) {
 	}
 	stream.CloseSend()
 
-	// Allow time for batching and forwarding
-	time.Sleep(200 * time.Millisecond)
+	// Give the socket time to deliver chunks to the forwarder.
+	time.Sleep(50 * time.Millisecond)
 
-	// Trigger final flush by shutting down
+	// Trigger final flush by shutting down.
 	fwd.Shutdown()
 	cancel()
-	time.Sleep(100 * time.Millisecond)
+
+	pollChunkCount(t, logClient, len(chunks), 2*time.Second)
 
 	received := logClient.GetChunks()
 	if len(received) != len(chunks) {
@@ -111,7 +184,7 @@ func TestForwarder_SpoolAndRecover(t *testing.T) {
 
 	fwd := NewForwarder(server.Chunks(), logger, spoolDir, 2, 10000)
 	fwd.SetLogClient(logClient)
-	fwd.SetScanInterval(200 * time.Millisecond)
+	fwd.SetScanInterval(50 * time.Millisecond)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -139,30 +212,13 @@ func TestForwarder_SpoolAndRecover(t *testing.T) {
 	stream.CloseSend()
 
 	// Wait for spool files to be written.
-	time.Sleep(300 * time.Millisecond)
-
-	// Verify spool files exist.
-	entries, err := os.ReadDir(spoolDir)
-	if err != nil {
-		t.Fatalf("read spool dir: %v", err)
-	}
-
-	spoolCount := 0
-	for _, e := range entries {
-		if filepath.Ext(e.Name()) == spoolExt {
-			spoolCount++
-		}
-	}
-
-	if spoolCount == 0 {
-		t.Fatal("expected spool files to be written, found none")
-	}
+	pollSpoolFiles(t, spoolDir, 1, 2*time.Second)
 
 	// Now allow the log client to succeed.
 	logClient.SetStreamError(nil)
 
 	// Wait for the spool scanner to pick up the files.
-	time.Sleep(500 * time.Millisecond)
+	pollChunkCount(t, logClient, len(chunks), 2*time.Second)
 
 	received := logClient.GetChunks()
 	if len(received) != len(chunks) {
@@ -176,16 +232,7 @@ func TestForwarder_SpoolAndRecover(t *testing.T) {
 	}
 
 	// Verify spool files were cleaned up.
-	entries, err = os.ReadDir(spoolDir)
-	if err != nil {
-		t.Fatalf("read spool dir after recovery: %v", err)
-	}
-
-	for _, e := range entries {
-		if filepath.Ext(e.Name()) == spoolExt {
-			t.Fatalf("spool file %s should have been removed after recovery", e.Name())
-		}
-	}
+	assertNoSpoolFiles(t, spoolDir, 2*time.Second)
 
 	fwd.Shutdown()
 	cancel()
@@ -229,8 +276,7 @@ func TestForwarder_ShutdownFlushesPending(t *testing.T) {
 	}
 	stream.CloseSend()
 
-	// Give the forwarder time to receive and flush.
-	time.Sleep(200 * time.Millisecond)
+	pollChunkCount(t, logClient, 1, 2*time.Second)
 
 	received := logClient.GetChunks()
 	if len(received) != 1 {

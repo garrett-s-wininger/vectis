@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
@@ -13,8 +14,19 @@ import (
 	"vectis/internal/interfaces"
 )
 
+// LogStreamWaiter is implemented by the background log stream and allows tests
+// to synchronize on flush completion without sleeps.
+type LogStreamWaiter interface {
+	WaitForDone(timeout time.Duration) error
+}
+
 type Executor struct {
 	registry *builtins.Registry
+
+	// TestLogStreamHook is a test-only channel that receives the LogStreamWaiter
+	// created during ExecuteJob. It allows tests to wait for background flush
+	// completion without sleeps.
+	TestLogStreamHook chan LogStreamWaiter
 }
 
 func NewExecutor() *Executor {
@@ -57,6 +69,13 @@ func (e *Executor) ExecuteJob(ctx context.Context, job *api.Job, logClient inter
 	logStream, err := newDurableLogStream(logClient, logger, job.GetRunId())
 	if err != nil {
 		return fmt.Errorf("failed to initialize durable log stream: %w", err)
+	}
+
+	if e.TestLogStreamHook != nil {
+		select {
+		case e.TestLogStreamHook <- logStream:
+		default:
+		}
 	}
 
 	defer func() {

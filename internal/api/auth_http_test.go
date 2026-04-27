@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"vectis/internal/api/audit"
 	"vectis/internal/api/authn"
@@ -295,9 +294,6 @@ func TestAccessControlledHandler_auditLogOnInvalidToken(t *testing.T) {
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("code=%d", rec.Code)
 	}
-
-	// Wait for async audit log
-	time.Sleep(100 * time.Millisecond)
 
 	if len(mockAuditor.events) != 1 {
 		t.Fatalf("expected 1 audit event, got %d", len(mockAuditor.events))

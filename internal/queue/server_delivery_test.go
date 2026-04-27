@@ -8,9 +8,16 @@ import (
 	api "vectis/api/gen/go"
 )
 
+// deliveryWait sleeps long enough for a lease with the given TTL to expire.
+// It uses a 3x multiplier to avoid flakes on slow CI runners.
+func deliveryWait(ttl time.Duration) {
+	time.Sleep(ttl * 3)
+}
+
 func TestQueueDelivery_AckPreventsRedelivery(t *testing.T) {
 	ctx := context.Background()
-	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{DeliveryTTL: 20 * time.Millisecond}, nil)
+	ttl := 30 * time.Millisecond
+	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{DeliveryTTL: ttl}, nil)
 	if err != nil {
 		t.Fatalf("new queue: %v", err)
 	}
@@ -33,7 +40,7 @@ func TestQueueDelivery_AckPreventsRedelivery(t *testing.T) {
 		t.Fatalf("ack: %v", err)
 	}
 
-	time.Sleep(30 * time.Millisecond)
+	deliveryWait(ttl)
 	got, err := svc.TryDequeue(ctx, &api.Empty{})
 	if err != nil {
 		t.Fatalf("trydequeue: %v", err)
@@ -45,7 +52,8 @@ func TestQueueDelivery_AckPreventsRedelivery(t *testing.T) {
 
 func TestQueueDelivery_UnackedLeaseExpiryRequeues(t *testing.T) {
 	ctx := context.Background()
-	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{DeliveryTTL: 20 * time.Millisecond}, nil)
+	ttl := 30 * time.Millisecond
+	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{DeliveryTTL: ttl}, nil)
 	if err != nil {
 		t.Fatalf("new queue: %v", err)
 	}
@@ -64,7 +72,7 @@ func TestQueueDelivery_UnackedLeaseExpiryRequeues(t *testing.T) {
 	}
 	firstDeliveryID := first.GetDeliveryId()
 
-	time.Sleep(30 * time.Millisecond)
+	deliveryWait(ttl)
 	second, err := svc.TryDequeue(ctx, &api.Empty{})
 	if err != nil {
 		t.Fatalf("second dequeue: %v", err)
@@ -85,9 +93,11 @@ func TestQueueDelivery_UnackedLeaseExpiryRequeues(t *testing.T) {
 
 func TestQueueDelivery_DLQAfterMaxAttempts(t *testing.T) {
 	ctx := context.Background()
+	ttl := 30 * time.Millisecond
+
 	// maxRequeueAttempts=2 means the job will be requeued twice (attempts 1 and 2),
 	// then moved to DLQ on the 3rd expiry (attempt 3).
-	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{DeliveryTTL: 20 * time.Millisecond, MaxRequeueAttempts: 2}, nil)
+	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{DeliveryTTL: ttl, MaxRequeueAttempts: 2}, nil)
 	if err != nil {
 		t.Fatalf("new queue: %v", err)
 	}
@@ -108,7 +118,7 @@ func TestQueueDelivery_DLQAfterMaxAttempts(t *testing.T) {
 			t.Fatalf("expected job on dequeue %d", i+1)
 		}
 
-		time.Sleep(30 * time.Millisecond)
+		deliveryWait(ttl)
 	}
 
 	// One more TryDequeue to trigger requeueExpiredLocked, which should move to DLQ.
@@ -149,10 +159,11 @@ func TestQueueDelivery_DLQAfterMaxAttempts(t *testing.T) {
 func TestQueueDelivery_DLQSurvivesRestart(t *testing.T) {
 	dir := t.TempDir()
 	ctx := context.Background()
+	ttl := 30 * time.Millisecond
 
 	jobID := "job-dlq-restart"
 	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{
-		DeliveryTTL:        20 * time.Millisecond,
+		DeliveryTTL:        ttl,
 		MaxRequeueAttempts: 1,
 		PersistenceDir:     dir,
 		SnapshotEvery:      8,
@@ -177,7 +188,7 @@ func TestQueueDelivery_DLQSurvivesRestart(t *testing.T) {
 			t.Fatalf("expected job on dequeue %d", i+1)
 		}
 
-		time.Sleep(30 * time.Millisecond)
+		deliveryWait(ttl)
 	}
 
 	// Final TryDequeue triggers DLQ move.
@@ -198,7 +209,7 @@ func TestQueueDelivery_DLQSurvivesRestart(t *testing.T) {
 
 	// Restart.
 	svc2, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{
-		DeliveryTTL:        20 * time.Millisecond,
+		DeliveryTTL:        ttl,
 		MaxRequeueAttempts: 1,
 		PersistenceDir:     dir,
 		SnapshotEvery:      8,

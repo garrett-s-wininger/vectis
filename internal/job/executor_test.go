@@ -14,6 +14,26 @@ import (
 	"vectis/internal/job"
 )
 
+func executeAndWait(t *testing.T, executor *job.Executor, testJob *api.Job, mockLogClient *mocks.MockLogClient, mockLogger *mocks.MockLogger) error {
+	t.Helper()
+	streamCh := make(chan job.LogStreamWaiter, 1)
+	executor.TestLogStreamHook = streamCh
+	defer func() { executor.TestLogStreamHook = nil }()
+
+	err := executor.ExecuteJob(context.Background(), testJob, mockLogClient, mockLogger)
+
+	select {
+	case stream := <-streamCh:
+		if waitErr := stream.WaitForDone(5 * time.Second); waitErr != nil {
+			t.Logf("wait for log stream done: %v", waitErr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Logf("timed out waiting for log stream hook")
+	}
+
+	return err
+}
+
 func TestExecutor_ExecuteJob_Success(t *testing.T) {
 	executor := job.NewExecutor()
 	mockLogClient := mocks.NewMockLogClient()
@@ -35,15 +55,10 @@ func TestExecutor_ExecuteJob_Success(t *testing.T) {
 		},
 	}
 
-	err := executor.ExecuteJob(context.Background(), testJob, mockLogClient, mockLogger)
+	err := executeAndWait(t, executor, testJob, mockLogClient, mockLogger)
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
-
-	// TODO(garrett): Avoid flaky sleeps. ExecuteJob does not expose the
-	// internal *durableLogStream, so we cannot call WaitForDone directly.
-	// Consider adding a test helper or callback to synchronize async flush.
-	time.Sleep(100 * time.Millisecond)
 
 	if mockLogClient.GetStreamCount() < 1 {
 		t.Errorf("expected at least 1 log stream, got %d", mockLogClient.GetStreamCount())
@@ -261,13 +276,10 @@ func TestExecutor_ExecuteJob_StreamUnavailableAtStart_ThenRecovers(t *testing.T)
 		},
 	}
 
-	err := executor.ExecuteJob(context.Background(), testJob, mockLogClient, mockLogger)
+	err := executeAndWait(t, executor, testJob, mockLogClient, mockLogger)
 	if err != nil {
 		t.Fatalf("expected success after stream recovery, got %v", err)
 	}
-
-	// TODO(garrett): Avoid flaky sleeps — see note in TestExecutor_ExecuteJob_Success.
-	time.Sleep(200 * time.Millisecond)
 
 	if got := len(mockLogClient.GetChunks()); got == 0 {
 		t.Fatal("expected queued logs to flush after stream recovery")
@@ -342,7 +354,7 @@ func TestExecutor_ExecuteJob_CommandFailure(t *testing.T) {
 		},
 	}
 
-	err := executor.ExecuteJob(context.Background(), testJob, mockLogClient, mockLogger)
+	err := executeAndWait(t, executor, testJob, mockLogClient, mockLogger)
 	if err == nil {
 		t.Error("expected error when command fails")
 	}
@@ -350,9 +362,6 @@ func TestExecutor_ExecuteJob_CommandFailure(t *testing.T) {
 	if !strings.Contains(err.Error(), "command failed") && !strings.Contains(err.Error(), "exit status 1") {
 		t.Errorf("expected error to indicate command failure, got: %v", err)
 	}
-
-	// TODO(garrett): Avoid flaky sleeps — see note in TestExecutor_ExecuteJob_Success.
-	time.Sleep(100 * time.Millisecond)
 
 	chunks := mockLogClient.GetChunks()
 	if len(chunks) == 0 {
