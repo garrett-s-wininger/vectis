@@ -9,6 +9,10 @@ API := $(shell find api -name '*.go' 2>/dev/null)
 BINARIES := $(addprefix $(OUT_DIR)/vectis-, $(APPS))
 INTERNAL := $(shell find internal -name '*.go' 2>/dev/null)
 
+FORMAL_MODELS := reconciliation
+JAVA ?= java
+TLA_TOOLS_JAR ?= /opt/tla+/tla2tools.jar
+
 PODMAN_GRAFANA_KUBE ?= deploy/podman/grafana-configmaps.gen.yaml
 PODMAN_KUBE_SPEC ?= deploy/podman/kube-spec.yaml
 PODMAN_NETWORK ?= pasta
@@ -45,6 +49,12 @@ proto:
 	rm -rf ./api/gen/
 	${BUF} generate
 
+formal-verification-%: formal/tla/%.tla
+	${JAVA} -jar $(TLA_TOOLS_JAR) -workers auto formal/tla/${*}.tla -config formal/tla/${*}.cfg
+
+.PHONY: formal-verification
+formal-verification: $(addprefix formal-verification-, $(FORMAL_MODELS))
+
 .PHONY: format
 format:
 	go fix ./...
@@ -78,6 +88,8 @@ fuzz-api-auth:
 .PHONY: clean
 clean:
 	rm -rf ${OUT_DIR}
+	rm -rf formal/tla/*_TTrace_*
+	rm -rf states/
 
 .PHONY: image-full
 image-full:

@@ -1,2 +1,7 @@
+# TLA Model Checking
+formal/tla/*_TTrace_*.bin
+formal/tla/*_TTrace_*.tla
+states/
+
 # Outputs
 bin/
