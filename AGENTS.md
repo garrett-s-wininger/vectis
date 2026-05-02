@@ -10,9 +10,6 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 | CGO | Required locally (SQLite driver) — `CGO_ENABLED=1` (default). Disabled for container builds (`CGO_ENABLED=0` + `-tags=nosqlite`). |
 | Protobuf compiler | `protoc` with local `protoc-gen-go` and `protoc-gen-go-grpc` plugins; override `PROTOC*` Make variables if needed |
 | Protobuf codegen | `make proto` — invokes local `protoc`, output to `api/gen/go/` (read-only) |
-| Buf | `npx @bufbuild/buf` (pinned in [`Makefile`](Makefile) line 2) |
-| Protobuf codegen | `make proto` — invokes Buf, output to `api/gen/go/` (read-only) |
->>>>>>> 5762b8a (docs: agent context)
 | TLA+ (formal) | Java + `/opt/tla+/tla2tools.jar` (optional, for `make formal-verification`) |
 | Container | Podman (targets: `make image-full`, `make image-api`, etc.) |
 

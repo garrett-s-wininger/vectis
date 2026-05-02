@@ -48,7 +48,7 @@ func main() {
 
 ## Which binaries need the database import
 
-Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-ten-cmd): `api`, `queue`, `log`, `cron`, `reconciler` — these need the `dbdrivers` import. `registry`, `worker`, `log-forwarder`, `local`, `cli` do not.
+Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-ten-cmd): `api`, `queue`, `cron`, `reconciler` — these need the `dbdrivers` import. `registry`, `log`, `worker`, `log-forwarder`, `local`, `cli` do not.
 
 ## Env prefix mapping
 

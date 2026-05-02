@@ -6,7 +6,7 @@ Hand-written protos under [`proto/`](proto/); **`make proto`** (see root [`Makef
 
 **Imports:** `api "vectis/api/gen/go"` (common convention).
 
-**Proto packages:** each `.proto` file uses a flat package name matching its concern where present (`package common`, etc.). Core job tree types live in [`common.proto`](proto/common.proto) (`Job`, `Node`, `LogChunk`, `Stream`, …).
+**Proto packages:** each `.proto` file uses a flat package name matching its concern (`package common`, `package queue`, `package log`, etc.). Core job tree types live in [`common.proto`](proto/common.proto) (`Job`, `Node`, `LogChunk`, `Stream`, …).
 
 ## gRPC service definitions
 
