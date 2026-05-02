@@ -33,6 +33,9 @@ import (
 
 	"github.com/google/uuid"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -325,7 +328,7 @@ func (s *APIServer) SetAuditor(auditor audit.Auditor) {
 	s.auditor = auditor
 }
 
-func (s *APIServer) auditLog(ctx context.Context, eventType string, actorID, targetID int64, metadata map[string]interface{}) {
+func (s *APIServer) auditLog(ctx context.Context, eventType string, actorID, targetID int64, metadata map[string]any) {
 	s.mu.RLock()
 	auditor := s.auditor
 	s.mu.RUnlock()
@@ -463,7 +466,7 @@ func (s *APIServer) ForceFailRun(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventRunForceFailed, actorID, 0, map[string]interface{}{
+	s.auditLog(ctx, audit.EventRunForceFailed, actorID, 0, map[string]any{
 		"run_id":    runID,
 		"namespace": nsPath,
 		"reason":    reason,
@@ -557,7 +560,7 @@ func (s *APIServer) ForceRequeueRun(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventRunForceRequeued, actorID, 0, map[string]interface{}{
+	s.auditLog(ctx, audit.EventRunForceRequeued, actorID, 0, map[string]any{
 		"run_id":    runID,
 		"namespace": nsPath,
 	})
@@ -652,7 +655,7 @@ func (s *APIServer) CancelRun(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventRunCancelled, actorID, 0, map[string]interface{}{
+	s.auditLog(ctx, audit.EventRunCancelled, actorID, 0, map[string]any{
 		"run_id":    runID,
 		"namespace": nsPath,
 	})
@@ -782,7 +785,7 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventJobCreated, actorID, 0, map[string]interface{}{
+	s.auditLog(ctx, audit.EventJobCreated, actorID, 0, map[string]any{
 		"job_id":    *job.Id,
 		"namespace": ns.Path,
 	})
@@ -844,7 +847,7 @@ func (s *APIServer) DeleteJob(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventJobDeleted, actorID, 0, map[string]interface{}{
+	s.auditLog(ctx, audit.EventJobDeleted, actorID, 0, map[string]any{
 		"job_id":    jobID,
 		"namespace": nsPath,
 	})
@@ -1096,7 +1099,7 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventRunTriggered, actorID, 0, map[string]interface{}{
+	s.auditLog(ctx, audit.EventRunTriggered, actorID, 0, map[string]any{
 		"job_id":    jobID,
 		"run_id":    runID,
 		"run_index": runIndex,
@@ -1119,28 +1122,56 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 
 	// NOTE(garrett): We finish the enqueue asynchronously so that we can response immediately to the client,
 	// rather than them waiting for the enqueue to complete (dual enqueue is idempotent by worker claim).
-	bgCtx := context.Background()
-	if h := s.srvCtx.Load(); h != nil && h.ctx != nil {
-		bgCtx = h.ctx
-	}
+	bgCtx := detachedTraceContextFromRequest(r)
 	go s.finishTriggerEnqueue(bgCtx, jobID, runID, runIndex, &job)
 }
 
 func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID string, runIndex int, job *api.Job) {
+	ctx, span := observability.Tracer("vectis/api").Start(ctx, "run.enqueue.trigger.async", trace.WithSpanKind(trace.SpanKindInternal))
+	span.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
+	span.SetAttributes(observability.RunIndexAttrs(runIndex)...)
+	span.SetAttributes(attribute.String("run.phase", "enqueue"))
+
 	holder := s.queueClient.Load()
 	var qc interfaces.QueueService
 	if holder != nil {
 		qc = holder.client
 	}
 
-	if err := enqueueWithRetry(ctx, qc, job, s.logger); err != nil {
+	req := &api.JobRequest{Job: job}
+	if req.Metadata == nil {
+		req.Metadata = map[string]string{}
+	}
+
+	req.Metadata[observability.JobEnqueuedAtUnixNanoKey] = strconv.FormatInt(time.Now().UnixNano(), 10)
+	observability.InjectJobTraceContext(ctx, req)
+
+	if err := enqueueWithRetry(ctx, qc, req, s.logger); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "enqueue")
+		span.End()
 		s.logger.Error("Failed to enqueue job (run %s): %v", runID, err)
 		return
 	}
+	span.SetAttributes(attribute.String("vectis.enqueue.outcome", "success"))
+	span.End()
 
 	if err := s.runs.TouchDispatched(ctx, runID); err != nil {
+		_, tdSpan := observability.Tracer("vectis/api").Start(ctx, "run.touch_dispatched", trace.WithSpanKind(trace.SpanKindInternal))
+		tdSpan.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
+		tdSpan.RecordError(err)
+		tdSpan.SetStatus(codes.Error, "touch dispatched")
+		tdSpan.End()
 		s.logger.Error("TouchDispatched after enqueue (run %s): %v", runID, err)
+		return
 	}
+
+	_, tdSpan := observability.Tracer("vectis/api").Start(ctx, "run.touch_dispatched", trace.WithSpanKind(trace.SpanKindInternal))
+	tdSpan.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
+	if runIndex > 0 {
+		tdSpan.SetAttributes(observability.RunIndexAttrs(runIndex)...)
+	}
+	tdSpan.End()
 
 	s.logger.Info("Triggered job: %s (run %s, index %d)", jobID, runID, runIndex)
 }
@@ -1227,7 +1258,7 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventJobUpdated, actorID, 0, map[string]interface{}{
+	s.auditLog(ctx, audit.EventJobUpdated, actorID, 0, map[string]any{
 		"job_id":    jobID,
 		"namespace": nsPath,
 	})
@@ -1345,7 +1376,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventRunTriggered, actorID, 0, map[string]interface{}{
+	s.auditLog(ctx, audit.EventRunTriggered, actorID, 0, map[string]any{
 		"job_id":    generatedID,
 		"run_id":    runID,
 		"namespace": ns.Path,
@@ -1365,31 +1396,69 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 
 	_, _ = w.Write(buf.Bytes())
 
-	bgCtx := context.Background()
-	if h := s.srvCtx.Load(); h != nil && h.ctx != nil {
-		bgCtx = h.ctx
-	}
+	bgCtx := detachedTraceContextFromRequest(r)
 
 	go s.finishRunJobEnqueue(bgCtx, generatedID, runID, &job)
 }
 
 func (s *APIServer) finishRunJobEnqueue(ctx context.Context, generatedID, runID string, job *api.Job) {
+	ctx, span := observability.Tracer("vectis/api").Start(ctx, "run.enqueue.ephemeral.async", trace.WithSpanKind(trace.SpanKindInternal))
+	span.SetAttributes(observability.JobRunAttrs(generatedID, runID)...)
+	span.SetAttributes(attribute.Bool("vectis.run.ephemeral", true))
+	span.SetAttributes(attribute.String("run.phase", "enqueue"))
+
 	holder := s.queueClient.Load()
 	var qc interfaces.QueueService
 	if holder != nil {
 		qc = holder.client
 	}
 
-	if err := enqueueWithRetry(ctx, qc, job, s.logger); err != nil {
+	req := &api.JobRequest{Job: job}
+	if req.Metadata == nil {
+		req.Metadata = map[string]string{}
+	}
+
+	req.Metadata[observability.JobEnqueuedAtUnixNanoKey] = strconv.FormatInt(time.Now().UnixNano(), 10)
+	observability.InjectJobTraceContext(ctx, req)
+
+	if err := enqueueWithRetry(ctx, qc, req, s.logger); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "enqueue")
+		span.End()
 		s.logger.Error("Failed to enqueue job (run %s): %v", runID, err)
 		return
 	}
+	span.SetAttributes(attribute.String("vectis.enqueue.outcome", "success"))
+	span.End()
 
 	if err := s.runs.TouchDispatched(ctx, runID); err != nil {
+		_, tdSpan := observability.Tracer("vectis/api").Start(ctx, "run.touch_dispatched", trace.WithSpanKind(trace.SpanKindInternal))
+		tdSpan.SetAttributes(observability.JobRunAttrs(generatedID, runID)...)
+		tdSpan.RecordError(err)
+		tdSpan.SetStatus(codes.Error, "touch dispatched")
+		tdSpan.End()
 		s.logger.Error("TouchDispatched after enqueue (run %s): %v", runID, err)
+		return
 	}
 
+	_, tdSpan := observability.Tracer("vectis/api").Start(ctx, "run.touch_dispatched", trace.WithSpanKind(trace.SpanKindInternal))
+	tdSpan.SetAttributes(observability.JobRunAttrs(generatedID, runID)...)
+	tdSpan.End()
+
 	s.logger.Info("Enqueued ephemeral job: %s (run %s)", generatedID, runID)
+}
+
+func detachedTraceContextFromRequest(r *http.Request) context.Context {
+	if r == nil {
+		return context.Background()
+	}
+
+	sc := trace.SpanFromContext(r.Context()).SpanContext()
+	if !sc.IsValid() {
+		return context.Background()
+	}
+
+	return trace.ContextWithSpanContext(context.Background(), sc)
 }
 
 func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {

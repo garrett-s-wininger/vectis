@@ -65,7 +65,7 @@ func TestRateLimiting_endToEnd(t *testing.T) {
 		secondToken := out.Token
 
 		// Exhaust admin token's token bucket
-		for i := 0; i < 19; i++ {
+		for i := range 19 {
 			body := map[string]string{"label": "test", "expires_in": "1y"}
 			b, _ := json.Marshal(body)
 			rec := httptest.NewRecorder()
@@ -106,7 +106,7 @@ func TestRateLimiting_endToEnd(t *testing.T) {
 	t.Run("auth_endpoint_rate_limited", func(t *testing.T) {
 		// Auth endpoints have burst=5 and each route has its own bucket.
 		// Exhaust the bucket for /api/v1/setup/status with 5 requests.
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/setup/status", nil)
 			h.ServeHTTP(rec, req)
@@ -130,7 +130,7 @@ func TestRateLimiting_endToEnd(t *testing.T) {
 	t.Run("general_endpoint_higher_limit", func(t *testing.T) {
 		// General endpoints have higher limits (burst=150)
 		// Make sure we can make many requests
-		for i := 0; i < 20; i++ {
+		for i := range 20 {
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/namespaces", nil)
 			req.Header.Set("Authorization", "Bearer "+adminToken)

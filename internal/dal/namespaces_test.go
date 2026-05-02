@@ -259,3 +259,44 @@ func TestParseNamespacePath(t *testing.T) {
 		t.Fatalf("expected [/ /a /a/b], got %v", got)
 	}
 }
+
+func TestScanBreakInheritance(t *testing.T) {
+	tests := []struct {
+		name    string
+		in      any
+		want    bool
+		wantErr bool
+	}{
+		{name: "bool true", in: true, want: true},
+		{name: "bool false", in: false, want: false},
+		{name: "int64 one", in: int64(1), want: true},
+		{name: "int64 zero", in: int64(0), want: false},
+		{name: "int one", in: 1, want: true},
+		{name: "bytes false", in: []byte("false"), want: false},
+		{name: "bytes one", in: []byte("1"), want: true},
+		{name: "string true", in: "true", want: true},
+		{name: "string zero", in: "0", want: false},
+		{name: "bad string", in: "nope", wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := scanBreakInheritance(tc.in)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil (value=%v)", got)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if got != tc.want {
+				t.Fatalf("expected %v, got %v", tc.want, got)
+			}
+		})
+	}
+}

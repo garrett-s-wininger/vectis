@@ -11,6 +11,11 @@ message Job {
     string delivery_id = 4;
 }
 
+message JobRequest {
+    Job job = 1;
+    map<string, string> metadata = 2;
+}
+
 message Node {
     string id = 1;
     string uses = 2;

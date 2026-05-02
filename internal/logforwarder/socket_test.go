@@ -3,19 +3,18 @@ package logforwarder
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/interfaces"
+	"vectis/internal/testutil/socktest"
 
 	"google.golang.org/protobuf/proto"
 )
 
 func TestSocketServerRoundtrip(t *testing.T) {
-	tmpDir := t.TempDir()
-	sockPath := filepath.Join(tmpDir, "test.sock")
+	sockPath := socktest.ShortPath(t, "test.sock")
 
 	server, err := NewSocketServer(sockPath, 1024)
 	if err != nil {
@@ -96,8 +95,7 @@ func TestSocketServerRoundtrip(t *testing.T) {
 }
 
 func TestSocketServerBackpressureDrops(t *testing.T) {
-	tmpDir := t.TempDir()
-	sockPath := filepath.Join(tmpDir, "test.sock")
+	sockPath := socktest.ShortPath(t, "test.sock")
 
 	// Tiny buffer so backpressure kicks in quickly.
 	server, err := NewSocketServer(sockPath, 1)
@@ -118,7 +116,7 @@ func TestSocketServerBackpressureDrops(t *testing.T) {
 
 	// Don't read from server.Chunks() — fill the buffer and observe that
 	// the client does not block (drops are silent on the sender side).
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		if err := stream.Send(&api.LogChunk{RunId: proto.String("r"), Sequence: proto.Int64(int64(i))}); err != nil {
 			t.Fatalf("send chunk %d: %v", i, err)
 		}
@@ -154,8 +152,7 @@ check:
 }
 
 func TestSocketServerStaleSocketRemoved(t *testing.T) {
-	tmpDir := t.TempDir()
-	sockPath := filepath.Join(tmpDir, "stale.sock")
+	sockPath := socktest.ShortPath(t, "stale.sock")
 
 	// Pre-create a stale socket file.
 	if err := os.WriteFile(sockPath, []byte("stale"), 0o644); err != nil {

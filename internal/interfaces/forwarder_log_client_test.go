@@ -6,18 +6,17 @@ import (
 	"io"
 	"net"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/testutil/socktest"
 
 	"google.golang.org/protobuf/proto"
 )
 
 func TestForwarderLogClientRoundtrip(t *testing.T) {
-	tmpDir := t.TempDir()
-	sockPath := filepath.Join(tmpDir, "fwd.sock")
+	sockPath := socktest.ShortPath(t, "fwd.sock")
 
 	// Stand up a minimal server that speaks the length-prefixed protocol.
 	ln, err := net.Listen("unix", sockPath)
@@ -112,8 +111,7 @@ func TestForwarderLogClientRoundtrip(t *testing.T) {
 }
 
 func TestForwarderLogClientDialMissingSocket(t *testing.T) {
-	tmpDir := t.TempDir()
-	sockPath := filepath.Join(tmpDir, "missing.sock")
+	sockPath := socktest.ShortPath(t, "missing.sock")
 
 	client := NewForwarderLogClient(sockPath)
 	_, err := client.StreamLogs(context.Background())
@@ -123,8 +121,7 @@ func TestForwarderLogClientDialMissingSocket(t *testing.T) {
 }
 
 func TestForwarderLogClientNilChunk(t *testing.T) {
-	tmpDir := t.TempDir()
-	sockPath := filepath.Join(tmpDir, "nil.sock")
+	sockPath := socktest.ShortPath(t, "nil.sock")
 
 	ln, err := net.Listen("unix", sockPath)
 	if err != nil {
@@ -154,8 +151,7 @@ func TestForwarderLogClientNilChunk(t *testing.T) {
 }
 
 func TestForwarderLogClientSendToActiveSocket(t *testing.T) {
-	tmpDir := t.TempDir()
-	sockPath := filepath.Join(tmpDir, "log-forwarder.sock")
+	sockPath := socktest.ShortPath(t, "log-forwarder.sock")
 
 	// Create a listening socket with an acceptor so Send does not rely on
 	// kernel backlog buffering.

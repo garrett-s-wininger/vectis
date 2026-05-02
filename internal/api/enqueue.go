@@ -8,6 +8,6 @@ import (
 	"vectis/internal/queueclient"
 )
 
-func enqueueWithRetry(ctx context.Context, q interfaces.QueueService, job *api.Job, log interfaces.Logger) error {
-	return queueclient.EnqueueWithRetry(ctx, q, job, log)
+func enqueueWithRetry(ctx context.Context, q interfaces.QueueService, req *api.JobRequest, log interfaces.Logger) error {
+	return queueclient.EnqueueWithRetry(ctx, q, req, log)
 }

@@ -95,7 +95,7 @@ func TestDALRepository_InsertAuditEvents_mapsFields(t *testing.T) {
 			IPAddress:     "127.0.0.1",
 			CorrelationID: "abc-123",
 			Timestamp:     time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			Metadata:      map[string]interface{}{"key": "value"},
+			Metadata:      map[string]any{"key": "value"},
 		},
 	}
 

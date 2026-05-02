@@ -9,15 +9,15 @@ import (
 )
 
 type QueueClient interface {
-	Enqueue(ctx context.Context, job *api.Job) error
-	Dequeue(ctx context.Context) (*api.Job, error)
-	TryDequeue(ctx context.Context) (*api.Job, error)
+	Enqueue(ctx context.Context, req *api.JobRequest) error
+	Dequeue(ctx context.Context) (*api.JobRequest, error)
+	TryDequeue(ctx context.Context) (*api.JobRequest, error)
 	Ack(ctx context.Context, deliveryID string) error
 	Close() error
 }
 
 type QueueService interface {
-	Enqueue(ctx context.Context, job *api.Job) (*api.Empty, error)
+	Enqueue(ctx context.Context, req *api.JobRequest) (*api.Empty, error)
 }
 
 type grpcQueueService struct {
@@ -28,12 +28,12 @@ func NewQueueService(client api.QueueServiceClient) QueueService {
 	return &grpcQueueService{client: client}
 }
 
-func (c *grpcQueueService) Enqueue(ctx context.Context, job *api.Job) (*api.Empty, error) {
-	return c.client.Enqueue(ctx, job)
+func (c *grpcQueueService) Enqueue(ctx context.Context, req *api.JobRequest) (*api.Empty, error) {
+	return c.client.Enqueue(ctx, req)
 }
 
 type QueueServiceClient interface {
-	Enqueue(ctx context.Context, job *api.Job) (*api.Empty, error)
+	Enqueue(ctx context.Context, req *api.JobRequest) (*api.Empty, error)
 }
 
 type GRPCQueueClient struct {
@@ -48,28 +48,28 @@ func NewGRPCQueueClient(conn *grpc.ClientConn) *GRPCQueueClient {
 	}
 }
 
-func (c *GRPCQueueClient) Enqueue(ctx context.Context, job *api.Job) error {
-	_, err := c.client.Enqueue(ctx, job)
+func (c *GRPCQueueClient) Enqueue(ctx context.Context, req *api.JobRequest) error {
+	_, err := c.client.Enqueue(ctx, req)
 	if err != nil {
 		return fmt.Errorf("failed to enqueue job: %w", err)
 	}
 	return nil
 }
 
-func (c *GRPCQueueClient) Dequeue(ctx context.Context) (*api.Job, error) {
-	job, err := c.client.Dequeue(ctx, &api.Empty{})
+func (c *GRPCQueueClient) Dequeue(ctx context.Context) (*api.JobRequest, error) {
+	req, err := c.client.Dequeue(ctx, &api.Empty{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to dequeue job: %w", err)
 	}
-	return job, nil
+	return req, nil
 }
 
-func (c *GRPCQueueClient) TryDequeue(ctx context.Context) (*api.Job, error) {
-	job, err := c.client.TryDequeue(ctx, &api.Empty{})
+func (c *GRPCQueueClient) TryDequeue(ctx context.Context) (*api.JobRequest, error) {
+	req, err := c.client.TryDequeue(ctx, &api.Empty{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to try dequeue job: %w", err)
 	}
-	return job, nil
+	return req, nil
 }
 
 func (c *GRPCQueueClient) Ack(ctx context.Context, deliveryID string) error {

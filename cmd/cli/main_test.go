@@ -24,11 +24,21 @@ func TestEffectiveToken_fallbackToFile(t *testing.T) {
 	t.Setenv("VECTIS_API_TOKEN", "")
 
 	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
 	t.Setenv("XDG_CONFIG_HOME", tmpDir)
 
-	path := filepath.Join(tmpDir, "vectis", "token")
-	_ = os.MkdirAll(filepath.Dir(path), 0o700)
-	_ = os.WriteFile(path, []byte("file-token\n"), 0o600)
+	path, err := cliTokenFilePath()
+	if err != nil {
+		t.Fatalf("token path: %v", err)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("mkdir token dir: %v", err)
+	}
+
+	if err := os.WriteFile(path, []byte("file-token\n"), 0o600); err != nil {
+		t.Fatalf("write token file: %v", err)
+	}
 
 	if got := effectiveToken(); got != "file-token" {
 		t.Fatalf("expected file-token, got %s", got)
@@ -37,7 +47,9 @@ func TestEffectiveToken_fallbackToFile(t *testing.T) {
 
 func TestEffectiveToken_empty(t *testing.T) {
 	t.Setenv("VECTIS_API_TOKEN", "")
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
 
 	if got := effectiveToken(); got != "" {
 		t.Fatalf("expected empty, got %s", got)
@@ -46,6 +58,7 @@ func TestEffectiveToken_empty(t *testing.T) {
 
 func TestTokenPersistence(t *testing.T) {
 	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
 	t.Setenv("XDG_CONFIG_HOME", tmpDir)
 
 	// Write
@@ -70,6 +83,7 @@ func TestTokenPersistence(t *testing.T) {
 
 func TestWritePersistedToken_createsDirectory(t *testing.T) {
 	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
 	t.Setenv("XDG_CONFIG_HOME", tmpDir)
 
 	path, _ := cliTokenFilePath()
@@ -123,7 +137,7 @@ func TestTokenList_success(t *testing.T) {
 			t.Errorf("Authorization=%q", auth)
 		}
 
-		_ = json.NewEncoder(w).Encode([]map[string]interface{}{
+		_ = json.NewEncoder(w).Encode([]map[string]any{
 			{"id": 1, "label": "prod", "expires_at": nil, "created_at": "2024-01-01", "last_used_at": nil},
 		})
 	})
@@ -161,14 +175,14 @@ func TestTokenCreate_success(t *testing.T) {
 			t.Errorf("path=%s", r.URL.Path)
 		}
 
-		var body map[string]interface{}
+		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		if body["label"] != "my-label" {
 			t.Errorf("label=%v", body["label"])
 		}
 
 		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"id": 42, "label": "my-label", "token": "secret-token", "expires_at": "",
 		})
 	})
@@ -238,7 +252,7 @@ func TestDoLogin_success(t *testing.T) {
 			t.Errorf("unexpected body: %v", body)
 		}
 
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"token": "login-token", "user_id": 1, "expires_at": "2025-01-01",
 		})
 	})

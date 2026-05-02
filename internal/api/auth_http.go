@@ -121,7 +121,7 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 		uid, uname, tokenID, err := s.authRepo.ResolveAPIToken(ctx, tokenKey)
 		if err != nil {
 			if dal.IsNotFound(err) {
-				s.auditLog(r.Context(), audit.EventAuthFailure, 0, 0, map[string]interface{}{
+				s.auditLog(r.Context(), audit.EventAuthFailure, 0, 0, map[string]any{
 					"reason": "invalid_token",
 				})
 				writeAuthJSON(w, http.StatusUnauthorized, authAPIError{Error: AuthJSONAuthenticationRequired})
@@ -136,7 +136,7 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 			return
 		}
 
-		s.auditLog(r.Context(), audit.EventAuthSuccess, uid, 0, map[string]interface{}{
+		s.auditLog(r.Context(), audit.EventAuthSuccess, uid, 0, map[string]any{
 			"token_id": tokenID,
 		})
 
@@ -158,7 +158,7 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 					return
 				}
 
-				s.auditLog(r.Context(), audit.EventAuthFailure, uid, 0, map[string]interface{}{
+				s.auditLog(r.Context(), audit.EventAuthFailure, uid, 0, map[string]any{
 					"reason":   "token_scope_load_error",
 					"token_id": tokenID,
 				})

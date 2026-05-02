@@ -8,12 +8,16 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"go.opentelemetry.io/otel/attribute"
+	otelcodes "go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -318,20 +322,20 @@ func (w *worker) now() time.Time {
 
 func (w *worker) run() {
 	for {
-		job, keepGoing := w.dequeueNext()
+		jobReq, keepGoing := w.dequeueNext()
 		if !keepGoing {
 			return
 		}
 
-		if job == nil {
+		if jobReq == nil {
 			continue
 		}
 
-		w.handleJob(job)
+		w.handleJob(jobReq)
 	}
 }
 
-func (w *worker) dequeueNext() (*api.Job, bool) {
+func (w *worker) dequeueNext() (*api.JobRequest, bool) {
 	w.logger.Debug("Initiating long poll from queue...")
 	pollCtx, cancelPoll := context.WithTimeout(w.ctx, longPollTimeout)
 	job, err := w.queue.Dequeue(pollCtx)
@@ -357,7 +361,7 @@ func (w *worker) logGracefulDequeueStop(cause error) {
 	}
 }
 
-func (w *worker) handleDequeueError(err error) (*api.Job, bool) {
+func (w *worker) handleDequeueError(err error) (*api.JobRequest, bool) {
 	if err != nil && errors.Is(err, context.Canceled) {
 		w.logGracefulDequeueStop(err)
 		return nil, false
@@ -432,52 +436,105 @@ func (w *worker) sleepDBBackoff() error {
 	return w.clock.Sleep(w.runCtx, delay)
 }
 
-func (w *worker) handleJob(job *api.Job) {
-	start := w.now()
-	if w.metrics != nil {
-		w.metrics.RecordJobReceived(context.Background())
+func (w *worker) handleJob(jobReq *api.JobRequest) {
+	jobCtx := observability.ExtractJobTraceContext(w.runCtx, jobReq)
+	job := jobReq.GetJob()
+	if job == nil {
+		w.logger.Error("Dequeued empty job request")
+		return
 	}
-
-	var outcome string
-	defer func() {
-		if w.metrics != nil && outcome != "" {
-			w.metrics.RecordJobFinished(context.Background(), outcome, w.now().Sub(start))
-		}
-	}()
 
 	jobID := job.GetId()
 	runID := job.GetRunId()
+	consumeCtx, span := observability.Tracer("vectis/worker").Start(jobCtx, "worker.job.consume", trace.WithSpanKind(trace.SpanKindConsumer))
+	span.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
+	span.SetAttributes(attribute.Bool("vectis.run.claimed", runID != ""))
+	span.SetAttributes(attribute.String("run.phase", "consume"))
+	if enqueuedRaw := jobReq.GetMetadata()[observability.JobEnqueueAcceptedUnixNanoKey]; enqueuedRaw != "" {
+		if enqueuedAtUnixNano, err := strconv.ParseInt(enqueuedRaw, 10, 64); err == nil {
+			handoff := float64(time.Now().UnixNano()-enqueuedAtUnixNano) / float64(time.Millisecond)
+			if handoff >= 0 {
+				span.SetAttributes(attribute.Float64("queue.handoff.ms", handoff))
+			}
+		}
+	} else if enqueuedRaw := jobReq.GetMetadata()[observability.JobEnqueuedAtUnixNanoKey]; enqueuedRaw != "" {
+		if enqueuedAtUnixNano, err := strconv.ParseInt(enqueuedRaw, 10, 64); err == nil {
+			handoff := float64(time.Now().UnixNano()-enqueuedAtUnixNano) / float64(time.Millisecond)
+			if handoff >= 0 {
+				span.SetAttributes(attribute.Float64("queue.handoff.ms", handoff))
+			}
+		}
+	}
+
+	span.AddEvent("queue.long_poll.delivered")
+
+	start := w.now()
+	if w.metrics != nil {
+		w.metrics.RecordJobReceived(consumeCtx)
+	}
+
 	deliveryID := job.GetDeliveryId()
 	w.logger.Info("Dequeued job: %s (run %s)", jobID, runID)
 
 	if runID != "" {
-		outcome = w.runClaimedJob(job, jobID, runID, deliveryID)
+		span.SetAttributes(attribute.String("vectis.worker.outcome", "consumed"))
+		span.End()
+		outcome := w.runClaimedJob(jobCtx, job, jobID, runID, deliveryID)
+		if w.metrics != nil && outcome != "" {
+			w.metrics.RecordJobFinished(jobCtx, outcome, w.now().Sub(start))
+		}
+
 		return
 	}
 
 	if err := w.ackDelivery(deliveryID); err != nil {
 		w.logger.Error("Ack delivery %s failed for job %s: %v", deliveryID, jobID, err)
-		outcome = observability.WorkerOutcomeFailed
+		span.RecordError(err)
+		span.SetStatus(otelcodes.Error, "ack delivery")
+		span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeFailed))
+		span.End()
+		if w.metrics != nil {
+			w.metrics.RecordJobFinished(jobCtx, observability.WorkerOutcomeFailed, w.now().Sub(start))
+		}
+
 		return
 	}
 
-	if err := w.executor.ExecuteJob(w.runCtx, job, w.logClient, w.logger); err != nil {
+	span.SetAttributes(attribute.String("vectis.worker.outcome", "consumed"))
+	span.End()
+
+	if err := w.executor.ExecuteJob(jobCtx, job, w.logClient, w.logger); err != nil {
 		w.logger.Error("Job %s failed: %v", jobID, err)
-		outcome = observability.WorkerOutcomeFailed
+		if w.metrics != nil {
+			w.metrics.RecordJobFinished(jobCtx, observability.WorkerOutcomeFailed, w.now().Sub(start))
+		}
+
 		return
 	}
 
 	w.logger.Info("Job completed successfully: %s", jobID)
-	outcome = observability.WorkerOutcomeSuccess
+	if w.metrics != nil {
+		w.metrics.RecordJobFinished(jobCtx, observability.WorkerOutcomeSuccess, w.now().Sub(start))
+	}
 }
 
-func (w *worker) runClaimedJob(job *api.Job, jobID, runID, deliveryID string) string {
+func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, deliveryID string) string {
+	ctx, span := observability.Tracer("vectis/worker").Start(ctx, "worker.run.execute", trace.WithSpanKind(trace.SpanKindInternal))
+	span.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
+	span.SetAttributes(observability.DeliveryAttrs(deliveryID)...)
+	span.SetAttributes(attribute.String("run.phase", "execute"))
+	defer span.End()
+
 	leaseUntil := w.now().Add(dal.DefaultLeaseTTL)
+	span.AddEvent("run.claim.attempt", trace.WithAttributes(attribute.Int("attempt", 1)))
 	claimed, claimToken, claimErr := w.store.TryClaim(w.runCtx, runID, w.workerID, leaseUntil)
 	if claimErr != nil {
 		w.noteDBError(claimErr)
 		_ = w.sleepDBBackoff()
 		w.logger.Error("TryClaim %s: %v", runID, claimErr)
+		span.RecordError(claimErr)
+		span.SetStatus(otelcodes.Error, "try claim")
+		span.AddEvent("run.claim.error", trace.WithAttributes(attribute.String("error", claimErr.Error())))
 		return observability.WorkerOutcomeFailed
 	}
 	w.noteDBRecovered()
@@ -487,28 +544,35 @@ func (w *worker) runClaimedJob(job *api.Job, jobID, runID, deliveryID string) st
 		if err := w.ackDelivery(deliveryID); err != nil {
 			w.logger.Warn("Ack delivery %s for unclaimed run %s failed: %v", deliveryID, runID, err)
 		}
+		span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeSkippedUnclaimed))
 
 		return observability.WorkerOutcomeSkippedUnclaimed
 	}
 
-	if ackFailure := w.ackDeliveryWithRetry(deliveryID); ackFailure != nil {
+	if ackFailure := w.ackDeliveryWithRetry(ctx, deliveryID); ackFailure != nil {
 		w.logger.Error("Ack delivery %s failed for claimed run %s: %v (reason_code=%s)",
 			deliveryID, runID, ackFailure.err, ackFailure.decision.ReasonCode)
+		span.RecordError(ackFailure.err)
+		span.SetStatus(otelcodes.Error, "ack delivery retry exhausted")
 
 		if markErr := w.markRunOrphanedWithRetry(runID, claimToken, ackFailure.decision.OrphanReason); markErr != nil {
 			w.logger.Error("Failed to mark run %s orphaned after ack error (%s): %v", runID, ackFailure.decision.ReasonCode, markErr)
+			span.RecordError(markErr)
 		}
 
 		return observability.WorkerOutcomeFailed
 	}
 
-	execErr := w.executeWithLeaseRenewal(runID, claimToken, job)
+	execErr := w.executeWithLeaseRenewal(ctx, runID, claimToken, job)
 	if execErr != nil {
 		w.logger.Error("Job %s failed: %v", jobID, execErr)
+		span.RecordError(execErr)
+		span.SetStatus(otelcodes.Error, "execute with lease renewal")
 		decision := runpolicy.Decide(runpolicy.Input{Trigger: runpolicy.TriggerExecutionResult})
 		reason := truncateFailureReason(execErr.Error())
 		if err := w.markRunFailedWithRetry(runID, claimToken, decision.FailureCode, reason); err != nil {
 			w.logger.Error("Failed to mark run %s failed: %v", runID, err)
+			span.RecordError(err)
 		}
 
 		return observability.WorkerOutcomeFailed
@@ -516,9 +580,12 @@ func (w *worker) runClaimedJob(job *api.Job, jobID, runID, deliveryID string) st
 
 	if err := w.markRunSucceededWithRetry(runID, claimToken); err != nil {
 		w.logger.Error("Failed to mark run %s succeeded: %v", runID, err)
+		span.RecordError(err)
+		span.SetStatus(otelcodes.Error, "mark run succeeded")
 		return observability.WorkerOutcomeFailed
 	}
 
+	span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeSuccess))
 	w.logger.Info("Job completed successfully: %s", jobID)
 	return observability.WorkerOutcomeSuccess
 }
@@ -537,10 +604,18 @@ type ackDeliveryFailure struct {
 	decision runpolicy.Decision
 }
 
-func (w *worker) ackDeliveryWithRetry(deliveryID string) *ackDeliveryFailure {
+func (w *worker) ackDeliveryWithRetry(ctx context.Context, deliveryID string) *ackDeliveryFailure {
 	for attempt := 1; attempt <= ackMaxAttempts; attempt++ {
+		trace.SpanFromContext(ctx).AddEvent("queue.ack.attempt", trace.WithAttributes(
+			attribute.Int("attempt", attempt),
+			attribute.Int("max_attempts", ackMaxAttempts),
+		))
+
 		err := w.ackDelivery(deliveryID)
 		if err == nil {
+			trace.SpanFromContext(ctx).AddEvent("queue.ack.success", trace.WithAttributes(
+				attribute.Int("attempt", attempt),
+			))
 			return nil
 		}
 
@@ -552,6 +627,13 @@ func (w *worker) ackDeliveryWithRetry(deliveryID string) *ackDeliveryFailure {
 		})
 
 		if decision.Outcome != runpolicy.OutcomeRetry {
+			trace.SpanFromContext(ctx).AddEvent("queue.ack.error", trace.WithAttributes(
+				attribute.Int("attempt", attempt),
+				attribute.String("error", err.Error()),
+				attribute.String("decision.outcome", fmt.Sprintf("%v", decision.Outcome)),
+				attribute.String("decision.reason_code", decision.ReasonCode),
+			))
+
 			return &ackDeliveryFailure{err: err, attempt: attempt, decision: decision}
 		}
 
@@ -694,11 +776,11 @@ func (w *worker) getCurrentRunInfo() (string, string) {
 	return w.currentRunID, w.currentClaimToken
 }
 
-func (w *worker) executeWithLeaseRenewal(runID, claimToken string, job *api.Job) error {
+func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, claimToken string, job *api.Job) error {
 	w.setCurrentRun(runID, claimToken)
 	defer w.clearCurrentRun()
 
-	execCtx, execCancel := context.WithCancel(w.runCtx)
+	execCtx, execCancel := context.WithCancel(ctx)
 	defer execCancel()
 
 	stopRenew := make(chan struct{})

@@ -106,7 +106,7 @@ func (s *APIServer) Login(w http.ResponseWriter, r *http.Request) {
 			// Constant-time path: perform a dummy bcrypt compare so the timing
 			// matches a wrong-password response and does not leak username existence.
 			_ = bcrypt.CompareHashAndPassword([]byte(dummyBcryptHash), []byte(req.Password))
-			s.auditLog(r.Context(), audit.EventAuthFailure, 0, 0, map[string]interface{}{
+			s.auditLog(r.Context(), audit.EventAuthFailure, 0, 0, map[string]any{
 				"reason":   "invalid_credentials",
 				"username": req.Username,
 			})
@@ -127,7 +127,7 @@ func (s *APIServer) Login(w http.ResponseWriter, r *http.Request) {
 	if !enabled {
 		// Constant-time path: perform bcrypt compare even for disabled users.
 		_ = bcrypt.CompareHashAndPassword([]byte(passHash), []byte(req.Password))
-		s.auditLog(r.Context(), audit.EventAuthFailure, uid, 0, map[string]interface{}{
+		s.auditLog(r.Context(), audit.EventAuthFailure, uid, 0, map[string]any{
 			"reason":   "user_disabled",
 			"username": req.Username,
 		})
@@ -137,7 +137,7 @@ func (s *APIServer) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(passHash), []byte(req.Password)); err != nil {
-		s.auditLog(r.Context(), audit.EventAuthFailure, uid, 0, map[string]interface{}{
+		s.auditLog(r.Context(), audit.EventAuthFailure, uid, 0, map[string]any{
 			"reason":   "invalid_credentials",
 			"username": req.Username,
 		})
@@ -169,7 +169,7 @@ func (s *APIServer) Login(w http.ResponseWriter, r *http.Request) {
 
 	s.markDBRecovered()
 
-	s.auditLog(r.Context(), audit.EventAuthSuccess, uid, tokenID, map[string]interface{}{
+	s.auditLog(r.Context(), audit.EventAuthSuccess, uid, tokenID, map[string]any{
 		"method":   "password",
 		"username": req.Username,
 	})

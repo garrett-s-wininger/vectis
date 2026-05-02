@@ -23,7 +23,7 @@ func TestQueueDelivery_AckPreventsRedelivery(t *testing.T) {
 	}
 
 	jobID := "job-ack"
-	if _, err := svc.Enqueue(ctx, &api.Job{Id: &jobID}); err != nil {
+	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
 
@@ -31,11 +31,12 @@ func TestQueueDelivery_AckPreventsRedelivery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dequeue: %v", err)
 	}
-	if job.GetDeliveryId() == "" {
+
+	if job.GetJob().GetDeliveryId() == "" {
 		t.Fatalf("expected delivery id")
 	}
 
-	deliveryID := job.GetDeliveryId()
+	deliveryID := job.GetJob().GetDeliveryId()
 	if _, err := svc.Ack(ctx, &api.AckRequest{DeliveryId: &deliveryID}); err != nil {
 		t.Fatalf("ack: %v", err)
 	}
@@ -45,8 +46,9 @@ func TestQueueDelivery_AckPreventsRedelivery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("trydequeue: %v", err)
 	}
+
 	if got != nil {
-		t.Fatalf("expected no redelivery after ack, got %s", got.GetId())
+		t.Fatalf("expected no redelivery after ack, got %s", got.GetJob().GetId())
 	}
 }
 
@@ -59,7 +61,7 @@ func TestQueueDelivery_UnackedLeaseExpiryRequeues(t *testing.T) {
 	}
 
 	jobID := "job-requeue"
-	if _, err := svc.Enqueue(ctx, &api.Job{Id: &jobID}); err != nil {
+	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
 
@@ -67,26 +69,32 @@ func TestQueueDelivery_UnackedLeaseExpiryRequeues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first dequeue: %v", err)
 	}
-	if first.GetDeliveryId() == "" {
+
+	if first.GetJob().GetDeliveryId() == "" {
 		t.Fatalf("expected first delivery id")
 	}
-	firstDeliveryID := first.GetDeliveryId()
+
+	firstDeliveryID := first.GetJob().GetDeliveryId()
 
 	deliveryWait(ttl)
 	second, err := svc.TryDequeue(ctx, &api.Empty{})
 	if err != nil {
 		t.Fatalf("second dequeue: %v", err)
 	}
+
 	if second == nil {
 		t.Fatalf("expected redelivery after lease expiry")
 	}
-	if second.GetId() != jobID {
-		t.Fatalf("expected redelivered job %s, got %s", jobID, second.GetId())
+
+	if second.GetJob().GetId() != jobID {
+		t.Fatalf("expected redelivered job %s, got %s", jobID, second.GetJob().GetId())
 	}
-	if second.GetDeliveryId() == "" {
+
+	if second.GetJob().GetDeliveryId() == "" {
 		t.Fatalf("expected second delivery id")
 	}
-	if second.GetDeliveryId() == firstDeliveryID {
+
+	if second.GetJob().GetDeliveryId() == firstDeliveryID {
 		t.Fatalf("expected new delivery id on redelivery")
 	}
 }
@@ -103,12 +111,12 @@ func TestQueueDelivery_DLQAfterMaxAttempts(t *testing.T) {
 	}
 
 	jobID := "job-dlq"
-	if _, err := svc.Enqueue(ctx, &api.Job{Id: &jobID}); err != nil {
+	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
 
 	// Dequeue and let expire 3 times.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		job, err := svc.Dequeue(ctx, &api.Empty{})
 		if err != nil {
 			t.Fatalf("dequeue %d: %v", i+1, err)
@@ -137,8 +145,8 @@ func TestQueueDelivery_DLQAfterMaxAttempts(t *testing.T) {
 		t.Fatalf("expected 1 dead letter item, got %d", len(dlq.Items))
 	}
 
-	if dlq.Items[0].GetJob().GetId() != jobID {
-		t.Fatalf("expected dead letter job %s, got %s", jobID, dlq.Items[0].GetJob().GetId())
+	if dlq.Items[0].GetJobRequest().GetJob().GetId() != jobID {
+		t.Fatalf("expected dead letter job %s, got %s", jobID, dlq.Items[0].GetJobRequest().GetJob().GetId())
 	}
 
 	if dlq.Items[0].GetAttemptCount() != 3 {
@@ -152,7 +160,7 @@ func TestQueueDelivery_DLQAfterMaxAttempts(t *testing.T) {
 	}
 
 	if got != nil {
-		t.Fatalf("expected empty queue after dlq, got %s", got.GetId())
+		t.Fatalf("expected empty queue after dlq, got %s", got.GetJob().GetId())
 	}
 }
 
@@ -173,12 +181,12 @@ func TestQueueDelivery_DLQSurvivesRestart(t *testing.T) {
 		t.Fatalf("new queue: %v", err)
 	}
 
-	if _, err := svc.Enqueue(ctx, &api.Job{Id: &jobID}); err != nil {
+	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
 
 	// Dequeue and let expire twice.
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		job, err := svc.Dequeue(ctx, &api.Empty{})
 		if err != nil {
 			t.Fatalf("dequeue %d: %v", i+1, err)
@@ -228,8 +236,8 @@ func TestQueueDelivery_DLQSurvivesRestart(t *testing.T) {
 		t.Fatalf("expected 1 dead letter item after restart, got %d", len(dlq2.Items))
 	}
 
-	if dlq2.Items[0].GetJob().GetId() != jobID {
-		t.Fatalf("expected dead letter job %s after restart, got %s", jobID, dlq2.Items[0].GetJob().GetId())
+	if dlq2.Items[0].GetJobRequest().GetJob().GetId() != jobID {
+		t.Fatalf("expected dead letter job %s after restart, got %s", jobID, dlq2.Items[0].GetJobRequest().GetJob().GetId())
 	}
 
 	if dlq2.Items[0].GetAttemptCount() != 2 {

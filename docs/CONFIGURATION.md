@@ -91,6 +91,18 @@ Global **`VECTIS_METRICS_TLS_*`** settings wrap the **dedicated** Prometheus **`
 
 **`make deploy-podman`:** ConfigMap **`vectis-grpc-tls-env`** sets **`VECTIS_METRICS_TLS_INSECURE=false`** and reuses the same pod-local leaf as gRPC under **`/run/vectis/grpc-tls/`**. Bundled **Prometheus** scrapes **`scheme: https`** for queue, worker, and log metrics jobs and mounts **`ca_file`** for verification.
 
+## Tracing export (OpenTelemetry traces)
+
+`InitTracer` always configures local trace context propagation. To export spans, set:
+
+| Variable | Purpose |
+| --- | --- |
+| **`OTEL_TRACES_EXPORTER`** | Set to **`otlp`** to enable OTLP trace export; leave unset (or `none`) to keep local-only tracing. |
+| **`OTEL_EXPORTER_OTLP_ENDPOINT`** | OTLP base endpoint (for example **`http://127.0.0.1:4318`** for HTTP/protobuf). |
+| **`OTEL_EXPORTER_OTLP_PROTOCOL`** | OTLP transport/protocol; Podman reference uses **`http/protobuf`**. |
+
+**`make deploy-podman`:** ConfigMap **`vectis-tracing-env`** sets OTLP export to the in-pod Jaeger collector (`http://127.0.0.1:4318`). The reference Podman deployment runs Jaeger **2.17.0** as separate collector/query processes backed by an in-pod OpenSearch instance; Jaeger UI is published on **`http://localhost:16686`**.
+
 ### PostgreSQL connection pool (`pgx` only)
 
 When **`VECTIS_DATABASE_DRIVER=pgx`**, `database.OpenDB` applies `*sql.DB` pool settings after `sql.Open`. **SQLite** and other drivers ignore this block. Defaults match [`internal/config/defaults.toml`](../internal/config/defaults.toml) (`database.pgx_pool`); override with **global** env (no per-service prefix):

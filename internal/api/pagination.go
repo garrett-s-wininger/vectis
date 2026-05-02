@@ -25,11 +25,7 @@ func parsePageParams(r *http.Request) pageParams {
 
 	if l := r.URL.Query().Get("limit"); l != "" {
 		if v, err := strconv.Atoi(l); err == nil && v > 0 {
-			p.Limit = v
-
-			if p.Limit > maxPageLimit {
-				p.Limit = maxPageLimit
-			}
+			p.Limit = min(v, maxPageLimit)
 		}
 	}
 

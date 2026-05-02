@@ -66,12 +66,12 @@ func (m *ManagingQueueService) swapConn(ctx context.Context) error {
 	return nil
 }
 
-func (m *ManagingQueueService) Enqueue(ctx context.Context, job *api.Job) (*api.Empty, error) {
+func (m *ManagingQueueService) Enqueue(ctx context.Context, req *api.JobRequest) (*api.Empty, error) {
 	m.mu.RLock()
 	var empty *api.Empty
 	var err error
 	if m.q != nil {
-		empty, err = m.q.Enqueue(ctx, job)
+		empty, err = m.q.Enqueue(ctx, req)
 	}
 	m.mu.RUnlock()
 
@@ -86,7 +86,7 @@ func (m *ManagingQueueService) Enqueue(ctx context.Context, job *api.Job) (*api.
 
 	m.mu.RLock()
 	if m.q != nil {
-		empty, err = m.q.Enqueue(ctx, job)
+		empty, err = m.q.Enqueue(ctx, req)
 	} else {
 		err = fmt.Errorf("queue client not available after reconnect")
 	}

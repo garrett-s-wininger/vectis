@@ -89,11 +89,9 @@ func (f *Forwarder) Run(ctx context.Context) {
 	_ = os.MkdirAll(f.spoolDir, 0o755)
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		f.spoolScanner(ctx)
-	}()
+	})
 
 	batch := make([]*api.LogChunk, 0, f.batchSize)
 	ticker := time.NewTicker(time.Second / time.Duration(f.maxChunksPerSec))

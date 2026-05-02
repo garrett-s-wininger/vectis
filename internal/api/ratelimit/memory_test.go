@@ -23,7 +23,7 @@ func TestMemoryRateLimiter_Refill(t *testing.T) {
 	rule := Rule{RefillRate: 12 * time.Second, BurstSize: 5}
 
 	// Exhaust the bucket
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		allowed, _, err := lim.Allow(ctx, key, rule)
 		if err != nil {
 			t.Fatalf("Allow error: %v", err)
@@ -76,7 +76,7 @@ func TestMemoryRateLimiter_DifferentKeys(t *testing.T) {
 	rule := Rule{RefillRate: 12 * time.Second, BurstSize: 2}
 
 	// Exhaust key1
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		allowed, _, _ := lim.Allow(ctx, "key1", rule)
 		if !allowed {
 			t.Fatalf("key1 request %d should be allowed", i+1)

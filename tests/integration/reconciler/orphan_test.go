@@ -90,12 +90,12 @@ func TestIntegrationReconciler_RedispatchesQueuedRun(t *testing.T) {
 		t.Fatal("expected job to be enqueued by reconciler, but queue is empty")
 	}
 
-	if dequeuedJob.GetId() != jobID {
-		t.Fatalf("expected job id %q, got %q", jobID, dequeuedJob.GetId())
+	if dequeuedJob.GetJob().GetId() != jobID {
+		t.Fatalf("expected job id %q, got %q", jobID, dequeuedJob.GetJob().GetId())
 	}
 
-	if dequeuedJob.GetRunId() != runID {
-		t.Fatalf("expected run id %q, got %q", runID, dequeuedJob.GetRunId())
+	if dequeuedJob.GetJob().GetRunId() != runID {
+		t.Fatalf("expected run id %q, got %q", runID, dequeuedJob.GetJob().GetRunId())
 	}
 
 	// Verify last_dispatched_at was updated.

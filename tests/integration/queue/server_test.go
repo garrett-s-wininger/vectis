@@ -46,7 +46,7 @@ func TestIntegrationQueue_EnqueueDequeueRoundTrip(t *testing.T) {
 		},
 	}
 
-	_, err := client.Enqueue(ctx, job)
+	_, err := client.Enqueue(ctx, &api.JobRequest{Job: job})
 	if err != nil {
 		t.Fatalf("enqueue failed: %v", err)
 	}
@@ -56,12 +56,12 @@ func TestIntegrationQueue_EnqueueDequeueRoundTrip(t *testing.T) {
 		t.Fatalf("dequeue failed: %v", err)
 	}
 
-	if got.GetId() != jobID {
-		t.Errorf("expected job ID %q, got %q", jobID, got.GetId())
+	if got.GetJob().GetId() != jobID {
+		t.Errorf("expected job ID %q, got %q", jobID, got.GetJob().GetId())
 	}
 
-	if got.GetRoot().GetUses() != "builtins/shell" {
-		t.Errorf("expected action builtins/shell, got %q", got.GetRoot().GetUses())
+	if got.GetJob().GetRoot().GetUses() != "builtins/shell" {
+		t.Errorf("expected action builtins/shell, got %q", got.GetJob().GetRoot().GetUses())
 	}
 }
 
@@ -69,7 +69,7 @@ func TestIntegrationQueue_DequeueBlocksUntilJobAvailable(t *testing.T) {
 	client := setupQueueClient(t)
 	ctx := context.Background()
 
-	dequeueDone := make(chan *api.Job, 1)
+	dequeueDone := make(chan *api.JobRequest, 1)
 	go func() {
 		job, err := client.Dequeue(ctx, &api.Empty{})
 		if err != nil {
@@ -81,15 +81,15 @@ func TestIntegrationQueue_DequeueBlocksUntilJobAvailable(t *testing.T) {
 
 	jobID := "blocking-test"
 	job := &api.Job{Id: &jobID}
-	_, err := client.Enqueue(ctx, job)
+	_, err := client.Enqueue(ctx, &api.JobRequest{Job: job})
 	if err != nil {
 		t.Fatalf("enqueue failed: %v", err)
 	}
 
 	select {
 	case got := <-dequeueDone:
-		if got.GetId() != jobID {
-			t.Errorf("expected job ID %q, got %q", jobID, got.GetId())
+		if got.GetJob().GetId() != jobID {
+			t.Errorf("expected job ID %q, got %q", jobID, got.GetJob().GetId())
 		}
 	case <-time.After(2 * time.Second):
 		t.Error("dequeue did not return within timeout after enqueue")
@@ -133,7 +133,7 @@ func TestIntegrationQueue_ConcurrentEnqueueDequeue(t *testing.T) {
 			defer enqueueWg.Done()
 			jobID := fmt.Sprintf("job-%d", id)
 			job := &api.Job{Id: &jobID}
-			_, err := client.Enqueue(ctx, job)
+			_, err := client.Enqueue(ctx, &api.JobRequest{Job: job})
 			if err != nil {
 				t.Errorf("enqueue %d failed: %v", id, err)
 			}
@@ -157,7 +157,7 @@ func TestIntegrationQueue_ConcurrentEnqueueDequeue(t *testing.T) {
 				}
 
 				mu.Lock()
-				receivedJobs[job.GetId()] = true
+				receivedJobs[job.GetJob().GetId()] = true
 				mu.Unlock()
 			}
 		})
@@ -195,7 +195,7 @@ func TestIntegrationQueue_MultipleDequeueWaiters(t *testing.T) {
 
 	jobID := "single-job"
 	job := &api.Job{Id: &jobID}
-	_, err := client.Enqueue(ctx, job)
+	_, err := client.Enqueue(ctx, &api.JobRequest{Job: job})
 	if err != nil {
 		t.Fatalf("enqueue failed: %v", err)
 	}
@@ -239,7 +239,7 @@ func TestIntegrationQueue_EnqueueMultipleDequeueOrder(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		id := fmt.Sprintf("job-%d", i)
 		job := &api.Job{Id: &id}
-		_, err := client.Enqueue(ctx, job)
+		_, err := client.Enqueue(ctx, &api.JobRequest{Job: job})
 
 		if err != nil {
 			t.Fatalf("enqueue %d failed: %v", i, err)
@@ -253,8 +253,8 @@ func TestIntegrationQueue_EnqueueMultipleDequeueOrder(t *testing.T) {
 		}
 
 		expectedID := fmt.Sprintf("job-%d", i)
-		if job.GetId() != expectedID {
-			t.Errorf("expected job ID %s, got %s", expectedID, job.GetId())
+		if job.GetJob().GetId() != expectedID {
+			t.Errorf("expected job ID %s, got %s", expectedID, job.GetJob().GetId())
 		}
 	}
 }

@@ -71,7 +71,7 @@ func TestAsyncAuditor_BatchFlush(t *testing.T) {
 	defer a.Stop()
 
 	ctx := context.Background()
-	for i := 0; i < 25; i++ {
+	for i := range 25 {
 		if err := a.Log(ctx, Event{Type: EventAuthSuccess, ActorID: int64(i)}); err != nil {
 			t.Fatal(err)
 		}
@@ -86,7 +86,7 @@ func TestAsyncAuditor_StopDrainsEvents(t *testing.T) {
 	a := NewAsyncAuditorWithBuffer(repo, logger, 100, time.Hour, 10)
 
 	ctx := context.Background()
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if err := a.Log(ctx, Event{Type: EventAuthSuccess, ActorID: int64(i)}); err != nil {
 			t.Fatal(err)
 		}
@@ -124,7 +124,7 @@ func TestAsyncAuditor_BufferFullDropsEvent(t *testing.T) {
 
 	// Send more events than the buffer can hold while flush is blocked.
 	// The flush will sleep for 200ms per call, giving us time to overflow.
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		_ = a.Log(ctx, Event{Type: EventAuthSuccess, ActorID: int64(i)})
 	}
 

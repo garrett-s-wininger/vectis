@@ -222,7 +222,7 @@ func TestWorkerRunClaimedJob_CompletesWhileOrphaned_MarksSucceeded(t *testing.T)
 
 	done := make(chan struct{})
 	go func() {
-		w.runClaimedJob(j, jobID, runID, deliveryID)
+		w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID)
 		close(done)
 	}()
 
@@ -283,16 +283,20 @@ type scriptedAckQueue struct {
 	ackCalls  int
 }
 
-func (q *scriptedAckQueue) Enqueue(context.Context, *api.Job) error {
+func (q *scriptedAckQueue) Enqueue(context.Context, *api.JobRequest) error {
 	return errors.New("not implemented")
 }
-func (q *scriptedAckQueue) Dequeue(context.Context) (*api.Job, error) {
+
+func (q *scriptedAckQueue) Dequeue(context.Context) (*api.JobRequest, error) {
 	return nil, errors.New("not implemented")
 }
-func (q *scriptedAckQueue) TryDequeue(context.Context) (*api.Job, error) {
+
+func (q *scriptedAckQueue) TryDequeue(context.Context) (*api.JobRequest, error) {
 	return nil, errors.New("not implemented")
 }
+
 func (q *scriptedAckQueue) Close() error { return nil }
+
 func (q *scriptedAckQueue) Ack(context.Context, string) error {
 	err := error(nil)
 	if q.ackCalls < len(q.ackErrors) {
@@ -355,7 +359,7 @@ func TestWorkerRunClaimedJob_AckTransientThenSuccess_Completes(t *testing.T) {
 		Root:       root,
 	}
 
-	w.runClaimedJob(j, jobID, runID, deliveryID)
+	w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID)
 
 	var statusVal string
 	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&statusVal); err != nil {
@@ -430,7 +434,7 @@ func TestWorkerRunClaimedJob_AckPersistentFailure_OrphansRunWithoutExecution(t *
 		Root:       root,
 	}
 
-	w.runClaimedJob(j, jobID, runID, deliveryID)
+	w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID)
 
 	var statusVal string
 	var reason sql.NullString
@@ -517,7 +521,7 @@ func TestWorkerRunClaimedJob_FinalizeSucceededRetriesOnTransientStoreFailure(t *
 		Root:       root,
 	}
 
-	w.runClaimedJob(j, jobID, runID, deliveryID)
+	w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID)
 
 	var statusVal string
 	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&statusVal); err != nil {
@@ -584,7 +588,7 @@ func TestWorkerRunClaimedJob_RenewLeaseTransientStoreFailure_StillSucceeds(t *te
 		Root:       root,
 	}
 
-	w.runClaimedJob(j, jobID, runID, deliveryID)
+	w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID)
 
 	var statusVal string
 	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&statusVal); err != nil {
@@ -667,7 +671,7 @@ func TestWorkerRestartMidRun_LeaseExpiryThenRequeue_AllowsRecovery(t *testing.T)
 		Root:       root,
 	}
 
-	w.runClaimedJob(j, jobID, runID, deliveryID)
+	w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID)
 
 	var statusVal string
 	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&statusVal); err != nil {
@@ -731,7 +735,7 @@ func TestWorkerRunClaimedJob_FinalizeSucceededExhausted_LeavesRunningForOrphanSw
 		Root:       root,
 	}
 
-	w.runClaimedJob(j, jobID, runID, deliveryID)
+	w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID)
 
 	sleeps := clock.GetSleeps()
 	if len(sleeps) != finalizeMaxAttempts-1 {

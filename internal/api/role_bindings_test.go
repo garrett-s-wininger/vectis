@@ -36,7 +36,7 @@ func TestCreateBinding_Success(t *testing.T) {
 		t.Fatalf("create namespace: %v", err)
 	}
 
-	body := []byte(fmt.Sprintf(`{"local_user_id": %d, "role": "viewer"}`, uid))
+	body := fmt.Appendf(nil, `{"local_user_id": %d, "role": "viewer"}`, uid)
 	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/namespaces/%d/bindings", ns.ID), bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("id", fmt.Sprintf("%d", ns.ID))
@@ -86,7 +86,7 @@ func TestCreateBinding_InvalidRole(t *testing.T) {
 		t.Fatalf("create namespace: %v", err)
 	}
 
-	body := []byte(fmt.Sprintf(`{"local_user_id": %d, "role": "invalid-role"}`, uid))
+	body := fmt.Appendf(nil, `{"local_user_id": %d, "role": "invalid-role"}`, uid)
 	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/namespaces/%d/bindings", ns.ID), bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("id", fmt.Sprintf("%d", ns.ID))
@@ -145,7 +145,7 @@ func TestCreateBinding_Duplicate(t *testing.T) {
 	}
 
 	// Try to create duplicate
-	body := []byte(fmt.Sprintf(`{"local_user_id": %d, "role": "viewer"}`, uid))
+	body := fmt.Appendf(nil, `{"local_user_id": %d, "role": "viewer"}`, uid)
 	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/namespaces/%d/bindings", ns.ID), bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("id", fmt.Sprintf("%d", ns.ID))

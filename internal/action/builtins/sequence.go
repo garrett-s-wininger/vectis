@@ -6,6 +6,11 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
+	"vectis/internal/observability"
+
+	"go.opentelemetry.io/otel/attribute"
+	otelcodes "go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type SequenceNode struct{}
@@ -44,28 +49,51 @@ func (s *SequenceNode) Execute(ctx context.Context, state *action.ExecutionState
 }
 
 func executeChildNode(ctx context.Context, node *api.Node, state *action.ExecutionState, inputs map[string]any) action.Result {
+	childCtx, span := observability.Tracer("vectis/job").Start(ctx, "run.action.execute", trace.WithSpanKind(trace.SpanKindInternal))
+	span.SetAttributes(observability.JobRunAttrs(state.JobID, state.RunID)...)
+	span.SetAttributes(
+		attribute.String("action.type", node.GetUses()),
+		attribute.String("action.node.id", node.GetId()),
+		attribute.Bool("action.has_children", len(node.GetSteps()) > 0),
+	)
+	defer span.End()
+
 	if state.Resolver == nil {
+		err := &action.ExecutionError{
+			NodeID:  node.GetId(),
+			Action:  node.GetUses(),
+			Message: "no resolver in execution state (required for sequence steps)",
+			Cause:   nil,
+		}
+
+		span.RecordError(err)
+		span.SetStatus(otelcodes.Error, "missing resolver")
 		return action.NewFailureResult(
-			&action.ExecutionError{
-				NodeID:  node.GetId(),
-				Action:  node.GetUses(),
-				Message: "no resolver in execution state (required for sequence steps)",
-				Cause:   nil,
-			},
+			err,
 		)
 	}
 
 	act, err := state.Resolver.Resolve(node.GetUses())
 	if err != nil {
+		wrapped := &action.ExecutionError{
+			NodeID:  node.GetId(),
+			Action:  node.GetUses(),
+			Message: "failed to resolve action",
+			Cause:   err,
+		}
+
+		span.RecordError(wrapped)
+		span.SetStatus(otelcodes.Error, "resolve action")
 		return action.NewFailureResult(
-			&action.ExecutionError{
-				NodeID:  node.GetId(),
-				Action:  node.GetUses(),
-				Message: "failed to resolve action",
-				Cause:   err,
-			},
+			wrapped,
 		)
 	}
 
-	return act.Execute(ctx, state, inputs, node.GetSteps())
+	result := act.Execute(childCtx, state, inputs, node.GetSteps())
+	if result.Status == action.StatusFailure && result.Error != nil {
+		span.RecordError(result.Error)
+		span.SetStatus(otelcodes.Error, "action failed")
+	}
+
+	return result
 }

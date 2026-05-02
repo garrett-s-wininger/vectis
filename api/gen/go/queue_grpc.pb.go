@@ -31,9 +31,9 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type QueueServiceClient interface {
-	Enqueue(ctx context.Context, in *Job, opts ...grpc.CallOption) (*Empty, error)
-	Dequeue(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Job, error)
-	TryDequeue(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Job, error)
+	Enqueue(ctx context.Context, in *JobRequest, opts ...grpc.CallOption) (*Empty, error)
+	Dequeue(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*JobRequest, error)
+	TryDequeue(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*JobRequest, error)
 	Ack(ctx context.Context, in *AckRequest, opts ...grpc.CallOption) (*Empty, error)
 	ListDeadLetter(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*ListDeadLetterResponse, error)
 	RequeueDeadLetter(ctx context.Context, in *RequeueDeadLetterRequest, opts ...grpc.CallOption) (*Empty, error)
@@ -47,7 +47,7 @@ func NewQueueServiceClient(cc grpc.ClientConnInterface) QueueServiceClient {
 	return &queueServiceClient{cc}
 }
 
-func (c *queueServiceClient) Enqueue(ctx context.Context, in *Job, opts ...grpc.CallOption) (*Empty, error) {
+func (c *queueServiceClient) Enqueue(ctx context.Context, in *JobRequest, opts ...grpc.CallOption) (*Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Empty)
 	err := c.cc.Invoke(ctx, QueueService_Enqueue_FullMethodName, in, out, cOpts...)
@@ -57,9 +57,9 @@ func (c *queueServiceClient) Enqueue(ctx context.Context, in *Job, opts ...grpc.
 	return out, nil
 }
 
-func (c *queueServiceClient) Dequeue(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Job, error) {
+func (c *queueServiceClient) Dequeue(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*JobRequest, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(Job)
+	out := new(JobRequest)
 	err := c.cc.Invoke(ctx, QueueService_Dequeue_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -67,9 +67,9 @@ func (c *queueServiceClient) Dequeue(ctx context.Context, in *Empty, opts ...grp
 	return out, nil
 }
 
-func (c *queueServiceClient) TryDequeue(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Job, error) {
+func (c *queueServiceClient) TryDequeue(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*JobRequest, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(Job)
+	out := new(JobRequest)
 	err := c.cc.Invoke(ctx, QueueService_TryDequeue_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -111,9 +111,9 @@ func (c *queueServiceClient) RequeueDeadLetter(ctx context.Context, in *RequeueD
 // All implementations must embed UnimplementedQueueServiceServer
 // for forward compatibility.
 type QueueServiceServer interface {
-	Enqueue(context.Context, *Job) (*Empty, error)
-	Dequeue(context.Context, *Empty) (*Job, error)
-	TryDequeue(context.Context, *Empty) (*Job, error)
+	Enqueue(context.Context, *JobRequest) (*Empty, error)
+	Dequeue(context.Context, *Empty) (*JobRequest, error)
+	TryDequeue(context.Context, *Empty) (*JobRequest, error)
 	Ack(context.Context, *AckRequest) (*Empty, error)
 	ListDeadLetter(context.Context, *Empty) (*ListDeadLetterResponse, error)
 	RequeueDeadLetter(context.Context, *RequeueDeadLetterRequest) (*Empty, error)
@@ -127,13 +127,13 @@ type QueueServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedQueueServiceServer struct{}
 
-func (UnimplementedQueueServiceServer) Enqueue(context.Context, *Job) (*Empty, error) {
+func (UnimplementedQueueServiceServer) Enqueue(context.Context, *JobRequest) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method Enqueue not implemented")
 }
-func (UnimplementedQueueServiceServer) Dequeue(context.Context, *Empty) (*Job, error) {
+func (UnimplementedQueueServiceServer) Dequeue(context.Context, *Empty) (*JobRequest, error) {
 	return nil, status.Error(codes.Unimplemented, "method Dequeue not implemented")
 }
-func (UnimplementedQueueServiceServer) TryDequeue(context.Context, *Empty) (*Job, error) {
+func (UnimplementedQueueServiceServer) TryDequeue(context.Context, *Empty) (*JobRequest, error) {
 	return nil, status.Error(codes.Unimplemented, "method TryDequeue not implemented")
 }
 func (UnimplementedQueueServiceServer) Ack(context.Context, *AckRequest) (*Empty, error) {
@@ -167,7 +167,7 @@ func RegisterQueueServiceServer(s grpc.ServiceRegistrar, srv QueueServiceServer)
 }
 
 func _QueueService_Enqueue_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(Job)
+	in := new(JobRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -179,7 +179,7 @@ func _QueueService_Enqueue_Handler(srv interface{}, ctx context.Context, dec fun
 		FullMethod: QueueService_Enqueue_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(QueueServiceServer).Enqueue(ctx, req.(*Job))
+		return srv.(QueueServiceServer).Enqueue(ctx, req.(*JobRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
