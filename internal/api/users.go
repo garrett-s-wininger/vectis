@@ -172,7 +172,7 @@ func (s *APIServer) CreateUser(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventUserCreated, actorID, id, map[string]interface{}{
+	s.auditLog(ctx, audit.EventUserCreated, actorID, id, map[string]any{
 		"username":           req.Username,
 		"generated_password": generated,
 	})
@@ -382,7 +382,7 @@ func (s *APIServer) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventUserUpdated, actorID, id, map[string]interface{}{
+	s.auditLog(ctx, audit.EventUserUpdated, actorID, id, map[string]any{
 		"enabled": *req.Enabled,
 	})
 
@@ -608,7 +608,7 @@ func (s *APIServer) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventPasswordChanged, actorID, targetUserID, map[string]interface{}{
+	s.auditLog(ctx, audit.EventPasswordChanged, actorID, targetUserID, map[string]any{
 		"admin_override": isAdmin,
 	})
 	w.WriteHeader(http.StatusNoContent)

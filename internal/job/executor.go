@@ -12,6 +12,11 @@ import (
 	"vectis/internal/action"
 	"vectis/internal/action/builtins"
 	"vectis/internal/interfaces"
+	"vectis/internal/observability"
+
+	"go.opentelemetry.io/otel/attribute"
+	otelcodes "go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // LogStreamWaiter is implemented by the background log stream and allows tests
@@ -116,8 +121,19 @@ func (e *Executor) executeNode(ctx context.Context, node *api.Node, state *actio
 		return action.NewFailureResult(fmt.Errorf("nil node"))
 	}
 
+	nodeCtx, span := observability.Tracer("vectis/job").Start(ctx, "run.action.execute", trace.WithSpanKind(trace.SpanKindInternal))
+	span.SetAttributes(observability.JobRunAttrs(state.JobID, state.RunID)...)
+	span.SetAttributes(
+		attribute.String("action.type", node.GetUses()),
+		attribute.String("action.node.id", node.GetId()),
+		attribute.Bool("action.has_children", len(node.GetSteps()) > 0),
+	)
+	defer span.End()
+
 	nodeImpl, err := e.registry.Resolve(node.GetUses())
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(otelcodes.Error, "resolve action")
 		return action.NewFailureResult(
 			&action.ExecutionError{
 				NodeID:  node.GetId(),
@@ -135,7 +151,13 @@ func (e *Executor) executeNode(ctx context.Context, node *api.Node, state *actio
 
 	sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Executing node: %s", nodeImpl.Type()))
 
-	return nodeImpl.Execute(ctx, state, inputs, node.GetSteps())
+	result := nodeImpl.Execute(nodeCtx, state, inputs, node.GetSteps())
+	if result.Status == action.StatusFailure && result.Error != nil {
+		span.RecordError(result.Error)
+		span.SetStatus(otelcodes.Error, "action failed")
+	}
+
+	return result
 }
 
 func sendLog(state *action.ExecutionState, streamType api.Stream, message string) {

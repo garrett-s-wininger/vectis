@@ -8,6 +8,7 @@ package authz
 
 import (
 	"context"
+	"slices"
 
 	"vectis/internal/api/authn"
 )
@@ -47,13 +48,7 @@ func roleAllows(role string, action Action) bool {
 		return false
 	}
 
-	for _, a := range perms {
-		if a == action {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(perms, action)
 }
 
 func ParseAction(raw string) (Action, bool) {

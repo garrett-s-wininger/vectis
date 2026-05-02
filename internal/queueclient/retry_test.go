@@ -18,7 +18,7 @@ type flakyQueue struct {
 	calls int
 }
 
-func (f *flakyQueue) Enqueue(ctx context.Context, job *api.Job) (*api.Empty, error) {
+func (f *flakyQueue) Enqueue(ctx context.Context, req *api.JobRequest) (*api.Empty, error) {
 	f.calls++
 	if f.calls < 2 {
 		return nil, status.Error(codes.Unavailable, "try again")
@@ -92,9 +92,9 @@ func TestEnqueueWithRetry_SucceedsAfterUnavailable(t *testing.T) {
 	log := mocks.NewMockLogger()
 	jobID := "j1"
 	runID := "r1"
-	job := &api.Job{Id: &jobID, RunId: &runID}
+	req := &api.JobRequest{Job: &api.Job{Id: &jobID, RunId: &runID}}
 
-	if err := queueclient.EnqueueWithRetry(context.Background(), q, job, log); err != nil {
+	if err := queueclient.EnqueueWithRetry(context.Background(), q, req, log); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 

@@ -104,7 +104,7 @@ func runLatencyScenario(b *testing.B, sc latencyScenario) {
 					}
 
 					start := time.Now()
-					_, err := svc.Enqueue(ctx, job)
+					_, err := svc.Enqueue(ctx, &api.JobRequest{Job: job})
 					lat := time.Since(start)
 					if err != nil {
 						enqueueCh <- samples

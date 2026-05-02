@@ -74,11 +74,11 @@ func (m *ManagingWorkerDial) reconnectAfterTransient(ctx context.Context, cause 
 	return nil
 }
 
-func (m *ManagingWorkerDial) Enqueue(ctx context.Context, job *api.Job) error {
+func (m *ManagingWorkerDial) Enqueue(ctx context.Context, req *api.JobRequest) error {
 	m.mu.RLock()
 	var err error
 	if m.queue != nil {
-		err = m.queue.Enqueue(ctx, job)
+		err = m.queue.Enqueue(ctx, req)
 	}
 	m.mu.RUnlock()
 
@@ -92,7 +92,7 @@ func (m *ManagingWorkerDial) Enqueue(ctx context.Context, job *api.Job) error {
 
 	m.mu.RLock()
 	if m.queue != nil {
-		err = m.queue.Enqueue(ctx, job)
+		err = m.queue.Enqueue(ctx, req)
 	} else {
 		err = fmt.Errorf("queue client not available after reconnect")
 	}
@@ -101,68 +101,68 @@ func (m *ManagingWorkerDial) Enqueue(ctx context.Context, job *api.Job) error {
 	return err
 }
 
-func (m *ManagingWorkerDial) Dequeue(ctx context.Context) (*api.Job, error) {
+func (m *ManagingWorkerDial) Dequeue(ctx context.Context) (*api.JobRequest, error) {
 	m.mu.RLock()
-	var job *api.Job
+	var req *api.JobRequest
 	var err error
 	if m.queue != nil {
-		job, err = m.queue.Dequeue(ctx)
+		req, err = m.queue.Dequeue(ctx)
 	}
 	m.mu.RUnlock()
 
 	if err == nil || !IsTransientRPCError(err) {
-		return job, err
+		return req, err
 	}
 
 	if status.Code(err) == codes.DeadlineExceeded {
-		return job, err
+		return req, err
 	}
 
 	if m.reconnectAfterTransient(ctx, err) != nil {
-		return job, err
+		return req, err
 	}
 
 	m.mu.RLock()
 	if m.queue != nil {
-		job, err = m.queue.Dequeue(ctx)
+		req, err = m.queue.Dequeue(ctx)
 	} else {
 		err = fmt.Errorf("queue client not available after reconnect")
 	}
 	m.mu.RUnlock()
 
-	return job, err
+	return req, err
 }
 
-func (m *ManagingWorkerDial) TryDequeue(ctx context.Context) (*api.Job, error) {
+func (m *ManagingWorkerDial) TryDequeue(ctx context.Context) (*api.JobRequest, error) {
 	m.mu.RLock()
-	var job *api.Job
+	var req *api.JobRequest
 	var err error
 	if m.queue != nil {
-		job, err = m.queue.TryDequeue(ctx)
+		req, err = m.queue.TryDequeue(ctx)
 	}
 	m.mu.RUnlock()
 
 	if err == nil || !IsTransientRPCError(err) {
-		return job, err
+		return req, err
 	}
 
 	if status.Code(err) == codes.DeadlineExceeded {
-		return job, err
+		return req, err
 	}
 
 	if m.reconnectAfterTransient(ctx, err) != nil {
-		return job, err
+		return req, err
 	}
 
 	m.mu.RLock()
 	if m.queue != nil {
-		job, err = m.queue.TryDequeue(ctx)
+		req, err = m.queue.TryDequeue(ctx)
 	} else {
 		err = fmt.Errorf("queue client not available after reconnect")
 	}
 	m.mu.RUnlock()
 
-	return job, err
+	return req, err
 }
 
 func (m *ManagingWorkerDial) Ack(ctx context.Context, deliveryID string) error {

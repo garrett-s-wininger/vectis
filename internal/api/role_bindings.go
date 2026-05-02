@@ -134,7 +134,7 @@ func (s *APIServer) CreateBinding(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventBindingCreated, actorID, req.LocalUserID, map[string]interface{}{
+	s.auditLog(ctx, audit.EventBindingCreated, actorID, req.LocalUserID, map[string]any{
 		"namespace_id": nsID,
 		"role":         req.Role,
 	})
@@ -293,7 +293,7 @@ func (s *APIServer) DeleteBinding(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventBindingDeleted, actorID, userID, map[string]interface{}{
+	s.auditLog(ctx, audit.EventBindingDeleted, actorID, userID, map[string]any{
 		"namespace_id": nsID,
 		"role":         role,
 	})

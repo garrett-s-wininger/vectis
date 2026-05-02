@@ -171,7 +171,7 @@ func TestStartRegistrationHeartbeat_zeroInterval(t *testing.T) {
 
 func TestIntervalWithJitter(t *testing.T) {
 	base := 100 * time.Millisecond
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		got := intervalWithJitter(base)
 		if got < base {
 			t.Fatalf("jittered interval %v < base %v", got, base)

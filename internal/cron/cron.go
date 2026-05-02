@@ -186,7 +186,7 @@ func (s *CronService) TriggerJob(ctx context.Context, jobID string) error {
 	s.mu.Lock()
 	qc := s.queueClient
 	s.mu.Unlock()
-	if err := queueclient.EnqueueWithRetry(ctx, qc, job, s.logger); err != nil {
+	if err := queueclient.EnqueueWithRetry(ctx, qc, &api.JobRequest{Job: job}, s.logger); err != nil {
 		return err
 	}
 

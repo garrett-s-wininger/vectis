@@ -96,7 +96,7 @@ func TestIntegrationWorker_DequeueClaimExecuteFinalize(t *testing.T) {
 		},
 	}
 
-	if err := queueClient.Enqueue(ctx, enqueueJob); err != nil {
+	if err := queueClient.Enqueue(ctx, &api.JobRequest{Job: enqueueJob}); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
 
@@ -193,7 +193,7 @@ func (w *worker) dequeueNext() (*api.Job, bool) {
 	pollCtx, cancel := context.WithTimeout(w.ctx, 5*time.Second)
 	defer cancel()
 
-	job, err := w.queue.Dequeue(pollCtx)
+	req, err := w.queue.Dequeue(pollCtx)
 	if err != nil {
 		if err == context.Canceled || err == context.DeadlineExceeded {
 			return nil, false
@@ -203,7 +203,11 @@ func (w *worker) dequeueNext() (*api.Job, bool) {
 		return nil, true
 	}
 
-	return job, true
+	if req == nil || req.GetJob() == nil {
+		return nil, true
+	}
+
+	return req.GetJob(), true
 }
 
 func (w *worker) handleJob(job *api.Job) {

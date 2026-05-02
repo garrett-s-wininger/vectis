@@ -12,8 +12,13 @@ import (
 	"vectis/internal/dal"
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
+	"vectis/internal/observability"
 	"vectis/internal/queueclient"
 	"vectis/internal/runpolicy"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const MinDispatchGap = 30 * time.Second
@@ -27,6 +32,7 @@ type Service struct {
 	minGap      time.Duration
 	dbDown      bool
 	dbMu        sync.Mutex
+	metrics     *observability.ReconcilerMetrics
 }
 
 func NewService(logger interfaces.Logger, db *sql.DB, queue interfaces.QueueService, clock interfaces.Clock) *Service {
@@ -59,6 +65,10 @@ func (s *Service) SetMinDispatchGap(d time.Duration) {
 	if d > 0 {
 		s.minGap = d
 	}
+}
+
+func (s *Service) SetMetrics(metrics *observability.ReconcilerMetrics) {
+	s.metrics = metrics
 }
 
 func (s *Service) Process(ctx context.Context) error {
@@ -94,6 +104,10 @@ func (s *Service) Process(ctx context.Context) error {
 		return fmt.Errorf("query queued runs: %w", err)
 	}
 	s.noteDBRecovered()
+
+	if s.metrics != nil {
+		s.metrics.RecordRunsScanned(ctx, len(batch))
+	}
 
 	for _, r := range batch {
 		if err := s.dispatchOne(ctx, r); err != nil {
@@ -135,15 +149,31 @@ func (s *Service) noteDBRecovered() {
 
 func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 	runID, jobID := qr.RunID, qr.JobID
+	ctx, span := observability.Tracer("vectis/reconciler").Start(ctx, "reconciler.run.reenqueue", trace.WithSpanKind(trace.SpanKindInternal))
+	span.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
+	span.SetAttributes(attribute.Int("vectis.run.definition.version", qr.DefinitionVersion))
+	defer span.End()
+
 	decision := runpolicy.Decide(runpolicy.Input{Trigger: runpolicy.TriggerDispatchRecover})
 	if decision.Outcome != runpolicy.OutcomeRequeue {
 		s.logger.Debug("reconciler: skip run %s due to disposition policy (%s)", runID, decision.ReasonCode)
+		span.SetAttributes(attribute.String("vectis.reconciler.outcome", observability.ReconcilerOutcomeSkippedPolicy))
+		if s.metrics != nil {
+			s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeSkippedPolicy)
+		}
+
 		return nil
 	}
 
 	defJSON, _, err := s.jobs.GetDefinition(ctx, jobID)
 	if err != nil {
 		if !dal.IsNotFound(err) {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "load stored job")
+			if s.metrics != nil {
+				s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeFailedLoadJobDef)
+			}
+
 			return fmt.Errorf("load stored job: %w", err)
 		}
 
@@ -152,7 +182,19 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 			if dal.IsNotFound(err) {
 				s.logger.Debug("reconciler: skip run %s (no stored job and no job_definitions row for job %q version %d)",
 					runID, jobID, qr.DefinitionVersion)
+				span.SetAttributes(attribute.String("vectis.reconciler.outcome", observability.ReconcilerOutcomeSkippedMissingJobDef))
+
+				if s.metrics != nil {
+					s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeSkippedMissingJobDef)
+				}
+
 				return nil
+			}
+
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "load job definition version")
+			if s.metrics != nil {
+				s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeFailedLoadJobDef)
 			}
 
 			return fmt.Errorf("load job definition version: %w", err)
@@ -161,18 +203,42 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 
 	var job api.Job
 	if err := json.Unmarshal([]byte(defJSON), &job); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "parse job json")
+		if s.metrics != nil {
+			s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeFailedParseJobDef)
+		}
+
 		return fmt.Errorf("parse job json: %w", err)
 	}
 
 	job.Id = &jobID
 	job.RunId = &runID
 
-	if err := queueclient.EnqueueWithRetry(ctx, s.queueClient, &job, s.logger); err != nil {
+	req := &api.JobRequest{Job: &job}
+	if err := queueclient.EnqueueWithRetry(ctx, s.queueClient, req, s.logger); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "enqueue")
+		if s.metrics != nil {
+			s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeFailedEnqueue)
+		}
+
 		return fmt.Errorf("enqueue: %w", err)
 	}
 
 	if err := s.runs.TouchDispatched(ctx, runID); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "touch dispatched")
+		if s.metrics != nil {
+			s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeFailedTouchRun)
+		}
+
 		return fmt.Errorf("touch dispatched: %w", err)
+	}
+
+	span.SetAttributes(attribute.String("vectis.reconciler.outcome", observability.ReconcilerOutcomeSuccess))
+	if s.metrics != nil {
+		s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeSuccess)
 	}
 
 	s.logger.Info("reconciler: re-enqueued run %s (job %s, %s)", runID, jobID, decision.ReasonCode)

@@ -113,19 +113,15 @@ func runLogForwarder(cmd *cobra.Command, args []string) {
 
 	var wg sync.WaitGroup
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		if err := server.Serve(); err != nil {
 			logger.Error("Socket server error: %v", err)
 		}
-	}()
+	})
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		fwd.Run(ctx)
-	}()
+	})
 
 	// Wait for shutdown signal
 	sigCh := make(chan os.Signal, 1)

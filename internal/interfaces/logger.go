@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -75,9 +77,7 @@ func (l *StderrLogger) WithField(key string, value string) Logger {
 
 func (l *StderrLogger) WithFields(m map[string]string) Logger {
 	fields := l.copyFields()
-	for k, v := range m {
-		fields[k] = v
-	}
+	maps.Copy(fields, m)
 	return &StderrLogger{
 		component: l.component,
 		out:       l.out,
@@ -92,9 +92,7 @@ func (l *StderrLogger) copyFields() map[string]string {
 		return make(map[string]string)
 	}
 	out := make(map[string]string, len(l.fields))
-	for k, v := range l.fields {
-		out[k] = v
-	}
+	maps.Copy(out, l.fields)
 	return out
 }
 
@@ -137,18 +135,19 @@ func (l *StderrLogger) formatText(level Level, msg string, args ...any) string {
 	} else {
 		msgStr = fmt.Sprintf(msg, args...)
 	}
-	line := ts + " " + string(level) + " [" + l.component + "] " + msgStr
+	var line strings.Builder
+	line.WriteString(ts + " " + string(level) + " [" + l.component + "] " + msgStr)
 	if len(l.fields) > 0 {
 		first := true
 		for k, v := range l.fields {
 			if first {
-				line += " |"
+				line.WriteString(" |")
 				first = false
 			}
-			line += " " + k + "=" + v
+			line.WriteString(" " + k + "=" + v)
 		}
 	}
-	return line + "\n"
+	return line.String() + "\n"
 }
 
 func (l *StderrLogger) formatJSON(level Level, msg string, args ...any) string {

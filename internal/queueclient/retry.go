@@ -9,6 +9,8 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/interfaces"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -61,24 +63,37 @@ func IsTransientEnqueueError(err error) bool {
 	return IsTransientRPCError(err)
 }
 
-func EnqueueWithRetry(ctx context.Context, q interfaces.QueueService, job *api.Job, log interfaces.Logger) error {
-	_, err := EnqueueWithRetryResult(ctx, q, job, log)
+func EnqueueWithRetry(ctx context.Context, q interfaces.QueueService, req *api.JobRequest, log interfaces.Logger) error {
+	_, err := EnqueueWithRetryResult(ctx, q, req, log)
 	return err
 }
 
-func EnqueueWithRetryResult(ctx context.Context, q interfaces.QueueService, job *api.Job, log interfaces.Logger) (*api.Empty, error) {
+func EnqueueWithRetryResult(ctx context.Context, q interfaces.QueueService, req *api.JobRequest, log interfaces.Logger) (*api.Empty, error) {
 	if q == nil {
 		return nil, fmt.Errorf("queue service not available")
 	}
 
 	var lastErr error
 	for attempt := 1; attempt <= EnqueueMaxAttempts; attempt++ {
-		empty, err := q.Enqueue(ctx, job)
+		span := trace.SpanFromContext(ctx)
+		span.AddEvent("queue.enqueue.attempt", trace.WithAttributes(
+			attribute.Int("attempt", attempt),
+			attribute.Int("max_attempts", EnqueueMaxAttempts),
+		))
+
+		empty, err := q.Enqueue(ctx, req)
 		if err == nil {
+			span.AddEvent("queue.enqueue.success", trace.WithAttributes(
+				attribute.Int("attempt", attempt),
+			))
 			return empty, nil
 		}
 
 		lastErr = err
+		span.AddEvent("queue.enqueue.error", trace.WithAttributes(
+			attribute.Int("attempt", attempt),
+			attribute.String("error", err.Error()),
+		))
 		if attempt == EnqueueMaxAttempts || !IsTransientEnqueueError(err) {
 			return nil, err
 		}

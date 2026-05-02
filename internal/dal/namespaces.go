@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -75,11 +76,11 @@ func (r *SQLNamespacesRepository) Create(ctx context.Context, name string, paren
 func (r *SQLNamespacesRepository) GetByID(ctx context.Context, id int64) (*NamespaceRecord, error) {
 	var rec NamespaceRecord
 	var parentID sql.NullInt64
-	var breakInheritance int
+	var breakInheritanceRaw any
 	err := r.db.QueryRowContext(ctx,
 		rebindQueryForPgx("SELECT id, name, parent_id, path, break_inheritance, created_at FROM namespaces WHERE id = ?"),
 		id,
-	).Scan(&rec.ID, &rec.Name, &parentID, &rec.Path, &breakInheritance, &rec.CreatedAt)
+	).Scan(&rec.ID, &rec.Name, &parentID, &rec.Path, &breakInheritanceRaw, &rec.CreatedAt)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -93,18 +94,23 @@ func (r *SQLNamespacesRepository) GetByID(ctx context.Context, id int64) (*Names
 		rec.ParentID = &parentID.Int64
 	}
 
-	rec.BreakInheritance = breakInheritance != 0
+	breakInheritance, err := scanBreakInheritance(breakInheritanceRaw)
+	if err != nil {
+		return nil, err
+	}
+
+	rec.BreakInheritance = breakInheritance
 	return &rec, nil
 }
 
 func (r *SQLNamespacesRepository) GetByPath(ctx context.Context, path string) (*NamespaceRecord, error) {
 	var rec NamespaceRecord
 	var parentID sql.NullInt64
-	var breakInheritance int
+	var breakInheritanceRaw any
 	err := r.db.QueryRowContext(ctx,
 		rebindQueryForPgx("SELECT id, name, parent_id, path, break_inheritance, created_at FROM namespaces WHERE path = ?"),
 		path,
-	).Scan(&rec.ID, &rec.Name, &parentID, &rec.Path, &breakInheritance, &rec.CreatedAt)
+	).Scan(&rec.ID, &rec.Name, &parentID, &rec.Path, &breakInheritanceRaw, &rec.CreatedAt)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -118,7 +124,12 @@ func (r *SQLNamespacesRepository) GetByPath(ctx context.Context, path string) (*
 		rec.ParentID = &parentID.Int64
 	}
 
-	rec.BreakInheritance = breakInheritance != 0
+	breakInheritance, err := scanBreakInheritance(breakInheritanceRaw)
+	if err != nil {
+		return nil, err
+	}
+
+	rec.BreakInheritance = breakInheritance
 	return &rec, nil
 }
 
@@ -136,9 +147,9 @@ func (r *SQLNamespacesRepository) List(ctx context.Context) ([]NamespaceRecord, 
 	for rows.Next() {
 		var rec NamespaceRecord
 		var parentID sql.NullInt64
-		var breakInheritance int
+		var breakInheritanceRaw any
 
-		if err := rows.Scan(&rec.ID, &rec.Name, &parentID, &rec.Path, &breakInheritance, &rec.CreatedAt); err != nil {
+		if err := rows.Scan(&rec.ID, &rec.Name, &parentID, &rec.Path, &breakInheritanceRaw, &rec.CreatedAt); err != nil {
 			return nil, err
 		}
 
@@ -146,7 +157,12 @@ func (r *SQLNamespacesRepository) List(ctx context.Context) ([]NamespaceRecord, 
 			rec.ParentID = &parentID.Int64
 		}
 
-		rec.BreakInheritance = breakInheritance != 0
+		breakInheritance, err := scanBreakInheritance(breakInheritanceRaw)
+		if err != nil {
+			return nil, err
+		}
+
+		rec.BreakInheritance = breakInheritance
 		out = append(out, rec)
 	}
 
@@ -172,9 +188,9 @@ func (r *SQLNamespacesRepository) ListChildren(ctx context.Context, parentID int
 	for rows.Next() {
 		var rec NamespaceRecord
 		var pid sql.NullInt64
-		var breakInheritance int
+		var breakInheritanceRaw any
 
-		if err := rows.Scan(&rec.ID, &rec.Name, &pid, &rec.Path, &breakInheritance, &rec.CreatedAt); err != nil {
+		if err := rows.Scan(&rec.ID, &rec.Name, &pid, &rec.Path, &breakInheritanceRaw, &rec.CreatedAt); err != nil {
 			return nil, err
 		}
 
@@ -182,7 +198,12 @@ func (r *SQLNamespacesRepository) ListChildren(ctx context.Context, parentID int
 			rec.ParentID = &pid.Int64
 		}
 
-		rec.BreakInheritance = breakInheritance != 0
+		breakInheritance, err := scanBreakInheritance(breakInheritanceRaw)
+		if err != nil {
+			return nil, err
+		}
+
+		rec.BreakInheritance = breakInheritance
 		out = append(out, rec)
 	}
 
@@ -263,4 +284,43 @@ func ParseNamespacePath(path string) []string {
 	}
 
 	return result
+}
+
+func scanBreakInheritance(v any) (bool, error) {
+	switch b := v.(type) {
+	case bool:
+		return b, nil
+	case int64:
+		return b != 0, nil
+	case int32:
+		return b != 0, nil
+	case int:
+		return b != 0, nil
+	case []byte:
+		parsed, err := strconv.ParseBool(string(b))
+		if err == nil {
+			return parsed, nil
+		}
+
+		i, iErr := strconv.ParseInt(string(b), 10, 64)
+		if iErr == nil {
+			return i != 0, nil
+		}
+
+		return false, fmt.Errorf("invalid break_inheritance value %q", string(b))
+	case string:
+		parsed, err := strconv.ParseBool(b)
+		if err == nil {
+			return parsed, nil
+		}
+
+		i, iErr := strconv.ParseInt(b, 10, 64)
+		if iErr == nil {
+			return i != 0, nil
+		}
+
+		return false, fmt.Errorf("invalid break_inheritance value %q", b)
+	default:
+		return false, fmt.Errorf("unsupported break_inheritance value type %T", v)
+	}
 }

@@ -68,7 +68,7 @@ func (x *AckRequest) GetDeliveryId() string {
 type DeadLetterItem struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	DeliveryId    *string                `protobuf:"bytes,1,opt,name=delivery_id,json=deliveryId" json:"delivery_id,omitempty"`
-	Job           *Job                   `protobuf:"bytes,2,opt,name=job" json:"job,omitempty"`
+	JobRequest    *JobRequest            `protobuf:"bytes,2,opt,name=job_request,json=jobRequest" json:"job_request,omitempty"`
 	AttemptCount  *int32                 `protobuf:"varint,3,opt,name=attempt_count,json=attemptCount" json:"attempt_count,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -111,9 +111,9 @@ func (x *DeadLetterItem) GetDeliveryId() string {
 	return ""
 }
 
-func (x *DeadLetterItem) GetJob() *Job {
+func (x *DeadLetterItem) GetJobRequest() *JobRequest {
 	if x != nil {
-		return x.Job
+		return x.JobRequest
 	}
 	return nil
 }
@@ -221,22 +221,23 @@ const file_queue_proto_rawDesc = "" +
 	"\n" +
 	"AckRequest\x12\x1f\n" +
 	"\vdelivery_id\x18\x01 \x01(\tR\n" +
-	"deliveryId\"u\n" +
+	"deliveryId\"\x8b\x01\n" +
 	"\x0eDeadLetterItem\x12\x1f\n" +
 	"\vdelivery_id\x18\x01 \x01(\tR\n" +
-	"deliveryId\x12\x1d\n" +
-	"\x03job\x18\x02 \x01(\v2\v.common.JobR\x03job\x12#\n" +
+	"deliveryId\x123\n" +
+	"\vjob_request\x18\x02 \x01(\v2\x12.common.JobRequestR\n" +
+	"jobRequest\x12#\n" +
 	"\rattempt_count\x18\x03 \x01(\x05R\fattemptCount\"?\n" +
 	"\x16ListDeadLetterResponse\x12%\n" +
 	"\x05items\x18\x01 \x03(\v2\x0f.DeadLetterItemR\x05items\";\n" +
 	"\x18RequeueDeadLetterRequest\x12\x1f\n" +
 	"\vdelivery_id\x18\x01 \x01(\tR\n" +
-	"deliveryId2\xa2\x02\n" +
-	"\fQueueService\x12%\n" +
-	"\aEnqueue\x12\v.common.Job\x1a\r.common.Empty\x12%\n" +
-	"\aDequeue\x12\r.common.Empty\x1a\v.common.Job\x12(\n" +
+	"deliveryId2\xb7\x02\n" +
+	"\fQueueService\x12,\n" +
+	"\aEnqueue\x12\x12.common.JobRequest\x1a\r.common.Empty\x12,\n" +
+	"\aDequeue\x12\r.common.Empty\x1a\x12.common.JobRequest\x12/\n" +
 	"\n" +
-	"TryDequeue\x12\r.common.Empty\x1a\v.common.Job\x12!\n" +
+	"TryDequeue\x12\r.common.Empty\x1a\x12.common.JobRequest\x12!\n" +
 	"\x03Ack\x12\v.AckRequest\x1a\r.common.Empty\x128\n" +
 	"\x0eListDeadLetter\x12\r.common.Empty\x1a\x17.ListDeadLetterResponse\x12=\n" +
 	"\x11RequeueDeadLetter\x12\x19.RequeueDeadLetterRequest\x1a\r.common.EmptyB!B\n" +
@@ -260,21 +261,21 @@ var file_queue_proto_goTypes = []any{
 	(*DeadLetterItem)(nil),           // 1: DeadLetterItem
 	(*ListDeadLetterResponse)(nil),   // 2: ListDeadLetterResponse
 	(*RequeueDeadLetterRequest)(nil), // 3: RequeueDeadLetterRequest
-	(*Job)(nil),                      // 4: common.Job
+	(*JobRequest)(nil),               // 4: common.JobRequest
 	(*Empty)(nil),                    // 5: common.Empty
 }
 var file_queue_proto_depIdxs = []int32{
-	4, // 0: DeadLetterItem.job:type_name -> common.Job
+	4, // 0: DeadLetterItem.job_request:type_name -> common.JobRequest
 	1, // 1: ListDeadLetterResponse.items:type_name -> DeadLetterItem
-	4, // 2: QueueService.Enqueue:input_type -> common.Job
+	4, // 2: QueueService.Enqueue:input_type -> common.JobRequest
 	5, // 3: QueueService.Dequeue:input_type -> common.Empty
 	5, // 4: QueueService.TryDequeue:input_type -> common.Empty
 	0, // 5: QueueService.Ack:input_type -> AckRequest
 	5, // 6: QueueService.ListDeadLetter:input_type -> common.Empty
 	3, // 7: QueueService.RequeueDeadLetter:input_type -> RequeueDeadLetterRequest
 	5, // 8: QueueService.Enqueue:output_type -> common.Empty
-	4, // 9: QueueService.Dequeue:output_type -> common.Job
-	4, // 10: QueueService.TryDequeue:output_type -> common.Job
+	4, // 9: QueueService.Dequeue:output_type -> common.JobRequest
+	4, // 10: QueueService.TryDequeue:output_type -> common.JobRequest
 	5, // 11: QueueService.Ack:output_type -> common.Empty
 	2, // 12: QueueService.ListDeadLetter:output_type -> ListDeadLetterResponse
 	5, // 13: QueueService.RequeueDeadLetter:output_type -> common.Empty

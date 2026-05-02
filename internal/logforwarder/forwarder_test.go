@@ -10,6 +10,7 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/interfaces"
 	"vectis/internal/interfaces/mocks"
+	"vectis/internal/testutil/socktest"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -90,7 +91,7 @@ func assertNoSpoolFiles(t *testing.T, dir string, timeout time.Duration) {
 // are batched and forwarded to the log client.
 func TestForwarder_HappyPath(t *testing.T) {
 	tmpDir := t.TempDir()
-	sockPath := filepath.Join(tmpDir, "forwarder.sock")
+	sockPath := socktest.ShortPath(t, "forwarder.sock")
 
 	server, err := NewSocketServer(sockPath, 1024)
 	if err != nil {
@@ -165,7 +166,7 @@ func TestForwarder_HappyPath(t *testing.T) {
 // background scanner when the client becomes available again.
 func TestForwarder_SpoolAndRecover(t *testing.T) {
 	tmpDir := t.TempDir()
-	sockPath := filepath.Join(tmpDir, "forwarder.sock")
+	sockPath := socktest.ShortPath(t, "forwarder.sock")
 	spoolDir := filepath.Join(tmpDir, "spool")
 
 	server, err := NewSocketServer(sockPath, 1024)
@@ -242,7 +243,7 @@ func TestForwarder_SpoolAndRecover(t *testing.T) {
 // flushed (or spooled) when Shutdown is called.
 func TestForwarder_ShutdownFlushesPending(t *testing.T) {
 	tmpDir := t.TempDir()
-	sockPath := filepath.Join(tmpDir, "forwarder.sock")
+	sockPath := socktest.ShortPath(t, "forwarder.sock")
 	spoolDir := filepath.Join(tmpDir, "spool")
 
 	server, err := NewSocketServer(sockPath, 1024)

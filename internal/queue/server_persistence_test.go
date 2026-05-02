@@ -26,7 +26,7 @@ func TestQueuePersistence_RestorePendingOrder(t *testing.T) {
 
 	for _, id := range []string{"job-1", "job-2", "job-3"} {
 		jobID := id
-		if _, err := svc.Enqueue(ctx, &api.Job{Id: &jobID}); err != nil {
+		if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
 			t.Fatalf("enqueue %s: %v", id, err)
 		}
 	}
@@ -36,7 +36,7 @@ func TestQueuePersistence_RestorePendingOrder(t *testing.T) {
 	}
 
 	jobID := "job-4"
-	if _, err := svc.Enqueue(ctx, &api.Job{Id: &jobID}); err != nil {
+	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
 		t.Fatalf("enqueue job-4: %v", err)
 	}
 
@@ -54,7 +54,8 @@ func TestQueuePersistence_RestorePendingOrder(t *testing.T) {
 		if err != nil {
 			t.Fatalf("trydequeue %s: %v", want, err)
 		}
-		if got == nil || got.GetId() != want {
+
+		if got == nil || got.GetJob().GetId() != want {
 			t.Fatalf("expected %s, got %#v", want, got)
 		}
 	}
@@ -75,7 +76,7 @@ func TestQueuePersistence_RestoreFromSnapshot(t *testing.T) {
 
 	for _, id := range []string{"job-a", "job-b"} {
 		jobID := id
-		if _, err := svc.Enqueue(ctx, &api.Job{Id: &jobID}); err != nil {
+		if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
 			t.Fatalf("enqueue %s: %v", id, err)
 		}
 	}
@@ -96,7 +97,7 @@ func TestQueuePersistence_RestoreFromSnapshot(t *testing.T) {
 		t.Fatalf("trydequeue: %v", err)
 	}
 
-	if got == nil || got.GetId() != "job-b" {
+	if got == nil || got.GetJob().GetId() != "job-b" {
 		t.Fatalf("expected job-b after restart, got %#v", got)
 	}
 }
@@ -116,7 +117,7 @@ func TestQueuePersistence_SnapshotTruncatesWAL(t *testing.T) {
 	}
 
 	jobID := "job-1"
-	if _, err := svc.Enqueue(ctx, &api.Job{Id: &jobID}); err != nil {
+	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
 
@@ -143,7 +144,7 @@ func TestQueuePersistence_ExpiredRequeueSurvivesRestartBeforeSnapshot(t *testing
 	}
 
 	job1 := "job-1"
-	if _, err := svc.Enqueue(ctx, &api.Job{Id: &job1}); err != nil {
+	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &job1}}); err != nil {
 		t.Fatalf("enqueue job-1: %v", err)
 	}
 
@@ -154,7 +155,7 @@ func TestQueuePersistence_ExpiredRequeueSurvivesRestartBeforeSnapshot(t *testing
 	time.Sleep(30 * time.Millisecond)
 
 	job2 := "job-2"
-	if _, err := svc.Enqueue(ctx, &api.Job{Id: &job2}); err != nil {
+	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &job2}}); err != nil {
 		t.Fatalf("enqueue job-2: %v", err)
 	}
 
@@ -173,7 +174,8 @@ func TestQueuePersistence_ExpiredRequeueSurvivesRestartBeforeSnapshot(t *testing
 	if err != nil {
 		t.Fatalf("first dequeue after restart: %v", err)
 	}
-	if first == nil || first.GetId() != "job-1" {
+
+	if first == nil || first.GetJob().GetId() != "job-1" {
 		t.Fatalf("expected first replayed job-1, got %#v", first)
 	}
 
@@ -181,7 +183,8 @@ func TestQueuePersistence_ExpiredRequeueSurvivesRestartBeforeSnapshot(t *testing
 	if err != nil {
 		t.Fatalf("second dequeue after restart: %v", err)
 	}
-	if second == nil || second.GetId() != "job-2" {
+
+	if second == nil || second.GetJob().GetId() != "job-2" {
 		t.Fatalf("expected second job-2, got %#v", second)
 	}
 }
@@ -204,7 +207,7 @@ func TestQueuePersistence_JobAttemptsSurviveSnapshot(t *testing.T) {
 	}
 
 	job1 := "job-1"
-	if _, err := svc.Enqueue(ctx, &api.Job{Id: &job1}); err != nil {
+	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &job1}}); err != nil {
 		t.Fatalf("enqueue job-1: %v", err)
 	}
 
@@ -216,7 +219,7 @@ func TestQueuePersistence_JobAttemptsSurviveSnapshot(t *testing.T) {
 	// Let it expire and enqueue another job to trigger requeueExpiredLocked.
 	time.Sleep(30 * time.Millisecond)
 	job2 := "job-2"
-	if _, err := svc.Enqueue(ctx, &api.Job{Id: &job2}); err != nil {
+	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &job2}}); err != nil {
 		t.Fatalf("enqueue job-2: %v", err)
 	}
 
@@ -229,7 +232,7 @@ func TestQueuePersistence_JobAttemptsSurviveSnapshot(t *testing.T) {
 
 	// Enqueue/dequeue a third job to trigger another requeue of job-1 (attemptCount=2).
 	job3 := "job-3"
-	if _, err := svc.Enqueue(ctx, &api.Job{Id: &job3}); err != nil {
+	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &job3}}); err != nil {
 		t.Fatalf("enqueue job-3: %v", err)
 	}
 
@@ -240,7 +243,7 @@ func TestQueuePersistence_JobAttemptsSurviveSnapshot(t *testing.T) {
 	// Now job-1 has attemptCount=2. We need a few more WAL records to force a snapshot.
 	// Enqueue and dequeue more jobs to hit snapshotEvery=4.
 	job4 := "job-4"
-	if _, err := svc.Enqueue(ctx, &api.Job{Id: &job4}); err != nil {
+	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &job4}}); err != nil {
 		t.Fatalf("enqueue job-4: %v", err)
 	}
 
@@ -274,7 +277,7 @@ func TestQueuePersistence_JobAttemptsSurviveSnapshot(t *testing.T) {
 			break
 		}
 
-		if job.GetId() == job1 {
+		if job.GetJob().GetId() == job1 {
 			// With attemptCount=2 preserved, one more expiration should make it 3.
 			// We can't easily read attemptCount directly, but we can verify the job
 			// is still in the pending queue (not DLQ) after restart, which means
@@ -303,12 +306,12 @@ func TestQueuePersistence_DLQRequeueRemovesDeadLetterAfterRestart(t *testing.T) 
 	}
 
 	jobID := "job-dlq-requeue"
-	if _, err := svc.Enqueue(ctx, &api.Job{Id: &jobID}); err != nil {
+	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
 
 	// Dequeue twice and let both leases expire so the second expiry moves it to DLQ.
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		job, err := svc.Dequeue(ctx, &api.Empty{})
 		if err != nil {
 			t.Fatalf("dequeue %d: %v", i+1, err)

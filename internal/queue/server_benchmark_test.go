@@ -27,7 +27,7 @@ func BenchmarkQueue_Enqueue(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		if _, err := svc.Enqueue(ctx, job); err != nil {
+		if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: job}); err != nil {
 			b.Fatalf("enqueue failed: %v", err)
 		}
 	}
@@ -44,7 +44,7 @@ func BenchmarkQueue_Enqueue_DuplicateRunID(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		if _, err := svc.Enqueue(ctx, job); err != nil {
+		if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: job}); err != nil {
 			b.Fatalf("enqueue failed: %v", err)
 		}
 	}
@@ -59,7 +59,7 @@ func BenchmarkQueue_EnqueueDequeue_RoundTrip(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		if _, err := svc.Enqueue(ctx, job); err != nil {
+		if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: job}); err != nil {
 			b.Fatalf("enqueue failed: %v", err)
 		}
 
@@ -85,7 +85,7 @@ func BenchmarkQueue_ConcurrentEnqueueDequeue(b *testing.B) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			if _, err := svc.Enqueue(ctx, job); err != nil {
+			if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: job}); err != nil {
 				b.Fatalf("enqueue failed: %v", err)
 			}
 
@@ -180,7 +180,7 @@ func runSustainedLoadScenario(b *testing.B, cfg sustainedLoadConfig) {
 				default:
 				}
 
-				if _, err := svc.Enqueue(ctx, job); err != nil {
+				if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: job}); err != nil {
 					setErr(fmt.Errorf("producer enqueue: %w", err))
 					return
 				}

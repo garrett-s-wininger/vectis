@@ -121,7 +121,7 @@ func (s *APIServer) CreateNamespace(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventNamespaceCreated, actorID, rec.ID, map[string]interface{}{
+	s.auditLog(ctx, audit.EventNamespaceCreated, actorID, rec.ID, map[string]any{
 		"name":      rec.Name,
 		"parent_id": req.ParentID,
 		"path":      rec.Path,
@@ -329,7 +329,7 @@ func (s *APIServer) DeleteNamespace(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventNamespaceDeleted, actorID, id, map[string]interface{}{
+	s.auditLog(ctx, audit.EventNamespaceDeleted, actorID, id, map[string]any{
 		"name": rec.Name,
 		"path": rec.Path,
 	})

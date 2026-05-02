@@ -1235,7 +1235,7 @@ func runTokenCreate(cmd *cobra.Command, args []string) {
 }
 
 func tokenCreate(label, expiresIn string, userID int64, w io.Writer) error {
-	reqBody := map[string]interface{}{
+	reqBody := map[string]any{
 		"label":      label,
 		"expires_in": expiresIn,
 	}

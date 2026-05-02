@@ -17,13 +17,13 @@ import (
 
 type faultInjectQueue struct {
 	mu         sync.Mutex
-	jobs       []*api.Job
+	jobs       []*api.JobRequest
 	enqueueErr error
 	down       bool
 }
 
 func newFaultInjectQueue() *faultInjectQueue {
-	return &faultInjectQueue{jobs: make([]*api.Job, 0)}
+	return &faultInjectQueue{jobs: make([]*api.JobRequest, 0)}
 }
 
 func (q *faultInjectQueue) SetDown(err error) {
@@ -46,12 +46,12 @@ func (q *faultInjectQueue) Restart() {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	q.jobs = make([]*api.Job, 0)
+	q.jobs = make([]*api.JobRequest, 0)
 	q.down = false
 	q.enqueueErr = nil
 }
 
-func (q *faultInjectQueue) Enqueue(ctx context.Context, job *api.Job) (*api.Empty, error) {
+func (q *faultInjectQueue) Enqueue(ctx context.Context, req *api.JobRequest) (*api.Empty, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -63,7 +63,7 @@ func (q *faultInjectQueue) Enqueue(ctx context.Context, job *api.Job) (*api.Empt
 		return nil, errors.New("queue unavailable")
 	}
 
-	q.jobs = append(q.jobs, job)
+	q.jobs = append(q.jobs, req)
 	return &api.Empty{}, nil
 }
 
@@ -71,8 +71,10 @@ func (q *faultInjectQueue) Jobs() []*api.Job {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	out := make([]*api.Job, len(q.jobs))
-	copy(out, q.jobs)
+	out := make([]*api.Job, 0, len(q.jobs))
+	for _, req := range q.jobs {
+		out = append(out, req.GetJob())
+	}
 	return out
 }
 

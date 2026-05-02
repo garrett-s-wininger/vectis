@@ -66,7 +66,7 @@ type queueSnapshot struct {
 }
 
 type inflightDelivery struct {
-	Job          *api.Job
+	JobRequest   *api.JobRequest
 	LeaseUntil   time.Time
 	AttemptCount int
 }
@@ -83,7 +83,7 @@ type persistenceStore struct {
 }
 
 type queueState struct {
-	jobs             []*api.Job
+	jobs             []*api.JobRequest
 	inflight         map[string]inflightDelivery
 	deadLetter       []deadLetterItem
 	jobAttempts      map[string]int
@@ -91,7 +91,7 @@ type queueState struct {
 }
 
 type snapshotState struct {
-	pending     []*api.Job
+	pending     []*api.JobRequest
 	inflight    map[string]inflightDelivery
 	deadLetter  []deadLetterItem
 	jobAttempts map[string]int
@@ -250,8 +250,8 @@ func (p *persistenceStore) replayWAL(state *queueState) error {
 	return nil
 }
 
-func (p *persistenceStore) appendEnqueue(job *api.Job, state snapshotState) error {
-	payload, err := proto.Marshal(job)
+func (p *persistenceStore) appendEnqueue(req *api.JobRequest, state snapshotState) error {
+	payload, err := proto.Marshal(req)
 	if err != nil {
 		return fmt.Errorf("marshal enqueue job: %w", err)
 	}
@@ -263,8 +263,8 @@ func (p *persistenceStore) appendDeliver(deliveryID string, leaseUntil time.Time
 	return p.appendRecord(walRecord{Type: walRecordDeliver, DeliveryID: deliveryID, LeaseUntilUTC: leaseUntil.UTC().Unix(), AttemptCount: attemptCount}, state)
 }
 
-func (p *persistenceStore) appendDLQ(deliveryID string, job *api.Job, attemptCount int, state snapshotState) error {
-	payload, err := proto.Marshal(job)
+func (p *persistenceStore) appendDLQ(deliveryID string, req *api.JobRequest, attemptCount int, state snapshotState) error {
+	payload, err := proto.Marshal(req)
 	if err != nil {
 		return fmt.Errorf("marshal dlq job: %w", err)
 	}
@@ -272,8 +272,8 @@ func (p *persistenceStore) appendDLQ(deliveryID string, job *api.Job, attemptCou
 	return p.appendRecord(walRecord{Type: walRecordDLQ, DeliveryID: deliveryID, Job: payload, AttemptCount: attemptCount}, state)
 }
 
-func (p *persistenceStore) appendDLQRequeue(deliveryID string, job *api.Job, state snapshotState) error {
-	payload, err := proto.Marshal(job)
+func (p *persistenceStore) appendDLQRequeue(deliveryID string, req *api.JobRequest, state snapshotState) error {
+	payload, err := proto.Marshal(req)
 	if err != nil {
 		return fmt.Errorf("marshal dlq requeue job: %w", err)
 	}
@@ -285,8 +285,8 @@ func (p *persistenceStore) appendAck(deliveryID string, state snapshotState) err
 	return p.appendRecord(walRecord{Type: walRecordAck, DeliveryID: deliveryID}, state)
 }
 
-func (p *persistenceStore) appendRequeueExpired(deliveryID string, job *api.Job, state snapshotState) error {
-	payload, err := proto.Marshal(job)
+func (p *persistenceStore) appendRequeueExpired(deliveryID string, req *api.JobRequest, state snapshotState) error {
+	payload, err := proto.Marshal(req)
 	if err != nil {
 		return fmt.Errorf("marshal requeue job: %w", err)
 	}
@@ -569,7 +569,7 @@ func (p *persistenceStore) segmentBounds(path string) (uint64, uint64, int, erro
 	return minIdx, maxIdx, count, nil
 }
 
-func encodeJobs(jobs []*api.Job) ([][]byte, error) {
+func encodeJobs(jobs []*api.JobRequest) ([][]byte, error) {
 	encoded := make([][]byte, 0, len(jobs))
 	for _, job := range jobs {
 		payload, err := proto.Marshal(job)
@@ -582,14 +582,15 @@ func encodeJobs(jobs []*api.Job) ([][]byte, error) {
 	return encoded, nil
 }
 
-func decodeJobs(records [][]byte) ([]*api.Job, error) {
-	jobs := make([]*api.Job, 0, len(records))
+func decodeJobs(records [][]byte) ([]*api.JobRequest, error) {
+	jobs := make([]*api.JobRequest, 0, len(records))
 	for _, payload := range records {
-		var job api.Job
-		if err := proto.Unmarshal(payload, &job); err != nil {
+		var req api.JobRequest
+		if err := proto.Unmarshal(payload, &req); err != nil {
 			return nil, err
 		}
-		jobs = append(jobs, &job)
+
+		jobs = append(jobs, &req)
 	}
 
 	return jobs, nil
@@ -598,7 +599,7 @@ func decodeJobs(records [][]byte) ([]*api.Job, error) {
 func encodeInflight(inflight map[string]inflightDelivery) ([]inflightSnapshot, error) {
 	out := make([]inflightSnapshot, 0, len(inflight))
 	for deliveryID, item := range inflight {
-		payload, err := proto.Marshal(item.Job)
+		payload, err := proto.Marshal(item.JobRequest)
 		if err != nil {
 			return nil, err
 		}
@@ -617,12 +618,13 @@ func encodeInflight(inflight map[string]inflightDelivery) ([]inflightSnapshot, e
 func decodeInflight(rows []inflightSnapshot) (map[string]inflightDelivery, error) {
 	out := make(map[string]inflightDelivery, len(rows))
 	for _, row := range rows {
-		var job api.Job
-		if err := proto.Unmarshal(row.Job, &job); err != nil {
+		var req api.JobRequest
+		if err := proto.Unmarshal(row.Job, &req); err != nil {
 			return nil, err
 		}
+
 		out[row.DeliveryID] = inflightDelivery{
-			Job:          &job,
+			JobRequest:   &req,
 			LeaseUntil:   time.Unix(row.LeaseUntilUTC, 0).UTC(),
 			AttemptCount: row.AttemptCount,
 		}
@@ -634,7 +636,7 @@ func decodeInflight(rows []inflightSnapshot) (map[string]inflightDelivery, error
 func encodeDeadLetter(items []deadLetterItem) ([]deadLetterSnapshot, error) {
 	out := make([]deadLetterSnapshot, 0, len(items))
 	for _, item := range items {
-		payload, err := proto.Marshal(item.job)
+		payload, err := proto.Marshal(item.jobRequest)
 		if err != nil {
 			return nil, err
 		}
@@ -652,13 +654,14 @@ func encodeDeadLetter(items []deadLetterItem) ([]deadLetterSnapshot, error) {
 func decodeDeadLetter(rows []deadLetterSnapshot) ([]deadLetterItem, error) {
 	out := make([]deadLetterItem, 0, len(rows))
 	for _, row := range rows {
-		var job api.Job
-		if err := proto.Unmarshal(row.Job, &job); err != nil {
+		var req api.JobRequest
+		if err := proto.Unmarshal(row.Job, &req); err != nil {
 			return nil, err
 		}
+
 		out = append(out, deadLetterItem{
 			deliveryID:   row.DeliveryID,
-			job:          &job,
+			jobRequest:   &req,
 			attemptCount: row.AttemptCount,
 		})
 	}
@@ -669,22 +672,22 @@ func decodeDeadLetter(rows []deadLetterSnapshot) ([]deadLetterItem, error) {
 func applyRecord(state *queueState, rec walRecord) error {
 	switch rec.Type {
 	case walRecordEnqueue:
-		var job api.Job
-		if err := proto.Unmarshal(rec.Job, &job); err != nil {
+		var req api.JobRequest
+		if err := proto.Unmarshal(rec.Job, &req); err != nil {
 			return fmt.Errorf("unmarshal enqueue payload: %w", err)
 		}
 
-		state.jobs = append(state.jobs, &job)
+		state.jobs = append(state.jobs, &req)
 		return nil
 	case walRecordDeliver:
 		if len(state.jobs) == 0 {
 			return fmt.Errorf("replay deliver on empty pending queue")
 		}
 
-		job := state.jobs[0]
+		req := state.jobs[0]
 		state.jobs = state.jobs[1:]
 		state.inflight[rec.DeliveryID] = inflightDelivery{
-			Job:          job,
+			JobRequest:   req,
 			LeaseUntil:   time.Unix(rec.LeaseUntilUTC, 0).UTC(),
 			AttemptCount: rec.AttemptCount,
 		}
@@ -693,32 +696,32 @@ func applyRecord(state *queueState, rec walRecord) error {
 			state.jobAttempts = make(map[string]int)
 		}
 
-		state.jobAttempts[job.GetId()] = rec.AttemptCount
+		state.jobAttempts[req.GetJob().GetId()] = rec.AttemptCount
 		return nil
 	case walRecordAck:
 		if item, ok := state.inflight[rec.DeliveryID]; ok {
-			delete(state.jobAttempts, item.Job.GetId())
+			delete(state.jobAttempts, item.JobRequest.GetJob().GetId())
 		}
 
 		delete(state.inflight, rec.DeliveryID)
 		return nil
 	case walRecordRequeue:
-		var job api.Job
-		if err := proto.Unmarshal(rec.Job, &job); err != nil {
+		var req api.JobRequest
+		if err := proto.Unmarshal(rec.Job, &req); err != nil {
 			return fmt.Errorf("unmarshal requeue payload: %w", err)
 		}
 
 		delete(state.inflight, rec.DeliveryID)
-		state.jobs = append(state.jobs, &job)
+		state.jobs = append(state.jobs, &req)
 		if state.jobAttempts == nil {
 			state.jobAttempts = make(map[string]int)
 		}
 
-		state.jobAttempts[job.GetId()]++
+		state.jobAttempts[req.GetJob().GetId()]++
 		return nil
 	case walRecordDLQ:
-		var job api.Job
-		if err := proto.Unmarshal(rec.Job, &job); err != nil {
+		var req api.JobRequest
+		if err := proto.Unmarshal(rec.Job, &req); err != nil {
 			return fmt.Errorf("unmarshal dlq payload: %w", err)
 		}
 
@@ -727,28 +730,31 @@ func applyRecord(state *queueState, rec walRecord) error {
 			state.jobAttempts = make(map[string]int)
 		}
 
-		state.jobAttempts[job.GetId()] = rec.AttemptCount
+		state.jobAttempts[req.GetJob().GetId()] = rec.AttemptCount
 		state.deadLetter = append(state.deadLetter, deadLetterItem{
 			deliveryID:   rec.DeliveryID,
-			job:          &job,
+			jobRequest:   &req,
 			attemptCount: rec.AttemptCount,
 		})
+
 		return nil
 	case walRecordDLQRequeue:
-		var job api.Job
-		if err := proto.Unmarshal(rec.Job, &job); err != nil {
+		var req api.JobRequest
+		if err := proto.Unmarshal(rec.Job, &req); err != nil {
 			return fmt.Errorf("unmarshal dlq requeue payload: %w", err)
 		}
 
-		state.jobs = append(state.jobs, &job)
+		state.jobs = append(state.jobs, &req)
 		if len(state.deadLetter) > 0 {
 			filtered := make([]deadLetterItem, 0, len(state.deadLetter))
 			for _, item := range state.deadLetter {
 				if item.deliveryID == rec.DeliveryID {
 					continue
 				}
+
 				filtered = append(filtered, item)
 			}
+
 			state.deadLetter = filtered
 		}
 
@@ -756,7 +762,7 @@ func applyRecord(state *queueState, rec walRecord) error {
 			state.jobAttempts = make(map[string]int)
 		}
 
-		delete(state.jobAttempts, job.GetId())
+		delete(state.jobAttempts, req.GetJob().GetId())
 		return nil
 	default:
 		return fmt.Errorf("unknown wal record type: %q", rec.Type)

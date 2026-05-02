@@ -9,10 +9,11 @@ import (
 )
 
 type QueueMetrics struct {
-	enqueued    metric.Int64Counter
-	dequeued    metric.Int64Counter
-	dlqMoved    metric.Int64Counter
-	dlqRequeued metric.Int64Counter
+	enqueued        metric.Int64Counter
+	dequeued        metric.Int64Counter
+	expiredRequeued metric.Int64Counter
+	dlqMoved        metric.Int64Counter
+	dlqRequeued     metric.Int64Counter
 }
 
 func NewQueueMetrics() (*QueueMetrics, error) {
@@ -32,6 +33,13 @@ func NewQueueMetrics() (*QueueMetrics, error) {
 		return nil, fmt.Errorf("vectis_queue_dequeued_total: %w", err)
 	}
 
+	expiredRequeued, err := m.Int64Counter("vectis_queue_expired_requeued_total",
+		metric.WithDescription("Total expired in-flight deliveries requeued back to pending"),
+		metric.WithUnit("{delivery}"))
+	if err != nil {
+		return nil, fmt.Errorf("vectis_queue_expired_requeued_total: %w", err)
+	}
+
 	dlqMoved, err := m.Int64Counter("vectis_queue_dlq_moved_total",
 		metric.WithDescription("Total deliveries moved to dead letter queue after max requeue attempts"),
 		metric.WithUnit("{delivery}"))
@@ -47,10 +55,11 @@ func NewQueueMetrics() (*QueueMetrics, error) {
 	}
 
 	return &QueueMetrics{
-		enqueued:    enqueued,
-		dequeued:    dequeued,
-		dlqMoved:    dlqMoved,
-		dlqRequeued: dlqRequeued,
+		enqueued:        enqueued,
+		dequeued:        dequeued,
+		expiredRequeued: expiredRequeued,
+		dlqMoved:        dlqMoved,
+		dlqRequeued:     dlqRequeued,
 	}, nil
 }
 
@@ -66,6 +75,13 @@ func (qm *QueueMetrics) RecordDequeued(ctx context.Context) {
 		return
 	}
 	qm.dequeued.Add(ctx, 1)
+}
+
+func (qm *QueueMetrics) RecordExpiredRequeued(ctx context.Context) {
+	if qm == nil {
+		return
+	}
+	qm.expiredRequeued.Add(ctx, 1)
 }
 
 func (qm *QueueMetrics) RecordDLQMoved(ctx context.Context) {

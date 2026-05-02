@@ -80,7 +80,7 @@ type queueConnStub struct {
 	state connectivity.State
 }
 
-func (q queueConnStub) Enqueue(ctx context.Context, job *apigen.Job) (*apigen.Empty, error) {
+func (q queueConnStub) Enqueue(ctx context.Context, req *apigen.JobRequest) (*apigen.Empty, error) {
 	return &apigen.Empty{}, nil
 }
 

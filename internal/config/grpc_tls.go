@@ -12,6 +12,7 @@ import (
 	"vectis/internal/tlsconfig"
 
 	"github.com/spf13/viper"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -129,8 +130,12 @@ func grpcTLSReloader() (*tlsconfig.Reloader, error) {
 }
 
 func GRPCServerOptions() ([]grpc.ServerOption, error) {
+	opts := []grpc.ServerOption{
+		grpc.StatsHandler(otelgrpc.NewServerHandler()),
+	}
+
 	if GRPCTLSInsecure() {
-		return nil, nil
+		return opts, nil
 	}
 
 	r, err := grpcTLSReloader()
@@ -147,7 +152,8 @@ func GRPCServerOptions() ([]grpc.ServerOption, error) {
 		return nil, err
 	}
 
-	return []grpc.ServerOption{grpc.Creds(creds)}, nil
+	opts = append(opts, grpc.Creds(creds))
+	return opts, nil
 }
 
 func grpcTransportCredsForTarget(directHostPort string) (credentials.TransportCredentials, error) {
@@ -182,7 +188,10 @@ func GRPCClientDialOptions(directHostPort string) ([]grpc.DialOption, error) {
 		return nil, err
 	}
 
-	return []grpc.DialOption{grpc.WithTransportCredentials(tc)}, nil
+	return []grpc.DialOption{
+		grpc.WithTransportCredentials(tc),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+	}, nil
 }
 
 func GRPCResolverDialOptions() ([]grpc.DialOption, error) {

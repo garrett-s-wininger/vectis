@@ -2,6 +2,7 @@ package authz
 
 import (
 	"context"
+	"slices"
 
 	"vectis/internal/api/authn"
 	"vectis/internal/dal"
@@ -188,13 +189,7 @@ func (r *HierarchicalRBAC) hasRootRole(ctx context.Context, localUserID int64, r
 		return false
 	}
 
-	for _, got := range roles {
-		if got == role {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(roles, role)
 }
 
 func (r *HierarchicalRBAC) hasActionAnywhere(ctx context.Context, localUserID int64, action Action) bool {

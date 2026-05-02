@@ -174,6 +174,58 @@ func (x *Job) GetDeliveryId() string {
 	return ""
 }
 
+type JobRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Job           *Job                   `protobuf:"bytes,1,opt,name=job" json:"job,omitempty"`
+	Metadata      map[string]string      `protobuf:"bytes,2,rep,name=metadata" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *JobRequest) Reset() {
+	*x = JobRequest{}
+	mi := &file_common_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *JobRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*JobRequest) ProtoMessage() {}
+
+func (x *JobRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_common_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use JobRequest.ProtoReflect.Descriptor instead.
+func (*JobRequest) Descriptor() ([]byte, []int) {
+	return file_common_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *JobRequest) GetJob() *Job {
+	if x != nil {
+		return x.Job
+	}
+	return nil
+}
+
+func (x *JobRequest) GetMetadata() map[string]string {
+	if x != nil {
+		return x.Metadata
+	}
+	return nil
+}
+
 type Node struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            *string                `protobuf:"bytes,1,opt,name=id" json:"id,omitempty"`
@@ -186,7 +238,7 @@ type Node struct {
 
 func (x *Node) Reset() {
 	*x = Node{}
-	mi := &file_common_proto_msgTypes[2]
+	mi := &file_common_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -198,7 +250,7 @@ func (x *Node) String() string {
 func (*Node) ProtoMessage() {}
 
 func (x *Node) ProtoReflect() protoreflect.Message {
-	mi := &file_common_proto_msgTypes[2]
+	mi := &file_common_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -211,7 +263,7 @@ func (x *Node) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Node.ProtoReflect.Descriptor instead.
 func (*Node) Descriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{2}
+	return file_common_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *Node) GetId() string {
@@ -254,7 +306,7 @@ type LogChunk struct {
 
 func (x *LogChunk) Reset() {
 	*x = LogChunk{}
-	mi := &file_common_proto_msgTypes[3]
+	mi := &file_common_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -266,7 +318,7 @@ func (x *LogChunk) String() string {
 func (*LogChunk) ProtoMessage() {}
 
 func (x *LogChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_common_proto_msgTypes[3]
+	mi := &file_common_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -279,7 +331,7 @@ func (x *LogChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogChunk.ProtoReflect.Descriptor instead.
 func (*LogChunk) Descriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{3}
+	return file_common_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *LogChunk) GetRunId() string {
@@ -321,7 +373,14 @@ const file_common_proto_rawDesc = "" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12 \n" +
 	"\x04root\x18\x03 \x01(\v2\f.common.NodeR\x04root\x12\x1f\n" +
 	"\vdelivery_id\x18\x04 \x01(\tR\n" +
-	"deliveryId\"\xb3\x01\n" +
+	"deliveryId\"\xa6\x01\n" +
+	"\n" +
+	"JobRequest\x12\x1d\n" +
+	"\x03job\x18\x01 \x01(\v2\v.common.JobR\x03job\x12<\n" +
+	"\bmetadata\x18\x02 \x03(\v2 .common.JobRequest.MetadataEntryR\bmetadata\x1a;\n" +
+	"\rMetadataEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb3\x01\n" +
 	"\x04Node\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04uses\x18\x02 \x01(\tR\x04uses\x12*\n" +
@@ -355,25 +414,29 @@ func file_common_proto_rawDescGZIP() []byte {
 }
 
 var file_common_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_common_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_common_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_common_proto_goTypes = []any{
-	(Stream)(0),      // 0: common.Stream
-	(*Empty)(nil),    // 1: common.Empty
-	(*Job)(nil),      // 2: common.Job
-	(*Node)(nil),     // 3: common.Node
-	(*LogChunk)(nil), // 4: common.LogChunk
-	nil,              // 5: common.Node.WithEntry
+	(Stream)(0),        // 0: common.Stream
+	(*Empty)(nil),      // 1: common.Empty
+	(*Job)(nil),        // 2: common.Job
+	(*JobRequest)(nil), // 3: common.JobRequest
+	(*Node)(nil),       // 4: common.Node
+	(*LogChunk)(nil),   // 5: common.LogChunk
+	nil,                // 6: common.JobRequest.MetadataEntry
+	nil,                // 7: common.Node.WithEntry
 }
 var file_common_proto_depIdxs = []int32{
-	3, // 0: common.Job.root:type_name -> common.Node
-	5, // 1: common.Node.with:type_name -> common.Node.WithEntry
-	3, // 2: common.Node.steps:type_name -> common.Node
-	0, // 3: common.LogChunk.stream:type_name -> common.Stream
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	4, // 0: common.Job.root:type_name -> common.Node
+	2, // 1: common.JobRequest.job:type_name -> common.Job
+	6, // 2: common.JobRequest.metadata:type_name -> common.JobRequest.MetadataEntry
+	7, // 3: common.Node.with:type_name -> common.Node.WithEntry
+	4, // 4: common.Node.steps:type_name -> common.Node
+	0, // 5: common.LogChunk.stream:type_name -> common.Stream
+	6, // [6:6] is the sub-list for method output_type
+	6, // [6:6] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_common_proto_init() }
@@ -387,7 +450,7 @@ func file_common_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_common_proto_rawDesc), len(file_common_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   5,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

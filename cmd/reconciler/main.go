@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"time"
 
@@ -12,6 +15,7 @@ import (
 	"vectis/internal/config"
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
+	"vectis/internal/observability"
 	"vectis/internal/queueclient"
 	"vectis/internal/reconciler"
 	"vectis/internal/resolver"
@@ -29,7 +33,39 @@ func runReconciler(cmd *cobra.Command, args []string) {
 	if err := config.ValidateGRPCTLSForRole(config.GRPCTLSDaemonClientOnly); err != nil {
 		logger.Fatal("%v", err)
 	}
+
+	if err := config.ValidateMetricsTLS(); err != nil {
+		logger.Fatal("%v", err)
+	}
+
 	config.StartGRPCTLSReloadLoop(rootCtx)
+	config.StartMetricsTLSReloadLoop(rootCtx)
+
+	shutdownTracer, err := observability.InitTracer(rootCtx, "vectis-reconciler")
+	if err != nil {
+		logger.Fatal("Failed to initialize tracer: %v", err)
+	}
+
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownTracer(shutCtx); err != nil {
+			logger.Warn("Tracer shutdown: %v", err)
+		}
+	}()
+
+	metricsHandler, shutdownMetrics, err := observability.InitServiceMetrics(rootCtx, "vectis-reconciler")
+	if err != nil {
+		logger.Fatal("Failed to initialize metrics: %v", err)
+	}
+
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownMetrics(shutCtx); err != nil {
+			logger.Warn("Metrics shutdown: %v", err)
+		}
+	}()
 
 	dbPath := database.GetDBPath()
 	logger.Info("Using database: %s", dbPath)
@@ -58,9 +94,50 @@ func runReconciler(cmd *cobra.Command, args []string) {
 	}
 
 	svc := reconciler.NewService(logger, db, mq, interfaces.SystemClock{})
+	reconcilerMetrics, err := observability.NewReconcilerMetrics()
+	if err != nil {
+		logger.Fatal("Failed to initialize reconciler metrics: %v", err)
+	}
+	svc.SetMetrics(reconcilerMetrics)
+
+	metricsPort := viper.GetInt("metrics_port")
+	metricsAddr := fmt.Sprintf(":%d", metricsPort)
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("GET /metrics", metricsHandler)
+	metricsSrv := &http.Server{Handler: metricsMux}
+
+	metricsLn, err := net.Listen("tcp", metricsAddr)
+	if err != nil {
+		logger.Fatal("Failed to listen for metrics: %v", err)
+	}
+
+	metricsLn, err = config.MetricsHTTPSListener(metricsLn)
+	if err != nil {
+		logger.Fatal("metrics tls: %v", err)
+	}
+
+	go func() {
+		if err := metricsSrv.Serve(metricsLn); err != nil && err != http.ErrServerClosed {
+			logger.Error("Metrics server: %v", err)
+		}
+	}()
+
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := metricsSrv.Shutdown(shutCtx); err != nil {
+			logger.Warn("Metrics HTTP shutdown: %v", err)
+		}
+	}()
 
 	interval := config.ReconcilerInterval()
 	logger.Info("Reconciler polling every %v", interval)
+
+	if !config.MetricsTLSInsecure() {
+		logger.Info("Reconciler metrics listening on %s (HTTPS /metrics)", metricsAddr)
+	} else {
+		logger.Info("Reconciler metrics listening on %s (/metrics)", metricsAddr)
+	}
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -90,7 +167,10 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	rootCmd.PersistentFlags().Duration("interval", config.ReconcilerInterval(), "How often to scan for queued runs")
+	rootCmd.PersistentFlags().Int("metrics-port", 9084, "HTTP port for Prometheus /metrics")
 	_ = viper.BindPFlag("interval", rootCmd.PersistentFlags().Lookup("interval"))
+	_ = viper.BindPFlag("metrics_port", rootCmd.PersistentFlags().Lookup("metrics-port"))
+	viper.SetDefault("metrics_port", 9084)
 	viper.SetEnvPrefix("VECTIS_RECONCILER")
 	viper.AutomaticEnv()
 }

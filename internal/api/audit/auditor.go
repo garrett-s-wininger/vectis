@@ -11,7 +11,7 @@ type Event struct {
 	Type          string
 	ActorID       int64
 	TargetID      int64
-	Metadata      map[string]interface{}
+	Metadata      map[string]any
 	IPAddress     string
 	CorrelationID string
 	Timestamp     time.Time

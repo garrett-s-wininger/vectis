@@ -11,7 +11,7 @@ import (
 
 type MockQueueClient struct {
 	mu         sync.Mutex
-	jobs       []*api.Job
+	reqs       []*api.JobRequest
 	enqueueErr error
 	dequeueErr error
 	ackErr     error
@@ -20,7 +20,7 @@ type MockQueueClient struct {
 
 func NewMockQueueClient() *MockQueueClient {
 	return &MockQueueClient{
-		jobs: make([]*api.Job, 0),
+		reqs: make([]*api.JobRequest, 0),
 	}
 }
 
@@ -43,16 +43,24 @@ func (m *MockQueueClient) SetAckError(err error) {
 }
 
 func (m *MockQueueClient) AddJob(job *api.Job) {
+	m.AddJobRequest(&api.JobRequest{Job: job})
+}
+
+func (m *MockQueueClient) AddJobRequest(req *api.JobRequest) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.jobs = append(m.jobs, job)
+	m.reqs = append(m.reqs, req)
 }
 
 func (m *MockQueueClient) GetJobs() []*api.Job {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	result := make([]*api.Job, len(m.jobs))
-	copy(result, m.jobs)
+
+	result := make([]*api.Job, 0, len(m.reqs))
+	for _, req := range m.reqs {
+		result = append(result, req.GetJob())
+	}
+
 	return result
 }
 
@@ -62,7 +70,7 @@ func (m *MockQueueClient) IsClosed() bool {
 	return m.closed
 }
 
-func (m *MockQueueClient) Enqueue(ctx context.Context, job *api.Job) error {
+func (m *MockQueueClient) Enqueue(ctx context.Context, req *api.JobRequest) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -70,11 +78,11 @@ func (m *MockQueueClient) Enqueue(ctx context.Context, job *api.Job) error {
 		return m.enqueueErr
 	}
 
-	m.jobs = append(m.jobs, job)
+	m.reqs = append(m.reqs, req)
 	return nil
 }
 
-func (m *MockQueueClient) Dequeue(ctx context.Context) (*api.Job, error) {
+func (m *MockQueueClient) Dequeue(ctx context.Context) (*api.JobRequest, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -82,23 +90,23 @@ func (m *MockQueueClient) Dequeue(ctx context.Context) (*api.Job, error) {
 		return nil, m.dequeueErr
 	}
 
-	if len(m.jobs) == 0 {
+	if len(m.reqs) == 0 {
 		m.mu.Unlock()
 		<-ctx.Done()
 		m.mu.Lock()
 		return nil, ctx.Err()
 	}
 
-	if len(m.jobs) == 0 {
+	if len(m.reqs) == 0 {
 		return nil, errors.New("no jobs available")
 	}
 
-	job := m.jobs[0]
-	m.jobs = m.jobs[1:]
-	return job, nil
+	req := m.reqs[0]
+	m.reqs = m.reqs[1:]
+	return req, nil
 }
 
-func (m *MockQueueClient) TryDequeue(ctx context.Context) (*api.Job, error) {
+func (m *MockQueueClient) TryDequeue(ctx context.Context) (*api.JobRequest, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -106,13 +114,13 @@ func (m *MockQueueClient) TryDequeue(ctx context.Context) (*api.Job, error) {
 		return nil, m.dequeueErr
 	}
 
-	if len(m.jobs) == 0 {
+	if len(m.reqs) == 0 {
 		return nil, nil
 	}
 
-	job := m.jobs[0]
-	m.jobs = m.jobs[1:]
-	return job, nil
+	req := m.reqs[0]
+	m.reqs = m.reqs[1:]
+	return req, nil
 }
 
 func (m *MockQueueClient) Ack(ctx context.Context, deliveryID string) error {
@@ -137,13 +145,13 @@ var _ interfaces.QueueClient = (*MockQueueClient)(nil)
 
 type MockQueueService struct {
 	mu         sync.Mutex
-	jobs       []*api.Job
+	reqs       []*api.JobRequest
 	enqueueErr error
 }
 
 func NewMockQueueService() *MockQueueService {
 	return &MockQueueService{
-		jobs: make([]*api.Job, 0),
+		reqs: make([]*api.JobRequest, 0),
 	}
 }
 
@@ -156,12 +164,16 @@ func (m *MockQueueService) SetEnqueueError(err error) {
 func (m *MockQueueService) GetJobs() []*api.Job {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	result := make([]*api.Job, len(m.jobs))
-	copy(result, m.jobs)
+
+	result := make([]*api.Job, 0, len(m.reqs))
+	for _, req := range m.reqs {
+		result = append(result, req.GetJob())
+	}
+
 	return result
 }
 
-func (m *MockQueueService) Enqueue(ctx context.Context, job *api.Job) (*api.Empty, error) {
+func (m *MockQueueService) Enqueue(ctx context.Context, req *api.JobRequest) (*api.Empty, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -169,7 +181,7 @@ func (m *MockQueueService) Enqueue(ctx context.Context, job *api.Job) (*api.Empt
 		return nil, m.enqueueErr
 	}
 
-	m.jobs = append(m.jobs, job)
+	m.reqs = append(m.reqs, req)
 	return &api.Empty{}, nil
 }
 

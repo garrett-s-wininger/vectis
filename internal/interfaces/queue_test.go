@@ -11,6 +11,8 @@ import (
 	"vectis/internal/interfaces/mocks"
 )
 
+func wrapJob(job *api.Job) *api.JobRequest { return &api.JobRequest{Job: job} }
+
 func TestMockQueueClient_Enqueue(t *testing.T) {
 	client := mocks.NewMockQueueClient()
 
@@ -19,7 +21,7 @@ func TestMockQueueClient_Enqueue(t *testing.T) {
 		Id: &jobID,
 	}
 
-	err := client.Enqueue(context.Background(), job)
+	err := client.Enqueue(context.Background(), wrapJob(job))
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
@@ -44,7 +46,7 @@ func TestMockQueueClient_EnqueueError(t *testing.T) {
 		Id: &jobID,
 	}
 
-	err := client.Enqueue(context.Background(), job)
+	err := client.Enqueue(context.Background(), wrapJob(job))
 	if err != expectedErr {
 		t.Errorf("expected error %v, got %v", expectedErr, err)
 	}
@@ -65,8 +67,8 @@ func TestMockQueueClient_Dequeue(t *testing.T) {
 		t.Errorf("expected no error, got %v", err)
 	}
 
-	if dequeued1.GetId() != "job-1" {
-		t.Errorf("expected job-1, got %s", dequeued1.GetId())
+	if dequeued1.GetJob().GetId() != "job-1" {
+		t.Errorf("expected job-1, got %s", dequeued1.GetJob().GetId())
 	}
 
 	dequeued2, err := client.Dequeue(context.Background())
@@ -74,8 +76,8 @@ func TestMockQueueClient_Dequeue(t *testing.T) {
 		t.Errorf("expected no error, got %v", err)
 	}
 
-	if dequeued2.GetId() != "job-2" {
-		t.Errorf("expected job-2, got %s", dequeued2.GetId())
+	if dequeued2.GetJob().GetId() != "job-2" {
+		t.Errorf("expected job-2, got %s", dequeued2.GetJob().GetId())
 	}
 
 	jobs := client.GetJobs()
@@ -138,7 +140,7 @@ func TestMockQueueClient_ConcurrentAccess(t *testing.T) {
 		go func(id int) {
 			jobID := fmt.Sprintf("concurrent-%d", id)
 			job := &api.Job{Id: &jobID}
-			client.Enqueue(context.Background(), job)
+			client.Enqueue(context.Background(), wrapJob(job))
 			done <- true
 		}(i)
 	}
