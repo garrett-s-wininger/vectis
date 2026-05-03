@@ -13,8 +13,7 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/interfaces"
 	"vectis/internal/multidial"
-	"vectis/internal/queue"
-	"vectis/internal/registry"
+	"vectis/internal/testutil/grpcservices"
 	"vectis/internal/testutil/grpctest"
 
 	"github.com/spf13/viper"
@@ -61,11 +60,10 @@ func TestDialQueueAndLog_SingleRegistryConnection(t *testing.T) {
 	}
 	regLis := &countingListener{Listener: innerReg}
 
-	regSvc := registry.NewRegistryService(logger)
-	queueServer := startQueueServer(t, logger)
+	queueServer, _, _ := grpcservices.StartQueueServer(t, logger)
 	logServer := startLogServer(t)
 	regServer := grpctest.StartServerOnListener(t, regLis, func(srv *grpc.Server) {
-		api.RegisterRegistryServiceServer(srv, regSvc)
+		grpcservices.RegisterRegistryService(srv, logger)
 	})
 
 	regConn, err := grpc.NewClient(regLis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -108,7 +106,7 @@ func TestDialQueueAndLog_BothPinnedSkipsRegistry(t *testing.T) {
 	ctx := context.Background()
 	logger := noopTestLogger{}
 
-	queueServer := startQueueServer(t, logger)
+	queueServer, _, _ := grpcservices.StartQueueServer(t, logger)
 	logServer := startLogServer(t)
 
 	viper.Reset()
@@ -126,14 +124,6 @@ func TestDialQueueAndLog_BothPinnedSkipsRegistry(t *testing.T) {
 	if d := time.Since(start); d > 3*time.Second {
 		t.Fatalf("pinned dial took %v; likely tried registry retries", d)
 	}
-}
-
-func startQueueServer(t *testing.T, logger interfaces.Logger) *grpctest.Server {
-	t.Helper()
-
-	return grpctest.StartServer(t, func(srv *grpc.Server) {
-		_ = queue.RegisterQueueService(srv, logger, queue.QueueOptions{}, nil)
-	})
 }
 
 func startLogServer(t *testing.T) *grpctest.Server {
