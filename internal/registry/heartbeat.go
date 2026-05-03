@@ -12,16 +12,20 @@ import (
 const registrationHeartbeatRPCTimeout = 30 * time.Second
 
 func StartRegistrationHeartbeat(ctx context.Context, r *Registry, comp api.Component, address string, interval time.Duration, logger interfaces.Logger) (stop func()) {
+	return StartInstanceRegistrationHeartbeat(ctx, r, comp, "", address, interval, logger)
+}
+
+func StartInstanceRegistrationHeartbeat(ctx context.Context, r *Registry, comp api.Component, instanceID, address string, interval time.Duration, logger interfaces.Logger) (stop func()) {
 	if r == nil || interval <= 0 || logger == nil {
 		return func() {}
 	}
 
 	loopCtx, cancel := context.WithCancel(ctx)
-	go registrationHeartbeatLoop(loopCtx, r, comp, address, interval, logger)
+	go registrationHeartbeatLoop(loopCtx, r, comp, instanceID, address, interval, logger)
 	return cancel
 }
 
-func registrationHeartbeatLoop(ctx context.Context, r *Registry, comp api.Component, address string, interval time.Duration, logger interfaces.Logger) {
+func registrationHeartbeatLoop(ctx context.Context, r *Registry, comp api.Component, instanceID, address string, interval time.Duration, logger interfaces.Logger) {
 	for {
 		wait := intervalWithJitter(interval)
 		select {
@@ -31,8 +35,9 @@ func registrationHeartbeatLoop(ctx context.Context, r *Registry, comp api.Compon
 		}
 
 		hbCtx, cancel := context.WithTimeout(ctx, registrationHeartbeatRPCTimeout)
-		err := r.RegisterOnce(hbCtx, comp, address)
+		err := r.RegisterInstanceOnce(hbCtx, comp, instanceID, address)
 		cancel()
+
 		if err != nil {
 			logger.Debug("Registry registration heartbeat failed for %s: %v", comp.String(), err)
 		}
