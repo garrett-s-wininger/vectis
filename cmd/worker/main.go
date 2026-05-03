@@ -165,22 +165,20 @@ func runWorker(cmd *cobra.Command, args []string) {
 				regAddr = config.RegistryListenAddr()
 			}
 
-			registryClient, err := registry.New(shutdownCtx, regAddr, logger, interfaces.SystemClock{})
-			if err != nil {
-				logger.Warn("Failed to create registry client for worker registration: %v", err)
-			} else {
-				defer registryClient.Close()
-				if err := registryClient.RegisterInstance(shutdownCtx, api.Component_COMPONENT_WORKER, workerID, controlAddr); err != nil {
-					logger.Warn("Failed to register worker with registry: %v", err)
-				} else {
-					stopHeartbeat := registry.StartRegistrationHeartbeat(
-						shutdownCtx, registryClient, api.Component_COMPONENT_WORKER, controlAddr,
-						config.RegistryRegistrationRefresh(), logger,
-					)
+			stopRegistration, err := registry.RegisterWithHeartbeat(shutdownCtx, registry.RegistrationOptions{
+				RegistryAddress: regAddr,
+				Component:       api.Component_COMPONENT_WORKER,
+				InstanceID:      workerID,
+				PublishAddress:  controlAddr,
+				RefreshInterval: config.RegistryRegistrationRefresh(),
+				Logger:          logger,
+			})
 
-					defer stopHeartbeat()
-					logger.Info("Registered worker %s with registry at %s", workerID, controlAddr)
-				}
+			if err != nil {
+				logger.Warn("Failed to register worker with registry: %v", err)
+			} else {
+				defer stopRegistration()
+				logger.Info("Registered worker %s with registry at %s", workerID, controlAddr)
 			}
 		}
 	}

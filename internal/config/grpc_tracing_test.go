@@ -2,12 +2,12 @@ package config
 
 import (
 	"context"
-	"net"
 	"testing"
 	"time"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/observability"
+	"vectis/internal/testutil/grpctest"
 
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
@@ -39,31 +39,20 @@ func TestGRPCTracingPropagation_Insecure(t *testing.T) {
 		t.Fatalf("server opts: %v", err)
 	}
 
-	lis, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	t.Cleanup(func() { _ = lis.Close() })
-
-	srv := grpc.NewServer(srvOpts...)
-	t.Cleanup(srv.Stop)
-
 	capture := &traceCaptureQueueServer{got: make(chan trace.SpanContext, 1)}
-	api.RegisterQueueServiceServer(srv, capture)
-	go func() { _ = srv.Serve(lis) }()
-
-	dialOpts, err := GRPCClientDialOptions(lis.Addr().String())
+	dialOpts, err := GRPCClientDialOptions("")
 	if err != nil {
 		t.Fatalf("client dial opts: %v", err)
 	}
 
-	conn, err := grpc.NewClient(lis.Addr().String(), dialOpts...)
-	if err != nil {
-		t.Fatalf("dial: %v", err)
-	}
-	t.Cleanup(func() { _ = conn.Close() })
+	server := grpctest.StartServerWithOptions(t, grpctest.Options{
+		ServerOptions: srvOpts,
+		DialOptions:   dialOpts,
+	}, func(srv *grpc.Server) {
+		api.RegisterQueueServiceServer(srv, capture)
+	})
 
-	client := api.NewQueueServiceClient(conn)
+	client := api.NewQueueServiceClient(server.Conn)
 
 	parentCtx, span := observability.Tracer("vectis-test-grpc-tracing").Start(context.Background(), "parent")
 	parentSC := span.SpanContext()
