@@ -4,12 +4,8 @@ package worker_test
 
 import (
 	"context"
-	"net"
 	"testing"
 	"time"
-
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/dal"
@@ -20,6 +16,9 @@ import (
 	"vectis/internal/observability"
 	"vectis/internal/queue"
 	"vectis/internal/testutil/dbtest"
+	"vectis/internal/testutil/grpctest"
+
+	"google.golang.org/grpc"
 )
 
 func TestIntegrationWorker_DequeueClaimExecuteFinalize(t *testing.T) {
@@ -43,45 +42,17 @@ func TestIntegrationWorker_DequeueClaimExecuteFinalize(t *testing.T) {
 		t.Fatalf("create run: %v", err)
 	}
 
-	// Start queue server.
-	queueLis, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen queue: %v", err)
-	}
+	queueServer := grpctest.StartServer(t, func(srv *grpc.Server) {
+		queueSvc := queue.NewQueueService(mocks.NewMockLogger())
+		api.RegisterQueueServiceServer(srv, queueSvc)
+	})
+	queueClient := interfaces.NewGRPCQueueClient(queueServer.Conn)
 
-	queueServer := grpc.NewServer()
-	queueSvc := queue.NewQueueService(mocks.NewMockLogger())
-	api.RegisterQueueServiceServer(queueServer, queueSvc)
-	go queueServer.Serve(queueLis)
-	defer queueServer.Stop()
-
-	queueConn, err := grpc.NewClient(queueLis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		t.Fatalf("dial queue: %v", err)
-	}
-	defer queueConn.Close()
-
-	queueClient := interfaces.NewGRPCQueueClient(queueConn)
-
-	// Start log server.
-	logLis, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen log: %v", err)
-	}
-
-	logServer := grpc.NewServer()
 	logStore, _ := logserver.NewLocalRunLogStore(t.TempDir())
-	api.RegisterLogServiceServer(logServer, logserver.NewServerWithStore(mocks.NewMockLogger(), logStore))
-	go logServer.Serve(logLis)
-	defer logServer.Stop()
-
-	logConn, err := grpc.NewClient(logLis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		t.Fatalf("dial log: %v", err)
-	}
-	defer logConn.Close()
-
-	logClient := interfaces.NewGRPCLogClient(logConn)
+	logServer := grpctest.StartServer(t, func(srv *grpc.Server) {
+		api.RegisterLogServiceServer(srv, logserver.NewServerWithStore(mocks.NewMockLogger(), logStore))
+	})
+	logClient := interfaces.NewGRPCLogClient(logServer.Conn)
 
 	// Enqueue the job with run_id.
 	rootID := "root"

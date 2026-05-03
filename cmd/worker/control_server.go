@@ -8,6 +8,7 @@ import (
 	"google.golang.org/grpc"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/cli"
 	"vectis/internal/interfaces"
 )
 
@@ -53,12 +54,7 @@ func startWorkerControlServer(ctx context.Context, listener net.Listener, server
 	api.RegisterWorkerControlServiceServer(srv, server)
 
 	go func() {
-		<-ctx.Done()
-		srv.GracefulStop()
-	}()
-
-	go func() {
-		if err := srv.Serve(listener); err != nil {
+		if err := cli.ServeGRPC(ctx, srv, listener, "Worker control", logger); err != nil {
 			logger.Error("Worker control server: %v", err)
 		}
 	}()

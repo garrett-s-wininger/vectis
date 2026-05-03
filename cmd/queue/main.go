@@ -138,20 +138,8 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 		logger.Info("Skipping registry registration (queue.register_with_registry is false)")
 	}
 
-	serveErr := make(chan error, 1)
-	go func() {
-		serveErr <- grpcServer.Serve(ln)
-	}()
-
-	select {
-	case <-cmd.Context().Done():
-		logger.Info("Shutting down gRPC server...")
-		grpcServer.GracefulStop()
-		logger.Info("gRPC server stopped")
-	case err := <-serveErr:
-		if err != nil {
-			logger.Error("gRPC server failed: %v", err)
-		}
+	if err := cli.ServeGRPC(cmd.Context(), grpcServer, ln, "Queue", logger); err != nil {
+		logger.Error("gRPC server failed: %v", err)
 	}
 }
 
