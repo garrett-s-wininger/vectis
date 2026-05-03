@@ -43,27 +43,14 @@ func runReconciler(cmd *cobra.Command, args []string) {
 	if err != nil {
 		logger.Fatal("Failed to initialize tracer: %v", err)
 	}
-
-	defer func() {
-		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := shutdownTracer(shutCtx); err != nil {
-			logger.Warn("Tracer shutdown: %v", err)
-		}
-	}()
+	defer cli.DeferShutdown(logger, "Tracer", shutdownTracer)()
 
 	metricsHandler, shutdownMetrics, err := observability.InitServiceMetrics(rootCtx, "vectis-reconciler")
 	if err != nil {
 		logger.Fatal("Failed to initialize metrics: %v", err)
 	}
 
-	defer func() {
-		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := shutdownMetrics(shutCtx); err != nil {
-			logger.Warn("Metrics shutdown: %v", err)
-		}
-	}()
+	defer cli.DeferShutdown(logger, "Metrics", shutdownMetrics)()
 
 	db, _, err := database.OpenReadyDB(logger)
 	if err != nil {

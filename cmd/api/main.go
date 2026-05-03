@@ -79,14 +79,7 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		exitCode = 1
 		return
 	}
-
-	defer func() {
-		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := shutdownTracer(shutCtx); err != nil {
-			logger.Warn("Tracer shutdown: %v", err)
-		}
-	}()
+	defer cli.DeferShutdown(logger, "Tracer", shutdownTracer)()
 
 	metricsHandler, shutdownMetrics, err := observability.InitAPIMetrics(cmd.Context())
 	if err != nil {
@@ -101,13 +94,7 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	defer func() {
-		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := shutdownMetrics(shutCtx); err != nil {
-			logger.Warn("Metrics shutdown: %v", err)
-		}
-	}()
+	defer cli.DeferShutdown(logger, "Metrics", shutdownMetrics)()
 
 	server := api.NewAPIServer(logger, db)
 	server.MetricsHandler = metricsHandler

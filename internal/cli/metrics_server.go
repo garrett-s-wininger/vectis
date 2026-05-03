@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -62,9 +61,5 @@ func (s *MetricsHTTPServer) Shutdown() {
 		return
 	}
 
-	shutCtx, cancel := context.WithTimeout(context.Background(), metricsHTTPShutdownTimeout)
-	defer cancel()
-	if err := s.server.Shutdown(shutCtx); err != nil {
-		s.logger.Warn("Metrics HTTP shutdown: %v", err)
-	}
+	DeferShutdownWithTimeout(s.logger, "Metrics HTTP", s.server.Shutdown, metricsHTTPShutdownTimeout)()
 }

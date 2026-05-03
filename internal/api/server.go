@@ -23,6 +23,7 @@ import (
 	"vectis/internal/api/authn"
 	"vectis/internal/api/authz"
 	"vectis/internal/api/ratelimit"
+	"vectis/internal/cli"
 	"vectis/internal/config"
 	"vectis/internal/dal"
 	"vectis/internal/database"
@@ -2013,29 +2014,7 @@ func (s *APIServer) registerRouteFunc(mux *http.ServeMux, spec routeSpec, handle
 }
 
 func (s *APIServer) runHTTPServer(ctx context.Context, srv *http.Server, serve func() error) error {
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- serve()
-	}()
-
-	select {
-	case <-ctx.Done():
-		shutCtx, cancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
-		defer cancel()
-		if err := srv.Shutdown(shutCtx); err != nil {
-			s.logger.Warn("API server shutdown: %v", err)
-		}
-		err := <-errCh
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			return err
-		}
-		return nil
-	case err := <-errCh:
-		if errors.Is(err, http.ErrServerClosed) {
-			return nil
-		}
-		return err
-	}
+	return cli.ServeHTTP(ctx, srv, serve, defaultShutdownTimeout, "API server", s.logger)
 }
 
 func (s *APIServer) Run(ctx context.Context, addr string) error {
