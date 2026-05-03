@@ -7,6 +7,7 @@ import (
 	"io"
 	"maps"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -51,11 +52,60 @@ func NewLogger(component string) Logger {
 	jsonFmt := os.Getenv("VECTIS_LOG_FORMAT") == "json"
 	return &StderrLogger{
 		component: component,
-		out:       os.Stderr,
+		out:       NewLogOutput(component),
 		minLevel:  LevelInfo,
 		fields:    nil,
 		jsonFmt:   jsonFmt,
 	}
+}
+
+func NewLogOutput(component string) io.Writer {
+	logDir := strings.TrimSpace(os.Getenv("VECTIS_LOG_DIR"))
+	if logDir == "" {
+		return os.Stderr
+	}
+
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to create VECTIS_LOG_DIR %q: %v\n", logDir, err)
+		return os.Stderr
+	}
+
+	path := filepath.Join(logDir, sanitizeLogComponent(component)+".jsonl")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to open log file %q: %v\n", path, err)
+		return os.Stderr
+	}
+
+	return io.MultiWriter(os.Stderr, f)
+}
+
+func sanitizeLogComponent(component string) string {
+	component = strings.TrimSpace(component)
+	if component == "" {
+		return "vectis"
+	}
+
+	var b strings.Builder
+	for _, r := range strings.ToLower(component) {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '-' || r == '_' || r == '.':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+
+	safe := strings.Trim(b.String(), "-._")
+	if safe == "" {
+		return "vectis"
+	}
+
+	return safe
 }
 
 func NewAsyncLogger(component string) *AsyncLogger {

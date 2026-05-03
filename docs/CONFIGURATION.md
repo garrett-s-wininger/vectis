@@ -16,6 +16,8 @@ Executables are built as **`bin/vectis-<name>`** (e.g. `bin/vectis-api` after `m
 
 **Log verbosity** — Set **`VECTIS_<PREFIX>_LOG_LEVEL`** to `debug`, `info`, `warn`, or `error` (prefix from the table). For **`vectis-local`**, also **`VECTIS_LOCAL_LOG_LEVEL`**; if a child service ignores the level you expect, set that child’s `…_LOG_LEVEL` explicitly (e.g. **`VECTIS_API_SERVER_LOG_LEVEL`** for `vectis-api`).
 
+**Structured service logs** — Set **`VECTIS_LOG_FORMAT=json`** to emit one JSON object per service log line on stderr. Set **`VECTIS_LOG_DIR=/path/to/dir`** to also mirror those JSON lines into per-component `*.jsonl` files in that directory. The Podman reference deploy sets both via ConfigMap **`vectis-logging-env`**, mounts a shared log volume at **`/var/log/vectis/components`**, and tails it with Fluent Bit into OpenSearch indices named **`vectis-logs-*`**.
+
 **API correlation and access logs** (`vectis-api` only) — Shipped default is **`api.log_format` = `text`** in [`internal/config/defaults.toml`](../internal/config/defaults.toml). Override with **`VECTIS_API_SERVER_LOG_FORMAT`**:
 
 | Value | Behavior |
@@ -101,7 +103,7 @@ Global **`VECTIS_METRICS_TLS_*`** settings wrap the **dedicated** Prometheus **`
 | **`OTEL_EXPORTER_OTLP_ENDPOINT`** | OTLP base endpoint (for example **`http://127.0.0.1:4318`** for HTTP/protobuf). |
 | **`OTEL_EXPORTER_OTLP_PROTOCOL`** | OTLP transport/protocol; Podman reference uses **`http/protobuf`**. |
 
-**`make deploy-podman`:** ConfigMap **`vectis-tracing-env`** sets OTLP export to the in-pod Jaeger collector (`http://127.0.0.1:4318`). The reference Podman deployment runs Jaeger **2.17.0** as separate collector/query processes backed by an in-pod OpenSearch instance; Jaeger UI is published on **`http://localhost:16686`**.
+**`make deploy-podman`:** ConfigMap **`vectis-tracing-env`** sets OTLP export to the in-pod Jaeger collector (`http://127.0.0.1:4318`). The reference Podman deployment runs Jaeger **2.17.0** as separate collector/query processes backed by an in-pod OpenSearch instance; Jaeger UI is published on **`http://localhost:16686`**. The same OpenSearch instance stores service logs shipped by Fluent Bit; OpenSearch Dashboards is published on **`http://localhost:5601`**, and Grafana includes an **OpenSearch Logs** data source targeting **`vectis-logs-*`**.
 
 ### PostgreSQL connection pool (`pgx` only)
 
@@ -158,6 +160,7 @@ Replace `…` with the correct prefix from the next section (e.g. `VECTIS_WORKER
 | --- | --- |
 | Change API HTTP port | `VECTIS_API_SERVER_PORT` or `--port` on `vectis-api` |
 | Enable HTTP API auth (Bearer after setup) | `VECTIS_API_AUTH_ENABLED=true` and bootstrap token for new DBs — see [HTTP API authentication](#http-api-authentication-vectis-api) and [SECURITY.md](SECURITY.md) |
+| Structured service logs (JSON) | `VECTIS_LOG_FORMAT=json`; optionally mirror to files with `VECTIS_LOG_DIR=/path/to/dir` |
 | Structured API access logs (JSON) | `VECTIS_API_SERVER_LOG_FORMAT=json` |
 | Correlate API requests (header) | Responses include **`X-Request-ID`**; send **`X-Request-ID`** or **`X-Correlation-ID`** to propagate your own ID |
 | PostgreSQL | `VECTIS_DATABASE_DRIVER=pgx` and `VECTIS_DATABASE_DSN=postgres://…` on **all** DB consumers; tune pool with **`VECTIS_DATABASE_PGX_*`** ([above](#postgresql-connection-pool-pgx-only)) |

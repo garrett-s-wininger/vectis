@@ -28,9 +28,10 @@ import (
 
 func buildAccessLogger(format string) (*slog.Logger, func() error) {
 	if strings.EqualFold(format, "json") {
-		handler := observability.NewAsyncSlogHandler(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+		handler := observability.NewAsyncSlogHandler(slog.NewJSONHandler(interfaces.NewLogOutput("api-access"), &slog.HandlerOptions{
 			Level: slog.LevelInfo,
 		}), 0)
+
 		return slog.New(handler), handler.Close
 	}
 

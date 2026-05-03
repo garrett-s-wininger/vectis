@@ -2,6 +2,9 @@ package interfaces_test
 
 import (
 	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -143,6 +146,7 @@ func TestMockLogger_WithOutput(t *testing.T) {
 }
 
 func TestStderrLogger_WithOutput(t *testing.T) {
+	t.Setenv("VECTIS_LOG_FORMAT", "")
 	logger := interfaces.NewLogger("test")
 	var buf bytes.Buffer
 
@@ -159,6 +163,7 @@ func TestStderrLogger_WithOutput(t *testing.T) {
 }
 
 func TestStderrLogger_AllLevels(t *testing.T) {
+	t.Setenv("VECTIS_LOG_FORMAT", "")
 	logger := interfaces.NewLogger("test")
 	var buf bytes.Buffer
 	newLogger := logger.WithOutput(&buf)
@@ -185,6 +190,46 @@ func TestStderrLogger_AllLevels(t *testing.T) {
 
 	if !strings.Contains(output, "ERROR") {
 		t.Error("expected output to contain ERROR level")
+	}
+}
+
+func TestStderrLogger_JSONFormat(t *testing.T) {
+	t.Setenv("VECTIS_LOG_FORMAT", "json")
+	logger := interfaces.NewLogger("test").WithOutput(&bytes.Buffer{})
+	var buf bytes.Buffer
+	logger = logger.WithOutput(&buf)
+
+	logger.Info("hello %s", "json")
+
+	var payload map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &payload); err != nil {
+		t.Fatalf("expected JSON log line: %v\n%s", err, buf.String())
+	}
+
+	if payload["component"] != "test" {
+		t.Fatalf("expected component test, got %#v", payload["component"])
+	}
+
+	if payload["msg"] != "hello json" {
+		t.Fatalf("expected formatted message, got %#v", payload["msg"])
+	}
+}
+
+func TestNewLogOutput_WritesFileWhenDirectoryConfigured(t *testing.T) {
+	t.Setenv("VECTIS_LOG_FORMAT", "json")
+	logDir := t.TempDir()
+	t.Setenv("VECTIS_LOG_DIR", logDir)
+
+	logger := interfaces.NewLogger("log aggregator")
+	logger.Info("persisted")
+
+	b, err := os.ReadFile(filepath.Join(logDir, "log-aggregator.jsonl"))
+	if err != nil {
+		t.Fatalf("read log file: %v", err)
+	}
+
+	if !strings.Contains(string(b), `"msg":"persisted"`) {
+		t.Fatalf("expected file log to contain message, got %s", string(b))
 	}
 }
 
