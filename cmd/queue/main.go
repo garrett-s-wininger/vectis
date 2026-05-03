@@ -21,7 +21,9 @@ import (
 )
 
 func runVectisQueue(cmd *cobra.Command, args []string) {
-	logger := interfaces.NewLogger("queue")
+	logger := interfaces.NewAsyncLogger("queue")
+	defer logger.Close()
+
 	cli.SetLogLevel(logger)
 	logger.Info("Starting queue server...")
 

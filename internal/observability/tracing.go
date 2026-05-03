@@ -21,11 +21,9 @@ func InitTracer(ctx context.Context, serviceName string) (shutdown func(context.
 		return nil, fmt.Errorf("resource: %w", err)
 	}
 
-	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithResource(res),
-	)
-
 	traceExporter := strings.TrimSpace(strings.ToLower(os.Getenv("OTEL_TRACES_EXPORTER")))
+	var tp *sdktrace.TracerProvider
+
 	if traceExporter == "otlp" {
 		exp, expErr := otlptracehttp.New(ctx)
 		if expErr != nil {
@@ -35,6 +33,11 @@ func InitTracer(ctx context.Context, serviceName string) (shutdown func(context.
 		tp = sdktrace.NewTracerProvider(
 			sdktrace.WithResource(res),
 			sdktrace.WithBatcher(exp),
+		)
+	} else {
+		tp = sdktrace.NewTracerProvider(
+			sdktrace.WithResource(res),
+			sdktrace.WithSampler(sdktrace.NeverSample()),
 		)
 	}
 

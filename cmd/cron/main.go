@@ -16,7 +16,9 @@ import (
 )
 
 func runVectisCron(cmd *cobra.Command, args []string) {
-	logger := interfaces.NewLogger("cron")
+	logger := interfaces.NewAsyncLogger("cron")
+	defer logger.Close()
+
 	cli.SetLogLevel(logger)
 	logger.Info("Starting cron service...")
 

@@ -34,7 +34,9 @@ func lockPath() string {
 
 func runLogForwarder(cmd *cobra.Command, args []string) {
 	ctx := cmd.Context()
-	logger := interfaces.NewLogger("log-forwarder")
+	logger := interfaces.NewAsyncLogger("log-forwarder")
+	defer logger.Close()
+
 	cli.SetLogLevel(logger)
 
 	sock := socketPath()

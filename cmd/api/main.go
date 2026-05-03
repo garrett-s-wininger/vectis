@@ -26,24 +26,28 @@ import (
 	_ "vectis/internal/dbdrivers"
 )
 
-func buildAccessLogger(format string) *slog.Logger {
+func buildAccessLogger(format string) (*slog.Logger, func() error) {
 	if strings.EqualFold(format, "json") {
-		return slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+		handler := observability.NewAsyncSlogHandler(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 			Level: slog.LevelInfo,
-		}))
+		}), 0)
+		return slog.New(handler), handler.Close
 	}
 
-	return nil
+	return nil, nil
 }
 
 func runVectisAPI(cmd *cobra.Command, args []string) {
-	logger := interfaces.NewLogger("api")
+	logger := interfaces.NewAsyncLogger("api")
+	defer logger.Close()
+
 	cli.SetLogLevel(logger)
 	logger.Info("Starting API server...")
 
 	exitCode := 0
 	defer func() {
 		if exitCode != 0 {
+			_ = logger.Close()
 			os.Exit(exitCode)
 		}
 	}()
@@ -98,7 +102,11 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 
 	server := api.NewAPIServer(logger, db)
 	server.MetricsHandler = metricsHandler
-	server.AccessLogger = buildAccessLogger(config.APILogFormat())
+	accessLogger, closeAccessLogger := buildAccessLogger(config.APILogFormat())
+	if closeAccessLogger != nil {
+		defer func() { _ = closeAccessLogger() }()
+	}
+	server.AccessLogger = accessLogger
 
 	// Wire up async auditor for production audit logging.
 	auditor := audit.NewAsyncAuditor(&audit.DALRepository{Auth: dal.NewSQLRepositories(db).Auth()}, slog.Default())

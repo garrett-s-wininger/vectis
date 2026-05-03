@@ -1,13 +1,16 @@
 package interfaces
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"maps"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -42,6 +45,8 @@ type StderrLogger struct {
 	jsonFmt   bool
 }
 
+const defaultAsyncLoggerBuffer = 4096
+
 func NewLogger(component string) Logger {
 	jsonFmt := os.Getenv("VECTIS_LOG_FORMAT") == "json"
 	return &StderrLogger{
@@ -51,6 +56,42 @@ func NewLogger(component string) Logger {
 		fields:    nil,
 		jsonFmt:   jsonFmt,
 	}
+}
+
+func NewAsyncLogger(component string) *AsyncLogger {
+	return NewAsyncLoggerWithBuffer(component, asyncLoggerBufferSize())
+}
+
+func NewAsyncLoggerWithBuffer(component string, bufferSize int) *AsyncLogger {
+	if bufferSize <= 0 {
+		bufferSize = defaultAsyncLoggerBuffer
+	}
+
+	core := &asyncLoggerCore{
+		queue: make(chan asyncLogEntry, bufferSize),
+		done:  make(chan struct{}),
+	}
+	core.wg.Add(1)
+	go core.run()
+
+	return &AsyncLogger{
+		inner: NewLogger(component),
+		core:  core,
+	}
+}
+
+func asyncLoggerBufferSize() int {
+	raw := strings.TrimSpace(os.Getenv("VECTIS_LOG_BUFFER_SIZE"))
+	if raw == "" {
+		return defaultAsyncLoggerBuffer
+	}
+
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return defaultAsyncLoggerBuffer
+	}
+
+	return n
 }
 
 func (l *StderrLogger) WithOutput(w io.Writer) Logger {
@@ -195,6 +236,157 @@ func (l *StderrLogger) Error(msg string, args ...any) {
 func (l *StderrLogger) Fatal(msg string, args ...any) {
 	l.write(LevelFatal, msg, args...)
 	os.Exit(1)
+}
+
+type asyncLogEntry struct {
+	logger Logger
+	level  Level
+	msg    string
+	args   []any
+}
+
+type asyncLoggerCore struct {
+	queue   chan asyncLogEntry
+	done    chan struct{}
+	wg      sync.WaitGroup
+	close   sync.Once
+	stopped atomic.Bool
+	dropped atomic.Uint64
+}
+
+func (c *asyncLoggerCore) run() {
+	defer c.wg.Done()
+
+	for {
+		select {
+		case entry := <-c.queue:
+			writeLogEntry(entry)
+		case <-c.done:
+			for {
+				select {
+				case entry := <-c.queue:
+					writeLogEntry(entry)
+				default:
+					return
+				}
+			}
+		}
+	}
+}
+
+func (c *asyncLoggerCore) enqueue(entry asyncLogEntry) {
+	if c.stopped.Load() {
+		return
+	}
+
+	select {
+	case c.queue <- entry:
+	default:
+		c.dropped.Add(1)
+	}
+}
+
+func (c *asyncLoggerCore) Close() error {
+	c.close.Do(func() {
+		c.stopped.Store(true)
+		close(c.done)
+		c.wg.Wait()
+	})
+	return nil
+}
+
+func writeLogEntry(entry asyncLogEntry) {
+	switch entry.level {
+	case LevelDebug:
+		entry.logger.Debug(entry.msg, entry.args...)
+	case LevelInfo:
+		entry.logger.Info(entry.msg, entry.args...)
+	case LevelWarn:
+		entry.logger.Warn(entry.msg, entry.args...)
+	case LevelError:
+		entry.logger.Error(entry.msg, entry.args...)
+	case LevelFatal:
+		entry.logger.Fatal(entry.msg, entry.args...)
+	}
+}
+
+type AsyncLogger struct {
+	inner Logger
+	core  *asyncLoggerCore
+}
+
+func (l *AsyncLogger) SetLevel(level Level) {
+	l.inner.SetLevel(level)
+}
+
+func (l *AsyncLogger) Debug(msg string, args ...any) {
+	l.core.enqueue(asyncLogEntry{logger: l.inner, level: LevelDebug, msg: msg, args: args})
+}
+
+func (l *AsyncLogger) Info(msg string, args ...any) {
+	l.core.enqueue(asyncLogEntry{logger: l.inner, level: LevelInfo, msg: msg, args: args})
+}
+
+func (l *AsyncLogger) Warn(msg string, args ...any) {
+	l.core.enqueue(asyncLogEntry{logger: l.inner, level: LevelWarn, msg: msg, args: args})
+}
+
+func (l *AsyncLogger) Error(msg string, args ...any) {
+	l.core.enqueue(asyncLogEntry{logger: l.inner, level: LevelError, msg: msg, args: args})
+}
+
+func (l *AsyncLogger) Fatal(msg string, args ...any) {
+	_ = l.Close()
+	l.inner.Fatal(msg, args...)
+}
+
+func (l *AsyncLogger) WithOutput(w io.Writer) Logger {
+	return &AsyncLogger{
+		inner: l.inner.WithOutput(w),
+		core:  l.core,
+	}
+}
+
+func (l *AsyncLogger) WithField(key string, value string) Logger {
+	return &AsyncLogger{
+		inner: l.inner.WithField(key, value),
+		core:  l.core,
+	}
+}
+
+func (l *AsyncLogger) WithFields(fields map[string]string) Logger {
+	return &AsyncLogger{
+		inner: l.inner.WithFields(fields),
+		core:  l.core,
+	}
+}
+
+func (l *AsyncLogger) Close() error {
+	if l == nil || l.core == nil {
+		return nil
+	}
+	return l.core.Close()
+}
+
+func (l *AsyncLogger) Shutdown(ctx context.Context) error {
+	done := make(chan error, 1)
+	go func() {
+		done <- l.Close()
+	}()
+
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (l *AsyncLogger) Dropped() uint64 {
+	if l == nil || l.core == nil {
+		return 0
+	}
+	return l.core.dropped.Load()
 }
 
 func ParseLevel(levelStr string) (Level, error) {
