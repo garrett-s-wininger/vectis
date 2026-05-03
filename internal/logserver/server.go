@@ -543,25 +543,21 @@ func Run(ctx context.Context, logger interfaces.Logger, store RunLogStore, runs 
 			regAddr = config.RegistryListenAddr()
 		}
 
-		registryClient, err := registry.New(ctx, regAddr, logger, interfaces.SystemClock{})
+		bindGRPC := config.LogGRPCListenAddr()
+		publishAddr := config.LogGRPCRegistryPublishAddress(bindGRPC)
+		stopRegistration, err := registry.RegisterWithHeartbeat(ctx, registry.RegistrationOptions{
+			RegistryAddress: regAddr,
+			Component:       api.Component_COMPONENT_LOG,
+			PublishAddress:  publishAddr,
+			RefreshInterval: config.RegistryRegistrationRefresh(),
+			Logger:          logger,
+		})
+
 		if err != nil {
 			return err
 		}
 
-		defer registryClient.Close()
-
-		bindGRPC := config.LogGRPCListenAddr()
-		publishAddr := config.LogGRPCRegistryPublishAddress(bindGRPC)
-		if err := registryClient.Register(ctx, api.Component_COMPONENT_LOG, publishAddr); err != nil {
-			return err
-		}
-
-		stopHeartbeat := registry.StartRegistrationHeartbeat(
-			ctx, registryClient, api.Component_COMPONENT_LOG, publishAddr,
-			config.RegistryRegistrationRefresh(), logger,
-		)
-		defer stopHeartbeat()
-
+		defer stopRegistration()
 		logger.Info("Registered log service with registry at %s", publishAddr)
 	} else {
 		logger.Info("Skipping registry registration (log.grpc.register_with_registry is false)")
