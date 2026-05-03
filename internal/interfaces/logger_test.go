@@ -188,6 +188,21 @@ func TestStderrLogger_AllLevels(t *testing.T) {
 	}
 }
 
+func TestAsyncLogger_CloseFlushesQueuedLogs(t *testing.T) {
+	logger := interfaces.NewAsyncLoggerWithBuffer("test", 8)
+	var buf bytes.Buffer
+	outLogger := logger.WithOutput(&buf)
+
+	outLogger.Info("queued %s", "message")
+	if err := logger.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	if !strings.Contains(buf.String(), "queued message") {
+		t.Fatalf("expected queued log to flush on close, got: %s", buf.String())
+	}
+}
+
 func TestMockLogger_ErrorArgument(t *testing.T) {
 	logger := mocks.NewMockLogger()
 

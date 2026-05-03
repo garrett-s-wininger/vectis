@@ -58,7 +58,9 @@ func runWorker(cmd *cobra.Command, args []string) {
 	}
 
 	runCtx := context.Background()
-	logger := interfaces.NewLogger("worker")
+	logger := interfaces.NewAsyncLogger("worker")
+	defer logger.Close()
+
 	cli.SetLogLevel(logger)
 
 	if err := config.ValidateGRPCTLSForRole(config.GRPCTLSDaemonClientOnly); err != nil {

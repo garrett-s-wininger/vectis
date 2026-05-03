@@ -25,7 +25,9 @@ import (
 
 func runReconciler(cmd *cobra.Command, args []string) {
 	rootCtx := cmd.Context()
-	logger := interfaces.NewLogger("reconciler")
+	logger := interfaces.NewAsyncLogger("reconciler")
+	defer logger.Close()
+
 	cli.SetLogLevel(logger)
 
 	if err := config.ValidateGRPCTLSForRole(config.GRPCTLSDaemonClientOnly); err != nil {
