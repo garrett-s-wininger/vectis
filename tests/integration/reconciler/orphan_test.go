@@ -7,16 +7,12 @@ import (
 	"testing"
 	"time"
 
-	api "vectis/api/gen/go"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
 	"vectis/internal/interfaces/mocks"
-	"vectis/internal/queue"
 	"vectis/internal/reconciler"
 	"vectis/internal/testutil/dbtest"
-	"vectis/internal/testutil/grpctest"
-
-	"google.golang.org/grpc"
+	"vectis/internal/testutil/grpcservices"
 )
 
 func TestIntegrationReconciler_RedispatchesQueuedRun(t *testing.T) {
@@ -48,9 +44,7 @@ func TestIntegrationReconciler_RedispatchesQueuedRun(t *testing.T) {
 		t.Fatalf("expected run to be queued, got status=%q found=%v", status, found)
 	}
 
-	queueServer := startQueueTestServer(t)
-	queueClient := interfaces.NewGRPCQueueClient(queueServer.Conn)
-	queueService := interfaces.NewQueueService(api.NewQueueServiceClient(queueServer.Conn))
+	_, queueClient, queueService := grpcservices.StartQueueServer(t, mocks.NewMockLogger())
 
 	// Create reconciler with very short gap for testing.
 	logger := mocks.NewMockLogger()
@@ -126,8 +120,7 @@ func TestIntegrationReconciler_OrphansExpiredLease(t *testing.T) {
 		t.Fatal("expected claim to succeed")
 	}
 
-	queueServer := startQueueTestServer(t)
-	queueService := interfaces.NewQueueService(api.NewQueueServiceClient(queueServer.Conn))
+	_, _, queueService := grpcservices.StartQueueServer(t, mocks.NewMockLogger())
 
 	// Create reconciler.
 	logger := mocks.NewMockLogger()
@@ -154,13 +147,4 @@ func TestIntegrationReconciler_OrphansExpiredLease(t *testing.T) {
 	}
 
 	t.Logf("Reconciler orphaned expired run %s successfully", runID)
-}
-
-func startQueueTestServer(t *testing.T) *grpctest.Server {
-	t.Helper()
-
-	return grpctest.StartServer(t, func(srv *grpc.Server) {
-		queueSvc := queue.NewQueueService(mocks.NewMockLogger())
-		api.RegisterQueueServiceServer(srv, queueSvc)
-	})
 }

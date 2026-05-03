@@ -10,16 +10,16 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
-	"net"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"vectis/internal/testutil/grpctest"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/health"
 	healthgrpc "google.golang.org/grpc/health/grpc_health_v1"
 )
 
@@ -40,6 +40,7 @@ func TestNewReloader_requiresServerPairBothPaths(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when only ServerCert set")
 	}
+
 	_, err = NewReloader(Options{ServerKey: keyPath})
 	if err == nil {
 		t.Fatal("expected error when only ServerKey set")
@@ -74,30 +75,15 @@ func TestServerTLS_handshake(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := grpc.NewServer(grpc.Creds(credentials.NewTLS(srvCfg)))
-	registerTestHealth(srv)
+	server := startHealthServer(t,
+		[]grpc.ServerOption{grpc.Creds(credentials.NewTLS(srvCfg))},
+		[]grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(cliCfg))},
+	)
 
-	lis, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	defer lis.Close()
-	go func() { _ = srv.Serve(lis) }()
-	t.Cleanup(srv.Stop)
-
-	conn, err := grpc.NewClient(lis.Addr().String(),
-		grpc.WithTransportCredentials(credentials.NewTLS(cliCfg)))
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	t.Cleanup(func() { _ = conn.Close() })
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, err = healthgrpc.NewHealthClient(conn).Check(ctx, &healthgrpc.HealthCheckRequest{})
+	_, err = healthgrpc.NewHealthClient(server.Conn).Check(ctx, &healthgrpc.HealthCheckRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,28 +111,15 @@ func TestMixed_plaintextClientToTLSServerFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := grpc.NewServer(grpc.Creds(credentials.NewTLS(srvCfg)))
-	registerTestHealth(srv)
-	lis, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	server := startHealthServer(t,
+		[]grpc.ServerOption{grpc.Creds(credentials.NewTLS(srvCfg))},
+		[]grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())},
+	)
 
-	defer lis.Close()
-	go func() { _ = srv.Serve(lis) }()
-	t.Cleanup(srv.Stop)
-
-	conn, err := grpc.NewClient(lis.Addr().String(),
-		grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	t.Cleanup(func() { _ = conn.Close() })
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	_, err = healthgrpc.NewHealthClient(conn).Check(ctx, &healthgrpc.HealthCheckRequest{})
+	_, err = healthgrpc.NewHealthClient(server.Conn).Check(ctx, &healthgrpc.HealthCheckRequest{})
 	if err == nil {
 		t.Fatal("expected error for plaintext client to TLS server")
 	}
@@ -168,29 +141,11 @@ func TestMixed_tlsClientToPlaintextServerFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := grpc.NewServer()
-	registerTestHealth(srv)
-	lis, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	defer lis.Close()
-	go func() { _ = srv.Serve(lis) }()
-	t.Cleanup(srv.Stop)
-
-	conn, err := grpc.NewClient(lis.Addr().String(),
-		grpc.WithTransportCredentials(credentials.NewTLS(cliCfg)))
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	t.Cleanup(func() { _ = conn.Close() })
+	server := startHealthServer(t, nil, []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(cliCfg))})
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	_, err = healthgrpc.NewHealthClient(conn).Check(ctx, &healthgrpc.HealthCheckRequest{})
+	_, err = healthgrpc.NewHealthClient(server.Conn).Check(ctx, &healthgrpc.HealthCheckRequest{})
 	if err == nil {
 		t.Fatal("expected error for TLS client to plaintext server")
 	}
@@ -229,25 +184,15 @@ func TestWrongTrust_fails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := grpc.NewServer(grpc.Creds(credentials.NewTLS(srvCfg)))
-	registerTestHealth(srv)
-	lis, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer lis.Close()
-	go func() { _ = srv.Serve(lis) }()
-	t.Cleanup(srv.Stop)
+	server := startHealthServer(t,
+		[]grpc.ServerOption{grpc.Creds(credentials.NewTLS(srvCfg))},
+		[]grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(cliCfg))},
+	)
 
-	conn, err := grpc.NewClient(lis.Addr().String(),
-		grpc.WithTransportCredentials(credentials.NewTLS(cliCfg)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = conn.Close() })
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	_, err = healthgrpc.NewHealthClient(conn).Check(ctx, &healthgrpc.HealthCheckRequest{})
+
+	_, err = healthgrpc.NewHealthClient(server.Conn).Check(ctx, &healthgrpc.HealthCheckRequest{})
 	if err == nil {
 		t.Fatal("expected verification error with wrong CA")
 	}
@@ -281,17 +226,12 @@ func TestReload_newServerCertUsedOnNextHandshake(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := grpc.NewServer(grpc.Creds(credentials.NewTLS(srvCfg)))
-	registerTestHealth(srv)
-	lis, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer lis.Close()
-	go func() { _ = srv.Serve(lis) }()
-	t.Cleanup(srv.Stop)
+	server := startHealthServer(t,
+		[]grpc.ServerOption{grpc.Creds(credentials.NewTLS(srvCfg))},
+		[]grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(cliCfg))},
+	)
 
-	addr := lis.Addr().String()
+	addr := server.Addr()
 	conn1, err := grpc.NewClient(addr, grpc.WithTransportCredentials(credentials.NewTLS(cliCfg)))
 	if err != nil {
 		t.Fatal(err)
@@ -348,21 +288,15 @@ func TestRunReloadLoop_triggersReload(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := grpc.NewServer(grpc.Creds(credentials.NewTLS(srvCfg)))
-	registerTestHealth(srv)
-	lis, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	defer lis.Close()
-	go func() { _ = srv.Serve(lis) }()
-	t.Cleanup(srv.Stop)
+	server := startHealthServer(t,
+		[]grpc.ServerOption{grpc.Creds(credentials.NewTLS(srvCfg))},
+		[]grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(cliCfg))},
+	)
 
 	loopCtx := t.Context()
 	go func() { _ = r.RunReloadLoop(loopCtx, 50*time.Millisecond) }()
 
-	addr := lis.Addr().String()
+	addr := server.Addr()
 	time.Sleep(100 * time.Millisecond)
 	writePEM(t, dir, "srv.pem", srvCert2, srvKey2)
 	deadline := time.Now().Add(3 * time.Second)
@@ -429,24 +363,12 @@ func TestMTLS_serverRequiresClientCert(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := grpc.NewServer(grpc.Creds(srvCreds))
-	registerTestHealth(srv)
-	lis, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	server := startHealthServer(t,
+		[]grpc.ServerOption{grpc.Creds(srvCreds)},
+		[]grpc.DialOption{grpc.WithTransportCredentials(cliCreds)},
+	)
 
-	defer lis.Close()
-	go func() { _ = srv.Serve(lis) }()
-	t.Cleanup(srv.Stop)
-
-	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(cliCreds))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = conn.Close() })
-
-	_, err = healthgrpc.NewHealthClient(conn).Check(context.Background(), &healthgrpc.HealthCheckRequest{})
+	_, err = healthgrpc.NewHealthClient(server.Conn).Check(context.Background(), &healthgrpc.HealthCheckRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -485,36 +407,29 @@ func TestMTLS_withoutClientCertRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := grpc.NewServer(grpc.Creds(srvCreds))
-	registerTestHealth(srv)
-	lis, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	defer lis.Close()
-	go func() { _ = srv.Serve(lis) }()
-	t.Cleanup(srv.Stop)
-
-	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(cliCreds))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = conn.Close() })
+	server := startHealthServer(t,
+		[]grpc.ServerOption{grpc.Creds(srvCreds)},
+		[]grpc.DialOption{grpc.WithTransportCredentials(cliCreds)},
+	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	_, err = healthgrpc.NewHealthClient(conn).Check(ctx, &healthgrpc.HealthCheckRequest{})
+	_, err = healthgrpc.NewHealthClient(server.Conn).Check(ctx, &healthgrpc.HealthCheckRequest{})
 	if err == nil {
 		t.Fatal("expected failure without client certificate")
 	}
 }
 
-func registerTestHealth(s *grpc.Server) {
-	hs := health.NewServer()
-	healthgrpc.RegisterHealthServer(s, hs)
-	hs.SetServingStatus("", healthgrpc.HealthCheckResponse_SERVING)
+func startHealthServer(t *testing.T, serverOpts []grpc.ServerOption, dialOpts []grpc.DialOption) *grpctest.Server {
+	t.Helper()
+
+	return grpctest.StartServerWithOptions(t, grpctest.Options{
+		ServerOptions: serverOpts,
+		DialOptions:   dialOpts,
+	}, func(srv *grpc.Server) {
+		grpctest.RegisterHealth(srv, "")
+	})
 }
 
 func mustWriteFile(t *testing.T, path string, data []byte) {

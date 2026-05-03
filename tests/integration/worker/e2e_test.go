@@ -14,11 +14,8 @@ import (
 	"vectis/internal/job"
 	"vectis/internal/logserver"
 	"vectis/internal/observability"
-	"vectis/internal/queue"
 	"vectis/internal/testutil/dbtest"
-	"vectis/internal/testutil/grpctest"
-
-	"google.golang.org/grpc"
+	"vectis/internal/testutil/grpcservices"
 )
 
 func TestIntegrationWorker_DequeueClaimExecuteFinalize(t *testing.T) {
@@ -42,17 +39,10 @@ func TestIntegrationWorker_DequeueClaimExecuteFinalize(t *testing.T) {
 		t.Fatalf("create run: %v", err)
 	}
 
-	queueServer := grpctest.StartServer(t, func(srv *grpc.Server) {
-		queueSvc := queue.NewQueueService(mocks.NewMockLogger())
-		api.RegisterQueueServiceServer(srv, queueSvc)
-	})
-	queueClient := interfaces.NewGRPCQueueClient(queueServer.Conn)
+	_, queueClient, _ := grpcservices.StartQueueServer(t, mocks.NewMockLogger())
 
 	logStore, _ := logserver.NewLocalRunLogStore(t.TempDir())
-	logServer := grpctest.StartServer(t, func(srv *grpc.Server) {
-		api.RegisterLogServiceServer(srv, logserver.NewServerWithStore(mocks.NewMockLogger(), logStore))
-	})
-	logClient := interfaces.NewGRPCLogClient(logServer.Conn)
+	_, logClient := grpcservices.StartLogServer(t, mocks.NewMockLogger(), logStore)
 
 	// Enqueue the job with run_id.
 	rootID := "root"
