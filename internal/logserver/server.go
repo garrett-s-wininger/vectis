@@ -19,6 +19,7 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/cli"
 	"vectis/internal/config"
 	"vectis/internal/interfaces"
 	"vectis/internal/observability"
@@ -525,21 +526,7 @@ func (s *Server) RunSSE(ctx context.Context, port string) error {
 
 	s.logger.Info("SSE log server listening on %s", port)
 
-	go func() {
-		<-ctx.Done()
-		shutCtx, cancel := context.WithTimeout(context.Background(), sseShutdownTimeout)
-		defer cancel()
-		if err := server.Shutdown(shutCtx); err != nil {
-			s.logger.Warn("SSE log server shutdown: %v", err)
-		}
-	}()
-
-	err := server.ListenAndServe()
-	if errors.Is(err, http.ErrServerClosed) {
-		return nil
-	}
-
-	return err
+	return cli.ServeHTTP(ctx, server, server.ListenAndServe, sseShutdownTimeout, "SSE log server", s.logger)
 }
 
 func Run(ctx context.Context, logger interfaces.Logger, store RunLogStore, runs RunStatusProvider, metrics *observability.LogMetrics) error {

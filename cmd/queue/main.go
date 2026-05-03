@@ -1,12 +1,10 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
-	"time"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/cli"
@@ -42,27 +40,14 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 	if err != nil {
 		logger.Fatal("Failed to initialize tracer: %v", err)
 	}
-	defer func() {
-		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := shutdownTracer(shutCtx); err != nil {
-			logger.Warn("Tracer shutdown: %v", err)
-		}
-	}()
+	defer cli.DeferShutdown(logger, "Tracer", shutdownTracer)()
 
 	metricsHandler, shutdownMetrics, err := observability.InitServiceMetrics(cmd.Context(), "vectis-queue")
 	if err != nil {
 		logger.Fatal("Failed to initialize metrics: %v", err)
 	}
 
-	defer func() {
-		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		if err := shutdownMetrics(shutCtx); err != nil {
-			logger.Warn("Metrics shutdown: %v", err)
-		}
-	}()
+	defer cli.DeferShutdown(logger, "Metrics", shutdownMetrics)()
 
 	port := config.QueueEffectiveListenPort()
 	addr := fmt.Sprintf(":%d", port)

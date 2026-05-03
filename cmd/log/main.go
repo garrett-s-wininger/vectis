@@ -1,11 +1,9 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -65,14 +63,7 @@ func runLog(cmd *cobra.Command, args []string) {
 		logger.Fatal("Failed to register log metrics: %v", err)
 	}
 
-	defer func() {
-		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		if err := shutdownMetrics(shutCtx); err != nil {
-			logger.Warn("Metrics shutdown: %v", err)
-		}
-	}()
+	defer cli.DeferShutdown(logger, "Metrics", shutdownMetrics)()
 
 	metricsPort := config.LogMetricsEffectiveListenPort()
 	metricsAddr := fmt.Sprintf(":%d", metricsPort)
