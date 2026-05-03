@@ -34,7 +34,7 @@ func RegisterWithHeartbeat(ctx context.Context, opts RegistrationOptions) (func(
 		return nil, err
 	}
 
-	stopHeartbeat := StartRegistrationHeartbeat(ctx, registryClient, opts.Component, opts.PublishAddress, opts.RefreshInterval, opts.Logger)
+	stopHeartbeat := StartInstanceRegistrationHeartbeat(ctx, registryClient, opts.Component, opts.InstanceID, opts.PublishAddress, opts.RefreshInterval, opts.Logger)
 	return func() {
 		stopHeartbeat()
 		_ = registryClient.Close()

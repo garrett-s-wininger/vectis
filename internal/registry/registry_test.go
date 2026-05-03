@@ -148,6 +148,33 @@ func TestStartRegistrationHeartbeat(t *testing.T) {
 	}
 }
 
+func TestStartInstanceRegistrationHeartbeat(t *testing.T) {
+	addr, _ := setupTestRegistry(t)
+
+	logger := mocks.NewMockLogger()
+	clock := mocks.NewMockClock()
+	reg, err := New(context.Background(), addr, logger, clock)
+	if err != nil {
+		t.Fatalf("failed to create registry client: %v", err)
+	}
+	defer reg.Close()
+
+	stop := StartInstanceRegistrationHeartbeat(context.Background(), reg, api.Component_COMPONENT_WORKER, "worker-1", "10.0.0.1:50051", 50*time.Millisecond, logger)
+	defer stop()
+
+	// Wait for at least one heartbeat.
+	time.Sleep(150 * time.Millisecond)
+
+	got, err := reg.InstanceAddress(context.Background(), api.Component_COMPONENT_WORKER, "worker-1")
+	if err != nil {
+		t.Fatalf("instance address lookup failed: %v", err)
+	}
+
+	if got != "10.0.0.1:50051" {
+		t.Fatalf("expected 10.0.0.1:50051 after heartbeat, got %s", got)
+	}
+}
+
 func TestStartRegistrationHeartbeat_nilRegistry(t *testing.T) {
 	logger := mocks.NewMockLogger()
 	stop := StartRegistrationHeartbeat(context.Background(), nil, api.Component_COMPONENT_QUEUE, ":50051", 50*time.Millisecond, logger)
