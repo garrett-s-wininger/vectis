@@ -4,12 +4,8 @@ package reconciler_test
 
 import (
 	"context"
-	"net"
 	"testing"
 	"time"
-
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/dal"
@@ -18,6 +14,9 @@ import (
 	"vectis/internal/queue"
 	"vectis/internal/reconciler"
 	"vectis/internal/testutil/dbtest"
+	"vectis/internal/testutil/grpctest"
+
+	"google.golang.org/grpc"
 )
 
 func TestIntegrationReconciler_RedispatchesQueuedRun(t *testing.T) {
@@ -49,26 +48,9 @@ func TestIntegrationReconciler_RedispatchesQueuedRun(t *testing.T) {
 		t.Fatalf("expected run to be queued, got status=%q found=%v", status, found)
 	}
 
-	// Start queue server.
-	queueLis, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen queue: %v", err)
-	}
-
-	queueServer := grpc.NewServer()
-	queueSvc := queue.NewQueueService(mocks.NewMockLogger())
-	api.RegisterQueueServiceServer(queueServer, queueSvc)
-	go queueServer.Serve(queueLis)
-	defer queueServer.Stop()
-
-	queueConn, err := grpc.NewClient(queueLis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		t.Fatalf("dial queue: %v", err)
-	}
-	defer queueConn.Close()
-
-	queueClient := interfaces.NewGRPCQueueClient(queueConn)
-	queueService := interfaces.NewQueueService(api.NewQueueServiceClient(queueConn))
+	queueServer := startQueueTestServer(t)
+	queueClient := interfaces.NewGRPCQueueClient(queueServer.Conn)
+	queueService := interfaces.NewQueueService(api.NewQueueServiceClient(queueServer.Conn))
 
 	// Create reconciler with very short gap for testing.
 	logger := mocks.NewMockLogger()
@@ -144,25 +126,8 @@ func TestIntegrationReconciler_OrphansExpiredLease(t *testing.T) {
 		t.Fatal("expected claim to succeed")
 	}
 
-	// Start queue server (reconciler needs it even though we won't check queue).
-	queueLis, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen queue: %v", err)
-	}
-
-	queueServer := grpc.NewServer()
-	queueSvc := queue.NewQueueService(mocks.NewMockLogger())
-	api.RegisterQueueServiceServer(queueServer, queueSvc)
-	go queueServer.Serve(queueLis)
-	defer queueServer.Stop()
-
-	queueConn, err := grpc.NewClient(queueLis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		t.Fatalf("dial queue: %v", err)
-	}
-	defer queueConn.Close()
-
-	queueService := interfaces.NewQueueService(api.NewQueueServiceClient(queueConn))
+	queueServer := startQueueTestServer(t)
+	queueService := interfaces.NewQueueService(api.NewQueueServiceClient(queueServer.Conn))
 
 	// Create reconciler.
 	logger := mocks.NewMockLogger()
@@ -189,4 +154,13 @@ func TestIntegrationReconciler_OrphansExpiredLease(t *testing.T) {
 	}
 
 	t.Logf("Reconciler orphaned expired run %s successfully", runID)
+}
+
+func startQueueTestServer(t *testing.T) *grpctest.Server {
+	t.Helper()
+
+	return grpctest.StartServer(t, func(srv *grpc.Server) {
+		queueSvc := queue.NewQueueService(mocks.NewMockLogger())
+		api.RegisterQueueServiceServer(srv, queueSvc)
+	})
 }
