@@ -66,6 +66,25 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 	return db, nil
 }
 
+func OpenReadyDB(log interfaces.Logger) (*sql.DB, string, error) {
+	dbPath := GetDBPath()
+	if log != nil {
+		log.Info("Using database: %s", dbPath)
+	}
+
+	db, err := OpenDB(dbPath)
+	if err != nil {
+		return nil, dbPath, err
+	}
+
+	if err := WaitForMigrations(db, log); err != nil {
+		_ = db.Close()
+		return nil, dbPath, err
+	}
+
+	return db, dbPath, nil
+}
+
 func EffectiveDBDriver() string {
 	if driver := os.Getenv(EnvDatabaseDriver); driver != "" {
 		return driver

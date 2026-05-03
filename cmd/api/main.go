@@ -56,22 +56,13 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 
 	config.StartGRPCTLSReloadLoop(cmd.Context())
 
-	dbPath := database.GetDBPath()
-	logger.Info("Using database: %s", dbPath)
-
-	db, err := database.OpenDB(dbPath)
+	db, _, err := database.OpenReadyDB(logger)
 	if err != nil {
-		logger.Error("Failed to open database: %v", err)
+		logger.Error("Failed to initialize database: %v", err)
 		exitCode = 1
 		return
 	}
 	defer db.Close()
-
-	if err := database.WaitForMigrations(db, logger); err != nil {
-		logger.Error("database wait for migrations failed: %v", err)
-		exitCode = 1
-		return
-	}
 
 	authCtx, authCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer authCancel()

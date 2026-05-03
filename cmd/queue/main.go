@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -106,42 +105,13 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 
 	metricsPort := config.QueueMetricsEffectiveListenPort()
 	metricsAddr := fmt.Sprintf(":%d", metricsPort)
-	metricsMux := http.NewServeMux()
-	metricsMux.Handle("GET /metrics", metricsHandler)
-	metricsSrv := &http.Server{
-		Handler: metricsMux,
-	}
-
-	metricsLn, err := net.Listen("tcp", metricsAddr)
+	metricsSrv, err := cli.StartMetricsHTTPServer(metricsHandler, metricsAddr, "Queue", logger)
 	if err != nil {
-		logger.Fatal("Failed to listen for metrics: %v", err)
+		logger.Fatal("%v", err)
 	}
-
-	metricsLn, err = config.MetricsHTTPSListener(metricsLn)
-	if err != nil {
-		logger.Fatal("metrics tls: %v", err)
-	}
-
-	go func() {
-		if err := metricsSrv.Serve(metricsLn); err != nil && err != http.ErrServerClosed {
-			logger.Error("Metrics server: %v", err)
-		}
-	}()
-
-	defer func() {
-		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := metricsSrv.Shutdown(shutCtx); err != nil {
-			logger.Warn("Metrics HTTP shutdown: %v", err)
-		}
-	}()
+	defer metricsSrv.Shutdown()
 
 	logger.Info("Queue server listening on %s", addr)
-	if !config.MetricsTLSInsecure() {
-		logger.Info("Queue metrics listening on %s (HTTPS /metrics)", metricsAddr)
-	} else {
-		logger.Info("Queue metrics listening on %s (/metrics)", metricsAddr)
-	}
 
 	if config.QueueRegisterWithRegistry() {
 		regAddr := config.QueueRegistrationRegistryAddress()
