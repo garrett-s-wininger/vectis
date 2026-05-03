@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"net"
-	"net/http"
 	"os"
 	"time"
 
@@ -67,17 +65,11 @@ func runReconciler(cmd *cobra.Command, args []string) {
 		}
 	}()
 
-	dbPath := database.GetDBPath()
-	logger.Info("Using database: %s", dbPath)
-	db, err := database.OpenDB(dbPath)
+	db, _, err := database.OpenReadyDB(logger)
 	if err != nil {
-		logger.Fatal("Failed to open database: %v", err)
+		logger.Fatal("Failed to initialize database: %v", err)
 	}
 	defer db.Close()
-
-	if err := database.WaitForMigrations(db, logger); err != nil {
-		logger.Fatal("database wait for migrations failed: %v", err)
-	}
 
 	pin := config.ReconcilerQueueAddress()
 	mq, err := queueclient.NewManagingQueueService(rootCtx, logger, func(ctx context.Context) (*grpc.ClientConn, func(), error) {
@@ -102,42 +94,14 @@ func runReconciler(cmd *cobra.Command, args []string) {
 
 	metricsPort := viper.GetInt("metrics_port")
 	metricsAddr := fmt.Sprintf(":%d", metricsPort)
-	metricsMux := http.NewServeMux()
-	metricsMux.Handle("GET /metrics", metricsHandler)
-	metricsSrv := &http.Server{Handler: metricsMux}
-
-	metricsLn, err := net.Listen("tcp", metricsAddr)
+	metricsSrv, err := cli.StartMetricsHTTPServer(metricsHandler, metricsAddr, "Reconciler", logger)
 	if err != nil {
-		logger.Fatal("Failed to listen for metrics: %v", err)
+		logger.Fatal("%v", err)
 	}
-
-	metricsLn, err = config.MetricsHTTPSListener(metricsLn)
-	if err != nil {
-		logger.Fatal("metrics tls: %v", err)
-	}
-
-	go func() {
-		if err := metricsSrv.Serve(metricsLn); err != nil && err != http.ErrServerClosed {
-			logger.Error("Metrics server: %v", err)
-		}
-	}()
-
-	defer func() {
-		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := metricsSrv.Shutdown(shutCtx); err != nil {
-			logger.Warn("Metrics HTTP shutdown: %v", err)
-		}
-	}()
+	defer metricsSrv.Shutdown()
 
 	interval := config.ReconcilerInterval()
 	logger.Info("Reconciler polling every %v", interval)
-
-	if !config.MetricsTLSInsecure() {
-		logger.Info("Reconciler metrics listening on %s (HTTPS /metrics)", metricsAddr)
-	} else {
-		logger.Info("Reconciler metrics listening on %s (/metrics)", metricsAddr)
-	}
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()

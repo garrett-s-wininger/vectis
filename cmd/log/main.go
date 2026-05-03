@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"net"
-	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -47,16 +45,11 @@ func runLog(cmd *cobra.Command, args []string) {
 	}
 	logger.Info("Using durable log storage directory: %s", storageDir)
 
-	dbPath := database.GetDBPath()
-	db, err := database.OpenDB(dbPath)
+	db, _, err := database.OpenReadyDB(logger)
 	if err != nil {
-		logger.Fatal("Failed to open database for run-status lookup: %v", err)
+		logger.Fatal("Failed to initialize database for run-status lookup: %v", err)
 	}
 	defer db.Close()
-
-	if err := database.WaitForMigrations(db, logger); err != nil {
-		logger.Fatal("database wait for migrations failed: %v", err)
-	}
 
 	metricsHandler, shutdownMetrics, err := observability.InitServiceMetrics(ctx, "vectis-log")
 	if err != nil {
@@ -83,42 +76,11 @@ func runLog(cmd *cobra.Command, args []string) {
 
 	metricsPort := config.LogMetricsEffectiveListenPort()
 	metricsAddr := fmt.Sprintf(":%d", metricsPort)
-	metricsMux := http.NewServeMux()
-	metricsMux.Handle("GET /metrics", metricsHandler)
-	metricsSrv := &http.Server{
-		Addr:    metricsAddr,
-		Handler: metricsMux,
-	}
-
-	metricsLn, err := net.Listen("tcp", metricsAddr)
+	metricsSrv, err := cli.StartMetricsHTTPServer(metricsHandler, metricsAddr, "Log", logger)
 	if err != nil {
-		logger.Fatal("Failed to listen for metrics: %v", err)
+		logger.Fatal("%v", err)
 	}
-
-	metricsLn, err = config.MetricsHTTPSListener(metricsLn)
-	if err != nil {
-		logger.Fatal("metrics tls: %v", err)
-	}
-
-	go func() {
-		if err := metricsSrv.Serve(metricsLn); err != nil && err != http.ErrServerClosed {
-			logger.Error("Metrics server: %v", err)
-		}
-	}()
-
-	defer func() {
-		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := metricsSrv.Shutdown(shutCtx); err != nil {
-			logger.Warn("Metrics HTTP shutdown: %v", err)
-		}
-	}()
-
-	if !config.MetricsTLSInsecure() {
-		logger.Info("Log metrics listening on %s (HTTPS /metrics)", metricsAddr)
-	} else {
-		logger.Info("Log metrics listening on %s (/metrics)", metricsAddr)
-	}
+	defer metricsSrv.Shutdown()
 
 	runStatus := logserver.NewDALRunStatusProvider(dal.NewSQLRepositories(db).Runs())
 
