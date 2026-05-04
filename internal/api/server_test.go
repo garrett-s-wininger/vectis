@@ -133,6 +133,7 @@ func TestAPIServer_CreateJob_DBUnavailable(t *testing.T) {
 	jobDef := map[string]any{
 		"id": "test-job-db-down",
 		"root": map[string]any{
+			"id":   "root",
 			"uses": "builtins/shell",
 			"with": map[string]string{"command": "echo hi"},
 		},
@@ -256,6 +257,7 @@ func TestAPIServer_CreateJob_DuplicateJobID(t *testing.T) {
 	jobDef := map[string]any{
 		"id": "duplicate-job",
 		"root": map[string]any{
+			"id":   "root",
 			"uses": "builtins/shell",
 			"with": map[string]string{
 				"command": "echo hello",
@@ -280,6 +282,45 @@ func TestAPIServer_CreateJob_DuplicateJobID(t *testing.T) {
 
 	if rec2.Code != http.StatusConflict {
 		t.Errorf("expected status %d for duplicate, got %d", http.StatusConflict, rec2.Code)
+	}
+}
+
+func TestAPIServer_CreateJob_ValidationError(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+
+	jobDef := map[string]any{
+		"id": "bad-job",
+		"root": map[string]any{
+			"uses": "builtins/not-real",
+		},
+	}
+
+	body, _ := json.Marshal(jobDef)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	server.CreateJob(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
+	}
+
+	if !strings.Contains(rec.Body.String(), "root.id: is required") {
+		t.Fatalf("expected root.id validation error, got %q", rec.Body.String())
+	}
+
+	if !strings.Contains(rec.Body.String(), `root.uses: unknown action "builtins/not-real"`) {
+		t.Fatalf("expected unknown action validation error, got %q", rec.Body.String())
+	}
+
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM stored_jobs WHERE job_id = ?", "bad-job").Scan(&count); err != nil {
+		t.Fatalf("count jobs: %v", err)
+	}
+
+	if count != 0 {
+		t.Fatalf("expected invalid job not to persist, got count %d", count)
 	}
 }
 
@@ -680,6 +721,7 @@ func TestAPIServer_UpdateJobDefinition_Success(t *testing.T) {
 	newDef := map[string]any{
 		"id": "job-to-update",
 		"root": map[string]any{
+			"id":   "root",
 			"uses": "builtins/shell",
 			"with": map[string]string{
 				"command": "echo new",
@@ -784,6 +826,48 @@ func TestAPIServer_UpdateJobDefinition_InvalidJSON(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
+	}
+}
+
+func TestAPIServer_UpdateJobDefinition_ValidationErrorDoesNotPersist(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	initialDef := `{"id": "job-validation-update", "root": {"id": "root", "uses": "builtins/shell", "with": {"command": "echo old"}}}`
+	if _, err := db.Exec("INSERT INTO stored_jobs (job_id, definition_json, version) VALUES (?, ?, 1)", "job-validation-update", initialDef); err != nil {
+		t.Fatalf("insert job: %v", err)
+	}
+
+	newDef := map[string]any{
+		"id": "job-validation-update",
+		"root": map[string]any{
+			"id":   "root",
+			"uses": "builtins/not-real",
+		},
+	}
+
+	body, _ := json.Marshal(newDef)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/jobs/job-validation-update", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", "job-validation-update")
+	rec := httptest.NewRecorder()
+
+	server.UpdateJobDefinition(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
+	}
+
+	if !strings.Contains(rec.Body.String(), `root.uses: unknown action "builtins/not-real"`) {
+		t.Fatalf("expected unknown action validation error, got %q", rec.Body.String())
+	}
+
+	var gotDef string
+	var gotVersion int
+	if err := db.QueryRow("SELECT definition_json, version FROM stored_jobs WHERE job_id = ?", "job-validation-update").Scan(&gotDef, &gotVersion); err != nil {
+		t.Fatalf("select job: %v", err)
+	}
+
+	if gotDef != initialDef || gotVersion != 1 {
+		t.Fatalf("expected original definition/version to remain, got version=%d def=%s", gotVersion, gotDef)
 	}
 }
 
@@ -947,6 +1031,7 @@ func TestAPIServer_RunJob_OverwritesClientID(t *testing.T) {
 	jobDef := map[string]any{
 		"id": "client-provided-id",
 		"root": map[string]any{
+			"id":   "root",
 			"uses": "builtins/shell",
 			"with": map[string]string{"command": "echo test"},
 		},
@@ -1044,8 +1129,9 @@ func TestAPIServer_RunJob_QueueError(t *testing.T) {
 
 	queueService.SetEnqueueError(errors.New("queue unavailable"))
 	jobDef := map[string]any{
-		"root": map[string]any{"uses": "builtins/shell", "with": map[string]string{"command": "echo"}},
+		"root": map[string]any{"id": "root", "uses": "builtins/shell", "with": map[string]string{"command": "echo"}},
 	}
+
 	body, _ := json.Marshal(jobDef)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/run", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")

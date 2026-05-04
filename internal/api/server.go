@@ -28,6 +28,7 @@ import (
 	"vectis/internal/dal"
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
+	jobvalidation "vectis/internal/job/validation"
 	"vectis/internal/observability"
 	"vectis/internal/queueclient"
 	"vectis/internal/resolver"
@@ -739,6 +740,11 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{RequireJobID: true}); err != nil {
+		http.Error(w, "invalid job definition: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	ctx, cancel := s.handlerDBCtx(r)
 	defer cancel()
 
@@ -1216,6 +1222,11 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{RequireJobID: true}); err != nil {
+		http.Error(w, "invalid job definition: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	ctx, cancel := s.handlerDBCtx(r)
 	defer cancel()
 
@@ -1315,8 +1326,8 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		job.Id = &generatedID
 	}
 
-	if job.GetRoot() == nil {
-		http.Error(w, "job must have a root node", http.StatusBadRequest)
+	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{}); err != nil {
+		http.Error(w, "invalid job definition: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
