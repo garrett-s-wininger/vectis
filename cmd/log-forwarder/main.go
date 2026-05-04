@@ -171,6 +171,7 @@ directory for later retry.`,
 }
 
 func init() {
+	cli.ConfigureVersion(rootCmd)
 	v := viper.GetViper()
 	v.SetDefault("socket", "")
 	v.SetDefault("lockfile", "")

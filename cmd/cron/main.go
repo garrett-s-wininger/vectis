@@ -53,6 +53,7 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
+	cli.ConfigureVersion(rootCmd)
 	viper.SetEnvPrefix("VECTIS_CRON")
 	viper.AutomaticEnv()
 }

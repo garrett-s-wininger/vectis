@@ -31,6 +31,7 @@ import (
 	"vectis/internal/observability"
 	"vectis/internal/queueclient"
 	"vectis/internal/resolver"
+	"vectis/internal/version"
 
 	"github.com/google/uuid"
 
@@ -281,11 +282,20 @@ func (s *APIServer) getRunJobNamespacePath(ctx context.Context, runID string) (s
 	return nsPath, nil
 }
 
+func writeVersionHeaders(w http.ResponseWriter) {
+	w.Header().Set("X-Vectis-Build-Version", version.Version)
+	w.Header().Set("X-Vectis-Build-Commit", version.Commit)
+	w.Header().Set("X-Vectis-Build-Date", version.BuildDate)
+}
+
 func (s *APIServer) HealthLive(w http.ResponseWriter, _ *http.Request) {
+	writeVersionHeaders(w)
 	w.WriteHeader(http.StatusOK)
 }
 
 func (s *APIServer) HealthReady(w http.ResponseWriter, r *http.Request) {
+	writeVersionHeaders(w)
+
 	ctx, cancel := context.WithTimeout(r.Context(), healthDBPingTimeout)
 	defer cancel()
 

@@ -29,6 +29,10 @@ func TestAPIServer_HealthLive_OK(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected %d, got %d", http.StatusOK, rec.Code)
 	}
+
+	if got := rec.Header().Get("X-Vectis-Build-Version"); got == "" {
+		t.Fatal("expected X-Vectis-Build-Version header")
+	}
 }
 
 func TestAPIServer_HealthReady_OK(t *testing.T) {
@@ -43,6 +47,10 @@ func TestAPIServer_HealthReady_OK(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected %d, got %d", http.StatusOK, rec.Code)
+	}
+
+	if got := rec.Header().Get("X-Vectis-Build-Commit"); got == "" {
+		t.Fatal("expected X-Vectis-Build-Commit header")
 	}
 }
 

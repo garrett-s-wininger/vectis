@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"vectis/internal/cli"
 	"vectis/internal/config"
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
@@ -367,6 +368,8 @@ and sets VECTIS_GRPC_TLS_* for child processes so internal gRPC uses TLS. Use
 }
 
 func init() {
+	cli.ConfigureVersion(rootCmd)
+
 	rootCmd.PersistentFlags().String("log-level", "info", "Log level: debug, info, warn, error")
 	rootCmd.PersistentFlags().Bool("grpc-insecure", false, "Use plaintext gRPC instead of bootstrapped local TLS")
 	_ = viper.BindPFlag("log_level", rootCmd.PersistentFlags().Lookup("log-level"))

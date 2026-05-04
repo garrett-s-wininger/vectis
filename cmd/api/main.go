@@ -166,6 +166,7 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
+	cli.ConfigureVersion(rootCmd)
 	rootCmd.PersistentFlags().Int("port", config.APIPort(), "Port for the API server")
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
 	viper.SetEnvPrefix("VECTIS_API_SERVER")

@@ -5,6 +5,14 @@ COMPONENTS := $(filter-out cli local, $(APPS))
 OUT_DIR ?= bin
 CGO_ENABLED ?= 1
 
+VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+COMMIT := $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
+BUILD_DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+LDFLAGS ?=
+LDFLAGS += -X vectis/internal/version.Version=$(VERSION)
+LDFLAGS += -X vectis/internal/version.Commit=$(COMMIT)
+LDFLAGS += -X vectis/internal/version.BuildDate=$(BUILD_DATE)
+
 API := $(shell find api -name '*.go' 2>/dev/null)
 BINARIES := $(addprefix $(OUT_DIR)/vectis-, $(APPS))
 INTERNAL := $(shell find internal -name '*.go' 2>/dev/null)
@@ -34,14 +42,15 @@ $(OUT_DIR):
 	mkdir -p ${@}
 
 $(BINARIES): $(OUT_DIR)/vectis-%: cmd/%/main.go $(API) $(INTERNAL) | $(OUT_DIR)
-	CGO_ENABLED=${CGO_ENABLED} go build ${BUILD_OPTS} -o ${@} ./cmd/${*}
+	CGO_ENABLED=${CGO_ENABLED} go build ${BUILD_OPTS} -ldflags '${LDFLAGS}' -o ${@} ./cmd/${*}
 
 .PHONY: build
 build: $(BINARIES)
 
 .PHONY: build-container
 build-container: CGO_ENABLED = 0
-build-container: BUILD_OPTS = -tags=nosqlite -ldflags '-s -w'
+build-container: BUILD_OPTS = -tags=nosqlite
+build-container: LDFLAGS += -s -w
 build-container: $(BINARIES)
 
 .PHONY: proto
