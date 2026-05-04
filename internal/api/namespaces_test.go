@@ -19,7 +19,7 @@ func TestCreateNamespace_Success(t *testing.T) {
 
 	body := []byte(`{"name": "team-a"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	rec := httptest.NewRecorder()
 
 	server.CreateNamespace(rec, req)

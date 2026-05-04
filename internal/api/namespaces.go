@@ -35,7 +35,7 @@ func namespaceRecordToResponse(rec *dal.NamespaceRecord) namespaceResponse {
 }
 
 func (s *APIServer) CreateNamespace(w http.ResponseWriter, r *http.Request) {
-	if r.Header.Get("Content-Type") != "application/json" {
+	if !requestContentTypeIsJSON(r) {
 		http.Error(w, "content type must be application/json", http.StatusUnsupportedMediaType)
 		return
 	}
