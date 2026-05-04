@@ -121,10 +121,10 @@ var rootCmd = &cobra.Command{
 func init() {
 	cli.ConfigureVersion(rootCmd)
 	rootCmd.PersistentFlags().Duration("interval", config.ReconcilerInterval(), "How often to scan for queued runs")
-	rootCmd.PersistentFlags().Int("metrics-port", 9084, "HTTP port for Prometheus /metrics")
+	rootCmd.PersistentFlags().Int("metrics-port", config.ReconcilerMetricsPort(), "HTTP port for Prometheus /metrics")
 	_ = viper.BindPFlag("interval", rootCmd.PersistentFlags().Lookup("interval"))
 	_ = viper.BindPFlag("metrics_port", rootCmd.PersistentFlags().Lookup("metrics-port"))
-	viper.SetDefault("metrics_port", 9084)
+	viper.SetDefault("metrics_port", config.ReconcilerMetricsPort())
 	viper.SetEnvPrefix("VECTIS_RECONCILER")
 	viper.AutomaticEnv()
 }

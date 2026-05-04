@@ -1,0 +1,10 @@
+{
+  "id": "long-running-job",
+  "root": {
+    "id": "root",
+    "uses": "builtins/shell",
+    "with": {
+      "command": "sleep 10000"
+    }
+  }
+}

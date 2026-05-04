@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/interfaces"
@@ -100,5 +101,41 @@ func TestEnqueueWithRetry_SucceedsAfterUnavailable(t *testing.T) {
 
 	if q.calls != 2 {
 		t.Fatalf("expected 2 Enqueue calls, got %d", q.calls)
+	}
+}
+
+func TestEnqueueWithRetryResultOptions_AppliesJitteredDelay(t *testing.T) {
+	t.Parallel()
+
+	q := &flakyQueue{}
+	log := mocks.NewMockLogger()
+	jobID := "j1"
+	runID := "r1"
+	req := &api.JobRequest{Job: &api.Job{Id: &jobID, RunId: &runID}}
+
+	var slept []time.Duration
+	opts := queueclient.EnqueueRetryOptions{
+		MaxAttempts: 2,
+		BaseDelay:   time.Second,
+		MaxDelay:    time.Second,
+		Jitter: func(delay time.Duration) time.Duration {
+			if delay != time.Second {
+				t.Fatalf("delay before jitter = %v", delay)
+			}
+
+			return 123 * time.Millisecond
+		},
+		Sleep: func(ctx context.Context, delay time.Duration) error {
+			slept = append(slept, delay)
+			return nil
+		},
+	}
+
+	if _, err := queueclient.EnqueueWithRetryResultOptions(context.Background(), q, req, log, opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(slept) != 1 || slept[0] != 123*time.Millisecond {
+		t.Fatalf("expected one jittered sleep, got %v", slept)
 	}
 }

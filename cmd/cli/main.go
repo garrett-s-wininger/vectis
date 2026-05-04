@@ -838,34 +838,42 @@ func getJobDefinition(cmd *cobra.Command, args []string) {
 }
 
 func listJobs(cmd *cobra.Command, args []string) {
+	if err := listJobNames(os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func listJobNames(w io.Writer) error {
 	req, err := newAPIRequest(http.MethodGet, "/api/v1/jobs", nil)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to create list jobs request: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to create list jobs request: %w", err)
 	}
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to list jobs: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to list jobs: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		fmt.Fprintf(os.Stderr, "Error: unexpected status listing jobs: %s\n", resp.Status)
-		os.Exit(1)
+		return fmt.Errorf("unexpected status listing jobs: %s", resp.Status)
 	}
 
-	var jobs []struct {
+	type jobListItem struct {
 		Name string `json:"name"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&jobs); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to parse jobs response: %v\n", err)
-		os.Exit(1)
+
+	var jobsResp struct {
+		Data []jobListItem `json:"data"`
 	}
 
-	names := make([]string, 0, len(jobs))
-	for _, j := range jobs {
+	if err := json.NewDecoder(resp.Body).Decode(&jobsResp); err != nil {
+		return fmt.Errorf("failed to parse jobs response: %w", err)
+	}
+
+	names := make([]string, 0, len(jobsResp.Data))
+	for _, j := range jobsResp.Data {
 		if j.Name != "" {
 			names = append(names, j.Name)
 		}
@@ -873,8 +881,10 @@ func listJobs(cmd *cobra.Command, args []string) {
 
 	sort.Strings(names)
 	for _, name := range names {
-		fmt.Println(name)
+		fmt.Fprintln(w, name)
 	}
+
+	return nil
 }
 
 var triggerCmd = &cobra.Command{
@@ -950,6 +960,109 @@ func runMigrate(cmd *cobra.Command, args []string) {
 	}
 
 	fmt.Println("Migrations applied.")
+}
+
+func runGetRun(cmd *cobra.Command, args []string) {
+	if err := getRun(args[0], os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func getRun(runID string, w io.Writer) error {
+	req, err := newAPIRequest(http.MethodGet, fmt.Sprintf("/api/v1/runs/%s", runID), nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var run struct {
+			RunID         string  `json:"run_id"`
+			RunIndex      int     `json:"run_index"`
+			Status        string  `json:"status"`
+			OrphanReason  *string `json:"orphan_reason,omitempty"`
+			FailureCode   *string `json:"failure_code,omitempty"`
+			StartedAt     *string `json:"started_at,omitempty"`
+			FinishedAt    *string `json:"finished_at,omitempty"`
+			FailureReason *string `json:"failure_reason,omitempty"`
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&run); err != nil {
+			return fmt.Errorf("failed to parse response: %w", err)
+		}
+
+		fmt.Fprintf(w, "run_id=%s\n", run.RunID)
+		fmt.Fprintf(w, "run_index=%d\n", run.RunIndex)
+		fmt.Fprintf(w, "status=%s\n", run.Status)
+		if run.StartedAt != nil {
+			fmt.Fprintf(w, "started_at=%s\n", *run.StartedAt)
+		}
+
+		if run.FinishedAt != nil {
+			fmt.Fprintf(w, "finished_at=%s\n", *run.FinishedAt)
+		}
+
+		if run.FailureCode != nil {
+			fmt.Fprintf(w, "failure_code=%s\n", *run.FailureCode)
+		}
+
+		if run.FailureReason != nil {
+			fmt.Fprintf(w, "failure_reason=%s\n", *run.FailureReason)
+		}
+
+		if run.OrphanReason != nil {
+			fmt.Fprintf(w, "orphan_reason=%s\n", *run.OrphanReason)
+		}
+
+		return nil
+	case http.StatusNotFound:
+		return fmt.Errorf("run %q not found", runID)
+	default:
+		return fmt.Errorf("unexpected status: %s", resp.Status)
+	}
+}
+
+func runCancelRun(cmd *cobra.Command, args []string) {
+	if err := cancelRun(args[0], os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func cancelRun(runID string, w io.Writer) error {
+	req, err := newAPIRequest(http.MethodPost, fmt.Sprintf("/api/v1/runs/%s/cancel", runID), nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusNoContent:
+		fmt.Fprintf(w, "Run %s cancel requested.\n", runID)
+		return nil
+	case http.StatusNotFound:
+		return fmt.Errorf("run %q not found", runID)
+	case http.StatusConflict:
+		return fmt.Errorf("run %q is not cancellable", runID)
+	case http.StatusBadGateway:
+		return fmt.Errorf("failed to send cancel to worker")
+	case http.StatusServiceUnavailable:
+		return fmt.Errorf("worker resolution not configured")
+	default:
+		return fmt.Errorf("unexpected status: %s", resp.Status)
+	}
 }
 
 func forceFailRun(cmd *cobra.Command, args []string) {
@@ -1046,6 +1159,22 @@ var forceRequeueCmd = &cobra.Command{
 	Long:  `Force a run back to queued status for manual retry/recovery. Intended for manual intervention flows.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   forceRequeueRun,
+}
+
+var runGetCmd = &cobra.Command{
+	Use:   "get [run-id]",
+	Short: "Get run status and failure details",
+	Long:  `Fetch a run by run-id and print operator-facing status and failure fields.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   runGetRun,
+}
+
+var runCancelCmd = &cobra.Command{
+	Use:   "cancel [run-id]",
+	Short: "Request cancellation for an executing run",
+	Long:  `Request cancellation for an executing run through the worker control path.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   runCancelRun,
 }
 
 func runLogin(cmd *cobra.Command, args []string) {
@@ -1361,6 +1490,8 @@ func init() {
 
 	triggerCmd.Flags().BoolP("follow", "f", false, "After triggering, stream logs (same as logs run <run-id>)")
 	runCmd.Flags().BoolP("follow", "f", false, "After submitting, stream logs (same as logs run <run-id>)")
+	runCmd.AddCommand(runGetCmd)
+	runCmd.AddCommand(runCancelCmd)
 
 	rootCmd.AddCommand(triggerCmd)
 	rootCmd.AddCommand(logsCmd)

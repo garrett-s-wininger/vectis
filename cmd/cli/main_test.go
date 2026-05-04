@@ -236,6 +236,126 @@ func TestTokenDelete_notFound(t *testing.T) {
 	}
 }
 
+func TestListJobNames_success(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/jobs" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{
+				{"name": "z-job"},
+				{"name": "a-job"},
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := listJobNames(&buf); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := buf.String(), "a-job\nz-job\n"; got != want {
+		t.Fatalf("output: want %q, got %q", want, got)
+	}
+}
+
+func TestListJobNames_rejectsUnexpectedShape(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode([]map[string]any{
+			{"name": "legacy-shape"},
+		})
+	})
+
+	if err := listJobNames(io.Discard); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestGetRun_success(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/runs/run-1" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"run_id":         "run-1",
+			"run_index":      3,
+			"status":         "failed",
+			"failure_code":   "execution",
+			"failure_reason": "exit code 1",
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := getRun("run-1", &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	want := strings.Join([]string{
+		"run_id=run-1",
+		"run_index=3",
+		"status=failed",
+		"failure_code=execution",
+		"failure_reason=exit code 1",
+		"",
+	}, "\n")
+	if got := buf.String(); got != want {
+		t.Fatalf("output: want %q, got %q", want, got)
+	}
+}
+
+func TestGetRun_notFound(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})
+
+	if err := getRun("missing", io.Discard); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestCancelRun_success(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/runs/run-1/cancel" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	var buf bytes.Buffer
+	if err := cancelRun("run-1", &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := buf.String(); !strings.Contains(got, "Run run-1 cancel requested.") {
+		t.Fatalf("unexpected output: %s", got)
+	}
+}
+
+func TestCancelRun_conflict(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+	})
+
+	if err := cancelRun("done", io.Discard); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 func TestDoLogin_success(t *testing.T) {
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

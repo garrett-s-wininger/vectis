@@ -169,6 +169,7 @@ Replace `…` with the correct prefix from the next section (e.g. `VECTIS_WORKER
 | Queue metrics HTTP port | `VECTIS_QUEUE_METRICS_PORT` or `--metrics-port` (default **9081**; must differ from queue gRPC port); use **`VECTIS_METRICS_TLS_*`** for HTTPS on that listener |
 | Worker metrics HTTP port | `VECTIS_WORKER_METRICS_PORT` or `--metrics-port` (default **9082**; must differ from queue metrics port); TLS via **`VECTIS_METRICS_TLS_*`** |
 | Log metrics HTTP port | `VECTIS_LOG_METRICS_PORT` or `--metrics-port` (default **9083**; must differ from log gRPC/SSE and other metrics ports); TLS via **`VECTIS_METRICS_TLS_*`** |
+| Reconciler metrics HTTP port | `VECTIS_RECONCILER_METRICS_PORT` or `--metrics-port` (default **9085**; must differ from worker control port and other metrics ports); TLS via **`VECTIS_METRICS_TLS_*`** |
 | Log files on disk | `VECTIS_LOG_STORAGE_DIR` or `--storage-dir` |
 | How often reconciler scans | `VECTIS_RECONCILER_INTERVAL` |
 | `vectis-local` plaintext gRPC (no bootstrap) | `--grpc-insecure` or `VECTIS_LOCAL_GRPC_INSECURE=true` |
@@ -187,6 +188,7 @@ Replace `…` with the correct prefix from the next section (e.g. `VECTIS_WORKER
 | Log gRPC | 8083 |
 | Log HTTP (streams) | 8084 |
 | Log Prometheus scrape (`/metrics`) | 9083 |
+| Reconciler Prometheus scrape (`/metrics`) | 9085 |
 
 ## Data paths (typical, SQLite / local)
 

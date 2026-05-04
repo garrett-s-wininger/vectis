@@ -53,7 +53,7 @@ flowchart LR
 | **vectis-worker** | Pulls jobs from the queue; opens a log stream to the log service; executes the job graph (built-in and extensible actions); updates run state in the database. One job at a time per process. Separate HTTP **`/metrics`** (default **9082**). |
 | **vectis-log** | Accepts log streams from workers; serves log output to consumers over a separate HTTP port. Separate HTTP **`/metrics`** (default **9083**). |
 | **vectis-cron** | Reads schedules from the database; enqueues runs when due. |
-| **vectis-reconciler** | Periodically finds runs that are queued in the database but need another queue submission (e.g. after a partial failure path); enqueues them. |
+| **vectis-reconciler** | Periodically finds runs that are queued in the database but need another queue submission (e.g. after a partial failure path); enqueues them. Separate HTTP **`/metrics`** endpoint (default port **9085**). |
 | **vectis-local** | Single entrypoint that starts registry, queue, log, worker, cron, reconciler, and API together for local development. |
 
 ## Protocols and default ports
@@ -68,7 +68,7 @@ Default listen addresses are defined in [`internal/config/defaults.toml`](../int
 | Log gRPC | 8083 | Worker log ingest |
 | Log HTTP | 8084 | Log streaming to consumers |
 
-**Prometheus metrics (`/metrics`):** **`vectis-api`** serves metrics on the **same HTTP port as REST** (**8080** by default). **`vectis-queue`**, **`vectis-worker`**, and **`vectis-log`** use **dedicated metrics ports** by default (**9081**, **9082**, **9083**) so gRPC/SSE stay separate. Override via flags/env per [CONFIGURATION.md](CONFIGURATION.md). Implementation: OpenTelemetry Go metrics with a Prometheus exporter (`internal/observability/`).
+**Prometheus metrics (`/metrics`):** **`vectis-api`** serves metrics on the **same HTTP port as REST** (**8080** by default). **`vectis-queue`**, **`vectis-worker`**, **`vectis-log`**, and **`vectis-reconciler`** use **dedicated metrics ports** by default (**9081**, **9082**, **9083**, **9085**) so gRPC/SSE/control listeners stay separate. Override via flags/env per [CONFIGURATION.md](CONFIGURATION.md). Implementation: OpenTelemetry Go metrics with a Prometheus exporter (`internal/observability/`).
 
 **gRPC contracts** live under `api/proto/` (generated Go in `api/gen/go/`). **REST** is documented in the table below; there is no OpenAPI artifact in-tree today.
 

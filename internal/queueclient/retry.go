@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"time"
 
 	api "vectis/api/gen/go"
@@ -20,6 +21,69 @@ const (
 	enqueueBaseDelay   = 80 * time.Millisecond
 	enqueueMaxDelay    = 2 * time.Second
 )
+
+type EnqueueRetryOptions struct {
+	MaxAttempts int
+	BaseDelay   time.Duration
+	MaxDelay    time.Duration
+	Jitter      func(time.Duration) time.Duration
+	Sleep       func(context.Context, time.Duration) error
+}
+
+func DefaultEnqueueRetryOptions() EnqueueRetryOptions {
+	return EnqueueRetryOptions{
+		MaxAttempts: EnqueueMaxAttempts,
+		BaseDelay:   enqueueBaseDelay,
+		MaxDelay:    enqueueMaxDelay,
+		Jitter:      fullJitter,
+		Sleep:       sleepContext,
+	}
+}
+
+func fullJitter(delay time.Duration) time.Duration {
+	if delay <= 0 {
+		return 0
+	}
+
+	return time.Duration(rand.Int64N(int64(delay) + 1))
+}
+
+func sleepContext(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func normalizeEnqueueRetryOptions(opts EnqueueRetryOptions) EnqueueRetryOptions {
+	defaults := DefaultEnqueueRetryOptions()
+	if opts.MaxAttempts <= 0 {
+		opts.MaxAttempts = defaults.MaxAttempts
+	}
+
+	if opts.BaseDelay <= 0 {
+		opts.BaseDelay = defaults.BaseDelay
+	}
+
+	if opts.MaxDelay <= 0 {
+		opts.MaxDelay = defaults.MaxDelay
+	}
+
+	if opts.Jitter == nil {
+		opts.Jitter = defaults.Jitter
+	}
+
+	if opts.Sleep == nil {
+		opts.Sleep = defaults.Sleep
+	}
+
+	return opts
+}
 
 func IsTransientRPCError(err error) bool {
 	if err == nil {
@@ -69,16 +133,22 @@ func EnqueueWithRetry(ctx context.Context, q interfaces.QueueService, req *api.J
 }
 
 func EnqueueWithRetryResult(ctx context.Context, q interfaces.QueueService, req *api.JobRequest, log interfaces.Logger) (*api.Empty, error) {
+	return EnqueueWithRetryResultOptions(ctx, q, req, log, EnqueueRetryOptions{})
+}
+
+func EnqueueWithRetryResultOptions(ctx context.Context, q interfaces.QueueService, req *api.JobRequest, log interfaces.Logger, opts EnqueueRetryOptions) (*api.Empty, error) {
 	if q == nil {
 		return nil, fmt.Errorf("queue service not available")
 	}
 
+	opts = normalizeEnqueueRetryOptions(opts)
+
 	var lastErr error
-	for attempt := 1; attempt <= EnqueueMaxAttempts; attempt++ {
+	for attempt := 1; attempt <= opts.MaxAttempts; attempt++ {
 		span := trace.SpanFromContext(ctx)
 		span.AddEvent("queue.enqueue.attempt", trace.WithAttributes(
 			attribute.Int("attempt", attempt),
-			attribute.Int("max_attempts", EnqueueMaxAttempts),
+			attribute.Int("max_attempts", opts.MaxAttempts),
 		))
 
 		empty, err := q.Enqueue(ctx, req)
@@ -94,18 +164,18 @@ func EnqueueWithRetryResult(ctx context.Context, q interfaces.QueueService, req 
 			attribute.Int("attempt", attempt),
 			attribute.String("error", err.Error()),
 		))
-		if attempt == EnqueueMaxAttempts || !IsTransientEnqueueError(err) {
+
+		if attempt == opts.MaxAttempts || !IsTransientEnqueueError(err) {
 			return nil, err
 		}
 
-		delay := min(enqueueBaseDelay*time.Duration(uint(1)<<uint(attempt-1)), enqueueMaxDelay)
+		delay := min(opts.BaseDelay*time.Duration(uint(1)<<uint(attempt-1)), opts.MaxDelay)
+		delay = opts.Jitter(delay)
 
-		log.Debug("enqueue: transient error (attempt %d/%d): %v; retrying in %v", attempt, EnqueueMaxAttempts, err, delay)
+		log.Debug("enqueue: transient error (attempt %d/%d): %v; retrying in %v", attempt, opts.MaxAttempts, err, delay)
 
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(delay):
+		if err := opts.Sleep(ctx, delay); err != nil {
+			return nil, err
 		}
 	}
 

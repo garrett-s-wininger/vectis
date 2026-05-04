@@ -77,22 +77,6 @@ Acceptance criteria:
 Suggested slice:
 Create migration test helpers and a short ADR before adding the next migration.
 
-### 4. Release Versioning And Build Metadata
-
-Status: todo
-
-Why it blocks feature work:
-Operators need to know which binary/image they are running, especially when debugging migrations, queue state, or mixed deploys.
-
-Acceptance criteria:
-- Add build-time `version`, `commit`, and `build_date` variables.
-- Add `vectis-* --version` across binaries.
-- Expose version in logs, metrics resource attributes, and API health or a version endpoint.
-- Tag container images with immutable versions in addition to `latest`.
-
-Suggested slice:
-Wire ldflags in the Makefile, then add a shared `internal/version` package.
-
 ### 5. Operational CLI Coverage
 
 Status: todo
@@ -101,14 +85,14 @@ Why it blocks feature work:
 The API has several operational capabilities, but feature deployment is safer when an operator can inspect and repair state without hand-writing HTTP calls or SQL.
 
 Acceptance criteria:
-- CLI commands for run get/list/logs/cancel/force-fail/force-requeue.
+- CLI commands for run list and machine-readable JSON output options.
 - CLI commands for setup/login/logout/token management.
 - CLI commands for users, namespaces, and bindings if auth is enabled.
 - CLI commands for queue DLQ list/requeue if that surface remains operator-facing.
 - Clear nonzero exit codes and machine-readable JSON output options.
 
 Suggested slice:
-Prioritize run and auth commands, then namespace/user/admin commands.
+Finish run listing/JSON output, then namespace/user/admin commands.
 
 ### 6. Multi-Replica Semantics
 
@@ -379,35 +363,16 @@ Acceptance criteria:
 Suggested slice:
 Keep best-effort audit if that is the intended current posture, but make dropped-event metrics and documentation mandatory before more admin features.
 
-### 21. JSON Media-Type Consistency
+### 21. Retry And Backoff Policy Surface
 
 Status: todo
 
 Why it blocks feature work:
-Some API handlers accept `application/json; charset=utf-8` by parsing the media type, while others require the header to equal `application/json` exactly. That creates needless client incompatibility and makes contract docs harder to trust.
+Queue enqueue retries now have default options and jitter, but trigger volume still needs metrics, documentation, and a clear override surface per service.
 
 Evidence:
-- `internal/api/setup.go`, `login.go`, `tokens.go`, and `users.go` parse media types.
-- `internal/api/server.go`, `namespaces.go`, and `role_bindings.go` compare the raw header directly.
-
-Acceptance criteria:
-- Add a shared JSON content-type helper.
-- Accept valid JSON media types consistently across all JSON endpoints.
-- Add route-level tests for `application/json; charset=utf-8`.
-
-Suggested slice:
-Mechanical API cleanup that can land with the broader API contract work.
-
-### 22. Retry And Backoff Policy Surface
-
-Status: todo
-
-Why it blocks feature work:
-Queue enqueue retries are hardcoded and have no jitter. That is okay early, but as trigger volume grows, retry behavior becomes an operational control surface and needs metrics and configuration.
-
-Evidence:
-- `internal/queueclient/retry.go` uses fixed constants for attempts and delays.
-- Retry delay uses deterministic exponential backoff without jitter.
+- `internal/queueclient/retry.go` defines retry options and jitter.
+- API, cron, reconciler, and worker retry behavior is still not fully documented as an operator-facing policy.
 
 Acceptance criteria:
 - Define retry defaults and which services may override them.
@@ -416,9 +381,9 @@ Acceptance criteria:
 - Document retry behavior for API, cron, reconciler, and worker clients.
 
 Suggested slice:
-Add a small retry options struct and metrics before new trigger sources are added.
+Add retry attempt/failure metrics and document defaults before new trigger sources are added.
 
-### 23. Reference Deployment Secret And Bootstrap Posture
+### 22. Reference Deployment Secret And Bootstrap Posture
 
 Status: todo
 
@@ -443,8 +408,8 @@ Keep the current Podman stack as a fast demo path, but add a production-overlay 
 
 If this roadmap needs to turn into work tickets, start with these. They reduce ambiguity for almost every later feature:
 
-1. API contract alignment: structured errors, JSON media-type consistency, route docs, compatibility policy.
-2. Deployment repeatability: CI gate, build metadata, Postgres integration lane, migration discipline.
+1. API contract alignment: structured errors, route docs, compatibility policy.
+2. Deployment repeatability: CI gate, Postgres integration lane, migration discipline.
 3. Dispatch correctness: durable run handoff state, idempotency policy, cron claim semantics.
 4. Operator repairability: CLI run/admin coverage, runbooks, SLOs/alerts, retention controls.
 5. Execution safety: job validator, worker containment, secrets/redaction policy, audit/log durability decisions.
@@ -459,8 +424,6 @@ Status: todo
 
 - Align as-built docs and route table with code.
 - Add a public API/error contract.
-- Normalize JSON media-type handling.
-- Add release/build metadata.
 - Add compatibility policy.
 - Document deployment credential and bootstrap-token posture.
 
