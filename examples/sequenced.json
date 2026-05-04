@@ -1,7 +1,7 @@
 {
-  "id": "example-job",
+  "id": "sequenced-job",
   "root": {
-    "id": "root-sequence",
+    "id": "root",
     "uses": "builtins/sequence",
     "steps": [
       {

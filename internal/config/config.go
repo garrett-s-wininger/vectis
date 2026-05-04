@@ -162,6 +162,7 @@ type ReconcilerDefaults struct {
 	RegistryAddress string       `toml:"registry.address"`
 	QueueAddress    string       `toml:"queue.address"`
 	Interval        tomlDuration `toml:"interval"`
+	MetricsPort     int          `toml:"metrics_port"`
 }
 
 type GRPCTLSDefaults struct {
@@ -270,6 +271,13 @@ func validateDefaults(d Defaults) {
 
 	if time.Duration(d.Reconciler.Interval) <= 0 {
 		panic("config defaults: reconciler.interval must be > 0")
+	}
+	validatePort(d.Reconciler.MetricsPort, "reconciler.metrics_port")
+	if d.Reconciler.MetricsPort == d.Queue.MetricsPort ||
+		d.Reconciler.MetricsPort == d.Worker.MetricsPort ||
+		d.Reconciler.MetricsPort == d.Log.MetricsPort ||
+		d.Reconciler.MetricsPort == d.Worker.Control.Port {
+		panic("config defaults: reconciler.metrics_port must differ from queue/worker/log metrics ports and worker control port")
 	}
 
 	if strings.TrimSpace(d.API.Auth.BootstrapToken) != "" && len(strings.TrimSpace(d.API.Auth.BootstrapToken)) < 16 {
@@ -742,6 +750,10 @@ func ReconcilerInterval() time.Duration {
 	}
 
 	return 30 * time.Second
+}
+
+func ReconcilerMetricsPort() int {
+	return MustDefaults().Reconciler.MetricsPort
 }
 
 func registryDialAddress(roleRegistry func() string) string {

@@ -48,6 +48,7 @@ registry_registration_refresh = "45s"
 
 [reconciler]
 interval = "30s"
+metrics_port = 9085
 
 [database]
 driver = "sqlite3"

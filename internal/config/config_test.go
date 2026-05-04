@@ -15,8 +15,17 @@ func TestMustDefaults_ReconcilerInterval(t *testing.T) {
 	if time.Duration(d.Reconciler.Interval) != 30*time.Second {
 		t.Fatalf("expected reconciler.interval 30s, got %v", time.Duration(d.Reconciler.Interval))
 	}
+
 	if got := ReconcilerInterval(); got != 30*time.Second {
 		t.Fatalf("ReconcilerInterval() with empty viper: got %v", got)
+	}
+
+	if d.Reconciler.MetricsPort != 9085 {
+		t.Fatalf("expected reconciler.metrics_port 9085, got %d", d.Reconciler.MetricsPort)
+	}
+
+	if got := ReconcilerMetricsPort(); got != 9085 {
+		t.Fatalf("ReconcilerMetricsPort() with empty viper: got %d", got)
 	}
 }
 

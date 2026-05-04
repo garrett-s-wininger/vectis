@@ -875,6 +875,72 @@ func TestAPIServer_RunJob_Success(t *testing.T) {
 	}
 }
 
+func TestAPIServer_GetRun_EphemeralRun(t *testing.T) {
+	server, _, queueService, _ := setupTestServer(t)
+
+	jobDef := map[string]any{
+		"root": map[string]any{
+			"id":   "node-1",
+			"uses": "builtins/shell",
+			"with": map[string]string{
+				"command": "echo hello",
+			},
+		},
+	}
+
+	body, _ := json.Marshal(jobDef)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/run", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	server.RunJob(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("RunJob: expected status %d, got %d: %s", http.StatusAccepted, rec.Code, rec.Body.String())
+	}
+
+	var runResp struct {
+		RunID string `json:"run_id"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &runResp); err != nil {
+		t.Fatalf("parse run response: %v", err)
+	}
+
+	if runResp.RunID == "" {
+		t.Fatal("expected run_id")
+	}
+
+	waitForNEnqueuedJobs(t, queueService, 1)
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+runResp.RunID, nil)
+	getReq.SetPathValue("id", runResp.RunID)
+	getRec := httptest.NewRecorder()
+
+	server.GetRun(getRec, getReq)
+
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("GetRun: expected status %d, got %d: %s", http.StatusOK, getRec.Code, getRec.Body.String())
+	}
+
+	var got struct {
+		RunID  string `json:"run_id"`
+		Status string `json:"status"`
+	}
+
+	if err := json.Unmarshal(getRec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("parse get run response: %v", err)
+	}
+
+	if got.RunID != runResp.RunID {
+		t.Fatalf("run_id: want %q, got %q", runResp.RunID, got.RunID)
+	}
+
+	if got.Status != "queued" {
+		t.Fatalf("status: want queued, got %q", got.Status)
+	}
+}
+
 func TestAPIServer_RunJob_OverwritesClientID(t *testing.T) {
 	server, _, queueService, db := setupTestServer(t)
 

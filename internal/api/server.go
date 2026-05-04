@@ -1604,19 +1604,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 	}
 	s.markDBRecovered()
 
-	jobID, err := s.runs.GetRunJobID(ctx, runID)
-	if err != nil {
-		if dal.IsNotFound(err) {
-			http.Error(w, "run not found", http.StatusNotFound)
-			return
-		}
-
-		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	nsPath, err := s.getJobNamespacePath(ctx, jobID)
+	nsPath, err := s.getRunJobNamespacePath(ctx, runID)
 	if err != nil {
 		if dal.IsNotFound(err) {
 			http.Error(w, "run not found", http.StatusNotFound)
