@@ -89,6 +89,7 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
+	cli.ConfigureVersion(rootCmd)
 	defaultStorage := filepath.Join(utils.DataHome(), "vectis", "jobs")
 	viper.SetDefault("storage_dir", defaultStorage)
 	viper.SetDefault("metrics_port", config.LogMetricsPort())

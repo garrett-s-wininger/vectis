@@ -67,6 +67,7 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
+	cli.ConfigureVersion(rootCmd)
 	rootCmd.PersistentFlags().Int("port", config.RegistryPort(), "Port for the registry")
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
 	viper.SetEnvPrefix("VECTIS_REGISTRY")

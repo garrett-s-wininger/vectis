@@ -133,6 +133,7 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
+	cli.ConfigureVersion(rootCmd)
 	defaultPersistenceDir := filepath.Join(utils.DataHome(), "vectis", "queue")
 
 	viper.SetDefault("port", config.QueuePort())

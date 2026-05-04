@@ -21,6 +21,7 @@ import (
 	"golang.org/x/term"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/cli"
 	"vectis/internal/config"
 	"vectis/internal/database"
 
@@ -1348,6 +1349,8 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
+	cli.ConfigureVersion(rootCmd)
+
 	logsRunCmd.Flags().Bool("stdout", false, "Only show stdout")
 	logsRunCmd.Flags().Bool("stderr", false, "Only show stderr")
 	logsJobCmd.Flags().Bool("stdout", false, "Only show stdout")
