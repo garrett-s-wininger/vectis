@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
-	"mime"
 	"net/http"
 	"strconv"
 	"strings"
@@ -71,8 +70,7 @@ func generateRandomPassword() (string, error) {
 }
 
 func (s *APIServer) CreateUser(w http.ResponseWriter, r *http.Request) {
-	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if err != nil || !strings.EqualFold(mediaType, "application/json") {
+	if !requestContentTypeIsJSON(r) {
 		http.Error(w, "content type must be application/json", http.StatusUnsupportedMediaType)
 		return
 	}
@@ -284,8 +282,7 @@ func (s *APIServer) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if err != nil || !strings.EqualFold(mediaType, "application/json") {
+	if !requestContentTypeIsJSON(r) {
 		http.Error(w, "content type must be application/json", http.StatusUnsupportedMediaType)
 		return
 	}
@@ -476,8 +473,7 @@ type changePasswordRequest struct {
 }
 
 func (s *APIServer) ChangePassword(w http.ResponseWriter, r *http.Request) {
-	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if err != nil || !strings.EqualFold(mediaType, "application/json") {
+	if !requestContentTypeIsJSON(r) {
 		http.Error(w, "content type must be application/json", http.StatusUnsupportedMediaType)
 		return
 	}

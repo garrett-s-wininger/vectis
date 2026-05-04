@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"mime"
 	"net/http"
 	"strings"
 	"unicode/utf8"
@@ -75,8 +74,7 @@ func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if err != nil || !strings.EqualFold(mediaType, "application/json") {
+	if !requestContentTypeIsJSON(r) {
 		http.Error(w, "content type must be application/json", http.StatusUnsupportedMediaType)
 		return
 	}

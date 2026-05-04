@@ -3,9 +3,7 @@ package api
 import (
 	"encoding/json"
 	"io"
-	"mime"
 	"net/http"
-	"strings"
 	"time"
 
 	"vectis/internal/api/audit"
@@ -39,8 +37,7 @@ func (s *APIServer) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if err != nil || !strings.EqualFold(mediaType, "application/json") {
+	if !requestContentTypeIsJSON(r) {
 		http.Error(w, "content type must be application/json", http.StatusUnsupportedMediaType)
 		return
 	}

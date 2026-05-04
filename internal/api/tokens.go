@@ -4,10 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"io"
-	"mime"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"vectis/internal/api/audit"
@@ -152,8 +150,7 @@ func (s *APIServer) ListTokens(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) CreateToken(w http.ResponseWriter, r *http.Request) {
-	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if err != nil || !strings.EqualFold(mediaType, "application/json") {
+	if !requestContentTypeIsJSON(r) {
 		http.Error(w, "content type must be application/json", http.StatusUnsupportedMediaType)
 		return
 	}

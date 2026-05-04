@@ -77,7 +77,7 @@ func TestAPIServer_CreateJob_Success(t *testing.T) {
 
 	body, _ := json.Marshal(jobDef)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	rec := httptest.NewRecorder()
 
 	server.CreateJob(rec, req)
@@ -689,7 +689,7 @@ func TestAPIServer_UpdateJobDefinition_Success(t *testing.T) {
 
 	body, _ := json.Marshal(newDef)
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/jobs/job-to-update", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	req.SetPathValue("id", "job-to-update")
 	rec := httptest.NewRecorder()
 
@@ -802,7 +802,7 @@ func TestAPIServer_RunJob_Success(t *testing.T) {
 
 	body, _ := json.Marshal(jobDef)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/run", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	rec := httptest.NewRecorder()
 
 	server.RunJob(rec, req)

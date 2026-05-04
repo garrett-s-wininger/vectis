@@ -23,7 +23,7 @@ type bindingResponse struct {
 }
 
 func (s *APIServer) CreateBinding(w http.ResponseWriter, r *http.Request) {
-	if r.Header.Get("Content-Type") != "application/json" {
+	if !requestContentTypeIsJSON(r) {
 		http.Error(w, "content type must be application/json", http.StatusUnsupportedMediaType)
 		return
 	}

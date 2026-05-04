@@ -38,7 +38,7 @@ func TestCreateBinding_Success(t *testing.T) {
 
 	body := fmt.Appendf(nil, `{"local_user_id": %d, "role": "viewer"}`, uid)
 	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/namespaces/%d/bindings", ns.ID), bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	req.SetPathValue("id", fmt.Sprintf("%d", ns.ID))
 	rec := httptest.NewRecorder()
 
