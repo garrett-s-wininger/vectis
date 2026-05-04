@@ -44,21 +44,20 @@ Acceptance criteria:
 Suggested slice:
 Add a small `writeAPIError` helper, migrate high-traffic routes first, then finish the rest in mechanical batches.
 
-### 2. Job Definition Validation Boundary
+### 2. Job Definition Semantic Validation
 
 Status: todo
 
 Why it blocks feature work:
-New features will add more job graph shape and semantics. Without a central validator, bad job definitions are discovered late by workers, and each new feature will add scattered validation.
+Structural job validation now exists at the API boundary, but new features will add action-specific inputs and richer graph semantics. Without a clear next validation layer, invalid feature-specific definitions may still be discovered late by workers.
 
 Acceptance criteria:
-- Add a domain validator for `api.Job` and `api.Node`.
-- Validate stored jobs, updates, and ephemeral runs before persistence.
-- Return structured validation errors with field paths.
-- Cover missing root/id/uses, invalid action names, invalid `with` values, recursion/depth limits, and oversized definitions.
+- Add structured validation errors to the REST error envelope once the API error contract lands.
+- Validate action-specific `with` values.
+- Cover semantic graph constraints that arrive with pipeline-as-code.
 
 Suggested slice:
-Start with structural validation and action lookup. Defer advanced semantic validation until pipeline-as-code exists.
+Structural validation and action lookup are in place. Next slice is action-specific input validation once the structured API error contract exists.
 
 ### 3. Migration And Rollback Discipline
 
@@ -376,7 +375,6 @@ Evidence:
 
 Acceptance criteria:
 - Define retry defaults and which services may override them.
-- Add jitter for retry storms.
 - Emit retry attempt/failure metrics.
 - Document retry behavior for API, cron, reconciler, and worker clients.
 
@@ -412,7 +410,7 @@ If this roadmap needs to turn into work tickets, start with these. They reduce a
 2. Deployment repeatability: CI gate, Postgres integration lane, migration discipline.
 3. Dispatch correctness: durable run handoff state, idempotency policy, cron claim semantics.
 4. Operator repairability: CLI run/admin coverage, runbooks, SLOs/alerts, retention controls.
-5. Execution safety: job validator, worker containment, secrets/redaction policy, audit/log durability decisions.
+5. Execution safety: action-specific job validation, worker containment, secrets/redaction policy, audit/log durability decisions.
 
 Everything else in this document can hang from those threads without forcing feature work to stop forever.
 
@@ -463,7 +461,7 @@ Common failure modes have an observable signal and a documented repair path.
 
 Status: todo
 
-- Add job validation boundary.
+- Add action-specific job validation.
 - Harden worker execution containment.
 - Define secret handling/redaction.
 - Define artifact/cache boundaries.
