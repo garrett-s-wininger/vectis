@@ -7,6 +7,7 @@
 | `test` | All packages | No timeout, no race |
 | `test-quick` | `internal/...` `cmd/...` `api/...` | `-count=1 -timeout=60s` — fast feedback |
 | `test-integration` | Packages with `//go:build integration` | Requires Postgres (see `VECTIS_DATABASE_DSN`) |
+| `test-postgres-integration` | `tests/integration/postgres` | Starts `postgres:18-alpine` with testcontainers |
 | `test-race` | All packages | `-race` flag |
 | `fuzz-api-auth` | API auth fuzz targets | `FUZZTIME` (default 30s) |
 
@@ -24,7 +25,7 @@ Integration packages need `//go:build integration` at the top of every file and 
 
 Uses [`../internal/testutil/grpctest/`](../internal/testutil/grpctest/) for gRPC server setup. Example: [`integration/queue/server_test.go`](integration/queue/server_test.go). The `grpctest.SetupGRPCServer` function handles listening on an ephemeral port and returning a `*grpc.ClientConn`.
 
-**Prerequisites:** a running Postgres instance reachable at `VECTIS_DATABASE_DSN` (defaults to `postgres://vectis:vectis@127.0.0.1:15432/vectis?sslmode=require`).
+**Postgres lane:** `tests/integration/postgres` uses [`internal/testutil/pgtest`](../internal/testutil/pgtest/) to start `postgres:18-alpine` with testcontainers, apply embedded migrations, and skip cleanly when no local container runtime is available. Set `VECTIS_REQUIRE_POSTGRES_TESTS=true` to fail instead of skip. Keep the image pre-pulled on dogfood hosts when runs must avoid network access.
 
 ## Mocks
 

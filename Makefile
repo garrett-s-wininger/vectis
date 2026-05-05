@@ -78,6 +78,10 @@ test:
 test-integration:
 	go test -tags=integration ./...
 
+.PHONY: test-postgres-integration
+test-postgres-integration:
+	go test -tags=integration ./tests/integration/postgres
+
 .PHONY: test-race
 test-race:
 	go test -race ./...
