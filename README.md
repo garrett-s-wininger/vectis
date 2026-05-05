@@ -72,6 +72,8 @@ vectis-cli deploy podman up
 
 `./bin/vectis-cli` talks to the API (create/list/trigger jobs, stream logs, etc.). Run `./bin/vectis-cli --help` for commands.
 
+Use `vectis-cli reset --dry-run` to inspect local Vectis config/data/cache directories and generated deployment state, then `vectis-cli reset --yes` to remove them.
+
 ## Shipped REST (summary)
 
 | Method | Path | Purpose |

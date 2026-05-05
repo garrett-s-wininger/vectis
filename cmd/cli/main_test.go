@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -95,6 +96,45 @@ func TestWritePersistedToken_createsDirectory(t *testing.T) {
 
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("token file not created: %v", err)
+	}
+}
+
+func TestResetTargets(t *testing.T) {
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "data")
+	cacheDir := filepath.Join(tmpDir, "cache")
+	deployDir := filepath.Join(tmpDir, "deploy")
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmpDir, "config"))
+	t.Setenv("XDG_DATA_HOME", dataDir)
+	t.Setenv("XDG_CACHE_HOME", cacheDir)
+	t.Setenv(envDeployConfigDir, deployDir)
+
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		t.Fatalf("config dir: %v", err)
+	}
+
+	cacheHome, err := os.UserCacheDir()
+	if err != nil {
+		t.Fatalf("cache dir: %v", err)
+	}
+
+	targets, err := resetTargets()
+	if err != nil {
+		t.Fatalf("reset targets: %v", err)
+	}
+
+	want := []string{
+		filepath.Join(cacheHome, "vectis"),
+		filepath.Join(configDir, "vectis"),
+		filepath.Join(dataDir, "vectis"),
+		filepath.Join(deployDir, "podman"),
+	}
+	sort.Strings(want)
+
+	if strings.Join(targets, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("targets mismatch\ngot:\n%s\nwant:\n%s", strings.Join(targets, "\n"), strings.Join(want, "\n"))
 	}
 }
 

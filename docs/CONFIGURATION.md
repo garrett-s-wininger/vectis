@@ -41,6 +41,8 @@ Shipped default is **`api.auth.enabled` = `false`** in [`internal/config/default
 
 **CLI authentication:** `vectis-cli login` calls **`POST /api/v1/login`** and persists the returned token to the OS user config directory (`os.UserConfigDir()/vectis/token`, e.g. `~/.config/vectis/token` on Linux or `~/Library/Application Support/vectis/token` on macOS). Subsequent CLI commands read this file automatically (override with **`VECTIS_API_TOKEN`**).
 
+**Local reset:** `vectis-cli reset --dry-run` lists the local Vectis directories it would remove: OS user config (`os.UserConfigDir()/vectis`, including CLI tokens and default Podman deploy secrets), XDG data (`$XDG_DATA_HOME/vectis`, including SQLite data, queue persistence, logs, and `vectis-local` TLS), OS user cache (`os.UserCacheDir()/vectis`), and `$VECTIS_DEPLOY_CONFIG_DIR/podman` when that override is set. `vectis-cli reset --yes` removes those paths. It does not stop running services or remove container volumes.
+
 ## Database (every service that uses the DB)
 
 These two variables are **global** (no per-service prefix). Every component that talks to the database must use the **same** values.

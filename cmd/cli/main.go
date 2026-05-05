@@ -27,6 +27,7 @@ import (
 	"vectis/internal/cli"
 	"vectis/internal/config"
 	"vectis/internal/database"
+	"vectis/internal/utils"
 
 	_ "vectis/internal/dbdrivers"
 )
@@ -122,6 +123,8 @@ var (
 	podmanKubeSpec    string
 	podmanGrafanaSpec string
 	podmanRenderOut   string
+	resetYes          bool
+	resetDryRun       bool
 )
 
 type podmanSecrets struct {
@@ -439,6 +442,83 @@ func runDeployPodmanStatus(cmd *cobra.Command, args []string) {
 	if err := podman.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: podman status failed: %v\n", err)
 		os.Exit(1)
+	}
+}
+
+func resetTargets() ([]string, error) {
+	var targets []string
+	add := func(path string) {
+		if path == "" {
+			return
+		}
+		targets = append(targets, filepath.Clean(path))
+	}
+
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return nil, fmt.Errorf("resolve user config directory: %w", err)
+	}
+	add(filepath.Join(configDir, "vectis"))
+
+	add(filepath.Join(utils.DataHome(), "vectis"))
+
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		return nil, fmt.Errorf("resolve user cache directory: %w", err)
+	}
+	add(filepath.Join(cacheDir, "vectis"))
+
+	if deployConfigDir := os.Getenv(envDeployConfigDir); deployConfigDir != "" {
+		add(filepath.Join(deployConfigDir, "podman"))
+	}
+
+	sort.Strings(targets)
+	unique := targets[:0]
+	for _, target := range targets {
+		if len(unique) == 0 || unique[len(unique)-1] != target {
+			unique = append(unique, target)
+		}
+	}
+
+	return unique, nil
+}
+
+func runReset(cmd *cobra.Command, args []string) {
+	targets, err := resetTargets()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if resetDryRun {
+		fmt.Println("Would remove:")
+		for _, target := range targets {
+			fmt.Printf("  %s\n", target)
+		}
+		return
+	}
+
+	if !resetYes {
+		fmt.Fprintln(os.Stderr, "Error: reset removes local Vectis config, data, cache, tokens, and generated deployment secrets; pass --yes to confirm")
+		fmt.Fprintln(os.Stderr, "Use --dry-run to inspect the directories first.")
+		os.Exit(1)
+	}
+
+	for _, target := range targets {
+		if _, err := os.Stat(target); os.IsNotExist(err) {
+			fmt.Printf("Skipped missing path: %s\n", target)
+			continue
+		} else if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: inspect %s: %v\n", target, err)
+			os.Exit(1)
+		}
+
+		if err := os.RemoveAll(target); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: remove %s: %v\n", target, err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Removed: %s\n", target)
 	}
 }
 
@@ -1541,6 +1621,16 @@ var deployPodmanStatusCmd = &cobra.Command{
 	Run:   runDeployPodmanStatus,
 }
 
+var resetCmd = &cobra.Command{
+	Use:   "reset",
+	Short: "Remove local Vectis config, data, cache, and generated deploy state",
+	Long: `Remove local Vectis application support/config, data, cache, CLI tokens, and generated deployment state.
+
+This is a destructive local reset. It does not stop running services or delete remote/container volumes.`,
+	Args: cobra.NoArgs,
+	Run:  runReset,
+}
+
 var runGetCmd = &cobra.Command{
 	Use:   "get [run-id]",
 	Short: "Get run status and failure details",
@@ -1898,6 +1988,10 @@ func init() {
 	deployPodmanCmd.AddCommand(deployPodmanStatusCmd)
 	deployCmd.AddCommand(deployPodmanCmd)
 	rootCmd.AddCommand(deployCmd)
+
+	resetCmd.Flags().BoolVar(&resetYes, "yes", false, "Confirm removal of local Vectis directories")
+	resetCmd.Flags().BoolVar(&resetDryRun, "dry-run", false, "Print the directories that would be removed")
+	rootCmd.AddCommand(resetCmd)
 
 	loginCmd.Flags().StringP("username", "u", "", "Username (optional; prompts if omitted)")
 	rootCmd.AddCommand(loginCmd)
