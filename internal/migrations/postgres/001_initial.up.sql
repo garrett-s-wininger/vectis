@@ -55,6 +55,18 @@ CREATE TABLE job_runs (
 
 CREATE INDEX idx_job_runs_job_id_run_index ON job_runs (job_id, run_index DESC);
 
+CREATE TABLE run_dispatch_events (
+    id BIGSERIAL PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES job_runs(run_id) ON DELETE CASCADE,
+    source TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    message TEXT,
+    created_at BIGINT NOT NULL
+);
+
+CREATE INDEX idx_run_dispatch_events_run_id_created_at ON run_dispatch_events(run_id, created_at, id);
+CREATE INDEX idx_run_dispatch_events_type ON run_dispatch_events(event_type);
+
 CREATE TABLE idempotency_keys (
     scope TEXT NOT NULL,
     key TEXT NOT NULL,

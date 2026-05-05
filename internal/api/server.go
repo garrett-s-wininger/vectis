@@ -73,6 +73,7 @@ type APIServer struct {
 	namespaces     dal.NamespacesRepository
 	roleBindings   dal.RoleBindingsRepository
 	idempotency    dal.IdempotencyRepository
+	dispatchEvents dal.DispatchEventsRepository
 	logger         interfaces.Logger
 	queueClient    atomic.Pointer[queueClientHolder]
 	runBroadcaster *RunBroadcaster
@@ -114,6 +115,7 @@ func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
 	s.namespaces = repos.Namespaces()
 	s.roleBindings = repos.RoleBindings()
 	s.idempotency = repos.Idempotency()
+	s.dispatchEvents = repos.DispatchEvents()
 	return s
 }
 
@@ -212,6 +214,16 @@ func (s *APIServer) releaseIdempotency(ctx context.Context, scope, key string) {
 
 	if err := s.idempotency.Release(ctx, scope, key); err != nil {
 		s.logger.Error("Failed to release idempotency key: %v", err)
+	}
+}
+
+func (s *APIServer) recordDispatchEvent(ctx context.Context, runID, source, eventType string, message *string) {
+	if s.dispatchEvents == nil {
+		return
+	}
+
+	if err := s.dispatchEvents.Record(ctx, runID, source, eventType, message); err != nil {
+		s.logger.Error("Failed to record dispatch event for run %s: %v", runID, err)
 	}
 }
 
@@ -1258,11 +1270,14 @@ func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID strin
 	req.Metadata[observability.JobEnqueuedAtUnixNanoKey] = strconv.FormatInt(time.Now().UnixNano(), 10)
 	observability.InjectJobTraceContext(ctx, req)
 
+	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventAttempt, nil)
 	if err := enqueueWithRetry(ctx, qc, req, s.logger); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "enqueue")
 		span.End()
 		s.logger.Error("Failed to enqueue job (run %s): %v", runID, err)
+		msg := err.Error()
+		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, &msg)
 		return
 	}
 	span.SetAttributes(attribute.String("vectis.enqueue.outcome", "success"))
@@ -1275,8 +1290,11 @@ func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID strin
 		tdSpan.SetStatus(codes.Error, "touch dispatched")
 		tdSpan.End()
 		s.logger.Error("TouchDispatched after enqueue (run %s): %v", runID, err)
+		msg := "touch dispatched: " + err.Error()
+		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, &msg)
 		return
 	}
+	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventSuccess, nil)
 
 	_, tdSpan := observability.Tracer("vectis/api").Start(ctx, "run.touch_dispatched", trace.WithSpanKind(trace.SpanKindInternal))
 	tdSpan.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
@@ -1558,11 +1576,14 @@ func (s *APIServer) finishRunJobEnqueue(ctx context.Context, generatedID, runID 
 	req.Metadata[observability.JobEnqueuedAtUnixNanoKey] = strconv.FormatInt(time.Now().UnixNano(), 10)
 	observability.InjectJobTraceContext(ctx, req)
 
+	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventAttempt, nil)
 	if err := enqueueWithRetry(ctx, qc, req, s.logger); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "enqueue")
 		span.End()
 		s.logger.Error("Failed to enqueue job (run %s): %v", runID, err)
+		msg := err.Error()
+		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, &msg)
 		return
 	}
 	span.SetAttributes(attribute.String("vectis.enqueue.outcome", "success"))
@@ -1575,8 +1596,11 @@ func (s *APIServer) finishRunJobEnqueue(ctx context.Context, generatedID, runID 
 		tdSpan.SetStatus(codes.Error, "touch dispatched")
 		tdSpan.End()
 		s.logger.Error("TouchDispatched after enqueue (run %s): %v", runID, err)
+		msg := "touch dispatched: " + err.Error()
+		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, &msg)
 		return
 	}
+	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventSuccess, nil)
 
 	_, tdSpan := observability.Tracer("vectis/api").Start(ctx, "run.touch_dispatched", trace.WithSpanKind(trace.SpanKindInternal))
 	tdSpan.SetAttributes(observability.JobRunAttrs(generatedID, runID)...)
@@ -1747,26 +1771,60 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	dispatchEvents := []dal.DispatchEvent{}
+	if s.dispatchEvents != nil {
+		dispatchEvents, err = s.dispatchEvents.ListByRun(ctx, runID)
+		if err != nil {
+			if s.handleDBUnavailableError(w, err) {
+				return
+			}
+
+			s.logger.Error("Database error: %v", err)
+			writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+			return
+		}
+	}
+
+	type dispatchEventRow struct {
+		ID        int64   `json:"id"`
+		Source    string  `json:"source"`
+		EventType string  `json:"event_type"`
+		Message   *string `json:"message,omitempty"`
+		CreatedAt int64   `json:"created_at"`
+	}
+
 	type runRow struct {
-		RunID         string  `json:"run_id"`
-		RunIndex      int     `json:"run_index"`
-		Status        string  `json:"status"`
-		OrphanReason  *string `json:"orphan_reason,omitempty"`
-		FailureCode   *string `json:"failure_code,omitempty"`
-		StartedAt     *string `json:"started_at,omitempty"`
-		FinishedAt    *string `json:"finished_at,omitempty"`
-		FailureReason *string `json:"failure_reason,omitempty"`
+		RunID          string             `json:"run_id"`
+		RunIndex       int                `json:"run_index"`
+		Status         string             `json:"status"`
+		OrphanReason   *string            `json:"orphan_reason,omitempty"`
+		FailureCode    *string            `json:"failure_code,omitempty"`
+		StartedAt      *string            `json:"started_at,omitempty"`
+		FinishedAt     *string            `json:"finished_at,omitempty"`
+		FailureReason  *string            `json:"failure_reason,omitempty"`
+		DispatchEvents []dispatchEventRow `json:"dispatch_events"`
 	}
 
 	resp := runRow{
-		RunID:         rec.RunID,
-		RunIndex:      rec.RunIndex,
-		Status:        rec.Status,
-		OrphanReason:  rec.OrphanReason,
-		FailureCode:   rec.FailureCode,
-		StartedAt:     rec.StartedAt,
-		FinishedAt:    rec.FinishedAt,
-		FailureReason: rec.FailureReason,
+		RunID:          rec.RunID,
+		RunIndex:       rec.RunIndex,
+		Status:         rec.Status,
+		OrphanReason:   rec.OrphanReason,
+		FailureCode:    rec.FailureCode,
+		StartedAt:      rec.StartedAt,
+		FinishedAt:     rec.FinishedAt,
+		FailureReason:  rec.FailureReason,
+		DispatchEvents: []dispatchEventRow{},
+	}
+
+	for _, event := range dispatchEvents {
+		resp.DispatchEvents = append(resp.DispatchEvents, dispatchEventRow{
+			ID:        event.ID,
+			Source:    event.Source,
+			EventType: event.EventType,
+			Message:   event.Message,
+			CreatedAt: event.CreatedAt,
+		})
 	}
 
 	w.Header().Set("Content-Type", "application/json")

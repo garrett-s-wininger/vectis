@@ -26,6 +26,7 @@ const MinDispatchGap = 30 * time.Second
 type Service struct {
 	jobs        dal.JobsRepository
 	runs        dal.RunsRepository
+	dispatch    dal.DispatchEventsRepository
 	logger      interfaces.Logger
 	queueClient interfaces.QueueService
 	clock       interfaces.Clock
@@ -37,7 +38,9 @@ type Service struct {
 
 func NewService(logger interfaces.Logger, db *sql.DB, queue interfaces.QueueService, clock interfaces.Clock) *Service {
 	repos := dal.NewSQLRepositories(db)
-	return NewServiceWithRepositories(logger, repos.Jobs(), repos.Runs(), queue, clock)
+	s := NewServiceWithRepositories(logger, repos.Jobs(), repos.Runs(), queue, clock)
+	s.dispatch = repos.DispatchEvents()
+	return s
 }
 
 func NewServiceWithRepositories(
@@ -64,6 +67,16 @@ func NewServiceWithRepositories(
 func (s *Service) SetMinDispatchGap(d time.Duration) {
 	if d > 0 {
 		s.minGap = d
+	}
+}
+
+func (s *Service) recordDispatchEvent(ctx context.Context, runID, eventType string, message *string) {
+	if s.dispatch == nil {
+		return
+	}
+
+	if err := s.dispatch.Record(ctx, runID, dal.DispatchSourceReconciler, eventType, message); err != nil {
+		s.logger.Error("reconciler: failed to record dispatch event for run %s: %v", runID, err)
 	}
 }
 
@@ -216,9 +229,12 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 	job.RunId = &runID
 
 	req := &api.JobRequest{Job: &job}
+	s.recordDispatchEvent(ctx, runID, dal.DispatchEventAttempt, nil)
 	if err := queueclient.EnqueueWithRetry(ctx, s.queueClient, req, s.logger); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "enqueue")
+		msg := err.Error()
+		s.recordDispatchEvent(ctx, runID, dal.DispatchEventFailure, &msg)
 		if s.metrics != nil {
 			s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeFailedEnqueue)
 		}
@@ -229,12 +245,15 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 	if err := s.runs.TouchDispatched(ctx, runID); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "touch dispatched")
+		msg := "touch dispatched: " + err.Error()
+		s.recordDispatchEvent(ctx, runID, dal.DispatchEventFailure, &msg)
 		if s.metrics != nil {
 			s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeFailedTouchRun)
 		}
 
 		return fmt.Errorf("touch dispatched: %w", err)
 	}
+	s.recordDispatchEvent(ctx, runID, dal.DispatchEventSuccess, nil)
 
 	span.SetAttributes(attribute.String("vectis.reconciler.outcome", observability.ReconcilerOutcomeSuccess))
 	if s.metrics != nil {

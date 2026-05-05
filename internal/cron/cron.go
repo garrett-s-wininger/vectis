@@ -31,6 +31,7 @@ type CronService struct {
 	jobs        dal.JobsRepository
 	runs        dal.RunsRepository
 	schedules   dal.SchedulesRepository
+	dispatch    dal.DispatchEventsRepository
 	logger      interfaces.Logger
 	queueClient interfaces.QueueService
 	queueClose  func()
@@ -41,7 +42,9 @@ type CronService struct {
 
 func NewCronService(logger interfaces.Logger, db *sql.DB) *CronService {
 	repos := dal.NewSQLRepositories(db)
-	return NewCronServiceWithRepositories(logger, repos.Jobs(), repos.Runs(), repos.Schedules())
+	s := NewCronServiceWithRepositories(logger, repos.Jobs(), repos.Runs(), repos.Schedules())
+	s.dispatch = repos.DispatchEvents()
+	return s
 }
 
 func NewCronServiceWithRepositories(
@@ -73,6 +76,16 @@ func (s *CronService) SetQueueClient(client interfaces.QueueService) {
 
 func (s *CronService) SetClock(clock interfaces.Clock) {
 	s.clock = clock
+}
+
+func (s *CronService) recordDispatchEvent(ctx context.Context, runID, eventType string, message *string) {
+	if s.dispatch == nil {
+		return
+	}
+
+	if err := s.dispatch.Record(ctx, runID, dal.DispatchSourceCron, eventType, message); err != nil {
+		s.logger.Error("Failed to record cron dispatch event for run %s: %v", runID, err)
+	}
 }
 
 func (s *CronService) CloseQueueDial() {
@@ -186,13 +199,20 @@ func (s *CronService) TriggerJob(ctx context.Context, jobID string) error {
 	s.mu.Lock()
 	qc := s.queueClient
 	s.mu.Unlock()
+	s.recordDispatchEvent(ctx, runID, dal.DispatchEventAttempt, nil)
 	if err := queueclient.EnqueueWithRetry(ctx, qc, &api.JobRequest{Job: job}, s.logger); err != nil {
+		msg := err.Error()
+		s.recordDispatchEvent(ctx, runID, dal.DispatchEventFailure, &msg)
 		return err
 	}
 
 	if err := s.runs.TouchDispatched(ctx, runID); err != nil {
 		s.logger.Error("TouchDispatched after enqueue for run %s: %v", runID, err)
+		msg := "touch dispatched: " + err.Error()
+		s.recordDispatchEvent(ctx, runID, dal.DispatchEventFailure, &msg)
+		return nil
 	}
+	s.recordDispatchEvent(ctx, runID, dal.DispatchEventSuccess, nil)
 	return nil
 }
 

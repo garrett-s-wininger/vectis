@@ -89,7 +89,7 @@ Default listen addresses are defined in [`internal/config/defaults.toml`](../int
 
 | Store | Responsibility |
 | --- | --- |
-| **SQL database** | Job definitions, run rows (status, dispatch metadata, leases), cron schedules. Migrations are embedded; **SQLite** and **PostgreSQL** are supported via driver and DSN configuration. |
+| **SQL database** | Job definitions, run rows (status, dispatch metadata, leases), append-only dispatch events, cron schedules. Migrations are embedded; **SQLite** and **PostgreSQL** are supported via driver and DSN configuration. |
 | **Queue persistence** | Optional directory on the queue host for WAL/snapshot of queued and in-flight items. If disabled, queue contents are memory-only and a restart can drop buffered work (database + reconciler still reflect intent). |
 
 Details and roadmap notes: [PLANNING.md](PLANNING.md) §2.5.
@@ -115,6 +115,7 @@ Details and roadmap notes: [PLANNING.md](PLANNING.md) §2.5.
 | POST | `/api/v1/jobs/run` | Run from inline body (ephemeral) |
 | POST | `/api/v1/jobs/trigger/{id}` | New run from stored definition |
 | GET | `/api/v1/jobs/{id}/runs` | List runs |
+| GET | `/api/v1/runs/{id}` | Get run detail, including dispatch event trail |
 | GET | `/api/v1/sse/jobs/{id}/runs` | Run events stream |
 
 There is **no** authentication, projects API, artifact API, or HTTP cancel endpoint in the current mux.
