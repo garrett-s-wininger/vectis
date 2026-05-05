@@ -21,20 +21,6 @@ FORMAL_MODELS := reconciliation
 JAVA ?= java
 TLA_TOOLS_JAR ?= /opt/tla+/tla2tools.jar
 
-PODMAN_GRAFANA_KUBE ?= deploy/podman/grafana-configmaps.gen.yaml
-PODMAN_KUBE_SPEC ?= deploy/podman/kube-spec.yaml
-PODMAN_NETWORK ?= pasta
-
-GRAFANA_KUBE_GEN_SCRIPT := deploy/podman/generate-grafana-configmaps.py
-GRAFANA_KUBE_SOURCES := \
-	deploy/grafana/provisioning/dashboards/dashboards.yaml \
-	$(wildcard deploy/grafana/dashboards/*.json) \
-	$(GRAFANA_KUBE_GEN_SCRIPT)
-
-VECTIS_DATABASE_DRIVER ?= pgx
-VECTIS_POSTGRES_HOST_PORT ?= 15432
-VECTIS_DATABASE_DSN ?= postgres://vectis:vectis@127.0.0.1:${VECTIS_POSTGRES_HOST_PORT}/vectis?sslmode=require
-
 .PHONY: all
 all: build
 
@@ -128,27 +114,3 @@ images-all: image-full images-components
 
 .PHONY: images-components
 images-components: image-cli $(addprefix image-, $(COMPONENTS))
-
-$(PODMAN_GRAFANA_KUBE): $(GRAFANA_KUBE_SOURCES) $(GRAFANA_KUBE_GEN_SCRIPT)
-	python3 $(GRAFANA_KUBE_GEN_SCRIPT) -o $(PODMAN_GRAFANA_KUBE)
-
-.PHONY: grafana-kube-configmaps
-grafana-kube-configmaps: $(PODMAN_GRAFANA_KUBE)
-
-# NOTE(garrett): In certain cases like WSL, the standard network support for nftables
-# may not work due to missing kernel modules. We use the newer standard of PASTA to
-# work around this. Older versions of Podman may need to manually fallback to
-# slirp4netns (override PODMAN_NETWORK=slirp4netns).
-define PODMAN_DEPLOY_BODY
-	podman play kube --replace $(PODMAN_KUBE_SPEC) $(PODMAN_GRAFANA_KUBE) --network $(PODMAN_NETWORK)
-	VECTIS_DATABASE_DRIVER=$(VECTIS_DATABASE_DRIVER) \
-	VECTIS_DATABASE_DSN="$(VECTIS_DATABASE_DSN)" \
-		$(OUT_DIR)/vectis-cli migrate
-endef
-
-.PHONY: deploy-podman deploy-podman-spec
-deploy-podman: images-components $(OUT_DIR)/vectis-cli $(PODMAN_GRAFANA_KUBE)
-	$(PODMAN_DEPLOY_BODY)
-
-deploy-podman-spec: $(OUT_DIR)/vectis-cli $(PODMAN_GRAFANA_KUBE)
-	$(PODMAN_DEPLOY_BODY)

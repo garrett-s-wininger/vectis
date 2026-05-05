@@ -25,7 +25,7 @@ These are already known high-value foundations and remain prerequisites:
 
 ### 1. API Response And Error Contract
 
-Status: todo
+Status: doing
 
 Why it blocks feature work:
 Clients and future UI code need stable response shapes. Today auth errors use JSON helpers in several paths, while many API handlers still use `http.Error` plain text. Adding features on top of mixed error semantics will spread client special cases.
@@ -389,9 +389,9 @@ Why it blocks feature work:
 The shipped Podman reference is useful for demos, but it currently embeds default database credentials and uses inline DSNs. Before treating it as a staging or production baseline, operators need a clear secret injection path, bootstrap-token story, and "demo only" guardrails.
 
 Evidence:
-- `deploy/podman/kube-spec.yaml` sets `POSTGRES_PASSWORD` to `vectis`.
-- Database DSNs in the same spec embed `postgres://vectis:vectis@...`.
-- Auth bootstrap configuration is documented, but the reference deploy does not provide an operator-safe secret workflow.
+- `vectis-cli deploy podman init/render/up` now generates local deployment secrets and renders Secret `vectis-podman-secrets`.
+- `deploy/podman/kube-spec.yaml` consumes generated Secret values for Postgres password and database DSNs.
+- Auth bootstrap configuration is documented, but bootstrap-token lifecycle still needs a clearer operator workflow once API auth is enabled in the reference deploy.
 
 Acceptance criteria:
 - Move reference credentials to generated secrets, external secret injection, or an explicit local-only setup script.
