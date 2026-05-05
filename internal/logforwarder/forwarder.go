@@ -39,6 +39,7 @@ type Forwarder struct {
 	shutdownCh      chan struct{}
 	shutdownOnce    sync.Once
 	spoolCounter    uint64
+	sendMu          sync.Mutex
 }
 
 // NewForwarder creates a forwarder that reads from the provided chunk channel.
@@ -155,6 +156,19 @@ func (f *Forwarder) flushBatch(ctx context.Context, batch []*api.LogChunk) []*ap
 		return batch
 	}
 
+	f.sendMu.Lock()
+	defer f.sendMu.Unlock()
+
+	if f.hasSpoolBacklog() {
+		if spoolErr := f.spoolBatch(batch); spoolErr != nil {
+			if f.logger != nil {
+				f.logger.Error("Log batch lost: spool backlog present and spool failed: %v", spoolErr)
+			}
+		}
+
+		return batch[:0]
+	}
+
 	if f.logClient == nil {
 		if spoolErr := f.spoolBatch(batch); spoolErr != nil {
 			if f.logger != nil {
@@ -178,6 +192,21 @@ func (f *Forwarder) flushBatch(ctx context.Context, batch []*api.LogChunk) []*ap
 	}
 
 	return batch[:0]
+}
+
+func (f *Forwarder) hasSpoolBacklog() bool {
+	entries, err := os.ReadDir(f.spoolDir)
+	if err != nil {
+		return false
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() && filepath.Ext(entry.Name()) == spoolExt {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (f *Forwarder) sendBatch(parentCtx context.Context, batch []*api.LogChunk) error {
@@ -277,6 +306,9 @@ func (f *Forwarder) spoolScanner(ctx context.Context) {
 }
 
 func (f *Forwarder) scanSpool(ctx context.Context) error {
+	f.sendMu.Lock()
+	defer f.sendMu.Unlock()
+
 	entries, err := os.ReadDir(f.spoolDir)
 	if err != nil {
 		if os.IsNotExist(err) {
