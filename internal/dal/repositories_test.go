@@ -660,7 +660,7 @@ func TestJobsRepository_GetDefinitionVersion_NotFound(t *testing.T) {
 	}
 }
 
-func TestSchedulesRepository_GetReadyAndUpdateNextRun(t *testing.T) {
+func TestSchedulesRepository_GetReadyClaimAndComplete(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)
 	jobs := repos.Jobs()
@@ -697,8 +697,32 @@ func TestSchedulesRepository_GetReadyAndUpdateNextRun(t *testing.T) {
 	}
 
 	updatedNext := now.Add(10 * time.Minute)
-	if err := schedules.UpdateNextRun(ctx, ready[0].ID, updatedNext); err != nil {
-		t.Fatalf("update next run: %v", err)
+	claimToken := "claim-ready"
+	claimed, err := schedules.ClaimDue(ctx, ready[0].ID, ready[0].NextRunAt, claimToken, now.Add(5*time.Minute), now)
+	if err != nil {
+		t.Fatalf("claim next run: %v", err)
+	}
+
+	if !claimed {
+		t.Fatal("expected schedule claim to succeed")
+	}
+
+	readyClaimed, err := schedules.GetReady(ctx, now)
+	if err != nil {
+		t.Fatalf("get ready schedules after claim: %v", err)
+	}
+
+	if len(readyClaimed) != 0 {
+		t.Fatalf("expected claimed schedule to be hidden from ready list, got %+v", readyClaimed)
+	}
+
+	completed, err := schedules.CompleteClaim(ctx, ready[0].ID, claimToken, updatedNext)
+	if err != nil {
+		t.Fatalf("complete claim: %v", err)
+	}
+
+	if !completed {
+		t.Fatal("expected schedule completion to succeed")
 	}
 
 	readyAfter, err := schedules.GetReady(ctx, now)
@@ -708,5 +732,82 @@ func TestSchedulesRepository_GetReadyAndUpdateNextRun(t *testing.T) {
 
 	if len(readyAfter) != 0 {
 		t.Fatalf("expected no ready schedules after update, got %+v", readyAfter)
+	}
+}
+
+func TestSchedulesRepository_ClaimDueCompleteAndRelease(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	jobs := repos.Jobs()
+	schedules := repos.Schedules()
+	ctx := context.Background()
+
+	if err := jobs.Create(ctx, "cron-job", `{"id":"cron-job"}`, 1); err != nil {
+		t.Fatalf("create stored job: %v", err)
+	}
+
+	now := time.Now().UTC().Truncate(time.Second)
+	observed := now.Add(-1 * time.Minute)
+	next := now.Add(10 * time.Minute)
+
+	result, err := db.ExecContext(ctx,
+		"INSERT INTO job_cron_schedules (job_id, cron_spec, next_run_at) VALUES (?, ?, ?)",
+		"cron-job", "* * * * *", observed.Format(time.RFC3339))
+	if err != nil {
+		t.Fatalf("insert schedule: %v", err)
+	}
+
+	scheduleID, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("schedule id: %v", err)
+	}
+
+	claimed, err := schedules.ClaimDue(ctx, scheduleID, observed, "claim-1", now.Add(5*time.Minute), now)
+	if err != nil {
+		t.Fatalf("claim due: %v", err)
+	}
+
+	if !claimed {
+		t.Fatal("expected first claim to claim schedule")
+	}
+
+	claimed, err = schedules.ClaimDue(ctx, scheduleID, observed, "claim-2", now.Add(5*time.Minute), now)
+	if err != nil {
+		t.Fatalf("duplicate claim due: %v", err)
+	}
+
+	if claimed {
+		t.Fatal("expected duplicate claim to lose schedule claim")
+	}
+
+	if err := schedules.ReleaseClaim(ctx, scheduleID, "claim-1"); err != nil {
+		t.Fatalf("release claim: %v", err)
+	}
+
+	claimed, err = schedules.ClaimDue(ctx, scheduleID, observed, "claim-3", now.Add(5*time.Minute), now)
+	if err != nil {
+		t.Fatalf("claim after release: %v", err)
+	}
+
+	if !claimed {
+		t.Fatal("expected claim after release to succeed")
+	}
+
+	completed, err := schedules.CompleteClaim(ctx, scheduleID, "claim-3", next)
+	if err != nil {
+		t.Fatalf("complete claim: %v", err)
+	}
+
+	if !completed {
+		t.Fatal("expected complete claim to succeed")
+	}
+
+	var nextRunStr string
+	if err := db.QueryRowContext(ctx, "SELECT next_run_at FROM job_cron_schedules WHERE id = ?", scheduleID).Scan(&nextRunStr); err != nil {
+		t.Fatalf("read next_run_at: %v", err)
+	}
+
+	if nextRunStr != next.Format(time.RFC3339) {
+		t.Fatalf("expected next_run_at %q, got %q", next.Format(time.RFC3339), nextRunStr)
 	}
 }

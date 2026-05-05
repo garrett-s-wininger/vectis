@@ -320,23 +320,43 @@ func (m *MockRunsRepository) GetRunForCancel(ctx context.Context, runID string) 
 
 var _ dal.RunsRepository = (*MockRunsRepository)(nil)
 
-type UpdateNextRunCall struct {
-	ID   int64
-	Next time.Time
+type ClaimDueCall struct {
+	ID              int64
+	ObservedNextRun time.Time
+	ClaimToken      string
+	ClaimedUntil    time.Time
+	Now             time.Time
+}
+
+type CompleteClaimCall struct {
+	ID         int64
+	ClaimToken string
+	Next       time.Time
+}
+
+type ReleaseClaimCall struct {
+	ID         int64
+	ClaimToken string
 }
 
 type MockSchedulesRepository struct {
 	Ready []dal.CronSchedule
 
-	GetReadyErr   error
-	UpdateNextErr error
+	GetReadyErr      error
+	ClaimDueErr      error
+	ClaimDueOK       bool
+	CompleteClaimErr error
+	CompleteClaimOK  bool
+	ReleaseClaimErr  error
 
-	GetReadyCalled int
-	UpdateCalls    []UpdateNextRunCall
+	GetReadyCalled     int
+	ClaimDueCalls      []ClaimDueCall
+	CompleteClaimCalls []CompleteClaimCall
+	ReleaseClaimCalls  []ReleaseClaimCall
 }
 
 func NewMockSchedulesRepository() *MockSchedulesRepository {
-	return &MockSchedulesRepository{}
+	return &MockSchedulesRepository{ClaimDueOK: true, CompleteClaimOK: true}
 }
 
 func (m *MockSchedulesRepository) GetReady(ctx context.Context, at time.Time) ([]dal.CronSchedule, error) {
@@ -347,14 +367,46 @@ func (m *MockSchedulesRepository) GetReady(ctx context.Context, at time.Time) ([
 	return append([]dal.CronSchedule(nil), m.Ready...), nil
 }
 
-func (m *MockSchedulesRepository) UpdateNextRun(ctx context.Context, scheduleID int64, nextRun time.Time) error {
-	if m.UpdateNextErr != nil {
-		return m.UpdateNextErr
+func (m *MockSchedulesRepository) ClaimDue(ctx context.Context, scheduleID int64, observedNextRun time.Time, claimToken string, claimedUntil, now time.Time) (bool, error) {
+	if m.ClaimDueErr != nil {
+		return false, m.ClaimDueErr
 	}
-	m.UpdateCalls = append(m.UpdateCalls, UpdateNextRunCall{
-		ID:   scheduleID,
-		Next: nextRun,
+
+	m.ClaimDueCalls = append(m.ClaimDueCalls, ClaimDueCall{
+		ID:              scheduleID,
+		ObservedNextRun: observedNextRun,
+		ClaimToken:      claimToken,
+		ClaimedUntil:    claimedUntil,
+		Now:             now,
 	})
+
+	return m.ClaimDueOK, nil
+}
+
+func (m *MockSchedulesRepository) CompleteClaim(ctx context.Context, scheduleID int64, claimToken string, nextRun time.Time) (bool, error) {
+	if m.CompleteClaimErr != nil {
+		return false, m.CompleteClaimErr
+	}
+
+	m.CompleteClaimCalls = append(m.CompleteClaimCalls, CompleteClaimCall{
+		ID:         scheduleID,
+		ClaimToken: claimToken,
+		Next:       nextRun,
+	})
+
+	return m.CompleteClaimOK, nil
+}
+
+func (m *MockSchedulesRepository) ReleaseClaim(ctx context.Context, scheduleID int64, claimToken string) error {
+	if m.ReleaseClaimErr != nil {
+		return m.ReleaseClaimErr
+	}
+
+	m.ReleaseClaimCalls = append(m.ReleaseClaimCalls, ReleaseClaimCall{
+		ID:         scheduleID,
+		ClaimToken: claimToken,
+	})
+
 	return nil
 }
 

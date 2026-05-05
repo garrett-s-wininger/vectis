@@ -196,8 +196,18 @@ func (s *CronService) TriggerJob(ctx context.Context, jobID string) error {
 	return nil
 }
 
-func (s *CronService) UpdateNextRun(ctx context.Context, scheduleID int64, nextRun time.Time) error {
-	return s.schedules.UpdateNextRun(ctx, scheduleID, nextRun)
+func (s *CronService) ClaimDue(ctx context.Context, scheduleID int64, observedNextRun time.Time, claimToken string, claimedUntil, now time.Time) (bool, error) {
+	return s.schedules.ClaimDue(ctx, scheduleID, observedNextRun, claimToken, claimedUntil, now)
+}
+
+func (s *CronService) CompleteClaim(ctx context.Context, scheduleID int64, claimToken string, nextRun time.Time) (bool, error) {
+	return s.schedules.CompleteClaim(ctx, scheduleID, claimToken, nextRun)
+}
+
+func (s *CronService) ReleaseClaim(ctx context.Context, scheduleID int64, claimToken string) {
+	if err := s.schedules.ReleaseClaim(ctx, scheduleID, claimToken); err != nil {
+		s.logger.Error("Failed to release cron claim for schedule %d: %v", scheduleID, err)
+	}
 }
 
 func (s *CronService) ProcessSchedules(ctx context.Context) error {
@@ -226,22 +236,41 @@ func (s *CronService) ProcessSchedules(ctx context.Context) error {
 			continue
 		}
 
-		s.logger.Info("Triggering job %s (spec: %q)", sched.JobID, sched.CronSpec)
-
-		if err := s.TriggerJob(ctx, sched.JobID); err != nil {
-			s.logger.Error("Failed to trigger job %s: %v", sched.JobID, err)
-			// NOTE(garrett): Leave next_run_at unchanged to preserve drift audit trail
-			continue
-		}
-
 		nextRun, err := s.CalculateNextRun(sched.CronSpec, now)
 		if err != nil {
 			s.logger.Error("Failed to calculate next run for job %s: %v", sched.JobID, err)
 			continue
 		}
 
-		if err := s.UpdateNextRun(ctx, sched.ID, nextRun); err != nil {
-			s.logger.Error("Failed to update next_run_at for job %s: %v", sched.JobID, err)
+		claimToken := fmt.Sprintf("%d:%d", sched.ID, now.UnixNano())
+		claimedUntil := now.Add(5 * time.Minute)
+		claimed, err := s.ClaimDue(ctx, sched.ID, sched.NextRunAt, claimToken, claimedUntil, now)
+		if err != nil {
+			s.logger.Error("Failed to claim schedule for job %s: %v", sched.JobID, err)
+			continue
+		}
+
+		if !claimed {
+			s.logger.Info("Skipping job %s: schedule was already claimed or advanced", sched.JobID)
+			continue
+		}
+
+		s.logger.Info("Triggering job %s (spec: %q)", sched.JobID, sched.CronSpec)
+
+		if err := s.TriggerJob(ctx, sched.JobID); err != nil {
+			s.logger.Error("Failed to trigger job %s after claiming schedule: %v", sched.JobID, err)
+			s.ReleaseClaim(ctx, sched.ID, claimToken)
+			continue
+		}
+
+		completed, err := s.CompleteClaim(ctx, sched.ID, claimToken, nextRun)
+		if err != nil {
+			s.logger.Error("Failed to advance next_run_at for job %s: %v", sched.JobID, err)
+			continue
+		}
+
+		if !completed {
+			s.logger.Error("Failed to advance next_run_at for job %s: schedule claim was lost", sched.JobID)
 			continue
 		}
 
