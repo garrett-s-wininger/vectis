@@ -24,11 +24,14 @@ CREATE TABLE job_cron_schedules (
     job_id TEXT NOT NULL REFERENCES stored_jobs(job_id),
     cron_spec TEXT NOT NULL,
     next_run_at TEXT NOT NULL,
+    claim_token TEXT,
+    claimed_until TEXT,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(job_id, cron_spec)
 );
 
 CREATE INDEX idx_cron_next_run ON job_cron_schedules(next_run_at);
+CREATE INDEX idx_cron_claimed_until ON job_cron_schedules(claimed_until);
 
 CREATE TABLE job_runs (
     id BIGSERIAL PRIMARY KEY,

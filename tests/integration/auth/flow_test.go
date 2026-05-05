@@ -135,6 +135,7 @@ func TestIntegrationAuth_Flow(t *testing.T) {
 		body, _ := json.Marshal(map[string]any{
 			"id": "auth-test-job",
 			"root": map[string]any{
+				"id":   "root",
 				"uses": "builtins/shell",
 				"with": map[string]string{"command": "echo hello"},
 			},

@@ -207,7 +207,7 @@ func TestCronService_GetJobDefinition_NotFound(t *testing.T) {
 	}
 }
 
-func TestCronService_UpdateNextRun(t *testing.T) {
+func TestCronService_ClaimAndCompleteSchedule(t *testing.T) {
 	service, _, _, db := setupTestCronService(t)
 
 	db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)",
@@ -220,9 +220,33 @@ func TestCronService_UpdateNextRun(t *testing.T) {
 	scheduleID, _ := result.LastInsertId()
 
 	newTime := time.Now().Add(1 * time.Hour)
-	err := service.UpdateNextRun(context.Background(), scheduleID, newTime)
+	claimToken := "claim-1"
+	claimedUntil := time.Now().Add(5 * time.Minute)
+	claimed, err := service.ClaimDue(context.Background(), scheduleID, oldTime, claimToken, claimedUntil, time.Now())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !claimed {
+		t.Fatal("expected schedule claim to succeed")
+	}
+
+	claimed, err = service.ClaimDue(context.Background(), scheduleID, oldTime, "claim-2", claimedUntil, time.Now())
+	if err != nil {
+		t.Fatalf("unexpected duplicate claim error: %v", err)
+	}
+
+	if claimed {
+		t.Fatal("expected duplicate schedule claim to fail")
+	}
+
+	completed, err := service.CompleteClaim(context.Background(), scheduleID, claimToken, newTime)
+	if err != nil {
+		t.Fatalf("unexpected complete error: %v", err)
+	}
+
+	if !completed {
+		t.Fatal("expected schedule completion to succeed")
 	}
 
 	var storedTime string
