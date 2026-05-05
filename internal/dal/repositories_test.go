@@ -208,6 +208,53 @@ func TestRunsRepository_ClaimRenewAndDispatchQueries(t *testing.T) {
 	}
 }
 
+func TestDispatchEventsRepository_RecordAndListByRun(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	runs := repos.Runs()
+	dispatch := repos.DispatchEvents()
+	ctx := context.Background()
+
+	runID, _, err := runs.CreateRun(ctx, "job-dispatch", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	msg := "queue unavailable"
+	if err := dispatch.Record(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventAttempt, nil); err != nil {
+		t.Fatalf("record attempt: %v", err)
+	}
+
+	if err := dispatch.Record(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, &msg); err != nil {
+		t.Fatalf("record failure: %v", err)
+	}
+
+	events, err := dispatch.ListByRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("list dispatch events: %v", err)
+	}
+
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events, got %+v", events)
+	}
+
+	if events[0].EventType != dal.DispatchEventAttempt || events[0].Message != nil {
+		t.Fatalf("unexpected attempt event: %+v", events[0])
+	}
+
+	if events[1].Source != dal.DispatchSourceAPI || events[1].EventType != dal.DispatchEventFailure {
+		t.Fatalf("unexpected failure event: %+v", events[1])
+	}
+
+	if events[1].Message == nil || *events[1].Message != msg {
+		t.Fatalf("unexpected failure message: %+v", events[1].Message)
+	}
+
+	if events[0].CreatedAt == 0 || events[1].CreatedAt == 0 {
+		t.Fatalf("expected created_at values: %+v", events)
+	}
+}
+
 func TestRunsRepository_MarkExpiredRunningAsOrphaned(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)

@@ -61,6 +61,25 @@ func waitForLoggerErrorContaining(t *testing.T, log *mocks.MockLogger, sub strin
 	t.Fatalf("timed out waiting for logger error containing %q", sub)
 }
 
+func waitForNDispatchEvents(t *testing.T, db *sql.DB, runID string, n int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM run_dispatch_events WHERE run_id = ?`, runID).Scan(&count); err != nil {
+			t.Fatalf("count dispatch events: %v", err)
+		}
+
+		if count >= n {
+			return
+		}
+
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	t.Fatalf("timed out waiting for %d dispatch events for run %s", n, runID)
+}
+
 func assertAPIError(t *testing.T, rec *httptest.ResponseRecorder, status int, code string) {
 	t.Helper()
 
@@ -1074,7 +1093,7 @@ func TestAPIServer_RunJob_Success(t *testing.T) {
 }
 
 func TestAPIServer_GetRun_EphemeralRun(t *testing.T) {
-	server, _, queueService, _ := setupTestServer(t)
+	server, _, queueService, db := setupTestServer(t)
 
 	jobDef := map[string]any{
 		"root": map[string]any{
@@ -1110,6 +1129,7 @@ func TestAPIServer_GetRun_EphemeralRun(t *testing.T) {
 	}
 
 	waitForNEnqueuedJobs(t, queueService, 1)
+	waitForNDispatchEvents(t, db, runResp.RunID, 2)
 
 	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+runResp.RunID, nil)
 	getReq.SetPathValue("id", runResp.RunID)
@@ -1122,8 +1142,12 @@ func TestAPIServer_GetRun_EphemeralRun(t *testing.T) {
 	}
 
 	var got struct {
-		RunID  string `json:"run_id"`
-		Status string `json:"status"`
+		RunID          string `json:"run_id"`
+		Status         string `json:"status"`
+		DispatchEvents []struct {
+			Source    string `json:"source"`
+			EventType string `json:"event_type"`
+		} `json:"dispatch_events"`
 	}
 
 	if err := json.Unmarshal(getRec.Body.Bytes(), &got); err != nil {
@@ -1136,6 +1160,18 @@ func TestAPIServer_GetRun_EphemeralRun(t *testing.T) {
 
 	if got.Status != "queued" {
 		t.Fatalf("status: want queued, got %q", got.Status)
+	}
+
+	if len(got.DispatchEvents) != 2 {
+		t.Fatalf("expected dispatch trail in run response, got %+v", got.DispatchEvents)
+	}
+
+	if got.DispatchEvents[0].Source != dal.DispatchSourceAPI || got.DispatchEvents[0].EventType != dal.DispatchEventAttempt {
+		t.Fatalf("unexpected first dispatch event: %+v", got.DispatchEvents[0])
+	}
+
+	if got.DispatchEvents[1].Source != dal.DispatchSourceAPI || got.DispatchEvents[1].EventType != dal.DispatchEventSuccess {
+		t.Fatalf("unexpected second dispatch event: %+v", got.DispatchEvents[1])
 	}
 }
 

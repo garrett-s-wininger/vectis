@@ -44,6 +44,14 @@ const (
 	OrphanReasonAckUncertain = "ack_uncertain"
 	FailureCodeExecution     = "execution_error"
 	FailureCodeForceFailed   = "force_failed"
+
+	DispatchSourceAPI        = "api"
+	DispatchSourceCron       = "cron"
+	DispatchSourceReconciler = "reconciler"
+
+	DispatchEventAttempt = "attempt"
+	DispatchEventSuccess = "success"
+	DispatchEventFailure = "failure"
 )
 
 type JobRecord struct {
@@ -81,10 +89,24 @@ type IdempotencyRecord struct {
 	ResponseJSON *string
 }
 
+type DispatchEvent struct {
+	ID        int64
+	RunID     string
+	Source    string
+	EventType string
+	Message   *string
+	CreatedAt int64
+}
+
 type IdempotencyRepository interface {
 	Reserve(ctx context.Context, scope, key, requestHash string) (record IdempotencyRecord, created bool, err error)
 	Complete(ctx context.Context, scope, key, responseJSON string) error
 	Release(ctx context.Context, scope, key string) error
+}
+
+type DispatchEventsRepository interface {
+	Record(ctx context.Context, runID, source, eventType string, message *string) error
+	ListByRun(ctx context.Context, runID string) ([]DispatchEvent, error)
 }
 
 type CronSchedule struct {
@@ -147,6 +169,7 @@ type SQLRepositories struct {
 	namespaces   *SQLNamespacesRepository
 	roleBindings *SQLRoleBindingsRepository
 	idempotency  *SQLIdempotencyRepository
+	dispatch     *SQLDispatchEventsRepository
 }
 
 func NewSQLRepositories(db *sql.DB) *SQLRepositories {
@@ -159,6 +182,7 @@ func NewSQLRepositories(db *sql.DB) *SQLRepositories {
 		namespaces:   NewSQLNamespacesRepository(db),
 		roleBindings: NewSQLRoleBindingsRepository(db),
 		idempotency:  &SQLIdempotencyRepository{db: db},
+		dispatch:     &SQLDispatchEventsRepository{db: db},
 	}
 }
 
@@ -236,6 +260,70 @@ func (r *SQLRepositories) RoleBindings() RoleBindingsRepository {
 func (r *SQLRepositories) Idempotency() IdempotencyRepository {
 	return r.idempotency
 }
+
+func (r *SQLRepositories) DispatchEvents() DispatchEventsRepository {
+	return r.dispatch
+}
+
+type SQLDispatchEventsRepository struct {
+	db *sql.DB
+}
+
+func (r *SQLDispatchEventsRepository) Record(ctx context.Context, runID, source, eventType string, message *string) error {
+	_, err := r.db.ExecContext(ctx,
+		rebindQueryForPgx(`
+			INSERT INTO run_dispatch_events (run_id, source, event_type, message, created_at)
+			VALUES (?, ?, ?, ?, ?)
+		`),
+		runID,
+		source,
+		eventType,
+		message,
+		time.Now().Unix(),
+	)
+
+	return normalizeSQLError(err)
+}
+
+func (r *SQLDispatchEventsRepository) ListByRun(ctx context.Context, runID string) ([]DispatchEvent, error) {
+	rows, err := r.db.QueryContext(ctx,
+		rebindQueryForPgx(`
+			SELECT id, run_id, source, event_type, message, created_at
+			FROM run_dispatch_events
+			WHERE run_id = ?
+			ORDER BY created_at ASC, id ASC
+		`),
+		runID,
+	)
+
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	var out []DispatchEvent
+	for rows.Next() {
+		var rec DispatchEvent
+		var message sql.NullString
+		if err := rows.Scan(&rec.ID, &rec.RunID, &rec.Source, &rec.EventType, &message, &rec.CreatedAt); err != nil {
+			return nil, err
+		}
+
+		if message.Valid {
+			rec.Message = &message.String
+		}
+
+		out = append(out, rec)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return out, nil
+}
+
+var _ DispatchEventsRepository = (*SQLDispatchEventsRepository)(nil)
 
 type SQLIdempotencyRepository struct {
 	db *sql.DB
