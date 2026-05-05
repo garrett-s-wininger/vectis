@@ -89,6 +89,24 @@ func assertAPIError(t *testing.T, rec *httptest.ResponseRecorder, status int, co
 	}
 }
 
+func apiErrorDetailString(t *testing.T, rec *httptest.ResponseRecorder, key string) string {
+	t.Helper()
+
+	var body struct {
+		Details map[string]string `json:"details"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode api error details: %v; body=%s", err, rec.Body.String())
+	}
+
+	if body.Details == nil {
+		t.Fatalf("expected details in body=%s", rec.Body.String())
+	}
+
+	return body.Details[key]
+}
+
 func TestAPIServer_CreateJob_Success(t *testing.T) {
 	server, logger, _, db := setupTestServer(t)
 
@@ -147,9 +165,7 @@ func TestAPIServer_CreateJob_InvalidContentType(t *testing.T) {
 
 	server.CreateJob(rec, req)
 
-	if rec.Code != http.StatusUnsupportedMediaType {
-		t.Errorf("expected status %d, got %d", http.StatusUnsupportedMediaType, rec.Code)
-	}
+	assertAPIError(t, rec, http.StatusUnsupportedMediaType, "unsupported_media_type")
 }
 
 func TestAPIServer_CreateJob_DBUnavailable(t *testing.T) {
@@ -174,9 +190,7 @@ func TestAPIServer_CreateJob_DBUnavailable(t *testing.T) {
 
 	server.CreateJob(rec, req)
 
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected status %d, got %d", http.StatusServiceUnavailable, rec.Code)
-	}
+	assertAPIError(t, rec, http.StatusServiceUnavailable, "database_unavailable")
 }
 
 func TestAPIServer_GetJobs_DBUnavailable(t *testing.T) {
@@ -189,9 +203,7 @@ func TestAPIServer_GetJobs_DBUnavailable(t *testing.T) {
 	rec := httptest.NewRecorder()
 	server.GetJobs(rec, req)
 
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected status %d, got %d", http.StatusServiceUnavailable, rec.Code)
-	}
+	assertAPIError(t, rec, http.StatusServiceUnavailable, "database_unavailable")
 }
 
 func TestAPIServer_GetJobs_ListError_ClassifiedUnavailable(t *testing.T) {
@@ -204,9 +216,7 @@ func TestAPIServer_GetJobs_ListError_ClassifiedUnavailable(t *testing.T) {
 	rec := httptest.NewRecorder()
 	server.GetJobs(rec, req)
 
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected status %d, got %d", http.StatusServiceUnavailable, rec.Code)
-	}
+	assertAPIError(t, rec, http.StatusServiceUnavailable, "database_unavailable")
 }
 
 func TestAPIServer_GetJobRuns_DBUnavailable(t *testing.T) {
@@ -220,9 +230,7 @@ func TestAPIServer_GetJobRuns_DBUnavailable(t *testing.T) {
 	rec := httptest.NewRecorder()
 	server.GetJobRuns(rec, req)
 
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected status %d, got %d", http.StatusServiceUnavailable, rec.Code)
-	}
+	assertAPIError(t, rec, http.StatusServiceUnavailable, "database_unavailable")
 }
 
 func TestAPIServer_GetJobRuns_NotFound(t *testing.T) {
@@ -233,9 +241,7 @@ func TestAPIServer_GetJobRuns_NotFound(t *testing.T) {
 	rec := httptest.NewRecorder()
 	server.GetJobRuns(rec, req)
 
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("expected status %d, got %d", http.StatusNotFound, rec.Code)
-	}
+	assertAPIError(t, rec, http.StatusNotFound, "job_not_found")
 }
 
 func TestAPIServer_TriggerJob_DBUnavailableOnGetDefinition(t *testing.T) {
@@ -254,9 +260,7 @@ func TestAPIServer_TriggerJob_DBUnavailableOnGetDefinition(t *testing.T) {
 	rec := httptest.NewRecorder()
 	server.TriggerJob(rec, req)
 
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected status %d, got %d", http.StatusServiceUnavailable, rec.Code)
-	}
+	assertAPIError(t, rec, http.StatusServiceUnavailable, "database_unavailable")
 }
 
 func TestAPIServer_CreateJob_InvalidJSON(t *testing.T) {
@@ -268,9 +272,7 @@ func TestAPIServer_CreateJob_InvalidJSON(t *testing.T) {
 
 	server.CreateJob(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
-	}
+	assertAPIError(t, rec, http.StatusBadRequest, "invalid_job_definition")
 
 	var count int
 	db.QueryRow("SELECT COUNT(*) FROM stored_jobs").Scan(&count)
@@ -308,9 +310,7 @@ func TestAPIServer_CreateJob_DuplicateJobID(t *testing.T) {
 	rec2 := httptest.NewRecorder()
 	server.CreateJob(rec2, req2)
 
-	if rec2.Code != http.StatusConflict {
-		t.Errorf("expected status %d for duplicate, got %d", http.StatusConflict, rec2.Code)
-	}
+	assertAPIError(t, rec2, http.StatusConflict, "job_already_exists")
 }
 
 func TestAPIServer_CreateJob_ValidationError(t *testing.T) {
@@ -330,15 +330,14 @@ func TestAPIServer_CreateJob_ValidationError(t *testing.T) {
 
 	server.CreateJob(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
-	}
+	assertAPIError(t, rec, http.StatusBadRequest, "invalid_job_definition")
 
-	if !strings.Contains(rec.Body.String(), "root.id: is required") {
+	detail := apiErrorDetailString(t, rec, "error")
+	if !strings.Contains(detail, "root.id: is required") {
 		t.Fatalf("expected root.id validation error, got %q", rec.Body.String())
 	}
 
-	if !strings.Contains(rec.Body.String(), `root.uses: unknown action "builtins/not-real"`) {
+	if !strings.Contains(detail, `root.uses: unknown action "builtins/not-real"`) {
 		t.Fatalf("expected unknown action validation error, got %q", rec.Body.String())
 	}
 
@@ -456,9 +455,7 @@ func TestAPIServer_GetJob_NotFound(t *testing.T) {
 
 	server.GetJob(rec, req)
 
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("expected status %d, got %d", http.StatusNotFound, rec.Code)
-	}
+	assertAPIError(t, rec, http.StatusNotFound, "job_not_found")
 }
 
 func TestAPIServer_GetJob_DBUnavailable(t *testing.T) {
@@ -476,9 +473,39 @@ func TestAPIServer_GetJob_DBUnavailable(t *testing.T) {
 	rec := httptest.NewRecorder()
 	server.GetJob(rec, req)
 
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected status %d, got %d", http.StatusServiceUnavailable, rec.Code)
+	assertAPIError(t, rec, http.StatusServiceUnavailable, "database_unavailable")
+}
+
+func TestAPIServer_GetJob_InvalidVersion(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+
+	jobDef := `{"id": "job-version", "root": {"uses": "builtins/shell"}}`
+	if _, err := db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", "job-version", jobDef); err != nil {
+		t.Fatalf("insert job: %v", err)
 	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-version?version=abc", nil)
+	req.SetPathValue("id", "job-version")
+	rec := httptest.NewRecorder()
+	server.GetJob(rec, req)
+
+	assertAPIError(t, rec, http.StatusBadRequest, "invalid_version")
+}
+
+func TestAPIServer_GetJob_VersionNotFound(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+
+	jobDef := `{"id": "job-version-missing", "root": {"uses": "builtins/shell"}}`
+	if _, err := db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", "job-version-missing", jobDef); err != nil {
+		t.Fatalf("insert job: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-version-missing?version=99", nil)
+	req.SetPathValue("id", "job-version-missing")
+	rec := httptest.NewRecorder()
+	server.GetJob(rec, req)
+
+	assertAPIError(t, rec, http.StatusNotFound, "job_version_not_found")
 }
 
 func TestAPIServer_DeleteJob_Success(t *testing.T) {
@@ -524,9 +551,7 @@ func TestAPIServer_DeleteJob_MissingID(t *testing.T) {
 
 	server.DeleteJob(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
-	}
+	assertAPIError(t, rec, http.StatusBadRequest, "missing_id")
 }
 
 func TestAPIServer_DeleteJob_NotFound(t *testing.T) {
@@ -537,9 +562,7 @@ func TestAPIServer_DeleteJob_NotFound(t *testing.T) {
 	rec := httptest.NewRecorder()
 	server.DeleteJob(rec, req)
 
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("expected status %d, got %d", http.StatusNotFound, rec.Code)
-	}
+	assertAPIError(t, rec, http.StatusNotFound, "job_not_found")
 }
 
 func TestAPIServer_TriggerJob_Success(t *testing.T) {
@@ -803,6 +826,17 @@ func TestAPIServer_GetJobRuns_ReturnsStatusAndFailureReasonAfterStatusTransition
 	}
 }
 
+func TestAPIServer_GetJobRuns_InvalidSince(t *testing.T) {
+	server, _, _, _ := setupTestServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-runs-status/runs?since=-1", nil)
+	req.SetPathValue("id", "job-runs-status")
+	rec := httptest.NewRecorder()
+	server.GetJobRuns(rec, req)
+
+	assertAPIError(t, rec, http.StatusBadRequest, "invalid_since")
+}
+
 func TestAPIServer_UpdateJobDefinition_Success(t *testing.T) {
 	server, logger, _, db := setupTestServer(t)
 	initialDef := `{"id": "job-to-update", "root": {"uses": "builtins/shell", "with": {"command": "echo old"}}}`
@@ -862,9 +896,7 @@ func TestAPIServer_UpdateJobDefinition_MissingID(t *testing.T) {
 
 	server.UpdateJobDefinition(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
-	}
+	assertAPIError(t, rec, http.StatusBadRequest, "missing_id")
 }
 
 func TestAPIServer_UpdateJobDefinition_InvalidContentType(t *testing.T) {
@@ -877,9 +909,7 @@ func TestAPIServer_UpdateJobDefinition_InvalidContentType(t *testing.T) {
 
 	server.UpdateJobDefinition(rec, req)
 
-	if rec.Code != http.StatusUnsupportedMediaType {
-		t.Errorf("expected status %d, got %d", http.StatusUnsupportedMediaType, rec.Code)
-	}
+	assertAPIError(t, rec, http.StatusUnsupportedMediaType, "unsupported_media_type")
 }
 
 func TestAPIServer_UpdateJobDefinition_IDMismatch(t *testing.T) {
@@ -899,9 +929,7 @@ func TestAPIServer_UpdateJobDefinition_IDMismatch(t *testing.T) {
 
 	server.UpdateJobDefinition(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
-	}
+	assertAPIError(t, rec, http.StatusBadRequest, "job_id_mismatch")
 }
 
 func TestAPIServer_UpdateJobDefinition_InvalidJSON(t *testing.T) {
@@ -914,9 +942,7 @@ func TestAPIServer_UpdateJobDefinition_InvalidJSON(t *testing.T) {
 
 	server.UpdateJobDefinition(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
-	}
+	assertAPIError(t, rec, http.StatusBadRequest, "invalid_job_definition")
 }
 
 func TestAPIServer_UpdateJobDefinition_ValidationErrorDoesNotPersist(t *testing.T) {
@@ -942,11 +968,9 @@ func TestAPIServer_UpdateJobDefinition_ValidationErrorDoesNotPersist(t *testing.
 
 	server.UpdateJobDefinition(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
-	}
+	assertAPIError(t, rec, http.StatusBadRequest, "invalid_job_definition")
 
-	if !strings.Contains(rec.Body.String(), `root.uses: unknown action "builtins/not-real"`) {
+	if detail := apiErrorDetailString(t, rec, "error"); !strings.Contains(detail, `root.uses: unknown action "builtins/not-real"`) {
 		t.Fatalf("expected unknown action validation error, got %q", rec.Body.String())
 	}
 
