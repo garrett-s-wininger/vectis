@@ -40,7 +40,7 @@ type setupCompleteResponse struct {
 
 func (s *APIServer) GetSetupStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIErrorCode(w, http.StatusMethodNotAllowed, apiErrMethodNotAllowed)
 		return
 	}
 
@@ -70,12 +70,12 @@ func (s *APIServer) GetSetupStatus(w http.ResponseWriter, r *http.Request) {
 
 func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIErrorCode(w, http.StatusMethodNotAllowed, apiErrMethodNotAllowed)
 		return
 	}
 
 	if !requestContentTypeIsJSON(r) {
-		http.Error(w, "content type must be application/json", http.StatusUnsupportedMediaType)
+		writeAPIErrorCode(w, http.StatusUnsupportedMediaType, apiErrUnsupportedMediaType)
 		return
 	}
 
@@ -116,13 +116,13 @@ func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(body) > maxSetupCompleteBodyBytes {
-		http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+		writeAPIErrorCode(w, http.StatusRequestEntityTooLarge, apiErrRequestBodyTooLarge)
 		return
 	}
 
 	var req setupCompleteRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidRequestBody)
 		return
 	}
 
@@ -144,22 +144,22 @@ func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
 
 	username := strings.TrimSpace(req.AdminUsername)
 	if len(username) < adminUsernameMinLen {
-		http.Error(w, "admin_username is required", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrMissingAdminUsername)
 		return
 	}
 
 	if len(username) > adminUsernameMaxLen || !utf8.ValidString(username) || strings.ContainsAny(username, "\x00\r\n") {
-		http.Error(w, "invalid admin_username", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidAdminUsername)
 		return
 	}
 
 	if len(req.AdminPassword) < adminPasswordMinLen {
-		http.Error(w, "admin_password must be at least 8 characters", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrAdminPasswordTooShort)
 		return
 	}
 
 	if len(req.AdminPassword) > adminPasswordMaxLen || !utf8.ValidString(req.AdminPassword) {
-		http.Error(w, "invalid admin_password", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidAdminPassword)
 		return
 	}
 

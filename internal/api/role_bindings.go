@@ -24,36 +24,36 @@ type bindingResponse struct {
 
 func (s *APIServer) CreateBinding(w http.ResponseWriter, r *http.Request) {
 	if !requestContentTypeIsJSON(r) {
-		http.Error(w, "content type must be application/json", http.StatusUnsupportedMediaType)
+		writeAPIErrorCode(w, http.StatusUnsupportedMediaType, apiErrUnsupportedMediaType)
 		return
 	}
 
 	nsIDStr := r.PathValue("id")
 	nsID, err := strconv.ParseInt(nsIDStr, 10, 64)
 	if err != nil || nsID <= 0 {
-		http.Error(w, "invalid namespace id", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidNamespaceID)
 		return
 	}
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, 64*1024))
 	if err != nil {
-		http.Error(w, "failed to read request body", http.StatusInternalServerError)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrRequestReadFailed)
 		return
 	}
 
 	var req createBindingRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidRequestBody)
 		return
 	}
 
 	if req.LocalUserID <= 0 {
-		http.Error(w, "local_user_id is required", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrMissingLocalUserID)
 		return
 	}
 
 	if req.Role == "" {
-		http.Error(w, "role is required", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrMissingRole)
 		return
 	}
 
@@ -61,7 +61,7 @@ func (s *APIServer) CreateBinding(w http.ResponseWriter, r *http.Request) {
 	case authz.RoleViewer, authz.RoleTrigger, authz.RoleOperator, authz.RoleAdmin:
 		// ok
 	default:
-		http.Error(w, "invalid role", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidRole)
 		return
 	}
 
@@ -80,7 +80,7 @@ func (s *APIServer) CreateBinding(w http.ResponseWriter, r *http.Request) {
 	ns, err := s.namespaces.GetByID(ctx, nsID)
 	if err != nil {
 		if dal.IsNotFound(err) {
-			http.Error(w, "namespace not found", http.StatusNotFound)
+			writeAPIErrorCode(w, http.StatusNotFound, apiErrNamespaceNotFound)
 			return
 		}
 
@@ -89,7 +89,7 @@ func (s *APIServer) CreateBinding(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 
@@ -104,18 +104,18 @@ func (s *APIServer) CreateBinding(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 	if !userExists {
-		http.Error(w, "user not found", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrUserNotFound)
 		return
 	}
 
 	_, err = s.roleBindings.Create(ctx, req.LocalUserID, nsID, req.Role)
 	if err != nil {
 		if dal.IsConflict(err) {
-			http.Error(w, "binding already exists", http.StatusConflict)
+			writeAPIErrorCode(w, http.StatusConflict, apiErrBindingAlreadyExists)
 			return
 		}
 
@@ -124,7 +124,7 @@ func (s *APIServer) CreateBinding(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 	s.markDBRecovered()
@@ -153,7 +153,7 @@ func (s *APIServer) ListBindings(w http.ResponseWriter, r *http.Request) {
 	nsIDStr := r.PathValue("id")
 	nsID, err := strconv.ParseInt(nsIDStr, 10, 64)
 	if err != nil || nsID <= 0 {
-		http.Error(w, "invalid namespace id", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidNamespaceID)
 		return
 	}
 
@@ -172,7 +172,7 @@ func (s *APIServer) ListBindings(w http.ResponseWriter, r *http.Request) {
 	ns, err := s.namespaces.GetByID(ctx, nsID)
 	if err != nil {
 		if dal.IsNotFound(err) {
-			http.Error(w, "namespace not found", http.StatusNotFound)
+			writeAPIErrorCode(w, http.StatusNotFound, apiErrNamespaceNotFound)
 			return
 		}
 
@@ -181,7 +181,7 @@ func (s *APIServer) ListBindings(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 
@@ -196,7 +196,7 @@ func (s *APIServer) ListBindings(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 	s.markDBRecovered()
@@ -223,20 +223,20 @@ func (s *APIServer) DeleteBinding(w http.ResponseWriter, r *http.Request) {
 	nsIDStr := r.PathValue("id")
 	nsID, err := strconv.ParseInt(nsIDStr, 10, 64)
 	if err != nil || nsID <= 0 {
-		http.Error(w, "invalid namespace id", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidNamespaceID)
 		return
 	}
 
 	userIDStr := r.PathValue("user_id")
 	userID, err := strconv.ParseInt(userIDStr, 10, 64)
 	if err != nil || userID <= 0 {
-		http.Error(w, "invalid user id", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidUserID)
 		return
 	}
 
 	role := r.URL.Query().Get("role")
 	if role == "" {
-		http.Error(w, "role query parameter is required", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrMissingRole)
 		return
 	}
 
@@ -255,7 +255,7 @@ func (s *APIServer) DeleteBinding(w http.ResponseWriter, r *http.Request) {
 	ns, err := s.namespaces.GetByID(ctx, nsID)
 	if err != nil {
 		if dal.IsNotFound(err) {
-			http.Error(w, "namespace not found", http.StatusNotFound)
+			writeAPIErrorCode(w, http.StatusNotFound, apiErrNamespaceNotFound)
 			return
 		}
 
@@ -264,7 +264,7 @@ func (s *APIServer) DeleteBinding(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 
@@ -274,7 +274,7 @@ func (s *APIServer) DeleteBinding(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.roleBindings.Delete(ctx, userID, nsID, role); err != nil {
 		if dal.IsNotFound(err) {
-			http.Error(w, "binding not found", http.StatusNotFound)
+			writeAPIErrorCode(w, http.StatusNotFound, apiErrBindingNotFound)
 			return
 		}
 
@@ -283,7 +283,7 @@ func (s *APIServer) DeleteBinding(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 	s.markDBRecovered()

@@ -33,12 +33,12 @@ type loginResponse struct {
 
 func (s *APIServer) Login(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIErrorCode(w, http.StatusMethodNotAllowed, apiErrMethodNotAllowed)
 		return
 	}
 
 	if !requestContentTypeIsJSON(r) {
-		http.Error(w, "content type must be application/json", http.StatusUnsupportedMediaType)
+		writeAPIErrorCode(w, http.StatusUnsupportedMediaType, apiErrUnsupportedMediaType)
 		return
 	}
 
@@ -52,23 +52,23 @@ func (s *APIServer) Login(w http.ResponseWriter, r *http.Request) {
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxLoginBodyBytes+1))
 	if err != nil {
-		http.Error(w, "failed to read request body", http.StatusInternalServerError)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrRequestReadFailed)
 		return
 	}
 
 	if len(body) > maxLoginBodyBytes {
-		http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+		writeAPIErrorCode(w, http.StatusRequestEntityTooLarge, apiErrRequestBodyTooLarge)
 		return
 	}
 
 	var req loginRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidRequestBody)
 		return
 	}
 
 	if req.Username == "" || req.Password == "" {
-		http.Error(w, "username and password are required", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrMissingCredentials)
 		return
 	}
 
