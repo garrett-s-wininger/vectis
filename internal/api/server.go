@@ -178,17 +178,17 @@ func (s *APIServer) reserveIdempotency(w http.ResponseWriter, ctx context.Contex
 		}
 
 		s.logger.Error("Database error reserving idempotency key: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return dal.IdempotencyRecord{}, false, false
 	}
 
 	if !created && record.RequestHash != requestHash {
-		http.Error(w, "idempotency key reused for different request", http.StatusConflict)
+		writeAPIError(w, http.StatusConflict, "idempotency_key_reused", "idempotency key reused for different request", nil)
 		return dal.IdempotencyRecord{}, false, false
 	}
 
 	if !created && record.ResponseJSON == nil {
-		http.Error(w, "idempotent request is still in progress", http.StatusConflict)
+		writeAPIError(w, http.StatusConflict, "idempotency_in_progress", "idempotent request is still in progress", nil)
 		return dal.IdempotencyRecord{}, false, false
 	}
 
@@ -218,7 +218,7 @@ func (s *APIServer) releaseIdempotency(ctx context.Context, scope, key string) {
 func (s *APIServer) handleDBUnavailableError(w http.ResponseWriter, err error) bool {
 	if database.IsUnavailableError(err) {
 		s.markDBUnavailable(err)
-		http.Error(w, "database unavailable", http.StatusServiceUnavailable)
+		writeAPIError(w, http.StatusServiceUnavailable, "database_unavailable", "database unavailable", nil)
 		return true
 	}
 
@@ -465,7 +465,7 @@ func (s *APIServer) ConnectToQueue(ctx context.Context) error {
 func (s *APIServer) ForceFailRun(w http.ResponseWriter, r *http.Request) {
 	runID := r.PathValue("id")
 	if runID == "" {
-		http.Error(w, "id is required", http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
 		return
 	}
 
@@ -480,7 +480,7 @@ func (s *APIServer) ForceFailRun(w http.ResponseWriter, r *http.Request) {
 	nsPath, err := s.getRunJobNamespacePath(ctx, runID)
 	if err != nil {
 		if dal.IsNotFound(err) {
-			http.Error(w, "run not found", http.StatusNotFound)
+			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
 			return
 		}
 
@@ -489,12 +489,12 @@ func (s *APIServer) ForceFailRun(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 
 	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunOperator, nsPath) {
-		http.Error(w, "run not found", http.StatusNotFound)
+		writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
 		return
 	}
 
@@ -505,20 +505,20 @@ func (s *APIServer) ForceFailRun(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 	s.markDBRecovered()
 
 	if !found {
-		http.Error(w, "run not found", http.StatusNotFound)
+		writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
 		return
 	}
 
 	reason := defaultForceFailReason
 	body, err := io.ReadAll(io.LimitReader(r.Body, 64*1024))
 	if err != nil {
-		http.Error(w, "failed to read request body", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "request_read_failed", "failed to read request body", nil)
 		return
 	}
 
@@ -528,7 +528,7 @@ func (s *APIServer) ForceFailRun(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err := json.Unmarshal(body, &req); err != nil {
-			http.Error(w, "invalid request body", http.StatusBadRequest)
+			writeAPIError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body", nil)
 			return
 		}
 
@@ -543,7 +543,7 @@ func (s *APIServer) ForceFailRun(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Force-fail run %s failed: %v", runID, err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 	s.markDBRecovered()
@@ -566,7 +566,7 @@ func (s *APIServer) ForceFailRun(w http.ResponseWriter, r *http.Request) {
 func (s *APIServer) ForceRequeueRun(w http.ResponseWriter, r *http.Request) {
 	runID := r.PathValue("id")
 	if runID == "" {
-		http.Error(w, "id is required", http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
 		return
 	}
 
@@ -581,7 +581,7 @@ func (s *APIServer) ForceRequeueRun(w http.ResponseWriter, r *http.Request) {
 	nsPath, err := s.getRunJobNamespacePath(ctx, runID)
 	if err != nil {
 		if dal.IsNotFound(err) {
-			http.Error(w, "run not found", http.StatusNotFound)
+			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
 			return
 		}
 
@@ -590,12 +590,12 @@ func (s *APIServer) ForceRequeueRun(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 
 	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunOperator, nsPath) {
-		http.Error(w, "run not found", http.StatusNotFound)
+		writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
 		return
 	}
 
@@ -606,18 +606,18 @@ func (s *APIServer) ForceRequeueRun(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 	s.markDBRecovered()
 
 	if !found {
-		http.Error(w, "run not found", http.StatusNotFound)
+		writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
 		return
 	}
 
 	if status == "succeeded" {
-		http.Error(w, "cannot requeue succeeded run", http.StatusConflict)
+		writeAPIError(w, http.StatusConflict, "run_requeue_forbidden", "cannot requeue succeeded run", map[string]any{"status": status})
 		return
 	}
 
@@ -627,17 +627,17 @@ func (s *APIServer) ForceRequeueRun(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if dal.IsConflict(err) {
-			http.Error(w, "run cannot be requeued from current status", http.StatusConflict)
+			writeAPIError(w, http.StatusConflict, "run_requeue_conflict", "run cannot be requeued from current status", nil)
 			return
 		}
 
 		if dal.IsNotFound(err) {
-			http.Error(w, "run not found", http.StatusNotFound)
+			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
 			return
 		}
 
 		s.logger.Error("Force-requeue run %s failed: %v", runID, err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 	s.markDBRecovered()
@@ -659,7 +659,7 @@ func (s *APIServer) ForceRequeueRun(w http.ResponseWriter, r *http.Request) {
 func (s *APIServer) CancelRun(w http.ResponseWriter, r *http.Request) {
 	runID := r.PathValue("id")
 	if runID == "" {
-		http.Error(w, "id is required", http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
 		return
 	}
 
@@ -674,7 +674,7 @@ func (s *APIServer) CancelRun(w http.ResponseWriter, r *http.Request) {
 	nsPath, err := s.getRunJobNamespacePath(ctx, runID)
 	if err != nil {
 		if dal.IsNotFound(err) {
-			http.Error(w, "run not found", http.StatusNotFound)
+			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
 			return
 		}
 
@@ -683,19 +683,19 @@ func (s *APIServer) CancelRun(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 
 	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunOperator, nsPath) {
-		http.Error(w, "run not found", http.StatusNotFound)
+		writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
 		return
 	}
 
 	rec, err := s.runs.GetRunForCancel(ctx, runID)
 	if err != nil {
 		if dal.IsNotFound(err) {
-			http.Error(w, "run not found", http.StatusNotFound)
+			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
 			return
 		}
 
@@ -704,36 +704,36 @@ func (s *APIServer) CancelRun(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 	s.markDBRecovered()
 
 	if rec.Status != "running" {
-		http.Error(w, "run is not executing", http.StatusConflict)
+		writeAPIError(w, http.StatusConflict, "run_not_executing", "run is not executing", map[string]any{"status": rec.Status})
 		return
 	}
 
 	if rec.LeaseOwner == "" {
-		http.Error(w, "run has no assigned worker", http.StatusConflict)
+		writeAPIError(w, http.StatusConflict, "run_worker_missing", "run has no assigned worker", nil)
 		return
 	}
 
 	if s.ResolveWorkerAddress == nil {
-		http.Error(w, "worker resolution not configured", http.StatusServiceUnavailable)
+		writeAPIError(w, http.StatusServiceUnavailable, "worker_resolution_unavailable", "worker resolution not configured", nil)
 		return
 	}
 
 	workerAddr, err := s.ResolveWorkerAddress(rec.LeaseOwner)
 	if err != nil {
 		s.logger.Error("Failed to resolve worker %s for run %s: %v", rec.LeaseOwner, runID, err)
-		http.Error(w, "worker not reachable", http.StatusBadGateway)
+		writeAPIError(w, http.StatusBadGateway, "worker_not_reachable", "worker not reachable", nil)
 		return
 	}
 
 	if err := s.sendCancelToWorker(ctx, workerAddr, runID, rec.CancelToken); err != nil {
 		s.logger.Error("Failed to send cancel to worker %s for run %s: %v", rec.LeaseOwner, runID, err)
-		http.Error(w, "failed to send cancel to worker", http.StatusBadGateway)
+		writeAPIError(w, http.StatusBadGateway, "worker_cancel_failed", "failed to send cancel to worker", nil)
 		return
 	}
 
@@ -847,7 +847,7 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 
@@ -867,7 +867,7 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 	s.markDBRecovered()
@@ -889,7 +889,7 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 func (s *APIServer) DeleteJob(w http.ResponseWriter, r *http.Request) {
 	jobID := r.PathValue("id")
 	if jobID == "" {
-		http.Error(w, "id is required", http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
 		return
 	}
 
@@ -904,7 +904,7 @@ func (s *APIServer) DeleteJob(w http.ResponseWriter, r *http.Request) {
 	nsPath, err := s.getJobNamespacePath(ctx, jobID)
 	if err != nil {
 		if dal.IsNotFound(err) {
-			http.Error(w, "job not found", http.StatusNotFound)
+			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
 			return
 		}
 
@@ -913,12 +913,12 @@ func (s *APIServer) DeleteJob(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 
 	if !s.checkNamespaceAuth(ctx, p, authz.ActionJobWrite, nsPath) {
-		http.Error(w, "job not found", http.StatusNotFound)
+		writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
 		return
 	}
 
@@ -929,7 +929,7 @@ func (s *APIServer) DeleteJob(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 	s.markDBRecovered()
@@ -965,7 +965,7 @@ func (s *APIServer) GetJobs(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 	s.markDBRecovered()
@@ -1013,7 +1013,7 @@ func (s *APIServer) GetJobs(w http.ResponseWriter, r *http.Request) {
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(resp); err != nil {
 		s.logger.Error("Failed to encode jobs as JSON: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 
@@ -1023,7 +1023,7 @@ func (s *APIServer) GetJobs(w http.ResponseWriter, r *http.Request) {
 func (s *APIServer) GetJob(w http.ResponseWriter, r *http.Request) {
 	jobID := r.PathValue("id")
 	if jobID == "" {
-		http.Error(w, "id is required", http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
 		return
 	}
 
@@ -1038,7 +1038,7 @@ func (s *APIServer) GetJob(w http.ResponseWriter, r *http.Request) {
 	nsPath, err := s.getJobNamespacePath(ctx, jobID)
 	if err != nil {
 		if dal.IsNotFound(err) {
-			http.Error(w, "job not found", http.StatusNotFound)
+			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
 			return
 		}
 
@@ -1047,12 +1047,12 @@ func (s *APIServer) GetJob(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 
 	if !s.checkNamespaceAuth(ctx, p, authz.ActionJobRead, nsPath) {
-		http.Error(w, "job not found", http.StatusNotFound)
+		writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
 		return
 	}
 
@@ -1078,7 +1078,7 @@ func (s *APIServer) GetJob(w http.ResponseWriter, r *http.Request) {
 			}
 
 			s.logger.Error("Database error: %v", err)
-			http.Error(w, "internal server error", http.StatusInternalServerError)
+			writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 			return
 		}
 
@@ -1087,7 +1087,7 @@ func (s *APIServer) GetJob(w http.ResponseWriter, r *http.Request) {
 		definitionJSON, version, err = s.jobs.GetDefinition(ctx, jobID)
 		if err != nil {
 			if dal.IsNotFound(err) {
-				http.Error(w, "job not found", http.StatusNotFound)
+				writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
 				return
 			}
 
@@ -1096,7 +1096,7 @@ func (s *APIServer) GetJob(w http.ResponseWriter, r *http.Request) {
 			}
 
 			s.logger.Error("Database error: %v", err)
-			http.Error(w, "internal server error", http.StatusInternalServerError)
+			writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 			return
 		}
 	}
@@ -1113,7 +1113,7 @@ func (s *APIServer) GetJob(w http.ResponseWriter, r *http.Request) {
 func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 	jobID := r.PathValue("id")
 	if jobID == "" {
-		http.Error(w, "id is required", http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
 		return
 	}
 
@@ -1128,7 +1128,7 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 	nsPath, err := s.getJobNamespacePath(ctx, jobID)
 	if err != nil {
 		if dal.IsNotFound(err) {
-			http.Error(w, "job not found", http.StatusNotFound)
+			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
 			return
 		}
 
@@ -1137,19 +1137,19 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 
 	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunTrigger, nsPath) {
-		http.Error(w, "job not found", http.StatusNotFound)
+		writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
 		return
 	}
 
 	definitionJSON, _, err := s.jobs.GetDefinition(ctx, jobID)
 	if err != nil {
 		if dal.IsNotFound(err) {
-			http.Error(w, "job not found", http.StatusNotFound)
+			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
 			return
 		}
 
@@ -1158,14 +1158,14 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 	s.markDBRecovered()
 
 	var job api.Job
 	if err := protojson.Unmarshal([]byte(definitionJSON), &job); err != nil {
-		http.Error(w, "invalid job definition stored", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "invalid_stored_job_definition", "invalid job definition stored", nil)
 		return
 	}
 
@@ -1197,7 +1197,7 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error creating job run: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 	s.markDBRecovered()
@@ -1291,7 +1291,7 @@ func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID strin
 func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) {
 	jobID := r.PathValue("id")
 	if jobID == "" {
-		http.Error(w, "id is required", http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
 		return
 	}
 
@@ -1333,7 +1333,7 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 	nsPath, err := s.getJobNamespacePath(ctx, jobID)
 	if err != nil {
 		if dal.IsNotFound(err) {
-			http.Error(w, "job not found", http.StatusNotFound)
+			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
 			return
 		}
 
@@ -1342,19 +1342,19 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 
 	if !s.checkNamespaceAuth(ctx, p, authz.ActionJobWrite, nsPath) {
-		http.Error(w, "job not found", http.StatusNotFound)
+		writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
 		return
 	}
 
 	newVersion, err := s.jobs.UpdateDefinition(ctx, jobID, string(body))
 	if err != nil {
 		if dal.IsNotFound(err) {
-			http.Error(w, "job not found", http.StatusNotFound)
+			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
 			return
 		}
 
@@ -1363,7 +1363,7 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 	s.markDBRecovered()
@@ -1387,13 +1387,13 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 // Ephemeral runs persist definition version 1 in job_definitions so the reconciler can re-enqueue if the queue drops work.
 func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	if !requestContentTypeIsJSON(r) {
-		http.Error(w, "content type must be application/json", http.StatusUnsupportedMediaType)
+		writeAPIError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "content type must be application/json", nil)
 		return
 	}
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, 10*1024*1024))
 	if err != nil {
-		http.Error(w, "failed to read request body", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "request_read_failed", "failed to read request body", nil)
 		return
 	}
 
@@ -1412,7 +1412,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 
 	var job api.Job
 	if err := json.Unmarshal(req.Job, &job); err != nil {
-		http.Error(w, "invalid job definition", http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", nil)
 		return
 	}
 
@@ -1422,7 +1422,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{}); err != nil {
-		http.Error(w, "invalid job definition: "+err.Error(), http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", map[string]any{"error": err.Error()})
 		return
 	}
 
@@ -1432,7 +1432,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	definitionJSON, err := json.Marshal(&job)
 	if err != nil {
 		s.logger.Error("Failed to marshal job definition: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 
@@ -1457,7 +1457,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	ns, err := s.namespaces.GetByPath(ctx, namespacePath)
 	if err != nil {
 		if dal.IsNotFound(err) {
-			http.Error(w, "namespace not found", http.StatusNotFound)
+			writeAPIError(w, http.StatusNotFound, "namespace_not_found", "namespace not found", nil)
 			return
 		}
 
@@ -1466,7 +1466,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 
@@ -1500,7 +1500,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error creating ephemeral job run: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 	s.markDBRecovered()
@@ -1601,7 +1601,7 @@ func detachedTraceContextFromRequest(r *http.Request) context.Context {
 func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 	jobID := r.PathValue("id")
 	if jobID == "" {
-		http.Error(w, "id is required", http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
 		return
 	}
 
@@ -1629,7 +1629,7 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 	nsPath, err := s.getJobNamespacePath(ctx, jobID)
 	if err != nil {
 		if dal.IsNotFound(err) {
-			http.Error(w, "job not found", http.StatusNotFound)
+			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
 			return
 		}
 
@@ -1638,12 +1638,12 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 
 	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunRead, nsPath) {
-		http.Error(w, "job not found", http.StatusNotFound)
+		writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
 		return
 	}
 
@@ -1654,7 +1654,7 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 	s.markDBRecovered()
@@ -1693,7 +1693,7 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(resp); err != nil {
 		s.logger.Error("Failed to encode runs: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 
@@ -1703,7 +1703,7 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 	runID := r.PathValue("id")
 	if runID == "" {
-		http.Error(w, "id is required", http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
 		return
 	}
 
@@ -1718,14 +1718,14 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 	rec, err := s.runs.GetRun(ctx, runID)
 	if err != nil {
 		if dal.IsNotFound(err) {
-			http.Error(w, "run not found", http.StatusNotFound)
+			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
 			return
 		}
 		if s.handleDBUnavailableError(w, err) {
 			return
 		}
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 	s.markDBRecovered()
@@ -1733,17 +1733,17 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 	nsPath, err := s.getRunJobNamespacePath(ctx, runID)
 	if err != nil {
 		if dal.IsNotFound(err) {
-			http.Error(w, "run not found", http.StatusNotFound)
+			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
 			return
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 
 	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunRead, nsPath) {
-		http.Error(w, "run not found", http.StatusNotFound)
+		writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
 		return
 	}
 
@@ -1773,7 +1773,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(resp); err != nil {
 		s.logger.Error("Failed to encode run: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 
@@ -1783,7 +1783,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 func (s *APIServer) HandleSSEJobRuns(w http.ResponseWriter, r *http.Request) {
 	jobID := r.PathValue("id")
 	if jobID == "" {
-		http.Error(w, "id is required", http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
 		return
 	}
 
@@ -1798,7 +1798,7 @@ func (s *APIServer) HandleSSEJobRuns(w http.ResponseWriter, r *http.Request) {
 	nsPath, err := s.getJobNamespacePath(ctx, jobID)
 	if err != nil {
 		if dal.IsNotFound(err) {
-			http.Error(w, "job not found", http.StatusNotFound)
+			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
 			return
 		}
 
@@ -1807,12 +1807,12 @@ func (s *APIServer) HandleSSEJobRuns(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 
 	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunRead, nsPath) {
-		http.Error(w, "job not found", http.StatusNotFound)
+		writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
 		return
 	}
 
@@ -1868,7 +1868,7 @@ func (s *APIServer) HandleSSEJobRuns(w http.ResponseWriter, r *http.Request) {
 func (s *APIServer) GetRunLogs(w http.ResponseWriter, r *http.Request) {
 	runID := r.PathValue("id")
 	if runID == "" {
-		http.Error(w, "id is required", http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
 		return
 	}
 
@@ -1883,7 +1883,7 @@ func (s *APIServer) GetRunLogs(w http.ResponseWriter, r *http.Request) {
 	nsPath, err := s.getRunJobNamespacePath(ctx, runID)
 	if err != nil {
 		if dal.IsNotFound(err) {
-			http.Error(w, "run not found", http.StatusNotFound)
+			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
 			return
 		}
 
@@ -1892,12 +1892,12 @@ func (s *APIServer) GetRunLogs(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 
 	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunRead, nsPath) {
-		http.Error(w, "run not found", http.StatusNotFound)
+		writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
 		return
 	}
 
@@ -1919,7 +1919,7 @@ func (s *APIServer) GetRunLogs(w http.ResponseWriter, r *http.Request) {
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, logURL, nil)
 	if err != nil {
 		s.logger.Error("Failed to create log proxy request: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 
@@ -2062,7 +2062,7 @@ func panicRecoveryMiddleware(log interfaces.Logger, next http.Handler) http.Hand
 				// Only write an error response if headers have not yet been sent.
 				// If they have, the client will see a truncated response; we log it here.
 				if sw, ok := w.(*statusResponseWriter); !ok || !sw.wroteHeader {
-					http.Error(w, "internal server error", http.StatusInternalServerError)
+					writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 				}
 			}
 		}()
@@ -2096,7 +2096,7 @@ func (s *APIServer) rateLimitMiddleware(rl ratelimit.RateLimiter, rule ratelimit
 		allowed, retryAfter, err := rl.Allow(r.Context(), key, rule)
 		if err != nil {
 			s.logger.Error("Rate limiter error: %v", err)
-			http.Error(w, "internal server error", http.StatusInternalServerError)
+			writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 			return
 		}
 		if !allowed {

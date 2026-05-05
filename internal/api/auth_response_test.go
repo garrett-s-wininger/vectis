@@ -65,3 +65,33 @@ func TestWriteAuthJSON_omitemptyDetail(t *testing.T) {
 		t.Fatalf("expected no detail field, got: %s", body)
 	}
 }
+
+func TestWriteAPIError_encodesContract(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeAPIError(rec, http.StatusConflict, "run_requeue_conflict", "run cannot be requeued from current status", map[string]any{
+		"status": "running",
+	})
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status=%d", rec.Code)
+	}
+
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json; charset=utf-8" {
+		t.Fatalf("Content-Type=%q", ct)
+	}
+
+	if cto := rec.Header().Get("X-Content-Type-Options"); cto != "nosniff" {
+		t.Fatalf("X-Content-Type-Options=%q", cto)
+	}
+
+	body := rec.Body.String()
+	for _, want := range []string{
+		`"code":"run_requeue_conflict"`,
+		`"message":"run cannot be requeued from current status"`,
+		`"details":{"status":"running"}`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("expected %s in body, got: %s", want, body)
+		}
+	}
+}
