@@ -23,6 +23,18 @@ const defaultPostgresImage = "postgres:18-alpine"
 func NewTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 
+	db := NewUnmigratedTestDB(t)
+
+	if err := migrations.Run(db, "pgx"); err != nil {
+		t.Fatalf("run postgres migrations: %v", err)
+	}
+
+	return db
+}
+
+func NewUnmigratedTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
@@ -63,10 +75,6 @@ func NewTestDB(t *testing.T) *sql.DB {
 	}
 
 	t.Setenv(database.EnvDatabaseDriver, "pgx")
-	if err := migrations.Run(db, "pgx"); err != nil {
-		t.Fatalf("run postgres migrations: %v", err)
-	}
-
 	return db
 }
 

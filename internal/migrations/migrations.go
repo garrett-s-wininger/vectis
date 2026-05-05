@@ -16,6 +16,32 @@ import (
 var migrationFiles embed.FS
 
 func Run(db *sql.DB, dbDriver string) error {
+	m, err := newMigrator(db, dbDriver)
+	if err != nil {
+		return err
+	}
+
+	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		return fmt.Errorf("failed to run migrations: %w", err)
+	}
+
+	return nil
+}
+
+func Down(db *sql.DB, dbDriver string) error {
+	m, err := newMigrator(db, dbDriver)
+	if err != nil {
+		return err
+	}
+
+	if err := m.Down(); err != nil && err != migrate.ErrNoChange {
+		return fmt.Errorf("failed to roll back migrations: %w", err)
+	}
+
+	return nil
+}
+
+func newMigrator(db *sql.DB, dbDriver string) (*migrate.Migrate, error) {
 	var (
 		driverInstance database.Driver
 		sourceBase     string
@@ -26,7 +52,7 @@ func Run(db *sql.DB, dbDriver string) error {
 	case "sqlite3":
 		d, err := sqlite3.WithInstance(db, &sqlite3.Config{})
 		if err != nil {
-			return fmt.Errorf("failed to create sqlite database driver: %w", err)
+			return nil, fmt.Errorf("failed to create sqlite database driver: %w", err)
 		}
 
 		driverInstance = d
@@ -35,29 +61,25 @@ func Run(db *sql.DB, dbDriver string) error {
 	case "pgx":
 		d, err := postgres.WithInstance(db, &postgres.Config{})
 		if err != nil {
-			return fmt.Errorf("failed to create postgres database driver: %w", err)
+			return nil, fmt.Errorf("failed to create postgres database driver: %w", err)
 		}
 
 		driverInstance = d
 		sourceBase = "postgres"
 		migrateDriver = "postgres"
 	default:
-		return fmt.Errorf("unsupported database driver for migrations: %q", dbDriver)
+		return nil, fmt.Errorf("unsupported database driver for migrations: %q", dbDriver)
 	}
 
 	source, err := iofs.New(migrationFiles, sourceBase)
 	if err != nil {
-		return fmt.Errorf("failed to create migration source: %w", err)
+		return nil, fmt.Errorf("failed to create migration source: %w", err)
 	}
 
 	m, err := migrate.NewWithInstance("iofs", source, migrateDriver, driverInstance)
 	if err != nil {
-		return fmt.Errorf("failed to create migrate instance: %w", err)
+		return nil, fmt.Errorf("failed to create migrate instance: %w", err)
 	}
 
-	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
-		return fmt.Errorf("failed to run migrations: %w", err)
-	}
-
-	return nil
+	return m, nil
 }
