@@ -55,6 +55,16 @@ CREATE TABLE job_runs (
 
 CREATE INDEX idx_job_runs_job_id_run_index ON job_runs (job_id, run_index DESC);
 
+CREATE TABLE idempotency_keys (
+    scope TEXT NOT NULL,
+    key TEXT NOT NULL,
+    request_hash TEXT NOT NULL,
+    response_json TEXT,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(scope, key)
+);
+
 CREATE TABLE job_definitions (
     job_id TEXT NOT NULL,
     version INTEGER NOT NULL,

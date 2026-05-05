@@ -3,7 +3,9 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -70,6 +72,7 @@ type APIServer struct {
 	authRepo       dal.AuthRepository
 	namespaces     dal.NamespacesRepository
 	roleBindings   dal.RoleBindingsRepository
+	idempotency    dal.IdempotencyRepository
 	logger         interfaces.Logger
 	queueClient    atomic.Pointer[queueClientHolder]
 	runBroadcaster *RunBroadcaster
@@ -110,6 +113,7 @@ func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
 	s.authRepo = repos.Auth()
 	s.namespaces = repos.Namespaces()
 	s.roleBindings = repos.RoleBindings()
+	s.idempotency = repos.Idempotency()
 	return s
 }
 
@@ -137,6 +141,77 @@ func (s *APIServer) markDBUnavailable(err error) {
 func (s *APIServer) markDBRecovered() {
 	if s.dbUnavailable.CompareAndSwap(true, false) {
 		s.logger.Info("Database connectivity recovered; API database operations resumed")
+	}
+}
+
+func idempotencyKeyFromRequest(r *http.Request) string {
+	return r.Header.Get("Idempotency-Key")
+}
+
+func hashIdempotencyRequest(parts ...string) string {
+	h := sha256.New()
+	for _, part := range parts {
+		_, _ = h.Write([]byte(part))
+		_, _ = h.Write([]byte{0})
+	}
+
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func principalIdempotencyScope(prefix string, p *authn.Principal) string {
+	if p == nil {
+		return prefix + ":anonymous"
+	}
+
+	return prefix + ":user:" + strconv.FormatInt(p.LocalUserID, 10)
+}
+
+func (s *APIServer) reserveIdempotency(w http.ResponseWriter, ctx context.Context, scope, key, requestHash string) (record dal.IdempotencyRecord, reserved bool, ok bool) {
+	if key == "" || s.idempotency == nil {
+		return dal.IdempotencyRecord{}, false, true
+	}
+
+	record, created, err := s.idempotency.Reserve(ctx, scope, key, requestHash)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return dal.IdempotencyRecord{}, false, false
+		}
+
+		s.logger.Error("Database error reserving idempotency key: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return dal.IdempotencyRecord{}, false, false
+	}
+
+	if !created && record.RequestHash != requestHash {
+		http.Error(w, "idempotency key reused for different request", http.StatusConflict)
+		return dal.IdempotencyRecord{}, false, false
+	}
+
+	if !created && record.ResponseJSON == nil {
+		http.Error(w, "idempotent request is still in progress", http.StatusConflict)
+		return dal.IdempotencyRecord{}, false, false
+	}
+
+	return record, created, true
+}
+
+func (s *APIServer) completeIdempotency(ctx context.Context, scope, key string, response []byte) {
+	if key == "" || s.idempotency == nil {
+		return
+	}
+
+	if err := s.idempotency.Complete(ctx, scope, key, string(response)); err != nil {
+		s.logger.Error("Failed to complete idempotency key: %v", err)
+	}
+}
+
+func (s *APIServer) releaseIdempotency(ctx context.Context, scope, key string) {
+	if key == "" || s.idempotency == nil {
+		return
+	}
+
+	if err := s.idempotency.Release(ctx, scope, key); err != nil {
+		s.logger.Error("Failed to release idempotency key: %v", err)
 	}
 }
 
@@ -1096,8 +1171,27 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 
 	job.Id = &jobID
 
+	idempotencyKey := idempotencyKeyFromRequest(r)
+	idempotencyScope := principalIdempotencyScope("trigger:"+jobID, p)
+	idempotencyHash := hashIdempotencyRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID)
+	idempotencyRecord, idempotencyReserved, ok := s.reserveIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyHash)
+	if !ok {
+		return
+	}
+
+	if idempotencyRecord.ResponseJSON != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = io.WriteString(w, *idempotencyRecord.ResponseJSON)
+		return
+	}
+
 	runID, runIndex, err := s.runs.CreateRun(ctx, jobID, nil, 1)
 	if err != nil {
+		if idempotencyReserved {
+			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
+		}
+
 		if s.handleDBUnavailableError(w, err) {
 			return
 		}
@@ -1136,6 +1230,7 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, _ = w.Write(buf.Bytes())
+	s.completeIdempotency(ctx, idempotencyScope, idempotencyKey, buf.Bytes())
 
 	// NOTE(garrett): We finish the enqueue asynchronously so that we can response immediately to the client,
 	// rather than them waiting for the enqueue to complete (dual enqueue is idempotent by worker claim).
@@ -1379,8 +1474,27 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	idempotencyKey := idempotencyKeyFromRequest(r)
+	idempotencyScope := principalIdempotencyScope("run:"+ns.Path, p)
+	idempotencyHash := hashIdempotencyRequest(http.MethodPost, "/api/v1/jobs/run", string(body))
+	idempotencyRecord, idempotencyReserved, ok := s.reserveIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyHash)
+	if !ok {
+		return
+	}
+
+	if idempotencyRecord.ResponseJSON != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = io.WriteString(w, *idempotencyRecord.ResponseJSON)
+		return
+	}
+
 	runID, _, err := s.ephemeralRuns.CreateDefinitionAndRun(ctx, generatedID, string(definitionJSON), &runIndexOne)
 	if err != nil {
+		if idempotencyReserved {
+			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
+		}
+
 		if s.handleDBUnavailableError(w, err) {
 			return
 		}
@@ -1417,6 +1531,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, _ = w.Write(buf.Bytes())
+	s.completeIdempotency(ctx, idempotencyScope, idempotencyKey, buf.Bytes())
 
 	bgCtx := detachedTraceContextFromRequest(r)
 
