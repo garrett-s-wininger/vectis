@@ -12,9 +12,29 @@ import (
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
 	"vectis/internal/interfaces/mocks"
+	"vectis/internal/migrations"
 	"vectis/internal/reconciler"
 	"vectis/internal/testutil/pgtest"
 )
+
+func TestPostgres_MigrationsUpDownRoundTrip(t *testing.T) {
+	db := pgtest.NewUnmigratedTestDB(t)
+	ctx := context.Background()
+
+	if err := migrations.Run(db, "pgx"); err != nil {
+		t.Fatalf("run up migrations: %v", err)
+	}
+
+	assertPostgresTableExists(t, ctx, db, "job_runs")
+	assertPostgresTableExists(t, ctx, db, "run_dispatch_events")
+
+	if err := migrations.Down(db, "pgx"); err != nil {
+		t.Fatalf("run down migrations: %v", err)
+	}
+
+	assertPostgresTableMissing(t, ctx, db, "job_runs")
+	assertPostgresTableMissing(t, ctx, db, "run_dispatch_events")
+}
 
 func TestPostgres_DALDispatchEventsSmoke(t *testing.T) {
 	db := pgtest.NewTestDB(t)
@@ -50,6 +70,38 @@ func TestPostgres_DALDispatchEventsSmoke(t *testing.T) {
 
 	if events[1].EventType != dal.DispatchEventFailure || events[1].Message == nil || *events[1].Message != msg {
 		t.Fatalf("second event mismatch: %+v", events[1])
+	}
+}
+
+func assertPostgresTableExists(t *testing.T, ctx context.Context, db *sql.DB, table string) {
+	t.Helper()
+
+	var name string
+	err := db.QueryRowContext(ctx,
+		`SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename = $1`,
+		table,
+	).Scan(&name)
+
+	if err != nil {
+		t.Fatalf("expected table %s to exist: %v", table, err)
+	}
+}
+
+func assertPostgresTableMissing(t *testing.T, ctx context.Context, db *sql.DB, table string) {
+	t.Helper()
+
+	var name string
+	err := db.QueryRowContext(ctx,
+		`SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename = $1`,
+		table,
+	).Scan(&name)
+
+	if err == nil {
+		t.Fatalf("expected table %s to be dropped, found %s", table, name)
+	}
+
+	if err != sql.ErrNoRows {
+		t.Fatalf("query table %s: %v", table, err)
 	}
 }
 
