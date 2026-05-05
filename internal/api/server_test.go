@@ -61,6 +61,34 @@ func waitForLoggerErrorContaining(t *testing.T, log *mocks.MockLogger, sub strin
 	t.Fatalf("timed out waiting for logger error containing %q", sub)
 }
 
+func assertAPIError(t *testing.T, rec *httptest.ResponseRecorder, status int, code string) {
+	t.Helper()
+
+	if rec.Code != status {
+		t.Fatalf("expected status %d, got %d: %s", status, rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json; charset=utf-8" {
+		t.Fatalf("expected JSON content type, got %q", ct)
+	}
+
+	var body struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode api error: %v; body=%s", err, rec.Body.String())
+	}
+
+	if body.Code != code {
+		t.Fatalf("expected error code %q, got %q; body=%s", code, body.Code, rec.Body.String())
+	}
+
+	if body.Message == "" {
+		t.Fatalf("expected non-empty message; body=%s", rec.Body.String())
+	}
+}
+
 func TestAPIServer_CreateJob_Success(t *testing.T) {
 	server, logger, _, db := setupTestServer(t)
 
@@ -653,9 +681,7 @@ func TestAPIServer_TriggerJob_NotFound(t *testing.T) {
 
 	server.TriggerJob(rec, req)
 
-	if rec.Code != http.StatusNotFound {
-		t.Errorf("expected status %d, got %d", http.StatusNotFound, rec.Code)
-	}
+	assertAPIError(t, rec, http.StatusNotFound, "job_not_found")
 
 	jobs := queueService.GetJobs()
 	if len(jobs) != 0 {
@@ -671,9 +697,7 @@ func TestAPIServer_TriggerJob_MissingID(t *testing.T) {
 
 	server.TriggerJob(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
-	}
+	assertAPIError(t, rec, http.StatusBadRequest, "missing_id")
 }
 
 func TestAPIServer_TriggerJob_QueueError(t *testing.T) {
@@ -1173,9 +1197,7 @@ func TestAPIServer_RunJob_IdempotencyKeyConflict(t *testing.T) {
 	req2.Header.Set("Idempotency-Key", "run-key-conflict")
 	rec2 := httptest.NewRecorder()
 	server.RunJob(rec2, req2)
-	if rec2.Code != http.StatusConflict {
-		t.Fatalf("second run: expected %d, got %d: %s", http.StatusConflict, rec2.Code, rec2.Body.String())
-	}
+	assertAPIError(t, rec2, http.StatusConflict, "idempotency_key_reused")
 }
 
 func TestAPIServer_RunJob_OverwritesClientID(t *testing.T) {
@@ -1234,9 +1256,7 @@ func TestAPIServer_RunJob_InvalidContentType(t *testing.T) {
 
 	server.RunJob(rec, req)
 
-	if rec.Code != http.StatusUnsupportedMediaType {
-		t.Errorf("expected status %d, got %d", http.StatusUnsupportedMediaType, rec.Code)
-	}
+	assertAPIError(t, rec, http.StatusUnsupportedMediaType, "unsupported_media_type")
 }
 
 func TestAPIServer_RunJob_InvalidJSON(t *testing.T) {
@@ -1248,9 +1268,7 @@ func TestAPIServer_RunJob_InvalidJSON(t *testing.T) {
 
 	server.RunJob(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
-	}
+	assertAPIError(t, rec, http.StatusBadRequest, "invalid_job_definition")
 
 	if len(queueService.GetJobs()) != 0 {
 		t.Error("expected no job enqueued on invalid JSON")
@@ -1268,9 +1286,7 @@ func TestAPIServer_RunJob_MissingRoot(t *testing.T) {
 
 	server.RunJob(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
-	}
+	assertAPIError(t, rec, http.StatusBadRequest, "invalid_job_definition")
 
 	if len(queueService.GetJobs()) != 0 {
 		t.Error("expected no job enqueued when root is missing")
@@ -1434,9 +1450,7 @@ func TestAPIServer_ForceFailRun_NotFound(t *testing.T) {
 
 	server.ForceFailRun(rec, req)
 
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("expected status %d, got %d", http.StatusNotFound, rec.Code)
-	}
+	assertAPIError(t, rec, http.StatusNotFound, "run_not_found")
 }
 
 func TestAPIServer_ForceRequeueRun_Success(t *testing.T) {
@@ -1515,9 +1529,7 @@ func TestAPIServer_ForceRequeueRun_SucceededConflict(t *testing.T) {
 
 	server.ForceRequeueRun(rec, req)
 
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("expected status %d, got %d", http.StatusConflict, rec.Code)
-	}
+	assertAPIError(t, rec, http.StatusConflict, "run_requeue_forbidden")
 }
 
 func TestAPIServer_ForceRequeueRun_RunningConflict(t *testing.T) {
@@ -1547,9 +1559,29 @@ func TestAPIServer_ForceRequeueRun_RunningConflict(t *testing.T) {
 
 	server.ForceRequeueRun(rec, req)
 
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("expected status %d, got %d", http.StatusConflict, rec.Code)
+	assertAPIError(t, rec, http.StatusConflict, "run_requeue_conflict")
+}
+
+func TestAPIServer_CancelRun_NotExecutingConflict(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `INSERT INTO stored_jobs (job_id, namespace_id, definition_json) VALUES (?, ?, ?)`, "job-cancel-queued", 1, `{"id":"job-cancel-queued"}`); err != nil {
+		t.Fatalf("insert job: %v", err)
 	}
+	runs := dal.NewSQLRepositories(db).Runs()
+
+	runID, _, err := runs.CreateRun(ctx, "job-cancel-queued", nil, 1)
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runs/"+runID+"/cancel", nil)
+	req.SetPathValue("id", runID)
+	rec := httptest.NewRecorder()
+
+	server.CancelRun(rec, req)
+
+	assertAPIError(t, rec, http.StatusConflict, "run_not_executing")
 }
 
 func TestAPIServer_Handler_SetsXRequestID(t *testing.T) {
