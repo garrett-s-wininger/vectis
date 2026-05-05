@@ -578,6 +578,72 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 	}
 }
 
+func TestAPIServer_TriggerJob_IdempotencyKeyReplaysRun(t *testing.T) {
+	server, _, queueService, db := setupTestServer(t)
+	jobDef := `{"id": "job-idempotent", "root": {"id": "root", "uses": "builtins/shell", "with": {"command": "echo test"}}}`
+	db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", "job-idempotent", jobDef)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/job-idempotent", nil)
+	req.SetPathValue("id", "job-idempotent")
+	req.Header.Set("Idempotency-Key", "trigger-key-1")
+	rec := httptest.NewRecorder()
+	server.TriggerJob(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("first trigger: expected %d, got %d: %s", http.StatusAccepted, rec.Code, rec.Body.String())
+	}
+
+	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/job-idempotent", nil)
+	req2.SetPathValue("id", "job-idempotent")
+	req2.Header.Set("Idempotency-Key", "trigger-key-1")
+	rec2 := httptest.NewRecorder()
+	server.TriggerJob(rec2, req2)
+	if rec2.Code != http.StatusAccepted {
+		t.Fatalf("second trigger: expected %d, got %d: %s", http.StatusAccepted, rec2.Code, rec2.Body.String())
+	}
+
+	if rec.Body.String() != rec2.Body.String() {
+		t.Fatalf("expected replayed response %q, got %q", rec.Body.String(), rec2.Body.String())
+	}
+
+	waitForNEnqueuedJobs(t, queueService, 1)
+	if got := len(queueService.GetJobs()); got != 1 {
+		t.Fatalf("expected one enqueued job after replay, got %d", got)
+	}
+
+	var runCount int
+	if err := db.QueryRow("SELECT COUNT(*) FROM job_runs WHERE job_id = ?", "job-idempotent").Scan(&runCount); err != nil {
+		t.Fatalf("count runs: %v", err)
+	}
+
+	if runCount != 1 {
+		t.Fatalf("expected one run row after replay, got %d", runCount)
+	}
+}
+
+func TestAPIServer_TriggerJob_IdempotencyScopeIncludesJob(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", "job-a", `{"id":"job-a","root":{"id":"root","uses":"builtins/shell"}}`)
+	db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", "job-b", `{"id":"job-b","root":{"id":"root","uses":"builtins/shell"}}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/job-a", nil)
+	req.SetPathValue("id", "job-a")
+	req.Header.Set("Idempotency-Key", "same-key")
+	rec := httptest.NewRecorder()
+	server.TriggerJob(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("first trigger: expected %d, got %d", http.StatusAccepted, rec.Code)
+	}
+
+	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/job-b", nil)
+	req2.SetPathValue("id", "job-b")
+	req2.Header.Set("Idempotency-Key", "same-key")
+	rec2 := httptest.NewRecorder()
+	server.TriggerJob(rec2, req2)
+	if rec2.Code != http.StatusAccepted {
+		t.Fatalf("separate job should have separate idempotency scope: got %d", rec2.Code)
+	}
+}
+
 func TestAPIServer_TriggerJob_NotFound(t *testing.T) {
 	server, _, queueService, _ := setupTestServer(t)
 
@@ -1022,6 +1088,93 @@ func TestAPIServer_GetRun_EphemeralRun(t *testing.T) {
 
 	if got.Status != "queued" {
 		t.Fatalf("status: want queued, got %q", got.Status)
+	}
+}
+
+func TestAPIServer_RunJob_IdempotencyKeyReplaysRun(t *testing.T) {
+	server, _, queueService, db := setupTestServer(t)
+
+	jobDef := map[string]any{
+		"root": map[string]any{
+			"id":   "root",
+			"uses": "builtins/shell",
+			"with": map[string]string{"command": "echo hello"},
+		},
+	}
+	body, _ := json.Marshal(jobDef)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/run", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", "run-key-1")
+	rec := httptest.NewRecorder()
+	server.RunJob(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("first run: expected %d, got %d: %s", http.StatusAccepted, rec.Code, rec.Body.String())
+	}
+
+	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/run", bytes.NewReader(body))
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set("Idempotency-Key", "run-key-1")
+	rec2 := httptest.NewRecorder()
+	server.RunJob(rec2, req2)
+	if rec2.Code != http.StatusAccepted {
+		t.Fatalf("second run: expected %d, got %d: %s", http.StatusAccepted, rec2.Code, rec2.Body.String())
+	}
+
+	if rec.Body.String() != rec2.Body.String() {
+		t.Fatalf("expected replayed response %q, got %q", rec.Body.String(), rec2.Body.String())
+	}
+
+	waitForNEnqueuedJobs(t, queueService, 1)
+	if got := len(queueService.GetJobs()); got != 1 {
+		t.Fatalf("expected one enqueued job after replay, got %d", got)
+	}
+
+	var runCount int
+	if err := db.QueryRow("SELECT COUNT(*) FROM job_runs").Scan(&runCount); err != nil {
+		t.Fatalf("count runs: %v", err)
+	}
+
+	if runCount != 1 {
+		t.Fatalf("expected one run row after replay, got %d", runCount)
+	}
+}
+
+func TestAPIServer_RunJob_IdempotencyKeyConflict(t *testing.T) {
+	server, _, _, _ := setupTestServer(t)
+
+	bodyA, _ := json.Marshal(map[string]any{
+		"root": map[string]any{
+			"id":   "root",
+			"uses": "builtins/shell",
+			"with": map[string]string{"command": "echo a"},
+		},
+	})
+
+	bodyB, _ := json.Marshal(map[string]any{
+		"root": map[string]any{
+			"id":   "root",
+			"uses": "builtins/shell",
+			"with": map[string]string{"command": "echo b"},
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/run", bytes.NewReader(bodyA))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", "run-key-conflict")
+	rec := httptest.NewRecorder()
+	server.RunJob(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("first run: expected %d, got %d: %s", http.StatusAccepted, rec.Code, rec.Body.String())
+	}
+
+	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/run", bytes.NewReader(bodyB))
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set("Idempotency-Key", "run-key-conflict")
+	rec2 := httptest.NewRecorder()
+	server.RunJob(rec2, req2)
+	if rec2.Code != http.StatusConflict {
+		t.Fatalf("second run: expected %d, got %d: %s", http.StatusConflict, rec2.Code, rec2.Body.String())
 	}
 }
 

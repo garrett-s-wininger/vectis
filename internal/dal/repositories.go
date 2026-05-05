@@ -74,6 +74,19 @@ type EphemeralRunStarter interface {
 	CreateDefinitionAndRun(ctx context.Context, jobID, definitionJSON string, runIndex *int) (runID string, runIndexOut int, err error)
 }
 
+type IdempotencyRecord struct {
+	Scope        string
+	Key          string
+	RequestHash  string
+	ResponseJSON *string
+}
+
+type IdempotencyRepository interface {
+	Reserve(ctx context.Context, scope, key, requestHash string) (record IdempotencyRecord, created bool, err error)
+	Complete(ctx context.Context, scope, key, responseJSON string) error
+	Release(ctx context.Context, scope, key string) error
+}
+
 type CronSchedule struct {
 	ID        int64
 	JobID     string
@@ -133,6 +146,7 @@ type SQLRepositories struct {
 	auth         *SQLAuthRepository
 	namespaces   *SQLNamespacesRepository
 	roleBindings *SQLRoleBindingsRepository
+	idempotency  *SQLIdempotencyRepository
 }
 
 func NewSQLRepositories(db *sql.DB) *SQLRepositories {
@@ -144,6 +158,7 @@ func NewSQLRepositories(db *sql.DB) *SQLRepositories {
 		auth:         NewSQLAuthRepository(db),
 		namespaces:   NewSQLNamespacesRepository(db),
 		roleBindings: NewSQLRoleBindingsRepository(db),
+		idempotency:  &SQLIdempotencyRepository{db: db},
 	}
 }
 
@@ -216,6 +231,68 @@ func (r *SQLRepositories) Namespaces() NamespacesRepository {
 
 func (r *SQLRepositories) RoleBindings() RoleBindingsRepository {
 	return r.roleBindings
+}
+
+func (r *SQLRepositories) Idempotency() IdempotencyRepository {
+	return r.idempotency
+}
+
+type SQLIdempotencyRepository struct {
+	db *sql.DB
+}
+
+func (r *SQLIdempotencyRepository) Reserve(ctx context.Context, scope, key, requestHash string) (IdempotencyRecord, bool, error) {
+	_, err := r.db.ExecContext(ctx,
+		rebindQueryForPgx(`INSERT INTO idempotency_keys (scope, key, request_hash) VALUES (?, ?, ?)`),
+		scope,
+		key,
+		requestHash,
+	)
+
+	if err == nil {
+		return IdempotencyRecord{Scope: scope, Key: key, RequestHash: requestHash}, true, nil
+	}
+
+	if !IsConflict(normalizeSQLError(err)) {
+		return IdempotencyRecord{}, false, normalizeSQLError(err)
+	}
+
+	var rec IdempotencyRecord
+	var response sql.NullString
+	if err := r.db.QueryRowContext(ctx,
+		rebindQueryForPgx(`SELECT scope, key, request_hash, response_json FROM idempotency_keys WHERE scope = ? AND key = ?`),
+		scope,
+		key,
+	).Scan(&rec.Scope, &rec.Key, &rec.RequestHash, &response); err != nil {
+		return IdempotencyRecord{}, false, normalizeSQLError(err)
+	}
+
+	if response.Valid {
+		rec.ResponseJSON = &response.String
+	}
+
+	return rec, false, nil
+}
+
+func (r *SQLIdempotencyRepository) Complete(ctx context.Context, scope, key, responseJSON string) error {
+	_, err := r.db.ExecContext(ctx,
+		rebindQueryForPgx(`UPDATE idempotency_keys SET response_json = ?, updated_at = CURRENT_TIMESTAMP WHERE scope = ? AND key = ?`),
+		responseJSON,
+		scope,
+		key,
+	)
+
+	return normalizeSQLError(err)
+}
+
+func (r *SQLIdempotencyRepository) Release(ctx context.Context, scope, key string) error {
+	_, err := r.db.ExecContext(ctx,
+		rebindQueryForPgx(`DELETE FROM idempotency_keys WHERE scope = ? AND key = ? AND response_json IS NULL`),
+		scope,
+		key,
+	)
+
+	return normalizeSQLError(err)
 }
 
 type SQLJobsRepository struct {

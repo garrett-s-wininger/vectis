@@ -649,6 +649,73 @@ func TestSQLRepositories_CreateDefinitionAndRun_AndGetDefinitionVersion(t *testi
 	}
 }
 
+func TestIdempotencyRepository_ReserveCompleteAndReplay(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	idempotency := dal.NewSQLRepositories(db).Idempotency()
+	ctx := context.Background()
+
+	rec, created, err := idempotency.Reserve(ctx, "scope-a", "key-a", "hash-a")
+	if err != nil {
+		t.Fatalf("reserve: %v", err)
+	}
+
+	if !created {
+		t.Fatal("expected first reserve to create record")
+	}
+
+	if rec.ResponseJSON != nil {
+		t.Fatalf("expected no response on new record, got %q", *rec.ResponseJSON)
+	}
+
+	if err := idempotency.Complete(ctx, "scope-a", "key-a", `{"run_id":"run-a"}`); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+
+	rec, created, err = idempotency.Reserve(ctx, "scope-a", "key-a", "hash-a")
+	if err != nil {
+		t.Fatalf("replay reserve: %v", err)
+	}
+
+	if created {
+		t.Fatal("expected replay reserve to read existing record")
+	}
+
+	if rec.ResponseJSON == nil || *rec.ResponseJSON != `{"run_id":"run-a"}` {
+		t.Fatalf("expected stored response, got %+v", rec.ResponseJSON)
+	}
+
+	rec, created, err = idempotency.Reserve(ctx, "scope-a", "key-a", "hash-b")
+	if err != nil {
+		t.Fatalf("mismatch reserve: %v", err)
+	}
+
+	if created {
+		t.Fatal("expected mismatched reserve to read existing record")
+	}
+
+	if rec.RequestHash != "hash-a" {
+		t.Fatalf("expected original hash, got %q", rec.RequestHash)
+	}
+}
+
+func TestIdempotencyRepository_ReleaseIncomplete(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	idempotency := dal.NewSQLRepositories(db).Idempotency()
+	ctx := context.Background()
+
+	if _, created, err := idempotency.Reserve(ctx, "scope-a", "key-a", "hash-a"); err != nil || !created {
+		t.Fatalf("reserve created=%v err=%v", created, err)
+	}
+
+	if err := idempotency.Release(ctx, "scope-a", "key-a"); err != nil {
+		t.Fatalf("release: %v", err)
+	}
+
+	if _, created, err := idempotency.Reserve(ctx, "scope-a", "key-a", "hash-a"); err != nil || !created {
+		t.Fatalf("reserve after release created=%v err=%v", created, err)
+	}
+}
+
 func TestJobsRepository_GetDefinitionVersion_NotFound(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	jobs := dal.NewSQLRepositories(db).Jobs()
