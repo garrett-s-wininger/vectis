@@ -248,7 +248,7 @@ func (s *APIServer) handlerDBCtx(r *http.Request) (context.Context, context.Canc
 
 func (s *APIServer) requireNamespaces(w http.ResponseWriter) bool {
 	if s.namespaces == nil {
-		http.Error(w, "namespaces not configured", http.StatusServiceUnavailable)
+		writeAPIErrorCode(w, http.StatusServiceUnavailable, apiErrNamespacesNotConfigured)
 		return false
 	}
 	return true
@@ -256,7 +256,7 @@ func (s *APIServer) requireNamespaces(w http.ResponseWriter) bool {
 
 func (s *APIServer) requireRoleBindings(w http.ResponseWriter) bool {
 	if s.roleBindings == nil {
-		http.Error(w, "role bindings not configured", http.StatusServiceUnavailable)
+		writeAPIErrorCode(w, http.StatusServiceUnavailable, apiErrRoleBindingsNotConfigured)
 		return false
 	}
 	return true
@@ -264,7 +264,7 @@ func (s *APIServer) requireRoleBindings(w http.ResponseWriter) bool {
 
 func (s *APIServer) requireAuthRepo(w http.ResponseWriter) bool {
 	if s.authRepo == nil {
-		http.Error(w, "auth not configured", http.StatusServiceUnavailable)
+		writeAPIErrorCode(w, http.StatusServiceUnavailable, apiErrAuthNotConfigured)
 		return false
 	}
 	return true
@@ -377,7 +377,7 @@ func (s *APIServer) HealthReady(w http.ResponseWriter, r *http.Request) {
 
 	if s.healthDB != nil {
 		if err := s.healthDB.PingContext(ctx); err != nil {
-			http.Error(w, "database not ready", http.StatusServiceUnavailable)
+			writeAPIErrorCode(w, http.StatusServiceUnavailable, apiErrDatabaseNotReady)
 			return
 		}
 	}
@@ -389,7 +389,7 @@ func (s *APIServer) HealthReady(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !queueRPCReady(qc) {
-		http.Error(w, "queue not ready", http.StatusServiceUnavailable)
+		writeAPIErrorCode(w, http.StatusServiceUnavailable, apiErrQueueNotReady)
 		return
 	}
 
@@ -1825,7 +1825,7 @@ func (s *APIServer) HandleSSEJobRuns(w http.ResponseWriter, r *http.Request) {
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrStreamingUnsupported)
 		return
 	}
 
@@ -1968,7 +1968,7 @@ func (s *APIServer) GetRunLogs(w http.ResponseWriter, r *http.Request) {
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrStreamingUnsupported)
 		return
 	}
 
@@ -2102,7 +2102,7 @@ func (s *APIServer) rateLimitMiddleware(rl ratelimit.RateLimiter, rule ratelimit
 		if !allowed {
 			retrySeconds := int(math.Ceil(retryAfter.Seconds()))
 			w.Header().Set("Retry-After", strconv.Itoa(retrySeconds))
-			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+			writeAPIErrorCode(w, http.StatusTooManyRequests, apiErrRateLimitExceeded)
 			return
 		}
 		next.ServeHTTP(w, r)

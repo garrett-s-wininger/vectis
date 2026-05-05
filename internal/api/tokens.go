@@ -95,7 +95,7 @@ func (s *APIServer) ListTokens(w http.ResponseWriter, r *http.Request) {
 	if userIDStr := r.URL.Query().Get("user_id"); userIDStr != "" {
 		uid, err := strconv.ParseInt(userIDStr, 10, 64)
 		if err != nil || uid <= 0 {
-			http.Error(w, "invalid user_id", http.StatusBadRequest)
+			writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidUserID)
 			return
 		}
 
@@ -116,7 +116,7 @@ func (s *APIServer) ListTokens(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if !enabled {
-				http.Error(w, "user not found or disabled", http.StatusBadRequest)
+				writeAPIErrorCode(w, http.StatusBadRequest, apiErrUserNotFoundOrDisabled)
 				return
 			}
 		}
@@ -151,35 +151,35 @@ func (s *APIServer) ListTokens(w http.ResponseWriter, r *http.Request) {
 
 func (s *APIServer) CreateToken(w http.ResponseWriter, r *http.Request) {
 	if !requestContentTypeIsJSON(r) {
-		http.Error(w, "content type must be application/json", http.StatusUnsupportedMediaType)
+		writeAPIErrorCode(w, http.StatusUnsupportedMediaType, apiErrUnsupportedMediaType)
 		return
 	}
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxTokenBodyBytes+1))
 	if err != nil {
-		http.Error(w, "failed to read request body", http.StatusInternalServerError)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrRequestReadFailed)
 		return
 	}
 
 	if len(body) > maxTokenBodyBytes {
-		http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+		writeAPIErrorCode(w, http.StatusRequestEntityTooLarge, apiErrRequestBodyTooLarge)
 		return
 	}
 
 	var req createTokenRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidRequestBody)
 		return
 	}
 
 	if req.Label == "" {
-		http.Error(w, "label is required", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrMissingLabel)
 		return
 	}
 
 	duration, ok := tokenExpiryPresets[req.ExpiresIn]
 	if !ok {
-		http.Error(w, "invalid expires_in", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidExpiresIn)
 		return
 	}
 
@@ -219,7 +219,7 @@ func (s *APIServer) CreateToken(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if !enabled {
-				http.Error(w, "user not found or disabled", http.StatusBadRequest)
+				writeAPIErrorCode(w, http.StatusBadRequest, apiErrUserNotFoundOrDisabled)
 				return
 			}
 		}
@@ -228,7 +228,7 @@ func (s *APIServer) CreateToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if p != nil && len(p.TokenScopes) > 0 && len(req.Scopes) == 0 {
-		http.Error(w, "scoped tokens must create explicitly scoped tokens", http.StatusForbidden)
+		writeAPIErrorCode(w, http.StatusForbidden, apiErrScopedTokenScopeRequired)
 		return
 	}
 
@@ -250,7 +250,7 @@ func (s *APIServer) CreateToken(w http.ResponseWriter, r *http.Request) {
 	var id int64
 	if len(req.Scopes) > 0 {
 		if s.namespaces == nil {
-			http.Error(w, "namespace repository unavailable", http.StatusServiceUnavailable)
+			writeAPIErrorCode(w, http.StatusServiceUnavailable, apiErrNamespaceRepositoryUnavailable)
 			return
 		}
 
@@ -258,7 +258,7 @@ func (s *APIServer) CreateToken(w http.ResponseWriter, r *http.Request) {
 		for i, scopeReq := range req.Scopes {
 			action, ok := authz.ParseAction(scopeReq.Action)
 			if !ok || action == authz.ActionSetupStatus || action == authz.ActionSetupComplete {
-				http.Error(w, "invalid scope action", http.StatusBadRequest)
+				writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidScopeAction)
 				return
 			}
 
@@ -269,20 +269,22 @@ func (s *APIServer) CreateToken(w http.ResponseWriter, r *http.Request) {
 
 			scopeRes := authz.Resource{}
 			if authz.ActionSupportsNamespace(action) && scopeReq.NamespacePath == "" {
-				http.Error(w, "namespace_path is required for namespaced actions", http.StatusBadRequest)
+				writeAPIErrorCode(w, http.StatusBadRequest, apiErrMissingNamespacePath)
 				return
 			}
 
 			if scopeReq.NamespacePath != "" {
 				if !authz.ActionSupportsNamespace(action) {
-					http.Error(w, "namespace_path is not allowed for global actions", http.StatusBadRequest)
+					writeAPIErrorCode(w, http.StatusBadRequest, apiErrNamespacePathForbidden)
 					return
 				}
 
 				ns, err := s.namespaces.GetByPath(ctx, scopeReq.NamespacePath)
 				if err != nil {
 					if dal.IsNotFound(err) {
-						http.Error(w, "namespace not found: "+scopeReq.NamespacePath, http.StatusBadRequest)
+						writeAPIError(w, http.StatusBadRequest, "namespace_not_found", "namespace not found", map[string]any{
+							"namespace_path": scopeReq.NamespacePath,
+						})
 						return
 					}
 
@@ -357,7 +359,7 @@ func (s *APIServer) DeleteToken(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || id <= 0 {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidID)
 		return
 	}
 
@@ -376,7 +378,7 @@ func (s *APIServer) DeleteToken(w http.ResponseWriter, r *http.Request) {
 	ownerID, err := s.authRepo.GetAPITokenOwner(ctx, id)
 	if err != nil {
 		if dal.IsNotFound(err) {
-			http.Error(w, "token not found", http.StatusNotFound)
+			writeAPIErrorCode(w, http.StatusNotFound, apiErrTokenNotFound)
 			return
 		}
 
@@ -397,7 +399,7 @@ func (s *APIServer) DeleteToken(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.authRepo.DeleteAPIToken(ctx, id); err != nil {
 		if dal.IsNotFound(err) {
-			http.Error(w, "token not found", http.StatusNotFound)
+			writeAPIErrorCode(w, http.StatusNotFound, apiErrTokenNotFound)
 			return
 		}
 

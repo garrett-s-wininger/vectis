@@ -71,36 +71,36 @@ func generateRandomPassword() (string, error) {
 
 func (s *APIServer) CreateUser(w http.ResponseWriter, r *http.Request) {
 	if !requestContentTypeIsJSON(r) {
-		http.Error(w, "content type must be application/json", http.StatusUnsupportedMediaType)
+		writeAPIErrorCode(w, http.StatusUnsupportedMediaType, apiErrUnsupportedMediaType)
 		return
 	}
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxUserBodyBytes+1))
 	if err != nil {
-		http.Error(w, "failed to read request body", http.StatusInternalServerError)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrRequestReadFailed)
 		return
 	}
 
 	if len(body) > maxUserBodyBytes {
-		http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+		writeAPIErrorCode(w, http.StatusRequestEntityTooLarge, apiErrRequestBodyTooLarge)
 		return
 	}
 
 	var req createUserRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidRequestBody)
 		return
 	}
 
 	req.Username = strings.TrimSpace(req.Username)
 
 	if req.Username == "" {
-		http.Error(w, "username is required", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrMissingUsername)
 		return
 	}
 
 	if len(req.Username) < adminUsernameMinLen || len(req.Username) > adminUsernameMaxLen || !utf8.ValidString(req.Username) || strings.ContainsAny(req.Username, "\x00\r\n") {
-		http.Error(w, "invalid username", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidUsername)
 		return
 	}
 
@@ -119,12 +119,12 @@ func (s *APIServer) CreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(password) < adminPasswordMinLen {
-		http.Error(w, "password must be at least 8 characters", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrPasswordTooShort)
 		return
 	}
 
 	if len(password) > adminPasswordMaxLen || !utf8.ValidString(password) {
-		http.Error(w, "invalid password", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidPassword)
 		return
 	}
 
@@ -150,7 +150,7 @@ func (s *APIServer) CreateUser(w http.ResponseWriter, r *http.Request) {
 	id, err := s.authRepo.CreateLocalUser(ctx, req.Username, string(passHash))
 	if err != nil {
 		if dal.IsConflict(err) {
-			http.Error(w, "username already exists", http.StatusConflict)
+			writeAPIErrorCode(w, http.StatusConflict, apiErrUsernameAlreadyExists)
 			return
 		}
 
@@ -233,7 +233,7 @@ func (s *APIServer) GetUser(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || id <= 0 {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidID)
 		return
 	}
 
@@ -252,7 +252,7 @@ func (s *APIServer) GetUser(w http.ResponseWriter, r *http.Request) {
 	user, err := s.authRepo.GetLocalUser(ctx, id)
 	if err != nil {
 		if dal.IsNotFound(err) {
-			http.Error(w, "user not found", http.StatusNotFound)
+			writeAPIErrorCode(w, http.StatusNotFound, apiErrUserNotFound)
 			return
 		}
 
@@ -278,34 +278,34 @@ func (s *APIServer) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || id <= 0 {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidID)
 		return
 	}
 
 	if !requestContentTypeIsJSON(r) {
-		http.Error(w, "content type must be application/json", http.StatusUnsupportedMediaType)
+		writeAPIErrorCode(w, http.StatusUnsupportedMediaType, apiErrUnsupportedMediaType)
 		return
 	}
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxUserBodyBytes+1))
 	if err != nil {
-		http.Error(w, "failed to read request body", http.StatusInternalServerError)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrRequestReadFailed)
 		return
 	}
 
 	if len(body) > maxUserBodyBytes {
-		http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+		writeAPIErrorCode(w, http.StatusRequestEntityTooLarge, apiErrRequestBodyTooLarge)
 		return
 	}
 
 	var req updateUserRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidRequestBody)
 		return
 	}
 
 	if req.Enabled == nil {
-		http.Error(w, "enabled is required", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrMissingEnabled)
 		return
 	}
 
@@ -323,7 +323,7 @@ func (s *APIServer) UpdateUser(w http.ResponseWriter, r *http.Request) {
 
 	if !*req.Enabled {
 		if p != nil && id == p.LocalUserID {
-			http.Error(w, "cannot disable yourself", http.StatusBadRequest)
+			writeAPIErrorCode(w, http.StatusBadRequest, apiErrSelfDisableForbidden)
 			return
 		}
 
@@ -351,7 +351,7 @@ func (s *APIServer) UpdateUser(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if adminCount <= 1 {
-				http.Error(w, "cannot disable the last admin", http.StatusBadRequest)
+				writeAPIErrorCode(w, http.StatusBadRequest, apiErrLastAdminDisableForbidden)
 				return
 			}
 		}
@@ -359,7 +359,7 @@ func (s *APIServer) UpdateUser(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.authRepo.UpdateLocalUserEnabled(ctx, id, *req.Enabled); err != nil {
 		if dal.IsNotFound(err) {
-			http.Error(w, "user not found", http.StatusNotFound)
+			writeAPIErrorCode(w, http.StatusNotFound, apiErrUserNotFound)
 			return
 		}
 
@@ -390,7 +390,7 @@ func (s *APIServer) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || id <= 0 {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidID)
 		return
 	}
 
@@ -407,7 +407,7 @@ func (s *APIServer) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if p != nil && id == p.LocalUserID {
-		http.Error(w, "cannot delete yourself", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrSelfDeleteForbidden)
 		return
 	}
 
@@ -435,14 +435,14 @@ func (s *APIServer) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if adminCount <= 1 {
-			http.Error(w, "cannot delete the last admin", http.StatusBadRequest)
+			writeAPIErrorCode(w, http.StatusBadRequest, apiErrLastAdminDeleteForbidden)
 			return
 		}
 	}
 
 	if err := s.authRepo.DeleteLocalUser(ctx, id); err != nil {
 		if dal.IsNotFound(err) {
-			http.Error(w, "user not found", http.StatusNotFound)
+			writeAPIErrorCode(w, http.StatusNotFound, apiErrUserNotFound)
 			return
 		}
 
@@ -474,36 +474,36 @@ type changePasswordRequest struct {
 
 func (s *APIServer) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	if !requestContentTypeIsJSON(r) {
-		http.Error(w, "content type must be application/json", http.StatusUnsupportedMediaType)
+		writeAPIErrorCode(w, http.StatusUnsupportedMediaType, apiErrUnsupportedMediaType)
 		return
 	}
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxChangePasswordBodyBytes+1))
 	if err != nil {
-		http.Error(w, "failed to read request body", http.StatusInternalServerError)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrRequestReadFailed)
 		return
 	}
 	if len(body) > maxChangePasswordBodyBytes {
-		http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+		writeAPIErrorCode(w, http.StatusRequestEntityTooLarge, apiErrRequestBodyTooLarge)
 		return
 	}
 
 	var req changePasswordRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidRequestBody)
 		return
 	}
 
 	if req.NewPassword == "" {
-		http.Error(w, "new_password is required", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrMissingNewPassword)
 		return
 	}
 	if len(req.NewPassword) < adminPasswordMinLen {
-		http.Error(w, "new_password must be at least 8 characters", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrNewPasswordTooShort)
 		return
 	}
 	if len(req.NewPassword) > adminPasswordMaxLen || !utf8.ValidString(req.NewPassword) {
-		http.Error(w, "invalid new_password", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidNewPassword)
 		return
 	}
 
@@ -542,7 +542,7 @@ func (s *APIServer) ChangePassword(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if !enabled {
-				http.Error(w, "user not found or disabled", http.StatusBadRequest)
+				writeAPIErrorCode(w, http.StatusBadRequest, apiErrUserNotFoundOrDisabled)
 				return
 			}
 
@@ -553,14 +553,14 @@ func (s *APIServer) ChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	if !isAdmin {
 		if req.CurrentPassword == "" {
-			http.Error(w, "current_password is required", http.StatusBadRequest)
+			writeAPIErrorCode(w, http.StatusBadRequest, apiErrMissingCurrentPassword)
 			return
 		}
 
 		currentHash, err := s.authRepo.GetUserPasswordHash(ctx, targetUserID)
 		if err != nil {
 			if dal.IsNotFound(err) {
-				http.Error(w, "user not found", http.StatusNotFound)
+				writeAPIErrorCode(w, http.StatusNotFound, apiErrUserNotFound)
 				return
 			}
 			if s.handleDBUnavailableError(w, err) {
@@ -586,7 +586,7 @@ func (s *APIServer) ChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.authRepo.ChangePasswordAndRevokeTokens(ctx, targetUserID, string(newHash)); err != nil {
 		if dal.IsNotFound(err) {
-			http.Error(w, "user not found", http.StatusNotFound)
+			writeAPIErrorCode(w, http.StatusNotFound, apiErrUserNotFound)
 			return
 		}
 		if s.handleDBUnavailableError(w, err) {

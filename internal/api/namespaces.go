@@ -36,24 +36,24 @@ func namespaceRecordToResponse(rec *dal.NamespaceRecord) namespaceResponse {
 
 func (s *APIServer) CreateNamespace(w http.ResponseWriter, r *http.Request) {
 	if !requestContentTypeIsJSON(r) {
-		http.Error(w, "content type must be application/json", http.StatusUnsupportedMediaType)
+		writeAPIErrorCode(w, http.StatusUnsupportedMediaType, apiErrUnsupportedMediaType)
 		return
 	}
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, 64*1024))
 	if err != nil {
-		http.Error(w, "failed to read request body", http.StatusInternalServerError)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrRequestReadFailed)
 		return
 	}
 
 	var req createNamespaceRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidRequestBody)
 		return
 	}
 
 	if req.Name == "" {
-		http.Error(w, "name is required", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrMissingName)
 		return
 	}
 
@@ -75,7 +75,7 @@ func (s *APIServer) CreateNamespace(w http.ResponseWriter, r *http.Request) {
 		parent, err := s.namespaces.GetByID(ctx, *req.ParentID)
 		if err != nil {
 			if dal.IsNotFound(err) {
-				http.Error(w, "parent namespace not found", http.StatusNotFound)
+				writeAPIErrorCode(w, http.StatusNotFound, apiErrParentNamespaceNotFound)
 				return
 			}
 
@@ -84,7 +84,7 @@ func (s *APIServer) CreateNamespace(w http.ResponseWriter, r *http.Request) {
 			}
 
 			s.logger.Error("Database error: %v", err)
-			http.Error(w, "internal server error", http.StatusInternalServerError)
+			writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 			return
 		}
 		parentPath = parent.Path
@@ -101,17 +101,17 @@ func (s *APIServer) CreateNamespace(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if dal.IsConflict(err) {
-			http.Error(w, "namespace already exists", http.StatusConflict)
+			writeAPIErrorCode(w, http.StatusConflict, apiErrNamespaceAlreadyExists)
 			return
 		}
 
 		if dal.IsInvalidNamespaceName(err) {
-			http.Error(w, "invalid namespace name", http.StatusBadRequest)
+			writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidNamespaceName)
 			return
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 	s.markDBRecovered()
@@ -155,7 +155,7 @@ func (s *APIServer) ListNamespaces(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 	s.markDBRecovered()
@@ -182,7 +182,7 @@ func (s *APIServer) GetNamespace(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || id <= 0 {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidID)
 		return
 	}
 
@@ -201,7 +201,7 @@ func (s *APIServer) GetNamespace(w http.ResponseWriter, r *http.Request) {
 	rec, err := s.namespaces.GetByID(ctx, id)
 	if err != nil {
 		if dal.IsNotFound(err) {
-			http.Error(w, "namespace not found", http.StatusNotFound)
+			writeAPIErrorCode(w, http.StatusNotFound, apiErrNamespaceNotFound)
 			return
 		}
 
@@ -210,7 +210,7 @@ func (s *APIServer) GetNamespace(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 	s.markDBRecovered()
@@ -230,12 +230,12 @@ func (s *APIServer) DeleteNamespace(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || id <= 0 {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidID)
 		return
 	}
 
 	if id == 1 {
-		http.Error(w, "cannot delete root namespace", http.StatusForbidden)
+		writeAPIErrorCode(w, http.StatusForbidden, apiErrRootNamespaceDeleteForbidden)
 		return
 	}
 
@@ -254,7 +254,7 @@ func (s *APIServer) DeleteNamespace(w http.ResponseWriter, r *http.Request) {
 	rec, err := s.namespaces.GetByID(ctx, id)
 	if err != nil {
 		if dal.IsNotFound(err) {
-			http.Error(w, "namespace not found", http.StatusNotFound)
+			writeAPIErrorCode(w, http.StatusNotFound, apiErrNamespaceNotFound)
 			return
 		}
 
@@ -263,7 +263,7 @@ func (s *APIServer) DeleteNamespace(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 
@@ -278,12 +278,12 @@ func (s *APIServer) DeleteNamespace(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 
 	if hasChildren {
-		http.Error(w, "namespace has children", http.StatusConflict)
+		writeAPIErrorCode(w, http.StatusConflict, apiErrNamespaceHasChildren)
 		return
 	}
 
@@ -294,23 +294,23 @@ func (s *APIServer) DeleteNamespace(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 
 	if hasJobs {
-		http.Error(w, "namespace has jobs", http.StatusConflict)
+		writeAPIErrorCode(w, http.StatusConflict, apiErrNamespaceHasJobs)
 		return
 	}
 
 	if err := s.namespaces.Delete(ctx, id); err != nil {
 		if dal.IsNotFound(err) {
-			http.Error(w, "namespace not found", http.StatusNotFound)
+			writeAPIErrorCode(w, http.StatusNotFound, apiErrNamespaceNotFound)
 			return
 		}
 
 		if dal.IsConflict(err) {
-			http.Error(w, "namespace has children or jobs", http.StatusConflict)
+			writeAPIErrorCode(w, http.StatusConflict, apiErrNamespaceNotEmpty)
 			return
 		}
 
@@ -319,7 +319,7 @@ func (s *APIServer) DeleteNamespace(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 	s.markDBRecovered()
