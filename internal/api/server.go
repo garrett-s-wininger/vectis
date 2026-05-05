@@ -780,13 +780,13 @@ func (s *APIServer) sendCancelToWorker(ctx context.Context, workerAddr, runID, c
 
 func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 	if !requestContentTypeIsJSON(r) {
-		http.Error(w, "content type must be application/json", http.StatusUnsupportedMediaType)
+		writeAPIError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "content type must be application/json", nil)
 		return
 	}
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, 10*1024*1024))
 	if err != nil {
-		http.Error(w, "failed to read request body", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "request_read_failed", "failed to read request body", nil)
 		return
 	}
 
@@ -806,17 +806,17 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 
 	var job api.Job
 	if err := json.Unmarshal(req.Job, &job); err != nil {
-		http.Error(w, "invalid job definition", http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", nil)
 		return
 	}
 
 	if job.Id == nil || *job.Id == "" {
-		http.Error(w, "job id is required", http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, "missing_job_id", "job id is required", nil)
 		return
 	}
 
 	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{RequireJobID: true}); err != nil {
-		http.Error(w, "invalid job definition: "+err.Error(), http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", map[string]any{"error": err.Error()})
 		return
 	}
 
@@ -840,7 +840,7 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 	ns, err := s.namespaces.GetByPath(ctx, namespacePath)
 	if err != nil {
 		if dal.IsNotFound(err) {
-			http.Error(w, "namespace not found", http.StatusNotFound)
+			writeAPIError(w, http.StatusNotFound, "namespace_not_found", "namespace not found", nil)
 			return
 		}
 		if s.handleDBUnavailableError(w, err) {
@@ -862,7 +862,7 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if dal.IsConflict(err) {
-			http.Error(w, "job already exists", http.StatusConflict)
+			writeAPIError(w, http.StatusConflict, "job_already_exists", "job already exists", nil)
 			return
 		}
 
@@ -1062,14 +1062,14 @@ func (s *APIServer) GetJob(w http.ResponseWriter, r *http.Request) {
 	if versionParam := r.URL.Query().Get("version"); versionParam != "" {
 		v, err := strconv.Atoi(versionParam)
 		if err != nil {
-			http.Error(w, "invalid version parameter", http.StatusBadRequest)
+			writeAPIError(w, http.StatusBadRequest, "invalid_version", "invalid version parameter", nil)
 			return
 		}
 
 		definitionJSON, err = s.jobs.GetDefinitionVersion(ctx, jobID, v)
 		if err != nil {
 			if dal.IsNotFound(err) {
-				http.Error(w, "job version not found", http.StatusNotFound)
+				writeAPIError(w, http.StatusNotFound, "job_version_not_found", "job version not found", nil)
 				return
 			}
 
@@ -1296,29 +1296,29 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if !requestContentTypeIsJSON(r) {
-		http.Error(w, "content type must be application/json", http.StatusUnsupportedMediaType)
+		writeAPIError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "content type must be application/json", nil)
 		return
 	}
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, 10*1024*1024))
 	if err != nil {
-		http.Error(w, "failed to read request body", http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "request_read_failed", "failed to read request body", nil)
 		return
 	}
 
 	var job api.Job
 	if err := json.Unmarshal(body, &job); err != nil {
-		http.Error(w, "invalid job definition", http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", nil)
 		return
 	}
 
 	if job.Id == nil || *job.Id != jobID {
-		http.Error(w, "job id mismatch", http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, "job_id_mismatch", "job id mismatch", nil)
 		return
 	}
 
 	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{RequireJobID: true}); err != nil {
-		http.Error(w, "invalid job definition: "+err.Error(), http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", map[string]any{"error": err.Error()})
 		return
 	}
 
@@ -1610,7 +1610,7 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 	if sinceStr != "" {
 		parsedSince, err := strconv.Atoi(sinceStr)
 		if err != nil || parsedSince < 0 {
-			http.Error(w, "since must be a non-negative integer", http.StatusBadRequest)
+			writeAPIError(w, http.StatusBadRequest, "invalid_since", "since must be a non-negative integer", nil)
 			return
 		}
 		since = &parsedSince
