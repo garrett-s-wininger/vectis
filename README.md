@@ -7,7 +7,7 @@ Vectis is a self-hosted build/CI-style system: multiple Go services (API, queue,
 ## Requirements
 
 - [Go](https://go.dev/) **1.25.7+** (see `go.mod`)
-- To regenerate protobufs: [Buf](https://buf.build/) — `make proto` uses `npx @bufbuild/buf` by default (`BUF` in the [Makefile](Makefile))
+- To regenerate protobufs: `protoc`, `protoc-gen-go`, and `protoc-gen-go-grpc` — `make proto` uses local tools only; override `PROTOC*` variables if they are outside the default paths
 
 ## Quick start
 

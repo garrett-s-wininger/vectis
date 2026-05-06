@@ -8,8 +8,8 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 |---|---|
 | Go | `go 1.25.7` (see [`go.mod`](go.mod)) |
 | CGO | Required locally (SQLite driver) — `CGO_ENABLED=1` (default). Disabled for container builds (`CGO_ENABLED=0` + `-tags=nosqlite`). |
-| Buf | `npx @bufbuild/buf` (pinned in [`Makefile`](Makefile) line 2) |
-| Protobuf codegen | `make proto` — invokes Buf, output to `api/gen/go/` (read-only) |
+| Protobuf compiler | `protoc` with local `protoc-gen-go` and `protoc-gen-go-grpc` plugins; override `PROTOC*` Make variables if needed |
+| Protobuf codegen | `make proto` — invokes local `protoc`, output to `api/gen/go/` (read-only) |
 | TLA+ (formal) | Java + `/opt/tla+/tla2tools.jar` (optional, for `make formal-verification`) |
 | Container | Podman (targets: `make image-full`, `make image-api`, etc.) |
 
@@ -52,7 +52,7 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 | Concern | Source of truth |
 |---------|-----------------|
 | Go module / deps | [`go.mod`](go.mod) |
-| Protobuf lint + codegen | [`buf.yaml`](buf.yaml), [`buf.gen.yaml`](buf.gen.yaml) (repo root; module path `./api/proto`) |
+| Protobuf codegen | [`api/proto/`](api/proto/) + `make proto` |
 | Default ports, DSN, feature flags | [`internal/config/defaults.toml`](internal/config/defaults.toml) |
 | Env ↔ config binding | [`internal/config/`](internal/config/) (`BindEnv`, helpers), plus [`cmd/AGENTS.md`](cmd/AGENTS.md) |
 | Containers | [`build/Containerfile`](build/Containerfile) |
@@ -116,7 +116,7 @@ make test-integration      # full integration suite
 
 ## Troubleshooting
 
-- **`make proto` fails:** run `npx @bufbuild/buf mod update` in `api/proto/` to sync dependencies, then retry.
+- **`make proto` fails:** ensure `protoc`, `protoc-gen-go`, and `protoc-gen-go-grpc` are installed; override `PROTOC`, `PROTOC_GEN_GO`, or `PROTOC_GEN_GO_GRPC` if they are outside the defaults.
 - **SQLite tests fail:** ensure `CGO_ENABLED=1` (CGO is required for `mattn/go-sqlite3`).
 - **Integration tests fail:** check `VECTIS_DATABASE_DSN` and that the Postgres test instance is reachable. See [`tests/AGENTS.md`](tests/AGENTS.md).
 - **Env prefix mismatch:** `rg SetEnvPrefix cmd/` is the source of truth; update [`cmd/AGENTS.md`](cmd/AGENTS.md) if the table disagrees.
@@ -124,6 +124,6 @@ make test-integration      # full integration suite
 ## More detail
 
 - [`internal/AGENTS.md`](internal/AGENTS.md) — DAL, mocks, config, observability, builtins
-- [`api/AGENTS.md`](api/AGENTS.md) — Buf, protos, gRPC registration map
+- [`api/AGENTS.md`](api/AGENTS.md) — protos, local codegen, gRPC registration map
 - [`tests/AGENTS.md`](tests/AGENTS.md) — integration tag, grpctest, fuzz
 - [`cmd/AGENTS.md`](cmd/AGENTS.md) — entrypoints, env prefix table

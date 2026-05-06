@@ -2,6 +2,8 @@ edition = "2023";
 
 import "common.proto";
 
+option go_package = "vectis/api/gen/go;api";
+
 enum Component {
     COMPONENT_UNKNOWN = 0;
     COMPONENT_QUEUE = 1;

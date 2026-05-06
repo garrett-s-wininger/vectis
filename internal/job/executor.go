@@ -45,6 +45,18 @@ func sanitizeJobIDForPrefix(id string) string {
 }
 
 func (e *Executor) ExecuteJob(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger) (err error) {
+	return e.executeJob(ctx, job, logClient, logger, "")
+}
+
+func (e *Executor) ExecuteJobInWorkspace(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger, workspace string) (err error) {
+	if workspace == "" {
+		return fmt.Errorf("workspace is required")
+	}
+
+	return e.executeJob(ctx, job, logClient, logger, workspace)
+}
+
+func (e *Executor) executeJob(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger, workspace string) (err error) {
 	if job.GetRoot() == nil {
 		return fmt.Errorf("job has no root node")
 	}
@@ -57,17 +69,24 @@ func (e *Executor) ExecuteJob(ctx context.Context, job *api.Job, logClient inter
 		return fmt.Errorf("job has no run id")
 	}
 
-	prefix := "vectis-" + sanitizeJobIDForPrefix(job.GetRunId()) + "-"
-	workspace, err := os.MkdirTemp(os.TempDir(), prefix)
-	if err != nil {
-		return fmt.Errorf("failed to create workspace: %w", err)
+	cleanupWorkspace := false
+	if workspace == "" {
+		prefix := "vectis-" + sanitizeJobIDForPrefix(job.GetRunId()) + "-"
+		workspace, err = os.MkdirTemp(os.TempDir(), prefix)
+		if err != nil {
+			return fmt.Errorf("failed to create workspace: %w", err)
+		}
+
+		cleanupWorkspace = true
 	}
 
-	defer func() {
-		if err := os.RemoveAll(workspace); err != nil {
-			logger.Error("Failed to remove workspace %s: %v", workspace, err)
-		}
-	}()
+	if cleanupWorkspace {
+		defer func() {
+			if err := os.RemoveAll(workspace); err != nil {
+				logger.Error("Failed to remove workspace %s: %v", workspace, err)
+			}
+		}()
+	}
 
 	logger.Info("Created workspace: %s", workspace)
 

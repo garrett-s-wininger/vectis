@@ -2,6 +2,8 @@ edition = "2023";
 
 import "common.proto";
 
+option go_package = "vectis/api/gen/go;api";
+
 service LogService {
     rpc StreamLogs(stream common.LogChunk) returns (common.Empty);
 }

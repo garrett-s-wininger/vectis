@@ -472,3 +472,51 @@ func TestExecutor_ExecuteJob_WorkspaceCreationAndCleanup(t *testing.T) {
 		t.Errorf("expected workspace %q to be cleaned up after job completion", workspacePath)
 	}
 }
+
+func TestExecutor_ExecuteJobInWorkspace_DoesNotRemoveWorkspace(t *testing.T) {
+	executor := job.NewExecutor()
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+
+	workspace := t.TempDir()
+	marker := filepath.Join(workspace, "marker.txt")
+	if err := os.WriteFile(marker, []byte("keep me"), 0o644); err != nil {
+		t.Fatalf("write marker: %v", err)
+	}
+
+	jobID := "test-job-explicit-workspace"
+	runID := "test-job-explicit-workspace-run"
+	nodeID := "node-1"
+	uses := "builtins/shell"
+	testJob := &api.Job{
+		Id:    &jobID,
+		RunId: &runID,
+		Root: &api.Node{
+			Id:   &nodeID,
+			Uses: &uses,
+			With: map[string]string{
+				"command": "pwd",
+			},
+		},
+	}
+
+	if err := executor.ExecuteJobInWorkspace(context.Background(), testJob, mockLogClient, mockLogger, workspace); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if _, err := os.Stat(workspace); err != nil {
+		t.Fatalf("expected workspace to remain: %v", err)
+	}
+
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("expected marker to remain: %v", err)
+	}
+}
+
+func TestExecutor_ExecuteJobInWorkspace_RequiresWorkspace(t *testing.T) {
+	executor := job.NewExecutor()
+	err := executor.ExecuteJobInWorkspace(context.Background(), &api.Job{}, mocks.NewMockLogClient(), mocks.NewMockLogger(), "")
+	if err == nil || !strings.Contains(err.Error(), "workspace is required") {
+		t.Fatalf("expected workspace required error, got %v", err)
+	}
+}

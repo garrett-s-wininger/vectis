@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+    branches:
+      - main
+
+jobs:
+  ci-quick:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.7"
+          cache: true
+      - uses: arduino/setup-protoc@v3
+        with:
+          version: "31.x"
+      - name: Install Go proto plugins
+        run: |
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
+      - name: Install pre-commit
+        run: python3 -m pip install --user pre-commit
+      - name: Run Vectis dogfood gate
+        run: make ci-quick

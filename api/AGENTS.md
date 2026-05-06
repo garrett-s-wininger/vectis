@@ -2,11 +2,11 @@
 
 Hand-written protos under [`proto/`](proto/); **`make proto`** (see root [`Makefile`](../Makefile)) regenerates [`gen/go/`](gen/go/) — never edit generated files.
 
-**Buf** (lint, breaking, codegen): read repo-root [`../buf.yaml`](../buf.yaml) and [`../buf.gen.yaml`](../buf.gen.yaml); do not duplicate plugin or `go_package_prefix` settings here.
+**Codegen:** `make proto` invokes local `protoc`, `protoc-gen-go`, and `protoc-gen-go-grpc`. Keep each `.proto` file's `go_package` option aligned with `vectis/api/gen/go;api`.
 
 **Imports:** `api "vectis/api/gen/go"` (common convention).
 
-**Proto packages:** each `.proto` file uses a flat package name matching its concern (`package common`, `package queue`, `package log`, etc.). Core job tree types live in [`common.proto`](proto/common.proto) (`Job`, `Node`, `LogChunk`, `Stream`, …).
+**Proto packages:** each `.proto` file uses a flat package name matching its concern where present (`package common`, etc.). Core job tree types live in [`common.proto`](proto/common.proto) (`Job`, `Node`, `LogChunk`, `Stream`, …).
 
 ## gRPC service definitions
 
@@ -32,4 +32,4 @@ Hand-written protos under [`proto/`](proto/); **`make proto`** (see root [`Makef
 
 - Prefer unary RPCs unless streaming is required for backpressure or partial results.
 - Use `common.Empty` for messages with no fields.
-- Keep proto packages flat (`package queue` not `package vectis.queue`); the Buf config handles `go_package` mapping.
+- Keep `go_package` explicit and stable so raw `protoc` can regenerate without network-backed tooling.

@@ -1,9 +1,12 @@
 APPS := api cli cron local log queue reconciler registry worker
-BUF ?= npx @bufbuild/buf
 BUILD_OPTS ?=
 COMPONENTS := $(filter-out cli local, $(APPS))
 OUT_DIR ?= bin
 CGO_ENABLED ?= 1
+
+PROTOC ?= protoc
+PROTOC_GEN_GO ?= $(shell go env GOPATH)/bin/protoc-gen-go
+PROTOC_GEN_GO_GRPC ?= $(shell go env GOPATH)/bin/protoc-gen-go-grpc
 
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT := $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
@@ -42,7 +45,17 @@ build-container: $(BINARIES)
 .PHONY: proto
 proto:
 	rm -rf ./api/gen/
-	${BUF} generate
+	mkdir -p ./api/gen/go/
+	${PROTOC} -I ./api/proto \
+		--plugin=protoc-gen-go=${PROTOC_GEN_GO} \
+		--plugin=protoc-gen-go-grpc=${PROTOC_GEN_GO_GRPC} \
+		--go_out=./api/gen/go/ --go_opt=paths=source_relative \
+		--go-grpc_out=./api/gen/go/ --go-grpc_opt=paths=source_relative \
+		./api/proto/*.proto
+
+.PHONY: ci-quick
+ci-quick:
+	@sh .vectis/ci-quick.sh
 
 formal-verification-%: formal/tla/%.tla
 	${JAVA} -jar $(TLA_TOOLS_JAR) -workers auto formal/tla/${*}.tla -config formal/tla/${*}.cfg

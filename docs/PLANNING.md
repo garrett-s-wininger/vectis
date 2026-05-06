@@ -31,7 +31,7 @@ These goals are **ambitious** and **coherent**: some items (uniform distributed 
 - **Container images (Podman / OCI; target registry naming):** `vectis/*` — built from [`build/Containerfile`](../build/Containerfile) via `make build-container` / `make images-components` (see [README.md](../README.md)).
 - **Config paths (target prod layout):** `/etc/vectis/`, `/var/lib/vectis/`
 - **Environment variable prefix:** `VECTIS_*` (`internal/config`)
-- **API contracts:** Buf protos in `api/proto/`; generated Go in `api/gen/go/`
+- **API contracts:** protos in `api/proto/`; generated Go in `api/gen/go/`
 - **Implementation stack:** Go for API, queue, worker, log, registry, cron, reconciler, CLI. A **TypeScript/React SPA** is **target** only.
 
 ---

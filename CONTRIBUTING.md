@@ -14,7 +14,7 @@ Everything below still applies if you are building from source, experimenting lo
 
 Optional:
 
-- **Buf** for protobuf codegen — `make proto` runs `npx @bufbuild/buf` unless you set `BUF` to a local `buf` binary in the environment or [Makefile](Makefile).
+- **Protobuf tools** for codegen: `protoc`, `protoc-gen-go`, and `protoc-gen-go-grpc`. Override the `PROTOC`, `PROTOC_GEN_GO`, or `PROTOC_GEN_GO_GRPC` Make variables if needed.
 
 ## Build
 
@@ -70,7 +70,7 @@ After changing `.proto` files:
 make proto
 ```
 
-Requires a working Buf invocation (`npx` + network on first run, unless Buf is installed locally and `BUF` is overridden).
+Requires `protoc`, `protoc-gen-go`, and `protoc-gen-go-grpc`. Codegen uses local tools only.
 
 ## Running services
 

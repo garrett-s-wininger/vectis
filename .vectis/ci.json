@@ -1,0 +1,10 @@
+{
+  "id": "vectis-ci",
+  "root": {
+    "id": "ci",
+    "uses": "builtins/shell",
+    "with": {
+      "command": "sh .vectis/ci.sh"
+    }
+  }
+}

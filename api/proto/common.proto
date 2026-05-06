@@ -2,6 +2,8 @@ edition = "2023";
 
 package common;
 
+option go_package = "vectis/api/gen/go;api";
+
 message Empty{}
 
 message Job {
