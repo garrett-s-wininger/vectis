@@ -29,6 +29,7 @@ import (
 const (
 	MaxLogLinesPerJob = 10000
 	MaxSSEClients     = 100
+	MaxRunBuffers     = 1024
 
 	sseReadHeaderTimeout = 10 * time.Second
 	sseIdleTimeout       = 120 * time.Second
@@ -43,26 +44,34 @@ type LogEntry struct {
 }
 
 type JobBuffer struct {
-	mu          sync.RWMutex
-	entries     []LogEntry
-	subscribers map[chan []byte]struct{}
-	subMu       sync.RWMutex
-	logger      interfaces.Logger
-	metrics     *observability.LogMetrics
+	mu           sync.RWMutex
+	entries      []LogEntry
+	subscribers  map[chan []byte]struct{}
+	subMu        sync.RWMutex
+	logger       interfaces.Logger
+	metrics      *observability.LogMetrics
+	lastActivity time.Time
+	terminal     bool
 }
 
 func NewJobBuffer(logger interfaces.Logger, metrics *observability.LogMetrics) *JobBuffer {
 	return &JobBuffer{
-		entries:     make([]LogEntry, 0, MaxLogLinesPerJob),
-		subscribers: make(map[chan []byte]struct{}),
-		logger:      logger,
-		metrics:     metrics,
+		entries:      make([]LogEntry, 0, MaxLogLinesPerJob),
+		subscribers:  make(map[chan []byte]struct{}),
+		logger:       logger,
+		metrics:      metrics,
+		lastActivity: time.Now(),
 	}
 }
 
 func (jb *JobBuffer) Add(entry LogEntry) bool {
 	jb.mu.Lock()
 	defer jb.mu.Unlock()
+
+	jb.lastActivity = entry.Timestamp
+	if isCompletedEvent(entry) {
+		jb.terminal = true
+	}
 
 	if len(jb.entries) >= MaxLogLinesPerJob {
 		return false
@@ -103,6 +112,28 @@ func (jb *JobBuffer) Unsubscribe(ch chan []byte) bool {
 	return true
 }
 
+func (jb *JobBuffer) SubscriberCount() int {
+	jb.subMu.RLock()
+	defer jb.subMu.RUnlock()
+
+	return len(jb.subscribers)
+}
+
+func (jb *JobBuffer) Evictable() bool {
+	jb.mu.RLock()
+	terminal := jb.terminal
+	jb.mu.RUnlock()
+
+	return terminal && jb.SubscriberCount() == 0
+}
+
+func (jb *JobBuffer) LastActivity() time.Time {
+	jb.mu.RLock()
+	defer jb.mu.RUnlock()
+
+	return jb.lastActivity
+}
+
 func (jb *JobBuffer) Broadcast(jobID string, entry LogEntry) {
 	data, err := json.Marshal(entry)
 	if err != nil {
@@ -136,12 +167,13 @@ func (jb *JobBuffer) Broadcast(jobID string, entry LogEntry) {
 
 type Server struct {
 	api.UnimplementedLogServiceServer
-	mu      sync.RWMutex
-	buffers map[string]*JobBuffer
-	logger  interfaces.Logger
-	store   RunLogStore
-	runs    RunStatusProvider
-	metrics *observability.LogMetrics
+	mu            sync.RWMutex
+	buffers       map[string]*JobBuffer
+	logger        interfaces.Logger
+	store         RunLogStore
+	runs          RunStatusProvider
+	metrics       *observability.LogMetrics
+	maxRunBuffers int
 }
 
 func NewServer(logger interfaces.Logger) *Server {
@@ -158,11 +190,12 @@ func NewServerWithStoreAndStatus(logger interfaces.Logger, store RunLogStore, ru
 	}
 
 	return &Server{
-		buffers: make(map[string]*JobBuffer),
-		logger:  logger,
-		store:   store,
-		runs:    runs,
-		metrics: metrics,
+		buffers:       make(map[string]*JobBuffer),
+		logger:        logger,
+		store:         store,
+		runs:          runs,
+		metrics:       metrics,
+		maxRunBuffers: MaxRunBuffers,
 	}
 }
 
@@ -176,7 +209,56 @@ func (s *Server) getOrCreateBuffer(runID string) *JobBuffer {
 
 	buffer := NewJobBuffer(s.logger, s.metrics)
 	s.buffers[runID] = buffer
+	s.evictTerminalBuffersLocked()
 	return buffer
+}
+
+func (s *Server) bufferCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return len(s.buffers)
+}
+
+func (s *Server) evictTerminalBuffers() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.evictTerminalBuffersLocked()
+}
+
+func (s *Server) evictTerminalBuffersLocked() {
+	if s.maxRunBuffers <= 0 || len(s.buffers) <= s.maxRunBuffers {
+		return
+	}
+
+	type candidate struct {
+		runID        string
+		lastActivity time.Time
+	}
+
+	candidates := make([]candidate, 0, len(s.buffers))
+	for runID, buffer := range s.buffers {
+		if !buffer.Evictable() {
+			continue
+		}
+		candidates = append(candidates, candidate{runID: runID, lastActivity: buffer.LastActivity()})
+	}
+
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].lastActivity.Before(candidates[j].lastActivity)
+	})
+
+	for _, c := range candidates {
+		if len(s.buffers) <= s.maxRunBuffers {
+			return
+		}
+
+		delete(s.buffers, c.runID)
+		if s.logger != nil {
+			s.logger.Debug("Evicted terminal log buffer for run %s", c.runID)
+		}
+	}
 }
 
 func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
@@ -220,6 +302,10 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 		}
 
 		buffer.Broadcast(chunk.GetRunId(), entry)
+		if isCompletedEvent(entry) {
+			s.evictTerminalBuffers()
+		}
+
 		s.logger.Debug("Received log from run %s (seq %d)", chunk.GetRunId(), chunk.GetSequence())
 	}
 }
@@ -255,6 +341,7 @@ func (s *Server) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	buffer.Subscribe(outCh)
 	defer func() {
 		buffer.Unsubscribe(outCh)
+		s.evictTerminalBuffers()
 	}()
 
 	s.logger.Info("SSE client connected for run: %s", runID)
@@ -414,24 +501,28 @@ func nextSequence(entries []LogEntry) int64 {
 
 func hasCompletedEvent(entries []LogEntry) bool {
 	for _, entry := range entries {
-		if entry.Stream != api.Stream_STREAM_CONTROL {
-			continue
-		}
-
-		var meta struct {
-			Event string `json:"event"`
-		}
-
-		if err := json.Unmarshal([]byte(entry.Data), &meta); err != nil {
-			continue
-		}
-
-		if meta.Event == "completed" {
+		if isCompletedEvent(entry) {
 			return true
 		}
 	}
 
 	return false
+}
+
+func isCompletedEvent(entry LogEntry) bool {
+	if entry.Stream != api.Stream_STREAM_CONTROL {
+		return false
+	}
+
+	var meta struct {
+		Event string `json:"event"`
+	}
+
+	if err := json.Unmarshal([]byte(entry.Data), &meta); err != nil {
+		return false
+	}
+
+	return meta.Event == "completed"
 }
 
 func (s *Server) tryInjectSyntheticCompletion(ctx context.Context, runID string, buffer *JobBuffer) bool {
@@ -536,6 +627,7 @@ func Run(ctx context.Context, logger interfaces.Logger, store RunLogStore, runs 
 	config.StartGRPCTLSReloadLoop(ctx)
 
 	server := NewServerWithStoreAndStatus(logger, store, runs, metrics)
+	server.maxRunBuffers = config.LogMaxRunBuffers()
 
 	if config.LogRegisterWithRegistry() {
 		regAddr := config.LogRegistryAddress()

@@ -152,7 +152,7 @@ Replace `…` with the correct prefix from the next section (e.g. `VECTIS_WORKER
 | `vectis-worker` | `VECTIS_WORKER` | `--metrics-port` |
 | `vectis-cron` | `VECTIS_CRON` | — |
 | `vectis-reconciler` | `VECTIS_RECONCILER` | `--interval` (same as **`VECTIS_RECONCILER_INTERVAL`**) |
-| `vectis-log` | `VECTIS_LOG` | `--storage-dir`, `--metrics-port` |
+| `vectis-log` | `VECTIS_LOG` | `--storage-dir`, `--metrics-port`, `--max-run-buffers` |
 | `vectis-local` | `VECTIS_LOCAL` | `--log-level`, `--grpc-insecure` (or **`VECTIS_LOCAL_GRPC_INSECURE=true`** for plaintext gRPC) |
 | `vectis-cli` | *(none for API)* | **`VECTIS_DATABASE_*`** for `migrate` only. **API and log stream URLs** for other commands follow **shipped defaults** (`api.host`, `api.port`, `log.host`, log stream port)—not the server env prefixes. |
 
@@ -173,6 +173,7 @@ Replace `…` with the correct prefix from the next section (e.g. `VECTIS_WORKER
 | Log metrics HTTP port | `VECTIS_LOG_METRICS_PORT` or `--metrics-port` (default **9083**; must differ from log gRPC/SSE and other metrics ports); TLS via **`VECTIS_METRICS_TLS_*`** |
 | Reconciler metrics HTTP port | `VECTIS_RECONCILER_METRICS_PORT` or `--metrics-port` (default **9085**; must differ from worker control port and other metrics ports); TLS via **`VECTIS_METRICS_TLS_*`** |
 | Log files on disk | `VECTIS_LOG_STORAGE_DIR` or `--storage-dir` |
+| Log in-memory run buffers | `VECTIS_LOG_MAX_RUN_BUFFERS` or `--max-run-buffers` (default **1024**); when exceeded, terminal run buffers with no active SSE subscribers are evicted first |
 | How often reconciler scans | `VECTIS_RECONCILER_INTERVAL` |
 | `vectis-local` plaintext gRPC (no bootstrap) | `--grpc-insecure` or `VECTIS_LOCAL_GRPC_INSECURE=true` |
 

@@ -93,11 +93,14 @@ func init() {
 	defaultStorage := filepath.Join(utils.DataHome(), "vectis", "jobs")
 	viper.SetDefault("storage_dir", defaultStorage)
 	viper.SetDefault("metrics_port", config.LogMetricsPort())
+	viper.SetDefault("max_run_buffers", config.LogMaxRunBuffers())
 
 	rootCmd.PersistentFlags().String("storage-dir", defaultStorage, "Directory for durable run log files")
 	rootCmd.PersistentFlags().Int("metrics-port", config.LogMetricsPort(), "HTTP port for Prometheus /metrics")
+	rootCmd.PersistentFlags().Int("max-run-buffers", config.LogMaxRunBuffers(), "Maximum in-memory run log buffers before terminal buffers are evicted")
 	_ = viper.BindPFlag("storage_dir", rootCmd.PersistentFlags().Lookup("storage-dir"))
 	_ = viper.BindPFlag("metrics_port", rootCmd.PersistentFlags().Lookup("metrics-port"))
+	_ = viper.BindPFlag("max_run_buffers", rootCmd.PersistentFlags().Lookup("max-run-buffers"))
 
 	viper.SetEnvPrefix("VECTIS_LOG")
 	viper.AutomaticEnv()

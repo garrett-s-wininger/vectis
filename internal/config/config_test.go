@@ -29,6 +29,25 @@ func TestMustDefaults_ReconcilerInterval(t *testing.T) {
 	}
 }
 
+func TestLogMaxRunBuffers_DefaultAndOverride(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	if got := LogMaxRunBuffers(); got != 1024 {
+		t.Fatalf("LogMaxRunBuffers default: got %d", got)
+	}
+
+	viper.Set("max_run_buffers", 7)
+	if got := LogMaxRunBuffers(); got != 7 {
+		t.Fatalf("LogMaxRunBuffers override: got %d", got)
+	}
+
+	viper.Set("max_run_buffers", 0)
+	if got := LogMaxRunBuffers(); got != 1024 {
+		t.Fatalf("LogMaxRunBuffers nonpositive override should fall back to default: got %d", got)
+	}
+}
+
 func TestRegistryResolverPollInterval_FromDefaults(t *testing.T) {
 	if got := RegistryResolverPollInterval(); got != 10*time.Second {
 		t.Fatalf("expected discovery.registry_resolver_refresh 10s, got %v", got)

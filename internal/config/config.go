@@ -94,6 +94,7 @@ type RegistryDefaults struct {
 type LogDefaults struct {
 	Host            string       `toml:"host"`
 	MetricsPort     int          `toml:"metrics_port"`
+	MaxRunBuffers   int          `toml:"max_run_buffers"`
 	RegistryAddress string       `toml:"registry.address"`
 	GRPC            GRPCDefaults `toml:"grpc"`
 	SSE             SSEDefaults  `toml:"sse"`
@@ -407,6 +408,16 @@ func LogMetricsEffectiveListenPort() int {
 	}
 
 	return LogMetricsPort()
+}
+
+func LogMaxRunBuffers() int {
+	if viper.IsSet("max_run_buffers") {
+		if n := viper.GetInt("max_run_buffers"); n > 0 {
+			return n
+		}
+	}
+
+	return MustDefaults().Log.MaxRunBuffers
 }
 
 func APIListenAddr() string {
