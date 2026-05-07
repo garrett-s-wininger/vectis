@@ -13,10 +13,17 @@ type Repository interface {
 	InsertAuditEvents(ctx context.Context, events []Event) error
 }
 
+// Metrics records observable audit loss and durability signals.
+type Metrics interface {
+	RecordDropped(ctx context.Context, eventType string)
+	RecordFlushFailure(ctx context.Context, eventCount int)
+}
+
 // AsyncAuditor buffers audit events and flushes them asynchronously.
 type AsyncAuditor struct {
 	repo          Repository
 	logger        *slog.Logger
+	metrics       Metrics
 	buffer        chan Event
 	batchSize     int
 	flushInterval time.Duration
@@ -29,16 +36,31 @@ type AsyncAuditor struct {
 // NewAsyncAuditor creates an asynchronous auditor.
 // Events are buffered in memory and flushed in batches.
 func NewAsyncAuditor(repo Repository, logger *slog.Logger) *AsyncAuditor {
-	return NewAsyncAuditorWithOptions(repo, logger, 100, 1*time.Second)
+	return NewAsyncAuditorWithMetrics(repo, logger, nil)
+}
+
+// NewAsyncAuditorWithMetrics creates an asynchronous auditor with metrics.
+func NewAsyncAuditorWithMetrics(repo Repository, logger *slog.Logger, metrics Metrics) *AsyncAuditor {
+	return NewAsyncAuditorWithOptionsAndMetrics(repo, logger, 100, 1*time.Second, metrics)
 }
 
 // NewAsyncAuditorWithOptions creates an asynchronous auditor with configurable batch size and flush interval.
 func NewAsyncAuditorWithOptions(repo Repository, logger *slog.Logger, batchSize int, flushInterval time.Duration) *AsyncAuditor {
-	return NewAsyncAuditorWithBuffer(repo, logger, batchSize, flushInterval, 1000)
+	return NewAsyncAuditorWithOptionsAndMetrics(repo, logger, batchSize, flushInterval, nil)
+}
+
+// NewAsyncAuditorWithOptionsAndMetrics creates an asynchronous auditor with configurable flushing and metrics.
+func NewAsyncAuditorWithOptionsAndMetrics(repo Repository, logger *slog.Logger, batchSize int, flushInterval time.Duration, metrics Metrics) *AsyncAuditor {
+	return NewAsyncAuditorWithBufferAndMetrics(repo, logger, batchSize, flushInterval, 1000, metrics)
 }
 
 // NewAsyncAuditorWithBuffer creates an asynchronous auditor with full control over buffering.
 func NewAsyncAuditorWithBuffer(repo Repository, logger *slog.Logger, batchSize int, flushInterval time.Duration, bufferSize int) *AsyncAuditor {
+	return NewAsyncAuditorWithBufferAndMetrics(repo, logger, batchSize, flushInterval, bufferSize, nil)
+}
+
+// NewAsyncAuditorWithBufferAndMetrics creates an asynchronous auditor with full control over buffering and metrics.
+func NewAsyncAuditorWithBufferAndMetrics(repo Repository, logger *slog.Logger, batchSize int, flushInterval time.Duration, bufferSize int, metrics Metrics) *AsyncAuditor {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -58,6 +80,7 @@ func NewAsyncAuditorWithBuffer(repo Repository, logger *slog.Logger, batchSize i
 	a := &AsyncAuditor{
 		repo:          repo,
 		logger:        logger,
+		metrics:       metrics,
 		buffer:        make(chan Event, bufferSize),
 		batchSize:     batchSize,
 		flushInterval: flushInterval,
@@ -104,6 +127,10 @@ func (a *AsyncAuditor) Log(ctx context.Context, event Event) error {
 	case a.buffer <- event:
 		return nil
 	default:
+		if a.metrics != nil {
+			a.metrics.RecordDropped(ctx, event.Type)
+		}
+
 		a.logger.Warn("audit event dropped: buffer full", "event_type", event.Type)
 		return nil // Don't block the caller
 	}
@@ -156,6 +183,10 @@ func (a *AsyncAuditor) flush(events []Event) {
 	defer cancel()
 
 	if err := a.repo.InsertAuditEvents(ctx, events); err != nil {
+		if a.metrics != nil {
+			a.metrics.RecordFlushFailure(ctx, len(events))
+		}
+
 		a.logger.Error("failed to flush audit events", "error", err, "count", len(events))
 	}
 }

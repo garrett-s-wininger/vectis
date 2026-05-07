@@ -16,6 +16,19 @@ type mockRepo struct {
 	events [][]Event
 }
 
+type mockMetrics struct {
+	dropped       atomic.Int64
+	flushFailures atomic.Int64
+}
+
+func (m *mockMetrics) RecordDropped(_ context.Context, _ string) {
+	m.dropped.Add(1)
+}
+
+func (m *mockMetrics) RecordFlushFailure(_ context.Context, _ int) {
+	m.flushFailures.Add(1)
+}
+
 func (m *mockRepo) InsertAuditEvents(_ context.Context, events []Event) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -116,8 +129,9 @@ func TestAsyncAuditor_StopIdempotent(t *testing.T) {
 func TestAsyncAuditor_BufferFullDropsEvent(t *testing.T) {
 	// Use a repo that blocks long enough for us to overflow the tiny buffer.
 	blockRepo := &slowMockRepo{delay: 200 * time.Millisecond}
+	metrics := &mockMetrics{}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	a := NewAsyncAuditorWithBuffer(blockRepo, logger, 5, 500*time.Millisecond, 5)
+	a := NewAsyncAuditorWithBufferAndMetrics(blockRepo, logger, 1, time.Hour, 1, metrics)
 	defer a.Stop()
 
 	ctx := context.Background()
@@ -128,9 +142,7 @@ func TestAsyncAuditor_BufferFullDropsEvent(t *testing.T) {
 		_ = a.Log(ctx, Event{Type: EventAuthSuccess, ActorID: int64(i)})
 	}
 
-	// Should not panic; some events may be dropped. We only wait long enough
-	// to confirm the flush goroutine is making progress.
-	waitFor(t, func() bool { return blockRepo.calls.Load() > 0 })
+	waitFor(t, func() bool { return blockRepo.calls.Load() > 0 && metrics.dropped.Load() > 0 })
 }
 
 func TestAsyncAuditor_StoppedEventDropped(t *testing.T) {
@@ -151,15 +163,16 @@ func TestAsyncAuditor_StoppedEventDropped(t *testing.T) {
 
 func TestAsyncAuditor_FlushErrorLogged(t *testing.T) {
 	repo := &errMockRepo{err: errors.New("db down")}
+	metrics := &mockMetrics{}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	a := NewAsyncAuditorWithBuffer(repo, logger, 10, 20*time.Millisecond, 10)
+	a := NewAsyncAuditorWithBufferAndMetrics(repo, logger, 10, 20*time.Millisecond, 10, metrics)
 	defer a.Stop()
 
 	ctx := context.Background()
 	_ = a.Log(ctx, Event{Type: EventAuthSuccess, ActorID: 1})
 
 	// Wait for at least one flush attempt to happen
-	waitFor(t, func() bool { return repo.calls.Load() > 0 })
+	waitFor(t, func() bool { return repo.calls.Load() > 0 && metrics.flushFailures.Load() > 0 })
 }
 
 type slowMockRepo struct {

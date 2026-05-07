@@ -99,6 +99,13 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		return
 	}
 
+	auditMetrics, err := observability.NewAuditMetrics()
+	if err != nil {
+		logger.Error("Failed to register audit metrics: %v", err)
+		exitCode = 1
+		return
+	}
+
 	defer cli.DeferShutdown(logger, "Metrics", shutdownMetrics)()
 
 	server := api.NewAPIServer(logger, db)
@@ -110,7 +117,7 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 	server.AccessLogger = accessLogger
 
 	// Wire up async auditor for production audit logging.
-	auditor := audit.NewAsyncAuditor(&audit.DALRepository{Auth: dal.NewSQLRepositories(db).Auth()}, slog.Default())
+	auditor := audit.NewAsyncAuditorWithMetrics(&audit.DALRepository{Auth: dal.NewSQLRepositories(db).Auth()}, slog.Default(), auditMetrics)
 	defer auditor.Stop()
 	server.SetAuditor(auditor)
 
