@@ -125,6 +125,9 @@ var (
 	podmanRenderOut   string
 	resetYes          bool
 	resetDryRun       bool
+	runListJobID      string
+	runListLimit      int
+	runListSince      int
 )
 
 type podmanSecrets struct {
@@ -1499,6 +1502,90 @@ func cancelRun(runID string, w io.Writer) error {
 	}
 }
 
+func runListRuns(cmd *cobra.Command, args []string) {
+	if err := listRuns(runListJobID, runListLimit, runListSince, os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func listRuns(jobID string, limit, since int, w io.Writer) error {
+	path := fmt.Sprintf("/api/v1/jobs/%s/runs", jobID)
+	params := []string{}
+	if limit > 0 {
+		params = append(params, fmt.Sprintf("limit=%d", limit))
+	}
+
+	if since > 0 {
+		params = append(params, fmt.Sprintf("since=%d", since))
+	}
+
+	if len(params) > 0 {
+		path += "?" + strings.Join(params, "&")
+	}
+
+	req, err := newAPIRequest(http.MethodGet, path, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status: %s", resp.Status)
+	}
+
+	var result struct {
+		Data []struct {
+			RunID         string  `json:"run_id"`
+			RunIndex      int     `json:"run_index"`
+			Status        string  `json:"status"`
+			StartedAt     *string `json:"started_at,omitempty"`
+			FinishedAt    *string `json:"finished_at,omitempty"`
+			FailureCode   *string `json:"failure_code,omitempty"`
+			FailureReason *string `json:"failure_reason,omitempty"`
+		} `json:"data"`
+		NextCursor *int64 `json:"next_cursor,omitempty"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if len(result.Data) == 0 {
+		fmt.Fprintln(w, "No runs found")
+		return nil
+	}
+
+	fmt.Fprintf(w, "%-20s %-5s %-12s %-24s %-24s\n",
+		"RUN ID", "INDEX", "STATUS", "STARTED", "FINISHED")
+
+	for _, r := range result.Data {
+		started := "-"
+		if r.StartedAt != nil {
+			started = *r.StartedAt
+		}
+
+		finished := "-"
+		if r.FinishedAt != nil {
+			finished = *r.FinishedAt
+		}
+
+		fmt.Fprintf(w, "%-20s %-5d %-12s %-24s %-24s\n",
+			r.RunID, r.RunIndex, r.Status, started, finished)
+	}
+
+	if result.NextCursor != nil {
+		fmt.Fprintf(w, "\nMore runs available (cursor: %d)\n", *result.NextCursor)
+	}
+
+	return nil
+}
+
 func forceFailRun(cmd *cobra.Command, args []string) {
 	runID := args[0]
 	reason, _ := cmd.Flags().GetString("reason")
@@ -1664,6 +1751,14 @@ var runCancelCmd = &cobra.Command{
 	Long:  `Request cancellation for an executing run through the worker control path.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   runCancelRun,
+}
+
+var runListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List runs for a job",
+	Long:  `List runs for a stored job, most recent first. Supports pagination via --limit and cursor.`,
+	Args:  cobra.NoArgs,
+	Run:   runListRuns,
 }
 
 func runLogin(cmd *cobra.Command, args []string) {
@@ -1981,6 +2076,12 @@ func init() {
 	runCmd.Flags().BoolP("follow", "f", false, "After submitting, stream logs (same as logs run <run-id>)")
 	runCmd.AddCommand(runGetCmd)
 	runCmd.AddCommand(runCancelCmd)
+
+	runListCmd.Flags().StringVar(&runListJobID, "job", "", "Job ID to list runs for (required)")
+	runListCmd.MarkFlagRequired("job")
+	runListCmd.Flags().IntVar(&runListLimit, "limit", 0, "Max runs to return (default 50)")
+	runListCmd.Flags().IntVar(&runListSince, "since", 0, "Only list runs after this run index")
+	runCmd.AddCommand(runListCmd)
 
 	rootCmd.AddCommand(triggerCmd)
 	rootCmd.AddCommand(logsCmd)
