@@ -15,6 +15,10 @@ import (
 
 type SequenceNode struct{}
 
+func (s *SequenceNode) ValidateWith(_ map[string]string) []action.FieldError {
+	return nil
+}
+
 func (s *SequenceNode) Type() string {
 	return "builtins/sequence"
 }

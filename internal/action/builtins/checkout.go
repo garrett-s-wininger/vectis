@@ -23,6 +23,12 @@ func NewCheckoutAction(executor interfaces.ExecExecutor) *CheckoutAction {
 	}
 }
 
+func (c *CheckoutAction) ValidateWith(with map[string]string) []action.FieldError {
+	return action.ValidateWithSpec(with, []action.FieldSpec{
+		{Name: "url", Type: action.FieldURL, Required: true},
+	})
+}
+
 func (c *CheckoutAction) Type() string {
 	return "builtins/checkout"
 }

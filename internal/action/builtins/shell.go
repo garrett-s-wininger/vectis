@@ -24,6 +24,12 @@ func NewShellAction(executor interfaces.ExecExecutor) *ShellAction {
 	}
 }
 
+func (s *ShellAction) ValidateWith(with map[string]string) []action.FieldError {
+	return action.ValidateWithSpec(with, []action.FieldSpec{
+		{Name: "command", Type: action.FieldString, Required: true},
+	})
+}
+
 func (s *ShellAction) Type() string {
 	return "builtins/shell"
 }
