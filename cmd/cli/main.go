@@ -1407,6 +1407,13 @@ func getRun(runID string, w io.Writer) error {
 			StartedAt     *string `json:"started_at,omitempty"`
 			FinishedAt    *string `json:"finished_at,omitempty"`
 			FailureReason *string `json:"failure_reason,omitempty"`
+			DispatchEvents []struct {
+				ID        int64   `json:"id"`
+				Source    string  `json:"source"`
+				EventType string  `json:"event_type"`
+				Message   *string `json:"message,omitempty"`
+				CreatedAt int64   `json:"created_at"`
+			} `json:"dispatch_events,omitempty"`
 		}
 
 		if err := json.NewDecoder(resp.Body).Decode(&run); err != nil {
@@ -1434,6 +1441,18 @@ func getRun(runID string, w io.Writer) error {
 
 		if run.OrphanReason != nil {
 			fmt.Fprintf(w, "orphan_reason=%s\n", *run.OrphanReason)
+		}
+
+		if len(run.DispatchEvents) > 0 {
+			fmt.Fprintln(w, "dispatch_events:")
+			for _, ev := range run.DispatchEvents {
+				ts := time.Unix(ev.CreatedAt, 0).UTC().Format(time.RFC3339)
+				if ev.Message != nil {
+					fmt.Fprintf(w, "  [%s] %s/%s: %s\n", ts, ev.Source, ev.EventType, *ev.Message)
+				} else {
+					fmt.Fprintf(w, "  [%s] %s/%s\n", ts, ev.Source, ev.EventType)
+				}
+			}
 		}
 
 		return nil
