@@ -112,3 +112,49 @@ func TestIsCompletedEvent(t *testing.T) {
 		t.Fatal("non-completed control event should not be completed")
 	}
 }
+
+func TestIsCompletedEvent_ProtoCompletedField(t *testing.T) {
+	if !isCompletedEvent(LogEntry{
+		Stream:    api.Stream_STREAM_STDOUT,
+		Completed: api.RunOutcome_RUN_OUTCOME_SUCCESS,
+	}) {
+		t.Fatal("proto Completed field should mark entry as completed regardless of stream type")
+	}
+
+	if !isCompletedEvent(LogEntry{
+		Stream:    api.Stream_STREAM_STDERR,
+		Completed: api.RunOutcome_RUN_OUTCOME_FAILURE,
+	}) {
+		t.Fatal("proto Completed=FAILURE should mark entry as completed")
+	}
+}
+
+func TestIsCompletedEvent_SyntheticUnknown(t *testing.T) {
+	if !isCompletedEvent(LogEntry{
+		Stream:    api.Stream_STREAM_CONTROL,
+		Data:      `{"event":"completed","status":"unknown","synthetic":true}`,
+		Completed: api.RunOutcome_RUN_OUTCOME_UNKNOWN,
+	}) {
+		t.Fatal("synthetic completion with Completed=UNKNOWN should be detected")
+	}
+}
+
+func TestIsCompletedEvent_UnspecifiedButJSONCompleted(t *testing.T) {
+	if !isCompletedEvent(LogEntry{
+		Stream:    api.Stream_STREAM_CONTROL,
+		Data:      `{"event":"completed","status":"success"}`,
+		Completed: api.RunOutcome_RUN_OUTCOME_UNSPECIFIED,
+	}) {
+		t.Fatal("JSON completed event should be detected even without proto field (backward compat)")
+	}
+}
+
+func TestIsCompletedEvent_UnspecifiedAndNotJSONCompleted(t *testing.T) {
+	if isCompletedEvent(LogEntry{
+		Stream:    api.Stream_STREAM_CONTROL,
+		Data:      `{"event":"start"}`,
+		Completed: api.RunOutcome_RUN_OUTCOME_UNSPECIFIED,
+	}) {
+		t.Fatal("non-completed event with UNSPECIFIED should not be detected")
+	}
+}

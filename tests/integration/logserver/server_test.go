@@ -3,15 +3,10 @@
 package logserver_test
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
-	"fmt"
-	"net"
-	"net/http"
-	"strings"
+	"io"
 	"testing"
-	"time"
 
 	"google.golang.org/grpc"
 
@@ -21,7 +16,7 @@ import (
 	"vectis/internal/testutil/grpctest"
 )
 
-func setupLogServer(t *testing.T) (api.LogServiceClient, string) {
+func setupLogServer(t *testing.T) api.LogServiceClient {
 	t.Helper()
 
 	logger := mocks.NewMockLogger()
@@ -31,66 +26,41 @@ func setupLogServer(t *testing.T) (api.LogServiceClient, string) {
 		api.RegisterLogServiceServer(s, server)
 	})
 
-	sseListener, err := net.Listen("tcp", "localhost:0")
+	return api.NewLogServiceClient(conn)
+}
+
+func sendChunk(t *testing.T, stream api.LogService_StreamLogsClient, runID, data string, seq int64, streamType api.Stream, completed api.RunOutcome) {
+	t.Helper()
+
+	chunk := &api.LogChunk{
+		RunId:     &runID,
+		Data:      []byte(data),
+		Sequence:  &seq,
+		Stream:    &streamType,
+		Completed: completed.Enum(),
+		Timestamp: nil,
+	}
+
+	if err := stream.Send(chunk); err != nil {
+		t.Fatalf("failed to send chunk: %v", err)
+	}
+}
+
+func recvGetLogsChunk(t *testing.T, getStream api.LogService_GetLogsClient) *api.LogChunk {
+	t.Helper()
+
+	chunk, err := getStream.Recv()
 	if err != nil {
-		t.Fatalf("failed to create sse listener: %v", err)
+		t.Fatalf("failed to receive from GetLogs: %v", err)
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/sse/logs/{id}", server.HandleSSE)
-
-	go http.Serve(sseListener, mux)
-
-	t.Cleanup(func() {
-		sseListener.Close()
-	})
-
-	return api.NewLogServiceClient(conn), sseListener.Addr().String()
+	return chunk
 }
 
-func readNextSSEData(r *bufio.Reader) ([]byte, error) {
-	var dataBuf strings.Builder
-	for {
-		line, err := r.ReadString('\n')
-		if err != nil {
-			return nil, err
-		}
-
-		line = strings.TrimRight(line, "\r\n")
-		if line == "" {
-			if dataBuf.Len() == 0 {
-				continue
-			}
-			return []byte(dataBuf.String()), nil
-		}
-
-		if strings.HasPrefix(line, "data:") {
-			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-			dataBuf.WriteString(data)
-		}
-	}
-}
-
-func TestIntegrationLogServer_StreamAndWebSocketBroadcast(t *testing.T) {
-	client, wsAddr := setupLogServer(t)
+func TestIntegrationLogServer_StreamAndGetLogsBroadcast(t *testing.T) {
+	client := setupLogServer(t)
 	ctx := context.Background()
 	runID := "test-run-broadcast"
-
-	sseURL := fmt.Sprintf("http://%s/sse/logs/%s", wsAddr, runID)
-	sseCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(sseCtx, http.MethodGet, sseURL, nil)
-	if err != nil {
-		t.Fatalf("create sse request: %v", err)
-	}
-	req.Header.Set("Accept", "text/event-stream")
-
-	sseResp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("failed to connect sse: %v", err)
-	}
-	defer sseResp.Body.Close()
 
 	stream, err := client.StreamLogs(ctx)
 	if err != nil {
@@ -98,75 +68,35 @@ func TestIntegrationLogServer_StreamAndWebSocketBroadcast(t *testing.T) {
 	}
 	defer stream.CloseSend()
 
+	getStream, err := client.GetLogs(ctx, &api.GetLogsRequest{RunId: &runID})
+	if err != nil {
+		t.Fatalf("failed to start GetLogs: %v", err)
+	}
+
 	seq := int64(42)
 	logData := "specific test message content"
-	chunk := &api.LogChunk{
-		RunId:    &runID,
-		Data:     []byte(logData),
-		Sequence: &seq,
-		Stream:   api.Stream_STREAM_STDOUT.Enum(),
+	sendChunk(t, stream, runID, logData, seq, api.Stream_STREAM_STDOUT, api.RunOutcome_RUN_OUTCOME_UNSPECIFIED)
+
+	chunk := recvGetLogsChunk(t, getStream)
+
+	if string(chunk.GetData()) != logData {
+		t.Errorf("expected log data %q, got %q", logData, string(chunk.GetData()))
 	}
 
-	if err := stream.Send(chunk); err != nil {
-		t.Fatalf("failed to send chunk: %v", err)
+	if chunk.GetSequence() != seq {
+		t.Errorf("expected sequence %d, got %d", seq, chunk.GetSequence())
 	}
 
-	reader := bufio.NewReader(sseResp.Body)
-	message, err := readNextSSEData(reader)
-	if err != nil {
-		t.Fatalf("failed to read sse message: %v", err)
-	}
-
-	var entry logserver.LogEntry
-	if err := json.Unmarshal(message, &entry); err != nil {
-		t.Fatalf("failed to unmarshal sse message: %v", err)
-	}
-
-	if entry.Data != logData {
-		t.Errorf("expected log data %q, got %q", logData, entry.Data)
-	}
-
-	if entry.Sequence != seq {
-		t.Errorf("expected sequence %d, got %d", seq, entry.Sequence)
-	}
-
-	if entry.Stream != api.Stream_STREAM_STDOUT {
-		t.Errorf("expected stream STDOUT, got %v", entry.Stream)
+	if chunk.GetStream() != api.Stream_STREAM_STDOUT {
+		t.Errorf("expected stream STDOUT, got %v", chunk.GetStream())
 	}
 }
 
 func TestIntegrationLogServer_MultipleSubscribersReceiveSameMessage(t *testing.T) {
-	client, wsAddr := setupLogServer(t)
+	client := setupLogServer(t)
 	ctx := context.Background()
 	runID := "test-run-multi"
 	numSubscribers := 3
-
-	sseReaders := make([]*bufio.Reader, 0, numSubscribers)
-	sseCancels := make([]context.CancelFunc, 0, numSubscribers)
-	for i := range numSubscribers {
-		sseURL := fmt.Sprintf("http://%s/sse/logs/%s", wsAddr, runID)
-		sseCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		sseCancels = append(sseCancels, cancel)
-
-		req, err := http.NewRequestWithContext(sseCtx, http.MethodGet, sseURL, nil)
-		if err != nil {
-			t.Fatalf("create sse request: %v", err)
-		}
-		req.Header.Set("Accept", "text/event-stream")
-
-		sseResp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			cancel()
-			t.Fatalf("failed to connect sse %d: %v", i, err)
-		}
-		sseReaders = append(sseReaders, bufio.NewReader(sseResp.Body))
-		defer sseResp.Body.Close()
-	}
-	defer func() {
-		for _, cancel := range sseCancels {
-			cancel()
-		}
-	}()
 
 	stream, err := client.StreamLogs(ctx)
 	if err != nil {
@@ -174,79 +104,40 @@ func TestIntegrationLogServer_MultipleSubscribersReceiveSameMessage(t *testing.T
 	}
 	defer stream.CloseSend()
 
+	getStreams := make([]api.LogService_GetLogsClient, 0, numSubscribers)
+	for i := range numSubscribers {
+		getStream, err := client.GetLogs(ctx, &api.GetLogsRequest{RunId: &runID})
+		if err != nil {
+			t.Fatalf("subscriber %d: failed to start GetLogs: %v", i, err)
+		}
+
+		getStreams = append(getStreams, getStream)
+	}
+
 	seq := int64(1)
 	logData := "broadcast message"
-	chunk := &api.LogChunk{
-		RunId:    &runID,
-		Data:     []byte(logData),
-		Sequence: &seq,
-		Stream:   api.Stream_STREAM_STDOUT.Enum(),
-	}
+	sendChunk(t, stream, runID, logData, seq, api.Stream_STREAM_STDOUT, api.RunOutcome_RUN_OUTCOME_UNSPECIFIED)
 
-	if err := stream.Send(chunk); err != nil {
-		t.Fatalf("failed to send chunk: %v", err)
-	}
-
-	for i, reader := range sseReaders {
-		message, err := readNextSSEData(reader)
-		if err != nil {
-			t.Errorf("subscriber %d: failed to receive sse message: %v", i, err)
-			continue
+	for i, getStream := range getStreams {
+		chunk := recvGetLogsChunk(t, getStream)
+		if string(chunk.GetData()) != logData {
+			t.Errorf("subscriber %d: expected data %q, got %q", i, logData, string(chunk.GetData()))
 		}
 
-		var entry logserver.LogEntry
-		if err := json.Unmarshal(message, &entry); err != nil {
-			t.Errorf("subscriber %d: failed to unmarshal message: %v", i, err)
-			continue
-		}
-
-		if entry.Data != logData {
-			t.Errorf("subscriber %d: expected data %q, got %q", i, logData, entry.Data)
-		}
-
-		if entry.Sequence != seq {
-			t.Errorf("subscriber %d: expected sequence %d, got %d", i, seq, entry.Sequence)
+		if chunk.GetSequence() != seq {
+			t.Errorf("subscriber %d: expected sequence %d, got %d", i, seq, chunk.GetSequence())
 		}
 	}
 }
 
 func TestIntegrationLogServer_JobIsolation(t *testing.T) {
-	client, wsAddr := setupLogServer(t)
+	client := setupLogServer(t)
 	ctx := context.Background()
 
 	run1 := "isolated-run-1"
 	run2 := "isolated-run-2"
-	job1Data := "message for run1 only"
-	job2Data := "message for run2 only"
-
-	sseURL1 := fmt.Sprintf("http://%s/sse/logs/%s", wsAddr, run1)
-	sseURL2 := fmt.Sprintf("http://%s/sse/logs/%s", wsAddr, run2)
-
-	sseCtx1, cancel1 := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel1()
-	sseReq1, err := http.NewRequestWithContext(sseCtx1, http.MethodGet, sseURL1, nil)
-	if err != nil {
-		t.Fatalf("create sse request1: %v", err)
-	}
-	sseReq1.Header.Set("Accept", "text/event-stream")
-	sseResp1, err := http.DefaultClient.Do(sseReq1)
-	if err != nil {
-		t.Fatalf("connect sse1: %v", err)
-	}
-	defer sseResp1.Body.Close()
-
-	sseCtx2, cancel2 := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel2()
-	sseReq2, err := http.NewRequestWithContext(sseCtx2, http.MethodGet, sseURL2, nil)
-	if err != nil {
-		t.Fatalf("create sse request2: %v", err)
-	}
-	sseReq2.Header.Set("Accept", "text/event-stream")
-	sseResp2, err := http.DefaultClient.Do(sseReq2)
-	if err != nil {
-		t.Fatalf("connect sse2: %v", err)
-	}
-	defer sseResp2.Body.Close()
+	run1Data := "message for run1 only"
+	run2Data := "message for run2 only"
 
 	stream, err := client.StreamLogs(ctx)
 	if err != nil {
@@ -254,61 +145,32 @@ func TestIntegrationLogServer_JobIsolation(t *testing.T) {
 	}
 	defer stream.CloseSend()
 
-	seq1 := int64(1)
-	chunk1 := &api.LogChunk{
-		RunId:    &run1,
-		Data:     []byte(job1Data),
-		Sequence: &seq1,
-		Stream:   api.Stream_STREAM_STDOUT.Enum(),
-	}
-	if err := stream.Send(chunk1); err != nil {
-		t.Fatalf("failed to send chunk to job1: %v", err)
-	}
-
-	seq2 := int64(1)
-	chunk2 := &api.LogChunk{
-		RunId:    &run2,
-		Data:     []byte(job2Data),
-		Sequence: &seq2,
-		Stream:   api.Stream_STREAM_STDOUT.Enum(),
-	}
-	if err := stream.Send(chunk2); err != nil {
-		t.Fatalf("failed to send chunk to job2: %v", err)
-	}
-
-	reader1 := bufio.NewReader(sseResp1.Body)
-	msg1, err := readNextSSEData(reader1)
+	getStream1, err := client.GetLogs(ctx, &api.GetLogsRequest{RunId: &run1})
 	if err != nil {
-		t.Fatalf("job1 subscriber failed to receive: %v", err)
+		t.Fatalf("get logs for run1: %v", err)
 	}
 
-	var entry1 logserver.LogEntry
-	if err := json.Unmarshal(msg1, &entry1); err != nil {
-		t.Fatalf("failed to unmarshal job1 message: %v", err)
-	}
-
-	if entry1.Data != job1Data {
-		t.Errorf("job1 subscriber received wrong data: expected %q, got %q", job1Data, entry1.Data)
-	}
-
-	reader2 := bufio.NewReader(sseResp2.Body)
-	msg2, err := readNextSSEData(reader2)
+	getStream2, err := client.GetLogs(ctx, &api.GetLogsRequest{RunId: &run2})
 	if err != nil {
-		t.Fatalf("job2 subscriber failed to receive: %v", err)
+		t.Fatalf("get logs for run2: %v", err)
 	}
 
-	var entry2 logserver.LogEntry
-	if err := json.Unmarshal(msg2, &entry2); err != nil {
-		t.Fatalf("failed to unmarshal job2 message: %v", err)
+	sendChunk(t, stream, run1, run1Data, 1, api.Stream_STREAM_STDOUT, api.RunOutcome_RUN_OUTCOME_UNSPECIFIED)
+	sendChunk(t, stream, run2, run2Data, 1, api.Stream_STREAM_STDOUT, api.RunOutcome_RUN_OUTCOME_UNSPECIFIED)
+
+	chunk1 := recvGetLogsChunk(t, getStream1)
+	if string(chunk1.GetData()) != run1Data {
+		t.Errorf("run1 subscriber received wrong data: expected %q, got %q", run1Data, string(chunk1.GetData()))
 	}
 
-	if entry2.Data != job2Data {
-		t.Errorf("job2 subscriber received wrong data: expected %q, got %q", job2Data, entry2.Data)
+	chunk2 := recvGetLogsChunk(t, getStream2)
+	if string(chunk2.GetData()) != run2Data {
+		t.Errorf("run2 subscriber received wrong data: expected %q, got %q", run2Data, string(chunk2.GetData()))
 	}
 }
 
-func TestIntegrationLogServer_SSEReceivesHistoricalLogs(t *testing.T) {
-	client, wsAddr := setupLogServer(t)
+func TestIntegrationLogServer_GetLogsReceivesHistoricalLogs(t *testing.T) {
+	client := setupLogServer(t)
 	ctx := context.Background()
 	runID := "test-run-historical"
 
@@ -320,51 +182,22 @@ func TestIntegrationLogServer_SSEReceivesHistoricalLogs(t *testing.T) {
 	logMessages := []string{"first log", "second log", "third log"}
 	for i, msg := range logMessages {
 		seq := int64(i + 1)
-		chunk := &api.LogChunk{
-			RunId:    &runID,
-			Data:     []byte(msg),
-			Sequence: &seq,
-			Stream:   api.Stream_STREAM_STDOUT.Enum(),
-		}
-
-		if err := stream.Send(chunk); err != nil {
-			t.Fatalf("failed to send chunk %d: %v", i, err)
-		}
+		sendChunk(t, stream, runID, msg, seq, api.Stream_STREAM_STDOUT, api.RunOutcome_RUN_OUTCOME_UNSPECIFIED)
 	}
-	stream.CloseSend()
 
-	sseURL := fmt.Sprintf("http://%s/sse/logs/%s", wsAddr, runID)
-	sseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	if _, err := stream.CloseAndRecv(); err != nil {
+		t.Fatalf("CloseAndRecv: %v", err)
+	}
 
-	req, err := http.NewRequestWithContext(sseCtx, http.MethodGet, sseURL, nil)
+	getStream, err := client.GetLogs(ctx, &api.GetLogsRequest{RunId: &runID})
 	if err != nil {
-		t.Fatalf("create sse request: %v", err)
+		t.Fatalf("failed to start GetLogs: %v", err)
 	}
-	req.Header.Set("Accept", "text/event-stream")
-
-	sseResp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("failed to connect sse: %v", err)
-	}
-	defer sseResp.Body.Close()
-
-	reader := bufio.NewReader(sseResp.Body)
 
 	gotBySeq := make(map[int64]string)
-
-	for i := range logMessages {
-		message, err := readNextSSEData(reader)
-		if err != nil {
-			t.Fatalf("failed to read historical log %d: %v", i, err)
-		}
-
-		var entry logserver.LogEntry
-		if err := json.Unmarshal(message, &entry); err != nil {
-			t.Fatalf("failed to unmarshal log %d: %v", i, err)
-		}
-
-		gotBySeq[entry.Sequence] = entry.Data
+	for range logMessages {
+		chunk := recvGetLogsChunk(t, getStream)
+		gotBySeq[chunk.GetSequence()] = string(chunk.GetData())
 	}
 
 	for i, expectedMsg := range logMessages {
@@ -376,7 +209,7 @@ func TestIntegrationLogServer_SSEReceivesHistoricalLogs(t *testing.T) {
 }
 
 func TestIntegrationLogServer_HistoricalAndLiveLogs(t *testing.T) {
-	client, wsAddr := setupLogServer(t)
+	client := setupLogServer(t)
 	ctx := context.Background()
 	runID := "test-run-history-live"
 
@@ -388,65 +221,26 @@ func TestIntegrationLogServer_HistoricalAndLiveLogs(t *testing.T) {
 	historical := []string{"hist-1", "hist-2", "hist-3"}
 	for i, msg := range historical {
 		seq := int64(i + 1)
-		chunk := &api.LogChunk{
-			RunId:    &runID,
-			Data:     []byte(msg),
-			Sequence: &seq,
-			Stream:   api.Stream_STREAM_STDOUT.Enum(),
-		}
-
-		if err := stream.Send(chunk); err != nil {
-			t.Fatalf("failed to send historical chunk %d: %v", i, err)
-		}
+		sendChunk(t, stream, runID, msg, seq, api.Stream_STREAM_STDOUT, api.RunOutcome_RUN_OUTCOME_UNSPECIFIED)
 	}
 
-	sseURL := fmt.Sprintf("http://%s/sse/logs/%s", wsAddr, runID)
-	sseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(sseCtx, http.MethodGet, sseURL, nil)
+	// Start GetLogs before sending live chunks
+	getStream, err := client.GetLogs(ctx, &api.GetLogsRequest{RunId: &runID})
 	if err != nil {
-		t.Fatalf("create sse request: %v", err)
+		t.Fatalf("failed to start GetLogs: %v", err)
 	}
-	req.Header.Set("Accept", "text/event-stream")
-
-	sseResp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("failed to connect sse: %v", err)
-	}
-	defer sseResp.Body.Close()
-
-	reader := bufio.NewReader(sseResp.Body)
 
 	liveSeq := int64(len(historical) + 1)
 	liveData := "live-log"
-	liveChunk := &api.LogChunk{
-		RunId:    &runID,
-		Data:     []byte(liveData),
-		Sequence: &liveSeq,
-		Stream:   api.Stream_STREAM_STDOUT.Enum(),
-	}
-
-	if err := stream.Send(liveChunk); err != nil {
-		t.Fatalf("failed to send live chunk: %v", err)
-	}
+	sendChunk(t, stream, runID, liveData, liveSeq, api.Stream_STREAM_STDOUT, api.RunOutcome_RUN_OUTCOME_UNSPECIFIED)
 	stream.CloseSend()
 
 	gotBySeq := make(map[int64]string)
 	totalExpected := len(historical) + 1
 
-	for i := range totalExpected {
-		message, err := readNextSSEData(reader)
-		if err != nil {
-			t.Fatalf("failed to read log %d: %v", i, err)
-		}
-
-		var entry logserver.LogEntry
-		if err := json.Unmarshal(message, &entry); err != nil {
-			t.Fatalf("failed to unmarshal log %d: %v", i, err)
-		}
-
-		gotBySeq[entry.Sequence] = entry.Data
+	for range totalExpected {
+		chunk := recvGetLogsChunk(t, getStream)
+		gotBySeq[chunk.GetSequence()] = string(chunk.GetData())
 	}
 
 	for i, msg := range historical {
@@ -456,34 +250,15 @@ func TestIntegrationLogServer_HistoricalAndLiveLogs(t *testing.T) {
 		}
 	}
 
-	liveSeqExpected := int64(len(historical) + 1)
-	if gotBySeq[liveSeqExpected] != "" && gotBySeq[liveSeqExpected] != liveData {
-		t.Errorf("live seq %d: expected %q, got %q", liveSeqExpected, liveData, gotBySeq[liveSeqExpected])
+	if gotBySeq[liveSeq] != "" && gotBySeq[liveSeq] != liveData {
+		t.Errorf("live seq %d: expected %q, got %q", liveSeq, liveData, gotBySeq[liveSeq])
 	}
 }
 
-func TestIntegrationLogServer_ServerClosesConnectionAfterCompleted(t *testing.T) {
-	client, wsAddr := setupLogServer(t)
+func TestIntegrationLogServer_ServerClosesStreamAfterCompleted(t *testing.T) {
+	client := setupLogServer(t)
 	ctx := context.Background()
 	runID := "test-run-completed-close"
-
-	sseURL := fmt.Sprintf("http://%s/sse/logs/%s", wsAddr, runID)
-	sseCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(sseCtx, http.MethodGet, sseURL, nil)
-	if err != nil {
-		t.Fatalf("create sse request: %v", err)
-	}
-	req.Header.Set("Accept", "text/event-stream")
-
-	sseResp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("failed to connect sse: %v", err)
-	}
-	defer sseResp.Body.Close()
-
-	reader := bufio.NewReader(sseResp.Body)
 
 	stream, err := client.StreamLogs(ctx)
 	if err != nil {
@@ -491,37 +266,199 @@ func TestIntegrationLogServer_ServerClosesConnectionAfterCompleted(t *testing.T)
 	}
 	defer stream.CloseSend()
 
-	seq := int64(1)
-	completedData := `{"event":"completed","status":"success"}`
-	chunk := &api.LogChunk{
-		RunId:    &runID,
-		Data:     []byte(completedData),
-		Sequence: &seq,
-		Stream:   api.Stream_STREAM_CONTROL.Enum(),
-	}
-
-	if err := stream.Send(chunk); err != nil {
-		t.Fatalf("failed to send completed chunk: %v", err)
-	}
-
-	stream.CloseSend()
-
-	message, err := readNextSSEData(reader)
+	getStream, err := client.GetLogs(ctx, &api.GetLogsRequest{RunId: &runID})
 	if err != nil {
-		t.Fatalf("failed to read completed sse message: %v", err)
+		t.Fatalf("failed to start GetLogs: %v", err)
 	}
 
-	var entry logserver.LogEntry
-	if err := json.Unmarshal(message, &entry); err != nil {
-		t.Fatalf("failed to unmarshal: %v", err)
+	completedData := `{"event":"completed","status":"success"}`
+	sendChunk(t, stream, runID, completedData, 1, api.Stream_STREAM_CONTROL, api.RunOutcome_RUN_OUTCOME_SUCCESS)
+	if _, err := stream.CloseAndRecv(); err != nil {
+		t.Fatalf("CloseAndRecv: %v", err)
 	}
 
-	if entry.Stream != api.Stream_STREAM_CONTROL || entry.Data != completedData {
-		t.Errorf("expected control completed message, got stream=%v data=%q", entry.Stream, entry.Data)
+	chunk := recvGetLogsChunk(t, getStream)
+	if chunk.GetStream() != api.Stream_STREAM_CONTROL || string(chunk.GetData()) != completedData {
+		t.Errorf("expected control completed message, got stream=%v data=%q", chunk.GetStream(), string(chunk.GetData()))
+	}
+	if chunk.GetCompleted() != api.RunOutcome_RUN_OUTCOME_SUCCESS {
+		t.Errorf("expected Completed=RUN_OUTCOME_SUCCESS, got %v", chunk.GetCompleted())
 	}
 
-	_, err = readNextSSEData(reader)
-	if err == nil {
-		t.Fatal("expected SSE response to be closed by server after completed, got no error")
+	// After completion, GetLogs stream should end
+	_, err = getStream.Recv()
+	if err != io.EOF {
+		t.Fatalf("expected GetLogs stream to end after completion, got error: %v", err)
+	}
+}
+
+func TestIntegrationLogServer_WorkerCrashSyntheticCompletion(t *testing.T) {
+	client := setupLogServer(t)
+	ctx := context.Background()
+	runID := "test-run-worker-crash"
+
+	stream, err := client.StreamLogs(ctx)
+	if err != nil {
+		t.Fatalf("failed to create stream: %v", err)
+	}
+
+	// Send one regular log, then close without completion.
+	// CloseAndRecv blocks until the server processes EOF and injects the
+	// synthetic completion, avoiding a race with the GetLogs call below.
+	sendChunk(t, stream, runID, "some log output", 1, api.Stream_STREAM_STDOUT, api.RunOutcome_RUN_OUTCOME_UNSPECIFIED)
+	if _, err := stream.CloseAndRecv(); err != nil {
+		t.Fatalf("CloseAndRecv: %v", err)
+	}
+
+	getStream, err := client.GetLogs(ctx, &api.GetLogsRequest{RunId: &runID})
+	if err != nil {
+		t.Fatalf("failed to start GetLogs: %v", err)
+	}
+
+	// First chunk is the regular log
+	chunk1 := recvGetLogsChunk(t, getStream)
+	if string(chunk1.GetData()) != "some log output" {
+		t.Errorf("expected log output, got %q", string(chunk1.GetData()))
+	}
+
+	// Next chunk should be the synthetic completion event
+	chunk2, err := getStream.Recv()
+	if err != nil {
+		t.Fatalf("expected synthetic completion chunk, got error: %v", err)
+	}
+
+	if chunk2.GetStream() != api.Stream_STREAM_CONTROL {
+		t.Errorf("expected control stream, got %v", chunk2.GetStream())
+	}
+
+	var meta struct {
+		Event     string `json:"event"`
+		Synthetic bool   `json:"synthetic"`
+	}
+
+	if err := json.Unmarshal(chunk2.GetData(), &meta); err != nil {
+		t.Fatalf("failed to parse control event: %v", err)
+	}
+
+	if meta.Event != "completed" {
+		t.Errorf("expected completed event, got %q", meta.Event)
+	}
+
+	if !meta.Synthetic {
+		t.Error("expected synthetic:true flag")
+	}
+
+	// Verify the proto Completed field is set to RUN_OUTCOME_UNKNOWN on synthetic completion
+	if chunk2.GetCompleted() != api.RunOutcome_RUN_OUTCOME_UNKNOWN {
+		t.Errorf("expected Completed=RUN_OUTCOME_UNKNOWN on synthetic completion, got %v", chunk2.GetCompleted())
+	}
+
+	// Stream should end after synthetic completion
+	_, err = getStream.Recv()
+	if err != io.EOF {
+		t.Fatalf("expected GetLogs stream to end after synthetic completion, got error: %v", err)
+	}
+}
+
+func TestIntegrationLogServer_GetLogsSinceSequence(t *testing.T) {
+	client := setupLogServer(t)
+	ctx := context.Background()
+	runID := "test-run-since-seq"
+
+	stream, err := client.StreamLogs(ctx)
+	if err != nil {
+		t.Fatalf("failed to create stream: %v", err)
+	}
+
+	for i := range 5 {
+		seq := int64(i + 1)
+		sendChunk(t, stream, runID, "log-"+string(rune('A'+i)), seq, api.Stream_STREAM_STDOUT, api.RunOutcome_RUN_OUTCOME_UNSPECIFIED)
+	}
+
+	if _, err := stream.CloseAndRecv(); err != nil {
+		t.Fatalf("CloseAndRecv: %v", err)
+	}
+
+	// Resume from sequence 2, should only get logs with seq > 2
+	sinceSeq := int64(2)
+	getStream, err := client.GetLogs(ctx, &api.GetLogsRequest{RunId: &runID, SinceSequence: &sinceSeq})
+	if err != nil {
+		t.Fatalf("failed to start GetLogs: %v", err)
+	}
+
+	var sequences []int64
+	for {
+		chunk, err := getStream.Recv()
+		if err != nil {
+			break
+		}
+
+		sequences = append(sequences, chunk.GetSequence())
+		if chunk.GetSequence() <= 2 {
+			t.Errorf("received chunk with sequence %d (should be > 2)", chunk.GetSequence())
+		}
+	}
+
+	if len(sequences) != 3 {
+		t.Errorf("expected 3 chunks since sequence 2, got %d", len(sequences))
+	}
+}
+
+func TestIntegrationLogServer_CompletedFieldPropagatesThroughGetLogs(t *testing.T) {
+	client := setupLogServer(t)
+	ctx := context.Background()
+	runID := "test-completed-propagation"
+
+	stream, err := client.StreamLogs(ctx)
+	if err != nil {
+		t.Fatalf("failed to create stream: %v", err)
+	}
+
+	// Send a completion chunk with proto Completed=RUN_OUTCOME_FAILURE
+	completedData := `{"event":"completed","status":"failure"}`
+	sendChunk(t, stream, runID, completedData, 1, api.Stream_STREAM_CONTROL, api.RunOutcome_RUN_OUTCOME_FAILURE)
+	if _, err := stream.CloseAndRecv(); err != nil {
+		t.Fatalf("CloseAndRecv: %v", err)
+	}
+
+	getStream, err := client.GetLogs(ctx, &api.GetLogsRequest{RunId: &runID})
+	if err != nil {
+		t.Fatalf("failed to start GetLogs: %v", err)
+	}
+
+	chunk := recvGetLogsChunk(t, getStream)
+	if chunk.GetCompleted() != api.RunOutcome_RUN_OUTCOME_FAILURE {
+		t.Errorf("expected Completed=RUN_OUTCOME_FAILURE propagated through GetLogs, got %v", chunk.GetCompleted())
+	}
+
+	if string(chunk.GetData()) != completedData {
+		t.Errorf("expected data %q, got %q", completedData, string(chunk.GetData()))
+	}
+}
+
+func TestIntegrationLogServer_UnspecifiedCompletedDoesNotLeak(t *testing.T) {
+	client := setupLogServer(t)
+	ctx := context.Background()
+	runID := "test-unspecified-propagation"
+
+	stream, err := client.StreamLogs(ctx)
+	if err != nil {
+		t.Fatalf("failed to create stream: %v", err)
+	}
+
+	// Send a regular stdout chunk with UNSPECIFIED completed
+	sendChunk(t, stream, runID, "stdout line", 1, api.Stream_STREAM_STDOUT, api.RunOutcome_RUN_OUTCOME_UNSPECIFIED)
+	if _, err := stream.CloseAndRecv(); err != nil {
+		t.Fatalf("CloseAndRecv: %v", err)
+	}
+
+	getStream, err := client.GetLogs(ctx, &api.GetLogsRequest{RunId: &runID})
+	if err != nil {
+		t.Fatalf("failed to start GetLogs: %v", err)
+	}
+
+	chunk := recvGetLogsChunk(t, getStream)
+	if chunk.GetCompleted() != api.RunOutcome_RUN_OUTCOME_UNSPECIFIED {
+		t.Errorf("expected Completed=UNSPECIFIED for regular chunk, got %v", chunk.GetCompleted())
 	}
 }

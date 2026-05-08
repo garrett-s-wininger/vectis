@@ -162,6 +162,14 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 	}
 	logger.Info("Queue client ready")
 
+	logger.Info("Establishing log client connection...")
+	if err := server.ConnectToLog(cmd.Context()); err != nil {
+		logger.Error("Failed to connect to log service: %v", err)
+		exitCode = 1
+		return
+	}
+	logger.Info("Log client ready")
+
 	serveErr := make(chan error, 1)
 	go func() {
 		serveErr <- server.Serve(cmd.Context(), ln)

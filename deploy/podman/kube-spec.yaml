@@ -445,9 +445,6 @@ spec:
       ports:
         - containerPort: 8083
           protocol: TCP
-        - containerPort: 8084
-          hostPort: 8084
-          protocol: TCP
         - containerPort: 9083
           protocol: TCP
     - name: queue

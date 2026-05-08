@@ -9,6 +9,7 @@ package api
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -20,6 +21,58 @@ const (
 	// Verify that runtime/protoimpl is sufficiently up-to-date.
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
+
+type RunOutcome int32
+
+const (
+	RunOutcome_RUN_OUTCOME_UNSPECIFIED RunOutcome = 0
+	RunOutcome_RUN_OUTCOME_SUCCESS     RunOutcome = 1
+	RunOutcome_RUN_OUTCOME_FAILURE     RunOutcome = 2
+	RunOutcome_RUN_OUTCOME_UNKNOWN     RunOutcome = 3
+)
+
+// Enum value maps for RunOutcome.
+var (
+	RunOutcome_name = map[int32]string{
+		0: "RUN_OUTCOME_UNSPECIFIED",
+		1: "RUN_OUTCOME_SUCCESS",
+		2: "RUN_OUTCOME_FAILURE",
+		3: "RUN_OUTCOME_UNKNOWN",
+	}
+	RunOutcome_value = map[string]int32{
+		"RUN_OUTCOME_UNSPECIFIED": 0,
+		"RUN_OUTCOME_SUCCESS":     1,
+		"RUN_OUTCOME_FAILURE":     2,
+		"RUN_OUTCOME_UNKNOWN":     3,
+	}
+)
+
+func (x RunOutcome) Enum() *RunOutcome {
+	p := new(RunOutcome)
+	*p = x
+	return p
+}
+
+func (x RunOutcome) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RunOutcome) Descriptor() protoreflect.EnumDescriptor {
+	return file_common_proto_enumTypes[0].Descriptor()
+}
+
+func (RunOutcome) Type() protoreflect.EnumType {
+	return &file_common_proto_enumTypes[0]
+}
+
+func (x RunOutcome) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use RunOutcome.Descriptor instead.
+func (RunOutcome) EnumDescriptor() ([]byte, []int) {
+	return file_common_proto_rawDescGZIP(), []int{0}
+}
 
 type Stream int32
 
@@ -54,11 +107,11 @@ func (x Stream) String() string {
 }
 
 func (Stream) Descriptor() protoreflect.EnumDescriptor {
-	return file_common_proto_enumTypes[0].Descriptor()
+	return file_common_proto_enumTypes[1].Descriptor()
 }
 
 func (Stream) Type() protoreflect.EnumType {
-	return &file_common_proto_enumTypes[0]
+	return &file_common_proto_enumTypes[1]
 }
 
 func (x Stream) Number() protoreflect.EnumNumber {
@@ -67,7 +120,7 @@ func (x Stream) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Stream.Descriptor instead.
 func (Stream) EnumDescriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{0}
+	return file_common_proto_rawDescGZIP(), []int{1}
 }
 
 type Empty struct {
@@ -300,6 +353,8 @@ type LogChunk struct {
 	Data          []byte                 `protobuf:"bytes,2,opt,name=data" json:"data,omitempty"`
 	Sequence      *int64                 `protobuf:"varint,3,opt,name=sequence" json:"sequence,omitempty"`
 	Stream        *Stream                `protobuf:"varint,4,opt,name=stream,enum=common.Stream" json:"stream,omitempty"`
+	Completed     *RunOutcome            `protobuf:"varint,5,opt,name=completed,enum=common.RunOutcome" json:"completed,omitempty"`
+	Timestamp     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=timestamp" json:"timestamp,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -362,11 +417,25 @@ func (x *LogChunk) GetStream() Stream {
 	return Stream_STREAM_STDOUT
 }
 
+func (x *LogChunk) GetCompleted() RunOutcome {
+	if x != nil && x.Completed != nil {
+		return *x.Completed
+	}
+	return RunOutcome_RUN_OUTCOME_UNSPECIFIED
+}
+
+func (x *LogChunk) GetTimestamp() *timestamppb.Timestamp {
+	if x != nil {
+		return x.Timestamp
+	}
+	return nil
+}
+
 var File_common_proto protoreflect.FileDescriptor
 
 const file_common_proto_rawDesc = "" +
 	"\n" +
-	"\fcommon.proto\x12\x06common\"\a\n" +
+	"\fcommon.proto\x12\x06common\x1a\x1fgoogle/protobuf/timestamp.proto\"\a\n" +
 	"\x05Empty\"o\n" +
 	"\x03Job\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
@@ -388,12 +457,20 @@ const file_common_proto_rawDesc = "" +
 	"\x05steps\x18\x04 \x03(\v2\f.common.NodeR\x05steps\x1a7\n" +
 	"\tWithEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"y\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xe5\x01\n" +
 	"\bLogChunk\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x12\n" +
 	"\x04data\x18\x02 \x01(\fR\x04data\x12\x1a\n" +
 	"\bsequence\x18\x03 \x01(\x03R\bsequence\x12&\n" +
-	"\x06stream\x18\x04 \x01(\x0e2\x0e.common.StreamR\x06stream*B\n" +
+	"\x06stream\x18\x04 \x01(\x0e2\x0e.common.StreamR\x06stream\x120\n" +
+	"\tcompleted\x18\x05 \x01(\x0e2\x12.common.RunOutcomeR\tcompleted\x128\n" +
+	"\ttimestamp\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp*t\n" +
+	"\n" +
+	"RunOutcome\x12\x1b\n" +
+	"\x17RUN_OUTCOME_UNSPECIFIED\x10\x00\x12\x17\n" +
+	"\x13RUN_OUTCOME_SUCCESS\x10\x01\x12\x17\n" +
+	"\x13RUN_OUTCOME_FAILURE\x10\x02\x12\x17\n" +
+	"\x13RUN_OUTCOME_UNKNOWN\x10\x03*B\n" +
 	"\x06Stream\x12\x11\n" +
 	"\rSTREAM_STDOUT\x10\x00\x12\x11\n" +
 	"\rSTREAM_STDERR\x10\x01\x12\x12\n" +
@@ -411,30 +488,34 @@ func file_common_proto_rawDescGZIP() []byte {
 	return file_common_proto_rawDescData
 }
 
-var file_common_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_common_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_common_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_common_proto_goTypes = []any{
-	(Stream)(0),        // 0: common.Stream
-	(*Empty)(nil),      // 1: common.Empty
-	(*Job)(nil),        // 2: common.Job
-	(*JobRequest)(nil), // 3: common.JobRequest
-	(*Node)(nil),       // 4: common.Node
-	(*LogChunk)(nil),   // 5: common.LogChunk
-	nil,                // 6: common.JobRequest.MetadataEntry
-	nil,                // 7: common.Node.WithEntry
+	(RunOutcome)(0),               // 0: common.RunOutcome
+	(Stream)(0),                   // 1: common.Stream
+	(*Empty)(nil),                 // 2: common.Empty
+	(*Job)(nil),                   // 3: common.Job
+	(*JobRequest)(nil),            // 4: common.JobRequest
+	(*Node)(nil),                  // 5: common.Node
+	(*LogChunk)(nil),              // 6: common.LogChunk
+	nil,                           // 7: common.JobRequest.MetadataEntry
+	nil,                           // 8: common.Node.WithEntry
+	(*timestamppb.Timestamp)(nil), // 9: google.protobuf.Timestamp
 }
 var file_common_proto_depIdxs = []int32{
-	4, // 0: common.Job.root:type_name -> common.Node
-	2, // 1: common.JobRequest.job:type_name -> common.Job
-	6, // 2: common.JobRequest.metadata:type_name -> common.JobRequest.MetadataEntry
-	7, // 3: common.Node.with:type_name -> common.Node.WithEntry
-	4, // 4: common.Node.steps:type_name -> common.Node
-	0, // 5: common.LogChunk.stream:type_name -> common.Stream
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	5, // 0: common.Job.root:type_name -> common.Node
+	3, // 1: common.JobRequest.job:type_name -> common.Job
+	7, // 2: common.JobRequest.metadata:type_name -> common.JobRequest.MetadataEntry
+	8, // 3: common.Node.with:type_name -> common.Node.WithEntry
+	5, // 4: common.Node.steps:type_name -> common.Node
+	1, // 5: common.LogChunk.stream:type_name -> common.Stream
+	0, // 6: common.LogChunk.completed:type_name -> common.RunOutcome
+	9, // 7: common.LogChunk.timestamp:type_name -> google.protobuf.Timestamp
+	8, // [8:8] is the sub-list for method output_type
+	8, // [8:8] is the sub-list for method input_type
+	8, // [8:8] is the sub-list for extension type_name
+	8, // [8:8] is the sub-list for extension extendee
+	0, // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_common_proto_init() }
@@ -447,7 +528,7 @@ func file_common_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_common_proto_rawDesc), len(file_common_proto_rawDesc)),
-			NumEnums:      1,
+			NumEnums:      2,
 			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   0,

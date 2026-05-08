@@ -1489,12 +1489,12 @@
             "type": "prometheus",
             "uid": "vectis-prom"
           },
-          "expr": "vectis_log_sse_connections_active{job=\"vectis-log\"}",
-          "legendFormat": "SSE clients",
+          "expr": "vectis_log_subscriber_channel_drops_total{job=\"vectis-log\"}",
+          "legendFormat": "subscriber drops",
           "refId": "A"
         }
       ],
-      "title": "Active SSE Connections",
+      "title": "Subscriber Channel Drops",
       "type": "timeseries"
     },
     {
@@ -1564,8 +1564,8 @@
             "type": "prometheus",
             "uid": "vectis-prom"
           },
-          "expr": "sum(rate(vectis_log_sse_channel_drops_total{job=\"vectis-log\"}[5m]))",
-          "legendFormat": "SSE channel drops/s",
+          "expr": "sum(rate(vectis_log_subscriber_channel_drops_total{job=\"vectis-log\"}[5m]))",
+          "legendFormat": "subscriber channel drops/s",
           "refId": "C"
         }
       ],

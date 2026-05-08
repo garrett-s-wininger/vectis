@@ -7,14 +7,12 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"math"
 	"net"
 	"net/http"
-	"net/url"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -62,6 +60,11 @@ type queueClientHolder struct {
 	close  func()
 }
 
+type logClientHolder struct {
+	client api.LogServiceClient
+	close  func()
+}
+
 type ctxHolder struct {
 	ctx context.Context
 }
@@ -77,6 +80,7 @@ type APIServer struct {
 	dispatchEvents dal.DispatchEventsRepository
 	logger         interfaces.Logger
 	queueClient    atomic.Pointer[queueClientHolder]
+	logClient      atomic.Pointer[logClientHolder]
 	runBroadcaster *RunBroadcaster
 	dbUnavailable  atomic.Bool
 	healthDB       *sql.DB
@@ -479,6 +483,22 @@ func (s *APIServer) ConnectToQueue(ctx context.Context) error {
 	}
 
 	s.queueClient.Store(&queueClientHolder{client: mq, close: func() { _ = mq.Close() }})
+	return nil
+}
+
+func (s *APIServer) ConnectToLog(ctx context.Context) error {
+	old := s.logClient.Swap(nil)
+	if old != nil && old.close != nil {
+		old.close()
+	}
+
+	conn, cleanup, err := resolver.DialLog(ctx, s.logger, config.APILogAddress(), config.APIRegistryDialAddress(), s.retryMetrics)
+	if err != nil {
+		return fmt.Errorf("failed to connect to log service: %w", err)
+	}
+
+	client := api.NewLogServiceClient(conn)
+	s.logClient.Store(&logClientHolder{client: client, close: cleanup})
 	return nil
 }
 
@@ -1967,63 +1987,9 @@ func (s *APIServer) GetRunLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logAddr, err := resolver.ResolveLogSSEAddressWithTimeout(s.logger, config.APIRegistryDialAddress())
-	if err != nil {
-		s.logger.Warn("Failed to resolve log SSE address: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		var buf bytes.Buffer
-		_ = json.NewEncoder(&buf).Encode(map[string]string{
-			"error": "log_service_unavailable",
-		})
-
-		_, _ = w.Write(buf.Bytes())
-		return
-	}
-
-	logURL := fmt.Sprintf("http://%s/sse/logs/%s", logAddr, url.PathEscape(runID))
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, logURL, nil)
-	if err != nil {
-		s.logger.Error("Failed to create log proxy request: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-
-	req.Header.Set("Accept", "text/event-stream")
-
-	// SSE streams are long-lived; rely on request context cancellation
-	// instead of a fixed client timeout that can terminate healthy streams.
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		s.logger.Warn("Log service unreachable: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		var buf bytes.Buffer
-		_ = json.NewEncoder(&buf).Encode(map[string]string{
-			"error": "log_service_unavailable",
-		})
-
-		_, _ = w.Write(buf.Bytes())
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 500 {
-		s.logger.Warn("Log service returned status %d", resp.StatusCode)
-		_, _ = io.Copy(io.Discard, resp.Body)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"error": "log_service_unavailable",
-		})
-
-		return
-	}
-
-	if resp.StatusCode >= 400 {
-		w.WriteHeader(resp.StatusCode)
-		_, _ = io.Copy(w, resp.Body)
+	holder := s.logClient.Load()
+	if holder == nil || holder.client == nil {
+		writeAPIError(w, http.StatusServiceUnavailable, "log_service_unavailable", "log service not connected", nil)
 		return
 	}
 
@@ -2034,33 +2000,108 @@ func (s *APIServer) GetRunLogs(w http.ResponseWriter, r *http.Request) {
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrStreamingUnsupported)
+		writeAPIError(w, http.StatusInternalServerError, "streaming_unsupported", "streaming unsupported", nil)
 		return
 	}
 
 	_, _ = w.Write([]byte(": connected\n\n"))
 	flusher.Flush()
 
-	buf := make([]byte, 4096)
+	stream, err := holder.client.GetLogs(r.Context(), &api.GetLogsRequest{RunId: &runID})
+	if err != nil {
+		s.logger.Warn("Failed to connect to log service: %v", err)
+		writeAPIError(w, http.StatusBadGateway, "log_service_error", "failed to connect to log service", nil)
+		return
+	}
+
+	sawCompletion := false
 	for {
-		n, err := resp.Body.Read(buf)
-		if n > 0 {
-			_, writeErr := w.Write(buf[:n])
-			if writeErr != nil {
-				return
-			}
-			flusher.Flush()
+		chunk, err := stream.Recv()
+		if err != nil {
+			break
 		}
 
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				return
-			}
-
-			s.logger.Debug("Log proxy read error: %v", err)
+		jsonData := formatLogChunkSSE(chunk)
+		if _, err := w.Write([]byte("data: ")); err != nil {
 			return
 		}
+		if _, err := w.Write(jsonData); err != nil {
+			return
+		}
+		if _, err := w.Write([]byte("\n\n")); err != nil {
+			return
+		}
+		flusher.Flush()
+
+		if chunk.GetCompleted() != api.RunOutcome_RUN_OUTCOME_UNSPECIFIED {
+			sawCompletion = true
+		}
 	}
+
+	if !sawCompletion {
+		// Use a fresh context for the one-shot fallback — the handler's DB context
+		// may have expired if the SSE stream has been alive longer than the timeout.
+		fallbackCtx, fallbackCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer fallbackCancel()
+		status, found, err := s.runs.GetRunStatus(fallbackCtx, runID)
+		if err != nil {
+			s.logger.Warn("Log completion fallback DB lookup failed for run %s: %v", runID, err)
+		} else if found && (status == "succeeded" || status == "failed") {
+			completedStatus := "unknown"
+			if status == "succeeded" {
+				completedStatus = "success"
+			} else if status == "failed" {
+				completedStatus = "failure"
+			}
+
+			inner, _ := json.Marshal(struct {
+				Event     string `json:"event"`
+				Status    string `json:"status"`
+				Synthetic bool   `json:"synthetic"`
+			}{"completed", completedStatus, true})
+
+			outer, _ := json.Marshal(struct {
+				Timestamp string         `json:"timestamp"`
+				Stream    api.Stream     `json:"stream"`
+				Sequence  int64          `json:"sequence"`
+				Data      string         `json:"data"`
+				Completed api.RunOutcome `json:"completed,omitempty"`
+			}{time.Now().Format(time.RFC3339Nano), api.Stream_STREAM_CONTROL, -1, string(inner), api.RunOutcome_RUN_OUTCOME_UNKNOWN})
+
+			w.Write([]byte("data: "))
+			w.Write(outer)
+			w.Write([]byte("\n\n"))
+			flusher.Flush()
+		}
+	}
+}
+
+func formatLogChunkSSE(chunk *api.LogChunk) []byte {
+	// The log server always sets Timestamp on GetLogs chunks. time.Now() is
+	// a safety net for any future code path that leaves the field nil.
+	ts := time.Now().Format(time.RFC3339Nano)
+	if t := chunk.GetTimestamp(); t != nil {
+		ts = t.AsTime().Format(time.RFC3339Nano)
+	}
+
+	data := string(chunk.GetData())
+	b, err := json.Marshal(struct {
+		Timestamp string         `json:"timestamp"`
+		Stream    api.Stream     `json:"stream"`
+		Sequence  int64          `json:"sequence"`
+		Data      string         `json:"data"`
+		Completed api.RunOutcome `json:"completed,omitempty"`
+	}{
+		Timestamp: ts,
+		Stream:    chunk.GetStream(),
+		Sequence:  chunk.GetSequence(),
+		Data:      data,
+		Completed: chunk.GetCompleted(),
+	})
+	if err != nil {
+		b = []byte(`{}`)
+	}
+	return b
 }
 
 func (s *APIServer) Handler() http.Handler {

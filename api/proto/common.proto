@@ -1,5 +1,7 @@
 edition = "2023";
 
+import "google/protobuf/timestamp.proto";
+
 package common;
 
 option go_package = "vectis/api/gen/go;api";
@@ -25,6 +27,13 @@ message Node {
     repeated Node steps = 4;
 }
 
+enum RunOutcome {
+    RUN_OUTCOME_UNSPECIFIED = 0;
+    RUN_OUTCOME_SUCCESS     = 1;
+    RUN_OUTCOME_FAILURE     = 2;
+    RUN_OUTCOME_UNKNOWN     = 3;
+}
+
 enum Stream {
     STREAM_STDOUT = 0;
     STREAM_STDERR = 1;
@@ -36,4 +45,6 @@ message LogChunk {
     bytes data = 2;
     int64 sequence = 3;
     Stream stream = 4;
+    RunOutcome completed = 5;
+    google.protobuf.Timestamp timestamp = 6;
 }

@@ -4,23 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net"
-	"net/http"
-	"slices"
 	"sort"
 	"sync"
 	"time"
 
-	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	healthgrpc "google.golang.org/grpc/health/grpc_health_v1"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	api "vectis/api/gen/go"
-	"vectis/internal/cli"
 	"vectis/internal/config"
 	"vectis/internal/interfaces"
 	"vectis/internal/observability"
@@ -29,19 +25,15 @@ import (
 
 const (
 	MaxLogLinesPerJob = 10000
-	MaxSSEClients     = 100
 	MaxRunBuffers     = 1024
-
-	sseReadHeaderTimeout = 10 * time.Second
-	sseIdleTimeout       = 120 * time.Second
-	sseShutdownTimeout   = 30 * time.Second
 )
 
 type LogEntry struct {
-	Timestamp time.Time  `json:"timestamp"`
-	Stream    api.Stream `json:"stream"`
-	Sequence  int64      `json:"sequence"`
-	Data      string     `json:"data"`
+	Timestamp time.Time     `json:"timestamp"`
+	Stream    api.Stream    `json:"stream"`
+	Sequence  int64         `json:"sequence"`
+	Data      string        `json:"data"`
+	Completed api.RunOutcome `json:"completed,omitempty"`
 }
 
 type JobBuffer struct {
@@ -95,6 +87,13 @@ func (jb *JobBuffer) GetEntries() []LogEntry {
 	return entries
 }
 
+func (jb *JobBuffer) IsTerminal() bool {
+	jb.mu.RLock()
+	defer jb.mu.RUnlock()
+
+	return jb.terminal
+}
+
 func (jb *JobBuffer) Subscribe(ch chan []byte) {
 	jb.subMu.Lock()
 	defer jb.subMu.Unlock()
@@ -135,9 +134,13 @@ func (jb *JobBuffer) LastActivity() time.Time {
 	return jb.lastActivity
 }
 
-func (jb *JobBuffer) Broadcast(jobID string, entry LogEntry) {
+func (jb *JobBuffer) Broadcast(runID string, entry LogEntry) {
 	data, err := json.Marshal(entry)
 	if err != nil {
+		if jb.logger != nil {
+			jb.logger.Warn("Failed to marshal log entry for run %s (seq %d): %v", runID, entry.Sequence, err)
+		}
+
 		return
 	}
 
@@ -145,8 +148,6 @@ func (jb *JobBuffer) Broadcast(jobID string, entry LogEntry) {
 	defer jb.subMu.RUnlock()
 
 	for ch := range jb.subscribers {
-		// Never drop control events: a dropped "completed" leaves SSE clients blocked forever
-		// waiting for run end (HandleSSE waits on completed). Stdout/stderr may still drop under load.
 		if entry.Stream == api.Stream_STREAM_CONTROL {
 			ch <- data
 			continue
@@ -156,11 +157,11 @@ func (jb *JobBuffer) Broadcast(jobID string, entry LogEntry) {
 		case ch <- data:
 		default:
 			if jb.metrics != nil {
-				jb.metrics.RecordSSEChannelDrop(context.Background())
+				jb.metrics.RecordChannelDrop(context.Background())
 			}
 
 			if jb.logger != nil {
-				jb.logger.Warn("SSE buffer full for job %s; dropping log line (seq %d)", jobID, entry.Sequence)
+				jb.logger.Warn("channel full for run %s; dropping log line (seq %d)", runID, entry.Sequence)
 			}
 		}
 	}
@@ -172,20 +173,15 @@ type Server struct {
 	buffers       map[string]*JobBuffer
 	logger        interfaces.Logger
 	store         RunLogStore
-	runs          RunStatusProvider
 	metrics       *observability.LogMetrics
 	maxRunBuffers int
 }
 
 func NewServer(logger interfaces.Logger) *Server {
-	return NewServerWithStoreAndStatus(logger, NoopRunLogStore{}, nil, nil)
+	return NewServerWithStore(logger, NoopRunLogStore{}, nil)
 }
 
-func NewServerWithStore(logger interfaces.Logger, store RunLogStore) *Server {
-	return NewServerWithStoreAndStatus(logger, store, nil, nil)
-}
-
-func NewServerWithStoreAndStatus(logger interfaces.Logger, store RunLogStore, runs RunStatusProvider, metrics *observability.LogMetrics) *Server {
+func NewServerWithStore(logger interfaces.Logger, store RunLogStore, metrics *observability.LogMetrics) *Server {
 	if store == nil {
 		store = NoopRunLogStore{}
 	}
@@ -194,7 +190,6 @@ func NewServerWithStoreAndStatus(logger interfaces.Logger, store RunLogStore, ru
 		buffers:       make(map[string]*JobBuffer),
 		logger:        logger,
 		store:         store,
-		runs:          runs,
 		metrics:       metrics,
 		maxRunBuffers: MaxRunBuffers,
 	}
@@ -263,11 +258,41 @@ func (s *Server) evictTerminalBuffersLocked() {
 }
 
 func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
+	// Each StreamLogs connection carries logs for a single run (one worker = one
+	// connection). The synthetic completion on EOF applies only to the last run
+	// seen. Multi-run connections would need per-buffer tracking on EOF.
 	ctx := stream.Context()
+	var lastBuffer *JobBuffer
+	var lastRunID string
+
 	for {
 		chunk, err := stream.Recv()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
+				// Worker stream ended. Emit synthetic completion if needed.
+				if lastBuffer != nil && !lastBuffer.IsTerminal() {
+					s.logger.Warn("Stream ended for run %s without completion event", lastRunID)
+
+					entries := lastBuffer.GetEntries()
+					synthetic := LogEntry{
+						Timestamp: time.Now(),
+						Stream:    api.Stream_STREAM_CONTROL,
+						Sequence:  nextSequence(entries),
+						Data:      `{"event":"completed","status":"unknown","synthetic":true}`,
+						Completed: api.RunOutcome_RUN_OUTCOME_UNKNOWN,
+					}
+
+					if err := s.store.Append(lastRunID, synthetic); err != nil {
+						s.logger.Warn("Failed to store synthetic completion for run %s: %v", lastRunID, err)
+					}
+
+					if !lastBuffer.Add(synthetic) {
+						s.logger.Warn("Failed to add synthetic completion to buffer for run %s", lastRunID)
+					}
+
+					lastBuffer.Broadcast(lastRunID, synthetic)
+					s.evictTerminalBuffers()
+				}
 				return stream.SendAndClose(&api.Empty{})
 			}
 
@@ -278,13 +303,20 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 			s.metrics.RecordGRPCChunk(ctx)
 		}
 
-		buffer := s.getOrCreateBuffer(chunk.GetRunId())
+		lastRunID = chunk.GetRunId()
+		lastBuffer = s.getOrCreateBuffer(lastRunID)
+
+		now := time.Now()
+		if ts := chunk.GetTimestamp(); ts != nil {
+			now = ts.AsTime()
+		}
 
 		entry := LogEntry{
-			Timestamp: time.Now(),
+			Timestamp: now,
 			Stream:    chunk.GetStream(),
 			Sequence:  chunk.GetSequence(),
 			Data:      string(chunk.GetData()),
+			Completed: chunk.GetCompleted(),
 		}
 
 		if err := s.store.Append(chunk.GetRunId(), entry); err != nil {
@@ -295,15 +327,16 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 			return err
 		}
 
-		if !buffer.Add(entry) {
+		if !lastBuffer.Add(entry) {
 			if s.metrics != nil {
 				s.metrics.RecordMemoryBufferDrop(ctx)
 			}
 			s.logger.Warn("Log buffer full for run %s, dropping log line (seq %d)", chunk.GetRunId(), entry.Sequence)
 		}
 
-		buffer.Broadcast(chunk.GetRunId(), entry)
-		if isCompletedEvent(entry) {
+		lastBuffer.Broadcast(chunk.GetRunId(), entry)
+
+		if lastBuffer.IsTerminal() {
 			s.evictTerminalBuffers()
 		}
 
@@ -311,33 +344,15 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 	}
 }
 
-func (s *Server) HandleSSE(w http.ResponseWriter, r *http.Request) {
-	runID := r.PathValue("id")
-	if runID == "" {
-		s.logger.Error("SSE connection rejected: missing run id")
-		http.Error(w, "run id is required", http.StatusBadRequest)
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-
-	// NOTE(garrett): Prevent buffering behind various proxies for lower latency.
-	w.Header().Set("X-Accel-Buffering", "no")
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
-		return
-	}
-
-	if s.metrics != nil {
-		s.metrics.SSEConnectionOpened()
-		defer s.metrics.SSEConnectionClosed()
-	}
+func (s *Server) GetLogs(req *api.GetLogsRequest, stream api.LogService_GetLogsServer) error {
+	runID := req.GetRunId()
+	sinceSeq := req.GetSinceSequence()
+	ctx := stream.Context()
 
 	buffer := s.getOrCreateBuffer(runID)
+
+	// Subscribe before replay to avoid the race window between replay and
+	// subscription. Entries arriving during replay are deduplicated by sequence.
 	outCh := make(chan []byte, 256)
 	buffer.Subscribe(outCh)
 	defer func() {
@@ -345,147 +360,149 @@ func (s *Server) HandleSSE(w http.ResponseWriter, r *http.Request) {
 		s.evictTerminalBuffers()
 	}()
 
-	s.logger.Info("SSE client connected for run: %s", runID)
-
-	// Subscribe before any body bytes so log lines are not dropped if the client
-	// or another goroutine races the first flush (same ordering as API run SSE).
-	_, _ = w.Write([]byte(": connected\n\n"))
-	flusher.Flush()
-
-	ctx := r.Context()
-	completed := make(chan struct{})
-	var completedOnce sync.Once
-
-	go func() {
-		ticker := time.NewTicker(30 * time.Second)
-		defer ticker.Stop()
-
-		writeEvent := func(msg []byte) bool {
-			if _, err := w.Write([]byte("data: ")); err != nil {
-				return false
-			}
-			if _, err := w.Write(msg); err != nil {
-				return false
-			}
-			if _, err := w.Write([]byte("\n\n")); err != nil {
-				return false
-			}
-			flusher.Flush()
-
-			// NOTE(garrett): Close connection after sending "completed" so the client can just read until EOF.
-			// Handles both live stream and replay (replay sends completed as last entry).
-			var entry LogEntry
-			if err := json.Unmarshal(msg, &entry); err != nil {
-				return true
-			}
-			if entry.Stream != api.Stream_STREAM_CONTROL {
-				return true
-			}
-
-			var meta struct {
-				Event string `json:"event"`
-			}
-			if err := json.Unmarshal([]byte(entry.Data), &meta); err != nil || meta.Event != "completed" {
-				return true
-			}
-
-			// NOTE(garrett): Do not stop the writer here. If we return false and exit the writer while the main
-			// goroutine is still replaying entries into outCh, it deadlocks (no reader). Main waits
-			// on <-completed and unsubscribes only after that; the writer must keep draining outCh.
-			completedOnce.Do(func() { close(completed) })
-			return true
-		}
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				_, _ = w.Write([]byte(": keep-alive\n\n"))
-				flusher.Flush()
-			case msg, ok := <-outCh:
-				if !ok {
-					return
-				}
-
-				if !writeEvent(msg) {
-					return
-				}
-			}
-		}
-	}()
-
-	s.logger.Info("SSE client subscribed to run: %s", runID)
-
+	// Phase 1: Replay historical entries
 	entries, err := s.store.List(runID)
 	if err != nil {
-		s.logger.Warn("Failed to load persisted logs for run %s: %v; falling back to in-memory entries", runID, err)
-		entries = buffer.GetEntries()
+		s.logger.Warn("Failed to load persisted logs for run %s: %v", runID, err)
 	}
 
 	if len(entries) == 0 {
 		entries = buffer.GetEntries()
 	}
 
+	var maxReplayedSeq = sinceSeq
+	var sawCompletionDuringReplay bool
 	for _, entry := range entries {
-		data, err := json.Marshal(entry)
-		if err != nil {
+		if entry.Sequence <= sinceSeq {
 			continue
 		}
-		select {
-		case outCh <- data:
-		case <-ctx.Done():
-			return
-		case <-completed:
-			return
+
+		chunk := &api.LogChunk{
+			RunId:     &runID,
+			Data:      []byte(entry.Data),
+			Sequence:  &entry.Sequence,
+			Stream:    &entry.Stream,
+			Timestamp: timestamppb.New(entry.Timestamp),
+			Completed: entry.Completed.Enum(),
+		}
+
+		if err := stream.Send(chunk); err != nil {
+			return err
+		}
+
+		if isCompletedEvent(entry) {
+			sawCompletionDuringReplay = true
+		}
+
+		if entry.Sequence > maxReplayedSeq {
+			maxReplayedSeq = entry.Sequence
 		}
 	}
 
-	if s.runs == nil {
+	// Drain entries that arrived on the subscription channel during replay.
+	// A completion event broadcast during the replay loop would otherwise be
+	// missed: IsTerminal() returns true but the event is still sitting in outCh.
+	for {
 		select {
-		case <-ctx.Done():
-			return
-		case <-completed:
-			return
+		case msg, ok := <-outCh:
+			if !ok {
+				return nil
+			}
+
+			var entry LogEntry
+			if err := json.Unmarshal(msg, &entry); err != nil {
+				continue
+			}
+
+			if entry.Sequence <= maxReplayedSeq {
+				continue
+			}
+
+			chunk := &api.LogChunk{
+				RunId:     &runID,
+				Data:      []byte(entry.Data),
+				Sequence:  &entry.Sequence,
+				Stream:    &entry.Stream,
+				Timestamp: timestamppb.New(entry.Timestamp),
+				Completed: entry.Completed.Enum(),
+			}
+
+			if err := stream.Send(chunk); err != nil {
+				return err
+			}
+
+			maxReplayedSeq = entry.Sequence
+		default:
+			goto afterDrain
 		}
 	}
 
-	if s.tryInjectSyntheticCompletion(ctx, runID, buffer) {
+afterDrain:
+	if sawCompletionDuringReplay || buffer.IsTerminal() {
+		// One final non-blocking drain: the completion event that set terminal
+		// may have been broadcast after the drain loop exited but before this check.
 		select {
-		case <-ctx.Done():
-			return
-		case <-completed:
-			return
+		case msg, ok := <-outCh:
+			if ok {
+				var entry LogEntry
+				if err := json.Unmarshal(msg, &entry); err == nil && entry.Sequence > maxReplayedSeq {
+					chunk := &api.LogChunk{
+						RunId:     &runID,
+						Data:      []byte(entry.Data),
+						Sequence:  &entry.Sequence,
+						Stream:    &entry.Stream,
+						Timestamp: timestamppb.New(entry.Timestamp),
+						Completed: entry.Completed.Enum(),
+					}
+
+					if err := stream.Send(chunk); err != nil {
+						return err
+					}
+				}
+			}
+		default:
 		}
+
+		return nil
 	}
 
-	poll := time.NewTicker(2 * time.Second)
-	defer poll.Stop()
-
+	// Phase 2: Live subscription — drain the channel, skipping entries already
+	// replayed (deduplicated by sequence).
 	for {
 		select {
 		case <-ctx.Done():
-			return
-		case <-completed:
-			return
-		case <-poll.C:
-			_ = s.tryInjectSyntheticCompletion(ctx, runID, buffer)
+			return ctx.Err()
+		case msg, ok := <-outCh:
+			if !ok {
+				return nil
+			}
+
+			var entry LogEntry
+			if err := json.Unmarshal(msg, &entry); err != nil {
+				continue
+			}
+
+			if entry.Sequence <= maxReplayedSeq {
+				continue
+			}
+
+			chunk := &api.LogChunk{
+				RunId:     &runID,
+				Data:      []byte(entry.Data),
+				Sequence:  &entry.Sequence,
+				Stream:    &entry.Stream,
+				Timestamp: timestamppb.New(entry.Timestamp),
+				Completed: entry.Completed.Enum(),
+			}
+
+			if err := stream.Send(chunk); err != nil {
+				return err
+			}
+
+			if buffer.IsTerminal() {
+				return nil
+			}
 		}
-	}
-}
-
-func isTerminalRunStatus(status string) bool {
-	return status == "succeeded" || status == "failed"
-}
-
-func completedEventStatus(runStatus string) string {
-	switch runStatus {
-	case "succeeded":
-		return "success"
-	case "failed":
-		return "failure"
-	default:
-		return runStatus
 	}
 }
 
@@ -500,11 +517,11 @@ func nextSequence(entries []LogEntry) int64 {
 	return max + 1
 }
 
-func hasCompletedEvent(entries []LogEntry) bool {
-	return slices.ContainsFunc(entries, isCompletedEvent)
-}
-
 func isCompletedEvent(entry LogEntry) bool {
+	if entry.Completed != api.RunOutcome_RUN_OUTCOME_UNSPECIFIED {
+		return true
+	}
+
 	if entry.Stream != api.Stream_STREAM_CONTROL {
 		return false
 	}
@@ -518,56 +535,6 @@ func isCompletedEvent(entry LogEntry) bool {
 	}
 
 	return meta.Event == "completed"
-}
-
-func (s *Server) tryInjectSyntheticCompletion(ctx context.Context, runID string, buffer *JobBuffer) bool {
-	if s.runs == nil {
-		return false
-	}
-
-	entries := buffer.GetEntries()
-	if hasCompletedEvent(entries) {
-		return false
-	}
-
-	status, found, err := s.runs.GetRunStatus(ctx, runID)
-	if err != nil {
-		s.logger.Warn("Run-status lookup failed for run %s: %v", runID, err)
-		return false
-	}
-
-	if !found || !isTerminalRunStatus(status) {
-		return false
-	}
-
-	completedStatus := completedEventStatus(status)
-	entry := LogEntry{
-		Timestamp: time.Now(),
-		Stream:    api.Stream_STREAM_CONTROL,
-		Sequence:  nextSequence(entries),
-		Data:      fmt.Sprintf(`{"event":"completed","status":"%s","synthetic":true}`, completedStatus),
-	}
-
-	if err := s.store.Append(runID, entry); err != nil {
-		if s.metrics != nil {
-			s.metrics.RecordAppendFailure(context.Background())
-		}
-
-		s.logger.Warn("Failed to persist synthetic completion entry for run %s: %v", runID, err)
-		return false
-	}
-
-	if !buffer.Add(entry) {
-		if s.metrics != nil {
-			s.metrics.RecordMemoryBufferDrop(context.Background())
-		}
-		s.logger.Warn("Log buffer full for run %s; dropping synthetic completion entry", runID)
-		return false
-	}
-
-	s.logger.Debug("Injected synthetic completion event for run %s with status %s", runID, completedStatus)
-	buffer.Broadcast(runID, entry)
-	return true
 }
 
 func (s *Server) RunGRPC(ctx context.Context, port string) error {
@@ -599,29 +566,13 @@ func (s *Server) RunGRPC(ctx context.Context, port string) error {
 	return err
 }
 
-func (s *Server) RunSSE(ctx context.Context, port string) error {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/sse/logs/{id}", s.HandleSSE)
-
-	server := &http.Server{
-		Addr:              port,
-		Handler:           mux,
-		ReadHeaderTimeout: sseReadHeaderTimeout,
-		IdleTimeout:       sseIdleTimeout,
-	}
-
-	s.logger.Info("SSE log server listening on %s", port)
-
-	return cli.ServeHTTP(ctx, server, server.ListenAndServe, sseShutdownTimeout, "SSE log server", s.logger)
-}
-
-func Run(ctx context.Context, logger interfaces.Logger, store RunLogStore, runs RunStatusProvider, metrics *observability.LogMetrics) error {
+func Run(ctx context.Context, logger interfaces.Logger, store RunLogStore, metrics *observability.LogMetrics) error {
 	if err := config.ValidateGRPCTLSForRole(config.GRPCTLSDaemonLog); err != nil {
 		return err
 	}
 	config.StartGRPCTLSReloadLoop(ctx)
 
-	server := NewServerWithStoreAndStatus(logger, store, runs, metrics)
+	server := NewServerWithStore(logger, store, metrics)
 	server.maxRunBuffers = config.LogMaxRunBuffers()
 
 	if config.LogRegisterWithRegistry() {
@@ -650,15 +601,5 @@ func Run(ctx context.Context, logger interfaces.Logger, store RunLogStore, runs 
 		logger.Info("Skipping registry registration (log.grpc.register_with_registry is false)")
 	}
 
-	g, ctx := errgroup.WithContext(ctx)
-
-	g.Go(func() error {
-		return server.RunGRPC(ctx, config.LogGRPCListenAddr())
-	})
-
-	g.Go(func() error {
-		return server.RunSSE(ctx, config.LogSSEListenAddr())
-	})
-
-	return g.Wait()
+	return server.RunGRPC(ctx, config.LogGRPCListenAddr())
 }

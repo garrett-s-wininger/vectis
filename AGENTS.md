@@ -29,7 +29,7 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 | `vectis-api` | REST (jobs, runs, SSE), metrics | yes | yes |
 | `vectis-queue` | FIFO queue + metrics | yes | yes |
 | `vectis-registry` | Service discovery | yes | no |
-| `vectis-log` | Log ingest (gRPC), SSE streams, metrics | yes | yes |
+| `vectis-log` | Log ingest (gRPC), metrics | no | no |
 | `vectis-worker` | Action tree + logs; worker-control gRPC | yes | no |
 | `vectis-log-forwarder` | Sidecar: worker → log service | yes | no |
 | `vectis-cron` | Schedules → queue | yes | yes |

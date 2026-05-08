@@ -75,6 +75,60 @@ data:
           "fieldConfig": {
             "defaults": {
               "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 1,
+                "showPoints": "never"
+              },
+              "unit": "none"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 10,
+            "x": 14,
+            "y": 64
+          },
+          "id": 41,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "13.0.0-23943897787",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "vectis-prom"
+              },
+              "expr": "vectis_log_subscriber_channel_drops_total{job=\"vectis-log\"}",
+              "legendFormat": "subscriber drops",
+              "refId": "A"
+            }
+          ],
+          "title": "Subscriber Channel Drops",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "vectis-prom"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
                 "align": "auto",
                 "cellOptions": {
                   "type": "auto"
@@ -1597,8 +1651,8 @@ data:
                 "type": "prometheus",
                 "uid": "vectis-prom"
               },
-              "expr": "sum(rate(vectis_log_sse_channel_drops_total{job=\"vectis-log\"}[5m]))",
-              "legendFormat": "SSE channel drops/s",
+              "expr": "sum(rate(vectis_log_subscriber_channel_drops_total{job=\"vectis-log\"}[5m]))",
+              "legendFormat": "subscriber channel drops/s",
               "refId": "C"
             }
           ],

@@ -3,18 +3,16 @@ package observability
 import (
 	"context"
 	"fmt"
-	"sync/atomic"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 )
 
 type LogMetrics struct {
-	grpcChunksReceived metric.Int64Counter
-	appendFailures     metric.Int64Counter
-	memBufferDrops     metric.Int64Counter
-	sseChannelDrops    metric.Int64Counter
-	sseActive          atomic.Int64
+	grpcChunksReceived   metric.Int64Counter
+	appendFailures       metric.Int64Counter
+	memBufferDrops       metric.Int64Counter
+	subscriberChannelDrops metric.Int64Counter
 }
 
 func NewLogMetrics() (*LogMetrics, error) {
@@ -44,36 +42,19 @@ func NewLogMetrics() (*LogMetrics, error) {
 		return nil, fmt.Errorf("vectis_log_memory_buffer_drops_total: %w", err)
 	}
 
-	sseDrops, err := m.Int64Counter("vectis_log_sse_channel_drops_total",
-		metric.WithDescription("Stdout/stderr lines dropped because an SSE subscriber channel was full"),
+	drops, err := m.Int64Counter("vectis_log_subscriber_channel_drops_total",
+		metric.WithDescription("Stdout/stderr lines dropped because a subscriber channel was full"),
 		metric.WithUnit("{line}"))
 
 	if err != nil {
-		return nil, fmt.Errorf("vectis_log_sse_channel_drops_total: %w", err)
+		return nil, fmt.Errorf("vectis_log_subscriber_channel_drops_total: %w", err)
 	}
 
 	lm := &LogMetrics{
-		grpcChunksReceived: chunks,
-		appendFailures:     appendFail,
-		memBufferDrops:     memDrops,
-		sseChannelDrops:    sseDrops,
-	}
-
-	activeG, err := m.Int64ObservableGauge("vectis_log_sse_connections_active",
-		metric.WithDescription("Currently connected SSE clients (one per HTTP request)"),
-		metric.WithUnit("{connection}"))
-
-	if err != nil {
-		return nil, fmt.Errorf("vectis_log_sse_connections_active: %w", err)
-	}
-
-	_, err = m.RegisterCallback(func(_ context.Context, o metric.Observer) error {
-		o.ObserveInt64(activeG, lm.sseActive.Load())
-		return nil
-	}, activeG)
-
-	if err != nil {
-		return nil, fmt.Errorf("register log SSE gauge callback: %w", err)
+		grpcChunksReceived:     chunks,
+		appendFailures:         appendFail,
+		memBufferDrops:         memDrops,
+		subscriberChannelDrops: drops,
 	}
 
 	return lm, nil
@@ -103,26 +84,10 @@ func (lm *LogMetrics) RecordMemoryBufferDrop(ctx context.Context) {
 	lm.memBufferDrops.Add(ctx, 1)
 }
 
-func (lm *LogMetrics) RecordSSEChannelDrop(ctx context.Context) {
+func (lm *LogMetrics) RecordChannelDrop(ctx context.Context) {
 	if lm == nil {
 		return
 	}
 
-	lm.sseChannelDrops.Add(ctx, 1)
-}
-
-func (lm *LogMetrics) SSEConnectionOpened() {
-	if lm == nil {
-		return
-	}
-
-	lm.sseActive.Add(1)
-}
-
-func (lm *LogMetrics) SSEConnectionClosed() {
-	if lm == nil {
-		return
-	}
-
-	lm.sseActive.Add(-1)
+	lm.subscriberChannelDrops.Add(ctx, 1)
 }

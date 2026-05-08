@@ -10,6 +10,7 @@ import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
+	sync "sync"
 	unsafe "unsafe"
 )
 
@@ -20,25 +21,97 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type GetLogsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RunId         *string                `protobuf:"bytes,1,opt,name=run_id,json=runId" json:"run_id,omitempty"`
+	SinceSequence *int64                 `protobuf:"varint,2,opt,name=since_sequence,json=sinceSequence" json:"since_sequence,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetLogsRequest) Reset() {
+	*x = GetLogsRequest{}
+	mi := &file_log_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetLogsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetLogsRequest) ProtoMessage() {}
+
+func (x *GetLogsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_log_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetLogsRequest.ProtoReflect.Descriptor instead.
+func (*GetLogsRequest) Descriptor() ([]byte, []int) {
+	return file_log_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *GetLogsRequest) GetRunId() string {
+	if x != nil && x.RunId != nil {
+		return *x.RunId
+	}
+	return ""
+}
+
+func (x *GetLogsRequest) GetSinceSequence() int64 {
+	if x != nil && x.SinceSequence != nil {
+		return *x.SinceSequence
+	}
+	return 0
+}
+
 var File_log_proto protoreflect.FileDescriptor
 
 const file_log_proto_rawDesc = "" +
 	"\n" +
-	"\tlog.proto\x1a\fcommon.proto2=\n" +
+	"\tlog.proto\x1a\fcommon.proto\"N\n" +
+	"\x0eGetLogsRequest\x12\x15\n" +
+	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12%\n" +
+	"\x0esince_sequence\x18\x02 \x01(\x03R\rsinceSequence2m\n" +
 	"\n" +
 	"LogService\x12/\n" +
 	"\n" +
-	"StreamLogs\x12\x10.common.LogChunk\x1a\r.common.Empty(\x01B\x17Z\x15vectis/api/gen/go;apib\beditionsp\xe8\a"
+	"StreamLogs\x12\x10.common.LogChunk\x1a\r.common.Empty(\x01\x12.\n" +
+	"\aGetLogs\x12\x0f.GetLogsRequest\x1a\x10.common.LogChunk0\x01B\x17Z\x15vectis/api/gen/go;apib\beditionsp\xe8\a"
 
+var (
+	file_log_proto_rawDescOnce sync.Once
+	file_log_proto_rawDescData []byte
+)
+
+func file_log_proto_rawDescGZIP() []byte {
+	file_log_proto_rawDescOnce.Do(func() {
+		file_log_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_log_proto_rawDesc), len(file_log_proto_rawDesc)))
+	})
+	return file_log_proto_rawDescData
+}
+
+var file_log_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_log_proto_goTypes = []any{
-	(*LogChunk)(nil), // 0: common.LogChunk
-	(*Empty)(nil),    // 1: common.Empty
+	(*GetLogsRequest)(nil), // 0: GetLogsRequest
+	(*LogChunk)(nil),       // 1: common.LogChunk
+	(*Empty)(nil),          // 2: common.Empty
 }
 var file_log_proto_depIdxs = []int32{
-	0, // 0: LogService.StreamLogs:input_type -> common.LogChunk
-	1, // 1: LogService.StreamLogs:output_type -> common.Empty
-	1, // [1:2] is the sub-list for method output_type
-	0, // [0:1] is the sub-list for method input_type
+	1, // 0: LogService.StreamLogs:input_type -> common.LogChunk
+	0, // 1: LogService.GetLogs:input_type -> GetLogsRequest
+	2, // 2: LogService.StreamLogs:output_type -> common.Empty
+	1, // 3: LogService.GetLogs:output_type -> common.LogChunk
+	2, // [2:4] is the sub-list for method output_type
+	0, // [0:2] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name
@@ -56,12 +129,13 @@ func file_log_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_log_proto_rawDesc), len(file_log_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   0,
+			NumMessages:   1,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_log_proto_goTypes,
 		DependencyIndexes: file_log_proto_depIdxs,
+		MessageInfos:      file_log_proto_msgTypes,
 	}.Build()
 	File_log_proto = out.File
 	file_log_proto_goTypes = nil

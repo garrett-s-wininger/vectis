@@ -29,7 +29,7 @@ func StartLogServer(t *testing.T, logger interfaces.Logger, store logserver.RunL
 	t.Helper()
 
 	server := grpctest.StartServer(t, func(srv *grpc.Server) {
-		api.RegisterLogServiceServer(srv, logserver.NewServerWithStore(logger, store))
+		api.RegisterLogServiceServer(srv, logserver.NewServerWithStore(logger, store, nil))
 	})
 
 	return server, interfaces.NewGRPCLogClient(server.Conn)

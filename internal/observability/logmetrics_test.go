@@ -28,9 +28,7 @@ func TestNewLogMetrics_appearsOnScrape(t *testing.T) {
 	lm.RecordGRPCChunk(ctx)
 	lm.RecordAppendFailure(ctx)
 	lm.RecordMemoryBufferDrop(ctx)
-	lm.RecordSSEChannelDrop(ctx)
-	lm.SSEConnectionOpened()
-	lm.SSEConnectionClosed()
+	lm.RecordChannelDrop(ctx)
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/metrics", http.NoBody)
@@ -49,8 +47,7 @@ func TestNewLogMetrics_appearsOnScrape(t *testing.T) {
 		"vectis_log_grpc_chunks_received_total",
 		"vectis_log_storage_append_failures_total",
 		"vectis_log_memory_buffer_drops_total",
-		"vectis_log_sse_channel_drops_total",
-		"vectis_log_sse_connections_active",
+		"vectis_log_subscriber_channel_drops_total",
 	} {
 		if _, ok := names[want]; !ok {
 			t.Fatalf("missing metric %q; got: %v", want, sortedFamilyNames(names))

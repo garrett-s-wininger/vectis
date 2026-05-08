@@ -97,7 +97,6 @@ type LogDefaults struct {
 	MaxRunBuffers   int          `toml:"max_run_buffers"`
 	RegistryAddress string       `toml:"registry.address"`
 	GRPC            GRPCDefaults `toml:"grpc"`
-	SSE             SSEDefaults  `toml:"sse"`
 }
 
 type GRPCDefaults struct {
@@ -105,10 +104,6 @@ type GRPCDefaults struct {
 	ResolverAddress      string `toml:"resolver.address"`
 	AdvertiseAddress     string `toml:"advertise_address"`
 	RegisterWithRegistry bool   `toml:"register_with_registry"`
-}
-
-type SSEDefaults struct {
-	Port int `toml:"port"`
 }
 
 type DatabaseDefaults struct {
@@ -230,10 +225,9 @@ func validateDefaults(d Defaults) {
 
 	validatePort(d.Registry.Port, "registry.port")
 	validatePort(d.Log.GRPC.Port, "log.grpc.port")
-	validatePort(d.Log.SSE.Port, "log.sse.port")
 	validatePort(d.Log.MetricsPort, "log.metrics_port")
-	if d.Log.MetricsPort == d.Log.GRPC.Port || d.Log.MetricsPort == d.Log.SSE.Port {
-		panic("config defaults: log.metrics_port must differ from log.grpc.port and log.sse.port")
+	if d.Log.MetricsPort == d.Log.GRPC.Port {
+		panic("config defaults: log.metrics_port must differ from log.grpc.port")
 	}
 
 	if d.Log.MetricsPort == d.Queue.MetricsPort || d.Log.MetricsPort == d.Worker.MetricsPort {
@@ -394,10 +388,6 @@ func LogGRPCPort() int {
 	return MustDefaults().Log.GRPC.Port
 }
 
-func LogSSEPort() int {
-	return MustDefaults().Log.SSE.Port
-}
-
 func LogMetricsPort() int {
 	return MustDefaults().Log.MetricsPort
 }
@@ -434,10 +424,6 @@ func RegistryListenAddr() string {
 
 func LogGRPCListenAddr() string {
 	return ":" + strconv.Itoa(LogGRPCPort())
-}
-
-func LogSSEListenAddr() string {
-	return ":" + strconv.Itoa(LogSSEPort())
 }
 
 func PublicAPIBaseURL() string {
@@ -698,7 +684,7 @@ func APIQueueAddress() string {
 	)
 }
 
-func APILogSSEAddress() string {
+func APILogAddress() string {
 	d := MustDefaults()
 	return coalesceNonEmpty(
 		viper.GetString("api.log.address"),

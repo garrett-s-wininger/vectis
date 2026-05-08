@@ -10,14 +10,10 @@ import (
 
 	"vectis/internal/cli"
 	"vectis/internal/config"
-	"vectis/internal/dal"
-	"vectis/internal/database"
 	"vectis/internal/interfaces"
 	"vectis/internal/logserver"
 	"vectis/internal/observability"
 	"vectis/internal/utils"
-
-	_ "vectis/internal/dbdrivers"
 )
 
 func runLog(cmd *cobra.Command, args []string) {
@@ -45,19 +41,9 @@ func runLog(cmd *cobra.Command, args []string) {
 	}
 	logger.Info("Using durable log storage directory: %s", storageDir)
 
-	db, _, err := database.OpenReadyDB(logger)
-	if err != nil {
-		logger.Fatal("Failed to initialize database for run-status lookup: %v", err)
-	}
-	defer db.Close()
-
 	metricsHandler, shutdownMetrics, err := observability.InitServiceMetrics(ctx, "vectis-log")
 	if err != nil {
 		logger.Fatal("Failed to initialize metrics: %v", err)
-	}
-
-	if err := observability.RegisterSQLDBPoolMetrics(db); err != nil {
-		logger.Fatal("Failed to register DB pool metrics: %v", err)
 	}
 
 	logMetrics, err := observability.NewLogMetrics()
@@ -75,9 +61,7 @@ func runLog(cmd *cobra.Command, args []string) {
 	}
 	defer metricsSrv.Shutdown()
 
-	runStatus := logserver.NewDALRunStatusProvider(dal.NewSQLRepositories(db).Runs())
-
-	if err := logserver.Run(ctx, logger, store, runStatus, logMetrics); err != nil {
+	if err := logserver.Run(ctx, logger, store, logMetrics); err != nil {
 		logger.Fatal("Log service failed: %v", err)
 	}
 }

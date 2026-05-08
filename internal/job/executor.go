@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	otelcodes "go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // LogStreamWaiter is implemented by the background log stream and allows tests
@@ -127,11 +128,11 @@ func (e *Executor) executeJob(ctx context.Context, job *api.Job, logClient inter
 
 	if result.Status == action.StatusFailure {
 		logger.Error("Job failed: %v", result.Error)
-		sendLog(state, api.Stream_STREAM_CONTROL, `{"event":"completed","status":"failure"}`)
+		sendCompletionLog(state, api.Stream_STREAM_CONTROL, `{"event":"completed","status":"failure"}`, api.RunOutcome_RUN_OUTCOME_FAILURE)
 		return result.Error
 	}
 
-	sendLog(state, api.Stream_STREAM_CONTROL, `{"event":"completed","status":"success"}`)
+	sendCompletionLog(state, api.Stream_STREAM_CONTROL, `{"event":"completed","status":"success"}`, api.RunOutcome_RUN_OUTCOME_SUCCESS)
 	return nil
 }
 
@@ -180,16 +181,26 @@ func (e *Executor) executeNode(ctx context.Context, node *api.Node, state *actio
 }
 
 func sendLog(state *action.ExecutionState, streamType api.Stream, message string) {
+	sendLogChunk(state, streamType, message, api.RunOutcome_RUN_OUTCOME_UNSPECIFIED)
+}
+
+func sendCompletionLog(state *action.ExecutionState, streamType api.Stream, message string, outcome api.RunOutcome) {
+	sendLogChunk(state, streamType, message, outcome)
+}
+
+func sendLogChunk(state *action.ExecutionState, streamType api.Stream, message string, outcome api.RunOutcome) {
 	if state.LogStream == nil {
 		return
 	}
 
 	seq := state.NextSequence()
 	chunk := &api.LogChunk{
-		RunId:    &state.RunID,
-		Data:     []byte(message),
-		Sequence: &seq,
-		Stream:   &streamType,
+		RunId:     &state.RunID,
+		Data:      []byte(message),
+		Sequence:  &seq,
+		Stream:    &streamType,
+		Completed: outcome.Enum(),
+		Timestamp: timestamppb.Now(),
 	}
 
 	if err := state.LogStream.Send(chunk); err != nil {

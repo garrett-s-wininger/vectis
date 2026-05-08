@@ -4,6 +4,12 @@ import "common.proto";
 
 option go_package = "vectis/api/gen/go;api";
 
+message GetLogsRequest {
+    string run_id = 1;
+    int64 since_sequence = 2;
+}
+
 service LogService {
     rpc StreamLogs(stream common.LogChunk) returns (common.Empty);
+    rpc GetLogs(GetLogsRequest) returns (stream common.LogChunk);
 }

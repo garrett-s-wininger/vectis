@@ -94,7 +94,7 @@ func TestMockRegistryClient_MultipleComponents(t *testing.T) {
 
 	components := map[api.Component]string{
 		api.Component_COMPONENT_QUEUE: "localhost:8081",
-		api.Component_COMPONENT_LOG:   "localhost:8084",
+		api.Component_COMPONENT_LOG:   "localhost:8083",
 	}
 
 	for component, address := range components {

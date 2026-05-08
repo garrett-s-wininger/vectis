@@ -11,7 +11,7 @@
 | `api/` | `vectis-api` | daemon (REST + metrics) |
 | `queue/` | `vectis-queue` | daemon (FIFO) |
 | `registry/` | `vectis-registry` | daemon (service discovery) |
-| `log/` | `vectis-log` | daemon (gRPC + SSE) |
+| `log/` | `vectis-log` | daemon (gRPC) |
 | `log-forwarder/` | `vectis-log-forwarder` | daemon (sidecar) |
 | `worker/` | `vectis-worker` | daemon (action exec) |
 | `cron/` | `vectis-cron` | daemon (scheduler) |
