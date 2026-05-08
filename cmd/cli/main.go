@@ -1349,6 +1349,41 @@ func createJob(cmd *cobra.Command, args []string) {
 	}
 }
 
+func deleteJob(cmd *cobra.Command, args []string) {
+	jobID := args[0]
+
+	force, _ := cmd.Flags().GetBool("yes")
+	if !force {
+		fmt.Fprintf(os.Stderr, "Delete job %q? This removes the definition and prevents future triggers.\n", jobID)
+		fmt.Fprintf(os.Stderr, "Re-run with --yes to confirm.\n")
+		os.Exit(1)
+	}
+
+	req, err := newAPIRequest(http.MethodDelete, fmt.Sprintf("/api/v1/jobs/%s", jobID), nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: request failed: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusNoContent:
+		fmt.Printf("Job %q deleted.\n", jobID)
+	case http.StatusNotFound:
+		fmt.Fprintf(os.Stderr, "Error: job %q not found\n", jobID)
+		os.Exit(1)
+	default:
+		fmt.Fprintf(os.Stderr, "Error: unexpected status: %s\n", resp.Status)
+		os.Exit(1)
+	}
+}
+
 func listJobNames(w io.Writer) error {
 	req, err := newAPIRequest(http.MethodGet, "/api/v1/jobs", nil)
 	if err != nil {
@@ -1454,6 +1489,14 @@ var createCmd = &cobra.Command{
 	Long:  `Store a job definition for later trigger, edit, and delete. Path is a JSON file; use "-" to read from stdin.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   createJob,
+}
+
+var deleteCmd = &cobra.Command{
+	Use:   "delete [job-id]",
+	Short: "Delete a stored job",
+	Long:  `Delete a stored job definition. The job must exist. Pass --yes to skip confirmation.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   deleteJob,
 }
 
 var listCmd = &cobra.Command{
@@ -2187,6 +2230,8 @@ func init() {
 	rootCmd.AddCommand(createCmd)
 	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(editCmd)
+	deleteCmd.Flags().Bool("yes", false, "Skip confirmation prompt")
+	rootCmd.AddCommand(deleteCmd)
 	rootCmd.AddCommand(migrateCmd)
 	forceFailCmd.Flags().String("reason", "", "Failure reason to record")
 	rootCmd.AddCommand(forceFailCmd)
