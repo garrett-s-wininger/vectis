@@ -52,7 +52,7 @@ func TestResolveLogSSEAddress_viaRegistry(t *testing.T) {
 	regAddr := listener.Addr().String()
 
 	// Register a log component
-	regClient, err := registry.New(context.Background(), regAddr, mocks.NewMockLogger(), mocks.NewMockClock())
+	regClient, err := registry.New(context.Background(), regAddr, mocks.NewMockLogger(), mocks.NewMockClock(), nil)
 	if err != nil {
 		t.Fatalf("failed to create registry client: %v", err)
 	}

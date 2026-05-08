@@ -12,6 +12,7 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/backoff"
 	"vectis/internal/config"
 	"vectis/internal/interfaces"
 	"vectis/internal/registry"
@@ -438,10 +439,10 @@ func defaultSpoolDir() string {
 
 // ResolveLogClient creates a gRPC log client using the same discovery
 // semantics as the worker.
-func ResolveLogClient(ctx context.Context, logger interfaces.Logger) (interfaces.LogClient, func(), error) {
+func ResolveLogClient(ctx context.Context, logger interfaces.Logger, retryMetrics backoff.RetryMetrics) (interfaces.LogClient, func(), error) {
 	pin := config.PinnedLogAddress()
 	if pin != "" {
-		conn, cleanup, err := resolver.NewClientWithPinnedAddress(ctx, api.Component_COMPONENT_LOG, pin, logger, nil)
+		conn, cleanup, err := resolver.NewClientWithPinnedAddress(ctx, api.Component_COMPONENT_LOG, pin, logger, nil, retryMetrics)
 		if err != nil {
 			return nil, nil, fmt.Errorf("pinned log client: %w", err)
 		}
@@ -449,12 +450,12 @@ func ResolveLogClient(ctx context.Context, logger interfaces.Logger) (interfaces
 		return interfaces.NewGRPCLogClient(conn), cleanup, nil
 	}
 
-	regClient, err := registry.New(ctx, config.WorkerRegistryDialAddress(), logger, interfaces.SystemClock{})
+	regClient, err := registry.New(ctx, config.WorkerRegistryDialAddress(), logger, interfaces.SystemClock{}, retryMetrics)
 	if err != nil {
 		return nil, nil, fmt.Errorf("registry client: %w", err)
 	}
 
-	conn, cleanup, err := resolver.NewClientWithRegistry(ctx, api.Component_COMPONENT_LOG, logger, regClient)
+	conn, cleanup, err := resolver.NewClientWithRegistry(ctx, api.Component_COMPONENT_LOG, logger, regClient, retryMetrics)
 	if err != nil {
 		regClient.Close()
 		return nil, nil, fmt.Errorf("registry log client: %w", err)

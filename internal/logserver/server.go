@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -500,13 +501,7 @@ func nextSequence(entries []LogEntry) int64 {
 }
 
 func hasCompletedEvent(entries []LogEntry) bool {
-	for _, entry := range entries {
-		if isCompletedEvent(entry) {
-			return true
-		}
-	}
-
-	return false
+	return slices.ContainsFunc(entries, isCompletedEvent)
 }
 
 func isCompletedEvent(entry LogEntry) bool {

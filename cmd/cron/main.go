@@ -11,6 +11,7 @@ import (
 	"vectis/internal/cron"
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
+	"vectis/internal/observability"
 
 	_ "vectis/internal/dbdrivers"
 )
@@ -35,6 +36,12 @@ func runVectisCron(cmd *cobra.Command, args []string) {
 
 	service := cron.NewCronService(logger, db)
 	defer service.CloseQueueDial()
+
+	retryMetrics, err := observability.NewRetryMetrics()
+	if err != nil {
+		logger.Fatal("Failed to initialize retry metrics: %v", err)
+	}
+	service.SetRetryMetrics(retryMetrics)
 
 	if err := service.ConnectToQueue(cmd.Context()); err != nil {
 		logger.Fatal("Failed to connect to queue: %v", err)

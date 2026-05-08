@@ -27,7 +27,7 @@ func ResolveLogSSEAddress(ctx context.Context, logger interfaces.Logger, registr
 
 	logger.Debug("resolver: looking up log SSE address via registry at %s", registryDialAddr)
 
-	regClient, err := registry.New(ctx, registryDialAddr, logger, interfaces.SystemClock{})
+	regClient, err := registry.New(ctx, registryDialAddr, logger, interfaces.SystemClock{}, nil)
 	if err != nil {
 		return "", fmt.Errorf("resolver: connect to registry: %w", err)
 	}

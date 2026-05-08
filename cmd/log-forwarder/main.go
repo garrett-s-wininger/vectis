@@ -16,6 +16,7 @@ import (
 	"vectis/internal/config"
 	"vectis/internal/interfaces"
 	"vectis/internal/logforwarder"
+	"vectis/internal/observability"
 	"vectis/internal/utils"
 )
 
@@ -69,8 +70,13 @@ func runLogForwarder(cmd *cobra.Command, args []string) {
 
 	logger.Info("Lock acquired")
 
+	retryMetrics, err := observability.NewRetryMetrics()
+	if err != nil {
+		logger.Fatal("Failed to initialize retry metrics: %v", err)
+	}
+
 	// Resolve vectis-log gRPC client
-	logClient, logCleanup, err := logforwarder.ResolveLogClient(ctx, logger)
+	logClient, logCleanup, err := logforwarder.ResolveLogClient(ctx, logger, retryMetrics)
 	if err != nil {
 		logger.Fatal("Failed to resolve log service: %v", err)
 	}

@@ -1309,6 +1309,7 @@ func createJob(cmd *cobra.Command, args []string) {
 		Namespace: namespace,
 		Job:       body,
 	})
+
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: failed to encode request: %v\n", err)
 		os.Exit(1)
@@ -1540,14 +1541,14 @@ func getRun(runID string, w io.Writer) error {
 	switch resp.StatusCode {
 	case http.StatusOK:
 		var run struct {
-			RunID         string  `json:"run_id"`
-			RunIndex      int     `json:"run_index"`
-			Status        string  `json:"status"`
-			OrphanReason  *string `json:"orphan_reason,omitempty"`
-			FailureCode   *string `json:"failure_code,omitempty"`
-			StartedAt     *string `json:"started_at,omitempty"`
-			FinishedAt    *string `json:"finished_at,omitempty"`
-			FailureReason *string `json:"failure_reason,omitempty"`
+			RunID          string  `json:"run_id"`
+			RunIndex       int     `json:"run_index"`
+			Status         string  `json:"status"`
+			OrphanReason   *string `json:"orphan_reason,omitempty"`
+			FailureCode    *string `json:"failure_code,omitempty"`
+			StartedAt      *string `json:"started_at,omitempty"`
+			FinishedAt     *string `json:"finished_at,omitempty"`
+			FailureReason  *string `json:"failure_reason,omitempty"`
 			DispatchEvents []struct {
 				ID        int64   `json:"id"`
 				Source    string  `json:"source"`

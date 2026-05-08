@@ -60,9 +60,14 @@ func runReconciler(cmd *cobra.Command, args []string) {
 	}
 	defer db.Close()
 
+	retryMetrics, err := observability.NewRetryMetrics()
+	if err != nil {
+		logger.Fatal("Failed to initialize retry metrics: %v", err)
+	}
+
 	pin := config.ReconcilerQueueAddress()
 	mq, err := queueclient.NewManagingQueueService(rootCtx, logger, func(ctx context.Context) (*grpc.ClientConn, func(), error) {
-		return resolver.DialQueue(ctx, logger, pin, config.ReconcilerRegistryDialAddress())
+		return resolver.DialQueue(ctx, logger, pin, config.ReconcilerRegistryDialAddress(), retryMetrics)
 	})
 
 	if err != nil {

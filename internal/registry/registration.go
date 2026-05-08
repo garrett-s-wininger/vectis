@@ -5,6 +5,7 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/backoff"
 	"vectis/internal/interfaces"
 )
 
@@ -16,6 +17,7 @@ type RegistrationOptions struct {
 	RefreshInterval time.Duration
 	Logger          interfaces.Logger
 	Clock           interfaces.Clock
+	Metrics         backoff.RetryMetrics
 }
 
 func RegisterWithHeartbeat(ctx context.Context, opts RegistrationOptions) (func(), error) {
@@ -24,7 +26,7 @@ func RegisterWithHeartbeat(ctx context.Context, opts RegistrationOptions) (func(
 		clock = interfaces.SystemClock{}
 	}
 
-	registryClient, err := New(ctx, opts.RegistryAddress, opts.Logger, clock)
+	registryClient, err := New(ctx, opts.RegistryAddress, opts.Logger, clock, opts.Metrics)
 	if err != nil {
 		return nil, err
 	}

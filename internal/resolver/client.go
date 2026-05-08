@@ -22,7 +22,7 @@ const (
 	pinnedDialBaseDelay = 500 * time.Millisecond
 )
 
-func NewClientWithPinnedAddress(ctx context.Context, comp api.Component, addr string, logger interfaces.Logger, clock interfaces.Clock) (*grpc.ClientConn, func(), error) {
+func NewClientWithPinnedAddress(ctx context.Context, comp api.Component, addr string, logger interfaces.Logger, clock interfaces.Clock, retryMetrics backoff.RetryMetrics) (*grpc.ClientConn, func(), error) {
 	if clock == nil {
 		clock = interfaces.SystemClock{}
 	}
@@ -47,6 +47,8 @@ func NewClientWithPinnedAddress(ctx context.Context, comp api.Component, addr st
 		MaxTries:  pinnedDialMaxTries,
 		BaseDelay: pinnedDialBaseDelay,
 		Clock:     clock,
+		Metrics:   retryMetrics,
+		Component: "resolver",
 	})
 
 	err = retryer.Do(ctx, func() error {
@@ -88,13 +90,13 @@ func NewClientWithPinnedAddress(ctx context.Context, comp api.Component, addr st
 	return conn, func() { conn.Close() }, nil
 }
 
-func NewRegistryClient(ctx context.Context, addr string, logger interfaces.Logger, clock interfaces.Clock) (*registry.Registry, error) {
-	return registry.New(ctx, addr, logger, clock)
+func NewRegistryClient(ctx context.Context, addr string, logger interfaces.Logger, clock interfaces.Clock, retryMetrics backoff.RetryMetrics) (*registry.Registry, error) {
+	return registry.New(ctx, addr, logger, clock, retryMetrics)
 }
 
-func NewClientWithRegistry(ctx context.Context, comp api.Component, logger interfaces.Logger, regClient *registry.Registry) (*grpc.ClientConn, func(), error) {
+func NewClientWithRegistry(ctx context.Context, comp api.Component, logger interfaces.Logger, regClient *registry.Registry, retryMetrics backoff.RetryMetrics) (*grpc.ClientConn, func(), error) {
 	if addr := pinnedAddress(comp); addr != "" {
-		return NewClientWithPinnedAddress(ctx, comp, addr, logger, nil)
+		return NewClientWithPinnedAddress(ctx, comp, addr, logger, nil, retryMetrics)
 	}
 
 	builder := BuildResolver(comp, regClient, logger)

@@ -106,6 +106,13 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		return
 	}
 
+	retryMetrics, err := observability.NewRetryMetrics()
+	if err != nil {
+		logger.Error("Failed to initialize retry metrics: %v", err)
+		exitCode = 1
+		return
+	}
+
 	defer cli.DeferShutdown(logger, "Metrics", shutdownMetrics)()
 
 	server := api.NewAPIServer(logger, db)
@@ -121,10 +128,12 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 	defer auditor.Stop()
 	server.SetAuditor(auditor)
 
+	server.SetRetryMetrics(retryMetrics)
+
 	// Wire up worker address resolution via registry for cancel endpoint.
 	if regAddr := config.APIRegistryAddress(); regAddr != "" {
 		regCtx, regCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		registryClient, err := registry.New(regCtx, regAddr, logger, interfaces.SystemClock{})
+		registryClient, err := registry.New(regCtx, regAddr, logger, interfaces.SystemClock{}, retryMetrics)
 		regCancel()
 		if err != nil {
 			logger.Warn("Failed to create registry client for worker resolution: %v", err)

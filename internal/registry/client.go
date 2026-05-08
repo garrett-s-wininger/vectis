@@ -15,8 +15,8 @@ type Registry struct {
 	*networking.Client[api.RegistryServiceClient]
 }
 
-func New(ctx context.Context, addr string, logger interfaces.Logger, clock interfaces.Clock) (*Registry, error) {
-	c, err := networking.NewClient(ctx, addr, api.NewRegistryServiceClient, logger, clock)
+func New(ctx context.Context, addr string, logger interfaces.Logger, clock interfaces.Clock, retryMetrics backoff.RetryMetrics) (*Registry, error) {
+	c, err := networking.NewClient(ctx, addr, api.NewRegistryServiceClient, logger, clock, retryMetrics)
 	if err != nil {
 		return nil, err
 	}
@@ -33,6 +33,8 @@ func (r *Registry) RegisterInstance(ctx context.Context, component api.Component
 		MaxTries:  r.MaxTries,
 		BaseDelay: r.BaseDelay,
 		Clock:     r.Clock,
+		Metrics:   r.Metrics,
+		Component: "registry",
 	})
 
 	return retryer.Do(ctx, func() error {

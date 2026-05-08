@@ -11,6 +11,7 @@ import (
 	"github.com/robfig/cron/v3"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/backoff"
 	"vectis/internal/config"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
@@ -28,16 +29,17 @@ type CronSchedule struct {
 }
 
 type CronService struct {
-	jobs        dal.JobsRepository
-	runs        dal.RunsRepository
-	schedules   dal.SchedulesRepository
-	dispatch    dal.DispatchEventsRepository
-	logger      interfaces.Logger
-	queueClient interfaces.QueueService
-	queueClose  func()
-	parser      cron.Parser
-	clock       interfaces.Clock
-	mu          sync.Mutex
+	jobs         dal.JobsRepository
+	runs         dal.RunsRepository
+	schedules    dal.SchedulesRepository
+	dispatch     dal.DispatchEventsRepository
+	logger       interfaces.Logger
+	queueClient  interfaces.QueueService
+	queueClose   func()
+	parser       cron.Parser
+	clock        interfaces.Clock
+	retryMetrics backoff.RetryMetrics
+	mu           sync.Mutex
 }
 
 func NewCronService(logger interfaces.Logger, db *sql.DB) *CronService {
@@ -78,6 +80,10 @@ func (s *CronService) SetClock(clock interfaces.Clock) {
 	s.clock = clock
 }
 
+func (s *CronService) SetRetryMetrics(m backoff.RetryMetrics) {
+	s.retryMetrics = m
+}
+
 func (s *CronService) recordDispatchEvent(ctx context.Context, runID, eventType string, message *string) {
 	if s.dispatch == nil {
 		return
@@ -108,7 +114,7 @@ func (s *CronService) ConnectToQueue(ctx context.Context) error {
 
 	pin := config.CronQueueAddress()
 	mq, err := queueclient.NewManagingQueueService(ctx, s.logger, func(ctx context.Context) (*grpc.ClientConn, func(), error) {
-		return resolver.DialQueue(ctx, s.logger, pin, config.CronRegistryDialAddress())
+		return resolver.DialQueue(ctx, s.logger, pin, config.CronRegistryDialAddress(), s.retryMetrics)
 	})
 
 	if err != nil {

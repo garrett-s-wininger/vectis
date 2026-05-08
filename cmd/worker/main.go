@@ -103,6 +103,11 @@ func runWorker(cmd *cobra.Command, args []string) {
 		logger.Fatal("Failed to register worker metrics: %v", err)
 	}
 
+	retryMetrics, err := observability.NewRetryMetrics()
+	if err != nil {
+		logger.Fatal("Failed to initialize retry metrics: %v", err)
+	}
+
 	defer cli.DeferShutdown(logger, "Metrics", shutdownMetrics)()
 
 	metricsPort := config.WorkerMetricsEffectiveListenPort()
@@ -114,7 +119,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 	defer metricsSrv.Shutdown()
 
 	dial := func(ctx context.Context) (interfaces.QueueClient, interfaces.LogClient, func(), error) {
-		q, l, cleanup, err := multidial.DialQueueAndLog(ctx, logger)
+		q, l, cleanup, err := multidial.DialQueueAndLog(ctx, logger, retryMetrics)
 		return q, l, cleanup, err
 	}
 
@@ -174,6 +179,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 				PublishAddress:  controlAddr,
 				RefreshInterval: config.RegistryRegistrationRefresh(),
 				Logger:          logger,
+				Metrics:         retryMetrics,
 			})
 
 			if err != nil {

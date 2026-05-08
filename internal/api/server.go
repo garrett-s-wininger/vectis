@@ -25,6 +25,7 @@ import (
 	"vectis/internal/api/authn"
 	"vectis/internal/api/authz"
 	"vectis/internal/api/ratelimit"
+	"vectis/internal/backoff"
 	"vectis/internal/cli"
 	"vectis/internal/config"
 	"vectis/internal/dal"
@@ -92,6 +93,9 @@ type APIServer struct {
 
 	// auditor, when set, logs audit events for auth operations.
 	auditor audit.Auditor
+
+	// retryMetrics, when set, records retry/backoff metrics for gRPC dials.
+	retryMetrics backoff.RetryMetrics
 
 	// ResolveWorkerAddress, when set, resolves a worker_id to a control address via the registry.
 	ResolveWorkerAddress func(workerID string) (string, error)
@@ -427,6 +431,10 @@ func (s *APIServer) SetAuditor(auditor audit.Auditor) {
 	s.auditor = auditor
 }
 
+func (s *APIServer) SetRetryMetrics(m backoff.RetryMetrics) {
+	s.retryMetrics = m
+}
+
 func (s *APIServer) auditLog(ctx context.Context, eventType string, actorID, targetID int64, metadata map[string]any) {
 	s.mu.RLock()
 	auditor := s.auditor
@@ -463,7 +471,7 @@ func (s *APIServer) ConnectToQueue(ctx context.Context) error {
 	}
 
 	mq, err := queueclient.NewManagingQueueService(ctx, s.logger, func(ctx context.Context) (*grpc.ClientConn, func(), error) {
-		return resolver.DialQueue(ctx, s.logger, config.PinnedQueueAddress(), config.APIRegistryDialAddress())
+		return resolver.DialQueue(ctx, s.logger, config.PinnedQueueAddress(), config.APIRegistryDialAddress(), s.retryMetrics)
 	})
 
 	if err != nil {

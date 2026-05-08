@@ -26,7 +26,7 @@ func TestRegistry_RegisterAndAddress(t *testing.T) {
 
 	logger := mocks.NewMockLogger()
 	clock := mocks.NewMockClock()
-	reg, err := New(context.Background(), addr, logger, clock)
+	reg, err := New(context.Background(), addr, logger, clock, nil)
 	if err != nil {
 		t.Fatalf("failed to create registry client: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestRegistry_InstanceAddress(t *testing.T) {
 
 	logger := mocks.NewMockLogger()
 	clock := mocks.NewMockClock()
-	reg, err := New(context.Background(), addr, logger, clock)
+	reg, err := New(context.Background(), addr, logger, clock, nil)
 	if err != nil {
 		t.Fatalf("failed to create registry client: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestRegistry_InstanceAddress_notFound(t *testing.T) {
 
 	logger := mocks.NewMockLogger()
 	clock := mocks.NewMockClock()
-	reg, err := New(context.Background(), addr, logger, clock)
+	reg, err := New(context.Background(), addr, logger, clock, nil)
 	if err != nil {
 		t.Fatalf("failed to create registry client: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestRegistry_Address_notFound(t *testing.T) {
 
 	logger := mocks.NewMockLogger()
 	clock := mocks.NewMockClock()
-	reg, err := New(context.Background(), addr, logger, clock)
+	reg, err := New(context.Background(), addr, logger, clock, nil)
 	if err != nil {
 		t.Fatalf("failed to create registry client: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestRegistry_RegisterInstanceOnce(t *testing.T) {
 
 	logger := mocks.NewMockLogger()
 	clock := mocks.NewMockClock()
-	reg, err := New(context.Background(), addr, logger, clock)
+	reg, err := New(context.Background(), addr, logger, clock, nil)
 	if err != nil {
 		t.Fatalf("failed to create registry client: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestStartRegistrationHeartbeat(t *testing.T) {
 
 	logger := mocks.NewMockLogger()
 	clock := mocks.NewMockClock()
-	reg, err := New(context.Background(), addr, logger, clock)
+	reg, err := New(context.Background(), addr, logger, clock, nil)
 	if err != nil {
 		t.Fatalf("failed to create registry client: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestStartInstanceRegistrationHeartbeat(t *testing.T) {
 
 	logger := mocks.NewMockLogger()
 	clock := mocks.NewMockClock()
-	reg, err := New(context.Background(), addr, logger, clock)
+	reg, err := New(context.Background(), addr, logger, clock, nil)
 	if err != nil {
 		t.Fatalf("failed to create registry client: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestStartRegistrationHeartbeat_zeroInterval(t *testing.T) {
 
 	logger := mocks.NewMockLogger()
 	clock := mocks.NewMockClock()
-	reg, err := New(context.Background(), addr, logger, clock)
+	reg, err := New(context.Background(), addr, logger, clock, nil)
 	if err != nil {
 		t.Fatalf("failed to create registry client: %v", err)
 	}

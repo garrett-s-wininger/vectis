@@ -7,12 +7,20 @@ import (
 	"vectis/internal/interfaces"
 )
 
+type RetryMetrics interface {
+	RecordAttempt(ctx context.Context, component string)
+	RecordExhausted(ctx context.Context, component string)
+	RecordDelay(ctx context.Context, component string, delay time.Duration)
+}
+
 const maxExponentShift = 30
 
 type RetryConfig struct {
 	MaxTries  int
 	BaseDelay time.Duration
 	Clock     interfaces.Clock
+	Metrics   RetryMetrics
+	Component string
 }
 
 type Retryer struct {
@@ -32,6 +40,10 @@ func (r *Retryer) Do(ctx context.Context, operation func() error, onRetry func(a
 	for attempt := range r.config.MaxTries {
 		lastErr = operation()
 		if lastErr == nil {
+			if r.config.Metrics != nil && attempt > 0 {
+				r.config.Metrics.RecordAttempt(ctx, r.config.Component)
+			}
+
 			return nil
 		}
 
@@ -44,9 +56,18 @@ func (r *Retryer) Do(ctx context.Context, operation func() error, onRetry func(a
 			onRetry(attempt+1, delay, lastErr)
 		}
 
+		if r.config.Metrics != nil {
+			r.config.Metrics.RecordAttempt(ctx, r.config.Component)
+			r.config.Metrics.RecordDelay(ctx, r.config.Component, delay)
+		}
+
 		if err := r.config.Clock.Sleep(ctx, delay); err != nil {
 			return err
 		}
+	}
+
+	if r.config.Metrics != nil && lastErr != nil {
+		r.config.Metrics.RecordExhausted(ctx, r.config.Component)
 	}
 
 	return lastErr
