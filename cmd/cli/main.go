@@ -27,6 +27,7 @@ import (
 	"vectis/internal/cli"
 	"vectis/internal/config"
 	"vectis/internal/database"
+	jobvalidation "vectis/internal/job/validation"
 	"vectis/internal/utils"
 
 	_ "vectis/internal/dbdrivers"
@@ -1262,6 +1263,92 @@ func listJobs(cmd *cobra.Command, args []string) {
 	}
 }
 
+func createJob(cmd *cobra.Command, args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Error: path or - is required")
+		cmd.Usage()
+		os.Exit(1)
+	}
+
+	source := args[0]
+	var body []byte
+	var err error
+	if source == "-" {
+		body, err = io.ReadAll(os.Stdin)
+	} else {
+		body, err = os.ReadFile(source)
+	}
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to read job definition: %v\n", err)
+		os.Exit(1)
+	}
+
+	var job api.Job
+	if err := json.Unmarshal(body, &job); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: invalid job JSON: %v\n", err)
+		os.Exit(1)
+	}
+
+	if job.Id == nil || *job.Id == "" {
+		fmt.Fprintln(os.Stderr, "Error: job definition must include an id field")
+		os.Exit(1)
+	}
+
+	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{RequireJobID: true}); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: invalid job definition: %v\n", err)
+		os.Exit(1)
+	}
+
+	namespace, _ := cmd.Flags().GetString("namespace")
+
+	payload, err := json.Marshal(struct {
+		Namespace string          `json:"namespace"`
+		Job       json.RawMessage `json:"job"`
+	}{
+		Namespace: namespace,
+		Job:       body,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to encode request: %v\n", err)
+		os.Exit(1)
+	}
+
+	req, err := newAPIRequest(http.MethodPost, "/api/v1/jobs", bytes.NewReader(payload))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: request failed: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusCreated:
+		fmt.Printf("Job %q stored.\n", *job.Id)
+	case http.StatusConflict:
+		fmt.Fprintf(os.Stderr, "Error: job %q already exists\n", *job.Id)
+		os.Exit(1)
+	case http.StatusBadRequest:
+		fmt.Fprintln(os.Stderr, "Error: invalid job definition")
+		os.Exit(1)
+	case http.StatusUnsupportedMediaType:
+		fmt.Fprintln(os.Stderr, "Error: content type must be application/json")
+		os.Exit(1)
+	case http.StatusServiceUnavailable:
+		fmt.Fprintln(os.Stderr, "Error: database unavailable")
+		os.Exit(1)
+	default:
+		fmt.Fprintf(os.Stderr, "Error: unexpected status: %s\n", resp.Status)
+		os.Exit(1)
+	}
+}
+
 func listJobNames(w io.Writer) error {
 	req, err := newAPIRequest(http.MethodGet, "/api/v1/jobs", nil)
 	if err != nil {
@@ -1359,6 +1446,14 @@ var getCmd = &cobra.Command{
 	Long:  `Fetch a stored job definition by its job-id and print it as JSON.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   getJobDefinition,
+}
+
+var createCmd = &cobra.Command{
+	Use:   "create [path|-]",
+	Short: "Store a job definition",
+	Long:  `Store a job definition for later trigger, edit, and delete. Path is a JSON file; use "-" to read from stdin.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   createJob,
 }
 
 var listCmd = &cobra.Command{
@@ -2088,6 +2183,8 @@ func init() {
 	rootCmd.AddCommand(runCmd)
 	getCmd.Flags().Bool("raw", false, "Print definition JSON without reformatting")
 	rootCmd.AddCommand(getCmd)
+	createCmd.Flags().String("namespace", "", "Namespace to store the job in (default: /)")
+	rootCmd.AddCommand(createCmd)
 	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(editCmd)
 	rootCmd.AddCommand(migrateCmd)
