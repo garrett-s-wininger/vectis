@@ -4,7 +4,7 @@ Work that should land before Vectis spends serious time on new user-facing featu
 
 **Status:** `todo` | `doing` | `defer` — intentionally **no “done” section**; shipped items live in code and git history, not here.
 
-**Last reviewed:** 2026-05
+**Last reviewed:** 2026-05-08 — audit against codebase; corrections and gap refresh below.
 
 ## Goal
 
@@ -14,12 +14,12 @@ Adding features should be mostly product design and implementation, not archaeol
 
 | Area | Status | What is still open |
 | --- | --- | --- |
-| As-built docs & API reference | doing | Route tables and prose for auth, runs, namespaces, logs; **public** error-contract doc. `internal/logserver` HTTP still mixes in plain text errors — align or document exception. |
-| Compatibility & deprecation | todo | Written guarantees for REST v1, protos, CLI output, config/env, schema. |
+| As-built docs & API reference | doing | Route tables and prose for auth, runs, namespaces, logs, tokens, users, role bindings, cancel; **public** error-contract doc. ARCHITECTURE.md REST surface table omits ~15 shipped auth/admin endpoints. Log service is gRPC-only (no HTTP surface); need replay/pagination design docs. |
+| Compatibility & deprecation | todo | Written guarantees for REST v1, protos, CLI output, config/env, schema. API versioning strategy (v1→v2). Proto evolution rules (add-only fields, reserved tags). |
 | CI breadth vs dogfood | doing | `.vectis/ci.sh` is strong (pre-commit, proto drift on `api/gen/go`, `test-quick`, container build). **GitHub** `ci.yml` only runs `make ci-quick`; optional: wire `test-postgres-integration` / `test-integration`, formal verification when feasible. |
 | Postgres confidence | doing | `tests/integration/postgres/` exists; keep it green and consider promoting to default CI. |
 | Reference deploy | doing | Bootstrap-token lifecycle, demo vs staging vs prod checklist, loud non-prod warnings. |
-| Run lifecycle (operator) | doing | CLI run **list**, DLQ-oriented flows if API keeps them; dispatch trail on CLI; docs for repair paths. |
+| Run lifecycle (operator) | doing | DLQ-oriented flows (CLI list/requeue missing despite proto+server support); dispatch trail on CLI; `--json` output across CLI; docs for repair paths. |
 | Worker execution containment | todo | Isolation for shell/checkout before untrusted workloads. |
 
 ## Track — remaining blockers
@@ -28,7 +28,7 @@ Adding features should be mostly product design and implementation, not archaeol
 
 **Status:** doing
 
-**Open:** Log service HTTP: same JSON error envelope as `internal/api` **or** explicit documented exception. API reference documenting `code` / `message` / `details`. Optional: exhaustive status-code matrix tests.
+**Open:** Public API reference documenting `code` / `message` / `details` error envelope; exhaustive status-code matrix tests. ARCHITECTURE.md REST surface table is incomplete (auth, setup, login, tokens, namespaces, users, role-bindings, run cancel all missing).
 
 ### 2. Job definition semantic validation
 
@@ -40,19 +40,19 @@ Structural validation and known-action resolution exist (`internal/job/validatio
 
 **Status:** doing
 
-Up/down tests exist for SQLite and Postgres. **Open:** expand/contract rules, SQLite vs Postgres checklist, binary↔schema compatibility stance, whether `Down` is prod rollback or dev-only — capture in ADR + short operator notes.
+Up/down tests exist for SQLite and Postgres (SQLite in-tree, Postgres via integration tag). **Open:** expand/contract rules formalized in an ADR (prose exists in MIGRATIONS.md but no ADR yet — only 0001–0003 are shipped); SQLite vs Postgres migration checklist; binary↔schema compatibility stance; whether `Down` is prod rollback or dev-only — capture in ADR + short operator notes.
 
 ### 4. Operational CLI coverage
 
 **Status:** doing
 
-**Open:** `runs list`; consistent `--json` (or equivalent) and exit-code contract; namespaces, users, role bindings; queue DLQ list/requeue if operator-facing; optional: surface dispatch trail on run commands.
+**Open:** Consistent `--json` (or equivalent) and exit-code contract across all CLI commands; namespace, user, role-binding management commands (API endpoints exist, CLI does not); queue DLQ list/requeue (proto+server support exists, CLI missing); surface dispatch trail on run commands.
 
 ### 5. Multi-replica semantics
 
 **Status:** todo
 
-Replica counts per component, singleton expectations, readiness vs liveness, rolling-restart runbooks/tests. **Rate limiting:** in-process limiter today — document limit at scale or add shared limiter.
+Replica counts per component, singleton expectations, readiness vs liveness, rolling-restart runbooks/tests. **Rate limiting:** in-process limiter today — no metrics for throttled/rejected requests; document limit at scale or add shared limiter.
 
 ### 6. Retention and storage pressure
 
@@ -94,7 +94,7 @@ Dispatch events are persisted and exposed on run GET. **Open:** CLI and operator
 
 **Status:** doing
 
-In-memory terminal-buffer eviction and `max_run_buffers` exist. **Open:** documented replay pagination / tail limits; persisted log retention (ties to §6); load or boundedness tests for many SSE clients.
+In-memory terminal-buffer eviction and `max_run_buffers` exist. **Open:** logserver is gRPC-only with no cursor/pagination mechanism for replay (streaming replays entire buffer from seq 0); documented replay pagination / tail limits; persisted log retention (ties to §6); load or boundedness tests for many SSE clients.
 
 ### 13. Audit durability and loss policy
 
@@ -106,7 +106,7 @@ Async auditor still drops when the buffer is full; metrics exist for drops and f
 
 **Status:** doing
 
-**Open:** retry attempt/failure **metrics**; operator doc of defaults and overrides per service (API, cron, reconciler, worker clients).
+**Open:** Operator doc of defaults and overrides per service (API, cron, reconciler, worker, log-forwarder); per-service max-tries and base-delay should be surfaced alongside the retry metrics already instrumented (`vectis_retries_total`, `vectis_retries_exhausted_total`, `vectis_retry_delay_seconds`).
 
 ### 15. Reference deployment: bootstrap and posture
 
@@ -122,7 +122,7 @@ CLI-generated Podman secrets improved the demo story. **Open:** bootstrap token 
 2. **CI:** Optionally add Postgres (and broader integration) to published CI, not only dogfood.
 3. **Operator surfaces:** CLI gaps (§4), runbooks + alerts (§7), dispatch visibility (§11).
 4. **Safety + data:** Worker containment, `with` validation, retention (§6).
-5. **Hardening:** Request context on cancel paths (§10), retry metrics (§14).
+5. **Hardening:** Request context on cancel paths (§10), `--json` output and DLQ/ns/user CLI (§4).
 
 ## Phased sequencing (forward-looking)
 
