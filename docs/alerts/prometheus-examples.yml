@@ -1,0 +1,90 @@
+groups:
+  - name: vectis-foundation
+    rules:
+      - alert: VectisQueueBacklogGrowing
+        expr: vectis_queue_jobs_pending > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis queue has pending jobs
+          runbook: docs/RUNBOOKS.md#triage-index
+
+      - alert: VectisQueueDLQNotEmpty
+        expr: vectis_queue_dlq_size > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis queue DLQ contains deliveries
+          runbook: docs/RUNBOOKS.md#triage-index
+
+      - alert: VectisReconcilerReenqueueFailures
+        expr: increase(vectis_reconciler_reenqueue_total{outcome!="success"}[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis reconciler failed to reenqueue runs
+          runbook: docs/RUNBOOKS.md#triage-index
+
+      - alert: VectisWorkerHighFailureRatio
+        expr: |
+          sum(rate(vectis_worker_job_duration_seconds_count{outcome!="success"}[15m]))
+            /
+          clamp_min(sum(rate(vectis_worker_job_duration_seconds_count[15m])), 1)
+            > 0.2
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis worker failure ratio is high
+          runbook: docs/RUNBOOKS.md#triage-index
+
+      - alert: VectisLogAppendFailures
+        expr: increase(vectis_log_storage_append_failures_total[10m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: Vectis log service failed to append logs
+          runbook: docs/RUNBOOKS.md#triage-index
+
+      - alert: VectisLogDrops
+        expr: increase(vectis_log_memory_buffer_drops_total[10m]) + increase(vectis_log_subscriber_channel_drops_total[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis log service dropped buffered or subscriber log data
+          runbook: docs/RUNBOOKS.md#triage-index
+
+      - alert: VectisAuditDrops
+        expr: increase(vectis_audit_events_dropped_total[10m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: Vectis audit events were dropped
+          runbook: docs/RUNBOOKS.md#triage-index
+
+      - alert: VectisAuditFlushFailures
+        expr: increase(vectis_audit_flush_failures_total[10m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: Vectis audit flush failed
+          runbook: docs/RUNBOOKS.md#triage-index
+
+      - alert: VectisRetryExhausted
+        expr: increase(vectis_retries_exhausted_total[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis retry loop exhausted
+          runbook: docs/RUNBOOKS.md#triage-index
+
+      - alert: VectisDatabasePoolSaturated
+        expr: db_client_connections_in_use > 20
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis database pool usage is high
+          runbook: docs/RUNBOOKS.md#triage-index

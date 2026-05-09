@@ -207,6 +207,7 @@ Replace `…` with the correct prefix from the next section (e.g. `VECTIS_WORKER
 | --- | --- |
 | Components and flows | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | Failure behavior | [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md) |
+| Runbooks, SLOs, and alert examples | [RUNBOOKS.md](RUNBOOKS.md) |
 | Roadmap / persistence | [PLANNING.md](PLANNING.md) §2.5 |
 | Quick start, Postgres / Podman | [README.md](../README.md) |
 | Glossary | [GLOSSARY.md](GLOSSARY.md) |
