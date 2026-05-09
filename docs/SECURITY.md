@@ -47,6 +47,8 @@ For outage behavior, see [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md). For configura
 
 **Registry**, **queue**, and **log** listen for **gRPC**; **API**, **worker**, **cron**, and **reconciler** are **gRPC clients** (they dial the registry and/or queue). **Optional TLS** for all of that traffic uses global **`VECTIS_GRPC_TLS_*`** variables (see [CONFIGURATION.md](CONFIGURATION.md) §Internal gRPC TLS). Standalone binaries default to **plaintext** (`VECTIS_GRPC_TLS_INSECURE=true`); **`vectis-local` bootstraps dev TLS by default** and injects those env vars into children (opt out with **`--grpc-insecure`**), including **`VECTIS_GRPC_TLS_SERVER_NAME=localhost`** so clients that resolve peers to **`127.0.0.1`** still verify the dev leaf. The **Podman kube spec** ([`deploy/podman/kube-spec.yaml`](../deploy/podman/kube-spec.yaml)) also sets **`VECTIS_GRPC_TLS_*`** on all Vectis containers via an init-generated volume (TLS **on** for that deploy path), and enables **TLS to Postgres** inside the pod (**`sslmode=verify-full`** from application containers). When **`VECTIS_GRPC_TLS_INSECURE=false`**, each binary validates required PEM paths for its role (listeners need cert/key; **api**, **worker**, **cron**, and **reconciler** need a CA bundle to verify peers). If you expose any of these ports beyond a trust zone without TLS, **assume compromise** of queue/log/registry implies ability to enqueue, observe, or disrupt work.
 
+See [INTERNAL_SERVICE_TRUST.md](INTERNAL_SERVICE_TRUST.md) for the current service identity matrix, private port guidance, and future internal RPC checklist.
+
 ## Prometheus `/metrics`
 
 **`vectis-api`** serves **`GET /metrics`** on the **same HTTP listener** as REST (see [ARCHITECTURE.md](ARCHITECTURE.md)). **`vectis-queue`**, **`vectis-worker`**, and **`vectis-log`** expose **`/metrics`** on **separate** listen ports ([CONFIGURATION.md](CONFIGURATION.md)); the **Podman kube spec** enables **HTTPS** on those three listeners via **`VECTIS_METRICS_TLS_*`**, while the API scrape target remains **HTTP** until API TLS is introduced separately. These endpoints are **not authenticated** and return **Prometheus** text (plus optional OpenMetrics). Restrict them to **trusted networks** (e.g. scrape from Prometheus inside the cluster/pod only) or block them at your edge—same practical posture as internal gRPC.
@@ -77,4 +79,5 @@ If you discover a **security vulnerability** in this project, please report it *
 | Architecture and protocols | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | Environment variables and discovery | [CONFIGURATION.md](CONFIGURATION.md) |
 | Failure and dependency behavior | [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md) |
+| Internal service trust | [INTERNAL_SERVICE_TRUST.md](INTERNAL_SERVICE_TRUST.md) |
 | Design decisions | [adr/README.md](adr/README.md) |
