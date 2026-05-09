@@ -9,6 +9,8 @@ Runtime services wait for the expected schema, but they do not apply migrations.
 
 The accepted policy is captured in [ADR 0004](adr/0004-migration-compatibility-and-rollback.md). Future release notes should link back here when a release includes schema changes.
 
+Release notes and upgrade checklists for schema changes belong in [RELEASES.md](RELEASES.md).
+
 ## Compatibility Rules
 
 Prefer expand/contract changes:

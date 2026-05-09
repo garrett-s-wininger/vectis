@@ -221,6 +221,7 @@ Treat these paths, deployment secrets, and TLS material as part of the backup se
 | Glossary | [GLOSSARY.md](GLOSSARY.md) |
 | Security posture | [SECURITY.md](SECURITY.md) |
 | Reference deployment posture | [REFERENCE_DEPLOYMENT_POSTURE.md](REFERENCE_DEPLOYMENT_POSTURE.md) |
+| Releases and upgrades | [RELEASES.md](RELEASES.md) |
 
 ---
 
