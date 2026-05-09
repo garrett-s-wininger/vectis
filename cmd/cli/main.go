@@ -1440,7 +1440,7 @@ The API records the run and returns immediately (202 with run_id); enqueue to th
 var logsCmd = &cobra.Command{
 	Use:   "logs",
 	Short: "Stream logs for runs",
-	Long:  `Stream logs via WebSocket. Use "logs run" for a single run (until it completes). Use "logs job" to follow a job (runs triggered after you connect). Use "-" as the id to read from stdin.`,
+	Long:  `Stream logs via Server-Sent Events (SSE). Use "logs run" for a single run (until it completes). Use "logs job" to follow a job (runs triggered after you connect). Use "-" as the id to read from stdin.`,
 }
 
 var logsRunCmd = &cobra.Command{
