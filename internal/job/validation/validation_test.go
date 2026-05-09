@@ -184,6 +184,24 @@ func TestValidateJob_CheckoutValidURL(t *testing.T) {
 	}
 }
 
+func TestValidateJob_CheckoutRejectsCredentialedHTTPSURL(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root.Steps[0].Uses = strp("builtins/checkout")
+	job.Root.Steps[0].With = map[string]string{"url": "https://user:token@github.com/example/repo.git"}
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
+	if err == nil {
+		t.Fatal("expected validation error for credentialed checkout URL")
+	}
+
+	msg := err.Error()
+	if !strings.Contains(msg, `root.steps[0].with.url: must not include embedded credentials`) {
+		t.Fatalf("expected credential error, got %q", msg)
+	}
+}
+
 func TestValidateJob_SequenceAnyWith(t *testing.T) {
 	t.Parallel()
 

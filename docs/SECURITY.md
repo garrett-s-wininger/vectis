@@ -64,6 +64,8 @@ See [INTERNAL_SERVICE_TRUST.md](INTERNAL_SERVICE_TRUST.md) for the current servi
 - Workers run **actions** defined in the job graph (e.g. **shell**). Treat job definitions and any **checkout** sources as **arbitrary code** capability: only let **trusted users** define jobs or trigger runs, or isolate workers accordingly (containers, separate accounts, read-only roots where possible).
 - **Log streams** and **stored log files** (`vectis-log`) may contain **credentials or PII** emitted by build steps. Restrict access to log HTTP/gRPC endpoints and log storage paths.
 
+See [SECRETS_AND_REDACTION.md](SECRETS_AND_REDACTION.md) for the current sensitive-surface inventory, checkout URL policy, and operator guidance.
+
 ## Roadmap (product)
 
 Further **AuthN/AuthZ** (OIDC, LDAP, internal gRPC tokens/mTLS) is tracked in [PLANNING.md](PLANNING.md) §3 Milestone B. RBAC and local auth are shipped; **Edge controls** remain important even when API auth is enabled.
@@ -80,4 +82,5 @@ If you discover a **security vulnerability** in this project, please report it *
 | Environment variables and discovery | [CONFIGURATION.md](CONFIGURATION.md) |
 | Failure and dependency behavior | [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md) |
 | Internal service trust | [INTERNAL_SERVICE_TRUST.md](INTERNAL_SERVICE_TRUST.md) |
+| Secrets and redaction | [SECRETS_AND_REDACTION.md](SECRETS_AND_REDACTION.md) |
 | Design decisions | [adr/README.md](adr/README.md) |

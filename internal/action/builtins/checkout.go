@@ -3,6 +3,7 @@ package builtins
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"sync"
 
 	api "vectis/api/gen/go"
@@ -24,9 +25,20 @@ func NewCheckoutAction(executor interfaces.ExecExecutor) *CheckoutAction {
 }
 
 func (c *CheckoutAction) ValidateWith(with map[string]string) []action.FieldError {
-	return action.ValidateWithSpec(with, []action.FieldSpec{
+	errs := action.ValidateWithSpec(with, []action.FieldSpec{
 		{Name: "url", Type: action.FieldURL, Required: true},
 	})
+
+	if len(errs) > 0 {
+		return errs
+	}
+
+	rawURL := with["url"]
+	if hasCredentialedCloneURL(rawURL) {
+		errs = append(errs, action.FieldError{Field: "url", Message: "must not include embedded credentials"})
+	}
+
+	return errs
 }
 
 func (c *CheckoutAction) Type() string {
@@ -39,8 +51,9 @@ func (c *CheckoutAction) Execute(ctx context.Context, state *action.ExecutionSta
 		return action.NewFailureResult(fmt.Errorf("checkout action requires 'url' input"))
 	}
 
-	state.Logger.Info("Cloning repository: %s", url)
-	sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Cloning %s...", url))
+	displayURL := redactCloneURL(url)
+	state.Logger.Info("Cloning repository: %s", displayURL)
+	sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Cloning %s...", displayURL))
 
 	process, err := c.executor.Start(ctx, "git", []string{"clone", url, "."}, state.Workspace)
 	if err != nil {
@@ -72,4 +85,28 @@ func (c *CheckoutAction) Execute(ctx context.Context, state *action.ExecutionSta
 	state.Logger.Info("Checkout completed successfully")
 	sendLog(state, api.Stream_STREAM_STDOUT, "Checkout completed successfully")
 	return action.NewSuccessResult(nil)
+}
+
+func hasCredentialedCloneURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.User == nil {
+		return false
+	}
+
+	switch u.Scheme {
+	case "http", "https":
+		return true
+	default:
+		return false
+	}
+}
+
+func redactCloneURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.User == nil {
+		return raw
+	}
+
+	u.User = url.User("redacted")
+	return u.String()
 }

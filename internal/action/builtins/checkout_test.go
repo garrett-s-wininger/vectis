@@ -112,6 +112,37 @@ func TestCheckoutAction_Execute_Success(t *testing.T) {
 	}
 }
 
+func TestCheckoutAction_Execute_RedactsCredentialedURLInLogs(t *testing.T) {
+	mockExecutor := mocks.NewMockExecExecutor()
+	mockProcess := mocks.NewMockProcess()
+	mockProcess.SetStdout("")
+	mockProcess.SetStderr("")
+	mockProcess.SetWaitError(nil)
+	mockExecutor.SetProcess(mockProcess)
+
+	checkoutAction := NewCheckoutAction(mockExecutor)
+	mockStream := &mockLogStream{}
+	state := createTestState(mockStream)
+
+	secretURL := "https://user:token@github.com/example/repo.git"
+	result := checkoutAction.Execute(context.Background(), state, map[string]any{"url": secretURL}, nil)
+	if result.Status != action.StatusSuccess {
+		t.Fatalf("expected success, got %v with error: %v", result.Status, result.Error)
+	}
+
+	args := mockExecutor.GetArgs()
+	if len(args) != 1 || len(args[0]) < 2 || args[0][1] != secretURL {
+		t.Fatalf("expected git clone to receive original URL, got %v", args)
+	}
+
+	for _, chunk := range mockStream.GetChunks() {
+		data := string(chunk.GetData())
+		if strings.Contains(data, "token") {
+			t.Fatalf("expected token to be redacted from log chunk %q", data)
+		}
+	}
+}
+
 func TestCheckoutAction_Execute_CloneFailure(t *testing.T) {
 	mockExecutor := mocks.NewMockExecExecutor()
 	mockProcess := mocks.NewMockProcess()
