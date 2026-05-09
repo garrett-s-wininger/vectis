@@ -59,6 +59,12 @@ func doAPIRequest(req *http.Request) (*http.Response, error) {
 	return apiHTTPClient.Do(req)
 }
 
+func setIdempotencyHeader(req *http.Request, key string) {
+	if key = strings.TrimSpace(key); key != "" {
+		req.Header.Set("Idempotency-Key", key)
+	}
+}
+
 func cliTokenFilePath() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
@@ -129,6 +135,8 @@ var (
 	runListJobID      string
 	runListLimit      int
 	runListSince      int
+	triggerIdemKey    string
+	runIdemKey        string
 )
 
 type podmanSecrets struct {
@@ -706,6 +714,7 @@ func triggerJob(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	setIdempotencyHeader(req, triggerIdemKey)
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
@@ -982,6 +991,7 @@ func runJob(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	setIdempotencyHeader(req, runIdemKey)
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
@@ -2212,7 +2222,9 @@ func init() {
 	logsCmd.AddCommand(logsJobCmd)
 
 	triggerCmd.Flags().BoolP("follow", "f", false, "After triggering, stream logs (same as logs run <run-id>)")
+	triggerCmd.Flags().StringVar(&triggerIdemKey, "idempotency-key", "", "Optional Idempotency-Key header for safe trigger retries")
 	runCmd.Flags().BoolP("follow", "f", false, "After submitting, stream logs (same as logs run <run-id>)")
+	runCmd.Flags().StringVar(&runIdemKey, "idempotency-key", "", "Optional Idempotency-Key header for safe ephemeral run retries")
 	runCmd.AddCommand(runGetCmd)
 	runCmd.AddCommand(runCancelCmd)
 

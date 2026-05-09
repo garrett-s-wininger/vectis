@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func TestEffectiveToken_envOverridesFile(t *testing.T) {
@@ -80,6 +82,74 @@ func TestTokenPersistence(t *testing.T) {
 	if got := readPersistedToken(); got != "" {
 		t.Fatalf("expected empty after delete, got %s", got)
 	}
+}
+
+func TestSetIdempotencyHeader(t *testing.T) {
+	req, err := http.NewRequest(http.MethodPost, "http://example.test", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	setIdempotencyHeader(req, " retry-key ")
+
+	if got := req.Header.Get("Idempotency-Key"); got != "retry-key" {
+		t.Fatalf("Idempotency-Key = %q, want retry-key", got)
+	}
+}
+
+func TestTriggerJob_sendsIdempotencyKey(t *testing.T) {
+	oldKey := triggerIdemKey
+	triggerIdemKey = "trigger-retry-key"
+	t.Cleanup(func() { triggerIdemKey = oldKey })
+
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/jobs/trigger/job-1" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		if got := r.Header.Get("Idempotency-Key"); got != "trigger-retry-key" {
+			t.Errorf("Idempotency-Key=%q", got)
+		}
+
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"job_id": "job-1", "run_id": "run-1", "run_index": 1,
+		})
+	})
+
+	triggerJob(&cobra.Command{}, []string{"job-1"})
+}
+
+func TestRunJob_sendsIdempotencyKey(t *testing.T) {
+	oldKey := runIdemKey
+	runIdemKey = "run-retry-key"
+	t.Cleanup(func() { runIdemKey = oldKey })
+
+	jobPath := filepath.Join(t.TempDir(), "job.json")
+	if err := os.WriteFile(jobPath, []byte(`{"root":{"id":"root","uses":"builtins/shell","with":{"command":"echo hi"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/jobs/run" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		if got := r.Header.Get("Idempotency-Key"); got != "run-retry-key" {
+			t.Errorf("Idempotency-Key=%q", got)
+		}
+
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id": "job-ephemeral", "run_id": "run-1",
+		})
+	})
+
+	runJob(&cobra.Command{}, []string{jobPath})
 }
 
 func TestWritePersistedToken_createsDirectory(t *testing.T) {

@@ -70,7 +70,9 @@ Default listen addresses are defined in [`internal/config/defaults.toml`](../int
 
 **Prometheus metrics (`/metrics`):** **`vectis-api`** serves metrics on the **same HTTP port as REST** (**8080** by default). **`vectis-queue`**, **`vectis-worker`**, **`vectis-log`**, and **`vectis-reconciler`** use **dedicated metrics ports** by default (**9081**, **9082**, **9083**, **9085**) so gRPC/SSE/control listeners stay separate. Override via flags/env per [CONFIGURATION.md](CONFIGURATION.md). Implementation: OpenTelemetry Go metrics with a Prometheus exporter (`internal/observability/`).
 
-**gRPC contracts** live under `api/proto/` (generated Go in `api/gen/go/`). The shipped **REST** contract, including auth actions, error envelopes, pagination, idempotency, and streaming behavior, is documented in [API_REFERENCE.md](API_REFERENCE.md). There is no OpenAPI artifact in-tree today.
+**gRPC contracts** live under `api/proto/` (generated Go in `api/gen/go/`).
+
+**REST contracts** including auth actions, error envelopes, pagination, and streaming behavior, are documented in [API_REFERENCE.md](API_REFERENCE.md). Idempotency and retry behavior are documented in [IDEMPOTENCY_AND_RETRIES.md](IDEMPOTENCY_AND_RETRIES.md). There is no OpenAPI artifact in-tree today.
 
 ## Service discovery
 
