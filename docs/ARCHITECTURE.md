@@ -122,6 +122,7 @@ Environment-driven configuration uses **`VECTIS_*`** prefixes per binary; nested
 | Deferred multi-site design | [FEDERATION.md](FEDERATION.md) |
 | Configuration (env, flags, discovery) | [CONFIGURATION.md](CONFIGURATION.md) |
 | CLI operational coverage | [CLI_OPERATIONAL_COVERAGE.md](CLI_OPERATIONAL_COVERAGE.md) |
+| Capacity envelope and drills | [CAPACITY_LOAD_ENVELOPE.md](CAPACITY_LOAD_ENVELOPE.md), [CAPACITY_DRILLS.md](CAPACITY_DRILLS.md) |
 | Glossary | [GLOSSARY.md](GLOSSARY.md) |
 | Architecture Decision Records | [adr/README.md](adr/README.md) |
 | Security posture | [SECURITY.md](SECURITY.md) |

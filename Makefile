@@ -89,6 +89,10 @@ test-race:
 test-quick:
 	go test -count=1 -timeout=60s ./internal/... ./cmd/... ./api/...
 
+.PHONY: capacity-benchmark
+capacity-benchmark:
+	sh scripts/capacity_benchmark.sh
+
 FUZZTIME ?= 30s
 
 .PHONY: fuzz-api-auth
