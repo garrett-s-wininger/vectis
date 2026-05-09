@@ -316,6 +316,86 @@ func TestListJobNames_rejectsUnexpectedShape(t *testing.T) {
 	}
 }
 
+func TestNamespaceList_success(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/namespaces" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		parent := int64(1)
+		_ = json.NewEncoder(w).Encode([]map[string]any{
+			{"id": 2, "name": "team-a", "path": "/team-a", "parent_id": parent, "break_inheritance": false},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := namespaceList(&buf); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := buf.String(); !strings.Contains(got, "2\t/team-a\tname=team-a\tparent=1") {
+		t.Fatalf("unexpected output: %s", got)
+	}
+}
+
+func TestUserCreate_success(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/users" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["username"] != "alice" || body["password"] != "secret-password" {
+			t.Errorf("unexpected body: %v", body)
+		}
+
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id": 3, "username": "alice", "enabled": true, "created_at": "2026-05-09T00:00:00Z",
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := userCreate("alice", "secret-password", &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := buf.String(); !strings.Contains(got, "User created: 3 alice") {
+		t.Fatalf("unexpected output: %s", got)
+	}
+}
+
+func TestBindingDelete_escapesRole(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/namespaces/2/bindings/3" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		if role := r.URL.Query().Get("role"); role != "admin:*" {
+			t.Errorf("role=%q", role)
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	if err := bindingDelete(2, 3, "admin:*"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestGetRun_success(t *testing.T) {
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
