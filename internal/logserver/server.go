@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"google.golang.org/grpc/health"
 	healthgrpc "google.golang.org/grpc/health/grpc_health_v1"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	api "vectis/api/gen/go"
@@ -26,6 +28,9 @@ import (
 const (
 	MaxLogLinesPerJob = 10000
 	MaxRunBuffers     = 1024
+
+	GetLogsReplayLimitMetadata = "vectis-log-replay-limit"
+	GetLogsTailMetadata        = "vectis-log-tail"
 )
 
 type LogEntry struct {
@@ -348,6 +353,8 @@ func (s *Server) GetLogs(req *api.GetLogsRequest, stream api.LogService_GetLogsS
 	runID := req.GetRunId()
 	sinceSeq := req.GetSinceSequence()
 	ctx := stream.Context()
+	replayLimit := positiveIntMetadata(ctx, GetLogsReplayLimitMetadata)
+	tail := positiveIntMetadata(ctx, GetLogsTailMetadata)
 
 	buffer := s.getOrCreateBuffer(runID)
 
@@ -370,13 +377,11 @@ func (s *Server) GetLogs(req *api.GetLogsRequest, stream api.LogService_GetLogsS
 		entries = buffer.GetEntries()
 	}
 
+	entries, replayTruncated := boundedReplayEntries(entries, sinceSeq, tail, replayLimit)
+
 	var maxReplayedSeq = sinceSeq
 	var sawCompletionDuringReplay bool
 	for _, entry := range entries {
-		if entry.Sequence <= sinceSeq {
-			continue
-		}
-
 		chunk := &api.LogChunk{
 			RunId:     &runID,
 			Data:      []byte(entry.Data),
@@ -397,6 +402,14 @@ func (s *Server) GetLogs(req *api.GetLogsRequest, stream api.LogService_GetLogsS
 		if entry.Sequence > maxReplayedSeq {
 			maxReplayedSeq = entry.Sequence
 		}
+	}
+
+	if replayTruncated {
+		if err := stream.Send(replayTruncatedChunk(runID, replayLimit)); err != nil {
+			return err
+		}
+
+		return nil
 	}
 
 	// Drain entries that arrived on the subscription channel during replay.
@@ -504,6 +517,64 @@ afterDrain:
 			}
 		}
 	}
+}
+
+func boundedReplayEntries(entries []LogEntry, sinceSeq int64, tail, replayLimit int) ([]LogEntry, bool) {
+	filtered := make([]LogEntry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Sequence > sinceSeq {
+			filtered = append(filtered, entry)
+		}
+	}
+
+	if tail > 0 && len(filtered) > tail {
+		filtered = filtered[len(filtered)-tail:]
+	}
+
+	if replayLimit > 0 && len(filtered) > replayLimit {
+		return filtered[:replayLimit], true
+	}
+
+	return filtered, false
+}
+
+func replayTruncatedChunk(runID string, replayLimit int) *api.LogChunk {
+	seq := int64(-1)
+	stream := api.Stream_STREAM_CONTROL
+	data, _ := json.Marshal(struct {
+		Event string `json:"event"`
+		Limit int    `json:"limit"`
+	}{
+		Event: "replay_truncated",
+		Limit: replayLimit,
+	})
+
+	return &api.LogChunk{
+		RunId:     &runID,
+		Data:      data,
+		Sequence:  &seq,
+		Stream:    &stream,
+		Timestamp: timestamppb.Now(),
+	}
+}
+
+func positiveIntMetadata(ctx context.Context, key string) int {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return 0
+	}
+
+	values := md.Get(key)
+	if len(values) == 0 {
+		return 0
+	}
+
+	n, err := strconv.Atoi(values[0])
+	if err != nil || n <= 0 {
+		return 0
+	}
+
+	return n
 }
 
 func nextSequence(entries []LogEntry) int64 {

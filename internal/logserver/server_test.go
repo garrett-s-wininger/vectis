@@ -113,6 +113,64 @@ func TestIsCompletedEvent(t *testing.T) {
 	}
 }
 
+func TestBoundedReplayEntriesAppliesSinceTailAndLimit(t *testing.T) {
+	base := time.Date(2026, 5, 6, 12, 0, 0, 0, time.UTC)
+	entries := []LogEntry{
+		stdoutLogEntry(base, 1),
+		stdoutLogEntry(base, 2),
+		stdoutLogEntry(base, 3),
+		stdoutLogEntry(base, 4),
+		stdoutLogEntry(base, 5),
+	}
+
+	got, truncated := boundedReplayEntries(entries, 1, 3, 2)
+	if !truncated {
+		t.Fatal("expected replay to be truncated by limit")
+	}
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2", len(got))
+	}
+	if got[0].Sequence != 3 || got[1].Sequence != 4 {
+		t.Fatalf("sequences = [%d %d], want [3 4]", got[0].Sequence, got[1].Sequence)
+	}
+}
+
+func TestBoundedReplayEntriesTailWithoutTruncation(t *testing.T) {
+	base := time.Date(2026, 5, 6, 12, 0, 0, 0, time.UTC)
+	entries := []LogEntry{
+		stdoutLogEntry(base, 1),
+		stdoutLogEntry(base, 2),
+		stdoutLogEntry(base, 3),
+	}
+
+	got, truncated := boundedReplayEntries(entries, 0, 2, 10)
+	if truncated {
+		t.Fatal("did not expect replay truncation")
+	}
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2", len(got))
+	}
+	if got[0].Sequence != 2 || got[1].Sequence != 3 {
+		t.Fatalf("sequences = [%d %d], want [2 3]", got[0].Sequence, got[1].Sequence)
+	}
+}
+
+func TestReplayTruncatedChunk(t *testing.T) {
+	chunk := replayTruncatedChunk("run-1", 100)
+	if chunk.GetRunId() != "run-1" {
+		t.Fatalf("run_id = %q, want run-1", chunk.GetRunId())
+	}
+	if chunk.GetSequence() != -1 {
+		t.Fatalf("sequence = %d, want -1", chunk.GetSequence())
+	}
+	if chunk.GetStream() != api.Stream_STREAM_CONTROL {
+		t.Fatalf("stream = %s, want control", chunk.GetStream())
+	}
+	if string(chunk.GetData()) != `{"event":"replay_truncated","limit":100}` {
+		t.Fatalf("data = %s", chunk.GetData())
+	}
+}
+
 func TestIsCompletedEvent_ProtoCompletedField(t *testing.T) {
 	if !isCompletedEvent(LogEntry{
 		Stream:    api.Stream_STREAM_STDOUT,

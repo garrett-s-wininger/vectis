@@ -42,6 +42,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
@@ -53,6 +54,14 @@ const (
 	defaultReadHeaderTimeout = 10 * time.Second
 	defaultIdleTimeout       = 120 * time.Second
 	defaultHandlerDBTimeout  = 60 * time.Second
+	defaultLogReplayLimit    = 10000
+	maxLogReplayLimit        = 50000
+	maxLogTail               = 50000
+)
+
+const (
+	getLogsReplayLimitMetadata = "vectis-log-replay-limit"
+	getLogsTailMetadata        = "vectis-log-tail"
 )
 
 type queueClientHolder struct {
@@ -418,6 +427,13 @@ func (s *APIServer) HealthReady(w http.ResponseWriter, r *http.Request) {
 
 func (s *APIServer) SetQueueClient(client interfaces.QueueService) {
 	old := s.queueClient.Swap(&queueClientHolder{client: client})
+	if old != nil && old.close != nil {
+		old.close()
+	}
+}
+
+func (s *APIServer) SetLogClient(client api.LogServiceClient) {
+	old := s.logClient.Swap(&logClientHolder{client: client})
 	if old != nil && old.close != nil {
 		old.close()
 	}
@@ -1960,6 +1976,11 @@ func (s *APIServer) GetRunLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	replay, ok := parseLogReplayRequest(w, r)
+	if !ok {
+		return
+	}
+
 	ctx, cancel := s.handlerDBCtx(r)
 	defer cancel()
 
@@ -2009,7 +2030,16 @@ func (s *APIServer) GetRunLogs(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(": connected\n\n"))
 	flusher.Flush()
 
-	stream, err := holder.client.GetLogs(r.Context(), &api.GetLogsRequest{RunId: &runID})
+	logCtx := metadata.AppendToOutgoingContext(
+		r.Context(),
+		getLogsReplayLimitMetadata, strconv.Itoa(replay.ReplayLimit),
+	)
+
+	if replay.Tail > 0 {
+		logCtx = metadata.AppendToOutgoingContext(logCtx, getLogsTailMetadata, strconv.Itoa(replay.Tail))
+	}
+
+	stream, err := holder.client.GetLogs(logCtx, &api.GetLogsRequest{RunId: &runID, SinceSequence: &replay.SinceSequence})
 	if err != nil {
 		s.logger.Warn("Failed to connect to log service: %v", err)
 		writeAPIError(w, http.StatusBadGateway, "log_service_error", "failed to connect to log service", nil)
@@ -2023,14 +2053,7 @@ func (s *APIServer) GetRunLogs(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
-		jsonData := formatLogChunkSSE(chunk)
-		if _, err := w.Write([]byte("data: ")); err != nil {
-			return
-		}
-		if _, err := w.Write(jsonData); err != nil {
-			return
-		}
-		if _, err := w.Write([]byte("\n\n")); err != nil {
+		if _, err := w.Write(formatLogChunkEvent(chunk)); err != nil {
 			return
 		}
 		flusher.Flush()
@@ -2070,12 +2093,77 @@ func (s *APIServer) GetRunLogs(w http.ResponseWriter, r *http.Request) {
 				Completed api.RunOutcome `json:"completed,omitempty"`
 			}{time.Now().Format(time.RFC3339Nano), api.Stream_STREAM_CONTROL, -1, string(inner), api.RunOutcome_RUN_OUTCOME_UNKNOWN})
 
-			w.Write([]byte("data: "))
-			w.Write(outer)
-			w.Write([]byte("\n\n"))
+			w.Write(formatSSEDataEvent(-1, outer))
 			flusher.Flush()
 		}
 	}
+}
+
+type logReplayRequest struct {
+	SinceSequence int64
+	Tail          int
+	ReplayLimit   int
+}
+
+func parseLogReplayRequest(w http.ResponseWriter, r *http.Request) (logReplayRequest, bool) {
+	q := r.URL.Query()
+	replay := logReplayRequest{ReplayLimit: defaultLogReplayLimit}
+
+	if raw := q.Get("replay_limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n <= 0 || n > maxLogReplayLimit {
+			writeAPIError(w, http.StatusBadRequest, "invalid_replay_limit", fmt.Sprintf("replay_limit must be between 1 and %d", maxLogReplayLimit), nil)
+			return logReplayRequest{}, false
+		}
+		replay.ReplayLimit = n
+	}
+
+	if raw := q.Get("tail"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n <= 0 || n > maxLogTail {
+			writeAPIError(w, http.StatusBadRequest, "invalid_tail", fmt.Sprintf("tail must be between 1 and %d", maxLogTail), nil)
+			return logReplayRequest{}, false
+		}
+
+		replay.Tail = n
+		if replay.ReplayLimit > n {
+			replay.ReplayLimit = n
+		}
+	}
+
+	rawSince := q.Get("since_sequence")
+	if rawSince == "" {
+		rawSince = r.Header.Get("Last-Event-ID")
+	}
+
+	if rawSince != "" {
+		n, err := strconv.ParseInt(rawSince, 10, 64)
+		if err != nil || n < 0 {
+			writeAPIError(w, http.StatusBadRequest, "invalid_since_sequence", "since_sequence and Last-Event-ID must be non-negative integers", nil)
+			return logReplayRequest{}, false
+		}
+
+		replay.SinceSequence = n
+	}
+
+	return replay, true
+}
+
+func formatLogChunkEvent(chunk *api.LogChunk) []byte {
+	return formatSSEDataEvent(chunk.GetSequence(), formatLogChunkSSE(chunk))
+}
+
+func formatSSEDataEvent(sequence int64, data []byte) []byte {
+	var b bytes.Buffer
+	if sequence >= 0 {
+		_, _ = fmt.Fprintf(&b, "id: %d\n", sequence)
+	}
+
+	b.WriteString("data: ")
+	b.Write(data)
+	b.WriteString("\n\n")
+
+	return b.Bytes()
 }
 
 func formatLogChunkSSE(chunk *api.LogChunk) []byte {
@@ -2100,9 +2188,11 @@ func formatLogChunkSSE(chunk *api.LogChunk) []byte {
 		Data:      data,
 		Completed: chunk.GetCompleted(),
 	})
+
 	if err != nil {
 		b = []byte(`{}`)
 	}
+
 	return b
 }
 
