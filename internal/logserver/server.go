@@ -29,10 +29,10 @@ const (
 )
 
 type LogEntry struct {
-	Timestamp time.Time     `json:"timestamp"`
-	Stream    api.Stream    `json:"stream"`
-	Sequence  int64         `json:"sequence"`
-	Data      string        `json:"data"`
+	Timestamp time.Time      `json:"timestamp"`
+	Stream    api.Stream     `json:"stream"`
+	Sequence  int64          `json:"sequence"`
+	Data      string         `json:"data"`
 	Completed api.RunOutcome `json:"completed,omitempty"`
 }
 

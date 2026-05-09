@@ -9,9 +9,9 @@ import (
 )
 
 type LogMetrics struct {
-	grpcChunksReceived   metric.Int64Counter
-	appendFailures       metric.Int64Counter
-	memBufferDrops       metric.Int64Counter
+	grpcChunksReceived     metric.Int64Counter
+	appendFailures         metric.Int64Counter
+	memBufferDrops         metric.Int64Counter
 	subscriberChannelDrops metric.Int64Counter
 }
 

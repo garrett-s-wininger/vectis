@@ -70,7 +70,7 @@ Default listen addresses are defined in [`internal/config/defaults.toml`](../int
 
 **Prometheus metrics (`/metrics`):** **`vectis-api`** serves metrics on the **same HTTP port as REST** (**8080** by default). **`vectis-queue`**, **`vectis-worker`**, **`vectis-log`**, and **`vectis-reconciler`** use **dedicated metrics ports** by default (**9081**, **9082**, **9083**, **9085**) so gRPC/SSE/control listeners stay separate. Override via flags/env per [CONFIGURATION.md](CONFIGURATION.md). Implementation: OpenTelemetry Go metrics with a Prometheus exporter (`internal/observability/`).
 
-**gRPC contracts** live under `api/proto/` (generated Go in `api/gen/go/`). **REST** is documented in the table below; there is no OpenAPI artifact in-tree today.
+**gRPC contracts** live under `api/proto/` (generated Go in `api/gen/go/`). The shipped **REST** contract, including auth actions, error envelopes, pagination, idempotency, and streaming behavior, is documented in [API_REFERENCE.md](API_REFERENCE.md). There is no OpenAPI artifact in-tree today.
 
 ## Service discovery
 
@@ -100,25 +100,11 @@ Details and roadmap notes: [PLANNING.md](PLANNING.md) §2.5.
 - Runtime jobs are typically **JSON** matching that shape over REST.
 - Built-in actions include **shell**, **checkout**, and **sequence** (see `internal/action/builtins/`).
 
-## REST surface (shipped)
+## REST Surface
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| GET | `/health/live` | Liveness (process serving HTTP) |
-| GET | `/health/ready` | Readiness (DB + managing queue gRPC **READY** when applicable) |
-| GET | `/metrics` | Prometheus metrics (OTEL → Prometheus; not authenticated) |
-| GET | `/api/v1/jobs` | List job definitions |
-| POST | `/api/v1/jobs` | Create job |
-| GET | `/api/v1/jobs/{id}` | Get job definition |
-| PUT | `/api/v1/jobs/{id}` | Update job definition |
-| DELETE | `/api/v1/jobs/{id}` | Delete job |
-| POST | `/api/v1/jobs/run` | Run from inline body (ephemeral) |
-| POST | `/api/v1/jobs/trigger/{id}` | New run from stored definition |
-| GET | `/api/v1/jobs/{id}/runs` | List runs |
-| GET | `/api/v1/runs/{id}` | Get run detail, including dispatch event trail |
-| GET | `/api/v1/sse/jobs/{id}/runs` | Run events stream |
+See [API_REFERENCE.md](API_REFERENCE.md) for the canonical shipped route table. The current mux includes setup/login, token, user, namespace, role-binding, run cancel/repair, run logs, run-event SSE, health, and metrics routes in addition to job and run definition routes.
 
-There is **no** authentication, projects API, artifact API, or HTTP cancel endpoint in the current mux.
+There is no projects API or artifact API in the current mux.
 
 ## Configuration
 

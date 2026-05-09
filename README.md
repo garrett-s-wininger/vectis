@@ -74,18 +74,11 @@ vectis-cli deploy podman up
 
 Use `vectis-cli reset --dry-run` to inspect local Vectis config/data/cache directories and generated deployment state, then `vectis-cli reset --yes` to remove them.
 
-## Shipped REST (summary)
+## Shipped REST
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` / `POST` | `/api/v1/jobs` | List / create job definitions |
-| `GET` / `PUT` / `DELETE` | `/api/v1/jobs/{id}` | Get / update / delete definition |
-| `POST` | `/api/v1/jobs/run` | Run from JSON body |
-| `POST` | `/api/v1/jobs/trigger/{id}` | New run from stored definition |
-| `GET` | `/api/v1/jobs/{id}/runs` | List runs |
-| `GET` | `/api/v1/sse/jobs/{id}/runs` | SSE for run events |
+The shipped HTTP route inventory, auth actions, pagination, idempotency behavior, streaming behavior, and error envelopes are documented in [docs/API_REFERENCE.md](docs/API_REFERENCE.md).
 
-Application-level API authentication is **off** in the default stack (`api.auth.enabled=false`); you can enable it with environment or config—see [docs/CONFIGURATION.md](docs/CONFIGURATION.md) and [docs/SECURITY.md](docs/SECURITY.md). Do not expose the API to untrusted networks without appropriate controls.
+Application-level API authentication is **off** in the default stack (`api.auth.enabled=false`); you can enable it with environment or config. See [docs/API_REFERENCE.md](docs/API_REFERENCE.md), [docs/CONFIGURATION.md](docs/CONFIGURATION.md), and [docs/SECURITY.md](docs/SECURITY.md). Do not expose the API to untrusted networks without appropriate controls.
 
 ## Development
 

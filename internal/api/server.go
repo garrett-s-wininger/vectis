@@ -2109,57 +2109,68 @@ func formatLogChunkSSE(chunk *api.LogChunk) []byte {
 func (s *APIServer) Handler() http.Handler {
 	mux := http.NewServeMux()
 
-	if s.MetricsHandler != nil {
-		s.registerRoute(mux, routeSpec{
-			Pattern: "GET /metrics",
-			Handler: s.MetricsHandler,
-			Auth:    routeAuthPolicy{Public: true},
-		})
+	for _, spec := range s.routeSpecs(true) {
+		s.registerRoute(mux, spec)
 	}
-
-	defaultLimits := ratelimit.DefaultCategory()
-
-	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /health/live", Auth: routeAuthPolicy{Public: true}}, s.HealthLive)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /health/ready", Auth: routeAuthPolicy{Public: true}}, s.HealthReady)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/jobs", Auth: routeAuthPolicy{Action: authz.ActionJobRead}, RateLimit: defaultLimits.General}, s.GetJobs)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/jobs/{id}", Auth: routeAuthPolicy{Action: authz.ActionJobRead}, RateLimit: defaultLimits.General}, s.GetJob)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/jobs", Auth: routeAuthPolicy{Action: authz.ActionJobWrite}, RateLimit: defaultLimits.General}, s.CreateJob)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/jobs/run", Auth: routeAuthPolicy{Action: authz.ActionRunTrigger}, RateLimit: defaultLimits.General}, s.RunJob)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "DELETE /api/v1/jobs/{id}", Auth: routeAuthPolicy{Action: authz.ActionJobWrite}, RateLimit: defaultLimits.General}, s.DeleteJob)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "PUT /api/v1/jobs/{id}", Auth: routeAuthPolicy{Action: authz.ActionJobWrite}, RateLimit: defaultLimits.General}, s.UpdateJobDefinition)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/jobs/trigger/{id}", Auth: routeAuthPolicy{Action: authz.ActionRunTrigger}, RateLimit: defaultLimits.General}, s.TriggerJob)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/jobs/{id}/runs", Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General}, s.GetJobRuns)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/sse/jobs/{id}/runs", Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General}, s.HandleSSEJobRuns)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/runs/{id}", Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General}, s.GetRun)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/runs/{id}/cancel", Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General}, s.CancelRun)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/runs/{id}/force-fail", Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General}, s.ForceFailRun)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/runs/{id}/force-requeue", Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General}, s.ForceRequeueRun)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/runs/{id}/logs", Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General}, s.GetRunLogs)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/setup/status", Auth: routeAuthPolicy{Action: authz.ActionSetupStatus}, RateLimit: defaultLimits.Auth}, s.GetSetupStatus)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/setup/complete", Auth: routeAuthPolicy{Action: authz.ActionSetupComplete}, RateLimit: defaultLimits.Auth}, s.PostSetupComplete)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/login", Auth: routeAuthPolicy{Public: true}, RateLimit: defaultLimits.Auth}, s.Login)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/tokens", Auth: routeAuthPolicy{Action: authz.ActionAPI}, RateLimit: defaultLimits.Token}, s.ListTokens)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/tokens", Auth: routeAuthPolicy{Action: authz.ActionAPI}, RateLimit: defaultLimits.Token}, s.CreateToken)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "DELETE /api/v1/tokens/{id}", Auth: routeAuthPolicy{Action: authz.ActionAPI}, RateLimit: defaultLimits.Token}, s.DeleteToken)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/users/change-password", Auth: routeAuthPolicy{Action: authz.ActionAPI}, RateLimit: defaultLimits.Auth}, s.ChangePassword)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/users", Auth: routeAuthPolicy{Action: authz.ActionUserAdmin}, RateLimit: defaultLimits.General}, s.CreateUser)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/users", Auth: routeAuthPolicy{Action: authz.ActionUserAdmin}, RateLimit: defaultLimits.General}, s.ListUsers)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/users/{id}", Auth: routeAuthPolicy{Action: authz.ActionUserAdmin}, RateLimit: defaultLimits.General}, s.GetUser)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "PUT /api/v1/users/{id}", Auth: routeAuthPolicy{Action: authz.ActionUserAdmin}, RateLimit: defaultLimits.General}, s.UpdateUser)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "DELETE /api/v1/users/{id}", Auth: routeAuthPolicy{Action: authz.ActionUserAdmin}, RateLimit: defaultLimits.General}, s.DeleteUser)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/namespaces", Auth: routeAuthPolicy{Action: authz.ActionJobRead}, RateLimit: defaultLimits.General}, s.ListNamespaces)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/namespaces", Auth: routeAuthPolicy{Action: authz.ActionAdmin}, RateLimit: defaultLimits.General}, s.CreateNamespace)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/namespaces/{id}", Auth: routeAuthPolicy{Action: authz.ActionJobRead}, RateLimit: defaultLimits.General}, s.GetNamespace)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "DELETE /api/v1/namespaces/{id}", Auth: routeAuthPolicy{Action: authz.ActionAdmin}, RateLimit: defaultLimits.General}, s.DeleteNamespace)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "GET /api/v1/namespaces/{id}/bindings", Auth: routeAuthPolicy{Action: authz.ActionAdmin}, RateLimit: defaultLimits.General}, s.ListBindings)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "POST /api/v1/namespaces/{id}/bindings", Auth: routeAuthPolicy{Action: authz.ActionAdmin}, RateLimit: defaultLimits.General}, s.CreateBinding)
-	s.registerRouteFunc(mux, routeSpec{Pattern: "DELETE /api/v1/namespaces/{id}/bindings/{user_id}", Auth: routeAuthPolicy{Action: authz.ActionAdmin}, RateLimit: defaultLimits.General}, s.DeleteBinding)
 
 	h := http.Handler(mux)
 	h = accessLogMiddleware(s.AccessLogger, apiHTTPExcludedFromAuxLogging, h)
 	h = observability.CorrelationMiddleware(h)
 	h = panicRecoveryMiddleware(s.logger, h)
 	return instrumentHTTPServer(h)
+}
+
+func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
+	defaultLimits := ratelimit.DefaultCategory()
+	specs := make([]routeSpec, 0, 36)
+
+	if includeMetrics && s.MetricsHandler != nil {
+		specs = append(specs, routeSpec{
+			Pattern: "GET /metrics",
+			Handler: s.MetricsHandler,
+			Auth:    routeAuthPolicy{Public: true},
+		})
+	}
+
+	specs = append(specs,
+		routeSpec{Pattern: "GET /health/live", Handler: http.HandlerFunc(s.HealthLive), Auth: routeAuthPolicy{Public: true}},
+		routeSpec{Pattern: "GET /health/ready", Handler: http.HandlerFunc(s.HealthReady), Auth: routeAuthPolicy{Public: true}},
+		routeSpec{Pattern: "GET /api/v1/jobs", Handler: http.HandlerFunc(s.GetJobs), Auth: routeAuthPolicy{Action: authz.ActionJobRead}, RateLimit: defaultLimits.General},
+		routeSpec{Pattern: "GET /api/v1/jobs/{id}", Handler: http.HandlerFunc(s.GetJob), Auth: routeAuthPolicy{Action: authz.ActionJobRead}, RateLimit: defaultLimits.General},
+		routeSpec{Pattern: "POST /api/v1/jobs", Handler: http.HandlerFunc(s.CreateJob), Auth: routeAuthPolicy{Action: authz.ActionJobWrite}, RateLimit: defaultLimits.General},
+		routeSpec{Pattern: "POST /api/v1/jobs/run", Handler: http.HandlerFunc(s.RunJob), Auth: routeAuthPolicy{Action: authz.ActionRunTrigger}, RateLimit: defaultLimits.General},
+		routeSpec{Pattern: "DELETE /api/v1/jobs/{id}", Handler: http.HandlerFunc(s.DeleteJob), Auth: routeAuthPolicy{Action: authz.ActionJobWrite}, RateLimit: defaultLimits.General},
+		routeSpec{Pattern: "PUT /api/v1/jobs/{id}", Handler: http.HandlerFunc(s.UpdateJobDefinition), Auth: routeAuthPolicy{Action: authz.ActionJobWrite}, RateLimit: defaultLimits.General},
+		routeSpec{Pattern: "POST /api/v1/jobs/trigger/{id}", Handler: http.HandlerFunc(s.TriggerJob), Auth: routeAuthPolicy{Action: authz.ActionRunTrigger}, RateLimit: defaultLimits.General},
+		routeSpec{Pattern: "GET /api/v1/jobs/{id}/runs", Handler: http.HandlerFunc(s.GetJobRuns), Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General},
+		routeSpec{Pattern: "GET /api/v1/sse/jobs/{id}/runs", Handler: http.HandlerFunc(s.HandleSSEJobRuns), Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General},
+		routeSpec{Pattern: "GET /api/v1/runs/{id}", Handler: http.HandlerFunc(s.GetRun), Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General},
+		routeSpec{Pattern: "POST /api/v1/runs/{id}/cancel", Handler: http.HandlerFunc(s.CancelRun), Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General},
+		routeSpec{Pattern: "POST /api/v1/runs/{id}/force-fail", Handler: http.HandlerFunc(s.ForceFailRun), Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General},
+		routeSpec{Pattern: "POST /api/v1/runs/{id}/force-requeue", Handler: http.HandlerFunc(s.ForceRequeueRun), Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General},
+		routeSpec{Pattern: "GET /api/v1/runs/{id}/logs", Handler: http.HandlerFunc(s.GetRunLogs), Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General},
+		routeSpec{Pattern: "GET /api/v1/setup/status", Handler: http.HandlerFunc(s.GetSetupStatus), Auth: routeAuthPolicy{Action: authz.ActionSetupStatus}, RateLimit: defaultLimits.Auth},
+		routeSpec{Pattern: "POST /api/v1/setup/complete", Handler: http.HandlerFunc(s.PostSetupComplete), Auth: routeAuthPolicy{Action: authz.ActionSetupComplete}, RateLimit: defaultLimits.Auth},
+		routeSpec{Pattern: "POST /api/v1/login", Handler: http.HandlerFunc(s.Login), Auth: routeAuthPolicy{Public: true}, RateLimit: defaultLimits.Auth},
+		routeSpec{Pattern: "GET /api/v1/tokens", Handler: http.HandlerFunc(s.ListTokens), Auth: routeAuthPolicy{Action: authz.ActionAPI}, RateLimit: defaultLimits.Token},
+		routeSpec{Pattern: "POST /api/v1/tokens", Handler: http.HandlerFunc(s.CreateToken), Auth: routeAuthPolicy{Action: authz.ActionAPI}, RateLimit: defaultLimits.Token},
+		routeSpec{Pattern: "DELETE /api/v1/tokens/{id}", Handler: http.HandlerFunc(s.DeleteToken), Auth: routeAuthPolicy{Action: authz.ActionAPI}, RateLimit: defaultLimits.Token},
+		routeSpec{Pattern: "POST /api/v1/users/change-password", Handler: http.HandlerFunc(s.ChangePassword), Auth: routeAuthPolicy{Action: authz.ActionAPI}, RateLimit: defaultLimits.Auth},
+		routeSpec{Pattern: "POST /api/v1/users", Handler: http.HandlerFunc(s.CreateUser), Auth: routeAuthPolicy{Action: authz.ActionUserAdmin}, RateLimit: defaultLimits.General},
+		routeSpec{Pattern: "GET /api/v1/users", Handler: http.HandlerFunc(s.ListUsers), Auth: routeAuthPolicy{Action: authz.ActionUserAdmin}, RateLimit: defaultLimits.General},
+		routeSpec{Pattern: "GET /api/v1/users/{id}", Handler: http.HandlerFunc(s.GetUser), Auth: routeAuthPolicy{Action: authz.ActionUserAdmin}, RateLimit: defaultLimits.General},
+		routeSpec{Pattern: "PUT /api/v1/users/{id}", Handler: http.HandlerFunc(s.UpdateUser), Auth: routeAuthPolicy{Action: authz.ActionUserAdmin}, RateLimit: defaultLimits.General},
+		routeSpec{Pattern: "DELETE /api/v1/users/{id}", Handler: http.HandlerFunc(s.DeleteUser), Auth: routeAuthPolicy{Action: authz.ActionUserAdmin}, RateLimit: defaultLimits.General},
+		routeSpec{Pattern: "GET /api/v1/namespaces", Handler: http.HandlerFunc(s.ListNamespaces), Auth: routeAuthPolicy{Action: authz.ActionJobRead}, RateLimit: defaultLimits.General},
+		routeSpec{Pattern: "POST /api/v1/namespaces", Handler: http.HandlerFunc(s.CreateNamespace), Auth: routeAuthPolicy{Action: authz.ActionAdmin}, RateLimit: defaultLimits.General},
+		routeSpec{Pattern: "GET /api/v1/namespaces/{id}", Handler: http.HandlerFunc(s.GetNamespace), Auth: routeAuthPolicy{Action: authz.ActionJobRead}, RateLimit: defaultLimits.General},
+		routeSpec{Pattern: "DELETE /api/v1/namespaces/{id}", Handler: http.HandlerFunc(s.DeleteNamespace), Auth: routeAuthPolicy{Action: authz.ActionAdmin}, RateLimit: defaultLimits.General},
+		routeSpec{Pattern: "GET /api/v1/namespaces/{id}/bindings", Handler: http.HandlerFunc(s.ListBindings), Auth: routeAuthPolicy{Action: authz.ActionAdmin}, RateLimit: defaultLimits.General},
+		routeSpec{Pattern: "POST /api/v1/namespaces/{id}/bindings", Handler: http.HandlerFunc(s.CreateBinding), Auth: routeAuthPolicy{Action: authz.ActionAdmin}, RateLimit: defaultLimits.General},
+		routeSpec{Pattern: "DELETE /api/v1/namespaces/{id}/bindings/{user_id}", Handler: http.HandlerFunc(s.DeleteBinding), Auth: routeAuthPolicy{Action: authz.ActionAdmin}, RateLimit: defaultLimits.General},
+	)
+
+	return specs
 }
 
 func panicRecoveryMiddleware(log interfaces.Logger, next http.Handler) http.Handler {
