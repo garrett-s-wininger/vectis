@@ -1647,6 +1647,8 @@ func detachedTraceContextFromRequest(r *http.Request) context.Context {
 		return context.Background()
 	}
 
+	// Preserve trace linkage for post-202 enqueue work without inheriting the
+	// HTTP request cancellation/deadline; the reconciler is the durable backstop.
 	return trace.ContextWithSpanContext(context.Background(), sc)
 }
 

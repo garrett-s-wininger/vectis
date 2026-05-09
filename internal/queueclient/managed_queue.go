@@ -113,6 +113,9 @@ func (m *ManagingQueueService) watchConn(ctx context.Context) {
 
 		if conn.GetState() == connectivity.Shutdown {
 			m.logger.Warn("queue gRPC connection already shutdown; reconnecting")
+
+			// Reconnect belongs to the managed queue client lifecycle, not to the
+			// short readiness/watch context that noticed the shutdown state.
 			if err := m.swapConn(context.Background()); err != nil {
 				m.logger.Warn("queue reconnect after shutdown failed: %v", err)
 			}
@@ -130,6 +133,9 @@ func (m *ManagingQueueService) watchConn(ctx context.Context) {
 		}
 
 		m.logger.Warn("queue gRPC connection shutdown; reconnecting")
+
+		// Reconnect belongs to the managed queue client lifecycle, not to the
+		// short readiness/watch context that noticed the shutdown state.
 		if err := m.swapConn(context.Background()); err != nil {
 			m.logger.Warn("queue reconnect after shutdown failed: %v", err)
 		}

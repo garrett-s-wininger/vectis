@@ -57,6 +57,8 @@ func runWorker(cmd *cobra.Command, args []string) {
 		shutdownCtx = context.Background()
 	}
 
+	// runCtx intentionally survives SIGINT/SIGTERM so a claimed run can finish
+	// its action, ack, lease, and terminal DB update during graceful drain.
 	runCtx := context.Background()
 	logger := interfaces.NewAsyncLogger("worker")
 	defer logger.Close()
