@@ -2,6 +2,8 @@
 
 This document is for **operators and deployment planning**. It explains how failures are isolated by component, what happens when a dependency is unavailable, reasonable **operational expectations**, and how the current system compares to a heavily hardened production setup. For topology and protocols, see [ARCHITECTURE.md](ARCHITECTURE.md); for the same material in planning context, see [PLANNING.md](PLANNING.md) §2. For vocabulary (**queue**, **run**, **dispatch**, etc.), see [GLOSSARY.md](GLOSSARY.md). For **trust boundaries and secrets**, see [SECURITY.md](SECURITY.md).
 
+For queue handoff triage using run dispatch events, see [DISPATCH_VISIBILITY.md](DISPATCH_VISIBILITY.md).
+
 ## Operational spine
 
 The **database** and **queue** are the pair to protect first. The database is the **durable source of truth**—definitions, runs, schedules, and worker leases. The queue is **where work waits and is handed off** from producers (API, cron, reconciler) to workers. Registry, log, API, and the rest all matter, but **most systemic outages** are explained by database health, queue health (including on-disk persistence when it is enabled), or the handoff between them.
@@ -219,6 +221,8 @@ Readiness should answer "should this process receive new work right now?" Livene
 **If the reconciler is offline**
 
 - Automatic cleanup of that gap **stops** until it runs again; the API and queue do not fully replace this behavior.
+
+Dispatch repair attempts are visible in run dispatch events; see [DISPATCH_VISIBILITY.md](DISPATCH_VISIBILITY.md).
 
 **Where we are now**
 
