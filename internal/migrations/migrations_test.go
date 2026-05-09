@@ -2,12 +2,23 @@ package migrations_test
 
 import (
 	"database/sql"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
 	"testing"
 
 	"vectis/internal/migrations"
 
 	_ "github.com/mattn/go-sqlite3"
 )
+
+func TestMigrationBackendsHaveMatchingVersions(t *testing.T) {
+	sqlite := readMigrationVersions(t, "sqlite")
+	postgres := readMigrationVersions(t, "postgres")
+
+	assertSameMigrationVersions(t, "sqlite", sqlite, "postgres", postgres)
+}
 
 func TestSQLiteMigrations_UpDownRoundTrip(t *testing.T) {
 	db, err := sql.Open("sqlite3", ":memory:")
@@ -31,6 +42,88 @@ func TestSQLiteMigrations_UpDownRoundTrip(t *testing.T) {
 
 	assertTableMissing(t, db, "job_runs")
 	assertTableMissing(t, db, "run_dispatch_events")
+}
+
+func readMigrationVersions(t *testing.T, backend string) map[string]map[string]string {
+	t.Helper()
+
+	entries, err := os.ReadDir(filepath.Join(backend))
+	if err != nil {
+		t.Fatalf("read %s migrations: %v", backend, err)
+	}
+
+	versions := map[string]map[string]string{}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
+			continue
+		}
+
+		version, direction, ok := splitMigrationFilename(entry.Name())
+		if !ok {
+			t.Fatalf("%s migration %q does not follow NNN_name.(up|down).sql", backend, entry.Name())
+		}
+
+		if versions[version] == nil {
+			versions[version] = map[string]string{}
+		}
+		if existing := versions[version][direction]; existing != "" {
+			t.Fatalf("%s migration version %s has duplicate %s files: %s and %s", backend, version, direction, existing, entry.Name())
+		}
+		versions[version][direction] = entry.Name()
+	}
+
+	for version, files := range versions {
+		for _, direction := range []string{"up", "down"} {
+			if files[direction] == "" {
+				t.Fatalf("%s migration version %s is missing %s migration", backend, version, direction)
+			}
+		}
+	}
+
+	return versions
+}
+
+func splitMigrationFilename(name string) (version, direction string, ok bool) {
+	parts := strings.SplitN(name, "_", 2)
+	if len(parts) != 2 || parts[0] == "" {
+		return "", "", false
+	}
+
+	if strings.HasSuffix(name, ".up.sql") {
+		return parts[0], "up", true
+	}
+
+	if strings.HasSuffix(name, ".down.sql") {
+		return parts[0], "down", true
+	}
+
+	return "", "", false
+}
+
+func assertSameMigrationVersions(t *testing.T, leftName string, left map[string]map[string]string, rightName string, right map[string]map[string]string) {
+	t.Helper()
+
+	for _, version := range sortedMigrationVersions(left) {
+		if right[version] == nil {
+			t.Fatalf("%s has migration version %s, but %s does not", leftName, version, rightName)
+		}
+	}
+
+	for _, version := range sortedMigrationVersions(right) {
+		if left[version] == nil {
+			t.Fatalf("%s has migration version %s, but %s does not", rightName, version, leftName)
+		}
+	}
+}
+
+func sortedMigrationVersions(versions map[string]map[string]string) []string {
+	out := make([]string, 0, len(versions))
+	for version := range versions {
+		out = append(out, version)
+	}
+
+	sort.Strings(out)
+	return out
 }
 
 func assertTableExists(t *testing.T, db *sql.DB, table string) {

@@ -9,3 +9,4 @@ New decisions add the next numbered file; prefer **superseded** status over dele
 | [0001](0001-async-enqueue-after-http-202.md) | Async enqueue after HTTP 202 |
 | [0002](0002-standalone-reconciler-process.md) | Standalone reconciler process |
 | [0003](0003-database-claims-and-queue-deliveries.md) | Database claims and queue deliveries |
+| [0004](0004-migration-compatibility-and-rollback.md) | Migration compatibility and rollback |
