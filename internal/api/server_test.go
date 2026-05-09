@@ -1697,6 +1697,53 @@ func TestAPIServer_CancelRun_NotExecutingConflict(t *testing.T) {
 	assertAPIError(t, rec, http.StatusConflict, "run_not_executing")
 }
 
+func TestAPIServer_CancelRun_ResolverUsesRequestBoundContext(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `INSERT INTO stored_jobs (job_id, namespace_id, definition_json) VALUES (?, ?, ?)`, "job-cancel-context", 1, `{"id":"job-cancel-context"}`); err != nil {
+		t.Fatalf("insert job: %v", err)
+	}
+	runs := dal.NewSQLRepositories(db).Runs()
+
+	runID, _, err := runs.CreateRun(ctx, "job-cancel-context", nil, 1)
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	claimed, token, err := runs.TryClaim(ctx, runID, "worker-a", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("TryClaim: %v", err)
+	}
+
+	if !claimed || token == "" {
+		t.Fatalf("expected claim token, got claimed=%v token=%q", claimed, token)
+	}
+
+	resolverErr := errors.New("resolver stopped before worker RPC")
+	var sawDeadline bool
+	server.ResolveWorkerAddress = func(ctx context.Context, workerID string) (string, error) {
+		if workerID != "worker-a" {
+			t.Fatalf("workerID = %q, want worker-a", workerID)
+		}
+
+		_, sawDeadline = ctx.Deadline()
+		return "", resolverErr
+	}
+
+	reqCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runs/"+runID+"/cancel", nil).WithContext(reqCtx)
+	req.SetPathValue("id", runID)
+	rec := httptest.NewRecorder()
+
+	server.CancelRun(rec, req)
+
+	assertAPIError(t, rec, http.StatusBadGateway, "worker_not_reachable")
+	if !sawDeadline {
+		t.Fatal("expected resolver to receive request-bound context with deadline")
+	}
+}
+
 func TestAPIServer_Handler_SetsXRequestID(t *testing.T) {
 	t.Parallel()
 	srv, _, _, _ := setupTestServer(t)

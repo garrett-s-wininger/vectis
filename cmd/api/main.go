@@ -138,8 +138,8 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		if err != nil {
 			logger.Warn("Failed to create registry client for worker resolution: %v", err)
 		} else {
-			server.ResolveWorkerAddress = func(workerID string) (string, error) {
-				return registryClient.InstanceAddress(context.Background(), apigen.Component_COMPONENT_WORKER, workerID)
+			server.ResolveWorkerAddress = func(ctx context.Context, workerID string) (string, error) {
+				return registryClient.InstanceAddress(ctx, apigen.Component_COMPONENT_WORKER, workerID)
 			}
 			defer registryClient.Close()
 		}

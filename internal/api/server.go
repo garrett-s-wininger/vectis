@@ -102,7 +102,7 @@ type APIServer struct {
 	retryMetrics backoff.RetryMetrics
 
 	// ResolveWorkerAddress, when set, resolves a worker_id to a control address via the registry.
-	ResolveWorkerAddress func(workerID string) (string, error)
+	ResolveWorkerAddress func(ctx context.Context, workerID string) (string, error)
 
 	mu     sync.RWMutex
 	srvCtx atomic.Pointer[ctxHolder]
@@ -764,7 +764,7 @@ func (s *APIServer) CancelRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	workerAddr, err := s.ResolveWorkerAddress(rec.LeaseOwner)
+	workerAddr, err := s.ResolveWorkerAddress(ctx, rec.LeaseOwner)
 	if err != nil {
 		s.logger.Error("Failed to resolve worker %s for run %s: %v", rec.LeaseOwner, runID, err)
 		writeAPIError(w, http.StatusBadGateway, "worker_not_reachable", "worker not reachable", nil)
