@@ -20,6 +20,32 @@ The **database** and **queue** are the pair to protect first. The database is th
 
 If queue and log addresses are **pinned** in configuration, consumers do not need the registry to find them. Components that **register** themselves still need the registry up at startup unless you change that deployment pattern.
 
+### Dependency classes
+
+| Class | Meaning |
+| --- | --- |
+| **Startup-hard** | The process normally exits or refuses to serve until the dependency is reachable or usable. |
+| **Runtime-hard** | The process may start, but the dependency is required for the main workflow to complete. |
+| **Runtime-soft** | The dependency improves behavior or recovery, but work can continue or retry without it for a period. |
+| **Optional** | The dependency is only used when the matching feature is configured. |
+
+### Startup and recovery matrix
+
+| Binary | Startup-hard | Runtime-hard | Runtime-soft / optional | Probe guidance |
+| --- | --- | --- | --- | --- |
+| `vectis-api` | Database open and expected schema; queue dial through pinned address or registry; configured TLS files | Database for REST state; queue for trigger/run dispatch; auth setup state when auth is enabled | Log dial for APIs that need log streaming; metrics exporter; tracing exporter | Use `GET /health/live` for process liveness and `GET /health/ready` for database plus managed queue connectivity. |
+| `vectis-queue` | gRPC listen socket; persistence directory when configured; TLS files when TLS is enabled; registry when registration is enabled | Queue persistence when configured; delivery timeout scanner | Metrics listener; tracing exporter | Use gRPC health service `queue` for queue-serving readiness; scrape `/metrics` on the metrics port for observability. |
+| `vectis-registry` | gRPC listen socket; TLS files when TLS is enabled | Registry memory state for service discovery | Metrics/tracing only if externally wrapped | Use gRPC health service `registry` for discovery readiness. |
+| `vectis-log` | gRPC listen socket; log HTTP listen socket; storage directory; TLS files when TLS is enabled; registry when registration is enabled | Durable log storage and active stream buffers | Metrics listener; tracing exporter | Use gRPC health service `log` for ingest readiness; use log HTTP only for client log consumption checks. |
+| `vectis-worker` | Database open and expected schema; queue dial; log dial; TLS files when TLS is enabled | Database for claim/lease/finalize; queue for dequeue/ack; log stream before job execution | Metrics listener; tracing exporter; registry is avoided when queue/log addresses are pinned | Treat queue/log/database failures as "do not send work here"; use metrics and external supervisor liveness because there is no worker HTTP readiness endpoint. |
+| `vectis-log-forwarder` | Log service dial; TLS files when TLS is enabled; local spool directory | Log service for draining batches | Local spool lets batches survive temporary log outages | Liveness is process supervision; backlog age/size should drive readiness in deployments that wrap it. |
+| `vectis-cron` | Database open and expected schema; queue dial; TLS files when TLS is enabled | Database schedules; queue enqueue | Registry is avoided when queue address is pinned; metrics/tracing | Liveness is process supervision; readiness means database and queue are reachable before enabling scheduled traffic. |
+| `vectis-reconciler` | Database open and expected schema; queue dial; TLS files when TLS is enabled | Database queued-run scan; queue enqueue | Registry is avoided when queue address is pinned; metrics/tracing | Liveness is process supervision; readiness means database and queue are reachable before relying on redispatch. |
+| `vectis-local` | Child binary paths; local TLS bootstrap unless disabled; child listen ports | Registry, queue, log, API, worker, cron, and reconciler children | Dev-only supervisor behavior | It waits for registry, queue, and log gRPC health before starting later stages. |
+| `vectis-cli` | API URL for API commands; database DSN for `migrate` | API or database only for the invoked command | CLI token file; local deploy config dir | One-shot command exit status is the probe. |
+
+Readiness should answer "should this process receive new work right now?" Liveness should answer only "should the supervisor restart this process?" A process can be live while not ready, such as an API with a healthy HTTP listener but an unavailable queue.
+
 ---
 
 ## By component
@@ -126,6 +152,7 @@ If queue and log addresses are **pinned** in configuration, consumers do not nee
 - **Graceful shutdown:** On **SIGINT** / **SIGTERM**, the API stops accepting new HTTP connections and uses **`http.Server.Shutdown`** with a bounded timeout so in-flight requests and SSE streams can finish when clients disconnect cooperatively.
 - **HTTP health (orchestration):** **`GET /health/live`** returns **200** if the process is serving (liveness). **`GET /health/ready`** returns **200** only when the API’s **database** ping succeeds and, when the server uses a managing queue client, the queue’s **gRPC connectivity** is **READY**—so readiness reflects “can this replica do work?” for common paths. Mock-only test servers may skip parts of this check.
 - **Deploy manifests:** Wiring **`livenessProbe` / `readinessProbe`** in [`deploy/podman/kube-spec.yaml`](../deploy/podman/kube-spec.yaml) to these paths (or equivalents) is recommended for Kubernetes-style rollouts; the in-repo spec may not include probes yet.
+- **Podman/Kubernetes probe shape:** use `/health/live` as the restart probe and `/health/ready` as the traffic gate. Do not use `/metrics` as API readiness; it can be healthy while database or queue dependencies are down.
 
 **If the database or queue is unhealthy while the API is running**
 
@@ -210,4 +237,17 @@ If queue and log addresses are **pinned** in configuration, consumers do not nee
 | **API** | Graceful HTTP **Shutdown** on signal; **`/health/live`** and **`/health/ready`**; trigger may succeed before work reaches the queue; async enqueue not joined on shutdown; horizontal replicas are not session-coherent | Wire Kube/Podman probes to health URLs; client idempotency; run the **reconciler** (it retries handoff for runs queued in the DB but not in the queue); alert on reconciler health or persistent backlog |
 | **Worker** | **SIGINT/SIGTERM:** stop dequeue, **drain** current job for DB finalize; **SIGKILL:** no drain | Same; optional future: remote cancel and bounded drain timeouts |
 | **Cron** | No sharding or leader election; duplicate processes risk double-firing | **Scale:** partition schedules across shards. **HA:** one firing path per schedule (leader election or external trigger → API) |
-| **Auth** | None on the HTTP API | TLS and authentication at the edge or in the application |
+| **Auth** | HTTP API auth is configurable and off by default; setup/auth state lives in the database | Enable built-in auth or protect access at the edge; see [SECURITY.md](SECURITY.md) |
+
+## Probe reference
+
+| Surface | Liveness | Readiness |
+| --- | --- | --- |
+| API HTTP | `GET /health/live` | `GET /health/ready` checks database ping and managed queue connectivity. |
+| Registry gRPC | Standard gRPC health `registry` | Same check; discovery clients should not depend on it until SERVING. |
+| Queue gRPC | Standard gRPC health `queue` | Same check; producers and workers should wait for SERVING. |
+| Log gRPC | Standard gRPC health `log` | Same check for log ingest. Log HTTP availability is still required for clients reading streams. |
+| Metrics-only HTTP listeners | `/metrics` shows exporter/process health | Do not use as workflow readiness by itself. |
+| Cron, reconciler, worker, log-forwarder | Supervisor process state | Gate externally on their hard dependencies, or on deployment-specific wrapper probes. |
+
+For reference deploys, add probes in this order: registry, queue, and log gRPC health first; API HTTP live/ready second; worker/cron/reconciler dependency gates last. This mirrors the dependency order that `vectis-local` already uses for its supervised dev stack.

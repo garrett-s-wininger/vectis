@@ -142,6 +142,8 @@ Replace `…` with the correct prefix from the next section (e.g. `VECTIS_WORKER
 
 **Discovery timing defaults** (override with each process’s prefix + `DISCOVERY_…`): resolver refresh **10s**, poll timeout **5s**, error refresh **2s**, registration heartbeat **45s**.
 
+For startup ordering and readiness meaning across binaries, see [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md#startup-and-recovery-matrix). In short: pin queue/log addresses when you want to remove registry from the dependent process startup path, and use readiness to gate new work rather than to decide whether a supervisor should restart a process.
+
 ## Services: env prefix and CLI options
 
 | Program | Env prefix | CLI options (override env when present) |
@@ -208,6 +210,7 @@ Replace `…` with the correct prefix from the next section (e.g. `VECTIS_WORKER
 | Components and flows | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | Failure behavior | [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md) |
 | Runbooks, SLOs, and alert examples | [RUNBOOKS.md](RUNBOOKS.md) |
+| Startup dependencies and probes | [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md#startup-and-recovery-matrix) |
 | Roadmap / persistence | [PLANNING.md](PLANNING.md) §2.5 |
 | Quick start, Postgres / Podman | [README.md](../README.md) |
 | Glossary | [GLOSSARY.md](GLOSSARY.md) |
