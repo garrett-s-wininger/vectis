@@ -38,32 +38,39 @@ func setupTestServer(t *testing.T) (*api.APIServer, *mocks.MockLogger, *mocks.Mo
 func waitForNEnqueuedJobs(t *testing.T, q *mocks.MockQueueService, n int) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
+
 	for time.Now().Before(deadline) {
 		if len(q.GetJobs()) >= n {
 			return
 		}
+
 		time.Sleep(5 * time.Millisecond)
 	}
+
 	t.Fatalf("timed out waiting for %d enqueued jobs, got %d", n, len(q.GetJobs()))
 }
 
 func waitForLoggerErrorContaining(t *testing.T, log *mocks.MockLogger, sub string) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
+
 	for time.Now().Before(deadline) {
 		for _, msg := range log.GetErrorCalls() {
 			if strings.Contains(msg, sub) {
 				return
 			}
 		}
+
 		time.Sleep(5 * time.Millisecond)
 	}
+
 	t.Fatalf("timed out waiting for logger error containing %q", sub)
 }
 
 func waitForNDispatchEvents(t *testing.T, db *sql.DB, runID string, n int) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
+
 	for time.Now().Before(deadline) {
 		var count int
 		if err := db.QueryRow(`SELECT COUNT(*) FROM run_dispatch_events WHERE run_id = ?`, runID).Scan(&count); err != nil {
@@ -86,6 +93,7 @@ func assertAPIError(t *testing.T, rec *httptest.ResponseRecorder, status int, co
 	if rec.Code != status {
 		t.Fatalf("expected status %d, got %d: %s", status, rec.Code, rec.Body.String())
 	}
+
 	if ct := rec.Header().Get("Content-Type"); ct != "application/json; charset=utf-8" {
 		t.Fatalf("expected JSON content type, got %q", ct)
 	}
@@ -112,7 +120,7 @@ func apiErrorDetailString(t *testing.T, rec *httptest.ResponseRecorder, key stri
 	t.Helper()
 
 	var body struct {
-		Details map[string]string `json:"details"`
+		Details map[string]json.RawMessage `json:"details"`
 	}
 
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
@@ -123,7 +131,38 @@ func apiErrorDetailString(t *testing.T, rec *httptest.ResponseRecorder, key stri
 		t.Fatalf("expected details in body=%s", rec.Body.String())
 	}
 
-	return body.Details[key]
+	var value string
+	if err := json.Unmarshal(body.Details[key], &value); err != nil {
+		t.Fatalf("decode api error detail %q: %v; body=%s", key, err, rec.Body.String())
+	}
+
+	return value
+}
+
+func apiErrorValidationFields(t *testing.T, rec *httptest.ResponseRecorder) []struct {
+	Field   string `json:"field"`
+	Message string `json:"message"`
+} {
+	t.Helper()
+
+	var body struct {
+		Details struct {
+			Fields []struct {
+				Field   string `json:"field"`
+				Message string `json:"message"`
+			} `json:"fields"`
+		} `json:"details"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode api validation fields: %v; body=%s", err, rec.Body.String())
+	}
+
+	if len(body.Details.Fields) == 0 {
+		t.Fatalf("expected validation fields in body=%s", rec.Body.String())
+	}
+
+	return body.Details.Fields
 }
 
 func TestAPIServer_CreateJob_Success(t *testing.T) {
@@ -358,6 +397,20 @@ func TestAPIServer_CreateJob_ValidationError(t *testing.T) {
 
 	if !strings.Contains(detail, `root.uses: unknown action "builtins/not-real"`) {
 		t.Fatalf("expected unknown action validation error, got %q", rec.Body.String())
+	}
+
+	fields := apiErrorValidationFields(t, rec)
+	wantFields := map[string]string{
+		"root.id":   "is required",
+		"root.uses": `unknown action "builtins/not-real"`,
+	}
+
+	for _, field := range fields {
+		delete(wantFields, field.Field)
+	}
+
+	if len(wantFields) != 0 {
+		t.Fatalf("missing structured validation fields %v in body=%s", wantFields, rec.Body.String())
 	}
 
 	var count int

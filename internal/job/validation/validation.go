@@ -1,6 +1,7 @@
 package validation
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -24,8 +25,8 @@ type Options struct {
 }
 
 type FieldError struct {
-	Field   string
-	Message string
+	Field   string `json:"field"`
+	Message string `json:"message"`
 }
 
 func (e FieldError) Error() string {
@@ -47,6 +48,19 @@ func (e *Error) Error() string {
 	}
 
 	return strings.Join(parts, "; ")
+}
+
+func ErrorDetails(err error) map[string]any {
+	details := map[string]any{"error": err.Error()}
+
+	var validationErr *Error
+	if errors.As(err, &validationErr) {
+		fields := make([]FieldError, len(validationErr.Fields))
+		copy(fields, validationErr.Fields)
+		details["fields"] = fields
+	}
+
+	return details
 }
 
 func ValidateJob(job *api.Job, opts Options) error {

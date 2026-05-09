@@ -93,6 +93,45 @@ func TestValidateJob_NodeValidation(t *testing.T) {
 	}
 }
 
+func TestErrorDetailsIncludesStructuredFields(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root.Steps = append(job.Root.Steps, &api.Node{
+		Id:   strp("shell"),
+		Uses: strp("builtins/not-real"),
+	})
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+
+	details := validation.ErrorDetails(err)
+	if details["error"] != err.Error() {
+		t.Fatalf("details error = %q, want %q", details["error"], err.Error())
+	}
+
+	fields, ok := details["fields"].([]validation.FieldError)
+	if !ok {
+		t.Fatalf("details fields type = %T, want []validation.FieldError", details["fields"])
+	}
+
+	want := map[string]string{
+		"root.steps[1].id":   `duplicates node id "shell" first used at root.steps[0].id`,
+		"root.steps[1].uses": `unknown action "builtins/not-real"`,
+	}
+
+	for _, field := range fields {
+		if want[field.Field] == field.Message {
+			delete(want, field.Field)
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing structured fields: %v", want)
+	}
+}
+
 func TestValidateJob_MaxDepth(t *testing.T) {
 	t.Parallel()
 

@@ -99,6 +99,7 @@ Details and roadmap notes: [PLANNING.md](PLANNING.md) §2.5.
 - Canonical message shape: `Job` in `api/proto/common.proto` (`id`, `run_id`, `root` node tree with `uses`, `with`, nested `steps`).
 - Runtime jobs are typically **JSON** matching that shape over REST.
 - Built-in actions include **shell**, **checkout**, and **sequence** (see `internal/action/builtins/`).
+- Job definition validation, action `with` validation, and structured validation error details are documented in [JOB_VALIDATION.md](JOB_VALIDATION.md).
 
 ## REST Surface
 

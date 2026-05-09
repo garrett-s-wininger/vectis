@@ -856,7 +856,7 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{RequireJobID: true}); err != nil {
-		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", map[string]any{"error": err.Error()})
+		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", jobvalidation.ErrorDetails(err))
 		return
 	}
 
@@ -1364,7 +1364,7 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{RequireJobID: true}); err != nil {
-		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", map[string]any{"error": err.Error()})
+		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", jobvalidation.ErrorDetails(err))
 		return
 	}
 
@@ -1468,7 +1468,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{}); err != nil {
-		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", map[string]any{"error": err.Error()})
+		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", jobvalidation.ErrorDetails(err))
 		return
 	}
 
