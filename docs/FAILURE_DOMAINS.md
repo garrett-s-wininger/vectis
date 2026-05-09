@@ -1,6 +1,6 @@
 # Failure domains, dependency outages, and expectations
 
-This document is for **operators and deployment planning**. It explains how failures are isolated by component, what happens when a dependency is unavailable, reasonable **operational expectations**, and how the current system compares to a heavily hardened production setup. For topology and protocols, see [ARCHITECTURE.md](ARCHITECTURE.md); for the same material in planning context, see [PLANNING.md](PLANNING.md) §2. For vocabulary (**queue**, **run**, **dispatch**, etc.), see [GLOSSARY.md](GLOSSARY.md). For **trust boundaries and secrets**, see [SECURITY.md](SECURITY.md).
+This document is for **operators and deployment planning**. It explains how failures are isolated by component, what happens when a dependency is unavailable, reasonable **operational expectations**, and how the current system compares to a heavily hardened production setup. For topology and protocols, see [ARCHITECTURE.md](ARCHITECTURE.md); for the same material in planning context, see [PLANNING.md](PLANNING.md) §2. For vocabulary (**queue**, **run**, **dispatch**, etc.), see [GLOSSARY.md](GLOSSARY.md). For **trust boundaries and secrets**, see [SECURITY.md](SECURITY.md). For backup, restore order, and disaster recovery drills, see [BACKUP_RESTORE.md](BACKUP_RESTORE.md).
 
 For queue handoff triage using run dispatch events, see [DISPATCH_VISIBILITY.md](DISPATCH_VISIBILITY.md).
 
@@ -65,7 +65,7 @@ Readiness should answer "should this process receive new work right now?" Livene
 
 **Expectations (what Vectis provides vs what you run)**
 
-- The application ships **embedded schema migrations** and talks to **one configured SQL backend** at a time (SQLite or PostgreSQL). It does **not** implement connection failover, replica routing, or backup/restore—those are entirely the operator’s and database platform’s concern.
+- The application ships **embedded schema migrations** and talks to **one configured SQL backend** at a time (SQLite or PostgreSQL). It does **not** implement connection failover, replica routing, or automatic backup/restore. Operators should follow [BACKUP_RESTORE.md](BACKUP_RESTORE.md) for backup inventory and restore drills.
 - For **PostgreSQL** (`pgx`), each process configures the shared `*sql.DB` pool (**max open/idle connections**, **connection max lifetime / idle time**) via [CONFIGURATION.md](CONFIGURATION.md#postgresql-connection-pool-pgx-only) and [`internal/config/defaults.toml`](../internal/config/defaults.toml). That bounds total connections across many processes and helps shed stale connections after network blips; it is **not** HA by itself.
 - Every component that writes state must see the **same** logical database and schema. Multi-instance API/workers are only safe when the backend gives you the concurrency semantics you need (see [PLANNING.md](PLANNING.md) §2.5 for persistence scope and roadmap).
 

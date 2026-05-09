@@ -203,6 +203,8 @@ For startup ordering and readiness meaning across binaries, see [FAILURE_DOMAINS
 | Queue persistence | `$XDG_DATA_HOME/vectis/queue` |
 | Run log files (`vectis-log`) | `$XDG_DATA_HOME/vectis/jobs` |
 
+Treat these paths, deployment secrets, and TLS material as part of the backup set when they hold production data. See [BACKUP_RESTORE.md](BACKUP_RESTORE.md) for restore order and partial-restore outcomes.
+
 ## Related documentation
 
 | Topic | Document |
@@ -213,6 +215,7 @@ For startup ordering and readiness meaning across binaries, see [FAILURE_DOMAINS
 | Startup dependencies and probes | [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md#startup-and-recovery-matrix) |
 | Dispatch handoff triage | [DISPATCH_VISIBILITY.md](DISPATCH_VISIBILITY.md) |
 | Log streaming and replay behavior | [LOG_STREAMING.md](LOG_STREAMING.md) |
+| Backup, restore, and disaster recovery | [BACKUP_RESTORE.md](BACKUP_RESTORE.md) |
 | Roadmap / persistence | [PLANNING.md](PLANNING.md) §2.5 |
 | Quick start, Postgres / Podman | [README.md](../README.md) |
 | Glossary | [GLOSSARY.md](GLOSSARY.md) |
