@@ -217,6 +217,7 @@ For startup ordering and readiness meaning across binaries, see [FAILURE_DOMAINS
 | Quick start, Postgres / Podman | [README.md](../README.md) |
 | Glossary | [GLOSSARY.md](GLOSSARY.md) |
 | Security posture | [SECURITY.md](SECURITY.md) |
+| Reference deployment posture | [REFERENCE_DEPLOYMENT_POSTURE.md](REFERENCE_DEPLOYMENT_POSTURE.md) |
 
 ---
 
