@@ -3,6 +3,7 @@ package observability
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -55,7 +56,7 @@ func (rm *RetryMetrics) RecordAttempt(ctx context.Context, component string) {
 		return
 	}
 
-	rm.attempts.Add(ctx, 1, metric.WithAttributes(attribute.String("component", component)))
+	rm.attempts.Add(ctx, 1, metric.WithAttributes(retryMetricAttributes(component)...))
 }
 
 func (rm *RetryMetrics) RecordExhausted(ctx context.Context, component string) {
@@ -63,7 +64,7 @@ func (rm *RetryMetrics) RecordExhausted(ctx context.Context, component string) {
 		return
 	}
 
-	rm.exhausted.Add(ctx, 1, metric.WithAttributes(attribute.String("component", component)))
+	rm.exhausted.Add(ctx, 1, metric.WithAttributes(retryMetricAttributes(component)...))
 }
 
 func (rm *RetryMetrics) RecordDelay(ctx context.Context, component string, delay time.Duration) {
@@ -71,5 +72,29 @@ func (rm *RetryMetrics) RecordDelay(ctx context.Context, component string, delay
 		return
 	}
 
-	rm.delayHist.Record(ctx, delay.Seconds(), metric.WithAttributes(attribute.String("component", component)))
+	rm.delayHist.Record(ctx, delay.Seconds(), metric.WithAttributes(retryMetricAttributes(component)...))
+}
+
+func retryMetricAttributes(component string) []attribute.KeyValue {
+	service, operation := splitRetryComponent(component)
+	return []attribute.KeyValue{
+		attribute.String("component", component),
+		attribute.String("service", service),
+		attribute.String("operation", operation),
+	}
+}
+
+func splitRetryComponent(component string) (service, operation string) {
+	component = strings.TrimSpace(component)
+	if component == "" {
+		return "unknown", "retry"
+	}
+
+	for _, sep := range []string{".", "/", ":"} {
+		if service, operation, ok := strings.Cut(component, sep); ok && service != "" && operation != "" {
+			return service, operation
+		}
+	}
+
+	return component, "retry"
 }

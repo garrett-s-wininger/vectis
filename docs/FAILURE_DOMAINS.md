@@ -4,6 +4,8 @@ This document is for **operators and deployment planning**. It explains how fail
 
 For queue handoff triage using run dispatch events, see [DISPATCH_VISIBILITY.md](DISPATCH_VISIBILITY.md).
 
+For retry attempts, backoff defaults, metrics, and alert examples, see [RETRY_POLICY.md](RETRY_POLICY.md).
+
 ## Operational spine
 
 The **database** and **queue** are the pair to protect first. The database is the **durable source of truth**—definitions, runs, schedules, and worker leases. The queue is **where work waits and is handed off** from producers (API, cron, reconciler) to workers. Registry, log, API, and the rest all matter, but **most systemic outages** are explained by database health, queue health (including on-disk persistence when it is enabled), or the handoff between them.
@@ -114,6 +116,7 @@ Readiness should answer "should this process receive new work right now?" Livene
 **Expectations**
 
 - Treat the queue as **durable** only when persistence is enabled and the data directory is on reliable storage. Expect **transient** outages to be retried by producers and workers (reconnect and limited enqueue retries).
+- Queue enqueue retries use bounded exponential backoff; persistent exhaustion should be paired with reconciler health and queued-run-age alerts.
 
 **Where we are now**
 
