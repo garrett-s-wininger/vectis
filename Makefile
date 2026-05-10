@@ -20,7 +20,7 @@ API := $(shell find api -name '*.go' 2>/dev/null)
 BINARIES := $(addprefix $(OUT_DIR)/vectis-, $(APPS))
 INTERNAL := $(shell find internal -name '*.go' 2>/dev/null)
 
-FORMAL_MODELS := reconciliation
+FORMAL_MODELS := execution reconciliation
 JAVA ?= java
 TLA_TOOLS_JAR ?= /opt/tla+/tla2tools.jar
 
