@@ -32,6 +32,8 @@ Tune thresholds by environment. The Podman reference deploy is useful for demos 
 
 ## Triage Index
 
+Start with `vectis-cli doctor` when the API should be reachable. It checks API liveness, API readiness, setup status, and local CLI token visibility before deeper service-specific triage.
+
 | Alert / symptom | First checks |
 | --- | --- |
 | Queue backlog growing | Queue health, worker count, worker job failures, database availability. |

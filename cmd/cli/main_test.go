@@ -610,3 +610,105 @@ func TestDoLogin_unexpectedStatus(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestDoctor_success(t *testing.T) {
+	seen := map[string]int{}
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		seen[r.URL.Path]++
+		switch r.URL.Path {
+		case "/health/live", "/health/ready":
+			w.WriteHeader(http.StatusOK)
+		case "/api/v1/setup/status":
+			_ = json.NewEncoder(w).Encode(map[string]bool{"setup_complete": true})
+		default:
+			t.Errorf("unexpected path=%s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	t.Setenv("VECTIS_API_TOKEN", "test-token")
+
+	var buf bytes.Buffer
+	if err := doctor(&buf); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{
+		"ok\tapi.live\tAPI liveness probe passed",
+		"ok\tapi.ready\tAPI readiness probe passed",
+		"ok\tsetup.status\tinitial setup is complete",
+		"ok\tcli.token\tCLI API token is configured",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in output:\n%s", want, out)
+		}
+	}
+
+	for _, path := range []string{"/health/live", "/health/ready", "/api/v1/setup/status"} {
+		if seen[path] != 1 {
+			t.Fatalf("expected one request to %s, got %d", path, seen[path])
+		}
+	}
+}
+
+func TestDoctor_warnsForIncompleteSetupAndMissingToken(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health/live", "/health/ready":
+			w.WriteHeader(http.StatusOK)
+		case "/api/v1/setup/status":
+			_ = json.NewEncoder(w).Encode(map[string]bool{"setup_complete": false})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	t.Setenv("VECTIS_API_TOKEN", "")
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+	var buf bytes.Buffer
+	if err := doctor(&buf); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{
+		"warn\tsetup.status\tinitial setup is not complete",
+		"warn\tcli.token\tno CLI API token configured",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in output:\n%s", want, out)
+		}
+	}
+}
+
+func TestDoctor_failsWhenRequiredCheckFails(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health/live":
+			w.WriteHeader(http.StatusOK)
+		case "/health/ready":
+			w.WriteHeader(http.StatusServiceUnavailable)
+		case "/api/v1/setup/status":
+			_ = json.NewEncoder(w).Encode(map[string]bool{"setup_complete": true})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	t.Setenv("VECTIS_API_TOKEN", "test-token")
+
+	var buf bytes.Buffer
+	err := doctor(&buf)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "fail\tapi.ready\tunexpected status: 503 Service Unavailable") {
+		t.Fatalf("missing readiness failure in output:\n%s", out)
+	}
+}

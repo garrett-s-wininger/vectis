@@ -1529,6 +1529,107 @@ func runMigrate(cmd *cobra.Command, args []string) {
 	fmt.Println("Migrations applied.")
 }
 
+type doctorStatus string
+
+const (
+	doctorOK   doctorStatus = "ok"
+	doctorWarn doctorStatus = "warn"
+	doctorFail doctorStatus = "fail"
+)
+
+type doctorCheck struct {
+	ID      string
+	Status  doctorStatus
+	Message string
+}
+
+func runDoctor(cmd *cobra.Command, args []string) {
+	if err := doctor(os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func doctor(w io.Writer) error {
+	checks := []doctorCheck{
+		doctorHTTPStatus("api.live", http.MethodGet, "/health/live", http.StatusOK, "API liveness probe passed"),
+		doctorHTTPStatus("api.ready", http.MethodGet, "/health/ready", http.StatusOK, "API readiness probe passed"),
+		doctorSetupStatus(),
+		doctorCLIToken(),
+	}
+
+	failed := false
+	for _, check := range checks {
+		fmt.Fprintf(w, "%s\t%s\t%s\n", check.Status, check.ID, check.Message)
+		if check.Status == doctorFail {
+			failed = true
+		}
+	}
+
+	if failed {
+		return fmt.Errorf("one or more doctor checks failed")
+	}
+
+	return nil
+}
+
+func doctorHTTPStatus(id, method, path string, want int, okMessage string) doctorCheck {
+	req, err := newAPIRequest(method, path, nil)
+	if err != nil {
+		return doctorCheck{ID: id, Status: doctorFail, Message: err.Error()}
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return doctorCheck{ID: id, Status: doctorFail, Message: fmt.Sprintf("request failed: %v", err)}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != want {
+		return doctorCheck{ID: id, Status: doctorFail, Message: fmt.Sprintf("unexpected status: %s", resp.Status)}
+	}
+
+	return doctorCheck{ID: id, Status: doctorOK, Message: okMessage}
+}
+
+func doctorSetupStatus() doctorCheck {
+	const id = "setup.status"
+	req, err := newAPIRequest(http.MethodGet, "/api/v1/setup/status", nil)
+	if err != nil {
+		return doctorCheck{ID: id, Status: doctorFail, Message: err.Error()}
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return doctorCheck{ID: id, Status: doctorFail, Message: fmt.Sprintf("request failed: %v", err)}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return doctorCheck{ID: id, Status: doctorFail, Message: fmt.Sprintf("unexpected status: %s", resp.Status)}
+	}
+
+	var result struct {
+		SetupComplete bool `json:"setup_complete"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return doctorCheck{ID: id, Status: doctorFail, Message: fmt.Sprintf("failed to parse response: %v", err)}
+	}
+
+	if result.SetupComplete {
+		return doctorCheck{ID: id, Status: doctorOK, Message: "initial setup is complete"}
+	}
+	return doctorCheck{ID: id, Status: doctorWarn, Message: "initial setup is not complete"}
+}
+
+func doctorCLIToken() doctorCheck {
+	const id = "cli.token"
+	if effectiveToken() == "" {
+		return doctorCheck{ID: id, Status: doctorWarn, Message: "no CLI API token configured"}
+	}
+	return doctorCheck{ID: id, Status: doctorOK, Message: "CLI API token is configured"}
+}
+
 func runGetRun(cmd *cobra.Command, args []string) {
 	if err := getRun(args[0], os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -1813,6 +1914,16 @@ var migrateCmd = &cobra.Command{
 Runtime services only wait for the schema; they do not migrate. Use this command (or CI/deploy automation) before starting the stack.`,
 	Args: cobra.NoArgs,
 	Run:  runMigrate,
+}
+
+var doctorCmd = &cobra.Command{
+	Use:   "doctor",
+	Short: "Run basic operational checks",
+	Long: `Run a small set of stable operational checks against the configured Vectis API.
+
+The output is line-oriented: status, check ID, and a human-readable message. Failed checks make the command exit non-zero; warnings are informational.`,
+	Args: cobra.NoArgs,
+	Run:  runDoctor,
 }
 
 var forceFailCmd = &cobra.Command{
@@ -2246,6 +2357,7 @@ func init() {
 	deleteCmd.Flags().Bool("yes", false, "Skip confirmation prompt")
 	rootCmd.AddCommand(deleteCmd)
 	rootCmd.AddCommand(migrateCmd)
+	rootCmd.AddCommand(doctorCmd)
 	forceFailCmd.Flags().String("reason", "", "Failure reason to record")
 	rootCmd.AddCommand(forceFailCmd)
 	rootCmd.AddCommand(forceRequeueCmd)
