@@ -65,7 +65,6 @@ Plan: [FOUNDATION_22_LOCAL_SECRETS_SERVICE.md](FOUNDATION_22_LOCAL_SECRETS_SERVI
 
 The remaining low-friction foundation work is:
 
-- Turn repair workflows into linked runbook recipes.
 - Extend `doctor` with deploy-specific checks that cannot be inferred through the API yet, such as TLS file validation and filesystem pressure for queue persistence, log storage, and log-forwarder spools.
 
 ## Phased Sequencing

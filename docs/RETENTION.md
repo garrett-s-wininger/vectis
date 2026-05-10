@@ -53,4 +53,4 @@ The API registers SQL storage pressure gauges on `/metrics`:
 | `vectis_storage_records` | `surface` | Current row counts for active runs, terminal runs, dispatch events, job definitions, idempotency keys, and audit log. |
 | `vectis_storage_oldest_record_age_seconds` | `surface` | Age of the oldest record for retention-managed SQL surfaces. |
 
-Use these with disk/database capacity signals to decide whether cleanup cadence or retention windows need adjustment.
+Use these with disk/database capacity signals to decide whether cleanup cadence or retention windows need adjustment. For the operator recipe, see [REPAIR_RUNBOOKS.md#retention-cleanup](REPAIR_RUNBOOKS.md#retention-cleanup).

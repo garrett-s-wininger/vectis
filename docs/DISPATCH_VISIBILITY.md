@@ -2,7 +2,7 @@
 
 Dispatch events explain the handoff from durable run state in the database to work delivery through the queue.
 
-The API records run rows first. Queue submission may happen from the API, from `vectis-cron`, or later from `vectis-reconciler` when a run remained queued but was not successfully handed to the queue.
+The API records run rows first. Queue submission may happen from the API, from `vectis-cron`, or later from `vectis-reconciler` when a run remained queued but was not successfully handed to the queue. For the broader repair flow, see [REPAIR_RUNBOOKS.md#queued-runs-or-backlog](REPAIR_RUNBOOKS.md#queued-runs-or-backlog).
 
 ## Where To Look
 

@@ -20,17 +20,17 @@ Use `--json` for the full machine-readable check model, including severity, evid
 | Check ID | Severity | Source | Pass condition | Suggested first action |
 | --- | --- | --- | --- | --- |
 | `api.live` | critical | `GET /health/live` | API liveness endpoint returns `200`. | Check the API process and listener. |
-| `api.ready` | critical | `GET /health/ready` | API readiness endpoint returns `200`. | Check database and queue connectivity. |
+| `api.ready` | critical | `GET /health/ready` | API readiness endpoint returns `200`. | Check database and queue connectivity; see [Schema Or Migration Repair](REPAIR_RUNBOOKS.md#schema-or-migration-repair) if schema/database state is the issue. |
 | `setup.status` | warning | `GET /api/v1/setup/status` | Setup status is readable; incomplete setup warns. | Complete setup or confirm the deployment is intentionally pre-setup. |
 | `cli.token` | warning | Local CLI config / `VECTIS_API_TOKEN` | A CLI API token is configured. | Run `vectis-cli login` or set `VECTIS_API_TOKEN` when auth is enabled. |
-| `db.schema.current` | critical | `GET /api/v1/schema/status` | Schema exists and reports a migration version. | Run `vectis-cli migrate` with the deployment database settings. |
-| `reconciler.active` | warning | `GET /api/v1/reconciler/heartbeat` | A reconciler dispatch event has been observed. | Start or restart `vectis-reconciler`; check DB and queue access. |
-| `audit.drops.recent` | warning | `GET /api/v1/audit/drops` | Audit dropped-event counter is zero. | Check audit buffer pressure and database write capacity. |
-| `db.connection.pool` | warning | `GET /api/v1/db/pool-stats` | Pool is not fully in use with recorded waits. | Check slow queries, pool sizing, and database reachability. |
-| `queue.backlog.ratio` | warning | `GET /api/v1/queue/backlog` | Queued run count is within the built-in threshold. | Check queue health, workers, and dispatch failures. |
-| `reconciler.stuck.runs` | warning | `GET /api/v1/reconciler/stuck-runs` | No queued runs are older than the reconciler dispatch gap. | Check reconciler logs and queue handoff. |
-| `log.reachable` | warning | `GET /api/v1/log/reachable` | API's log gRPC connection is `READY` or `IDLE`. | Check log service, registry/pinned address config, and gRPC TLS. |
-| `audit.flush.failures` | warning | `GET /api/v1/audit/flush-failures` | Audit flush failure counter is zero. | Check audit persistence and database write capacity. |
+| `db.schema.current` | critical | `GET /api/v1/schema/status` | Schema exists and reports a migration version. | [Schema Or Migration Repair](REPAIR_RUNBOOKS.md#schema-or-migration-repair). |
+| `reconciler.active` | warning | `GET /api/v1/reconciler/heartbeat` | A reconciler dispatch event has been observed. | [Reconciler Repair](REPAIR_RUNBOOKS.md#reconciler-repair). |
+| `audit.drops.recent` | warning | `GET /api/v1/audit/drops` | Audit dropped-event counter is zero. | [Audit Durability Repair](REPAIR_RUNBOOKS.md#audit-durability-repair). |
+| `db.connection.pool` | warning | `GET /api/v1/db/pool-stats` | Pool is not fully in use with recorded waits. | [Database Pool Pressure](REPAIR_RUNBOOKS.md#database-pool-pressure). |
+| `queue.backlog.ratio` | warning | `GET /api/v1/queue/backlog` | Queued run count is within the built-in threshold. | [Queued Runs Or Backlog](REPAIR_RUNBOOKS.md#queued-runs-or-backlog). |
+| `reconciler.stuck.runs` | warning | `GET /api/v1/reconciler/stuck-runs` | No queued runs are older than the reconciler dispatch gap. | [Reconciler Repair](REPAIR_RUNBOOKS.md#reconciler-repair). |
+| `log.reachable` | warning | `GET /api/v1/log/reachable` | API's log gRPC connection is `READY` or `IDLE`. | [Log Service Repair](REPAIR_RUNBOOKS.md#log-service-repair). |
+| `audit.flush.failures` | warning | `GET /api/v1/audit/flush-failures` | Audit flush failure counter is zero. | [Audit Durability Repair](REPAIR_RUNBOOKS.md#audit-durability-repair). |
 
 ## Compatibility Notes
 

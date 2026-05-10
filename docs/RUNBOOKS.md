@@ -1,6 +1,6 @@
 # Runbooks, SLOs, And Alerts
 
-This page is the operator index for Vectis observability. The initial goals are intentionally modest: name the user-facing signals, provide alert examples for emitted metrics, and link each alert to a repair path.
+This page is the operator index for Vectis observability. The initial goals are intentionally modest: name the user-facing signals, provide alert examples for emitted metrics, and link each alert to a repair path. For step-by-step repair procedures, see [REPAIR_RUNBOOKS.md](REPAIR_RUNBOOKS.md).
 
 ## Initial SLIs And SLOs
 
@@ -34,18 +34,18 @@ Tune thresholds by environment. The Podman reference deploy is useful for demos 
 
 ## Triage Index
 
-Start with `vectis-cli doctor` when the API should be reachable. It checks API liveness, API readiness, setup status, and local CLI token visibility before deeper service-specific triage.
+Start with `vectis-cli doctor` when the API should be reachable. It checks API liveness/readiness, setup, local CLI token visibility, schema status, queue backlog, reconciler activity, stuck queued runs, log reachability, audit durability, and database pool pressure. For check meanings, see [DOCTOR_CHECK_CATALOG.md](DOCTOR_CHECK_CATALOG.md).
 
-| Alert / symptom | First checks |
-| --- | --- |
-| Queue backlog growing | Queue health, worker count, worker job failures, database availability. |
-| DLQ non-empty | Queue logs, failed delivery reasons, run status, worker availability. |
-| Reconciler failures | Database health, queue health, job definition availability, dispatch events. |
-| Log append failures | Log storage directory permissions, disk space, log service health. |
-| Audit drops | API/database health, async audit buffer pressure, security event volume. |
-| Retry exhaustion | Component label, dependency health, TLS/config mismatch, network policy. |
-| DB pool saturation | Postgres availability, pool sizing, number of service replicas, slow queries. |
-| Old retained records / table growth | Run `vectis-cli retention cleanup --dry-run`, review [RETENTION.md](RETENTION.md), then apply with `--yes` during a maintenance window. |
+| Alert / symptom | First checks | Repair recipe |
+| --- | --- | --- |
+| Queue backlog growing | Queue health, worker count, worker job failures, database availability. | [Queued Runs Or Backlog](REPAIR_RUNBOOKS.md#queued-runs-or-backlog) |
+| DLQ non-empty | Queue logs, failed delivery reasons, run status, worker availability. | [Queued Runs Or Backlog](REPAIR_RUNBOOKS.md#queued-runs-or-backlog) |
+| Reconciler failures | Database health, queue health, job definition availability, dispatch events. | [Reconciler Repair](REPAIR_RUNBOOKS.md#reconciler-repair) |
+| Log append failures | Log storage directory permissions, disk space, log service health. | [Log Service Repair](REPAIR_RUNBOOKS.md#log-service-repair) |
+| Audit drops | API/database health, async audit buffer pressure, security event volume. | [Audit Durability Repair](REPAIR_RUNBOOKS.md#audit-durability-repair) |
+| Retry exhaustion | Component label, dependency health, TLS/config mismatch, network policy. | [Repair Runbooks](REPAIR_RUNBOOKS.md#quick-map) |
+| DB pool saturation | Postgres availability, pool sizing, number of service replicas, slow queries. | [Database Pool Pressure](REPAIR_RUNBOOKS.md#database-pool-pressure) |
+| Old retained records / table growth | Run `vectis-cli retention cleanup --dry-run`, review [RETENTION.md](RETENTION.md), then apply with `--yes` during a maintenance window. | [Retention Cleanup](REPAIR_RUNBOOKS.md#retention-cleanup) |
 
 ## Trace And Log Lookup
 

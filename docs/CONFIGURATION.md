@@ -223,6 +223,7 @@ Treat these paths, deployment secrets, and TLS material as part of the backup se
 | Components and flows | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | Failure behavior | [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md) |
 | Runbooks, SLOs, and alert examples | [RUNBOOKS.md](RUNBOOKS.md) |
+| Repair recipes | [REPAIR_RUNBOOKS.md](REPAIR_RUNBOOKS.md) |
 | Startup dependencies and probes | [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md#startup-and-recovery-matrix) |
 | Dispatch handoff triage | [DISPATCH_VISIBILITY.md](DISPATCH_VISIBILITY.md) |
 | Log streaming and replay behavior | [LOG_STREAMING.md](LOG_STREAMING.md) |
