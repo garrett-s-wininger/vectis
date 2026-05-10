@@ -58,7 +58,7 @@ func (f *LogSpoolForwarder) Run(ctx context.Context) {
 }
 
 func (f *LogSpoolForwarder) moveOrphanedSpoolsToPending() error {
-	baseDir := filepath.Join(os.TempDir(), "vectis-log-spool")
+	baseDir := spoolBaseDir()
 	entries, err := os.ReadDir(baseDir)
 	if err != nil {
 		if os.IsNotExist(err) {

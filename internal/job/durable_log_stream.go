@@ -25,6 +25,7 @@ var (
 	logRetryBase    = 150 * time.Millisecond
 	logRetryMax     = 2 * time.Second
 	logInitialProbe = 200 * time.Millisecond
+	logSpoolDir     = ""
 	logTuneMu       sync.RWMutex
 )
 
@@ -80,6 +81,12 @@ func SetLogInitialProbeForTest(d time.Duration) {
 	}
 }
 
+func SetLogSpoolDirForTest(dir string) {
+	logTuneMu.Lock()
+	logSpoolDir = dir
+	logTuneMu.Unlock()
+}
+
 type durableLogStream struct {
 	logger    interfaces.Logger
 	logClient interfaces.LogClient
@@ -112,7 +119,7 @@ func newDurableLogStream(logClient interfaces.LogClient, logger interfaces.Logge
 		return nil, fmt.Errorf("log client is required")
 	}
 
-	baseDir := filepath.Join(os.TempDir(), "vectis-log-spool")
+	baseDir := spoolBaseDir()
 	if err := os.MkdirAll(baseDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create log spool dir: %w", err)
 	}
@@ -527,8 +534,23 @@ func defaultMaxSpoolBytes() int64 {
 	return 10 * 1024 * 1024 // 10 MB
 }
 
+func spoolBaseDir() string {
+	logTuneMu.RLock()
+	dir := logSpoolDir
+	logTuneMu.RUnlock()
+	if dir != "" {
+		return dir
+	}
+
+	if strings.HasSuffix(filepath.Base(os.Args[0]), ".test") {
+		return filepath.Join(os.TempDir(), fmt.Sprintf("vectis-log-spool-test-%d", os.Getpid()))
+	}
+
+	return filepath.Join(os.TempDir(), "vectis-log-spool")
+}
+
 func pendingSpoolDir() string {
-	return filepath.Join(os.TempDir(), "vectis-log-spool", "pending")
+	return filepath.Join(spoolBaseDir(), "pending")
 }
 
 func (d *durableLogStream) moveSpoolToPending() error {
