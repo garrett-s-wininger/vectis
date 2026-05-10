@@ -4,7 +4,7 @@ Work that should land before Vectis spends serious time on new user-facing featu
 
 **Status:** `todo` | `doing` | `defer` - intentionally **no "done" section**; shipped or documented items live in code, durable docs, ADRs, and git history, not here.
 
-**Last reviewed:** 2026-05-10 - Foundations 1, 2, 4, 8, 10, 12, and 19 cleared into code and durable docs; retention now has first-pass cleanup, metrics, and docs, with remaining production policy work still tracked here.
+**Last reviewed:** 2026-05-10 - Foundations 1, 2, 4, 8, 10, 12, 13, and 19 cleared into code and durable docs; retention now has first-pass cleanup, metrics, and docs; multi-replica semantics now have a first-pass replica matrix and rolling-restart table.
 
 ## Goal
 
@@ -14,9 +14,8 @@ Adding features should be mostly product design and implementation, not archaeol
 
 | Area | Status | Planning doc | What is still open |
 | --- | --- | --- | --- |
-| Multi-replica semantics | defer | [05](FOUNDATION_05_MULTI_REPLICA_SEMANTICS.md), [worker pools](RUNTIME_01_WORKER_POOLS.md) | Human review needed for replica-count commitments, singleton/scale-out guidance, rate-limit behavior under API replicas, cron HA stance, pool-aware worker scale-out, and rolling-restart expectations. |
+| Multi-replica semantics | defer | [Scaling and restarts](SCALING_AND_RESTARTS.md) | First-pass replica matrix and rolling-restart table are documented. Open: human review for long-term API rate-limit behavior, queue/log HA stance, cron leader election or partitioning, reconciler duplicate-handoff bounds, pool-aware worker scale-out, and rolling-restart tests. |
 | Retention and storage pressure | defer | [06](FOUNDATION_06_RETENTION_STORAGE_PRESSURE.md), [RETENTION](RETENTION.md) | First-pass SQL cleanup, dry-run/apply CLI, active-run protections, local run-log pruning, audit event, and SQL pressure metrics are shipped. Human review still needed for production defaults, cleanup cadence, queue persistence, spools, and backup/restore expectations. |
-| Audit durability and loss policy | defer | [13](FOUNDATION_13_AUDIT_DURABILITY_LOSS_POLICY.md) | Human product decision needed on fail-closed vs best-effort audit events, explicit loss semantics, and tests for buffer/DB/shutdown behavior. |
 | Worker execution containment | defer | [21](FOUNDATION_21_WORKER_EXECUTION_CONTAINMENT.md), [pools](RUNTIME_01_WORKER_POOLS.md), [executors](RUNTIME_02_REMOTE_EXECUTORS.md), [actions](RUNTIME_03_ACTION_CATALOG.md) | Human architecture review needed for worker isolation, resource limits, action policy, environment filtering, workspace controls, executor boundary, and sandbox path before untrusted workloads. |
 | Local secrets service | defer | [22](FOUNDATION_22_LOCAL_SECRETS_SERVICE.md) | Human architecture review needed for provider-neutral gRPC contract, encrypted local backend, runtime authorization, worker resolution, audit, and redaction integration. |
 
@@ -26,11 +25,9 @@ Adding features should be mostly product design and implementation, not archaeol
 
 **Status:** defer
 
-Plan: [FOUNDATION_05_MULTI_REPLICA_SEMANTICS.md](FOUNDATION_05_MULTI_REPLICA_SEMANTICS.md)
+Plan: [SCALING_AND_RESTARTS.md](SCALING_AND_RESTARTS.md)
 
-Related plan: [RUNTIME_01_WORKER_POOLS.md](RUNTIME_01_WORKER_POOLS.md)
-
-**Open:** Human review for replica counts per component, singleton expectations, readiness vs liveness, rolling-restart runbooks/tests, rate-limit semantics under horizontal API replicas, cron/reconciler duplicate behavior, and pool-aware worker scale-out.
+First pass: [SCALING_AND_RESTARTS.md](SCALING_AND_RESTARTS.md) documents recommended replica counts, current multi-replica safety, rolling-restart expectations, probe guidance, and scale-out boundaries. **Open:** human review for long-term API rate-limit behavior, queue/log HA stance, cron leader election or partitioning, reconciler duplicate-handoff bounds, pool-aware worker scale-out, and rolling-restart tests.
 
 ### 6. Retention And Storage Pressure
 
@@ -39,14 +36,6 @@ Related plan: [RUNTIME_01_WORKER_POOLS.md](RUNTIME_01_WORKER_POOLS.md)
 Plan: [FOUNDATION_06_RETENTION_STORAGE_PRESSURE.md](FOUNDATION_06_RETENTION_STORAGE_PRESSURE.md)
 
 First pass: [RETENTION.md](RETENTION.md) documents `vectis-cli retention cleanup`, default windows, active-run protections, local run-log pruning, audit events, and SQL pressure metrics. **Open:** Human review for production retention windows, scheduled cleanup authority, backup/restore interaction, queue persistence, log-forwarder spools, and deploy-specific disk pressure behavior.
-
-### 13. Audit Durability And Loss Policy
-
-**Status:** defer
-
-Plan: [FOUNDATION_13_AUDIT_DURABILITY_LOSS_POLICY.md](FOUNDATION_13_AUDIT_DURABILITY_LOSS_POLICY.md)
-
-Async auditor still drops when the buffer is full; metrics exist for drops and flush failures. **Open:** human product decision on explicit loss semantics, durable queue vs best-effort buffering, and fail-closed behavior for sensitive event types.
 
 ### 21. Worker Execution Containment
 
@@ -68,26 +57,24 @@ Plan: [FOUNDATION_22_LOCAL_SECRETS_SERVICE.md](FOUNDATION_22_LOCAL_SECRETS_SERVI
 
 ## Recommended First Tranche
 
-1. **Human policy decisions:** audit loss semantics, retention defaults, cleanup authority, and fail-open/fail-closed boundaries.
-2. **Scale architecture:** multi-replica semantics, worker pools, cron/reconciler HA, and rolling-restart expectations.
+1. **Human policy decisions:** retention defaults, cleanup authority, queue persistence, spool policy, and backup/restore boundaries.
+2. **Scale architecture:** worker pools, cron/reconciler HA, queue/log HA posture, and rolling-restart tests.
 3. **Safety and trust:** worker containment, action catalog, executor boundary, and local secrets service.
 
 ## Easy Foundation Hardening Still Left
 
 The remaining low-friction foundation work is:
 
-- Add a first-pass replica-count matrix and rolling-restart table.
 - Turn repair workflows into linked runbook recipes.
-- Assign stable `doctor` check IDs.
-- Document audit-loss semantics and the fail-open/fail-closed decision.
+- Extend `doctor` beyond API smoke checks into queue/log/reconciler and storage-pressure checks.
 
 ## Phased Sequencing
 
-**Phase 0 - Legible:** audit-loss policy, retention policy, repair workflow docs, and `doctor` check IDs.
+**Phase 0 - Legible:** retention policy, repair workflow docs, and expanded `doctor` check coverage.
 
 **Phase 1 - Repairable:** retention cleanup implementation, CLI repair surfaces, and multi-replica runbooks.
 
-**Phase 2 - Repeatable:** replica matrix, worker pools, cron/reconciler HA, and rolling-restart tests.
+**Phase 2 - Repeatable:** worker pools, cron/reconciler HA, queue/log HA posture, and rolling-restart tests.
 
 **Phase 3 - Safe execution:** worker containment, executor boundary, action catalog, and local secrets service.
 
@@ -111,14 +98,11 @@ Before a major user-facing feature, answer yes to:
 
 Recent planning docs that shape the remaining foundation work:
 
-- [OPERATIONS_01_DOCTOR_COMMAND.md](OPERATIONS_01_DOCTOR_COMMAND.md)
-- [OPERATIONS_02_REPAIR_WORKFLOWS.md](OPERATIONS_02_REPAIR_WORKFLOWS.md)
-- [RUNTIME_01_WORKER_POOLS.md](RUNTIME_01_WORKER_POOLS.md)
-- [RUNTIME_02_REMOTE_EXECUTORS.md](RUNTIME_02_REMOTE_EXECUTORS.md)
-- [RUNTIME_03_ACTION_CATALOG.md](RUNTIME_03_ACTION_CATALOG.md)
-- [UI_01_RUN_OVERVIEW.md](UI_01_RUN_OVERVIEW.md)
-- [UI_02_PROJECT_DASHBOARD.md](UI_02_PROJECT_DASHBOARD.md)
-- [UI_03_ADMIN_CONSOLE.md](UI_03_ADMIN_CONSOLE.md)
+- [SCALING_AND_RESTARTS.md](SCALING_AND_RESTARTS.md)
+- [RETENTION.md](RETENTION.md)
+- [CLI_OPERATIONAL_COVERAGE.md](CLI_OPERATIONAL_COVERAGE.md)
+- [BACKUP_RESTORE.md](BACKUP_RESTORE.md)
+- [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md)
 
 ## Parking Lot
 

@@ -1,6 +1,6 @@
 # Capacity And Load Envelope
 
-This is the initial capacity contract for Vectis. It defines what we measure, where operators should watch pressure, and which ranges are known-safe versus still requiring validation. It does not claim production throughput numbers until the benchmark output is captured for a named deployment.
+This is the initial capacity contract for Vectis. It defines what we measure, where operators should watch pressure, and which ranges are known-safe versus still requiring validation. It does not claim production throughput numbers until the benchmark output is captured for a named deployment. For component replica-count and rolling-restart semantics, see [SCALING_AND_RESTARTS.md](SCALING_AND_RESTARTS.md).
 
 ## Repeatable Benchmark
 
@@ -45,6 +45,8 @@ The benchmark script prints a human-readable summary first and keeps the raw Go 
 | Logs | Durable local JSONL storage plus bounded in-memory terminal buffers | Very large persisted logs and many replaying clients. |
 | SQLite | Local/dev and small single-node deployments | High-concurrency API, worker, cron, and reconciler load. |
 | Postgres | Recommended for multi-service deployments | Exact pool sizes and trigger/worker scale must be benchmarked per deployment. |
+
+The envelope above is a throughput and pressure statement. The scale-out contract in [SCALING_AND_RESTARTS.md](SCALING_AND_RESTARTS.md) remains the source of truth for whether a component is safe to run as multiple active replicas.
 
 ## Regression Gate
 

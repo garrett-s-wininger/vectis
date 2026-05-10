@@ -169,7 +169,7 @@ Readiness should answer "should this process receive new work right now?" Livene
 
 **Where we are now**
 
-- No built-in authentication on the HTTP API; restrict access at the network or edge.
+- Built-in HTTP authentication, scoped API tokens, RBAC, rate limits, and audit logging are shipped; operators can still place the API behind edge/network controls for defense in depth.
 - **Background enqueue** after HTTP **202** (`finishTriggerEnqueue` / `finishRunJobEnqueue`) still uses a **detached context**; there is no explicit wait for those goroutines during HTTP shutdown—the **reconciler** remains the backstop for runs stuck in **queued** in the database (see [adr/0001-async-enqueue-after-http-202.md](adr/0001-async-enqueue-after-http-202.md)).
 
 ---
