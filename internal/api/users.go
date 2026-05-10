@@ -111,7 +111,7 @@ func (s *APIServer) CreateUser(w http.ResponseWriter, r *http.Request) {
 		password, err = generateRandomPassword()
 		if err != nil {
 			s.logger.Error("Failed to generate password: %v", err)
-			writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+			writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 			return
 		}
 
@@ -131,7 +131,7 @@ func (s *APIServer) CreateUser(w http.ResponseWriter, r *http.Request) {
 	passHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		s.logger.Error("Failed to hash password: %v", err)
-		writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 
@@ -159,7 +159,7 @@ func (s *APIServer) CreateUser(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error creating user: %v", err)
-		writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 
@@ -212,7 +212,7 @@ func (s *APIServer) ListUsers(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error listing users: %v", err)
-		writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 
@@ -261,7 +261,7 @@ func (s *APIServer) GetUser(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error getting user: %v", err)
-		writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 
@@ -334,7 +334,7 @@ func (s *APIServer) UpdateUser(w http.ResponseWriter, r *http.Request) {
 			}
 
 			s.logger.Error("Database error checking admin status: %v", err)
-			writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+			writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 			return
 		}
 
@@ -346,7 +346,7 @@ func (s *APIServer) UpdateUser(w http.ResponseWriter, r *http.Request) {
 				}
 
 				s.logger.Error("Database error counting admins: %v", err)
-				writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+				writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 				return
 			}
 
@@ -368,7 +368,7 @@ func (s *APIServer) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error updating user: %v", err)
-		writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 
@@ -418,7 +418,7 @@ func (s *APIServer) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error checking admin status: %v", err)
-		writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 
@@ -430,7 +430,7 @@ func (s *APIServer) DeleteUser(w http.ResponseWriter, r *http.Request) {
 			}
 
 			s.logger.Error("Database error counting admins: %v", err)
-			writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+			writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 			return
 		}
 
@@ -451,7 +451,7 @@ func (s *APIServer) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error deleting user: %v", err)
-		writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 
@@ -536,8 +536,9 @@ func (s *APIServer) ChangePassword(w http.ResponseWriter, r *http.Request) {
 				if s.handleDBUnavailableError(w, err) {
 					return
 				}
+
 				s.logger.Error("Database error checking user enabled status: %v", err)
-				writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+				writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 				return
 			}
 
@@ -563,16 +564,18 @@ func (s *APIServer) ChangePassword(w http.ResponseWriter, r *http.Request) {
 				writeAPIErrorCode(w, http.StatusNotFound, apiErrUserNotFound)
 				return
 			}
+
 			if s.handleDBUnavailableError(w, err) {
 				return
 			}
+
 			s.logger.Error("Database error getting password hash: %v", err)
-			writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+			writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 			return
 		}
 
 		if err := bcrypt.CompareHashAndPassword([]byte(currentHash), []byte(req.CurrentPassword)); err != nil {
-			writeAuthJSON(w, http.StatusUnauthorized, authAPIError{Error: AuthJSONInvalidPassword})
+			writeAPIErrorCode(w, http.StatusUnauthorized, apiErrInvalidPassword)
 			return
 		}
 	}
@@ -580,7 +583,7 @@ func (s *APIServer) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	newHash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
 	if err != nil {
 		s.logger.Error("Failed to hash password: %v", err)
-		writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 
@@ -589,11 +592,13 @@ func (s *APIServer) ChangePassword(w http.ResponseWriter, r *http.Request) {
 			writeAPIErrorCode(w, http.StatusNotFound, apiErrUserNotFound)
 			return
 		}
+
 		if s.handleDBUnavailableError(w, err) {
 			return
 		}
+
 		s.logger.Error("Database error changing password: %v", err)
-		writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 

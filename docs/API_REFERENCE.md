@@ -1,6 +1,6 @@
 # API Reference
 
-This reference describes the shipped HTTP API surface for Vectis v1. gRPC contracts are in `api/proto/`; generated Go is in `api/gen/go/`.
+This reference describes the shipped HTTP API surface for Vectis v1. gRPC contracts are in `api/proto/`; generated Go is in `api/gen/go/`. Compatibility rules for REST, gRPC, CLI JSON, configuration, and schema changes are in [COMPATIBILITY.md](COMPATIBILITY.md).
 
 ## Authentication
 
@@ -14,7 +14,7 @@ Health endpoints, `/metrics`, and `POST /api/v1/login` are public. Setup routes 
 
 ## Error Envelopes
 
-General API errors use:
+General API errors use this stable v1 envelope:
 
 ```json
 {
@@ -24,16 +24,9 @@ General API errors use:
 }
 ```
 
-Setup/auth middleware and a few token paths keep the v1 legacy auth envelope:
+All error responses use `Content-Type: application/json; charset=utf-8` and `X-Content-Type-Options: nosniff`. `401` responses add `WWW-Authenticate: Bearer`.
 
-```json
-{
-  "error": "authentication_required",
-  "detail": "optional detail"
-}
-```
-
-Both envelopes use `Content-Type: application/json; charset=utf-8`. Auth responses add `Cache-Control: no-store`; `401` responses add `WWW-Authenticate: Bearer`.
+The `code` field is intended for clients and scripts. The `message` field is human-readable and may become clearer over time without changing the machine meaning. `details` is optional structured data whose shape depends on `code`; clients should ignore unknown detail keys.
 
 Common status meanings:
 
@@ -50,6 +43,28 @@ Common status meanings:
 | `500` | Unexpected server error. |
 | `503` | Database, auth persistence, queue, or setup state is not ready. |
 
+Common v1 error codes:
+
+| Code | Typical status | Meaning |
+| --- | --- | --- |
+| `invalid_request_body` | `400` | JSON could not be decoded or did not match the expected request shape. |
+| `authentication_required` | `401` | Missing, malformed, expired, or invalid bearer credentials. |
+| `authorization_denied` | `403` | Authenticated principal is not allowed to perform the requested visible action. |
+| `auth_unavailable` | `503` | Authentication persistence or configuration is not available. |
+| `setup_required` | `503` | Initial setup must be completed before using the requested route. |
+| `bootstrap_not_configured` | `503` | Initial setup needs a sufficiently long configured bootstrap token. |
+| `invalid_bootstrap_token` | `401` | The supplied setup bootstrap token does not match the server configuration. |
+| `unsupported_media_type` | `415` | A JSON route received a non-JSON `Content-Type`. |
+| `request_body_too_large` | `413` | The request body exceeded the route limit. |
+| `database_unavailable` | `503` | The configured SQL database is temporarily unavailable. |
+| `queue_not_ready` | `503` | The API cannot currently hand work to the queue. |
+| `rate_limit_exceeded` | `429` | The request exceeded the in-process rate limit; `Retry-After` is set. |
+| `idempotency_key_reused` | `409` | The same idempotency key was reused with a different request body or target. |
+| `idempotency_in_progress` | `409` | The original idempotent request has not completed yet. |
+| `validation_failed` | `400` | Job definition semantic validation failed; see [JOB_VALIDATION.md](JOB_VALIDATION.md). |
+| `not_found` / resource-specific `*_not_found` | `404` | Resource is absent or hidden by namespace authorization. |
+| `internal_error` | `500` | Unexpected server error. |
+
 ## Pagination
 
 List routes use `limit` and `cursor` query parameters where implemented. `limit` is capped by the server. Paginated responses include `next_cursor` when another page is available. Omit `cursor` to read the first page.
@@ -57,6 +72,8 @@ List routes use `limit` and `cursor` query parameters where implemented. `limit`
 ## Idempotency
 
 `POST /api/v1/jobs/run` and `POST /api/v1/jobs/trigger/{id}` accept `Idempotency-Key`. Keys are scoped by authenticated principal plus operation. Reusing a key with the same request replays the completed JSON response. Reusing a key with a different request returns `409 idempotency_key_reused`; retrying while the first request is still in progress returns `409 idempotency_in_progress`.
+
+Other mutating routes do not currently persist idempotency records. Retry guidance for each route family is in [IDEMPOTENCY_AND_RETRIES.md](IDEMPOTENCY_AND_RETRIES.md).
 
 ## Streaming
 

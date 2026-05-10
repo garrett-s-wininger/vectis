@@ -5,12 +5,6 @@ import (
 	"net/http"
 )
 
-// authAPIError is the standard JSON envelope for /api/v1/setup/* and auth middleware errors.
-type authAPIError struct {
-	Error  string `json:"error"`
-	Detail string `json:"detail,omitempty"`
-}
-
 type apiError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
@@ -21,12 +15,17 @@ type apiErrorCode string
 
 const (
 	apiErrAuthNotConfigured              apiErrorCode = "auth_not_configured"
+	apiErrAuthUnavailable                apiErrorCode = "auth_unavailable"
+	apiErrAuthenticationRequired         apiErrorCode = "authentication_required"
+	apiErrAuthorizationDenied            apiErrorCode = "authorization_denied"
 	apiErrBindingAlreadyExists           apiErrorCode = "binding_already_exists"
 	apiErrBindingNotFound                apiErrorCode = "binding_not_found"
+	apiErrBootstrapNotConfigured         apiErrorCode = "bootstrap_not_configured"
 	apiErrDatabaseNotReady               apiErrorCode = "database_not_ready"
 	apiErrInternal                       apiErrorCode = "internal_error"
 	apiErrInvalidAdminPassword           apiErrorCode = "invalid_admin_password"
 	apiErrInvalidAdminUsername           apiErrorCode = "invalid_admin_username"
+	apiErrInvalidBootstrapToken          apiErrorCode = "invalid_bootstrap_token"
 	apiErrInvalidExpiresIn               apiErrorCode = "invalid_expires_in"
 	apiErrInvalidID                      apiErrorCode = "invalid_id"
 	apiErrInvalidNamespaceID             apiErrorCode = "invalid_namespace_id"
@@ -73,6 +72,8 @@ const (
 	apiErrScopedTokenScopeRequired       apiErrorCode = "scoped_token_scope_required"
 	apiErrSelfDeleteForbidden            apiErrorCode = "self_delete_forbidden"
 	apiErrSelfDisableForbidden           apiErrorCode = "self_disable_forbidden"
+	apiErrSetupAlreadyComplete           apiErrorCode = "setup_already_complete"
+	apiErrSetupRequired                  apiErrorCode = "setup_required"
 	apiErrStreamingUnsupported           apiErrorCode = "streaming_unsupported"
 	apiErrTokenNotFound                  apiErrorCode = "token_not_found"
 	apiErrUnsupportedMediaType           apiErrorCode = "unsupported_media_type"
@@ -85,10 +86,18 @@ func (c apiErrorCode) message() string {
 	switch c {
 	case apiErrAuthNotConfigured:
 		return "auth not configured"
+	case apiErrAuthUnavailable:
+		return "authentication persistence is not available"
+	case apiErrAuthenticationRequired:
+		return "authentication required"
+	case apiErrAuthorizationDenied:
+		return "authorization denied"
 	case apiErrBindingAlreadyExists:
 		return "binding already exists"
 	case apiErrBindingNotFound:
 		return "binding not found"
+	case apiErrBootstrapNotConfigured:
+		return "server is missing a bootstrap token of sufficient length"
 	case apiErrDatabaseNotReady:
 		return "database not ready"
 	case apiErrInternal:
@@ -97,6 +106,8 @@ func (c apiErrorCode) message() string {
 		return "invalid admin_password"
 	case apiErrInvalidAdminUsername:
 		return "invalid admin_username"
+	case apiErrInvalidBootstrapToken:
+		return "invalid bootstrap token"
 	case apiErrInvalidExpiresIn:
 		return "invalid expires_in"
 	case apiErrInvalidID:
@@ -189,6 +200,10 @@ func (c apiErrorCode) message() string {
 		return "cannot delete yourself"
 	case apiErrSelfDisableForbidden:
 		return "cannot disable yourself"
+	case apiErrSetupAlreadyComplete:
+		return "initial setup has already been performed"
+	case apiErrSetupRequired:
+		return "complete initial setup before using the API"
 	case apiErrStreamingUnsupported:
 		return "streaming unsupported"
 	case apiErrTokenNotFound:
@@ -206,15 +221,10 @@ func (c apiErrorCode) message() string {
 	}
 }
 
-func writeAuthJSON(w http.ResponseWriter, status int, v any) {
+func writeJSON(w http.ResponseWriter, status int, v any) {
 	h := w.Header()
 	h.Set("Content-Type", "application/json; charset=utf-8")
-	h.Set("Cache-Control", "no-store")
 	h.Set("X-Content-Type-Options", "nosniff")
-
-	if status == http.StatusUnauthorized {
-		h.Set("WWW-Authenticate", "Bearer")
-	}
 
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
@@ -224,6 +234,10 @@ func writeAPIError(w http.ResponseWriter, status int, code, message string, deta
 	h := w.Header()
 	h.Set("Content-Type", "application/json; charset=utf-8")
 	h.Set("X-Content-Type-Options", "nosniff")
+
+	if status == http.StatusUnauthorized {
+		h.Set("WWW-Authenticate", "Bearer")
+	}
 
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(apiError{

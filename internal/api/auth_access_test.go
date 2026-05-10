@@ -75,12 +75,12 @@ func TestAccessControlMiddleware_setupRequiredBlocksJobs(t *testing.T) {
 		t.Fatalf("code=%d", rec.Code)
 	}
 
-	var body authAPIError
+	var body apiError
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
 
-	if body.Error != AuthJSONSetupRequired {
+	if body.Code != string(apiErrSetupRequired) {
 		t.Fatalf("body=%+v", body)
 	}
 }
@@ -246,12 +246,13 @@ func TestAccessControlMiddleware_authorizerDeniesAfterBearerAuth(t *testing.T) {
 		t.Fatalf("code=%d", rec.Code)
 	}
 
-	var body authAPIError
+	var body apiError
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Error != AuthJSONAuthorizationDenied {
-		t.Fatalf("error=%q", body.Error)
+
+	if body.Code != string(apiErrAuthorizationDenied) {
+		t.Fatalf("code=%q", body.Code)
 	}
 }
 
@@ -298,11 +299,12 @@ func TestAccessControlMiddleware_nilAuthRepo(t *testing.T) {
 		t.Fatalf("code=%d", rec.Code)
 	}
 
-	var body authAPIError
+	var body apiError
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Error != AuthJSONUnavailable {
-		t.Fatalf("error=%q", body.Error)
+
+	if body.Code != string(apiErrAuthUnavailable) {
+		t.Fatalf("code=%q", body.Code)
 	}
 }

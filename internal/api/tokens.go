@@ -111,7 +111,7 @@ func (s *APIServer) ListTokens(w http.ResponseWriter, r *http.Request) {
 				}
 
 				s.logger.Error("Database error checking user enabled status: %v", err)
-				writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+				writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 				return
 			}
 
@@ -131,7 +131,7 @@ func (s *APIServer) ListTokens(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error listing tokens: %v", err)
-		writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 
 		return
 	}
@@ -213,7 +213,7 @@ func (s *APIServer) CreateToken(w http.ResponseWriter, r *http.Request) {
 				}
 
 				s.logger.Error("Database error checking user enabled status: %v", err)
-				writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+				writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 
 				return
 			}
@@ -235,7 +235,7 @@ func (s *APIServer) CreateToken(w http.ResponseWriter, r *http.Request) {
 	plainToken, err := randomHexToken(apiTokenRandomBytes)
 	if err != nil {
 		s.logger.Error("Failed to generate token: %v", err)
-		writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 
@@ -293,7 +293,7 @@ func (s *APIServer) CreateToken(w http.ResponseWriter, r *http.Request) {
 					}
 
 					s.logger.Error("Database error resolving namespace: %v", err)
-					writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+					writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 					return
 				}
 
@@ -319,7 +319,7 @@ func (s *APIServer) CreateToken(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error creating token: %v", err)
-		writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 
@@ -387,7 +387,7 @@ func (s *APIServer) DeleteToken(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error getting token owner: %v", err)
-		writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 
@@ -408,7 +408,7 @@ func (s *APIServer) DeleteToken(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error deleting token: %v", err)
-		writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 

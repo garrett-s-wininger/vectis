@@ -190,13 +190,16 @@ func TestLogin_setupNotComplete(t *testing.T) {
 		t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
 	}
 
-	var errResp authAPIError
+	var errResp struct {
+		Code string `json:"code"`
+	}
+
 	if err := json.Unmarshal(rec.Body.Bytes(), &errResp); err != nil {
 		t.Fatal(err)
 	}
 
-	if errResp.Error != AuthJSONSetupRequired {
-		t.Fatalf("expected setup_required, got %q", errResp.Error)
+	if errResp.Code != string(apiErrSetupRequired) {
+		t.Fatalf("expected setup_required, got %q", errResp.Code)
 	}
 }
 

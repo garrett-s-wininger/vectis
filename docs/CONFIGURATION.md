@@ -213,16 +213,13 @@ Treat these paths, deployment secrets, and TLS material as part of the backup se
 | --- | --- |
 | Components and flows | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | Failure behavior | [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md) |
-<<<<<<< HEAD
 | Runbooks, SLOs, and alert examples | [RUNBOOKS.md](RUNBOOKS.md) |
 | Startup dependencies and probes | [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md#startup-and-recovery-matrix) |
 | Dispatch handoff triage | [DISPATCH_VISIBILITY.md](DISPATCH_VISIBILITY.md) |
 | Log streaming and replay behavior | [LOG_STREAMING.md](LOG_STREAMING.md) |
 | Backup, restore, and disaster recovery | [BACKUP_RESTORE.md](BACKUP_RESTORE.md) |
 | Context and deadline policy | [CONTEXTS.md](CONTEXTS.md) |
-=======
 | Retry and backoff defaults | [RETRY_POLICY.md](RETRY_POLICY.md) |
->>>>>>> c1dcf7b (docs: retry policy)
 | Roadmap / persistence | [PLANNING.md](PLANNING.md) §2.5 |
 | Quick start, Postgres / Podman | [README.md](../README.md) |
 | Glossary | [GLOSSARY.md](GLOSSARY.md) |

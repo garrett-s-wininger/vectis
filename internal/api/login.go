@@ -43,10 +43,7 @@ func (s *APIServer) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !config.APIAuthEnabled() {
-		writeAuthJSON(w, http.StatusServiceUnavailable, authAPIError{
-			Error:  AuthJSONUnavailable,
-			Detail: "API authentication is not enabled",
-		})
+		writeAPIErrorCode(w, http.StatusServiceUnavailable, apiErrAuthUnavailable)
 		return
 	}
 
@@ -85,15 +82,12 @@ func (s *APIServer) Login(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 
 	if !complete {
-		writeAuthJSON(w, http.StatusServiceUnavailable, authAPIError{
-			Error:  AuthJSONSetupRequired,
-			Detail: "complete initial setup before logging in",
-		})
+		writeAPIError(w, http.StatusServiceUnavailable, string(apiErrSetupRequired), "complete initial setup before logging in", nil)
 		return
 	}
 
@@ -108,7 +102,7 @@ func (s *APIServer) Login(w http.ResponseWriter, r *http.Request) {
 				"username": req.Username,
 			})
 
-			writeAuthJSON(w, http.StatusUnauthorized, authAPIError{Error: AuthJSONAuthenticationRequired})
+			writeAPIErrorCode(w, http.StatusUnauthorized, apiErrAuthenticationRequired)
 			return
 		}
 
@@ -117,7 +111,7 @@ func (s *APIServer) Login(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error looking up user: %v", err)
-		writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 
@@ -129,7 +123,7 @@ func (s *APIServer) Login(w http.ResponseWriter, r *http.Request) {
 			"username": req.Username,
 		})
 
-		writeAuthJSON(w, http.StatusUnauthorized, authAPIError{Error: AuthJSONAuthenticationRequired})
+		writeAPIErrorCode(w, http.StatusUnauthorized, apiErrAuthenticationRequired)
 		return
 	}
 
@@ -139,14 +133,14 @@ func (s *APIServer) Login(w http.ResponseWriter, r *http.Request) {
 			"username": req.Username,
 		})
 
-		writeAuthJSON(w, http.StatusUnauthorized, authAPIError{Error: AuthJSONAuthenticationRequired})
+		writeAPIErrorCode(w, http.StatusUnauthorized, apiErrAuthenticationRequired)
 		return
 	}
 
 	plainToken, err := randomHexToken(apiTokenRandomBytes)
 	if err != nil {
 		s.logger.Error("Failed to generate login token: %v", err)
-		writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 
@@ -160,7 +154,7 @@ func (s *APIServer) Login(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error creating login token: %v", err)
-		writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 

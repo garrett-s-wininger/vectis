@@ -118,6 +118,7 @@ Environment-driven configuration uses **`VECTIS_*`** prefixes per binary; nested
 | Topic | Document |
 | --- | --- |
 | Goals (§1), roadmap, naming, target vs shipped | [PLANNING.md](PLANNING.md) |
+| API, protocol, CLI, config, and schema compatibility | [COMPATIBILITY.md](COMPATIBILITY.md) |
 | Outages and expectations | [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md) |
 | Deferred multi-site design | [FEDERATION.md](FEDERATION.md) |
 | Configuration (env, flags, discovery) | [CONFIGURATION.md](CONFIGURATION.md) |

@@ -1,154 +1,126 @@
 # Foundation Roadmap Before Feature Expansion
 
-Work that should land before Vectis spends serious time on new user-facing features: deployment readiness, operational clarity, correctness, and maintainability.
+Work that should land before Vectis spends serious time on new user-facing features: deployment readiness, operational clarity, correctness, safety, and maintainability.
 
-**Status:** `todo` | `doing` | `defer` — intentionally **no “done” section**; shipped items live in code and git history, not here.
+**Status:** `todo` | `doing` | `defer` - intentionally **no "done" section**; shipped or documented items live in code, durable docs, ADRs, and git history, not here.
 
-**Last reviewed:** 2026-05-08 — audit against codebase; corrections and gap refresh below.
+**Last reviewed:** 2026-05-09 - Foundations 1, 2, 4, 8, 10, 12, and 19 cleared into code and durable docs; roadmap now tracks only open foundation hardening.
 
 ## Goal
 
-Adding features should be mostly product design and implementation, not archaeology, deployment guesswork, or hidden reliability debt.
+Adding features should be mostly product design and implementation, not archaeology, deployment guesswork, hidden reliability debt, or unclear trust boundaries.
 
-## Outstanding foundations
+## Outstanding Foundations
 
-| Area | Status | What is still open |
-| --- | --- | --- |
-| As-built docs & API reference | doing | Route tables and prose for auth, runs, namespaces, logs, tokens, users, role bindings, cancel; **public** error-contract doc. ARCHITECTURE.md REST surface table omits ~15 shipped auth/admin endpoints. Log service is gRPC-only (no HTTP surface); need replay/pagination design docs. |
-| Compatibility & deprecation | todo | Written guarantees for REST v1, protos, CLI output, config/env, schema. API versioning strategy (v1→v2). Proto evolution rules (add-only fields, reserved tags). |
-| CI breadth vs dogfood | doing | `.vectis/ci.sh` is strong (pre-commit, proto drift on `api/gen/go`, `test-quick`, container build). **GitHub** `ci.yml` only runs `make ci-quick`; optional: wire `test-postgres-integration` / `test-integration`, formal verification when feasible. |
-| Postgres confidence | doing | `tests/integration/postgres/` exists; keep it green and consider promoting to default CI. |
-| Reference deploy | doing | Bootstrap-token lifecycle, demo vs staging vs prod checklist, loud non-prod warnings. |
-| Run lifecycle (operator) | doing | DLQ-oriented flows (CLI list/requeue missing despite proto+server support); dispatch trail on CLI; `--json` output across CLI; docs for repair paths. |
-| Worker execution containment | todo | Isolation for shell/checkout before untrusted workloads. |
+| Area | Status | Planning doc | What is still open |
+| --- | --- | --- | --- |
+| Multi-replica semantics | defer | [05](FOUNDATION_05_MULTI_REPLICA_SEMANTICS.md), [worker pools](RUNTIME_01_WORKER_POOLS.md) | Human review needed for replica-count commitments, singleton/scale-out guidance, rate-limit behavior under API replicas, cron HA stance, pool-aware worker scale-out, and rolling-restart expectations. |
+| Retention and storage pressure | defer | [06](FOUNDATION_06_RETENTION_STORAGE_PRESSURE.md) | Human review needed for retention defaults, cleanup authority, storage pressure behavior, dry-run/audited cleanup expectations, and tests that protect active state. |
+| Audit durability and loss policy | defer | [13](FOUNDATION_13_AUDIT_DURABILITY_LOSS_POLICY.md) | Human product decision needed on fail-closed vs best-effort audit events, explicit loss semantics, and tests for buffer/DB/shutdown behavior. |
+| Worker execution containment | defer | [21](FOUNDATION_21_WORKER_EXECUTION_CONTAINMENT.md), [pools](RUNTIME_01_WORKER_POOLS.md), [executors](RUNTIME_02_REMOTE_EXECUTORS.md), [actions](RUNTIME_03_ACTION_CATALOG.md) | Human architecture review needed for worker isolation, resource limits, action policy, environment filtering, workspace controls, executor boundary, and sandbox path before untrusted workloads. |
+| Local secrets service | defer | [22](FOUNDATION_22_LOCAL_SECRETS_SERVICE.md) | Human architecture review needed for provider-neutral gRPC contract, encrypted local backend, runtime authorization, worker resolution, audit, and redaction integration. |
 
-## Track — remaining blockers
+## Foundation Items
 
-### 1. API response and error contract
+### 5. Multi-Replica Semantics
 
-**Status:** doing
+**Status:** defer
 
-**Open:** Public API reference documenting `code` / `message` / `details` error envelope; exhaustive status-code matrix tests. ARCHITECTURE.md REST surface table is incomplete (auth, setup, login, tokens, namespaces, users, role-bindings, run cancel all missing).
+Plan: [FOUNDATION_05_MULTI_REPLICA_SEMANTICS.md](FOUNDATION_05_MULTI_REPLICA_SEMANTICS.md)
 
-### 2. Job definition semantic validation
+Related plan: [RUNTIME_01_WORKER_POOLS.md](RUNTIME_01_WORKER_POOLS.md)
 
-**Status:** doing
+**Open:** Human review for replica counts per component, singleton expectations, readiness vs liveness, rolling-restart runbooks/tests, rate-limit semantics under horizontal API replicas, cron/reconciler duplicate behavior, and pool-aware worker scale-out.
 
-Structural validation and known-action resolution exist (`internal/job/validation`). **Open:** validate action-specific `with` (e.g. shell, checkout); richer graph rules as pipeline-as-code arrives.
+### 6. Retention And Storage Pressure
 
-### 3. Migration and rollback discipline
+**Status:** defer
 
-**Status:** doing
+Plan: [FOUNDATION_06_RETENTION_STORAGE_PRESSURE.md](FOUNDATION_06_RETENTION_STORAGE_PRESSURE.md)
 
-Up/down tests exist for SQLite and Postgres (SQLite in-tree, Postgres via integration tag). **Open:** expand/contract rules formalized in an ADR (prose exists in MIGRATIONS.md but no ADR yet — only 0001–0003 are shipped); SQLite vs Postgres migration checklist; binary↔schema compatibility stance; whether `Down` is prod rollback or dev-only — capture in ADR + short operator notes.
+**Open:** Human review for policies and knobs covering run history, persisted logs, audit, idempotency keys, job versions, queue persistence, and local spools; cleanup jobs or documented operator commands; metrics for pressure and cleanup outcomes.
 
-### 4. Operational CLI coverage
+### 13. Audit Durability And Loss Policy
 
-**Status:** doing
+**Status:** defer
 
-**Open:** Consistent `--json` (or equivalent) and exit-code contract across all CLI commands; namespace, user, role-binding management commands (API endpoints exist, CLI does not); queue DLQ list/requeue (proto+server support exists, CLI missing); surface dispatch trail on run commands.
+Plan: [FOUNDATION_13_AUDIT_DURABILITY_LOSS_POLICY.md](FOUNDATION_13_AUDIT_DURABILITY_LOSS_POLICY.md)
 
-### 5. Multi-replica semantics
+Async auditor still drops when the buffer is full; metrics exist for drops and flush failures. **Open:** human product decision on explicit loss semantics, durable queue vs best-effort buffering, and fail-closed behavior for sensitive event types.
 
-**Status:** todo
+### 21. Worker Execution Containment
 
-Replica counts per component, singleton expectations, readiness vs liveness, rolling-restart runbooks/tests. **Rate limiting:** in-process limiter today — no metrics for throttled/rejected requests; document limit at scale or add shared limiter.
+**Status:** defer
 
-### 6. Retention and storage pressure
+Plan: [FOUNDATION_21_WORKER_EXECUTION_CONTAINMENT.md](FOUNDATION_21_WORKER_EXECUTION_CONTAINMENT.md)
 
-**Status:** todo
+Related plans: [RUNTIME_01_WORKER_POOLS.md](RUNTIME_01_WORKER_POOLS.md), [RUNTIME_02_REMOTE_EXECUTORS.md](RUNTIME_02_REMOTE_EXECUTORS.md), [RUNTIME_03_ACTION_CATALOG.md](RUNTIME_03_ACTION_CATALOG.md)
 
-Policies and knobs for run history, persisted logs, audit, job versions, queue persistence, local spools; cleanup jobs or documented operator commands; metrics for pressure and cleanup outcomes.
+**Open:** Human architecture review for isolation, limits, action policy, environment filtering, workspace controls, executor boundary, and sandbox path before untrusted workloads.
 
-### 7. Observability: SLOs, alerts, runbooks
+### 22. Local Secrets Service
 
-**Status:** doing
+**Status:** defer
 
-**Open:** SLO targets, Prometheus alert examples (stuck runs, DLQ, queue persistence, log append, auth spikes, etc.), dashboard alignment, `docs/RUNBOOKS.md` (or equivalent) with alert links.
+Plan: [FOUNDATION_22_LOCAL_SECRETS_SERVICE.md](FOUNDATION_22_LOCAL_SECRETS_SERVICE.md)
 
-### 8. API idempotency and client retry semantics
+**Open:** Human architecture review for provider-neutral service contract, encrypted local backend, runtime identity/authorization, worker-side resolution, audit events, and redaction hooks.
 
-**Status:** doing
+## Recommended First Tranche
 
-Trigger and ephemeral `POST /api/v1/jobs/run` support `Idempotency-Key` with DB backing. **Open:** extend to other mutators if needed; **document** which endpoints accept keys and replay behavior.
+1. **Human policy decisions:** audit loss semantics, retention defaults, cleanup authority, and fail-open/fail-closed boundaries.
+2. **Scale architecture:** multi-replica semantics, worker pools, cron/reconciler HA, and rolling-restart expectations.
+3. **Safety and trust:** worker containment, action catalog, executor boundary, and local secrets service.
 
-### 9. Service startup and dependency recovery
+## Easy Foundation Hardening Still Left
 
-**Status:** doing
+The remaining low-friction foundation work is:
 
-**Open:** per-binary matrix (hard vs soft deps); deeper recovery tests; clarify “recover without restart” where appropriate (beyond current API not-ready paths).
+- Add a first-pass replica-count matrix and rolling-restart table.
+- Turn repair workflows into linked runbook recipes.
+- Assign stable `doctor` check IDs.
+- Document audit-loss semantics and the fail-open/fail-closed decision.
 
-### 10. Request context and deadline propagation
+## Phased Sequencing
 
-**Status:** todo
+**Phase 0 - Legible:** audit-loss policy, retention policy, repair workflow docs, and `doctor` check IDs.
 
-Audit API → registry / worker / queue and worker → log / queue; fix **cancel / run-control** paths that still use detached `context.Background()` where the request should bound work; document intentional detachment for async enqueue.
+**Phase 1 - Repairable:** retention cleanup implementation, CLI repair surfaces, and multi-replica runbooks.
 
-### 11. Dispatch handoff (operator visibility)
+**Phase 2 - Repeatable:** replica matrix, worker pools, cron/reconciler HA, and rolling-restart tests.
 
-**Status:** doing
+**Phase 3 - Safe execution:** worker containment, executor boundary, action catalog, and local secrets service.
 
-Dispatch events are persisted and exposed on run GET. **Open:** CLI and operator docs; any missing tests (e.g. API restart during async enqueue) if product wants that guarantee explicit.
-
-### 12. Log streaming: replay and scale
-
-**Status:** doing
-
-In-memory terminal-buffer eviction and `max_run_buffers` exist. **Open:** logserver is gRPC-only with no cursor/pagination mechanism for replay (streaming replays entire buffer from seq 0); documented replay pagination / tail limits; persisted log retention (ties to §6); load or boundedness tests for many SSE clients.
-
-### 13. Audit durability and loss policy
-
-**Status:** doing
-
-Async auditor still drops when the buffer is full; metrics exist for drops and flush failures when wired. **Open:** operator doc on loss semantics; product decision on durable queue or fail-closed for sensitive event types.
-
-### 14. Retry and backoff policy surface
-
-**Status:** doing
-
-**Open:** Operator doc of defaults and overrides per service (API, cron, reconciler, worker, log-forwarder); per-service max-tries and base-delay should be surfaced alongside the retry metrics already instrumented (`vectis_retries_total`, `vectis_retries_exhausted_total`, `vectis_retry_delay_seconds`).
-
-### 15. Reference deployment: bootstrap and posture
-
-**Status:** doing
-
-CLI-generated Podman secrets improved the demo story. **Open:** bootstrap token supply/rotate/remove workflow in docs; deployment checklist across demo / staging / production.
-
----
-
-## Recommended first tranche
-
-1. **Docs + policy:** API reference and error contract, compatibility doc, deploy/bootstrap checklist, replica matrix.
-2. **CI:** Optionally add Postgres (and broader integration) to published CI, not only dogfood.
-3. **Operator surfaces:** CLI gaps (§4), runbooks + alerts (§7), dispatch visibility (§11).
-4. **Safety + data:** Worker containment, `with` validation, retention (§6).
-5. **Hardening:** Request context on cancel paths (§10), `--json` output and DLQ/ns/user CLI (§4).
-
-## Phased sequencing (forward-looking)
-
-**Phase 0 — Legible:** finish public API + error docs; compatibility policy; deploy credential and bootstrap story.
-
-**Phase 1 — Repeatable:** broaden CI if desired; keep migration discipline documented as schema evolves; startup/recovery matrix and tests.
-
-**Phase 2 — Repairable:** CLI and runbooks; retention; SLOs/alerts; multi-replica documentation and rate-limit stance; dispatch/audit visibility in operator tooling.
-
-**Phase 3 — Safe execution:** worker containment; semantic validation.
-
-## Feature readiness checklist
+## Feature Readiness Checklist
 
 Before a major user-facing feature, answer yes to:
 
-- Is the public API route / CLI / config contract documented?
-- Is there validation at the API boundary (including action-specific needs)?
+- Is the public API route, CLI, config, and error contract documented?
+- Is there validation at the API boundary, including action-specific needs?
 - Does it run on Postgres and SQLite where supported?
 - Are migrations forward-safe and rollback expectations documented?
-- Is observability runbook-quality (metrics, alerts, owner)?
-- Does it behave sensibly under retries, duplicate requests, and process restarts?
-- Does it respect namespace/RBAC and token scope?
+- Is observability runbook-quality: metrics, alerts, owner, and trace/log path?
+- Does it behave sensibly under retries, duplicate requests, process restarts, and partial restores?
+- Does it respect namespace/RBAC, token scope, and internal service trust boundaries?
 - Does it avoid storing or logging secrets accidentally?
 - Is there an operator repair path for partial failure?
+- Does it fit within the documented capacity envelope or update that envelope?
+- Is worker execution isolated appropriately for the trust level of the workload?
 
-## Parking lot
+## Adjacent Planning References
+
+Recent planning docs that shape the remaining foundation work:
+
+- [OPERATIONS_01_DOCTOR_COMMAND.md](OPERATIONS_01_DOCTOR_COMMAND.md)
+- [OPERATIONS_02_REPAIR_WORKFLOWS.md](OPERATIONS_02_REPAIR_WORKFLOWS.md)
+- [RUNTIME_01_WORKER_POOLS.md](RUNTIME_01_WORKER_POOLS.md)
+- [RUNTIME_02_REMOTE_EXECUTORS.md](RUNTIME_02_REMOTE_EXECUTORS.md)
+- [RUNTIME_03_ACTION_CATALOG.md](RUNTIME_03_ACTION_CATALOG.md)
+- [UI_01_RUN_OVERVIEW.md](UI_01_RUN_OVERVIEW.md)
+- [UI_02_PROJECT_DASHBOARD.md](UI_02_PROJECT_DASHBOARD.md)
+- [UI_03_ADMIN_CONSOLE.md](UI_03_ADMIN_CONSOLE.md)
+
+## Parking Lot
 
 Not required before feature work, but tracked elsewhere:
 

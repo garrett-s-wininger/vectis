@@ -60,10 +60,7 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 		}
 
 		if s.authRepo == nil {
-			writeAuthJSON(w, http.StatusServiceUnavailable, authAPIError{
-				Error:  AuthJSONUnavailable,
-				Detail: "authentication persistence is not available",
-			})
+			writeAPIErrorCode(w, http.StatusServiceUnavailable, apiErrAuthUnavailable)
 			return
 		}
 
@@ -76,7 +73,7 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 				return
 			}
 
-			writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+			writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 			return
 		}
 
@@ -89,16 +86,13 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 				return
 			}
 
-			writeAuthJSON(w, http.StatusServiceUnavailable, authAPIError{
-				Error:  AuthJSONSetupRequired,
-				Detail: "complete initial setup before using the API",
-			})
+			writeAPIErrorCode(w, http.StatusServiceUnavailable, apiErrSetupRequired)
 			return
 		}
 
 		if action == authz.ActionSetupStatus || action == authz.ActionSetupComplete {
 			if !z.Allow(ctx, nil, action, authz.Resource{}) {
-				writeAuthJSON(w, http.StatusForbidden, authAPIError{Error: AuthJSONAuthorizationDenied})
+				writeAPIErrorCode(w, http.StatusForbidden, apiErrAuthorizationDenied)
 				return
 			}
 
@@ -108,12 +102,12 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 
 		raw, ok := bearerToken(r.Header.Get("Authorization"))
 		if !ok {
-			writeAuthJSON(w, http.StatusUnauthorized, authAPIError{Error: AuthJSONAuthenticationRequired})
+			writeAPIErrorCode(w, http.StatusUnauthorized, apiErrAuthenticationRequired)
 			return
 		}
 
 		if len(raw) > maxBearerTokenBytes {
-			writeAuthJSON(w, http.StatusUnauthorized, authAPIError{Error: AuthJSONAuthenticationRequired})
+			writeAPIErrorCode(w, http.StatusUnauthorized, apiErrAuthenticationRequired)
 			return
 		}
 
@@ -124,7 +118,8 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 				s.auditLog(r.Context(), audit.EventAuthFailure, 0, 0, map[string]any{
 					"reason": "invalid_token",
 				})
-				writeAuthJSON(w, http.StatusUnauthorized, authAPIError{Error: AuthJSONAuthenticationRequired})
+
+				writeAPIErrorCode(w, http.StatusUnauthorized, apiErrAuthenticationRequired)
 				return
 			}
 
@@ -132,7 +127,7 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 				return
 			}
 
-			writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+			writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 			return
 		}
 
@@ -164,7 +159,7 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 				})
 
 				s.logger.Error("Database error loading token scopes: %v", err)
-				writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+				writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 				return
 			}
 
@@ -181,7 +176,7 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 		}
 
 		if !z.Allow(ctx, p, action, authz.Resource{}) {
-			writeAuthJSON(w, http.StatusForbidden, authAPIError{Error: AuthJSONAuthorizationDenied})
+			writeAPIErrorCode(w, http.StatusForbidden, apiErrAuthorizationDenied)
 			return
 		}
 

@@ -165,7 +165,7 @@ The sections below (**§4–§17**) describe **target** architecture and APIs. T
 - **Transient vs permanent:** backoff/retry for network and rate limits; fail fast for bad input and test failures (behavior lives in worker, queue client, and API handlers).
 - **Step/job failure:** executor reports run state via DAL; target design may add queue `ReportJobStatus` — see **§4**.
 - **Partitions / dependencies down:** shipped stack uses a **SQL** database (SQLite default) and a **queue** with optional persistence (default-on WAL); **reconciler** helps when enqueue lags the DB. Target **heartbeat** and richer orphan policy remain **§3**.
-- **REST errors (target shape):** JSON with `error.code`, `message`, optional `details` — not fully standardized today.
+- **REST errors:** JSON with `code`, `message`, and optional `details` as documented in [API_REFERENCE.md](API_REFERENCE.md).
 
 ---
 

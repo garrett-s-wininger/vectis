@@ -309,7 +309,7 @@ func (s *APIServer) requirePrincipal(w http.ResponseWriter, r *http.Request) (*a
 		return nil, true
 	}
 
-	writeAuthJSON(w, http.StatusUnauthorized, authAPIError{Error: AuthJSONAuthenticationRequired})
+	writeAPIErrorCode(w, http.StatusUnauthorized, apiErrAuthenticationRequired)
 	return nil, false
 }
 
@@ -320,7 +320,7 @@ func (s *APIServer) authorizeNamespace(ctx context.Context, w http.ResponseWrite
 
 	z := s.effectiveAuthorizer(true)
 	if !z.Allow(ctx, p, action, authz.Resource{NamespacePath: namespacePath}) {
-		writeAuthJSON(w, http.StatusForbidden, authAPIError{Error: AuthJSONAuthorizationDenied})
+		writeAPIErrorCode(w, http.StatusForbidden, apiErrAuthorizationDenied)
 		return false
 	}
 
@@ -334,7 +334,7 @@ func (s *APIServer) authorizeAction(ctx context.Context, w http.ResponseWriter, 
 
 	z := s.effectiveAuthorizer(true)
 	if !z.Allow(ctx, p, action, res) {
-		writeAuthJSON(w, http.StatusForbidden, authAPIError{Error: AuthJSONAuthorizationDenied})
+		writeAPIErrorCode(w, http.StatusForbidden, apiErrAuthorizationDenied)
 		return false
 	}
 

@@ -48,10 +48,7 @@ func (s *APIServer) GetSetupStatus(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	if s.authRepo == nil {
-		writeAuthJSON(w, http.StatusServiceUnavailable, authAPIError{
-			Error:  AuthJSONUnavailable,
-			Detail: "authentication persistence is not available",
-		})
+		writeAPIErrorCode(w, http.StatusServiceUnavailable, apiErrAuthUnavailable)
 		return
 	}
 
@@ -61,11 +58,11 @@ func (s *APIServer) GetSetupStatus(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 
-	writeAuthJSON(w, http.StatusOK, setupStatusResponse{SetupComplete: complete})
+	writeJSON(w, http.StatusOK, setupStatusResponse{SetupComplete: complete})
 }
 
 func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
@@ -83,10 +80,7 @@ func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	if s.authRepo == nil {
-		writeAuthJSON(w, http.StatusServiceUnavailable, authAPIError{
-			Error:  AuthJSONUnavailable,
-			Detail: "authentication persistence is not available",
-		})
+		writeAPIErrorCode(w, http.StatusServiceUnavailable, apiErrAuthUnavailable)
 		return
 	}
 
@@ -96,22 +90,19 @@ func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 
 	if complete {
-		writeAuthJSON(w, http.StatusConflict, authAPIError{
-			Error:  AuthJSONSetupAlreadyComplete,
-			Detail: "initial setup has already been performed",
-		})
+		writeAPIErrorCode(w, http.StatusConflict, apiErrSetupAlreadyComplete)
 
 		return
 	}
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxSetupCompleteBodyBytes+1))
 	if err != nil {
-		writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 
@@ -128,9 +119,8 @@ func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
 
 	expected := strings.TrimSpace(config.APIAuthBootstrapToken())
 	if len(expected) < config.MinBootstrapTokenLen {
-		writeAuthJSON(w, http.StatusServiceUnavailable, authAPIError{
-			Error:  AuthJSONBootstrapNotConfigured,
-			Detail: "server is missing a bootstrap token of sufficient length (see api.auth.bootstrap_token)",
+		writeAPIError(w, http.StatusServiceUnavailable, string(apiErrBootstrapNotConfigured), apiErrBootstrapNotConfigured.message(), map[string]any{
+			"setting": "api.auth.bootstrap_token",
 		})
 
 		return
@@ -138,7 +128,7 @@ func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
 
 	a := strings.TrimSpace(req.BootstrapToken)
 	if subtle.ConstantTimeCompare([]byte(a), []byte(expected)) != 1 {
-		writeAuthJSON(w, http.StatusUnauthorized, authAPIError{Error: AuthJSONInvalidBootstrapToken})
+		writeAPIErrorCode(w, http.StatusUnauthorized, apiErrInvalidBootstrapToken)
 		return
 	}
 
@@ -165,13 +155,13 @@ func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
 
 	passHash, err := bcrypt.GenerateFromPassword([]byte(req.AdminPassword), bcrypt.DefaultCost)
 	if err != nil {
-		writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 
 	plainToken, err := randomHexToken(apiTokenRandomBytes)
 	if err != nil {
-		writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 
@@ -180,12 +170,12 @@ func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
 	_, err = s.authRepo.CompleteInitialSetup(ctx, username, string(passHash), tokenHash, "initial-admin")
 	if err != nil {
 		if errors.Is(err, dal.ErrSetupAlreadyComplete) {
-			writeAuthJSON(w, http.StatusConflict, authAPIError{Error: AuthJSONSetupAlreadyComplete})
+			writeAPIErrorCode(w, http.StatusConflict, apiErrSetupAlreadyComplete)
 			return
 		}
 
 		if dal.IsConflict(err) {
-			writeAuthJSON(w, http.StatusConflict, authAPIError{Error: AuthJSONUsernameExists})
+			writeAPIErrorCode(w, http.StatusConflict, apiErrUsernameAlreadyExists)
 			return
 		}
 
@@ -193,11 +183,11 @@ func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		writeAuthJSON(w, http.StatusInternalServerError, authAPIError{Error: AuthJSONInternal})
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 
-	writeAuthJSON(w, http.StatusOK, setupCompleteResponse{
+	writeJSON(w, http.StatusOK, setupCompleteResponse{
 		APIToken: plainToken,
 		Username: username,
 	})
