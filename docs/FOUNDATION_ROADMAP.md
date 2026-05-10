@@ -4,7 +4,7 @@ Work that should land before Vectis spends serious time on new user-facing featu
 
 **Status:** `todo` | `doing` | `defer` - intentionally **no "done" section**; shipped or documented items live in code, durable docs, ADRs, and git history, not here.
 
-**Last reviewed:** 2026-05-09 - Foundations 1, 2, 4, 8, 10, 12, and 19 cleared into code and durable docs; roadmap now tracks only open foundation hardening.
+**Last reviewed:** 2026-05-10 - Foundations 1, 2, 4, 8, 10, 12, and 19 cleared into code and durable docs; retention now has first-pass cleanup, metrics, and docs, with remaining production policy work still tracked here.
 
 ## Goal
 
@@ -15,7 +15,7 @@ Adding features should be mostly product design and implementation, not archaeol
 | Area | Status | Planning doc | What is still open |
 | --- | --- | --- | --- |
 | Multi-replica semantics | defer | [05](FOUNDATION_05_MULTI_REPLICA_SEMANTICS.md), [worker pools](RUNTIME_01_WORKER_POOLS.md) | Human review needed for replica-count commitments, singleton/scale-out guidance, rate-limit behavior under API replicas, cron HA stance, pool-aware worker scale-out, and rolling-restart expectations. |
-| Retention and storage pressure | defer | [06](FOUNDATION_06_RETENTION_STORAGE_PRESSURE.md) | Human review needed for retention defaults, cleanup authority, storage pressure behavior, dry-run/audited cleanup expectations, and tests that protect active state. |
+| Retention and storage pressure | defer | [06](FOUNDATION_06_RETENTION_STORAGE_PRESSURE.md), [RETENTION](RETENTION.md) | First-pass SQL cleanup, dry-run/apply CLI, active-run protections, local run-log pruning, audit event, and SQL pressure metrics are shipped. Human review still needed for production defaults, cleanup cadence, queue persistence, spools, and backup/restore expectations. |
 | Audit durability and loss policy | defer | [13](FOUNDATION_13_AUDIT_DURABILITY_LOSS_POLICY.md) | Human product decision needed on fail-closed vs best-effort audit events, explicit loss semantics, and tests for buffer/DB/shutdown behavior. |
 | Worker execution containment | defer | [21](FOUNDATION_21_WORKER_EXECUTION_CONTAINMENT.md), [pools](RUNTIME_01_WORKER_POOLS.md), [executors](RUNTIME_02_REMOTE_EXECUTORS.md), [actions](RUNTIME_03_ACTION_CATALOG.md) | Human architecture review needed for worker isolation, resource limits, action policy, environment filtering, workspace controls, executor boundary, and sandbox path before untrusted workloads. |
 | Local secrets service | defer | [22](FOUNDATION_22_LOCAL_SECRETS_SERVICE.md) | Human architecture review needed for provider-neutral gRPC contract, encrypted local backend, runtime authorization, worker resolution, audit, and redaction integration. |
@@ -38,7 +38,7 @@ Related plan: [RUNTIME_01_WORKER_POOLS.md](RUNTIME_01_WORKER_POOLS.md)
 
 Plan: [FOUNDATION_06_RETENTION_STORAGE_PRESSURE.md](FOUNDATION_06_RETENTION_STORAGE_PRESSURE.md)
 
-**Open:** Human review for policies and knobs covering run history, persisted logs, audit, idempotency keys, job versions, queue persistence, and local spools; cleanup jobs or documented operator commands; metrics for pressure and cleanup outcomes.
+First pass: [RETENTION.md](RETENTION.md) documents `vectis-cli retention cleanup`, default windows, active-run protections, local run-log pruning, audit events, and SQL pressure metrics. **Open:** Human review for production retention windows, scheduled cleanup authority, backup/restore interaction, queue persistence, log-forwarder spools, and deploy-specific disk pressure behavior.
 
 ### 13. Audit Durability And Loss Policy
 

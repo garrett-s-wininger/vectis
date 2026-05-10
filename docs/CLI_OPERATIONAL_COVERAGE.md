@@ -9,6 +9,7 @@
 | Role bindings | `vectis-cli role-binding list`, `create`, `delete` |
 | Tokens | `vectis-cli token list`, `create`, `delete` |
 | Runs | `vectis-cli run get`, `list`, `cancel`; top-level `force-fail`, `force-requeue` |
+| Retention | `vectis-cli retention cleanup --dry-run`, `--yes` |
 | Health checks | `vectis-cli doctor` |
 
 ## Output Contract
@@ -19,6 +20,7 @@ These admin commands use stable, line-oriented text:
 - Get commands print `key=value` lines.
 - Create/delete/update commands print a short success line.
 - `doctor` prints `status<TAB>check_id<TAB>message`, using stable check IDs.
+- `retention cleanup` prints `key=value` summary lines for cutoffs and delete counts.
 - Errors are written to stderr by command runners and return a non-zero process exit.
 
 The CLI still needs a broader `--json` contract across all commands before scripts should depend on JSON output. Until that lands, prefer the line-oriented output above for simple automation.

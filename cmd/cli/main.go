@@ -28,6 +28,7 @@ import (
 	"vectis/internal/config"
 	"vectis/internal/database"
 	jobvalidation "vectis/internal/job/validation"
+	"vectis/internal/retention"
 	"vectis/internal/utils"
 
 	_ "vectis/internal/dbdrivers"
@@ -132,6 +133,13 @@ var (
 	podmanRenderOut   string
 	resetYes          bool
 	resetDryRun       bool
+	retentionYes      bool
+	retentionDryRun   bool
+	retentionRunAge   time.Duration
+	retentionDefAge   time.Duration
+	retentionIdemAge  time.Duration
+	retentionAuditAge time.Duration
+	retentionLogDir   string
 	runListJobID      string
 	runListLimit      int
 	runListSince      int
@@ -1529,6 +1537,107 @@ func runMigrate(cmd *cobra.Command, args []string) {
 	fmt.Println("Migrations applied.")
 }
 
+func runRetentionCleanup(cmd *cobra.Command, args []string) {
+	policy := retention.Policy{
+		TerminalRuns:    retentionRunAge,
+		JobDefinitions:  retentionDefAge,
+		IdempotencyKeys: retentionIdemAge,
+		AuditLog:        retentionAuditAge,
+	}
+
+	if err := retentionCleanup(cmd.Context(), os.Stdout, policy, retentionDryRun, retentionYes, retentionLogDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy, dryRun, yes bool, logStorageDir string) error {
+	if !dryRun && !yes {
+		return fmt.Errorf("retention cleanup deletes durable records; pass --dry-run to inspect or --yes to apply")
+	}
+
+	dbPath := database.GetDBPath()
+	db, err := database.OpenDB(dbPath)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	if err := database.WaitForMigrations(db, nil); err != nil {
+		return err
+	}
+
+	cleaner := retention.NewSQLCleaner(db)
+	now := time.Now().UTC()
+
+	var fileReport retention.FileReport
+	if logStorageDir != "" {
+		runIDs, err := cleaner.TerminalRunIDs(ctx, policy.TerminalRuns, now)
+		if err != nil {
+			return fmt.Errorf("list terminal run logs: %w", err)
+		}
+
+		logCleaner := retention.LocalRunLogCleaner{Dir: logStorageDir}
+		if dryRun {
+			fileReport, err = logCleaner.Preview(runIDs)
+		} else {
+			fileReport, err = logCleaner.Delete(runIDs)
+		}
+		if err != nil {
+			return err
+		}
+	}
+
+	var report retention.Report
+	if dryRun {
+		report, err = cleaner.Preview(ctx, policy, now)
+	} else {
+		report, err = cleaner.Apply(ctx, policy, now)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	printRetentionReport(w, report, fileReport)
+	if dryRun {
+		fmt.Fprintln(w, "Cleanup not applied.")
+		return nil
+	}
+
+	fmt.Fprintln(w, "Cleanup applied.")
+	return nil
+}
+
+func printRetentionReport(w io.Writer, report retention.Report, fileReport retention.FileReport) {
+	prefix := "deleted"
+	if report.DryRun {
+		prefix = "would_delete"
+	}
+
+	fmt.Fprintf(w, "dry_run=%t\n", report.DryRun)
+	fmt.Fprintf(w, "cutoff.terminal_runs=%s\n", retentionCutoff(report.Cutoffs.TerminalRuns))
+	fmt.Fprintf(w, "cutoff.job_definitions=%s\n", retentionCutoff(report.Cutoffs.JobDefinitions))
+	fmt.Fprintf(w, "cutoff.idempotency_keys=%s\n", retentionCutoff(report.Cutoffs.IdempotencyKeys))
+	fmt.Fprintf(w, "cutoff.audit_log=%s\n", retentionCutoff(report.Cutoffs.AuditLog))
+	fmt.Fprintf(w, "%s.terminal_runs=%d\n", prefix, report.Counts.TerminalRuns)
+	fmt.Fprintf(w, "%s.run_dispatch_events=%d\n", prefix, report.Counts.RunDispatchEvents)
+	fmt.Fprintf(w, "%s.job_definitions=%d\n", prefix, report.Counts.JobDefinitions)
+	fmt.Fprintf(w, "%s.idempotency_keys=%d\n", prefix, report.Counts.IdempotencyKeys)
+	fmt.Fprintf(w, "%s.audit_log=%d\n", prefix, report.Counts.AuditLog)
+	fmt.Fprintf(w, "%s.run_log_files=%d\n", prefix, fileReport.RunLogFiles)
+	fmt.Fprintf(w, "%s.run_log_bytes=%d\n", prefix, fileReport.RunLogBytes)
+	fmt.Fprintf(w, "audit_event_inserted=%t\n", report.AuditEventInserted)
+}
+
+func retentionCutoff(t *time.Time) string {
+	if t == nil {
+		return "disabled"
+	}
+
+	return t.UTC().Format(time.RFC3339)
+}
+
 type doctorStatus string
 
 const (
@@ -1997,6 +2106,22 @@ This is a destructive local reset. It does not stop running services or delete r
 	Run:  runReset,
 }
 
+var retentionCmd = &cobra.Command{
+	Use:   "retention",
+	Short: "Manage durable data retention",
+}
+
+var retentionCleanupCmd = &cobra.Command{
+	Use:   "cleanup",
+	Short: "Prune old terminal runs and related durable records",
+	Long: `Prune old terminal run rows, dispatch events, orphaned ephemeral job definitions,
+idempotency keys, audit log rows, and optionally local durable run log files.
+
+The command is destructive. Use --dry-run first, then pass --yes to apply.`,
+	Args: cobra.NoArgs,
+	Run:  runRetentionCleanup,
+}
+
 var runGetCmd = &cobra.Command{
 	Use:   "get [run-id]",
 	Short: "Get run status and failure details",
@@ -2379,6 +2504,17 @@ func init() {
 	resetCmd.Flags().BoolVar(&resetYes, "yes", false, "Confirm removal of local Vectis directories")
 	resetCmd.Flags().BoolVar(&resetDryRun, "dry-run", false, "Print the directories that would be removed")
 	rootCmd.AddCommand(resetCmd)
+
+	defaultRetention := retention.DefaultPolicy()
+	retentionCleanupCmd.Flags().BoolVar(&retentionYes, "yes", false, "Confirm deletion of retention-eligible records")
+	retentionCleanupCmd.Flags().BoolVar(&retentionDryRun, "dry-run", false, "Print the records that would be deleted")
+	retentionCleanupCmd.Flags().DurationVar(&retentionRunAge, "terminal-run-age", defaultRetention.TerminalRuns, "Delete succeeded/failed runs older than this duration (0 disables)")
+	retentionCleanupCmd.Flags().DurationVar(&retentionDefAge, "job-definition-age", defaultRetention.JobDefinitions, "Delete unreferenced ephemeral job definitions older than this duration (0 disables)")
+	retentionCleanupCmd.Flags().DurationVar(&retentionIdemAge, "idempotency-age", defaultRetention.IdempotencyKeys, "Delete idempotency keys older than this duration (0 disables)")
+	retentionCleanupCmd.Flags().DurationVar(&retentionAuditAge, "audit-age", defaultRetention.AuditLog, "Delete audit log rows older than this duration (0 disables)")
+	retentionCleanupCmd.Flags().StringVar(&retentionLogDir, "log-storage-dir", "", "Optional durable run log directory to prune for deleted terminal runs")
+	retentionCmd.AddCommand(retentionCleanupCmd)
+	rootCmd.AddCommand(retentionCmd)
 
 	loginCmd.Flags().StringP("username", "u", "", "Username (optional; prompts if omitted)")
 	rootCmd.AddCommand(loginCmd)

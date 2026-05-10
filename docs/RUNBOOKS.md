@@ -13,6 +13,7 @@ This page is the operator index for Vectis observability. The initial goals are 
 | Audit durability | `vectis_audit_events_dropped_total` and `vectis_audit_flush_failures_total` | Audit drops should be zero. |
 | Retry health | `vectis_retries_exhausted_total` and retry delay histogram | Retry exhaustion should be rare and investigated. |
 | Database pressure | `database/sql` pool gauges when DB pool metrics are registered | Connections should not sit at configured limits. |
+| Storage pressure | `vectis_storage_records` and `vectis_storage_oldest_record_age_seconds` | Durable SQL state should stay within the operator's retention and capacity plan. |
 
 Use these as starter operating signals, not contractual product SLOs. Production targets should be set after load testing and real traffic baselines.
 
@@ -27,6 +28,7 @@ Prometheus examples live in [docs/alerts/prometheus-examples.yml](alerts/prometh
 - Audit drops and flush failures.
 - Retry exhaustion.
 - Database pool saturation.
+- SQL storage pressure and old retained records.
 
 Tune thresholds by environment. The Podman reference deploy is useful for demos and smoke tests, but production alert routing should live in the operator's telemetry system.
 
@@ -43,6 +45,7 @@ Start with `vectis-cli doctor` when the API should be reachable. It checks API l
 | Audit drops | API/database health, async audit buffer pressure, security event volume. |
 | Retry exhaustion | Component label, dependency health, TLS/config mismatch, network policy. |
 | DB pool saturation | Postgres availability, pool sizing, number of service replicas, slow queries. |
+| Old retained records / table growth | Run `vectis-cli retention cleanup --dry-run`, review [RETENTION.md](RETENTION.md), then apply with `--yes` during a maintenance window. |
 
 ## Trace And Log Lookup
 
@@ -58,5 +61,5 @@ Run IDs are the most reliable cross-service handle today. Request IDs are strong
 - No direct queued-run-age metric yet.
 - No direct dispatch failure counter yet.
 - No rate-limit accepted/rejected metric yet.
-- No storage pressure metric for every durable path yet.
+- File-backed run log and queue persistence pressure still depend on filesystem/disk telemetry outside the SQL gauges.
 - Dashboard panels are not yet annotated with runbook links.

@@ -99,6 +99,12 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		return
 	}
 
+	if err := observability.RegisterRetentionStorageMetrics(db); err != nil {
+		logger.Error("Failed to register retention storage metrics: %v", err)
+		exitCode = 1
+		return
+	}
+
 	auditMetrics, err := observability.NewAuditMetrics()
 	if err != nil {
 		logger.Error("Failed to register audit metrics: %v", err)
