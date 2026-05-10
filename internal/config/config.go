@@ -57,6 +57,7 @@ type APIDefaults struct {
 	LogAddress      string               `toml:"log.address"`
 	Auth            APIAuthDefaults      `toml:"auth"`
 	Authz           APIAuthzDefaults     `toml:"authz"`
+	Audit           APIAuditDefaults     `toml:"audit"`
 	RateLimit       APIRateLimitDefaults `toml:"rate_limit"`
 }
 
@@ -76,6 +77,11 @@ type APIAuthDefaults struct {
 
 type APIAuthzDefaults struct {
 	Engine string `toml:"engine"`
+}
+
+type APIAuditDefaults struct {
+	Enabled             bool   `toml:"enabled"`
+	DurabilityOverrides string `toml:"durability_overrides"`
 }
 
 type QueueDefaults struct {

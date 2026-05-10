@@ -9,6 +9,7 @@ import (
 // Event represents a single audit log entry.
 type Event struct {
 	Type          string
+	Durability    Durability
 	ActorID       int64
 	TargetID      int64
 	Metadata      map[string]any
@@ -26,23 +27,25 @@ type Auditor interface {
 
 // EventType constants for audit log entries.
 const (
-	EventTokenCreated     = "token.created"
-	EventTokenDeleted     = "token.deleted"
-	EventPasswordChanged  = "password.changed"
-	EventUserCreated      = "user.created"
-	EventUserUpdated      = "user.updated"
-	EventUserDeleted      = "user.deleted"
-	EventAuthSuccess      = "auth.success"
-	EventAuthFailure      = "auth.failure"
-	EventNamespaceCreated = "namespace.created"
-	EventNamespaceDeleted = "namespace.deleted"
-	EventBindingCreated   = "binding.created"
-	EventBindingDeleted   = "binding.deleted"
-	EventJobCreated       = "job.created"
-	EventJobDeleted       = "job.deleted"
-	EventJobUpdated       = "job.updated"
-	EventRunTriggered     = "run.triggered"
-	EventRunForceFailed   = "run.force_failed"
-	EventRunForceRequeued = "run.force_requeued"
-	EventRunCancelled     = "run.cancelled"
+	EventTokenCreated         = "token.created"
+	EventTokenDeleted         = "token.deleted"
+	EventPasswordChanged      = "password.changed"
+	EventUserCreated          = "user.created"
+	EventUserUpdated          = "user.updated"
+	EventUserDeleted          = "user.deleted"
+	EventAuthSuccess          = "auth.success"
+	EventAuthFailure          = "auth.failure"
+	EventNamespaceCreated     = "namespace.created"
+	EventNamespaceDeleted     = "namespace.deleted"
+	EventBindingCreated       = "binding.created"
+	EventBindingDeleted       = "binding.deleted"
+	EventJobCreated           = "job.created"
+	EventJobDeleted           = "job.deleted"
+	EventJobUpdated           = "job.updated"
+	EventRunTriggered         = "run.triggered"
+	EventRunForceFailed       = "run.force_failed"
+	EventRunForceRequeued     = "run.force_requeued"
+	EventRunCancelled         = "run.cancelled"
+	EventSetupCompleted       = "setup.completed"
+	EventSetupBootstrapFailed = "setup.bootstrap_failed"
 )

@@ -11,6 +11,10 @@ bootstrap_token = ""
 [api.authz]
 engine = "hierarchical_rbac"
 
+[api.audit]
+enabled = true
+durability_overrides = ""
+
 [api.rate_limit]
 auth_refill_rate = "12s"
 auth_burst_size = 5

@@ -39,6 +39,15 @@ Shipped default is **`api.auth.enabled` = `false`** in [`internal/config/default
 | **`VECTIS_API_AUTH_BOOTSTRAP_TOKEN`** / **`api.auth.bootstrap_token`** | Shared secret for **`POST /api/v1/setup/complete`** on a **new** database. Must be **at least 16 characters** when auth is enabled and setup is not yet complete; optional after the DB records setup completion. |
 | **`VECTIS_API_AUTHZ_ENGINE`** / **`api.authz.engine`** | `hierarchical_rbac` (default) or `authenticated_full`. See [SECURITY.md](SECURITY.md). |
 
+### API audit policy (`vectis-api`)
+
+API audit events are enabled by default. Event definitions and default durability live in `internal/api/audit/policy.go` so operators can change posture without changing every call site.
+
+| Variable / key | Purpose |
+| --- | --- |
+| **`VECTIS_API_AUDIT_ENABLED`** / **`api.audit.enabled`** | If `false`, audit emission is disabled. |
+| **`VECTIS_API_AUDIT_DURABILITY_OVERRIDES`** / **`api.audit.durability_overrides`** | Comma-separated `event=durability` overrides, e.g. `auth.success=disabled,run.triggered=best_effort`. Durability values are `disabled`, `best_effort`, `durable_best_effort`, and `fail_closed`. |
+
 **CLI authentication:** `vectis-cli login` calls **`POST /api/v1/login`** and persists the returned token to the OS user config directory (`os.UserConfigDir()/vectis/token`, e.g. `~/.config/vectis/token` on Linux or `~/Library/Application Support/vectis/token` on macOS). Subsequent CLI commands read this file automatically (override with **`VECTIS_API_TOKEN`**).
 
 **Local reset:** `vectis-cli reset --dry-run` lists the local Vectis directories it would remove: OS user config (`os.UserConfigDir()/vectis`, including CLI tokens and default Podman deploy secrets), XDG data (`$XDG_DATA_HOME/vectis`, including SQLite data, queue persistence, logs, and `vectis-local` TLS), OS user cache (`os.UserCacheDir()/vectis`), and `$VECTIS_DEPLOY_CONFIG_DIR/podman` when that override is set. `vectis-cli reset --yes` removes those paths. It does not stop running services or remove container volumes.

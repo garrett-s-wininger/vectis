@@ -32,6 +32,7 @@ For outage behavior, see [FAILURE_DOMAINS.md](FAILURE_DOMAINS.md). For configura
 - **Authorization engines:** `api.authz.engine` selects the post-setup authorization policy:
   - **`hierarchical_rbac`** (default) — Namespace-scoped role-based access control with inheritance. Roles are `viewer`, `trigger`, `operator`, and `admin`. Permissions flow down the namespace tree unless `break_inheritance` is set on a namespace.
   - **`authenticated_full`** — Any authenticated principal may perform any non-setup action (simple setups / demos).
+- **Audit policy:** API audit events are enabled by default and have centralized durability definitions. Operators can disable audit emission or override per-event durability with `api.audit.*` / `VECTIS_API_AUDIT_*` settings; see [CONFIGURATION.md](CONFIGURATION.md). Loss and flush failures remain observable through audit metrics.
 - **Abuse limits:** setup and login JSON bodies are capped (**64 KiB**); extracted Bearer material is capped (**4096** bytes) to limit CPU/memory work on hostile headers. Admin username/password lengths are bounded (see `internal/api/auth_limits.go`).
 - **Trust boundary:** For production exposure beyond a private network, prefer **TLS at the edge**, **network policy**, and eventually **full IdP integration** (roadmap). Same practical posture as internal gRPC: do not expose the API to untrusted networks without controls.
 

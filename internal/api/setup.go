@@ -11,6 +11,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"vectis/internal/api/audit"
 	"vectis/internal/config"
 	"vectis/internal/dal"
 
@@ -128,6 +129,10 @@ func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
 
 	a := strings.TrimSpace(req.BootstrapToken)
 	if subtle.ConstantTimeCompare([]byte(a), []byte(expected)) != 1 {
+		_ = s.auditLog(r.Context(), audit.EventSetupBootstrapFailed, 0, 0, map[string]any{
+			"reason": "invalid_bootstrap_token",
+		})
+
 		writeAPIErrorCode(w, http.StatusUnauthorized, apiErrInvalidBootstrapToken)
 		return
 	}
@@ -167,7 +172,7 @@ func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
 
 	tokenHash := hashAPIToken(plainToken)
 
-	_, err = s.authRepo.CompleteInitialSetup(ctx, username, string(passHash), tokenHash, "initial-admin")
+	localUserID, err := s.authRepo.CompleteInitialSetup(ctx, username, string(passHash), tokenHash, "initial-admin")
 	if err != nil {
 		if errors.Is(err, dal.ErrSetupAlreadyComplete) {
 			writeAPIErrorCode(w, http.StatusConflict, apiErrSetupAlreadyComplete)
@@ -186,6 +191,10 @@ func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
 		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
+
+	_ = s.auditLog(ctx, audit.EventSetupCompleted, localUserID, localUserID, map[string]any{
+		"username": username,
+	})
 
 	writeJSON(w, http.StatusOK, setupCompleteResponse{
 		APIToken: plainToken,

@@ -2,10 +2,16 @@ package audit
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
+)
+
+var (
+	ErrBufferFull = errors.New("audit buffer full")
+	ErrStopped    = errors.New("audit auditor stopped")
 )
 
 // Repository defines the persistence layer for audit events.
@@ -112,27 +118,63 @@ func (a *AsyncAuditor) Stop() {
 	}
 }
 
-// Log queues an audit event for asynchronous persistence.
-// If the buffer is full, the event is dropped and a warning is logged.
+// Log emits an audit event according to its durability policy.
 func (a *AsyncAuditor) Log(ctx context.Context, event Event) error {
-	if a.stopped.Load() {
+	event = normalizeEvent(event)
+
+	switch event.Durability {
+	case DurabilityDisabled:
+		return nil
+	case DurabilityFailClosed:
+		return a.insertSync(ctx, []Event{event})
+	case DurabilityDurableBestEffort:
+		if err := a.enqueue(event); err == nil {
+			return nil
+		}
+
+		if err := a.insertSync(ctx, []Event{event}); err != nil {
+			if a.metrics != nil {
+				a.metrics.RecordFlushFailure(ctx, 1)
+			}
+
+			a.logger.Error("failed to synchronously persist durable best-effort audit event", "event_type", event.Type, "error", err)
+		}
+
+		return nil
+	default:
+		if err := a.enqueue(event); err != nil {
+			if a.metrics != nil {
+				a.metrics.RecordDropped(ctx, event.Type)
+			}
+
+			a.logger.Warn("audit event dropped", "event_type", event.Type, "error", err)
+		}
 		return nil
 	}
+}
 
+func normalizeEvent(event Event) Event {
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now().UTC()
+	}
+
+	if event.Durability == "" {
+		event.Durability = DefaultPolicy().DurabilityFor(event.Type)
+	}
+
+	return event
+}
+
+func (a *AsyncAuditor) enqueue(event Event) error {
+	if a.stopped.Load() {
+		return ErrStopped
 	}
 
 	select {
 	case a.buffer <- event:
 		return nil
 	default:
-		if a.metrics != nil {
-			a.metrics.RecordDropped(ctx, event.Type)
-		}
-
-		a.logger.Warn("audit event dropped: buffer full", "event_type", event.Type)
-		return nil // Don't block the caller
+		return ErrBufferFull
 	}
 }
 
@@ -189,6 +231,17 @@ func (a *AsyncAuditor) flush(events []Event) {
 
 		a.logger.Error("failed to flush audit events", "error", err, "count", len(events))
 	}
+}
+
+func (a *AsyncAuditor) insertSync(ctx context.Context, events []Event) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	syncCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	return a.repo.InsertAuditEvents(syncCtx, events)
 }
 
 // NoOpAuditor is an auditor that discards all events.

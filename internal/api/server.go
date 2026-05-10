@@ -106,6 +106,8 @@ type APIServer struct {
 
 	// auditor, when set, logs audit events for auth operations.
 	auditor audit.Auditor
+	// auditPolicy resolves event-specific audit durability.
+	auditPolicy audit.Policy
 
 	// retryMetrics, when set, records retry/backoff metrics for gRPC dials.
 	retryMetrics backoff.RetryMetrics
@@ -148,6 +150,7 @@ func NewAPIServerWithRepositories(
 		ephemeralRuns:  ephemeralRuns,
 		logger:         logger,
 		runBroadcaster: NewRunBroadcaster(logger),
+		auditPolicy:    audit.DefaultPolicy(),
 	}
 }
 
@@ -451,17 +454,24 @@ func (s *APIServer) SetAuditor(auditor audit.Auditor) {
 	s.auditor = auditor
 }
 
+func (s *APIServer) SetAuditPolicy(policy audit.Policy) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.auditPolicy = policy
+}
+
 func (s *APIServer) SetRetryMetrics(m backoff.RetryMetrics) {
 	s.retryMetrics = m
 }
 
-func (s *APIServer) auditLog(ctx context.Context, eventType string, actorID, targetID int64, metadata map[string]any) {
+func (s *APIServer) auditLog(ctx context.Context, eventType string, actorID, targetID int64, metadata map[string]any) error {
 	s.mu.RLock()
 	auditor := s.auditor
+	policy := s.auditPolicy
 	s.mu.RUnlock()
 
 	if auditor == nil {
-		return
+		return nil
 	}
 
 	ip := ""
@@ -472,14 +482,21 @@ func (s *APIServer) auditLog(ctx context.Context, eventType string, actorID, tar
 		}
 	}
 
-	_ = auditor.Log(ctx, audit.Event{
+	durability := policy.DurabilityFor(eventType)
+	err := auditor.Log(ctx, audit.Event{
 		Type:          eventType,
+		Durability:    durability,
 		ActorID:       actorID,
 		TargetID:      targetID,
 		Metadata:      metadata,
 		IPAddress:     ip,
 		CorrelationID: observability.CorrelationID(ctx),
 	})
+	if err != nil {
+		s.logger.Error("Audit event emission failed: event_type=%s durability=%s error=%v", eventType, durability, err)
+	}
+
+	return err
 }
 
 type httpRequestKey struct{}

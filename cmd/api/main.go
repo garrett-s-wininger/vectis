@@ -130,9 +130,22 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 	server.AccessLogger = accessLogger
 
 	// Wire up async auditor for production audit logging.
+	auditOverrides, err := audit.ParseDurabilityOverrides(config.APIAuditDurabilityOverrides())
+	if err != nil {
+		logger.Error("Invalid audit config: %v", err)
+		exitCode = 1
+		return
+	}
+
+	auditPolicy := audit.Policy{
+		Enabled:   config.APIAuditEnabled(),
+		Overrides: auditOverrides,
+	}
+
 	auditor := audit.NewAsyncAuditorWithMetrics(&audit.DALRepository{Auth: dal.NewSQLRepositories(db).Auth()}, slog.Default(), auditMetrics)
 	defer auditor.Stop()
 	server.SetAuditor(auditor)
+	server.SetAuditPolicy(auditPolicy)
 
 	server.SetRetryMetrics(retryMetrics)
 

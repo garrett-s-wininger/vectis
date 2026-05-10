@@ -175,6 +175,32 @@ func TestAsyncAuditor_FlushErrorLogged(t *testing.T) {
 	waitFor(t, func() bool { return repo.calls.Load() > 0 && metrics.flushFailures.Load() > 0 })
 }
 
+func TestAsyncAuditor_FailClosedReturnsPersistenceError(t *testing.T) {
+	repo := &errMockRepo{err: errors.New("db down")}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	a := NewAsyncAuditorWithBuffer(repo, logger, 10, 20*time.Millisecond, 10)
+	defer a.Stop()
+
+	err := a.Log(context.Background(), Event{Type: EventTokenCreated, Durability: DurabilityFailClosed})
+	if !errors.Is(err, repo.err) {
+		t.Fatalf("got %v want %v", err, repo.err)
+	}
+}
+
+func TestAsyncAuditor_DurableBestEffortFallsBackToSync(t *testing.T) {
+	blockRepo := &slowMockRepo{delay: 100 * time.Millisecond}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	a := NewAsyncAuditorWithBuffer(blockRepo, logger, 1, time.Hour, 1)
+	defer a.Stop()
+
+	ctx := context.Background()
+	_ = a.Log(ctx, Event{Type: EventJobCreated, Durability: DurabilityDurableBestEffort})
+	_ = a.Log(ctx, Event{Type: EventJobCreated, Durability: DurabilityDurableBestEffort})
+	_ = a.Log(ctx, Event{Type: EventJobCreated, Durability: DurabilityDurableBestEffort})
+
+	waitFor(t, func() bool { return blockRepo.calls.Load() >= 2 })
+}
+
 type slowMockRepo struct {
 	delay time.Duration
 	calls atomic.Int32
