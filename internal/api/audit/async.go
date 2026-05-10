@@ -37,6 +37,9 @@ type AsyncAuditor struct {
 	wg            sync.WaitGroup
 	stopped       atomic.Bool
 	stopOnce      sync.Once
+
+	droppedCount    atomic.Int64
+	flushFailCount  atomic.Int64
 }
 
 // NewAsyncAuditor creates an asynchronous auditor.
@@ -118,6 +121,10 @@ func (a *AsyncAuditor) Stop() {
 	}
 }
 
+func (a *AsyncAuditor) DroppedCount() int64 {
+	return a.droppedCount.Load()
+}
+
 // Log emits an audit event according to its durability policy.
 func (a *AsyncAuditor) Log(ctx context.Context, event Event) error {
 	event = normalizeEvent(event)
@@ -174,6 +181,9 @@ func (a *AsyncAuditor) enqueue(event Event) error {
 	case a.buffer <- event:
 		return nil
 	default:
+		a.droppedCount.Add(1)
+
+		a.logger.Warn("audit event dropped: buffer full", "event_type", event.Type)
 		return ErrBufferFull
 	}
 }
@@ -220,11 +230,18 @@ func (a *AsyncAuditor) flushLoop() {
 	}
 }
 
+// FlushFailureCount returns the number of audit flush failures since startup.
+func (a *AsyncAuditor) FlushFailureCount() int64 {
+	return a.flushFailCount.Load()
+}
+
 func (a *AsyncAuditor) flush(events []Event) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := a.repo.InsertAuditEvents(ctx, events); err != nil {
+		a.flushFailCount.Add(1)
+
 		if a.metrics != nil {
 			a.metrics.RecordFlushFailure(ctx, len(events))
 		}

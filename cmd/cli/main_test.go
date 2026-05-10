@@ -620,6 +620,22 @@ func TestDoctor_success(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		case "/api/v1/setup/status":
 			_ = json.NewEncoder(w).Encode(map[string]bool{"setup_complete": true})
+		case "/api/v1/schema/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"current_version": 5, "has_schema": true})
+		case "/api/v1/reconciler/heartbeat":
+			_ = json.NewEncoder(w).Encode(map[string]any{"active": true, "last_activity_unix": 1715000000})
+		case "/api/v1/audit/drops":
+			_ = json.NewEncoder(w).Encode(map[string]any{"dropped": 0})
+		case "/api/v1/db/pool-stats":
+			_ = json.NewEncoder(w).Encode(map[string]any{"open_connections": 3, "in_use": 1, "wait_count": 0})
+		case "/api/v1/queue/backlog":
+			_ = json.NewEncoder(w).Encode(map[string]any{"queued": 0})
+		case "/api/v1/reconciler/stuck-runs":
+			_ = json.NewEncoder(w).Encode(map[string]any{"stuck": 0})
+		case "/api/v1/log/reachable":
+			_ = json.NewEncoder(w).Encode(map[string]any{"reachable": true, "state": "READY"})
+		case "/api/v1/audit/flush-failures":
+			_ = json.NewEncoder(w).Encode(map[string]any{"flush_failures": 0})
 		default:
 			t.Errorf("unexpected path=%s", r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
@@ -635,17 +651,25 @@ func TestDoctor_success(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"ok\tapi.live\tAPI liveness probe passed",
-		"ok\tapi.ready\tAPI readiness probe passed",
-		"ok\tsetup.status\tinitial setup is complete",
-		"ok\tcli.token\tCLI API token is configured",
+		"pass\tapi.live\tAPI liveness probe passed",
+		"pass\tapi.ready\tAPI readiness probe passed",
+		"pass\tsetup.status\tinitial setup is complete",
+		"pass\tcli.token\tCLI API token is configured",
+		"pass\tdb.schema.current\tschema at version 5",
+		"pass\treconciler.active\treconciler has recent activity",
+		"pass\taudit.drops.recent\tno audit events dropped",
+		"pass\tdb.connection.pool\tpool healthy",
+		"pass\tqueue.backlog.ratio\tbacklog ok",
+		"pass\treconciler.stuck.runs\tno stuck runs",
+		"pass\tlog.reachable\tlog service is reachable",
+		"pass\taudit.flush.failures\tno audit flush failures",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q in output:\n%s", want, out)
 		}
 	}
 
-	for _, path := range []string{"/health/live", "/health/ready", "/api/v1/setup/status"} {
+	for _, path := range []string{"/health/live", "/health/ready", "/api/v1/setup/status", "/api/v1/schema/status", "/api/v1/reconciler/heartbeat", "/api/v1/audit/drops", "/api/v1/db/pool-stats", "/api/v1/queue/backlog", "/api/v1/reconciler/stuck-runs", "/api/v1/log/reachable", "/api/v1/audit/flush-failures"} {
 		if seen[path] != 1 {
 			t.Fatalf("expected one request to %s, got %d", path, seen[path])
 		}
@@ -659,6 +683,22 @@ func TestDoctor_warnsForIncompleteSetupAndMissingToken(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		case "/api/v1/setup/status":
 			_ = json.NewEncoder(w).Encode(map[string]bool{"setup_complete": false})
+		case "/api/v1/schema/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"current_version": 5, "has_schema": true})
+		case "/api/v1/reconciler/heartbeat":
+			_ = json.NewEncoder(w).Encode(map[string]any{"active": true, "last_activity_unix": 1715000000})
+		case "/api/v1/audit/drops":
+			_ = json.NewEncoder(w).Encode(map[string]any{"dropped": 0})
+		case "/api/v1/db/pool-stats":
+			_ = json.NewEncoder(w).Encode(map[string]any{"open_connections": 3, "in_use": 1, "wait_count": 0})
+		case "/api/v1/queue/backlog":
+			_ = json.NewEncoder(w).Encode(map[string]any{"queued": 0})
+		case "/api/v1/reconciler/stuck-runs":
+			_ = json.NewEncoder(w).Encode(map[string]any{"stuck": 0})
+		case "/api/v1/log/reachable":
+			_ = json.NewEncoder(w).Encode(map[string]any{"reachable": true, "state": "READY"})
+		case "/api/v1/audit/flush-failures":
+			_ = json.NewEncoder(w).Encode(map[string]any{"flush_failures": 0})
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -694,6 +734,22 @@ func TestDoctor_failsWhenRequiredCheckFails(t *testing.T) {
 			w.WriteHeader(http.StatusServiceUnavailable)
 		case "/api/v1/setup/status":
 			_ = json.NewEncoder(w).Encode(map[string]bool{"setup_complete": true})
+		case "/api/v1/schema/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"current_version": 5, "has_schema": true})
+		case "/api/v1/reconciler/heartbeat":
+			_ = json.NewEncoder(w).Encode(map[string]any{"active": true, "last_activity_unix": 1715000000})
+		case "/api/v1/audit/drops":
+			_ = json.NewEncoder(w).Encode(map[string]any{"dropped": 0})
+		case "/api/v1/db/pool-stats":
+			_ = json.NewEncoder(w).Encode(map[string]any{"open_connections": 3, "in_use": 1, "wait_count": 0})
+		case "/api/v1/queue/backlog":
+			_ = json.NewEncoder(w).Encode(map[string]any{"queued": 0})
+		case "/api/v1/reconciler/stuck-runs":
+			_ = json.NewEncoder(w).Encode(map[string]any{"stuck": 0})
+		case "/api/v1/log/reachable":
+			_ = json.NewEncoder(w).Encode(map[string]any{"reachable": true, "state": "READY"})
+		case "/api/v1/audit/flush-failures":
+			_ = json.NewEncoder(w).Encode(map[string]any{"flush_failures": 0})
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -710,5 +766,163 @@ func TestDoctor_failsWhenRequiredCheckFails(t *testing.T) {
 	out := buf.String()
 	if !strings.Contains(out, "fail\tapi.ready\tunexpected status: 503 Service Unavailable") {
 		t.Fatalf("missing readiness failure in output:\n%s", out)
+	}
+}
+
+func TestDoctor_jsonOutput(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health/live", "/health/ready":
+			w.WriteHeader(http.StatusOK)
+		case "/api/v1/setup/status":
+			_ = json.NewEncoder(w).Encode(map[string]bool{"setup_complete": true})
+		case "/api/v1/schema/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"current_version": 5, "has_schema": true})
+		case "/api/v1/reconciler/heartbeat":
+			_ = json.NewEncoder(w).Encode(map[string]any{"active": true, "last_activity_unix": 1715000000})
+		case "/api/v1/audit/drops":
+			_ = json.NewEncoder(w).Encode(map[string]any{"dropped": 0})
+		case "/api/v1/db/pool-stats":
+			_ = json.NewEncoder(w).Encode(map[string]any{"open_connections": 3, "in_use": 1, "wait_count": 0})
+		case "/api/v1/queue/backlog":
+			_ = json.NewEncoder(w).Encode(map[string]any{"queued": 0})
+		case "/api/v1/reconciler/stuck-runs":
+			_ = json.NewEncoder(w).Encode(map[string]any{"stuck": 0})
+		case "/api/v1/log/reachable":
+			_ = json.NewEncoder(w).Encode(map[string]any{"reachable": true, "state": "READY"})
+		case "/api/v1/audit/flush-failures":
+			_ = json.NewEncoder(w).Encode(map[string]any{"flush_failures": 0})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	t.Setenv("VECTIS_API_TOKEN", "test-token")
+	doctorJSON = true
+	defer func() { doctorJSON = false }()
+
+	var buf bytes.Buffer
+	if err := doctor(&buf); err != nil {
+		t.Fatal(err)
+	}
+
+	var results []doctorCheck
+	if err := json.Unmarshal(buf.Bytes(), &results); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
+	}
+
+	if len(results) != 12 {
+		t.Fatalf("expected 12 checks, got %d", len(results))
+	}
+
+	// Verify structure of first check
+	c := results[0]
+	if c.ID != "api.live" {
+		t.Fatalf("first check ID = %q, want api.live", c.ID)
+	}
+
+	if c.Status != doctorOK {
+		t.Fatalf("first check status = %q, want pass", c.Status)
+	}
+
+	if c.Title == "" {
+		t.Fatal("first check title is empty")
+	}
+
+	if c.Severity == "" {
+		t.Fatal("first check severity is empty")
+	}
+}
+
+func TestDoctor_jsonOutputStillFailsOnFailedCheck(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health/live":
+			w.WriteHeader(http.StatusOK)
+		case "/health/ready":
+			w.WriteHeader(http.StatusServiceUnavailable)
+		case "/api/v1/setup/status":
+			_ = json.NewEncoder(w).Encode(map[string]bool{"setup_complete": true})
+		case "/api/v1/schema/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"current_version": 5, "has_schema": true})
+		case "/api/v1/reconciler/heartbeat":
+			_ = json.NewEncoder(w).Encode(map[string]any{"active": true, "last_activity_unix": 1715000000})
+		case "/api/v1/audit/drops":
+			_ = json.NewEncoder(w).Encode(map[string]any{"dropped": 0})
+		case "/api/v1/db/pool-stats":
+			_ = json.NewEncoder(w).Encode(map[string]any{"open_connections": 3, "in_use": 1, "wait_count": 0})
+		case "/api/v1/queue/backlog":
+			_ = json.NewEncoder(w).Encode(map[string]any{"queued": 0})
+		case "/api/v1/reconciler/stuck-runs":
+			_ = json.NewEncoder(w).Encode(map[string]any{"stuck": 0})
+		case "/api/v1/log/reachable":
+			_ = json.NewEncoder(w).Encode(map[string]any{"reachable": true, "state": "READY"})
+		case "/api/v1/audit/flush-failures":
+			_ = json.NewEncoder(w).Encode(map[string]any{"flush_failures": 0})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	t.Setenv("VECTIS_API_TOKEN", "test-token")
+	doctorJSON = true
+	defer func() { doctorJSON = false }()
+
+	var buf bytes.Buffer
+	err := doctor(&buf)
+	if err == nil {
+		t.Fatal("expected JSON doctor to fail when a check fails")
+	}
+
+	var results []doctorCheck
+	if err := json.Unmarshal(buf.Bytes(), &results); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
+	}
+	if len(results) != 12 {
+		t.Fatalf("expected 12 checks, got %d", len(results))
+	}
+}
+
+func TestDoctor_strictWarnsExitNonzero(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health/live", "/health/ready":
+			w.WriteHeader(http.StatusOK)
+		case "/api/v1/setup/status":
+			_ = json.NewEncoder(w).Encode(map[string]bool{"setup_complete": false})
+		case "/api/v1/schema/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"current_version": 5, "has_schema": true})
+		case "/api/v1/reconciler/heartbeat":
+			_ = json.NewEncoder(w).Encode(map[string]any{"active": true, "last_activity_unix": 1715000000})
+		case "/api/v1/audit/drops":
+			_ = json.NewEncoder(w).Encode(map[string]any{"dropped": 0})
+		case "/api/v1/db/pool-stats":
+			_ = json.NewEncoder(w).Encode(map[string]any{"open_connections": 3, "in_use": 1, "wait_count": 0})
+		case "/api/v1/queue/backlog":
+			_ = json.NewEncoder(w).Encode(map[string]any{"queued": 0})
+		case "/api/v1/reconciler/stuck-runs":
+			_ = json.NewEncoder(w).Encode(map[string]any{"stuck": 0})
+		case "/api/v1/log/reachable":
+			_ = json.NewEncoder(w).Encode(map[string]any{"reachable": true, "state": "READY"})
+		case "/api/v1/audit/flush-failures":
+			_ = json.NewEncoder(w).Encode(map[string]any{"flush_failures": 0})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	t.Setenv("VECTIS_API_TOKEN", "")
+	doctorStrict = true
+	defer func() { doctorStrict = false }()
+
+	var buf bytes.Buffer
+	err := doctor(&buf)
+	if err == nil {
+		t.Fatal("expected error due to --strict with warnings")
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "warn\tsetup.status") {
+		t.Fatalf("expected warning in output:\n%s", out)
 	}
 }

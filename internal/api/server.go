@@ -71,6 +71,7 @@ type queueClientHolder struct {
 
 type logClientHolder struct {
 	client api.LogServiceClient
+	conn   *grpc.ClientConn
 	close  func()
 }
 
@@ -87,6 +88,7 @@ type APIServer struct {
 	roleBindings   dal.RoleBindingsRepository
 	idempotency    dal.IdempotencyRepository
 	dispatchEvents dal.DispatchEventsRepository
+	schedules      dal.SchedulesRepository
 	logger         interfaces.Logger
 	queueClient    atomic.Pointer[queueClientHolder]
 	logClient      atomic.Pointer[logClientHolder]
@@ -135,6 +137,7 @@ func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
 	s.roleBindings = repos.RoleBindings()
 	s.idempotency = repos.Idempotency()
 	s.dispatchEvents = repos.DispatchEvents()
+	s.schedules = repos.Schedules()
 	return s
 }
 
@@ -531,7 +534,7 @@ func (s *APIServer) ConnectToLog(ctx context.Context) error {
 	}
 
 	client := api.NewLogServiceClient(conn)
-	s.logClient.Store(&logClientHolder{client: client, close: cleanup})
+	s.logClient.Store(&logClientHolder{client: client, conn: conn, close: cleanup})
 	return nil
 }
 
@@ -2229,7 +2232,7 @@ func (s *APIServer) Handler() http.Handler {
 
 func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 	defaultLimits := ratelimit.DefaultCategory()
-	specs := make([]routeSpec, 0, 36)
+	specs := make([]routeSpec, 0, 46)
 
 	if includeMetrics && s.MetricsHandler != nil {
 		specs = append(specs, routeSpec{
@@ -2242,6 +2245,16 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 	specs = append(specs,
 		routeSpec{Pattern: "GET /health/live", Handler: http.HandlerFunc(s.HealthLive), Auth: routeAuthPolicy{Public: true}},
 		routeSpec{Pattern: "GET /health/ready", Handler: http.HandlerFunc(s.HealthReady), Auth: routeAuthPolicy{Public: true}},
+		routeSpec{Pattern: "GET /api/v1/version", Handler: http.HandlerFunc(s.GetVersion), Auth: routeAuthPolicy{Public: true}},
+		routeSpec{Pattern: "GET /api/v1/schema/status", Handler: http.HandlerFunc(s.GetSchemaStatus), Auth: routeAuthPolicy{Public: true}},
+		routeSpec{Pattern: "GET /api/v1/reconciler/heartbeat", Handler: http.HandlerFunc(s.GetReconcilerHeartbeat), Auth: routeAuthPolicy{Public: true}},
+		routeSpec{Pattern: "GET /api/v1/audit/drops", Handler: http.HandlerFunc(s.GetAuditDrops), Auth: routeAuthPolicy{Public: true}},
+		routeSpec{Pattern: "GET /api/v1/db/pool-stats", Handler: http.HandlerFunc(s.GetDBPoolStats), Auth: routeAuthPolicy{Public: true}},
+		routeSpec{Pattern: "GET /api/v1/queue/backlog", Handler: http.HandlerFunc(s.GetQueueBacklog), Auth: routeAuthPolicy{Public: true}},
+		routeSpec{Pattern: "GET /api/v1/reconciler/stuck-runs", Handler: http.HandlerFunc(s.GetStuckRuns), Auth: routeAuthPolicy{Public: true}},
+		routeSpec{Pattern: "GET /api/v1/log/reachable", Handler: http.HandlerFunc(s.GetLogReachable), Auth: routeAuthPolicy{Public: true}},
+		routeSpec{Pattern: "GET /api/v1/audit/flush-failures", Handler: http.HandlerFunc(s.GetAuditFlushFailures), Auth: routeAuthPolicy{Public: true}},
+		routeSpec{Pattern: "GET /api/v1/cron/status", Handler: http.HandlerFunc(s.GetCronStatus), Auth: routeAuthPolicy{Public: true}},
 		routeSpec{Pattern: "GET /api/v1/jobs", Handler: http.HandlerFunc(s.GetJobs), Auth: routeAuthPolicy{Action: authz.ActionJobRead}, RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "GET /api/v1/jobs/{id}", Handler: http.HandlerFunc(s.GetJob), Auth: routeAuthPolicy{Action: authz.ActionJobRead}, RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "POST /api/v1/jobs", Handler: http.HandlerFunc(s.CreateJob), Auth: routeAuthPolicy{Action: authz.ActionJobWrite}, RateLimit: defaultLimits.General},

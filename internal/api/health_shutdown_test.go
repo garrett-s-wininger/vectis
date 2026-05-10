@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -124,6 +125,35 @@ func TestAPIServer_HealthReady_WithRepositories_SkipsDBPing(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected %d, got %d", http.StatusOK, rec.Code)
+	}
+}
+
+func TestAPIServer_GetSchemaStatus_EmptyMigrationsTable(t *testing.T) {
+	t.Parallel()
+	db := dbtest.NewTestDB(t)
+	if _, err := db.Exec("DELETE FROM schema_migrations"); err != nil {
+		t.Fatalf("clear schema migrations: %v", err)
+	}
+
+	srv := api.NewAPIServer(mocks.NewMockLogger(), db)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema/status", nil)
+	srv.GetSchemaStatus(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d: %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		CurrentVersion int  `json:"current_version"`
+		HasSchema      bool `json:"has_schema"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode schema status: %v", err)
+	}
+	if resp.HasSchema {
+		t.Fatalf("expected has_schema=false, got %+v", resp)
 	}
 }
 

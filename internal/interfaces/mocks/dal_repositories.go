@@ -158,6 +158,11 @@ type MockRunsRepository struct {
 	RequeueRunErr      error
 	MarkOrphanedErr    error
 	GetRunStatusErr    error
+	CountByStatusErr   error
+	CountStuckErr      error
+
+	CountByStatusResult int64
+	CountStuckResult    int64
 
 	TryClaimResult bool
 	ClaimToken     string
@@ -272,6 +277,14 @@ func (m *MockRunsRepository) ListByJob(ctx context.Context, jobID string, since 
 	return append([]dal.RunRecord(nil), m.ListByJobResults...), 0, nil
 }
 
+func (m *MockRunsRepository) CountByStatus(ctx context.Context, status string) (int64, error) {
+	return m.CountByStatusResult, m.CountByStatusErr
+}
+
+func (m *MockRunsRepository) CountStuckBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) (int64, error) {
+	return m.CountStuckResult, m.CountStuckErr
+}
+
 func (m *MockRunsRepository) GetRun(ctx context.Context, runID string) (dal.RunRecord, error) {
 	return dal.RunRecord{RunID: runID, Status: m.RunStatus}, nil
 }
@@ -348,6 +361,8 @@ type MockSchedulesRepository struct {
 	CompleteClaimErr error
 	CompleteClaimOK  bool
 	ReleaseClaimErr  error
+	CountCronSchedulesErr    error
+	CountCronSchedulesResult int64
 
 	GetReadyCalled     int
 	ClaimDueCalls      []ClaimDueCall
@@ -395,6 +410,10 @@ func (m *MockSchedulesRepository) CompleteClaim(ctx context.Context, scheduleID 
 	})
 
 	return m.CompleteClaimOK, nil
+}
+
+func (m *MockSchedulesRepository) CountCronSchedules(ctx context.Context) (int64, error) {
+	return m.CountCronSchedulesResult, m.CountCronSchedulesErr
 }
 
 func (m *MockSchedulesRepository) ReleaseClaim(ctx context.Context, scheduleID int64, claimToken string) error {

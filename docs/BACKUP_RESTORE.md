@@ -82,10 +82,8 @@ Run this after every restore drill and after real disaster recovery:
 9. Inspect dispatch events for the restored and newly triggered run.
 10. Confirm Prometheus, logs, and dashboards show fresh samples from the restored services.
 
-`vectis-cli doctor` automates the first API-oriented part of this smoke test: API liveness, API readiness, setup status, and local CLI token visibility. Keep the remaining run, log, queue, reconciler, and dashboard checks in the manual drill until broader doctor checks exist.
+`vectis-cli doctor` automates the API-oriented part of this smoke test: API liveness, API readiness, setup status, local CLI token visibility, schema status, queue backlog, reconciler activity, stuck queued runs, log reachability, audit drops/flush failures, and DB pool pressure. Keep the active run trigger/log verification and dashboard freshness checks in the manual drill.
 
 Record the backup timestamp, restored schema version, release version, and any partial-restore data loss in the incident or drill notes.
 
-## Future Doctor Checks
-
-Future `vectis-cli doctor` passes should add database schema/version checks, queue health, log health, reconciler age, and required TLS/secret-file checks.
+See [DOCTOR_CHECK_CATALOG.md](DOCTOR_CHECK_CATALOG.md) for the current check catalog and output contract.

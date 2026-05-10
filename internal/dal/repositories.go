@@ -107,6 +107,7 @@ type IdempotencyRepository interface {
 type DispatchEventsRepository interface {
 	Record(ctx context.Context, runID, source, eventType string, message *string) error
 	ListByRun(ctx context.Context, runID string) ([]DispatchEvent, error)
+	LastReconcilerActivity(ctx context.Context) (*int64, error)
 }
 
 type CronSchedule struct {
@@ -137,6 +138,8 @@ type RunsRepository interface {
 	CreateRun(ctx context.Context, jobID string, runIndex *int, definitionVersion int) (runID string, runIndexOut int, err error)
 	ListByJob(ctx context.Context, jobID string, since *int, cursor int64, limit int) ([]RunRecord, int64, error)
 	ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]QueuedRun, error)
+	CountByStatus(ctx context.Context, status string) (int64, error)
+	CountStuckBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) (int64, error)
 	GetRunJobID(ctx context.Context, runID string) (string, error)
 	GetRunForCancel(ctx context.Context, runID string) (RunForCancel, error)
 	GetRun(ctx context.Context, runID string) (RunRecord, error)
@@ -147,6 +150,7 @@ type SchedulesRepository interface {
 	ClaimDue(ctx context.Context, scheduleID int64, observedNextRun time.Time, claimToken string, claimedUntil, now time.Time) (bool, error)
 	CompleteClaim(ctx context.Context, scheduleID int64, claimToken string, nextRun time.Time) (bool, error)
 	ReleaseClaim(ctx context.Context, scheduleID int64, claimToken string) error
+	CountCronSchedules(ctx context.Context) (int64, error)
 }
 
 type JobsRepository interface {
@@ -321,6 +325,22 @@ func (r *SQLDispatchEventsRepository) ListByRun(ctx context.Context, runID strin
 	}
 
 	return out, nil
+}
+
+func (r *SQLDispatchEventsRepository) LastReconcilerActivity(ctx context.Context) (*int64, error) {
+	var ts sql.NullInt64
+	err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT MAX(created_at) FROM run_dispatch_events WHERE source = ?
+	`), DispatchSourceReconciler).Scan(&ts)
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	if !ts.Valid {
+		return nil, nil
+	}
+
+	return &ts.Int64, nil
 }
 
 var _ DispatchEventsRepository = (*SQLDispatchEventsRepository)(nil)
@@ -1039,6 +1059,36 @@ func (r *SQLRunsRepository) GetRunJobID(ctx context.Context, runID string) (stri
 	return jobID, nil
 }
 
+func (r *SQLRunsRepository) CountByStatus(ctx context.Context, status string) (int64, error) {
+	var count int64
+	err := r.db.QueryRowContext(ctx,
+		rebindQueryForPgx("SELECT COUNT(*) FROM job_runs WHERE status = ?"),
+		status,
+	).Scan(&count)
+
+	if err != nil {
+		return 0, normalizeSQLError(err)
+	}
+
+	return count, nil
+}
+
+func (r *SQLRunsRepository) CountStuckBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) (int64, error) {
+	var count int64
+	err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT COUNT(*)
+		FROM job_runs
+		WHERE status = 'queued'
+			AND (last_dispatched_at IS NULL OR last_dispatched_at < ?)
+	`), cutoffUnix).Scan(&count)
+
+	if err != nil {
+		return 0, normalizeSQLError(err)
+	}
+
+	return count, nil
+}
+
 func (r *SQLRunsRepository) GetRun(ctx context.Context, runID string) (RunRecord, error) {
 	var rec RunRecord
 	var orphanReason, failureCode, startedAt, finishedAt, failureReason sql.NullString
@@ -1072,6 +1122,17 @@ func (r *SQLRunsRepository) GetRun(ctx context.Context, runID string) (RunRecord
 
 type SQLSchedulesRepository struct {
 	db *sql.DB
+}
+
+func (r *SQLSchedulesRepository) CountCronSchedules(ctx context.Context) (int64, error) {
+	var count int64
+	err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM job_cron_schedules").Scan(&count)
+
+	if err != nil {
+		return 0, normalizeSQLError(err)
+	}
+
+	return count, nil
 }
 
 func (r *SQLSchedulesRepository) GetReady(ctx context.Context, at time.Time) ([]CronSchedule, error) {

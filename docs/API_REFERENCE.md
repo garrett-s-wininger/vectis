@@ -86,7 +86,17 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | Method | Path | Purpose | Auth action | Rate limit | Success |
 | --- | --- | --- | --- | --- | --- |
 | GET | `/health/live` | Liveness probe | Public | none | `200` empty |
-| GET | `/health/ready` | Readiness probe; checks DB and queue client readiness when configured | Public | none | `200` empty |
+| GET | `/health/ready` | Readiness probe | Public | none | `200` empty |
+| GET | `/api/v1/version` | Build version info | Public | none | `200` JSON version |
+| GET | `/api/v1/schema/status` | Migration schema status | Public | none | `200` JSON schema status |
+| GET | `/api/v1/reconciler/heartbeat` | Reconciler last-activity signal | Public | none | `200` JSON heartbeat |
+| GET | `/api/v1/audit/drops` | Audit event drop count | Public | none | `200` JSON drop count |
+| GET | `/api/v1/db/pool-stats` | Database connection pool stats | Public | none | `200` JSON pool stats |
+| GET | `/api/v1/queue/backlog` | Count of queued runs | Public | none | `200` JSON backlog |
+| GET | `/api/v1/reconciler/stuck-runs` | Count of stuck (undispatched) queued runs | Public | none | `200` JSON stuck runs |
+| GET | `/api/v1/log/reachable` | Log service gRPC connectivity | Public | none | `200` JSON reachable |
+| GET | `/api/v1/audit/flush-failures` | Audit flush failure count | Public | none | `200` JSON flush failures |
+| GET | `/api/v1/cron/status` | Cron schedule count and activity | Public | none | `200` JSON cron status |
 | GET | `/metrics` | Prometheus metrics | Public | none | `200` metrics text |
 | GET | `/api/v1/jobs` | List visible job definitions | `job:read` | general | `200` JSON list |
 | POST | `/api/v1/jobs` | Create a stored job definition | `job:write` | general | `201` JSON job |

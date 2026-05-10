@@ -66,11 +66,11 @@ Plan: [FOUNDATION_22_LOCAL_SECRETS_SERVICE.md](FOUNDATION_22_LOCAL_SECRETS_SERVI
 The remaining low-friction foundation work is:
 
 - Turn repair workflows into linked runbook recipes.
-- Extend `doctor` beyond API smoke checks into queue/log/reconciler and storage-pressure checks.
+- Extend `doctor` with deploy-specific checks that cannot be inferred through the API yet, such as TLS file validation and filesystem pressure for queue persistence, log storage, and log-forwarder spools.
 
 ## Phased Sequencing
 
-**Phase 0 - Legible:** retention policy, repair workflow docs, and expanded `doctor` check coverage.
+**Phase 0 - Legible:** retention policy, repair workflow docs, and deploy-specific `doctor` check coverage.
 
 **Phase 1 - Repairable:** retention cleanup implementation, CLI repair surfaces, and multi-replica runbooks.
 
