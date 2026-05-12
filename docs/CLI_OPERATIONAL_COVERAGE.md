@@ -29,7 +29,7 @@ These admin commands use stable, line-oriented text:
 
 `vectis-cli doctor` runs a versioned catalog of operational checks defined in [DOCTOR_CHECK_CATALOG.md](DOCTOR_CHECK_CATALOG.md). Check IDs are frozen between releases.
 
-The 12 active checks are:
+The 16 active checks are:
 
 | Check ID | Severity | Source |
 | --- | --- | --- |
@@ -45,5 +45,9 @@ The 12 active checks are:
 | `reconciler.stuck.runs` | warning | `GET /api/v1/reconciler/stuck-runs` — detects runs stuck in queued state. |
 | `log.reachable` | warning | `GET /api/v1/log/reachable` — verifies log service gRPC connectivity. |
 | `audit.flush.failures` | warning | `GET /api/v1/audit/flush-failures` — no audit flush failures. |
+| `tls.files` | warning | Local TLS env/path validation for gRPC and metrics TLS. |
+| `queue.persistence.filesystem` | warning | Local queue persistence path free-space and writability check. |
+| `log.storage.filesystem` | warning | Local durable log storage path free-space and writability check. |
+| `log.forwarder.spool.filesystem` | warning | Local log-forwarder spool path free-space and writability check. |
 
 Failed checks always exit non-zero. Under `--strict`, warnings also cause a non-zero exit.

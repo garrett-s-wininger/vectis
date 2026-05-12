@@ -5,8 +5,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"net/http"
@@ -1667,6 +1670,11 @@ type doctorCheck struct {
 var doctorJSON bool
 var doctorStrict bool
 
+const (
+	doctorDiskWarnFreeBytes = 1 << 30
+	doctorCertExpiryWarn    = 14 * 24 * time.Hour
+)
+
 func runDoctor(cmd *cobra.Command, args []string) {
 	doctorJSON, _ = cmd.Flags().GetBool("json")
 	doctorStrict, _ = cmd.Flags().GetBool("strict")
@@ -1691,6 +1699,10 @@ func doctor(w io.Writer) error {
 		doctorStuckRuns(),
 		doctorLogReachable(),
 		doctorAuditFlushFailures(),
+		doctorTLSFiles(),
+		doctorFilesystemPressure("queue.persistence.filesystem", "Queue persistence filesystem", "queue persistence", envOrDefault("VECTIS_QUEUE_PERSISTENCE_DIR", filepath.Join(utils.DataHome(), "vectis", "queue"))),
+		doctorFilesystemPressure("log.storage.filesystem", "Log storage filesystem", "log storage", envOrDefault("VECTIS_LOG_STORAGE_DIR", filepath.Join(utils.DataHome(), "vectis", "jobs"))),
+		doctorFilesystemPressure("log.forwarder.spool.filesystem", "Log forwarder spool filesystem", "log-forwarder spool", envOrDefault("VECTIS_LOG_FORWARDER_SPOOL_DIR", defaultDoctorForwarderSpoolDir())),
 	}
 
 	if doctorJSON {
@@ -2067,6 +2079,387 @@ func doctorAuditFlushFailures() doctorCheck {
 	}
 
 	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no audit flush failures", DocLink: "docs/DOCTOR_CHECK_CATALOG.md"}
+}
+
+func doctorTLSFiles() doctorCheck {
+	const id = "tls.files"
+	title := "TLS files valid"
+	doc := "docs/DOCTOR_CHECK_CATALOG.md"
+	action := "Check VECTIS_GRPC_TLS_* and VECTIS_METRICS_TLS_* paths"
+
+	checks := []tlsFileCheck{}
+	if !envBoolDefault("VECTIS_GRPC_TLS_INSECURE", true) || anyEnvSet("VECTIS_GRPC_TLS_CA_FILE", "VECTIS_GRPC_TLS_CERT_FILE", "VECTIS_GRPC_TLS_KEY_FILE", "VECTIS_GRPC_TLS_CLIENT_CA_FILE", "VECTIS_GRPC_TLS_CLIENT_CERT_FILE", "VECTIS_GRPC_TLS_CLIENT_KEY_FILE") {
+		checks = append(checks,
+			tlsFileCheck{label: "gRPC CA", path: os.Getenv("VECTIS_GRPC_TLS_CA_FILE"), kind: tlsFileCA, required: !envBoolDefault("VECTIS_GRPC_TLS_INSECURE", true)},
+			tlsFileCheck{label: "gRPC server certificate", path: os.Getenv("VECTIS_GRPC_TLS_CERT_FILE"), kind: tlsFileCert},
+			tlsFileCheck{label: "gRPC server key", path: os.Getenv("VECTIS_GRPC_TLS_KEY_FILE"), kind: tlsFileKey},
+			tlsFileCheck{label: "gRPC client CA", path: os.Getenv("VECTIS_GRPC_TLS_CLIENT_CA_FILE"), kind: tlsFileCA},
+			tlsFileCheck{label: "gRPC client certificate", path: os.Getenv("VECTIS_GRPC_TLS_CLIENT_CERT_FILE"), kind: tlsFileCert},
+			tlsFileCheck{label: "gRPC client key", path: os.Getenv("VECTIS_GRPC_TLS_CLIENT_KEY_FILE"), kind: tlsFileKey},
+		)
+	}
+
+	if !envBoolDefault("VECTIS_METRICS_TLS_INSECURE", true) || anyEnvSet("VECTIS_METRICS_TLS_CERT_FILE", "VECTIS_METRICS_TLS_KEY_FILE") {
+		checks = append(checks,
+			tlsFileCheck{label: "metrics certificate", path: os.Getenv("VECTIS_METRICS_TLS_CERT_FILE"), kind: tlsFileCert, required: !envBoolDefault("VECTIS_METRICS_TLS_INSECURE", true)},
+			tlsFileCheck{label: "metrics key", path: os.Getenv("VECTIS_METRICS_TLS_KEY_FILE"), kind: tlsFileKey, required: !envBoolDefault("VECTIS_METRICS_TLS_INSECURE", true)},
+		)
+	}
+
+	if len(checks) == 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "TLS file validation skipped; TLS is disabled", DocLink: doc}
+	}
+
+	var problems []string
+	var warnings []string
+	for _, check := range checks {
+		if check.path == "" {
+			if check.required {
+				problems = append(problems, check.label+" path is not configured")
+			}
+			continue
+		}
+
+		if err := validateTLSFile(check); err != nil {
+			problems = append(problems, fmt.Sprintf("%s: %v", check.label, err))
+			continue
+		}
+
+		if warn := tlsExpiryWarning(check); warn != "" {
+			warnings = append(warnings, fmt.Sprintf("%s: %s", check.label, warn))
+		}
+	}
+
+	if err := validateTLSKeyPair("gRPC server", os.Getenv("VECTIS_GRPC_TLS_CERT_FILE"), os.Getenv("VECTIS_GRPC_TLS_KEY_FILE")); err != nil {
+		problems = append(problems, err.Error())
+	}
+
+	if err := validateTLSKeyPair("gRPC client", os.Getenv("VECTIS_GRPC_TLS_CLIENT_CERT_FILE"), os.Getenv("VECTIS_GRPC_TLS_CLIENT_KEY_FILE")); err != nil {
+		problems = append(problems, err.Error())
+	}
+
+	if err := validateTLSKeyPair("metrics", os.Getenv("VECTIS_METRICS_TLS_CERT_FILE"), os.Getenv("VECTIS_METRICS_TLS_KEY_FILE")); err != nil {
+		problems = append(problems, err.Error())
+	}
+
+	if len(problems) > 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: strings.Join(problems, "; "), SuggestedAction: action, DocLink: doc}
+	}
+
+	if len(warnings) > 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: strings.Join(warnings, "; "), SuggestedAction: action, DocLink: doc}
+	}
+
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "configured TLS files are readable and valid", DocLink: doc}
+}
+
+type tlsFileKind int
+
+const (
+	tlsFileCA tlsFileKind = iota
+	tlsFileCert
+	tlsFileKey
+)
+
+type tlsFileCheck struct {
+	label    string
+	path     string
+	kind     tlsFileKind
+	required bool
+}
+
+func validateTLSFile(check tlsFileCheck) error {
+	b, err := os.ReadFile(check.path)
+	if err != nil {
+		return err
+	}
+	if len(b) == 0 {
+		return fmt.Errorf("empty file")
+	}
+
+	switch check.kind {
+	case tlsFileCA:
+		if pool := x509.NewCertPool(); !pool.AppendCertsFromPEM(b) {
+			return fmt.Errorf("no PEM certificates found")
+		}
+	case tlsFileCert:
+		if _, err := parsePEMCertificates(b); err != nil {
+			return err
+		}
+	case tlsFileKey:
+		if !hasPEMBlockType(b, "PRIVATE KEY") && !hasPEMBlockType(b, "RSA PRIVATE KEY") && !hasPEMBlockType(b, "EC PRIVATE KEY") {
+			return fmt.Errorf("no PEM private key found")
+		}
+	}
+
+	return nil
+}
+
+func tlsExpiryWarning(check tlsFileCheck) string {
+	if check.kind != tlsFileCA && check.kind != tlsFileCert {
+		return ""
+	}
+
+	b, err := os.ReadFile(check.path)
+	if err != nil {
+		return ""
+	}
+
+	certs, err := parsePEMCertificates(b)
+	if err != nil {
+		return ""
+	}
+
+	now := time.Now()
+	for _, cert := range certs {
+		if now.After(cert.NotAfter) {
+			return fmt.Sprintf("certificate expired at %s", cert.NotAfter.Format(time.RFC3339))
+		}
+
+		if cert.NotAfter.Sub(now) < doctorCertExpiryWarn {
+			return fmt.Sprintf("certificate expires at %s", cert.NotAfter.Format(time.RFC3339))
+		}
+	}
+
+	return ""
+}
+
+func parsePEMCertificates(b []byte) ([]*x509.Certificate, error) {
+	var certs []*x509.Certificate
+	for {
+		var block *pem.Block
+		block, b = pem.Decode(b)
+		if block == nil {
+			break
+		}
+
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("parse certificate: %w", err)
+		}
+
+		certs = append(certs, cert)
+	}
+
+	if len(certs) == 0 {
+		return nil, fmt.Errorf("no PEM certificates found")
+	}
+
+	return certs, nil
+}
+
+func hasPEMBlockType(b []byte, want string) bool {
+	for {
+		var block *pem.Block
+		block, b = pem.Decode(b)
+		if block == nil {
+			return false
+		}
+
+		if block.Type == want {
+			return true
+		}
+	}
+}
+
+func validateTLSKeyPair(label, certFile, keyFile string) error {
+	if certFile == "" && keyFile == "" {
+		return nil
+	}
+
+	if certFile == "" || keyFile == "" {
+		return fmt.Errorf("%s certificate and key must be configured together", label)
+	}
+
+	if _, err := tls.LoadX509KeyPair(certFile, keyFile); err != nil {
+		return fmt.Errorf("%s certificate/key mismatch: %w", label, err)
+	}
+
+	return nil
+}
+
+func doctorFilesystemPressure(id, title, label, path string) doctorCheck {
+	doc := "docs/DOCTOR_CHECK_CATALOG.md"
+	if path == "" {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%s path is not configured", label), SuggestedAction: "Configure the deploy path or run doctor on the host that owns it", DocLink: doc}
+	}
+
+	statPath, exists, err := existingPathForStat(path)
+	if err != nil {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%s path is not usable: %v", label, err), SuggestedAction: "Check directory ownership and parent path", DocLink: doc}
+	}
+
+	if exists {
+		if err := directoryUsable(path); err != nil {
+			return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%s path is not writable: %v", label, err), Evidence: path, SuggestedAction: "Check directory ownership and permissions", DocLink: doc}
+		}
+	}
+
+	stats, err := filesystemStats(statPath)
+	if err != nil {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("cannot inspect filesystem for %s: %v", label, err), Evidence: statPath, SuggestedAction: "Run doctor on the host that owns the path", DocLink: doc}
+	}
+
+	summary := fmt.Sprintf("%s filesystem ok: %s free (%d%%)", label, formatBytes(stats.freeBytes), stats.freePercent)
+	evidence := fmt.Sprintf("path=%s stat_path=%s free_bytes=%d free_percent=%d free_inodes=%d", path, statPath, stats.freeBytes, stats.freePercent, stats.freeInodes)
+	if !exists {
+		summary = fmt.Sprintf("%s path not created yet; parent filesystem ok: %s free (%d%%)", label, formatBytes(stats.freeBytes), stats.freePercent)
+	}
+
+	if stats.freeBytes < doctorDiskWarnFreeBytes || stats.freeInodes == 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%s filesystem pressure: %s free (%d%%)", label, formatBytes(stats.freeBytes), stats.freePercent), Evidence: evidence, SuggestedAction: "Free disk space or move the path to a larger volume", DocLink: doc}
+	}
+
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: summary, Evidence: evidence, DocLink: doc}
+}
+
+type doctorFSStats struct {
+	freeBytes   uint64
+	freePercent int
+	freeInodes  uint64
+}
+
+func filesystemStats(path string) (doctorFSStats, error) {
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(path, &st); err != nil {
+		return doctorFSStats{}, err
+	}
+
+	free := st.Bavail * uint64(st.Bsize)
+	total := st.Blocks * uint64(st.Bsize)
+	percent := 0
+	if total > 0 {
+		percent = int((free * 100) / total)
+	}
+
+	return doctorFSStats{freeBytes: free, freePercent: percent, freeInodes: st.Ffree}, nil
+}
+
+func existingPathForStat(path string) (string, bool, error) {
+	info, err := os.Stat(path)
+	if err == nil {
+		if !info.IsDir() {
+			return "", false, fmt.Errorf("%s is not a directory", path)
+		}
+		return path, true, nil
+	}
+
+	if !os.IsNotExist(err) {
+		return "", false, err
+	}
+
+	parent := filepath.Dir(path)
+	for parent != "." && parent != "/" {
+		info, err = os.Stat(parent)
+		if err == nil {
+			if !info.IsDir() {
+				return "", false, fmt.Errorf("%s is not a directory", parent)
+			}
+
+			return parent, false, nil
+		}
+
+		if !os.IsNotExist(err) {
+			return "", false, err
+		}
+
+		parent = filepath.Dir(parent)
+	}
+
+	return parent, false, nil
+}
+
+func directoryUsable(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+
+	if !info.IsDir() {
+		return fmt.Errorf("not a directory")
+	}
+
+	probe, err := os.CreateTemp(path, ".vectis-doctor-*")
+	if err != nil {
+		return err
+	}
+
+	name := probe.Name()
+	if err := probe.Close(); err != nil {
+		_ = os.Remove(name)
+		return err
+	}
+
+	return os.Remove(name)
+}
+
+func envOrDefault(name, fallback string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+
+	return fallback
+}
+
+func envBoolDefault(name string, fallback bool) bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv(name)))
+	if v == "" {
+		return fallback
+	}
+
+	switch v {
+	case "1", "t", "true", "y", "yes", "on":
+		return true
+	case "0", "f", "false", "n", "no", "off":
+		return false
+	default:
+		return fallback
+	}
+}
+
+func anyEnvSet(names ...string) bool {
+	for _, name := range names {
+		if os.Getenv(name) != "" {
+			return true
+		}
+	}
+
+	return false
+}
+
+func defaultDoctorForwarderSpoolDir() string {
+	dataHome := os.Getenv("XDG_DATA_HOME")
+	if dataHome == "" {
+		home, _ := os.UserHomeDir()
+		if home != "" {
+			dataHome = filepath.Join(home, ".local", "share")
+		} else {
+			dataHome = os.TempDir()
+		}
+	}
+
+	return filepath.Join(dataHome, "vectis", "log-forwarder", "spool")
+}
+
+func formatBytes(n uint64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+
+	value := float64(n)
+	for _, suffix := range []string{"KiB", "MiB", "GiB", "TiB", "PiB"} {
+		value /= unit
+		if value < unit {
+			return fmt.Sprintf("%.1f %s", value, suffix)
+		}
+	}
+
+	return fmt.Sprintf("%.1f EiB", value/unit)
 }
 
 func runGetRun(cmd *cobra.Command, args []string) {

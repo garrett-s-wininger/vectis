@@ -2,8 +2,14 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"io"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +17,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -811,8 +818,8 @@ func TestDoctor_jsonOutput(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if len(results) != 12 {
-		t.Fatalf("expected 12 checks, got %d", len(results))
+	if len(results) != 16 {
+		t.Fatalf("expected 16 checks, got %d", len(results))
 	}
 
 	// Verify structure of first check
@@ -878,9 +885,106 @@ func TestDoctor_jsonOutputStillFailsOnFailedCheck(t *testing.T) {
 	if err := json.Unmarshal(buf.Bytes(), &results); err != nil {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
-	if len(results) != 12 {
-		t.Fatalf("expected 12 checks, got %d", len(results))
+	if len(results) != 16 {
+		t.Fatalf("expected 16 checks, got %d", len(results))
 	}
+}
+
+func TestDoctorTLSFiles_validConfiguredFiles(t *testing.T) {
+	certFile, keyFile := writeTestCertificate(t, time.Now().Add(30*24*time.Hour))
+	t.Setenv("VECTIS_GRPC_TLS_INSECURE", "false")
+	t.Setenv("VECTIS_GRPC_TLS_CA_FILE", certFile)
+	t.Setenv("VECTIS_GRPC_TLS_CERT_FILE", certFile)
+	t.Setenv("VECTIS_GRPC_TLS_KEY_FILE", keyFile)
+
+	check := doctorTLSFiles()
+	if check.Status != doctorOK {
+		t.Fatalf("expected TLS check to pass, got %#v", check)
+	}
+}
+
+func TestDoctorTLSFiles_rejectsMismatchedPair(t *testing.T) {
+	certFile, _ := writeTestCertificate(t, time.Now().Add(30*24*time.Hour))
+	_, keyFile := writeTestCertificate(t, time.Now().Add(30*24*time.Hour))
+	t.Setenv("VECTIS_GRPC_TLS_CERT_FILE", certFile)
+	t.Setenv("VECTIS_GRPC_TLS_KEY_FILE", keyFile)
+
+	check := doctorTLSFiles()
+	if check.Status != doctorFail {
+		t.Fatalf("expected TLS check to fail, got %#v", check)
+	}
+
+	if !strings.Contains(check.Summary, "certificate/key mismatch") {
+		t.Fatalf("expected mismatch summary, got %q", check.Summary)
+	}
+}
+
+func TestDoctorTLSFiles_warnsForSoonExpiringCertificate(t *testing.T) {
+	certFile, keyFile := writeTestCertificate(t, time.Now().Add(24*time.Hour))
+	t.Setenv("VECTIS_GRPC_TLS_CERT_FILE", certFile)
+	t.Setenv("VECTIS_GRPC_TLS_KEY_FILE", keyFile)
+
+	check := doctorTLSFiles()
+	if check.Status != doctorWarn {
+		t.Fatalf("expected TLS expiry warning, got %#v", check)
+	}
+
+	if !strings.Contains(check.Summary, "expires at") {
+		t.Fatalf("expected expiry summary, got %q", check.Summary)
+	}
+}
+
+func TestDoctorFilesystemPressure_existingWritableDirectory(t *testing.T) {
+	dir := t.TempDir()
+	check := doctorFilesystemPressure("test.fs", "Test filesystem", "test path", dir)
+	if check.Status != doctorOK {
+		t.Fatalf("expected filesystem check to pass, got %#v", check)
+	}
+
+	if !strings.Contains(check.Evidence, "path="+dir) {
+		t.Fatalf("expected path evidence, got %q", check.Evidence)
+	}
+}
+
+func writeTestCertificate(t *testing.T, notAfter time.Time) (string, string) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(time.Now().UnixNano()),
+		Subject:      pkix.Name{CommonName: "localhost"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     notAfter,
+		DNSNames:     []string{"localhost"},
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment | x509.KeyUsageCertSign,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
+		IsCA:         true,
+	}
+
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("create certificate: %v", err)
+	}
+
+	dir := t.TempDir()
+	certFile := filepath.Join(dir, "cert.pem")
+	keyFile := filepath.Join(dir, "key.pem")
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	keyBytes := x509.MarshalPKCS1PrivateKey(key)
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: keyBytes})
+
+	if err := os.WriteFile(certFile, certPEM, 0o600); err != nil {
+		t.Fatalf("write cert: %v", err)
+	}
+
+	if err := os.WriteFile(keyFile, keyPEM, 0o600); err != nil {
+		t.Fatalf("write key: %v", err)
+	}
+
+	return certFile, keyFile
 }
 
 func TestDoctor_strictWarnsExitNonzero(t *testing.T) {

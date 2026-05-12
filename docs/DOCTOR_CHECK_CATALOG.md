@@ -1,6 +1,6 @@
 # Doctor Check Catalog
 
-`vectis-cli doctor` runs a stable catalog of operational checks against the configured API. Text output is tab-separated:
+`vectis-cli doctor` runs a stable catalog of operational checks against the configured API and locally visible deployment paths. Text output is tab-separated:
 
 ```text
 status<TAB>check_id<TAB>summary
@@ -31,6 +31,10 @@ Use `--json` for the full machine-readable check model, including severity, evid
 | `reconciler.stuck.runs` | warning | `GET /api/v1/reconciler/stuck-runs` | No queued runs are older than the reconciler dispatch gap. | [Reconciler Repair](REPAIR_RUNBOOKS.md#reconciler-repair). |
 | `log.reachable` | warning | `GET /api/v1/log/reachable` | API's log gRPC connection is `READY` or `IDLE`. | [Log Service Repair](REPAIR_RUNBOOKS.md#log-service-repair). |
 | `audit.flush.failures` | warning | `GET /api/v1/audit/flush-failures` | Audit flush failure counter is zero. | [Audit Durability Repair](REPAIR_RUNBOOKS.md#audit-durability-repair). |
+| `tls.files` | warning | Local `VECTIS_GRPC_TLS_*` and `VECTIS_METRICS_TLS_*` paths | TLS is disabled, or configured cert/key/CA files are readable, parseable, not near expiry, and certificate/key pairs match. | Check TLS env vars, mounted files, certificate expiry, and key pairing. |
+| `queue.persistence.filesystem` | warning | Local `VECTIS_QUEUE_PERSISTENCE_DIR` or default data path | Queue persistence directory, or nearest existing parent, is inspectable and has at least 1 GiB free. | Free disk space or move queue persistence to a larger writable volume. |
+| `log.storage.filesystem` | warning | Local `VECTIS_LOG_STORAGE_DIR` or default data path | Durable log storage directory, or nearest existing parent, is inspectable and has at least 1 GiB free. | Free disk space or move log storage to a larger writable volume. |
+| `log.forwarder.spool.filesystem` | warning | Local `VECTIS_LOG_FORWARDER_SPOOL_DIR` or default data path | Log-forwarder spool directory, or nearest existing parent, is inspectable and has at least 1 GiB free. | Free disk space or move the spool to a larger writable volume. |
 
 ## Compatibility Notes
 
