@@ -83,9 +83,9 @@ make build
 
 For Postgres (Podman/Kube), use `make deploy-podman`.
 
-If you change JSON under [`deploy/grafana/dashboards/`](deploy/grafana/dashboards/), regenerate the kube ConfigMap bundle with **`make grafana-kube-configmaps`** so [`deploy/podman/grafana-configmaps.gen.yaml`](deploy/podman/grafana-configmaps.gen.yaml) stays in sync (see [docs/PLANNING.md](docs/PLANNING.md) §10).
+If you change JSON under [`deploy/grafana/dashboards/`](deploy/grafana/dashboards/), regenerate the kube ConfigMap bundle with **`make grafana-kube-configmaps`** so [`deploy/podman/grafana-configmaps.gen.yaml`](deploy/podman/grafana-configmaps.gen.yaml) stays in sync (see [Planning](website/docs/developer/planning.md) §10).
 
-**Single service** (for debugging): run the matching binary from `bin/` after `make build`. Each `cmd/<name>/main.go` defines flags and startup; components discover queue/log addresses via **registry** when that pattern is used (see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) or [docs/PLANNING.md](docs/PLANNING.md) §2).
+**Single service** (for debugging): run the matching binary from `bin/` after `make build`. Each `cmd/<name>/main.go` defines flags and startup; components discover queue/log addresses via **registry** when that pattern is used (see [Architecture](website/docs/developer/architecture.md) or [Planning](website/docs/developer/planning.md) §2).
 
 Ensure SQLite’s parent directory exists if you open the DB outside `vectis-local` (see `database.OpenDB` / `GetDBPath`).
 
@@ -95,7 +95,7 @@ Embedded defaults: [`internal/config/defaults.toml`](internal/config/defaults.to
 
 ## Design and roadmap
 
-**As-built** architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). **Configuration** (env, flags): [docs/CONFIGURATION.md](docs/CONFIGURATION.md). **Glossary:** [docs/GLOSSARY.md](docs/GLOSSARY.md). **ADRs** (significant design decisions): [docs/adr/README.md](docs/adr/README.md). **Security:** [docs/SECURITY.md](docs/SECURITY.md). **Design goals** (§1), large design decisions, and **target vs shipped** behavior are documented in [docs/PLANNING.md](docs/PLANNING.md). Prefer updating PLANNING (or [docs/FEDERATION.md](docs/FEDERATION.md) for deferred multi-site material) instead of duplicating long design text in this guide; keep topology/protocol details in ARCHITECTURE when they change.
+**As-built** architecture: [Architecture](website/docs/developer/architecture.md). **Configuration** (env, flags): [Configuration](website/docs/operator/configuration.md). **Glossary:** [Glossary](website/docs/general/glossary.md). **ADRs** (significant design decisions): [ADRs](website/docs/developer/adr/README.md). **Security:** [Security](website/docs/general/security.md). **Design goals** (§1), large design decisions, and **target vs shipped** behavior are documented in [Planning](website/docs/developer/planning.md). Prefer updating PLANNING (or [Federation](website/docs/developer/federation.md) for deferred multi-site material) instead of duplicating long design text in this guide; keep topology/protocol details in ARCHITECTURE when they change.
 
 ## When pull requests are welcome
 

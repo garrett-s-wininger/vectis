@@ -5,3 +5,8 @@ states/
 
 # Outputs
 bin/
+
+# Docusaurus
+website/node_modules/
+website/.docusaurus/
+website/build/
