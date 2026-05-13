@@ -173,30 +173,36 @@ func (s *CronService) CalculateNextRun(spec string, from time.Time) (time.Time, 
 }
 
 func (s *CronService) GetJobDefinition(ctx context.Context, jobID string) (*api.Job, error) {
-	definitionJSON, _, err := s.jobs.GetDefinition(ctx, jobID)
+	job, _, err := s.getJobDefinitionWithVersion(ctx, jobID)
+	return job, err
+}
+
+func (s *CronService) getJobDefinitionWithVersion(ctx context.Context, jobID string) (*api.Job, int, error) {
+	definitionJSON, version, err := s.jobs.GetDefinition(ctx, jobID)
 	if err != nil {
 		if dal.IsNotFound(err) {
-			return nil, fmt.Errorf("job not found: %s", jobID)
+			return nil, 0, fmt.Errorf("job not found: %s", jobID)
 		}
-		return nil, fmt.Errorf("database error: %w", err)
+
+		return nil, 0, fmt.Errorf("database error: %w", err)
 	}
 
 	var job api.Job
 	if err := json.Unmarshal([]byte(definitionJSON), &job); err != nil {
-		return nil, fmt.Errorf("failed to parse job definition: %w", err)
+		return nil, 0, fmt.Errorf("failed to parse job definition: %w", err)
 	}
 
-	return &job, nil
+	return &job, version, nil
 }
 
 func (s *CronService) TriggerJob(ctx context.Context, jobID string) error {
-	job, err := s.GetJobDefinition(ctx, jobID)
+	job, definitionVersion, err := s.getJobDefinitionWithVersion(ctx, jobID)
 	if err != nil {
 		return err
 	}
 
 	job.Id = &jobID
-	runID, _, err := s.runs.CreateRun(ctx, jobID, nil, 1)
+	runID, _, err := s.runs.CreateRun(ctx, jobID, nil, definitionVersion)
 	if err != nil {
 		return err
 	}
@@ -218,6 +224,7 @@ func (s *CronService) TriggerJob(ctx context.Context, jobID string) error {
 		s.recordDispatchEvent(ctx, runID, dal.DispatchEventFailure, &msg)
 		return nil
 	}
+
 	s.recordDispatchEvent(ctx, runID, dal.DispatchEventSuccess, nil)
 	return nil
 }

@@ -1222,7 +1222,7 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	definitionJSON, _, err := s.jobs.GetDefinition(ctx, jobID)
+	definitionJSON, definitionVersion, err := s.jobs.GetDefinition(ctx, jobID)
 	if err != nil {
 		if dal.IsNotFound(err) {
 			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
@@ -1262,7 +1262,7 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	runID, runIndex, err := s.runs.CreateRun(ctx, jobID, nil, 1)
+	runID, runIndex, err := s.runs.CreateRun(ctx, jobID, nil, definitionVersion)
 	if err != nil {
 		if idempotencyReserved {
 			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
@@ -1860,27 +1860,33 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type runRow struct {
-		RunID          string             `json:"run_id"`
-		RunIndex       int                `json:"run_index"`
-		Status         string             `json:"status"`
-		OrphanReason   *string            `json:"orphan_reason,omitempty"`
-		FailureCode    *string            `json:"failure_code,omitempty"`
-		StartedAt      *string            `json:"started_at,omitempty"`
-		FinishedAt     *string            `json:"finished_at,omitempty"`
-		FailureReason  *string            `json:"failure_reason,omitempty"`
-		DispatchEvents []dispatchEventRow `json:"dispatch_events"`
+		RunID             string             `json:"run_id"`
+		RunIndex          int                `json:"run_index"`
+		Status            string             `json:"status"`
+		OrphanReason      *string            `json:"orphan_reason,omitempty"`
+		FailureCode       *string            `json:"failure_code,omitempty"`
+		StartedAt         *string            `json:"started_at,omitempty"`
+		FinishedAt        *string            `json:"finished_at,omitempty"`
+		FailureReason     *string            `json:"failure_reason,omitempty"`
+		DefinitionVersion int                `json:"definition_version"`
+		DefinitionHash    string             `json:"definition_hash,omitempty"`
+		OwningCell        string             `json:"owning_cell"`
+		DispatchEvents    []dispatchEventRow `json:"dispatch_events"`
 	}
 
 	resp := runRow{
-		RunID:          rec.RunID,
-		RunIndex:       rec.RunIndex,
-		Status:         rec.Status,
-		OrphanReason:   rec.OrphanReason,
-		FailureCode:    rec.FailureCode,
-		StartedAt:      rec.StartedAt,
-		FinishedAt:     rec.FinishedAt,
-		FailureReason:  rec.FailureReason,
-		DispatchEvents: []dispatchEventRow{},
+		RunID:             rec.RunID,
+		RunIndex:          rec.RunIndex,
+		Status:            rec.Status,
+		OrphanReason:      rec.OrphanReason,
+		FailureCode:       rec.FailureCode,
+		StartedAt:         rec.StartedAt,
+		FinishedAt:        rec.FinishedAt,
+		FailureReason:     rec.FailureReason,
+		DefinitionVersion: rec.DefinitionVersion,
+		DefinitionHash:    rec.DefinitionHash,
+		OwningCell:        rec.OwningCell,
+		DispatchEvents:    []dispatchEventRow{},
 	}
 
 	for _, event := range dispatchEvents {

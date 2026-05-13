@@ -55,6 +55,49 @@ func TestService_Process_ReenqueuesQueuedRun(t *testing.T) {
 	}
 }
 
+func TestService_Process_ReenqueuesCapturedDefinitionVersion(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositories(db)
+
+	jobID := "job-versioned"
+	defV1 := `{"id":"job-versioned","root":{"uses":"builtins/shell","with":{"command":"echo old"}}}`
+	defV2 := `{"id":"job-versioned","root":{"uses":"builtins/shell","with":{"command":"echo new"}}}`
+	if err := repos.Jobs().Create(ctx, jobID, defV1, 1); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	if _, err := repos.Jobs().UpdateDefinition(ctx, jobID, defV2); err != nil {
+		t.Fatalf("update job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	q := mocks.NewMockQueueService()
+	svc := NewService(interfaces.NewLogger("test"), db, q, interfaces.SystemClock{})
+	svc.SetMinDispatchGap(1 * time.Millisecond)
+
+	if err := svc.Process(ctx); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+
+	jobs := q.GetJobs()
+	if len(jobs) != 1 {
+		t.Fatalf("want 1 enqueued job, got %d", len(jobs))
+	}
+
+	if jobs[0].GetRunId() != runID {
+		t.Fatalf("run id: want %q, got %q", runID, jobs[0].GetRunId())
+	}
+
+	if got := jobs[0].GetRoot().GetWith()["command"]; got != "echo old" {
+		t.Fatalf("expected reenqueue to use definition version 1, command=%q", got)
+	}
+}
+
 func TestService_Process_ReenqueuesEphemeralWithJobDefinition(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()

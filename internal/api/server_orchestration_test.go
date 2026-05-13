@@ -16,6 +16,7 @@ import (
 func TestAPIServer_TriggerJob_OrchestrationUsesRepositories(t *testing.T) {
 	jobs := mocks.NewMockJobsRepository()
 	jobs.Definitions["job-1"] = `{"id":"job-1","root":{"uses":"builtins/shell","with":{"command":"echo hi"}}}`
+	jobs.DefinitionVersions["job-1"] = 3
 
 	runs := mocks.NewMockRunsRepository()
 	runs.CreateRunID = "run-1"
@@ -41,8 +42,8 @@ func TestAPIServer_TriggerJob_OrchestrationUsesRepositories(t *testing.T) {
 		t.Fatalf("expected create run for job-1, got %q", lastCreateJobID)
 	}
 
-	if lastDefVersion != 1 {
-		t.Fatalf("expected definition_version 1 for stored trigger, got %d", lastDefVersion)
+	if lastDefVersion != 3 {
+		t.Fatalf("expected stored trigger to use current definition_version 3, got %d", lastDefVersion)
 	}
 
 	deadline := time.Now().Add(2 * time.Second)

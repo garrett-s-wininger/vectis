@@ -16,7 +16,9 @@ func (StubEphemeralRunStarter) CreateDefinitionAndRun(context.Context, string, s
 }
 
 type MockJobsRepository struct {
-	Definitions map[string]string
+	Definitions        map[string]string
+	DefinitionVersions map[string]int
+
 	// Versions is jobID -> version -> definition JSON (ephemeral / versioned definitions).
 	Versions map[string]map[int]string
 
@@ -29,8 +31,9 @@ type MockJobsRepository struct {
 
 func NewMockJobsRepository() *MockJobsRepository {
 	return &MockJobsRepository{
-		Definitions: map[string]string{},
-		Versions:    map[string]map[int]string{},
+		Definitions:        map[string]string{},
+		DefinitionVersions: map[string]int{},
+		Versions:           map[string]map[int]string{},
 	}
 }
 
@@ -40,6 +43,19 @@ func (m *MockJobsRepository) Create(ctx context.Context, jobID, definitionJSON s
 	}
 
 	m.Definitions[jobID] = definitionJSON
+	version := 1
+	if m.Versions[jobID] == nil {
+		m.Versions[jobID] = map[int]string{}
+	} else {
+		for existing := range m.Versions[jobID] {
+			if existing >= version {
+				version = existing + 1
+			}
+		}
+	}
+
+	m.DefinitionVersions[jobID] = version
+	m.Versions[jobID][version] = definitionJSON
 	return nil
 }
 
@@ -49,6 +65,7 @@ func (m *MockJobsRepository) Delete(ctx context.Context, jobID string) error {
 	}
 
 	delete(m.Definitions, jobID)
+	delete(m.DefinitionVersions, jobID)
 	return nil
 }
 
@@ -78,7 +95,12 @@ func (m *MockJobsRepository) GetDefinition(ctx context.Context, jobID string) (s
 		return "", 0, fmt.Errorf("%w: job %s", dal.ErrNotFound, jobID)
 	}
 
-	return def, 1, nil
+	version := m.DefinitionVersions[jobID]
+	if version <= 0 {
+		version = 1
+	}
+
+	return def, version, nil
 }
 
 func (m *MockJobsRepository) GetDefinitionVersion(ctx context.Context, jobID string, version int) (string, error) {
@@ -88,11 +110,32 @@ func (m *MockJobsRepository) GetDefinitionVersion(ctx context.Context, jobID str
 
 	byVer, ok := m.Versions[jobID]
 	if !ok {
+		currentVersion := m.DefinitionVersions[jobID]
+		if currentVersion <= 0 {
+			currentVersion = 1
+		}
+		if currentVersion == version {
+			if currentDef, currentOK := m.Definitions[jobID]; currentOK {
+				return currentDef, nil
+			}
+		}
+
 		return "", fmt.Errorf("%w: job %s version %d", dal.ErrNotFound, jobID, version)
 	}
 
 	def, ok := byVer[version]
 	if !ok {
+		currentVersion := m.DefinitionVersions[jobID]
+		if currentVersion <= 0 {
+			currentVersion = 1
+		}
+
+		if currentVersion == version {
+			if currentDef, currentOK := m.Definitions[jobID]; currentOK {
+				return currentDef, nil
+			}
+		}
+
 		return "", fmt.Errorf("%w: job %s version %d", dal.ErrNotFound, jobID, version)
 	}
 
@@ -105,7 +148,18 @@ func (m *MockJobsRepository) UpdateDefinition(ctx context.Context, jobID, defini
 	}
 
 	m.Definitions[jobID] = definitionJSON
-	return 1, nil
+	newVersion := m.DefinitionVersions[jobID] + 1
+	if newVersion <= 1 {
+		newVersion = 2
+	}
+
+	m.DefinitionVersions[jobID] = newVersion
+	if m.Versions[jobID] == nil {
+		m.Versions[jobID] = map[int]string{}
+	}
+
+	m.Versions[jobID][newVersion] = definitionJSON
+	return newVersion, nil
 }
 
 func (m *MockJobsRepository) ListByNamespace(ctx context.Context, namespaceID int64) ([]dal.JobRecord, error) {

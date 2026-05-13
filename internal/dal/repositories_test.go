@@ -63,6 +63,37 @@ func TestJobsRepository_CRUDAndConflict(t *testing.T) {
 		t.Fatalf("expected version 2 in DB, got %d", version)
 	}
 
+	gotV1, err := jobs.GetDefinitionVersion(ctx, jobID, 1)
+	if err != nil {
+		t.Fatalf("get definition version 1: %v", err)
+	}
+
+	if gotV1 != def1 {
+		t.Fatalf("definition version 1 mismatch: got %q want %q", gotV1, def1)
+	}
+
+	gotV2, err := jobs.GetDefinitionVersion(ctx, jobID, 2)
+	if err != nil {
+		t.Fatalf("get definition version 2: %v", err)
+	}
+
+	if gotV2 != def2 {
+		t.Fatalf("definition version 2 mismatch: got %q want %q", gotV2, def2)
+	}
+
+	var storedHash, versionHash string
+	if err := db.QueryRowContext(ctx, "SELECT definition_hash FROM stored_jobs WHERE job_id = ?", jobID).Scan(&storedHash); err != nil {
+		t.Fatalf("scan stored job hash: %v", err)
+	}
+
+	if err := db.QueryRowContext(ctx, "SELECT definition_hash FROM job_definitions WHERE job_id = ? AND version = 2", jobID).Scan(&versionHash); err != nil {
+		t.Fatalf("scan version hash: %v", err)
+	}
+
+	if want := dal.DefinitionHash(def2); storedHash != want || versionHash != want {
+		t.Fatalf("definition hash mismatch: stored=%q version=%q want=%q", storedHash, versionHash, want)
+	}
+
 	list, _, err := jobs.List(ctx, 0, 100)
 	if err != nil {
 		t.Fatalf("list: %v", err)
@@ -79,6 +110,60 @@ func TestJobsRepository_CRUDAndConflict(t *testing.T) {
 	_, _, err = jobs.GetDefinition(ctx, jobID)
 	if !dal.IsNotFound(err) {
 		t.Fatalf("expected not found after delete, got: %v", err)
+	}
+
+	def3 := `{"id":"job-a","root":{"uses":"builtins/shell","with":{"command":"echo recreated"}}}`
+	if err := jobs.Create(ctx, jobID, def3, 1); err != nil {
+		t.Fatalf("recreate job: %v", err)
+	}
+
+	_, version, err = jobs.GetDefinition(ctx, jobID)
+	if err != nil {
+		t.Fatalf("get recreated definition: %v", err)
+	}
+
+	if version != 3 {
+		t.Fatalf("expected recreated job to continue immutable version history at 3, got %d", version)
+	}
+}
+
+func TestJobsRepository_UpdateBackfillsLegacyCurrentVersion(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	jobs := dal.NewSQLRepositories(db).Jobs()
+	ctx := context.Background()
+
+	jobID := "legacy-job"
+	def1 := `{"id":"legacy-job","root":{"uses":"builtins/shell","with":{"command":"echo old"}}}`
+	def2 := `{"id":"legacy-job","root":{"uses":"builtins/shell","with":{"command":"echo new"}}}`
+	if _, err := db.ExecContext(ctx, "INSERT INTO stored_jobs (job_id, definition_json, version) VALUES (?, ?, 1)", jobID, def1); err != nil {
+		t.Fatalf("insert legacy job: %v", err)
+	}
+
+	newVersion, err := jobs.UpdateDefinition(ctx, jobID, def2)
+	if err != nil {
+		t.Fatalf("update legacy job: %v", err)
+	}
+
+	if newVersion != 2 {
+		t.Fatalf("expected updated version 2, got %d", newVersion)
+	}
+
+	gotV1, err := jobs.GetDefinitionVersion(ctx, jobID, 1)
+	if err != nil {
+		t.Fatalf("get backfilled version 1: %v", err)
+	}
+
+	if gotV1 != def1 {
+		t.Fatalf("backfilled version mismatch: got %q want %q", gotV1, def1)
+	}
+
+	var hash string
+	if err := db.QueryRowContext(ctx, "SELECT definition_hash FROM job_definitions WHERE job_id = ? AND version = 1", jobID).Scan(&hash); err != nil {
+		t.Fatalf("scan backfilled hash: %v", err)
+	}
+
+	if want := dal.DefinitionHash(def1); hash != want {
+		t.Fatalf("backfilled hash: want %q, got %q", want, hash)
 	}
 }
 
@@ -145,6 +230,10 @@ func TestRunsRepository_ClaimRenewAndDispatchQueries(t *testing.T) {
 
 	if queued[0].DefinitionVersion != 1 {
 		t.Fatalf("expected definition_version 1, got %d", queued[0].DefinitionVersion)
+	}
+
+	if queued[0].OwningCell != dal.DefaultCellID {
+		t.Fatalf("expected owning_cell %q, got %q", dal.DefaultCellID, queued[0].OwningCell)
 	}
 
 	claimed, claimToken, err := runs.TryClaim(ctx, runID, "worker-1", time.Now().Add(1*time.Minute))
@@ -693,6 +782,19 @@ func TestSQLRepositories_CreateDefinitionAndRun_AndGetDefinitionVersion(t *testi
 
 	if dv != 1 {
 		t.Fatalf("job_runs.definition_version: want 1, got %d", dv)
+	}
+
+	var runHash, owningCell string
+	if err := db.QueryRowContext(ctx, "SELECT definition_hash, owning_cell FROM job_runs WHERE run_id = ?", runID).Scan(&runHash, &owningCell); err != nil {
+		t.Fatalf("scan run foundation fields: %v", err)
+	}
+
+	if want := dal.DefinitionHash(def); runHash != want {
+		t.Fatalf("job_runs.definition_hash: want %q, got %q", want, runHash)
+	}
+
+	if owningCell != dal.DefaultCellID {
+		t.Fatalf("job_runs.owning_cell: want %q, got %q", dal.DefaultCellID, owningCell)
 	}
 }
 

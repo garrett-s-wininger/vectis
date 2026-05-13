@@ -79,6 +79,10 @@ Other mutating routes do not currently persist idempotency records. Retry guidan
 
 `GET /api/v1/sse/jobs/{id}/runs` streams run events as server-sent events for one job. `GET /api/v1/runs/{id}/logs` streams log chunks as server-sent events. Log event data is JSON with `timestamp`, `stream`, `sequence`, `data`, and optional `completed`. The current HTTP log endpoint does not expose public replay controls; reconnecting clients should be prepared for historical chunks to be sent again until bounded replay support lands.
 
+## Run Foundation Fields
+
+`GET /api/v1/runs/{id}` includes the run's captured `definition_version`, optional `definition_hash`, and `owning_cell` in addition to status, timestamps, failure fields, and `dispatch_events`. New single-cell deployments use `owning_cell="local"` until multi-cell routing is introduced.
+
 ## Routes
 
 Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`, and `token` buckets are per in-process API replica.

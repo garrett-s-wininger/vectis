@@ -2,7 +2,9 @@ package dal
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strconv"
@@ -44,6 +46,7 @@ const (
 	OrphanReasonAckUncertain = "ack_uncertain"
 	FailureCodeExecution     = "execution_error"
 	FailureCodeForceFailed   = "force_failed"
+	DefaultCellID            = "local"
 
 	DispatchSourceAPI        = "api"
 	DispatchSourceCron       = "cron"
@@ -55,27 +58,35 @@ const (
 )
 
 type JobRecord struct {
+	GlobalID       string
 	JobID          string
 	NamespaceID    int64
 	DefinitionJSON string
+	DefinitionHash string
 	Version        int
+	HomeCell       string
 }
 
 type RunRecord struct {
-	RunID         string
-	RunIndex      int
-	Status        string
-	OrphanReason  *string
-	FailureCode   *string
-	StartedAt     *string
-	FinishedAt    *string
-	FailureReason *string
+	RunID             string
+	RunIndex          int
+	Status            string
+	OrphanReason      *string
+	FailureCode       *string
+	StartedAt         *string
+	FinishedAt        *string
+	FailureReason     *string
+	DefinitionVersion int
+	DefinitionHash    string
+	OwningCell        string
 }
 
 type QueuedRun struct {
 	RunID             string
 	JobID             string
 	DefinitionVersion int
+	DefinitionHash    string
+	OwningCell        string
 }
 
 type EphemeralRunStarter interface {
@@ -192,6 +203,15 @@ func NewSQLRepositories(db *sql.DB) *SQLRepositories {
 
 var _ EphemeralRunStarter = (*SQLRepositories)(nil)
 
+func DefinitionHash(definitionJSON string) string {
+	sum := sha256.Sum256([]byte(definitionJSON))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func newGlobalID() string {
+	return uuid.NewString()
+}
+
 func (r *SQLRepositories) CreateDefinitionAndRun(ctx context.Context, jobID, definitionJSON string, runIndex *int) (runID string, runIndexOut int, err error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -199,9 +219,10 @@ func (r *SQLRepositories) CreateDefinitionAndRun(ctx context.Context, jobID, def
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	definitionHash := DefinitionHash(definitionJSON)
 	if _, err := tx.ExecContext(ctx,
-		rebindQueryForPgx(`INSERT INTO job_definitions (job_id, version, definition_json) VALUES (?, 1, ?)`),
-		jobID, definitionJSON,
+		rebindQueryForPgx(`INSERT INTO job_definitions (global_id, job_id, version, definition_json, definition_hash, home_cell) VALUES (?, ?, 1, ?, ?, ?)`),
+		newGlobalID(), jobID, definitionJSON, definitionHash, DefaultCellID,
 	); err != nil {
 		return "", 0, normalizeSQLError(err)
 	}
@@ -221,11 +242,13 @@ func (r *SQLRepositories) CreateDefinitionAndRun(ctx context.Context, jobID, def
 	}
 
 	if _, err := tx.ExecContext(ctx,
-		rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, started_at, definition_version) VALUES (?, ?, ?, ?, NULL, 1)`),
+		rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, started_at, definition_version, definition_hash, owning_cell) VALUES (?, ?, ?, ?, NULL, 1, ?, ?)`),
 		runID,
 		jobID,
 		idx,
 		"queued",
+		definitionHash,
+		DefaultCellID,
 	); err != nil {
 		return "", 0, normalizeSQLError(err)
 	}
@@ -408,14 +431,47 @@ type SQLJobsRepository struct {
 }
 
 func (r *SQLJobsRepository) Create(ctx context.Context, jobID, definitionJSON string, namespaceID int64) error {
-	_, err := r.db.ExecContext(ctx,
-		rebindQueryForPgx("INSERT INTO stored_jobs (job_id, namespace_id, definition_json) VALUES (?, ?, ?)"),
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var initialVersion int
+	if err := tx.QueryRowContext(ctx,
+		rebindQueryForPgx("SELECT COALESCE(MAX(version), 0) + 1 FROM job_definitions WHERE job_id = ?"),
+		jobID,
+	).Scan(&initialVersion); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	definitionHash := DefinitionHash(definitionJSON)
+	if _, err := tx.ExecContext(ctx,
+		rebindQueryForPgx("INSERT INTO stored_jobs (global_id, job_id, namespace_id, definition_json, definition_hash, version, home_cell) VALUES (?, ?, ?, ?, ?, ?, ?)"),
+		newGlobalID(),
 		jobID,
 		namespaceID,
 		definitionJSON,
-	)
+		definitionHash,
+		initialVersion,
+		DefaultCellID,
+	); err != nil {
+		return normalizeSQLError(err)
+	}
 
-	return normalizeSQLError(err)
+	if _, err := tx.ExecContext(ctx,
+		rebindQueryForPgx("INSERT INTO job_definitions (global_id, job_id, version, definition_json, definition_hash, home_cell) VALUES (?, ?, ?, ?, ?, ?)"),
+		newGlobalID(),
+		jobID,
+		initialVersion,
+		definitionJSON,
+		definitionHash,
+		DefaultCellID,
+	); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	return tx.Commit()
 }
 
 func (r *SQLJobsRepository) Delete(ctx context.Context, jobID string) error {
@@ -437,12 +493,13 @@ func (r *SQLJobsRepository) Delete(ctx context.Context, jobID string) error {
 }
 
 func (r *SQLJobsRepository) List(ctx context.Context, cursor int64, limit int) ([]JobRecord, int64, error) {
-	query := "SELECT id, job_id, namespace_id, definition_json, version FROM stored_jobs"
+	query := "SELECT id, COALESCE(global_id, ''), job_id, namespace_id, definition_json, definition_hash, version, home_cell FROM stored_jobs"
 	args := []any{}
 	if cursor > 0 {
 		query += " WHERE id > ?"
 		args = append(args, cursor)
 	}
+
 	query += " ORDER BY id ASC LIMIT ?"
 	args = append(args, limit+1)
 
@@ -457,9 +514,10 @@ func (r *SQLJobsRepository) List(ctx context.Context, cursor int64, limit int) (
 	for rows.Next() {
 		var rec JobRecord
 		var id int64
-		if err := rows.Scan(&id, &rec.JobID, &rec.NamespaceID, &rec.DefinitionJSON, &rec.Version); err != nil {
+		if err := rows.Scan(&id, &rec.GlobalID, &rec.JobID, &rec.NamespaceID, &rec.DefinitionJSON, &rec.DefinitionHash, &rec.Version, &rec.HomeCell); err != nil {
 			return nil, 0, err
 		}
+
 		lastID = id
 		out = append(out, rec)
 	}
@@ -479,7 +537,7 @@ func (r *SQLJobsRepository) List(ctx context.Context, cursor int64, limit int) (
 
 func (r *SQLJobsRepository) ListByNamespace(ctx context.Context, namespaceID int64) ([]JobRecord, error) {
 	rows, err := r.db.QueryContext(ctx,
-		rebindQueryForPgx("SELECT job_id, namespace_id, definition_json, version FROM stored_jobs WHERE namespace_id = ?"),
+		rebindQueryForPgx("SELECT COALESCE(global_id, ''), job_id, namespace_id, definition_json, definition_hash, version, home_cell FROM stored_jobs WHERE namespace_id = ?"),
 		namespaceID,
 	)
 
@@ -491,9 +549,10 @@ func (r *SQLJobsRepository) ListByNamespace(ctx context.Context, namespaceID int
 	var out []JobRecord
 	for rows.Next() {
 		var rec JobRecord
-		if err := rows.Scan(&rec.JobID, &rec.NamespaceID, &rec.DefinitionJSON, &rec.Version); err != nil {
+		if err := rows.Scan(&rec.GlobalID, &rec.JobID, &rec.NamespaceID, &rec.DefinitionJSON, &rec.DefinitionHash, &rec.Version, &rec.HomeCell); err != nil {
 			return nil, err
 		}
+
 		out = append(out, rec)
 	}
 
@@ -538,16 +597,81 @@ func (r *SQLJobsRepository) GetNamespaceID(ctx context.Context, jobID string) (i
 }
 
 func (r *SQLJobsRepository) UpdateDefinition(ctx context.Context, jobID, definitionJSON string) (int, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var currentDefinition string
+	var currentHash string
+	var currentVersion int
+	if err := tx.QueryRowContext(ctx,
+		rebindQueryForPgx("SELECT definition_json, definition_hash, version FROM stored_jobs WHERE job_id = ?"),
+		jobID,
+	).Scan(&currentDefinition, &currentHash, &currentVersion); err != nil {
+		return 0, normalizeSQLError(err)
+	}
+
+	if currentHash == "" {
+		currentHash = DefinitionHash(currentDefinition)
+	}
+
+	if err := insertDefinitionVersionTx(ctx, tx, jobID, currentVersion, currentDefinition, currentHash); err != nil {
+		return 0, err
+	}
+
+	definitionHash := DefinitionHash(definitionJSON)
 	var newVersion int
-	if err := r.db.QueryRowContext(ctx,
-		rebindQueryForPgx("UPDATE stored_jobs SET definition_json = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE job_id = ? RETURNING version"),
+	if err := tx.QueryRowContext(ctx,
+		rebindQueryForPgx("UPDATE stored_jobs SET definition_json = ?, definition_hash = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE job_id = ? RETURNING version"),
 		definitionJSON,
+		definitionHash,
 		jobID,
 	).Scan(&newVersion); err != nil {
 		return 0, normalizeSQLError(err)
 	}
 
+	if _, err := tx.ExecContext(ctx,
+		rebindQueryForPgx("INSERT INTO job_definitions (global_id, job_id, version, definition_json, definition_hash, home_cell) VALUES (?, ?, ?, ?, ?, ?)"),
+		newGlobalID(),
+		jobID,
+		newVersion,
+		definitionJSON,
+		definitionHash,
+		DefaultCellID,
+	); err != nil {
+		return 0, normalizeSQLError(err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+
 	return newVersion, nil
+}
+
+func insertDefinitionVersionTx(ctx context.Context, tx *sql.Tx, jobID string, version int, definitionJSON, definitionHash string) error {
+	_, err := tx.ExecContext(ctx,
+		rebindQueryForPgx("INSERT INTO job_definitions (global_id, job_id, version, definition_json, definition_hash, home_cell) VALUES (?, ?, ?, ?, ?, ?)"),
+		newGlobalID(),
+		jobID,
+		version,
+		definitionJSON,
+		definitionHash,
+		DefaultCellID,
+	)
+
+	if err != nil {
+		err = normalizeSQLError(err)
+		if IsConflict(err) {
+			return nil
+		}
+
+		return err
+	}
+
+	return nil
 }
 
 func (r *SQLJobsRepository) GetDefinitionVersion(ctx context.Context, jobID string, version int) (string, error) {
@@ -558,6 +682,22 @@ func (r *SQLJobsRepository) GetDefinitionVersion(ctx context.Context, jobID stri
 		version,
 	).Scan(&definitionJSON); err != nil {
 		if err == sql.ErrNoRows {
+			var currentVersion int
+			if currentErr := r.db.QueryRowContext(ctx,
+				rebindQueryForPgx("SELECT definition_json, version FROM stored_jobs WHERE job_id = ?"),
+				jobID,
+			).Scan(&definitionJSON, &currentVersion); currentErr != nil {
+				if currentErr == sql.ErrNoRows {
+					return "", fmt.Errorf("%w: job %s version %d", ErrNotFound, jobID, version)
+				}
+
+				return "", normalizeSQLError(currentErr)
+			}
+
+			if currentVersion == version {
+				return definitionJSON, nil
+			}
+
 			return "", fmt.Errorf("%w: job %s version %d", ErrNotFound, jobID, version)
 		}
 
@@ -899,13 +1039,20 @@ func (r *SQLRunsRepository) CreateRun(ctx context.Context, jobID string, runInde
 		}
 	}
 
+	definitionHash, err := lookupDefinitionHashTx(ctx, tx, jobID, definitionVersion)
+	if err != nil {
+		return "", 0, err
+	}
+
 	_, err = tx.ExecContext(ctx,
-		rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, started_at, definition_version) VALUES (?, ?, ?, ?, NULL, ?)`),
+		rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, started_at, definition_version, definition_hash, owning_cell) VALUES (?, ?, ?, ?, NULL, ?, ?, ?)`),
 		runID,
 		jobID,
 		idx,
 		"queued",
 		definitionVersion,
+		definitionHash,
+		DefaultCellID,
 	)
 
 	if err != nil {
@@ -919,14 +1066,46 @@ func (r *SQLRunsRepository) CreateRun(ctx context.Context, jobID string, runInde
 	return runID, idx, nil
 }
 
+func lookupDefinitionHashTx(ctx context.Context, tx *sql.Tx, jobID string, version int) (string, error) {
+	var hash string
+	if err := tx.QueryRowContext(ctx,
+		rebindQueryForPgx("SELECT definition_hash FROM job_definitions WHERE job_id = ? AND version = ?"),
+		jobID,
+		version,
+	).Scan(&hash); err == nil {
+		return hash, nil
+	} else if err != sql.ErrNoRows {
+		return "", normalizeSQLError(err)
+	}
+
+	var currentVersion int
+	if err := tx.QueryRowContext(ctx,
+		rebindQueryForPgx("SELECT definition_hash, version FROM stored_jobs WHERE job_id = ?"),
+		jobID,
+	).Scan(&hash, &currentVersion); err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil
+		}
+
+		return "", normalizeSQLError(err)
+	}
+
+	if currentVersion == version {
+		return hash, nil
+	}
+
+	return "", nil
+}
+
 func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, since *int, cursor int64, limit int) ([]RunRecord, int64, error) {
-	query := "SELECT id, run_id, run_index, status, orphan_reason, failure_code, CAST(started_at AS TEXT), CAST(finished_at AS TEXT), failure_reason FROM job_runs WHERE job_id = ?"
+	query := "SELECT id, run_id, run_index, status, orphan_reason, failure_code, CAST(started_at AS TEXT), CAST(finished_at AS TEXT), failure_reason, definition_version, definition_hash, owning_cell FROM job_runs WHERE job_id = ?"
 	args := []any{jobID}
 
 	if since != nil {
 		query += " AND run_index > ?"
 		args = append(args, *since)
 	}
+
 	if cursor > 0 {
 		query += " AND id > ?"
 		args = append(args, cursor)
@@ -947,9 +1126,10 @@ func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, since *
 		var rec RunRecord
 		var id int64
 		var orphanReason, failureCode, startedAt, finishedAt, failureReason sql.NullString
-		if err := rows.Scan(&id, &rec.RunID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &startedAt, &finishedAt, &failureReason); err != nil {
+		if err := rows.Scan(&id, &rec.RunID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &startedAt, &finishedAt, &failureReason, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell); err != nil {
 			return nil, 0, err
 		}
+
 		lastID = id
 		if orphanReason.Valid && orphanReason.String != "" {
 			rec.OrphanReason = &orphanReason.String
@@ -989,7 +1169,7 @@ func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, since *
 
 func (r *SQLRunsRepository) ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]QueuedRun, error) {
 	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
-		SELECT run_id, job_id, definition_version
+		SELECT run_id, job_id, definition_version, definition_hash, owning_cell
 		FROM job_runs
 		WHERE status = 'queued'
 			AND (last_dispatched_at IS NULL OR last_dispatched_at < ?)
@@ -1004,7 +1184,7 @@ func (r *SQLRunsRepository) ListQueuedBeforeDispatchCutoff(ctx context.Context, 
 	var out []QueuedRun
 	for rows.Next() {
 		var rec QueuedRun
-		if err := rows.Scan(&rec.RunID, &rec.JobID, &rec.DefinitionVersion); err != nil {
+		if err := rows.Scan(&rec.RunID, &rec.JobID, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell); err != nil {
 			return nil, err
 		}
 
@@ -1093,30 +1273,38 @@ func (r *SQLRunsRepository) GetRun(ctx context.Context, runID string) (RunRecord
 	var rec RunRecord
 	var orphanReason, failureCode, startedAt, finishedAt, failureReason sql.NullString
 	err := r.db.QueryRowContext(ctx,
-		rebindQueryForPgx("SELECT run_id, run_index, status, orphan_reason, failure_code, CAST(started_at AS TEXT), CAST(finished_at AS TEXT), failure_reason FROM job_runs WHERE run_id = ?"),
+		rebindQueryForPgx("SELECT run_id, run_index, status, orphan_reason, failure_code, CAST(started_at AS TEXT), CAST(finished_at AS TEXT), failure_reason, definition_version, definition_hash, owning_cell FROM job_runs WHERE run_id = ?"),
 		runID,
-	).Scan(&rec.RunID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &startedAt, &finishedAt, &failureReason)
+	).Scan(&rec.RunID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &startedAt, &finishedAt, &failureReason, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell)
+
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return RunRecord{}, fmt.Errorf("%w: run %s", ErrNotFound, runID)
 		}
+
 		return RunRecord{}, normalizeSQLError(err)
 	}
+
 	if orphanReason.Valid && orphanReason.String != "" {
 		rec.OrphanReason = &orphanReason.String
 	}
+
 	if startedAt.Valid {
 		rec.StartedAt = &startedAt.String
 	}
+
 	if finishedAt.Valid {
 		rec.FinishedAt = &finishedAt.String
 	}
+
 	if failureCode.Valid && failureCode.String != "" {
 		rec.FailureCode = &failureCode.String
 	}
+
 	if failureReason.Valid {
 		rec.FailureReason = &failureReason.String
 	}
+
 	return rec, nil
 }
 

@@ -178,40 +178,27 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 		return nil
 	}
 
-	defJSON, _, err := s.jobs.GetDefinition(ctx, jobID)
+	defJSON, err := s.jobs.GetDefinitionVersion(ctx, jobID, qr.DefinitionVersion)
 	if err != nil {
-		if !dal.IsNotFound(err) {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "load stored job")
+		if dal.IsNotFound(err) {
+			s.logger.Debug("reconciler: skip run %s (no job_definitions row for job %q version %d)",
+				runID, jobID, qr.DefinitionVersion)
+			span.SetAttributes(attribute.String("vectis.reconciler.outcome", observability.ReconcilerOutcomeSkippedMissingJobDef))
+
 			if s.metrics != nil {
-				s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeFailedLoadJobDef)
+				s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeSkippedMissingJobDef)
 			}
 
-			return fmt.Errorf("load stored job: %w", err)
+			return nil
 		}
 
-		defJSON, err = s.jobs.GetDefinitionVersion(ctx, jobID, qr.DefinitionVersion)
-		if err != nil {
-			if dal.IsNotFound(err) {
-				s.logger.Debug("reconciler: skip run %s (no stored job and no job_definitions row for job %q version %d)",
-					runID, jobID, qr.DefinitionVersion)
-				span.SetAttributes(attribute.String("vectis.reconciler.outcome", observability.ReconcilerOutcomeSkippedMissingJobDef))
-
-				if s.metrics != nil {
-					s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeSkippedMissingJobDef)
-				}
-
-				return nil
-			}
-
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "load job definition version")
-			if s.metrics != nil {
-				s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeFailedLoadJobDef)
-			}
-
-			return fmt.Errorf("load job definition version: %w", err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "load job definition version")
+		if s.metrics != nil {
+			s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeFailedLoadJobDef)
 		}
+
+		return fmt.Errorf("load job definition version: %w", err)
 	}
 
 	var job api.Job

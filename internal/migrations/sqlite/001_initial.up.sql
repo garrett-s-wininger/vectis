@@ -1,20 +1,25 @@
 CREATE TABLE namespaces (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    global_id TEXT UNIQUE,
     name TEXT NOT NULL,
     parent_id INTEGER REFERENCES namespaces(id),
     path TEXT UNIQUE NOT NULL,
     break_inheritance INTEGER NOT NULL DEFAULT 0,
+    home_cell TEXT NOT NULL DEFAULT 'local',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-INSERT INTO namespaces (id, name, path, break_inheritance) VALUES (1, 'root', '/', 0);
+INSERT INTO namespaces (id, global_id, name, path, break_inheritance, home_cell) VALUES (1, 'namespace-root', 'root', '/', 0, 'local');
 
 CREATE TABLE stored_jobs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    global_id TEXT UNIQUE,
     job_id TEXT UNIQUE NOT NULL,
     namespace_id INTEGER NOT NULL DEFAULT 1 REFERENCES namespaces(id),
     definition_json TEXT NOT NULL,
+    definition_hash TEXT NOT NULL DEFAULT '',
     version INTEGER NOT NULL DEFAULT 1,
+    home_cell TEXT NOT NULL DEFAULT 'local',
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -26,6 +31,7 @@ CREATE TABLE job_cron_schedules (
     next_run_at TIMESTAMP NOT NULL,
     claim_token TEXT,
     claimed_until TIMESTAMP,
+    home_cell TEXT NOT NULL DEFAULT 'local',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(job_id, cron_spec)
 );
@@ -50,7 +56,9 @@ CREATE TABLE job_runs (
     lease_owner TEXT,
     lease_until INTEGER,
     last_dispatched_at INTEGER,
-    definition_version INTEGER NOT NULL DEFAULT 1
+    definition_version INTEGER NOT NULL DEFAULT 1,
+    definition_hash TEXT NOT NULL DEFAULT '',
+    owning_cell TEXT NOT NULL DEFAULT 'local'
 );
 
 CREATE INDEX idx_job_runs_job_id_run_index ON job_runs (job_id, run_index DESC);
@@ -78,9 +86,12 @@ CREATE TABLE idempotency_keys (
 );
 
 CREATE TABLE job_definitions (
+    global_id TEXT UNIQUE,
     job_id TEXT NOT NULL,
     version INTEGER NOT NULL,
     definition_json TEXT NOT NULL,
+    definition_hash TEXT NOT NULL DEFAULT '',
+    home_cell TEXT NOT NULL DEFAULT 'local',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (job_id, version)
 );
@@ -94,6 +105,7 @@ INSERT INTO auth_instance_state (id, setup_completed_at) VALUES (1, NULL);
 
 CREATE TABLE local_users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    global_id TEXT UNIQUE,
     username TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     enabled INTEGER NOT NULL DEFAULT 1,
@@ -102,6 +114,7 @@ CREATE TABLE local_users (
 
 CREATE TABLE api_tokens (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    global_id TEXT UNIQUE,
     local_user_id INTEGER NOT NULL REFERENCES local_users(id) ON DELETE CASCADE,
     token_hash TEXT NOT NULL,
     label TEXT NOT NULL DEFAULT '',
@@ -114,6 +127,7 @@ CREATE UNIQUE INDEX idx_api_tokens_token_hash ON api_tokens(token_hash);
 
 CREATE TABLE role_bindings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    global_id TEXT UNIQUE,
     local_user_id INTEGER NOT NULL REFERENCES local_users(id) ON DELETE CASCADE,
     namespace_id INTEGER NOT NULL REFERENCES namespaces(id) ON DELETE CASCADE,
     role TEXT NOT NULL,
@@ -123,6 +137,7 @@ CREATE TABLE role_bindings (
 
 CREATE TABLE api_token_scopes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    global_id TEXT UNIQUE,
     api_token_id INTEGER NOT NULL REFERENCES api_tokens(id) ON DELETE CASCADE,
     action TEXT NOT NULL,
     namespace_id INTEGER REFERENCES namespaces(id),

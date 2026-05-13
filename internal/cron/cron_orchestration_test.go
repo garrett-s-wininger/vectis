@@ -19,6 +19,7 @@ func TestCronService_ProcessSchedules_OrchestrationUsesRepos(t *testing.T) {
 
 	jobs := mocks.NewMockJobsRepository()
 	jobs.Definitions["job-1"] = `{"id":"job-1","root":{"uses":"builtins/shell"}}`
+	jobs.DefinitionVersions["job-1"] = 4
 
 	runs := mocks.NewMockRunsRepository()
 	runs.CreateRunID = "run-1"
@@ -42,6 +43,11 @@ func TestCronService_ProcessSchedules_OrchestrationUsesRepos(t *testing.T) {
 
 	if len(queue.GetJobs()) != 1 {
 		t.Fatalf("expected one enqueued job, got %d", len(queue.GetJobs()))
+	}
+
+	lastCreateJobID, lastDefVersion := runs.SnapshotLastCreate()
+	if lastCreateJobID != "job-1" || lastDefVersion != 4 {
+		t.Fatalf("expected cron run for job-1 definition version 4, got job=%q version=%d", lastCreateJobID, lastDefVersion)
 	}
 
 	touched := runs.SnapshotTouchedRunIDs()
