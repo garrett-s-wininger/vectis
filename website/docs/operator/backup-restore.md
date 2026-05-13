@@ -22,7 +22,7 @@ Back up the SQL database first and most carefully. Queue and log state can be re
 1. Stop API, cron, reconciler, workers, queue, log, and log-forwarder processes so no restored state is modified while files are being replaced.
 2. Restore deployment config, secrets, and TLS material to the same paths or update environment variables before starting services.
 3. Restore the SQL database.
-4. Run `vectis-cli migrate` with the same `VECTIS_DATABASE_DRIVER` and `VECTIS_DATABASE_DSN` that services will use.
+4. Run `vectis-cli database migrate` with the same `VECTIS_DATABASE_DRIVER` and `VECTIS_DATABASE_DSN` that services will use.
 5. Restore queue persistence and log storage when available.
 6. Restore log-forwarder spools on worker hosts if they are part of the backup set.
 7. Start registry, queue, and log first; then API; then workers, cron, and reconciler.
@@ -49,7 +49,7 @@ The reconciler is the primary repair loop for database rows that should have rea
 2. Copy the SQLite database file from backup to the configured `VECTIS_DATABASE_DSN` path.
 3. Restore `$XDG_DATA_HOME/vectis/queue`, `$XDG_DATA_HOME/vectis/jobs`, and `$XDG_DATA_HOME/vectis/local-tls` when they are part of the backup.
 4. Restore CLI token and local deploy secrets only when you intentionally want the same local identity state.
-5. Run `vectis-cli migrate` with the restored database settings.
+5. Run `vectis-cli database migrate` with the restored database settings.
 6. Start `vectis-local` or the standalone services.
 7. Run the restore smoke test.
 
@@ -61,7 +61,7 @@ For a local-only restore where queue persistence was not backed up, start the re
 2. Restore Postgres from the database backup using the database platform's restore process.
 3. Restore or recreate the Podman deploy secrets and TLS volumes. If secrets are recreated instead of restored, update all generated DSNs and client credentials consistently.
 4. Restore queue persistence, log storage, and log-forwarder spools from matching backups when available.
-5. Run `vectis-cli migrate` against the restored Postgres DSN from the same host/network path used for deployment migrations.
+5. Run `vectis-cli database migrate` against the restored Postgres DSN from the same host/network path used for deployment migrations.
 6. Start registry, queue, log, API, workers, cron, and reconciler in dependency order.
 7. Run the restore smoke test and confirm dashboards/alerts are receiving fresh data.
 
@@ -74,7 +74,7 @@ Run this after every restore drill and after real disaster recovery:
 1. Check API liveness and readiness: `GET /health/live` and `GET /health/ready`.
 2. If auth is enabled, verify setup state and log in with an expected operator account or token.
 3. List jobs with `vectis-cli jobs list`.
-4. List recent runs with `vectis-cli runs list`.
+4. List recent runs for one restored job with `vectis-cli runs list <job-id>`.
 5. Trigger a small known-safe job.
 6. Confirm the run reaches a terminal status.
 7. Stream or fetch logs for the new run.
@@ -82,7 +82,7 @@ Run this after every restore drill and after real disaster recovery:
 9. Inspect dispatch events for the restored and newly triggered run.
 10. Confirm Prometheus, logs, and dashboards show fresh samples from the restored services.
 
-`vectis-cli doctor` automates the API-oriented part of this smoke test: API liveness, API readiness, setup status, local CLI token visibility, schema status, queue backlog, reconciler activity, stuck queued runs, log reachability, audit drops/flush failures, and DB pool pressure. Keep the active run trigger/log verification and dashboard freshness checks in the manual drill.
+`vectis-cli health check` automates the API-oriented part of this smoke test: API liveness, API readiness, setup status, local CLI token visibility, schema status, queue backlog, reconciler activity, stuck queued runs, log reachability, audit drops/flush failures, and DB pool pressure. Keep the active run trigger/log verification and dashboard freshness checks in the manual drill.
 
 Record the backup timestamp, restored schema version, release version, and any partial-restore data loss in the incident or drill notes.
 

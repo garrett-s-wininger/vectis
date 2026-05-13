@@ -6,7 +6,7 @@
 
 | Environment | Fit | Expected changes before real use |
 | --- | --- | --- |
-| Local dev | Good default for trying the full stack | Keep data disposable; use `vectis-cli reset --dry-run` before cleanup. |
+| Local dev | Good default for trying the full stack | Keep data disposable; use `vectis-cli local reset --dry-run` before cleanup. |
 | Podman demo | Good for showing API, worker, logs, metrics, traces, and dashboards together | Treat generated secrets and bundled observability as demo material unless you manage them like production secrets. |
 | Staging/reference | Useful as a repeatable topology | Enable API auth, set explicit backup/restore process, review resource limits, and wire real alert routing. |
 | Production | Reference only | Bring your own Postgres, backup system, telemetry backends, network policy, TLS material, secret rotation, and capacity plan. |

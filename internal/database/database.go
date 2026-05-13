@@ -170,7 +170,7 @@ func WaitForMigrations(db *sql.DB, log interfaces.Logger) error {
 				if schemaWaitConnectFailure(err) {
 					log.Warn("Cannot connect to the database (retries at debug; check DSN, network/DNS, and credentials)")
 				} else {
-					log.Warn("Database is reachable but schema is not ready (retries at debug; apply migrations, e.g. vectis-cli migrate)")
+					log.Warn("Database is reachable but schema is not ready (retries at debug; apply migrations, e.g. vectis-cli database migrate)")
 				}
 
 				log.Debug("database schema poll error: %v", err)
@@ -183,5 +183,5 @@ func WaitForMigrations(db *sql.DB, log interfaces.Logger) error {
 		time.Sleep(schemaWaitPollInterval)
 	}
 
-	return fmt.Errorf("timed out waiting for database readiness; check connectivity and apply migrations with vectis-cli migrate (same VECTIS_DATABASE_DRIVER / VECTIS_DATABASE_DSN)")
+	return fmt.Errorf("timed out waiting for database readiness; check connectivity and apply migrations with vectis-cli database migrate (same VECTIS_DATABASE_DRIVER / VECTIS_DATABASE_DSN)")
 }

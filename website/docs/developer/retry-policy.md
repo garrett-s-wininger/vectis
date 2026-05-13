@@ -24,7 +24,7 @@ The common labels are `component`, `service`, and `operation`. `component` prese
 | Worker dequeue loop | Worker | Indefinite while process is running | 500ms exponential capped at 30s | No | Domain logs, no common counter today | Worker stops receiving new jobs until queue recovers. |
 | Worker database claim/lease/finalize recovery | Worker | Indefinite for between-job DB recovery; 4 attempts for ack/finalize paths | 150ms exponential capped at 2s for ack/finalize; 500ms capped at 30s for DB backoff | No | Domain logs/spans, no common counter today | Run can be orphaned, failed, or left for lease/reconciler recovery depending on where exhaustion occurs. |
 | Durable log stream send | Worker job execution | Retries until close flush deadline | 150ms exponential capped at 2s | No | Domain logs, no common counter today | Run fails if logs cannot flush before the deadline. |
-| Postgres migration advisory lock | `vectis-cli migrate` and startup migration checks through database helpers | 60s deadline | 750ms fixed sleep | No | No | Migration command returns failure. |
+| Postgres migration advisory lock | `vectis-cli database migrate` and startup migration checks through database helpers | 60s deadline | 750ms fixed sleep | No | No | Migration command returns failure. |
 | Reconciler enqueue | Reconciler | Queue enqueue policy above for each selected run | Queue enqueue policy above | Queue enqueue policy above | Reconciler outcome metrics plus enqueue traces | Run remains queued for a later reconciler cycle or manual retry. |
 | Log-forwarder delivery | Log-forwarder | Retries through persisted local spool behavior | See log-forwarder configuration and logs | No | Domain logs, no common counter today | Batch remains spooled or is quarantined when corrupt. |
 
@@ -73,7 +73,7 @@ For paths that do not yet use common retry metrics, alert on the corresponding d
 - Registry or pinned dial exhaustion at startup: verify address, DNS, network policy, and `VECTIS_GRPC_TLS_SERVER_NAME` / certificate SANs.
 - Worker ack/finalize exhaustion: inspect run status, worker logs, database availability, and queue delivery state. Avoid restarting repeatedly without checking whether the database can accept final status writes.
 - Log retry exhaustion: inspect `vectis-log` health, storage directory writability, and worker spool warnings before retrying the run.
-- Migration lock exhaustion: confirm no other migrator is still running, then rerun `vectis-cli migrate` after the lock holder exits.
+- Migration lock exhaustion: confirm no other migrator is still running, then rerun `vectis-cli database migrate` after the lock holder exits.
 
 ## Adding Or Changing Retries
 

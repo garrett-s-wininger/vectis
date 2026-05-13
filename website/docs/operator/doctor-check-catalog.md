@@ -1,6 +1,6 @@
 # Doctor Check Catalog
 
-`vectis-cli doctor` runs a stable catalog of operational checks against the configured API and locally visible deployment paths. Text output is tab-separated:
+`vectis-cli health check` runs a stable catalog of operational checks against the configured API and locally visible deployment paths. Text output is tab-separated:
 
 ```text
 status<TAB>check_id<TAB>summary

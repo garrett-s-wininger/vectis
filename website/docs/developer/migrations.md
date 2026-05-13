@@ -5,7 +5,7 @@ Vectis uses embedded SQL migrations for the supported database backends:
 - SQLite: `internal/migrations/sqlite/`
 - PostgreSQL: `internal/migrations/postgres/`
 
-Runtime services wait for the expected schema, but they do not apply migrations. Deployment and admin flows should run `vectis-cli migrate` before starting or rolling new binaries.
+Runtime services wait for the expected schema, but they do not apply migrations. Deployment and admin flows should run `vectis-cli database migrate` before starting or rolling new binaries.
 
 The accepted policy is captured in [ADR 0004](adr/0004-migration-compatibility-and-rollback.md). Future release notes should link back here when a release includes schema changes.
 
@@ -52,7 +52,7 @@ Operator rollback choices are release-specific:
 For each release with schema changes, release notes must state:
 
 - Whether old binaries can run against the new schema.
-- Whether new binaries can run against the old schema before `vectis-cli migrate`.
+- Whether new binaries can run against the old schema before `vectis-cli database migrate`.
 - Whether rolling upgrades with mixed binary versions are supported.
 - Whether downtime or a coordinated service stop is required.
 - The production rollback path: backup restore, roll-forward repair, or explicitly safe down migration.

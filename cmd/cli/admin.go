@@ -330,6 +330,26 @@ func runUserUpdate(cmd *cobra.Command, args []string) {
 	fmt.Println("User updated.")
 }
 
+func runUserEnable(cmd *cobra.Command, args []string) {
+	id, err := parseInt64Arg("user id", args[0])
+	if err != nil {
+		runCLIError(err)
+	}
+
+	runCLIError(userSetEnabled(id, true))
+	fmt.Println("User enabled.")
+}
+
+func runUserDisable(cmd *cobra.Command, args []string) {
+	id, err := parseInt64Arg("user id", args[0])
+	if err != nil {
+		runCLIError(err)
+	}
+
+	runCLIError(userSetEnabled(id, false))
+	fmt.Println("User disabled.")
+}
+
 func runUserDelete(cmd *cobra.Command, args []string) {
 	id, err := parseInt64Arg("user id", args[0])
 	if err != nil {
@@ -397,21 +417,34 @@ func runCLIError(err error) {
 	}
 }
 
-var namespaceCmd = &cobra.Command{Use: "namespace", Short: "Manage namespaces"}
+var namespaceCmd = &cobra.Command{
+	Use:   "namespaces",
+	Short: "List, show, create, and delete namespaces",
+}
+
 var namespaceListCmd = &cobra.Command{Use: "list", Short: "List namespaces", Run: runNamespaceList}
-var namespaceGetCmd = &cobra.Command{Use: "get [namespace-id]", Short: "Get a namespace", Args: cobra.ExactArgs(1), Run: runNamespaceGet}
+var namespaceGetCmd = &cobra.Command{Use: "show [namespace-id]", Short: "Show a namespace", Args: cobra.ExactArgs(1), Run: runNamespaceGet}
 var namespaceCreateCmd = &cobra.Command{Use: "create [name]", Short: "Create a namespace", Args: cobra.ExactArgs(1), Run: runNamespaceCreate}
 var namespaceDeleteCmd = &cobra.Command{Use: "delete [namespace-id]", Short: "Delete an empty namespace", Args: cobra.ExactArgs(1), Run: runNamespaceDelete}
 
-var userCmd = &cobra.Command{Use: "user", Short: "Manage local users"}
+var userCmd = &cobra.Command{
+	Use:   "users",
+	Short: "List, show, create, and manage local users",
+}
+
 var userListCmd = &cobra.Command{Use: "list", Short: "List users", Run: runUserList}
-var userGetCmd = &cobra.Command{Use: "get [user-id]", Short: "Get a user", Args: cobra.ExactArgs(1), Run: runUserGet}
+var userGetCmd = &cobra.Command{Use: "show [user-id]", Short: "Show a user", Args: cobra.ExactArgs(1), Run: runUserGet}
 var userCreateCmd = &cobra.Command{Use: "create [username]", Short: "Create a user", Args: cobra.ExactArgs(1), Run: runUserCreate}
-var userUpdateCmd = &cobra.Command{Use: "update [user-id]", Short: "Enable or disable a user", Args: cobra.ExactArgs(1), Run: runUserUpdate}
+var userEnableCmd = &cobra.Command{Use: "enable [user-id]", Short: "Enable a user", Args: cobra.ExactArgs(1), Run: runUserEnable}
+var userDisableCmd = &cobra.Command{Use: "disable [user-id]", Short: "Disable a user", Args: cobra.ExactArgs(1), Run: runUserDisable}
 var userDeleteCmd = &cobra.Command{Use: "delete [user-id]", Short: "Delete a user", Args: cobra.ExactArgs(1), Run: runUserDelete}
 var userChangePasswordCmd = &cobra.Command{Use: "change-password", Short: "Change a user password", Run: runUserChangePassword}
 
-var roleBindingCmd = &cobra.Command{Use: "role-binding", Short: "Manage namespace role bindings"}
+var roleBindingCmd = &cobra.Command{
+	Use:   "role-bindings",
+	Short: "List, grant, and revoke namespace role bindings",
+}
+
 var roleBindingListCmd = &cobra.Command{Use: "list [namespace-id]", Short: "List role bindings", Args: cobra.ExactArgs(1), Run: runBindingList}
-var roleBindingCreateCmd = &cobra.Command{Use: "create [namespace-id] [user-id] [role]", Short: "Create a role binding", Args: cobra.ExactArgs(3), Run: runBindingCreate}
-var roleBindingDeleteCmd = &cobra.Command{Use: "delete [namespace-id] [user-id] [role]", Short: "Delete a role binding", Args: cobra.ExactArgs(3), Run: runBindingDelete}
+var roleBindingCreateCmd = &cobra.Command{Use: "grant [namespace-id] [user-id] [role]", Short: "Grant a namespace role", Args: cobra.ExactArgs(3), Run: runBindingCreate}
+var roleBindingDeleteCmd = &cobra.Command{Use: "revoke [namespace-id] [user-id] [role]", Short: "Revoke a namespace role", Args: cobra.ExactArgs(3), Run: runBindingDelete}

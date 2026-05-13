@@ -25,11 +25,11 @@ Anonymous requests are scoped as anonymous for idempotency. Authenticated reques
 
 ## CLI Support
 
-`vectis-cli trigger` and `vectis-cli run` accept `--idempotency-key`:
+`vectis-cli jobs trigger` and `vectis-cli jobs run` accept `--idempotency-key`:
 
 ```sh
-vectis-cli trigger build-main --idempotency-key "$(uuidgen)"
-vectis-cli run job.json --idempotency-key "$(uuidgen)"
+vectis-cli jobs trigger build-main --idempotency-key "$(uuidgen)"
+vectis-cli jobs run job.json --idempotency-key "$(uuidgen)"
 ```
 
 When a network error or timeout leaves the client unsure whether the API accepted the request, retry the same command with the same key.

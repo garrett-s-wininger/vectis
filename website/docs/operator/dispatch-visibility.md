@@ -7,7 +7,7 @@ The API records run rows first. Queue submission may happen from the API, from `
 ## Where To Look
 
 - `GET /api/v1/runs/{id}` includes `dispatch_events`.
-- `vectis-cli run get <run-id>` prints dispatch events.
+- `vectis-cli runs show <run-id>` prints dispatch events.
 - Reconciler metrics and logs explain whether stuck queued runs are being scanned and redispatched.
 
 Normal triage should not require SQL.
@@ -26,7 +26,7 @@ Use the event source, timestamp, and message together:
 
 ## Runbook: Queued With No Dispatch
 
-1. Run `vectis-cli run get <run-id>` and inspect `dispatch_events`.
+1. Run `vectis-cli runs show <run-id>` and inspect `dispatch_events`.
 2. Check `GET /health/ready` on the API.
 3. Check queue gRPC health and queue backlog metrics.
 4. Confirm `vectis-reconciler` is running and scanning queued runs.

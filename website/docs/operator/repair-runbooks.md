@@ -1,8 +1,8 @@
 # Repair Runbooks
 
-These recipes are for operators responding to failed `doctor` checks, alerts, restore drills, or stuck runs. Start with `vectis-cli doctor` when the API is reachable, then use the recipe that matches the failing check or alert.
+These recipes are for operators responding to failed health checks, alerts, restore drills, or stuck runs. Start with `vectis-cli health check` when the API is reachable, then use the recipe that matches the failing check or alert.
 
-Use `vectis-cli run get <run-id>` as the first run-specific command. It includes run status and dispatch events without requiring direct SQL access.
+Use `vectis-cli runs show <run-id>` as the first run-specific command. It includes run status and dispatch events without requiring direct SQL access.
 
 ## Quick Map
 
@@ -21,33 +21,33 @@ Use `vectis-cli run get <run-id>` as the first run-specific command. It includes
 
 Use this when queued runs are not draining, `doctor` warns on `queue.backlog.ratio`, or `VectisQueueBacklogGrowing` fires.
 
-1. Run `vectis-cli doctor --strict` and note failures for `api.ready`, `queue.backlog.ratio`, `reconciler.active`, and `reconciler.stuck.runs`.
-2. For a specific run, run `vectis-cli run get <run-id>` and inspect `status` plus `dispatch_events`.
+1. Run `vectis-cli health check --strict` and note failures for `api.ready`, `queue.backlog.ratio`, `reconciler.active`, and `reconciler.stuck.runs`.
+2. For a specific run, run `vectis-cli runs show <run-id>` and inspect `status` plus `dispatch_events`.
 3. If there is no dispatch event, follow [DISPATCH_VISIBILITY.md#runbook-queued-with-no-dispatch](dispatch-visibility.md#runbook-queued-with-no-dispatch).
 4. If dispatch failed, follow [DISPATCH_VISIBILITY.md#runbook-dispatch-failure](dispatch-visibility.md#runbook-dispatch-failure).
 5. Confirm workers are running and receiving jobs by checking worker process health and `vectis_worker_jobs_received_total`.
 6. Check queue gRPC health and queue metrics: pending jobs, in-flight deliveries, and DLQ size.
 7. If the queue lost non-persistent state after restart, keep `vectis-reconciler` running and wait at least one reconciler interval before manual intervention.
-8. Use `vectis-cli force-requeue <run-id>` only after automatic redispatch is not progressing and the run is not already running or succeeded.
+8. Use `vectis-cli runs retry <run-id>` only after automatic redispatch is not progressing and the run is not already running or succeeded.
 
 ## Reconciler Repair
 
 Use this when `doctor` warns on `reconciler.active` or `reconciler.stuck.runs`, or `VectisReconcilerReenqueueFailures` fires.
 
-1. Confirm API readiness: `vectis-cli doctor --strict`.
+1. Confirm API readiness: `vectis-cli health check --strict`.
 2. Confirm exactly one active reconciler for the current scale posture; see [SCALING_AND_RESTARTS.md](scaling-and-restarts.md).
 3. Check the reconciler process logs for database, queue, registry, or gRPC TLS errors.
 4. Verify the reconciler is using the same database settings as the API, cron, and other SQL writers.
 5. Verify queue resolution through the pinned queue address or registry path configured for the reconciler.
 6. Inspect `vectis_reconciler_reenqueue_total` by outcome and `vectis_retries_exhausted_total`.
-7. For impacted runs, use `vectis-cli run get <run-id>` to confirm whether later reconciler dispatch events appear.
-8. If the reconciler is healthy but one urgent run remains queued, use `vectis-cli force-requeue <run-id>` after checking that no worker currently owns the run.
+7. For impacted runs, use `vectis-cli runs show <run-id>` to confirm whether later reconciler dispatch events appear.
+8. If the reconciler is healthy but one urgent run remains queued, use `vectis-cli runs retry <run-id>` after checking that no worker currently owns the run.
 
 ## Log Service Repair
 
 Use this when `doctor` warns on `log.reachable`, log append failures increase, or log streaming fails.
 
-1. Check `vectis-cli doctor --json` and inspect the `log.reachable` evidence/state.
+1. Check `vectis-cli health check --json` and inspect the `log.reachable` evidence/state.
 2. Confirm `vectis-log` gRPC health is serving and its storage directory is writable.
 3. Verify API and worker log client resolution: pinned log address or registry registration.
 4. Verify gRPC TLS settings: CA file, server name, and certificate SANs. See [CONFIGURATION.md](configuration.md#internal-grpc-tls).
@@ -59,7 +59,7 @@ Use this when `doctor` warns on `log.reachable`, log append failures increase, o
 
 Use this when `doctor` warns on `audit.drops.recent` or `audit.flush.failures`, or audit alerts fire.
 
-1. Confirm API and database readiness with `vectis-cli doctor --strict`.
+1. Confirm API and database readiness with `vectis-cli health check --strict`.
 2. Check API logs for audit buffer full, flush failure, or database write errors.
 3. Inspect `vectis_audit_events_dropped_total` and `vectis_audit_flush_failures_total`.
 4. Check database pool pressure using the `db.connection.pool` doctor check and DB metrics.
@@ -70,7 +70,7 @@ Use this when `doctor` warns on `audit.drops.recent` or `audit.flush.failures`, 
 
 Use this when `doctor` warns on `db.connection.pool` or the DB pool alert fires.
 
-1. Run `vectis-cli doctor --json` and record `db.connection.pool` evidence.
+1. Run `vectis-cli health check --json` and record `db.connection.pool` evidence.
 2. Check whether API, cron, reconciler, and any other DB-using processes recently scaled up.
 3. Check database availability, slow queries, and server-side connection limits.
 4. Tune Vectis pool settings for the deployment; see [CONFIGURATION.md](configuration.md#common-operator-settings).
@@ -83,8 +83,8 @@ Use this when `doctor` fails `db.schema.current`, API readiness reports database
 
 1. Stop workers, cron, and reconciler if the schema state is uncertain.
 2. Confirm `VECTIS_DATABASE_DRIVER` and `VECTIS_DATABASE_DSN` point at the intended database.
-3. Run `vectis-cli migrate` from the same network/config context used by the deployment.
-4. Restart API first and run `vectis-cli doctor --strict`.
+3. Run `vectis-cli database migrate` from the same network/config context used by the deployment.
+4. Restart API first and run `vectis-cli health check --strict`.
 5. Restart workers, cron, and reconciler after `api.ready` and `db.schema.current` pass.
 6. For restore-specific order and partial-restore outcomes, use [BACKUP_RESTORE.md](backup-restore.md).
 
@@ -107,7 +107,7 @@ vectis-cli retention cleanup --dry-run
 vectis-cli retention cleanup --yes
 ```
 
-6. Run `vectis-cli doctor --strict` and check storage pressure metrics after cleanup.
+6. Run `vectis-cli health check --strict` and check storage pressure metrics after cleanup.
 
 ## Manual Run Intervention
 
@@ -116,7 +116,7 @@ Use this when an operator must change an individual run state after automatic re
 1. Get the run:
 
 ```sh
-vectis-cli run get <run-id>
+vectis-cli runs show <run-id>
 ```
 
 2. Inspect status, failure reason, orphan reason, and dispatch events.
@@ -124,27 +124,27 @@ vectis-cli run get <run-id>
 4. To retry a failed, orphaned, or safely queued run, use:
 
 ```sh
-vectis-cli force-requeue <run-id>
+vectis-cli runs retry <run-id>
 ```
 
 5. Do not requeue a succeeded run. Do not requeue a running run unless you have confirmed the worker is gone and lease/reconciler behavior will not produce duplicate execution.
 6. To mark a run failed after external investigation:
 
 ```sh
-vectis-cli force-fail <run-id> --reason "operator reason"
+vectis-cli runs fail <run-id> --reason "operator reason"
 ```
 
 7. To request cancellation of a cancellable executing run:
 
 ```sh
-vectis-cli run cancel <run-id>
+vectis-cli runs cancel <run-id>
 ```
 
 8. Re-read the run and confirm the terminal or queued state is the one you intended.
 
 ## After Repair
 
-1. Run `vectis-cli doctor --strict`.
+1. Run `vectis-cli health check --strict`.
 2. Trigger a small known-safe job.
 3. Confirm the run reaches a terminal state and logs are readable.
 4. Check the relevant metrics for at least one reconciler interval.

@@ -80,7 +80,7 @@ Schema changes must follow [MIGRATIONS.md](migrations.md), including the product
 1. Back up the SQLite database, queue persistence, log storage, secrets, and local TLS material if they matter for this environment.
 2. Stop `vectis-local` or standalone services.
 3. Install the new artifacts.
-4. Run `vectis-cli migrate` with the restored or active SQLite DSN.
+4. Run `vectis-cli database migrate` with the restored or active SQLite DSN.
 5. Start services.
 6. Run the upgrade smoke test.
 
@@ -91,7 +91,7 @@ Rollback usually means restoring the pre-upgrade backup and previous artifacts u
 1. Back up Postgres and deployment secrets/TLS material.
 2. Read release notes for required downtime, allowed skew, and migration rollback path.
 3. Stop cron and workers first if the release does not allow mixed execution.
-4. Run `vectis-cli migrate` against the Postgres DSN.
+4. Run `vectis-cli database migrate` against the Postgres DSN.
 5. Roll registry, queue, log, API, workers, cron, and reconciler according to the release notes.
 6. Run the upgrade smoke test.
 7. Watch retry exhaustion, queued-run age, worker failures, and API readiness for at least one reconciler interval.
@@ -106,7 +106,7 @@ Run after every upgrade:
 2. API `GET /health/live` and `GET /health/ready` return healthy status.
 3. If auth is enabled, login/setup state behaves as expected.
 4. `vectis-cli jobs list` succeeds.
-5. `vectis-cli runs list` succeeds.
+5. `vectis-cli runs list <job-id>` succeeds for a known job.
 6. Trigger a known-safe job.
 7. Confirm the run reaches a terminal state.
 8. Fetch or stream the run logs.

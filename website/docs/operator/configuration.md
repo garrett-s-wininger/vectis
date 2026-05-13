@@ -50,7 +50,7 @@ API audit events are enabled by default. Event definitions and default durabilit
 
 **CLI authentication:** `vectis-cli login` calls **`POST /api/v1/login`** and persists the returned token to the OS user config directory (`os.UserConfigDir()/vectis/token`, e.g. `~/.config/vectis/token` on Linux or `~/Library/Application Support/vectis/token` on macOS). Subsequent CLI commands read this file automatically (override with **`VECTIS_API_TOKEN`**).
 
-**Local reset:** `vectis-cli reset --dry-run` lists the local Vectis directories it would remove: OS user config (`os.UserConfigDir()/vectis`, including CLI tokens and default Podman deploy secrets), XDG data (`$XDG_DATA_HOME/vectis`, including SQLite data, queue persistence, logs, and `vectis-local` TLS), OS user cache (`os.UserCacheDir()/vectis`), and `$VECTIS_DEPLOY_CONFIG_DIR/podman` when that override is set. `vectis-cli reset --yes` removes those paths. It does not stop running services or remove container volumes.
+**Local reset:** `vectis-cli local reset --dry-run` lists the local Vectis directories it would remove: OS user config (`os.UserConfigDir()/vectis`, including CLI tokens and default Podman deploy secrets), XDG data (`$XDG_DATA_HOME/vectis`, including SQLite data, queue persistence, logs, and `vectis-local` TLS), OS user cache (`os.UserCacheDir()/vectis`), and `$VECTIS_DEPLOY_CONFIG_DIR/podman` when that override is set. `vectis-cli local reset --yes` removes those paths. It does not stop running services or remove container volumes.
 
 ## Database (every service that uses the DB)
 
@@ -61,7 +61,7 @@ These two variables are **global** (no per-service prefix). Every component that
 | **`VECTIS_DATABASE_DRIVER`** | `sqlite3` (typical default) or **`pgx`** for PostgreSQL. |
 | **`VECTIS_DATABASE_DSN`** | PostgreSQL URL, or SQLite **file path**. If unset, SQLite defaults to a file under the XDG data directory (see [README.md](https://github.com/garrett-s-wininger/vectis#readme)). |
 
-Applies to: `vectis-api`, `vectis-worker`, `vectis-cron`, `vectis-reconciler`, `vectis-log`, and **`vectis-cli migrate`**.
+Applies to: `vectis-api`, `vectis-worker`, `vectis-cron`, `vectis-reconciler`, `vectis-log`, and **`vectis-cli database migrate`**.
 
 ## Internal gRPC TLS (global `VECTIS_GRPC_TLS_*`) {#internal-grpc-tls}
 

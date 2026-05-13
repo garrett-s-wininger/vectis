@@ -49,7 +49,7 @@ These goals are **ambitious** and **coherent**: some items (uniform distributed 
 Details also summarized in [ARCHITECTURE.md](architecture.md) §Persistence; **migration file layout and operational discipline** in **§5** below.
 
 - **Drivers:** SQLite default (`sqlite3`, XDG data home path in embedded defaults); **PostgreSQL** via `pgx` and `VECTIS_DATABASE_*` — [CONFIGURATION.md](../operator/configuration.md). **SQL scope:** only these two backends are in scope; abstracting **all** SQL vendors is **not** a design goal.
-- **Migrations:** Embedded under `internal/migrations/sqlite/` and `internal/migrations/postgres/`; runtime binaries **wait** for schema, **`vectis-cli migrate`** applies changes for admin/deploy flows (see §5).
+- **Migrations:** Embedded under `internal/migrations/sqlite/` and `internal/migrations/postgres/`; runtime binaries **wait** for schema, **`vectis-cli database migrate`** applies changes for admin/deploy flows (see §5).
 - **DAL:** Stored job definitions, **runs** (status, dispatch, leases), cron schedules — `internal/dal/`.
 - **Ephemeral runs:** `POST /api/v1/jobs/run` writes `job_definitions` `(job_id, version=1, definition_json)` and `job_runs.definition_version=1` (no `stored_jobs` row). The reconciler loads `stored_jobs` first, then falls back to `job_definitions` for recovery.
 - **Future work:** Append-only versions for stored jobs, delete/version retention.
@@ -173,7 +173,7 @@ The sections below (**§4–§17**) describe **target** architecture and APIs. T
 
 ### Implemented schema
 
-Authoritative DDL is in **`internal/migrations/sqlite/`** and **`internal/migrations/postgres/`** (embedded via `//go:embed`). Runtime services call **`database.WaitForMigrations`** only; `vectis-local` initializes the local SQLite schema for development, and Postgres deployments should run **`vectis-cli migrate`** as an explicit admin/deploy step.
+Authoritative DDL is in **`internal/migrations/sqlite/`** and **`internal/migrations/postgres/`** (embedded via `//go:embed`). Runtime services call **`database.WaitForMigrations`** only; `vectis-local` initializes the local SQLite schema for development, and Postgres deployments should run **`vectis-cli database migrate`** as an explicit admin/deploy step.
 
 Current migrations include, among others: **stored jobs** (id + JSON definition), **job runs** (indices, lease/dispatch, failure reason), and **cron schedules** for `vectis-cron`.
 
@@ -190,7 +190,7 @@ The long-term design may add first-class **projects**, **queues**, granular **jo
 ### Database migration strategy
 
 - **golang-migrate** with SQL up/down files under `internal/migrations/sqlite/` and `internal/migrations/postgres/`
-- Embedded in **`vectis-cli migrate`** (and `database.Migrate` for tests/tools); runtime services do not auto-migrate
+- Embedded in **`vectis-cli database migrate`** (and `database.Migrate` for tests/tools); runtime services do not auto-migrate
 
 **Migration layout (baseline):**
 
@@ -382,7 +382,7 @@ services:
 
 ### Upgrade & Rollback Strategy
 
-**Early development:** stop/start; run **`vectis-cli migrate`** when the schema changes. **Production:** deploy one consistent version across binaries; backup DB; apply migrations before or alongside rollout; redeploy; rollback with previous artifacts + DB restore if migrations cannot be reversed.
+**Early development:** stop/start; run **`vectis-cli database migrate`** when the schema changes. **Production:** deploy one consistent version across binaries; backup DB; apply migrations before or alongside rollout; redeploy; rollback with previous artifacts + DB restore if migrations cannot be reversed.
 
 ---
 
