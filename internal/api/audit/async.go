@@ -38,8 +38,8 @@ type AsyncAuditor struct {
 	stopped       atomic.Bool
 	stopOnce      sync.Once
 
-	droppedCount    atomic.Int64
-	flushFailCount  atomic.Int64
+	droppedCount   atomic.Int64
+	flushFailCount atomic.Int64
 }
 
 // NewAsyncAuditor creates an asynchronous auditor.

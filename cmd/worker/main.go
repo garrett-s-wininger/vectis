@@ -169,13 +169,8 @@ func runWorker(cmd *cobra.Command, args []string) {
 		startWorkerControlServer(shutdownCtx, controlListener, controlServer, logger)
 
 		if config.WorkerRegisterWithRegistry() {
-			regAddr := config.WorkerRegistryAddress()
-			if regAddr == "" {
-				regAddr = config.RegistryListenAddr()
-			}
-
 			stopRegistration, err := registry.RegisterWithHeartbeat(shutdownCtx, registry.RegistrationOptions{
-				RegistryAddress: regAddr,
+				RegistryAddress: config.WorkerRegistrationRegistryAddress(),
 				Component:       api.Component_COMPONENT_WORKER,
 				InstanceID:      workerID,
 				PublishAddress:  controlAddr,

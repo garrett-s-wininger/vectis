@@ -19,8 +19,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	RegistryService_Register_FullMethodName   = "/RegistryService/Register"
-	RegistryService_GetAddress_FullMethodName = "/RegistryService/GetAddress"
+	RegistryService_Register_FullMethodName    = "/RegistryService/Register"
+	RegistryService_GetAddress_FullMethodName  = "/RegistryService/GetAddress"
+	RegistryService_Gossip_FullMethodName      = "/RegistryService/Gossip"
+	RegistryService_GetSnapshot_FullMethodName = "/RegistryService/GetSnapshot"
 )
 
 // RegistryServiceClient is the client API for RegistryService service.
@@ -29,6 +31,8 @@ const (
 type RegistryServiceClient interface {
 	Register(ctx context.Context, in *Registration, opts ...grpc.CallOption) (*Empty, error)
 	GetAddress(ctx context.Context, in *AddressRequest, opts ...grpc.CallOption) (*AddressResponse, error)
+	Gossip(ctx context.Context, in *GossipRequest, opts ...grpc.CallOption) (*GossipResponse, error)
+	GetSnapshot(ctx context.Context, in *RegistrySnapshotRequest, opts ...grpc.CallOption) (*RegistrySnapshotResponse, error)
 }
 
 type registryServiceClient struct {
@@ -59,12 +63,34 @@ func (c *registryServiceClient) GetAddress(ctx context.Context, in *AddressReque
 	return out, nil
 }
 
+func (c *registryServiceClient) Gossip(ctx context.Context, in *GossipRequest, opts ...grpc.CallOption) (*GossipResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GossipResponse)
+	err := c.cc.Invoke(ctx, RegistryService_Gossip_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *registryServiceClient) GetSnapshot(ctx context.Context, in *RegistrySnapshotRequest, opts ...grpc.CallOption) (*RegistrySnapshotResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RegistrySnapshotResponse)
+	err := c.cc.Invoke(ctx, RegistryService_GetSnapshot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RegistryServiceServer is the server API for RegistryService service.
 // All implementations must embed UnimplementedRegistryServiceServer
 // for forward compatibility.
 type RegistryServiceServer interface {
 	Register(context.Context, *Registration) (*Empty, error)
 	GetAddress(context.Context, *AddressRequest) (*AddressResponse, error)
+	Gossip(context.Context, *GossipRequest) (*GossipResponse, error)
+	GetSnapshot(context.Context, *RegistrySnapshotRequest) (*RegistrySnapshotResponse, error)
 	mustEmbedUnimplementedRegistryServiceServer()
 }
 
@@ -80,6 +106,12 @@ func (UnimplementedRegistryServiceServer) Register(context.Context, *Registratio
 }
 func (UnimplementedRegistryServiceServer) GetAddress(context.Context, *AddressRequest) (*AddressResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetAddress not implemented")
+}
+func (UnimplementedRegistryServiceServer) Gossip(context.Context, *GossipRequest) (*GossipResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Gossip not implemented")
+}
+func (UnimplementedRegistryServiceServer) GetSnapshot(context.Context, *RegistrySnapshotRequest) (*RegistrySnapshotResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetSnapshot not implemented")
 }
 func (UnimplementedRegistryServiceServer) mustEmbedUnimplementedRegistryServiceServer() {}
 func (UnimplementedRegistryServiceServer) testEmbeddedByValue()                         {}
@@ -138,6 +170,42 @@ func _RegistryService_GetAddress_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RegistryService_Gossip_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GossipRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RegistryServiceServer).Gossip(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RegistryService_Gossip_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RegistryServiceServer).Gossip(ctx, req.(*GossipRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RegistryService_GetSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RegistrySnapshotRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RegistryServiceServer).GetSnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RegistryService_GetSnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RegistryServiceServer).GetSnapshot(ctx, req.(*RegistrySnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RegistryService_ServiceDesc is the grpc.ServiceDesc for RegistryService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -152,6 +220,14 @@ var RegistryService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetAddress",
 			Handler:    _RegistryService_GetAddress_Handler,
+		},
+		{
+			MethodName: "Gossip",
+			Handler:    _RegistryService_Gossip_Handler,
+		},
+		{
+			MethodName: "GetSnapshot",
+			Handler:    _RegistryService_GetSnapshot_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

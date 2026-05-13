@@ -39,7 +39,16 @@ func runVectisRegistry(cmd *cobra.Command, args []string) {
 		logger.Fatal("Failed to listen: %v", err)
 	}
 
-	registrySvc := registry.NewRegistryService(logger)
+	registrySvc := registry.NewRegistryServiceWithOptions(logger, registry.ServiceOptions{
+		NodeID:              config.RegistryClusterNodeID(),
+		AdvertiseAddress:    config.RegistryClusterAdvertiseAddress(addr),
+		PeerAddresses:       config.RegistryClusterPeerAddresses(),
+		GossipInterval:      config.RegistryClusterGossipInterval(),
+		AntiEntropyInterval: config.RegistryClusterAntiEntropyInterval(),
+		LeaseTTL:            config.RegistryClusterLeaseTTL(),
+		TombstoneTTL:        config.RegistryClusterTombstoneTTL(),
+		PeerDialTimeout:     config.RegistryClusterPeerDialTimeout(),
+	})
 	srvOpts, err := config.GRPCServerOptions()
 	if err != nil {
 		logger.Fatal("grpc tls: %v", err)
@@ -47,6 +56,7 @@ func runVectisRegistry(cmd *cobra.Command, args []string) {
 
 	grpcServer := grpc.NewServer(srvOpts...)
 	api.RegisterRegistryServiceServer(grpcServer, registrySvc)
+	registrySvc.StartCluster(cmd.Context())
 
 	hs := health.NewServer()
 	healthgrpc.RegisterHealthServer(grpcServer, hs)

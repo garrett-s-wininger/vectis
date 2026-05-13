@@ -229,6 +229,418 @@ func (x *AddressResponse) GetAddress() string {
 	return ""
 }
 
+type RegistryVersion struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OriginNodeId  *string                `protobuf:"bytes,1,opt,name=origin_node_id,json=originNodeId" json:"origin_node_id,omitempty"`
+	Counter       *uint64                `protobuf:"varint,2,opt,name=counter" json:"counter,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RegistryVersion) Reset() {
+	*x = RegistryVersion{}
+	mi := &file_registry_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegistryVersion) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegistryVersion) ProtoMessage() {}
+
+func (x *RegistryVersion) ProtoReflect() protoreflect.Message {
+	mi := &file_registry_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegistryVersion.ProtoReflect.Descriptor instead.
+func (*RegistryVersion) Descriptor() ([]byte, []int) {
+	return file_registry_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *RegistryVersion) GetOriginNodeId() string {
+	if x != nil && x.OriginNodeId != nil {
+		return *x.OriginNodeId
+	}
+	return ""
+}
+
+func (x *RegistryVersion) GetCounter() uint64 {
+	if x != nil && x.Counter != nil {
+		return *x.Counter
+	}
+	return 0
+}
+
+type RegistryEntry struct {
+	state                    protoimpl.MessageState `protogen:"open.v1"`
+	Component                *Component             `protobuf:"varint,1,opt,name=component,enum=Component" json:"component,omitempty"`
+	InstanceId               *string                `protobuf:"bytes,2,opt,name=instance_id,json=instanceId" json:"instance_id,omitempty"`
+	Address                  *string                `protobuf:"bytes,3,opt,name=address" json:"address,omitempty"`
+	Version                  *RegistryVersion       `protobuf:"bytes,4,opt,name=version" json:"version,omitempty"`
+	LeaseExpiresUnixNano     *int64                 `protobuf:"varint,5,opt,name=lease_expires_unix_nano,json=leaseExpiresUnixNano" json:"lease_expires_unix_nano,omitempty"`
+	Tombstone                *bool                  `protobuf:"varint,6,opt,name=tombstone" json:"tombstone,omitempty"`
+	TombstoneExpiresUnixNano *int64                 `protobuf:"varint,7,opt,name=tombstone_expires_unix_nano,json=tombstoneExpiresUnixNano" json:"tombstone_expires_unix_nano,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
+}
+
+func (x *RegistryEntry) Reset() {
+	*x = RegistryEntry{}
+	mi := &file_registry_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegistryEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegistryEntry) ProtoMessage() {}
+
+func (x *RegistryEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_registry_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegistryEntry.ProtoReflect.Descriptor instead.
+func (*RegistryEntry) Descriptor() ([]byte, []int) {
+	return file_registry_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *RegistryEntry) GetComponent() Component {
+	if x != nil && x.Component != nil {
+		return *x.Component
+	}
+	return Component_COMPONENT_UNKNOWN
+}
+
+func (x *RegistryEntry) GetInstanceId() string {
+	if x != nil && x.InstanceId != nil {
+		return *x.InstanceId
+	}
+	return ""
+}
+
+func (x *RegistryEntry) GetAddress() string {
+	if x != nil && x.Address != nil {
+		return *x.Address
+	}
+	return ""
+}
+
+func (x *RegistryEntry) GetVersion() *RegistryVersion {
+	if x != nil {
+		return x.Version
+	}
+	return nil
+}
+
+func (x *RegistryEntry) GetLeaseExpiresUnixNano() int64 {
+	if x != nil && x.LeaseExpiresUnixNano != nil {
+		return *x.LeaseExpiresUnixNano
+	}
+	return 0
+}
+
+func (x *RegistryEntry) GetTombstone() bool {
+	if x != nil && x.Tombstone != nil {
+		return *x.Tombstone
+	}
+	return false
+}
+
+func (x *RegistryEntry) GetTombstoneExpiresUnixNano() int64 {
+	if x != nil && x.TombstoneExpiresUnixNano != nil {
+		return *x.TombstoneExpiresUnixNano
+	}
+	return 0
+}
+
+type RegistryDigest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Component     *Component             `protobuf:"varint,1,opt,name=component,enum=Component" json:"component,omitempty"`
+	InstanceId    *string                `protobuf:"bytes,2,opt,name=instance_id,json=instanceId" json:"instance_id,omitempty"`
+	OriginNodeId  *string                `protobuf:"bytes,3,opt,name=origin_node_id,json=originNodeId" json:"origin_node_id,omitempty"`
+	Counter       *uint64                `protobuf:"varint,4,opt,name=counter" json:"counter,omitempty"`
+	Tombstone     *bool                  `protobuf:"varint,5,opt,name=tombstone" json:"tombstone,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RegistryDigest) Reset() {
+	*x = RegistryDigest{}
+	mi := &file_registry_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegistryDigest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegistryDigest) ProtoMessage() {}
+
+func (x *RegistryDigest) ProtoReflect() protoreflect.Message {
+	mi := &file_registry_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegistryDigest.ProtoReflect.Descriptor instead.
+func (*RegistryDigest) Descriptor() ([]byte, []int) {
+	return file_registry_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *RegistryDigest) GetComponent() Component {
+	if x != nil && x.Component != nil {
+		return *x.Component
+	}
+	return Component_COMPONENT_UNKNOWN
+}
+
+func (x *RegistryDigest) GetInstanceId() string {
+	if x != nil && x.InstanceId != nil {
+		return *x.InstanceId
+	}
+	return ""
+}
+
+func (x *RegistryDigest) GetOriginNodeId() string {
+	if x != nil && x.OriginNodeId != nil {
+		return *x.OriginNodeId
+	}
+	return ""
+}
+
+func (x *RegistryDigest) GetCounter() uint64 {
+	if x != nil && x.Counter != nil {
+		return *x.Counter
+	}
+	return 0
+}
+
+func (x *RegistryDigest) GetTombstone() bool {
+	if x != nil && x.Tombstone != nil {
+		return *x.Tombstone
+	}
+	return false
+}
+
+type GossipRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NodeId        *string                `protobuf:"bytes,1,opt,name=node_id,json=nodeId" json:"node_id,omitempty"`
+	Entries       []*RegistryEntry       `protobuf:"bytes,2,rep,name=entries" json:"entries,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GossipRequest) Reset() {
+	*x = GossipRequest{}
+	mi := &file_registry_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GossipRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GossipRequest) ProtoMessage() {}
+
+func (x *GossipRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_registry_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GossipRequest.ProtoReflect.Descriptor instead.
+func (*GossipRequest) Descriptor() ([]byte, []int) {
+	return file_registry_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *GossipRequest) GetNodeId() string {
+	if x != nil && x.NodeId != nil {
+		return *x.NodeId
+	}
+	return ""
+}
+
+func (x *GossipRequest) GetEntries() []*RegistryEntry {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
+}
+
+type GossipResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Entries       []*RegistryEntry       `protobuf:"bytes,1,rep,name=entries" json:"entries,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GossipResponse) Reset() {
+	*x = GossipResponse{}
+	mi := &file_registry_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GossipResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GossipResponse) ProtoMessage() {}
+
+func (x *GossipResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_registry_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GossipResponse.ProtoReflect.Descriptor instead.
+func (*GossipResponse) Descriptor() ([]byte, []int) {
+	return file_registry_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *GossipResponse) GetEntries() []*RegistryEntry {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
+}
+
+type RegistrySnapshotRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NodeId        *string                `protobuf:"bytes,1,opt,name=node_id,json=nodeId" json:"node_id,omitempty"`
+	Digests       []*RegistryDigest      `protobuf:"bytes,2,rep,name=digests" json:"digests,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RegistrySnapshotRequest) Reset() {
+	*x = RegistrySnapshotRequest{}
+	mi := &file_registry_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegistrySnapshotRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegistrySnapshotRequest) ProtoMessage() {}
+
+func (x *RegistrySnapshotRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_registry_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegistrySnapshotRequest.ProtoReflect.Descriptor instead.
+func (*RegistrySnapshotRequest) Descriptor() ([]byte, []int) {
+	return file_registry_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *RegistrySnapshotRequest) GetNodeId() string {
+	if x != nil && x.NodeId != nil {
+		return *x.NodeId
+	}
+	return ""
+}
+
+func (x *RegistrySnapshotRequest) GetDigests() []*RegistryDigest {
+	if x != nil {
+		return x.Digests
+	}
+	return nil
+}
+
+type RegistrySnapshotResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Entries       []*RegistryEntry       `protobuf:"bytes,1,rep,name=entries" json:"entries,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RegistrySnapshotResponse) Reset() {
+	*x = RegistrySnapshotResponse{}
+	mi := &file_registry_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegistrySnapshotResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegistrySnapshotResponse) ProtoMessage() {}
+
+func (x *RegistrySnapshotResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_registry_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegistrySnapshotResponse.ProtoReflect.Descriptor instead.
+func (*RegistrySnapshotResponse) Descriptor() ([]byte, []int) {
+	return file_registry_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *RegistrySnapshotResponse) GetEntries() []*RegistryEntry {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
+}
+
 var File_registry_proto protoreflect.FileDescriptor
 
 const file_registry_proto_rawDesc = "" +
@@ -246,16 +658,49 @@ const file_registry_proto_rawDesc = "" +
 	"\vinstance_id\x18\x02 \x01(\tR\n" +
 	"instanceId\"+\n" +
 	"\x0fAddressResponse\x12\x18\n" +
-	"\aaddress\x18\x01 \x01(\tR\aaddress*`\n" +
+	"\aaddress\x18\x01 \x01(\tR\aaddress\"Q\n" +
+	"\x0fRegistryVersion\x12$\n" +
+	"\x0eorigin_node_id\x18\x01 \x01(\tR\foriginNodeId\x12\x18\n" +
+	"\acounter\x18\x02 \x01(\x04R\acounter\"\xb4\x02\n" +
+	"\rRegistryEntry\x12(\n" +
+	"\tcomponent\x18\x01 \x01(\x0e2\n" +
+	".ComponentR\tcomponent\x12\x1f\n" +
+	"\vinstance_id\x18\x02 \x01(\tR\n" +
+	"instanceId\x12\x18\n" +
+	"\aaddress\x18\x03 \x01(\tR\aaddress\x12*\n" +
+	"\aversion\x18\x04 \x01(\v2\x10.RegistryVersionR\aversion\x125\n" +
+	"\x17lease_expires_unix_nano\x18\x05 \x01(\x03R\x14leaseExpiresUnixNano\x12\x1c\n" +
+	"\ttombstone\x18\x06 \x01(\bR\ttombstone\x12=\n" +
+	"\x1btombstone_expires_unix_nano\x18\a \x01(\x03R\x18tombstoneExpiresUnixNano\"\xb9\x01\n" +
+	"\x0eRegistryDigest\x12(\n" +
+	"\tcomponent\x18\x01 \x01(\x0e2\n" +
+	".ComponentR\tcomponent\x12\x1f\n" +
+	"\vinstance_id\x18\x02 \x01(\tR\n" +
+	"instanceId\x12$\n" +
+	"\x0eorigin_node_id\x18\x03 \x01(\tR\foriginNodeId\x12\x18\n" +
+	"\acounter\x18\x04 \x01(\x04R\acounter\x12\x1c\n" +
+	"\ttombstone\x18\x05 \x01(\bR\ttombstone\"R\n" +
+	"\rGossipRequest\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12(\n" +
+	"\aentries\x18\x02 \x03(\v2\x0e.RegistryEntryR\aentries\":\n" +
+	"\x0eGossipResponse\x12(\n" +
+	"\aentries\x18\x01 \x03(\v2\x0e.RegistryEntryR\aentries\"]\n" +
+	"\x17RegistrySnapshotRequest\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12)\n" +
+	"\adigests\x18\x02 \x03(\v2\x0f.RegistryDigestR\adigests\"D\n" +
+	"\x18RegistrySnapshotResponse\x12(\n" +
+	"\aentries\x18\x01 \x03(\v2\x0e.RegistryEntryR\aentries*`\n" +
 	"\tComponent\x12\x15\n" +
 	"\x11COMPONENT_UNKNOWN\x10\x00\x12\x13\n" +
 	"\x0fCOMPONENT_QUEUE\x10\x01\x12\x11\n" +
 	"\rCOMPONENT_LOG\x10\x02\x12\x14\n" +
-	"\x10COMPONENT_WORKER\x10\x032l\n" +
+	"\x10COMPONENT_WORKER\x10\x032\xdb\x01\n" +
 	"\x0fRegistryService\x12(\n" +
 	"\bRegister\x12\r.Registration\x1a\r.common.Empty\x12/\n" +
 	"\n" +
-	"GetAddress\x12\x0f.AddressRequest\x1a\x10.AddressResponseB\x17Z\x15vectis/api/gen/go;apib\beditionsp\xe8\a"
+	"GetAddress\x12\x0f.AddressRequest\x1a\x10.AddressResponse\x12)\n" +
+	"\x06Gossip\x12\x0e.GossipRequest\x1a\x0f.GossipResponse\x12B\n" +
+	"\vGetSnapshot\x12\x18.RegistrySnapshotRequest\x1a\x19.RegistrySnapshotResponseB\x17Z\x15vectis/api/gen/go;apib\beditionsp\xe8\a"
 
 var (
 	file_registry_proto_rawDescOnce sync.Once
@@ -270,26 +715,44 @@ func file_registry_proto_rawDescGZIP() []byte {
 }
 
 var file_registry_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_registry_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_registry_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_registry_proto_goTypes = []any{
-	(Component)(0),          // 0: Component
-	(*Registration)(nil),    // 1: Registration
-	(*AddressRequest)(nil),  // 2: AddressRequest
-	(*AddressResponse)(nil), // 3: AddressResponse
-	(*Empty)(nil),           // 4: common.Empty
+	(Component)(0),                   // 0: Component
+	(*Registration)(nil),             // 1: Registration
+	(*AddressRequest)(nil),           // 2: AddressRequest
+	(*AddressResponse)(nil),          // 3: AddressResponse
+	(*RegistryVersion)(nil),          // 4: RegistryVersion
+	(*RegistryEntry)(nil),            // 5: RegistryEntry
+	(*RegistryDigest)(nil),           // 6: RegistryDigest
+	(*GossipRequest)(nil),            // 7: GossipRequest
+	(*GossipResponse)(nil),           // 8: GossipResponse
+	(*RegistrySnapshotRequest)(nil),  // 9: RegistrySnapshotRequest
+	(*RegistrySnapshotResponse)(nil), // 10: RegistrySnapshotResponse
+	(*Empty)(nil),                    // 11: common.Empty
 }
 var file_registry_proto_depIdxs = []int32{
-	0, // 0: Registration.component:type_name -> Component
-	0, // 1: AddressRequest.component:type_name -> Component
-	1, // 2: RegistryService.Register:input_type -> Registration
-	2, // 3: RegistryService.GetAddress:input_type -> AddressRequest
-	4, // 4: RegistryService.Register:output_type -> common.Empty
-	3, // 5: RegistryService.GetAddress:output_type -> AddressResponse
-	4, // [4:6] is the sub-list for method output_type
-	2, // [2:4] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	0,  // 0: Registration.component:type_name -> Component
+	0,  // 1: AddressRequest.component:type_name -> Component
+	0,  // 2: RegistryEntry.component:type_name -> Component
+	4,  // 3: RegistryEntry.version:type_name -> RegistryVersion
+	0,  // 4: RegistryDigest.component:type_name -> Component
+	5,  // 5: GossipRequest.entries:type_name -> RegistryEntry
+	5,  // 6: GossipResponse.entries:type_name -> RegistryEntry
+	6,  // 7: RegistrySnapshotRequest.digests:type_name -> RegistryDigest
+	5,  // 8: RegistrySnapshotResponse.entries:type_name -> RegistryEntry
+	1,  // 9: RegistryService.Register:input_type -> Registration
+	2,  // 10: RegistryService.GetAddress:input_type -> AddressRequest
+	7,  // 11: RegistryService.Gossip:input_type -> GossipRequest
+	9,  // 12: RegistryService.GetSnapshot:input_type -> RegistrySnapshotRequest
+	11, // 13: RegistryService.Register:output_type -> common.Empty
+	3,  // 14: RegistryService.GetAddress:output_type -> AddressResponse
+	8,  // 15: RegistryService.Gossip:output_type -> GossipResponse
+	10, // 16: RegistryService.GetSnapshot:output_type -> RegistrySnapshotResponse
+	13, // [13:17] is the sub-list for method output_type
+	9,  // [9:13] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_registry_proto_init() }
@@ -304,7 +767,7 @@ func file_registry_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_registry_proto_rawDesc), len(file_registry_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   3,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

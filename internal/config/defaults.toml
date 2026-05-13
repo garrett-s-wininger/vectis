@@ -32,6 +32,16 @@ advertise_address = ""
 [registry]
 port = 8082
 
+[registry.cluster]
+node_id = ""
+advertise_address = ""
+peer_addresses = []
+gossip_interval = "2s"
+anti_entropy_interval = "30s"
+lease_ttl = "2m"
+tombstone_ttl = "5m"
+peer_dial_timeout = "3s"
+
 [log]
 host = "localhost"
 metrics_port = 9083
@@ -47,6 +57,7 @@ registry_resolver_refresh = "10s"
 registry_resolver_poll_timeout = "5s"
 registry_resolver_error_refresh = "2s"
 registry_registration_refresh = "45s"
+registry.addresses = []
 
 [reconciler]
 interval = "30s"

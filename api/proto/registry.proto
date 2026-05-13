@@ -26,7 +26,50 @@ message AddressResponse {
     string address = 1;
 }
 
+message RegistryVersion {
+    string origin_node_id = 1;
+    uint64 counter = 2;
+}
+
+message RegistryEntry {
+    Component component = 1;
+    string instance_id = 2;
+    string address = 3;
+    RegistryVersion version = 4;
+    int64 lease_expires_unix_nano = 5;
+    bool tombstone = 6;
+    int64 tombstone_expires_unix_nano = 7;
+}
+
+message RegistryDigest {
+    Component component = 1;
+    string instance_id = 2;
+    string origin_node_id = 3;
+    uint64 counter = 4;
+    bool tombstone = 5;
+}
+
+message GossipRequest {
+    string node_id = 1;
+    repeated RegistryEntry entries = 2;
+}
+
+message GossipResponse {
+    repeated RegistryEntry entries = 1;
+}
+
+message RegistrySnapshotRequest {
+    string node_id = 1;
+    repeated RegistryDigest digests = 2;
+}
+
+message RegistrySnapshotResponse {
+    repeated RegistryEntry entries = 1;
+}
+
 service RegistryService {
     rpc Register(Registration) returns (common.Empty);
     rpc GetAddress(AddressRequest) returns (AddressResponse);
+    rpc Gossip(GossipRequest) returns (GossipResponse);
+    rpc GetSnapshot(RegistrySnapshotRequest) returns (RegistrySnapshotResponse);
 }

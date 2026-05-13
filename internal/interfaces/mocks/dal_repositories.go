@@ -355,12 +355,12 @@ type ReleaseClaimCall struct {
 type MockSchedulesRepository struct {
 	Ready []dal.CronSchedule
 
-	GetReadyErr      error
-	ClaimDueErr      error
-	ClaimDueOK       bool
-	CompleteClaimErr error
-	CompleteClaimOK  bool
-	ReleaseClaimErr  error
+	GetReadyErr              error
+	ClaimDueErr              error
+	ClaimDueOK               bool
+	CompleteClaimErr         error
+	CompleteClaimOK          bool
+	ReleaseClaimErr          error
 	CountCronSchedulesErr    error
 	CountCronSchedulesResult int64
 

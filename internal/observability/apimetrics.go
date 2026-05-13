@@ -175,10 +175,7 @@ func RegisterRetentionStorageMetrics(db *sql.DB) error {
 				continue
 			}
 
-			age := int64(now.Sub(oldest).Seconds())
-			if age < 0 {
-				age = 0
-			}
+			age := max(int64(now.Sub(oldest).Seconds()), 0)
 			o.ObserveInt64(oldestAgeG, age, metric.WithAttributes(attribute.String("surface", q.surface)))
 		}
 

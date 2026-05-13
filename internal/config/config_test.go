@@ -72,6 +72,42 @@ func TestRegistryRegistrationRefresh_FromDefaults(t *testing.T) {
 	}
 }
 
+func TestRegistryClusterDefaults(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	if got := RegistryClusterGossipInterval(); got != 2*time.Second {
+		t.Fatalf("expected registry.cluster.gossip_interval 2s, got %v", got)
+	}
+
+	if got := RegistryClusterAntiEntropyInterval(); got != 30*time.Second {
+		t.Fatalf("expected registry.cluster.anti_entropy_interval 30s, got %v", got)
+	}
+
+	if got := RegistryClusterLeaseTTL(); got != 2*time.Minute {
+		t.Fatalf("expected registry.cluster.lease_ttl 2m, got %v", got)
+	}
+
+	if got := RegistryClusterTombstoneTTL(); got != 5*time.Minute {
+		t.Fatalf("expected registry.cluster.tombstone_ttl 5m, got %v", got)
+	}
+
+	if got := RegistryClusterPeerDialTimeout(); got != 3*time.Second {
+		t.Fatalf("expected registry.cluster.peer_dial_timeout 3s, got %v", got)
+	}
+}
+
+func TestRegistryClusterPeerAddresses_CleansList(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	viper.Set("registry.cluster.peer_addresses", []string{"reg-a:8082", "reg-b:8082, reg-a:8082", ""})
+	got := RegistryClusterPeerAddresses()
+	if len(got) != 2 || got[0] != "reg-a:8082" || got[1] != "reg-b:8082" {
+		t.Fatalf("unexpected peers: %#v", got)
+	}
+}
+
 func TestQueueRegistryPublishAddress_AdvertiseOverride(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
@@ -97,6 +133,16 @@ func TestWorkerRegistryDialAddress_FallbackToListenAddr(t *testing.T) {
 
 	if got := WorkerRegistryDialAddress(); got != RegistryListenAddr() {
 		t.Fatalf("with empty viper expected default listen addr %q, got %q", RegistryListenAddr(), got)
+	}
+}
+
+func TestWorkerRegistryDialAddress_UsesRegistryAddressList(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	viper.Set("discovery.registry.addresses", []string{"reg-a:8082", "reg-b:8082"})
+	if got := WorkerRegistryDialAddress(); got != "reg-a:8082,reg-b:8082" {
+		t.Fatalf("expected registry address list, got %q", got)
 	}
 }
 

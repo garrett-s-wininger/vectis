@@ -94,7 +94,19 @@ type QueueDefaults struct {
 }
 
 type RegistryDefaults struct {
-	Port int `toml:"port"`
+	Port    int                     `toml:"port"`
+	Cluster RegistryClusterDefaults `toml:"cluster"`
+}
+
+type RegistryClusterDefaults struct {
+	NodeID              string       `toml:"node_id"`
+	AdvertiseAddress    string       `toml:"advertise_address"`
+	PeerAddresses       []string     `toml:"peer_addresses"`
+	GossipInterval      tomlDuration `toml:"gossip_interval"`
+	AntiEntropyInterval tomlDuration `toml:"anti_entropy_interval"`
+	LeaseTTL            tomlDuration `toml:"lease_ttl"`
+	TombstoneTTL        tomlDuration `toml:"tombstone_ttl"`
+	PeerDialTimeout     tomlDuration `toml:"peer_dial_timeout"`
 }
 
 type LogDefaults struct {
@@ -127,6 +139,7 @@ type PgxPoolDefaults struct {
 
 type DiscoveryDefaults struct {
 	RegistryAddress              string       `toml:"registry.address"`
+	RegistryAddresses            []string     `toml:"registry.addresses"`
 	QueueResolverAddress         string       `toml:"queue.resolver.address"`
 	LogGRPCResolverAddress       string       `toml:"log.grpc.resolver.address"`
 	QueueAddress                 string       `toml:"queue.address"`
@@ -230,6 +243,27 @@ func validateDefaults(d Defaults) {
 	}
 
 	validatePort(d.Registry.Port, "registry.port")
+	rc := d.Registry.Cluster
+	if time.Duration(rc.GossipInterval) <= 0 {
+		panic("config defaults: registry.cluster.gossip_interval must be > 0")
+	}
+
+	if time.Duration(rc.AntiEntropyInterval) <= 0 {
+		panic("config defaults: registry.cluster.anti_entropy_interval must be > 0")
+	}
+
+	if time.Duration(rc.LeaseTTL) <= 0 {
+		panic("config defaults: registry.cluster.lease_ttl must be > 0")
+	}
+
+	if time.Duration(rc.TombstoneTTL) <= 0 {
+		panic("config defaults: registry.cluster.tombstone_ttl must be > 0")
+	}
+
+	if time.Duration(rc.PeerDialTimeout) <= 0 {
+		panic("config defaults: registry.cluster.peer_dial_timeout must be > 0")
+	}
+
 	validatePort(d.Log.GRPC.Port, "log.grpc.port")
 	validatePort(d.Log.MetricsPort, "log.metrics_port")
 	if d.Log.MetricsPort == d.Log.GRPC.Port {
@@ -329,6 +363,51 @@ func coalesceNonEmpty(strs ...string) string {
 	return ""
 }
 
+func coalesceStringSlices(slices ...[]string) []string {
+	for _, ss := range slices {
+		cleaned := cleanStringSlice(ss)
+		if len(cleaned) > 0 {
+			return cleaned
+		}
+	}
+
+	return nil
+}
+
+func cleanStringSlice(ss []string) []string {
+	if len(ss) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(ss))
+	seen := make(map[string]struct{}, len(ss))
+	for _, s := range ss {
+		for part := range strings.SplitSeq(s, ",") {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+
+			if _, ok := seen[part]; ok {
+				continue
+			}
+
+			seen[part] = struct{}{}
+			out = append(out, part)
+		}
+	}
+
+	return out
+}
+
+func stringSliceFromViper(key string) []string {
+	if !viper.IsSet(key) {
+		return nil
+	}
+
+	return cleanStringSlice(append(viper.GetStringSlice(key), viper.GetString(key)))
+}
+
 func PublicHost() string {
 	return MustDefaults().API.Host
 }
@@ -388,6 +467,96 @@ func WorkerRegisterWithRegistry() bool {
 
 func RegistryPort() int {
 	return MustDefaults().Registry.Port
+}
+
+func RegistryClusterNodeID() string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("registry.cluster.node_id"),
+		d.Registry.Cluster.NodeID,
+	)
+}
+
+func RegistryClusterAdvertiseAddress(bindListenAddr string) string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("registry.cluster.advertise_address"),
+		d.Registry.Cluster.AdvertiseAddress,
+		bindListenAddr,
+	)
+}
+
+func RegistryClusterPeerAddresses() []string {
+	d := MustDefaults()
+	return coalesceStringSlices(
+		stringSliceFromViper("registry.cluster.peer_addresses"),
+		d.Registry.Cluster.PeerAddresses,
+	)
+}
+
+func RegistryClusterGossipInterval() time.Duration {
+	if d := viper.GetDuration("registry.cluster.gossip_interval"); d > 0 {
+		return d
+	}
+
+	d := time.Duration(MustDefaults().Registry.Cluster.GossipInterval)
+	if d > 0 {
+		return d
+	}
+
+	return 2 * time.Second
+}
+
+func RegistryClusterAntiEntropyInterval() time.Duration {
+	if d := viper.GetDuration("registry.cluster.anti_entropy_interval"); d > 0 {
+		return d
+	}
+
+	d := time.Duration(MustDefaults().Registry.Cluster.AntiEntropyInterval)
+	if d > 0 {
+		return d
+	}
+
+	return 30 * time.Second
+}
+
+func RegistryClusterLeaseTTL() time.Duration {
+	if d := viper.GetDuration("registry.cluster.lease_ttl"); d > 0 {
+		return d
+	}
+
+	d := time.Duration(MustDefaults().Registry.Cluster.LeaseTTL)
+	if d > 0 {
+		return d
+	}
+
+	return 2 * time.Minute
+}
+
+func RegistryClusterTombstoneTTL() time.Duration {
+	if d := viper.GetDuration("registry.cluster.tombstone_ttl"); d > 0 {
+		return d
+	}
+
+	d := time.Duration(MustDefaults().Registry.Cluster.TombstoneTTL)
+	if d > 0 {
+		return d
+	}
+
+	return 5 * time.Minute
+}
+
+func RegistryClusterPeerDialTimeout() time.Duration {
+	if d := viper.GetDuration("registry.cluster.peer_dial_timeout"); d > 0 {
+		return d
+	}
+
+	d := time.Duration(MustDefaults().Registry.Cluster.PeerDialTimeout)
+	if d > 0 {
+		return d
+	}
+
+	return 3 * time.Second
 }
 
 func LogGRPCPort() int {
@@ -643,11 +812,7 @@ func WorkerRegistryAddress() string {
 }
 
 func WorkerRegistryDialAddress() string {
-	if a := WorkerRegistryAddress(); a != "" {
-		return a
-	}
-
-	return RegistryListenAddr()
+	return registryDialAddress(WorkerRegistryAddress)
 }
 
 func WorkerQueueAddress() string {
@@ -760,15 +925,31 @@ func ReconcilerMetricsPort() int {
 }
 
 func registryDialAddress(roleRegistry func() string) string {
-	return coalesceNonEmpty(
-		viper.GetString("registry.address"),
-		roleRegistry(),
-		RegistryListenAddr(),
+	return strings.Join(registryDialAddresses(roleRegistry), ",")
+}
+
+func registryDialAddresses(roleRegistry func() string) []string {
+	d := MustDefaults()
+	return coalesceStringSlices(
+		stringSliceFromViper("registry.addresses"),
+		stringSliceFromViper("discovery.registry.addresses"),
+		d.Discovery.RegistryAddresses,
+		[]string{viper.GetString("registry.address")},
+		[]string{roleRegistry()},
+		[]string{RegistryListenAddr()},
 	)
 }
 
 func QueueRegistrationRegistryAddress() string {
 	return registryDialAddress(QueueRegistryAddress)
+}
+
+func LogRegistrationRegistryAddress() string {
+	return registryDialAddress(LogRegistryAddress)
+}
+
+func WorkerRegistrationRegistryAddress() string {
+	return registryDialAddress(WorkerRegistryAddress)
 }
 
 func ReconcilerRegistryDialAddress() string {

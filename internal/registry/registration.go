@@ -2,6 +2,9 @@ package registry
 
 import (
 	"context"
+	"hash/fnv"
+	"sort"
+	"strings"
 	"time"
 
 	api "vectis/api/gen/go"
@@ -26,7 +29,8 @@ func RegisterWithHeartbeat(ctx context.Context, opts RegistrationOptions) (func(
 		clock = interfaces.SystemClock{}
 	}
 
-	registryClient, err := New(ctx, opts.RegistryAddress, opts.Logger, clock, opts.Metrics)
+	registryAddress := sponsorOrderedRegistryAddress(opts.RegistryAddress, opts.Component, opts.InstanceID, opts.PublishAddress)
+	registryClient, err := New(ctx, registryAddress, opts.Logger, clock, opts.Metrics)
 	if err != nil {
 		return nil, err
 	}
@@ -41,4 +45,26 @@ func RegisterWithHeartbeat(ctx context.Context, opts RegistrationOptions) (func(
 		stopHeartbeat()
 		_ = registryClient.Close()
 	}, nil
+}
+
+func sponsorOrderedRegistryAddress(addresses string, component api.Component, instanceID, publishAddress string) string {
+	parsed := splitRegistryAddresses(addresses)
+	if len(parsed) <= 1 {
+		return addresses
+	}
+
+	key := component.String() + "\x00" + instanceID + "\x00" + publishAddress
+	sort.SliceStable(parsed, func(i, j int) bool {
+		return rendezvousScore(key, parsed[i]) > rendezvousScore(key, parsed[j])
+	})
+
+	return strings.Join(parsed, ",")
+}
+
+func rendezvousScore(key, node string) uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(key))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(node))
+	return h.Sum64()
 }

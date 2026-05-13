@@ -647,10 +647,7 @@ func Run(ctx context.Context, logger interfaces.Logger, store RunLogStore, metri
 	server.maxRunBuffers = config.LogMaxRunBuffers()
 
 	if config.LogRegisterWithRegistry() {
-		regAddr := config.LogRegistryAddress()
-		if regAddr == "" {
-			regAddr = config.RegistryListenAddr()
-		}
+		regAddr := config.LogRegistrationRegistryAddress()
 
 		bindGRPC := config.LogGRPCListenAddr()
 		publishAddr := config.LogGRPCRegistryPublishAddress(bindGRPC)
