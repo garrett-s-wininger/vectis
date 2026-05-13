@@ -377,6 +377,8 @@ func (s *Server) GetLogs(req *api.GetLogsRequest, stream api.LogService_GetLogsS
 		entries = buffer.GetEntries()
 	}
 
+	terminalSeq := terminalSequence(entries)
+	terminalAlreadyConsumed := terminalSeq > 0 && terminalSeq <= sinceSeq
 	entries, replayTruncated := boundedReplayEntries(entries, sinceSeq, tail, replayLimit)
 
 	var maxReplayedSeq = sinceSeq
@@ -445,37 +447,16 @@ func (s *Server) GetLogs(req *api.GetLogsRequest, stream api.LogService_GetLogsS
 			}
 
 			maxReplayedSeq = entry.Sequence
+			if isCompletedEvent(entry) {
+				return nil
+			}
 		default:
 			goto afterDrain
 		}
 	}
 
 afterDrain:
-	if sawCompletionDuringReplay || buffer.IsTerminal() {
-		// One final non-blocking drain: the completion event that set terminal
-		// may have been broadcast after the drain loop exited but before this check.
-		select {
-		case msg, ok := <-outCh:
-			if ok {
-				var entry LogEntry
-				if err := json.Unmarshal(msg, &entry); err == nil && entry.Sequence > maxReplayedSeq {
-					chunk := &api.LogChunk{
-						RunId:     &runID,
-						Data:      []byte(entry.Data),
-						Sequence:  &entry.Sequence,
-						Stream:    &entry.Stream,
-						Timestamp: timestamppb.New(entry.Timestamp),
-						Completed: entry.Completed.Enum(),
-					}
-
-					if err := stream.Send(chunk); err != nil {
-						return err
-					}
-				}
-			}
-		default:
-		}
-
+	if sawCompletionDuringReplay || terminalAlreadyConsumed {
 		return nil
 	}
 
@@ -512,11 +493,23 @@ afterDrain:
 				return err
 			}
 
-			if buffer.IsTerminal() {
+			maxReplayedSeq = entry.Sequence
+			if isCompletedEvent(entry) {
 				return nil
 			}
 		}
 	}
+}
+
+func terminalSequence(entries []LogEntry) int64 {
+	var seq int64
+	for _, entry := range entries {
+		if isCompletedEvent(entry) && entry.Sequence > seq {
+			seq = entry.Sequence
+		}
+	}
+
+	return seq
 }
 
 func boundedReplayEntries(entries []LogEntry, sinceSeq int64, tail, replayLimit int) ([]LogEntry, bool) {

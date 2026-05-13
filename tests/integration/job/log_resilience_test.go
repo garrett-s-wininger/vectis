@@ -66,7 +66,7 @@ func startLogServer(t *testing.T, addr string, logger interfaces.Logger, store l
 	}
 
 	s := grpc.NewServer()
-	api.RegisterLogServiceServer(s, logserver.NewServerWithStore(logger, store))
+	api.RegisterLogServiceServer(s, logserver.NewServerWithStore(logger, store, nil))
 
 	go func() {
 		if serveErr := s.Serve(lis); serveErr != nil {

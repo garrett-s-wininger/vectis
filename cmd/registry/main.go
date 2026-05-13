@@ -49,6 +49,7 @@ func runVectisRegistry(cmd *cobra.Command, args []string) {
 		TombstoneTTL:        config.RegistryClusterTombstoneTTL(),
 		PeerDialTimeout:     config.RegistryClusterPeerDialTimeout(),
 	})
+
 	srvOpts, err := config.GRPCServerOptions()
 	if err != nil {
 		logger.Fatal("grpc tls: %v", err)

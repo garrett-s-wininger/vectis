@@ -53,6 +53,19 @@ Bound staleness with leases:
 - Regression test existing single-node registration, worker instance lookup, queue/log lookup, and resolver last-good fallback.
 - Run `make test-quick`; add targeted package tests for `internal/registry`, `internal/resolver`, and config parsing.
 
+## Migration Plan
+
+Move from one registry instance to a multi-registry cell in an expand, migrate, verify, and tighten sequence.
+
+1. **Prepare the existing cell.** Upgrade all binaries to a version that understands both the legacy single registry address and `discovery.registry.addresses`. Keep the existing singleton registry as the only address at first.
+2. **Start additional registry instances without client traffic.** Give each registry a stable `registry.cluster.node_id`, set `registry.cluster.advertise_address`, and configure `registry.cluster.peer_addresses` so every registry can reach the rest of the cell. Keep service registration clients pointed at the original registry until the new nodes are healthy.
+3. **Verify cluster convergence.** Registering queue, log, and worker control addresses with the original registry should become visible from every new registry node within the gossip or anti-entropy interval. Check registry gRPC health and discovery lookups from each node before moving clients.
+4. **Roll registration clients to the address set.** Update queue, log, and worker processes to use `discovery.registry.addresses` with every registry address in the cell. Roll one service class at a time. Registrants will choose a stable sponsor from the set and fail over to another registry after sponsor death.
+5. **Roll discovery clients to the address set.** Update API, worker, cron, reconciler, and log-forwarder discovery config to the same registry address set. Existing resolver last-good behavior remains the fallback when lookups temporarily fail.
+6. **Retire singleton assumptions.** After all processes have the address set and convergence is healthy, update deployment replica counts, probes, and runbooks so `vectis-registry` is operated as a cell rather than a singleton.
+
+Rollback is intentionally simple: point clients back to the original registry address and scale extra registry nodes down. Existing queue/log singleton semantics do not change during this migration, so rollback does not require queue/log data movement.
+
 ## Assumptions
 
 - First milestone is registry HA only, not active/active queue/log.

@@ -57,6 +57,24 @@ func recvGetLogsChunk(t *testing.T, getStream api.LogService_GetLogsClient) *api
 	return chunk
 }
 
+func recvGetLogsUntilEOF(t *testing.T, getStream api.LogService_GetLogsClient) []*api.LogChunk {
+	t.Helper()
+
+	var chunks []*api.LogChunk
+	for {
+		chunk, err := getStream.Recv()
+		if err == io.EOF {
+			return chunks
+		}
+
+		if err != nil {
+			t.Fatalf("failed to receive from GetLogs: %v", err)
+		}
+
+		chunks = append(chunks, chunk)
+	}
+}
+
 func TestIntegrationLogServer_StreamAndGetLogsBroadcast(t *testing.T) {
 	client := setupLogServer(t)
 	ctx := context.Background()
@@ -230,28 +248,40 @@ func TestIntegrationLogServer_HistoricalAndLiveLogs(t *testing.T) {
 		t.Fatalf("failed to start GetLogs: %v", err)
 	}
 
+	gotBySeq := make(map[int64]string)
+	for range historical {
+		chunk := recvGetLogsChunk(t, getStream)
+		gotBySeq[chunk.GetSequence()] = string(chunk.GetData())
+	}
+
 	liveSeq := int64(len(historical) + 1)
 	liveData := "live-log"
 	sendChunk(t, stream, runID, liveData, liveSeq, api.Stream_STREAM_STDOUT, api.RunOutcome_RUN_OUTCOME_UNSPECIFIED)
-	stream.CloseSend()
+	completedSeq := liveSeq + 1
+	completedData := `{"event":"completed","status":"success"}`
+	sendChunk(t, stream, runID, completedData, completedSeq, api.Stream_STREAM_CONTROL, api.RunOutcome_RUN_OUTCOME_SUCCESS)
 
-	gotBySeq := make(map[int64]string)
-	totalExpected := len(historical) + 1
+	if _, err := stream.CloseAndRecv(); err != nil {
+		t.Fatalf("CloseAndRecv: %v", err)
+	}
 
-	for range totalExpected {
-		chunk := recvGetLogsChunk(t, getStream)
+	for _, chunk := range recvGetLogsUntilEOF(t, getStream) {
 		gotBySeq[chunk.GetSequence()] = string(chunk.GetData())
 	}
 
 	for i, msg := range historical {
 		seq := int64(i + 1)
-		if gotBySeq[seq] != "" && gotBySeq[seq] != msg {
+		if gotBySeq[seq] != msg {
 			t.Errorf("historical seq %d: expected %q, got %q", seq, msg, gotBySeq[seq])
 		}
 	}
 
-	if gotBySeq[liveSeq] != "" && gotBySeq[liveSeq] != liveData {
+	if gotBySeq[liveSeq] != liveData {
 		t.Errorf("live seq %d: expected %q, got %q", liveSeq, liveData, gotBySeq[liveSeq])
+	}
+
+	if gotBySeq[completedSeq] != completedData {
+		t.Errorf("completed seq %d: expected %q, got %q", completedSeq, completedData, gotBySeq[completedSeq])
 	}
 }
 
@@ -375,6 +405,9 @@ func TestIntegrationLogServer_GetLogsSinceSequence(t *testing.T) {
 		sendChunk(t, stream, runID, "log-"+string(rune('A'+i)), seq, api.Stream_STREAM_STDOUT, api.RunOutcome_RUN_OUTCOME_UNSPECIFIED)
 	}
 
+	completedSeq := int64(6)
+	sendChunk(t, stream, runID, `{"event":"completed","status":"success"}`, completedSeq, api.Stream_STREAM_CONTROL, api.RunOutcome_RUN_OUTCOME_SUCCESS)
+
 	if _, err := stream.CloseAndRecv(); err != nil {
 		t.Fatalf("CloseAndRecv: %v", err)
 	}
@@ -386,21 +419,39 @@ func TestIntegrationLogServer_GetLogsSinceSequence(t *testing.T) {
 		t.Fatalf("failed to start GetLogs: %v", err)
 	}
 
-	var sequences []int64
-	for {
-		chunk, err := getStream.Recv()
-		if err != nil {
-			break
-		}
-
-		sequences = append(sequences, chunk.GetSequence())
+	wantStdoutSequences := map[int64]struct{}{3: {}, 4: {}, 5: {}}
+	var stdoutSequences []int64
+	var sawCompletion bool
+	for _, chunk := range recvGetLogsUntilEOF(t, getStream) {
 		if chunk.GetSequence() <= 2 {
 			t.Errorf("received chunk with sequence %d (should be > 2)", chunk.GetSequence())
 		}
+
+		switch chunk.GetStream() {
+		case api.Stream_STREAM_STDOUT:
+			stdoutSequences = append(stdoutSequences, chunk.GetSequence())
+			if _, ok := wantStdoutSequences[chunk.GetSequence()]; !ok {
+				t.Errorf("unexpected stdout sequence %d", chunk.GetSequence())
+			}
+
+			delete(wantStdoutSequences, chunk.GetSequence())
+		case api.Stream_STREAM_CONTROL:
+			if chunk.GetSequence() == completedSeq && chunk.GetCompleted() == api.RunOutcome_RUN_OUTCOME_SUCCESS {
+				sawCompletion = true
+			}
+		}
 	}
 
-	if len(sequences) != 3 {
-		t.Errorf("expected 3 chunks since sequence 2, got %d", len(sequences))
+	if len(stdoutSequences) != 3 {
+		t.Errorf("expected 3 stdout chunks since sequence 2, got %d (%v)", len(stdoutSequences), stdoutSequences)
+	}
+
+	if len(wantStdoutSequences) > 0 {
+		t.Errorf("missing stdout sequences since sequence 2: %v", wantStdoutSequences)
+	}
+
+	if !sawCompletion {
+		t.Error("expected terminal control chunk after stdout replay")
 	}
 }
 
