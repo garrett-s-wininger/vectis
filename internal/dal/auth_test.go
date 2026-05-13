@@ -275,11 +275,9 @@ func TestAuthRepository_RootAdminQueries(t *testing.T) {
 		t.Fatal("setup user should be root admin")
 	}
 
-	teamNS, err := db.ExecContext(ctx, rebindQueryForPgx(`INSERT INTO namespaces (name, path, parent_id) VALUES (?, ?, ?) RETURNING id`), "team-a", "/team-a", 1)
-	if err != nil {
+	if _, err := db.ExecContext(ctx, rebindQueryForPgx(`INSERT INTO namespaces (name, path, parent_id) VALUES (?, ?, ?)`), "team-a", "/team-a", 1); err != nil {
 		t.Fatal(err)
 	}
-	_ = teamNS
 
 	var teamNSID int64
 	if err := db.QueryRowContext(ctx, rebindQueryForPgx(`SELECT id FROM namespaces WHERE path = ?`), "/team-a").Scan(&teamNSID); err != nil {

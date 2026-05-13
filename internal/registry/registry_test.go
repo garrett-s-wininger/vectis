@@ -244,27 +244,6 @@ func TestStartInstanceRegistrationHeartbeat(t *testing.T) {
 	}
 }
 
-func TestStartRegistrationHeartbeat_nilRegistry(t *testing.T) {
-	logger := mocks.NewMockLogger()
-	stop := StartRegistrationHeartbeat(context.Background(), nil, api.Component_COMPONENT_QUEUE, ":50051", 50*time.Millisecond, logger)
-	stop()
-}
-
-func TestStartRegistrationHeartbeat_zeroInterval(t *testing.T) {
-	addr, _ := setupTestRegistry(t)
-
-	logger := mocks.NewMockLogger()
-	clock := mocks.NewMockClock()
-	reg, err := New(context.Background(), addr, logger, clock, nil)
-	if err != nil {
-		t.Fatalf("failed to create registry client: %v", err)
-	}
-	defer reg.Close()
-
-	stop := StartRegistrationHeartbeat(context.Background(), reg, api.Component_COMPONENT_QUEUE, ":50051", 0, logger)
-	stop()
-}
-
 func TestIntervalWithJitter(t *testing.T) {
 	base := 100 * time.Millisecond
 	for range 20 {

@@ -27,7 +27,7 @@ Outputs `bin/vectis-api`, `bin/vectis-cli`, `bin/vectis-cron`, `bin/vectis-local
 Static binaries (for containers, etc.):
 
 ```bash
-make build-static
+make build-container
 ```
 
 Container images ([`build/Containerfile`](build/Containerfile)) use **`make build-container`** with **`CGO_ENABLED=0`** and **`-tags=nosqlite`**, so binaries link **pgx only** (Postgres). That produces a **static enough** binary for `scratch` (no C toolchain: pure Go does not need musl/gcc). Local `make build` still includes SQLite via CGO. To build the same way locally: `CGO_ENABLED=0 make build-container`.
@@ -81,9 +81,9 @@ make build
 ./bin/vectis-local
 ```
 
-For Postgres (Podman/Kube), use `make deploy-podman`.
+For Postgres (Podman/Kube), use `vectis-cli deploy podman up`.
 
-If you change JSON under [`deploy/grafana/dashboards/`](deploy/grafana/dashboards/), regenerate the kube ConfigMap bundle with **`make grafana-kube-configmaps`** so [`deploy/podman/grafana-configmaps.gen.yaml`](deploy/podman/grafana-configmaps.gen.yaml) stays in sync (see [Planning](website/docs/developer/planning.md) §10).
+If you change JSON under [`deploy/grafana/dashboards/`](deploy/grafana/dashboards/), regenerate the kube ConfigMap bundle with **`python3 deploy/podman/generate-grafana-configmaps.py -o deploy/podman/grafana-configmaps.gen.yaml`** so [`deploy/podman/grafana-configmaps.gen.yaml`](deploy/podman/grafana-configmaps.gen.yaml) stays in sync (see [Planning](website/docs/developer/planning.md) §10).
 
 **Single service** (for debugging): run the matching binary from `bin/` after `make build`. Each `cmd/<name>/main.go` defines flags and startup; components discover queue/log addresses via **registry** when that pattern is used (see [Architecture](website/docs/developer/architecture.md) or [Planning](website/docs/developer/planning.md) §2).
 

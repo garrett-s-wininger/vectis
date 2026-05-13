@@ -73,7 +73,7 @@ Milestones build on the current stack; order is indicative.
 
 - **API:** authentication/authorization shipped — local users, API tokens, login endpoint, hierarchical RBAC, rate limits, and audit logging. See [SECURITY.md](../general/security.md).
 - **Cancellation:** API → worker control path (no `WorkerControl` gRPC today).
-- **List jobs:** cursor pagination (`internal/api/server.go` TODOs).
+- **List jobs:** cursor pagination.
 - **Durability / observability:** **`vectis-reconciler`** covers DB–queue gaps after async enqueue; tighten **reconciler- and handoff-specific** visibility (alerts, client-visible status for failed handoffs) and any remaining edge cases (see `RunJob` commentary in `internal/api/server.go`). Baseline **service metrics** for API, queue, worker, and log are **shipped** (§10).
 
 ### Milestone C — Queue evolution (optional)
@@ -101,7 +101,7 @@ Milestones build on the current stack; order is indicative.
 Vectis uses itself for CI/CD. Development workflow:
 
 - Local: `make test` runs all packages (`go test ./...`)
-- Fast feedback: `make test-race` for race detection; use `go test ./internal/foo/...` for scoped runs (there is no `make test-quick` in the `Makefile` today)
+- Fast feedback: `make test-race` for race detection; use `make test-quick` or `go test ./internal/foo/...` for scoped runs
 - PR review: Vectis instance runs full test suite on branch (aspiration)
 - Release: Vectis builds and tests release artifacts (aspiration)
 

@@ -25,10 +25,10 @@ func executeAndWait(t *testing.T, executor *job.Executor, testJob *api.Job, mock
 	select {
 	case stream := <-streamCh:
 		if waitErr := stream.WaitForDone(5 * time.Second); waitErr != nil {
-			t.Logf("wait for log stream done: %v", waitErr)
+			t.Errorf("wait for log stream done: %v", waitErr)
 		}
 	case <-time.After(5 * time.Second):
-		t.Logf("timed out waiting for log stream hook")
+		t.Fatalf("timed out waiting for log stream hook")
 	}
 
 	return err

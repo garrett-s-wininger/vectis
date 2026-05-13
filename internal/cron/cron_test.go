@@ -438,15 +438,12 @@ func TestCronService_ProcessSchedules_TimeNotMatching(t *testing.T) {
 }
 
 func TestCronService_TriggerJob_JobNotFound(t *testing.T) {
-	service, logger, _, _ := setupTestCronService(t)
+	service, _, _, _ := setupTestCronService(t)
 
 	err := service.TriggerJob(context.Background(), "nonexistent-job")
 	if err == nil {
 		t.Error("expected error for nonexistent job")
 	}
-
-	errorCalls := logger.GetErrorCalls()
-	_ = errorCalls
 }
 
 func TestCronService_TriggerJob_Success(t *testing.T) {
