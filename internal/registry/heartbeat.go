@@ -12,20 +12,29 @@ import (
 const registrationHeartbeatRPCTimeout = 30 * time.Second
 
 func StartRegistrationHeartbeat(ctx context.Context, r *Registry, comp api.Component, address string, interval time.Duration, logger interfaces.Logger) (stop func()) {
-	return StartInstanceRegistrationHeartbeat(ctx, r, comp, "", address, interval, logger)
+	return StartRegistrationHeartbeatWithMetadata(ctx, r, comp, address, nil, interval, logger)
+}
+
+func StartRegistrationHeartbeatWithMetadata(ctx context.Context, r *Registry, comp api.Component, address string, metadata map[string]string, interval time.Duration, logger interfaces.Logger) (stop func()) {
+	return StartInstanceRegistrationHeartbeatWithMetadata(ctx, r, comp, "", address, metadata, interval, logger)
 }
 
 func StartInstanceRegistrationHeartbeat(ctx context.Context, r *Registry, comp api.Component, instanceID, address string, interval time.Duration, logger interfaces.Logger) (stop func()) {
+	return StartInstanceRegistrationHeartbeatWithMetadata(ctx, r, comp, instanceID, address, nil, interval, logger)
+}
+
+func StartInstanceRegistrationHeartbeatWithMetadata(ctx context.Context, r *Registry, comp api.Component, instanceID, address string, metadata map[string]string, interval time.Duration, logger interfaces.Logger) (stop func()) {
 	if r == nil || interval <= 0 || logger == nil {
 		return func() {}
 	}
 
+	metadata = cloneMetadata(metadata)
 	loopCtx, cancel := context.WithCancel(ctx)
-	go registrationHeartbeatLoop(loopCtx, r, comp, instanceID, address, interval, logger)
+	go registrationHeartbeatLoop(loopCtx, r, comp, instanceID, address, metadata, interval, logger)
 	return cancel
 }
 
-func registrationHeartbeatLoop(ctx context.Context, r *Registry, comp api.Component, instanceID, address string, interval time.Duration, logger interfaces.Logger) {
+func registrationHeartbeatLoop(ctx context.Context, r *Registry, comp api.Component, instanceID, address string, metadata map[string]string, interval time.Duration, logger interfaces.Logger) {
 	for {
 		wait := intervalWithJitter(interval)
 		select {
@@ -35,7 +44,7 @@ func registrationHeartbeatLoop(ctx context.Context, r *Registry, comp api.Compon
 		}
 
 		hbCtx, cancel := context.WithTimeout(ctx, registrationHeartbeatRPCTimeout)
-		err := r.RegisterInstanceOnce(hbCtx, comp, instanceID, address)
+		err := r.RegisterInstanceOnceWithMetadata(hbCtx, comp, instanceID, address, metadata)
 		cancel()
 
 		if err != nil {

@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"maps"
 	"sort"
 	"strings"
 	"sync"
@@ -18,6 +19,7 @@ type registrationEntry struct {
 	component          api.Component
 	instanceID         string
 	address            string
+	metadata           map[string]string
 	version            registryVersion
 	leaseExpiresAt     time.Time
 	tombstone          bool
@@ -85,7 +87,7 @@ func cleanPeerAddresses(peers []string, self string) []string {
 	return cleaned
 }
 
-func (r *reg) register(component api.Component, instanceID, address string, now time.Time) registrationEntry {
+func (r *reg) register(component api.Component, instanceID, address string, metadata map[string]string, now time.Time) registrationEntry {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -95,6 +97,7 @@ func (r *reg) register(component api.Component, instanceID, address string, now 
 		component:      component,
 		instanceID:     instanceID,
 		address:        address,
+		metadata:       cloneMetadata(metadata),
 		version:        registryVersion{originNodeID: r.nodeID, counter: r.clock},
 		leaseExpiresAt: now.Add(r.leaseTTL),
 	}
@@ -120,15 +123,39 @@ func (r *reg) getByKey(key string, now time.Time) (registrationEntry, bool) {
 }
 
 func (r *reg) listByComponent(component api.Component, now time.Time) []string {
+	entries := r.listEntries(component, nil, now)
+	matches := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		matches = append(matches, makeEntryKey(entry))
+	}
+
+	return matches
+}
+
+func (r *reg) listEntries(component api.Component, metadata map[string]string, now time.Time) []registrationEntry {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	matches := make([]string, 0)
-	for key, entry := range r.registrations {
-		if entry.component == component && entry.isLiveAt(now) {
-			matches = append(matches, key)
+	matches := make([]registrationEntry, 0)
+	for _, entry := range r.registrations {
+		if component != api.Component_COMPONENT_UNKNOWN && entry.component != component {
+			continue
 		}
+
+		if !entry.isLiveAt(now) {
+			continue
+		}
+
+		if !metadataMatches(entry.metadata, metadata) {
+			continue
+		}
+
+		matches = append(matches, entry.clone())
 	}
+
+	sort.Slice(matches, func(i, j int) bool {
+		return makeEntryKey(matches[i]) < makeEntryKey(matches[j])
+	})
 
 	return matches
 }
@@ -318,6 +345,7 @@ func (r *reg) applyTombstoneLocked(entry registrationEntry, now time.Time) bool 
 	r.observeClockLocked(entry.version)
 	entry.tombstone = true
 	entry.address = ""
+	entry.metadata = nil
 	key := makeEntryVersionKey(entry)
 	currentTombstone, hadTombstone := r.tombstones[key]
 	if hadTombstone && currentTombstone.version.counter >= entry.version.counter && !entry.tombstoneExpiresAt.After(currentTombstone.tombstoneExpiresAt) {
@@ -349,6 +377,7 @@ func (r *reg) expireLeasesLocked(now time.Time) {
 		delete(r.registrations, key)
 		tombstone := entry
 		tombstone.address = ""
+		tombstone.metadata = nil
 		tombstone.tombstone = true
 		tombstone.tombstoneExpiresAt = now.Add(r.tombstoneTTL)
 		r.applyTombstoneLocked(tombstone, now)
@@ -395,10 +424,35 @@ func (e registrationEntry) equal(other registrationEntry) bool {
 	return e.component == other.component &&
 		e.instanceID == other.instanceID &&
 		e.address == other.address &&
+		maps.Equal(e.metadata, other.metadata) &&
 		e.version == other.version &&
 		e.leaseExpiresAt.Equal(other.leaseExpiresAt) &&
 		e.tombstone == other.tombstone &&
 		e.tombstoneExpiresAt.Equal(other.tombstoneExpiresAt)
+}
+
+func (e registrationEntry) clone() registrationEntry {
+	e.metadata = cloneMetadata(e.metadata)
+	return e
+}
+
+func cloneMetadata(metadata map[string]string) map[string]string {
+	if len(metadata) == 0 {
+		return nil
+	}
+
+	return maps.Clone(metadata)
+}
+
+func metadataMatches(entryMetadata, filter map[string]string) bool {
+	for key, value := range filter {
+		got, ok := entryMetadata[key]
+		if !ok || got != value {
+			return false
+		}
+	}
+
+	return true
 }
 
 func registrationEntryFromProto(entry *api.RegistryEntry) (registrationEntry, bool) {
@@ -411,6 +465,7 @@ func registrationEntryFromProto(entry *api.RegistryEntry) (registrationEntry, bo
 		component:  entry.GetComponent(),
 		instanceID: entry.GetInstanceId(),
 		address:    entry.GetAddress(),
+		metadata:   cloneMetadata(entry.GetMetadata()),
 		version:    registryVersion{originNodeID: version.GetOriginNodeId(), counter: version.GetCounter()},
 		tombstone:  entry.GetTombstone(),
 	}
@@ -430,6 +485,7 @@ func registryEntryToProto(entry registrationEntry) *api.RegistryEntry {
 	component := entry.component
 	instanceID := entry.instanceID
 	address := entry.address
+	metadata := cloneMetadata(entry.metadata)
 	origin := entry.version.originNodeID
 	counter := entry.version.counter
 	tombstone := entry.tombstone
@@ -440,6 +496,7 @@ func registryEntryToProto(entry registrationEntry) *api.RegistryEntry {
 		Component:                &component,
 		InstanceId:               &instanceID,
 		Address:                  &address,
+		Metadata:                 metadata,
 		Version:                  &api.RegistryVersion{OriginNodeId: &origin, Counter: &counter},
 		LeaseExpiresUnixNano:     &leaseExpires,
 		Tombstone:                &tombstone,

@@ -94,7 +94,7 @@ func (s *registryServer) Register(ctx context.Context, req *api.Registration) (*
 	comp := *req.Component
 	instanceID := req.GetInstanceId()
 
-	s.reg.register(comp, instanceID, *req.Address, time.Now())
+	s.reg.register(comp, instanceID, *req.Address, req.GetMetadata(), time.Now())
 
 	switch comp {
 	case api.Component_COMPONENT_QUEUE:
@@ -133,6 +133,23 @@ func (s *registryServer) GetAddress(ctx context.Context, req *api.AddressRequest
 	}
 
 	return &api.AddressResponse{Address: &address}, nil
+}
+
+func (s *registryServer) ListRegistrations(ctx context.Context, req *api.ListRegistrationsRequest) (*api.ListRegistrationsResponse, error) {
+	if req == nil {
+		return &api.ListRegistrationsResponse{}, nil
+	}
+
+	entries := s.reg.listEntries(req.GetComponent(), req.GetMetadata(), time.Now())
+	resp := &api.ListRegistrationsResponse{
+		Entries: make([]*api.RegistryEntry, 0, len(entries)),
+	}
+
+	for _, entry := range entries {
+		resp.Entries = append(resp.Entries, registryEntryToProto(entry))
+	}
+
+	return resp, nil
 }
 
 func (s *registryServer) Gossip(ctx context.Context, req *api.GossipRequest) (*api.GossipResponse, error) {

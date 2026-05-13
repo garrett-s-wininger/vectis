@@ -15,6 +15,7 @@ message Registration {
     Component component = 1;
     string address = 2;
     string instance_id = 3;
+    map<string, string> metadata = 4;
 }
 
 message AddressRequest {
@@ -24,6 +25,15 @@ message AddressRequest {
 
 message AddressResponse {
     string address = 1;
+}
+
+message ListRegistrationsRequest {
+    Component component = 1;
+    map<string, string> metadata = 2;
+}
+
+message ListRegistrationsResponse {
+    repeated RegistryEntry entries = 1;
 }
 
 message RegistryVersion {
@@ -39,6 +49,7 @@ message RegistryEntry {
     int64 lease_expires_unix_nano = 5;
     bool tombstone = 6;
     int64 tombstone_expires_unix_nano = 7;
+    map<string, string> metadata = 8;
 }
 
 message RegistryDigest {
@@ -70,6 +81,7 @@ message RegistrySnapshotResponse {
 service RegistryService {
     rpc Register(Registration) returns (common.Empty);
     rpc GetAddress(AddressRequest) returns (AddressResponse);
+    rpc ListRegistrations(ListRegistrationsRequest) returns (ListRegistrationsResponse);
     rpc Gossip(GossipRequest) returns (GossipResponse);
     rpc GetSnapshot(RegistrySnapshotRequest) returns (RegistrySnapshotResponse);
 }

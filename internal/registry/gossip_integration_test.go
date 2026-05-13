@@ -108,6 +108,36 @@ func TestRegistryCluster_GossipConvergesOverGRPC(t *testing.T) {
 	}
 }
 
+func TestRegistryCluster_GossipConvergesMetadataOverGRPC(t *testing.T) {
+	nodes := startTestRegistryCluster(t, func(i int, addr string, peers []string) ServiceOptions {
+		return ServiceOptions{
+			GossipInterval:      20 * time.Millisecond,
+			AntiEntropyInterval: time.Hour,
+			LeaseTTL:            time.Minute,
+			TombstoneTTL:        5 * time.Minute,
+			PeerDialTimeout:     250 * time.Millisecond,
+		}
+	})
+
+	client := newRegistryTestClient(t, nodes[0].addr)
+	defer client.Close()
+
+	metadata := map[string]string{
+		MetadataCellID:    DefaultCellID,
+		MetadataQueueRole: QueueRolePool,
+		"pool":            "linux",
+		"trait.os":        "linux",
+	}
+
+	if err := client.RegisterInstanceWithMetadata(context.Background(), api.Component_COMPONENT_QUEUE, "pool-linux", "queue.pool:8081", metadata); err != nil {
+		t.Fatalf("RegisterInstanceWithMetadata: %v", err)
+	}
+
+	for _, node := range nodes {
+		waitForRegistryRegistration(t, node.addr, api.Component_COMPONENT_QUEUE, map[string]string{MetadataQueueRole: QueueRolePool, "trait.os": "linux"}, "pool-linux", "queue.pool:8081")
+	}
+}
+
 func TestRegistryCluster_AntiEntropyRepairsMissedGossipOverGRPC(t *testing.T) {
 	nodes := startTestRegistryCluster(t, func(i int, addr string, peers []string) ServiceOptions {
 		return ServiceOptions{
@@ -198,4 +228,32 @@ func waitForRegistryAddress(t *testing.T, registryAddr string, component api.Com
 	}
 
 	t.Fatalf("registry %s never resolved %s/%q to %q; last got %q err %v", registryAddr, component.String(), instanceID, want, got, lastErr)
+}
+
+func waitForRegistryRegistration(t *testing.T, registryAddr string, component api.Component, metadata map[string]string, wantInstanceID, wantAddress string) {
+	t.Helper()
+
+	client := newRegistryTestClient(t, registryAddr)
+	defer client.Close()
+
+	deadline := time.Now().Add(3 * time.Second)
+	var lastErr error
+	var got []*api.RegistryEntry
+	for time.Now().Before(deadline) {
+		ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+		got, lastErr = client.ListRegistrations(ctx, component, metadata)
+		cancel()
+
+		if lastErr == nil {
+			for _, entry := range got {
+				if entry.GetInstanceId() == wantInstanceID && entry.GetAddress() == wantAddress {
+					return
+				}
+			}
+		}
+
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	t.Fatalf("registry %s never listed %s/%q at %q; last got %+v err %v", registryAddr, component.String(), wantInstanceID, wantAddress, got, lastErr)
 }

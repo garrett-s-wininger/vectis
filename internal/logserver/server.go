@@ -648,6 +648,7 @@ func Run(ctx context.Context, logger interfaces.Logger, store RunLogStore, metri
 			RegistryAddress: regAddr,
 			Component:       api.Component_COMPONENT_LOG,
 			PublishAddress:  publishAddr,
+			Metadata:        registry.DefaultServiceMetadata(),
 			RefreshInterval: config.RegistryRegistrationRefresh(),
 			Logger:          logger,
 		})

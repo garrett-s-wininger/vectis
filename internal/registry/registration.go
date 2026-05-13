@@ -17,6 +17,7 @@ type RegistrationOptions struct {
 	Component       api.Component
 	InstanceID      string
 	PublishAddress  string
+	Metadata        map[string]string
 	RefreshInterval time.Duration
 	Logger          interfaces.Logger
 	Clock           interfaces.Clock
@@ -35,12 +36,13 @@ func RegisterWithHeartbeat(ctx context.Context, opts RegistrationOptions) (func(
 		return nil, err
 	}
 
-	if err := registryClient.RegisterInstance(ctx, opts.Component, opts.InstanceID, opts.PublishAddress); err != nil {
+	metadata := cloneMetadata(opts.Metadata)
+	if err := registryClient.RegisterInstanceWithMetadata(ctx, opts.Component, opts.InstanceID, opts.PublishAddress, metadata); err != nil {
 		_ = registryClient.Close()
 		return nil, err
 	}
 
-	stopHeartbeat := StartInstanceRegistrationHeartbeat(ctx, registryClient, opts.Component, opts.InstanceID, opts.PublishAddress, opts.RefreshInterval, opts.Logger)
+	stopHeartbeat := StartInstanceRegistrationHeartbeatWithMetadata(ctx, registryClient, opts.Component, opts.InstanceID, opts.PublishAddress, metadata, opts.RefreshInterval, opts.Logger)
 	return func() {
 		stopHeartbeat()
 		_ = registryClient.Close()

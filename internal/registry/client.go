@@ -52,10 +52,19 @@ func New(ctx context.Context, addr string, logger interfaces.Logger, clock inter
 }
 
 func (r *Registry) Register(ctx context.Context, component api.Component, address string) error {
-	return r.RegisterInstance(ctx, component, "", address)
+	return r.RegisterWithMetadata(ctx, component, address, nil)
+}
+
+func (r *Registry) RegisterWithMetadata(ctx context.Context, component api.Component, address string, metadata map[string]string) error {
+	return r.RegisterInstanceWithMetadata(ctx, component, "", address, metadata)
 }
 
 func (r *Registry) RegisterInstance(ctx context.Context, component api.Component, instanceID, address string) error {
+	return r.RegisterInstanceWithMetadata(ctx, component, instanceID, address, nil)
+}
+
+func (r *Registry) RegisterInstanceWithMetadata(ctx context.Context, component api.Component, instanceID, address string, metadata map[string]string) error {
+	metadata = cloneMetadata(metadata)
 	retryer := backoff.NewRetryer(backoff.RetryConfig{
 		MaxTries:  r.maxTries,
 		BaseDelay: r.baseDelay,
@@ -65,22 +74,31 @@ func (r *Registry) RegisterInstance(ctx context.Context, component api.Component
 	})
 
 	return retryer.Do(ctx, func() error {
-		return r.RegisterInstanceOnce(ctx, component, instanceID, address)
+		return r.RegisterInstanceOnceWithMetadata(ctx, component, instanceID, address, metadata)
 	}, func(attempt int, nextDelay time.Duration, err error) {
 		r.logger.Debug("Failed to register with registry (attempt %d/%d): %v. Retrying in %v...", attempt, r.maxTries, err, nextDelay)
 	})
 }
 
 func (r *Registry) RegisterOnce(ctx context.Context, component api.Component, address string) error {
-	return r.RegisterInstanceOnce(ctx, component, "", address)
+	return r.RegisterOnceWithMetadata(ctx, component, address, nil)
+}
+
+func (r *Registry) RegisterOnceWithMetadata(ctx context.Context, component api.Component, address string, metadata map[string]string) error {
+	return r.RegisterInstanceOnceWithMetadata(ctx, component, "", address, metadata)
 }
 
 func (r *Registry) RegisterInstanceOnce(ctx context.Context, component api.Component, instanceID, address string) error {
+	return r.RegisterInstanceOnceWithMetadata(ctx, component, instanceID, address, nil)
+}
+
+func (r *Registry) RegisterInstanceOnceWithMetadata(ctx context.Context, component api.Component, instanceID, address string, metadata map[string]string) error {
 	comp := component
 	addr := address
 	req := &api.Registration{
 		Component: &comp,
 		Address:   &addr,
+		Metadata:  cloneMetadata(metadata),
 	}
 
 	if instanceID != "" {
@@ -91,6 +109,26 @@ func (r *Registry) RegisterInstanceOnce(ctx context.Context, component api.Compo
 		_, err := client.Register(ctx, req)
 		return err
 	})
+}
+
+func (r *Registry) ListRegistrations(ctx context.Context, component api.Component, metadata map[string]string) ([]*api.RegistryEntry, error) {
+	req := &api.ListRegistrationsRequest{
+		Component: component.Enum(),
+		Metadata:  cloneMetadata(metadata),
+	}
+
+	var resp *api.ListRegistrationsResponse
+	err := r.withClient(ctx, func(client api.RegistryServiceClient) error {
+		var e error
+		resp, e = client.ListRegistrations(ctx, req)
+		return e
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return resp.GetEntries(), nil
 }
 
 func (r *Registry) Address(ctx context.Context, component api.Component) (string, error) {

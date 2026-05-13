@@ -78,6 +78,7 @@ type Registration struct {
 	Component     *Component             `protobuf:"varint,1,opt,name=component,enum=Component" json:"component,omitempty"`
 	Address       *string                `protobuf:"bytes,2,opt,name=address" json:"address,omitempty"`
 	InstanceId    *string                `protobuf:"bytes,3,opt,name=instance_id,json=instanceId" json:"instance_id,omitempty"`
+	Metadata      map[string]string      `protobuf:"bytes,4,rep,name=metadata" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -131,6 +132,13 @@ func (x *Registration) GetInstanceId() string {
 		return *x.InstanceId
 	}
 	return ""
+}
+
+func (x *Registration) GetMetadata() map[string]string {
+	if x != nil {
+		return x.Metadata
+	}
+	return nil
 }
 
 type AddressRequest struct {
@@ -229,6 +237,102 @@ func (x *AddressResponse) GetAddress() string {
 	return ""
 }
 
+type ListRegistrationsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Component     *Component             `protobuf:"varint,1,opt,name=component,enum=Component" json:"component,omitempty"`
+	Metadata      map[string]string      `protobuf:"bytes,2,rep,name=metadata" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListRegistrationsRequest) Reset() {
+	*x = ListRegistrationsRequest{}
+	mi := &file_registry_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListRegistrationsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListRegistrationsRequest) ProtoMessage() {}
+
+func (x *ListRegistrationsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_registry_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListRegistrationsRequest.ProtoReflect.Descriptor instead.
+func (*ListRegistrationsRequest) Descriptor() ([]byte, []int) {
+	return file_registry_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ListRegistrationsRequest) GetComponent() Component {
+	if x != nil && x.Component != nil {
+		return *x.Component
+	}
+	return Component_COMPONENT_UNKNOWN
+}
+
+func (x *ListRegistrationsRequest) GetMetadata() map[string]string {
+	if x != nil {
+		return x.Metadata
+	}
+	return nil
+}
+
+type ListRegistrationsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Entries       []*RegistryEntry       `protobuf:"bytes,1,rep,name=entries" json:"entries,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListRegistrationsResponse) Reset() {
+	*x = ListRegistrationsResponse{}
+	mi := &file_registry_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListRegistrationsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListRegistrationsResponse) ProtoMessage() {}
+
+func (x *ListRegistrationsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_registry_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListRegistrationsResponse.ProtoReflect.Descriptor instead.
+func (*ListRegistrationsResponse) Descriptor() ([]byte, []int) {
+	return file_registry_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *ListRegistrationsResponse) GetEntries() []*RegistryEntry {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
+}
+
 type RegistryVersion struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	OriginNodeId  *string                `protobuf:"bytes,1,opt,name=origin_node_id,json=originNodeId" json:"origin_node_id,omitempty"`
@@ -239,7 +343,7 @@ type RegistryVersion struct {
 
 func (x *RegistryVersion) Reset() {
 	*x = RegistryVersion{}
-	mi := &file_registry_proto_msgTypes[3]
+	mi := &file_registry_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -251,7 +355,7 @@ func (x *RegistryVersion) String() string {
 func (*RegistryVersion) ProtoMessage() {}
 
 func (x *RegistryVersion) ProtoReflect() protoreflect.Message {
-	mi := &file_registry_proto_msgTypes[3]
+	mi := &file_registry_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -264,7 +368,7 @@ func (x *RegistryVersion) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegistryVersion.ProtoReflect.Descriptor instead.
 func (*RegistryVersion) Descriptor() ([]byte, []int) {
-	return file_registry_proto_rawDescGZIP(), []int{3}
+	return file_registry_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *RegistryVersion) GetOriginNodeId() string {
@@ -290,13 +394,14 @@ type RegistryEntry struct {
 	LeaseExpiresUnixNano     *int64                 `protobuf:"varint,5,opt,name=lease_expires_unix_nano,json=leaseExpiresUnixNano" json:"lease_expires_unix_nano,omitempty"`
 	Tombstone                *bool                  `protobuf:"varint,6,opt,name=tombstone" json:"tombstone,omitempty"`
 	TombstoneExpiresUnixNano *int64                 `protobuf:"varint,7,opt,name=tombstone_expires_unix_nano,json=tombstoneExpiresUnixNano" json:"tombstone_expires_unix_nano,omitempty"`
+	Metadata                 map[string]string      `protobuf:"bytes,8,rep,name=metadata" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields            protoimpl.UnknownFields
 	sizeCache                protoimpl.SizeCache
 }
 
 func (x *RegistryEntry) Reset() {
 	*x = RegistryEntry{}
-	mi := &file_registry_proto_msgTypes[4]
+	mi := &file_registry_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -308,7 +413,7 @@ func (x *RegistryEntry) String() string {
 func (*RegistryEntry) ProtoMessage() {}
 
 func (x *RegistryEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_registry_proto_msgTypes[4]
+	mi := &file_registry_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -321,7 +426,7 @@ func (x *RegistryEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegistryEntry.ProtoReflect.Descriptor instead.
 func (*RegistryEntry) Descriptor() ([]byte, []int) {
-	return file_registry_proto_rawDescGZIP(), []int{4}
+	return file_registry_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *RegistryEntry) GetComponent() Component {
@@ -373,6 +478,13 @@ func (x *RegistryEntry) GetTombstoneExpiresUnixNano() int64 {
 	return 0
 }
 
+func (x *RegistryEntry) GetMetadata() map[string]string {
+	if x != nil {
+		return x.Metadata
+	}
+	return nil
+}
+
 type RegistryDigest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Component     *Component             `protobuf:"varint,1,opt,name=component,enum=Component" json:"component,omitempty"`
@@ -386,7 +498,7 @@ type RegistryDigest struct {
 
 func (x *RegistryDigest) Reset() {
 	*x = RegistryDigest{}
-	mi := &file_registry_proto_msgTypes[5]
+	mi := &file_registry_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -398,7 +510,7 @@ func (x *RegistryDigest) String() string {
 func (*RegistryDigest) ProtoMessage() {}
 
 func (x *RegistryDigest) ProtoReflect() protoreflect.Message {
-	mi := &file_registry_proto_msgTypes[5]
+	mi := &file_registry_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -411,7 +523,7 @@ func (x *RegistryDigest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegistryDigest.ProtoReflect.Descriptor instead.
 func (*RegistryDigest) Descriptor() ([]byte, []int) {
-	return file_registry_proto_rawDescGZIP(), []int{5}
+	return file_registry_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *RegistryDigest) GetComponent() Component {
@@ -459,7 +571,7 @@ type GossipRequest struct {
 
 func (x *GossipRequest) Reset() {
 	*x = GossipRequest{}
-	mi := &file_registry_proto_msgTypes[6]
+	mi := &file_registry_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -471,7 +583,7 @@ func (x *GossipRequest) String() string {
 func (*GossipRequest) ProtoMessage() {}
 
 func (x *GossipRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_registry_proto_msgTypes[6]
+	mi := &file_registry_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -484,7 +596,7 @@ func (x *GossipRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GossipRequest.ProtoReflect.Descriptor instead.
 func (*GossipRequest) Descriptor() ([]byte, []int) {
-	return file_registry_proto_rawDescGZIP(), []int{6}
+	return file_registry_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *GossipRequest) GetNodeId() string {
@@ -510,7 +622,7 @@ type GossipResponse struct {
 
 func (x *GossipResponse) Reset() {
 	*x = GossipResponse{}
-	mi := &file_registry_proto_msgTypes[7]
+	mi := &file_registry_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -522,7 +634,7 @@ func (x *GossipResponse) String() string {
 func (*GossipResponse) ProtoMessage() {}
 
 func (x *GossipResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_registry_proto_msgTypes[7]
+	mi := &file_registry_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -535,7 +647,7 @@ func (x *GossipResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GossipResponse.ProtoReflect.Descriptor instead.
 func (*GossipResponse) Descriptor() ([]byte, []int) {
-	return file_registry_proto_rawDescGZIP(), []int{7}
+	return file_registry_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *GossipResponse) GetEntries() []*RegistryEntry {
@@ -555,7 +667,7 @@ type RegistrySnapshotRequest struct {
 
 func (x *RegistrySnapshotRequest) Reset() {
 	*x = RegistrySnapshotRequest{}
-	mi := &file_registry_proto_msgTypes[8]
+	mi := &file_registry_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -567,7 +679,7 @@ func (x *RegistrySnapshotRequest) String() string {
 func (*RegistrySnapshotRequest) ProtoMessage() {}
 
 func (x *RegistrySnapshotRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_registry_proto_msgTypes[8]
+	mi := &file_registry_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -580,7 +692,7 @@ func (x *RegistrySnapshotRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegistrySnapshotRequest.ProtoReflect.Descriptor instead.
 func (*RegistrySnapshotRequest) Descriptor() ([]byte, []int) {
-	return file_registry_proto_rawDescGZIP(), []int{8}
+	return file_registry_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *RegistrySnapshotRequest) GetNodeId() string {
@@ -606,7 +718,7 @@ type RegistrySnapshotResponse struct {
 
 func (x *RegistrySnapshotResponse) Reset() {
 	*x = RegistrySnapshotResponse{}
-	mi := &file_registry_proto_msgTypes[9]
+	mi := &file_registry_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -618,7 +730,7 @@ func (x *RegistrySnapshotResponse) String() string {
 func (*RegistrySnapshotResponse) ProtoMessage() {}
 
 func (x *RegistrySnapshotResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_registry_proto_msgTypes[9]
+	mi := &file_registry_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -631,7 +743,7 @@ func (x *RegistrySnapshotResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegistrySnapshotResponse.ProtoReflect.Descriptor instead.
 func (*RegistrySnapshotResponse) Descriptor() ([]byte, []int) {
-	return file_registry_proto_rawDescGZIP(), []int{9}
+	return file_registry_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *RegistrySnapshotResponse) GetEntries() []*RegistryEntry {
@@ -645,23 +757,36 @@ var File_registry_proto protoreflect.FileDescriptor
 
 const file_registry_proto_rawDesc = "" +
 	"\n" +
-	"\x0eregistry.proto\x1a\fcommon.proto\"s\n" +
+	"\x0eregistry.proto\x1a\fcommon.proto\"\xe9\x01\n" +
 	"\fRegistration\x12(\n" +
 	"\tcomponent\x18\x01 \x01(\x0e2\n" +
 	".ComponentR\tcomponent\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x1f\n" +
 	"\vinstance_id\x18\x03 \x01(\tR\n" +
-	"instanceId\"[\n" +
+	"instanceId\x127\n" +
+	"\bmetadata\x18\x04 \x03(\v2\x1b.Registration.MetadataEntryR\bmetadata\x1a;\n" +
+	"\rMetadataEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"[\n" +
 	"\x0eAddressRequest\x12(\n" +
 	"\tcomponent\x18\x01 \x01(\x0e2\n" +
 	".ComponentR\tcomponent\x12\x1f\n" +
 	"\vinstance_id\x18\x02 \x01(\tR\n" +
 	"instanceId\"+\n" +
 	"\x0fAddressResponse\x12\x18\n" +
-	"\aaddress\x18\x01 \x01(\tR\aaddress\"Q\n" +
+	"\aaddress\x18\x01 \x01(\tR\aaddress\"\xc6\x01\n" +
+	"\x18ListRegistrationsRequest\x12(\n" +
+	"\tcomponent\x18\x01 \x01(\x0e2\n" +
+	".ComponentR\tcomponent\x12C\n" +
+	"\bmetadata\x18\x02 \x03(\v2'.ListRegistrationsRequest.MetadataEntryR\bmetadata\x1a;\n" +
+	"\rMetadataEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"E\n" +
+	"\x19ListRegistrationsResponse\x12(\n" +
+	"\aentries\x18\x01 \x03(\v2\x0e.RegistryEntryR\aentries\"Q\n" +
 	"\x0fRegistryVersion\x12$\n" +
 	"\x0eorigin_node_id\x18\x01 \x01(\tR\foriginNodeId\x12\x18\n" +
-	"\acounter\x18\x02 \x01(\x04R\acounter\"\xb4\x02\n" +
+	"\acounter\x18\x02 \x01(\x04R\acounter\"\xab\x03\n" +
 	"\rRegistryEntry\x12(\n" +
 	"\tcomponent\x18\x01 \x01(\x0e2\n" +
 	".ComponentR\tcomponent\x12\x1f\n" +
@@ -671,7 +796,11 @@ const file_registry_proto_rawDesc = "" +
 	"\aversion\x18\x04 \x01(\v2\x10.RegistryVersionR\aversion\x125\n" +
 	"\x17lease_expires_unix_nano\x18\x05 \x01(\x03R\x14leaseExpiresUnixNano\x12\x1c\n" +
 	"\ttombstone\x18\x06 \x01(\bR\ttombstone\x12=\n" +
-	"\x1btombstone_expires_unix_nano\x18\a \x01(\x03R\x18tombstoneExpiresUnixNano\"\xb9\x01\n" +
+	"\x1btombstone_expires_unix_nano\x18\a \x01(\x03R\x18tombstoneExpiresUnixNano\x128\n" +
+	"\bmetadata\x18\b \x03(\v2\x1c.RegistryEntry.MetadataEntryR\bmetadata\x1a;\n" +
+	"\rMetadataEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb9\x01\n" +
 	"\x0eRegistryDigest\x12(\n" +
 	"\tcomponent\x18\x01 \x01(\x0e2\n" +
 	".ComponentR\tcomponent\x12\x1f\n" +
@@ -694,11 +823,12 @@ const file_registry_proto_rawDesc = "" +
 	"\x11COMPONENT_UNKNOWN\x10\x00\x12\x13\n" +
 	"\x0fCOMPONENT_QUEUE\x10\x01\x12\x11\n" +
 	"\rCOMPONENT_LOG\x10\x02\x12\x14\n" +
-	"\x10COMPONENT_WORKER\x10\x032\xdb\x01\n" +
+	"\x10COMPONENT_WORKER\x10\x032\xa7\x02\n" +
 	"\x0fRegistryService\x12(\n" +
 	"\bRegister\x12\r.Registration\x1a\r.common.Empty\x12/\n" +
 	"\n" +
-	"GetAddress\x12\x0f.AddressRequest\x1a\x10.AddressResponse\x12)\n" +
+	"GetAddress\x12\x0f.AddressRequest\x1a\x10.AddressResponse\x12J\n" +
+	"\x11ListRegistrations\x12\x19.ListRegistrationsRequest\x1a\x1a.ListRegistrationsResponse\x12)\n" +
 	"\x06Gossip\x12\x0e.GossipRequest\x1a\x0f.GossipResponse\x12B\n" +
 	"\vGetSnapshot\x12\x18.RegistrySnapshotRequest\x1a\x19.RegistrySnapshotResponseB\x17Z\x15vectis/api/gen/go;apib\beditionsp\xe8\a"
 
@@ -715,44 +845,56 @@ func file_registry_proto_rawDescGZIP() []byte {
 }
 
 var file_registry_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_registry_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_registry_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_registry_proto_goTypes = []any{
-	(Component)(0),                   // 0: Component
-	(*Registration)(nil),             // 1: Registration
-	(*AddressRequest)(nil),           // 2: AddressRequest
-	(*AddressResponse)(nil),          // 3: AddressResponse
-	(*RegistryVersion)(nil),          // 4: RegistryVersion
-	(*RegistryEntry)(nil),            // 5: RegistryEntry
-	(*RegistryDigest)(nil),           // 6: RegistryDigest
-	(*GossipRequest)(nil),            // 7: GossipRequest
-	(*GossipResponse)(nil),           // 8: GossipResponse
-	(*RegistrySnapshotRequest)(nil),  // 9: RegistrySnapshotRequest
-	(*RegistrySnapshotResponse)(nil), // 10: RegistrySnapshotResponse
-	(*Empty)(nil),                    // 11: common.Empty
+	(Component)(0),                    // 0: Component
+	(*Registration)(nil),              // 1: Registration
+	(*AddressRequest)(nil),            // 2: AddressRequest
+	(*AddressResponse)(nil),           // 3: AddressResponse
+	(*ListRegistrationsRequest)(nil),  // 4: ListRegistrationsRequest
+	(*ListRegistrationsResponse)(nil), // 5: ListRegistrationsResponse
+	(*RegistryVersion)(nil),           // 6: RegistryVersion
+	(*RegistryEntry)(nil),             // 7: RegistryEntry
+	(*RegistryDigest)(nil),            // 8: RegistryDigest
+	(*GossipRequest)(nil),             // 9: GossipRequest
+	(*GossipResponse)(nil),            // 10: GossipResponse
+	(*RegistrySnapshotRequest)(nil),   // 11: RegistrySnapshotRequest
+	(*RegistrySnapshotResponse)(nil),  // 12: RegistrySnapshotResponse
+	nil,                               // 13: Registration.MetadataEntry
+	nil,                               // 14: ListRegistrationsRequest.MetadataEntry
+	nil,                               // 15: RegistryEntry.MetadataEntry
+	(*Empty)(nil),                     // 16: common.Empty
 }
 var file_registry_proto_depIdxs = []int32{
 	0,  // 0: Registration.component:type_name -> Component
-	0,  // 1: AddressRequest.component:type_name -> Component
-	0,  // 2: RegistryEntry.component:type_name -> Component
-	4,  // 3: RegistryEntry.version:type_name -> RegistryVersion
-	0,  // 4: RegistryDigest.component:type_name -> Component
-	5,  // 5: GossipRequest.entries:type_name -> RegistryEntry
-	5,  // 6: GossipResponse.entries:type_name -> RegistryEntry
-	6,  // 7: RegistrySnapshotRequest.digests:type_name -> RegistryDigest
-	5,  // 8: RegistrySnapshotResponse.entries:type_name -> RegistryEntry
-	1,  // 9: RegistryService.Register:input_type -> Registration
-	2,  // 10: RegistryService.GetAddress:input_type -> AddressRequest
-	7,  // 11: RegistryService.Gossip:input_type -> GossipRequest
-	9,  // 12: RegistryService.GetSnapshot:input_type -> RegistrySnapshotRequest
-	11, // 13: RegistryService.Register:output_type -> common.Empty
-	3,  // 14: RegistryService.GetAddress:output_type -> AddressResponse
-	8,  // 15: RegistryService.Gossip:output_type -> GossipResponse
-	10, // 16: RegistryService.GetSnapshot:output_type -> RegistrySnapshotResponse
-	13, // [13:17] is the sub-list for method output_type
-	9,  // [9:13] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	13, // 1: Registration.metadata:type_name -> Registration.MetadataEntry
+	0,  // 2: AddressRequest.component:type_name -> Component
+	0,  // 3: ListRegistrationsRequest.component:type_name -> Component
+	14, // 4: ListRegistrationsRequest.metadata:type_name -> ListRegistrationsRequest.MetadataEntry
+	7,  // 5: ListRegistrationsResponse.entries:type_name -> RegistryEntry
+	0,  // 6: RegistryEntry.component:type_name -> Component
+	6,  // 7: RegistryEntry.version:type_name -> RegistryVersion
+	15, // 8: RegistryEntry.metadata:type_name -> RegistryEntry.MetadataEntry
+	0,  // 9: RegistryDigest.component:type_name -> Component
+	7,  // 10: GossipRequest.entries:type_name -> RegistryEntry
+	7,  // 11: GossipResponse.entries:type_name -> RegistryEntry
+	8,  // 12: RegistrySnapshotRequest.digests:type_name -> RegistryDigest
+	7,  // 13: RegistrySnapshotResponse.entries:type_name -> RegistryEntry
+	1,  // 14: RegistryService.Register:input_type -> Registration
+	2,  // 15: RegistryService.GetAddress:input_type -> AddressRequest
+	4,  // 16: RegistryService.ListRegistrations:input_type -> ListRegistrationsRequest
+	9,  // 17: RegistryService.Gossip:input_type -> GossipRequest
+	11, // 18: RegistryService.GetSnapshot:input_type -> RegistrySnapshotRequest
+	16, // 19: RegistryService.Register:output_type -> common.Empty
+	3,  // 20: RegistryService.GetAddress:output_type -> AddressResponse
+	5,  // 21: RegistryService.ListRegistrations:output_type -> ListRegistrationsResponse
+	10, // 22: RegistryService.Gossip:output_type -> GossipResponse
+	12, // 23: RegistryService.GetSnapshot:output_type -> RegistrySnapshotResponse
+	19, // [19:24] is the sub-list for method output_type
+	14, // [14:19] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_registry_proto_init() }
@@ -767,7 +909,7 @@ func file_registry_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_registry_proto_rawDesc), len(file_registry_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   10,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
