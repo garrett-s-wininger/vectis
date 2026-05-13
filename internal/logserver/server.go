@@ -13,7 +13,6 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
-	healthgrpc "google.golang.org/grpc/health/grpc_health_v1"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -616,7 +615,7 @@ func (s *Server) RunGRPC(ctx context.Context, port string) error {
 	api.RegisterLogServiceServer(grpcServer, s)
 
 	hs := health.NewServer()
-	healthgrpc.RegisterHealthServer(grpcServer, hs)
+	healthpb.RegisterHealthServer(grpcServer, hs)
 	hs.SetServingStatus("log", healthpb.HealthCheckResponse_SERVING)
 
 	s.logger.Info("gRPC log server listening on %s", port)

@@ -87,7 +87,7 @@ func NewClientWithPinnedAddress(ctx context.Context, comp api.Component, addr st
 		return nil, nil, fmt.Errorf("resolver: failed to connect to %s at %s: %w", serviceName, addr, err)
 	}
 
-	return conn, func() { conn.Close() }, nil
+	return conn, func() { _ = conn.Close() }, nil
 }
 
 func NewRegistryClient(ctx context.Context, addr string, logger interfaces.Logger, clock interfaces.Clock, retryMetrics backoff.RetryMetrics) (*registry.Registry, error) {
@@ -158,5 +158,5 @@ func dialWithResolver(ctx context.Context, comp api.Component, target string, bu
 		return nil, nil, fmt.Errorf("resolver: %s not ready: %w", comp.String(), err)
 	}
 
-	return conn, func() { conn.Close() }, nil
+	return conn, func() { _ = conn.Close() }, nil
 }

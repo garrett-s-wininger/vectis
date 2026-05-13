@@ -219,8 +219,9 @@ func TestAPIServer_Serve_ShutdownOnContextCancel(t *testing.T) {
 		t.Fatal("timeout waiting for Serve to return after cancel")
 	}
 
-	_, err = client.Get(base + "/health/live")
+	resp, err := client.Get(base + "/health/live")
 	if err == nil {
+		_ = resp.Body.Close()
 		t.Fatal("expected connection error after shutdown")
 	}
 }

@@ -89,6 +89,19 @@ test-race:
 test-quick:
 	go test -count=1 -timeout=60s ./internal/... ./cmd/... ./api/...
 
+GOLANGCI_LINT_VERSION ?= v2.6.1
+GOVULNCHECK_VERSION ?= v1.1.4
+# Match the `go` directive in go.mod so govulncheck analyzes the same stdlib the module declares.
+GO_MOD_GO_VERSION := $(shell awk '/^go /{print $$2; exit}' go.mod)
+
+.PHONY: lint
+lint:
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) run ./...
+
+.PHONY: vulncheck
+vulncheck:
+	GOTOOLCHAIN=go$(GO_MOD_GO_VERSION) go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+
 .PHONY: capacity-benchmark
 capacity-benchmark:
 	sh scripts/capacity_benchmark.sh

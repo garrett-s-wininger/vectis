@@ -68,14 +68,12 @@ func (b *RunBroadcaster) Broadcast(jobID, runID string, runIndex int) {
 
 	b.mu.RLock()
 	m := b.subscribers[jobID]
-	if m != nil {
-		for ch := range m {
-			select {
-			case ch <- payload:
-			default:
-				if b.logger != nil {
-					b.logger.Warn("Run broadcast buffer full for job %s; dropping run event", jobID)
-				}
+	for ch := range m {
+		select {
+		case ch <- payload:
+		default:
+			if b.logger != nil {
+				b.logger.Warn("Run broadcast buffer full for job %s; dropping run event", jobID)
 			}
 		}
 	}

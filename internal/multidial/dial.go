@@ -30,7 +30,7 @@ func DialQueueAndLog(ctx context.Context, logger interfaces.Logger, retryMetrics
 	queueConn, queueCleanup, err := dialComponent(ctx, logger, regClient, qPin, api.Component_COMPONENT_QUEUE, retryMetrics)
 	if err != nil {
 		if regClient != nil {
-			regClient.Close()
+			_ = regClient.Close()
 		}
 
 		return nil, nil, nil, fmt.Errorf("queue client: %w", err)
@@ -40,7 +40,7 @@ func DialQueueAndLog(ctx context.Context, logger interfaces.Logger, retryMetrics
 	if err != nil {
 		queueCleanup()
 		if regClient != nil {
-			regClient.Close()
+			_ = regClient.Close()
 		}
 
 		return nil, nil, nil, fmt.Errorf("log client: %w", err)
@@ -50,7 +50,7 @@ func DialQueueAndLog(ctx context.Context, logger interfaces.Logger, retryMetrics
 		queueCleanup()
 		logCleanup()
 		if regClient != nil {
-			regClient.Close()
+			_ = regClient.Close()
 		}
 	}, nil
 }

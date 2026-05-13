@@ -8,7 +8,7 @@ Everything below still applies if you are building from source, experimenting lo
 
 ## Prerequisites
 
-- **Go** version matching [`go.mod`](go.mod) (currently 1.25.7+)
+- **Go** version matching [`go.mod`](go.mod) (currently 1.25.10+)
 - **Git**
 - **SQLite** for the default local database stack: `github.com/mattn/go-sqlite3` links against the system `libsqlite3`. Schema is applied from embedded SQL under [`internal/migrations/sqlite/`](internal/migrations/sqlite/) (baseline `001_initial`).
 

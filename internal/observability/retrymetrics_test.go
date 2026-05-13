@@ -12,6 +12,7 @@ import (
 
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestRetryMetrics_ExposeStableServiceAndOperationLabels(t *testing.T) {
@@ -117,8 +118,8 @@ func decodeMetricFamilies(r io.Reader, format expfmt.Format) (map[string]*dto.Me
 		}
 
 		if name := mf.GetName(); name != "" {
-			copied := mf
-			out[name] = &copied
+			clone := proto.Clone(&mf).(*dto.MetricFamily)
+			out[name] = clone
 		}
 	}
 }

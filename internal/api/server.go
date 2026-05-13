@@ -2086,37 +2086,40 @@ func (s *APIServer) GetRunLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !sawCompletion {
-		// Use a fresh context for the one-shot fallback — the handler's DB context
+		// NOTE(garrett): Use a fresh context for the one-shot fallback — the handler's DB context
 		// may have expired if the SSE stream has been alive longer than the timeout.
 		fallbackCtx, fallbackCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer fallbackCancel()
 		status, found, err := s.runs.GetRunStatus(fallbackCtx, runID)
 		if err != nil {
 			s.logger.Warn("Log completion fallback DB lookup failed for run %s: %v", runID, err)
-		} else if found && (status == "succeeded" || status == "failed") {
-			completedStatus := "unknown"
-			if status == "succeeded" {
+		} else if found {
+			var completedStatus string
+			switch status {
+			case "succeeded":
 				completedStatus = "success"
-			} else if status == "failed" {
+			case "failed":
 				completedStatus = "failure"
 			}
 
-			inner, _ := json.Marshal(struct {
-				Event     string `json:"event"`
-				Status    string `json:"status"`
-				Synthetic bool   `json:"synthetic"`
-			}{"completed", completedStatus, true})
+			if completedStatus != "" {
+				inner, _ := json.Marshal(struct {
+					Event     string `json:"event"`
+					Status    string `json:"status"`
+					Synthetic bool   `json:"synthetic"`
+				}{"completed", completedStatus, true})
 
-			outer, _ := json.Marshal(struct {
-				Timestamp string         `json:"timestamp"`
-				Stream    api.Stream     `json:"stream"`
-				Sequence  int64          `json:"sequence"`
-				Data      string         `json:"data"`
-				Completed api.RunOutcome `json:"completed,omitempty"`
-			}{time.Now().Format(time.RFC3339Nano), api.Stream_STREAM_CONTROL, -1, string(inner), api.RunOutcome_RUN_OUTCOME_UNKNOWN})
+				outer, _ := json.Marshal(struct {
+					Timestamp string         `json:"timestamp"`
+					Stream    api.Stream     `json:"stream"`
+					Sequence  int64          `json:"sequence"`
+					Data      string         `json:"data"`
+					Completed api.RunOutcome `json:"completed,omitempty"`
+				}{time.Now().Format(time.RFC3339Nano), api.Stream_STREAM_CONTROL, -1, string(inner), api.RunOutcome_RUN_OUTCOME_UNKNOWN})
 
-			w.Write(formatSSEDataEvent(-1, outer))
-			flusher.Flush()
+				w.Write(formatSSEDataEvent(-1, outer))
+				flusher.Flush()
+			}
 		}
 	}
 }

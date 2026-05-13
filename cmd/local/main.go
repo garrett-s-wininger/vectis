@@ -23,7 +23,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"google.golang.org/grpc"
-	healthgrpc "google.golang.org/grpc/health/grpc_health_v1"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
 	_ "vectis/internal/dbdrivers"
@@ -89,9 +88,9 @@ func waitForHealthy(port int, serviceName string, timeout time.Duration) error {
 				continue
 			}
 
-			client := healthgrpc.NewHealthClient(conn)
-			resp, err := client.Check(ctx, &healthgrpc.HealthCheckRequest{Service: serviceName})
-			conn.Close()
+			client := healthpb.NewHealthClient(conn)
+			resp, err := client.Check(ctx, &healthpb.HealthCheckRequest{Service: serviceName})
+			_ = conn.Close()
 
 			if err == nil && resp.GetStatus() == healthpb.HealthCheckResponse_SERVING {
 				return nil
@@ -106,7 +105,8 @@ func startService(logger interfaces.Logger, svc serviceStage, logLevel string, t
 		return nil, fmt.Errorf("cannot find %s: %w", svc.binary, err)
 	}
 
-	command := exec.Command(path)
+	// NOTE(garrett): Path comes from supervisor.FindBinary (installed vectis binaries), not arbitrary user input.
+	command := exec.Command(path) //#nosec G204
 	command.Stdin = nil
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr

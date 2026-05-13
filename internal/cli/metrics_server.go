@@ -27,8 +27,9 @@ func StartMetricsHTTPServer(
 	mux.Handle("GET /metrics", handler)
 
 	srv := &http.Server{
-		Addr:    addr,
-		Handler: mux,
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	ln, err := net.Listen("tcp", addr)

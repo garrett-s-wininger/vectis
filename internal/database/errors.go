@@ -63,11 +63,7 @@ func isUnavailableTyped(err error) bool {
 	}
 
 	var dns *net.DNSError
-	if errors.As(err, &dns) {
-		return true
-	}
-
-	return false
+	return errors.As(err, &dns)
 }
 
 // PostgreSQL class 08 = connection exception; a few single codes for shutdown / resource pressure.

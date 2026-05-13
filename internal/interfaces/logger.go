@@ -264,7 +264,8 @@ func (l *StderrLogger) write(level Level, msg string, args ...any) {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	io.WriteString(l.out, l.format(level, msg, args...))
+
+	_, _ = io.WriteString(l.out, l.format(level, msg, args...))
 }
 
 func (l *StderrLogger) Debug(msg string, args ...any) {

@@ -23,9 +23,9 @@ func DialLog(ctx context.Context, logger interfaces.Logger, pinnedLogAddr, regis
 
 	conn, cleanup, err := NewClientWithRegistry(ctx, api.Component_COMPONENT_LOG, logger, regClient, retryMetrics)
 	if err != nil {
-		regClient.Close()
+		_ = regClient.Close()
 		return nil, nil, err
 	}
 
-	return conn, func() { cleanup(); regClient.Close() }, nil
+	return conn, func() { cleanup(); _ = regClient.Close() }, nil
 }

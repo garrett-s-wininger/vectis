@@ -147,7 +147,7 @@ func (r *Reloader) ServerTLS() (*tls.Config, error) {
 	}
 
 	cfg := &tls.Config{
-		MinVersion: minV,
+		MinVersion: minV, //#nosec G402 -- NOTE(garrett): minV defaults to tls.VersionTLS12+ (see defaultMinVersion)
 		GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
 			r.mu.RLock()
 			defer r.mu.RUnlock()
@@ -180,7 +180,7 @@ func (r *Reloader) ClientTLS(serverName string) (*tls.Config, error) {
 	}
 
 	cfg := &tls.Config{
-		MinVersion: minV,
+		MinVersion: minV, //#nosec G402 -- NOTE(garrett): minV defaults to tls.VersionTLS12+ (see defaultMinVersion)
 		RootCAs:    r.rootCAs,
 		ServerName: serverName,
 	}

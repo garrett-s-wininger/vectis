@@ -17,7 +17,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
-	healthgrpc "google.golang.org/grpc/health/grpc_health_v1"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
@@ -586,7 +585,7 @@ func RegisterQueueService(s grpc.ServiceRegistrar, logger interfaces.Logger, opt
 	}
 
 	hs := health.NewServer()
-	healthgrpc.RegisterHealthServer(s, hs)
+	healthpb.RegisterHealthServer(s, hs)
 	hs.SetServingStatus("queue", healthpb.HealthCheckResponse_SERVING)
 
 	api.RegisterQueueServiceServer(s, qs)

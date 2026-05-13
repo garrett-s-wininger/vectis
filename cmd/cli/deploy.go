@@ -279,7 +279,8 @@ func runDeployPodmanUp(cmd *cobra.Command, args []string) {
 		playArgs = append(playArgs, "--network", podmanNetwork)
 	}
 
-	podman := exec.CommandContext(cmd.Context(), "podman", playArgs...)
+	// NOTE(garrett): playArgs are fixed podman subcommands plus manifestPath from our rendered output.
+	podman := exec.CommandContext(cmd.Context(), "podman", playArgs...) //#nosec G204
 	podman.Stdout = os.Stdout
 	podman.Stderr = os.Stderr
 	if err := podman.Run(); err != nil {
@@ -321,7 +322,7 @@ func runDeployPodmanDown(cmd *cobra.Command, args []string) {
 	}
 
 	playArgs := []string{"play", "kube", "--down", manifestPath}
-	podman := exec.CommandContext(cmd.Context(), "podman", playArgs...)
+	podman := exec.CommandContext(cmd.Context(), "podman", playArgs...) //#nosec G204
 	podman.Stdout = os.Stdout
 	podman.Stderr = os.Stderr
 	if err := podman.Run(); err != nil {

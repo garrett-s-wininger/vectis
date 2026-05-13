@@ -15,7 +15,6 @@ import (
 	"github.com/spf13/viper"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
-	healthgrpc "google.golang.org/grpc/health/grpc_health_v1"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
@@ -60,7 +59,7 @@ func runVectisRegistry(cmd *cobra.Command, args []string) {
 	registrySvc.StartCluster(cmd.Context())
 
 	hs := health.NewServer()
-	healthgrpc.RegisterHealthServer(grpcServer, hs)
+	healthpb.RegisterHealthServer(grpcServer, hs)
 	hs.SetServingStatus("registry", healthpb.HealthCheckResponse_SERVING)
 
 	logger.Info("Registry server listening on %s", addr)

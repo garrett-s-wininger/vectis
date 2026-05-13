@@ -102,11 +102,11 @@ func (f *Forwarder) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			batch = f.drainAndFlush(ctx, batch)
+			_ = f.drainAndFlush(ctx, batch)
 			wg.Wait()
 			return
 		case <-f.shutdownCh:
-			batch = f.drainAndFlush(ctx, batch)
+			_ = f.drainAndFlush(ctx, batch)
 			wg.Wait()
 			return
 		case chunk, ok := <-f.chunkCh:

@@ -102,7 +102,7 @@ func TestWorkerControlServer_CancelRun_noRun(t *testing.T) {
 }
 
 func TestWorkerControlServer_CancelRun_channelFull(t *testing.T) {
-	cancelCh := make(chan string, 0)
+	cancelCh := make(chan string)
 	logger := mocks.NewMockLogger()
 	srv := newWorkerControlServer("worker-1", cancelCh, func() (string, string) {
 		return "run-123", "token-abc"

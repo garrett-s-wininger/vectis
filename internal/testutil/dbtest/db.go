@@ -21,10 +21,10 @@ func NewTestDB(t *testing.T) *sql.DB {
 	db.SetMaxIdleConns(1)
 
 	if err := migrations.Run(db, "sqlite3"); err != nil {
-		db.Close()
+		_ = db.Close()
 		t.Fatalf("failed to run migrations: %v", err)
 	}
 
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { _ = db.Close() })
 	return db
 }
