@@ -161,7 +161,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 	}
 
 	// Start worker control server for remote cancellation.
-	controlListener, controlAddr, err := startControlListener(logger)
+	controlListener, controlAddr, err := startControlListener()
 	if err != nil {
 		logger.Warn("Failed to start worker control listener: %v", err)
 	} else {
@@ -211,13 +211,19 @@ func forwarderSocketPath() string {
 	return filepath.Join(utils.RuntimeDir(), "log-forwarder.sock")
 }
 
-func startControlListener(logger interfaces.Logger) (net.Listener, string, error) {
+func startControlListener() (net.Listener, string, error) {
+	return startControlListenerWithListen(net.Listen)
+}
+
+type controlListenFunc func(network, address string) (net.Listener, error)
+
+func startControlListenerWithListen(listen controlListenFunc) (net.Listener, string, error) {
 	mode := config.WorkerControlMode()
 	port := config.WorkerControlPort()
 
 	switch mode {
 	case "ephemeral":
-		ln, err := net.Listen("tcp", ":0")
+		ln, err := listen("tcp", ":0")
 		if err != nil {
 			return nil, "", fmt.Errorf("listen ephemeral: %w", err)
 		}
@@ -228,7 +234,7 @@ func startControlListener(logger interfaces.Logger) (net.Listener, string, error
 		maxPort := config.WorkerControlPortMax()
 		for p := minPort; p <= maxPort; p++ {
 			addr := fmt.Sprintf(":%d", p)
-			ln, err := net.Listen("tcp", addr)
+			ln, err := listen("tcp", addr)
 
 			if err == nil {
 				return ln, ln.Addr().String(), nil
@@ -238,7 +244,7 @@ func startControlListener(logger interfaces.Logger) (net.Listener, string, error
 		return nil, "", fmt.Errorf("no available port in range %d-%d", minPort, maxPort)
 	default: // "static"
 		addr := fmt.Sprintf(":%d", port)
-		ln, err := net.Listen("tcp", addr)
+		ln, err := listen("tcp", addr)
 		if err != nil {
 			return nil, "", fmt.Errorf("listen %s: %w", addr, err)
 		}

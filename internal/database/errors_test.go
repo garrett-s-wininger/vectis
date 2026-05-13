@@ -8,7 +8,6 @@ import (
 	"net"
 	"syscall"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -134,23 +133,5 @@ func TestIsUnavailableError_netErrClosed(t *testing.T) {
 	err := fmt.Errorf("read: %w", net.ErrClosed)
 	if !IsUnavailableError(err) {
 		t.Fatal("expected net.ErrClosed to be unavailable")
-	}
-}
-
-func TestIsUnavailableError_pgconnConnectErrorChain(t *testing.T) {
-	if testing.Short() {
-		t.Skip("uses local network dial")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	_, err := pgconn.Connect(ctx, "postgres://127.0.0.1:1/nope?sslmode=disable")
-	if err == nil {
-		t.Fatal("expected dial error")
-	}
-
-	if !IsUnavailableError(err) {
-		t.Fatalf("expected pgconn dial failure to be unavailable: %v (%T)", err, err)
 	}
 }

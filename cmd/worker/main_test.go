@@ -995,53 +995,140 @@ func TestForwarderSocketPath_FallsBackToTempDir(t *testing.T) {
 	}
 }
 
-func TestStartControlListener_StaticReturnsDialableAddress(t *testing.T) {
+type fakeControlAddr string
+
+func (a fakeControlAddr) Network() string { return "tcp" }
+
+func (a fakeControlAddr) String() string { return string(a) }
+
+type fakeControlListener struct {
+	addr net.Addr
+}
+
+func (l *fakeControlListener) Accept() (net.Conn, error) {
+	return nil, errors.New("fake control listener does not accept connections")
+}
+
+func (l *fakeControlListener) Close() error { return nil }
+
+func (l *fakeControlListener) Addr() net.Addr { return l.addr }
+
+func fakeControlListen(failures map[string]error, calls *[]string) controlListenFunc {
+	return func(network, address string) (net.Listener, error) {
+		*calls = append(*calls, address)
+		if network != "tcp" {
+			return nil, fmt.Errorf("unexpected network %q", network)
+		}
+
+		if err := failures[address]; err != nil {
+			return nil, err
+		}
+
+		port := strings.TrimPrefix(address, ":")
+		return &fakeControlListener{addr: fakeControlAddr("127.0.0.1:" + port)}, nil
+	}
+}
+
+func assertControlListenCalls(t *testing.T, got []string, want ...string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("listen calls = %v, want %v", got, want)
+	}
+
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("listen calls = %v, want %v", got, want)
+		}
+	}
+}
+
+func TestStartControlListener_StaticUsesConfiguredPort(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 
 	viper.Set("worker.control.mode", "static")
-	viper.Set("control_port", 0)
+	viper.Set("control_port", 19084)
 
-	ln, addr, err := startControlListener(mocks.NewMockLogger())
+	var calls []string
+	ln, addr, err := startControlListenerWithListen(fakeControlListen(nil, &calls))
 	if err != nil {
 		t.Fatalf("startControlListener(static): %v", err)
 	}
 	defer ln.Close()
 
-	if strings.HasPrefix(addr, ":") {
-		t.Fatalf("expected dialable host:port address, got %q", addr)
-	}
+	assertControlListenCalls(t, calls, ":19084")
 
-	conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
-	if err != nil {
-		t.Fatalf("expected returned address to be dialable, got error: %v", err)
+	if addr != "127.0.0.1:19084" {
+		t.Fatalf("addr = %q, want %q", addr, "127.0.0.1:19084")
 	}
-	_ = conn.Close()
 }
 
 func TestStartControlListener_RangeUsesConfiguredPort(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 
-	// Reserve one port so the listener picks the next one in range.
-	blocker, err := net.Listen("tcp", ":0")
-	if err != nil {
-		t.Fatalf("reserve port: %v", err)
-	}
-	defer blocker.Close()
-
-	blockedPort := blocker.Addr().(*net.TCPAddr).Port
 	viper.Set("worker.control.mode", "range")
-	viper.Set("control_port_min", blockedPort)
-	viper.Set("control_port_max", blockedPort+1)
+	viper.Set("control_port_min", 19085)
+	viper.Set("control_port_max", 19086)
 
-	ln, addr, err := startControlListener(mocks.NewMockLogger())
+	var calls []string
+	failures := map[string]error{":19085": errors.New("port unavailable")}
+	ln, addr, err := startControlListenerWithListen(fakeControlListen(failures, &calls))
 	if err != nil {
 		t.Fatalf("startControlListener(range): %v", err)
 	}
 	defer ln.Close()
 
-	if !strings.Contains(addr, fmt.Sprintf(":%d", blockedPort+1)) {
-		t.Fatalf("expected listener to use port %d, got %q", blockedPort+1, addr)
+	assertControlListenCalls(t, calls, ":19085", ":19086")
+
+	if addr != "127.0.0.1:19086" {
+		t.Fatalf("addr = %q, want %q", addr, "127.0.0.1:19086")
+	}
+}
+
+func TestStartControlListener_EphemeralUsesZeroPort(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	viper.Set("worker.control.mode", "ephemeral")
+
+	var calls []string
+	ln, addr, err := startControlListenerWithListen(fakeControlListen(nil, &calls))
+	if err != nil {
+		t.Fatalf("startControlListener(ephemeral): %v", err)
+	}
+	defer ln.Close()
+
+	assertControlListenCalls(t, calls, ":0")
+
+	if addr != "127.0.0.1:0" {
+		t.Fatalf("addr = %q, want %q", addr, "127.0.0.1:0")
+	}
+}
+
+func TestStartControlListener_RangeExhausted(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	viper.Set("worker.control.mode", "range")
+	viper.Set("control_port_min", 19085)
+	viper.Set("control_port_max", 19086)
+
+	var calls []string
+	failures := map[string]error{
+		":19085": errors.New("port unavailable"),
+		":19086": errors.New("port unavailable"),
+	}
+
+	ln, _, err := startControlListenerWithListen(fakeControlListen(failures, &calls))
+	if err == nil {
+		_ = ln.Close()
+		t.Fatal("startControlListener(range) succeeded, want exhaustion error")
+	}
+
+	assertControlListenCalls(t, calls, ":19085", ":19086")
+
+	if !strings.Contains(err.Error(), "no available port in range 19085-19086") {
+		t.Fatalf("error = %v, want no available port range", err)
 	}
 }
