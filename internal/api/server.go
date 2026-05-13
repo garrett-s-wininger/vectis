@@ -479,10 +479,7 @@ func (s *APIServer) auditLog(ctx context.Context, eventType string, actorID, tar
 
 	ip := ""
 	if req, ok := ctx.Value(httpRequestKey{}).(*http.Request); ok && req != nil {
-		ip, _, _ = net.SplitHostPort(req.RemoteAddr)
-		if ip == "" {
-			ip = req.RemoteAddr
-		}
+		ip = config.HTTPClientIP(req)
 	}
 
 	durability := policy.DurabilityFor(eventType)
@@ -2361,12 +2358,7 @@ func (s *APIServer) rateLimitKey(r *http.Request, rule ratelimit.Rule) string {
 		baseKey = hashAPIToken(token)
 	}
 	if baseKey == "" {
-		// Fall back to client IP
-		ip, _, _ := net.SplitHostPort(r.RemoteAddr)
-		if ip == "" {
-			ip = r.RemoteAddr
-		}
-		baseKey = ip
+		baseKey = config.HTTPClientIP(r)
 	}
 
 	// Include route pattern and rule parameters so different endpoints have isolated buckets

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"vectis/internal/config"
 	"vectis/internal/observability"
 )
 
@@ -66,6 +67,7 @@ func accessLogMiddleware(log *slog.Logger, skip func(*http.Request) bool, next h
 			slog.String("correlation_id", observability.CorrelationID(r.Context())),
 			slog.String("method", r.Method),
 			slog.String("http_route", route),
+			slog.String("client_ip", config.HTTPClientIP(r)),
 			slog.Int("status", status),
 			slog.Duration("duration", time.Since(start)),
 		)

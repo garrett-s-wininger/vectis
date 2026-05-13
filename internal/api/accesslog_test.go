@@ -104,6 +104,10 @@ func TestAccessLogMiddleware_logsRequest(t *testing.T) {
 	if !strings.Contains(out, "GET") {
 		t.Fatalf("expected method GET in log, got: %s", out)
 	}
+
+	if !strings.Contains(out, "client_ip=") {
+		t.Fatalf("expected client_ip in log, got: %s", out)
+	}
 }
 
 func TestAccessLogMiddleware_durationPresent(t *testing.T) {

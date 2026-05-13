@@ -78,6 +78,12 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		return
 	}
 
+	if err := config.ValidateAPIClientIPConfig(); err != nil {
+		logger.Error("%v", err)
+		exitCode = 1
+		return
+	}
+
 	shutdownTracer, err := observability.InitTracer(cmd.Context(), "vectis-api")
 	if err != nil {
 		logger.Error("Failed to initialize tracer: %v", err)

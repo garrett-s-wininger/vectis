@@ -59,6 +59,11 @@ type APIDefaults struct {
 	Authz           APIAuthzDefaults     `toml:"authz"`
 	Audit           APIAuditDefaults     `toml:"audit"`
 	RateLimit       APIRateLimitDefaults `toml:"rate_limit"`
+	ClientIP        APIClientIPDefaults  `toml:"client_ip"`
+}
+
+type APIClientIPDefaults struct {
+	TrustedProxyCIDRs []string `toml:"trusted_proxy_cidrs"`
 }
 
 type APIRateLimitDefaults struct {

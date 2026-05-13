@@ -56,7 +56,7 @@ Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-ten-cmd):
 
 | Binary | `viper.SetEnvPrefix` | Primary TOML / notes |
 |--------|----------------------|----------------------|
-| `vectis-api` | `VECTIS_API_SERVER` | `[api]` in [`../internal/config/defaults.toml`](../internal/config/defaults.toml) |
+| `vectis-api` | `VECTIS_API_SERVER` | `[api]` in [`../internal/config/defaults.toml`](../internal/config/defaults.toml); ad hoc `VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS` for [`trusted-proxy-client-ip.md`](../docs/deploy/trusted-proxy-client-ip.md) |
 | `vectis-queue` | `VECTIS_QUEUE` | `[queue]` |
 | `vectis-registry` | `VECTIS_REGISTRY` | `[registry]` |
 | `vectis-log` | `VECTIS_LOG` | `[log]` |
