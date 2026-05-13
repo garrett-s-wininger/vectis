@@ -1467,6 +1467,7 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 }
 
 // Ephemeral runs persist definition version 1 in job_definitions so the reconciler can re-enqueue if the queue drops work.
+// The API always assigns a fresh job id server-side; any id in the request body is ignored (idempotency hashes the raw body).
 func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	if !requestContentTypeIsJSON(r) {
 		writeAPIError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "content type must be application/json", nil)
@@ -1498,18 +1499,13 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if job.Id == nil || *job.Id == "" {
-		generatedID := uuid.New().String()
-		job.Id = &generatedID
-	}
-
 	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{}); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", jobvalidation.ErrorDetails(err))
 		return
 	}
 
-	generatedID := uuid.New().String()
-	job.Id = &generatedID
+	ephemeralJobID := uuid.New().String()
+	job.Id = &ephemeralJobID
 
 	definitionJSON, err := json.Marshal(&job)
 	if err != nil {
@@ -1571,7 +1567,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	runID, _, err := s.ephemeralRuns.CreateDefinitionAndRun(ctx, generatedID, string(definitionJSON), &runIndexOne)
+	runID, _, err := s.ephemeralRuns.CreateDefinitionAndRun(ctx, ephemeralJobID, string(definitionJSON), &runIndexOne)
 	if err != nil {
 		if idempotencyReserved {
 			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
@@ -1595,7 +1591,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.auditLog(ctx, audit.EventRunTriggered, actorID, 0, map[string]any{
-		"job_id":    generatedID,
+		"job_id":    ephemeralJobID,
 		"run_id":    runID,
 		"namespace": ns.Path,
 		"ephemeral": true,
@@ -1605,7 +1601,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(map[string]string{
-		"id":     generatedID,
+		"id":     ephemeralJobID,
 		"run_id": runID,
 	}); err != nil {
 		s.logger.Error("Failed to encode response: %v", err)
@@ -1617,12 +1613,12 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 
 	bgCtx := detachedTraceContextFromRequest(r)
 
-	go s.finishRunJobEnqueue(bgCtx, generatedID, runID, &job)
+	go s.finishRunJobEnqueue(bgCtx, ephemeralJobID, runID, &job)
 }
 
-func (s *APIServer) finishRunJobEnqueue(ctx context.Context, generatedID, runID string, job *api.Job) {
+func (s *APIServer) finishRunJobEnqueue(ctx context.Context, jobID, runID string, job *api.Job) {
 	ctx, span := observability.Tracer("vectis/api").Start(ctx, "run.enqueue.ephemeral.async", trace.WithSpanKind(trace.SpanKindInternal))
-	span.SetAttributes(observability.JobRunAttrs(generatedID, runID)...)
+	span.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
 	span.SetAttributes(attribute.Bool("vectis.run.ephemeral", true))
 	span.SetAttributes(attribute.String("run.phase", "enqueue"))
 
@@ -1655,7 +1651,7 @@ func (s *APIServer) finishRunJobEnqueue(ctx context.Context, generatedID, runID 
 
 	if err := s.runs.TouchDispatched(ctx, runID); err != nil {
 		_, tdSpan := observability.Tracer("vectis/api").Start(ctx, "run.touch_dispatched", trace.WithSpanKind(trace.SpanKindInternal))
-		tdSpan.SetAttributes(observability.JobRunAttrs(generatedID, runID)...)
+		tdSpan.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
 		tdSpan.RecordError(err)
 		tdSpan.SetStatus(codes.Error, "touch dispatched")
 		tdSpan.End()
@@ -1667,10 +1663,10 @@ func (s *APIServer) finishRunJobEnqueue(ctx context.Context, generatedID, runID 
 	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventSuccess, nil)
 
 	_, tdSpan := observability.Tracer("vectis/api").Start(ctx, "run.touch_dispatched", trace.WithSpanKind(trace.SpanKindInternal))
-	tdSpan.SetAttributes(observability.JobRunAttrs(generatedID, runID)...)
+	tdSpan.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
 	tdSpan.End()
 
-	s.logger.Info("Enqueued ephemeral job: %s (run %s)", generatedID, runID)
+	s.logger.Info("Enqueued ephemeral job: %s (run %s)", jobID, runID)
 }
 
 func detachedTraceContextFromRequest(r *http.Request) context.Context {
