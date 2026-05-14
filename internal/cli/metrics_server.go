@@ -30,6 +30,9 @@ func StartMetricsHTTPServer(
 		Addr:              addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       2 * time.Minute,
 	}
 
 	ln, err := net.Listen("tcp", addr)

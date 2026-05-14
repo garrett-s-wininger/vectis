@@ -52,6 +52,8 @@ const (
 	defaultShutdownTimeout   = 30 * time.Second
 	healthDBPingTimeout      = 2 * time.Second
 	defaultReadHeaderTimeout = 10 * time.Second
+	defaultReadTimeout = 5 * time.Minute
+	defaultWriteTimeout = 3 * time.Minute
 	defaultIdleTimeout       = 120 * time.Second
 	defaultHandlerDBTimeout  = 60 * time.Second
 	defaultLogReplayLimit    = 10000
@@ -1952,6 +1954,8 @@ func (s *APIServer) HandleSSEJobRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	clearResponseWriteDeadline(w)
+
 	ch := s.runBroadcaster.Subscribe(jobID)
 	defer s.runBroadcaster.Unsubscribe(jobID, ch)
 
@@ -2045,6 +2049,8 @@ func (s *APIServer) GetRunLogs(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, "streaming_unsupported", "streaming unsupported", nil)
 		return
 	}
+
+	clearResponseWriteDeadline(w)
 
 	_, _ = w.Write([]byte(": connected\n\n"))
 	flusher.Flush()
@@ -2374,6 +2380,12 @@ func (s *APIServer) registerRouteFunc(mux *http.ServeMux, spec routeSpec, handle
 	})
 }
 
+// clearResponseWriteDeadline removes the per-response write deadline so
+// http.Server.WriteTimeout does not terminate long-lived SSE streams.
+func clearResponseWriteDeadline(w http.ResponseWriter) {
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+}
+
 func (s *APIServer) runHTTPServer(ctx context.Context, srv *http.Server, serve func() error) error {
 	return cli.ServeHTTP(ctx, srv, serve, defaultShutdownTimeout, "API server", s.logger)
 }
@@ -2387,6 +2399,8 @@ func (s *APIServer) Run(ctx context.Context, addr string) error {
 		Addr:              addr,
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: defaultReadHeaderTimeout,
+		ReadTimeout:       defaultReadTimeout,
+		WriteTimeout:      defaultWriteTimeout,
 		IdleTimeout:       defaultIdleTimeout,
 	}
 
@@ -2402,6 +2416,8 @@ func (s *APIServer) Serve(ctx context.Context, l net.Listener) error {
 	srv := &http.Server{
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: defaultReadHeaderTimeout,
+		ReadTimeout:       defaultReadTimeout,
+		WriteTimeout:      defaultWriteTimeout,
 		IdleTimeout:       defaultIdleTimeout,
 	}
 
