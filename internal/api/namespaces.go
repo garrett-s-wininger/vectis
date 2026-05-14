@@ -40,7 +40,7 @@ func (s *APIServer) CreateNamespace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, 64*1024))
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxJSONDocumentBodyBytes))
 	if err != nil {
 		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrRequestReadFailed)
 		return

@@ -591,7 +591,7 @@ func (s *APIServer) ForceFailRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	reason := defaultForceFailReason
-	body, err := io.ReadAll(io.LimitReader(r.Body, 64*1024))
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxJSONDocumentBodyBytes))
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "request_read_failed", "failed to read request body", nil)
 		return
@@ -859,7 +859,7 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, 10*1024*1024))
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxJobDefinitionBodyBytes))
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "request_read_failed", "failed to read request body", nil)
 		return
@@ -1381,7 +1381,7 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, 10*1024*1024))
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxJobDefinitionBodyBytes))
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "request_read_failed", "failed to read request body", nil)
 		return
@@ -1473,7 +1473,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, 10*1024*1024))
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxJobDefinitionBodyBytes))
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "request_read_failed", "failed to read request body", nil)
 		return
