@@ -64,7 +64,7 @@ func (r *SQLRoleBindingsRepository) Delete(ctx context.Context, localUserID, nam
 
 	n, err := res.RowsAffected()
 	if err != nil {
-		return err
+		return normalizeSQLError(err)
 	}
 
 	if n == 0 {
@@ -94,14 +94,14 @@ func (r *SQLRoleBindingsRepository) ListByNamespace(ctx context.Context, namespa
 	for rows.Next() {
 		var rec RoleBindingRecord
 		if err := rows.Scan(&rec.ID, &rec.GlobalID, &rec.LocalUserID, &rec.NamespaceID, &rec.Role, &rec.CreatedAt); err != nil {
-			return nil, err
+			return nil, normalizeSQLError(err)
 		}
 
 		out = append(out, rec)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, normalizeSQLError(err)
 	}
 
 	return out, nil
@@ -127,14 +127,14 @@ func (r *SQLRoleBindingsRepository) ListByUser(ctx context.Context, localUserID 
 	for rows.Next() {
 		var rec RoleBindingRecord
 		if err := rows.Scan(&rec.ID, &rec.GlobalID, &rec.LocalUserID, &rec.NamespaceID, &rec.Role, &rec.CreatedAt); err != nil {
-			return nil, err
+			return nil, normalizeSQLError(err)
 		}
 
 		out = append(out, rec)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, normalizeSQLError(err)
 	}
 
 	return out, nil
@@ -156,14 +156,14 @@ func (r *SQLRoleBindingsRepository) GetUserRolesInNamespace(ctx context.Context,
 	for rows.Next() {
 		var role string
 		if err := rows.Scan(&role); err != nil {
-			return nil, err
+			return nil, normalizeSQLError(err)
 		}
 
 		out = append(out, role)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, normalizeSQLError(err)
 	}
 
 	return out, nil

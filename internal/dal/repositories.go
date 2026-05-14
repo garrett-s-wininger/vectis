@@ -333,7 +333,7 @@ func (r *SQLDispatchEventsRepository) ListByRun(ctx context.Context, runID strin
 		var rec DispatchEvent
 		var message sql.NullString
 		if err := rows.Scan(&rec.ID, &rec.RunID, &rec.Source, &rec.EventType, &message, &rec.CreatedAt); err != nil {
-			return nil, err
+			return nil, normalizeSQLError(err)
 		}
 
 		if message.Valid {
@@ -344,7 +344,7 @@ func (r *SQLDispatchEventsRepository) ListByRun(ctx context.Context, runID strin
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, normalizeSQLError(err)
 	}
 
 	return out, nil
@@ -515,7 +515,7 @@ func (r *SQLJobsRepository) List(ctx context.Context, cursor int64, limit int) (
 		var rec JobRecord
 		var id int64
 		if err := rows.Scan(&id, &rec.GlobalID, &rec.JobID, &rec.NamespaceID, &rec.DefinitionJSON, &rec.DefinitionHash, &rec.Version, &rec.HomeCell); err != nil {
-			return nil, 0, err
+			return nil, 0, normalizeSQLError(err)
 		}
 
 		lastID = id
@@ -523,7 +523,7 @@ func (r *SQLJobsRepository) List(ctx context.Context, cursor int64, limit int) (
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, 0, err
+		return nil, 0, normalizeSQLError(err)
 	}
 
 	var nextCursor int64
@@ -550,14 +550,14 @@ func (r *SQLJobsRepository) ListByNamespace(ctx context.Context, namespaceID int
 	for rows.Next() {
 		var rec JobRecord
 		if err := rows.Scan(&rec.GlobalID, &rec.JobID, &rec.NamespaceID, &rec.DefinitionJSON, &rec.DefinitionHash, &rec.Version, &rec.HomeCell); err != nil {
-			return nil, err
+			return nil, normalizeSQLError(err)
 		}
 
 		out = append(out, rec)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, normalizeSQLError(err)
 	}
 
 	return out, nil
@@ -887,14 +887,14 @@ func (r *SQLRunsRepository) MarkExpiredRunningAsOrphaned(ctx context.Context, cu
 	for rows.Next() {
 		var runID string
 		if err := rows.Scan(&runID); err != nil {
-			return nil, err
+			return nil, normalizeSQLError(err)
 		}
 
 		candidates = append(candidates, runID)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, normalizeSQLError(err)
 	}
 
 	out := make([]string, 0, len(candidates))
@@ -916,7 +916,7 @@ func (r *SQLRunsRepository) MarkExpiredRunningAsOrphaned(ctx context.Context, cu
 
 		n, err := res.RowsAffected()
 		if err != nil {
-			return nil, err
+			return nil, normalizeSQLError(err)
 		}
 
 		if n == 1 {
@@ -1127,7 +1127,7 @@ func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, since *
 		var id int64
 		var orphanReason, failureCode, startedAt, finishedAt, failureReason sql.NullString
 		if err := rows.Scan(&id, &rec.RunID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &startedAt, &finishedAt, &failureReason, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell); err != nil {
-			return nil, 0, err
+			return nil, 0, normalizeSQLError(err)
 		}
 
 		lastID = id
@@ -1155,7 +1155,7 @@ func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, since *
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, 0, err
+		return nil, 0, normalizeSQLError(err)
 	}
 
 	var nextCursor int64
@@ -1185,14 +1185,14 @@ func (r *SQLRunsRepository) ListQueuedBeforeDispatchCutoff(ctx context.Context, 
 	for rows.Next() {
 		var rec QueuedRun
 		if err := rows.Scan(&rec.RunID, &rec.JobID, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell); err != nil {
-			return nil, err
+			return nil, normalizeSQLError(err)
 		}
 
 		out = append(out, rec)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, normalizeSQLError(err)
 	}
 
 	return out, nil
@@ -1341,7 +1341,7 @@ func (r *SQLSchedulesRepository) GetReady(ctx context.Context, at time.Time) ([]
 		var sched CronSchedule
 		var nextRunAt string
 		if err := rows.Scan(&sched.ID, &sched.JobID, &sched.CronSpec, &nextRunAt); err != nil {
-			return nil, err
+			return nil, normalizeSQLError(err)
 		}
 
 		parsedTime, err := time.Parse(time.RFC3339, nextRunAt)
@@ -1354,7 +1354,7 @@ func (r *SQLSchedulesRepository) GetReady(ctx context.Context, at time.Time) ([]
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, normalizeSQLError(err)
 	}
 
 	return out, nil

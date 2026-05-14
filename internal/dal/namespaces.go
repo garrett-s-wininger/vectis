@@ -152,7 +152,7 @@ func (r *SQLNamespacesRepository) List(ctx context.Context) ([]NamespaceRecord, 
 		var breakInheritanceRaw any
 
 		if err := rows.Scan(&rec.ID, &rec.GlobalID, &rec.Name, &parentID, &rec.Path, &breakInheritanceRaw, &rec.HomeCell, &rec.CreatedAt); err != nil {
-			return nil, err
+			return nil, normalizeSQLError(err)
 		}
 
 		if parentID.Valid {
@@ -169,7 +169,7 @@ func (r *SQLNamespacesRepository) List(ctx context.Context) ([]NamespaceRecord, 
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, normalizeSQLError(err)
 	}
 
 	return out, nil
@@ -193,7 +193,7 @@ func (r *SQLNamespacesRepository) ListChildren(ctx context.Context, parentID int
 		var breakInheritanceRaw any
 
 		if err := rows.Scan(&rec.ID, &rec.GlobalID, &rec.Name, &pid, &rec.Path, &breakInheritanceRaw, &rec.HomeCell, &rec.CreatedAt); err != nil {
-			return nil, err
+			return nil, normalizeSQLError(err)
 		}
 
 		if pid.Valid {
@@ -210,7 +210,7 @@ func (r *SQLNamespacesRepository) ListChildren(ctx context.Context, parentID int
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, normalizeSQLError(err)
 	}
 
 	return out, nil
