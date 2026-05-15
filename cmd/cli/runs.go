@@ -300,33 +300,128 @@ func forceRequeueRun(cmd *cobra.Command, args []string) {
 	}
 }
 
+func repairMarkRun(cmd *cobra.Command, args []string) {
+	runID := args[0]
+	status := strings.TrimPrefix(cmd.Name(), "mark-")
+	reason, _ := cmd.Flags().GetString("reason")
+	body := []byte("{}")
+	if reason != "" {
+		payload, err := json.Marshal(map[string]string{"reason": reason})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: failed to encode request body: %v\n", err)
+			os.Exit(1)
+		}
+
+		body = payload
+	}
+
+	req, err := newAPIRequest(http.MethodPost, fmt.Sprintf("/api/v1/runs/%s/repair/mark-%s", runID, status), bytes.NewReader(body))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to create request: %v\n", err)
+		os.Exit(1)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: request failed: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusNoContent:
+		fmt.Printf("Run %s repair-marked %s.\n", runID, status)
+	case http.StatusNotFound:
+		fmt.Fprintf(os.Stderr, "Error: run '%s' not found\n", runID)
+		os.Exit(1)
+	case http.StatusConflict:
+		fmt.Fprintf(os.Stderr, "Error: run '%s' cannot be repair-marked %s from its current status\n", runID, status)
+		os.Exit(1)
+	default:
+		fmt.Fprintf(os.Stderr, "Error: unexpected status: %s\n", resp.Status)
+		os.Exit(1)
+	}
+}
+
 var runsCmd = &cobra.Command{
 	Use:   "runs",
-	Short: "Inspect, cancel, retry, and repair runs",
+	Short: "Inspect, cancel, and repair runs",
 	Long: `Inspect run status, list a job's run history, cancel executing runs, and perform manual repair actions.
 
 Common flows:
   vectis-cli runs show run-123
   vectis-cli runs list build-main
-  vectis-cli runs retry run-123`,
+  vectis-cli runs repair mark-queued run-123`,
 	GroupID: cliGroupWorkflows,
 	Run:     showCommandHelp,
 }
 
+var runRepairCmd = &cobra.Command{
+	Use:   "repair",
+	Short: "Manual reconciliation actions for orphaned or stuck runs",
+	Long:  `Repair commands are operator reconciliation tools for marking the durable status of orphaned runs or requeueing a stuck queued run.`,
+	Run:   showCommandHelp,
+}
+
 var forceFailCmd = &cobra.Command{
-	Use:   "fail [run-id]",
-	Short: "Manually mark a run as failed",
-	Long:  `Force a run into failed status in the API/database. Intended for manual intervention flows.`,
-	Args:  cobra.ExactArgs(1),
-	Run:   forceFailRun,
+	Use:        "fail [run-id]",
+	Short:      "Manually mark a run as failed",
+	Long:       `Force a run into failed status in the API/database. Intended for manual intervention flows.`,
+	Args:       cobra.ExactArgs(1),
+	Run:        forceFailRun,
+	Hidden:     true,
+	Deprecated: "use 'runs repair mark-failed' instead",
 }
 
 var forceRequeueCmd = &cobra.Command{
-	Use:   "retry [run-id]",
-	Short: "Manually retry a queued run",
-	Long:  `Force a run back to queued status for manual retry/recovery. Intended for manual intervention flows.`,
+	Use:        "retry [run-id]",
+	Short:      "Manually retry a queued run",
+	Long:       `Force a run back to queued status for manual retry/recovery. Intended for manual intervention flows.`,
+	Args:       cobra.ExactArgs(1),
+	Run:        forceRequeueRun,
+	Hidden:     true,
+	Deprecated: "use 'runs repair mark-queued' instead",
+}
+
+var repairMarkSucceededCmd = &cobra.Command{
+	Use:   "mark-succeeded [run-id]",
+	Short: "Mark an orphaned run as succeeded",
+	Long:  `Record an orphaned run as succeeded when an operator has external evidence the work completed.`,
 	Args:  cobra.ExactArgs(1),
-	Run:   forceRequeueRun,
+	Run:   repairMarkRun,
+}
+
+var repairMarkFailedCmd = &cobra.Command{
+	Use:   "mark-failed [run-id]",
+	Short: "Mark an orphaned run as failed",
+	Long:  `Record an orphaned run as failed when an operator has external evidence the work failed.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   repairMarkRun,
+}
+
+var repairMarkCancelledCmd = &cobra.Command{
+	Use:   "mark-cancelled [run-id]",
+	Short: "Mark an orphaned run as cancelled",
+	Long:  `Record an orphaned run as cancelled when an operator knows execution was intentionally stopped outside the normal RPC path.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   repairMarkRun,
+}
+
+var repairMarkAbandonedCmd = &cobra.Command{
+	Use:   "mark-abandoned [run-id]",
+	Short: "Mark an orphaned run as abandoned",
+	Long:  `Record an orphaned run as abandoned when no authoritative completion result is expected.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   repairMarkRun,
+}
+
+var repairMarkQueuedCmd = &cobra.Command{
+	Use:   "mark-queued [run-id]",
+	Short: "Mark a stuck run for retry",
+	Long:  `Record a stuck run as queued so the reconciler can enqueue it again. This is dispatch repair, not retry history.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   repairMarkRun,
 }
 
 var runGetCmd = &cobra.Command{
@@ -361,4 +456,8 @@ func configureRunListFlags(cmd *cobra.Command) {
 
 func configureForceFailFlags(cmd *cobra.Command) {
 	cmd.Flags().String("reason", "", "Failure reason to record")
+}
+
+func configureRepairMarkFlags(cmd *cobra.Command) {
+	cmd.Flags().String("reason", "", "Operator reason to record")
 }

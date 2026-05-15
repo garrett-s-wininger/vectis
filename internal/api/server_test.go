@@ -1566,6 +1566,84 @@ func TestAPIServer_ForceFailRun_NotFound(t *testing.T) {
 	assertAPIError(t, rec, http.StatusNotFound, "run_not_found")
 }
 
+func TestAPIServer_RepairMarkRun_ResolvesOrphanedRun(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `INSERT INTO stored_jobs (job_id, namespace_id, definition_json) VALUES (?, ?, ?)`, "job-repair-mark", 1, `{"id":"job-repair-mark"}`); err != nil {
+		t.Fatalf("insert job: %v", err)
+	}
+	runs := dal.NewSQLRepositories(db).Runs()
+
+	runID, _, err := runs.CreateRun(ctx, "job-repair-mark", nil, 1)
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	claimed, token, err := runs.TryClaim(ctx, runID, "worker-a", time.Now().Add(-time.Minute))
+	if err != nil {
+		t.Fatalf("TryClaim: %v", err)
+	}
+
+	if !claimed || token == "" {
+		t.Fatalf("expected claim token, got claimed=%v token=%q", claimed, token)
+	}
+
+	if err := runs.MarkRunOrphaned(ctx, runID, token, dal.OrphanReasonLeaseExpired); err != nil {
+		t.Fatalf("MarkRunOrphaned: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runs/"+runID+"/repair/mark-abandoned", strings.NewReader(`{"reason":"worker deleted"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", runID)
+	rec := httptest.NewRecorder()
+
+	server.RepairMarkRunAbandoned(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusNoContent, rec.Code, rec.Body.String())
+	}
+
+	var status string
+	var reason sql.NullString
+	if err := db.QueryRowContext(ctx, `SELECT status, failure_reason FROM job_runs WHERE run_id = ?`, runID).Scan(&status, &reason); err != nil {
+		t.Fatalf("query run: %v", err)
+	}
+
+	if status != dal.RunStatusAbandoned {
+		t.Fatalf("expected abandoned status, got %q", status)
+	}
+
+	if !reason.Valid || reason.String != "worker deleted" {
+		t.Fatalf("expected repair reason, got %v", reason)
+	}
+}
+
+func TestAPIServer_RepairMarkRun_RunningConflict(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `INSERT INTO stored_jobs (job_id, namespace_id, definition_json) VALUES (?, ?, ?)`, "job-repair-running", 1, `{"id":"job-repair-running"}`); err != nil {
+		t.Fatalf("insert job: %v", err)
+	}
+	runs := dal.NewSQLRepositories(db).Runs()
+
+	runID, _, err := runs.CreateRun(ctx, "job-repair-running", nil, 1)
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	if claimed, _, err := runs.TryClaim(ctx, runID, "worker-a", time.Now().Add(time.Minute)); err != nil || !claimed {
+		t.Fatalf("TryClaim claimed=%v err=%v", claimed, err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runs/"+runID+"/repair/mark-failed", strings.NewReader(`{}`))
+	req.SetPathValue("id", runID)
+	rec := httptest.NewRecorder()
+
+	server.RepairMarkRunFailed(rec, req)
+
+	assertAPIError(t, rec, http.StatusConflict, "run_repair_conflict")
+}
+
 func TestAPIServer_ForceRequeueRun_Success(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	ctx := context.Background()

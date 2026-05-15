@@ -44,13 +44,16 @@ const (
 	RunStatusSucceeded = "succeeded"
 	RunStatusFailed    = "failed"
 	RunStatusOrphaned  = "orphaned"
+	RunStatusCancelled = "cancelled"
+	RunStatusAbandoned = "abandoned"
 	RunStatusAborted   = "aborted"
 
 	DefaultLeaseTTL          = 15 * time.Minute
 	DefaultRenewInterval     = 5 * time.Minute
 	OrphanReasonLeaseExpired = "lease_expired"
 	OrphanReasonAckUncertain = "ack_uncertain"
-	AbortReasonCancelled     = "cancelled"
+	CancelReasonAPI          = "api_cancelled"
+	RepairReasonManual       = "manual_repair"
 	FailureCodeExecution     = "execution_error"
 	FailureCodeForceFailed   = "force_failed"
 	DefaultCellID            = "local"
@@ -146,8 +149,13 @@ type RunsRepository interface {
 	MarkRunRunning(ctx context.Context, runID string) error
 	MarkRunSucceeded(ctx context.Context, runID, claimToken string) error
 	MarkRunFailed(ctx context.Context, runID, claimToken, failureCode, reason string) error
+	MarkRunCancelled(ctx context.Context, runID, claimToken, reason string) error
 	MarkRunAborted(ctx context.Context, runID, claimToken, reason string) error
 	MarkRunOrphaned(ctx context.Context, runID, claimToken, reason string) error
+	RepairMarkRunSucceeded(ctx context.Context, runID, reason string) error
+	RepairMarkRunFailed(ctx context.Context, runID, reason string) error
+	RepairMarkRunCancelled(ctx context.Context, runID, reason string) error
+	RepairMarkRunAbandoned(ctx context.Context, runID, reason string) error
 	RequeueRunForRetry(ctx context.Context, runID string) error
 	MarkExpiredRunningAsOrphaned(ctx context.Context, cutoffUnix int64) ([]string, error)
 	GetRunStatus(ctx context.Context, runID string) (status string, found bool, err error)

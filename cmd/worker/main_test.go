@@ -967,15 +967,18 @@ func TestWorkerRunClaimedJob_RemoteCancel_MarksRunAborted(t *testing.T) {
 		t.Fatalf("query canceled run: %v", err)
 	}
 
-	if statusVal != dal.RunStatusAborted {
-		t.Fatalf("expected aborted status, got %q", statusVal)
+	if statusVal != dal.RunStatusCancelled {
+		t.Fatalf("expected cancelled status, got %q", statusVal)
 	}
+
 	if failureCode != "" {
 		t.Fatalf("expected empty failure_code, got %q", failureCode)
 	}
-	if !failureReason.Valid || failureReason.String != dal.AbortReasonCancelled {
-		t.Fatalf("expected failure_reason %q, got %v", dal.AbortReasonCancelled, failureReason)
+
+	if !failureReason.Valid || failureReason.String != dal.CancelReasonAPI {
+		t.Fatalf("expected failure_reason %q, got %v", dal.CancelReasonAPI, failureReason)
 	}
+
 	if !finishedAt.Valid {
 		t.Fatal("expected finished_at to be set for aborted run")
 	}

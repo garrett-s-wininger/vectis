@@ -43,6 +43,7 @@ const (
 	EventJobDeleted           = "job.deleted"
 	EventJobUpdated           = "job.updated"
 	EventRunTriggered         = "run.triggered"
+	EventRunRepairMarked      = "run.repair_marked"
 	EventRunForceFailed       = "run.force_failed"
 	EventRunForceRequeued     = "run.force_requeued"
 	EventRunCancelled         = "run.cancelled"

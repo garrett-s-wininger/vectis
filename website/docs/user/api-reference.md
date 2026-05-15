@@ -113,6 +113,11 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | GET | `/api/v1/sse/jobs/{id}/runs` | Stream run events for one job | `run:read` | general | `200` `text/event-stream` |
 | GET | `/api/v1/runs/{id}` | Get one run, including dispatch events | `run:read` | general | `200` JSON run |
 | POST | `/api/v1/runs/{id}/cancel` | Request cancellation through worker control | `run:operator` | general | `202` JSON result |
+| POST | `/api/v1/runs/{id}/repair/mark-succeeded` | Resolve an orphaned run as succeeded | `run:operator` | general | `204` empty |
+| POST | `/api/v1/runs/{id}/repair/mark-failed` | Resolve an orphaned run as failed | `run:operator` | general | `204` empty |
+| POST | `/api/v1/runs/{id}/repair/mark-cancelled` | Resolve an orphaned run as cancelled | `run:operator` | general | `204` empty |
+| POST | `/api/v1/runs/{id}/repair/mark-abandoned` | Resolve an orphaned run as abandoned | `run:operator` | general | `204` empty |
+| POST | `/api/v1/runs/{id}/repair/mark-queued` | Requeue a run from a repairable state | `run:operator` | general | `204` empty |
 | POST | `/api/v1/runs/{id}/force-fail` | Force a run into failed state | `run:operator` | general | `204` empty |
 | POST | `/api/v1/runs/{id}/force-requeue` | Requeue a run from a repairable state | `run:operator` | general | `202` JSON result |
 | GET | `/api/v1/runs/{id}/logs` | Stream run logs as SSE | `run:read` | general | `200` `text/event-stream` |

@@ -199,22 +199,24 @@ type MockRunsRepository struct {
 	CreateRunID    string
 	CreateRunIndex int
 
-	CreateRunErr       error
-	TouchDispatchedErr error
-	ListByJobErr       error
-	QueuedListErr      error
-	TryClaimErr        error
-	RenewLeaseErr      error
-	MarkRunRunningErr  error
-	MarkRunSuccessErr  error
-	MarkRunFailedErr   error
-	MarkRunAbortedErr  error
-	MarkRunOrphanedErr error
-	RequeueRunErr      error
-	MarkOrphanedErr    error
-	GetRunStatusErr    error
-	CountByStatusErr   error
-	CountStuckErr      error
+	CreateRunErr        error
+	TouchDispatchedErr  error
+	ListByJobErr        error
+	QueuedListErr       error
+	TryClaimErr         error
+	RenewLeaseErr       error
+	MarkRunRunningErr   error
+	MarkRunSuccessErr   error
+	MarkRunFailedErr    error
+	MarkRunCancelledErr error
+	MarkRunAbortedErr   error
+	MarkRunOrphanedErr  error
+	RepairMarkErr       error
+	RequeueRunErr       error
+	MarkOrphanedErr     error
+	GetRunStatusErr     error
+	CountByStatusErr    error
+	CountStuckErr       error
 
 	CountByStatusResult int64
 	CountStuckResult    int64
@@ -257,12 +259,32 @@ func (m *MockRunsRepository) MarkRunFailed(ctx context.Context, runID, claimToke
 	return m.MarkRunFailedErr
 }
 
+func (m *MockRunsRepository) MarkRunCancelled(ctx context.Context, runID, claimToken, reason string) error {
+	return m.MarkRunCancelledErr
+}
+
 func (m *MockRunsRepository) MarkRunAborted(ctx context.Context, runID, claimToken, reason string) error {
 	return m.MarkRunAbortedErr
 }
 
 func (m *MockRunsRepository) MarkRunOrphaned(ctx context.Context, runID, claimToken, reason string) error {
 	return m.MarkRunOrphanedErr
+}
+
+func (m *MockRunsRepository) RepairMarkRunSucceeded(ctx context.Context, runID, reason string) error {
+	return m.RepairMarkErr
+}
+
+func (m *MockRunsRepository) RepairMarkRunFailed(ctx context.Context, runID, reason string) error {
+	return m.RepairMarkErr
+}
+
+func (m *MockRunsRepository) RepairMarkRunCancelled(ctx context.Context, runID, reason string) error {
+	return m.RepairMarkErr
+}
+
+func (m *MockRunsRepository) RepairMarkRunAbandoned(ctx context.Context, runID, reason string) error {
+	return m.RepairMarkErr
 }
 
 func (m *MockRunsRepository) RequeueRunForRetry(ctx context.Context, runID string) error {

@@ -546,8 +546,8 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 		if errors.Is(execErr, errRunCancelled) {
 			span.AddEvent("run.cancelled")
 			span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeAborted))
-			if err := w.markRunAbortedWithRetry(runID, claimToken, dal.AbortReasonCancelled); err != nil {
-				w.logger.Error("Failed to mark run %s aborted: %v", runID, err)
+			if err := w.markRunAbortedWithRetry(runID, claimToken, dal.CancelReasonAPI); err != nil {
+				w.logger.Error("Failed to mark run %s cancelled: %v", runID, err)
 				span.RecordError(err)
 			}
 

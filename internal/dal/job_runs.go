@@ -87,13 +87,21 @@ func (r *SQLRunsRepository) MarkRunFailed(ctx context.Context, runID, claimToken
 
 func (r *SQLRunsRepository) MarkRunAborted(ctx context.Context, runID, claimToken, reason string) error {
 	if reason == "" {
-		reason = AbortReasonCancelled
+		reason = CancelReasonAPI
+	}
+
+	return r.MarkRunCancelled(ctx, runID, claimToken, reason)
+}
+
+func (r *SQLRunsRepository) MarkRunCancelled(ctx context.Context, runID, claimToken, reason string) error {
+	if reason == "" {
+		reason = CancelReasonAPI
 	}
 
 	query := `UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP, failure_code = '', failure_reason = ?,
 		orphan_reason = '', lease_owner = NULL, lease_until = NULL, claim_token = NULL, cancel_token = NULL WHERE run_id = ?`
 
-	args := []any{RunStatusAborted, reason, runID}
+	args := []any{RunStatusCancelled, reason, runID}
 	if claimToken != "" {
 		query += ` AND status IN ('running', 'orphaned') AND claim_token = ?`
 		args = append(args, claimToken)
@@ -114,10 +122,86 @@ func (r *SQLRunsRepository) MarkRunAborted(ctx context.Context, runID, claimToke
 	}
 
 	if n == 0 {
-		return fmt.Errorf("mark run aborted: no matching active row for run_id=%q claim_token=%q", runID, claimToken)
+		return fmt.Errorf("mark run cancelled: no matching active row for run_id=%q claim_token=%q", runID, claimToken)
 	}
 
 	return nil
+}
+
+func (r *SQLRunsRepository) RepairMarkRunSucceeded(ctx context.Context, runID, reason string) error {
+	return r.repairMarkTerminal(ctx, runID, RunStatusSucceeded, "", reason)
+}
+
+func (r *SQLRunsRepository) RepairMarkRunFailed(ctx context.Context, runID, reason string) error {
+	if reason == "" {
+		reason = RepairReasonManual
+	}
+
+	return r.repairMarkTerminal(ctx, runID, RunStatusFailed, FailureCodeForceFailed, reason)
+}
+
+func (r *SQLRunsRepository) RepairMarkRunCancelled(ctx context.Context, runID, reason string) error {
+	if reason == "" {
+		reason = RepairReasonManual
+	}
+
+	return r.repairMarkTerminal(ctx, runID, RunStatusCancelled, "", reason)
+}
+
+func (r *SQLRunsRepository) RepairMarkRunAbandoned(ctx context.Context, runID, reason string) error {
+	if reason == "" {
+		reason = RepairReasonManual
+	}
+
+	return r.repairMarkTerminal(ctx, runID, RunStatusAbandoned, "", reason)
+}
+
+func (r *SQLRunsRepository) repairMarkTerminal(ctx context.Context, runID, status, failureCode, reason string) error {
+	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE job_runs
+		SET status = ?,
+			orphan_reason = '',
+			failure_code = ?,
+			finished_at = CURRENT_TIMESTAMP,
+			failure_reason = ?,
+			lease_owner = NULL,
+			lease_until = NULL,
+			claim_token = NULL,
+			cancel_token = NULL
+		WHERE run_id = ?
+			AND status = 'orphaned'
+	`), status, failureCode, nullableReason(reason), runID)
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if n == 1 {
+		return nil
+	}
+
+	var current string
+	if err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`SELECT status FROM job_runs WHERE run_id = ?`), runID).Scan(&current); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("%w: run %s", ErrNotFound, runID)
+		}
+
+		return normalizeSQLError(err)
+	}
+
+	return fmt.Errorf("%w: run %s in status %s cannot be repair-marked %s", ErrConflict, runID, current, status)
+}
+
+func nullableReason(reason string) any {
+	if reason == "" {
+		return nil
+	}
+
+	return reason
 }
 
 func (r *SQLRunsRepository) MarkRunOrphaned(ctx context.Context, runID, claimToken, reason string) error {
@@ -177,7 +261,7 @@ func (r *SQLRunsRepository) RequeueRunForRetry(ctx context.Context, runID string
 			claim_token = NULL,
 			last_dispatched_at = NULL
 		WHERE run_id = ?
-			AND status IN ('queued', 'failed', 'orphaned', 'aborted')
+			AND status IN ('queued', 'failed', 'orphaned', 'aborted', 'cancelled', 'abandoned')
 	`), runID)
 
 	if err != nil {

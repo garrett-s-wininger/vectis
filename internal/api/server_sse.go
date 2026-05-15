@@ -225,6 +225,10 @@ func (s *APIServer) GetRunLogs(w http.ResponseWriter, r *http.Request) {
 				completedStatus = "success"
 			case "failed":
 				completedStatus = "failure"
+			case "cancelled":
+				completedStatus = "cancelled"
+			case "abandoned":
+				completedStatus = "abandoned"
 			case "aborted":
 				completedStatus = "aborted"
 			}

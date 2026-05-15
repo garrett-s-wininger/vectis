@@ -12,6 +12,7 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/api/audit"
+	"vectis/internal/api/authn"
 	"vectis/internal/api/authz"
 	"vectis/internal/config"
 	"vectis/internal/dal"
@@ -29,6 +30,169 @@ import (
 )
 
 const defaultForceFailReason = "manually failed via API"
+
+type repairMarkKind string
+
+const (
+	repairMarkSucceeded repairMarkKind = "succeeded"
+	repairMarkFailed    repairMarkKind = "failed"
+	repairMarkCancelled repairMarkKind = "cancelled"
+	repairMarkAbandoned repairMarkKind = "abandoned"
+	repairMarkQueued    repairMarkKind = "queued"
+)
+
+func (s *APIServer) RepairMarkRunSucceeded(w http.ResponseWriter, r *http.Request) {
+	s.repairMarkRun(w, r, repairMarkSucceeded)
+}
+
+func (s *APIServer) RepairMarkRunFailed(w http.ResponseWriter, r *http.Request) {
+	s.repairMarkRun(w, r, repairMarkFailed)
+}
+
+func (s *APIServer) RepairMarkRunCancelled(w http.ResponseWriter, r *http.Request) {
+	s.repairMarkRun(w, r, repairMarkCancelled)
+}
+
+func (s *APIServer) RepairMarkRunAbandoned(w http.ResponseWriter, r *http.Request) {
+	s.repairMarkRun(w, r, repairMarkAbandoned)
+}
+
+func (s *APIServer) RepairMarkRunQueued(w http.ResponseWriter, r *http.Request) {
+	s.repairMarkRun(w, r, repairMarkQueued)
+}
+
+func (s *APIServer) repairMarkRun(w http.ResponseWriter, r *http.Request, mark repairMarkKind) {
+	runID := r.PathValue("id")
+	if runID == "" {
+		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
+		return
+	}
+
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	nsPath, ok := s.authorizeRunOperator(ctx, w, p, runID)
+	if !ok {
+		return
+	}
+
+	reason, ok := readRepairReason(w, r)
+	if !ok {
+		return
+	}
+
+	var err error
+	switch mark {
+	case repairMarkSucceeded:
+		err = s.runs.RepairMarkRunSucceeded(ctx, runID, reason)
+	case repairMarkFailed:
+		err = s.runs.RepairMarkRunFailed(ctx, runID, reason)
+	case repairMarkCancelled:
+		err = s.runs.RepairMarkRunCancelled(ctx, runID, reason)
+	case repairMarkAbandoned:
+		err = s.runs.RepairMarkRunAbandoned(ctx, runID, reason)
+	case repairMarkQueued:
+		err = s.runs.RequeueRunForRetry(ctx, runID)
+	default:
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		if dal.IsConflict(err) {
+			writeAPIError(w, http.StatusConflict, "run_repair_conflict", "run cannot be repair-marked from current status", nil)
+			return
+		}
+
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+			return
+		}
+
+		s.logger.Error("Repair mark run %s as %s failed: %v", runID, mark, err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+	s.markDBRecovered()
+
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	fields := map[string]any{
+		"run_id":    runID,
+		"namespace": nsPath,
+		"status":    string(mark),
+	}
+	if reason != "" {
+		fields["reason"] = reason
+	}
+
+	s.auditLog(ctx, audit.EventRunRepairMarked, actorID, 0, fields)
+	s.logger.Warn("Run repair-marked via API: %s -> %s", runID, mark)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func readRepairReason(w http.ResponseWriter, r *http.Request) (string, bool) {
+	if r.Body == nil {
+		return "", true
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxJSONDocumentBodyBytes))
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "request_read_failed", "failed to read request body", nil)
+		return "", false
+	}
+
+	if len(bytes.TrimSpace(body)) == 0 {
+		return "", true
+	}
+
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body", nil)
+		return "", false
+	}
+
+	return req.Reason, true
+}
+
+func (s *APIServer) authorizeRunOperator(ctx context.Context, w http.ResponseWriter, p *authn.Principal, runID string) (string, bool) {
+	nsPath, err := s.getRunJobNamespacePath(ctx, runID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+			return "", false
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return "", false
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return "", false
+	}
+
+	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunOperator, nsPath) {
+		writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+		return "", false
+	}
+
+	return nsPath, true
+}
 
 func (s *APIServer) ForceFailRun(w http.ResponseWriter, r *http.Request) {
 	runID := r.PathValue("id")

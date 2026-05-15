@@ -6,6 +6,7 @@ CONSTANTS
     Nil
 
 VARIABLES
+    AbandonedTasks,
     EnqueuedTasks,
     CancelledTasks,
     FailedTasks,
@@ -15,6 +16,7 @@ VARIABLES
     WorkerAssignments
 
 Vars == <<
+    AbandonedTasks,
     CancelledTasks,
     EnqueuedTasks,
     FailedTasks,
@@ -25,6 +27,7 @@ Vars == <<
 >>
 
 Init ==
+    /\ AbandonedTasks = {}
     /\ CancelledTasks = {}
     /\ EnqueuedTasks = Tasks
     /\ FailedTasks = {}
@@ -46,7 +49,7 @@ Cancel(w, t) ==
     /\ RunningTasks' = RunningTasks \ {t}
     /\ CancelledTasks' = CancelledTasks \union {t}
     /\ WorkerAssignments' = [WorkerAssignments EXCEPT ![w] = Nil]
-    /\ UNCHANGED << EnqueuedTasks, FailedTasks, OrphanedTasks, SuccessfulTasks >>
+    /\ UNCHANGED << AbandonedTasks, EnqueuedTasks, FailedTasks, OrphanedTasks, SuccessfulTasks >>
 
 Dequeue(w, t) ==
     /\ w \in Workers
@@ -55,7 +58,7 @@ Dequeue(w, t) ==
     /\ EnqueuedTasks' = EnqueuedTasks \ {t}
     /\ RunningTasks' = RunningTasks \union {t}
     /\ WorkerAssignments' = [WorkerAssignments EXCEPT ![w] = t]
-    /\ UNCHANGED << CancelledTasks, FailedTasks, OrphanedTasks, SuccessfulTasks >>
+    /\ UNCHANGED << AbandonedTasks, CancelledTasks, FailedTasks, OrphanedTasks, SuccessfulTasks >>
 
 Complete(w, t) ==
     /\ w \in Workers
@@ -64,7 +67,7 @@ Complete(w, t) ==
     /\ RunningTasks' = RunningTasks \ {t}
     /\ SuccessfulTasks' = SuccessfulTasks \union {t}
     /\ WorkerAssignments' = [WorkerAssignments EXCEPT ![w] = Nil]
-    /\ UNCHANGED << CancelledTasks, EnqueuedTasks, FailedTasks, OrphanedTasks >>
+    /\ UNCHANGED << AbandonedTasks, CancelledTasks, EnqueuedTasks, FailedTasks, OrphanedTasks >>
 
 Fail(w, t) ==
     /\ w \in Workers
@@ -73,16 +76,7 @@ Fail(w, t) ==
     /\ RunningTasks' = RunningTasks \ {t}
     /\ FailedTasks' = FailedTasks \union {t}
     /\ WorkerAssignments' = [WorkerAssignments EXCEPT ![w] = Nil]
-    /\ UNCHANGED << CancelledTasks, EnqueuedTasks, OrphanedTasks, SuccessfulTasks >>
-
-LateCompletion(w, t) ==
-    /\ w \in Workers
-    /\ t \in OrphanedTasks
-    /\ WorkerAssignments[w] = t
-    /\ OrphanedTasks' = OrphanedTasks \ {t}
-    /\ SuccessfulTasks' = SuccessfulTasks \union {t}
-    /\ WorkerAssignments' = [WorkerAssignments EXCEPT ![w] = Nil]
-    /\ UNCHANGED << CancelledTasks, EnqueuedTasks, FailedTasks, RunningTasks >>
+    /\ UNCHANGED << AbandonedTasks, CancelledTasks, EnqueuedTasks, OrphanedTasks, SuccessfulTasks >>
 
 LeaseExpiry(w, t) ==
     /\ w \in Workers
@@ -91,20 +85,39 @@ LeaseExpiry(w, t) ==
     /\ OrphanedTasks' = OrphanedTasks \union {t}
     /\ RunningTasks' = RunningTasks \ {t}
     /\ UNCHANGED <<
+        AbandonedTasks,
         CancelledTasks,
         EnqueuedTasks,
         FailedTasks,
         SuccessfulTasks,
         WorkerAssignments >>
 
-OperatorKillOrLateFailure(w, t) ==
+OperatorAbandon(w, t) ==
+    /\ w \in Workers
+    /\ t \in OrphanedTasks
+    /\ WorkerAssignments[w] = t
+    /\ AbandonedTasks' = AbandonedTasks \union {t}
+    /\ OrphanedTasks' = OrphanedTasks \ {t}
+    /\ WorkerAssignments' = [WorkerAssignments EXCEPT ![w] = Nil]
+    /\ UNCHANGED << CancelledTasks, EnqueuedTasks, FailedTasks, RunningTasks, SuccessfulTasks >>
+
+OperatorMarkSucceededOrLateCompletion(w, t) ==
+    /\ w \in Workers
+    /\ t \in OrphanedTasks
+    /\ WorkerAssignments[w] = t
+    /\ OrphanedTasks' = OrphanedTasks \ {t}
+    /\ SuccessfulTasks' = SuccessfulTasks \union {t}
+    /\ WorkerAssignments' = [WorkerAssignments EXCEPT ![w] = Nil]
+    /\ UNCHANGED << AbandonedTasks, CancelledTasks, EnqueuedTasks, FailedTasks, RunningTasks >>
+
+OperatorMarkFailedOrLateFailure(w, t) ==
     /\ w \in Workers
     /\ t \in OrphanedTasks
     /\ WorkerAssignments[w] = t
     /\ FailedTasks' = FailedTasks \union {t}
     /\ OrphanedTasks' = OrphanedTasks \ {t}
     /\ WorkerAssignments' = [WorkerAssignments EXCEPT ![w] = Nil]
-    /\ UNCHANGED << CancelledTasks, EnqueuedTasks, RunningTasks, SuccessfulTasks >>
+    /\ UNCHANGED << AbandonedTasks, CancelledTasks, EnqueuedTasks, RunningTasks, SuccessfulTasks >>
 
 Next ==
     \/ \E w \in Workers:
@@ -118,8 +131,9 @@ Next ==
             \/ LeaseExpiry(w, t)
     \/ \E w \in Workers:
         \E t \in OrphanedTasks:
-            \/ LateCompletion(w, t)
-            \/ OperatorKillOrLateFailure(w, t)
+            \/ OperatorMarkSucceededOrLateCompletion(w, t)
+            \/ OperatorMarkFailedOrLateFailure(w, t)
+            \/ OperatorAbandon(w, t)
     \/ Idle
 
 InvAtMostOneWorkerPerTask ==
@@ -128,6 +142,12 @@ InvAtMostOneWorkerPerTask ==
             => WorkerAssignments[w1] = Nil
 
 InvTasksPartition ==
+    /\ AbandonedTasks \intersect CancelledTasks = {}
+    /\ AbandonedTasks \intersect EnqueuedTasks = {}
+    /\ AbandonedTasks \intersect FailedTasks = {}
+    /\ AbandonedTasks \intersect OrphanedTasks = {}
+    /\ AbandonedTasks \intersect RunningTasks = {}
+    /\ AbandonedTasks \intersect SuccessfulTasks = {}
     /\ CancelledTasks \intersect EnqueuedTasks = {}
     /\ CancelledTasks \intersect FailedTasks = {}
     /\ CancelledTasks \intersect RunningTasks = {}
@@ -143,7 +163,8 @@ InvTasksPartition ==
     /\ OrphanedTasks \intersect RunningTasks = {}
     /\ OrphanedTasks \intersect SuccessfulTasks = {}
     /\ RunningTasks \intersect SuccessfulTasks = {}
-    /\ EnqueuedTasks
+    /\ AbandonedTasks
+        \union EnqueuedTasks
         \union CancelledTasks
         \union FailedTasks
         \union OrphanedTasks
@@ -154,6 +175,7 @@ LeadsToCompletion ==
     \A t \in Tasks:
         (t \in EnqueuedTasks) ~>
             \/ (t \in CancelledTasks)
+            \/ (t \in AbandonedTasks)
             \/ (t \in FailedTasks)
             \/ (t \in SuccessfulTasks)
 
@@ -166,6 +188,8 @@ Spec ==
             /\ WF_Vars(Complete(w, t))
             /\ WF_Vars(Dequeue(w, t))
             /\ WF_Vars(Fail(w, t))
-            /\ WF_Vars(OperatorKillOrLateFailure(w, t))
+            /\ WF_Vars(OperatorAbandon(w, t))
+            /\ WF_Vars(OperatorMarkFailedOrLateFailure(w, t))
+            /\ WF_Vars(OperatorMarkSucceededOrLateCompletion(w, t))
 
 ====

@@ -66,7 +66,7 @@ var (
 var rootCmd = &cobra.Command{
 	Use:   "vectis-cli",
 	Short: "Command line interface for Vectis",
-	Long: `Vectis CLI manages jobs, runs, access, deployments, and day-two operations.
+	Long: `Vectis CLI provides a single entry point for jobs, runs, and user management.
 
 Commands are grouped around the thing you want to work with:
   jobs       create, show, trigger, run, edit, and delete job definitions
@@ -100,7 +100,12 @@ func init() {
 
 	configureRunListFlags(runListCmd)
 	configureForceFailFlags(forceFailCmd)
-	runsCmd.AddCommand(runListCmd, runGetCmd, runCancelCmd, forceFailCmd, forceRequeueCmd)
+	configureRepairMarkFlags(repairMarkSucceededCmd)
+	configureRepairMarkFlags(repairMarkFailedCmd)
+	configureRepairMarkFlags(repairMarkCancelledCmd)
+	configureRepairMarkFlags(repairMarkAbandonedCmd)
+	runRepairCmd.AddCommand(repairMarkSucceededCmd, repairMarkFailedCmd, repairMarkCancelledCmd, repairMarkAbandonedCmd, repairMarkQueuedCmd)
+	runsCmd.AddCommand(runListCmd, runGetCmd, runCancelCmd, runRepairCmd, forceFailCmd, forceRequeueCmd)
 	rootCmd.AddCommand(runsCmd)
 
 	configureLogFilterFlags(logsRunCmd)
@@ -164,7 +169,7 @@ func init() {
 	defaultRetention := retention.DefaultPolicy()
 	retentionCleanupCmd.Flags().BoolVar(&retentionYes, "yes", false, "Confirm deletion of retention-eligible records")
 	retentionCleanupCmd.Flags().BoolVar(&retentionDryRun, "dry-run", false, "Print the records that would be deleted")
-	retentionCleanupCmd.Flags().DurationVar(&retentionRunAge, "terminal-run-age", defaultRetention.TerminalRuns, "Delete succeeded/failed/aborted runs older than this duration (0 disables)")
+	retentionCleanupCmd.Flags().DurationVar(&retentionRunAge, "terminal-run-age", defaultRetention.TerminalRuns, "Delete terminal runs older than this duration (0 disables)")
 	retentionCleanupCmd.Flags().DurationVar(&retentionDefAge, "job-definition-age", defaultRetention.JobDefinitions, "Delete unreferenced ephemeral job definitions older than this duration (0 disables)")
 	retentionCleanupCmd.Flags().DurationVar(&retentionIdemAge, "idempotency-age", defaultRetention.IdempotencyKeys, "Delete idempotency keys older than this duration (0 disables)")
 	retentionCleanupCmd.Flags().DurationVar(&retentionAuditAge, "audit-age", defaultRetention.AuditLog, "Delete audit log rows older than this duration (0 disables)")

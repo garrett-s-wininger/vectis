@@ -581,7 +581,7 @@ func TestRunsRepository_FencingTokenRejectsStaleFailedAndOrphaned(t *testing.T) 
 		t.Fatal("expected stale token MarkRunOrphaned to fail")
 	}
 
-	if err := runs.MarkRunAborted(ctx, runID, tokenA, dal.AbortReasonCancelled); err == nil {
+	if err := runs.MarkRunAborted(ctx, runID, tokenA, dal.CancelReasonAPI); err == nil {
 		t.Fatal("expected stale token MarkRunAborted to fail")
 	}
 
@@ -599,7 +599,7 @@ func TestRunsRepository_FencingTokenRejectsStaleFailedAndOrphaned(t *testing.T) 
 	}
 }
 
-func TestRunsRepository_MarkRunAborted_SetsAbortedTerminalState(t *testing.T) {
+func TestRunsRepository_MarkRunAborted_SetsCancelledTerminalState(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	runs := dal.NewSQLRepositories(db).Runs()
 	ctx := context.Background()
@@ -617,7 +617,7 @@ func TestRunsRepository_MarkRunAborted_SetsAbortedTerminalState(t *testing.T) {
 		t.Fatalf("expected claim token, got claimed=%v token=%q", claimed, token)
 	}
 
-	if err := runs.MarkRunAborted(ctx, runID, token, dal.AbortReasonCancelled); err != nil {
+	if err := runs.MarkRunAborted(ctx, runID, token, dal.CancelReasonAPI); err != nil {
 		t.Fatalf("mark run aborted: %v", err)
 	}
 
@@ -636,16 +636,16 @@ func TestRunsRepository_MarkRunAborted_SetsAbortedTerminalState(t *testing.T) {
 		t.Fatalf("query aborted run: %v", err)
 	}
 
-	if status != dal.RunStatusAborted {
-		t.Fatalf("expected aborted status, got %q", status)
+	if status != dal.RunStatusCancelled {
+		t.Fatalf("expected cancelled status, got %q", status)
 	}
 
 	if failureCode != "" {
 		t.Fatalf("expected empty failure_code, got %q", failureCode)
 	}
 
-	if !failure.Valid || failure.String != dal.AbortReasonCancelled {
-		t.Fatalf("expected failure_reason %q, got %v", dal.AbortReasonCancelled, failure)
+	if !failure.Valid || failure.String != dal.CancelReasonAPI {
+		t.Fatalf("expected failure_reason %q, got %v", dal.CancelReasonAPI, failure)
 	}
 
 	if !finishedAt.Valid {
@@ -716,6 +716,53 @@ func TestRunsRepository_RequeueRunForRetry_ClearsLeaseAndToken(t *testing.T) {
 	if failureCode != "" || failure.Valid || claimToken.Valid || leaseOwner.Valid || leaseUntil.Valid || lastDispatched.Valid {
 		t.Fatalf("expected queue retry to clear runtime fields; got failure_code=%q failure=%v token=%v owner=%v lease_until=%v dispatched=%v",
 			failureCode, failure, claimToken, leaseOwner, leaseUntil, lastDispatched)
+	}
+}
+
+func TestRunsRepository_RepairMarkRunAbandoned_OnlyFromOrphaned(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	runs := dal.NewSQLRepositories(db).Runs()
+	ctx := context.Background()
+
+	runningRunID, _, err := runs.CreateRun(ctx, "job-repair-running", nil, 1)
+	if err != nil {
+		t.Fatalf("create running run: %v", err)
+	}
+	if claimed, _, err := runs.TryClaim(ctx, runningRunID, "worker-a", time.Now().Add(time.Minute)); err != nil || !claimed {
+		t.Fatalf("claim running run claimed=%v err=%v", claimed, err)
+	}
+	if err := runs.RepairMarkRunAbandoned(ctx, runningRunID, "worker deleted"); !dal.IsConflict(err) {
+		t.Fatalf("expected running run conflict, got %v", err)
+	}
+
+	orphanRunID, _, err := runs.CreateRun(ctx, "job-repair-orphan", nil, 1)
+	if err != nil {
+		t.Fatalf("create orphan run: %v", err)
+	}
+	claimed, token, err := runs.TryClaim(ctx, orphanRunID, "worker-a", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("claim orphan run: %v", err)
+	}
+	if !claimed {
+		t.Fatal("expected orphan run claim")
+	}
+	if err := runs.MarkRunOrphaned(ctx, orphanRunID, token, dal.OrphanReasonLeaseExpired); err != nil {
+		t.Fatalf("mark orphaned: %v", err)
+	}
+	if err := runs.RepairMarkRunAbandoned(ctx, orphanRunID, "worker deleted"); err != nil {
+		t.Fatalf("repair mark abandoned: %v", err)
+	}
+
+	var status string
+	var reason sql.NullString
+	if err := db.QueryRowContext(ctx, `SELECT status, failure_reason FROM job_runs WHERE run_id = ?`, orphanRunID).Scan(&status, &reason); err != nil {
+		t.Fatalf("query repaired run: %v", err)
+	}
+	if status != dal.RunStatusAbandoned {
+		t.Fatalf("expected abandoned status, got %q", status)
+	}
+	if !reason.Valid || reason.String != "worker deleted" {
+		t.Fatalf("expected repair reason, got %v", reason)
 	}
 }
 
