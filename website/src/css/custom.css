@@ -457,6 +457,9 @@ html[data-theme='light'] .theme-back-to-top-button:hover {
 
 [data-theme='dark'] .theme-doc-sidebar-container {
   background: #181c20;
+  box-shadow:
+    inset -1px 0 0 #313a40,
+    14px 0 28px -26px rgba(0, 0, 0, 0.95);
 }
 
 [data-theme='dark'] .navbar__link {
@@ -525,9 +528,55 @@ html[data-theme='light'] .theme-back-to-top-button:hover {
   color: #ffffff;
 }
 
+[data-theme='dark'] .theme-code-block pre.prism-code {
+  border: 1px solid rgba(130, 182, 198, 0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.035),
+    0 12px 24px -22px rgba(0, 0, 0, 0.72);
+}
+
+[data-theme='dark'] .table-of-contents {
+  border-left-color: #48545c;
+  box-shadow: inset 2px 0 0 rgba(130, 182, 198, 0.08);
+}
+
+[data-theme='dark'] .table-of-contents__link {
+  display: block;
+  margin: 0.12rem 0;
+  padding: 0.24rem 0.46rem;
+  border-radius: 3px;
+}
+
+[data-theme='dark'] .table-of-contents__link:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.055);
+}
+
+[data-theme='dark'] .table-of-contents__link--active,
+[data-theme='dark'] .table-of-contents__link--active:hover {
+  color: var(--vectis-selection-fg);
+  font-weight: 700;
+  background: rgba(130, 182, 198, 0.14);
+  box-shadow:
+    inset 3px 0 0 rgba(130, 182, 198, 0.8),
+    inset 0 0 0 1px rgba(215, 225, 230, 0.12);
+}
+
 [data-theme='dark'] .pagination-nav__link {
   background: var(--vectis-surface);
-  box-shadow: 3px 3px 0 #070809;
+  border-color: #4f5d65;
+  box-shadow:
+    2px 2px 0 rgba(7, 8, 9, 0.72),
+    0 12px 24px -20px rgba(0, 0, 0, 0.86),
+    inset 0 1px 0 rgba(255, 255, 255, 0.045);
+}
+
+[data-theme='dark'] .pagination-nav__link:hover {
+  border-color: #6d8089;
+  box-shadow:
+    2px 2px 0 rgba(7, 8, 9, 0.78),
+    0 14px 26px -20px rgba(0, 0, 0, 0.9),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .vectis-hero {
@@ -864,12 +913,12 @@ html[data-theme='light'] body:has(.vectis-hero) footer.footer--dark {
 }
 
 [data-theme='dark'] .vectis-home-section {
-  border-color: #47545c;
-  background: linear-gradient(180deg, #252b30 0%, #20252a 100%);
+  border-color: #52616a;
+  background: linear-gradient(180deg, #273037 0%, #20252a 100%);
   box-shadow:
-    2px 2px 0 rgba(7, 8, 9, 0.62),
-    0 12px 24px rgba(0, 0, 0, 0.16),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    2px 2px 0 rgba(7, 8, 9, 0.58),
+    0 14px 26px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.055);
 }
 
 [data-theme='dark'] .vectis-home-section:hover {
