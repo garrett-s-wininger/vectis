@@ -83,6 +83,7 @@ type RunRecord struct {
 	Status            string
 	OrphanReason      *string
 	FailureCode       *string
+	CreatedAt         *string
 	StartedAt         *string
 	FinishedAt        *string
 	FailureReason     *string
@@ -163,7 +164,7 @@ type RunsRepository interface {
 	RenewLease(ctx context.Context, runID, owner, claimToken string, leaseUntil time.Time) error
 	TouchDispatched(ctx context.Context, runID string) error
 	CreateRun(ctx context.Context, jobID string, runIndex *int, definitionVersion int) (runID string, runIndexOut int, err error)
-	ListByJob(ctx context.Context, jobID string, since *int, cursor int64, limit int) ([]RunRecord, int64, error)
+	ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, cursor int64, limit int) ([]RunRecord, int64, error)
 	ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]QueuedRun, error)
 	CountByStatus(ctx context.Context, status string) (int64, error)
 	CountStuckBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) (int64, error)
@@ -258,7 +259,7 @@ func (r *SQLRepositories) CreateDefinitionAndRun(ctx context.Context, jobID, def
 	}
 
 	if _, err := tx.ExecContext(ctx,
-		rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, started_at, definition_version, definition_hash, owning_cell) VALUES (?, ?, ?, ?, NULL, 1, ?, ?)`),
+		rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, 1, ?, ?)`),
 		runID,
 		jobID,
 		idx,

@@ -81,7 +81,7 @@ func TestAPIServer_GetJobRuns_OrchestrationUsesRunsRepository(t *testing.T) {
 	}}
 
 	server := api.NewAPIServerWithRepositories(mocks.NewMockLogger(), jobs, runs, mocks.StubEphemeralRunStarter{})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-1/runs?since=1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-1/runs?after_index=1", nil)
 	req.SetPathValue("id", "job-1")
 	rec := httptest.NewRecorder()
 
@@ -91,9 +91,9 @@ func TestAPIServer_GetJobRuns_OrchestrationUsesRunsRepository(t *testing.T) {
 		t.Fatalf("expected status %d, got %d", http.StatusOK, rec.Code)
 	}
 
-	lastSince := runs.SnapshotLastListSince()
-	if lastSince == nil || *lastSince != 1 {
-		t.Fatalf("expected since=1 to be passed to repository, got %+v", lastSince)
+	lastAfterIndex := runs.SnapshotLastListAfterIndex()
+	if lastAfterIndex == nil || *lastAfterIndex != 1 {
+		t.Fatalf("expected after_index=1 to be passed to repository, got %+v", lastAfterIndex)
 	}
 
 	var resp struct {
@@ -111,5 +111,28 @@ func TestAPIServer_GetJobRuns_OrchestrationUsesRunsRepository(t *testing.T) {
 
 	if body[0]["run_id"] != "run-2" {
 		t.Fatalf("expected run_id run-2, got %v", body[0]["run_id"])
+	}
+}
+
+func TestAPIServer_GetJobRuns_OrchestrationParsesSinceTime(t *testing.T) {
+	jobs := mocks.NewMockJobsRepository()
+	jobs.Definitions["job-1"] = `{"id":"job-1"}`
+	runs := mocks.NewMockRunsRepository()
+
+	server := api.NewAPIServerWithRepositories(mocks.NewMockLogger(), jobs, runs, mocks.StubEphemeralRunStarter{})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-1/runs?since=2026-05-15T12:30:00Z", nil)
+	req.SetPathValue("id", "job-1")
+	rec := httptest.NewRecorder()
+
+	server.GetJobRuns(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, rec.Code)
+	}
+
+	lastSince := runs.SnapshotLastListSinceTime()
+	want := time.Date(2026, 5, 15, 12, 30, 0, 0, time.UTC)
+	if lastSince == nil || !lastSince.Equal(want) {
+		t.Fatalf("expected since timestamp %s, got %+v", want.Format(time.RFC3339), lastSince)
 	}
 }

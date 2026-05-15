@@ -294,7 +294,7 @@ outer:
 			}
 		}()
 
-		req, err := newAPIRequest(http.MethodGet, fmt.Sprintf("/api/v1/jobs/%s/runs?since=%d", jobID, lastIndex), nil)
+		req, err := newAPIRequest(http.MethodGet, fmt.Sprintf("/api/v1/jobs/%s/runs?after_index=%d", jobID, lastIndex), nil)
 		if err != nil {
 			attemptCancel()
 			return fmt.Errorf("creating runs request: %w", err)

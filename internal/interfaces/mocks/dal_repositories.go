@@ -235,7 +235,8 @@ type MockRunsRepository struct {
 	LastCreateJobID       string
 	LastDefinitionVersion int
 	LastListJobID         string
-	LastListSince         *int
+	LastListAfterIndex    *int
+	LastListSince         *time.Time
 }
 
 func NewMockRunsRepository() *MockRunsRepository {
@@ -340,13 +341,20 @@ func (m *MockRunsRepository) CreateRun(ctx context.Context, jobID string, runInd
 	return m.CreateRunID, m.CreateRunIndex, nil
 }
 
-func (m *MockRunsRepository) ListByJob(ctx context.Context, jobID string, since *int, cursor int64, limit int) ([]dal.RunRecord, int64, error) {
+func (m *MockRunsRepository) ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, cursor int64, limit int) ([]dal.RunRecord, int64, error) {
 	if m.ListByJobErr != nil {
 		return nil, 0, m.ListByJobErr
 	}
 
 	m.mu.Lock()
 	m.LastListJobID = jobID
+	if afterIndex != nil {
+		v := *afterIndex
+		m.LastListAfterIndex = &v
+	} else {
+		m.LastListAfterIndex = nil
+	}
+
 	if since != nil {
 		v := *since
 		m.LastListSince = &v
@@ -383,6 +391,28 @@ func (m *MockRunsRepository) SnapshotLastCreate() (string, int) {
 }
 
 func (m *MockRunsRepository) SnapshotLastListSince() *int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.LastListAfterIndex == nil {
+		return nil
+	}
+
+	v := *m.LastListAfterIndex
+	return &v
+}
+
+func (m *MockRunsRepository) SnapshotLastListAfterIndex() *int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.LastListAfterIndex == nil {
+		return nil
+	}
+
+	v := *m.LastListAfterIndex
+	return &v
+}
+
+func (m *MockRunsRepository) SnapshotLastListSinceTime() *time.Time {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.LastListSince == nil {

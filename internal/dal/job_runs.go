@@ -465,7 +465,7 @@ func (r *SQLRunsRepository) CreateRun(ctx context.Context, jobID string, runInde
 	}
 
 	_, err = tx.ExecContext(ctx,
-		rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, started_at, definition_version, definition_hash, owning_cell) VALUES (?, ?, ?, ?, NULL, ?, ?, ?)`),
+		rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?)`),
 		runID,
 		jobID,
 		idx,
@@ -517,13 +517,18 @@ func lookupDefinitionHashTx(ctx context.Context, tx *sql.Tx, jobID string, versi
 	return "", nil
 }
 
-func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, since *int, cursor int64, limit int) ([]RunRecord, int64, error) {
-	query := "SELECT id, run_id, run_index, status, orphan_reason, failure_code, CAST(started_at AS TEXT), CAST(finished_at AS TEXT), failure_reason, definition_version, definition_hash, owning_cell FROM job_runs WHERE job_id = ?"
+func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, cursor int64, limit int) ([]RunRecord, int64, error) {
+	query := "SELECT id, run_id, run_index, status, orphan_reason, failure_code, CAST(created_at AS TEXT), CAST(started_at AS TEXT), CAST(finished_at AS TEXT), failure_reason, definition_version, definition_hash, owning_cell FROM job_runs WHERE job_id = ?"
 	args := []any{jobID}
 
-	if since != nil {
+	if afterIndex != nil {
 		query += " AND run_index > ?"
-		args = append(args, *since)
+		args = append(args, *afterIndex)
+	}
+
+	if since != nil {
+		query += " AND created_at >= ?"
+		args = append(args, since.UTC().Format("2006-01-02 15:04:05"))
 	}
 
 	if cursor > 0 {
@@ -545,14 +550,18 @@ func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, since *
 	for rows.Next() {
 		var rec RunRecord
 		var id int64
-		var orphanReason, failureCode, startedAt, finishedAt, failureReason sql.NullString
-		if err := rows.Scan(&id, &rec.RunID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &startedAt, &finishedAt, &failureReason, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell); err != nil {
+		var orphanReason, failureCode, createdAt, startedAt, finishedAt, failureReason sql.NullString
+		if err := rows.Scan(&id, &rec.RunID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &createdAt, &startedAt, &finishedAt, &failureReason, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell); err != nil {
 			return nil, 0, normalizeSQLError(err)
 		}
 
 		lastID = id
 		if orphanReason.Valid && orphanReason.String != "" {
 			rec.OrphanReason = &orphanReason.String
+		}
+
+		if createdAt.Valid {
+			rec.CreatedAt = &createdAt.String
 		}
 
 		if startedAt.Valid {
@@ -691,11 +700,11 @@ func (r *SQLRunsRepository) CountStuckBeforeDispatchCutoff(ctx context.Context, 
 
 func (r *SQLRunsRepository) GetRun(ctx context.Context, runID string) (RunRecord, error) {
 	var rec RunRecord
-	var orphanReason, failureCode, startedAt, finishedAt, failureReason sql.NullString
+	var orphanReason, failureCode, createdAt, startedAt, finishedAt, failureReason sql.NullString
 	err := r.db.QueryRowContext(ctx,
-		rebindQueryForPgx("SELECT run_id, run_index, status, orphan_reason, failure_code, CAST(started_at AS TEXT), CAST(finished_at AS TEXT), failure_reason, definition_version, definition_hash, owning_cell FROM job_runs WHERE run_id = ?"),
+		rebindQueryForPgx("SELECT run_id, run_index, status, orphan_reason, failure_code, CAST(created_at AS TEXT), CAST(started_at AS TEXT), CAST(finished_at AS TEXT), failure_reason, definition_version, definition_hash, owning_cell FROM job_runs WHERE run_id = ?"),
 		runID,
-	).Scan(&rec.RunID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &startedAt, &finishedAt, &failureReason, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell)
+	).Scan(&rec.RunID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &createdAt, &startedAt, &finishedAt, &failureReason, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -707,6 +716,10 @@ func (r *SQLRunsRepository) GetRun(ctx context.Context, runID string) (RunRecord
 
 	if orphanReason.Valid && orphanReason.String != "" {
 		rec.OrphanReason = &orphanReason.String
+	}
+
+	if createdAt.Valid {
+		rec.CreatedAt = &createdAt.String
 	}
 
 	if startedAt.Valid {

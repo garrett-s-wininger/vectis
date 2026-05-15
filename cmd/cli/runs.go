@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ type runDetail struct {
 	Status         string          `json:"status"`
 	OrphanReason   *string         `json:"orphan_reason,omitempty"`
 	FailureCode    *string         `json:"failure_code,omitempty"`
+	CreatedAt      *string         `json:"created_at,omitempty"`
 	StartedAt      *string         `json:"started_at,omitempty"`
 	FinishedAt     *string         `json:"finished_at,omitempty"`
 	FailureReason  *string         `json:"failure_reason,omitempty"`
@@ -37,6 +39,7 @@ type runListResult struct {
 		RunID         string  `json:"run_id"`
 		RunIndex      int     `json:"run_index"`
 		Status        string  `json:"status"`
+		CreatedAt     *string `json:"created_at,omitempty"`
 		StartedAt     *string `json:"started_at,omitempty"`
 		FinishedAt    *string `json:"finished_at,omitempty"`
 		FailureCode   *string `json:"failure_code,omitempty"`
@@ -79,6 +82,10 @@ func getRun(runID string, w io.Writer) error {
 		fmt.Fprintf(w, "run_id=%s\n", run.RunID)
 		fmt.Fprintf(w, "run_index=%d\n", run.RunIndex)
 		fmt.Fprintf(w, "status=%s\n", run.Status)
+		if run.CreatedAt != nil {
+			fmt.Fprintf(w, "created_at=%s\n", *run.CreatedAt)
+		}
+
 		if run.StartedAt != nil {
 			fmt.Fprintf(w, "started_at=%s\n", *run.StartedAt)
 		}
@@ -171,25 +178,30 @@ func runListRuns(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	if err := listRuns(jobID, runListLimit, runListSince, os.Stdout); err != nil {
+	since, _ := cmd.Flags().GetString("since")
+	if err := listRuns(jobID, runListLimit, runListCursor, since, os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func listRuns(jobID string, limit, since int, w io.Writer) error {
+func listRuns(jobID string, limit, cursor int, since string, w io.Writer) error {
 	path := fmt.Sprintf("/api/v1/jobs/%s/runs", jobID)
-	params := []string{}
+	params := url.Values{}
 	if limit > 0 {
-		params = append(params, fmt.Sprintf("limit=%d", limit))
+		params.Set("limit", fmt.Sprintf("%d", limit))
 	}
 
-	if since > 0 {
-		params = append(params, fmt.Sprintf("since=%d", since))
+	if cursor > 0 {
+		params.Set("cursor", fmt.Sprintf("%d", cursor))
 	}
 
-	if len(params) > 0 {
-		path += "?" + strings.Join(params, "&")
+	if strings.TrimSpace(since) != "" {
+		params.Set("since", strings.TrimSpace(since))
+	}
+
+	if encoded := params.Encode(); encoded != "" {
+		path += "?" + encoded
 	}
 
 	req, err := newAPIRequest(http.MethodGet, path, nil)
@@ -222,10 +234,15 @@ func listRuns(jobID string, limit, since int, w io.Writer) error {
 		return nil
 	}
 
-	fmt.Fprintf(w, "%-20s %-5s %-12s %-24s %-24s\n",
-		"RUN ID", "INDEX", "STATUS", "STARTED", "FINISHED")
+	fmt.Fprintf(w, "%-20s %-5s %-12s %-24s %-24s %-24s\n",
+		"RUN ID", "INDEX", "STATUS", "CREATED", "STARTED", "FINISHED")
 
 	for _, r := range result.Data {
+		created := "-"
+		if r.CreatedAt != nil {
+			created = *r.CreatedAt
+		}
+
 		started := "-"
 		if r.StartedAt != nil {
 			started = *r.StartedAt
@@ -236,12 +253,12 @@ func listRuns(jobID string, limit, since int, w io.Writer) error {
 			finished = *r.FinishedAt
 		}
 
-		fmt.Fprintf(w, "%-20s %-5d %-12s %-24s %-24s\n",
-			r.RunID, r.RunIndex, r.Status, started, finished)
+		fmt.Fprintf(w, "%-20s %-5d %-12s %-24s %-24s %-24s\n",
+			r.RunID, r.RunIndex, r.Status, created, started, finished)
 	}
 
 	if result.NextCursor != nil {
-		fmt.Fprintf(w, "\nMore runs available (cursor: %d)\n", *result.NextCursor)
+		fmt.Fprintf(w, "\nMore runs available. Continue with --cursor %d.\n", *result.NextCursor)
 	}
 
 	return nil
@@ -473,15 +490,20 @@ var runCancelCmd = &cobra.Command{
 var runListCmd = &cobra.Command{
 	Use:   "list [job-id]",
 	Short: "List runs for a job",
-	Long:  `List runs for a stored job, most recent first. Pass the job id as an argument or with --job. Supports pagination via --limit and cursor.`,
-	Args:  cobra.MaximumNArgs(1),
-	Run:   runListRuns,
+	Long: `List runs for a stored job, most recent first. Pass the job id as an argument or with --job.
+
+Use --since to filter to runs created at or after a date. Use --limit to control page size.
+When more runs are available, the command prints a cursor; pass that value back with --cursor
+to fetch the next page.`,
+	Args: cobra.MaximumNArgs(1),
+	Run:  runListRuns,
 }
 
 func configureRunListFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&runListJobID, "job", "", "Job ID to list runs for")
 	cmd.Flags().IntVar(&runListLimit, "limit", 0, "Max runs to return (default 50)")
-	cmd.Flags().IntVar(&runListSince, "since", 0, "Only list runs after this run index")
+	cmd.Flags().IntVar(&runListCursor, "cursor", 0, "Continue listing after this result cursor")
+	cmd.Flags().String("since", "", "Only list runs created at or after this RFC3339 timestamp or YYYY-MM-DD date")
 }
 
 func configureForceFailFlags(cmd *cobra.Command) {

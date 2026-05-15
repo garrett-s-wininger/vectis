@@ -115,7 +115,7 @@ func TestIntegrationWorker_DequeueClaimExecuteFinalize(t *testing.T) {
 
 	// Verify run record details.
 	queryCtx := context.Background()
-	recs, _, err := repos.Runs().ListByJob(queryCtx, jobID, nil, 0, 100)
+	recs, _, err := repos.Runs().ListByJob(queryCtx, jobID, nil, nil, 0, 100)
 	if err != nil {
 		t.Fatalf("list runs: %v", err)
 	}

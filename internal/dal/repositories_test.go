@@ -172,11 +172,12 @@ func TestRunsRepository_CreateRunAndListSinceOrdered(t *testing.T) {
 	runs := dal.NewSQLRepositories(db).Runs()
 	ctx := context.Background()
 
-	_, idx1, err := runs.CreateRun(ctx, "job-order", nil, 1)
+	runID1, idx1, err := runs.CreateRun(ctx, "job-order", nil, 1)
 	if err != nil {
 		t.Fatalf("create run 1: %v", err)
 	}
-	_, idx2, err := runs.CreateRun(ctx, "job-order", nil, 1)
+
+	runID2, idx2, err := runs.CreateRun(ctx, "job-order", nil, 1)
 	if err != nil {
 		t.Fatalf("create run 2: %v", err)
 	}
@@ -185,7 +186,7 @@ func TestRunsRepository_CreateRunAndListSinceOrdered(t *testing.T) {
 		t.Fatalf("unexpected run indexes: idx1=%d idx2=%d", idx1, idx2)
 	}
 
-	all, _, err := runs.ListByJob(ctx, "job-order", nil, 0, 100)
+	all, _, err := runs.ListByJob(ctx, "job-order", nil, nil, 0, 100)
 	if err != nil {
 		t.Fatalf("list all: %v", err)
 	}
@@ -199,13 +200,31 @@ func TestRunsRepository_CreateRunAndListSinceOrdered(t *testing.T) {
 	}
 
 	since := 1
-	after, _, err := runs.ListByJob(ctx, "job-order", &since, 0, 100)
+	after, _, err := runs.ListByJob(ctx, "job-order", &since, nil, 0, 100)
 	if err != nil {
 		t.Fatalf("list since: %v", err)
 	}
 
 	if len(after) != 1 || after[0].RunIndex != 2 {
 		t.Fatalf("expected only run_index 2 after since=1, got %+v", after)
+	}
+
+	if _, err := db.ExecContext(ctx, `UPDATE job_runs SET created_at = ? WHERE run_id = ?`, "2026-05-15 10:00:00", runID1); err != nil {
+		t.Fatalf("set first created_at: %v", err)
+	}
+
+	if _, err := db.ExecContext(ctx, `UPDATE job_runs SET created_at = ? WHERE run_id = ?`, "2026-05-16 10:00:00", runID2); err != nil {
+		t.Fatalf("set second created_at: %v", err)
+	}
+
+	sinceTime := time.Date(2026, 5, 16, 0, 0, 0, 0, time.UTC)
+	recent, _, err := runs.ListByJob(ctx, "job-order", nil, &sinceTime, 0, 100)
+	if err != nil {
+		t.Fatalf("list since time: %v", err)
+	}
+
+	if len(recent) != 1 || recent[0].RunID != runID2 {
+		t.Fatalf("expected only run %s since %s, got %+v", runID2, sinceTime, recent)
 	}
 }
 
@@ -236,6 +255,17 @@ func TestRunsRepository_ClaimRenewAndDispatchQueries(t *testing.T) {
 		t.Fatalf("expected owning_cell %q, got %q", dal.DefaultCellID, queued[0].OwningCell)
 	}
 
+	beforeClaim, err := runs.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("get run before claim: %v", err)
+	}
+	if beforeClaim.CreatedAt == nil {
+		t.Fatal("created_at should be set when run is created")
+	}
+	if beforeClaim.StartedAt != nil {
+		t.Fatalf("started_at should be empty before claim, got %s", *beforeClaim.StartedAt)
+	}
+
 	claimed, claimToken, err := runs.TryClaim(ctx, runID, "worker-1", time.Now().Add(1*time.Minute))
 	if err != nil {
 		t.Fatalf("try claim first: %v", err)
@@ -247,6 +277,15 @@ func TestRunsRepository_ClaimRenewAndDispatchQueries(t *testing.T) {
 
 	if claimToken == "" {
 		t.Fatal("expected non-empty claim token on successful claim")
+	}
+
+	afterClaim, err := runs.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("get run after claim: %v", err)
+	}
+
+	if afterClaim.StartedAt == nil {
+		t.Fatal("started_at should be set when run is claimed")
 	}
 
 	cancelRec, err := runs.GetRunForCancel(ctx, runID)
@@ -863,7 +902,7 @@ func TestRunsRepository_CreateRunWithExplicitRunIndex(t *testing.T) {
 		t.Fatalf("expected run_index %d, got %d", idx, outIdx)
 	}
 
-	all, _, err := runs.ListByJob(ctx, "job-explicit", nil, 0, 100)
+	all, _, err := runs.ListByJob(ctx, "job-explicit", nil, nil, 0, 100)
 	if err != nil {
 		t.Fatalf("list runs: %v", err)
 	}

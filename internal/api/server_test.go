@@ -901,7 +901,7 @@ func TestAPIServer_GetJobRuns_ReturnsStatusAndFailureReasonAfterStatusTransition
 func TestAPIServer_GetJobRuns_InvalidSince(t *testing.T) {
 	server, _, _, _ := setupTestServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-runs-status/runs?since=-1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-runs-status/runs?since=not-a-date", nil)
 	req.SetPathValue("id", "job-runs-status")
 	rec := httptest.NewRecorder()
 	server.GetJobRuns(rec, req)

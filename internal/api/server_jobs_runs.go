@@ -1348,14 +1348,27 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sinceStr := r.URL.Query().Get("since")
-	var since *int
+	var since *time.Time
 	if sinceStr != "" {
-		parsedSince, err := strconv.Atoi(sinceStr)
-		if err != nil || parsedSince < 0 {
-			writeAPIError(w, http.StatusBadRequest, "invalid_since", "since must be a non-negative integer", nil)
+		parsedSince, err := parseRunSince(sinceStr)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_since", "since must be an RFC3339 timestamp or YYYY-MM-DD date", nil)
 			return
 		}
+
 		since = &parsedSince
+	}
+
+	afterIndexStr := r.URL.Query().Get("after_index")
+	var afterIndex *int
+	if afterIndexStr != "" {
+		parsedAfterIndex, err := strconv.Atoi(afterIndexStr)
+		if err != nil || parsedAfterIndex < 0 {
+			writeAPIError(w, http.StatusBadRequest, "invalid_after_index", "after_index must be a non-negative integer", nil)
+			return
+		}
+
+		afterIndex = &parsedAfterIndex
 	}
 
 	params := parsePageParams(r)
@@ -1389,7 +1402,7 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	runRows, nextCursor, err := s.runs.ListByJob(ctx, jobID, since, params.Cursor, params.Limit)
+	runRows, nextCursor, err := s.runs.ListByJob(ctx, jobID, afterIndex, since, params.Cursor, params.Limit)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
@@ -1407,6 +1420,7 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 		Status        string  `json:"status"`
 		OrphanReason  *string `json:"orphan_reason,omitempty"`
 		FailureCode   *string `json:"failure_code,omitempty"`
+		CreatedAt     *string `json:"created_at,omitempty"`
 		StartedAt     *string `json:"started_at,omitempty"`
 		FinishedAt    *string `json:"finished_at,omitempty"`
 		FailureReason *string `json:"failure_reason,omitempty"`
@@ -1420,6 +1434,7 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 			Status:        rec.Status,
 			OrphanReason:  rec.OrphanReason,
 			FailureCode:   rec.FailureCode,
+			CreatedAt:     rec.CreatedAt,
 			StartedAt:     rec.StartedAt,
 			FinishedAt:    rec.FinishedAt,
 			FailureReason: rec.FailureReason,
@@ -1440,6 +1455,19 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, _ = w.Write(buf.Bytes())
+}
+
+func parseRunSince(raw string) (time.Time, error) {
+	if t, err := time.Parse(time.RFC3339Nano, raw); err == nil {
+		return t.UTC(), nil
+	}
+
+	t, err := time.Parse("2006-01-02", raw)
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	return t.UTC(), nil
 }
 
 func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
@@ -1517,6 +1545,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		Status            string             `json:"status"`
 		OrphanReason      *string            `json:"orphan_reason,omitempty"`
 		FailureCode       *string            `json:"failure_code,omitempty"`
+		CreatedAt         *string            `json:"created_at,omitempty"`
 		StartedAt         *string            `json:"started_at,omitempty"`
 		FinishedAt        *string            `json:"finished_at,omitempty"`
 		FailureReason     *string            `json:"failure_reason,omitempty"`
@@ -1532,6 +1561,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		Status:            rec.Status,
 		OrphanReason:      rec.OrphanReason,
 		FailureCode:       rec.FailureCode,
+		CreatedAt:         rec.CreatedAt,
 		StartedAt:         rec.StartedAt,
 		FinishedAt:        rec.FinishedAt,
 		FailureReason:     rec.FailureReason,

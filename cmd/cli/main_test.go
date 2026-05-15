@@ -601,6 +601,24 @@ func TestGetRun_notFound(t *testing.T) {
 	}
 }
 
+func TestListRuns_sinceDateUsesSinceQuery(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("since"); got != "2026-05-15" {
+			t.Errorf("since=%q, want 2026-05-15", got)
+		}
+
+		if got := r.URL.Query().Get("cursor"); got != "42" {
+			t.Errorf("cursor=%q, want 42", got)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{}})
+	})
+
+	if err := listRuns("job-1", 0, 42, "2026-05-15", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCancelRun_success(t *testing.T) {
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

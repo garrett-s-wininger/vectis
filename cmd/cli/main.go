@@ -58,7 +58,7 @@ var (
 	retentionLogDir   string
 	runListJobID      string
 	runListLimit      int
-	runListSince      int
+	runListCursor     int
 	triggerIdemKey    string
 	runIdemKey        string
 )

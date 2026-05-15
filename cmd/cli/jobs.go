@@ -615,7 +615,7 @@ var runCmd = &cobra.Command{
 	Use:   "run [path|-]",
 	Short: "Run a job definition once",
 	Long: `Submit a job definition to run once (ephemeral). Path is a JSON file; use "-" to read from stdin.
-On success prints the job ID (and run_id with --follow); the API returns after persisting the run, then enqueues in the background.`,
+On success prints the run ID. With --follow, streams logs for that run until it completes.`,
 	Args: cobra.ExactArgs(1),
 	Run:  runJob,
 }
