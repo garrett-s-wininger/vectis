@@ -128,6 +128,10 @@ func namespaceList(w io.Writer) error {
 		return err
 	}
 
+	if outputIsJSON() {
+		return writeJSON(w, namespaces)
+	}
+
 	for _, ns := range namespaces {
 		parent := "-"
 		if ns.ParentID != nil {
@@ -151,6 +155,10 @@ func namespaceGet(id int64, w io.Writer) error {
 		parent = strconv.FormatInt(*ns.ParentID, 10)
 	}
 
+	if outputIsJSON() {
+		return writeJSON(w, ns)
+	}
+
 	fmt.Fprintf(w, "id=%d\nname=%s\npath=%s\nparent_id=%s\nbreak_inheritance=%t\n", ns.ID, ns.Name, ns.Path, parent, ns.BreakInheritance)
 	return nil
 }
@@ -164,6 +172,10 @@ func namespaceCreate(name string, parentID int64, w io.Writer) error {
 	var ns namespaceCLIResponse
 	if err := doJSONAPI(http.MethodPost, "/api/v1/namespaces", payload, http.StatusCreated, &ns); err != nil {
 		return err
+	}
+
+	if outputIsJSON() {
+		return writeJSON(w, ns)
 	}
 
 	fmt.Fprintf(w, "Namespace created: %d %s\n", ns.ID, ns.Path)
@@ -180,6 +192,10 @@ func userList(w io.Writer) error {
 		return err
 	}
 
+	if outputIsJSON() {
+		return writeJSON(w, users)
+	}
+
 	for _, u := range users {
 		fmt.Fprintf(w, "%d\t%s\tenabled=%t\tcreated=%s\n", u.ID, u.Username, u.Enabled, u.CreatedAt)
 	}
@@ -191,6 +207,10 @@ func userGet(id int64, w io.Writer) error {
 	var u userCLIResponse
 	if err := doJSONAPI(http.MethodGet, fmt.Sprintf("/api/v1/users/%d", id), nil, http.StatusOK, &u); err != nil {
 		return err
+	}
+
+	if outputIsJSON() {
+		return writeJSON(w, u)
 	}
 
 	fmt.Fprintf(w, "id=%d\nusername=%s\nenabled=%t\ncreated_at=%s\n", u.ID, u.Username, u.Enabled, u.CreatedAt)
@@ -206,6 +226,10 @@ func userCreate(username, password string, w io.Writer) error {
 	var u userCLIResponse
 	if err := doJSONAPI(http.MethodPost, "/api/v1/users", payload, http.StatusCreated, &u); err != nil {
 		return err
+	}
+
+	if outputIsJSON() {
+		return writeJSON(w, u)
 	}
 
 	fmt.Fprintf(w, "User created: %d %s\n", u.ID, u.Username)
@@ -243,6 +267,10 @@ func bindingList(namespaceID int64, w io.Writer) error {
 		return err
 	}
 
+	if outputIsJSON() {
+		return writeJSON(w, bindings)
+	}
+
 	for _, b := range bindings {
 		user := strconv.FormatInt(b.LocalUserID, 10)
 		if b.Username != "" {
@@ -262,6 +290,10 @@ func bindingCreate(namespaceID, userID int64, role string, w io.Writer) error {
 		"role":          role,
 	}, http.StatusCreated, &binding); err != nil {
 		return err
+	}
+
+	if outputIsJSON() {
+		return writeJSON(w, binding)
 	}
 
 	fmt.Fprintf(w, "Role binding created: namespace=%d user=%d role=%s\n", namespaceID, binding.LocalUserID, binding.Role)
@@ -298,7 +330,7 @@ func runNamespaceDelete(cmd *cobra.Command, args []string) {
 	}
 
 	runCLIError(namespaceDelete(id))
-	fmt.Println("Namespace deleted.")
+	runCLIError(writeAction(os.Stdout, "Namespace deleted.", cliActionResult{Status: "deleted"}))
 }
 
 func runUserList(cmd *cobra.Command, args []string) {
@@ -327,7 +359,7 @@ func runUserUpdate(cmd *cobra.Command, args []string) {
 
 	enabled, _ := cmd.Flags().GetBool("enabled")
 	runCLIError(userSetEnabled(id, enabled))
-	fmt.Println("User updated.")
+	runCLIError(writeAction(os.Stdout, "User updated.", cliActionResult{Status: "updated"}))
 }
 
 func runUserEnable(cmd *cobra.Command, args []string) {
@@ -337,7 +369,7 @@ func runUserEnable(cmd *cobra.Command, args []string) {
 	}
 
 	runCLIError(userSetEnabled(id, true))
-	fmt.Println("User enabled.")
+	runCLIError(writeAction(os.Stdout, "User enabled.", cliActionResult{Status: "enabled"}))
 }
 
 func runUserDisable(cmd *cobra.Command, args []string) {
@@ -347,7 +379,7 @@ func runUserDisable(cmd *cobra.Command, args []string) {
 	}
 
 	runCLIError(userSetEnabled(id, false))
-	fmt.Println("User disabled.")
+	runCLIError(writeAction(os.Stdout, "User disabled.", cliActionResult{Status: "disabled"}))
 }
 
 func runUserDelete(cmd *cobra.Command, args []string) {
@@ -357,7 +389,7 @@ func runUserDelete(cmd *cobra.Command, args []string) {
 	}
 
 	runCLIError(userDelete(id))
-	fmt.Println("User deleted.")
+	runCLIError(writeAction(os.Stdout, "User deleted.", cliActionResult{Status: "deleted"}))
 }
 
 func runUserChangePassword(cmd *cobra.Command, args []string) {
@@ -369,7 +401,7 @@ func runUserChangePassword(cmd *cobra.Command, args []string) {
 	}
 
 	runCLIError(userChangePassword(userID, currentPassword, newPassword))
-	fmt.Println("Password changed.")
+	runCLIError(writeAction(os.Stdout, "Password changed.", cliActionResult{Status: "changed"}))
 }
 
 func runBindingList(cmd *cobra.Command, args []string) {
@@ -407,14 +439,7 @@ func runBindingDelete(cmd *cobra.Command, args []string) {
 	}
 
 	runCLIError(bindingDelete(nsID, userID, args[2]))
-	fmt.Println("Role binding deleted.")
-}
-
-func runCLIError(err error) {
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+	runCLIError(writeAction(os.Stdout, "Role binding deleted.", cliActionResult{Status: "deleted"}))
 }
 
 var namespaceCmd = &cobra.Command{

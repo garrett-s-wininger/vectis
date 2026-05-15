@@ -75,14 +75,19 @@ Commands are grouped around the thing you want to work with:
   auth       log in, log out, and manage API tokens`,
 	Example: `  vectis-cli jobs create build.json
   vectis-cli jobs trigger build-main --follow
+  vectis-cli jobs list --format json
   vectis-cli runs list build-main
   vectis-cli runs show run-123
   vectis-cli auth login
   vectis-cli health check --strict`,
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		return validateOutputFormat(cliOutputFormat)
+	},
 }
 
 func init() {
 	cli.ConfigureVersion(rootCmd)
+	rootCmd.PersistentFlags().StringVar(&cliOutputFormat, "format", outputText, "Output format: text or json")
 
 	rootCmd.AddGroup(
 		&cobra.Group{ID: cliGroupWorkflows, Title: "Workflows"},

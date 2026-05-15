@@ -12,6 +12,39 @@ import (
 	"time"
 )
 
+type runDetail struct {
+	RunID          string          `json:"run_id"`
+	RunIndex       int             `json:"run_index"`
+	Status         string          `json:"status"`
+	OrphanReason   *string         `json:"orphan_reason,omitempty"`
+	FailureCode    *string         `json:"failure_code,omitempty"`
+	StartedAt      *string         `json:"started_at,omitempty"`
+	FinishedAt     *string         `json:"finished_at,omitempty"`
+	FailureReason  *string         `json:"failure_reason,omitempty"`
+	DispatchEvents []dispatchEvent `json:"dispatch_events,omitempty"`
+}
+
+type dispatchEvent struct {
+	ID        int64   `json:"id"`
+	Source    string  `json:"source"`
+	EventType string  `json:"event_type"`
+	Message   *string `json:"message,omitempty"`
+	CreatedAt int64   `json:"created_at"`
+}
+
+type runListResult struct {
+	Data []struct {
+		RunID         string  `json:"run_id"`
+		RunIndex      int     `json:"run_index"`
+		Status        string  `json:"status"`
+		StartedAt     *string `json:"started_at,omitempty"`
+		FinishedAt    *string `json:"finished_at,omitempty"`
+		FailureCode   *string `json:"failure_code,omitempty"`
+		FailureReason *string `json:"failure_reason,omitempty"`
+	} `json:"data"`
+	NextCursor *int64 `json:"next_cursor,omitempty"`
+}
+
 func runGetRun(cmd *cobra.Command, args []string) {
 	if err := getRun(args[0], os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -33,26 +66,14 @@ func getRun(runID string, w io.Writer) error {
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		var run struct {
-			RunID          string  `json:"run_id"`
-			RunIndex       int     `json:"run_index"`
-			Status         string  `json:"status"`
-			OrphanReason   *string `json:"orphan_reason,omitempty"`
-			FailureCode    *string `json:"failure_code,omitempty"`
-			StartedAt      *string `json:"started_at,omitempty"`
-			FinishedAt     *string `json:"finished_at,omitempty"`
-			FailureReason  *string `json:"failure_reason,omitempty"`
-			DispatchEvents []struct {
-				ID        int64   `json:"id"`
-				Source    string  `json:"source"`
-				EventType string  `json:"event_type"`
-				Message   *string `json:"message,omitempty"`
-				CreatedAt int64   `json:"created_at"`
-			} `json:"dispatch_events,omitempty"`
-		}
+		var run runDetail
 
 		if err := json.NewDecoder(resp.Body).Decode(&run); err != nil {
 			return fmt.Errorf("failed to parse response: %w", err)
+		}
+
+		if outputIsJSON() {
+			return writeJSON(w, run)
 		}
 
 		fmt.Fprintf(w, "run_id=%s\n", run.RunID)
@@ -119,6 +140,10 @@ func cancelRun(runID string, w io.Writer) error {
 
 	switch resp.StatusCode {
 	case http.StatusNoContent:
+		if outputIsJSON() {
+			return writeJSON(w, map[string]string{"status": "cancel_requested", "run_id": runID})
+		}
+
 		fmt.Fprintf(w, "Run %s cancel requested.\n", runID)
 		return nil
 	case http.StatusNotFound:
@@ -182,21 +207,14 @@ func listRuns(jobID string, limit, since int, w io.Writer) error {
 		return fmt.Errorf("unexpected status: %s", resp.Status)
 	}
 
-	var result struct {
-		Data []struct {
-			RunID         string  `json:"run_id"`
-			RunIndex      int     `json:"run_index"`
-			Status        string  `json:"status"`
-			StartedAt     *string `json:"started_at,omitempty"`
-			FinishedAt    *string `json:"finished_at,omitempty"`
-			FailureCode   *string `json:"failure_code,omitempty"`
-			FailureReason *string `json:"failure_reason,omitempty"`
-		} `json:"data"`
-		NextCursor *int64 `json:"next_cursor,omitempty"`
-	}
+	var result runListResult
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if outputIsJSON() {
+		return writeJSON(w, result)
 	}
 
 	if len(result.Data) == 0 {
@@ -260,7 +278,11 @@ func forceFailRun(cmd *cobra.Command, args []string) {
 
 	switch resp.StatusCode {
 	case http.StatusNoContent:
-		fmt.Printf("Run %s force-failed.\n", runID)
+		if outputIsJSON() {
+			runCLIError(writeJSON(os.Stdout, map[string]string{"status": "force_failed", "run_id": runID}))
+		} else {
+			fmt.Printf("Run %s force-failed.\n", runID)
+		}
 	case http.StatusNotFound:
 		fmt.Fprintf(os.Stderr, "Error: run '%s' not found\n", runID)
 		os.Exit(1)
@@ -287,7 +309,11 @@ func forceRequeueRun(cmd *cobra.Command, args []string) {
 
 	switch resp.StatusCode {
 	case http.StatusNoContent:
-		fmt.Printf("Run %s force-requeued.\n", runID)
+		if outputIsJSON() {
+			runCLIError(writeJSON(os.Stdout, map[string]string{"status": "force_requeued", "run_id": runID}))
+		} else {
+			fmt.Printf("Run %s force-requeued.\n", runID)
+		}
 	case http.StatusNotFound:
 		fmt.Fprintf(os.Stderr, "Error: run '%s' not found\n", runID)
 		os.Exit(1)
@@ -331,7 +357,11 @@ func repairMarkRun(cmd *cobra.Command, args []string) {
 
 	switch resp.StatusCode {
 	case http.StatusNoContent:
-		fmt.Printf("Run %s repair-marked %s.\n", runID, status)
+		if outputIsJSON() {
+			runCLIError(writeJSON(os.Stdout, map[string]string{"status": status, "run_id": runID}))
+		} else {
+			fmt.Printf("Run %s repair-marked %s.\n", runID, status)
+		}
 	case http.StatusNotFound:
 		fmt.Fprintf(os.Stderr, "Error: run '%s' not found\n", runID)
 		os.Exit(1)

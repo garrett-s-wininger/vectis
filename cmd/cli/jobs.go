@@ -15,6 +15,13 @@ import (
 	jobvalidation "vectis/internal/job/validation"
 )
 
+type jobRunResult struct {
+	JobID    string `json:"job_id,omitempty"`
+	ID       string `json:"id,omitempty"`
+	RunID    string `json:"run_id"`
+	RunIndex int    `json:"run_index,omitempty"`
+}
+
 func setIdempotencyHeader(req *http.Request, key string) {
 	if key = strings.TrimSpace(key); key != "" {
 		req.Header.Set("Idempotency-Key", key)
@@ -47,11 +54,7 @@ func triggerJob(cmd *cobra.Command, args []string) {
 
 	switch resp.StatusCode {
 	case http.StatusAccepted:
-		var result struct {
-			JobID    string `json:"job_id"`
-			RunID    string `json:"run_id"`
-			RunIndex int    `json:"run_index"`
-		}
+		var result jobRunResult
 
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: failed to parse response: %v\n", err)
@@ -69,6 +72,8 @@ func triggerJob(cmd *cobra.Command, args []string) {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
+		} else if outputIsJSON() {
+			runCLIError(writeJSON(os.Stdout, result))
 		} else {
 			fmt.Println(result.RunID)
 		}
@@ -134,10 +139,7 @@ func runJob(cmd *cobra.Command, args []string) {
 
 	switch resp.StatusCode {
 	case http.StatusAccepted:
-		var result struct {
-			ID    string `json:"id"`
-			RunID string `json:"run_id"`
-		}
+		var result jobRunResult
 
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: failed to parse response: %v\n", err)
@@ -155,6 +157,8 @@ func runJob(cmd *cobra.Command, args []string) {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
+		} else if outputIsJSON() {
+			runCLIError(writeJSON(os.Stdout, result))
 		} else {
 			fmt.Println(result.RunID)
 		}
@@ -355,7 +359,7 @@ func editJob(cmd *cobra.Command, args []string) {
 
 	switch updateResp.StatusCode {
 	case http.StatusNoContent:
-		fmt.Println("Job updated successfully.")
+		runCLIError(writeAction(os.Stdout, "Job updated successfully.", cliActionResult{Status: "updated"}))
 	case http.StatusBadRequest:
 		fmt.Fprintln(os.Stderr, "Error: invalid job definition or id mismatch")
 		os.Exit(1)
@@ -476,7 +480,11 @@ func createJob(cmd *cobra.Command, args []string) {
 
 	switch resp.StatusCode {
 	case http.StatusCreated:
-		fmt.Printf("Job %q stored.\n", *job.Id)
+		if outputIsJSON() {
+			runCLIError(writeJSON(os.Stdout, map[string]string{"status": "created", "job_id": *job.Id}))
+		} else {
+			fmt.Printf("Job %q stored.\n", *job.Id)
+		}
 	case http.StatusConflict:
 		fmt.Fprintf(os.Stderr, "Error: job %q already exists\n", *job.Id)
 		os.Exit(1)
@@ -520,7 +528,11 @@ func deleteJob(cmd *cobra.Command, args []string) {
 
 	switch resp.StatusCode {
 	case http.StatusNoContent:
-		fmt.Printf("Job %q deleted.\n", jobID)
+		if outputIsJSON() {
+			runCLIError(writeJSON(os.Stdout, map[string]string{"status": "deleted", "job_id": jobID}))
+		} else {
+			fmt.Printf("Job %q deleted.\n", jobID)
+		}
 	case http.StatusNotFound:
 		fmt.Fprintf(os.Stderr, "Error: job %q not found\n", jobID)
 		os.Exit(1)
@@ -566,6 +578,10 @@ func listJobNames(w io.Writer) error {
 	}
 
 	sort.Strings(names)
+	if outputIsJSON() {
+		return writeJSON(w, names)
+	}
+
 	for _, name := range names {
 		fmt.Fprintln(w, name)
 	}

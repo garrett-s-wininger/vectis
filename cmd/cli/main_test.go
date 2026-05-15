@@ -240,6 +240,13 @@ func setupTestAPIClient(t *testing.T, handler http.HandlerFunc) *httptest.Server
 	return srv
 }
 
+func withOutputFormat(t *testing.T, format string) {
+	t.Helper()
+	oldFormat := cliOutputFormat
+	cliOutputFormat = format
+	t.Cleanup(func() { cliOutputFormat = oldFormat })
+}
+
 func TestTokenList_success(t *testing.T) {
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -269,6 +276,29 @@ func TestTokenList_success(t *testing.T) {
 	out := buf.String()
 	if !strings.Contains(out, "prod") {
 		t.Fatalf("expected output to contain 'prod', got: %s", out)
+	}
+}
+
+func TestTokenList_jsonOutput(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode([]map[string]any{
+			{"id": 1, "label": "prod", "expires_at": nil, "created_at": "2024-01-01", "last_used_at": nil},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := tokenList(&buf); err != nil {
+		t.Fatal(err)
+	}
+
+	var tokens []map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &tokens); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
+	}
+
+	if len(tokens) != 1 || tokens[0]["label"] != "prod" {
+		t.Fatalf("unexpected JSON output: %#v", tokens)
 	}
 }
 
@@ -338,7 +368,7 @@ func TestTokenDelete_success(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	if err := tokenDelete("7"); err != nil {
+	if err := tokenDelete("7", io.Discard); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -348,7 +378,7 @@ func TestTokenDelete_notFound(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound)
 	})
 
-	if err := tokenDelete("99"); err == nil {
+	if err := tokenDelete("99", io.Discard); err == nil {
 		t.Fatal("expected error")
 	}
 }
@@ -378,6 +408,32 @@ func TestListJobNames_success(t *testing.T) {
 
 	if got, want := buf.String(), "a-job\nz-job\n"; got != want {
 		t.Fatalf("output: want %q, got %q", want, got)
+	}
+}
+
+func TestListJobNames_jsonOutput(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{
+				{"name": "z-job"},
+				{"name": "a-job"},
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := listJobNames(&buf); err != nil {
+		t.Fatal(err)
+	}
+
+	var names []string
+	if err := json.Unmarshal(buf.Bytes(), &names); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
+	}
+
+	if got, want := strings.Join(names, ","), "a-job,z-job"; got != want {
+		t.Fatalf("names: want %q, got %q", want, got)
 	}
 }
 
@@ -507,6 +563,31 @@ func TestGetRun_success(t *testing.T) {
 	}, "\n")
 	if got := buf.String(); got != want {
 		t.Fatalf("output: want %q, got %q", want, got)
+	}
+}
+
+func TestGetRun_jsonOutput(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"run_id":    "run-1",
+			"run_index": 3,
+			"status":    "failed",
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := getRun("run-1", &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	var run map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &run); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
+	}
+
+	if run["run_id"] != "run-1" || run["status"] != "failed" {
+		t.Fatalf("unexpected JSON output: %#v", run)
 	}
 }
 

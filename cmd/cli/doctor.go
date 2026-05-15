@@ -55,6 +55,7 @@ const (
 
 func runDoctor(cmd *cobra.Command, args []string) {
 	doctorJSON, _ = cmd.Flags().GetBool("json")
+	doctorJSON = doctorJSON || outputIsJSON()
 	doctorStrict, _ = cmd.Flags().GetBool("strict")
 
 	if err := doctor(os.Stdout); err != nil {

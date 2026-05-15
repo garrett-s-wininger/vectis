@@ -56,6 +56,15 @@ func runReset(cmd *cobra.Command, args []string) {
 	}
 
 	if resetDryRun {
+		if outputIsJSON() {
+			runCLIError(writeJSON(os.Stdout, map[string]any{
+				"dry_run": true,
+				"targets": targets,
+			}))
+
+			return
+		}
+
 		fmt.Println("Would remove:")
 		for _, target := range targets {
 			fmt.Printf("  %s\n", target)
@@ -70,9 +79,15 @@ func runReset(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
+	results := make([]map[string]string, 0, len(targets))
 	for _, target := range targets {
 		if _, err := os.Stat(target); os.IsNotExist(err) {
-			fmt.Printf("Skipped missing path: %s\n", target)
+			if outputIsJSON() {
+				results = append(results, map[string]string{"path": target, "status": "missing"})
+			} else {
+				fmt.Printf("Skipped missing path: %s\n", target)
+			}
+
 			continue
 		} else if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: inspect %s: %v\n", target, err)
@@ -84,7 +99,18 @@ func runReset(cmd *cobra.Command, args []string) {
 			os.Exit(1)
 		}
 
-		fmt.Printf("Removed: %s\n", target)
+		if outputIsJSON() {
+			results = append(results, map[string]string{"path": target, "status": "removed"})
+		} else {
+			fmt.Printf("Removed: %s\n", target)
+		}
+	}
+
+	if outputIsJSON() {
+		runCLIError(writeJSON(os.Stdout, map[string]any{
+			"dry_run": false,
+			"targets": results,
+		}))
 	}
 }
 

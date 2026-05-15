@@ -130,7 +130,11 @@ func runLogin(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	fmt.Printf("Logged in as %s.\n", username)
+	if outputIsJSON() {
+		runCLIError(writeJSON(os.Stdout, map[string]string{"status": "logged_in", "username": username}))
+	} else {
+		fmt.Printf("Logged in as %s.\n", username)
+	}
 }
 
 func doLogin(username, password string) (string, error) {
@@ -198,7 +202,7 @@ func runLogout(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	fmt.Println("Logged out. Token removed.")
+	runCLIError(writeAction(os.Stdout, "Logged out. Token removed.", cliActionResult{Status: "logged_out"}))
 }
 
 var logoutCmd = &cobra.Command{
@@ -241,6 +245,10 @@ func tokenList(w io.Writer) error {
 
 	if err := json.NewDecoder(resp.Body).Decode(&tokens); err != nil {
 		return fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if outputIsJSON() {
+		return writeJSON(w, tokens)
 	}
 
 	for _, t := range tokens {
@@ -317,10 +325,15 @@ func tokenCreate(label, expiresIn string, userID int64, w io.Writer) error {
 			return fmt.Errorf("failed to parse response: %w", err)
 		}
 
+		if outputIsJSON() {
+			return writeJSON(w, result)
+		}
+
 		fmt.Fprintf(w, "Token created: %d (%s)\n%s\n", result.ID, result.Label, result.Token)
 		if result.ExpiresAt != "" {
 			fmt.Fprintf(w, "Expires: %s\n", result.ExpiresAt)
 		}
+
 		return nil
 	case http.StatusForbidden:
 		return fmt.Errorf("permission denied")
@@ -330,13 +343,13 @@ func tokenCreate(label, expiresIn string, userID int64, w io.Writer) error {
 }
 
 func runTokenDelete(cmd *cobra.Command, args []string) {
-	if err := tokenDelete(args[0]); err != nil {
+	if err := tokenDelete(args[0], os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func tokenDelete(tokenID string) error {
+func tokenDelete(tokenID string, w io.Writer) error {
 	req, err := newAPIRequest(http.MethodDelete, fmt.Sprintf("/api/v1/tokens/%s", tokenID), nil)
 	if err != nil {
 		return err
@@ -350,8 +363,7 @@ func tokenDelete(tokenID string) error {
 
 	switch resp.StatusCode {
 	case http.StatusNoContent:
-		fmt.Println("Token deleted.")
-		return nil
+		return writeAction(w, "Token deleted.", cliActionResult{Status: "deleted"})
 	case http.StatusNotFound:
 		return fmt.Errorf("token not found")
 	default:

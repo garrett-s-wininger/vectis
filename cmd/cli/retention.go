@@ -74,6 +74,29 @@ func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy,
 		return err
 	}
 
+	if outputIsJSON() {
+		return writeJSON(w, map[string]any{
+			"applied": !dryRun,
+			"dry_run": report.DryRun,
+			"cutoffs": map[string]string{
+				"terminal_runs":    retentionCutoff(report.Cutoffs.TerminalRuns),
+				"job_definitions":  retentionCutoff(report.Cutoffs.JobDefinitions),
+				"idempotency_keys": retentionCutoff(report.Cutoffs.IdempotencyKeys),
+				"audit_log":        retentionCutoff(report.Cutoffs.AuditLog),
+			},
+			"counts": map[string]int64{
+				"terminal_runs":       report.Counts.TerminalRuns,
+				"run_dispatch_events": report.Counts.RunDispatchEvents,
+				"job_definitions":     report.Counts.JobDefinitions,
+				"idempotency_keys":    report.Counts.IdempotencyKeys,
+				"audit_log":           report.Counts.AuditLog,
+				"run_log_files":       fileReport.RunLogFiles,
+				"run_log_bytes":       fileReport.RunLogBytes,
+			},
+			"audit": map[string]bool{"event_inserted": report.AuditEventInserted},
+		})
+	}
+
 	printRetentionReport(w, report, fileReport)
 	if dryRun {
 		fmt.Fprintln(w, "Cleanup not applied.")

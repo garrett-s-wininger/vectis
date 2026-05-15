@@ -60,8 +60,10 @@ func runLogStream(runID string, filterStdout, filterStderr bool) error {
 		return fmt.Errorf("log stream request failed: %s", resp.Status)
 	}
 
-	fmt.Printf("Connected to logs for run %s\n", runID)
-	fmt.Println("Streaming logs... (press Ctrl+C to exit)")
+	if !outputIsJSON() {
+		fmt.Printf("Connected to logs for run %s\n", runID)
+		fmt.Println("Streaming logs... (press Ctrl+C to exit)")
+	}
 
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, syscall.SIGINT, syscall.SIGTERM)
@@ -107,6 +109,12 @@ func runLogStream(runID string, filterStdout, filterStderr bool) error {
 				}
 
 				if entry.Stream == int(api.Stream_STREAM_CONTROL.Number()) {
+					if outputIsJSON() {
+						if err := writeCompactJSON(os.Stdout, entry); err != nil {
+							fmt.Fprintf(os.Stderr, "Error: failed to write log entry: %v\n", err)
+						}
+					}
+
 					var meta struct {
 						Event  string `json:"event"`
 						Status string `json:"status,omitempty"`
@@ -116,18 +124,20 @@ func runLogStream(runID string, filterStdout, filterStderr bool) error {
 						continue
 					}
 
-					switch meta.Event {
-					case "start":
-						fmt.Printf("\n=== Run %s started ===\n", runID)
-					case "completed":
-						status := meta.Status
-						switch status {
-						case "success":
-							fmt.Printf("Run %s finished successfully.\n", runID)
-						case "failure":
-							fmt.Printf("Run %s failed.\n", runID)
-						default:
-							fmt.Printf("Run %s finished (status: %s).\n", runID, status)
+					if !outputIsJSON() {
+						switch meta.Event {
+						case "start":
+							fmt.Printf("\n=== Run %s started ===\n", runID)
+						case "completed":
+							status := meta.Status
+							switch status {
+							case "success":
+								fmt.Printf("Run %s finished successfully.\n", runID)
+							case "failure":
+								fmt.Printf("Run %s failed.\n", runID)
+							default:
+								fmt.Printf("Run %s finished (status: %s).\n", runID, status)
+							}
 						}
 					}
 
@@ -143,6 +153,14 @@ func runLogStream(runID string, filterStdout, filterStderr bool) error {
 				}
 
 				if filterStderr && entry.Stream != int(api.Stream_STREAM_STDERR.Number()) {
+					continue
+				}
+
+				if outputIsJSON() {
+					if err := writeCompactJSON(os.Stdout, entry); err != nil {
+						fmt.Fprintf(os.Stderr, "Error: failed to write log entry: %v\n", err)
+					}
+
 					continue
 				}
 
@@ -174,7 +192,10 @@ func runLogStream(runID string, filterStdout, filterStderr bool) error {
 
 		return nil
 	case <-interrupt:
-		fmt.Println("\nDisconnecting...")
+		if !outputIsJSON() {
+			fmt.Println("\nDisconnecting...")
+		}
+
 		cancel()
 		<-done
 		return fmt.Errorf("interrupted")
@@ -183,7 +204,9 @@ func runLogStream(runID string, filterStdout, filterStderr bool) error {
 
 func runContinuousLogs(jobID string, filterStdout, filterStderr bool) error {
 	lastIndex := 0
-	fmt.Printf("Streaming logs for job %s (Ctrl+C to stop)\n", jobID)
+	if !outputIsJSON() {
+		fmt.Printf("Streaming logs for job %s (Ctrl+C to stop)\n", jobID)
+	}
 
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, syscall.SIGINT, syscall.SIGTERM)
@@ -305,7 +328,10 @@ outer:
 			select {
 			case <-interrupt:
 				attemptCancel()
-				fmt.Println("\nStopping.")
+				if !outputIsJSON() {
+					fmt.Println("\nStopping.")
+				}
+
 				return fmt.Errorf("interrupted")
 			case ev, ok := <-runChan:
 				if !ok {
