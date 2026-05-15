@@ -39,10 +39,18 @@ func rebindQueryForPgx(query string) string {
 }
 
 const (
+	RunStatusQueued    = "queued"
+	RunStatusRunning   = "running"
+	RunStatusSucceeded = "succeeded"
+	RunStatusFailed    = "failed"
+	RunStatusOrphaned  = "orphaned"
+	RunStatusAborted   = "aborted"
+
 	DefaultLeaseTTL          = 15 * time.Minute
 	DefaultRenewInterval     = 5 * time.Minute
 	OrphanReasonLeaseExpired = "lease_expired"
 	OrphanReasonAckUncertain = "ack_uncertain"
+	AbortReasonCancelled     = "cancelled"
 	FailureCodeExecution     = "execution_error"
 	FailureCodeForceFailed   = "force_failed"
 	DefaultCellID            = "local"
@@ -138,6 +146,7 @@ type RunsRepository interface {
 	MarkRunRunning(ctx context.Context, runID string) error
 	MarkRunSucceeded(ctx context.Context, runID, claimToken string) error
 	MarkRunFailed(ctx context.Context, runID, claimToken, failureCode, reason string) error
+	MarkRunAborted(ctx context.Context, runID, claimToken, reason string) error
 	MarkRunOrphaned(ctx context.Context, runID, claimToken, reason string) error
 	RequeueRunForRetry(ctx context.Context, runID string) error
 	MarkExpiredRunningAsOrphaned(ctx context.Context, cutoffUnix int64) ([]string, error)

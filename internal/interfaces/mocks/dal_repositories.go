@@ -208,6 +208,7 @@ type MockRunsRepository struct {
 	MarkRunRunningErr  error
 	MarkRunSuccessErr  error
 	MarkRunFailedErr   error
+	MarkRunAbortedErr  error
 	MarkRunOrphanedErr error
 	RequeueRunErr      error
 	MarkOrphanedErr    error
@@ -254,6 +255,10 @@ func (m *MockRunsRepository) MarkRunSucceeded(ctx context.Context, runID, claimT
 
 func (m *MockRunsRepository) MarkRunFailed(ctx context.Context, runID, claimToken, failureCode, reason string) error {
 	return m.MarkRunFailedErr
+}
+
+func (m *MockRunsRepository) MarkRunAborted(ctx context.Context, runID, claimToken, reason string) error {
+	return m.MarkRunAbortedErr
 }
 
 func (m *MockRunsRepository) MarkRunOrphaned(ctx context.Context, runID, claimToken, reason string) error {

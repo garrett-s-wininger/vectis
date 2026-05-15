@@ -51,6 +51,8 @@ const (
 	finalizeBackoffMax  = 2 * time.Second
 )
 
+var errRunCancelled = errors.New("run cancelled")
+
 func runWorker(cmd *cobra.Command, args []string) {
 	shutdownCtx := cmd.Context()
 	if shutdownCtx == nil {
@@ -65,7 +67,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 
 	cli.SetLogLevel(logger)
 
-	if err := config.ValidateGRPCTLSForRole(config.GRPCTLSDaemonClientOnly); err != nil {
+	if err := config.ValidateGRPCTLSForRole(config.GRPCTLSDaemonWorker); err != nil {
 		logger.Fatal("%v", err)
 	}
 
@@ -166,9 +168,13 @@ func runWorker(cmd *cobra.Command, args []string) {
 		logger.Warn("Failed to start worker control listener: %v", err)
 	} else {
 		controlServer := newWorkerControlServer(workerID, w.cancelCh, w.getCurrentRunInfo, logger)
-		startWorkerControlServer(shutdownCtx, controlListener, controlServer, logger)
+		if err := startWorkerControlServer(shutdownCtx, controlListener, controlServer, logger); err != nil {
+			logger.Warn("Failed to start worker control server: %v", err)
+			_ = controlListener.Close()
+			controlAddr = ""
+		}
 
-		if config.WorkerRegisterWithRegistry() {
+		if controlAddr != "" && config.WorkerRegisterWithRegistry() {
 			stopRegistration, err := registry.RegisterWithHeartbeat(shutdownCtx, registry.RegistrationOptions{
 				RegistryAddress: config.WorkerRegistrationRegistryAddress(),
 				Component:       api.Component_COMPONENT_WORKER,
@@ -224,7 +230,7 @@ func startControlListenerWithListen(listen controlListenFunc) (net.Listener, str
 			return nil, "", fmt.Errorf("listen ephemeral: %w", err)
 		}
 
-		return ln, ln.Addr().String(), nil
+		return ln, controlPublishAddress(ln.Addr().String()), nil
 	case "range":
 		minPort := config.WorkerControlPortMin()
 		maxPort := config.WorkerControlPortMax()
@@ -233,7 +239,7 @@ func startControlListenerWithListen(listen controlListenFunc) (net.Listener, str
 			ln, err := listen("tcp", addr)
 
 			if err == nil {
-				return ln, ln.Addr().String(), nil
+				return ln, controlPublishAddress(ln.Addr().String()), nil
 			}
 		}
 
@@ -245,8 +251,21 @@ func startControlListenerWithListen(listen controlListenFunc) (net.Listener, str
 			return nil, "", fmt.Errorf("listen %s: %w", addr, err)
 		}
 
-		return ln, ln.Addr().String(), nil
+		return ln, controlPublishAddress(ln.Addr().String()), nil
 	}
+}
+
+func controlPublishAddress(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+
+	if host == "" || host == "::" || host == "0.0.0.0" {
+		return net.JoinHostPort("localhost", port)
+	}
+
+	return addr
 }
 
 type worker struct {
@@ -524,6 +543,17 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 
 	execErr := w.executeWithLeaseRenewal(ctx, runID, claimToken, job)
 	if execErr != nil {
+		if errors.Is(execErr, errRunCancelled) {
+			span.AddEvent("run.cancelled")
+			span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeAborted))
+			if err := w.markRunAbortedWithRetry(runID, claimToken, dal.AbortReasonCancelled); err != nil {
+				w.logger.Error("Failed to mark run %s aborted: %v", runID, err)
+				span.RecordError(err)
+			}
+
+			return observability.WorkerOutcomeAborted
+		}
+
 		w.logger.Error("Job %s failed: %v", jobID, execErr)
 		span.RecordError(execErr)
 		span.SetStatus(otelcodes.Error, "execute with lease renewal")
@@ -684,6 +714,37 @@ func (w *worker) markRunFailedWithRetry(runID, claimToken, failureCode, reason s
 	return lastErr
 }
 
+func (w *worker) markRunAbortedWithRetry(runID, claimToken, reason string) error {
+	var lastErr error
+	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
+		err := w.store.MarkRunAborted(w.runCtx, runID, claimToken, reason)
+		if err == nil {
+			w.noteDBRecovered()
+			return nil
+		}
+		w.noteDBError(err)
+
+		lastErr = err
+		if !database.IsUnavailableError(err) {
+			break
+		}
+
+		if attempt == finalizeMaxAttempts {
+			break
+		}
+
+		delay := backoff.ExponentialDelay(finalizeBackoffBase, attempt-1, finalizeBackoffMax)
+		w.logger.Warn("MarkRunAborted run %s failed (attempt %d/%d): %v; retrying in %v",
+			runID, attempt, finalizeMaxAttempts, err, delay)
+
+		if sleepErr := w.clock.Sleep(w.runCtx, delay); sleepErr != nil {
+			return sleepErr
+		}
+	}
+
+	return lastErr
+}
+
 func (w *worker) markRunOrphanedWithRetry(runID, claimToken, reason string) error {
 	var lastErr error
 	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
@@ -741,6 +802,14 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, claimToken 
 
 	execCtx, execCancel := context.WithCancel(ctx)
 	defer execCancel()
+	cancelled := make(chan struct{})
+	var cancelOnce sync.Once
+	cancelRun := func() {
+		cancelOnce.Do(func() {
+			close(cancelled)
+			execCancel()
+		})
+	}
 
 	stopRenew := make(chan struct{})
 	doneRenew := make(chan struct{})
@@ -761,7 +830,7 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, claimToken 
 			case cancelledRunID := <-w.cancelCh:
 				if cancelledRunID == runID {
 					w.logger.Info("Cancelling run %s via remote request", runID)
-					execCancel()
+					cancelRun()
 				}
 			case <-stopCancel:
 				return
@@ -774,6 +843,15 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, claimToken 
 	err := w.executor.ExecuteJob(execCtx, job, w.logClient, w.logger)
 	close(stopRenew)
 	<-doneRenew
+
+	select {
+	case <-cancelled:
+		if err != nil {
+			return fmt.Errorf("%w: %v", errRunCancelled, err)
+		}
+		return errRunCancelled
+	default:
+	}
 
 	return err
 }

@@ -136,6 +136,15 @@ func TestWorkerRegistryDialAddress_FallbackToListenAddr(t *testing.T) {
 	}
 }
 
+func TestAPIRegistryDialAddress_FallbackToListenAddr(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	if got := APIRegistryDialAddress(); got != RegistryListenAddr() {
+		t.Fatalf("with empty viper expected default listen addr %q, got %q", RegistryListenAddr(), got)
+	}
+}
+
 func TestWorkerRegistryDialAddress_UsesRegistryAddressList(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)

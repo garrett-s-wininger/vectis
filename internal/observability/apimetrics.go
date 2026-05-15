@@ -139,7 +139,7 @@ func RegisterRetentionStorageMetrics(db *sql.DB) error {
 		query   string
 	}{
 		{"active_runs", `SELECT COUNT(*) FROM job_runs WHERE status NOT IN ('succeeded', 'failed')`},
-		{"terminal_runs", `SELECT COUNT(*) FROM job_runs WHERE status IN ('succeeded', 'failed')`},
+		{"terminal_runs", `SELECT COUNT(*) FROM job_runs WHERE status IN ('succeeded', 'failed', 'aborted')`},
 		{"run_dispatch_events", `SELECT COUNT(*) FROM run_dispatch_events`},
 		{"job_definitions", `SELECT COUNT(*) FROM job_definitions`},
 		{"idempotency_keys", `SELECT COUNT(*) FROM idempotency_keys`},
@@ -150,7 +150,7 @@ func RegisterRetentionStorageMetrics(db *sql.DB) error {
 		surface string
 		query   string
 	}{
-		{"terminal_runs", `SELECT CAST(MIN(finished_at) AS TEXT) FROM job_runs WHERE status IN ('succeeded', 'failed') AND finished_at IS NOT NULL`},
+		{"terminal_runs", `SELECT CAST(MIN(finished_at) AS TEXT) FROM job_runs WHERE status IN ('succeeded', 'failed', 'aborted') AND finished_at IS NOT NULL`},
 		{"job_definitions", `SELECT CAST(MIN(created_at) AS TEXT) FROM job_definitions`},
 		{"idempotency_keys", `SELECT CAST(MIN(updated_at) AS TEXT) FROM idempotency_keys`},
 		{"audit_log", `SELECT CAST(MIN(created_at) AS TEXT) FROM audit_log`},

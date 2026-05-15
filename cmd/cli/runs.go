@@ -292,7 +292,7 @@ func forceRequeueRun(cmd *cobra.Command, args []string) {
 		fmt.Fprintf(os.Stderr, "Error: run '%s' not found\n", runID)
 		os.Exit(1)
 	case http.StatusConflict:
-		fmt.Fprintf(os.Stderr, "Error: run '%s' is already succeeded and cannot be requeued\n", runID)
+		fmt.Fprintf(os.Stderr, "Error: run '%s' cannot be requeued from its current status\n", runID)
 		os.Exit(1)
 	default:
 		fmt.Fprintf(os.Stderr, "Error: unexpected status: %s\n", resp.Status)

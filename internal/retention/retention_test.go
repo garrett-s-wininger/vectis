@@ -26,23 +26,28 @@ func TestSQLCleanerPreviewDoesNotMutate(t *testing.T) {
 	if !report.DryRun {
 		t.Fatal("preview report should be dry-run")
 	}
-	if report.Counts.TerminalRuns != 2 {
-		t.Fatalf("terminal run candidates: got %d want 2", report.Counts.TerminalRuns)
+
+	if report.Counts.TerminalRuns != 3 {
+		t.Fatalf("terminal run candidates: got %d want 3", report.Counts.TerminalRuns)
 	}
-	if report.Counts.RunDispatchEvents != 2 {
-		t.Fatalf("dispatch event candidates: got %d want 2", report.Counts.RunDispatchEvents)
+
+	if report.Counts.RunDispatchEvents != 3 {
+		t.Fatalf("dispatch event candidates: got %d want 3", report.Counts.RunDispatchEvents)
 	}
-	if report.Counts.JobDefinitions != 3 {
-		t.Fatalf("job definition candidates: got %d want 3", report.Counts.JobDefinitions)
+
+	if report.Counts.JobDefinitions != 4 {
+		t.Fatalf("job definition candidates: got %d want 4", report.Counts.JobDefinitions)
 	}
+
 	if report.Counts.IdempotencyKeys != 1 {
 		t.Fatalf("idempotency candidates: got %d want 1", report.Counts.IdempotencyKeys)
 	}
+
 	if report.Counts.AuditLog != 1 {
 		t.Fatalf("audit candidates: got %d want 1", report.Counts.AuditLog)
 	}
 
-	assertCount(t, db, `SELECT COUNT(*) FROM job_runs`, 5)
+	assertCount(t, db, `SELECT COUNT(*) FROM job_runs`, 6)
 	assertCount(t, db, `SELECT COUNT(*) FROM audit_log WHERE event_type = 'retention.cleanup'`, 0)
 }
 
@@ -64,18 +69,20 @@ func TestSQLCleanerApplyDeletesOnlyEligibleState(t *testing.T) {
 	if !report.AuditEventInserted {
 		t.Fatal("cleanup should insert an audit event")
 	}
-	if report.Counts.TerminalRuns != 2 {
-		t.Fatalf("deleted terminal runs: got %d want 2", report.Counts.TerminalRuns)
-	}
-	if report.Counts.JobDefinitions != 3 {
-		t.Fatalf("deleted job definitions: got %d want 3", report.Counts.JobDefinitions)
+
+	if report.Counts.TerminalRuns != 3 {
+		t.Fatalf("deleted terminal runs: got %d want 3", report.Counts.TerminalRuns)
 	}
 
-	assertCount(t, db, `SELECT COUNT(*) FROM job_runs WHERE run_id IN ('old-success', 'old-failed')`, 0)
+	if report.Counts.JobDefinitions != 4 {
+		t.Fatalf("deleted job definitions: got %d want 4", report.Counts.JobDefinitions)
+	}
+
+	assertCount(t, db, `SELECT COUNT(*) FROM job_runs WHERE run_id IN ('old-success', 'old-failed', 'old-aborted')`, 0)
 	assertCount(t, db, `SELECT COUNT(*) FROM job_runs WHERE run_id IN ('queued-old', 'running-old', 'new-success')`, 3)
-	assertCount(t, db, `SELECT COUNT(*) FROM run_dispatch_events WHERE run_id IN ('old-success', 'old-failed')`, 0)
+	assertCount(t, db, `SELECT COUNT(*) FROM run_dispatch_events WHERE run_id IN ('old-success', 'old-failed', 'old-aborted')`, 0)
 	assertCount(t, db, `SELECT COUNT(*) FROM run_dispatch_events WHERE run_id = 'queued-old'`, 1)
-	assertCount(t, db, `SELECT COUNT(*) FROM job_definitions WHERE job_id IN ('old-success-job', 'old-failed-job', 'orphan-job')`, 0)
+	assertCount(t, db, `SELECT COUNT(*) FROM job_definitions WHERE job_id IN ('old-success-job', 'old-failed-job', 'old-aborted-job', 'orphan-job')`, 0)
 	assertCount(t, db, `SELECT COUNT(*) FROM job_definitions WHERE job_id = 'queued-job'`, 1)
 	assertCount(t, db, `SELECT COUNT(*) FROM idempotency_keys WHERE key = 'old-key'`, 0)
 	assertCount(t, db, `SELECT COUNT(*) FROM idempotency_keys WHERE key = 'new-key'`, 1)
@@ -131,11 +138,12 @@ func seedRetentionRows(t *testing.T, db *sql.DB, now time.Time) {
 
 	insertRun(t, db, "old-success", "old-success-job", "succeeded", old)
 	insertRun(t, db, "old-failed", "old-failed-job", "failed", old)
+	insertRun(t, db, "old-aborted", "old-aborted-job", "aborted", old)
 	insertRun(t, db, "queued-old", "queued-job", "queued", "")
 	insertRun(t, db, "running-old", "running-job", "running", "")
 	insertRun(t, db, "new-success", "new-success-job", "succeeded", recent)
 
-	for _, runID := range []string{"old-success", "old-failed", "queued-old"} {
+	for _, runID := range []string{"old-success", "old-failed", "old-aborted", "queued-old"} {
 		if _, err := db.Exec(`
 			INSERT INTO run_dispatch_events (run_id, source, event_type, created_at)
 			VALUES (?, 'test', 'attempt', ?)
@@ -144,7 +152,7 @@ func seedRetentionRows(t *testing.T, db *sql.DB, now time.Time) {
 		}
 	}
 
-	for _, jobID := range []string{"old-success-job", "old-failed-job", "queued-job", "orphan-job"} {
+	for _, jobID := range []string{"old-success-job", "old-failed-job", "old-aborted-job", "queued-job", "orphan-job"} {
 		if _, err := db.Exec(`
 			INSERT INTO job_definitions (job_id, version, definition_json, created_at)
 			VALUES (?, 1, '{}', ?)

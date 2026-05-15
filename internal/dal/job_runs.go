@@ -85,6 +85,41 @@ func (r *SQLRunsRepository) MarkRunFailed(ctx context.Context, runID, claimToken
 	return nil
 }
 
+func (r *SQLRunsRepository) MarkRunAborted(ctx context.Context, runID, claimToken, reason string) error {
+	if reason == "" {
+		reason = AbortReasonCancelled
+	}
+
+	query := `UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP, failure_code = '', failure_reason = ?,
+		orphan_reason = '', lease_owner = NULL, lease_until = NULL, claim_token = NULL, cancel_token = NULL WHERE run_id = ?`
+
+	args := []any{RunStatusAborted, reason, runID}
+	if claimToken != "" {
+		query += ` AND status IN ('running', 'orphaned') AND claim_token = ?`
+		args = append(args, claimToken)
+	}
+
+	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(query), args...)
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if claimToken == "" {
+		return nil
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if n == 0 {
+		return fmt.Errorf("mark run aborted: no matching active row for run_id=%q claim_token=%q", runID, claimToken)
+	}
+
+	return nil
+}
+
 func (r *SQLRunsRepository) MarkRunOrphaned(ctx context.Context, runID, claimToken, reason string) error {
 	if reason == "" {
 		reason = "unknown"
@@ -142,7 +177,7 @@ func (r *SQLRunsRepository) RequeueRunForRetry(ctx context.Context, runID string
 			claim_token = NULL,
 			last_dispatched_at = NULL
 		WHERE run_id = ?
-			AND status IN ('queued', 'failed', 'orphaned')
+			AND status IN ('queued', 'failed', 'orphaned', 'aborted')
 	`), runID)
 
 	if err != nil {
@@ -254,7 +289,6 @@ func (r *SQLRunsRepository) TryClaim(ctx context.Context, runID, owner string, l
 	now := time.Now().UTC()
 	nowUnix := now.Unix()
 	claimToken := uuid.NewString()
-	cancelToken := uuid.NewString()
 	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
 		UPDATE job_runs SET
 			lease_owner = ?,
@@ -269,7 +303,7 @@ func (r *SQLRunsRepository) TryClaim(ctx context.Context, runID, owner string, l
 		WHERE run_id = ?
 			AND status = 'queued'
 			AND (lease_until IS NULL OR lease_until < ?)
-	`), owner, leaseUntil.Unix(), claimToken, cancelToken, runID, nowUnix)
+	`), owner, leaseUntil.Unix(), claimToken, claimToken, runID, nowUnix)
 
 	if err != nil {
 		return false, "", normalizeSQLError(err)

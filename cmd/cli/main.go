@@ -164,7 +164,7 @@ func init() {
 	defaultRetention := retention.DefaultPolicy()
 	retentionCleanupCmd.Flags().BoolVar(&retentionYes, "yes", false, "Confirm deletion of retention-eligible records")
 	retentionCleanupCmd.Flags().BoolVar(&retentionDryRun, "dry-run", false, "Print the records that would be deleted")
-	retentionCleanupCmd.Flags().DurationVar(&retentionRunAge, "terminal-run-age", defaultRetention.TerminalRuns, "Delete succeeded/failed runs older than this duration (0 disables)")
+	retentionCleanupCmd.Flags().DurationVar(&retentionRunAge, "terminal-run-age", defaultRetention.TerminalRuns, "Delete succeeded/failed/aborted runs older than this duration (0 disables)")
 	retentionCleanupCmd.Flags().DurationVar(&retentionDefAge, "job-definition-age", defaultRetention.JobDefinitions, "Delete unreferenced ephemeral job definitions older than this duration (0 disables)")
 	retentionCleanupCmd.Flags().DurationVar(&retentionIdemAge, "idempotency-age", defaultRetention.IdempotencyKeys, "Delete idempotency keys older than this duration (0 disables)")
 	retentionCleanupCmd.Flags().DurationVar(&retentionAuditAge, "audit-age", defaultRetention.AuditLog, "Delete audit log rows older than this duration (0 disables)")

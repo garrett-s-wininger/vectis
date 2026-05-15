@@ -315,7 +315,7 @@ func (s *APIServer) CancelRun(w http.ResponseWriter, r *http.Request) {
 		"namespace": nsPath,
 	})
 
-	s.logger.Warn("Run cancel sent to worker: %s", runID)
+	s.logger.Info("Cancelation request sent to worker: %s", runID)
 	w.WriteHeader(http.StatusNoContent)
 }
 

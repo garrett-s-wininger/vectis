@@ -865,6 +865,122 @@ func TestWorkerDrain_ShutdownDuringRun_StillFinalizesRun(t *testing.T) {
 	}
 }
 
+func TestWorkerRunClaimedJob_RemoteCancel_MarksRunAborted(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositories(db)
+	runs := repos.Runs()
+
+	runID, _, err := runs.CreateRun(ctx, "job-worker-cancel", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	w := &worker{
+		ctx:           context.Background(),
+		runCtx:        context.Background(),
+		logger:        interfaces.NewLogger("worker-test"),
+		workerID:      "worker-cancel",
+		clock:         interfaces.SystemClock{},
+		renewInterval: time.Hour,
+		queue:         mocks.NewMockQueueClient(),
+		logClient:     mocks.NewMockLogClient(),
+		executor:      job.NewExecutor(),
+		store:         runs,
+		cancelCh:      make(chan string, 1),
+	}
+
+	jobID := "job-worker-cancel"
+	deliveryID := "delivery-cancel"
+	commandNodeID := "node-1"
+	command := "exec sleep 5"
+	action := "builtins/shell"
+	root := &api.Node{
+		Id:   &commandNodeID,
+		Uses: &action,
+		With: map[string]string{"command": command},
+	}
+
+	j := &api.Job{
+		Id:         &jobID,
+		RunId:      &runID,
+		DeliveryId: &deliveryID,
+		Root:       root,
+	}
+
+	outcomeCh := make(chan string, 1)
+	finished := make(chan struct{})
+	go func() {
+		outcomeCh <- w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID)
+		close(finished)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		currentRunID, _ := w.getCurrentRunInfo()
+		if currentRunID == runID {
+			break
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for worker to start cancellable run")
+		}
+
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	cancelTicker := time.NewTicker(10 * time.Millisecond)
+	defer cancelTicker.Stop()
+	go func() {
+		for {
+			select {
+			case <-finished:
+				return
+			case <-cancelTicker.C:
+				select {
+				case w.cancelCh <- runID:
+				default:
+				}
+			}
+		}
+	}()
+
+	var outcome string
+	select {
+	case outcome = <-outcomeCh:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for canceled run to finish")
+	}
+
+	if outcome != "aborted" {
+		t.Fatalf("expected worker outcome aborted, got %q", outcome)
+	}
+
+	var statusVal string
+	var failureCode string
+	var failureReason sql.NullString
+	var finishedAt sql.NullString
+	if err := db.QueryRowContext(ctx, `
+		SELECT status, failure_code, failure_reason, CAST(finished_at AS TEXT)
+		FROM job_runs WHERE run_id = ?
+	`, runID).Scan(&statusVal, &failureCode, &failureReason, &finishedAt); err != nil {
+		t.Fatalf("query canceled run: %v", err)
+	}
+
+	if statusVal != dal.RunStatusAborted {
+		t.Fatalf("expected aborted status, got %q", statusVal)
+	}
+	if failureCode != "" {
+		t.Fatalf("expected empty failure_code, got %q", failureCode)
+	}
+	if !failureReason.Valid || failureReason.String != dal.AbortReasonCancelled {
+		t.Fatalf("expected failure_reason %q, got %v", dal.AbortReasonCancelled, failureReason)
+	}
+	if !finishedAt.Valid {
+		t.Fatal("expected finished_at to be set for aborted run")
+	}
+}
+
 func TestHandleDequeueError_ContextCanceledStops(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1103,6 +1219,20 @@ func TestStartControlListener_EphemeralUsesZeroPort(t *testing.T) {
 
 	if addr != "127.0.0.1:0" {
 		t.Fatalf("addr = %q, want %q", addr, "127.0.0.1:0")
+	}
+}
+
+func TestControlPublishAddress_NormalizesUnspecifiedHost(t *testing.T) {
+	if got := controlPublishAddress("[::]:19084"); got != "localhost:19084" {
+		t.Fatalf("IPv6 unspecified addr = %q, want localhost:19084", got)
+	}
+
+	if got := controlPublishAddress("0.0.0.0:19084"); got != "localhost:19084" {
+		t.Fatalf("IPv4 unspecified addr = %q, want localhost:19084", got)
+	}
+
+	if got := controlPublishAddress("127.0.0.1:19084"); got != "127.0.0.1:19084" {
+		t.Fatalf("loopback addr = %q, want 127.0.0.1:19084", got)
 	}
 }
 

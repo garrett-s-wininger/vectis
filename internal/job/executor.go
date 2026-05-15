@@ -127,6 +127,15 @@ func (e *Executor) executeJob(ctx context.Context, job *api.Job, logClient inter
 	result := e.executeNode(ctx, job.GetRoot(), state)
 
 	if result.Status == action.StatusFailure {
+		if ctx.Err() != nil {
+			sendCompletionLog(state, api.Stream_STREAM_CONTROL, `{"event":"completed","status":"aborted"}`, api.RunOutcome_RUN_OUTCOME_UNKNOWN)
+			if result.Error == nil {
+				return ctx.Err()
+			}
+
+			return result.Error
+		}
+
 		logger.Error("Job failed: %v", result.Error)
 		sendCompletionLog(state, api.Stream_STREAM_CONTROL, `{"event":"completed","status":"failure"}`, api.RunOutcome_RUN_OUTCOME_FAILURE)
 		return result.Error

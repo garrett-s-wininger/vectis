@@ -13,6 +13,7 @@ import (
 const (
 	WorkerOutcomeSuccess          = "success"
 	WorkerOutcomeFailed           = "failed"
+	WorkerOutcomeAborted          = "aborted"
 	WorkerOutcomeSkippedUnclaimed = "skipped_unclaimed"
 )
 

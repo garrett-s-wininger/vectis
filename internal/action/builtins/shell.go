@@ -67,6 +67,10 @@ func (s *ShellAction) Execute(ctx context.Context, state *action.ExecutionState,
 	cmdErr := process.Wait()
 
 	if cmdErr != nil {
+		if ctx.Err() != nil {
+			return action.NewFailureResult(fmt.Errorf("command cancelled: %w", cmdErr))
+		}
+
 		state.Logger.Error("Command failed: %v", cmdErr)
 		sendLog(state, api.Stream_STREAM_STDERR, fmt.Sprintf("Command failed: %v", cmdErr))
 		return action.NewFailureResult(fmt.Errorf("command failed: %w", cmdErr))

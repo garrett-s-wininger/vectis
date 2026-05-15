@@ -108,7 +108,7 @@ func (c *SQLCleaner) Apply(ctx context.Context, policy Policy, now time.Time) (R
 			WHERE run_id IN (
 				SELECT run_id
 				FROM job_runs
-				WHERE status IN ('succeeded', 'failed')
+				WHERE status IN ('succeeded', 'failed', 'aborted')
 					AND finished_at IS NOT NULL
 					AND finished_at < ?
 			)
@@ -118,13 +118,15 @@ func (c *SQLCleaner) Apply(ctx context.Context, policy Policy, now time.Time) (R
 
 		deletedRuns, err := execRows(ctx, tx, `
 			DELETE FROM job_runs
-			WHERE status IN ('succeeded', 'failed')
+			WHERE status IN ('succeeded', 'failed', 'aborted')
 				AND finished_at IS NOT NULL
 				AND finished_at < ?
 		`, sqlTimeParam(*report.Cutoffs.TerminalRuns))
+
 		if err != nil {
 			return Report{}, fmt.Errorf("delete terminal runs: %w", err)
 		}
+
 		counts.TerminalRuns = deletedRuns
 	}
 
@@ -188,11 +190,12 @@ func (c *SQLCleaner) TerminalRunIDs(ctx context.Context, retention time.Duration
 	rows, err := c.db.QueryContext(ctx, rebind(`
 		SELECT run_id
 		FROM job_runs
-		WHERE status IN ('succeeded', 'failed')
+		WHERE status IN ('succeeded', 'failed', 'aborted')
 			AND finished_at IS NOT NULL
 			AND finished_at < ?
 		ORDER BY id ASC
 	`), sqlTimeParam(cutoff))
+
 	if err != nil {
 		return nil, err
 	}
@@ -220,10 +223,11 @@ func (c *SQLCleaner) counts(ctx context.Context, tx *sql.Tx, cutoffs Cutoffs) (C
 		out.TerminalRuns, err = c.queryCount(ctx, tx, `
 			SELECT COUNT(*)
 			FROM job_runs
-			WHERE status IN ('succeeded', 'failed')
+			WHERE status IN ('succeeded', 'failed', 'aborted')
 				AND finished_at IS NOT NULL
 				AND finished_at < ?
 		`, sqlTimeParam(*cutoffs.TerminalRuns))
+
 		if err != nil {
 			return Counts{}, fmt.Errorf("count terminal runs: %w", err)
 		}
@@ -234,7 +238,7 @@ func (c *SQLCleaner) counts(ctx context.Context, tx *sql.Tx, cutoffs Cutoffs) (C
 			WHERE run_id IN (
 				SELECT run_id
 				FROM job_runs
-				WHERE status IN ('succeeded', 'failed')
+				WHERE status IN ('succeeded', 'failed', 'aborted')
 					AND finished_at IS NOT NULL
 					AND finished_at < ?
 			)
@@ -259,7 +263,7 @@ func (c *SQLCleaner) counts(ctx context.Context, tx *sql.Tx, cutoffs Cutoffs) (C
 		if cutoffs.TerminalRuns != nil {
 			query += `
 						AND NOT (
-							status IN ('succeeded', 'failed')
+							status IN ('succeeded', 'failed', 'aborted')
 							AND finished_at IS NOT NULL
 							AND finished_at < ?
 						)

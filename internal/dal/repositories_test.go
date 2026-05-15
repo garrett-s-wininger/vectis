@@ -249,6 +249,14 @@ func TestRunsRepository_ClaimRenewAndDispatchQueries(t *testing.T) {
 		t.Fatal("expected non-empty claim token on successful claim")
 	}
 
+	cancelRec, err := runs.GetRunForCancel(ctx, runID)
+	if err != nil {
+		t.Fatalf("get run for cancel: %v", err)
+	}
+	if cancelRec.CancelToken != claimToken {
+		t.Fatalf("cancel token should match worker claim token, got cancel=%q claim=%q", cancelRec.CancelToken, claimToken)
+	}
+
 	claimed, _, err = runs.TryClaim(ctx, runID, "worker-2", time.Now().Add(1*time.Minute))
 	if err != nil {
 		t.Fatalf("try claim second: %v", err)
@@ -573,6 +581,10 @@ func TestRunsRepository_FencingTokenRejectsStaleFailedAndOrphaned(t *testing.T) 
 		t.Fatal("expected stale token MarkRunOrphaned to fail")
 	}
 
+	if err := runs.MarkRunAborted(ctx, runID, tokenA, dal.AbortReasonCancelled); err == nil {
+		t.Fatal("expected stale token MarkRunAborted to fail")
+	}
+
 	var status string
 	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&status); err != nil {
 		t.Fatalf("scan status after stale transitions: %v", err)
@@ -584,6 +596,76 @@ func TestRunsRepository_FencingTokenRejectsStaleFailedAndOrphaned(t *testing.T) 
 
 	if err := runs.MarkRunSucceeded(ctx, runID, tokenB); err != nil {
 		t.Fatalf("mark succeeded with active token: %v", err)
+	}
+}
+
+func TestRunsRepository_MarkRunAborted_SetsAbortedTerminalState(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	runs := dal.NewSQLRepositories(db).Runs()
+	ctx := context.Background()
+
+	runID, _, err := runs.CreateRun(ctx, "job-abort-run", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	claimed, token, err := runs.TryClaim(ctx, runID, "worker-a", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("try claim: %v", err)
+	}
+	if !claimed || token == "" {
+		t.Fatalf("expected claim token, got claimed=%v token=%q", claimed, token)
+	}
+
+	if err := runs.MarkRunAborted(ctx, runID, token, dal.AbortReasonCancelled); err != nil {
+		t.Fatalf("mark run aborted: %v", err)
+	}
+
+	var status string
+	var failureCode string
+	var failure sql.NullString
+	var finishedAt sql.NullString
+	var claimToken sql.NullString
+	var cancelToken sql.NullString
+	var leaseOwner sql.NullString
+	var leaseUntil sql.NullInt64
+	if err := db.QueryRowContext(ctx, `
+		SELECT status, failure_code, failure_reason, CAST(finished_at AS TEXT), claim_token, cancel_token, lease_owner, lease_until
+		FROM job_runs WHERE run_id = ?
+	`, runID).Scan(&status, &failureCode, &failure, &finishedAt, &claimToken, &cancelToken, &leaseOwner, &leaseUntil); err != nil {
+		t.Fatalf("query aborted run: %v", err)
+	}
+
+	if status != dal.RunStatusAborted {
+		t.Fatalf("expected aborted status, got %q", status)
+	}
+
+	if failureCode != "" {
+		t.Fatalf("expected empty failure_code, got %q", failureCode)
+	}
+
+	if !failure.Valid || failure.String != dal.AbortReasonCancelled {
+		t.Fatalf("expected failure_reason %q, got %v", dal.AbortReasonCancelled, failure)
+	}
+
+	if !finishedAt.Valid {
+		t.Fatal("expected finished_at to be set")
+	}
+
+	if claimToken.Valid || cancelToken.Valid || leaseOwner.Valid || leaseUntil.Valid {
+		t.Fatalf("expected abort to clear runtime fields; got claim=%v cancel=%v owner=%v lease_until=%v", claimToken, cancelToken, leaseOwner, leaseUntil)
+	}
+
+	if err := runs.RequeueRunForRetry(ctx, runID); err != nil {
+		t.Fatalf("expected aborted run to be requeueable: %v", err)
+	}
+
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&status); err != nil {
+		t.Fatalf("query requeued aborted run: %v", err)
+	}
+
+	if status != dal.RunStatusQueued {
+		t.Fatalf("expected queued status after requeue, got %q", status)
 	}
 }
 

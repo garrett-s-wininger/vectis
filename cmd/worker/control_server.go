@@ -9,6 +9,7 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/cli"
+	"vectis/internal/config"
 	"vectis/internal/interfaces"
 )
 
@@ -49,8 +50,13 @@ func (s *workerControlServer) CancelRun(ctx context.Context, req *api.CancelRunR
 	return &api.Empty{}, nil
 }
 
-func startWorkerControlServer(ctx context.Context, listener net.Listener, server *workerControlServer, logger interfaces.Logger) {
-	srv := grpc.NewServer()
+func startWorkerControlServer(ctx context.Context, listener net.Listener, server *workerControlServer, logger interfaces.Logger) error {
+	srvOpts, err := config.GRPCServerOptions()
+	if err != nil {
+		return fmt.Errorf("worker control grpc tls: %w", err)
+	}
+
+	srv := grpc.NewServer(srvOpts...)
 	api.RegisterWorkerControlServiceServer(srv, server)
 
 	go func() {
@@ -58,4 +64,6 @@ func startWorkerControlServer(ctx context.Context, listener net.Listener, server
 			logger.Error("Worker control server: %v", err)
 		}
 	}()
+
+	return nil
 }

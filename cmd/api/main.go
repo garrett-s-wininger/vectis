@@ -156,7 +156,7 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 	server.SetRetryMetrics(retryMetrics)
 
 	// Wire up worker address resolution via registry for cancel endpoint.
-	if regAddr := config.APIRegistryAddress(); regAddr != "" {
+	if regAddr := config.APIRegistryDialAddress(); regAddr != "" {
 		regCtx, regCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		registryClient, err := registry.New(regCtx, regAddr, logger, interfaces.SystemClock{}, retryMetrics)
 		regCancel()
