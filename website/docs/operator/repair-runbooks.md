@@ -9,7 +9,7 @@ Use `vectis-cli runs show <run-id>` as the first run-specific command. It includ
 | Symptom or check | Recipe |
 | --- | --- |
 | `queue.backlog.ratio`, queue backlog alert, queued run not starting | [Queued Runs Or Backlog](#queued-runs-or-backlog) |
-| `reconciler.active`, `reconciler.stuck.runs`, reconciler alert | [Reconciler Repair](#reconciler-repair) |
+| `reconciler.stuck.runs`, reconciler alert | [Reconciler Repair](#reconciler-repair) |
 | `log.reachable`, log append/drop alert | [Log Service Repair](#log-service-repair) |
 | `audit.drops.recent`, `audit.flush.failures`, audit alert | [Audit Durability Repair](#audit-durability-repair) |
 | `db.connection.pool`, DB pool alert | [Database Pool Pressure](#database-pool-pressure) |
@@ -21,7 +21,7 @@ Use `vectis-cli runs show <run-id>` as the first run-specific command. It includ
 
 Use this when queued runs are not draining, `doctor` warns on `queue.backlog.ratio`, or `VectisQueueBacklogGrowing` fires.
 
-1. Run `vectis-cli health check --strict` and note failures for `api.ready`, `queue.backlog.ratio`, `reconciler.active`, and `reconciler.stuck.runs`.
+1. Run `vectis-cli health check --strict` and note failures for `api.ready`, `queue.backlog.ratio`, and `reconciler.stuck.runs`.
 2. For a specific run, run `vectis-cli runs show <run-id>` and inspect `status` plus `dispatch_events`.
 3. If there is no dispatch event, follow [DISPATCH_VISIBILITY.md#runbook-queued-with-no-dispatch](dispatch-visibility.md#runbook-queued-with-no-dispatch).
 4. If dispatch failed, follow [DISPATCH_VISIBILITY.md#runbook-dispatch-failure](dispatch-visibility.md#runbook-dispatch-failure).
@@ -32,7 +32,7 @@ Use this when queued runs are not draining, `doctor` warns on `queue.backlog.rat
 
 ## Reconciler Repair
 
-Use this when `doctor` warns on `reconciler.active` or `reconciler.stuck.runs`, or `VectisReconcilerReenqueueFailures` fires.
+Use this when `doctor` warns on `reconciler.stuck.runs`, cannot read reconciler recovery visibility, or `VectisReconcilerReenqueueFailures` fires.
 
 1. Confirm API readiness: `vectis-cli health check --strict`.
 2. Confirm exactly one active reconciler for the current scale posture; see [SCALING_AND_RESTARTS.md](scaling-and-restarts.md).

@@ -26,6 +26,7 @@ const (
 
 type setupStatusResponse struct {
 	SetupComplete bool `json:"setup_complete"`
+	AuthEnabled   bool `json:"auth_enabled"`
 }
 
 type setupCompleteRequest struct {
@@ -63,7 +64,10 @@ func (s *APIServer) GetSetupStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, setupStatusResponse{SetupComplete: complete})
+	writeJSON(w, http.StatusOK, setupStatusResponse{
+		SetupComplete: complete,
+		AuthEnabled:   config.APIAuthEnabled(),
+	})
 }
 
 func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {

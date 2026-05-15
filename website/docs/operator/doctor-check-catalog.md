@@ -21,10 +21,10 @@ Use `--json` for the full machine-readable check model, including severity, evid
 | --- | --- | --- | --- | --- |
 | `api.live` | critical | `GET /health/live` | API liveness endpoint returns `200`. | Check the API process and listener. |
 | `api.ready` | critical | `GET /health/ready` | API readiness endpoint returns `200`. | Check database and queue connectivity; see [Schema Or Migration Repair](repair-runbooks.md#schema-or-migration-repair) if schema/database state is the issue. |
-| `setup.status` | warning | `GET /api/v1/setup/status` | Setup status is readable; incomplete setup warns. | Complete setup or confirm the deployment is intentionally pre-setup. |
-| `cli.token` | warning | Local CLI config / `VECTIS_API_TOKEN` | A CLI API token is configured. | Run `vectis-cli login` or set `VECTIS_API_TOKEN` when auth is enabled. |
+| `setup.status` | warning | `GET /api/v1/setup/status` | Setup status is readable; incomplete setup warns only when API auth is enabled. | Complete setup when API auth is enabled. |
+| `cli.token` | warning | Local CLI config / `VECTIS_API_TOKEN` | A CLI API token is configured when API auth is enabled; auth-disabled deployments do not require one. | Run `vectis-cli login` or set `VECTIS_API_TOKEN` when auth is enabled. |
 | `db.schema.current` | critical | `GET /api/v1/schema/status` | Schema exists and reports a migration version. | [Schema Or Migration Repair](repair-runbooks.md#schema-or-migration-repair). |
-| `reconciler.active` | warning | `GET /api/v1/reconciler/heartbeat` | A reconciler dispatch event has been observed. | [Reconciler Repair](repair-runbooks.md#reconciler-repair). |
+| `reconciler.active` | warning | `GET /api/v1/reconciler/heartbeat` | The recovery activity endpoint is readable; no activity is healthy when no runs need recovery. | [Reconciler Repair](repair-runbooks.md#reconciler-repair). |
 | `audit.drops.recent` | warning | `GET /api/v1/audit/drops` | Audit dropped-event counter is zero. | [Audit Durability Repair](repair-runbooks.md#audit-durability-repair). |
 | `db.connection.pool` | warning | `GET /api/v1/db/pool-stats` | Pool is not fully in use with recorded waits. | [Database Pool Pressure](repair-runbooks.md#database-pool-pressure). |
 | `queue.backlog.ratio` | warning | `GET /api/v1/queue/backlog` | Queued run count is within the built-in threshold. | [Queued Runs Or Backlog](repair-runbooks.md#queued-runs-or-backlog). |

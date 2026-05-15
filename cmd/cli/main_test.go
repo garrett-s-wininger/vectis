@@ -626,7 +626,7 @@ func TestDoctor_success(t *testing.T) {
 		case "/health/live", "/health/ready":
 			w.WriteHeader(http.StatusOK)
 		case "/api/v1/setup/status":
-			_ = json.NewEncoder(w).Encode(map[string]bool{"setup_complete": true})
+			_ = json.NewEncoder(w).Encode(map[string]bool{"setup_complete": true, "auth_enabled": true})
 		case "/api/v1/schema/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"current_version": 5, "has_schema": true})
 		case "/api/v1/reconciler/heartbeat":
@@ -658,18 +658,32 @@ func TestDoctor_success(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"pass\tapi.live\tAPI liveness probe passed",
-		"pass\tapi.ready\tAPI readiness probe passed",
-		"pass\tsetup.status\tinitial setup is complete",
-		"pass\tcli.token\tCLI API token is configured",
-		"pass\tdb.schema.current\tschema at version 5",
-		"pass\treconciler.active\treconciler has recent activity",
-		"pass\taudit.drops.recent\tno audit events dropped",
-		"pass\tdb.connection.pool\tpool healthy",
-		"pass\tqueue.backlog.ratio\tbacklog ok",
-		"pass\treconciler.stuck.runs\tno stuck runs",
-		"pass\tlog.reachable\tlog service is reachable",
-		"pass\taudit.flush.failures\tno audit flush failures",
+		"Vectis health check",
+		"Overall: PASS  16 passed, 0 warnings, 0 failed",
+		"Core",
+		"OK    API liveness",
+		"OK    API readiness",
+		"OK    Initial setup",
+		"OK    CLI token",
+		"Database",
+		"OK    Schema",
+		"OK    Connection pool",
+		"Queue",
+		"OK    Backlog",
+		"OK    Persistence filesystem",
+		"Reconciler",
+		"OK    Recovery activity",
+		"reconciler recovery activity recorded",
+		"OK    Stuck runs",
+		"Logging",
+		"OK    Log service",
+		"OK    Log storage",
+		"OK    Forwarder spool",
+		"Audit",
+		"OK    Recent drops",
+		"OK    Flush failures",
+		"TLS",
+		"OK    Files",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q in output:\n%s", want, out)
@@ -689,7 +703,7 @@ func TestDoctor_warnsForIncompleteSetupAndMissingToken(t *testing.T) {
 		case "/health/live", "/health/ready":
 			w.WriteHeader(http.StatusOK)
 		case "/api/v1/setup/status":
-			_ = json.NewEncoder(w).Encode(map[string]bool{"setup_complete": false})
+			_ = json.NewEncoder(w).Encode(map[string]bool{"setup_complete": false, "auth_enabled": true})
 		case "/api/v1/schema/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"current_version": 5, "has_schema": true})
 		case "/api/v1/reconciler/heartbeat":
@@ -723,8 +737,61 @@ func TestDoctor_warnsForIncompleteSetupAndMissingToken(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"warn\tsetup.status\tinitial setup is not complete",
-		"warn\tcli.token\tno CLI API token configured",
+		"Overall: WARN  14 passed, 2 warnings, 0 failed",
+		"WARN  Initial setup",
+		"initial setup is not complete",
+		"WARN  CLI token",
+		"no CLI API token configured",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in output:\n%s", want, out)
+		}
+	}
+}
+
+func TestDoctor_setupAndTokenPassWhenAuthDisabled(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health/live", "/health/ready":
+			w.WriteHeader(http.StatusOK)
+		case "/api/v1/setup/status":
+			_ = json.NewEncoder(w).Encode(map[string]bool{"setup_complete": false, "auth_enabled": false})
+		case "/api/v1/schema/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"current_version": 5, "has_schema": true})
+		case "/api/v1/reconciler/heartbeat":
+			_ = json.NewEncoder(w).Encode(map[string]any{"active": false})
+		case "/api/v1/audit/drops":
+			_ = json.NewEncoder(w).Encode(map[string]any{"dropped": 0})
+		case "/api/v1/db/pool-stats":
+			_ = json.NewEncoder(w).Encode(map[string]any{"open_connections": 3, "in_use": 1, "wait_count": 0})
+		case "/api/v1/queue/backlog":
+			_ = json.NewEncoder(w).Encode(map[string]any{"queued": 0})
+		case "/api/v1/reconciler/stuck-runs":
+			_ = json.NewEncoder(w).Encode(map[string]any{"stuck": 0})
+		case "/api/v1/log/reachable":
+			_ = json.NewEncoder(w).Encode(map[string]any{"reachable": true, "state": "READY"})
+		case "/api/v1/audit/flush-failures":
+			_ = json.NewEncoder(w).Encode(map[string]any{"flush_failures": 0})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	t.Setenv("VECTIS_API_TOKEN", "")
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+	var buf bytes.Buffer
+	if err := doctor(&buf); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{
+		"Overall: PASS  16 passed, 0 warnings, 0 failed",
+		"initial setup not required; API auth is disabled",
+		"CLI API token not required; API auth is disabled",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q in output:\n%s", want, out)
@@ -740,7 +807,7 @@ func TestDoctor_failsWhenRequiredCheckFails(t *testing.T) {
 		case "/health/ready":
 			w.WriteHeader(http.StatusServiceUnavailable)
 		case "/api/v1/setup/status":
-			_ = json.NewEncoder(w).Encode(map[string]bool{"setup_complete": true})
+			_ = json.NewEncoder(w).Encode(map[string]bool{"setup_complete": true, "auth_enabled": true})
 		case "/api/v1/schema/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"current_version": 5, "has_schema": true})
 		case "/api/v1/reconciler/heartbeat":
@@ -771,7 +838,9 @@ func TestDoctor_failsWhenRequiredCheckFails(t *testing.T) {
 	}
 
 	out := buf.String()
-	if !strings.Contains(out, "fail\tapi.ready\tunexpected status: 503 Service Unavailable") {
+	if !strings.Contains(out, "Overall: FAIL  15 passed, 0 warnings, 1 failed") ||
+		!strings.Contains(out, "FAIL  API readiness") ||
+		!strings.Contains(out, "unexpected status: 503 Service Unavailable") {
 		t.Fatalf("missing readiness failure in output:\n%s", out)
 	}
 }
@@ -782,7 +851,7 @@ func TestDoctor_jsonOutput(t *testing.T) {
 		case "/health/live", "/health/ready":
 			w.WriteHeader(http.StatusOK)
 		case "/api/v1/setup/status":
-			_ = json.NewEncoder(w).Encode(map[string]bool{"setup_complete": true})
+			_ = json.NewEncoder(w).Encode(map[string]bool{"setup_complete": true, "auth_enabled": true})
 		case "/api/v1/schema/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"current_version": 5, "has_schema": true})
 		case "/api/v1/reconciler/heartbeat":
@@ -849,7 +918,7 @@ func TestDoctor_jsonOutputStillFailsOnFailedCheck(t *testing.T) {
 		case "/health/ready":
 			w.WriteHeader(http.StatusServiceUnavailable)
 		case "/api/v1/setup/status":
-			_ = json.NewEncoder(w).Encode(map[string]bool{"setup_complete": true})
+			_ = json.NewEncoder(w).Encode(map[string]bool{"setup_complete": true, "auth_enabled": true})
 		case "/api/v1/schema/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"current_version": 5, "has_schema": true})
 		case "/api/v1/reconciler/heartbeat":
@@ -993,7 +1062,7 @@ func TestDoctor_strictWarnsExitNonzero(t *testing.T) {
 		case "/health/live", "/health/ready":
 			w.WriteHeader(http.StatusOK)
 		case "/api/v1/setup/status":
-			_ = json.NewEncoder(w).Encode(map[string]bool{"setup_complete": false})
+			_ = json.NewEncoder(w).Encode(map[string]bool{"setup_complete": false, "auth_enabled": true})
 		case "/api/v1/schema/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"current_version": 5, "has_schema": true})
 		case "/api/v1/reconciler/heartbeat":
@@ -1026,7 +1095,33 @@ func TestDoctor_strictWarnsExitNonzero(t *testing.T) {
 	}
 
 	out := buf.String()
-	if !strings.Contains(out, "warn\tsetup.status") {
+	if !strings.Contains(out, "WARN  Initial setup") {
 		t.Fatalf("expected warning in output:\n%s", out)
 	}
+}
+
+func TestDoctor_reconcilerNoRecoveryActivityIsHealthy(t *testing.T) {
+	check := doctorCheckReconcilerActivityResponse(t, map[string]any{"active": false})
+	if check.Status != doctorOK {
+		t.Fatalf("expected no recovery activity to pass, got %#v", check)
+	}
+
+	if !strings.Contains(check.Summary, "no reconciler recovery activity recorded") {
+		t.Fatalf("unexpected summary: %q", check.Summary)
+	}
+}
+
+func doctorCheckReconcilerActivityResponse(t *testing.T, body map[string]any) doctorCheck {
+	t.Helper()
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/reconciler/heartbeat" {
+			t.Errorf("unexpected path=%s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		_ = json.NewEncoder(w).Encode(body)
+	})
+
+	return doctorReconcilerActive()
 }

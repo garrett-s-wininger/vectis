@@ -14,6 +14,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"vectis/internal/config"
 	"vectis/internal/utils"
 )
 
@@ -41,6 +42,7 @@ type doctorCheck struct {
 	Evidence        string         `json:"evidence,omitempty"`
 	SuggestedAction string         `json:"action,omitempty"`
 	DocLink         string         `json:"doc,omitempty"`
+	apiAuthEnabled  bool
 }
 
 var doctorJSON bool
@@ -62,11 +64,12 @@ func runDoctor(cmd *cobra.Command, args []string) {
 }
 
 func doctor(w io.Writer) error {
+	setupStatus := doctorSetupStatus()
 	checks := []doctorCheck{
 		doctorHTTPStatus("api.live", http.MethodGet, "/health/live", http.StatusOK, "API liveness probe passed", severityCritical, "API liveness", "Check API server process", "website/docs/operator/runbooks.md"),
 		doctorHTTPStatus("api.ready", http.MethodGet, "/health/ready", http.StatusOK, "API readiness probe passed", severityCritical, "API readiness", "Check API server and dependencies (DB, queue)", "website/docs/operator/runbooks.md"),
-		doctorSetupStatus(),
-		doctorCLIToken(),
+		setupStatus,
+		doctorCLIToken(setupStatus.apiAuthEnabled),
 		doctorSchemaCurrent(),
 		doctorReconcilerActive(),
 		doctorAuditDrops(),
@@ -89,11 +92,118 @@ func doctor(w io.Writer) error {
 }
 
 func writeDoctorText(w io.Writer, checks []doctorCheck) error {
+	passed, warned, failed := doctorStatusCounts(checks)
+	fmt.Fprintln(w, "Vectis health check")
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "Overall: %s  %d passed, %d warnings, %d failed\n", doctorOverallStatus(failed, warned), passed, warned, failed)
+
+	checkByID := make(map[string]doctorCheck, len(checks))
 	for _, check := range checks {
-		fmt.Fprintf(w, "%s\t%s\t%s\n", check.Status, check.ID, check.Summary)
+		checkByID[check.ID] = check
+	}
+
+	for _, group := range doctorTextGroups {
+		wroteHeader := false
+		for _, item := range group.Items {
+			check, ok := checkByID[item.ID]
+			if !ok {
+				continue
+			}
+
+			if !wroteHeader {
+				fmt.Fprintln(w)
+				fmt.Fprintln(w, group.Name)
+				wroteHeader = true
+			}
+
+			fmt.Fprintf(w, "  %-5s %-30s %s\n", doctorDisplayStatus(check.Status), item.Label, check.Summary)
+		}
 	}
 
 	return evaluateDoctorChecks(checks)
+}
+
+type doctorTextGroup struct {
+	Name  string
+	Items []doctorTextItem
+}
+
+type doctorTextItem struct {
+	ID    string
+	Label string
+}
+
+var doctorTextGroups = []doctorTextGroup{
+	{Name: "Core", Items: []doctorTextItem{
+		{ID: "api.live", Label: "API liveness"},
+		{ID: "api.ready", Label: "API readiness"},
+		{ID: "setup.status", Label: "Initial setup"},
+		{ID: "cli.token", Label: "CLI token"},
+	}},
+	{Name: "Database", Items: []doctorTextItem{
+		{ID: "db.schema.current", Label: "Schema"},
+		{ID: "db.connection.pool", Label: "Connection pool"},
+	}},
+	{Name: "Queue", Items: []doctorTextItem{
+		{ID: "queue.backlog.ratio", Label: "Backlog"},
+		{ID: "queue.persistence.filesystem", Label: "Persistence filesystem"},
+	}},
+	{Name: "Reconciler", Items: []doctorTextItem{
+		{ID: "reconciler.active", Label: "Recovery activity"},
+		{ID: "reconciler.stuck.runs", Label: "Stuck runs"},
+	}},
+	{Name: "Logging", Items: []doctorTextItem{
+		{ID: "log.reachable", Label: "Log service"},
+		{ID: "log.storage.filesystem", Label: "Log storage"},
+		{ID: "log.forwarder.spool.filesystem", Label: "Forwarder spool"},
+	}},
+	{Name: "Audit", Items: []doctorTextItem{
+		{ID: "audit.drops.recent", Label: "Recent drops"},
+		{ID: "audit.flush.failures", Label: "Flush failures"},
+	}},
+	{Name: "TLS", Items: []doctorTextItem{
+		{ID: "tls.files", Label: "Files"},
+	}},
+}
+
+func doctorStatusCounts(checks []doctorCheck) (passed, warned, failed int) {
+	for _, check := range checks {
+		switch check.Status {
+		case doctorOK:
+			passed++
+		case doctorWarn:
+			warned++
+		case doctorFail:
+			failed++
+		}
+	}
+
+	return passed, warned, failed
+}
+
+func doctorOverallStatus(failed, warned int) string {
+	if failed > 0 {
+		return "FAIL"
+	}
+
+	if warned > 0 {
+		return "WARN"
+	}
+
+	return "PASS"
+}
+
+func doctorDisplayStatus(status doctorStatus) string {
+	switch status {
+	case doctorOK:
+		return "OK"
+	case doctorWarn:
+		return "WARN"
+	case doctorFail:
+		return "FAIL"
+	default:
+		return strings.ToUpper(string(status))
+	}
 }
 
 func evaluateDoctorChecks(checks []doctorCheck) error {
@@ -167,23 +277,37 @@ func doctorSetupStatus() doctorCheck {
 	}
 
 	var result struct {
-		SetupComplete bool `json:"setup_complete"`
+		SetupComplete bool  `json:"setup_complete"`
+		AuthEnabled   *bool `json:"auth_enabled"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operator/runbooks.md"}
 	}
 
-	if result.SetupComplete {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "initial setup is complete", DocLink: "website/docs/operator/runbooks.md"}
+	authEnabled := config.APIAuthEnabled()
+	if result.AuthEnabled != nil {
+		authEnabled = *result.AuthEnabled
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "initial setup is not complete", SuggestedAction: "Complete setup via the API or CLI", DocLink: "website/docs/operator/runbooks.md"}
+	if !authEnabled {
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "initial setup not required; API auth is disabled", DocLink: "website/docs/operator/runbooks.md", apiAuthEnabled: false}
+	}
+
+	if result.SetupComplete {
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "initial setup is complete", DocLink: "website/docs/operator/runbooks.md", apiAuthEnabled: true}
+	}
+
+	return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "initial setup is not complete", SuggestedAction: "Complete setup via the API or CLI", DocLink: "website/docs/operator/runbooks.md", apiAuthEnabled: true}
 }
 
-func doctorCLIToken() doctorCheck {
+func doctorCLIToken(apiAuthEnabled bool) doctorCheck {
 	const id = "cli.token"
 	title := "CLI token present"
+	if !apiAuthEnabled {
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "CLI API token not required; API auth is disabled"}
+	}
+
 	if effectiveToken() == "" {
 		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "no CLI API token configured", SuggestedAction: "Set VECTIS_API_TOKEN or run login", DocLink: "website/docs/operator/repair-runbooks.md"}
 	}
@@ -251,10 +375,10 @@ func doctorReconcilerActive() doctorCheck {
 	}
 
 	if !result.Active {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "no recent reconciler activity detected", SuggestedAction: "Restart reconciler; check reconciler DB connection", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no reconciler recovery activity recorded", DocLink: "website/docs/operator/doctor-check-catalog.md"}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "reconciler has recent activity", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "reconciler recovery activity recorded", DocLink: "website/docs/operator/doctor-check-catalog.md"}
 }
 
 func doctorAuditDrops() doctorCheck {
@@ -681,17 +805,13 @@ func doctorFilesystemPressure(id, title, label, path string) doctorCheck {
 		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("cannot inspect filesystem for %s: %v", label, err), Evidence: statPath, SuggestedAction: "Run doctor on the host that owns the path", DocLink: doc}
 	}
 
-	summary := fmt.Sprintf("%s filesystem ok: %s free (%d%%)", label, formatBytes(stats.freeBytes), stats.freePercent)
 	evidence := fmt.Sprintf("path=%s stat_path=%s free_bytes=%d free_percent=%d free_inodes=%d", path, statPath, stats.freeBytes, stats.freePercent, stats.freeInodes)
-	if !exists {
-		summary = fmt.Sprintf("%s path not created yet; parent filesystem ok: %s free (%d%%)", label, formatBytes(stats.freeBytes), stats.freePercent)
-	}
 
 	if stats.freeBytes < doctorDiskWarnFreeBytes || stats.freeInodes == 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%s filesystem pressure: %s free (%d%%)", label, formatBytes(stats.freeBytes), stats.freePercent), Evidence: evidence, SuggestedAction: "Free disk space or move the path to a larger volume", DocLink: doc}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("filesystem pressure: %s free (%d%%)", formatBytes(stats.freeBytes), stats.freePercent), Evidence: evidence, SuggestedAction: "Free disk space or move the path to a larger volume", DocLink: doc}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: summary, Evidence: evidence, DocLink: doc}
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("filesystem ok: %s free (%d%%)", formatBytes(stats.freeBytes), stats.freePercent), Evidence: evidence, DocLink: doc}
 }
 
 type doctorFSStats struct {
@@ -853,7 +973,7 @@ var doctorCmd = &cobra.Command{
 
 Check IDs are frozen between releases (see website/docs/operator/doctor-check-catalog.md for the catalog).
 
-Output is tab-separated: status, check ID, and summary message.
+Text output groups checks by subsystem and starts with an overall status.
   --json   emits the full check model as a JSON array.
   --strict treats warnings as exit-nonzero (for CI).
 

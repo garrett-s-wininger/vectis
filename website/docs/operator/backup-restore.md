@@ -82,7 +82,7 @@ Run this after every restore drill and after real disaster recovery:
 9. Inspect dispatch events for the restored and newly triggered run.
 10. Confirm Prometheus, logs, and dashboards show fresh samples from the restored services.
 
-`vectis-cli health check` automates the API-oriented part of this smoke test: API liveness, API readiness, setup status, local CLI token visibility, schema status, queue backlog, reconciler activity, stuck queued runs, log reachability, audit drops/flush failures, and DB pool pressure. Keep the active run trigger/log verification and dashboard freshness checks in the manual drill.
+`vectis-cli health check` automates the API-oriented part of this smoke test: API liveness, API readiness, auth-aware setup status, auth-aware local CLI token visibility, schema status, queue backlog, reconciler recovery visibility, stuck queued runs, log reachability, audit drops/flush failures, and DB pool pressure. Keep the active run trigger/log verification and dashboard freshness checks in the manual drill.
 
 Record the backup timestamp, restored schema version, release version, and any partial-restore data loss in the incident or drill notes.
 

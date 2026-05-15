@@ -36,10 +36,10 @@ The 16 active checks are:
 | --- | --- | --- |
 | `api.live` | critical | `GET /health/live` returns `200`. |
 | `api.ready` | critical | `GET /health/ready` returns `200`; covers DB, queue, and other readiness deps. |
-| `setup.status` | warning | `GET /api/v1/setup/status` — incomplete setup is a warning. |
-| `cli.token` | warning | CLI token configured or missing (auth may be disabled). |
+| `setup.status` | warning | `GET /api/v1/setup/status` — incomplete setup is a warning only when API auth is enabled. |
+| `cli.token` | warning | CLI token configured when API auth is enabled; skipped as not required when auth is disabled. |
 | `db.schema.current` | critical | `GET /api/v1/schema/status` — schema must be present and current. |
-| `reconciler.active` | warning | `GET /api/v1/reconciler/heartbeat` — checks recent reconciler activity. |
+| `reconciler.active` | warning | `GET /api/v1/reconciler/heartbeat` — reports observed reconciler recovery activity; no activity is healthy when no runs need recovery. |
 | `audit.drops.recent` | warning | `GET /api/v1/audit/drops` — no dropped audit events. |
 | `db.connection.pool` | warning | `GET /api/v1/db/pool-stats` — checks connection pool health. |
 | `queue.backlog.ratio` | warning | `GET /api/v1/queue/backlog` — warns if queue depth exceeds threshold. |

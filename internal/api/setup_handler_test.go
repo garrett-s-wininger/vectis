@@ -37,6 +37,9 @@ func TestSetupHandlers_endToEndThroughHandler(t *testing.T) {
 		if st.SetupComplete {
 			t.Fatal("expected incomplete")
 		}
+		if !st.AuthEnabled {
+			t.Fatal("expected auth_enabled")
+		}
 	})
 
 	var apiToken string
@@ -103,6 +106,31 @@ func TestSetupHandlers_endToEndThroughHandler(t *testing.T) {
 			t.Fatalf("code=%d", rec.Code)
 		}
 	})
+}
+
+func TestGetSetupStatus_reportsAuthDisabled(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+
+	db := dbtest.NewTestDB(t)
+	s := NewAPIServer(mocks.NewMockLogger(), db)
+	s.SetQueueClient(mocks.NewMockQueueService())
+	h := s.Handler()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/setup/status", nil)
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var st setupStatusResponse
+	if err := json.NewDecoder(rec.Body).Decode(&st); err != nil {
+		t.Fatal(err)
+	}
+
+	if st.AuthEnabled {
+		t.Fatal("expected auth disabled")
+	}
 }
 
 func TestPostSetupComplete_invalidBootstrap(t *testing.T) {
