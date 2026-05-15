@@ -29,12 +29,18 @@ const config = {
   ],
   themeConfig: {
     navbar: {
-      title: 'Vectis',
+      title: '',
+      logo: {
+        alt: 'Vectis',
+        src: 'img/vectis.png',
+        srcDark: 'img/vectis-dark.png',
+      },
       items: [
         {
           to: '/',
           label: 'Home',
           position: 'left',
+          activeBaseRegex: '^/$',
         },
         {
           type: 'docSidebar',

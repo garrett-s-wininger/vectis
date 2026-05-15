@@ -89,9 +89,17 @@ test-race:
 test-quick:
 	go test -count=1 -timeout=60s ./internal/... ./cmd/... ./api/...
 
+.PHONY: website-a11y
+website-a11y:
+	cd website && \
+	PLAYWRIGHT_BROWSERS_PATH="$$PWD/node_modules/.cache/ms-playwright" npm ci && \
+	PLAYWRIGHT_BROWSERS_PATH="$$PWD/node_modules/.cache/ms-playwright" npx playwright install chromium && \
+	PLAYWRIGHT_BROWSERS_PATH="$$PWD/node_modules/.cache/ms-playwright" npm run test:a11y
+
 GOLANGCI_LINT_VERSION ?= v2.6.1
 GOVULNCHECK_VERSION ?= v1.1.4
-# Match the `go` directive in go.mod so govulncheck analyzes the same stdlib the module declares.
+
+# NOTE(garrett):Match the `go` directive in go.mod to analyz the same stdlib the module declares.
 GO_MOD_GO_VERSION := $(shell awk '/^go /{print $$2; exit}' go.mod)
 
 .PHONY: lint

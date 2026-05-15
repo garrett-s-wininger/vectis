@@ -29,3 +29,24 @@ jobs:
         run: python3 -m pip install --user pre-commit
       - name: Run Vectis dogfood gate
         run: make ci-quick
+
+  website-a11y:
+    runs-on: ubuntu-latest
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/website/node_modules/.cache/ms-playwright
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Build site and run axe (Playwright)
+        run: npm run test:a11y
+        env:
+          CI: true
