@@ -121,6 +121,39 @@ func TestRegistry_RegisterInstanceOnce(t *testing.T) {
 	}
 }
 
+func TestRegistryService_RegisterLogsNewUpdatedAndRenewed(t *testing.T) {
+	logger := mocks.NewMockLogger()
+	svc := NewRegistryServiceWithOptions(logger, ServiceOptions{})
+	ctx := context.Background()
+	component := api.Component_COMPONENT_QUEUE
+	addr := "queue-1:50051"
+
+	if _, err := svc.Register(ctx, &api.Registration{Component: &component, Address: &addr}); err != nil {
+		t.Fatalf("register new failed: %v", err)
+	}
+
+	if got := logger.GetInfoCalls(); len(got) != 1 || got[0] != "New queue registration at: queue-1:50051" {
+		t.Fatalf("new registration info logs = %+v", got)
+	}
+
+	if _, err := svc.Register(ctx, &api.Registration{Component: &component, Address: &addr}); err != nil {
+		t.Fatalf("renew registration failed: %v", err)
+	}
+
+	if got := logger.GetDebugCalls(); len(got) != 1 || got[0] != "Renewed queue registration at: queue-1:50051" {
+		t.Fatalf("renew registration debug logs = %+v", got)
+	}
+
+	updatedAddr := "queue-2:50051"
+	if _, err := svc.Register(ctx, &api.Registration{Component: &component, Address: &updatedAddr}); err != nil {
+		t.Fatalf("update registration failed: %v", err)
+	}
+
+	if got := logger.GetInfoCalls(); len(got) != 2 || got[1] != "Updated queue registration at: queue-2:50051" {
+		t.Fatalf("updated registration info logs = %+v", got)
+	}
+}
+
 func TestRegistry_ListRegistrationsFiltersByMetadata(t *testing.T) {
 	addr, _ := setupTestRegistry(t)
 

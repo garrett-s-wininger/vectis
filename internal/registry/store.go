@@ -26,6 +26,14 @@ type registrationEntry struct {
 	tombstoneExpiresAt time.Time
 }
 
+type registrationChange int
+
+const (
+	registrationChangeNew registrationChange = iota
+	registrationChangeUpdated
+	registrationChangeRenewed
+)
+
 type reg struct {
 	mu            sync.RWMutex
 	nodeID        string
@@ -88,10 +96,23 @@ func cleanPeerAddresses(peers []string, self string) []string {
 }
 
 func (r *reg) register(component api.Component, instanceID, address string, metadata map[string]string, now time.Time) registrationEntry {
+	entry, _ := r.registerWithChange(component, instanceID, address, metadata, now)
+	return entry
+}
+
+func (r *reg) registerWithChange(component api.Component, instanceID, address string, metadata map[string]string, now time.Time) (registrationEntry, registrationChange) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	r.expireLeasesLocked(now)
+	change := registrationChangeNew
+	if current, ok := r.registrations[makeRegKey(component, instanceID)]; ok && current.isLiveAt(now) {
+		change = registrationChangeUpdated
+		if current.address == address && maps.Equal(current.metadata, metadata) {
+			change = registrationChangeRenewed
+		}
+	}
+
 	r.clock++
 	entry := registrationEntry{
 		component:      component,
@@ -103,7 +124,7 @@ func (r *reg) register(component api.Component, instanceID, address string, meta
 	}
 
 	r.applyLiveLocked(entry, now)
-	return entry
+	return entry, change
 }
 
 func (r *reg) get(component api.Component, instanceID string, now time.Time) (registrationEntry, bool) {

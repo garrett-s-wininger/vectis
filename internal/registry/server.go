@@ -94,18 +94,34 @@ func (s *registryServer) Register(ctx context.Context, req *api.Registration) (*
 	comp := *req.Component
 	instanceID := req.GetInstanceId()
 
-	s.reg.register(comp, instanceID, *req.Address, req.GetMetadata(), time.Now())
+	_, change := s.reg.registerWithChange(comp, instanceID, *req.Address, req.GetMetadata(), time.Now())
+	s.logRegistrationChange(change, comp, instanceID, *req.Address)
+
+	return &api.Empty{}, nil
+}
+
+func (s *registryServer) logRegistrationChange(change registrationChange, comp api.Component, instanceID, address string) {
+	log := s.log.Info
+	if change == registrationChangeRenewed {
+		log = s.log.Debug
+	}
+
+	action := "New"
+	switch change {
+	case registrationChangeUpdated:
+		action = "Updated"
+	case registrationChangeRenewed:
+		action = "Renewed"
+	}
 
 	switch comp {
 	case api.Component_COMPONENT_QUEUE:
-		s.log.Info("Registered queue at: %s", *req.Address)
+		log("%s queue registration at: %s", action, address)
 	case api.Component_COMPONENT_LOG:
-		s.log.Info("Registered log at: %s", *req.Address)
+		log("%s log registration at: %s", action, address)
 	case api.Component_COMPONENT_WORKER:
-		s.log.Info("Registered worker %s at: %s", instanceID, *req.Address)
+		log("%s worker registration %s at: %s", action, instanceID, address)
 	}
-
-	return &api.Empty{}, nil
 }
 
 func (s *registryServer) GetAddress(ctx context.Context, req *api.AddressRequest) (*api.AddressResponse, error) {
