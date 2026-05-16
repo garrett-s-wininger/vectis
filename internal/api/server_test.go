@@ -116,29 +116,6 @@ func assertAPIError(t *testing.T, rec *httptest.ResponseRecorder, status int, co
 	}
 }
 
-func apiErrorDetailString(t *testing.T, rec *httptest.ResponseRecorder, key string) string {
-	t.Helper()
-
-	var body struct {
-		Details map[string]json.RawMessage `json:"details"`
-	}
-
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode api error details: %v; body=%s", err, rec.Body.String())
-	}
-
-	if body.Details == nil {
-		t.Fatalf("expected details in body=%s", rec.Body.String())
-	}
-
-	var value string
-	if err := json.Unmarshal(body.Details[key], &value); err != nil {
-		t.Fatalf("decode api error detail %q: %v; body=%s", key, err, rec.Body.String())
-	}
-
-	return value
-}
-
 func apiErrorValidationFields(t *testing.T, rec *httptest.ResponseRecorder) []struct {
 	Field   string `json:"field"`
 	Message string `json:"message"`
@@ -389,15 +366,6 @@ func TestAPIServer_CreateJob_ValidationError(t *testing.T) {
 	server.CreateJob(rec, req)
 
 	assertAPIError(t, rec, http.StatusBadRequest, "invalid_job_definition")
-
-	detail := apiErrorDetailString(t, rec, "error")
-	if !strings.Contains(detail, "root.id: is required") {
-		t.Fatalf("expected root.id validation error, got %q", rec.Body.String())
-	}
-
-	if !strings.Contains(detail, `root.uses: unknown action "builtins/not-real"`) {
-		t.Fatalf("expected unknown action validation error, got %q", rec.Body.String())
-	}
 
 	fields := apiErrorValidationFields(t, rec)
 	wantFields := map[string]string{
@@ -1042,8 +1010,17 @@ func TestAPIServer_UpdateJobDefinition_ValidationErrorDoesNotPersist(t *testing.
 
 	assertAPIError(t, rec, http.StatusBadRequest, "invalid_job_definition")
 
-	if detail := apiErrorDetailString(t, rec, "error"); !strings.Contains(detail, `root.uses: unknown action "builtins/not-real"`) {
-		t.Fatalf("expected unknown action validation error, got %q", rec.Body.String())
+	fields := apiErrorValidationFields(t, rec)
+	var found bool
+	for _, field := range fields {
+		if field.Field == "root.uses" && field.Message == `unknown action "builtins/not-real"` {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatalf("expected unknown action validation field, got %q", rec.Body.String())
 	}
 
 	var gotDef string

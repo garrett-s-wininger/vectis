@@ -108,8 +108,8 @@ func TestErrorDetailsIncludesStructuredFields(t *testing.T) {
 	}
 
 	details := validation.ErrorDetails(err)
-	if details["error"] != err.Error() {
-		t.Fatalf("details error = %q, want %q", details["error"], err.Error())
+	if _, ok := details["error"]; ok {
+		t.Fatalf("details included deprecated error field: %v", details)
 	}
 
 	fields, ok := details["fields"].([]validation.FieldError)

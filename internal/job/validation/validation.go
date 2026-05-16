@@ -51,7 +51,7 @@ func (e *Error) Error() string {
 }
 
 func ErrorDetails(err error) map[string]any {
-	details := map[string]any{"error": err.Error()}
+	details := map[string]any{}
 
 	var validationErr *Error
 	if errors.As(err, &validationErr) {

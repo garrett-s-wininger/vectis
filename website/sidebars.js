@@ -74,6 +74,7 @@ const sidebars = {
       label: 'Developing Vectis',
       items: [
         'developing/contexts',
+        'developing/actions',
         'developing/migrations',
         'developing/retry-policy',
         'developing/releases',

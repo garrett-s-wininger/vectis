@@ -97,7 +97,7 @@ func TestAPIRouteInventory(t *testing.T) {
 
 func TestAPIReferenceListsRegisteredRoutes(t *testing.T) {
 	s := &APIServer{MetricsHandler: http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})}
-	doc, err := os.ReadFile("../../website/docs/user/api-reference.md")
+	doc, err := os.ReadFile("../../website/docs/using/api-reference.md")
 	if err != nil {
 		t.Fatal(err)
 	}

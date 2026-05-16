@@ -1,43 +1,87 @@
 # Job Definition Validation
 
-Vectis validates job definitions before storing them and before starting ephemeral runs. The same validator is used by:
+Vectis validates a job before it stores it or starts a run. Validation is there to catch mistakes early, before work reaches a worker.
 
+You will usually see validation while using:
+
+- `./bin/vectis-cli jobs create <file>`
+- `./bin/vectis-cli jobs run <file>`
 - `POST /api/v1/jobs`
 - `PUT /api/v1/jobs/{id}`
 - `POST /api/v1/jobs/run`
 
-## Current Contract
+If you are new to the job format, we suggest you start with [Your First Job](./your-first-job.md). This page is the next stop when Vectis says a job is invalid.
 
-Stored jobs must provide `id`; ephemeral runs may omit `id` because the API generates one. Every job must provide `root`.
+## The Smallest Valid Shape
 
-Tree validation checks:
+A stored job needs an `id` and a `root` node:
 
-| Rule | Default |
+```json
+{
+  "id": "hello",
+  "root": {
+    "id": "say-hello",
+    "uses": "builtins/shell",
+    "with": {
+      "command": "echo hello"
+    }
+  }
+}
+```
+
+An ephemeral run can omit the top-level job `id` because the API creates a run ID for you:
+
+```json
+{
+  "root": {
+    "id": "say-hello",
+    "uses": "builtins/shell",
+    "with": {
+      "command": "echo hello"
+    }
+  }
+}
+```
+
+The top-level job `id` is the stored job's name. Node `id` values identify steps inside that job. They are different things, even when the names look similar.
+
+## What Vectis Checks
+
+Every job must have:
+
+| Part | Rule |
 | --- | --- |
-| Maximum node count | `256` |
-| Maximum depth | `32` |
-| Node IDs | Required and unique within the job |
-| Node `uses` | Required and resolvable through the action registry |
-| Action `with` fields | Validated by the resolved action |
+| Job `id` | Required for stored jobs. Optional for ephemeral runs. |
+| `root` | Required. This is the first node Vectis executes. |
+| Node `id` | Required on every node and unique within the job. |
+| Node `uses` | Required and must name a known action. |
+| Node `with` | Must match the fields accepted by the selected action. |
+| Tree size | Up to `256` nodes. |
+| Tree depth | Up to `32` levels. |
 
-The current built-ins validate:
+Vectis reports all validation errors it can find in one response, so fixing one field may reveal another issue nearby.
+
+## Built-In Actions
+
+These are the built-in actions that the validator knows today:
 
 | Action | Required `with` | Optional `with` | Notes |
 | --- | --- | --- | --- |
-| `builtins/shell` | `command` | none | Empty commands and unknown keys are rejected. |
-| `builtins/checkout` | `url` | none | Accepts HTTP(S) URLs without embedded credentials and SCP-style Git URLs. Unknown keys are rejected. |
-| `builtins/sequence` | none | any key | Sequence ignores `with` today; this is intentional compatibility until pipeline syntax gives sequence nodes first-class fields. |
+| `builtins/shell` | `command` | none | Runs the command with `sh -c`. Empty commands and unknown keys are rejected. |
+| `builtins/checkout` | `url` | none | Accepts HTTP(S) clone URLs without embedded credentials and SCP-style Git URLs. |
+| `builtins/sequence` | none | any key | Runs child `steps` in order. `with` is currently ignored for compatibility. |
 
-## API Error Shape
+The action name can include the `builtins/` prefix. The built-in registry also accepts short names internally, but docs and examples use the full form so job files stay clear.
 
-Invalid jobs return:
+## Reading Validation Errors
+
+API validation errors use this shape:
 
 ```json
 {
   "code": "invalid_job_definition",
   "message": "invalid job definition",
   "details": {
-    "error": "root.id: is required; root.uses: unknown action \"builtins/not-real\"",
     "fields": [
       {"field": "root.id", "message": "is required"},
       {"field": "root.uses", "message": "unknown action \"builtins/not-real\""}
@@ -46,28 +90,170 @@ Invalid jobs return:
 }
 ```
 
-`details.error` is retained for v1 compatibility. New clients should prefer `details.fields` so they do not need to parse human-readable text.
+Each entry in `details.fields` points to a field path in the job document:
 
-## New Built-In Action Checklist
+| Field path | Meaning |
+| --- | --- |
+| `id` | The stored job ID is missing or invalid. |
+| `root` | The job has no root node. |
+| `root.id` | The root node is missing its node ID. |
+| `root.uses` | The root node is missing or names an unknown action. |
+| `root.with.command` | The root action rejected its `command` input. |
+| `root.steps[0].id` | The first child step has an ID problem. |
 
-Every new built-in action must:
+## Common Fixes
 
-- Implement `ValidateWith`.
-- Reject unknown `with` keys unless the action explicitly documents an open-ended map.
-- Validate required fields before execution.
-- Avoid accepting plaintext secrets in `with`.
-- Add unit tests for valid input, missing required fields, invalid field values, and unknown keys.
-- Add an API-path test when the action changes validation behavior visible through job create, update, or ephemeral run.
+### Missing Job ID
 
-## Pipeline-As-Code Validation Phases
+This fails when you store a job:
 
-Pipeline-as-code should layer additional validation before storage:
+```json
+{
+  "root": {
+    "id": "say-hello",
+    "uses": "builtins/shell",
+    "with": {
+      "command": "echo hello"
+    }
+  }
+}
+```
 
-1. Parse the user-facing pipeline document.
-2. Normalize it into the canonical job graph.
-3. Validate static graph references, dependencies, conditionals, matrix expansion, and concurrency declarations.
-4. Validate action `with` fields through the action registry.
-5. Validate policy-sensitive declarations such as secrets, cache, artifacts, and environments.
-6. Store only the normalized, validated representation.
+Add a top-level `id`:
 
-The current JSON/proto job validator is phase 4 plus bounded tree-shape checks. It should remain reusable after pipeline syntax lands.
+```json
+{
+  "id": "hello",
+  "root": {
+    "id": "say-hello",
+    "uses": "builtins/shell",
+    "with": {
+      "command": "echo hello"
+    }
+  }
+}
+```
+
+If you are using `jobs run` or `POST /api/v1/jobs/run`, the top-level `id` is optional.
+
+### Duplicate Node IDs
+
+This fails because both steps use `id: "test"`:
+
+```json
+{
+  "id": "duplicate-step",
+  "root": {
+    "id": "root",
+    "uses": "builtins/sequence",
+    "steps": [
+      {"id": "test", "uses": "builtins/shell", "with": {"command": "echo one"}},
+      {"id": "test", "uses": "builtins/shell", "with": {"command": "echo two"}}
+    ]
+  }
+}
+```
+
+Give each node its own ID:
+
+```json
+{
+  "id": "unique-steps",
+  "root": {
+    "id": "root",
+    "uses": "builtins/sequence",
+    "steps": [
+      {"id": "test-one", "uses": "builtins/shell", "with": {"command": "echo one"}},
+      {"id": "test-two", "uses": "builtins/shell", "with": {"command": "echo two"}}
+    ]
+  }
+}
+```
+
+### Unknown Action
+
+This fails because Vectis does not know `builtins/not-real`:
+
+```json
+{
+  "id": "bad-action",
+  "root": {
+    "id": "root",
+    "uses": "builtins/not-real"
+  }
+}
+```
+
+Use one of the supported actions, such as `builtins/shell`, `builtins/checkout`, or `builtins/sequence`.
+
+### Invalid `with` Fields
+
+This fails because `builtins/shell` needs `command`, not `cmd`:
+
+```json
+{
+  "id": "bad-shell",
+  "root": {
+    "id": "root",
+    "uses": "builtins/shell",
+    "with": {
+      "cmd": "echo hello"
+    }
+  }
+}
+```
+
+Use the action's documented field name:
+
+```json
+{
+  "id": "good-shell",
+  "root": {
+    "id": "root",
+    "uses": "builtins/shell",
+    "with": {
+      "command": "echo hello"
+    }
+  }
+}
+```
+
+### Checkout URL With Embedded Credentials
+
+This fails because credentials are embedded in an HTTP(S) clone URL:
+
+```json
+{
+  "id": "bad-checkout",
+  "root": {
+    "id": "checkout",
+    "uses": "builtins/checkout",
+    "with": {
+      "url": "https://token@example.com/org/repo.git"
+    }
+  }
+}
+```
+
+Use a URL without inline credentials:
+
+```json
+{
+  "id": "good-checkout",
+  "root": {
+    "id": "checkout",
+    "uses": "builtins/checkout",
+    "with": {
+      "url": "https://example.com/org/repo.git"
+    }
+  }
+}
+```
+
+Secrets should come from a secret-aware mechanism, not from the job definition itself.
+
+## Validation Boundaries
+
+Validation checks the job shape and action inputs. It does not prove that runtime dependencies exist.
+
+For example, Vectis can check that `builtins/checkout` has a URL, but the worker may still fail later if the repository is unreachable. Vectis can check that `builtins/shell` has a command, but it cannot know whether that command will succeed on the worker.
