@@ -1,65 +1,126 @@
-# Runbooks, SLOs, And Alerts
+# Runbooks And Alerts
 
-This page is the operator index for Vectis observability. The initial goals are intentionally modest: name the user-facing signals, provide alert examples for emitted metrics, and link each alert to a repair path. For step-by-step repair procedures, see [REPAIR_RUNBOOKS.md](./repair-runbooks.md).
+This is the operator entry point for Vectis health checks, alerts, and first triage. Start here when the system is reachable but something looks wrong.
 
-## Initial SLIs And SLOs
+For step-by-step repair procedures, see [Repair Runbooks](./repair-runbooks.md). For check IDs and JSON output shape, see [Doctor Check Catalog](../reference/doctor-check-catalog.md).
 
-| Area | Signal | Starter objective |
+## First Response
+
+When the API should be reachable, start with:
+
+```sh
+vectis-cli health check --strict
+```
+
+Use JSON when you need evidence, documentation links, or automation-friendly output:
+
+```sh
+vectis-cli health check --json
+```
+
+For a specific run, start with:
+
+```sh
+vectis-cli runs show <run-id>
+```
+
+That command shows status and dispatch events without requiring direct database access.
+
+## Triage Map
+
+| Symptom or alert | First checks | Repair path |
 | --- | --- | --- |
-| Trigger acceptance | API request success and low 5xx rate on trigger/run routes | Keep API dependency failures visible; tune once traffic exists. |
-| Queue handoff | Queue pending and in-flight gauges; reconciler reenqueue outcomes | Queued work should drain within one reconciler interval under normal load. |
-| Worker execution | `vectis_worker_jobs_received_total` and `vectis_worker_job_duration_seconds` | Workers should continue receiving jobs and terminal outcomes should match workload expectations. |
-| Log availability | `vectis_log_storage_append_failures_total`, drops, and gRPC chunk rate | Log append failures should be zero. |
-| Audit durability | `vectis_audit_events_dropped_total` and `vectis_audit_flush_failures_total` | Audit drops should be zero. |
-| Retry health | `vectis_retries_exhausted_total` and retry delay histogram | Retry exhaustion should be rare and investigated. |
-| Database pressure | `database/sql` pool gauges when DB pool metrics are registered | Connections should not sit at configured limits. |
-| Storage pressure | `vectis_storage_records` and `vectis_storage_oldest_record_age_seconds` | Durable SQL state should stay within the operator's retention and capacity plan. |
+| API not ready | Database reachability, schema status, queue connectivity. | [Schema Or Migration Repair](./repair-runbooks.md#schema-or-migration-repair), then [Queued Runs Or Backlog](./repair-runbooks.md#queued-runs-or-backlog) if queue is involved. |
+| Queue backlog growing | Queue health, worker count, worker failures, database availability. | [Queued Runs Or Backlog](./repair-runbooks.md#queued-runs-or-backlog) |
+| DLQ non-empty | Queue logs, failed delivery reasons, run status, worker availability. | [Queued Runs Or Backlog](./repair-runbooks.md#queued-runs-or-backlog) |
+| Queued run not starting | Run dispatch events, reconciler health, queue state, worker availability. | [Dispatch Visibility](./dispatch-visibility.md), then [Reconciler Repair](./repair-runbooks.md#reconciler-repair) |
+| Reconciler failures | Database health, queue health, job definition availability, dispatch events. | [Reconciler Repair](./repair-runbooks.md#reconciler-repair) |
+| Logs unavailable | Log gRPC health, log storage path, registry/pinned log address, TLS config. | [Log Service Repair](./repair-runbooks.md#log-service-repair) |
+| Audit drops or flush failures | API health, database health, audit buffer pressure, event volume. | [Audit Durability Repair](./repair-runbooks.md#audit-durability-repair) |
+| Retry exhaustion | Component label, dependency health, TLS mismatch, network policy. | [Repair Runbooks](./repair-runbooks.md#quick-map) |
+| DB pool saturation | Postgres availability, pool sizing, replica count, slow queries. | [Database Pool Pressure](./repair-runbooks.md#database-pool-pressure) |
+| Old retained records or SQL growth | Retention policy, dry-run cleanup counts, backup status. | [Retention Cleanup](./repair-runbooks.md#retention-cleanup) |
+| A run needs manual action | Run status, dispatch events, worker ownership, automatic repair state. | [Manual Run Intervention](./repair-runbooks.md#manual-run-intervention) |
+
+## Health Check Coverage
+
+`vectis-cli health check` checks the API-facing parts of the deployment:
+
+| Area | Examples |
+| --- | --- |
+| API state | Liveness, readiness, versioned operational endpoints. |
+| Auth setup | Setup status and local CLI token visibility when API auth is enabled. |
+| Schema | Database schema status through the API. |
+| Queue and reconciler | Queue backlog, stuck queued runs, reconciler recovery visibility. |
+| Logs | API-to-log-service gRPC reachability. |
+| Audit | Dropped audit events and flush failures. |
+| Database pool | API-visible `database/sql` pool pressure. |
+| Local files | TLS file readability and queue/log/spool filesystem checks where paths are locally visible. |
+
+The health check is not a complete production monitoring system. It does not replace host disk telemetry, database monitoring, queue/log capacity dashboards, or workload-specific alerts.
+
+## Starter Signals
 
 Use these as starter operating signals, not contractual product SLOs. Production targets should be set after load testing and real traffic baselines.
 
+| Area | Signal | Starter objective |
+| --- | --- | --- |
+| Trigger acceptance | API request success and low 5xx rate on trigger/run routes. | Dependency failures should be visible quickly. |
+| Queue handoff | Queue pending/in-flight gauges and reconciler reenqueue outcomes. | Queued work should drain within one reconciler interval under normal load. |
+| Worker execution | `vectis_worker_jobs_received_total` and `vectis_worker_job_duration_seconds`. | Workers should keep receiving jobs; terminal outcomes should match workload expectations. |
+| Log availability | `vectis_log_storage_append_failures_total`, log drops, and gRPC chunk rate. | Log append failures should be zero. |
+| Audit durability | `vectis_audit_events_dropped_total` and `vectis_audit_flush_failures_total`. | Audit drops should be zero. |
+| Retry health | `vectis_retries_exhausted_total` and retry delay histogram. | Retry exhaustion should be rare and investigated. |
+| Database pressure | `database/sql` pool gauges where DB pool metrics are registered. | Connections should not sit at configured limits. |
+| Storage pressure | `vectis_storage_records` and `vectis_storage_oldest_record_age_seconds`. | Durable SQL state should stay within the retention and capacity plan. |
+
 ## Alert Examples
 
-Prometheus examples live in [docs/alerts/prometheus-examples.yml](../../alerts/prometheus-examples.yml). They cover:
+Prometheus examples live in [prometheus-examples.yml](../../alerts/prometheus-examples.yml). They cover:
 
-- Queue backlog and DLQ growth.
-- Reconciler reenqueue failures.
-- Worker job failure ratio.
-- Log append failures and subscriber drops.
-- Audit drops and flush failures.
-- Retry exhaustion.
-- Database pool saturation.
-- SQL storage pressure and old retained records.
+- queue backlog and DLQ growth;
+- reconciler reenqueue failures;
+- worker job failure ratio;
+- log append failures and subscriber drops;
+- audit drops and flush failures;
+- retry exhaustion;
+- database pool saturation.
 
-Tune thresholds by environment. The Podman reference deploy is useful for demos and smoke tests, but production alert routing should live in the operator's telemetry system.
-
-## Triage Index
-
-Start with `vectis-cli health check` when the API should be reachable. It checks API liveness/readiness, auth-aware setup, auth-aware local CLI token visibility, schema status, queue backlog, reconciler recovery visibility, stuck queued runs, log reachability, audit durability, and database pool pressure. For check meanings, see [DOCTOR_CHECK_CATALOG.md](../reference/doctor-check-catalog.md).
-
-| Alert / symptom | First checks | Repair recipe |
-| --- | --- | --- |
-| Queue backlog growing | Queue health, worker count, worker job failures, database availability. | [Queued Runs Or Backlog](./repair-runbooks.md#queued-runs-or-backlog) |
-| DLQ non-empty | Queue logs, failed delivery reasons, run status, worker availability. | [Queued Runs Or Backlog](./repair-runbooks.md#queued-runs-or-backlog) |
-| Reconciler failures | Database health, queue health, job definition availability, dispatch events. | [Reconciler Repair](./repair-runbooks.md#reconciler-repair) |
-| Log append failures | Log storage directory permissions, disk space, log service health. | [Log Service Repair](./repair-runbooks.md#log-service-repair) |
-| Audit drops | API/database health, async audit buffer pressure, security event volume. | [Audit Durability Repair](./repair-runbooks.md#audit-durability-repair) |
-| Retry exhaustion | Component label, dependency health, TLS/config mismatch, network policy. | [Repair Runbooks](./repair-runbooks.md#quick-map) |
-| DB pool saturation | Postgres availability, pool sizing, number of service replicas, slow queries. | [Database Pool Pressure](./repair-runbooks.md#database-pool-pressure) |
-| Old retained records / table growth | Run `vectis-cli retention cleanup --dry-run`, review [RETENTION.md](./retention.md), then apply with `--yes` during a maintenance window. | [Retention Cleanup](./repair-runbooks.md#retention-cleanup) |
+Tune thresholds by environment. The Podman reference deployment is useful for demos and smoke tests, but production alert routing should live in the operator's telemetry system.
 
 ## Trace And Log Lookup
 
-1. Start from the API response `X-Request-ID` or the run ID.
-2. Search structured API access logs for `correlation_id` when JSON access logs are enabled.
-3. Use run ID to inspect worker logs, log service entries, and run dispatch events.
-4. In the Podman reference deploy, use Jaeger for traces and OpenSearch/Grafana for service logs when those components are enabled.
+Use the most specific handle you have:
+
+| Handle | Where to use it |
+| --- | --- |
+| Run ID | Run status, run logs, worker logs, log service entries, and dispatch events. |
+| API `X-Request-ID` | API access logs and request-specific traces. |
+| `correlation_id` | Structured API access logs when JSON access logs are enabled. |
+| Component label | Retry metrics and service logs. |
+
+In the Podman reference deployment, Jaeger can help with traces and OpenSearch/Grafana can help with service logs when those components are enabled.
 
 Run IDs are the most reliable cross-service handle today. Request IDs are strongest for API-originated workflows.
 
-## Known Gaps
+## Known Monitoring Gaps
 
-- No direct queued-run-age metric yet.
-- No direct dispatch failure counter yet.
-- No rate-limit accepted/rejected metric yet.
-- File-backed run log and queue persistence pressure still depend on filesystem/disk telemetry outside the SQL gauges.
-- Dashboard panels are not yet annotated with runbook links.
+These are current monitoring limits operators should cover with external telemetry or manual triage:
+
+| Gap | Practical workaround |
+| --- | --- |
+| No direct queued-run-age metric yet. | Use `vectis-cli health check`, stuck-run checks, dispatch events, and queue backlog alerts. |
+| No direct dispatch failure counter yet. | Inspect dispatch events and reconciler outcomes. |
+| No rate-limit accepted/rejected metric yet. | Use API logs and HTTP status monitoring. |
+| File-backed run log and queue persistence pressure need filesystem telemetry. | Monitor the storage paths directly. |
+| Dashboard panels are not yet annotated with runbook links. | Keep alert annotations linked to repair runbooks. |
+
+## Related Documentation
+
+| Topic | Document |
+| --- | --- |
+| Repair steps | [Repair Runbooks](./repair-runbooks.md) |
+| Health check catalog | [Doctor Check Catalog](../reference/doctor-check-catalog.md) |
+| Queue handoff triage | [Dispatch Visibility](./dispatch-visibility.md) |
+| Retention cleanup | [Retention](./retention.md) |
+| Scaling and restarts | [Scaling And Restarts](../deployment/scaling-and-restarts.md) |
