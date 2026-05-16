@@ -18,6 +18,7 @@ const sidebars = {
       label: 'Using Vectis',
       items: [
         'using/your-first-job',
+        'using/cli-guide',
         'using/api-reference',
         'using/job-validation',
         'using/log-streaming',

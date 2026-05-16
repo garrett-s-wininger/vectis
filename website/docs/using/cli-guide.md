@@ -1,0 +1,290 @@
+# CLI Guide
+
+`vectis-cli` is the everyday way to talk to a Vectis API from a terminal. Use it to submit jobs, trigger stored jobs, follow logs, inspect runs, check health, and perform local/operator maintenance.
+
+This guide is task-based. For a compact command inventory, see [CLI Operational Coverage](../operating/reference/cli-operational-coverage.md).
+
+## Before You Start
+
+Build the CLI from the repository root:
+
+```sh
+make build
+```
+
+The binary is:
+
+```sh
+./bin/vectis-cli
+```
+
+By default, the CLI talks to:
+
+```text
+http://localhost:8080
+```
+
+That matches the API started by `./bin/vectis-local`.
+
+## Authentication
+
+Local development defaults to API authentication off, so most workflow commands work without a token.
+
+When API authentication is enabled, log in once:
+
+```sh
+./bin/vectis-cli auth login --username <username>
+```
+
+The CLI prompts for a password and saves the returned API token in your user config directory. Later commands use that saved token automatically.
+
+You can also provide a token for one shell session:
+
+```sh
+export VECTIS_API_TOKEN=<token>
+```
+
+To remove the locally saved token:
+
+```sh
+./bin/vectis-cli auth logout
+```
+
+Logout removes the local token file. It does not revoke the token on the server.
+
+## Check Health
+
+Start here when you want to know whether the API and its dependencies are healthy:
+
+```sh
+./bin/vectis-cli health check
+```
+
+For CI or stricter smoke tests, treat warnings as failures:
+
+```sh
+./bin/vectis-cli health check --strict
+```
+
+For automation, emit JSON:
+
+```sh
+./bin/vectis-cli health check --json
+```
+
+The health check covers API liveness/readiness, schema state, queue backlog, reconciler visibility, stuck queued runs, log reachability, audit durability, and database pool pressure.
+
+## Run A Job Once
+
+Use `jobs run` for experimentation or one-off work:
+
+```sh
+./bin/vectis-cli jobs run examples/sequenced.json --follow
+```
+
+`--follow` streams logs for the run that was just created.
+
+Without `--follow`, the command prints the `run_id`:
+
+```sh
+./bin/vectis-cli jobs run examples/sequenced.json
+```
+
+Use that ID later with:
+
+```sh
+./bin/vectis-cli runs show <run-id>
+./bin/vectis-cli logs run <run-id>
+```
+
+For safe client retries after a network error, pass an idempotency key:
+
+```sh
+./bin/vectis-cli jobs run examples/sequenced.json --idempotency-key "$(uuidgen)"
+```
+
+## Store And Trigger Jobs
+
+Create a reusable stored job:
+
+```sh
+./bin/vectis-cli jobs create examples/sequenced.json
+```
+
+List stored jobs:
+
+```sh
+./bin/vectis-cli jobs list
+```
+
+Show a stored definition:
+
+```sh
+./bin/vectis-cli jobs show sequenced-job
+```
+
+Trigger a stored job and stream logs:
+
+```sh
+./bin/vectis-cli jobs trigger sequenced-job --follow
+```
+
+Trigger without following:
+
+```sh
+./bin/vectis-cli jobs trigger sequenced-job
+```
+
+Edit a stored job in `$EDITOR`:
+
+```sh
+./bin/vectis-cli jobs edit sequenced-job
+```
+
+Delete a stored job:
+
+```sh
+./bin/vectis-cli jobs delete sequenced-job --yes
+```
+
+Deleting a job removes the stored definition and prevents future triggers. It does not erase historical runs.
+
+## Inspect Runs
+
+Show one run:
+
+```sh
+./bin/vectis-cli runs show <run-id>
+```
+
+List runs for a stored job:
+
+```sh
+./bin/vectis-cli runs list sequenced-job
+```
+
+Limit the number of runs:
+
+```sh
+./bin/vectis-cli runs list sequenced-job --limit 10
+```
+
+Cancel an executing run:
+
+```sh
+./bin/vectis-cli runs cancel <run-id>
+```
+
+Cancellation goes through the worker control path, so it only applies when the run is executing and the worker can be reached.
+
+## Stream Logs
+
+Stream logs for one run:
+
+```sh
+./bin/vectis-cli logs run <run-id>
+```
+
+Follow future runs for a stored job:
+
+```sh
+./bin/vectis-cli logs job sequenced-job
+```
+
+`logs job` follows runs created after you connect. It is useful when you want a terminal open before triggering the next run.
+
+Filter to one stream when needed:
+
+```sh
+./bin/vectis-cli logs run <run-id> --stdout
+./bin/vectis-cli logs run <run-id> --stderr
+```
+
+## Manage Users, Tokens, And Roles
+
+These commands require API authentication and enough RBAC permission.
+
+List users:
+
+```sh
+./bin/vectis-cli users list
+```
+
+Create a user:
+
+```sh
+./bin/vectis-cli users create alice
+```
+
+Create an API token for yourself:
+
+```sh
+./bin/vectis-cli auth tokens create --label laptop --expires-in 3m
+```
+
+List your tokens:
+
+```sh
+./bin/vectis-cli auth tokens list
+```
+
+Create a namespace:
+
+```sh
+./bin/vectis-cli namespaces create team-a
+```
+
+Grant a role:
+
+```sh
+./bin/vectis-cli role-bindings grant <namespace-id> <user-id> viewer
+```
+
+Roles are documented with the auth model in [Security Posture](../concepts/security.md).
+
+## Local Development Cleanup
+
+Preview local cleanup first:
+
+```sh
+./bin/vectis-cli local reset --dry-run
+```
+
+Apply local cleanup:
+
+```sh
+./bin/vectis-cli local reset --yes
+```
+
+This removes local Vectis config, data, cache, CLI tokens, and generated deployment state. It does not stop running services or delete remote/container volumes.
+
+## Operator Commands
+
+These commands are useful, but they change durable state or deployment state. Use them deliberately.
+
+| Task | Command |
+| --- | --- |
+| Apply embedded database migrations | `./bin/vectis-cli database migrate` |
+| Preview retention cleanup | `./bin/vectis-cli retention cleanup --dry-run` |
+| Apply retention cleanup | `./bin/vectis-cli retention cleanup --yes` |
+| Generate Podman deployment secrets | `./bin/vectis-cli deploy podman init` |
+| Render the Podman manifest | `./bin/vectis-cli deploy podman render` |
+| Start or replace the Podman reference deployment | `./bin/vectis-cli deploy podman up` |
+| Show Podman deployment status | `./bin/vectis-cli deploy podman status` |
+| Stop the Podman deployment | `./bin/vectis-cli deploy podman down` |
+
+For operational context, see [Configuration](../operating/configuration.md), [Retention And Storage Pressure](../operating/reliability/retention.md), and [Reference Deployment Posture](../operating/deployment/reference-deployment-posture.md).
+
+## Good Daily Loop
+
+For local development, a comfortable CLI loop looks like this:
+
+1. Start `./bin/vectis-local`.
+2. Run `./bin/vectis-cli health check`.
+3. Edit a job JSON file.
+4. Run it with `./bin/vectis-cli jobs run <file> --follow`.
+5. Store it once it works: `./bin/vectis-cli jobs create <file>`.
+6. Trigger future runs with `./bin/vectis-cli jobs trigger <job-id> --follow`.
+7. Inspect history with `./bin/vectis-cli runs list <job-id>`.
+
+That keeps experimentation fast while still exercising the same API and worker path used by stored jobs.

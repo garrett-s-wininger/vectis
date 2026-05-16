@@ -150,6 +150,7 @@ Only run reset when you are comfortable deleting local Vectis state.
 | If you want to... | Read next |
 | --- | --- |
 | Write your own job definition | [Your First Job](./using/your-first-job.md) |
+| Learn the everyday CLI workflows | [CLI Guide](./using/cli-guide.md) |
 | Understand jobs, runs, workers, and queues | [Architecture](./concepts/architecture.md) |
 | Learn the job JSON shape and validation rules | [Job Definition Validation](./using/job-validation.md) |
 | Use the HTTP API directly | [API Reference](./using/api-reference.md) |
