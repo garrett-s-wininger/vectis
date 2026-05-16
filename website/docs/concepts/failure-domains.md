@@ -1,260 +1,203 @@
-# Failure domains, dependency outages, and expectations
+# Failure Domains
 
-This document is for **operators and deployment planning**. It explains how failures are isolated by component, what happens when a dependency is unavailable, reasonable **operational expectations**, and how the current system compares to a heavily hardened production setup. For topology and protocols, see [ARCHITECTURE.md](./architecture.md); for the same material in planning context, see [PLANNING.md](../developing/roadmap/planning.md) §2. For vocabulary (**queue**, **run**, **dispatch**, etc.), see [GLOSSARY.md](./glossary.md). For **trust boundaries and secrets**, see [SECURITY.md](./security.md). For backup, restore order, and disaster recovery drills, see [BACKUP_RESTORE.md](../operating/reliability/backup-restore.md).
+This page helps operators understand what happens when a Vectis dependency or service is unavailable. Use it for deployment planning, readiness checks, and incident triage.
 
-For queue handoff triage using run dispatch events, see [DISPATCH_VISIBILITY.md](../operating/reliability/dispatch-visibility.md).
+For the system layout, see [Architecture](./architecture.md). For security and trust boundaries, see [Security](./security.md). For backup and restore order, see [Backup and Restore](../operating/reliability/backup-restore.md). For queue handoff repair, see [Dispatch Visibility](../operating/reliability/dispatch-visibility.md).
 
-For retry attempts, backoff defaults, metrics, and alert examples, see [RETRY_POLICY.md](../developing/retry-policy.md).
+## The Short Version
 
-## Operational spine
+The database and queue are the two services to protect first.
 
-The **database** and **queue** are the pair to protect first. The database is the **durable source of truth**—definitions, runs, schedules, and worker leases. The queue is **where work waits and is handed off** from producers (API, cron, reconciler) to workers. Registry, log, API, and the rest all matter, but **most systemic outages** are explained by database health, queue health (including on-disk persistence when it is enabled), or the handoff between them.
-
-## Dependency overview (as implemented)
-
-| Component | Depends on (runtime) |
+| Service | Why it matters |
 | --- | --- |
-| **vectis-api** | Database; **queue** (fixed address or **registry**) |
-| **vectis-queue** | Optional **registry** (when configured to register and publish its address) |
-| **vectis-log** | Optional **registry** (when configured to register) |
-| **vectis-worker** | **Registry** (unless queue and log addresses are pinned in config); **queue**; **log**; **database** |
-| **vectis-cron** | **Database**; **queue** |
-| **vectis-reconciler** | **Database**; **queue** |
-| **Clients** (browser, CLI, automation) | **API** over HTTP |
+| Database | Durable source of truth for jobs, runs, schedules, leases, users, tokens, namespaces, audit records, and idempotency keys. |
+| Queue | Handoff point between producers such as API, cron, and reconciler, and consumers such as workers. |
+| Log service | Required before a worker starts normal job execution. It owns log ingest and log streaming, not authoritative run state. |
+| Registry | Service discovery. It is avoidable for some paths when queue and log addresses are pinned in config. |
+| API | User and automation entry point. Running work does not depend on the API once workers have claimed it. |
+| Worker | Executes jobs. Capacity and failure handling are mostly worker-count and lease behavior questions. |
+| Cron | Turns schedules into queued work. Manual and API triggers can still work without it. |
+| Reconciler | Repairs the gap where a run is durable in the database but was not successfully handed to the queue. |
 
-If queue and log addresses are **pinned** in configuration, consumers do not need the registry to find them. Components that **register** themselves still need the registry up at startup unless you change that deployment pattern.
+Most Vectis outages reduce to one of these questions:
 
-### Dependency classes
+1. Can the process start and find its hard dependencies?
+2. Can the API, cron, or reconciler record state in the database?
+3. Can work reach the queue?
+4. Can workers claim work, open a log stream, and finalize run state?
+5. Can users read status and logs while the system recovers?
+
+## Dependency Map
+
+| Component | Runtime dependencies |
+| --- | --- |
+| `vectis-api` | Database; queue by pinned address or registry; log service for log routes. |
+| `vectis-queue` | Optional registry when it registers its address; persistence directory when queue persistence is enabled. |
+| `vectis-registry` | Listen socket and optional TLS files. |
+| `vectis-log` | Storage directory; gRPC ingest listener; HTTP/SSE log listener; optional registry. |
+| `vectis-worker` | Database; queue; log service; registry unless queue and log addresses are pinned. |
+| `vectis-log-forwarder` | Log service and local spool directory. |
+| `vectis-cron` | Database and queue. |
+| `vectis-reconciler` | Database and queue. |
+| `vectis-local` | Child binaries, local ports, and local TLS bootstrap unless disabled. |
+| `vectis-cli` | API for normal commands; database DSN for `migrate`. |
+
+If queue and log addresses are pinned, callers can avoid registry lookups. Services that register themselves still need the registry during startup unless you choose a different deployment pattern.
+
+## Dependency Classes
 
 | Class | Meaning |
 | --- | --- |
-| **Startup-hard** | The process normally exits or refuses to serve until the dependency is reachable or usable. |
-| **Runtime-hard** | The process may start, but the dependency is required for the main workflow to complete. |
-| **Runtime-soft** | The dependency improves behavior or recovery, but work can continue or retry without it for a period. |
-| **Optional** | The dependency is only used when the matching feature is configured. |
+| Startup-hard | The process normally exits or refuses to serve until the dependency is reachable or configured. |
+| Runtime-hard | The process may start, but the main workflow cannot complete while the dependency is down. |
+| Runtime-soft | The process can continue, retry, or degrade for a period. |
+| Optional | Used only when the matching feature or deployment pattern is enabled. |
 
-### Startup and recovery matrix
+## Startup and Readiness {#startup-and-recovery-matrix}
 
-| Binary | Startup-hard | Runtime-hard | Runtime-soft / optional | Probe guidance |
-| --- | --- | --- | --- | --- |
-| `vectis-api` | Database open and expected schema; queue dial through pinned address or registry; configured TLS files | Database for REST state; queue for trigger/run dispatch; auth setup state when auth is enabled | Log dial for APIs that need log streaming; metrics exporter; tracing exporter | Use `GET /health/live` for process liveness and `GET /health/ready` for database plus managed queue connectivity. |
-| `vectis-queue` | gRPC listen socket; persistence directory when configured; TLS files when TLS is enabled; registry when registration is enabled | Queue persistence when configured; delivery timeout scanner | Metrics listener; tracing exporter | Use gRPC health service `queue` for queue-serving readiness; scrape `/metrics` on the metrics port for observability. |
-| `vectis-registry` | gRPC listen socket; TLS files when TLS is enabled | Registry memory state for service discovery | Metrics/tracing only if externally wrapped | Use gRPC health service `registry` for discovery readiness. |
-| `vectis-log` | gRPC listen socket; log HTTP listen socket; storage directory; TLS files when TLS is enabled; registry when registration is enabled | Durable log storage and active stream buffers | Metrics listener; tracing exporter | Use gRPC health service `log` for ingest readiness; use log HTTP only for client log consumption checks. |
-| `vectis-worker` | Database open and expected schema; queue dial; log dial; TLS files when TLS is enabled | Database for claim/lease/finalize; queue for dequeue/ack; log stream before job execution | Metrics listener; tracing exporter; registry is avoided when queue/log addresses are pinned | Treat queue/log/database failures as "do not send work here"; use metrics and external supervisor liveness because there is no worker HTTP readiness endpoint. |
-| `vectis-log-forwarder` | Log service dial; TLS files when TLS is enabled; local spool directory | Log service for draining batches | Local spool lets batches survive temporary log outages | Liveness is process supervision; backlog age/size should drive readiness in deployments that wrap it. |
-| `vectis-cron` | Database open and expected schema; queue dial; TLS files when TLS is enabled | Database schedules; queue enqueue | Registry is avoided when queue address is pinned; metrics/tracing | Liveness is process supervision; readiness means database and queue are reachable before enabling scheduled traffic. |
-| `vectis-reconciler` | Database open and expected schema; queue dial; TLS files when TLS is enabled | Database queued-run scan; queue enqueue | Registry is avoided when queue address is pinned; metrics/tracing | Liveness is process supervision; readiness means database and queue are reachable before relying on redispatch. |
-| `vectis-local` | Child binary paths; local TLS bootstrap unless disabled; child listen ports | Registry, queue, log, API, worker, cron, and reconciler children | Dev-only supervisor behavior | It waits for registry, queue, and log gRPC health before starting later stages. |
-| `vectis-cli` | API URL for API commands; database DSN for `migrate` | API or database only for the invoked command | CLI token file; local deploy config dir | One-shot command exit status is the probe. |
+| Binary | Must be healthy before startup or serving | Main runtime dependency | Readiness guidance |
+| --- | --- | --- | --- |
+| `vectis-api` | Database, expected schema, queue dial, required TLS files. | Database for REST state; queue for dispatch; log service for log routes. | `GET /health/live` means the process is serving. `GET /health/ready` checks database ping and managed queue connectivity. |
+| `vectis-queue` | gRPC listener, persistence directory when enabled, required TLS files, registry when registration is enabled. | Queue storage and delivery scanner. | Use gRPC health service `queue`; scrape metrics for depth and delivery health. |
+| `vectis-registry` | gRPC listener and required TLS files. | In-memory discovery state. | Use gRPC health service `registry`. |
+| `vectis-log` | gRPC listener, HTTP log listener, storage directory, required TLS files, registry when registration is enabled. | Durable log storage and active stream buffers. | Use gRPC health service `log` for ingest; check log HTTP separately for clients reading streams. |
+| `vectis-worker` | Database, queue, log service, required TLS files. | Database leases/finalization; queue dequeue/ack; log stream before execution. | Use supervisor state plus dependency gates. There is no worker HTTP readiness endpoint. |
+| `vectis-log-forwarder` | Log service, required TLS files, local spool directory. | Log service for draining batches. | Use process supervision plus spool size and age. |
+| `vectis-cron` | Database, queue, required TLS files. | Database schedules and queue enqueue. | Gate scheduled traffic on database and queue reachability. |
+| `vectis-reconciler` | Database, queue, required TLS files. | Database queued-run scan and queue enqueue. | Gate reliance on redispatch on database and queue reachability. |
+| `vectis-local` | Child binary paths, local ports, and local TLS bootstrap unless disabled. | Supervised dev stack children. | Intended for local development; it starts services in dependency order. |
+| `vectis-cli` | API URL for API commands, database DSN for `migrate`. | Only the dependency needed for the invoked command. | One-shot command exit status is the signal. |
 
-Readiness should answer "should this process receive new work right now?" Liveness should answer only "should the supervisor restart this process?" A process can be live while not ready, such as an API with a healthy HTTP listener but an unavailable queue.
+Readiness should answer "should this process receive new work right now?" Liveness should only answer "should the supervisor restart this process?"
 
----
+## Database Down {#database}
 
-## By component
+The database is the durable source of truth. If it is unavailable, Vectis can lose the ability to know what should run, who owns a run, and how to report final state.
 
-### Database
+| Component | Behavior |
+| --- | --- |
+| API | Startup can fail. After startup, many routes return `503 Service Unavailable` for classified transient database errors, while preserving `404` behavior for true missing resources. Creating jobs, updating jobs, triggering runs, listing runs, auth setup, and audit persistence are affected. |
+| Worker | Cannot claim work, renew leases, or reliably mark runs succeeded, failed, or orphaned. |
+| Cron | Cannot read schedules or record activity. Startup normally fails if the database is unreachable. |
+| Reconciler | Cannot find queued runs that need redispatch. Startup normally fails if the database is unreachable. |
 
-**Failure domain:** One logical database holds job definitions, runs, schedules, and worker lease information. It is the **source of truth** for what should run and what state each run is in. Supported engines include **SQLite** and **PostgreSQL**; outage behavior is the same at this layer.
+Vectis ships embedded migrations and supports SQLite and PostgreSQL. It does not implement database failover, replica routing, or automatic backup and restore. PostgreSQL connection pool limits are configurable, but they are not a high-availability system by themselves.
 
-**If the database is offline or returning errors**
+## Queue Down
 
-- **API:** Creating or updating jobs, triggering runs, listing runs, and healthy startup (including schema migrations) fail or the API process may exit during startup. After the process is up, many handlers treat **transient database unavailability** (connection loss, certain driver and network errors classified in `internal/database/errors.go`) as **HTTP 503 Service Unavailable**, so load balancers and clients can distinguish "dependency down" from arbitrary **500** failures. **404** semantics for missing resources are preserved where applicable (e.g. get-by-id flows check not-found before the unavailable path).
-- **Worker:** Cannot claim work, keep leases, or record success or failure.
-- **Cron:** Cannot read schedules or record activity; process typically exits on startup if the database is unreachable.
-- **Reconciler:** Cannot find stuck runs or submit them to the queue; process typically exits on startup if the database is unreachable.
+The queue buffers work between producers and workers.
 
-**Expectations (what Vectis provides vs what you run)**
+| Component | Behavior |
+| --- | --- |
+| API | Trigger and ephemeral-run requests can return `202` after recording the run in the database. Queue handoff happens asynchronously with bounded retries. If handoff keeps failing, the run may remain queued in the database until the reconciler submits it again. |
+| Worker | Dequeue fails. The worker backs off and retries rather than exiting immediately. |
+| Cron | A schedule tick can fail to submit during the outage. Later ticks continue according to schedule behavior. |
+| Reconciler | Redispatch attempts fail for that cycle and can retry later. |
 
-- The application ships **embedded schema migrations** and talks to **one configured SQL backend** at a time (SQLite or PostgreSQL). It does **not** implement connection failover, replica routing, or automatic backup/restore. Operators should follow [BACKUP_RESTORE.md](../operating/reliability/backup-restore.md) for backup inventory and restore drills.
-- For **PostgreSQL** (`pgx`), each process configures the shared `*sql.DB` pool (**max open/idle connections**, **connection max lifetime / idle time**) via [CONFIGURATION.md](../operating/configuration.md#postgresql-connection-pool-pgx-only) and `internal/config/defaults.toml`. That bounds total connections across many processes and helps shed stale connections after network blips; it is **not** HA by itself.
-- Every component that writes state must see the **same** logical database and schema. Multi-instance API/workers are only safe when the backend gives you the concurrency semantics you need (see [PLANNING.md](../developing/roadmap/planning.md) §2.5 for persistence scope and roadmap).
+Queue persistence changes restart behavior:
 
-**Where we are now**
+| Queue persistence | Restart effect |
+| --- | --- |
+| Enabled | Pending work and in-flight delivery metadata can be reloaded from disk. The storage path must be treated as durable state. |
+| Disabled | In-memory queue state is lost. Runs may still be queued in the database, so the reconciler is the recovery path. |
 
-- No separate “read-only” or degraded API mode when the database is unhealthy.
-- **503** on classified unavailable errors is implemented on **key read and write** API paths, not a full “every possible error code” matrix.
+Run the reconciler and alert on persistent queued-run age if queue handoff matters for your deployment.
 
----
+## Log Service Down
 
-### vectis-registry
+The log service collects worker log chunks and serves log streams to clients. It does not own authoritative run status.
 
-**Failure domain:** When used, the registry tells callers where the **queue** and **log** services listen. It matters whenever addresses are not fully pinned in config.
+| Component | Behavior |
+| --- | --- |
+| Worker | Must open a log stream before normal job execution. If the log service is down or does not respond in time, the run fails before meaningful job steps execute. |
+| API clients | Cannot read live or stored logs through the normal log paths until the service is back. |
+| API status routes | Can still report run state from the database when the API and database are healthy. |
 
-**If the registry is offline**
+Today, there is no "run without central logging" mode for normal worker execution.
 
-- **API, cron, reconciler:** Usually **cannot start** until they can reach the queue (which may require the registry to resolve the queue address).
-- **Worker:** Usually **cannot start** without the registry unless both queue and log addresses are pinned.
-- **Queue and log:** If they are configured to register, **startup fails** until they can register successfully.
+## Registry Down
 
-**Expectations**
+The registry matters when services use discovery instead of fixed addresses.
 
-- Bring the registry up with—or before—dependents, or use **pinned** queue/log addresses so discovery is not on the critical path for those processes. For resilience, plan for redundant registry instances or fixed bootstrap addresses (beyond what this repo prescribes).
+| Component | Behavior |
+| --- | --- |
+| API, cron, reconciler | Usually cannot start if they need the registry to resolve the queue. |
+| Worker | Usually cannot start if it needs the registry to resolve queue or log addresses. |
+| Queue and log | Startup fails when they are configured to register and the registry is unavailable. |
 
-**Where we are now**
+Pin queue and log addresses when you want fewer startup dependencies. Keep the registry private when discovery is enabled.
 
-- A single registry deployment is the common pattern. Discovery refresh behavior is tunable via configuration (discovery-related settings).
+## API Down {#vectis-api}
 
----
+The API is the HTTP entry point for users, automation, run history, and log access.
 
-### vectis-queue
+| Impact | Behavior |
+| --- | --- |
+| New user requests | Clients cannot create jobs, trigger runs, query status, or read logs through the API. |
+| Already running jobs | Workers do not need the API once work is claimed. Queue, log, cron, and reconciler continue according to their own dependencies. |
+| Shutdown | On `SIGINT` or `SIGTERM`, the API stops accepting new HTTP connections and uses `http.Server.Shutdown` with a bounded timeout. |
 
-**Failure domain:** Buffers work between **producers** (API, cron, reconciler) and **workers**. By default the queue can **persist** its backlog and delivery state to disk under a configured data directory; turning persistence off keeps everything in memory only.
+Use `/health/live` as a restart probe and `/health/ready` as the traffic gate. Do not use `/metrics` as API readiness; metrics can still be served when database or queue dependencies are unhealthy.
 
-**If the queue is unavailable**
+Background enqueue after an HTTP `202` uses the reconciler as a backstop if the process exits before queue handoff completes. See [ADR 0001](../developing/architecture-decisions/0001-async-enqueue-after-http-202.md).
 
-- **API:** Triggers and ephemeral runs can still be **accepted** (HTTP 202) after the run is recorded in the database; handing work to the queue happens **asynchronously** with a **small number of retries**. If that handoff keeps failing, the failure is **logged** and the run may sit in “queued” in the database until the **reconciler** tries again.
-- **Worker:** Pulling work fails; the worker **backs off** and retries rather than exiting immediately.
-- **Cron / reconciler:** Submissions during the outage fail for that cycle; the reconciler continues to run and logs issues per run where applicable.
+## Workers Down or Interrupted
 
-**If the queue process restarts**
+Workers execute jobs and coordinate ownership through database leases.
 
-- **Persistence on:** Pending work and in-flight delivery metadata are reloaded from disk when supported.
-- **Persistence off:** In-memory work is **lost**; the database may still show runs as queued—the **reconciler** is meant to detect long-undispatched runs and submit them again.
+| Event | Behavior |
+| --- | --- |
+| All workers offline | Work can remain queued. Throughput returns when workers return. |
+| Worker overloaded | Queue depth and queued-run age grow. Add workers or reduce incoming work. |
+| `SIGINT` or `SIGTERM` | Worker stops dequeuing new work and tries to let the current job finish and finalize state. |
+| `SIGKILL` or crash | No graceful drain. Leases, queue delivery timeouts, and reconciler behavior determine whether work is retried or stuck. |
+| Database loss mid-run | Lease renewal and final status updates can fail. A long outage can strand or fail runs until recovery or operator action. |
+| Remote cancel | `POST /api/v1/runs/{id}/cancel` and `vectis-cli runs cancel <run-id>` can request cancellation of a currently running run. The API resolves the lease owner to the worker-control endpoint, sends the run's cancel token over gRPC, and the worker cancels the execution context. |
 
-**Expectations**
+Scale workers by running more worker processes. Remote cancel is available for executing runs when worker resolution is configured and the assigned worker is reachable. It is best-effort at the action boundary: actions that honor context cancellation should stop promptly, while external child processes or blocking operations may need their own cleanup behavior.
 
-- Treat the queue as **durable** only when persistence is enabled and the data directory is on reliable storage. Expect **transient** outages to be retried by producers and workers (reconnect and limited enqueue retries).
-- Queue enqueue retries use bounded exponential backoff; persistent exhaustion should be paired with reconciler health and queued-run-age alerts.
+## Cron Down
 
-**Where we are now**
+Cron turns schedules into queued work. It is independent of the HTTP API.
 
-- One active queue service; no built-in multi-writer or active/active queue cluster.
+| Situation | Behavior |
+| --- | --- |
+| Cron offline | Schedules do not fire. Manual and API triggers can still work if API and queue are healthy. |
+| Multiple uncoordinated cron instances | The same schedule can double-fire. |
+| Large schedule set | Partition schedules across cron groups or use an external scheduler to trigger the API. |
 
----
+Vectis does not currently ship cron sharding or leader election. Each schedule should have one firing path at a time.
 
-### vectis-log
+## Reconciler Down
 
-**Failure domain:** Collects **log streams** from workers and serves them to clients. It does **not** own authoritative run status (the database does).
+The reconciler repairs a specific reliability gap: a run is durable in the database as queued, but it was not successfully handed to the queue.
 
-**If the log service is offline**
+If the reconciler is down, that automatic repair stops. The API and queue do not fully replace it. Dispatch repair attempts are visible in run dispatch events; see [Dispatch Visibility](../operating/reliability/dispatch-visibility.md).
 
-- **Worker:** The worker must open a log stream **before** running the job. If the log service is down or does not respond in time (on the order of **tens of seconds**), the **run fails** before meaningful job steps execute. There is no “run without central logging” path today.
-- **Anyone consuming build logs:** Cannot receive log streams until the service is back. Run status in the API is separate from the log service.
+The reconciler runs on a configurable interval and waits a configurable minimum age before redispatching, so it does not fight normal dispatch latency.
 
-**Expectations**
-
-- Operators should see failures clearly in run status and messaging. A more available design would make logging optional or buffer locally (not implemented).
-
-**Where we are now**
-
-- Log service is a **hard dependency** for standard job execution.
-
----
-
-### vectis-api
-
-**Failure domain:** HTTP API for definitions, triggers, and run history. Workers already running a job do not need the API.
-
-**If the API is offline**
-
-- Clients cannot drive or query the system over HTTP.
-- Queue, workers, log, cron, and reconciler keep running according to their own dependencies.
-
-**Process lifecycle and probes**
-
-- **Graceful shutdown:** On **SIGINT** / **SIGTERM**, the API stops accepting new HTTP connections and uses **`http.Server.Shutdown`** with a bounded timeout so in-flight requests and SSE streams can finish when clients disconnect cooperatively.
-- **HTTP health (orchestration):** **`GET /health/live`** returns **200** if the process is serving (liveness). **`GET /health/ready`** returns **200** only when the API’s **database** ping succeeds and, when the server uses a managing queue client, the queue’s **gRPC connectivity** is **READY**—so readiness reflects “can this replica do work?” for common paths. Mock-only test servers may skip parts of this check.
-- **Deploy manifests:** Wiring **`livenessProbe` / `readinessProbe`** in `deploy/podman/kube-spec.yaml` to these paths (or equivalents) is recommended for Kubernetes-style rollouts; the in-repo spec may not include probes yet.
-- **Podman/Kubernetes probe shape:** use `/health/live` as the restart probe and `/health/ready` as the traffic gate. Do not use `/metrics` as API readiness; it can be healthy while database or queue dependencies are down.
-
-**If the database or queue is unhealthy while the API is running**
-
-- See the **Database** and **vectis-queue** sections: many API routes return **503** when the database error is classified as **unavailable**; queue connectivity affects **readiness** and enqueue paths, but the API still **fatals on startup** if it cannot connect to the queue before serving (no lazy dial yet).
-
-**Expectations**
-
-- Multiple API replicas do **not** share per-client session state; clients that rely on a single long-lived connection to one instance should plan for reconnects or use another instance explicitly.
-
-**Where we are now**
-
-- Built-in HTTP authentication, scoped API tokens, RBAC, rate limits, and audit logging are shipped; operators can still place the API behind edge/network controls for defense in depth.
-- **Background enqueue** after HTTP **202** (`finishTriggerEnqueue` / `finishRunJobEnqueue`) still uses a **detached context**; there is no explicit wait for those goroutines during HTTP shutdown—the **reconciler** remains the backstop for runs stuck in **queued** in the database (see [adr/0001-async-enqueue-after-http-202.md](../developing/architecture-decisions/0001-async-enqueue-after-http-202.md)).
-
----
-
-### vectis-worker
-
-**Failure domain:** Each worker process runs **one job at a time**. Workers coordinate **who owns a run** through the database.
-
-**If workers are offline or overloaded**
-
-- The queue and database can show work waiting; throughput drops until capacity returns.
-
-**If a worker stops mid-run**
-
-- **SIGINT / SIGTERM (graceful):** The worker stops **dequeuing** new work, but the **current** job—if any—continues on a **non-signal** context: **TryClaim**, **Ack**, **ExecuteJob**, **lease renewal**, and **MarkRunSucceeded / MarkRunFailed / MarkRunOrphaned** are not canceled by the same signal that stops dequeue. That avoids leaving a claimed run without a terminal row update when the process exits cleanly after the job finishes. **`SIGKILL`** and abrupt crashes do **not** run this path; leases, queue **delivery timeouts**, and reconciler behavior still apply.
-- In all hard-stop cases, leases, queue **delivery timeouts**, and reconciler timing together determine whether work is retried or stuck. Tune queue persistence, delivery policy, and reconciler interval if you see stranded runs.
-
-**If a worker loses database access mid-run**
-
-- Lease renewal and final status updates may fail; runs may end as failed or remain in an ambiguous state until an operator or reconciler intervenes. The drain path above assumes the database becomes available again for finalize retries; a **long** outage during execution can still strand or fail runs.
-
-**Where we are now**
-
-- Scale by running more worker processes; no built-in autoscaling.
-- **Remote cancel** of a specific run from the API is **not** implemented; stopping a run today is operational (worker/process lifecycle or external action), not an HTTP cancel RPC.
-
----
-
-### vectis-cron
-
-**Failure domain:** Fires **scheduled** work by submitting to the queue. Independent of the HTTP API.
-
-**If cron is offline**
-
-- Schedules do not run; **manual or API triggers** still work if the API and queue are healthy.
-
-**Expectations**
-
-- **Scale:** With a very large number of schedules, you typically **shard** work—each cron process (or group) owns a **partition** of jobs so evaluation stays bounded; that is separate from simply running duplicate full copies of the same schedule set.
-- **Correctness / HA:** Each schedule should have **exactly one** firing path at a time. That may mean one leader-elected `vectis-cron`, **or** moving time-based triggers out of Vectis (e.g. your platform invokes the HTTP API on a cadence) so you are not running several uncoordinated `vectis-cron` replicas that would each enqueue the same tick.
-
-**Where we are now**
-
-- No built-in sharding or leader election; multiple instances without an external partitioning strategy can **double-fire** schedules—treat that as an operational risk.
-
----
-
-### vectis-reconciler
-
-**Failure domain:** Finds runs that are **queued in the database** but never successfully handed to the queue (for example after an accepted trigger during a queue outage), and tries to submit them again.
-
-**If the reconciler is offline**
-
-- Automatic cleanup of that gap **stops** until it runs again; the API and queue do not fully replace this behavior.
-
-Dispatch repair attempts are visible in run dispatch events; see [DISPATCH_VISIBILITY.md](../operating/reliability/dispatch-visibility.md).
-
-**Where we are now**
-
-- Runs on a **configurable interval** and waits a **configurable minimum time** after queuing before attempting redispatch, to avoid fighting normal dispatch latency.
-
----
-
-## Summary: current posture vs stronger expectations
-
-| Area | Current behavior (short) | Stronger expectation (operations) |
-| --- | --- | --- |
-| **Registry** | Single discovery point; hard dependency at startup unless addresses are pinned | Redundancy, pins, or fixed service addresses |
-| **Queue** | Optional disk persistence; retries on transient errors | Monitored depth, durable storage, capacity planning |
-| **Log** | Required before a run executes | Optional or replicated logging if you need higher availability |
-| **Database** | Embedded migrations; SQLite default and PostgreSQL supported; one DSN for all writers; **pgx** pool limits per process ([CONFIGURATION.md](../operating/configuration.md#postgresql-connection-pool-pgx-only)); **503** on classified unavailable errors on many API paths; no in-app failover or replica routing | Roadmap: harden PostgreSQL + multi-instance story in-tree ([PLANNING.md](../developing/roadmap/planning.md) §2.5); backups/HA remain outside the codebase |
-| **API** | Graceful HTTP **Shutdown** on signal; **`/health/live`** and **`/health/ready`**; trigger may succeed before work reaches the queue; async enqueue not joined on shutdown; horizontal replicas are not session-coherent | Wire Kube/Podman probes to health URLs; client idempotency; run the **reconciler** (it retries handoff for runs queued in the DB but not in the queue); alert on reconciler health or persistent backlog |
-| **Worker** | **SIGINT/SIGTERM:** stop dequeue, **drain** current job for DB finalize; **SIGKILL:** no drain | Same; optional future: remote cancel and bounded drain timeouts |
-| **Cron** | No sharding or leader election; duplicate processes risk double-firing | **Scale:** partition schedules across shards. **HA:** one firing path per schedule (leader election or external trigger → API) |
-| **Auth** | HTTP API auth is configurable and off by default; setup/auth state lives in the database | Enable built-in auth or protect access at the edge; see [SECURITY.md](./security.md) |
-
-## Probe reference
+## Probe Reference
 
 | Surface | Liveness | Readiness |
 | --- | --- | --- |
 | API HTTP | `GET /health/live` | `GET /health/ready` checks database ping and managed queue connectivity. |
-| Registry gRPC | Standard gRPC health `registry` | Same check; discovery clients should not depend on it until SERVING. |
-| Queue gRPC | Standard gRPC health `queue` | Same check; producers and workers should wait for SERVING. |
-| Log gRPC | Standard gRPC health `log` | Same check for log ingest. Log HTTP availability is still required for clients reading streams. |
-| Metrics-only HTTP listeners | `/metrics` shows exporter/process health | Do not use as workflow readiness by itself. |
-| Cron, reconciler, worker, log-forwarder | Supervisor process state | Gate externally on their hard dependencies, or on deployment-specific wrapper probes. |
+| Registry gRPC | Standard gRPC health `registry` | Same check; discovery clients should wait for `SERVING`. |
+| Queue gRPC | Standard gRPC health `queue` | Same check; producers and workers should wait for `SERVING`. |
+| Log gRPC | Standard gRPC health `log` | Same check for log ingest. Check log HTTP separately for users reading streams. |
+| Metrics-only listeners | `/metrics` confirms exporter/process visibility. | Do not use metrics as workflow readiness by itself. |
+| Cron, reconciler, worker, log-forwarder | Supervisor process state. | Gate externally on hard dependencies or deployment-specific wrapper probes. |
 
-For reference deploys, add probes in this order: registry, queue, and log gRPC health first; API HTTP live/ready second; worker/cron/reconciler dependency gates last. This mirrors the dependency order that `vectis-local` already uses for its supervised dev stack.
+For reference deploys, add probes in dependency order: registry, queue, and log gRPC health first; API HTTP live/ready second; worker, cron, reconciler, and log-forwarder dependency gates last.
+
+## Current Limits
+
+| Area | Current behavior | Stronger production expectation |
+| --- | --- | --- |
+| Database | One configured SQL backend, embedded migrations, no in-app failover. | Managed PostgreSQL, tested backups, restore drills, and deployment-level HA. |
+| Queue | One active queue service with optional disk persistence. | Durable storage, queue-depth alerts, and capacity planning. |
+| Registry | Commonly a single discovery point unless addresses are pinned. | Redundant discovery or fixed service addresses. |
+| Log service | Required before normal job execution. | Replication or local buffering if log availability must not block work. |
+| API | Health probes, graceful HTTP shutdown, auth when enabled, async enqueue backstopped by reconciler. | Edge TLS, idempotent clients, multiple replicas, and alerts on enqueue or reconciler failures. |
+| Worker | Graceful drain on `SIGINT` and `SIGTERM`; no drain on crash or `SIGKILL`. | Worker isolation, bounded drain policy, and clear operator run-stop procedures. |
+| Cron | No built-in sharding or leader election. | One firing path per schedule, either by leader election, partitioning, or an external scheduler. |
+| Auth | HTTP API auth is configurable and off by default. | Enable auth or protect the API at the edge before shared use. |
