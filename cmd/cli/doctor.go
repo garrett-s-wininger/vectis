@@ -45,6 +45,14 @@ type doctorCheck struct {
 	apiAuthEnabled  bool
 }
 
+type doctorReport struct {
+	Status   doctorStatus  `json:"status"`
+	Passed   int           `json:"passed"`
+	Warnings int           `json:"warnings"`
+	Failed   int           `json:"failed"`
+	Checks   []doctorCheck `json:"checks"`
+}
+
 var doctorJSON bool
 var doctorStrict bool
 
@@ -58,10 +66,7 @@ func runDoctor(cmd *cobra.Command, args []string) {
 	doctorJSON = doctorJSON || outputIsJSON()
 	doctorStrict, _ = cmd.Flags().GetBool("strict")
 
-	if err := doctor(os.Stdout); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+	runCLIError(doctor(os.Stdout))
 }
 
 func doctor(w io.Writer) error {
@@ -194,6 +199,18 @@ func doctorOverallStatus(failed, warned int) string {
 	return "PASS"
 }
 
+func doctorOverallJSONStatus(failed, warned int) doctorStatus {
+	if failed > 0 {
+		return doctorFail
+	}
+
+	if warned > 0 {
+		return doctorWarn
+	}
+
+	return doctorOK
+}
+
 func doctorDisplayStatus(status doctorStatus) string {
 	switch status {
 	case doctorOK:
@@ -232,11 +249,21 @@ func evaluateDoctorChecks(checks []doctorCheck) error {
 }
 
 func writeDoctorJSON(w io.Writer, checks []doctorCheck) error {
+	passed, warned, failed := doctorStatusCounts(checks)
+	report := doctorReport{
+		Status:   doctorOverallJSONStatus(failed, warned),
+		Passed:   passed,
+		Warnings: warned,
+		Failed:   failed,
+		Checks:   checks,
+	}
+
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	if err := enc.Encode(checks); err != nil {
+	if err := enc.Encode(report); err != nil {
 		return err
 	}
+
 	return evaluateDoctorChecks(checks)
 }
 
@@ -975,7 +1002,7 @@ var doctorCmd = &cobra.Command{
 Check IDs are frozen between releases (see website/docs/operator/doctor-check-catalog.md for the catalog).
 
 Text output groups checks by subsystem and starts with an overall status.
-  --json   emits the full check model as a JSON array.
+  --format json emits a summary object and the full check model.
   --strict treats warnings as exit-nonzero (for CI).
 
 Failed checks always exit non-zero.`,
@@ -984,6 +1011,7 @@ Failed checks always exit non-zero.`,
 }
 
 func configureDoctorFlags(cmd *cobra.Command) {
-	cmd.Flags().Bool("json", false, "Emit output as a JSON array")
+	cmd.Flags().Bool("json", false, "Emit JSON output (deprecated; use --format json)")
+	_ = cmd.Flags().MarkDeprecated("json", "use --format json")
 	cmd.Flags().Bool("strict", false, "Exit non-zero on warnings")
 }

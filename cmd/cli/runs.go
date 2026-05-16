@@ -48,6 +48,13 @@ type runListResult struct {
 	NextCursor *int64 `json:"next_cursor,omitempty"`
 }
 
+type runRepairResult struct {
+	Status string `json:"status"`
+	RunID  string `json:"run_id"`
+	State  string `json:"state"`
+	Reason string `json:"reason,omitempty"`
+}
+
 func runGetRun(cmd *cobra.Command, args []string) {
 	if err := getRun(args[0], os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -347,47 +354,46 @@ func repairMarkRun(cmd *cobra.Command, args []string) {
 	runID := args[0]
 	status := strings.TrimPrefix(cmd.Name(), "mark-")
 	reason, _ := cmd.Flags().GetString("reason")
+	runCLIError(markRunForRepair(runID, status, reason, os.Stdout))
+}
+
+func markRunForRepair(runID, state, reason string, w io.Writer) error {
 	body := []byte("{}")
 	if reason != "" {
 		payload, err := json.Marshal(map[string]string{"reason": reason})
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: failed to encode request body: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to encode request body: %w", err)
 		}
 
 		body = payload
 	}
 
-	req, err := newAPIRequest(http.MethodPost, fmt.Sprintf("/api/v1/runs/%s/repair/mark-%s", runID, status), bytes.NewReader(body))
+	req, err := newAPIRequest(http.MethodPost, fmt.Sprintf("/api/v1/runs/%s/repair/mark-%s", runID, state), bytes.NewReader(body))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to create request: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: request failed: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	switch resp.StatusCode {
 	case http.StatusNoContent:
 		if outputIsJSON() {
-			runCLIError(writeJSON(os.Stdout, map[string]string{"status": status, "run_id": runID}))
-		} else {
-			fmt.Printf("Run %s repair-marked %s.\n", runID, status)
+			return writeJSON(w, runRepairResult{Status: "marked", RunID: runID, State: state, Reason: reason})
 		}
+
+		fmt.Fprintf(w, "Repair recorded: run %s marked %s.\n", runID, state)
+		return nil
 	case http.StatusNotFound:
-		fmt.Fprintf(os.Stderr, "Error: run '%s' not found\n", runID)
-		os.Exit(1)
+		return fmt.Errorf("run %q not found", runID)
 	case http.StatusConflict:
-		fmt.Fprintf(os.Stderr, "Error: run '%s' cannot be repair-marked %s from its current status\n", runID, status)
-		os.Exit(1)
+		return fmt.Errorf("run %q cannot be marked %s from its current status", runID, state)
 	default:
-		fmt.Fprintf(os.Stderr, "Error: unexpected status: %s\n", resp.Status)
-		os.Exit(1)
+		return fmt.Errorf("unexpected status: %s", resp.Status)
 	}
 }
 
@@ -406,9 +412,11 @@ Common flows:
 
 var runRepairCmd = &cobra.Command{
 	Use:   "repair",
-	Short: "Manual reconciliation actions for orphaned or stuck runs",
-	Long:  `Repair commands are operator reconciliation tools for marking the durable status of orphaned runs or requeueing a stuck queued run.`,
-	Run:   showCommandHelp,
+	Short: "Manually reconcile orphaned or stuck run records",
+	Long: `Repair commands are operator-only reconciliation tools. Use them when the API's durable run state disagrees with verified external evidence, or when a stuck run needs to be returned to queued for dispatch recovery.
+
+These commands update durable state directly; they do not contact a worker or stream logs.`,
+	Run: showCommandHelp,
 }
 
 var forceFailCmd = &cobra.Command{
@@ -434,7 +442,7 @@ var forceRequeueCmd = &cobra.Command{
 var repairMarkSucceededCmd = &cobra.Command{
 	Use:   "mark-succeeded [run-id]",
 	Short: "Mark an orphaned run as succeeded",
-	Long:  `Record an orphaned run as succeeded when an operator has external evidence the work completed.`,
+	Long:  `Record an orphaned run as succeeded when an operator has external evidence that the work completed successfully.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   repairMarkRun,
 }
@@ -466,7 +474,7 @@ var repairMarkAbandonedCmd = &cobra.Command{
 var repairMarkQueuedCmd = &cobra.Command{
 	Use:   "mark-queued [run-id]",
 	Short: "Mark a stuck run for retry",
-	Long:  `Record a stuck run as queued so the reconciler can enqueue it again. This is dispatch repair, not retry history.`,
+	Long:  `Record a stuck run as queued so the reconciler can dispatch it again. This is manual dispatch repair, not retry history.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   repairMarkRun,
 }

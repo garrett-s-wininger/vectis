@@ -815,6 +815,69 @@ func TestCancelRun_conflict(t *testing.T) {
 	}
 }
 
+func TestMarkRunForRepair_success(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/runs/run-1/repair/mark-failed" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		var body map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+
+		if body["reason"] != "worker exited" {
+			t.Errorf("reason=%q", body["reason"])
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	var buf bytes.Buffer
+	if err := markRunForRepair("run-1", "failed", "worker exited", &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := buf.String(); !strings.Contains(got, "Repair recorded: run run-1 marked failed.") {
+		t.Fatalf("unexpected output: %s", got)
+	}
+}
+
+func TestMarkRunForRepair_jsonOutput(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	var buf bytes.Buffer
+	if err := markRunForRepair("run-1", "queued", "", &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	var result runRepairResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
+	}
+
+	if result.Status != "marked" || result.RunID != "run-1" || result.State != "queued" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+}
+
+func TestMarkRunForRepair_conflict(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+	})
+
+	if err := markRunForRepair("done", "queued", "", io.Discard); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 func TestDoLogin_success(t *testing.T) {
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -1144,17 +1207,21 @@ func TestDoctor_jsonOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var results []doctorCheck
-	if err := json.Unmarshal(buf.Bytes(), &results); err != nil {
+	var report doctorReport
+	if err := json.Unmarshal(buf.Bytes(), &report); err != nil {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if len(results) != 16 {
-		t.Fatalf("expected 16 checks, got %d", len(results))
+	if report.Status != doctorOK || report.Passed != 16 || report.Warnings != 0 || report.Failed != 0 {
+		t.Fatalf("unexpected report summary: %+v", report)
+	}
+
+	if len(report.Checks) != 16 {
+		t.Fatalf("expected 16 checks, got %d", len(report.Checks))
 	}
 
 	// Verify structure of first check
-	c := results[0]
+	c := report.Checks[0]
 	if c.ID != "api.live" {
 		t.Fatalf("first check ID = %q, want api.live", c.ID)
 	}
@@ -1212,12 +1279,17 @@ func TestDoctor_jsonOutputStillFailsOnFailedCheck(t *testing.T) {
 		t.Fatal("expected JSON doctor to fail when a check fails")
 	}
 
-	var results []doctorCheck
-	if err := json.Unmarshal(buf.Bytes(), &results); err != nil {
+	var report doctorReport
+	if err := json.Unmarshal(buf.Bytes(), &report); err != nil {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
-	if len(results) != 16 {
-		t.Fatalf("expected 16 checks, got %d", len(results))
+
+	if report.Status != doctorFail || report.Failed != 1 {
+		t.Fatalf("unexpected report summary: %+v", report)
+	}
+
+	if len(report.Checks) != 16 {
+		t.Fatalf("expected 16 checks, got %d", len(report.Checks))
 	}
 }
 
