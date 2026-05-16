@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vectis Jobs Mock</title>
+    <link rel="stylesheet" href="styles.css?v=jobs-actions" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="index.html" aria-label="Vectis console">
+          <picture>
+            <source srcset="../../website/static/img/vectis-dark.png" media="(prefers-color-scheme: dark)" />
+            <img src="../../website/static/img/vectis.png" alt="" />
+          </picture>
+        </a>
+        <nav class="topnav" aria-label="Primary">
+          <a class="topnav__link" href="index.html">Dashboard</a>
+          <a class="topnav__link topnav__link--active" href="jobs.html">Jobs</a>
+        </nav>
+        <div class="topbar__actions">
+          <button class="icon-button" type="button" aria-label="Toggle theme" title="Toggle theme" data-theme-toggle>
+            <span class="theme-mark" aria-hidden="true"></span>
+          </button>
+        </div>
+      </header>
+
+      <main class="console">
+        <section class="page-head" aria-labelledby="jobs-title">
+          <div>
+            <p class="eyebrow">Build Authoring</p>
+            <h1 id="jobs-title">Jobs</h1>
+          </div>
+          <div class="page-head__actions">
+            <button class="button button--secondary" type="button">Import job</button>
+            <button class="button button--primary" type="button">Create job</button>
+          </div>
+        </section>
+
+        <section class="jobs-layout" aria-label="Jobs workspace">
+          <section class="jobs-list-panel" aria-label="Job catalog">
+            <div class="catalog-search">
+              <label class="sr-only" for="job-search">Search jobs</label>
+              <input id="job-search" type="search" placeholder="Search jobs" />
+            </div>
+            <div class="job-toolbar" aria-label="Job filters">
+              <button class="filter-pill filter-pill--active" type="button">All</button>
+              <button class="filter-pill" type="button">Enabled</button>
+              <button class="filter-pill" type="button">Disabled</button>
+              <button class="filter-pill" type="button">Failed</button>
+            </div>
+            <div class="job-list" aria-label="Jobs">
+              <button class="job-list__row job-list__row--active" type="button">
+                <span class="job-list__main">
+                  <strong>linux-ci</strong>
+                  <small>Pull request validation for Go services</small>
+                </span>
+                <span class="job-list__state">
+                  <span class="status status--running">running</span>
+                </span>
+              </button>
+              <button class="job-list__row" type="button">
+                <span class="job-list__main">
+                  <strong>release-image</strong>
+                  <small>Builds and publishes release containers</small>
+                </span>
+                <span class="job-list__state">
+                  <span class="status status--failed">failed</span>
+                </span>
+              </button>
+              <button class="job-list__row" type="button">
+                <span class="job-list__main">
+                  <strong>docs-check</strong>
+                  <small>Validates docs build and link health</small>
+                </span>
+                <span class="job-list__state">
+                  <span class="status status--passed">passed</span>
+                </span>
+              </button>
+              <button class="job-list__row" type="button">
+                <span class="job-list__main">
+                  <strong>nightly-load</strong>
+                  <small>Scheduled load test against staging</small>
+                </span>
+                <span class="job-list__state">
+                  <span class="status status--disabled">disabled</span>
+                </span>
+              </button>
+              <button class="job-list__row" type="button">
+                <span class="job-list__main">
+                  <strong>api-smoke</strong>
+                  <small>Fast API contract checks for deploy candidates</small>
+                </span>
+                <span class="job-list__state">
+                  <span class="status status--running">running</span>
+                </span>
+              </button>
+              <button class="job-list__row" type="button">
+                <span class="job-list__main">
+                  <strong>schema-check</strong>
+                  <small>Validates database migrations and generated queries</small>
+                </span>
+                <span class="job-list__state">
+                  <span class="status status--failed">failed</span>
+                </span>
+              </button>
+              <button class="job-list__row" type="button">
+                <span class="job-list__main">
+                  <strong>security-scan</strong>
+                  <small>Dependency and container vulnerability scan</small>
+                </span>
+                <span class="job-list__state">
+                  <span class="status status--passed">passed</span>
+                </span>
+              </button>
+              <button class="job-list__row" type="button">
+                <span class="job-list__main">
+                  <strong>staging-promote</strong>
+                  <small>Promotes the latest verified build to staging</small>
+                </span>
+                <span class="job-list__state">
+                  <span class="status status--passed">passed</span>
+                </span>
+              </button>
+            </div>
+            <div class="catalog-footer">
+              <span>Showing 1-8 of 42</span>
+              <div class="catalog-pager" aria-label="Job pages">
+                <button class="inline-action" type="button" disabled>Previous</button>
+                <button class="inline-action" type="button">Next</button>
+              </div>
+            </div>
+          </section>
+
+          <aside class="job-detail-panel" aria-labelledby="job-detail-title">
+            <div class="job-detail-head">
+              <div>
+                <h2 id="job-detail-title">linux-ci</h2>
+              </div>
+              <span class="status status--passed">enabled</span>
+            </div>
+            <div class="job-action-bar" aria-label="Job actions">
+              <button class="inline-action" type="button">Trigger</button>
+              <button class="inline-action" type="button">Job details</button>
+              <button class="inline-action" type="button">Edit</button>
+              <button class="inline-action" type="button">Disable</button>
+            </div>
+            <div class="job-detail-summary">
+              <section class="last-run-card" aria-labelledby="last-run-title">
+                <div class="last-run-card__head">
+                  <span id="last-run-title">Last run</span>
+                  <span class="last-run-card__actions">
+                    <span class="status status--running">running</span>
+                    <button class="mini-action" type="button" aria-label="Open run details for 6f4c2d7a">Run details</button>
+                  </span>
+                </div>
+                <dl class="last-run-facts">
+                  <div>
+                    <dt>Run ID</dt>
+                    <dd>
+                      <button class="copy-id" type="button" data-copy="6f4c2d7a" aria-label="Copy run ID 6f4c2d7a">6f4c2d7a</button>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Duration</dt>
+                    <dd>
+                      <strong>4m 12s</strong>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Trigger</dt>
+                    <dd>
+                      <strong>Manual</strong>
+                      <small>Run from API, CLI, or UI</small>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Revision</dt>
+                    <dd>
+                      <strong>v17</strong>
+                      <small>
+                        <button class="copy-id" type="button" data-copy="8a91c0e4" aria-label="Copy definition hash 8a91c0e4">8a91c0e4</button>
+                      </small>
+                    </dd>
+                  </div>
+                </dl>
+              </section>
+            </div>
+          </aside>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const root = document.documentElement;
+      const storedTheme = localStorage.getItem('vectis-console-theme');
+      if (storedTheme) {
+        root.dataset.theme = storedTheme;
+      }
+
+      document.querySelector('[data-theme-toggle]').addEventListener('click', () => {
+        const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+        root.dataset.theme = next;
+        localStorage.setItem('vectis-console-theme', next);
+      });
+
+      const copyValue = async (value) => {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(value);
+          return;
+        }
+
+        const field = document.createElement('textarea');
+        field.value = value;
+        field.setAttribute('readonly', '');
+        field.style.position = 'fixed';
+        field.style.inset = '0 auto auto 0';
+        field.style.opacity = '0';
+        document.body.appendChild(field);
+        field.select();
+        document.execCommand('copy');
+        field.remove();
+      };
+
+      document.querySelectorAll('[data-copy]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          try {
+            await copyValue(button.dataset.copy);
+          } catch {
+            // Mock-only fallback: keep the affordance harmless if clipboard is unavailable.
+          }
+          button.classList.add('copy-id--copied');
+          window.setTimeout(() => button.classList.remove('copy-id--copied'), 1200);
+        });
+      });
+    </script>
+  </body>
+</html>
