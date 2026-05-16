@@ -1,6 +1,115 @@
 # API Reference
 
-This reference describes the shipped HTTP API surface for Vectis v1. gRPC contracts are in `api/proto/`; generated Go is in `api/gen/go/`. Compatibility rules for REST, gRPC, CLI JSON, configuration, and schema changes are in [COMPATIBILITY.md](../concepts/compatibility.md).
+The Vectis HTTP API is for scripts, dashboards, operators, and integrations that need to talk to the API server directly. If you are running jobs by hand, start with the [CLI Guide](./cli-guide.md); the CLI uses the same API paths and is usually the friendlier interface.
+
+This page covers the shipped v1 REST surface. gRPC contracts live in `api/proto/`, and generated Go lives in `api/gen/go/`. Compatibility rules for REST, gRPC, CLI JSON, configuration, and schema changes are in [Compatibility](../concepts/compatibility.md).
+
+## When To Use The API
+
+Use the HTTP API when you want to:
+
+- submit or trigger jobs from another system
+- build a dashboard around runs, logs, health, or queue state
+- manage users, namespaces, tokens, or role bindings from automation
+- write smoke tests that check API readiness before deploying workers
+
+For local experimentation, `./bin/vectis-cli jobs run <file> --follow` is quicker. For repeatable automation, the API gives you explicit status codes, error codes, and retry behavior.
+
+## Base URL
+
+A local `vectis-local` stack exposes the API at:
+
+```text
+http://localhost:8080
+```
+
+Examples below use that address. Replace it with your API URL in deployed environments.
+
+## Common Flows
+
+### Run A Job Definition Once
+
+Use an ephemeral run when the definition does not need to be stored first:
+
+```sh
+curl -sS \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data-binary @examples/sequenced.json \
+  http://localhost:8080/api/v1/jobs/run
+```
+
+The response includes the run ID:
+
+```json
+{
+  "id": "2b196bc5-0f7f-47e7-8fb1-2e4f6db8b6f0"
+}
+```
+
+Then inspect or stream that run:
+
+```sh
+curl -sS http://localhost:8080/api/v1/runs/<run-id>
+curl -N http://localhost:8080/api/v1/runs/<run-id>/logs
+```
+
+### Store Then Trigger A Job
+
+Use stored jobs when the same definition will be triggered repeatedly:
+
+```sh
+curl -sS \
+  -H 'Content-Type: application/json' \
+  --data-binary @examples/sequenced.json \
+  http://localhost:8080/api/v1/jobs
+```
+
+Then trigger it by job ID:
+
+```sh
+curl -sS \
+  -X POST \
+  -H "Idempotency-Key: $(uuidgen)" \
+  http://localhost:8080/api/v1/jobs/trigger/sequenced-job
+```
+
+### Check Whether The System Is Ready
+
+Use the health endpoints for process-level checks:
+
+```sh
+curl -f http://localhost:8080/health/live
+curl -f http://localhost:8080/health/ready
+```
+
+Use the v1 diagnostic endpoints when you need to understand why a stack is unhealthy:
+
+```sh
+curl -sS http://localhost:8080/api/v1/schema/status
+curl -sS http://localhost:8080/api/v1/queue/backlog
+curl -sS http://localhost:8080/api/v1/log/reachable
+```
+
+## Request Conventions
+
+JSON routes expect `Content-Type: application/json`. Job create and run routes accept either the job definition as the whole body or, for namespace selection, a wrapper:
+
+```json
+{
+  "namespace": "/team-a",
+  "job": {
+    "id": "sequenced-job",
+    "root": {
+      "id": "root",
+      "uses": "builtins/sequence",
+      "steps": []
+    }
+  }
+}
+```
+
+Ephemeral runs do not require a top-level job `id`. Stored jobs do. Job definition rules are documented in [Job Definition Validation](./job-validation.md).
 
 ## Authentication
 
@@ -11,6 +120,21 @@ Authorization: Bearer <api_token>
 ```
 
 Health endpoints, `/metrics`, and `POST /api/v1/login` are public. Setup routes use setup-specific authorization while the first admin is being created. Data routes authorize the action listed in the route table below; namespace-scoped resources are hidden with `404` when the caller is not allowed to see that namespace.
+
+To request a token with username/password credentials:
+
+```sh
+curl -sS \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"alice","password":"<password>"}' \
+  http://localhost:8080/api/v1/login
+```
+
+Then send the returned token on later requests:
+
+```http
+Authorization: Bearer <api_token>
+```
 
 ## Error Envelopes
 
@@ -61,27 +185,30 @@ Common v1 error codes:
 | `rate_limit_exceeded` | `429` | The request exceeded the in-process rate limit; `Retry-After` is set. |
 | `idempotency_key_reused` | `409` | The same idempotency key was reused with a different request body or target. |
 | `idempotency_in_progress` | `409` | The original idempotent request has not completed yet. |
-| `validation_failed` | `400` | Job definition semantic validation failed; see [JOB_VALIDATION.md](./job-validation.md). |
+| `validation_failed` | `400` | Job definition semantic validation failed; see [Job Definition Validation](./job-validation.md). |
 | `not_found` / resource-specific `*_not_found` | `404` | Resource is absent or hidden by namespace authorization. |
 | `internal_error` | `500` | Unexpected server error. |
 
-## Pagination
+## Endpoint Families
 
-List routes use `limit` and `cursor` query parameters where implemented. `limit` is capped by the server. Paginated responses include `next_cursor` when another page is available. Omit `cursor` to read the first page.
+The table below is the exact route inventory. Read it by family:
 
-## Idempotency
+| Family | Use it for |
+| --- | --- |
+| Health and diagnostics | Process health, schema state, queue pressure, log reachability, and Prometheus metrics. |
+| Jobs | Store, replace, delete, list, and trigger reusable job definitions. |
+| Ephemeral runs | Submit one-off job definitions without storing them first. |
+| Runs and logs | Inspect run status, stream logs, cancel active work, or repair orphaned runs. |
+| Setup and auth | First-admin setup, login, token lifecycle, password changes. |
+| Users and namespaces | User administration, namespace tree management, and namespace role bindings. |
 
-`POST /api/v1/jobs/run` and `POST /api/v1/jobs/trigger/{id}` accept `Idempotency-Key`. Keys are scoped by authenticated principal plus operation. Reusing a key with the same request replays the completed JSON response. Reusing a key with a different request returns `409 idempotency_key_reused`; retrying while the first request is still in progress returns `409 idempotency_in_progress`.
+## Response Behavior
 
-Other mutating routes do not currently persist idempotency records. Retry guidance for each route family is in [IDEMPOTENCY_AND_RETRIES.md](./idempotency-and-retries.md).
+List routes use `limit` and `cursor` query parameters where implemented. Paginated responses include `next_cursor` when another page is available. Omit `cursor` to read the first page.
 
-## Streaming
+`POST /api/v1/jobs/run` and `POST /api/v1/jobs/trigger/{id}` accept `Idempotency-Key`. Use this header when a client might retry after a timeout or dropped connection. Retry guidance for each route family is in [Idempotency And Retries](./idempotency-and-retries.md).
 
-`GET /api/v1/sse/jobs/{id}/runs` streams run events as server-sent events for one job. `GET /api/v1/runs/{id}/logs` streams log chunks as server-sent events. Log event data is JSON with `timestamp`, `stream`, `sequence`, `data`, and optional `completed`. The current HTTP log endpoint does not expose public replay controls; reconnecting clients should be prepared for historical chunks to be sent again until bounded replay support lands.
-
-## Run Foundation Fields
-
-`GET /api/v1/runs/{id}` includes the run's captured `definition_version`, optional `definition_hash`, and `owning_cell` in addition to status, timestamps, failure fields, and `dispatch_events`. New single-cell deployments use `owning_cell="local"` until multi-cell routing is introduced.
+Streaming routes return `text/event-stream`. Use `curl -N`, `EventSource`, or another SSE-capable client for `GET /api/v1/sse/jobs/{id}/runs` and `GET /api/v1/runs/{id}/logs`.
 
 ## Routes
 
