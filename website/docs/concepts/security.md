@@ -130,10 +130,6 @@ Use this as the minimum checklist before treating a deployment as shared or prod
 8. Protect SQL, SQLite, queue, log, and backup storage like sensitive application data.
 9. Monitor audit drops, audit flush failures, auth failures, queue health, and service readiness.
 
-## Roadmap
-
-Local API auth, tokens, RBAC, rate limits, and audit logging are shipped. Future security work includes external identity providers, stronger internal service identity, and application-level authorization for internal RPCs. The roadmap is tracked in [Planning](../developing/roadmap/planning.md).
-
 ## Reporting Security Issues
 
 If you discover a security vulnerability in this project, please report it privately to the maintainers through the repository contact path or GitHub Security Advisories, if enabled, before public disclosure.
