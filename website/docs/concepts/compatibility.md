@@ -1,80 +1,153 @@
-# Compatibility And Deprecation
+# Compatibility
 
-This page defines the compatibility contract for Vectis clients, operators, and alternate component implementations. It complements [API_REFERENCE.md](../using/api-reference.md), [MIGRATIONS.md](../developing/migrations.md), and [RELEASES.md](../developing/releases.md).
+This page explains what Vectis clients and operators can rely on between releases. It covers public API behavior, CLI output, configuration, database migrations, and service version skew.
 
-Vectis is still pre-1.0 unless a release tag says otherwise. Even before 1.0, maintainers should treat the surfaces below as operator-facing contracts and call out incompatible changes in release notes.
+Vectis is still pre-1.0 unless a release tag says otherwise. Breaking changes can still happen. The user/operator contract is that incompatible changes should be visible in release notes, with enough detail to update clients, scripts, config, or rollout plans.
 
-## REST API
+For upgrade procedure, see [Releases And Upgrades](../developing/releases.md). For database migration rules, see [Database Migrations](../developing/migrations.md).
 
-The shipped HTTP API is versioned under `/api/v1`. Within v1:
+## Compatibility At A Glance
 
-- Existing routes should not change method, path, authentication action, success status, or success response meaning without release-note treatment as a breaking change.
-- JSON response objects may add fields. Clients should ignore unknown fields.
-- Existing JSON fields should not be removed, renamed, or changed to an incompatible type within v1.
-- Error responses use the envelopes documented in [API_REFERENCE.md](../using/api-reference.md). New `code` values may be added for more specific failures; existing code meanings should remain stable.
-- `404` can mean either absent or hidden by namespace authorization. Clients must not use `404` to infer access to another namespace.
-- Pagination cursors are opaque client tokens even when they currently look numeric. Clients should pass them back unchanged.
+| Surface | User/operator expectation | Safe additive changes |
+| --- | --- | --- |
+| REST API v1 | Method, path, auth action, success status, response meaning, and documented error `code` meanings stay stable unless release notes say otherwise. | New routes, new response fields, and more specific error codes. |
+| Idempotency | Documented `Idempotency-Key` routes keep their retry and conflict behavior. | More mutating routes may gain idempotency support. |
+| CLI automation | Exit code semantics and `--json` field compatibility are stronger contracts than human-readable tables. | New commands, new flags, new JSON fields, and improved human-readable output. |
+| Configuration | Documented env vars, flags, config keys, service env prefixes, and default meanings do not disappear silently. | New optional settings and new deploy examples. |
+| Protobuf/gRPC | Existing field tag meanings, RPC names, and request/response semantics remain compatible. | New fields, enum values, services, and RPCs when old callers remain compatible. |
+| Database schema | Release notes explain upgrade order, rollback options, and version skew when schema changes matter. | Expand/contract schema changes, new tables, columns, indexes, and metadata. |
 
-A future v2 API should use a new path prefix, for example `/api/v2`, and may run alongside v1 during a transition window. Release notes must state the overlap period and any v1 deprecation schedule.
+Clients should ignore unknown JSON fields and treat pagination cursors as opaque strings. Operators should read release notes before changing versions, especially when a release mentions database, auth, queue, worker, log, or config behavior.
+
+## REST API V1
+
+The shipped HTTP API lives under `/api/v1`. For users, v1 means existing routes are intended to remain stable unless release notes identify a breaking change.
+
+| You can rely on | What that means |
+| --- | --- |
+| Method and path | A route such as `POST /api/v1/jobs/trigger/{id}` will not move or change method silently. |
+| Authentication action | Required auth/RBAC actions should not become more restrictive without an upgrade note. |
+| Success status | A successful request should keep the same status class and documented meaning. |
+| Response shape | Existing fields should keep compatible names, types, and meanings. |
+| Error envelope | Error responses use documented `code` values. Existing code meanings should stay stable. |
+
+Additive changes are allowed. Vectis may add new routes, new response fields, and more specific error codes. Clients should ignore fields they do not understand.
+
+Important client rules:
+
+- Do not infer whether another namespace exists from `404`; it can mean either absent or hidden by authorization.
+- Treat pagination cursors as opaque tokens, even when they look numeric today.
+- Key retry and error handling off documented error `code` values rather than full message text.
+
+For route details and error envelopes, see [API Reference](../using/api-reference.md).
 
 ## Idempotency And Retries
 
-Only routes listed in [API_REFERENCE.md](../using/api-reference.md) and [IDEMPOTENCY_AND_RETRIES.md](../using/idempotency-and-retries.md) accept `Idempotency-Key`. Adding idempotency support to another mutating route is compatible. Removing idempotency support, changing key scope, or changing replay behavior is breaking.
+Only documented routes accept `Idempotency-Key`. For clients, the important question is whether a retry can safely refer to the same operation.
 
-Clients should treat `409 idempotency_key_reused` and `409 idempotency_in_progress` as stable v1 codes.
+| Behavior | User/operator expectation |
+| --- | --- |
+| A route documents `Idempotency-Key` support | Retrying with the same key should follow the documented replay behavior. |
+| A route does not document idempotency | Do not assume retrying is duplicate-safe. |
+| `409 idempotency_key_reused` | The key was reused for a different operation or incompatible payload. |
+| `409 idempotency_in_progress` | The original operation is still being processed. |
+
+Clients should treat `409 idempotency_key_reused` and `409 idempotency_in_progress` as stable v1 codes. For route-by-route retry guidance, see [Idempotency And Retries](../using/idempotency-and-retries.md).
+
+## CLI Automation
+
+Human-readable CLI output may improve over time. Tables can be rearranged, labels can become clearer, and wording can change.
+
+Machine-readable output is a stronger contract:
+
+| You can rely on | What that means |
+| --- | --- |
+| Exit code `0` | The requested operation completed successfully. |
+| Non-zero exit | The requested operation did not complete successfully. |
+| `--json` fields | Existing field names and compatible field types should remain stable. |
+| New JSON fields | Compatible; scripts should ignore fields they do not need. |
+
+Scripts should prefer `--json` where available and avoid parsing human-readable tables.
+
+## Configuration
+
+Configuration is an operator-facing contract. This includes documented environment variables, flags, config keys, service env prefixes, and default behavior.
+
+| You can rely on | What that means |
+| --- | --- |
+| Documented settings | Env vars, flags, and config keys should not disappear silently. |
+| Defaults | Default changes that affect production behavior should be called out in release notes. |
+| Service env prefixes | Prefix changes are breaking for operators and automation. |
+| Deprecated spellings | When practical, old spellings should remain as aliases for at least one release. |
+
+See [Configuration](../operating/configuration.md) for the current settings and prefixes.
 
 ## gRPC And Protobuf
 
-Protobuf contracts live in `api/proto/`; generated Go in `api/gen/go/` is committed but not hand-edited.
+Protobuf contracts live in `api/proto/`. Generated Go code in `api/gen/go/` is committed, but it is not hand-edited.
 
-Compatible protobuf changes:
+For implementers of alternate components or integrations, these protobuf changes should be compatible:
 
-- Add new fields with new tag numbers.
-- Add new enum values when receivers already tolerate unknown values or the release notes explain the rollout order.
-- Add new RPCs without changing existing RPC behavior.
+- Add a new field with a new tag number.
+- Add a new enum value when receivers tolerate unknown values or release notes explain the rollout order.
+- Add a new RPC without changing existing RPC behavior.
+- Add a new service without requiring old clients or servers to use it.
 
-Incompatible protobuf changes:
+These protobuf changes are incompatible unless release notes describe a coordinated migration:
 
 - Reuse a tag number or field name for a different meaning.
 - Remove a field without reserving its tag and name.
 - Rename or change the type of an existing field.
-- Change an RPC request, response, or error meaning in a way that breaks existing callers.
+- Change request, response, or error meaning in a way that breaks existing callers.
 
-When removing a proto field or message, reserve the old tag and name in the `.proto` file and mention the removal in release notes.
+If a proto field or message disappears without a reserved tag/name and migration note, treat that as a compatibility issue.
 
-## CLI Output
+## Database And Upgrades
 
-Human-readable CLI output is allowed to improve between releases. Machine-readable CLI output is a stronger contract:
+Database compatibility follows the migration policy in [Database Migrations](../developing/migrations.md) and [ADR 0004](../developing/architecture-decisions/0004-migration-compatibility-and-rollback.md).
 
-- Commands with `--json` should keep existing field names and compatible field types.
-- New JSON fields may be added.
-- Exit code `0` means success. Non-zero means the requested operation did not complete successfully.
-- Scripts should prefer `--json` where available and should not parse human tables.
+When release notes mention schema changes, operators should look for these answers:
 
-Adding `--json` to more commands is compatible. Removing a `--json` field or changing its type is breaking unless release notes provide a migration path.
+| Question | Why it matters |
+| --- | --- |
+| Can old binaries run against the new schema? | Determines whether rollback can use previous artifacts only. |
+| Can new binaries start before migration? | Determines rollout order. |
+| Are mixed binary versions supported? | Determines whether rolling upgrades are safe. |
+| Is downtime or a coordinated stop required? | Determines maintenance window needs. |
+| What is the rollback path? | Determines whether to restore backup, roll forward, or run a down migration. |
 
-## Configuration
+Default guidance: run one Vectis release version across all long-running services unless release notes explicitly allow version skew.
 
-Environment variables, flags, and documented config keys are operator-facing contracts:
+## Deprecations
 
-- Adding a new optional setting is compatible.
-- Changing a default can be operationally breaking and must be called out in release notes.
-- Removing or renaming a setting requires a deprecation window unless the setting was explicitly marked experimental.
-- Service env prefixes are part of the contract for each binary; update [CONFIGURATION.md](../operating/configuration.md) and `cmd/AGENTS.md` together when they change.
+When a feature, setting, route, field, or behavior is deprecated, users and operators should expect the notice to explain:
 
-## Schema And Releases
+| Field | What to look for |
+| --- | --- |
+| Affected surface | API route, JSON field, CLI output, config key, env var, proto field, or behavior. |
+| Replacement | What to use instead. |
+| First notice | The release where docs, warnings, or release notes first mention the deprecation. |
+| Earliest removal | The earliest release where the old behavior may disappear. |
+| Operator impact | What changes in deployment, rollback, scripts, or clients. |
 
-Database compatibility follows [MIGRATIONS.md](../developing/migrations.md) and [ADR 0004](../developing/architecture-decisions/0004-migration-compatibility-and-rollback.md). Release notes must say whether old binaries can run against the new schema, whether new binaries can start before migration, and whether mixed binary versions are supported.
+For users, the safest migration path is additive replacement first, removal later. For config and CLI, expect old spellings or outputs to remain as aliases for at least one release when practical.
 
-Default deployment guidance remains: run one Vectis release version across long-running services unless [RELEASES.md](../developing/releases.md) or release notes explicitly allow version skew.
+## What Counts As Breaking
 
-## Deprecation Policy
+Treat these as breaking unless release notes explicitly say the surface was experimental:
 
-Deprecations should include:
+- Removing, renaming, or changing the meaning of an existing REST route.
+- Removing an existing JSON field or changing its type.
+- Changing a stable error `code` meaning.
+- Removing idempotency support or changing replay semantics for a documented idempotent route.
+- Removing a CLI `--json` field or changing its type.
+- Renaming an env var, flag, config key, or service env prefix.
+- Changing defaults in a way that can alter production behavior.
+- Requiring a coordinated service stop where rolling upgrade was previously safe.
+- Making a database migration that old binaries cannot tolerate without documenting the upgrade and rollback path.
 
-- The affected surface and replacement.
-- The first release that emits docs or warnings.
-- The earliest release where removal may happen.
-- Operator impact and rollback notes.
+## Maintainer Implications
 
-For REST v1, prefer additive replacement over removal. For config and CLI, keep the old spelling as an alias for at least one release when practical.
+The sections above describe what users and operators can rely on. The maintainer-side implication is simple: if a change violates one of those expectations, it needs breaking-change treatment in release notes and, where practical, a deprecation path.
+
+For the detailed release checklist and migration review process, use [Releases And Upgrades](../developing/releases.md) and [Database Migrations](../developing/migrations.md).
