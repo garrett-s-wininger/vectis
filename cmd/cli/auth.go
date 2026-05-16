@@ -88,8 +88,7 @@ func runLogin(cmd *cobra.Command, args []string) {
 		}
 
 		if err := scanner.Err(); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: failed to read username: %v\n", err)
-			os.Exit(1)
+			runCLIError(fmt.Errorf("failed to read username: %w", err))
 		}
 	}
 
@@ -104,8 +103,7 @@ func runLogin(cmd *cobra.Command, args []string) {
 			}
 
 			if scanErr := scanner.Err(); scanErr != nil {
-				fmt.Fprintf(os.Stderr, "Error: failed to read password: %v\n", scanErr)
-				os.Exit(1)
+				runCLIError(fmt.Errorf("failed to read password: %w", scanErr))
 			}
 		} else {
 			password = string(b)
@@ -114,20 +112,17 @@ func runLogin(cmd *cobra.Command, args []string) {
 	}
 
 	if username == "" || password == "" {
-		fmt.Fprintln(os.Stderr, "Error: username and password are required")
-		cmd.Usage()
-		os.Exit(1)
+		_ = cmd.Usage()
+		runCLIError(fmt.Errorf("username and password are required"))
 	}
 
 	token, err := doLogin(username, password)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		runCLIError(err)
 	}
 
 	if err := writePersistedToken(token); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to save token: %v\n", err)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("failed to save token: %w", err))
 	}
 
 	if outputIsJSON() {
@@ -198,8 +193,7 @@ var loginCmd = &cobra.Command{
 
 func runLogout(cmd *cobra.Command, args []string) {
 	if err := deletePersistedToken(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to remove token: %v\n", err)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("failed to remove token: %w", err))
 	}
 
 	runCLIError(writeAction(os.Stdout, "Logged out. Token removed.", cliActionResult{Status: "logged_out"}))
@@ -213,10 +207,7 @@ var logoutCmd = &cobra.Command{
 }
 
 func runTokenList(cmd *cobra.Command, args []string) {
-	if err := tokenList(os.Stdout); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+	runCLIError(tokenList(os.Stdout))
 }
 
 func tokenList(w io.Writer) error {
@@ -274,15 +265,11 @@ func runTokenCreate(cmd *cobra.Command, args []string) {
 	userID, _ := cmd.Flags().GetInt64("user-id")
 
 	if label == "" {
-		fmt.Fprintln(os.Stderr, "Error: --label is required")
-		cmd.Usage()
-		os.Exit(1)
+		_ = cmd.Usage()
+		runCLIError(fmt.Errorf("--label is required"))
 	}
 
-	if err := tokenCreate(label, expiresIn, userID, os.Stdout); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+	runCLIError(tokenCreate(label, expiresIn, userID, os.Stdout))
 }
 
 func tokenCreate(label, expiresIn string, userID int64, w io.Writer) error {
@@ -343,10 +330,7 @@ func tokenCreate(label, expiresIn string, userID int64, w io.Writer) error {
 }
 
 func runTokenDelete(cmd *cobra.Command, args []string) {
-	if err := tokenDelete(args[0], os.Stdout); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+	runCLIError(tokenDelete(args[0], os.Stdout))
 }
 
 func tokenDelete(tokenID string, w io.Writer) error {

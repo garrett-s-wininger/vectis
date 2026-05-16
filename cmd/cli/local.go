@@ -51,8 +51,7 @@ func resetTargets() ([]string, error) {
 func runReset(cmd *cobra.Command, args []string) {
 	targets, err := resetTargets()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		runCLIError(err)
 	}
 
 	if resetDryRun {
@@ -74,9 +73,7 @@ func runReset(cmd *cobra.Command, args []string) {
 	}
 
 	if !resetYes {
-		fmt.Fprintln(os.Stderr, "Error: reset removes local Vectis config, data, cache, tokens, and generated deployment secrets; pass --yes to confirm")
-		fmt.Fprintln(os.Stderr, "Use --dry-run to inspect the directories first.")
-		os.Exit(1)
+		runCLIError(fmt.Errorf("reset removes local Vectis config, data, cache, tokens, and generated deployment secrets; pass --yes to confirm or --dry-run to inspect the directories first"))
 	}
 
 	results := make([]map[string]string, 0, len(targets))
@@ -90,13 +87,11 @@ func runReset(cmd *cobra.Command, args []string) {
 
 			continue
 		} else if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: inspect %s: %v\n", target, err)
-			os.Exit(1)
+			runCLIError(fmt.Errorf("inspect %s: %w", target, err))
 		}
 
 		if err := os.RemoveAll(target); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: remove %s: %v\n", target, err)
-			os.Exit(1)
+			runCLIError(fmt.Errorf("remove %s: %w", target, err))
 		}
 
 		if outputIsJSON() {

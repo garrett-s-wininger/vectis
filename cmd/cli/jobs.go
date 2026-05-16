@@ -33,16 +33,14 @@ func setIdempotencyHeader(req *http.Request, key string) {
 
 func triggerJob(cmd *cobra.Command, args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Error: job-id is required")
-		cmd.Usage()
-		os.Exit(1)
+		_ = cmd.Usage()
+		runCLIError(fmt.Errorf("job-id is required"))
 	}
 
 	jobID := args[0]
 	req, err := newAPIRequest(http.MethodPost, fmt.Sprintf("/api/v1/jobs/trigger/%s", jobID), nil)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to create trigger request: %v\n", err)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("failed to create trigger request: %w", err))
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -50,8 +48,7 @@ func triggerJob(cmd *cobra.Command, args []string) {
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to trigger job: %v\n", err)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("failed to trigger job: %w", err))
 	}
 	defer resp.Body.Close()
 
@@ -60,20 +57,17 @@ func triggerJob(cmd *cobra.Command, args []string) {
 		var result jobRunResult
 
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: failed to parse response: %v\n", err)
-			os.Exit(1)
+			runCLIError(fmt.Errorf("failed to parse response: %w", err))
 		}
 
 		if result.RunID == "" {
-			fmt.Fprintln(os.Stderr, "Error: response missing run_id")
-			os.Exit(1)
+			runCLIError(fmt.Errorf("response missing run_id"))
 		}
 
 		follow, _ := cmd.Flags().GetBool("follow")
 		if follow {
 			if err := runLogStream(result.RunID, false, false); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
+				runCLIError(err)
 			}
 		} else if outputIsJSON() {
 			runCLIError(writeJSON(os.Stdout, result))
@@ -81,22 +75,18 @@ func triggerJob(cmd *cobra.Command, args []string) {
 			fmt.Println(result.RunID)
 		}
 	case http.StatusNotFound:
-		fmt.Fprintf(os.Stderr, "Error: job '%s' not found\n", jobID)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("job %q not found", jobID))
 	case http.StatusServiceUnavailable:
-		fmt.Fprintf(os.Stderr, "Error: queue service unavailable\n")
-		os.Exit(1)
+		runCLIError(fmt.Errorf("queue service unavailable"))
 	default:
-		fmt.Fprintf(os.Stderr, "Error: unexpected status: %s\n", resp.Status)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("unexpected status: %s", resp.Status))
 	}
 }
 
 func runJob(cmd *cobra.Command, args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Error: path or - is required")
-		cmd.Usage()
-		os.Exit(1)
+		_ = cmd.Usage()
+		runCLIError(fmt.Errorf("path or - is required"))
 	}
 
 	source := args[0]
@@ -109,25 +99,21 @@ func runJob(cmd *cobra.Command, args []string) {
 	}
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to read job definition: %v\n", err)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("failed to read job definition: %w", err))
 	}
 
 	var job api.Job
 	if err := json.Unmarshal(body, &job); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: invalid job JSON: %v\n", err)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("invalid job JSON: %w", err))
 	}
 
 	if job.GetRoot() == nil {
-		fmt.Fprintln(os.Stderr, "Error: job must have a root node")
-		os.Exit(1)
+		runCLIError(fmt.Errorf("job must have a root node"))
 	}
 
 	req, err := newAPIRequest(http.MethodPost, "/api/v1/jobs/run", bytes.NewReader(body))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		runCLIError(err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -135,8 +121,7 @@ func runJob(cmd *cobra.Command, args []string) {
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to submit job: %v\n", err)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("failed to submit job: %w", err))
 	}
 	defer resp.Body.Close()
 
@@ -145,20 +130,17 @@ func runJob(cmd *cobra.Command, args []string) {
 		var result jobRunResult
 
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: failed to parse response: %v\n", err)
-			os.Exit(1)
+			runCLIError(fmt.Errorf("failed to parse response: %w", err))
 		}
 
 		if result.RunID == "" {
-			fmt.Fprintln(os.Stderr, "Error: response missing run_id")
-			os.Exit(1)
+			runCLIError(fmt.Errorf("response missing run_id"))
 		}
 
 		follow, _ := cmd.Flags().GetBool("follow")
 		if follow {
 			if err := runLogStream(result.RunID, false, false); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
+				runCLIError(err)
 			}
 		} else if outputIsJSON() {
 			runCLIError(writeJSON(os.Stdout, result))
@@ -166,17 +148,13 @@ func runJob(cmd *cobra.Command, args []string) {
 			fmt.Println(result.RunID)
 		}
 	case http.StatusUnsupportedMediaType:
-		fmt.Fprintln(os.Stderr, "Error: content type must be application/json")
-		os.Exit(1)
+		runCLIError(fmt.Errorf("content type must be application/json"))
 	case http.StatusBadRequest:
-		fmt.Fprintln(os.Stderr, "Error: invalid job definition")
-		os.Exit(1)
+		runCLIError(fmt.Errorf("invalid job definition"))
 	case http.StatusServiceUnavailable:
-		fmt.Fprintln(os.Stderr, "Error: queue service unavailable")
-		os.Exit(1)
+		runCLIError(fmt.Errorf("queue service unavailable"))
 	default:
-		fmt.Fprintf(os.Stderr, "Error: unexpected status: %s\n", resp.Status)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("unexpected status: %s", resp.Status))
 	}
 }
 
@@ -242,47 +220,40 @@ func formatJobDefinitionBody(body []byte, pretty bool) []byte {
 
 func editJob(cmd *cobra.Command, args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Error: job-id is required")
-		cmd.Usage()
-		os.Exit(1)
+		_ = cmd.Usage()
+		runCLIError(fmt.Errorf("job-id is required"))
 	}
 
 	jobID := args[0]
 	body, statusCode, err := fetchJobDefinitionBody(jobID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		runCLIError(err)
 	}
 
 	switch statusCode {
 	case http.StatusOK:
 		// NOTE(garrett): Continue
 	case http.StatusNotFound:
-		fmt.Fprintf(os.Stderr, "Error: job '%s' not found\n", jobID)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("job %q not found", jobID))
 	default:
-		fmt.Fprintf(os.Stderr, "Error: unexpected status fetching job: %d\n", statusCode)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("unexpected status fetching job: %d", statusCode))
 	}
 
 	pretty := formatJobDefinitionBody(body, true)
 	tempFile, err := os.CreateTemp("", "vectis-job-*.json")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to create temp file: %v\n", err)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("failed to create temp file: %w", err))
 	}
 	tempPath := tempFile.Name()
 	defer os.Remove(tempPath)
 
 	if _, err := tempFile.Write(pretty); err != nil {
 		tempFile.Close()
-		fmt.Fprintf(os.Stderr, "Error: failed to write job definition to temp file: %v\n", err)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("failed to write job definition to temp file: %w", err))
 	}
 
 	if err := tempFile.Close(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to close temp file: %v\n", err)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("failed to close temp file: %w", err))
 	}
 
 	editorEnv := os.Getenv("EDITOR")
@@ -292,8 +263,7 @@ func editJob(cmd *cobra.Command, args []string) {
 
 	editorParts := strings.Fields(editorEnv)
 	if len(editorParts) == 0 {
-		fmt.Fprintln(os.Stderr, "Error: EDITOR is empty after parsing")
-		os.Exit(1)
+		runCLIError(fmt.Errorf("EDITOR is empty after parsing"))
 	}
 
 	editorName := editorParts[0]
@@ -312,51 +282,43 @@ func editJob(cmd *cobra.Command, args []string) {
 			}
 		}
 
-		fmt.Fprintf(os.Stderr, "Error: editor failed: %v\n", err)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("editor failed: %w", err))
 	}
 
 	edited, err := os.ReadFile(tempPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to read edited job definition: %v\n", err)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("failed to read edited job definition: %w", err))
 	}
 
 	var job api.Job
 	if err := json.Unmarshal(edited, &job); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: invalid job JSON after edit: %v\n", err)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("invalid job JSON after edit: %w", err))
 	}
 
 	if job.GetRoot() == nil {
-		fmt.Fprintln(os.Stderr, "Error: job must have a root node")
-		os.Exit(1)
+		runCLIError(fmt.Errorf("job must have a root node"))
 	}
 
 	if job.Id == nil || *job.Id != jobID {
-		fmt.Fprintf(os.Stderr, "Error: job id mismatch (expected %q, got %v)\n", jobID, job.Id)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("job id mismatch (expected %q, got %v)", jobID, job.Id))
 	}
 
 	// NOTE(garrett): Always re-indent the stored job before updating.
 	pretty, err = json.MarshalIndent(&job, "", "  ")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to normalize job JSON: %v\n", err)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("failed to normalize job JSON: %w", err))
 	}
 	pretty = append(pretty, '\n')
 
 	req, err := newAPIRequest(http.MethodPut, fmt.Sprintf("/api/v1/jobs/%s", jobID), bytes.NewReader(pretty))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to create update request: %v\n", err)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("failed to create update request: %w", err))
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	updateResp, err := doAPIRequest(req)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to update job: %v\n", err)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("failed to update job: %w", err))
 	}
 	defer updateResp.Body.Close()
 
@@ -364,43 +326,35 @@ func editJob(cmd *cobra.Command, args []string) {
 	case http.StatusNoContent:
 		runCLIError(writeAction(os.Stdout, "Job updated successfully.", cliActionResult{Status: "updated"}))
 	case http.StatusBadRequest:
-		fmt.Fprintln(os.Stderr, "Error: invalid job definition or id mismatch")
-		os.Exit(1)
+		runCLIError(fmt.Errorf("invalid job definition or id mismatch"))
 	case http.StatusUnsupportedMediaType:
-		fmt.Fprintln(os.Stderr, "Error: content type must be application/json")
-		os.Exit(1)
+		runCLIError(fmt.Errorf("content type must be application/json"))
 	case http.StatusNotFound:
-		fmt.Fprintf(os.Stderr, "Error: job '%s' not found\n", jobID)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("job %q not found", jobID))
 	default:
-		fmt.Fprintf(os.Stderr, "Error: unexpected status updating job: %s\n", updateResp.Status)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("unexpected status updating job: %s", updateResp.Status))
 	}
 }
 
 func getJobDefinition(cmd *cobra.Command, args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Error: job-id is required")
-		cmd.Usage()
-		os.Exit(1)
+		_ = cmd.Usage()
+		runCLIError(fmt.Errorf("job-id is required"))
 	}
 
 	jobID := args[0]
 	body, statusCode, err := fetchJobDefinitionBody(jobID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		runCLIError(err)
 	}
 
 	switch statusCode {
 	case http.StatusOK:
 		// NOTE(garrett): Continue
 	case http.StatusNotFound:
-		fmt.Fprintf(os.Stderr, "Error: job '%s' not found\n", jobID)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("job %q not found", jobID))
 	default:
-		fmt.Fprintf(os.Stderr, "Error: unexpected status fetching job: %d\n", statusCode)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("unexpected status fetching job: %d", statusCode))
 	}
 
 	raw, _ := cmd.Flags().GetBool("raw")
@@ -412,17 +366,13 @@ func listJobs(cmd *cobra.Command, args []string) {
 	quiet, _ := cmd.Flags().GetBool("quiet")
 	cursor, _ := cmd.Flags().GetInt64("cursor")
 	limit, _ := cmd.Flags().GetInt("limit")
-	if err := listJobNames(os.Stdout, quiet, cursor, limit); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+	runCLIError(listJobNames(os.Stdout, quiet, cursor, limit))
 }
 
 func createJob(cmd *cobra.Command, args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Error: path or - is required")
-		cmd.Usage()
-		os.Exit(1)
+		_ = cmd.Usage()
+		runCLIError(fmt.Errorf("path or - is required"))
 	}
 
 	source := args[0]
@@ -435,24 +385,20 @@ func createJob(cmd *cobra.Command, args []string) {
 	}
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to read job definition: %v\n", err)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("failed to read job definition: %w", err))
 	}
 
 	var job api.Job
 	if err := json.Unmarshal(body, &job); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: invalid job JSON: %v\n", err)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("invalid job JSON: %w", err))
 	}
 
 	if job.Id == nil || *job.Id == "" {
-		fmt.Fprintln(os.Stderr, "Error: job definition must include an id field")
-		os.Exit(1)
+		runCLIError(fmt.Errorf("job definition must include an id field"))
 	}
 
 	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{RequireJobID: true}); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: invalid job definition: %v\n", err)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("invalid job definition: %w", err))
 	}
 
 	namespace, _ := cmd.Flags().GetString("namespace")
@@ -466,21 +412,18 @@ func createJob(cmd *cobra.Command, args []string) {
 	})
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to encode request: %v\n", err)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("failed to encode request: %w", err))
 	}
 
 	req, err := newAPIRequest(http.MethodPost, "/api/v1/jobs", bytes.NewReader(payload))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		runCLIError(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: request failed: %v\n", err)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("request failed: %w", err))
 	}
 	defer resp.Body.Close()
 
@@ -492,20 +435,15 @@ func createJob(cmd *cobra.Command, args []string) {
 			fmt.Printf("Job %q stored.\n", *job.Id)
 		}
 	case http.StatusConflict:
-		fmt.Fprintf(os.Stderr, "Error: job %q already exists\n", *job.Id)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("job %q already exists", *job.Id))
 	case http.StatusBadRequest:
-		fmt.Fprintln(os.Stderr, "Error: invalid job definition")
-		os.Exit(1)
+		runCLIError(fmt.Errorf("invalid job definition"))
 	case http.StatusUnsupportedMediaType:
-		fmt.Fprintln(os.Stderr, "Error: content type must be application/json")
-		os.Exit(1)
+		runCLIError(fmt.Errorf("content type must be application/json"))
 	case http.StatusServiceUnavailable:
-		fmt.Fprintln(os.Stderr, "Error: database unavailable")
-		os.Exit(1)
+		runCLIError(fmt.Errorf("database unavailable"))
 	default:
-		fmt.Fprintf(os.Stderr, "Error: unexpected status: %s\n", resp.Status)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("unexpected status: %s", resp.Status))
 	}
 }
 
@@ -514,21 +452,17 @@ func deleteJob(cmd *cobra.Command, args []string) {
 
 	force, _ := cmd.Flags().GetBool("yes")
 	if !force {
-		fmt.Fprintf(os.Stderr, "Delete job %q? This removes the definition and prevents future triggers.\n", jobID)
-		fmt.Fprintf(os.Stderr, "Re-run with --yes to confirm.\n")
-		os.Exit(1)
+		runCLIError(fmt.Errorf("delete job %q requires --yes; this removes the definition and prevents future triggers", jobID))
 	}
 
 	req, err := newAPIRequest(http.MethodDelete, fmt.Sprintf("/api/v1/jobs/%s", jobID), nil)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		runCLIError(err)
 	}
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: request failed: %v\n", err)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("request failed: %w", err))
 	}
 	defer resp.Body.Close()
 
@@ -540,11 +474,9 @@ func deleteJob(cmd *cobra.Command, args []string) {
 			fmt.Printf("Job %q deleted.\n", jobID)
 		}
 	case http.StatusNotFound:
-		fmt.Fprintf(os.Stderr, "Error: job %q not found\n", jobID)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("job %q not found", jobID))
 	default:
-		fmt.Fprintf(os.Stderr, "Error: unexpected status: %s\n", resp.Status)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("unexpected status: %s", resp.Status))
 	}
 }
 

@@ -442,32 +442,30 @@ func resolveLogIDArg(arg string) (string, error) {
 func runLogsRun(cmd *cobra.Command, args []string) {
 	id, err := resolveLogIDArg(args[0])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		runCLIError(err)
 	}
 
 	filterStdout, _ := cmd.Flags().GetBool("stdout")
 	filterStderr, _ := cmd.Flags().GetBool("stderr")
-	if err := runLogStream(id, filterStdout, filterStderr); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+	runCLIError(runLogStream(id, filterStdout, filterStderr))
 }
 
 func runLogsJob(cmd *cobra.Command, args []string) {
 	jobID, err := resolveLogIDArg(args[0])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		runCLIError(err)
 	}
 
 	filterStdout, _ := cmd.Flags().GetBool("stdout")
 	filterStderr, _ := cmd.Flags().GetBool("stderr")
 	follow, _ := cmd.Flags().GetBool("follow")
 	if follow {
-		if err := runContinuousLogs(jobID, filterStdout, filterStderr); err != nil && err.Error() != "interrupted" {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+		if err := runContinuousLogs(jobID, filterStdout, filterStderr); err != nil {
+			if err.Error() == "interrupted" {
+				return
+			}
+
+			runCLIError(err)
 		}
 
 		return
@@ -475,23 +473,18 @@ func runLogsJob(cmd *cobra.Command, args []string) {
 
 	run, ok, err := latestRunForJob(jobID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		runCLIError(err)
 	}
 
 	if !ok {
-		fmt.Fprintf(os.Stderr, "Error: no runs found for job %q; use --follow to wait for future runs\n", jobID)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("no runs found for job %q; use --follow to wait for future runs", jobID))
 	}
 
 	if !outputIsJSON() {
 		fmt.Printf("Streaming latest run for job %s: %s\n", jobID, run.RunID)
 	}
 
-	if err := runLogStream(run.RunID, filterStdout, filterStderr); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+	runCLIError(runLogStream(run.RunID, filterStdout, filterStderr))
 }
 
 var logsCmd = &cobra.Command{

@@ -4,7 +4,6 @@ import (
 	"github.com/spf13/cobra"
 	"io"
 	"net/http"
-	"os"
 	"time"
 	"vectis/internal/cli"
 	"vectis/internal/config"
@@ -187,6 +186,6 @@ func init() {
 
 func main() {
 	if err := rootCmd.Execute(); err != nil {
-		os.Exit(1)
+		runCLIError(err)
 	}
 }

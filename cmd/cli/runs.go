@@ -56,10 +56,7 @@ type runRepairResult struct {
 }
 
 func runGetRun(cmd *cobra.Command, args []string) {
-	if err := getRun(args[0], os.Stdout); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+	runCLIError(getRun(args[0], os.Stdout))
 }
 
 func getRun(runID string, w io.Writer) error {
@@ -134,10 +131,7 @@ func getRun(runID string, w io.Writer) error {
 }
 
 func runCancelRun(cmd *cobra.Command, args []string) {
-	if err := cancelRun(args[0], os.Stdout); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+	runCLIError(cancelRun(args[0], os.Stdout))
 }
 
 func cancelRun(runID string, w io.Writer) error {
@@ -180,16 +174,12 @@ func runListRuns(cmd *cobra.Command, args []string) {
 	}
 
 	if jobID == "" {
-		fmt.Fprintln(os.Stderr, "Error: job id is required (pass [job-id] or --job)")
 		_ = cmd.Usage()
-		os.Exit(1)
+		runCLIError(fmt.Errorf("job id is required (pass [job-id] or --job)"))
 	}
 
 	since, _ := cmd.Flags().GetString("since")
-	if err := listRuns(jobID, runListLimit, runListCursor, since, os.Stdout); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+	runCLIError(listRuns(jobID, runListLimit, runListCursor, since, os.Stdout))
 }
 
 func listRuns(jobID string, limit, cursor int, since string, w io.Writer) error {
@@ -274,13 +264,15 @@ func listRuns(jobID string, limit, cursor int, since string, w io.Writer) error 
 func forceFailRun(cmd *cobra.Command, args []string) {
 	runID := args[0]
 	reason, _ := cmd.Flags().GetString("reason")
+	runCLIError(forceFail(runID, reason, os.Stdout))
+}
 
+func forceFail(runID, reason string, w io.Writer) error {
 	body := []byte("{}")
 	if reason != "" {
 		payload, err := json.Marshal(map[string]string{"reason": reason})
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: failed to encode request body: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to encode request body: %w", err)
 		}
 
 		body = payload
@@ -288,65 +280,62 @@ func forceFailRun(cmd *cobra.Command, args []string) {
 
 	req, err := newAPIRequest(http.MethodPost, fmt.Sprintf("/api/v1/runs/%s/force-fail", runID), bytes.NewReader(body))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to create request: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: request failed: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	switch resp.StatusCode {
 	case http.StatusNoContent:
 		if outputIsJSON() {
-			runCLIError(writeJSON(os.Stdout, map[string]string{"status": "force_failed", "run_id": runID}))
-		} else {
-			fmt.Printf("Run %s force-failed.\n", runID)
+			return writeJSON(w, map[string]string{"status": "force_failed", "run_id": runID})
 		}
+
+		fmt.Fprintf(w, "Run %s force-failed.\n", runID)
+		return nil
 	case http.StatusNotFound:
-		fmt.Fprintf(os.Stderr, "Error: run '%s' not found\n", runID)
-		os.Exit(1)
+		return fmt.Errorf("run %q not found", runID)
 	default:
-		fmt.Fprintf(os.Stderr, "Error: unexpected status: %s\n", resp.Status)
-		os.Exit(1)
+		return fmt.Errorf("unexpected status: %s", resp.Status)
 	}
 }
 
 func forceRequeueRun(cmd *cobra.Command, args []string) {
 	runID := args[0]
+	runCLIError(forceRequeue(runID, os.Stdout))
+}
+
+func forceRequeue(runID string, w io.Writer) error {
 	req, err := newAPIRequest(http.MethodPost, fmt.Sprintf("/api/v1/runs/%s/force-requeue", runID), nil)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to create request: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to create request: %w", err)
 	}
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: request failed: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	switch resp.StatusCode {
 	case http.StatusNoContent:
 		if outputIsJSON() {
-			runCLIError(writeJSON(os.Stdout, map[string]string{"status": "force_requeued", "run_id": runID}))
-		} else {
-			fmt.Printf("Run %s force-requeued.\n", runID)
+			return writeJSON(w, map[string]string{"status": "force_requeued", "run_id": runID})
 		}
+
+		fmt.Fprintf(w, "Run %s force-requeued.\n", runID)
+		return nil
 	case http.StatusNotFound:
-		fmt.Fprintf(os.Stderr, "Error: run '%s' not found\n", runID)
-		os.Exit(1)
+		return fmt.Errorf("run %q not found", runID)
 	case http.StatusConflict:
-		fmt.Fprintf(os.Stderr, "Error: run '%s' cannot be requeued from its current status\n", runID)
-		os.Exit(1)
+		return fmt.Errorf("run %q cannot be requeued from its current status", runID)
 	default:
-		fmt.Fprintf(os.Stderr, "Error: unexpected status: %s\n", resp.Status)
-		os.Exit(1)
+		return fmt.Errorf("unexpected status: %s", resp.Status)
 	}
 }
 

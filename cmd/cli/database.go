@@ -13,10 +13,7 @@ func runMigrate(cmd *cobra.Command, args []string) {
 		fmt.Printf("Migrating database: %s\n", dbPath)
 	}
 
-	if err := database.Migrate(dbPath); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+	runCLIError(database.Migrate(dbPath))
 
 	if outputIsJSON() {
 		runCLIError(writeJSON(os.Stdout, map[string]string{"status": "migrated", "database": dbPath}))

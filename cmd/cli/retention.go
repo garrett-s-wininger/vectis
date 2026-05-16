@@ -19,10 +19,7 @@ func runRetentionCleanup(cmd *cobra.Command, args []string) {
 		AuditLog:        retentionAuditAge,
 	}
 
-	if err := retentionCleanup(cmd.Context(), os.Stdout, policy, retentionDryRun, retentionYes, retentionLogDir); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+	runCLIError(retentionCleanup(cmd.Context(), os.Stdout, policy, retentionDryRun, retentionYes, retentionLogDir))
 }
 
 func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy, dryRun, yes bool, logStorageDir string) error {
