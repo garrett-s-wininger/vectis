@@ -193,6 +193,10 @@ html[data-theme='light'] main .container .row > .col.col--3 {
 .menu__link {
   position: relative;
   border-radius: 3px;
+  transition:
+    background 0.15s ease,
+    box-shadow 0.15s ease,
+    color 0.15s ease;
 }
 
 .menu__link--active:not(.menu__link--sublist) {
@@ -210,13 +214,21 @@ html[data-theme='light'] main .container .row > .col.col--3 {
 }
 
 .menu__link:hover {
-  background: #dfe9ee;
+  background: #d8e8ef;
   color: var(--vectis-ink);
+  box-shadow:
+    inset 3px 0 0 rgba(47, 102, 118, 0.58),
+    inset 0 0 0 1px rgba(127, 165, 181, 0.44),
+    0 1px 2px rgba(47, 102, 118, 0.12);
 }
 
 html[data-theme='light'] .theme-doc-sidebar-item-category .menu__link--sublist,
 html[data-theme='light'] .theme-doc-sidebar-item-category .menu__link--sublist:hover {
   color: var(--vectis-ink);
+}
+
+html[data-theme='light'] .theme-doc-sidebar-item-category .menu__link--sublist:hover {
+  background: rgba(216, 232, 239, 0.72);
 }
 
 html[data-theme='light'] .theme-doc-sidebar-item-category .menu__link--sublist.menu__link--active {
@@ -235,7 +247,12 @@ html[data-theme='light'] .menu__link--active:not(.menu__link--sublist) {
 
 html[data-theme='light'] .menu__link--active:not(.menu__link--sublist):hover {
   background:
-    linear-gradient(90deg, var(--vectis-selection-bg-hover) 0%, #d0e4ed 58%, #e3eff4 100%);
+    linear-gradient(90deg, #afd2df 0%, #c8e0ea 58%, #dfedf2 100%);
+  box-shadow:
+    inset 4px 0 0 #1f5c6f,
+    inset 0 0 0 1px #6f9caf,
+    0 1px 0 rgba(255, 255, 255, 0.76),
+    0 3px 8px rgba(47, 102, 118, 0.2);
 }
 
 html[data-theme='light'] .table-of-contents {
@@ -250,11 +267,18 @@ html[data-theme='light'] .table-of-contents__link {
   margin: 0.12rem 0;
   padding: 0.28rem 0.5rem;
   border-radius: 3px;
+  transition:
+    background 0.15s ease,
+    box-shadow 0.15s ease,
+    color 0.15s ease;
 }
 
 html[data-theme='light'] .table-of-contents__link:hover {
   color: var(--vectis-ink);
-  background: rgba(199, 223, 234, 0.44);
+  background: rgba(199, 223, 234, 0.68);
+  box-shadow:
+    inset 3px 0 0 rgba(47, 102, 118, 0.58),
+    inset 0 0 0 1px rgba(127, 165, 181, 0.34);
 }
 
 html[data-theme='light'] .table-of-contents__link--active,
@@ -286,7 +310,9 @@ html[data-theme='light'] .table-of-contents__link--active:hover {
 }
 
 .theme-doc-markdown.markdown a:not(.hash-link):hover {
+  color: var(--ifm-link-hover-color);
   text-decoration-thickness: 2px;
+  text-decoration-color: var(--vectis-steel-dark);
 }
 
 .markdown :not(pre) > code,
@@ -348,12 +374,12 @@ html[data-theme='light'] .pagination-nav__link {
 }
 
 html[data-theme='light'] .pagination-nav__link:hover {
-  border-color: var(--vectis-selection-border);
+  border-color: #6f9caf;
   background:
     linear-gradient(180deg, #ffffff 0%, #eef7fa 100%);
   box-shadow:
-    2px 2px 0 rgba(47, 102, 118, 0.24),
-    0 14px 26px -20px rgba(24, 31, 36, 0.55),
+    3px 3px 0 rgba(47, 102, 118, 0.3),
+    0 18px 30px -18px rgba(24, 31, 36, 0.58),
     inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
@@ -493,6 +519,8 @@ html[data-theme='light'] .theme-back-to-top-button:hover {
   font-weight: 700;
   background-color: var(--vectis-nav-pill-active-bg);
   box-shadow:
+    inset 4px 0 0 rgba(130, 182, 198, 0.8),
+    inset 0 0 0 1px rgba(215, 225, 230, 0.12),
     0 1px 0 rgba(255, 255, 255, 0.04),
     0 1px 2px var(--vectis-nav-pill-active-shadow);
 }
@@ -500,11 +528,19 @@ html[data-theme='light'] .theme-back-to-top-button:hover {
 [data-theme='dark'] .menu__link--active:not(.menu__link--sublist):hover {
   color: #ffffff;
   background-color: var(--vectis-nav-pill-active-bg-hover);
+  box-shadow:
+    inset 4px 0 0 rgba(130, 182, 198, 0.9),
+    inset 0 0 0 1px rgba(215, 225, 230, 0.16),
+    0 1px 0 rgba(255, 255, 255, 0.05),
+    0 2px 5px var(--vectis-nav-pill-active-shadow);
 }
 
 [data-theme='dark'] .menu__link:hover {
   background: rgba(255, 255, 255, 0.06);
   color: #ffffff;
+  box-shadow:
+    inset 3px 0 0 rgba(130, 182, 198, 0.5),
+    inset 0 0 0 1px rgba(215, 225, 230, 0.08);
 }
 
 [data-theme='dark'] .theme-doc-sidebar-item-category .menu__link--sublist {
@@ -550,6 +586,9 @@ html[data-theme='light'] .theme-back-to-top-button:hover {
 [data-theme='dark'] .table-of-contents__link:hover {
   color: #ffffff;
   background: rgba(255, 255, 255, 0.055);
+  box-shadow:
+    inset 3px 0 0 rgba(130, 182, 198, 0.5),
+    inset 0 0 0 1px rgba(215, 225, 230, 0.08);
 }
 
 [data-theme='dark'] .table-of-contents__link--active,
@@ -757,12 +796,22 @@ html[data-theme='light'] .vectis-home-band {
 }
 
 html[data-theme='light'] .vectis-home-section {
-  border-color: #c4cad0;
-  background: linear-gradient(180deg, #ffffff 0%, #f8f9fa 100%);
+  border-color: #bac4cb;
+  background: linear-gradient(180deg, #ffffff 0%, #f7fbfc 100%);
 }
 
 html[data-theme='light'] .vectis-home-section:hover {
-  border-color: #9aa4ad;
+  border-color: #5f7f8d;
+  background:
+    linear-gradient(180deg, #ffffff 0%, #f0f8fb 100%);
+  box-shadow:
+    4px 4px 0 rgba(47, 102, 118, 0.3),
+    0 20px 34px -18px rgba(24, 31, 36, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.94);
+}
+
+html[data-theme='light'] .vectis-home-section:hover::before {
+  background: linear-gradient(90deg, #225666, #a4633f);
 }
 
 html[data-theme='light'] .vectis-home-section__title {
