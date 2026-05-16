@@ -1,5 +1,6 @@
 const sidebars = {
   docs: [
+    'getting-started',
     {
       type: 'category',
       label: 'Concepts',
