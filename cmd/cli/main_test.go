@@ -8,6 +8,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"io"
 	"math/big"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"vectis/api/gen/go"
 )
 
 func TestEffectiveToken_envOverridesFile(t *testing.T) {
@@ -779,6 +781,49 @@ func TestLatestRunForJob_paginatesToNewestRun(t *testing.T) {
 	}
 	if run.RunID != "run-2" || run.RunIndex != 2 {
 		t.Fatalf("unexpected latest run: %+v", run)
+	}
+}
+
+func TestRunLogStream_allowsQuietStreamPastAPIClientTimeout(t *testing.T) {
+	oldClient := apiHTTPClient
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/runs/run-1/logs" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		if got := r.Header.Get("Accept"); got != "text/event-stream" {
+			t.Errorf("Accept=%q, want text/event-stream", got)
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+
+		time.Sleep(75 * time.Millisecond)
+		entry := LogEntry{
+			Stream: int(api.Stream_STREAM_CONTROL.Number()),
+			Data:   `{"event":"completed","status":"success"}`,
+		}
+
+		b, err := json.Marshal(entry)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		fmt.Fprintf(w, "data: %s\n\n", b)
+	}))
+
+	t.Cleanup(srv.Close)
+	apiHTTPClient = &http.Client{
+		Timeout:   20 * time.Millisecond,
+		Transport: &rewriteTransport{testURL: srv.URL, underlying: http.DefaultTransport},
+	}
+	t.Cleanup(func() { apiHTTPClient = oldClient })
+
+	if err := runLogStream("run-1", false, false); err != nil {
+		t.Fatal(err)
 	}
 }
 

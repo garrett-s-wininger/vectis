@@ -31,6 +31,12 @@ func doAPIRequest(req *http.Request) (*http.Response, error) {
 	return apiHTTPClient.Do(req)
 }
 
+func doAPIStreamRequest(req *http.Request) (*http.Response, error) {
+	client := *apiHTTPClient
+	client.Timeout = 0
+	return client.Do(req)
+}
+
 const (
 	cliGroupWorkflows  = "workflows"
 	cliGroupAccess     = "access"

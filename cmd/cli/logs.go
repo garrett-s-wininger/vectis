@@ -39,7 +39,7 @@ func runLogStream(runID string, filterStdout, filterStderr bool) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	req = req.WithContext(ctx)
 
-	resp, err := doAPIRequest(req)
+	resp, err := doAPIStreamRequest(req)
 	if err != nil {
 		cancel()
 		return fmt.Errorf("failed to connect to API for log stream: %w", err)
@@ -234,7 +234,7 @@ outer:
 			req = req.WithContext(attemptCtx)
 			req.Header.Set("Accept", "text/event-stream")
 
-			resp, err := doAPIRequest(req)
+			resp, err := doAPIStreamRequest(req)
 			if err != nil {
 				return
 			}
