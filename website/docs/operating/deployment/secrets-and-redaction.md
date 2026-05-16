@@ -1,42 +1,101 @@
 # Secrets And Redaction
 
-Vectis does not yet provide a job secret backend or a general run-log redaction layer. Operators should treat job definitions, action output, service logs, run logs, backups, and deployment config as potentially sensitive.
+Vectis does not yet provide a job secret backend or a general run-log redaction layer. Treat job definitions, action output, service logs, run logs, database backups, queue persistence, and deployment config as potentially sensitive.
+
+This page is for operators deciding where secrets may appear and how to reduce accidental exposure.
+
+For the broader security posture, see [Security](../../concepts/security.md). For reference deployment secret handling, see [Reference Deployment Posture](./reference-deployment-posture.md). For backup inventory, see [Backup And Restore](../reliability/backup-restore.md).
+
+## Current Posture
+
+| Capability | Current behavior |
+| --- | --- |
+| API token storage | API tokens are stored hashed in the database. Plaintext tokens are only shown when created or returned from login. |
+| Password storage | Local user passwords are stored as bcrypt hashes. |
+| Bootstrap token | Used for initial setup when API auth is enabled. It remains a deploy/config secret until removed or rotated. |
+| Checkout URL validation | HTTP(S) checkout URLs with embedded user info are rejected. |
+| Log redaction | There is no general-purpose run-log redaction layer. Jobs can print secrets. |
+| Job secret backend | Not shipped today. Job definitions should not contain plaintext secrets. |
+| Storage encryption | Vectis relies on platform disk, volume, database, and backup encryption. |
 
 ## Sensitive Surfaces
 
-| Surface | Risk | Current posture |
+| Surface | Why it matters | Operator handling |
 | --- | --- | --- |
-| API tokens | Token replay if plaintext leaks | Stored hashed; CLI token file is local user config. |
-| Bootstrap token | Initial setup authority | Config/deploy secret; remove or rotate after setup where practical. |
-| Database DSN | May include credentials | Environment/config secret; avoid logging. |
-| Generated deploy secrets | Postgres password, bootstrap token, rendered DSNs | Stored under deploy config directory; protect with filesystem and secret-manager controls. |
-| Job definitions | May include URLs, commands, future inputs | Stored in SQL; do not put plaintext secrets in job JSON. |
-| Checkout URLs | Credentialed URLs can leak in logs and process args | HTTP(S) checkout URLs with embedded credentials are rejected; logs redact URL userinfo defensively. |
-| Shell output | Jobs can echo arbitrary secrets | No general redaction layer; operators must restrict environment and authors. |
-| Run logs | May contain credentials, PII, source, or build output | Store, back up, retain, and delete as sensitive data. |
-| Service logs | May include config, errors, run IDs, usernames, and paths | Structured logs help routing, but are not a secret scrubber. |
+| API tokens | Plaintext tokens allow API access until revoked or expired. | Store in user config or a secret manager. Revoke and recreate after exposure. |
+| CLI token file | Lets local CLI commands authenticate as the saved user. | Protect OS user config permissions; remove with `vectis-cli auth logout` when no longer needed. |
+| Bootstrap token | Can complete initial setup on a fresh authenticated deployment. | Rotate or remove after setup where practical; do not treat as a standing admin password. |
+| Database DSN | Often contains Postgres credentials. | Keep in secret stores or protected env; avoid logging. |
+| Generated deploy secrets | Include Postgres password, bootstrap token, and rendered DSNs. | Protect the deploy config directory; rotate into platform-managed secrets for shared environments. |
+| Job definitions | Persisted in SQL and may include commands, URLs, and action inputs. | Do not put plaintext credentials in job JSON. |
+| Checkout URLs | Credentialed URLs can leak through persisted definitions, logs, or process surfaces. | Use public URLs or credential-free SSH/SCP-style URLs. |
+| Shell output | Jobs can echo arbitrary environment, files, credentials, or source data. | Restrict job authors, worker environments, and mounted secrets. |
+| Run logs | May contain credentials, PII, source, or build output. | Store, retain, back up, and delete as sensitive data. |
+| Service logs | May include paths, usernames, run IDs, config errors, and operational context. | Structured logs help routing, but they are not a scrubber. |
+| Backups | Can contain database records, logs, queue state, tokens hashes, and deploy secrets. | Apply the same access controls and retention policy as production data. |
 
-## Operator Guidance
+## What Not To Put In Jobs
 
-- Do not pass secrets through job JSON, shell commands, clone URLs, or unbounded environment variables.
-- Prefer deploy/runtime secret managers and short-lived credentials.
-- Run workers with a minimal environment and a dedicated OS/container identity.
-- Treat log storage and log backups as sensitive.
-- Restrict access to `/metrics`, gRPC, API, OpenSearch, Grafana, Jaeger, and raw log volumes.
-- Rotate bootstrap and deploy secrets after initial setup or after any suspected exposure.
+Avoid putting secrets in:
+
+- job JSON;
+- shell command text;
+- HTTP(S) clone URLs;
+- action inputs;
+- long-lived worker environment variables visible to all jobs;
+- files mounted into workers unless every job author on that worker is trusted to read them.
+
+If a job needs credentials today, prefer short-lived credentials delivered by your runtime environment and limit which workers can see them. Vectis currently assumes job authors are trusted not to print, persist, or exfiltrate those values.
 
 ## Checkout URL Policy
 
-For `builtins/checkout`, use unauthenticated public URLs or credential-free SSH/SCP-style URLs such as `git@github.com:org/repo.git`. HTTP(S) URLs that include userinfo, such as `https://user:token@example.com/org/repo.git`, are rejected by validation because they can leak through logs, process lists, and persisted job definitions.
+For `builtins/checkout`, use unauthenticated public URLs or credential-free SSH/SCP-style URLs:
 
-## Future Secret Reference Model
+```text
+git@github.com:org/repo.git
+```
 
-Future job definitions should refer to secrets by name, not by value. A minimal model should define:
+HTTP(S) URLs with user info are rejected:
 
-- Secret scope: namespace, project, or job.
-- Allowed consumers: action types and worker pools.
-- Injection method: environment, file, or action input.
-- Redaction behavior: known exact values, derived values, and non-redactable output.
-- Audit events for read/use/rotation.
+```text
+https://user:token@example.com/org/repo.git
+```
 
-Until that exists, Vectis should be used only where job authors are trusted not to print or store secrets accidentally.
+Those URLs are rejected because they can leak through persisted job definitions, logs, process arguments, and debugging output. Vectis also defensively redacts URL user info in logs, but validation is the primary protection.
+
+## Operator Baseline
+
+Use this baseline for shared or production-like deployments:
+
+1. Enable API authentication before exposing the API.
+2. Store database DSNs, bootstrap tokens, API tokens, deploy secrets, and TLS keys in a secret manager.
+3. Rotate the bootstrap token after setup where your deployment model allows it.
+4. Restrict who can create or update job definitions.
+5. Run workers with the smallest practical environment and identity.
+6. Keep queue persistence, run logs, service logs, database backups, and deploy config directories private.
+7. Restrict direct access to log service, metrics, gRPC, OpenSearch, Grafana, Jaeger, and raw volumes.
+8. Treat log retention and backup retention as security decisions, not only storage decisions.
+9. Revoke API tokens and rotate deploy secrets after suspected exposure.
+
+## If A Secret Leaks
+
+| Leaked item | First response |
+| --- | --- |
+| API token | Delete/revoke the token and create a new one. Review audit logs for suspicious use. |
+| CLI token file | Remove the file or run `vectis-cli auth logout`; revoke the server-side token if exposure is possible. |
+| Bootstrap token before setup | Rotate or recreate deploy secret material and restart the API with the new token. |
+| Bootstrap token after setup | Rotate/remove it from runtime config where practical; setup state in the DB limits its future use. |
+| Database DSN or Postgres password | Rotate database credentials and update every DB-using service. |
+| TLS private key | Rotate the key/certificate pair and update every service that trusts it. |
+| Secret in run logs | Rotate the secret, restrict log access, and apply your log-retention/deletion process. |
+| Secret in job definition | Rotate the secret, update/delete the job definition, and inspect backups or exports that may contain it. |
+
+## Related Documentation
+
+| Topic | Document |
+| --- | --- |
+| Security posture | [Security](../../concepts/security.md) |
+| Internal trust boundaries | [Internal Service Trust](../../concepts/internal-service-trust.md) |
+| Configuration and secret variables | [Configuration](../configuration.md) |
+| Reference deployment posture | [Reference Deployment Posture](./reference-deployment-posture.md) |
+| Backup inventory and restore | [Backup And Restore](../reliability/backup-restore.md) |
