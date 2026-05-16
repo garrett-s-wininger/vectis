@@ -11,7 +11,7 @@ function Hero() {
           replaceable components, and an API-first design you can adapt to your environment.
         </p>
         <div className="vectis-hero__actions">
-          <Link className="vectis-hero__cta vectis-hero__cta--primary" to="/docs/operator/configuration">
+          <Link className="vectis-hero__cta vectis-hero__cta--primary" to="/docs/operating/configuration">
             Deploy
           </Link>
         </div>
@@ -41,19 +41,19 @@ export default function Home() {
           <Section
             title="Use the API"
             description="Manage jobs, runs, and logs with Vectis' built-in API."
-            link="/docs/user/api-reference"
+            link="/docs/using/api-reference"
             linkText="Open API guide"
           />
           <Section
             title="Maintain Vectis"
             description="Learn how to ensure the health, performance, and security of your Vectis installation."
-            link="/docs/operator/configuration"
+            link="/docs/operating/configuration"
             linkText="Open operator guide"
           />
           <Section
             title="Extend the System"
             description="Examine the architecture, understand its codebase, and extend it to fit your needs."
-            link="/docs/developer/architecture"
+            link="/docs/concepts/architecture"
             linkText="Open developer guide"
           />
         </main>

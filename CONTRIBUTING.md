@@ -83,9 +83,9 @@ make build
 
 For Postgres (Podman/Kube), use `vectis-cli deploy podman up`.
 
-If you change JSON under [`deploy/grafana/dashboards/`](deploy/grafana/dashboards/), regenerate the kube ConfigMap bundle with **`python3 deploy/podman/generate-grafana-configmaps.py -o deploy/podman/grafana-configmaps.gen.yaml`** so [`deploy/podman/grafana-configmaps.gen.yaml`](deploy/podman/grafana-configmaps.gen.yaml) stays in sync (see [Planning](website/docs/developer/planning.md) §10).
+If you change JSON under [`deploy/grafana/dashboards/`](deploy/grafana/dashboards/), regenerate the kube ConfigMap bundle with **`python3 deploy/podman/generate-grafana-configmaps.py -o deploy/podman/grafana-configmaps.gen.yaml`** so [`deploy/podman/grafana-configmaps.gen.yaml`](deploy/podman/grafana-configmaps.gen.yaml) stays in sync (see [Planning](./website/docs/developing/roadmap/planning.md) §10).
 
-**Single service** (for debugging): run the matching binary from `bin/` after `make build`. Each `cmd/<name>/main.go` defines flags and startup; components discover queue/log addresses via **registry** when that pattern is used (see [Architecture](website/docs/developer/architecture.md) or [Planning](website/docs/developer/planning.md) §2).
+**Single service** (for debugging): run the matching binary from `bin/` after `make build`. Each `cmd/<name>/main.go` defines flags and startup; components discover queue/log addresses via **registry** when that pattern is used (see [Architecture](./website/docs/concepts/architecture.md) or [Planning](./website/docs/developing/roadmap/planning.md) §2).
 
 Ensure SQLite’s parent directory exists if you open the DB outside `vectis-local` (see `database.OpenDB` / `GetDBPath`).
 
@@ -95,7 +95,7 @@ Embedded defaults: [`internal/config/defaults.toml`](internal/config/defaults.to
 
 ## Design and roadmap
 
-**As-built** architecture: [Architecture](website/docs/developer/architecture.md). **Configuration** (env, flags): [Configuration](website/docs/operator/configuration.md). **Glossary:** [Glossary](website/docs/general/glossary.md). **ADRs** (significant design decisions): [ADRs](website/docs/developer/adr/README.md). **Security:** [Security](website/docs/general/security.md). **Design goals** (§1), large design decisions, and **target vs shipped** behavior are documented in [Planning](website/docs/developer/planning.md). Prefer updating PLANNING (or [Federation](website/docs/developer/federation.md) for deferred multi-site material) instead of duplicating long design text in this guide; keep topology/protocol details in ARCHITECTURE when they change.
+**As-built** architecture: [Architecture](./website/docs/concepts/architecture.md). **Configuration** (env, flags): [Configuration](./website/docs/operating/configuration.md). **Glossary:** [Glossary](./website/docs/concepts/glossary.md). **ADRs** (significant design decisions): [ADRs](./website/docs/developing/architecture-decisions/index.md). **Security:** [Security](./website/docs/concepts/security.md). **Design goals** (§1), large design decisions, and **target vs shipped** behavior are documented in [Planning](./website/docs/developing/roadmap/planning.md). Prefer updating PLANNING (or [Federation](./website/docs/developing/roadmap/federation.md) for deferred multi-site material) instead of duplicating long design text in this guide; keep topology/protocol details in ARCHITECTURE when they change.
 
 ## When pull requests are welcome
 
