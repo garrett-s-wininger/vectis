@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vectis Console Mock</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#" aria-label="Vectis console">
+          <picture>
+            <source srcset="../../website/static/img/vectis-dark.png" media="(prefers-color-scheme: dark)" />
+            <img src="../../website/static/img/vectis.png" alt="" />
+          </picture>
+        </a>
+        <nav class="topnav" aria-label="Primary">
+          <a class="topnav__link topnav__link--active" href="#">Dashboard</a>
+          <a class="topnav__link" href="#">Jobs</a>
+        </nav>
+        <div class="topbar__actions">
+          <button class="icon-button" type="button" aria-label="Toggle theme" title="Toggle theme" data-theme-toggle>
+            <span class="theme-mark" aria-hidden="true"></span>
+          </button>
+        </div>
+      </header>
+
+      <main class="console">
+        <section class="page-head" aria-labelledby="console-title">
+          <div>
+            <p class="eyebrow">Operator Console</p>
+            <h1 id="console-title">Cluster dashboard</h1>
+          </div>
+          <div class="page-head__actions">
+            <button class="button button--secondary" type="button">Refresh</button>
+          </div>
+        </section>
+
+        <section class="health-overview" aria-label="General cluster health">
+          <article class="health-card health-card--overall health-card--warn">
+            <span class="health-card__label">Overall</span>
+            <strong>Attention needed</strong>
+            <small>1 orphaned run</small>
+          </article>
+          <article class="health-card health-card--degraded">
+            <span class="health-card__label">Services</span>
+            <strong>Degraded</strong>
+            <small>reconciler reports orphaned work</small>
+          </article>
+          <article class="health-card health-card--queue">
+            <span class="health-card__label">Queue pressure</span>
+            <strong>3 queued</strong>
+            <small>0 idle workers available</small>
+          </article>
+          <article class="health-card health-card--queue">
+            <span class="health-card__label">Active capacity</span>
+            <strong>1 drained</strong>
+            <small>7 online, 6 executing</small>
+          </article>
+        </section>
+
+        <section class="dashboard-band" aria-labelledby="workload-title">
+          <div class="band-heading">
+            <h2 id="workload-title">Compute workload</h2>
+          </div>
+          <div class="workload-grid">
+          <section class="active-panel" aria-labelledby="active-title">
+            <div class="panel-title">
+              <h2 id="active-title">Active runs</h2>
+              <a href="#">View all</a>
+            </div>
+            <div class="run-list run-list--active">
+              <div class="run-row run-row--active">
+                <span>
+                  <strong>linux-ci <em>#184</em></strong>
+                  <small class="run-meta-line">
+                    <button class="copy-id" type="button" data-copy="6f4c2d7a" aria-label="Copy run ID 6f4c2d7a">6f4c2d7a</button>
+                    <span class="duration-chip">4m 12s</span>
+                  </small>
+                </span>
+                <span class="status status--running">running</span>
+              </div>
+              <div class="run-row">
+                <span>
+                  <strong>api-smoke <em>#812</em></strong>
+                  <small class="run-meta-line">
+                    <button class="copy-id" type="button" data-copy="b82e19f4" aria-label="Copy run ID b82e19f4">b82e19f4</button>
+                    <span class="duration-chip">6m 03s</span>
+                  </small>
+                </span>
+                <span class="status status--running">running</span>
+              </div>
+              <div class="run-row">
+                <span>
+                  <strong>docs-check <em>#392</em></strong>
+                  <small class="run-meta-line">
+                    <button class="copy-id" type="button" data-copy="14d9a6b0" aria-label="Copy run ID 14d9a6b0">14d9a6b0</button>
+                    <span class="duration-chip">8m 31s</span>
+                  </small>
+                </span>
+                <span class="status status--running">running</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="failures-panel" aria-labelledby="failures-title">
+            <div class="panel-title">
+              <h2 id="failures-title">Recent failures</h2>
+            </div>
+            <div class="run-list">
+              <div class="run-row">
+                <span>
+                  <strong>nightly-load <em>#88</em></strong>
+                  <small class="run-meta-line">
+                    <button class="copy-id" type="button" data-copy="a19f03de" aria-label="Copy run ID a19f03de">a19f03de</button>
+                    <span class="duration-chip">14m 02s</span>
+                  </small>
+                </span>
+                <span class="status status--failed">failed</span>
+              </div>
+              <div class="run-row">
+                <span>
+                  <strong>release-image <em>#51</em></strong>
+                  <small class="run-meta-line">
+                    <button class="copy-id" type="button" data-copy="75c1d0ab" aria-label="Copy run ID 75c1d0ab">75c1d0ab</button>
+                    <span class="duration-chip">8m 11s</span>
+                  </small>
+                </span>
+                <span class="status status--failed">failed</span>
+              </div>
+              <div class="run-row">
+                <span>
+                  <strong>schema-check <em>#140</em></strong>
+                  <small class="run-meta-line">
+                    <button class="copy-id" type="button" data-copy="e2c48691" aria-label="Copy run ID e2c48691">e2c48691</button>
+                    <span class="duration-chip">2m 09s</span>
+                  </small>
+                </span>
+                <span class="status status--failed">failed</span>
+              </div>
+            </div>
+          </section>
+          </div>
+        </section>
+
+        <section class="dashboard-band" aria-labelledby="components-title">
+          <div class="band-heading">
+            <h2 id="components-title">Component health</h2>
+          </div>
+          <div class="component-grid">
+            <section class="queue-panel" aria-labelledby="queue-title">
+              <div class="panel-title">
+                <h2 id="queue-title">Queue</h2>
+              </div>
+              <div class="queue-summary">
+                <strong>3</strong>
+                <span>queued runs</span>
+              </div>
+              <div class="worker-distribution" aria-label="Worker distribution">
+                <div class="stacked-bar" aria-hidden="true">
+                  <span class="stacked-bar__segment stacked-bar__segment--idle" style="--value: 0"></span>
+                  <span class="stacked-bar__segment stacked-bar__segment--executing" style="--value: 6"></span>
+                  <span class="stacked-bar__segment stacked-bar__segment--drained" style="--value: 1"></span>
+                </div>
+                <dl class="worker-legend">
+                  <div>
+                    <dt>Idle</dt>
+                    <dd>0</dd>
+                  </div>
+                  <div>
+                    <dt>Executing</dt>
+                    <dd>6</dd>
+                  </div>
+                  <div>
+                    <dt>Drained</dt>
+                    <dd>1</dd>
+                  </div>
+                </dl>
+              </div>
+              <div class="queue-stats">
+                <div class="queue-age queue-age--warn">
+                  <span>Oldest queued</span>
+                  <strong>2m 14s</strong>
+                </div>
+                <div class="queue-age">
+                  <span>Dispatch gap</span>
+                  <strong>60s</strong>
+                </div>
+              </div>
+            </section>
+
+            <section class="logs-panel" aria-labelledby="logs-title">
+              <div class="panel-title">
+                <h2 id="logs-title">Logs</h2>
+              </div>
+              <div class="storage-summary">
+                <strong>68%</strong>
+                <span>filesystem used</span>
+              </div>
+              <div class="storage-meter">
+                <div class="usage-bar" aria-label="Log filesystem usage, 68 percent used">
+                  <span style="--value: 68"></span>
+                </div>
+                <small>219 GB free of 684 GB</small>
+              </div>
+              <div class="signal-list signal-list--compact">
+                <div class="signal signal--ok">
+                  <span>Ingest</span>
+                  <strong>Connected</strong>
+                </div>
+                <div class="signal signal--ok">
+                  <span>Retention</span>
+                  <strong>14 days</strong>
+                </div>
+              </div>
+            </section>
+
+            <section class="signals-panel" aria-labelledby="signals-title">
+              <div class="panel-title">
+                <h2 id="signals-title">Services</h2>
+              </div>
+              <div class="signal-list">
+                <div class="signal signal--ok">
+                  <span>Cron</span>
+                  <strong>Healthy</strong>
+                </div>
+                <div class="signal signal--warn">
+                  <span>Registry</span>
+                  <strong>Degraded</strong>
+                </div>
+                <div class="signal signal--ok">
+                  <span>Reconciler</span>
+                  <strong>Healthy</strong>
+                </div>
+                <div class="signal signal--ok">
+                  <span>Workers</span>
+                  <strong>7 online</strong>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const root = document.documentElement;
+      const storedTheme = localStorage.getItem('vectis-console-theme');
+      if (storedTheme) {
+        root.dataset.theme = storedTheme;
+      }
+
+      document.querySelector('[data-theme-toggle]').addEventListener('click', () => {
+        const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+        root.dataset.theme = next;
+        localStorage.setItem('vectis-console-theme', next);
+      });
+
+      document.querySelectorAll('[data-copy]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(button.dataset.copy);
+          } catch {
+            // Mock-only fallback: keep the affordance harmless if clipboard is unavailable.
+          }
+        });
+      });
+    </script>
+  </body>
+</html>
