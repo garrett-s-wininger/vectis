@@ -1,58 +1,131 @@
-# API Idempotency And Retry Semantics
+# Idempotency And Retries
 
-Vectis mutating routes are not all equivalent under client retry. This document defines the v1 client contract.
+Retries are part of normal automation. A client can time out, a connection can drop, or a process can crash after sending a request but before reading the response.
 
-## Header Contract
+For job-submission routes, Vectis supports idempotency keys so clients can retry without accidentally starting duplicate runs.
 
-The supported retry header is:
+## The Short Version
 
-```http
-Idempotency-Key: <opaque-client-key>
-```
-
-Keys should be unique for one intended mutation. Use at least 128 bits of randomness or a stable operation ID from the caller. Do not put secrets in keys.
-
-## Supported Endpoints
-
-| Endpoint | Scope | Replay behavior |
-| --- | --- | --- |
-| `POST /api/v1/jobs/trigger/{id}` | Authenticated principal plus stored-trigger operation | Same key and same request replays the recorded `202` response. |
-| `POST /api/v1/jobs/run` | Authenticated principal plus ephemeral-run operation | Same key and same request replays the recorded `202` response. |
-
-If the same key is reused for a different request, the API returns `409 idempotency_key_reused`. If the first request has reserved the key but not recorded a response yet, the API returns `409 idempotency_in_progress`; clients should retry later with the same key.
-
-Anonymous requests are scoped as anonymous for idempotency. Authenticated requests are scoped to the local user ID, so two users can safely use the same key without colliding.
-
-## CLI Support
-
-`vectis-cli jobs trigger` and `vectis-cli jobs run` accept `--idempotency-key`:
+Use an idempotency key when you submit work that should happen once:
 
 ```sh
-vectis-cli jobs trigger build-main --idempotency-key "$(uuidgen)"
-vectis-cli jobs run job.json --idempotency-key "$(uuidgen)"
+./bin/vectis-cli jobs run examples/sequenced.json \
+  --idempotency-key "$(uuidgen)"
 ```
 
-When a network error or timeout leaves the client unsure whether the API accepted the request, retry the same command with the same key.
+If the command times out or the connection drops, retry with the same key:
 
-## Mutator Retry Classification
+```sh
+./bin/vectis-cli jobs run examples/sequenced.json \
+  --idempotency-key "<same-key-as-before>"
+```
 
-| Route | Retry guidance |
+Use a new key for a new intended run.
+
+## Supported Routes
+
+Only these routes currently record idempotency keys:
+
+| Route | Use it for | Safe retry behavior |
+| --- | --- | --- |
+| `POST /api/v1/jobs/run` | Start an ephemeral run from a job definition. | Same key and same request returns the same `202` response. |
+| `POST /api/v1/jobs/trigger/{id}` | Trigger a stored job. | Same key and same trigger returns the same `202` response. |
+
+Other routes may be safe to retry for other reasons, but they do not replay a recorded response.
+
+## CLI Usage
+
+Both one-off runs and stored-job triggers accept `--idempotency-key`:
+
+```sh
+./bin/vectis-cli jobs run job.json --idempotency-key "$(uuidgen)"
+./bin/vectis-cli jobs trigger build-main --idempotency-key "$(uuidgen)"
+```
+
+For scripts, generate the key once and keep it with the operation you are trying to complete:
+
+```sh
+key="$(uuidgen)"
+
+./bin/vectis-cli jobs trigger build-main --idempotency-key "$key"
+```
+
+If the script cannot tell whether the trigger succeeded, retry with that same `key`.
+
+## API Usage
+
+Send the key in the `Idempotency-Key` header:
+
+```sh
+curl -sS \
+  -X POST \
+  -H "Idempotency-Key: $(uuidgen)" \
+  http://localhost:8080/api/v1/jobs/trigger/build-main
+```
+
+Keys are opaque client strings. Use at least 128 bits of randomness, or use a stable operation ID from the system calling Vectis. Do not put secrets, tokens, passwords, or customer data in the key.
+
+## What Vectis Compares
+
+Vectis stores the key with a scope and a request hash.
+
+For stored-job triggers, the scope includes:
+
+- the authenticated principal, or anonymous access when auth is disabled
+- the stored job ID
+- the trigger operation
+
+For ephemeral runs, the scope includes:
+
+- the authenticated principal, or anonymous access when auth is disabled
+- the namespace
+- the raw job definition request body
+
+This means two users can safely use the same key without colliding. It also means the same user should not reuse one key for two different intended runs.
+
+## Responses To Expect
+
+| Situation | Response |
 | --- | --- |
-| `POST /api/v1/jobs/trigger/{id}` | Use `Idempotency-Key` for safe retries. |
+| First request with a new key succeeds. | `202` with the created run response. |
+| Retry with the same key and same request after success. | `202` with the recorded response. |
+| Retry while the first request is still in progress. | `409 idempotency_in_progress`. Retry later with the same key. |
+| Reuse the same key for a different request. | `409 idempotency_key_reused`. Stop and create a new key for the new operation. |
+
+When you get `idempotency_in_progress`, wait briefly and retry with the same key. When you get `idempotency_key_reused`, do not keep retrying that key with a changed request.
+
+## Route-By-Route Retry Guidance
+
+| Route | Guidance |
+| --- | --- |
 | `POST /api/v1/jobs/run` | Use `Idempotency-Key` for safe retries. |
-| `POST /api/v1/jobs` | Treat as naturally conflicting by job ID; retry only if the client can tolerate `409 job_already_exists`. |
-| `PUT /api/v1/jobs/{id}` | Retry same body safely after network errors; it replaces the definition. |
-| `DELETE /api/v1/jobs/{id}` | Retry only if `404` after retry is acceptable as "already deleted". |
-| `POST /api/v1/runs/{id}/cancel` | Retry same run ID safely while the run remains cancelable; terminal runs can return conflict. |
-| `POST /api/v1/runs/{id}/force-fail` | Manual operator action; do not blindly retry unless the operator confirms the target state. |
-| `POST /api/v1/runs/{id}/force-requeue` | Manual repair action; do not blindly retry because run state may change between attempts. |
-| `POST /api/v1/setup/complete` | Retry only during bootstrap; `409 setup_already_complete` means setup already succeeded or another actor completed it. |
-| `POST /api/v1/login` | Safe to retry; creates a new login token on each success. |
-| `POST /api/v1/tokens` | Not idempotent; retry can create multiple tokens. Delete duplicates if this happens. |
-| `DELETE /api/v1/tokens/{id}` | Retry only if `404` is acceptable as "already deleted". |
-| User, namespace, and role-binding creates | Retry only if duplicate/conflict responses are acceptable. |
-| User, namespace, and role-binding updates/deletes | Retry same target only when the caller treats missing resources as already converged. |
+| `POST /api/v1/jobs/trigger/{id}` | Use `Idempotency-Key` for safe retries. |
+| `POST /api/v1/jobs` | Retry only if `409 job_already_exists` is acceptable as "already stored." |
+| `PUT /api/v1/jobs/{id}` | Retrying the same body is generally safe because the route replaces the definition. |
+| `DELETE /api/v1/jobs/{id}` | Retry only if `404` is acceptable as "already deleted." |
+| `POST /api/v1/runs/{id}/cancel` | Retry while the run is still cancelable. Terminal runs may reject the request. |
+| `POST /api/v1/runs/{id}/force-fail` | Manual operator action. Do not retry blindly. |
+| `POST /api/v1/runs/{id}/force-requeue` | Manual repair action. Do not retry blindly because run state can change. |
+| `POST /api/v1/setup/complete` | Retry only during bootstrap. `409 setup_already_complete` means setup already happened. |
+| `POST /api/v1/login` | Safe to retry, but each success creates a new token. |
+| `POST /api/v1/tokens` | Not idempotent. Retry can create duplicate tokens. |
+| `DELETE /api/v1/tokens/{id}` | Retry only if `404` is acceptable as "already deleted." |
+| User, namespace, and role-binding creates | Retry only if duplicate or conflict responses are acceptable. |
+| User, namespace, and role-binding updates/deletes | Retry only when missing resources count as already converged. |
 
-## Retention
+## Handling Rate Limits
 
-Idempotency rows are durable SQL data today and do not have an expiry job yet. Operators should treat them as part of database backup and retention planning. A future retention command should expire old completed keys after the documented safe retry window while preserving enough history to avoid accidental duplicate runs during normal client retry periods.
+If the API returns `429 rate_limit_exceeded`, it also sets `Retry-After`.
+
+Clients should wait at least that long before retrying. Keep the same idempotency key when retrying a job submission that already had one.
+
+## Cleanup And Retention
+
+Idempotency records are stored in SQL so retries survive API restarts. Operators can prune old records with retention cleanup:
+
+```sh
+./bin/vectis-cli retention cleanup --dry-run
+./bin/vectis-cli retention cleanup --yes
+```
+
+The `--idempotency-age` flag controls how old idempotency records must be before they are eligible for deletion. Keep the retention window longer than the normal maximum time a client might retry the same operation.
