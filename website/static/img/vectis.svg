@@ -9,7 +9,7 @@
    id="svg1"
    inkscape:version="1.4.4 (dcaf3e7, 2026-05-05)"
    sodipodi:docname="vectis.svg"
-   inkscape:export-filename="vectis-dark.png"
+   inkscape:export-filename="vectis.png"
    inkscape:export-xdpi="96"
    inkscape:export-ydpi="96"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
@@ -28,14 +28,14 @@
      inkscape:deskcolor="#d1d1d1"
      inkscape:document-units="mm"
      inkscape:zoom="2.7595373"
-     inkscape:cx="404.23443"
-     inkscape:cy="501.89573"
+     inkscape:cx="296.97007"
+     inkscape:cy="482.32723"
      inkscape:window-width="1512"
      inkscape:window-height="949"
      inkscape:window-x="0"
      inkscape:window-y="33"
      inkscape:window-maximized="0"
-     inkscape:current-layer="layer1" />
+     inkscape:current-layer="layer2" />
   <defs
      id="defs1">
     <linearGradient
@@ -683,10 +683,11 @@
        xml:space="preserve"
        transform="matrix(0.26458333,0,0,0.26458333,-7.9932436,8.8952311)"
        id="text1"
-       style="font-size:53.3333px;line-height:0;font-family:Michroma;-inkscape-font-specification:Michroma;text-align:center;writing-mode:lr-tb;direction:ltr;white-space:pre;shape-inside:url(#rect1);display:inline;fill:#868686;fill-opacity:1;stroke-width:1.78394;stroke-dasharray:none"
+       style="font-size:53.3333px;line-height:0;font-family:Michroma;-inkscape-font-specification:Michroma;text-align:center;writing-mode:lr-tb;direction:ltr;white-space:pre;shape-inside:url(#rect1);display:inline;fill:#333333;fill-opacity:1;stroke-width:1.78394;stroke-dasharray:none"
        inkscape:label="Name"
        x="141.08253"
-       y="0"><tspan
+       y="0"
+       sodipodi:insensitive="true"><tspan
          x="227.76408"
          y="380.59391"
          id="tspan4"><tspan

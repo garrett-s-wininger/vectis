@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Vectis Jobs Mock</title>
-    <link rel="stylesheet" href="styles.css?v=jobs-actions" />
+    <link rel="stylesheet" href="styles.css?v=jobs-implicit-details1" />
   </head>
   <body>
     <div class="app-shell">
@@ -136,30 +136,30 @@
           <aside class="job-detail-panel" aria-labelledby="job-detail-title">
             <div class="job-detail-head">
               <div>
-                <h2 id="job-detail-title">linux-ci</h2>
+                <h2 id="job-detail-title">
+                  <a class="job-title-link" href="job-detail.html">linux-ci</a>
+                </h2>
               </div>
               <span class="status status--passed">enabled</span>
             </div>
             <div class="job-action-bar" aria-label="Job actions">
               <button class="inline-action" type="button">Trigger</button>
-              <a class="inline-action" href="job-detail.html">Job details</a>
               <button class="inline-action" type="button">Edit</button>
               <button class="inline-action" type="button">Disable</button>
             </div>
             <div class="job-detail-summary">
-              <section class="last-run-card" aria-labelledby="last-run-title">
+              <a class="last-run-card last-run-card--link" href="run-detail.html" aria-labelledby="last-run-title">
                 <div class="last-run-card__head">
                   <span id="last-run-title">Last run</span>
                   <span class="last-run-card__actions">
                     <span class="status status--running">running</span>
-                    <button class="mini-action" type="button" aria-label="Open run details for 6f4c2d7a">Run details</button>
                   </span>
                 </div>
                 <dl class="last-run-facts">
                   <div>
                     <dt>Run ID</dt>
                     <dd>
-                      <button class="copy-id" type="button" data-copy="6f4c2d7a" aria-label="Copy run ID 6f4c2d7a">6f4c2d7a</button>
+                      <span class="identifier-value identifier-value--small">6f4c2d7a</span>
                     </dd>
                   </div>
                   <div>
@@ -180,12 +180,12 @@
                     <dd>
                       <strong>v17</strong>
                       <small>
-                        <button class="copy-id" type="button" data-copy="8a91c0e4" aria-label="Copy definition hash 8a91c0e4">8a91c0e4</button>
+                        <span class="identifier-value identifier-value--small">8a91c0e4</span>
                       </small>
                     </dd>
                   </div>
                 </dl>
-              </section>
+              </a>
             </div>
           </aside>
         </section>
@@ -203,36 +203,6 @@
         const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
         root.dataset.theme = next;
         localStorage.setItem('vectis-console-theme', next);
-      });
-
-      const copyValue = async (value) => {
-        if (navigator.clipboard && window.isSecureContext) {
-          await navigator.clipboard.writeText(value);
-          return;
-        }
-
-        const field = document.createElement('textarea');
-        field.value = value;
-        field.setAttribute('readonly', '');
-        field.style.position = 'fixed';
-        field.style.inset = '0 auto auto 0';
-        field.style.opacity = '0';
-        document.body.appendChild(field);
-        field.select();
-        document.execCommand('copy');
-        field.remove();
-      };
-
-      document.querySelectorAll('[data-copy]').forEach((button) => {
-        button.addEventListener('click', async () => {
-          try {
-            await copyValue(button.dataset.copy);
-          } catch {
-            // Mock-only fallback: keep the affordance harmless if clipboard is unavailable.
-          }
-          button.classList.add('copy-id--copied');
-          window.setTimeout(() => button.classList.remove('copy-id--copied'), 1200);
-        });
       });
     </script>
   </body>

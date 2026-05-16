@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Vectis Console Mock</title>
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=plain-ids" />
   </head>
   <body>
     <div class="app-shell">
@@ -74,30 +74,21 @@
               <div class="run-row run-row--active">
                 <span>
                   <strong>linux-ci <em>#184</em></strong>
-                  <small class="run-meta-line">
-                    <button class="copy-id" type="button" data-copy="6f4c2d7a" aria-label="Copy run ID 6f4c2d7a">6f4c2d7a</button>
-                    <span class="duration-chip">4m 12s</span>
-                  </small>
+                  <small class="run-meta-text">6f4c2d7a · 4m 12s</small>
                 </span>
                 <span class="status status--running">running</span>
               </div>
               <div class="run-row">
                 <span>
                   <strong>api-smoke <em>#812</em></strong>
-                  <small class="run-meta-line">
-                    <button class="copy-id" type="button" data-copy="b82e19f4" aria-label="Copy run ID b82e19f4">b82e19f4</button>
-                    <span class="duration-chip">6m 03s</span>
-                  </small>
+                  <small class="run-meta-text">b82e19f4 · 6m 03s</small>
                 </span>
                 <span class="status status--running">running</span>
               </div>
               <div class="run-row">
                 <span>
                   <strong>docs-check <em>#392</em></strong>
-                  <small class="run-meta-line">
-                    <button class="copy-id" type="button" data-copy="14d9a6b0" aria-label="Copy run ID 14d9a6b0">14d9a6b0</button>
-                    <span class="duration-chip">8m 31s</span>
-                  </small>
+                  <small class="run-meta-text">14d9a6b0 · 8m 31s</small>
                 </span>
                 <span class="status status--running">running</span>
               </div>
@@ -112,30 +103,21 @@
               <div class="run-row">
                 <span>
                   <strong>nightly-load <em>#88</em></strong>
-                  <small class="run-meta-line">
-                    <button class="copy-id" type="button" data-copy="a19f03de" aria-label="Copy run ID a19f03de">a19f03de</button>
-                    <span class="duration-chip">14m 02s</span>
-                  </small>
+                  <small class="run-meta-text">a19f03de · 14m 02s</small>
                 </span>
                 <span class="status status--failed">failed</span>
               </div>
               <div class="run-row">
                 <span>
                   <strong>release-image <em>#51</em></strong>
-                  <small class="run-meta-line">
-                    <button class="copy-id" type="button" data-copy="75c1d0ab" aria-label="Copy run ID 75c1d0ab">75c1d0ab</button>
-                    <span class="duration-chip">8m 11s</span>
-                  </small>
+                  <small class="run-meta-text">75c1d0ab · 8m 11s</small>
                 </span>
                 <span class="status status--failed">failed</span>
               </div>
               <div class="run-row">
                 <span>
                   <strong>schema-check <em>#140</em></strong>
-                  <small class="run-meta-line">
-                    <button class="copy-id" type="button" data-copy="e2c48691" aria-label="Copy run ID e2c48691">e2c48691</button>
-                    <span class="duration-chip">2m 09s</span>
-                  </small>
+                  <small class="run-meta-text">e2c48691 · 2m 09s</small>
                 </span>
                 <span class="status status--failed">failed</span>
               </div>
@@ -255,16 +237,6 @@
         const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
         root.dataset.theme = next;
         localStorage.setItem('vectis-console-theme', next);
-      });
-
-      document.querySelectorAll('[data-copy]').forEach((button) => {
-        button.addEventListener('click', async () => {
-          try {
-            await navigator.clipboard.writeText(button.dataset.copy);
-          } catch {
-            // Mock-only fallback: keep the affordance harmless if clipboard is unavailable.
-          }
-        });
       });
     </script>
   </body>

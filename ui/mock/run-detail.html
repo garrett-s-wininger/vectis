@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vectis Run Detail Mock</title>
+    <link rel="stylesheet" href="styles.css?v=run-detail9" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="index.html" aria-label="Vectis console">
+          <picture>
+            <source srcset="../../website/static/img/vectis-dark.png" media="(prefers-color-scheme: dark)" />
+            <img src="../../website/static/img/vectis.png" alt="" />
+          </picture>
+        </a>
+        <nav class="topnav" aria-label="Primary">
+          <a class="topnav__link" href="index.html">Dashboard</a>
+          <a class="topnav__link topnav__link--active" href="jobs.html">Jobs</a>
+        </nav>
+        <div class="topbar__actions">
+          <button class="icon-button" type="button" aria-label="Toggle theme" title="Toggle theme" data-theme-toggle>
+            <span class="theme-mark" aria-hidden="true"></span>
+          </button>
+        </div>
+      </header>
+
+      <main class="console">
+        <section class="page-head" aria-labelledby="run-title">
+          <div>
+            <nav class="breadcrumb" aria-label="Breadcrumb">
+              <a href="jobs.html">Catalog</a>
+              <span aria-hidden="true">/</span>
+              <a href="job-detail.html">linux-ci</a>
+              <span aria-hidden="true">/</span>
+              <span>#184</span>
+            </nav>
+            <h1 id="run-title">Run #184</h1>
+          </div>
+          <div class="page-head__actions">
+            <button class="button button--secondary" type="button">Cancel</button>
+          </div>
+        </section>
+
+        <div class="run-detail-stack">
+          <section class="run-overview-panel" aria-labelledby="run-overview-title">
+            <div class="panel-title">
+              <h2 id="run-overview-title">Overview</h2>
+              <span class="status status--running">running</span>
+            </div>
+            <div class="run-summary-grid">
+              <section class="overview-item">
+                <span>Run ID</span>
+                <strong class="identifier-value">6f4c2d7a</strong>
+              </section>
+              <section class="overview-item overview-item--wide">
+                <span>Job</span>
+                <strong>linux-ci</strong>
+                <small>Pull request validation for Go services</small>
+              </section>
+              <section class="overview-item">
+                <span>Timing</span>
+                <strong>4m 12s</strong>
+                <small>Started 10:42 AM</small>
+              </section>
+            </div>
+          </section>
+
+          <section class="run-source-panel" aria-labelledby="source-title">
+            <div class="panel-title">
+              <h2 id="source-title">Source</h2>
+            </div>
+            <div class="run-source-grid">
+              <section class="overview-item">
+                <span>Trigger</span>
+                <strong>Manual</strong>
+                <small>Run from API, CLI, or UI</small>
+              </section>
+              <section class="overview-item">
+                <span>Revision</span>
+                <strong>v17</strong>
+                <small class="identifier-value identifier-value--small">8a91c0e4</small>
+              </section>
+            </div>
+          </section>
+
+          <section class="run-actions-panel" aria-labelledby="actions-title">
+            <div class="panel-title">
+              <h2 id="actions-title">Actions</h2>
+              <span>3 steps</span>
+            </div>
+            <div class="action-tree">
+              <div class="action-row action-row--passed">
+                <div class="action-node" aria-hidden="true"></div>
+                <div class="action-main">
+                  <strong>checkout</strong>
+                  <small>builtins/git</small>
+                </div>
+                <span class="duration-chip">18s</span>
+                <span class="status status--passed">passed</span>
+              </div>
+              <div class="action-row action-row--running">
+                <div class="action-node" aria-hidden="true"></div>
+                <div class="action-main">
+                  <strong>test</strong>
+                  <small>builtins/shell · go test ./...</small>
+                </div>
+                <span class="duration-chip">3m 54s</span>
+                <span class="status status--running">running</span>
+              </div>
+              <div class="action-row">
+                <div class="action-node" aria-hidden="true"></div>
+                <div class="action-main">
+                  <strong>package</strong>
+                  <small>builtins/archive</small>
+                </div>
+                <span class="duration-chip">pending</span>
+                <span class="status status--disabled">queued</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="logs-detail-panel" aria-labelledby="logs-title">
+            <div class="panel-title">
+              <h2 id="logs-title">Logs</h2>
+              <div class="log-controls" aria-label="Log filters">
+                <button class="filter-pill filter-pill--active" type="button">All</button>
+                <button class="filter-pill" type="button">Stdout</button>
+                <button class="filter-pill" type="button">Stderr</button>
+              </div>
+            </div>
+            <pre class="log-stream"><code><span class="log-line"><span>10:42:05</span><span>stdout</span><span>checking out repository</span></span>
+<span class="log-line"><span>10:42:23</span><span>stdout</span><span>checkout complete</span></span>
+<span class="log-line"><span>10:42:24</span><span>stdout</span><span>go test ./...</span></span>
+<span class="log-line"><span>10:43:08</span><span>stdout</span><span>ok vectis/internal/config 0.421s</span></span>
+<span class="log-line"><span>10:44:19</span><span>stdout</span><span>ok vectis/internal/queue 1.227s</span></span>
+<span class="log-line log-line--warn"><span>10:45:52</span><span>stderr</span><span>internal/api: waiting on integration fixture</span></span>
+<span class="log-line"><span>10:46:17</span><span>stdout</span><span>still running tests...</span></span></code></pre>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <script>
+      const root = document.documentElement;
+      const storedTheme = localStorage.getItem('vectis-console-theme');
+      if (storedTheme) {
+        root.dataset.theme = storedTheme;
+      }
+
+      document.querySelector('[data-theme-toggle]').addEventListener('click', () => {
+        const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+        root.dataset.theme = next;
+        localStorage.setItem('vectis-console-theme', next);
+      });
+    </script>
+  </body>
+</html>

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Vectis Job Detail Mock</title>
-    <link rel="stylesheet" href="styles.css?v=job-detail" />
+    <link rel="stylesheet" href="styles.css?v=job-detail-rowlinks1" />
   </head>
   <body>
     <div class="app-shell">
@@ -67,45 +67,39 @@
               <button class="inline-action" type="button">View all</button>
             </div>
             <div class="run-history-list">
-              <div class="run-history-row">
+              <a class="run-history-row" href="run-detail.html">
                 <div class="run-history-id">
                   <strong>#184</strong>
-                  <span>
-                    <button class="copy-id" type="button" data-copy="6f4c2d7a" aria-label="Copy run ID 6f4c2d7a">6f4c2d7a</button>
-                    <span class="duration-chip">4m 12s</span>
+                  <span class="run-meta-text">
+                    <span class="identifier-value identifier-value--small">6f4c2d7a</span> · 4m 12s
                   </span>
                 </div>
                 <span class="run-history-state">
                   <span class="status status--running">running</span>
                 </span>
-                <button class="mini-action" type="button">Details</button>
-              </div>
-              <div class="run-history-row">
+              </a>
+              <a class="run-history-row" href="run-detail.html">
                 <div class="run-history-id">
                   <strong>#183</strong>
-                  <span>
-                    <button class="copy-id" type="button" data-copy="4e81ad90" aria-label="Copy run ID 4e81ad90">4e81ad90</button>
-                    <span class="duration-chip">3m 58s</span>
+                  <span class="run-meta-text">
+                    <span class="identifier-value identifier-value--small">4e81ad90</span> · 3m 58s
                   </span>
                 </div>
                 <span class="run-history-state">
                   <span class="status status--passed">passed</span>
                 </span>
-                <button class="mini-action" type="button">Details</button>
-              </div>
-              <div class="run-history-row">
+              </a>
+              <a class="run-history-row" href="run-detail.html">
                 <div class="run-history-id">
                   <strong>#182</strong>
-                  <span>
-                    <button class="copy-id" type="button" data-copy="a7d1c2be" aria-label="Copy run ID a7d1c2be">a7d1c2be</button>
-                    <span class="duration-chip">1m 44s</span>
+                  <span class="run-meta-text">
+                    <span class="identifier-value identifier-value--small">a7d1c2be</span> · 1m 44s
                   </span>
                 </div>
                 <span class="run-history-state">
                   <span class="status status--failed">failed</span>
                 </span>
-                <button class="mini-action" type="button">Details</button>
-              </div>
+              </a>
             </div>
           </section>
 
@@ -160,21 +154,21 @@
                   <strong>v17</strong>
                   <small>Updated test command for package path changes</small>
                 </div>
-                <button class="copy-id" type="button" data-copy="8a91c0e4" aria-label="Copy definition hash 8a91c0e4">8a91c0e4</button>
+                <span class="identifier-value identifier-value--small">8a91c0e4</span>
               </div>
               <div class="revision-row">
                 <div>
                   <strong>v16</strong>
                   <small>Added generated code check</small>
                 </div>
-                <button class="copy-id" type="button" data-copy="2e017b64" aria-label="Copy definition hash 2e017b64">2e017b64</button>
+                <span class="identifier-value identifier-value--small">2e017b64</span>
               </div>
               <div class="revision-row">
                 <div>
                   <strong>v15</strong>
                   <small>Initial Go service validation job</small>
                 </div>
-                <button class="copy-id" type="button" data-copy="b902d7fc" aria-label="Copy definition hash b902d7fc">b902d7fc</button>
+                <span class="identifier-value identifier-value--small">b902d7fc</span>
               </div>
             </div>
           </section>
@@ -194,36 +188,6 @@
         const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
         root.dataset.theme = next;
         localStorage.setItem('vectis-console-theme', next);
-      });
-
-      const copyValue = async (value) => {
-        if (navigator.clipboard && window.isSecureContext) {
-          await navigator.clipboard.writeText(value);
-          return;
-        }
-
-        const field = document.createElement('textarea');
-        field.value = value;
-        field.setAttribute('readonly', '');
-        field.style.position = 'fixed';
-        field.style.inset = '0 auto auto 0';
-        field.style.opacity = '0';
-        document.body.appendChild(field);
-        field.select();
-        document.execCommand('copy');
-        field.remove();
-      };
-
-      document.querySelectorAll('[data-copy]').forEach((button) => {
-        button.addEventListener('click', async () => {
-          try {
-            await copyValue(button.dataset.copy);
-          } catch {
-            // Mock-only fallback: keep the affordance harmless if clipboard is unavailable.
-          }
-          button.classList.add('copy-id--copied');
-          window.setTimeout(() => button.classList.remove('copy-id--copied'), 1200);
-        });
       });
     </script>
   </body>
