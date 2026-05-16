@@ -86,4 +86,4 @@ Run this after every restore drill and after real disaster recovery:
 
 Record the backup timestamp, restored schema version, release version, and any partial-restore data loss in the incident or drill notes.
 
-See [DOCTOR_CHECK_CATALOG.md](../reference/doctor-check-catalog.md) for the current check catalog and output contract.
+See [Health Check Catalog](../reference/health-check-catalog.md) for the current check catalog and output contract.

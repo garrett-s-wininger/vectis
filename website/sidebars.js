@@ -64,7 +64,7 @@ const sidebars = {
           label: 'Reference',
           items: [
             'operating/reference/cli-operational-coverage',
-            'operating/reference/doctor-check-catalog',
+            'operating/reference/health-check-catalog',
           ],
         },
       ],

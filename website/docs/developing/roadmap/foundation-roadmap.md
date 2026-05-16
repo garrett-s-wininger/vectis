@@ -57,11 +57,11 @@ First pass: [RETENTION.md](../../operating/reliability/retention.md) documents `
 
 The remaining low-friction foundation work is:
 
-- Extend `doctor` with deploy-specific checks that cannot be inferred through the API yet, such as TLS file validation and filesystem pressure for queue persistence, log storage, and log-forwarder spools.
+- Extend `health check` with deploy-specific checks that cannot be inferred through the API yet, such as TLS file validation and filesystem pressure for queue persistence, log storage, and log-forwarder spools.
 
 ## Phased Sequencing
 
-**Phase 0 - Legible:** retention policy, repair workflow docs, and deploy-specific `doctor` check coverage.
+**Phase 0 - Legible:** retention policy, repair workflow docs, and deploy-specific `health check` coverage.
 
 **Phase 1 - Repairable:** retention cleanup implementation, CLI repair surfaces, and multi-replica runbooks.
 

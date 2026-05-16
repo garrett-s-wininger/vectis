@@ -2,7 +2,7 @@
 
 This is the operator entry point for Vectis health checks, alerts, and first triage. Start here when the system is reachable but something looks wrong.
 
-For step-by-step repair procedures, see [Repair Runbooks](./repair-runbooks.md). For check IDs and JSON output shape, see [Doctor Check Catalog](../reference/doctor-check-catalog.md).
+For step-by-step repair procedures, see [Repair Runbooks](./repair-runbooks.md). For check IDs and JSON output shape, see [Health Check Catalog](../reference/health-check-catalog.md).
 
 ## First Response
 
@@ -120,7 +120,7 @@ These are current monitoring limits operators should cover with external telemet
 | Topic | Document |
 | --- | --- |
 | Repair steps | [Repair Runbooks](./repair-runbooks.md) |
-| Health check catalog | [Doctor Check Catalog](../reference/doctor-check-catalog.md) |
+| Health check catalog | [Health Check Catalog](../reference/health-check-catalog.md) |
 | Queue handoff triage | [Dispatch Visibility](./dispatch-visibility.md) |
 | Retention cleanup | [Retention](./retention.md) |
 | Scaling and restarts | [Scaling And Restarts](../deployment/scaling-and-restarts.md) |

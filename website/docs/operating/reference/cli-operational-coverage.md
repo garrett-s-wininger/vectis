@@ -20,15 +20,15 @@ These admin commands use stable, line-oriented text:
 - List commands print one record per line.
 - Get commands print `key=value` lines.
 - Create/delete/update commands print a short success line.
-- `health check` prints `status<TAB>check_id<TAB>summary`, using stable check IDs (see [doctor check catalog](./doctor-check-catalog.md)).
+- `health check` prints `status<TAB>check_id<TAB>summary`, using stable check IDs (see [health check catalog](./health-check-catalog.md)).
 - `health check --json` emits the full check model as a JSON array.
 - `health check --strict` exits non-zero on warnings (for CI).
 - `retention cleanup` prints `key=value` summary lines for cutoffs and delete counts.
 - Errors are written to stderr by command runners and return a non-zero process exit.
 
-## Doctor Checks
+## Health Checks
 
-`vectis-cli health check` runs a versioned catalog of operational checks defined in [DOCTOR_CHECK_CATALOG.md](./doctor-check-catalog.md). Check IDs are frozen between releases.
+`vectis-cli health check` runs a versioned catalog of operational checks defined in [Health Check Catalog](./health-check-catalog.md). Check IDs are frozen between releases.
 
 The 16 active checks are:
 

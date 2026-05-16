@@ -1,4 +1,4 @@
-# Doctor Check Catalog
+# Health Check Catalog
 
 `vectis-cli health check` runs a stable catalog of operational checks against the configured API and locally visible deployment paths. Text output is tab-separated:
 

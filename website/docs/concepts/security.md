@@ -50,7 +50,7 @@ API errors use a stable JSON envelope with a `code` value such as `setup_require
 | `hierarchical_rbac` | You want the normal multi-user model. | Namespace-scoped RBAC with inherited permissions. Roles are `viewer`, `trigger`, `operator`, and `admin`; inheritance can stop at a namespace with `break_inheritance`. |
 | `authenticated_full` | You want a simple authenticated demo or trusted single-team deployment. | Any authenticated principal may perform non-setup actions. |
 
-The CLI exposes routine auth and admin flows such as login, logout, token management, users, namespaces, role bindings, and doctor checks. See [CLI Guide](../using/cli-guide.md).
+The CLI exposes routine auth and admin flows such as login, logout, token management, users, namespaces, role bindings, and health checks. See [CLI Guide](../using/cli-guide.md).
 
 ## Internal Service Traffic
 
@@ -104,7 +104,7 @@ Vectis rejects checkout URLs that embed user info, such as `https://user:token@e
 
 ## Audit and Abuse Controls
 
-API audit events are enabled by default. Operators can disable audit emission or override per-event durability with `api.audit.*` or `VECTIS_API_AUDIT_*` settings. Dropped audit events and flush failures remain observable through audit metrics and doctor checks.
+API audit events are enabled by default. Operators can disable audit emission or override per-event durability with `api.audit.*` or `VECTIS_API_AUDIT_*` settings. Dropped audit events and flush failures remain observable through audit metrics and health checks.
 
 The auth surface also has bounded request sizes and token parsing limits:
 
