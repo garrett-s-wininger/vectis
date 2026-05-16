@@ -619,6 +619,52 @@ func TestListRuns_sinceDateUsesSinceQuery(t *testing.T) {
 	}
 }
 
+func TestDecodeJobRuns_paginatedResponse(t *testing.T) {
+	runs, err := decodeJobRuns(strings.NewReader(`{"data":[{"run_id":"run-1","run_index":1}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(runs) != 1 || runs[0].RunID != "run-1" || runs[0].RunIndex != 1 {
+		t.Fatalf("unexpected runs: %+v", runs)
+	}
+}
+
+func TestLatestRunForJob_paginatesToNewestRun(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/jobs/job-1/runs" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		switch r.URL.Query().Get("cursor") {
+		case "":
+			next := int64(10)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data":        []map[string]any{{"run_id": "run-1", "run_index": 1}},
+				"next_cursor": next,
+			})
+		case "10":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data": []map[string]any{{"run_id": "run-2", "run_index": 2}},
+			})
+		default:
+			t.Errorf("unexpected cursor=%q", r.URL.Query().Get("cursor"))
+			w.WriteHeader(http.StatusBadRequest)
+		}
+	})
+
+	run, ok, err := latestRunForJob("job-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected latest run")
+	}
+	if run.RunID != "run-2" || run.RunIndex != 2 {
+		t.Fatalf("unexpected latest run: %+v", run)
+	}
+}
+
 func TestCancelRun_success(t *testing.T) {
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

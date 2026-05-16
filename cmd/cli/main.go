@@ -115,6 +115,7 @@ func init() {
 
 	configureLogFilterFlags(logsRunCmd)
 	configureLogFilterFlags(logsJobCmd)
+	configureLogsJobFlags(logsJobCmd)
 	logsCmd.AddCommand(logsRunCmd, logsJobCmd)
 	rootCmd.AddCommand(logsCmd)
 

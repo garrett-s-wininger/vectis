@@ -8,8 +8,10 @@ import (
 	"github.com/spf13/cobra"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"vectis/api/gen/go"
@@ -20,6 +22,11 @@ type LogEntry struct {
 	Stream    int    `json:"stream"`
 	Sequence  int64  `json:"sequence"`
 	Data      string `json:"data"`
+}
+
+type jobRunEvent struct {
+	RunID    string `json:"run_id"`
+	RunIndex int    `json:"run_index"`
 }
 
 func runLogStream(runID string, filterStdout, filterStderr bool) error {
@@ -212,16 +219,11 @@ func runContinuousLogs(jobID string, filterStdout, filterStderr bool) error {
 	signal.Notify(interrupt, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(interrupt)
 
-	type runEvent struct {
-		RunID    string `json:"run_id"`
-		RunIndex int    `json:"run_index"`
-	}
-
 outer:
 	for {
 		attemptCtx, attemptCancel := context.WithCancel(context.Background())
 
-		runChan := make(chan runEvent, 32)
+		runChan := make(chan jobRunEvent, 32)
 		go func() {
 			defer close(runChan)
 			req, err := newAPIRequest(http.MethodGet, fmt.Sprintf("/api/v1/sse/jobs/%s/runs", jobID), nil)
@@ -273,7 +275,7 @@ outer:
 					message := []byte(dataBuf.String())
 					dataBuf.Reset()
 
-					var ev runEvent
+					var ev jobRunEvent
 					if err := json.Unmarshal(message, &ev); err != nil || ev.RunID == "" {
 						continue
 					}
@@ -306,12 +308,8 @@ outer:
 			return fmt.Errorf("fetching runs: %w", err)
 		}
 
-		var runs []struct {
-			RunID    string `json:"run_id"`
-			RunIndex int    `json:"run_index"`
-		}
-
-		if err := json.NewDecoder(resp.Body).Decode(&runs); err != nil {
+		runs, err := decodeJobRuns(resp.Body)
+		if err != nil {
 			resp.Body.Close()
 			attemptCancel()
 			return fmt.Errorf("parsing runs: %w", err)
@@ -357,6 +355,71 @@ outer:
 	}
 }
 
+func decodeJobRuns(r io.Reader) ([]jobRunEvent, error) {
+	var result struct {
+		Data []jobRunEvent `json:"data"`
+	}
+
+	if err := json.NewDecoder(r).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	return result.Data, nil
+}
+
+func latestRunForJob(jobID string) (jobRunEvent, bool, error) {
+	var latest jobRunEvent
+	cursor := int64(0)
+
+	for {
+		params := url.Values{}
+		params.Set("limit", "200")
+		if cursor > 0 {
+			params.Set("cursor", strconv.FormatInt(cursor, 10))
+		}
+
+		req, err := newAPIRequest(http.MethodGet, fmt.Sprintf("/api/v1/jobs/%s/runs?%s", jobID, params.Encode()), nil)
+		if err != nil {
+			return jobRunEvent{}, false, err
+		}
+
+		resp, err := doAPIRequest(req)
+		if err != nil {
+			return jobRunEvent{}, false, fmt.Errorf("fetching runs: %w", err)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			_ = resp.Body.Close()
+			return jobRunEvent{}, false, fmt.Errorf("listing runs failed: %s", resp.Status)
+		}
+
+		var result struct {
+			Data       []jobRunEvent `json:"data"`
+			NextCursor *int64        `json:"next_cursor,omitempty"`
+		}
+
+		err = json.NewDecoder(resp.Body).Decode(&result)
+		_ = resp.Body.Close()
+		if err != nil {
+			return jobRunEvent{}, false, fmt.Errorf("parsing runs: %w", err)
+		}
+
+		for _, run := range result.Data {
+			if run.RunID != "" && run.RunIndex >= latest.RunIndex {
+				latest = run
+			}
+		}
+
+		if result.NextCursor == nil {
+			break
+		}
+
+		cursor = *result.NextCursor
+	}
+
+	return latest, latest.RunID != "", nil
+}
+
 func resolveLogIDArg(arg string) (string, error) {
 	if arg != "-" {
 		return arg, nil
@@ -400,7 +463,32 @@ func runLogsJob(cmd *cobra.Command, args []string) {
 
 	filterStdout, _ := cmd.Flags().GetBool("stdout")
 	filterStderr, _ := cmd.Flags().GetBool("stderr")
-	if err := runContinuousLogs(jobID, filterStdout, filterStderr); err != nil && err.Error() != "interrupted" {
+	follow, _ := cmd.Flags().GetBool("follow")
+	if follow {
+		if err := runContinuousLogs(jobID, filterStdout, filterStderr); err != nil && err.Error() != "interrupted" {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		return
+	}
+
+	run, ok, err := latestRunForJob(jobID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if !ok {
+		fmt.Fprintf(os.Stderr, "Error: no runs found for job %q; use --follow to wait for future runs\n", jobID)
+		os.Exit(1)
+	}
+
+	if !outputIsJSON() {
+		fmt.Printf("Streaming latest run for job %s: %s\n", jobID, run.RunID)
+	}
+
+	if err := runLogStream(run.RunID, filterStdout, filterStderr); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -409,7 +497,7 @@ func runLogsJob(cmd *cobra.Command, args []string) {
 var logsCmd = &cobra.Command{
 	Use:     "logs",
 	Short:   "Stream logs for runs",
-	Long:    `Stream logs via Server-Sent Events (SSE). Use "logs run" for a single run (until it completes). Use "logs job" to follow a job (runs triggered after you connect). Use "-" as the id to read from stdin.`,
+	Long:    `Stream logs via Server-Sent Events (SSE). Use "logs run" for a single run. Use "logs job" for the latest run of a job, or add --follow to wait for future runs. Use "-" as the id to read from stdin.`,
 	GroupID: cliGroupWorkflows,
 	Run:     showCommandHelp,
 }
@@ -424,8 +512,8 @@ var logsRunCmd = &cobra.Command{
 
 var logsJobCmd = &cobra.Command{
 	Use:   "job [job-id]",
-	Short: "Stream logs for a job (next runs only)",
-	Long:  `Subscribe to run events for the job and stream logs for each run triggered after you connect. Does not stream historical runs. Re-subscribes if the runs connection closes. Argument is a job-id; use "-" to read from stdin.`,
+	Short: "Stream logs for the latest run of a job",
+	Long:  `Stream logs for the latest run of a job. Add --follow to wait for each future run triggered after you connect. Argument is a job-id; use "-" to read from stdin.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   runLogsJob,
 }
@@ -433,4 +521,8 @@ var logsJobCmd = &cobra.Command{
 func configureLogFilterFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("stdout", false, "Only show stdout")
 	cmd.Flags().Bool("stderr", false, "Only show stderr")
+}
+
+func configureLogsJobFlags(cmd *cobra.Command) {
+	cmd.Flags().BoolP("follow", "f", false, "Wait for and stream future runs for this job")
 }
