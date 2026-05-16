@@ -72,8 +72,8 @@ func runDoctor(cmd *cobra.Command, args []string) {
 func doctor(w io.Writer) error {
 	setupStatus := doctorSetupStatus()
 	checks := []doctorCheck{
-		doctorHTTPStatus("api.live", http.MethodGet, "/health/live", http.StatusOK, "API liveness probe passed", severityCritical, "API liveness", "Check API server process", "website/docs/operator/runbooks.md"),
-		doctorHTTPStatus("api.ready", http.MethodGet, "/health/ready", http.StatusOK, "API readiness probe passed", severityCritical, "API readiness", "Check API server and dependencies (DB, queue)", "website/docs/operator/runbooks.md"),
+		doctorHTTPStatus("api.live", http.MethodGet, "/health/live", http.StatusOK, "API liveness probe passed", severityCritical, "API liveness", "Check API server process", "website/docs/operating/reliability/runbooks.md"),
+		doctorHTTPStatus("api.ready", http.MethodGet, "/health/ready", http.StatusOK, "API readiness probe passed", severityCritical, "API readiness", "Check API server and dependencies (DB, queue)", "website/docs/operating/reliability/runbooks.md"),
 		setupStatus,
 		doctorCLIToken(setupStatus.apiAuthEnabled),
 		doctorSchemaCurrent(),
@@ -291,17 +291,17 @@ func doctorSetupStatus() doctorCheck {
 	title := "Setup complete"
 	req, err := newAPIRequest(http.MethodGet, "/api/v1/setup/status", nil)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: err.Error(), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operator/runbooks.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: err.Error(), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operating/reliability/runbooks.md"}
 	}
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operator/runbooks.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operating/reliability/runbooks.md"}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operator/runbooks.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reliability/runbooks.md"}
 	}
 
 	var result struct {
@@ -310,7 +310,7 @@ func doctorSetupStatus() doctorCheck {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operator/runbooks.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reliability/runbooks.md"}
 	}
 
 	authEnabled := config.APIAuthEnabled()
@@ -319,14 +319,14 @@ func doctorSetupStatus() doctorCheck {
 	}
 
 	if !authEnabled {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "initial setup not required; API auth is disabled", DocLink: "website/docs/operator/runbooks.md", apiAuthEnabled: false}
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "initial setup not required; API auth is disabled", DocLink: "website/docs/operating/reliability/runbooks.md", apiAuthEnabled: false}
 	}
 
 	if result.SetupComplete {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "initial setup is complete", DocLink: "website/docs/operator/runbooks.md", apiAuthEnabled: true}
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "initial setup is complete", DocLink: "website/docs/operating/reliability/runbooks.md", apiAuthEnabled: true}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "initial setup is not complete", SuggestedAction: "Complete setup via the API or CLI", DocLink: "website/docs/operator/runbooks.md", apiAuthEnabled: true}
+	return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "initial setup is not complete", SuggestedAction: "Complete setup via the API or CLI", DocLink: "website/docs/operating/reliability/runbooks.md", apiAuthEnabled: true}
 }
 
 func doctorCLIToken(apiAuthEnabled bool) doctorCheck {
@@ -337,7 +337,7 @@ func doctorCLIToken(apiAuthEnabled bool) doctorCheck {
 	}
 
 	if effectiveToken() == "" {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "no CLI API token configured", SuggestedAction: "Set VECTIS_API_TOKEN or run login", DocLink: "website/docs/operator/repair-runbooks.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "no CLI API token configured", SuggestedAction: "Set VECTIS_API_TOKEN or run login", DocLink: "website/docs/operating/reliability/repair-runbooks.md"}
 	}
 
 	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "CLI API token is configured"}
@@ -348,17 +348,17 @@ func doctorSchemaCurrent() doctorCheck {
 	title := "Database schema current"
 	req, err := newAPIRequest(http.MethodGet, "/api/v1/schema/status", nil)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityCritical, Summary: err.Error(), SuggestedAction: "Check API server", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityCritical, Summary: err.Error(), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityCritical, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityCritical, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityCritical, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityCritical, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
 	var result struct {
@@ -367,14 +367,14 @@ func doctorSchemaCurrent() doctorCheck {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityCritical, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityCritical, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
 	if !result.HasSchema {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityCritical, Summary: "no schema found — database may be uninitialized", SuggestedAction: "Run vectis-cli database migrate", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityCritical, Summary: "no schema found — database may be uninitialized", SuggestedAction: "Run vectis-cli database migrate", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityCritical, Summary: fmt.Sprintf("schema at version %d", result.CurrentVersion), Evidence: fmt.Sprintf("%d", result.CurrentVersion), DocLink: "website/docs/operator/doctor-check-catalog.md"}
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityCritical, Summary: fmt.Sprintf("schema at version %d", result.CurrentVersion), Evidence: fmt.Sprintf("%d", result.CurrentVersion), DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 }
 
 func doctorReconcilerActive() doctorCheck {
@@ -382,31 +382,31 @@ func doctorReconcilerActive() doctorCheck {
 	title := "Reconciler heartbeat recent"
 	req, err := newAPIRequest(http.MethodGet, "/api/v1/reconciler/heartbeat", nil)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: err.Error(), SuggestedAction: "Check API server", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: err.Error(), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
 	var result struct {
 		Active bool `json:"active"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
 	if !result.Active {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no reconciler recovery activity recorded", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no reconciler recovery activity recorded", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "reconciler recovery activity recorded", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "reconciler recovery activity recorded", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 }
 
 func doctorAuditDrops() doctorCheck {
@@ -414,17 +414,17 @@ func doctorAuditDrops() doctorCheck {
 	title := "No recent audit drops"
 	req, err := newAPIRequest(http.MethodGet, "/api/v1/audit/drops", nil)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: err.Error(), SuggestedAction: "Check API server", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: err.Error(), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
 	var result struct {
@@ -432,14 +432,14 @@ func doctorAuditDrops() doctorCheck {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
 	if result.Dropped > 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d audit events dropped", result.Dropped), Evidence: fmt.Sprintf("%d", result.Dropped), SuggestedAction: "Check audit buffer configuration; check DB write capacity", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d audit events dropped", result.Dropped), Evidence: fmt.Sprintf("%d", result.Dropped), SuggestedAction: "Check audit buffer configuration; check DB write capacity", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no audit events dropped", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no audit events dropped", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 }
 
 func doctorDBPool() doctorCheck {
@@ -447,17 +447,17 @@ func doctorDBPool() doctorCheck {
 	title := "DB connection pool healthy"
 	req, err := newAPIRequest(http.MethodGet, "/api/v1/db/pool-stats", nil)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: err.Error(), SuggestedAction: "Check API server", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: err.Error(), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
 	var result struct {
@@ -467,14 +467,14 @@ func doctorDBPool() doctorCheck {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
 	if result.OpenConnections > 0 && result.InUse == result.OpenConnections && result.WaitCount > 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("pool exhausted: %d in-use / %d open, %d waits", result.InUse, result.OpenConnections, result.WaitCount), Evidence: fmt.Sprintf("in_use=%d open=%d wait=%d", result.InUse, result.OpenConnections, result.WaitCount), SuggestedAction: "Increase max connections or check slow queries", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("pool exhausted: %d in-use / %d open, %d waits", result.InUse, result.OpenConnections, result.WaitCount), Evidence: fmt.Sprintf("in_use=%d open=%d wait=%d", result.InUse, result.OpenConnections, result.WaitCount), SuggestedAction: "Increase max connections or check slow queries", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("pool healthy: %d open, %d in-use", result.OpenConnections, result.InUse), Evidence: fmt.Sprintf("open=%d in_use=%d", result.OpenConnections, result.InUse), DocLink: "website/docs/operator/doctor-check-catalog.md"}
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("pool healthy: %d open, %d in-use", result.OpenConnections, result.InUse), Evidence: fmt.Sprintf("open=%d in_use=%d", result.OpenConnections, result.InUse), DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 }
 
 func doctorQueueBacklog() doctorCheck {
@@ -482,17 +482,17 @@ func doctorQueueBacklog() doctorCheck {
 	title := "Queue backlog within threshold"
 	req, err := newAPIRequest(http.MethodGet, "/api/v1/queue/backlog", nil)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: err.Error(), SuggestedAction: "Check API server", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: err.Error(), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
 	var result struct {
@@ -500,14 +500,14 @@ func doctorQueueBacklog() doctorCheck {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
 	if result.Queued > 100 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("backlog high: %d queued", result.Queued), Evidence: fmt.Sprintf("%d", result.Queued), SuggestedAction: "Check queue service health and worker count", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("backlog high: %d queued", result.Queued), Evidence: fmt.Sprintf("%d", result.Queued), SuggestedAction: "Check queue service health and worker count", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("backlog ok: %d queued", result.Queued), Evidence: fmt.Sprintf("%d", result.Queued), DocLink: "website/docs/operator/doctor-check-catalog.md"}
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("backlog ok: %d queued", result.Queued), Evidence: fmt.Sprintf("%d", result.Queued), DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 }
 
 func doctorStuckRuns() doctorCheck {
@@ -515,17 +515,17 @@ func doctorStuckRuns() doctorCheck {
 	title := "No stuck runs beyond threshold"
 	req, err := newAPIRequest(http.MethodGet, "/api/v1/reconciler/stuck-runs", nil)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: err.Error(), SuggestedAction: "Check API server", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: err.Error(), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
 	var result struct {
@@ -533,14 +533,14 @@ func doctorStuckRuns() doctorCheck {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
 	if result.Stuck > 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d stuck runs detected", result.Stuck), Evidence: fmt.Sprintf("%d", result.Stuck), SuggestedAction: "Check reconciler; check dispatch path", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d stuck runs detected", result.Stuck), Evidence: fmt.Sprintf("%d", result.Stuck), SuggestedAction: "Check reconciler; check dispatch path", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no stuck runs", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no stuck runs", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 }
 
 func doctorLogReachable() doctorCheck {
@@ -548,17 +548,17 @@ func doctorLogReachable() doctorCheck {
 	title := "Log service reachable"
 	req, err := newAPIRequest(http.MethodGet, "/api/v1/log/reachable", nil)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: err.Error(), SuggestedAction: "Check API server", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: err.Error(), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
 	var result struct {
@@ -566,14 +566,14 @@ func doctorLogReachable() doctorCheck {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
 	if !result.Reachable {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "log service is not reachable", SuggestedAction: "Check log service connectivity; check log DB", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "log service is not reachable", SuggestedAction: "Check log service connectivity; check log DB", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "log service is reachable", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "log service is reachable", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 }
 
 func doctorAuditFlushFailures() doctorCheck {
@@ -581,17 +581,17 @@ func doctorAuditFlushFailures() doctorCheck {
 	title := "No recent audit flush failures"
 	req, err := newAPIRequest(http.MethodGet, "/api/v1/audit/flush-failures", nil)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: err.Error(), SuggestedAction: "Check API server", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: err.Error(), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
 	var result struct {
@@ -599,20 +599,20 @@ func doctorAuditFlushFailures() doctorCheck {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
 	if result.FlushFailures > 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d audit flush failures", result.FlushFailures), Evidence: fmt.Sprintf("%d", result.FlushFailures), SuggestedAction: "Check audit persistence; check DB write capacity", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d audit flush failures", result.FlushFailures), Evidence: fmt.Sprintf("%d", result.FlushFailures), SuggestedAction: "Check audit persistence; check DB write capacity", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no audit flush failures", DocLink: "website/docs/operator/doctor-check-catalog.md"}
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no audit flush failures", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 }
 
 func doctorTLSFiles() doctorCheck {
 	const id = "tls.files"
 	title := "TLS files valid"
-	doc := "website/docs/operator/doctor-check-catalog.md"
+	doc := "website/docs/operating/reference/health-check-catalog.md"
 	action := "Check VECTIS_GRPC_TLS_* and VECTIS_METRICS_TLS_* paths"
 
 	checks := []tlsFileCheck{}
@@ -812,7 +812,7 @@ func validateTLSKeyPair(label, certFile, keyFile string) error {
 }
 
 func doctorFilesystemPressure(id, title, label, path string) doctorCheck {
-	doc := "website/docs/operator/doctor-check-catalog.md"
+	doc := "website/docs/operating/reference/health-check-catalog.md"
 	if path == "" {
 		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%s path is not configured", label), SuggestedAction: "Configure the deploy path or run doctor on the host that owns it", DocLink: doc}
 	}
@@ -999,7 +999,7 @@ var doctorCmd = &cobra.Command{
 	Short: "Run operational diagnostics",
 	Long: `Run a stable, versioned set of operational checks against the configured Vectis API.
 
-Check IDs are frozen between releases (see website/docs/operator/doctor-check-catalog.md for the catalog).
+Check IDs are frozen between releases (see website/docs/operating/reference/health-check-catalog.md for the catalog).
 
 Text output groups checks by subsystem and starts with an overall status.
   --format json emits a summary object and the full check model.

@@ -1,54 +1,85 @@
 # CLI Operational Coverage
 
-`vectis-cli` now covers the shipped auth/admin API surfaces operators need for routine management:
+Use this page as a compact map of what operators can do from `vectis-cli` today.
 
-| Area | Commands |
+For task walkthroughs, use the [CLI Guide](../../using/cli-guide.md). For repair procedures, use [Repair Runbooks](../reliability/repair-runbooks.md).
+
+## Command Areas
+
+| Area | Operator use | Commands |
+| --- | --- | --- |
+| Jobs | Manage stored jobs and run one-off job files. | `vectis-cli jobs list`, `show`, `create`, `edit`, `delete`, `trigger`, `run` |
+| Runs | Inspect, cancel, retry, or manually repair run state. | `vectis-cli runs list`, `show`, `cancel`, `retry`, `fail`, `repair mark-succeeded`, `mark-failed`, `mark-cancelled`, `mark-abandoned`, `mark-queued` |
+| Logs | Stream logs for one run or follow future runs for a job. | `vectis-cli logs run`, `logs job` |
+| Auth sessions | Log in and out for API-backed CLI use. | `vectis-cli auth login`, `logout` |
+| API tokens | Manage personal/API tokens through the auth API. | `vectis-cli auth tokens list`, `create`, `delete` |
+| Namespaces | Manage namespace hierarchy. | `vectis-cli namespaces list`, `show`, `create`, `delete` |
+| Users | Manage user accounts. | `vectis-cli users list`, `show`, `create`, `enable`, `disable`, `delete`, `change-password` |
+| Role bindings | Grant or revoke namespace roles. | `vectis-cli role-bindings list`, `grant`, `revoke` |
+| Health checks | Run operator checks against API and local deployment paths. | `vectis-cli health check`, `--json`, `--strict` |
+| Database migrations | Apply embedded SQL migrations during deploy, upgrade, or restore. | `vectis-cli database migrate` |
+| Retention | Preview or apply cleanup for old durable records. | `vectis-cli retention cleanup --dry-run`, `--yes` |
+| Reference deploy | Render, start, stop, and inspect the Podman reference deployment. | `vectis-cli deploy podman init`, `render`, `up`, `status`, `down` |
+| Local reset | Preview or reset local Vectis development state. | `vectis-cli local reset --dry-run`, `--yes` |
+
+## Routine Operator Commands
+
+| Need | Start with |
 | --- | --- |
-| Jobs | `vectis-cli jobs list`, `show`, `create`, `edit`, `delete`, `trigger`, `run` |
-| Runs | `vectis-cli runs show`, `list`, `cancel`, `fail`, `retry` |
-| Namespaces | `vectis-cli namespaces list`, `show`, `create`, `delete` |
-| Users | `vectis-cli users list`, `show`, `create`, `enable`, `disable`, `delete`, `change-password` |
-| Role bindings | `vectis-cli role-bindings list`, `grant`, `revoke` |
-| Tokens | `vectis-cli auth tokens list`, `create`, `delete` |
-| Retention | `vectis-cli retention cleanup --dry-run`, `--yes` |
-| Health checks | `vectis-cli health check [--json] [--strict]` |
+| Check whether the system is healthy | `vectis-cli health check --strict` |
+| Get machine-readable health evidence | `vectis-cli health check --json` |
+| Inspect a stuck run | `vectis-cli runs show <run-id>` |
+| Cancel a running run | `vectis-cli runs cancel <run-id>` |
+| Retry a failed or repaired run | `vectis-cli runs retry <run-id>` |
+| Stream logs for a run | `vectis-cli logs run <run-id>` |
+| Preview retention cleanup | `vectis-cli retention cleanup --dry-run` |
+| Apply database migrations | `vectis-cli database migrate` |
 
 ## Output Contract
 
-These admin commands use stable, line-oriented text:
+Most operational commands use stable, line-oriented text:
 
 - List commands print one record per line.
 - Get commands print `key=value` lines.
 - Create/delete/update commands print a short success line.
-- `health check` prints `status<TAB>check_id<TAB>summary`, using stable check IDs (see [health check catalog](./health-check-catalog.md)).
+- `health check` prints `status<TAB>check_id<TAB>summary`, using stable check IDs from the [Health Check Catalog](./health-check-catalog.md).
 - `health check --json` emits the full check model as a JSON array.
 - `health check --strict` exits non-zero on warnings (for CI).
 - `retention cleanup` prints `key=value` summary lines for cutoffs and delete counts.
 - Errors are written to stderr by command runners and return a non-zero process exit.
 
+Commands that stream logs or SSE-backed run activity are intentionally interactive; use them for live inspection rather than stable parsers.
+
 ## Health Checks
 
-`vectis-cli health check` runs a versioned catalog of operational checks defined in [Health Check Catalog](./health-check-catalog.md). Check IDs are frozen between releases.
+`vectis-cli health check` runs the versioned catalog defined in [Health Check Catalog](./health-check-catalog.md). Keep that page as the source of truth for check IDs, severity, pass conditions, and suggested first actions.
 
-The 16 active checks are:
+Use plain text for humans:
 
-| Check ID | Severity | Source |
-| --- | --- | --- |
-| `api.live` | critical | `GET /health/live` returns `200`. |
-| `api.ready` | critical | `GET /health/ready` returns `200`; covers DB, queue, and other readiness deps. |
-| `setup.status` | warning | `GET /api/v1/setup/status` — incomplete setup is a warning only when API auth is enabled. |
-| `cli.token` | warning | CLI token configured when API auth is enabled; skipped as not required when auth is disabled. |
-| `db.schema.current` | critical | `GET /api/v1/schema/status` — schema must be present and current. |
-| `reconciler.active` | warning | `GET /api/v1/reconciler/heartbeat` — reports observed reconciler recovery activity; no activity is healthy when no runs need recovery. |
-| `audit.drops.recent` | warning | `GET /api/v1/audit/drops` — no dropped audit events. |
-| `db.connection.pool` | warning | `GET /api/v1/db/pool-stats` — checks connection pool health. |
-| `queue.backlog.ratio` | warning | `GET /api/v1/queue/backlog` — warns if queue depth exceeds threshold. |
-| `reconciler.stuck.runs` | warning | `GET /api/v1/reconciler/stuck-runs` — detects runs stuck in queued state. |
-| `log.reachable` | warning | `GET /api/v1/log/reachable` — verifies log service gRPC connectivity. |
-| `audit.flush.failures` | warning | `GET /api/v1/audit/flush-failures` — no audit flush failures. |
-| `tls.files` | warning | Local TLS env/path validation for gRPC and metrics TLS. |
-| `queue.persistence.filesystem` | warning | Local queue persistence path free-space and writability check. |
-| `log.storage.filesystem` | warning | Local durable log storage path free-space and writability check. |
-| `log.forwarder.spool.filesystem` | warning | Local log-forwarder spool path free-space and writability check. |
+```sh
+vectis-cli health check
+```
+
+Use strict mode for CI or release gates:
+
+```sh
+vectis-cli health check --strict
+```
+
+Use JSON when automation needs evidence, severity, suggested action, and documentation links:
+
+```sh
+vectis-cli health check --json
+```
 
 Failed checks always exit non-zero. Under `--strict`, warnings also cause a non-zero exit.
+
+## Related Docs
+
+| Need | Doc |
+| --- | --- |
+| Task-based CLI walkthrough | [CLI Guide](../../using/cli-guide.md) |
+| Health check IDs and evidence | [Health Check Catalog](./health-check-catalog.md) |
+| First-response triage | [Runbooks And Alerts](../reliability/runbooks.md) |
+| Repair procedures | [Repair Runbooks](../reliability/repair-runbooks.md) |
+| Retention behavior | [Retention And Storage Pressure](../reliability/retention.md) |
