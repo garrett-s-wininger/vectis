@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vectis Job Detail Mock</title>
+    <link rel="stylesheet" href="styles.css?v=job-detail" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="index.html" aria-label="Vectis console">
+          <picture>
+            <source srcset="../../website/static/img/vectis-dark.png" media="(prefers-color-scheme: dark)" />
+            <img src="../../website/static/img/vectis.png" alt="" />
+          </picture>
+        </a>
+        <nav class="topnav" aria-label="Primary">
+          <a class="topnav__link" href="index.html">Dashboard</a>
+          <a class="topnav__link topnav__link--active" href="jobs.html">Jobs</a>
+        </nav>
+        <div class="topbar__actions">
+          <button class="icon-button" type="button" aria-label="Toggle theme" title="Toggle theme" data-theme-toggle>
+            <span class="theme-mark" aria-hidden="true"></span>
+          </button>
+        </div>
+      </header>
+
+      <main class="console">
+        <section class="page-head" aria-labelledby="job-title">
+          <div>
+            <nav class="breadcrumb" aria-label="Breadcrumb">
+              <a href="jobs.html">Catalog</a>
+              <span aria-hidden="true">/</span>
+              <span>linux-ci</span>
+            </nav>
+            <h1 id="job-title">linux-ci</h1>
+          </div>
+          <div class="page-head__actions">
+            <button class="button button--secondary" type="button">Trigger</button>
+            <button class="button button--secondary" type="button">Disable</button>
+          </div>
+        </section>
+
+        <div class="job-detail-stack">
+          <section class="job-overview-panel" aria-labelledby="overview-title">
+            <div class="panel-title">
+              <h2 id="overview-title">Overview</h2>
+              <span class="status status--enabled">enabled</span>
+            </div>
+            <div class="overview-grid">
+              <section class="overview-item overview-item--wide">
+                <span>Purpose</span>
+                <strong>Pull request validation for Go services</strong>
+              </section>
+              <section class="overview-item">
+                <span>Avg duration</span>
+                <strong>4m 08s</strong>
+                <small>Last 20 runs</small>
+              </section>
+            </div>
+          </section>
+
+          <section class="runs-history-panel" aria-labelledby="runs-title">
+            <div class="panel-title">
+              <h2 id="runs-title">Runs</h2>
+              <button class="inline-action" type="button">View all</button>
+            </div>
+            <div class="run-history-list">
+              <div class="run-history-row">
+                <div class="run-history-id">
+                  <strong>#184</strong>
+                  <span>
+                    <button class="copy-id" type="button" data-copy="6f4c2d7a" aria-label="Copy run ID 6f4c2d7a">6f4c2d7a</button>
+                    <span class="duration-chip">4m 12s</span>
+                  </span>
+                </div>
+                <span class="run-history-state">
+                  <span class="status status--running">running</span>
+                </span>
+                <button class="mini-action" type="button">Details</button>
+              </div>
+              <div class="run-history-row">
+                <div class="run-history-id">
+                  <strong>#183</strong>
+                  <span>
+                    <button class="copy-id" type="button" data-copy="4e81ad90" aria-label="Copy run ID 4e81ad90">4e81ad90</button>
+                    <span class="duration-chip">3m 58s</span>
+                  </span>
+                </div>
+                <span class="run-history-state">
+                  <span class="status status--passed">passed</span>
+                </span>
+                <button class="mini-action" type="button">Details</button>
+              </div>
+              <div class="run-history-row">
+                <div class="run-history-id">
+                  <strong>#182</strong>
+                  <span>
+                    <button class="copy-id" type="button" data-copy="a7d1c2be" aria-label="Copy run ID a7d1c2be">a7d1c2be</button>
+                    <span class="duration-chip">1m 44s</span>
+                  </span>
+                </div>
+                <span class="run-history-state">
+                  <span class="status status--failed">failed</span>
+                </span>
+                <button class="mini-action" type="button">Details</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="triggers-panel" aria-labelledby="triggers-title">
+            <div class="panel-title">
+              <h2 id="triggers-title">Triggers</h2>
+              <button class="inline-action" type="button">Add</button>
+            </div>
+            <div class="trigger-list">
+              <div class="trigger-row">
+                <div>
+                  <strong>Manual</strong>
+                  <small>Run from API, CLI, or UI</small>
+                </div>
+                <span class="status status--enabled">enabled</span>
+              </div>
+              <div class="trigger-row">
+                <div>
+                  <strong>Webhook</strong>
+                  <small>Run when an external system posts an event</small>
+                </div>
+                <span class="status status--disabled">disabled</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="definition-detail-panel" aria-labelledby="definition-title">
+            <div class="panel-title">
+              <h2 id="definition-title">Definition</h2>
+              <button class="inline-action" type="button">Edit</button>
+            </div>
+            <pre><code>{
+  "id": "linux-ci",
+  "description": "Pull request validation for Go services",
+  "root": {
+    "uses": "builtins/shell",
+    "with": {
+      "command": "go test ./..."
+    }
+  }
+}</code></pre>
+          </section>
+
+          <section class="history-panel" aria-labelledby="revision-title">
+            <div class="panel-title">
+              <h2 id="revision-title">Revision history</h2>
+              <button class="inline-action" type="button">View all</button>
+            </div>
+            <div class="revision-list">
+              <div class="revision-row revision-row--active">
+                <div>
+                  <strong>v17</strong>
+                  <small>Updated test command for package path changes</small>
+                </div>
+                <button class="copy-id" type="button" data-copy="8a91c0e4" aria-label="Copy definition hash 8a91c0e4">8a91c0e4</button>
+              </div>
+              <div class="revision-row">
+                <div>
+                  <strong>v16</strong>
+                  <small>Added generated code check</small>
+                </div>
+                <button class="copy-id" type="button" data-copy="2e017b64" aria-label="Copy definition hash 2e017b64">2e017b64</button>
+              </div>
+              <div class="revision-row">
+                <div>
+                  <strong>v15</strong>
+                  <small>Initial Go service validation job</small>
+                </div>
+                <button class="copy-id" type="button" data-copy="b902d7fc" aria-label="Copy definition hash b902d7fc">b902d7fc</button>
+              </div>
+            </div>
+          </section>
+
+        </div>
+      </main>
+    </div>
+
+    <script>
+      const root = document.documentElement;
+      const storedTheme = localStorage.getItem('vectis-console-theme');
+      if (storedTheme) {
+        root.dataset.theme = storedTheme;
+      }
+
+      document.querySelector('[data-theme-toggle]').addEventListener('click', () => {
+        const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+        root.dataset.theme = next;
+        localStorage.setItem('vectis-console-theme', next);
+      });
+
+      const copyValue = async (value) => {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(value);
+          return;
+        }
+
+        const field = document.createElement('textarea');
+        field.value = value;
+        field.setAttribute('readonly', '');
+        field.style.position = 'fixed';
+        field.style.inset = '0 auto auto 0';
+        field.style.opacity = '0';
+        document.body.appendChild(field);
+        field.select();
+        document.execCommand('copy');
+        field.remove();
+      };
+
+      document.querySelectorAll('[data-copy]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          try {
+            await copyValue(button.dataset.copy);
+          } catch {
+            // Mock-only fallback: keep the affordance harmless if clipboard is unavailable.
+          }
+          button.classList.add('copy-id--copied');
+          window.setTimeout(() => button.classList.remove('copy-id--copied'), 1200);
+        });
+      });
+    </script>
+  </body>
+</html>
