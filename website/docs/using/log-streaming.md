@@ -1,60 +1,141 @@
 # Log Streaming
 
-Vectis log delivery has three layers:
+Vectis streams logs while a run is executing and can replay logs that have already been written. Most people should start with the CLI; use the HTTP API when you are building an integration or dashboard.
 
-- Workers send log chunks to `vectis-log` over gRPC `StreamLogs`.
-- `vectis-log` stores run logs as JSONL files and serves historical chunks through gRPC `GetLogs`.
-- The API exposes run logs to HTTP clients as Server-Sent Events (SSE) at `GET /api/v1/runs/{id}/logs`.
+## Follow One Run
 
-The CLI `vectis-cli logs run <run-id>` uses the API SSE endpoint. `vectis-cli logs job <job-id>` subscribes to API run-created events, then follows logs for runs created after the subscription starts.
+If you already have a run ID, stream its logs with:
 
-## Ordering And Events
+```sh
+./bin/vectis-cli logs run <run-id>
+```
 
-Log chunks carry:
+This connects to the API log stream and prints output until the run completes or you press `Ctrl+C`.
 
-- `timestamp`
-- `stream`
-- `sequence`
-- `data`
-- optional `completed`
+You can also pipe a run ID into the command:
 
-Sequences are scoped to one run. Clients should use sequence numbers to order chunks and to detect duplicates after reconnects.
+```sh
+printf '%s\n' <run-id> | ./bin/vectis-cli logs run -
+```
 
-The API writes SSE messages with JSON payloads in `data:` lines and sets the SSE event `id` to the chunk sequence when the sequence is non-negative. A stream starts with an SSE comment (`: connected`) so clients know the HTTP stream is established.
+That is useful in shell scripts where one command produces the ID and the next command follows logs.
 
-When the log service stream ends without a completion chunk, the API performs a bounded database lookup. If the run already reached a terminal state, the API sends a synthetic completion event with sequence `-1`.
+## Follow A Job's Future Runs
 
-## Replay And Reconnect Contract
+To keep a terminal open for the next runs of a stored job:
 
-`GET /api/v1/runs/{id}/logs` accepts:
+```sh
+./bin/vectis-cli logs job <job-id>
+```
 
-| Control | Meaning |
+`logs job` subscribes to run-created events for that job and follows runs created after the subscription is active. It does not replay old runs.
+
+For a one-command workflow, `jobs run` and `jobs trigger` both support `--follow`:
+
+```sh
+./bin/vectis-cli jobs run examples/sequenced.json --follow
+./bin/vectis-cli jobs trigger sequenced-job --follow
+```
+
+## Filter Output
+
+By default, Vectis prints both stdout and stderr. To show only one stream:
+
+```sh
+./bin/vectis-cli logs run <run-id> --stdout
+./bin/vectis-cli logs run <run-id> --stderr
+```
+
+The same flags work with `logs job`:
+
+```sh
+./bin/vectis-cli logs job sequenced-job --stderr
+```
+
+Stderr lines are prefixed with `[stderr]` in the CLI output.
+
+## What You Will See
+
+The CLI prints run control messages and log lines together. For example:
+
+```text
+Connected to logs for run 2b196bc5-0f7f-47e7-8fb1-2e4f6db8b6f0
+Streaming logs... (press Ctrl+C to exit)
+
+=== Run 2b196bc5-0f7f-47e7-8fb1-2e4f6db8b6f0 started ===
+$ echo hello
+hello
+Run 2b196bc5-0f7f-47e7-8fb1-2e4f6db8b6f0 finished successfully.
+```
+
+If the API cannot reach the log service, the CLI reports that the log service is temporarily unavailable. The run may still continue; try again after the log service recovers.
+
+## Use The API Directly
+
+The run log API is Server-Sent Events (SSE), not WebSocket:
+
+```sh
+curl -N http://localhost:8080/api/v1/runs/<run-id>/logs
+```
+
+Each event has a JSON payload:
+
+```json
+{
+  "timestamp": "2026-05-16T12:00:00Z",
+  "stream": 1,
+  "sequence": 12,
+  "data": "hello\n"
+}
+```
+
+The `stream` value identifies stdout, stderr, or control events. The `sequence` value is scoped to one run.
+
+## Replay And Reconnect
+
+The API can replay historical chunks before continuing live streaming:
+
+| Control | Use it when |
 | --- | --- |
-| `since_sequence=<n>` | Replay only chunks with sequence greater than `n`. |
-| `Last-Event-ID: <n>` | SSE reconnect equivalent to `since_sequence` when the query parameter is absent. |
-| `tail=<n>` | Replay only the last `n` available historical chunks, then continue live streaming. |
-| `replay_limit=<n>` | Maximum historical chunks to replay before closing with a `replay_truncated` control event. Default `10000`, maximum `50000`. |
+| `since_sequence=<n>` | You saved the last sequence number and want only newer chunks. |
+| `Last-Event-ID: <n>` | Your SSE client is reconnecting after receiving event ID `n`. |
+| `tail=<n>` | You only want the latest `n` chunks before following live output. |
+| `replay_limit=<n>` | You want to cap how many historical chunks the API sends. |
 
-`tail` also caps the replay limit to the requested tail size. If replay is truncated, the stream sends a control chunk whose `data` contains `{"event":"replay_truncated","limit":...}` and then closes. Reconnect with the last event ID to continue replaying the next page.
+For a resilient client:
 
-## Client Guidance
+- keep the largest sequence number seen for each run
+- de-duplicate chunks by run ID and sequence
+- reconnect with `Last-Event-ID` or `since_sequence`
+- stop following when a completion event arrives or the user cancels
 
-- Treat the stream as SSE, not WebSocket.
-- Preserve the largest sequence number seen for each run.
-- De-duplicate repeated chunks by run ID and sequence when reconnecting.
-- Reconnect with `Last-Event-ID` or `since_sequence` after network loss.
-- Use `tail` for dashboard-style "latest logs" views that do not need the full run history.
-- Stop following when `completed` is present or when the HTTP request is canceled by the caller.
-- Use API auth/RBAC exactly as for run read access; logs may contain sensitive job output.
+If a replay is too large, the stream sends a control event with `{"event":"replay_truncated"}` and closes. Reconnect with the last event ID to continue.
 
-## Operator Guidance
+## Follow Run Creation Events
 
-- `vectis-log` storage is durable only when its storage directory is on durable storage.
-- Worker durable log streaming can spool locally while the log service is temporarily unavailable.
-- `VECTIS_LOG_MAX_RUN_BUFFERS` bounds terminal in-memory buffers; it does not bound persisted JSONL files.
-- Persisted log retention belongs with the broader retention policy. Until cleanup exists, plan storage capacity for the full retention period you need.
+The job run-event API is also SSE:
 
-## Known Gaps
+```sh
+curl -N http://localhost:8080/api/v1/sse/jobs/<job-id>/runs
+```
 
-- No load-test envelope for many concurrent SSE clients yet.
-- No persisted-log cleanup command yet.
+Use it when you are building a dashboard or automation that wants to notice new runs for a stored job, then connect to each run's log stream.
+
+## How Logs Move Through Vectis
+
+The usual path is:
+
+1. A worker sends log chunks to `vectis-log`.
+2. `vectis-log` writes the run log to JSONL storage.
+3. The API reads from `vectis-log` and exposes the stream over SSE.
+4. The CLI or your integration consumes the API stream.
+
+For local development, this mostly stays invisible. For operations, make sure the `vectis-log` storage directory is on durable storage if you need logs to survive restarts.
+
+## Security
+
+Logs can contain job output, command text, and failure details. Treat log access like run read access:
+
+- API auth and RBAC apply to log routes.
+- Namespace-hidden runs return `404`.
+- Avoid writing secrets to stdout or stderr in job commands.
