@@ -11,6 +11,10 @@ const config = {
     defaultLocale: 'en',
     locales: ['en'],
   },
+  markdown: {
+    mermaid: true,
+  },
+  themes: ['@docusaurus/theme-mermaid'],
   presets: [
     [
       'classic',
@@ -61,6 +65,12 @@ const config = {
     },
     prism: {
       additionalLanguages: ['go', 'toml', 'yaml', 'bash', 'json'],
+    },
+    mermaid: {
+      theme: {
+        light: 'neutral',
+        dark: 'dark',
+      },
     },
   },
 };
