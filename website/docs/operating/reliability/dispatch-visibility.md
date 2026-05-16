@@ -1,58 +1,89 @@
 # Dispatch Handoff Visibility
 
-Dispatch events explain the handoff from durable run state in the database to work delivery through the queue.
+Use dispatch events when a run is queued but not starting, when queue handoff alerts fire, or when you need to know whether a run actually reached the queue.
 
-The API records run rows first. Queue submission may happen from the API, from `vectis-cron`, or later from `vectis-reconciler` when a run remained queued but was not successfully handed to the queue. For the broader repair flow, see [REPAIR_RUNBOOKS.md#queued-runs-or-backlog](./repair-runbooks.md#queued-runs-or-backlog).
+Vectis records the run row before handing work to the queue. That keeps the run durable even if the producer, queue, network, or reconciler has trouble during handoff. Dispatch events are the audit trail for that handoff.
+
+For the broader repair flow, see [Queued Runs Or Backlog](./repair-runbooks.md#queued-runs-or-backlog).
+
+## What Dispatch Events Tell You
+
+Dispatch events answer four questions:
+
+| Question | Where to look |
+| --- | --- |
+| Who tried to hand off the run? | `source` |
+| What happened? | `event_type` |
+| When did it happen? | `created_at` |
+| Why did it fail, if it failed? | `message` |
+
+The producer may be:
+
+| Source | Meaning |
+| --- | --- |
+| `api` | A user or API client created or retried a run. |
+| `cron` | `vectis-cron` created a run from a schedule. |
+| `reconciler` | `vectis-reconciler` found a queued run that still needed queue handoff. |
+
+The event type may be:
+
+| Event type | Meaning |
+| --- | --- |
+| `attempt` | A producer is about to submit the run to the queue. |
+| `success` | The queue accepted the handoff. |
+| `failure` | The producer could not complete the handoff or could not mark it complete. Read `message` next. |
 
 ## Where To Look
 
-- `GET /api/v1/runs/{id}` includes `dispatch_events`.
-- `vectis-cli runs show <run-id>` prints dispatch events.
+- `vectis-cli runs show <run-id>` prints dispatch events with the rest of the run detail.
+- `GET /api/v1/runs/{id}` includes `dispatch_events` for API-based tooling.
 - Reconciler metrics and logs explain whether stuck queued runs are being scanned and redispatched.
 
 Normal triage should not require SQL.
 
-## Reading Dispatch Events
+## Reading Common Patterns
 
 Use the event source, timestamp, and message together:
 
 | Pattern | Meaning | Operator action |
 | --- | --- | --- |
-| Queued run with no dispatch event | Run was recorded but queue handoff did not complete or was not attempted yet | Check API/cron logs, queue reachability, and reconciler health. |
-| Dispatch attempt followed by success | Queue accepted the handoff | If the run is still queued, inspect worker availability and queue backlog. |
-| Dispatch attempt followed by failure | Producer could not enqueue the run | Check queue health, registry/pinned address config, gRPC TLS, and retry exhaustion. |
-| Reconciler dispatch event | Reconciler repaired a queued run that missed initial handoff | Confirm this is occasional; repeated events point to producer/queue instability. |
-| Multiple successful handoff events | A retry or reconciler submitted the run more than once | Worker database claims should prevent duplicate execution for the same run ID; inspect queue duplicate pressure. |
+| Queued run with no dispatch event | The run was recorded, but queue handoff did not complete or has not been attempted yet. | Check API or cron logs, queue reachability, and reconciler health. |
+| `attempt` without a later `success` | A producer started handoff, then failed or stopped before success was recorded. | Read nearby logs for that source and wait for reconciler repair if the run is not urgent. |
+| `attempt` followed by `success` | The queue accepted the handoff. | If the run is still queued, focus on worker availability and queue backlog. |
+| `failure` | The producer could not enqueue the run or could not record the dispatch completion. | Read `message`, then check queue health, registry or pinned address config, gRPC TLS, and retry exhaustion. |
+| `reconciler` event | The reconciler tried to repair a queued run that missed or lost its original handoff. | Occasional repair is expected. Repeated repair points to producer, queue, or network instability. |
+| Multiple successful handoff events | A retry or reconciler submitted the same run more than once. | Worker database claims should prevent duplicate execution for the same run ID; inspect queue duplicate pressure. |
 
-## Runbook: Queued With No Dispatch
+## Runbook: Queued With No Dispatch {#runbook-queued-with-no-dispatch}
 
 1. Run `vectis-cli runs show <run-id>` and inspect `dispatch_events`.
-2. Check `GET /health/ready` on the API.
-3. Check queue gRPC health and queue backlog metrics.
-4. Confirm `vectis-reconciler` is running and scanning queued runs.
-5. Wait at least one reconciler interval before manual intervention unless this is an urgent run.
-6. Use the force-requeue/manual retry path only after confirming automatic repair is not progressing.
+2. Check the producer logs: API for user-created runs, `vectis-cron` for scheduled runs.
+3. Check `GET /health/ready` on the API.
+4. Check queue gRPC health and queue backlog metrics.
+5. Confirm `vectis-reconciler` is running and scanning queued runs.
+6. Wait at least one reconciler interval before manual intervention unless this is an urgent run.
+7. Use the force-requeue or manual retry path only after confirming automatic repair is not progressing.
 
-## Runbook: Dispatch Failure
+## Runbook: Dispatch Failure {#runbook-dispatch-failure}
 
 1. Read the dispatch failure message from the run detail.
 2. Check whether the failure came from API, cron, or reconciler.
 3. Verify queue address resolution: pinned address, registry availability, and advertised queue address.
 4. Verify gRPC TLS settings, especially CA file and server name/SAN matching.
 5. Check `vectis_retries_exhausted_total` when retry metrics are available for the path.
-6. After repair, confirm a later dispatch success appears.
+6. After repair, confirm a later `success` event appears.
 
-## Runbook: Duplicate Dispatch
+## Runbook: Duplicate Dispatch {#runbook-duplicate-dispatch}
 
-Duplicate handoff can happen when a producer retries after an uncertain failure or when the reconciler repairs a run whose queue state was lost. The database run claim is the execution guard.
+Duplicate handoff can happen when a producer retries after an uncertain failure or when the reconciler repairs a run whose queue state was lost. The database run claim is the execution guard, so duplicate handoff should not become duplicate execution for the same run ID.
 
 1. Confirm only one worker claims the run.
 2. Inspect queue delivery and DLQ metrics.
 3. If duplicate delivery is persistent, check producer retry logs and reconciler interval/min-age settings.
 
-## Alert Examples
+## Alert Signals
 
-Use emitted metrics first:
+Use emitted metrics first. The example rules live in [`prometheus-examples.yml`](../../alerts/prometheus-examples.yml).
 
 ```promql
 increase(vectis_reconciler_reenqueue_total{outcome!="success"}[10m]) > 0
@@ -72,4 +103,14 @@ increase(vectis_retries_exhausted_total[10m]) > 0
 
 Page when retry loops exhaust; use alongside run dispatch events to find the impacted handoff.
 
-Future metrics should expose dispatch failure counts and queued-run age directly so this runbook can alert without inference.
+There is not yet a direct dispatch failure counter or queued-run-age metric, so combine these signals with the run's dispatch events before deciding whether the problem is producer handoff, queue backlog, or worker capacity.
+
+## Related Docs
+
+| Need | Doc |
+| --- | --- |
+| Repair steps for stuck runs | [Repair Runbooks](./repair-runbooks.md) |
+| First-response triage | [Runbooks And Alerts](./runbooks.md) |
+| Queue and reconciler failure behavior | [Failure Domains](../../concepts/failure-domains.md) |
+| Queue address and TLS settings | [Configuration](../configuration.md) |
+| API shape for run detail | [API Reference](../../using/api-reference.md) |
