@@ -29,6 +29,18 @@ type podmanSecrets struct {
 	HostDSN          string `json:"host_database_dsn"`
 }
 
+type podmanCommandResult struct {
+	Status         string `json:"status"`
+	SecretsPath    string `json:"secrets_path,omitempty"`
+	ManifestPath   string `json:"manifest_path,omitempty"`
+	Manifest       string `json:"manifest,omitempty"`
+	SecretsCreated bool   `json:"secrets_created,omitempty"`
+	BootstrapToken bool   `json:"bootstrap_token_generated,omitempty"`
+	Network        string `json:"network,omitempty"`
+	PodmanStdout   string `json:"podman_stdout,omitempty"`
+	PodmanStderr   string `json:"podman_stderr,omitempty"`
+}
+
 func podmanDeployDir() (string, error) {
 	if dir := os.Getenv(envDeployConfigDir); dir != "" {
 		return filepath.Join(dir, "podman"), nil
@@ -219,12 +231,19 @@ func writePodmanRenderedManifest(rotate bool) (string, podmanSecrets, bool, erro
 func runDeployPodmanInit(cmd *cobra.Command, args []string) {
 	rotate, _ := cmd.Flags().GetBool("rotate")
 	secrets, created, err := loadOrCreatePodmanSecrets(rotate)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+	runCLIError(err)
 
 	path, _ := podmanSecretsPath()
+	if outputIsJSON() {
+		runCLIError(writeJSON(os.Stdout, podmanCommandResult{
+			Status:         "initialized",
+			SecretsPath:    path,
+			SecretsCreated: created,
+			BootstrapToken: secrets.BootstrapToken != "",
+		}))
+		return
+	}
+
 	if created {
 		fmt.Printf("Generated Podman deployment secrets: %s\n", path)
 	} else {
@@ -239,25 +258,40 @@ func runDeployPodmanInit(cmd *cobra.Command, args []string) {
 
 func runDeployPodmanRender(cmd *cobra.Command, args []string) {
 	rotate, _ := cmd.Flags().GetBool("rotate")
-	manifest, _, _, err := renderPodmanManifest(rotate)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+	manifest, _, created, err := renderPodmanManifest(rotate)
+	runCLIError(err)
 
 	if podmanRenderOut == "" || podmanRenderOut == "-" {
+		if outputIsJSON() {
+			runCLIError(writeJSON(os.Stdout, podmanCommandResult{
+				Status:         "rendered",
+				Manifest:       string(manifest),
+				SecretsCreated: created,
+			}))
+
+			return
+		}
+
 		_, _ = os.Stdout.Write(manifest)
 		return
 	}
 
 	if err := os.MkdirAll(filepath.Dir(podmanRenderOut), 0o700); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		runCLIError(err)
 	}
 
 	if err := os.WriteFile(podmanRenderOut, manifest, 0o600); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		runCLIError(err)
+	}
+
+	if outputIsJSON() {
+		runCLIError(writeJSON(os.Stdout, podmanCommandResult{
+			Status:         "rendered",
+			ManifestPath:   podmanRenderOut,
+			SecretsCreated: created,
+		}))
+
+		return
 	}
 
 	fmt.Printf("Rendered Podman manifest: %s\n", podmanRenderOut)
@@ -265,12 +299,9 @@ func runDeployPodmanRender(cmd *cobra.Command, args []string) {
 
 func runDeployPodmanUp(cmd *cobra.Command, args []string) {
 	manifestPath, secrets, created, err := writePodmanRenderedManifest(false)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+	runCLIError(err)
 
-	if created {
+	if created && !outputIsJSON() {
 		fmt.Println("Generated Podman deployment secrets.")
 	}
 
@@ -281,11 +312,18 @@ func runDeployPodmanUp(cmd *cobra.Command, args []string) {
 
 	// NOTE(garrett): playArgs are fixed podman subcommands plus manifestPath from our rendered output.
 	podman := exec.CommandContext(cmd.Context(), "podman", playArgs...) //#nosec G204
-	podman.Stdout = os.Stdout
-	podman.Stderr = os.Stderr
+	var podmanStdout, podmanStderr bytes.Buffer
+
+	if outputIsJSON() {
+		podman.Stdout = &podmanStdout
+		podman.Stderr = &podmanStderr
+	} else {
+		podman.Stdout = os.Stdout
+		podman.Stderr = os.Stderr
+	}
+
 	if err := podman.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: podman play kube failed: %v\n", err)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("podman play kube failed: %w", err))
 	}
 
 	oldDriver, hadDriver := os.LookupEnv(database.EnvDatabaseDriver)
@@ -307,8 +345,20 @@ func runDeployPodmanUp(cmd *cobra.Command, args []string) {
 	}()
 
 	if err := database.Migrate(secrets.HostDSN); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: migrations failed: %v\n", err)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("migrations failed: %w", err))
+	}
+
+	if outputIsJSON() {
+		runCLIError(writeJSON(os.Stdout, podmanCommandResult{
+			Status:         "up",
+			ManifestPath:   manifestPath,
+			SecretsCreated: created,
+			Network:        podmanNetwork,
+			PodmanStdout:   podmanStdout.String(),
+			PodmanStderr:   podmanStderr.String(),
+		}))
+
+		return
 	}
 
 	fmt.Println("Podman deployment is up and migrations are applied.")
@@ -316,28 +366,55 @@ func runDeployPodmanUp(cmd *cobra.Command, args []string) {
 
 func runDeployPodmanDown(cmd *cobra.Command, args []string) {
 	manifestPath, _, _, err := writePodmanRenderedManifest(false)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+	runCLIError(err)
 
 	playArgs := []string{"play", "kube", "--down", manifestPath}
 	podman := exec.CommandContext(cmd.Context(), "podman", playArgs...) //#nosec G204
-	podman.Stdout = os.Stdout
-	podman.Stderr = os.Stderr
+	var podmanStdout, podmanStderr bytes.Buffer
+	if outputIsJSON() {
+		podman.Stdout = &podmanStdout
+		podman.Stderr = &podmanStderr
+	} else {
+		podman.Stdout = os.Stdout
+		podman.Stderr = os.Stderr
+	}
+
 	if err := podman.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: podman play kube --down failed: %v\n", err)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("podman play kube --down failed: %w", err))
+	}
+
+	if outputIsJSON() {
+		runCLIError(writeJSON(os.Stdout, podmanCommandResult{
+			Status:       "down",
+			ManifestPath: manifestPath,
+			PodmanStdout: podmanStdout.String(),
+			PodmanStderr: podmanStderr.String(),
+		}))
 	}
 }
 
 func runDeployPodmanStatus(cmd *cobra.Command, args []string) {
 	podman := exec.CommandContext(cmd.Context(), "podman", "pod", "ps", "--filter", "name=vectis", "--format", "table {{.Name}}\t{{.Status}}")
-	podman.Stdout = os.Stdout
-	podman.Stderr = os.Stderr
+	var podmanStdout, podmanStderr bytes.Buffer
+
+	if outputIsJSON() {
+		podman.Stdout = &podmanStdout
+		podman.Stderr = &podmanStderr
+	} else {
+		podman.Stdout = os.Stdout
+		podman.Stderr = os.Stderr
+	}
+
 	if err := podman.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: podman status failed: %v\n", err)
-		os.Exit(1)
+		runCLIError(fmt.Errorf("podman status failed: %w", err))
+	}
+
+	if outputIsJSON() {
+		runCLIError(writeJSON(os.Stdout, podmanCommandResult{
+			Status:       "status",
+			PodmanStdout: podmanStdout.String(),
+			PodmanStderr: podmanStderr.String(),
+		}))
 	}
 }
 

@@ -100,6 +100,7 @@ func init() {
 	configureJobShowFlags(getCmd)
 	configureJobCreateFlags(createCmd)
 	configureJobDeleteFlags(deleteCmd)
+	configureJobListFlags(listCmd)
 	jobsCmd.AddCommand(listCmd, getCmd, createCmd, editCmd, deleteCmd, triggerCmd, runCmd)
 	rootCmd.AddCommand(jobsCmd)
 

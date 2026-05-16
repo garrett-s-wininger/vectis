@@ -215,6 +215,81 @@ func TestResetTargets(t *testing.T) {
 	}
 }
 
+func TestDeployPodmanInit_jsonOutput(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+	t.Setenv(envDeployConfigDir, t.TempDir())
+
+	secrets, created, err := loadOrCreatePodmanSecrets(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	path, err := podmanSecretsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := writeJSON(&buf, podmanCommandResult{
+		Status:         "initialized",
+		SecretsPath:    path,
+		SecretsCreated: created,
+		BootstrapToken: secrets.BootstrapToken != "",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var result podmanCommandResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
+	}
+
+	if result.Status != "initialized" || result.SecretsPath != path || !result.BootstrapToken {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+}
+
+func TestDeployPodmanRender_jsonMetadataForFileOutput(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+	t.Setenv(envDeployConfigDir, t.TempDir())
+
+	out := filepath.Join(t.TempDir(), "rendered.yaml")
+	oldOut := podmanRenderOut
+	podmanRenderOut = out
+	t.Cleanup(func() { podmanRenderOut = oldOut })
+
+	manifest, _, created, err := renderPodmanManifest(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(out), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(out, manifest, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := writeJSON(&buf, podmanCommandResult{
+		Status:         "rendered",
+		ManifestPath:   out,
+		SecretsCreated: created,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var result podmanCommandResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
+	}
+
+	if result.Status != "rendered" || result.ManifestPath != out {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+}
+
 // rewriteTransport rewrites all outgoing requests to a test server URL.
 type rewriteTransport struct {
 	testURL    string
@@ -383,7 +458,7 @@ func TestTokenDelete_notFound(t *testing.T) {
 	}
 }
 
-func TestListJobNames_success(t *testing.T) {
+func TestListJobNames_tableOutput(t *testing.T) {
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			t.Errorf("method=%s", r.Method)
@@ -395,6 +470,26 @@ func TestListJobNames_success(t *testing.T) {
 
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"data": []map[string]any{
+				{"name": "z-job", "namespace": "/prod"},
+				{"name": "a-job"},
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := listJobNames(&buf, false, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := buf.String(), "NAME   NAMESPACE\na-job  -\nz-job  /prod\n"; got != want {
+		t.Fatalf("output: want %q, got %q", want, got)
+	}
+}
+
+func TestListJobNames_quietOutput(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{
 				{"name": "z-job"},
 				{"name": "a-job"},
 			},
@@ -402,7 +497,7 @@ func TestListJobNames_success(t *testing.T) {
 	})
 
 	var buf bytes.Buffer
-	if err := listJobNames(&buf); err != nil {
+	if err := listJobNames(&buf, true, 0, 0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -414,26 +509,48 @@ func TestListJobNames_success(t *testing.T) {
 func TestListJobNames_jsonOutput(t *testing.T) {
 	withOutputFormat(t, outputJSON)
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("cursor"); got != "7" {
+			t.Errorf("cursor=%q, want 7", got)
+		}
+
+		if got := r.URL.Query().Get("limit"); got != "25" {
+			t.Errorf("limit=%q, want 25", got)
+		}
+
+		next := int64(9)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"data": []map[string]any{
-				{"name": "z-job"},
+				{"name": "z-job", "namespace": "/prod"},
 				{"name": "a-job"},
 			},
+			"next_cursor": next,
 		})
 	})
 
 	var buf bytes.Buffer
-	if err := listJobNames(&buf); err != nil {
+	if err := listJobNames(&buf, false, 7, 25); err != nil {
 		t.Fatal(err)
 	}
 
-	var names []string
-	if err := json.Unmarshal(buf.Bytes(), &names); err != nil {
+	var resp struct {
+		Data []struct {
+			Name      string `json:"name"`
+			Namespace string `json:"namespace,omitempty"`
+		} `json:"data"`
+		NextCursor *int64 `json:"next_cursor,omitempty"`
+	}
+
+	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
+	names := []string{resp.Data[0].Name, resp.Data[1].Name}
 	if got, want := strings.Join(names, ","), "a-job,z-job"; got != want {
 		t.Fatalf("names: want %q, got %q", want, got)
+	}
+
+	if resp.NextCursor == nil || *resp.NextCursor != 9 {
+		t.Fatalf("next_cursor: want 9, got %+v", resp.NextCursor)
 	}
 }
 
@@ -444,7 +561,7 @@ func TestListJobNames_rejectsUnexpectedShape(t *testing.T) {
 		})
 	})
 
-	if err := listJobNames(io.Discard); err == nil {
+	if err := listJobNames(io.Discard, false, 0, 0); err == nil {
 		t.Fatal("expected error")
 	}
 }

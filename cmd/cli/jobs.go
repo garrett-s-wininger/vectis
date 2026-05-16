@@ -7,10 +7,13 @@ import (
 	"github.com/spf13/cobra"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
+	"text/tabwriter"
 	"vectis/api/gen/go"
 	jobvalidation "vectis/internal/job/validation"
 )
@@ -406,7 +409,10 @@ func getJobDefinition(cmd *cobra.Command, args []string) {
 }
 
 func listJobs(cmd *cobra.Command, args []string) {
-	if err := listJobNames(os.Stdout); err != nil {
+	quiet, _ := cmd.Flags().GetBool("quiet")
+	cursor, _ := cmd.Flags().GetInt64("cursor")
+	limit, _ := cmd.Flags().GetInt("limit")
+	if err := listJobNames(os.Stdout, quiet, cursor, limit); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -542,8 +548,22 @@ func deleteJob(cmd *cobra.Command, args []string) {
 	}
 }
 
-func listJobNames(w io.Writer) error {
-	req, err := newAPIRequest(http.MethodGet, "/api/v1/jobs", nil)
+func listJobNames(w io.Writer, quiet bool, cursor int64, limit int) error {
+	path := "/api/v1/jobs"
+	params := url.Values{}
+	if cursor > 0 {
+		params.Set("cursor", strconv.FormatInt(cursor, 10))
+	}
+
+	if limit > 0 {
+		params.Set("limit", strconv.Itoa(limit))
+	}
+
+	if encoded := params.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+
+	req, err := newAPIRequest(http.MethodGet, path, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create list jobs request: %w", err)
 	}
@@ -559,31 +579,62 @@ func listJobNames(w io.Writer) error {
 	}
 
 	type jobListItem struct {
-		Name string `json:"name"`
+		Name       string          `json:"name"`
+		Namespace  string          `json:"namespace,omitempty"`
+		Definition json.RawMessage `json:"definition,omitempty"`
 	}
 
 	var jobsResp struct {
-		Data []jobListItem `json:"data"`
+		Data       []jobListItem `json:"data"`
+		NextCursor *int64        `json:"next_cursor,omitempty"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&jobsResp); err != nil {
 		return fmt.Errorf("failed to parse jobs response: %w", err)
 	}
 
-	names := make([]string, 0, len(jobsResp.Data))
-	for _, j := range jobsResp.Data {
-		if j.Name != "" {
-			names = append(names, j.Name)
+	jobs := make([]jobListItem, 0, len(jobsResp.Data))
+	for _, job := range jobsResp.Data {
+		if job.Name != "" {
+			jobs = append(jobs, job)
 		}
 	}
 
-	sort.Strings(names)
+	sort.Slice(jobs, func(i, j int) bool {
+		return jobs[i].Name < jobs[j].Name
+	})
+
 	if outputIsJSON() {
-		return writeJSON(w, names)
+		jobsResp.Data = jobs
+		return writeJSON(w, jobsResp)
 	}
 
-	for _, name := range names {
-		fmt.Fprintln(w, name)
+	if quiet {
+		for _, job := range jobs {
+			fmt.Fprintln(w, job.Name)
+		}
+
+		return nil
+	}
+
+	if len(jobs) == 0 {
+		fmt.Fprintln(w, "No jobs found")
+		return nil
+	}
+
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "NAME\tNAMESPACE")
+	for _, job := range jobs {
+		namespace := job.Namespace
+		if namespace == "" {
+			namespace = "-"
+		}
+		fmt.Fprintf(tw, "%s\t%s\n", job.Name, namespace)
+	}
+	_ = tw.Flush()
+
+	if jobsResp.NextCursor != nil {
+		fmt.Fprintf(w, "\nMore jobs available. Continue with --cursor %d.\n", *jobsResp.NextCursor)
 	}
 
 	return nil
@@ -655,7 +706,7 @@ var deleteCmd = &cobra.Command{
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List stored jobs",
-	Long:  `Fetch all stored jobs and print each job id on its own line.`,
+	Long:  `Fetch stored jobs and print a compact table. Use --quiet to print only job IDs.`,
 	Args:  cobra.NoArgs,
 	Run:   listJobs,
 }
@@ -680,4 +731,10 @@ func configureJobCreateFlags(cmd *cobra.Command) {
 
 func configureJobDeleteFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("yes", false, "Skip confirmation prompt")
+}
+
+func configureJobListFlags(cmd *cobra.Command) {
+	cmd.Flags().BoolP("quiet", "q", false, "Print only job IDs")
+	cmd.Flags().Int64("cursor", 0, "Continue listing after this result cursor")
+	cmd.Flags().Int("limit", 0, "Max jobs to return")
 }
