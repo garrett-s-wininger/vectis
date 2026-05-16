@@ -351,17 +351,6 @@ func runUserCreate(cmd *cobra.Command, args []string) {
 	runCLIError(userCreate(args[0], password, os.Stdout))
 }
 
-func runUserUpdate(cmd *cobra.Command, args []string) {
-	id, err := parseInt64Arg("user id", args[0])
-	if err != nil {
-		runCLIError(err)
-	}
-
-	enabled, _ := cmd.Flags().GetBool("enabled")
-	runCLIError(userSetEnabled(id, enabled))
-	runCLIError(writeAction(os.Stdout, "User updated.", cliActionResult{Status: "updated"}))
-}
-
 func runUserEnable(cmd *cobra.Command, args []string) {
 	id, err := parseInt64Arg("user id", args[0])
 	if err != nil {
