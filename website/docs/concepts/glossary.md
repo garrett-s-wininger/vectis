@@ -1,81 +1,97 @@
 # Glossary
 
-Shared vocabulary for Vectis docs and APIs. Canonical job structure: `api/proto/common.proto`. For architecture and configuration, see [ARCHITECTURE.md](./architecture.md) and [CONFIGURATION.md](../operating/configuration.md).
+This page defines the words Vectis uses across the docs, API, and CLI. For the system picture, start with [Architecture](./architecture.md). For job examples, see [Your First Job](../using/your-first-job.md).
 
 ## A
 
-**Ack (acknowledge)** — After a worker has taken responsibility for a queued **delivery**, it tells the **queue** to finalize that delivery so the message is not redelivered. If ack fails, the run may be marked failed or retried depending on context.
+**Ack** — Short for acknowledge. After a worker accepts responsibility for a queued delivery, it tells the queue that the delivery is complete from the queue's point of view. Acking prevents the same queue delivery from being handed out again.
 
-**Action** — A unit of work invoked by the executor (e.g. built-ins **shell**, **checkout**, **sequence**). Wired in `internal/action/`; referenced from a job **node** via `uses` / `with` / nested `steps`.
+**Action** — One executable unit inside a job node. Examples include `builtins/shell`, `builtins/checkout`, and `builtins/sequence`. A node chooses its action with `uses` and passes inputs with `with`.
+
+**API (`vectis-api`)** — The HTTP service clients talk to. It stores job definitions, creates runs, reports status, streams logs through SSE, and exposes health and metrics.
 
 ## C
 
-**Claim** — A **worker** uses the database to take exclusive responsibility for a **run** (`TryClaim`), moving it from **queued** toward **running** so another worker does not execute the same run.
+**Claim** — A worker's database-backed attempt to take exclusive ownership of a run before executing it. Claims help prevent two workers from executing the same persisted run at the same time.
 
-**Client** — Anything that drives Vectis over **HTTP** (browser, automation, **`vectis-cli`**) or internal services that call the API. Not to be confused with gRPC *clients* inside the codebase.
+**Client** — Anything that talks to the HTTP API, including `vectis-cli`, scripts, dashboards, and custom integrations.
 
-**Cron (`vectis-cron`)** — Process that reads **schedules** from the database and **enqueues** work when a schedule is due. Separate from the HTTP API.
+**Cron (`vectis-cron`)** — The scheduler process. It reads schedules from the database and enqueues runs when they are due.
 
 ## D
 
-**Delivery (queue)** — A single handing-off of a **job** message from the **queue** to a **worker**, identified by a **delivery id**. Subject to timeouts and **ack**; may be retried if not acked in time.
+**Delivery** — One handoff of queued work from `vectis-queue` to a worker. A run can have more than one delivery over time if queue handoff or worker execution needs recovery.
 
-**Dispatch** — (1) Submitting a **run** to the **queue** after it exists in the database (API/cron/reconciler). (2) Database field **`last_dispatched_at`** tracks when a run was last submitted to the queue; the **reconciler** uses it with **queued** status to find runs that need another enqueue attempt.
+**Dispatch** — The act of submitting a recorded run to the queue. The API, cron, and reconciler can all dispatch runs.
 
 ## E
 
-**Enqueue** — Add a **job** payload (with **`run_id`** set) to the **queue** so a **worker** can **dequeue** it. Producers: API (often asynchronously after HTTP **202**), **cron**, **reconciler**.
+**Enqueue** — Add work to `vectis-queue` so a worker can pick it up.
 
-**Ephemeral run** — A run started from **`POST /api/v1/jobs/run`** with an inline body: the definition is stored in **`job_definitions`** for recovery without a normal **stored job** row. See [PLANNING.md](../developing/roadmap/planning.md) §2.5.
+**Ephemeral run** — A run started from an inline job definition, usually with `vectis-cli jobs run <file>` or `POST /api/v1/jobs/run`. The definition is stored enough for recovery, but it is not a normal stored job that users trigger later by job ID.
+
+## I
+
+**Idempotency key** — A client-provided key used to retry a job submission safely. If a network error leaves the client unsure whether a run was created, retrying with the same key lets Vectis return the original response instead of creating a duplicate run. See [Idempotency And Retries](../using/idempotency-and-retries.md).
 
 ## J
 
-**Job** — The unit of execution: protobuf **`Job`** with **`id`**, **`run_id`**, **`root`** **node** tree, and optional queue **`delivery_id`**. Over HTTP, usually represented as JSON matching that shape.
+**Job** — A definition of work Vectis can execute. A job is a tree of nodes, starting at `root`.
 
-**Job definition** — The **`root`** tree and metadata needed to execute a **run**; persisted for **stored jobs** and for **ephemeral** paths as above.
+**Job definition** — The stored or submitted JSON shape that describes a job. Stored jobs keep a definition under a stable job ID; ephemeral runs submit the definition inline.
+
+**Job ID** — The stable name of a stored job. This is different from a node ID inside the job tree.
 
 ## L
 
-**Lease** — Time-bounded lock a **worker** holds on a **run** while executing; renewed until completion or failure. Prevents another worker from treating the run as free while work is in progress.
+**Lease** — A time-bounded ownership record a worker keeps while executing a run. Leases help Vectis detect work that may have been abandoned by a dead or unreachable worker.
 
-**Log service (`vectis-log`)** — Ingests **log** streams from workers over gRPC and serves them to consumers over HTTP. Does not own authoritative **run** status (the database does).
+**Log service (`vectis-log`)** — The service that receives log chunks from workers and stores run logs. Clients normally read logs through the API or CLI, not by calling the log service directly.
 
 ## N
 
-**Node** — One vertex in the job graph: **`id`**, **`uses`** (action name), **`with`** (parameters), **`steps`** (children). The **`root`** node is the entry point.
+**Namespace** — A scope for jobs and permissions. Namespaces let operators organize jobs and grant roles such as viewer, trigger, operator, or admin within a tree.
+
+**Node** — One step-like vertex in a job tree. A node has an `id`, a `uses` action, optional `with` inputs, and optional child `steps`.
+
+**Node ID** — The identifier for one node inside a job. Node IDs must be unique within a job. They are not the same thing as the top-level job ID.
 
 ## P
 
-**Pinned address** — A configured **queue**, **log**, or **registry** address set explicitly in config/env instead of learning it only through the **registry**. See [CONFIGURATION.md](../operating/configuration.md).
+**Pinned address** — A queue, log, or registry address set explicitly in configuration. Pinned addresses let a component avoid relying on registry lookup for that dependency.
 
-**Producer** — Component that **enqueues** work: **API**, **cron**, **reconciler**.
+**Producer** — A component that submits work to the queue. Current producers are `vectis-api`, `vectis-cron`, and `vectis-reconciler`.
 
 ## Q
 
-**Queue (`vectis-queue`)** — gRPC service holding pending **job** messages for **workers**; supports **enqueue**, **dequeue**, **try dequeue**, and **ack**. May persist backlog to disk (configurable). See [FAILURE_DOMAINS.md](./failure-domains.md#vectis-queue).
+**Queue (`vectis-queue`)** — The internal FIFO handoff service between producers and workers. The database records what should run; the queue helps workers receive the next piece of work.
+
+**Queued run** — A run recorded in the database as waiting for execution. A queued run may or may not currently have a matching item in the queue, which is why the reconciler exists.
 
 ## R
 
-**Reconciler (`vectis-reconciler`)** — Background process that finds **runs** stuck in **queued** long enough and **enqueues** them again (e.g. after a failed async enqueue or queue loss). Complements the API’s retry behavior.
+**Reconciler (`vectis-reconciler`)** — The repair process that looks for queued runs that need another queue handoff. It is what closes the gap when a run is recorded in the database but was not successfully submitted to the queue.
 
-**Registry (`vectis-registry`)** — gRPC **service discovery**: **queue** and **log** register their listen addresses; consumers resolve them when addresses are not **pinned**.
+**Registry (`vectis-registry`)** — Internal service discovery. Queue and log can register their addresses, and other components can resolve those addresses instead of using pinned configuration.
 
-**Run** — One execution of a **job** for a given **`job_id`**: identified by **`run_id`**, ordered among siblings by **`run_index`**, with **status** (e.g. **queued**, **running**, success/failure) in the database.
+**Run** — One execution of a job. A stored job can have many runs over time; each run has its own run ID, status, timestamps, logs, and dispatch history.
+
+**Run ID** — The unique ID for one run. Use it to inspect status, cancel a run, or stream logs.
+
+**Run index** — A per-job sequence number used to order runs for the same stored job.
 
 ## S
 
-**Schedule** — Cron expression and associated **job** stored in the database; **`vectis-cron`** fires due schedules by **enqueueing** a new **run**.
+**Schedule** — A database-backed rule that tells `vectis-cron` when to create runs.
 
-**Stored job** — A job definition kept under a stable **`job_id`** (CRUD under **`/api/v1/jobs/...`**), as opposed to an **ephemeral run** only.
+**Stored job** — A reusable job definition saved under a job ID. Stored jobs can be listed, shown, updated, deleted, and triggered later.
 
 ## W
 
-**Worker (`vectis-worker`)** — Process that **dequeues** **jobs**, **claims** **runs**, executes **actions**, streams logs to the **log service**, and updates **run** status in the database. One **run** at a time per worker process unless you run multiple processes.
+**Worker (`vectis-worker`)** — The execution process. A worker dequeues work, claims a run, executes the job tree, streams logs, and writes final run status.
 
-## Related terms (elsewhere)
+## Future Terms
 
-**Security / trust model** — See [SECURITY.md](./security.md).
+**Federation / multi-site** — A target design for coordinating more than one Vectis site. It is not part of the shipped runtime today. See [Federation](../developing/roadmap/federation.md).
 
-**Federation / multi-site** — Target design only; see [FEDERATION.md](../developing/roadmap/federation.md).
-
-**`.vectis.yml`** — Target pipeline file format; not loaded by the shipped runtime ([PLANNING.md](../developing/roadmap/planning.md) §1).
+**`.vectis.yml`** — A planned pipeline-as-code format. Today, jobs are submitted as JSON-shaped job definitions.
