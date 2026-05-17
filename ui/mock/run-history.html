@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vectis Run History Mock</title>
+    <link rel="stylesheet" href="styles.css?v=run-history-scope-chip1" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="index.html" aria-label="Vectis console">
+          <picture>
+            <source srcset="../../website/static/img/vectis-dark.png" media="(prefers-color-scheme: dark)" />
+            <img src="../../website/static/img/vectis.png" alt="" />
+          </picture>
+        </a>
+        <nav class="topnav" aria-label="Primary">
+          <a class="topnav__link" href="index.html">Dashboard</a>
+          <a class="topnav__link" href="jobs.html">Jobs</a>
+          <a class="topnav__link topnav__link--active" href="run-history.html">Runs</a>
+        </nav>
+        <div class="topbar__actions">
+          <button class="icon-button" type="button" aria-label="Toggle theme" title="Toggle theme" data-theme-toggle>
+            <span class="theme-mark" aria-hidden="true"></span>
+          </button>
+        </div>
+      </header>
+
+      <main class="console">
+        <section class="page-head" aria-labelledby="runs-title">
+          <div>
+            <nav class="breadcrumb" aria-label="Breadcrumb">
+              <a href="jobs.html">Catalog</a>
+              <span aria-hidden="true">/</span>
+              <span>Runs</span>
+            </nav>
+            <h1 id="runs-title">Run history</h1>
+          </div>
+          <div class="page-head__actions">
+            <button class="button button--secondary" type="button">Refresh</button>
+          </div>
+        </section>
+
+        <section class="run-history-page-panel" aria-label="Run history">
+          <div class="catalog-search">
+            <label class="sr-only" for="run-search">Search runs</label>
+            <input id="run-search" type="search" placeholder="Search runs" />
+          </div>
+          <div class="job-toolbar" aria-label="Run filters">
+            <div class="run-filter-strip">
+              <span class="run-scope-chip" data-run-scope hidden></span>
+              <button class="filter-pill filter-pill--active" type="button">All</button>
+              <button class="filter-pill" type="button">Running</button>
+              <button class="filter-pill" type="button">Failed</button>
+              <button class="filter-pill" type="button">Passed</button>
+              <button class="filter-pill" type="button">Queued</button>
+            </div>
+          </div>
+
+          <div class="run-record-list" aria-label="Runs">
+            <a class="run-record-row run-record-row--active" href="run-detail.html" data-job="linux-ci" data-status="running">
+              <span class="run-record-main">
+                <strong>linux-ci <em>#184</em></strong>
+                <small>6f4c2d7a · 4m 12s<span class="run-record-time"> · started 10:42 AM</span></small>
+              </span>
+              <span class="run-record-source">
+                <strong>Manual</strong>
+                <small>v17 · 8a91c0e4</small>
+              </span>
+              <span class="status status--running">running</span>
+            </a>
+            <a class="run-record-row" href="run-detail.html" data-job="linux-ci" data-status="passed">
+              <span class="run-record-main">
+                <strong>linux-ci <em>#183</em></strong>
+                <small>4e81ad90 · 3m 58s<span class="run-record-time"> · completed 10:29 AM</span></small>
+              </span>
+              <span class="run-record-source">
+                <strong>Manual</strong>
+                <small>v17 · 8a91c0e4</small>
+              </span>
+              <span class="status status--passed">passed</span>
+            </a>
+            <a class="run-record-row" href="run-detail.html" data-job="linux-ci" data-status="failed">
+              <span class="run-record-main">
+                <strong>linux-ci <em>#182</em></strong>
+                <small>a7d1c2be · 1m 44s<span class="run-record-time"> · completed 10:06 AM</span></small>
+              </span>
+              <span class="run-record-source">
+                <strong>Webhook</strong>
+                <small>v16 · 2e017b64</small>
+              </span>
+              <span class="status status--failed">failed</span>
+            </a>
+            <a class="run-record-row" href="run-detail.html" data-job="linux-ci" data-status="passed">
+              <span class="run-record-main">
+                <strong>linux-ci <em>#181</em></strong>
+                <small>90c14e22 · 4m 06s<span class="run-record-time"> · completed 9:44 AM</span></small>
+              </span>
+              <span class="run-record-source">
+                <strong>Manual</strong>
+                <small>v16 · 2e017b64</small>
+              </span>
+              <span class="status status--passed">passed</span>
+            </a>
+            <a class="run-record-row" href="run-detail.html" data-job="linux-ci" data-status="passed">
+              <span class="run-record-main">
+                <strong>linux-ci <em>#180</em></strong>
+                <small>bb4a781d · 4m 19s<span class="run-record-time"> · completed 9:12 AM</span></small>
+              </span>
+              <span class="run-record-source">
+                <strong>Webhook</strong>
+                <small>v16 · 2e017b64</small>
+              </span>
+              <span class="status status--passed">passed</span>
+            </a>
+            <a class="run-record-row" href="run-detail.html" data-job="linux-ci" data-status="passed">
+              <span class="run-record-main">
+                <strong>linux-ci <em>#179</em></strong>
+                <small>2ad9100f · 3m 51s<span class="run-record-time"> · completed 8:55 AM</span></small>
+              </span>
+              <span class="run-record-source">
+                <strong>Manual</strong>
+                <small>v15 · b902d7fc</small>
+              </span>
+              <span class="status status--passed">passed</span>
+            </a>
+            <a class="run-record-row" href="run-detail.html" data-job="linux-ci" data-status="failed">
+              <span class="run-record-main">
+                <strong>linux-ci <em>#178</em></strong>
+                <small>03f2bc6a · 2m 12s<span class="run-record-time"> · completed 8:19 AM</span></small>
+              </span>
+              <span class="run-record-source">
+                <strong>Webhook</strong>
+                <small>v15 · b902d7fc</small>
+              </span>
+              <span class="status status--failed">failed</span>
+            </a>
+            <a class="run-record-row" href="run-detail.html" data-job="linux-ci" data-status="passed">
+              <span class="run-record-main">
+                <strong>linux-ci <em>#177</em></strong>
+                <small>f71e43c8 · 4m 01s<span class="run-record-time"> · completed 7:58 AM</span></small>
+              </span>
+              <span class="run-record-source">
+                <strong>Manual</strong>
+                <small>v15 · b902d7fc</small>
+              </span>
+              <span class="status status--passed">passed</span>
+            </a>
+            <a class="run-record-row" href="run-detail.html" data-job="api-smoke" data-status="running">
+              <span class="run-record-main">
+                <strong>api-smoke <em>#812</em></strong>
+                <small>b82e19f4 · 6m 03s<span class="run-record-time"> · started 10:40 AM</span></small>
+              </span>
+              <span class="run-record-source">
+                <strong>Webhook</strong>
+                <small>v42 · c8a10f20</small>
+              </span>
+              <span class="status status--running">running</span>
+            </a>
+            <a class="run-record-row" href="run-detail.html" data-job="docs-check" data-status="running">
+              <span class="run-record-main">
+                <strong>docs-check <em>#392</em></strong>
+                <small>14d9a6b0 · 8m 31s<span class="run-record-time"> · started 10:35 AM</span></small>
+              </span>
+              <span class="run-record-source">
+                <strong>Manual</strong>
+                <small>v9 · 4c0da211</small>
+              </span>
+              <span class="status status--running">running</span>
+            </a>
+            <a class="run-record-row" href="run-detail.html" data-job="nightly-load" data-status="failed">
+              <span class="run-record-main">
+                <strong>nightly-load <em>#88</em></strong>
+                <small>a19f03de · 14m 02s<span class="run-record-time"> · completed 10:32 AM</span></small>
+              </span>
+              <span class="run-record-source">
+                <strong>Cron</strong>
+                <small>v31 · 992d0f1e</small>
+              </span>
+              <span class="status status--failed">failed</span>
+            </a>
+            <a class="run-record-row" href="run-detail.html" data-job="release-image" data-status="failed">
+              <span class="run-record-main">
+                <strong>release-image <em>#51</em></strong>
+                <small>75c1d0ab · 8m 11s<span class="run-record-time"> · completed 10:21 AM</span></small>
+              </span>
+              <span class="run-record-source">
+                <strong>Manual</strong>
+                <small>v12 · c7725ef4</small>
+              </span>
+              <span class="status status--failed">failed</span>
+            </a>
+            <a class="run-record-row" href="run-detail.html" data-job="security-scan" data-status="passed">
+              <span class="run-record-main">
+                <strong>security-scan <em>#267</em></strong>
+                <small>0b94d223 · 5m 27s<span class="run-record-time"> · completed 10:16 AM</span></small>
+              </span>
+              <span class="run-record-source">
+                <strong>Webhook</strong>
+                <small>v23 · 8fe21971</small>
+              </span>
+              <span class="status status--passed">passed</span>
+            </a>
+            <a class="run-record-row" href="run-detail.html" data-job="schema-check" data-status="failed">
+              <span class="run-record-main">
+                <strong>schema-check <em>#140</em></strong>
+                <small>e2c48691 · 2m 09s<span class="run-record-time"> · completed 10:11 AM</span></small>
+              </span>
+              <span class="run-record-source">
+                <strong>Manual</strong>
+                <small>v18 · 601bdd0a</small>
+              </span>
+              <span class="status status--failed">failed</span>
+            </a>
+            <a class="run-record-row" href="run-detail.html" data-job="staging-promote" data-status="queued">
+              <span class="run-record-main">
+                <strong>staging-promote <em>#73</em></strong>
+                <small>618bfc94 · queued 52s<span class="run-record-time"> · waiting for worker</span></small>
+              </span>
+              <span class="run-record-source">
+                <strong>Manual</strong>
+                <small>v7 · 71d0fa33</small>
+              </span>
+              <span class="status status--disabled">queued</span>
+            </a>
+          </div>
+
+          <div class="catalog-footer">
+            <span data-run-footer>1-15 of 128</span>
+            <div class="catalog-pager" aria-label="Run pages">
+              <button class="inline-action" type="button" disabled>Previous</button>
+              <button class="inline-action" type="button">Next</button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const root = document.documentElement;
+      const storedTheme = localStorage.getItem('vectis-console-theme');
+      if (storedTheme) {
+        root.dataset.theme = storedTheme;
+      }
+
+      document.querySelector('[data-theme-toggle]').addEventListener('click', () => {
+        const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+        root.dataset.theme = next;
+        localStorage.setItem('vectis-console-theme', next);
+      });
+
+      const search = document.querySelector('#run-search');
+      const scopeChip = document.querySelector('[data-run-scope]');
+      const rows = [...document.querySelectorAll('.run-record-row')];
+      const footer = document.querySelector('[data-run-footer]');
+      const chips = [...document.querySelectorAll('.filter-pill')];
+      const params = new URLSearchParams(window.location.search);
+
+      const updateRuns = ({ job, status }, { replaceUrl = false } = {}) => {
+        const search = document.querySelector('#run-search');
+        search.value = [job && `job:${job}`, status && `status:${status}`].filter(Boolean).join(' ');
+
+        scopeChip.hidden = !job;
+        scopeChip.textContent = job || '';
+
+        chips.forEach((pill) => {
+          const value = pill.textContent.trim().toLowerCase();
+          pill.classList.toggle('filter-pill--active', status ? value === status : value === 'all');
+        });
+
+        rows.forEach((row) => {
+          row.hidden = (job && row.dataset.job !== job) || (status && row.dataset.status !== status);
+        });
+
+        const visible = rows.filter((row) => !row.hidden).length;
+        footer.textContent = `1-${visible} of ${job ? '184' : status ? '39' : '128'}`;
+
+        const nextParams = new URLSearchParams();
+        if (job) nextParams.set('job', job);
+        if (status) nextParams.set('status', status);
+        const nextUrl = `${window.location.pathname}${nextParams.toString() ? `?${nextParams}` : ''}`;
+        history[replaceUrl ? 'replaceState' : 'pushState']({}, '', nextUrl);
+      };
+
+      let activeFilters = {
+        job: params.get('job'),
+        status: params.get('status'),
+      };
+
+      updateRuns(activeFilters, { replaceUrl: true });
+
+      chips.forEach((pill) => {
+        pill.addEventListener('click', () => {
+          const value = pill.textContent.trim().toLowerCase();
+          const nextStatus = value === 'all' || activeFilters.status === value ? null : value;
+          activeFilters = { ...activeFilters, status: nextStatus };
+          updateRuns(activeFilters);
+        });
+      });
+
+    </script>
+  </body>
+</html>

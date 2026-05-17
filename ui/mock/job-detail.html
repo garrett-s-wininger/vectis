@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Vectis Job Detail Mock</title>
-    <link rel="stylesheet" href="styles.css?v=job-detail-rowlinks1" />
+    <link rel="stylesheet" href="styles.css?v=detail-gap1" />
   </head>
   <body>
     <div class="app-shell">
@@ -18,6 +18,7 @@
         <nav class="topnav" aria-label="Primary">
           <a class="topnav__link" href="index.html">Dashboard</a>
           <a class="topnav__link topnav__link--active" href="jobs.html">Jobs</a>
+          <a class="topnav__link" href="run-history.html">Runs</a>
         </nav>
         <div class="topbar__actions">
           <button class="icon-button" type="button" aria-label="Toggle theme" title="Toggle theme" data-theme-toggle>
@@ -64,7 +65,7 @@
           <section class="runs-history-panel" aria-labelledby="runs-title">
             <div class="panel-title">
               <h2 id="runs-title">Runs</h2>
-              <button class="inline-action" type="button">View all</button>
+              <a class="inline-action" href="run-history.html?job=linux-ci">View all</a>
             </div>
             <div class="run-history-list">
               <a class="run-history-row" href="run-detail.html">
@@ -112,7 +113,7 @@
               <div class="trigger-row">
                 <div>
                   <strong>Manual</strong>
-                  <small>Run from API, CLI, or UI</small>
+                  <small>API, CLI, or UI</small>
                 </div>
                 <span class="status status--enabled">enabled</span>
               </div>
@@ -126,9 +127,15 @@
             </div>
           </section>
 
-          <section class="definition-detail-panel" aria-labelledby="definition-title">
-            <div class="panel-title">
-              <h2 id="definition-title">Definition</h2>
+          <details class="definition-detail-panel artifact-panel" aria-labelledby="definition-title" open>
+            <summary class="panel-title artifact-summary">
+              <span class="artifact-heading">
+                <h2 id="definition-title">Definition</h2>
+                <small>Spec</small>
+              </span>
+              <span class="artifact-toggle" aria-hidden="true"></span>
+            </summary>
+            <div class="artifact-actions">
               <button class="inline-action" type="button">Edit</button>
             </div>
             <pre><code>{
@@ -141,7 +148,7 @@
     }
   }
 }</code></pre>
-          </section>
+          </details>
 
           <section class="history-panel" aria-labelledby="revision-title">
             <div class="panel-title">
@@ -189,6 +196,16 @@
         root.dataset.theme = next;
         localStorage.setItem('vectis-console-theme', next);
       });
+
+      const syncArtifacts = () => {
+        const mobile = window.matchMedia('(max-width: 520px)').matches;
+        document.querySelectorAll('.artifact-panel').forEach((panel) => {
+          panel.open = !mobile;
+        });
+      };
+
+      syncArtifacts();
+      window.addEventListener('resize', syncArtifacts);
     </script>
   </body>
 </html>

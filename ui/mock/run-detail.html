@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Vectis Run Detail Mock</title>
-    <link rel="stylesheet" href="styles.css?v=run-detail9" />
+    <link rel="stylesheet" href="styles.css?v=run-execution1" />
   </head>
   <body>
     <div class="app-shell">
@@ -17,7 +17,8 @@
         </a>
         <nav class="topnav" aria-label="Primary">
           <a class="topnav__link" href="index.html">Dashboard</a>
-          <a class="topnav__link topnav__link--active" href="jobs.html">Jobs</a>
+          <a class="topnav__link" href="jobs.html">Jobs</a>
+          <a class="topnav__link topnav__link--active" href="run-history.html">Runs</a>
         </nav>
         <div class="topbar__actions">
           <button class="icon-button" type="button" aria-label="Toggle theme" title="Toggle theme" data-theme-toggle>
@@ -44,44 +45,44 @@
         </section>
 
         <div class="run-detail-stack">
-          <section class="run-overview-panel" aria-labelledby="run-overview-title">
+          <section class="run-execution-panel" aria-labelledby="execution-title">
             <div class="panel-title">
-              <h2 id="run-overview-title">Overview</h2>
+              <h2 id="execution-title">Execution</h2>
               <span class="status status--running">running</span>
             </div>
-            <div class="run-summary-grid">
-              <section class="overview-item">
-                <span>Run ID</span>
-                <strong class="identifier-value">6f4c2d7a</strong>
+            <div class="execution-grid">
+              <section class="execution-item execution-item--primary">
+                <span>Current step</span>
+                <strong>test</strong>
+                <small>builtins/shell</small>
               </section>
-              <section class="overview-item overview-item--wide">
-                <span>Job</span>
-                <strong>linux-ci</strong>
-                <small>Pull request validation for Go services</small>
-              </section>
-              <section class="overview-item">
-                <span>Timing</span>
+              <section class="execution-item">
+                <span>Elapsed</span>
                 <strong>4m 12s</strong>
                 <small>Started 10:42 AM</small>
               </section>
-            </div>
-          </section>
-
-          <section class="run-source-panel" aria-labelledby="source-title">
-            <div class="panel-title">
-              <h2 id="source-title">Source</h2>
-            </div>
-            <div class="run-source-grid">
-              <section class="overview-item">
-                <span>Trigger</span>
-                <strong>Manual</strong>
-                <small>Run from API, CLI, or UI</small>
+              <section class="execution-item">
+                <span>Step progress</span>
+                <strong>2 of 3</strong>
               </section>
-              <section class="overview-item">
-                <span>Revision</span>
-                <strong>v17</strong>
-                <small class="identifier-value identifier-value--small">8a91c0e4</small>
-              </section>
+            </div>
+            <div class="execution-progress" aria-label="Step status counts">
+              <span class="execution-count execution-count--completed">
+                <strong>1</strong>
+                completed
+              </span>
+              <span class="execution-count execution-count--running">
+                <strong>1</strong>
+                running
+              </span>
+              <span class="execution-count execution-count--cancelled">
+                <strong>0</strong>
+                cancelled
+              </span>
+              <span class="execution-count execution-count--failed">
+                <strong>0</strong>
+                failed
+              </span>
             </div>
           </section>
 
@@ -91,7 +92,7 @@
               <span>3 steps</span>
             </div>
             <div class="action-tree">
-              <div class="action-row action-row--passed">
+              <a class="action-row action-row--passed" href="#logs-title">
                 <div class="action-node" aria-hidden="true"></div>
                 <div class="action-main">
                   <strong>checkout</strong>
@@ -99,17 +100,17 @@
                 </div>
                 <span class="duration-chip">18s</span>
                 <span class="status status--passed">passed</span>
-              </div>
-              <div class="action-row action-row--running">
+              </a>
+              <a class="action-row action-row--running action-row--active" href="#logs-title">
                 <div class="action-node" aria-hidden="true"></div>
                 <div class="action-main">
                   <strong>test</strong>
-                  <small>builtins/shell · go test ./...</small>
+                  <small>builtins/shell</small>
                 </div>
                 <span class="duration-chip">3m 54s</span>
                 <span class="status status--running">running</span>
-              </div>
-              <div class="action-row">
+              </a>
+              <a class="action-row" href="#logs-title">
                 <div class="action-node" aria-hidden="true"></div>
                 <div class="action-main">
                   <strong>package</strong>
@@ -117,13 +118,19 @@
                 </div>
                 <span class="duration-chip">pending</span>
                 <span class="status status--disabled">queued</span>
-              </div>
+              </a>
             </div>
           </section>
 
-          <section class="logs-detail-panel" aria-labelledby="logs-title">
-            <div class="panel-title">
-              <h2 id="logs-title">Logs</h2>
+          <details class="logs-detail-panel artifact-panel" aria-labelledby="logs-title" open>
+            <summary class="panel-title artifact-summary">
+              <span class="artifact-heading">
+                <h2 id="logs-title">Logs</h2>
+                <small>test step, last entry 10:46 AM</small>
+              </span>
+              <span class="artifact-toggle" aria-hidden="true"></span>
+            </summary>
+            <div class="artifact-actions">
               <div class="log-controls" aria-label="Log filters">
                 <button class="filter-pill filter-pill--active" type="button">All</button>
                 <button class="filter-pill" type="button">Stdout</button>
@@ -137,6 +144,46 @@
 <span class="log-line"><span>10:44:19</span><span>stdout</span><span>ok vectis/internal/queue 1.227s</span></span>
 <span class="log-line log-line--warn"><span>10:45:52</span><span>stderr</span><span>internal/api: waiting on integration fixture</span></span>
 <span class="log-line"><span>10:46:17</span><span>stdout</span><span>still running tests...</span></span></code></pre>
+          </details>
+
+          <section class="run-overview-panel" aria-labelledby="run-overview-title">
+            <div class="panel-title">
+              <h2 id="run-overview-title">Metadata</h2>
+            </div>
+            <div class="run-summary-grid">
+              <section class="overview-item">
+                <span>Run ID</span>
+                <strong class="identifier-value">6f4c2d7a</strong>
+              </section>
+              <section class="overview-item overview-item--wide">
+                <span>Job</span>
+                <strong>linux-ci</strong>
+                <small>Pull request validation for Go services</small>
+              </section>
+              <section class="overview-item">
+                <span>Started</span>
+                <strong>10:42 AM</strong>
+                <small>May 16, 2026</small>
+              </section>
+            </div>
+          </section>
+
+          <section class="run-source-panel" aria-labelledby="source-title">
+            <div class="panel-title">
+              <h2 id="source-title">Source</h2>
+            </div>
+            <div class="run-source-grid">
+              <section class="overview-item">
+                <span>Trigger</span>
+                <strong>Manual</strong>
+                <small>API, CLI, or UI</small>
+              </section>
+              <section class="overview-item">
+                <span>Revision</span>
+                <strong>v17</strong>
+                <small class="identifier-value identifier-value--small">8a91c0e4</small>
+              </section>
+            </div>
           </section>
         </div>
       </main>
@@ -154,6 +201,16 @@
         root.dataset.theme = next;
         localStorage.setItem('vectis-console-theme', next);
       });
+
+      const syncArtifacts = () => {
+        const mobile = window.matchMedia('(max-width: 520px)').matches;
+        document.querySelectorAll('.artifact-panel').forEach((panel) => {
+          panel.open = !mobile;
+        });
+      };
+
+      syncArtifacts();
+      window.addEventListener('resize', syncArtifacts);
     </script>
   </body>
 </html>
