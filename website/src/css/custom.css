@@ -505,6 +505,23 @@ html[data-theme='light'] .theme-back-to-top-button:hover {
   background-color: rgba(255, 255, 255, 0.06);
 }
 
+[data-theme='dark'] .navbar .clean-btn,
+[data-theme='dark'] .navbar-sidebar .clean-btn {
+  color: var(--vectis-nav-link-muted);
+}
+
+[data-theme='dark'] .navbar .clean-btn:hover:not(:disabled),
+[data-theme='dark'] .navbar-sidebar .clean-btn:hover:not(:disabled) {
+  color: #ffffff;
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+[data-theme='dark'] .navbar .clean-btn:disabled,
+[data-theme='dark'] .navbar-sidebar .clean-btn:disabled {
+  color: var(--vectis-nav-link-muted);
+  opacity: 0.65;
+}
+
 [data-theme='dark'] .navbar__link--active {
   color: var(--vectis-selection-fg);
   font-weight: 700;
