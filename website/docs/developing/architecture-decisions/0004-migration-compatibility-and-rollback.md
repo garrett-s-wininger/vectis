@@ -6,7 +6,9 @@ Accepted
 
 ## Context
 
-Vectis supports SQLite for local and small deployments and Postgres for production-oriented deployments. The same binaries may be rolled out gradually, and runtime services wait for the expected schema instead of applying migrations themselves. Operators need database changes to have a predictable compatibility and rollback story.
+Vectis supports SQLite for local and small deployments and Postgres for production-oriented deployments. The same binaries may be rolled out gradually, and runtime services wait for the expected schema instead of applying migrations themselves.
+
+Operators need database changes to have a predictable compatibility and rollback story. Maintainers need migration review to cover behavior across both supported backends, not just whether the SQL applies cleanly.
 
 ## Decision
 
@@ -29,3 +31,10 @@ Down migrations are required for development reversibility and automated confide
 - Operators can read a release note and know whether a migration allows rolling upgrades.
 - Maintainers must keep migration review focused on compatibility, not just SQL syntax.
 - Some releases may choose explicit downtime when compatibility would be more dangerous than a coordinated rollout.
+
+## References
+
+- [Database Migrations](../migrations.md)
+- [Releases](../releases.md)
+- `internal/migrations/sqlite/`
+- `internal/migrations/postgres/`

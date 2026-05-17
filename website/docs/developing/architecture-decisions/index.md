@@ -1,13 +1,26 @@
 # Architecture Decision Records (ADRs)
 
-Short, **append-only** notes that capture **why** we made a non-obvious design choice. They complement [ARCHITECTURE.md](../../concepts/architecture.md) (what exists) and [PLANNING.md](../roadmap/planning.md) (§1 goals, §4+ roadmap).
+ADRs are short, append-only notes that capture why Vectis made a non-obvious design choice. They complement [Architecture](../../concepts/architecture.md), which explains what exists now, and [Planning](../roadmap/planning.md), which tracks goals and future work.
 
-New decisions add the next numbered file; prefer **superseded** status over deleting history.
+## When To Add One
 
-| ADR | Title |
-| --- | --- |
-| [0001](./0001-async-enqueue-after-http-202.md) | Async enqueue after HTTP 202 |
-| [0002](./0002-standalone-reconciler-process.md) | Standalone reconciler process |
-| [0003](./0003-database-claims-and-queue-deliveries.md) | Database claims and queue deliveries |
-| [0004](./0004-migration-compatibility-and-rollback.md) | Migration compatibility and rollback |
-| [0005](./0005-gossip-based-ha-registry.md) | Gossip-based HA service registry |
+Write an ADR when a choice changes Vectis' architecture, operator contract, developer workflow, or long-term compatibility story. Usually skip an ADR for small refactors, straightforward bug fixes, or implementation details already explained well in code.
+
+New decisions add the next numbered file. Keep older decisions in place; when a decision changes, add a new ADR and mark the old one as superseded instead of rewriting history.
+
+## Current Decisions
+
+| ADR | Status | Decision |
+| --- | --- | --- |
+| [0001](./0001-async-enqueue-after-http-202.md) | Accepted | Async enqueue after HTTP 202 |
+| [0002](./0002-standalone-reconciler-process.md) | Accepted | Standalone reconciler process |
+| [0003](./0003-database-claims-and-queue-deliveries.md) | Accepted | Database claims and queue deliveries |
+| [0004](./0004-migration-compatibility-and-rollback.md) | Accepted | Migration compatibility and rollback |
+| [0005](./0005-gossip-based-ha-registry.md) | Accepted | Gossip-based HA service registry |
+
+## Writing Style
+
+- Keep the reader at maintainer level: enough context to understand the tradeoff, not a full implementation walkthrough.
+- Use `Context`, `Decision`, `Consequences`, and `References` unless the decision needs a different shape.
+- Link to user or operator docs when the decision affects their mental model.
+- Link to code references for the source of truth, but avoid turning the ADR into a code tour.

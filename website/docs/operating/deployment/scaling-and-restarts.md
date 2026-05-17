@@ -15,7 +15,7 @@ This page answers "is this component topology supported, and what happens when i
 | API | Can be replicated for stateless HTTP traffic with caveats. Keep the reconciler healthy. |
 | Workers | Primary safe scale-out unit. Add workers to increase job throughput. |
 | Queue | Run one active queue. Active/active queue replicas are not supported. |
-| Registry | Run one registry or avoid it with pinned addresses. Multiple registries are not a shared cluster today. |
+| Registry | Run one registry by default, configure gossip clustering deliberately, or avoid registry dependency with pinned addresses. |
 | Log service | Run one active log service unless you add external storage/routing. |
 | Cron | Run one active cron unless you intentionally partition schedules or use an external scheduler. |
 | Reconciler | Run one active reconciler for the current posture. |
@@ -29,7 +29,7 @@ This page answers "is this component topology supported, and what happens when i
 | `vectis-api` | 1 | Conditional | Multiple API replicas can serve HTTP against the same database and queue. Rate limits are in-process per replica, SSE clients must reconnect through load balancers, and accepted-but-not-enqueued runs rely on the reconciler if an API exits after `202`. |
 | `vectis-worker` | N | Yes | Each worker executes one run at a time. Database claims and leases guard persisted runs against duplicate execution even if queue handoff is duplicated. Size DB pools, queue delivery timeouts, and log capacity for the fleet. |
 | `vectis-queue` | 1 | No active/active | Queue delivery state is owned by one queue process, with optional local persistence. Use one active endpoint and durable storage. |
-| `vectis-registry` | 1 | Not as a shared registry | Registry state is in memory. Multiple registries are independent unless your deployment routes clients deliberately. Pin addresses if registry availability is a concern. |
+| `vectis-registry` | 1 | Conditional | Single registry is the safe default. Gossip-based HA registry is available when every registry node is configured with static cluster membership; otherwise, multiple registries are independent. Pin addresses if registry availability is a concern. |
 | `vectis-log` | 1 | Not active/active | Durable log files and active stream buffers are local to the service. Multiple instances do not share run logs without external storage/routing. |
 | `vectis-cron` | 1 | Not without coordination | Schedule claiming helps during a firing attempt, but Vectis does not provide a cron leader-election or sharding contract. Avoid uncoordinated duplicates. |
 | `vectis-reconciler` | 1 | Limited, not recommended as default | Duplicate handoff is usually guarded by worker run claims, but duplicate repair traffic is still operational noise. Use one active reconciler unless you have tested the behavior. |
@@ -76,7 +76,7 @@ These services should usually remain singleton in the current architecture:
 | Cron | Vectis does not yet provide a leader-election or schedule-sharding deployment contract. |
 | Reconciler | Duplicate repair handoff is tolerable for persisted runs but can add noise; one active reconciler is the safe default. |
 
-Registry is also commonly singleton, but you can reduce registry importance by pinning queue and log addresses. See [Configuration](../configuration.md#service-discovery-vs-fixed-addresses).
+Registry is also commonly singleton. Gossip-based registry HA is an advanced configured posture, not something you get by starting extra registry processes with independent state. You can also reduce registry importance by pinning queue and log addresses. See [Configuration](../configuration.md#service-discovery-vs-fixed-addresses).
 
 ## Restart Behavior
 
@@ -84,7 +84,7 @@ Registry is also commonly singleton, but you can reduce registry importance by p
 | --- | --- | --- |
 | `vectis-api` | Stops accepting new HTTP requests and gives in-flight requests/SSE streams a bounded drain window. Detached enqueue work is not joined. | Use readiness checks and client retries. Keep reconciler running for accepted runs that missed queue handoff. |
 | `vectis-queue` | Reloads pending and in-flight delivery metadata when persistence is enabled. Without persistence, in-memory queue state is lost. | Use one active queue and persistent storage for planned restarts. Watch queue depth, delivery age, and reconciler repair. |
-| `vectis-registry` | In-memory registrations are lost and must be republished. | Restart before dependents when possible, or pin addresses for critical paths. |
+| `vectis-registry` | A single registry loses in-memory registrations and must receive fresh registrations. In a configured gossip cluster, peers can retain converged entries within lease and tombstone behavior. | Restart before dependents when possible, keep HA registry membership stable during planned restarts, or pin addresses for critical paths. |
 | `vectis-log` | Ingest and log streams are interrupted. Durable log files remain if storage is preserved; stream buffers are process-local. | Restart during a quiet window when possible. Workers need log service availability before executing runs. |
 | `vectis-worker` | On `SIGINT` or `SIGTERM`, stops dequeuing and lets the current job continue toward finalization. Abrupt death relies on leases, queue delivery timeout, and repair. | Roll workers gradually. Use graceful termination windows long enough for normal jobs, or expect long jobs to rely on lease/reconciler behavior after hard stops. |
 | `vectis-log-forwarder` | Local spool preserves unsent batches when configured and writable. | Preserve spool storage and watch age/size. |
