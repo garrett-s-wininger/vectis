@@ -1,20 +1,40 @@
 # Contributing to Vectis
 
-## Pull requests
+## Pull Requests
 
-We are **not accepting pull requests** right now. The design is still settling and the feature surface is deliberately small; we want both to stabilize and grow before taking outside contributions.
+Vectis is not accepting outside pull requests yet. The design is still settling, and the public feature surface is deliberately small while the project hardens.
 
-Everything below still applies if you are building from source, experimenting locally, or maintaining a fork.
+Everything below is still useful if you are building from source, maintaining a fork, or working inside the project.
+
+## Start Here
+
+For a normal local development loop:
+
+```bash
+make build
+./bin/vectis-local
+```
+
+In another terminal:
+
+```bash
+./bin/vectis-cli health check
+./bin/vectis-cli jobs run examples/sequenced.json --follow
+```
+
+That confirms the binaries build, the local stack starts, the API is reachable, and a worker can execute a job.
 
 ## Prerequisites
 
-- **Go** version matching [`go.mod`](go.mod) (currently 1.25.10+)
-- **Git**
-- **SQLite** for the default local database stack: `github.com/mattn/go-sqlite3` links against the system `libsqlite3`. Schema is applied from embedded SQL under [`internal/migrations/sqlite/`](internal/migrations/sqlite/) (baseline `001_initial`).
+- Go `1.25.10+`, matching [go.mod](go.mod).
+- Git.
+- CGO enabled for the default local SQLite build. This is the normal Go default on most developer machines.
 
-Optional:
+Optional tools:
 
-- **Protobuf tools** for codegen: `protoc`, `protoc-gen-go`, and `protoc-gen-go-grpc`. Override the `PROTOC`, `PROTOC_GEN_GO`, or `PROTOC_GEN_GO_GRPC` Make variables if needed.
+- `protoc`, `protoc-gen-go`, and `protoc-gen-go-grpc` when editing files under [api/proto/](api/proto/).
+- Podman when using the reference deployment commands.
+- Java and `/opt/tla+/tla2tools.jar` when running formal verification.
 
 ## Build
 
@@ -22,85 +42,125 @@ Optional:
 make build
 ```
 
-Outputs `bin/vectis-api`, `bin/vectis-cli`, `bin/vectis-cron`, `bin/vectis-local`, `bin/vectis-log`, `bin/vectis-queue`, `bin/vectis-reconciler`, `bin/vectis-registry`, `bin/vectis-worker`.
+This writes the Vectis binaries to `bin/`.
 
-Static binaries (for containers, etc.):
+For container-oriented static builds:
 
 ```bash
 make build-container
 ```
 
-Container images ([`build/Containerfile`](build/Containerfile)) use **`make build-container`** with **`CGO_ENABLED=0`** and **`-tags=nosqlite`**, so binaries link **pgx only** (Postgres). That produces a **static enough** binary for `scratch` (no C toolchain: pure Go does not need musl/gcc). Local `make build` still includes SQLite via CGO. To build the same way locally: `CGO_ENABLED=0 make build-container`.
+Container builds disable SQLite with `CGO_ENABLED=0` and `-tags=nosqlite`, so they use the Postgres driver path.
 
-## Tests
+## Test
+
+Use the smallest test command that gives useful feedback:
 
 ```bash
-make test              # all packages: go test ./...
-make test-quick        # unit tests only, 60s timeout for fast feedback
-make test-integration  # integration tests: go test -tags=integration ./...
-make test-race         # race detector: go test -race ./...
+make test-quick        # fast unit feedback
+make test              # all default Go tests
+make test-integration  # integration tests with the integration build tag
+make test-race         # race detector
 ```
 
-Scoped tests:
+For a narrow package loop:
 
 ```bash
 go test ./internal/api/...
 ```
 
-**Fuzzing (API auth helpers):**
+API auth fuzz targets are available when you need them:
 
 ```bash
-make fuzz-api-auth              # default 30s per target; override: FUZZTIME=2m make fuzz-api-auth
+make fuzz-api-auth
 go test -fuzz=FuzzBearerToken -fuzztime=1m ./internal/api
 ```
 
-## Formatting and modules
+## Format And Dependencies
 
 ```bash
-make format   # go fix, go fmt, go mod tidy
+make format
 ```
 
-## Protobuf / gRPC
+This runs the repository's formatting and module cleanup workflow.
 
-Sources live under [`api/proto/`](api/proto/). Generated Go is under [`api/gen/go/`](api/gen/go/) (do not hand-edit).
+## Protobuf
 
-After changing `.proto` files:
+Source `.proto` files live in [api/proto/](api/proto/). Generated Go lives in [api/gen/go/](api/gen/go/) and should not be edited by hand.
+
+After changing protobufs:
 
 ```bash
 make proto
 ```
 
-Requires `protoc`, `protoc-gen-go`, and `protoc-gen-go-grpc`. Codegen uses local tools only.
+Commit the generated files with the proto change.
 
-## Running services
+## Running Services
 
-**Full stack (typical):**
+Use `vectis-local` for the normal local stack:
 
 ```bash
 make build
 ./bin/vectis-local
 ```
 
-For Postgres (Podman/Kube), use `vectis-cli deploy podman up`.
+For the Podman reference deployment:
 
-If you change JSON under [`deploy/grafana/dashboards/`](deploy/grafana/dashboards/), regenerate the kube ConfigMap bundle with **`python3 deploy/podman/generate-grafana-configmaps.py -o deploy/podman/grafana-configmaps.gen.yaml`** so [`deploy/podman/grafana-configmaps.gen.yaml`](deploy/podman/grafana-configmaps.gen.yaml) stays in sync (see [Planning](./website/docs/developing/roadmap/planning.md) §10).
+```bash
+make images-components
+./bin/vectis-cli deploy podman up
+```
 
-**Single service** (for debugging): run the matching binary from `bin/` after `make build`. Each `cmd/<name>/main.go` defines flags and startup; components discover queue/log addresses via **registry** when that pattern is used (see [Architecture](./website/docs/concepts/architecture.md) or [Planning](./website/docs/developing/roadmap/planning.md) §2).
+For single-service debugging, build first, then run the matching binary from `bin/`. Each service's flags and startup behavior live under `cmd/<name>/main.go`; shared defaults live in [internal/config/defaults.toml](internal/config/defaults.toml). For operator-facing configuration, use [Configuration](./website/docs/operating/configuration.md).
 
-Ensure SQLite’s parent directory exists if you open the DB outside `vectis-local` (see `database.OpenDB` / `GetDBPath`).
+If you change dashboard JSON under [deploy/grafana/dashboards/](deploy/grafana/dashboards/), regenerate the Podman ConfigMap bundle:
 
-## Configuration
+```bash
+python3 deploy/podman/generate-grafana-configmaps.py -o deploy/podman/grafana-configmaps.gen.yaml
+```
 
-Embedded defaults: [`internal/config/defaults.toml`](internal/config/defaults.toml). Some binaries also honor environment variables (`VECTIS_*` where wired); prefer reading the relevant `cmd/*/main.go` and `internal/config` for truth.
+## Where To Change Things
 
-## Design and roadmap
+| Area | Start here |
+| --- | --- |
+| HTTP API, auth, RBAC | `internal/api/` |
+| SQL schema and repositories | `internal/migrations/`, `internal/dal/` |
+| gRPC contracts | `api/proto/`, then `make proto` |
+| Queue and queue client behavior | `internal/queue/`, `internal/queueclient/` |
+| Worker execution and actions | `internal/job/`, `internal/action/`, `cmd/worker/` |
+| Log ingest and forwarding | `internal/logserver/`, `internal/logforwarder/` |
+| Service discovery | `internal/registry/`, `internal/resolver/` |
+| Cron and repair | `internal/cron/`, `internal/reconciler/` |
+| Docs site | `website/docs/`, `website/src/css/custom.css`, `website/sidebars.js` |
+| Reference deployment | `deploy/` |
 
-**As-built** architecture: [Architecture](./website/docs/concepts/architecture.md). **Configuration** (env, flags): [Configuration](./website/docs/operating/configuration.md). **Glossary:** [Glossary](./website/docs/concepts/glossary.md). **ADRs** (significant design decisions): [ADRs](./website/docs/developing/architecture-decisions/index.md). **Security:** [Security](./website/docs/concepts/security.md). **Design goals** (§1), large design decisions, and **target vs shipped** behavior are documented in [Planning](./website/docs/developing/roadmap/planning.md). Prefer updating PLANNING (or [Federation](./website/docs/developing/roadmap/federation.md) for deferred multi-site material) instead of duplicating long design text in this guide; keep topology/protocol details in ARCHITECTURE when they change.
+## Documentation And Design
 
-## When pull requests are welcome
+Use the docs site as the durable home for design and operator-facing behavior:
 
-Once we open the project to contributions, we will expect:
+| Need | Document |
+| --- | --- |
+| Current system shape | [Architecture](./website/docs/concepts/architecture.md) |
+| Config, env, storage, TLS | [Configuration](./website/docs/operating/configuration.md) |
+| Failure behavior | [Failure Domains](./website/docs/concepts/failure-domains.md) |
+| Security model | [Security](./website/docs/concepts/security.md) |
+| Compatibility promises | [Compatibility](./website/docs/concepts/compatibility.md) |
+| Database migrations | [Migrations](./website/docs/developing/migrations.md) |
+| Release discipline | [Releases](./website/docs/developing/releases.md) |
+| Product direction | [Planning](./website/docs/developing/roadmap/planning.md) |
+| Major decisions | [Architecture Decision Records](./website/docs/developing/architecture-decisions/index.md) |
 
-- `make test` (and `make test-integration` if you touch integration surfaces).
-- `make proto` and committed `api/gen/go/` when `.proto` files change.
-- Focused commits that match existing style and naming in the packages you touch.
+When behavior changes, update the doc closest to the affected reader. User-facing CLI or API behavior belongs under `Using Vectis`; deployment and repair behavior belongs under `Operating Vectis`; maintainer process belongs under `Developing Vectis`.
+
+## Before A Change Is Ready
+
+For internal work or forked contributions, aim for:
+
+- Focused changes that match nearby package style.
+- Tests appropriate to the risk and surface area.
+- `make proto` and committed generated Go when protobufs change.
+- Migration notes and release notes when schema behavior changes.
+- Docs updates when API, CLI, config, deployment, security, metrics, capacity, or runbook behavior changes.
+
+When outside contributions open later, this section will become the pull request checklist.
