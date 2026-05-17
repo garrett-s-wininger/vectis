@@ -4,7 +4,7 @@ Use these checks when development work might change Vectis throughput, latency, 
 
 This is a developer and release-validation page. It is not a production operator drill framework yet. Operators should use [Capacity And Load Envelope](../../operating/capacity/capacity-load-envelope.md) for the current operating contract and [Scaling And Restarts](../../operating/deployment/scaling-and-restarts.md) for safe replica-count behavior.
 
-## Before You Start
+## When To Run Checks
 
 Run these checks before:
 
@@ -13,16 +13,32 @@ Run these checks before:
 - changing retry, idempotency, dispatch, or repair behavior;
 - publishing a release that claims a new capacity envelope.
 
+For small code changes, a local benchmark and a short note may be enough. For release claims or changes to the operator envelope, capture repeatable evidence in a staging or dedicated test environment.
+
+## Before Generating Load
+
 Use a local, CI, staging, or dedicated test environment. Do not point ad hoc performance experiments at production.
 
-Before generating load:
+Before you start:
 
-1. Pick the question the check should answer, such as "can this worker count drain 200 queued runs?" or "does log streaming stay responsive under 20 readers?"
+1. Pick the question the check should answer, such as "did this queue change regress p99 enqueue/dequeue latency?" or "does this worker count drain 200 queued runs?"
 2. Confirm the environment is disposable, isolated, or backed up.
 3. Confirm the workload is safe to run repeatedly.
 4. Record the current deployment shape and resource limits.
 5. Run `vectis-cli health check --strict` and either start from a clean baseline or record known warnings.
 6. Decide the stop conditions before the check begins.
+
+## Evidence Level
+
+Match the evidence to the risk of the change:
+
+| Change type | Minimum evidence |
+| --- | --- |
+| Queue internals, delivery, persistence, or retry paths | `make capacity-benchmark` output before/after, plus notes on variance. |
+| API trigger, run state, dispatch, or idempotency path | Local benchmark when relevant, plus a deployed-stack check if concurrency behavior changed. |
+| Worker claim, lease, finalization, or log forwarding path | Deployed-stack check with worker count, DB pool settings, queue depth, terminal outcomes, and log health. |
+| Log streaming, replay, or storage path | Deployed-stack check with concurrent readers, log volume, replay behavior, and storage/spool pressure. |
+| Release note that changes the operating envelope | Repeatable check record, raw output, observed limiting component, and docs update. |
 
 ## Check Record
 
@@ -43,7 +59,7 @@ Keep the raw output. Summaries are helpful, but raw output is what lets the next
 
 ## Local Benchmark Check
 
-Use this check when queue behavior, run handoff, or release confidence is the main question.
+Use this check when queue behavior, run handoff, or release confidence is the main question. It currently exercises queue benchmarks under `internal/queue`; it does not prove full API, database, worker, or log-service capacity by itself.
 
 1. Set benchmark duration and repetition count:
 
@@ -57,6 +73,15 @@ VECTIS_CAPACITY_BENCHTIME=5s VECTIS_CAPACITY_COUNT=3 make capacity-benchmark
 5. Investigate changes larger than normal local variance before changing the published envelope.
 
 Use shorter runs for quick local checks and repeated longer runs for baseline changes.
+
+Useful knobs:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `VECTIS_CAPACITY_BENCHTIME` | `2s` | Go benchmark duration per scenario. |
+| `VECTIS_CAPACITY_COUNT` | `1` | Repetition count. Use `3` or more for baseline capture. |
+| `VECTIS_CAPACITY_QUEUE_BENCH` | Queue round-trip, concurrent, sustained, and latency benches | Override to focus on one scenario. |
+| `GO` | `go` | Go binary used by the benchmark script. |
 
 ## Deployed Stack Check
 
@@ -120,6 +145,18 @@ A check passes when:
 3. Open follow-up issues for code, config, dashboards, alerts, or docs.
 4. Update [Capacity And Load Envelope](../../operating/capacity/capacity-load-envelope.md) when the check changes the known-safe range.
 5. If retention, backups, or restore assumptions changed, update the reliability docs before relying on the new operating point.
+
+## PR And Release Notes
+
+When performance evidence matters, include:
+
+- the command or workload generator used;
+- the environment and deployment shape;
+- before/after results or baseline comparison;
+- the first limiting component, if found;
+- whether operator docs or release notes need an envelope change.
+
+If a change plausibly affects capacity but no check was run, say why. That is still useful review context.
 
 ## Future Representative Workloads
 
