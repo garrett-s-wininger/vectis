@@ -242,10 +242,14 @@ h3 {
 }
 
 .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 2.55rem;
   padding: 0.55rem 0.95rem;
   color: var(--ink);
   font-weight: 800;
+  text-decoration: none;
   background: var(--surface);
   border-radius: 3px;
   box-shadow: 2px 2px 0 var(--shadow-hard);
@@ -1225,8 +1229,232 @@ meter {
   gap: 1rem;
 }
 
+.authoring-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.authoring-main {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 0.35fr);
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.form-grid--basics {
+  grid-template-columns: minmax(13rem, 0.38fr) minmax(0, 1fr);
+}
+
+.field {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.field--wide {
+  grid-column: 1 / -1;
+}
+
+.field span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.field input,
+.field select,
+.spec-editor {
+  width: 100%;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  box-shadow: inset 1px 1px 0 color-mix(in srgb, var(--shadow-soft) 90%, transparent);
+}
+
+.field input,
+.field select {
+  min-height: 2.45rem;
+  padding: 0 0.8rem;
+}
+
+.enabled-toggle {
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+  gap: 0.55rem;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.enabled-toggle input {
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 2.2rem;
+  height: 1.18rem;
+  margin: 0;
+  opacity: 0;
+}
+
+.toggle-switch {
+  position: relative;
+  width: 2.2rem;
+  height: 1.18rem;
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--steel) 44%, var(--line));
+  border-radius: 999px;
+  box-shadow: inset 1px 1px 0 color-mix(in srgb, var(--shadow-soft) 88%, transparent);
+}
+
+.toggle-switch::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0.18rem;
+  width: 0.72rem;
+  height: 0.72rem;
+  background: var(--muted);
+  border-radius: 999px;
+  transform: translateY(-50%);
+  transition: left 140ms ease, background-color 140ms ease;
+}
+
+.enabled-toggle input:checked + .toggle-switch {
+  background: var(--steel);
+  border-color: var(--steel);
+}
+
+.enabled-toggle input:checked + .toggle-switch::after {
+  left: 1.14rem;
+  background: #ffffff;
+}
+
+.enabled-toggle input:focus-visible + .toggle-switch {
+  outline: 2px solid color-mix(in srgb, var(--steel) 45%, transparent);
+  outline-offset: 2px;
+}
+
+.enabled-toggle span:last-child {
+  color: var(--ink);
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-transform: none;
+}
+
+.trigger-editor-list {
+  display: grid;
+}
+
+.trigger-editor-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 1rem;
+  align-items: center;
+  min-height: 4.2rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+}
+
+.trigger-editor-row > div {
+  min-width: 0;
+}
+
+.trigger-editor-row strong,
+.trigger-editor-row small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trigger-editor-row small {
+  margin-top: 0.25rem;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.spec-editor {
+  display: block;
+  min-height: 24rem;
+  padding: 1rem;
+  overflow: auto;
+  color: #eef5f7;
+  background: var(--code-bg);
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--line) 62%, transparent);
+  border-radius: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.84rem;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.review-list {
+  display: grid;
+  margin: 0;
+}
+
+.review-list div {
+  display: grid;
+  gap: 0.32rem;
+  min-height: 4rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+}
+
+.review-list dt {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.review-list dd {
+  margin: 0;
+  font-weight: 800;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: color-mix(in srgb, var(--bg) 72%, rgba(6, 12, 16, 0.62));
+  backdrop-filter: blur(8px);
+}
+
+.modal-panel {
+  width: min(34rem, 100%);
+  max-height: min(42rem, 90vh);
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  box-shadow: 0 22px 60px color-mix(in srgb, var(--shadow-hard) 24%, transparent);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  padding: 1rem;
+  border-top: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+}
+
 .job-overview-panel,
 .triggers-panel,
+.authoring-panel,
 .definition-detail-panel,
 .history-panel,
 .runs-history-panel,
@@ -1246,6 +1474,7 @@ meter {
 
 .job-overview-panel,
 .triggers-panel,
+.authoring-panel,
 .history-panel,
 .run-execution-panel,
 .run-overview-panel,
@@ -1771,8 +2000,17 @@ meter {
     display: block;
   }
 
+  .authoring-layout {
+    display: block;
+  }
+
+  .authoring-main {
+    margin-bottom: 1rem;
+  }
+
   .overview-grid,
   .execution-grid,
+  .form-grid,
   .run-summary-grid,
   .run-source-grid {
     grid-template-columns: 1fr;
@@ -1791,6 +2029,7 @@ meter {
 
   .job-overview-panel,
   .triggers-panel,
+  .authoring-panel,
   .definition-detail-panel,
   .history-panel,
   .runs-history-panel,
@@ -1814,6 +2053,7 @@ meter {
   .job-detail-stack > .definition-detail-panel,
   .job-detail-stack > .history-panel,
   .job-detail-stack > .runs-history-panel,
+  .authoring-main > .authoring-panel,
   .run-detail-stack > .run-execution-panel,
   .run-detail-stack > .run-overview-panel,
   .run-detail-stack > .run-source-panel,
@@ -1931,13 +2171,31 @@ meter {
     flex-direction: column;
   }
 
+  .modal-actions {
+    flex-direction: column-reverse;
+  }
+
   .button {
     width: 100%;
   }
 
   .job-detail-stack > *,
-  .run-detail-stack > * {
+  .run-detail-stack > *,
+  .authoring-main > * {
     margin-bottom: 0;
+  }
+
+  .trigger-editor-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .trigger-editor-row .inline-action {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+  }
+
+  .spec-editor {
+    min-height: 18rem;
   }
 
   .execution-item {

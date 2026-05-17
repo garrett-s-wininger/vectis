@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vectis Job Authoring Mock</title>
+    <link rel="stylesheet" href="styles.css?v=job-authoring9" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="index.html" aria-label="Vectis console">
+          <picture>
+            <source srcset="../../website/static/img/vectis-dark.png" media="(prefers-color-scheme: dark)" />
+            <img src="../../website/static/img/vectis.png" alt="" />
+          </picture>
+        </a>
+        <nav class="topnav" aria-label="Primary">
+          <a class="topnav__link" href="index.html">Dashboard</a>
+          <a class="topnav__link topnav__link--active" href="jobs.html">Jobs</a>
+          <a class="topnav__link" href="run-history.html">Runs</a>
+        </nav>
+        <div class="topbar__actions">
+          <button class="icon-button" type="button" aria-label="Toggle theme" title="Toggle theme" data-theme-toggle>
+            <span class="theme-mark" aria-hidden="true"></span>
+          </button>
+        </div>
+      </header>
+
+      <main class="console">
+        <section class="page-head" aria-labelledby="job-edit-title">
+          <div>
+            <nav class="breadcrumb" aria-label="Breadcrumb">
+              <a href="jobs.html">Catalog</a>
+              <span aria-hidden="true">/</span>
+              <span>New</span>
+            </nav>
+            <h1 id="job-edit-title">Create job</h1>
+          </div>
+          <div class="page-head__actions">
+            <a class="button button--secondary" href="jobs.html">Cancel</a>
+            <button class="button button--primary" type="button" data-open-review>Create</button>
+          </div>
+        </section>
+
+        <div class="authoring-layout">
+          <div class="authoring-main">
+            <section class="authoring-panel" aria-labelledby="basics-title">
+              <div class="panel-title">
+                <h2 id="basics-title">Basics</h2>
+                <label class="enabled-toggle">
+                  <input type="checkbox" checked />
+                  <span class="toggle-switch" aria-hidden="true"></span>
+                  <span>Enabled</span>
+                </label>
+              </div>
+              <div class="form-grid form-grid--basics">
+                <label class="field">
+                  <span>Job ID</span>
+                  <input type="text" value="linux-ci" />
+                </label>
+                <label class="field">
+                  <span>Description</span>
+                  <input type="text" value="Pull request validation for Go services" />
+                </label>
+              </div>
+            </section>
+
+            <section class="authoring-panel" aria-labelledby="triggers-title">
+              <div class="panel-title">
+                <h2 id="triggers-title">Triggers</h2>
+                <button class="inline-action" type="button">Add</button>
+              </div>
+              <div class="trigger-editor-list">
+                <div class="trigger-editor-row">
+                  <div>
+                    <strong>Manual</strong>
+                    <small>API, CLI, or UI</small>
+                  </div>
+                  <span class="status status--enabled">enabled</span>
+                  <button class="inline-action" type="button">Edit</button>
+                </div>
+                <div class="trigger-editor-row">
+                  <div>
+                    <strong>Webhook</strong>
+                    <small>External event posts</small>
+                  </div>
+                  <span class="status status--disabled">disabled</span>
+                  <button class="inline-action" type="button">Edit</button>
+                </div>
+              </div>
+            </section>
+
+            <section class="authoring-panel" aria-labelledby="workflow-title">
+              <div class="panel-title">
+                <span class="artifact-heading">
+                  <h2 id="workflow-title">Workflow</h2>
+                  <small>Raw spec</small>
+                </span>
+                <button class="inline-action" type="button">Validate</button>
+              </div>
+              <textarea class="spec-editor" spellcheck="false">{
+  "root": {
+    "uses": "builtins/shell",
+    "with": {
+      "command": "go test ./..."
+    }
+  }
+}</textarea>
+            </section>
+          </div>
+        </div>
+      </main>
+
+      <div class="modal-backdrop" hidden data-review-modal>
+        <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="modal-review-title">
+          <div class="panel-title">
+            <h2 id="modal-review-title">Review job</h2>
+            <span class="status status--passed">valid</span>
+          </div>
+          <dl class="review-list">
+            <div>
+              <dt>Job ID</dt>
+              <dd>linux-ci</dd>
+            </div>
+            <div>
+              <dt>Triggers</dt>
+              <dd>Manual, webhook</dd>
+            </div>
+            <div>
+              <dt>Root action</dt>
+              <dd>builtins/shell</dd>
+            </div>
+            <div>
+              <dt>Revision</dt>
+              <dd>Initial revision</dd>
+            </div>
+          </dl>
+          <div class="modal-actions">
+            <button class="button button--secondary" type="button" data-close-review>Back</button>
+            <button class="button button--primary" type="button">Create</button>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <script>
+      const root = document.documentElement;
+      const storedTheme = localStorage.getItem('vectis-console-theme');
+      if (storedTheme) {
+        root.dataset.theme = storedTheme;
+      }
+
+      document.querySelector('[data-theme-toggle]').addEventListener('click', () => {
+        const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+        root.dataset.theme = next;
+        localStorage.setItem('vectis-console-theme', next);
+      });
+
+      const reviewModal = document.querySelector('[data-review-modal]');
+      document.querySelector('[data-open-review]').addEventListener('click', () => {
+        reviewModal.hidden = false;
+      });
+      document.querySelector('[data-close-review]').addEventListener('click', () => {
+        reviewModal.hidden = true;
+      });
+    </script>
+  </body>
+</html>
