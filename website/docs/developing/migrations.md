@@ -1,5 +1,7 @@
 # Database Migrations
 
+Use this page when a code change adds, changes, or removes durable SQL state.
+
 Vectis uses embedded SQL migrations for the supported database backends:
 
 - SQLite: `internal/migrations/sqlite/`
@@ -9,7 +11,17 @@ Runtime services wait for the expected schema, but they do not apply migrations.
 
 The accepted policy is captured in [ADR 0004](./architecture-decisions/0004-migration-compatibility-and-rollback.md). Future release notes should link back here when a release includes schema changes.
 
-Release notes and upgrade checklists for schema changes belong in [RELEASES.md](./releases.md).
+Release notes and upgrade checklists for schema changes belong in [Releases And Upgrades](./releases.md).
+
+## Core Rules
+
+| Rule | Why it matters |
+| --- | --- |
+| Every migration version exists for SQLite and Postgres. | Operators can trust both supported backends have the same semantic schema version. |
+| Runtime services wait for schema; they do not migrate it. | Deployments control when schema changes happen. |
+| Prefer expand/contract changes. | Rolling upgrades are safer when old and new binaries can both tolerate the transition. |
+| Down migrations are required for development reversibility. | Tests can prove the graph can move down, even when production rollback uses a backup. |
+| Production rollback is release-specific. | A `down` file is not automatically a safe production rollback plan. |
 
 ## Compatibility Rules
 
@@ -21,6 +33,17 @@ Prefer expand/contract changes:
 4. Only drop, rename, or tighten constraints after every supported binary version tolerates the new shape.
 
 Avoid schema changes that require all services to stop at once unless the release notes explicitly call out a downtime migration.
+
+## Authoring Flow
+
+For every schema change:
+
+1. Choose the next migration version and a descriptive name.
+2. Add `NNN_name.up.sql` and `NNN_name.down.sql` under both `internal/migrations/sqlite/` and `internal/migrations/postgres/`.
+3. Keep the operator-facing schema outcome the same across both backends, even when SQL syntax differs.
+4. Update DAL repositories, domain types, API responses, and tests that depend on the new shape.
+5. Confirm old-binary/new-schema and new-binary/old-schema behavior, or document why the release requires downtime.
+6. Update release notes and operator docs when deployment, retention, repair, security, API behavior, or capacity changes.
 
 ## SQLite And Postgres
 
@@ -70,9 +93,30 @@ For every schema change:
 - Confirm the migration number exists in both `internal/migrations/sqlite/` and `internal/migrations/postgres/`.
 - Update operator docs when the schema change affects deployment, retention, repair, security, or API behavior.
 
+## Operator-Facing Notes
+
+When a migration ships, release notes should tell operators:
+
+| Question | Why operators need it |
+| --- | --- |
+| Can old binaries run against the migrated schema? | Determines whether rollback can use previous artifacts alone. |
+| Can new binaries start before migration? | Determines rollout order and downtime. |
+| Can binaries be mixed during a rolling upgrade? | Determines whether services can roll gradually. |
+| Does the migration rewrite, delete, or reinterpret data? | Determines backup, restore, and audit expectations. |
+| What is the rollback path? | Determines whether rollback means previous artifacts, database restore, roll-forward repair, or safe `down`. |
+
 ## Commands
 
 ```sh
 go test ./internal/migrations
 make test-postgres-integration
 ```
+
+## Related Docs
+
+| Need | Doc |
+| --- | --- |
+| Release note requirements | [Releases And Upgrades](./releases.md) |
+| Accepted compatibility decision | [ADR 0004](./architecture-decisions/0004-migration-compatibility-and-rollback.md) |
+| Schema repair during operations | [Repair Runbooks](../operating/reliability/repair-runbooks.md#schema-or-migration-repair) |
+| Upgrade backup and restore planning | [Backup And Restore](../operating/reliability/backup-restore.md) |
