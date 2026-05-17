@@ -1,88 +1,138 @@
 # Vectis
 
-Vectis is a self-hosted build/CI-style system: multiple Go services (API, queue, worker, log, registry, cron, reconciler) coordinated over gRPC and a small REST surface. Jobs are defined as JSON matching the protobuf [`Job`](api/proto/common.proto) graph (`id`, `run_id`, `root` node tree with `uses` / `with` / `steps`).
+Vectis is a self-hosted job runner for CI/CD-style workflows and other repeatable automation. You define a job, submit it to the API or CLI, and Vectis queues the work, runs it on a worker, stores run history, and streams logs back to you.
 
-**Docs:** [Architecture](./website/docs/concepts/architecture.md) (as-built components, protocols, data flows). [API Reference](./website/docs/using/api-reference.md) (HTTP routes, auth actions, error envelopes). [Compatibility](./website/docs/concepts/compatibility.md) (REST, gRPC, CLI, config, schema compatibility). [Configuration](./website/docs/operating/configuration.md) (environment variables, flags, discovery). [Glossary](./website/docs/concepts/glossary.md) (terms). [Migrations](./website/docs/developing/migrations.md) (schema change rules and checklist). [Retention](./website/docs/operating/reliability/retention.md) (cleanup policy, CLI, storage pressure metrics). [Runbooks](./website/docs/operating/reliability/runbooks.md) and [Repair Runbooks](./website/docs/operating/reliability/repair-runbooks.md) (alerts, triage, repair recipes). [Planning](./website/docs/developing/roadmap/planning.md) (§1 goals and deploy posture; §2+ roadmap and target vs shipped). [Failure Domains](./website/docs/concepts/failure-domains.md) (dependency outages, expectations, current behavior). Deferred multi-site notes: [Federation](./website/docs/developing/roadmap/federation.md). **ADRs** (design decisions): [ADRs](./website/docs/developing/architecture-decisions/index.md). **Security posture:** [Security](./website/docs/concepts/security.md). **Contributing:** [CONTRIBUTING.md](CONTRIBUTING.md).
+The project is still pre-production, but the local stack is useful today for trying the model, building examples, and developing Vectis itself.
 
-## Requirements
+## Quick Start
 
-- [Go](https://go.dev/) **1.25.10+** (see `go.mod`)
-- To regenerate protobufs: `protoc`, `protoc-gen-go`, and `protoc-gen-go-grpc` — `make proto` uses local tools only; override `PROTOC*` variables if they are outside the default paths
-
-## Quick start
+Build Vectis:
 
 ```bash
 make build
+```
+
+Start the local stack:
+
+```bash
 ./bin/vectis-local
 ```
 
-`vectis-local` starts registry, queue, log, worker, cron, reconciler, and API and initializes the local SQLite schema (see `cmd/local/main.go`). Runtime binaries only **wait** for the schema—they do not migrate. By default it **bootstraps TLS** for internal gRPC (material under your XDG data dir); use **`--grpc-insecure`** for plaintext gRPC.
+In another terminal, check that the stack is healthy:
 
-- **REST API:** `http://localhost:8080` (defaults in [`internal/config/defaults.toml`](internal/config/defaults.toml))
-- **Default ports:** API `8080`, queue `8081`, registry `8082`, log gRPC `8083`, log SSE `8084`
+```bash
+./bin/vectis-cli health check
+```
 
-### Configuration
+Run the included example job and follow its logs:
 
-Embedded defaults live in [`internal/config/defaults.toml`](internal/config/defaults.toml). Each binary sets a **viper env prefix** (`AutomaticEnv()`): nested config keys use underscores and are prefixed (e.g. API listen port flag/env key `port` → `VECTIS_API_SERVER_PORT`; `api.registry.address` → `VECTIS_API_SERVER_API_REGISTRY_ADDRESS`).
+```bash
+./bin/vectis-cli jobs run examples/sequenced.json --follow
+```
 
-| Binary | Env prefix |
+That is the smallest useful loop: build, start, check health, run a job.
+
+## What Starts Locally
+
+`vectis-local` starts a complete local Vectis stack:
+
+| Service | What it does |
 | --- | --- |
-| `vectis-api-server` | `VECTIS_API_SERVER` |
-| `vectis-queue` | `VECTIS_QUEUE` |
-| `vectis-registry` | `VECTIS_REGISTRY` |
-| `vectis-worker` | `VECTIS_WORKER` |
-| `vectis-cron` | `VECTIS_CRON` |
-| `vectis-reconciler` | `VECTIS_RECONCILER` |
+| API | Accepts HTTP and CLI requests. |
+| Queue | Holds work until a worker takes it. |
+| Worker | Executes jobs. |
+| Log service | Receives and serves run logs. |
+| Registry | Lets services find each other locally. |
+| Cron | Evaluates schedules. |
+| Reconciler | Repairs queued runs that missed queue handoff. |
 
-The **`[discovery]`** block supplies shared fallbacks (registry URL, optional queue/log resolver pins, `registry_resolver_refresh`). Per-role settings (e.g. `worker.queue.address`, `api.queue.address`) take precedence over `discovery.*` when both are set.
+By default, the API listens on `http://localhost:8080`. Local data is stored under your user data directory; see [Configuration](./website/docs/operating/configuration.md) for exact paths and overrides.
 
-### SQLite data directory
+To stop the local stack, press `Ctrl+C` in the terminal running `vectis-local`.
 
-With default config, the DB file is:
+To inspect or remove local state:
 
-`$XDG_DATA_HOME/vectis/db.sqlite3`
+```bash
+./bin/vectis-cli local reset --dry-run
+./bin/vectis-cli local reset --yes
+```
 
-If `XDG_DATA_HOME` is unset, that is usually `~/.local/share/vectis/db.sqlite3`.
+## Requirements
 
-`vectis-log` also stores run logs durably by default under:
+- Go `1.25.10+` as declared in [go.mod](go.mod).
+- CGO enabled for local SQLite use. This is the normal Go default on most developer machines.
+- `protoc`, `protoc-gen-go`, and `protoc-gen-go-grpc` only if you need to regenerate protobuf code with `make proto`.
 
-`$XDG_DATA_HOME/vectis/jobs`
+## Learn The Basics
 
-Override with `VECTIS_LOG_STORAGE_DIR` when needed.
+The docs site is the best place to continue:
 
-### Postgres configuration (Podman/Kube)
+| Start here | When you need |
+| --- | --- |
+| [Getting Started](./website/docs/getting-started.md) | A slower walkthrough of the local stack and first run. |
+| [Your First Job](./website/docs/using/your-first-job.md) | How to write the JSON job definitions Vectis runs today. |
+| [CLI Guide](./website/docs/using/cli-guide.md) | Everyday `vectis-cli` commands. |
+| [API Reference](./website/docs/using/api-reference.md) | HTTP routes, request shapes, auth actions, and error envelopes. |
+| [Configuration](./website/docs/operating/configuration.md) | Environment variables, flags, discovery, storage, and TLS settings. |
+| [Architecture](./website/docs/concepts/architecture.md) | The current component model and data flows. |
+| [Security](./website/docs/concepts/security.md) | Trust boundaries, auth, tokens, RBAC, and deployment cautions. |
+| [Planning](./website/docs/developing/roadmap/planning.md) | Product direction, deferred work, and future federation notes. |
 
-When using Postgres, set:
+## Common Workflows
 
-- `VECTIS_DATABASE_DRIVER=pgx`
-- `VECTIS_DATABASE_DSN=postgres://USER:PASSWORD@HOST:5432/DB?sslmode=disable`
+Run a one-off job:
 
-The Pod spec in [`deploy/podman/kube-spec.yaml`](deploy/podman/kube-spec.yaml) wires these env vars for all database-backed services (including `vectis-log`) through generated local secrets, and provisions persistent volumes for Postgres (`vectis-postgres-data`), queue persistence (`vectis-queue-data`), and durable run logs (`vectis-log-data`). **Internal gRPC** (registry, queue, log, and all clients) uses **TLS**: init container **`vectis-pod-tls-init`** (Alpine) generates a pod-local gRPC CA and server certificate (SAN **localhost** / **127.0.0.1**) into **`vectis-grpc-tls`**, and a **separate Postgres** CA + server cert into **`vectis-postgres-tls`**. Vectis containers mount gRPC material at **`/run/vectis/grpc-tls`** with **`VECTIS_GRPC_TLS_*`** from ConfigMap **`vectis-grpc-tls-env`** (see [Configuration](./website/docs/operating/configuration.md) §Internal gRPC TLS). Database clients in the pod mount **`ca.pem`** only and use **`sslmode=verify-full`** in **`VECTIS_DATABASE_DSN`**. The **`postgres`** container enables **`ssl=on`** with those PEM files. The init container runs **`apk add openssl`** and needs **outbound network** on first pull of packages if the image layer is cold. The same spec includes **Prometheus** and **Grafana** scraping **`/metrics`**: **queue**, **worker**, and **log** use **HTTPS** on their metrics ports (**`VECTIS_METRICS_TLS_*`**, same leaf PEMs as gRPC); **Prometheus** mounts the gRPC CA and scrapes with **`tls_config.ca_file`**. **API** `/metrics` stays **HTTP** on **8080** until a separate API TLS story exists (ports in [Configuration](./website/docs/operating/configuration.md); overview dashboard under `deploy/grafana/dashboards/`). The Podman bundle runs **Jaeger 2.17.0** in split mode (**collector + query**) with an in-pod OpenSearch backend; Vectis services export OTLP to **`http://127.0.0.1:4318`** (collector), and the Jaeger UI is published on **http://localhost:16686**. Vectis service logs are JSON on stderr for `podman logs`, mirrored into a shared JSONL volume, shipped by Fluent Bit into the same OpenSearch instance as daily `vectis-logs-*` indices, and viewable through OpenSearch Dashboards on **http://localhost:5601** or the Grafana **OpenSearch Logs** data source.
+```bash
+./bin/vectis-cli jobs run examples/sequenced.json --follow
+```
 
-For a simple admin workflow, use:
+Store a job and trigger it later:
+
+```bash
+./bin/vectis-cli jobs create examples/sequenced.json
+./bin/vectis-cli jobs trigger sequenced-job --follow
+```
+
+Inspect run history:
+
+```bash
+./bin/vectis-cli runs list sequenced-job
+./bin/vectis-cli runs show <run-id>
+./bin/vectis-cli logs run <run-id>
+```
+
+Run tests:
+
+```bash
+make test
+```
+
+Regenerate protobuf stubs after editing `api/proto/`:
+
+```bash
+make proto
+```
+
+## Deployment
+
+For local development, use `vectis-local`.
+
+For a fuller reference deployment, Vectis includes a Podman-based stack with Postgres, persistent queue/log storage, Prometheus, Grafana, Jaeger, OpenSearch, and generated local secrets:
 
 ```bash
 make images-components
-vectis-cli deploy podman up
+./bin/vectis-cli deploy podman up
 ```
 
-`vectis-cli deploy podman up` generates local deployment secrets if needed, renders the Podman manifest, runs `podman play kube --replace`, then applies embedded migrations on the host against Postgres on **`127.0.0.1` and the `hostPort` published in the spec** (default **15432**, see `postgres` ports in [`deploy/podman/kube-spec.yaml`](deploy/podman/kube-spec.yaml)). Use `vectis-cli deploy podman render` to inspect the rendered manifest and `vectis-cli deploy podman init --rotate` to rotate generated local secrets before a fresh deployment.
+That deployment path is documented in [Reference Deployment Posture](./website/docs/operating/deployment/reference-deployment-posture.md), [Configuration](./website/docs/operating/configuration.md), and [Scaling And Restarts](./website/docs/operating/deployment/scaling-and-restarts.md).
 
-### CLI
-
-`./bin/vectis-cli` talks to the API (create/list/trigger jobs, stream logs, etc.). Run `./bin/vectis-cli --help` for commands.
-
-Use `vectis-cli local reset --dry-run` to inspect local Vectis config/data/cache directories and generated deployment state, then `vectis-cli local reset --yes` to remove them.
-
-## Shipped REST
-
-The shipped HTTP route inventory, auth actions, pagination, idempotency behavior, streaming behavior, and error envelopes are documented in [API Reference](./website/docs/using/api-reference.md).
-
-Application-level API authentication is **off** in the default stack (`api.auth.enabled=false`); you can enable it with environment or config. See [API Reference](./website/docs/using/api-reference.md), [Configuration](./website/docs/operating/configuration.md), and [Security](./website/docs/concepts/security.md). Do not expose the API to untrusted networks without appropriate controls.
+Do not expose the API to untrusted networks without reading [Security](./website/docs/concepts/security.md) and enabling appropriate controls.
 
 ## Development
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for tests, protobuf generation, and running individual binaries.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development loop, tests, protobuf generation, and conventions.
+
+Architecture decisions live in [ADRs](./website/docs/developing/architecture-decisions/index.md). Compatibility expectations live in [Compatibility](./website/docs/concepts/compatibility.md).
 
 ## License
 
