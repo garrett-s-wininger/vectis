@@ -56,7 +56,6 @@ const sidebars = {
           label: 'Capacity',
           items: [
             'operating/capacity/capacity-load-envelope',
-            'operating/capacity/capacity-drills',
           ],
         },
         {
@@ -78,6 +77,13 @@ const sidebars = {
         'developing/migrations',
         'developing/retry-policy',
         'developing/releases',
+        {
+          type: 'category',
+          label: 'Performance',
+          items: [
+            'developing/performance/capacity-checks',
+          ],
+        },
         {
           type: 'category',
           label: 'Roadmap',
