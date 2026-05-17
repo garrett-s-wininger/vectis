@@ -2,7 +2,7 @@
 
 Vectis is a self-hosted build and CI orchestrator. Clients define jobs, Vectis creates runs of those jobs, and workers execute those runs while the system records state, streams logs, and repairs missed queue handoffs.
 
-This page describes the architecture that exists today. Roadmap and target design live in [Planning](../developing/roadmap/planning.md) and [Federation](../developing/roadmap/federation.md).
+This page describes the architecture that exists today. Roadmap and target design live in [Planning](../developing/roadmap/planning.md).
 
 ## Mental Model
 

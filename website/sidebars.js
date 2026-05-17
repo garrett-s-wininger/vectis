@@ -84,15 +84,7 @@ const sidebars = {
             'developing/performance/capacity-checks',
           ],
         },
-        {
-          type: 'category',
-          label: 'Roadmap',
-          items: [
-            'developing/roadmap/foundation-roadmap',
-            'developing/roadmap/planning',
-            'developing/roadmap/federation',
-          ],
-        },
+        'developing/roadmap/planning',
         {
           type: 'category',
           label: 'Architecture Decisions',

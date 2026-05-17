@@ -92,6 +92,6 @@ This page defines the words Vectis uses across the docs, API, and CLI. For the s
 
 ## Future Terms
 
-**Federation / multi-site** — A target design for coordinating more than one Vectis site. It is not part of the shipped runtime today. See [Federation](../developing/roadmap/federation.md).
+**Federation / multi-site** — A target design for coordinating more than one Vectis site. It is not part of the shipped runtime today. See [Planning](../developing/roadmap/planning.md#federation-direction).
 
 **`.vectis.yml`** — A planned pipeline-as-code format. Today, jobs are submitted as JSON-shaped job definitions.
