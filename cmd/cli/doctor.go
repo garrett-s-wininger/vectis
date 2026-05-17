@@ -238,11 +238,11 @@ func evaluateDoctorChecks(checks []doctorCheck) error {
 	}
 
 	if failed {
-		return fmt.Errorf("one or more doctor checks failed")
+		return fmt.Errorf("one or more health checks failed")
 	}
 
 	if doctorStrict && warned {
-		return fmt.Errorf("one or more doctor checks reported warnings (--strict)")
+		return fmt.Errorf("one or more health checks reported warnings (--strict)")
 	}
 
 	return nil
@@ -337,7 +337,7 @@ func doctorCLIToken(apiAuthEnabled bool) doctorCheck {
 	}
 
 	if effectiveToken() == "" {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "no CLI API token configured", SuggestedAction: "Set VECTIS_API_TOKEN or run login", DocLink: "website/docs/operating/reliability/repair-runbooks.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "no CLI API token configured", SuggestedAction: "Set VECTIS_API_TOKEN or run vectis-cli auth login", DocLink: "website/docs/operating/reliability/repair-runbooks.md"}
 	}
 
 	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "CLI API token is configured"}

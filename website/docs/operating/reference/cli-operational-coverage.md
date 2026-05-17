@@ -42,7 +42,7 @@ Most operational commands use stable, line-oriented text:
 - List commands print one record per line.
 - Get commands print `key=value` lines.
 - Create/delete/update commands print a short success line.
-- `health check` prints `status<TAB>check_id<TAB>summary`, using stable check IDs from the [Health Check Catalog](./health-check-catalog.md).
+- `health check` prints a grouped human report using stable check IDs from the [Health Check Catalog](./health-check-catalog.md).
 - `health check --json` emits the full check model as a JSON array.
 - `health check --strict` exits non-zero on warnings (for CI).
 - `retention cleanup` prints `key=value` summary lines for cutoffs and delete counts.
