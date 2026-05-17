@@ -1,6 +1,10 @@
 # Releases And Upgrades
 
-This page defines how maintainers cut Vectis releases and how operators evaluate upgrades.
+Use this page when preparing a Vectis release or evaluating whether a deployment can safely upgrade.
+
+Maintainers use it to decide what evidence and release notes a release must include. Operators use the same release notes to decide whether an upgrade can roll, needs downtime, or needs a backup-and-restore rollback plan.
+
+Related policy lives in [Database Migrations](./migrations.md), [Capacity And Performance Checks](./performance/capacity-checks.md), and [Backup And Restore](../operating/reliability/backup-restore.md).
 
 ## Versioning And Traceability
 
@@ -38,8 +42,20 @@ Short rolling-upgrade skew is acceptable only when the release notes say the cha
 - Worker execution behavior.
 - Log streaming behavior.
 - Config and environment variables.
+- Metrics, health checks, dashboards, and alert names.
 
 When release notes do not explicitly allow skew, operators should stop dependent services, run migrations if needed, deploy the full release, and then restart in dependency order.
+
+## Release Risk Classes
+
+Use the highest matching class when writing release notes:
+
+| Class | Examples | Release note requirement |
+| --- | --- | --- |
+| Patch-safe | Bug fix with no schema, API, config, queue, worker, log, or auth behavior change. | Standard upgrade notes and smoke test. |
+| Operator-visible | Config default, metric, health check, log format, dashboard, port, TLS, auth, RBAC, or runbook behavior changed. | Call out the changed surface and required operator action. |
+| Compatibility-sensitive | SQL migration, REST/gRPC shape, queue payload, run state, idempotency, retry, dispatch, or worker behavior changed. | State version-skew support, migration order, and rollback path. |
+| Capacity-sensitive | API hot path, queue, worker, log streaming, cron, reconciler, or database query path changed. | Include performance evidence or explain why no check was needed. |
 
 ## Release Notes Template
 
@@ -53,11 +69,12 @@ Each release should include:
 - Config/env changes and default changes.
 - Database migrations, with old-binary/new-schema and new-binary/old-schema assessment.
 - Operational changes: ports, probes, metrics, logs, dashboards, TLS, auth, RBAC.
+- Capacity/performance impact when hot paths changed, with a link to benchmark or deployed-stack evidence when relevant.
 - Upgrade instructions for SQLite/local and Postgres/reference deploys.
 - Rollback instructions: previous artifacts only, database restore, roll-forward repair, or explicitly safe down migration.
 - Known risks and manual verification steps.
 
-Schema changes must follow [MIGRATIONS.md](./migrations.md), including the production rollback note for each release.
+Schema changes must follow [Database Migrations](./migrations.md), including the production rollback note for each release. Capacity-sensitive changes should follow [Capacity And Performance Checks](./performance/capacity-checks.md).
 
 ## Maintainer Release Checklist
 
@@ -68,12 +85,13 @@ Schema changes must follow [MIGRATIONS.md](./migrations.md), including the produ
 5. Build all binaries with `make build`.
 6. Build container images with the release tag.
 7. Verify `vectis-cli --version` and one daemon `--version` show the release version, commit, and build date.
-8. Review `docs/MIGRATIONS.md` requirements for every schema change.
-9. Update docs for any changed API, config, deployment, security, metrics, or runbook behavior.
-10. Draft release notes with the template above.
-11. Smoke test SQLite/local upgrade.
-12. Smoke test Postgres/reference upgrade when deploy or database behavior changed.
-13. Tag the release commit and publish artifacts from that tag.
+8. Review [Database Migrations](./migrations.md) requirements for every schema change.
+9. Run or cite [Capacity And Performance Checks](./performance/capacity-checks.md) for capacity-sensitive changes.
+10. Update docs for any changed API, config, deployment, security, metrics, capacity, or runbook behavior.
+11. Draft release notes with the template above.
+12. Smoke test SQLite/local upgrade.
+13. Smoke test Postgres/reference upgrade when deploy or database behavior changed.
+14. Tag the release commit and publish artifacts from that tag.
 
 ## SQLite / Local Upgrade Runbook
 
@@ -113,6 +131,8 @@ Run after every upgrade:
 9. Confirm reconciler metrics do not show repeated enqueue failures.
 10. Confirm dashboards and logs show the new version or commit where available.
 
+For capacity-sensitive releases, also watch queue depth, DB pool waits, worker outcomes, log stream behavior, and API request status for the period called out in the release notes.
+
 ## Rollback Choices
 
 Choose one, and document it in release notes:
@@ -121,3 +141,13 @@ Choose one, and document it in release notes:
 - Database restore plus previous artifacts: required when schema/data changes are not downgrade-safe.
 - Roll-forward repair: preferred when the new release is mostly healthy but a data correction is needed.
 - Down migration: allowed only when release notes explicitly say it is production-safe.
+
+## Related Docs
+
+| Need | Doc |
+| --- | --- |
+| Schema compatibility and rollback | [Database Migrations](./migrations.md) |
+| Performance evidence for hot-path changes | [Capacity And Performance Checks](./performance/capacity-checks.md) |
+| Operator capacity envelope | [Capacity And Load Envelope](../operating/capacity/capacity-load-envelope.md) |
+| Upgrade backup and restore planning | [Backup And Restore](../operating/reliability/backup-restore.md) |
+| Scaling and restart order | [Scaling And Restarts](../operating/deployment/scaling-and-restarts.md) |
