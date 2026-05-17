@@ -1,6 +1,20 @@
 # Retry And Backoff Policy
 
-This page gives operators one place to answer: "what is Vectis retrying, for how long, and what happens when it gives up?"
+Use this page when adding or changing retry behavior in Vectis.
+
+Retries are part of the correctness contract. A retry loop should have a bounded purpose, observable behavior, and a clear give-up outcome. Operator-facing repair steps belong in [Repair Runbooks](../operating/reliability/repair-runbooks.md); this page explains the maintainer policy behind those behaviors.
+
+## Design Rules
+
+| Rule | Why it matters |
+| --- | --- |
+| Retry only operations that are safe to repeat. | Retries must not create duplicate runs, duplicate tokens, or hidden state changes. |
+| Make give-up state explicit. | Operators need to know whether work is queued, orphaned, failed, spooled, or left for repair. |
+| Prefer bounded retries for request/command paths. | Users and supervisors need a clear success/failure result. |
+| Use long-running backoff only in service loops. | Workers and forwarders can self-heal while the process remains alive. |
+| Emit common retry metrics when using shared retry helpers. | Alerts need stable labels and exhaustion counters. |
+| Keep labels low-cardinality. | Retry metrics must not include run IDs, job IDs, addresses, SQL text, or error strings. |
+| Add operator knobs only for real tradeoffs. | Tunables should control cadence, persistence, or dependency selection, not every internal constant. |
 
 ## Metrics
 
@@ -11,6 +25,20 @@ Common retry helpers emit:
 - `vectis_retry_delay_seconds`
 
 The common labels are `component`, `service`, and `operation`. `component` preserves the existing stable retry-path name. `service` and `operation` are derived from names such as `api.enqueue`, `queue/enqueue`, or `registry:register`; legacy single-token names use operation `retry`. Do not put run IDs, job IDs, addresses, SQL text, or error strings in any retry label. Some retry paths also emit spans, logs, or domain-specific counters instead of the common retry metrics; those gaps are called out below.
+
+## Idempotency And Safety
+
+Before adding a retry loop, decide which safety mechanism makes repetition acceptable:
+
+| Mechanism | Example |
+| --- | --- |
+| Idempotency key | API clients retrying job submission after a timeout. |
+| Durable run row plus worker claim | Duplicate queue handoff should not execute the same run twice. |
+| Lease or delivery token | Workers can distinguish ownership before writing final state. |
+| Spool file | Log-forwarder batches survive process or network failure. |
+| Read-only operation | Dial, health, list, and lookup retries do not mutate durable state. |
+
+If none of these apply, do not add a blind retry loop. Return an explicit error and document the manual repair path.
 
 ## Retry Inventory
 
@@ -30,11 +58,11 @@ The common labels are `component`, `service`, and `operation`. `component` prese
 
 ## Operator-Tunable Inputs
 
-Most retry attempt counts and backoff constants are currently code defaults. The operator knobs that affect retry behavior today are the surrounding dependency and cadence settings:
+Most retry attempt counts and backoff constants are currently code defaults. Operator knobs affect retry behavior through surrounding dependency, persistence, and cadence settings:
 
 | Goal | Setting |
 | --- | --- |
-| Avoid registry dial/registration on dependent startup | Pin queue/log addresses with the role-specific discovery variables in [CONFIGURATION.md](../operating/configuration.md#service-discovery-vs-fixed-addresses). |
+| Avoid registry dial/registration on dependent startup | Pin queue/log addresses with the role-specific discovery variables in [Configuration](../operating/configuration.md#service-discovery-vs-fixed-addresses). |
 | Change resolver refresh after discovery errors | Override discovery timing settings: resolver refresh 10s, poll timeout 5s, error refresh 2s, registration heartbeat 45s by default. |
 | Control how often queued runs are redispatched | `VECTIS_RECONCILER_INTERVAL` / `--interval` on `vectis-reconciler`. |
 | Preserve queue backlog across queue restarts | Set `VECTIS_QUEUE_PERSISTENCE_DIR` or `--persistence-dir`. Empty disables queue persistence. |
@@ -69,6 +97,8 @@ For paths that do not yet use common retry metrics, alert on the corresponding d
 
 ## Repair Guidance
 
+Keep this section as a short index. Detailed operator steps belong in [Repair Runbooks](../operating/reliability/repair-runbooks.md), [Dispatch Visibility](../operating/reliability/dispatch-visibility.md), and [Health Check Catalog](../operating/reference/health-check-catalog.md).
+
 - Queue enqueue exhaustion after API 202: keep `vectis-reconciler` running, inspect queued run age, and use `vectis-cli runs retry` only for manual intervention when automatic redispatch is insufficient.
 - Registry or pinned dial exhaustion at startup: verify address, DNS, network policy, and `VECTIS_GRPC_TLS_SERVER_NAME` / certificate SANs.
 - Worker ack/finalize exhaustion: inspect run status, worker logs, database availability, and queue delivery state. Avoid restarting repeatedly without checking whether the database can accept final status writes.
@@ -85,3 +115,22 @@ New retry loops should document:
 - Whether common retry metrics are emitted.
 - What state is left behind when retries exhaust.
 - The operator action that repairs the state.
+
+Also update tests for:
+
+- success on first attempt;
+- success after transient failure;
+- exhaustion behavior;
+- context cancellation or shutdown;
+- permanent errors that should not back off;
+- metrics, logs, or spans when the path is observable.
+
+## Related Docs
+
+| Need | Doc |
+| --- | --- |
+| Client retry behavior | [Idempotency And Retries](../using/idempotency-and-retries.md) |
+| Operator repair steps | [Repair Runbooks](../operating/reliability/repair-runbooks.md) |
+| Queue handoff repair | [Dispatch Visibility](../operating/reliability/dispatch-visibility.md) |
+| Retry alerts | [Runbooks And Alerts](../operating/reliability/runbooks.md) |
+| Configuration knobs | [Configuration](../operating/configuration.md) |
