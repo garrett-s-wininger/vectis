@@ -1,10 +1,17 @@
 # Context And Deadline Policy
 
-Vectis uses contexts for three different lifetimes:
+Use this page when adding request handling, background work, shutdown behavior, or long-running service loops.
 
-- Request-scoped work: tied to an HTTP or gRPC request and its deadline.
-- Service lifecycle work: tied to a process, supervisor, watcher, or shutdown signal.
-- Intentional detached work: allowed to outlive the request that initiated it, with a documented repair path or bounded timeout.
+Contexts in Vectis express ownership. Before choosing `r.Context()`, a service root, `context.Background()`, or a timeout, decide what owns the work and what should stop it.
+
+## Lifetime Types
+
+| Lifetime | Owner | Typical examples |
+| --- | --- | --- |
+| Request-scoped work | HTTP or gRPC request | API DB calls, authorization checks, response construction, request-bound downstream calls. |
+| Service lifecycle work | Process, supervisor, watcher, or shutdown signal | Server loops, metrics listeners, resolver polling, managed clients, cron/reconciler loops. |
+| Run lifecycle work | Claimed run or worker execution | Worker execution, lease renewal, finalization, log streaming for the active run. |
+| Intentional detached work | A documented repair path or bounded timeout | Async enqueue after HTTP `202`, shutdown cleanup, best-effort flush. |
 
 ## Rules Of Thumb
 
@@ -13,6 +20,21 @@ Vectis uses contexts for three different lifetimes:
 - Background work should have an owner: process lifecycle, managed client lifecycle, worker run lifecycle, or a bounded cleanup timeout.
 - `context.Background()` in production code should be rare and classified.
 - Tests may use `context.Background()` freely when the test controls completion another way.
+
+## Choosing A Context
+
+| Work | Preferred context |
+| --- | --- |
+| API handler DB query | Request-derived context, usually `handlerDBCtx`. |
+| API handler downstream call needed for the response | Request-derived context with a bounded timeout. |
+| Work accepted before responding `202` but completed afterward | Detached context with trace linkage, bounded retry, and durable repair path. |
+| Daemon startup check before a server exists | Short `context.WithTimeout(context.Background(), ...)`. |
+| Service loop | Root process context from command/shutdown handling. |
+| Cleanup during shutdown | Fresh bounded timeout so cleanup can finish even if the caller was canceled. |
+| Worker executing a claimed run | Run lifecycle context that survives graceful shutdown until finalization. |
+| Remote run cancel | Explicit cancellation signal for that run's execution context. |
+
+If a task outlives the request that started it, document what stops it and how operators repair it if it fails.
 
 ## Production Background Context Inventory
 
@@ -46,8 +68,24 @@ For new production `context.Background()` uses:
 - Should trace context be preserved without cancellation?
 - Would `context.WithoutCancel` or a child of an existing service context be clearer?
 
+For new request-derived work:
+
+- Should cancellation abort the operation immediately?
+- Does the operation need its own shorter timeout?
+- Can returning early leave durable state behind?
+- Does the caller need an idempotency key or repair path?
+
 ## Intentional Exceptions
 
 Async enqueue after HTTP 202 is intentionally detached from the request. API shutdown does not join these goroutines; the database run row is already durable, enqueue retries are bounded, and `vectis-reconciler` repairs queued runs that missed handoff.
 
 Worker drain is intentionally detached from the shutdown signal for the current run. A graceful worker shutdown stops dequeuing new work but lets the claimed run finalize when possible.
+
+## Related Docs
+
+| Need | Doc |
+| --- | --- |
+| Retry and give-up behavior | [Retry And Backoff Policy](./retry-policy.md) |
+| Async enqueue decision | [ADR 0001](./architecture-decisions/0001-async-enqueue-after-http-202.md) |
+| Reconciler repair process | [Dispatch Visibility](../operating/reliability/dispatch-visibility.md) |
+| Scaling and restart expectations | [Scaling And Restarts](../operating/deployment/scaling-and-restarts.md) |
