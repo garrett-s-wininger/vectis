@@ -6,6 +6,8 @@ The current posture is intentionally conservative: Vectis is safest as a single-
 
 For dependency behavior during outages, see [Failure Domains](../../concepts/failure-domains.md). For reference deployment boundaries, see [Reference Deployment Posture](./reference-deployment-posture.md). For database pool sizing, see [Configuration](../configuration.md#postgresql-connection-pool-pgx-only).
 
+This page answers "is this component topology supported, and what happens when it changes?" For workload pressure, saturation signals, and when to revalidate a larger operating point, see [Capacity And Load Envelope](../capacity/capacity-load-envelope.md).
+
 ## Quick Guidance
 
 | Component | Scale guidance |
