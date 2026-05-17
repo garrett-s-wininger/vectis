@@ -11,15 +11,15 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 | Protobuf compiler | `protoc` with local `protoc-gen-go` and `protoc-gen-go-grpc` plugins; override `PROTOC*` Make variables if needed |
 | Protobuf codegen | `make proto` — invokes local `protoc`, output to `api/gen/go/` (read-only) |
 | TLA+ (formal) | Java + `/opt/tla+/tla2tools.jar` (optional, for `make formal-verification`) |
-| Container | Podman (targets: `make image-full`, `make image-api`, etc.) |
+| Container | Podman (targets: `make image-full`, `make images-components`, `make image-api`, etc.) |
 
 ## Where to change
 
 - **HTTP API, auth, RBAC** → `internal/api/`
 - **SQL schema / queries** → `internal/dal/`, `internal/migrations/`
 - **gRPC contracts** → `api/proto/` then `make proto` (generated code in `api/gen/go/` is read-only)
-- **Queue / worker / logs / registry servers** → `internal/queue/`, `internal/job/` (execute), `cmd/worker/`, `internal/logserver/`, `internal/registry/` (see [`api/AGENTS.md`](api/AGENTS.md))
-- **Deployables / deep docs** → `deploy/`, `docs/`
+- **Queue / worker / logs / registry servers** → `internal/queue/`, `internal/job/` (execute), `cmd/worker/`, `internal/logserver/`, `internal/registry/`
+- **Deployables / docs site** → `deploy/`, `website/docs/`
 - **Reconciler invariants** → `internal/reconciler/`; formal model → `formal/tla/`
 
 ## Binaries (ten; `cmd/`)
@@ -29,7 +29,7 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 | `vectis-api` | REST (jobs, runs, SSE), metrics | yes | yes |
 | `vectis-queue` | FIFO queue + metrics | yes | yes |
 | `vectis-registry` | Service discovery | yes | no |
-| `vectis-log` | Log ingest (gRPC), metrics | no | no |
+| `vectis-log` | Log ingest (gRPC), SSE, metrics | yes | no |
 | `vectis-worker` | Action tree + logs; worker-control gRPC | yes | no |
 | `vectis-log-forwarder` | Sidecar: worker → log service | yes | no |
 | `vectis-cron` | Schedules → queue | yes | yes |
@@ -56,7 +56,7 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 | Default ports, DSN, feature flags | [`internal/config/defaults.toml`](internal/config/defaults.toml) |
 | Env ↔ config binding | [`internal/config/`](internal/config/) (`BindEnv`, helpers), plus [`cmd/AGENTS.md`](cmd/AGENTS.md) |
 | Containers | [`build/Containerfile`](build/Containerfile) |
-| Architecture / security prose | [`docs/`](docs/) |
+| Docs site, architecture, security | [`website/docs/`](website/docs/) |
 
 ## Layout
 
@@ -72,18 +72,24 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 | `internal/cron/`, `internal/reconciler/` | Schedules, recovery |
 | `internal/interfaces/`, `internal/observability/`, `internal/cli/`, `internal/testutil/` | Logger, metrics/tracing, signals, tests |
 | `tests/integration/` | Build tag `integration` — [`tests/AGENTS.md`](tests/AGENTS.md) |
-| `deploy/`, `docs/`, `formal/tla/` | Kube/Grafana, prose, TLA+ reconciliation |
+| `deploy/`, `website/docs/`, `formal/tla/` | Kube/Grafana, docs site, TLA+ reconciliation |
 
 ## Common workflows
 
-### Add a new API endpoint
-1. Define protobuf message + RPC in `api/proto/*.proto`
-2. `make proto` → regenerates `api/gen/go/`
-3. Register gRPC server in the appropriate `internal/` package
-4. If consumers need a domain-facing type, add an interface in `internal/interfaces/` and implement it
+### Add a new HTTP API endpoint
+1. Add the route, handler, auth action, and tests in `internal/api/`.
+2. Update the route inventory tests if the endpoint changes the public surface.
+3. Document user-facing request/response behavior in [`website/docs/using/api-reference.md`](website/docs/using/api-reference.md).
+4. If the endpoint changes compatibility, auth, repair, or operator behavior, update the matching docs under `website/docs/`.
+
+### Add a new gRPC RPC
+1. Define protobuf messages and RPC in `api/proto/*.proto`.
+2. `make proto` regenerates `api/gen/go/`.
+3. Register or update the server implementation in the appropriate `internal/` package.
+4. If consumers need a domain-facing type, add an interface in `internal/interfaces/` and implement it.
 
 ### Add a new binary
-1. Create `cmd/<name>/main.go` following the pattern in [`cmd/AGENTS.md`](#pattern-services-with-viper)
+1. Create `cmd/<name>/main.go` following the pattern in [`cmd/AGENTS.md`](cmd/AGENTS.md#pattern-services-with-viper)
 2. Add `$(OUT_DIR)/vectis-<name>` to `$(BINARIES)` in [`Makefile`](Makefile)
 3. If it opens SQL, add the `_ "vectis/internal/dbdrivers"` import
 4. Register its env prefix in the table in [`cmd/AGENTS.md`](cmd/AGENTS.md)

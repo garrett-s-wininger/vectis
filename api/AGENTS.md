@@ -2,6 +2,8 @@
 
 Hand-written protos under [`proto/`](proto/); **`make proto`** (see root [`Makefile`](../Makefile)) regenerates [`gen/go/`](gen/go/) — never edit generated files.
 
+This directory is for internal gRPC contracts and generated protobuf code. The public HTTP API lives in [`../internal/api/`](../internal/api/) and is documented in [`../website/docs/using/api-reference.md`](../website/docs/using/api-reference.md).
+
 **Codegen:** `make proto` invokes local `protoc`, `protoc-gen-go`, and `protoc-gen-go-grpc`. Keep each `.proto` file's `go_package` option aligned with `vectis/api/gen/go;api`.
 
 **Imports:** `api "vectis/api/gen/go"` (common convention).
@@ -21,12 +23,13 @@ Hand-written protos under [`proto/`](proto/); **`make proto`** (see root [`Makef
 
 `grpc.ClientConn` → `api.NewXClient(conn)`; domain-facing types in [`../internal/interfaces/`](../internal/interfaces/). TLS and dial options: [`../internal/tlsconfig/`](../internal/tlsconfig/), discovery: [`../internal/config/defaults.toml`](../internal/config/defaults.toml) `[grpc_tls]`, `[discovery]`.
 
-## Adding a new RPC
+## Adding or changing an RPC
 
 1. Edit the relevant `proto/*.proto` — add message types and an RPC to the existing service (or create a new `.proto` + service).
 2. `make proto` — regenerates `api/gen/go/`.
 3. Register the server implementation in the directory listed in the table above, using the generated `RegisterXxxServer`.
 4. If a consumer needs a domain-facing abstraction, add an interface in `internal/interfaces/` and wire a wrapper.
+5. Update docs when the RPC changes operator-visible behavior, component topology, or compatibility expectations.
 
 ## Conventions
 

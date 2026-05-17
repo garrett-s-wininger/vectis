@@ -19,7 +19,7 @@
 | `local/` | `vectis-local` | daemon (dev supervisor) |
 | `cli/` | `vectis-cli` | one-shot (HTTP client) |
 
-Daemons all follow the pattern below. One-shot binaries (`cli/`) skip the server setup and shutdown logic.
+Daemons generally follow the pattern below. One-shot binaries (`cli/`) skip the server setup and shutdown logic, and specialized daemons such as `log-forwarder` may replace network server setup with their own loop while still using shared logging, config, and signal handling patterns.
 
 ## Pattern (services with Viper)
 
@@ -43,7 +43,7 @@ func main() {
 
 - **`init()`:** `PersistentFlags` → `viper.BindPFlag` → `SetEnvPrefix` → `AutomaticEnv()`.
 - **`main()`:** always `cli.ExecuteWithShutdownSignals` (SIGINT/SIGTERM → context); do not roll custom signal handling.
-- **`runXxx`:** logger + `cli.SetLogLevel`, TLS validation/reload, DB + `WaitForMigrations`, tracer + metrics + pool metrics, registry/static dial, servers, graceful shutdown (often `exitCode` + deferred cleanup).
+- **`runXxx`:** logger + `cli.SetLogLevel`, TLS validation/reload when relevant, DB + `WaitForMigrations` for DB-backed services, tracer + metrics where wired, registry/static dial where needed, servers or worker loops, graceful shutdown.
 - **DB binaries** must `import _ "vectis/internal/dbdrivers"` to side-effect register the SQL driver.
 
 ## Which binaries need the database import
@@ -75,3 +75,4 @@ Shared TOML sections: [`../internal/config/defaults.toml`](../internal/config/de
 - **Env prefix mismatch:** the prefix in `SetEnvPrefix` must match `defaults.toml` section names. `rg SetEnvPrefix cmd/` is the reference.
 - **Missing flag binding:** `PersistentFlags` → `viper.BindPFlag` is required for CLI flags to override defaults and env vars.
 - **Container builds:** `CGO_ENABLED=0` + `-tags=nosqlite` — the `nosqlite` build tag replaces the SQLite driver with a stub.
+- **User-facing command changes:** update [`../website/docs/using/cli-guide.md`](../website/docs/using/cli-guide.md) or the relevant operating reference doc when command behavior changes.

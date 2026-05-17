@@ -4,7 +4,7 @@ Implementation under `internal/`. Repo map: [`../AGENTS.md`](../AGENTS.md). Entr
 
 ## Interfaces and mocks
 
-**Interfaces** live next to **consumers**, not next to implementations. For example, `internal/interfaces/queue.go` is consumed by `internal/cron/` and `internal/api/`; the implementation is in `internal/queueclient/`.
+**Interfaces** live next to **consumers**, not next to implementations. Shared cross-package interfaces live in `internal/interfaces/`; for example, `internal/interfaces/queue.go` is consumed by `internal/cron/` and `internal/api/`, while the implementation is in `internal/queueclient/`.
 
 **Mocks** are hand-written in `internal/interfaces/mocks/` (no mockgen). Each mock:
 - Exposes `XxxErr` fields for error injection (e.g. `enqueueErr`, `dequeueErr`).
@@ -50,7 +50,7 @@ Each service chooses its init entrypoints from `cmd/*/main.go` (search `observab
 | Correlation | `observability/correlation.go` — gRPC metadata propagation (trace ID → log fields) |
 | Per-service metrics | `apimetrics.go`, `queuemetrics.go`, `workermetrics.go`, `logmetrics.go` — init in the binary's `runXxx` |
 
-**To add a new metric:** create a `<name>metrics.go` in `observability/` following the existing pattern (e.g. `queuemetrics.go`), wire init in the binary's `runXxx`, and expose domain-specific counters/histograms.
+**To add a new metric:** create a `<name>metrics.go` in `observability/` following the existing pattern (e.g. `queuemetrics.go`), wire init in the binary's `runXxx`, and expose domain-specific counters/histograms. If operators should alert or troubleshoot with it, update the relevant docs under `website/docs/operating/`.
 
 ### Logger
 
@@ -70,12 +70,13 @@ JSON output when `VECTIS_LOG_FORMAT=json` (see `defaults.toml`). The `internal/c
 
 ## `internal/action/` — Built-in actions
 
-Builtins live in `internal/action/builtins/`. Currently registered: `shell`, `checkout`, `sequence`, `registry`. Each implements the action interface from `internal/action/action.go` and registers its `uses` name so the worker can dispatch to it.
+Builtins live in `internal/action/builtins/`. Currently registered action types are `builtins/shell`, `builtins/checkout`, and `builtins/sequence`; `registry.go` is the builtin resolver, not a user-facing action. Each action implements the interface from `internal/action/action.go` and registers its `uses` name so the worker can dispatch to it.
 
 **To add a new builtin:**
 1. Create `internal/action/builtins/<name>.go` implementing the action interface.
 2. Register the `uses` name (see existing builtins for the registration call).
 3. Add tests in `internal/action/builtins/<name>_test.go`.
+4. Update [`../website/docs/developing/actions.md`](../website/docs/developing/actions.md) and user-facing validation docs when the action changes job authoring.
 
 ## Major packages
 

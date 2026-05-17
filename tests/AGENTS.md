@@ -44,7 +44,7 @@ No hard coverage bar. Focus on:
 - Error paths (SQL errors, network failures, auth rejections).
 - Interface contract compliance (mocks prove the interface compiles, integration tests prove it works).
 
-Unit tests should be fast (sub-millisecond). Integration tests may be slower but should not depend on network resources beyond the Postgres instance.
+Unit tests should be fast and deterministic. Integration tests may be slower; keep external dependencies limited to the services they explicitly start, such as the Postgres testcontainer lane.
 
 ## Fuzz testing
 
@@ -57,5 +57,5 @@ Fuzz targets are registered with `func FuzzXxx(f *testing.F)`. Locate them with 
 
 If a test flakes:
 1. Add `t.Parallel()` only when the test genuinely shares no state — otherwise remove it.
-2. For timing-dependent tests, use `testutil.Poll()` or `require.Eventually`-style retry loops.
+2. For timing-dependent tests, use polling with deadlines, such as helpers in `internal/testutil`, rather than fixed sleeps.
 3. If a flake can't be fixed, skip with `t.Skip("flaky — https://github.com/garrett-s-wininger/vectis/issues/NNN")`.
