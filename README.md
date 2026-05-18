@@ -2,7 +2,7 @@
 
 Vectis is a self-hosted job runner for CI/CD-style workflows and other repeatable automation. You define a job, submit it to the API or CLI, and Vectis queues the work, runs it on a worker, stores run history, and streams logs back to you.
 
-The project is still pre-production, but the local stack is useful today for trying the model, building examples, and developing Vectis itself.
+Vectis is developer alpha software: useful today for trying the model, building examples, and developing Vectis itself, but not yet recommended for production or untrusted workloads.
 
 ## Quick Start
 
