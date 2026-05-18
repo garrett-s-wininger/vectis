@@ -57,6 +57,10 @@ func runDocs(cmd *cobra.Command, args []string) {
 }
 
 func docsHandler(configuredDir string, logger interfaces.Logger) (http.Handler, string) {
+	return docsHandlerWithFS(configuredDir, logger, embeddedDocs)
+}
+
+func docsHandlerWithFS(configuredDir string, logger interfaces.Logger, docsFS fs.FS) (http.Handler, string) {
 	if dir := strings.TrimSpace(configuredDir); dir != "" {
 		if hasDocsIndex(dir) {
 			return http.FileServer(http.Dir(dir)), fmt.Sprintf("serving %s", dir)
@@ -73,7 +77,7 @@ func docsHandler(configuredDir string, logger interfaces.Logger) (http.Handler, 
 		logger.Warn("VECTIS_DOCS_DIR %s does not contain index.html; falling back to embedded docs", env)
 	}
 
-	sub, err := fs.Sub(embeddedDocs, "embedded")
+	sub, err := fs.Sub(docsFS, "embedded")
 	if err == nil && hasDocsIndexFS(sub) {
 		return http.FileServer(http.FS(sub)), "serving embedded docs"
 	}
