@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vectis Webhook Trigger Mock</title>
+    <link rel="stylesheet" href="styles.css?v=webhook-trigger2" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="index.html" aria-label="Vectis console">
+          <picture>
+            <source srcset="../../website/static/img/vectis-dark.png" media="(prefers-color-scheme: dark)" />
+            <img src="../../website/static/img/vectis.png" alt="" />
+          </picture>
+        </a>
+        <nav class="topnav" aria-label="Primary">
+          <a class="topnav__link" href="index.html">Dashboard</a>
+          <a class="topnav__link topnav__link--active" href="jobs.html">Jobs</a>
+          <a class="topnav__link" href="run-history.html">Runs</a>
+        </nav>
+        <div class="topbar__actions">
+          <button class="icon-button" type="button" aria-label="Toggle theme" title="Toggle theme" data-theme-toggle>
+            <span class="theme-mark" aria-hidden="true"></span>
+          </button>
+        </div>
+      </header>
+
+      <main class="console">
+        <section class="page-head" aria-labelledby="webhook-title">
+          <div>
+            <nav class="breadcrumb" aria-label="Breadcrumb">
+              <a href="jobs.html">Catalog</a>
+              <span aria-hidden="true">/</span>
+              <a href="job-edit.html">linux-ci</a>
+              <span aria-hidden="true">/</span>
+              <span>Webhook</span>
+            </nav>
+            <h1 id="webhook-title">Webhook trigger</h1>
+          </div>
+          <div class="page-head__actions">
+            <a class="button button--secondary" href="job-edit.html">Cancel</a>
+            <button class="button button--primary" type="button">Save</button>
+          </div>
+        </section>
+
+        <div class="authoring-layout">
+          <div class="authoring-main">
+            <section class="authoring-panel" aria-labelledby="webhook-settings-title">
+              <div class="panel-title">
+                <h2 id="webhook-settings-title">Settings</h2>
+                <label class="enabled-toggle">
+                  <input type="checkbox" checked />
+                  <span class="toggle-switch" aria-hidden="true"></span>
+                  <span>Enabled</span>
+                </label>
+              </div>
+              <div class="form-grid">
+                <label class="field field--wide">
+                  <span>Description</span>
+                  <input type="text" value="Allow external systems to trigger linux-ci" />
+                </label>
+              </div>
+            </section>
+
+            <section class="authoring-panel" aria-labelledby="endpoint-title">
+              <div class="panel-title">
+                <h2 id="endpoint-title">Endpoint</h2>
+              </div>
+              <div class="endpoint-display">
+                <span>POST</span>
+                <code>/hooks/v1/jobs/linux-ci/webhook</code>
+              </div>
+            </section>
+
+            <section class="authoring-panel" aria-labelledby="secret-title">
+              <div class="panel-title">
+                <h2 id="secret-title">Shared secret</h2>
+                <label class="enabled-toggle">
+                  <input type="checkbox" checked />
+                  <span class="toggle-switch" aria-hidden="true"></span>
+                  <span>Required</span>
+                </label>
+              </div>
+              <div class="form-grid">
+                <label class="field field--wide">
+                  <span>Secret value</span>
+                  <input type="password" value="manual-shared-secret" />
+                </label>
+              </div>
+            </section>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script>
+      const root = document.documentElement;
+      const storedTheme = localStorage.getItem('vectis-console-theme');
+      if (storedTheme) {
+        root.dataset.theme = storedTheme;
+      }
+
+      document.querySelector('[data-theme-toggle]').addEventListener('click', () => {
+        const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+        root.dataset.theme = next;
+        localStorage.setItem('vectis-console-theme', next);
+      });
+    </script>
+  </body>
+</html>

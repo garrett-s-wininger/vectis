@@ -1874,6 +1874,17 @@ meter {
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
+.trigger-row--link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.trigger-row--link:hover,
+.trigger-row--link:focus-visible {
+  background: color-mix(in srgb, var(--steel) 7%, transparent);
+  outline: none;
+}
+
 .trigger-row > div {
   min-width: 0;
 }
@@ -1890,6 +1901,41 @@ meter {
   margin-top: 0.25rem;
   color: var(--muted);
   font-weight: 700;
+}
+
+.endpoint-display {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: center;
+  min-height: 4.4rem;
+  padding: 1rem;
+  border-top: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+}
+
+.endpoint-display span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.8rem;
+  padding: 0 0.6rem;
+  color: var(--ink);
+  font-size: 0.74rem;
+  font-weight: 900;
+  background: color-mix(in srgb, var(--steel) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--steel) 36%, var(--line));
+  border-radius: 3px;
+}
+
+.endpoint-display code {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 0.9rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .revision-row--active {
