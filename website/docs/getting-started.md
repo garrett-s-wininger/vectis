@@ -69,6 +69,14 @@ The docs site listens on:
 http://localhost:8088
 ```
 
+If your browser is on a different machine than the dev shell, start the stack with:
+
+```sh
+./bin/vectis-local --host 0.0.0.0
+```
+
+Then open the API or docs using the dev machine's address. Use this only on a trusted network or behind your own access controls.
+
 `vectis-local` serves docs from the `vectis-docs` binary. If you built with `SKIP_WEB_BUILD=1`, `vectis-local` logs a warning and continues without the docs site. You can also start the stack with `./bin/vectis-local --docs=false`.
 
 ## Check Health

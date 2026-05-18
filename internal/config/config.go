@@ -3,6 +3,7 @@ package config
 import (
 	_ "embed"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"sync"
@@ -417,6 +418,13 @@ func PublicHost() string {
 	return MustDefaults().API.Host
 }
 
+func APIHost() string {
+	if host := strings.TrimSpace(viper.GetString("host")); host != "" {
+		return host
+	}
+	return MustDefaults().API.Host
+}
+
 func APIPort() int {
 	return MustDefaults().API.Port
 }
@@ -591,7 +599,7 @@ func LogMaxRunBuffers() int {
 }
 
 func APIListenAddr() string {
-	return ":" + strconv.Itoa(APIPort())
+	return net.JoinHostPort(APIHost(), strconv.Itoa(APIPort()))
 }
 
 func QueueListenAddr() string {

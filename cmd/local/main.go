@@ -154,12 +154,28 @@ func docsEnv() []string {
 		return nil
 	}
 
-	env := []string{fmt.Sprintf("VECTIS_DOCS_PORT=%d", viper.GetInt("docs_port"))}
+	env := []string{
+		"VECTIS_DOCS_HOST=" + localHost(),
+		fmt.Sprintf("VECTIS_DOCS_PORT=%d", viper.GetInt("docs_port")),
+	}
+
 	if dir := strings.TrimSpace(viper.GetString("docs_dir")); dir != "" {
 		env = append(env, "VECTIS_DOCS_DIR="+dir)
 	}
 
 	return env
+}
+
+func apiEnv() []string {
+	return []string{"VECTIS_API_SERVER_HOST=" + localHost()}
+}
+
+func localHost() string {
+	if host := strings.TrimSpace(viper.GetString("host")); host != "" {
+		return host
+	}
+
+	return "localhost"
 }
 
 func logLevelEnvVar(binaryName, logLevel string) string {
@@ -269,9 +285,11 @@ func runVectis(cmd *cobra.Command, args []string) {
 
 	services := localServices(logger)
 
+	tlsEnv = append(tlsEnv, apiEnv()...)
 	tlsEnv = append(tlsEnv, docsEnv()...)
+	logger.Info("API will be available at http://%s:%d", localHost(), config.APIEffectiveListenPort())
 	if hasService(services, "vectis-docs") {
-		logger.Info("Docs will be available at http://localhost:%d", viper.GetInt("docs_port"))
+		logger.Info("Docs will be available at http://%s:%d", localHost(), viper.GetInt("docs_port"))
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -419,7 +437,9 @@ and sets VECTIS_GRPC_TLS_* for child processes so internal gRPC uses TLS. Use
 
 The docs site is served from the vectis-docs binary on port 8088 by default.
 If vectis-docs was not built, vectis-local logs a warning and continues without
-local docs. Use --docs=false to skip docs explicitly during local development.`,
+local docs. Use --host=0.0.0.0 to expose the local API and docs outside the
+development machine, or --docs=false to skip docs explicitly during local
+development.`,
 	Run: runVectis,
 }
 
@@ -428,15 +448,18 @@ func init() {
 
 	rootCmd.PersistentFlags().String("log-level", "info", "Log level: debug, info, warn, error")
 	rootCmd.PersistentFlags().Bool("grpc-insecure", false, "Use plaintext gRPC instead of bootstrapped local TLS")
+	rootCmd.PersistentFlags().String("host", "localhost", "Host/IP for the local API and docs sites to bind")
 	rootCmd.PersistentFlags().Bool("docs", true, "Start the local docs site")
 	rootCmd.PersistentFlags().Int("docs-port", 8088, "HTTP port for the local docs site")
 	rootCmd.PersistentFlags().String("docs-dir", "", "Directory containing a docs build to serve instead of embedded docs")
 	_ = viper.BindPFlag("log_level", rootCmd.PersistentFlags().Lookup("log-level"))
 	_ = viper.BindPFlag("grpc_insecure", rootCmd.PersistentFlags().Lookup("grpc-insecure"))
+	_ = viper.BindPFlag("host", rootCmd.PersistentFlags().Lookup("host"))
 	_ = viper.BindPFlag("docs_enabled", rootCmd.PersistentFlags().Lookup("docs"))
 	_ = viper.BindPFlag("docs_port", rootCmd.PersistentFlags().Lookup("docs-port"))
 	_ = viper.BindPFlag("docs_dir", rootCmd.PersistentFlags().Lookup("docs-dir"))
 	_ = viper.BindEnv("grpc_insecure", "VECTIS_LOCAL_GRPC_INSECURE")
+	_ = viper.BindEnv("host", "VECTIS_LOCAL_HOST")
 	_ = viper.BindEnv("docs_enabled", "VECTIS_LOCAL_DOCS_ENABLED")
 	_ = viper.BindEnv("docs_port", "VECTIS_LOCAL_DOCS_PORT")
 	_ = viper.BindEnv("docs_dir", "VECTIS_LOCAL_DOCS_DIR")

@@ -48,6 +48,26 @@ func TestLogMaxRunBuffers_DefaultAndOverride(t *testing.T) {
 	}
 }
 
+func TestAPIHostAndListenAddr_DefaultAndOverride(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	if got := APIHost(); got != "localhost" {
+		t.Fatalf("APIHost default: got %q", got)
+	}
+	if got := APIListenAddr(); got != "localhost:8080" {
+		t.Fatalf("APIListenAddr default: got %q", got)
+	}
+
+	viper.Set("host", "0.0.0.0")
+	if got := APIHost(); got != "0.0.0.0" {
+		t.Fatalf("APIHost override: got %q", got)
+	}
+	if got := APIListenAddr(); got != "0.0.0.0:8080" {
+		t.Fatalf("APIListenAddr override: got %q", got)
+	}
+}
+
 func TestRegistryResolverPollInterval_FromDefaults(t *testing.T) {
 	if got := RegistryResolverPollInterval(); got != 10*time.Second {
 		t.Fatalf("expected discovery.registry_resolver_refresh 10s, got %v", got)

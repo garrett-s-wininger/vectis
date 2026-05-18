@@ -406,7 +406,9 @@ spec:
         - &componentLogsMount
           name: component-logs
           mountPath: /var/log/vectis/components
-      env: &dbEnv
+      env:
+        - name: VECTIS_API_SERVER_HOST
+          value: 0.0.0.0
         - name: VECTIS_DATABASE_DRIVER
           value: pgx
         - name: VECTIS_DATABASE_DSN
@@ -417,6 +419,9 @@ spec:
     - name: docs
       image: vectis-docs:latest
       imagePullPolicy: Never
+      env:
+        - name: VECTIS_DOCS_HOST
+          value: 0.0.0.0
       ports:
         - containerPort: 8088
           hostPort: 8088
@@ -426,7 +431,14 @@ spec:
       imagePullPolicy: Never
       envFrom: *vectisGrpcTlsEnvFrom
       volumeMounts: *vectisGrpcAndPostgresCaVolumeMounts
-      env: *dbEnv
+      env: &dbEnv
+        - name: VECTIS_DATABASE_DRIVER
+          value: pgx
+        - name: VECTIS_DATABASE_DSN
+          valueFrom:
+            secretKeyRef:
+              name: vectis-podman-secrets
+              key: VECTIS_DATABASE_DSN
     - name: log
       image: vectis-log:latest
       imagePullPolicy: Never

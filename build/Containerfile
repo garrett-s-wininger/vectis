@@ -92,6 +92,7 @@ FROM scratch AS all-in-one
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
       org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
 ENV XDG_DATA_HOME=/data
+ENV VECTIS_LOCAL_HOST=0.0.0.0
 COPY --from=builder \
       /app/bin/vectis-api \
       /app/bin/vectis-cron \

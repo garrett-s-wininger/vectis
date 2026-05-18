@@ -57,16 +57,16 @@ Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-eleven-cm
 
 | Binary | `viper.SetEnvPrefix` | Primary TOML / notes |
 |--------|----------------------|----------------------|
-| `vectis-api` | `VECTIS_API_SERVER` | `[api]` in [`../internal/config/defaults.toml`](../internal/config/defaults.toml); ad hoc `VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS` for [`trusted-proxy-client-ip.md`](../website/docs/operating/deployment/trusted-proxy-client-ip.md) |
+| `vectis-api` | `VECTIS_API_SERVER` | `[api]` in [`../internal/config/defaults.toml`](../internal/config/defaults.toml); `VECTIS_API_SERVER_HOST` / `--host` controls HTTP bind host; ad hoc `VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS` for [`trusted-proxy-client-ip.md`](../website/docs/operating/deployment/trusted-proxy-client-ip.md) |
 | `vectis-queue` | `VECTIS_QUEUE` | `[queue]` |
 | `vectis-registry` | `VECTIS_REGISTRY` | `[registry]` |
 | `vectis-log` | `VECTIS_LOG` | `[log]` |
 | `vectis-worker` | `VECTIS_WORKER` | `[worker]` |
 | `vectis-cron` | `VECTIS_CRON` | `[cron]` |
-| `vectis-docs` | `VECTIS_DOCS` | static docs server; default port `8088`, serves embedded docs unless `VECTIS_DOCS_DIR` overrides |
+| `vectis-docs` | `VECTIS_DOCS` | static docs server; default host `localhost`, default port `8088`, serves embedded docs unless `VECTIS_DOCS_DIR` overrides |
 | `vectis-reconciler` | `VECTIS_RECONCILER` | `[reconciler]` |
 | `vectis-log-forwarder` | `VECTIS_LOG_FORWARDER` | flat viper keys — see flags in [`log-forwarder/main.go`](log-forwarder/main.go) |
-| `vectis-local` | `VECTIS_LOCAL` | orchestrates stack; extra binds e.g. in [`local/main.go`](local/main.go) |
+| `vectis-local` | `VECTIS_LOCAL` | orchestrates stack; `VECTIS_LOCAL_HOST` controls local API and docs HTTP bind host |
 | `vectis-cli` | *(none)* | [`internal/config`](../internal/config/) + `os.Getenv` — see [`../internal/config/api_auth.go`](../internal/config/api_auth.go) |
 
 Shared TOML sections: [`../internal/config/defaults.toml`](../internal/config/defaults.toml) (`[database]`, `[discovery]`, `[grpc_tls]`, `[metrics_tls]`, …).

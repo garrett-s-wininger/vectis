@@ -51,7 +51,7 @@ That is the smallest useful loop: build, start, check health, run a job.
 | Reconciler | Repairs queued runs that missed queue handoff. |
 | Docs | Serves this documentation site from the `vectis-docs` binary. |
 
-By default, the API listens on `http://localhost:8080` and the bundled docs site listens on `http://localhost:8088`. Local data is stored under your user data directory; see [Configuration](./website/docs/operating/configuration.md) for exact paths and overrides.
+By default, the API listens on `http://localhost:8080` and the bundled docs site listens on `http://localhost:8088`. If you need to reach the local stack from another machine, for example over SSH to a dev host, run `./bin/vectis-local --host 0.0.0.0` and use the dev host's address. Only do that on a trusted network. Local data is stored under your user data directory; see [Configuration](./website/docs/operating/configuration.md) for exact paths and overrides.
 
 To stop the local stack, press `Ctrl+C` in the terminal running `vectis-local`.
 

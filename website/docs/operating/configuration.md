@@ -29,6 +29,8 @@ Some settings are global and intentionally do not use a service prefix, such as 
 | Goal | Set |
 | --- | --- |
 | Change API HTTP port | `VECTIS_API_SERVER_PORT` or `vectis-api --port` |
+| Bind API HTTP to another interface | `VECTIS_API_SERVER_HOST=0.0.0.0` or `vectis-api --host 0.0.0.0` |
+| Expose local API and docs from a dev host | `vectis-local --host 0.0.0.0` |
 | Enable API authentication | `VECTIS_API_AUTH_ENABLED=true` and, for a new database, `VECTIS_API_AUTH_BOOTSTRAP_TOKEN` |
 | Select authorization engine | `VECTIS_API_AUTHZ_ENGINE=hierarchical_rbac` or `authenticated_full` |
 | Set PostgreSQL | `VECTIS_DATABASE_DRIVER=pgx` and `VECTIS_DATABASE_DSN=postgres://...` on every DB-using service |
@@ -47,7 +49,7 @@ Use these prefixes when building service-specific environment variable names.
 
 | Program | Env prefix | Useful flags |
 | --- | --- | --- |
-| `vectis-api` | `VECTIS_API_SERVER` | `--port` |
+| `vectis-api` | `VECTIS_API_SERVER` | `--host`, `--port` |
 | `vectis-queue` | `VECTIS_QUEUE` | `--port`, `--metrics-port`, `--persistence-dir`, `--persistence-snapshot-every` |
 | `vectis-registry` | `VECTIS_REGISTRY` | `--port` |
 | `vectis-log` | `VECTIS_LOG` | `--storage-dir`, `--metrics-port`, `--max-run-buffers` |
@@ -55,7 +57,8 @@ Use these prefixes when building service-specific environment variable names.
 | `vectis-cron` | `VECTIS_CRON` | none today |
 | `vectis-reconciler` | `VECTIS_RECONCILER` | `--interval`, `--metrics-port` |
 | `vectis-log-forwarder` | `VECTIS_LOG_FORWARDER` | see `vectis-log-forwarder --help` |
-| `vectis-local` | `VECTIS_LOCAL` | `--log-level`, `--grpc-insecure` |
+| `vectis-docs` | `VECTIS_DOCS` | `--host`, `--port`, `--dir` |
+| `vectis-local` | `VECTIS_LOCAL` | `--host`, `--docs-port`, `--docs-dir`, `--log-level`, `--grpc-insecure` |
 | `vectis-cli` | none for normal API commands | `VECTIS_API_TOKEN` for auth; `VECTIS_DATABASE_*` for `database migrate` |
 
 The API client IP trust setting is an intentionally separate API-wide variable: `VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS`.

@@ -4,6 +4,7 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -39,7 +40,7 @@ func runDocs(cmd *cobra.Command, args []string) {
 		_, _ = w.Write([]byte("ok\n"))
 	}))
 
-	addr := fmt.Sprintf(":%d", viper.GetInt("port"))
+	addr := net.JoinHostPort(viper.GetString("host"), fmt.Sprintf("%d", viper.GetInt("port")))
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           mux,
@@ -49,7 +50,7 @@ func runDocs(cmd *cobra.Command, args []string) {
 		IdleTimeout:       2 * time.Minute,
 	}
 
-	logger.Info("Docs listening on http://localhost:%d (%s)", viper.GetInt("port"), source)
+	logger.Info("Docs listening on http://%s (%s)", addr, source)
 	if err := cli.ServeHTTP(cmd.Context(), srv, srv.ListenAndServe, defaultShutdownTimeout, "Docs HTTP", logger); err != nil {
 		logger.Fatal("Docs server failed: %v", err)
 	}
@@ -129,10 +130,12 @@ func init() {
 	cli.ConfigureVersion(rootCmd)
 
 	rootCmd.PersistentFlags().Int("port", defaultDocsPort, "HTTP port for the docs site")
+	rootCmd.PersistentFlags().String("host", "localhost", "Host/IP for the docs site to bind")
 	rootCmd.PersistentFlags().String("dir", "", "Directory containing a docs build to serve instead of embedded docs")
 	rootCmd.PersistentFlags().String("log-level", "info", "Log level: debug, info, warn, error")
 
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
+	_ = viper.BindPFlag("host", rootCmd.PersistentFlags().Lookup("host"))
 	_ = viper.BindPFlag("dir", rootCmd.PersistentFlags().Lookup("dir"))
 	_ = viper.BindPFlag("log_level", rootCmd.PersistentFlags().Lookup("log-level"))
 	_ = viper.BindEnv("dir", "VECTIS_DOCS_DIR")

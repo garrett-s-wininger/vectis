@@ -171,7 +171,7 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 	}
 
 	port := config.APIEffectiveListenPort()
-	addr := fmt.Sprintf(":%d", port)
+	addr := net.JoinHostPort(config.APIHost(), fmt.Sprintf("%d", port))
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		logger.Error("Listen: %v", err)
@@ -216,7 +216,9 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	cli.ConfigureVersion(rootCmd)
+	rootCmd.PersistentFlags().String("host", config.APIHost(), "Host/IP for the API server to bind")
 	rootCmd.PersistentFlags().Int("port", config.APIPort(), "Port for the API server")
+	_ = viper.BindPFlag("host", rootCmd.PersistentFlags().Lookup("host"))
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
 	viper.SetEnvPrefix("VECTIS_API_SERVER")
 	viper.AutomaticEnv()
