@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vectis Cron Trigger Mock</title>
+    <link rel="stylesheet" href="styles.css?v=cron-trigger11" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="index.html" aria-label="Vectis console">
+          <picture>
+            <source srcset="../../website/static/img/vectis-dark.png" media="(prefers-color-scheme: dark)" />
+            <img src="../../website/static/img/vectis.png" alt="" />
+          </picture>
+        </a>
+        <nav class="topnav" aria-label="Primary">
+          <a class="topnav__link" href="index.html">Dashboard</a>
+          <a class="topnav__link topnav__link--active" href="jobs.html">Jobs</a>
+          <a class="topnav__link" href="run-history.html">Runs</a>
+        </nav>
+        <div class="topbar__actions">
+          <button class="icon-button" type="button" aria-label="Toggle theme" title="Toggle theme" data-theme-toggle>
+            <span class="theme-mark" aria-hidden="true"></span>
+          </button>
+        </div>
+      </header>
+
+      <main class="console">
+        <section class="page-head" aria-labelledby="cron-title">
+          <div>
+            <nav class="breadcrumb" aria-label="Breadcrumb">
+              <a href="jobs.html">Catalog</a>
+              <span aria-hidden="true">/</span>
+              <a href="job-edit.html">linux-ci</a>
+              <span aria-hidden="true">/</span>
+              <span>Cron</span>
+            </nav>
+            <h1 id="cron-title">Cron trigger</h1>
+          </div>
+          <div class="page-head__actions">
+            <a class="button button--secondary" href="job-edit.html">Cancel</a>
+            <button class="button button--primary" type="button">Save</button>
+          </div>
+        </section>
+
+        <div class="authoring-layout">
+          <div class="authoring-main">
+            <section class="authoring-panel" aria-labelledby="cron-settings-title">
+              <div class="panel-title">
+                <h2 id="cron-settings-title">Settings</h2>
+                <label class="enabled-toggle">
+                  <input type="checkbox" checked />
+                  <span class="toggle-switch" aria-hidden="true"></span>
+                  <span>Enabled</span>
+                </label>
+              </div>
+              <div class="form-grid">
+                <label class="field field--wide">
+                  <span>Description</span>
+                  <input type="text" value="Scheduled validation for the linux-ci workflow" />
+                </label>
+              </div>
+            </section>
+
+            <div class="schedule-detail-layout">
+              <section class="authoring-panel" aria-labelledby="schedules-title">
+                <div class="panel-title">
+                  <h2 id="schedules-title">Schedules</h2>
+                  <button class="inline-action" type="button">Add</button>
+                </div>
+                <div class="schedule-list">
+                  <div class="schedule-row schedule-row--active">
+                    <div class="schedule-row__main">
+                      <strong>Nightly validation</strong>
+                      <small>0 2 * * *</small>
+                      <em>America/New_York · Next 2026-05-18 02:00</em>
+                    </div>
+                    <span class="status status--enabled">enabled</span>
+                  </div>
+                  <div class="schedule-row">
+                    <div class="schedule-row__main">
+                      <strong>Weekday smoke</strong>
+                      <small>*/30 9-17 * * 1-5</small>
+                      <em>UTC · Paused</em>
+                    </div>
+                    <span class="status status--disabled">disabled</span>
+                  </div>
+                </div>
+              </section>
+
+              <section class="authoring-panel" aria-labelledby="schedule-editor-title">
+                <div class="panel-title">
+                  <h2 id="schedule-editor-title">Nightly validation</h2>
+                  <label class="enabled-toggle">
+                    <input type="checkbox" checked />
+                    <span class="toggle-switch" aria-hidden="true"></span>
+                    <span>Enabled</span>
+                  </label>
+                </div>
+                <div class="form-grid cron-form-grid">
+                  <label class="field">
+                    <span>Name</span>
+                    <input type="text" value="Nightly validation" />
+                  </label>
+                  <label class="field">
+                    <span>Timezone</span>
+                    <select>
+                      <option selected>America/New_York</option>
+                      <option>UTC</option>
+                      <option>America/Los_Angeles</option>
+                      <option>Europe/London</option>
+                    </select>
+                  </label>
+                  <label class="field field--wide">
+                    <span>Cron spec</span>
+                    <input type="text" value="0 2 * * *" />
+                  </label>
+                </div>
+                <dl class="cron-preview">
+                  <div>
+                    <dt>Next run</dt>
+                    <dd>2026-05-18 02:00</dd>
+                  </div>
+                  <div>
+                    <dt>Following</dt>
+                    <dd>2026-05-19 02:00</dd>
+                  </div>
+                  <div>
+                    <dt>Last run</dt>
+                    <dd>2026-05-17 02:00</dd>
+                  </div>
+                </dl>
+                <div class="editor-actions">
+                  <button class="button button--secondary" type="button">Remove</button>
+                  <button class="button button--primary" type="button">Update schedule</button>
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script>
+      const root = document.documentElement;
+      const storedTheme = localStorage.getItem('vectis-console-theme');
+      if (storedTheme) {
+        root.dataset.theme = storedTheme;
+      }
+
+      document.querySelector('[data-theme-toggle]').addEventListener('click', () => {
+        const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+        root.dataset.theme = next;
+        localStorage.setItem('vectis-console-theme', next);
+      });
+    </script>
+  </body>
+</html>

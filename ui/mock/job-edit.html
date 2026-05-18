@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Vectis Job Authoring Mock</title>
-    <link rel="stylesheet" href="styles.css?v=job-authoring9" />
+    <link rel="stylesheet" href="styles.css?v=job-authoring10" />
   </head>
   <body>
     <div class="app-shell">
@@ -69,7 +69,7 @@
             <section class="authoring-panel" aria-labelledby="triggers-title">
               <div class="panel-title">
                 <h2 id="triggers-title">Triggers</h2>
-                <button class="inline-action" type="button">Add</button>
+                <a class="inline-action" href="trigger-cron.html?job=linux-ci">Add</a>
               </div>
               <div class="trigger-editor-list">
                 <div class="trigger-editor-row">
@@ -78,8 +78,16 @@
                     <small>API, CLI, or UI</small>
                   </div>
                   <span class="status status--enabled">enabled</span>
-                  <button class="inline-action" type="button">Edit</button>
+                  <span class="trigger-editor-row__empty" aria-hidden="true"></span>
                 </div>
+                <a class="trigger-editor-row trigger-editor-row--link" href="trigger-cron.html?job=linux-ci">
+                  <div>
+                    <strong>Cron</strong>
+                    <small>2 schedules</small>
+                  </div>
+                  <span class="status status--enabled">enabled</span>
+                  <span class="inline-action">Edit</span>
+                </a>
                 <div class="trigger-editor-row">
                   <div>
                     <strong>Webhook</strong>
