@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Vectis Run Detail Mock</title>
-    <link rel="stylesheet" href="styles.css?v=run-execution1" />
+    <link rel="stylesheet" href="styles.css?v=run-detail-progresssimple1" />
   </head>
   <body>
     <div class="app-shell">
@@ -66,24 +66,6 @@
                 <strong>2 of 3</strong>
               </section>
             </div>
-            <div class="execution-progress" aria-label="Step status counts">
-              <span class="execution-count execution-count--completed">
-                <strong>1</strong>
-                completed
-              </span>
-              <span class="execution-count execution-count--running">
-                <strong>1</strong>
-                running
-              </span>
-              <span class="execution-count execution-count--cancelled">
-                <strong>0</strong>
-                cancelled
-              </span>
-              <span class="execution-count execution-count--failed">
-                <strong>0</strong>
-                failed
-              </span>
-            </div>
           </section>
 
           <section class="run-actions-panel" aria-labelledby="actions-title">
@@ -92,7 +74,7 @@
               <span>3 steps</span>
             </div>
             <div class="action-tree">
-              <a class="action-row action-row--passed" href="#logs-title">
+              <a class="action-row action-row--passed" href="run-logs.html?run=184&step=checkout">
                 <div class="action-node" aria-hidden="true"></div>
                 <div class="action-main">
                   <strong>checkout</strong>
@@ -101,7 +83,7 @@
                 <span class="duration-chip">18s</span>
                 <span class="status status--passed">passed</span>
               </a>
-              <a class="action-row action-row--running action-row--active" href="#logs-title">
+              <a class="action-row action-row--running action-row--active" href="run-logs.html?run=184&step=test">
                 <div class="action-node" aria-hidden="true"></div>
                 <div class="action-main">
                   <strong>test</strong>
@@ -110,7 +92,7 @@
                 <span class="duration-chip">3m 54s</span>
                 <span class="status status--running">running</span>
               </a>
-              <a class="action-row" href="#logs-title">
+              <a class="action-row" href="run-logs.html?run=184&step=package">
                 <div class="action-node" aria-hidden="true"></div>
                 <div class="action-main">
                   <strong>package</strong>
@@ -121,30 +103,6 @@
               </a>
             </div>
           </section>
-
-          <details class="logs-detail-panel artifact-panel" aria-labelledby="logs-title" open>
-            <summary class="panel-title artifact-summary">
-              <span class="artifact-heading">
-                <h2 id="logs-title">Logs</h2>
-                <small>test step, last entry 10:46 AM</small>
-              </span>
-              <span class="artifact-toggle" aria-hidden="true"></span>
-            </summary>
-            <div class="artifact-actions">
-              <div class="log-controls" aria-label="Log filters">
-                <button class="filter-pill filter-pill--active" type="button">All</button>
-                <button class="filter-pill" type="button">Stdout</button>
-                <button class="filter-pill" type="button">Stderr</button>
-              </div>
-            </div>
-            <pre class="log-stream"><code><span class="log-line"><span>10:42:05</span><span>stdout</span><span>checking out repository</span></span>
-<span class="log-line"><span>10:42:23</span><span>stdout</span><span>checkout complete</span></span>
-<span class="log-line"><span>10:42:24</span><span>stdout</span><span>go test ./...</span></span>
-<span class="log-line"><span>10:43:08</span><span>stdout</span><span>ok vectis/internal/config 0.421s</span></span>
-<span class="log-line"><span>10:44:19</span><span>stdout</span><span>ok vectis/internal/queue 1.227s</span></span>
-<span class="log-line log-line--warn"><span>10:45:52</span><span>stderr</span><span>internal/api: waiting on integration fixture</span></span>
-<span class="log-line"><span>10:46:17</span><span>stdout</span><span>still running tests...</span></span></code></pre>
-          </details>
 
           <section class="run-overview-panel" aria-labelledby="run-overview-title">
             <div class="panel-title">
