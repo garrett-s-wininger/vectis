@@ -12,3 +12,8 @@ website/.docusaurus/
 website/build/
 website/playwright-report/
 website/test-results/
+
+# Generated docs assets embedded into vectis-docs
+cmd/docs/embedded/*
+!cmd/docs/embedded/
+!cmd/docs/embedded/.gitkeep

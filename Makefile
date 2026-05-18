@@ -1,8 +1,26 @@
-APPS := api cli cron local log queue reconciler registry worker
+SKIP_WEB_BUILD ?= 0
+SKIP_DOCS_ASSETS ?= 0
+
+APPS := api cli cron local log log-forwarder queue reconciler registry worker
+
+ifeq ($(SKIP_WEB_BUILD),0)
+APPS += docs
+endif
+
 BUILD_OPTS ?=
 COMPONENTS := $(filter-out cli local, $(APPS))
 OUT_DIR ?= bin
 CGO_ENABLED ?= 1
+DOCS_EMBED_DIR := cmd/docs/embedded
+DOCS_ASSETS_STAMP := $(DOCS_EMBED_DIR)/.stamp
+DOCS_ASSETS_TARGET :=
+WEBSITE_SOURCES := $(shell find website \
+	\( -path 'website/node_modules' -o -path 'website/.docusaurus' -o -path 'website/build' -o -path 'website/playwright-report' -o -path 'website/test-results' \) -prune \
+	-o -type f -print 2>/dev/null)
+
+ifeq ($(SKIP_DOCS_ASSETS),0)
+DOCS_ASSETS_TARGET := $(DOCS_ASSETS_STAMP)
+endif
 
 PROTOC ?= protoc
 PROTOC_GEN_GO ?= $(shell go env GOPATH)/bin/protoc-gen-go
@@ -18,6 +36,7 @@ LDFLAGS += -X vectis/internal/version.BuildDate=$(BUILD_DATE)
 
 API := $(shell find api -name '*.go' 2>/dev/null)
 BINARIES := $(addprefix $(OUT_DIR)/vectis-, $(APPS))
+NON_DOC_BINARIES := $(filter-out $(OUT_DIR)/vectis-docs,$(BINARIES))
 INTERNAL := $(shell find internal -name '*.go' 2>/dev/null)
 
 FORMAL_MODELS := execution reconciliation
@@ -30,11 +49,25 @@ all: build
 $(OUT_DIR):
 	mkdir -p ${@}
 
-$(BINARIES): $(OUT_DIR)/vectis-%: cmd/%/main.go $(API) $(INTERNAL) | $(OUT_DIR)
+$(OUT_DIR)/vectis-docs: cmd/docs/main.go $(API) $(INTERNAL) $(DOCS_ASSETS_TARGET) | $(OUT_DIR)
+	CGO_ENABLED=${CGO_ENABLED} go build ${BUILD_OPTS} -ldflags '${LDFLAGS}' -o ${@} ./cmd/docs
+
+$(NON_DOC_BINARIES): $(OUT_DIR)/vectis-%: cmd/%/main.go $(API) $(INTERNAL) | $(OUT_DIR)
 	CGO_ENABLED=${CGO_ENABLED} go build ${BUILD_OPTS} -ldflags '${LDFLAGS}' -o ${@} ./cmd/${*}
 
 .PHONY: build
 build: $(BINARIES)
+
+$(DOCS_ASSETS_STAMP): $(WEBSITE_SOURCES)
+	cd website && npm ci
+	cd website && npm run build
+	mkdir -p $(DOCS_EMBED_DIR)
+	find $(DOCS_EMBED_DIR) -mindepth 1 ! -name .gitkeep -exec rm -rf {} +
+	cp -R website/build/. $(DOCS_EMBED_DIR)/
+	touch $(DOCS_ASSETS_STAMP)
+
+.PHONY: docs-assets
+docs-assets: $(DOCS_ASSETS_STAMP)
 
 .PHONY: build-container
 build-container: CGO_ENABLED = 0
@@ -99,7 +132,7 @@ website-a11y:
 GOLANGCI_LINT_VERSION ?= v2.6.1
 GOVULNCHECK_VERSION ?= v1.1.4
 
-# NOTE(garrett):Match the `go` directive in go.mod to analyz the same stdlib the module declares.
+# NOTE(garrett): Match the `go` directive in go.mod to use the same stdlib the module declares.
 GO_MOD_GO_VERSION := $(shell awk '/^go /{print $$2; exit}' go.mod)
 
 .PHONY: lint
@@ -127,6 +160,8 @@ clean:
 	rm -rf ${OUT_DIR}
 	rm -rf formal/tla/*_TTrace_*
 	rm -rf states/
+	rm -rf website/.docusaurus website/build
+	find $(DOCS_EMBED_DIR) -mindepth 1 ! -name .gitkeep -exec rm -rf {} +
 
 .PHONY: image-full
 image-full:
@@ -141,8 +176,10 @@ image-internal-%:
 image-api: image-internal-api
 image-cli: image-internal-cli
 image-cron: image-internal-cron
+image-docs: image-internal-docs
 image-queue: image-internal-queue
 image-log: image-internal-log
+image-log-forwarder: image-internal-log-forwarder
 image-reconciler: image-internal-reconciler
 image-registry: image-internal-registry
 image-worker: image-internal-worker

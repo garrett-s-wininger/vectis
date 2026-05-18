@@ -21,9 +21,11 @@ const (
 
 	postgresMigrationAdvisoryLockKey int64 = 987654321
 
-	postgresMigrationRetryDeadline = 60 * time.Second
-	postgresMigrationLockTimeout   = 10 * time.Second
-	postgresMigrationRetrySleep    = 750 * time.Millisecond
+	postgresMigrationConnectDeadline = 2 * time.Minute
+	postgresMigrationConnectTimeout  = 5 * time.Second
+	postgresMigrationRetryDeadline   = 60 * time.Second
+	postgresMigrationLockTimeout     = 10 * time.Second
+	postgresMigrationRetrySleep      = 750 * time.Millisecond
 
 	schemaWaitDeadline     = 5 * time.Minute
 	schemaWaitPollInterval = 750 * time.Millisecond
@@ -107,6 +109,10 @@ func MigrateDB(db *sql.DB) error {
 	driver := EffectiveDBDriver()
 
 	if driver == "pgx" {
+		if err := waitForMigrationDB(db); err != nil {
+			return err
+		}
+
 		deadline := time.Now().Add(postgresMigrationRetryDeadline)
 		var lastErr error
 
@@ -130,6 +136,29 @@ func MigrateDB(db *sql.DB) error {
 	}
 
 	return nil
+}
+
+func waitForMigrationDB(db *sql.DB) error {
+	deadline := time.Now().Add(postgresMigrationConnectDeadline)
+	var lastErr error
+
+	for time.Now().Before(deadline) {
+		ctx, cancel := context.WithTimeout(context.Background(), postgresMigrationConnectTimeout)
+		lastErr = db.PingContext(ctx)
+		cancel()
+
+		if lastErr == nil {
+			return nil
+		}
+
+		time.Sleep(postgresMigrationRetrySleep)
+	}
+
+	if schemaWaitConnectFailure(lastErr) {
+		return fmt.Errorf("database did not become reachable for migrations within %s: %w", postgresMigrationConnectDeadline, lastErr)
+	}
+
+	return fmt.Errorf("database readiness check failed before migrations: %w", lastErr)
 }
 
 func migrateWithLock(ctx context.Context, db *sql.DB, advisoryLockKey int64, driver string) error {

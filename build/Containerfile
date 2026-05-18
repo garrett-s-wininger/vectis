@@ -1,4 +1,12 @@
 # syntax=docker/dockerfile:1
+FROM docker.io/library/node:26-alpine AS docs-builder
+WORKDIR /app/website
+COPY website/package.json website/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci
+COPY website/ ./
+RUN npm run build
+
 FROM docker.io/library/golang:1.25.10-alpine AS builder
 RUN apk add --no-cache make
 
@@ -9,13 +17,15 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 COPY api/ ./api/
 COPY cmd/ ./cmd/
+COPY deploy/podman/ ./deploy/podman/
 COPY internal/ ./internal/
 COPY Makefile ./Makefile
+COPY --from=docs-builder /app/website/build ./cmd/docs/embedded
 
 ENV CGO_ENABLED=0
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    make -j"$(getconf _NPROCESSORS_ONLN)" build-container
+    make -j"$(getconf _NPROCESSORS_ONLN)" build-container SKIP_DOCS_ASSETS=1
 
 FROM scratch AS api
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
@@ -40,6 +50,12 @@ LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vec
       org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
 COPY --from=builder /app/bin/vectis-log /usr/local/bin/vectis-log
 ENTRYPOINT ["/usr/local/bin/vectis-log"]
+
+FROM scratch AS log-forwarder
+LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
+      org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
+COPY --from=builder /app/bin/vectis-log-forwarder /usr/local/bin/vectis-log-forwarder
+ENTRYPOINT ["/usr/local/bin/vectis-log-forwarder"]
 
 FROM scratch AS queue
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
@@ -66,6 +82,12 @@ RUN apk add --no-cache ca-certificates
 COPY --from=builder /app/bin/vectis-worker /usr/local/bin/vectis-worker
 ENTRYPOINT ["/usr/local/bin/vectis-worker"]
 
+FROM scratch AS docs
+LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
+      org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
+COPY --from=builder /app/bin/vectis-docs /usr/local/bin/vectis-docs
+ENTRYPOINT ["/usr/local/bin/vectis-docs"]
+
 FROM scratch AS all-in-one
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
       org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
@@ -73,8 +95,10 @@ ENV XDG_DATA_HOME=/data
 COPY --from=builder \
       /app/bin/vectis-api \
       /app/bin/vectis-cron \
+      /app/bin/vectis-docs \
       /app/bin/vectis-local \
       /app/bin/vectis-log \
+      /app/bin/vectis-log-forwarder \
       /app/bin/vectis-queue \
       /app/bin/vectis-reconciler \
       /app/bin/vectis-registry \

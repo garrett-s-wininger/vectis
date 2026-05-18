@@ -22,7 +22,7 @@ Every binary wires Cobra version output through the shared CLI helper. Use `vect
 
 For a release, publish matching artifacts for:
 
-- Binaries: `vectis-api`, `vectis-cli`, `vectis-cron`, `vectis-local`, `vectis-log`, `vectis-log-forwarder`, `vectis-queue`, `vectis-reconciler`, `vectis-registry`, `vectis-worker`.
+- Binaries: `vectis-api`, `vectis-cli`, `vectis-cron`, `vectis-docs`, `vectis-local`, `vectis-log`, `vectis-log-forwarder`, `vectis-queue`, `vectis-reconciler`, `vectis-registry`, `vectis-worker`.
 - Container images for the deployable components.
 - Generated protobuf Go code already committed in `api/gen/go/`.
 - Release notes and upgrade notes.
@@ -82,7 +82,7 @@ Schema changes must follow [Database Migrations](./migrations.md), including the
 2. Run `make proto` and verify generated files are committed when protos changed.
 3. Run `make test-quick`.
 4. Run `make test-postgres-integration` for any database, migration, DAL, queue, reconciler, auth, or deploy-sensitive change.
-5. Build all binaries with `make build`.
+5. Build all binaries with `make build`; this also embeds the docs site into `vectis-docs`.
 6. Build container images with the release tag.
 7. Verify `vectis-cli --version` and one daemon `--version` show the release version, commit, and build date.
 8. Review [Database Migrations](./migrations.md) requirements for every schema change.

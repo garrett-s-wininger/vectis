@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 import type { Result } from 'axe-core';
 
 /** Routes to scan after production build (static HTML + hydration). */
-const paths = ['/', '/docs/general/compatibility'];
+const paths = ['/', '/docs/concepts/compatibility'];
 
 function formatViolations(violations: Result[]): string {
   return violations

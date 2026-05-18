@@ -238,6 +238,7 @@ Treat database files, queue persistence, log storage, deployment secrets, and TL
 | Registry gRPC | `8082` |
 | Log gRPC | `8083` |
 | Log HTTP/SSE | `8084` |
+| Docs HTTP | `8088` |
 | Queue metrics | `9081` |
 | Worker metrics | `9082` |
 | Log metrics | `9083` |

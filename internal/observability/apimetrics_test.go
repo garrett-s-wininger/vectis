@@ -10,6 +10,8 @@ import (
 	"slices"
 	"testing"
 
+	"vectis/internal/version"
+
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -17,6 +19,16 @@ import (
 
 func TestInitAPIMetrics_servesScrapeEndpoint(t *testing.T) {
 	ctx := context.Background()
+	oldVersion, oldCommit, oldBuildDate := version.Version, version.Commit, version.BuildDate
+	version.Version = "test-version"
+	version.Commit = "test-commit"
+	version.BuildDate = "test-build-date"
+	t.Cleanup(func() {
+		version.Version = oldVersion
+		version.Commit = oldCommit
+		version.BuildDate = oldBuildDate
+	})
+
 	h, shutdown, err := InitAPIMetrics(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -46,6 +58,20 @@ func TestInitAPIMetrics_servesScrapeEndpoint(t *testing.T) {
 
 	if _, ok := names["target_info"]; !ok {
 		t.Fatalf("missing target_info metric; got families: %v", sortedFamilyNames(names))
+	}
+
+	families, err := metricFamilies(rr.Body.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !metricFamilyHasLabels(families["target_info"], map[string]string{
+		"service_name":           "vectis-api",
+		"service_version":        "test-version",
+		"service_commit":         "test-commit",
+		"service_build_date":     "test-build-date",
+		"deployment_environment": defaultDeploymentEnv,
+	}) {
+		t.Fatalf("target_info missing service metadata labels: %v", families["target_info"])
 	}
 }
 

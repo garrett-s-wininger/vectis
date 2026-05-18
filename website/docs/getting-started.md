@@ -16,6 +16,7 @@ It assumes you are working from a clone of the Vectis repository on a developmen
 | Log service | Stores and streams run output. |
 | Registry | Lets services find one another. |
 | Cron and reconciler | Handle scheduled work and repair missed queue handoffs. |
+| Docs | Serves the docs site locally. |
 
 The local stack uses SQLite by default and stores data under your user data directory, usually `~/.local/share/vectis` when `XDG_DATA_HOME` is not set.
 
@@ -37,7 +38,14 @@ From the repository root:
 make build
 ```
 
-This creates binaries under `bin/`, including `vectis-local` and `vectis-cli`.
+This creates binaries under `bin/`, including `vectis-local`, `vectis-cli`, and `vectis-docs`.
+
+The default build also builds this docs site and embeds it into `vectis-docs`.
+If you want a faster development build without local docs, run:
+
+```sh
+SKIP_WEB_BUILD=1 make build
+```
 
 ## Start The Local Stack
 
@@ -47,13 +55,21 @@ In one terminal, run:
 ./bin/vectis-local
 ```
 
-Leave this process running. It supervises the local API, queue, worker, log service, registry, cron, and reconciler.
+Leave this process running. It supervises the local API, queue, worker, log service, registry, cron, reconciler, and docs site.
 
 By default, `vectis-local` also creates local TLS material for internal gRPC traffic. That is expected. The public API still listens on:
 
 ```text
 http://localhost:8080
 ```
+
+The docs site listens on:
+
+```text
+http://localhost:8088
+```
+
+`vectis-local` serves docs from the `vectis-docs` binary. If you built with `SKIP_WEB_BUILD=1`, `vectis-local` logs a warning and continues without the docs site. You can also start the stack with `./bin/vectis-local --docs=false`.
 
 ## Check Health
 

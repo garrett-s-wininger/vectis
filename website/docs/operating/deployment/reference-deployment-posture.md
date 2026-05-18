@@ -1,6 +1,6 @@
 # Reference Deployment Posture
 
-`vectis-cli deploy podman up` starts a full Vectis stack for demos, local staging, and integration testing. It is useful because it shows the pieces working together: API, queue, registry, log service, worker, cron, reconciler, Postgres, metrics, traces, logs, and dashboards.
+`vectis-cli deploy podman up` starts a full Vectis stack for demos, local staging, and integration testing. It is useful because it shows the pieces working together: API, queue, registry, log service, worker, cron, reconciler, docs, Postgres, metrics, traces, logs, and dashboards.
 
 It is not a turnkey production architecture.
 
@@ -27,6 +27,7 @@ The reference deployment gives you a working single-site topology:
 | Dashboards | Grafana with a provisioned Vectis overview dashboard. |
 | Traces | Jaeger collector/query backed by the bundled OpenSearch instance. |
 | Service logs | Structured Vectis logs tailed by Fluent Bit into OpenSearch. |
+| Docs | Static Vectis docs published on `8088`. |
 | Local secrets | Generated Podman deployment secrets stored under the deploy config directory. |
 
 This is intentionally convenient. Convenience is the point. The tradeoff is that several pieces are bundled, localhost-published, or generated locally instead of integrated with your production platform.
@@ -69,6 +70,7 @@ The reference pod publishes several local ports so you can inspect the stack qui
 | Default | Why to revisit it |
 | --- | --- |
 | API published on `8080` | Enable auth and put the API behind your normal edge/TLS controls before shared use. |
+| Docs published on `8088` | Useful for local operators, but still a public HTTP surface if the host is shared. |
 | Postgres published on `15432` | Keep database access private and backed up. |
 | Grafana on `3000`, Prometheus on `9090`, Jaeger on `16686`, OpenSearch Dashboards on `5601` | Treat bundled observability as demo-grade unless hardened and access-controlled. |
 | Generated TLS and secret material | Rotate into your platform secret lifecycle for shared environments. |
@@ -102,7 +104,8 @@ After `vectis-cli deploy podman up`:
 7. Stream logs with `vectis-cli logs run <run-id>`.
 8. Check Prometheus targets.
 9. Open Grafana and confirm the overview dashboard receives fresh samples.
-10. Check Jaeger and OpenSearch only as reference observability unless you have hardened them.
+10. Open the bundled docs at `http://localhost:8088`.
+11. Check Jaeger and OpenSearch only as reference observability unless you have hardened them.
 
 ## Related Documentation
 

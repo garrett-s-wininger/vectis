@@ -22,7 +22,7 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 - **Deployables / docs site** → `deploy/`, `website/docs/`
 - **Reconciler invariants** → `internal/reconciler/`; formal model → `formal/tla/`
 
-## Binaries (ten; `cmd/`)
+## Binaries (eleven; `cmd/`)
 
 | Binary | Role | Long-running? | DB? |
 |--------|------|---------------|-----|
@@ -33,8 +33,9 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 | `vectis-worker` | Action tree + logs; worker-control gRPC | yes | no |
 | `vectis-log-forwarder` | Sidecar: worker → log service | yes | no |
 | `vectis-cron` | Schedules → queue | yes | yes |
+| `vectis-docs` | Static docs site | yes | no |
 | `vectis-reconciler` | Stuck runs → queue | yes | yes |
-| `vectis-local` | Dev stack + TLS | yes (supervisor) | no |
+| `vectis-local` | Dev stack + TLS + docs | yes (supervisor) | no |
 | `vectis-cli` | HTTP client to API | no (one-shot) | no |
 
 **Ports, metrics ports, TLS defaults:** [`internal/config/defaults.toml`](internal/config/defaults.toml) and each `cmd/*/main.go`. Layout and env prefixes: [`cmd/AGENTS.md`](cmd/AGENTS.md).

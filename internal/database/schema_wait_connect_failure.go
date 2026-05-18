@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"io"
 	"net"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -30,6 +31,10 @@ func schemaWaitConnectFailure(err error) bool {
 	}
 
 	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+
+	if errors.Is(err, io.EOF) {
 		return true
 	}
 

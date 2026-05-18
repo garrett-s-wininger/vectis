@@ -12,6 +12,10 @@ Build Vectis:
 make build
 ```
 
+This builds the docs site and embeds it into `vectis-docs`. For a faster local
+build without the docs binary, use `SKIP_WEB_BUILD=1 make build`; `vectis-local`
+will continue without local docs if `vectis-docs` is not present.
+
 Start the local stack:
 
 ```bash
@@ -45,8 +49,9 @@ That is the smallest useful loop: build, start, check health, run a job.
 | Registry | Lets services find each other locally. |
 | Cron | Evaluates schedules. |
 | Reconciler | Repairs queued runs that missed queue handoff. |
+| Docs | Serves this documentation site from the `vectis-docs` binary. |
 
-By default, the API listens on `http://localhost:8080`. Local data is stored under your user data directory; see [Configuration](./website/docs/operating/configuration.md) for exact paths and overrides.
+By default, the API listens on `http://localhost:8080` and the bundled docs site listens on `http://localhost:8088`. Local data is stored under your user data directory; see [Configuration](./website/docs/operating/configuration.md) for exact paths and overrides.
 
 To stop the local stack, press `Ctrl+C` in the terminal running `vectis-local`.
 
@@ -61,6 +66,7 @@ To inspect or remove local state:
 
 - Go `1.25.10+` as declared in [go.mod](go.mod).
 - CGO enabled for local SQLite use. This is the normal Go default on most developer machines.
+- Node.js and npm for the default `make build`, which embeds the docs site into `vectis-docs`. Use `SKIP_WEB_BUILD=1 make build` to skip this.
 - `protoc`, `protoc-gen-go`, and `protoc-gen-go-grpc` only if you need to regenerate protobuf code with `make proto`.
 
 ## Learn The Basics
@@ -117,7 +123,7 @@ make proto
 
 For local development, use `vectis-local`.
 
-For a fuller reference deployment, Vectis includes a Podman-based stack with Postgres, persistent queue/log storage, Prometheus, Grafana, Jaeger, OpenSearch, and generated local secrets:
+For a fuller reference deployment, Vectis includes a Podman-based stack with Postgres, persistent queue/log storage, bundled docs, Prometheus, Grafana, Jaeger, OpenSearch, and generated local secrets:
 
 ```bash
 make images-components

@@ -3,6 +3,7 @@ package database
 import (
 	"database/sql"
 	"errors"
+	"io"
 	"net"
 	"syscall"
 	"testing"
@@ -53,6 +54,11 @@ func TestSchemaWaitConnectFailure(t *testing.T) {
 		{
 			name: "database_missing_sqlstate",
 			err:  &pgconn.PgError{Code: "3D000"},
+			want: true,
+		},
+		{
+			name: "postgres_startup_eof",
+			err:  io.EOF,
 			want: true,
 		},
 		{

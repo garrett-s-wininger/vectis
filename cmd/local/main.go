@@ -50,6 +50,7 @@ var (
 		{binary: "vectis-cron", stage: 2, checkHealth: false},
 		{binary: "vectis-reconciler", stage: 2, checkHealth: false},
 		{binary: "vectis-api", stage: 2, checkHealth: false},
+		{binary: "vectis-docs", stage: 2, checkHealth: false},
 	}
 
 	allStarted     []*exec.Cmd
@@ -126,6 +127,39 @@ func startService(logger interfaces.Logger, svc serviceStage, logLevel string, t
 	}
 
 	return command, nil
+}
+
+func localServices(logger interfaces.Logger) []serviceStage {
+	services := make([]serviceStage, 0, len(orderedServices))
+	for _, svc := range orderedServices {
+		if svc.binary == "vectis-docs" {
+			if !viper.GetBool("docs_enabled") {
+				continue
+			}
+
+			if _, err := supervisor.FindBinary(svc.binary); err != nil {
+				logger.Warn("Docs enabled, but %s was not found; continuing without local docs", svc.binary)
+				continue
+			}
+		}
+
+		services = append(services, svc)
+	}
+
+	return services
+}
+
+func docsEnv() []string {
+	if !viper.GetBool("docs_enabled") {
+		return nil
+	}
+
+	env := []string{fmt.Sprintf("VECTIS_DOCS_PORT=%d", viper.GetInt("docs_port"))}
+	if dir := strings.TrimSpace(viper.GetString("docs_dir")); dir != "" {
+		env = append(env, "VECTIS_DOCS_DIR="+dir)
+	}
+
+	return env
 }
 
 func logLevelEnvVar(binaryName, logLevel string) string {
@@ -233,6 +267,13 @@ func runVectis(cmd *cobra.Command, args []string) {
 		}
 	}
 
+	services := localServices(logger)
+
+	tlsEnv = append(tlsEnv, docsEnv()...)
+	if hasService(services, "vectis-docs") {
+		logger.Info("Docs will be available at http://localhost:%d", viper.GetInt("docs_port"))
+	}
+
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -246,7 +287,7 @@ func runVectis(cmd *cobra.Command, args []string) {
 		os.Exit(0)
 	}()
 
-	byStage := groupByStage(orderedServices)
+	byStage := groupByStage(services)
 
 	stages := make([]int, 0, len(byStage))
 	for stage := range byStage {
@@ -354,16 +395,31 @@ func serviceNames(svcs []serviceStage) []string {
 	return names
 }
 
+func hasService(svcs []serviceStage, binary string) bool {
+	for _, svc := range svcs {
+		if svc.binary == binary {
+			return true
+		}
+	}
+
+	return false
+}
+
 var rootCmd = &cobra.Command{
 	Use:   "vectis-local",
 	Short: "Run Vectis services locally for development",
 	Long: `Vectis Local runs all Vectis services locally for development and testing.
 
-It starts the registry, queue, worker, and API server as child processes.
+It starts the registry, queue, log service, worker, cron, reconciler, API server,
+and docs site as child processes.
 
 By default it bootstraps a dev CA and TLS certificates (under the XDG data directory)
 and sets VECTIS_GRPC_TLS_* for child processes so internal gRPC uses TLS. Use
---grpc-insecure or VECTIS_LOCAL_GRPC_INSECURE=true for plaintext gRPC.`,
+--grpc-insecure or VECTIS_LOCAL_GRPC_INSECURE=true for plaintext gRPC.
+
+The docs site is served from the vectis-docs binary on port 8088 by default.
+If vectis-docs was not built, vectis-local logs a warning and continues without
+local docs. Use --docs=false to skip docs explicitly during local development.`,
 	Run: runVectis,
 }
 
@@ -372,9 +428,18 @@ func init() {
 
 	rootCmd.PersistentFlags().String("log-level", "info", "Log level: debug, info, warn, error")
 	rootCmd.PersistentFlags().Bool("grpc-insecure", false, "Use plaintext gRPC instead of bootstrapped local TLS")
+	rootCmd.PersistentFlags().Bool("docs", true, "Start the local docs site")
+	rootCmd.PersistentFlags().Int("docs-port", 8088, "HTTP port for the local docs site")
+	rootCmd.PersistentFlags().String("docs-dir", "", "Directory containing a docs build to serve instead of embedded docs")
 	_ = viper.BindPFlag("log_level", rootCmd.PersistentFlags().Lookup("log-level"))
 	_ = viper.BindPFlag("grpc_insecure", rootCmd.PersistentFlags().Lookup("grpc-insecure"))
+	_ = viper.BindPFlag("docs_enabled", rootCmd.PersistentFlags().Lookup("docs"))
+	_ = viper.BindPFlag("docs_port", rootCmd.PersistentFlags().Lookup("docs-port"))
+	_ = viper.BindPFlag("docs_dir", rootCmd.PersistentFlags().Lookup("docs-dir"))
 	_ = viper.BindEnv("grpc_insecure", "VECTIS_LOCAL_GRPC_INSECURE")
+	_ = viper.BindEnv("docs_enabled", "VECTIS_LOCAL_DOCS_ENABLED")
+	_ = viper.BindEnv("docs_port", "VECTIS_LOCAL_DOCS_PORT")
+	_ = viper.BindEnv("docs_dir", "VECTIS_LOCAL_DOCS_DIR")
 	viper.SetEnvPrefix("VECTIS_LOCAL")
 	viper.AutomaticEnv()
 }

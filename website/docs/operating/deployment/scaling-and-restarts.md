@@ -19,6 +19,7 @@ This page answers "is this component topology supported, and what happens when i
 | Log service | Run one active log service unless you add external storage/routing. |
 | Cron | Run one active cron unless you intentionally partition schedules or use an external scheduler. |
 | Reconciler | Run one active reconciler for the current posture. |
+| Docs | Static docs service. Run zero, one, or more depending on how you expose documentation. |
 | Log-forwarder | One per producer host or process group, each with its own socket/spool path. |
 | `vectis-local` | Development only. Do not treat it as a production control plane. |
 
@@ -33,6 +34,7 @@ This page answers "is this component topology supported, and what happens when i
 | `vectis-log` | 1 | Not active/active | Durable log files and active stream buffers are local to the service. Multiple instances do not share run logs without external storage/routing. |
 | `vectis-cron` | 1 | Not without coordination | Schedule claiming helps during a firing attempt, but Vectis does not provide a cron leader-election or sharding contract. Avoid uncoordinated duplicates. |
 | `vectis-reconciler` | 1 | Limited, not recommended as default | Duplicate handoff is usually guarded by worker run claims, but duplicate repair traffic is still operational noise. Use one active reconciler unless you have tested the behavior. |
+| `vectis-docs` | 1 | Yes | Static HTTP docs. It has no database or queue state; scale or disable it according to your exposure model. |
 | `vectis-log-forwarder` | One per owner | Yes, by ownership | Safe when each forwarder owns its own socket and spool path. Do not share one spool directory as if it were a cluster. |
 | `vectis-cli` | N/A | Yes | One-shot client. Concurrent commands rely on API and database semantics. |
 
@@ -90,6 +92,7 @@ Registry is also commonly singleton. Gossip-based registry HA is an advanced con
 | `vectis-log-forwarder` | Local spool preserves unsent batches when configured and writable. | Preserve spool storage and watch age/size. |
 | `vectis-cron` | Schedule scans pause while cron is down. Missed evaluations are not replayed from a separate HA log. | Keep one active cron. Avoid overlap unless you intentionally partition schedules. |
 | `vectis-reconciler` | Repair scans pause while down. Queued runs remain in the database. | Repair latency can increase by at least one reconciler interval during restart. |
+| `vectis-docs` | Documentation is unavailable while the process is down. | No effect on job execution. Restart whenever needed. |
 | `vectis-local` | Stops or restarts the supervised local stack. | Development-only behavior. |
 
 ## Probes And Traffic Gates

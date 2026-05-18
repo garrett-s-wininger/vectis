@@ -44,6 +44,11 @@ make build
 
 This writes the Vectis binaries to `bin/`.
 
+The default build also builds the docs site and embeds it into `vectis-docs`.
+Use `SKIP_WEB_BUILD=1 make build` for a faster local build without the docs
+binary; `vectis-local` will continue without local docs when that binary is
+absent.
+
 For container-oriented static builds:
 
 ```bash

@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"runtime/debug"
 	"time"
+
+	"vectis/internal/version"
 
 	promclient "github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -56,11 +57,6 @@ func InitAPIMetrics(ctx context.Context) (metrics http.Handler, shutdown func(co
 }
 
 func serviceResource(ctx context.Context, serviceName string) (*resource.Resource, error) {
-	ver := "unknown"
-	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
-		ver = info.Main.Version
-	}
-
 	env := os.Getenv("VECTIS_DEPLOYMENT_ENV")
 	if env == "" {
 		env = defaultDeploymentEnv
@@ -70,7 +66,9 @@ func serviceResource(ctx context.Context, serviceName string) (*resource.Resourc
 		resource.WithHost(),
 		resource.WithAttributes(
 			semconv.ServiceName(serviceName),
-			semconv.ServiceVersion(ver),
+			semconv.ServiceVersion(version.Version),
+			attribute.String("service.commit", version.Commit),
+			attribute.String("service.build_date", version.BuildDate),
 			attribute.String("deployment.environment", env),
 		),
 	)

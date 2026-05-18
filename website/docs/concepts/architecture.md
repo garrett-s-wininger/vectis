@@ -96,7 +96,8 @@ flowchart TB
 | `vectis-registry` | Internal service discovery for queue and log addresses when clients do not use pinned addresses. |
 | `vectis-cron` | Reads schedules from the database and enqueues due runs. |
 | `vectis-reconciler` | Finds queued runs that need another queue handoff and enqueues them again. |
-| `vectis-local` | Development supervisor that starts the local registry, queue, log, worker, cron, reconciler, and API together. |
+| `vectis-docs` | Serves the embedded docs site as static HTTP. |
+| `vectis-local` | Development supervisor that starts the local registry, queue, log, worker, cron, reconciler, API, and docs together. |
 | `vectis-cli` | User and operator command-line client for the HTTP API. |
 
 ## Producers And Workers
@@ -157,6 +158,7 @@ The common local defaults are:
 | Registry gRPC | `8082` | Service registration and resolution. |
 | Log gRPC | `8083` | Worker log ingest and API log reads. |
 | Log HTTP | `8084` | Log-service HTTP surface; user-facing log streaming goes through the API. |
+| Docs HTTP | `8088` | Static documentation site. |
 
 Prometheus metrics are exposed on `/metrics`. The API serves metrics on its main HTTP listener; queue, worker, log, and reconciler use dedicated metrics listeners by default.
 

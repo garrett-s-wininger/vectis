@@ -75,60 +75,6 @@ data:
           "fieldConfig": {
             "defaults": {
               "custom": {
-                "drawStyle": "line",
-                "fillOpacity": 10,
-                "lineWidth": 1,
-                "showPoints": "never"
-              },
-              "unit": "none"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 8,
-            "w": 10,
-            "x": 14,
-            "y": 64
-          },
-          "id": 41,
-          "options": {
-            "legend": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "displayMode": "table",
-              "placement": "bottom",
-              "showLegend": true
-            },
-            "tooltip": {
-              "hideZeros": false,
-              "mode": "multi",
-              "sort": "none"
-            }
-          },
-          "pluginVersion": "13.0.0-23943897787",
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "vectis-prom"
-              },
-              "expr": "vectis_log_subscriber_channel_drops_total{job=\"vectis-log\"}",
-              "legendFormat": "subscriber drops",
-              "refId": "A"
-            }
-          ],
-          "title": "Subscriber Channel Drops",
-          "type": "timeseries"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "vectis-prom"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "custom": {
                 "align": "auto",
                 "cellOptions": {
                   "type": "auto"
@@ -1492,7 +1438,7 @@ data:
           },
           "gridPos": {
             "h": 8,
-            "w": 9,
+            "w": 19,
             "x": 5,
             "y": 64
           },
@@ -1549,11 +1495,68 @@ data:
           },
           "gridPos": {
             "h": 8,
-            "w": 10,
-            "x": 14,
-            "y": 64
+            "w": 12,
+            "x": 0,
+            "y": 72
           },
           "id": 41,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "13.0.0-23943897787",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "vectis-prom"
+              },
+              "expr": "vectis_log_subscriber_channel_drops_total{job=\"vectis-log\"}",
+              "legendFormat": "subscriber drops",
+              "refId": "A"
+            }
+          ],
+          "title": "Subscriber Channel Drops",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "vectis-prom"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 1,
+                "showPoints": "never"
+              },
+              "unit": "none"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 72
+          },
+          "id": 44,
           "options": {
             "legend": {
               "calcs": [
@@ -1608,7 +1611,7 @@ data:
             "h": 8,
             "w": 24,
             "x": 0,
-            "y": 72
+            "y": 80
           },
           "id": 42,
           "options": {
@@ -1683,7 +1686,7 @@ data:
             "h": 8,
             "w": 24,
             "x": 0,
-            "y": 80
+            "y": 88
           },
           "id": 43,
           "options": {

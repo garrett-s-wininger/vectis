@@ -371,7 +371,7 @@ spec:
           value: vectis
       volumeMounts:
         - name: postgres-data
-          mountPath: /var/lib/postgresql/data
+          mountPath: /var/lib/postgresql
         - name: vectis-postgres-tls
           mountPath: /run/postgres-tls
           readOnly: true
@@ -414,6 +414,13 @@ spec:
             secretKeyRef:
               name: vectis-podman-secrets
               key: VECTIS_DATABASE_DSN
+    - name: docs
+      image: vectis-docs:latest
+      imagePullPolicy: Never
+      ports:
+        - containerPort: 8088
+          hostPort: 8088
+          protocol: TCP
     - name: cron
       image: vectis-cron:latest
       imagePullPolicy: Never
