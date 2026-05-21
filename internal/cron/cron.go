@@ -43,7 +43,7 @@ type CronService struct {
 }
 
 func NewCronService(logger interfaces.Logger, db *sql.DB) *CronService {
-	repos := dal.NewSQLRepositories(db)
+	repos := dal.NewSQLRepositoriesWithCellID(db, config.CellID())
 	s := NewCronServiceWithRepositories(logger, repos.Jobs(), repos.Runs(), repos.Schedules())
 	s.dispatch = repos.DispatchEvents()
 	return s

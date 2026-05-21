@@ -218,7 +218,7 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | --- | --- | --- | --- | --- | --- |
 | GET | `/health/live` | Liveness probe | Public | none | `200` empty |
 | GET | `/health/ready` | Readiness probe | Public | none | `200` empty |
-| GET | `/api/v1/version` | Build version info | Public | none | `200` JSON version |
+| GET | `/api/v1/version` | Build and cell identity info | Public | none | `200` JSON version |
 | GET | `/api/v1/schema/status` | Migration schema status | Public | none | `200` JSON schema status |
 | GET | `/api/v1/reconciler/heartbeat` | Reconciler last-activity signal | Public | none | `200` JSON heartbeat |
 | GET | `/api/v1/audit/drops` | Audit event drop count | Public | none | `200` JSON drop count |

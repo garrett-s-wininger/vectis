@@ -34,6 +34,10 @@ func TestAPIServer_HealthLive_OK(t *testing.T) {
 	if got := rec.Header().Get("X-Vectis-Build-Version"); got == "" {
 		t.Fatal("expected X-Vectis-Build-Version header")
 	}
+
+	if got := rec.Header().Get("X-Vectis-Cell-ID"); got != "local" {
+		t.Fatalf("expected X-Vectis-Cell-ID local, got %q", got)
+	}
 }
 
 func TestAPIServer_HealthReady_OK(t *testing.T) {
@@ -52,6 +56,36 @@ func TestAPIServer_HealthReady_OK(t *testing.T) {
 
 	if got := rec.Header().Get("X-Vectis-Build-Commit"); got == "" {
 		t.Fatal("expected X-Vectis-Build-Commit header")
+	}
+
+	if got := rec.Header().Get("X-Vectis-Cell-ID"); got != "local" {
+		t.Fatalf("expected X-Vectis-Cell-ID local, got %q", got)
+	}
+}
+
+func TestAPIServer_GetVersion_IncludesCellID(t *testing.T) {
+	t.Parallel()
+	db := dbtest.NewTestDB(t)
+	srv := api.NewAPIServer(mocks.NewMockLogger(), db)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/version", nil)
+	srv.GetVersion(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d", http.StatusOK, rec.Code)
+	}
+
+	var resp struct {
+		CellID string `json:"cell_id"`
+	}
+
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode version response: %v", err)
+	}
+
+	if resp.CellID != "local" {
+		t.Fatalf("expected cell_id local, got %q", resp.CellID)
 	}
 }
 

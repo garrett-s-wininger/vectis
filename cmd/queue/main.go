@@ -106,7 +106,7 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 			RegistryAddress: config.QueueRegistrationRegistryAddress(),
 			Component:       api.Component_COMPONENT_QUEUE,
 			PublishAddress:  publishAddr,
-			Metadata:        registry.QueueIngressMetadata(),
+			Metadata:        registry.QueueIngressMetadataForCell(config.CellID()),
 			RefreshInterval: config.RegistryRegistrationRefresh(),
 			Logger:          logger,
 		})

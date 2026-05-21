@@ -127,6 +127,70 @@ func TestJobsRepository_CRUDAndConflict(t *testing.T) {
 	}
 }
 
+func TestSQLRepositoriesWithCellID_WritesHomeAndOwningCell(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-a", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-cell-owned"
+	def := `{"id":"job-cell-owned","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	var namespaceCell, jobCell, definitionCell, runCell, executionCell string
+	if err := db.QueryRowContext(ctx, "SELECT home_cell FROM namespaces WHERE id = ?", ns.ID).Scan(&namespaceCell); err != nil {
+		t.Fatalf("query namespace cell: %v", err)
+	}
+
+	if err := db.QueryRowContext(ctx, "SELECT home_cell FROM stored_jobs WHERE job_id = ?", jobID).Scan(&jobCell); err != nil {
+		t.Fatalf("query job cell: %v", err)
+	}
+
+	if err := db.QueryRowContext(ctx, "SELECT home_cell FROM job_definitions WHERE job_id = ? AND version = 1", jobID).Scan(&definitionCell); err != nil {
+		t.Fatalf("query definition cell: %v", err)
+	}
+
+	if err := db.QueryRowContext(ctx, "SELECT owning_cell FROM job_runs WHERE run_id = ?", runID).Scan(&runCell); err != nil {
+		t.Fatalf("query run cell: %v", err)
+	}
+
+	var segmentCount, executionCount int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM run_segments WHERE run_id = ?", runID).Scan(&segmentCount); err != nil {
+		t.Fatalf("query segment count: %v", err)
+	}
+
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*), cell_id FROM segment_executions WHERE run_id = ? GROUP BY cell_id", runID).Scan(&executionCount, &executionCell); err != nil {
+		t.Fatalf("query execution count/cell: %v", err)
+	}
+
+	if segmentCount != 1 || executionCount != 1 {
+		t.Fatalf("expected one segment and one execution, got segments=%d executions=%d", segmentCount, executionCount)
+	}
+
+	for name, got := range map[string]string{
+		"namespace":  namespaceCell,
+		"job":        jobCell,
+		"definition": definitionCell,
+		"run":        runCell,
+		"execution":  executionCell,
+	} {
+		if got != "iad-a" {
+			t.Fatalf("%s cell: got %q", name, got)
+		}
+	}
+}
+
 func TestJobsRepository_UpdateBackfillsLegacyCurrentVersion(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	jobs := dal.NewSQLRepositories(db).Jobs()
@@ -963,6 +1027,19 @@ func TestSQLRepositories_CreateDefinitionAndRun_AndGetDefinitionVersion(t *testi
 
 	if owningCell != dal.DefaultCellID {
 		t.Fatalf("job_runs.owning_cell: want %q, got %q", dal.DefaultCellID, owningCell)
+	}
+
+	var segmentCount, executionCount int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM run_segments WHERE run_id = ?", runID).Scan(&segmentCount); err != nil {
+		t.Fatalf("scan segment count: %v", err)
+	}
+
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM segment_executions WHERE run_id = ?", runID).Scan(&executionCount); err != nil {
+		t.Fatalf("scan execution count: %v", err)
+	}
+
+	if segmentCount != 1 || executionCount != 1 {
+		t.Fatalf("expected one segment and one execution, got segments=%d executions=%d", segmentCount, executionCount)
 	}
 }
 

@@ -109,7 +109,7 @@ type routeSpec struct {
 }
 
 func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
-	repos := dal.NewSQLRepositories(db)
+	repos := dal.NewSQLRepositoriesWithCellID(db, config.CellID())
 	s := NewAPIServerWithRepositories(logger, repos.Jobs(), repos.Runs(), repos)
 	s.healthDB = db
 	s.authRepo = repos.Auth()
@@ -377,6 +377,7 @@ func writeVersionHeaders(w http.ResponseWriter) {
 	w.Header().Set("X-Vectis-Build-Version", version.Version)
 	w.Header().Set("X-Vectis-Build-Commit", version.Commit)
 	w.Header().Set("X-Vectis-Build-Date", version.BuildDate)
+	w.Header().Set("X-Vectis-Cell-ID", config.CellID())
 }
 
 func (s *APIServer) HealthLive(w http.ResponseWriter, _ *http.Request) {

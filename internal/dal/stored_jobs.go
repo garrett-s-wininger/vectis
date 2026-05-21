@@ -7,7 +7,12 @@ import (
 )
 
 type SQLJobsRepository struct {
-	db *sql.DB
+	db     *sql.DB
+	cellID string
+}
+
+func (r *SQLJobsRepository) currentCellID() string {
+	return normalizeCellID(r.cellID)
 }
 
 func (r *SQLJobsRepository) Create(ctx context.Context, jobID, definitionJSON string, namespaceID int64) error {
@@ -34,7 +39,7 @@ func (r *SQLJobsRepository) Create(ctx context.Context, jobID, definitionJSON st
 		definitionJSON,
 		definitionHash,
 		initialVersion,
-		DefaultCellID,
+		r.currentCellID(),
 	); err != nil {
 		return normalizeSQLError(err)
 	}
@@ -46,7 +51,7 @@ func (r *SQLJobsRepository) Create(ctx context.Context, jobID, definitionJSON st
 		initialVersion,
 		definitionJSON,
 		definitionHash,
-		DefaultCellID,
+		r.currentCellID(),
 	); err != nil {
 		return normalizeSQLError(err)
 	}
@@ -197,7 +202,7 @@ func (r *SQLJobsRepository) UpdateDefinition(ctx context.Context, jobID, definit
 		currentHash = DefinitionHash(currentDefinition)
 	}
 
-	if err := insertDefinitionVersionTx(ctx, tx, jobID, currentVersion, currentDefinition, currentHash); err != nil {
+	if err := insertDefinitionVersionTx(ctx, tx, jobID, currentVersion, currentDefinition, currentHash, r.currentCellID()); err != nil {
 		return 0, err
 	}
 
@@ -219,7 +224,7 @@ func (r *SQLJobsRepository) UpdateDefinition(ctx context.Context, jobID, definit
 		newVersion,
 		definitionJSON,
 		definitionHash,
-		DefaultCellID,
+		r.currentCellID(),
 	); err != nil {
 		return 0, normalizeSQLError(err)
 	}
@@ -231,7 +236,7 @@ func (r *SQLJobsRepository) UpdateDefinition(ctx context.Context, jobID, definit
 	return newVersion, nil
 }
 
-func insertDefinitionVersionTx(ctx context.Context, tx *sql.Tx, jobID string, version int, definitionJSON, definitionHash string) error {
+func insertDefinitionVersionTx(ctx context.Context, tx *sql.Tx, jobID string, version int, definitionJSON, definitionHash, cellID string) error {
 	_, err := tx.ExecContext(ctx,
 		rebindQueryForPgx("INSERT INTO job_definitions (global_id, job_id, version, definition_json, definition_hash, home_cell) VALUES (?, ?, ?, ?, ?, ?)"),
 		newGlobalID(),
@@ -239,7 +244,7 @@ func insertDefinitionVersionTx(ctx context.Context, tx *sql.Tx, jobID string, ve
 		version,
 		definitionJSON,
 		definitionHash,
-		DefaultCellID,
+		normalizeCellID(cellID),
 	)
 
 	if err != nil {

@@ -10,7 +10,12 @@ import (
 )
 
 type SQLRunsRepository struct {
-	db *sql.DB
+	db     *sql.DB
+	cellID string
+}
+
+func (r *SQLRunsRepository) currentCellID() string {
+	return normalizeCellID(r.cellID)
 }
 
 func (r *SQLRunsRepository) MarkRunRunning(ctx context.Context, runID string) error {
@@ -472,11 +477,15 @@ func (r *SQLRunsRepository) CreateRun(ctx context.Context, jobID string, runInde
 		"queued",
 		definitionVersion,
 		definitionHash,
-		DefaultCellID,
+		r.currentCellID(),
 	)
 
 	if err != nil {
 		return "", 0, normalizeSQLError(err)
+	}
+
+	if err := createInitialSegmentExecutionTx(ctx, tx, runID, r.currentCellID()); err != nil {
+		return "", 0, err
 	}
 
 	if err = tx.Commit(); err != nil {

@@ -37,11 +37,20 @@ type NamespacesRepository interface {
 }
 
 type SQLNamespacesRepository struct {
-	db *sql.DB
+	db     *sql.DB
+	cellID string
 }
 
 func NewSQLNamespacesRepository(db *sql.DB) *SQLNamespacesRepository {
-	return &SQLNamespacesRepository{db: db}
+	return NewSQLNamespacesRepositoryWithCellID(db, DefaultCellID)
+}
+
+func NewSQLNamespacesRepositoryWithCellID(db *sql.DB, cellID string) *SQLNamespacesRepository {
+	return &SQLNamespacesRepository{db: db, cellID: normalizeCellID(cellID)}
+}
+
+func (r *SQLNamespacesRepository) currentCellID() string {
+	return normalizeCellID(r.cellID)
 }
 
 func (r *SQLNamespacesRepository) Create(ctx context.Context, name string, parentID *int64) (*NamespaceRecord, error) {
@@ -65,7 +74,7 @@ func (r *SQLNamespacesRepository) Create(ctx context.Context, name string, paren
 	var id int64
 	err := r.db.QueryRowContext(ctx,
 		rebindQueryForPgx("INSERT INTO namespaces (global_id, name, parent_id, path, home_cell) VALUES (?, ?, ?, ?, ?) RETURNING id"),
-		newGlobalID(), name, parentID, path, DefaultCellID,
+		newGlobalID(), name, parentID, path, r.currentCellID(),
 	).Scan(&id)
 
 	if err != nil {

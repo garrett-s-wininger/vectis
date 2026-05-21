@@ -36,6 +36,7 @@ func (d *tomlDuration) UnmarshalText(text []byte) error {
 }
 
 type Defaults struct {
+	Cell       CellDefaults       `toml:"cell"`
 	API        APIDefaults        `toml:"api"`
 	Queue      QueueDefaults      `toml:"queue"`
 	Registry   RegistryDefaults   `toml:"registry"`
@@ -47,6 +48,10 @@ type Defaults struct {
 	Reconciler ReconcilerDefaults `toml:"reconciler"`
 	GRPCTLS    GRPCTLSDefaults    `toml:"grpc_tls"`
 	MetricsTLS MetricsTLSDefaults `toml:"metrics_tls"`
+}
+
+type CellDefaults struct {
+	ID string `toml:"id"`
 }
 
 type APIDefaults struct {
@@ -231,6 +236,10 @@ func MustDefaults() Defaults {
 }
 
 func validateDefaults(d Defaults) {
+	if strings.TrimSpace(d.Cell.ID) == "" {
+		panic("config defaults: cell.id must not be empty")
+	}
+
 	if d.API.Host == "" {
 		panic("config defaults: api.host must not be empty")
 	}

@@ -29,6 +29,25 @@ func TestMustDefaults_ReconcilerInterval(t *testing.T) {
 	}
 }
 
+func TestCellID_DefaultViperAndEnv(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	if got := CellID(); got != "local" {
+		t.Fatalf("CellID default: got %q", got)
+	}
+
+	viper.Set("cell.id", "iad-a")
+	if got := CellID(); got != "iad-a" {
+		t.Fatalf("CellID viper override: got %q", got)
+	}
+
+	t.Setenv(envCellID, "  dfw-b  ")
+	if got := CellID(); got != "dfw-b" {
+		t.Fatalf("CellID env override: got %q", got)
+	}
+}
+
 func TestLogMaxRunBuffers_DefaultAndOverride(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)

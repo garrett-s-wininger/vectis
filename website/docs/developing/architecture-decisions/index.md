@@ -17,6 +17,7 @@ New decisions add the next numbered file. Keep older decisions in place; when a 
 | [0003](./0003-database-claims-and-queue-deliveries.md) | Accepted | Database claims and queue deliveries |
 | [0004](./0004-migration-compatibility-and-rollback.md) | Accepted | Migration compatibility and rollback |
 | [0005](./0005-gossip-based-ha-registry.md) | Accepted | Gossip-based HA service registry |
+| [0006](./0006-global-coordination-cell-local-execution.md) | Accepted | Global coordination and cell-local execution |
 
 ## Writing Style
 

@@ -64,6 +64,41 @@ CREATE TABLE job_runs (
 
 CREATE INDEX idx_job_runs_job_id_run_index ON job_runs (job_id, run_index DESC);
 
+CREATE TABLE run_segments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    segment_id TEXT UNIQUE NOT NULL,
+    run_id TEXT NOT NULL REFERENCES job_runs(run_id) ON DELETE CASCADE,
+    name TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_run_segments_run_id ON run_segments(run_id);
+CREATE INDEX idx_run_segments_status ON run_segments(status);
+
+CREATE TABLE segment_executions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    execution_id TEXT UNIQUE NOT NULL,
+    segment_id TEXT NOT NULL REFERENCES run_segments(segment_id) ON DELETE CASCADE,
+    run_id TEXT NOT NULL REFERENCES job_runs(run_id) ON DELETE CASCADE,
+    cell_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempt INTEGER NOT NULL DEFAULT 1,
+    accepted_at TIMESTAMP,
+    started_at TIMESTAMP,
+    finished_at TIMESTAMP,
+    last_observed_at INTEGER,
+    event_sequence INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(segment_id, cell_id, attempt)
+);
+
+CREATE INDEX idx_segment_executions_segment_id ON segment_executions(segment_id);
+CREATE INDEX idx_segment_executions_run_id ON segment_executions(run_id);
+CREATE INDEX idx_segment_executions_cell_status ON segment_executions(cell_id, status);
+
 CREATE TABLE run_dispatch_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id TEXT NOT NULL REFERENCES job_runs(run_id) ON DELETE CASCADE,

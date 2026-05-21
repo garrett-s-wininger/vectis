@@ -197,6 +197,22 @@ func TestRegistry_ListRegistrationsFiltersByMetadata(t *testing.T) {
 	}
 }
 
+func TestServiceMetadataForCell(t *testing.T) {
+	service := DefaultServiceMetadataForCell("iad-a")
+	if service[MetadataCellID] != "iad-a" {
+		t.Fatalf("service metadata cell: got %+v", service)
+	}
+
+	queue := QueueIngressMetadataForCell("dfw-b")
+	if queue[MetadataCellID] != "dfw-b" || queue[MetadataQueueRole] != QueueRoleIngress {
+		t.Fatalf("queue metadata: got %+v", queue)
+	}
+
+	if got := DefaultServiceMetadataForCell(" ")[MetadataCellID]; got != DefaultCellID {
+		t.Fatalf("blank cell should fall back to %q, got %q", DefaultCellID, got)
+	}
+}
+
 func TestStartRegistrationHeartbeatWithMetadata(t *testing.T) {
 	addr, _ := setupTestRegistry(t)
 

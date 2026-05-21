@@ -180,7 +180,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 				Component:       api.Component_COMPONENT_WORKER,
 				InstanceID:      workerID,
 				PublishAddress:  controlAddr,
-				Metadata:        registry.DefaultServiceMetadata(),
+				Metadata:        registry.DefaultServiceMetadataForCell(config.CellID()),
 				RefreshInterval: config.RegistryRegistrationRefresh(),
 				Logger:          logger,
 				Metrics:         retryMetrics,

@@ -95,6 +95,7 @@ const sidebars = {
             'developing/architecture-decisions/database-claims-and-queue-deliveries',
             'developing/architecture-decisions/migration-compatibility-and-rollback',
             'developing/architecture-decisions/gossip-based-ha-registry',
+            'developing/architecture-decisions/global-coordination-cell-local-execution',
           ],
         },
       ],

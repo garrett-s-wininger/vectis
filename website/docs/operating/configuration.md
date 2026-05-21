@@ -22,7 +22,7 @@ For service-scoped variables, take the service prefix, append the setting path w
 VECTIS_WORKER_DISCOVERY_REGISTRY_ADDRESS=localhost:8082
 ```
 
-Some settings are global and intentionally do not use a service prefix, such as `VECTIS_DATABASE_*`, `VECTIS_GRPC_TLS_*`, `VECTIS_METRICS_TLS_*`, and `VECTIS_API_AUTH_*`.
+Some settings are global and intentionally do not use a service prefix, such as `VECTIS_CELL_ID`, `VECTIS_DATABASE_*`, `VECTIS_GRPC_TLS_*`, `VECTIS_METRICS_TLS_*`, and `VECTIS_API_AUTH_*`.
 
 ## Common Settings {#common-operator-settings}
 
@@ -31,6 +31,7 @@ Some settings are global and intentionally do not use a service prefix, such as 
 | Change API HTTP port | `VECTIS_API_SERVER_PORT` or `vectis-api --port` |
 | Bind API HTTP to another interface | `VECTIS_API_SERVER_HOST=0.0.0.0` or `vectis-api --host 0.0.0.0` |
 | Expose local API and docs from a dev host | `vectis-local --host 0.0.0.0` |
+| Set the execution cell identity | `VECTIS_CELL_ID=local` |
 | Enable API authentication | `VECTIS_API_AUTH_ENABLED=true` and, for a new database, `VECTIS_API_AUTH_BOOTSTRAP_TOKEN` |
 | Select authorization engine | `VECTIS_API_AUTHZ_ENGINE=hierarchical_rbac` or `authenticated_full` |
 | Set PostgreSQL | `VECTIS_DATABASE_DRIVER=pgx` and `VECTIS_DATABASE_DSN=postgres://...` on every DB-using service |

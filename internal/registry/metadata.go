@@ -1,5 +1,7 @@
 package registry
 
+import "strings"
+
 const (
 	MetadataCellID    = "cell.id"
 	MetadataQueueRole = "queue.role"
@@ -9,14 +11,31 @@ const (
 	QueueRolePool    = "pool"
 )
 
-func DefaultServiceMetadata() map[string]string {
+func DefaultServiceMetadataForCell(cellID string) map[string]string {
 	return map[string]string{
-		MetadataCellID: DefaultCellID,
+		MetadataCellID: normalizeMetadataCellID(cellID),
 	}
 }
 
-func QueueIngressMetadata() map[string]string {
-	metadata := DefaultServiceMetadata()
+func DefaultServiceMetadata() map[string]string {
+	return DefaultServiceMetadataForCell(DefaultCellID)
+}
+
+func QueueIngressMetadataForCell(cellID string) map[string]string {
+	metadata := DefaultServiceMetadataForCell(cellID)
 	metadata[MetadataQueueRole] = QueueRoleIngress
 	return metadata
+}
+
+func QueueIngressMetadata() map[string]string {
+	return QueueIngressMetadataForCell(DefaultCellID)
+}
+
+func normalizeMetadataCellID(cellID string) string {
+	cellID = strings.TrimSpace(cellID)
+	if cellID == "" {
+		return DefaultCellID
+	}
+
+	return cellID
 }

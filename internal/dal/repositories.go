@@ -194,6 +194,7 @@ type JobsRepository interface {
 
 type SQLRepositories struct {
 	db           *sql.DB
+	cellID       string
 	jobs         *SQLJobsRepository
 	runs         *SQLRunsRepository
 	schedules    *SQLSchedulesRepository
@@ -205,13 +206,19 @@ type SQLRepositories struct {
 }
 
 func NewSQLRepositories(db *sql.DB) *SQLRepositories {
+	return NewSQLRepositoriesWithCellID(db, DefaultCellID)
+}
+
+func NewSQLRepositoriesWithCellID(db *sql.DB, cellID string) *SQLRepositories {
+	cellID = normalizeCellID(cellID)
 	return &SQLRepositories{
 		db:           db,
-		jobs:         &SQLJobsRepository{db: db},
-		runs:         &SQLRunsRepository{db: db},
+		cellID:       cellID,
+		jobs:         &SQLJobsRepository{db: db, cellID: cellID},
+		runs:         &SQLRunsRepository{db: db, cellID: cellID},
 		schedules:    &SQLSchedulesRepository{db: db},
 		auth:         NewSQLAuthRepository(db),
-		namespaces:   NewSQLNamespacesRepository(db),
+		namespaces:   NewSQLNamespacesRepositoryWithCellID(db, cellID),
 		roleBindings: NewSQLRoleBindingsRepository(db),
 		idempotency:  &SQLIdempotencyRepository{db: db},
 		dispatch:     &SQLDispatchEventsRepository{db: db},
@@ -229,6 +236,50 @@ func newGlobalID() string {
 	return uuid.NewString()
 }
 
+func newSegmentID() string {
+	return uuid.NewString()
+}
+
+func newExecutionID() string {
+	return uuid.NewString()
+}
+
+func normalizeCellID(cellID string) string {
+	cellID = strings.TrimSpace(cellID)
+	if cellID == "" {
+		return DefaultCellID
+	}
+
+	return cellID
+}
+
+func createInitialSegmentExecutionTx(ctx context.Context, tx *sql.Tx, runID, cellID string) error {
+	segmentID := newSegmentID()
+	if _, err := tx.ExecContext(ctx,
+		rebindQueryForPgx("INSERT INTO run_segments (segment_id, run_id, name, status) VALUES (?, ?, ?, ?)"),
+		segmentID,
+		runID,
+		"root",
+		"pending",
+	); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		rebindQueryForPgx("INSERT INTO segment_executions (execution_id, segment_id, run_id, cell_id, status, attempt) VALUES (?, ?, ?, ?, ?, ?)"),
+		newExecutionID(),
+		segmentID,
+		runID,
+		normalizeCellID(cellID),
+		"pending",
+		1,
+	); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	return nil
+}
+
 func (r *SQLRepositories) CreateDefinitionAndRun(ctx context.Context, jobID, definitionJSON string, runIndex *int) (runID string, runIndexOut int, err error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -239,7 +290,7 @@ func (r *SQLRepositories) CreateDefinitionAndRun(ctx context.Context, jobID, def
 	definitionHash := DefinitionHash(definitionJSON)
 	if _, err := tx.ExecContext(ctx,
 		rebindQueryForPgx(`INSERT INTO job_definitions (global_id, job_id, version, definition_json, definition_hash, home_cell) VALUES (?, ?, 1, ?, ?, ?)`),
-		newGlobalID(), jobID, definitionJSON, definitionHash, DefaultCellID,
+		newGlobalID(), jobID, definitionJSON, definitionHash, r.cellID,
 	); err != nil {
 		return "", 0, normalizeSQLError(err)
 	}
@@ -265,9 +316,13 @@ func (r *SQLRepositories) CreateDefinitionAndRun(ctx context.Context, jobID, def
 		idx,
 		"queued",
 		definitionHash,
-		DefaultCellID,
+		r.cellID,
 	); err != nil {
 		return "", 0, normalizeSQLError(err)
+	}
+
+	if err := createInitialSegmentExecutionTx(ctx, tx, runID, r.cellID); err != nil {
+		return "", 0, err
 	}
 
 	if err := tx.Commit(); err != nil {
