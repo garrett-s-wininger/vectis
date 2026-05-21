@@ -533,3 +533,59 @@ h1 {
   color: #5d707c;
   margin: 0;
 }
+
+.progress-meter-stack {
+  display: grid;
+  gap: 16px;
+  width: min(520px, 100%);
+}
+
+.progress-meter {
+  display: grid;
+  gap: 8px;
+}
+
+.progress-meter__header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.progress-meter__header span {
+  color: #172026;
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+.progress-meter__header strong {
+  color: #3f5463;
+  font-size: 0.9375rem;
+}
+
+.progress-meter__track {
+  background: #edf1f4;
+  border-radius: 999px;
+  height: 10px;
+  overflow: hidden;
+}
+
+.progress-meter__bar {
+  background: #1f5f78;
+  border-radius: inherit;
+  display: block;
+  height: 100%;
+}
+
+.progress-meter--warning .progress-meter__bar {
+  background: #c77a12;
+}
+
+.progress-meter--critical .progress-meter__bar {
+  background: #a23535;
+}
+
+.progress-meter__detail {
+  color: #5d707c;
+  font-size: 0.875rem;
+}
