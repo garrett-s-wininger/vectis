@@ -28,6 +28,7 @@ DEFAULT_QUEUE_BENCH = (
 )
 
 DEFAULT_DAL_BENCH = r"BenchmarkDAL_"
+DEFAULT_MACRO_BENCH = r"BenchmarkMacro_"
 DEFAULT_ARTIFACT_DIR = "artifacts/perf"
 
 
@@ -81,6 +82,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         package="./internal/dal",
         default_bench=DEFAULT_DAL_BENCH,
         bench_env="VECTIS_PERF_DAL_BENCH",
+    )
+
+    add_go_benchmark_suite(
+        subparsers,
+        name="macro",
+        help_text="Run in-process API-to-terminal macro benchmarks.",
+        package="./tests/perf",
+        default_bench=DEFAULT_MACRO_BENCH,
+        bench_env="VECTIS_PERF_MACRO_BENCH",
     )
 
     compare = subparsers.add_parser("compare", help="Compare two Go benchmark outputs with benchstat.")
@@ -358,6 +368,13 @@ def print_next_checks(suite: str) -> None:
         print("- Worker scale: compare TryClaim/finalize timing against DB pool pressure under multiple workers.")
         print("- Postgres check: rerun the same workload in a deployed stack before making production capacity claims.")
         print("- Query shape: investigate list/repair scans when table-size scenarios move more than normal variance.")
+        return
+
+    if suite == "macro":
+        print("- Worker scale: repeat with a deployed stack and varied worker counts before changing the capacity envelope.")
+        print("- Database: compare SQLite local results with Postgres DB pool pressure in staging.")
+        print("- Logs: increase log volume and add real log-service gRPC/replay boundaries before making observability claims.")
+        print("- Mixed traffic: add API read/log-stream clients while trigger-to-terminal load is running.")
         return
 
     print("- Trigger bursts: submit stored-job triggers in batches and record accepted latency plus queued-run age.")

@@ -89,6 +89,7 @@ Useful knobs:
 | `VECTIS_PERF_COUNT` | `1` | Repetition count. Use `3` or more for baseline capture. |
 | `VECTIS_PERF_QUEUE_BENCH` | Queue round-trip, concurrent, sustained, and latency benches | Override to focus on one scenario. |
 | `VECTIS_PERF_DAL_BENCH` | DAL hot-path benchmarks | Override to focus on one DAL scenario. |
+| `VECTIS_PERF_MACRO_BENCH` | API-to-terminal macro benchmarks | Override to focus on one macro scenario. |
 | `VECTIS_PERF_ARTIFACT_DIR` | `artifacts/perf` | Directory where harness artifacts are written. |
 | `VECTIS_PERF_RUN_NAME` | timestamp and suite | Optional artifact run directory name. |
 | `VECTIS_PERF_BASELINE` | unset | Optional baseline Go benchmark output for `benchstat` comparison during a queue run. |
@@ -105,6 +106,16 @@ VECTIS_PERF_RUN_NAME=main-dal VECTIS_PERF_BENCHTIME=5s VECTIS_PERF_COUNT=3 make 
 ```
 
 The DAL suite is SQLite-backed for local repeatability. Use it as a fast regression tripwire, then run a deployed-stack check against Postgres before making claims about production scale.
+
+## Local Macro Benchmark Check
+
+Use this check when the architectural question crosses component boundaries. The macro suite includes an in-process API trigger through SQLite-backed run creation, async queue enqueue, queue dequeue/ack, worker-style DB claim, no-op shell execution, terminal status update, and a log-heavy variant that exercises worker durable log flush plus local log-store replay.
+
+```sh
+VECTIS_PERF_RUN_NAME=main-macro VECTIS_PERF_BENCHTIME=5s VECTIS_PERF_COUNT=3 make perf SUITE=macro
+```
+
+This is a fast macro regression check, not a deployment capacity claim. Follow it with the deployed stack check when worker count, Postgres, log service, network, TLS, or service process boundaries matter.
 
 ## Deployed Stack Check
 
