@@ -17,9 +17,19 @@ import shutil
 import subprocess
 import sys
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from typing import Protocol
+
+    class TextStream(Protocol):
+        """Minimal stream protocol for harness output."""
+
+        def write(self, text: str) -> object:
+            """Write text to the stream."""
 
 
 DEFAULT_QUEUE_BENCH = (
@@ -30,16 +40,32 @@ DEFAULT_QUEUE_BENCH = (
 DEFAULT_DAL_BENCH = r"BenchmarkDAL_"
 DEFAULT_MACRO_BENCH = r"BenchmarkMacro_"
 DEFAULT_ARTIFACT_DIR = "artifacts/perf"
+MIN_BENCHMARK_FIELDS = 2
+
+
+@dataclass(frozen=True)
+class GoBenchmarkSuite:
+    """Definition for one Go benchmark-backed performance suite."""
+
+    name: str
+    help_text: str
+    package: str
+    default_bench: str
+    bench_env: str
 
 
 @dataclass
 class BenchmarkMetric:
+    """One metric/value pair from a Go benchmark row."""
+
     value: str
     unit: str
 
 
 @dataclass
 class BenchmarkResult:
+    """Parsed Go benchmark result row."""
+
     name: str
     iterations: str
     metrics: list[BenchmarkMetric]
@@ -47,6 +73,8 @@ class BenchmarkResult:
 
 @dataclass
 class HarnessMetadata:
+    """Metadata captured for a performance harness run."""
+
     suite: str
     started_at: str
     finished_at: str
@@ -63,37 +91,40 @@ class HarnessMetadata:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """Run the Vectis performance harness."""
     parser = argparse.ArgumentParser(description="Run Vectis performance suites.")
     subparsers = parser.add_subparsers(dest="suite", required=True)
 
-    add_go_benchmark_suite(
-        subparsers,
-        name="queue",
-        help_text="Run queue microbenchmarks.",
-        package="./internal/queue",
-        default_bench=DEFAULT_QUEUE_BENCH,
-        bench_env="VECTIS_PERF_QUEUE_BENCH",
+    for suite in (
+        GoBenchmarkSuite(
+            name="queue",
+            help_text="Run queue microbenchmarks.",
+            package="./internal/queue",
+            default_bench=DEFAULT_QUEUE_BENCH,
+            bench_env="VECTIS_PERF_QUEUE_BENCH",
+        ),
+        GoBenchmarkSuite(
+            name="dal",
+            help_text="Run DAL hot-path microbenchmarks.",
+            package="./internal/dal",
+            default_bench=DEFAULT_DAL_BENCH,
+            bench_env="VECTIS_PERF_DAL_BENCH",
+        ),
+        GoBenchmarkSuite(
+            name="macro",
+            help_text="Run in-process API-to-terminal macro benchmarks.",
+            package="./tests/perf",
+            default_bench=DEFAULT_MACRO_BENCH,
+            bench_env="VECTIS_PERF_MACRO_BENCH",
+        ),
+    ):
+        _add_go_benchmark_suite(subparsers, suite)
+
+    compare = subparsers.add_parser(
+        "compare",
+        help="Compare two Go benchmark outputs with benchstat.",
     )
 
-    add_go_benchmark_suite(
-        subparsers,
-        name="dal",
-        help_text="Run DAL hot-path microbenchmarks.",
-        package="./internal/dal",
-        default_bench=DEFAULT_DAL_BENCH,
-        bench_env="VECTIS_PERF_DAL_BENCH",
-    )
-
-    add_go_benchmark_suite(
-        subparsers,
-        name="macro",
-        help_text="Run in-process API-to-terminal macro benchmarks.",
-        package="./tests/perf",
-        default_bench=DEFAULT_MACRO_BENCH,
-        bench_env="VECTIS_PERF_MACRO_BENCH",
-    )
-
-    compare = subparsers.add_parser("compare", help="Compare two Go benchmark outputs with benchstat.")
     compare.add_argument("--baseline", required=True, help="Baseline Go benchmark output.")
     compare.add_argument("--current", required=True, help="Current Go benchmark output.")
     compare.add_argument(
@@ -104,25 +135,19 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     if hasattr(args, "go_package"):
-        return run_go_benchmark_suite(args)
+        return _run_go_benchmark_suite(args)
 
     if args.suite == "compare":
-        return run_benchstat(args.benchstat, Path(args.baseline), Path(args.current), None)
+        return _run_benchstat(args.benchstat, Path(args.baseline), Path(args.current), None)
 
-    parser.error(f"unsupported suite {args.suite}")
-    return 2
+    raise AssertionError
 
 
-def add_go_benchmark_suite(
+def _add_go_benchmark_suite(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
-    *,
-    name: str,
-    help_text: str,
-    package: str,
-    default_bench: str,
-    bench_env: str,
+    suite_config: GoBenchmarkSuite,
 ) -> None:
-    suite = subparsers.add_parser(name, help=help_text)
+    suite = subparsers.add_parser(suite_config.name, help=suite_config.help_text)
 
     suite.add_argument(
         "--benchtime",
@@ -139,7 +164,7 @@ def add_go_benchmark_suite(
 
     suite.add_argument(
         "--bench",
-        default=os.getenv(bench_env, default_bench),
+        default=os.getenv(suite_config.bench_env, suite_config.default_bench),
         help="Go benchmark regex.",
     )
 
@@ -173,10 +198,10 @@ def add_go_benchmark_suite(
         help="benchstat binary to use when --baseline is provided.",
     )
 
-    suite.set_defaults(go_package=package)
+    suite.set_defaults(go_package=suite_config.package)
 
 
-def run_go_benchmark_suite(args: argparse.Namespace) -> int:
+def _run_go_benchmark_suite(args: argparse.Namespace) -> int:
     command = [
         args.go,
         "test",
@@ -192,39 +217,39 @@ def run_go_benchmark_suite(args: argparse.Namespace) -> int:
         "-benchmem",
     ]
 
-    started = dt.datetime.now(dt.UTC)
+    started = dt.datetime.now(dt.timezone.utc)
     started_monotonic = time.monotonic()
     run_name = args.run_name or f"{started.strftime('%Y%m%dT%H%M%SZ')}-{args.suite}"
     artifact_root = Path(args.artifact_dir)
-    run_dir = artifact_root / sanitize_path_part(run_name)
+    run_dir = artifact_root / _sanitize_path_part(run_name)
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    print_heading("Vectis performance harness")
-    print(f"Suite              : {args.suite}")
-    print(f"Package            : {args.go_package}")
-    print(f"Benchmark duration : {args.benchtime}")
-    print(f"Repetitions        : {args.count}")
-    print(f"Benchmark pattern  : {args.bench}")
-    print(f"Artifacts          : {run_dir}")
+    _print_heading("Vectis performance harness")
+    _emit(f"Suite              : {args.suite}")
+    _emit(f"Package            : {args.go_package}")
+    _emit(f"Benchmark duration : {args.benchtime}")
+    _emit(f"Repetitions        : {args.count}")
+    _emit(f"Benchmark pattern  : {args.bench}")
+    _emit(f"Artifacts          : {run_dir}")
 
-    proc = subprocess.run(
+    proc = subprocess.run(  # noqa: S603 - harness executes configured benchmark tools.
         command,
-        cwd=repo_root(),
+        cwd=_repo_root(),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
         check=False,
     )
 
-    finished = dt.datetime.now(dt.UTC)
+    finished = dt.datetime.now(dt.timezone.utc)
     duration = time.monotonic() - started_monotonic
     raw_output = proc.stdout
 
     raw_path = run_dir / "go-bench.txt"
     raw_path.write_text(raw_output, encoding="utf-8")
 
-    env = parse_go_benchmark_environment(raw_output)
-    results = parse_go_benchmark_results(raw_output)
+    env = _parse_go_benchmark_environment(raw_output)
+    results = _parse_go_benchmark_results(raw_output)
     metadata = HarnessMetadata(
         suite=args.suite,
         started_at=started.isoformat(),
@@ -232,58 +257,66 @@ def run_go_benchmark_suite(args: argparse.Namespace) -> int:
         duration_seconds=round(duration, 6),
         command=command,
         status=proc.returncode,
-        git_commit=git_output(["rev-parse", "--short=12", "HEAD"], "unknown"),
-        git_dirty=git_dirty(),
-        go_version=command_output([args.go, "version"], "unknown"),
+        git_commit=_git_output(["rev-parse", "--short=12", "HEAD"], "unknown"),
+        git_dirty=_git_dirty(),
+        go_version=_command_output([args.go, "version"], "unknown"),
         goos=env.get("goos", ""),
         goarch=env.get("goarch", ""),
         cpu=env.get("cpu", ""),
         pkg=env.get("pkg", ""),
     )
 
-    write_json(run_dir / "summary.json", {
-        "metadata": asdict(metadata),
-        "results": [
-            {
-                "name": r.name,
-                "iterations": r.iterations,
-                "metrics": [asdict(m) for m in r.metrics],
-            }
-            for r in results
-        ],
-    })
+    _write_json(
+        run_dir / "summary.json",
+        {
+            "metadata": asdict(metadata),
+            "results": [
+                {
+                    "name": r.name,
+                    "iterations": r.iterations,
+                    "metrics": [asdict(m) for m in r.metrics],
+                }
+                for r in results
+            ],
+        },
+    )
 
-    write_markdown_summary(run_dir / "summary.md", metadata, results, raw_path)
+    _write_markdown_summary(run_dir / "summary.md", metadata, results, raw_path)
 
-    print_heading("Environment")
-    print_environment(metadata)
+    _print_heading("Environment")
+    _print_environment(metadata)
 
     if proc.returncode != 0:
-        print_heading("Benchmark failed")
-        print(raw_output, end="" if raw_output.endswith("\n") else "\n")
-        print_artifact_footer(run_dir)
+        _print_heading("Benchmark failed")
+        _emit_raw(raw_output)
+        _print_artifact_footer(run_dir)
         return proc.returncode
 
-    print_heading("Benchmark summary")
-    print_benchmark_summary(results)
+    _print_heading("Benchmark summary")
+    _print_benchmark_summary(results)
 
     compare_status = 0
     if args.baseline:
-        print_heading("benchstat comparison")
-        compare_status = run_benchstat(args.benchstat, Path(args.baseline), raw_path, run_dir / "benchstat.txt")
+        _print_heading("benchstat comparison")
+        compare_status = _run_benchstat(
+            args.benchstat,
+            Path(args.baseline),
+            raw_path,
+            run_dir / "benchstat.txt",
+        )
 
-    print_heading("Raw Go benchmark output")
-    print(raw_output, end="" if raw_output.endswith("\n") else "\n")
-    print_next_checks(args.suite)
-    print_artifact_footer(run_dir)
+    _print_heading("Raw Go benchmark output")
+    _emit_raw(raw_output)
+    _print_next_checks(args.suite)
+    _print_artifact_footer(run_dir)
     return compare_status
 
 
-def repo_root() -> Path:
+def _repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-def sanitize_path_part(value: str) -> str:
+def _sanitize_path_part(value: str) -> str:
     value = value.strip()
     if not value:
         return "perf-run"
@@ -291,7 +324,7 @@ def sanitize_path_part(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "-", value)
 
 
-def parse_go_benchmark_environment(output: str) -> dict[str, str]:
+def _parse_go_benchmark_environment(output: str) -> dict[str, str]:
     env: dict[str, str] = {}
     for line in output.splitlines():
         if ":" not in line:
@@ -304,14 +337,14 @@ def parse_go_benchmark_environment(output: str) -> dict[str, str]:
     return env
 
 
-def parse_go_benchmark_results(output: str) -> list[BenchmarkResult]:
+def _parse_go_benchmark_results(output: str) -> list[BenchmarkResult]:
     results: list[BenchmarkResult] = []
     for line in output.splitlines():
         if not line.startswith("Benchmark"):
             continue
 
         fields = line.split()
-        if len(fields) < 2:
+        if len(fields) < MIN_BENCHMARK_FIELDS:
             continue
 
         name = re.sub(r"-\d+$", "", fields[0])
@@ -327,13 +360,21 @@ def parse_go_benchmark_results(output: str) -> list[BenchmarkResult]:
     return results
 
 
-def print_heading(title: str) -> None:
-    print()
-    print(title)
-    print("=" * len(title))
+def _emit(message: str = "", *, stream: TextStream = sys.stdout, end: str = "\n") -> None:
+    stream.write(f"{message}{end}")
 
 
-def print_environment(metadata: HarnessMetadata) -> None:
+def _emit_raw(message: str) -> None:
+    _emit(message, end="" if message.endswith("\n") else "\n")
+
+
+def _print_heading(title: str) -> None:
+    _emit()
+    _emit(title)
+    _emit("=" * len(title))
+
+
+def _print_environment(metadata: HarnessMetadata) -> None:
     rows = [
         ("goos", metadata.goos),
         ("goarch", metadata.goarch),
@@ -345,56 +386,88 @@ def print_environment(metadata: HarnessMetadata) -> None:
 
     for key, value in rows:
         if value:
-            print(f"{key + ':':<10} {value}")
+            _emit(f"{key + ':':<10} {value}")
 
 
-def print_benchmark_summary(results: list[BenchmarkResult]) -> None:
+def _print_benchmark_summary(results: list[BenchmarkResult]) -> None:
     if not results:
-        print("No benchmark rows parsed.")
+        _emit("No benchmark rows parsed.")
         return
 
     for result in results:
-        print(f"- {result.name}")
-        print(f"  iterations: {result.iterations}")
+        _emit(f"- {result.name}")
+        _emit(f"  iterations: {result.iterations}")
 
         for metric in result.metrics:
-            print(f"  {metric.unit + ':':<18} {metric.value}")
+            _emit(f"  {metric.unit + ':':<18} {metric.value}")
 
 
-def print_next_checks(suite: str) -> None:
-    print_heading("Next manual checks")
+def _print_next_checks(suite: str) -> None:
+    _print_heading("Next manual checks")
     if suite == "dal":
-        print("- Trigger path: pair these results with API trigger latency and accepted-to-enqueued timing.")
-        print("- Worker scale: compare TryClaim/finalize timing against DB pool pressure under multiple workers.")
-        print("- Postgres check: rerun the same workload in a deployed stack before making production capacity claims.")
-        print("- Query shape: investigate list/repair scans when table-size scenarios move more than normal variance.")
+        _emit(
+            "- Trigger path: pair these results with API trigger latency and "
+            "accepted-to-enqueued timing.",
+        )
+        _emit(
+            "- Worker scale: compare TryClaim/finalize timing against DB pool "
+            "pressure under multiple workers.",
+        )
+        _emit(
+            "- Postgres check: rerun the same workload in a deployed stack before "
+            "making production capacity claims.",
+        )
+        _emit(
+            "- Query shape: investigate list/repair scans when table-size scenarios "
+            "move more than normal variance.",
+        )
+
         return
 
     if suite == "macro":
-        print("- Worker scale: compare the local concurrent macro row with a deployed stack before changing the capacity envelope.")
-        print("- Database: compare SQLite local results with Postgres DB pool pressure in staging.")
-        print("- Logs: increase log volume and add real log-service gRPC/replay boundaries before making observability claims.")
-        print("- Mixed traffic: add API read/log-stream clients while trigger-to-terminal load is running.")
+        _emit(
+            "- Worker scale: compare the local concurrent macro row with a deployed "
+            "stack before changing the capacity envelope.",
+        )
+        _emit("- Database: compare SQLite local results with Postgres DB pool pressure in staging.")
+        _emit(
+            "- Logs: increase log volume and add real log-service gRPC/replay "
+            "boundaries before making observability claims.",
+        )
+        _emit(
+            "- Mixed traffic: add API read/log-stream clients while trigger-to-terminal "
+            "load is running.",
+        )
+
         return
 
-    print("- Trigger bursts: submit stored-job triggers in batches and record accepted latency plus queued-run age.")
-    print("- Worker scale: vary worker count and watch claim failures, queue depth, and terminal run latency.")
-    print("- Log readers: open concurrent /api/v1/runs/{id}/logs clients and watch active stream and replay metrics.")
-    print("- Cron scale: seed schedules, advance time, and record schedule-to-run latency.")
+    _emit(
+        "- Trigger bursts: submit stored-job triggers in batches and record accepted "
+        "latency plus queued-run age.",
+    )
+    _emit(
+        "- Worker scale: vary worker count and watch claim failures, queue depth, "
+        "and terminal run latency.",
+    )
+    _emit(
+        "- Log readers: open concurrent /api/v1/runs/{id}/logs clients and watch "
+        "active stream and replay metrics.",
+    )
+    _emit("- Cron scale: seed schedules, advance time, and record schedule-to-run latency.")
 
 
-def print_artifact_footer(run_dir: Path) -> None:
-    print_heading("Artifacts")
-    print(f"- raw benchmark output: {run_dir / 'go-bench.txt'}")
-    print(f"- JSON summary        : {run_dir / 'summary.json'}")
-    print(f"- Markdown summary    : {run_dir / 'summary.md'}")
+def _print_artifact_footer(run_dir: Path) -> None:
+    _print_heading("Artifacts")
+    _emit(f"- raw benchmark output: {run_dir / 'go-bench.txt'}")
+    _emit(f"- JSON summary        : {run_dir / 'summary.json'}")
+    _emit(f"- Markdown summary    : {run_dir / 'summary.md'}")
 
 
-def write_json(path: Path, value: object) -> None:
+def _write_json(path: Path, value: object) -> None:
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def write_markdown_summary(
+def _write_markdown_summary(
     path: Path,
     metadata: HarnessMetadata,
     results: list[BenchmarkResult],
@@ -429,49 +502,50 @@ def write_markdown_summary(
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def run_benchstat(benchstat: str, baseline: Path, current: Path, output_path: Path | None) -> int:
+def _run_benchstat(benchstat: str, baseline: Path, current: Path, output_path: Path | None) -> int:
     if not baseline.is_file():
-        print(f"baseline benchmark output not found: {baseline}", file=sys.stderr)
+        _emit(f"baseline benchmark output not found: {baseline}", stream=sys.stderr)
         return 2
 
     if not current.is_file():
-        print(f"current benchmark output not found: {current}", file=sys.stderr)
+        _emit(f"current benchmark output not found: {current}", stream=sys.stderr)
         return 2
 
-    if shutil.which(benchstat) is None:
-        print(f"benchstat not found: {benchstat}", file=sys.stderr)
-        print("Install golang.org/x/perf/cmd/benchstat or set BENCHSTAT.", file=sys.stderr)
+    benchstat_path = shutil.which(benchstat)
+    if benchstat_path is None:
+        _emit(f"benchstat not found: {benchstat}", stream=sys.stderr)
+        _emit("Install golang.org/x/perf/cmd/benchstat or set BENCHSTAT.", stream=sys.stderr)
         return 127
 
-    proc = subprocess.run(
-        [benchstat, str(baseline), str(current)],
+    proc = subprocess.run(  # noqa: S603 - benchstat path is resolved before execution.
+        [benchstat_path, str(baseline), str(current)],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
         check=False,
     )
 
-    print(proc.stdout, end="" if proc.stdout.endswith("\n") else "\n")
+    _emit_raw(proc.stdout)
     if output_path is not None:
         output_path.write_text(proc.stdout, encoding="utf-8")
 
     return proc.returncode
 
 
-def git_output(args: list[str], default: str) -> str:
-    return command_output(["git", *args], default)
+def _git_output(args: list[str], default: str) -> str:
+    return _command_output(["git", *args], default)
 
 
-def git_dirty() -> bool:
-    status = command_output(["git", "status", "--porcelain"], "")
+def _git_dirty() -> bool:
+    status = _command_output(["git", "status", "--porcelain"], "")
     return bool(status.strip())
 
 
-def command_output(command: list[str], default: str) -> str:
+def _command_output(command: list[str], default: str) -> str:
     try:
-        proc = subprocess.run(
+        proc = subprocess.run(  # noqa: S603 - command is controlled by harness call sites.
             command,
-            cwd=repo_root(),
+            cwd=_repo_root(),
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
