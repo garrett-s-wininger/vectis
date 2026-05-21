@@ -381,3 +381,61 @@ h1 {
     padding: 24px 16px;
   }
 }
+
+.section-panel {
+  display: grid;
+  gap: 16px;
+  width: min(960px, 100%);
+}
+
+.section-panel__header {
+  align-items: end;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.section-panel__copy {
+  display: grid;
+  gap: 4px;
+}
+
+.section-panel__copy h2 {
+  color: #172026;
+  font-size: 1.125rem;
+  line-height: 1.2;
+  margin: 0;
+}
+
+.section-panel__description {
+  color: #5d707c;
+  font-size: 0.9375rem;
+  margin: 0;
+}
+
+.section-panel__actions {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: end;
+}
+
+.section-panel__actions .button {
+  margin-top: 0;
+}
+
+.section-panel__body {
+  display: grid;
+  gap: 16px;
+}
+
+@media (max-width: 640px) {
+  .section-panel__header {
+    align-items: start;
+    grid-template-columns: 1fr;
+  }
+
+  .section-panel__actions {
+    justify-content: start;
+  }
+}
