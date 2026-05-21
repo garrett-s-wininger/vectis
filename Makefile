@@ -43,6 +43,10 @@ FORMAL_MODELS := execution reconciliation
 JAVA ?= java
 TLA_TOOLS_JAR ?= /opt/tla+/tla2tools.jar
 
+PYTHON ?= python3
+SUITE ?= queue
+PERF_ARGS ?=
+
 .PHONY: all
 all: build
 
@@ -143,9 +147,13 @@ lint:
 vulncheck:
 	GOTOOLCHAIN=go$(GO_MOD_GO_VERSION) go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
-.PHONY: capacity-benchmark
-capacity-benchmark:
-	sh scripts/capacity_benchmark.sh
+.PHONY: perf
+perf:
+	${PYTHON} scripts/perf.py $(SUITE) $(PERF_ARGS)
+
+.PHONY: perf-compare
+perf-compare:
+	${PYTHON} scripts/perf.py compare --baseline "$(BASELINE)" --current "$(CURRENT)"
 
 FUZZTIME ?= 30s
 
@@ -157,6 +165,7 @@ fuzz-api-auth:
 
 .PHONY: clean
 clean:
+	rm -rf artifacts/perf/
 	rm -rf ${OUT_DIR}
 	rm -rf formal/tla/*_TTrace_*
 	rm -rf states/

@@ -4,6 +4,8 @@ formal/tla/*_TTrace_*.tla
 states/
 
 # Outputs
+__pycache__/
+artifacts/perf/
 bin/
 
 # Docusaurus

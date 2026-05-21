@@ -34,7 +34,7 @@ Match the evidence to the risk of the change:
 
 | Change type | Minimum evidence |
 | --- | --- |
-| Queue internals, delivery, persistence, or retry paths | `make capacity-benchmark` output before/after, plus notes on variance. |
+| Queue internals, delivery, persistence, or retry paths | `make perf SUITE=queue` output before/after, plus `benchstat` comparison and notes on variance. |
 | API trigger, run state, dispatch, or idempotency path | Local benchmark when relevant, plus a deployed-stack check if concurrency behavior changed. |
 | Worker claim, lease, finalization, or log forwarding path | Deployed-stack check with worker count, DB pool settings, queue depth, terminal outcomes, and log health. |
 | Log streaming, replay, or storage path | Deployed-stack check with concurrent readers, log volume, replay behavior, and storage/spool pressure. |
@@ -57,19 +57,26 @@ Capture this for every meaningful performance check:
 
 Keep the raw output. Summaries are helpful, but raw output is what lets the next check compare honestly.
 
-## Local Benchmark Check
+## Local Queue Benchmark Check
 
 Use this check when queue behavior, run handoff, or release confidence is the main question. It currently exercises queue benchmarks under `internal/queue`; it does not prove full API, database, worker, or log-service capacity by itself.
+
+The performance harness writes raw benchmark output, a JSON summary, and a Markdown summary under `artifacts/perf/`. Keep raw outputs when you need an honest before/after comparison.
 
 1. Set benchmark duration and repetition count:
 
 ```sh
-VECTIS_CAPACITY_BENCHTIME=5s VECTIS_CAPACITY_COUNT=3 make capacity-benchmark
+VECTIS_PERF_RUN_NAME=main VECTIS_PERF_BENCHTIME=5s VECTIS_PERF_COUNT=3 make perf SUITE=queue
 ```
 
-2. Save the summary and raw Go benchmark output.
+2. Save the artifact directory printed by the harness.
 3. Record Go version, OS, CPU model, and whether the run used a laptop, CI worker, or staging host.
-4. Compare queue ops/sec and p95/p99 latency with the previous baseline for the same machine class.
+4. Compare queue ops/sec and p95/p99 latency with the previous baseline for the same machine class:
+
+```sh
+make perf-compare BASELINE=artifacts/perf/main/go-bench.txt CURRENT=artifacts/perf/pr/go-bench.txt
+```
+
 5. Investigate changes larger than normal local variance before changing the published envelope.
 
 Use shorter runs for quick local checks and repeated longer runs for baseline changes.
@@ -78,10 +85,15 @@ Useful knobs:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `VECTIS_CAPACITY_BENCHTIME` | `2s` | Go benchmark duration per scenario. |
-| `VECTIS_CAPACITY_COUNT` | `1` | Repetition count. Use `3` or more for baseline capture. |
-| `VECTIS_CAPACITY_QUEUE_BENCH` | Queue round-trip, concurrent, sustained, and latency benches | Override to focus on one scenario. |
+| `VECTIS_PERF_BENCHTIME` | `2s` | Go benchmark duration per scenario. |
+| `VECTIS_PERF_COUNT` | `1` | Repetition count. Use `3` or more for baseline capture. |
+| `VECTIS_PERF_QUEUE_BENCH` | Queue round-trip, concurrent, sustained, and latency benches | Override to focus on one scenario. |
+| `VECTIS_PERF_ARTIFACT_DIR` | `artifacts/perf` | Directory where harness artifacts are written. |
+| `VECTIS_PERF_RUN_NAME` | timestamp and suite | Optional artifact run directory name. |
+| `VECTIS_PERF_BASELINE` | unset | Optional baseline Go benchmark output for `benchstat` comparison during a queue run. |
 | `GO` | `go` | Go binary used by the benchmark script. |
+| `PYTHON` | `python3` | Python binary used by the harness. |
+| `BENCHSTAT` | `benchstat` | `benchstat` binary used for benchmark comparisons. |
 
 ## Deployed Stack Check
 
