@@ -35,7 +35,7 @@ Match the evidence to the risk of the change:
 | Change type | Minimum evidence |
 | --- | --- |
 | Queue internals, delivery, persistence, or retry paths | `make perf SUITE=queue` output before/after, plus `benchstat` comparison and notes on variance. |
-| API trigger, run state, dispatch, or idempotency path | Local benchmark when relevant, plus a deployed-stack check if concurrency behavior changed. |
+| API trigger, run state, dispatch, or idempotency path | `make perf SUITE=dal` when SQL hot paths changed, plus a deployed-stack check if concurrency behavior changed. |
 | Worker claim, lease, finalization, or log forwarding path | Deployed-stack check with worker count, DB pool settings, queue depth, terminal outcomes, and log health. |
 | Log streaming, replay, or storage path | Deployed-stack check with concurrent readers, log volume, replay behavior, and storage/spool pressure. |
 | Release note that changes the operating envelope | Repeatable check record, raw output, observed limiting component, and docs update. |
@@ -88,12 +88,23 @@ Useful knobs:
 | `VECTIS_PERF_BENCHTIME` | `2s` | Go benchmark duration per scenario. |
 | `VECTIS_PERF_COUNT` | `1` | Repetition count. Use `3` or more for baseline capture. |
 | `VECTIS_PERF_QUEUE_BENCH` | Queue round-trip, concurrent, sustained, and latency benches | Override to focus on one scenario. |
+| `VECTIS_PERF_DAL_BENCH` | DAL hot-path benchmarks | Override to focus on one DAL scenario. |
 | `VECTIS_PERF_ARTIFACT_DIR` | `artifacts/perf` | Directory where harness artifacts are written. |
 | `VECTIS_PERF_RUN_NAME` | timestamp and suite | Optional artifact run directory name. |
 | `VECTIS_PERF_BASELINE` | unset | Optional baseline Go benchmark output for `benchstat` comparison during a queue run. |
 | `GO` | `go` | Go binary used by the benchmark script. |
 | `PYTHON` | `python3` | Python binary used by the harness. |
 | `BENCHSTAT` | `benchstat` | `benchstat` binary used for benchmark comparisons. |
+
+## Local DAL Benchmark Check
+
+Use this check when a change affects run creation, idempotency, dispatch visibility, worker claims, lease renewal, finalization, or run-listing queries.
+
+```sh
+VECTIS_PERF_RUN_NAME=main-dal VECTIS_PERF_BENCHTIME=5s VECTIS_PERF_COUNT=3 make perf SUITE=dal
+```
+
+The DAL suite is SQLite-backed for local repeatability. Use it as a fast regression tripwire, then run a deployed-stack check against Postgres before making claims about production scale.
 
 ## Deployed Stack Check
 
