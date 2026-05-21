@@ -371,7 +371,7 @@ def print_next_checks(suite: str) -> None:
         return
 
     if suite == "macro":
-        print("- Worker scale: repeat with a deployed stack and varied worker counts before changing the capacity envelope.")
+        print("- Worker scale: compare the local concurrent macro row with a deployed stack before changing the capacity envelope.")
         print("- Database: compare SQLite local results with Postgres DB pool pressure in staging.")
         print("- Logs: increase log volume and add real log-service gRPC/replay boundaries before making observability claims.")
         print("- Mixed traffic: add API read/log-stream clients while trigger-to-terminal load is running.")

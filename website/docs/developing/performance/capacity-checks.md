@@ -109,7 +109,7 @@ The DAL suite is SQLite-backed for local repeatability. Use it as a fast regress
 
 ## Local Macro Benchmark Check
 
-Use this check when the architectural question crosses component boundaries. The macro suite includes an in-process API trigger through SQLite-backed run creation, async queue enqueue, queue dequeue/ack, worker-style DB claim, no-op shell execution, terminal status update, and a log-heavy variant that exercises worker durable log flush plus local log-store replay.
+Use this check when the architectural question crosses component boundaries. The macro suite includes in-process sequential and concurrent no-op API trigger paths through SQLite-backed run creation, async queue enqueue, queue dequeue/ack, worker-style DB claim, shell execution, and terminal status update. It also includes a log-heavy variant that exercises worker durable log flush plus local log-store replay.
 
 ```sh
 VECTIS_PERF_RUN_NAME=main-macro VECTIS_PERF_BENCHTIME=5s VECTIS_PERF_COUNT=3 make perf SUITE=macro

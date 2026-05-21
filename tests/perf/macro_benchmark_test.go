@@ -73,6 +73,12 @@ type macroRunTimings struct {
 	logFlush                    int64
 }
 
+type macroTriggerInfo struct {
+	runID          string
+	triggerStart   time.Time
+	httpAcceptedAt time.Time
+}
+
 func BenchmarkMacro_APIQueueWorker_TriggerToTerminal(b *testing.B) {
 	ctx := context.Background()
 	env := newMacroBenchEnv(b, []storedMacroJob{noopMacroJob()})
@@ -109,6 +115,77 @@ func BenchmarkMacro_APIQueueWorker_TriggerToTerminal(b *testing.B) {
 	if total := sumNanoseconds(triggerToTerminalSamples); total > 0 {
 		b.ReportMetric(float64(b.N)/(float64(total)/float64(time.Second)), "terminal_runs/s")
 	}
+}
+
+func BenchmarkMacro_ConcurrentNoop_TriggerToTerminal(b *testing.B) {
+	const (
+		triggerClients = 4
+		workerCount    = 4
+	)
+
+	ctx := context.Background()
+	env := newMacroBenchEnv(b, []storedMacroJob{noopMacroJob()})
+	totalRuns := b.N
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	triggerRegistry := newMacroTriggerRegistry(totalRuns)
+	workCtx, cancel := context.WithCancel(ctx)
+	resultCh := make(chan macroWorkerResult, totalRuns)
+	waitWorkers := startMacroWorkers(workCtx, env, triggerRegistry, workerCount, resultCh)
+	defer func() {
+		cancel()
+		waitWorkers()
+	}()
+
+	workStart := time.Now()
+	_, triggerDuration := triggerMacroBurst(b, ctx, env.handler, noopMacroJob().id, triggerClients, totalRuns, triggerRegistry.add)
+	triggerDone := time.Now()
+	results := collectMacroWorkerResults(b, resultCh, totalRuns)
+	terminalDone := time.Now()
+
+	b.StopTimer()
+
+	acceptedToQueueSamples := make([]int64, 0, len(results))
+	queueToDequeuedSamples := make([]int64, 0, len(results))
+	dequeuedToClaimedSamples := make([]int64, 0, len(results))
+	claimedToTerminalSamples := make([]int64, 0, len(results))
+	acceptedToTerminalSamples := make([]int64, 0, len(results))
+	triggerToTerminalSamples := make([]int64, 0, len(results))
+	logFlushSamples := make([]int64, 0, len(results))
+
+	for _, timings := range results {
+		acceptedToQueueSamples = append(acceptedToQueueSamples, timings.httpAcceptedToQueueAccepted)
+		queueToDequeuedSamples = append(queueToDequeuedSamples, timings.queueAcceptedToDequeued)
+		dequeuedToClaimedSamples = append(dequeuedToClaimedSamples, timings.dequeuedToClaimed)
+		claimedToTerminalSamples = append(claimedToTerminalSamples, timings.claimedToTerminal)
+		acceptedToTerminalSamples = append(acceptedToTerminalSamples, timings.acceptedToTerminal)
+		triggerToTerminalSamples = append(triggerToTerminalSamples, timings.triggerToTerminal)
+		logFlushSamples = append(logFlushSamples, timings.logFlush)
+	}
+
+	reportLatencyMetrics(b, "accepted_to_queue", acceptedToQueueSamples)
+	reportLatencyMetrics(b, "queue_to_dequeued", queueToDequeuedSamples)
+	reportLatencyMetrics(b, "dequeued_to_claimed", dequeuedToClaimedSamples)
+	reportLatencyMetrics(b, "claimed_to_terminal", claimedToTerminalSamples)
+	reportLatencyMetrics(b, "accepted_to_terminal", acceptedToTerminalSamples)
+	reportLatencyMetrics(b, "trigger_to_terminal", triggerToTerminalSamples)
+	reportLatencyMetrics(b, "log_flush", logFlushSamples)
+
+	if triggerDuration > 0 {
+		b.ReportMetric(float64(totalRuns)/triggerDuration.Seconds(), "accepted_requests/s")
+	}
+
+	if terminalDuration := terminalDone.Sub(workStart); terminalDuration > 0 {
+		b.ReportMetric(float64(totalRuns)/terminalDuration.Seconds(), "terminal_runs/s")
+	}
+
+	b.ReportMetric(float64(triggerDone.Sub(workStart))/float64(time.Millisecond), "trigger_burst_ms")
+	b.ReportMetric(float64(terminalDone.Sub(triggerDone))/float64(time.Millisecond), "terminal_drain_ms")
+	b.ReportMetric(float64(triggerClients), "trigger_clients")
+	b.ReportMetric(float64(workerCount), "worker_count")
+	b.ReportMetric(float64(totalRuns), "total_runs")
 }
 
 func BenchmarkMacro_LogHeavy_TriggerToTerminalReplay(b *testing.B) {
@@ -255,6 +332,252 @@ func createStoredMacroJob(b *testing.B, handler http.Handler, job storedMacroJob
 	}
 }
 
+func triggerMacroBurst(
+	b *testing.B,
+	ctx context.Context,
+	handler http.Handler,
+	jobID string,
+	clients int,
+	total int,
+	onInfo func(macroTriggerInfo),
+) ([]macroTriggerInfo, time.Duration) {
+	b.Helper()
+
+	if clients <= 0 {
+		clients = 1
+	}
+
+	infos := make([]macroTriggerInfo, total)
+	workCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var firstErr error
+	var errMu sync.Mutex
+	setErr := func(err error) {
+		if err == nil {
+			return
+		}
+
+		errMu.Lock()
+		if firstErr == nil {
+			firstErr = err
+			cancel()
+		}
+		errMu.Unlock()
+	}
+
+	start := time.Now()
+	var wg sync.WaitGroup
+	for client := 0; client < clients; client++ {
+		client := client
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+			for i := client; i < total; i += clients {
+				if workCtx.Err() != nil {
+					return
+				}
+
+				info, err := triggerMacroJob(workCtx, handler, jobID, fmt.Sprintf("%s-concurrent-%d", jobID, i))
+				if err != nil {
+					setErr(err)
+					return
+				}
+
+				infos[i] = info
+				if onInfo != nil {
+					onInfo(info)
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	duration := time.Since(start)
+
+	errMu.Lock()
+	err := firstErr
+	errMu.Unlock()
+	if err != nil {
+		b.Fatalf("trigger burst: %v", err)
+	}
+
+	return infos, duration
+}
+
+func triggerMacroJob(ctx context.Context, handler http.Handler, jobID, idempotencyKey string) (macroTriggerInfo, error) {
+	triggerStart := time.Now()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, nil).WithContext(ctx)
+	req.Header.Set("Idempotency-Key", idempotencyKey)
+
+	handler.ServeHTTP(rec, req)
+	httpAcceptedAt := time.Now()
+	if rec.Code != http.StatusAccepted {
+		return macroTriggerInfo{}, fmt.Errorf("trigger job: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		RunID string `json:"run_id"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		return macroTriggerInfo{}, fmt.Errorf("decode trigger response: %w", err)
+	}
+
+	if resp.RunID == "" {
+		return macroTriggerInfo{}, fmt.Errorf("trigger response missing run_id: %s", rec.Body.String())
+	}
+
+	return macroTriggerInfo{
+		runID:          resp.RunID,
+		triggerStart:   triggerStart,
+		httpAcceptedAt: httpAcceptedAt,
+	}, nil
+}
+
+type macroTriggerRegistry struct {
+	mu      sync.Mutex
+	infos   map[string]macroTriggerInfo
+	timeout time.Duration
+}
+
+func newMacroTriggerRegistry(capacity int) *macroTriggerRegistry {
+	return &macroTriggerRegistry{
+		infos:   make(map[string]macroTriggerInfo, capacity),
+		timeout: 5 * time.Second,
+	}
+}
+
+func (r *macroTriggerRegistry) add(info macroTriggerInfo) {
+	r.mu.Lock()
+	r.infos[info.runID] = info
+	r.mu.Unlock()
+}
+
+func (r *macroTriggerRegistry) wait(ctx context.Context, runID string) (macroTriggerInfo, error) {
+	deadline := time.NewTimer(r.timeout)
+	defer deadline.Stop()
+
+	ticker := time.NewTicker(10 * time.Microsecond)
+	defer ticker.Stop()
+
+	for {
+		r.mu.Lock()
+		info, ok := r.infos[runID]
+		r.mu.Unlock()
+
+		if ok {
+			return info, nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return macroTriggerInfo{}, ctx.Err()
+		case <-deadline.C:
+			return macroTriggerInfo{}, fmt.Errorf("timed out waiting for trigger metadata for run %q", runID)
+		case <-ticker.C:
+		}
+	}
+}
+
+func startMacroWorkers(
+	ctx context.Context,
+	env macroBenchEnv,
+	triggerRegistry *macroTriggerRegistry,
+	workers int,
+	resultCh chan<- macroWorkerResult,
+) func() {
+	if workers <= 0 {
+		workers = 1
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		workerID := fmt.Sprintf("macro-worker-%d", i)
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+
+				jobReq, err := env.queue.TryDequeue(ctx, &apipb.Empty{})
+				if err != nil {
+					sendMacroWorkerResult(ctx, resultCh, macroWorkerResult{err: fmt.Errorf("try dequeue: %w", err)})
+					return
+				}
+
+				if jobReq == nil {
+					time.Sleep(10 * time.Microsecond)
+					continue
+				}
+
+				dequeuedAt := time.Now()
+				runID := jobReq.GetJob().GetRunId()
+				info, err := triggerRegistry.wait(ctx, runID)
+				if err != nil {
+					sendMacroWorkerResult(ctx, resultCh, macroWorkerResult{err: err})
+					return
+				}
+
+				timings, err := finishDequeuedMacroJob(ctx, env, jobReq, info, dequeuedAt, workerID, noopLogClient{})
+				sendMacroWorkerResult(ctx, resultCh, macroWorkerResult{timings: timings, err: err})
+
+				if err != nil {
+					return
+				}
+			}
+		}()
+	}
+
+	return wg.Wait
+}
+
+func collectMacroWorkerResults(
+	b *testing.B,
+	resultCh <-chan macroWorkerResult,
+	total int,
+) []macroRunTimings {
+	b.Helper()
+
+	results := make([]macroRunTimings, 0, total)
+	timeout := time.NewTimer(30 * time.Second)
+	defer timeout.Stop()
+
+	for len(results) < total {
+		select {
+		case result := <-resultCh:
+			if result.err != nil {
+				b.Fatalf("drain macro queue: %v", result.err)
+			}
+
+			results = append(results, result.timings)
+		case <-timeout.C:
+			b.Fatalf("timed out draining macro queue: got %d of %d results", len(results), total)
+		}
+	}
+
+	return results
+}
+
+type macroWorkerResult struct {
+	timings macroRunTimings
+	err     error
+}
+
+func sendMacroWorkerResult(ctx context.Context, ch chan<- macroWorkerResult, result macroWorkerResult) {
+	select {
+	case ch <- result:
+	case <-ctx.Done():
+	}
+}
+
 func runMacroTriggerToTerminal(
 	b *testing.B,
 	ctx context.Context,
@@ -265,94 +588,94 @@ func runMacroTriggerToTerminal(
 ) macroRunTimings {
 	b.Helper()
 
-	triggerStart := time.Now()
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, nil)
-	req.Header.Set("Idempotency-Key", fmt.Sprintf("%s-%d", jobID, i))
-
-	env.handler.ServeHTTP(rec, req)
-	httpAcceptedAt := time.Now()
-	if rec.Code != http.StatusAccepted {
-		b.Fatalf("trigger job: status=%d body=%s", rec.Code, rec.Body.String())
-	}
-
-	var resp struct {
-		RunID string `json:"run_id"`
-	}
-
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		b.Fatalf("decode trigger response: %v", err)
-	}
-
-	if resp.RunID == "" {
-		b.Fatalf("trigger response missing run_id: %s", rec.Body.String())
+	info, err := triggerMacroJob(ctx, env.handler, jobID, fmt.Sprintf("%s-%d", jobID, i))
+	if err != nil {
+		b.Fatal(err)
 	}
 
 	jobReq, dequeuedAt := waitForDequeuedJob(b, ctx, env.queue)
-	queuedJob := jobReq.GetJob()
-	if queuedJob.GetRunId() != resp.RunID {
-		b.Fatalf("dequeued run_id=%q, want %q", queuedJob.GetRunId(), resp.RunID)
+	timings, err := finishDequeuedMacroJob(ctx, env, jobReq, info, dequeuedAt, "macro-worker", logSink)
+	if err != nil {
+		b.Fatal(err)
 	}
 
-	queueAcceptedAt := httpAcceptedAt
+	return timings
+}
+
+func finishDequeuedMacroJob(
+	ctx context.Context,
+	env macroBenchEnv,
+	jobReq *apipb.JobRequest,
+	info macroTriggerInfo,
+	dequeuedAt time.Time,
+	workerID string,
+	logSink interfaces.LogClient,
+) (macroRunTimings, error) {
+	queuedJob := jobReq.GetJob()
+	if queuedJob.GetRunId() != info.runID {
+		return macroRunTimings{}, fmt.Errorf("dequeued run_id=%q, want %q", queuedJob.GetRunId(), info.runID)
+	}
+
+	queueAcceptedAt := info.httpAcceptedAt
 	if raw := jobReq.GetMetadata()[observability.JobEnqueueAcceptedUnixNanoKey]; raw != "" {
 		if ns, err := parseUnixNano(raw); err == nil {
 			queueAcceptedAt = time.Unix(0, ns)
 		}
 	}
 
-	claimed, claimToken, err := env.runs.TryClaim(ctx, resp.RunID, "macro-worker", time.Now().Add(dal.DefaultLeaseTTL))
+	claimed, claimToken, err := env.runs.TryClaim(ctx, info.runID, workerID, time.Now().Add(dal.DefaultLeaseTTL))
 	claimedAt := time.Now()
 	if err != nil {
-		b.Fatalf("try claim run %s: %v", resp.RunID, err)
+		return macroRunTimings{}, fmt.Errorf("try claim run %s: %w", info.runID, err)
 	}
 
 	if !claimed {
-		b.Fatalf("run %s was not claimed", resp.RunID)
+		return macroRunTimings{}, fmt.Errorf("run %s was not claimed", info.runID)
 	}
 
 	deliveryID := queuedJob.GetDeliveryId()
 	if _, err := env.queue.Ack(ctx, &apipb.AckRequest{DeliveryId: &deliveryID}); err != nil {
-		b.Fatalf("ack delivery %s: %v", deliveryID, err)
+		return macroRunTimings{}, fmt.Errorf("ack delivery %s: %w", deliveryID, err)
 	}
 
 	logDone := make(chan job.LogStreamWaiter, 1)
 	exec := job.NewExecutor()
 	exec.TestLogStreamHook = logDone
 	if err := exec.ExecuteJob(ctx, queuedJob, logSink, env.log); err != nil {
-		b.Fatalf("execute job %s: %v", queuedJob.GetId(), err)
+		return macroRunTimings{}, fmt.Errorf("execute job %s: %w", queuedJob.GetId(), err)
 	}
 
-	if err := env.runs.MarkRunSucceeded(ctx, resp.RunID, claimToken); err != nil {
-		b.Fatalf("mark run succeeded %s: %v", resp.RunID, err)
+	if err := env.runs.MarkRunSucceeded(ctx, info.runID, claimToken); err != nil {
+		return macroRunTimings{}, fmt.Errorf("mark run succeeded %s: %w", info.runID, err)
 	}
+
 	terminalAt := time.Now()
-
-	status, found, err := env.runs.GetRunStatus(ctx, resp.RunID)
+	status, found, err := env.runs.GetRunStatus(ctx, info.runID)
 	if err != nil {
-		b.Fatalf("get run status %s: %v", resp.RunID, err)
+		return macroRunTimings{}, fmt.Errorf("get run status %s: %w", info.runID, err)
 	}
 
 	if !found || status != dal.RunStatusSucceeded {
-		b.Fatalf("run %s status found=%v status=%q", resp.RunID, found, status)
+		return macroRunTimings{}, fmt.Errorf("run %s status found=%v status=%q", info.runID, found, status)
 	}
 
-	b.StopTimer()
 	flushStarted := time.Now()
-	waitForLogFlush(b, logDone)
+	if err := waitForLogFlushErr(logDone); err != nil {
+		return macroRunTimings{}, err
+	}
+
 	logFlush := time.Since(flushStarted).Nanoseconds()
-	b.StartTimer()
 
 	return macroRunTimings{
-		runID:                       resp.RunID,
-		httpAcceptedToQueueAccepted: max(queueAcceptedAt.Sub(httpAcceptedAt).Nanoseconds(), 0),
+		runID:                       info.runID,
+		httpAcceptedToQueueAccepted: max(queueAcceptedAt.Sub(info.httpAcceptedAt).Nanoseconds(), 0),
 		queueAcceptedToDequeued:     max(dequeuedAt.Sub(queueAcceptedAt).Nanoseconds(), 0),
 		dequeuedToClaimed:           max(claimedAt.Sub(dequeuedAt).Nanoseconds(), 0),
 		claimedToTerminal:           max(terminalAt.Sub(claimedAt).Nanoseconds(), 0),
-		acceptedToTerminal:          max(terminalAt.Sub(httpAcceptedAt).Nanoseconds(), 0),
-		triggerToTerminal:           max(terminalAt.Sub(triggerStart).Nanoseconds(), 0),
+		acceptedToTerminal:          max(terminalAt.Sub(info.httpAcceptedAt).Nanoseconds(), 0),
+		triggerToTerminal:           max(terminalAt.Sub(info.triggerStart).Nanoseconds(), 0),
 		logFlush:                    max(logFlush, 0),
-	}
+	}, nil
 }
 
 type macroLogTimings struct {
@@ -483,13 +806,21 @@ func waitForDequeuedJob(b *testing.B, ctx context.Context, queueService apipb.Qu
 func waitForLogFlush(b *testing.B, ch <-chan job.LogStreamWaiter) {
 	b.Helper()
 
+	if err := waitForLogFlushErr(ch); err != nil {
+		b.Fatal(err)
+	}
+}
+
+func waitForLogFlushErr(ch <-chan job.LogStreamWaiter) error {
 	select {
 	case waiter := <-ch:
 		if err := waiter.WaitForDone(2 * time.Second); err != nil {
-			b.Fatalf("wait for log flush: %v", err)
+			return fmt.Errorf("wait for log flush: %w", err)
 		}
+
+		return nil
 	default:
-		b.Fatal("executor did not expose log stream waiter")
+		return fmt.Errorf("executor did not expose log stream waiter")
 	}
 }
 
