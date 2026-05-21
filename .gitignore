@@ -20,6 +20,12 @@ website/build/
 website/playwright-report/
 website/test-results/
 
+# UI
+ui/coverage/
+ui/dist/
+ui/node_modules/
+ui/*.tsbuildinfo
+
 # Generated docs assets embedded into vectis-docs
 cmd/docs/embedded/*
 !cmd/docs/embedded/
