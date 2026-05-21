@@ -21,9 +21,11 @@ website/playwright-report/
 website/test-results/
 
 # UI
+ui/.cache/
 ui/coverage/
 ui/dist/
 ui/node_modules/
+ui/storybook-static/
 ui/*.tsbuildinfo
 
 # Generated docs assets embedded into vectis-docs

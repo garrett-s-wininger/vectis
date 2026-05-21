@@ -1,4 +1,5 @@
 import "./index.css";
+import { Button } from "./components/Button";
 
 export function App() {
   return (
@@ -10,6 +11,7 @@ export function App() {
           The product console is ready for real components, routes, and API
           integration.
         </p>
+        <Button>Refresh</Button>
       </section>
     </main>
   );

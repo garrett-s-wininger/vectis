@@ -53,3 +53,27 @@ h1 {
   color: #42515d;
   font-size: 1.125rem;
 }
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  margin-top: 24px;
+  border: 1px solid #1f5f78;
+  border-radius: 6px;
+  background: #1f5f78;
+  color: #ffffff;
+  cursor: pointer;
+  font-weight: 700;
+  padding: 0 16px;
+}
+
+.button:hover {
+  background: #174c60;
+}
+
+.button:focus-visible {
+  outline: 3px solid #7fc7dd;
+  outline-offset: 2px;
+}
