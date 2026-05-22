@@ -217,6 +217,8 @@ type MockRunsRepository struct {
 	GetRunStatusErr     error
 	CountByStatusErr    error
 	CountStuckErr       error
+	PendingExecutionErr error
+	MarkExecutionErr    error
 
 	CountByStatusResult int64
 	CountStuckResult    int64
@@ -229,8 +231,10 @@ type MockRunsRepository struct {
 
 	ListByJobResults []dal.RunRecord
 	QueuedRuns       []dal.QueuedRun
+	PendingExecution dal.ExecutionDispatchRecord
 
-	TouchedRunIDs []string
+	TouchedRunIDs        []string
+	ExecutionTransitions []string
 
 	LastCreateJobID       string
 	LastDefinitionVersion int
@@ -427,6 +431,52 @@ func (m *MockRunsRepository) ListQueuedBeforeDispatchCutoff(ctx context.Context,
 		return nil, m.QueuedListErr
 	}
 	return append([]dal.QueuedRun(nil), m.QueuedRuns...), nil
+}
+
+func (m *MockRunsRepository) GetPendingExecution(ctx context.Context, runID string) (dal.ExecutionDispatchRecord, error) {
+	if m.PendingExecutionErr != nil {
+		return dal.ExecutionDispatchRecord{}, m.PendingExecutionErr
+	}
+
+	rec := m.PendingExecution
+	if rec.RunID == "" {
+		rec.RunID = runID
+	}
+
+	return rec, nil
+}
+
+func (m *MockRunsRepository) MarkExecutionAccepted(ctx context.Context, executionID string) error {
+	if m.MarkExecutionErr != nil {
+		return m.MarkExecutionErr
+	}
+
+	m.mu.Lock()
+	m.ExecutionTransitions = append(m.ExecutionTransitions, executionID+":"+dal.ExecutionStatusAccepted)
+	m.mu.Unlock()
+	return nil
+}
+
+func (m *MockRunsRepository) MarkExecutionStarted(ctx context.Context, executionID string) error {
+	if m.MarkExecutionErr != nil {
+		return m.MarkExecutionErr
+	}
+
+	m.mu.Lock()
+	m.ExecutionTransitions = append(m.ExecutionTransitions, executionID+":"+dal.ExecutionStatusRunning)
+	m.mu.Unlock()
+	return nil
+}
+
+func (m *MockRunsRepository) MarkExecutionTerminal(ctx context.Context, executionID, status string) error {
+	if m.MarkExecutionErr != nil {
+		return m.MarkExecutionErr
+	}
+
+	m.mu.Lock()
+	m.ExecutionTransitions = append(m.ExecutionTransitions, executionID+":"+status)
+	m.mu.Unlock()
+	return nil
 }
 
 func (m *MockRunsRepository) GetRunJobID(ctx context.Context, runID string) (string, error) {

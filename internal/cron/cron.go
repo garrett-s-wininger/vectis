@@ -12,6 +12,7 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/backoff"
+	"vectis/internal/cell"
 	"vectis/internal/config"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
@@ -211,8 +212,13 @@ func (s *CronService) TriggerJob(ctx context.Context, jobID string) error {
 	s.mu.Lock()
 	qc := s.queueClient
 	s.mu.Unlock()
+	req := &api.JobRequest{Job: job}
+	if _, err := cell.AttachPendingExecutionEnvelope(ctx, s.runs, req, runID, s.clock.Now().UnixNano()); err != nil {
+		s.logger.Error("Failed to attach execution envelope for cron run %s: %v", runID, err)
+	}
+
 	s.recordDispatchEvent(ctx, runID, dal.DispatchEventAttempt, nil)
-	if err := queueclient.EnqueueWithRetry(ctx, qc, &api.JobRequest{Job: job}, s.logger); err != nil {
+	if err := queueclient.EnqueueWithRetry(ctx, qc, req, s.logger); err != nil {
 		msg := err.Error()
 		s.recordDispatchEvent(ctx, runID, dal.DispatchEventFailure, &msg)
 		return err

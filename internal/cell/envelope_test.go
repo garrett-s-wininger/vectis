@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/dal"
 )
 
 func TestExecutionEnvelopeEncodeDecode(t *testing.T) {
@@ -181,6 +182,73 @@ func TestExecutionEnvelopeValidateRejectsMissingRequiredFields(t *testing.T) {
 func TestDecodeExecutionEnvelopeRejectsInvalidJSON(t *testing.T) {
 	if _, err := DecodeExecutionEnvelope([]byte("{")); err == nil {
 		t.Fatal("DecodeExecutionEnvelope succeeded, want error")
+	}
+}
+
+func TestAttachExecutionEnvelopeBuildsFromDispatchRecord(t *testing.T) {
+	runID := "run-1"
+	jobID := "job-1"
+	req := &api.JobRequest{
+		Job: validExecutionEnvelope().Job,
+		Metadata: map[string]string{
+			"traceparent":                "trace-a",
+			ExecutionEnvelopeMetadataKey: "old-envelope",
+		},
+	}
+
+	req.Job.Id = &jobID
+	req.Job.RunId = &runID
+
+	env, err := AttachExecutionEnvelope(req, dal.ExecutionDispatchRecord{
+		RunID:             runID,
+		JobID:             jobID,
+		SegmentID:         "segment-1",
+		ExecutionID:       "execution-1",
+		CellID:            "iad-a",
+		Attempt:           1,
+		DefinitionVersion: 7,
+		DefinitionHash:    "sha256:def456",
+		OwningCell:        "iad-a",
+	}, 99)
+	if err != nil {
+		t.Fatalf("AttachExecutionEnvelope: %v", err)
+	}
+
+	if env.DefinitionVersion != 7 {
+		t.Fatalf("definition version: got %d, want 7", env.DefinitionVersion)
+	}
+
+	payload := req.GetMetadata()[ExecutionEnvelopeMetadataKey]
+	if payload == "" {
+		t.Fatal("expected execution envelope metadata")
+	}
+
+	got, err := DecodeExecutionEnvelope([]byte(payload))
+	if err != nil {
+		t.Fatalf("DecodeExecutionEnvelope: %v", err)
+	}
+
+	if got.Metadata["traceparent"] != "trace-a" {
+		t.Fatalf("traceparent metadata: got %q, want trace-a", got.Metadata["traceparent"])
+	}
+
+	if _, ok := got.Metadata[ExecutionEnvelopeMetadataKey]; ok {
+		t.Fatal("envelope metadata recursively included itself")
+	}
+}
+
+func TestNewExecutionEnvelopeRejectsJobIDMismatch(t *testing.T) {
+	env := validExecutionEnvelope()
+	if _, err := NewExecutionEnvelope(dal.ExecutionDispatchRecord{
+		RunID:             env.RunID,
+		JobID:             "other-job",
+		SegmentID:         env.SegmentID,
+		ExecutionID:       env.ExecutionID,
+		CellID:            env.CellID,
+		DefinitionVersion: env.DefinitionVersion,
+		DefinitionHash:    env.DefinitionHash,
+	}, env.Job, nil, 0); err == nil {
+		t.Fatal("NewExecutionEnvelope succeeded, want error")
 	}
 }
 

@@ -178,6 +178,59 @@ func TestSQLRepositoriesWithCellID_WritesHomeAndOwningCell(t *testing.T) {
 		t.Fatalf("expected one segment and one execution, got segments=%d executions=%d", segmentCount, executionCount)
 	}
 
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	if dispatch.RunID != runID {
+		t.Fatalf("dispatch run id: got %q, want %q", dispatch.RunID, runID)
+	}
+
+	if dispatch.JobID != jobID {
+		t.Fatalf("dispatch job id: got %q, want %q", dispatch.JobID, jobID)
+	}
+
+	if dispatch.SegmentID == "" {
+		t.Fatal("dispatch segment id is empty")
+	}
+
+	if dispatch.SegmentName != "root" {
+		t.Fatalf("dispatch segment name: got %q, want root", dispatch.SegmentName)
+	}
+
+	if dispatch.SegmentStatus != dal.SegmentStatusPending {
+		t.Fatalf("dispatch segment status: got %q, want %q", dispatch.SegmentStatus, dal.SegmentStatusPending)
+	}
+
+	if dispatch.ExecutionID == "" {
+		t.Fatal("dispatch execution id is empty")
+	}
+
+	if dispatch.ExecutionStatus != dal.ExecutionStatusPending {
+		t.Fatalf("dispatch execution status: got %q, want %q", dispatch.ExecutionStatus, dal.ExecutionStatusPending)
+	}
+
+	if dispatch.CellID != "iad-a" {
+		t.Fatalf("dispatch cell id: got %q, want iad-a", dispatch.CellID)
+	}
+
+	if dispatch.Attempt != 1 {
+		t.Fatalf("dispatch attempt: got %d, want 1", dispatch.Attempt)
+	}
+
+	if dispatch.DefinitionVersion != 1 {
+		t.Fatalf("dispatch definition version: got %d, want 1", dispatch.DefinitionVersion)
+	}
+
+	if dispatch.DefinitionHash != dal.DefinitionHash(def) {
+		t.Fatalf("dispatch definition hash: got %q, want %q", dispatch.DefinitionHash, dal.DefinitionHash(def))
+	}
+
+	if dispatch.OwningCell != "iad-a" {
+		t.Fatalf("dispatch owning cell: got %q, want iad-a", dispatch.OwningCell)
+	}
+
 	for name, got := range map[string]string{
 		"namespace":  namespaceCell,
 		"job":        jobCell,
@@ -188,6 +241,146 @@ func TestSQLRepositoriesWithCellID_WritesHomeAndOwningCell(t *testing.T) {
 		if got != "iad-a" {
 			t.Fatalf("%s cell: got %q", name, got)
 		}
+	}
+}
+
+func TestRunsRepository_GetPendingExecution_NotFound(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+
+	if _, err := repos.Runs().GetPendingExecution(ctx, "missing-run"); !dal.IsNotFound(err) {
+		t.Fatalf("expected missing run to return ErrNotFound, got %v", err)
+	}
+
+	ns, err := repos.Namespaces().Create(ctx, "team-pending", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-no-pending-execution"
+	def := `{"id":"job-no-pending-execution","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	if _, err := db.ExecContext(ctx, "UPDATE segment_executions SET status = 'accepted' WHERE run_id = ?", runID); err != nil {
+		t.Fatalf("mark execution accepted: %v", err)
+	}
+
+	if _, err := repos.Runs().GetPendingExecution(ctx, runID); !dal.IsNotFound(err) {
+		t.Fatalf("expected accepted execution to return ErrNotFound, got %v", err)
+	}
+}
+
+func TestRunsRepository_ExecutionTransitions(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-transitions", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-execution-transitions"
+	def := `{"id":"job-execution-transitions","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	if err := repos.Runs().MarkExecutionAccepted(ctx, dispatch.ExecutionID); err != nil {
+		t.Fatalf("mark accepted: %v", err)
+	}
+	assertExecutionAndSegmentStatus(t, db, dispatch.ExecutionID, dispatch.SegmentID, dal.ExecutionStatusAccepted, dal.SegmentStatusAccepted, 1)
+
+	if err := repos.Runs().MarkExecutionStarted(ctx, dispatch.ExecutionID); err != nil {
+		t.Fatalf("mark started: %v", err)
+	}
+	assertExecutionAndSegmentStatus(t, db, dispatch.ExecutionID, dispatch.SegmentID, dal.ExecutionStatusRunning, dal.SegmentStatusRunning, 2)
+
+	if err := repos.Runs().MarkExecutionTerminal(ctx, dispatch.ExecutionID, dal.ExecutionStatusSucceeded); err != nil {
+		t.Fatalf("mark terminal: %v", err)
+	}
+	assertExecutionAndSegmentStatus(t, db, dispatch.ExecutionID, dispatch.SegmentID, dal.ExecutionStatusSucceeded, dal.SegmentStatusSucceeded, 3)
+
+	if err := repos.Runs().MarkExecutionStarted(ctx, dispatch.ExecutionID); !dal.IsConflict(err) {
+		t.Fatalf("expected conflict restarting terminal execution, got %v", err)
+	}
+}
+
+func TestRunsRepository_ExecutionTransitionsRejectInvalidTargets(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+
+	if err := repos.Runs().MarkExecutionAccepted(ctx, "missing-execution"); !dal.IsNotFound(err) {
+		t.Fatalf("expected missing execution to return ErrNotFound, got %v", err)
+	}
+
+	if err := repos.Runs().MarkExecutionTerminal(ctx, "missing-execution", dal.ExecutionStatusRunning); !dal.IsConflict(err) {
+		t.Fatalf("expected non-terminal status to return ErrConflict, got %v", err)
+	}
+}
+
+func assertExecutionAndSegmentStatus(t *testing.T, db *sql.DB, executionID, segmentID, wantExecutionStatus, wantSegmentStatus string, wantEventSequence int64) {
+	t.Helper()
+
+	var executionStatus string
+	var eventSequence int64
+	var acceptedAt, startedAt, finishedAt sql.NullString
+	var lastObservedAt sql.NullInt64
+	if err := db.QueryRow("SELECT status, accepted_at, started_at, finished_at, last_observed_at, event_sequence FROM segment_executions WHERE execution_id = ?", executionID).
+		Scan(&executionStatus, &acceptedAt, &startedAt, &finishedAt, &lastObservedAt, &eventSequence); err != nil {
+		t.Fatalf("query execution status: %v", err)
+	}
+
+	if executionStatus != wantExecutionStatus {
+		t.Fatalf("execution status: got %q, want %q", executionStatus, wantExecutionStatus)
+	}
+
+	if eventSequence != wantEventSequence {
+		t.Fatalf("event sequence: got %d, want %d", eventSequence, wantEventSequence)
+	}
+
+	if !lastObservedAt.Valid || lastObservedAt.Int64 == 0 {
+		t.Fatalf("last_observed_at was not set")
+	}
+
+	if !acceptedAt.Valid {
+		t.Fatalf("accepted_at was not set")
+	}
+
+	if wantExecutionStatus == dal.ExecutionStatusRunning && !startedAt.Valid {
+		t.Fatalf("started_at was not set")
+	}
+
+	if wantExecutionStatus == dal.ExecutionStatusSucceeded && !finishedAt.Valid {
+		t.Fatalf("finished_at was not set")
+	}
+
+	var segmentStatus string
+	if err := db.QueryRow("SELECT status FROM run_segments WHERE segment_id = ?", segmentID).Scan(&segmentStatus); err != nil {
+		t.Fatalf("query segment status: %v", err)
+	}
+
+	if segmentStatus != wantSegmentStatus {
+		t.Fatalf("segment status: got %q, want %q", segmentStatus, wantSegmentStatus)
 	}
 }
 

@@ -57,6 +57,20 @@ const (
 	FailureCodeExecution     = "execution_error"
 	FailureCodeForceFailed   = "force_failed"
 	DefaultCellID            = "local"
+	SegmentStatusPending     = "pending"
+	SegmentStatusAccepted    = "accepted"
+	SegmentStatusRunning     = "running"
+	SegmentStatusSucceeded   = "succeeded"
+	SegmentStatusFailed      = "failed"
+	SegmentStatusCancelled   = "cancelled"
+	SegmentStatusAborted     = "aborted"
+	ExecutionStatusPending   = "pending"
+	ExecutionStatusAccepted  = "accepted"
+	ExecutionStatusRunning   = "running"
+	ExecutionStatusSucceeded = "succeeded"
+	ExecutionStatusFailed    = "failed"
+	ExecutionStatusCancelled = "cancelled"
+	ExecutionStatusAborted   = "aborted"
 
 	DispatchSourceAPI        = "api"
 	DispatchSourceCron       = "cron"
@@ -95,6 +109,21 @@ type RunRecord struct {
 type QueuedRun struct {
 	RunID             string
 	JobID             string
+	DefinitionVersion int
+	DefinitionHash    string
+	OwningCell        string
+}
+
+type ExecutionDispatchRecord struct {
+	RunID             string
+	JobID             string
+	SegmentID         string
+	SegmentName       string
+	SegmentStatus     string
+	ExecutionID       string
+	ExecutionStatus   string
+	CellID            string
+	Attempt           int
 	DefinitionVersion int
 	DefinitionHash    string
 	OwningCell        string
@@ -166,6 +195,10 @@ type RunsRepository interface {
 	CreateRun(ctx context.Context, jobID string, runIndex *int, definitionVersion int) (runID string, runIndexOut int, err error)
 	ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, cursor int64, limit int) ([]RunRecord, int64, error)
 	ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]QueuedRun, error)
+	GetPendingExecution(ctx context.Context, runID string) (ExecutionDispatchRecord, error)
+	MarkExecutionAccepted(ctx context.Context, executionID string) error
+	MarkExecutionStarted(ctx context.Context, executionID string) error
+	MarkExecutionTerminal(ctx context.Context, executionID, status string) error
 	CountByStatus(ctx context.Context, status string) (int64, error)
 	CountStuckBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) (int64, error)
 	GetRunJobID(ctx context.Context, runID string) (string, error)
@@ -260,7 +293,7 @@ func createInitialSegmentExecutionTx(ctx context.Context, tx *sql.Tx, runID, cel
 		segmentID,
 		runID,
 		"root",
-		"pending",
+		SegmentStatusPending,
 	); err != nil {
 		return normalizeSQLError(err)
 	}
@@ -271,7 +304,7 @@ func createInitialSegmentExecutionTx(ctx context.Context, tx *sql.Tx, runID, cel
 		segmentID,
 		runID,
 		normalizeCellID(cellID),
-		"pending",
+		ExecutionStatusPending,
 		1,
 	); err != nil {
 		return normalizeSQLError(err)

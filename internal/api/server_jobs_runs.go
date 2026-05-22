@@ -14,6 +14,7 @@ import (
 	"vectis/internal/api/audit"
 	"vectis/internal/api/authn"
 	"vectis/internal/api/authz"
+	"vectis/internal/cell"
 	"vectis/internal/config"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
@@ -987,8 +988,13 @@ func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID strin
 		req.Metadata = map[string]string{}
 	}
 
-	req.Metadata[observability.JobEnqueuedAtUnixNanoKey] = strconv.FormatInt(time.Now().UnixNano(), 10)
+	enqueuedAt := time.Now().UnixNano()
+	req.Metadata[observability.JobEnqueuedAtUnixNanoKey] = strconv.FormatInt(enqueuedAt, 10)
 	observability.InjectJobTraceContext(ctx, req)
+	if err := s.attachExecutionEnvelope(ctx, req, runID, enqueuedAt); err != nil {
+		span.RecordError(err)
+		s.logger.Error("Failed to attach execution envelope (run %s): %v", runID, err)
+	}
 
 	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventAttempt, nil)
 	if err := enqueueWithRetry(ctx, qc, req, s.logger); err != nil {
@@ -1289,8 +1295,13 @@ func (s *APIServer) finishRunJobEnqueue(ctx context.Context, jobID, runID string
 		req.Metadata = map[string]string{}
 	}
 
-	req.Metadata[observability.JobEnqueuedAtUnixNanoKey] = strconv.FormatInt(time.Now().UnixNano(), 10)
+	enqueuedAt := time.Now().UnixNano()
+	req.Metadata[observability.JobEnqueuedAtUnixNanoKey] = strconv.FormatInt(enqueuedAt, 10)
 	observability.InjectJobTraceContext(ctx, req)
+	if err := s.attachExecutionEnvelope(ctx, req, runID, enqueuedAt); err != nil {
+		span.RecordError(err)
+		s.logger.Error("Failed to attach execution envelope (run %s): %v", runID, err)
+	}
 
 	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventAttempt, nil)
 	if err := enqueueWithRetry(ctx, qc, req, s.logger); err != nil {
@@ -1323,6 +1334,11 @@ func (s *APIServer) finishRunJobEnqueue(ctx context.Context, jobID, runID string
 	tdSpan.End()
 
 	s.logger.Info("Enqueued ephemeral job: %s (run %s)", jobID, runID)
+}
+
+func (s *APIServer) attachExecutionEnvelope(ctx context.Context, req *api.JobRequest, runID string, createdAtUnixNano int64) error {
+	_, err := cell.AttachPendingExecutionEnvelope(ctx, s.runs, req, runID, createdAtUnixNano)
+	return err
 }
 
 func detachedTraceContextFromRequest(r *http.Request) context.Context {

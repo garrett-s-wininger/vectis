@@ -1,15 +1,20 @@
 package cell
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/dal"
 )
 
-const ExecutionEnvelopeVersion = 1
+const (
+	ExecutionEnvelopeVersion     = 1
+	ExecutionEnvelopeMetadataKey = "vectis.execution_envelope"
+)
 
 type ExecutionEnvelope struct {
 	EnvelopeVersion   int               `json:"envelope_version"`
@@ -22,6 +27,67 @@ type ExecutionEnvelope struct {
 	Job               *api.Job          `json:"job"`
 	Metadata          map[string]string `json:"metadata,omitempty"`
 	CreatedAtUnixNano int64             `json:"created_at_unix_nano,omitempty"`
+}
+
+func NewExecutionEnvelope(dispatch dal.ExecutionDispatchRecord, job *api.Job, metadata map[string]string, createdAtUnixNano int64) (*ExecutionEnvelope, error) {
+	if job != nil && strings.TrimSpace(dispatch.JobID) != "" && job.GetId() != dispatch.JobID {
+		return nil, fmt.Errorf("execution envelope job_id %q does not match job.id %q", dispatch.JobID, job.GetId())
+	}
+
+	env := &ExecutionEnvelope{
+		EnvelopeVersion:   ExecutionEnvelopeVersion,
+		RunID:             dispatch.RunID,
+		SegmentID:         dispatch.SegmentID,
+		ExecutionID:       dispatch.ExecutionID,
+		CellID:            dispatch.CellID,
+		DefinitionVersion: dispatch.DefinitionVersion,
+		DefinitionHash:    dispatch.DefinitionHash,
+		Job:               job,
+		Metadata:          cloneMetadata(metadata),
+		CreatedAtUnixNano: createdAtUnixNano,
+	}
+
+	if err := env.Validate(); err != nil {
+		return nil, err
+	}
+
+	return env, nil
+}
+
+func AttachPendingExecutionEnvelope(ctx context.Context, runs dal.RunsRepository, req *api.JobRequest, runID string, createdAtUnixNano int64) (*ExecutionEnvelope, error) {
+	if runs == nil {
+		return nil, errors.New("runs repository is required")
+	}
+
+	dispatch, err := runs.GetPendingExecution(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+
+	return AttachExecutionEnvelope(req, dispatch, createdAtUnixNano)
+}
+
+func AttachExecutionEnvelope(req *api.JobRequest, dispatch dal.ExecutionDispatchRecord, createdAtUnixNano int64) (*ExecutionEnvelope, error) {
+	if req == nil {
+		return nil, errors.New("job request is required")
+	}
+
+	env, err := NewExecutionEnvelope(dispatch, req.GetJob(), req.GetMetadata(), createdAtUnixNano)
+	if err != nil {
+		return nil, err
+	}
+
+	payload, err := EncodeExecutionEnvelope(env)
+	if err != nil {
+		return nil, err
+	}
+
+	if req.Metadata == nil {
+		req.Metadata = map[string]string{}
+	}
+	req.Metadata[ExecutionEnvelopeMetadataKey] = string(payload)
+
+	return env, nil
 }
 
 func EncodeExecutionEnvelope(env *ExecutionEnvelope) ([]byte, error) {
@@ -99,4 +165,25 @@ func (e *ExecutionEnvelope) Validate() error {
 	}
 
 	return nil
+}
+
+func cloneMetadata(metadata map[string]string) map[string]string {
+	if len(metadata) == 0 {
+		return nil
+	}
+
+	out := make(map[string]string, len(metadata))
+	for key, value := range metadata {
+		if key == ExecutionEnvelopeMetadataKey {
+			continue
+		}
+
+		out[key] = value
+	}
+
+	if len(out) == 0 {
+		return nil
+	}
+
+	return out
 }

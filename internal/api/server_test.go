@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"vectis/internal/api"
+	"vectis/internal/cell"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/testutil/dbtest"
@@ -635,9 +636,28 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 		t.Errorf("expected run id to be set on enqueued job")
 	}
 
+	reqs := queueService.GetJobRequests()
+	envelopeJSON := reqs[0].GetMetadata()[cell.ExecutionEnvelopeMetadataKey]
+	if envelopeJSON == "" {
+		t.Fatal("expected execution envelope metadata")
+	}
+
+	env, err := cell.DecodeExecutionEnvelope([]byte(envelopeJSON))
+	if err != nil {
+		t.Fatalf("decode execution envelope: %v", err)
+	}
+
+	if env.Job.GetId() != "job-to-trigger" || env.RunID != runID {
+		t.Fatalf("unexpected envelope identity: job=%q run=%q", env.Job.GetId(), env.RunID)
+	}
+
+	if env.ExecutionID == "" || env.SegmentID == "" || env.CellID != dal.DefaultCellID {
+		t.Fatalf("unexpected envelope target: execution=%q segment=%q cell=%q", env.ExecutionID, env.SegmentID, env.CellID)
+	}
+
 	var dbStatus string
 	var runIndex int
-	err := db.QueryRow("SELECT status, run_index FROM job_runs WHERE job_id = ? AND run_id = ?", "job-to-trigger", runID).Scan(&dbStatus, &runIndex)
+	err = db.QueryRow("SELECT status, run_index FROM job_runs WHERE job_id = ? AND run_id = ?", "job-to-trigger", runID).Scan(&dbStatus, &runIndex)
 	if err != nil {
 		t.Fatalf("expected job_runs row for triggered job: %v", err)
 	}

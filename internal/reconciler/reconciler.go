@@ -9,6 +9,7 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/cell"
 	"vectis/internal/dal"
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
@@ -216,6 +217,11 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 	job.RunId = &runID
 
 	req := &api.JobRequest{Job: &job}
+	if _, err := cell.AttachPendingExecutionEnvelope(ctx, s.runs, req, runID, s.clock.Now().UnixNano()); err != nil {
+		span.RecordError(err)
+		s.logger.Error("reconciler: failed to attach execution envelope for run %s: %v", runID, err)
+	}
+
 	s.recordDispatchEvent(ctx, runID, dal.DispatchEventAttempt, nil)
 	if err := queueclient.EnqueueWithRetry(ctx, s.queueClient, req, s.logger); err != nil {
 		span.RecordError(err)

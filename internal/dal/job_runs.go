@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -497,11 +498,16 @@ func (r *SQLRunsRepository) CreateRun(ctx context.Context, jobID string, runInde
 
 func lookupDefinitionHashTx(ctx context.Context, tx *sql.Tx, jobID string, version int) (string, error) {
 	var hash string
+	var definitionJSON string
 	if err := tx.QueryRowContext(ctx,
-		rebindQueryForPgx("SELECT definition_hash FROM job_definitions WHERE job_id = ? AND version = ?"),
+		rebindQueryForPgx("SELECT definition_hash, definition_json FROM job_definitions WHERE job_id = ? AND version = ?"),
 		jobID,
 		version,
-	).Scan(&hash); err == nil {
+	).Scan(&hash, &definitionJSON); err == nil {
+		if hash == "" {
+			hash = DefinitionHash(definitionJSON)
+		}
+
 		return hash, nil
 	} else if err != sql.ErrNoRows {
 		return "", normalizeSQLError(err)
@@ -509,9 +515,9 @@ func lookupDefinitionHashTx(ctx context.Context, tx *sql.Tx, jobID string, versi
 
 	var currentVersion int
 	if err := tx.QueryRowContext(ctx,
-		rebindQueryForPgx("SELECT definition_hash, version FROM stored_jobs WHERE job_id = ?"),
+		rebindQueryForPgx("SELECT definition_hash, definition_json, version FROM stored_jobs WHERE job_id = ?"),
 		jobID,
-	).Scan(&hash, &currentVersion); err != nil {
+	).Scan(&hash, &definitionJSON, &currentVersion); err != nil {
 		if err == sql.ErrNoRows {
 			return "", nil
 		}
@@ -520,6 +526,10 @@ func lookupDefinitionHashTx(ctx context.Context, tx *sql.Tx, jobID string, versi
 	}
 
 	if currentVersion == version {
+		if hash == "" {
+			hash = DefinitionHash(definitionJSON)
+		}
+
 		return hash, nil
 	}
 
@@ -634,6 +644,159 @@ func (r *SQLRunsRepository) ListQueuedBeforeDispatchCutoff(ctx context.Context, 
 	}
 
 	return out, nil
+}
+
+func (r *SQLRunsRepository) GetPendingExecution(ctx context.Context, runID string) (ExecutionDispatchRecord, error) {
+	var rec ExecutionDispatchRecord
+	err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT
+			jr.run_id,
+			jr.job_id,
+			rs.segment_id,
+			rs.name,
+			rs.status,
+			se.execution_id,
+			se.status,
+			se.cell_id,
+			se.attempt,
+			jr.definition_version,
+			jr.definition_hash,
+			jr.owning_cell
+		FROM job_runs jr
+		JOIN run_segments rs ON rs.run_id = jr.run_id
+		JOIN segment_executions se ON se.segment_id = rs.segment_id
+		WHERE jr.run_id = ?
+			AND rs.status = ?
+			AND se.status = ?
+		ORDER BY rs.id ASC, se.attempt ASC, se.id ASC
+		LIMIT 1
+	`), runID, SegmentStatusPending, ExecutionStatusPending).Scan(
+		&rec.RunID,
+		&rec.JobID,
+		&rec.SegmentID,
+		&rec.SegmentName,
+		&rec.SegmentStatus,
+		&rec.ExecutionID,
+		&rec.ExecutionStatus,
+		&rec.CellID,
+		&rec.Attempt,
+		&rec.DefinitionVersion,
+		&rec.DefinitionHash,
+		&rec.OwningCell,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return ExecutionDispatchRecord{}, fmt.Errorf("%w: pending execution for run %s", ErrNotFound, runID)
+		}
+
+		return ExecutionDispatchRecord{}, normalizeSQLError(err)
+	}
+
+	return rec, nil
+}
+
+func (r *SQLRunsRepository) MarkExecutionAccepted(ctx context.Context, executionID string) error {
+	return r.transitionExecution(ctx, executionID, ExecutionStatusAccepted, SegmentStatusAccepted, []string{ExecutionStatusPending}, true, false, false)
+}
+
+func (r *SQLRunsRepository) MarkExecutionStarted(ctx context.Context, executionID string) error {
+	return r.transitionExecution(ctx, executionID, ExecutionStatusRunning, SegmentStatusRunning, []string{ExecutionStatusPending, ExecutionStatusAccepted}, true, true, false)
+}
+
+func (r *SQLRunsRepository) MarkExecutionTerminal(ctx context.Context, executionID, status string) error {
+	if !isTerminalExecutionStatus(status) {
+		return fmt.Errorf("%w: unsupported terminal execution status %s", ErrConflict, status)
+	}
+
+	return r.transitionExecution(ctx, executionID, status, status, []string{ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}, true, false, true)
+}
+
+func (r *SQLRunsRepository) transitionExecution(
+	ctx context.Context,
+	executionID, targetStatus, targetSegmentStatus string,
+	allowedFrom []string,
+	markAccepted, markStarted, markFinished bool,
+) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var segmentID string
+	var currentStatus string
+	if err := tx.QueryRowContext(ctx,
+		rebindQueryForPgx("SELECT segment_id, status FROM segment_executions WHERE execution_id = ?"),
+		executionID,
+	).Scan(&segmentID, &currentStatus); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("%w: execution %s", ErrNotFound, executionID)
+		}
+
+		return normalizeSQLError(err)
+	}
+
+	if currentStatus == targetStatus {
+		return nil
+	}
+
+	if !statusIn(currentStatus, allowedFrom) {
+		return fmt.Errorf("%w: execution %s status %s cannot transition to %s", ErrConflict, executionID, currentStatus, targetStatus)
+	}
+
+	setParts := []string{"status = ?"}
+	args := []any{targetStatus}
+	if markAccepted {
+		setParts = append(setParts, "accepted_at = COALESCE(accepted_at, CURRENT_TIMESTAMP)")
+	}
+
+	if markStarted {
+		setParts = append(setParts, "started_at = COALESCE(started_at, CURRENT_TIMESTAMP)")
+	}
+
+	if markFinished {
+		setParts = append(setParts, "finished_at = COALESCE(finished_at, CURRENT_TIMESTAMP)")
+	}
+
+	setParts = append(setParts, "last_observed_at = ?", "event_sequence = event_sequence + 1", "updated_at = CURRENT_TIMESTAMP")
+	args = append(args, time.Now().UnixNano(), executionID)
+
+	if _, err := tx.ExecContext(ctx,
+		rebindQueryForPgx("UPDATE segment_executions SET "+strings.Join(setParts, ", ")+" WHERE execution_id = ?"),
+		args...,
+	); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		rebindQueryForPgx("UPDATE run_segments SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE segment_id = ?"),
+		targetSegmentStatus,
+		segmentID,
+	); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	return tx.Commit()
+}
+
+func statusIn(status string, statuses []string) bool {
+	for _, candidate := range statuses {
+		if status == candidate {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isTerminalExecutionStatus(status string) bool {
+	switch status {
+	case ExecutionStatusSucceeded, ExecutionStatusFailed, ExecutionStatusCancelled, ExecutionStatusAborted:
+		return true
+	default:
+		return false
+	}
 }
 
 func (r *SQLRunsRepository) GetRunForCancel(ctx context.Context, runID string) (RunForCancel, error) {

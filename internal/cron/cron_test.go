@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"vectis/internal/cell"
 	"vectis/internal/cron"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces/mocks"
@@ -465,6 +466,25 @@ func TestCronService_TriggerJob_Success(t *testing.T) {
 
 	if jobs[0].GetId() != "trigger-test" {
 		t.Errorf("expected job ID 'trigger-test', got %s", jobs[0].GetId())
+	}
+
+	reqs := queueService.GetJobRequests()
+	envelopeJSON := reqs[0].GetMetadata()[cell.ExecutionEnvelopeMetadataKey]
+	if envelopeJSON == "" {
+		t.Fatal("expected execution envelope metadata")
+	}
+
+	env, err := cell.DecodeExecutionEnvelope([]byte(envelopeJSON))
+	if err != nil {
+		t.Fatalf("decode execution envelope: %v", err)
+	}
+
+	if env.Job.GetId() != "trigger-test" || env.Job.GetRunId() != jobs[0].GetRunId() {
+		t.Fatalf("unexpected envelope job identity: job=%q run=%q", env.Job.GetId(), env.Job.GetRunId())
+	}
+
+	if env.ExecutionID == "" || env.SegmentID == "" || env.CellID != dal.DefaultCellID {
+		t.Fatalf("unexpected envelope target: execution=%q segment=%q cell=%q", env.ExecutionID, env.SegmentID, env.CellID)
 	}
 }
 

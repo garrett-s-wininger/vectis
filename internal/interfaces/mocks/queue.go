@@ -64,6 +64,13 @@ func (m *MockQueueClient) GetJobs() []*api.Job {
 	return result
 }
 
+func (m *MockQueueClient) GetJobRequests() []*api.JobRequest {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return append([]*api.JobRequest(nil), m.reqs...)
+}
+
 func (m *MockQueueClient) IsClosed() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -171,6 +178,13 @@ func (m *MockQueueService) GetJobs() []*api.Job {
 	}
 
 	return result
+}
+
+func (m *MockQueueService) GetJobRequests() []*api.JobRequest {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return append([]*api.JobRequest(nil), m.reqs...)
 }
 
 func (m *MockQueueService) Enqueue(ctx context.Context, req *api.JobRequest) (*api.Empty, error) {

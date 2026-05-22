@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"vectis/internal/cell"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
 	"vectis/internal/interfaces/mocks"
@@ -44,6 +45,25 @@ func TestService_Process_ReenqueuesQueuedRun(t *testing.T) {
 	}
 	if jobs[0].GetId() != "job-a" || jobs[0].GetRunId() != runID {
 		t.Errorf("job id/run mismatch: id=%q run=%q", jobs[0].GetId(), jobs[0].GetRunId())
+	}
+
+	reqs := q.GetJobRequests()
+	envelopeJSON := reqs[0].GetMetadata()[cell.ExecutionEnvelopeMetadataKey]
+	if envelopeJSON == "" {
+		t.Fatal("expected execution envelope metadata")
+	}
+
+	env, err := cell.DecodeExecutionEnvelope([]byte(envelopeJSON))
+	if err != nil {
+		t.Fatalf("decode execution envelope: %v", err)
+	}
+
+	if env.RunID != runID || env.Job.GetId() != "job-a" {
+		t.Fatalf("unexpected envelope identity: run=%q job=%q", env.RunID, env.Job.GetId())
+	}
+
+	if env.ExecutionID == "" || env.SegmentID == "" {
+		t.Fatalf("expected envelope execution and segment ids, got execution=%q segment=%q", env.ExecutionID, env.SegmentID)
 	}
 
 	var last sql.NullInt64
