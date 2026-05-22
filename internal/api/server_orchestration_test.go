@@ -70,6 +70,35 @@ func TestAPIServer_TriggerJob_OrchestrationUsesRepositories(t *testing.T) {
 	}
 }
 
+func TestAPIServer_TriggerJob_OrchestrationUsesTargetCell(t *testing.T) {
+	jobs := mocks.NewMockJobsRepository()
+	jobs.Definitions["job-target-cell"] = `{"id":"job-target-cell","root":{"uses":"builtins/shell","with":{"command":"echo hi"}}}`
+	jobs.DefinitionVersions["job-target-cell"] = 4
+
+	runs := mocks.NewMockRunsRepository()
+	runs.CreateRunID = "run-target-cell"
+	runs.CreateRunIndex = 1
+
+	server := api.NewAPIServerWithRepositories(mocks.NewMockLogger(), jobs, runs, mocks.StubEphemeralRunStarter{})
+	server.SetQueueClient(mocks.NewMockQueueService())
+
+	body := bytes.NewBufferString(`{"cell_id":"iad-a"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/job-target-cell", body)
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", "job-target-cell")
+	rec := httptest.NewRecorder()
+
+	server.TriggerJob(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusAccepted, rec.Code, rec.Body.String())
+	}
+
+	if got := runs.SnapshotLastCreateTargetCell(); got != "iad-a" {
+		t.Fatalf("expected target cell iad-a, got %q", got)
+	}
+}
+
 func TestAPIServer_GetJobRuns_OrchestrationUsesRunsRepository(t *testing.T) {
 	jobs := mocks.NewMockJobsRepository()
 	jobs.Definitions["job-1"] = `{"id":"job-1"}`

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	api "vectis/api/gen/go"
@@ -31,6 +32,35 @@ import (
 )
 
 const defaultForceFailReason = "manually failed via API"
+
+type runTargetOptions struct {
+	CellID       string `json:"cell_id"`
+	TargetCellID string `json:"target_cell_id"`
+}
+
+func (o runTargetOptions) targetCellID() string {
+	targetCellID := strings.TrimSpace(o.TargetCellID)
+	cellID := strings.TrimSpace(o.CellID)
+	if targetCellID != "" {
+		return targetCellID
+	}
+
+	return cellID
+}
+
+func parseRunTargetOptions(body []byte) (string, error) {
+	body = bytes.TrimSpace(body)
+	if len(body) == 0 {
+		return "", nil
+	}
+
+	var opts runTargetOptions
+	if err := json.Unmarshal(body, &opts); err != nil {
+		return "", err
+	}
+
+	return opts.targetCellID(), nil
+}
 
 type repairMarkKind string
 
@@ -904,9 +934,30 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 
 	job.Id = &jobID
 
+	triggerBody, err := io.ReadAll(io.LimitReader(r.Body, maxJobDefinitionBodyBytes))
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "request_read_failed", "failed to read request body", nil)
+		return
+	}
+
+	if len(bytes.TrimSpace(triggerBody)) > 0 && !requestContentTypeIsJSON(r) {
+		writeAPIError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "content type must be application/json", nil)
+		return
+	}
+
+	targetCellID, err := parseRunTargetOptions(triggerBody)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_trigger_options", "invalid trigger options", nil)
+		return
+	}
+
 	idempotencyKey := idempotencyKeyFromRequest(r)
 	idempotencyScope := principalIdempotencyScope("trigger:"+jobID, p)
-	idempotencyHash := hashIdempotencyRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID)
+	idempotencyHashParts := []string{http.MethodPost, "/api/v1/jobs/trigger/" + jobID}
+	if trimmed := bytes.TrimSpace(triggerBody); len(trimmed) > 0 {
+		idempotencyHashParts = append(idempotencyHashParts, string(trimmed))
+	}
+	idempotencyHash := hashIdempotencyRequest(idempotencyHashParts...)
 	idempotencyRecord, idempotencyReserved, ok := s.reserveIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyHash)
 	if !ok {
 		return
@@ -919,7 +970,7 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	runID, runIndex, err := s.runs.CreateRun(ctx, jobID, nil, definitionVersion)
+	runID, runIndex, err := s.runs.CreateRunInCell(ctx, jobID, nil, definitionVersion, targetCellID)
 	if err != nil {
 		if idempotencyReserved {
 			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
@@ -1143,8 +1194,10 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Namespace string          `json:"namespace"`
-		Job       json.RawMessage `json:"job"`
+		Namespace    string          `json:"namespace"`
+		Job          json.RawMessage `json:"job"`
+		CellID       string          `json:"cell_id"`
+		TargetCellID string          `json:"target_cell_id"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1154,6 +1207,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	if req.Job == nil {
 		req.Job = body
 	}
+	targetCellID := runTargetOptions{CellID: req.CellID, TargetCellID: req.TargetCellID}.targetCellID()
 
 	var job api.Job
 	if err := json.Unmarshal(req.Job, &job); err != nil {
@@ -1229,7 +1283,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	runID, _, err := s.ephemeralRuns.CreateDefinitionAndRun(ctx, ephemeralJobID, string(definitionJSON), &runIndexOne)
+	runID, _, err := s.ephemeralRuns.CreateDefinitionAndRunInCell(ctx, ephemeralJobID, string(definitionJSON), &runIndexOne, targetCellID)
 	if err != nil {
 		if idempotencyReserved {
 			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)

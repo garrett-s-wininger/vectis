@@ -1142,6 +1142,64 @@ func TestAPIServer_RunJob_Success(t *testing.T) {
 	}
 }
 
+func TestAPIServer_RunJob_TargetCellPersistsExecutionTarget(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+
+	jobDef := map[string]any{
+		"root": map[string]any{
+			"id":   "node-1",
+			"uses": "builtins/shell",
+			"with": map[string]string{
+				"command": "echo target",
+			},
+		},
+	}
+
+	body, _ := json.Marshal(map[string]any{
+		"cell_id": "pdx-b",
+		"job":     jobDef,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/run", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	server.RunJob(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusAccepted, rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		ID    string `json:"id"`
+		RunID string `json:"run_id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+
+	if resp.RunID == "" {
+		t.Fatal("expected run_id in response")
+	}
+
+	var owningCell, executionCell string
+	if err := db.QueryRow(`
+		SELECT jr.owning_cell, se.cell_id
+		FROM job_runs jr
+		JOIN segment_executions se ON se.run_id = jr.run_id
+		WHERE jr.run_id = ?
+	`, resp.RunID).Scan(&owningCell, &executionCell); err != nil {
+		t.Fatalf("query target cell: %v", err)
+	}
+
+	if owningCell != "pdx-b" {
+		t.Fatalf("owning cell: got %q, want pdx-b", owningCell)
+	}
+
+	if executionCell != "pdx-b" {
+		t.Fatalf("execution cell: got %q, want pdx-b", executionCell)
+	}
+}
+
 func TestAPIServer_GetRun_EphemeralRun(t *testing.T) {
 	server, _, queueService, db := setupTestServer(t)
 

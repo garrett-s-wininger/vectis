@@ -43,7 +43,8 @@ The response includes the run ID:
 
 ```json
 {
-  "id": "2b196bc5-0f7f-47e7-8fb1-2e4f6db8b6f0"
+  "id": "2b196bc5-0f7f-47e7-8fb1-2e4f6db8b6f0",
+  "run_id": "8018d8f0-1bf7-488a-9375-3c4d4cd1ff7c"
 }
 ```
 
@@ -73,6 +74,8 @@ curl -sS \
   -H "Idempotency-Key: $(uuidgen)" \
   http://localhost:8080/api/v1/jobs/trigger/sequenced-job
 ```
+
+Both `POST /api/v1/jobs/run` and `POST /api/v1/jobs/trigger/{id}` accept an optional `cell_id` field to select the target execution cell. `target_cell_id` is accepted as an alias. If omitted, Vectis uses the API process's configured cell.
 
 ### Check Whether The System Is Ready
 
@@ -234,8 +237,8 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | GET | `/api/v1/jobs/{id}` | Get one job definition | `job:read` | general | `200` JSON job |
 | PUT | `/api/v1/jobs/{id}` | Replace a job definition | `job:write` | general | `200` JSON job |
 | DELETE | `/api/v1/jobs/{id}` | Delete a job definition | `job:write` | general | `204` empty |
-| POST | `/api/v1/jobs/run` | Start an ephemeral run from JSON body | `run:trigger` | general | `202` JSON run |
-| POST | `/api/v1/jobs/trigger/{id}` | Start a run from a stored job | `run:trigger` | general | `202` JSON run |
+| POST | `/api/v1/jobs/run` | Start an ephemeral run from JSON body, optionally targeting `cell_id` | `run:trigger` | general | `202` JSON run |
+| POST | `/api/v1/jobs/trigger/{id}` | Start a run from a stored job, optionally targeting `cell_id` | `run:trigger` | general | `202` JSON run |
 | GET | `/api/v1/jobs/{id}/runs` | List runs for one job | `run:read` | general | `200` JSON list |
 | GET | `/api/v1/sse/jobs/{id}/runs` | Stream run events for one job | `run:read` | general | `200` `text/event-stream` |
 | GET | `/api/v1/runs/{id}` | Get one run, including dispatch events | `run:read` | general | `200` JSON run |
