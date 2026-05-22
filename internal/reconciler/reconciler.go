@@ -10,6 +10,7 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/cell"
+	"vectis/internal/config"
 	"vectis/internal/dal"
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
@@ -222,7 +223,7 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 	}
 
 	s.recordDispatchEvent(ctx, runID, dal.DispatchEventAttempt, nil)
-	if err := cell.SubmitToQueue(ctx, s.queueClient, req, s.logger); err != nil {
+	if err := cell.SubmitToLocalQueue(ctx, config.CellID(), s.queueClient, req, s.logger); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "enqueue")
 		msg := err.Error()

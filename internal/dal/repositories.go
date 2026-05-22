@@ -131,6 +131,7 @@ type ExecutionDispatchRecord struct {
 
 type EphemeralRunStarter interface {
 	CreateDefinitionAndRun(ctx context.Context, jobID, definitionJSON string, runIndex *int) (runID string, runIndexOut int, err error)
+	CreateDefinitionAndRunInCell(ctx context.Context, jobID, definitionJSON string, runIndex *int, targetCellID string) (runID string, runIndexOut int, err error)
 }
 
 type IdempotencyRecord struct {
@@ -193,6 +194,7 @@ type RunsRepository interface {
 	RenewLease(ctx context.Context, runID, owner, claimToken string, leaseUntil time.Time) error
 	TouchDispatched(ctx context.Context, runID string) error
 	CreateRun(ctx context.Context, jobID string, runIndex *int, definitionVersion int) (runID string, runIndexOut int, err error)
+	CreateRunInCell(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellID string) (runID string, runIndexOut int, err error)
 	ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, cursor int64, limit int) ([]RunRecord, int64, error)
 	ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]QueuedRun, error)
 	GetPendingExecution(ctx context.Context, runID string) (ExecutionDispatchRecord, error)
@@ -286,6 +288,15 @@ func normalizeCellID(cellID string) string {
 	return cellID
 }
 
+func normalizeTargetCellID(cellID, fallback string) string {
+	cellID = strings.TrimSpace(cellID)
+	if cellID == "" {
+		return normalizeCellID(fallback)
+	}
+
+	return cellID
+}
+
 func createInitialSegmentExecutionTx(ctx context.Context, tx *sql.Tx, runID, cellID string) error {
 	segmentID := newSegmentID()
 	if _, err := tx.ExecContext(ctx,
@@ -314,12 +325,17 @@ func createInitialSegmentExecutionTx(ctx context.Context, tx *sql.Tx, runID, cel
 }
 
 func (r *SQLRepositories) CreateDefinitionAndRun(ctx context.Context, jobID, definitionJSON string, runIndex *int) (runID string, runIndexOut int, err error) {
+	return r.CreateDefinitionAndRunInCell(ctx, jobID, definitionJSON, runIndex, r.cellID)
+}
+
+func (r *SQLRepositories) CreateDefinitionAndRunInCell(ctx context.Context, jobID, definitionJSON string, runIndex *int, targetCellID string) (runID string, runIndexOut int, err error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", 0, err
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	targetCellID = normalizeTargetCellID(targetCellID, r.cellID)
 	definitionHash := DefinitionHash(definitionJSON)
 	if _, err := tx.ExecContext(ctx,
 		rebindQueryForPgx(`INSERT INTO job_definitions (global_id, job_id, version, definition_json, definition_hash, home_cell) VALUES (?, ?, 1, ?, ?, ?)`),
@@ -349,12 +365,12 @@ func (r *SQLRepositories) CreateDefinitionAndRun(ctx context.Context, jobID, def
 		idx,
 		"queued",
 		definitionHash,
-		r.cellID,
+		targetCellID,
 	); err != nil {
 		return "", 0, normalizeSQLError(err)
 	}
 
-	if err := createInitialSegmentExecutionTx(ctx, tx, runID, r.cellID); err != nil {
+	if err := createInitialSegmentExecutionTx(ctx, tx, runID, targetCellID); err != nil {
 		return "", 0, err
 	}
 

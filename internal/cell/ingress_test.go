@@ -46,12 +46,91 @@ func TestNewExecutionSubmissionDefaultsTargetCell(t *testing.T) {
 	}
 }
 
-func TestSubmitToQueueEnqueuesRequest(t *testing.T) {
+func TestStaticExecutionRouterRoutesByTargetCell(t *testing.T) {
+	iadIngress := &recordingIngress{}
+	pdxIngress := &recordingIngress{}
+	router := NewStaticExecutionRouter(map[string]ExecutionIngress{
+		"iad-a": iadIngress,
+		"pdx-b": pdxIngress,
+	})
+
+	iadSubmission, err := NewExecutionSubmission(validJobRequestForCell(t, "iad-a"))
+	if err != nil {
+		t.Fatalf("NewExecutionSubmission iad-a: %v", err)
+	}
+
+	pdxSubmission, err := NewExecutionSubmission(validJobRequestForCell(t, "pdx-b"))
+	if err != nil {
+		t.Fatalf("NewExecutionSubmission pdx-b: %v", err)
+	}
+
+	if err := router.SubmitExecution(context.Background(), iadSubmission); err != nil {
+		t.Fatalf("SubmitExecution iad-a: %v", err)
+	}
+
+	if err := router.SubmitExecution(context.Background(), pdxSubmission); err != nil {
+		t.Fatalf("SubmitExecution pdx-b: %v", err)
+	}
+
+	if len(iadIngress.submissions) != 1 {
+		t.Fatalf("iad ingress submissions: got %d, want 1", len(iadIngress.submissions))
+	}
+
+	if len(pdxIngress.submissions) != 1 {
+		t.Fatalf("pdx ingress submissions: got %d, want 1", len(pdxIngress.submissions))
+	}
+
+	if iadIngress.submissions[0].TargetCellID() != "iad-a" {
+		t.Fatalf("iad target: got %q, want iad-a", iadIngress.submissions[0].TargetCellID())
+	}
+
+	if pdxIngress.submissions[0].TargetCellID() != "pdx-b" {
+		t.Fatalf("pdx target: got %q, want pdx-b", pdxIngress.submissions[0].TargetCellID())
+	}
+}
+
+func TestStaticExecutionRouterReturnsMissingRoute(t *testing.T) {
+	router := NewStaticExecutionRouter(map[string]ExecutionIngress{})
+	submission, err := NewExecutionSubmission(validJobRequestForCell(t, "iad-a"))
+	if err != nil {
+		t.Fatalf("NewExecutionSubmission: %v", err)
+	}
+
+	if err := router.SubmitExecution(context.Background(), submission); !IsCellNotRoutable(err) {
+		t.Fatalf("expected ErrCellNotRoutable, got %v", err)
+	}
+}
+
+func TestStaticExecutionRouterDefaultsBlankRouteToLocal(t *testing.T) {
+	ingress := &recordingIngress{}
+	router := NewStaticExecutionRouter(map[string]ExecutionIngress{
+		"": ingress,
+	})
+
+	submission, err := NewExecutionSubmission(&api.JobRequest{Job: validExecutionEnvelope().Job})
+	if err != nil {
+		t.Fatalf("NewExecutionSubmission: %v", err)
+	}
+
+	if err := router.SubmitExecution(context.Background(), submission); err != nil {
+		t.Fatalf("SubmitExecution: %v", err)
+	}
+
+	if len(ingress.submissions) != 1 {
+		t.Fatalf("ingress submissions: got %d, want 1", len(ingress.submissions))
+	}
+
+	if ingress.submissions[0].TargetCellID() != dal.DefaultCellID {
+		t.Fatalf("target cell: got %q, want %q", ingress.submissions[0].TargetCellID(), dal.DefaultCellID)
+	}
+}
+
+func TestSubmitToLocalQueueEnqueuesMatchingCellRequest(t *testing.T) {
 	queue := mocks.NewMockQueueService()
 	req := validJobRequest(t)
 
-	if err := SubmitToQueue(context.Background(), queue, req, mocks.NewMockLogger()); err != nil {
-		t.Fatalf("SubmitToQueue: %v", err)
+	if err := SubmitToLocalQueue(context.Background(), "iad-a", queue, req, mocks.NewMockLogger()); err != nil {
+		t.Fatalf("SubmitToLocalQueue: %v", err)
 	}
 
 	reqs := queue.GetJobRequests()
@@ -64,7 +143,20 @@ func TestSubmitToQueueEnqueuesRequest(t *testing.T) {
 	}
 }
 
-func TestSubmitToQueueRejectsInvalidEnvelope(t *testing.T) {
+func TestSubmitToLocalQueueRejectsRemoteCellRequest(t *testing.T) {
+	queue := mocks.NewMockQueueService()
+	req := validJobRequestForCell(t, "pdx-b")
+
+	if err := SubmitToLocalQueue(context.Background(), "iad-a", queue, req, mocks.NewMockLogger()); !IsCellNotRoutable(err) {
+		t.Fatalf("expected ErrCellNotRoutable, got %v", err)
+	}
+
+	if got := len(queue.GetJobRequests()); got != 0 {
+		t.Fatalf("expected no enqueued requests, got %d", got)
+	}
+}
+
+func TestSubmitToLocalQueueRejectsInvalidEnvelope(t *testing.T) {
 	queue := mocks.NewMockQueueService()
 	req := &api.JobRequest{
 		Job: validExecutionEnvelope().Job,
@@ -73,8 +165,8 @@ func TestSubmitToQueueRejectsInvalidEnvelope(t *testing.T) {
 		},
 	}
 
-	if err := SubmitToQueue(context.Background(), queue, req, mocks.NewMockLogger()); err == nil {
-		t.Fatal("SubmitToQueue succeeded, want error")
+	if err := SubmitToLocalQueue(context.Background(), "iad-a", queue, req, mocks.NewMockLogger()); err == nil {
+		t.Fatal("SubmitToLocalQueue succeeded, want error")
 	}
 
 	if got := len(queue.GetJobRequests()); got != 0 {
@@ -86,8 +178,8 @@ func TestQueueExecutionIngressRetriesTransientEnqueue(t *testing.T) {
 	req := validJobRequest(t)
 	queue := &transientQueue{failuresLeft: 1}
 
-	if err := SubmitToQueue(context.Background(), queue, req, mocks.NewMockLogger()); err != nil {
-		t.Fatalf("SubmitToQueue: %v", err)
+	if err := SubmitToLocalQueue(context.Background(), "iad-a", queue, req, mocks.NewMockLogger()); err != nil {
+		t.Fatalf("SubmitToLocalQueue: %v", err)
 	}
 
 	if queue.calls != 2 {
@@ -97,6 +189,11 @@ func TestQueueExecutionIngressRetriesTransientEnqueue(t *testing.T) {
 
 func validJobRequest(t *testing.T) *api.JobRequest {
 	t.Helper()
+	return validJobRequestForCell(t, "iad-a")
+}
+
+func validJobRequestForCell(t *testing.T, cellID string) *api.JobRequest {
+	t.Helper()
 
 	env := validExecutionEnvelope()
 	req := &api.JobRequest{Job: env.Job}
@@ -105,7 +202,7 @@ func validJobRequest(t *testing.T) *api.JobRequest {
 		JobID:             env.Job.GetId(),
 		SegmentID:         env.SegmentID,
 		ExecutionID:       env.ExecutionID,
-		CellID:            env.CellID,
+		CellID:            cellID,
 		Attempt:           1,
 		DefinitionVersion: env.DefinitionVersion,
 		DefinitionHash:    env.DefinitionHash,
@@ -115,6 +212,22 @@ func validJobRequest(t *testing.T) *api.JobRequest {
 
 	return req
 }
+
+type recordingIngress struct {
+	submissions []ExecutionSubmission
+	err         error
+}
+
+func (i *recordingIngress) SubmitExecution(ctx context.Context, submission ExecutionSubmission) error {
+	if i.err != nil {
+		return i.err
+	}
+
+	i.submissions = append(i.submissions, submission)
+	return nil
+}
+
+var _ ExecutionIngress = (*recordingIngress)(nil)
 
 type transientQueue struct {
 	failuresLeft int
@@ -133,11 +246,11 @@ func (q *transientQueue) Enqueue(ctx context.Context, req *api.JobRequest) (*api
 
 var _ interfaces.QueueService = (*transientQueue)(nil)
 
-func TestSubmitToQueueReturnsQueueError(t *testing.T) {
+func TestSubmitToLocalQueueReturnsQueueError(t *testing.T) {
 	queue := mocks.NewMockQueueService()
 	queue.SetEnqueueError(errors.New("nope"))
 
-	if err := SubmitToQueue(context.Background(), queue, validJobRequest(t), mocks.NewMockLogger()); err == nil {
-		t.Fatal("SubmitToQueue succeeded, want error")
+	if err := SubmitToLocalQueue(context.Background(), "iad-a", queue, validJobRequest(t), mocks.NewMockLogger()); err == nil {
+		t.Fatal("SubmitToLocalQueue succeeded, want error")
 	}
 }

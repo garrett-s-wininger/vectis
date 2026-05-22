@@ -244,6 +244,108 @@ func TestSQLRepositoriesWithCellID_WritesHomeAndOwningCell(t *testing.T) {
 	}
 }
 
+func TestRunsRepository_CreateRunInCell_TargetsExecutionCell(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-target", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-target-cell"
+	def := `{"id":"job-target-cell","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRunInCell(ctx, jobID, nil, 1, "pdx-b")
+	if err != nil {
+		t.Fatalf("CreateRunInCell: %v", err)
+	}
+
+	var jobHomeCell string
+	if err := db.QueryRowContext(ctx, "SELECT home_cell FROM stored_jobs WHERE job_id = ?", jobID).Scan(&jobHomeCell); err != nil {
+		t.Fatalf("query job home cell: %v", err)
+	}
+
+	if jobHomeCell != "global-a" {
+		t.Fatalf("job home cell: got %q, want global-a", jobHomeCell)
+	}
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	if dispatch.CellID != "pdx-b" {
+		t.Fatalf("dispatch cell id: got %q, want pdx-b", dispatch.CellID)
+	}
+
+	if dispatch.OwningCell != "pdx-b" {
+		t.Fatalf("dispatch owning cell: got %q, want pdx-b", dispatch.OwningCell)
+	}
+
+	run, err := repos.Runs().GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+
+	if run.OwningCell != "pdx-b" {
+		t.Fatalf("run owning cell: got %q, want pdx-b", run.OwningCell)
+	}
+
+	defaultRunID, _, err := repos.Runs().CreateRunInCell(ctx, jobID, nil, 1, "")
+	if err != nil {
+		t.Fatalf("CreateRunInCell default target: %v", err)
+	}
+
+	defaultDispatch, err := repos.Runs().GetPendingExecution(ctx, defaultRunID)
+	if err != nil {
+		t.Fatalf("get default pending execution: %v", err)
+	}
+
+	if defaultDispatch.CellID != "global-a" {
+		t.Fatalf("default dispatch cell id: got %q, want global-a", defaultDispatch.CellID)
+	}
+}
+
+func TestSQLRepositories_CreateDefinitionAndRunInCell_TargetsExecutionCell(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")
+	ctx := context.Background()
+
+	jobID := "ephemeral-target-cell"
+	def := `{"id":"ephemeral-target-cell","root":{"uses":"builtins/shell","with":{"command":"echo x"}}}`
+	runID, _, err := repos.CreateDefinitionAndRunInCell(ctx, jobID, def, nil, "pdx-b")
+	if err != nil {
+		t.Fatalf("CreateDefinitionAndRunInCell: %v", err)
+	}
+
+	var definitionHomeCell string
+	if err := db.QueryRowContext(ctx, "SELECT home_cell FROM job_definitions WHERE job_id = ? AND version = 1", jobID).Scan(&definitionHomeCell); err != nil {
+		t.Fatalf("query definition home cell: %v", err)
+	}
+
+	if definitionHomeCell != "global-a" {
+		t.Fatalf("definition home cell: got %q, want global-a", definitionHomeCell)
+	}
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	if dispatch.CellID != "pdx-b" {
+		t.Fatalf("dispatch cell id: got %q, want pdx-b", dispatch.CellID)
+	}
+
+	if dispatch.OwningCell != "pdx-b" {
+		t.Fatalf("dispatch owning cell: got %q, want pdx-b", dispatch.OwningCell)
+	}
+}
+
 func TestRunsRepository_GetPendingExecution_NotFound(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)

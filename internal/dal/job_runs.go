@@ -447,7 +447,12 @@ func (r *SQLRunsRepository) TouchDispatched(ctx context.Context, runID string) e
 }
 
 func (r *SQLRunsRepository) CreateRun(ctx context.Context, jobID string, runIndex *int, definitionVersion int) (runID string, runIndexOut int, err error) {
+	return r.CreateRunInCell(ctx, jobID, runIndex, definitionVersion, r.currentCellID())
+}
+
+func (r *SQLRunsRepository) CreateRunInCell(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellID string) (runID string, runIndexOut int, err error) {
 	runID = uuid.New().String()
+	targetCellID = normalizeTargetCellID(targetCellID, r.currentCellID())
 
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -478,14 +483,14 @@ func (r *SQLRunsRepository) CreateRun(ctx context.Context, jobID string, runInde
 		"queued",
 		definitionVersion,
 		definitionHash,
-		r.currentCellID(),
+		targetCellID,
 	)
 
 	if err != nil {
 		return "", 0, normalizeSQLError(err)
 	}
 
-	if err := createInitialSegmentExecutionTx(ctx, tx, runID, r.currentCellID()); err != nil {
+	if err := createInitialSegmentExecutionTx(ctx, tx, runID, targetCellID); err != nil {
 		return "", 0, err
 	}
 

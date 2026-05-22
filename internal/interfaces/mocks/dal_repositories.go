@@ -15,6 +15,10 @@ func (StubEphemeralRunStarter) CreateDefinitionAndRun(context.Context, string, s
 	return "", 0, fmt.Errorf("stub ephemeral run starter: not configured")
 }
 
+func (StubEphemeralRunStarter) CreateDefinitionAndRunInCell(context.Context, string, string, *int, string) (string, int, error) {
+	return "", 0, fmt.Errorf("stub ephemeral run starter: not configured")
+}
+
 type MockJobsRepository struct {
 	Definitions        map[string]string
 	DefinitionVersions map[string]int
@@ -238,6 +242,7 @@ type MockRunsRepository struct {
 
 	LastCreateJobID       string
 	LastDefinitionVersion int
+	LastCreateTargetCell  string
 	LastListJobID         string
 	LastListAfterIndex    *int
 	LastListSince         *time.Time
@@ -334,6 +339,10 @@ func (m *MockRunsRepository) TouchDispatched(ctx context.Context, runID string) 
 }
 
 func (m *MockRunsRepository) CreateRun(ctx context.Context, jobID string, runIndex *int, definitionVersion int) (string, int, error) {
+	return m.CreateRunInCell(ctx, jobID, runIndex, definitionVersion, dal.DefaultCellID)
+}
+
+func (m *MockRunsRepository) CreateRunInCell(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellID string) (string, int, error) {
 	if m.CreateRunErr != nil {
 		return "", 0, m.CreateRunErr
 	}
@@ -341,6 +350,7 @@ func (m *MockRunsRepository) CreateRun(ctx context.Context, jobID string, runInd
 	m.mu.Lock()
 	m.LastCreateJobID = jobID
 	m.LastDefinitionVersion = definitionVersion
+	m.LastCreateTargetCell = targetCellID
 	m.mu.Unlock()
 	return m.CreateRunID, m.CreateRunIndex, nil
 }
@@ -392,6 +402,12 @@ func (m *MockRunsRepository) SnapshotLastCreate() (string, int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.LastCreateJobID, m.LastDefinitionVersion
+}
+
+func (m *MockRunsRepository) SnapshotLastCreateTargetCell() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.LastCreateTargetCell
 }
 
 func (m *MockRunsRepository) SnapshotLastListSince() *int {
