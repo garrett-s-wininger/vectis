@@ -180,6 +180,8 @@ Health endpoints and `POST /api/v1/login` are public. Setup routes use setup-spe
 
 Password changes, user disables, and user deletes revoke that user's API tokens and login sessions. Re-enabling a disabled user does not resurrect old credentials.
 
+The browser UI does not store API bearer tokens in browser storage. `vectis-ui` acts as a backend-for-frontend: it exchanges setup/login credentials with the API, keeps the returned API token server-side, and gives the browser an HttpOnly UI session cookie. CLI clients and integrations continue to use bearer tokens directly.
+
 Non-browser clients that need a bearer session token can request one explicitly:
 
 ```sh

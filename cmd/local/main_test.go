@@ -27,6 +27,7 @@ func resetLocalTestConfig(t *testing.T) {
 	t.Setenv(database.EnvDatabaseDSN, "")
 	t.Setenv(database.EnvGlobalDatabaseDSN, "")
 	t.Setenv(database.EnvCellDatabaseDSN, "")
+	t.Setenv("VECTIS_API_AUTH_BOOTSTRAP_TOKEN", "")
 	t.Setenv("VECTIS_CELL_ID", "")
 }
 
@@ -554,6 +555,66 @@ func TestAPIEnvRejectsMalformedSourceRepository(t *testing.T) {
 	_, err := apiEnv()
 	if err == nil || !strings.Contains(err.Error(), "repository_id=checkout_path") {
 		t.Fatalf("apiEnv error = %v, want repository mapping error", err)
+	}
+}
+
+func TestLocalBootstrapTokenUsesEnv(t *testing.T) {
+	resetLocalTestConfig(t)
+	t.Setenv("VECTIS_API_AUTH_BOOTSTRAP_TOKEN", "configured-bootstrap-token")
+
+	token, source, err := localBootstrapToken()
+	if err != nil {
+		t.Fatalf("localBootstrapToken: %v", err)
+	}
+
+	if token != "configured-bootstrap-token" {
+		t.Fatalf("token = %q, want env token", token)
+	}
+
+	if !strings.Contains(source, "VECTIS_API_AUTH_BOOTSTRAP_TOKEN") {
+		t.Fatalf("source = %q, want env source", source)
+	}
+}
+
+func TestLocalBootstrapTokenPersistsGeneratedToken(t *testing.T) {
+	resetLocalTestConfig(t)
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+
+	token, source, err := localBootstrapToken()
+	if err != nil {
+		t.Fatalf("localBootstrapToken: %v", err)
+	}
+
+	if len(token) != localBootstrapBytes*2 {
+		t.Fatalf("token length = %d, want %d", len(token), localBootstrapBytes*2)
+	}
+
+	if !strings.Contains(source, "written to") {
+		t.Fatalf("source = %q, want written source", source)
+	}
+
+	path := filepath.Join(dataHome, "vectis", localBootstrapFile)
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat bootstrap token: %v", err)
+	}
+
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("mode = %v, want 0600", got)
+	}
+
+	next, source, err := localBootstrapToken()
+	if err != nil {
+		t.Fatalf("second localBootstrapToken: %v", err)
+	}
+
+	if next != token {
+		t.Fatalf("second token = %q, want persisted token %q", next, token)
+	}
+
+	if !strings.Contains(source, path) {
+		t.Fatalf("source = %q, want path %q", source, path)
 	}
 }
 

@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -110,6 +112,8 @@ const (
 	localHTTPSTLSAuto             = "auto"
 	localHTTPSTLSOn               = "on"
 	localHTTPSTLSOff              = "off"
+	localBootstrapBytes           = 32
+	localBootstrapFile            = "local-bootstrap-token"
 	localSPIFFETrustDomainDefault = "vectis.internal"
 )
 
@@ -1302,6 +1306,67 @@ func validateLocalCellPorts(cell localCell) error {
 	return nil
 }
 
+func localAuthEnv(logger interfaces.Logger) []string {
+	if !viper.GetBool("auth_enabled") {
+		return []string{"VECTIS_API_AUTH_ENABLED=false"}
+	}
+
+	token, source, err := localBootstrapToken()
+	if err != nil {
+		logger.Fatal("local API auth bootstrap token: %v", err)
+	}
+
+	logger.Info("Setup bootstrap token %s: %s", source, token)
+	return []string{
+		"VECTIS_API_AUTH_ENABLED=true",
+		"VECTIS_API_AUTH_BOOTSTRAP_TOKEN=" + token,
+	}
+}
+
+func localBootstrapToken() (string, string, error) {
+	if token := strings.TrimSpace(os.Getenv("VECTIS_API_AUTH_BOOTSTRAP_TOKEN")); token != "" {
+		return token, "from VECTIS_API_AUTH_BOOTSTRAP_TOKEN", nil
+	}
+
+	path := localBootstrapTokenPath()
+	if data, err := os.ReadFile(path); err == nil {
+		token := strings.TrimSpace(string(data))
+		if token != "" {
+			return token, "at " + path, nil
+		}
+	} else if !os.IsNotExist(err) {
+		return "", "", err
+	}
+
+	token, err := randomHex(localBootstrapBytes)
+	if err != nil {
+		return "", "", err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return "", "", err
+	}
+
+	if err := os.WriteFile(path, []byte(token+"\n"), 0o600); err != nil {
+		return "", "", err
+	}
+
+	return token, "written to " + path, nil
+}
+
+func localBootstrapTokenPath() string {
+	return filepath.Join(utils.DataHome(), "vectis", localBootstrapFile)
+}
+
+func randomHex(nBytes int) (string, error) {
+	b := make([]byte, nBytes)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+
+	return hex.EncodeToString(b), nil
+}
+
 func localHost() string {
 	if host := strings.TrimSpace(viper.GetString("host")); host != "" {
 		return host
@@ -1537,6 +1602,7 @@ func runVectis(cmd *cobra.Command, args []string) {
 
 	tlsEnv = append(tlsEnv, localDatabaseEnv(topology)...)
 	tlsEnv = append(tlsEnv, localAPIEnv...)
+	tlsEnv = append(tlsEnv, localAuthEnv(logger)...)
 	tlsEnv = append(tlsEnv, localCellIngressEndpointEnv(topology.Cells)...)
 	tlsEnv = append(tlsEnv, localCatalogCellDatabaseEnv(topology.Cells)...)
 	tlsEnv = append(tlsEnv, docsEnv()...)
@@ -1814,7 +1880,8 @@ does not start services or perform any other setup.
 	web binary was not built, vectis-local logs a warning and continues without it.
 	Use --host=0.0.0.0 to expose the local API, UI, and docs outside the development
 	machine. Use --ui=false or --docs=false to skip either web server explicitly
-	during local development.
+	during local development. Local API authentication is enabled by default; pass
+	--auth=false to run the local stack without HTTP API auth.
 
 Use --cell repeatedly to add extra local execution cells over the default cell
 from VECTIS_CELL_ID. Extra cells are intended for local multi-cell routing tests
@@ -1880,6 +1947,7 @@ func init() {
 	rootCmd.PersistentFlags().Bool("ui", true, "Start the local UI")
 	rootCmd.PersistentFlags().Int("ui-port", 8089, "HTTP port for the local UI")
 	rootCmd.PersistentFlags().String("ui-dir", "", "Directory containing a UI build to serve instead of embedded UI")
+	rootCmd.PersistentFlags().Bool("auth", true, "Enable local HTTP API authentication")
 	_ = viper.BindPFlag("log_level", rootCmd.PersistentFlags().Lookup("log-level"))
 	_ = viper.BindPFlag("profile", rootCmd.PersistentFlags().Lookup("profile"))
 	_ = viper.BindPFlag("grpc_insecure", rootCmd.PersistentFlags().Lookup("grpc-insecure"))
@@ -1905,6 +1973,7 @@ func init() {
 	_ = viper.BindPFlag("ui_enabled", rootCmd.PersistentFlags().Lookup("ui"))
 	_ = viper.BindPFlag("ui_port", rootCmd.PersistentFlags().Lookup("ui-port"))
 	_ = viper.BindPFlag("ui_dir", rootCmd.PersistentFlags().Lookup("ui-dir"))
+	_ = viper.BindPFlag("auth_enabled", rootCmd.PersistentFlags().Lookup("auth"))
 	_ = viper.BindEnv("grpc_insecure", "VECTIS_LOCAL_GRPC_INSECURE")
 	_ = viper.BindEnv("http_tls", "VECTIS_LOCAL_HTTP_TLS")
 	_ = viper.BindEnv("tls_dir", "VECTIS_LOCAL_TLS_DIR")
@@ -1929,6 +1998,7 @@ func init() {
 	_ = viper.BindEnv("ui_enabled", "VECTIS_LOCAL_UI_ENABLED")
 	_ = viper.BindEnv("ui_port", "VECTIS_LOCAL_UI_PORT")
 	_ = viper.BindEnv("ui_dir", "VECTIS_LOCAL_UI_DIR")
+	_ = viper.BindEnv("auth_enabled", "VECTIS_LOCAL_AUTH_ENABLED")
 	viper.SetEnvPrefix("VECTIS_LOCAL")
 	viper.AutomaticEnv()
 	rootCmd.AddCommand(initCmd, installCertCmd)

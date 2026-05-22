@@ -120,7 +120,7 @@ flowchart TB
 | `vectis-cron` | Reads schedules from the database and enqueues due runs. |
 | `vectis-reconciler` | Finds queued runs that need another queue handoff and enqueues them again. |
 | `vectis-catalog` | Backfills missing status events from observed state, drains global catalog events, optionally fans in pending events from configured cell databases, and applies them to the global run catalog. |
-| `vectis-ui` | Serves the embedded browser UI and proxies browser API calls to `vectis-api`. |
+| `vectis-ui` | Serves the embedded browser UI, manages browser sessions as a backend-for-frontend, and proxies browser API calls to `vectis-api`. |
 | `vectis-docs` | Serves the embedded docs site as static HTTP. |
 | `vectis-local` | Development supervisor that starts the local registry, queue, orchestrator, log, artifact, worker-core, secrets, cell ingress, worker, cron, reconciler, catalog, API, UI, and docs together. |
 | `vectis-cli` | User and operator command-line client for the HTTP API. |

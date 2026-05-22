@@ -87,6 +87,14 @@ The UI listens on:
 http://localhost:8089
 ```
 
+`vectis-local` enables HTTP API authentication by default. On first start with a fresh database, the log prints a local setup bootstrap token and stores it at:
+
+```text
+~/.local/share/vectis/local-bootstrap-token
+```
+
+Open the UI, enter that bootstrap token, and create the first admin account. `vectis-ui` owns first-load browser routing: it sends unauthenticated browsers to setup or login, then serves the React shell for allowed app routes. The browser receives an HttpOnly UI session cookie; `vectis-ui` keeps the API token server-side when proxying browser API calls. Use `./bin/vectis-local --auth=false` only when you intentionally want an unauthenticated local API.
+
 If your browser is on a different machine than the dev shell, start the stack with:
 
 ```sh
@@ -100,6 +108,12 @@ Then open the API, UI, or docs using the dev machine's address. If you open docs
 ## Check Health
 
 In a second terminal, run:
+
+```sh
+./bin/vectis-cli auth login
+```
+
+Then check the local stack:
 
 ```sh
 ./bin/vectis-cli health check

@@ -28,9 +28,9 @@ That matches the API started by `./bin/vectis-local`.
 
 ## Authentication
 
-Local development defaults to API authentication off, so most workflow commands work without a token.
+`vectis-local` enables API authentication by default. If you start it with `--auth=false`, workflow commands can run without a token.
 
-When API authentication is enabled, log in once:
+For the default authenticated local stack, log in once:
 
 ```sh
 ./bin/vectis-cli auth login --username <username>

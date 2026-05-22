@@ -29,6 +29,18 @@ select {
   padding: 32px;
 }
 
+.app-frame {
+  box-sizing: border-box;
+  min-height: 100vh;
+  padding: 32px;
+}
+
+.app-frame--centered {
+  align-items: center;
+  display: grid;
+  justify-items: center;
+}
+
 .welcome-panel {
   max-width: 680px;
 }
@@ -73,9 +85,77 @@ h1 {
   background: #174c60;
 }
 
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
 .button:focus-visible {
   outline: 3px solid #7fc7dd;
   outline-offset: 2px;
+}
+
+.auth-panel,
+.console-panel {
+  background: #ffffff;
+  border: 1px solid #dbe3e8;
+  border-radius: 8px;
+  box-shadow: 0 16px 40px rgb(23 32 38 / 8%);
+  width: min(100%, 520px);
+}
+
+.auth-panel {
+  padding: 28px;
+}
+
+.auth-panel h1,
+.console-panel h1 {
+  font-size: 2rem;
+  line-height: 1.1;
+}
+
+.auth-panel__message,
+.console-panel p {
+  color: #516673;
+  margin: 12px 0 0;
+}
+
+.auth-form {
+  display: grid;
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.auth-form .field {
+  max-width: none;
+}
+
+.auth-form .button {
+  justify-self: start;
+  margin-top: 4px;
+}
+
+.form-error {
+  background: #fbeaea;
+  border: 1px solid #edb7b7;
+  border-radius: 6px;
+  color: #8d2b2b;
+  margin: 0;
+  padding: 10px 12px;
+}
+
+.console-panel {
+  align-items: center;
+  display: flex;
+  gap: 20px;
+  justify-content: space-between;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.console-panel .button {
+  flex: 0 0 auto;
+  margin-top: 0;
 }
 
 .status-badge-row {

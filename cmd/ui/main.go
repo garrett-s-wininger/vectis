@@ -6,8 +6,6 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
-	"net/http/httputil"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -36,17 +34,22 @@ func runUI(cmd *cobra.Command, args []string) {
 	cli.SetLogLevel(logger)
 
 	ui, source := uiHandler(viper.GetString("dir"), logger)
-	api, err := apiProxyHandler(viper.GetString("api-url"))
+	backend, err := newUIBackend(viper.GetString("api-url"))
 	if err != nil {
 		logger.Fatal("Invalid API URL: %v", err)
 	}
 
 	mux := http.NewServeMux()
+	api := backend.apiProxyHandler()
+	mux.Handle("POST /ui/api/setup/complete", http.HandlerFunc(backend.completeSetup))
+	mux.Handle("POST /ui/api/login", http.HandlerFunc(backend.login))
+	mux.Handle("POST /ui/api/logout", http.HandlerFunc(backend.logout))
 	mux.Handle("GET /api/", api)
 	mux.Handle("POST /api/", api)
 	mux.Handle("PUT /api/", api)
+	mux.Handle("PATCH /api/", api)
 	mux.Handle("DELETE /api/", api)
-	mux.Handle("GET /", ui)
+	mux.Handle("GET /", backend.spaGate(ui))
 	mux.Handle("GET /health/live", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok\n"))
@@ -115,19 +118,6 @@ func uiHandlerWithFS(configuredDir string, logger interfaces.Logger, uiFS fs.FS)
 </body>
 </html>`))
 	}), "embedded UI not available"
-}
-
-func apiProxyHandler(rawURL string) (http.Handler, error) {
-	target, err := url.Parse(strings.TrimSpace(rawURL))
-	if err != nil {
-		return nil, err
-	}
-
-	if target.Scheme == "" || target.Host == "" {
-		return nil, fmt.Errorf("must include scheme and host")
-	}
-
-	return httputil.NewSingleHostReverseProxy(target), nil
 }
 
 func spaFileServer(fsys http.FileSystem) http.Handler {
