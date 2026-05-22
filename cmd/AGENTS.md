@@ -23,6 +23,7 @@
 | `cron/` | `vectis-cron` | daemon (scheduler) |
 | `catalog/` | `vectis-catalog` | daemon (cell catalog applier) |
 | `docs/` | `vectis-docs` | daemon (static docs HTTP) |
+| `ui/` | `vectis-ui` | daemon (static UI HTTP + API proxy) |
 | `reconciler/` | `vectis-reconciler` | daemon (recovery) |
 | `local/` | `vectis-local` | daemon (dev supervisor) |
 | `cli/` | `vectis-cli` | one-shot (HTTP client) |
@@ -79,10 +80,11 @@ Dedicated metrics listeners accept the service bind host plus loopback Host head
 | `vectis-cron` | `VECTIS_CRON` | `[cron]`; `--instance-id` labels schedule claims, `--claim-ttl` bounds claim failover |
 | `vectis-catalog` | `VECTIS_CATALOG` | `[catalog]`; `--cell-database-dsn cell=dsn` / `VECTIS_CATALOG_CELL_DATABASE_DSNS` configures catalog fan-in from cell-local DBs; metrics host defaults to localhost |
 | `vectis-docs` | `VECTIS_DOCS` | static docs server; default host `localhost`, default port `8088`, serves embedded docs unless `VECTIS_DOCS_DIR` overrides; `--allowed-host` / `VECTIS_DOCS_ALLOWED_HOSTS` configure accepted Host headers; `--tls-cert-file` / `--tls-key-file` enable HTTPS |
+| `vectis-ui` | `VECTIS_UI` | static UI server; default host `localhost`, default port `8089`, serves embedded UI unless `VECTIS_UI_DIR` overrides; proxies `/api/` to `VECTIS_UI_API_URL` |
 | `vectis-reconciler` | `VECTIS_RECONCILER` | `[reconciler]`; `--redispatch-limit` bounds queued-run repair work per pass; metrics host defaults to localhost |
 | `vectis-log-forwarder` | `VECTIS_LOG_FORWARDER` | `[log_forwarder]` for metrics host/port plus flat viper keys — see flags in [`log-forwarder/main.go`](log-forwarder/main.go) |
 | `vectis-orchestrator` | `VECTIS_ORCHESTRATOR` | `[orchestrator]`; owns in-memory run state shards, exposes the task choreography gRPC service used by workers, `--metrics-host` controls the localhost-default metrics bind host, and uses `config.GRPCServerOptionsForRole(config.ServiceIdentityRoleOrchestrator)` |
-| `vectis-local` | `VECTIS_LOCAL` | orchestrates stack; `VECTIS_LOCAL_PROFILE=ha` starts a local multi-instance HA exercise cell, `VECTIS_LOCAL_HOST` controls local API and docs bind host, `--http-tls` controls local API/docs HTTPS, `init` creates local TLS material, `install-cert` only installs the generated CA, `--cell` / `VECTIS_LOCAL_CELLS` adds extra local execution cells in the simple profile, starts the embedded development-only local `vectis-spiffe` authority when local gRPC TLS is enabled, and exposes `--spiffe-*` / `VECTIS_LOCAL_SPIFFE_*` knobs for local secret resolution smoke tests |
+| `vectis-local` | `VECTIS_LOCAL` | orchestrates stack; `VECTIS_LOCAL_PROFILE=ha` starts a local multi-instance HA exercise cell, `VECTIS_LOCAL_HOST` controls local API, UI, and docs bind host, `--http-tls` controls local API/docs HTTPS, `init` creates local TLS material, `install-cert` only installs the generated CA, `--cell` / `VECTIS_LOCAL_CELLS` adds extra local execution cells in the simple profile, starts the embedded development-only local `vectis-spiffe` authority when local gRPC TLS is enabled, exposes `--config-as-code` / `--source-repository` knobs for local config-as-code, and exposes `--ui-*`, `--spiffe-*`, `VECTIS_LOCAL_UI_*`, and `VECTIS_LOCAL_SPIFFE_*` knobs for local UI and secret resolution smoke tests |
 | `vectis-cli` | *(none)* | [`internal/config`](../internal/config/) + `os.Getenv` — see [`../internal/config/api_auth.go`](../internal/config/api_auth.go); operator helpers include `secrets encryptedfs put` for writing encrypted job-secret envelopes |
 
 Shared TOML sections: [`../internal/config/defaults.toml`](../internal/config/defaults.toml) (`[database]`, `[discovery]`, `[grpc_tls]`, `[service_identity]`, `[metrics_tls]`, …).

@@ -40,9 +40,10 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 | `vectis-spiffe` | Reference SPIFFE Workload + Entry API authority | yes | no |
 | `vectis-cron` | Schedules → queue | yes | yes |
 | `vectis-catalog` | Cell catalog events → global catalog | yes | yes |
+| `vectis-ui` | Static browser UI + API proxy | yes | no |
 | `vectis-docs` | Static docs site | yes | no |
 | `vectis-reconciler` | Stuck runs → queue | yes | yes |
-| `vectis-local` | Dev stack + TLS + docs | yes (supervisor) | yes |
+| `vectis-local` | Dev stack + TLS + UI/docs | yes (supervisor) | yes |
 | `vectis-cli` | HTTP client to API | no (one-shot) | yes |
 
 **Ports, metrics ports, TLS defaults:** [`internal/config/defaults.toml`](internal/config/defaults.toml) and each `cmd/*/main.go`. Layout and env prefixes: [`cmd/AGENTS.md`](cmd/AGENTS.md).

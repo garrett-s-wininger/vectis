@@ -89,6 +89,7 @@ var (
 		{binary: "vectis-catalog", stage: 2, checkHealth: false},
 		{binary: "vectis-api", stage: 2, checkHealth: false},
 		{binary: "vectis-docs", stage: 2, checkHealth: false},
+		{binary: "vectis-ui", stage: 2, checkHealth: false},
 	}
 
 	allStarted     []*exec.Cmd
@@ -224,6 +225,17 @@ func localSimpleProfileServices(logger interfaces.Logger, topology localTopology
 
 			if _, err := supervisor.FindBinary(svc.binary); err != nil {
 				logger.Warn("Docs enabled, but %s was not found; continuing without local docs", svc.binary)
+				continue
+			}
+		}
+
+		if svc.binary == "vectis-ui" {
+			if !viper.GetBool("ui_enabled") {
+				continue
+			}
+
+			if _, err := supervisor.FindBinary(svc.binary); err != nil {
+				logger.Warn("UI enabled, but %s was not found; continuing without local UI", svc.binary)
 				continue
 			}
 		}
@@ -500,6 +512,14 @@ func localHAProfileServices(logger interfaces.Logger, topology localTopology) []
 			logger.Warn("Docs enabled, but vectis-docs was not found; continuing without local docs")
 		} else {
 			services = append(services, serviceStage{binary: "vectis-docs", name: "docs", stage: 2})
+		}
+	}
+
+	if viper.GetBool("ui_enabled") {
+		if _, err := supervisor.FindBinary("vectis-ui"); err != nil {
+			logger.Warn("UI enabled, but vectis-ui was not found; continuing without local UI")
+		} else {
+			services = append(services, serviceStage{binary: "vectis-ui", name: "ui", stage: 2})
 		}
 	}
 
@@ -910,6 +930,24 @@ func docsEnv() []string {
 	return env
 }
 
+func uiEnv() []string {
+	if !viper.GetBool("ui_enabled") {
+		return nil
+	}
+
+	env := []string{
+		"VECTIS_UI_HOST=" + localHost(),
+		fmt.Sprintf("VECTIS_UI_PORT=%d", viper.GetInt("ui_port")),
+		fmt.Sprintf("VECTIS_UI_API_URL=http://%s:%d", localAPIProxyHost(), config.APIEffectiveListenPort()),
+	}
+
+	if dir := strings.TrimSpace(viper.GetString("ui_dir")); dir != "" {
+		env = append(env, "VECTIS_UI_DIR="+dir)
+	}
+
+	return env
+}
+
 func apiEnv() ([]string, error) {
 	env := []string{"VECTIS_API_SERVER_HOST=" + localHost()}
 
@@ -1292,6 +1330,10 @@ func safePathPart(s string) string {
 	return replacer.Replace(s)
 }
 
+func localAPIProxyHost() string {
+	return localConnectHost()
+}
+
 func logLevelEnvVar(binaryName, logLevel string) string {
 	prefix := strings.ToUpper(strings.TrimPrefix(binaryName, "vectis-"))
 	return fmt.Sprintf("VECTIS_%s_LOG_LEVEL=%s", prefix, logLevel)
@@ -1498,7 +1540,7 @@ func runVectis(cmd *cobra.Command, args []string) {
 	tlsEnv = append(tlsEnv, localCellIngressEndpointEnv(topology.Cells)...)
 	tlsEnv = append(tlsEnv, localCatalogCellDatabaseEnv(topology.Cells)...)
 	tlsEnv = append(tlsEnv, docsEnv()...)
-
+	tlsEnv = append(tlsEnv, uiEnv()...)
 	logger.Info("Starting vectis-local profile: %s", profile)
 	logger.Info("API will be available at %s://%s:%d", browserTLS.Scheme, localHost(), config.APIEffectiveListenPort())
 
@@ -1512,6 +1554,10 @@ func runVectis(cmd *cobra.Command, args []string) {
 
 	if hasService(services, "vectis-docs") {
 		logger.Info("Docs will be available at %s://%s:%d", browserTLS.Scheme, localHost(), viper.GetInt("docs_port"))
+	}
+
+	if hasService(services, "vectis-ui") {
+		logger.Info("UI will be available at http://%s:%d", localHost(), viper.GetInt("ui_port"))
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -1739,7 +1785,7 @@ var rootCmd = &cobra.Command{
 
 It starts the registry, queue, log service, artifact service, orchestrator,
 worker-core, secrets service, cell ingress, worker, cron, reconciler, catalog,
-API server, and docs site as child processes.
+API server, UI, and docs site as child processes.
 
 By default it bootstraps a dev CA and TLS certificates (under the XDG data directory)
 and sets VECTIS_GRPC_TLS_* for child processes so internal gRPC and cell ingress
@@ -1763,11 +1809,12 @@ privileges. Use "vectis-local install-cert" with elevated privileges only when
 you want to install that generated CA into the system trust store; that command
 does not start services or perform any other setup.
 
-The docs site is served from the vectis-docs binary on port 8088 by default.
-If vectis-docs was not built, vectis-local logs a warning and continues without
-local docs. Use --host=0.0.0.0 to expose the local API and docs outside the
-development machine, or --docs=false to skip docs explicitly during local
-development.
+	The UI is served from the vectis-ui binary on port 8089 by default. The docs
+	site is served from the vectis-docs binary on port 8088 by default. If either
+	web binary was not built, vectis-local logs a warning and continues without it.
+	Use --host=0.0.0.0 to expose the local API, UI, and docs outside the development
+	machine. Use --ui=false or --docs=false to skip either web server explicitly
+	during local development.
 
 Use --cell repeatedly to add extra local execution cells over the default cell
 from VECTIS_CELL_ID. Extra cells are intended for local multi-cell routing tests
@@ -1830,7 +1877,9 @@ func init() {
 	rootCmd.PersistentFlags().String("spiffe-x509-svid-ttl", "", "Optional X.509-SVID TTL for worker-created registration entries")
 	rootCmd.PersistentFlags().String("spiffe-registration-min-ttl", "", "Optional minimum lifetime for worker-created registration entries")
 	rootCmd.PersistentFlags().String("spiffe-registration-max-ttl", "", "Optional maximum lifetime for worker-created registration entries")
-
+	rootCmd.PersistentFlags().Bool("ui", true, "Start the local UI")
+	rootCmd.PersistentFlags().Int("ui-port", 8089, "HTTP port for the local UI")
+	rootCmd.PersistentFlags().String("ui-dir", "", "Directory containing a UI build to serve instead of embedded UI")
 	_ = viper.BindPFlag("log_level", rootCmd.PersistentFlags().Lookup("log-level"))
 	_ = viper.BindPFlag("profile", rootCmd.PersistentFlags().Lookup("profile"))
 	_ = viper.BindPFlag("grpc_insecure", rootCmd.PersistentFlags().Lookup("grpc-insecure"))
@@ -1853,6 +1902,9 @@ func init() {
 	_ = viper.BindPFlag("spiffe_x509_svid_ttl", rootCmd.PersistentFlags().Lookup("spiffe-x509-svid-ttl"))
 	_ = viper.BindPFlag("spiffe_registration_min_ttl", rootCmd.PersistentFlags().Lookup("spiffe-registration-min-ttl"))
 	_ = viper.BindPFlag("spiffe_registration_max_ttl", rootCmd.PersistentFlags().Lookup("spiffe-registration-max-ttl"))
+	_ = viper.BindPFlag("ui_enabled", rootCmd.PersistentFlags().Lookup("ui"))
+	_ = viper.BindPFlag("ui_port", rootCmd.PersistentFlags().Lookup("ui-port"))
+	_ = viper.BindPFlag("ui_dir", rootCmd.PersistentFlags().Lookup("ui-dir"))
 	_ = viper.BindEnv("grpc_insecure", "VECTIS_LOCAL_GRPC_INSECURE")
 	_ = viper.BindEnv("http_tls", "VECTIS_LOCAL_HTTP_TLS")
 	_ = viper.BindEnv("tls_dir", "VECTIS_LOCAL_TLS_DIR")
@@ -1874,7 +1926,9 @@ func init() {
 	_ = viper.BindEnv("spiffe_x509_svid_ttl", "VECTIS_LOCAL_SPIFFE_X509_SVID_TTL")
 	_ = viper.BindEnv("spiffe_registration_min_ttl", "VECTIS_LOCAL_SPIFFE_REGISTRATION_MIN_TTL")
 	_ = viper.BindEnv("spiffe_registration_max_ttl", "VECTIS_LOCAL_SPIFFE_REGISTRATION_MAX_TTL")
-
+	_ = viper.BindEnv("ui_enabled", "VECTIS_LOCAL_UI_ENABLED")
+	_ = viper.BindEnv("ui_port", "VECTIS_LOCAL_UI_PORT")
+	_ = viper.BindEnv("ui_dir", "VECTIS_LOCAL_UI_DIR")
 	viper.SetEnvPrefix("VECTIS_LOCAL")
 	viper.AutomaticEnv()
 	rootCmd.AddCommand(initCmd, installCertCmd)

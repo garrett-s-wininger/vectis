@@ -12,6 +12,7 @@ artifacts/release-readiness/
 bin/
 build/packer/**/output-*/
 build/packer/**/packer_cache/
+.cache/
 
 # Docusaurus
 website/node_modules/
@@ -22,13 +23,20 @@ website/test-results/
 
 # UI
 ui/.cache/
+ui/.vite/
 ui/coverage/
 ui/dist/
 ui/node_modules/
 ui/storybook-static/
+ui/test-results/
 ui/*.tsbuildinfo
 
 # Generated docs assets embedded into vectis-docs
 cmd/docs/embedded/*
 !cmd/docs/embedded/
 !cmd/docs/embedded/.gitkeep
+
+# Generated UI assets embedded into vectis-ui
+cmd/ui/embedded/*
+!cmd/ui/embedded/
+!cmd/ui/embedded/.gitkeep

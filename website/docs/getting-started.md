@@ -16,6 +16,7 @@ It assumes you are working from a clone of the Vectis repository on a developmen
 | Log service | Stores and streams run output. |
 | Registry | Lets services find one another. |
 | Cron and reconciler | Handle scheduled work and repair missed queue handoffs. |
+| UI | Serves the browser application locally. |
 | Docs | Serves the docs site locally. |
 
 The local stack uses SQLite by default and stores data under your user data directory, usually `~/.local/share/vectis` when `XDG_DATA_HOME` is not set.
@@ -38,10 +39,10 @@ From the repository root:
 mage build
 ```
 
-This creates binaries under `bin/`, including `vectis-local`, `vectis-cli`, and `vectis-docs`.
+This creates binaries under `bin/`, including `vectis-local`, `vectis-cli`, `vectis-ui`, and `vectis-docs`.
 
-The default build also builds this docs site and embeds it into `vectis-docs`.
-If you want a faster development build without local docs, run:
+The default build also builds this docs site and the browser UI, then embeds them into `vectis-docs` and `vectis-ui`.
+If you want a faster development build without local web assets, run:
 
 ```sh
 SKIP_WEB_BUILD=1 mage build
@@ -55,7 +56,7 @@ In one terminal, run:
 ./bin/vectis-local
 ```
 
-Leave this process running. It supervises the local API, cell ingress, queue, worker, worker core, secrets service, log service, artifact service, registry, cron, reconciler, catalog, and docs site.
+Leave this process running. It supervises the local API, cell ingress, queue, worker, worker core, secrets service, log service, artifact service, registry, cron, reconciler, catalog, UI, and docs site.
 
 By default, `vectis-local` creates local TLS material. Internal gRPC uses it immediately. The local API and docs use HTTPS automatically when that generated CA is already trusted by the system store, or when you start with `--http-tls=on`. Otherwise they keep using HTTP and log the trust-store setup command.
 
@@ -80,15 +81,21 @@ and the docs site listens on:
 http://localhost:8088
 ```
 
+The UI listens on:
+
+```text
+http://localhost:8089
+```
+
 If your browser is on a different machine than the dev shell, start the stack with:
 
 ```sh
 ./bin/vectis-local --host 0.0.0.0
 ```
 
-Then open the API or docs using the dev machine's address. If you open docs with a hostname other than `localhost`, set `VECTIS_DOCS_ALLOWED_HOSTS` to that hostname before starting `vectis-local`; docs Host validation stays strict even when the listener binds to `0.0.0.0`. Use this only on a trusted network or behind your own access controls.
+Then open the API, UI, or docs using the dev machine's address. If you open docs with a hostname other than `localhost`, set `VECTIS_DOCS_ALLOWED_HOSTS` to that hostname before starting `vectis-local`; docs Host validation stays strict even when the listener binds to `0.0.0.0`. Use this only on a trusted network or behind your own access controls.
 
-`vectis-local` serves docs from the `vectis-docs` binary. If you built with `SKIP_WEB_BUILD=1`, `vectis-local` logs a warning and continues without the docs site. You can also start the stack with `./bin/vectis-local --docs=false`.
+`vectis-local` serves the UI from the `vectis-ui` binary and docs from the `vectis-docs` binary. If you built with `SKIP_WEB_BUILD=1`, `vectis-local` logs a warning and continues without those web servers. You can also start the stack with `./bin/vectis-local --ui=false` or `./bin/vectis-local --docs=false`.
 
 ## Check Health
 

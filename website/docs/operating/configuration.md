@@ -32,7 +32,7 @@ Shared settings such as cell identity, database DSNs, gRPC TLS, metrics TLS, dis
 | --- | --- |
 | Change API HTTP port | `VECTIS_API_SERVER_PORT` or `vectis-api --port` |
 | Bind API HTTP to another interface | `VECTIS_API_SERVER_HOST=0.0.0.0` or `vectis-api --host 0.0.0.0` |
-| Expose local API and docs from a dev host | `VECTIS_DOCS_ALLOWED_HOSTS=<dev-host> vectis-local --host 0.0.0.0` |
+| Expose local API, UI, and docs from a dev host | `VECTIS_DOCS_ALLOWED_HOSTS=<dev-host> vectis-local --host 0.0.0.0` |
 | Add local execution cells for routing tests | `vectis-local --cell pdx-b --cell sjc-c` |
 | Run a local multi-instance HA exercise cell | `vectis-local --profile ha` or `VECTIS_LOCAL_PROFILE=ha` |
 | Run local config-as-code jobs from a checkout | `vectis-local --config-as-code --source-repository vectis-local=/path/to/repo` |
@@ -141,7 +141,8 @@ Use these prefixes when building service-specific environment variable names.
 | `vectis-catalog` | `VECTIS_CATALOG` | `--interval`, `--batch-size`, `--metrics-host`, `--metrics-port`, `--cell-database-dsn` |
 | `vectis-log-forwarder` | `VECTIS_LOG_FORWARDER` | `--socket`, `--lockfile`, `--spool-dir`, `--metrics-host`, `--metrics-port` |
 | `vectis-docs` | `VECTIS_DOCS` | `--host`, `--port`, `--dir`, `--allowed-host`, `--tls-cert-file`, `--tls-key-file` |
-| `vectis-local` | `VECTIS_LOCAL` | `--profile`, `--host`, `--cell`, `--docs-port`, `--docs-dir`, `--log-level`, `--grpc-insecure`, `--http-tls`, `--tls-dir`, `--config-as-code`, `--source-repository`; local SPIFFE smoke-test flags: `--spiffe-trust-domain`, `--spiffe-dir`, `--spiffe-runtime-dir`, `--spiffe-parent-id`, `--spiffe-selector`; subcommands: `init`, `install-cert` |
+| `vectis-ui` | `VECTIS_UI` | `--host`, `--port`, `--dir`, `--api-url` |
+| `vectis-local` | `VECTIS_LOCAL` | `--profile`, `--host`, `--cell`, `--ui-port`, `--ui-dir`, `--docs-port`, `--docs-dir`, `--log-level`, `--grpc-insecure`, `--http-tls`, `--tls-dir`, `--config-as-code`, `--source-repository`; local SPIFFE smoke-test flags: `--spiffe-trust-domain`, `--spiffe-dir`, `--spiffe-runtime-dir`, `--spiffe-parent-id`, `--spiffe-selector`; subcommands: `init`, `install-cert` |
 | `vectis-cli` | none for normal API commands | `VECTIS_API_TOKEN` for auth; `VECTIS_DATABASE_*` for `database migrate` |
 
 The API client IP trust setting is an intentionally separate API-wide variable: `VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS`.
