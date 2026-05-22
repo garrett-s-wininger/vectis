@@ -13,6 +13,7 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/cell"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
 	"vectis/internal/interfaces/mocks"
@@ -275,6 +276,102 @@ func TestWorkerRunClaimedJob_CompletesWhileOrphaned_MarksSucceeded(t *testing.T)
 
 	if leaseOwner != nil || leaseUntil != nil {
 		t.Fatalf("expected lease fields cleared on success, got lease_owner=%v lease_until=%v", leaseOwner, leaseUntil)
+	}
+}
+
+func TestWorkerRunClaimedJob_WithExecutionEnvelope_TransitionsExecution(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositories(db)
+	runs := repos.Runs()
+
+	ns, err := repos.Namespaces().Create(ctx, "worker-envelope", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-worker-envelope"
+	def := `{"id":"job-worker-envelope","root":{"uses":"builtins/shell","with":{"command":"echo envelope"}}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := runs.CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	dispatch, err := runs.GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	workerID := "worker-test-envelope"
+	queue := mocks.NewMockQueueClient()
+	logClient := mocks.NewMockLogClient()
+	w := &worker{
+		ctx:           context.Background(),
+		runCtx:        context.Background(),
+		logger:        interfaces.NewLogger("worker-test"),
+		workerID:      workerID,
+		renewInterval: time.Hour,
+		queue:         queue,
+		logClient:     logClient,
+		executor:      job.NewExecutor(),
+		store:         runs,
+	}
+
+	deliveryID := "delivery-envelope"
+	commandNodeID := "node-1"
+	command := "echo envelope"
+	action := "builtins/shell"
+	root := &api.Node{
+		Id:   &commandNodeID,
+		Uses: &action,
+		With: map[string]string{"command": command},
+	}
+
+	j := &api.Job{
+		Id:         &jobID,
+		RunId:      &runID,
+		DeliveryId: &deliveryID,
+		Root:       root,
+	}
+
+	req := &api.JobRequest{Job: j}
+	env, err := cell.AttachExecutionEnvelope(req, dispatch, 1)
+	if err != nil {
+		t.Fatalf("attach execution envelope: %v", err)
+	}
+	w.handleJob(req)
+
+	var executionStatus string
+	var segmentStatus string
+	var eventSequence int64
+	var acceptedAt, startedAt, finishedAt sql.NullString
+	if err := db.QueryRowContext(ctx, `
+		SELECT se.status, rs.status, se.accepted_at, se.started_at, se.finished_at, se.event_sequence
+		FROM segment_executions se
+		JOIN run_segments rs ON rs.segment_id = se.segment_id
+		WHERE se.execution_id = ?
+	`, env.ExecutionID).Scan(&executionStatus, &segmentStatus, &acceptedAt, &startedAt, &finishedAt, &eventSequence); err != nil {
+		t.Fatalf("query execution state: %v", err)
+	}
+
+	if executionStatus != dal.ExecutionStatusSucceeded {
+		t.Fatalf("execution status: got %q, want %q", executionStatus, dal.ExecutionStatusSucceeded)
+	}
+
+	if segmentStatus != dal.SegmentStatusSucceeded {
+		t.Fatalf("segment status: got %q, want %q", segmentStatus, dal.SegmentStatusSucceeded)
+	}
+
+	if eventSequence != 3 {
+		t.Fatalf("event sequence: got %d, want 3", eventSequence)
+	}
+
+	if !acceptedAt.Valid || !startedAt.Valid || !finishedAt.Valid {
+		t.Fatalf("expected accepted_at, started_at, and finished_at to be set; got accepted=%v started=%v finished=%v", acceptedAt, startedAt, finishedAt)
 	}
 }
 

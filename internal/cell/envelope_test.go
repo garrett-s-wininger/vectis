@@ -252,6 +252,69 @@ func TestNewExecutionEnvelopeRejectsJobIDMismatch(t *testing.T) {
 	}
 }
 
+func TestExecutionEnvelopeFromRequest(t *testing.T) {
+	env := validExecutionEnvelope()
+	payload, err := EncodeExecutionEnvelope(env)
+	if err != nil {
+		t.Fatalf("EncodeExecutionEnvelope: %v", err)
+	}
+
+	req := &api.JobRequest{
+		Job: env.Job,
+		Metadata: map[string]string{
+			ExecutionEnvelopeMetadataKey: string(payload),
+		},
+	}
+
+	got, ok, err := ExecutionEnvelopeFromRequest(req)
+	if err != nil {
+		t.Fatalf("ExecutionEnvelopeFromRequest: %v", err)
+	}
+
+	if !ok {
+		t.Fatal("expected envelope to be present")
+	}
+
+	if got.ExecutionID != env.ExecutionID {
+		t.Fatalf("execution id: got %q, want %q", got.ExecutionID, env.ExecutionID)
+	}
+}
+
+func TestExecutionEnvelopeFromRequestMissing(t *testing.T) {
+	got, ok, err := ExecutionEnvelopeFromRequest(&api.JobRequest{})
+	if err != nil {
+		t.Fatalf("ExecutionEnvelopeFromRequest: %v", err)
+	}
+
+	if ok || got != nil {
+		t.Fatalf("expected missing envelope, got ok=%v env=%+v", ok, got)
+	}
+}
+
+func TestExecutionEnvelopeFromRequestRejectsRequestMismatch(t *testing.T) {
+	env := validExecutionEnvelope()
+	payload, err := EncodeExecutionEnvelope(env)
+	if err != nil {
+		t.Fatalf("EncodeExecutionEnvelope: %v", err)
+	}
+
+	otherRunID := "run-other"
+	req := &api.JobRequest{
+		Job: &api.Job{
+			Id:    env.Job.Id,
+			RunId: &otherRunID,
+			Root:  env.Job.Root,
+		},
+		Metadata: map[string]string{
+			ExecutionEnvelopeMetadataKey: string(payload),
+		},
+	}
+
+	if _, ok, err := ExecutionEnvelopeFromRequest(req); !ok || err == nil {
+		t.Fatalf("expected present mismatched envelope to return error, ok=%v err=%v", ok, err)
+	}
+}
+
 func validExecutionEnvelope() *ExecutionEnvelope {
 	jobID := "job-1"
 	runID := "run-1"

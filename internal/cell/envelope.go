@@ -90,6 +90,35 @@ func AttachExecutionEnvelope(req *api.JobRequest, dispatch dal.ExecutionDispatch
 	return env, nil
 }
 
+func ExecutionEnvelopeFromRequest(req *api.JobRequest) (*ExecutionEnvelope, bool, error) {
+	if req == nil {
+		return nil, false, nil
+	}
+
+	payload := req.GetMetadata()[ExecutionEnvelopeMetadataKey]
+	if payload == "" {
+		return nil, false, nil
+	}
+
+	env, err := DecodeExecutionEnvelope([]byte(payload))
+	if err != nil {
+		return nil, true, err
+	}
+
+	job := req.GetJob()
+	if job != nil {
+		if env.Job.GetId() != job.GetId() {
+			return nil, true, fmt.Errorf("execution envelope job.id %q does not match request job.id %q", env.Job.GetId(), job.GetId())
+		}
+
+		if env.RunID != job.GetRunId() {
+			return nil, true, fmt.Errorf("execution envelope run_id %q does not match request job.run_id %q", env.RunID, job.GetRunId())
+		}
+	}
+
+	return env, true, nil
+}
+
 func EncodeExecutionEnvelope(env *ExecutionEnvelope) ([]byte, error) {
 	if err := env.Validate(); err != nil {
 		return nil, err

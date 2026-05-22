@@ -22,6 +22,7 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/backoff"
+	"vectis/internal/cell"
 	"vectis/internal/cli"
 	"vectis/internal/config"
 	"vectis/internal/dal"
@@ -424,10 +425,14 @@ func (w *worker) handleJob(jobReq *api.JobRequest) {
 
 	jobID := job.GetId()
 	runID := job.GetRunId()
+	executionEnvelope := w.executionEnvelopeFromRequest(jobReq)
 	consumeCtx, span := observability.Tracer("vectis/worker").Start(jobCtx, "worker.job.consume", trace.WithSpanKind(trace.SpanKindConsumer))
 	span.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
 	span.SetAttributes(attribute.Bool("vectis.run.claimed", runID != ""))
 	span.SetAttributes(attribute.String("run.phase", "consume"))
+	if executionEnvelope != nil {
+		span.SetAttributes(executionEnvelopeAttrs(executionEnvelope)...)
+	}
 	if enqueuedRaw := jobReq.GetMetadata()[observability.JobEnqueueAcceptedUnixNanoKey]; enqueuedRaw != "" {
 		if enqueuedAtUnixNano, err := strconv.ParseInt(enqueuedRaw, 10, 64); err == nil {
 			handoff := float64(time.Now().UnixNano()-enqueuedAtUnixNano) / float64(time.Millisecond)
@@ -457,7 +462,7 @@ func (w *worker) handleJob(jobReq *api.JobRequest) {
 	if runID != "" {
 		span.SetAttributes(attribute.String("vectis.worker.outcome", "consumed"))
 		span.End()
-		outcome := w.runClaimedJob(jobCtx, job, jobID, runID, deliveryID)
+		outcome := w.runClaimedJob(jobCtx, job, jobID, runID, deliveryID, executionEnvelope)
 		if w.metrics != nil && outcome != "" {
 			w.metrics.RecordJobFinished(jobCtx, outcome, w.now().Sub(start))
 		}
@@ -496,11 +501,35 @@ func (w *worker) handleJob(jobReq *api.JobRequest) {
 	}
 }
 
-func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, deliveryID string) string {
+func (w *worker) executionEnvelopeFromRequest(jobReq *api.JobRequest) *cell.ExecutionEnvelope {
+	env, ok, err := cell.ExecutionEnvelopeFromRequest(jobReq)
+	if err != nil {
+		w.logger.Error("Invalid execution envelope metadata: %v", err)
+		return nil
+	}
+
+	if !ok {
+		return nil
+	}
+
+	w.logger.Debug("Decoded execution envelope: run=%s segment=%s execution=%s cell=%s",
+		env.RunID, env.SegmentID, env.ExecutionID, env.CellID)
+	return env
+}
+
+func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, deliveryID string, envelopes ...*cell.ExecutionEnvelope) string {
+	var executionEnvelope *cell.ExecutionEnvelope
+	if len(envelopes) > 0 {
+		executionEnvelope = envelopes[0]
+	}
+
 	ctx, span := observability.Tracer("vectis/worker").Start(ctx, "worker.run.execute", trace.WithSpanKind(trace.SpanKindInternal))
 	span.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
 	span.SetAttributes(observability.DeliveryAttrs(deliveryID)...)
 	span.SetAttributes(attribute.String("run.phase", "execute"))
+	if executionEnvelope != nil {
+		span.SetAttributes(executionEnvelopeAttrs(executionEnvelope)...)
+	}
 	defer span.End()
 
 	leaseUntil := w.now().Add(dal.DefaultLeaseTTL)
@@ -541,6 +570,8 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 		return observability.WorkerOutcomeFailed
 	}
 
+	w.markExecutionAccepted(ctx, executionEnvelope)
+	w.markExecutionStarted(ctx, executionEnvelope)
 	execErr := w.executeWithLeaseRenewal(ctx, runID, claimToken, job)
 	if execErr != nil {
 		if errors.Is(execErr, errRunCancelled) {
@@ -550,6 +581,7 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 				w.logger.Error("Failed to mark run %s cancelled: %v", runID, err)
 				span.RecordError(err)
 			}
+			w.markExecutionTerminal(ctx, executionEnvelope, dal.ExecutionStatusAborted)
 
 			return observability.WorkerOutcomeAborted
 		}
@@ -563,6 +595,7 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 			w.logger.Error("Failed to mark run %s failed: %v", runID, err)
 			span.RecordError(err)
 		}
+		w.markExecutionTerminal(ctx, executionEnvelope, dal.ExecutionStatusFailed)
 
 		return observability.WorkerOutcomeFailed
 	}
@@ -573,10 +606,71 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 		span.SetStatus(otelcodes.Error, "mark run succeeded")
 		return observability.WorkerOutcomeFailed
 	}
+	w.markExecutionTerminal(ctx, executionEnvelope, dal.ExecutionStatusSucceeded)
 
 	span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeSuccess))
 	w.logger.Info("Job completed successfully: %s", jobID)
 	return observability.WorkerOutcomeSuccess
+}
+
+func executionEnvelopeAttrs(env *cell.ExecutionEnvelope) []attribute.KeyValue {
+	return []attribute.KeyValue{
+		attribute.String("vectis.cell.id", env.CellID),
+		attribute.String("vectis.segment.id", env.SegmentID),
+		attribute.String("vectis.execution.id", env.ExecutionID),
+		attribute.Int("vectis.definition.version", env.DefinitionVersion),
+		attribute.String("vectis.definition.hash", env.DefinitionHash),
+	}
+}
+
+func (w *worker) markExecutionAccepted(ctx context.Context, env *cell.ExecutionEnvelope) {
+	if env == nil {
+		return
+	}
+
+	if err := w.store.MarkExecutionAccepted(w.runCtx, env.ExecutionID); err != nil {
+		w.noteDBError(err)
+		w.logger.Warn("MarkExecutionAccepted execution %s failed: %v", env.ExecutionID, err)
+		trace.SpanFromContext(ctx).RecordError(err)
+		return
+	}
+
+	w.noteDBRecovered()
+	trace.SpanFromContext(ctx).AddEvent("execution.accepted", trace.WithAttributes(executionEnvelopeAttrs(env)...))
+}
+
+func (w *worker) markExecutionStarted(ctx context.Context, env *cell.ExecutionEnvelope) {
+	if env == nil {
+		return
+	}
+
+	if err := w.store.MarkExecutionStarted(w.runCtx, env.ExecutionID); err != nil {
+		w.noteDBError(err)
+		w.logger.Warn("MarkExecutionStarted execution %s failed: %v", env.ExecutionID, err)
+		trace.SpanFromContext(ctx).RecordError(err)
+		return
+	}
+
+	w.noteDBRecovered()
+	trace.SpanFromContext(ctx).AddEvent("execution.started", trace.WithAttributes(executionEnvelopeAttrs(env)...))
+}
+
+func (w *worker) markExecutionTerminal(ctx context.Context, env *cell.ExecutionEnvelope, status string) {
+	if env == nil {
+		return
+	}
+
+	if err := w.store.MarkExecutionTerminal(w.runCtx, env.ExecutionID, status); err != nil {
+		w.noteDBError(err)
+		w.logger.Warn("MarkExecutionTerminal execution %s status %s failed: %v", env.ExecutionID, status, err)
+		trace.SpanFromContext(ctx).RecordError(err)
+		return
+	}
+
+	w.noteDBRecovered()
+	trace.SpanFromContext(ctx).AddEvent("execution.terminal", trace.WithAttributes(
+		append(executionEnvelopeAttrs(env), attribute.String("vectis.execution.status", status))...,
+	))
 }
 
 func (w *worker) ackDelivery(deliveryID string) error {
