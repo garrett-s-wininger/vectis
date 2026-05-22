@@ -14,7 +14,6 @@ import (
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
 	"vectis/internal/observability"
-	"vectis/internal/queueclient"
 	"vectis/internal/runpolicy"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -223,7 +222,7 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 	}
 
 	s.recordDispatchEvent(ctx, runID, dal.DispatchEventAttempt, nil)
-	if err := queueclient.EnqueueWithRetry(ctx, s.queueClient, req, s.logger); err != nil {
+	if err := cell.SubmitToQueue(ctx, s.queueClient, req, s.logger); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "enqueue")
 		msg := err.Error()

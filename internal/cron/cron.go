@@ -218,7 +218,7 @@ func (s *CronService) TriggerJob(ctx context.Context, jobID string) error {
 	}
 
 	s.recordDispatchEvent(ctx, runID, dal.DispatchEventAttempt, nil)
-	if err := queueclient.EnqueueWithRetry(ctx, qc, req, s.logger); err != nil {
+	if err := cell.SubmitToQueue(ctx, qc, req, s.logger); err != nil {
 		msg := err.Error()
 		s.recordDispatchEvent(ctx, runID, dal.DispatchEventFailure, &msg)
 		return err
