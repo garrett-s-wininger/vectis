@@ -208,16 +208,16 @@ type RunForCancel struct {
 }
 
 type RunStatusUpdate struct {
-	RunID       string
-	Status      string
-	ClaimToken  string
-	FailureCode string
-	Reason      string
+	RunID       string `json:"run_id"`
+	Status      string `json:"status"`
+	ClaimToken  string `json:"claim_token,omitempty"`
+	FailureCode string `json:"failure_code,omitempty"`
+	Reason      string `json:"reason,omitempty"`
 }
 
 type ExecutionStatusUpdate struct {
-	ExecutionID string
-	Status      string
+	ExecutionID string `json:"execution_id"`
+	Status      string `json:"status"`
 }
 
 type RunCatalogUpdater interface {
