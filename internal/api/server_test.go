@@ -363,6 +363,7 @@ func TestAPIServer_PostCellCatalogEvent_RecordAndReplay(t *testing.T) {
 		ID      int64 `json:"id"`
 		Created bool  `json:"created"`
 	}
+
 	if err := json.Unmarshal(dupRec.Body.Bytes(), &dupResp); err != nil {
 		t.Fatalf("decode duplicate response: %v", err)
 	}
@@ -387,6 +388,67 @@ func TestAPIServer_PostCellCatalogEvent_InvalidEvent(t *testing.T) {
 	server.PostCellCatalogEvent(rec, req)
 
 	assertAPIError(t, rec, http.StatusBadRequest, "invalid_catalog_event")
+}
+
+func TestAPIServer_GetCatalogStatus(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	ctx := context.Background()
+	events := dal.NewSQLRepositories(db).CatalogEvents()
+
+	first, _, err := events.Record(ctx, "iad-a", "event-1", "run.status", []byte(`{"run_id":"run-1","status":"running"}`))
+	if err != nil {
+		t.Fatalf("record first event: %v", err)
+	}
+
+	second, _, err := events.Record(ctx, "iad-a", "event-2", "execution.status", []byte(`{"execution_id":"execution-1","status":"accepted"}`))
+	if err != nil {
+		t.Fatalf("record second event: %v", err)
+	}
+
+	if err := events.MarkApplied(ctx, first.ID); err != nil {
+		t.Fatalf("mark first event applied: %v", err)
+	}
+
+	if err := events.MarkFailed(ctx, second.ID, "bad payload"); err != nil {
+		t.Fatalf("mark second event failed: %v", err)
+	}
+
+	if _, _, err := events.Record(ctx, "iad-b", "event-3", "run.status", []byte(`{"run_id":"run-2","status":"queued"}`)); err != nil {
+		t.Fatalf("record third event: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/catalog/status", http.NoBody)
+	server.GetCatalogStatus(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Pending          int64  `json:"pending"`
+		Applied          int64  `json:"applied"`
+		Failed           int64  `json:"failed"`
+		Total            int64  `json:"total"`
+		LastReceivedUnix *int64 `json:"last_received_unix,omitempty"`
+		LastAppliedUnix  *int64 `json:"last_applied_unix,omitempty"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if resp.Pending != 1 || resp.Applied != 1 || resp.Failed != 1 || resp.Total != 3 {
+		t.Fatalf("unexpected catalog status: %+v", resp)
+	}
+
+	if resp.LastReceivedUnix == nil {
+		t.Fatal("expected last_received_unix")
+	}
+
+	if resp.LastAppliedUnix == nil {
+		t.Fatal("expected last_applied_unix")
+	}
 }
 
 func TestAPIServer_CreateJob_InvalidJSON(t *testing.T) {

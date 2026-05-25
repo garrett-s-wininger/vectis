@@ -125,6 +125,36 @@ func (r *SQLCatalogEventsRepository) MarkFailed(ctx context.Context, id int64, m
 	return requireOneRow(res, "catalog event", id)
 }
 
+func (r *SQLCatalogEventsRepository) Summary(ctx context.Context) (CatalogEventSummary, error) {
+	row := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT
+			COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0),
+			COUNT(*),
+			MAX(received_at),
+			MAX(applied_at)
+		FROM cell_catalog_events
+	`), CatalogEventStatusPending, CatalogEventStatusApplied, CatalogEventStatusFailed)
+
+	var out CatalogEventSummary
+	var lastReceived sql.NullInt64
+	var lastApplied sql.NullInt64
+	if err := row.Scan(&out.Pending, &out.Applied, &out.Failed, &out.Total, &lastReceived, &lastApplied); err != nil {
+		return CatalogEventSummary{}, normalizeSQLError(err)
+	}
+
+	if lastReceived.Valid {
+		out.LastReceivedUnix = &lastReceived.Int64
+	}
+
+	if lastApplied.Valid {
+		out.LastAppliedUnix = &lastApplied.Int64
+	}
+
+	return out, nil
+}
+
 func (r *SQLCatalogEventsRepository) getByKey(ctx context.Context, sourceCell, eventKey string) (CatalogEventRecord, error) {
 	row := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
 		SELECT id, source_cell, event_key, event_type, payload_json, status, attempts, last_error, received_at, applied_at, updated_at

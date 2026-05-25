@@ -695,6 +695,23 @@ func TestCatalogEventsRepository_RecordListAndMark(t *testing.T) {
 	if secondStatus != dal.CatalogEventStatusFailed || secondAttempts != 1 || !secondError.Valid || secondError.String != "apply failed" {
 		t.Fatalf("unexpected failed event state: status=%q attempts=%d error=%+v", secondStatus, secondAttempts, secondError)
 	}
+
+	summary, err := events.Summary(ctx)
+	if err != nil {
+		t.Fatalf("summary: %v", err)
+	}
+
+	if summary.Pending != 0 || summary.Applied != 1 || summary.Failed != 1 || summary.Total != 2 {
+		t.Fatalf("unexpected summary counts: %+v", summary)
+	}
+
+	if summary.LastReceivedUnix == nil || *summary.LastReceivedUnix < first.ReceivedAt || *summary.LastReceivedUnix < second.ReceivedAt {
+		t.Fatalf("unexpected last received timestamp: %+v", summary.LastReceivedUnix)
+	}
+
+	if summary.LastAppliedUnix == nil {
+		t.Fatalf("expected last applied timestamp, got %+v", summary.LastAppliedUnix)
+	}
 }
 
 func TestCatalogEventsRepository_RejectsInvalidRecords(t *testing.T) {

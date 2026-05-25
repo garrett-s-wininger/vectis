@@ -174,6 +174,15 @@ type CatalogEventRecord struct {
 	UpdatedAt  int64
 }
 
+type CatalogEventSummary struct {
+	Pending          int64
+	Applied          int64
+	Failed           int64
+	Total            int64
+	LastReceivedUnix *int64
+	LastAppliedUnix  *int64
+}
+
 type IdempotencyRepository interface {
 	Reserve(ctx context.Context, scope, key, requestHash string) (record IdempotencyRecord, created bool, err error)
 	Complete(ctx context.Context, scope, key, responseJSON string) error
@@ -191,6 +200,7 @@ type CatalogEventsRepository interface {
 	ListPending(ctx context.Context, limit int) ([]CatalogEventRecord, error)
 	MarkApplied(ctx context.Context, id int64) error
 	MarkFailed(ctx context.Context, id int64, message string) error
+	Summary(ctx context.Context) (CatalogEventSummary, error)
 }
 
 type CronSchedule struct {

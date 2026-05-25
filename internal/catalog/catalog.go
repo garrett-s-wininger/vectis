@@ -20,9 +20,15 @@ type InboxProcessor interface {
 	ProcessPending(ctx context.Context, limit int) (cell.CatalogInboxProcessResult, error)
 }
 
+type Metrics interface {
+	RecordProcessResult(ctx context.Context, result cell.CatalogInboxProcessResult)
+	RecordProcessError(ctx context.Context)
+}
+
 type Service struct {
 	logger    interfaces.Logger
 	processor InboxProcessor
+	metrics   Metrics
 }
 
 func NewService(logger interfaces.Logger, events dal.CatalogEventsRepository, updater dal.RunCatalogUpdater) *Service {
@@ -36,6 +42,10 @@ func NewServiceWithProcessor(logger interfaces.Logger, processor InboxProcessor)
 	}
 }
 
+func (s *Service) SetMetrics(metrics Metrics) {
+	s.metrics = metrics
+}
+
 func (s *Service) Process(ctx context.Context, batchSize int) (cell.CatalogInboxProcessResult, error) {
 	if s.processor == nil {
 		return cell.CatalogInboxProcessResult{}, errors.New("catalog inbox processor is not set")
@@ -43,7 +53,15 @@ func (s *Service) Process(ctx context.Context, batchSize int) (cell.CatalogInbox
 
 	result, err := s.processor.ProcessPending(ctx, normalizeBatchSize(batchSize))
 	if err != nil {
+		if s.metrics != nil {
+			s.metrics.RecordProcessError(ctx)
+		}
+
 		return result, fmt.Errorf("process catalog inbox: %w", err)
+	}
+
+	if s.metrics != nil {
+		s.metrics.RecordProcessResult(ctx, result)
 	}
 
 	if result.Read > 0 && s.logger != nil {

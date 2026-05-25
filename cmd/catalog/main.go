@@ -52,6 +52,11 @@ func runCatalog(cmd *cobra.Command, args []string) {
 
 	repos := dal.NewSQLRepositories(db)
 	svc := catalog.NewService(logger, repos.CatalogEvents(), repos.Runs())
+	catalogMetrics, err := observability.NewCatalogMetrics()
+	if err != nil {
+		logger.Fatal("Failed to initialize catalog metrics: %v", err)
+	}
+	svc.SetMetrics(catalogMetrics)
 
 	metricsAddr := fmt.Sprintf(":%d", viper.GetInt("metrics_port"))
 	metricsSrv, err := cli.StartMetricsHTTPServer(metricsHandler, metricsAddr, "Catalog", logger)

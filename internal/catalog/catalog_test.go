@@ -41,12 +41,39 @@ func (p *recordingProcessor) calledLimits() []int {
 	return append([]int(nil), p.limits...)
 }
 
+type recordingMetrics struct {
+	mu      sync.Mutex
+	results []cell.CatalogInboxProcessResult
+	errors  int
+}
+
+func (m *recordingMetrics) RecordProcessResult(ctx context.Context, result cell.CatalogInboxProcessResult) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.results = append(m.results, result)
+}
+
+func (m *recordingMetrics) RecordProcessError(ctx context.Context) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.errors++
+}
+
+func (m *recordingMetrics) snapshot() ([]cell.CatalogInboxProcessResult, int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return append([]cell.CatalogInboxProcessResult(nil), m.results...), m.errors
+}
+
 func TestServiceProcessPassesBatchSize(t *testing.T) {
 	processor := &recordingProcessor{
 		result: cell.CatalogInboxProcessResult{Read: 3, Applied: 2, Failed: 1},
 	}
 	logger := mocks.NewMockLogger()
+	metrics := &recordingMetrics{}
 	svc := NewServiceWithProcessor(logger, processor)
+	svc.SetMetrics(metrics)
 
 	result, err := svc.Process(context.Background(), 42)
 	if err != nil {
@@ -64,6 +91,11 @@ func TestServiceProcessPassesBatchSize(t *testing.T) {
 
 	if len(logger.GetInfoCalls()) == 0 {
 		t.Fatal("expected non-empty processing result to be logged")
+	}
+
+	results, errors := metrics.snapshot()
+	if len(results) != 1 || results[0] != result || errors != 0 {
+		t.Fatalf("unexpected metrics: results=%+v errors=%d", results, errors)
 	}
 }
 
@@ -113,7 +145,9 @@ func TestServiceRunLogsProcessorErrorsAndContinues(t *testing.T) {
 		onCalled: cancel,
 	}
 	logger := mocks.NewMockLogger()
+	metrics := &recordingMetrics{}
 	svc := NewServiceWithProcessor(logger, processor)
+	svc.SetMetrics(metrics)
 
 	if err := svc.Run(ctx, time.Hour, 5); err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -122,5 +156,10 @@ func TestServiceRunLogsProcessorErrorsAndContinues(t *testing.T) {
 	errors := logger.GetErrorCalls()
 	if len(errors) != 1 {
 		t.Fatalf("expected one logged processor error, got %v", errors)
+	}
+
+	results, metricErrors := metrics.snapshot()
+	if len(results) != 0 || metricErrors != 1 {
+		t.Fatalf("unexpected metrics: results=%+v errors=%d", results, metricErrors)
 	}
 }

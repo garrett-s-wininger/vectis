@@ -10,7 +10,7 @@ func apiHTTPExcludedFromAuxLogging(r *http.Request) bool {
 		return true
 	case "/api/v1/db/pool-stats", "/api/v1/queue/backlog", "/api/v1/reconciler/stuck-runs":
 		return true
-	case "/api/v1/log/reachable", "/api/v1/audit/flush-failures", "/api/v1/cron/status":
+	case "/api/v1/log/reachable", "/api/v1/audit/flush-failures", "/api/v1/cron/status", "/api/v1/catalog/status":
 		return true
 	default:
 		return false
