@@ -24,10 +24,11 @@ const statusOptions = Object.entries(statusLabels).map(([value, label]) => ({
 }));
 
 type RunsPageProps = {
+  namespacePath: string;
   runs: RunListItem[];
 };
 
-export function RunsPage({ runs }: RunsPageProps) {
+export function RunsPage({ namespacePath, runs }: RunsPageProps) {
   const [status, setStatus] = useState<RunFilter>("all");
   const filteredRuns = useMemo(() => {
     if (status === "all") {
@@ -40,7 +41,7 @@ export function RunsPage({ runs }: RunsPageProps) {
   return (
     <>
       <PageHeader
-        description="Recent queued, running, and completed work."
+        description={`Recent queued, running, and completed work under ${namespacePath}.`}
         eyebrow="Runs"
         title="Runs"
       />

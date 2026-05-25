@@ -7,18 +7,25 @@ import { AppShell } from "./components/AppShell";
 import { AppState } from "./components/AppState";
 import { FormError } from "./components/FormError";
 import { FormField } from "./components/FormField";
+import { NamespacePicker } from "./components/NamespacePicker";
 import {
+  canDeleteMockNamespace,
+  createMockNamespace,
   createMockUser,
+  deleteMockNamespace,
   deleteMockUser,
   loadMockConsoleData,
+  scopeMockConsoleData,
   triggerMockRun,
   updateMockUserStatus,
   type MockConsoleData,
   type MockUserStatus,
+  type NewMockNamespace,
   type NewMockUser
 } from "./mocks/consoleData";
 import { DashboardPage } from "./pages/DashboardPage";
 import { JobsPage } from "./pages/JobsPage";
+import { NamespacesPage } from "./pages/NamespacesPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { RunsPage } from "./pages/RunsPage";
 import { UsersPage } from "./pages/UsersPage";
@@ -61,6 +68,7 @@ export function App() {
   const [formError, setFormError] = useState("");
   const [consoleData, setConsoleData] = useState<MockConsoleData | null>(null);
   const [consoleError, setConsoleError] = useState("");
+  const [selectedNamespacePath, setSelectedNamespacePath] = useState("/");
 
   useEffect(() => {
     const onPopState = () => setRoute(routeFromPath(window.location.pathname));
@@ -150,6 +158,22 @@ export function App() {
     updateConsoleData((data) => deleteMockUser(data, userID));
   }
 
+  function handleCreateNamespace(input: NewMockNamespace) {
+    updateConsoleData((data) => createMockNamespace(data, input));
+  }
+
+  function handleDeleteNamespace(namespaceID: number) {
+    const namespacePath = consoleData?.namespaces.find(
+      (namespace) => namespace.id === namespaceID
+    )?.path;
+
+    updateConsoleData((data) => deleteMockNamespace(data, namespaceID));
+
+    if (namespacePath === selectedNamespacePath) {
+      setSelectedNamespacePath("/");
+    }
+  }
+
   function handleTriggerRun(jobID: string) {
     updateConsoleData((data) => triggerMockRun(data, jobID));
   }
@@ -208,7 +232,18 @@ export function App() {
   return (
     <AppShell
       activeHref={route.activeHref}
-      actions={<Button onClick={signOut}>Sign out</Button>}
+      actions={
+        <>
+          {consoleData ? (
+            <NamespacePicker
+              namespaces={consoleData.namespaces}
+              onChange={setSelectedNamespacePath}
+              value={selectedNamespacePath}
+            />
+          ) : null}
+          <Button onClick={signOut}>Sign out</Button>
+        </>
+      }
       brand="Vectis"
       navItems={primaryNavItems}
       onNavigate={handleShellNavigate}
@@ -216,7 +251,10 @@ export function App() {
       <RouteContent
         consoleData={consoleData}
         consoleError={consoleError}
+        namespacePath={selectedNamespacePath}
+        onCreateNamespace={handleCreateNamespace}
         onCreateUser={handleCreateUser}
+        onDeleteNamespace={handleDeleteNamespace}
         onDeleteUser={handleDeleteUser}
         onTriggerRun={handleTriggerRun}
         onUpdateUserStatus={handleUpdateUserStatus}
@@ -341,7 +379,10 @@ function LoginPage({
 function RouteContent({
   consoleData,
   consoleError,
+  namespacePath,
+  onCreateNamespace,
   onCreateUser,
+  onDeleteNamespace,
   onDeleteUser,
   onTriggerRun,
   onUpdateUserStatus,
@@ -349,7 +390,10 @@ function RouteContent({
 }: {
   consoleData: MockConsoleData | null;
   consoleError: string;
+  namespacePath: string;
+  onCreateNamespace: (input: NewMockNamespace) => void;
   onCreateUser: (input: NewMockUser) => void;
+  onDeleteNamespace: (namespaceID: number) => void;
   onDeleteUser: (userID: string) => void;
   onTriggerRun: (jobID: string) => void;
   onUpdateUserStatus: (userID: string, status: MockUserStatus) => void;
@@ -369,14 +413,20 @@ function RouteContent({
     return <AppState title="Loading console" tone="loading" />;
   }
 
+  const scopedConsoleData = scopeMockConsoleData(consoleData, namespacePath);
+
   switch (route.kind) {
     case "dashboard":
-      return <DashboardPage data={consoleData} />;
+      return <DashboardPage data={scopedConsoleData} namespacePath={namespacePath} />;
     case "runs":
-      return <RunsPage runs={consoleData.runs} />;
+      return <RunsPage namespacePath={namespacePath} runs={scopedConsoleData.runs} />;
     case "jobs":
       return (
-        <JobsPage jobs={consoleData.jobs} onTriggerRun={onTriggerRun} />
+        <JobsPage
+          jobs={scopedConsoleData.jobs}
+          namespacePath={namespacePath}
+          onTriggerRun={onTriggerRun}
+        />
       );
     case "users":
       return (
@@ -385,6 +435,17 @@ function RouteContent({
           onDeleteUser={onDeleteUser}
           onUpdateUserStatus={onUpdateUserStatus}
           users={consoleData.users}
+        />
+      );
+    case "namespaces":
+      return (
+        <NamespacesPage
+          canDeleteNamespace={(namespaceID) =>
+            canDeleteMockNamespace(consoleData, namespaceID)
+          }
+          namespaces={consoleData.namespaces}
+          onCreateNamespace={onCreateNamespace}
+          onDeleteNamespace={onDeleteNamespace}
         />
       );
     default:

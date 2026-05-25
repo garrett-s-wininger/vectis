@@ -591,11 +591,40 @@ h1 {
 .console-shell__actions {
   align-items: center;
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: end;
 }
 
 .console-shell__actions .button {
   margin-top: 0;
+}
+
+.namespace-picker {
+  align-items: center;
+  color: #516673;
+  display: flex;
+  gap: 8px;
+}
+
+.namespace-picker span {
+  font-size: 0.8125rem;
+  font-weight: 800;
+}
+
+.namespace-picker select {
+  background: #ffffff;
+  border: 1px solid #cfd9df;
+  border-radius: 6px;
+  color: #172026;
+  min-height: 36px;
+  min-width: 160px;
+  padding: 0 10px;
+}
+
+.namespace-picker select:focus-visible {
+  outline: 3px solid #7fc7dd;
+  outline-offset: 2px;
 }
 
 .console-shell__main {
@@ -637,8 +666,17 @@ h1 {
     flex-wrap: wrap;
   }
 
+  .console-shell__actions {
+    justify-content: start;
+  }
+
   .console-shell__main {
     padding: 24px 16px;
+  }
+
+  .namespace-picker {
+    align-items: start;
+    flex-direction: column;
   }
 
   .dashboard-layout {

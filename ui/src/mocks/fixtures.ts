@@ -47,6 +47,7 @@ export const activeRuns: RunListItem[] = [
     runNumber: 1240,
     commit: "8f12c4a",
     duration: "4m 12s",
+    namespacePath: "/team-a",
     status: "running"
   },
   {
@@ -55,6 +56,7 @@ export const activeRuns: RunListItem[] = [
     runNumber: 1239,
     commit: "1d9a0b3",
     duration: "1m 48s",
+    namespacePath: "/team-a/edge",
     status: "queued"
   },
   {
@@ -63,6 +65,7 @@ export const activeRuns: RunListItem[] = [
     runNumber: 1238,
     commit: "54fd901",
     duration: "7m 31s",
+    namespacePath: "/prod",
     status: "succeeded"
   }
 ];

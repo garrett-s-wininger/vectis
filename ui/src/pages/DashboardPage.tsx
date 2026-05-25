@@ -8,15 +8,16 @@ import { SignalList } from "../components/SignalList";
 
 type DashboardPageProps = {
   data: MockConsoleData;
+  namespacePath: string;
 };
 
-export function DashboardPage({ data }: DashboardPageProps) {
+export function DashboardPage({ data, namespacePath }: DashboardPageProps) {
   const metrics = dashboardMetricsFor(data);
 
   return (
     <>
       <PageHeader
-        description="Live activity and instance health for this Vectis local."
+        description={`Live activity and instance health for ${namespacePath}.`}
         eyebrow="Console"
         title="Dashboard"
       />

@@ -11,10 +11,22 @@ export type MockJob = {
   name: string;
   repository: string;
   branch: string;
+  namespacePath: string;
   schedule: string;
   nextRun: string;
   lastRunStatus: RunStatus;
   status: MockJobStatus;
+};
+
+export type MockNamespaceRole = "Admin" | "Operator" | "Viewer";
+
+export type MockNamespace = {
+  id: number;
+  name: string;
+  parentID?: number;
+  path: string;
+  breakInheritance: boolean;
+  role: MockNamespaceRole;
 };
 
 export type MockUserRole = "Admin" | "Operator" | "Viewer";
@@ -34,8 +46,14 @@ export type NewMockUser = {
   role: MockUserRole;
 };
 
+export type NewMockNamespace = {
+  name: string;
+  parentID: number;
+};
+
 export type MockConsoleData = {
   jobs: MockJob[];
+  namespaces: MockNamespace[];
   progress: ProgressFixture[];
   runs: RunListItem[];
   signals: SignalItem[];
@@ -48,6 +66,7 @@ const jobs: MockJob[] = [
     name: "api-test-suite",
     repository: "github.com/vectis/api",
     branch: "main",
+    namespacePath: "/team-a",
     schedule: "On push",
     nextRun: "Waiting for push",
     lastRunStatus: "running",
@@ -58,6 +77,7 @@ const jobs: MockJob[] = [
     name: "docs-publish",
     repository: "github.com/vectis/docs",
     branch: "main",
+    namespacePath: "/team-a/edge",
     schedule: "Hourly",
     nextRun: "18m",
     lastRunStatus: "queued",
@@ -68,10 +88,45 @@ const jobs: MockJob[] = [
     name: "worker-image",
     repository: "github.com/vectis/worker",
     branch: "release",
+    namespacePath: "/prod",
     schedule: "Nightly",
     nextRun: "7h 12m",
     lastRunStatus: "succeeded",
     status: "paused"
+  }
+];
+
+const namespaces: MockNamespace[] = [
+  {
+    id: 1,
+    name: "/",
+    path: "/",
+    breakInheritance: false,
+    role: "Admin"
+  },
+  {
+    id: 2,
+    name: "team-a",
+    parentID: 1,
+    path: "/team-a",
+    breakInheritance: false,
+    role: "Admin"
+  },
+  {
+    id: 3,
+    name: "edge",
+    parentID: 2,
+    path: "/team-a/edge",
+    breakInheritance: true,
+    role: "Operator"
+  },
+  {
+    id: 4,
+    name: "prod",
+    parentID: 1,
+    path: "/prod",
+    breakInheritance: false,
+    role: "Viewer"
   }
 ];
 
@@ -105,6 +160,7 @@ const users: MockUser[] = [
 export async function loadMockConsoleData(): Promise<MockConsoleData> {
   return cloneData({
     jobs,
+    namespaces,
     progress: workloadProgress,
     runs: activeRuns,
     signals: instanceSignals,
@@ -117,7 +173,6 @@ export function dashboardMetricsFor(data: MockConsoleData): DashboardMetric[] {
   const queued = data.runs.filter((run) => run.status === "queued").length;
   const succeeded = data.runs.filter((run) => run.status === "succeeded").length;
   const failed = data.runs.filter((run) => run.status === "failed").length;
-  const activeUsers = data.users.filter((user) => user.status === "active").length;
 
   return [
     {
@@ -142,12 +197,103 @@ export function dashboardMetricsFor(data: MockConsoleData): DashboardMetric[] {
       tone: failed > 0 ? "attention" : "neutral"
     },
     {
-      id: "users",
-      label: "Active users",
-      value: String(activeUsers),
-      detail: `${data.users.length} total accounts`
+      id: "jobs",
+      label: "Jobs",
+      value: String(data.jobs.length),
+      detail: "In selected namespace"
     }
   ];
+}
+
+export function scopeMockConsoleData(
+  data: MockConsoleData,
+  namespacePath: string
+): MockConsoleData {
+  return {
+    ...data,
+    jobs: data.jobs.filter((job) =>
+      namespaceContains(namespacePath, job.namespacePath)
+    ),
+    runs: data.runs.filter(
+      (run) =>
+        run.namespacePath && namespaceContains(namespacePath, run.namespacePath)
+    )
+  };
+}
+
+export function createMockNamespace(
+  data: MockConsoleData,
+  input: NewMockNamespace
+): MockConsoleData {
+  const name = input.name.trim();
+  if (!name) {
+    return data;
+  }
+
+  const parent = data.namespaces.find(
+    (namespace) => namespace.id === input.parentID
+  );
+
+  if (!parent) {
+    return data;
+  }
+
+  const path = parent.path === "/" ? `/${name}` : `${parent.path}/${name}`;
+  if (data.namespaces.some((namespace) => namespace.path === path)) {
+    return data;
+  }
+
+  const id = Math.max(0, ...data.namespaces.map((namespace) => namespace.id)) + 1;
+  const namespace: MockNamespace = {
+    id,
+    name,
+    parentID: parent.id,
+    path,
+    breakInheritance: false,
+    role: parent.role
+  };
+
+  return {
+    ...data,
+    namespaces: [...data.namespaces, namespace].sort((a, b) =>
+      a.path.localeCompare(b.path)
+    )
+  };
+}
+
+export function deleteMockNamespace(
+  data: MockConsoleData,
+  namespaceID: number
+): MockConsoleData {
+  if (!canDeleteMockNamespace(data, namespaceID)) {
+    return data;
+  }
+
+  return {
+    ...data,
+    namespaces: data.namespaces.filter(
+      (namespace) => namespace.id !== namespaceID
+    )
+  };
+}
+
+export function canDeleteMockNamespace(
+  data: MockConsoleData,
+  namespaceID: number
+) {
+  if (namespaceID === 1) {
+    return false;
+  }
+
+  return (
+    !data.namespaces.some((namespace) => namespace.parentID === namespaceID) &&
+    !data.jobs.some((job) => {
+      const namespace = data.namespaces.find(
+        (candidate) => candidate.id === namespaceID
+      );
+      return namespace ? job.namespacePath === namespace.path : false;
+    })
+  );
 }
 
 export function createMockUser(
@@ -214,6 +360,7 @@ export function triggerMockRun(
     runNumber: nextRunNumber,
     commit: "manual",
     duration: "Queued",
+    namespacePath: job.namespacePath,
     status: "queued"
   };
 
@@ -231,9 +378,18 @@ export function triggerMockRun(
 function cloneData(data: MockConsoleData): MockConsoleData {
   return {
     jobs: data.jobs.map((job) => ({ ...job })),
+    namespaces: data.namespaces.map((namespace) => ({ ...namespace })),
     progress: data.progress.map((progress) => ({ ...progress })),
     runs: data.runs.map((run) => ({ ...run })),
     signals: data.signals.map((signal) => ({ ...signal })),
     users: data.users.map((user) => ({ ...user }))
   };
+}
+
+function namespaceContains(parentPath: string, childPath: string) {
+  return (
+    parentPath === "/" ||
+    childPath === parentPath ||
+    childPath.startsWith(`${parentPath}/`)
+  );
 }

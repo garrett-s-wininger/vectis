@@ -192,7 +192,47 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("link", { name: "Runs" }));
 
     expect(await screen.findByText("#1241")).toBeInTheDocument();
-    expect(screen.getByText("manual · Queued")).toBeInTheDocument();
+    expect(screen.getByText(/manual · Queued/)).toBeInTheDocument();
+  });
+
+  it("scopes jobs by selected namespace", async () => {
+    window.history.replaceState(null, "", "/jobs");
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Jobs" });
+
+    fireEvent.change(screen.getByLabelText("Namespace"), {
+      target: { value: "/prod" }
+    });
+
+    expect(screen.getByText("worker-image")).toBeInTheDocument();
+    expect(screen.queryByText("api-test-suite")).not.toBeInTheDocument();
+  });
+
+  it("creates and deletes an empty namespace in the mock", async () => {
+    window.history.replaceState(null, "", "/namespaces");
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Namespaces" });
+
+    expect(screen.getByRole("button", { name: "Delete /" })).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "sandbox" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create namespace" }));
+
+    expect(
+      await screen.findByRole("button", { name: "Delete /sandbox" })
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete /sandbox" }));
+
+    expect(
+      screen.queryByRole("button", { name: "Delete /sandbox" })
+    ).not.toBeInTheDocument();
   });
 
   it("logs out and returns to login", async () => {

@@ -7,6 +7,7 @@ describe("routes", () => {
     ["/runs/123", "runs", "/runs"],
     ["/jobs", "jobs", "/jobs"],
     ["/users/1", "users", "/users"],
+    ["/namespaces", "namespaces", "/namespaces"],
     ["/setup", "setup", ""],
     ["/login", "login", ""],
     ["/missing", "notFound", ""]

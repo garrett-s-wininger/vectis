@@ -6,10 +6,11 @@ import type { MockJob } from "../mocks/consoleData";
 
 type JobsPageProps = {
   jobs: MockJob[];
+  namespacePath: string;
   onTriggerRun: (jobID: string) => void;
 };
 
-export function JobsPage({ jobs, onTriggerRun }: JobsPageProps) {
+export function JobsPage({ jobs, namespacePath, onTriggerRun }: JobsPageProps) {
   const columns: DataTableColumn<MockJob>[] = [
     {
       header: "Job",
@@ -19,6 +20,10 @@ export function JobsPage({ jobs, onTriggerRun }: JobsPageProps) {
           <small>{job.repository}</small>
         </div>
       )
+    },
+    {
+      header: "Namespace",
+      cell: (job) => job.namespacePath
     },
     {
       header: "Branch",
@@ -64,7 +69,7 @@ export function JobsPage({ jobs, onTriggerRun }: JobsPageProps) {
   return (
     <>
       <PageHeader
-        description="Configured job definitions for this instance."
+        description={`Configured job definitions under ${namespacePath}.`}
         eyebrow="Jobs"
         title="Jobs"
       />

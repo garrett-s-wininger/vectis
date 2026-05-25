@@ -5,6 +5,7 @@ export type AppRouteKind =
   | "runs"
   | "jobs"
   | "users"
+  | "namespaces"
   | "setup"
   | "login"
   | "notFound";
@@ -19,7 +20,8 @@ export const primaryNavItems: NavItem[] = [
   { href: "/", label: "Dashboard" },
   { href: "/runs", label: "Runs" },
   { href: "/jobs", label: "Jobs" },
-  { href: "/users", label: "Users" }
+  { href: "/users", label: "Users" },
+  { href: "/namespaces", label: "Namespaces" }
 ];
 
 export function routeFromPath(pathname: string): AppRoute {
@@ -45,6 +47,10 @@ export function routeFromPath(pathname: string): AppRoute {
 
   if (pathname === "/users" || pathname.startsWith("/users/")) {
     return { kind: "users", activeHref: "/users", pathname };
+  }
+
+  if (pathname === "/namespaces" || pathname.startsWith("/namespaces/")) {
+    return { kind: "namespaces", activeHref: "/namespaces", pathname };
   }
 
   return { kind: "notFound", activeHref: "", pathname };

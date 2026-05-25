@@ -6,6 +6,7 @@ export type RunListItem = {
   runNumber: number;
   commit: string;
   duration: string;
+  namespacePath?: string;
   status: RunStatus;
 };
 
@@ -29,6 +30,7 @@ export function RunList({ title, runs }: RunListProps) {
                   {run.jobName} <span>#{run.runNumber}</span>
                 </strong>
                 <small>
+                  {run.namespacePath ? `${run.namespacePath} · ` : null}
                   {run.commit} · {run.duration}
                 </small>
               </div>

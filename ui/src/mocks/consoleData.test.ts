@@ -1,8 +1,12 @@
 import {
+  canDeleteMockNamespace,
+  createMockNamespace,
   createMockUser,
   dashboardMetricsFor,
+  deleteMockNamespace,
   deleteMockUser,
   loadMockConsoleData,
+  scopeMockConsoleData,
   triggerMockRun,
   updateMockUserStatus
 } from "./consoleData";
@@ -15,6 +19,12 @@ describe("mock console data", () => {
     first.users.pop();
 
     expect(second.users).toHaveLength(3);
+    expect(second.namespaces.map((namespace) => namespace.path)).toEqual([
+      "/",
+      "/team-a",
+      "/team-a/edge",
+      "/prod"
+    ]);
   });
 
   it("derives dashboard metrics", async () => {
@@ -23,9 +33,54 @@ describe("mock console data", () => {
     expect(dashboardMetricsFor(data)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: "running", value: "1" }),
-        expect.objectContaining({ id: "users", value: "2" })
+        expect.objectContaining({ id: "jobs", value: "3" })
       ])
     );
+  });
+
+  it("scopes jobs and runs by namespace hierarchy", async () => {
+    const data = await loadMockConsoleData();
+    const scoped = scopeMockConsoleData(data, "/team-a");
+
+    expect(scoped.jobs.map((job) => job.name)).toEqual([
+      "api-test-suite",
+      "docs-publish"
+    ]);
+    expect(scoped.runs.map((run) => run.jobName)).toEqual([
+      "api-test-suite",
+      "docs-publish"
+    ]);
+  });
+
+  it("creates and deletes empty namespaces", async () => {
+    const data = await loadMockConsoleData();
+    const withNamespace = createMockNamespace(data, {
+      name: "sandbox",
+      parentID: 1
+    });
+    const sandbox = withNamespace.namespaces.find(
+      (namespace) => namespace.path === "/sandbox"
+    );
+
+    expect(sandbox).toMatchObject({
+      name: "sandbox",
+      parentID: 1,
+      role: "Admin"
+    });
+    expect(canDeleteMockNamespace(withNamespace, sandbox?.id ?? 0)).toBe(true);
+    expect(
+      deleteMockNamespace(withNamespace, sandbox?.id ?? 0).namespaces.find(
+        (namespace) => namespace.path === "/sandbox"
+      )
+    ).toBeUndefined();
+  });
+
+  it("blocks deleting root, parent, and occupied namespaces", async () => {
+    const data = await loadMockConsoleData();
+
+    expect(canDeleteMockNamespace(data, 1)).toBe(false);
+    expect(canDeleteMockNamespace(data, 2)).toBe(false);
+    expect(canDeleteMockNamespace(data, 4)).toBe(false);
   });
 
   it("creates, updates, and deletes mock users", async () => {
@@ -53,6 +108,7 @@ describe("mock console data", () => {
 
     expect(next.runs[0]).toMatchObject({
       jobName: "docs-publish",
+      namespacePath: "/team-a/edge",
       runNumber: 1241,
       status: "queued"
     });
