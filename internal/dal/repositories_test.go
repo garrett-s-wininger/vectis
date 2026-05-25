@@ -493,10 +493,100 @@ func TestRunsRepository_ExecutionTransitions(t *testing.T) {
 	}
 }
 
+func TestRunCatalogUpdater_AppliesRunAndExecutionStatusUpdates(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-catalog-updates", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-catalog-updates"
+	def := `{"id":"job-catalog-updates","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	var updater dal.RunCatalogUpdater = repos.Runs()
+	if err := updater.ApplyExecutionStatusUpdate(ctx, dal.ExecutionStatusUpdate{
+		ExecutionID: dispatch.ExecutionID,
+		Status:      dal.ExecutionStatusAccepted,
+	}); err != nil {
+		t.Fatalf("apply accepted execution update: %v", err)
+	}
+	assertExecutionAndSegmentStatus(t, db, dispatch.ExecutionID, dispatch.SegmentID, dal.ExecutionStatusAccepted, dal.SegmentStatusAccepted, 1)
+
+	if err := updater.ApplyExecutionStatusUpdate(ctx, dal.ExecutionStatusUpdate{
+		ExecutionID: dispatch.ExecutionID,
+		Status:      dal.ExecutionStatusRunning,
+	}); err != nil {
+		t.Fatalf("apply running execution update: %v", err)
+	}
+	assertExecutionAndSegmentStatus(t, db, dispatch.ExecutionID, dispatch.SegmentID, dal.ExecutionStatusRunning, dal.SegmentStatusRunning, 2)
+
+	if err := updater.ApplyExecutionStatusUpdate(ctx, dal.ExecutionStatusUpdate{
+		ExecutionID: dispatch.ExecutionID,
+		Status:      dal.ExecutionStatusFailed,
+	}); err != nil {
+		t.Fatalf("apply failed execution update: %v", err)
+	}
+	assertExecutionAndSegmentStatus(t, db, dispatch.ExecutionID, dispatch.SegmentID, dal.ExecutionStatusFailed, dal.SegmentStatusFailed, 3)
+
+	if err := updater.ApplyRunStatusUpdate(ctx, dal.RunStatusUpdate{
+		RunID:  runID,
+		Status: dal.RunStatusRunning,
+	}); err != nil {
+		t.Fatalf("apply running run update: %v", err)
+	}
+
+	if err := updater.ApplyRunStatusUpdate(ctx, dal.RunStatusUpdate{
+		RunID:       runID,
+		Status:      dal.RunStatusFailed,
+		FailureCode: dal.FailureCodeExecution,
+		Reason:      "cell reported failure",
+	}); err != nil {
+		t.Fatalf("apply failed run update: %v", err)
+	}
+
+	run, err := repos.Runs().GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+
+	if run.Status != dal.RunStatusFailed {
+		t.Fatalf("run status: got %q, want %q", run.Status, dal.RunStatusFailed)
+	}
+
+	if run.FailureCode == nil || *run.FailureCode != dal.FailureCodeExecution {
+		t.Fatalf("failure code: got %+v, want %q", run.FailureCode, dal.FailureCodeExecution)
+	}
+
+	if run.FailureReason == nil || *run.FailureReason != "cell reported failure" {
+		t.Fatalf("failure reason: got %+v", run.FailureReason)
+	}
+}
+
 func TestRunsRepository_ExecutionTransitionsRejectInvalidTargets(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)
 	ctx := context.Background()
+
+	runID := "run-invalid-update"
+	if err := repos.Runs().ApplyRunStatusUpdate(ctx, dal.RunStatusUpdate{RunID: runID, Status: "waiting"}); !dal.IsConflict(err) {
+		t.Fatalf("expected unsupported run status to return ErrConflict, got %v", err)
+	}
 
 	if err := repos.Runs().MarkExecutionAccepted(ctx, "missing-execution"); !dal.IsNotFound(err) {
 		t.Fatalf("expected missing execution to return ErrNotFound, got %v", err)
@@ -504,6 +594,10 @@ func TestRunsRepository_ExecutionTransitionsRejectInvalidTargets(t *testing.T) {
 
 	if err := repos.Runs().MarkExecutionTerminal(ctx, "missing-execution", dal.ExecutionStatusRunning); !dal.IsConflict(err) {
 		t.Fatalf("expected non-terminal status to return ErrConflict, got %v", err)
+	}
+
+	if err := repos.Runs().ApplyExecutionStatusUpdate(ctx, dal.ExecutionStatusUpdate{ExecutionID: "execution-invalid-update", Status: dal.ExecutionStatusPending}); !dal.IsConflict(err) {
+		t.Fatalf("expected unsupported execution status to return ErrConflict, got %v", err)
 	}
 }
 

@@ -19,6 +19,48 @@ func (r *SQLRunsRepository) currentCellID() string {
 	return normalizeCellID(r.cellID)
 }
 
+func (r *SQLRunsRepository) ApplyRunStatusUpdate(ctx context.Context, update RunStatusUpdate) error {
+	runID := strings.TrimSpace(update.RunID)
+	if runID == "" {
+		return fmt.Errorf("%w: run_id is required", ErrNotFound)
+	}
+
+	switch update.Status {
+	case RunStatusRunning:
+		return r.MarkRunRunning(ctx, runID)
+	case RunStatusSucceeded:
+		return r.MarkRunSucceeded(ctx, runID, update.ClaimToken)
+	case RunStatusFailed:
+		return r.MarkRunFailed(ctx, runID, update.ClaimToken, update.FailureCode, update.Reason)
+	case RunStatusCancelled:
+		return r.MarkRunCancelled(ctx, runID, update.ClaimToken, update.Reason)
+	case RunStatusAborted:
+		return r.MarkRunAborted(ctx, runID, update.ClaimToken, update.Reason)
+	case RunStatusOrphaned:
+		return r.MarkRunOrphaned(ctx, runID, update.ClaimToken, update.Reason)
+	default:
+		return fmt.Errorf("%w: unsupported run status %s", ErrConflict, update.Status)
+	}
+}
+
+func (r *SQLRunsRepository) ApplyExecutionStatusUpdate(ctx context.Context, update ExecutionStatusUpdate) error {
+	executionID := strings.TrimSpace(update.ExecutionID)
+	if executionID == "" {
+		return fmt.Errorf("%w: execution_id is required", ErrNotFound)
+	}
+
+	switch update.Status {
+	case ExecutionStatusAccepted:
+		return r.MarkExecutionAccepted(ctx, executionID)
+	case ExecutionStatusRunning:
+		return r.MarkExecutionStarted(ctx, executionID)
+	case ExecutionStatusSucceeded, ExecutionStatusFailed, ExecutionStatusCancelled, ExecutionStatusAborted:
+		return r.MarkExecutionTerminal(ctx, executionID, update.Status)
+	default:
+		return fmt.Errorf("%w: unsupported execution status %s", ErrConflict, update.Status)
+	}
+}
+
 func (r *SQLRunsRepository) MarkRunRunning(ctx context.Context, runID string) error {
 	_, err := r.db.ExecContext(ctx,
 		rebindQueryForPgx("UPDATE job_runs SET status = ?, orphan_reason = '', failure_code = '', started_at = COALESCE(started_at, CURRENT_TIMESTAMP) WHERE run_id = ?"),

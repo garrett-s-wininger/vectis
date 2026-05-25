@@ -182,7 +182,27 @@ type RunForCancel struct {
 	CancelToken string
 }
 
+type RunStatusUpdate struct {
+	RunID       string
+	Status      string
+	ClaimToken  string
+	FailureCode string
+	Reason      string
+}
+
+type ExecutionStatusUpdate struct {
+	ExecutionID string
+	Status      string
+}
+
+type RunCatalogUpdater interface {
+	ApplyRunStatusUpdate(ctx context.Context, update RunStatusUpdate) error
+	ApplyExecutionStatusUpdate(ctx context.Context, update ExecutionStatusUpdate) error
+}
+
 type RunsRepository interface {
+	RunCatalogUpdater
+
 	MarkRunRunning(ctx context.Context, runID string) error
 	MarkRunSucceeded(ctx context.Context, runID, claimToken string) error
 	MarkRunFailed(ctx context.Context, runID, claimToken, failureCode, reason string) error

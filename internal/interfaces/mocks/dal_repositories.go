@@ -248,6 +248,8 @@ type MockRunsRepository struct {
 	LastListAfterIndex    *int
 	LastListSince         *time.Time
 	LastListOwningCell    string
+	LastRunStatusUpdate   dal.RunStatusUpdate
+	LastExecStatusUpdate  dal.ExecutionStatusUpdate
 }
 
 func NewMockRunsRepository() *MockRunsRepository {
@@ -261,6 +263,46 @@ func NewMockRunsRepository() *MockRunsRepository {
 
 func (m *MockRunsRepository) MarkRunRunning(ctx context.Context, runID string) error {
 	return m.MarkRunRunningErr
+}
+
+func (m *MockRunsRepository) ApplyRunStatusUpdate(ctx context.Context, update dal.RunStatusUpdate) error {
+	m.mu.Lock()
+	m.LastRunStatusUpdate = update
+	m.mu.Unlock()
+
+	switch update.Status {
+	case dal.RunStatusRunning:
+		return m.MarkRunRunning(ctx, update.RunID)
+	case dal.RunStatusSucceeded:
+		return m.MarkRunSucceeded(ctx, update.RunID, update.ClaimToken)
+	case dal.RunStatusFailed:
+		return m.MarkRunFailed(ctx, update.RunID, update.ClaimToken, update.FailureCode, update.Reason)
+	case dal.RunStatusCancelled:
+		return m.MarkRunCancelled(ctx, update.RunID, update.ClaimToken, update.Reason)
+	case dal.RunStatusAborted:
+		return m.MarkRunAborted(ctx, update.RunID, update.ClaimToken, update.Reason)
+	case dal.RunStatusOrphaned:
+		return m.MarkRunOrphaned(ctx, update.RunID, update.ClaimToken, update.Reason)
+	default:
+		return fmt.Errorf("%w: unsupported run status %s", dal.ErrConflict, update.Status)
+	}
+}
+
+func (m *MockRunsRepository) ApplyExecutionStatusUpdate(ctx context.Context, update dal.ExecutionStatusUpdate) error {
+	m.mu.Lock()
+	m.LastExecStatusUpdate = update
+	m.mu.Unlock()
+
+	switch update.Status {
+	case dal.ExecutionStatusAccepted:
+		return m.MarkExecutionAccepted(ctx, update.ExecutionID)
+	case dal.ExecutionStatusRunning:
+		return m.MarkExecutionStarted(ctx, update.ExecutionID)
+	case dal.ExecutionStatusSucceeded, dal.ExecutionStatusFailed, dal.ExecutionStatusCancelled, dal.ExecutionStatusAborted:
+		return m.MarkExecutionTerminal(ctx, update.ExecutionID, update.Status)
+	default:
+		return fmt.Errorf("%w: unsupported execution status %s", dal.ErrConflict, update.Status)
+	}
 }
 
 func (m *MockRunsRepository) MarkRunSucceeded(ctx context.Context, runID, claimToken string) error {
