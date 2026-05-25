@@ -247,6 +247,7 @@ type MockRunsRepository struct {
 	LastListJobID         string
 	LastListAfterIndex    *int
 	LastListSince         *time.Time
+	LastListOwningCell    string
 }
 
 func NewMockRunsRepository() *MockRunsRepository {
@@ -402,7 +403,7 @@ func (m *MockRunsRepository) CreateRunsInCells(ctx context.Context, jobID string
 	return created, nil
 }
 
-func (m *MockRunsRepository) ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, cursor int64, limit int) ([]dal.RunRecord, int64, error) {
+func (m *MockRunsRepository) ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, owningCell string, cursor int64, limit int) ([]dal.RunRecord, int64, error) {
 	if m.ListByJobErr != nil {
 		return nil, 0, m.ListByJobErr
 	}
@@ -422,6 +423,7 @@ func (m *MockRunsRepository) ListByJob(ctx context.Context, jobID string, afterI
 	} else {
 		m.LastListSince = nil
 	}
+	m.LastListOwningCell = owningCell
 	m.mu.Unlock()
 
 	return append([]dal.RunRecord(nil), m.ListByJobResults...), 0, nil
@@ -493,6 +495,12 @@ func (m *MockRunsRepository) SnapshotLastListSinceTime() *time.Time {
 	}
 	v := *m.LastListSince
 	return &v
+}
+
+func (m *MockRunsRepository) SnapshotLastListOwningCell() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.LastListOwningCell
 }
 
 func (m *MockRunsRepository) ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]dal.QueuedRun, error) {

@@ -568,7 +568,7 @@ func lookupDefinitionHashTx(ctx context.Context, tx *sql.Tx, jobID string, versi
 	return "", nil
 }
 
-func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, cursor int64, limit int) ([]RunRecord, int64, error) {
+func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, owningCell string, cursor int64, limit int) ([]RunRecord, int64, error) {
 	query := "SELECT id, run_id, run_index, status, orphan_reason, failure_code, CAST(created_at AS TEXT), CAST(started_at AS TEXT), CAST(finished_at AS TEXT), failure_reason, definition_version, definition_hash, owning_cell FROM job_runs WHERE job_id = ?"
 	args := []any{jobID}
 
@@ -580,6 +580,11 @@ func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, afterIn
 	if since != nil {
 		query += " AND created_at >= ?"
 		args = append(args, since.UTC().Format("2006-01-02 15:04:05"))
+	}
+
+	if owningCell = strings.TrimSpace(owningCell); owningCell != "" {
+		query += " AND owning_cell = ?"
+		args = append(args, owningCell)
 	}
 
 	if cursor > 0 {

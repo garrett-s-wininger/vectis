@@ -1525,6 +1525,11 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 		afterIndex = &parsedAfterIndex
 	}
 
+	owningCell, ok := parseRunOwningCellFilter(w, r)
+	if !ok {
+		return
+	}
+
 	params := parsePageParams(r)
 
 	ctx, cancel := s.handlerDBCtx(r)
@@ -1556,7 +1561,7 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	runRows, nextCursor, err := s.runs.ListByJob(ctx, jobID, afterIndex, since, params.Cursor, params.Limit)
+	runRows, nextCursor, err := s.runs.ListByJob(ctx, jobID, afterIndex, since, owningCell, params.Cursor, params.Limit)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
@@ -1578,6 +1583,7 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 		StartedAt     *string `json:"started_at,omitempty"`
 		FinishedAt    *string `json:"finished_at,omitempty"`
 		FailureReason *string `json:"failure_reason,omitempty"`
+		OwningCell    string  `json:"owning_cell,omitempty"`
 	}
 
 	var runs []runRow
@@ -1592,6 +1598,7 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 			StartedAt:     rec.StartedAt,
 			FinishedAt:    rec.FinishedAt,
 			FailureReason: rec.FailureReason,
+			OwningCell:    rec.OwningCell,
 		})
 	}
 
@@ -1609,6 +1616,21 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, _ = w.Write(buf.Bytes())
+}
+
+func parseRunOwningCellFilter(w http.ResponseWriter, r *http.Request) (string, bool) {
+	cellID := strings.TrimSpace(r.URL.Query().Get("cell_id"))
+	owningCell := strings.TrimSpace(r.URL.Query().Get("owning_cell"))
+	if cellID != "" && owningCell != "" && cellID != owningCell {
+		writeAPIError(w, http.StatusBadRequest, "invalid_cell_id", "cell_id and owning_cell must match when both are provided", nil)
+		return "", false
+	}
+
+	if owningCell != "" {
+		return owningCell, true
+	}
+
+	return cellID, true
 }
 
 func parseRunSince(raw string) (time.Time, error) {

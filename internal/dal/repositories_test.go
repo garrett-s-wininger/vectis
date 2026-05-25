@@ -358,6 +358,24 @@ func TestRunsRepository_CreateRunsInCells_FanoutTargetsExecutionCells(t *testing
 			t.Fatalf("owning cell for %s: got %q, want %q", createdRun.RunID, dispatch.OwningCell, createdRun.TargetCellID)
 		}
 	}
+
+	iadRuns, _, err := repos.Runs().ListByJob(ctx, jobID, nil, nil, "iad-a", 0, 100)
+	if err != nil {
+		t.Fatalf("list iad-a runs: %v", err)
+	}
+
+	if len(iadRuns) != 1 || iadRuns[0].RunID != created[0].RunID || iadRuns[0].OwningCell != "iad-a" {
+		t.Fatalf("expected only iad-a run in list, got %+v", iadRuns)
+	}
+
+	pdxRuns, _, err := repos.Runs().ListByJob(ctx, jobID, nil, nil, "pdx-b", 0, 100)
+	if err != nil {
+		t.Fatalf("list pdx-b runs: %v", err)
+	}
+
+	if len(pdxRuns) != 1 || pdxRuns[0].RunID != created[1].RunID || pdxRuns[0].OwningCell != "pdx-b" {
+		t.Fatalf("expected only pdx-b run in list, got %+v", pdxRuns)
+	}
 }
 
 func TestSQLRepositories_CreateDefinitionAndRunInCell_TargetsExecutionCell(t *testing.T) {
@@ -594,7 +612,7 @@ func TestRunsRepository_CreateRunAndListSinceOrdered(t *testing.T) {
 		t.Fatalf("unexpected run indexes: idx1=%d idx2=%d", idx1, idx2)
 	}
 
-	all, _, err := runs.ListByJob(ctx, "job-order", nil, nil, 0, 100)
+	all, _, err := runs.ListByJob(ctx, "job-order", nil, nil, "", 0, 100)
 	if err != nil {
 		t.Fatalf("list all: %v", err)
 	}
@@ -608,7 +626,7 @@ func TestRunsRepository_CreateRunAndListSinceOrdered(t *testing.T) {
 	}
 
 	since := 1
-	after, _, err := runs.ListByJob(ctx, "job-order", &since, nil, 0, 100)
+	after, _, err := runs.ListByJob(ctx, "job-order", &since, nil, "", 0, 100)
 	if err != nil {
 		t.Fatalf("list since: %v", err)
 	}
@@ -626,7 +644,7 @@ func TestRunsRepository_CreateRunAndListSinceOrdered(t *testing.T) {
 	}
 
 	sinceTime := time.Date(2026, 5, 16, 0, 0, 0, 0, time.UTC)
-	recent, _, err := runs.ListByJob(ctx, "job-order", nil, &sinceTime, 0, 100)
+	recent, _, err := runs.ListByJob(ctx, "job-order", nil, &sinceTime, "", 0, 100)
 	if err != nil {
 		t.Fatalf("list since time: %v", err)
 	}
@@ -1310,7 +1328,7 @@ func TestRunsRepository_CreateRunWithExplicitRunIndex(t *testing.T) {
 		t.Fatalf("expected run_index %d, got %d", idx, outIdx)
 	}
 
-	all, _, err := runs.ListByJob(ctx, "job-explicit", nil, nil, 0, 100)
+	all, _, err := runs.ListByJob(ctx, "job-explicit", nil, nil, "", 0, 100)
 	if err != nil {
 		t.Fatalf("list runs: %v", err)
 	}

@@ -206,9 +206,10 @@ func TestAPIServer_GetJobRuns_OrchestrationUsesRunsRepository(t *testing.T) {
 	jobs.Definitions["job-1"] = `{"id":"job-1"}`
 	runs := mocks.NewMockRunsRepository()
 	runs.ListByJobResults = []dal.RunRecord{{
-		RunID:    "run-2",
-		RunIndex: 2,
-		Status:   "failed",
+		RunID:      "run-2",
+		RunIndex:   2,
+		Status:     "failed",
+		OwningCell: "pdx-b",
 	}}
 
 	server := api.NewAPIServerWithRepositories(mocks.NewMockLogger(), jobs, runs, mocks.StubEphemeralRunStarter{})
@@ -242,6 +243,31 @@ func TestAPIServer_GetJobRuns_OrchestrationUsesRunsRepository(t *testing.T) {
 
 	if body[0]["run_id"] != "run-2" {
 		t.Fatalf("expected run_id run-2, got %v", body[0]["run_id"])
+	}
+
+	if body[0]["owning_cell"] != "pdx-b" {
+		t.Fatalf("expected owning_cell pdx-b, got %v", body[0]["owning_cell"])
+	}
+}
+
+func TestAPIServer_GetJobRuns_OrchestrationParsesOwningCell(t *testing.T) {
+	jobs := mocks.NewMockJobsRepository()
+	jobs.Definitions["job-1"] = `{"id":"job-1"}`
+	runs := mocks.NewMockRunsRepository()
+
+	server := api.NewAPIServerWithRepositories(mocks.NewMockLogger(), jobs, runs, mocks.StubEphemeralRunStarter{})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-1/runs?cell_id=pdx-b", nil)
+	req.SetPathValue("id", "job-1")
+	rec := httptest.NewRecorder()
+
+	server.GetJobRuns(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	if got := runs.SnapshotLastListOwningCell(); got != "pdx-b" {
+		t.Fatalf("expected owning cell pdx-b, got %q", got)
 	}
 }
 
