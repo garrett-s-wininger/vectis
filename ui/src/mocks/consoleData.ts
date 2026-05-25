@@ -4,6 +4,23 @@ import type { SignalItem } from "../components/SignalList";
 import type { DashboardMetric, ProgressFixture } from "./fixtures";
 import { activeRuns, instanceSignals, workloadProgress } from "./fixtures";
 
+export type MockCellStatus = "healthy" | "degraded" | "offline";
+
+export type MockCell = {
+  id: string;
+  name: string;
+  endpoint: string;
+  region: string;
+  status: MockCellStatus;
+  detail: string;
+  activeRuns: number;
+  queueDepth: number;
+  workersOnline: number;
+  workersTotal: number;
+  components: SignalItem[];
+  progress: ProgressFixture[];
+};
+
 export type MockJobStatus = "enabled" | "paused";
 
 export type MockJob = {
@@ -52,6 +69,7 @@ export type NewMockNamespace = {
 };
 
 export type MockConsoleData = {
+  cells: MockCell[];
   jobs: MockJob[];
   namespaces: MockNamespace[];
   progress: ProgressFixture[];
@@ -93,6 +111,83 @@ const jobs: MockJob[] = [
     nextRun: "7h 12m",
     lastRunStatus: "succeeded",
     status: "paused"
+  }
+];
+
+const cells: MockCell[] = [
+  {
+    id: "cell-local",
+    name: "local",
+    endpoint: "https://local.vectis.internal",
+    region: "dev",
+    status: "healthy",
+    detail: "All local control-plane components reporting",
+    activeRuns: 4,
+    queueDepth: 2,
+    workersOnline: 4,
+    workersTotal: 4,
+    components: [
+      { id: "local-api", label: "API", detail: "12 ms p95", state: "healthy" },
+      { id: "local-queue", label: "Queue", detail: "Depth 2", state: "healthy" },
+      { id: "local-registry", label: "Registry", detail: "4 workers", state: "healthy" },
+      { id: "local-logs", label: "Logs", detail: "Lag 4s", state: "healthy" },
+      { id: "local-cron", label: "Cron", detail: "Next tick 42s", state: "healthy" },
+      { id: "local-reconciler", label: "Reconciler", detail: "No stuck runs", state: "healthy" }
+    ],
+    progress: [
+      { id: "local-queue", label: "Queue pressure", value: 18, detail: "2 waiting" },
+      { id: "local-workers", label: "Worker utilization", value: 61, detail: "4 of 4 online" },
+      { id: "local-logs", label: "Log pipeline", value: 8, detail: "4s lag" }
+    ]
+  },
+  {
+    id: "cell-edge",
+    name: "edge",
+    endpoint: "https://edge.vectis.internal",
+    region: "iad",
+    status: "degraded",
+    detail: "Log service lagging behind worker output",
+    activeRuns: 6,
+    queueDepth: 9,
+    workersOnline: 5,
+    workersTotal: 6,
+    components: [
+      { id: "edge-api", label: "API", detail: "24 ms p95", state: "healthy" },
+      { id: "edge-queue", label: "Queue", detail: "Depth 9", state: "degraded" },
+      { id: "edge-registry", label: "Registry", detail: "5 workers", state: "healthy" },
+      { id: "edge-logs", label: "Logs", detail: "Lag 2m 14s", state: "degraded" },
+      { id: "edge-cron", label: "Cron", detail: "Running", state: "healthy" },
+      { id: "edge-reconciler", label: "Reconciler", detail: "1 run under review", state: "degraded" }
+    ],
+    progress: [
+      { id: "edge-queue", label: "Queue pressure", value: 72, detail: "9 waiting", tone: "warning" },
+      { id: "edge-workers", label: "Worker utilization", value: 83, detail: "5 of 6 online", tone: "warning" },
+      { id: "edge-logs", label: "Log pipeline", value: 88, detail: "2m 14s lag", tone: "critical" }
+    ]
+  },
+  {
+    id: "cell-prod-west",
+    name: "prod-west",
+    endpoint: "https://prod-west.vectis.internal",
+    region: "pdx",
+    status: "offline",
+    detail: "Gateway cannot reach the cell API",
+    activeRuns: 0,
+    queueDepth: 0,
+    workersOnline: 0,
+    workersTotal: 8,
+    components: [
+      { id: "west-api", label: "API", detail: "Gateway timeout", state: "offline" },
+      { id: "west-queue", label: "Queue", detail: "Unknown", state: "unknown" },
+      { id: "west-registry", label: "Registry", detail: "Unknown", state: "unknown" },
+      { id: "west-logs", label: "Logs", detail: "Unknown", state: "unknown" },
+      { id: "west-cron", label: "Cron", detail: "Unknown", state: "unknown" },
+      { id: "west-reconciler", label: "Reconciler", detail: "Unknown", state: "unknown" }
+    ],
+    progress: [
+      { id: "west-reachability", label: "Reachability", value: 100, detail: "Unavailable", tone: "critical" },
+      { id: "west-workers", label: "Worker availability", value: 100, detail: "0 of 8 online", tone: "critical" }
+    ]
   }
 ];
 
@@ -159,6 +254,7 @@ const users: MockUser[] = [
 
 export async function loadMockConsoleData(): Promise<MockConsoleData> {
   return cloneData({
+    cells,
     jobs,
     namespaces,
     progress: workloadProgress,
@@ -166,6 +262,44 @@ export async function loadMockConsoleData(): Promise<MockConsoleData> {
     signals: instanceSignals,
     users
   });
+}
+
+export function clusterHealthMetricsFor(cells: MockCell[]): DashboardMetric[] {
+  const healthy = cells.filter((cell) => cell.status === "healthy").length;
+  const degraded = cells.filter((cell) => cell.status === "degraded").length;
+  const offline = cells.filter((cell) => cell.status === "offline").length;
+  const activeRuns = cells.reduce((total, cell) => total + cell.activeRuns, 0);
+  const queueDepth = cells.reduce((total, cell) => total + cell.queueDepth, 0);
+
+  return [
+    {
+      id: "cells",
+      label: "Cells",
+      value: String(cells.length),
+      detail: `${healthy} healthy, ${degraded} degraded, ${offline} offline`,
+      tone: offline > 0 || degraded > 0 ? "attention" : "success"
+    },
+    {
+      id: "active-runs",
+      label: "Active runs",
+      value: String(activeRuns),
+      detail: "Across all reachable cells"
+    },
+    {
+      id: "queue-depth",
+      label: "Queued",
+      value: String(queueDepth),
+      detail: "Across all reachable cells",
+      tone: queueDepth > 5 ? "attention" : "neutral"
+    },
+    {
+      id: "offline",
+      label: "Offline cells",
+      value: String(offline),
+      detail: offline === 1 ? "1 cell unreachable" : `${offline} cells unreachable`,
+      tone: offline > 0 ? "attention" : "success"
+    }
+  ];
 }
 
 export function dashboardMetricsFor(data: MockConsoleData): DashboardMetric[] {
@@ -377,6 +511,11 @@ export function triggerMockRun(
 
 function cloneData(data: MockConsoleData): MockConsoleData {
   return {
+    cells: data.cells.map((cell) => ({
+      ...cell,
+      components: cell.components.map((component) => ({ ...component })),
+      progress: cell.progress.map((progress) => ({ ...progress }))
+    })),
     jobs: data.jobs.map((job) => ({ ...job })),
     namespaces: data.namespaces.map((namespace) => ({ ...namespace })),
     progress: data.progress.map((progress) => ({ ...progress })),

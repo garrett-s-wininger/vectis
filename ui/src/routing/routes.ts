@@ -2,6 +2,7 @@ import type { NavItem } from "../components/AppShell";
 
 export type AppRouteKind =
   | "dashboard"
+  | "health"
   | "runs"
   | "jobs"
   | "users"
@@ -11,13 +12,14 @@ export type AppRouteKind =
   | "notFound";
 
 export type AppRoute = {
+  cellID?: string;
   kind: AppRouteKind;
   activeHref: string;
   pathname: string;
 };
 
 export const primaryNavItems: NavItem[] = [
-  { href: "/", label: "Dashboard" },
+  { href: "/health", label: "Health" },
   { href: "/runs", label: "Runs" },
   { href: "/jobs", label: "Jobs" },
   { href: "/users", label: "Users" },
@@ -33,8 +35,17 @@ export function routeFromPath(pathname: string): AppRoute {
     return { kind: "login", activeHref: "", pathname };
   }
 
-  if (pathname === "/" || pathname === "") {
-    return { kind: "dashboard", activeHref: "/", pathname: "/" };
+  if (pathname === "/" || pathname === "" || pathname === "/health") {
+    return { kind: "health", activeHref: "/health", pathname };
+  }
+
+  if (pathname.startsWith("/health/")) {
+    return {
+      kind: "health",
+      activeHref: "/health",
+      cellID: pathname.slice("/health/".length),
+      pathname
+    };
   }
 
   if (pathname === "/runs" || pathname.startsWith("/runs/")) {

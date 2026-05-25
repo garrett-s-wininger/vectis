@@ -9,9 +9,9 @@ const meta = {
   component: AppShell,
   args: {
     brand: "Vectis",
-    activeHref: "/dashboard",
+    activeHref: "/health",
     navItems: [
-      { href: "/dashboard", label: "Dashboard" },
+      { href: "/health", label: "Health" },
       { href: "/jobs", label: "Jobs" },
       { href: "/runs", label: "Runs" }
     ],

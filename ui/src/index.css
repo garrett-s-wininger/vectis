@@ -648,10 +648,20 @@ h1 {
   gap: 24px;
 }
 
+.cell-health-layout {
+  display: grid;
+  gap: 24px;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.8fr);
+  width: 100%;
+}
+
 .dashboard-layout .run-list,
 .dashboard-layout .section-panel,
 .dashboard-layout .signal-list,
-.dashboard-layout .progress-meter-stack {
+.dashboard-layout .progress-meter-stack,
+.cell-health-layout .section-panel,
+.cell-health-layout .signal-list,
+.cell-health-layout .progress-meter-stack {
   width: 100%;
 }
 
@@ -680,6 +690,10 @@ h1 {
   }
 
   .dashboard-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .cell-health-layout {
     grid-template-columns: 1fr;
   }
 

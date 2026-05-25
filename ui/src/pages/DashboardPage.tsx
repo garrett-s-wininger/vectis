@@ -1,28 +1,25 @@
-import { dashboardMetricsFor, type MockConsoleData } from "../mocks/consoleData";
 import { MetricCard } from "../components/MetricCard";
 import { PageHeader } from "../components/PageHeader";
 import { ProgressMeter } from "../components/ProgressMeter";
-import { RunList } from "../components/RunList";
 import { SectionPanel } from "../components/SectionPanel";
 import { SignalList } from "../components/SignalList";
+import type { MockCell } from "../mocks/consoleData";
+import type { DashboardMetric } from "../mocks/fixtures";
 
 type DashboardPageProps = {
-  data: MockConsoleData;
-  namespacePath: string;
+  cell: MockCell;
 };
 
-export function DashboardPage({ data, namespacePath }: DashboardPageProps) {
-  const metrics = dashboardMetricsFor(data);
-
+export function DashboardPage({ cell }: DashboardPageProps) {
   return (
     <>
       <PageHeader
-        description={`Live activity and instance health for ${namespacePath}.`}
-        eyebrow="Console"
-        title="Dashboard"
+        description={`Cell-wide control-plane health for ${cell.endpoint}.`}
+        eyebrow={cell.region}
+        title={`${cell.name} dashboard`}
       />
       <div className="metric-card-grid">
-        {metrics.map((metric) => (
+        {cellDashboardMetrics(cell).map((metric) => (
           <MetricCard
             detail={metric.detail}
             key={metric.id}
@@ -33,14 +30,16 @@ export function DashboardPage({ data, namespacePath }: DashboardPageProps) {
         ))}
       </div>
       <div className="dashboard-layout">
-        <RunList title="Active runs" runs={data.runs.slice(0, 3)} />
+        <SectionPanel description={cell.detail} title="Components">
+          <SignalList signals={cell.components} />
+        </SectionPanel>
         <div className="dashboard-side-stack">
-          <SectionPanel title="Instance signals">
-            <SignalList signals={data.signals} />
-          </SectionPanel>
-          <SectionPanel title="Workload">
+          <SectionPanel
+            description={`${cell.activeRuns} active runs, ${cell.queueDepth} queued.`}
+            title="Workload"
+          >
             <div className="progress-meter-stack">
-              {data.progress.map((progress) => (
+              {cell.progress.map((progress) => (
                 <ProgressMeter
                   detail={progress.detail}
                   key={progress.id}
@@ -55,4 +54,48 @@ export function DashboardPage({ data, namespacePath }: DashboardPageProps) {
       </div>
     </>
   );
+}
+
+function cellDashboardMetrics(cell: MockCell): DashboardMetric[] {
+  return [
+    {
+      id: "status",
+      label: "Status",
+      value: statusLabel(cell.status),
+      detail: cell.detail,
+      tone: cell.status === "healthy" ? "success" : "attention"
+    },
+    {
+      id: "active-runs",
+      label: "Active runs",
+      value: String(cell.activeRuns),
+      detail: "Cell-local execution",
+      tone: "neutral"
+    },
+    {
+      id: "queue-depth",
+      label: "Queued",
+      value: String(cell.queueDepth),
+      detail: "Waiting in this cell",
+      tone: cell.queueDepth > 5 ? "attention" : "neutral"
+    },
+    {
+      id: "workers",
+      label: "Workers",
+      value: `${cell.workersOnline}/${cell.workersTotal}`,
+      detail: "Online workers",
+      tone: cell.workersOnline < cell.workersTotal ? "attention" : "success"
+    }
+  ];
+}
+
+function statusLabel(status: MockCell["status"]) {
+  switch (status) {
+    case "healthy":
+      return "Healthy";
+    case "degraded":
+      return "Degraded";
+    case "offline":
+      return "Offline";
+  }
 }

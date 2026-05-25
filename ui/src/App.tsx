@@ -23,7 +23,7 @@ import {
   type NewMockNamespace,
   type NewMockUser
 } from "./mocks/consoleData";
-import { DashboardPage } from "./pages/DashboardPage";
+import { HealthPage } from "./pages/HealthPage";
 import { JobsPage } from "./pages/JobsPage";
 import { NamespacesPage } from "./pages/NamespacesPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
@@ -229,12 +229,14 @@ export function App() {
     );
   }
 
+  const showNamespacePicker = route.kind === "jobs" || route.kind === "runs";
+
   return (
     <AppShell
       activeHref={route.activeHref}
       actions={
         <>
-          {consoleData ? (
+          {consoleData && showNamespacePicker ? (
             <NamespacePicker
               namespaces={consoleData.namespaces}
               onChange={setSelectedNamespacePath}
@@ -416,8 +418,14 @@ function RouteContent({
   const scopedConsoleData = scopeMockConsoleData(consoleData, namespacePath);
 
   switch (route.kind) {
-    case "dashboard":
-      return <DashboardPage data={scopedConsoleData} namespacePath={namespacePath} />;
+    case "health":
+      return (
+        <HealthPage
+          cells={consoleData.cells}
+          onSelectCell={(cellID) => navigateTo(`/health/${cellID}`)}
+          selectedCellID={route.cellID}
+        />
+      );
     case "runs":
       return <RunsPage namespacePath={namespacePath} runs={scopedConsoleData.runs} />;
     case "jobs":

@@ -117,7 +117,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
     expect(
-      await screen.findByRole("heading", { name: "Dashboard" })
+      await screen.findByRole("heading", { name: "Health" })
     ).toBeInTheDocument();
 
     expect(window.location.pathname).toBe("/");
@@ -146,6 +146,36 @@ describe("App", () => {
       await screen.findByRole("heading", { name: "Users" })
     ).toBeInTheDocument();
     expect(window.location.pathname).toBe("/users");
+  });
+
+  it("renders cluster health without namespace scoping", async () => {
+    window.history.replaceState(null, "", "/health");
+
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Health" })
+    ).toBeInTheDocument();
+
+    expect(screen.queryByLabelText("Namespace")).not.toBeInTheDocument();
+    expect(screen.getByText("prod-west")).toBeInTheDocument();
+    expect(screen.getByText("Offline")).toBeInTheDocument();
+  });
+
+  it("drills into individual cell health", async () => {
+    window.history.replaceState(null, "", "/health");
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Health" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Inspect edge" }));
+
+    expect(
+      screen.getByRole("heading", { name: "edge dashboard" })
+    ).toBeInTheDocument();
+    expect(screen.getByText("Lag 2m 14s")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/health/cell-edge");
   });
 
   it("creates, disables, and removes a user in the mock", async () => {

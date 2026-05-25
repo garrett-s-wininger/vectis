@@ -2,7 +2,8 @@ import { routeFromPath, safeNextPath } from "./routes";
 
 describe("routes", () => {
   it.each([
-    ["/", "dashboard", "/"],
+    ["/", "health", "/health"],
+    ["/health", "health", "/health"],
     ["/runs", "runs", "/runs"],
     ["/runs/123", "runs", "/runs"],
     ["/jobs", "jobs", "/jobs"],

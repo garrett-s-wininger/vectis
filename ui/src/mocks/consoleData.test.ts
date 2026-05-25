@@ -1,5 +1,6 @@
 import {
   canDeleteMockNamespace,
+  clusterHealthMetricsFor,
   createMockNamespace,
   createMockUser,
   dashboardMetricsFor,
@@ -19,12 +20,27 @@ describe("mock console data", () => {
     first.users.pop();
 
     expect(second.users).toHaveLength(3);
+    expect(second.cells).toHaveLength(3);
     expect(second.namespaces.map((namespace) => namespace.path)).toEqual([
       "/",
       "/team-a",
       "/team-a/edge",
       "/prod"
     ]);
+  });
+
+  it("derives cluster health metrics from cells", async () => {
+    const data = await loadMockConsoleData();
+
+    expect(clusterHealthMetricsFor(data.cells)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "cells",
+          detail: "1 healthy, 1 degraded, 1 offline"
+        }),
+        expect.objectContaining({ id: "offline", value: "1" })
+      ])
+    );
   });
 
   it("derives dashboard metrics", async () => {
