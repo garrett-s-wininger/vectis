@@ -59,6 +59,67 @@ func TestMustDefaults_Catalog(t *testing.T) {
 	}
 }
 
+func TestMustDefaults_CellIngress(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	d := MustDefaults()
+	if d.CellIngress.Host != "localhost" {
+		t.Fatalf("expected cell_ingress.host localhost, got %q", d.CellIngress.Host)
+	}
+
+	if got := CellIngressHost(); got != "localhost" {
+		t.Fatalf("CellIngressHost() with empty viper: got %q", got)
+	}
+
+	if d.CellIngress.Port != 8085 {
+		t.Fatalf("expected cell_ingress.port 8085, got %d", d.CellIngress.Port)
+	}
+
+	if got := CellIngressEffectiveListenPort(); got != 8085 {
+		t.Fatalf("CellIngressEffectiveListenPort() with empty viper: got %d", got)
+	}
+
+	if got := CellIngressListenAddr(); got != "localhost:8085" {
+		t.Fatalf("CellIngressListenAddr() with empty viper: got %q", got)
+	}
+
+	if d.CellIngress.MetricsPort != 9087 {
+		t.Fatalf("expected cell_ingress.metrics_port 9087, got %d", d.CellIngress.MetricsPort)
+	}
+
+	if got := CellIngressMetricsEffectiveListenPort(); got != 9087 {
+		t.Fatalf("CellIngressMetricsEffectiveListenPort() with empty viper: got %d", got)
+	}
+}
+
+func TestCellIngressConfigOverrides(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	viper.Set("host", "0.0.0.0")
+	viper.Set("port", 18085)
+	viper.Set("metrics_port", 19087)
+	viper.Set("cell_ingress.queue.address", "queue.local:8081")
+	viper.Set("cell_ingress.registry.address", "registry.local:8082")
+
+	if got := CellIngressListenAddr(); got != "0.0.0.0:18085" {
+		t.Fatalf("CellIngressListenAddr() override: got %q", got)
+	}
+
+	if got := CellIngressMetricsEffectiveListenPort(); got != 19087 {
+		t.Fatalf("CellIngressMetricsEffectiveListenPort() override: got %d", got)
+	}
+
+	if got := CellIngressQueueAddress(); got != "queue.local:8081" {
+		t.Fatalf("CellIngressQueueAddress() override: got %q", got)
+	}
+
+	if got := CellIngressRegistryAddress(); got != "registry.local:8082" {
+		t.Fatalf("CellIngressRegistryAddress() override: got %q", got)
+	}
+}
+
 func TestCellID_DefaultViperAndEnv(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)

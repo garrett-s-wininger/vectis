@@ -1,4 +1,4 @@
-package config
+package config_test
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/config"
 	"vectis/internal/observability"
 	"vectis/internal/testutil/grpctest"
 
@@ -34,13 +35,13 @@ func TestGRPCTracingPropagation_Insecure(t *testing.T) {
 		_ = shutdownTracer(context.Background())
 	})
 
-	srvOpts, err := GRPCServerOptions()
+	srvOpts, err := config.GRPCServerOptions()
 	if err != nil {
 		t.Fatalf("server opts: %v", err)
 	}
 
 	capture := &traceCaptureQueueServer{got: make(chan trace.SpanContext, 1)}
-	dialOpts, err := GRPCClientDialOptions("")
+	dialOpts, err := config.GRPCClientDialOptions("")
 	if err != nil {
 		t.Fatalf("client dial opts: %v", err)
 	}

@@ -22,11 +22,12 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 - **Deployables / docs site** → `deploy/`, `website/docs/`
 - **Reconciler invariants** → `internal/reconciler/`; formal model → `formal/tla/`
 
-## Binaries (twelve; `cmd/`)
+## Binaries (thirteen; `cmd/`)
 
 | Binary | Role | Long-running? | DB? |
 |--------|------|---------------|-----|
 | `vectis-api` | REST (jobs, runs, SSE), metrics | yes | yes |
+| `vectis-cell-ingress` | Private cell-local execution ingress | yes | no |
 | `vectis-queue` | FIFO queue + metrics | yes | yes |
 | `vectis-registry` | Service discovery | yes | no |
 | `vectis-log` | Log ingest (gRPC), SSE, metrics | yes | no |
@@ -71,7 +72,7 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 | `internal/config/`, `internal/database/`, `internal/dbdrivers/` | Defaults, open DB, `_` driver import |
 | `internal/queue/`, `internal/queueclient/`, `internal/registry/`, `internal/resolver/`, `internal/tlsconfig/` | Queue, discovery, dial, TLS reload |
 | `internal/logserver/`, `internal/logforwarder/`, `internal/job/`, `internal/action/` | Execution + logging |
-| `internal/cron/`, `internal/catalog/`, `internal/reconciler/` | Schedules, catalog application, recovery |
+| `internal/cron/`, `internal/catalog/`, `internal/cellingress/`, `internal/reconciler/` | Schedules, catalog application, cell ingress, recovery |
 | `internal/interfaces/`, `internal/observability/`, `internal/cli/`, `internal/testutil/` | Logger, metrics/tracing, signals, tests |
 | `tests/integration/` | Build tag `integration` — [`tests/AGENTS.md`](tests/AGENTS.md) |
 | `deploy/`, `website/docs/`, `formal/tla/` | Kube/Grafana, docs site, TLA+ reconciliation |

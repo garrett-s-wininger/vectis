@@ -46,6 +46,7 @@ var (
 		{binary: "vectis-registry", stage: 0, checkHealth: true, portFn: config.RegistryEffectiveListenPort, healthName: "registry"},
 		{binary: "vectis-queue", stage: 1, checkHealth: true, portFn: config.QueueEffectiveListenPort, healthName: "queue"},
 		{binary: "vectis-log", stage: 1, checkHealth: true, portFn: config.LogGRPCPort, healthName: "log"},
+		{binary: "vectis-cell-ingress", stage: 2, checkHealth: false},
 		{binary: "vectis-worker", stage: 2, checkHealth: false},
 		{binary: "vectis-cron", stage: 2, checkHealth: false},
 		{binary: "vectis-reconciler", stage: 2, checkHealth: false},
@@ -171,6 +172,10 @@ func apiEnv() []string {
 	return []string{"VECTIS_API_SERVER_HOST=" + localHost()}
 }
 
+func cellIngressEnv() []string {
+	return []string{"VECTIS_CELL_INGRESS_HOST=" + localHost()}
+}
+
 func localHost() string {
 	if host := strings.TrimSpace(viper.GetString("host")); host != "" {
 		return host
@@ -287,8 +292,10 @@ func runVectis(cmd *cobra.Command, args []string) {
 	services := localServices(logger)
 
 	tlsEnv = append(tlsEnv, apiEnv()...)
+	tlsEnv = append(tlsEnv, cellIngressEnv()...)
 	tlsEnv = append(tlsEnv, docsEnv()...)
 	logger.Info("API will be available at http://%s:%d", localHost(), config.APIEffectiveListenPort())
+	logger.Info("Cell ingress will be available at http://%s:%d", localHost(), config.CellIngressEffectiveListenPort())
 	if hasService(services, "vectis-docs") {
 		logger.Info("Docs will be available at http://%s:%d", localHost(), viper.GetInt("docs_port"))
 	}
@@ -429,8 +436,8 @@ var rootCmd = &cobra.Command{
 	Short: "Run Vectis services locally for development",
 	Long: `Vectis Local runs all Vectis services locally for development and testing.
 
-It starts the registry, queue, log service, worker, cron, reconciler, catalog,
-API server, and docs site as child processes.
+It starts the registry, queue, log service, cell ingress, worker, cron,
+reconciler, catalog, API server, and docs site as child processes.
 
 By default it bootstraps a dev CA and TLS certificates (under the XDG data directory)
 and sets VECTIS_GRPC_TLS_* for child processes so internal gRPC uses TLS. Use

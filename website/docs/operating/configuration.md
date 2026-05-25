@@ -32,6 +32,7 @@ Some settings are global and intentionally do not use a service prefix, such as 
 | Bind API HTTP to another interface | `VECTIS_API_SERVER_HOST=0.0.0.0` or `vectis-api --host 0.0.0.0` |
 | Expose local API and docs from a dev host | `vectis-local --host 0.0.0.0` |
 | Set the execution cell identity | `VECTIS_CELL_ID=local` |
+| Bind private cell ingress to another interface | `VECTIS_CELL_INGRESS_HOST=0.0.0.0` or `vectis-cell-ingress --host 0.0.0.0` |
 | Enable API authentication | `VECTIS_API_AUTH_ENABLED=true` and, for a new database, `VECTIS_API_AUTH_BOOTSTRAP_TOKEN` |
 | Select authorization engine | `VECTIS_API_AUTHZ_ENGINE=hierarchical_rbac` or `authenticated_full` |
 | Set PostgreSQL | `VECTIS_DATABASE_DRIVER=pgx` and `VECTIS_DATABASE_DSN=postgres://...` on every DB-using service |
@@ -52,6 +53,7 @@ Use these prefixes when building service-specific environment variable names.
 | Program | Env prefix | Useful flags |
 | --- | --- | --- |
 | `vectis-api` | `VECTIS_API_SERVER` | `--host`, `--port` |
+| `vectis-cell-ingress` | `VECTIS_CELL_INGRESS` | `--host`, `--port`, `--metrics-port`, `--queue-address`, `--registry-address` |
 | `vectis-queue` | `VECTIS_QUEUE` | `--port`, `--metrics-port`, `--persistence-dir`, `--persistence-snapshot-every` |
 | `vectis-registry` | `VECTIS_REGISTRY` | `--port` |
 | `vectis-log` | `VECTIS_LOG` | `--storage-dir`, `--metrics-port`, `--max-run-buffers` |
@@ -148,7 +150,7 @@ Standalone binaries default to plaintext gRPC. `vectis-local` normally bootstrap
 | Role | Binaries | Required material when TLS is enabled |
 | --- | --- | --- |
 | gRPC listeners | `vectis-registry`, `vectis-queue`, `vectis-log`, worker-control listener in `vectis-worker` | Certificate and key. Queue/log also need a CA when they register with the registry. |
-| gRPC clients | `vectis-api`, `vectis-worker`, `vectis-cron`, `vectis-reconciler`, queue/log registration clients | CA bundle. Client cert/key only when servers require mTLS. |
+| gRPC clients | `vectis-api`, `vectis-cell-ingress`, `vectis-worker`, `vectis-cron`, `vectis-reconciler`, queue/log registration clients | CA bundle. Client cert/key only when servers require mTLS. |
 
 For trust boundaries and what mTLS does or does not authorize today, see [Internal Service Trust](../concepts/internal-service-trust.md).
 
@@ -162,7 +164,7 @@ For trust boundaries and what mTLS does or does not authorize today, see [Intern
 | `VECTIS_METRICS_TLS_CERT_FILE` / `VECTIS_METRICS_TLS_KEY_FILE` | Server certificate and key for metrics listeners. |
 | `VECTIS_METRICS_TLS_RELOAD_INTERVAL` | Positive duration to poll PEM files and reload them without restart. `0` disables polling. |
 
-The dedicated metrics listeners are queue, worker, log, reconciler, and catalog. Keep metrics endpoints private; they are not authenticated. See [Security](../concepts/security.md).
+The dedicated metrics listeners are queue, worker, log, reconciler, catalog, and cell ingress. Keep metrics endpoints private; they are not authenticated. See [Security](../concepts/security.md).
 
 ## Discovery And Fixed Addresses {#service-discovery-vs-fixed-addresses}
 
@@ -178,7 +180,7 @@ Role-specific settings override shared discovery settings when both are set.
 | What you are configuring | Shared setting segment | Role-specific examples |
 | --- | --- | --- |
 | Registry address | `DISCOVERY_REGISTRY_ADDRESS` | `API_REGISTRY_ADDRESS`, `WORKER_REGISTRY_ADDRESS`, `CRON_REGISTRY_ADDRESS`, `RECONCILER_REGISTRY_ADDRESS` |
-| Queue address | `DISCOVERY_QUEUE_ADDRESS` or `DISCOVERY_QUEUE_RESOLVER_ADDRESS` | `API_QUEUE_ADDRESS`, `WORKER_QUEUE_ADDRESS`, `CRON_QUEUE_ADDRESS`, `RECONCILER_QUEUE_ADDRESS` |
+| Queue address | `DISCOVERY_QUEUE_ADDRESS` or `DISCOVERY_QUEUE_RESOLVER_ADDRESS` | `API_QUEUE_ADDRESS`, `CELL_INGRESS_QUEUE_ADDRESS`, `WORKER_QUEUE_ADDRESS`, `CRON_QUEUE_ADDRESS`, `RECONCILER_QUEUE_ADDRESS` |
 | Log gRPC address | `DISCOVERY_LOG_ADDRESS` or `DISCOVERY_LOG_GRPC_RESOLVER_ADDRESS` | `WORKER_LOG_ADDRESS` |
 | Queue/log advertise address | `DISCOVERY_QUEUE_ADVERTISE_ADDRESS`, `DISCOVERY_LOG_GRPC_ADVERTISE_ADDRESS` | `QUEUE_ADVERTISE_ADDRESS`, `LOG_GRPC_ADVERTISE_ADDRESS` |
 

@@ -78,6 +78,13 @@ interval = "1s"
 batch_size = 100
 metrics_port = 9086
 
+[cell_ingress]
+host = "localhost"
+port = 8085
+metrics_port = 9087
+registry.address = ""
+queue.address = ""
+
 [database]
 driver = "sqlite3"
 dsn = "{{data_home}}/vectis/db.sqlite3"

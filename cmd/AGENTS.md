@@ -9,6 +9,7 @@
 | Directory | Binary | Nature |
 |-----------|--------|--------|
 | `api/` | `vectis-api` | daemon (REST + metrics) |
+| `cell-ingress/` | `vectis-cell-ingress` | daemon (private cell execution ingress) |
 | `queue/` | `vectis-queue` | daemon (FIFO) |
 | `registry/` | `vectis-registry` | daemon (service discovery) |
 | `log/` | `vectis-log` | daemon (gRPC) |
@@ -50,7 +51,7 @@ func main() {
 
 ## Which binaries need the database import
 
-Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-twelve-cmd): `api`, `queue`, `cron`, `reconciler`, `catalog` — these need the `dbdrivers` import. `registry`, `log`, `worker`, `log-forwarder`, `docs`, `local`, `cli` do not.
+Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-thirteen-cmd): `api`, `queue`, `cron`, `reconciler`, `catalog` — these need the `dbdrivers` import. `cell-ingress`, `registry`, `log`, `worker`, `log-forwarder`, `docs`, `local`, `cli` do not.
 
 ## Env prefix mapping
 
@@ -59,6 +60,7 @@ Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-twelve-cm
 | Binary | `viper.SetEnvPrefix` | Primary TOML / notes |
 |--------|----------------------|----------------------|
 | `vectis-api` | `VECTIS_API_SERVER` | `[api]` in [`../internal/config/defaults.toml`](../internal/config/defaults.toml); `VECTIS_API_SERVER_HOST` / `--host` controls HTTP bind host; ad hoc `VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS` for [`trusted-proxy-client-ip.md`](../website/docs/operating/deployment/trusted-proxy-client-ip.md) |
+| `vectis-cell-ingress` | `VECTIS_CELL_INGRESS` | `[cell_ingress]`; private HTTP `POST /cell/v1/executions`, plus queue discovery/pinned queue settings |
 | `vectis-queue` | `VECTIS_QUEUE` | `[queue]` |
 | `vectis-registry` | `VECTIS_REGISTRY` | `[registry]` |
 | `vectis-log` | `VECTIS_LOG` | `[log]` |

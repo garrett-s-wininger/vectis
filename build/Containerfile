@@ -39,6 +39,12 @@ LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vec
 COPY --from=builder /app/bin/vectis-catalog /usr/local/bin/vectis-catalog
 ENTRYPOINT ["/usr/local/bin/vectis-catalog"]
 
+FROM scratch AS cell-ingress
+LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
+      org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
+COPY --from=builder /app/bin/vectis-cell-ingress /usr/local/bin/vectis-cell-ingress
+ENTRYPOINT ["/usr/local/bin/vectis-cell-ingress"]
+
 FROM scratch AS cli
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
       org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
@@ -102,6 +108,7 @@ ENV VECTIS_LOCAL_HOST=0.0.0.0
 COPY --from=builder \
       /app/bin/vectis-api \
       /app/bin/vectis-catalog \
+      /app/bin/vectis-cell-ingress \
       /app/bin/vectis-cron \
       /app/bin/vectis-docs \
       /app/bin/vectis-local \

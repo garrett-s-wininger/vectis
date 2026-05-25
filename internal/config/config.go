@@ -36,19 +36,20 @@ func (d *tomlDuration) UnmarshalText(text []byte) error {
 }
 
 type Defaults struct {
-	Cell       CellDefaults       `toml:"cell"`
-	API        APIDefaults        `toml:"api"`
-	Queue      QueueDefaults      `toml:"queue"`
-	Registry   RegistryDefaults   `toml:"registry"`
-	Log        LogDefaults        `toml:"log"`
-	Discovery  DiscoveryDefaults  `toml:"discovery"`
-	Database   DatabaseDefaults   `toml:"database"`
-	Worker     WorkerDefaults     `toml:"worker"`
-	Cron       CronDefaults       `toml:"cron"`
-	Reconciler ReconcilerDefaults `toml:"reconciler"`
-	Catalog    CatalogDefaults    `toml:"catalog"`
-	GRPCTLS    GRPCTLSDefaults    `toml:"grpc_tls"`
-	MetricsTLS MetricsTLSDefaults `toml:"metrics_tls"`
+	Cell        CellDefaults        `toml:"cell"`
+	API         APIDefaults         `toml:"api"`
+	Queue       QueueDefaults       `toml:"queue"`
+	Registry    RegistryDefaults    `toml:"registry"`
+	Log         LogDefaults         `toml:"log"`
+	Discovery   DiscoveryDefaults   `toml:"discovery"`
+	Database    DatabaseDefaults    `toml:"database"`
+	Worker      WorkerDefaults      `toml:"worker"`
+	Cron        CronDefaults        `toml:"cron"`
+	Reconciler  ReconcilerDefaults  `toml:"reconciler"`
+	Catalog     CatalogDefaults     `toml:"catalog"`
+	CellIngress CellIngressDefaults `toml:"cell_ingress"`
+	GRPCTLS     GRPCTLSDefaults     `toml:"grpc_tls"`
+	MetricsTLS  MetricsTLSDefaults  `toml:"metrics_tls"`
 }
 
 type CellDefaults struct {
@@ -196,6 +197,14 @@ type CatalogDefaults struct {
 	Interval    tomlDuration `toml:"interval"`
 	BatchSize   int          `toml:"batch_size"`
 	MetricsPort int          `toml:"metrics_port"`
+}
+
+type CellIngressDefaults struct {
+	Host            string `toml:"host"`
+	Port            int    `toml:"port"`
+	MetricsPort     int    `toml:"metrics_port"`
+	RegistryAddress string `toml:"registry.address"`
+	QueueAddress    string `toml:"queue.address"`
 }
 
 type GRPCTLSDefaults struct {
@@ -352,6 +361,28 @@ func validateDefaults(d Defaults) {
 		d.Catalog.MetricsPort == d.Reconciler.MetricsPort ||
 		d.Catalog.MetricsPort == d.Worker.Control.Port {
 		panic("config defaults: catalog.metrics_port must differ from queue/worker/log/reconciler metrics ports and worker control port")
+	}
+
+	if strings.TrimSpace(d.CellIngress.Host) == "" {
+		panic("config defaults: cell_ingress.host must not be empty")
+	}
+	validatePort(d.CellIngress.Port, "cell_ingress.port")
+	if d.CellIngress.Port == d.API.Port ||
+		d.CellIngress.Port == d.Queue.Port ||
+		d.CellIngress.Port == d.Registry.Port ||
+		d.CellIngress.Port == d.Log.GRPC.Port {
+		panic("config defaults: cell_ingress.port must differ from api/queue/registry/log ports")
+	}
+
+	validatePort(d.CellIngress.MetricsPort, "cell_ingress.metrics_port")
+	if d.CellIngress.MetricsPort == d.CellIngress.Port ||
+		d.CellIngress.MetricsPort == d.Queue.MetricsPort ||
+		d.CellIngress.MetricsPort == d.Worker.MetricsPort ||
+		d.CellIngress.MetricsPort == d.Log.MetricsPort ||
+		d.CellIngress.MetricsPort == d.Reconciler.MetricsPort ||
+		d.CellIngress.MetricsPort == d.Catalog.MetricsPort ||
+		d.CellIngress.MetricsPort == d.Worker.Control.Port {
+		panic("config defaults: cell_ingress.metrics_port must differ from cell ingress, queue/worker/log/reconciler/catalog metrics ports and worker control port")
 	}
 
 	if strings.TrimSpace(d.API.Auth.BootstrapToken) != "" && len(strings.TrimSpace(d.API.Auth.BootstrapToken)) < 16 {
@@ -997,6 +1028,70 @@ func CatalogBatchSize() int {
 
 func CatalogMetricsPort() int {
 	return MustDefaults().Catalog.MetricsPort
+}
+
+func CellIngressHost() string {
+	if host := strings.TrimSpace(viper.GetString("host")); host != "" {
+		return host
+	}
+
+	if host := strings.TrimSpace(viper.GetString("cell_ingress.host")); host != "" {
+		return host
+	}
+
+	return MustDefaults().CellIngress.Host
+}
+
+func CellIngressPort() int {
+	return MustDefaults().CellIngress.Port
+}
+
+func CellIngressEffectiveListenPort() int {
+	return effectiveListenPort(CellIngressPort)
+}
+
+func CellIngressListenAddr() string {
+	return net.JoinHostPort(CellIngressHost(), strconv.Itoa(CellIngressEffectiveListenPort()))
+}
+
+func CellIngressMetricsPort() int {
+	return MustDefaults().CellIngress.MetricsPort
+}
+
+func CellIngressMetricsEffectiveListenPort() int {
+	if p := viper.GetInt("metrics_port"); p > 0 {
+		return p
+	}
+
+	if p := viper.GetInt("cell_ingress.metrics_port"); p > 0 {
+		return p
+	}
+
+	return CellIngressMetricsPort()
+}
+
+func CellIngressRegistryAddress() string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("cell_ingress.registry.address"),
+		d.CellIngress.RegistryAddress,
+		viper.GetString("discovery.registry.address"),
+		d.Discovery.RegistryAddress,
+	)
+}
+
+func CellIngressQueueAddress() string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("cell_ingress.queue.address"),
+		d.CellIngress.QueueAddress,
+		viper.GetString("discovery.queue.address"),
+		d.Discovery.QueueAddress,
+	)
+}
+
+func CellIngressRegistryDialAddress() string {
+	return registryDialAddress(CellIngressRegistryAddress)
 }
 
 func registryDialAddress(roleRegistry func() string) string {

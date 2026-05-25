@@ -54,6 +54,7 @@ flowchart TB
   subgraph internal [Internal services]
     direction LR
     REG["vectis-registry"]
+    CING["vectis-cell-ingress"]
     Q["vectis-queue"]
     LOG["vectis-log"]
   end
@@ -74,6 +75,8 @@ flowchart TB
   W --> DB
 
   API --> Q
+  API --> CING
+  CING --> Q
   CRON --> Q
   REC --> Q
   Q --> W
@@ -92,6 +95,7 @@ flowchart TB
 | Component | Role |
 | --- | --- |
 | `vectis-api` | Public HTTP API. Stores jobs and runs, accepts triggers, exposes health, metrics, run status, run events, and log streams. |
+| `vectis-cell-ingress` | Private cell-local HTTP endpoint that accepts execution envelopes for this cell and enqueues them to the local queue. |
 | `vectis-queue` | Internal FIFO queue. Producers enqueue work; workers dequeue and acknowledge deliveries. Queue persistence can preserve backlog and in-flight delivery metadata. |
 | `vectis-worker` | Executes one run at a time. Dequeues work, claims the run in the database, executes actions, streams logs, and writes final status. |
 | `vectis-log` | Receives log chunks from workers and stores run logs. The API reads from it when clients stream logs. |
@@ -100,7 +104,7 @@ flowchart TB
 | `vectis-reconciler` | Finds queued runs that need another queue handoff and enqueues them again. |
 | `vectis-catalog` | Drains cell catalog events and applies them to the global run catalog. |
 | `vectis-docs` | Serves the embedded docs site as static HTTP. |
-| `vectis-local` | Development supervisor that starts the local registry, queue, log, worker, cron, reconciler, catalog, API, and docs together. |
+| `vectis-local` | Development supervisor that starts the local registry, queue, log, cell ingress, worker, cron, reconciler, catalog, API, and docs together. |
 | `vectis-cli` | User and operator command-line client for the HTTP API. |
 
 ## Producers And Workers
@@ -108,6 +112,7 @@ flowchart TB
 Three components can produce work:
 
 - `vectis-api`, when a client submits or triggers a job
+- `vectis-cell-ingress`, when a global dispatcher hands this cell an execution envelope
 - `vectis-cron`, when a schedule is due
 - `vectis-reconciler`, when a recorded run still needs queue handoff
 
@@ -160,10 +165,11 @@ The common local defaults are:
 | Queue gRPC | `8081` | Producers enqueue; workers dequeue and acknowledge. |
 | Registry gRPC | `8082` | Service registration and resolution. |
 | Log gRPC | `8083` | Worker log ingest and API log reads. |
+| Cell ingress HTTP | `8085` | Private execution submission endpoint for a cell. |
 | Log HTTP | `8084` | Log-service HTTP surface; user-facing log streaming goes through the API. |
 | Docs HTTP | `8088` | Static documentation site. |
 
-Prometheus metrics are exposed on `/metrics`. The API serves metrics on its main HTTP listener; queue, worker, log, reconciler, and catalog use dedicated metrics listeners by default.
+Prometheus metrics are exposed on `/metrics`. The API serves metrics on its main HTTP listener; queue, worker, log, reconciler, catalog, and cell ingress use dedicated metrics listeners by default.
 
 For exact ports, environment variables, TLS settings, and discovery settings, see [Configuration](../operating/configuration.md). For the REST route table, see [API Reference](../using/api-reference.md). gRPC contracts live under `api/proto/`.
 
