@@ -33,6 +33,12 @@ LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vec
 COPY --from=builder /app/bin/vectis-api /usr/local/bin/vectis-api
 ENTRYPOINT ["/usr/local/bin/vectis-api"]
 
+FROM scratch AS catalog
+LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
+      org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
+COPY --from=builder /app/bin/vectis-catalog /usr/local/bin/vectis-catalog
+ENTRYPOINT ["/usr/local/bin/vectis-catalog"]
+
 FROM scratch AS cli
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
       org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
@@ -95,6 +101,7 @@ ENV XDG_DATA_HOME=/data
 ENV VECTIS_LOCAL_HOST=0.0.0.0
 COPY --from=builder \
       /app/bin/vectis-api \
+      /app/bin/vectis-catalog \
       /app/bin/vectis-cron \
       /app/bin/vectis-docs \
       /app/bin/vectis-local \

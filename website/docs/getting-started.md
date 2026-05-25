@@ -55,7 +55,7 @@ In one terminal, run:
 ./bin/vectis-local
 ```
 
-Leave this process running. It supervises the local API, queue, worker, log service, registry, cron, reconciler, and docs site.
+Leave this process running. It supervises the local API, queue, worker, log service, registry, cron, reconciler, catalog, and docs site.
 
 By default, `vectis-local` also creates local TLS material for internal gRPC traffic. That is expected. The public API still listens on:
 

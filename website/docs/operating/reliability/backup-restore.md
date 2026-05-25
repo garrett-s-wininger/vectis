@@ -39,13 +39,13 @@ For SQLite, stop Vectis or use a SQLite-safe backup process before copying the d
 
 Restore in dependency order, then start services in dependency order.
 
-1. Stop API, cron, reconciler, workers, queue, log, and log-forwarder processes so no restored state is modified while files are being replaced.
+1. Stop API, cron, reconciler, catalog, workers, queue, log, and log-forwarder processes so no restored state is modified while files are being replaced.
 2. Restore deployment config, secrets, and TLS material to the same paths or update environment variables before starting services.
 3. Restore the SQL database.
 4. Run `vectis-cli database migrate` with the same `VECTIS_DATABASE_DRIVER` and `VECTIS_DATABASE_DSN` that services will use.
 5. Restore queue persistence and log storage when available.
 6. Restore log-forwarder spools on worker hosts if they are part of the backup set.
-7. Start registry, queue, and log first; then API; then workers, cron, and reconciler.
+7. Start registry, queue, and log first; then API; then workers, cron, reconciler, and catalog.
 8. Run the restore smoke test below.
 
 Do not start cron or workers before the database has been restored and migrations have been checked. They can enqueue or execute work against an incomplete view of the world.
@@ -96,12 +96,12 @@ For a local-only restore where queue persistence was not backed up, start the re
 
 Use this for the reference Podman deployment and any production-like deployment backed by Postgres.
 
-1. Stop API, workers, cron, reconciler, queue, log, and log-forwarder containers/processes.
+1. Stop API, workers, cron, reconciler, catalog, queue, log, and log-forwarder containers/processes.
 2. Restore Postgres from the database backup using the database platform's restore process.
 3. Restore or recreate the Podman deploy secrets and TLS volumes. If secrets are recreated instead of restored, update all generated DSNs and client credentials consistently.
 4. Restore queue persistence, log storage, and log-forwarder spools from matching backups when available.
 5. Run `vectis-cli database migrate` against the restored Postgres DSN from the same host/network path used for deployment migrations.
-6. Start registry, queue, log, API, workers, cron, and reconciler in dependency order.
+6. Start registry, queue, log, API, workers, cron, reconciler, and catalog in dependency order.
 7. Run the restore smoke test and confirm dashboards/alerts are receiving fresh data.
 
 ## Restore Smoke Test

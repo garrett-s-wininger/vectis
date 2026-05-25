@@ -10,7 +10,7 @@ The two most important stores are the database and the queue:
 
 | Store | What it means |
 | --- | --- |
-| SQL database | The durable source of truth for job definitions, runs, schedules, leases, dispatch events, users, tokens, namespaces, and audit records. |
+| SQL database | The durable source of truth for job definitions, runs, schedules, leases, dispatch events, cell catalog events, users, tokens, namespaces, and audit records. |
 | Queue | The handoff point between producers and workers. It tells workers what to pick up next. |
 
 The database says what should exist and what state it is in. The queue helps move work to workers. When those disagree, the reconciler uses the database to submit missing queued work again.
@@ -48,6 +48,7 @@ flowchart TB
     API["vectis-api"]
     CRON["vectis-cron"]
     REC["vectis-reconciler"]
+    CAT["vectis-catalog"]
   end
 
   subgraph internal [Internal services]
@@ -69,6 +70,7 @@ flowchart TB
   API --> DB
   CRON --> DB
   REC --> DB
+  CAT --> DB
   W --> DB
 
   API --> Q
@@ -96,8 +98,9 @@ flowchart TB
 | `vectis-registry` | Internal service discovery for queue and log addresses when clients do not use pinned addresses. |
 | `vectis-cron` | Reads schedules from the database and enqueues due runs. |
 | `vectis-reconciler` | Finds queued runs that need another queue handoff and enqueues them again. |
+| `vectis-catalog` | Drains cell catalog events and applies them to the global run catalog. |
 | `vectis-docs` | Serves the embedded docs site as static HTTP. |
-| `vectis-local` | Development supervisor that starts the local registry, queue, log, worker, cron, reconciler, API, and docs together. |
+| `vectis-local` | Development supervisor that starts the local registry, queue, log, worker, cron, reconciler, catalog, API, and docs together. |
 | `vectis-cli` | User and operator command-line client for the HTTP API. |
 
 ## Producers And Workers
@@ -125,7 +128,7 @@ For user-facing behavior and reconnect controls, see [Log Streaming](../using/lo
 
 | Store | Responsibility |
 | --- | --- |
-| SQL database | Job definitions, ephemeral definitions, runs, run leases, dispatch events, cron schedules, users, tokens, namespaces, role bindings, audit rows, and idempotency keys. |
+| SQL database | Job definitions, ephemeral definitions, runs, run leases, dispatch events, cell catalog events, cron schedules, users, tokens, namespaces, role bindings, audit rows, and idempotency keys. |
 | Queue persistence | Optional queue-host storage for queued and in-flight items. If disabled, queue contents are memory-only. |
 | Log storage | Run log files owned by `vectis-log`. Preserve this storage if run logs must survive restarts. |
 
@@ -160,7 +163,7 @@ The common local defaults are:
 | Log HTTP | `8084` | Log-service HTTP surface; user-facing log streaming goes through the API. |
 | Docs HTTP | `8088` | Static documentation site. |
 
-Prometheus metrics are exposed on `/metrics`. The API serves metrics on its main HTTP listener; queue, worker, log, and reconciler use dedicated metrics listeners by default.
+Prometheus metrics are exposed on `/metrics`. The API serves metrics on its main HTTP listener; queue, worker, log, reconciler, and catalog use dedicated metrics listeners by default.
 
 For exact ports, environment variables, TLS settings, and discovery settings, see [Configuration](../operating/configuration.md). For the REST route table, see [API Reference](../using/api-reference.md). gRPC contracts live under `api/proto/`.
 

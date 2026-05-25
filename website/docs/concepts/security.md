@@ -71,7 +71,7 @@ For the service identity matrix, private port guidance, and checklist for new in
 
 ## Metrics
 
-`vectis-api` serves `/metrics` on the same HTTP listener as the REST API. `vectis-queue`, `vectis-worker`, `vectis-log`, and `vectis-reconciler` use dedicated metrics listeners by default.
+`vectis-api` serves `/metrics` on the same HTTP listener as the REST API. `vectis-queue`, `vectis-worker`, `vectis-log`, `vectis-reconciler`, and `vectis-catalog` use dedicated metrics listeners by default.
 
 Metrics endpoints are not authenticated. The Podman reference deployment enables HTTPS on the dedicated queue, worker, and log metrics listeners through `VECTIS_METRICS_TLS_*`; API metrics remain on the API HTTP listener until API TLS is added separately.
 

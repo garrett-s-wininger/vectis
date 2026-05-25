@@ -18,7 +18,7 @@ This page answers "can this deployment shape handle my workload?" Scaling And Re
 | Cron | One cron process | Multiple cron replicas; duplicate schedule firing needs an HA decision. |
 | Reconciler | One reconciler process | Multiple reconcilers under heavy queued-run repair load. |
 | Logs | Durable local JSONL storage plus bounded in-memory terminal buffers | Very large persisted logs and many replaying clients. |
-| SQLite | Local/dev and small single-node deployments | High-concurrency API, worker, cron, and reconciler load. |
+| SQLite | Local/dev and small single-node deployments | High-concurrency API, worker, cron, reconciler, and catalog load. |
 | Postgres | Recommended for multi-service deployments | Exact pool sizes and trigger/worker scale must be benchmarked per deployment. |
 
 The envelope above is a throughput and pressure statement. The scale-out contract in [Scaling And Restarts](../deployment/scaling-and-restarts.md) remains the source of truth for whether a component is safe to run as multiple active replicas.
@@ -71,7 +71,7 @@ Revalidate the envelope before relying on a new operating point when you:
 - change database driver, host size, pool settings, or storage class;
 - change queue persistence, log storage, or log-forwarder spool storage;
 - introduce large logs or many concurrent log readers;
-- change queue, worker, cron, reconciler, API, retry, or log-streaming behavior.
+- change queue, worker, cron, reconciler, catalog, API, retry, or log-streaming behavior.
 
 Use [Capacity And Performance Checks](../../developing/performance/capacity-checks.md) for the developer/release process that produces new baseline evidence.
 

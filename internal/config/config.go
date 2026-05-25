@@ -46,6 +46,7 @@ type Defaults struct {
 	Worker     WorkerDefaults     `toml:"worker"`
 	Cron       CronDefaults       `toml:"cron"`
 	Reconciler ReconcilerDefaults `toml:"reconciler"`
+	Catalog    CatalogDefaults    `toml:"catalog"`
 	GRPCTLS    GRPCTLSDefaults    `toml:"grpc_tls"`
 	MetricsTLS MetricsTLSDefaults `toml:"metrics_tls"`
 }
@@ -191,6 +192,12 @@ type ReconcilerDefaults struct {
 	MetricsPort     int          `toml:"metrics_port"`
 }
 
+type CatalogDefaults struct {
+	Interval    tomlDuration `toml:"interval"`
+	BatchSize   int          `toml:"batch_size"`
+	MetricsPort int          `toml:"metrics_port"`
+}
+
 type GRPCTLSDefaults struct {
 	Insecure       bool         `toml:"insecure"`
 	CAFile         string       `toml:"ca_file"`
@@ -328,6 +335,23 @@ func validateDefaults(d Defaults) {
 		d.Reconciler.MetricsPort == d.Log.MetricsPort ||
 		d.Reconciler.MetricsPort == d.Worker.Control.Port {
 		panic("config defaults: reconciler.metrics_port must differ from queue/worker/log metrics ports and worker control port")
+	}
+
+	if time.Duration(d.Catalog.Interval) <= 0 {
+		panic("config defaults: catalog.interval must be > 0")
+	}
+
+	if d.Catalog.BatchSize <= 0 {
+		panic("config defaults: catalog.batch_size must be > 0")
+	}
+
+	validatePort(d.Catalog.MetricsPort, "catalog.metrics_port")
+	if d.Catalog.MetricsPort == d.Queue.MetricsPort ||
+		d.Catalog.MetricsPort == d.Worker.MetricsPort ||
+		d.Catalog.MetricsPort == d.Log.MetricsPort ||
+		d.Catalog.MetricsPort == d.Reconciler.MetricsPort ||
+		d.Catalog.MetricsPort == d.Worker.Control.Port {
+		panic("config defaults: catalog.metrics_port must differ from queue/worker/log/reconciler metrics ports and worker control port")
 	}
 
 	if strings.TrimSpace(d.API.Auth.BootstrapToken) != "" && len(strings.TrimSpace(d.API.Auth.BootstrapToken)) < 16 {
@@ -944,6 +968,35 @@ func ReconcilerInterval() time.Duration {
 
 func ReconcilerMetricsPort() int {
 	return MustDefaults().Reconciler.MetricsPort
+}
+
+func CatalogInterval() time.Duration {
+	if d := viper.GetDuration("interval"); d > 0 {
+		return d
+	}
+
+	d := time.Duration(MustDefaults().Catalog.Interval)
+	if d > 0 {
+		return d
+	}
+
+	return time.Second
+}
+
+func CatalogBatchSize() int {
+	if batchSize := viper.GetInt("batch_size"); batchSize > 0 {
+		return batchSize
+	}
+
+	if batchSize := MustDefaults().Catalog.BatchSize; batchSize > 0 {
+		return batchSize
+	}
+
+	return 100
+}
+
+func CatalogMetricsPort() int {
+	return MustDefaults().Catalog.MetricsPort
 }
 
 func registryDialAddress(roleRegistry func() string) string {

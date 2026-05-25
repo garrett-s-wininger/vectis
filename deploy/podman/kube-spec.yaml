@@ -77,6 +77,13 @@ data:
           ca_file: /run/vectis/grpc-tls/ca.pem
         static_configs:
           - targets: ["127.0.0.1:9085"]
+      - job_name: vectis-catalog
+        scheme: https
+        metrics_path: /metrics
+        tls_config:
+          ca_file: /run/vectis/grpc-tls/ca.pem
+        static_configs:
+          - targets: ["127.0.0.1:9086"]
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -499,6 +506,15 @@ spec:
             secretKeyRef:
               name: vectis-podman-secrets
               key: VECTIS_DATABASE_DSN
+    - name: catalog
+      image: vectis-catalog:latest
+      imagePullPolicy: Never
+      envFrom: *vectisGrpcTlsEnvFrom
+      volumeMounts: *vectisGrpcAndPostgresCaVolumeMounts
+      ports:
+        - containerPort: 9086
+          protocol: TCP
+      env: *dbEnv
     - name: registry
       image: vectis-registry:latest
       imagePullPolicy: Never

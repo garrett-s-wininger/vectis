@@ -73,6 +73,11 @@ registry.addresses = []
 interval = "30s"
 metrics_port = 9085
 
+[catalog]
+interval = "1s"
+batch_size = 100
+metrics_port = 9086
+
 [database]
 driver = "sqlite3"
 dsn = "{{data_home}}/vectis/db.sqlite3"

@@ -42,6 +42,7 @@ Some settings are global and intentionally do not use a service prefix, such as 
 | Pin worker to a queue address | `VECTIS_WORKER_WORKER_QUEUE_ADDRESS=host:8081` |
 | Persist queue backlog to disk | `VECTIS_QUEUE_PERSISTENCE_DIR=/path/to/queue` |
 | Change reconciler interval | `VECTIS_RECONCILER_INTERVAL=30s` |
+| Change catalog event drain interval | `VECTIS_CATALOG_INTERVAL=1s` |
 | Run `vectis-local` with plaintext internal gRPC | `vectis-local --grpc-insecure` or `VECTIS_LOCAL_GRPC_INSECURE=true` |
 
 ## Service Prefixes
@@ -57,6 +58,7 @@ Use these prefixes when building service-specific environment variable names.
 | `vectis-worker` | `VECTIS_WORKER` | `--metrics-port` |
 | `vectis-cron` | `VECTIS_CRON` | none today |
 | `vectis-reconciler` | `VECTIS_RECONCILER` | `--interval`, `--metrics-port` |
+| `vectis-catalog` | `VECTIS_CATALOG` | `--interval`, `--batch-size`, `--metrics-port` |
 | `vectis-log-forwarder` | `VECTIS_LOG_FORWARDER` | see `vectis-log-forwarder --help` |
 | `vectis-docs` | `VECTIS_DOCS` | `--host`, `--port`, `--dir` |
 | `vectis-local` | `VECTIS_LOCAL` | `--host`, `--docs-port`, `--docs-dir`, `--log-level`, `--grpc-insecure` |
@@ -125,7 +127,7 @@ When `VECTIS_DATABASE_DRIVER=pgx`, each DB-using process applies these `database
 | `VECTIS_DATABASE_PGX_CONN_MAX_LIFETIME` | `1h` | Maximum lifetime of a connection. |
 | `VECTIS_DATABASE_PGX_CONN_MAX_IDLE_TIME` | `15m` | Maximum idle time before a connection is closed. |
 
-These limits are per process. When you run multiple APIs, workers, cron, and reconciler instances, add the limits together when sizing Postgres.
+These limits are per process. When you run multiple APIs, workers, cron, reconciler, and catalog instances, add the limits together when sizing Postgres.
 
 ## Internal gRPC TLS {#internal-grpc-tls}
 
@@ -160,7 +162,7 @@ For trust boundaries and what mTLS does or does not authorize today, see [Intern
 | `VECTIS_METRICS_TLS_CERT_FILE` / `VECTIS_METRICS_TLS_KEY_FILE` | Server certificate and key for metrics listeners. |
 | `VECTIS_METRICS_TLS_RELOAD_INTERVAL` | Positive duration to poll PEM files and reload them without restart. `0` disables polling. |
 
-The dedicated metrics listeners are queue, worker, log, and reconciler. Keep metrics endpoints private; they are not authenticated. See [Security](../concepts/security.md).
+The dedicated metrics listeners are queue, worker, log, reconciler, and catalog. Keep metrics endpoints private; they are not authenticated. See [Security](../concepts/security.md).
 
 ## Discovery And Fixed Addresses {#service-discovery-vs-fixed-addresses}
 

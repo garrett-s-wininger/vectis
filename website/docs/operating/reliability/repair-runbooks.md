@@ -107,7 +107,7 @@ Use this when `health check` warns on `db.connection.pool` or the DB pool alert 
 
 Use this when `health check` fails `db.schema.current`, API readiness reports database/schema issues, or a restore drill reaches migration checks.
 
-1. Stop workers, cron, and reconciler if the schema state is uncertain.
+1. Stop workers, cron, reconciler, and catalog if the schema state is uncertain.
 2. Confirm `VECTIS_DATABASE_DRIVER` and `VECTIS_DATABASE_DSN` point at the intended database.
 3. Run the migration from the same network/config context used by the deployment:
 
@@ -117,7 +117,7 @@ vectis-cli database migrate
 
 4. Restart API first.
 5. Run `vectis-cli health check --strict`.
-6. Restart workers, cron, and reconciler after `api.ready` and `db.schema.current` pass.
+6. Restart workers, cron, reconciler, and catalog after `api.ready` and `db.schema.current` pass.
 7. For restore-specific order and partial-restore outcomes, use [Backup And Restore](./backup-restore.md).
 
 ## Retention Cleanup

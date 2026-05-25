@@ -8,7 +8,7 @@ This is a developer and release-validation page. It is not a production operator
 
 Run these checks before:
 
-- changing queue, worker, log streaming, cron, reconciler, or API hot paths;
+- changing queue, worker, log streaming, cron, reconciler, catalog, or API hot paths;
 - changing database schema or query patterns that affect run creation, claiming, finalization, or log lookup;
 - changing retry, idempotency, dispatch, or repair behavior;
 - publishing a release that claims a new capacity envelope.
@@ -48,7 +48,7 @@ Capture this for every meaningful performance check:
 | --- | --- |
 | Date and owner | Who ran the check and when. |
 | Code and build | Git commit, release version, build flags, and container image tags. |
-| Deployment shape | API, queue, log, cron, reconciler, and worker counts. |
+| Deployment shape | API, queue, log, cron, reconciler, catalog, and worker counts. |
 | Database | Driver, DSN class, pool settings, host size, and storage class. |
 | Queue and logs | Queue persistence path, log storage medium, spool location, and free space. |
 | Workload | Exact command, script, job definition, client count, trigger rate, and duration. |

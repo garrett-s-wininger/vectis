@@ -15,6 +15,7 @@
 | `log-forwarder/` | `vectis-log-forwarder` | daemon (sidecar) |
 | `worker/` | `vectis-worker` | daemon (action exec) |
 | `cron/` | `vectis-cron` | daemon (scheduler) |
+| `catalog/` | `vectis-catalog` | daemon (cell catalog applier) |
 | `docs/` | `vectis-docs` | daemon (static docs HTTP) |
 | `reconciler/` | `vectis-reconciler` | daemon (recovery) |
 | `local/` | `vectis-local` | daemon (dev supervisor) |
@@ -49,7 +50,7 @@ func main() {
 
 ## Which binaries need the database import
 
-Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-eleven-cmd): `api`, `queue`, `cron`, `reconciler` — these need the `dbdrivers` import. `registry`, `log`, `worker`, `log-forwarder`, `docs`, `local`, `cli` do not.
+Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-twelve-cmd): `api`, `queue`, `cron`, `reconciler`, `catalog` — these need the `dbdrivers` import. `registry`, `log`, `worker`, `log-forwarder`, `docs`, `local`, `cli` do not.
 
 ## Env prefix mapping
 
@@ -63,6 +64,7 @@ Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-eleven-cm
 | `vectis-log` | `VECTIS_LOG` | `[log]` |
 | `vectis-worker` | `VECTIS_WORKER` | `[worker]` |
 | `vectis-cron` | `VECTIS_CRON` | `[cron]` |
+| `vectis-catalog` | `VECTIS_CATALOG` | `[catalog]` |
 | `vectis-docs` | `VECTIS_DOCS` | static docs server; default host `localhost`, default port `8088`, serves embedded docs unless `VECTIS_DOCS_DIR` overrides |
 | `vectis-reconciler` | `VECTIS_RECONCILER` | `[reconciler]` |
 | `vectis-log-forwarder` | `VECTIS_LOG_FORWARDER` | flat viper keys — see flags in [`log-forwarder/main.go`](log-forwarder/main.go) |

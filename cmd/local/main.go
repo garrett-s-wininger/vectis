@@ -49,6 +49,7 @@ var (
 		{binary: "vectis-worker", stage: 2, checkHealth: false},
 		{binary: "vectis-cron", stage: 2, checkHealth: false},
 		{binary: "vectis-reconciler", stage: 2, checkHealth: false},
+		{binary: "vectis-catalog", stage: 2, checkHealth: false},
 		{binary: "vectis-api", stage: 2, checkHealth: false},
 		{binary: "vectis-docs", stage: 2, checkHealth: false},
 	}
@@ -428,8 +429,8 @@ var rootCmd = &cobra.Command{
 	Short: "Run Vectis services locally for development",
 	Long: `Vectis Local runs all Vectis services locally for development and testing.
 
-It starts the registry, queue, log service, worker, cron, reconciler, API server,
-and docs site as child processes.
+It starts the registry, queue, log service, worker, cron, reconciler, catalog,
+API server, and docs site as child processes.
 
 By default it bootstraps a dev CA and TLS certificates (under the XDG data directory)
 and sets VECTIS_GRPC_TLS_* for child processes so internal gRPC uses TLS. Use

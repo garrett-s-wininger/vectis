@@ -1,7 +1,7 @@
 SKIP_WEB_BUILD ?= 0
 SKIP_DOCS_ASSETS ?= 0
 
-APPS := api cli cron local log log-forwarder queue reconciler registry worker
+APPS := api catalog cli cron local log log-forwarder queue reconciler registry worker
 
 ifeq ($(SKIP_WEB_BUILD),0)
 APPS += docs
@@ -183,6 +183,7 @@ image-internal-%:
 
 .PHONY: $(addprefix image-, $(COMPONENTS))
 image-api: image-internal-api
+image-catalog: image-internal-catalog
 image-cli: image-internal-cli
 image-cron: image-internal-cron
 image-docs: image-internal-docs

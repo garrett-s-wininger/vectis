@@ -1,6 +1,6 @@
 # Reference Deployment Posture
 
-`vectis-cli deploy podman up` starts a full Vectis stack for demos, local staging, and integration testing. It is useful because it shows the pieces working together: API, queue, registry, log service, worker, cron, reconciler, docs, Postgres, metrics, traces, logs, and dashboards.
+`vectis-cli deploy podman up` starts a full Vectis stack for demos, local staging, and integration testing. It is useful because it shows the pieces working together: API, queue, registry, log service, worker, cron, reconciler, catalog, docs, Postgres, metrics, traces, logs, and dashboards.
 
 It is not a turnkey production architecture.
 
@@ -23,7 +23,7 @@ The reference deployment gives you a working single-site topology:
 | Database | Bundled Postgres with generated password and TLS inside the pod. |
 | Internal gRPC | Generated CA and server certificate, mounted into Vectis containers. |
 | Queue/log storage | Persistent volume claims for queue and log data. |
-| Metrics | Prometheus scraping API, queue, worker, log, and reconciler metrics. |
+| Metrics | Prometheus scraping API, queue, worker, log, reconciler, and catalog metrics. |
 | Dashboards | Grafana with a provisioned Vectis overview dashboard. |
 | Traces | Jaeger collector/query backed by the bundled OpenSearch instance. |
 | Service logs | Structured Vectis logs tailed by Fluent Bit into OpenSearch. |

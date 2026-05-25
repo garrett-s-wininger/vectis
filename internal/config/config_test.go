@@ -29,6 +29,36 @@ func TestMustDefaults_ReconcilerInterval(t *testing.T) {
 	}
 }
 
+func TestMustDefaults_Catalog(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	d := MustDefaults()
+	if time.Duration(d.Catalog.Interval) != time.Second {
+		t.Fatalf("expected catalog.interval 1s, got %v", time.Duration(d.Catalog.Interval))
+	}
+
+	if got := CatalogInterval(); got != time.Second {
+		t.Fatalf("CatalogInterval() with empty viper: got %v", got)
+	}
+
+	if d.Catalog.BatchSize != 100 {
+		t.Fatalf("expected catalog.batch_size 100, got %d", d.Catalog.BatchSize)
+	}
+
+	if got := CatalogBatchSize(); got != 100 {
+		t.Fatalf("CatalogBatchSize() with empty viper: got %d", got)
+	}
+
+	if d.Catalog.MetricsPort != 9086 {
+		t.Fatalf("expected catalog.metrics_port 9086, got %d", d.Catalog.MetricsPort)
+	}
+
+	if got := CatalogMetricsPort(); got != 9086 {
+		t.Fatalf("CatalogMetricsPort() with empty viper: got %d", got)
+	}
+}
+
 func TestCellID_DefaultViperAndEnv(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
