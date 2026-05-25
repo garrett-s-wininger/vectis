@@ -79,6 +79,10 @@ const (
 	DispatchEventAttempt = "attempt"
 	DispatchEventSuccess = "success"
 	DispatchEventFailure = "failure"
+
+	CatalogEventStatusPending = "pending"
+	CatalogEventStatusApplied = "applied"
+	CatalogEventStatusFailed  = "failed"
 )
 
 type JobRecord struct {
@@ -156,6 +160,20 @@ type DispatchEvent struct {
 	CreatedAt int64
 }
 
+type CatalogEventRecord struct {
+	ID         int64
+	SourceCell string
+	EventKey   string
+	EventType  string
+	Payload    []byte
+	Status     string
+	Attempts   int
+	LastError  *string
+	ReceivedAt int64
+	AppliedAt  *int64
+	UpdatedAt  int64
+}
+
 type IdempotencyRepository interface {
 	Reserve(ctx context.Context, scope, key, requestHash string) (record IdempotencyRecord, created bool, err error)
 	Complete(ctx context.Context, scope, key, responseJSON string) error
@@ -166,6 +184,13 @@ type DispatchEventsRepository interface {
 	Record(ctx context.Context, runID, source, eventType string, message *string) error
 	ListByRun(ctx context.Context, runID string) ([]DispatchEvent, error)
 	LastReconcilerActivity(ctx context.Context) (*int64, error)
+}
+
+type CatalogEventsRepository interface {
+	Record(ctx context.Context, sourceCell, eventKey, eventType string, payload []byte) (CatalogEventRecord, bool, error)
+	ListPending(ctx context.Context, limit int) ([]CatalogEventRecord, error)
+	MarkApplied(ctx context.Context, id int64) error
+	MarkFailed(ctx context.Context, id int64, message string) error
 }
 
 type CronSchedule struct {
@@ -265,6 +290,7 @@ type SQLRepositories struct {
 	roleBindings *SQLRoleBindingsRepository
 	idempotency  *SQLIdempotencyRepository
 	dispatch     *SQLDispatchEventsRepository
+	catalog      *SQLCatalogEventsRepository
 }
 
 func NewSQLRepositories(db *sql.DB) *SQLRepositories {
@@ -284,6 +310,7 @@ func NewSQLRepositoriesWithCellID(db *sql.DB, cellID string) *SQLRepositories {
 		roleBindings: NewSQLRoleBindingsRepository(db),
 		idempotency:  &SQLIdempotencyRepository{db: db},
 		dispatch:     &SQLDispatchEventsRepository{db: db},
+		catalog:      &SQLCatalogEventsRepository{db: db},
 	}
 }
 
@@ -438,4 +465,8 @@ func (r *SQLRepositories) Idempotency() IdempotencyRepository {
 
 func (r *SQLRepositories) DispatchEvents() DispatchEventsRepository {
 	return r.dispatch
+}
+
+func (r *SQLRepositories) CatalogEvents() CatalogEventsRepository {
+	return r.catalog
 }

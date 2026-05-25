@@ -601,6 +601,133 @@ func TestRunsRepository_ExecutionTransitionsRejectInvalidTargets(t *testing.T) {
 	}
 }
 
+func TestCatalogEventsRepository_RecordListAndMark(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	events := repos.CatalogEvents()
+	ctx := context.Background()
+
+	first, created, err := events.Record(ctx, "iad-a", "event-1", "run.status", []byte(`{"run_id":"run-1","status":"running"}`))
+	if err != nil {
+		t.Fatalf("record first event: %v", err)
+	}
+
+	if !created {
+		t.Fatal("expected first record to create an event")
+	}
+
+	if first.ID == 0 || first.Status != dal.CatalogEventStatusPending || first.Attempts != 0 {
+		t.Fatalf("unexpected first event record: %+v", first)
+	}
+
+	if string(first.Payload) != `{"run_id":"run-1","status":"running"}` {
+		t.Fatalf("unexpected first payload: %s", first.Payload)
+	}
+
+	duplicate, created, err := events.Record(ctx, "iad-a", "event-1", "run.status", []byte(`{"run_id":"run-1","status":"failed"}`))
+	if err != nil {
+		t.Fatalf("record duplicate event: %v", err)
+	}
+
+	if created {
+		t.Fatal("expected duplicate record to be idempotent")
+	}
+
+	if duplicate.ID != first.ID || string(duplicate.Payload) != string(first.Payload) {
+		t.Fatalf("duplicate should return original event, got %+v want %+v", duplicate, first)
+	}
+
+	second, created, err := events.Record(ctx, "iad-a", "event-2", "execution.status", []byte(`{"execution_id":"execution-1","status":"accepted"}`))
+	if err != nil {
+		t.Fatalf("record second event: %v", err)
+	}
+
+	if !created {
+		t.Fatal("expected second record to create an event")
+	}
+
+	pending, err := events.ListPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("list pending: %v", err)
+	}
+
+	if len(pending) != 2 || pending[0].ID != first.ID || pending[1].ID != second.ID {
+		t.Fatalf("expected pending events in insertion order, got %+v", pending)
+	}
+
+	if err := events.MarkApplied(ctx, first.ID); err != nil {
+		t.Fatalf("mark applied: %v", err)
+	}
+
+	if err := events.MarkFailed(ctx, second.ID, "apply failed"); err != nil {
+		t.Fatalf("mark failed: %v", err)
+	}
+
+	pending, err = events.ListPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("list pending after marks: %v", err)
+	}
+
+	if len(pending) != 0 {
+		t.Fatalf("expected no pending events after marks, got %+v", pending)
+	}
+
+	var firstStatus string
+	var firstAttempts int
+	var firstAppliedAt sql.NullInt64
+	if err := db.QueryRowContext(ctx, "SELECT status, attempts, applied_at FROM cell_catalog_events WHERE id = ?", first.ID).
+		Scan(&firstStatus, &firstAttempts, &firstAppliedAt); err != nil {
+		t.Fatalf("query applied event: %v", err)
+	}
+
+	if firstStatus != dal.CatalogEventStatusApplied || firstAttempts != 1 || !firstAppliedAt.Valid {
+		t.Fatalf("unexpected applied event state: status=%q attempts=%d applied_at=%+v", firstStatus, firstAttempts, firstAppliedAt)
+	}
+
+	var secondStatus string
+	var secondAttempts int
+	var secondError sql.NullString
+	if err := db.QueryRowContext(ctx, "SELECT status, attempts, last_error FROM cell_catalog_events WHERE id = ?", second.ID).
+		Scan(&secondStatus, &secondAttempts, &secondError); err != nil {
+		t.Fatalf("query failed event: %v", err)
+	}
+
+	if secondStatus != dal.CatalogEventStatusFailed || secondAttempts != 1 || !secondError.Valid || secondError.String != "apply failed" {
+		t.Fatalf("unexpected failed event state: status=%q attempts=%d error=%+v", secondStatus, secondAttempts, secondError)
+	}
+}
+
+func TestCatalogEventsRepository_RejectsInvalidRecords(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	events := dal.NewSQLRepositories(db).CatalogEvents()
+	ctx := context.Background()
+
+	tests := []struct {
+		name       string
+		sourceCell string
+		eventKey   string
+		eventType  string
+		payload    []byte
+	}{
+		{name: "source cell", eventKey: "event-1", eventType: "run.status", payload: []byte(`{}`)},
+		{name: "event key", sourceCell: "iad-a", eventType: "run.status", payload: []byte(`{}`)},
+		{name: "event type", sourceCell: "iad-a", eventKey: "event-1", payload: []byte(`{}`)},
+		{name: "payload", sourceCell: "iad-a", eventKey: "event-1", eventType: "run.status"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, _, err := events.Record(ctx, tt.sourceCell, tt.eventKey, tt.eventType, tt.payload); !dal.IsConflict(err) {
+				t.Fatalf("expected conflict, got %v", err)
+			}
+		})
+	}
+
+	if err := events.MarkApplied(ctx, 404); !dal.IsNotFound(err) {
+		t.Fatalf("expected missing applied mark to return not found, got %v", err)
+	}
+}
+
 func assertExecutionAndSegmentStatus(t *testing.T, db *sql.DB, executionID, segmentID, wantExecutionStatus, wantSegmentStatus string, wantEventSequence int64) {
 	t.Helper()
 

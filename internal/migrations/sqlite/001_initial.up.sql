@@ -111,6 +111,24 @@ CREATE TABLE run_dispatch_events (
 CREATE INDEX idx_run_dispatch_events_run_id_created_at ON run_dispatch_events(run_id, created_at, id);
 CREATE INDEX idx_run_dispatch_events_type ON run_dispatch_events(event_type);
 
+CREATE TABLE cell_catalog_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_cell TEXT NOT NULL,
+    event_key TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    received_at INTEGER NOT NULL,
+    applied_at INTEGER,
+    updated_at INTEGER NOT NULL,
+    UNIQUE(source_cell, event_key)
+);
+
+CREATE INDEX idx_cell_catalog_events_status_id ON cell_catalog_events(status, id);
+CREATE INDEX idx_cell_catalog_events_source_received ON cell_catalog_events(source_cell, received_at, id);
+
 CREATE TABLE idempotency_keys (
     scope TEXT NOT NULL,
     key TEXT NOT NULL,
