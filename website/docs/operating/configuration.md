@@ -33,6 +33,7 @@ Some settings are global and intentionally do not use a service prefix, such as 
 | Expose local API and docs from a dev host | `vectis-local --host 0.0.0.0` |
 | Set the execution cell identity | `VECTIS_CELL_ID=local` |
 | Bind private cell ingress to another interface | `VECTIS_CELL_INGRESS_HOST=0.0.0.0` or `vectis-cell-ingress --host 0.0.0.0` |
+| Route API dispatch to a remote cell | `vectis-api --cell-ingress-endpoint iad-a=http://iad.example:8085` |
 | Enable API authentication | `VECTIS_API_AUTH_ENABLED=true` and, for a new database, `VECTIS_API_AUTH_BOOTSTRAP_TOKEN` |
 | Select authorization engine | `VECTIS_API_AUTHZ_ENGINE=hierarchical_rbac` or `authenticated_full` |
 | Set PostgreSQL | `VECTIS_DATABASE_DRIVER=pgx` and `VECTIS_DATABASE_DSN=postgres://...` on every DB-using service |
@@ -52,7 +53,7 @@ Use these prefixes when building service-specific environment variable names.
 
 | Program | Env prefix | Useful flags |
 | --- | --- | --- |
-| `vectis-api` | `VECTIS_API_SERVER` | `--host`, `--port` |
+| `vectis-api` | `VECTIS_API_SERVER` | `--host`, `--port`, `--cell-ingress-endpoint` |
 | `vectis-cell-ingress` | `VECTIS_CELL_INGRESS` | `--host`, `--port`, `--metrics-port`, `--queue-address`, `--registry-address` |
 | `vectis-queue` | `VECTIS_QUEUE` | `--port`, `--metrics-port`, `--persistence-dir`, `--persistence-snapshot-every` |
 | `vectis-registry` | `VECTIS_REGISTRY` | `--port` |
@@ -176,6 +177,8 @@ Vectis can either discover services through `vectis-registry` or use fixed addre
 | Fixed addresses | You want fewer startup dependencies and already know the queue/log addresses. |
 
 Role-specific settings override shared discovery settings when both are set.
+
+Global API dispatch can route non-local execution cells to their private ingress endpoints with repeated `--cell-ingress-endpoint cell_id=url` flags or `VECTIS_API_SERVER_CELL_INGRESS_ENDPOINTS=iad-a=http://iad.example:8085,pdx-b=http://pdx.example:8085`. The API always keeps the local cell routed to the local queue; remote entries are only used when a run targets a different cell.
 
 | What you are configuring | Shared setting segment | Role-specific examples |
 | --- | --- | --- |

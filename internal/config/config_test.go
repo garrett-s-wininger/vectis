@@ -178,6 +178,35 @@ func TestAPIHostAndListenAddr_DefaultAndOverride(t *testing.T) {
 	}
 }
 
+func TestAPICellIngressEndpoints_DefaultAndOverride(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	if got := APICellIngressEndpointSpecs(); len(got) != 0 {
+		t.Fatalf("APICellIngressEndpointSpecs default: got %+v, want empty", got)
+	}
+
+	viper.Set("cell_ingress_endpoints", []string{"iad-a=http://iad.example:8085", "pdx-b=https://pdx.example"})
+	got, err := APICellIngressEndpoints()
+	if err != nil {
+		t.Fatalf("APICellIngressEndpoints: %v", err)
+	}
+
+	if got["iad-a"] != "http://iad.example:8085" {
+		t.Fatalf("iad endpoint: got %q", got["iad-a"])
+	}
+
+	if got["pdx-b"] != "https://pdx.example" {
+		t.Fatalf("pdx endpoint: got %q", got["pdx-b"])
+	}
+}
+
+func TestParseCellIngressEndpointsRejectsInvalidSpec(t *testing.T) {
+	if _, err := ParseCellIngressEndpoints([]string{"iad-a"}); err == nil {
+		t.Fatal("ParseCellIngressEndpoints succeeded, want error")
+	}
+}
+
 func TestRegistryResolverPollInterval_FromDefaults(t *testing.T) {
 	if got := RegistryResolverPollInterval(); got != 10*time.Second {
 		t.Fatalf("expected discovery.registry_resolver_refresh 10s, got %v", got)

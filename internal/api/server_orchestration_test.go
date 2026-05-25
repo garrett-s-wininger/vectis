@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"vectis/internal/api"
+	"vectis/internal/cell"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces/mocks"
 )
@@ -110,8 +112,14 @@ func TestAPIServer_TriggerJob_OrchestrationUsesTargetCells(t *testing.T) {
 	runs.CreateRunIndex = 11
 
 	queue := mocks.NewMockQueueService()
-	server := api.NewAPIServerWithRepositories(mocks.NewMockLogger(), jobs, runs, mocks.StubEphemeralRunStarter{})
+	logger := mocks.NewMockLogger()
+	server := api.NewAPIServerWithRepositories(logger, jobs, runs, mocks.StubEphemeralRunStarter{})
 	server.SetQueueClient(queue)
+	server.SetExecutionIngress(cell.NewStaticExecutionRouter(map[string]cell.ExecutionIngress{
+		"local": cell.NewQueueExecutionIngress(queue, logger),
+		"iad-a": cell.NewQueueExecutionIngress(queue, logger),
+		"pdx-b": cell.NewQueueExecutionIngress(queue, logger),
+	}))
 
 	body := bytes.NewBufferString(`{"cell_ids":["iad-a","pdx-b","iad-a"]}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/job-target-cells", body)
@@ -201,6 +209,64 @@ func TestAPIServer_TriggerJob_OrchestrationUsesTargetCells(t *testing.T) {
 	}
 }
 
+func TestAPIServer_TriggerJob_DispatchesTargetCellThroughExecutionIngress(t *testing.T) {
+	jobs := mocks.NewMockJobsRepository()
+	jobs.Definitions["job-remote-cell"] = `{"id":"job-remote-cell","root":{"uses":"builtins/shell","with":{"command":"echo hi"}}}`
+	jobs.DefinitionVersions["job-remote-cell"] = 6
+
+	runs := mocks.NewMockRunsRepository()
+	runs.CreateRunID = "run-remote-cell"
+	runs.CreateRunIndex = 1
+	runs.PendingExecution = dal.ExecutionDispatchRecord{
+		RunID:             "run-remote-cell",
+		JobID:             "job-remote-cell",
+		SegmentID:         "segment-1",
+		ExecutionID:       "execution-1",
+		CellID:            "iad-a",
+		Attempt:           1,
+		DefinitionVersion: 6,
+		DefinitionHash:    "sha256:abc123",
+	}
+
+	ingress := &recordingExecutionIngress{done: make(chan struct{})}
+	server := api.NewAPIServerWithRepositories(mocks.NewMockLogger(), jobs, runs, mocks.StubEphemeralRunStarter{})
+	server.SetExecutionIngress(cell.NewStaticExecutionRouter(map[string]cell.ExecutionIngress{
+		"iad-a": ingress,
+	}))
+
+	body := bytes.NewBufferString(`{"cell_id":"iad-a"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/job-remote-cell", body)
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", "job-remote-cell")
+	rec := httptest.NewRecorder()
+
+	server.TriggerJob(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusAccepted, rec.Code, rec.Body.String())
+	}
+
+	select {
+	case <-ingress.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for execution ingress submission")
+	}
+
+	submission := ingress.snapshot()
+	if submission.TargetCellID() != "iad-a" {
+		t.Fatalf("target cell: got %q, want iad-a", submission.TargetCellID())
+	}
+
+	if submission.Request.GetJob().GetRunId() != "run-remote-cell" {
+		t.Fatalf("submitted run id: got %q, want run-remote-cell", submission.Request.GetJob().GetRunId())
+	}
+
+	touched := runs.SnapshotTouchedRunIDs()
+	if len(touched) != 1 || touched[0] != "run-remote-cell" {
+		t.Fatalf("expected touch for run-remote-cell, got %+v", touched)
+	}
+}
+
 func TestAPIServer_GetJobRuns_OrchestrationUsesRunsRepository(t *testing.T) {
 	jobs := mocks.NewMockJobsRepository()
 	jobs.Definitions["job-1"] = `{"id":"job-1"}`
@@ -248,6 +314,21 @@ func TestAPIServer_GetJobRuns_OrchestrationUsesRunsRepository(t *testing.T) {
 	if body[0]["owning_cell"] != "pdx-b" {
 		t.Fatalf("expected owning_cell pdx-b, got %v", body[0]["owning_cell"])
 	}
+}
+
+type recordingExecutionIngress struct {
+	submission cell.ExecutionSubmission
+	done       chan struct{}
+}
+
+func (i *recordingExecutionIngress) SubmitExecution(ctx context.Context, submission cell.ExecutionSubmission) error {
+	i.submission = submission
+	close(i.done)
+	return nil
+}
+
+func (i *recordingExecutionIngress) snapshot() cell.ExecutionSubmission {
+	return i.submission
 }
 
 func TestAPIServer_GetJobRuns_OrchestrationParsesOwningCell(t *testing.T) {

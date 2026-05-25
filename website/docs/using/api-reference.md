@@ -234,6 +234,8 @@ List routes use `limit` and `cursor` query parameters where implemented. Paginat
 
 `GET /api/v1/jobs/{id}/runs` is backed by the global run catalog, not by per-cell fan-out. It returns summary run records from `job_runs`, including `owning_cell`, and accepts `after_index`, `since`, and `cell_id`/`owning_cell` filters.
 
+Run submission routes can target a cell with `cell_id`/`target_cell_id`; stored-job triggers can also fan out with `cell_ids`/`target_cell_ids`. Non-local targets require the API to be configured with matching private cell ingress endpoints.
+
 `POST /api/v1/jobs/run` and `POST /api/v1/jobs/trigger/{id}` accept `Idempotency-Key`. Use this header when a client might retry after a timeout or dropped connection. Retry guidance for each route family is in [Idempotency And Retries](./idempotency-and-retries.md).
 
 Streaming routes return `text/event-stream`. Use `curl -N`, `EventSource`, or another SSE-capable client for `GET /api/v1/sse/jobs/{id}/runs` and `GET /api/v1/runs/{id}/logs`.

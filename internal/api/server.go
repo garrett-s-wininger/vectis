@@ -20,6 +20,7 @@ import (
 	"vectis/internal/api/authz"
 	"vectis/internal/api/ratelimit"
 	"vectis/internal/backoff"
+	"vectis/internal/cell"
 	"vectis/internal/cli"
 	"vectis/internal/config"
 	"vectis/internal/dal"
@@ -98,8 +99,9 @@ type APIServer struct {
 	// ResolveWorkerAddress, when set, resolves a worker_id to a control address via the registry.
 	ResolveWorkerAddress func(ctx context.Context, workerID string) (string, error)
 
-	mu     sync.RWMutex
-	srvCtx atomic.Pointer[ctxHolder]
+	mu               sync.RWMutex
+	executionIngress cell.ExecutionIngress
+	srvCtx           atomic.Pointer[ctxHolder]
 }
 
 type routeSpec struct {
@@ -419,6 +421,12 @@ func (s *APIServer) SetQueueClient(client interfaces.QueueService) {
 	if old != nil && old.close != nil {
 		old.close()
 	}
+}
+
+func (s *APIServer) SetExecutionIngress(ingress cell.ExecutionIngress) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.executionIngress = ingress
 }
 
 func (s *APIServer) SetLogClient(client api.LogServiceClient) {

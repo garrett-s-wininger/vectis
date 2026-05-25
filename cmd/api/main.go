@@ -218,8 +218,11 @@ func init() {
 	cli.ConfigureVersion(rootCmd)
 	rootCmd.PersistentFlags().String("host", config.APIHost(), "Host/IP for the API server to bind")
 	rootCmd.PersistentFlags().Int("port", config.APIPort(), "Port for the API server")
+	rootCmd.PersistentFlags().StringSlice("cell-ingress-endpoint", config.APICellIngressEndpointSpecs(), "Cell ingress route in cell_id=url form; may be repeated")
 	_ = viper.BindPFlag("host", rootCmd.PersistentFlags().Lookup("host"))
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
+	_ = viper.BindPFlag("cell_ingress_endpoints", rootCmd.PersistentFlags().Lookup("cell-ingress-endpoint"))
+	_ = viper.BindEnv("cell_ingress_endpoints", "VECTIS_API_SERVER_CELL_INGRESS_ENDPOINTS")
 	viper.SetEnvPrefix("VECTIS_API_SERVER")
 	viper.AutomaticEnv()
 }

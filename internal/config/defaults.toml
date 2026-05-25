@@ -6,6 +6,7 @@ host = "localhost"
 port = 8080
 log_format = "text"
 log.address = ""
+cell_ingress.endpoints = []
 
 [api.auth]
 enabled = false

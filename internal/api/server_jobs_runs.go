@@ -1132,7 +1132,7 @@ func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID strin
 	}
 
 	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventAttempt, nil)
-	if err := enqueueWithRetry(ctx, qc, req, s.logger); err != nil {
+	if err := s.submitExecution(ctx, qc, req); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "enqueue")
 		span.End()
@@ -1442,7 +1442,7 @@ func (s *APIServer) finishRunJobEnqueue(ctx context.Context, jobID, runID string
 	}
 
 	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventAttempt, nil)
-	if err := enqueueWithRetry(ctx, qc, req, s.logger); err != nil {
+	if err := s.submitExecution(ctx, qc, req); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "enqueue")
 		span.End()

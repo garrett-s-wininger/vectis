@@ -57,17 +57,18 @@ type CellDefaults struct {
 }
 
 type APIDefaults struct {
-	Host            string               `toml:"host"`
-	Port            int                  `toml:"port"`
-	LogFormat       string               `toml:"log_format"`
-	RegistryAddress string               `toml:"registry.address"`
-	QueueAddress    string               `toml:"queue.address"`
-	LogAddress      string               `toml:"log.address"`
-	Auth            APIAuthDefaults      `toml:"auth"`
-	Authz           APIAuthzDefaults     `toml:"authz"`
-	Audit           APIAuditDefaults     `toml:"audit"`
-	RateLimit       APIRateLimitDefaults `toml:"rate_limit"`
-	ClientIP        APIClientIPDefaults  `toml:"client_ip"`
+	Host                 string               `toml:"host"`
+	Port                 int                  `toml:"port"`
+	LogFormat            string               `toml:"log_format"`
+	RegistryAddress      string               `toml:"registry.address"`
+	QueueAddress         string               `toml:"queue.address"`
+	LogAddress           string               `toml:"log.address"`
+	CellIngressEndpoints []string             `toml:"cell_ingress.endpoints"`
+	Auth                 APIAuthDefaults      `toml:"auth"`
+	Authz                APIAuthzDefaults     `toml:"authz"`
+	Audit                APIAuditDefaults     `toml:"audit"`
+	RateLimit            APIRateLimitDefaults `toml:"rate_limit"`
+	ClientIP             APIClientIPDefaults  `toml:"client_ip"`
 }
 
 type APIClientIPDefaults struct {
@@ -942,6 +943,43 @@ func APILogAddress() string {
 		viper.GetString("worker.log.address"),
 		d.Worker.LogAddress,
 	)
+}
+
+func APICellIngressEndpointSpecs() []string {
+	d := MustDefaults()
+	return coalesceStringSlices(
+		stringSliceFromViper("cell_ingress_endpoints"),
+		stringSliceFromViper("api.cell_ingress.endpoints"),
+		d.API.CellIngressEndpoints,
+	)
+}
+
+func APICellIngressEndpoints() (map[string]string, error) {
+	return ParseCellIngressEndpoints(APICellIngressEndpointSpecs())
+}
+
+func ParseCellIngressEndpoints(specs []string) (map[string]string, error) {
+	out := make(map[string]string)
+	for _, spec := range cleanStringSlice(specs) {
+		cellID, endpoint, ok := strings.Cut(spec, "=")
+		if !ok {
+			return nil, fmt.Errorf("cell ingress endpoint %q must be cell_id=url", spec)
+		}
+
+		cellID = strings.TrimSpace(cellID)
+		endpoint = strings.TrimSpace(endpoint)
+		if cellID == "" {
+			return nil, fmt.Errorf("cell ingress endpoint %q has empty cell_id", spec)
+		}
+
+		if endpoint == "" {
+			return nil, fmt.Errorf("cell ingress endpoint for %q has empty url", cellID)
+		}
+
+		out[cellID] = endpoint
+	}
+
+	return out, nil
 }
 
 func CronRegistryAddress() string {
