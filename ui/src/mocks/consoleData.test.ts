@@ -8,6 +8,7 @@ import {
   deleteMockUser,
   loadMockConsoleData,
   scopeMockConsoleData,
+  submitMockEphemeralRun,
   triggerMockRun,
   updateMockUserStatus
 } from "./consoleData";
@@ -124,14 +125,35 @@ describe("mock console data", () => {
 
     expect(next.runs[0]).toMatchObject({
       jobName: "docs-publish",
+      cellName: "edge",
       namespacePath: "/team-a/edge",
       runNumber: 1241,
+      source: "stored",
       status: "queued"
     });
 
     expect(next.jobs.find((job) => job.id === "job-docs-publish")).toMatchObject({
       lastRunStatus: "queued",
       nextRun: "Queued"
+    });
+  });
+
+  it("submits an ephemeral run without creating a stored job", async () => {
+    const data = await loadMockConsoleData();
+    const next = submitMockEphemeralRun(data, {
+      definition: JSON.stringify({ id: "database-backfill", root: {} }),
+      namespacePath: "/team-a",
+      submittedBy: "admin"
+    });
+
+    expect(next.jobs).toHaveLength(data.jobs.length);
+    expect(next.runs[0]).toMatchObject({
+      jobName: "database-backfill",
+      cellName: "local",
+      namespacePath: "/team-a",
+      source: "ephemeral",
+      submittedBy: "admin",
+      status: "queued"
     });
   });
 });

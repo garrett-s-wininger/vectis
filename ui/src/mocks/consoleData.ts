@@ -68,6 +68,12 @@ export type NewMockNamespace = {
   parentID: number;
 };
 
+export type NewMockEphemeralRun = {
+  definition: string;
+  namespacePath: string;
+  submittedBy?: string;
+};
+
 export type MockConsoleData = {
   cells: MockCell[];
   jobs: MockJob[];
@@ -492,9 +498,12 @@ export function triggerMockRun(
     id: `run-${nextRunNumber}`,
     jobName: job.name,
     runNumber: nextRunNumber,
+    cellName: cellNameForNamespace(job.namespacePath),
     commit: "manual",
     duration: "Queued",
     namespacePath: job.namespacePath,
+    source: "stored",
+    submittedBy: "admin",
     status: "queued"
   };
 
@@ -505,6 +514,36 @@ export function triggerMockRun(
         ? { ...candidate, lastRunStatus: "queued", nextRun: "Queued" }
         : candidate
     ),
+    runs: [run, ...data.runs]
+  };
+}
+
+export function submitMockEphemeralRun(
+  data: MockConsoleData,
+  input: NewMockEphemeralRun
+): MockConsoleData {
+  const definition = input.definition.trim();
+  if (!definition) {
+    return data;
+  }
+
+  const nextRunNumber =
+    Math.max(0, ...data.runs.map((run) => run.runNumber)) + 1;
+  const run: RunListItem = {
+    id: `run-${nextRunNumber}`,
+    jobName: jobNameFromDefinition(definition),
+    runNumber: nextRunNumber,
+    cellName: cellNameForNamespace(input.namespacePath),
+    commit: "inline definition",
+    duration: "Queued",
+    namespacePath: input.namespacePath,
+    source: "ephemeral",
+    submittedBy: input.submittedBy ?? "admin",
+    status: "queued"
+  };
+
+  return {
+    ...data,
     runs: [run, ...data.runs]
   };
 }
@@ -523,6 +562,49 @@ function cloneData(data: MockConsoleData): MockConsoleData {
     signals: data.signals.map((signal) => ({ ...signal })),
     users: data.users.map((user) => ({ ...user }))
   };
+}
+
+function jobNameFromDefinition(definition: string) {
+  try {
+    const parsed = JSON.parse(definition) as unknown;
+    if (!parsed || typeof parsed !== "object") {
+      return "ephemeral-run";
+    }
+
+    const body = "job" in parsed ? (parsed as { job?: unknown }).job : parsed;
+    if (!body || typeof body !== "object") {
+      return "ephemeral-run";
+    }
+
+    return (
+      stringField(body, "name") ??
+      stringField(body, "id") ??
+      "ephemeral-run"
+    );
+  } catch {
+    return "ephemeral-run";
+  }
+}
+
+function stringField(value: object, key: string) {
+  if (!(key in value)) {
+    return null;
+  }
+
+  const field = (value as Record<string, unknown>)[key];
+  return typeof field === "string" && field.trim() ? field : null;
+}
+
+function cellNameForNamespace(namespacePath: string) {
+  if (namespacePath === "/team-a/edge") {
+    return "edge";
+  }
+
+  if (namespacePath === "/prod") {
+    return "prod-west";
+  }
+
+  return "local";
 }
 
 function namespaceContains(parentPath: string, childPath: string) {

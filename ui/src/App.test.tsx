@@ -225,6 +225,34 @@ describe("App", () => {
     expect(screen.getByText(/manual · Queued/)).toBeInTheDocument();
   });
 
+  it("submits an ephemeral run from the runs page", async () => {
+    window.history.replaceState(null, "", "/runs");
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Runs" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Run once" }));
+    fireEvent.change(screen.getByLabelText("Job definition JSON"), {
+      target: {
+        value: JSON.stringify({
+          id: "database-backfill",
+          root: { id: "root", uses: "builtins/shell" }
+        })
+      }
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Submit run" }));
+
+    expect(await screen.findByText("database-backfill")).toBeInTheDocument();
+    expect(screen.getAllByText("Ephemeral")).toHaveLength(2);
+    expect(screen.getByText(/inline definition · Queued/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("link", { name: "Jobs" }));
+
+    expect(screen.queryByText("database-backfill")).not.toBeInTheDocument();
+  });
+
   it("scopes jobs by selected namespace", async () => {
     window.history.replaceState(null, "", "/jobs");
 

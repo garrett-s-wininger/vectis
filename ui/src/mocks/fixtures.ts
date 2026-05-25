@@ -45,27 +45,36 @@ export const activeRuns: RunListItem[] = [
     id: "run-1240",
     jobName: "api-test-suite",
     runNumber: 1240,
+    cellName: "local",
     commit: "8f12c4a",
     duration: "4m 12s",
     namespacePath: "/team-a",
+    source: "stored",
+    submittedBy: "mira",
     status: "running"
   },
   {
     id: "run-1239",
     jobName: "docs-publish",
     runNumber: 1239,
+    cellName: "edge",
     commit: "1d9a0b3",
     duration: "1m 48s",
     namespacePath: "/team-a/edge",
+    source: "stored",
+    submittedBy: "lee",
     status: "queued"
   },
   {
     id: "run-1238",
     jobName: "worker-image",
     runNumber: 1238,
+    cellName: "prod-west",
     commit: "54fd901",
     duration: "7m 31s",
     namespacePath: "/prod",
+    source: "stored",
+    submittedBy: "admin",
     status: "succeeded"
   }
 ];

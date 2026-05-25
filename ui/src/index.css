@@ -458,6 +458,14 @@ h1 {
   min-width: 0;
 }
 
+.run-list__title {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
 .run-list__summary strong {
   color: #172026;
   font-size: 0.9375rem;
@@ -477,6 +485,25 @@ h1 {
 .run-list__empty {
   margin: 0;
   padding: 16px;
+}
+
+.run-source {
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 0.75rem;
+  font-weight: 800;
+  line-height: 1;
+  padding: 5px 8px;
+}
+
+.run-source--stored {
+  background: #eef2f5;
+  color: #3f5463;
+}
+
+.run-source--ephemeral {
+  background: #fff4df;
+  color: #8b540c;
 }
 
 .page-header {
@@ -945,6 +972,36 @@ h1 {
   margin-top: 0;
 }
 
+.run-once-panel {
+  background: #ffffff;
+  border: 1px solid #dbe3e8;
+  border-radius: 8px;
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  width: min(960px, 100%);
+}
+
+.run-once-panel__header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.run-once-form {
+  display: grid;
+  gap: 12px;
+}
+
+.run-once-form__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.run-once-form__actions .button {
+  margin-top: 0;
+}
+
 .field {
   color: #516673;
   display: grid;
@@ -959,7 +1016,8 @@ h1 {
 }
 
 .field input,
-.field select {
+.field select,
+.field textarea {
   background: #ffffff;
   border: 1px solid #cfd9df;
   border-radius: 6px;
@@ -968,8 +1026,19 @@ h1 {
   padding: 0 10px;
 }
 
+.field textarea {
+  min-height: 216px;
+  padding: 10px;
+  resize: vertical;
+}
+
+.field--wide {
+  max-width: none;
+}
+
 .field input:focus-visible,
-.field select:focus-visible {
+.field select:focus-visible,
+.field textarea:focus-visible {
   outline: 3px solid #7fc7dd;
   outline-offset: 2px;
 }

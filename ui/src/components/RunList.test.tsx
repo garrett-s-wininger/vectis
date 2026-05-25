@@ -6,8 +6,12 @@ const runs: RunListItem[] = [
     id: "run-184",
     jobName: "linux-ci",
     runNumber: 184,
+    cellName: "local",
     commit: "6f4c2d7a",
     duration: "4m 12s",
+    namespacePath: "/team-a",
+    source: "ephemeral",
+    submittedBy: "admin",
     status: "running"
   }
 ];
@@ -18,7 +22,9 @@ describe("RunList", () => {
 
     expect(screen.getByRole("heading", { name: "Active runs" })).toBeInTheDocument();
     expect(screen.getByText("linux-ci")).toBeInTheDocument();
+    expect(screen.getByText("Ephemeral")).toBeInTheDocument();
     expect(screen.getByText(/6f4c2d7a/)).toBeInTheDocument();
+    expect(screen.getByText(/\/team-a · local · admin/)).toBeInTheDocument();
     expect(screen.getByText("Running")).toBeInTheDocument();
   });
 

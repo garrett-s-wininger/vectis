@@ -1,12 +1,15 @@
+import type { FormEvent } from "react";
 import { useMemo, useState } from "react";
 import { Button } from "../components/Button";
 import { FilterBar } from "../components/FilterBar";
+import { FormError } from "../components/FormError";
 import { PageHeader } from "../components/PageHeader";
 import { RunList, type RunListItem } from "../components/RunList";
 import { SelectField } from "../components/SelectField";
 import type { RunStatus } from "../components/StatusBadge";
 
 type RunFilter = RunStatus | "all";
+type SourceFilter = NonNullable<RunListItem["source"]> | "all";
 
 const statusLabels: Record<RunFilter, string> = {
   all: "All",
@@ -23,48 +26,174 @@ const statusOptions = Object.entries(statusLabels).map(([value, label]) => ({
   value
 }));
 
+const sourceLabels: Record<SourceFilter, string> = {
+  all: "All",
+  stored: "Stored jobs",
+  ephemeral: "Ephemeral"
+};
+
+const sourceTitleLabels: Record<SourceFilter, string> = {
+  all: "All",
+  stored: "Stored job",
+  ephemeral: "Ephemeral"
+};
+
+const sourceOptions = Object.entries(sourceLabels).map(([value, label]) => ({
+  label,
+  value
+}));
+
+const defaultDefinition = JSON.stringify(
+  {
+    id: "ad-hoc-check",
+    root: {
+      id: "root",
+      uses: "builtins/shell",
+      with: {
+        command: "echo 'Hello from Vectis'"
+      }
+    }
+  },
+  null,
+  2
+);
+
 type RunsPageProps = {
   namespacePath: string;
+  onSubmitEphemeralRun: (definition: string) => void;
   runs: RunListItem[];
 };
 
-export function RunsPage({ namespacePath, runs }: RunsPageProps) {
+export function RunsPage({
+  namespacePath,
+  onSubmitEphemeralRun,
+  runs
+}: RunsPageProps) {
   const [status, setStatus] = useState<RunFilter>("all");
+  const [source, setSource] = useState<SourceFilter>("all");
+  const [showRunOnce, setShowRunOnce] = useState(false);
+  const [definition, setDefinition] = useState(defaultDefinition);
+  const [definitionError, setDefinitionError] = useState("");
   const filteredRuns = useMemo(() => {
-    if (status === "all") {
-      return runs;
+    return runs.filter((run) => {
+      const sourceMatches =
+        source === "all" || (run.source ?? "stored") === source;
+      const statusMatches = status === "all" || run.status === status;
+      return sourceMatches && statusMatches;
+    });
+  }, [runs, source, status]);
+
+  function clearFilters() {
+    setSource("all");
+    setStatus("all");
+  }
+
+  function submitRunOnce(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setDefinitionError("");
+
+    try {
+      JSON.parse(definition);
+    } catch {
+      setDefinitionError("Definition must be valid JSON.");
+      return;
     }
 
-    return runs.filter((run) => run.status === status);
-  }, [runs, status]);
+    onSubmitEphemeralRun(definition);
+    setDefinition(defaultDefinition);
+    setShowRunOnce(false);
+    clearFilters();
+  }
 
   return (
     <>
       <PageHeader
         description={`Recent queued, running, and completed work under ${namespacePath}.`}
         eyebrow="Runs"
+        actions={
+          <Button
+            aria-expanded={showRunOnce}
+            onClick={() => setShowRunOnce((value) => !value)}
+          >
+            {showRunOnce ? "Close" : "Run once"}
+          </Button>
+        }
         title="Runs"
       />
+      {showRunOnce ? (
+        <section className="run-once-panel" aria-labelledby="run-once-title">
+          <div className="run-once-panel__header">
+            <div className="resource-title">
+              <strong id="run-once-title">Run once</strong>
+              <small>Namespace {namespacePath}</small>
+            </div>
+          </div>
+          <form className="run-once-form" onSubmit={submitRunOnce}>
+            <label className="field field--wide">
+              <span>Job definition JSON</span>
+              <textarea
+                name="definition"
+                onChange={(event) => setDefinition(event.target.value)}
+                required
+                rows={10}
+                value={definition}
+              />
+            </label>
+            <FormError message={definitionError} />
+            <div className="run-once-form__actions">
+              <Button type="submit">Submit run</Button>
+            </div>
+          </form>
+        </section>
+      ) : null}
       <FilterBar
         actions={
-          <Button disabled={status === "all"} onClick={() => setStatus("all")}>
+          <Button
+            disabled={status === "all" && source === "all"}
+            onClick={clearFilters}
+          >
             Clear
           </Button>
         }
         filters={
-          <SelectField
-            label="Status"
-            name="runStatus"
-            onChange={(event) => setStatus(event.target.value as RunFilter)}
-            options={statusOptions}
-            value={status}
-          />
+          <>
+            <SelectField
+              label="Status"
+              name="runStatus"
+              onChange={(event) => setStatus(event.target.value as RunFilter)}
+              options={statusOptions}
+              value={status}
+            />
+            <SelectField
+              label="Source"
+              name="runSource"
+              onChange={(event) => setSource(event.target.value as SourceFilter)}
+              options={sourceOptions}
+              value={source}
+            />
+          </>
         }
       />
       <RunList
-        title={status === "all" ? "All runs" : `${statusLabels[status]} runs`}
+        title={runListTitle(status, source)}
         runs={filteredRuns}
       />
     </>
   );
+}
+
+function runListTitle(status: RunFilter, source: SourceFilter) {
+  if (status === "all" && source === "all") {
+    return "All runs";
+  }
+
+  if (status === "all") {
+    return `${sourceTitleLabels[source]} runs`;
+  }
+
+  if (source === "all") {
+    return `${statusLabels[status]} runs`;
+  }
+
+  return `${sourceTitleLabels[source]} ${statusLabels[status].toLowerCase()} runs`;
 }

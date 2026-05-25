@@ -6,7 +6,10 @@ export type RunListItem = {
   runNumber: number;
   commit: string;
   duration: string;
+  cellName?: string;
   namespacePath?: string;
+  source?: "stored" | "ephemeral";
+  submittedBy?: string;
   status: RunStatus;
 };
 
@@ -26,11 +29,22 @@ export function RunList({ title, runs }: RunListProps) {
           {runs.map((run) => (
             <li className="run-list__item" key={run.id}>
               <div className="run-list__summary">
-                <strong>
-                  {run.jobName} <span>#{run.runNumber}</span>
-                </strong>
+                <div className="run-list__title">
+                  <strong>
+                    {run.jobName} <span>#{run.runNumber}</span>
+                  </strong>
+                  <span
+                    className={`run-source run-source--${
+                      run.source ?? "stored"
+                    }`}
+                  >
+                    {run.source === "ephemeral" ? "Ephemeral" : "Stored"}
+                  </span>
+                </div>
                 <small>
                   {run.namespacePath ? `${run.namespacePath} · ` : null}
+                  {run.cellName ? `${run.cellName} · ` : null}
+                  {run.submittedBy ? `${run.submittedBy} · ` : null}
                   {run.commit} · {run.duration}
                 </small>
               </div>

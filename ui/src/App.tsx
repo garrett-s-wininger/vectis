@@ -16,6 +16,7 @@ import {
   deleteMockUser,
   loadMockConsoleData,
   scopeMockConsoleData,
+  submitMockEphemeralRun,
   triggerMockRun,
   updateMockUserStatus,
   type MockConsoleData,
@@ -178,6 +179,16 @@ export function App() {
     updateConsoleData((data) => triggerMockRun(data, jobID));
   }
 
+  function handleSubmitEphemeralRun(definition: string) {
+    updateConsoleData((data) =>
+      submitMockEphemeralRun(data, {
+        definition,
+        namespacePath: selectedNamespacePath,
+        submittedBy: "admin"
+      })
+    );
+  }
+
   function handleShellNavigate(
     href: string,
     event: MouseEvent<HTMLAnchorElement>
@@ -258,6 +269,7 @@ export function App() {
         onCreateUser={handleCreateUser}
         onDeleteNamespace={handleDeleteNamespace}
         onDeleteUser={handleDeleteUser}
+        onSubmitEphemeralRun={handleSubmitEphemeralRun}
         onTriggerRun={handleTriggerRun}
         onUpdateUserStatus={handleUpdateUserStatus}
         route={route}
@@ -386,6 +398,7 @@ function RouteContent({
   onCreateUser,
   onDeleteNamespace,
   onDeleteUser,
+  onSubmitEphemeralRun,
   onTriggerRun,
   onUpdateUserStatus,
   route
@@ -397,6 +410,7 @@ function RouteContent({
   onCreateUser: (input: NewMockUser) => void;
   onDeleteNamespace: (namespaceID: number) => void;
   onDeleteUser: (userID: string) => void;
+  onSubmitEphemeralRun: (definition: string) => void;
   onTriggerRun: (jobID: string) => void;
   onUpdateUserStatus: (userID: string, status: MockUserStatus) => void;
   route: AppRoute;
@@ -427,7 +441,13 @@ function RouteContent({
         />
       );
     case "runs":
-      return <RunsPage namespacePath={namespacePath} runs={scopedConsoleData.runs} />;
+      return (
+        <RunsPage
+          namespacePath={namespacePath}
+          onSubmitEphemeralRun={onSubmitEphemeralRun}
+          runs={scopedConsoleData.runs}
+        />
+      );
     case "jobs":
       return (
         <JobsPage
