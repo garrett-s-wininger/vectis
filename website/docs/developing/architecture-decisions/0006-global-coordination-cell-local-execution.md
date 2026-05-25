@@ -17,7 +17,7 @@ We considered treating cells as full independent Vectis deployments behind a glo
 Model Vectis as a two-tier system:
 
 - The global control plane owns user-facing API behavior, auth, namespaces, job definitions, schedules, routing policy, cell catalog, workflow coordination, and global run summaries.
-- Global run summaries are a catalog read model. Status changes should enter that catalog through a narrow updater boundary so a future cell event consumer can update summaries without depending on the full run repository.
+- Global run summaries are a catalog read model. Status changes should enter that catalog through a narrow updater boundary so cell event consumers can update summaries without depending on the full run repository.
 - Each cell owns private execution ingress, local queueing, local execution state, worker leases, local retries, local log ingest/storage, and an event outbox back to the global control plane.
 - Global workflow coordination happens at explicit segment boundaries. A segment is a schedulable slice of a job graph that can run in one cell or fan out across multiple cells.
 - Cell-local choreography happens inside a segment. The global coordinator should not manage every local action, lease renewal, or queue delivery.
