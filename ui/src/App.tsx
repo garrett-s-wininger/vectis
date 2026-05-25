@@ -7,18 +7,21 @@ import { AppShell } from "./components/AppShell";
 import { AppState } from "./components/AppState";
 import { FormError } from "./components/FormError";
 import { FormField } from "./components/FormField";
-import { MetricCard } from "./components/MetricCard";
-import { PageHeader } from "./components/PageHeader";
-import { ProgressMeter } from "./components/ProgressMeter";
-import { RunList } from "./components/RunList";
-import { SectionPanel } from "./components/SectionPanel";
-import { SignalList } from "./components/SignalList";
 import {
-  activeRuns,
-  dashboardMetrics,
-  instanceSignals,
-  workloadProgress
-} from "./mocks/fixtures";
+  createMockUser,
+  deleteMockUser,
+  loadMockConsoleData,
+  triggerMockRun,
+  updateMockUserStatus,
+  type MockConsoleData,
+  type MockUserStatus,
+  type NewMockUser
+} from "./mocks/consoleData";
+import { DashboardPage } from "./pages/DashboardPage";
+import { JobsPage } from "./pages/JobsPage";
+import { NotFoundPage } from "./pages/NotFoundPage";
+import { RunsPage } from "./pages/RunsPage";
+import { UsersPage } from "./pages/UsersPage";
 import {
   navigateTo,
   primaryNavItems,
@@ -56,6 +59,8 @@ export function App() {
 
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  const [consoleData, setConsoleData] = useState<MockConsoleData | null>(null);
+  const [consoleError, setConsoleError] = useState("");
 
   useEffect(() => {
     const onPopState = () => setRoute(routeFromPath(window.location.pathname));
@@ -67,6 +72,26 @@ export function App() {
     setFormError("");
     setSubmitting(false);
   }, [route.kind]);
+
+  useEffect(() => {
+    let ignore = false;
+
+    loadMockConsoleData()
+      .then((data) => {
+        if (!ignore) {
+          setConsoleData(data);
+        }
+      })
+      .catch(() => {
+        if (!ignore) {
+          setConsoleError("Unable to load console data.");
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   async function handleSetup(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -105,6 +130,28 @@ export function App() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function updateConsoleData(
+    update: (data: MockConsoleData) => MockConsoleData
+  ) {
+    setConsoleData((data) => (data ? update(data) : data));
+  }
+
+  function handleCreateUser(input: NewMockUser) {
+    updateConsoleData((data) => createMockUser(data, input));
+  }
+
+  function handleUpdateUserStatus(userID: string, status: MockUserStatus) {
+    updateConsoleData((data) => updateMockUserStatus(data, userID, status));
+  }
+
+  function handleDeleteUser(userID: string) {
+    updateConsoleData((data) => deleteMockUser(data, userID));
+  }
+
+  function handleTriggerRun(jobID: string) {
+    updateConsoleData((data) => triggerMockRun(data, jobID));
   }
 
   function handleShellNavigate(
@@ -166,7 +213,15 @@ export function App() {
       navItems={primaryNavItems}
       onNavigate={handleShellNavigate}
     >
-      <RouteContent route={route} />
+      <RouteContent
+        consoleData={consoleData}
+        consoleError={consoleError}
+        onCreateUser={handleCreateUser}
+        onDeleteUser={handleDeleteUser}
+        onTriggerRun={handleTriggerRun}
+        onUpdateUserStatus={handleUpdateUserStatus}
+        route={route}
+      />
     </AppShell>
   );
 }
@@ -283,123 +338,58 @@ function LoginPage({
   );
 }
 
-function RouteContent({ route }: { route: AppRoute }) {
+function RouteContent({
+  consoleData,
+  consoleError,
+  onCreateUser,
+  onDeleteUser,
+  onTriggerRun,
+  onUpdateUserStatus,
+  route
+}: {
+  consoleData: MockConsoleData | null;
+  consoleError: string;
+  onCreateUser: (input: NewMockUser) => void;
+  onDeleteUser: (userID: string) => void;
+  onTriggerRun: (jobID: string) => void;
+  onUpdateUserStatus: (userID: string, status: MockUserStatus) => void;
+  route: AppRoute;
+}) {
+  if (consoleError) {
+    return (
+      <AppState
+        description={consoleError}
+        title="Unable to load console"
+        tone="error"
+      />
+    );
+  }
+
+  if (!consoleData) {
+    return <AppState title="Loading console" tone="loading" />;
+  }
+
   switch (route.kind) {
     case "dashboard":
-      return <DashboardPage />;
+      return <DashboardPage data={consoleData} />;
     case "runs":
-      return <RunsPage />;
+      return <RunsPage runs={consoleData.runs} />;
     case "jobs":
-      return <JobsPage />;
+      return (
+        <JobsPage jobs={consoleData.jobs} onTriggerRun={onTriggerRun} />
+      );
     case "users":
-      return <UsersPage />;
+      return (
+        <UsersPage
+          onCreateUser={onCreateUser}
+          onDeleteUser={onDeleteUser}
+          onUpdateUserStatus={onUpdateUserStatus}
+          users={consoleData.users}
+        />
+      );
     default:
       return <NotFoundPage />;
   }
-}
-
-function DashboardPage() {
-  return (
-    <>
-      <PageHeader
-        description="Live activity and instance health for this Vectis local."
-        eyebrow="Console"
-        title="Dashboard"
-      />
-      <div className="metric-card-grid">
-        {dashboardMetrics.map((metric) => (
-          <MetricCard
-            detail={metric.detail}
-            key={metric.id}
-            label={metric.label}
-            tone={metric.tone}
-            value={metric.value}
-          />
-        ))}
-      </div>
-      <div className="dashboard-layout">
-        <RunList title="Active runs" runs={activeRuns} />
-        <div className="dashboard-side-stack">
-          <SectionPanel title="Instance signals">
-            <SignalList signals={instanceSignals} />
-          </SectionPanel>
-          <SectionPanel title="Workload">
-            <div className="progress-meter-stack">
-              {workloadProgress.map((progress) => (
-                <ProgressMeter
-                  detail={progress.detail}
-                  key={progress.id}
-                  label={progress.label}
-                  tone={progress.tone}
-                  value={progress.value}
-                />
-              ))}
-            </div>
-          </SectionPanel>
-        </div>
-      </div>
-    </>
-  );
-}
-
-function RunsPage() {
-  return (
-    <>
-      <PageHeader
-        description="Recent queued, running, and completed work."
-        eyebrow="Runs"
-        title="Runs"
-      />
-      <RunList title="Active runs" runs={activeRuns} />
-    </>
-  );
-}
-
-function JobsPage() {
-  return (
-    <>
-      <PageHeader
-        description="Configured job definitions for this instance."
-        eyebrow="Jobs"
-        title="Jobs"
-      />
-      <AppState
-        description="No job definitions are available yet."
-        title="No jobs loaded"
-        tone="empty"
-      />
-    </>
-  );
-}
-
-function UsersPage() {
-  return (
-    <>
-      <PageHeader
-        description="Accounts with access to this Vectis console."
-        eyebrow="Users"
-        title="Users"
-      />
-      <AppState
-        description="No user accounts are available yet."
-        title="No users loaded"
-        tone="empty"
-      />
-    </>
-  );
-}
-
-function NotFoundPage() {
-  return (
-    <>
-      <PageHeader eyebrow="Console" title="Page not found" />
-      <AppState
-        description="Choose another destination from the primary navigation."
-        title="No route matched"
-        tone="error"
-      />
-    </>
-  );
 }
 
 function navigateAfterAuth() {

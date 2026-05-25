@@ -123,25 +123,76 @@ describe("App", () => {
     expect(window.location.pathname).toBe("/");
   });
 
-  it("renders app routes directly after BFF authorization", () => {
+  it("renders app routes directly after BFF authorization", async () => {
     window.history.replaceState(null, "", "/runs/123");
 
     render(<App />);
 
-    expect(screen.getByRole("heading", { name: "Runs" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Runs" })
+    ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Runs" })).toHaveAttribute(
       "aria-current",
       "page"
     );
   });
 
-  it("navigates app routes without a page load", () => {
+  it("navigates app routes without a page load", async () => {
     render(<App />);
 
     fireEvent.click(screen.getByRole("link", { name: "Users" }));
 
-    expect(screen.getByRole("heading", { name: "Users" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Users" })
+    ).toBeInTheDocument();
     expect(window.location.pathname).toBe("/users");
+  });
+
+  it("creates, disables, and removes a user in the mock", async () => {
+    window.history.replaceState(null, "", "/users");
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Users" });
+
+    fireEvent.change(screen.getByLabelText("Username"), {
+      target: { value: "taylor" }
+    });
+
+    fireEvent.change(screen.getByLabelText("Role"), {
+      target: { value: "Operator" }
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add user" }));
+
+    expect(await screen.findByText("taylor")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Disable taylor" })
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Disable taylor" }));
+
+    expect(
+      screen.getByRole("button", { name: "Activate taylor" })
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove taylor" }));
+
+    expect(screen.queryByText("taylor")).not.toBeInTheDocument();
+  });
+
+  it("triggers a mock job run and shows it in runs", async () => {
+    window.history.replaceState(null, "", "/jobs");
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Jobs" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Trigger docs-publish" }));
+    fireEvent.click(screen.getByRole("link", { name: "Runs" }));
+
+    expect(await screen.findByText("#1241")).toBeInTheDocument();
+    expect(screen.getByText("manual · Queued")).toBeInTheDocument();
   });
 
   it("logs out and returns to login", async () => {
