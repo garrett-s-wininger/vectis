@@ -144,6 +144,56 @@ h1 {
   padding: 10px 12px;
 }
 
+.app-state {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #dbe3e8;
+  border-radius: 8px;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 132px;
+  padding: 20px;
+  width: min(720px, 100%);
+}
+
+.app-state--empty {
+  border-style: dashed;
+}
+
+.app-state--error {
+  border-color: #edb7b7;
+  box-shadow: inset 4px 0 0 #a23535;
+}
+
+.app-state__copy {
+  display: grid;
+  gap: 6px;
+}
+
+.app-state__copy h2 {
+  color: #172026;
+  font-size: 1.125rem;
+  line-height: 1.2;
+  margin: 0;
+}
+
+.app-state__copy p {
+  color: #5d707c;
+  margin: 0;
+}
+
+.app-state__actions {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: end;
+}
+
+.app-state__actions .button {
+  margin-top: 0;
+}
+
 .console-panel {
   align-items: center;
   display: flex;
@@ -446,6 +496,26 @@ h1 {
   padding: 32px 24px;
 }
 
+.dashboard-layout {
+  display: grid;
+  gap: 24px;
+  grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+  width: 100%;
+}
+
+.dashboard-side-stack {
+  align-content: start;
+  display: grid;
+  gap: 24px;
+}
+
+.dashboard-layout .run-list,
+.dashboard-layout .section-panel,
+.dashboard-layout .signal-list,
+.dashboard-layout .progress-meter-stack {
+  width: 100%;
+}
+
 @media (max-width: 720px) {
   .console-shell__topbar {
     align-items: start;
@@ -459,6 +529,18 @@ h1 {
 
   .console-shell__main {
     padding: 24px 16px;
+  }
+
+  .dashboard-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .app-state {
+    grid-template-columns: 1fr;
+  }
+
+  .app-state__actions {
+    justify-content: start;
   }
 }
 

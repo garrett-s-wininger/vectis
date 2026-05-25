@@ -1,0 +1,105 @@
+import type { MetricCardProps } from "../components/MetricCard";
+import type { ProgressMeterProps } from "../components/ProgressMeter";
+import type { RunListItem } from "../components/RunList";
+import type { SignalItem } from "../components/SignalList";
+
+export type DashboardMetric = MetricCardProps & {
+  id: string;
+};
+
+export type ProgressFixture = ProgressMeterProps & {
+  id: string;
+};
+
+export const dashboardMetrics: DashboardMetric[] = [
+  {
+    id: "running",
+    label: "Running",
+    value: "12",
+    detail: "3 queued behind",
+    tone: "attention"
+  },
+  {
+    id: "succeeded",
+    label: "Succeeded today",
+    value: "48",
+    detail: "94% success rate",
+    tone: "success"
+  },
+  {
+    id: "failed",
+    label: "Failed today",
+    value: "3",
+    detail: "2 need review"
+  },
+  {
+    id: "workers",
+    label: "Workers",
+    value: "8",
+    detail: "6 active, 2 idle"
+  }
+];
+
+export const activeRuns: RunListItem[] = [
+  {
+    id: "run-1240",
+    jobName: "api-test-suite",
+    runNumber: 1240,
+    commit: "8f12c4a",
+    duration: "4m 12s",
+    status: "running"
+  },
+  {
+    id: "run-1239",
+    jobName: "docs-publish",
+    runNumber: 1239,
+    commit: "1d9a0b3",
+    duration: "1m 48s",
+    status: "queued"
+  },
+  {
+    id: "run-1238",
+    jobName: "worker-image",
+    runNumber: 1238,
+    commit: "54fd901",
+    duration: "7m 31s",
+    status: "succeeded"
+  }
+];
+
+export const instanceSignals: SignalItem[] = [
+  {
+    id: "api",
+    label: "API",
+    detail: "Last heartbeat 12s ago",
+    state: "healthy"
+  },
+  {
+    id: "queue",
+    label: "Queue",
+    detail: "Depth 3",
+    state: "healthy"
+  },
+  {
+    id: "logs",
+    label: "Logs",
+    detail: "Forwarder lag 28s",
+    state: "degraded"
+  }
+];
+
+export const workloadProgress: ProgressFixture[] = [
+  {
+    id: "queue",
+    label: "Queue pressure",
+    value: 34,
+    detail: "3 waiting, 12 running"
+  },
+  {
+    id: "workers",
+    label: "Worker utilization",
+    value: 75,
+    detail: "6 of 8 active",
+    tone: "warning"
+  }
+];

@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 
-type MetricTone = "neutral" | "attention" | "success";
+export type MetricTone = "neutral" | "attention" | "success";
 
-type MetricCardProps = {
+export type MetricCardProps = {
   label: string;
   value: ReactNode;
   detail?: string;

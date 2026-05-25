@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { AppShell, type NavItem } from "./AppShell";
 import { Button } from "./Button";
 
@@ -31,5 +31,24 @@ describe("AppShell", () => {
 
     expect(screen.getByRole("button", { name: "Refresh" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Jobs" })).toBeInTheDocument();
+  });
+
+  it("can delegate navigation", () => {
+    const onNavigate = vi.fn((_, event) => event.preventDefault());
+
+    render(
+      <AppShell
+        activeHref="/jobs"
+        brand="Vectis"
+        navItems={navItems}
+        onNavigate={onNavigate}
+      >
+        <h1>Jobs</h1>
+      </AppShell>
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: "Runs" }));
+
+    expect(onNavigate).toHaveBeenCalledWith("/runs", expect.any(Object));
   });
 });

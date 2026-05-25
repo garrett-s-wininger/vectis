@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { MouseEvent, ReactNode } from "react";
 
 export type NavItem = {
   href: string;
@@ -11,6 +11,7 @@ type AppShellProps = {
   activeHref: string;
   actions?: ReactNode;
   children: ReactNode;
+  onNavigate?: (href: string, event: MouseEvent<HTMLAnchorElement>) => void;
 };
 
 export function AppShell({
@@ -18,12 +19,18 @@ export function AppShell({
   navItems,
   activeHref,
   actions,
-  children
+  children,
+  onNavigate
 }: AppShellProps) {
   return (
     <div className="console-shell">
       <header className="console-shell__topbar">
-        <a className="console-shell__brand" href="/" aria-label={`${brand} home`}>
+        <a
+          className="console-shell__brand"
+          href="/"
+          aria-label={`${brand} home`}
+          onClick={(event) => onNavigate?.("/", event)}
+        >
           {brand}
         </a>
         <nav className="console-shell__nav" aria-label="Primary">
@@ -33,6 +40,7 @@ export function AppShell({
               className="console-shell__nav-link"
               href={item.href}
               key={item.href}
+              onClick={(event) => onNavigate?.(item.href, event)}
             >
               {item.label}
             </a>

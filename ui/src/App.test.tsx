@@ -35,17 +35,21 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Bootstrap token"), {
       target: { value: "bootstrap-token" }
     });
+
     fireEvent.change(screen.getByLabelText("Admin username"), {
       target: { value: "admin" }
     });
+
     fireEvent.change(screen.getByLabelText("Admin password"), {
       target: { value: "password123" }
     });
+
     fireEvent.click(screen.getByRole("button", { name: "Create admin" }));
 
     expect(
-      await screen.findByRole("heading", { name: "Runs dashboard" })
+      await screen.findByRole("heading", { name: "Runs" })
     ).toBeInTheDocument();
+
     expect(window.location.pathname).toBe("/runs/123");
     expect(fetchMock).toHaveBeenLastCalledWith(
       "/ui/api/setup/complete",
@@ -74,14 +78,17 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Username"), {
       target: { value: "admin" }
     });
+
     fireEvent.change(screen.getByLabelText("Password"), {
       target: { value: "password123" }
     });
+
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
     expect(
-      await screen.findByRole("heading", { name: "Runs dashboard" })
+      await screen.findByRole("heading", { name: "Users" })
     ).toBeInTheDocument();
+
     expect(window.location.pathname).toBe("/users");
     expect(fetchMock).toHaveBeenLastCalledWith(
       "/ui/api/login",
@@ -102,14 +109,17 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Username"), {
       target: { value: "admin" }
     });
+
     fireEvent.change(screen.getByLabelText("Password"), {
       target: { value: "password123" }
     });
+
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
     expect(
-      await screen.findByRole("heading", { name: "Runs dashboard" })
+      await screen.findByRole("heading", { name: "Dashboard" })
     ).toBeInTheDocument();
+
     expect(window.location.pathname).toBe("/");
   });
 
@@ -118,9 +128,20 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(
-      screen.getByRole("heading", { name: "Runs dashboard" })
-    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Runs" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Runs" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    );
+  });
+
+  it("navigates app routes without a page load", () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("link", { name: "Users" }));
+
+    expect(screen.getByRole("heading", { name: "Users" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/users");
   });
 
   it("logs out and returns to login", async () => {
@@ -134,6 +155,7 @@ describe("App", () => {
     expect(
       await screen.findByRole("heading", { name: "Sign in" })
     ).toBeInTheDocument();
+
     expect(window.location.pathname).toBe("/login");
     expect(fetchMock).toHaveBeenLastCalledWith(
       "/ui/api/logout",

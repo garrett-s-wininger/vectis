@@ -1,6 +1,6 @@
-type ProgressTone = "neutral" | "warning" | "critical";
+export type ProgressTone = "neutral" | "warning" | "critical";
 
-type ProgressMeterProps = {
+export type ProgressMeterProps = {
   label: string;
   value: number;
   detail?: string;
