@@ -311,6 +311,55 @@ func TestRunsRepository_CreateRunInCell_TargetsExecutionCell(t *testing.T) {
 	}
 }
 
+func TestRunsRepository_CreateRunsInCells_FanoutTargetsExecutionCells(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-fanout", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-fanout-cells"
+	def := `{"id":"job-fanout-cells","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	created, err := repos.Runs().CreateRunsInCells(ctx, jobID, nil, 1, []string{"iad-a", "pdx-b"})
+	if err != nil {
+		t.Fatalf("CreateRunsInCells: %v", err)
+	}
+
+	if len(created) != 2 {
+		t.Fatalf("created runs: got %d, want 2", len(created))
+	}
+
+	if created[0].RunIndex != 1 || created[1].RunIndex != 2 {
+		t.Fatalf("run indexes: got %d/%d, want 1/2", created[0].RunIndex, created[1].RunIndex)
+	}
+
+	if created[0].TargetCellID != "iad-a" || created[1].TargetCellID != "pdx-b" {
+		t.Fatalf("target cells: got %q/%q, want iad-a/pdx-b", created[0].TargetCellID, created[1].TargetCellID)
+	}
+
+	for _, createdRun := range created {
+		dispatch, err := repos.Runs().GetPendingExecution(ctx, createdRun.RunID)
+		if err != nil {
+			t.Fatalf("get pending execution for %s: %v", createdRun.RunID, err)
+		}
+
+		if dispatch.CellID != createdRun.TargetCellID {
+			t.Fatalf("dispatch cell for %s: got %q, want %q", createdRun.RunID, dispatch.CellID, createdRun.TargetCellID)
+		}
+
+		if dispatch.OwningCell != createdRun.TargetCellID {
+			t.Fatalf("owning cell for %s: got %q, want %q", createdRun.RunID, dispatch.OwningCell, createdRun.TargetCellID)
+		}
+	}
+}
+
 func TestSQLRepositories_CreateDefinitionAndRunInCell_TargetsExecutionCell(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")

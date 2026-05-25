@@ -451,12 +451,22 @@ func (r *SQLRunsRepository) CreateRun(ctx context.Context, jobID string, runInde
 }
 
 func (r *SQLRunsRepository) CreateRunInCell(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellID string) (runID string, runIndexOut int, err error) {
-	runID = uuid.New().String()
-	targetCellID = normalizeTargetCellID(targetCellID, r.currentCellID())
-
-	tx, err := r.db.BeginTx(ctx, nil)
+	runs, err := r.CreateRunsInCells(ctx, jobID, runIndex, definitionVersion, []string{targetCellID})
 	if err != nil {
 		return "", 0, err
+	}
+
+	if len(runs) == 0 {
+		return "", 0, fmt.Errorf("%w: no runs created", ErrNotFound)
+	}
+
+	return runs[0].RunID, runs[0].RunIndex, nil
+}
+
+func (r *SQLRunsRepository) CreateRunsInCells(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellIDs []string) ([]CreatedRun, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
 	}
 	defer func() { _ = tx.Rollback() }()
 
@@ -466,39 +476,56 @@ func (r *SQLRunsRepository) CreateRunInCell(ctx context.Context, jobID string, r
 	} else {
 		err = tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT COALESCE(MAX(run_index), 0) + 1 FROM job_runs WHERE job_id = ?"), jobID).Scan(&idx)
 		if err != nil {
-			return "", 0, err
+			return nil, err
 		}
 	}
 
 	definitionHash, err := lookupDefinitionHashTx(ctx, tx, jobID, definitionVersion)
 	if err != nil {
-		return "", 0, err
+		return nil, err
 	}
 
-	_, err = tx.ExecContext(ctx,
-		rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?)`),
-		runID,
-		jobID,
-		idx,
-		"queued",
-		definitionVersion,
-		definitionHash,
-		targetCellID,
-	)
-
-	if err != nil {
-		return "", 0, normalizeSQLError(err)
+	if len(targetCellIDs) == 0 {
+		targetCellIDs = []string{r.currentCellID()}
 	}
 
-	if err := createInitialSegmentExecutionTx(ctx, tx, runID, targetCellID); err != nil {
-		return "", 0, err
+	createdRuns := make([]CreatedRun, 0, len(targetCellIDs))
+	for i, targetCellID := range targetCellIDs {
+		targetCellID = normalizeTargetCellID(targetCellID, r.currentCellID())
+		runID := uuid.New().String()
+		runIndexOut := idx + i
+
+		_, err = tx.ExecContext(ctx,
+			rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?)`),
+			runID,
+			jobID,
+			runIndexOut,
+			"queued",
+			definitionVersion,
+			definitionHash,
+			targetCellID,
+		)
+
+		if err != nil {
+			return nil, normalizeSQLError(err)
+		}
+
+		if err := createInitialSegmentExecutionTx(ctx, tx, runID, targetCellID); err != nil {
+			return nil, err
+		}
+
+		createdRuns = append(createdRuns, CreatedRun{
+			RunID:        runID,
+			RunIndex:     runIndexOut,
+			TargetCellID: targetCellID,
+		})
 	}
 
 	if err = tx.Commit(); err != nil {
-		return "", 0, err
+		return nil, err
 	}
 
-	return runID, idx, nil
+	return createdRuns, nil
 }
 
 func lookupDefinitionHashTx(ctx context.Context, tx *sql.Tx, jobID string, version int) (string, error) {

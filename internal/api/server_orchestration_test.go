@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 	"time"
 
@@ -96,6 +97,107 @@ func TestAPIServer_TriggerJob_OrchestrationUsesTargetCell(t *testing.T) {
 
 	if got := runs.SnapshotLastCreateTargetCell(); got != "iad-a" {
 		t.Fatalf("expected target cell iad-a, got %q", got)
+	}
+}
+
+func TestAPIServer_TriggerJob_OrchestrationUsesTargetCells(t *testing.T) {
+	jobs := mocks.NewMockJobsRepository()
+	jobs.Definitions["job-target-cells"] = `{"id":"job-target-cells","root":{"uses":"builtins/shell","with":{"command":"echo hi"}}}`
+	jobs.DefinitionVersions["job-target-cells"] = 5
+
+	runs := mocks.NewMockRunsRepository()
+	runs.CreateRunID = "run-target-cells"
+	runs.CreateRunIndex = 11
+
+	queue := mocks.NewMockQueueService()
+	server := api.NewAPIServerWithRepositories(mocks.NewMockLogger(), jobs, runs, mocks.StubEphemeralRunStarter{})
+	server.SetQueueClient(queue)
+
+	body := bytes.NewBufferString(`{"cell_ids":["iad-a","pdx-b","iad-a"]}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/job-target-cells", body)
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", "job-target-cells")
+	rec := httptest.NewRecorder()
+
+	server.TriggerJob(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusAccepted, rec.Code, rec.Body.String())
+	}
+
+	if got, want := runs.SnapshotLastCreateTargetCells(), []string{"iad-a", "pdx-b"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected target cells %+v, got %+v", want, got)
+	}
+
+	var resp struct {
+		JobID    string `json:"job_id"`
+		RunID    string `json:"run_id,omitempty"`
+		RunIndex int    `json:"run_index,omitempty"`
+		Runs     []struct {
+			RunID    string `json:"run_id"`
+			RunIndex int    `json:"run_index"`
+			CellID   string `json:"cell_id"`
+		} `json:"runs"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if resp.JobID != "job-target-cells" {
+		t.Fatalf("expected job_id job-target-cells, got %q", resp.JobID)
+	}
+
+	if resp.RunID != "" || resp.RunIndex != 0 {
+		t.Fatalf("expected multi-cell response to omit single-run fields, got run_id=%q run_index=%d", resp.RunID, resp.RunIndex)
+	}
+
+	if len(resp.Runs) != 2 {
+		t.Fatalf("expected two response runs, got %d", len(resp.Runs))
+	}
+
+	if resp.Runs[0].RunID != "run-target-cells-1" || resp.Runs[0].RunIndex != 11 || resp.Runs[0].CellID != "iad-a" {
+		t.Fatalf("unexpected first run response: %+v", resp.Runs[0])
+	}
+
+	if resp.Runs[1].RunID != "run-target-cells-2" || resp.Runs[1].RunIndex != 12 || resp.Runs[1].CellID != "pdx-b" {
+		t.Fatalf("unexpected second run response: %+v", resp.Runs[1])
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(queue.GetJobs()) >= 2 && len(runs.SnapshotTouchedRunIDs()) >= 2 {
+			break
+		}
+
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	touched := map[string]bool{}
+	for _, runID := range runs.SnapshotTouchedRunIDs() {
+		touched[runID] = true
+	}
+
+	for _, wantRunID := range []string{"run-target-cells-1", "run-target-cells-2"} {
+		if !touched[wantRunID] {
+			t.Fatalf("expected touched run %q, got %+v", wantRunID, touched)
+		}
+	}
+
+	enqueued := queue.GetJobs()
+	if len(enqueued) != 2 {
+		t.Fatalf("expected two enqueued jobs, got %d", len(enqueued))
+	}
+
+	enqueuedRunIDs := map[string]bool{}
+	for _, job := range enqueued {
+		enqueuedRunIDs[job.GetRunId()] = true
+	}
+
+	for _, wantRunID := range []string{"run-target-cells-1", "run-target-cells-2"} {
+		if !enqueuedRunIDs[wantRunID] {
+			t.Fatalf("expected enqueued run %q, got %+v", wantRunID, enqueuedRunIDs)
+		}
 	}
 }
 

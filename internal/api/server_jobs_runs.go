@@ -29,37 +29,118 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 const defaultForceFailReason = "manually failed via API"
 
 type runTargetOptions struct {
-	CellID       string `json:"cell_id"`
-	TargetCellID string `json:"target_cell_id"`
+	CellID        string   `json:"cell_id"`
+	TargetCellID  string   `json:"target_cell_id"`
+	CellIDs       []string `json:"cell_ids"`
+	TargetCellIDs []string `json:"target_cell_ids"`
 }
 
 func (o runTargetOptions) targetCellID() string {
-	targetCellID := strings.TrimSpace(o.TargetCellID)
-	cellID := strings.TrimSpace(o.CellID)
-	if targetCellID != "" {
-		return targetCellID
+	targetCellIDs := o.targetCellIDs()
+
+	if len(targetCellIDs) == 0 {
+		return ""
 	}
 
-	return cellID
+	return targetCellIDs[0]
 }
 
-func parseRunTargetOptions(body []byte) (string, error) {
+func (o runTargetOptions) targetCellIDs() []string {
+	var out []string
+	seen := map[string]struct{}{}
+	appendCell := func(cellID string) {
+		cellID = strings.TrimSpace(cellID)
+		if cellID == "" {
+			return
+		}
+
+		if _, ok := seen[cellID]; ok {
+			return
+		}
+
+		seen[cellID] = struct{}{}
+		out = append(out, cellID)
+	}
+
+	appendCell(o.TargetCellID)
+	appendCell(o.CellID)
+
+	for _, cellID := range o.TargetCellIDs {
+		appendCell(cellID)
+	}
+
+	for _, cellID := range o.CellIDs {
+		appendCell(cellID)
+	}
+
+	return out
+}
+
+func parseRunTargetOptions(body []byte) ([]string, error) {
 	body = bytes.TrimSpace(body)
 	if len(body) == 0 {
-		return "", nil
+		return nil, nil
 	}
 
 	var opts runTargetOptions
 	if err := json.Unmarshal(body, &opts); err != nil {
-		return "", err
+		return nil, err
 	}
 
-	return opts.targetCellID(), nil
+	return opts.targetCellIDs(), nil
+}
+
+type triggerJobRunResponse struct {
+	RunID    string `json:"run_id"`
+	RunIndex int    `json:"run_index"`
+	CellID   string `json:"cell_id,omitempty"`
+}
+
+type triggerJobResponseBody struct {
+	JobID    string                  `json:"job_id"`
+	RunID    string                  `json:"run_id,omitempty"`
+	RunIndex int                     `json:"run_index,omitempty"`
+	Runs     []triggerJobRunResponse `json:"runs,omitempty"`
+}
+
+func triggerJobResponse(jobID string, createdRuns []dal.CreatedRun) triggerJobResponseBody {
+	resp := triggerJobResponseBody{JobID: jobID}
+	if len(createdRuns) == 1 {
+		resp.RunID = createdRuns[0].RunID
+		resp.RunIndex = createdRuns[0].RunIndex
+		return resp
+	}
+
+	resp.Runs = make([]triggerJobRunResponse, 0, len(createdRuns))
+	for _, createdRun := range createdRuns {
+		resp.Runs = append(resp.Runs, triggerJobRunResponse{
+			RunID:    createdRun.RunID,
+			RunIndex: createdRun.RunIndex,
+			CellID:   createdRun.TargetCellID,
+		})
+	}
+
+	return resp
+}
+
+func cloneJobForRun(job *api.Job, runID string) *api.Job {
+	if job == nil {
+		return &api.Job{RunId: &runID}
+	}
+
+	cloned, ok := proto.Clone(job).(*api.Job)
+	if !ok {
+		cloned = &api.Job{}
+	}
+
+	cloned.RunId = &runID
+	return cloned
 }
 
 type repairMarkKind string
@@ -945,7 +1026,7 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	targetCellID, err := parseRunTargetOptions(triggerBody)
+	targetCellIDs, err := parseRunTargetOptions(triggerBody)
 	if err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_trigger_options", "invalid trigger options", nil)
 		return
@@ -957,6 +1038,7 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 	if trimmed := bytes.TrimSpace(triggerBody); len(trimmed) > 0 {
 		idempotencyHashParts = append(idempotencyHashParts, string(trimmed))
 	}
+
 	idempotencyHash := hashIdempotencyRequest(idempotencyHashParts...)
 	idempotencyRecord, idempotencyReserved, ok := s.reserveIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyHash)
 	if !ok {
@@ -970,7 +1052,7 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	runID, runIndex, err := s.runs.CreateRunInCell(ctx, jobID, nil, definitionVersion, targetCellID)
+	createdRuns, err := s.runs.CreateRunsInCells(ctx, jobID, nil, definitionVersion, targetCellIDs)
 	if err != nil {
 		if idempotencyReserved {
 			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
@@ -986,29 +1068,27 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 	}
 	s.markDBRecovered()
 
-	s.runBroadcaster.Broadcast(jobID, runID, runIndex)
-	job.RunId = &runID
-
 	actorID := int64(0)
 	if p != nil {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventRunTriggered, actorID, 0, map[string]any{
-		"job_id":    jobID,
-		"run_id":    runID,
-		"run_index": runIndex,
-		"namespace": nsPath,
-	})
+	for _, createdRun := range createdRuns {
+		s.runBroadcaster.Broadcast(jobID, createdRun.RunID, createdRun.RunIndex)
+		s.auditLog(ctx, audit.EventRunTriggered, actorID, 0, map[string]any{
+			"job_id":      jobID,
+			"run_id":      createdRun.RunID,
+			"run_index":   createdRun.RunIndex,
+			"namespace":   nsPath,
+			"target_cell": createdRun.TargetCellID,
+		})
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
+	response := triggerJobResponse(jobID, createdRuns)
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(map[string]any{
-		"job_id":    jobID,
-		"run_id":    runID,
-		"run_index": runIndex,
-	}); err != nil {
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
 		s.logger.Error("Failed to encode trigger response: %v", err)
 		return
 	}
@@ -1019,7 +1099,11 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 	// NOTE(garrett): We finish the enqueue asynchronously so that we can response immediately to the client,
 	// rather than them waiting for the enqueue to complete (dual enqueue is idempotent by worker claim).
 	bgCtx := detachedTraceContextFromRequest(r)
-	go s.finishTriggerEnqueue(bgCtx, jobID, runID, runIndex, &job)
+	for _, createdRun := range createdRuns {
+		runID := createdRun.RunID
+		jobForRun := cloneJobForRun(&job, runID)
+		go s.finishTriggerEnqueue(bgCtx, jobID, runID, createdRun.RunIndex, jobForRun)
+	}
 }
 
 func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID string, runIndex int, job *api.Job) {

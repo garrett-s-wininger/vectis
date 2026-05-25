@@ -243,6 +243,7 @@ type MockRunsRepository struct {
 	LastCreateJobID       string
 	LastDefinitionVersion int
 	LastCreateTargetCell  string
+	LastCreateTargetCells []string
 	LastListJobID         string
 	LastListAfterIndex    *int
 	LastListSince         *time.Time
@@ -343,16 +344,62 @@ func (m *MockRunsRepository) CreateRun(ctx context.Context, jobID string, runInd
 }
 
 func (m *MockRunsRepository) CreateRunInCell(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellID string) (string, int, error) {
+	created, err := m.CreateRunsInCells(ctx, jobID, runIndex, definitionVersion, []string{targetCellID})
+	if err != nil {
+		return "", 0, err
+	}
+
+	if len(created) == 0 {
+		return "", 0, fmt.Errorf("mock runs repository created no runs")
+	}
+
+	return created[0].RunID, created[0].RunIndex, nil
+}
+
+func (m *MockRunsRepository) CreateRunsInCells(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellIDs []string) ([]dal.CreatedRun, error) {
 	if m.CreateRunErr != nil {
-		return "", 0, m.CreateRunErr
+		return nil, m.CreateRunErr
+	}
+
+	if len(targetCellIDs) == 0 {
+		targetCellIDs = []string{dal.DefaultCellID}
+	}
+
+	runIndexStart := m.CreateRunIndex
+	if runIndex != nil {
+		runIndexStart = *runIndex
+	}
+	if runIndexStart <= 0 {
+		runIndexStart = 1
 	}
 
 	m.mu.Lock()
 	m.LastCreateJobID = jobID
 	m.LastDefinitionVersion = definitionVersion
-	m.LastCreateTargetCell = targetCellID
+	m.LastCreateTargetCell = targetCellIDs[0]
+	m.LastCreateTargetCells = append([]string(nil), targetCellIDs...)
 	m.mu.Unlock()
-	return m.CreateRunID, m.CreateRunIndex, nil
+
+	baseRunID := m.CreateRunID
+	if baseRunID == "" {
+		baseRunID = "mock-run-id"
+	}
+
+	created := make([]dal.CreatedRun, 0, len(targetCellIDs))
+	for i, targetCellID := range targetCellIDs {
+		runID := baseRunID
+		if len(targetCellIDs) > 1 {
+			runID = fmt.Sprintf("%s-%d", baseRunID, i+1)
+		}
+
+		created = append(created, dal.CreatedRun{
+			RunID:        runID,
+			RunIndex:     runIndexStart + i,
+			TargetCellID: targetCellID,
+		})
+	}
+
+	return created, nil
 }
 
 func (m *MockRunsRepository) ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, cursor int64, limit int) ([]dal.RunRecord, int64, error) {
@@ -408,6 +455,12 @@ func (m *MockRunsRepository) SnapshotLastCreateTargetCell() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.LastCreateTargetCell
+}
+
+func (m *MockRunsRepository) SnapshotLastCreateTargetCells() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string(nil), m.LastCreateTargetCells...)
 }
 
 func (m *MockRunsRepository) SnapshotLastListSince() *int {

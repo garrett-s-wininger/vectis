@@ -77,6 +77,29 @@ curl -sS \
 
 Both `POST /api/v1/jobs/run` and `POST /api/v1/jobs/trigger/{id}` accept an optional `cell_id` field to select the target execution cell. `target_cell_id` is accepted as an alias. If omitted, Vectis uses the API process's configured cell.
 
+Stored-job triggers can fan out to multiple cells in one request by sending `cell_ids` or `target_cell_ids`:
+
+```sh
+curl -sS \
+  -X POST \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"cell_ids":["iad-a","pdx-b"]}' \
+  http://localhost:8080/api/v1/jobs/trigger/sequenced-job
+```
+
+Multi-cell trigger responses return one run per target cell:
+
+```json
+{
+  "job_id": "sequenced-job",
+  "runs": [
+    {"run_id": "0fd7f565-a774-42e3-8e46-7c6f4f4c2c71", "run_index": 1, "cell_id": "iad-a"},
+    {"run_id": "1d811208-886f-4262-9a02-a21df616f0b7", "run_index": 2, "cell_id": "pdx-b"}
+  ]
+}
+```
+
 ### Check Whether The System Is Ready
 
 Use the health endpoints for process-level checks:
@@ -238,7 +261,7 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | PUT | `/api/v1/jobs/{id}` | Replace a job definition | `job:write` | general | `200` JSON job |
 | DELETE | `/api/v1/jobs/{id}` | Delete a job definition | `job:write` | general | `204` empty |
 | POST | `/api/v1/jobs/run` | Start an ephemeral run from JSON body, optionally targeting `cell_id` | `run:trigger` | general | `202` JSON run |
-| POST | `/api/v1/jobs/trigger/{id}` | Start a run from a stored job, optionally targeting `cell_id` | `run:trigger` | general | `202` JSON run |
+| POST | `/api/v1/jobs/trigger/{id}` | Start one or more runs from a stored job, optionally targeting `cell_id` or `cell_ids` | `run:trigger` | general | `202` JSON run |
 | GET | `/api/v1/jobs/{id}/runs` | List runs for one job | `run:read` | general | `200` JSON list |
 | GET | `/api/v1/sse/jobs/{id}/runs` | Stream run events for one job | `run:read` | general | `200` `text/event-stream` |
 | GET | `/api/v1/runs/{id}` | Get one run, including dispatch events | `run:read` | general | `200` JSON run |
