@@ -57,8 +57,9 @@ var doctorJSON bool
 var doctorStrict bool
 
 const (
-	doctorDiskWarnFreeBytes = 1 << 30
-	doctorCertExpiryWarn    = 14 * 24 * time.Hour
+	doctorDiskWarnFreeBytes  = 1 << 30
+	doctorCertExpiryWarn     = 14 * 24 * time.Hour
+	doctorCatalogPendingWarn = 100
 )
 
 func runDoctor(cmd *cobra.Command, args []string) {
@@ -82,6 +83,7 @@ func doctor(w io.Writer) error {
 		doctorDBPool(),
 		doctorQueueBacklog(),
 		doctorStuckRuns(),
+		doctorCatalogInbox(),
 		doctorLogReachable(),
 		doctorAuditFlushFailures(),
 		doctorTLSFiles(),
@@ -157,6 +159,9 @@ var doctorTextGroups = []doctorTextGroup{
 	{Name: "Reconciler", Items: []doctorTextItem{
 		{ID: "reconciler.active", Label: "Recovery activity"},
 		{ID: "reconciler.stuck.runs", Label: "Stuck runs"},
+	}},
+	{Name: "Catalog", Items: []doctorTextItem{
+		{ID: "catalog.inbox", Label: "Cell event inbox"},
 	}},
 	{Name: "Logging", Items: []doctorTextItem{
 		{ID: "log.reachable", Label: "Log service"},
@@ -541,6 +546,52 @@ func doctorStuckRuns() doctorCheck {
 	}
 
 	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no stuck runs", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+}
+
+func doctorCatalogInbox() doctorCheck {
+	const id = "catalog.inbox"
+	title := "Catalog inbox healthy"
+	req, err := newAPIRequest(http.MethodGet, "/api/v1/catalog/status", nil)
+	if err != nil {
+		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: err.Error(), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	}
+
+	var result struct {
+		Pending int64 `json:"pending"`
+		Applied int64 `json:"applied"`
+		Failed  int64 `json:"failed"`
+		Total   int64 `json:"total"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	}
+
+	evidence := fmt.Sprintf("pending=%d applied=%d failed=%d total=%d", result.Pending, result.Applied, result.Failed, result.Total)
+	if result.Failed > 0 {
+		label := "events"
+		if result.Failed == 1 {
+			label = "event"
+		}
+
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d catalog %s failed", result.Failed, label), Evidence: evidence, SuggestedAction: "Inspect vectis-catalog logs and failed cell catalog events", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	}
+
+	if result.Pending > doctorCatalogPendingWarn {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("catalog inbox backlog high: %d pending", result.Pending), Evidence: evidence, SuggestedAction: "Check vectis-catalog process health and database write latency", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	}
+
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("catalog inbox ok: %d pending", result.Pending), Evidence: evidence, DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 }
 
 func doctorLogReachable() doctorCheck {

@@ -1013,6 +1013,8 @@ func TestDoctor_success(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"reachable": true, "state": "READY"})
 		case "/api/v1/audit/flush-failures":
 			_ = json.NewEncoder(w).Encode(map[string]any{"flush_failures": 0})
+		case "/api/v1/catalog/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"pending": 0, "applied": 4, "failed": 0, "total": 4})
 		default:
 			t.Errorf("unexpected path=%s", r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
@@ -1029,7 +1031,7 @@ func TestDoctor_success(t *testing.T) {
 	out := buf.String()
 	for _, want := range []string{
 		"Vectis health check",
-		"Overall: PASS  16 passed, 0 warnings, 0 failed",
+		"Overall: PASS  17 passed, 0 warnings, 0 failed",
 		"Core",
 		"OK    API liveness",
 		"OK    API readiness",
@@ -1045,6 +1047,9 @@ func TestDoctor_success(t *testing.T) {
 		"OK    Recovery activity",
 		"reconciler recovery activity recorded",
 		"OK    Stuck runs",
+		"Catalog",
+		"OK    Cell event inbox",
+		"catalog inbox ok: 0 pending",
 		"Logging",
 		"OK    Log service",
 		"OK    Log storage",
@@ -1060,7 +1065,7 @@ func TestDoctor_success(t *testing.T) {
 		}
 	}
 
-	for _, path := range []string{"/health/live", "/health/ready", "/api/v1/setup/status", "/api/v1/schema/status", "/api/v1/reconciler/heartbeat", "/api/v1/audit/drops", "/api/v1/db/pool-stats", "/api/v1/queue/backlog", "/api/v1/reconciler/stuck-runs", "/api/v1/log/reachable", "/api/v1/audit/flush-failures"} {
+	for _, path := range []string{"/health/live", "/health/ready", "/api/v1/setup/status", "/api/v1/schema/status", "/api/v1/reconciler/heartbeat", "/api/v1/audit/drops", "/api/v1/db/pool-stats", "/api/v1/queue/backlog", "/api/v1/reconciler/stuck-runs", "/api/v1/log/reachable", "/api/v1/audit/flush-failures", "/api/v1/catalog/status"} {
 		if seen[path] != 1 {
 			t.Fatalf("expected one request to %s, got %d", path, seen[path])
 		}
@@ -1090,6 +1095,8 @@ func TestDoctor_warnsForIncompleteSetupAndMissingToken(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"reachable": true, "state": "READY"})
 		case "/api/v1/audit/flush-failures":
 			_ = json.NewEncoder(w).Encode(map[string]any{"flush_failures": 0})
+		case "/api/v1/catalog/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"pending": 0, "applied": 4, "failed": 0, "total": 4})
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -1107,7 +1114,7 @@ func TestDoctor_warnsForIncompleteSetupAndMissingToken(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"Overall: WARN  14 passed, 2 warnings, 0 failed",
+		"Overall: WARN  15 passed, 2 warnings, 0 failed",
 		"WARN  Initial setup",
 		"initial setup is not complete",
 		"WARN  CLI token",
@@ -1142,6 +1149,8 @@ func TestDoctor_setupAndTokenPassWhenAuthDisabled(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"reachable": true, "state": "READY"})
 		case "/api/v1/audit/flush-failures":
 			_ = json.NewEncoder(w).Encode(map[string]any{"flush_failures": 0})
+		case "/api/v1/catalog/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"pending": 0, "applied": 4, "failed": 0, "total": 4})
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -1159,7 +1168,7 @@ func TestDoctor_setupAndTokenPassWhenAuthDisabled(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"Overall: PASS  16 passed, 0 warnings, 0 failed",
+		"Overall: PASS  17 passed, 0 warnings, 0 failed",
 		"initial setup not required; API auth is disabled",
 		"CLI API token not required; API auth is disabled",
 	} {
@@ -1194,6 +1203,8 @@ func TestDoctor_failsWhenRequiredCheckFails(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"reachable": true, "state": "READY"})
 		case "/api/v1/audit/flush-failures":
 			_ = json.NewEncoder(w).Encode(map[string]any{"flush_failures": 0})
+		case "/api/v1/catalog/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"pending": 0, "applied": 4, "failed": 0, "total": 4})
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -1208,7 +1219,7 @@ func TestDoctor_failsWhenRequiredCheckFails(t *testing.T) {
 	}
 
 	out := buf.String()
-	if !strings.Contains(out, "Overall: FAIL  15 passed, 0 warnings, 1 failed") ||
+	if !strings.Contains(out, "Overall: FAIL  16 passed, 0 warnings, 1 failed") ||
 		!strings.Contains(out, "FAIL  API readiness") ||
 		!strings.Contains(out, "unexpected status: 503 Service Unavailable") {
 		t.Fatalf("missing readiness failure in output:\n%s", out)
@@ -1238,6 +1249,8 @@ func TestDoctor_jsonOutput(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"reachable": true, "state": "READY"})
 		case "/api/v1/audit/flush-failures":
 			_ = json.NewEncoder(w).Encode(map[string]any{"flush_failures": 0})
+		case "/api/v1/catalog/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"pending": 0, "applied": 4, "failed": 0, "total": 4})
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -1257,12 +1270,12 @@ func TestDoctor_jsonOutput(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if report.Status != doctorOK || report.Passed != 16 || report.Warnings != 0 || report.Failed != 0 {
+	if report.Status != doctorOK || report.Passed != 17 || report.Warnings != 0 || report.Failed != 0 {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 
-	if len(report.Checks) != 16 {
-		t.Fatalf("expected 16 checks, got %d", len(report.Checks))
+	if len(report.Checks) != 17 {
+		t.Fatalf("expected 17 checks, got %d", len(report.Checks))
 	}
 
 	// Verify structure of first check
@@ -1309,6 +1322,8 @@ func TestDoctor_jsonOutputStillFailsOnFailedCheck(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"reachable": true, "state": "READY"})
 		case "/api/v1/audit/flush-failures":
 			_ = json.NewEncoder(w).Encode(map[string]any{"flush_failures": 0})
+		case "/api/v1/catalog/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"pending": 0, "applied": 4, "failed": 0, "total": 4})
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -1333,8 +1348,8 @@ func TestDoctor_jsonOutputStillFailsOnFailedCheck(t *testing.T) {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 
-	if len(report.Checks) != 16 {
-		t.Fatalf("expected 16 checks, got %d", len(report.Checks))
+	if len(report.Checks) != 17 {
+		t.Fatalf("expected 17 checks, got %d", len(report.Checks))
 	}
 }
 
@@ -1458,6 +1473,8 @@ func TestDoctor_strictWarnsExitNonzero(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"reachable": true, "state": "READY"})
 		case "/api/v1/audit/flush-failures":
 			_ = json.NewEncoder(w).Encode(map[string]any{"flush_failures": 0})
+		case "/api/v1/catalog/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"pending": 0, "applied": 4, "failed": 0, "total": 4})
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -1490,6 +1507,44 @@ func TestDoctor_reconcilerNoRecoveryActivityIsHealthy(t *testing.T) {
 	}
 }
 
+func TestDoctor_catalogInboxWarnsForFailedEvents(t *testing.T) {
+	check := doctorCheckCatalogStatusResponse(t, map[string]any{
+		"pending": 2,
+		"applied": 10,
+		"failed":  1,
+		"total":   13,
+	})
+
+	if check.Status != doctorWarn {
+		t.Fatalf("expected failed catalog events to warn, got %#v", check)
+	}
+
+	if !strings.Contains(check.Summary, "1 catalog event failed") {
+		t.Fatalf("unexpected summary: %q", check.Summary)
+	}
+
+	if !strings.Contains(check.Evidence, "pending=2") || !strings.Contains(check.Evidence, "failed=1") {
+		t.Fatalf("unexpected evidence: %q", check.Evidence)
+	}
+}
+
+func TestDoctor_catalogInboxWarnsForHighPendingBacklog(t *testing.T) {
+	check := doctorCheckCatalogStatusResponse(t, map[string]any{
+		"pending": 101,
+		"applied": 10,
+		"failed":  0,
+		"total":   111,
+	})
+
+	if check.Status != doctorWarn {
+		t.Fatalf("expected pending catalog backlog to warn, got %#v", check)
+	}
+
+	if !strings.Contains(check.Summary, "catalog inbox backlog high") {
+		t.Fatalf("unexpected summary: %q", check.Summary)
+	}
+}
+
 func doctorCheckReconcilerActivityResponse(t *testing.T, body map[string]any) doctorCheck {
 	t.Helper()
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
@@ -1503,4 +1558,19 @@ func doctorCheckReconcilerActivityResponse(t *testing.T, body map[string]any) do
 	})
 
 	return doctorReconcilerActive()
+}
+
+func doctorCheckCatalogStatusResponse(t *testing.T, body map[string]any) doctorCheck {
+	t.Helper()
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/catalog/status" {
+			t.Errorf("unexpected path=%s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		_ = json.NewEncoder(w).Encode(body)
+	})
+
+	return doctorCatalogInbox()
 }
