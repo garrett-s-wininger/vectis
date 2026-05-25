@@ -257,6 +257,7 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | GET | `/api/v1/audit/flush-failures` | Audit flush failure count | Public | none | `200` JSON flush failures |
 | GET | `/api/v1/cron/status` | Cron schedule count and activity | Public | none | `200` JSON cron status |
 | GET | `/metrics` | Prometheus metrics | Public | none | `200` metrics text |
+| POST | `/api/v1/cells/{cell_id}/catalog-events` | Record a cell status event into the global catalog inbox | `run:operator` | general | `202` JSON event |
 | GET | `/api/v1/jobs` | List visible job definitions | `job:read` | general | `200` JSON list |
 | POST | `/api/v1/jobs` | Create a stored job definition | `job:write` | general | `201` JSON job |
 | GET | `/api/v1/jobs/{id}` | Get one job definition | `job:read` | general | `200` JSON job |

@@ -29,6 +29,7 @@ func TestAPIRouteInventory(t *testing.T) {
 		{"GET /api/v1/log/reachable", "public"},
 		{"GET /api/v1/audit/flush-failures", "public"},
 		{"GET /api/v1/cron/status", "public"},
+		{"POST /api/v1/cells/{cell_id}/catalog-events", string(authz.ActionRunOperator)},
 		{"GET /api/v1/jobs", string(authz.ActionJobRead)},
 		{"GET /api/v1/jobs/{id}", string(authz.ActionJobRead)},
 		{"POST /api/v1/jobs", string(authz.ActionJobWrite)},

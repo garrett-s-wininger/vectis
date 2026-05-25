@@ -299,6 +299,96 @@ func TestAPIServer_TriggerJob_DBUnavailableOnGetDefinition(t *testing.T) {
 	assertAPIError(t, rec, http.StatusServiceUnavailable, "database_unavailable")
 }
 
+func TestAPIServer_PostCellCatalogEvent_RecordAndReplay(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+
+	body := []byte(`{
+		"event_key": "event-1",
+		"event_type": "run.status",
+		"payload": {"run_id": "run-1", "status": "running"}
+	}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/cells/iad-a/catalog-events", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("cell_id", "iad-a")
+	rec := httptest.NewRecorder()
+
+	server.PostCellCatalogEvent(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusAccepted, rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		ID         int64  `json:"id"`
+		SourceCell string `json:"source_cell"`
+		EventKey   string `json:"event_key"`
+		EventType  string `json:"event_type"`
+		Status     string `json:"status"`
+		Created    bool   `json:"created"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if resp.ID == 0 || resp.SourceCell != "iad-a" || resp.EventKey != "event-1" || resp.EventType != "run.status" || resp.Status != dal.CatalogEventStatusPending || !resp.Created {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+
+	var payload string
+	if err := db.QueryRow("SELECT payload_json FROM cell_catalog_events WHERE id = ?", resp.ID).Scan(&payload); err != nil {
+		t.Fatalf("query catalog event: %v", err)
+	}
+
+	var storedPayload map[string]string
+	if err := json.Unmarshal([]byte(payload), &storedPayload); err != nil {
+		t.Fatalf("decode stored payload: %v", err)
+	}
+
+	if storedPayload["run_id"] != "run-1" || storedPayload["status"] != "running" {
+		t.Fatalf("unexpected payload: %+v", storedPayload)
+	}
+
+	dupReq := httptest.NewRequest(http.MethodPost, "/api/v1/cells/iad-a/catalog-events", bytes.NewReader(body))
+	dupReq.Header.Set("Content-Type", "application/json")
+	dupReq.SetPathValue("cell_id", "iad-a")
+	dupRec := httptest.NewRecorder()
+	server.PostCellCatalogEvent(dupRec, dupReq)
+
+	if dupRec.Code != http.StatusAccepted {
+		t.Fatalf("duplicate expected status %d, got %d: %s", http.StatusAccepted, dupRec.Code, dupRec.Body.String())
+	}
+
+	var dupResp struct {
+		ID      int64 `json:"id"`
+		Created bool  `json:"created"`
+	}
+	if err := json.Unmarshal(dupRec.Body.Bytes(), &dupResp); err != nil {
+		t.Fatalf("decode duplicate response: %v", err)
+	}
+
+	if dupResp.ID != resp.ID || dupResp.Created {
+		t.Fatalf("unexpected duplicate response: %+v", dupResp)
+	}
+}
+
+func TestAPIServer_PostCellCatalogEvent_InvalidEvent(t *testing.T) {
+	server, _, _, _ := setupTestServer(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/cells/iad-a/catalog-events", strings.NewReader(`{
+		"event_key": "event-bad",
+		"event_type": "not-real",
+		"payload": {}
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("cell_id", "iad-a")
+	rec := httptest.NewRecorder()
+
+	server.PostCellCatalogEvent(rec, req)
+
+	assertAPIError(t, rec, http.StatusBadRequest, "invalid_catalog_event")
+}
+
 func TestAPIServer_CreateJob_InvalidJSON(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 

@@ -52,6 +52,7 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 		routeSpec{Pattern: "GET /api/v1/log/reachable", Handler: http.HandlerFunc(s.GetLogReachable), Auth: routeAuthPolicy{Public: true}},
 		routeSpec{Pattern: "GET /api/v1/audit/flush-failures", Handler: http.HandlerFunc(s.GetAuditFlushFailures), Auth: routeAuthPolicy{Public: true}},
 		routeSpec{Pattern: "GET /api/v1/cron/status", Handler: http.HandlerFunc(s.GetCronStatus), Auth: routeAuthPolicy{Public: true}},
+		routeSpec{Pattern: "POST /api/v1/cells/{cell_id}/catalog-events", Handler: http.HandlerFunc(s.PostCellCatalogEvent), Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "GET /api/v1/jobs", Handler: http.HandlerFunc(s.GetJobs), Auth: routeAuthPolicy{Action: authz.ActionJobRead}, RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "GET /api/v1/jobs/{id}", Handler: http.HandlerFunc(s.GetJob), Auth: routeAuthPolicy{Action: authz.ActionJobRead}, RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "POST /api/v1/jobs", Handler: http.HandlerFunc(s.CreateJob), Auth: routeAuthPolicy{Action: authz.ActionJobWrite}, RateLimit: defaultLimits.General},

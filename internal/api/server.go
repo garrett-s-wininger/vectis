@@ -68,6 +68,7 @@ type APIServer struct {
 	roleBindings   dal.RoleBindingsRepository
 	idempotency    dal.IdempotencyRepository
 	dispatchEvents dal.DispatchEventsRepository
+	catalogEvents  dal.CatalogEventsRepository
 	schedules      dal.SchedulesRepository
 	logger         interfaces.Logger
 	queueClient    atomic.Pointer[queueClientHolder]
@@ -117,6 +118,7 @@ func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
 	s.roleBindings = repos.RoleBindings()
 	s.idempotency = repos.Idempotency()
 	s.dispatchEvents = repos.DispatchEvents()
+	s.catalogEvents = repos.CatalogEvents()
 	s.schedules = repos.Schedules()
 	return s
 }
@@ -424,6 +426,10 @@ func (s *APIServer) SetLogClient(client api.LogServiceClient) {
 	if old != nil && old.close != nil {
 		old.close()
 	}
+}
+
+func (s *APIServer) SetCatalogEventsRepository(repo dal.CatalogEventsRepository) {
+	s.catalogEvents = repo
 }
 
 func (s *APIServer) SetRateLimiter(limiter ratelimit.RateLimiter) {
