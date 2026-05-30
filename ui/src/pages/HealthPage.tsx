@@ -5,6 +5,7 @@ import { PageHeader } from "../components";
 import type { Cell, CellStatus } from "../domain/console";
 import { clusterHealthMetricsFor } from "../mocks/consoleData";
 import { DashboardPage } from "./DashboardPage";
+import { ResourceStatus, ResourceTitle } from "./shared";
 
 type HealthPageProps = {
   cells: Cell[];
@@ -18,12 +19,7 @@ export function HealthPage({ cells, onSelectCell, selectedCellID }: HealthPagePr
   const columns: DataTableColumn<Cell>[] = [
     {
       header: "Cell",
-      cell: (cell) => (
-        <div className="resource-title">
-          <strong>{cell.name}</strong>
-          <small>{cell.region}</small>
-        </div>
-      )
+      cell: (cell) => <ResourceTitle subtitle={cell.region} title={cell.name} />
     },
     {
       header: "Endpoint",
@@ -47,11 +43,7 @@ export function HealthPage({ cells, onSelectCell, selectedCellID }: HealthPagePr
     {
       align: "end",
       header: "Status",
-      cell: (cell) => (
-        <span className={`resource-status resource-status--${statusTone(cell.status)}`}>
-          {statusLabel(cell.status)}
-        </span>
-      )
+      cell: (cell) => <ResourceStatus tone={statusTone(cell.status)}>{statusLabel(cell.status)}</ResourceStatus>
     },
     {
       align: "end",

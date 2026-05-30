@@ -6,6 +6,7 @@ import { FormField } from "../components";
 import { PageHeader } from "../components";
 import { SelectField } from "../components";
 import type { Namespace, NewNamespace } from "../domain/console";
+import { ResourceStatus, ResourceTitle } from "./shared";
 
 type NamespacesPageProps = {
   canDeleteNamespace: (namespaceID: number) => boolean;
@@ -44,10 +45,10 @@ export function NamespacesPage({
     {
       header: "Namespace",
       cell: (namespace) => (
-        <div className="resource-title">
-          <strong>{namespace.path}</strong>
-          <small>{namespace.path === "/" ? "Root namespace" : `Parent ${parentPathFor(namespaces, namespace)}`}</small>
-        </div>
+        <ResourceTitle
+          subtitle={namespace.path === "/" ? "Root namespace" : `Parent ${parentPathFor(namespaces, namespace)}`}
+          title={namespace.path}
+        />
       )
     },
     {
@@ -58,9 +59,9 @@ export function NamespacesPage({
       align: "end",
       header: "Inheritance",
       cell: (namespace) => (
-        <span className={`resource-status resource-status--${namespace.breakInheritance ? "paused" : "enabled"}`}>
+        <ResourceStatus tone={namespace.breakInheritance ? "paused" : "enabled"}>
           {namespace.breakInheritance ? "Stopped" : "Inherited"}
-        </span>
+        </ResourceStatus>
       )
     },
     {

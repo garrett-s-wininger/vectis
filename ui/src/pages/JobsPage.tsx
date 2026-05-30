@@ -9,6 +9,7 @@ import { SelectField } from "../components";
 import { StatusBadge } from "../components";
 import fieldStyles from "../components/primitives/Field.module.css";
 import type { Job, JobStatus, NewJob, UpdateJob } from "../domain/console";
+import { ResourceStatus, ResourceTitle, TableActions } from "./shared";
 
 type JobEditorMode = { kind: "create" } | { kind: "edit"; jobID: string } | null;
 
@@ -118,12 +119,7 @@ export function JobsPage({ jobs, namespacePath, onCreateJob, onDeleteJob, onTrig
   const columns: DataTableColumn<Job>[] = [
     {
       header: "Job",
-      cell: (job) => (
-        <div className="resource-title">
-          <strong>{job.name}</strong>
-          <small>{job.repository}</small>
-        </div>
-      )
+      cell: (job) => <ResourceTitle subtitle={job.repository} title={job.name} />
     },
     {
       header: "Namespace",
@@ -135,12 +131,7 @@ export function JobsPage({ jobs, namespacePath, onCreateJob, onDeleteJob, onTrig
     },
     {
       header: "Schedule",
-      cell: (job) => (
-        <div className="resource-title">
-          <strong>{job.schedule}</strong>
-          <small>{job.nextRun}</small>
-        </div>
-      )
+      cell: (job) => <ResourceTitle subtitle={job.nextRun} title={job.schedule} />
     },
     {
       header: "Last run",
@@ -150,16 +141,14 @@ export function JobsPage({ jobs, namespacePath, onCreateJob, onDeleteJob, onTrig
       align: "end",
       header: "State",
       cell: (job) => (
-        <span className={`resource-status resource-status--${job.status}`}>
-          {job.status === "enabled" ? "Enabled" : "Paused"}
-        </span>
+        <ResourceStatus tone={job.status}>{job.status === "enabled" ? "Enabled" : "Paused"}</ResourceStatus>
       )
     },
     {
       align: "end",
       header: "Actions",
       cell: (job) => (
-        <div className="table-actions">
+        <TableActions>
           <Button
             aria-label={`Trigger ${job.name}`}
             disabled={job.status === "paused"}
@@ -173,7 +162,7 @@ export function JobsPage({ jobs, namespacePath, onCreateJob, onDeleteJob, onTrig
           <Button aria-label={`Delete ${job.name}`} onClick={() => onDeleteJob(job.id)}>
             Delete
           </Button>
-        </div>
+        </TableActions>
       )
     }
   ];
@@ -192,10 +181,11 @@ export function JobsPage({ jobs, namespacePath, onCreateJob, onDeleteJob, onTrig
       />
       {editorMode ? (
         <section className="resource-editor-panel" aria-labelledby="job-editor-title">
-          <div className="resource-title">
-            <strong id="job-editor-title">{editorMode.kind === "create" ? "New job" : "Edit job"}</strong>
-            <small>Namespace {namespacePath}</small>
-          </div>
+          <ResourceTitle
+            id="job-editor-title"
+            subtitle={`Namespace ${namespacePath}`}
+            title={editorMode.kind === "create" ? "New job" : "Edit job"}
+          />
           <form className="resource-editor-form" onSubmit={submitJob}>
             <div className="resource-editor-form__grid">
               <FormField

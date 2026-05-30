@@ -8,6 +8,7 @@ import { RunList, type RunListItem } from "../components";
 import { SelectField } from "../components";
 import type { RunStatus } from "../components";
 import fieldStyles from "../components/primitives/Field.module.css";
+import { ResourceTitle } from "./shared";
 
 type RunFilter = RunStatus | "all";
 type SourceFilter = NonNullable<RunListItem["source"]> | "all";
@@ -117,10 +118,7 @@ export function RunsPage({ namespacePath, onSelectRun, onSubmitEphemeralRun, run
       {showRunOnce ? (
         <section className="run-once-panel" aria-labelledby="run-once-title">
           <div className="run-once-panel__header">
-            <div className="resource-title">
-              <strong id="run-once-title">Run once</strong>
-              <small>Namespace {namespacePath}</small>
-            </div>
+            <ResourceTitle id="run-once-title" subtitle={`Namespace ${namespacePath}`} title="Run once" />
           </div>
           <form className="run-once-form" onSubmit={submitRunOnce}>
             <label className={`${fieldStyles.root} ${fieldStyles.wide}`}>

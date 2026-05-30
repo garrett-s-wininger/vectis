@@ -6,6 +6,7 @@ import { FormField } from "../components";
 import { PageHeader } from "../components";
 import { SelectField } from "../components";
 import type { NewUser, User, UserRole, UserStatus } from "../domain/console";
+import { ResourceStatus, ResourceTitle, TableActions } from "./shared";
 
 const roleOptions: { label: string; value: UserRole }[] = [
   { label: "Admin", value: "Admin" },
@@ -39,12 +40,7 @@ export function UsersPage({ onCreateUser, onDeleteUser, onUpdateUserStatus, user
   const columns: DataTableColumn<User>[] = [
     {
       header: "User",
-      cell: (user) => (
-        <div className="resource-title">
-          <strong>{user.username}</strong>
-          <small>{user.lastSeen}</small>
-        </div>
-      )
+      cell: (user) => <ResourceTitle subtitle={user.lastSeen} title={user.username} />
     },
     {
       header: "Role",
@@ -59,16 +55,14 @@ export function UsersPage({ onCreateUser, onDeleteUser, onUpdateUserStatus, user
       align: "end",
       header: "Status",
       cell: (user) => (
-        <span className={`resource-status resource-status--${user.status}`}>
-          {user.status === "active" ? "Active" : "Disabled"}
-        </span>
+        <ResourceStatus tone={user.status}>{user.status === "active" ? "Active" : "Disabled"}</ResourceStatus>
       )
     },
     {
       align: "end",
       header: "Actions",
       cell: (user) => (
-        <div className="table-actions">
+        <TableActions>
           <Button
             aria-label={user.status === "active" ? `Disable ${user.username}` : `Activate ${user.username}`}
             onClick={() => onUpdateUserStatus(user.id, user.status === "active" ? "disabled" : "active")}
@@ -82,7 +76,7 @@ export function UsersPage({ onCreateUser, onDeleteUser, onUpdateUserStatus, user
           >
             Remove
           </Button>
-        </div>
+        </TableActions>
       )
     }
   ];
