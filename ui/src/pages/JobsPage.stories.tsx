@@ -1,14 +1,6 @@
-import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import {
-  createMockConsoleDataSnapshot,
-  createMockJob,
-  deleteMockJob,
-  scopeMockConsoleData,
-  triggerMockRun,
-  updateMockJob,
-  type MockConsoleData
-} from "../mocks/consoleData";
+import { createMockConsoleDataSnapshot } from "../mocks/consoleData";
+import { JobsPageHarness, PageStoryFrame } from "../mocks/pageHarnesses";
 import { JobsPage } from "./JobsPage";
 
 const data = createMockConsoleDataSnapshot();
@@ -26,9 +18,9 @@ const meta = {
   },
   decorators: [
     (Story) => (
-      <main className="storybook-page-main">
+      <PageStoryFrame>
         <Story />
-      </main>
+      </PageStoryFrame>
     )
   ]
 } satisfies Meta<typeof JobsPage>;
@@ -37,28 +29,12 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-function JobsPageMock({ namespacePath = "/" }: { namespacePath?: string }) {
-  const [data, setData] = useState<MockConsoleData>(() => createMockConsoleDataSnapshot());
-  const scopedData = scopeMockConsoleData(data, namespacePath);
-
-  return (
-    <JobsPage
-      jobs={scopedData.jobs}
-      namespacePath={namespacePath}
-      onCreateJob={(input) => setData((current) => createMockJob(current, input))}
-      onDeleteJob={(jobID) => setData((current) => deleteMockJob(current, jobID))}
-      onTriggerRun={(jobID) => setData((current) => triggerMockRun(current, jobID))}
-      onUpdateJob={(jobID, input) => setData((current) => updateMockJob(current, jobID, input))}
-    />
-  );
-}
-
 export const CRUD: Story = {
-  render: () => <JobsPageMock />
+  render: () => <JobsPageHarness />
 };
 
 export const NamespaceScoped: Story = {
-  render: () => <JobsPageMock namespacePath="/team-a/edge" />
+  render: () => <JobsPageHarness namespacePath="/team-a/edge" />
 };
 
 export const PausedJob: Story = {

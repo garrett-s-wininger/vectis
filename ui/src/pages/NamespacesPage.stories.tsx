@@ -1,12 +1,6 @@
-import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import {
-  canDeleteMockNamespace,
-  createMockConsoleDataSnapshot,
-  createMockNamespace,
-  deleteMockNamespace,
-  type MockConsoleData
-} from "../mocks/consoleData";
+import { createMockConsoleDataSnapshot } from "../mocks/consoleData";
+import { NamespacesPageHarness, PageStoryFrame } from "../mocks/pageHarnesses";
 import { NamespacesPage } from "./NamespacesPage";
 
 const meta = {
@@ -20,9 +14,9 @@ const meta = {
   },
   decorators: [
     (Story) => (
-      <main className="storybook-page-main">
+      <PageStoryFrame>
         <Story />
-      </main>
+      </PageStoryFrame>
     )
   ]
 } satisfies Meta<typeof NamespacesPage>;
@@ -31,21 +25,8 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-function NamespacesPageMock() {
-  const [data, setData] = useState<MockConsoleData>(() => createMockConsoleDataSnapshot());
-
-  return (
-    <NamespacesPage
-      canDeleteNamespace={(namespaceID) => canDeleteMockNamespace(data, namespaceID)}
-      namespaces={data.namespaces}
-      onCreateNamespace={(input) => setData((current) => createMockNamespace(current, input))}
-      onDeleteNamespace={(namespaceID) => setData((current) => deleteMockNamespace(current, namespaceID))}
-    />
-  );
-}
-
 export const Hierarchy: Story = {
-  render: () => <NamespacesPageMock />
+  render: () => <NamespacesPageHarness />
 };
 
 export const Empty: Story = {

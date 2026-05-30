@@ -1,6 +1,6 @@
-import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { createMockConsoleDataSnapshot, type MockCell } from "../mocks/consoleData";
+import { createMockConsoleDataSnapshot } from "../mocks/consoleData";
+import { HealthPageHarness, PageStoryFrame } from "../mocks/pageHarnesses";
 import { HealthPage } from "./HealthPage";
 
 const data = createMockConsoleDataSnapshot();
@@ -14,9 +14,9 @@ const meta = {
   },
   decorators: [
     (Story) => (
-      <main className="storybook-page-main">
+      <PageStoryFrame>
         <Story />
-      </main>
+      </PageStoryFrame>
     )
   ]
 } satisfies Meta<typeof HealthPage>;
@@ -25,14 +25,8 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-function HealthPageMock({ cells }: { cells: MockCell[] }) {
-  const [selectedCellID, setSelectedCellID] = useState<string | undefined>();
-
-  return <HealthPage cells={cells} onSelectCell={setSelectedCellID} selectedCellID={selectedCellID} />;
-}
-
 export const Cluster: Story = {
-  render: () => <HealthPageMock cells={data.cells} />
+  render: () => <HealthPageHarness cells={data.cells} />
 };
 
 export const CellDrilldown: Story = {

@@ -1,12 +1,6 @@
-import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import {
-  createMockConsoleDataSnapshot,
-  createMockUser,
-  deleteMockUser,
-  updateMockUserStatus,
-  type MockConsoleData
-} from "../mocks/consoleData";
+import { createMockConsoleDataSnapshot } from "../mocks/consoleData";
+import { PageStoryFrame, UsersPageHarness } from "../mocks/pageHarnesses";
 import { UsersPage } from "./UsersPage";
 
 const meta = {
@@ -20,9 +14,9 @@ const meta = {
   },
   decorators: [
     (Story) => (
-      <main className="storybook-page-main">
+      <PageStoryFrame>
         <Story />
-      </main>
+      </PageStoryFrame>
     )
   ]
 } satisfies Meta<typeof UsersPage>;
@@ -31,21 +25,8 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-function UsersPageMock() {
-  const [data, setData] = useState<MockConsoleData>(() => createMockConsoleDataSnapshot());
-
-  return (
-    <UsersPage
-      onCreateUser={(input) => setData((current) => createMockUser(current, input))}
-      onDeleteUser={(userID) => setData((current) => deleteMockUser(current, userID))}
-      onUpdateUserStatus={(userID, status) => setData((current) => updateMockUserStatus(current, userID, status))}
-      users={data.users}
-    />
-  );
-}
-
 export const UserManagement: Story = {
-  render: () => <UsersPageMock />
+  render: () => <UsersPageHarness />
 };
 
 export const Empty: Story = {

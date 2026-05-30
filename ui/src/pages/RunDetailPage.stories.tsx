@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { createMockConsoleDataSnapshot, submitMockEphemeralRun } from "../mocks/consoleData";
+import { PageStoryFrame } from "../mocks/pageHarnesses";
 import { RunDetailPage } from "./RunDetailPage";
 
 const data = createMockConsoleDataSnapshot();
@@ -25,9 +26,9 @@ const meta = {
   component: RunDetailPage,
   decorators: [
     (Story) => (
-      <main className="storybook-page-main">
+      <PageStoryFrame>
         <Story />
-      </main>
+      </PageStoryFrame>
     )
   ],
   args: {
