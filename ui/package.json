@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "storybook": "mkdir -p .cache/storybook-home && HOME=$PWD/.cache/storybook-home STORYBOOK_DISABLE_TELEMETRY=1 storybook dev -p 6006",
-    "storybook:build": "mkdir -p .cache/storybook-home && HOME=$PWD/.cache/storybook-home STORYBOOK_DISABLE_TELEMETRY=1 storybook build",
+    "storybook": "mkdir -p .cache/storybook-home && HOME=$PWD/.cache/storybook-home STORYBOOK_DISABLE_TELEMETRY=1 storybook dev -p 6006 --ci --no-open --initial-path='/?path=/story/components-appshell--dashboard'",
+    "storybook:build": "mkdir -p .cache/storybook-home && HOME=$PWD/.cache/storybook-home STORYBOOK_DISABLE_TELEMETRY=1 storybook build --disable-telemetry",
     "test": "vitest run",
     "test:watch": "vitest",
     "preview": "vite preview"
