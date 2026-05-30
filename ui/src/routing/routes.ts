@@ -16,6 +16,7 @@ export type AppRoute = {
   kind: AppRouteKind;
   activeHref: string;
   pathname: string;
+  runID?: string;
 };
 
 export const primaryNavItems: NavItem[] = [
@@ -48,8 +49,17 @@ export function routeFromPath(pathname: string): AppRoute {
     };
   }
 
-  if (pathname === "/runs" || pathname.startsWith("/runs/")) {
+  if (pathname === "/runs" || pathname === "/runs/") {
     return { kind: "runs", activeHref: "/runs", pathname };
+  }
+
+  if (pathname.startsWith("/runs/")) {
+    return {
+      kind: "runs",
+      activeHref: "/runs",
+      pathname,
+      runID: pathname.slice("/runs/".length)
+    };
   }
 
   if (pathname === "/jobs" || pathname.startsWith("/jobs/")) {

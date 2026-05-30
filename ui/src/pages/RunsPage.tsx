@@ -60,12 +60,14 @@ const defaultDefinition = JSON.stringify(
 
 type RunsPageProps = {
   namespacePath: string;
+  onSelectRun: (runID: string) => void;
   onSubmitEphemeralRun: (definition: string) => void;
   runs: RunListItem[];
 };
 
 export function RunsPage({
   namespacePath,
+  onSelectRun,
   onSubmitEphemeralRun,
   runs
 }: RunsPageProps) {
@@ -175,6 +177,7 @@ export function RunsPage({
         }
       />
       <RunList
+        onSelectRun={onSelectRun}
         title={runListTitle(status, source)}
         runs={filteredRuns}
       />

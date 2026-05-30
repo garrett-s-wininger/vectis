@@ -47,6 +47,18 @@ export const activeRuns: RunListItem[] = [
     runNumber: 1240,
     cellName: "local",
     commit: "8f12c4a",
+    definition: JSON.stringify(
+      {
+        id: "api-test-suite",
+        root: {
+          id: "root",
+          uses: "builtins/shell",
+          with: { command: "go test ./internal/api/..." }
+        }
+      },
+      null,
+      2
+    ),
     duration: "4m 12s",
     namespacePath: "/team-a",
     source: "stored",
@@ -59,6 +71,18 @@ export const activeRuns: RunListItem[] = [
     runNumber: 1239,
     cellName: "edge",
     commit: "1d9a0b3",
+    definition: JSON.stringify(
+      {
+        id: "docs-publish",
+        root: {
+          id: "root",
+          uses: "builtins/shell",
+          with: { command: "npm run docs:publish" }
+        }
+      },
+      null,
+      2
+    ),
     duration: "1m 48s",
     namespacePath: "/team-a/edge",
     source: "stored",
@@ -71,6 +95,18 @@ export const activeRuns: RunListItem[] = [
     runNumber: 1238,
     cellName: "prod-west",
     commit: "54fd901",
+    definition: JSON.stringify(
+      {
+        id: "worker-image",
+        root: {
+          id: "root",
+          uses: "builtins/shell",
+          with: { command: "podman build -f build/Containerfile" }
+        }
+      },
+      null,
+      2
+    ),
     duration: "7m 31s",
     namespacePath: "/prod",
     source: "stored",

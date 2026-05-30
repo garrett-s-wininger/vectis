@@ -16,6 +16,13 @@ describe("routes", () => {
     expect(routeFromPath(pathname)).toMatchObject({ kind, activeHref });
   });
 
+  it("extracts run IDs from run detail paths", () => {
+    expect(routeFromPath("/runs/run-1240")).toMatchObject({
+      kind: "runs",
+      runID: "run-1240"
+    });
+  });
+
   it("returns same-origin next paths", () => {
     expect(
       safeNextPath("?next=%2Fruns%2F123%3Fstatus%3Drunning%23logs", "http://ui.test")

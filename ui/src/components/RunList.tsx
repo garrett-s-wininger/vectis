@@ -1,10 +1,12 @@
 import { StatusBadge, type RunStatus } from "./StatusBadge";
+import { Button } from "./Button";
 
 export type RunListItem = {
   id: string;
   jobName: string;
   runNumber: number;
   commit: string;
+  definition?: string;
   duration: string;
   cellName?: string;
   namespacePath?: string;
@@ -14,11 +16,12 @@ export type RunListItem = {
 };
 
 type RunListProps = {
+  onSelectRun?: (runID: string) => void;
   title: string;
   runs: RunListItem[];
 };
 
-export function RunList({ title, runs }: RunListProps) {
+export function RunList({ onSelectRun, title, runs }: RunListProps) {
   return (
     <section className="run-list" aria-labelledby="run-list-title">
       <div className="run-list__header">
@@ -48,7 +51,17 @@ export function RunList({ title, runs }: RunListProps) {
                   {run.commit} · {run.duration}
                 </small>
               </div>
-              <StatusBadge status={run.status} />
+              <div className="run-list__actions">
+                <StatusBadge status={run.status} />
+                {onSelectRun ? (
+                  <Button
+                    aria-label={`Open run ${run.jobName} #${run.runNumber}`}
+                    onClick={() => onSelectRun(run.id)}
+                  >
+                    Open
+                  </Button>
+                ) : null}
+              </div>
             </li>
           ))}
         </ul>

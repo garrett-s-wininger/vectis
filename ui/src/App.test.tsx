@@ -25,7 +25,7 @@ describe("App", () => {
   });
 
   it("completes setup and navigates to next", async () => {
-    window.history.replaceState(null, "", "/setup?next=%2Fruns%2F123");
+    window.history.replaceState(null, "", "/setup?next=%2Fruns");
     fetchMock.mockResolvedValueOnce(
       new Response(JSON.stringify({ username: "admin" }), { status: 200 })
     );
@@ -50,7 +50,7 @@ describe("App", () => {
       await screen.findByRole("heading", { name: "Runs" })
     ).toBeInTheDocument();
 
-    expect(window.location.pathname).toBe("/runs/123");
+    expect(window.location.pathname).toBe("/runs");
     expect(fetchMock).toHaveBeenLastCalledWith(
       "/ui/api/setup/complete",
       expect.objectContaining({ credentials: "same-origin", method: "POST" })
@@ -124,12 +124,12 @@ describe("App", () => {
   });
 
   it("renders app routes directly after BFF authorization", async () => {
-    window.history.replaceState(null, "", "/runs/123");
+    window.history.replaceState(null, "", "/runs/run-1240");
 
     render(<App />);
 
     expect(
-      await screen.findByRole("heading", { name: "Runs" })
+      await screen.findByRole("heading", { name: "api-test-suite #1240" })
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Runs" })).toHaveAttribute(
       "aria-current",
@@ -225,6 +225,29 @@ describe("App", () => {
     expect(screen.getByText(/manual · Queued/)).toBeInTheDocument();
   });
 
+  it("opens a run detail placeholder from the runs list", async () => {
+    window.history.replaceState(null, "", "/runs");
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Runs" });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open run api-test-suite #1240" })
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "api-test-suite #1240" })
+    ).toBeInTheDocument();
+    expect(screen.getByText("run-1240")).toBeInTheDocument();
+    expect(screen.getByText("Stored")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/runs/run-1240");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Definition" }));
+
+    expect(screen.getByText(/go test \.\/internal\/api/)).toBeInTheDocument();
+  });
+
   it("submits an ephemeral run from the runs page", async () => {
     window.history.replaceState(null, "", "/runs");
 
@@ -244,13 +267,30 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Submit run" }));
 
-    expect(await screen.findByText("database-backfill")).toBeInTheDocument();
-    expect(screen.getAllByText("Ephemeral")).toHaveLength(2);
-    expect(screen.getByText(/inline definition · Queued/)).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "database-backfill #1241" })
+    ).toBeInTheDocument();
+    expect(screen.getByText("Ephemeral")).toBeInTheDocument();
+    expect(screen.getByText("inline definition")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Definition" }));
+
+    expect(screen.getByText(/"id": "database-backfill"/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("link", { name: "Jobs" }));
 
     expect(screen.queryByText("database-backfill")).not.toBeInTheDocument();
+  });
+
+  it("renders a run detail not found state", async () => {
+    window.history.replaceState(null, "", "/runs/missing");
+
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Run not found" })
+    ).toBeInTheDocument();
+    expect(screen.getByText("No run matched missing.")).toBeInTheDocument();
   });
 
   it("scopes jobs by selected namespace", async () => {

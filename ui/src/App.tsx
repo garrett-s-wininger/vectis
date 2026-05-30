@@ -15,6 +15,7 @@ import {
   deleteMockNamespace,
   deleteMockUser,
   loadMockConsoleData,
+  nextMockRunID,
   scopeMockConsoleData,
   submitMockEphemeralRun,
   triggerMockRun,
@@ -28,6 +29,7 @@ import { HealthPage } from "./pages/HealthPage";
 import { JobsPage } from "./pages/JobsPage";
 import { NamespacesPage } from "./pages/NamespacesPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
+import { RunDetailPage } from "./pages/RunDetailPage";
 import { RunsPage } from "./pages/RunsPage";
 import { UsersPage } from "./pages/UsersPage";
 import {
@@ -180,6 +182,8 @@ export function App() {
   }
 
   function handleSubmitEphemeralRun(definition: string) {
+    const runID = consoleData ? nextMockRunID(consoleData) : null;
+
     updateConsoleData((data) =>
       submitMockEphemeralRun(data, {
         definition,
@@ -187,6 +191,10 @@ export function App() {
         submittedBy: "admin"
       })
     );
+
+    if (runID) {
+      navigateTo(`/runs/${runID}`);
+    }
   }
 
   function handleShellNavigate(
@@ -441,9 +449,20 @@ function RouteContent({
         />
       );
     case "runs":
+      if (route.runID) {
+        return (
+          <RunDetailPage
+            onBack={() => navigateTo("/runs")}
+            run={consoleData.runs.find((run) => run.id === route.runID)}
+            runID={route.runID}
+          />
+        );
+      }
+
       return (
         <RunsPage
           namespacePath={namespacePath}
+          onSelectRun={(runID) => navigateTo(`/runs/${runID}`)}
           onSubmitEphemeralRun={onSubmitEphemeralRun}
           runs={scopedConsoleData.runs}
         />

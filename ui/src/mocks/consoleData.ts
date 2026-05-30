@@ -492,8 +492,7 @@ export function triggerMockRun(
     return data;
   }
 
-  const nextRunNumber =
-    Math.max(0, ...data.runs.map((run) => run.runNumber)) + 1;
+  const nextRunNumber = nextMockRunNumber(data);
   const run: RunListItem = {
     id: `run-${nextRunNumber}`,
     jobName: job.name,
@@ -527,14 +526,14 @@ export function submitMockEphemeralRun(
     return data;
   }
 
-  const nextRunNumber =
-    Math.max(0, ...data.runs.map((run) => run.runNumber)) + 1;
+  const nextRunNumber = nextMockRunNumber(data);
   const run: RunListItem = {
     id: `run-${nextRunNumber}`,
     jobName: jobNameFromDefinition(definition),
     runNumber: nextRunNumber,
     cellName: cellNameForNamespace(input.namespacePath),
     commit: "inline definition",
+    definition,
     duration: "Queued",
     namespacePath: input.namespacePath,
     source: "ephemeral",
@@ -546,6 +545,10 @@ export function submitMockEphemeralRun(
     ...data,
     runs: [run, ...data.runs]
   };
+}
+
+export function nextMockRunID(data: MockConsoleData) {
+  return `run-${nextMockRunNumber(data)}`;
 }
 
 function cloneData(data: MockConsoleData): MockConsoleData {
@@ -562,6 +565,10 @@ function cloneData(data: MockConsoleData): MockConsoleData {
     signals: data.signals.map((signal) => ({ ...signal })),
     users: data.users.map((user) => ({ ...user }))
   };
+}
+
+function nextMockRunNumber(data: MockConsoleData) {
+  return Math.max(0, ...data.runs.map((run) => run.runNumber)) + 1;
 }
 
 function jobNameFromDefinition(definition: string) {
