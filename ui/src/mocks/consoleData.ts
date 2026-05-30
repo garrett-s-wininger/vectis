@@ -307,7 +307,7 @@ const users: MockUser[] = [
   }
 ];
 
-export async function loadMockConsoleData(): Promise<MockConsoleData> {
+export function createMockConsoleDataSnapshot(): MockConsoleData {
   return cloneData({
     cells,
     jobs,
@@ -317,6 +317,10 @@ export async function loadMockConsoleData(): Promise<MockConsoleData> {
     signals: instanceSignals,
     users
   });
+}
+
+export async function loadMockConsoleData(): Promise<MockConsoleData> {
+  return createMockConsoleDataSnapshot();
 }
 
 export function clusterHealthMetricsFor(cells: MockCell[]): DashboardMetric[] {
