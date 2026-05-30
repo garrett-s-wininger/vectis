@@ -91,7 +91,7 @@ The queue buffers work between producers and workers.
 | --- | --- |
 | API | Trigger and ephemeral-run requests can return `202` after recording the run in the database. Queue handoff happens asynchronously with bounded retries. If handoff keeps failing, the run may remain queued in the database until the reconciler submits it again. |
 | Worker | Dequeue fails. The worker backs off and retries rather than exiting immediately. |
-| Cron | A schedule tick can fail to submit during the outage. Later ticks continue according to schedule behavior. |
+| Cron | A schedule tick can fail to submit during the outage. The scheduled run is recorded before queue handoff, so a later retry of the same tick reuses the same run. |
 | Reconciler | Redispatch attempts fail for that cycle and can retry later. |
 
 Queue persistence changes restart behavior:
@@ -163,10 +163,10 @@ Cron turns schedules into queued work. It is independent of the HTTP API.
 | Situation | Behavior |
 | --- | --- |
 | Cron offline | Schedules do not fire. Manual and API triggers can still work if API and queue are healthy. |
-| Multiple uncoordinated cron instances | The same schedule can double-fire. |
-| Large schedule set | Partition schedules across cron groups or use an external scheduler to trigger the API. |
+| Multiple cron instances in one database cell | Schedule row claims coordinate firing attempts. If an instance crashes after recording a run but before advancing the schedule, another instance can retry queue handoff for the same run instead of creating a second run for that tick. |
+| Large schedule set | Validate database and queue pressure. Partition schedules across cron groups or use an external scheduler only with an explicit ownership plan. |
 
-Vectis does not currently ship cron sharding or leader election. Each schedule should have one firing path at a time.
+Vectis does not currently ship cron sharding. Multiple cron replicas are safe within one shared database cell, but they are not a distributed scheduler across independent cells or schedule partitions.
 
 ## Reconciler Down
 
@@ -201,5 +201,5 @@ For reference deploys, add probes in dependency order: registry, queue, and log 
 | Log service | Required before normal job execution. | Replication or local buffering if log availability must not block work. |
 | API | Health probes, graceful HTTP shutdown, auth when enabled, async enqueue backstopped by reconciler. | Edge TLS, idempotent clients, multiple replicas, and alerts on enqueue or reconciler failures. |
 | Worker | Graceful drain on `SIGINT` and `SIGTERM`; no drain on crash or `SIGKILL`. | Worker isolation, bounded drain policy, and clear operator run-stop procedures. |
-| Cron | No built-in sharding or leader election. | One firing path per schedule, either by leader election, partitioning, or an external scheduler. |
+| Cron | Database schedule claims and per-tick run idempotency within one database cell; no built-in schedule sharding. | Explicit partition ownership or an external scheduler if schedules span multiple cells. |
 | Auth | HTTP API auth is configurable and off by default. | Enable auth or protect the API at the edge before shared use. |

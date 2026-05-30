@@ -1508,6 +1508,80 @@ func TestRunsRepository_CreateRunAndListSinceOrdered(t *testing.T) {
 	}
 }
 
+func TestRunsRepository_CreateScheduledRunIdempotentByScheduleTick(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	jobs := repos.Jobs()
+	runs := repos.Runs()
+	ctx := context.Background()
+
+	jobID := "cron-idempotent"
+	if err := jobs.Create(ctx, jobID, `{"id":"cron-idempotent"}`, 1); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	scheduledFor := time.Date(2026, 3, 21, 12, 10, 0, 0, time.UTC)
+	scheduleID := insertCronTriggerSpec(t, ctx, db, jobID, "* * * * *", scheduledFor)
+
+	runID1, idx1, created, err := runs.CreateScheduledRun(ctx, scheduleID, scheduledFor, jobID, 1, dal.RunAuditMetadata{})
+	if err != nil {
+		t.Fatalf("create scheduled run: %v", err)
+	}
+
+	if !created {
+		t.Fatal("expected first scheduled run call to create a run")
+	}
+
+	if idx1 != 1 {
+		t.Fatalf("expected first scheduled run index 1, got %d", idx1)
+	}
+
+	runID2, idx2, created, err := runs.CreateScheduledRun(ctx, scheduleID, scheduledFor, jobID, 1, dal.RunAuditMetadata{})
+	if err != nil {
+		t.Fatalf("create scheduled run duplicate: %v", err)
+	}
+
+	if created {
+		t.Fatal("expected duplicate scheduled run call to reuse existing run")
+	}
+
+	if runID2 != runID1 || idx2 != idx1 {
+		t.Fatalf("expected duplicate to reuse run %s/%d, got %s/%d", runID1, idx1, runID2, idx2)
+	}
+
+	nextScheduledFor := scheduledFor.Add(time.Minute)
+	runID3, idx3, created, err := runs.CreateScheduledRun(ctx, scheduleID, nextScheduledFor, jobID, 1, dal.RunAuditMetadata{})
+	if err != nil {
+		t.Fatalf("create next scheduled run: %v", err)
+	}
+
+	if !created {
+		t.Fatal("expected next scheduled tick to create a run")
+	}
+
+	if runID3 == runID1 || idx3 != 2 {
+		t.Fatalf("expected new run index 2 for next tick, got run=%s index=%d", runID3, idx3)
+	}
+
+	var runCount int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM job_runs WHERE job_id = ?", jobID).Scan(&runCount); err != nil {
+		t.Fatalf("count job runs: %v", err)
+	}
+
+	if runCount != 2 {
+		t.Fatalf("expected two job_runs rows after duplicate and next tick, got %d", runCount)
+	}
+
+	var fireCount int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM cron_schedule_fires WHERE schedule_id = ?", scheduleID).Scan(&fireCount); err != nil {
+		t.Fatalf("count schedule fires: %v", err)
+	}
+
+	if fireCount != 2 {
+		t.Fatalf("expected two cron_schedule_fires rows, got %d", fireCount)
+	}
+}
+
 func TestRunsRepository_ClaimRenewAndDispatchQueries(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	runs := dal.NewSQLRepositories(db).Runs()

@@ -536,6 +536,64 @@ func TestCronService_TriggerJob_Success(t *testing.T) {
 	}
 }
 
+func TestCronService_TriggerSchedule_ReusesRunForDuplicateTick(t *testing.T) {
+	service, _, queueService, db := setupTestCronService(t)
+	ctx := context.Background()
+
+	jobDef := `{"id": "scheduled-idempotent", "root": {"uses": "builtins/shell"}}`
+	insertCronTestJob(t, db, "scheduled-idempotent", jobDef)
+
+	scheduledFor := time.Date(2026, 3, 21, 12, 10, 0, 0, time.UTC)
+	scheduleID := insertCronTestSchedule(t, db, "scheduled-idempotent", "* * * * *", scheduledFor)
+
+	sched := cron.CronSchedule{
+		ID:        scheduleID,
+		JobID:     "scheduled-idempotent",
+		CronSpec:  "* * * * *",
+		NextRunAt: scheduledFor,
+	}
+
+	if err := service.TriggerSchedule(ctx, sched); err != nil {
+		t.Fatalf("trigger schedule first: %v", err)
+	}
+
+	if err := service.TriggerSchedule(ctx, sched); err != nil {
+		t.Fatalf("trigger schedule duplicate: %v", err)
+	}
+
+	jobs := queueService.GetJobs()
+	if len(jobs) != 2 {
+		t.Fatalf("expected duplicate handoff attempts for the same run, got %d jobs", len(jobs))
+	}
+
+	runID := jobs[0].GetRunId()
+	if runID == "" {
+		t.Fatal("expected first enqueued job to have run_id")
+	}
+
+	if jobs[1].GetRunId() != runID {
+		t.Fatalf("expected duplicate scheduled tick to reuse run_id %q, got %q", runID, jobs[1].GetRunId())
+	}
+
+	var runCount int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM job_runs WHERE job_id = ?", "scheduled-idempotent").Scan(&runCount); err != nil {
+		t.Fatalf("count job runs: %v", err)
+	}
+
+	if runCount != 1 {
+		t.Fatalf("expected one job_runs row for duplicate scheduled tick, got %d", runCount)
+	}
+
+	var fireCount int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM cron_schedule_fires WHERE schedule_id = ?", scheduleID).Scan(&fireCount); err != nil {
+		t.Fatalf("count schedule fires: %v", err)
+	}
+
+	if fireCount != 1 {
+		t.Fatalf("expected one cron_schedule_fires row for duplicate scheduled tick, got %d", fireCount)
+	}
+}
+
 func TestCronService_WaitTimeToNextMinute_AtSecondZero(t *testing.T) {
 	logger := mocks.NewMockLogger()
 	clock := mocks.NewMockClock()

@@ -2,7 +2,7 @@
 
 This page explains how far you can scale each Vectis component today, which services should stay singleton, and what to expect when restarting them.
 
-The current posture is intentionally conservative: Vectis is safest as a single-site deployment with one shared SQL database, one active queue, one active log service, one active cron, one active reconciler lease holder, and as many workers as the database, queue, and log service can comfortably support.
+The current posture is intentionally conservative: Vectis is safest as a single-site deployment with one shared SQL database, one active queue, one active log service, DB-coordinated cron replicas, one active reconciler lease holder, and as many workers as the database, queue, and log service can comfortably support.
 
 For dependency behavior during outages, see [Failure Domains](../../concepts/failure-domains.md). For reference deployment boundaries, see [Reference Deployment Posture](./reference-deployment-posture.md). For database pool sizing, see [Configuration](../configuration.md#postgresql-connection-pool-pgx-only).
 
@@ -17,7 +17,7 @@ This page answers "is this component topology supported, and what happens when i
 | Queue | Run one active queue. Active/active queue replicas are not supported. |
 | Registry | Run one registry by default, configure gossip clustering deliberately, or avoid registry dependency with pinned addresses. |
 | Log service | Run one active log service unless you add external storage/routing. |
-| Cron | Run one active cron unless you intentionally partition schedules or use an external scheduler. |
+| Cron | Multiple cron instances may run against one shared database cell; schedule claims and scheduled-fire idempotency coordinate them. |
 | Reconciler | Multiple instances may run as active/passive standbys through the database service lease. |
 | Docs | Static docs service. Run zero, one, or more depending on how you expose documentation. |
 | Log-forwarder | One per producer host or process group, each with its own socket/spool path. |
@@ -32,7 +32,7 @@ This page answers "is this component topology supported, and what happens when i
 | `vectis-queue` | 1 | No active/active | Queue delivery state is owned by one queue process, with optional local persistence. Use one active endpoint and durable storage. |
 | `vectis-registry` | 1 | Conditional | Single registry is the safe default. Gossip-based HA registry is available when every registry node is configured with static cluster membership; otherwise, multiple registries are independent. Pin addresses if registry availability is a concern. |
 | `vectis-log` | 1 | Not active/active | Durable log files and active stream buffers are local to the service. Multiple instances do not share run logs without external storage/routing. |
-| `vectis-cron` | 1 | Not without coordination | Schedule claiming helps during a firing attempt, but Vectis does not provide a cron leader-election or sharding contract. Avoid uncoordinated duplicates. |
+| `vectis-cron` | 1+ | Yes, within one DB cell | Schedule claims select one firing attempt for a due row. If a retry sees the same schedule tick, it reuses the existing run and may repeat queue handoff for that run. Watch DB pressure, queue reachability, clock skew, and schedule-to-run latency. |
 | `vectis-reconciler` | 1 active | Yes, active/passive | Instances coordinate through the `service_leases` table. Only the lease holder scans and redispatches; standbys take over after the lease TTL. |
 | `vectis-docs` | 1 | Yes | Static HTTP docs. It has no database or queue state; scale or disable it according to your exposure model. |
 | `vectis-log-forwarder` | One per owner | Yes, by ownership | Safe when each forwarder owns its own socket and spool path. Do not share one spool directory as if it were a cluster. |
@@ -75,7 +75,6 @@ These services should usually remain singleton in the current architecture:
 | --- | --- |
 | Queue | There is no shared distributed queue or multi-writer queue protocol. Queue persistence belongs to one active queue instance. |
 | Log service | Run log storage and active stream buffers are process-local. |
-| Cron | Vectis does not yet provide a leader-election or schedule-sharding deployment contract. |
 
 Registry is also commonly singleton. Gossip-based registry HA is an advanced configured posture, not something you get by starting extra registry processes with independent state. You can also reduce registry importance by pinning queue and log addresses. See [Configuration](../configuration.md#service-discovery-vs-fixed-addresses).
 
@@ -89,7 +88,7 @@ Registry is also commonly singleton. Gossip-based registry HA is an advanced con
 | `vectis-log` | Ingest and log streams are interrupted. Durable log files remain if storage is preserved; stream buffers are process-local. | Restart during a quiet window when possible. Workers need log service availability before executing runs. |
 | `vectis-worker` | On `SIGINT` or `SIGTERM`, stops dequeuing and lets the current job continue toward finalization. Abrupt death relies on leases, queue delivery timeout, and repair. | Roll workers gradually. Use graceful termination windows long enough for normal jobs, or expect long jobs to rely on lease/reconciler behavior after hard stops. |
 | `vectis-log-forwarder` | Local spool preserves unsent batches when configured and writable. | Preserve spool storage and watch age/size. |
-| `vectis-cron` | Schedule scans pause while cron is down. Missed evaluations are not replayed from a separate HA log. | Keep one active cron. Avoid overlap unless you intentionally partition schedules. |
+| `vectis-cron` | Schedule scans pause if all cron instances are down. A crash after recording a scheduled run but before advancing the schedule can cause another instance to retry queue handoff for the same run. Missed evaluations are not replayed from a separate HA log. | Run one or more cron instances against the same database and queue. Gate them on database and queue reachability. |
 | `vectis-reconciler` | The active lease holder stops scanning. Queued runs remain in the database. | With standby instances, repair resumes after lease expiry plus the next poll; without standbys, repair pauses until the process returns. |
 | `vectis-docs` | Documentation is unavailable while the process is down. | No effect on job execution. Restart whenever needed. |
 | `vectis-local` | Stops or restarts the supervised local stack. | Development-only behavior. |
@@ -114,7 +113,7 @@ For planned maintenance:
 
 1. Confirm `vectis-cli health check --strict` is clean or understand existing warnings.
 2. Confirm queue persistence and log storage are on durable writable paths.
-3. Stop or roll cron first if you need to prevent new scheduled work.
+3. Pause or roll all cron instances first if you need to prevent new scheduled work.
 4. Roll API replicas behind readiness checks.
 5. Restart queue, registry, or log during a quiet window when possible.
 6. Roll workers gradually and allow graceful drains.
@@ -131,7 +130,7 @@ For repair steps, see [Repair Runbooks](../reliability/repair-runbooks.md).
 | API rate limits | In-memory per API process. |
 | Queue | One active queue endpoint. Persistence is local to that queue. |
 | Logs | One active log service unless you add external storage/routing. |
-| Cron | No built-in leader election or schedule partitioning contract. |
+| Cron | DB-coordinated within one shared database cell; no built-in schedule partitioning across cells. |
 | Reconciler | Active/passive within one database cell through `service_leases`; not a sharded repair pool yet. |
 | Workers | Scale is bounded by DB pool sizing, queue throughput, log capacity, and workload resource isolation. |
 

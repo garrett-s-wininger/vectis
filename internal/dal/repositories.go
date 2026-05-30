@@ -359,6 +359,7 @@ type RunsRepository interface {
 	CreateRunInCell(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellID string) (runID string, runIndexOut int, err error)
 	CreateRunsInCells(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellIDs []string) ([]CreatedRun, error)
 	CreateRunsInCellsWithAudit(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellIDs []string, audit RunAuditMetadata) ([]CreatedRun, error)
+	CreateScheduledRun(ctx context.Context, scheduleID int64, scheduledFor time.Time, jobID string, definitionVersion int, audit RunAuditMetadata) (runID string, runIndexOut int, created bool, err error)
 	CreateReplayRun(ctx context.Context, sourceRunID string, targetCellID string, audit RunAuditMetadata) (CreatedRun, error)
 	RecordExecutionPayload(ctx context.Context, runID, payloadJSON, definitionHash string) (payloadHash string, recordedPayloadJSON string, err error)
 	GetExecutionPayloadForRun(ctx context.Context, runID string) (ExecutionPayloadRecord, error)

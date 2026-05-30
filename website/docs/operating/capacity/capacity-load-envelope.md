@@ -15,7 +15,7 @@ This page answers "can this deployment shape handle my workload?" Scaling And Re
 | API replicas | One API process | Horizontal API replicas, because rate limiting is in-process per replica. |
 | Queue | One active queue service | Multiple active queue replicas; queue is not a shared distributed queue today. |
 | Workers | Multiple workers, one run per process | Large worker fleets and DB pool sizing under high claim/renew/finalize rates. |
-| Cron | One cron process | Multiple cron replicas; duplicate schedule firing needs an HA decision. |
+| Cron | One or more cron processes in one shared database cell | Large schedule sets, cross-cell partitioning, and clock-skew tolerance. |
 | Reconciler | One active reconciler, with optional active/passive standbys | Sharded reconcilers under heavy queued-run repair load. |
 | Logs | Durable local JSONL storage plus bounded in-memory terminal buffers | Very large persisted logs and many replaying clients. |
 | SQLite | Local/dev and small single-node deployments | High-concurrency API, worker, cron, reconciler, and catalog load. |
@@ -35,7 +35,7 @@ Watch these when you increase workload, worker count, client concurrency, or log
 | Database | Pool waits, maxed in-use connections, slow queries, or storage growth | Pool size, query load, retention, or database host capacity needs attention. |
 | Logs | Append failures, replay truncation, stream disconnects, or low log storage space | Log service, spool, storage, or client replay demand is limiting observability. |
 | Reconciler | Re-enqueue failures or repeated repair for the same runs | Dispatch handoff, queue reachability, registry, TLS, or database state needs repair. |
-| Cron | Schedule-to-run latency or duplicate/missed schedule behavior | Cron load or replica strategy needs validation. |
+| Cron | Schedule-to-run latency, repeated handoff attempts for the same run, or missed schedule behavior | Cron load, queue reachability, or schedule ownership needs validation. |
 
 `vectis-cli health check --strict` gives a quick operator view of API readiness, queue backlog, stuck queued runs, log reachability, DB pool pressure, audit durability, TLS files, and local filesystem pressure. Pair it with Prometheus and host/database telemetry for capacity decisions.
 

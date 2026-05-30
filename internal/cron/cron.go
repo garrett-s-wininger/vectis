@@ -231,17 +231,38 @@ func (s *CronService) triggerJob(ctx context.Context, jobID string, schedule *Cr
 		return err
 	}
 
-	created, err := s.runs.CreateRunsInCellsWithAudit(ctx, jobID, nil, definitionVersion, nil, dal.RunAuditMetadata{TriggerInvocationID: invocationID})
-	if err != nil {
-		return err
+	var runID string
+	if schedule != nil {
+		var created bool
+		runID, _, created, err = s.runs.CreateScheduledRun(ctx, schedule.ID, schedule.NextRunAt, jobID, definitionVersion, dal.RunAuditMetadata{TriggerInvocationID: invocationID})
+		if err != nil {
+			return err
+		}
+
+		if !created {
+			s.logger.Info("Reusing existing cron run %s for schedule %d at %v", runID, schedule.ID, schedule.NextRunAt)
+		}
+	} else {
+		created, err := s.runs.CreateRunsInCellsWithAudit(ctx, jobID, nil, definitionVersion, nil, dal.RunAuditMetadata{TriggerInvocationID: invocationID})
+		if err != nil {
+			return err
+		}
+
+		if len(created) == 0 {
+			return fmt.Errorf("%w: no cron run created", dal.ErrNotFound)
+		}
+
+		runID = created[0].RunID
 	}
 
-	if len(created) == 0 {
-		return fmt.Errorf("%w: no cron run created", dal.ErrNotFound)
-	}
+	return s.dispatchRun(ctx, job, runID, definitionHash)
+}
 
-	runID := created[0].RunID
+func (s *CronService) TriggerSchedule(ctx context.Context, sched CronSchedule) error {
+	return s.triggerJob(ctx, sched.JobID, &sched)
+}
 
+func (s *CronService) dispatchRun(ctx context.Context, job *api.Job, runID, definitionHash string) error {
 	job.RunId = &runID
 	s.mu.Lock()
 	qc := s.queueClient
@@ -428,7 +449,7 @@ func (s *CronService) ProcessSchedules(ctx context.Context) error {
 
 		s.logger.Info("Triggering job %s (spec: %q)", sched.JobID, sched.CronSpec)
 
-		if err := s.triggerJob(ctx, sched.JobID, &sched); err != nil {
+		if err := s.TriggerSchedule(ctx, sched); err != nil {
 			s.logger.Error("Failed to trigger job %s after claiming schedule: %v", sched.JobID, err)
 			s.ReleaseClaim(ctx, sched.ID, claimToken)
 			continue

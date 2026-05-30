@@ -523,7 +523,7 @@ func (r *SQLRunsRepository) CreateRunsInCellsWithAudit(ctx context.Context, jobI
 	} else {
 		err = tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT COALESCE(MAX(run_index), 0) + 1 FROM job_runs WHERE job_id = ?"), jobID).Scan(&idx)
 		if err != nil {
-			return nil, err
+			return nil, normalizeSQLError(err)
 		}
 	}
 
@@ -580,6 +580,147 @@ func (r *SQLRunsRepository) CreateRunsInCellsWithAudit(ctx context.Context, jobI
 	}
 
 	return createdRuns, nil
+}
+
+func (r *SQLRunsRepository) CreateScheduledRun(ctx context.Context, scheduleID int64, scheduledFor time.Time, jobID string, definitionVersion int, audit RunAuditMetadata) (runID string, runIndexOut int, created bool, err error) {
+	if scheduleID <= 0 {
+		return "", 0, false, fmt.Errorf("schedule id is required")
+	}
+
+	scheduledForKey := scheduledFor.UTC().Format(time.RFC3339)
+
+	for attempt := 0; attempt < 3; attempt++ {
+		runID, runIndexOut, found, err := r.findScheduledRun(ctx, scheduleID, scheduledForKey)
+		if err != nil {
+			return "", 0, false, err
+		}
+		if found {
+			return runID, runIndexOut, false, nil
+		}
+
+		runID, runIndexOut, created, err := r.tryCreateScheduledRun(ctx, scheduleID, scheduledForKey, jobID, definitionVersion, audit)
+		if err != nil {
+			return "", 0, false, err
+		}
+
+		if created {
+			return runID, runIndexOut, true, nil
+		}
+	}
+
+	runID, runIndexOut, found, err := r.findScheduledRun(ctx, scheduleID, scheduledForKey)
+	if err != nil {
+		return "", 0, false, err
+	}
+
+	if found {
+		return runID, runIndexOut, false, nil
+	}
+
+	return "", 0, false, fmt.Errorf("%w: scheduled run for schedule %d at %s was not created", ErrConflict, scheduleID, scheduledForKey)
+}
+
+func (r *SQLRunsRepository) findScheduledRun(ctx context.Context, scheduleID int64, scheduledForKey string) (runID string, runIndexOut int, found bool, err error) {
+	err = r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT f.run_id, r.run_index
+		FROM cron_schedule_fires f
+		JOIN job_runs r ON r.run_id = f.run_id
+		WHERE f.schedule_id = ? AND f.scheduled_for = ?
+	`), scheduleID, scheduledForKey).Scan(&runID, &runIndexOut)
+
+	if err == nil {
+		return runID, runIndexOut, true, nil
+	}
+
+	if err != sql.ErrNoRows {
+		return "", 0, false, normalizeSQLError(err)
+	}
+
+	return "", 0, false, nil
+}
+
+func (r *SQLRunsRepository) tryCreateScheduledRun(ctx context.Context, scheduleID int64, scheduledForKey, jobID string, definitionVersion int, audit RunAuditMetadata) (runID string, runIndexOut int, created bool, err error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", 0, false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	runID = uuid.New().String()
+	runIndexOut, err = createRunTx(ctx, tx, runID, jobID, nil, definitionVersion, r.currentCellID(), audit)
+	if err != nil {
+		return "", 0, false, err
+	}
+
+	res, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		INSERT INTO cron_schedule_fires (schedule_id, scheduled_for, run_id)
+		VALUES (?, ?, ?)
+		ON CONFLICT(schedule_id, scheduled_for) DO NOTHING
+	`), scheduleID, scheduledForKey, runID)
+
+	if err != nil {
+		return "", 0, false, normalizeSQLError(err)
+	}
+
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return "", 0, false, err
+	}
+
+	if rows == 0 {
+		return "", 0, false, nil
+	}
+
+	if err = tx.Commit(); err != nil {
+		return "", 0, false, err
+	}
+
+	return runID, runIndexOut, true, nil
+}
+
+func createRunTx(ctx context.Context, tx *sql.Tx, runID, jobID string, runIndex *int, definitionVersion int, targetCellID string, audit RunAuditMetadata) (int, error) {
+	var idx int
+	if runIndex != nil {
+		idx = *runIndex
+	} else {
+		if err := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT COALESCE(MAX(run_index), 0) + 1 FROM job_runs WHERE job_id = ?"), jobID).Scan(&idx); err != nil {
+			return 0, normalizeSQLError(err)
+		}
+	}
+
+	definitionHash, err := lookupDefinitionHashTx(ctx, tx, jobID, definitionVersion)
+	if err != nil {
+		return 0, err
+	}
+
+	targetCellID = normalizeTargetCellID(targetCellID, DefaultCellID)
+	triggerInvocationID := strings.TrimSpace(audit.TriggerInvocationID)
+	executionPayloadHash := strings.TrimSpace(audit.ExecutionPayloadHash)
+	replayOfRunID := strings.TrimSpace(audit.ReplayOfRunID)
+
+	_, err = tx.ExecContext(ctx,
+		rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?, ?, ?)`),
+		runID,
+		jobID,
+		idx,
+		RunStatusQueued,
+		definitionVersion,
+		definitionHash,
+		targetCellID,
+		nullableString(replayOfRunID),
+		nullableString(triggerInvocationID),
+		executionPayloadHash,
+	)
+
+	if err != nil {
+		return 0, normalizeSQLError(err)
+	}
+
+	if err := createInitialSegmentExecutionTx(ctx, tx, runID, targetCellID); err != nil {
+		return 0, err
+	}
+
+	return idx, nil
 }
 
 func (r *SQLRunsRepository) CreateReplayRun(ctx context.Context, sourceRunID string, targetCellID string, audit RunAuditMetadata) (CreatedRun, error) {

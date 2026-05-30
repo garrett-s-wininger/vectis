@@ -205,8 +205,9 @@ var _ dal.JobsRepository = (*MockJobsRepository)(nil)
 type MockRunsRepository struct {
 	mu sync.Mutex
 
-	CreateRunID    string
-	CreateRunIndex int
+	CreateRunID      string
+	CreateRunIndex   int
+	CreateRunCreated bool
 
 	CreateRunErr           error
 	TouchDispatchedErr     error
@@ -257,6 +258,8 @@ type MockRunsRepository struct {
 	LastCreateTargetCells []string
 	RecordedPayloads      map[string]string
 	ExecutionPayloads     map[string]dal.ExecutionPayloadRecord
+	LastScheduleID        int64
+	LastScheduledFor      time.Time
 	LastListJobID         string
 	LastListAfterIndex    *int
 	LastListSince         *time.Time
@@ -267,10 +270,11 @@ type MockRunsRepository struct {
 
 func NewMockRunsRepository() *MockRunsRepository {
 	return &MockRunsRepository{
-		CreateRunID:    "mock-run-id",
-		CreateRunIndex: 1,
-		TryClaimResult: false,
-		ClaimToken:     "mock-claim-token",
+		CreateRunID:      "mock-run-id",
+		CreateRunIndex:   1,
+		CreateRunCreated: true,
+		TryClaimResult:   false,
+		ClaimToken:       "mock-claim-token",
 	}
 }
 
@@ -561,6 +565,21 @@ func (m *MockRunsRepository) GetExecutionPayloadByHash(ctx context.Context, payl
 	return dal.ExecutionPayloadRecord{}, fmt.Errorf("%w: execution payload %s", dal.ErrNotFound, payloadHash)
 }
 
+func (m *MockRunsRepository) CreateScheduledRun(ctx context.Context, scheduleID int64, scheduledFor time.Time, jobID string, definitionVersion int, audit dal.RunAuditMetadata) (string, int, bool, error) {
+	if m.CreateRunErr != nil {
+		return "", 0, false, m.CreateRunErr
+	}
+
+	m.mu.Lock()
+	m.LastCreateJobID = jobID
+	m.LastDefinitionVersion = definitionVersion
+	m.LastRunAudit = audit
+	m.LastScheduleID = scheduleID
+	m.LastScheduledFor = scheduledFor
+	m.mu.Unlock()
+	return m.CreateRunID, m.CreateRunIndex, m.CreateRunCreated, nil
+}
+
 func (m *MockRunsRepository) ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, owningCell string, cursor int64, limit int) ([]dal.RunRecord, int64, error) {
 	if m.ListByJobErr != nil {
 		return nil, 0, m.ListByJobErr
@@ -644,6 +663,12 @@ func (m *MockRunsRepository) SnapshotLastCreateTargetCells() []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return append([]string(nil), m.LastCreateTargetCells...)
+}
+
+func (m *MockRunsRepository) SnapshotLastScheduled() (int64, time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.LastScheduleID, m.LastScheduledFor
 }
 
 func (m *MockRunsRepository) SnapshotLastListSince() *int {

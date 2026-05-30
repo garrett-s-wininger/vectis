@@ -159,6 +159,16 @@ CREATE TABLE cell_execution_acceptances (
 CREATE INDEX idx_cell_execution_acceptances_cell ON cell_execution_acceptances(cell_id, accepted_at);
 CREATE INDEX idx_cell_execution_acceptances_run ON cell_execution_acceptances(run_id);
 
+CREATE TABLE cron_schedule_fires (
+    schedule_id INTEGER NOT NULL REFERENCES job_cron_schedules(id) ON DELETE CASCADE,
+    scheduled_for TIMESTAMP NOT NULL,
+    run_id TEXT NOT NULL UNIQUE REFERENCES job_runs(run_id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (schedule_id, scheduled_for)
+);
+
+CREATE INDEX idx_cron_schedule_fires_run_id ON cron_schedule_fires(run_id);
+
 CREATE TABLE run_dispatch_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id TEXT NOT NULL REFERENCES job_runs(run_id) ON DELETE CASCADE,

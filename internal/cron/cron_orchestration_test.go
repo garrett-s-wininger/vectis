@@ -50,6 +50,11 @@ func TestCronService_ProcessSchedules_OrchestrationUsesRepos(t *testing.T) {
 		t.Fatalf("expected cron run for job-1 definition version 4, got job=%q version=%d", lastCreateJobID, lastDefVersion)
 	}
 
+	lastScheduleID, lastScheduledFor := runs.SnapshotLastScheduled()
+	if lastScheduleID != 42 || !lastScheduledFor.Equal(schedules.Ready[0].NextRunAt) {
+		t.Fatalf("expected scheduled run for schedule 42 at %v, got schedule=%d at %v", schedules.Ready[0].NextRunAt, lastScheduleID, lastScheduledFor)
+	}
+
 	touched := runs.SnapshotTouchedRunIDs()
 	if len(touched) != 1 || touched[0] != "run-1" {
 		t.Fatalf("expected touch for run-1, got %+v", touched)
