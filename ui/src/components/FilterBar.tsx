@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import styles from "./FilterBar.module.css";
 
 type FilterBarProps = {
   filters: ReactNode;
@@ -7,9 +8,9 @@ type FilterBarProps = {
 
 export function FilterBar({ filters, actions }: FilterBarProps) {
   return (
-    <div className="filter-bar">
-      <div className="filter-bar__filters">{filters}</div>
-      {actions ? <div className="filter-bar__actions">{actions}</div> : null}
+    <div className={styles.root}>
+      <div className={styles.filters}>{filters}</div>
+      {actions ? <div className={styles.actions}>{actions}</div> : null}
     </div>
   );
 }

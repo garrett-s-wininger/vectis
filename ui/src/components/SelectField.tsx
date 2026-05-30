@@ -1,4 +1,5 @@
 import type { SelectHTMLAttributes } from "react";
+import styles from "./Field.module.css";
 
 export type SelectOption = {
   label: string;
@@ -15,7 +16,7 @@ type SelectFieldProps = Omit<
 
 export function SelectField({ label, options, ...props }: SelectFieldProps) {
   return (
-    <label className="field">
+    <label className={styles.root}>
       <span>{label}</span>
       <select {...props}>
         {options.map((option) => (

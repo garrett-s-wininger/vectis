@@ -1,0 +1,52 @@
+.root {
+  align-items: end;
+  display: grid;
+  gap: 20px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  width: min(960px, 100%);
+}
+
+.copy {
+  display: grid;
+  gap: 8px;
+}
+
+.eyebrow {
+  color: #4b6475;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.title {
+  font-size: 2rem;
+  line-height: 1.1;
+  margin: 0;
+}
+
+.description {
+  color: #516673;
+  font-size: 1rem;
+  margin: 0;
+  max-width: 64ch;
+}
+
+.actions {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: end;
+}
+
+@media (max-width: 640px) {
+  .root {
+    align-items: start;
+    grid-template-columns: 1fr;
+  }
+
+  .actions {
+    justify-content: start;
+  }
+}

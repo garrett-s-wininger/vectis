@@ -1,0 +1,53 @@
+.root {
+  display: grid;
+  gap: 16px;
+  width: min(960px, 100%);
+}
+
+.header {
+  align-items: end;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.copy {
+  display: grid;
+  gap: 4px;
+}
+
+.title {
+  color: #172026;
+  font-size: 1.125rem;
+  line-height: 1.2;
+  margin: 0;
+}
+
+.description {
+  color: #5d707c;
+  font-size: 0.9375rem;
+  margin: 0;
+}
+
+.actions {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: end;
+}
+
+.body {
+  display: grid;
+  gap: 16px;
+}
+
+@media (max-width: 640px) {
+  .header {
+    align-items: start;
+    grid-template-columns: 1fr;
+  }
+
+  .actions {
+    justify-content: start;
+  }
+}

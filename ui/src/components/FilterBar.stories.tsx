@@ -1,24 +1,24 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Button } from "./Button";
 import { FilterBar } from "./FilterBar";
+import { FormField } from "./FormField";
 import { SectionPanel } from "./SectionPanel";
+import { SelectField } from "./SelectField";
 
 const filters = (
   <>
-    <label className="field">
-      <span>Search</span>
-      <input placeholder="Search jobs or runs" type="search" />
-    </label>
-    <label className="field">
-      <span>Status</span>
-      <select defaultValue="running">
-        <option value="all">All statuses</option>
-        <option value="queued">Queued</option>
-        <option value="running">Running</option>
-        <option value="failed">Failed</option>
-        <option value="succeeded">Succeeded</option>
-      </select>
-    </label>
+    <FormField label="Search" placeholder="Search jobs or runs" type="search" />
+    <SelectField
+      defaultValue="running"
+      label="Status"
+      options={[
+        { label: "All statuses", value: "all" },
+        { label: "Queued", value: "queued" },
+        { label: "Running", value: "running" },
+        { label: "Failed", value: "failed" },
+        { label: "Succeeded", value: "succeeded" }
+      ]}
+    />
   </>
 );
 

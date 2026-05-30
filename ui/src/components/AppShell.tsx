@@ -1,4 +1,5 @@
 import type { MouseEvent, ReactNode } from "react";
+import styles from "./AppShell.module.css";
 
 export type NavItem = {
   href: string;
@@ -23,21 +24,21 @@ export function AppShell({
   onNavigate
 }: AppShellProps) {
   return (
-    <div className="console-shell">
-      <header className="console-shell__topbar">
+    <div className={styles.root}>
+      <header className={styles.topbar}>
         <a
-          className="console-shell__brand"
+          className={styles.brand}
           href="/"
           aria-label={`${brand} home`}
           onClick={(event) => onNavigate?.("/", event)}
         >
           {brand}
         </a>
-        <nav className="console-shell__nav" aria-label="Primary">
+        <nav className={styles.nav} aria-label="Primary">
           {navItems.map((item) => (
             <a
               aria-current={item.href === activeHref ? "page" : undefined}
-              className="console-shell__nav-link"
+              className={styles.navLink}
               href={item.href}
               key={item.href}
               onClick={(event) => onNavigate?.(item.href, event)}
@@ -46,9 +47,9 @@ export function AppShell({
             </a>
           ))}
         </nav>
-        {actions ? <div className="console-shell__actions">{actions}</div> : null}
+        {actions ? <div className={styles.actions}>{actions}</div> : null}
       </header>
-      <main className="console-shell__main">{children}</main>
+      <main className={styles.main}>{children}</main>
     </div>
   );
 }

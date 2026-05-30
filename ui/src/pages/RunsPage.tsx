@@ -7,6 +7,7 @@ import { PageHeader } from "../components/PageHeader";
 import { RunList, type RunListItem } from "../components/RunList";
 import { SelectField } from "../components/SelectField";
 import type { RunStatus } from "../components/StatusBadge";
+import fieldStyles from "../components/Field.module.css";
 
 type RunFilter = RunStatus | "all";
 type SourceFilter = NonNullable<RunListItem["source"]> | "all";
@@ -131,7 +132,7 @@ export function RunsPage({
             </div>
           </div>
           <form className="run-once-form" onSubmit={submitRunOnce}>
-            <label className="field field--wide">
+            <label className={`${fieldStyles.root} ${fieldStyles.wide}`}>
               <span>Job definition JSON</span>
               <textarea
                 name="definition"

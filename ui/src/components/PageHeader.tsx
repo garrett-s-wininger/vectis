@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import styles from "./PageHeader.module.css";
 
 type PageHeaderProps = {
   eyebrow?: string;
@@ -14,15 +15,15 @@ export function PageHeader({
   actions
 }: PageHeaderProps) {
   return (
-    <header className="page-header">
-      <div className="page-header__copy">
-        {eyebrow ? <p className="page-header__eyebrow">{eyebrow}</p> : null}
-        <h1>{title}</h1>
+    <header className={styles.root}>
+      <div className={styles.copy}>
+        {eyebrow ? <p className={styles.eyebrow}>{eyebrow}</p> : null}
+        <h1 className={styles.title}>{title}</h1>
         {description ? (
-          <p className="page-header__description">{description}</p>
+          <p className={styles.description}>{description}</p>
         ) : null}
       </div>
-      {actions ? <div className="page-header__actions">{actions}</div> : null}
+      {actions ? <div className={styles.actions}>{actions}</div> : null}
     </header>
   );
 }

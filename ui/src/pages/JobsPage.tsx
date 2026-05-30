@@ -7,6 +7,7 @@ import { FormField } from "../components/FormField";
 import { PageHeader } from "../components/PageHeader";
 import { SelectField } from "../components/SelectField";
 import { StatusBadge } from "../components/StatusBadge";
+import fieldStyles from "../components/Field.module.css";
 import type {
   MockJob,
   MockJobStatus,
@@ -275,7 +276,7 @@ export function JobsPage({
                 value={values.status}
               />
             </div>
-            <label className="field field--wide">
+            <label className={`${fieldStyles.root} ${fieldStyles.wide}`}>
               <span>Definition JSON</span>
               <textarea
                 name="jobDefinition"

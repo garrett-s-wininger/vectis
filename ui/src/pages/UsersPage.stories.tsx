@@ -20,7 +20,7 @@ const meta = {
   },
   decorators: [
     (Story) => (
-      <main className="console-shell__main">
+      <main className="storybook-page-main">
         <Story />
       </main>
     )

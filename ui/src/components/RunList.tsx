@@ -1,5 +1,6 @@
 import { StatusBadge, type RunStatus } from "./StatusBadge";
 import { Button } from "./Button";
+import styles from "./RunList.module.css";
 
 export type RunListItem = {
   id: string;
@@ -23,22 +24,22 @@ type RunListProps = {
 
 export function RunList({ onSelectRun, title, runs }: RunListProps) {
   return (
-    <section className="run-list" aria-labelledby="run-list-title">
-      <div className="run-list__header">
+    <section className={styles.root} aria-labelledby="run-list-title">
+      <div className={styles.header}>
         <h2 id="run-list-title">{title}</h2>
       </div>
       {runs.length > 0 ? (
-        <ul className="run-list__items">
+        <ul className={styles.items}>
           {runs.map((run) => (
-            <li className="run-list__item" key={run.id}>
-              <div className="run-list__summary">
-                <div className="run-list__title">
+            <li className={styles.item} key={run.id}>
+              <div className={styles.summary}>
+                <div className={styles.title}>
                   <strong>
                     {run.jobName} <span>#{run.runNumber}</span>
                   </strong>
                   <span
-                    className={`run-source run-source--${
-                      run.source ?? "stored"
+                    className={`${styles.source} ${
+                      styles[run.source ?? "stored"]
                     }`}
                   >
                     {run.source === "ephemeral" ? "Ephemeral" : "Stored"}
@@ -51,7 +52,7 @@ export function RunList({ onSelectRun, title, runs }: RunListProps) {
                   {run.commit} · {run.duration}
                 </small>
               </div>
-              <div className="run-list__actions">
+              <div className={styles.actions}>
                 <StatusBadge status={run.status} />
                 {onSelectRun ? (
                   <Button
@@ -66,7 +67,7 @@ export function RunList({ onSelectRun, title, runs }: RunListProps) {
           ))}
         </ul>
       ) : (
-        <p className="run-list__empty">No runs to show.</p>
+        <p className={styles.empty}>No runs to show.</p>
       )}
     </section>
   );
