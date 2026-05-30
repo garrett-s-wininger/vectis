@@ -28,17 +28,17 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 |--------|------|---------------|-----|
 | `vectis-api` | REST (jobs, runs, SSE), metrics | yes | yes |
 | `vectis-cell-ingress` | Private cell-local execution ingress | yes | yes |
-| `vectis-queue` | FIFO queue + metrics | yes | yes |
+| `vectis-queue` | FIFO queue + metrics | yes | no |
 | `vectis-registry` | Service discovery | yes | no |
 | `vectis-log` | Log ingest (gRPC), SSE, metrics | yes | no |
-| `vectis-worker` | Action tree + logs; worker-control gRPC | yes | no |
+| `vectis-worker` | Action tree + logs; worker-control gRPC | yes | yes |
 | `vectis-log-forwarder` | Sidecar: worker → log service | yes | no |
 | `vectis-cron` | Schedules → queue | yes | yes |
 | `vectis-catalog` | Cell catalog events → global catalog | yes | yes |
 | `vectis-docs` | Static docs site | yes | no |
 | `vectis-reconciler` | Stuck runs → queue | yes | yes |
-| `vectis-local` | Dev stack + TLS + docs | yes (supervisor) | no |
-| `vectis-cli` | HTTP client to API | no (one-shot) | no |
+| `vectis-local` | Dev stack + TLS + docs | yes (supervisor) | yes |
+| `vectis-cli` | HTTP client to API | no (one-shot) | yes |
 
 **Ports, metrics ports, TLS defaults:** [`internal/config/defaults.toml`](internal/config/defaults.toml) and each `cmd/*/main.go`. Layout and env prefixes: [`cmd/AGENTS.md`](cmd/AGENTS.md).
 

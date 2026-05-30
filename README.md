@@ -53,6 +53,12 @@ That is the smallest useful loop: build, start, check health, run a job.
 
 By default, the API listens on `http://localhost:8080` and the bundled docs site listens on `http://localhost:8088`. If you need to reach the local stack from another machine, for example over SSH to a dev host, run `./bin/vectis-local --host 0.0.0.0` and use the dev host's address. Only do that on a trusted network. Local data is stored under your user data directory; see [Configuration](./website/docs/operating/configuration.md) for exact paths and overrides.
 
+For local multi-cell routing tests, add execution cells with repeated `--cell` flags:
+
+```bash
+./bin/vectis-local --cell pdx-b --cell sjc-c
+```
+
 To stop the local stack, press `Ctrl+C` in the terminal running `vectis-local`.
 
 To inspect or remove local state:

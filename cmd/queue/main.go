@@ -151,6 +151,7 @@ func init() {
 	_ = viper.BindPFlag("metrics_port", rootCmd.PersistentFlags().Lookup("metrics-port"))
 	_ = viper.BindPFlag("persistence_dir", rootCmd.PersistentFlags().Lookup("persistence-dir"))
 	_ = viper.BindPFlag("persistence_snapshot_every", rootCmd.PersistentFlags().Lookup("persistence-snapshot-every"))
+	_ = viper.BindEnv("queue.register_with_registry", "VECTIS_QUEUE_REGISTER_WITH_REGISTRY")
 
 	viper.SetEnvPrefix("VECTIS_QUEUE")
 	viper.AutomaticEnv()

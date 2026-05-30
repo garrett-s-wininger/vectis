@@ -31,6 +31,7 @@ Some settings are global and intentionally do not use a service prefix, such as 
 | Change API HTTP port | `VECTIS_API_SERVER_PORT` or `vectis-api --port` |
 | Bind API HTTP to another interface | `VECTIS_API_SERVER_HOST=0.0.0.0` or `vectis-api --host 0.0.0.0` |
 | Expose local API and docs from a dev host | `vectis-local --host 0.0.0.0` |
+| Add local execution cells for routing tests | `vectis-local --cell pdx-b --cell sjc-c` |
 | Set the execution cell identity | `VECTIS_CELL_ID=local` |
 | Bind private cell ingress to another interface | `VECTIS_CELL_INGRESS_HOST=0.0.0.0` or `vectis-cell-ingress --host 0.0.0.0` |
 | Route API dispatch to a remote cell | `vectis-api --cell-ingress-endpoint iad-a=http://iad.example:8085` |
@@ -41,7 +42,7 @@ Some settings are global and intentionally do not use a service prefix, such as 
 | Use structured service logs | `VECTIS_LOG_FORMAT=json` |
 | Mirror service logs to files | `VECTIS_LOG_DIR=/path/to/dir` |
 | Enable API access logs | `VECTIS_API_SERVER_LOG_FORMAT=json` |
-| Pin worker to a queue address | `VECTIS_WORKER_WORKER_QUEUE_ADDRESS=host:8081` |
+| Pin worker to a queue address | `VECTIS_WORKER_QUEUE_ADDRESS=host:8081` |
 | Persist queue backlog to disk | `VECTIS_QUEUE_PERSISTENCE_DIR=/path/to/queue` |
 | Change reconciler interval | `VECTIS_RECONCILER_INTERVAL=30s` |
 | Change catalog event drain interval | `VECTIS_CATALOG_INTERVAL=1s` |
@@ -64,7 +65,7 @@ Use these prefixes when building service-specific environment variable names.
 | `vectis-catalog` | `VECTIS_CATALOG` | `--interval`, `--batch-size`, `--metrics-port` |
 | `vectis-log-forwarder` | `VECTIS_LOG_FORWARDER` | see `vectis-log-forwarder --help` |
 | `vectis-docs` | `VECTIS_DOCS` | `--host`, `--port`, `--dir` |
-| `vectis-local` | `VECTIS_LOCAL` | `--host`, `--docs-port`, `--docs-dir`, `--log-level`, `--grpc-insecure` |
+| `vectis-local` | `VECTIS_LOCAL` | `--host`, `--cell`, `--docs-port`, `--docs-dir`, `--log-level`, `--grpc-insecure` |
 | `vectis-cli` | none for normal API commands | `VECTIS_API_TOKEN` for auth; `VECTIS_DATABASE_*` for `database migrate` |
 
 The API client IP trust setting is an intentionally separate API-wide variable: `VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS`.
@@ -111,7 +112,7 @@ Database driver settings are global. DSNs can be shared for single-node deployme
 | `VECTIS_GLOBAL_DATABASE_DSN` | Overrides the shared DSN for global services: API, cron, reconciler, and catalog. |
 | `VECTIS_CELL_DATABASE_DSN` | Overrides the shared DSN for cell-local services: cell ingress and workers. |
 
-`vectis-local` uses split SQLite files by default when no database DSN is set: one global DB and one DB for the local execution cell. Standalone services keep using `VECTIS_DATABASE_DSN` unless the matching role-specific DSN is set.
+`vectis-local` uses split SQLite files by default when no database DSN is set: one global DB and one DB for each local execution cell. Standalone services keep using `VECTIS_DATABASE_DSN` unless the matching role-specific DSN is set. Multi-cell `vectis-local --cell ...` currently requires the default managed SQLite layout so each local cell gets its own DB.
 
 Runtime services wait for the expected schema; they do not apply migrations. Run migrations with:
 
@@ -181,6 +182,8 @@ Vectis can either discover services through `vectis-registry` or use fixed addre
 Role-specific settings override shared discovery settings when both are set.
 
 Global producers can route execution cells to private ingress endpoints with repeated `vectis-api --cell-ingress-endpoint cell_id=url`, `VECTIS_API_SERVER_CELL_INGRESS_ENDPOINTS=iad-a=http://iad.example:8085,pdx-b=http://pdx.example:8085`, or shared `VECTIS_CELL_INGRESS_ENDPOINTS`. When the local cell has an ingress endpoint configured, producers send local executions through ingress instead of writing directly to the local queue. If `VECTIS_GLOBAL_DATABASE_DSN` and `VECTIS_CELL_DATABASE_DSN` point at different databases, configure an ingress endpoint for every execution target, including the local cell; direct local queue fallback is disabled.
+
+For local routing tests, `vectis-local --cell pdx-b` starts an additional queue, cell ingress, and worker for `pdx-b`, pins those cell-local processes to their queue, and publishes all local ingress endpoints through `VECTIS_CELL_INGRESS_ENDPOINTS`.
 
 | What you are configuring | Shared setting segment | Role-specific examples |
 | --- | --- | --- |
@@ -257,6 +260,8 @@ Treat database files, queue persistence, log storage, deployment secrets, and TL
 | Log metrics | `9083` |
 | Worker-control gRPC | `9084` in static mode |
 | Reconciler metrics | `9085` |
+
+Each extra `vectis-local --cell` uses the default cell-local ports plus `100` per additional cell. For example, the first extra cell uses queue `8181`, cell ingress `8185`, queue metrics `9181`, worker metrics `9182`, and cell ingress metrics `9187`. Multi-cell local workers use ephemeral worker-control ports.
 
 ## Reference Deployment Notes
 

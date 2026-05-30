@@ -1013,6 +1013,13 @@ func init() {
 
 	rootCmd.PersistentFlags().Int("metrics-port", config.WorkerMetricsPort(), "HTTP port for Prometheus /metrics")
 	_ = viper.BindPFlag("metrics_port", rootCmd.PersistentFlags().Lookup("metrics-port"))
+	_ = viper.BindEnv("worker.queue.address", "VECTIS_WORKER_QUEUE_ADDRESS")
+	_ = viper.BindEnv("worker.log.address", "VECTIS_WORKER_LOG_ADDRESS")
+	_ = viper.BindEnv("worker.registry.address", "VECTIS_WORKER_REGISTRY_ADDRESS")
+	_ = viper.BindEnv("worker.control.mode", "VECTIS_WORKER_CONTROL_MODE")
+	_ = viper.BindEnv("control_port", "VECTIS_WORKER_CONTROL_PORT")
+	_ = viper.BindEnv("control_port_min", "VECTIS_WORKER_CONTROL_PORT_MIN")
+	_ = viper.BindEnv("control_port_max", "VECTIS_WORKER_CONTROL_PORT_MAX")
 
 	viper.SetEnvPrefix("VECTIS_WORKER")
 	viper.AutomaticEnv()

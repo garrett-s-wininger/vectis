@@ -51,7 +51,7 @@ func main() {
 
 ## Which binaries need the database import
 
-Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-thirteen-cmd): `api`, `cell-ingress`, `queue`, `cron`, `reconciler`, `catalog` — these need the `dbdrivers` import. `registry`, `log`, `worker`, `log-forwarder`, `docs`, `local`, `cli` do not.
+Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-thirteen-cmd): `api`, `cell-ingress`, `worker`, `cron`, `reconciler`, `catalog`, `local`, and `cli` need the `dbdrivers` import. `queue`, `registry`, `log`, `log-forwarder`, and `docs` do not.
 
 ## Env prefix mapping
 
@@ -70,7 +70,7 @@ Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-thirteen-
 | `vectis-docs` | `VECTIS_DOCS` | static docs server; default host `localhost`, default port `8088`, serves embedded docs unless `VECTIS_DOCS_DIR` overrides |
 | `vectis-reconciler` | `VECTIS_RECONCILER` | `[reconciler]` |
 | `vectis-log-forwarder` | `VECTIS_LOG_FORWARDER` | flat viper keys — see flags in [`log-forwarder/main.go`](log-forwarder/main.go) |
-| `vectis-local` | `VECTIS_LOCAL` | orchestrates stack; `VECTIS_LOCAL_HOST` controls local API and docs HTTP bind host |
+| `vectis-local` | `VECTIS_LOCAL` | orchestrates stack; `VECTIS_LOCAL_HOST` controls local API and docs HTTP bind host; `--cell` / `VECTIS_LOCAL_CELLS` adds extra local execution cells |
 | `vectis-cli` | *(none)* | [`internal/config`](../internal/config/) + `os.Getenv` — see [`../internal/config/api_auth.go`](../internal/config/api_auth.go) |
 
 Shared TOML sections: [`../internal/config/defaults.toml`](../internal/config/defaults.toml) (`[database]`, `[discovery]`, `[grpc_tls]`, `[metrics_tls]`, …).
