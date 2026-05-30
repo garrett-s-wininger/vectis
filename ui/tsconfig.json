@@ -15,7 +15,7 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
-    "types": ["vitest/globals"]
+    "types": ["node", "vitest/globals"]
   },
-  "include": ["src", "vite.config.ts"]
+  "include": ["src", "playwright.config.ts", "vite.config.ts"]
 }

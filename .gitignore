@@ -27,6 +27,7 @@ ui/.vite/
 ui/coverage/
 ui/dist/
 ui/node_modules/
+ui/playwright-report/
 ui/storybook-static/
 ui/test-results/
 ui/*.tsbuildinfo
