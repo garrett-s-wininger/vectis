@@ -165,7 +165,7 @@ Cron turns schedules into queued work. It is independent of the HTTP API.
 | Situation | Behavior |
 | --- | --- |
 | Cron offline | Schedules do not fire. Manual and API triggers can still work if API and queue are healthy. |
-| Multiple cron instances in one database cell | Schedule row claims coordinate firing attempts. If an instance crashes after recording a run but before advancing the schedule, another instance can retry queue handoff for the same run instead of creating a second run for that tick. |
+| Multiple cron instances in one database cell | Schedule row claims coordinate firing attempts. Claims include the cron instance ID and expire after the configured claim TTL. If an instance crashes after recording a run but before advancing the schedule, another instance can retry queue handoff for the same run instead of creating a second run for that tick. |
 | Large schedule set | Validate database and queue pressure. Partition schedules across cron groups or use an external scheduler only with an explicit ownership plan. |
 
 Vectis does not currently ship cron sharding. Multiple cron replicas are safe within one shared database cell, but they are not a distributed scheduler across independent cells or schedule partitions.

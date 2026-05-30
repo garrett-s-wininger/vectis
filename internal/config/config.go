@@ -183,8 +183,9 @@ type WorkerDefaults struct {
 }
 
 type CronDefaults struct {
-	RegistryAddress string `toml:"registry.address"`
-	QueueAddress    string `toml:"queue.address"`
+	RegistryAddress string       `toml:"registry.address"`
+	QueueAddress    string       `toml:"queue.address"`
+	ClaimTTL        tomlDuration `toml:"claim_ttl"`
 }
 
 type ReconcilerDefaults struct {
@@ -336,6 +337,10 @@ func validateDefaults(d Defaults) {
 
 	if p.MaxIdleConns > p.MaxOpenConns {
 		panic("config defaults: database.pgx_pool.max_idle_conns must be <= max_open_conns")
+	}
+
+	if time.Duration(d.Cron.ClaimTTL) <= 0 {
+		panic("config defaults: cron.claim_ttl must be > 0")
 	}
 
 	if time.Duration(d.Reconciler.Interval) <= 0 {
@@ -1054,6 +1059,23 @@ func CronQueueAddress() string {
 		viper.GetString("discovery.queue.address"),
 		d.Discovery.QueueAddress,
 	)
+}
+
+func CronClaimTTL() time.Duration {
+	if d := viper.GetDuration("claim_ttl"); d > 0 {
+		return d
+	}
+
+	if d := viper.GetDuration("cron.claim_ttl"); d > 0 {
+		return d
+	}
+
+	d := time.Duration(MustDefaults().Cron.ClaimTTL)
+	if d > 0 {
+		return d
+	}
+
+	return 5 * time.Minute
 }
 
 func ReconcilerRegistryAddress() string {

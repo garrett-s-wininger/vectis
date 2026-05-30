@@ -5,8 +5,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strconv"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -44,6 +47,9 @@ type CronService struct {
 	parser       cron.Parser
 	clock        interfaces.Clock
 	retryMetrics backoff.RetryMetrics
+	instanceID   string
+	claimTTL     time.Duration
+	claimSeq     atomic.Uint64
 	mu           sync.Mutex
 }
 
@@ -62,12 +68,14 @@ func NewCronServiceWithRepositories(
 	schedules dal.SchedulesRepository,
 ) *CronService {
 	return &CronService{
-		jobs:      jobs,
-		runs:      runs,
-		schedules: schedules,
-		logger:    logger,
-		parser:    cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow),
-		clock:     interfaces.SystemClock{},
+		jobs:       jobs,
+		runs:       runs,
+		schedules:  schedules,
+		logger:     logger,
+		parser:     cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow),
+		clock:      interfaces.SystemClock{},
+		instanceID: defaultInstanceID(),
+		claimTTL:   config.CronClaimTTL(),
 	}
 }
 
@@ -98,6 +106,54 @@ func (s *CronService) SetRetryMetrics(m backoff.RetryMetrics) {
 
 func (s *CronService) SetTriggerInvocations(triggers dal.TriggerInvocationsRepository) {
 	s.triggers = triggers
+}
+
+func (s *CronService) SetInstanceID(id string) {
+	if id = strings.TrimSpace(id); id != "" {
+		s.instanceID = id
+	}
+}
+
+func (s *CronService) InstanceID() string {
+	return s.instanceID
+}
+
+func (s *CronService) SetClaimTTL(ttl time.Duration) {
+	if ttl > 0 {
+		s.claimTTL = ttl
+	}
+}
+
+func (s *CronService) effectiveClaimTTL() time.Duration {
+	if s.claimTTL > 0 {
+		return s.claimTTL
+	}
+
+	return config.CronClaimTTL()
+}
+
+func (s *CronService) nextClaimToken(sched CronSchedule) string {
+	owner := strings.TrimSpace(s.instanceID)
+	if owner == "" {
+		owner = defaultInstanceID()
+		s.instanceID = owner
+	}
+
+	seq := s.claimSeq.Add(1)
+	return fmt.Sprintf("%s:%d:%d:%d", owner, sched.ID, sched.NextRunAt.UTC().Unix(), seq)
+}
+
+func defaultInstanceID() string {
+	hostname, err := os.Hostname()
+	if err == nil {
+		hostname = strings.TrimSpace(hostname)
+	}
+
+	if hostname != "" {
+		return hostname
+	}
+
+	return "cron"
 }
 
 func (s *CronService) recordDispatchEvent(ctx context.Context, runID, eventType string, message *string) {
@@ -434,8 +490,8 @@ func (s *CronService) ProcessSchedules(ctx context.Context) error {
 			continue
 		}
 
-		claimToken := fmt.Sprintf("%d:%d", sched.ID, now.UnixNano())
-		claimedUntil := now.Add(5 * time.Minute)
+		claimToken := s.nextClaimToken(sched)
+		claimedUntil := now.Add(s.effectiveClaimTTL())
 		claimed, err := s.ClaimDue(ctx, sched.ID, sched.NextRunAt, claimToken, claimedUntil, now)
 		if err != nil {
 			s.logger.Error("Failed to claim schedule for job %s: %v", sched.JobID, err)

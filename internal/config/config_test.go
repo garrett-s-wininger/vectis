@@ -12,6 +12,27 @@ func TestMustDefaults_ReconcilerInterval(t *testing.T) {
 	t.Cleanup(viper.Reset)
 
 	d := MustDefaults()
+	if time.Duration(d.Cron.ClaimTTL) != 5*time.Minute {
+		t.Fatalf("expected cron.claim_ttl 5m, got %v", time.Duration(d.Cron.ClaimTTL))
+	}
+
+	if got := CronClaimTTL(); got != 5*time.Minute {
+		t.Fatalf("CronClaimTTL() with empty viper: got %v", got)
+	}
+
+	viper.Set("claim_ttl", 90*time.Second)
+	if got := CronClaimTTL(); got != 90*time.Second {
+		t.Fatalf("CronClaimTTL() with flat viper override: got %v", got)
+	}
+
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	viper.Set("cron.claim_ttl", 2*time.Minute)
+	if got := CronClaimTTL(); got != 2*time.Minute {
+		t.Fatalf("CronClaimTTL() with namespaced viper override: got %v", got)
+	}
+
 	if time.Duration(d.Reconciler.Interval) != 30*time.Second {
 		t.Fatalf("expected reconciler.interval 30s, got %v", time.Duration(d.Reconciler.Interval))
 	}

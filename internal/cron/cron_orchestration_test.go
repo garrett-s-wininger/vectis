@@ -3,12 +3,15 @@ package cron_test
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"vectis/internal/cron"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces/mocks"
+	"vectis/internal/testutil/dbtest"
 )
 
 func TestCronService_ProcessSchedules_OrchestrationUsesRepos(t *testing.T) {
@@ -36,6 +39,8 @@ func TestCronService_ProcessSchedules_OrchestrationUsesRepos(t *testing.T) {
 	svc := cron.NewCronServiceWithRepositories(logger, jobs, runs, schedules)
 	svc.SetQueueClient(queue)
 	svc.SetClock(clock)
+	svc.SetInstanceID("cron-a")
+	svc.SetClaimTTL(2 * time.Minute)
 
 	if err := svc.ProcessSchedules(context.Background()); err != nil {
 		t.Fatalf("ProcessSchedules: %v", err)
@@ -64,8 +69,21 @@ func TestCronService_ProcessSchedules_OrchestrationUsesRepos(t *testing.T) {
 		t.Fatalf("expected one claim call for schedule 42, got %+v", schedules.ClaimDueCalls)
 	}
 
+	claim := schedules.ClaimDueCalls[0]
+	if !strings.HasPrefix(claim.ClaimToken, "cron-a:42:") {
+		t.Fatalf("expected claim token to include cron instance and schedule, got %q", claim.ClaimToken)
+	}
+
+	if !claim.ClaimedUntil.Equal(clock.Now().Add(2 * time.Minute)) {
+		t.Fatalf("expected custom claim ttl, got claimed_until=%v", claim.ClaimedUntil)
+	}
+
 	if len(schedules.CompleteClaimCalls) != 1 || schedules.CompleteClaimCalls[0].ID != 42 {
 		t.Fatalf("expected one complete call for schedule 42, got %+v", schedules.CompleteClaimCalls)
+	}
+
+	if schedules.CompleteClaimCalls[0].ClaimToken != claim.ClaimToken {
+		t.Fatalf("expected complete to use claim token %q, got %q", claim.ClaimToken, schedules.CompleteClaimCalls[0].ClaimToken)
 	}
 }
 
@@ -148,5 +166,84 @@ func TestCronService_ProcessSchedules_StaleScheduleDoesNotTrigger(t *testing.T) 
 
 	if len(schedules.ClaimDueCalls) != 1 {
 		t.Fatalf("expected one claim attempt, got %+v", schedules.ClaimDueCalls)
+	}
+}
+
+func TestCronService_ProcessSchedules_TwoInstancesOnlyOneClaimsDueTick(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+
+	jobID := "cron-ha"
+	insertCronTestJob(t, db, jobID, `{"id":"cron-ha","root":{"uses":"builtins/shell"}}`)
+
+	now := time.Date(2026, 3, 21, 12, 10, 0, 0, time.UTC)
+	insertCronTestSchedule(t, db, jobID, "* * * * *", now)
+
+	queue := mocks.NewMockQueueService()
+	newService := func(instanceID string) *cron.CronService {
+		clock := mocks.NewMockClock()
+		clock.SetNow(now)
+		svc := cron.NewCronService(mocks.NewMockLogger(), db)
+		svc.SetQueueClient(queue)
+		svc.SetClock(clock)
+		svc.SetInstanceID(instanceID)
+		svc.SetClaimTTL(time.Minute)
+		return svc
+	}
+
+	services := []*cron.CronService{
+		newService("cron-a"),
+		newService("cron-b"),
+	}
+
+	start := make(chan struct{})
+	errs := make(chan error, len(services))
+	var wg sync.WaitGroup
+	for _, svc := range services {
+		wg.Go(func() {
+			<-start
+			errs <- svc.ProcessSchedules(ctx)
+		})
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("ProcessSchedules: %v", err)
+		}
+	}
+
+	enqueued := queue.GetJobs()
+	if len(enqueued) != 1 {
+		t.Fatalf("expected one enqueue across two cron instances, got %d", len(enqueued))
+	}
+
+	if enqueued[0].GetId() != jobID {
+		t.Fatalf("expected enqueued job %q, got %q", jobID, enqueued[0].GetId())
+	}
+
+	var runCount int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM job_runs WHERE job_id = ?", jobID).Scan(&runCount); err != nil {
+		t.Fatalf("count job runs: %v", err)
+	}
+
+	if runCount != 1 {
+		t.Fatalf("expected one durable run across two cron instances, got %d", runCount)
+	}
+
+	var fireCount int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM cron_schedule_fires").Scan(&fireCount); err != nil {
+		t.Fatalf("count schedule fires: %v", err)
+	}
+
+	if fireCount != 1 {
+		t.Fatalf("expected one schedule fire across two cron instances, got %d", fireCount)
+	}
+
+	nextRunAt := queryCronTestNextRun(t, db, jobID)
+	if want := now.Add(time.Minute).Format(time.RFC3339); nextRunAt != want {
+		t.Fatalf("expected schedule advanced to %s, got %s", want, nextRunAt)
 	}
 }
