@@ -1,43 +1,16 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { DataTable, type DataTableColumn } from "./DataTable";
-
-type JobRow = {
-  id: string;
-  name: string;
-  repository: string;
-  status: string;
-};
-
-const rows: JobRow[] = [
-  {
-    id: "api",
-    name: "api-test-suite",
-    repository: "github.com/vectis/api",
-    status: "Enabled"
-  },
-  {
-    id: "docs",
-    name: "docs-publish",
-    repository: "github.com/vectis/docs",
-    status: "Paused"
-  }
-];
-
-const columns: DataTableColumn<JobRow>[] = [
-  { header: "Name", cell: (row) => row.name },
-  { header: "Repository", cell: (row) => row.repository },
-  { header: "Status", cell: (row) => row.status, align: "end" }
-];
+import { storyJobColumns, storyJobRows, type JobTableFixtureRow } from "../../mocks/storyFixtures";
+import { DataTable } from "./DataTable";
 
 const meta = {
   title: "Components/Data/DataTable",
-  component: DataTable<JobRow>,
+  component: DataTable<JobTableFixtureRow>,
   args: {
-    columns,
+    columns: storyJobColumns,
     getRowKey: (row) => row.id,
-    rows
+    rows: storyJobRows
   }
-} satisfies Meta<typeof DataTable<JobRow>>;
+} satisfies Meta<typeof DataTable<JobTableFixtureRow>>;
 
 export default meta;
 

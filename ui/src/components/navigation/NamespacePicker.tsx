@@ -1,8 +1,8 @@
-import type { MockNamespace } from "../../mocks/consoleData";
+import type { Namespace } from "../../domain/console";
 import styles from "./NamespacePicker.module.css";
 
 type NamespacePickerProps = {
-  namespaces: MockNamespace[];
+  namespaces: Namespace[];
   onChange: (namespacePath: string) => void;
   value: string;
 };

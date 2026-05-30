@@ -3,11 +3,11 @@ import { PageHeader } from "../components";
 import { ProgressMeter } from "../components";
 import { SectionPanel } from "../components";
 import { SignalList } from "../components";
-import type { MockCell } from "../mocks/consoleData";
+import type { Cell } from "../domain/console";
 import type { DashboardMetric } from "../mocks/fixtures";
 
 type DashboardPageProps = {
-  cell: MockCell;
+  cell: Cell;
 };
 
 export function DashboardPage({ cell }: DashboardPageProps) {
@@ -53,7 +53,7 @@ export function DashboardPage({ cell }: DashboardPageProps) {
   );
 }
 
-function cellDashboardMetrics(cell: MockCell): DashboardMetric[] {
+function cellDashboardMetrics(cell: Cell): DashboardMetric[] {
   return [
     {
       id: "status",
@@ -86,7 +86,7 @@ function cellDashboardMetrics(cell: MockCell): DashboardMetric[] {
   ];
 }
 
-function statusLabel(status: MockCell["status"]) {
+function statusLabel(status: Cell["status"]) {
   switch (status) {
     case "healthy":
       return "Healthy";

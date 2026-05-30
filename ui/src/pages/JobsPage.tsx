@@ -8,7 +8,7 @@ import { PageHeader } from "../components";
 import { SelectField } from "../components";
 import { StatusBadge } from "../components";
 import fieldStyles from "../components/primitives/Field.module.css";
-import type { MockJob, MockJobStatus, NewMockJob, UpdateMockJob } from "../mocks/consoleData";
+import type { Job, JobStatus, NewJob, UpdateJob } from "../domain/console";
 
 type JobEditorMode = { kind: "create" } | { kind: "edit"; jobID: string } | null;
 
@@ -18,16 +18,16 @@ type JobFormValues = {
   name: string;
   repository: string;
   schedule: string;
-  status: MockJobStatus;
+  status: JobStatus;
 };
 
 type JobsPageProps = {
-  jobs: MockJob[];
+  jobs: Job[];
   namespacePath: string;
-  onCreateJob: (input: NewMockJob) => void;
+  onCreateJob: (input: NewJob) => void;
   onDeleteJob: (jobID: string) => void;
   onTriggerRun: (jobID: string) => void;
-  onUpdateJob: (jobID: string, input: UpdateMockJob) => void;
+  onUpdateJob: (jobID: string, input: UpdateJob) => void;
 };
 
 const statusOptions = [
@@ -77,7 +77,7 @@ export function JobsPage({ jobs, namespacePath, onCreateJob, onDeleteJob, onTrig
     setFormError("");
   }
 
-  function startEditJob(job: MockJob) {
+  function startEditJob(job: Job) {
     setEditorMode({ kind: "edit", jobID: job.id });
     setValues({
       branch: job.branch,
@@ -115,7 +115,7 @@ export function JobsPage({ jobs, namespacePath, onCreateJob, onDeleteJob, onTrig
     closeEditor();
   }
 
-  const columns: DataTableColumn<MockJob>[] = [
+  const columns: DataTableColumn<Job>[] = [
     {
       header: "Job",
       cell: (job) => (
@@ -232,7 +232,7 @@ export function JobsPage({ jobs, namespacePath, onCreateJob, onDeleteJob, onTrig
                 onChange={(event) =>
                   setValues({
                     ...values,
-                    status: event.target.value as MockJobStatus
+                    status: event.target.value as JobStatus
                   })
                 }
                 options={statusOptions}

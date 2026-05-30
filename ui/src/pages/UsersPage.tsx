@@ -5,23 +5,23 @@ import { DataTable, type DataTableColumn } from "../components";
 import { FormField } from "../components";
 import { PageHeader } from "../components";
 import { SelectField } from "../components";
-import type { MockUser, MockUserRole, MockUserStatus, NewMockUser } from "../mocks/consoleData";
+import type { NewUser, User, UserRole, UserStatus } from "../domain/console";
 
-const roleOptions: { label: string; value: MockUserRole }[] = [
+const roleOptions: { label: string; value: UserRole }[] = [
   { label: "Admin", value: "Admin" },
   { label: "Operator", value: "Operator" },
   { label: "Viewer", value: "Viewer" }
 ];
 
 type UsersPageProps = {
-  onCreateUser: (input: NewMockUser) => void;
+  onCreateUser: (input: NewUser) => void;
   onDeleteUser: (userID: string) => void;
-  onUpdateUserStatus: (userID: string, status: MockUserStatus) => void;
-  users: MockUser[];
+  onUpdateUserStatus: (userID: string, status: UserStatus) => void;
+  users: User[];
 };
 
 export function UsersPage({ onCreateUser, onDeleteUser, onUpdateUserStatus, users }: UsersPageProps) {
-  const [values, setValues] = useState<NewMockUser>({
+  const [values, setValues] = useState<NewUser>({
     username: "",
     role: "Viewer"
   });
@@ -36,7 +36,7 @@ export function UsersPage({ onCreateUser, onDeleteUser, onUpdateUserStatus, user
     setValues({ username: "", role: "Viewer" });
   }
 
-  const columns: DataTableColumn<MockUser>[] = [
+  const columns: DataTableColumn<User>[] = [
     {
       header: "User",
       cell: (user) => (
@@ -105,7 +105,7 @@ export function UsersPage({ onCreateUser, onDeleteUser, onUpdateUserStatus, user
           onChange={(event) =>
             setValues({
               ...values,
-              role: event.target.value as MockUserRole
+              role: event.target.value as UserRole
             })
           }
           options={roleOptions}

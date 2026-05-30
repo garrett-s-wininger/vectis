@@ -1,8 +1,8 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import type { Namespace } from "../../domain/console";
 import { NamespacePicker } from "./NamespacePicker";
-import type { MockNamespace } from "../../mocks/consoleData";
 
-const namespaces: MockNamespace[] = [
+const namespaces: Namespace[] = [
   {
     id: 1,
     name: "/",

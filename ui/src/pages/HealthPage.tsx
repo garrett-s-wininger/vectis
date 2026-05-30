@@ -2,11 +2,12 @@ import { Button } from "../components";
 import { DataTable, type DataTableColumn } from "../components";
 import { MetricCard } from "../components";
 import { PageHeader } from "../components";
-import { clusterHealthMetricsFor, type MockCell, type MockCellStatus } from "../mocks/consoleData";
+import type { Cell, CellStatus } from "../domain/console";
+import { clusterHealthMetricsFor } from "../mocks/consoleData";
 import { DashboardPage } from "./DashboardPage";
 
 type HealthPageProps = {
-  cells: MockCell[];
+  cells: Cell[];
   onSelectCell: (cellID: string) => void;
   selectedCellID?: string;
 };
@@ -14,7 +15,7 @@ type HealthPageProps = {
 export function HealthPage({ cells, onSelectCell, selectedCellID }: HealthPageProps) {
   const selectedCell = cells.find((cell) => cell.id === selectedCellID);
   const metrics = clusterHealthMetricsFor(cells);
-  const columns: DataTableColumn<MockCell>[] = [
+  const columns: DataTableColumn<Cell>[] = [
     {
       header: "Cell",
       cell: (cell) => (
@@ -87,7 +88,7 @@ export function HealthPage({ cells, onSelectCell, selectedCellID }: HealthPagePr
   );
 }
 
-function statusLabel(status: MockCellStatus) {
+function statusLabel(status: CellStatus) {
   switch (status) {
     case "healthy":
       return "Healthy";
@@ -98,7 +99,7 @@ function statusLabel(status: MockCellStatus) {
   }
 }
 
-function statusTone(status: MockCellStatus) {
+function statusTone(status: CellStatus) {
   switch (status) {
     case "healthy":
       return "active";

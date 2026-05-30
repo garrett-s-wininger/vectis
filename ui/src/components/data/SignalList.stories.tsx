@@ -1,39 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { storySignals } from "../../mocks/storyFixtures";
 import { SectionPanel } from "../layout/SectionPanel";
-import { SignalList, type SignalItem } from "./SignalList";
-
-const signals: SignalItem[] = [
-  {
-    id: "cron",
-    label: "Cron",
-    detail: "schedules evaluated 34s ago",
-    state: "healthy"
-  },
-  {
-    id: "registry",
-    label: "Registry",
-    detail: "one peer lagging",
-    state: "degraded"
-  },
-  {
-    id: "logs",
-    label: "Logs",
-    detail: "ingest connected",
-    state: "healthy"
-  },
-  {
-    id: "worker-pool",
-    label: "Worker pool",
-    detail: "one worker drained",
-    state: "unknown"
-  }
-];
+import { SignalList } from "./SignalList";
 
 const meta = {
   title: "Components/Data/SignalList",
   component: SignalList,
   args: {
-    signals
+    signals: storySignals
   }
 } satisfies Meta<typeof SignalList>;
 
@@ -46,7 +20,7 @@ export const ComponentHealth: Story = {};
 export const InPanel: Story = {
   render: () => (
     <SectionPanel description="Service availability and capacity signals." title="Component health">
-      <SignalList signals={signals} />
+      <SignalList signals={storySignals} />
     </SectionPanel>
   )
 };

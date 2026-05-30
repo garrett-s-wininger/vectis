@@ -5,12 +5,12 @@ import { DataTable, type DataTableColumn } from "../components";
 import { FormField } from "../components";
 import { PageHeader } from "../components";
 import { SelectField } from "../components";
-import type { MockNamespace, NewMockNamespace } from "../mocks/consoleData";
+import type { Namespace, NewNamespace } from "../domain/console";
 
 type NamespacesPageProps = {
   canDeleteNamespace: (namespaceID: number) => boolean;
-  namespaces: MockNamespace[];
-  onCreateNamespace: (input: NewMockNamespace) => void;
+  namespaces: Namespace[];
+  onCreateNamespace: (input: NewNamespace) => void;
   onDeleteNamespace: (namespaceID: number) => void;
 };
 
@@ -20,7 +20,7 @@ export function NamespacesPage({
   onCreateNamespace,
   onDeleteNamespace
 }: NamespacesPageProps) {
-  const [values, setValues] = useState<NewMockNamespace>({
+  const [values, setValues] = useState<NewNamespace>({
     name: "",
     parentID: 1
   });
@@ -40,7 +40,7 @@ export function NamespacesPage({
     value: String(namespace.id)
   }));
 
-  const columns: DataTableColumn<MockNamespace>[] = [
+  const columns: DataTableColumn<Namespace>[] = [
     {
       header: "Namespace",
       cell: (namespace) => (
@@ -113,7 +113,7 @@ export function NamespacesPage({
   );
 }
 
-function parentPathFor(namespaces: MockNamespace[], namespace: MockNamespace) {
+function parentPathFor(namespaces: Namespace[], namespace: Namespace) {
   const parent = namespaces.find((candidate) => candidate.id === namespace.parentID);
 
   return parent?.path ?? "/";

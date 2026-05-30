@@ -1,27 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { storyRunListItems } from "../../mocks/storyFixtures";
 import { Button } from "../primitives/Button";
 import { MetricCard } from "../data/MetricCard";
-import { RunList, type RunListItem } from "../data/RunList";
+import { RunList } from "../data/RunList";
 import { SectionPanel } from "./SectionPanel";
-
-const runs: RunListItem[] = [
-  {
-    id: "run-184",
-    jobName: "linux-ci",
-    runNumber: 184,
-    commit: "6f4c2d7a",
-    duration: "4m 12s",
-    status: "running"
-  },
-  {
-    id: "run-88",
-    jobName: "nightly-load",
-    runNumber: 88,
-    commit: "a19f03de",
-    duration: "14m 02s",
-    status: "failed"
-  }
-];
 
 const meta = {
   title: "Components/Layout/SectionPanel",
@@ -30,7 +12,7 @@ const meta = {
     title: "Compute workload",
     description: "Currently executing or queued work.",
     actions: <Button>View all</Button>,
-    children: <RunList title="Active runs" runs={runs} />
+    children: <RunList title="Active runs" runs={storyRunListItems} />
   }
 } satisfies Meta<typeof SectionPanel>;
 

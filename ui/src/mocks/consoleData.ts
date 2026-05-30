@@ -1,103 +1,37 @@
-import type { RunStatus } from "../components";
 import type { RunListItem } from "../components";
-import type { SignalItem } from "../components";
-import type { DashboardMetric, ProgressFixture } from "./fixtures";
+import type {
+  Cell,
+  CellStatus,
+  ConsoleData,
+  Job,
+  JobStatus,
+  Namespace,
+  NewEphemeralRun,
+  NewJob,
+  NewNamespace,
+  NewUser,
+  UpdateJob,
+  User,
+  UserStatus
+} from "../domain/console";
+import type { DashboardMetric } from "./fixtures";
 import { activeRuns, instanceSignals, workloadProgress } from "./fixtures";
 
-export type MockCellStatus = "healthy" | "degraded" | "offline";
+export type MockCellStatus = CellStatus;
+export type MockCell = Cell;
+export type MockJobStatus = JobStatus;
+export type MockJob = Job;
+export type NewMockJob = NewJob;
+export type UpdateMockJob = UpdateJob;
+export type MockNamespace = Namespace;
+export type MockUserStatus = UserStatus;
+export type MockUser = User;
+export type NewMockUser = NewUser;
+export type NewMockNamespace = NewNamespace;
+export type NewMockEphemeralRun = NewEphemeralRun;
+export type MockConsoleData = ConsoleData;
 
-export type MockCell = {
-  id: string;
-  name: string;
-  endpoint: string;
-  region: string;
-  status: MockCellStatus;
-  detail: string;
-  activeRuns: number;
-  queueDepth: number;
-  workersOnline: number;
-  workersTotal: number;
-  components: SignalItem[];
-  progress: ProgressFixture[];
-};
-
-export type MockJobStatus = "enabled" | "paused";
-
-export type MockJob = {
-  id: string;
-  name: string;
-  repository: string;
-  branch: string;
-  definition?: string;
-  namespacePath: string;
-  schedule: string;
-  nextRun: string;
-  lastRunStatus: RunStatus;
-  status: MockJobStatus;
-};
-
-export type NewMockJob = {
-  branch: string;
-  definition: string;
-  name: string;
-  namespacePath: string;
-  repository: string;
-  schedule: string;
-  status: MockJobStatus;
-};
-
-export type UpdateMockJob = Omit<NewMockJob, "namespacePath">;
-
-export type MockNamespaceRole = "Admin" | "Operator" | "Viewer";
-
-export type MockNamespace = {
-  id: number;
-  name: string;
-  parentID?: number;
-  path: string;
-  breakInheritance: boolean;
-  role: MockNamespaceRole;
-};
-
-export type MockUserRole = "Admin" | "Operator" | "Viewer";
-export type MockUserStatus = "active" | "disabled";
-
-export type MockUser = {
-  id: string;
-  username: string;
-  role: MockUserRole;
-  status: MockUserStatus;
-  lastSeen: string;
-  tokens: number;
-};
-
-export type NewMockUser = {
-  username: string;
-  role: MockUserRole;
-};
-
-export type NewMockNamespace = {
-  name: string;
-  parentID: number;
-};
-
-export type NewMockEphemeralRun = {
-  definition: string;
-  namespacePath: string;
-  submittedBy?: string;
-};
-
-export type MockConsoleData = {
-  cells: MockCell[];
-  jobs: MockJob[];
-  namespaces: MockNamespace[];
-  progress: ProgressFixture[];
-  runs: RunListItem[];
-  signals: SignalItem[];
-  users: MockUser[];
-};
-
-const jobs: MockJob[] = [
+const jobs: Job[] = [
   {
     id: "job-api-test-suite",
     name: "api-test-suite",
@@ -169,7 +103,7 @@ const jobs: MockJob[] = [
   }
 ];
 
-const cells: MockCell[] = [
+const cells: Cell[] = [
   {
     id: "cell-local",
     name: "local",
@@ -246,7 +180,7 @@ const cells: MockCell[] = [
   }
 ];
 
-const namespaces: MockNamespace[] = [
+const namespaces: Namespace[] = [
   {
     id: 1,
     name: "/",
@@ -280,7 +214,7 @@ const namespaces: MockNamespace[] = [
   }
 ];
 
-const users: MockUser[] = [
+const users: User[] = [
   {
     id: "user-admin",
     username: "admin",
