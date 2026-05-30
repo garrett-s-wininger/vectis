@@ -6,13 +6,8 @@ import { FormField } from "../components";
 import { PageHeader } from "../components";
 import { SelectField } from "../components";
 import type { NewUser, User, UserRole, UserStatus } from "../domain/console";
+import { userRoleOptions } from "../domain/consoleOptions";
 import { ResourceStatus, ResourceTitle, TableActions } from "./shared";
-
-const roleOptions: { label: string; value: UserRole }[] = [
-  { label: "Admin", value: "Admin" },
-  { label: "Operator", value: "Operator" },
-  { label: "Viewer", value: "Viewer" }
-];
 
 type UsersPageProps = {
   onCreateUser: (input: NewUser) => void;
@@ -102,7 +97,7 @@ export function UsersPage({ onCreateUser, onDeleteUser, onUpdateUserStatus, user
               role: event.target.value as UserRole
             })
           }
-          options={roleOptions}
+          options={userRoleOptions}
           value={values.role}
         />
         <Button type="submit">Add user</Button>

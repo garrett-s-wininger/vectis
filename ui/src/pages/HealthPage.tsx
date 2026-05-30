@@ -2,7 +2,8 @@ import { Button } from "../components";
 import { DataTable, type DataTableColumn } from "../components";
 import { MetricCard } from "../components";
 import { PageHeader } from "../components";
-import type { Cell, CellStatus } from "../domain/console";
+import type { Cell } from "../domain/console";
+import { cellStatusLabel, cellStatusTone } from "../domain/consoleOptions";
 import { clusterHealthMetricsFor } from "../mocks/consoleData";
 import { DashboardPage } from "./DashboardPage";
 import { ResourceStatus, ResourceTitle } from "./shared";
@@ -43,7 +44,7 @@ export function HealthPage({ cells, onSelectCell, selectedCellID }: HealthPagePr
     {
       align: "end",
       header: "Status",
-      cell: (cell) => <ResourceStatus tone={statusTone(cell.status)}>{statusLabel(cell.status)}</ResourceStatus>
+      cell: (cell) => <ResourceStatus tone={cellStatusTone(cell.status)}>{cellStatusLabel(cell.status)}</ResourceStatus>
     },
     {
       align: "end",
@@ -78,26 +79,4 @@ export function HealthPage({ cells, onSelectCell, selectedCellID }: HealthPagePr
       {selectedCell ? <DashboardPage cell={selectedCell} /> : null}
     </>
   );
-}
-
-function statusLabel(status: CellStatus) {
-  switch (status) {
-    case "healthy":
-      return "Healthy";
-    case "degraded":
-      return "Degraded";
-    case "offline":
-      return "Offline";
-  }
-}
-
-function statusTone(status: CellStatus) {
-  switch (status) {
-    case "healthy":
-      return "active";
-    case "degraded":
-      return "paused";
-    case "offline":
-      return "disabled";
-  }
 }

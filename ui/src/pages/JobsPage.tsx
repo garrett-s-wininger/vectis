@@ -9,6 +9,7 @@ import { SelectField } from "../components";
 import { StatusBadge } from "../components";
 import { TextAreaField } from "../components";
 import type { Job, JobStatus, NewJob, UpdateJob } from "../domain/console";
+import { defaultJobDefinition, jobScheduleOptions, jobStatusOptions } from "../domain/consoleOptions";
 import { ResourceStatus, ResourceTitle, TableActions } from "./shared";
 
 type JobEditorMode = { kind: "create" } | { kind: "edit"; jobID: string } | null;
@@ -30,33 +31,6 @@ type JobsPageProps = {
   onTriggerRun: (jobID: string) => void;
   onUpdateJob: (jobID: string, input: UpdateJob) => void;
 };
-
-const statusOptions = [
-  { label: "Enabled", value: "enabled" },
-  { label: "Paused", value: "paused" }
-];
-
-const scheduleOptions = [
-  { label: "Manual", value: "Manual" },
-  { label: "On push", value: "On push" },
-  { label: "Hourly", value: "Hourly" },
-  { label: "Nightly", value: "Nightly" }
-];
-
-const defaultJobDefinition = JSON.stringify(
-  {
-    id: "stored-job",
-    root: {
-      id: "root",
-      uses: "builtins/shell",
-      with: {
-        command: "echo 'Hello from Vectis'"
-      }
-    }
-  },
-  null,
-  2
-);
 
 const emptyJobForm: JobFormValues = {
   branch: "main",
@@ -213,7 +187,7 @@ export function JobsPage({ jobs, namespacePath, onCreateJob, onDeleteJob, onTrig
                 label="Schedule"
                 name="jobSchedule"
                 onChange={(event) => setValues({ ...values, schedule: event.target.value })}
-                options={scheduleOptions}
+                options={jobScheduleOptions}
                 value={values.schedule}
               />
               <SelectField
@@ -225,7 +199,7 @@ export function JobsPage({ jobs, namespacePath, onCreateJob, onDeleteJob, onTrig
                     status: event.target.value as JobStatus
                   })
                 }
-                options={statusOptions}
+                options={jobStatusOptions}
                 value={values.status}
               />
             </div>

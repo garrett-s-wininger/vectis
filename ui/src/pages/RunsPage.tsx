@@ -7,58 +7,16 @@ import { PageHeader } from "../components";
 import { RunList, type RunListItem } from "../components";
 import { SelectField } from "../components";
 import { TextAreaField } from "../components";
-import type { RunStatus } from "../components";
+import {
+  defaultRunDefinition,
+  runSourceOptions,
+  runSourceTitleLabels,
+  runStatusLabels,
+  runStatusOptions,
+  type RunFilter,
+  type SourceFilter
+} from "../domain/consoleOptions";
 import { ResourceTitle } from "./shared";
-
-type RunFilter = RunStatus | "all";
-type SourceFilter = NonNullable<RunListItem["source"]> | "all";
-
-const statusLabels: Record<RunFilter, string> = {
-  all: "All",
-  queued: "Queued",
-  running: "Running",
-  succeeded: "Succeeded",
-  failed: "Failed",
-  cancelled: "Cancelled",
-  abandoned: "Abandoned"
-};
-
-const statusOptions = Object.entries(statusLabels).map(([value, label]) => ({
-  label,
-  value
-}));
-
-const sourceLabels: Record<SourceFilter, string> = {
-  all: "All",
-  stored: "Stored jobs",
-  ephemeral: "Ephemeral"
-};
-
-const sourceTitleLabels: Record<SourceFilter, string> = {
-  all: "All",
-  stored: "Stored job",
-  ephemeral: "Ephemeral"
-};
-
-const sourceOptions = Object.entries(sourceLabels).map(([value, label]) => ({
-  label,
-  value
-}));
-
-const defaultDefinition = JSON.stringify(
-  {
-    id: "ad-hoc-check",
-    root: {
-      id: "root",
-      uses: "builtins/shell",
-      with: {
-        command: "echo 'Hello from Vectis'"
-      }
-    }
-  },
-  null,
-  2
-);
 
 type RunsPageProps = {
   namespacePath: string;
@@ -71,7 +29,7 @@ export function RunsPage({ namespacePath, onSelectRun, onSubmitEphemeralRun, run
   const [status, setStatus] = useState<RunFilter>("all");
   const [source, setSource] = useState<SourceFilter>("all");
   const [showRunOnce, setShowRunOnce] = useState(false);
-  const [definition, setDefinition] = useState(defaultDefinition);
+  const [definition, setDefinition] = useState(defaultRunDefinition);
   const [definitionError, setDefinitionError] = useState("");
   const filteredRuns = useMemo(() => {
     return runs.filter((run) => {
@@ -98,7 +56,7 @@ export function RunsPage({ namespacePath, onSelectRun, onSubmitEphemeralRun, run
     }
 
     onSubmitEphemeralRun(definition);
-    setDefinition(defaultDefinition);
+    setDefinition(defaultRunDefinition);
     setShowRunOnce(false);
     clearFilters();
   }
@@ -149,14 +107,14 @@ export function RunsPage({ namespacePath, onSelectRun, onSubmitEphemeralRun, run
               label="Status"
               name="runStatus"
               onChange={(event) => setStatus(event.target.value as RunFilter)}
-              options={statusOptions}
+              options={runStatusOptions}
               value={status}
             />
             <SelectField
               label="Source"
               name="runSource"
               onChange={(event) => setSource(event.target.value as SourceFilter)}
-              options={sourceOptions}
+              options={runSourceOptions}
               value={source}
             />
           </>
@@ -173,12 +131,12 @@ function runListTitle(status: RunFilter, source: SourceFilter) {
   }
 
   if (status === "all") {
-    return `${sourceTitleLabels[source]} runs`;
+    return `${runSourceTitleLabels[source]} runs`;
   }
 
   if (source === "all") {
-    return `${statusLabels[status]} runs`;
+    return `${runStatusLabels[status]} runs`;
   }
 
-  return `${sourceTitleLabels[source]} ${statusLabels[status].toLowerCase()} runs`;
+  return `${runSourceTitleLabels[source]} ${runStatusLabels[status].toLowerCase()} runs`;
 }
