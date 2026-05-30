@@ -25,6 +25,8 @@ The producer may be:
 | `cron` | `vectis-cron` created a run from a schedule. |
 | `reconciler` | `vectis-reconciler` found a queued run that still needed queue handoff. |
 
+In multi-cell deployments, dispatch events still live on the global run. A failure message can describe a missing cell route, an unavailable private cell ingress endpoint, or a local queue handoff failure inside the target cell. See [Multi-Cell Operation](../multi-cell.md) for the routing and repair shape.
+
 The event type may be:
 
 | Event type | Meaning |

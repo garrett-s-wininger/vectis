@@ -30,6 +30,7 @@ const sidebars = {
       label: 'Operating Vectis',
       items: [
         'operating/configuration',
+        'operating/multi-cell',
         {
           type: 'category',
           label: 'Deployment',

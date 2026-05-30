@@ -2,7 +2,7 @@
 
 This page is for people running Vectis: local developers, platform engineers, and operators wiring staging or production. It explains the settings you are most likely to touch, where defaults come from, and which knobs affect service discovery, storage, TLS, metrics, and authentication.
 
-For service roles and data flow, see [Architecture](../concepts/architecture.md). For security posture, see [Security](../concepts/security.md). For startup and outage behavior, see [Failure Domains](../concepts/failure-domains.md). For terms such as job, run, queue, and dispatch, see [Glossary](../concepts/glossary.md).
+For service roles and data flow, see [Architecture](../concepts/architecture.md). For multi-cell routing, see [Multi-Cell Operation](./multi-cell.md). For security posture, see [Security](../concepts/security.md). For startup and outage behavior, see [Failure Domains](../concepts/failure-domains.md). For terms such as job, run, queue, and dispatch, see [Glossary](../concepts/glossary.md).
 
 ## How Configuration Resolves
 
@@ -116,7 +116,7 @@ Database driver settings are global. DSNs can be shared for single-node deployme
 
 `vectis-local` uses split SQLite files by default when no database DSN is set: one global DB and one DB for each local execution cell. Standalone services keep using `VECTIS_DATABASE_DSN` unless the matching role-specific DSN is set. Multi-cell `vectis-local --cell ...` currently requires the default managed SQLite layout so each local cell gets its own DB.
 
-When global and cell databases are split, workers record status changes into the cell-local catalog event inbox. Run `vectis-catalog` against the global database and pass each cell database with repeated `--cell-database-dsn cell_id=dsn` flags, or with `VECTIS_CATALOG_CELL_DATABASE_DSNS=iad-a=/path/iad.db,pdx-b=/path/pdx.db`. `vectis-catalog` also backfills missing catalog events from observed run and execution state before draining an inbox, which repairs the narrow case where a state transition committed but the matching catalog event write did not. `vectis-local` wires this automatically for its managed local cells.
+When global and cell databases are split, workers record status changes into the cell-local catalog event inbox. Run `vectis-catalog` against the global database and pass each cell database with repeated `--cell-database-dsn cell_id=dsn` flags, or with `VECTIS_CATALOG_CELL_DATABASE_DSNS=iad-a=/path/iad.db,pdx-b=/path/pdx.db`. `vectis-catalog` also backfills missing catalog events from observed run and execution state before draining an inbox, which repairs the narrow case where a state transition committed but the matching catalog event write did not. `vectis-local` wires this automatically for its managed local cells. See [Multi-Cell Operation](./multi-cell.md) for the full stack shape and repair flow.
 
 Runtime services wait for the expected schema; they do not apply migrations. Run migrations with:
 
@@ -185,7 +185,7 @@ Vectis can either discover services through `vectis-registry` or use fixed addre
 
 Role-specific settings override shared discovery settings when both are set.
 
-Global producers can route execution cells to private ingress endpoints with repeated `vectis-api --cell-ingress-endpoint cell_id=url`, `VECTIS_API_SERVER_CELL_INGRESS_ENDPOINTS=iad-a=http://iad.example:8085,pdx-b=http://pdx.example:8085`, or shared `VECTIS_CELL_INGRESS_ENDPOINTS`. When the local cell has an ingress endpoint configured, producers send local executions through ingress instead of writing directly to the local queue. If `VECTIS_GLOBAL_DATABASE_DSN` and `VECTIS_CELL_DATABASE_DSN` point at different databases, configure an ingress endpoint for every execution target, including the local cell; direct local queue fallback is disabled.
+Global producers can route execution cells to private ingress endpoints with repeated `vectis-api --cell-ingress-endpoint cell_id=url`, `VECTIS_API_SERVER_CELL_INGRESS_ENDPOINTS=iad-a=http://iad.example:8085,pdx-b=http://pdx.example:8085`, or shared `VECTIS_CELL_INGRESS_ENDPOINTS`. `vectis-reconciler` and `vectis-cron` use the same shared endpoint map unless their role-specific endpoint variables are set. When the local cell has an ingress endpoint configured, producers send local executions through ingress instead of writing directly to the local queue. If `VECTIS_GLOBAL_DATABASE_DSN` and `VECTIS_CELL_DATABASE_DSN` point at different databases, configure an ingress endpoint for every execution target, including the local cell; direct local queue fallback is disabled.
 
 For local routing tests, `vectis-local --cell pdx-b` starts an additional queue, cell ingress, and worker for `pdx-b`, pins those cell-local processes to their queue, and publishes all local ingress endpoints through `VECTIS_CELL_INGRESS_ENDPOINTS`.
 
