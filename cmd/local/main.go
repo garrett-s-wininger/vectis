@@ -322,6 +322,19 @@ func localCellIngressEndpointEnv(cells []localCell) []string {
 	return env
 }
 
+func localCatalogCellDatabaseEnv(cells []localCell) []string {
+	if strings.TrimSpace(os.Getenv("VECTIS_CATALOG_CELL_DATABASE_DSNS")) != "" {
+		return nil
+	}
+
+	specs := make([]string, 0, len(cells))
+	for _, cell := range cells {
+		specs = append(specs, fmt.Sprintf("%s=%s", cell.ID, cell.CellDB))
+	}
+
+	return []string{"VECTIS_CATALOG_CELL_DATABASE_DSNS=" + strings.Join(specs, ",")}
+}
+
 func (t localTopology) multiCell() bool {
 	return len(t.Cells) > 1
 }
@@ -617,6 +630,7 @@ func runVectis(cmd *cobra.Command, args []string) {
 	tlsEnv = append(tlsEnv, localDatabaseEnv(topology)...)
 	tlsEnv = append(tlsEnv, apiEnv()...)
 	tlsEnv = append(tlsEnv, localCellIngressEndpointEnv(topology.Cells)...)
+	tlsEnv = append(tlsEnv, localCatalogCellDatabaseEnv(topology.Cells)...)
 	tlsEnv = append(tlsEnv, docsEnv()...)
 	logger.Info("API will be available at http://%s:%d", localHost(), config.APIEffectiveListenPort())
 	for _, cell := range topology.Cells {

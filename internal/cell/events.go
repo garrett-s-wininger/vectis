@@ -27,6 +27,11 @@ type CatalogEventConsumer struct {
 	updater dal.RunCatalogUpdater
 }
 
+type CatalogEventPublisher struct {
+	sourceCellID string
+	events       dal.CatalogEventsRepository
+}
+
 type CatalogInboxProcessor struct {
 	events   dal.CatalogEventsRepository
 	consumer CatalogEventConsumer
@@ -42,11 +47,70 @@ func NewCatalogEventConsumer(updater dal.RunCatalogUpdater) CatalogEventConsumer
 	return CatalogEventConsumer{updater: updater}
 }
 
+func NewCatalogEventPublisher(sourceCellID string, events dal.CatalogEventsRepository) CatalogEventPublisher {
+	return CatalogEventPublisher{
+		sourceCellID: strings.TrimSpace(sourceCellID),
+		events:       events,
+	}
+}
+
 func NewCatalogInboxProcessor(events dal.CatalogEventsRepository, updater dal.RunCatalogUpdater) CatalogInboxProcessor {
 	return CatalogInboxProcessor{
 		events:   events,
 		consumer: NewCatalogEventConsumer(updater),
 	}
+}
+
+func (p CatalogEventPublisher) RecordRunStatus(ctx context.Context, update dal.RunStatusUpdate) error {
+	if p.events == nil {
+		return nil
+	}
+
+	payload, err := json.Marshal(update)
+	if err != nil {
+		return fmt.Errorf("marshal run status catalog event: %w", err)
+	}
+
+	if strings.TrimSpace(update.RunID) == "" || strings.TrimSpace(update.Status) == "" {
+		return fmt.Errorf("%w: run_id and status are required", ErrInvalidCatalogEvent)
+	}
+
+	return p.record(ctx, CatalogRunStatusEventKey(update.RunID, update.Status), CatalogEventTypeRunStatus, payload)
+}
+
+func (p CatalogEventPublisher) RecordExecutionStatus(ctx context.Context, update dal.ExecutionStatusUpdate) error {
+	if p.events == nil {
+		return nil
+	}
+
+	payload, err := json.Marshal(update)
+	if err != nil {
+		return fmt.Errorf("marshal execution status catalog event: %w", err)
+	}
+
+	if strings.TrimSpace(update.ExecutionID) == "" || strings.TrimSpace(update.Status) == "" {
+		return fmt.Errorf("%w: execution_id and status are required", ErrInvalidCatalogEvent)
+	}
+
+	return p.record(ctx, CatalogExecutionStatusEventKey(update.ExecutionID, update.Status), CatalogEventTypeExecutionStatus, payload)
+}
+
+func (p CatalogEventPublisher) record(ctx context.Context, eventKey, eventType string, payload []byte) error {
+	sourceCellID := strings.TrimSpace(p.sourceCellID)
+	if sourceCellID == "" {
+		return fmt.Errorf("%w: source cell is required", ErrInvalidCatalogEvent)
+	}
+
+	_, _, err := p.events.Record(ctx, sourceCellID, eventKey, eventType, payload)
+	return err
+}
+
+func CatalogRunStatusEventKey(runID, status string) string {
+	return "run:" + strings.TrimSpace(runID) + ":" + strings.TrimSpace(status)
+}
+
+func CatalogExecutionStatusEventKey(executionID, status string) string {
+	return "execution:" + strings.TrimSpace(executionID) + ":" + strings.TrimSpace(status)
 }
 
 func (p CatalogInboxProcessor) ProcessPending(ctx context.Context, limit int) (CatalogInboxProcessResult, error) {

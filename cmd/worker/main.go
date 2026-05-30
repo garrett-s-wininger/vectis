@@ -148,17 +148,20 @@ func runWorker(cmd *cobra.Command, args []string) {
 	forwarderSocket := forwarderSocketPath()
 	logClient = interfaces.NewPreferForwarderLogClient(forwarderSocket, logClient)
 
+	repos := dal.NewSQLRepositories(db)
 	w := &worker{
 		ctx:           shutdownCtx,
 		runCtx:        runCtx,
 		logger:        logger,
 		workerID:      workerID,
+		cellID:        config.CellID(),
 		clock:         interfaces.SystemClock{},
 		renewInterval: dal.DefaultRenewInterval,
 		queue:         clients,
 		logClient:     logClient,
 		executor:      job.NewExecutor(),
-		store:         dal.NewSQLRepositories(db).Runs(),
+		store:         repos.Runs(),
+		catalog:       cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
 		metrics:       workerMetrics,
 		cancelCh:      make(chan string, 1),
 	}
@@ -274,12 +277,14 @@ type worker struct {
 	runCtx             context.Context // Background; execution, lease renew, ack, finalize survive SIGTERM until dequeue stops
 	logger             interfaces.Logger
 	workerID           string
+	cellID             string
 	clock              interfaces.Clock
 	renewInterval      time.Duration
 	queue              interfaces.QueueClient
 	logClient          interfaces.LogClient
 	executor           *job.Executor
 	store              dal.RunsRepository
+	catalog            cell.CatalogEventPublisher
 	metrics            *observability.WorkerMetrics
 	dequeueFailAttempt int
 	dbUnavailable      bool
@@ -405,6 +410,31 @@ func (w *worker) noteDBRecovered() {
 		w.dbFailAttempt = 0
 		w.logger.Info("Database connectivity recovered; DB-backed run transitions resumed")
 	}
+}
+
+func (w *worker) recordRunCatalogEvent(update dal.RunStatusUpdate) {
+	if err := w.catalog.RecordRunStatus(w.runCtx, update); err != nil {
+		w.noteDBError(err)
+		w.logger.Warn("Record catalog run event %s status %s failed: %v", update.RunID, update.Status, err)
+		return
+	}
+
+	w.noteDBRecovered()
+}
+
+func (w *worker) recordExecutionCatalogEvent(ctx context.Context, env *cell.ExecutionEnvelope, status string) {
+	if env == nil {
+		return
+	}
+
+	if err := w.catalog.RecordExecutionStatus(w.runCtx, dal.ExecutionStatusUpdate{ExecutionID: env.ExecutionID, Status: status}); err != nil {
+		w.noteDBError(err)
+		w.logger.Warn("Record catalog execution event %s status %s failed: %v", env.ExecutionID, status, err)
+		trace.SpanFromContext(ctx).RecordError(err)
+		return
+	}
+
+	w.noteDBRecovered()
 }
 
 func (w *worker) sleepDBBackoff() error {
@@ -556,6 +586,8 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 		return observability.WorkerOutcomeSkippedUnclaimed
 	}
 
+	w.recordRunCatalogEvent(dal.RunStatusUpdate{RunID: runID, Status: dal.RunStatusRunning})
+
 	if ackFailure := w.ackDeliveryWithRetry(ctx, deliveryID); ackFailure != nil {
 		w.logger.Error("Ack delivery %s failed for claimed run %s: %v (reason_code=%s)",
 			deliveryID, runID, ackFailure.err, ackFailure.decision.ReasonCode)
@@ -636,6 +668,7 @@ func (w *worker) markExecutionAccepted(ctx context.Context, env *cell.ExecutionE
 	}
 
 	w.noteDBRecovered()
+	w.recordExecutionCatalogEvent(ctx, env, dal.ExecutionStatusAccepted)
 	trace.SpanFromContext(ctx).AddEvent("execution.accepted", trace.WithAttributes(executionEnvelopeAttrs(env)...))
 }
 
@@ -652,6 +685,7 @@ func (w *worker) markExecutionStarted(ctx context.Context, env *cell.ExecutionEn
 	}
 
 	w.noteDBRecovered()
+	w.recordExecutionCatalogEvent(ctx, env, dal.ExecutionStatusRunning)
 	trace.SpanFromContext(ctx).AddEvent("execution.started", trace.WithAttributes(executionEnvelopeAttrs(env)...))
 }
 
@@ -668,6 +702,7 @@ func (w *worker) markExecutionTerminal(ctx context.Context, env *cell.ExecutionE
 	}
 
 	w.noteDBRecovered()
+	w.recordExecutionCatalogEvent(ctx, env, status)
 	trace.SpanFromContext(ctx).AddEvent("execution.terminal", trace.WithAttributes(
 		append(executionEnvelopeAttrs(env), attribute.String("vectis.execution.status", status))...,
 	))
@@ -752,6 +787,7 @@ func (w *worker) markRunSucceededWithRetry(runID, claimToken string) error {
 		err := w.store.MarkRunSucceeded(w.runCtx, runID, claimToken)
 		if err == nil {
 			w.noteDBRecovered()
+			w.recordRunCatalogEvent(dal.RunStatusUpdate{RunID: runID, Status: dal.RunStatusSucceeded})
 			return nil
 		}
 		w.noteDBError(err)
@@ -783,6 +819,7 @@ func (w *worker) markRunFailedWithRetry(runID, claimToken, failureCode, reason s
 		err := w.store.MarkRunFailed(w.runCtx, runID, claimToken, failureCode, reason)
 		if err == nil {
 			w.noteDBRecovered()
+			w.recordRunCatalogEvent(dal.RunStatusUpdate{RunID: runID, Status: dal.RunStatusFailed, FailureCode: failureCode, Reason: reason})
 			return nil
 		}
 		w.noteDBError(err)
@@ -814,6 +851,7 @@ func (w *worker) markRunAbortedWithRetry(runID, claimToken, reason string) error
 		err := w.store.MarkRunAborted(w.runCtx, runID, claimToken, reason)
 		if err == nil {
 			w.noteDBRecovered()
+			w.recordRunCatalogEvent(dal.RunStatusUpdate{RunID: runID, Status: dal.RunStatusAborted, Reason: reason})
 			return nil
 		}
 		w.noteDBError(err)
@@ -845,6 +883,7 @@ func (w *worker) markRunOrphanedWithRetry(runID, claimToken, reason string) erro
 		err := w.store.MarkRunOrphaned(w.runCtx, runID, claimToken, reason)
 		if err == nil {
 			w.noteDBRecovered()
+			w.recordRunCatalogEvent(dal.RunStatusUpdate{RunID: runID, Status: dal.RunStatusOrphaned, Reason: reason})
 			return nil
 		}
 		w.noteDBError(err)

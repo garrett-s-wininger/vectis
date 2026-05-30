@@ -229,9 +229,34 @@ func TestCellIngressEndpoints_GenericConfig(t *testing.T) {
 	}
 }
 
+func TestCatalogCellDatabaseDSNs(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	viper.Set("cell_database_dsns", []string{"local=/tmp/local.db", "pdx-b=/tmp/pdx.db"})
+	got, err := CatalogCellDatabaseDSNs()
+	if err != nil {
+		t.Fatalf("CatalogCellDatabaseDSNs: %v", err)
+	}
+
+	if got["local"] != "/tmp/local.db" {
+		t.Fatalf("local DSN: got %q", got["local"])
+	}
+
+	if got["pdx-b"] != "/tmp/pdx.db" {
+		t.Fatalf("pdx DSN: got %q", got["pdx-b"])
+	}
+}
+
 func TestParseCellIngressEndpointsRejectsInvalidSpec(t *testing.T) {
 	if _, err := ParseCellIngressEndpoints([]string{"iad-a"}); err == nil {
 		t.Fatal("ParseCellIngressEndpoints succeeded, want error")
+	}
+}
+
+func TestParseCellDatabaseDSNsRejectsInvalidSpec(t *testing.T) {
+	if _, err := ParseCellDatabaseDSNs([]string{"iad-a"}); err == nil {
+		t.Fatal("ParseCellDatabaseDSNs succeeded, want error")
 	}
 }
 

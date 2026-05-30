@@ -974,6 +974,38 @@ func APICellIngressEndpoints() (map[string]string, error) {
 	return ParseCellIngressEndpoints(APICellIngressEndpointSpecs())
 }
 
+func CatalogCellDatabaseSpecs() []string {
+	return stringSliceFromViper("cell_database_dsns")
+}
+
+func CatalogCellDatabaseDSNs() (map[string]string, error) {
+	return ParseCellDatabaseDSNs(CatalogCellDatabaseSpecs())
+}
+
+func ParseCellDatabaseDSNs(specs []string) (map[string]string, error) {
+	out := make(map[string]string)
+	for _, spec := range cleanStringSlice(specs) {
+		cellID, dsn, ok := strings.Cut(spec, "=")
+		if !ok {
+			return nil, fmt.Errorf("cell database DSN %q must be cell_id=dsn", spec)
+		}
+
+		cellID = strings.TrimSpace(cellID)
+		dsn = strings.TrimSpace(dsn)
+		if cellID == "" {
+			return nil, fmt.Errorf("cell database DSN %q has empty cell_id", spec)
+		}
+
+		if dsn == "" {
+			return nil, fmt.Errorf("cell database DSN for %q has empty dsn", cellID)
+		}
+
+		out[cellID] = dsn
+	}
+
+	return out, nil
+}
+
 func ParseCellIngressEndpoints(specs []string) (map[string]string, error) {
 	out := make(map[string]string)
 	for _, spec := range cleanStringSlice(specs) {

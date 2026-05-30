@@ -41,6 +41,38 @@ func (p *recordingProcessor) calledLimits() []int {
 	return append([]int(nil), p.limits...)
 }
 
+type recordingFanIn struct {
+	mu      sync.Mutex
+	limits  []int
+	result  FanInResult
+	err     error
+	called  bool
+	onCalls func()
+}
+
+func (f *recordingFanIn) IngestPending(ctx context.Context, limit int) (FanInResult, error) {
+	f.mu.Lock()
+	f.called = true
+	f.limits = append(f.limits, limit)
+	onCalls := f.onCalls
+	result := f.result
+	err := f.err
+	f.mu.Unlock()
+
+	if onCalls != nil {
+		onCalls()
+	}
+
+	return result, err
+}
+
+func (f *recordingFanIn) calledLimits() []int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return append([]int(nil), f.limits...)
+}
+
 type recordingMetrics struct {
 	mu      sync.Mutex
 	results []cell.CatalogInboxProcessResult
@@ -110,6 +142,42 @@ func TestServiceProcessDefaultsBatchSize(t *testing.T) {
 	limits := processor.calledLimits()
 	if len(limits) != 1 || limits[0] != DefaultBatchSize {
 		t.Fatalf("expected default batch size %d, got %v", DefaultBatchSize, limits)
+	}
+}
+
+func TestServiceProcessRunsFanInBeforeInboxProcessor(t *testing.T) {
+	var order []string
+	fanIn := &recordingFanIn{
+		result: FanInResult{Sources: 1, Read: 1, Copied: 1},
+		onCalls: func() {
+			order = append(order, "fan-in")
+		},
+	}
+
+	processor := &recordingProcessor{
+		onCalled: func() {
+			order = append(order, "processor")
+		},
+	}
+
+	logger := mocks.NewMockLogger()
+	svc := NewServiceWithProcessor(logger, processor)
+	svc.SetFanIn(fanIn)
+
+	if _, err := svc.Process(context.Background(), 5); err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+
+	if got := fanIn.calledLimits(); len(got) != 1 || got[0] != 5 {
+		t.Fatalf("expected fan-in limit 5, got %v", got)
+	}
+
+	if len(order) != 2 || order[0] != "fan-in" || order[1] != "processor" {
+		t.Fatalf("unexpected call order: %v", order)
+	}
+
+	if len(logger.GetInfoCalls()) == 0 {
+		t.Fatal("expected fan-in result to be logged")
 	}
 }
 

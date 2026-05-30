@@ -196,11 +196,13 @@ func TestWorkerRunClaimedJob_CompletesWhileOrphaned_MarksSucceeded(t *testing.T)
 		runCtx:        context.Background(),
 		logger:        interfaces.NewLogger("worker-test"),
 		workerID:      workerID,
+		cellID:        "local",
 		renewInterval: time.Hour,
 		queue:         queue,
 		logClient:     logClient,
 		executor:      job.NewExecutor(),
 		store:         runs,
+		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
 	}
 
 	jobID := "job-worker-finish-orphaned"
@@ -314,11 +316,13 @@ func TestWorkerRunClaimedJob_WithExecutionEnvelope_TransitionsExecution(t *testi
 		runCtx:        context.Background(),
 		logger:        interfaces.NewLogger("worker-test"),
 		workerID:      workerID,
+		cellID:        "local",
 		renewInterval: time.Hour,
 		queue:         queue,
 		logClient:     logClient,
 		executor:      job.NewExecutor(),
 		store:         runs,
+		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
 	}
 
 	deliveryID := "delivery-envelope"
@@ -372,6 +376,32 @@ func TestWorkerRunClaimedJob_WithExecutionEnvelope_TransitionsExecution(t *testi
 
 	if !acceptedAt.Valid || !startedAt.Valid || !finishedAt.Valid {
 		t.Fatalf("expected accepted_at, started_at, and finished_at to be set; got accepted=%v started=%v finished=%v", acceptedAt, startedAt, finishedAt)
+	}
+
+	events, err := repos.CatalogEvents().ListPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("list catalog events: %v", err)
+	}
+
+	wantEvents := []struct {
+		key       string
+		eventType string
+	}{
+		{key: cell.CatalogRunStatusEventKey(runID, dal.RunStatusRunning), eventType: cell.CatalogEventTypeRunStatus},
+		{key: cell.CatalogExecutionStatusEventKey(env.ExecutionID, dal.ExecutionStatusAccepted), eventType: cell.CatalogEventTypeExecutionStatus},
+		{key: cell.CatalogExecutionStatusEventKey(env.ExecutionID, dal.ExecutionStatusRunning), eventType: cell.CatalogEventTypeExecutionStatus},
+		{key: cell.CatalogRunStatusEventKey(runID, dal.RunStatusSucceeded), eventType: cell.CatalogEventTypeRunStatus},
+		{key: cell.CatalogExecutionStatusEventKey(env.ExecutionID, dal.ExecutionStatusSucceeded), eventType: cell.CatalogEventTypeExecutionStatus},
+	}
+	if len(events) != len(wantEvents) {
+		t.Fatalf("catalog events: got %d, want %d (%+v)", len(events), len(wantEvents), events)
+	}
+
+	for i, want := range wantEvents {
+		if events[i].SourceCell != "local" || events[i].EventKey != want.key || events[i].EventType != want.eventType {
+			t.Fatalf("catalog event %d: got source=%q key=%q type=%q, want source=local key=%q type=%q",
+				i, events[i].SourceCell, events[i].EventKey, events[i].EventType, want.key, want.eventType)
+		}
 	}
 }
 

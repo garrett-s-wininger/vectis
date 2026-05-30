@@ -20,6 +20,10 @@ type InboxProcessor interface {
 	ProcessPending(ctx context.Context, limit int) (cell.CatalogInboxProcessResult, error)
 }
 
+type FanIn interface {
+	IngestPending(ctx context.Context, limit int) (FanInResult, error)
+}
+
 type Metrics interface {
 	RecordProcessResult(ctx context.Context, result cell.CatalogInboxProcessResult)
 	RecordProcessError(ctx context.Context)
@@ -28,6 +32,7 @@ type Metrics interface {
 type Service struct {
 	logger    interfaces.Logger
 	processor InboxProcessor
+	fanIn     FanIn
 	metrics   Metrics
 }
 
@@ -46,12 +51,32 @@ func (s *Service) SetMetrics(metrics Metrics) {
 	s.metrics = metrics
 }
 
+func (s *Service) SetFanIn(fanIn FanIn) {
+	s.fanIn = fanIn
+}
+
 func (s *Service) Process(ctx context.Context, batchSize int) (cell.CatalogInboxProcessResult, error) {
 	if s.processor == nil {
 		return cell.CatalogInboxProcessResult{}, errors.New("catalog inbox processor is not set")
 	}
 
-	result, err := s.processor.ProcessPending(ctx, normalizeBatchSize(batchSize))
+	batchSize = normalizeBatchSize(batchSize)
+	if s.fanIn != nil {
+		result, err := s.fanIn.IngestPending(ctx, batchSize)
+		if err != nil {
+			if s.metrics != nil {
+				s.metrics.RecordProcessError(ctx)
+			}
+
+			return cell.CatalogInboxProcessResult{}, fmt.Errorf("catalog fan-in: %w", err)
+		}
+
+		if result.Read > 0 && s.logger != nil {
+			s.logger.Info("catalog: ingested %d events from %d source(s) (%d copied)", result.Read, result.Sources, result.Copied)
+		}
+	}
+
+	result, err := s.processor.ProcessPending(ctx, batchSize)
 	if err != nil {
 		if s.metrics != nil {
 			s.metrics.RecordProcessError(ctx)

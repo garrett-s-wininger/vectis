@@ -162,6 +162,38 @@ func TestCatalogEventConsumer_RejectsInvalidEvents(t *testing.T) {
 	}
 }
 
+func TestCatalogEventPublisher_RecordStatusEvents(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+	publisher := NewCatalogEventPublisher("iad-a", repos.CatalogEvents())
+
+	if err := publisher.RecordRunStatus(ctx, dal.RunStatusUpdate{RunID: "run-1", Status: dal.RunStatusRunning}); err != nil {
+		t.Fatalf("RecordRunStatus: %v", err)
+	}
+
+	if err := publisher.RecordExecutionStatus(ctx, dal.ExecutionStatusUpdate{ExecutionID: "execution-1", Status: dal.ExecutionStatusAccepted}); err != nil {
+		t.Fatalf("RecordExecutionStatus: %v", err)
+	}
+
+	records, err := repos.CatalogEvents().ListPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListPending: %v", err)
+	}
+
+	if len(records) != 2 {
+		t.Fatalf("pending records: got %d, want 2", len(records))
+	}
+
+	if records[0].SourceCell != "iad-a" || records[0].EventKey != "run:run-1:running" || records[0].EventType != CatalogEventTypeRunStatus {
+		t.Fatalf("unexpected run event: %+v", records[0])
+	}
+
+	if records[1].SourceCell != "iad-a" || records[1].EventKey != "execution:execution-1:accepted" || records[1].EventType != CatalogEventTypeExecutionStatus {
+		t.Fatalf("unexpected execution event: %+v", records[1])
+	}
+}
+
 func TestCatalogInboxProcessor_ProcessPendingAppliesAndMarksEvents(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)

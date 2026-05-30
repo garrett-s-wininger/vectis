@@ -122,3 +122,17 @@ func TestLocalCellIngressEndpointSpecs(t *testing.T) {
 		t.Fatalf("endpoint specs: got %v, want %v", got, want)
 	}
 }
+
+func TestLocalCatalogCellDatabaseEnv(t *testing.T) {
+	resetLocalTestConfig(t)
+	cells := []localCell{
+		{ID: "iad-a", CellDB: "/tmp/iad.db"},
+		{ID: "pdx-b", CellDB: "/tmp/pdx.db"},
+	}
+
+	got := localCatalogCellDatabaseEnv(cells)
+	want := []string{"VECTIS_CATALOG_CELL_DATABASE_DSNS=iad-a=/tmp/iad.db,pdx-b=/tmp/pdx.db"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("catalog env: got %v, want %v", got, want)
+	}
+}

@@ -27,11 +27,15 @@ A typical stored-job trigger looks like this:
 6. The worker claims the run in the database.
 7. The worker executes the job tree and streams logs to `vectis-log`.
 8. The worker updates the final run status in the database.
-9. Clients inspect run status through the API and stream logs through the API.
+9. The worker records a catalog event for status changes.
+10. `vectis-catalog` applies catalog events to the global run catalog.
+11. Clients inspect run status through the API and stream logs through the API.
 
 The queue handoff can happen after the HTTP response. If the API records the run but misses the queue handoff, `vectis-reconciler` finds the queued run later and enqueues it again.
 
 Ephemeral runs follow the same execution path, except the job definition is submitted inline instead of being looked up from a stored job.
+
+In a split global/cell deployment, steps 5 through 9 happen against the cell-local database and queue. `vectis-catalog` can fan in pending catalog events from configured cell databases, then apply them to the global database.
 
 ## Component Diagram
 
@@ -97,12 +101,12 @@ flowchart TB
 | `vectis-api` | Public HTTP API. Stores jobs and runs, accepts triggers, exposes health, metrics, run status, run events, and log streams. |
 | `vectis-cell-ingress` | Private cell-local HTTP endpoint that durably accepts execution envelopes for this cell, enqueues them to the local queue, and repairs missed local queue handoffs. The global API can route non-local target cells to configured ingress endpoints. |
 | `vectis-queue` | Internal FIFO queue. Producers enqueue work; workers dequeue and acknowledge deliveries. Queue persistence can preserve backlog and in-flight delivery metadata. |
-| `vectis-worker` | Executes one run at a time. Dequeues work, claims the run in the database, executes actions, streams logs, and writes final status. |
+| `vectis-worker` | Executes one run at a time. Dequeues work, claims the run in the database, executes actions, streams logs, writes final status, and records cell catalog events. |
 | `vectis-log` | Receives log chunks from workers and stores run logs. The API reads from it when clients stream logs. |
 | `vectis-registry` | Internal service discovery for queue and log addresses when clients do not use pinned addresses. |
 | `vectis-cron` | Reads schedules from the database and enqueues due runs. |
 | `vectis-reconciler` | Finds queued runs that need another queue handoff and enqueues them again. |
-| `vectis-catalog` | Drains cell catalog events and applies them to the global run catalog. |
+| `vectis-catalog` | Drains global catalog events, optionally fans in pending events from configured cell databases, and applies them to the global run catalog. |
 | `vectis-docs` | Serves the embedded docs site as static HTTP. |
 | `vectis-local` | Development supervisor that starts the local registry, queue, log, cell ingress, worker, cron, reconciler, catalog, API, and docs together. |
 | `vectis-cli` | User and operator command-line client for the HTTP API. |
