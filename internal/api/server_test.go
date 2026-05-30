@@ -591,6 +591,13 @@ func TestAPIServer_GetCatalogStatus(t *testing.T) {
 		Total            int64  `json:"total"`
 		LastReceivedUnix *int64 `json:"last_received_unix,omitempty"`
 		LastAppliedUnix  *int64 `json:"last_applied_unix,omitempty"`
+		Sources          []struct {
+			SourceCell string `json:"source_cell"`
+			Pending    int64  `json:"pending"`
+			Applied    int64  `json:"applied"`
+			Failed     int64  `json:"failed"`
+			Total      int64  `json:"total"`
+		} `json:"sources"`
 	}
 
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
@@ -607,6 +614,18 @@ func TestAPIServer_GetCatalogStatus(t *testing.T) {
 
 	if resp.LastAppliedUnix == nil {
 		t.Fatal("expected last_applied_unix")
+	}
+
+	if len(resp.Sources) != 2 {
+		t.Fatalf("sources len: got %d want 2 (%+v)", len(resp.Sources), resp.Sources)
+	}
+
+	if resp.Sources[0].SourceCell != "iad-a" || resp.Sources[0].Pending != 0 || resp.Sources[0].Applied != 1 || resp.Sources[0].Failed != 1 || resp.Sources[0].Total != 2 {
+		t.Fatalf("unexpected iad source summary: %+v", resp.Sources[0])
+	}
+
+	if resp.Sources[1].SourceCell != "iad-b" || resp.Sources[1].Pending != 1 || resp.Sources[1].Applied != 0 || resp.Sources[1].Failed != 0 || resp.Sources[1].Total != 1 {
+		t.Fatalf("unexpected iad-b source summary: %+v", resp.Sources[1])
 	}
 }
 

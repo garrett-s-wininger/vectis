@@ -689,18 +689,13 @@ func doctorCatalogInbox() doctorCheck {
 		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
-	var result struct {
-		Pending int64 `json:"pending"`
-		Applied int64 `json:"applied"`
-		Failed  int64 `json:"failed"`
-		Total   int64 `json:"total"`
-	}
+	var result doctorCatalogStatus
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
-	evidence := fmt.Sprintf("pending=%d applied=%d failed=%d total=%d", result.Pending, result.Applied, result.Failed, result.Total)
+	evidence := formatDoctorCatalogInboxEvidence(result)
 	if result.Failed > 0 {
 		label := "events"
 		if result.Failed == 1 {
@@ -715,6 +710,44 @@ func doctorCatalogInbox() doctorCheck {
 	}
 
 	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("catalog inbox ok: %d pending", result.Pending), Evidence: evidence, DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+}
+
+type doctorCatalogStatus struct {
+	Pending int64                       `json:"pending"`
+	Applied int64                       `json:"applied"`
+	Failed  int64                       `json:"failed"`
+	Total   int64                       `json:"total"`
+	Sources []doctorCatalogSourceStatus `json:"sources"`
+}
+
+type doctorCatalogSourceStatus struct {
+	SourceCell string `json:"source_cell"`
+	Pending    int64  `json:"pending"`
+	Applied    int64  `json:"applied"`
+	Failed     int64  `json:"failed"`
+	Total      int64  `json:"total"`
+}
+
+func formatDoctorCatalogInboxEvidence(status doctorCatalogStatus) string {
+	base := fmt.Sprintf("pending=%d applied=%d failed=%d total=%d", status.Pending, status.Applied, status.Failed, status.Total)
+	if len(status.Sources) == 0 {
+		return base
+	}
+
+	parts := make([]string, 0, len(status.Sources))
+	for _, source := range status.Sources {
+		if source.Pending == 0 && source.Failed == 0 {
+			continue
+		}
+
+		parts = append(parts, fmt.Sprintf("%s:p=%d/f=%d", source.SourceCell, source.Pending, source.Failed))
+	}
+
+	if len(parts) == 0 {
+		return base
+	}
+
+	return fmt.Sprintf("%s sources=%s", base, strings.Join(parts, ","))
 }
 
 func doctorLogReachable() doctorCheck {

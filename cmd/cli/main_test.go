@@ -1588,6 +1588,9 @@ func TestDoctor_catalogInboxWarnsForFailedEvents(t *testing.T) {
 		"applied": 10,
 		"failed":  1,
 		"total":   13,
+		"sources": []map[string]any{
+			{"source_cell": "iad-a", "pending": 2, "applied": 10, "failed": 1, "total": 13},
+		},
 	})
 
 	if check.Status != doctorWarn {
@@ -1598,7 +1601,7 @@ func TestDoctor_catalogInboxWarnsForFailedEvents(t *testing.T) {
 		t.Fatalf("unexpected summary: %q", check.Summary)
 	}
 
-	if !strings.Contains(check.Evidence, "pending=2") || !strings.Contains(check.Evidence, "failed=1") {
+	if !strings.Contains(check.Evidence, "pending=2") || !strings.Contains(check.Evidence, "failed=1") || !strings.Contains(check.Evidence, "iad-a:p=2/f=1") {
 		t.Fatalf("unexpected evidence: %q", check.Evidence)
 	}
 }
@@ -1609,6 +1612,9 @@ func TestDoctor_catalogInboxWarnsForHighPendingBacklog(t *testing.T) {
 		"applied": 10,
 		"failed":  0,
 		"total":   111,
+		"sources": []map[string]any{
+			{"source_cell": "pdx-b", "pending": 101, "applied": 10, "failed": 0, "total": 111},
+		},
 	})
 
 	if check.Status != doctorWarn {
@@ -1617,6 +1623,10 @@ func TestDoctor_catalogInboxWarnsForHighPendingBacklog(t *testing.T) {
 
 	if !strings.Contains(check.Summary, "catalog inbox backlog high") {
 		t.Fatalf("unexpected summary: %q", check.Summary)
+	}
+
+	if !strings.Contains(check.Evidence, "pdx-b:p=101/f=0") {
+		t.Fatalf("unexpected evidence: %q", check.Evidence)
 	}
 }
 

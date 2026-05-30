@@ -259,7 +259,7 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | GET | `/api/v1/log/reachable` | Log service gRPC connectivity | Public | none | `200` JSON reachable |
 | GET | `/api/v1/audit/flush-failures` | Audit flush failure count | Public | none | `200` JSON flush failures |
 | GET | `/api/v1/cron/status` | Cron schedule count and activity | Public | none | `200` JSON cron status |
-| GET | `/api/v1/catalog/status` | Cell catalog inbox summary | Public | none | `200` JSON catalog status |
+| GET | `/api/v1/catalog/status` | Cell catalog inbox summary, including per-source-cell counts when available | Public | none | `200` JSON catalog status |
 | GET | `/metrics` | Prometheus metrics | Public | none | `200` metrics text |
 | POST | `/api/v1/cells/{cell_id}/catalog-events` | Record a cell status event into the global catalog inbox | `run:operator` | general | `202` JSON event |
 | GET | `/api/v1/jobs` | List visible job definitions | `job:read` | general | `200` JSON list |

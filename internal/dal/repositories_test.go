@@ -1067,6 +1067,48 @@ func TestCatalogEventsRepository_RecordListAndMark(t *testing.T) {
 	}
 }
 
+func TestCatalogEventsRepository_SummaryBySource(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	events := dal.NewSQLRepositories(db).CatalogEvents()
+	ctx := context.Background()
+
+	iadApplied, _, err := events.Record(ctx, "iad-a", "iad-applied", "run.status", []byte(`{"run_id":"run-1","status":"running"}`))
+	if err != nil {
+		t.Fatalf("record iad applied: %v", err)
+	}
+	iadFailed, _, err := events.Record(ctx, "iad-a", "iad-failed", "execution.status", []byte(`{"execution_id":"execution-1","status":"failed"}`))
+	if err != nil {
+		t.Fatalf("record iad failed: %v", err)
+	}
+	if _, _, err := events.Record(ctx, "pdx-b", "pdx-pending", "run.status", []byte(`{"run_id":"run-2","status":"queued"}`)); err != nil {
+		t.Fatalf("record pdx pending: %v", err)
+	}
+
+	if err := events.MarkApplied(ctx, iadApplied.ID); err != nil {
+		t.Fatalf("mark iad applied: %v", err)
+	}
+	if err := events.MarkFailed(ctx, iadFailed.ID, "apply failed"); err != nil {
+		t.Fatalf("mark iad failed: %v", err)
+	}
+
+	summaries, err := events.SummaryBySource(ctx)
+	if err != nil {
+		t.Fatalf("SummaryBySource: %v", err)
+	}
+
+	if len(summaries) != 2 {
+		t.Fatalf("summaries len: got %d want 2 (%+v)", len(summaries), summaries)
+	}
+
+	if summaries[0].SourceCell != "iad-a" || summaries[0].Pending != 0 || summaries[0].Applied != 1 || summaries[0].Failed != 1 || summaries[0].Total != 2 || summaries[0].LastReceivedUnix == nil || summaries[0].LastAppliedUnix == nil {
+		t.Fatalf("unexpected iad summary: %+v", summaries[0])
+	}
+
+	if summaries[1].SourceCell != "pdx-b" || summaries[1].Pending != 1 || summaries[1].Applied != 0 || summaries[1].Failed != 0 || summaries[1].Total != 1 || summaries[1].LastReceivedUnix == nil || summaries[1].LastAppliedUnix != nil {
+		t.Fatalf("unexpected pdx summary: %+v", summaries[1])
+	}
+}
+
 func TestCatalogEventsRepository_RejectsInvalidRecords(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	events := dal.NewSQLRepositories(db).CatalogEvents()

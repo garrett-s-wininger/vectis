@@ -168,6 +168,8 @@ Scrape `vectis-catalog` metrics to see which cell sources are contributing event
 
 Persistent reads without applied global catalog progress point to the global inbox processor. Persistent backfill for one cell points to missed catalog event writes or local cell DB pressure. Repeated zero activity for a cell that should be running work usually means `vectis-catalog` cannot see that cell database or the cell has not emitted events.
 
+`GET /api/v1/catalog/status` and `vectis-cli doctor` include per-source-cell inbox counts when the global inbox contains events. Use those counts to find the cell responsible for pending or failed catalog events before digging into `vectis-catalog` logs or cell-local DB pressure.
+
 ## Current Limits
 
 Multi-cell support routes whole runs to cells and fans status back into the global catalog. It does not yet provide cross-cell DAG choreography inside one run, artifact replication between cells, per-cell action repository distribution, or cell-to-cell dispatch. Model cross-cell work as multiple runs for now, or keep dependent steps inside one cell.

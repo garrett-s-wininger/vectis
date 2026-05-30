@@ -75,6 +75,8 @@ When `reconciler.stuck.runs` warns in a multi-cell deployment, `evidence` includ
 
 When `cells.ingress` warns, `evidence` includes each configured cell route and readiness state, for example `iad-a:ready,pdx-b:unreachable`. The endpoint reports cell IDs and health states, not private ingress URLs.
 
+When `catalog.inbox` warns in a multi-cell deployment, `evidence` includes source-cell inbox pressure for cells with pending or failed events, for example `sources=iad-a:p=2/f=1,pdx-b:p=101/f=0`.
+
 ## How To Respond
 
 | Result | Meaning | Next step |

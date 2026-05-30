@@ -155,6 +155,53 @@ func (r *SQLCatalogEventsRepository) Summary(ctx context.Context) (CatalogEventS
 	return out, nil
 }
 
+func (r *SQLCatalogEventsRepository) SummaryBySource(ctx context.Context) ([]CatalogEventSourceSummary, error) {
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
+		SELECT
+			source_cell,
+			COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0),
+			COUNT(*),
+			MAX(received_at),
+			MAX(applied_at)
+		FROM cell_catalog_events
+		GROUP BY source_cell
+		ORDER BY source_cell ASC
+	`), CatalogEventStatusPending, CatalogEventStatusApplied, CatalogEventStatusFailed)
+
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	var out []CatalogEventSourceSummary
+	for rows.Next() {
+		var rec CatalogEventSourceSummary
+		var lastReceived sql.NullInt64
+		var lastApplied sql.NullInt64
+		if err := rows.Scan(&rec.SourceCell, &rec.Pending, &rec.Applied, &rec.Failed, &rec.Total, &lastReceived, &lastApplied); err != nil {
+			return nil, normalizeSQLError(err)
+		}
+
+		if lastReceived.Valid {
+			rec.LastReceivedUnix = &lastReceived.Int64
+		}
+
+		if lastApplied.Valid {
+			rec.LastAppliedUnix = &lastApplied.Int64
+		}
+
+		out = append(out, rec)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	return out, nil
+}
+
 func (r *SQLCatalogEventsRepository) getByKey(ctx context.Context, sourceCell, eventKey string) (CatalogEventRecord, error) {
 	row := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
 		SELECT id, source_cell, event_key, event_type, payload_json, status, attempts, last_error, received_at, applied_at, updated_at

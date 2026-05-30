@@ -219,6 +219,16 @@ type CatalogEventSummary struct {
 	LastAppliedUnix  *int64
 }
 
+type CatalogEventSourceSummary struct {
+	SourceCell       string
+	Pending          int64
+	Applied          int64
+	Failed           int64
+	Total            int64
+	LastReceivedUnix *int64
+	LastAppliedUnix  *int64
+}
+
 type IdempotencyRepository interface {
 	Reserve(ctx context.Context, scope, key, requestHash string) (record IdempotencyRecord, created bool, err error)
 	Complete(ctx context.Context, scope, key, responseJSON string) error
@@ -237,6 +247,7 @@ type CatalogEventsRepository interface {
 	MarkApplied(ctx context.Context, id int64) error
 	MarkFailed(ctx context.Context, id int64, message string) error
 	Summary(ctx context.Context) (CatalogEventSummary, error)
+	SummaryBySource(ctx context.Context) ([]CatalogEventSourceSummary, error)
 }
 
 type CatalogStatusBackfillRepository interface {
