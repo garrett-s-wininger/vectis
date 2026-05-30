@@ -16,8 +16,10 @@ import (
 )
 
 const (
-	EnvDatabaseDriver = "VECTIS_DATABASE_DRIVER"
-	EnvDatabaseDSN    = "VECTIS_DATABASE_DSN"
+	EnvDatabaseDriver    = "VECTIS_DATABASE_DRIVER"
+	EnvDatabaseDSN       = "VECTIS_DATABASE_DSN"
+	EnvGlobalDatabaseDSN = "VECTIS_GLOBAL_DATABASE_DSN"
+	EnvCellDatabaseDSN   = "VECTIS_CELL_DATABASE_DSN"
 
 	postgresMigrationAdvisoryLockKey int64 = 987654321
 
@@ -31,17 +33,48 @@ const (
 	schemaWaitPollInterval = 750 * time.Millisecond
 )
 
-func GetDBPath() string {
-	if dsn := os.Getenv(EnvDatabaseDSN); dsn != "" {
-		if strings.Contains(dsn, "{{data_home}}") {
-			return strings.NewReplacer("{{data_home}}", utils.DataHome()).Replace(dsn)
-		}
+type Role string
 
+const (
+	RoleDefault Role = ""
+	RoleGlobal  Role = "global"
+	RoleCell    Role = "cell"
+)
+
+func GetDBPath() string {
+	if dsn := expandDSN(os.Getenv(EnvDatabaseDSN)); dsn != "" {
 		return dsn
 	}
 
 	dataHome := utils.DataHome()
 	return config.DBDSN(dataHome)
+}
+
+func GetDBPathForRole(role Role) string {
+	switch role {
+	case RoleGlobal:
+		if dsn := expandDSN(os.Getenv(EnvGlobalDatabaseDSN)); dsn != "" {
+			return dsn
+		}
+	case RoleCell:
+		if dsn := expandDSN(os.Getenv(EnvCellDatabaseDSN)); dsn != "" {
+			return dsn
+		}
+	}
+
+	return GetDBPath()
+}
+
+func GlobalAndCellDatabasesAreSplit() bool {
+	return GetDBPathForRole(RoleGlobal) != GetDBPathForRole(RoleCell)
+}
+
+func expandDSN(dsn string) string {
+	if dsn = strings.TrimSpace(dsn); dsn != "" {
+		return strings.NewReplacer("{{data_home}}", utils.DataHome()).Replace(dsn)
+	}
+
+	return ""
 }
 
 func OpenDB(dbPath string) (*sql.DB, error) {
@@ -69,7 +102,11 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 }
 
 func OpenReadyDB(log interfaces.Logger) (*sql.DB, string, error) {
-	dbPath := GetDBPath()
+	return OpenReadyDBForRole(log, RoleDefault)
+}
+
+func OpenReadyDBForRole(log interfaces.Logger, role Role) (*sql.DB, string, error) {
+	dbPath := GetDBPathForRole(role)
 	if log != nil {
 		log.Info("Using database: %s", dbPath)
 	}

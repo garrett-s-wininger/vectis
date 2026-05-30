@@ -3,11 +3,11 @@ package api
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/cell"
 	"vectis/internal/config"
+	"vectis/internal/database"
 	"vectis/internal/interfaces"
 )
 
@@ -34,24 +34,14 @@ func (s *APIServer) executionRouter(q interfaces.QueueService) (cell.ExecutionIn
 	}
 	s.mu.RUnlock()
 
-	localCellID := strings.TrimSpace(config.CellID())
-	routes := map[string]cell.ExecutionIngress{
-		localCellID: cell.NewQueueExecutionIngress(q, s.logger),
-	}
-
 	endpoints, err := config.APICellIngressEndpoints()
 	if err != nil {
 		return nil, fmt.Errorf("cell ingress endpoints: %w", err)
 	}
 
-	for cellID, endpoint := range endpoints {
-		cellID = strings.TrimSpace(cellID)
-		if cellID == "" || cellID == localCellID {
-			continue
-		}
-
-		routes[cellID] = cell.NewHTTPExecutionIngress(endpoint, nil, s.logger)
+	if database.GlobalAndCellDatabasesAreSplit() {
+		q = nil
 	}
 
-	return cell.NewStaticExecutionRouter(routes), nil
+	return cell.NewExecutionRouter(config.CellID(), q, endpoints, s.logger), nil
 }

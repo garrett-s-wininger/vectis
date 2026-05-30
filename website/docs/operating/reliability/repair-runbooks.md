@@ -62,7 +62,7 @@ Use this when `health check` warns on `reconciler.stuck.runs`, cannot read recon
 1. Confirm API readiness with `vectis-cli health check --strict`.
 2. Confirm exactly one active reconciler for the current scale posture; see [Scaling And Restarts](../deployment/scaling-and-restarts.md).
 3. Check reconciler process logs for database, queue, registry, or gRPC TLS errors.
-4. Verify the reconciler is using the same `VECTIS_DATABASE_DRIVER` and `VECTIS_DATABASE_DSN` as the API, cron, and other SQL writers.
+4. Verify the reconciler is using the same global database as the API and cron: shared `VECTIS_DATABASE_DSN`, or `VECTIS_GLOBAL_DATABASE_DSN` when global/cell databases are split.
 5. Verify queue resolution through the pinned queue address or registry path configured for the reconciler.
 6. Inspect `vectis_reconciler_reenqueue_total` by outcome and `vectis_retries_exhausted_total`.
 7. For impacted runs, use `vectis-cli runs show <run-id>` to confirm whether later reconciler dispatch events appear.
@@ -108,7 +108,7 @@ Use this when `health check` warns on `db.connection.pool` or the DB pool alert 
 Use this when `health check` fails `db.schema.current`, API readiness reports database/schema issues, or a restore drill reaches migration checks.
 
 1. Stop workers, cron, reconciler, and catalog if the schema state is uncertain.
-2. Confirm `VECTIS_DATABASE_DRIVER` and `VECTIS_DATABASE_DSN` point at the intended database.
+2. Confirm `VECTIS_DATABASE_DRIVER` and `VECTIS_DATABASE_DSN` point at the intended database. For split global/cell deployments, run this once for the global DSN and once for the cell DSN.
 3. Run the migration from the same network/config context used by the deployment:
 
 ```sh

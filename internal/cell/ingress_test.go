@@ -3,6 +3,8 @@ package cell
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	api "vectis/api/gen/go"
@@ -122,6 +124,34 @@ func TestStaticExecutionRouterDefaultsBlankRouteToLocal(t *testing.T) {
 
 	if ingress.submissions[0].TargetCellID() != dal.DefaultCellID {
 		t.Fatalf("target cell: got %q, want %q", ingress.submissions[0].TargetCellID(), dal.DefaultCellID)
+	}
+}
+
+func TestNewExecutionRouterEndpointOverridesLocalQueue(t *testing.T) {
+	queue := mocks.NewMockQueueService()
+	var received bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received = true
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	router := NewExecutionRouter("iad-a", queue, map[string]string{"iad-a": server.URL}, nil)
+	submission, err := NewExecutionSubmission(validJobRequestForCell(t, "iad-a"))
+	if err != nil {
+		t.Fatalf("NewExecutionSubmission: %v", err)
+	}
+
+	if err := router.SubmitExecution(context.Background(), submission); err != nil {
+		t.Fatalf("SubmitExecution: %v", err)
+	}
+
+	if !received {
+		t.Fatal("expected local execution to be submitted to configured HTTP ingress")
+	}
+
+	if got := len(queue.GetJobRequests()); got != 0 {
+		t.Fatalf("local queue should be bypassed when local ingress endpoint is configured, got %d requests", got)
 	}
 }
 

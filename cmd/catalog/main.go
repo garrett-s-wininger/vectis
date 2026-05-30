@@ -44,7 +44,7 @@ func runCatalog(cmd *cobra.Command, args []string) {
 	}
 	defer cli.DeferShutdown(logger, "Metrics", shutdownMetrics)()
 
-	db, _, err := database.OpenReadyDB(logger)
+	db, _, err := database.OpenReadyDBForRole(logger, database.RoleGlobal)
 	if err != nil {
 		logger.Fatal("Failed to initialize database: %v", err)
 	}

@@ -22,7 +22,7 @@ For service-scoped variables, take the service prefix, append the setting path w
 VECTIS_WORKER_DISCOVERY_REGISTRY_ADDRESS=localhost:8082
 ```
 
-Some settings are global and intentionally do not use a service prefix, such as `VECTIS_CELL_ID`, `VECTIS_DATABASE_*`, `VECTIS_GRPC_TLS_*`, `VECTIS_METRICS_TLS_*`, and `VECTIS_API_AUTH_*`.
+Some settings are global and intentionally do not use a service prefix, such as `VECTIS_CELL_ID`, `VECTIS_DATABASE_*`, `VECTIS_GLOBAL_DATABASE_DSN`, `VECTIS_CELL_DATABASE_DSN`, `VECTIS_GRPC_TLS_*`, `VECTIS_METRICS_TLS_*`, and `VECTIS_API_AUTH_*`.
 
 ## Common Settings {#common-operator-settings}
 
@@ -36,7 +36,7 @@ Some settings are global and intentionally do not use a service prefix, such as 
 | Route API dispatch to a remote cell | `vectis-api --cell-ingress-endpoint iad-a=http://iad.example:8085` |
 | Enable API authentication | `VECTIS_API_AUTH_ENABLED=true` and, for a new database, `VECTIS_API_AUTH_BOOTSTRAP_TOKEN` |
 | Select authorization engine | `VECTIS_API_AUTHZ_ENGINE=hierarchical_rbac` or `authenticated_full` |
-| Set PostgreSQL | `VECTIS_DATABASE_DRIVER=pgx` and `VECTIS_DATABASE_DSN=postgres://...` on every DB-using service |
+| Set PostgreSQL | `VECTIS_DATABASE_DRIVER=pgx` and `VECTIS_DATABASE_DSN=postgres://...`, or role-specific `VECTIS_GLOBAL_DATABASE_DSN` / `VECTIS_CELL_DATABASE_DSN` |
 | Tune PostgreSQL pool | `VECTIS_DATABASE_PGX_*` |
 | Use structured service logs | `VECTIS_LOG_FORMAT=json` |
 | Mirror service logs to files | `VECTIS_LOG_DIR=/path/to/dir` |
@@ -102,14 +102,16 @@ When the API runs behind a trusted reverse proxy, configure client IP forwarding
 
 ## Database
 
-Database settings are global. Every process that talks to SQL must use the same database driver and DSN.
+Database driver settings are global. DSNs can be shared for single-node deployments or split by global and cell roles.
 
 | Variable | Purpose |
 | --- | --- |
 | `VECTIS_DATABASE_DRIVER` | `sqlite3` for local/single-node use, or `pgx` for PostgreSQL. |
-| `VECTIS_DATABASE_DSN` | SQLite file path or PostgreSQL URL. If unset, SQLite defaults under the Vectis data directory. |
+| `VECTIS_DATABASE_DSN` | Shared SQLite file path or PostgreSQL URL. If unset, SQLite defaults under the Vectis data directory. |
+| `VECTIS_GLOBAL_DATABASE_DSN` | Overrides the shared DSN for global services: API, cron, reconciler, and catalog. |
+| `VECTIS_CELL_DATABASE_DSN` | Overrides the shared DSN for cell-local services: cell ingress and workers. |
 
-Applies to `vectis-api`, `vectis-cell-ingress`, `vectis-queue`, `vectis-worker`, `vectis-cron`, `vectis-reconciler`, `vectis-catalog`, and `vectis-cli database migrate`.
+`vectis-local` uses split SQLite files by default when no database DSN is set: one global DB and one DB for the local execution cell. Standalone services keep using `VECTIS_DATABASE_DSN` unless the matching role-specific DSN is set.
 
 Runtime services wait for the expected schema; they do not apply migrations. Run migrations with:
 
@@ -178,7 +180,7 @@ Vectis can either discover services through `vectis-registry` or use fixed addre
 
 Role-specific settings override shared discovery settings when both are set.
 
-Global API dispatch can route non-local execution cells to their private ingress endpoints with repeated `--cell-ingress-endpoint cell_id=url` flags or `VECTIS_API_SERVER_CELL_INGRESS_ENDPOINTS=iad-a=http://iad.example:8085,pdx-b=http://pdx.example:8085`. The API always keeps the local cell routed to the local queue; remote entries are only used when a run targets a different cell.
+Global producers can route execution cells to private ingress endpoints with repeated `vectis-api --cell-ingress-endpoint cell_id=url`, `VECTIS_API_SERVER_CELL_INGRESS_ENDPOINTS=iad-a=http://iad.example:8085,pdx-b=http://pdx.example:8085`, or shared `VECTIS_CELL_INGRESS_ENDPOINTS`. When the local cell has an ingress endpoint configured, producers send local executions through ingress instead of writing directly to the local queue. If `VECTIS_GLOBAL_DATABASE_DSN` and `VECTIS_CELL_DATABASE_DSN` point at different databases, configure an ingress endpoint for every execution target, including the local cell; direct local queue fallback is disabled.
 
 | What you are configuring | Shared setting segment | Role-specific examples |
 | --- | --- | --- |

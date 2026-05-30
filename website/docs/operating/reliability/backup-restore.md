@@ -10,7 +10,7 @@ Back up the SQL database first and most carefully. It is the source of truth for
 
 | State | Why it matters | Typical location |
 | --- | --- | --- |
-| SQL database | Source of truth for jobs, job definitions, runs, schedules, auth, RBAC, audit, idempotency, dispatch events, and setup state | SQLite file from `VECTIS_DATABASE_DSN`, or the configured Postgres database |
+| SQL database | Source of truth for jobs, job definitions, runs, schedules, auth, RBAC, audit, idempotency, dispatch events, and setup state | SQLite file from `VECTIS_DATABASE_DSN`, role files from `VECTIS_GLOBAL_DATABASE_DSN` / `VECTIS_CELL_DATABASE_DSN`, or the configured Postgres database |
 | Queue persistence | Pending, in-flight, and DLQ delivery state when queue persistence is enabled | `VECTIS_QUEUE_PERSISTENCE_DIR` or `vectis-queue --persistence-dir` |
 | Log storage | Durable run logs served by `vectis-log` | `VECTIS_LOG_STORAGE_DIR` or `vectis-log --storage-dir` |
 | Log-forwarder spool | Worker-side batches not yet delivered to log service | Configured log-forwarder spool directory |
@@ -42,7 +42,7 @@ Restore in dependency order, then start services in dependency order.
 1. Stop API, cron, reconciler, catalog, workers, queue, log, and log-forwarder processes so no restored state is modified while files are being replaced.
 2. Restore deployment config, secrets, and TLS material to the same paths or update environment variables before starting services.
 3. Restore the SQL database.
-4. Run `vectis-cli database migrate` with the same `VECTIS_DATABASE_DRIVER` and `VECTIS_DATABASE_DSN` that services will use.
+4. Run `vectis-cli database migrate` for each restored SQL database using the same `VECTIS_DATABASE_DRIVER` and DSN settings that services will use.
 5. Restore queue persistence and log storage when available.
 6. Restore log-forwarder spools on worker hosts if they are part of the backup set.
 7. Start registry, queue, and log first; then API; then workers, cron, reconciler, and catalog.
@@ -83,10 +83,10 @@ Check these before bringing the restored deployment back online:
 Use this for `vectis-local`, local development, single-node SQLite deployments, and test environments that rely on local files.
 
 1. Stop `vectis-local` or every standalone `vectis-*` process.
-2. Copy the SQLite database file from backup to the configured `VECTIS_DATABASE_DSN` path.
+2. Copy the SQLite database file or files from backup to the configured `VECTIS_DATABASE_DSN` path, or to the role-specific `VECTIS_GLOBAL_DATABASE_DSN` and `VECTIS_CELL_DATABASE_DSN` paths when split.
 3. Restore `$XDG_DATA_HOME/vectis/queue`, `$XDG_DATA_HOME/vectis/jobs`, and `$XDG_DATA_HOME/vectis/local-tls` when they are part of the backup.
 4. Restore CLI token and local deploy secrets only when you intentionally want the same local identity state.
-5. Run `vectis-cli database migrate` with the restored database settings.
+5. Run `vectis-cli database migrate` with the restored database settings, once per restored SQL database.
 6. Start `vectis-local` or the standalone services.
 7. Run the restore smoke test.
 
@@ -100,7 +100,7 @@ Use this for the reference Podman deployment and any production-like deployment 
 2. Restore Postgres from the database backup using the database platform's restore process.
 3. Restore or recreate the Podman deploy secrets and TLS volumes. If secrets are recreated instead of restored, update all generated DSNs and client credentials consistently.
 4. Restore queue persistence, log storage, and log-forwarder spools from matching backups when available.
-5. Run `vectis-cli database migrate` against the restored Postgres DSN from the same host/network path used for deployment migrations.
+5. Run `vectis-cli database migrate` against each restored Postgres DSN from the same host/network path used for deployment migrations.
 6. Start registry, queue, log, API, workers, cron, reconciler, and catalog in dependency order.
 7. Run the restore smoke test and confirm dashboards/alerts are receiving fresh data.
 

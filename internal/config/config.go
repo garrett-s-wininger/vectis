@@ -950,12 +950,23 @@ func APILogAddress() string {
 	)
 }
 
-func APICellIngressEndpointSpecs() []string {
+func CellIngressEndpointSpecs() []string {
 	d := MustDefaults()
 	return coalesceStringSlices(
 		stringSliceFromViper("cell_ingress_endpoints"),
-		stringSliceFromViper("api.cell_ingress.endpoints"),
+		stringSliceFromViper("cell_ingress.endpoints"),
 		d.API.CellIngressEndpoints,
+	)
+}
+
+func CellIngressEndpoints() (map[string]string, error) {
+	return ParseCellIngressEndpoints(CellIngressEndpointSpecs())
+}
+
+func APICellIngressEndpointSpecs() []string {
+	return coalesceStringSlices(
+		stringSliceFromViper("api.cell_ingress.endpoints"),
+		CellIngressEndpointSpecs(),
 	)
 }
 

@@ -61,7 +61,7 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 
 	config.StartGRPCTLSReloadLoop(cmd.Context())
 
-	db, _, err := database.OpenReadyDB(logger)
+	db, _, err := database.OpenReadyDBForRole(logger, database.RoleGlobal)
 	if err != nil {
 		logger.Error("Failed to initialize database: %v", err)
 		exitCode = 1
@@ -222,7 +222,7 @@ func init() {
 	_ = viper.BindPFlag("host", rootCmd.PersistentFlags().Lookup("host"))
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
 	_ = viper.BindPFlag("cell_ingress_endpoints", rootCmd.PersistentFlags().Lookup("cell-ingress-endpoint"))
-	_ = viper.BindEnv("cell_ingress_endpoints", "VECTIS_API_SERVER_CELL_INGRESS_ENDPOINTS")
+	_ = viper.BindEnv("cell_ingress_endpoints", "VECTIS_API_SERVER_CELL_INGRESS_ENDPOINTS", "VECTIS_CELL_INGRESS_ENDPOINTS")
 	viper.SetEnvPrefix("VECTIS_API_SERVER")
 	viper.AutomaticEnv()
 }

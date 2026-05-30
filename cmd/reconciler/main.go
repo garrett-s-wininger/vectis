@@ -54,7 +54,7 @@ func runReconciler(cmd *cobra.Command, args []string) {
 
 	defer cli.DeferShutdown(logger, "Metrics", shutdownMetrics)()
 
-	db, _, err := database.OpenReadyDB(logger)
+	db, _, err := database.OpenReadyDBForRole(logger, database.RoleGlobal)
 	if err != nil {
 		logger.Fatal("Failed to initialize database: %v", err)
 	}
@@ -129,6 +129,7 @@ func init() {
 	rootCmd.PersistentFlags().Int("metrics-port", config.ReconcilerMetricsPort(), "HTTP port for Prometheus /metrics")
 	_ = viper.BindPFlag("interval", rootCmd.PersistentFlags().Lookup("interval"))
 	_ = viper.BindPFlag("metrics_port", rootCmd.PersistentFlags().Lookup("metrics-port"))
+	_ = viper.BindEnv("cell_ingress_endpoints", "VECTIS_RECONCILER_CELL_INGRESS_ENDPOINTS", "VECTIS_CELL_INGRESS_ENDPOINTS")
 	viper.SetDefault("metrics_port", config.ReconcilerMetricsPort())
 	viper.SetEnvPrefix("VECTIS_RECONCILER")
 	viper.AutomaticEnv()

@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -176,12 +178,69 @@ func cellIngressEnv() []string {
 	return []string{"VECTIS_CELL_INGRESS_HOST=" + localHost()}
 }
 
+func localCellIngressEndpointEnv() []string {
+	host := localConnectHost()
+	spec := fmt.Sprintf("%s=%s", config.CellID(), "http://"+net.JoinHostPort(host, fmt.Sprintf("%d", config.CellIngressEffectiveListenPort())))
+	env := make([]string, 0, 2)
+	if strings.TrimSpace(os.Getenv("VECTIS_CELL_INGRESS_ENDPOINTS")) == "" {
+		env = append(env, "VECTIS_CELL_INGRESS_ENDPOINTS="+spec)
+	}
+
+	if strings.TrimSpace(os.Getenv("VECTIS_API_SERVER_CELL_INGRESS_ENDPOINTS")) == "" {
+		env = append(env, "VECTIS_API_SERVER_CELL_INGRESS_ENDPOINTS="+spec)
+	}
+
+	return env
+}
+
+func localDatabaseEnv() (globalDSN, cellDSN string, env []string) {
+	globalDSN, cellDSN = localDatabaseDSNs()
+	return globalDSN, cellDSN, []string{
+		database.EnvGlobalDatabaseDSN + "=" + globalDSN,
+		database.EnvCellDatabaseDSN + "=" + cellDSN,
+	}
+}
+
+func localDatabaseDSNs() (globalDSN, cellDSN string) {
+	if database.EffectiveDBDriver() == "sqlite3" &&
+		strings.TrimSpace(os.Getenv(database.EnvDatabaseDSN)) == "" &&
+		strings.TrimSpace(os.Getenv(database.EnvGlobalDatabaseDSN)) == "" &&
+		strings.TrimSpace(os.Getenv(database.EnvCellDatabaseDSN)) == "" {
+		dataHome := utils.DataHome()
+		cellID := safePathPart(config.CellID())
+		return filepath.Join(dataHome, "vectis", "global", "db.sqlite3"),
+			filepath.Join(dataHome, "vectis", "cells", cellID, "db.sqlite3")
+	}
+
+	return database.GetDBPathForRole(database.RoleGlobal), database.GetDBPathForRole(database.RoleCell)
+}
+
 func localHost() string {
 	if host := strings.TrimSpace(viper.GetString("host")); host != "" {
 		return host
 	}
 
 	return "localhost"
+}
+
+func localConnectHost() string {
+	host := localHost()
+	switch host {
+	case "", "0.0.0.0", "::":
+		return "localhost"
+	default:
+		return host
+	}
+}
+
+func safePathPart(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "local"
+	}
+
+	replacer := strings.NewReplacer("/", "_", "\\", "_", ":", "_")
+	return replacer.Replace(s)
 }
 
 func logLevelEnvVar(binaryName, logLevel string) string {
@@ -281,18 +340,35 @@ func runVectis(cmd *cobra.Command, args []string) {
 		logger.Info("Bootstrapped gRPC TLS for local stack (material under %s)", tlsDir)
 	}
 
+	globalDB, cellDB, dbEnv := localDatabaseEnv()
 	if database.EffectiveDBDriver() == "sqlite3" {
-		dbPath := database.GetDBPath()
-		logger.Info("Migrating SQLite database: %s", dbPath)
-		if err := database.Migrate(dbPath); err != nil {
-			logger.Fatal("database migrate failed: %v", err)
+		seen := map[string]bool{}
+		for _, dbPath := range []string{globalDB, cellDB} {
+			if seen[dbPath] {
+				continue
+			}
+
+			seen[dbPath] = true
+
+			logger.Info("Migrating SQLite database: %s", dbPath)
+			if err := database.Migrate(dbPath); err != nil {
+				logger.Fatal("database migrate failed: %v", err)
+			}
 		}
+	}
+
+	if globalDB != cellDB {
+		logger.Info("Using split local databases: global=%s cell=%s", globalDB, cellDB)
+	} else {
+		logger.Info("Using shared local database: %s", globalDB)
 	}
 
 	services := localServices(logger)
 
+	tlsEnv = append(tlsEnv, dbEnv...)
 	tlsEnv = append(tlsEnv, apiEnv()...)
 	tlsEnv = append(tlsEnv, cellIngressEnv()...)
+	tlsEnv = append(tlsEnv, localCellIngressEndpointEnv()...)
 	tlsEnv = append(tlsEnv, docsEnv()...)
 	logger.Info("API will be available at http://%s:%d", localHost(), config.APIEffectiveListenPort())
 	logger.Info("Cell ingress will be available at http://%s:%d", localHost(), config.CellIngressEffectiveListenPort())

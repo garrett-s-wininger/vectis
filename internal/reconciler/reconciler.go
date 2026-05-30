@@ -30,6 +30,7 @@ type Service struct {
 	dispatch    dal.DispatchEventsRepository
 	logger      interfaces.Logger
 	queueClient interfaces.QueueService
+	ingress     cell.ExecutionIngress
 	clock       interfaces.Clock
 	minGap      time.Duration
 	dbDown      bool
@@ -69,6 +70,10 @@ func (s *Service) SetMinDispatchGap(d time.Duration) {
 	if d > 0 {
 		s.minGap = d
 	}
+}
+
+func (s *Service) SetExecutionIngress(ingress cell.ExecutionIngress) {
+	s.ingress = ingress
 }
 
 func (s *Service) recordDispatchEvent(ctx context.Context, runID, eventType string, message *string) {
@@ -223,7 +228,44 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 	}
 
 	s.recordDispatchEvent(ctx, runID, dal.DispatchEventAttempt, nil)
-	if err := cell.SubmitToLocalQueue(ctx, config.CellID(), s.queueClient, req, s.logger); err != nil {
+	ingress := s.ingress
+	if ingress == nil {
+		endpoints, err := config.CellIngressEndpoints()
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "cell ingress endpoints")
+			msg := err.Error()
+			s.recordDispatchEvent(ctx, runID, dal.DispatchEventFailure, &msg)
+
+			if s.metrics != nil {
+				s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeFailedEnqueue)
+			}
+
+			return fmt.Errorf("cell ingress endpoints: %w", err)
+		}
+
+		queueClient := s.queueClient
+		if database.GlobalAndCellDatabasesAreSplit() {
+			queueClient = nil
+		}
+
+		ingress = cell.NewExecutionRouter(config.CellID(), queueClient, endpoints, s.logger)
+	}
+
+	submission, err := cell.NewExecutionSubmission(req)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "execution submission")
+		msg := err.Error()
+		s.recordDispatchEvent(ctx, runID, dal.DispatchEventFailure, &msg)
+		if s.metrics != nil {
+			s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeFailedEnqueue)
+		}
+
+		return fmt.Errorf("execution submission: %w", err)
+	}
+
+	if err := ingress.SubmitExecution(ctx, submission); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "enqueue")
 		msg := err.Error()

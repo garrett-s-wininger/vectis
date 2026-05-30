@@ -10,7 +10,7 @@ The two most important stores are the database and the queue:
 
 | Store | What it means |
 | --- | --- |
-| SQL database | The durable source of truth for job definitions, runs, schedules, leases, dispatch events, cell catalog events, users, tokens, namespaces, and audit records. |
+| SQL database | The durable source of truth for job definitions, runs, schedules, leases, dispatch events, cell catalog events, users, tokens, namespaces, and audit records. Global services and cell-local execution services can use distinct DSNs. |
 | Queue | The handoff point between producers and workers. It tells workers what to pick up next. |
 
 The database says what should exist and what state it is in. The queue helps move work to workers. When those disagree, the reconciler uses the database to submit missing queued work again.

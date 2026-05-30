@@ -15,6 +15,7 @@ import (
 	"vectis/internal/cell"
 	"vectis/internal/config"
 	"vectis/internal/dal"
+	"vectis/internal/database"
 	"vectis/internal/interfaces"
 	"vectis/internal/queueclient"
 	"vectis/internal/resolver"
@@ -37,6 +38,7 @@ type CronService struct {
 	logger       interfaces.Logger
 	queueClient  interfaces.QueueService
 	queueClose   func()
+	ingress      cell.ExecutionIngress
 	parser       cron.Parser
 	clock        interfaces.Clock
 	retryMetrics backoff.RetryMetrics
@@ -75,6 +77,12 @@ func (s *CronService) SetQueueClient(client interfaces.QueueService) {
 	}
 
 	s.queueClient = client
+}
+
+func (s *CronService) SetExecutionIngress(ingress cell.ExecutionIngress) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ingress = ingress
 }
 
 func (s *CronService) SetClock(clock interfaces.Clock) {
@@ -211,6 +219,7 @@ func (s *CronService) TriggerJob(ctx context.Context, jobID string) error {
 	job.RunId = &runID
 	s.mu.Lock()
 	qc := s.queueClient
+	ingress := s.ingress
 	s.mu.Unlock()
 	req := &api.JobRequest{Job: job}
 	if _, err := cell.AttachPendingExecutionEnvelope(ctx, s.runs, req, runID, s.clock.Now().UnixNano()); err != nil {
@@ -218,7 +227,29 @@ func (s *CronService) TriggerJob(ctx context.Context, jobID string) error {
 	}
 
 	s.recordDispatchEvent(ctx, runID, dal.DispatchEventAttempt, nil)
-	if err := cell.SubmitToLocalQueue(ctx, config.CellID(), qc, req, s.logger); err != nil {
+	if ingress == nil {
+		endpoints, err := config.CellIngressEndpoints()
+		if err != nil {
+			msg := err.Error()
+			s.recordDispatchEvent(ctx, runID, dal.DispatchEventFailure, &msg)
+			return err
+		}
+
+		if database.GlobalAndCellDatabasesAreSplit() {
+			qc = nil
+		}
+
+		ingress = cell.NewExecutionRouter(config.CellID(), qc, endpoints, s.logger)
+	}
+
+	submission, err := cell.NewExecutionSubmission(req)
+	if err != nil {
+		msg := err.Error()
+		s.recordDispatchEvent(ctx, runID, dal.DispatchEventFailure, &msg)
+		return err
+	}
+
+	if err := ingress.SubmitExecution(ctx, submission); err != nil {
 		msg := err.Error()
 		s.recordDispatchEvent(ctx, runID, dal.DispatchEventFailure, &msg)
 		return err

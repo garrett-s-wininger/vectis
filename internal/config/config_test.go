@@ -214,6 +214,21 @@ func TestAPICellIngressEndpoints_DefaultAndOverride(t *testing.T) {
 	}
 }
 
+func TestCellIngressEndpoints_GenericConfig(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	viper.Set("cell_ingress_endpoints", "local=http://localhost:8085")
+	got, err := CellIngressEndpoints()
+	if err != nil {
+		t.Fatalf("CellIngressEndpoints: %v", err)
+	}
+
+	if got["local"] != "http://localhost:8085" {
+		t.Fatalf("local endpoint: got %q", got["local"])
+	}
+}
+
 func TestParseCellIngressEndpointsRejectsInvalidSpec(t *testing.T) {
 	if _, err := ParseCellIngressEndpoints([]string{"iad-a"}); err == nil {
 		t.Fatal("ParseCellIngressEndpoints succeeded, want error")

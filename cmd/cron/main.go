@@ -28,7 +28,7 @@ func runVectisCron(cmd *cobra.Command, args []string) {
 	}
 	config.StartGRPCTLSReloadLoop(cmd.Context())
 
-	db, _, err := database.OpenReadyDB(logger)
+	db, _, err := database.OpenReadyDBForRole(logger, database.RoleGlobal)
 	if err != nil {
 		logger.Fatal("Failed to initialize database: %v", err)
 	}
@@ -61,6 +61,7 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	cli.ConfigureVersion(rootCmd)
+	_ = viper.BindEnv("cell_ingress_endpoints", "VECTIS_CRON_CELL_INGRESS_ENDPOINTS", "VECTIS_CELL_INGRESS_ENDPOINTS")
 	viper.SetEnvPrefix("VECTIS_CRON")
 	viper.AutomaticEnv()
 }

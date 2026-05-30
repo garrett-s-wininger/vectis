@@ -82,7 +82,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 	workerID := uuid.New().String()
 	logger.Info("Worker ID: %s", workerID)
 
-	db, _, err := database.OpenReadyDB(logger)
+	db, _, err := database.OpenReadyDBForRole(logger, database.RoleCell)
 	if err != nil {
 		logger.Fatal("Failed to initialize database: %v", err)
 	}
