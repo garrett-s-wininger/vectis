@@ -107,6 +107,14 @@ Scrape API and reconciler metrics to see dispatch health across cells:
 
 Use `source="api"` failures to find initial dispatch problems. Use `source="reconciler"` failures to find automatic repair attempts that still cannot reach a cell. A later `source="reconciler", event_type="success"` for the same target cell means the repair loop is catching up.
 
+The global API also exposes configured ingress readiness:
+
+```sh
+curl -sS http://localhost:8080/api/v1/cells/status
+```
+
+This reports cell IDs and readiness state for configured ingress routes without returning the private ingress URLs. `vectis-cli doctor` uses the same endpoint for the `cells.ingress` check.
+
 ## Running Locally
 
 `vectis-local` can start additional local cells with repeated `--cell` flags:

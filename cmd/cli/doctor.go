@@ -83,6 +83,7 @@ func doctor(w io.Writer) error {
 		doctorDBPool(),
 		doctorQueueBacklog(),
 		doctorStuckRuns(),
+		doctorCellIngressRoutes(),
 		doctorCatalogInbox(),
 		doctorLogReachable(),
 		doctorAuditFlushFailures(),
@@ -159,6 +160,9 @@ var doctorTextGroups = []doctorTextGroup{
 	{Name: "Reconciler", Items: []doctorTextItem{
 		{ID: "reconciler.active", Label: "Recovery activity"},
 		{ID: "reconciler.stuck.runs", Label: "Stuck runs"},
+	}},
+	{Name: "Cells", Items: []doctorTextItem{
+		{ID: "cells.ingress", Label: "Ingress routes"},
 	}},
 	{Name: "Catalog", Items: []doctorTextItem{
 		{ID: "catalog.inbox", Label: "Cell event inbox"},
@@ -600,6 +604,71 @@ func formatDoctorStuckRunsEvidence(stuck int64, cells []doctorStuckRunCell) stri
 	}
 
 	return fmt.Sprintf("stuck=%d cells=%s", stuck, strings.Join(parts, ","))
+}
+
+func doctorCellIngressRoutes() doctorCheck {
+	const id = "cells.ingress"
+	title := "Cell ingress routes reachable"
+	req, err := newAPIRequest(http.MethodGet, "/api/v1/cells/status", nil)
+	if err != nil {
+		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: err.Error(), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	}
+
+	var result struct {
+		Cells []doctorCellIngressStatus `json:"cells"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	}
+
+	if len(result.Cells) == 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no cell ingress routes configured", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	}
+
+	unhealthy := 0
+	for _, cell := range result.Cells {
+		if cell.Status != "ready" || !cell.IngressReachable {
+			unhealthy++
+		}
+	}
+
+	evidence := formatDoctorCellIngressEvidence(result.Cells)
+	if unhealthy > 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d cell ingress routes unhealthy", unhealthy), Evidence: evidence, SuggestedAction: "Check cell ingress processes, route map, and network path", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	}
+
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("%d cell ingress routes ready", len(result.Cells)), Evidence: evidence, DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+}
+
+type doctorCellIngressStatus struct {
+	CellID           string `json:"cell_id"`
+	IngressReachable bool   `json:"ingress_reachable"`
+	Status           string `json:"status"`
+}
+
+func formatDoctorCellIngressEvidence(cells []doctorCellIngressStatus) string {
+	parts := make([]string, 0, len(cells))
+	for _, cell := range cells {
+		status := strings.TrimSpace(cell.Status)
+		if status == "" {
+			status = "unknown"
+		}
+
+		parts = append(parts, fmt.Sprintf("%s:%s", cell.CellID, status))
+	}
+
+	return strings.Join(parts, ",")
 }
 
 func doctorCatalogInbox() doctorCheck {

@@ -23,6 +23,7 @@ import (
 	"vectis/internal/testutil/dbtest"
 
 	"github.com/google/uuid"
+	"github.com/spf13/viper"
 )
 
 func setupTestServer(t *testing.T) (*api.APIServer, *mocks.MockLogger, *mocks.MockQueueService, *sql.DB) {
@@ -298,6 +299,72 @@ func TestAPIServer_GetQueueBacklogIncludesCellBreakdown(t *testing.T) {
 
 	if body.Cells[1].CellID != "pdx-b" || body.Cells[1].Queued != 1 {
 		t.Fatalf("second cell: got %+v", body.Cells[1])
+	}
+}
+
+func TestAPIServer_GetCellsStatusChecksConfiguredIngress(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	ready := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/health/ready" {
+			t.Errorf("ready server path: got %s, want /health/ready", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ready.Close()
+
+	unhealthy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/health/ready" {
+			t.Errorf("unhealthy server path: got %s, want /health/ready", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer unhealthy.Close()
+
+	viper.Set("cell_ingress_endpoints", []string{
+		"pdx-b=" + unhealthy.URL,
+		"iad-a=" + ready.URL,
+	})
+
+	server := api.NewAPIServerWithRepositories(mocks.NewMockLogger(), mocks.NewMockJobsRepository(), mocks.NewMockRunsRepository(), mocks.StubEphemeralRunStarter{})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cells/status", nil)
+	rec := httptest.NewRecorder()
+	server.GetCellsStatus(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var body struct {
+		Cells []struct {
+			CellID            string `json:"cell_id"`
+			IngressConfigured bool   `json:"ingress_configured"`
+			IngressReachable  bool   `json:"ingress_reachable"`
+			Status            string `json:"status"`
+			HTTPStatus        int    `json:"http_status"`
+			Error             string `json:"error"`
+		} `json:"cells"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v; body=%s", err, rec.Body.String())
+	}
+
+	if len(body.Cells) != 2 {
+		t.Fatalf("cells len: got %d, want 2 (%+v)", len(body.Cells), body.Cells)
+	}
+
+	if body.Cells[0].CellID != "iad-a" || !body.Cells[0].IngressConfigured || !body.Cells[0].IngressReachable || body.Cells[0].Status != "ready" || body.Cells[0].HTTPStatus != http.StatusOK {
+		t.Fatalf("ready cell: got %+v", body.Cells[0])
+	}
+
+	if body.Cells[1].CellID != "pdx-b" || !body.Cells[1].IngressConfigured || body.Cells[1].IngressReachable || body.Cells[1].Status != "unhealthy" || body.Cells[1].HTTPStatus != http.StatusServiceUnavailable {
+		t.Fatalf("unhealthy cell: got %+v", body.Cells[1])
 	}
 }
 

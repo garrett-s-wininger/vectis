@@ -29,7 +29,7 @@ func (s *APIServer) Handler() http.Handler {
 
 func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 	defaultLimits := ratelimit.DefaultCategory()
-	specs := make([]routeSpec, 0, 47)
+	specs := make([]routeSpec, 0, 48)
 
 	if includeMetrics && s.MetricsHandler != nil {
 		specs = append(specs, routeSpec{
@@ -53,6 +53,7 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 		routeSpec{Pattern: "GET /api/v1/audit/flush-failures", Handler: http.HandlerFunc(s.GetAuditFlushFailures), Auth: routeAuthPolicy{Public: true}},
 		routeSpec{Pattern: "GET /api/v1/cron/status", Handler: http.HandlerFunc(s.GetCronStatus), Auth: routeAuthPolicy{Public: true}},
 		routeSpec{Pattern: "GET /api/v1/catalog/status", Handler: http.HandlerFunc(s.GetCatalogStatus), Auth: routeAuthPolicy{Public: true}},
+		routeSpec{Pattern: "GET /api/v1/cells/status", Handler: http.HandlerFunc(s.GetCellsStatus), Auth: routeAuthPolicy{Public: true}},
 		routeSpec{Pattern: "POST /api/v1/cells/{cell_id}/catalog-events", Handler: http.HandlerFunc(s.PostCellCatalogEvent), Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "GET /api/v1/jobs", Handler: http.HandlerFunc(s.GetJobs), Auth: routeAuthPolicy{Action: authz.ActionJobRead}, RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "GET /api/v1/jobs/{id}", Handler: http.HandlerFunc(s.GetJob), Auth: routeAuthPolicy{Action: authz.ActionJobRead}, RateLimit: defaultLimits.General},

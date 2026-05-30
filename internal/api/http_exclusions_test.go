@@ -33,6 +33,13 @@ func TestAPIHTTPExcludedFromAuxLogging_catalogStatus(t *testing.T) {
 	}
 }
 
+func TestAPIHTTPExcludedFromAuxLogging_cellsStatus(t *testing.T) {
+	req, _ := http.NewRequest(http.MethodGet, "/api/v1/cells/status", nil)
+	if !apiHTTPExcludedFromAuxLogging(req) {
+		t.Fatal("expected cells status to be excluded")
+	}
+}
+
 func TestAPIHTTPExcludedFromAuxLogging_otherPaths(t *testing.T) {
 	paths := []string{"/api/v1/jobs", "/api/v1/tokens", "/", "/health"}
 	for _, p := range paths {
