@@ -6,8 +6,8 @@ import { FormError } from "../components";
 import { PageHeader } from "../components";
 import { RunList, type RunListItem } from "../components";
 import { SelectField } from "../components";
+import { TextAreaField } from "../components";
 import type { RunStatus } from "../components";
-import fieldStyles from "../components/primitives/Field.module.css";
 import { ResourceTitle } from "./shared";
 
 type RunFilter = RunStatus | "all";
@@ -121,16 +121,15 @@ export function RunsPage({ namespacePath, onSelectRun, onSubmitEphemeralRun, run
             <ResourceTitle id="run-once-title" subtitle={`Namespace ${namespacePath}`} title="Run once" />
           </div>
           <form className="run-once-form" onSubmit={submitRunOnce}>
-            <label className={`${fieldStyles.root} ${fieldStyles.wide}`}>
-              <span>Job definition JSON</span>
-              <textarea
-                name="definition"
-                onChange={(event) => setDefinition(event.target.value)}
-                required
-                rows={10}
-                value={definition}
-              />
-            </label>
+            <TextAreaField
+              label="Job definition JSON"
+              name="definition"
+              onChange={(event) => setDefinition(event.target.value)}
+              required
+              rows={10}
+              value={definition}
+              wide
+            />
             <FormError message={definitionError} />
             <div className="run-once-form__actions">
               <Button type="submit">Submit run</Button>

@@ -7,7 +7,7 @@ import { FormField } from "../components";
 import { PageHeader } from "../components";
 import { SelectField } from "../components";
 import { StatusBadge } from "../components";
-import fieldStyles from "../components/primitives/Field.module.css";
+import { TextAreaField } from "../components";
 import type { Job, JobStatus, NewJob, UpdateJob } from "../domain/console";
 import { ResourceStatus, ResourceTitle, TableActions } from "./shared";
 
@@ -229,16 +229,15 @@ export function JobsPage({ jobs, namespacePath, onCreateJob, onDeleteJob, onTrig
                 value={values.status}
               />
             </div>
-            <label className={`${fieldStyles.root} ${fieldStyles.wide}`}>
-              <span>Definition JSON</span>
-              <textarea
-                name="jobDefinition"
-                onChange={(event) => setValues({ ...values, definition: event.target.value })}
-                required
-                rows={10}
-                value={values.definition}
-              />
-            </label>
+            <TextAreaField
+              label="Definition JSON"
+              name="jobDefinition"
+              onChange={(event) => setValues({ ...values, definition: event.target.value })}
+              required
+              rows={10}
+              value={values.definition}
+              wide
+            />
             <FormError message={formError} />
             <div className="resource-editor-form__actions">
               <Button type="submit">{editorMode.kind === "create" ? "Create job" : "Save job"}</Button>
