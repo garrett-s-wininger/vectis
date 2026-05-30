@@ -124,6 +124,148 @@ func TestIntegrationMultiCell_RoutedExecutionCatalogFanInAndBackfill(t *testing.
 	assertGlobalAPIRunStatus(t, api, jobID, runID, cellID, dal.RunStatusSucceeded)
 }
 
+func TestIntegrationMultiCell_FanOutRunsAcrossCellsAndFanInIsIdempotent(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+
+	ctx := context.Background()
+	logger := mocks.NewMockLogger()
+	jobID := "integration-multicell-fanout"
+	definition := `{"id":"integration-multicell-fanout","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo fanout"}}}`
+
+	globalDB := dbtest.NewTestDB(t)
+	globalRepos := dal.NewSQLRepositoriesWithCellID(globalDB, dal.DefaultCellID)
+	if err := globalRepos.Jobs().Create(ctx, jobID, definition, 1); err != nil {
+		t.Fatalf("create global job: %v", err)
+	}
+
+	logStore, err := logserver.NewLocalRunLogStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("create log store: %v", err)
+	}
+
+	_, logClient := grpcservices.StartLogServer(t, logger, logStore)
+	cells := []*integrationCell{
+		startIntegrationCell(t, "iad-a", logger, logClient),
+		startIntegrationCell(t, "pdx-b", logger, logClient),
+	}
+
+	routes := make(map[string]cell.ExecutionIngress, len(cells))
+	for _, c := range cells {
+		routes[c.id] = c.ingress
+	}
+
+	api := apiserver.NewAPIServer(logger, globalDB)
+	api.SetExecutionIngress(cell.NewStaticExecutionRouter(routes))
+
+	triggered := triggerJobInCells(t, api, jobID, "iad-a", "pdx-b")
+	if len(triggered) != len(cells) {
+		t.Fatalf("triggered runs: got %d, want %d", len(triggered), len(cells))
+	}
+
+	runByCell := map[string]string{}
+	for _, run := range triggered {
+		runByCell[run.CellID] = run.RunID
+	}
+
+	for _, c := range cells {
+		runID := runByCell[c.id]
+		if runID == "" {
+			t.Fatalf("trigger response did not include cell %q: %+v", c.id, triggered)
+		}
+
+		if err := c.worker.runOne(ctx); err != nil {
+			t.Fatalf("worker run for cell %s: %v", c.id, err)
+		}
+
+		assertCellRunStatus(t, ctx, c.repos, runID, dal.RunStatusSucceeded)
+	}
+
+	fanInResult, processResult := fanInAndProcess(t, ctx, globalRepos, cells)
+	if fanInResult.Sources != len(cells) || fanInResult.Copied == 0 || fanInResult.Read == 0 {
+		t.Fatalf("unexpected fan-in result: %+v", fanInResult)
+	}
+
+	if processResult.Failed != 0 || processResult.Applied == 0 {
+		t.Fatalf("unexpected catalog inbox result: %+v", processResult)
+	}
+
+	wantRuns := map[string]apiRunExpectation{}
+	for _, c := range cells {
+		wantRuns[runByCell[c.id]] = apiRunExpectation{
+			status:     dal.RunStatusSucceeded,
+			owningCell: c.id,
+		}
+	}
+
+	assertGlobalAPIRuns(t, api, jobID, wantRuns)
+
+	secondFanInResult, secondProcessResult := fanInAndProcess(t, ctx, globalRepos, cells)
+	if secondFanInResult.Backfilled != 0 || secondFanInResult.Read != 0 || secondFanInResult.Copied != 0 {
+		t.Fatalf("second fan-in should be idempotent, got %+v", secondFanInResult)
+	}
+
+	if secondProcessResult.Read != 0 || secondProcessResult.Applied != 0 || secondProcessResult.Failed != 0 {
+		t.Fatalf("second inbox process should be idempotent, got %+v", secondProcessResult)
+	}
+}
+
+func TestIntegrationMultiCell_FailedExecutionPropagatesThroughCatalog(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+
+	ctx := context.Background()
+	logger := mocks.NewMockLogger()
+	jobID := "integration-multicell-failure"
+	definition := `{"id":"integration-multicell-failure","root":{"id":"root","uses":"builtins/shell","with":{"command":"exit 42"}}}`
+
+	globalDB := dbtest.NewTestDB(t)
+	globalRepos := dal.NewSQLRepositoriesWithCellID(globalDB, dal.DefaultCellID)
+	if err := globalRepos.Jobs().Create(ctx, jobID, definition, 1); err != nil {
+		t.Fatalf("create global job: %v", err)
+	}
+
+	logStore, err := logserver.NewLocalRunLogStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("create log store: %v", err)
+	}
+
+	_, logClient := grpcservices.StartLogServer(t, logger, logStore)
+	c := startIntegrationCell(t, "ord-c", logger, logClient)
+
+	api := apiserver.NewAPIServer(logger, globalDB)
+	api.SetExecutionIngress(cell.NewStaticExecutionRouter(map[string]cell.ExecutionIngress{
+		c.id: c.ingress,
+	}))
+
+	runID := triggerJobInCell(t, api, jobID, c.id)
+	if err := c.worker.runOne(ctx); err == nil {
+		t.Fatalf("expected worker execution to fail")
+	}
+
+	assertCellRunStatus(t, ctx, c.repos, runID, dal.RunStatusFailed)
+
+	fanInResult, processResult := fanInAndProcess(t, ctx, globalRepos, []*integrationCell{c})
+	if fanInResult.Copied == 0 || fanInResult.Read == 0 {
+		t.Fatalf("unexpected fan-in result: %+v", fanInResult)
+	}
+
+	if processResult.Failed != 0 || processResult.Applied == 0 {
+		t.Fatalf("unexpected catalog inbox result: %+v", processResult)
+	}
+
+	assertGlobalAPIRunStatus(t, api, jobID, runID, c.id, dal.RunStatusFailed)
+}
+
+type integrationCell struct {
+	id      string
+	repos   *dal.SQLRepositories
+	ingress cell.ExecutionIngress
+	worker  *integrationWorker
+}
+
 type integrationWorker struct {
 	runCtx                context.Context
 	workerID              string
@@ -136,10 +278,58 @@ type integrationWorker struct {
 	recordTerminalCatalog bool
 }
 
+type triggeredRun struct {
+	RunID    string `json:"run_id"`
+	RunIndex int    `json:"run_index"`
+	CellID   string `json:"cell_id"`
+}
+
+type apiRunExpectation struct {
+	status     string
+	owningCell string
+}
+
+type apiRunSnapshot struct {
+	RunID      string
+	Status     string
+	OwningCell string
+}
+
+func startIntegrationCell(t *testing.T, cellID string, logger interfaces.Logger, logClient interfaces.LogClient) *integrationCell {
+	t.Helper()
+
+	cellDB := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(cellDB, cellID)
+
+	_, queueClient, queueService := grpcservices.StartQueueServer(t, logger)
+	cellIngress := cellingress.NewQueueServer(cellID, queueService, logger)
+	cellIngress.SetAcceptanceStore(repos.CellExecutionAcceptances())
+	cellIngressHTTP := httptest.NewServer(cellIngress.Handler())
+	t.Cleanup(cellIngressHTTP.Close)
+
+	return &integrationCell{
+		id:      cellID,
+		repos:   repos,
+		ingress: cell.NewHTTPExecutionIngress(cellIngressHTTP.URL, cellIngressHTTP.Client(), logger),
+		worker: &integrationWorker{
+			runCtx:                context.Background(),
+			workerID:              "integration-worker-" + cellID,
+			logger:                logger,
+			queue:                 queueClient,
+			logClient:             logClient,
+			executor:              job.NewExecutor(),
+			store:                 repos.Runs(),
+			catalog:               cell.NewCatalogEventPublisher(cellID, repos.CatalogEvents()),
+			recordTerminalCatalog: true,
+		},
+	}
+}
+
 func (w *integrationWorker) runOne(ctx context.Context) error {
 	dequeueCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	req, err := w.queue.Dequeue(dequeueCtx)
 	cancel()
+
 	if err != nil {
 		return fmt.Errorf("dequeue: %w", err)
 	}
@@ -251,6 +441,35 @@ func triggerJobInCell(t *testing.T, api *apiserver.APIServer, jobID, cellID stri
 	return resp.RunID
 }
 
+func triggerJobInCells(t *testing.T, api *apiserver.APIServer, jobID string, cellIDs ...string) []triggeredRun {
+	t.Helper()
+
+	bodyBytes, err := json.Marshal(map[string][]string{"cell_ids": cellIDs})
+	if err != nil {
+		t.Fatalf("encode trigger request: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", jobID)
+	rec := httptest.NewRecorder()
+
+	api.TriggerJob(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("trigger status: got %d, want %d; body=%s", rec.Code, http.StatusAccepted, rec.Body.String())
+	}
+
+	var resp struct {
+		Runs []triggeredRun `json:"runs"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode trigger response: %v", err)
+	}
+
+	return resp.Runs
+}
+
 func assertCellRunStatus(t *testing.T, ctx context.Context, repos *dal.SQLRepositories, runID, want string) {
 	t.Helper()
 
@@ -287,6 +506,37 @@ func assertSourceMissingTerminalCatalogEvent(t *testing.T, ctx context.Context, 
 func assertGlobalAPIRunStatus(t *testing.T, api *apiserver.APIServer, jobID, runID, cellID, wantStatus string) {
 	t.Helper()
 
+	assertGlobalAPIRuns(t, api, jobID, map[string]apiRunExpectation{
+		runID: {
+			status:     wantStatus,
+			owningCell: cellID,
+		},
+	})
+}
+
+func assertGlobalAPIRuns(t *testing.T, api *apiserver.APIServer, jobID string, want map[string]apiRunExpectation) {
+	t.Helper()
+
+	got := listGlobalAPIRuns(t, api, jobID)
+	for runID, expectation := range want {
+		run, ok := got[runID]
+		if !ok {
+			t.Fatalf("global API response did not include run %s: %+v", runID, got)
+		}
+
+		if run.Status != expectation.status {
+			t.Fatalf("global API run %s status: got %q, want %q", runID, run.Status, expectation.status)
+		}
+
+		if run.OwningCell != expectation.owningCell {
+			t.Fatalf("global API run %s owning cell: got %q, want %q", runID, run.OwningCell, expectation.owningCell)
+		}
+	}
+}
+
+func listGlobalAPIRuns(t *testing.T, api *apiserver.APIServer, jobID string) map[string]apiRunSnapshot {
+	t.Helper()
+
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/"+jobID+"/runs", nil)
 	req.SetPathValue("id", jobID)
 	rec := httptest.NewRecorder()
@@ -308,21 +558,45 @@ func assertGlobalAPIRunStatus(t *testing.T, api *apiserver.APIServer, jobID, run
 		t.Fatalf("decode runs response: %v", err)
 	}
 
+	out := make(map[string]apiRunSnapshot, len(resp.Data))
 	for _, run := range resp.Data {
-		if run.RunID != runID {
-			continue
+		out[run.RunID] = apiRunSnapshot{
+			RunID:      run.RunID,
+			Status:     run.Status,
+			OwningCell: run.OwningCell,
 		}
-
-		if run.Status != wantStatus {
-			t.Fatalf("global API run status: got %q, want %q", run.Status, wantStatus)
-		}
-
-		if run.OwningCell != cellID {
-			t.Fatalf("global API owning cell: got %q, want %q", run.OwningCell, cellID)
-		}
-
-		return
 	}
 
-	t.Fatalf("global API response did not include run %s: %+v", runID, resp.Data)
+	return out
+}
+
+func fanInAndProcess(t *testing.T, ctx context.Context, globalRepos *dal.SQLRepositories, cells []*integrationCell) (catalog.FanInResult, cell.CatalogInboxProcessResult) {
+	t.Helper()
+
+	sources := make([]catalog.FanInSource, 0, len(cells))
+	for _, c := range cells {
+		sources = append(sources, catalog.FanInSource{
+			CellID: c.id,
+			Events: c.repos.CatalogEvents(),
+			Backfill: catalog.NewBackfillProcessor(
+				c.id,
+				c.repos.CatalogStatusBackfill(),
+				cell.NewCatalogEventPublisher(c.id, c.repos.CatalogEvents()),
+			),
+		})
+	}
+
+	fanIn := catalog.NewFanInProcessor(globalRepos.CatalogEvents(), sources)
+	fanInResult, err := fanIn.IngestPending(ctx, 100)
+	if err != nil {
+		t.Fatalf("catalog fan-in: %v", err)
+	}
+
+	inbox := cell.NewCatalogInboxProcessor(globalRepos.CatalogEvents(), globalRepos.Runs())
+	processResult, err := inbox.ProcessPending(ctx, 100)
+	if err != nil {
+		t.Fatalf("process global catalog inbox: %v", err)
+	}
+
+	return fanInResult, processResult
 }
