@@ -82,10 +82,7 @@ export function navigateTo(path: string) {
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
-export function safeNextPath(
-  search = window.location.search,
-  origin = window.location.origin
-) {
+export function safeNextPath(search = window.location.search, origin = window.location.origin) {
   const next = new URLSearchParams(search).get("next");
   if (!next) {
     return null;

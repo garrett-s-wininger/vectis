@@ -10,15 +10,8 @@ type AppStateProps = {
   tone?: AppStateTone;
 };
 
-export function AppState({
-  actions,
-  description,
-  title,
-  tone = "neutral"
-}: AppStateProps) {
-  const className = tone === "neutral" || tone === "loading"
-    ? styles.root
-    : `${styles.root} ${styles[tone]}`;
+export function AppState({ actions, description, title, tone = "neutral" }: AppStateProps) {
+  const className = tone === "neutral" || tone === "loading" ? styles.root : `${styles.root} ${styles[tone]}`;
 
   return (
     <section className={className} aria-label={title}>

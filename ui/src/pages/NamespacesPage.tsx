@@ -5,10 +5,7 @@ import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { FormField } from "../components/FormField";
 import { PageHeader } from "../components/PageHeader";
 import { SelectField } from "../components/SelectField";
-import type {
-  MockNamespace,
-  NewMockNamespace
-} from "../mocks/consoleData";
+import type { MockNamespace, NewMockNamespace } from "../mocks/consoleData";
 
 type NamespacesPageProps = {
   canDeleteNamespace: (namespaceID: number) => boolean;
@@ -49,11 +46,7 @@ export function NamespacesPage({
       cell: (namespace) => (
         <div className="resource-title">
           <strong>{namespace.path}</strong>
-          <small>
-            {namespace.path === "/"
-              ? "Root namespace"
-              : `Parent ${parentPathFor(namespaces, namespace)}`}
-          </small>
+          <small>{namespace.path === "/" ? "Root namespace" : `Parent ${parentPathFor(namespaces, namespace)}`}</small>
         </div>
       )
     },
@@ -65,11 +58,7 @@ export function NamespacesPage({
       align: "end",
       header: "Inheritance",
       cell: (namespace) => (
-        <span
-          className={`resource-status resource-status--${
-            namespace.breakInheritance ? "paused" : "enabled"
-          }`}
-        >
+        <span className={`resource-status resource-status--${namespace.breakInheritance ? "paused" : "enabled"}`}>
           {namespace.breakInheritance ? "Stopped" : "Inherited"}
         </span>
       )
@@ -100,9 +89,7 @@ export function NamespacesPage({
         <FormField
           label="Name"
           name="namespaceName"
-          onChange={(event) =>
-            setValues({ ...values, name: event.target.value })
-          }
+          onChange={(event) => setValues({ ...values, name: event.target.value })}
           pattern="[A-Za-z0-9_-]+"
           required
           value={values.name}
@@ -110,9 +97,7 @@ export function NamespacesPage({
         <SelectField
           label="Parent"
           name="parentNamespace"
-          onChange={(event) =>
-            setValues({ ...values, parentID: Number(event.target.value) })
-          }
+          onChange={(event) => setValues({ ...values, parentID: Number(event.target.value) })}
           options={namespaceOptions}
           value={String(values.parentID)}
         />
@@ -129,9 +114,7 @@ export function NamespacesPage({
 }
 
 function parentPathFor(namespaces: MockNamespace[], namespace: MockNamespace) {
-  const parent = namespaces.find(
-    (candidate) => candidate.id === namespace.parentID
-  );
+  const parent = namespaces.find((candidate) => candidate.id === namespace.parentID);
 
   return parent?.path ?? "/";
 }

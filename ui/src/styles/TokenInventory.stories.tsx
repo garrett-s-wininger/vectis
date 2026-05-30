@@ -52,15 +52,7 @@ const radii: Token[] = [
   { name: "radius-pill", value: "var(--radius-pill)" }
 ];
 
-function Section({
-  children,
-  description,
-  title
-}: {
-  children: ReactNode;
-  description: string;
-  title: string;
-}) {
+function Section({ children, description, title }: { children: ReactNode; description: string; title: string }) {
   return (
     <section className={styles.section}>
       <div className={styles.sectionHeader}>

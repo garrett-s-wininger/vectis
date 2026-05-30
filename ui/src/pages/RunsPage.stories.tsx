@@ -31,9 +31,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 function RunsPageMock({ namespacePath = "/" }: { namespacePath?: string }) {
-  const [data, setData] = useState<MockConsoleData>(() =>
-    createMockConsoleDataSnapshot()
-  );
+  const [data, setData] = useState<MockConsoleData>(() => createMockConsoleDataSnapshot());
   const scopedData = scopeMockConsoleData(data, namespacePath);
 
   return (
@@ -97,11 +95,6 @@ export const NamespaceScoped: Story = {
 
 export const Empty: Story = {
   render: () => (
-    <RunsPage
-      namespacePath="/sandbox"
-      onSelectRun={() => undefined}
-      onSubmitEphemeralRun={() => undefined}
-      runs={[]}
-    />
+    <RunsPage namespacePath="/sandbox" onSelectRun={() => undefined} onSubmitEphemeralRun={() => undefined} runs={[]} />
   )
 };

@@ -3,9 +3,7 @@ import { ProgressMeter } from "./ProgressMeter";
 
 describe("ProgressMeter", () => {
   it("renders an accessible progressbar with label, value, and detail", () => {
-    render(
-      <ProgressMeter label="Log filesystem usage" value={68} detail="219 GB free" />
-    );
+    render(<ProgressMeter label="Log filesystem usage" value={68} detail="219 GB free" />);
 
     const meter = screen.getByRole("progressbar", {
       name: "Log filesystem usage"

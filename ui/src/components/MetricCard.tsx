@@ -10,12 +10,7 @@ export type MetricCardProps = {
   tone?: MetricTone;
 };
 
-export function MetricCard({
-  label,
-  value,
-  detail,
-  tone = "neutral"
-}: MetricCardProps) {
+export function MetricCard({ label, value, detail, tone = "neutral" }: MetricCardProps) {
   const className = tone === "neutral" ? styles.root : `${styles.root} ${styles[tone]}`;
 
   return (

@@ -15,10 +15,7 @@ export class VectisAPIError extends Error {
   }
 }
 
-export async function requestJSON<T>(
-  path: string,
-  init: RequestInit = {}
-): Promise<T> {
+export async function requestJSON<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
     ...init,
     credentials: init.credentials ?? "same-origin",
@@ -64,12 +61,8 @@ async function responseError(response: Response) {
   try {
     body = (await response.json()) as APIErrorBody;
   } catch {
-    body = {};
+    // Fall back to the generic API error when the body is empty or invalid JSON.
   }
 
-  return new VectisAPIError(
-    response.status,
-    body.code ?? "request_failed",
-    body.message ?? "Request failed"
-  );
+  return new VectisAPIError(response.status, body.code ?? "request_failed", body.message ?? "Request failed");
 }

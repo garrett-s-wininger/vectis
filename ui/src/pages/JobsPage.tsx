@@ -8,17 +8,9 @@ import { PageHeader } from "../components/PageHeader";
 import { SelectField } from "../components/SelectField";
 import { StatusBadge } from "../components/StatusBadge";
 import fieldStyles from "../components/Field.module.css";
-import type {
-  MockJob,
-  MockJobStatus,
-  NewMockJob,
-  UpdateMockJob
-} from "../mocks/consoleData";
+import type { MockJob, MockJobStatus, NewMockJob, UpdateMockJob } from "../mocks/consoleData";
 
-type JobEditorMode =
-  | { kind: "create" }
-  | { kind: "edit"; jobID: string }
-  | null;
+type JobEditorMode = { kind: "create" } | { kind: "edit"; jobID: string } | null;
 
 type JobFormValues = {
   branch: string;
@@ -74,14 +66,7 @@ const emptyJobForm: JobFormValues = {
   status: "enabled"
 };
 
-export function JobsPage({
-  jobs,
-  namespacePath,
-  onCreateJob,
-  onDeleteJob,
-  onTriggerRun,
-  onUpdateJob
-}: JobsPageProps) {
+export function JobsPage({ jobs, namespacePath, onCreateJob, onDeleteJob, onTriggerRun, onUpdateJob }: JobsPageProps) {
   const [editorMode, setEditorMode] = useState<JobEditorMode>(null);
   const [values, setValues] = useState<JobFormValues>(emptyJobForm);
   const [formError, setFormError] = useState("");
@@ -182,16 +167,10 @@ export function JobsPage({
           >
             Trigger
           </Button>
-          <Button
-            aria-label={`Edit ${job.name}`}
-            onClick={() => startEditJob(job)}
-          >
+          <Button aria-label={`Edit ${job.name}`} onClick={() => startEditJob(job)}>
             Edit
           </Button>
-          <Button
-            aria-label={`Delete ${job.name}`}
-            onClick={() => onDeleteJob(job.id)}
-          >
+          <Button aria-label={`Delete ${job.name}`} onClick={() => onDeleteJob(job.id)}>
             Delete
           </Button>
         </div>
@@ -205,24 +184,16 @@ export function JobsPage({
         description={`Configured job definitions under ${namespacePath}.`}
         eyebrow="Jobs"
         actions={
-          <Button
-            aria-expanded={editorMode?.kind === "create"}
-            onClick={startCreateJob}
-          >
+          <Button aria-expanded={editorMode?.kind === "create"} onClick={startCreateJob}>
             New job
           </Button>
         }
         title="Jobs"
       />
       {editorMode ? (
-        <section
-          className="resource-editor-panel"
-          aria-labelledby="job-editor-title"
-        >
+        <section className="resource-editor-panel" aria-labelledby="job-editor-title">
           <div className="resource-title">
-            <strong id="job-editor-title">
-              {editorMode.kind === "create" ? "New job" : "Edit job"}
-            </strong>
+            <strong id="job-editor-title">{editorMode.kind === "create" ? "New job" : "Edit job"}</strong>
             <small>Namespace {namespacePath}</small>
           </div>
           <form className="resource-editor-form" onSubmit={submitJob}>
@@ -230,36 +201,28 @@ export function JobsPage({
               <FormField
                 label="Name"
                 name="jobName"
-                onChange={(event) =>
-                  setValues({ ...values, name: event.target.value })
-                }
+                onChange={(event) => setValues({ ...values, name: event.target.value })}
                 required
                 value={values.name}
               />
               <FormField
                 label="Repository"
                 name="jobRepository"
-                onChange={(event) =>
-                  setValues({ ...values, repository: event.target.value })
-                }
+                onChange={(event) => setValues({ ...values, repository: event.target.value })}
                 required
                 value={values.repository}
               />
               <FormField
                 label="Branch"
                 name="jobBranch"
-                onChange={(event) =>
-                  setValues({ ...values, branch: event.target.value })
-                }
+                onChange={(event) => setValues({ ...values, branch: event.target.value })}
                 required
                 value={values.branch}
               />
               <SelectField
                 label="Schedule"
                 name="jobSchedule"
-                onChange={(event) =>
-                  setValues({ ...values, schedule: event.target.value })
-                }
+                onChange={(event) => setValues({ ...values, schedule: event.target.value })}
                 options={scheduleOptions}
                 value={values.schedule}
               />
@@ -280,9 +243,7 @@ export function JobsPage({
               <span>Definition JSON</span>
               <textarea
                 name="jobDefinition"
-                onChange={(event) =>
-                  setValues({ ...values, definition: event.target.value })
-                }
+                onChange={(event) => setValues({ ...values, definition: event.target.value })}
                 required
                 rows={10}
                 value={values.definition}
@@ -290,20 +251,13 @@ export function JobsPage({
             </label>
             <FormError message={formError} />
             <div className="resource-editor-form__actions">
-              <Button type="submit">
-                {editorMode.kind === "create" ? "Create job" : "Save job"}
-              </Button>
+              <Button type="submit">{editorMode.kind === "create" ? "Create job" : "Save job"}</Button>
               <Button onClick={closeEditor}>Cancel</Button>
             </div>
           </form>
         </section>
       ) : null}
-      <DataTable
-        columns={columns}
-        emptyMessage="No jobs loaded."
-        getRowKey={(job) => job.id}
-        rows={jobs}
-      />
+      <DataTable columns={columns} emptyMessage="No jobs loaded." getRowKey={(job) => job.id} rows={jobs} />
     </>
   );
 }

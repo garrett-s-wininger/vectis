@@ -25,12 +25,7 @@ describe("mock console data", () => {
 
     expect(second.users).toHaveLength(3);
     expect(second.cells).toHaveLength(3);
-    expect(second.namespaces.map((namespace) => namespace.path)).toEqual([
-      "/",
-      "/team-a",
-      "/team-a/edge",
-      "/prod"
-    ]);
+    expect(second.namespaces.map((namespace) => namespace.path)).toEqual(["/", "/team-a", "/team-a/edge", "/prod"]);
   });
 
   it("derives cluster health metrics from cells", async () => {
@@ -62,14 +57,8 @@ describe("mock console data", () => {
     const data = await loadMockConsoleData();
     const scoped = scopeMockConsoleData(data, "/team-a");
 
-    expect(scoped.jobs.map((job) => job.name)).toEqual([
-      "api-test-suite",
-      "docs-publish"
-    ]);
-    expect(scoped.runs.map((run) => run.jobName)).toEqual([
-      "api-test-suite",
-      "docs-publish"
-    ]);
+    expect(scoped.jobs.map((job) => job.name)).toEqual(["api-test-suite", "docs-publish"]);
+    expect(scoped.runs.map((run) => run.jobName)).toEqual(["api-test-suite", "docs-publish"]);
   });
 
   it("creates and deletes empty namespaces", async () => {
@@ -78,9 +67,7 @@ describe("mock console data", () => {
       name: "sandbox",
       parentID: 1
     });
-    const sandbox = withNamespace.namespaces.find(
-      (namespace) => namespace.path === "/sandbox"
-    );
+    const sandbox = withNamespace.namespaces.find((namespace) => namespace.path === "/sandbox");
 
     expect(sandbox).toMatchObject({
       name: "sandbox",
@@ -89,9 +76,7 @@ describe("mock console data", () => {
     });
     expect(canDeleteMockNamespace(withNamespace, sandbox?.id ?? 0)).toBe(true);
     expect(
-      deleteMockNamespace(withNamespace, sandbox?.id ?? 0).namespaces.find(
-        (namespace) => namespace.path === "/sandbox"
-      )
+      deleteMockNamespace(withNamespace, sandbox?.id ?? 0).namespaces.find((namespace) => namespace.path === "/sandbox")
     ).toBeUndefined();
   });
 

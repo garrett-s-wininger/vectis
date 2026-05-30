@@ -13,9 +13,7 @@ describe("AppState", () => {
       />
     );
 
-    expect(
-      screen.getByRole("region", { name: "Unable to load runs" })
-    ).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Unable to load runs" })).toBeInTheDocument();
 
     expect(screen.getByText("The request did not complete.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();

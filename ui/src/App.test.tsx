@@ -19,16 +19,12 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(
-      screen.getByRole("heading", { name: "Complete setup" })
-    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Complete setup" })).toBeInTheDocument();
   });
 
   it("completes setup and navigates to next", async () => {
     window.history.replaceState(null, "", "/setup?next=%2Fruns");
-    fetchMock.mockResolvedValueOnce(
-      new Response(JSON.stringify({ username: "admin" }), { status: 200 })
-    );
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ username: "admin" }), { status: 200 }));
 
     render(<App />);
 
@@ -46,9 +42,7 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Create admin" }));
 
-    expect(
-      await screen.findByRole("heading", { name: "Runs" })
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Runs" })).toBeInTheDocument();
 
     expect(window.location.pathname).toBe("/runs");
     expect(fetchMock).toHaveBeenLastCalledWith(
@@ -85,9 +79,7 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
-    expect(
-      await screen.findByRole("heading", { name: "Users" })
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Users" })).toBeInTheDocument();
 
     expect(window.location.pathname).toBe("/users");
     expect(fetchMock).toHaveBeenLastCalledWith(
@@ -116,9 +108,7 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
-    expect(
-      await screen.findByRole("heading", { name: "Health" })
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Health" })).toBeInTheDocument();
 
     expect(window.location.pathname).toBe("/");
   });
@@ -128,13 +118,8 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(
-      await screen.findByRole("heading", { name: "api-test-suite #1240" })
-    ).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Runs" })).toHaveAttribute(
-      "aria-current",
-      "page"
-    );
+    expect(await screen.findByRole("heading", { name: "api-test-suite #1240" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Runs" })).toHaveAttribute("aria-current", "page");
   });
 
   it("navigates app routes without a page load", async () => {
@@ -142,9 +127,7 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("link", { name: "Users" }));
 
-    expect(
-      await screen.findByRole("heading", { name: "Users" })
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Users" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/users");
   });
 
@@ -153,9 +136,7 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(
-      await screen.findByRole("heading", { name: "Health" })
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Health" })).toBeInTheDocument();
 
     expect(screen.queryByLabelText("Namespace")).not.toBeInTheDocument();
     expect(screen.getByText("prod-west")).toBeInTheDocument();
@@ -171,9 +152,7 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Inspect edge" }));
 
-    expect(
-      screen.getByRole("heading", { name: "edge dashboard" })
-    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "edge dashboard" })).toBeInTheDocument();
     expect(screen.getByText("Lag 2m 14s")).toBeInTheDocument();
     expect(window.location.pathname).toBe("/health/cell-edge");
   });
@@ -196,15 +175,11 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add user" }));
 
     expect(await screen.findByText("taylor")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Disable taylor" })
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Disable taylor" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Disable taylor" }));
 
-    expect(
-      screen.getByRole("button", { name: "Activate taylor" })
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Activate taylor" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Remove taylor" }));
 
@@ -232,13 +207,9 @@ describe("App", () => {
 
     await screen.findByRole("heading", { name: "Runs" });
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Open run api-test-suite #1240" })
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Open run api-test-suite #1240" }));
 
-    expect(
-      await screen.findByRole("heading", { name: "api-test-suite #1240" })
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "api-test-suite #1240" })).toBeInTheDocument();
     expect(screen.getByText("run-1240")).toBeInTheDocument();
     expect(screen.getByText("Stored")).toBeInTheDocument();
     expect(window.location.pathname).toBe("/runs/run-1240");
@@ -267,9 +238,7 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Submit run" }));
 
-    expect(
-      await screen.findByRole("heading", { name: "database-backfill #1241" })
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "database-backfill #1241" })).toBeInTheDocument();
     expect(screen.getByText("Ephemeral")).toBeInTheDocument();
     expect(screen.getByText("inline definition")).toBeInTheDocument();
 
@@ -287,9 +256,7 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(
-      await screen.findByRole("heading", { level: 1, name: "Run not found" })
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "Run not found" })).toBeInTheDocument();
     expect(screen.getByText("No run matched missing.")).toBeInTheDocument();
   });
 
@@ -339,9 +306,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save job" }));
 
     expect(await screen.findByText("cache-prime")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Trigger cache-prime" })
-    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Trigger cache-prime" })).toBeDisabled();
 
     fireEvent.click(screen.getByRole("button", { name: "Delete cache-prime" }));
 
@@ -377,15 +342,11 @@ describe("App", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Create namespace" }));
 
-    expect(
-      await screen.findByRole("button", { name: "Delete /sandbox" })
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Delete /sandbox" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Delete /sandbox" }));
 
-    expect(
-      screen.queryByRole("button", { name: "Delete /sandbox" })
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete /sandbox" })).not.toBeInTheDocument();
   });
 
   it("logs out and returns to login", async () => {
@@ -396,9 +357,7 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
 
-    expect(
-      await screen.findByRole("heading", { name: "Sign in" })
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
 
     expect(window.location.pathname).toBe("/login");
     expect(fetchMock).toHaveBeenLastCalledWith(

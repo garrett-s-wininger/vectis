@@ -14,9 +14,7 @@ describe("SectionPanel", () => {
       </SectionPanel>
     );
 
-    expect(
-      screen.getByRole("heading", { name: "Compute workload" })
-    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Compute workload" })).toBeInTheDocument();
 
     expect(screen.getByText("Currently executing or queued work.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "View all" })).toBeInTheDocument();

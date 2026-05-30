@@ -13,9 +13,7 @@ describe("PageHeader", () => {
       />
     );
 
-    expect(
-      screen.getByRole("heading", { name: "Cluster dashboard" })
-    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Cluster dashboard" })).toBeInTheDocument();
 
     expect(screen.getByText("Operator Console")).toBeInTheDocument();
     expect(screen.getByText("Current workload and service health.")).toBeInTheDocument();

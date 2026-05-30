@@ -37,11 +37,7 @@ export function RunList({ onSelectRun, title, runs }: RunListProps) {
                   <strong>
                     {run.jobName} <span>#{run.runNumber}</span>
                   </strong>
-                  <span
-                    className={`${styles.source} ${
-                      styles[run.source ?? "stored"]
-                    }`}
-                  >
+                  <span className={`${styles.source} ${styles[run.source ?? "stored"]}`}>
                     {run.source === "ephemeral" ? "Ephemeral" : "Stored"}
                   </span>
                 </div>
@@ -55,10 +51,7 @@ export function RunList({ onSelectRun, title, runs }: RunListProps) {
               <div className={styles.actions}>
                 <StatusBadge status={run.status} />
                 {onSelectRun ? (
-                  <Button
-                    aria-label={`Open run ${run.jobName} #${run.runNumber}`}
-                    onClick={() => onSelectRun(run.id)}
-                  >
+                  <Button aria-label={`Open run ${run.jobName} #${run.runNumber}`} onClick={() => onSelectRun(run.id)}>
                     Open
                   </Button>
                 ) : null}

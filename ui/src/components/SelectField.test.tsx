@@ -17,8 +17,6 @@ describe("SelectField", () => {
 
     const select = screen.getByLabelText("Status");
     expect(select).toHaveAttribute("name", "status");
-    expect(screen.getByRole("option", { name: "Running" })).toHaveValue(
-      "running"
-    );
+    expect(screen.getByRole("option", { name: "Running" })).toHaveValue("running");
   });
 });

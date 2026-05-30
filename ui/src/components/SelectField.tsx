@@ -6,10 +6,7 @@ export type SelectOption = {
   value: string;
 };
 
-type SelectFieldProps = Omit<
-  SelectHTMLAttributes<HTMLSelectElement>,
-  "children"
-> & {
+type SelectFieldProps = Omit<SelectHTMLAttributes<HTMLSelectElement>, "children"> & {
   label: string;
   options: SelectOption[];
 };

@@ -220,8 +220,8 @@ h1 {
   .run-detail-layout {
     grid-template-columns: 1fr;
   }
-
 }
+
 .progress-meter-stack {
   display: grid;
   gap: var(--space-xl);

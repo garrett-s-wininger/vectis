@@ -29,16 +29,12 @@ export function SignalList({ signals }: SignalListProps) {
     <ul className={styles.root}>
       {signals.map((signal) => (
         <li className={styles.item} key={signal.id}>
-          <span
-            className={`${styles.marker} ${styles[`${signal.state}Marker`]}`}
-          />
+          <span className={`${styles.marker} ${styles[`${signal.state}Marker`]}`} />
           <div className={styles.copy}>
             <strong>{signal.label}</strong>
             {signal.detail ? <small>{signal.detail}</small> : null}
           </div>
-          <span className={`${styles.state} ${styles[`${signal.state}State`]}`}>
-            {stateLabels[signal.state]}
-          </span>
+          <span className={`${styles.state} ${styles[`${signal.state}State`]}`}>{stateLabels[signal.state]}</span>
         </li>
       ))}
     </ul>

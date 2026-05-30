@@ -66,65 +66,65 @@
             <h2 id="workload-title">Compute workload</h2>
           </div>
           <div class="workload-grid">
-          <section class="active-panel" aria-labelledby="active-title">
-            <div class="panel-title">
-              <h2 id="active-title">Active runs</h2>
-              <a class="inline-action" href="run-history.html?status=running">View all</a>
-            </div>
-            <div class="run-list run-list--active">
-              <a class="run-row" href="run-detail.html">
-                <span>
-                  <strong>linux-ci <em>#184</em></strong>
-                  <small class="run-meta-text">6f4c2d7a · 4m 12s</small>
-                </span>
-                <span class="status status--running">running</span>
-              </a>
-              <a class="run-row" href="run-detail.html">
-                <span>
-                  <strong>api-smoke <em>#812</em></strong>
-                  <small class="run-meta-text">b82e19f4 · 6m 03s</small>
-                </span>
-                <span class="status status--running">running</span>
-              </a>
-              <a class="run-row" href="run-detail.html">
-                <span>
-                  <strong>docs-check <em>#392</em></strong>
-                  <small class="run-meta-text">14d9a6b0 · 8m 31s</small>
-                </span>
-                <span class="status status--running">running</span>
-              </a>
-            </div>
-          </section>
+            <section class="active-panel" aria-labelledby="active-title">
+              <div class="panel-title">
+                <h2 id="active-title">Active runs</h2>
+                <a class="inline-action" href="run-history.html?status=running">View all</a>
+              </div>
+              <div class="run-list run-list--active">
+                <a class="run-row" href="run-detail.html">
+                  <span>
+                    <strong>linux-ci <em>#184</em></strong>
+                    <small class="run-meta-text">6f4c2d7a · 4m 12s</small>
+                  </span>
+                  <span class="status status--running">running</span>
+                </a>
+                <a class="run-row" href="run-detail.html">
+                  <span>
+                    <strong>api-smoke <em>#812</em></strong>
+                    <small class="run-meta-text">b82e19f4 · 6m 03s</small>
+                  </span>
+                  <span class="status status--running">running</span>
+                </a>
+                <a class="run-row" href="run-detail.html">
+                  <span>
+                    <strong>docs-check <em>#392</em></strong>
+                    <small class="run-meta-text">14d9a6b0 · 8m 31s</small>
+                  </span>
+                  <span class="status status--running">running</span>
+                </a>
+              </div>
+            </section>
 
-          <section class="failures-panel" aria-labelledby="failures-title">
-            <div class="panel-title">
-              <h2 id="failures-title">Recent failures</h2>
-              <a class="inline-action" href="run-history.html?status=failed">View all</a>
-            </div>
-            <div class="run-list">
-              <a class="run-row" href="run-detail.html">
-                <span>
-                  <strong>nightly-load <em>#88</em></strong>
-                  <small class="run-meta-text">a19f03de · 14m 02s</small>
-                </span>
-                <span class="status status--failed">failed</span>
-              </a>
-              <a class="run-row" href="run-detail.html">
-                <span>
-                  <strong>release-image <em>#51</em></strong>
-                  <small class="run-meta-text">75c1d0ab · 8m 11s</small>
-                </span>
-                <span class="status status--failed">failed</span>
-              </a>
-              <a class="run-row" href="run-detail.html">
-                <span>
-                  <strong>schema-check <em>#140</em></strong>
-                  <small class="run-meta-text">e2c48691 · 2m 09s</small>
-                </span>
-                <span class="status status--failed">failed</span>
-              </a>
-            </div>
-          </section>
+            <section class="failures-panel" aria-labelledby="failures-title">
+              <div class="panel-title">
+                <h2 id="failures-title">Recent failures</h2>
+                <a class="inline-action" href="run-history.html?status=failed">View all</a>
+              </div>
+              <div class="run-list">
+                <a class="run-row" href="run-detail.html">
+                  <span>
+                    <strong>nightly-load <em>#88</em></strong>
+                    <small class="run-meta-text">a19f03de · 14m 02s</small>
+                  </span>
+                  <span class="status status--failed">failed</span>
+                </a>
+                <a class="run-row" href="run-detail.html">
+                  <span>
+                    <strong>release-image <em>#51</em></strong>
+                    <small class="run-meta-text">75c1d0ab · 8m 11s</small>
+                  </span>
+                  <span class="status status--failed">failed</span>
+                </a>
+                <a class="run-row" href="run-detail.html">
+                  <span>
+                    <strong>schema-check <em>#140</em></strong>
+                    <small class="run-meta-text">e2c48691 · 2m 09s</small>
+                  </span>
+                  <span class="status status--failed">failed</span>
+                </a>
+              </div>
+            </section>
           </div>
         </section>
 
@@ -230,15 +230,15 @@
 
     <script>
       const root = document.documentElement;
-      const storedTheme = localStorage.getItem('vectis-console-theme');
+      const storedTheme = localStorage.getItem("vectis-console-theme");
       if (storedTheme) {
         root.dataset.theme = storedTheme;
       }
 
-      document.querySelector('[data-theme-toggle]').addEventListener('click', () => {
-        const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+      document.querySelector("[data-theme-toggle]").addEventListener("click", () => {
+        const next = root.dataset.theme === "dark" ? "light" : "dark";
         root.dataset.theme = next;
-        localStorage.setItem('vectis-console-theme', next);
+        localStorage.setItem("vectis-console-theme", next);
       });
     </script>
   </body>

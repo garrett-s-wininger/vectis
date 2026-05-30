@@ -66,12 +66,7 @@ type RunsPageProps = {
   runs: RunListItem[];
 };
 
-export function RunsPage({
-  namespacePath,
-  onSelectRun,
-  onSubmitEphemeralRun,
-  runs
-}: RunsPageProps) {
+export function RunsPage({ namespacePath, onSelectRun, onSubmitEphemeralRun, runs }: RunsPageProps) {
   const [status, setStatus] = useState<RunFilter>("all");
   const [source, setSource] = useState<SourceFilter>("all");
   const [showRunOnce, setShowRunOnce] = useState(false);
@@ -79,8 +74,7 @@ export function RunsPage({
   const [definitionError, setDefinitionError] = useState("");
   const filteredRuns = useMemo(() => {
     return runs.filter((run) => {
-      const sourceMatches =
-        source === "all" || (run.source ?? "stored") === source;
+      const sourceMatches = source === "all" || (run.source ?? "stored") === source;
       const statusMatches = status === "all" || run.status === status;
       return sourceMatches && statusMatches;
     });
@@ -114,10 +108,7 @@ export function RunsPage({
         description={`Recent queued, running, and completed work under ${namespacePath}.`}
         eyebrow="Runs"
         actions={
-          <Button
-            aria-expanded={showRunOnce}
-            onClick={() => setShowRunOnce((value) => !value)}
-          >
+          <Button aria-expanded={showRunOnce} onClick={() => setShowRunOnce((value) => !value)}>
             {showRunOnce ? "Close" : "Run once"}
           </Button>
         }
@@ -151,10 +142,7 @@ export function RunsPage({
       ) : null}
       <FilterBar
         actions={
-          <Button
-            disabled={status === "all" && source === "all"}
-            onClick={clearFilters}
-          >
+          <Button disabled={status === "all" && source === "all"} onClick={clearFilters}>
             Clear
           </Button>
         }
@@ -177,11 +165,7 @@ export function RunsPage({
           </>
         }
       />
-      <RunList
-        onSelectRun={onSelectRun}
-        title={runListTitle(status, source)}
-        runs={filteredRuns}
-      />
+      <RunList onSelectRun={onSelectRun} title={runListTitle(status, source)} runs={filteredRuns} />
     </>
   );
 }

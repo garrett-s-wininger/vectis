@@ -5,12 +5,7 @@ import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { FormField } from "../components/FormField";
 import { PageHeader } from "../components/PageHeader";
 import { SelectField } from "../components/SelectField";
-import type {
-  MockUser,
-  MockUserRole,
-  MockUserStatus,
-  NewMockUser
-} from "../mocks/consoleData";
+import type { MockUser, MockUserRole, MockUserStatus, NewMockUser } from "../mocks/consoleData";
 
 const roleOptions: { label: string; value: MockUserRole }[] = [
   { label: "Admin", value: "Admin" },
@@ -25,12 +20,7 @@ type UsersPageProps = {
   users: MockUser[];
 };
 
-export function UsersPage({
-  onCreateUser,
-  onDeleteUser,
-  onUpdateUserStatus,
-  users
-}: UsersPageProps) {
+export function UsersPage({ onCreateUser, onDeleteUser, onUpdateUserStatus, users }: UsersPageProps) {
   const [values, setValues] = useState<NewMockUser>({
     username: "",
     role: "Viewer"
@@ -80,17 +70,8 @@ export function UsersPage({
       cell: (user) => (
         <div className="table-actions">
           <Button
-            aria-label={
-              user.status === "active"
-                ? `Disable ${user.username}`
-                : `Activate ${user.username}`
-            }
-            onClick={() =>
-              onUpdateUserStatus(
-                user.id,
-                user.status === "active" ? "disabled" : "active"
-              )
-            }
+            aria-label={user.status === "active" ? `Disable ${user.username}` : `Activate ${user.username}`}
+            onClick={() => onUpdateUserStatus(user.id, user.status === "active" ? "disabled" : "active")}
           >
             {user.status === "active" ? "Disable" : "Activate"}
           </Button>
@@ -108,19 +89,13 @@ export function UsersPage({
 
   return (
     <>
-      <PageHeader
-        description="Accounts with access to this Vectis console."
-        eyebrow="Users"
-        title="Users"
-      />
+      <PageHeader description="Accounts with access to this Vectis console." eyebrow="Users" title="Users" />
       <form className="inline-form" onSubmit={handleSubmit}>
         <FormField
           autoComplete="username"
           label="Username"
           name="newUsername"
-          onChange={(event) =>
-            setValues({ ...values, username: event.target.value })
-          }
+          onChange={(event) => setValues({ ...values, username: event.target.value })}
           required
           value={values.username}
         />
@@ -138,12 +113,7 @@ export function UsersPage({
         />
         <Button type="submit">Add user</Button>
       </form>
-      <DataTable
-        columns={columns}
-        emptyMessage="No users loaded."
-        getRowKey={(user) => user.id}
-        rows={users}
-      />
+      <DataTable columns={columns} emptyMessage="No users loaded." getRowKey={(user) => user.id} rows={users} />
     </>
   );
 }

@@ -89,7 +89,9 @@
                 </div>
               </div>
             </div>
-            <pre class="log-stream log-stream--page"><code><span class="log-line"><span>10:42:05</span><span>stdout</span><span>checking out repository</span></span>
+            <pre
+              class="log-stream log-stream--page"
+            ><code><span class="log-line"><span>10:42:05</span><span>stdout</span><span>checking out repository</span></span>
 <span class="log-line"><span>10:42:06</span><span>stdout</span><span>remote: Enumerating objects: 312, done.</span></span>
 <span class="log-line"><span>10:42:14</span><span>stdout</span><span>remote: Total 312 (delta 84), reused 211 (delta 55), pack-reused 0</span></span>
 <span class="log-line"><span>10:42:23</span><span>stdout</span><span>checkout complete</span></span>
@@ -108,15 +110,15 @@
 
     <script>
       const root = document.documentElement;
-      const storedTheme = localStorage.getItem('vectis-console-theme');
+      const storedTheme = localStorage.getItem("vectis-console-theme");
       if (storedTheme) {
         root.dataset.theme = storedTheme;
       }
 
-      document.querySelector('[data-theme-toggle]').addEventListener('click', () => {
-        const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+      document.querySelector("[data-theme-toggle]").addEventListener("click", () => {
+        const next = root.dataset.theme === "dark" ? "light" : "dark";
         root.dataset.theme = next;
-        localStorage.setItem('vectis-console-theme', next);
+        localStorage.setItem("vectis-console-theme", next);
       });
     </script>
   </body>

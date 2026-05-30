@@ -59,7 +59,12 @@
           </div>
 
           <div class="run-record-list" aria-label="Runs">
-            <a class="run-record-row run-record-row--active" href="run-detail.html" data-job="linux-ci" data-status="running">
+            <a
+              class="run-record-row run-record-row--active"
+              href="run-detail.html"
+              data-job="linux-ci"
+              data-status="running"
+            >
               <span class="run-record-main">
                 <strong>linux-ci <em>#184</em></strong>
                 <small>6f4c2d7a · 4m 12s<span class="run-record-time"> · started 10:42 AM</span></small>
@@ -239,34 +244,34 @@
 
     <script>
       const root = document.documentElement;
-      const storedTheme = localStorage.getItem('vectis-console-theme');
+      const storedTheme = localStorage.getItem("vectis-console-theme");
       if (storedTheme) {
         root.dataset.theme = storedTheme;
       }
 
-      document.querySelector('[data-theme-toggle]').addEventListener('click', () => {
-        const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+      document.querySelector("[data-theme-toggle]").addEventListener("click", () => {
+        const next = root.dataset.theme === "dark" ? "light" : "dark";
         root.dataset.theme = next;
-        localStorage.setItem('vectis-console-theme', next);
+        localStorage.setItem("vectis-console-theme", next);
       });
 
-      const search = document.querySelector('#run-search');
-      const scopeChip = document.querySelector('[data-run-scope]');
-      const rows = [...document.querySelectorAll('.run-record-row')];
-      const footer = document.querySelector('[data-run-footer]');
-      const chips = [...document.querySelectorAll('.filter-pill')];
+      const search = document.querySelector("#run-search");
+      const scopeChip = document.querySelector("[data-run-scope]");
+      const rows = [...document.querySelectorAll(".run-record-row")];
+      const footer = document.querySelector("[data-run-footer]");
+      const chips = [...document.querySelectorAll(".filter-pill")];
       const params = new URLSearchParams(window.location.search);
 
       const updateRuns = ({ job, status }, { replaceUrl = false } = {}) => {
-        const search = document.querySelector('#run-search');
-        search.value = [job && `job:${job}`, status && `status:${status}`].filter(Boolean).join(' ');
+        const search = document.querySelector("#run-search");
+        search.value = [job && `job:${job}`, status && `status:${status}`].filter(Boolean).join(" ");
 
         scopeChip.hidden = !job;
-        scopeChip.textContent = job || '';
+        scopeChip.textContent = job || "";
 
         chips.forEach((pill) => {
           const value = pill.textContent.trim().toLowerCase();
-          pill.classList.toggle('filter-pill--active', status ? value === status : value === 'all');
+          pill.classList.toggle("filter-pill--active", status ? value === status : value === "all");
         });
 
         rows.forEach((row) => {
@@ -274,31 +279,30 @@
         });
 
         const visible = rows.filter((row) => !row.hidden).length;
-        footer.textContent = `1-${visible} of ${job ? '184' : status ? '39' : '128'}`;
+        footer.textContent = `1-${visible} of ${job ? "184" : status ? "39" : "128"}`;
 
         const nextParams = new URLSearchParams();
-        if (job) nextParams.set('job', job);
-        if (status) nextParams.set('status', status);
-        const nextUrl = `${window.location.pathname}${nextParams.toString() ? `?${nextParams}` : ''}`;
-        history[replaceUrl ? 'replaceState' : 'pushState']({}, '', nextUrl);
+        if (job) nextParams.set("job", job);
+        if (status) nextParams.set("status", status);
+        const nextUrl = `${window.location.pathname}${nextParams.toString() ? `?${nextParams}` : ""}`;
+        history[replaceUrl ? "replaceState" : "pushState"]({}, "", nextUrl);
       };
 
       let activeFilters = {
-        job: params.get('job'),
-        status: params.get('status'),
+        job: params.get("job"),
+        status: params.get("status")
       };
 
       updateRuns(activeFilters, { replaceUrl: true });
 
       chips.forEach((pill) => {
-        pill.addEventListener('click', () => {
+        pill.addEventListener("click", () => {
           const value = pill.textContent.trim().toLowerCase();
-          const nextStatus = value === 'all' || activeFilters.status === value ? null : value;
+          const nextStatus = value === "all" || activeFilters.status === value ? null : value;
           activeFilters = { ...activeFilters, status: nextStatus };
           updateRuns(activeFilters);
         });
       });
-
     </script>
   </body>
 </html>

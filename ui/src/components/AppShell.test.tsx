@@ -11,12 +11,7 @@ const navItems: NavItem[] = [
 describe("AppShell", () => {
   it("renders brand, primary navigation, actions, and page content", () => {
     render(
-      <AppShell
-        activeHref="/jobs"
-        actions={<Button>Refresh</Button>}
-        brand="Vectis"
-        navItems={navItems}
-      >
+      <AppShell activeHref="/jobs" actions={<Button>Refresh</Button>} brand="Vectis" navItems={navItems}>
         <h1>Jobs</h1>
       </AppShell>
     );
@@ -24,10 +19,7 @@ describe("AppShell", () => {
     expect(screen.getByLabelText("Vectis home")).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Primary" })).toBeInTheDocument();
 
-    expect(screen.getByRole("link", { name: "Jobs" })).toHaveAttribute(
-      "aria-current",
-      "page"
-    );
+    expect(screen.getByRole("link", { name: "Jobs" })).toHaveAttribute("aria-current", "page");
 
     expect(screen.getByRole("button", { name: "Refresh" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Jobs" })).toBeInTheDocument();
@@ -37,12 +29,7 @@ describe("AppShell", () => {
     const onNavigate = vi.fn((_, event) => event.preventDefault());
 
     render(
-      <AppShell
-        activeHref="/jobs"
-        brand="Vectis"
-        navItems={navItems}
-        onNavigate={onNavigate}
-      >
+      <AppShell activeHref="/jobs" brand="Vectis" navItems={navItems} onNavigate={onNavigate}>
         <h1>Jobs</h1>
       </AppShell>
     );

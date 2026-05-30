@@ -32,17 +32,13 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 function UsersPageMock() {
-  const [data, setData] = useState<MockConsoleData>(() =>
-    createMockConsoleDataSnapshot()
-  );
+  const [data, setData] = useState<MockConsoleData>(() => createMockConsoleDataSnapshot());
 
   return (
     <UsersPage
       onCreateUser={(input) => setData((current) => createMockUser(current, input))}
       onDeleteUser={(userID) => setData((current) => deleteMockUser(current, userID))}
-      onUpdateUserStatus={(userID, status) =>
-        setData((current) => updateMockUserStatus(current, userID, status))
-      }
+      onUpdateUserStatus={(userID, status) => setData((current) => updateMockUserStatus(current, userID, status))}
       users={data.users}
     />
   );

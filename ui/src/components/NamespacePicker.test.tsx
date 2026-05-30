@@ -24,13 +24,7 @@ describe("NamespacePicker", () => {
   it("renders namespaces and reports selection changes", () => {
     const onChange = vi.fn();
 
-    render(
-      <NamespacePicker
-        namespaces={namespaces}
-        onChange={onChange}
-        value="/"
-      />
-    );
+    render(<NamespacePicker namespaces={namespaces} onChange={onChange} value="/" />);
 
     fireEvent.change(screen.getByLabelText("Namespace"), {
       target: { value: "/team-a" }

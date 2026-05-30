@@ -37,13 +37,7 @@ import { NotFoundPage } from "./pages/NotFoundPage";
 import { RunDetailPage } from "./pages/RunDetailPage";
 import { RunsPage } from "./pages/RunsPage";
 import { UsersPage } from "./pages/UsersPage";
-import {
-  navigateTo,
-  primaryNavItems,
-  routeFromPath,
-  safeNextPath,
-  type AppRoute
-} from "./routing/routes";
+import { navigateTo, primaryNavItems, routeFromPath, safeNextPath, type AppRoute } from "./routing/routes";
 
 type SetupValues = {
   adminPassword: string;
@@ -57,9 +51,7 @@ type LoginValues = {
 };
 
 export function App() {
-  const [route, setRoute] = useState<AppRoute>(() =>
-    routeFromPath(window.location.pathname)
-  );
+  const [route, setRoute] = useState<AppRoute>(() => routeFromPath(window.location.pathname));
 
   const [setupValues, setSetupValues] = useState<SetupValues>({
     bootstrapToken: "",
@@ -79,15 +71,14 @@ export function App() {
   const [selectedNamespacePath, setSelectedNamespacePath] = useState("/");
 
   useEffect(() => {
-    const onPopState = () => setRoute(routeFromPath(window.location.pathname));
+    const onPopState = () => {
+      setFormError("");
+      setSubmitting(false);
+      setRoute(routeFromPath(window.location.pathname));
+    };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
-
-  useEffect(() => {
-    setFormError("");
-    setSubmitting(false);
-  }, [route.kind]);
 
   useEffect(() => {
     let ignore = false;
@@ -148,9 +139,7 @@ export function App() {
     }
   }
 
-  function updateConsoleData(
-    update: (data: MockConsoleData) => MockConsoleData
-  ) {
+  function updateConsoleData(update: (data: MockConsoleData) => MockConsoleData) {
     setConsoleData((data) => (data ? update(data) : data));
   }
 
@@ -183,9 +172,7 @@ export function App() {
   }
 
   function handleDeleteNamespace(namespaceID: number) {
-    const namespacePath = consoleData?.namespaces.find(
-      (namespace) => namespace.id === namespaceID
-    )?.path;
+    const namespacePath = consoleData?.namespaces.find((namespace) => namespace.id === namespaceID)?.path;
 
     updateConsoleData((data) => deleteMockNamespace(data, namespaceID));
 
@@ -214,10 +201,7 @@ export function App() {
     }
   }
 
-  function handleShellNavigate(
-    href: string,
-    event: MouseEvent<HTMLAnchorElement>
-  ) {
+  function handleShellNavigate(href: string, event: MouseEvent<HTMLAnchorElement>) {
     if (
       event.defaultPrevented ||
       event.button !== 0 ||
@@ -329,9 +313,7 @@ function SetupPage({
             autoComplete="off"
             label="Bootstrap token"
             name="bootstrapToken"
-            onChange={(event) =>
-              onChange({ ...values, bootstrapToken: event.target.value })
-            }
+            onChange={(event) => onChange({ ...values, bootstrapToken: event.target.value })}
             required
             type="password"
             value={values.bootstrapToken}
@@ -340,9 +322,7 @@ function SetupPage({
             autoComplete="username"
             label="Admin username"
             name="adminUsername"
-            onChange={(event) =>
-              onChange({ ...values, adminUsername: event.target.value })
-            }
+            onChange={(event) => onChange({ ...values, adminUsername: event.target.value })}
             required
             value={values.adminUsername}
           />
@@ -351,9 +331,7 @@ function SetupPage({
             label="Admin password"
             minLength={8}
             name="adminPassword"
-            onChange={(event) =>
-              onChange({ ...values, adminPassword: event.target.value })
-            }
+            onChange={(event) => onChange({ ...values, adminPassword: event.target.value })}
             required
             type="password"
             value={values.adminPassword}
@@ -391,9 +369,7 @@ function LoginPage({
             autoComplete="username"
             label="Username"
             name="username"
-            onChange={(event) =>
-              onChange({ ...values, username: event.target.value })
-            }
+            onChange={(event) => onChange({ ...values, username: event.target.value })}
             required
             value={values.username}
           />
@@ -401,9 +377,7 @@ function LoginPage({
             autoComplete="current-password"
             label="Password"
             name="password"
-            onChange={(event) =>
-              onChange({ ...values, password: event.target.value })
-            }
+            onChange={(event) => onChange({ ...values, password: event.target.value })}
             required
             type="password"
             value={values.password}
@@ -450,13 +424,7 @@ function RouteContent({
   route: AppRoute;
 }) {
   if (consoleError) {
-    return (
-      <AppState
-        description={consoleError}
-        title="Unable to load console"
-        tone="error"
-      />
-    );
+    return <AppState description={consoleError} title="Unable to load console" tone="error" />;
   }
 
   if (!consoleData) {
@@ -516,9 +484,7 @@ function RouteContent({
     case "namespaces":
       return (
         <NamespacesPage
-          canDeleteNamespace={(namespaceID) =>
-            canDeleteMockNamespace(consoleData, namespaceID)
-          }
+          canDeleteNamespace={(namespaceID) => canDeleteMockNamespace(consoleData, namespaceID)}
           namespaces={consoleData.namespaces}
           onCreateNamespace={onCreateNamespace}
           onDeleteNamespace={onDeleteNamespace}

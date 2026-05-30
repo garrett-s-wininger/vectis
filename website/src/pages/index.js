@@ -1,5 +1,5 @@
-import Link from '@docusaurus/Link';
-import Layout from '@theme/Layout';
+import Link from "@docusaurus/Link";
+import Layout from "@theme/Layout";
 
 function Hero() {
   return (
@@ -7,8 +7,8 @@ function Hero() {
       <div className="vectis-hero__inner">
         <h1 className="vectis-hero__title">Modern Self-Hosted Build Infrastructure</h1>
         <p className="vectis-hero__lead">
-          Run workflows on infrastructure you control. Vectis gives you local hosting,
-          replaceable components, and an API-first design you can adapt to your environment.
+          Run workflows on infrastructure you control. Vectis gives you local hosting, replaceable components, and an
+          API-first design you can adapt to your environment.
         </p>
         <div className="vectis-hero__actions">
           <Link className="vectis-hero__cta vectis-hero__cta--primary" to="/docs/operating/configuration">
@@ -20,7 +20,7 @@ function Hero() {
   );
 }
 
-function Section({title, description, link, linkText}) {
+function Section({ title, description, link, linkText }) {
   return (
     <article className="vectis-home-section">
       <h2 className="vectis-home-section__title">{title}</h2>

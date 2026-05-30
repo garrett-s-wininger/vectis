@@ -24,25 +24,12 @@ describe("DataTable", () => {
 
     expect(screen.getByRole("columnheader", { name: "Name" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "api-test-suite" })).toBeInTheDocument();
-    expect(screen.getByRole("cell", { name: "Enabled" })).toHaveAttribute(
-      "data-align",
-      "end"
-    );
+    expect(screen.getByRole("cell", { name: "Enabled" })).toHaveAttribute("data-align", "end");
   });
 
   it("renders an empty row", () => {
-    render(
-      <DataTable
-        columns={columns}
-        emptyMessage="No jobs."
-        getRowKey={(row) => row.id}
-        rows={[]}
-      />
-    );
+    render(<DataTable columns={columns} emptyMessage="No jobs." getRowKey={(row) => row.id} rows={[]} />);
 
-    expect(screen.getByRole("cell", { name: "No jobs." })).toHaveAttribute(
-      "colspan",
-      "2"
-    );
+    expect(screen.getByRole("cell", { name: "No jobs." })).toHaveAttribute("colspan", "2");
   });
 });

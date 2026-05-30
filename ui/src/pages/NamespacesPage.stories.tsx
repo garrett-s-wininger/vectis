@@ -32,22 +32,14 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 function NamespacesPageMock() {
-  const [data, setData] = useState<MockConsoleData>(() =>
-    createMockConsoleDataSnapshot()
-  );
+  const [data, setData] = useState<MockConsoleData>(() => createMockConsoleDataSnapshot());
 
   return (
     <NamespacesPage
-      canDeleteNamespace={(namespaceID) =>
-        canDeleteMockNamespace(data, namespaceID)
-      }
+      canDeleteNamespace={(namespaceID) => canDeleteMockNamespace(data, namespaceID)}
       namespaces={data.namespaces}
-      onCreateNamespace={(input) =>
-        setData((current) => createMockNamespace(current, input))
-      }
-      onDeleteNamespace={(namespaceID) =>
-        setData((current) => deleteMockNamespace(current, namespaceID))
-      }
+      onCreateNamespace={(input) => setData((current) => createMockNamespace(current, input))}
+      onDeleteNamespace={(namespaceID) => setData((current) => deleteMockNamespace(current, namespaceID))}
     />
   );
 }

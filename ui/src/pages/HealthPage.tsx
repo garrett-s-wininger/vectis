@@ -2,11 +2,7 @@ import { Button } from "../components/Button";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { MetricCard } from "../components/MetricCard";
 import { PageHeader } from "../components/PageHeader";
-import {
-  clusterHealthMetricsFor,
-  type MockCell,
-  type MockCellStatus
-} from "../mocks/consoleData";
+import { clusterHealthMetricsFor, type MockCell, type MockCellStatus } from "../mocks/consoleData";
 import { DashboardPage } from "./DashboardPage";
 
 type HealthPageProps = {
@@ -15,11 +11,7 @@ type HealthPageProps = {
   selectedCellID?: string;
 };
 
-export function HealthPage({
-  cells,
-  onSelectCell,
-  selectedCellID
-}: HealthPageProps) {
+export function HealthPage({ cells, onSelectCell, selectedCellID }: HealthPageProps) {
   const selectedCell = cells.find((cell) => cell.id === selectedCellID);
   const metrics = clusterHealthMetricsFor(cells);
   const columns: DataTableColumn<MockCell>[] = [
@@ -64,10 +56,7 @@ export function HealthPage({
       align: "end",
       header: "Actions",
       cell: (cell) => (
-        <Button
-          aria-label={`Inspect ${cell.name}`}
-          onClick={() => onSelectCell(cell.id)}
-        >
+        <Button aria-label={`Inspect ${cell.name}`} onClick={() => onSelectCell(cell.id)}>
           Inspect
         </Button>
       )
@@ -92,12 +81,7 @@ export function HealthPage({
           />
         ))}
       </div>
-      <DataTable
-        columns={columns}
-        emptyMessage="No cells loaded."
-        getRowKey={(cell) => cell.id}
-        rows={cells}
-      />
+      <DataTable columns={columns} emptyMessage="No cells loaded." getRowKey={(cell) => cell.id} rows={cells} />
       {selectedCell ? <DashboardPage cell={selectedCell} /> : null}
     </>
   );

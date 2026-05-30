@@ -13,12 +13,7 @@ function clampPercent(value: number) {
   return Math.min(100, Math.max(0, value));
 }
 
-export function ProgressMeter({
-  label,
-  value,
-  detail,
-  tone = "neutral"
-}: ProgressMeterProps) {
+export function ProgressMeter({ label, value, detail, tone = "neutral" }: ProgressMeterProps) {
   const percent = clampPercent(value);
   const className = tone === "neutral" ? styles.root : `${styles.root} ${styles[tone]}`;
 

@@ -14,7 +14,7 @@ type DataTableProps<TRow> = {
   rows: TRow[];
 };
 
-export function DataTable<TRow,>({
+export function DataTable<TRow>({
   columns,
   emptyMessage = "No records to show.",
   getRowKey,
@@ -37,10 +37,7 @@ export function DataTable<TRow,>({
             rows.map((row) => (
               <tr key={getRowKey(row)}>
                 {columns.map((column) => (
-                  <td
-                    data-align={column.align ?? "start"}
-                    key={column.header}
-                  >
+                  <td data-align={column.align ?? "start"} key={column.header}>
                     {column.cell(row)}
                   </td>
                 ))}

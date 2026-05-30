@@ -3,9 +3,7 @@ import { MetricCard } from "./MetricCard";
 
 describe("MetricCard", () => {
   it("renders a labelled metric with supporting detail", () => {
-    render(
-      <MetricCard label="Queue pressure" value="3 queued" detail="0 idle workers" />
-    );
+    render(<MetricCard label="Queue pressure" value="3 queued" detail="0 idle workers" />);
 
     expect(screen.getByText("Queue pressure")).toBeInTheDocument();
     expect(screen.getByText("3 queued")).toBeInTheDocument();

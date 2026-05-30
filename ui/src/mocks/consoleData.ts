@@ -398,34 +398,21 @@ export function dashboardMetricsFor(data: MockConsoleData): DashboardMetric[] {
   ];
 }
 
-export function scopeMockConsoleData(
-  data: MockConsoleData,
-  namespacePath: string
-): MockConsoleData {
+export function scopeMockConsoleData(data: MockConsoleData, namespacePath: string): MockConsoleData {
   return {
     ...data,
-    jobs: data.jobs.filter((job) =>
-      namespaceContains(namespacePath, job.namespacePath)
-    ),
-    runs: data.runs.filter(
-      (run) =>
-        run.namespacePath && namespaceContains(namespacePath, run.namespacePath)
-    )
+    jobs: data.jobs.filter((job) => namespaceContains(namespacePath, job.namespacePath)),
+    runs: data.runs.filter((run) => run.namespacePath && namespaceContains(namespacePath, run.namespacePath))
   };
 }
 
-export function createMockNamespace(
-  data: MockConsoleData,
-  input: NewMockNamespace
-): MockConsoleData {
+export function createMockNamespace(data: MockConsoleData, input: NewMockNamespace): MockConsoleData {
   const name = input.name.trim();
   if (!name) {
     return data;
   }
 
-  const parent = data.namespaces.find(
-    (namespace) => namespace.id === input.parentID
-  );
+  const parent = data.namespaces.find((namespace) => namespace.id === input.parentID);
 
   if (!parent) {
     return data;
@@ -448,32 +435,22 @@ export function createMockNamespace(
 
   return {
     ...data,
-    namespaces: [...data.namespaces, namespace].sort((a, b) =>
-      a.path.localeCompare(b.path)
-    )
+    namespaces: [...data.namespaces, namespace].sort((a, b) => a.path.localeCompare(b.path))
   };
 }
 
-export function deleteMockNamespace(
-  data: MockConsoleData,
-  namespaceID: number
-): MockConsoleData {
+export function deleteMockNamespace(data: MockConsoleData, namespaceID: number): MockConsoleData {
   if (!canDeleteMockNamespace(data, namespaceID)) {
     return data;
   }
 
   return {
     ...data,
-    namespaces: data.namespaces.filter(
-      (namespace) => namespace.id !== namespaceID
-    )
+    namespaces: data.namespaces.filter((namespace) => namespace.id !== namespaceID)
   };
 }
 
-export function canDeleteMockNamespace(
-  data: MockConsoleData,
-  namespaceID: number
-) {
+export function canDeleteMockNamespace(data: MockConsoleData, namespaceID: number) {
   if (namespaceID === 1) {
     return false;
   }
@@ -481,18 +458,13 @@ export function canDeleteMockNamespace(
   return (
     !data.namespaces.some((namespace) => namespace.parentID === namespaceID) &&
     !data.jobs.some((job) => {
-      const namespace = data.namespaces.find(
-        (candidate) => candidate.id === namespaceID
-      );
+      const namespace = data.namespaces.find((candidate) => candidate.id === namespaceID);
       return namespace ? job.namespacePath === namespace.path : false;
     })
   );
 }
 
-export function createMockUser(
-  data: MockConsoleData,
-  input: NewMockUser
-): MockConsoleData {
+export function createMockUser(data: MockConsoleData, input: NewMockUser): MockConsoleData {
   const username = input.username.trim();
   if (!username) {
     return data;
@@ -513,33 +485,21 @@ export function createMockUser(
   };
 }
 
-export function updateMockUserStatus(
-  data: MockConsoleData,
-  userID: string,
-  status: MockUserStatus
-): MockConsoleData {
+export function updateMockUserStatus(data: MockConsoleData, userID: string, status: MockUserStatus): MockConsoleData {
   return {
     ...data,
-    users: data.users.map((user) =>
-      user.id === userID ? { ...user, status } : user
-    )
+    users: data.users.map((user) => (user.id === userID ? { ...user, status } : user))
   };
 }
 
-export function deleteMockUser(
-  data: MockConsoleData,
-  userID: string
-): MockConsoleData {
+export function deleteMockUser(data: MockConsoleData, userID: string): MockConsoleData {
   return {
     ...data,
     users: data.users.filter((user) => user.id !== userID)
   };
 }
 
-export function createMockJob(
-  data: MockConsoleData,
-  input: NewMockJob
-): MockConsoleData {
+export function createMockJob(data: MockConsoleData, input: NewMockJob): MockConsoleData {
   const name = input.name.trim();
   if (!name) {
     return data;
@@ -564,11 +524,7 @@ export function createMockJob(
   };
 }
 
-export function updateMockJob(
-  data: MockConsoleData,
-  jobID: string,
-  input: UpdateMockJob
-): MockConsoleData {
+export function updateMockJob(data: MockConsoleData, jobID: string, input: UpdateMockJob): MockConsoleData {
   const name = input.name.trim();
   if (!name) {
     return data;
@@ -593,20 +549,14 @@ export function updateMockJob(
   };
 }
 
-export function deleteMockJob(
-  data: MockConsoleData,
-  jobID: string
-): MockConsoleData {
+export function deleteMockJob(data: MockConsoleData, jobID: string): MockConsoleData {
   return {
     ...data,
     jobs: data.jobs.filter((job) => job.id !== jobID)
   };
 }
 
-export function triggerMockRun(
-  data: MockConsoleData,
-  jobID: string
-): MockConsoleData {
+export function triggerMockRun(data: MockConsoleData, jobID: string): MockConsoleData {
   const job = data.jobs.find((candidate) => candidate.id === jobID);
   if (!job) {
     return data;
@@ -630,18 +580,13 @@ export function triggerMockRun(
   return {
     ...data,
     jobs: data.jobs.map((candidate) =>
-      candidate.id === jobID
-        ? { ...candidate, lastRunStatus: "queued", nextRun: "Queued" }
-        : candidate
+      candidate.id === jobID ? { ...candidate, lastRunStatus: "queued", nextRun: "Queued" } : candidate
     ),
     runs: [run, ...data.runs]
   };
 }
 
-export function submitMockEphemeralRun(
-  data: MockConsoleData,
-  input: NewMockEphemeralRun
-): MockConsoleData {
+export function submitMockEphemeralRun(data: MockConsoleData, input: NewMockEphemeralRun): MockConsoleData {
   const definition = input.definition.trim();
   if (!definition) {
     return data;
@@ -693,7 +638,10 @@ function nextMockRunNumber(data: MockConsoleData) {
 }
 
 function uniqueMockJobID(data: MockConsoleData, name: string) {
-  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
   const baseID = `job-${slug || "stored-job"}`;
   let id = baseID;
   let suffix = 2;
@@ -735,11 +683,7 @@ function jobNameFromDefinition(definition: string) {
       return "ephemeral-run";
     }
 
-    return (
-      stringField(body, "name") ??
-      stringField(body, "id") ??
-      "ephemeral-run"
-    );
+    return stringField(body, "name") ?? stringField(body, "id") ?? "ephemeral-run";
   } catch {
     return "ephemeral-run";
   }
@@ -767,9 +711,5 @@ function cellNameForNamespace(namespacePath: string) {
 }
 
 function namespaceContains(parentPath: string, childPath: string) {
-  return (
-    parentPath === "/" ||
-    childPath === parentPath ||
-    childPath.startsWith(`${parentPath}/`)
-  );
+  return parentPath === "/" || childPath === parentPath || childPath.startsWith(`${parentPath}/`);
 }

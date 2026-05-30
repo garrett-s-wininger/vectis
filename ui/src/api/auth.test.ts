@@ -39,9 +39,10 @@ describe("auth API client", () => {
       })
     );
 
-    await expect(
-      login({ username: "admin", password: "password" })
-    ).resolves.toEqual({ user_id: 7, username: "admin" });
+    await expect(login({ username: "admin", password: "password" })).resolves.toEqual({
+      user_id: 7,
+      username: "admin"
+    });
   });
 
   it("logs out without reading a response body", async () => {

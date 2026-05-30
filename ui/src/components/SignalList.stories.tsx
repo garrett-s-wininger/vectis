@@ -45,10 +45,7 @@ export const ComponentHealth: Story = {};
 
 export const InPanel: Story = {
   render: () => (
-    <SectionPanel
-      description="Service availability and capacity signals."
-      title="Component health"
-    >
+    <SectionPanel description="Service availability and capacity signals." title="Component health">
       <SignalList signals={signals} />
     </SectionPanel>
   )

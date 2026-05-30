@@ -13,9 +13,7 @@ describe("API client", () => {
   });
 
   it("requests JSON with same-origin credentials", async () => {
-    fetchMock.mockResolvedValueOnce(
-      new Response(JSON.stringify({ ok: true }), { status: 200 })
-    );
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }));
 
     await expect(
       requestJSON<{ ok: boolean }>("/api/example", {
@@ -33,17 +31,13 @@ describe("API client", () => {
     );
 
     expect((init.headers as Headers).get("Accept")).toBe("application/json");
-    expect((init.headers as Headers).get("Content-Type")).toBe(
-      "application/json"
-    );
+    expect((init.headers as Headers).get("Content-Type")).toBe("application/json");
   });
 
   it("supports no-content requests", async () => {
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
 
-    await expect(
-      requestNoContent("/api/session", { method: "DELETE" })
-    ).resolves.toBeUndefined();
+    await expect(requestNoContent("/api/session", { method: "DELETE" })).resolves.toBeUndefined();
   });
 
   it("raises API error responses", async () => {

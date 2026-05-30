@@ -34,10 +34,7 @@ export function DashboardPage({ cell }: DashboardPageProps) {
           <SignalList signals={cell.components} />
         </SectionPanel>
         <div className="dashboard-side-stack">
-          <SectionPanel
-            description={`${cell.activeRuns} active runs, ${cell.queueDepth} queued.`}
-            title="Workload"
-          >
+          <SectionPanel description={`${cell.activeRuns} active runs, ${cell.queueDepth} queued.`} title="Workload">
             <div className="progress-meter-stack">
               {cell.progress.map((progress) => (
                 <ProgressMeter

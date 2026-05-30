@@ -15,23 +15,11 @@ type AppShellProps = {
   onNavigate?: (href: string, event: MouseEvent<HTMLAnchorElement>) => void;
 };
 
-export function AppShell({
-  brand,
-  navItems,
-  activeHref,
-  actions,
-  children,
-  onNavigate
-}: AppShellProps) {
+export function AppShell({ brand, navItems, activeHref, actions, children, onNavigate }: AppShellProps) {
   return (
     <div className={styles.root}>
       <header className={styles.topbar}>
-        <a
-          className={styles.brand}
-          href="/"
-          aria-label={`${brand} home`}
-          onClick={(event) => onNavigate?.("/", event)}
-        >
+        <a className={styles.brand} href="/" aria-label={`${brand} home`} onClick={(event) => onNavigate?.("/", event)}>
           <img className={styles.brandLogo} src="/img/vectis.png" alt="" aria-hidden="true" />
         </a>
         <nav className={styles.nav} aria-label="Primary">

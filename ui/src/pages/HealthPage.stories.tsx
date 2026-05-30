@@ -1,9 +1,6 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import {
-  createMockConsoleDataSnapshot,
-  type MockCell
-} from "../mocks/consoleData";
+import { createMockConsoleDataSnapshot, type MockCell } from "../mocks/consoleData";
 import { HealthPage } from "./HealthPage";
 
 const data = createMockConsoleDataSnapshot();
@@ -31,13 +28,7 @@ type Story = StoryObj<typeof meta>;
 function HealthPageMock({ cells }: { cells: MockCell[] }) {
   const [selectedCellID, setSelectedCellID] = useState<string | undefined>();
 
-  return (
-    <HealthPage
-      cells={cells}
-      onSelectCell={setSelectedCellID}
-      selectedCellID={selectedCellID}
-    />
-  );
+  return <HealthPage cells={cells} onSelectCell={setSelectedCellID} selectedCellID={selectedCellID} />;
 }
 
 export const Cluster: Story = {

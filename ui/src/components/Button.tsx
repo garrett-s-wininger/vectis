@@ -5,12 +5,7 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   children: ReactNode;
 };
 
-export function Button({
-  children,
-  className,
-  type = "button",
-  ...props
-}: ButtonProps) {
+export function Button({ children, className, type = "button", ...props }: ButtonProps) {
   const buttonClassName = className ? `${styles.root} ${className}` : styles.root;
 
   return (

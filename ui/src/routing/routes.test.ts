@@ -24,17 +24,15 @@ describe("routes", () => {
   });
 
   it("returns same-origin next paths", () => {
-    expect(
-      safeNextPath("?next=%2Fruns%2F123%3Fstatus%3Drunning%23logs", "http://ui.test")
-    ).toBe("/runs/123?status=running#logs");
+    expect(safeNextPath("?next=%2Fruns%2F123%3Fstatus%3Drunning%23logs", "http://ui.test")).toBe(
+      "/runs/123?status=running#logs"
+    );
   });
 
-  it.each([
-    ["?next=https%3A%2F%2Fevil.test"],
-    ["?next=%2Flogin"],
-    ["?next=%2Fsetup"],
-    [""]
-  ])("rejects unsafe next value %s", (search) => {
-    expect(safeNextPath(search, "http://ui.test")).toBeNull();
-  });
+  it.each([["?next=https%3A%2F%2Fevil.test"], ["?next=%2Flogin"], ["?next=%2Fsetup"], [""]])(
+    "rejects unsafe next value %s",
+    (search) => {
+      expect(safeNextPath(search, "http://ui.test")).toBeNull();
+    }
+  );
 });

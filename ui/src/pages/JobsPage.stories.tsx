@@ -38,9 +38,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 function JobsPageMock({ namespacePath = "/" }: { namespacePath?: string }) {
-  const [data, setData] = useState<MockConsoleData>(() =>
-    createMockConsoleDataSnapshot()
-  );
+  const [data, setData] = useState<MockConsoleData>(() => createMockConsoleDataSnapshot());
   const scopedData = scopeMockConsoleData(data, namespacePath);
 
   return (
@@ -50,9 +48,7 @@ function JobsPageMock({ namespacePath = "/" }: { namespacePath?: string }) {
       onCreateJob={(input) => setData((current) => createMockJob(current, input))}
       onDeleteJob={(jobID) => setData((current) => deleteMockJob(current, jobID))}
       onTriggerRun={(jobID) => setData((current) => triggerMockRun(current, jobID))}
-      onUpdateJob={(jobID, input) =>
-        setData((current) => updateMockJob(current, jobID, input))
-      }
+      onUpdateJob={(jobID, input) => setData((current) => updateMockJob(current, jobID, input))}
     />
   );
 }

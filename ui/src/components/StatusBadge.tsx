@@ -16,9 +16,5 @@ type StatusBadgeProps = {
 };
 
 export function StatusBadge({ status }: StatusBadgeProps) {
-  return (
-    <span className={`${styles.root} ${styles[status]}`}>
-      {statusLabels[status]}
-    </span>
-  );
+  return <span className={`${styles.root} ${styles[status]}`}>{statusLabels[status]}</span>;
 }

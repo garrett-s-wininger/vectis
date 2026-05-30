@@ -90,9 +90,7 @@ function RunSummary({ run }: { run: RunListItem }) {
           <div>
             <dt>Source</dt>
             <dd>
-              <span className={`run-source run-source--${source}`}>
-                {sourceLabel(source)}
-              </span>
+              <span className={`run-source run-source--${source}`}>{sourceLabel(source)}</span>
             </dd>
           </div>
           <div>
@@ -138,11 +136,7 @@ function RunDefinition({ run }: { run: RunListItem }) {
   return (
     <section className="run-detail-panel run-detail-panel--wide">
       <div className="run-detail-panel__header">
-        <h2>
-          {run.source === "ephemeral"
-            ? "Submitted definition"
-            : "Stored job definition"}
-        </h2>
+        <h2>{run.source === "ephemeral" ? "Submitted definition" : "Stored job definition"}</h2>
       </div>
       <pre className="code-block">{definitionForRun(run)}</pre>
     </section>
@@ -206,10 +200,7 @@ function eventsForRun(run: RunListItem) {
 function logsForRun(run: RunListItem) {
   const prefix = run.id;
   if (run.status === "queued") {
-    return [
-      `[${prefix}] accepted ${run.jobName}`,
-      `[${prefix}] waiting for queue dispatch`
-    ];
+    return [`[${prefix}] accepted ${run.jobName}`, `[${prefix}] waiting for queue dispatch`];
   }
 
   if (run.status === "running") {
@@ -220,8 +211,5 @@ function logsForRun(run: RunListItem) {
     ];
   }
 
-  return [
-    `[${prefix}] accepted ${run.jobName}`,
-    `[${prefix}] completed with status ${run.status}`
-  ];
+  return [`[${prefix}] accepted ${run.jobName}`, `[${prefix}] completed with status ${run.status}`];
 }

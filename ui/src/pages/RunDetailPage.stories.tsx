@@ -1,8 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import {
-  createMockConsoleDataSnapshot,
-  submitMockEphemeralRun
-} from "../mocks/consoleData";
+import { createMockConsoleDataSnapshot, submitMockEphemeralRun } from "../mocks/consoleData";
 import { RunDetailPage } from "./RunDetailPage";
 
 const data = createMockConsoleDataSnapshot();
