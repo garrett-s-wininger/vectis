@@ -124,11 +124,12 @@ type RegistryClusterDefaults struct {
 }
 
 type LogDefaults struct {
-	Host            string       `toml:"host"`
-	MetricsPort     int          `toml:"metrics_port"`
-	MaxRunBuffers   int          `toml:"max_run_buffers"`
-	RegistryAddress string       `toml:"registry.address"`
-	GRPC            GRPCDefaults `toml:"grpc"`
+	Host                        string       `toml:"host"`
+	MetricsPort                 int          `toml:"metrics_port"`
+	MaxRunBuffers               int          `toml:"max_run_buffers"`
+	StorageReadOnlyMinFreeBytes uint64       `toml:"storage_read_only_min_free_bytes"`
+	RegistryAddress             string       `toml:"registry.address"`
+	GRPC                        GRPCDefaults `toml:"grpc"`
 }
 
 type GRPCDefaults struct {
@@ -677,6 +678,14 @@ func LogMaxRunBuffers() int {
 	}
 
 	return MustDefaults().Log.MaxRunBuffers
+}
+
+func LogStorageReadOnlyMinFreeBytes() uint64 {
+	if viper.IsSet("storage_read_only_min_free_bytes") {
+		return viper.GetUint64("storage_read_only_min_free_bytes")
+	}
+
+	return MustDefaults().Log.StorageReadOnlyMinFreeBytes
 }
 
 func APIListenAddr() string {

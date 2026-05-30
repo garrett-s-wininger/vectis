@@ -62,7 +62,7 @@ Use these prefixes when building service-specific environment variable names.
 | `vectis-cell-ingress` | `VECTIS_CELL_INGRESS` | `--host`, `--port`, `--metrics-port`, `--repair-interval`, `--queue-address`, `--registry-address` |
 | `vectis-queue` | `VECTIS_QUEUE` | `--port`, `--metrics-port`, `--pool`, `--instance-id`, `--persistence-dir`, `--persistence-snapshot-every` |
 | `vectis-registry` | `VECTIS_REGISTRY` | `--port` |
-| `vectis-log` | `VECTIS_LOG` | `--storage-dir`, `--metrics-port`, `--max-run-buffers` |
+| `vectis-log` | `VECTIS_LOG` | `--instance-id`, `--storage-dir`, `--storage-read-only-min-free-bytes`, `--metrics-port`, `--max-run-buffers` |
 | `vectis-worker` | `VECTIS_WORKER` | `--metrics-port` |
 | `vectis-cron` | `VECTIS_CRON` | `--instance-id`, `--claim-ttl` |
 | `vectis-reconciler` | `VECTIS_RECONCILER` | `--interval`, `--lease-ttl`, `--metrics-port` |
@@ -220,6 +220,10 @@ When registry discovery is used, multiple `vectis-queue` instances may register 
 
 Queue instance IDs must be unique among active queue processes registered in the same registry, except during a controlled replacement of the same shard with the same persistence directory. If two active queues register the same instance ID, the registry treats them as the same logical shard and the later registration wins; workers may route acks to the wrong process. If two active queues point at the same persistence directory, the second queue refuses to start.
 
+When registry discovery is used, multiple `vectis-log` instances may register as run shards. Each log shard needs one stable `VECTIS_LOG_INSTANCE_ID` / `--instance-id`; if it is omitted, `vectis-log` derives a stable ID from the system hostname and log gRPC port. API, worker, and forwarder clients choose the owning log shard by `run_id`, so changing the registered instance set can move new routing decisions. Keep instance IDs and storage directories stable across restarts. If two active log processes point at the same storage directory, the second log process refuses to start.
+
+`VECTIS_LOG_STORAGE_DIR` / `--storage-dir` stores durable run log files. If omitted, the log service uses `$XDG_DATA_HOME/vectis/log/<instance-id>`. `VECTIS_LOG_STORAGE_READ_ONLY_MIN_FREE_BYTES` / `--storage-read-only-min-free-bytes` defaults to `1073741824` (1 GiB). Below that threshold, the shard refuses the first append for a run that does not already have a log file; stored logs remain readable, and existing run files can continue to receive appends. Set the value to `0` to disable the threshold.
+
 Discovery timing defaults include resolver refresh `10s`, poll timeout `5s`, error refresh `2s`, and registration heartbeat `45s`.
 
 For failure behavior with and without registry, see [Failure Domains](../concepts/failure-domains.md#registry-down).
@@ -249,7 +253,7 @@ OpenTelemetry trace export is disabled unless configured:
 | --- | --- |
 | SQLite database | `$XDG_DATA_HOME/vectis/db.sqlite3` |
 | Queue persistence | `$XDG_DATA_HOME/vectis/queue/<pool>/<instance-id>` |
-| Run log files | `$XDG_DATA_HOME/vectis/jobs` |
+| Run log files | `$XDG_DATA_HOME/vectis/log/<instance-id>` |
 | `vectis-local` TLS material | `$XDG_DATA_HOME/vectis/local-tls` |
 
 Queue persistence is configured with `VECTIS_QUEUE_PERSISTENCE_DIR` or `vectis-queue --persistence-dir`. When unset, the default path is derived from `VECTIS_QUEUE_POOL` / `--pool` and `VECTIS_QUEUE_INSTANCE_ID` / `--instance-id`. An empty persistence directory disables queue persistence.

@@ -90,7 +90,7 @@ func doctor(w io.Writer) error {
 		doctorAuditFlushFailures(),
 		doctorTLSFiles(),
 		doctorFilesystemPressure("queue.persistence.filesystem", "Queue persistence filesystem", "queue persistence", envOrDefaultAllowEmpty("VECTIS_QUEUE_PERSISTENCE_DIR", defaultDoctorQueuePersistenceDir())),
-		doctorFilesystemPressure("log.storage.filesystem", "Log storage filesystem", "log storage", envOrDefault("VECTIS_LOG_STORAGE_DIR", filepath.Join(utils.DataHome(), "vectis", "jobs"))),
+		doctorFilesystemPressure("log.storage.filesystem", "Log storage filesystem", "log storage", envOrDefault("VECTIS_LOG_STORAGE_DIR", defaultDoctorLogStorageDir())),
 		doctorFilesystemPressure("log.forwarder.spool.filesystem", "Log forwarder spool filesystem", "log-forwarder spool", envOrDefault("VECTIS_LOG_FORWARDER_SPOOL_DIR", defaultDoctorForwarderSpoolDir())),
 	}
 
@@ -1201,6 +1201,10 @@ func defaultDoctorForwarderSpoolDir() string {
 	}
 
 	return filepath.Join(dataHome, "vectis", "log-forwarder", "spool")
+}
+
+func defaultDoctorLogStorageDir() string {
+	return filepath.Join(utils.DataHome(), "vectis", "log")
 }
 
 func defaultDoctorQueuePersistenceDir() string {

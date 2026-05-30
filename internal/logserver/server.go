@@ -6,15 +6,19 @@ import (
 	"errors"
 	"io"
 	"net"
+	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	api "vectis/api/gen/go"
@@ -31,6 +35,28 @@ const (
 	GetLogsReplayLimitMetadata = "vectis-log-replay-limit"
 	GetLogsTailMetadata        = "vectis-log-tail"
 )
+
+type RunOptions struct {
+	InstanceID string
+}
+
+func DefaultInstanceID(bindAddr string) string {
+	hostname, err := os.Hostname()
+	if err == nil {
+		hostname = strings.TrimSpace(hostname)
+	}
+
+	if hostname == "" {
+		hostname = "log"
+	}
+
+	_, port, err := net.SplitHostPort(bindAddr)
+	if err != nil || port == "" {
+		return hostname
+	}
+
+	return hostname + "-" + port
+}
 
 type LogEntry struct {
 	Timestamp time.Time      `json:"timestamp"`
@@ -266,6 +292,7 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 	// connection). The synthetic completion on EOF applies only to the last run
 	// seen. Multi-run connections would need per-buffer tracking on EOF.
 	ctx := stream.Context()
+	syntheticCompletion := boolMetadata(ctx, interfaces.LogSyntheticCompletionMetadata)
 	var lastBuffer *JobBuffer
 	var lastRunID string
 
@@ -274,7 +301,7 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				// Worker stream ended. Emit synthetic completion if needed.
-				if lastBuffer != nil && !lastBuffer.IsTerminal() {
+				if syntheticCompletion && lastBuffer != nil && !lastBuffer.IsTerminal() {
 					s.logger.Warn("Stream ended for run %s without completion event", lastRunID)
 
 					entries := lastBuffer.GetEntries()
@@ -307,9 +334,6 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 			s.metrics.RecordGRPCChunk(ctx)
 		}
 
-		lastRunID = chunk.GetRunId()
-		lastBuffer = s.getOrCreateBuffer(lastRunID)
-
 		now := time.Now()
 		if ts := chunk.GetTimestamp(); ts != nil {
 			now = ts.AsTime()
@@ -328,8 +352,15 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 				s.metrics.RecordAppendFailure(ctx)
 			}
 
+			if errors.Is(err, ErrLogStoreReadOnly) {
+				return status.Error(codes.ResourceExhausted, err.Error())
+			}
+
 			return err
 		}
+
+		lastRunID = chunk.GetRunId()
+		lastBuffer = s.getOrCreateBuffer(lastRunID)
 
 		if !lastBuffer.Add(entry) {
 			if s.metrics != nil {
@@ -569,6 +600,25 @@ func positiveIntMetadata(ctx context.Context, key string) int {
 	return n
 }
 
+func boolMetadata(ctx context.Context, key string) bool {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return false
+	}
+
+	values := md.Get(key)
+	if len(values) == 0 {
+		return false
+	}
+
+	switch values[0] {
+	case "1", "true", "TRUE", "True", "yes", "YES", "Yes", "on", "ON", "On":
+		return true
+	default:
+		return false
+	}
+}
+
 func nextSequence(entries []LogEntry) int64 {
 	var max int64
 	for _, e := range entries {
@@ -630,6 +680,10 @@ func (s *Server) RunGRPC(ctx context.Context, port string) error {
 }
 
 func Run(ctx context.Context, logger interfaces.Logger, store RunLogStore, metrics *observability.LogMetrics) error {
+	return RunWithOptions(ctx, logger, store, metrics, RunOptions{})
+}
+
+func RunWithOptions(ctx context.Context, logger interfaces.Logger, store RunLogStore, metrics *observability.LogMetrics, opts RunOptions) error {
 	if err := config.ValidateGRPCTLSForRole(config.GRPCTLSDaemonLog); err != nil {
 		return err
 	}
@@ -643,9 +697,15 @@ func Run(ctx context.Context, logger interfaces.Logger, store RunLogStore, metri
 
 		bindGRPC := config.LogGRPCListenAddr()
 		publishAddr := config.LogGRPCRegistryPublishAddress(bindGRPC)
+		instanceID := opts.InstanceID
+		if instanceID == "" {
+			instanceID = DefaultInstanceID(bindGRPC)
+		}
+
 		stopRegistration, err := registry.RegisterWithHeartbeat(ctx, registry.RegistrationOptions{
 			RegistryAddress: regAddr,
 			Component:       api.Component_COMPONENT_LOG,
+			InstanceID:      instanceID,
 			PublishAddress:  publishAddr,
 			Metadata:        registry.DefaultServiceMetadataForCell(config.CellID()),
 			RefreshInterval: config.RegistryRegistrationRefresh(),
@@ -657,7 +717,7 @@ func Run(ctx context.Context, logger interfaces.Logger, store RunLogStore, metri
 		}
 
 		defer stopRegistration()
-		logger.Info("Registered log service with registry at %s", publishAddr)
+		logger.Info("Registered log service %s with registry at %s", instanceID, publishAddr)
 	} else {
 		logger.Info("Skipping registry registration (log.grpc.register_with_registry is false)")
 	}

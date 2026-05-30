@@ -26,9 +26,9 @@ import (
 	"vectis/internal/dal"
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
+	"vectis/internal/logclient"
 	"vectis/internal/observability"
 	"vectis/internal/queueclient"
-	"vectis/internal/resolver"
 	"vectis/internal/version"
 
 	"google.golang.org/grpc"
@@ -51,9 +51,13 @@ type queueClientHolder struct {
 }
 
 type logClientHolder struct {
-	client api.LogServiceClient
-	conn   *grpc.ClientConn
+	client logReaderClient
+	state  func() connectivity.State
 	close  func()
+}
+
+type logReaderClient interface {
+	GetLogs(ctx context.Context, in *api.GetLogsRequest, opts ...grpc.CallOption) (api.LogService_GetLogsClient, error)
 }
 
 type ctxHolder struct {
@@ -538,13 +542,22 @@ func (s *APIServer) ConnectToLog(ctx context.Context) error {
 		old.close()
 	}
 
-	conn, cleanup, err := resolver.DialLog(ctx, s.logger, config.APILogAddress(), config.APIRegistryDialAddress(), s.retryMetrics)
+	client, err := logclient.NewManagingLogClient(ctx, s.logger, logclient.PoolOptions{
+		PinnedAddress:   config.APILogAddress(),
+		RegistryAddress: config.APIRegistryDialAddress(),
+		RetryMetrics:    s.retryMetrics,
+	})
+
 	if err != nil {
 		return fmt.Errorf("failed to connect to log service: %w", err)
 	}
 
-	client := api.NewLogServiceClient(conn)
-	s.logClient.Store(&logClientHolder{client: client, conn: conn, close: cleanup})
+	s.logClient.Store(&logClientHolder{
+		client: client,
+		state:  client.GRPCConnectivityState,
+		close:  func() { _ = client.Close() },
+	})
+
 	return nil
 }
 

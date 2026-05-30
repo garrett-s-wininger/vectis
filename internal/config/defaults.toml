@@ -57,6 +57,7 @@ peer_dial_timeout = "3s"
 host = "localhost"
 metrics_port = 9083
 max_run_buffers = 1024
+storage_read_only_min_free_bytes = 1073741824
 
 [log.grpc]
 port = 8083

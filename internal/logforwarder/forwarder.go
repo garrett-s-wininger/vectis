@@ -15,8 +15,7 @@ import (
 	"vectis/internal/backoff"
 	"vectis/internal/config"
 	"vectis/internal/interfaces"
-	"vectis/internal/registry"
-	"vectis/internal/resolver"
+	"vectis/internal/logclient"
 )
 
 const (
@@ -214,7 +213,22 @@ func (f *Forwarder) sendBatch(parentCtx context.Context, batch []*api.LogChunk) 
 	ctx, cancel := context.WithTimeout(parentCtx, 30*time.Second)
 	defer cancel()
 
-	stream, err := f.logClient.StreamLogs(ctx)
+	return f.sendChunkGroups(ctx, batch)
+}
+
+func (f *Forwarder) sendChunkGroups(ctx context.Context, chunks []*api.LogChunk) error {
+	groups := groupChunksByRun(chunks)
+	for _, group := range groups {
+		if err := f.sendChunkGroup(ctx, group.runID, group.chunks); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (f *Forwarder) sendChunkGroup(ctx context.Context, runID string, chunks []*api.LogChunk) error {
+	stream, err := f.openLogStream(ctx, runID)
 	if err != nil {
 		return fmt.Errorf("create stream: %w", err)
 	}
@@ -227,13 +241,44 @@ func (f *Forwarder) sendBatch(parentCtx context.Context, batch []*api.LogChunk) 
 		}
 	}()
 
-	for _, chunk := range batch {
+	for _, chunk := range chunks {
 		if err := stream.Send(chunk); err != nil {
 			return fmt.Errorf("send chunk: %w", err)
 		}
 	}
 
 	return nil
+}
+
+func (f *Forwarder) openLogStream(ctx context.Context, runID string) (interfaces.LogStream, error) {
+	if scoped, ok := f.logClient.(interfaces.RunLogClient); ok && runID != "" {
+		return scoped.StreamLogsForRun(ctx, runID)
+	}
+
+	return f.logClient.StreamLogs(ctx)
+}
+
+type chunkGroup struct {
+	runID  string
+	chunks []*api.LogChunk
+}
+
+func groupChunksByRun(chunks []*api.LogChunk) []chunkGroup {
+	byRun := make(map[string]int)
+	groups := make([]chunkGroup, 0)
+	for _, chunk := range chunks {
+		runID := chunk.GetRunId()
+		idx, ok := byRun[runID]
+		if !ok {
+			idx = len(groups)
+			byRun[runID] = idx
+			groups = append(groups, chunkGroup{runID: runID})
+		}
+
+		groups[idx].chunks = append(groups[idx].chunks, chunk)
+	}
+
+	return groups
 }
 
 func (f *Forwarder) spoolBatch(batch []*api.LogChunk) error {
@@ -389,19 +434,6 @@ func (f *Forwarder) forwardSpoolFile(parentCtx context.Context, path string) err
 	ctx, cancel := context.WithTimeout(parentCtx, 30*time.Second)
 	defer cancel()
 
-	stream, err := f.logClient.StreamLogs(ctx)
-	if err != nil {
-		return fmt.Errorf("create stream: %w", err)
-	}
-
-	defer func() {
-		if s, ok := stream.(interface{ CloseAndRecv() error }); ok {
-			_ = s.CloseAndRecv()
-		} else {
-			_ = stream.CloseSend()
-		}
-	}()
-
 	for {
 		chunks, err := reader.ReadBatch()
 		if err != nil {
@@ -412,10 +444,8 @@ func (f *Forwarder) forwardSpoolFile(parentCtx context.Context, path string) err
 			return fmt.Errorf("read batch: %w", err)
 		}
 
-		for _, chunk := range chunks {
-			if err := stream.Send(chunk); err != nil {
-				return fmt.Errorf("send chunk: %w", err)
-			}
+		if err := f.sendChunkGroups(ctx, chunks); err != nil {
+			return err
 		}
 	}
 
@@ -440,29 +470,15 @@ func defaultSpoolDir() string {
 // ResolveLogClient creates a gRPC log client using the same discovery
 // semantics as the worker.
 func ResolveLogClient(ctx context.Context, logger interfaces.Logger, retryMetrics backoff.RetryMetrics) (interfaces.LogClient, func(), error) {
-	pin := config.PinnedLogAddress()
-	if pin != "" {
-		conn, cleanup, err := resolver.NewClientWithPinnedAddress(ctx, api.Component_COMPONENT_LOG, pin, logger, nil, retryMetrics)
-		if err != nil {
-			return nil, nil, fmt.Errorf("pinned log client: %w", err)
-		}
+	client, err := logclient.NewManagingLogClient(ctx, logger, logclient.PoolOptions{
+		PinnedAddress:   config.PinnedLogAddress(),
+		RegistryAddress: config.WorkerRegistryDialAddress(),
+		RetryMetrics:    retryMetrics,
+	})
 
-		return interfaces.NewGRPCLogClient(conn), cleanup, nil
-	}
-
-	regClient, err := registry.New(ctx, config.WorkerRegistryDialAddress(), logger, interfaces.SystemClock{}, retryMetrics)
 	if err != nil {
-		return nil, nil, fmt.Errorf("registry client: %w", err)
+		return nil, nil, fmt.Errorf("log client: %w", err)
 	}
 
-	conn, cleanup, err := resolver.NewClientWithRegistry(ctx, api.Component_COMPONENT_LOG, logger, regClient, retryMetrics)
-	if err != nil {
-		regClient.Close()
-		return nil, nil, fmt.Errorf("registry log client: %w", err)
-	}
-
-	return interfaces.NewGRPCLogClient(conn), func() {
-		cleanup()
-		regClient.Close()
-	}, nil
+	return client, func() { _ = client.Close() }, nil
 }

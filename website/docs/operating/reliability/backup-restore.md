@@ -12,7 +12,7 @@ Back up the SQL database first and most carefully. It is the source of truth for
 | --- | --- | --- |
 | SQL database | Source of truth for jobs, job definitions, runs, schedules, auth, RBAC, audit, idempotency, dispatch events, and setup state | SQLite file from `VECTIS_DATABASE_DSN`, role files from `VECTIS_GLOBAL_DATABASE_DSN` / `VECTIS_CELL_DATABASE_DSN`, or the configured Postgres database |
 | Queue persistence | Pending, in-flight, and DLQ delivery state when queue persistence is enabled | `VECTIS_QUEUE_PERSISTENCE_DIR`, `vectis-queue --persistence-dir`, or the default `$XDG_DATA_HOME/vectis/queue/<pool>/<instance-id>` |
-| Log storage | Durable run logs served by `vectis-log` | `VECTIS_LOG_STORAGE_DIR` or `vectis-log --storage-dir` |
+| Log storage | Durable run logs served by `vectis-log` | `VECTIS_LOG_STORAGE_DIR`, `vectis-log --storage-dir`, or the default `$XDG_DATA_HOME/vectis/log/<instance-id>` |
 | Log-forwarder spool | Worker-side batches not yet delivered to log service | Configured log-forwarder spool directory |
 | Deployment secrets | Postgres password, API bootstrap token, rendered local deploy secrets | `VECTIS_DEPLOY_CONFIG_DIR/podman` or the OS user config Vectis deploy directory |
 | TLS material | gRPC CA, server certs, client certs, Postgres TLS CA/certs, local dev TLS | Paths configured under `VECTIS_GRPC_TLS_*`, Podman TLS volumes, and `$XDG_DATA_HOME/vectis/local-tls` for `vectis-local` |
@@ -84,7 +84,7 @@ Use this for `vectis-local`, local development, single-node SQLite deployments, 
 
 1. Stop `vectis-local` or every standalone `vectis-*` process.
 2. Copy the SQLite database file or files from backup to the configured `VECTIS_DATABASE_DSN` path, or to the role-specific `VECTIS_GLOBAL_DATABASE_DSN` and `VECTIS_CELL_DATABASE_DSN` paths when split.
-3. Restore `$XDG_DATA_HOME/vectis/queue`, `$XDG_DATA_HOME/vectis/jobs`, and `$XDG_DATA_HOME/vectis/local-tls` when they are part of the backup. Queue shard directories are nested below `$XDG_DATA_HOME/vectis/queue/<pool>/<instance-id>` by default.
+3. Restore `$XDG_DATA_HOME/vectis/queue`, `$XDG_DATA_HOME/vectis/log`, `$XDG_DATA_HOME/vectis/jobs`, and `$XDG_DATA_HOME/vectis/local-tls` when they are part of the backup. Queue shard directories are nested below `$XDG_DATA_HOME/vectis/queue/<pool>/<instance-id>` by default; log shard directories are nested below `$XDG_DATA_HOME/vectis/log/<instance-id>` by default.
 4. Restore CLI token and local deploy secrets only when you intentionally want the same local identity state.
 5. Run `vectis-cli database migrate` with the restored database settings, once per restored SQL database.
 6. Start `vectis-local` or the standalone services.

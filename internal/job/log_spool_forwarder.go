@@ -146,18 +146,8 @@ func (f *LogSpoolForwarder) forwardFile(path string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	stream, err := f.logClient.StreamLogs(ctx)
-	if err != nil {
-		return fmt.Errorf("create stream: %w", err)
-	}
-	defer func() {
-		if s, ok := stream.(interface{ CloseAndRecv() error }); ok {
-			_ = s.CloseAndRecv()
-		} else {
-			_ = stream.CloseSend()
-		}
-	}()
-
+	var stream interfaces.LogStream
+	var streamRunID string
 	reader := bufio.NewReader(file)
 	for {
 		line, err := reader.ReadString('\n')
@@ -178,12 +168,50 @@ func (f *LogSpoolForwarder) forwardFile(path string) error {
 			continue
 		}
 
+		runID := chunk.GetRunId()
+		if stream == nil || runID != streamRunID {
+			if err := closeLogStream(stream); err != nil {
+				return fmt.Errorf("close stream: %w", err)
+			}
+
+			stream, err = f.openLogStream(ctx, runID)
+			if err != nil {
+				return fmt.Errorf("create stream: %w", err)
+			}
+
+			streamRunID = runID
+		}
+
 		if err := stream.Send(chunk); err != nil {
 			return fmt.Errorf("send chunk: %w", err)
 		}
 	}
 
+	if err := closeLogStream(stream); err != nil {
+		return fmt.Errorf("close stream: %w", err)
+	}
+
 	return nil
+}
+
+func (f *LogSpoolForwarder) openLogStream(ctx context.Context, runID string) (interfaces.LogStream, error) {
+	if scoped, ok := f.logClient.(interfaces.RunLogClient); ok && runID != "" {
+		return scoped.StreamLogsForRun(ctx, runID)
+	}
+
+	return f.logClient.StreamLogs(ctx)
+}
+
+func closeLogStream(stream interfaces.LogStream) error {
+	if stream == nil {
+		return nil
+	}
+
+	if s, ok := stream.(interface{ CloseAndRecv() error }); ok {
+		return s.CloseAndRecv()
+	}
+
+	return stream.CloseSend()
 }
 
 // ForwardSpoolFile sends a single spool file to the log service.

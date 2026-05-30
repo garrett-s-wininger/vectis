@@ -200,6 +200,25 @@ func TestLogMaxRunBuffers_DefaultAndOverride(t *testing.T) {
 	}
 }
 
+func TestLogStorageReadOnlyMinFreeBytes_DefaultAndOverride(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	if got := LogStorageReadOnlyMinFreeBytes(); got != 1<<30 {
+		t.Fatalf("LogStorageReadOnlyMinFreeBytes default: got %d", got)
+	}
+
+	viper.Set("storage_read_only_min_free_bytes", uint64(2048))
+	if got := LogStorageReadOnlyMinFreeBytes(); got != 2048 {
+		t.Fatalf("LogStorageReadOnlyMinFreeBytes override: got %d", got)
+	}
+
+	viper.Set("storage_read_only_min_free_bytes", uint64(0))
+	if got := LogStorageReadOnlyMinFreeBytes(); got != 0 {
+		t.Fatalf("LogStorageReadOnlyMinFreeBytes should allow disabling threshold: got %d", got)
+	}
+}
+
 func TestAPIHostAndListenAddr_DefaultAndOverride(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)

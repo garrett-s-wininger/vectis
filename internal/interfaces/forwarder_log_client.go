@@ -37,6 +37,10 @@ func (c *ForwarderLogClient) StreamLogs(ctx context.Context) (LogStream, error) 
 	return &forwarderLogStream{conn: conn}, nil
 }
 
+func (c *ForwarderLogClient) StreamLogsForRun(ctx context.Context, _ string) (LogStream, error) {
+	return c.StreamLogs(ctx)
+}
+
 // Close is a no-op for this client (connections are per-stream).
 func (c *ForwarderLogClient) Close() error {
 	return nil
@@ -105,11 +109,26 @@ func (c *PreferForwarderLogClient) StreamLogs(ctx context.Context) (LogStream, e
 	return c.fallback.StreamLogs(ctx)
 }
 
+func (c *PreferForwarderLogClient) StreamLogsForRun(ctx context.Context, runID string) (LogStream, error) {
+	stream, err := NewForwarderLogClient(c.socketPath).StreamLogsForRun(ctx, runID)
+	if err == nil {
+		return stream, nil
+	}
+
+	if scoped, ok := c.fallback.(RunLogClient); ok {
+		return scoped.StreamLogsForRun(ctx, runID)
+	}
+
+	return c.fallback.StreamLogs(ctx)
+}
+
 // Close delegates to the fallback client.
 func (c *PreferForwarderLogClient) Close() error {
 	return c.fallback.Close()
 }
 
 var _ LogClient = (*ForwarderLogClient)(nil)
+var _ RunLogClient = (*ForwarderLogClient)(nil)
 var _ LogStream = (*forwarderLogStream)(nil)
 var _ LogClient = (*PreferForwarderLogClient)(nil)
+var _ RunLogClient = (*PreferForwarderLogClient)(nil)

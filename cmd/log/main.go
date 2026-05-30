@@ -30,16 +30,34 @@ func runLog(cmd *cobra.Command, args []string) {
 	}
 	config.StartMetricsTLSReloadLoop(ctx)
 
-	storageDir := viper.GetString("storage_dir")
-	if storageDir == "" {
-		logger.Fatal("log storage_dir must not be empty")
+	instanceID := viper.GetString("instance_id")
+	if instanceID == "" {
+		instanceID = logserver.DefaultInstanceID(config.LogGRPCListenAddr())
 	}
 
-	store, err := logserver.NewLocalRunLogStore(storageDir)
+	storageDir := viper.GetString("storage_dir")
+	if storageDir == "" {
+		storageDir = filepath.Join(utils.DataHome(), "vectis", "log", instanceID)
+	}
+
+	readOnlyMinFreeBytes := viper.GetUint64("storage_read_only_min_free_bytes")
+	store, err := logserver.NewLocalRunLogStoreWithOptions(storageDir, logserver.LocalRunLogStoreOptions{
+		NewRunMinFreeBytes: readOnlyMinFreeBytes,
+	})
+
 	if err != nil {
 		logger.Fatal("Failed to initialize log storage: %v", err)
 	}
+
+	defer func() {
+		if err := store.Close(); err != nil {
+			logger.Warn("Failed to close log storage: %v", err)
+		}
+	}()
+
+	logger.Info("Log instance ID: %s", instanceID)
 	logger.Info("Using durable log storage directory: %s", storageDir)
+	logger.Info("Log storage new-run read-only threshold: %d free bytes", readOnlyMinFreeBytes)
 
 	metricsHandler, shutdownMetrics, err := observability.InitServiceMetrics(ctx, "vectis-log")
 	if err != nil {
@@ -61,7 +79,7 @@ func runLog(cmd *cobra.Command, args []string) {
 	}
 	defer metricsSrv.Shutdown()
 
-	if err := logserver.Run(ctx, logger, store, logMetrics); err != nil {
+	if err := logserver.RunWithOptions(ctx, logger, store, logMetrics, logserver.RunOptions{InstanceID: instanceID}); err != nil {
 		logger.Fatal("Log service failed: %v", err)
 	}
 }
@@ -74,17 +92,22 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	cli.ConfigureVersion(rootCmd)
-	defaultStorage := filepath.Join(utils.DataHome(), "vectis", "jobs")
-	viper.SetDefault("storage_dir", defaultStorage)
+	viper.SetDefault("storage_dir", "")
+	viper.SetDefault("instance_id", "")
 	viper.SetDefault("metrics_port", config.LogMetricsPort())
 	viper.SetDefault("max_run_buffers", config.LogMaxRunBuffers())
+	viper.SetDefault("storage_read_only_min_free_bytes", config.LogStorageReadOnlyMinFreeBytes())
 
-	rootCmd.PersistentFlags().String("storage-dir", defaultStorage, "Directory for durable run log files")
+	rootCmd.PersistentFlags().String("storage-dir", "", "Directory for durable run log files (default: $XDG_DATA_HOME/vectis/log/<instance-id>)")
+	rootCmd.PersistentFlags().String("instance-id", "", "Stable log shard identifier used for registry routing (default: hostname-port)")
 	rootCmd.PersistentFlags().Int("metrics-port", config.LogMetricsPort(), "HTTP port for Prometheus /metrics")
 	rootCmd.PersistentFlags().Int("max-run-buffers", config.LogMaxRunBuffers(), "Maximum in-memory run log buffers before terminal buffers are evicted")
+	rootCmd.PersistentFlags().Uint64("storage-read-only-min-free-bytes", config.LogStorageReadOnlyMinFreeBytes(), "Minimum free bytes required before accepting logs for a new run (0 disables)")
 	_ = viper.BindPFlag("storage_dir", rootCmd.PersistentFlags().Lookup("storage-dir"))
+	_ = viper.BindPFlag("instance_id", rootCmd.PersistentFlags().Lookup("instance-id"))
 	_ = viper.BindPFlag("metrics_port", rootCmd.PersistentFlags().Lookup("metrics-port"))
 	_ = viper.BindPFlag("max_run_buffers", rootCmd.PersistentFlags().Lookup("max-run-buffers"))
+	_ = viper.BindPFlag("storage_read_only_min_free_bytes", rootCmd.PersistentFlags().Lookup("storage-read-only-min-free-bytes"))
 
 	viper.SetEnvPrefix("VECTIS_LOG")
 	viper.AutomaticEnv()

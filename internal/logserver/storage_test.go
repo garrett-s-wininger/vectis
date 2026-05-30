@@ -1,6 +1,7 @@
 package logserver
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -112,4 +113,78 @@ func TestLocalRunLogStore_SanitizesRunIDInPath(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("expected 1 entry, got %d", len(got))
 	}
+}
+
+func TestLocalRunLogStore_ReadOnlyThresholdRejectsNewRuns(t *testing.T) {
+	store, err := NewLocalRunLogStoreWithOptions(t.TempDir(), LocalRunLogStoreOptions{
+		NewRunMinFreeBytes: 100,
+		statFS: func(string) (filesystemStats, error) {
+			return filesystemStats{freeBytes: 99, freeInodes: 1}, nil
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("new local run log store: %v", err)
+	}
+
+	err = store.Append("new-run", LogEntry{Sequence: 1, Data: "x"})
+	if !errors.Is(err, ErrLogStoreReadOnly) {
+		t.Fatalf("expected ErrLogStoreReadOnly, got %v", err)
+	}
+}
+
+func TestLocalRunLogStore_ReadOnlyThresholdAllowsExistingRuns(t *testing.T) {
+	freeBytes := uint64(1000)
+	store, err := NewLocalRunLogStoreWithOptions(t.TempDir(), LocalRunLogStoreOptions{
+		NewRunMinFreeBytes: 100,
+		statFS: func(string) (filesystemStats, error) {
+			return filesystemStats{freeBytes: freeBytes, freeInodes: 1}, nil
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("new local run log store: %v", err)
+	}
+
+	if err := store.Append("existing-run", LogEntry{Sequence: 1, Data: "first"}); err != nil {
+		t.Fatalf("append initial entry: %v", err)
+	}
+
+	freeBytes = 99
+	if err := store.Append("existing-run", LogEntry{Sequence: 2, Data: "second"}); err != nil {
+		t.Fatalf("append existing run below threshold: %v", err)
+	}
+
+	got, err := store.List("existing-run")
+	if err != nil {
+		t.Fatalf("list existing run: %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(got))
+	}
+}
+
+func TestLocalRunLogStore_LocksStorageDir(t *testing.T) {
+	dir := t.TempDir()
+
+	first, err := NewLocalRunLogStore(dir)
+	if err != nil {
+		t.Fatalf("new first store: %v", err)
+	}
+	defer first.Close()
+
+	if _, err := NewLocalRunLogStore(dir); err == nil {
+		t.Fatal("expected second store on same directory to fail")
+	}
+
+	if err := first.Close(); err != nil {
+		t.Fatalf("close first store: %v", err)
+	}
+
+	second, err := NewLocalRunLogStore(dir)
+	if err != nil {
+		t.Fatalf("new store after close: %v", err)
+	}
+	defer second.Close()
 }

@@ -77,8 +77,8 @@ vectis-cli retention cleanup --dry-run --audit-age 0
 For a single-node/local log service, include the log storage directory if you want matching durable run log files removed:
 
 ```sh
-vectis-cli retention cleanup --dry-run --log-storage-dir "$XDG_DATA_HOME/vectis/jobs"
-vectis-cli retention cleanup --yes --log-storage-dir "$XDG_DATA_HOME/vectis/jobs"
+vectis-cli retention cleanup --dry-run --log-storage-dir "$XDG_DATA_HOME/vectis/log/<instance-id>"
+vectis-cli retention cleanup --yes --log-storage-dir "$XDG_DATA_HOME/vectis/log/<instance-id>"
 ```
 
 ## Safety Guarantees

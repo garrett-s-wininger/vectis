@@ -17,6 +17,7 @@ import (
 	"vectis/internal/backoff"
 	"vectis/internal/interfaces"
 
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -90,6 +91,7 @@ func SetLogSpoolDirForTest(dir string) {
 type durableLogStream struct {
 	logger    interfaces.Logger
 	logClient interfaces.LogClient
+	runID     string
 
 	mu           sync.Mutex
 	cond         *sync.Cond
@@ -138,6 +140,7 @@ func newDurableLogStream(logClient interfaces.LogClient, logger interfaces.Logge
 	d := &durableLogStream{
 		logger:       logger,
 		logClient:    logClient,
+		runID:        runID,
 		spool:        spool,
 		spoolPath:    spool.Name(),
 		maxSpoolSize: maxSize,
@@ -413,7 +416,7 @@ func (d *durableLogStream) ensureStream() (interfaces.LogStream, error) {
 		return nil, fmt.Errorf("log flush deadline exceeded after %s", flushTimeout)
 	}
 
-	stream, err := d.logClient.StreamLogs(d.streamCtx)
+	stream, err := d.openLogStream(d.streamCtx)
 	if err != nil {
 		d.noteAggregatorUnavailable(err)
 		return nil, err
@@ -443,13 +446,22 @@ func (d *durableLogStream) probeInitialConnectivity() {
 	probeCtx, cancel := context.WithTimeout(d.streamCtx, probeTimeout)
 	defer cancel()
 
-	stream, err := d.logClient.StreamLogs(probeCtx)
+	stream, err := d.openLogStream(probeCtx)
 	if err != nil {
 		d.noteAggregatorUnavailable(err)
 		return
 	}
 
 	_ = stream.CloseSend()
+}
+
+func (d *durableLogStream) openLogStream(ctx context.Context) (interfaces.LogStream, error) {
+	ctx = metadata.AppendToOutgoingContext(ctx, interfaces.LogSyntheticCompletionMetadata, "true")
+	if scoped, ok := d.logClient.(interfaces.RunLogClient); ok {
+		return scoped.StreamLogsForRun(ctx, d.runID)
+	}
+
+	return d.logClient.StreamLogs(ctx)
 }
 
 func (d *durableLogStream) closeCurrentStream() error {

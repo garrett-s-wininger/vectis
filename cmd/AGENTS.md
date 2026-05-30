@@ -63,7 +63,7 @@ Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-thirteen-
 | `vectis-cell-ingress` | `VECTIS_CELL_INGRESS` | `[cell_ingress]`; private HTTP `POST /cell/v1/executions`, local execution repair, plus queue discovery/pinned queue settings |
 | `vectis-queue` | `VECTIS_QUEUE` | `[queue]`; default instance ID is `hostname-port`, default persistence is `queue/<pool>/<instance-id>`; keep active shards unique |
 | `vectis-registry` | `VECTIS_REGISTRY` | `[registry]` |
-| `vectis-log` | `VECTIS_LOG` | `[log]` |
+| `vectis-log` | `VECTIS_LOG` | `[log]`; default instance ID is `hostname-port`, default storage is `log/<instance-id>`, and `--storage-read-only-min-free-bytes` protects new run files under disk pressure |
 | `vectis-worker` | `VECTIS_WORKER` | `[worker]` |
 | `vectis-cron` | `VECTIS_CRON` | `[cron]`; `--instance-id` labels schedule claims, `--claim-ttl` bounds claim failover |
 | `vectis-catalog` | `VECTIS_CATALOG` | `[catalog]`; `--cell-database-dsn cell=dsn` / `VECTIS_CATALOG_CELL_DATABASE_DSNS` configures catalog fan-in from cell-local DBs |

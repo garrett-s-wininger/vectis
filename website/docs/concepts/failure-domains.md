@@ -12,7 +12,7 @@ The database and queue are the two services to protect first.
 | --- | --- |
 | Database | Durable source of truth for jobs, runs, schedules, leases, users, tokens, namespaces, audit records, and idempotency keys. |
 | Queue | Handoff point between producers such as API, cron, and reconciler, and consumers such as workers. |
-| Log service | Required before a worker starts normal job execution. It owns log ingest and log streaming, not authoritative run state. |
+| Log service | Required before a worker starts normal job execution. Log shards own ingest and streaming for routed runs, not authoritative run state. |
 | Registry | Service discovery. It is avoidable for some paths when queue and log addresses are pinned in config. |
 | API | User and automation entry point. Running work does not depend on the API once workers have claimed it. |
 | Worker | Executes jobs. Capacity and failure handling are mostly worker-count and lease behavior questions. |
@@ -34,7 +34,7 @@ Most Vectis outages reduce to one of these questions:
 | `vectis-api` | Database; queue by pinned address or registry; log service for log routes. |
 | `vectis-queue` | Optional registry when it registers its address; per-instance persistence directory when queue persistence is enabled. Active queues must not share an instance ID or persistence directory. |
 | `vectis-registry` | Listen socket and optional TLS files. |
-| `vectis-log` | Storage directory; gRPC ingest listener; HTTP/SSE log listener; optional registry. |
+| `vectis-log` | Per-shard storage directory; gRPC ingest listener; HTTP/SSE log listener; optional registry. |
 | `vectis-worker` | Database; queue; log service; registry unless queue and log addresses are pinned. |
 | `vectis-log-forwarder` | Log service and local spool directory. |
 | `vectis-cron` | Database and queue. |
@@ -60,7 +60,7 @@ If queue and log addresses are pinned, callers can avoid registry lookups. Servi
 | `vectis-api` | Database, expected schema, queue dial, required TLS files. | Database for REST state; queue for dispatch; log service for log routes. | `GET /health/live` means the process is serving. `GET /health/ready` checks database ping and managed queue connectivity. |
 | `vectis-queue` | gRPC listener, persistence directory when enabled, required TLS files, registry when registration is enabled. | Queue storage and delivery scanner. | Use gRPC health service `queue`; scrape metrics for depth and delivery health. |
 | `vectis-registry` | gRPC listener and required TLS files. | In-memory discovery state. | Use gRPC health service `registry`. |
-| `vectis-log` | gRPC listener, HTTP log listener, storage directory, required TLS files, registry when registration is enabled. | Durable log storage and active stream buffers. | Use gRPC health service `log` for ingest; check log HTTP separately for clients reading streams. |
+| `vectis-log` | gRPC listener, HTTP log listener, per-shard storage directory, required TLS files, registry when registration is enabled. | Durable log storage and active stream buffers for runs routed to the shard. | Use gRPC health service `log` for ingest; check log HTTP separately for clients reading streams. |
 | `vectis-worker` | Database, queue, log service, required TLS files. | Database leases/finalization; queue dequeue/ack; log stream before execution. | Use supervisor state plus dependency gates. There is no worker HTTP readiness endpoint. |
 | `vectis-log-forwarder` | Log service, required TLS files, local spool directory. | Log service for draining batches. | Use process supervision plus spool size and age. |
 | `vectis-cron` | Database, queue, required TLS files. | Database schedules and queue enqueue. | Gate scheduled traffic on database and queue reachability. |
@@ -107,15 +107,15 @@ Run the reconciler and alert on persistent queued-run age if queue handoff matte
 
 ## Log Service Down
 
-The log service collects worker log chunks and serves log streams to clients. It does not own authoritative run status.
+The log service collects worker log chunks and serves log streams to clients. Multiple log services can run as run shards: clients route a given `run_id` to one shard, and that shard's local storage is the durable source for those run logs. Log shards do not own authoritative run status.
 
 | Component | Behavior |
 | --- | --- |
-| Worker | Must open a log stream before normal job execution. If the log service is down or does not respond in time, the run fails before meaningful job steps execute. |
-| API clients | Cannot read live or stored logs through the normal log paths until the service is back. |
+| Worker | Must open a log stream before normal job execution. If the owning log shard is down, read-only for a new run, or does not respond in time, the run fails before meaningful job steps execute. |
+| API clients | Cannot read live or stored logs for runs owned by an unavailable shard through the normal log paths until that shard is back. |
 | API status routes | Can still report run state from the database when the API and database are healthy. |
 
-Today, there is no "run without central logging" mode for normal worker execution.
+If a log shard crosses its configured free-space threshold, it refuses new run log files while continuing to serve stored logs. Today, there is no "run without central logging" mode for normal worker execution.
 
 ## Registry Down
 
@@ -200,7 +200,7 @@ For reference deploys, add probes in dependency order: registry, queue, and log 
 | Database | One configured SQL backend, embedded migrations, no in-app failover. | Managed PostgreSQL, tested backups, restore drills, and deployment-level HA. |
 | Queue | One or more independent queue shards with optional per-shard disk persistence. | Durable per-shard storage, queue-depth alerts, and capacity planning. |
 | Registry | Commonly a single discovery point unless addresses are pinned. | Redundant discovery or fixed service addresses. |
-| Log service | Required before normal job execution. | Replication or local buffering if log availability must not block work. |
+| Log service | Required before normal job execution. Run-sharded local storage, with disk-pressure refusal for new run logs on a pressured shard. | Replication, durable run-to-shard assignments, or local buffering if log availability must not block work. |
 | API | Health probes, graceful HTTP shutdown, auth when enabled, async enqueue backstopped by reconciler. | Edge TLS, idempotent clients, multiple replicas, and alerts on enqueue or reconciler failures. |
 | Worker | Graceful drain on `SIGINT` and `SIGTERM`; no drain on crash or `SIGKILL`. | Worker isolation, bounded drain policy, and clear operator run-stop procedures. |
 | Cron | Database schedule claims and per-tick run idempotency within one database cell; no built-in schedule sharding. | Explicit partition ownership or an external scheduler if schedules span multiple cells. |

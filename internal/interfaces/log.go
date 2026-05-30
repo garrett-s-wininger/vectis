@@ -15,10 +15,17 @@ type LogClient interface {
 	Close() error
 }
 
+type RunLogClient interface {
+	LogClient
+	StreamLogsForRun(ctx context.Context, runID string) (LogStream, error)
+}
+
 type LogStream interface {
 	Send(chunk *api.LogChunk) error
 	CloseSend() error
 }
+
+const LogSyntheticCompletionMetadata = "vectis-log-synthetic-completion"
 
 type GRPCLogClient struct {
 	conn   *grpc.ClientConn
@@ -38,6 +45,10 @@ func (c *GRPCLogClient) StreamLogs(ctx context.Context) (LogStream, error) {
 		return nil, fmt.Errorf("failed to create log stream: %w", err)
 	}
 	return &grpcLogStream{stream: stream}, nil
+}
+
+func (c *GRPCLogClient) StreamLogsForRun(ctx context.Context, _ string) (LogStream, error) {
+	return c.StreamLogs(ctx)
 }
 
 func (c *GRPCLogClient) Close() error {
