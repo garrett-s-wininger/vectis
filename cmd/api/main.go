@@ -125,6 +125,13 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		return
 	}
 
+	dispatchMetrics, err := observability.NewDispatchMetrics()
+	if err != nil {
+		logger.Error("Failed to initialize dispatch metrics: %v", err)
+		exitCode = 1
+		return
+	}
+
 	defer cli.DeferShutdown(logger, "Metrics", shutdownMetrics)()
 
 	server := api.NewAPIServer(logger, db)
@@ -154,6 +161,7 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 	server.SetAuditPolicy(auditPolicy)
 
 	server.SetRetryMetrics(retryMetrics)
+	server.SetDispatchMetrics(dispatchMetrics)
 
 	// Wire up worker address resolution via registry for cancel endpoint.
 	if regAddr := config.APIRegistryDialAddress(); regAddr != "" {

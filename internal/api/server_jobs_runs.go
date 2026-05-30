@@ -1126,19 +1126,24 @@ func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID strin
 	enqueuedAt := time.Now().UnixNano()
 	req.Metadata[observability.JobEnqueuedAtUnixNanoKey] = strconv.FormatInt(enqueuedAt, 10)
 	observability.InjectJobTraceContext(ctx, req)
-	if err := s.attachExecutionEnvelope(ctx, req, runID, enqueuedAt); err != nil {
+	env, err := s.attachExecutionEnvelope(ctx, req, runID, enqueuedAt)
+	targetCellID := ""
+	if env != nil {
+		targetCellID = env.CellID
+	}
+	if err != nil {
 		span.RecordError(err)
 		s.logger.Error("Failed to attach execution envelope (run %s): %v", runID, err)
 	}
 
-	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventAttempt, nil)
+	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventAttempt, targetCellID, nil)
 	if err := s.submitExecution(ctx, qc, req); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "enqueue")
 		span.End()
 		s.logger.Error("Failed to enqueue job (run %s): %v", runID, err)
 		msg := err.Error()
-		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, &msg)
+		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg)
 		return
 	}
 	span.SetAttributes(attribute.String("vectis.enqueue.outcome", "success"))
@@ -1152,10 +1157,10 @@ func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID strin
 		tdSpan.End()
 		s.logger.Error("TouchDispatched after enqueue (run %s): %v", runID, err)
 		msg := "touch dispatched: " + err.Error()
-		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, &msg)
+		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg)
 		return
 	}
-	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventSuccess, nil)
+	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventSuccess, targetCellID, nil)
 
 	_, tdSpan := observability.Tracer("vectis/api").Start(ctx, "run.touch_dispatched", trace.WithSpanKind(trace.SpanKindInternal))
 	tdSpan.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
@@ -1436,19 +1441,25 @@ func (s *APIServer) finishRunJobEnqueue(ctx context.Context, jobID, runID string
 	enqueuedAt := time.Now().UnixNano()
 	req.Metadata[observability.JobEnqueuedAtUnixNanoKey] = strconv.FormatInt(enqueuedAt, 10)
 	observability.InjectJobTraceContext(ctx, req)
-	if err := s.attachExecutionEnvelope(ctx, req, runID, enqueuedAt); err != nil {
+	env, err := s.attachExecutionEnvelope(ctx, req, runID, enqueuedAt)
+	targetCellID := ""
+	if env != nil {
+		targetCellID = env.CellID
+	}
+
+	if err != nil {
 		span.RecordError(err)
 		s.logger.Error("Failed to attach execution envelope (run %s): %v", runID, err)
 	}
 
-	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventAttempt, nil)
+	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventAttempt, targetCellID, nil)
 	if err := s.submitExecution(ctx, qc, req); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "enqueue")
 		span.End()
 		s.logger.Error("Failed to enqueue job (run %s): %v", runID, err)
 		msg := err.Error()
-		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, &msg)
+		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg)
 		return
 	}
 	span.SetAttributes(attribute.String("vectis.enqueue.outcome", "success"))
@@ -1462,10 +1473,10 @@ func (s *APIServer) finishRunJobEnqueue(ctx context.Context, jobID, runID string
 		tdSpan.End()
 		s.logger.Error("TouchDispatched after enqueue (run %s): %v", runID, err)
 		msg := "touch dispatched: " + err.Error()
-		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, &msg)
+		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg)
 		return
 	}
-	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventSuccess, nil)
+	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventSuccess, targetCellID, nil)
 
 	_, tdSpan := observability.Tracer("vectis/api").Start(ctx, "run.touch_dispatched", trace.WithSpanKind(trace.SpanKindInternal))
 	tdSpan.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
@@ -1474,9 +1485,8 @@ func (s *APIServer) finishRunJobEnqueue(ctx context.Context, jobID, runID string
 	s.logger.Info("Enqueued ephemeral job: %s (run %s)", jobID, runID)
 }
 
-func (s *APIServer) attachExecutionEnvelope(ctx context.Context, req *api.JobRequest, runID string, createdAtUnixNano int64) error {
-	_, err := cell.AttachPendingExecutionEnvelope(ctx, s.runs, req, runID, createdAtUnixNano)
-	return err
+func (s *APIServer) attachExecutionEnvelope(ctx context.Context, req *api.JobRequest, runID string, createdAtUnixNano int64) (*cell.ExecutionEnvelope, error) {
+	return cell.AttachPendingExecutionEnvelope(ctx, s.runs, req, runID, createdAtUnixNano)
 }
 
 func detachedTraceContextFromRequest(r *http.Request) context.Context {

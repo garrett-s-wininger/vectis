@@ -99,6 +99,14 @@ Look for `dispatch_events`:
 | Later `reconciler` `attempt`, then `reconciler` `success` | Automatic repair delivered the run to a cell ingress. |
 | Repeated `reconciler` `failure` | The route, ingress endpoint, or cell queue is still unhealthy. |
 
+Scrape API and reconciler metrics to see dispatch health across cells:
+
+| Metric | Labels | Meaning |
+| --- | --- | --- |
+| `vectis_run_dispatch_events_total` | `source`, `event_type`, `target_cell` | Dispatch attempts, failures, and successes recorded by API or reconciler for each target cell. |
+
+Use `source="api"` failures to find initial dispatch problems. Use `source="reconciler"` failures to find automatic repair attempts that still cannot reach a cell. A later `source="reconciler", event_type="success"` for the same target cell means the repair loop is catching up.
+
 ## Running Locally
 
 `vectis-local` can start additional local cells with repeated `--cell` flags:

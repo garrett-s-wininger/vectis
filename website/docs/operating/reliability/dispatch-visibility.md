@@ -88,6 +88,12 @@ Duplicate handoff can happen when a producer retries after an uncertain failure 
 Use emitted metrics first. The example rules live in [`prometheus-examples.yml`](../../alerts/prometheus-examples.yml).
 
 ```promql
+increase(vectis_run_dispatch_events_total{event_type="failure"}[10m]) > 0
+```
+
+Warn when API, cron, or reconciler dispatch handoff is failing. In multi-cell deployments, group by `target_cell` to find the affected cell.
+
+```promql
 increase(vectis_reconciler_reenqueue_total{outcome!="success"}[10m]) > 0
 ```
 

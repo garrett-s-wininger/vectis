@@ -25,17 +25,22 @@ import (
 const MinDispatchGap = 30 * time.Second
 
 type Service struct {
-	jobs        dal.JobsRepository
-	runs        dal.RunsRepository
-	dispatch    dal.DispatchEventsRepository
-	logger      interfaces.Logger
-	queueClient interfaces.QueueService
-	ingress     cell.ExecutionIngress
-	clock       interfaces.Clock
-	minGap      time.Duration
-	dbDown      bool
-	dbMu        sync.Mutex
-	metrics     *observability.ReconcilerMetrics
+	jobs            dal.JobsRepository
+	runs            dal.RunsRepository
+	dispatch        dal.DispatchEventsRepository
+	logger          interfaces.Logger
+	queueClient     interfaces.QueueService
+	ingress         cell.ExecutionIngress
+	clock           interfaces.Clock
+	minGap          time.Duration
+	dbDown          bool
+	dbMu            sync.Mutex
+	metrics         *observability.ReconcilerMetrics
+	dispatchMetrics dispatchMetrics
+}
+
+type dispatchMetrics interface {
+	RecordDispatchEvent(ctx context.Context, source, eventType, targetCell string)
 }
 
 func NewService(logger interfaces.Logger, db *sql.DB, queue interfaces.QueueService, clock interfaces.Clock) *Service {
@@ -76,18 +81,24 @@ func (s *Service) SetExecutionIngress(ingress cell.ExecutionIngress) {
 	s.ingress = ingress
 }
 
-func (s *Service) recordDispatchEvent(ctx context.Context, runID, eventType string, message *string) {
-	if s.dispatch == nil {
-		return
+func (s *Service) recordDispatchEvent(ctx context.Context, runID, targetCellID, eventType string, message *string) {
+	if s.dispatchMetrics != nil {
+		s.dispatchMetrics.RecordDispatchEvent(ctx, dal.DispatchSourceReconciler, eventType, targetCellID)
 	}
 
-	if err := s.dispatch.Record(ctx, runID, dal.DispatchSourceReconciler, eventType, message); err != nil {
-		s.logger.Error("reconciler: failed to record dispatch event for run %s: %v", runID, err)
+	if s.dispatch != nil {
+		if err := s.dispatch.Record(ctx, runID, dal.DispatchSourceReconciler, eventType, message); err != nil {
+			s.logger.Error("reconciler: failed to record dispatch event for run %s: %v", runID, err)
+		}
 	}
 }
 
 func (s *Service) SetMetrics(metrics *observability.ReconcilerMetrics) {
 	s.metrics = metrics
+}
+
+func (s *Service) SetDispatchMetrics(metrics dispatchMetrics) {
+	s.dispatchMetrics = metrics
 }
 
 func (s *Service) Process(ctx context.Context) error {
@@ -227,7 +238,7 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 		s.logger.Error("reconciler: failed to attach execution envelope for run %s: %v", runID, err)
 	}
 
-	s.recordDispatchEvent(ctx, runID, dal.DispatchEventAttempt, nil)
+	s.recordDispatchEvent(ctx, runID, qr.OwningCell, dal.DispatchEventAttempt, nil)
 	ingress := s.ingress
 	if ingress == nil {
 		endpoints, err := config.CellIngressEndpoints()
@@ -235,7 +246,7 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "cell ingress endpoints")
 			msg := err.Error()
-			s.recordDispatchEvent(ctx, runID, dal.DispatchEventFailure, &msg)
+			s.recordDispatchEvent(ctx, runID, qr.OwningCell, dal.DispatchEventFailure, &msg)
 
 			if s.metrics != nil {
 				s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeFailedEnqueue)
@@ -257,7 +268,8 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "execution submission")
 		msg := err.Error()
-		s.recordDispatchEvent(ctx, runID, dal.DispatchEventFailure, &msg)
+
+		s.recordDispatchEvent(ctx, runID, qr.OwningCell, dal.DispatchEventFailure, &msg)
 		if s.metrics != nil {
 			s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeFailedEnqueue)
 		}
@@ -269,7 +281,8 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "enqueue")
 		msg := err.Error()
-		s.recordDispatchEvent(ctx, runID, dal.DispatchEventFailure, &msg)
+
+		s.recordDispatchEvent(ctx, runID, qr.OwningCell, dal.DispatchEventFailure, &msg)
 		if s.metrics != nil {
 			s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeFailedEnqueue)
 		}
@@ -281,14 +294,14 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "touch dispatched")
 		msg := "touch dispatched: " + err.Error()
-		s.recordDispatchEvent(ctx, runID, dal.DispatchEventFailure, &msg)
+		s.recordDispatchEvent(ctx, runID, qr.OwningCell, dal.DispatchEventFailure, &msg)
 		if s.metrics != nil {
 			s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeFailedTouchRun)
 		}
 
 		return fmt.Errorf("touch dispatched: %w", err)
 	}
-	s.recordDispatchEvent(ctx, runID, dal.DispatchEventSuccess, nil)
+	s.recordDispatchEvent(ctx, runID, qr.OwningCell, dal.DispatchEventSuccess, nil)
 
 	span.SetAttributes(attribute.String("vectis.reconciler.outcome", observability.ReconcilerOutcomeSuccess))
 	if s.metrics != nil {

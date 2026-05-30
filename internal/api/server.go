@@ -96,6 +96,9 @@ type APIServer struct {
 	// retryMetrics, when set, records retry/backoff metrics for gRPC dials.
 	retryMetrics backoff.RetryMetrics
 
+	// dispatchMetrics, when set, records dispatch event counters.
+	dispatchMetrics dispatchMetrics
+
 	// ResolveWorkerAddress, when set, resolves a worker_id to a control address via the registry.
 	ResolveWorkerAddress func(ctx context.Context, workerID string) (string, error)
 
@@ -109,6 +112,10 @@ type routeSpec struct {
 	Handler   http.Handler
 	Auth      routeAuthPolicy
 	RateLimit ratelimit.Rule
+}
+
+type dispatchMetrics interface {
+	RecordDispatchEvent(ctx context.Context, source, eventType, targetCell string)
 }
 
 func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
@@ -224,13 +231,15 @@ func (s *APIServer) releaseIdempotency(ctx context.Context, scope, key string) {
 	}
 }
 
-func (s *APIServer) recordDispatchEvent(ctx context.Context, runID, source, eventType string, message *string) {
-	if s.dispatchEvents == nil {
-		return
+func (s *APIServer) recordDispatchEvent(ctx context.Context, runID, source, eventType, targetCell string, message *string) {
+	if s.dispatchMetrics != nil {
+		s.dispatchMetrics.RecordDispatchEvent(ctx, source, eventType, targetCell)
 	}
 
-	if err := s.dispatchEvents.Record(ctx, runID, source, eventType, message); err != nil {
-		s.logger.Error("Failed to record dispatch event for run %s: %v", runID, err)
+	if s.dispatchEvents != nil {
+		if err := s.dispatchEvents.Record(ctx, runID, source, eventType, message); err != nil {
+			s.logger.Error("Failed to record dispatch event for run %s: %v", runID, err)
+		}
 	}
 }
 
@@ -460,6 +469,10 @@ func (s *APIServer) SetAuditPolicy(policy audit.Policy) {
 
 func (s *APIServer) SetRetryMetrics(m backoff.RetryMetrics) {
 	s.retryMetrics = m
+}
+
+func (s *APIServer) SetDispatchMetrics(m dispatchMetrics) {
+	s.dispatchMetrics = m
 }
 
 func (s *APIServer) auditLog(ctx context.Context, eventType string, actorID, targetID int64, metadata map[string]any) error {
