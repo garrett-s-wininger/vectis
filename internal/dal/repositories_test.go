@@ -2469,3 +2469,72 @@ func TestSchedulesRepository_ClaimDueCompleteAndRelease(t *testing.T) {
 		t.Fatalf("expected next_run_at %q, got %q", next.Format(time.RFC3339), nextRunStr)
 	}
 }
+
+func TestServiceLeasesRepository_TryAcquireRenewAndExpire(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	leases := dal.NewSQLRepositories(db).ServiceLeases()
+	ctx := context.Background()
+
+	now := time.Now().UTC().Truncate(time.Second)
+	acquired, err := leases.TryAcquire(ctx, "reconciler", "owner-a", now, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("first acquire: %v", err)
+	}
+
+	if !acquired {
+		t.Fatal("expected owner-a to acquire empty lease")
+	}
+
+	acquired, err = leases.TryAcquire(ctx, "reconciler", "owner-b", now.Add(10*time.Second), now.Add(2*time.Minute))
+	if err != nil {
+		t.Fatalf("competing acquire: %v", err)
+	}
+
+	if acquired {
+		t.Fatal("expected owner-b to lose unexpired lease")
+	}
+
+	acquired, err = leases.TryAcquire(ctx, "reconciler", "owner-a", now.Add(20*time.Second), now.Add(3*time.Minute))
+	if err != nil {
+		t.Fatalf("renew acquire: %v", err)
+	}
+
+	if !acquired {
+		t.Fatal("expected current owner to renew lease")
+	}
+
+	acquired, err = leases.TryAcquire(ctx, "reconciler", "owner-b", now.Add(4*time.Minute), now.Add(5*time.Minute))
+	if err != nil {
+		t.Fatalf("expired acquire: %v", err)
+	}
+
+	if !acquired {
+		t.Fatal("expected owner-b to acquire expired lease")
+	}
+
+	if err := leases.Release(ctx, "reconciler", "owner-a"); err != nil {
+		t.Fatalf("release non-owner: %v", err)
+	}
+
+	acquired, err = leases.TryAcquire(ctx, "reconciler", "owner-a", now.Add(4*time.Minute+10*time.Second), now.Add(6*time.Minute))
+	if err != nil {
+		t.Fatalf("acquire after non-owner release: %v", err)
+	}
+
+	if acquired {
+		t.Fatal("expected owner-a to still lose after non-owner release")
+	}
+
+	if err := leases.Release(ctx, "reconciler", "owner-b"); err != nil {
+		t.Fatalf("release owner: %v", err)
+	}
+
+	acquired, err = leases.TryAcquire(ctx, "reconciler", "owner-a", now.Add(4*time.Minute+20*time.Second), now.Add(6*time.Minute))
+	if err != nil {
+		t.Fatalf("acquire after owner release: %v", err)
+	}
+
+	if !acquired {
+		t.Fatal("expected owner-a to acquire after owner-b release")
+	}
+}

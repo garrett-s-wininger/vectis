@@ -172,9 +172,11 @@ Vectis does not currently ship cron sharding or leader election. Each schedule s
 
 The reconciler repairs a specific reliability gap: a run is durable in the database as queued, but it was not successfully handed to the queue.
 
-If the reconciler is down, that automatic repair stops. The API and queue do not fully replace it. Dispatch repair attempts are visible in run dispatch events; see [Dispatch Visibility](../operating/reliability/dispatch-visibility.md).
+If all reconciler instances are down, that automatic repair stops. The API and queue do not fully replace it. Dispatch repair attempts are visible in run dispatch events; see [Dispatch Visibility](../operating/reliability/dispatch-visibility.md).
 
 The reconciler runs on a configurable interval and waits a configurable minimum age before redispatching, so it does not fight normal dispatch latency.
+
+Multiple reconcilers can run in one execution cell. They coordinate through a database-backed service lease, so one instance performs scans while other instances stand by. If the lease holder exits or loses database access, another instance can take over after the lease expires.
 
 ## Probe Reference
 

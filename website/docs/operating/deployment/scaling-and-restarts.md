@@ -2,7 +2,7 @@
 
 This page explains how far you can scale each Vectis component today, which services should stay singleton, and what to expect when restarting them.
 
-The current posture is intentionally conservative: Vectis is safest as a single-site deployment with one shared SQL database, one active queue, one active log service, one active cron, one active reconciler, and as many workers as the database, queue, and log service can comfortably support.
+The current posture is intentionally conservative: Vectis is safest as a single-site deployment with one shared SQL database, one active queue, one active log service, one active cron, one active reconciler lease holder, and as many workers as the database, queue, and log service can comfortably support.
 
 For dependency behavior during outages, see [Failure Domains](../../concepts/failure-domains.md). For reference deployment boundaries, see [Reference Deployment Posture](./reference-deployment-posture.md). For database pool sizing, see [Configuration](../configuration.md#postgresql-connection-pool-pgx-only).
 
@@ -18,7 +18,7 @@ This page answers "is this component topology supported, and what happens when i
 | Registry | Run one registry by default, configure gossip clustering deliberately, or avoid registry dependency with pinned addresses. |
 | Log service | Run one active log service unless you add external storage/routing. |
 | Cron | Run one active cron unless you intentionally partition schedules or use an external scheduler. |
-| Reconciler | Run one active reconciler for the current posture. |
+| Reconciler | Multiple instances may run as active/passive standbys through the database service lease. |
 | Docs | Static docs service. Run zero, one, or more depending on how you expose documentation. |
 | Log-forwarder | One per producer host or process group, each with its own socket/spool path. |
 | `vectis-local` | Development only. Do not treat it as a production control plane. |
@@ -33,7 +33,7 @@ This page answers "is this component topology supported, and what happens when i
 | `vectis-registry` | 1 | Conditional | Single registry is the safe default. Gossip-based HA registry is available when every registry node is configured with static cluster membership; otherwise, multiple registries are independent. Pin addresses if registry availability is a concern. |
 | `vectis-log` | 1 | Not active/active | Durable log files and active stream buffers are local to the service. Multiple instances do not share run logs without external storage/routing. |
 | `vectis-cron` | 1 | Not without coordination | Schedule claiming helps during a firing attempt, but Vectis does not provide a cron leader-election or sharding contract. Avoid uncoordinated duplicates. |
-| `vectis-reconciler` | 1 | Limited, not recommended as default | Duplicate handoff is usually guarded by worker run claims, but duplicate repair traffic is still operational noise. Use one active reconciler unless you have tested the behavior. |
+| `vectis-reconciler` | 1 active | Yes, active/passive | Instances coordinate through the `service_leases` table. Only the lease holder scans and redispatches; standbys take over after the lease TTL. |
 | `vectis-docs` | 1 | Yes | Static HTTP docs. It has no database or queue state; scale or disable it according to your exposure model. |
 | `vectis-log-forwarder` | One per owner | Yes, by ownership | Safe when each forwarder owns its own socket and spool path. Do not share one spool directory as if it were a cluster. |
 | `vectis-cli` | N/A | Yes | One-shot client. Concurrent commands rely on API and database semantics. |
@@ -76,7 +76,6 @@ These services should usually remain singleton in the current architecture:
 | Queue | There is no shared distributed queue or multi-writer queue protocol. Queue persistence belongs to one active queue instance. |
 | Log service | Run log storage and active stream buffers are process-local. |
 | Cron | Vectis does not yet provide a leader-election or schedule-sharding deployment contract. |
-| Reconciler | Duplicate repair handoff is tolerable for persisted runs but can add noise; one active reconciler is the safe default. |
 
 Registry is also commonly singleton. Gossip-based registry HA is an advanced configured posture, not something you get by starting extra registry processes with independent state. You can also reduce registry importance by pinning queue and log addresses. See [Configuration](../configuration.md#service-discovery-vs-fixed-addresses).
 
@@ -91,7 +90,7 @@ Registry is also commonly singleton. Gossip-based registry HA is an advanced con
 | `vectis-worker` | On `SIGINT` or `SIGTERM`, stops dequeuing and lets the current job continue toward finalization. Abrupt death relies on leases, queue delivery timeout, and repair. | Roll workers gradually. Use graceful termination windows long enough for normal jobs, or expect long jobs to rely on lease/reconciler behavior after hard stops. |
 | `vectis-log-forwarder` | Local spool preserves unsent batches when configured and writable. | Preserve spool storage and watch age/size. |
 | `vectis-cron` | Schedule scans pause while cron is down. Missed evaluations are not replayed from a separate HA log. | Keep one active cron. Avoid overlap unless you intentionally partition schedules. |
-| `vectis-reconciler` | Repair scans pause while down. Queued runs remain in the database. | Repair latency can increase by at least one reconciler interval during restart. |
+| `vectis-reconciler` | The active lease holder stops scanning. Queued runs remain in the database. | With standby instances, repair resumes after lease expiry plus the next poll; without standbys, repair pauses until the process returns. |
 | `vectis-docs` | Documentation is unavailable while the process is down. | No effect on job execution. Restart whenever needed. |
 | `vectis-local` | Stops or restarts the supervised local stack. | Development-only behavior. |
 
@@ -105,7 +104,7 @@ Readiness should answer "should this receive new work?" Liveness should answer "
 | Queue, registry, log gRPC | Standard gRPC health service | Standard gRPC health service returning `SERVING`. |
 | Worker | Supervisor process state | Gate externally on database, queue, and log availability; there is no worker HTTP readiness endpoint. |
 | Cron | Supervisor process state | Gate on database and queue reachability before relying on schedules. |
-| Reconciler | Supervisor process state | Gate on database and queue reachability before relying on repair. |
+| Reconciler | Supervisor process state | Gate on database and queue reachability before relying on repair; with replicas, ensure only one instance holds the service lease. |
 | Log-forwarder | Supervisor process state | Gate on log service reachability and local spool health. |
 | Metrics listeners | `/metrics` shows exporter/process visibility | Do not use `/metrics` as workflow readiness by itself. |
 
@@ -133,7 +132,7 @@ For repair steps, see [Repair Runbooks](../reliability/repair-runbooks.md).
 | Queue | One active queue endpoint. Persistence is local to that queue. |
 | Logs | One active log service unless you add external storage/routing. |
 | Cron | No built-in leader election or schedule partitioning contract. |
-| Reconciler | One active reconciler is the documented safe default. |
+| Reconciler | Active/passive within one database cell through `service_leases`; not a sharded repair pool yet. |
 | Workers | Scale is bounded by DB pool sizing, queue throughput, log capacity, and workload resource isolation. |
 
 ## Related Documentation

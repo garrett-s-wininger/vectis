@@ -386,6 +386,11 @@ type SchedulesRepository interface {
 	CountCronSchedules(ctx context.Context) (int64, error)
 }
 
+type ServiceLeasesRepository interface {
+	TryAcquire(ctx context.Context, name, owner string, now, leaseUntil time.Time) (bool, error)
+	Release(ctx context.Context, name, owner string) error
+}
+
 type JobsRepository interface {
 	Create(ctx context.Context, jobID, definitionJSON string, namespaceID int64) error
 	Delete(ctx context.Context, jobID string) error
@@ -403,20 +408,21 @@ type EphemeralRunStarterWithAudit interface {
 }
 
 type SQLRepositories struct {
-	db           *sql.DB
-	cellID       string
-	jobs         *SQLJobsRepository
-	runs         *SQLRunsRepository
-	schedules    *SQLSchedulesRepository
-	auth         *SQLAuthRepository
-	namespaces   *SQLNamespacesRepository
-	roleBindings *SQLRoleBindingsRepository
-	idempotency  *SQLIdempotencyRepository
-	dispatch     *SQLDispatchEventsRepository
-	triggers     *SQLTriggerInvocationsRepository
-	catalog      *SQLCatalogEventsRepository
-	catalogState *SQLCatalogStatusBackfillRepository
-	cellAccept   *SQLCellExecutionAcceptancesRepository
+	db            *sql.DB
+	cellID        string
+	jobs          *SQLJobsRepository
+	runs          *SQLRunsRepository
+	schedules     *SQLSchedulesRepository
+	auth          *SQLAuthRepository
+	namespaces    *SQLNamespacesRepository
+	roleBindings  *SQLRoleBindingsRepository
+	idempotency   *SQLIdempotencyRepository
+	dispatch      *SQLDispatchEventsRepository
+	triggers      *SQLTriggerInvocationsRepository
+	catalog       *SQLCatalogEventsRepository
+	catalogState  *SQLCatalogStatusBackfillRepository
+	cellAccept    *SQLCellExecutionAcceptancesRepository
+	serviceLeases *SQLServiceLeasesRepository
 }
 
 func NewSQLRepositories(db *sql.DB) *SQLRepositories {
@@ -426,20 +432,21 @@ func NewSQLRepositories(db *sql.DB) *SQLRepositories {
 func NewSQLRepositoriesWithCellID(db *sql.DB, cellID string) *SQLRepositories {
 	cellID = normalizeCellID(cellID)
 	return &SQLRepositories{
-		db:           db,
-		cellID:       cellID,
-		jobs:         &SQLJobsRepository{db: db, cellID: cellID},
-		runs:         &SQLRunsRepository{db: db, cellID: cellID},
-		schedules:    &SQLSchedulesRepository{db: db},
-		auth:         NewSQLAuthRepository(db),
-		namespaces:   NewSQLNamespacesRepositoryWithCellID(db, cellID),
-		roleBindings: NewSQLRoleBindingsRepository(db),
-		idempotency:  &SQLIdempotencyRepository{db: db},
-		dispatch:     &SQLDispatchEventsRepository{db: db},
-		triggers:     &SQLTriggerInvocationsRepository{db: db},
-		catalog:      &SQLCatalogEventsRepository{db: db},
-		catalogState: &SQLCatalogStatusBackfillRepository{db: db},
-		cellAccept:   &SQLCellExecutionAcceptancesRepository{db: db, cellID: cellID},
+		db:            db,
+		cellID:        cellID,
+		jobs:          &SQLJobsRepository{db: db, cellID: cellID},
+		runs:          &SQLRunsRepository{db: db, cellID: cellID},
+		schedules:     &SQLSchedulesRepository{db: db},
+		auth:          NewSQLAuthRepository(db),
+		namespaces:    NewSQLNamespacesRepositoryWithCellID(db, cellID),
+		roleBindings:  NewSQLRoleBindingsRepository(db),
+		idempotency:   &SQLIdempotencyRepository{db: db},
+		dispatch:      &SQLDispatchEventsRepository{db: db},
+		triggers:      &SQLTriggerInvocationsRepository{db: db},
+		catalog:       &SQLCatalogEventsRepository{db: db},
+		catalogState:  &SQLCatalogStatusBackfillRepository{db: db},
+		cellAccept:    &SQLCellExecutionAcceptancesRepository{db: db, cellID: cellID},
+		serviceLeases: &SQLServiceLeasesRepository{db: db},
 	}
 }
 
@@ -626,4 +633,8 @@ func (r *SQLRepositories) CatalogStatusBackfill() CatalogStatusBackfillRepositor
 
 func (r *SQLRepositories) CellExecutionAcceptances() CellExecutionAcceptancesRepository {
 	return r.cellAccept
+}
+
+func (r *SQLRepositories) ServiceLeases() ServiceLeasesRepository {
+	return r.serviceLeases
 }

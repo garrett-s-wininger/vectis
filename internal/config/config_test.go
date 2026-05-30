@@ -20,6 +20,14 @@ func TestMustDefaults_ReconcilerInterval(t *testing.T) {
 		t.Fatalf("ReconcilerInterval() with empty viper: got %v", got)
 	}
 
+	if time.Duration(d.Reconciler.LeaseTTL) != 2*time.Minute {
+		t.Fatalf("expected reconciler.lease_ttl 2m, got %v", time.Duration(d.Reconciler.LeaseTTL))
+	}
+
+	if got := ReconcilerLeaseTTL(); got != 2*time.Minute {
+		t.Fatalf("ReconcilerLeaseTTL() with empty viper: got %v", got)
+	}
+
 	if d.Reconciler.MetricsPort != 9085 {
 		t.Fatalf("expected reconciler.metrics_port 9085, got %d", d.Reconciler.MetricsPort)
 	}

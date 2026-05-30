@@ -266,7 +266,7 @@ func BenchmarkDAL_ListByJob(b *testing.B) {
 			b.ResetTimer()
 
 			for i := 0; i < b.N; i++ {
-				records, _, err := runs.ListByJob(ctx, jobID, nil, nil, 0, 100)
+				records, _, err := runs.ListByJob(ctx, jobID, nil, nil, dal.DefaultCellID, 0, 100)
 				if err != nil {
 					b.Fatalf("list by job: %v", err)
 				}

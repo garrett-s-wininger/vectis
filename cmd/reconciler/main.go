@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -80,6 +81,11 @@ func runReconciler(cmd *cobra.Command, args []string) {
 	}
 
 	svc := reconciler.NewService(logger, db, mq, interfaces.SystemClock{})
+	leaseOwner := uuid.NewString()
+	svc.SetLeaseOwner(leaseOwner)
+	svc.SetLeaseTTL(config.ReconcilerLeaseTTL())
+	logger.Info("Reconciler instance ID: %s", leaseOwner)
+
 	reconcilerMetrics, err := observability.NewReconcilerMetrics()
 	if err != nil {
 		logger.Fatal("Failed to initialize reconciler metrics: %v", err)
@@ -101,7 +107,7 @@ func runReconciler(cmd *cobra.Command, args []string) {
 	defer metricsSrv.Shutdown()
 
 	interval := config.ReconcilerInterval()
-	logger.Info("Reconciler polling every %v", interval)
+	logger.Info("Reconciler polling every %v with service lease ttl %v", interval, config.ReconcilerLeaseTTL())
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -132,8 +138,10 @@ var rootCmd = &cobra.Command{
 func init() {
 	cli.ConfigureVersion(rootCmd)
 	rootCmd.PersistentFlags().Duration("interval", config.ReconcilerInterval(), "How often to scan for queued runs")
+	rootCmd.PersistentFlags().Duration("lease-ttl", config.ReconcilerLeaseTTL(), "How long a reconciler instance owns the active service lease")
 	rootCmd.PersistentFlags().Int("metrics-port", config.ReconcilerMetricsPort(), "HTTP port for Prometheus /metrics")
 	_ = viper.BindPFlag("interval", rootCmd.PersistentFlags().Lookup("interval"))
+	_ = viper.BindPFlag("lease_ttl", rootCmd.PersistentFlags().Lookup("lease-ttl"))
 	_ = viper.BindPFlag("metrics_port", rootCmd.PersistentFlags().Lookup("metrics-port"))
 	_ = viper.BindEnv("cell_ingress_endpoints", "VECTIS_RECONCILER_CELL_INGRESS_ENDPOINTS", "VECTIS_CELL_INGRESS_ENDPOINTS")
 	viper.SetDefault("metrics_port", config.ReconcilerMetricsPort())

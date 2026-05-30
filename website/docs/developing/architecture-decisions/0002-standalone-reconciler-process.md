@@ -21,6 +21,7 @@ Ship a dedicated binary, `vectis-reconciler`, that:
 1. On a configurable interval, queries runs in queued status whose last dispatch timestamp is older than a minimum gap (`MinDispatchGap`, default 30s) to avoid fighting normal enqueue latency.
 2. Loads the job definition version pinned on the run from `job_definitions`.
 3. Enqueues with the same retry helper used elsewhere, then records dispatch metadata on success.
+4. Acquires a database-backed service lease before each scan. Multiple reconciler processes may be started in one cell, but only the lease holder performs repair work during a lease window.
 
 The reconciler is not embedded in the API. Recovery should survive API restarts and apply uniformly to every enqueue source, not only HTTP triggers.
 
@@ -28,6 +29,7 @@ The reconciler is not embedded in the API. Recovery should survive API restarts 
 
 - Operator requirement: deployments that use async enqueue should run the reconciler or accept manual re-enqueue as their repair path.
 - Repair latency: stuck runs are healed on the order of the reconciler interval plus `MinDispatchGap`, not instantaneously.
+- Standby latency: with multiple reconcilers, failover is bounded by the service lease TTL plus the next standby poll.
 - Simpler API behavior: the API remains a relatively thin HTTP and enqueue initiator; recovery policy lives in one place.
 
 ## References

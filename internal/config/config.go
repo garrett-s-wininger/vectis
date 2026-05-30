@@ -191,6 +191,7 @@ type ReconcilerDefaults struct {
 	RegistryAddress string       `toml:"registry.address"`
 	QueueAddress    string       `toml:"queue.address"`
 	Interval        tomlDuration `toml:"interval"`
+	LeaseTTL        tomlDuration `toml:"lease_ttl"`
 	MetricsPort     int          `toml:"metrics_port"`
 }
 
@@ -340,6 +341,11 @@ func validateDefaults(d Defaults) {
 	if time.Duration(d.Reconciler.Interval) <= 0 {
 		panic("config defaults: reconciler.interval must be > 0")
 	}
+
+	if time.Duration(d.Reconciler.LeaseTTL) <= 0 {
+		panic("config defaults: reconciler.lease_ttl must be > 0")
+	}
+
 	validatePort(d.Reconciler.MetricsPort, "reconciler.metrics_port")
 	if d.Reconciler.MetricsPort == d.Queue.MetricsPort ||
 		d.Reconciler.MetricsPort == d.Worker.MetricsPort ||
@@ -1081,6 +1087,19 @@ func ReconcilerInterval() time.Duration {
 	}
 
 	return 30 * time.Second
+}
+
+func ReconcilerLeaseTTL() time.Duration {
+	if d := viper.GetDuration("lease_ttl"); d > 0 {
+		return d
+	}
+
+	d := time.Duration(MustDefaults().Reconciler.LeaseTTL)
+	if d > 0 {
+		return d
+	}
+
+	return 2 * time.Minute
 }
 
 func ReconcilerMetricsPort() int {

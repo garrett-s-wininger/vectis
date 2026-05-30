@@ -16,7 +16,7 @@ This page answers "can this deployment shape handle my workload?" Scaling And Re
 | Queue | One active queue service | Multiple active queue replicas; queue is not a shared distributed queue today. |
 | Workers | Multiple workers, one run per process | Large worker fleets and DB pool sizing under high claim/renew/finalize rates. |
 | Cron | One cron process | Multiple cron replicas; duplicate schedule firing needs an HA decision. |
-| Reconciler | One reconciler process | Multiple reconcilers under heavy queued-run repair load. |
+| Reconciler | One active reconciler, with optional active/passive standbys | Sharded reconcilers under heavy queued-run repair load. |
 | Logs | Durable local JSONL storage plus bounded in-memory terminal buffers | Very large persisted logs and many replaying clients. |
 | SQLite | Local/dev and small single-node deployments | High-concurrency API, worker, cron, reconciler, and catalog load. |
 | Postgres | Recommended for multi-service deployments | Exact pool sizes and trigger/worker scale must be benchmarked per deployment. |

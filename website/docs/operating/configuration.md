@@ -45,6 +45,7 @@ Some settings are global and intentionally do not use a service prefix, such as 
 | Pin worker to a queue address | `VECTIS_WORKER_QUEUE_ADDRESS=host:8081` |
 | Persist queue backlog to disk | `VECTIS_QUEUE_PERSISTENCE_DIR=/path/to/queue` |
 | Change reconciler interval | `VECTIS_RECONCILER_INTERVAL=30s` |
+| Change reconciler failover TTL | `VECTIS_RECONCILER_LEASE_TTL=2m` |
 | Change catalog event drain interval | `VECTIS_CATALOG_INTERVAL=1s` |
 | Fan in cell-local catalog events | `vectis-catalog --cell-database-dsn pdx-b=/path/to/pdx.db` |
 | Run `vectis-local` with plaintext internal gRPC | `vectis-local --grpc-insecure` or `VECTIS_LOCAL_GRPC_INSECURE=true` |
@@ -62,7 +63,7 @@ Use these prefixes when building service-specific environment variable names.
 | `vectis-log` | `VECTIS_LOG` | `--storage-dir`, `--metrics-port`, `--max-run-buffers` |
 | `vectis-worker` | `VECTIS_WORKER` | `--metrics-port` |
 | `vectis-cron` | `VECTIS_CRON` | none today |
-| `vectis-reconciler` | `VECTIS_RECONCILER` | `--interval`, `--metrics-port` |
+| `vectis-reconciler` | `VECTIS_RECONCILER` | `--interval`, `--lease-ttl`, `--metrics-port` |
 | `vectis-catalog` | `VECTIS_CATALOG` | `--interval`, `--batch-size`, `--metrics-port`, `--cell-database-dsn` |
 | `vectis-log-forwarder` | `VECTIS_LOG_FORWARDER` | see `vectis-log-forwarder --help` |
 | `vectis-docs` | `VECTIS_DOCS` | `--host`, `--port`, `--dir` |

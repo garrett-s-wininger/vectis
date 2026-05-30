@@ -60,7 +60,7 @@ Use this when `health check` warns on `queue.backlog.ratio`, queued runs are not
 Use this when `health check` warns on `reconciler.stuck.runs`, cannot read reconciler recovery visibility, or `VectisReconcilerReenqueueFailures` fires.
 
 1. Confirm API readiness with `vectis-cli health check --strict`.
-2. Confirm exactly one active reconciler for the current scale posture; see [Scaling And Restarts](../deployment/scaling-and-restarts.md).
+2. Confirm at least one reconciler is running, and that only one instance is actively holding the service lease; see [Scaling And Restarts](../deployment/scaling-and-restarts.md).
 3. Check reconciler process logs for database, queue, registry, or gRPC TLS errors.
 4. Verify the reconciler is using the same global database as the API and cron: shared `VECTIS_DATABASE_DSN`, or `VECTIS_GLOBAL_DATABASE_DSN` when global/cell databases are split.
 5. Verify queue resolution through the pinned queue address or registry path configured for the reconciler.

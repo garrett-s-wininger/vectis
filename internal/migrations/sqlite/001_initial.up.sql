@@ -189,6 +189,15 @@ CREATE TABLE cell_catalog_events (
 CREATE INDEX idx_cell_catalog_events_status_id ON cell_catalog_events(status, id);
 CREATE INDEX idx_cell_catalog_events_source_received ON cell_catalog_events(source_cell, received_at, id);
 
+CREATE TABLE service_leases (
+    name TEXT PRIMARY KEY,
+    owner TEXT NOT NULL,
+    lease_until INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX idx_service_leases_lease_until ON service_leases(lease_until);
+
 CREATE TABLE idempotency_keys (
     scope TEXT NOT NULL,
     key TEXT NOT NULL,

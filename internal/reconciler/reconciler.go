@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	api "vectis/api/gen/go"
 	"vectis/internal/cell"
 	"vectis/internal/config"
@@ -23,12 +25,17 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
-const MinDispatchGap = 30 * time.Second
+const (
+	MinDispatchGap         = 30 * time.Second
+	DefaultServiceLeaseTTL = 2 * time.Minute
+	ServiceLeaseName       = "reconciler"
+)
 
 type Service struct {
 	jobs            dal.JobsRepository
 	runs            dal.RunsRepository
 	dispatch        dal.DispatchEventsRepository
+	leases          dal.ServiceLeasesRepository
 	logger          interfaces.Logger
 	queueClient     interfaces.QueueService
 	ingress         cell.ExecutionIngress
@@ -38,6 +45,11 @@ type Service struct {
 	dbMu            sync.Mutex
 	metrics         *observability.ReconcilerMetrics
 	dispatchMetrics dispatchMetrics
+	leaseName       string
+	leaseOwner      string
+	leaseTTL        time.Duration
+	leaseHeld       bool
+	leaseMu         sync.Mutex
 }
 
 type dispatchMetrics interface {
@@ -48,6 +60,7 @@ func NewService(logger interfaces.Logger, db *sql.DB, queue interfaces.QueueServ
 	repos := dal.NewSQLRepositories(db)
 	s := NewServiceWithRepositories(logger, repos.Jobs(), repos.Runs(), queue, clock)
 	s.dispatch = repos.DispatchEvents()
+	s.leases = repos.ServiceLeases()
 	return s
 }
 
@@ -69,6 +82,9 @@ func NewServiceWithRepositories(
 		queueClient: queue,
 		clock:       clock,
 		minGap:      MinDispatchGap,
+		leaseName:   ServiceLeaseName,
+		leaseOwner:  uuid.NewString(),
+		leaseTTL:    DefaultServiceLeaseTTL,
 	}
 }
 
@@ -80,6 +96,22 @@ func (s *Service) SetMinDispatchGap(d time.Duration) {
 
 func (s *Service) SetExecutionIngress(ingress cell.ExecutionIngress) {
 	s.ingress = ingress
+}
+
+func (s *Service) SetServiceLeases(repo dal.ServiceLeasesRepository) {
+	s.leases = repo
+}
+
+func (s *Service) SetLeaseOwner(owner string) {
+	if owner != "" {
+		s.leaseOwner = owner
+	}
+}
+
+func (s *Service) SetLeaseTTL(d time.Duration) {
+	if d > 0 {
+		s.leaseTTL = d
+	}
 }
 
 func (s *Service) recordDispatchEvent(ctx context.Context, runID, targetCellID, eventType string, message *string) {
@@ -108,6 +140,15 @@ func (s *Service) Process(ctx context.Context) error {
 	}
 
 	now := s.clock.Now().UTC()
+	acquired, err := s.acquireServiceLease(ctx, now)
+	if err != nil {
+		return err
+	}
+
+	if !acquired {
+		return nil
+	}
+
 	orphaned, err := s.runs.MarkExpiredRunningAsOrphaned(ctx, now.Unix())
 	if err != nil {
 		if database.IsUnavailableError(err) {
@@ -140,7 +181,25 @@ func (s *Service) Process(ctx context.Context) error {
 		s.metrics.RecordRunsScanned(ctx, len(batch))
 	}
 
+	leaseRefreshInterval := s.leaseRefreshInterval()
+	nextLeaseRefresh := now.Add(leaseRefreshInterval)
 	for _, r := range batch {
+		if leaseRefreshInterval > 0 {
+			refreshNow := s.clock.Now().UTC()
+			if !refreshNow.Before(nextLeaseRefresh) {
+				acquired, err := s.acquireServiceLease(ctx, refreshNow)
+				if err != nil {
+					return err
+				}
+
+				if !acquired {
+					return nil
+				}
+
+				nextLeaseRefresh = refreshNow.Add(leaseRefreshInterval)
+			}
+		}
+
 		if err := s.dispatchOne(ctx, r); err != nil {
 			if database.IsUnavailableError(err) {
 				s.noteDBUnavailable(err)
@@ -152,6 +211,91 @@ func (s *Service) Process(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (s *Service) effectiveLeaseTTL() time.Duration {
+	if s.leaseTTL > 0 {
+		return s.leaseTTL
+	}
+
+	return DefaultServiceLeaseTTL
+}
+
+func (s *Service) leaseRefreshInterval() time.Duration {
+	if s.leases == nil {
+		return 0
+	}
+
+	interval := s.effectiveLeaseTTL() / 2
+	if interval > 30*time.Second {
+		return 30 * time.Second
+	}
+
+	return interval
+}
+
+func (s *Service) acquireServiceLease(ctx context.Context, now time.Time) (bool, error) {
+	if s.leases == nil {
+		return true, nil
+	}
+
+	leaseName := s.leaseName
+	if leaseName == "" {
+		leaseName = ServiceLeaseName
+	}
+
+	owner := s.leaseOwner
+	if owner == "" {
+		owner = uuid.NewString()
+		s.leaseOwner = owner
+	}
+
+	ttl := s.effectiveLeaseTTL()
+
+	acquired, err := s.leases.TryAcquire(ctx, leaseName, owner, now, now.Add(ttl))
+	if err != nil {
+		if database.IsUnavailableError(err) {
+			s.noteDBUnavailable(err)
+			return false, nil
+		}
+
+		return false, fmt.Errorf("acquire service lease %q: %w", leaseName, err)
+	}
+	s.noteDBRecovered()
+
+	if !acquired {
+		s.noteLeaseSkipped(leaseName)
+		return false, nil
+	}
+
+	s.noteLeaseAcquired(leaseName, owner, ttl)
+	return true, nil
+}
+
+func (s *Service) noteLeaseAcquired(name, owner string, ttl time.Duration) {
+	s.leaseMu.Lock()
+	defer s.leaseMu.Unlock()
+
+	if s.leaseHeld {
+		return
+	}
+
+	s.leaseHeld = true
+	s.logger.Info("reconciler: acquired service lease %q as %s (ttl %v)", name, owner, ttl)
+}
+
+func (s *Service) noteLeaseSkipped(name string) {
+	s.leaseMu.Lock()
+	wasHeld := s.leaseHeld
+	s.leaseHeld = false
+	s.leaseMu.Unlock()
+
+	if wasHeld {
+		s.logger.Warn("reconciler: lost service lease %q; another reconciler is active", name)
+		return
+	}
+
+	s.logger.Debug("reconciler: service lease %q is held elsewhere; skipping this interval", name)
 }
 
 func (s *Service) noteDBUnavailable(err error) {

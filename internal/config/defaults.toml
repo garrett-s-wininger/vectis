@@ -72,6 +72,7 @@ registry.addresses = []
 
 [reconciler]
 interval = "30s"
+lease_ttl = "2m"
 metrics_port = 9085
 
 [catalog]

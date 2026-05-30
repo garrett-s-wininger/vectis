@@ -327,3 +327,61 @@ func TestService_Process_DBUnavailable_SkipsUntilRecovered(t *testing.T) {
 		t.Fatalf("expected db-down warning log, got %v", logger.GetWarnCalls())
 	}
 }
+
+func TestService_Process_ServiceLeaseAllowsStandbyTakeover(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	clock := mocks.NewMockClock()
+	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	clock.SetNow(now)
+
+	qActive := mocks.NewMockQueueService()
+	active := NewService(interfaces.NewLogger("active"), db, qActive, clock)
+	active.SetLeaseOwner("reconciler-a")
+	active.SetLeaseTTL(time.Minute)
+	active.SetMinDispatchGap(time.Millisecond)
+
+	qStandby := mocks.NewMockQueueService()
+	standby := NewService(interfaces.NewLogger("standby"), db, qStandby, clock)
+	standby.SetLeaseOwner("reconciler-b")
+	standby.SetLeaseTTL(time.Minute)
+	standby.SetMinDispatchGap(time.Millisecond)
+
+	if err := active.Process(ctx); err != nil {
+		t.Fatalf("active process: %v", err)
+	}
+
+	if err := standby.Process(ctx); err != nil {
+		t.Fatalf("standby process while lease held: %v", err)
+	}
+
+	if got := len(qStandby.GetJobs()); got != 0 {
+		t.Fatalf("standby should not process while lease is held, got %d jobs", got)
+	}
+
+	repos := dal.NewSQLRepositories(db)
+	jobID := "job-lease-takeover"
+	jobDef := `{"id":"job-lease-takeover","root":{"uses":"builtins/shell","with":{"command":"echo takeover"}}}`
+	if err := repos.Jobs().Create(ctx, jobID, jobDef, 1); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	clock.SetNow(now.Add(2 * time.Minute))
+	if err := standby.Process(ctx); err != nil {
+		t.Fatalf("standby process after lease expiry: %v", err)
+	}
+
+	jobs := qStandby.GetJobs()
+	if len(jobs) != 1 {
+		t.Fatalf("expected standby takeover to enqueue 1 job, got %d", len(jobs))
+	}
+
+	if jobs[0].GetRunId() != runID {
+		t.Fatalf("expected run %q, got %q", runID, jobs[0].GetRunId())
+	}
+}
