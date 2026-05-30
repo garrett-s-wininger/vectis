@@ -1,3 +1,5 @@
+import styles from "./FormError.module.css";
+
 type FormErrorProps = {
   message?: string;
 };
@@ -8,7 +10,7 @@ export function FormError({ message }: FormErrorProps) {
   }
 
   return (
-    <p className="form-error" role="alert">
+    <p className={styles.root} role="alert">
       {message}
     </p>
   );

@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import styles from "./StatusBadge.module.css";
 import { StatusBadge } from "./StatusBadge";
 
 const meta = {
@@ -23,7 +24,7 @@ export const Running: Story = {};
 
 export const AllStatuses: Story = {
   render: () => (
-    <div className="status-badge-row">
+    <div className={styles.row}>
       <StatusBadge status="queued" />
       <StatusBadge status="running" />
       <StatusBadge status="succeeded" />

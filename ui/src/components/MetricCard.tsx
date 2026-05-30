@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import styles from "./MetricCard.module.css";
 
 export type MetricTone = "neutral" | "attention" | "success";
 
@@ -15,11 +16,13 @@ export function MetricCard({
   detail,
   tone = "neutral"
 }: MetricCardProps) {
+  const className = tone === "neutral" ? styles.root : `${styles.root} ${styles[tone]}`;
+
   return (
-    <article className={`metric-card metric-card--${tone}`}>
-      <span className="metric-card__label">{label}</span>
-      <strong className="metric-card__value">{value}</strong>
-      {detail ? <small className="metric-card__detail">{detail}</small> : null}
+    <article className={className}>
+      <span className={styles.label}>{label}</span>
+      <strong className={styles.value}>{value}</strong>
+      {detail ? <small className={styles.detail}>{detail}</small> : null}
     </article>
   );
 }

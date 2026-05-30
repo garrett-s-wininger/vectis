@@ -1,0 +1,27 @@
+.root {
+  align-items: center;
+  background: #1f5f78;
+  border: 1px solid #1f5f78;
+  border-radius: 6px;
+  color: #ffffff;
+  cursor: pointer;
+  display: inline-flex;
+  font-weight: 700;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 16px;
+}
+
+.root:hover {
+  background: #174c60;
+}
+
+.root:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.root:focus-visible {
+  outline: 3px solid #7fc7dd;
+  outline-offset: 2px;
+}

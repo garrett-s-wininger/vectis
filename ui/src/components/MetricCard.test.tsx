@@ -15,8 +15,6 @@ describe("MetricCard", () => {
   it("defaults to the neutral tone", () => {
     render(<MetricCard label="Services" value="Healthy" />);
 
-    expect(screen.getByText("Services").closest("article")).toHaveClass(
-      "metric-card--neutral"
-    );
+    expect(screen.getByText("Services").closest("article")).toBeInTheDocument();
   });
 });

@@ -66,35 +66,6 @@ h1 {
   font-size: 1.125rem;
 }
 
-.button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 40px;
-  margin-top: 24px;
-  border: 1px solid #1f5f78;
-  border-radius: 6px;
-  background: #1f5f78;
-  color: #ffffff;
-  cursor: pointer;
-  font-weight: 700;
-  padding: 0 16px;
-}
-
-.button:hover {
-  background: #174c60;
-}
-
-.button:disabled {
-  cursor: not-allowed;
-  opacity: 0.65;
-}
-
-.button:focus-visible {
-  outline: 3px solid #7fc7dd;
-  outline-offset: 2px;
-}
-
 .auth-panel,
 .console-panel {
   background: #ffffff;
@@ -130,18 +101,8 @@ h1 {
   max-width: none;
 }
 
-.auth-form .button {
+.auth-form button {
   justify-self: start;
-  margin-top: 4px;
-}
-
-.form-error {
-  background: #fbeaea;
-  border: 1px solid #edb7b7;
-  border-radius: 6px;
-  color: #8d2b2b;
-  margin: 0;
-  padding: 10px 12px;
 }
 
 .app-state {
@@ -190,10 +151,6 @@ h1 {
   justify-content: end;
 }
 
-.app-state__actions .button {
-  margin-top: 0;
-}
-
 .inline-form {
   align-items: end;
   background: #ffffff;
@@ -204,10 +161,6 @@ h1 {
   gap: 12px;
   padding: 16px;
   width: min(960px, 100%);
-}
-
-.inline-form .button {
-  margin-top: 0;
 }
 
 .data-table {
@@ -249,12 +202,6 @@ h1 {
 
 .data-table__empty {
   color: #5d707c;
-}
-
-.data-table .button {
-  margin-top: 0;
-  min-height: 34px;
-  padding: 0 12px;
 }
 
 .resource-title {
@@ -313,102 +260,11 @@ h1 {
   padding: 24px;
 }
 
-.console-panel .button {
-  flex: 0 0 auto;
-  margin-top: 0;
-}
-
-.status-badge-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.status-badge {
-  align-items: center;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  display: inline-flex;
-  font-size: 0.8125rem;
-  font-weight: 700;
-  line-height: 1;
-  min-height: 24px;
-  padding: 0 10px;
-}
-
-.status-badge--queued {
-  background: #eef2f5;
-  border-color: #d6e0e6;
-  color: #3f5463;
-}
-
-.status-badge--running {
-  background: #e5f5fa;
-  border-color: #a9d8e8;
-  color: #1f5f78;
-}
-
-.status-badge--succeeded {
-  background: #e8f5ee;
-  border-color: #afd9c4;
-  color: #236744;
-}
-
-.status-badge--failed {
-  background: #fbeaea;
-  border-color: #edb7b7;
-  color: #a23535;
-}
-
-.status-badge--cancelled,
-.status-badge--abandoned {
-  background: #f3efe8;
-  border-color: #dbccba;
-  color: #6a5135;
-}
-
 .metric-card-grid {
   display: grid;
   gap: 12px;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   width: min(720px, 100%);
-}
-
-.metric-card {
-  background: #ffffff;
-  border: 1px solid #dbe3e8;
-  border-radius: 8px;
-  display: grid;
-  gap: 6px;
-  min-height: 116px;
-  padding: 16px;
-}
-
-.metric-card__label {
-  color: #516673;
-  font-size: 0.8125rem;
-  font-weight: 700;
-}
-
-.metric-card__value {
-  color: #172026;
-  font-size: 1.5rem;
-  line-height: 1.1;
-}
-
-.metric-card__detail {
-  color: #5d707c;
-  font-size: 0.875rem;
-}
-
-.metric-card--attention {
-  border-color: #edc27d;
-  box-shadow: inset 4px 0 0 #c77a12;
-}
-
-.metric-card--success {
-  border-color: #afd9c4;
-  box-shadow: inset 4px 0 0 #2a8152;
 }
 
 .run-list {
@@ -495,12 +351,6 @@ h1 {
   justify-content: end;
 }
 
-.run-list__actions .button {
-  margin-top: 0;
-  min-height: 34px;
-  padding: 0 12px;
-}
-
 .run-source {
   border-radius: 999px;
   display: inline-flex;
@@ -560,10 +410,6 @@ h1 {
   display: flex;
   gap: 8px;
   justify-content: end;
-}
-
-.page-header__actions .button {
-  margin-top: 0;
 }
 
 @media (max-width: 640px) {
@@ -635,10 +481,6 @@ h1 {
   flex-wrap: wrap;
   gap: 10px;
   justify-content: end;
-}
-
-.console-shell__actions .button {
-  margin-top: 0;
 }
 
 .namespace-picker {
@@ -787,10 +629,6 @@ h1 {
   display: flex;
   gap: 8px;
   justify-content: end;
-}
-
-.section-panel__actions .button {
-  margin-top: 0;
 }
 
 .section-panel__body {
@@ -986,10 +824,6 @@ h1 {
   justify-content: end;
 }
 
-.filter-bar__actions .button {
-  margin-top: 0;
-}
-
 .run-once-panel {
   background: #ffffff;
   border: 1px solid #dbe3e8;
@@ -1014,10 +848,6 @@ h1 {
 .run-once-form__actions {
   display: flex;
   gap: 8px;
-}
-
-.run-once-form__actions .button {
-  margin-top: 0;
 }
 
 .resource-editor-panel {
@@ -1050,10 +880,6 @@ h1 {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-}
-
-.resource-editor-form__actions .button {
-  margin-top: 0;
 }
 
 .run-detail-tabs {

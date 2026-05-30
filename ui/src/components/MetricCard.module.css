@@ -1,0 +1,36 @@
+.root {
+  background: #ffffff;
+  border: 1px solid #dbe3e8;
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  min-height: 116px;
+  padding: 16px;
+}
+
+.label {
+  color: #516673;
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.value {
+  color: #172026;
+  font-size: 1.5rem;
+  line-height: 1.1;
+}
+
+.detail {
+  color: #5d707c;
+  font-size: 0.875rem;
+}
+
+.attention {
+  border-color: #edc27d;
+  box-shadow: inset 4px 0 0 #c77a12;
+}
+
+.success {
+  border-color: #afd9c4;
+  box-shadow: inset 4px 0 0 #2a8152;
+}

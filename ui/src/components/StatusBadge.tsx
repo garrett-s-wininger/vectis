@@ -1,3 +1,5 @@
+import styles from "./StatusBadge.module.css";
+
 const statusLabels = {
   queued: "Queued",
   running: "Running",
@@ -15,7 +17,7 @@ type StatusBadgeProps = {
 
 export function StatusBadge({ status }: StatusBadgeProps) {
   return (
-    <span className={`status-badge status-badge--${status}`}>
+    <span className={`${styles.root} ${styles[status]}`}>
       {statusLabels[status]}
     </span>
   );
