@@ -15,6 +15,48 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+type assignedStreamCall struct {
+	runID      string
+	logShardID string
+	chunks     []*api.LogChunk
+}
+
+type assignedRecordingLogClient struct {
+	calls []assignedStreamCall
+}
+
+func (c *assignedRecordingLogClient) StreamLogs(context.Context) (interfaces.LogStream, error) {
+	c.calls = append(c.calls, assignedStreamCall{})
+	return &assignedRecordingLogStream{client: c, callIndex: len(c.calls) - 1}, nil
+}
+
+func (c *assignedRecordingLogClient) StreamLogsForRun(ctx context.Context, runID string) (interfaces.LogStream, error) {
+	return c.StreamLogsForAssignedRun(ctx, runID, "")
+}
+
+func (c *assignedRecordingLogClient) StreamLogsForAssignedRun(_ context.Context, runID, logShardID string) (interfaces.LogStream, error) {
+	c.calls = append(c.calls, assignedStreamCall{runID: runID, logShardID: logShardID})
+	return &assignedRecordingLogStream{client: c, callIndex: len(c.calls) - 1}, nil
+}
+
+func (c *assignedRecordingLogClient) Close() error {
+	return nil
+}
+
+type assignedRecordingLogStream struct {
+	client    *assignedRecordingLogClient
+	callIndex int
+}
+
+func (s *assignedRecordingLogStream) Send(chunk *api.LogChunk) error {
+	s.client.calls[s.callIndex].chunks = append(s.client.calls[s.callIndex].chunks, chunk)
+	return nil
+}
+
+func (s *assignedRecordingLogStream) CloseSend() error {
+	return nil
+}
+
 func pollChunkCount(t *testing.T, client *mocks.MockLogClient, want int, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -85,6 +127,45 @@ func assertNoSpoolFiles(t *testing.T, dir string, timeout time.Duration) {
 	}
 
 	t.Fatalf("timed out waiting for spool files to be removed")
+}
+
+func TestForwarderRoutesChunkGroupsByShardHint(t *testing.T) {
+	client := &assignedRecordingLogClient{}
+	fwd := NewForwarder(nil, interfaces.NewLogger("test"), t.TempDir(), 10, 10000)
+	fwd.SetLogClient(client)
+
+	runID := "run-1"
+	shardA := "log-a"
+	shardB := "log-b"
+	chunks := []*api.LogChunk{
+		{RunId: &runID, LogShardId: &shardA, Sequence: proto.Int64(1), Data: []byte("a1")},
+		{RunId: &runID, LogShardId: &shardB, Sequence: proto.Int64(2), Data: []byte("b1")},
+		{RunId: &runID, LogShardId: &shardA, Sequence: proto.Int64(3), Data: []byte("a2")},
+	}
+
+	if err := fwd.sendChunkGroups(context.Background(), chunks); err != nil {
+		t.Fatalf("send chunk groups: %v", err)
+	}
+
+	if len(client.calls) != 2 {
+		t.Fatalf("expected 2 streams, got %d", len(client.calls))
+	}
+
+	if client.calls[0].runID != runID || client.calls[0].logShardID != shardA {
+		t.Fatalf("first stream = (%q, %q), want (%q, %q)", client.calls[0].runID, client.calls[0].logShardID, runID, shardA)
+	}
+
+	if len(client.calls[0].chunks) != 2 {
+		t.Fatalf("first stream chunk count = %d, want 2", len(client.calls[0].chunks))
+	}
+
+	if client.calls[1].runID != runID || client.calls[1].logShardID != shardB {
+		t.Fatalf("second stream = (%q, %q), want (%q, %q)", client.calls[1].runID, client.calls[1].logShardID, runID, shardB)
+	}
+
+	if len(client.calls[1].chunks) != 1 {
+		t.Fatalf("second stream chunk count = %d, want 1", len(client.calls[1].chunks))
+	}
 }
 
 // TestForwarder_HappyPath verifies that chunks received over the Unix socket

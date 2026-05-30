@@ -217,9 +217,9 @@ func (f *Forwarder) sendBatch(parentCtx context.Context, batch []*api.LogChunk) 
 }
 
 func (f *Forwarder) sendChunkGroups(ctx context.Context, chunks []*api.LogChunk) error {
-	groups := groupChunksByRun(chunks)
+	groups := groupChunksByRoute(chunks)
 	for _, group := range groups {
-		if err := f.sendChunkGroup(ctx, group.runID, group.chunks); err != nil {
+		if err := f.sendChunkGroup(ctx, group.runID, group.logShardID, group.chunks); err != nil {
 			return err
 		}
 	}
@@ -227,8 +227,8 @@ func (f *Forwarder) sendChunkGroups(ctx context.Context, chunks []*api.LogChunk)
 	return nil
 }
 
-func (f *Forwarder) sendChunkGroup(ctx context.Context, runID string, chunks []*api.LogChunk) error {
-	stream, err := f.openLogStream(ctx, runID)
+func (f *Forwarder) sendChunkGroup(ctx context.Context, runID, logShardID string, chunks []*api.LogChunk) error {
+	stream, err := f.openLogStream(ctx, runID, logShardID)
 	if err != nil {
 		return fmt.Errorf("create stream: %w", err)
 	}
@@ -250,7 +250,11 @@ func (f *Forwarder) sendChunkGroup(ctx context.Context, runID string, chunks []*
 	return nil
 }
 
-func (f *Forwarder) openLogStream(ctx context.Context, runID string) (interfaces.LogStream, error) {
+func (f *Forwarder) openLogStream(ctx context.Context, runID, logShardID string) (interfaces.LogStream, error) {
+	if assigned, ok := f.logClient.(interfaces.AssignedRunLogClient); ok && runID != "" && logShardID != "" {
+		return assigned.StreamLogsForAssignedRun(ctx, runID, logShardID)
+	}
+
 	if scoped, ok := f.logClient.(interfaces.RunLogClient); ok && runID != "" {
 		return scoped.StreamLogsForRun(ctx, runID)
 	}
@@ -259,20 +263,29 @@ func (f *Forwarder) openLogStream(ctx context.Context, runID string) (interfaces
 }
 
 type chunkGroup struct {
-	runID  string
-	chunks []*api.LogChunk
+	runID      string
+	logShardID string
+	chunks     []*api.LogChunk
 }
 
-func groupChunksByRun(chunks []*api.LogChunk) []chunkGroup {
-	byRun := make(map[string]int)
+type chunkGroupKey struct {
+	runID      string
+	logShardID string
+}
+
+func groupChunksByRoute(chunks []*api.LogChunk) []chunkGroup {
+	byRun := make(map[chunkGroupKey]int)
 	groups := make([]chunkGroup, 0)
 	for _, chunk := range chunks {
-		runID := chunk.GetRunId()
-		idx, ok := byRun[runID]
+		key := chunkGroupKey{
+			runID:      chunk.GetRunId(),
+			logShardID: chunk.GetLogShardId(),
+		}
+		idx, ok := byRun[key]
 		if !ok {
 			idx = len(groups)
-			byRun[runID] = idx
-			groups = append(groups, chunkGroup{runID: runID})
+			byRun[key] = idx
+			groups = append(groups, chunkGroup{runID: key.runID, logShardID: key.logShardID})
 		}
 
 		groups[idx].chunks = append(groups[idx].chunks, chunk)

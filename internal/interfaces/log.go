@@ -20,6 +20,15 @@ type RunLogClient interface {
 	StreamLogsForRun(ctx context.Context, runID string) (LogStream, error)
 }
 
+type AssignedRunLogClient interface {
+	RunLogClient
+	StreamLogsForAssignedRun(ctx context.Context, runID, shardID string) (LogStream, error)
+}
+
+type RunLogShardAssigner interface {
+	AssignLogShardForRun(ctx context.Context, runID string) (shardID string, err error)
+}
+
 type LogStream interface {
 	Send(chunk *api.LogChunk) error
 	CloseSend() error

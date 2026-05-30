@@ -253,6 +253,70 @@ func (m *ManagingWorkerDial) StreamLogsForRun(ctx context.Context, runID string)
 	return stream, err
 }
 
+func (m *ManagingWorkerDial) StreamLogsForAssignedRun(ctx context.Context, runID, shardID string) (interfaces.LogStream, error) {
+	m.mu.RLock()
+	var stream interfaces.LogStream
+	var err error
+
+	if assigned, ok := m.log.(interfaces.AssignedRunLogClient); ok {
+		stream, err = assigned.StreamLogsForAssignedRun(ctx, runID, shardID)
+	} else if scoped, ok := m.log.(interfaces.RunLogClient); ok {
+		stream, err = scoped.StreamLogsForRun(ctx, runID)
+	} else if m.log != nil {
+		stream, err = m.log.StreamLogs(ctx)
+	}
+	m.mu.RUnlock()
+
+	if err == nil || !IsTransientRPCError(err) {
+		return stream, err
+	}
+
+	if m.reconnectAfterTransient(ctx, err) != nil {
+		return stream, err
+	}
+
+	m.mu.RLock()
+	if assigned, ok := m.log.(interfaces.AssignedRunLogClient); ok {
+		stream, err = assigned.StreamLogsForAssignedRun(ctx, runID, shardID)
+	} else if scoped, ok := m.log.(interfaces.RunLogClient); ok {
+		stream, err = scoped.StreamLogsForRun(ctx, runID)
+	} else if m.log != nil {
+		stream, err = m.log.StreamLogs(ctx)
+	} else {
+		err = fmt.Errorf("log client not available after reconnect")
+	}
+	m.mu.RUnlock()
+
+	return stream, err
+}
+
+func (m *ManagingWorkerDial) AssignLogShardForRun(ctx context.Context, runID string) (string, error) {
+	m.mu.RLock()
+	assigner, ok := m.log.(interfaces.RunLogShardAssigner)
+	m.mu.RUnlock()
+	if !ok {
+		return "", nil
+	}
+
+	shardID, err := assigner.AssignLogShardForRun(ctx, runID)
+	if err == nil || !IsTransientRPCError(err) {
+		return shardID, err
+	}
+
+	if m.reconnectAfterTransient(ctx, err) != nil {
+		return shardID, err
+	}
+
+	m.mu.RLock()
+	assigner, ok = m.log.(interfaces.RunLogShardAssigner)
+	m.mu.RUnlock()
+	if !ok {
+		return "", nil
+	}
+
+	return assigner.AssignLogShardForRun(ctx, runID)
+}
+
 func (m *ManagingWorkerDial) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -268,3 +332,5 @@ func (m *ManagingWorkerDial) Close() error {
 }
 
 var _ interfaces.RunLogClient = (*ManagingWorkerDial)(nil)
+var _ interfaces.AssignedRunLogClient = (*ManagingWorkerDial)(nil)
+var _ interfaces.RunLogShardAssigner = (*ManagingWorkerDial)(nil)

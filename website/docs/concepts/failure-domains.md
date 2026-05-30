@@ -107,7 +107,7 @@ Run the reconciler and alert on persistent queued-run age if queue handoff matte
 
 ## Log Service Down
 
-The log service collects worker log chunks and serves log streams to clients. Multiple log services can run as run shards: DB-aware clients record a run's shard assignment in the database, and that shard's local storage is the durable source for those run logs. Log shards do not own authoritative run status.
+The log service collects worker log chunks and serves log streams to clients. Multiple log services can run as run shards: DB-aware clients record a run's shard assignment in the database, and that shard's local storage is the durable source for those run logs. Workers preserve that assignment when they send through a local log-forwarder by including the shard hint in the socket protocol. Log shards do not own authoritative run status.
 
 | Component | Behavior |
 | --- | --- |

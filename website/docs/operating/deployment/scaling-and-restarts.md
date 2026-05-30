@@ -35,7 +35,7 @@ This page answers "is this component topology supported, and what happens when i
 | `vectis-cron` | 1+ | Yes, within one DB cell | Schedule claims select one firing attempt for a due row. Each claim records an instance ID and expires after `--claim-ttl` / `VECTIS_CRON_CLAIM_TTL` so another replica can retry after a crash. If a retry sees the same schedule tick, it reuses the existing run and may repeat queue handoff for that run. Watch DB pressure, queue reachability, clock skew, and schedule-to-run latency. |
 | `vectis-reconciler` | 1 active | Yes, active/passive | Instances coordinate through the `service_leases` table. Only the lease holder scans and redispatches; standbys take over after the lease TTL. |
 | `vectis-docs` | 1 | Yes | Static HTTP docs. It has no database or queue state; scale or disable it according to your exposure model. |
-| `vectis-log-forwarder` | One per owner | Yes, by ownership | Safe when each forwarder owns its own socket and spool path. Do not share one spool directory as if it were a cluster. |
+| `vectis-log-forwarder` | One per owner | Yes, by ownership | Safe when each forwarder owns its own socket and spool path. DB-aware workers stamp log shard hints into the socket protocol; the forwarder stays DB-free and preserves those hints through its spool. Do not share one spool directory as if it were a cluster. |
 | `vectis-cli` | N/A | Yes | One-shot client. Concurrent commands rely on API and database semantics. |
 
 ## Worker Scale-Out
@@ -128,7 +128,7 @@ For repair steps, see [Repair Runbooks](../reliability/repair-runbooks.md).
 | Database | One configured logical database and schema. No in-app database failover, read-replica routing, or cross-site replication. |
 | API rate limits | In-memory per API process. |
 | Queue | Queue pool within one cell through registry discovery. Each shard has local persistence; no shared multi-writer queue storage. |
-| Logs | Run-sharded local storage within one cell with DB-backed shard assignments for DB-aware clients. There is no shared multi-writer log storage or S3-backed archive yet. The standalone log-forwarder remains DB-free and uses deterministic routing from discovered shards. Disk-pressure read-only mode rejects new run log files on a pressured shard. |
+| Logs | Run-sharded local storage within one cell with DB-backed shard assignments for DB-aware clients. There is no shared multi-writer log storage or S3-backed archive yet. The standalone log-forwarder remains DB-free: it uses worker-provided shard hints when present and deterministic routing from discovered shards otherwise. Disk-pressure read-only mode rejects new run log files on a pressured shard. |
 | Cron | DB-coordinated within one shared database cell; no built-in schedule partitioning across cells. |
 | Reconciler | Active/passive within one database cell through `service_leases`; not a sharded repair pool yet. |
 | Workers | Scale is bounded by DB pool sizing, queue throughput, log capacity, and workload resource isolation. |

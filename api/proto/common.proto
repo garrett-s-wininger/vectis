@@ -47,4 +47,5 @@ message LogChunk {
     Stream stream = 4;
     RunOutcome completed = 5;
     google.protobuf.Timestamp timestamp = 6;
+    string log_shard_id = 7;
 }

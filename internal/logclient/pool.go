@@ -53,6 +53,14 @@ func (m *ManagingLogClient) StreamLogsForRun(ctx context.Context, runID string) 
 	return m.pool.streamLogsForRun(ctx, runID)
 }
 
+func (m *ManagingLogClient) StreamLogsForAssignedRun(ctx context.Context, runID, shardID string) (interfaces.LogStream, error) {
+	return m.pool.streamLogsForAssignedRun(ctx, runID, shardID)
+}
+
+func (m *ManagingLogClient) AssignLogShardForRun(ctx context.Context, runID string) (string, error) {
+	return m.pool.assignLogShardForRun(ctx, runID)
+}
+
 func (m *ManagingLogClient) GetLogs(ctx context.Context, req *api.GetLogsRequest, opts ...grpc.CallOption) (api.LogService_GetLogsClient, error) {
 	return m.pool.getLogs(ctx, req, opts...)
 }
@@ -496,6 +504,47 @@ func (p *logPool) streamLogsForRun(ctx context.Context, runID string) (interface
 	return ep.writer.StreamLogs(ctx)
 }
 
+func (p *logPool) streamLogsForAssignedRun(ctx context.Context, runID, shardID string) (interfaces.LogStream, error) {
+	if runID == "" {
+		return nil, fmt.Errorf("run id is required")
+	}
+
+	if shardID == "" {
+		return p.streamLogsForRun(ctx, runID)
+	}
+
+	ep, err := p.chooseEndpointByID(shardID)
+	if err != nil {
+		return nil, err
+	}
+
+	stream, err := ep.writer.StreamLogs(ctx)
+	if err == nil {
+		return stream, nil
+	}
+
+	if rerr := p.reconnectEndpoint(ctx, ep.id); rerr != nil {
+		p.logger.Debug("log pool reconnect to %s failed: %v", ep.id, rerr)
+		return nil, err
+	}
+
+	ep, err = p.chooseEndpointByID(shardID)
+	if err != nil {
+		return nil, err
+	}
+
+	return ep.writer.StreamLogs(ctx)
+}
+
+func (p *logPool) assignLogShardForRun(ctx context.Context, runID string) (string, error) {
+	ep, err := p.chooseWriteEndpoint(ctx, runID)
+	if err != nil {
+		return "", err
+	}
+
+	return ep.id, nil
+}
+
 func (p *logPool) getLogs(ctx context.Context, req *api.GetLogsRequest, opts ...grpc.CallOption) (api.LogService_GetLogsClient, error) {
 	ep, err := p.chooseReadEndpoint(ctx, req.GetRunId())
 	if err != nil {
@@ -618,11 +667,12 @@ func (e *logEndpoint) close() {
 }
 
 type routingLogStream struct {
-	ctx    context.Context
-	pool   *logPool
-	mu     sync.Mutex
-	runID  string
-	stream interfaces.LogStream
+	ctx        context.Context
+	pool       *logPool
+	mu         sync.Mutex
+	runID      string
+	logShardID string
+	stream     interfaces.LogStream
 }
 
 func (s *routingLogStream) Send(chunk *api.LogChunk) error {
@@ -643,15 +693,27 @@ func (s *routingLogStream) Send(chunk *api.LogChunk) error {
 			return fmt.Errorf("log stream already routed to run %q, got chunk for run %q", s.runID, runID)
 		}
 
+		if shardID := chunk.GetLogShardId(); shardID != "" && s.logShardID != "" && shardID != s.logShardID {
+			return fmt.Errorf("log stream already routed to shard %q, got chunk for shard %q", s.logShardID, shardID)
+		}
+
 		return s.stream.Send(chunk)
 	}
 
-	stream, err := s.pool.streamLogsForRun(s.ctx, runID)
+	var stream interfaces.LogStream
+	var err error
+	shardID := chunk.GetLogShardId()
+	if shardID != "" {
+		stream, err = s.pool.streamLogsForAssignedRun(s.ctx, runID, shardID)
+	} else {
+		stream, err = s.pool.streamLogsForRun(s.ctx, runID)
+	}
 	if err != nil {
 		return err
 	}
 
 	s.runID = runID
+	s.logShardID = shardID
 	s.stream = stream
 	return s.stream.Send(chunk)
 }
@@ -683,4 +745,6 @@ func (s *routingLogStream) CloseAndRecv() error {
 }
 
 var _ interfaces.RunLogClient = (*ManagingLogClient)(nil)
+var _ interfaces.AssignedRunLogClient = (*ManagingLogClient)(nil)
+var _ interfaces.RunLogShardAssigner = (*ManagingLogClient)(nil)
 var _ interfaces.LogStream = (*routingLogStream)(nil)

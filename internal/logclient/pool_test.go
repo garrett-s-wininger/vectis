@@ -134,6 +134,63 @@ func TestLogPoolAssignsWritableShardForNewRun(t *testing.T) {
 	}
 }
 
+func TestLogPoolAssignLogShardForRunStoresWritableChoice(t *testing.T) {
+	readOnly := &recordingLogClient{endpointID: "log-read-only"}
+	writable := &recordingLogClient{endpointID: "log-writable"}
+	assignments := &memoryAssignmentStore{}
+	p := &logPool{
+		logger: mocks.NopLogger{},
+		opts:   PoolOptions{AssignmentStore: assignments},
+		active: []*logEndpoint{
+			{id: readOnly.endpointID, writer: readOnly, writable: false},
+			{id: writable.endpointID, writer: writable, writable: true},
+		},
+	}
+
+	shardID, err := p.assignLogShardForRun(context.Background(), "run-new")
+	if err != nil {
+		t.Fatalf("assign log shard for run: %v", err)
+	}
+
+	if shardID != writable.endpointID {
+		t.Fatalf("assigned shard = %q, want %q", shardID, writable.endpointID)
+	}
+
+	if assignments.shardID != writable.endpointID {
+		t.Fatalf("stored shard = %q, want %q", assignments.shardID, writable.endpointID)
+	}
+}
+
+func TestLogPoolStreamsAssignedRunToShard(t *testing.T) {
+	a := &recordingLogClient{endpointID: "log-a"}
+	b := &recordingLogClient{endpointID: "log-b"}
+	p := &logPool{
+		logger: mocks.NopLogger{},
+		active: []*logEndpoint{
+			{id: a.endpointID, writer: a, writable: true},
+			{id: b.endpointID, writer: b, writable: true},
+		},
+	}
+
+	runID := "run-1"
+	stream, err := p.streamLogsForAssignedRun(context.Background(), runID, b.endpointID)
+	if err != nil {
+		t.Fatalf("stream logs for assigned run: %v", err)
+	}
+
+	if err := stream.Send(&api.LogChunk{RunId: &runID}); err != nil {
+		t.Fatalf("send chunk: %v", err)
+	}
+
+	if len(b.chunks) != 1 {
+		t.Fatalf("expected assigned shard to receive chunk, got %d", len(b.chunks))
+	}
+
+	if len(a.chunks) != 0 {
+		t.Fatalf("expected unassigned shard to receive no chunks, got %d", len(a.chunks))
+	}
+}
+
 func TestLogPoolUsesAssignedReadOnlyShard(t *testing.T) {
 	readOnly := &recordingLogClient{endpointID: "log-read-only"}
 	writable := &recordingLogClient{endpointID: "log-writable"}

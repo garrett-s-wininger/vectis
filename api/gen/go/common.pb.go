@@ -355,6 +355,7 @@ type LogChunk struct {
 	Stream        *Stream                `protobuf:"varint,4,opt,name=stream,enum=common.Stream" json:"stream,omitempty"`
 	Completed     *RunOutcome            `protobuf:"varint,5,opt,name=completed,enum=common.RunOutcome" json:"completed,omitempty"`
 	Timestamp     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=timestamp" json:"timestamp,omitempty"`
+	LogShardId    *string                `protobuf:"bytes,7,opt,name=log_shard_id,json=logShardId" json:"log_shard_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -431,6 +432,13 @@ func (x *LogChunk) GetTimestamp() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *LogChunk) GetLogShardId() string {
+	if x != nil && x.LogShardId != nil {
+		return *x.LogShardId
+	}
+	return ""
+}
+
 var File_common_proto protoreflect.FileDescriptor
 
 const file_common_proto_rawDesc = "" +
@@ -457,14 +465,16 @@ const file_common_proto_rawDesc = "" +
 	"\x05steps\x18\x04 \x03(\v2\f.common.NodeR\x05steps\x1a7\n" +
 	"\tWithEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xe5\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x87\x02\n" +
 	"\bLogChunk\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x12\n" +
 	"\x04data\x18\x02 \x01(\fR\x04data\x12\x1a\n" +
 	"\bsequence\x18\x03 \x01(\x03R\bsequence\x12&\n" +
 	"\x06stream\x18\x04 \x01(\x0e2\x0e.common.StreamR\x06stream\x120\n" +
 	"\tcompleted\x18\x05 \x01(\x0e2\x12.common.RunOutcomeR\tcompleted\x128\n" +
-	"\ttimestamp\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp*t\n" +
+	"\ttimestamp\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\x12 \n" +
+	"\flog_shard_id\x18\a \x01(\tR\n" +
+	"logShardId*t\n" +
 	"\n" +
 	"RunOutcome\x12\x1b\n" +
 	"\x17RUN_OUTCOME_UNSPECIFIED\x10\x00\x12\x17\n" +
