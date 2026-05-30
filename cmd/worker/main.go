@@ -851,7 +851,7 @@ func (w *worker) markRunAbortedWithRetry(runID, claimToken, reason string) error
 		err := w.store.MarkRunAborted(w.runCtx, runID, claimToken, reason)
 		if err == nil {
 			w.noteDBRecovered()
-			w.recordRunCatalogEvent(dal.RunStatusUpdate{RunID: runID, Status: dal.RunStatusAborted, Reason: reason})
+			w.recordRunCatalogEvent(dal.RunStatusUpdate{RunID: runID, Status: dal.RunStatusCancelled, Reason: reason})
 			return nil
 		}
 		w.noteDBError(err)

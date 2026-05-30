@@ -9,14 +9,16 @@ import (
 )
 
 type FanInSource struct {
-	CellID string
-	Events dal.CatalogEventsRepository
+	CellID   string
+	Events   dal.CatalogEventsRepository
+	Backfill Backfill
 }
 
 type FanInResult struct {
-	Sources int
-	Read    int
-	Copied  int
+	Sources    int
+	Backfilled int
+	Read       int
+	Copied     int
 }
 
 type FanInProcessor struct {
@@ -49,6 +51,15 @@ func (p *FanInProcessor) IngestPending(ctx context.Context, limit int) (FanInRes
 	for _, source := range p.sources {
 		if remaining <= 0 {
 			break
+		}
+
+		if source.Backfill != nil {
+			backfillResult, err := source.Backfill.RepairMissing(ctx, remaining)
+			if err != nil {
+				return result, fmt.Errorf("backfill missing catalog events for cell %q: %w", source.CellID, err)
+			}
+
+			result.Backfilled += backfillResult.Total()
 		}
 
 		if source.Events == nil {

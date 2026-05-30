@@ -1014,6 +1014,7 @@ func TestWorkerRunClaimedJob_RemoteCancel_MarksRunAborted(t *testing.T) {
 		logClient:     mocks.NewMockLogClient(),
 		executor:      job.NewExecutor(),
 		store:         runs,
+		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
 		cancelCh:      make(chan string, 1),
 	}
 
@@ -1108,6 +1109,26 @@ func TestWorkerRunClaimedJob_RemoteCancel_MarksRunAborted(t *testing.T) {
 
 	if !finishedAt.Valid {
 		t.Fatal("expected finished_at to be set for aborted run")
+	}
+
+	events, err := repos.CatalogEvents().ListPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("list catalog events: %v", err)
+	}
+
+	wantKey := cell.CatalogRunStatusEventKey(runID, dal.RunStatusCancelled)
+	found := false
+	for _, event := range events {
+		if event.EventKey == wantKey {
+			found = true
+			break
+		}
+		if strings.Contains(event.EventKey, dal.RunStatusAborted) {
+			t.Fatalf("unexpected aborted run catalog event: %+v", event)
+		}
+	}
+	if !found {
+		t.Fatalf("expected cancelled catalog event %q, got %+v", wantKey, events)
 	}
 }
 

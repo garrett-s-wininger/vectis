@@ -144,3 +144,47 @@ func TestFanInProcessorMarksSourceAppliedWhenTargetAlreadyHasEvent(t *testing.T)
 		t.Fatalf("source duplicate event was not marked applied: %+v", sourcePending)
 	}
 }
+
+func TestFanInProcessorBackfillsSourceBeforeCopy(t *testing.T) {
+	ctx := context.Background()
+	sourceDB := dbtest.NewTestDB(t)
+	targetDB := dbtest.NewTestDB(t)
+	sourceRepos := dal.NewSQLRepositoriesWithCellID(sourceDB, "iad-a")
+	targetRepos := dal.NewSQLRepositories(targetDB)
+
+	runID, _, err := sourceRepos.CreateDefinitionAndRunInCell(ctx, "job-fanin-backfill", `{"id":"job-fanin-backfill","root":{"uses":"builtins/shell"}}`, nil, "iad-a")
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	if err := sourceRepos.Runs().MarkRunRunning(ctx, runID); err != nil {
+		t.Fatalf("mark run running: %v", err)
+	}
+
+	events := sourceRepos.CatalogEvents()
+	processor := NewFanInProcessor(targetRepos.CatalogEvents(), []FanInSource{
+		{
+			CellID:   "iad-a",
+			Events:   events,
+			Backfill: NewBackfillProcessor("iad-a", sourceRepos.CatalogStatusBackfill(), cell.NewCatalogEventPublisher("iad-a", events)),
+		},
+	})
+
+	result, err := processor.IngestPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("IngestPending: %v", err)
+	}
+
+	if result.Backfilled != 1 || result.Read != 1 || result.Copied != 1 {
+		t.Fatalf("unexpected fan-in result: %+v", result)
+	}
+
+	targetPending, err := targetRepos.CatalogEvents().ListPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("list target pending: %v", err)
+	}
+
+	if len(targetPending) != 1 || targetPending[0].EventKey != cell.CatalogRunStatusEventKey(runID, dal.RunStatusRunning) {
+		t.Fatalf("unexpected target event after backfill: %+v", targetPending)
+	}
+}

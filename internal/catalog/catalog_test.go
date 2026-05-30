@@ -73,6 +73,36 @@ func (f *recordingFanIn) calledLimits() []int {
 	return append([]int(nil), f.limits...)
 }
 
+type recordingBackfill struct {
+	mu      sync.Mutex
+	limits  []int
+	result  BackfillResult
+	err     error
+	onCalls func()
+}
+
+func (b *recordingBackfill) RepairMissing(ctx context.Context, limit int) (BackfillResult, error) {
+	b.mu.Lock()
+	b.limits = append(b.limits, limit)
+	onCalls := b.onCalls
+	result := b.result
+	err := b.err
+	b.mu.Unlock()
+
+	if onCalls != nil {
+		onCalls()
+	}
+
+	return result, err
+}
+
+func (b *recordingBackfill) calledLimits() []int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return append([]int(nil), b.limits...)
+}
+
 type recordingMetrics struct {
 	mu      sync.Mutex
 	results []cell.CatalogInboxProcessResult
@@ -178,6 +208,54 @@ func TestServiceProcessRunsFanInBeforeInboxProcessor(t *testing.T) {
 
 	if len(logger.GetInfoCalls()) == 0 {
 		t.Fatal("expected fan-in result to be logged")
+	}
+}
+
+func TestServiceProcessRunsBackfillBeforeFanInAndInboxProcessor(t *testing.T) {
+	var order []string
+	backfill := &recordingBackfill{
+		result: BackfillResult{RunEvents: 1},
+		onCalls: func() {
+			order = append(order, "backfill")
+		},
+	}
+
+	fanIn := &recordingFanIn{
+		result: FanInResult{Sources: 1, Backfilled: 1, Read: 1, Copied: 1},
+		onCalls: func() {
+			order = append(order, "fan-in")
+		},
+	}
+
+	processor := &recordingProcessor{
+		onCalled: func() {
+			order = append(order, "processor")
+		},
+	}
+
+	logger := mocks.NewMockLogger()
+	svc := NewServiceWithProcessor(logger, processor)
+	svc.SetBackfill(backfill)
+	svc.SetFanIn(fanIn)
+
+	if _, err := svc.Process(context.Background(), 6); err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+
+	if got := backfill.calledLimits(); len(got) != 1 || got[0] != 6 {
+		t.Fatalf("expected backfill limit 6, got %v", got)
+	}
+
+	if got := fanIn.calledLimits(); len(got) != 1 || got[0] != 6 {
+		t.Fatalf("expected fan-in limit 6, got %v", got)
+	}
+
+	if len(order) != 3 || order[0] != "backfill" || order[1] != "fan-in" || order[2] != "processor" {
+		t.Fatalf("unexpected call order: %v", order)
+	}
+
+	if len(logger.GetInfoCalls()) < 2 {
+		t.Fatalf("expected backfill and fan-in results to be logged, got %v", logger.GetInfoCalls())
 	}
 }
 

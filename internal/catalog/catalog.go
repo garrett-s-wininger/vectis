@@ -24,6 +24,10 @@ type FanIn interface {
 	IngestPending(ctx context.Context, limit int) (FanInResult, error)
 }
 
+type Backfill interface {
+	RepairMissing(ctx context.Context, limit int) (BackfillResult, error)
+}
+
 type Metrics interface {
 	RecordProcessResult(ctx context.Context, result cell.CatalogInboxProcessResult)
 	RecordProcessError(ctx context.Context)
@@ -32,6 +36,7 @@ type Metrics interface {
 type Service struct {
 	logger    interfaces.Logger
 	processor InboxProcessor
+	backfill  Backfill
 	fanIn     FanIn
 	metrics   Metrics
 }
@@ -55,12 +60,31 @@ func (s *Service) SetFanIn(fanIn FanIn) {
 	s.fanIn = fanIn
 }
 
+func (s *Service) SetBackfill(backfill Backfill) {
+	s.backfill = backfill
+}
+
 func (s *Service) Process(ctx context.Context, batchSize int) (cell.CatalogInboxProcessResult, error) {
 	if s.processor == nil {
 		return cell.CatalogInboxProcessResult{}, errors.New("catalog inbox processor is not set")
 	}
 
 	batchSize = normalizeBatchSize(batchSize)
+	if s.backfill != nil {
+		result, err := s.backfill.RepairMissing(ctx, batchSize)
+		if err != nil {
+			if s.metrics != nil {
+				s.metrics.RecordProcessError(ctx)
+			}
+
+			return cell.CatalogInboxProcessResult{}, fmt.Errorf("catalog backfill: %w", err)
+		}
+
+		if result.Total() > 0 && s.logger != nil {
+			s.logger.Info("catalog: backfilled %d missing events (%d run, %d execution)", result.Total(), result.RunEvents, result.ExecutionEvents)
+		}
+	}
+
 	if s.fanIn != nil {
 		result, err := s.fanIn.IngestPending(ctx, batchSize)
 		if err != nil {
@@ -71,8 +95,8 @@ func (s *Service) Process(ctx context.Context, batchSize int) (cell.CatalogInbox
 			return cell.CatalogInboxProcessResult{}, fmt.Errorf("catalog fan-in: %w", err)
 		}
 
-		if result.Read > 0 && s.logger != nil {
-			s.logger.Info("catalog: ingested %d events from %d source(s) (%d copied)", result.Read, result.Sources, result.Copied)
+		if (result.Read > 0 || result.Backfilled > 0) && s.logger != nil {
+			s.logger.Info("catalog: ingested %d events from %d source(s) (%d copied, %d backfilled)", result.Read, result.Sources, result.Copied, result.Backfilled)
 		}
 	}
 

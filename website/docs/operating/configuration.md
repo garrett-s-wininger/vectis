@@ -116,7 +116,7 @@ Database driver settings are global. DSNs can be shared for single-node deployme
 
 `vectis-local` uses split SQLite files by default when no database DSN is set: one global DB and one DB for each local execution cell. Standalone services keep using `VECTIS_DATABASE_DSN` unless the matching role-specific DSN is set. Multi-cell `vectis-local --cell ...` currently requires the default managed SQLite layout so each local cell gets its own DB.
 
-When global and cell databases are split, workers record status changes into the cell-local catalog event inbox. Run `vectis-catalog` against the global database and pass each cell database with repeated `--cell-database-dsn cell_id=dsn` flags, or with `VECTIS_CATALOG_CELL_DATABASE_DSNS=iad-a=/path/iad.db,pdx-b=/path/pdx.db`. `vectis-local` wires this automatically for its managed local cells.
+When global and cell databases are split, workers record status changes into the cell-local catalog event inbox. Run `vectis-catalog` against the global database and pass each cell database with repeated `--cell-database-dsn cell_id=dsn` flags, or with `VECTIS_CATALOG_CELL_DATABASE_DSNS=iad-a=/path/iad.db,pdx-b=/path/pdx.db`. `vectis-catalog` also backfills missing catalog events from observed run and execution state before draining an inbox, which repairs the narrow case where a state transition committed but the matching catalog event write did not. `vectis-local` wires this automatically for its managed local cells.
 
 Runtime services wait for the expected schema; they do not apply migrations. Run migrations with:
 

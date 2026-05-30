@@ -35,7 +35,7 @@ The queue handoff can happen after the HTTP response. If the API records the run
 
 Ephemeral runs follow the same execution path, except the job definition is submitted inline instead of being looked up from a stored job.
 
-In a split global/cell deployment, steps 5 through 9 happen against the cell-local database and queue. `vectis-catalog` can fan in pending catalog events from configured cell databases, then apply them to the global database.
+In a split global/cell deployment, steps 5 through 9 happen against the cell-local database and queue. `vectis-catalog` can backfill missing cell catalog events from observed cell-local state, fan in pending catalog events from configured cell databases, then apply them to the global database.
 
 ## Component Diagram
 
@@ -106,7 +106,7 @@ flowchart TB
 | `vectis-registry` | Internal service discovery for queue and log addresses when clients do not use pinned addresses. |
 | `vectis-cron` | Reads schedules from the database and enqueues due runs. |
 | `vectis-reconciler` | Finds queued runs that need another queue handoff and enqueues them again. |
-| `vectis-catalog` | Drains global catalog events, optionally fans in pending events from configured cell databases, and applies them to the global run catalog. |
+| `vectis-catalog` | Backfills missing status events from observed state, drains global catalog events, optionally fans in pending events from configured cell databases, and applies them to the global run catalog. |
 | `vectis-docs` | Serves the embedded docs site as static HTTP. |
 | `vectis-local` | Development supervisor that starts the local registry, queue, log, cell ingress, worker, cron, reconciler, catalog, API, and docs together. |
 | `vectis-cli` | User and operator command-line client for the HTTP API. |

@@ -234,6 +234,11 @@ type CatalogEventsRepository interface {
 	Summary(ctx context.Context) (CatalogEventSummary, error)
 }
 
+type CatalogStatusBackfillRepository interface {
+	ListMissingRunStatusCatalogEvents(ctx context.Context, sourceCell string, limit int) ([]RunStatusUpdate, error)
+	ListMissingExecutionStatusCatalogEvents(ctx context.Context, sourceCell string, limit int) ([]ExecutionStatusUpdate, error)
+}
+
 type CronSchedule struct {
 	ID        int64
 	JobID     string
@@ -332,6 +337,7 @@ type SQLRepositories struct {
 	idempotency  *SQLIdempotencyRepository
 	dispatch     *SQLDispatchEventsRepository
 	catalog      *SQLCatalogEventsRepository
+	catalogState *SQLCatalogStatusBackfillRepository
 	cellAccept   *SQLCellExecutionAcceptancesRepository
 }
 
@@ -353,6 +359,7 @@ func NewSQLRepositoriesWithCellID(db *sql.DB, cellID string) *SQLRepositories {
 		idempotency:  &SQLIdempotencyRepository{db: db},
 		dispatch:     &SQLDispatchEventsRepository{db: db},
 		catalog:      &SQLCatalogEventsRepository{db: db},
+		catalogState: &SQLCatalogStatusBackfillRepository{db: db},
 		cellAccept:   &SQLCellExecutionAcceptancesRepository{db: db, cellID: cellID},
 	}
 }
@@ -512,6 +519,10 @@ func (r *SQLRepositories) DispatchEvents() DispatchEventsRepository {
 
 func (r *SQLRepositories) CatalogEvents() CatalogEventsRepository {
 	return r.catalog
+}
+
+func (r *SQLRepositories) CatalogStatusBackfill() CatalogStatusBackfillRepository {
+	return r.catalogState
 }
 
 func (r *SQLRepositories) CellExecutionAcceptances() CellExecutionAcceptancesRepository {

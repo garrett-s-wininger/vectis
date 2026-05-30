@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/viper"
 
 	"vectis/internal/catalog"
+	"vectis/internal/cell"
 	"vectis/internal/cli"
 	"vectis/internal/config"
 	"vectis/internal/dal"
@@ -55,6 +56,12 @@ func runCatalog(cmd *cobra.Command, args []string) {
 
 	repos := dal.NewSQLRepositories(db)
 	svc := catalog.NewService(logger, repos.CatalogEvents(), repos.Runs())
+	svc.SetBackfill(catalog.NewBackfillProcessor(
+		config.CellID(),
+		repos.CatalogStatusBackfill(),
+		cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
+	))
+
 	fanInSources, closeFanIn, err := openCatalogFanInSources(logger, globalDBPath)
 	if err != nil {
 		logger.Fatal("Failed to initialize catalog fan-in: %v", err)
@@ -128,9 +135,15 @@ func openCatalogFanInSources(logger interfaces.Logger, globalDBPath string) ([]c
 		}
 
 		repos := dal.NewSQLRepositoriesWithCellID(db, cellID)
+		events := repos.CatalogEvents()
 		sources = append(sources, catalog.FanInSource{
 			CellID: cellID,
-			Events: repos.CatalogEvents(),
+			Events: events,
+			Backfill: catalog.NewBackfillProcessor(
+				cellID,
+				repos.CatalogStatusBackfill(),
+				cell.NewCatalogEventPublisher(cellID, events),
+			),
 		})
 	}
 

@@ -43,6 +43,10 @@ func TestOpenCatalogFanInSourcesOpensConfiguredCellDBs(t *testing.T) {
 		if source.Events == nil {
 			t.Fatalf("source %q has nil events repository", source.CellID)
 		}
+
+		if source.Backfill == nil {
+			t.Fatalf("source %q has nil backfill processor", source.CellID)
+		}
 	}
 
 	want := []string{"iad-a", "pdx-b"}
