@@ -64,6 +64,9 @@ port = 8083
 register_with_registry = true
 advertise_address = ""
 
+[log_forwarder]
+metrics_port = 9088
+
 [discovery]
 registry_resolver_refresh = "10s"
 registry_resolver_poll_timeout = "5s"

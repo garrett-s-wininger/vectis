@@ -90,7 +90,7 @@ func TestDialQueueAndLog_UsesBoundedRegistryConnections(t *testing.T) {
 	t.Cleanup(viper.Reset)
 	viper.Set("discovery.registry.address", regServer.Addr())
 
-	_, _, cleanup, err := multidial.DialQueueAndLog(ctx, logger, nil, nil)
+	_, _, cleanup, err := multidial.DialQueueAndLog(ctx, logger, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("DialQueueAndLog: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestDialQueueAndLog_BothPinnedSkipsRegistry(t *testing.T) {
 	viper.Set("worker.log.address", logServer.Addr())
 
 	start := time.Now()
-	_, _, cleanup, err := multidial.DialQueueAndLog(ctx, logger, nil, nil)
+	_, _, cleanup, err := multidial.DialQueueAndLog(ctx, logger, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("DialQueueAndLog: %v", err)
 	}

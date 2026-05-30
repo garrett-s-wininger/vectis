@@ -56,6 +56,19 @@ func TestMustDefaults_ReconcilerInterval(t *testing.T) {
 	if got := ReconcilerMetricsPort(); got != 9085 {
 		t.Fatalf("ReconcilerMetricsPort() with empty viper: got %d", got)
 	}
+
+	if d.LogForwarder.MetricsPort != 9088 {
+		t.Fatalf("expected log_forwarder.metrics_port 9088, got %d", d.LogForwarder.MetricsPort)
+	}
+
+	if got := LogForwarderMetricsPort(); got != 9088 {
+		t.Fatalf("LogForwarderMetricsPort() with empty viper: got %d", got)
+	}
+
+	viper.Set("metrics_port", 19086)
+	if got := LogForwarderMetricsEffectiveListenPort(); got != 19086 {
+		t.Fatalf("LogForwarderMetricsEffectiveListenPort() override: got %d", got)
+	}
 }
 
 func TestMustDefaults_Catalog(t *testing.T) {

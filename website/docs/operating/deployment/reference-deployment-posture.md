@@ -23,7 +23,7 @@ The reference deployment gives you a working single-site topology:
 | Database | Bundled Postgres with generated password and TLS inside the pod. |
 | Internal gRPC | Generated CA and server certificate, mounted into Vectis containers. |
 | Queue/log storage | Persistent volume claims for queue and log data. |
-| Metrics | Prometheus scraping API, queue, worker, log, reconciler, and catalog metrics. |
+| Metrics | Prometheus scraping API, queue, worker, log, reconciler, catalog, and cell ingress metrics; log-forwarder metrics when deployed. |
 | Dashboards | Grafana with a provisioned Vectis overview dashboard. |
 | Traces | Jaeger collector/query backed by the bundled OpenSearch instance. |
 | Service logs | Structured Vectis logs tailed by Fluent Bit into OpenSearch. |

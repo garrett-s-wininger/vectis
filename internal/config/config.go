@@ -36,20 +36,21 @@ func (d *tomlDuration) UnmarshalText(text []byte) error {
 }
 
 type Defaults struct {
-	Cell        CellDefaults        `toml:"cell"`
-	API         APIDefaults         `toml:"api"`
-	Queue       QueueDefaults       `toml:"queue"`
-	Registry    RegistryDefaults    `toml:"registry"`
-	Log         LogDefaults         `toml:"log"`
-	Discovery   DiscoveryDefaults   `toml:"discovery"`
-	Database    DatabaseDefaults    `toml:"database"`
-	Worker      WorkerDefaults      `toml:"worker"`
-	Cron        CronDefaults        `toml:"cron"`
-	Reconciler  ReconcilerDefaults  `toml:"reconciler"`
-	Catalog     CatalogDefaults     `toml:"catalog"`
-	CellIngress CellIngressDefaults `toml:"cell_ingress"`
-	GRPCTLS     GRPCTLSDefaults     `toml:"grpc_tls"`
-	MetricsTLS  MetricsTLSDefaults  `toml:"metrics_tls"`
+	Cell         CellDefaults         `toml:"cell"`
+	API          APIDefaults          `toml:"api"`
+	Queue        QueueDefaults        `toml:"queue"`
+	Registry     RegistryDefaults     `toml:"registry"`
+	Log          LogDefaults          `toml:"log"`
+	LogForwarder LogForwarderDefaults `toml:"log_forwarder"`
+	Discovery    DiscoveryDefaults    `toml:"discovery"`
+	Database     DatabaseDefaults     `toml:"database"`
+	Worker       WorkerDefaults       `toml:"worker"`
+	Cron         CronDefaults         `toml:"cron"`
+	Reconciler   ReconcilerDefaults   `toml:"reconciler"`
+	Catalog      CatalogDefaults      `toml:"catalog"`
+	CellIngress  CellIngressDefaults  `toml:"cell_ingress"`
+	GRPCTLS      GRPCTLSDefaults      `toml:"grpc_tls"`
+	MetricsTLS   MetricsTLSDefaults   `toml:"metrics_tls"`
 }
 
 type CellDefaults struct {
@@ -130,6 +131,10 @@ type LogDefaults struct {
 	StorageReadOnlyMinFreeBytes uint64       `toml:"storage_read_only_min_free_bytes"`
 	RegistryAddress             string       `toml:"registry.address"`
 	GRPC                        GRPCDefaults `toml:"grpc"`
+}
+
+type LogForwarderDefaults struct {
+	MetricsPort int `toml:"metrics_port"`
 }
 
 type GRPCDefaults struct {
@@ -310,6 +315,14 @@ func validateDefaults(d Defaults) {
 		panic("config defaults: log.metrics_port must differ from queue.metrics_port and worker.metrics_port")
 	}
 
+	validatePort(d.LogForwarder.MetricsPort, "log_forwarder.metrics_port")
+	if d.LogForwarder.MetricsPort == d.Queue.MetricsPort ||
+		d.LogForwarder.MetricsPort == d.Worker.MetricsPort ||
+		d.LogForwarder.MetricsPort == d.Log.MetricsPort ||
+		d.LogForwarder.MetricsPort == d.Log.GRPC.Port {
+		panic("config defaults: log_forwarder.metrics_port must differ from queue/worker/log metrics ports and log gRPC port")
+	}
+
 	if d.Log.Host == "" {
 		panic("config defaults: log.host must not be empty")
 	}
@@ -325,6 +338,10 @@ func validateDefaults(d Defaults) {
 	validatePort(d.Worker.MetricsPort, "worker.metrics_port")
 	if d.Worker.MetricsPort == d.Queue.MetricsPort {
 		panic("config defaults: worker.metrics_port must differ from queue.metrics_port")
+	}
+
+	if d.Worker.MetricsPort == d.LogForwarder.MetricsPort {
+		panic("config defaults: worker.metrics_port must differ from log_forwarder.metrics_port")
 	}
 
 	p := d.Database.PgxPool
@@ -356,8 +373,9 @@ func validateDefaults(d Defaults) {
 	if d.Reconciler.MetricsPort == d.Queue.MetricsPort ||
 		d.Reconciler.MetricsPort == d.Worker.MetricsPort ||
 		d.Reconciler.MetricsPort == d.Log.MetricsPort ||
+		d.Reconciler.MetricsPort == d.LogForwarder.MetricsPort ||
 		d.Reconciler.MetricsPort == d.Worker.Control.Port {
-		panic("config defaults: reconciler.metrics_port must differ from queue/worker/log metrics ports and worker control port")
+		panic("config defaults: reconciler.metrics_port must differ from queue/worker/log/log-forwarder metrics ports and worker control port")
 	}
 
 	if time.Duration(d.Catalog.Interval) <= 0 {
@@ -372,9 +390,10 @@ func validateDefaults(d Defaults) {
 	if d.Catalog.MetricsPort == d.Queue.MetricsPort ||
 		d.Catalog.MetricsPort == d.Worker.MetricsPort ||
 		d.Catalog.MetricsPort == d.Log.MetricsPort ||
+		d.Catalog.MetricsPort == d.LogForwarder.MetricsPort ||
 		d.Catalog.MetricsPort == d.Reconciler.MetricsPort ||
 		d.Catalog.MetricsPort == d.Worker.Control.Port {
-		panic("config defaults: catalog.metrics_port must differ from queue/worker/log/reconciler metrics ports and worker control port")
+		panic("config defaults: catalog.metrics_port must differ from queue/worker/log/log-forwarder/reconciler metrics ports and worker control port")
 	}
 
 	if strings.TrimSpace(d.CellIngress.Host) == "" {
@@ -393,10 +412,11 @@ func validateDefaults(d Defaults) {
 		d.CellIngress.MetricsPort == d.Queue.MetricsPort ||
 		d.CellIngress.MetricsPort == d.Worker.MetricsPort ||
 		d.CellIngress.MetricsPort == d.Log.MetricsPort ||
+		d.CellIngress.MetricsPort == d.LogForwarder.MetricsPort ||
 		d.CellIngress.MetricsPort == d.Reconciler.MetricsPort ||
 		d.CellIngress.MetricsPort == d.Catalog.MetricsPort ||
 		d.CellIngress.MetricsPort == d.Worker.Control.Port {
-		panic("config defaults: cell_ingress.metrics_port must differ from cell ingress, queue/worker/log/reconciler/catalog metrics ports and worker control port")
+		panic("config defaults: cell_ingress.metrics_port must differ from cell ingress, queue/worker/log/log-forwarder/reconciler/catalog metrics ports and worker control port")
 	}
 
 	if time.Duration(d.CellIngress.RepairInterval) <= 0 {
@@ -668,6 +688,18 @@ func LogMetricsEffectiveListenPort() int {
 	}
 
 	return LogMetricsPort()
+}
+
+func LogForwarderMetricsPort() int {
+	return MustDefaults().LogForwarder.MetricsPort
+}
+
+func LogForwarderMetricsEffectiveListenPort() int {
+	if p := viper.GetInt("metrics_port"); p > 0 {
+		return p
+	}
+
+	return LogForwarderMetricsPort()
 }
 
 func LogMaxRunBuffers() int {

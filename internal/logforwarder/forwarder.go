@@ -24,6 +24,20 @@ const (
 	defaultScanInterval    = 5 * time.Second
 )
 
+const (
+	MetricsRouteHinted   = "hinted"
+	MetricsRouteUnhinted = "unhinted"
+
+	MetricsBatchSent    = "sent"
+	MetricsBatchSpooled = "spooled"
+	MetricsBatchLost    = "lost"
+)
+
+type Metrics interface {
+	RecordChunkReceived(ctx context.Context, route string)
+	RecordBatch(ctx context.Context, outcome string)
+}
+
 // Forwarder receives log chunks from local workers over a Unix socket,
 // batches them, and forwards to vectis-log via gRPC.
 // When vectis-log is unavailable it writes to a shared spool directory
@@ -40,6 +54,7 @@ type Forwarder struct {
 	shutdownOnce    sync.Once
 	spoolCounter    uint64
 	sendMu          sync.Mutex
+	metrics         Metrics
 }
 
 // NewForwarder creates a forwarder that reads from the provided chunk channel.
@@ -76,6 +91,10 @@ func NewForwarder(
 // SetLogClient configures the gRPC client used to reach vectis-log.
 func (f *Forwarder) SetLogClient(client interfaces.LogClient) {
 	f.logClient = client
+}
+
+func (f *Forwarder) SetMetrics(metrics Metrics) {
+	f.metrics = metrics
 }
 
 // SetScanInterval configures how often the spool scanner polls the spool
@@ -115,6 +134,7 @@ func (f *Forwarder) Run(ctx context.Context) {
 				return
 			}
 
+			f.recordChunkReceived(ctx, chunk)
 			batch = append(batch, chunk)
 			if len(batch) >= f.batchSize {
 				batch = f.flushBatch(ctx, batch)
@@ -136,6 +156,7 @@ func (f *Forwarder) drainAndFlush(ctx context.Context, batch []*api.LogChunk) []
 				return f.flushBatch(ctx, batch)
 			}
 
+			f.recordChunkReceived(ctx, chunk)
 			batch = append(batch, chunk)
 			if len(batch) >= f.batchSize {
 				batch = f.flushBatch(ctx, batch)
@@ -164,6 +185,9 @@ func (f *Forwarder) flushBatch(ctx context.Context, batch []*api.LogChunk) []*ap
 			if f.logger != nil {
 				f.logger.Error("Log batch lost: spool backlog present and spool failed: %v", spoolErr)
 			}
+			f.recordBatch(ctx, MetricsBatchLost)
+		} else {
+			f.recordBatch(ctx, MetricsBatchSpooled)
 		}
 
 		return batch[:0]
@@ -174,6 +198,9 @@ func (f *Forwarder) flushBatch(ctx context.Context, batch []*api.LogChunk) []*ap
 			if f.logger != nil {
 				f.logger.Error("Log batch lost: log client nil and spool failed: %v", spoolErr)
 			}
+			f.recordBatch(ctx, MetricsBatchLost)
+		} else {
+			f.recordBatch(ctx, MetricsBatchSpooled)
 		}
 
 		return batch[:0]
@@ -188,10 +215,37 @@ func (f *Forwarder) flushBatch(ctx context.Context, batch []*api.LogChunk) []*ap
 			if f.logger != nil {
 				f.logger.Error("Log batch lost: forward failed and spool failed: forward=%v spool=%v", err, spoolErr)
 			}
+			f.recordBatch(ctx, MetricsBatchLost)
+		} else {
+			f.recordBatch(ctx, MetricsBatchSpooled)
 		}
+
+		return batch[:0]
 	}
 
+	f.recordBatch(ctx, MetricsBatchSent)
 	return batch[:0]
+}
+
+func (f *Forwarder) recordChunkReceived(ctx context.Context, chunk *api.LogChunk) {
+	if f.metrics == nil || chunk == nil {
+		return
+	}
+
+	route := MetricsRouteUnhinted
+	if chunk.GetLogShardId() != "" {
+		route = MetricsRouteHinted
+	}
+
+	f.metrics.RecordChunkReceived(ctx, route)
+}
+
+func (f *Forwarder) recordBatch(ctx context.Context, outcome string) {
+	if f.metrics == nil {
+		return
+	}
+
+	f.metrics.RecordBatch(ctx, outcome)
 }
 
 func (f *Forwarder) hasSpoolBacklog() bool {
@@ -482,11 +536,12 @@ func defaultSpoolDir() string {
 
 // ResolveLogClient creates a gRPC log client using the same discovery
 // semantics as the worker.
-func ResolveLogClient(ctx context.Context, logger interfaces.Logger, retryMetrics backoff.RetryMetrics) (interfaces.LogClient, func(), error) {
+func ResolveLogClient(ctx context.Context, logger interfaces.Logger, retryMetrics backoff.RetryMetrics, routingMetrics logclient.RoutingMetrics) (interfaces.LogClient, func(), error) {
 	client, err := logclient.NewManagingLogClient(ctx, logger, logclient.PoolOptions{
 		PinnedAddress:   config.PinnedLogAddress(),
 		RegistryAddress: config.WorkerRegistryDialAddress(),
 		RetryMetrics:    retryMetrics,
+		Metrics:         routingMetrics,
 	})
 
 	if err != nil {

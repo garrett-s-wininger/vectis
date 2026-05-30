@@ -33,7 +33,7 @@ Watch these when you increase workload, worker count, client concurrency, or log
 | Queue | Pending depth grows and does not drain after load stops | Producers are outpacing workers, a queue shard is unhealthy, or workers cannot claim work. |
 | Workers | Queued-to-running latency rises | Worker count, worker host resources, database claims, or queue delivery are limiting throughput. |
 | Database | Pool waits, maxed in-use connections, slow queries, or storage growth | Pool size, query load, retention, or database host capacity needs attention. |
-| Logs | Append failures, replay truncation, stream disconnects, or low log storage space | Log service, spool, storage, or client replay demand is limiting observability. |
+| Logs | Append failures, shard route failures, replay truncation, stream disconnects, forwarder spool backlog, or low log storage space | Log service, forwarding, storage, or client replay demand is limiting observability. |
 | Reconciler | Re-enqueue failures or repeated repair for the same runs | Dispatch handoff, queue reachability, registry, TLS, or database state needs repair. |
 | Cron | Schedule-to-run latency, repeated handoff attempts for the same run, or missed schedule behavior | Cron load, queue reachability, or schedule ownership needs validation. |
 

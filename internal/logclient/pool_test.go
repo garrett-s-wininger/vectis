@@ -40,6 +40,24 @@ type memoryAssignmentStore struct {
 	set     bool
 }
 
+type recordingRoutingMetrics struct {
+	assignments []string
+	failures    []routingFailure
+}
+
+type routingFailure struct {
+	operation string
+	reason    string
+}
+
+func (m *recordingRoutingMetrics) RecordShardAssignment(_ context.Context, outcome string) {
+	m.assignments = append(m.assignments, outcome)
+}
+
+func (m *recordingRoutingMetrics) RecordShardRouteFailure(_ context.Context, operation, reason string) {
+	m.failures = append(m.failures, routingFailure{operation: operation, reason: reason})
+}
+
 func (s *memoryAssignmentStore) GetLogShard(context.Context, string) (string, bool, error) {
 	return s.shardID, s.set, nil
 }
@@ -102,9 +120,10 @@ func TestLogPoolAssignsWritableShardForNewRun(t *testing.T) {
 	readOnly := &recordingLogClient{endpointID: "log-read-only"}
 	writable := &recordingLogClient{endpointID: "log-writable"}
 	assignments := &memoryAssignmentStore{}
+	metrics := &recordingRoutingMetrics{}
 	p := &logPool{
 		logger: mocks.NopLogger{},
-		opts:   PoolOptions{AssignmentStore: assignments},
+		opts:   PoolOptions{AssignmentStore: assignments, Metrics: metrics},
 		active: []*logEndpoint{
 			{id: readOnly.endpointID, writer: readOnly, writable: false},
 			{id: writable.endpointID, writer: writable, writable: true},
@@ -131,6 +150,10 @@ func TestLogPoolAssignsWritableShardForNewRun(t *testing.T) {
 
 	if len(readOnly.chunks) != 0 {
 		t.Fatalf("expected read-only shard to receive no chunks, got %d", len(readOnly.chunks))
+	}
+
+	if len(metrics.assignments) != 1 || metrics.assignments[0] != ShardAssignmentNew {
+		t.Fatalf("assignment metrics = %v, want [%s]", metrics.assignments, ShardAssignmentNew)
 	}
 }
 
@@ -188,6 +211,32 @@ func TestLogPoolStreamsAssignedRunToShard(t *testing.T) {
 
 	if len(a.chunks) != 0 {
 		t.Fatalf("expected unassigned shard to receive no chunks, got %d", len(a.chunks))
+	}
+}
+
+func TestLogPoolRecordsAssignedShardUnavailable(t *testing.T) {
+	writable := &recordingLogClient{endpointID: "log-writable"}
+	assignments := &memoryAssignmentStore{shardID: "log-missing", set: true}
+	metrics := &recordingRoutingMetrics{}
+	p := &logPool{
+		logger: mocks.NopLogger{},
+		opts:   PoolOptions{AssignmentStore: assignments, Metrics: metrics},
+		active: []*logEndpoint{
+			{id: writable.endpointID, writer: writable, writable: true},
+		},
+	}
+
+	if _, err := p.streamLogsForRun(context.Background(), "run-existing"); err == nil {
+		t.Fatal("expected unavailable assigned shard error")
+	}
+
+	if len(metrics.failures) != 1 {
+		t.Fatalf("failure metrics = %v, want one failure", metrics.failures)
+	}
+
+	got := metrics.failures[0]
+	if got.operation != ShardRouteOperationWrite || got.reason != ShardRouteFailureAssignedUnavailable {
+		t.Fatalf("failure metric = %+v, want %s/%s", got, ShardRouteOperationWrite, ShardRouteFailureAssignedUnavailable)
 	}
 }
 

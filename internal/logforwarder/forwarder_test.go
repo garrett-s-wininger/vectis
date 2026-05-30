@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -55,6 +56,31 @@ func (s *assignedRecordingLogStream) Send(chunk *api.LogChunk) error {
 
 func (s *assignedRecordingLogStream) CloseSend() error {
 	return nil
+}
+
+type recordingForwarderMetrics struct {
+	mu            sync.Mutex
+	chunkRoutes   []string
+	batchOutcomes []string
+}
+
+func (m *recordingForwarderMetrics) RecordChunkReceived(_ context.Context, route string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.chunkRoutes = append(m.chunkRoutes, route)
+}
+
+func (m *recordingForwarderMetrics) RecordBatch(_ context.Context, outcome string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.batchOutcomes = append(m.batchOutcomes, outcome)
+}
+
+func (m *recordingForwarderMetrics) snapshot() ([]string, []string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return append([]string(nil), m.chunkRoutes...), append([]string(nil), m.batchOutcomes...)
 }
 
 func pollChunkCount(t *testing.T, client *mocks.MockLogClient, want int, timeout time.Duration) {
@@ -165,6 +191,42 @@ func TestForwarderRoutesChunkGroupsByShardHint(t *testing.T) {
 
 	if len(client.calls[1].chunks) != 1 {
 		t.Fatalf("second stream chunk count = %d, want 1", len(client.calls[1].chunks))
+	}
+}
+
+func TestForwarderRecordsChunkHintAndBatchMetrics(t *testing.T) {
+	ch := make(chan *api.LogChunk, 2)
+	metrics := &recordingForwarderMetrics{}
+	logClient := mocks.NewMockLogClient()
+	fwd := NewForwarder(ch, interfaces.NewLogger("test"), t.TempDir(), 2, 10000)
+	fwd.SetLogClient(logClient)
+	fwd.SetMetrics(metrics)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go fwd.Run(ctx)
+
+	runID := "run-1"
+	shardID := "log-a"
+	ch <- &api.LogChunk{RunId: &runID, LogShardId: &shardID, Sequence: proto.Int64(1), Data: []byte("hinted")}
+	ch <- &api.LogChunk{RunId: &runID, Sequence: proto.Int64(2), Data: []byte("unhinted")}
+
+	pollChunkCount(t, logClient, 2, 2*time.Second)
+
+	fwd.Shutdown()
+	cancel()
+
+	chunkRoutes, batchOutcomes := metrics.snapshot()
+	if len(chunkRoutes) != 2 {
+		t.Fatalf("chunk route metrics = %v, want two routes", chunkRoutes)
+	}
+
+	if chunkRoutes[0] != MetricsRouteHinted || chunkRoutes[1] != MetricsRouteUnhinted {
+		t.Fatalf("chunk route metrics = %v, want [%s %s]", chunkRoutes, MetricsRouteHinted, MetricsRouteUnhinted)
+	}
+
+	if len(batchOutcomes) == 0 || batchOutcomes[0] != MetricsBatchSent {
+		t.Fatalf("batch metrics = %v, want first outcome %s", batchOutcomes, MetricsBatchSent)
 	}
 }
 

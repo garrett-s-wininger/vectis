@@ -30,6 +30,46 @@ type SpoolWriter struct {
 	maxSize int
 }
 
+func SpoolStats(dir string, now time.Time) (files int64, oldestAgeSeconds int64) {
+	if now.IsZero() {
+		now = time.Now()
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0, 0
+	}
+
+	var oldest time.Time
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != spoolExt {
+			continue
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+
+		files++
+		modTime := info.ModTime()
+		if oldest.IsZero() || modTime.Before(oldest) {
+			oldest = modTime
+		}
+	}
+
+	if files == 0 || oldest.IsZero() {
+		return files, 0
+	}
+
+	age := int64(now.Sub(oldest).Seconds())
+	if age < 0 {
+		age = 0
+	}
+
+	return files, age
+}
+
 // NewSpoolWriter creates a writer for a new spool file.
 func NewSpoolWriter(path string, maxSize int) (*SpoolWriter, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

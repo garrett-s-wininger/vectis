@@ -11,7 +11,7 @@ import (
 	"vectis/internal/queueclient"
 )
 
-func DialQueueAndLog(ctx context.Context, logger interfaces.Logger, retryMetrics backoff.RetryMetrics, assignmentStore logclient.AssignmentStore) (interfaces.QueueClient, interfaces.LogClient, func(), error) {
+func DialQueueAndLog(ctx context.Context, logger interfaces.Logger, retryMetrics backoff.RetryMetrics, assignmentStore logclient.AssignmentStore, routingMetrics logclient.RoutingMetrics) (interfaces.QueueClient, interfaces.LogClient, func(), error) {
 	qPin := config.PinnedQueueAddress()
 	lPin := config.PinnedLogAddress()
 
@@ -30,6 +30,7 @@ func DialQueueAndLog(ctx context.Context, logger interfaces.Logger, retryMetrics
 		RegistryAddress: config.WorkerRegistryDialAddress(),
 		RetryMetrics:    retryMetrics,
 		AssignmentStore: assignmentStore,
+		Metrics:         routingMetrics,
 	})
 
 	if err != nil {

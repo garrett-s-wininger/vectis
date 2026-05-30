@@ -67,7 +67,7 @@ Use these prefixes when building service-specific environment variable names.
 | `vectis-cron` | `VECTIS_CRON` | `--instance-id`, `--claim-ttl` |
 | `vectis-reconciler` | `VECTIS_RECONCILER` | `--interval`, `--lease-ttl`, `--metrics-port` |
 | `vectis-catalog` | `VECTIS_CATALOG` | `--interval`, `--batch-size`, `--metrics-port`, `--cell-database-dsn` |
-| `vectis-log-forwarder` | `VECTIS_LOG_FORWARDER` | see `vectis-log-forwarder --help` |
+| `vectis-log-forwarder` | `VECTIS_LOG_FORWARDER` | `--socket`, `--lockfile`, `--spool-dir`, `--metrics-port` |
 | `vectis-docs` | `VECTIS_DOCS` | `--host`, `--port`, `--dir` |
 | `vectis-local` | `VECTIS_LOCAL` | `--host`, `--cell`, `--docs-port`, `--docs-dir`, `--log-level`, `--grpc-insecure` |
 | `vectis-cli` | none for normal API commands | `VECTIS_API_TOKEN` for auth; `VECTIS_DATABASE_*` for `database migrate` |
@@ -175,7 +175,7 @@ For trust boundaries and what mTLS does or does not authorize today, see [Intern
 | `VECTIS_METRICS_TLS_CERT_FILE` / `VECTIS_METRICS_TLS_KEY_FILE` | Server certificate and key for metrics listeners. |
 | `VECTIS_METRICS_TLS_RELOAD_INTERVAL` | Positive duration to poll PEM files and reload them without restart. `0` disables polling. |
 
-The dedicated metrics listeners are queue, worker, log, reconciler, catalog, and cell ingress. Keep metrics endpoints private; they are not authenticated. See [Security](../concepts/security.md).
+The dedicated metrics listeners are queue, worker, log, log-forwarder, reconciler, catalog, and cell ingress. Keep metrics endpoints private; they are not authenticated. See [Security](../concepts/security.md).
 
 ## Discovery And Fixed Addresses {#service-discovery-vs-fixed-addresses}
 
@@ -277,6 +277,9 @@ Treat database files, queue persistence, log storage, deployment secrets, and TL
 | Log metrics | `9083` |
 | Worker-control gRPC | `9084` in static mode |
 | Reconciler metrics | `9085` |
+| Catalog metrics | `9086` |
+| Cell ingress metrics | `9087` |
+| Log-forwarder metrics | `9088` |
 
 Each extra `vectis-local --cell` uses the default cell-local ports plus `100` per additional cell. For example, the first extra cell uses queue `8181`, cell ingress `8185`, queue metrics `9181`, worker metrics `9182`, and cell ingress metrics `9187`. Multi-cell local workers use ephemeral worker-control ports.
 

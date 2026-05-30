@@ -69,7 +69,7 @@ Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-thirteen-
 | `vectis-catalog` | `VECTIS_CATALOG` | `[catalog]`; `--cell-database-dsn cell=dsn` / `VECTIS_CATALOG_CELL_DATABASE_DSNS` configures catalog fan-in from cell-local DBs |
 | `vectis-docs` | `VECTIS_DOCS` | static docs server; default host `localhost`, default port `8088`, serves embedded docs unless `VECTIS_DOCS_DIR` overrides |
 | `vectis-reconciler` | `VECTIS_RECONCILER` | `[reconciler]` |
-| `vectis-log-forwarder` | `VECTIS_LOG_FORWARDER` | flat viper keys — see flags in [`log-forwarder/main.go`](log-forwarder/main.go) |
+| `vectis-log-forwarder` | `VECTIS_LOG_FORWARDER` | `[log_forwarder]` for metrics port plus flat viper keys — see flags in [`log-forwarder/main.go`](log-forwarder/main.go) |
 | `vectis-local` | `VECTIS_LOCAL` | orchestrates stack; `VECTIS_LOCAL_HOST` controls local API and docs HTTP bind host; `--cell` / `VECTIS_LOCAL_CELLS` adds extra local execution cells |
 | `vectis-cli` | *(none)* | [`internal/config`](../internal/config/) + `os.Getenv` — see [`../internal/config/api_auth.go`](../internal/config/api_auth.go) |
 

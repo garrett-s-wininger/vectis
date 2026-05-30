@@ -82,7 +82,7 @@ For the multi-cell routing and fan-in shape, see [Multi-Cell Operation](../opera
 
 `vectis-api` serves `/metrics` on the same HTTP listener as the REST API. `vectis-queue`, `vectis-worker`, `vectis-log`, `vectis-reconciler`, `vectis-catalog`, and `vectis-cell-ingress` use dedicated metrics listeners by default.
 
-Metrics endpoints are not authenticated. The Podman reference deployment enables HTTPS on the dedicated queue, worker, and log metrics listeners through `VECTIS_METRICS_TLS_*`; API metrics remain on the API HTTP listener until API TLS is added separately.
+Metrics endpoints are not authenticated. The Podman reference deployment enables HTTPS on the dedicated queue, worker, and log metrics listeners through `VECTIS_METRICS_TLS_*`; standalone log-forwarders use the same metrics TLS settings when their metrics listener is enabled. API metrics remain on the API HTTP listener until API TLS is added separately.
 
 Keep metrics scrape paths on trusted networks. Metrics are operational data, but they can still reveal deployment shape, service health, traffic patterns, error rates, and names of internal components.
 

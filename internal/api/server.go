@@ -86,7 +86,8 @@ type APIServer struct {
 
 	// AccessLogger, when set, writes one structured slog record per HTTP request
 	// (typically JSON on stderr). Health and /metrics are excluded.
-	AccessLogger *slog.Logger
+	AccessLogger      *slog.Logger
+	logRoutingMetrics logclient.RoutingMetrics
 
 	// authzOverride, if non-nil, replaces SelectAuthorizer(complete) in middleware (tests).
 	authzOverride authz.Authorizer
@@ -482,6 +483,10 @@ func (s *APIServer) SetDispatchMetrics(m dispatchMetrics) {
 	s.dispatchMetrics = m
 }
 
+func (s *APIServer) SetLogRoutingMetrics(m logclient.RoutingMetrics) {
+	s.logRoutingMetrics = m
+}
+
 func (s *APIServer) auditLog(ctx context.Context, eventType string, actorID, targetID int64, metadata map[string]any) error {
 	s.mu.RLock()
 	auditor := s.auditor
@@ -547,6 +552,7 @@ func (s *APIServer) ConnectToLog(ctx context.Context) error {
 		RegistryAddress: config.APIRegistryDialAddress(),
 		RetryMetrics:    s.retryMetrics,
 		AssignmentStore: s.runs,
+		Metrics:         s.logRoutingMetrics,
 	})
 
 	if err != nil {

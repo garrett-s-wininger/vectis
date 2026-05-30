@@ -42,7 +42,7 @@ Internal gRPC servers do not currently enforce application-level service authori
 | Reconciler | Registry | Resolve queue when discovery is used. | Pin queue address if you want to avoid this dependency. |
 | Queue | Registry | Publish queue address when registration is enabled. | Consumers trust this address for future dials. |
 | Log service | Registry | Publish log address when registration is enabled. | Consumers trust this address for future dials. |
-| Metrics scraper | API, queue, worker, log, reconciler metrics listeners | Observe service health and pressure. | Metrics are unauthenticated; scrape from trusted networks only. |
+| Metrics scraper | API, queue, worker, log, log-forwarder, reconciler metrics listeners | Observe service health and pressure. | Metrics are unauthenticated; scrape from trusted networks only. |
 
 ## Ports To Keep Private
 
@@ -58,6 +58,7 @@ Internal gRPC servers do not currently enforce application-level service authori
 | Worker metrics | `9082` | Exposes worker health, outcomes, and pressure. |
 | Log metrics | `9083` | Exposes log ingest and stream pressure. |
 | Reconciler metrics | `9085` | Exposes repair activity and dependency failures. |
+| Log-forwarder metrics | `9088` | Exposes local spool backlog and forwarding pressure. |
 
 Worker-control can also use an ephemeral port or a configured port range. When workers register with the registry, the published worker-control address is what the API uses for remote cancellation.
 

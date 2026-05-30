@@ -56,6 +56,23 @@ groups:
           summary: Vectis log service dropped buffered or subscriber log data
           runbook: docs/REPAIR_RUNBOOKS.md#log-service-repair
 
+      - alert: VectisLogShardRoutingFailures
+        expr: increase(vectis_log_shard_route_failures_total[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis log shard routing failed
+          runbook: docs/REPAIR_RUNBOOKS.md#log-service-repair
+
+      - alert: VectisLogForwarderSpoolBacklog
+        expr: vectis_log_forwarder_spool_files > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis log-forwarder has durable spool backlog
+          runbook: docs/REPAIR_RUNBOOKS.md#log-service-repair
+
       - alert: VectisAuditDrops
         expr: increase(vectis_audit_events_dropped_total[10m]) > 0
         labels:

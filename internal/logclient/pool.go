@@ -25,12 +25,34 @@ type PoolOptions struct {
 	RetryMetrics    backoff.RetryMetrics
 	RefreshInterval time.Duration
 	AssignmentStore AssignmentStore
+	Metrics         RoutingMetrics
 }
 
 type AssignmentStore interface {
 	GetLogShard(ctx context.Context, runID string) (shardID string, assigned bool, err error)
 	AssignLogShard(ctx context.Context, runID, shardID string) (assignedShardID string, err error)
 }
+
+type RoutingMetrics interface {
+	RecordShardAssignment(ctx context.Context, outcome string)
+	RecordShardRouteFailure(ctx context.Context, operation, reason string)
+}
+
+const (
+	ShardAssignmentExisting = "existing"
+	ShardAssignmentNew      = "new"
+
+	ShardRouteOperationRead          = "read"
+	ShardRouteOperationWrite         = "write"
+	ShardRouteOperationAssignedWrite = "assigned_write"
+
+	ShardRouteFailureGetAssignment       = "get_assignment"
+	ShardRouteFailureAssign              = "assign"
+	ShardRouteFailureNoEndpoint          = "no_endpoint"
+	ShardRouteFailureNoWritableEndpoint  = "no_writable_endpoint"
+	ShardRouteFailureAssignedUnavailable = "assigned_unavailable"
+	ShardRouteFailureShardMismatch       = "shard_mismatch"
+)
 
 type ManagingLogClient struct {
 	pool *logPool
@@ -432,14 +454,23 @@ func (p *logPool) chooseWriteEndpoint(ctx context.Context, runID string) (*logEn
 	store := p.assignmentStore()
 	if store != nil {
 		if shardID, assigned, err := store.GetLogShard(ctx, runID); err != nil {
+			p.recordRouteFailure(ctx, ShardRouteOperationWrite, ShardRouteFailureGetAssignment)
 			return nil, err
 		} else if assigned {
-			return p.chooseEndpointByID(shardID)
+			ep, err := p.chooseEndpointByID(shardID)
+			if err != nil {
+				p.recordRouteFailure(ctx, ShardRouteOperationWrite, ShardRouteFailureAssignedUnavailable)
+				return nil, err
+			}
+
+			p.recordShardAssignment(ctx, ShardAssignmentExisting)
+			return ep, nil
 		}
 	}
 
 	ep, err := p.chooseWritableEndpoint(runID)
 	if err != nil {
+		p.recordRouteFailure(ctx, ShardRouteOperationWrite, ShardRouteFailureNoWritableEndpoint)
 		return nil, err
 	}
 
@@ -449,23 +480,65 @@ func (p *logPool) chooseWriteEndpoint(ctx context.Context, runID string) (*logEn
 
 	shardID, err := store.AssignLogShard(ctx, runID, ep.id)
 	if err != nil {
+		p.recordRouteFailure(ctx, ShardRouteOperationWrite, ShardRouteFailureAssign)
 		return nil, err
 	}
 
-	return p.chooseEndpointByID(shardID)
+	outcome := ShardAssignmentNew
+	if shardID != ep.id {
+		outcome = ShardAssignmentExisting
+	}
+
+	ep, err = p.chooseEndpointByID(shardID)
+	if err != nil {
+		p.recordRouteFailure(ctx, ShardRouteOperationWrite, ShardRouteFailureAssignedUnavailable)
+		return nil, err
+	}
+
+	p.recordShardAssignment(ctx, outcome)
+	return ep, nil
 }
 
 func (p *logPool) chooseReadEndpoint(ctx context.Context, runID string) (*logEndpoint, error) {
 	store := p.assignmentStore()
 	if store != nil {
 		if shardID, assigned, err := store.GetLogShard(ctx, runID); err != nil {
+			p.recordRouteFailure(ctx, ShardRouteOperationRead, ShardRouteFailureGetAssignment)
 			return nil, err
 		} else if assigned {
-			return p.chooseEndpointByID(shardID)
+			ep, err := p.chooseEndpointByID(shardID)
+			if err != nil {
+				p.recordRouteFailure(ctx, ShardRouteOperationRead, ShardRouteFailureAssignedUnavailable)
+				return nil, err
+			}
+
+			return ep, nil
 		}
 	}
 
-	return p.chooseEndpoint(runID)
+	ep, err := p.chooseEndpoint(runID)
+	if err != nil {
+		p.recordRouteFailure(ctx, ShardRouteOperationRead, ShardRouteFailureNoEndpoint)
+		return nil, err
+	}
+
+	return ep, nil
+}
+
+func (p *logPool) recordShardAssignment(ctx context.Context, outcome string) {
+	if p.opts.Metrics == nil {
+		return
+	}
+
+	p.opts.Metrics.RecordShardAssignment(ctx, outcome)
+}
+
+func (p *logPool) recordRouteFailure(ctx context.Context, operation, reason string) {
+	if p.opts.Metrics == nil {
+		return
+	}
+
+	p.opts.Metrics.RecordShardRouteFailure(ctx, operation, reason)
 }
 
 func rendezvousScore(runID, endpointID string) uint64 {
@@ -515,6 +588,7 @@ func (p *logPool) streamLogsForAssignedRun(ctx context.Context, runID, shardID s
 
 	ep, err := p.chooseEndpointByID(shardID)
 	if err != nil {
+		p.recordRouteFailure(ctx, ShardRouteOperationAssignedWrite, ShardRouteFailureAssignedUnavailable)
 		return nil, err
 	}
 
@@ -530,6 +604,7 @@ func (p *logPool) streamLogsForAssignedRun(ctx context.Context, runID, shardID s
 
 	ep, err = p.chooseEndpointByID(shardID)
 	if err != nil {
+		p.recordRouteFailure(ctx, ShardRouteOperationAssignedWrite, ShardRouteFailureAssignedUnavailable)
 		return nil, err
 	}
 
@@ -694,6 +769,7 @@ func (s *routingLogStream) Send(chunk *api.LogChunk) error {
 		}
 
 		if shardID := chunk.GetLogShardId(); shardID != "" && s.logShardID != "" && shardID != s.logShardID {
+			s.pool.recordRouteFailure(s.ctx, ShardRouteOperationAssignedWrite, ShardRouteFailureShardMismatch)
 			return fmt.Errorf("log stream already routed to shard %q, got chunk for shard %q", s.logShardID, shardID)
 		}
 
