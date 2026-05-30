@@ -3,12 +3,15 @@ package registry
 import "strings"
 
 const (
-	MetadataCellID    = "cell.id"
-	MetadataQueueRole = "queue.role"
+	MetadataCellID        = "cell.id"
+	MetadataQueueRole     = "queue.role"
+	MetadataLogWriteState = "log.write_state"
 
-	DefaultCellID    = "local"
-	QueueRoleIngress = "ingress"
-	QueueRolePool    = "pool"
+	DefaultCellID         = "local"
+	QueueRoleIngress      = "ingress"
+	QueueRolePool         = "pool"
+	LogWriteStateWritable = "writable"
+	LogWriteStateReadOnly = "read_only"
 )
 
 func DefaultServiceMetadataForCell(cellID string) map[string]string {

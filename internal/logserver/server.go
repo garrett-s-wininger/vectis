@@ -40,6 +40,10 @@ type RunOptions struct {
 	InstanceID string
 }
 
+type newRunWritableReporter interface {
+	NewRunWritable() bool
+}
+
 func DefaultInstanceID(bindAddr string) string {
 	hostname, err := os.Hostname()
 	if err == nil {
@@ -702,16 +706,7 @@ func RunWithOptions(ctx context.Context, logger interfaces.Logger, store RunLogS
 			instanceID = DefaultInstanceID(bindGRPC)
 		}
 
-		stopRegistration, err := registry.RegisterWithHeartbeat(ctx, registry.RegistrationOptions{
-			RegistryAddress: regAddr,
-			Component:       api.Component_COMPONENT_LOG,
-			InstanceID:      instanceID,
-			PublishAddress:  publishAddr,
-			Metadata:        registry.DefaultServiceMetadataForCell(config.CellID()),
-			RefreshInterval: config.RegistryRegistrationRefresh(),
-			Logger:          logger,
-		})
-
+		stopRegistration, err := registerLogWithHeartbeat(ctx, regAddr, instanceID, publishAddr, store, logger)
 		if err != nil {
 			return err
 		}
@@ -723,4 +718,61 @@ func RunWithOptions(ctx context.Context, logger interfaces.Logger, store RunLogS
 	}
 
 	return server.RunGRPC(ctx, config.LogGRPCListenAddr())
+}
+
+func registerLogWithHeartbeat(ctx context.Context, registryAddress, instanceID, publishAddress string, store RunLogStore, logger interfaces.Logger) (func(), error) {
+	registryClient, err := registry.New(ctx, registryAddress, logger, interfaces.SystemClock{}, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	registerOnce := func(ctx context.Context) error {
+		return registryClient.RegisterInstanceWithMetadata(ctx, api.Component_COMPONENT_LOG, instanceID, publishAddress, logServiceMetadata(store))
+	}
+
+	if err := registerOnce(ctx); err != nil {
+		_ = registryClient.Close()
+		return nil, err
+	}
+
+	interval := config.RegistryRegistrationRefresh()
+	if interval <= 0 {
+		interval = 45 * time.Second
+	}
+
+	loopCtx, cancel := context.WithCancel(ctx)
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-loopCtx.Done():
+				return
+			case <-ticker.C:
+			}
+
+			hbCtx, hbCancel := context.WithTimeout(loopCtx, 30*time.Second)
+			if err := registerOnce(hbCtx); err != nil {
+				logger.Debug("Registry registration heartbeat failed for log service: %v", err)
+			}
+			hbCancel()
+		}
+	}()
+
+	return func() {
+		cancel()
+		_ = registryClient.Close()
+	}, nil
+}
+
+func logServiceMetadata(store RunLogStore) map[string]string {
+	metadata := registry.DefaultServiceMetadataForCell(config.CellID())
+	metadata[registry.MetadataLogWriteState] = registry.LogWriteStateWritable
+
+	if reporter, ok := store.(newRunWritableReporter); ok && !reporter.NewRunWritable() {
+		metadata[registry.MetadataLogWriteState] = registry.LogWriteStateReadOnly
+	}
+
+	return metadata
 }

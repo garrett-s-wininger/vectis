@@ -546,6 +546,7 @@ func (s *APIServer) ConnectToLog(ctx context.Context) error {
 		PinnedAddress:   config.APILogAddress(),
 		RegistryAddress: config.APIRegistryDialAddress(),
 		RetryMetrics:    s.retryMetrics,
+		AssignmentStore: s.runs,
 	})
 
 	if err != nil {

@@ -81,6 +81,8 @@ CREATE TABLE job_runs (
     lease_owner TEXT,
     lease_until BIGINT,
     last_dispatched_at BIGINT,
+    log_shard_id TEXT NOT NULL DEFAULT '',
+    log_shard_assigned_at BIGINT,
     definition_version INTEGER NOT NULL DEFAULT 1,
     definition_hash TEXT NOT NULL DEFAULT '',
     owning_cell TEXT NOT NULL DEFAULT 'local',

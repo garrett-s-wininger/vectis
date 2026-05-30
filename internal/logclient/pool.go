@@ -24,6 +24,12 @@ type PoolOptions struct {
 	RegistryAddress string
 	RetryMetrics    backoff.RetryMetrics
 	RefreshInterval time.Duration
+	AssignmentStore AssignmentStore
+}
+
+type AssignmentStore interface {
+	GetLogShard(ctx context.Context, runID string) (shardID string, assigned bool, err error)
+	AssignLogShard(ctx context.Context, runID, shardID string) (assignedShardID string, err error)
 }
 
 type ManagingLogClient struct {
@@ -72,17 +78,19 @@ type logPool struct {
 }
 
 type logEndpoint struct {
-	id      string
-	address string
-	conn    *grpc.ClientConn
-	client  api.LogServiceClient
-	writer  interfaces.LogClient
-	cleanup func()
+	id       string
+	address  string
+	writable bool
+	conn     *grpc.ClientConn
+	client   api.LogServiceClient
+	writer   interfaces.LogClient
+	cleanup  func()
 }
 
 type desiredLogEndpoint struct {
-	id      string
-	address string
+	id       string
+	address  string
+	writable bool
 }
 
 func newLogPool(ctx context.Context, logger interfaces.Logger, opts PoolOptions) (*logPool, error) {
@@ -171,13 +179,15 @@ func (p *logPool) refresh(ctx context.Context) error {
 	p.mu.RUnlock()
 
 	replacements := make(map[string]*logEndpoint)
+	writableUpdates := make(map[string]bool)
 	var firstErr error
 	for _, d := range desired {
 		if ep := existing[d.id]; ep != nil && ep.address == d.address {
+			writableUpdates[d.id] = d.writable
 			continue
 		}
 
-		ep, err := p.connectEndpoint(ctx, d.id, d.address)
+		ep, err := p.connectEndpoint(ctx, d.id, d.address, d.writable)
 		if err != nil {
 			if firstErr == nil {
 				firstErr = err
@@ -206,6 +216,12 @@ func (p *logPool) refresh(ctx context.Context) error {
 	})
 
 	p.mu.Lock()
+	for id, writable := range writableUpdates {
+		if ep := p.endpoints[id]; ep != nil {
+			ep.writable = writable
+		}
+	}
+
 	for id, ep := range replacements {
 		if old := p.endpoints[id]; old != nil {
 			old.close()
@@ -249,8 +265,9 @@ func (p *logPool) refresh(ctx context.Context) error {
 func (p *logPool) resolveDesired(ctx context.Context) ([]desiredLogEndpoint, error) {
 	if p.opts.PinnedAddress != "" {
 		return []desiredLogEndpoint{{
-			id:      "pinned",
-			address: p.opts.PinnedAddress,
+			id:       "pinned",
+			address:  p.opts.PinnedAddress,
+			writable: true,
 		}}, nil
 	}
 
@@ -258,7 +275,7 @@ func (p *logPool) resolveDesired(ctx context.Context) ([]desiredLogEndpoint, err
 		return nil, fmt.Errorf("registry client is required")
 	}
 
-	entries, err := p.registry.ListRegistrations(ctx, api.Component_COMPONENT_LOG, registry.DefaultServiceMetadata())
+	entries, err := p.registry.ListRegistrations(ctx, api.Component_COMPONENT_LOG, registry.DefaultServiceMetadataForCell(config.CellID()))
 	if err != nil {
 		return nil, err
 	}
@@ -282,7 +299,10 @@ func (p *logPool) resolveDesired(ctx context.Context) ([]desiredLogEndpoint, err
 			id = address
 		}
 
-		seen[id] = desiredLogEndpoint{id: id, address: address}
+		metadata := entry.GetMetadata()
+		writable := metadata[registry.MetadataLogWriteState] != registry.LogWriteStateReadOnly
+
+		seen[id] = desiredLogEndpoint{id: id, address: address, writable: writable}
 	}
 
 	out := make([]desiredLogEndpoint, 0, len(seen))
@@ -301,34 +321,65 @@ func (p *logPool) resolveDesired(ctx context.Context) ([]desiredLogEndpoint, err
 	return out, nil
 }
 
-func (p *logPool) connectEndpoint(ctx context.Context, id, address string) (*logEndpoint, error) {
+func (p *logPool) connectEndpoint(ctx context.Context, id, address string, writable bool) (*logEndpoint, error) {
 	conn, cleanup, err := resolver.NewClientWithPinnedAddress(ctx, api.Component_COMPONENT_LOG, address, p.logger, nil, p.opts.RetryMetrics)
 	if err != nil {
 		return nil, err
 	}
 
 	return &logEndpoint{
-		id:      id,
-		address: address,
-		conn:    conn,
-		client:  api.NewLogServiceClient(conn),
-		writer:  interfaces.NewGRPCLogClient(conn),
-		cleanup: cleanup,
+		id:       id,
+		address:  address,
+		writable: writable,
+		conn:     conn,
+		client:   api.NewLogServiceClient(conn),
+		writer:   interfaces.NewGRPCLogClient(conn),
+		cleanup:  cleanup,
 	}, nil
 }
 
 func (p *logPool) snapshotActiveEndpoints() []*logEndpoint {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	return append([]*logEndpoint(nil), p.active...)
+
+	out := make([]*logEndpoint, 0, len(p.active))
+	for _, ep := range p.active {
+		if ep == nil {
+			continue
+		}
+
+		copy := *ep
+		out = append(out, &copy)
+	}
+
+	return out
 }
 
 func (p *logPool) chooseEndpoint(runID string) (*logEndpoint, error) {
+	return p.chooseEndpointFrom(runID, p.snapshotActiveEndpoints())
+}
+
+func (p *logPool) chooseWritableEndpoint(runID string) (*logEndpoint, error) {
+	endpoints := p.snapshotActiveEndpoints()
+	writable := make([]*logEndpoint, 0, len(endpoints))
+	for _, ep := range endpoints {
+		if ep != nil && ep.writable {
+			writable = append(writable, ep)
+		}
+	}
+
+	if len(writable) == 0 {
+		return nil, fmt.Errorf("no writable log endpoints available")
+	}
+
+	return p.chooseEndpointFrom(runID, writable)
+}
+
+func (p *logPool) chooseEndpointFrom(runID string, endpoints []*logEndpoint) (*logEndpoint, error) {
 	if runID == "" {
 		return nil, fmt.Errorf("run id is required")
 	}
 
-	endpoints := p.snapshotActiveEndpoints()
 	if len(endpoints) == 0 {
 		return nil, fmt.Errorf("no log endpoints available")
 	}
@@ -346,6 +397,69 @@ func (p *logPool) chooseEndpoint(runID string) (*logEndpoint, error) {
 	return best, nil
 }
 
+func (p *logPool) chooseEndpointByID(endpointID string) (*logEndpoint, error) {
+	if endpointID == "" {
+		return nil, fmt.Errorf("log endpoint id is required")
+	}
+
+	endpoints := p.snapshotActiveEndpoints()
+	for _, ep := range endpoints {
+		if ep != nil && ep.id == endpointID {
+			return ep, nil
+		}
+	}
+
+	return nil, fmt.Errorf("assigned log endpoint %q is not available", endpointID)
+}
+
+func (p *logPool) assignmentStore() AssignmentStore {
+	if p.opts.PinnedAddress != "" {
+		return nil
+	}
+
+	return p.opts.AssignmentStore
+}
+
+func (p *logPool) chooseWriteEndpoint(ctx context.Context, runID string) (*logEndpoint, error) {
+	store := p.assignmentStore()
+	if store != nil {
+		if shardID, assigned, err := store.GetLogShard(ctx, runID); err != nil {
+			return nil, err
+		} else if assigned {
+			return p.chooseEndpointByID(shardID)
+		}
+	}
+
+	ep, err := p.chooseWritableEndpoint(runID)
+	if err != nil {
+		return nil, err
+	}
+
+	if store == nil {
+		return ep, nil
+	}
+
+	shardID, err := store.AssignLogShard(ctx, runID, ep.id)
+	if err != nil {
+		return nil, err
+	}
+
+	return p.chooseEndpointByID(shardID)
+}
+
+func (p *logPool) chooseReadEndpoint(ctx context.Context, runID string) (*logEndpoint, error) {
+	store := p.assignmentStore()
+	if store != nil {
+		if shardID, assigned, err := store.GetLogShard(ctx, runID); err != nil {
+			return nil, err
+		} else if assigned {
+			return p.chooseEndpointByID(shardID)
+		}
+	}
+
+	return p.chooseEndpoint(runID)
+}
+
 func rendezvousScore(runID, endpointID string) uint64 {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(runID))
@@ -359,7 +473,7 @@ func (p *logPool) streamLogs(ctx context.Context) (interfaces.LogStream, error) 
 }
 
 func (p *logPool) streamLogsForRun(ctx context.Context, runID string) (interfaces.LogStream, error) {
-	ep, err := p.chooseEndpoint(runID)
+	ep, err := p.chooseWriteEndpoint(ctx, runID)
 	if err != nil {
 		return nil, err
 	}
@@ -374,7 +488,7 @@ func (p *logPool) streamLogsForRun(ctx context.Context, runID string) (interface
 		return nil, err
 	}
 
-	ep, err = p.chooseEndpoint(runID)
+	ep, err = p.chooseWriteEndpoint(ctx, runID)
 	if err != nil {
 		return nil, err
 	}
@@ -383,7 +497,7 @@ func (p *logPool) streamLogsForRun(ctx context.Context, runID string) (interface
 }
 
 func (p *logPool) getLogs(ctx context.Context, req *api.GetLogsRequest, opts ...grpc.CallOption) (api.LogService_GetLogsClient, error) {
-	ep, err := p.chooseEndpoint(req.GetRunId())
+	ep, err := p.chooseReadEndpoint(ctx, req.GetRunId())
 	if err != nil {
 		return nil, err
 	}
@@ -398,7 +512,7 @@ func (p *logPool) getLogs(ctx context.Context, req *api.GetLogsRequest, opts ...
 		return nil, err
 	}
 
-	ep, err = p.chooseEndpoint(req.GetRunId())
+	ep, err = p.chooseReadEndpoint(ctx, req.GetRunId())
 	if err != nil {
 		return nil, err
 	}
@@ -414,7 +528,7 @@ func (p *logPool) reconnectEndpoint(ctx context.Context, id string) error {
 		return fmt.Errorf("log endpoint %q not found", id)
 	}
 
-	replacement, err := p.connectEndpoint(ctx, current.id, current.address)
+	replacement, err := p.connectEndpoint(ctx, current.id, current.address, current.writable)
 	if err != nil {
 		return err
 	}

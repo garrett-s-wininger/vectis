@@ -50,7 +50,7 @@ func (c *countingListener) Accept() (net.Conn, error) {
 	return conn, err
 }
 
-func TestDialQueueAndLog_SingleRegistryConnection(t *testing.T) {
+func TestDialQueueAndLog_UsesBoundedRegistryConnections(t *testing.T) {
 	ctx := context.Background()
 	logger := noopTestLogger{}
 
@@ -90,15 +90,15 @@ func TestDialQueueAndLog_SingleRegistryConnection(t *testing.T) {
 	t.Cleanup(viper.Reset)
 	viper.Set("discovery.registry.address", regServer.Addr())
 
-	_, _, cleanup, err := multidial.DialQueueAndLog(ctx, logger, nil)
+	_, _, cleanup, err := multidial.DialQueueAndLog(ctx, logger, nil, nil)
 	if err != nil {
 		t.Fatalf("DialQueueAndLog: %v", err)
 	}
 	cleanup()
 
 	n := regLis.accepts.Load()
-	if n != 1 {
-		t.Fatalf("expected exactly 1 TCP connection to registry listener, got %d (two clients would use two connections)", n)
+	if n != 2 {
+		t.Fatalf("expected exactly 2 TCP connections to registry listener, got %d", n)
 	}
 }
 
@@ -115,7 +115,7 @@ func TestDialQueueAndLog_BothPinnedSkipsRegistry(t *testing.T) {
 	viper.Set("worker.log.address", logServer.Addr())
 
 	start := time.Now()
-	_, _, cleanup, err := multidial.DialQueueAndLog(ctx, logger, nil)
+	_, _, cleanup, err := multidial.DialQueueAndLog(ctx, logger, nil, nil)
 	if err != nil {
 		t.Fatalf("DialQueueAndLog: %v", err)
 	}

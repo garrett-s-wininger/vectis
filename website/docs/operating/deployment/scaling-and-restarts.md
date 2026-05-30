@@ -16,7 +16,7 @@ This page answers "is this component topology supported, and what happens when i
 | Workers | Primary safe scale-out unit. Add workers to increase job throughput. |
 | Queue | Run one or more independent queue shards through registry discovery. Each shard owns one stable instance ID and one persistence directory. |
 | Registry | Run one registry by default, configure gossip clustering deliberately, or avoid registry dependency with pinned addresses. |
-| Log service | Run one or more log shards through registry discovery. Clients route by `run_id`; each shard owns one stable instance ID and one storage directory. |
+| Log service | Run one or more log shards through registry discovery. DB-aware clients persist the run's shard assignment; each shard owns one stable instance ID and one storage directory. |
 | Cron | Multiple cron instances may run against one shared database cell; schedule claims and scheduled-fire idempotency coordinate them. |
 | Reconciler | Multiple instances may run as active/passive standbys through the database service lease. |
 | Docs | Static docs service. Run zero, one, or more depending on how you expose documentation. |
@@ -31,7 +31,7 @@ This page answers "is this component topology supported, and what happens when i
 | `vectis-worker` | N | Yes | Each worker executes one run at a time. Database claims and leases guard persisted runs against duplicate execution even if queue handoff is duplicated. Size DB pools, queue delivery timeouts, and log capacity for the fleet. |
 | `vectis-queue` | 1+ | Yes, as independent shards | Producers discover queue registrations and pick a shard. Workers dequeue across the pool and ack the shard encoded in the delivery ID. Do not duplicate active instance IDs or share one persistence directory across active queue processes. |
 | `vectis-registry` | 1 | Conditional | Single registry is the safe default. Gossip-based HA registry is available when every registry node is configured with static cluster membership; otherwise, multiple registries are independent. Pin addresses if registry availability is a concern. |
-| `vectis-log` | 1+ | Yes, as independent run shards | Clients discover log registrations and route a given `run_id` to one shard. Each shard owns local durable log files and active stream buffers. Keep shard instance IDs stable; a second active process on the same storage directory refuses to start. |
+| `vectis-log` | 1+ | Yes, as independent run shards | Clients discover log registrations and route a given `run_id` to one shard. DB-aware clients persist `job_runs.log_shard_id`; unassigned runs fall back to deterministic hashing. Each shard owns local durable log files and active stream buffers. Keep shard instance IDs stable; a second active process on the same storage directory refuses to start. |
 | `vectis-cron` | 1+ | Yes, within one DB cell | Schedule claims select one firing attempt for a due row. Each claim records an instance ID and expires after `--claim-ttl` / `VECTIS_CRON_CLAIM_TTL` so another replica can retry after a crash. If a retry sees the same schedule tick, it reuses the existing run and may repeat queue handoff for that run. Watch DB pressure, queue reachability, clock skew, and schedule-to-run latency. |
 | `vectis-reconciler` | 1 active | Yes, active/passive | Instances coordinate through the `service_leases` table. Only the lease holder scans and redispatches; standbys take over after the lease TTL. |
 | `vectis-docs` | 1 | Yes | Static HTTP docs. It has no database or queue state; scale or disable it according to your exposure model. |
@@ -73,7 +73,7 @@ Registry is commonly singleton. Gossip-based registry HA is an advanced configur
 
 Each queue shard remains single-writer for its own WAL and snapshot files. Queue scale-out comes from adding shards, not from starting multiple active processes on the same queue persistence path. `vectis-queue` takes an advisory lock on the persistence directory and refuses to start when another process already owns it.
 
-Each log shard remains single-writer for its own local run log files. Log scale-out comes from adding shards, not from starting multiple active processes on the same log storage path. `vectis-log` takes an advisory lock on the storage directory and refuses to start when another process already owns it. If a log shard falls below `--storage-read-only-min-free-bytes`, it rejects the first log append for new runs while continuing to serve stored logs and appends for runs that already have files on that shard.
+Each log shard remains single-writer for its own local run log files. Log scale-out comes from adding shards, not from starting multiple active processes on the same log storage path. `vectis-log` takes an advisory lock on the storage directory and refuses to start when another process already owns it. If a log shard falls below `--storage-read-only-min-free-bytes`, it advertises read-only for new runs and rejects the first log append for new unassigned runs while continuing to serve stored logs and appends for runs that already have files on that shard.
 
 Cron scale-out is active/active within one shared database cell. Replicas race on `job_cron_schedules` claims; only the winner creates or reuses the scheduled run for that due tick. Set `--instance-id` / `VECTIS_CRON_INSTANCE_ID` to make claim ownership readable in the database and logs. Duplicate cron instance IDs do not weaken the database exclusion, but they make ownership harder to diagnose.
 
@@ -128,7 +128,7 @@ For repair steps, see [Repair Runbooks](../reliability/repair-runbooks.md).
 | Database | One configured logical database and schema. No in-app database failover, read-replica routing, or cross-site replication. |
 | API rate limits | In-memory per API process. |
 | Queue | Queue pool within one cell through registry discovery. Each shard has local persistence; no shared multi-writer queue storage. |
-| Logs | Run-sharded local storage within one cell. There is no shared multi-writer log storage, durable run-to-shard assignment table, or S3-backed archive yet. Disk-pressure read-only mode rejects new run log files on a pressured shard. |
+| Logs | Run-sharded local storage within one cell with DB-backed shard assignments for DB-aware clients. There is no shared multi-writer log storage or S3-backed archive yet. The standalone log-forwarder remains DB-free and uses deterministic routing from discovered shards. Disk-pressure read-only mode rejects new run log files on a pressured shard. |
 | Cron | DB-coordinated within one shared database cell; no built-in schedule partitioning across cells. |
 | Reconciler | Active/passive within one database cell through `service_leases`; not a sharded repair pool yet. |
 | Workers | Scale is bounded by DB pool sizing, queue throughput, log capacity, and workload resource isolation. |

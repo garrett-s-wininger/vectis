@@ -107,7 +107,7 @@ Run the reconciler and alert on persistent queued-run age if queue handoff matte
 
 ## Log Service Down
 
-The log service collects worker log chunks and serves log streams to clients. Multiple log services can run as run shards: clients route a given `run_id` to one shard, and that shard's local storage is the durable source for those run logs. Log shards do not own authoritative run status.
+The log service collects worker log chunks and serves log streams to clients. Multiple log services can run as run shards: DB-aware clients record a run's shard assignment in the database, and that shard's local storage is the durable source for those run logs. Log shards do not own authoritative run status.
 
 | Component | Behavior |
 | --- | --- |
@@ -200,7 +200,7 @@ For reference deploys, add probes in dependency order: registry, queue, and log 
 | Database | One configured SQL backend, embedded migrations, no in-app failover. | Managed PostgreSQL, tested backups, restore drills, and deployment-level HA. |
 | Queue | One or more independent queue shards with optional per-shard disk persistence. | Durable per-shard storage, queue-depth alerts, and capacity planning. |
 | Registry | Commonly a single discovery point unless addresses are pinned. | Redundant discovery or fixed service addresses. |
-| Log service | Required before normal job execution. Run-sharded local storage, with disk-pressure refusal for new run logs on a pressured shard. | Replication, durable run-to-shard assignments, or local buffering if log availability must not block work. |
+| Log service | Required before normal job execution. Run-sharded local storage, DB-backed shard assignment for DB-aware clients, and disk-pressure refusal for new run logs on a pressured shard. | Replication, S3/archive storage, or DB-aware forwarding if log availability must not block work. |
 | API | Health probes, graceful HTTP shutdown, auth when enabled, async enqueue backstopped by reconciler. | Edge TLS, idempotent clients, multiple replicas, and alerts on enqueue or reconciler failures. |
 | Worker | Graceful drain on `SIGINT` and `SIGTERM`; no drain on crash or `SIGKILL`. | Worker isolation, bounded drain policy, and clear operator run-stop procedures. |
 | Cron | Database schedule claims and per-tick run idempotency within one database cell; no built-in schedule sharding. | Explicit partition ownership or an external scheduler if schedules span multiple cells. |

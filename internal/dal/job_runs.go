@@ -489,6 +489,53 @@ func (r *SQLRunsRepository) TouchDispatched(ctx context.Context, runID string) e
 	return normalizeSQLError(err)
 }
 
+func (r *SQLRunsRepository) GetLogShard(ctx context.Context, runID string) (string, bool, error) {
+	var shardID string
+	if err := r.db.QueryRowContext(ctx,
+		rebindQueryForPgx(`SELECT log_shard_id FROM job_runs WHERE run_id = ?`),
+		runID,
+	).Scan(&shardID); err != nil {
+		if err == sql.ErrNoRows {
+			return "", false, fmt.Errorf("%w: run %s", ErrNotFound, runID)
+		}
+
+		return "", false, normalizeSQLError(err)
+	}
+
+	if shardID == "" {
+		return "", false, nil
+	}
+
+	return shardID, true, nil
+}
+
+func (r *SQLRunsRepository) AssignLogShard(ctx context.Context, runID, shardID string) (string, error) {
+	if shardID == "" {
+		return "", fmt.Errorf("log shard id is required")
+	}
+
+	if _, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE job_runs
+		SET log_shard_id = ?,
+			log_shard_assigned_at = ?
+		WHERE run_id = ?
+			AND log_shard_id = ''
+	`), shardID, time.Now().Unix(), runID); err != nil {
+		return "", normalizeSQLError(err)
+	}
+
+	assigned, ok, err := r.GetLogShard(ctx, runID)
+	if err != nil {
+		return "", err
+	}
+
+	if !ok {
+		return "", fmt.Errorf("assign log shard: run %s has no assigned shard after update", runID)
+	}
+
+	return assigned, nil
+}
+
 func (r *SQLRunsRepository) CreateRun(ctx context.Context, jobID string, runIndex *int, definitionVersion int) (runID string, runIndexOut int, err error) {
 	return r.CreateRunInCell(ctx, jobID, runIndex, definitionVersion, r.currentCellID())
 }

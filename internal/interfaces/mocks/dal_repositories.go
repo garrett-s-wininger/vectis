@@ -231,6 +231,7 @@ type MockRunsRepository struct {
 	CountStuckByCellErr    error
 	PendingExecutionErr    error
 	MarkExecutionErr       error
+	LogShardErr            error
 
 	CountByStatusResult       int64
 	CountByStatusByCellResult []dal.RunCountByCell
@@ -242,6 +243,8 @@ type MockRunsRepository struct {
 	RunStatus      string
 	RunStatusFound bool
 	OrphanedRunIDs []string
+	LogShardID     string
+	LogShardSet    bool
 
 	ListByJobResults []dal.RunRecord
 	RunRecords       map[string]dal.RunRecord
@@ -397,6 +400,31 @@ func (m *MockRunsRepository) TouchDispatched(ctx context.Context, runID string) 
 	m.TouchedRunIDs = append(m.TouchedRunIDs, runID)
 	m.mu.Unlock()
 	return nil
+}
+
+func (m *MockRunsRepository) GetLogShard(ctx context.Context, runID string) (string, bool, error) {
+	if m.LogShardErr != nil {
+		return "", false, m.LogShardErr
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.LogShardID, m.LogShardSet, nil
+}
+
+func (m *MockRunsRepository) AssignLogShard(ctx context.Context, runID, shardID string) (string, error) {
+	if m.LogShardErr != nil {
+		return "", m.LogShardErr
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.LogShardSet {
+		m.LogShardID = shardID
+		m.LogShardSet = true
+	}
+
+	return m.LogShardID, nil
 }
 
 func (m *MockRunsRepository) CreateRun(ctx context.Context, jobID string, runIndex *int, definitionVersion int) (string, int, error) {

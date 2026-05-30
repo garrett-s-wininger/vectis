@@ -1698,6 +1698,46 @@ func TestRunsRepository_ClaimRenewAndDispatchQueries(t *testing.T) {
 	}
 }
 
+func TestRunsRepository_LogShardAssignment(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	runs := dal.NewSQLRepositories(db).Runs()
+	ctx := context.Background()
+
+	runID, _, err := runs.CreateRun(ctx, "job-log-shard", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	if shardID, assigned, err := runs.GetLogShard(ctx, runID); err != nil {
+		t.Fatalf("get empty log shard: %v", err)
+	} else if assigned || shardID != "" {
+		t.Fatalf("expected no assignment, got assigned=%v shard=%q", assigned, shardID)
+	}
+
+	assigned, err := runs.AssignLogShard(ctx, runID, "log-a")
+	if err != nil {
+		t.Fatalf("assign log shard: %v", err)
+	}
+	if assigned != "log-a" {
+		t.Fatalf("assigned shard = %q, want log-a", assigned)
+	}
+
+	assigned, err = runs.AssignLogShard(ctx, runID, "log-b")
+	if err != nil {
+		t.Fatalf("assign log shard again: %v", err)
+	}
+
+	if assigned != "log-a" {
+		t.Fatalf("assigned shard after second write = %q, want log-a", assigned)
+	}
+
+	if shardID, assigned, err := runs.GetLogShard(ctx, runID); err != nil {
+		t.Fatalf("get assigned log shard: %v", err)
+	} else if !assigned || shardID != "log-a" {
+		t.Fatalf("expected log-a assignment, got assigned=%v shard=%q", assigned, shardID)
+	}
+}
+
 func TestDispatchEventsRepository_RecordAndListByRun(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)

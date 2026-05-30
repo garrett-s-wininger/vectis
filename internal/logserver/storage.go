@@ -173,6 +173,14 @@ func (s *LocalRunLogStore) Append(runID string, entry LogEntry) error {
 }
 
 func (s *LocalRunLogStore) ensureCanCreateRunLocked() error {
+	return s.newRunWritable()
+}
+
+func (s *LocalRunLogStore) NewRunWritable() bool {
+	return s.newRunWritable() == nil
+}
+
+func (s *LocalRunLogStore) newRunWritable() error {
 	if s.newRunMinFreeBytes == 0 {
 		return nil
 	}

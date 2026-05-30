@@ -123,8 +123,10 @@ func runWorker(cmd *cobra.Command, args []string) {
 	}
 	defer metricsSrv.Shutdown()
 
+	repos := dal.NewSQLRepositoriesWithCellID(db, config.CellID())
+	runsRepo := repos.Runs()
 	dial := func(ctx context.Context) (interfaces.QueueClient, interfaces.LogClient, func(), error) {
-		q, l, cleanup, err := multidial.DialQueueAndLog(ctx, logger, retryMetrics)
+		q, l, cleanup, err := multidial.DialQueueAndLog(ctx, logger, retryMetrics, runsRepo)
 		return q, l, cleanup, err
 	}
 
@@ -148,7 +150,6 @@ func runWorker(cmd *cobra.Command, args []string) {
 	forwarderSocket := forwarderSocketPath()
 	logClient = interfaces.NewPreferForwarderLogClient(forwarderSocket, logClient)
 
-	repos := dal.NewSQLRepositories(db)
 	w := &worker{
 		ctx:           shutdownCtx,
 		runCtx:        runCtx,
@@ -160,7 +161,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 		queue:         clients,
 		logClient:     logClient,
 		executor:      job.NewExecutor(),
-		store:         repos.Runs(),
+		store:         runsRepo,
 		catalog:       cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
 		metrics:       workerMetrics,
 		cancelCh:      make(chan string, 1),

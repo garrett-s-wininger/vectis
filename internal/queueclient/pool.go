@@ -288,7 +288,7 @@ func (p *queuePool) resolveDesired(ctx context.Context) ([]desiredQueueEndpoint,
 		return nil, fmt.Errorf("registry client is required")
 	}
 
-	entries, err := p.registry.ListRegistrations(ctx, api.Component_COMPONENT_QUEUE, registry.QueueIngressMetadata())
+	entries, err := p.registry.ListRegistrations(ctx, api.Component_COMPONENT_QUEUE, registry.QueueIngressMetadataForCell(config.CellID()))
 	if err != nil {
 		return nil, err
 	}

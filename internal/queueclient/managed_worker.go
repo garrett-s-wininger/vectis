@@ -220,6 +220,39 @@ func (m *ManagingWorkerDial) StreamLogs(ctx context.Context) (interfaces.LogStre
 	return stream, err
 }
 
+func (m *ManagingWorkerDial) StreamLogsForRun(ctx context.Context, runID string) (interfaces.LogStream, error) {
+	m.mu.RLock()
+	var stream interfaces.LogStream
+	var err error
+
+	if scoped, ok := m.log.(interfaces.RunLogClient); ok {
+		stream, err = scoped.StreamLogsForRun(ctx, runID)
+	} else if m.log != nil {
+		stream, err = m.log.StreamLogs(ctx)
+	}
+	m.mu.RUnlock()
+
+	if err == nil || !IsTransientRPCError(err) {
+		return stream, err
+	}
+
+	if m.reconnectAfterTransient(ctx, err) != nil {
+		return stream, err
+	}
+
+	m.mu.RLock()
+	if scoped, ok := m.log.(interfaces.RunLogClient); ok {
+		stream, err = scoped.StreamLogsForRun(ctx, runID)
+	} else if m.log != nil {
+		stream, err = m.log.StreamLogs(ctx)
+	} else {
+		err = fmt.Errorf("log client not available after reconnect")
+	}
+	m.mu.RUnlock()
+
+	return stream, err
+}
+
 func (m *ManagingWorkerDial) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -233,3 +266,5 @@ func (m *ManagingWorkerDial) Close() error {
 	m.log = nil
 	return nil
 }
+
+var _ interfaces.RunLogClient = (*ManagingWorkerDial)(nil)

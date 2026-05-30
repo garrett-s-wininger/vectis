@@ -355,6 +355,8 @@ type RunsRepository interface {
 	TryClaim(ctx context.Context, runID, owner string, leaseUntil time.Time) (bool, string, error)
 	RenewLease(ctx context.Context, runID, owner, claimToken string, leaseUntil time.Time) error
 	TouchDispatched(ctx context.Context, runID string) error
+	GetLogShard(ctx context.Context, runID string) (shardID string, assigned bool, err error)
+	AssignLogShard(ctx context.Context, runID, shardID string) (assignedShardID string, err error)
 	CreateRun(ctx context.Context, jobID string, runIndex *int, definitionVersion int) (runID string, runIndexOut int, err error)
 	CreateRunInCell(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellID string) (runID string, runIndexOut int, err error)
 	CreateRunsInCells(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellIDs []string) ([]CreatedRun, error)
