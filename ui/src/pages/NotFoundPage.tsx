@@ -1,5 +1,5 @@
-import { AppState } from "../components/AppState";
-import { PageHeader } from "../components/PageHeader";
+import { AppState } from "../components";
+import { PageHeader } from "../components";
 
 export function NotFoundPage() {
   return (

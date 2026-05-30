@@ -1,6 +1,6 @@
-import type { RunStatus } from "../components/StatusBadge";
-import type { RunListItem } from "../components/RunList";
-import type { SignalItem } from "../components/SignalList";
+import type { RunStatus } from "../components";
+import type { RunListItem } from "../components";
+import type { SignalItem } from "../components";
 import type { DashboardMetric, ProgressFixture } from "./fixtures";
 import { activeRuns, instanceSignals, workloadProgress } from "./fixtures";
 

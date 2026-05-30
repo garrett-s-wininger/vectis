@@ -1,12 +1,12 @@
 import type { FormEvent } from "react";
 import { useState } from "react";
-import { Button } from "../components/Button";
-import { DataTable, type DataTableColumn } from "../components/DataTable";
-import { FormError } from "../components/FormError";
-import { FormField } from "../components/FormField";
-import { PageHeader } from "../components/PageHeader";
-import { SelectField } from "../components/SelectField";
-import { StatusBadge } from "../components/StatusBadge";
+import { Button } from "../components";
+import { DataTable, type DataTableColumn } from "../components";
+import { FormError } from "../components";
+import { FormField } from "../components";
+import { PageHeader } from "../components";
+import { SelectField } from "../components";
+import { StatusBadge } from "../components";
 import fieldStyles from "../components/Field.module.css";
 import type { MockJob, MockJobStatus, NewMockJob, UpdateMockJob } from "../mocks/consoleData";
 

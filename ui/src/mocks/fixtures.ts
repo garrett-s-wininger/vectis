@@ -1,7 +1,7 @@
-import type { MetricCardProps } from "../components/MetricCard";
-import type { ProgressMeterProps } from "../components/ProgressMeter";
-import type { RunListItem } from "../components/RunList";
-import type { SignalItem } from "../components/SignalList";
+import type { MetricCardProps } from "../components";
+import type { ProgressMeterProps } from "../components";
+import type { RunListItem } from "../components";
+import type { SignalItem } from "../components";
 
 export type DashboardMetric = MetricCardProps & {
   id: string;

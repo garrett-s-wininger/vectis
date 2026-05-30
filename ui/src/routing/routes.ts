@@ -1,4 +1,4 @@
-import type { NavItem } from "../components/AppShell";
+import type { NavItem } from "../components";
 
 export type AppRouteKind =
   | "dashboard"

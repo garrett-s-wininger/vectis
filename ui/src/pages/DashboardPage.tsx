@@ -1,8 +1,8 @@
-import { MetricCard } from "../components/MetricCard";
-import { PageHeader } from "../components/PageHeader";
-import { ProgressMeter } from "../components/ProgressMeter";
-import { SectionPanel } from "../components/SectionPanel";
-import { SignalList } from "../components/SignalList";
+import { MetricCard } from "../components";
+import { PageHeader } from "../components";
+import { ProgressMeter } from "../components";
+import { SectionPanel } from "../components";
+import { SignalList } from "../components";
 import type { MockCell } from "../mocks/consoleData";
 import type { DashboardMetric } from "../mocks/fixtures";
 

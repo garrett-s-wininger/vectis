@@ -1,10 +1,10 @@
 import type { FormEvent } from "react";
 import { useState } from "react";
-import { Button } from "../components/Button";
-import { DataTable, type DataTableColumn } from "../components/DataTable";
-import { FormField } from "../components/FormField";
-import { PageHeader } from "../components/PageHeader";
-import { SelectField } from "../components/SelectField";
+import { Button } from "../components";
+import { DataTable, type DataTableColumn } from "../components";
+import { FormField } from "../components";
+import { PageHeader } from "../components";
+import { SelectField } from "../components";
 import type { MockNamespace, NewMockNamespace } from "../mocks/consoleData";
 
 type NamespacesPageProps = {

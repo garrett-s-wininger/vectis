@@ -2,12 +2,12 @@ import type { FormEvent, MouseEvent } from "react";
 import { useEffect, useState } from "react";
 import "./index.css";
 import { completeSetup, login, logout } from "./api/auth";
-import { Button } from "./components/Button";
-import { AppShell } from "./components/AppShell";
-import { AppState } from "./components/AppState";
-import { FormError } from "./components/FormError";
-import { FormField } from "./components/FormField";
-import { NamespacePicker } from "./components/NamespacePicker";
+import { Button } from "./components";
+import { AppShell } from "./components";
+import { AppState } from "./components";
+import { FormError } from "./components";
+import { FormField } from "./components";
+import { NamespacePicker } from "./components";
 import {
   canDeleteMockNamespace,
   createMockJob,

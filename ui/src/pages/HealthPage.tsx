@@ -1,7 +1,7 @@
-import { Button } from "../components/Button";
-import { DataTable, type DataTableColumn } from "../components/DataTable";
-import { MetricCard } from "../components/MetricCard";
-import { PageHeader } from "../components/PageHeader";
+import { Button } from "../components";
+import { DataTable, type DataTableColumn } from "../components";
+import { MetricCard } from "../components";
+import { PageHeader } from "../components";
 import { clusterHealthMetricsFor, type MockCell, type MockCellStatus } from "../mocks/consoleData";
 import { DashboardPage } from "./DashboardPage";
 

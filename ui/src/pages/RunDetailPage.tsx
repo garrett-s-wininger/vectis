@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { AppState } from "../components/AppState";
-import { Button } from "../components/Button";
-import { PageHeader } from "../components/PageHeader";
-import type { RunListItem } from "../components/RunList";
-import { StatusBadge } from "../components/StatusBadge";
+import { AppState } from "../components";
+import { Button } from "../components";
+import { PageHeader } from "../components";
+import type { RunListItem } from "../components";
+import { StatusBadge } from "../components";
 
 type RunDetailTab = "summary" | "definition" | "logs";
 
