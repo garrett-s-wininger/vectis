@@ -213,6 +213,114 @@ func TestIntegrationMultiCell_FanOutRunsAcrossCellsAndFanInIsIdempotent(t *testi
 	}
 }
 
+func TestIntegrationMultiCell_CellsStatusCombinesRoutesRunsAndCatalogSources(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+
+	ctx := context.Background()
+	logger := mocks.NewMockLogger()
+	jobID := "integration-multicell-cells-status"
+	definition := `{"id":"integration-multicell-cells-status","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo cell-status"}}}`
+
+	globalDB := dbtest.NewTestDB(t)
+	globalRepos := dal.NewSQLRepositoriesWithCellID(globalDB, dal.DefaultCellID)
+	if err := globalRepos.Jobs().Create(ctx, jobID, definition, 1); err != nil {
+		t.Fatalf("create global job: %v", err)
+	}
+
+	logStore, err := logserver.NewLocalRunLogStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("create log store: %v", err)
+	}
+
+	_, logClient := grpcservices.StartLogServer(t, logger, logStore)
+	readyCell := startIntegrationCell(t, "iad-a", logger, logClient)
+	missingCellID := "pdx-b"
+
+	viper.Set("cell_ingress_endpoints", []string{
+		readyCell.id + "=" + readyCell.ingressURL,
+	})
+
+	api := apiserver.NewAPIServer(logger, globalDB)
+	api.SetExecutionIngress(cell.NewStaticExecutionRouter(map[string]cell.ExecutionIngress{
+		readyCell.id: readyCell.ingress,
+	}))
+
+	triggered := triggerJobInCells(t, api, jobID, readyCell.id, missingCellID)
+	runByCell := map[string]string{}
+	for _, run := range triggered {
+		runByCell[run.CellID] = run.RunID
+	}
+
+	if runByCell[readyCell.id] == "" || runByCell[missingCellID] == "" {
+		t.Fatalf("trigger response missing expected cells: %+v", triggered)
+	}
+
+	readyEvents := waitForDispatchEvents(t, ctx, globalRepos, runByCell[readyCell.id], 2)
+	assertDispatchSuccess(t, readyEvents)
+
+	missingEvents := waitForDispatchEvents(t, ctx, globalRepos, runByCell[missingCellID], 2)
+	assertDispatchFailure(t, missingEvents, missingCellID, "cell not routable")
+
+	status := getCellsStatus(t, api)
+	readyStatus := status[readyCell.id]
+	if readyStatus.CellID == "" {
+		t.Fatalf("cells status missing ready cell %q: %+v", readyCell.id, status)
+	}
+
+	if !readyStatus.IngressConfigured || !readyStatus.IngressReachable || readyStatus.Status != "ready" {
+		t.Fatalf("unexpected ready cell status: %+v", readyStatus)
+	}
+
+	if readyStatus.Queued != 1 || readyStatus.Stuck != 0 {
+		t.Fatalf("ready cell run counts: got queued=%d stuck=%d, want queued=1 stuck=0 (%+v)", readyStatus.Queued, readyStatus.Stuck, readyStatus)
+	}
+
+	missingStatus := status[missingCellID]
+	if missingStatus.CellID == "" {
+		t.Fatalf("cells status missing unroutable cell %q: %+v", missingCellID, status)
+	}
+
+	if !missingStatus.IngressRequired || missingStatus.IngressConfigured || missingStatus.IngressReachable || missingStatus.Status != "missing_route" {
+		t.Fatalf("unexpected missing-route cell status: %+v", missingStatus)
+	}
+
+	if missingStatus.Queued != 1 || missingStatus.Stuck != 1 {
+		t.Fatalf("missing route run counts: got queued=%d stuck=%d, want queued=1 stuck=1 (%+v)", missingStatus.Queued, missingStatus.Stuck, missingStatus)
+	}
+
+	if err := readyCell.worker.runOne(ctx); err != nil {
+		t.Fatalf("worker run for ready cell: %v", err)
+	}
+
+	fanIn := catalog.NewFanInProcessor(globalRepos.CatalogEvents(), []catalog.FanInSource{
+		{
+			CellID: readyCell.id,
+			Events: readyCell.repos.CatalogEvents(),
+			Backfill: catalog.NewBackfillProcessor(
+				readyCell.id,
+				readyCell.repos.CatalogStatusBackfill(),
+				cell.NewCatalogEventPublisher(readyCell.id, readyCell.repos.CatalogEvents()),
+			),
+		},
+	})
+
+	fanInResult, err := fanIn.IngestPending(ctx, 100)
+	if err != nil {
+		t.Fatalf("catalog fan-in: %v", err)
+	}
+	if fanInResult.Copied == 0 || fanInResult.Read == 0 {
+		t.Fatalf("expected cell catalog events to be copied, got %+v", fanInResult)
+	}
+
+	status = getCellsStatus(t, api)
+	readyStatus = status[readyCell.id]
+	if readyStatus.CatalogPending == 0 || readyStatus.CatalogTotal == 0 {
+		t.Fatalf("expected ready cell catalog source counts after fan-in, got %+v", readyStatus)
+	}
+}
+
 func TestIntegrationMultiCell_FailedExecutionPropagatesThroughCatalog(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
@@ -386,10 +494,11 @@ func TestIntegrationMultiCell_ReconcilerRepairsFailedDispatchThroughCellIngress(
 }
 
 type integrationCell struct {
-	id      string
-	repos   *dal.SQLRepositories
-	ingress cell.ExecutionIngress
-	worker  *integrationWorker
+	id         string
+	repos      *dal.SQLRepositories
+	ingressURL string
+	ingress    cell.ExecutionIngress
+	worker     *integrationWorker
 }
 
 type integrationWorker struct {
@@ -434,9 +543,10 @@ func startIntegrationCell(t *testing.T, cellID string, logger interfaces.Logger,
 	t.Cleanup(cellIngressHTTP.Close)
 
 	return &integrationCell{
-		id:      cellID,
-		repos:   repos,
-		ingress: cell.NewHTTPExecutionIngress(cellIngressHTTP.URL, cellIngressHTTP.Client(), logger),
+		id:         cellID,
+		repos:      repos,
+		ingressURL: cellIngressHTTP.URL,
+		ingress:    cell.NewHTTPExecutionIngress(cellIngressHTTP.URL, cellIngressHTTP.Client(), logger),
 		worker: &integrationWorker{
 			runCtx:                context.Background(),
 			workerID:              "integration-worker-" + cellID,
@@ -718,6 +828,24 @@ func assertDispatchFailure(t *testing.T, events []dal.DispatchEvent, messagePart
 	}
 }
 
+func assertDispatchSuccess(t *testing.T, events []dal.DispatchEvent) {
+	t.Helper()
+
+	if len(events) < 2 {
+		t.Fatalf("expected at least dispatch attempt and success, got %+v", events)
+	}
+
+	attempt := events[0]
+	if attempt.Source != dal.DispatchSourceAPI || attempt.EventType != dal.DispatchEventAttempt {
+		t.Fatalf("unexpected dispatch attempt event: %+v", attempt)
+	}
+
+	success := events[len(events)-1]
+	if success.Source != dal.DispatchSourceAPI || success.EventType != dal.DispatchEventSuccess {
+		t.Fatalf("unexpected dispatch success event: %+v", success)
+	}
+}
+
 func assertDispatchSuccessAfterFailure(t *testing.T, events []dal.DispatchEvent) {
 	t.Helper()
 
@@ -775,6 +903,46 @@ func listGlobalAPIRuns(t *testing.T, api *apiserver.APIServer, jobID string) map
 			Status:     run.Status,
 			OwningCell: run.OwningCell,
 		}
+	}
+
+	return out
+}
+
+type cellStatusSnapshot struct {
+	CellID            string `json:"cell_id"`
+	IngressRequired   bool   `json:"ingress_required"`
+	IngressConfigured bool   `json:"ingress_configured"`
+	IngressReachable  bool   `json:"ingress_reachable"`
+	Status            string `json:"status"`
+	Queued            int64  `json:"queued"`
+	Stuck             int64  `json:"stuck"`
+	CatalogPending    int64  `json:"catalog_pending"`
+	CatalogFailed     int64  `json:"catalog_failed"`
+	CatalogTotal      int64  `json:"catalog_total"`
+}
+
+func getCellsStatus(t *testing.T, api *apiserver.APIServer) map[string]cellStatusSnapshot {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cells/status", nil)
+	rec := httptest.NewRecorder()
+
+	api.GetCellsStatus(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("cells status: got %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var resp struct {
+		Cells []cellStatusSnapshot `json:"cells"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode cells status response: %v", err)
+	}
+
+	out := make(map[string]cellStatusSnapshot, len(resp.Cells))
+	for _, cell := range resp.Cells {
+		out[cell.CellID] = cell
 	}
 
 	return out
