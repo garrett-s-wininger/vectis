@@ -68,16 +68,18 @@ func runCatalog(cmd *cobra.Command, args []string) {
 	}
 	defer closeFanIn()
 
-	if len(fanInSources) > 0 {
-		svc.SetFanIn(catalog.NewFanInProcessor(repos.CatalogEvents(), fanInSources))
-		logger.Info("Catalog fan-in enabled for %d cell database(s)", len(fanInSources))
-	}
-
 	catalogMetrics, err := observability.NewCatalogMetrics()
 	if err != nil {
 		logger.Fatal("Failed to initialize catalog metrics: %v", err)
 	}
 	svc.SetMetrics(catalogMetrics)
+
+	if len(fanInSources) > 0 {
+		fanIn := catalog.NewFanInProcessor(repos.CatalogEvents(), fanInSources)
+		fanIn.SetMetrics(catalogMetrics)
+		svc.SetFanIn(fanIn)
+		logger.Info("Catalog fan-in enabled for %d cell database(s)", len(fanInSources))
+	}
 
 	metricsAddr := fmt.Sprintf(":%d", viper.GetInt("metrics_port"))
 	metricsSrv, err := cli.StartMetricsHTTPServer(metricsHandler, metricsAddr, "Catalog", logger)

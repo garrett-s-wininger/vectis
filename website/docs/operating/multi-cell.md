@@ -140,6 +140,18 @@ Before enabling multi-cell routing outside local development:
 | `vectis-cli doctor` is clean | The doctor checks catalog backlog, stuck runs, queue backlog, and core API reachability. |
 | Cell ingress endpoints are private | Cell ingress is an internal execution submission surface. |
 
+## Fan-In Metrics
+
+Scrape `vectis-catalog` metrics to see which cell sources are contributing events or requiring backfill:
+
+| Metric | Labels | Meaning |
+| --- | --- | --- |
+| `vectis_catalog_fanin_events_read_total` | `source_cell` | Pending catalog events read from a cell-local source DB. |
+| `vectis_catalog_fanin_events_copied_total` | `source_cell` | Cell events copied into the global catalog inbox. |
+| `vectis_catalog_fanin_events_backfilled_total` | `source_cell` | Missing cell events synthesized from observed cell DB state before copy. |
+
+Persistent reads without applied global catalog progress point to the global inbox processor. Persistent backfill for one cell points to missed catalog event writes or local cell DB pressure. Repeated zero activity for a cell that should be running work usually means `vectis-catalog` cannot see that cell database or the cell has not emitted events.
+
 ## Current Limits
 
 Multi-cell support routes whole runs to cells and fans status back into the global catalog. It does not yet provide cross-cell DAG choreography inside one run, artifact replication between cells, per-cell action repository distribution, or cell-to-cell dispatch. Model cross-cell work as multiple runs for now, or keep dependent steps inside one cell.

@@ -21,9 +21,21 @@ type FanInResult struct {
 	Copied     int
 }
 
+type FanInSourceResult struct {
+	CellID     string
+	Backfilled int
+	Read       int
+	Copied     int
+}
+
+type FanInMetrics interface {
+	RecordFanInSourceResult(ctx context.Context, result FanInSourceResult)
+}
+
 type FanInProcessor struct {
 	target  dal.CatalogEventsRepository
 	sources []FanInSource
+	metrics FanInMetrics
 }
 
 func NewFanInProcessor(target dal.CatalogEventsRepository, sources []FanInSource) *FanInProcessor {
@@ -31,6 +43,10 @@ func NewFanInProcessor(target dal.CatalogEventsRepository, sources []FanInSource
 		target:  target,
 		sources: append([]FanInSource(nil), sources...),
 	}
+}
+
+func (p *FanInProcessor) SetMetrics(metrics FanInMetrics) {
+	p.metrics = metrics
 }
 
 func (p *FanInProcessor) IngestPending(ctx context.Context, limit int) (FanInResult, error) {
@@ -53,13 +69,16 @@ func (p *FanInProcessor) IngestPending(ctx context.Context, limit int) (FanInRes
 			break
 		}
 
+		sourceResult := FanInSourceResult{CellID: source.CellID}
 		if source.Backfill != nil {
 			backfillResult, err := source.Backfill.RepairMissing(ctx, remaining)
 			if err != nil {
 				return result, fmt.Errorf("backfill missing catalog events for cell %q: %w", source.CellID, err)
 			}
 
-			result.Backfilled += backfillResult.Total()
+			backfilled := backfillResult.Total()
+			result.Backfilled += backfilled
+			sourceResult.Backfilled += backfilled
 		}
 
 		if source.Events == nil {
@@ -72,11 +91,13 @@ func (p *FanInProcessor) IngestPending(ctx context.Context, limit int) (FanInRes
 		}
 
 		result.Read += len(records)
+		sourceResult.Read += len(records)
 		for _, rec := range records {
 			if _, created, err := p.target.Record(ctx, rec.SourceCell, rec.EventKey, rec.EventType, rec.Payload); err != nil {
 				return result, fmt.Errorf("copy catalog event %q from cell %q: %w", rec.EventKey, source.CellID, err)
 			} else if created {
 				result.Copied++
+				sourceResult.Copied++
 			}
 
 			if err := source.Events.MarkApplied(ctx, rec.ID); err != nil {
@@ -87,6 +108,10 @@ func (p *FanInProcessor) IngestPending(ctx context.Context, limit int) (FanInRes
 			if remaining <= 0 {
 				break
 			}
+		}
+
+		if p.metrics != nil && (sourceResult.Backfilled > 0 || sourceResult.Read > 0 || sourceResult.Copied > 0) {
+			p.metrics.RecordFanInSourceResult(ctx, sourceResult)
 		}
 	}
 

@@ -9,6 +9,14 @@ import (
 	"vectis/internal/testutil/dbtest"
 )
 
+type recordingFanInMetrics struct {
+	results []FanInSourceResult
+}
+
+func (m *recordingFanInMetrics) RecordFanInSourceResult(ctx context.Context, result FanInSourceResult) {
+	m.results = append(m.results, result)
+}
+
 func TestFanInProcessorCopiesPendingEventsToTarget(t *testing.T) {
 	ctx := context.Background()
 	sourceDB := dbtest.NewTestDB(t)
@@ -62,6 +70,52 @@ func TestFanInProcessorCopiesPendingEventsToTarget(t *testing.T) {
 	got := targetPending[0]
 	if got.SourceCell != "pdx-b" || got.EventKey != sourceEvent.EventKey || got.EventType != cell.CatalogEventTypeExecutionStatus {
 		t.Fatalf("unexpected target event: %+v", got)
+	}
+}
+
+func TestFanInProcessorRecordsSourceMetrics(t *testing.T) {
+	ctx := context.Background()
+	sourceDB := dbtest.NewTestDB(t)
+	targetDB := dbtest.NewTestDB(t)
+	sourceRepos := dal.NewSQLRepositoriesWithCellID(sourceDB, "iad-a")
+	targetRepos := dal.NewSQLRepositories(targetDB)
+
+	runID, _, err := sourceRepos.CreateDefinitionAndRunInCell(ctx, "job-fanin-metrics", `{"id":"job-fanin-metrics","root":{"uses":"builtins/shell"}}`, nil, "iad-a")
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	if err := sourceRepos.Runs().MarkRunRunning(ctx, runID); err != nil {
+		t.Fatalf("mark run running: %v", err)
+	}
+
+	events := sourceRepos.CatalogEvents()
+	metrics := &recordingFanInMetrics{}
+	processor := NewFanInProcessor(targetRepos.CatalogEvents(), []FanInSource{
+		{
+			CellID:   "iad-a",
+			Events:   events,
+			Backfill: NewBackfillProcessor("iad-a", sourceRepos.CatalogStatusBackfill(), cell.NewCatalogEventPublisher("iad-a", events)),
+		},
+	})
+	processor.SetMetrics(metrics)
+
+	result, err := processor.IngestPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("IngestPending: %v", err)
+	}
+
+	if result.Backfilled != 1 || result.Read != 1 || result.Copied != 1 {
+		t.Fatalf("unexpected fan-in result: %+v", result)
+	}
+
+	if len(metrics.results) != 1 {
+		t.Fatalf("metrics results: got %d, want 1 (%+v)", len(metrics.results), metrics.results)
+	}
+
+	got := metrics.results[0]
+	if got.CellID != "iad-a" || got.Backfilled != 1 || got.Read != 1 || got.Copied != 1 {
+		t.Fatalf("unexpected metrics result: %+v", got)
 	}
 }
 
