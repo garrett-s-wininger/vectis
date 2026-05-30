@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Button } from "./Button";
+import { Button } from "../primitives/Button";
 import { AppState } from "./AppState";
 
 const meta = {
-  title: "Components/AppState",
+  title: "Components/Feedback/AppState",
   component: AppState,
   args: {
     title: "No runs to show",

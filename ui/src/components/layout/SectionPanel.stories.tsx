@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Button } from "./Button";
-import { MetricCard } from "./MetricCard";
-import { RunList, type RunListItem } from "./RunList";
+import { Button } from "../primitives/Button";
+import { MetricCard } from "../data/MetricCard";
+import { RunList, type RunListItem } from "../data/RunList";
 import { SectionPanel } from "./SectionPanel";
 
 const runs: RunListItem[] = [
@@ -24,7 +24,7 @@ const runs: RunListItem[] = [
 ];
 
 const meta = {
-  title: "Components/SectionPanel",
+  title: "Components/Layout/SectionPanel",
   component: SectionPanel,
   args: {
     title: "Compute workload",

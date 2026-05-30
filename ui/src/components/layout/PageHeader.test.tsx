@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { Button } from "./Button";
+import { Button } from "../primitives/Button";
 import { PageHeader } from "./PageHeader";
 
 describe("PageHeader", () => {

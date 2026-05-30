@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { SelectField } from "./SelectField";
 
 const meta = {
-  title: "Components/SelectField",
+  title: "Components/Primitives/SelectField",
   component: SelectField,
   args: {
     label: "Status",

@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Button } from "./Button";
+import { Button } from "../primitives/Button";
 import { PageHeader } from "./PageHeader";
 
 const meta = {
-  title: "Components/PageHeader",
+  title: "Components/Layout/PageHeader",
   component: PageHeader,
   args: {
     eyebrow: "Operator Console",

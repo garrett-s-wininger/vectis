@@ -1,13 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { FormError } from "./FormError";
+import { Button } from "./Button";
 
 const meta = {
-  title: "Components/FormError",
-  component: FormError,
+  title: "Components/Primitives/Button",
+  component: Button,
   args: {
-    message: "Invalid username or password."
+    children: "Refresh"
   }
-} satisfies Meta<typeof FormError>;
+} satisfies Meta<typeof Button>;
 
 export default meta;
 

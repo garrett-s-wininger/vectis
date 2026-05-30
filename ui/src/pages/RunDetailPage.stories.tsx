@@ -21,7 +21,7 @@ const ephemeralData = submitMockEphemeralRun(createMockConsoleDataSnapshot(), {
 });
 
 const meta = {
-  title: "Pages/RunDetail",
+  title: "Pages/Run Detail",
   component: RunDetailPage,
   decorators: [
     (Story) => (

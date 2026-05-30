@@ -3,7 +3,7 @@ import styles from "./StatusBadge.module.css";
 import { StatusBadge } from "./StatusBadge";
 
 const meta = {
-  title: "Components/StatusBadge",
+  title: "Components/Status/StatusBadge",
   component: StatusBadge,
   args: {
     status: "running"

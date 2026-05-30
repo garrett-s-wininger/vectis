@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { AppShell, type NavItem } from "./AppShell";
-import { Button } from "./Button";
+import { Button } from "../primitives/Button";
 
 const navItems: NavItem[] = [
   { href: "/dashboard", label: "Dashboard" },

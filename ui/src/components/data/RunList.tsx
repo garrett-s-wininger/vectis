@@ -1,5 +1,5 @@
-import { StatusBadge, type RunStatus } from "./StatusBadge";
-import { Button } from "./Button";
+import { StatusBadge, type RunStatus } from "../status/StatusBadge";
+import { Button } from "../primitives/Button";
 import styles from "./RunList.module.css";
 
 export type RunListItem = {

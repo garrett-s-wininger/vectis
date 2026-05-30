@@ -21,7 +21,7 @@ export default defineConfig({
     },
     {
       command: "npm run storybook:smoke",
-      url: "http://127.0.0.1:6101/iframe.html?id=components-appshell--dashboard&viewMode=story",
+      url: "http://127.0.0.1:6101/iframe.html?id=components-layout-appshell--dashboard&viewMode=story",
       reuseExistingServer: !process.env.CI,
       timeout: 90_000
     }

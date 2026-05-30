@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { AppState } from "./AppState";
-import { Button } from "./Button";
+import { Button } from "../primitives/Button";
 
 describe("AppState", () => {
   it("renders state copy and actions", () => {

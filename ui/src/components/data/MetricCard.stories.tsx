@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { MetricCard } from "./MetricCard";
 
 const meta = {
-  title: "Components/MetricCard",
+  title: "Components/Data/MetricCard",
   component: MetricCard,
   args: {
     label: "Queue pressure",

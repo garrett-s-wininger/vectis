@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "storybook": "mkdir -p .cache/storybook-home && HOME=$PWD/.cache/storybook-home STORYBOOK_DISABLE_TELEMETRY=1 storybook dev -p 6006 --ci --no-open --initial-path='/?path=/story/components-appshell--dashboard'",
+    "storybook": "mkdir -p .cache/storybook-home && HOME=$PWD/.cache/storybook-home STORYBOOK_DISABLE_TELEMETRY=1 storybook dev -p 6006 --ci --no-open --initial-path='/?path=/story/components-layout-appshell--dashboard'",
     "storybook:build": "mkdir -p .cache/storybook-home && HOME=$PWD/.cache/storybook-home STORYBOOK_DISABLE_TELEMETRY=1 storybook build --disable-telemetry",
     "storybook:smoke": "mkdir -p .cache/storybook-home && HOME=$PWD/.cache/storybook-home STORYBOOK_DISABLE_TELEMETRY=1 storybook dev -p 6101 --ci --no-open",
     "dev:smoke": "vite --host 127.0.0.1 --port 5174 --strictPort",

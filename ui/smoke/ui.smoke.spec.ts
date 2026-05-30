@@ -41,7 +41,7 @@ test.describe("app smoke", () => {
 
 test.describe("storybook smoke", () => {
   test("renders representative component and design stories", async ({ page }) => {
-    await page.goto("http://127.0.0.1:6101/iframe.html?id=components-appshell--dashboard&viewMode=story");
+    await page.goto("http://127.0.0.1:6101/iframe.html?id=components-layout-appshell--dashboard&viewMode=story");
 
     await expect(page.getByRole("heading", { name: "Cluster dashboard" })).toBeVisible();
     await expect(page.getByRole("navigation")).toContainText("Health");

@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Button } from "./Button";
+import { Button } from "../primitives/Button";
 import { FilterBar } from "./FilterBar";
-import { FormField } from "./FormField";
-import { SectionPanel } from "./SectionPanel";
-import { SelectField } from "./SelectField";
+import { FormField } from "../primitives/FormField";
+import { SectionPanel } from "../layout/SectionPanel";
+import { SelectField } from "../primitives/SelectField";
 
 const filters = (
   <>
@@ -23,7 +23,7 @@ const filters = (
 );
 
 const meta = {
-  title: "Components/FilterBar",
+  title: "Components/Navigation/FilterBar",
   component: FilterBar,
   args: {
     filters,

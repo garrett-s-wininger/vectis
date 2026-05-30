@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ProgressMeter } from "./ProgressMeter";
-import { SectionPanel } from "./SectionPanel";
+import { SectionPanel } from "../layout/SectionPanel";
 
 const meta = {
-  title: "Components/ProgressMeter",
+  title: "Components/Data/ProgressMeter",
   component: ProgressMeter,
   args: {
     label: "Log filesystem usage",

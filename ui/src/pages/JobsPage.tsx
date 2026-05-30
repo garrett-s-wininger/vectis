@@ -7,7 +7,7 @@ import { FormField } from "../components";
 import { PageHeader } from "../components";
 import { SelectField } from "../components";
 import { StatusBadge } from "../components";
-import fieldStyles from "../components/Field.module.css";
+import fieldStyles from "../components/primitives/Field.module.css";
 import type { MockJob, MockJobStatus, NewMockJob, UpdateMockJob } from "../mocks/consoleData";
 
 type JobEditorMode = { kind: "create" } | { kind: "edit"; jobID: string } | null;

@@ -41,7 +41,7 @@ const sampleRuns: RunListItem[] = [
 ];
 
 const meta = {
-  title: "Components/RunList",
+  title: "Components/Data/RunList",
   component: RunList,
   args: {
     title: "Active runs",

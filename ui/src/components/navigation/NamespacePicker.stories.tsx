@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { NamespacePicker } from "./NamespacePicker";
 
 const meta = {
-  title: "Components/NamespacePicker",
+  title: "Components/Navigation/NamespacePicker",
   component: NamespacePicker,
   args: {
     namespaces: [

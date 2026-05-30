@@ -1,11 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { AppShell } from "./AppShell";
-import { Button } from "./Button";
-import { MetricCard } from "./MetricCard";
+import { Button } from "../primitives/Button";
+import { MetricCard } from "../data/MetricCard";
 import { PageHeader } from "./PageHeader";
 
 const meta = {
-  title: "Components/AppShell",
+  title: "Components/Layout/AppShell",
   component: AppShell,
   args: {
     brand: "Vectis",

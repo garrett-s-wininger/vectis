@@ -1,4 +1,4 @@
-import type { MockNamespace } from "../mocks/consoleData";
+import type { MockNamespace } from "../../mocks/consoleData";
 import styles from "./NamespacePicker.module.css";
 
 type NamespacePickerProps = {

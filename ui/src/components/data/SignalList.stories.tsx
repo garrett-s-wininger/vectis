@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { SectionPanel } from "./SectionPanel";
+import { SectionPanel } from "../layout/SectionPanel";
 import { SignalList, type SignalItem } from "./SignalList";
 
 const signals: SignalItem[] = [
@@ -30,7 +30,7 @@ const signals: SignalItem[] = [
 ];
 
 const meta = {
-  title: "Components/SignalList",
+  title: "Components/Data/SignalList",
   component: SignalList,
   args: {
     signals

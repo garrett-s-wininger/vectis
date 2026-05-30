@@ -30,7 +30,7 @@ const columns: DataTableColumn<JobRow>[] = [
 ];
 
 const meta = {
-  title: "Components/DataTable",
+  title: "Components/Data/DataTable",
   component: DataTable<JobRow>,
   args: {
     columns,
