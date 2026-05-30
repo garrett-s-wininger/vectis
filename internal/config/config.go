@@ -201,11 +201,12 @@ type CatalogDefaults struct {
 }
 
 type CellIngressDefaults struct {
-	Host            string `toml:"host"`
-	Port            int    `toml:"port"`
-	MetricsPort     int    `toml:"metrics_port"`
-	RegistryAddress string `toml:"registry.address"`
-	QueueAddress    string `toml:"queue.address"`
+	Host            string       `toml:"host"`
+	Port            int          `toml:"port"`
+	MetricsPort     int          `toml:"metrics_port"`
+	RepairInterval  tomlDuration `toml:"repair_interval"`
+	RegistryAddress string       `toml:"registry.address"`
+	QueueAddress    string       `toml:"queue.address"`
 }
 
 type GRPCTLSDefaults struct {
@@ -384,6 +385,10 @@ func validateDefaults(d Defaults) {
 		d.CellIngress.MetricsPort == d.Catalog.MetricsPort ||
 		d.CellIngress.MetricsPort == d.Worker.Control.Port {
 		panic("config defaults: cell_ingress.metrics_port must differ from cell ingress, queue/worker/log/reconciler/catalog metrics ports and worker control port")
+	}
+
+	if time.Duration(d.CellIngress.RepairInterval) <= 0 {
+		panic("config defaults: cell_ingress.repair_interval must be > 0")
 	}
 
 	if strings.TrimSpace(d.API.Auth.BootstrapToken) != "" && len(strings.TrimSpace(d.API.Auth.BootstrapToken)) < 16 {
@@ -1106,6 +1111,23 @@ func CellIngressMetricsEffectiveListenPort() int {
 	}
 
 	return CellIngressMetricsPort()
+}
+
+func CellIngressRepairInterval() time.Duration {
+	if d := viper.GetDuration("repair_interval"); d > 0 {
+		return d
+	}
+
+	if d := viper.GetDuration("cell_ingress.repair_interval"); d > 0 {
+		return d
+	}
+
+	d := time.Duration(MustDefaults().CellIngress.RepairInterval)
+	if d > 0 {
+		return d
+	}
+
+	return 30 * time.Second
 }
 
 func CellIngressRegistryAddress() string {

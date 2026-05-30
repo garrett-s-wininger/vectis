@@ -147,6 +147,122 @@ func (r *SQLCellExecutionAcceptancesRepository) acceptanceAlreadyRecorded(ctx co
 	return false, normalizeSQLError(err)
 }
 
+func (r *SQLCellExecutionAcceptancesRepository) ListPendingQueueHandoffs(ctx context.Context, cutoffUnixNano int64, limit int) ([]CellExecutionQueueHandoff, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+
+	cellID := normalizeTargetCellID("", r.cellID)
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
+		SELECT ca.execution_id, ca.run_id, ca.request_json, ca.enqueue_attempts
+		FROM cell_execution_acceptances ca
+		JOIN segment_executions se ON se.execution_id = ca.execution_id
+		WHERE ca.cell_id = ?
+			AND ca.enqueued_at IS NULL
+			AND se.status = ?
+			AND (ca.last_enqueue_attempt_at IS NULL OR ca.last_enqueue_attempt_at <= ?)
+		ORDER BY ca.id ASC
+		LIMIT ?
+	`), cellID, ExecutionStatusAccepted, cutoffUnixNano, limit)
+
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	var out []CellExecutionQueueHandoff
+	for rows.Next() {
+		var rec CellExecutionQueueHandoff
+		if err := rows.Scan(&rec.ExecutionID, &rec.RunID, &rec.RequestJSON, &rec.EnqueueAttempts); err != nil {
+			return nil, normalizeSQLError(err)
+		}
+
+		out = append(out, rec)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	return out, nil
+}
+
+func (r *SQLCellExecutionAcceptancesRepository) MarkEnqueued(ctx context.Context, executionID string, enqueuedAtUnixNano int64) error {
+	executionID = strings.TrimSpace(executionID)
+	if executionID == "" {
+		return fmt.Errorf("%w: execution_id is required", ErrConflict)
+	}
+
+	if enqueuedAtUnixNano <= 0 {
+		enqueuedAtUnixNano = time.Now().UnixNano()
+	}
+
+	result, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE cell_execution_acceptances
+		SET enqueued_at = ?,
+			last_enqueue_attempt_at = ?,
+			enqueue_attempts = enqueue_attempts + 1,
+			last_enqueue_error = NULL,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE execution_id = ?
+	`), enqueuedAtUnixNano, enqueuedAtUnixNano, executionID)
+
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	return requireRowsAffected(result, "cell execution acceptance", executionID)
+}
+
+func (r *SQLCellExecutionAcceptancesRepository) MarkEnqueueFailed(ctx context.Context, executionID string, attemptedAtUnixNano int64, message string) error {
+	executionID = strings.TrimSpace(executionID)
+	if executionID == "" {
+		return fmt.Errorf("%w: execution_id is required", ErrConflict)
+	}
+
+	if attemptedAtUnixNano <= 0 {
+		attemptedAtUnixNano = time.Now().UnixNano()
+	}
+
+	result, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE cell_execution_acceptances
+		SET last_enqueue_attempt_at = ?,
+			enqueue_attempts = enqueue_attempts + 1,
+			last_enqueue_error = ?,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE execution_id = ?
+	`), attemptedAtUnixNano, truncateCellEnqueueError(message), executionID)
+
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	return requireRowsAffected(result, "cell execution acceptance", executionID)
+}
+
+func requireRowsAffected(result sql.Result, label, id string) error {
+	if result == nil {
+		return nil
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil || rows > 0 {
+		return nil
+	}
+
+	return fmt.Errorf("%w: %s %s", ErrNotFound, label, id)
+}
+
+func truncateCellEnqueueError(message string) string {
+	message = strings.TrimSpace(message)
+	const maxLen = 1000
+	if len(message) <= maxLen {
+		return message
+	}
+
+	return message[:maxLen]
+}
+
 func normalizeCellExecutionAcceptance(a CellExecutionAcceptance, fallbackCellID string) (CellExecutionAcceptance, error) {
 	a.ExecutionID = strings.TrimSpace(a.ExecutionID)
 	a.RunID = strings.TrimSpace(a.RunID)

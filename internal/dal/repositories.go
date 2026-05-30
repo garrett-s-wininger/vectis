@@ -156,8 +156,18 @@ type CellExecutionAcceptance struct {
 	AcceptedAtUnixNano int64
 }
 
+type CellExecutionQueueHandoff struct {
+	ExecutionID     string
+	RunID           string
+	RequestJSON     string
+	EnqueueAttempts int
+}
+
 type CellExecutionAcceptancesRepository interface {
 	AcceptExecution(ctx context.Context, acceptance CellExecutionAcceptance) (created bool, err error)
+	ListPendingQueueHandoffs(ctx context.Context, cutoffUnixNano int64, limit int) ([]CellExecutionQueueHandoff, error)
+	MarkEnqueued(ctx context.Context, executionID string, enqueuedAtUnixNano int64) error
+	MarkEnqueueFailed(ctx context.Context, executionID string, attemptedAtUnixNano int64, message string) error
 }
 
 type EphemeralRunStarter interface {

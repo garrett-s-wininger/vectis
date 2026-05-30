@@ -124,6 +124,11 @@ func (s *Server) submitExecution(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if normalizeLocalCellID(submission.TargetCellID()) != s.localCellID {
+		writeError(w, http.StatusConflict, "wrong_cell", fmt.Sprintf("execution targets cell %q, local cell is %q", submission.TargetCellID(), s.localCellID))
+		return
+	}
+
 	durable := s.acceptances != nil
 	if durable {
 		acceptance, err := executionAcceptance(submission)
@@ -148,9 +153,10 @@ func (s *Server) submitExecution(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.router.SubmitExecution(r.Context(), submission); err != nil {
-		if cell.IsCellNotRoutable(err) {
-			writeError(w, http.StatusConflict, "wrong_cell", fmt.Sprintf("execution targets cell %q, local cell is %q", submission.TargetCellID(), s.localCellID))
-			return
+		if durable {
+			if markErr := s.acceptances.MarkEnqueueFailed(r.Context(), submission.Envelope.ExecutionID, time.Now().UnixNano(), err.Error()); markErr != nil && s.logger != nil {
+				s.logger.Warn("Cell ingress failed to record enqueue failure for execution %s: %v", submission.Envelope.ExecutionID, markErr)
+			}
 		}
 
 		if s.logger != nil {
@@ -159,6 +165,12 @@ func (s *Server) submitExecution(w http.ResponseWriter, r *http.Request) {
 
 		writeError(w, http.StatusServiceUnavailable, "queue_unavailable", "local queue did not accept execution")
 		return
+	}
+
+	if durable {
+		if err := s.acceptances.MarkEnqueued(r.Context(), submission.Envelope.ExecutionID, time.Now().UnixNano()); err != nil && s.logger != nil {
+			s.logger.Warn("Cell ingress failed to record enqueue success for execution %s: %v", submission.Envelope.ExecutionID, err)
+		}
 	}
 
 	writeJSON(w, http.StatusAccepted, acceptedExecutionResponse(submission))

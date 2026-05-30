@@ -95,7 +95,7 @@ flowchart TB
 | Component | Role |
 | --- | --- |
 | `vectis-api` | Public HTTP API. Stores jobs and runs, accepts triggers, exposes health, metrics, run status, run events, and log streams. |
-| `vectis-cell-ingress` | Private cell-local HTTP endpoint that durably accepts execution envelopes for this cell and enqueues them to the local queue. The global API can route non-local target cells to configured ingress endpoints. |
+| `vectis-cell-ingress` | Private cell-local HTTP endpoint that durably accepts execution envelopes for this cell, enqueues them to the local queue, and repairs missed local queue handoffs. The global API can route non-local target cells to configured ingress endpoints. |
 | `vectis-queue` | Internal FIFO queue. Producers enqueue work; workers dequeue and acknowledge deliveries. Queue persistence can preserve backlog and in-flight delivery metadata. |
 | `vectis-worker` | Executes one run at a time. Dequeues work, claims the run in the database, executes actions, streams logs, and writes final status. |
 | `vectis-log` | Receives log chunks from workers and stores run logs. The API reads from it when clients stream logs. |
@@ -109,10 +109,10 @@ flowchart TB
 
 ## Producers And Workers
 
-Three components can produce work:
+Four components can produce work:
 
 - `vectis-api`, when a client submits or triggers a job
-- `vectis-cell-ingress`, when `vectis-api` hands this cell an execution envelope
+- `vectis-cell-ingress`, when `vectis-api` hands this cell an execution envelope or a durable accepted execution needs local queue repair
 - `vectis-cron`, when a schedule is due
 - `vectis-reconciler`, when a recorded run still needs queue handoff
 

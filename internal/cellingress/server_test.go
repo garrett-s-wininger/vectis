@@ -130,6 +130,53 @@ func TestSubmitExecutionDurablyAcceptsBeforeReturningQueueUnavailable(t *testing
 	if got.DefinitionJSON == "" || got.RequestJSON == "" {
 		t.Fatalf("acceptance should include definition and request JSON: %+v", got)
 	}
+
+	if acceptances.failedExecutionID != "execution-1" || !strings.Contains(acceptances.failedMessage, "queue closed") {
+		t.Fatalf("expected enqueue failure marker, got execution=%q message=%q", acceptances.failedExecutionID, acceptances.failedMessage)
+	}
+
+	if acceptances.enqueuedExecutionID != "" {
+		t.Fatalf("expected no enqueue success marker, got %q", acceptances.enqueuedExecutionID)
+	}
+}
+
+func TestSubmitExecutionMarksDurableAcceptanceEnqueued(t *testing.T) {
+	queue := mocks.NewMockQueueService()
+	acceptances := &recordingAcceptanceStore{}
+	srv := NewQueueServer("iad-a", queue, mocks.NewMockLogger())
+	srv.SetAcceptanceStore(acceptances)
+	req := httptest.NewRequest(http.MethodPost, "/cell/v1/executions", executionBody(t, validJobRequestForCell(t, "iad-a")))
+	rr := httptest.NewRecorder()
+
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("status: got %d, want %d; body=%s", rr.Code, http.StatusAccepted, rr.Body.String())
+	}
+
+	if acceptances.enqueuedExecutionID != "execution-1" {
+		t.Fatalf("expected enqueue success marker for execution-1, got %q", acceptances.enqueuedExecutionID)
+	}
+
+	if acceptances.failedExecutionID != "" {
+		t.Fatalf("expected no enqueue failure marker, got %q", acceptances.failedExecutionID)
+	}
+}
+
+func TestSubmitExecutionRejectsWrongCellBeforeDurableAccept(t *testing.T) {
+	queue := mocks.NewMockQueueService()
+	acceptances := &recordingAcceptanceStore{}
+	srv := NewQueueServer("iad-a", queue, mocks.NewMockLogger())
+	srv.SetAcceptanceStore(acceptances)
+	req := httptest.NewRequest(http.MethodPost, "/cell/v1/executions", executionBody(t, validJobRequestForCell(t, "pdx-b")))
+	rr := httptest.NewRecorder()
+
+	srv.ServeHTTP(rr, req)
+
+	assertErrorCode(t, rr, http.StatusConflict, "wrong_cell")
+	if got := acceptances.snapshot(); got.ExecutionID != "" {
+		t.Fatalf("wrong-cell request should not be durably accepted, got %+v", got)
+	}
 }
 
 func TestSubmitExecutionReturnsConflictWhenAcceptanceConflicts(t *testing.T) {
@@ -233,8 +280,11 @@ func assertErrorCode(t *testing.T, rr *httptest.ResponseRecorder, status int, co
 }
 
 type recordingAcceptanceStore struct {
-	acceptance dal.CellExecutionAcceptance
-	err        error
+	acceptance          dal.CellExecutionAcceptance
+	err                 error
+	enqueuedExecutionID string
+	failedExecutionID   string
+	failedMessage       string
 }
 
 func (s *recordingAcceptanceStore) AcceptExecution(ctx context.Context, acceptance dal.CellExecutionAcceptance) (bool, error) {
@@ -248,4 +298,19 @@ func (s *recordingAcceptanceStore) AcceptExecution(ctx context.Context, acceptan
 
 func (s *recordingAcceptanceStore) snapshot() dal.CellExecutionAcceptance {
 	return s.acceptance
+}
+
+func (s *recordingAcceptanceStore) ListPendingQueueHandoffs(ctx context.Context, cutoffUnixNano int64, limit int) ([]dal.CellExecutionQueueHandoff, error) {
+	return nil, nil
+}
+
+func (s *recordingAcceptanceStore) MarkEnqueued(ctx context.Context, executionID string, enqueuedAtUnixNano int64) error {
+	s.enqueuedExecutionID = executionID
+	return nil
+}
+
+func (s *recordingAcceptanceStore) MarkEnqueueFailed(ctx context.Context, executionID string, attemptedAtUnixNano int64, message string) error {
+	s.failedExecutionID = executionID
+	s.failedMessage = message
+	return nil
 }

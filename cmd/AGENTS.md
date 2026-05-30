@@ -60,7 +60,7 @@ Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-thirteen-
 | Binary | `viper.SetEnvPrefix` | Primary TOML / notes |
 |--------|----------------------|----------------------|
 | `vectis-api` | `VECTIS_API_SERVER` | `[api]` in [`../internal/config/defaults.toml`](../internal/config/defaults.toml); `VECTIS_API_SERVER_HOST` / `--host` controls HTTP bind host; `--cell-ingress-endpoint cell=url` configures remote cell execution ingress routes; ad hoc `VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS` for [`trusted-proxy-client-ip.md`](../website/docs/operating/deployment/trusted-proxy-client-ip.md) |
-| `vectis-cell-ingress` | `VECTIS_CELL_INGRESS` | `[cell_ingress]`; private HTTP `POST /cell/v1/executions`, plus queue discovery/pinned queue settings |
+| `vectis-cell-ingress` | `VECTIS_CELL_INGRESS` | `[cell_ingress]`; private HTTP `POST /cell/v1/executions`, local execution repair, plus queue discovery/pinned queue settings |
 | `vectis-queue` | `VECTIS_QUEUE` | `[queue]` |
 | `vectis-registry` | `VECTIS_REGISTRY` | `[registry]` |
 | `vectis-log` | `VECTIS_LOG` | `[log]` |

@@ -91,6 +91,14 @@ func TestMustDefaults_CellIngress(t *testing.T) {
 	if got := CellIngressMetricsEffectiveListenPort(); got != 9087 {
 		t.Fatalf("CellIngressMetricsEffectiveListenPort() with empty viper: got %d", got)
 	}
+
+	if time.Duration(d.CellIngress.RepairInterval) != 30*time.Second {
+		t.Fatalf("expected cell_ingress.repair_interval 30s, got %v", time.Duration(d.CellIngress.RepairInterval))
+	}
+
+	if got := CellIngressRepairInterval(); got != 30*time.Second {
+		t.Fatalf("CellIngressRepairInterval() with empty viper: got %v", got)
+	}
 }
 
 func TestCellIngressConfigOverrides(t *testing.T) {
@@ -100,6 +108,7 @@ func TestCellIngressConfigOverrides(t *testing.T) {
 	viper.Set("host", "0.0.0.0")
 	viper.Set("port", 18085)
 	viper.Set("metrics_port", 19087)
+	viper.Set("repair_interval", 2*time.Second)
 	viper.Set("cell_ingress.queue.address", "queue.local:8081")
 	viper.Set("cell_ingress.registry.address", "registry.local:8082")
 
@@ -109,6 +118,10 @@ func TestCellIngressConfigOverrides(t *testing.T) {
 
 	if got := CellIngressMetricsEffectiveListenPort(); got != 19087 {
 		t.Fatalf("CellIngressMetricsEffectiveListenPort() override: got %d", got)
+	}
+
+	if got := CellIngressRepairInterval(); got != 2*time.Second {
+		t.Fatalf("CellIngressRepairInterval() override: got %v", got)
 	}
 
 	if got := CellIngressQueueAddress(); got != "queue.local:8081" {

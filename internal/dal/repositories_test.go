@@ -212,6 +212,92 @@ func TestCellExecutionAcceptances_AcceptExecutionMaterializesLocalRows(t *testin
 	}
 }
 
+func TestCellExecutionAcceptances_QueueHandoffMarkers(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
+	ctx := context.Background()
+
+	acceptance := dal.CellExecutionAcceptance{
+		ExecutionID:       "execution-repair",
+		RunID:             "run-repair",
+		JobID:             "job-repair",
+		RunIndex:          2,
+		SegmentID:         "segment-repair",
+		SegmentName:       "root",
+		CellID:            "iad-a",
+		Attempt:           1,
+		DefinitionVersion: 1,
+		DefinitionHash:    "sha256:repair",
+		DefinitionJSON:    `{"id":"job-repair","root":{"uses":"builtins/shell"}}`,
+		RequestJSON:       `{"job":{"id":"job-repair","runId":"run-repair"}}`,
+	}
+
+	if _, err := repos.CellExecutionAcceptances().AcceptExecution(ctx, acceptance); err != nil {
+		t.Fatalf("AcceptExecution: %v", err)
+	}
+
+	pending, err := repos.CellExecutionAcceptances().ListPendingQueueHandoffs(ctx, time.Now().Add(time.Minute).UnixNano(), 10)
+	if err != nil {
+		t.Fatalf("ListPendingQueueHandoffs: %v", err)
+	}
+
+	if len(pending) != 1 || pending[0].ExecutionID != acceptance.ExecutionID || pending[0].RequestJSON != acceptance.RequestJSON {
+		t.Fatalf("pending handoffs: got %+v", pending)
+	}
+
+	failedAt := time.Now().UnixNano()
+	if err := repos.CellExecutionAcceptances().MarkEnqueueFailed(ctx, acceptance.ExecutionID, failedAt, "queue closed"); err != nil {
+		t.Fatalf("MarkEnqueueFailed: %v", err)
+	}
+
+	pending, err = repos.CellExecutionAcceptances().ListPendingQueueHandoffs(ctx, failedAt-1, 10)
+	if err != nil {
+		t.Fatalf("ListPendingQueueHandoffs after failed marker: %v", err)
+	}
+
+	if len(pending) != 0 {
+		t.Fatalf("expected failed handoff to be throttled, got %+v", pending)
+	}
+
+	pending, err = repos.CellExecutionAcceptances().ListPendingQueueHandoffs(ctx, failedAt+1, 10)
+	if err != nil {
+		t.Fatalf("ListPendingQueueHandoffs after cutoff: %v", err)
+	}
+
+	if len(pending) != 1 || pending[0].EnqueueAttempts != 1 {
+		t.Fatalf("expected retryable handoff with one attempt, got %+v", pending)
+	}
+
+	enqueuedAt := failedAt + int64(time.Second)
+	if err := repos.CellExecutionAcceptances().MarkEnqueued(ctx, acceptance.ExecutionID, enqueuedAt); err != nil {
+		t.Fatalf("MarkEnqueued: %v", err)
+	}
+
+	pending, err = repos.CellExecutionAcceptances().ListPendingQueueHandoffs(ctx, enqueuedAt+1, 10)
+	if err != nil {
+		t.Fatalf("ListPendingQueueHandoffs after enqueue: %v", err)
+	}
+
+	if len(pending) != 0 {
+		t.Fatalf("expected enqueued handoff to disappear, got %+v", pending)
+	}
+
+	var storedEnqueuedAt int64
+	var attempts int
+	var lastErr sql.NullString
+	if err := db.QueryRowContext(ctx, `
+		SELECT enqueued_at, enqueue_attempts, last_enqueue_error
+		FROM cell_execution_acceptances
+		WHERE execution_id = ?
+	`, acceptance.ExecutionID).Scan(&storedEnqueuedAt, &attempts, &lastErr); err != nil {
+		t.Fatalf("query receipt handoff markers: %v", err)
+	}
+
+	if storedEnqueuedAt != enqueuedAt || attempts != 2 || lastErr.Valid {
+		t.Fatalf("unexpected handoff markers: enqueued_at=%d attempts=%d last_err=%v", storedEnqueuedAt, attempts, lastErr)
+	}
+}
+
 func TestCellExecutionAcceptances_AcceptsExistingPendingExecution(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")

@@ -54,7 +54,7 @@ Use these prefixes when building service-specific environment variable names.
 | Program | Env prefix | Useful flags |
 | --- | --- | --- |
 | `vectis-api` | `VECTIS_API_SERVER` | `--host`, `--port`, `--cell-ingress-endpoint` |
-| `vectis-cell-ingress` | `VECTIS_CELL_INGRESS` | `--host`, `--port`, `--metrics-port`, `--queue-address`, `--registry-address` |
+| `vectis-cell-ingress` | `VECTIS_CELL_INGRESS` | `--host`, `--port`, `--metrics-port`, `--repair-interval`, `--queue-address`, `--registry-address` |
 | `vectis-queue` | `VECTIS_QUEUE` | `--port`, `--metrics-port`, `--persistence-dir`, `--persistence-snapshot-every` |
 | `vectis-registry` | `VECTIS_REGISTRY` | `--port` |
 | `vectis-log` | `VECTIS_LOG` | `--storage-dir`, `--metrics-port`, `--max-run-buffers` |

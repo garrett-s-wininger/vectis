@@ -83,6 +83,7 @@ metrics_port = 9086
 host = "localhost"
 port = 8085
 metrics_port = 9087
+repair_interval = "30s"
 registry.address = ""
 queue.address = ""
 

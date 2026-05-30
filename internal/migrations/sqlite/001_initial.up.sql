@@ -113,6 +113,10 @@ CREATE TABLE cell_execution_acceptances (
     definition_version INTEGER NOT NULL,
     definition_hash TEXT NOT NULL,
     request_json TEXT NOT NULL,
+    enqueued_at INTEGER,
+    last_enqueue_attempt_at INTEGER,
+    enqueue_attempts INTEGER NOT NULL DEFAULT 0,
+    last_enqueue_error TEXT,
     accepted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
