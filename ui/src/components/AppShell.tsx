@@ -32,7 +32,7 @@ export function AppShell({
           aria-label={`${brand} home`}
           onClick={(event) => onNavigate?.("/", event)}
         >
-          {brand}
+          <img className={styles.brandLogo} src="/img/vectis.png" alt="" aria-hidden="true" />
         </a>
         <nav className={styles.nav} aria-label="Primary">
           {navItems.map((item) => (

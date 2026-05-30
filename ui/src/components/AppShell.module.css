@@ -16,10 +16,16 @@
 }
 
 .brand {
-  color: #172026;
-  font-size: 1rem;
-  font-weight: 800;
+  align-items: center;
+  display: inline-flex;
+  min-width: 64px;
   text-decoration: none;
+}
+
+.brandLogo {
+  display: block;
+  height: 48px;
+  width: auto;
 }
 
 .nav {
@@ -71,6 +77,10 @@
     align-items: start;
     grid-template-columns: 1fr;
     padding: 16px;
+  }
+
+  .brandLogo {
+    height: 40px;
   }
 
   .nav {
