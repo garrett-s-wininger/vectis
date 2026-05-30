@@ -42,6 +42,8 @@ type queueServer struct {
 	deliveryTTL        time.Duration
 	maxRequeueAttempts int
 	instanceID         string
+	deliveryPrefix     string
+	deliverySeq        uint64
 	mu                 sync.Mutex
 	notify             chan struct{}
 	log                interfaces.Logger
@@ -106,6 +108,7 @@ func newQueueServer(logger interfaces.Logger, opts QueueOptions, metrics *observ
 		deliveryTTL:        ttl,
 		maxRequeueAttempts: maxAttempts,
 		instanceID:         opts.InstanceID,
+		deliveryPrefix:     uuid.NewString(),
 		notify:             make(chan struct{}, 1),
 		log:                logger,
 		metrics:            metrics,
@@ -309,7 +312,8 @@ func (s *queueServer) Ack(ctx context.Context, req *api.AckRequest) (*api.Empty,
 }
 
 func (s *queueServer) newDeliveryID() string {
-	return queueid.Encode(s.instanceID, uuid.NewString())
+	s.deliverySeq++
+	return queueid.Encode(s.instanceID, s.deliveryPrefix+"-"+strconv.FormatUint(s.deliverySeq, 10))
 }
 
 func (s *queueServer) pendingJobsLocked() []*api.JobRequest {

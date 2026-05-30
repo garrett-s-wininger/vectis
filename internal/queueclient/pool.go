@@ -96,9 +96,11 @@ type queuePool struct {
 	mu        sync.RWMutex
 	endpoints map[string]*queuePoolEndpoint
 	activeIDs []string
+	active    []*queuePoolEndpoint
 
-	counter  atomic.Uint64
-	cancelFn context.CancelFunc
+	enqueueCounter atomic.Uint64
+	dequeueCounter atomic.Uint64
+	cancelFn       context.CancelFunc
 }
 
 type queuePoolEndpoint struct {
@@ -224,17 +226,24 @@ func (p *queuePool) refresh(ctx context.Context) error {
 	}
 
 	activeIDs := make([]string, 0, len(desired))
+	activeEndpoints := make([]*queuePoolEndpoint, 0, len(desired))
 	for _, d := range desired {
 		if replacements[d.id] != nil {
 			activeIDs = append(activeIDs, d.id)
+			activeEndpoints = append(activeEndpoints, replacements[d.id])
 			continue
 		}
 
 		if ep := existing[d.id]; ep != nil && ep.address == d.address {
 			activeIDs = append(activeIDs, d.id)
+			activeEndpoints = append(activeEndpoints, ep)
 		}
 	}
+
 	sort.Strings(activeIDs)
+	sort.Slice(activeEndpoints, func(i, j int) bool {
+		return activeEndpoints[i].id < activeEndpoints[j].id
+	})
 
 	p.mu.Lock()
 	for id, ep := range replacements {
@@ -246,6 +255,7 @@ func (p *queuePool) refresh(ctx context.Context) error {
 	}
 
 	p.activeIDs = activeIDs
+	p.active = activeEndpoints
 	activeCount := len(p.activeIDs)
 	totalCount := len(p.endpoints)
 	p.mu.Unlock()
@@ -342,6 +352,10 @@ func (p *queuePool) snapshotActiveEndpoints() []*queuePoolEndpoint {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
+	if len(p.active) > 0 {
+		return p.active
+	}
+
 	out := make([]*queuePoolEndpoint, 0, len(p.activeIDs))
 	for _, id := range p.activeIDs {
 		if ep := p.endpoints[id]; ep != nil {
@@ -359,7 +373,10 @@ func (p *queuePool) endpointByID(id string) *queuePoolEndpoint {
 }
 
 func (p *queuePool) chooseEndpoint() (*queuePoolEndpoint, error) {
-	endpoints := p.snapshotActiveEndpoints()
+	return p.chooseEndpointFrom(p.snapshotActiveEndpoints())
+}
+
+func (p *queuePool) chooseEndpointFrom(endpoints []*queuePoolEndpoint) (*queuePoolEndpoint, error) {
 	if len(endpoints) == 0 {
 		return nil, fmt.Errorf("no queue endpoints available")
 	}
@@ -369,7 +386,7 @@ func (p *queuePool) chooseEndpoint() (*queuePoolEndpoint, error) {
 	}
 
 	n := uint64(len(endpoints))
-	next := p.counter.Add(1)
+	next := p.enqueueCounter.Add(1)
 	a := endpoints[int(next%n)]
 	b := endpoints[int((next*1103515245+12345)%n)]
 	if a == b {
@@ -379,31 +396,31 @@ func (p *queuePool) chooseEndpoint() (*queuePoolEndpoint, error) {
 	if b.inflight.Load() < a.inflight.Load() {
 		return b, nil
 	}
+
 	return a, nil
 }
 
-func (p *queuePool) rotatedActiveEndpoints() []*queuePoolEndpoint {
-	endpoints := p.snapshotActiveEndpoints()
+func (p *queuePool) rotatedActiveEndpointsFrom(endpoints []*queuePoolEndpoint) ([]*queuePoolEndpoint, int) {
 	if len(endpoints) <= 1 {
-		return endpoints
+		return endpoints, 0
 	}
 
-	start := int(p.counter.Add(1) % uint64(len(endpoints)))
-	out := make([]*queuePoolEndpoint, 0, len(endpoints))
-	out = append(out, endpoints[start:]...)
-	out = append(out, endpoints[:start]...)
-	return out
+	start := int(p.dequeueCounter.Add(1) % uint64(len(endpoints)))
+	return endpoints, start
 }
 
 func (p *queuePool) enqueue(ctx context.Context, req *api.JobRequest) (*api.Empty, error) {
-	if !p.hasActiveEndpoints() {
+	endpoints := p.snapshotActiveEndpoints()
+	if len(endpoints) == 0 {
 		if err := p.refresh(ctx); err != nil {
 			return nil, err
 		}
+
+		endpoints = p.snapshotActiveEndpoints()
 	}
 
 	var lastErr error
-	attempts := len(p.snapshotActiveEndpoints())
+	attempts := len(endpoints)
 
 	if attempts < 1 {
 		attempts = 1
@@ -414,7 +431,7 @@ func (p *queuePool) enqueue(ctx context.Context, req *api.JobRequest) (*api.Empt
 	}
 
 	for range attempts {
-		ep, err := p.chooseEndpoint()
+		ep, err := p.chooseEndpointFrom(endpoints)
 		if err != nil {
 			return nil, err
 		}
@@ -434,6 +451,8 @@ func (p *queuePool) enqueue(ctx context.Context, req *api.JobRequest) (*api.Empt
 		if rerr := p.reconnectEndpoint(ctx, ep.id); rerr != nil {
 			p.logger.Debug("queue pool reconnect to %s failed: %v", ep.id, rerr)
 		}
+
+		endpoints = p.snapshotActiveEndpoints()
 	}
 
 	if lastErr == nil {
@@ -459,17 +478,21 @@ func (p *queuePool) dequeue(ctx context.Context) (*api.JobRequest, error) {
 }
 
 func (p *queuePool) tryDequeue(ctx context.Context) (*api.JobRequest, error) {
-	if !p.hasActiveEndpoints() {
+	endpoints := p.snapshotActiveEndpoints()
+	if len(endpoints) == 0 {
 		if err := p.refresh(ctx); err != nil {
 			return nil, err
 		}
+
+		endpoints = p.snapshotActiveEndpoints()
 	}
 
-	endpoints := p.rotatedActiveEndpoints()
+	endpoints, start := p.rotatedActiveEndpointsFrom(endpoints)
 	var lastErr error
 	sawReachable := false
 
-	for _, ep := range endpoints {
+	for offset := range endpoints {
+		ep := endpoints[(start+offset)%len(endpoints)]
 		req, err := ep.client.TryDequeue(ctx, &api.Empty{})
 		if err == nil {
 			sawReachable = true
@@ -562,6 +585,17 @@ func (p *queuePool) reconnectEndpoint(ctx context.Context, id string) error {
 	p.mu.Lock()
 	old := p.endpoints[id]
 	p.endpoints[id] = replacement
+	if len(p.active) > 0 {
+		active := append([]*queuePoolEndpoint(nil), p.active...)
+		for i, ep := range active {
+			if ep != nil && ep.id == id {
+				active[i] = replacement
+				break
+			}
+		}
+
+		p.active = active
+	}
 	p.mu.Unlock()
 
 	if old != nil {
@@ -619,6 +653,7 @@ func (p *queuePool) close() error {
 
 	p.endpoints = make(map[string]*queuePoolEndpoint)
 	p.activeIDs = nil
+	p.active = nil
 	return nil
 }
 
