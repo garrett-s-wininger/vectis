@@ -10,8 +10,10 @@ import { FormField } from "./components/FormField";
 import { NamespacePicker } from "./components/NamespacePicker";
 import {
   canDeleteMockNamespace,
+  createMockJob,
   createMockNamespace,
   createMockUser,
+  deleteMockJob,
   deleteMockNamespace,
   deleteMockUser,
   loadMockConsoleData,
@@ -19,11 +21,14 @@ import {
   scopeMockConsoleData,
   submitMockEphemeralRun,
   triggerMockRun,
+  updateMockJob,
   updateMockUserStatus,
   type MockConsoleData,
   type MockUserStatus,
+  type NewMockJob,
   type NewMockNamespace,
-  type NewMockUser
+  type NewMockUser,
+  type UpdateMockJob
 } from "./mocks/consoleData";
 import { HealthPage } from "./pages/HealthPage";
 import { JobsPage } from "./pages/JobsPage";
@@ -165,6 +170,18 @@ export function App() {
     updateConsoleData((data) => createMockNamespace(data, input));
   }
 
+  function handleCreateJob(input: NewMockJob) {
+    updateConsoleData((data) => createMockJob(data, input));
+  }
+
+  function handleUpdateJob(jobID: string, input: UpdateMockJob) {
+    updateConsoleData((data) => updateMockJob(data, jobID, input));
+  }
+
+  function handleDeleteJob(jobID: string) {
+    updateConsoleData((data) => deleteMockJob(data, jobID));
+  }
+
   function handleDeleteNamespace(namespaceID: number) {
     const namespacePath = consoleData?.namespaces.find(
       (namespace) => namespace.id === namespaceID
@@ -273,12 +290,15 @@ export function App() {
         consoleData={consoleData}
         consoleError={consoleError}
         namespacePath={selectedNamespacePath}
+        onCreateJob={handleCreateJob}
         onCreateNamespace={handleCreateNamespace}
         onCreateUser={handleCreateUser}
+        onDeleteJob={handleDeleteJob}
         onDeleteNamespace={handleDeleteNamespace}
         onDeleteUser={handleDeleteUser}
         onSubmitEphemeralRun={handleSubmitEphemeralRun}
         onTriggerRun={handleTriggerRun}
+        onUpdateJob={handleUpdateJob}
         onUpdateUserStatus={handleUpdateUserStatus}
         route={route}
       />
@@ -404,22 +424,28 @@ function RouteContent({
   namespacePath,
   onCreateNamespace,
   onCreateUser,
+  onCreateJob,
+  onDeleteJob,
   onDeleteNamespace,
   onDeleteUser,
   onSubmitEphemeralRun,
   onTriggerRun,
+  onUpdateJob,
   onUpdateUserStatus,
   route
 }: {
   consoleData: MockConsoleData | null;
   consoleError: string;
   namespacePath: string;
+  onCreateJob: (input: NewMockJob) => void;
   onCreateNamespace: (input: NewMockNamespace) => void;
   onCreateUser: (input: NewMockUser) => void;
+  onDeleteJob: (jobID: string) => void;
   onDeleteNamespace: (namespaceID: number) => void;
   onDeleteUser: (userID: string) => void;
   onSubmitEphemeralRun: (definition: string) => void;
   onTriggerRun: (jobID: string) => void;
+  onUpdateJob: (jobID: string, input: UpdateMockJob) => void;
   onUpdateUserStatus: (userID: string, status: MockUserStatus) => void;
   route: AppRoute;
 }) {
@@ -472,7 +498,10 @@ function RouteContent({
         <JobsPage
           jobs={scopedConsoleData.jobs}
           namespacePath={namespacePath}
+          onCreateJob={onCreateJob}
+          onDeleteJob={onDeleteJob}
           onTriggerRun={onTriggerRun}
+          onUpdateJob={onUpdateJob}
         />
       );
     case "users":

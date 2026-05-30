@@ -1,8 +1,10 @@
 import {
   canDeleteMockNamespace,
   clusterHealthMetricsFor,
+  createMockJob,
   createMockNamespace,
   createMockUser,
+  deleteMockJob,
   dashboardMetricsFor,
   deleteMockNamespace,
   deleteMockUser,
@@ -10,6 +12,7 @@ import {
   scopeMockConsoleData,
   submitMockEphemeralRun,
   triggerMockRun,
+  updateMockJob,
   updateMockUserStatus
 } from "./consoleData";
 
@@ -117,6 +120,63 @@ describe("mock console data", () => {
 
     expect(disabled.users[0]).toMatchObject({ status: "disabled" });
     expect(removed.users.find((user) => user.id === "user-taylor")).toBeUndefined();
+  });
+
+  it("creates, updates, deletes, and triggers stored jobs", async () => {
+    const data = await loadMockConsoleData();
+    const created = createMockJob(data, {
+      branch: "main",
+      definition: JSON.stringify({ id: "cache-warmup", root: {} }),
+      name: "cache-warmup",
+      namespacePath: "/team-a",
+      repository: "github.com/vectis/cache",
+      schedule: "Manual",
+      status: "enabled"
+    });
+    const job = created.jobs[0];
+
+    expect(job).toMatchObject({
+      id: "job-cache-warmup",
+      name: "cache-warmup",
+      namespacePath: "/team-a",
+      nextRun: "Manual"
+    });
+
+    const updated = updateMockJob(created, job.id, {
+      branch: "release",
+      definition: JSON.stringify({ id: "cache-prime", root: {} }),
+      name: "cache-prime",
+      repository: "github.com/vectis/cache",
+      schedule: "Hourly",
+      status: "paused"
+    });
+
+    expect(updated.jobs[0]).toMatchObject({
+      id: "job-cache-warmup",
+      name: "cache-prime",
+      branch: "release",
+      nextRun: "1h",
+      status: "paused"
+    });
+
+    const enabled = updateMockJob(updated, job.id, {
+      branch: "release",
+      definition: JSON.stringify({ id: "cache-prime", root: {} }),
+      name: "cache-prime",
+      repository: "github.com/vectis/cache",
+      schedule: "Hourly",
+      status: "enabled"
+    });
+    const triggered = triggerMockRun(enabled, job.id);
+
+    expect(triggered.runs[0]).toMatchObject({
+      definition: JSON.stringify({ id: "cache-prime", root: {} }),
+      jobName: "cache-prime",
+      namespacePath: "/team-a",
+      source: "stored"
+    });
+
+    expect(deleteMockJob(triggered, job.id).jobs).toHaveLength(data.jobs.length);
   });
 
   it("triggers a queued run for a job", async () => {

@@ -293,6 +293,61 @@ describe("App", () => {
     expect(screen.getByText("No run matched missing.")).toBeInTheDocument();
   });
 
+  it("creates, edits, and deletes a stored job in the mock", async () => {
+    window.history.replaceState(null, "", "/jobs");
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Jobs" });
+
+    fireEvent.click(screen.getByRole("button", { name: "New job" }));
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "cache-warmup" }
+    });
+    fireEvent.change(screen.getByLabelText("Repository"), {
+      target: { value: "github.com/vectis/cache" }
+    });
+    fireEvent.change(screen.getByLabelText("Branch"), {
+      target: { value: "main" }
+    });
+    fireEvent.change(screen.getByLabelText("Schedule"), {
+      target: { value: "Hourly" }
+    });
+    fireEvent.change(screen.getByLabelText("Definition JSON"), {
+      target: {
+        value: JSON.stringify({
+          id: "cache-warmup",
+          root: { id: "root", uses: "builtins/shell" }
+        })
+      }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create job" }));
+
+    expect(await screen.findByText("cache-warmup")).toBeInTheDocument();
+    expect(screen.getByText("github.com/vectis/cache")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit cache-warmup" }));
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "cache-prime" }
+    });
+    fireEvent.change(screen.getByLabelText("Branch"), {
+      target: { value: "release" }
+    });
+    fireEvent.change(screen.getByLabelText("State"), {
+      target: { value: "paused" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save job" }));
+
+    expect(await screen.findByText("cache-prime")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Trigger cache-prime" })
+    ).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete cache-prime" }));
+
+    expect(screen.queryByText("cache-prime")).not.toBeInTheDocument();
+  });
+
   it("scopes jobs by selected namespace", async () => {
     window.history.replaceState(null, "", "/jobs");
 

@@ -28,12 +28,25 @@ export type MockJob = {
   name: string;
   repository: string;
   branch: string;
+  definition?: string;
   namespacePath: string;
   schedule: string;
   nextRun: string;
   lastRunStatus: RunStatus;
   status: MockJobStatus;
 };
+
+export type NewMockJob = {
+  branch: string;
+  definition: string;
+  name: string;
+  namespacePath: string;
+  repository: string;
+  schedule: string;
+  status: MockJobStatus;
+};
+
+export type UpdateMockJob = Omit<NewMockJob, "namespacePath">;
 
 export type MockNamespaceRole = "Admin" | "Operator" | "Viewer";
 
@@ -90,6 +103,18 @@ const jobs: MockJob[] = [
     name: "api-test-suite",
     repository: "github.com/vectis/api",
     branch: "main",
+    definition: JSON.stringify(
+      {
+        id: "api-test-suite",
+        root: {
+          id: "root",
+          uses: "builtins/shell",
+          with: { command: "go test ./internal/api/..." }
+        }
+      },
+      null,
+      2
+    ),
     namespacePath: "/team-a",
     schedule: "On push",
     nextRun: "Waiting for push",
@@ -101,6 +126,18 @@ const jobs: MockJob[] = [
     name: "docs-publish",
     repository: "github.com/vectis/docs",
     branch: "main",
+    definition: JSON.stringify(
+      {
+        id: "docs-publish",
+        root: {
+          id: "root",
+          uses: "builtins/shell",
+          with: { command: "npm run docs:publish" }
+        }
+      },
+      null,
+      2
+    ),
     namespacePath: "/team-a/edge",
     schedule: "Hourly",
     nextRun: "18m",
@@ -112,6 +149,18 @@ const jobs: MockJob[] = [
     name: "worker-image",
     repository: "github.com/vectis/worker",
     branch: "release",
+    definition: JSON.stringify(
+      {
+        id: "worker-image",
+        root: {
+          id: "root",
+          uses: "builtins/shell",
+          with: { command: "podman build -f build/Containerfile" }
+        }
+      },
+      null,
+      2
+    ),
     namespacePath: "/prod",
     schedule: "Nightly",
     nextRun: "7h 12m",
@@ -483,6 +532,73 @@ export function deleteMockUser(
   };
 }
 
+export function createMockJob(
+  data: MockConsoleData,
+  input: NewMockJob
+): MockConsoleData {
+  const name = input.name.trim();
+  if (!name) {
+    return data;
+  }
+
+  const job: MockJob = {
+    id: uniqueMockJobID(data, name),
+    name,
+    repository: input.repository.trim(),
+    branch: input.branch.trim(),
+    definition: input.definition.trim(),
+    namespacePath: input.namespacePath,
+    schedule: input.schedule.trim(),
+    nextRun: nextRunForSchedule(input.schedule),
+    lastRunStatus: "queued",
+    status: input.status
+  };
+
+  return {
+    ...data,
+    jobs: [job, ...data.jobs]
+  };
+}
+
+export function updateMockJob(
+  data: MockConsoleData,
+  jobID: string,
+  input: UpdateMockJob
+): MockConsoleData {
+  const name = input.name.trim();
+  if (!name) {
+    return data;
+  }
+
+  return {
+    ...data,
+    jobs: data.jobs.map((job) =>
+      job.id === jobID
+        ? {
+            ...job,
+            name,
+            repository: input.repository.trim(),
+            branch: input.branch.trim(),
+            definition: input.definition.trim(),
+            schedule: input.schedule.trim(),
+            nextRun: nextRunForSchedule(input.schedule),
+            status: input.status
+          }
+        : job
+    )
+  };
+}
+
+export function deleteMockJob(
+  data: MockConsoleData,
+  jobID: string
+): MockConsoleData {
+  return {
+    ...data,
+    jobs: data.jobs.filter((job) => job.id !== jobID)
+  };
+}
+
 export function triggerMockRun(
   data: MockConsoleData,
   jobID: string
@@ -499,6 +615,7 @@ export function triggerMockRun(
     runNumber: nextRunNumber,
     cellName: cellNameForNamespace(job.namespacePath),
     commit: "manual",
+    definition: job.definition,
     duration: "Queued",
     namespacePath: job.namespacePath,
     source: "stored",
@@ -569,6 +686,37 @@ function cloneData(data: MockConsoleData): MockConsoleData {
 
 function nextMockRunNumber(data: MockConsoleData) {
   return Math.max(0, ...data.runs.map((run) => run.runNumber)) + 1;
+}
+
+function uniqueMockJobID(data: MockConsoleData, name: string) {
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const baseID = `job-${slug || "stored-job"}`;
+  let id = baseID;
+  let suffix = 2;
+
+  while (data.jobs.some((job) => job.id === id)) {
+    id = `${baseID}-${suffix}`;
+    suffix += 1;
+  }
+
+  return id;
+}
+
+function nextRunForSchedule(schedule: string) {
+  const normalized = schedule.trim().toLowerCase();
+  if (normalized === "on push") {
+    return "Waiting for push";
+  }
+
+  if (normalized === "hourly") {
+    return "1h";
+  }
+
+  if (normalized === "nightly") {
+    return "Tonight";
+  }
+
+  return "Manual";
 }
 
 function jobNameFromDefinition(definition: string) {

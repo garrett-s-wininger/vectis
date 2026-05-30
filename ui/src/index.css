@@ -1020,6 +1020,42 @@ h1 {
   margin-top: 0;
 }
 
+.resource-editor-panel {
+  background: #ffffff;
+  border: 1px solid #dbe3e8;
+  border-radius: 8px;
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  width: min(960px, 100%);
+}
+
+.resource-editor-form {
+  display: grid;
+  gap: 12px;
+}
+
+.resource-editor-form .field {
+  max-width: none;
+}
+
+.resource-editor-form__grid {
+  align-items: end;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.resource-editor-form__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.resource-editor-form__actions .button {
+  margin-top: 0;
+}
+
 .run-detail-tabs {
   background: #ffffff;
   border: 1px solid #dbe3e8;
