@@ -1,49 +1,49 @@
 .root {
   display: grid;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .header {
   align-items: center;
   display: flex;
-  gap: 12px;
+  gap: var(--space-lg);
   justify-content: space-between;
 }
 
 .header span {
-  color: #172026;
-  font-size: 0.9375rem;
-  font-weight: 700;
+  color: var(--text-primary);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-medium);
 }
 
 .header strong {
-  color: #3f5463;
-  font-size: 0.9375rem;
+  color: var(--status-neutral-text);
+  font-size: var(--font-size-lg);
 }
 
 .track {
-  background: #edf1f4;
-  border-radius: 999px;
-  height: 10px;
+  background: var(--color-border-subtle);
+  border-radius: var(--radius-pill);
+  height: var(--space-md);
   overflow: hidden;
 }
 
 .bar {
-  background: #1f5f78;
+  background: var(--progress-primary-bg);
   border-radius: inherit;
   display: block;
   height: 100%;
 }
 
 .warning .bar {
-  background: #c77a12;
+  background: var(--status-warning-accent);
 }
 
 .critical .bar {
-  background: #a23535;
+  background: var(--status-danger-text);
 }
 
 .detail {
-  color: #5d707c;
-  font-size: 0.875rem;
+  color: var(--text-subtle);
+  font-size: var(--font-size-md);
 }

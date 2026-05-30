@@ -1,36 +1,36 @@
 .root {
-  background: #ffffff;
-  border: 1px solid #dbe3e8;
-  border-radius: 8px;
+  background: var(--surface-panel);
+  border: var(--panel-border);
+  border-radius: var(--panel-radius);
   display: grid;
-  gap: 6px;
-  min-height: 116px;
-  padding: 16px;
+  gap: var(--space-xs);
+  min-height: var(--size-card-min);
+  padding: var(--space-xl);
 }
 
 .label {
-  color: #516673;
-  font-size: 0.8125rem;
-  font-weight: 700;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
 }
 
 .value {
-  color: #172026;
-  font-size: 1.5rem;
-  line-height: 1.1;
+  color: var(--text-primary);
+  font-size: var(--font-size-3xl);
+  line-height: var(--line-height-heading);
 }
 
 .detail {
-  color: #5d707c;
-  font-size: 0.875rem;
+  color: var(--text-subtle);
+  font-size: var(--font-size-md);
 }
 
 .attention {
-  border-color: #edc27d;
-  box-shadow: inset 4px 0 0 #c77a12;
+  border-color: var(--status-warning-border);
+  box-shadow: inset var(--space-2xs) 0 0 var(--status-warning-accent);
 }
 
 .success {
-  border-color: #afd9c4;
-  box-shadow: inset 4px 0 0 #2a8152;
+  border-color: var(--status-success-border);
+  box-shadow: inset var(--space-2xs) 0 0 var(--status-success-accent);
 }

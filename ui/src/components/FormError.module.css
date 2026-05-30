@@ -1,8 +1,8 @@
 .root {
-  background: #fbeaea;
-  border: 1px solid #edb7b7;
-  border-radius: 6px;
-  color: #8d2b2b;
+  background: var(--status-danger-bg);
+  border: var(--border-danger);
+  border-radius: var(--control-radius);
+  color: var(--status-danger-text-dark);
   margin: 0;
-  padding: 10px 12px;
+  padding: var(--space-md) var(--space-lg);
 }

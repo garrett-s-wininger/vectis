@@ -1,86 +1,86 @@
 .root {
-  background: #f6f7f9;
-  color: #172026;
+  background: var(--surface-page);
+  color: var(--text-primary);
   min-height: 100vh;
 }
 
 .topbar {
   align-items: center;
-  background: #ffffff;
-  border-bottom: 1px solid #dbe3e8;
+  background: var(--surface-panel);
+  border-bottom: var(--panel-border);
   display: grid;
-  gap: 20px;
+  gap: var(--space-2xl);
   grid-template-columns: auto minmax(0, 1fr) auto;
-  min-height: 64px;
-  padding: 0 24px;
+  min-height: var(--size-row-md);
+  padding: 0 var(--space-3xl);
 }
 
 .brand {
   align-items: center;
   display: inline-flex;
-  min-width: 64px;
+  min-width: var(--size-topbar);
   text-decoration: none;
 }
 
 .brandLogo {
   display: block;
-  height: 48px;
+  height: var(--size-brand-logo);
   width: auto;
 }
 
 .nav {
   display: flex;
-  gap: 4px;
+  gap: var(--space-2xs);
   min-width: 0;
 }
 
 .navLink {
   align-items: center;
-  border-radius: 6px;
-  color: #4b6475;
+  border-radius: var(--control-radius);
+  color: var(--text-navigation);
   display: inline-flex;
-  font-size: 0.9375rem;
-  font-weight: 700;
-  min-height: 36px;
-  padding: 0 12px;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-medium);
+  min-height: var(--control-height-sm);
+  padding: 0 var(--space-lg);
   text-decoration: none;
 }
 
 .navLink:hover {
-  background: #eef2f5;
-  color: #172026;
+  background: var(--interactive-hover-bg);
+  color: var(--text-primary);
 }
 
 .navLink[aria-current="page"] {
-  background: #e5f5fa;
-  color: #1f5f78;
+  background: var(--interactive-selected-bg);
+  color: var(--interactive-selected-text);
 }
 
 .actions {
   align-items: center;
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: var(--space-md);
   justify-content: end;
 }
 
 .main {
   display: grid;
-  gap: 24px;
+  gap: var(--space-3xl);
   margin: 0 auto;
-  max-width: 1120px;
-  padding: 32px 24px;
+  max-width: var(--layout-content-max);
+  padding: var(--space-5xl) var(--space-3xl);
 }
 
 @media (max-width: 720px) {
   .topbar {
     align-items: start;
     grid-template-columns: 1fr;
-    padding: 16px;
+    padding: var(--space-xl);
   }
 
   .brandLogo {
-    height: 40px;
+    height: var(--control-height-md);
   }
 
   .nav {
@@ -92,6 +92,6 @@
   }
 
   .main {
-    padding: 24px 16px;
+    padding: var(--space-3xl) var(--space-xl);
   }
 }

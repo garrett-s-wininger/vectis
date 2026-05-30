@@ -1,27 +1,27 @@
 .root {
   align-items: end;
-  background: #ffffff;
-  border: 1px solid #dbe3e8;
-  border-radius: 8px;
+  background: var(--surface-panel);
+  border: var(--panel-border);
+  border-radius: var(--panel-radius);
   display: grid;
-  gap: 16px;
+  gap: var(--space-xl);
   grid-template-columns: minmax(0, 1fr) auto;
-  padding: 16px;
-  width: min(960px, 100%);
+  padding: var(--space-xl);
+  width: min(var(--layout-panel-max), 100%);
 }
 
 .filters {
   align-items: end;
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: var(--space-lg);
   min-width: 0;
 }
 
 .actions {
   align-items: center;
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
   justify-content: end;
 }
 

@@ -1,28 +1,28 @@
 .root {
   align-items: center;
-  color: #516673;
+  color: var(--text-muted);
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .root span {
-  font-size: 0.8125rem;
-  font-weight: 800;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-strong);
 }
 
 .root select {
-  background: #ffffff;
-  border: 1px solid #cfd9df;
-  border-radius: 6px;
-  color: #172026;
-  min-height: 36px;
-  min-width: 160px;
-  padding: 0 10px;
+  background: var(--surface-panel);
+  border: var(--control-border);
+  border-radius: var(--control-radius);
+  color: var(--text-primary);
+  min-height: var(--control-height-sm);
+  min-width: var(--layout-picker-min);
+  padding: 0 var(--space-md);
 }
 
 .root select:focus-visible {
-  outline: 3px solid #7fc7dd;
-  outline-offset: 2px;
+  outline: var(--control-focus-ring);
+  outline-offset: var(--control-focus-offset);
 }
 
 @media (max-width: 720px) {

@@ -1,48 +1,48 @@
 .row {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .root {
   align-items: center;
-  border: 1px solid transparent;
-  border-radius: 999px;
+  border: var(--border-transparent);
+  border-radius: var(--radius-pill);
   display: inline-flex;
-  font-size: 0.8125rem;
-  font-weight: 700;
-  line-height: 1;
-  min-height: 24px;
-  padding: 0 10px;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  min-height: var(--space-3xl);
+  padding: 0 var(--space-md);
 }
 
 .queued {
-  background: #eef2f5;
-  border-color: #d6e0e6;
-  color: #3f5463;
+  background: var(--status-neutral-bg);
+  border-color: var(--status-neutral-border);
+  color: var(--status-neutral-text);
 }
 
 .running {
-  background: #e5f5fa;
-  border-color: #a9d8e8;
-  color: #1f5f78;
+  background: var(--status-info-bg);
+  border-color: var(--status-info-border);
+  color: var(--status-info-text);
 }
 
 .succeeded {
-  background: #e8f5ee;
-  border-color: #afd9c4;
-  color: #236744;
+  background: var(--status-success-bg);
+  border-color: var(--status-success-border);
+  color: var(--status-success-text);
 }
 
 .failed {
-  background: #fbeaea;
-  border-color: #edb7b7;
-  color: #a23535;
+  background: var(--status-danger-bg);
+  border-color: var(--status-danger-border);
+  color: var(--status-danger-text);
 }
 
 .cancelled,
 .abandoned {
-  background: #f3efe8;
-  border-color: #dbccba;
-  color: #6a5135;
+  background: var(--status-warning-bg);
+  border-color: var(--status-warning-border-muted);
+  color: var(--status-warning-muted-text);
 }

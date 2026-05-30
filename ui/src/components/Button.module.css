@@ -1,19 +1,19 @@
 .root {
   align-items: center;
-  background: #1f5f78;
-  border: 1px solid #1f5f78;
-  border-radius: 6px;
-  color: #ffffff;
+  background: var(--action-primary-bg);
+  border: var(--action-primary-border);
+  border-radius: var(--control-radius);
+  color: var(--action-primary-text);
   cursor: pointer;
   display: inline-flex;
-  font-weight: 700;
+  font-weight: var(--font-weight-medium);
   justify-content: center;
-  min-height: 40px;
-  padding: 0 16px;
+  min-height: var(--control-height-md);
+  padding: 0 var(--space-xl);
 }
 
 .root:hover {
-  background: #174c60;
+  background: var(--action-primary-bg-hover);
 }
 
 .root:disabled {
@@ -22,6 +22,6 @@
 }
 
 .root:focus-visible {
-  outline: 3px solid #7fc7dd;
-  outline-offset: 2px;
+  outline: var(--control-focus-ring);
+  outline-offset: var(--control-focus-offset);
 }

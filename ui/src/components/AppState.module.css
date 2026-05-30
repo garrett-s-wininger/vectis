@@ -1,14 +1,14 @@
 .root {
   align-items: center;
-  background: #ffffff;
-  border: 1px solid #dbe3e8;
-  border-radius: 8px;
+  background: var(--surface-panel);
+  border: var(--panel-border);
+  border-radius: var(--panel-radius);
   display: grid;
-  gap: 16px;
+  gap: var(--space-xl);
   grid-template-columns: minmax(0, 1fr) auto;
-  min-height: 132px;
-  padding: 20px;
-  width: min(720px, 100%);
+  min-height: var(--size-state-min);
+  padding: var(--space-2xl);
+  width: min(var(--layout-narrow-max), 100%);
 }
 
 .empty {
@@ -16,31 +16,31 @@
 }
 
 .error {
-  border-color: #edb7b7;
-  box-shadow: inset 4px 0 0 #a23535;
+  border-color: var(--status-danger-border);
+  box-shadow: inset var(--space-2xs) 0 0 var(--status-danger-text);
 }
 
 .copy {
   display: grid;
-  gap: 6px;
+  gap: var(--space-xs);
 }
 
 .copy h2 {
-  color: #172026;
-  font-size: 1.125rem;
-  line-height: 1.2;
+  color: var(--text-primary);
+  font-size: var(--font-size-2xl);
+  line-height: var(--line-height-compact);
   margin: 0;
 }
 
 .copy p {
-  color: #5d707c;
+  color: var(--text-subtle);
   margin: 0;
 }
 
 .actions {
   align-items: center;
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
   justify-content: end;
 }
 

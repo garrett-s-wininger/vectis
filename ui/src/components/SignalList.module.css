@@ -1,93 +1,93 @@
 .root {
-  background: #ffffff;
-  border: 1px solid #dbe3e8;
-  border-radius: 8px;
+  background: var(--surface-panel);
+  border: var(--panel-border);
+  border-radius: var(--panel-radius);
   display: grid;
   list-style: none;
   margin: 0;
   padding: 0;
-  width: min(520px, 100%);
+  width: min(var(--layout-card-max), 100%);
 }
 
 .item {
   align-items: center;
   display: grid;
-  gap: 12px;
+  gap: var(--space-lg);
   grid-template-columns: auto minmax(0, 1fr) auto;
-  min-height: 64px;
-  padding: 12px 16px;
+  min-height: var(--size-row-md);
+  padding: var(--space-lg) var(--space-xl);
 }
 
 .item + .item {
-  border-top: 1px solid #edf1f4;
+  border-top: var(--panel-border-subtle);
 }
 
 .marker {
-  border-radius: 999px;
-  height: 10px;
-  width: 10px;
+  border-radius: var(--radius-pill);
+  height: var(--space-md);
+  width: var(--space-md);
 }
 
 .copy {
   display: grid;
-  gap: 3px;
+  gap: var(--space-3xs);
   min-width: 0;
 }
 
 .copy strong {
-  color: #172026;
-  font-size: 0.9375rem;
+  color: var(--text-primary);
+  font-size: var(--font-size-lg);
 }
 
 .copy small {
-  color: #5d707c;
-  font-size: 0.875rem;
+  color: var(--text-subtle);
+  font-size: var(--font-size-md);
 }
 
 .state {
-  border-radius: 999px;
-  font-size: 0.8125rem;
-  font-weight: 700;
-  padding: 4px 8px;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  padding: var(--space-2xs) var(--space-sm);
 }
 
 .healthyMarker {
-  background: #2a8152;
+  background: var(--status-success-accent);
 }
 
 .degradedMarker {
-  background: #c77a12;
+  background: var(--status-warning-accent);
 }
 
 .offlineMarker {
-  background: #a23535;
+  background: var(--status-danger-text);
 }
 
 .unknownMarker {
-  background: #7a8994;
+  background: var(--color-neutral-strong);
 }
 
 .healthyState {
-  background: #e8f5ee;
-  color: #236744;
+  background: var(--status-success-bg);
+  color: var(--status-success-text);
 }
 
 .degradedState {
-  background: #fff4df;
-  color: #8b540c;
+  background: var(--status-warning-bg);
+  color: var(--status-warning-text);
 }
 
 .offlineState {
-  background: #fbeaea;
-  color: #a23535;
+  background: var(--status-danger-bg);
+  color: var(--status-danger-text);
 }
 
 .unknownState {
-  background: #eef2f5;
-  color: #516673;
+  background: var(--status-neutral-bg);
+  color: var(--text-muted);
 }
 
 .empty {
-  color: #5d707c;
+  color: var(--text-subtle);
   margin: 0;
 }

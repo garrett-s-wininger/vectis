@@ -1,0 +1,22 @@
+:root {
+  color: var(--text-primary);
+  background: var(--surface-page);
+  font-family:
+    var(--font-family-sans);
+  font-synthesis: none;
+  line-height: var(--line-height-default);
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  margin: 0;
+  min-width: var(--layout-min-viewport);
+  min-height: 100vh;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
