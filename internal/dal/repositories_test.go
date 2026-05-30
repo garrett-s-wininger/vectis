@@ -557,6 +557,56 @@ func TestRunsRepository_CreateRunInCell_TargetsExecutionCell(t *testing.T) {
 	}
 }
 
+func TestRunsRepository_CountByStatusByCell(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-status-cells", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-status-cells"
+	def := `{"id":"job-status-cells","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	created, err := repos.Runs().CreateRunsInCells(ctx, jobID, nil, 1, []string{"iad-a", "iad-a", "pdx-b", "sfo-c"})
+	if err != nil {
+		t.Fatalf("CreateRunsInCells: %v", err)
+	}
+
+	if len(created) != 4 {
+		t.Fatalf("created runs: got %d, want 4", len(created))
+	}
+
+	if _, err := db.ExecContext(ctx, "UPDATE job_runs SET status = 'running' WHERE run_id = ?", created[3].RunID); err != nil {
+		t.Fatalf("mark non-queued run: %v", err)
+	}
+
+	counts, err := repos.Runs().CountByStatusByCell(ctx, dal.RunStatusQueued)
+	if err != nil {
+		t.Fatalf("CountByStatusByCell: %v", err)
+	}
+
+	want := []dal.RunCountByCell{
+		{CellID: "iad-a", Count: 2},
+		{CellID: "pdx-b", Count: 1},
+	}
+
+	if len(counts) != len(want) {
+		t.Fatalf("counts len: got %d want %d (%+v)", len(counts), len(want), counts)
+	}
+
+	for i := range want {
+		if counts[i] != want[i] {
+			t.Fatalf("counts[%d]: got %+v want %+v", i, counts[i], want[i])
+		}
+	}
+}
+
 func TestRunsRepository_CountStuckBeforeDispatchCutoffByCell(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")

@@ -1507,6 +1507,26 @@ func TestDoctor_reconcilerNoRecoveryActivityIsHealthy(t *testing.T) {
 	}
 }
 
+func TestDoctor_queueBacklogEvidenceIncludesCells(t *testing.T) {
+	check := doctorCheckQueueBacklogResponse(t, map[string]any{
+		"queued": 101,
+		"cells": []map[string]any{
+			{"cell_id": "iad-a", "queued": 75},
+			{"cell_id": "pdx-b", "queued": 26},
+		},
+	})
+
+	if check.Status != doctorWarn {
+		t.Fatalf("expected queue backlog to warn, got %#v", check)
+	}
+
+	for _, want := range []string{"queued=101", "iad-a:75", "pdx-b:26"} {
+		if !strings.Contains(check.Evidence, want) {
+			t.Fatalf("expected evidence to contain %q, got %q", want, check.Evidence)
+		}
+	}
+}
+
 func TestDoctor_stuckRunsEvidenceIncludesCells(t *testing.T) {
 	check := doctorCheckStuckRunsResponse(t, map[string]any{
 		"stuck": 3,
@@ -1593,6 +1613,21 @@ func doctorCheckCatalogStatusResponse(t *testing.T, body map[string]any) doctorC
 	})
 
 	return doctorCatalogInbox()
+}
+
+func doctorCheckQueueBacklogResponse(t *testing.T, body map[string]any) doctorCheck {
+	t.Helper()
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/queue/backlog" {
+			t.Errorf("unexpected path=%s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		_ = json.NewEncoder(w).Encode(body)
+	})
+
+	return doctorQueueBacklog()
 }
 
 func doctorCheckStuckRunsResponse(t *testing.T, body map[string]any) doctorCheck {

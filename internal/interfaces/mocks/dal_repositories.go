@@ -203,31 +203,33 @@ type MockRunsRepository struct {
 	CreateRunID    string
 	CreateRunIndex int
 
-	CreateRunErr        error
-	TouchDispatchedErr  error
-	ListByJobErr        error
-	QueuedListErr       error
-	TryClaimErr         error
-	RenewLeaseErr       error
-	MarkRunRunningErr   error
-	MarkRunSuccessErr   error
-	MarkRunFailedErr    error
-	MarkRunCancelledErr error
-	MarkRunAbortedErr   error
-	MarkRunOrphanedErr  error
-	RepairMarkErr       error
-	RequeueRunErr       error
-	MarkOrphanedErr     error
-	GetRunStatusErr     error
-	CountByStatusErr    error
-	CountStuckErr       error
-	CountStuckByCellErr error
-	PendingExecutionErr error
-	MarkExecutionErr    error
+	CreateRunErr           error
+	TouchDispatchedErr     error
+	ListByJobErr           error
+	QueuedListErr          error
+	TryClaimErr            error
+	RenewLeaseErr          error
+	MarkRunRunningErr      error
+	MarkRunSuccessErr      error
+	MarkRunFailedErr       error
+	MarkRunCancelledErr    error
+	MarkRunAbortedErr      error
+	MarkRunOrphanedErr     error
+	RepairMarkErr          error
+	RequeueRunErr          error
+	MarkOrphanedErr        error
+	GetRunStatusErr        error
+	CountByStatusErr       error
+	CountByStatusByCellErr error
+	CountStuckErr          error
+	CountStuckByCellErr    error
+	PendingExecutionErr    error
+	MarkExecutionErr       error
 
-	CountByStatusResult int64
-	CountStuckResult    int64
-	CountStuckByCell    []dal.RunCountByCell
+	CountByStatusResult       int64
+	CountByStatusByCellResult []dal.RunCountByCell
+	CountStuckResult          int64
+	CountStuckByCell          []dal.RunCountByCell
 
 	TryClaimResult bool
 	ClaimToken     string
@@ -475,6 +477,10 @@ func (m *MockRunsRepository) ListByJob(ctx context.Context, jobID string, afterI
 
 func (m *MockRunsRepository) CountByStatus(ctx context.Context, status string) (int64, error) {
 	return m.CountByStatusResult, m.CountByStatusErr
+}
+
+func (m *MockRunsRepository) CountByStatusByCell(ctx context.Context, status string) ([]dal.RunCountByCell, error) {
+	return append([]dal.RunCountByCell(nil), m.CountByStatusByCellResult...), m.CountByStatusByCellErr
 }
 
 func (m *MockRunsRepository) CountStuckBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) (int64, error) {

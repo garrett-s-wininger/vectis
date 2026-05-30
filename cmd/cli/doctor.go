@@ -501,7 +501,8 @@ func doctorQueueBacklog() doctorCheck {
 	}
 
 	var result struct {
-		Queued int64 `json:"queued"`
+		Queued int64                    `json:"queued"`
+		Cells  []doctorQueueBacklogCell `json:"cells"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -509,10 +510,36 @@ func doctorQueueBacklog() doctorCheck {
 	}
 
 	if result.Queued > 100 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("backlog high: %d queued", result.Queued), Evidence: fmt.Sprintf("%d", result.Queued), SuggestedAction: "Check queue service health and worker count", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("backlog high: %d queued", result.Queued), Evidence: formatDoctorQueueBacklogEvidence(result.Queued, result.Cells), SuggestedAction: "Check queue service health and worker count", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("backlog ok: %d queued", result.Queued), Evidence: fmt.Sprintf("%d", result.Queued), DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("backlog ok: %d queued", result.Queued), Evidence: formatDoctorQueueBacklogEvidence(result.Queued, result.Cells), DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+}
+
+type doctorQueueBacklogCell struct {
+	CellID string `json:"cell_id"`
+	Queued int64  `json:"queued"`
+}
+
+func formatDoctorQueueBacklogEvidence(queued int64, cells []doctorQueueBacklogCell) string {
+	if len(cells) == 0 {
+		return fmt.Sprintf("%d", queued)
+	}
+
+	parts := make([]string, 0, len(cells))
+	for _, cell := range cells {
+		if cell.Queued <= 0 {
+			continue
+		}
+
+		parts = append(parts, fmt.Sprintf("%s:%d", cell.CellID, cell.Queued))
+	}
+
+	if len(parts) == 0 {
+		return fmt.Sprintf("queued=%d", queued)
+	}
+
+	return fmt.Sprintf("queued=%d cells=%s", queued, strings.Join(parts, ","))
 }
 
 func doctorStuckRuns() doctorCheck {

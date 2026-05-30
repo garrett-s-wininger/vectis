@@ -255,6 +255,52 @@ func TestAPIServer_GetJobs_ListError_ClassifiedUnavailable(t *testing.T) {
 	assertAPIError(t, rec, http.StatusServiceUnavailable, "database_unavailable")
 }
 
+func TestAPIServer_GetQueueBacklogIncludesCellBreakdown(t *testing.T) {
+	runs := mocks.NewMockRunsRepository()
+	runs.CountByStatusResult = 3
+	runs.CountByStatusByCellResult = []dal.RunCountByCell{
+		{CellID: "iad-a", Count: 2},
+		{CellID: "pdx-b", Count: 1},
+	}
+
+	server := api.NewAPIServerWithRepositories(mocks.NewMockLogger(), mocks.NewMockJobsRepository(), runs, mocks.StubEphemeralRunStarter{})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/queue/backlog", nil)
+	rec := httptest.NewRecorder()
+	server.GetQueueBacklog(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var body struct {
+		Queued int64 `json:"queued"`
+		Cells  []struct {
+			CellID string `json:"cell_id"`
+			Queued int64  `json:"queued"`
+		} `json:"cells"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v; body=%s", err, rec.Body.String())
+	}
+
+	if body.Queued != 3 {
+		t.Fatalf("queued total: got %d, want 3", body.Queued)
+	}
+
+	if len(body.Cells) != 2 {
+		t.Fatalf("cells len: got %d, want 2 (%+v)", len(body.Cells), body.Cells)
+	}
+
+	if body.Cells[0].CellID != "iad-a" || body.Cells[0].Queued != 2 {
+		t.Fatalf("first cell: got %+v", body.Cells[0])
+	}
+
+	if body.Cells[1].CellID != "pdx-b" || body.Cells[1].Queued != 1 {
+		t.Fatalf("second cell: got %+v", body.Cells[1])
+	}
+}
+
 func TestAPIServer_GetStuckRunsIncludesCellBreakdown(t *testing.T) {
 	runs := mocks.NewMockRunsRepository()
 	runs.CountStuckResult = 3

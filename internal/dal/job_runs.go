@@ -935,6 +935,37 @@ func (r *SQLRunsRepository) CountByStatus(ctx context.Context, status string) (i
 	return count, nil
 }
 
+func (r *SQLRunsRepository) CountByStatusByCell(ctx context.Context, status string) ([]RunCountByCell, error) {
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
+		SELECT owning_cell, COUNT(*)
+		FROM job_runs
+		WHERE status = ?
+		GROUP BY owning_cell
+		ORDER BY owning_cell ASC
+	`), status)
+
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	var counts []RunCountByCell
+	for rows.Next() {
+		var count RunCountByCell
+		if err := rows.Scan(&count.CellID, &count.Count); err != nil {
+			return nil, normalizeSQLError(err)
+		}
+
+		counts = append(counts, count)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	return counts, nil
+}
+
 func (r *SQLRunsRepository) CountStuckBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) (int64, error) {
 	var count int64
 	err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
