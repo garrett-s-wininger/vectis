@@ -534,7 +534,8 @@ func doctorStuckRuns() doctorCheck {
 	}
 
 	var result struct {
-		Stuck int64 `json:"stuck"`
+		Stuck int64                `json:"stuck"`
+		Cells []doctorStuckRunCell `json:"cells"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -542,10 +543,36 @@ func doctorStuckRuns() doctorCheck {
 	}
 
 	if result.Stuck > 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d stuck runs detected", result.Stuck), Evidence: fmt.Sprintf("%d", result.Stuck), SuggestedAction: "Check reconciler; check dispatch path", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d stuck runs detected", result.Stuck), Evidence: formatDoctorStuckRunsEvidence(result.Stuck, result.Cells), SuggestedAction: "Check reconciler; check dispatch path", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
 	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no stuck runs", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+}
+
+type doctorStuckRunCell struct {
+	CellID string `json:"cell_id"`
+	Stuck  int64  `json:"stuck"`
+}
+
+func formatDoctorStuckRunsEvidence(stuck int64, cells []doctorStuckRunCell) string {
+	if len(cells) == 0 {
+		return fmt.Sprintf("%d", stuck)
+	}
+
+	parts := make([]string, 0, len(cells))
+	for _, cell := range cells {
+		if cell.Stuck <= 0 {
+			continue
+		}
+
+		parts = append(parts, fmt.Sprintf("%s:%d", cell.CellID, cell.Stuck))
+	}
+
+	if len(parts) == 0 {
+		return fmt.Sprintf("stuck=%d", stuck)
+	}
+
+	return fmt.Sprintf("stuck=%d cells=%s", stuck, strings.Join(parts, ","))
 }
 
 func doctorCatalogInbox() doctorCheck {

@@ -221,11 +221,13 @@ type MockRunsRepository struct {
 	GetRunStatusErr     error
 	CountByStatusErr    error
 	CountStuckErr       error
+	CountStuckByCellErr error
 	PendingExecutionErr error
 	MarkExecutionErr    error
 
 	CountByStatusResult int64
 	CountStuckResult    int64
+	CountStuckByCell    []dal.RunCountByCell
 
 	TryClaimResult bool
 	ClaimToken     string
@@ -477,6 +479,10 @@ func (m *MockRunsRepository) CountByStatus(ctx context.Context, status string) (
 
 func (m *MockRunsRepository) CountStuckBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) (int64, error) {
 	return m.CountStuckResult, m.CountStuckErr
+}
+
+func (m *MockRunsRepository) CountStuckBeforeDispatchCutoffByCell(ctx context.Context, cutoffUnix int64) ([]dal.RunCountByCell, error) {
+	return append([]dal.RunCountByCell(nil), m.CountStuckByCell...), m.CountStuckByCellErr
 }
 
 func (m *MockRunsRepository) GetRun(ctx context.Context, runID string) (dal.RunRecord, error) {

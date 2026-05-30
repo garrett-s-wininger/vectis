@@ -951,6 +951,38 @@ func (r *SQLRunsRepository) CountStuckBeforeDispatchCutoff(ctx context.Context, 
 	return count, nil
 }
 
+func (r *SQLRunsRepository) CountStuckBeforeDispatchCutoffByCell(ctx context.Context, cutoffUnix int64) ([]RunCountByCell, error) {
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
+		SELECT owning_cell, COUNT(*)
+		FROM job_runs
+		WHERE status = 'queued'
+			AND (last_dispatched_at IS NULL OR last_dispatched_at < ?)
+		GROUP BY owning_cell
+		ORDER BY owning_cell ASC
+	`), cutoffUnix)
+
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	var counts []RunCountByCell
+	for rows.Next() {
+		var count RunCountByCell
+		if err := rows.Scan(&count.CellID, &count.Count); err != nil {
+			return nil, normalizeSQLError(err)
+		}
+
+		counts = append(counts, count)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	return counts, nil
+}
+
 func (r *SQLRunsRepository) GetRun(ctx context.Context, runID string) (RunRecord, error) {
 	var rec RunRecord
 	var orphanReason, failureCode, createdAt, startedAt, finishedAt, failureReason sql.NullString

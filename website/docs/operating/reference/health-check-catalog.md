@@ -68,6 +68,8 @@ Treat `id`, `status`, and `severity` as the fields most suitable for automation.
 | `log.storage.filesystem` | warning | Local `VECTIS_LOG_STORAGE_DIR` or default data path | Durable log storage directory, or nearest existing parent, is inspectable and has at least 1 GiB free. | Free disk space or move log storage to a larger writable volume. |
 | `log.forwarder.spool.filesystem` | warning | Local `VECTIS_LOG_FORWARDER_SPOOL_DIR` or default data path | Log-forwarder spool directory, or nearest existing parent, is inspectable and has at least 1 GiB free. | Free disk space or move the spool to a larger writable volume. |
 
+When `reconciler.stuck.runs` warns in a multi-cell deployment, `evidence` includes a per-cell breakdown from the global run catalog, for example `stuck=3 cells=iad-a:2,pdx-b:1`.
+
 ## How To Respond
 
 | Result | Meaning | Next step |

@@ -557,6 +557,63 @@ func TestRunsRepository_CreateRunInCell_TargetsExecutionCell(t *testing.T) {
 	}
 }
 
+func TestRunsRepository_CountStuckBeforeDispatchCutoffByCell(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-stuck-cells", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-stuck-cells"
+	def := `{"id":"job-stuck-cells","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	created, err := repos.Runs().CreateRunsInCells(ctx, jobID, nil, 1, []string{"iad-a", "iad-a", "pdx-b", "sfo-c"})
+	if err != nil {
+		t.Fatalf("CreateRunsInCells: %v", err)
+	}
+
+	if len(created) != 4 {
+		t.Fatalf("created runs: got %d, want 4", len(created))
+	}
+
+	if err := repos.Runs().TouchDispatched(ctx, created[3].RunID); err != nil {
+		t.Fatalf("touch recently dispatched run: %v", err)
+	}
+
+	cutoff := time.Now().Add(-1 * time.Minute).Unix()
+	total, err := repos.Runs().CountStuckBeforeDispatchCutoff(ctx, cutoff)
+	if err != nil {
+		t.Fatalf("CountStuckBeforeDispatchCutoff: %v", err)
+	}
+	if total != 3 {
+		t.Fatalf("stuck total: got %d, want 3", total)
+	}
+
+	counts, err := repos.Runs().CountStuckBeforeDispatchCutoffByCell(ctx, cutoff)
+	if err != nil {
+		t.Fatalf("CountStuckBeforeDispatchCutoffByCell: %v", err)
+	}
+
+	want := []dal.RunCountByCell{
+		{CellID: "iad-a", Count: 2},
+		{CellID: "pdx-b", Count: 1},
+	}
+	if len(counts) != len(want) {
+		t.Fatalf("counts len: got %d want %d (%+v)", len(counts), len(want), counts)
+	}
+	for i := range want {
+		if counts[i] != want[i] {
+			t.Fatalf("counts[%d]: got %+v want %+v", i, counts[i], want[i])
+		}
+	}
+}
+
 func TestRunsRepository_CreateRunsInCells_FanoutTargetsExecutionCells(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")

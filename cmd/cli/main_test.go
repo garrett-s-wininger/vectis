@@ -1507,6 +1507,26 @@ func TestDoctor_reconcilerNoRecoveryActivityIsHealthy(t *testing.T) {
 	}
 }
 
+func TestDoctor_stuckRunsEvidenceIncludesCells(t *testing.T) {
+	check := doctorCheckStuckRunsResponse(t, map[string]any{
+		"stuck": 3,
+		"cells": []map[string]any{
+			{"cell_id": "iad-a", "stuck": 2},
+			{"cell_id": "pdx-b", "stuck": 1},
+		},
+	})
+
+	if check.Status != doctorWarn {
+		t.Fatalf("expected stuck runs to warn, got %#v", check)
+	}
+
+	for _, want := range []string{"stuck=3", "iad-a:2", "pdx-b:1"} {
+		if !strings.Contains(check.Evidence, want) {
+			t.Fatalf("expected evidence to contain %q, got %q", want, check.Evidence)
+		}
+	}
+}
+
 func TestDoctor_catalogInboxWarnsForFailedEvents(t *testing.T) {
 	check := doctorCheckCatalogStatusResponse(t, map[string]any{
 		"pending": 2,
@@ -1573,4 +1593,19 @@ func doctorCheckCatalogStatusResponse(t *testing.T, body map[string]any) doctorC
 	})
 
 	return doctorCatalogInbox()
+}
+
+func doctorCheckStuckRunsResponse(t *testing.T, body map[string]any) doctorCheck {
+	t.Helper()
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/reconciler/stuck-runs" {
+			t.Errorf("unexpected path=%s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		_ = json.NewEncoder(w).Encode(body)
+	})
+
+	return doctorStuckRuns()
 }

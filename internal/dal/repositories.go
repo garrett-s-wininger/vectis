@@ -118,6 +118,11 @@ type QueuedRun struct {
 	OwningCell        string
 }
 
+type RunCountByCell struct {
+	CellID string
+	Count  int64
+}
+
 type CreatedRun struct {
 	RunID        string
 	RunIndex     int
@@ -301,6 +306,7 @@ type RunsRepository interface {
 	MarkExecutionTerminal(ctx context.Context, executionID, status string) error
 	CountByStatus(ctx context.Context, status string) (int64, error)
 	CountStuckBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) (int64, error)
+	CountStuckBeforeDispatchCutoffByCell(ctx context.Context, cutoffUnix int64) ([]RunCountByCell, error)
 	GetRunJobID(ctx context.Context, runID string) (string, error)
 	GetRunForCancel(ctx context.Context, runID string) (RunForCancel, error)
 	GetRun(ctx context.Context, runID string) (RunRecord, error)
