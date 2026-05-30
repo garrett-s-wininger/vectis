@@ -1,3 +1,5 @@
+import styles from "./ProgressMeter.module.css";
+
 export type ProgressTone = "neutral" | "warning" | "critical";
 
 export type ProgressMeterProps = {
@@ -18,10 +20,11 @@ export function ProgressMeter({
   tone = "neutral"
 }: ProgressMeterProps) {
   const percent = clampPercent(value);
+  const className = tone === "neutral" ? styles.root : `${styles.root} ${styles[tone]}`;
 
   return (
-    <div className={`progress-meter progress-meter--${tone}`}>
-      <div className="progress-meter__header">
+    <div className={className}>
+      <div className={styles.header}>
         <span>{label}</span>
         <strong>{percent}%</strong>
       </div>
@@ -30,12 +33,12 @@ export function ProgressMeter({
         aria-valuemax={100}
         aria-valuemin={0}
         aria-valuenow={percent}
-        className="progress-meter__track"
+        className={styles.track}
         role="progressbar"
       >
-        <span className="progress-meter__bar" style={{ width: `${percent}%` }} />
+        <span className={styles.bar} style={{ width: `${percent}%` }} />
       </div>
-      {detail ? <small className="progress-meter__detail">{detail}</small> : null}
+      {detail ? <small className={styles.detail}>{detail}</small> : null}
     </div>
   );
 }

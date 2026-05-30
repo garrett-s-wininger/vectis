@@ -1,4 +1,5 @@
 import type { MockNamespace } from "../mocks/consoleData";
+import styles from "./NamespacePicker.module.css";
 
 type NamespacePickerProps = {
   namespaces: MockNamespace[];
@@ -12,7 +13,7 @@ export function NamespacePicker({
   value
 }: NamespacePickerProps) {
   return (
-    <label className="namespace-picker">
+    <label className={styles.root}>
       <span>Namespace</span>
       <select
         aria-label="Namespace"

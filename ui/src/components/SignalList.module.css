@@ -1,0 +1,93 @@
+.root {
+  background: #ffffff;
+  border: 1px solid #dbe3e8;
+  border-radius: 8px;
+  display: grid;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: min(520px, 100%);
+}
+
+.item {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 64px;
+  padding: 12px 16px;
+}
+
+.item + .item {
+  border-top: 1px solid #edf1f4;
+}
+
+.marker {
+  border-radius: 999px;
+  height: 10px;
+  width: 10px;
+}
+
+.copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.copy strong {
+  color: #172026;
+  font-size: 0.9375rem;
+}
+
+.copy small {
+  color: #5d707c;
+  font-size: 0.875rem;
+}
+
+.state {
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  padding: 4px 8px;
+}
+
+.healthyMarker {
+  background: #2a8152;
+}
+
+.degradedMarker {
+  background: #c77a12;
+}
+
+.offlineMarker {
+  background: #a23535;
+}
+
+.unknownMarker {
+  background: #7a8994;
+}
+
+.healthyState {
+  background: #e8f5ee;
+  color: #236744;
+}
+
+.degradedState {
+  background: #fff4df;
+  color: #8b540c;
+}
+
+.offlineState {
+  background: #fbeaea;
+  color: #a23535;
+}
+
+.unknownState {
+  background: #eef2f5;
+  color: #516673;
+}
+
+.empty {
+  color: #5d707c;
+  margin: 0;
+}

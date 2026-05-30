@@ -1,3 +1,5 @@
+import styles from "./SignalList.module.css";
+
 const stateLabels = {
   healthy: "Healthy",
   degraded: "Degraded",
@@ -20,19 +22,21 @@ type SignalListProps = {
 
 export function SignalList({ signals }: SignalListProps) {
   if (signals.length === 0) {
-    return <p className="signal-list__empty">No signals to show.</p>;
+    return <p className={styles.empty}>No signals to show.</p>;
   }
 
   return (
-    <ul className="signal-list">
+    <ul className={styles.root}>
       {signals.map((signal) => (
-        <li className="signal-list__item" key={signal.id}>
-          <span className={`signal-list__marker signal-list__marker--${signal.state}`} />
-          <div className="signal-list__copy">
+        <li className={styles.item} key={signal.id}>
+          <span
+            className={`${styles.marker} ${styles[`${signal.state}Marker`]}`}
+          />
+          <div className={styles.copy}>
             <strong>{signal.label}</strong>
             {signal.detail ? <small>{signal.detail}</small> : null}
           </div>
-          <span className={`signal-list__state signal-list__state--${signal.state}`}>
+          <span className={`${styles.state} ${styles[`${signal.state}State`]}`}>
             {stateLabels[signal.state]}
           </span>
         </li>

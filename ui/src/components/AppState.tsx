@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import styles from "./AppState.module.css";
 
 type AppStateTone = "neutral" | "loading" | "empty" | "error";
 
@@ -15,13 +16,17 @@ export function AppState({
   title,
   tone = "neutral"
 }: AppStateProps) {
+  const className = tone === "neutral" || tone === "loading"
+    ? styles.root
+    : `${styles.root} ${styles[tone]}`;
+
   return (
-    <section className={`app-state app-state--${tone}`} aria-label={title}>
-      <div className="app-state__copy">
+    <section className={className} aria-label={title}>
+      <div className={styles.copy}>
         <h2>{title}</h2>
         {description ? <p>{description}</p> : null}
       </div>
-      {actions ? <div className="app-state__actions">{actions}</div> : null}
+      {actions ? <div className={styles.actions}>{actions}</div> : null}
     </section>
   );
 }

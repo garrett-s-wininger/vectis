@@ -1,0 +1,49 @@
+.root {
+  display: grid;
+  gap: 8px;
+}
+
+.header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.header span {
+  color: #172026;
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+.header strong {
+  color: #3f5463;
+  font-size: 0.9375rem;
+}
+
+.track {
+  background: #edf1f4;
+  border-radius: 999px;
+  height: 10px;
+  overflow: hidden;
+}
+
+.bar {
+  background: #1f5f78;
+  border-radius: inherit;
+  display: block;
+  height: 100%;
+}
+
+.warning .bar {
+  background: #c77a12;
+}
+
+.critical .bar {
+  background: #a23535;
+}
+
+.detail {
+  color: #5d707c;
+  font-size: 0.875rem;
+}

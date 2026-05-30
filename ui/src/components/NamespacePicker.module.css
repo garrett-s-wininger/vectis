@@ -1,0 +1,33 @@
+.root {
+  align-items: center;
+  color: #516673;
+  display: flex;
+  gap: 8px;
+}
+
+.root span {
+  font-size: 0.8125rem;
+  font-weight: 800;
+}
+
+.root select {
+  background: #ffffff;
+  border: 1px solid #cfd9df;
+  border-radius: 6px;
+  color: #172026;
+  min-height: 36px;
+  min-width: 160px;
+  padding: 0 10px;
+}
+
+.root select:focus-visible {
+  outline: 3px solid #7fc7dd;
+  outline-offset: 2px;
+}
+
+@media (max-width: 720px) {
+  .root {
+    align-items: start;
+    flex-direction: column;
+  }
+}

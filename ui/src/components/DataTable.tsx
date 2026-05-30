@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import styles from "./DataTable.module.css";
 
 export type DataTableColumn<TRow> = {
   align?: "start" | "end";
@@ -20,7 +21,7 @@ export function DataTable<TRow,>({
   rows
 }: DataTableProps<TRow>) {
   return (
-    <div className="data-table">
+    <div className={styles.root}>
       <table>
         <thead>
           <tr>
@@ -47,7 +48,7 @@ export function DataTable<TRow,>({
             ))
           ) : (
             <tr>
-              <td className="data-table__empty" colSpan={columns.length}>
+              <td className={styles.empty} colSpan={columns.length}>
                 {emptyMessage}
               </td>
             </tr>

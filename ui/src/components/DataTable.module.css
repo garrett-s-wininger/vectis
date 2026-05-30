@@ -1,0 +1,40 @@
+.root {
+  background: #ffffff;
+  border: 1px solid #dbe3e8;
+  border-radius: 8px;
+  overflow-x: auto;
+  width: min(960px, 100%);
+}
+
+.root table {
+  border-collapse: collapse;
+  min-width: 720px;
+  width: 100%;
+}
+
+.root th,
+.root td {
+  border-bottom: 1px solid #edf1f4;
+  padding: 12px 16px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.root th {
+  color: #516673;
+  font-size: 0.8125rem;
+  font-weight: 800;
+}
+
+.root tr:last-child td {
+  border-bottom: 0;
+}
+
+.root th[data-align="end"],
+.root td[data-align="end"] {
+  text-align: right;
+}
+
+.empty {
+  color: #5d707c;
+}

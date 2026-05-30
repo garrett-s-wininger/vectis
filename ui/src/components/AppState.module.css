@@ -1,0 +1,55 @@
+.root {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #dbe3e8;
+  border-radius: 8px;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 132px;
+  padding: 20px;
+  width: min(720px, 100%);
+}
+
+.empty {
+  border-style: dashed;
+}
+
+.error {
+  border-color: #edb7b7;
+  box-shadow: inset 4px 0 0 #a23535;
+}
+
+.copy {
+  display: grid;
+  gap: 6px;
+}
+
+.copy h2 {
+  color: #172026;
+  font-size: 1.125rem;
+  line-height: 1.2;
+  margin: 0;
+}
+
+.copy p {
+  color: #5d707c;
+  margin: 0;
+}
+
+.actions {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: end;
+}
+
+@media (max-width: 720px) {
+  .root {
+    grid-template-columns: 1fr;
+  }
+
+  .actions {
+    justify-content: start;
+  }
+}
