@@ -92,6 +92,7 @@ type queuePool struct {
 	logger   interfaces.Logger
 	opts     QueuePoolOptions
 	registry *registry.Registry
+	dial     queueEndpointDialer
 
 	mu        sync.RWMutex
 	endpoints map[string]*queuePoolEndpoint
@@ -112,6 +113,8 @@ type queuePoolEndpoint struct {
 
 	inflight atomic.Int64
 }
+
+type queueEndpointDialer func(context.Context, string, string) (*queuePoolEndpoint, error)
 
 type desiredQueueEndpoint struct {
 	id      string
@@ -136,6 +139,7 @@ func newQueuePool(ctx context.Context, logger interfaces.Logger, opts QueuePoolO
 		opts:      opts,
 		endpoints: make(map[string]*queuePoolEndpoint),
 	}
+	p.dial = p.dialEndpoint
 
 	if opts.PinnedAddress == "" {
 		reg, err := resolver.NewRegistryClient(ctx, opts.RegistryAddress, logger, interfaces.SystemClock{}, opts.RetryMetrics)
@@ -328,6 +332,14 @@ func (p *queuePool) resolveDesired(ctx context.Context) ([]desiredQueueEndpoint,
 }
 
 func (p *queuePool) connectEndpoint(ctx context.Context, id, address string) (*queuePoolEndpoint, error) {
+	if p.dial != nil {
+		return p.dial(ctx, id, address)
+	}
+
+	return p.dialEndpoint(ctx, id, address)
+}
+
+func (p *queuePool) dialEndpoint(ctx context.Context, id, address string) (*queuePoolEndpoint, error) {
 	conn, cleanup, err := resolver.NewClientWithPinnedAddress(ctx, api.Component_COMPONENT_QUEUE, address, p.logger, nil, p.opts.RetryMetrics)
 	if err != nil {
 		return nil, err
