@@ -19,6 +19,7 @@ const (
 type ExecutionEnvelope struct {
 	EnvelopeVersion   int               `json:"envelope_version"`
 	RunID             string            `json:"run_id"`
+	RunIndex          int               `json:"run_index,omitempty"`
 	SegmentID         string            `json:"segment_id"`
 	ExecutionID       string            `json:"execution_id"`
 	CellID            string            `json:"cell_id"`
@@ -37,6 +38,7 @@ func NewExecutionEnvelope(dispatch dal.ExecutionDispatchRecord, job *api.Job, me
 	env := &ExecutionEnvelope{
 		EnvelopeVersion:   ExecutionEnvelopeVersion,
 		RunID:             dispatch.RunID,
+		RunIndex:          dispatch.RunIndex,
 		SegmentID:         dispatch.SegmentID,
 		ExecutionID:       dispatch.ExecutionID,
 		CellID:            dispatch.CellID,

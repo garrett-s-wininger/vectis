@@ -51,7 +51,7 @@ func main() {
 
 ## Which binaries need the database import
 
-Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-thirteen-cmd): `api`, `queue`, `cron`, `reconciler`, `catalog` — these need the `dbdrivers` import. `cell-ingress`, `registry`, `log`, `worker`, `log-forwarder`, `docs`, `local`, `cli` do not.
+Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-thirteen-cmd): `api`, `cell-ingress`, `queue`, `cron`, `reconciler`, `catalog` — these need the `dbdrivers` import. `registry`, `log`, `worker`, `log-forwarder`, `docs`, `local`, `cli` do not.
 
 ## Env prefix mapping
 

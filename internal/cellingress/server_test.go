@@ -2,6 +2,7 @@ package cellingress
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -104,6 +105,49 @@ func TestSubmitExecutionReturnsQueueUnavailable(t *testing.T) {
 	assertErrorCode(t, rr, http.StatusServiceUnavailable, "queue_unavailable")
 }
 
+func TestSubmitExecutionDurablyAcceptsBeforeReturningQueueUnavailable(t *testing.T) {
+	queue := mocks.NewMockQueueService()
+	queue.SetEnqueueError(errors.New("queue closed"))
+	acceptances := &recordingAcceptanceStore{}
+	srv := NewQueueServer("iad-a", queue, mocks.NewMockLogger())
+	srv.SetAcceptanceStore(acceptances)
+	req := httptest.NewRequest(http.MethodPost, "/cell/v1/executions", executionBody(t, validJobRequestForCell(t, "iad-a")))
+	rr := httptest.NewRecorder()
+
+	srv.ServeHTTP(rr, req)
+
+	assertErrorCode(t, rr, http.StatusServiceUnavailable, "queue_unavailable")
+
+	got := acceptances.snapshot()
+	if got.ExecutionID != "execution-1" {
+		t.Fatalf("accepted execution: got %q, want execution-1", got.ExecutionID)
+	}
+
+	if got.RunID != "run-1" || got.JobID != "job-1" || got.CellID != "iad-a" {
+		t.Fatalf("unexpected acceptance: %+v", got)
+	}
+
+	if got.DefinitionJSON == "" || got.RequestJSON == "" {
+		t.Fatalf("acceptance should include definition and request JSON: %+v", got)
+	}
+}
+
+func TestSubmitExecutionReturnsConflictWhenAcceptanceConflicts(t *testing.T) {
+	queue := mocks.NewMockQueueService()
+	acceptances := &recordingAcceptanceStore{err: dal.ErrConflict}
+	srv := NewQueueServer("iad-a", queue, mocks.NewMockLogger())
+	srv.SetAcceptanceStore(acceptances)
+	req := httptest.NewRequest(http.MethodPost, "/cell/v1/executions", executionBody(t, validJobRequestForCell(t, "iad-a")))
+	rr := httptest.NewRecorder()
+
+	srv.ServeHTTP(rr, req)
+
+	assertErrorCode(t, rr, http.StatusConflict, "execution_conflict")
+	if got := len(queue.GetJobRequests()); got != 0 {
+		t.Fatalf("queued requests: got %d, want 0", got)
+	}
+}
+
 func TestHealthEndpoints(t *testing.T) {
 	srv := NewQueueServer("iad-a", mocks.NewMockQueueService(), mocks.NewMockLogger())
 
@@ -163,6 +207,7 @@ func validJobRequestForCell(t *testing.T, cellID string) *api.JobRequest {
 		Attempt:           1,
 		DefinitionVersion: 3,
 		DefinitionHash:    "sha256:abc123",
+		RunIndex:          5,
 	}, 123); err != nil {
 		t.Fatalf("AttachExecutionEnvelope: %v", err)
 	}
@@ -185,4 +230,22 @@ func assertErrorCode(t *testing.T, rr *httptest.ResponseRecorder, status int, co
 	if resp.Code != code {
 		t.Fatalf("error code: got %q, want %q; body=%s", resp.Code, code, rr.Body.String())
 	}
+}
+
+type recordingAcceptanceStore struct {
+	acceptance dal.CellExecutionAcceptance
+	err        error
+}
+
+func (s *recordingAcceptanceStore) AcceptExecution(ctx context.Context, acceptance dal.CellExecutionAcceptance) (bool, error) {
+	if s.err != nil {
+		return false, s.err
+	}
+
+	s.acceptance = acceptance
+	return true, nil
+}
+
+func (s *recordingAcceptanceStore) snapshot() dal.CellExecutionAcceptance {
+	return s.acceptance
 }

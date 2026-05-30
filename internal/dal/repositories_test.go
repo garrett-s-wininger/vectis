@@ -127,6 +127,166 @@ func TestJobsRepository_CRUDAndConflict(t *testing.T) {
 	}
 }
 
+func TestCellExecutionAcceptances_AcceptExecutionMaterializesLocalRows(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
+	ctx := context.Background()
+
+	acceptance := dal.CellExecutionAcceptance{
+		ExecutionID:       "execution-1",
+		RunID:             "run-1",
+		JobID:             "job-1",
+		RunIndex:          7,
+		SegmentID:         "segment-1",
+		SegmentName:       "root",
+		CellID:            "iad-a",
+		Attempt:           1,
+		DefinitionVersion: 3,
+		DefinitionHash:    "sha256:abc123",
+		DefinitionJSON:    `{"id":"job-1","root":{"uses":"builtins/shell"}}`,
+		RequestJSON:       `{"job":{"id":"job-1","runId":"run-1"}}`,
+	}
+
+	created, err := repos.CellExecutionAcceptances().AcceptExecution(ctx, acceptance)
+	if err != nil {
+		t.Fatalf("AcceptExecution: %v", err)
+	}
+
+	if !created {
+		t.Fatal("first AcceptExecution should create a receipt")
+	}
+
+	created, err = repos.CellExecutionAcceptances().AcceptExecution(ctx, acceptance)
+	if err != nil {
+		t.Fatalf("duplicate AcceptExecution: %v", err)
+	}
+
+	if created {
+		t.Fatal("duplicate AcceptExecution should be idempotent")
+	}
+
+	var receiptHash string
+	if err := db.QueryRowContext(ctx, "SELECT acceptance_hash FROM cell_execution_acceptances WHERE execution_id = ?", acceptance.ExecutionID).Scan(&receiptHash); err != nil {
+		t.Fatalf("query acceptance receipt: %v", err)
+	}
+
+	if receiptHash == "" {
+		t.Fatal("acceptance hash was not recorded")
+	}
+
+	var runIndex int
+	var runStatus, owningCell string
+	if err := db.QueryRowContext(ctx, "SELECT run_index, status, owning_cell FROM job_runs WHERE run_id = ?", acceptance.RunID).Scan(&runIndex, &runStatus, &owningCell); err != nil {
+		t.Fatalf("query job run: %v", err)
+	}
+
+	if runIndex != acceptance.RunIndex || runStatus != dal.RunStatusQueued || owningCell != acceptance.CellID {
+		t.Fatalf("unexpected run row: run_index=%d status=%q owning_cell=%q", runIndex, runStatus, owningCell)
+	}
+
+	var segmentStatus string
+	if err := db.QueryRowContext(ctx, "SELECT status FROM run_segments WHERE segment_id = ?", acceptance.SegmentID).Scan(&segmentStatus); err != nil {
+		t.Fatalf("query run segment: %v", err)
+	}
+
+	if segmentStatus != dal.SegmentStatusAccepted {
+		t.Fatalf("segment status: got %q, want %q", segmentStatus, dal.SegmentStatusAccepted)
+	}
+
+	var executionStatus string
+	if err := db.QueryRowContext(ctx, "SELECT status FROM segment_executions WHERE execution_id = ?", acceptance.ExecutionID).Scan(&executionStatus); err != nil {
+		t.Fatalf("query segment execution: %v", err)
+	}
+
+	if executionStatus != dal.ExecutionStatusAccepted {
+		t.Fatalf("execution status: got %q, want %q", executionStatus, dal.ExecutionStatusAccepted)
+	}
+
+	var definitionHash string
+	if err := db.QueryRowContext(ctx, "SELECT definition_hash FROM job_definitions WHERE job_id = ? AND version = ?", acceptance.JobID, acceptance.DefinitionVersion).Scan(&definitionHash); err != nil {
+		t.Fatalf("query job definition: %v", err)
+	}
+
+	if definitionHash != acceptance.DefinitionHash {
+		t.Fatalf("definition hash: got %q, want %q", definitionHash, acceptance.DefinitionHash)
+	}
+}
+
+func TestCellExecutionAcceptances_AcceptsExistingPendingExecution(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
+	ctx := context.Background()
+
+	jobID := "job-existing"
+	definitionJSON := `{"id":"job-existing","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, definitionJSON, 1); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, runIndex, err := repos.Runs().CreateRunInCell(ctx, jobID, nil, 1, "iad-a")
+	if err != nil {
+		t.Fatalf("CreateRunInCell: %v", err)
+	}
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("GetPendingExecution: %v", err)
+	}
+
+	created, err := repos.CellExecutionAcceptances().AcceptExecution(ctx, dal.CellExecutionAcceptance{
+		ExecutionID:       dispatch.ExecutionID,
+		RunID:             runID,
+		JobID:             jobID,
+		RunIndex:          runIndex,
+		SegmentID:         dispatch.SegmentID,
+		SegmentName:       dispatch.SegmentName,
+		CellID:            "iad-a",
+		Attempt:           dispatch.Attempt,
+		DefinitionVersion: dispatch.DefinitionVersion,
+		DefinitionHash:    dispatch.DefinitionHash,
+		DefinitionJSON:    definitionJSON,
+		RequestJSON:       `{"job":{"id":"job-existing","runId":"` + runID + `"}}`,
+	})
+
+	if err != nil {
+		t.Fatalf("AcceptExecution: %v", err)
+	}
+
+	if !created {
+		t.Fatal("first AcceptExecution should create a receipt")
+	}
+
+	assertExecutionAndSegmentStatus(t, db, dispatch.ExecutionID, dispatch.SegmentID, dal.ExecutionStatusAccepted, dal.SegmentStatusAccepted, 1)
+}
+
+func TestCellExecutionAcceptances_RejectsConflictingDuplicate(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
+	ctx := context.Background()
+
+	acceptance := dal.CellExecutionAcceptance{
+		ExecutionID:       "execution-1",
+		RunID:             "run-1",
+		JobID:             "job-1",
+		RunIndex:          1,
+		SegmentID:         "segment-1",
+		CellID:            "iad-a",
+		DefinitionVersion: 1,
+		DefinitionHash:    "sha256:abc123",
+		DefinitionJSON:    `{"id":"job-1","root":{"uses":"builtins/shell"}}`,
+		RequestJSON:       `{"job":{"id":"job-1","runId":"run-1"}}`,
+	}
+
+	if _, err := repos.CellExecutionAcceptances().AcceptExecution(ctx, acceptance); err != nil {
+		t.Fatalf("AcceptExecution: %v", err)
+	}
+
+	acceptance.DefinitionHash = "sha256:different"
+	if _, err := repos.CellExecutionAcceptances().AcceptExecution(ctx, acceptance); !dal.IsConflict(err) {
+		t.Fatalf("expected conflicting duplicate to return ErrConflict, got %v", err)
+	}
+}
+
 func TestSQLRepositoriesWithCellID_WritesHomeAndOwningCell(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")

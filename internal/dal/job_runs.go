@@ -731,6 +731,7 @@ func (r *SQLRunsRepository) GetPendingExecution(ctx context.Context, runID strin
 		SELECT
 			jr.run_id,
 			jr.job_id,
+			jr.run_index,
 			rs.segment_id,
 			rs.name,
 			rs.status,
@@ -752,6 +753,7 @@ func (r *SQLRunsRepository) GetPendingExecution(ctx context.Context, runID strin
 	`), runID, SegmentStatusPending, ExecutionStatusPending).Scan(
 		&rec.RunID,
 		&rec.JobID,
+		&rec.RunIndex,
 		&rec.SegmentID,
 		&rec.SegmentName,
 		&rec.SegmentStatus,

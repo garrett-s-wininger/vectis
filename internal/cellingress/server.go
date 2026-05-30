@@ -22,6 +22,7 @@ const maxExecutionRequestBytes = 2 << 20
 type Server struct {
 	localCellID string
 	router      cell.ExecutionIngress
+	acceptances dal.CellExecutionAcceptancesRepository
 	logger      interfaces.Logger
 	mux         *http.ServeMux
 }
@@ -63,6 +64,10 @@ func NewServer(localCellID string, ingress cell.ExecutionIngress, logger interfa
 
 func (s *Server) Handler() http.Handler {
 	return s.mux
+}
+
+func (s *Server) SetAcceptanceStore(acceptances dal.CellExecutionAcceptancesRepository) {
+	s.acceptances = acceptances
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -119,6 +124,29 @@ func (s *Server) submitExecution(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	durable := s.acceptances != nil
+	if durable {
+		acceptance, err := executionAcceptance(submission)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_execution_envelope", err.Error())
+			return
+		}
+
+		if _, err := s.acceptances.AcceptExecution(r.Context(), acceptance); err != nil {
+			if dal.IsConflict(err) {
+				writeError(w, http.StatusConflict, "execution_conflict", err.Error())
+				return
+			}
+
+			if s.logger != nil {
+				s.logger.Warn("Cell ingress durable accept failed: %v", err)
+			}
+
+			writeError(w, http.StatusServiceUnavailable, "acceptance_unavailable", "local cell did not durably accept execution")
+			return
+		}
+	}
+
 	if err := s.router.SubmitExecution(r.Context(), submission); err != nil {
 		if cell.IsCellNotRoutable(err) {
 			writeError(w, http.StatusConflict, "wrong_cell", fmt.Sprintf("execution targets cell %q, local cell is %q", submission.TargetCellID(), s.localCellID))
@@ -128,16 +156,54 @@ func (s *Server) submitExecution(w http.ResponseWriter, r *http.Request) {
 		if s.logger != nil {
 			s.logger.Warn("Cell ingress enqueue failed: %v", err)
 		}
+
 		writeError(w, http.StatusServiceUnavailable, "queue_unavailable", "local queue did not accept execution")
 		return
 	}
 
-	writeJSON(w, http.StatusAccepted, submitExecutionResponse{
+	writeJSON(w, http.StatusAccepted, acceptedExecutionResponse(submission))
+}
+
+func acceptedExecutionResponse(submission cell.ExecutionSubmission) submitExecutionResponse {
+	return submitExecutionResponse{
 		Status:      "accepted",
 		CellID:      submission.Envelope.CellID,
 		RunID:       submission.Envelope.RunID,
 		ExecutionID: submission.Envelope.ExecutionID,
-	})
+	}
+}
+
+func executionAcceptance(submission cell.ExecutionSubmission) (dal.CellExecutionAcceptance, error) {
+	if submission.Request == nil || submission.Envelope == nil {
+		return dal.CellExecutionAcceptance{}, errors.New("execution submission is incomplete")
+	}
+
+	definitionJSON, err := json.Marshal(submission.Envelope.Job)
+	if err != nil {
+		return dal.CellExecutionAcceptance{}, fmt.Errorf("marshal job definition: %w", err)
+	}
+
+	requestJSON, err := protojson.Marshal(submission.Request)
+	if err != nil {
+		return dal.CellExecutionAcceptance{}, fmt.Errorf("marshal job request: %w", err)
+	}
+
+	env := submission.Envelope
+	return dal.CellExecutionAcceptance{
+		ExecutionID:        env.ExecutionID,
+		RunID:              env.RunID,
+		JobID:              env.Job.GetId(),
+		RunIndex:           env.RunIndex,
+		SegmentID:          env.SegmentID,
+		SegmentName:        "root",
+		CellID:             env.CellID,
+		Attempt:            1,
+		DefinitionVersion:  env.DefinitionVersion,
+		DefinitionHash:     env.DefinitionHash,
+		DefinitionJSON:     string(definitionJSON),
+		RequestJSON:        string(requestJSON),
+		AcceptedAtUnixNano: env.CreatedAtUnixNano,
+	}, nil
 }
 
 func normalizeLocalCellID(cellID string) string {

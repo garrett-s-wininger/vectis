@@ -220,6 +220,7 @@ func TestAPIServer_TriggerJob_DispatchesTargetCellThroughExecutionIngress(t *tes
 	runs.PendingExecution = dal.ExecutionDispatchRecord{
 		RunID:             "run-remote-cell",
 		JobID:             "job-remote-cell",
+		RunIndex:          1,
 		SegmentID:         "segment-1",
 		ExecutionID:       "execution-1",
 		CellID:            "iad-a",

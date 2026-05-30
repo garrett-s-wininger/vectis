@@ -127,6 +127,7 @@ type CreatedRun struct {
 type ExecutionDispatchRecord struct {
 	RunID             string
 	JobID             string
+	RunIndex          int
 	SegmentID         string
 	SegmentName       string
 	SegmentStatus     string
@@ -137,6 +138,26 @@ type ExecutionDispatchRecord struct {
 	DefinitionVersion int
 	DefinitionHash    string
 	OwningCell        string
+}
+
+type CellExecutionAcceptance struct {
+	ExecutionID        string
+	RunID              string
+	JobID              string
+	RunIndex           int
+	SegmentID          string
+	SegmentName        string
+	CellID             string
+	Attempt            int
+	DefinitionVersion  int
+	DefinitionHash     string
+	DefinitionJSON     string
+	RequestJSON        string
+	AcceptedAtUnixNano int64
+}
+
+type CellExecutionAcceptancesRepository interface {
+	AcceptExecution(ctx context.Context, acceptance CellExecutionAcceptance) (created bool, err error)
 }
 
 type EphemeralRunStarter interface {
@@ -301,6 +322,7 @@ type SQLRepositories struct {
 	idempotency  *SQLIdempotencyRepository
 	dispatch     *SQLDispatchEventsRepository
 	catalog      *SQLCatalogEventsRepository
+	cellAccept   *SQLCellExecutionAcceptancesRepository
 }
 
 func NewSQLRepositories(db *sql.DB) *SQLRepositories {
@@ -321,6 +343,7 @@ func NewSQLRepositoriesWithCellID(db *sql.DB, cellID string) *SQLRepositories {
 		idempotency:  &SQLIdempotencyRepository{db: db},
 		dispatch:     &SQLDispatchEventsRepository{db: db},
 		catalog:      &SQLCatalogEventsRepository{db: db},
+		cellAccept:   &SQLCellExecutionAcceptancesRepository{db: db, cellID: cellID},
 	}
 }
 
@@ -479,4 +502,8 @@ func (r *SQLRepositories) DispatchEvents() DispatchEventsRepository {
 
 func (r *SQLRepositories) CatalogEvents() CatalogEventsRepository {
 	return r.catalog
+}
+
+func (r *SQLRepositories) CellExecutionAcceptances() CellExecutionAcceptancesRepository {
+	return r.cellAccept
 }

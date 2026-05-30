@@ -95,7 +95,7 @@ flowchart TB
 | Component | Role |
 | --- | --- |
 | `vectis-api` | Public HTTP API. Stores jobs and runs, accepts triggers, exposes health, metrics, run status, run events, and log streams. |
-| `vectis-cell-ingress` | Private cell-local HTTP endpoint that accepts execution envelopes for this cell and enqueues them to the local queue. The global API can route non-local target cells to configured ingress endpoints. |
+| `vectis-cell-ingress` | Private cell-local HTTP endpoint that durably accepts execution envelopes for this cell and enqueues them to the local queue. The global API can route non-local target cells to configured ingress endpoints. |
 | `vectis-queue` | Internal FIFO queue. Producers enqueue work; workers dequeue and acknowledge deliveries. Queue persistence can preserve backlog and in-flight delivery metadata. |
 | `vectis-worker` | Executes one run at a time. Dequeues work, claims the run in the database, executes actions, streams logs, and writes final status. |
 | `vectis-log` | Receives log chunks from workers and stores run logs. The API reads from it when clients stream logs. |
@@ -133,7 +133,7 @@ For user-facing behavior and reconnect controls, see [Log Streaming](../using/lo
 
 | Store | Responsibility |
 | --- | --- |
-| SQL database | Job definitions, ephemeral definitions, runs, run leases, dispatch events, cell catalog events, cron schedules, users, tokens, namespaces, role bindings, audit rows, and idempotency keys. |
+| SQL database | Job definitions, ephemeral definitions, runs, run leases, dispatch events, cell execution acceptances, cell catalog events, cron schedules, users, tokens, namespaces, role bindings, audit rows, and idempotency keys. |
 | Queue persistence | Optional queue-host storage for queued and in-flight items. If disabled, queue contents are memory-only. |
 | Log storage | Run log files owned by `vectis-log`. Preserve this storage if run logs must survive restarts. |
 

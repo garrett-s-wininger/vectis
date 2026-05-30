@@ -29,6 +29,10 @@ func TestExecutionEnvelopeEncodeDecode(t *testing.T) {
 		t.Fatalf("run_id: got %q, want %q", got.RunID, env.RunID)
 	}
 
+	if got.RunIndex != env.RunIndex {
+		t.Fatalf("run_index: got %d, want %d", got.RunIndex, env.RunIndex)
+	}
+
 	if got.SegmentID != env.SegmentID {
 		t.Fatalf("segment_id: got %q, want %q", got.SegmentID, env.SegmentID)
 	}
@@ -201,6 +205,7 @@ func TestAttachExecutionEnvelopeBuildsFromDispatchRecord(t *testing.T) {
 
 	env, err := AttachExecutionEnvelope(req, dal.ExecutionDispatchRecord{
 		RunID:             runID,
+		RunIndex:          9,
 		JobID:             jobID,
 		SegmentID:         "segment-1",
 		ExecutionID:       "execution-1",
@@ -324,6 +329,7 @@ func validExecutionEnvelope() *ExecutionEnvelope {
 	return &ExecutionEnvelope{
 		EnvelopeVersion:   ExecutionEnvelopeVersion,
 		RunID:             runID,
+		RunIndex:          5,
 		SegmentID:         "segment-1",
 		ExecutionID:       "execution-1",
 		CellID:            "iad-a",

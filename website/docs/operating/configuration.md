@@ -109,7 +109,7 @@ Database settings are global. Every process that talks to SQL must use the same 
 | `VECTIS_DATABASE_DRIVER` | `sqlite3` for local/single-node use, or `pgx` for PostgreSQL. |
 | `VECTIS_DATABASE_DSN` | SQLite file path or PostgreSQL URL. If unset, SQLite defaults under the Vectis data directory. |
 
-Applies to `vectis-api`, `vectis-queue`, `vectis-worker`, `vectis-cron`, `vectis-reconciler`, and `vectis-cli database migrate`.
+Applies to `vectis-api`, `vectis-cell-ingress`, `vectis-queue`, `vectis-worker`, `vectis-cron`, `vectis-reconciler`, `vectis-catalog`, and `vectis-cli database migrate`.
 
 Runtime services wait for the expected schema; they do not apply migrations. Run migrations with:
 

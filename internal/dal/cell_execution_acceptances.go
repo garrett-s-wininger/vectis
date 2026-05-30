@@ -1,0 +1,353 @@
+package dal
+
+import (
+	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
+	"fmt"
+	"strings"
+	"time"
+)
+
+type SQLCellExecutionAcceptancesRepository struct {
+	db     *sql.DB
+	cellID string
+}
+
+func (r *SQLCellExecutionAcceptancesRepository) AcceptExecution(ctx context.Context, acceptance CellExecutionAcceptance) (bool, error) {
+	normalized, err := normalizeCellExecutionAcceptance(acceptance, r.cellID)
+	if err != nil {
+		return false, err
+	}
+
+	acceptanceHash := cellExecutionAcceptanceHash(normalized)
+	if created, err := r.acceptanceAlreadyRecorded(ctx, normalized.ExecutionID, acceptanceHash); err != nil || !created {
+		return created, err
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if err := ensureJobDefinitionTx(ctx, tx, normalized); err != nil {
+		return false, err
+	}
+
+	if err := ensureJobRunTx(ctx, tx, normalized); err != nil {
+		return false, err
+	}
+
+	if err := ensureRunSegmentTx(ctx, tx, normalized); err != nil {
+		return false, err
+	}
+
+	if err := ensureSegmentExecutionTx(ctx, tx, normalized); err != nil {
+		return false, err
+	}
+
+	result, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		INSERT INTO cell_execution_acceptances
+			(execution_id, acceptance_hash, run_id, job_id, run_index, segment_id, segment_name, cell_id, attempt, definition_version, definition_hash, request_json, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(execution_id) DO NOTHING
+	`),
+		normalized.ExecutionID,
+		acceptanceHash,
+		normalized.RunID,
+		normalized.JobID,
+		normalized.RunIndex,
+		normalized.SegmentID,
+		normalized.SegmentName,
+		normalized.CellID,
+		normalized.Attempt,
+		normalized.DefinitionVersion,
+		normalized.DefinitionHash,
+		normalized.RequestJSON,
+	)
+
+	if err != nil {
+		return false, normalizeSQLError(err)
+	}
+
+	inserted, err := insertedReceipt(result)
+	if err != nil {
+		return false, err
+	}
+
+	if !inserted {
+		if err := assertRecordedAcceptanceHashTx(ctx, tx, normalized.ExecutionID, acceptanceHash); err != nil {
+			return false, err
+		}
+
+		if err := tx.Commit(); err != nil {
+			return false, err
+		}
+
+		return false, nil
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
+func insertedReceipt(result sql.Result) (bool, error) {
+	if result == nil {
+		return true, nil
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return true, nil
+	}
+
+	return rows > 0, nil
+}
+
+func assertRecordedAcceptanceHashTx(ctx context.Context, tx *sql.Tx, executionID, acceptanceHash string) error {
+	var existingHash string
+	if err := tx.QueryRowContext(ctx,
+		rebindQueryForPgx("SELECT acceptance_hash FROM cell_execution_acceptances WHERE execution_id = ?"),
+		executionID,
+	).Scan(&existingHash); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if existingHash != acceptanceHash {
+		return fmt.Errorf("%w: execution %s was already accepted with different payload", ErrConflict, executionID)
+	}
+
+	return nil
+}
+
+func (r *SQLCellExecutionAcceptancesRepository) acceptanceAlreadyRecorded(ctx context.Context, executionID, acceptanceHash string) (bool, error) {
+	var existingHash string
+	err := r.db.QueryRowContext(ctx,
+		rebindQueryForPgx("SELECT acceptance_hash FROM cell_execution_acceptances WHERE execution_id = ?"),
+		executionID,
+	).Scan(&existingHash)
+
+	if err == nil {
+		if existingHash != acceptanceHash {
+			return false, fmt.Errorf("%w: execution %s was already accepted with different payload", ErrConflict, executionID)
+		}
+
+		return false, nil
+	}
+
+	if err == sql.ErrNoRows {
+		return true, nil
+	}
+
+	return false, normalizeSQLError(err)
+}
+
+func normalizeCellExecutionAcceptance(a CellExecutionAcceptance, fallbackCellID string) (CellExecutionAcceptance, error) {
+	a.ExecutionID = strings.TrimSpace(a.ExecutionID)
+	a.RunID = strings.TrimSpace(a.RunID)
+	a.JobID = strings.TrimSpace(a.JobID)
+	a.SegmentID = strings.TrimSpace(a.SegmentID)
+	a.SegmentName = strings.TrimSpace(a.SegmentName)
+	a.CellID = normalizeTargetCellID(a.CellID, fallbackCellID)
+	a.DefinitionHash = strings.TrimSpace(a.DefinitionHash)
+	a.DefinitionJSON = strings.TrimSpace(a.DefinitionJSON)
+	a.RequestJSON = strings.TrimSpace(a.RequestJSON)
+
+	if a.ExecutionID == "" {
+		return CellExecutionAcceptance{}, fmt.Errorf("%w: execution_id is required", ErrConflict)
+	}
+
+	if a.RunID == "" {
+		return CellExecutionAcceptance{}, fmt.Errorf("%w: run_id is required", ErrConflict)
+	}
+
+	if a.JobID == "" {
+		return CellExecutionAcceptance{}, fmt.Errorf("%w: job_id is required", ErrConflict)
+	}
+
+	if a.RunIndex <= 0 {
+		a.RunIndex = 1
+	}
+
+	if a.SegmentID == "" {
+		return CellExecutionAcceptance{}, fmt.Errorf("%w: segment_id is required", ErrConflict)
+	}
+
+	if a.SegmentName == "" {
+		a.SegmentName = "root"
+	}
+
+	if a.Attempt <= 0 {
+		a.Attempt = 1
+	}
+
+	if a.DefinitionVersion <= 0 {
+		return CellExecutionAcceptance{}, fmt.Errorf("%w: definition_version must be positive", ErrConflict)
+	}
+
+	if a.DefinitionHash == "" {
+		return CellExecutionAcceptance{}, fmt.Errorf("%w: definition_hash is required", ErrConflict)
+	}
+
+	if a.DefinitionJSON == "" {
+		return CellExecutionAcceptance{}, fmt.Errorf("%w: definition_json is required", ErrConflict)
+	}
+
+	if a.RequestJSON == "" {
+		return CellExecutionAcceptance{}, fmt.Errorf("%w: request_json is required", ErrConflict)
+	}
+
+	if a.AcceptedAtUnixNano <= 0 {
+		a.AcceptedAtUnixNano = time.Now().UnixNano()
+	}
+
+	return a, nil
+}
+
+func cellExecutionAcceptanceHash(a CellExecutionAcceptance) string {
+	sum := sha256.Sum256([]byte(strings.Join([]string{
+		a.ExecutionID,
+		a.RunID,
+		a.JobID,
+		fmt.Sprintf("%d", a.RunIndex),
+		a.SegmentID,
+		a.SegmentName,
+		a.CellID,
+		fmt.Sprintf("%d", a.Attempt),
+		fmt.Sprintf("%d", a.DefinitionVersion),
+		a.DefinitionHash,
+		a.DefinitionJSON,
+	}, "\x00")))
+
+	return hex.EncodeToString(sum[:])
+}
+
+func ensureJobDefinitionTx(ctx context.Context, tx *sql.Tx, a CellExecutionAcceptance) error {
+	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		INSERT INTO job_definitions (global_id, job_id, version, definition_json, definition_hash, home_cell)
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(job_id, version) DO NOTHING
+	`), newGlobalID(), a.JobID, a.DefinitionVersion, a.DefinitionJSON, a.DefinitionHash, a.CellID); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	var existingHash string
+	if err := tx.QueryRowContext(ctx,
+		rebindQueryForPgx("SELECT definition_hash FROM job_definitions WHERE job_id = ? AND version = ?"),
+		a.JobID,
+		a.DefinitionVersion,
+	).Scan(&existingHash); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if existingHash != a.DefinitionHash {
+		return fmt.Errorf("%w: job %s version %d has different definition hash", ErrConflict, a.JobID, a.DefinitionVersion)
+	}
+
+	return nil
+}
+
+func ensureJobRunTx(ctx context.Context, tx *sql.Tx, a CellExecutionAcceptance) error {
+	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		INSERT INTO job_runs
+			(run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell)
+		VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?)
+		ON CONFLICT(run_id) DO NOTHING
+	`), a.RunID, a.JobID, a.RunIndex, RunStatusQueued, a.DefinitionVersion, a.DefinitionHash, a.CellID); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	var jobID, definitionHash, owningCell string
+	var runIndex, definitionVersion int
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT job_id, run_index, definition_version, definition_hash, owning_cell
+		FROM job_runs
+		WHERE run_id = ?
+	`), a.RunID).Scan(&jobID, &runIndex, &definitionVersion, &definitionHash, &owningCell); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if jobID != a.JobID || runIndex != a.RunIndex || definitionVersion != a.DefinitionVersion || definitionHash != a.DefinitionHash || owningCell != a.CellID {
+		return fmt.Errorf("%w: run %s has different accepted payload", ErrConflict, a.RunID)
+	}
+
+	return nil
+}
+
+func ensureRunSegmentTx(ctx context.Context, tx *sql.Tx, a CellExecutionAcceptance) error {
+	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		INSERT INTO run_segments (segment_id, run_id, name, status)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(segment_id) DO NOTHING
+	`), a.SegmentID, a.RunID, a.SegmentName, SegmentStatusAccepted); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	var runID, name, status string
+	if err := tx.QueryRowContext(ctx,
+		rebindQueryForPgx("SELECT run_id, name, status FROM run_segments WHERE segment_id = ?"),
+		a.SegmentID,
+	).Scan(&runID, &name, &status); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if runID != a.RunID || name != a.SegmentName {
+		return fmt.Errorf("%w: segment %s has different accepted payload", ErrConflict, a.SegmentID)
+	}
+
+	if status == SegmentStatusPending {
+		if _, err := tx.ExecContext(ctx,
+			rebindQueryForPgx("UPDATE run_segments SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE segment_id = ?"),
+			SegmentStatusAccepted,
+			a.SegmentID,
+		); err != nil {
+			return normalizeSQLError(err)
+		}
+	}
+
+	return nil
+}
+
+func ensureSegmentExecutionTx(ctx context.Context, tx *sql.Tx, a CellExecutionAcceptance) error {
+	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		INSERT INTO segment_executions
+			(execution_id, segment_id, run_id, cell_id, status, attempt, accepted_at, last_observed_at, event_sequence)
+		VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, 1)
+		ON CONFLICT(execution_id) DO NOTHING
+	`), a.ExecutionID, a.SegmentID, a.RunID, a.CellID, ExecutionStatusAccepted, a.Attempt, a.AcceptedAtUnixNano); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	var segmentID, runID, cellID, status string
+	var attempt int
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT segment_id, run_id, cell_id, attempt, status
+		FROM segment_executions
+		WHERE execution_id = ?
+	`), a.ExecutionID).Scan(&segmentID, &runID, &cellID, &attempt, &status); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if segmentID != a.SegmentID || runID != a.RunID || cellID != a.CellID || attempt != a.Attempt {
+		return fmt.Errorf("%w: execution %s has different accepted payload", ErrConflict, a.ExecutionID)
+	}
+
+	if status == ExecutionStatusPending {
+		if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+			UPDATE segment_executions
+			SET status = ?, accepted_at = COALESCE(accepted_at, CURRENT_TIMESTAMP), last_observed_at = ?, event_sequence = event_sequence + 1, updated_at = CURRENT_TIMESTAMP
+			WHERE execution_id = ?
+		`), ExecutionStatusAccepted, a.AcceptedAtUnixNano, a.ExecutionID); err != nil {
+			return normalizeSQLError(err)
+		}
+	}
+
+	return nil
+}
+
+var _ CellExecutionAcceptancesRepository = (*SQLCellExecutionAcceptancesRepository)(nil)

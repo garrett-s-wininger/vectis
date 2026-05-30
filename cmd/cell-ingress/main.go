@@ -14,10 +14,14 @@ import (
 	"vectis/internal/cellingress"
 	"vectis/internal/cli"
 	"vectis/internal/config"
+	"vectis/internal/dal"
+	"vectis/internal/database"
 	"vectis/internal/interfaces"
 	"vectis/internal/observability"
 	"vectis/internal/queueclient"
 	"vectis/internal/resolver"
+
+	_ "vectis/internal/dbdrivers"
 )
 
 func runCellIngress(cmd *cobra.Command, args []string) {
@@ -51,6 +55,12 @@ func runCellIngress(cmd *cobra.Command, args []string) {
 	}
 	defer cli.DeferShutdown(logger, "Metrics", shutdownMetrics)()
 
+	db, _, err := database.OpenReadyDB(logger)
+	if err != nil {
+		logger.Fatal("Failed to initialize database: %v", err)
+	}
+	defer db.Close()
+
 	retryMetrics, err := observability.NewRetryMetrics()
 	if err != nil {
 		logger.Fatal("Failed to initialize retry metrics: %v", err)
@@ -82,7 +92,9 @@ func runCellIngress(cmd *cobra.Command, args []string) {
 		logger.Fatal("Listen: %v", err)
 	}
 
-	handler := cellingress.NewQueueServer(config.CellID(), queue, logger).Handler()
+	ingressServer := cellingress.NewQueueServer(config.CellID(), queue, logger)
+	ingressServer.SetAcceptanceStore(dal.NewSQLRepositoriesWithCellID(db, config.CellID()).CellExecutionAcceptances())
+	handler := ingressServer.Handler()
 	httpSrv := cellingress.HTTPServer(addr, handler)
 	logger.Info("Cell ingress listening on http://%s", addr)
 

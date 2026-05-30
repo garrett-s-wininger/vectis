@@ -27,7 +27,7 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 | Binary | Role | Long-running? | DB? |
 |--------|------|---------------|-----|
 | `vectis-api` | REST (jobs, runs, SSE), metrics | yes | yes |
-| `vectis-cell-ingress` | Private cell-local execution ingress | yes | no |
+| `vectis-cell-ingress` | Private cell-local execution ingress | yes | yes |
 | `vectis-queue` | FIFO queue + metrics | yes | yes |
 | `vectis-registry` | Service discovery | yes | no |
 | `vectis-log` | Log ingest (gRPC), SSE, metrics | yes | no |

@@ -99,6 +99,27 @@ CREATE INDEX idx_segment_executions_segment_id ON segment_executions(segment_id)
 CREATE INDEX idx_segment_executions_run_id ON segment_executions(run_id);
 CREATE INDEX idx_segment_executions_cell_status ON segment_executions(cell_id, status);
 
+CREATE TABLE cell_execution_acceptances (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    execution_id TEXT UNIQUE NOT NULL,
+    acceptance_hash TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    job_id TEXT NOT NULL,
+    run_index INTEGER NOT NULL,
+    segment_id TEXT NOT NULL,
+    segment_name TEXT NOT NULL DEFAULT '',
+    cell_id TEXT NOT NULL,
+    attempt INTEGER NOT NULL DEFAULT 1,
+    definition_version INTEGER NOT NULL,
+    definition_hash TEXT NOT NULL,
+    request_json TEXT NOT NULL,
+    accepted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_cell_execution_acceptances_cell ON cell_execution_acceptances(cell_id, accepted_at);
+CREATE INDEX idx_cell_execution_acceptances_run ON cell_execution_acceptances(run_id);
+
 CREATE TABLE run_dispatch_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id TEXT NOT NULL REFERENCES job_runs(run_id) ON DELETE CASCADE,
