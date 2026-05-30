@@ -100,7 +100,7 @@ flowchart TB
 | --- | --- |
 | `vectis-api` | Public HTTP API. Stores jobs and runs, accepts triggers, exposes health, metrics, run status, run events, and log streams. |
 | `vectis-cell-ingress` | Private cell-local HTTP endpoint that durably accepts execution envelopes for this cell, enqueues them to the local queue, and repairs missed local queue handoffs. The global API can route non-local target cells to configured ingress endpoints. |
-| `vectis-queue` | Internal FIFO queue. Producers enqueue work; workers dequeue and acknowledge deliveries. Queue persistence can preserve backlog and in-flight delivery metadata. |
+| `vectis-queue` | Internal FIFO queue shard. Producers enqueue work; workers dequeue and acknowledge deliveries. Queue persistence can preserve backlog and in-flight delivery metadata per shard. |
 | `vectis-worker` | Executes one run at a time. Dequeues work, claims the run in the database, executes actions, streams logs, writes final status, and records cell catalog events. |
 | `vectis-log` | Receives log chunks from workers and stores run logs. The API reads from it when clients stream logs. |
 | `vectis-registry` | Internal service discovery for queue and log addresses when clients do not use pinned addresses. |
@@ -194,7 +194,7 @@ Vectis does not currently ship:
 
 - a projects API
 - an artifacts API
-- active/active queue or log clustering
+- shared-storage active/active queue or log clustering
 - multi-site federation
 - an OpenAPI artifact
 

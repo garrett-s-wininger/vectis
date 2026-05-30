@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -88,7 +89,7 @@ func doctor(w io.Writer) error {
 		doctorLogReachable(),
 		doctorAuditFlushFailures(),
 		doctorTLSFiles(),
-		doctorFilesystemPressure("queue.persistence.filesystem", "Queue persistence filesystem", "queue persistence", envOrDefault("VECTIS_QUEUE_PERSISTENCE_DIR", filepath.Join(utils.DataHome(), "vectis", "queue"))),
+		doctorFilesystemPressure("queue.persistence.filesystem", "Queue persistence filesystem", "queue persistence", envOrDefaultAllowEmpty("VECTIS_QUEUE_PERSISTENCE_DIR", defaultDoctorQueuePersistenceDir())),
 		doctorFilesystemPressure("log.storage.filesystem", "Log storage filesystem", "log storage", envOrDefault("VECTIS_LOG_STORAGE_DIR", filepath.Join(utils.DataHome(), "vectis", "jobs"))),
 		doctorFilesystemPressure("log.forwarder.spool.filesystem", "Log forwarder spool filesystem", "log-forwarder spool", envOrDefault("VECTIS_LOG_FORWARDER_SPOOL_DIR", defaultDoctorForwarderSpoolDir())),
 	}
@@ -1154,6 +1155,14 @@ func envOrDefault(name, fallback string) string {
 	return fallback
 }
 
+func envOrDefaultAllowEmpty(name, fallback string) string {
+	if v, ok := os.LookupEnv(name); ok {
+		return v
+	}
+
+	return fallback
+}
+
 func envBoolDefault(name string, fallback bool) bool {
 	v := strings.TrimSpace(strings.ToLower(os.Getenv(name)))
 	if v == "" {
@@ -1192,6 +1201,68 @@ func defaultDoctorForwarderSpoolDir() string {
 	}
 
 	return filepath.Join(dataHome, "vectis", "log-forwarder", "spool")
+}
+
+func defaultDoctorQueuePersistenceDir() string {
+	pool := os.Getenv("VECTIS_QUEUE_POOL")
+	if pool == "" {
+		pool = "default"
+	}
+
+	instanceID := os.Getenv("VECTIS_QUEUE_INSTANCE_ID")
+	if instanceID == "" {
+		port := config.QueuePort()
+		if raw := os.Getenv("VECTIS_QUEUE_PORT"); raw != "" {
+			if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+				port = parsed
+			}
+		}
+
+		hostname, err := os.Hostname()
+		if err != nil {
+			hostname = "localhost"
+		}
+
+		if strings.TrimSpace(hostname) == "" {
+			hostname = "localhost"
+		}
+
+		instanceID = fmt.Sprintf("%s-%d", sanitizeDoctorQueuePathComponent(hostname), port)
+	}
+
+	return filepath.Join(utils.DataHome(), "vectis", "queue", sanitizeDoctorQueuePathComponent(pool), sanitizeDoctorQueuePathComponent(instanceID))
+}
+
+func sanitizeDoctorQueuePathComponent(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+
+	var b strings.Builder
+	lastDash := false
+	for _, r := range value {
+		valid := (r >= 'a' && r <= 'z') ||
+			(r >= '0' && r <= '9') ||
+			r == '-' ||
+			r == '_' ||
+			r == '.'
+
+		if valid {
+			b.WriteRune(r)
+			lastDash = false
+			continue
+		}
+
+		if !lastDash {
+			b.WriteByte('-')
+			lastDash = true
+		}
+	}
+
+	cleaned := strings.Trim(b.String(), "-.")
+	if cleaned == "" || cleaned == "." || cleaned == ".." {
+		return "queue"
+	}
+
+	return cleaned
 }
 
 func formatBytes(n uint64) string {

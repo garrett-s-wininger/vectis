@@ -43,7 +43,7 @@ Some settings are global and intentionally do not use a service prefix, such as 
 | Mirror service logs to files | `VECTIS_LOG_DIR=/path/to/dir` |
 | Enable API access logs | `VECTIS_API_SERVER_LOG_FORMAT=json` |
 | Pin worker to a queue address | `VECTIS_WORKER_QUEUE_ADDRESS=host:8081` |
-| Persist queue backlog to disk | `VECTIS_QUEUE_PERSISTENCE_DIR=/path/to/queue` |
+| Persist queue backlog to disk | `VECTIS_QUEUE_PERSISTENCE_DIR=/path/to/queue-shard` |
 | Change reconciler interval | `VECTIS_RECONCILER_INTERVAL=30s` |
 | Change reconciler failover TTL | `VECTIS_RECONCILER_LEASE_TTL=2m` |
 | Change catalog event drain interval | `VECTIS_CATALOG_INTERVAL=1s` |
@@ -58,7 +58,7 @@ Use these prefixes when building service-specific environment variable names.
 | --- | --- | --- |
 | `vectis-api` | `VECTIS_API_SERVER` | `--host`, `--port`, `--cell-ingress-endpoint` |
 | `vectis-cell-ingress` | `VECTIS_CELL_INGRESS` | `--host`, `--port`, `--metrics-port`, `--repair-interval`, `--queue-address`, `--registry-address` |
-| `vectis-queue` | `VECTIS_QUEUE` | `--port`, `--metrics-port`, `--persistence-dir`, `--persistence-snapshot-every` |
+| `vectis-queue` | `VECTIS_QUEUE` | `--port`, `--metrics-port`, `--pool`, `--instance-id`, `--persistence-dir`, `--persistence-snapshot-every` |
 | `vectis-registry` | `VECTIS_REGISTRY` | `--port` |
 | `vectis-log` | `VECTIS_LOG` | `--storage-dir`, `--metrics-port`, `--max-run-buffers` |
 | `vectis-worker` | `VECTIS_WORKER` | `--metrics-port` |
@@ -212,6 +212,12 @@ Registration toggles:
 | `VECTIS_LOG_LOG_GRPC_REGISTER_WITH_REGISTRY` | Log service publishes its gRPC address to registry when enabled. |
 | `VECTIS_WORKER_WORKER_REGISTER_WITH_REGISTRY` | Worker publishes its worker-control address to registry when enabled. |
 
+When registry discovery is used, multiple `vectis-queue` instances may register as a pool. Each queue needs one stable `VECTIS_QUEUE_INSTANCE_ID` / `--instance-id`; if it is omitted, `vectis-queue` derives a stable ID from the system hostname and queue port. Producers choose among discovered queue shards; workers ack back to the shard encoded in the delivery ID.
+
+`VECTIS_QUEUE_POOL` / `--pool` names the local queue pool used when deriving the default persistence path. If `VECTIS_QUEUE_PERSISTENCE_DIR` / `--persistence-dir` is omitted, the queue uses `$XDG_DATA_HOME/vectis/queue/<pool>/<instance-id>`. Set a persistence directory explicitly only when you want to pin storage layout. An explicitly empty persistence directory disables queue persistence.
+
+Queue instance IDs must be unique among active queue processes registered in the same registry, except during a controlled replacement of the same shard with the same persistence directory. If two active queues register the same instance ID, the registry treats them as the same logical shard and the later registration wins; workers may route acks to the wrong process. If two active queues point at the same persistence directory, the second queue refuses to start.
+
 Discovery timing defaults include resolver refresh `10s`, poll timeout `5s`, error refresh `2s`, and registration heartbeat `45s`.
 
 For failure behavior with and without registry, see [Failure Domains](../concepts/failure-domains.md#registry-down).
@@ -240,11 +246,11 @@ OpenTelemetry trace export is disabled unless configured:
 | Data | Default local path |
 | --- | --- |
 | SQLite database | `$XDG_DATA_HOME/vectis/db.sqlite3` |
-| Queue persistence | `$XDG_DATA_HOME/vectis/queue` |
+| Queue persistence | `$XDG_DATA_HOME/vectis/queue/<pool>/<instance-id>` |
 | Run log files | `$XDG_DATA_HOME/vectis/jobs` |
 | `vectis-local` TLS material | `$XDG_DATA_HOME/vectis/local-tls` |
 
-Queue persistence is configured with `VECTIS_QUEUE_PERSISTENCE_DIR` or `vectis-queue --persistence-dir`. An empty persistence directory disables queue persistence.
+Queue persistence is configured with `VECTIS_QUEUE_PERSISTENCE_DIR` or `vectis-queue --persistence-dir`. When unset, the default path is derived from `VECTIS_QUEUE_POOL` / `--pool` and `VECTIS_QUEUE_INSTANCE_ID` / `--instance-id`. An empty persistence directory disables queue persistence.
 
 Treat database files, queue persistence, log storage, deployment secrets, and TLS material as part of the backup set when they hold production data. See [Backup And Restore](./reliability/backup-restore.md).
 

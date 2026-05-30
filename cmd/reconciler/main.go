@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"time"
@@ -17,9 +16,6 @@ import (
 	"vectis/internal/observability"
 	"vectis/internal/queueclient"
 	"vectis/internal/reconciler"
-	"vectis/internal/resolver"
-
-	"google.golang.org/grpc"
 
 	_ "vectis/internal/dbdrivers"
 )
@@ -67,8 +63,10 @@ func runReconciler(cmd *cobra.Command, args []string) {
 	}
 
 	pin := config.ReconcilerQueueAddress()
-	mq, err := queueclient.NewManagingQueueService(rootCtx, logger, func(ctx context.Context) (*grpc.ClientConn, func(), error) {
-		return resolver.DialQueue(ctx, logger, pin, config.ReconcilerRegistryDialAddress(), retryMetrics)
+	mq, err := queueclient.NewManagingQueuePoolService(rootCtx, logger, queueclient.QueuePoolOptions{
+		PinnedAddress:   pin,
+		RegistryAddress: config.ReconcilerRegistryDialAddress(),
+		RetryMetrics:    retryMetrics,
 	})
 
 	if err != nil {

@@ -3,12 +3,14 @@ package queue
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	api "vectis/api/gen/go"
@@ -19,6 +21,7 @@ import (
 
 const (
 	snapshotFileName          = "queue.snapshot"
+	lockFileName              = "queue.lock"
 	walSegmentPrefix          = "queue.wal."
 	defaultSegmentMaxBytes    = 4 * 1024 * 1024
 	defaultRetainTailSegments = 2
@@ -80,6 +83,7 @@ type persistenceStore struct {
 	segmentMaxBytes    int64
 	retainTailSegments int
 	log                interfaces.Logger
+	lockFile           *os.File
 }
 
 type queueState struct {
@@ -117,6 +121,11 @@ func newPersistenceStore(dir string, snapshotEvery int, segmentMaxBytes int64, r
 		return nil, nil, fmt.Errorf("create queue persistence dir: %w", err)
 	}
 
+	lockFile, err := acquirePersistenceLock(dir)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	p := &persistenceStore{
 		dir:                dir,
 		snapshotPath:       filepath.Join(dir, snapshotFileName),
@@ -125,14 +134,55 @@ func newPersistenceStore(dir string, snapshotEvery int, segmentMaxBytes int64, r
 		segmentMaxBytes:    segmentMaxBytes,
 		retainTailSegments: retainTailSegments,
 		log:                log,
+		lockFile:           lockFile,
 	}
 
 	state, err := p.loadState()
 	if err != nil {
+		_ = p.Close()
 		return nil, nil, err
 	}
 
 	return p, state, nil
+}
+
+func acquirePersistenceLock(dir string) (*os.File, error) {
+	lockPath := filepath.Join(dir, lockFileName)
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("open queue persistence lock %s: %w", lockPath, err)
+	}
+
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = f.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+			return nil, fmt.Errorf("queue persistence directory %s is already in use by another queue process; use a distinct persistence directory for each active queue shard: %w", dir, err)
+		}
+
+		return nil, fmt.Errorf("lock queue persistence directory %s: %w", dir, err)
+	}
+
+	return f, nil
+}
+
+func (p *persistenceStore) Close() error {
+	if p == nil || p.lockFile == nil {
+		return nil
+	}
+
+	lockFile := p.lockFile
+	p.lockFile = nil
+
+	var result error
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN); err != nil {
+		result = fmt.Errorf("unlock queue persistence directory %s: %w", p.dir, err)
+	}
+
+	if err := lockFile.Close(); err != nil && result == nil {
+		result = fmt.Errorf("close queue persistence lock %s: %w", filepath.Join(p.dir, lockFileName), err)
+	}
+
+	return result
 }
 
 func (p *persistenceStore) loadState() (*queueState, error) {

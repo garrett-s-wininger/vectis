@@ -11,6 +11,7 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/interfaces"
 	"vectis/internal/observability"
+	"vectis/internal/queueid"
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
@@ -27,6 +28,7 @@ type QueueOptions struct {
 	WALSegmentMax      int64
 	WALRetainTail      int
 	MaxRequeueAttempts int
+	InstanceID         string
 }
 
 type queueServer struct {
@@ -39,6 +41,7 @@ type queueServer struct {
 	jobAttempts        map[string]int // keyed by job ID, tracks delivery attempts across requeues
 	deliveryTTL        time.Duration
 	maxRequeueAttempts int
+	instanceID         string
 	mu                 sync.Mutex
 	notify             chan struct{}
 	log                interfaces.Logger
@@ -69,6 +72,19 @@ func NewQueueServiceWithOptions(logger interfaces.Logger, opts QueueOptions, met
 	return newQueueServer(logger, opts, metrics)
 }
 
+func (s *queueServer) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.persistence == nil {
+		return nil
+	}
+
+	err := s.persistence.Close()
+	s.persistence = nil
+	return err
+}
+
 func newQueueServer(logger interfaces.Logger, opts QueueOptions, metrics *observability.QueueMetrics) (*queueServer, error) {
 	ttl := opts.DeliveryTTL
 	if ttl <= 0 {
@@ -89,6 +105,7 @@ func newQueueServer(logger interfaces.Logger, opts QueueOptions, metrics *observ
 		jobAttempts:        make(map[string]int),
 		deliveryTTL:        ttl,
 		maxRequeueAttempts: maxAttempts,
+		instanceID:         opts.InstanceID,
 		notify:             make(chan struct{}, 1),
 		log:                logger,
 		metrics:            metrics,
@@ -198,7 +215,7 @@ func (s *queueServer) Dequeue(ctx context.Context, _ *api.Empty) (*api.JobReques
 
 	jobReq := s.jobs[s.head]
 	job := jobReq.GetJob()
-	deliveryID := uuid.NewString()
+	deliveryID := s.newDeliveryID()
 	leaseUntil := time.Now().UTC().Add(s.deliveryTTL)
 	attemptCount := s.jobAttempts[job.GetId()]
 
@@ -236,7 +253,7 @@ func (s *queueServer) TryDequeue(ctx context.Context, _ *api.Empty) (*api.JobReq
 
 	jobReq := s.jobs[s.head]
 	job := jobReq.GetJob()
-	deliveryID := uuid.NewString()
+	deliveryID := s.newDeliveryID()
 	leaseUntil := time.Now().UTC().Add(s.deliveryTTL)
 	attemptCount := s.jobAttempts[job.GetId()]
 
@@ -289,6 +306,10 @@ func (s *queueServer) Ack(ctx context.Context, req *api.AckRequest) (*api.Empty,
 
 	delete(s.inflight, deliveryID)
 	return &api.Empty{}, nil
+}
+
+func (s *queueServer) newDeliveryID() string {
+	return queueid.Encode(s.instanceID, uuid.NewString())
 }
 
 func (s *queueServer) pendingJobsLocked() []*api.JobRequest {

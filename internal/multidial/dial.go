@@ -8,6 +8,7 @@ import (
 	"vectis/internal/backoff"
 	"vectis/internal/config"
 	"vectis/internal/interfaces"
+	"vectis/internal/queueclient"
 	"vectis/internal/registry"
 	"vectis/internal/resolver"
 
@@ -19,7 +20,7 @@ func DialQueueAndLog(ctx context.Context, logger interfaces.Logger, retryMetrics
 	lPin := config.PinnedLogAddress()
 
 	var regClient *registry.Registry
-	if qPin == "" || lPin == "" {
+	if lPin == "" {
 		var err error
 		regClient, err = resolver.NewRegistryClient(ctx, config.WorkerRegistryDialAddress(), logger, interfaces.SystemClock{}, retryMetrics)
 		if err != nil {
@@ -27,7 +28,12 @@ func DialQueueAndLog(ctx context.Context, logger interfaces.Logger, retryMetrics
 		}
 	}
 
-	queueConn, queueCleanup, err := dialComponent(ctx, logger, regClient, qPin, api.Component_COMPONENT_QUEUE, retryMetrics)
+	queuePool, err := queueclient.NewManagingQueuePoolClient(ctx, logger, queueclient.QueuePoolOptions{
+		PinnedAddress:   qPin,
+		RegistryAddress: config.WorkerRegistryDialAddress(),
+		RetryMetrics:    retryMetrics,
+	})
+
 	if err != nil {
 		if regClient != nil {
 			_ = regClient.Close()
@@ -38,7 +44,7 @@ func DialQueueAndLog(ctx context.Context, logger interfaces.Logger, retryMetrics
 
 	logConn, logCleanup, err := dialComponent(ctx, logger, regClient, lPin, api.Component_COMPONENT_LOG, retryMetrics)
 	if err != nil {
-		queueCleanup()
+		_ = queuePool.Close()
 		if regClient != nil {
 			_ = regClient.Close()
 		}
@@ -46,9 +52,10 @@ func DialQueueAndLog(ctx context.Context, logger interfaces.Logger, retryMetrics
 		return nil, nil, nil, fmt.Errorf("log client: %w", err)
 	}
 
-	return interfaces.NewGRPCQueueClient(queueConn), interfaces.NewGRPCLogClient(logConn), func() {
-		queueCleanup()
+	return queuePool, interfaces.NewGRPCLogClient(logConn), func() {
+		_ = queuePool.Close()
 		logCleanup()
+
 		if regClient != nil {
 			_ = regClient.Close()
 		}

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/queueid"
 )
 
 // deliveryWait sleeps long enough for a lease with the given TTL to expire.
@@ -49,6 +50,33 @@ func TestQueueDelivery_AckPreventsRedelivery(t *testing.T) {
 
 	if got != nil {
 		t.Fatalf("expected no redelivery after ack, got %s", got.GetJob().GetId())
+	}
+}
+
+func TestQueueDelivery_IncludesInstanceID(t *testing.T) {
+	ctx := context.Background()
+	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{InstanceID: "queue-a"}, nil)
+	if err != nil {
+		t.Fatalf("new queue: %v", err)
+	}
+
+	jobID := "job-instance-id"
+	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	got, err := svc.Dequeue(ctx, &api.Empty{})
+	if err != nil {
+		t.Fatalf("dequeue: %v", err)
+	}
+
+	instanceID, _, ok := queueid.Decode(got.GetJob().GetDeliveryId())
+	if !ok {
+		t.Fatalf("expected delivery id to include queue instance: %q", got.GetJob().GetDeliveryId())
+	}
+
+	if instanceID != "queue-a" {
+		t.Fatalf("expected instance queue-a, got %q", instanceID)
 	}
 }
 
@@ -216,6 +244,7 @@ func TestQueueDelivery_DLQSurvivesRestart(t *testing.T) {
 	}
 
 	// Restart.
+	closeQueueService(t, svc)
 	svc2, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{
 		DeliveryTTL:        ttl,
 		MaxRequeueAttempts: 1,

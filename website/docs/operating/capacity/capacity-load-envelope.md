@@ -13,7 +13,7 @@ This page answers "can this deployment shape handle my workload?" Scaling And Re
 | Area | Known-safe posture | Validate before relying on |
 | --- | --- | --- |
 | API replicas | One API process | Horizontal API replicas, because rate limiting is in-process per replica. |
-| Queue | One active queue service | Multiple active queue replicas; queue is not a shared distributed queue today. |
+| Queue | One or more independent queue shards | Shared multi-writer queue storage or active/passive failover for a single shard. |
 | Workers | Multiple workers, one run per process | Large worker fleets and DB pool sizing under high claim/renew/finalize rates. |
 | Cron | One or more cron processes in one shared database cell | Large schedule sets, cross-cell partitioning, and clock-skew tolerance. |
 | Reconciler | One active reconciler, with optional active/passive standbys | Sharded reconcilers under heavy queued-run repair load. |
@@ -30,7 +30,7 @@ Watch these when you increase workload, worker count, client concurrency, or log
 | Area | Pressure signal | What it usually means |
 | --- | --- | --- |
 | API | Rising request latency, `429`, `503`, or readiness failures | API replicas, rate limits, DB, queue, or log dependencies are saturated or unavailable. |
-| Queue | Pending depth grows and does not drain after load stops | Producers are outpacing workers, queue service is unhealthy, or workers cannot claim work. |
+| Queue | Pending depth grows and does not drain after load stops | Producers are outpacing workers, a queue shard is unhealthy, or workers cannot claim work. |
 | Workers | Queued-to-running latency rises | Worker count, worker host resources, database claims, or queue delivery are limiting throughput. |
 | Database | Pool waits, maxed in-use connections, slow queries, or storage growth | Pool size, query load, retention, or database host capacity needs attention. |
 | Logs | Append failures, replay truncation, stream disconnects, or low log storage space | Log service, spool, storage, or client replay demand is limiting observability. |

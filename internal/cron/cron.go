@@ -19,9 +19,7 @@ import (
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
 	"vectis/internal/queueclient"
-	"vectis/internal/resolver"
 
-	"google.golang.org/grpc"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
@@ -131,8 +129,10 @@ func (s *CronService) ConnectToQueue(ctx context.Context) error {
 	s.queueClient = nil
 
 	pin := config.CronQueueAddress()
-	mq, err := queueclient.NewManagingQueueService(ctx, s.logger, func(ctx context.Context) (*grpc.ClientConn, func(), error) {
-		return resolver.DialQueue(ctx, s.logger, pin, config.CronRegistryDialAddress(), s.retryMetrics)
+	mq, err := queueclient.NewManagingQueuePoolService(ctx, s.logger, queueclient.QueuePoolOptions{
+		PinnedAddress:   pin,
+		RegistryAddress: config.CronRegistryDialAddress(),
+		RetryMetrics:    s.retryMetrics,
 	})
 
 	if err != nil {

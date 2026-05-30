@@ -2,7 +2,7 @@
 
 This page explains how far you can scale each Vectis component today, which services should stay singleton, and what to expect when restarting them.
 
-The current posture is intentionally conservative: Vectis is safest as a single-site deployment with one shared SQL database, one active queue, one active log service, DB-coordinated cron replicas, one active reconciler lease holder, and as many workers as the database, queue, and log service can comfortably support.
+The current posture is intentionally conservative: Vectis is safest as a single-site deployment with one shared SQL database, one or more queue shards with separate persistence, one active log service, DB-coordinated cron replicas, one active reconciler lease holder, and as many workers as the database, queue, and log service can comfortably support.
 
 For dependency behavior during outages, see [Failure Domains](../../concepts/failure-domains.md). For reference deployment boundaries, see [Reference Deployment Posture](./reference-deployment-posture.md). For database pool sizing, see [Configuration](../configuration.md#postgresql-connection-pool-pgx-only).
 
@@ -14,7 +14,7 @@ This page answers "is this component topology supported, and what happens when i
 | --- | --- |
 | API | Can be replicated for stateless HTTP traffic with caveats. Keep the reconciler healthy. |
 | Workers | Primary safe scale-out unit. Add workers to increase job throughput. |
-| Queue | Run one active queue. Active/active queue replicas are not supported. |
+| Queue | Run one or more independent queue shards through registry discovery. Each shard owns one stable instance ID and one persistence directory. |
 | Registry | Run one registry by default, configure gossip clustering deliberately, or avoid registry dependency with pinned addresses. |
 | Log service | Run one active log service unless you add external storage/routing. |
 | Cron | Multiple cron instances may run against one shared database cell; schedule claims and scheduled-fire idempotency coordinate them. |
@@ -29,7 +29,7 @@ This page answers "is this component topology supported, and what happens when i
 | --- | ---: | --- | --- |
 | `vectis-api` | 1 | Conditional | Multiple API replicas can serve HTTP against the same database and queue. Rate limits are in-process per replica, SSE clients must reconnect through load balancers, and accepted-but-not-enqueued runs rely on the reconciler if an API exits after `202`. |
 | `vectis-worker` | N | Yes | Each worker executes one run at a time. Database claims and leases guard persisted runs against duplicate execution even if queue handoff is duplicated. Size DB pools, queue delivery timeouts, and log capacity for the fleet. |
-| `vectis-queue` | 1 | No active/active | Queue delivery state is owned by one queue process, with optional local persistence. Use one active endpoint and durable storage. |
+| `vectis-queue` | 1+ | Yes, as independent shards | Producers discover queue registrations and pick a shard. Workers dequeue across the pool and ack the shard encoded in the delivery ID. Do not duplicate active instance IDs or share one persistence directory across active queue processes. |
 | `vectis-registry` | 1 | Conditional | Single registry is the safe default. Gossip-based HA registry is available when every registry node is configured with static cluster membership; otherwise, multiple registries are independent. Pin addresses if registry availability is a concern. |
 | `vectis-log` | 1 | Not active/active | Durable log files and active stream buffers are local to the service. Multiple instances do not share run logs without external storage/routing. |
 | `vectis-cron` | 1+ | Yes, within one DB cell | Schedule claims select one firing attempt for a due row. If a retry sees the same schedule tick, it reuses the existing run and may repeat queue handoff for that run. Watch DB pressure, queue reachability, clock skew, and schedule-to-run latency. |
@@ -69,21 +69,22 @@ Put each API replica behind `/health/ready`, not just process liveness.
 
 ## Singleton Services
 
-These services should usually remain singleton in the current architecture:
+This service should usually remain singleton in the current architecture:
 
 | Service | Why |
 | --- | --- |
-| Queue | There is no shared distributed queue or multi-writer queue protocol. Queue persistence belongs to one active queue instance. |
 | Log service | Run log storage and active stream buffers are process-local. |
 
 Registry is also commonly singleton. Gossip-based registry HA is an advanced configured posture, not something you get by starting extra registry processes with independent state. You can also reduce registry importance by pinning queue and log addresses. See [Configuration](../configuration.md#service-discovery-vs-fixed-addresses).
+
+Each queue shard remains single-writer for its own WAL and snapshot files. Queue scale-out comes from adding shards, not from starting multiple active processes on the same queue persistence path. `vectis-queue` takes an advisory lock on the persistence directory and refuses to start when another process already owns it.
 
 ## Restart Behavior
 
 | Binary | What happens on restart | Operator expectation |
 | --- | --- | --- |
 | `vectis-api` | Stops accepting new HTTP requests and gives in-flight requests/SSE streams a bounded drain window. Detached enqueue work is not joined. | Use readiness checks and client retries. Keep reconciler running for accepted runs that missed queue handoff. |
-| `vectis-queue` | Reloads pending and in-flight delivery metadata when persistence is enabled. Without persistence, in-memory queue state is lost. | Use one active queue and persistent storage for planned restarts. Watch queue depth, delivery age, and reconciler repair. |
+| `vectis-queue` | Reloads pending and in-flight delivery metadata for that shard when persistence is enabled. Without persistence, in-memory queue state for that shard is lost. | Keep each shard on a stable `--instance-id` and durable, separate `--persistence-dir`; when omitted, defaults are derived from `--pool` and `hostname-port`. Watch per-shard depth, delivery age, and reconciler repair. |
 | `vectis-registry` | A single registry loses in-memory registrations and must receive fresh registrations. In a configured gossip cluster, peers can retain converged entries within lease and tombstone behavior. | Restart before dependents when possible, keep HA registry membership stable during planned restarts, or pin addresses for critical paths. |
 | `vectis-log` | Ingest and log streams are interrupted. Durable log files remain if storage is preserved; stream buffers are process-local. | Restart during a quiet window when possible. Workers need log service availability before executing runs. |
 | `vectis-worker` | On `SIGINT` or `SIGTERM`, stops dequeuing and lets the current job continue toward finalization. Abrupt death relies on leases, queue delivery timeout, and repair. | Roll workers gradually. Use graceful termination windows long enough for normal jobs, or expect long jobs to rely on lease/reconciler behavior after hard stops. |
@@ -128,7 +129,7 @@ For repair steps, see [Repair Runbooks](../reliability/repair-runbooks.md).
 | --- | --- |
 | Database | One configured logical database and schema. No in-app database failover, read-replica routing, or cross-site replication. |
 | API rate limits | In-memory per API process. |
-| Queue | One active queue endpoint. Persistence is local to that queue. |
+| Queue | Queue pool within one cell through registry discovery. Each shard has local persistence; no shared multi-writer queue storage. |
 | Logs | One active log service unless you add external storage/routing. |
 | Cron | DB-coordinated within one shared database cell; no built-in schedule partitioning across cells. |
 | Reconciler | Active/passive within one database cell through `service_leases`; not a sharded repair pool yet. |

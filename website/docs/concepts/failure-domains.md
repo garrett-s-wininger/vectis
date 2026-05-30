@@ -32,7 +32,7 @@ Most Vectis outages reduce to one of these questions:
 | Component | Runtime dependencies |
 | --- | --- |
 | `vectis-api` | Database; queue by pinned address or registry; log service for log routes. |
-| `vectis-queue` | Optional registry when it registers its address; persistence directory when queue persistence is enabled. |
+| `vectis-queue` | Optional registry when it registers its address; per-instance persistence directory when queue persistence is enabled. Active queues must not share an instance ID or persistence directory. |
 | `vectis-registry` | Listen socket and optional TLS files. |
 | `vectis-log` | Storage directory; gRPC ingest listener; HTTP/SSE log listener; optional registry. |
 | `vectis-worker` | Database; queue; log service; registry unless queue and log addresses are pinned. |
@@ -98,8 +98,10 @@ Queue persistence changes restart behavior:
 
 | Queue persistence | Restart effect |
 | --- | --- |
-| Enabled | Pending work and in-flight delivery metadata can be reloaded from disk. The storage path must be treated as durable state. |
-| Disabled | In-memory queue state is lost. Runs may still be queued in the database, so the reconciler is the recovery path. |
+| Enabled | Pending work and in-flight delivery metadata can be reloaded from disk for that queue shard. The storage path must be treated as durable state and must not be shared by multiple active queue processes; a second active process on the same path refuses to start. |
+| Disabled | In-memory queue state for that shard is lost. Runs may still be queued in the database, so the reconciler is the recovery path. |
+
+Queue instance IDs are part of delivery routing. A duplicate active instance ID is not a standby mode; it means the registry sees one logical shard at whichever address registered most recently.
 
 Run the reconciler and alert on persistent queued-run age if queue handoff matters for your deployment.
 
@@ -196,7 +198,7 @@ For reference deploys, add probes in dependency order: registry, queue, and log 
 | Area | Current behavior | Stronger production expectation |
 | --- | --- | --- |
 | Database | One configured SQL backend, embedded migrations, no in-app failover. | Managed PostgreSQL, tested backups, restore drills, and deployment-level HA. |
-| Queue | One active queue service with optional disk persistence. | Durable storage, queue-depth alerts, and capacity planning. |
+| Queue | One or more independent queue shards with optional per-shard disk persistence. | Durable per-shard storage, queue-depth alerts, and capacity planning. |
 | Registry | Commonly a single discovery point unless addresses are pinned. | Redundant discovery or fixed service addresses. |
 | Log service | Required before normal job execution. | Replication or local buffering if log availability must not block work. |
 | API | Health probes, graceful HTTP shutdown, auth when enabled, async enqueue backstopped by reconciler. | Edge TLS, idempotent clients, multiple replicas, and alerts on enqueue or reconciler failures. |

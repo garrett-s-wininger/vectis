@@ -18,6 +18,7 @@ New decisions add the next numbered file. Keep older decisions in place; when a 
 | [0004](./0004-migration-compatibility-and-rollback.md) | Accepted | Migration compatibility and rollback |
 | [0005](./0005-gossip-based-ha-registry.md) | Accepted | Gossip-based HA service registry |
 | [0006](./0006-global-coordination-cell-local-execution.md) | Accepted | Global coordination and cell-local execution |
+| [0007](./0007-queue-pool-shards.md) | Accepted | Queue pool shards |
 
 ## Writing Style
 

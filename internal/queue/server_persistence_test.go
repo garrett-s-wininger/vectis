@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,6 +12,23 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/interfaces/mocks"
 )
+
+type queueServiceCloser interface {
+	Close() error
+}
+
+func closeQueueService(t *testing.T, svc api.QueueServiceServer) {
+	t.Helper()
+
+	closer, ok := svc.(queueServiceCloser)
+	if !ok {
+		return
+	}
+
+	if err := closer.Close(); err != nil {
+		t.Fatalf("close queue service: %v", err)
+	}
+}
 
 func TestQueuePersistence_RestorePendingOrder(t *testing.T) {
 	dir := t.TempDir()
@@ -40,6 +58,7 @@ func TestQueuePersistence_RestorePendingOrder(t *testing.T) {
 		t.Fatalf("enqueue job-4: %v", err)
 	}
 
+	closeQueueService(t, svc)
 	restarted, err := NewQueueServiceWithOptions(mocks.NopLogger{}, QueueOptions{
 		PersistenceDir: dir,
 		SnapshotEvery:  8,
@@ -83,6 +102,7 @@ func TestQueuePersistence_RestoreFromSnapshot(t *testing.T) {
 
 	_, _ = svc.Dequeue(ctx, &api.Empty{})
 
+	closeQueueService(t, svc)
 	restarted, err := NewQueueServiceWithOptions(mocks.NopLogger{}, QueueOptions{
 		PersistenceDir: dir,
 		SnapshotEvery:  1,
@@ -159,6 +179,7 @@ func TestQueuePersistence_ExpiredRequeueSurvivesRestartBeforeSnapshot(t *testing
 		t.Fatalf("enqueue job-2: %v", err)
 	}
 
+	closeQueueService(t, svc)
 	restarted, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{
 		PersistenceDir: dir,
 		SnapshotEvery:  1000,
@@ -166,6 +187,7 @@ func TestQueuePersistence_ExpiredRequeueSurvivesRestartBeforeSnapshot(t *testing
 		WALSegmentMax:  256,
 		WALRetainTail:  2,
 	}, nil)
+
 	if err != nil {
 		t.Fatalf("restart queue: %v", err)
 	}
@@ -254,6 +276,7 @@ func TestQueuePersistence_JobAttemptsSurviveSnapshot(t *testing.T) {
 	time.Sleep(30 * time.Millisecond)
 
 	// Restart the queue. The snapshot should include jobAttempts for job-1.
+	closeQueueService(t, svc)
 	restarted, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{
 		PersistenceDir: dir,
 		SnapshotEvery:  4,
@@ -340,12 +363,14 @@ func TestQueuePersistence_DLQRequeueRemovesDeadLetterAfterRestart(t *testing.T) 
 		t.Fatalf("requeue dead letter: %v", err)
 	}
 
+	closeQueueService(t, svc)
 	restarted, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{
 		PersistenceDir:     dir,
 		SnapshotEvery:      1000,
 		DeliveryTTL:        20 * time.Millisecond,
 		MaxRequeueAttempts: 1,
 	}, nil)
+
 	if err != nil {
 		t.Fatalf("restart queue: %v", err)
 	}
@@ -354,8 +379,53 @@ func TestQueuePersistence_DLQRequeueRemovesDeadLetterAfterRestart(t *testing.T) 
 	if err != nil {
 		t.Fatalf("list dead letter after restart: %v", err)
 	}
+
 	if len(dlqAfter.Items) != 0 {
 		t.Fatalf("expected dead letter to be empty after restart, got %d", len(dlqAfter.Items))
+	}
+}
+
+func TestQueuePersistence_RejectsConcurrentPersistenceDir(t *testing.T) {
+	dir := t.TempDir()
+
+	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{
+		PersistenceDir: dir,
+		SnapshotEvery:  8,
+	}, nil)
+
+	if err != nil {
+		t.Fatalf("create persisted queue: %v", err)
+	}
+	defer closeQueueService(t, svc)
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestQueuePersistenceLockSubprocess$")
+	cmd.Env = append(os.Environ(),
+		"VECTIS_QUEUE_LOCK_SUBPROCESS=1",
+		"VECTIS_QUEUE_LOCK_DIR="+dir,
+	)
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("lock subprocess failed: %v\n%s", err, out)
+	}
+}
+
+func TestQueuePersistenceLockSubprocess(t *testing.T) {
+	if os.Getenv("VECTIS_QUEUE_LOCK_SUBPROCESS") != "1" {
+		t.Skip("helper test")
+	}
+
+	_, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{
+		PersistenceDir: os.Getenv("VECTIS_QUEUE_LOCK_DIR"),
+		SnapshotEvery:  8,
+	}, nil)
+
+	if err == nil {
+		t.Fatalf("expected concurrent persistence directory to be rejected")
+	}
+
+	if !strings.Contains(err.Error(), "already in use") {
+		t.Fatalf("expected already in use error, got %v", err)
 	}
 }
 

@@ -518,8 +518,10 @@ func (s *APIServer) ConnectToQueue(ctx context.Context) error {
 		old.close()
 	}
 
-	mq, err := queueclient.NewManagingQueueService(ctx, s.logger, func(ctx context.Context) (*grpc.ClientConn, func(), error) {
-		return resolver.DialQueue(ctx, s.logger, config.PinnedQueueAddress(), config.APIRegistryDialAddress(), s.retryMetrics)
+	mq, err := queueclient.NewManagingQueuePoolService(ctx, s.logger, queueclient.QueuePoolOptions{
+		PinnedAddress:   config.PinnedQueueAddress(),
+		RegistryAddress: config.APIRegistryDialAddress(),
+		RetryMetrics:    s.retryMetrics,
 	})
 
 	if err != nil {

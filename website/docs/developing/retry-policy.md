@@ -65,7 +65,7 @@ Most retry attempt counts and backoff constants are currently code defaults. Ope
 | Avoid registry dial/registration on dependent startup | Pin queue/log addresses with the role-specific discovery variables in [Configuration](../operating/configuration.md#service-discovery-vs-fixed-addresses). |
 | Change resolver refresh after discovery errors | Override discovery timing settings: resolver refresh 10s, poll timeout 5s, error refresh 2s, registration heartbeat 45s by default. |
 | Control how often queued runs are redispatched | `VECTIS_RECONCILER_INTERVAL` / `--interval` on `vectis-reconciler`. |
-| Preserve queue backlog across queue restarts | Set `VECTIS_QUEUE_PERSISTENCE_DIR` or `--persistence-dir`. Empty disables queue persistence. |
+| Preserve queue backlog across queue restarts | Keep queue persistence enabled using the derived default path, or set `VECTIS_QUEUE_PERSISTENCE_DIR` / `--persistence-dir` explicitly. Empty disables queue persistence. |
 | Preserve worker-to-log-forwarder batches | Configure a durable spool directory for the log-forwarder. |
 | Bound database connection churn during outages | Tune the Postgres `VECTIS_DATABASE_PGX_*` pool settings. |
 
