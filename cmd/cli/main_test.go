@@ -1546,8 +1546,8 @@ func TestDoctor_queueBacklogEvidenceIncludesCells(t *testing.T) {
 func TestDoctor_cellIngressRoutesWarnsForUnhealthyCells(t *testing.T) {
 	check := doctorCheckCellsStatusResponse(t, map[string]any{
 		"cells": []map[string]any{
-			{"cell_id": "iad-a", "ingress_reachable": true, "status": "ready"},
-			{"cell_id": "pdx-b", "ingress_reachable": false, "status": "unreachable"},
+			{"cell_id": "iad-a", "ingress_required": true, "ingress_configured": true, "ingress_reachable": true, "status": "ready"},
+			{"cell_id": "pdx-b", "ingress_required": true, "ingress_configured": false, "ingress_reachable": false, "status": "missing_route"},
 		},
 	})
 
@@ -1555,7 +1555,7 @@ func TestDoctor_cellIngressRoutesWarnsForUnhealthyCells(t *testing.T) {
 		t.Fatalf("expected unhealthy cell ingress route to warn, got %#v", check)
 	}
 
-	for _, want := range []string{"iad-a:ready", "pdx-b:unreachable"} {
+	for _, want := range []string{"iad-a:ready", "pdx-b:missing_route"} {
 		if !strings.Contains(check.Evidence, want) {
 			t.Fatalf("expected evidence to contain %q, got %q", want, check.Evidence)
 		}

@@ -636,11 +636,22 @@ func doctorCellIngressRoutes() doctorCheck {
 		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no cell ingress routes configured", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
+	ready := 0
+	required := 0
 	unhealthy := 0
 	for _, cell := range result.Cells {
-		if cell.Status != "ready" || !cell.IngressReachable {
-			unhealthy++
+		routeRequired := cell.IngressRequired || cell.IngressConfigured
+		if !routeRequired {
+			continue
 		}
+
+		required++
+		if cell.Status == "ready" && cell.IngressReachable {
+			ready++
+			continue
+		}
+
+		unhealthy++
 	}
 
 	evidence := formatDoctorCellIngressEvidence(result.Cells)
@@ -648,13 +659,19 @@ func doctorCellIngressRoutes() doctorCheck {
 		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d cell ingress routes unhealthy", unhealthy), Evidence: evidence, SuggestedAction: "Check cell ingress processes, route map, and network path", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("%d cell ingress routes ready", len(result.Cells)), Evidence: evidence, DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	if required == 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no cell ingress routes required", Evidence: evidence, DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	}
+
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("%d cell ingress routes ready", ready), Evidence: evidence, DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 }
 
 type doctorCellIngressStatus struct {
-	CellID           string `json:"cell_id"`
-	IngressReachable bool   `json:"ingress_reachable"`
-	Status           string `json:"status"`
+	CellID            string `json:"cell_id"`
+	IngressRequired   bool   `json:"ingress_required"`
+	IngressConfigured bool   `json:"ingress_configured"`
+	IngressReachable  bool   `json:"ingress_reachable"`
+	Status            string `json:"status"`
 }
 
 func formatDoctorCellIngressEvidence(cells []doctorCellIngressStatus) string {

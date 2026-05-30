@@ -331,7 +331,11 @@ func TestAPIServer_GetCellsStatusChecksConfiguredIngress(t *testing.T) {
 		"iad-a=" + ready.URL,
 	})
 
-	server := api.NewAPIServerWithRepositories(mocks.NewMockLogger(), mocks.NewMockJobsRepository(), mocks.NewMockRunsRepository(), mocks.StubEphemeralRunStarter{})
+	runs := mocks.NewMockRunsRepository()
+	runs.CountByStatusByCellResult = []dal.RunCountByCell{{CellID: "sjc-c", Count: 4}}
+	runs.CountStuckByCell = []dal.RunCountByCell{{CellID: "sjc-c", Count: 2}}
+
+	server := api.NewAPIServerWithRepositories(mocks.NewMockLogger(), mocks.NewMockJobsRepository(), runs, mocks.StubEphemeralRunStarter{})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/cells/status", nil)
 	rec := httptest.NewRecorder()
 	server.GetCellsStatus(rec, req)
@@ -343,11 +347,14 @@ func TestAPIServer_GetCellsStatusChecksConfiguredIngress(t *testing.T) {
 	var body struct {
 		Cells []struct {
 			CellID            string `json:"cell_id"`
+			IngressRequired   bool   `json:"ingress_required"`
 			IngressConfigured bool   `json:"ingress_configured"`
 			IngressReachable  bool   `json:"ingress_reachable"`
 			Status            string `json:"status"`
 			HTTPStatus        int    `json:"http_status"`
 			Error             string `json:"error"`
+			Queued            int64  `json:"queued"`
+			Stuck             int64  `json:"stuck"`
 		} `json:"cells"`
 	}
 
@@ -355,16 +362,70 @@ func TestAPIServer_GetCellsStatusChecksConfiguredIngress(t *testing.T) {
 		t.Fatalf("decode response: %v; body=%s", err, rec.Body.String())
 	}
 
-	if len(body.Cells) != 2 {
-		t.Fatalf("cells len: got %d, want 2 (%+v)", len(body.Cells), body.Cells)
+	if len(body.Cells) != 3 {
+		t.Fatalf("cells len: got %d, want 3 (%+v)", len(body.Cells), body.Cells)
 	}
 
-	if body.Cells[0].CellID != "iad-a" || !body.Cells[0].IngressConfigured || !body.Cells[0].IngressReachable || body.Cells[0].Status != "ready" || body.Cells[0].HTTPStatus != http.StatusOK {
+	if body.Cells[0].CellID != "iad-a" || !body.Cells[0].IngressRequired || !body.Cells[0].IngressConfigured || !body.Cells[0].IngressReachable || body.Cells[0].Status != "ready" || body.Cells[0].HTTPStatus != http.StatusOK {
 		t.Fatalf("ready cell: got %+v", body.Cells[0])
 	}
 
-	if body.Cells[1].CellID != "pdx-b" || !body.Cells[1].IngressConfigured || body.Cells[1].IngressReachable || body.Cells[1].Status != "unhealthy" || body.Cells[1].HTTPStatus != http.StatusServiceUnavailable {
+	if body.Cells[1].CellID != "pdx-b" || !body.Cells[1].IngressRequired || !body.Cells[1].IngressConfigured || body.Cells[1].IngressReachable || body.Cells[1].Status != "unhealthy" || body.Cells[1].HTTPStatus != http.StatusServiceUnavailable {
 		t.Fatalf("unhealthy cell: got %+v", body.Cells[1])
+	}
+
+	if body.Cells[2].CellID != "sjc-c" || !body.Cells[2].IngressRequired || body.Cells[2].IngressConfigured || body.Cells[2].IngressReachable || body.Cells[2].Status != "missing_route" || body.Cells[2].Queued != 4 || body.Cells[2].Stuck != 2 {
+		t.Fatalf("missing route cell: got %+v", body.Cells[2])
+	}
+}
+
+func TestAPIServer_GetCellsStatusIncludesCatalogSourceCounts(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	server, _, _, db := setupTestServer(t)
+	ctx := context.Background()
+	events := dal.NewSQLRepositories(db).CatalogEvents()
+
+	failed, _, err := events.Record(ctx, "pdx-b", "failed-event", "run.status", []byte(`{"run_id":"run-1","status":"failed"}`))
+	if err != nil {
+		t.Fatalf("record failed event: %v", err)
+	}
+	if _, _, err := events.Record(ctx, "pdx-b", "pending-event", "execution.status", []byte(`{"execution_id":"execution-1","status":"running"}`)); err != nil {
+		t.Fatalf("record pending event: %v", err)
+	}
+	if err := events.MarkFailed(ctx, failed.ID, "apply failed"); err != nil {
+		t.Fatalf("mark failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cells/status", nil)
+	rec := httptest.NewRecorder()
+	server.GetCellsStatus(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var body struct {
+		Cells []struct {
+			CellID         string `json:"cell_id"`
+			Status         string `json:"status"`
+			CatalogPending int64  `json:"catalog_pending"`
+			CatalogFailed  int64  `json:"catalog_failed"`
+			CatalogTotal   int64  `json:"catalog_total"`
+		} `json:"cells"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v; body=%s", err, rec.Body.String())
+	}
+
+	if len(body.Cells) != 1 {
+		t.Fatalf("cells len: got %d, want 1 (%+v)", len(body.Cells), body.Cells)
+	}
+
+	if body.Cells[0].CellID != "pdx-b" || body.Cells[0].Status != "missing_route" || body.Cells[0].CatalogPending != 1 || body.Cells[0].CatalogFailed != 1 || body.Cells[0].CatalogTotal != 2 {
+		t.Fatalf("unexpected catalog source cell: %+v", body.Cells[0])
 	}
 }
 

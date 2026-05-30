@@ -113,7 +113,7 @@ The global API also exposes configured ingress readiness:
 curl -sS http://localhost:8080/api/v1/cells/status
 ```
 
-This reports cell IDs and readiness state for configured ingress routes without returning the private ingress URLs. `vectis-cli doctor` uses the same endpoint for the `cells.ingress` check.
+This reports cell IDs, ingress route readiness, queued/stuck run counts, and catalog inbox counts without returning the private ingress URLs. Cells are included when they have a configured ingress route or when the global run/catalog state already references them. `vectis-cli doctor` uses the same endpoint for the `cells.ingress` check, so work targeting a cell with no route shows up as `missing_route`.
 
 ## Running Locally
 
