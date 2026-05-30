@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/job"
 	"vectis/internal/logserver"
+	"vectis/internal/reconciler"
 	"vectis/internal/testutil/dbtest"
 	"vectis/internal/testutil/grpcservices"
 
@@ -257,6 +259,130 @@ func TestIntegrationMultiCell_FailedExecutionPropagatesThroughCatalog(t *testing
 	}
 
 	assertGlobalAPIRunStatus(t, api, jobID, runID, c.id, dal.RunStatusFailed)
+}
+
+func TestIntegrationMultiCell_UnroutableCellRecordsDispatchFailure(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+
+	ctx := context.Background()
+	logger := mocks.NewMockLogger()
+	cellID := "missing-cell"
+	jobID := "integration-multicell-unroutable"
+	definition := `{"id":"integration-multicell-unroutable","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo unroutable"}}}`
+
+	globalDB := dbtest.NewTestDB(t)
+	globalRepos := dal.NewSQLRepositoriesWithCellID(globalDB, dal.DefaultCellID)
+	if err := globalRepos.Jobs().Create(ctx, jobID, definition, 1); err != nil {
+		t.Fatalf("create global job: %v", err)
+	}
+
+	api := apiserver.NewAPIServer(logger, globalDB)
+	api.SetExecutionIngress(cell.NewStaticExecutionRouter(map[string]cell.ExecutionIngress{}))
+
+	runID := triggerJobInCell(t, api, jobID, cellID)
+	events := waitForDispatchEvents(t, ctx, globalRepos, runID, 2)
+	assertDispatchFailure(t, events, cellID, "cell not routable")
+	assertGlobalAPIRunStatus(t, api, jobID, runID, cellID, dal.RunStatusQueued)
+}
+
+func TestIntegrationMultiCell_UnavailableCellIngressRecordsDispatchFailure(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+
+	ctx := context.Background()
+	logger := mocks.NewMockLogger()
+	cellID := "lax-a"
+	jobID := "integration-multicell-ingress-down"
+	definition := `{"id":"integration-multicell-ingress-down","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo ingress-down"}}}`
+
+	globalDB := dbtest.NewTestDB(t)
+	globalRepos := dal.NewSQLRepositoriesWithCellID(globalDB, dal.DefaultCellID)
+	if err := globalRepos.Jobs().Create(ctx, jobID, definition, 1); err != nil {
+		t.Fatalf("create global job: %v", err)
+	}
+
+	closedIngress := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("closed ingress unexpectedly received %s %s", r.Method, r.URL.Path)
+	}))
+	ingressURL := closedIngress.URL
+	ingressClient := closedIngress.Client()
+	closedIngress.Close()
+
+	api := apiserver.NewAPIServer(logger, globalDB)
+	api.SetExecutionIngress(cell.NewStaticExecutionRouter(map[string]cell.ExecutionIngress{
+		cellID: cell.NewHTTPExecutionIngress(ingressURL, ingressClient, logger),
+	}))
+
+	runID := triggerJobInCell(t, api, jobID, cellID)
+	events := waitForDispatchEvents(t, ctx, globalRepos, runID, 2)
+	assertDispatchFailure(t, events, "submit execution to cell ingress")
+	assertGlobalAPIRunStatus(t, api, jobID, runID, cellID, dal.RunStatusQueued)
+}
+
+func TestIntegrationMultiCell_ReconcilerRepairsFailedDispatchThroughCellIngress(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+
+	ctx := context.Background()
+	logger := mocks.NewMockLogger()
+	cellID := "den-a"
+	jobID := "integration-multicell-repair"
+	definition := `{"id":"integration-multicell-repair","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo repaired"}}}`
+
+	globalDB := dbtest.NewTestDB(t)
+	globalRepos := dal.NewSQLRepositoriesWithCellID(globalDB, dal.DefaultCellID)
+	if err := globalRepos.Jobs().Create(ctx, jobID, definition, 1); err != nil {
+		t.Fatalf("create global job: %v", err)
+	}
+
+	api := apiserver.NewAPIServer(logger, globalDB)
+	api.SetExecutionIngress(cell.NewStaticExecutionRouter(map[string]cell.ExecutionIngress{}))
+
+	runID := triggerJobInCell(t, api, jobID, cellID)
+	events := waitForDispatchEvents(t, ctx, globalRepos, runID, 2)
+	assertDispatchFailure(t, events, cellID, "cell not routable")
+	assertGlobalAPIRunStatus(t, api, jobID, runID, cellID, dal.RunStatusQueued)
+
+	logStore, err := logserver.NewLocalRunLogStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("create log store: %v", err)
+	}
+
+	_, logClient := grpcservices.StartLogServer(t, logger, logStore)
+	c := startIntegrationCell(t, cellID, logger, logClient)
+
+	rec := reconciler.NewService(logger, globalDB, mocks.NewMockQueueService(), interfaces.SystemClock{})
+	rec.SetMinDispatchGap(1 * time.Millisecond)
+	rec.SetExecutionIngress(cell.NewStaticExecutionRouter(map[string]cell.ExecutionIngress{
+		cellID: c.ingress,
+	}))
+
+	if err := rec.Process(ctx); err != nil {
+		t.Fatalf("reconciler process: %v", err)
+	}
+
+	events = waitForDispatchEvents(t, ctx, globalRepos, runID, 4)
+	assertDispatchSuccessAfterFailure(t, events)
+
+	if err := c.worker.runOne(ctx); err != nil {
+		t.Fatalf("worker run after repair: %v", err)
+	}
+
+	assertCellRunStatus(t, ctx, c.repos, runID, dal.RunStatusSucceeded)
+
+	fanInResult, processResult := fanInAndProcess(t, ctx, globalRepos, []*integrationCell{c})
+	if fanInResult.Copied == 0 || fanInResult.Read == 0 {
+		t.Fatalf("unexpected fan-in result: %+v", fanInResult)
+	}
+	if processResult.Failed != 0 || processResult.Applied == 0 {
+		t.Fatalf("unexpected catalog inbox result: %+v", processResult)
+	}
+
+	assertGlobalAPIRunStatus(t, api, jobID, runID, cellID, dal.RunStatusSucceeded)
 }
 
 type integrationCell struct {
@@ -531,6 +657,90 @@ func assertGlobalAPIRuns(t *testing.T, api *apiserver.APIServer, jobID string, w
 		if run.OwningCell != expectation.owningCell {
 			t.Fatalf("global API run %s owning cell: got %q, want %q", runID, run.OwningCell, expectation.owningCell)
 		}
+	}
+}
+
+func waitForDispatchEvents(t *testing.T, ctx context.Context, repos *dal.SQLRepositories, runID string, want int) []dal.DispatchEvent {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	var events []dal.DispatchEvent
+	for {
+		var err error
+		events, err = repos.DispatchEvents().ListByRun(ctx, runID)
+		if err != nil {
+			t.Fatalf("list dispatch events: %v", err)
+		}
+
+		if len(events) >= want {
+			return events
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %d dispatch events for run %s, got %+v", want, runID, events)
+		}
+
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func assertDispatchFailure(t *testing.T, events []dal.DispatchEvent, messageParts ...string) {
+	t.Helper()
+
+	if len(events) < 2 {
+		t.Fatalf("expected at least dispatch attempt and failure, got %+v", events)
+	}
+
+	attempt := events[0]
+	if attempt.Source != dal.DispatchSourceAPI || attempt.EventType != dal.DispatchEventAttempt {
+		t.Fatalf("unexpected dispatch attempt event: %+v", attempt)
+	}
+
+	for _, event := range events {
+		if event.EventType == dal.DispatchEventSuccess {
+			t.Fatalf("dispatch should not have succeeded, got events %+v", events)
+		}
+	}
+
+	failure := events[len(events)-1]
+	if failure.Source != dal.DispatchSourceAPI || failure.EventType != dal.DispatchEventFailure {
+		t.Fatalf("unexpected dispatch failure event: %+v", failure)
+	}
+
+	if failure.Message == nil {
+		t.Fatalf("dispatch failure did not include a message: %+v", failure)
+	}
+
+	for _, part := range messageParts {
+		if !strings.Contains(*failure.Message, part) {
+			t.Fatalf("dispatch failure message %q does not contain %q", *failure.Message, part)
+		}
+	}
+}
+
+func assertDispatchSuccessAfterFailure(t *testing.T, events []dal.DispatchEvent) {
+	t.Helper()
+
+	if len(events) < 4 {
+		t.Fatalf("expected API failure and reconciler success dispatch events, got %+v", events)
+	}
+
+	hasAPIFailure := false
+	hasReconcilerAttempt := false
+	hasReconcilerSuccess := false
+	for _, event := range events {
+		switch {
+		case event.Source == dal.DispatchSourceAPI && event.EventType == dal.DispatchEventFailure:
+			hasAPIFailure = true
+		case event.Source == dal.DispatchSourceReconciler && event.EventType == dal.DispatchEventAttempt:
+			hasReconcilerAttempt = true
+		case event.Source == dal.DispatchSourceReconciler && event.EventType == dal.DispatchEventSuccess:
+			hasReconcilerSuccess = true
+		}
+	}
+
+	if !hasAPIFailure || !hasReconcilerAttempt || !hasReconcilerSuccess {
+		t.Fatalf("dispatch events do not show API failure followed by reconciler success: %+v", events)
 	}
 }
 
