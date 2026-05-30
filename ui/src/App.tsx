@@ -1,6 +1,7 @@
 import type { FormEvent, MouseEvent } from "react";
 import { useEffect, useState } from "react";
 import "./index.css";
+import vectisLogo from "../../assets/brand/public/vectis.png";
 import { completeSetup, login, logout } from "./api/auth";
 import { Button } from "./components";
 import { AppShell } from "./components";
@@ -306,8 +307,7 @@ function SetupPage({
   return (
     <main className="app-frame app-frame--centered">
       <section className="auth-panel" aria-labelledby="setup-title">
-        <p className="eyebrow">Vectis Console</p>
-        <h1 id="setup-title">Complete setup</h1>
+        <AuthHeader subtitle="Vectis Console" title="Complete setup" titleID="setup-title" />
         <form className="auth-form" onSubmit={onSubmit}>
           <FormField
             autoComplete="off"
@@ -362,8 +362,7 @@ function LoginPage({
   return (
     <main className="app-frame app-frame--centered">
       <section className="auth-panel" aria-labelledby="login-title">
-        <p className="eyebrow">Vectis Console</p>
-        <h1 id="login-title">Sign in</h1>
+        <AuthHeader subtitle="Vectis Console" title="Sign in" titleID="login-title" />
         <form className="auth-form" onSubmit={onSubmit}>
           <FormField
             autoComplete="username"
@@ -389,6 +388,20 @@ function LoginPage({
         </form>
       </section>
     </main>
+  );
+}
+
+function AuthHeader({ subtitle, title, titleID }: { subtitle: string; title: string; titleID: string }) {
+  return (
+    <div className="auth-panel__header">
+      <div className="auth-panel__logo-frame">
+        <img alt="Vectis" className="auth-panel__logo" src={vectisLogo} />
+      </div>
+      <div>
+        <p className="eyebrow">{subtitle}</p>
+        <h1 id={titleID}>{title}</h1>
+      </div>
+    </div>
   );
 }
 
