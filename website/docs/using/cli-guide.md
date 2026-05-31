@@ -325,7 +325,9 @@ These commands are useful, but they change durable state or deployment state. Us
 | Apply retention cleanup | `./bin/vectis-cli retention cleanup --yes` |
 | Generate Podman deployment secrets | `./bin/vectis-cli deploy podman init` |
 | Render the Podman manifest | `./bin/vectis-cli deploy podman render` |
+| Render the Podman HA profile | `./bin/vectis-cli deploy podman --profile ha render` |
 | Start or replace the Podman reference deployment | `./bin/vectis-cli deploy podman up` |
+| Start or replace the Podman HA profile | `./bin/vectis-cli deploy podman --profile ha up` |
 | Show Podman deployment status | `./bin/vectis-cli deploy podman status` |
 | Stop the Podman deployment | `./bin/vectis-cli deploy podman down` |
 

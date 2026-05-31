@@ -62,15 +62,15 @@ Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-thirteen-
 | `vectis-api` | `VECTIS_API_SERVER` | `[api]` in [`../internal/config/defaults.toml`](../internal/config/defaults.toml); `VECTIS_API_SERVER_HOST` / `--host` controls HTTP bind host; `--cell-ingress-endpoint cell=url` configures remote cell execution ingress routes; ad hoc `VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS` for [`trusted-proxy-client-ip.md`](../website/docs/operating/deployment/trusted-proxy-client-ip.md) |
 | `vectis-cell-ingress` | `VECTIS_CELL_INGRESS` | `[cell_ingress]`; private HTTP `POST /cell/v1/executions`, local execution repair, plus queue discovery/pinned queue settings |
 | `vectis-queue` | `VECTIS_QUEUE` | `[queue]`; default instance ID is `hostname-port`, default persistence is `queue/<pool>/<instance-id>`; keep active shards unique |
-| `vectis-registry` | `VECTIS_REGISTRY` | `[registry]` |
-| `vectis-log` | `VECTIS_LOG` | `[log]`; default instance ID is `hostname-port`, default storage is `log/<instance-id>`, and `--storage-read-only-min-free-bytes` protects new run files under disk pressure |
+| `vectis-registry` | `VECTIS_REGISTRY` | `[registry]`; HA gossip membership uses `VECTIS_REGISTRY_CLUSTER_*` |
+| `vectis-log` | `VECTIS_LOG` | `[log]`; default instance ID is `hostname-port`, default storage is `log/<instance-id>`, `--grpc-port` changes the ingest/read listener, and `--storage-read-only-min-free-bytes` protects new run files under disk pressure |
 | `vectis-worker` | `VECTIS_WORKER` | `[worker]` |
 | `vectis-cron` | `VECTIS_CRON` | `[cron]`; `--instance-id` labels schedule claims, `--claim-ttl` bounds claim failover |
 | `vectis-catalog` | `VECTIS_CATALOG` | `[catalog]`; `--cell-database-dsn cell=dsn` / `VECTIS_CATALOG_CELL_DATABASE_DSNS` configures catalog fan-in from cell-local DBs |
 | `vectis-docs` | `VECTIS_DOCS` | static docs server; default host `localhost`, default port `8088`, serves embedded docs unless `VECTIS_DOCS_DIR` overrides |
 | `vectis-reconciler` | `VECTIS_RECONCILER` | `[reconciler]` |
 | `vectis-log-forwarder` | `VECTIS_LOG_FORWARDER` | `[log_forwarder]` for metrics port plus flat viper keys — see flags in [`log-forwarder/main.go`](log-forwarder/main.go) |
-| `vectis-local` | `VECTIS_LOCAL` | orchestrates stack; `VECTIS_LOCAL_HOST` controls local API and docs HTTP bind host; `--cell` / `VECTIS_LOCAL_CELLS` adds extra local execution cells |
+| `vectis-local` | `VECTIS_LOCAL` | orchestrates stack; `VECTIS_LOCAL_PROFILE=ha` starts a local multi-instance HA exercise cell, `VECTIS_LOCAL_HOST` controls local API and docs HTTP bind host, and `--cell` / `VECTIS_LOCAL_CELLS` adds extra local execution cells in the simple profile |
 | `vectis-cli` | *(none)* | [`internal/config`](../internal/config/) + `os.Getenv` — see [`../internal/config/api_auth.go`](../internal/config/api_auth.go) |
 
 Shared TOML sections: [`../internal/config/defaults.toml`](../internal/config/defaults.toml) (`[database]`, `[discovery]`, `[grpc_tls]`, `[metrics_tls]`, …).

@@ -49,6 +49,7 @@ func showCommandHelp(cmd *cobra.Command, args []string) {
 
 var (
 	podmanNetwork     string
+	podmanProfile     string
 	podmanKubeSpec    string
 	podmanGrafanaSpec string
 	podmanRenderOut   string
@@ -171,6 +172,7 @@ func init() {
 	rootCmd.AddCommand(databaseCmd)
 
 	deployPodmanCmd.PersistentFlags().StringVar(&podmanNetwork, "network", "pasta", "Podman network mode for play kube")
+	deployPodmanCmd.PersistentFlags().StringVar(&podmanProfile, "profile", podmanProfileSimple, "Deployment profile: simple or ha")
 	deployPodmanCmd.PersistentFlags().StringVar(&podmanKubeSpec, "kube-spec", defaultPodmanKubeSpec, "Path to the Podman kube spec template")
 	deployPodmanCmd.PersistentFlags().StringVar(&podmanGrafanaSpec, "grafana-spec", defaultPodmanGrafanaSpec, "Path to generated Grafana ConfigMaps")
 	deployPodmanInitCmd.Flags().Bool("rotate", false, "Regenerate deployment secrets")

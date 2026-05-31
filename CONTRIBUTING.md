@@ -122,7 +122,7 @@ For single-service debugging, build first, then run the matching binary from `bi
 If you change dashboard JSON under [deploy/grafana/dashboards/](deploy/grafana/dashboards/), regenerate the Podman ConfigMap bundle:
 
 ```bash
-python3 deploy/podman/generate-grafana-configmaps.py -o deploy/podman/grafana-configmaps.gen.yaml
+make podman-grafana-configmaps
 ```
 
 ## Where To Change Things

@@ -32,6 +32,8 @@ Some settings are global and intentionally do not use a service prefix, such as 
 | Bind API HTTP to another interface | `VECTIS_API_SERVER_HOST=0.0.0.0` or `vectis-api --host 0.0.0.0` |
 | Expose local API and docs from a dev host | `vectis-local --host 0.0.0.0` |
 | Add local execution cells for routing tests | `vectis-local --cell pdx-b --cell sjc-c` |
+| Run a local multi-instance HA exercise cell | `vectis-local --profile ha` or `VECTIS_LOCAL_PROFILE=ha` |
+| Run the Podman HA reference profile | `vectis-cli deploy podman --profile ha up` |
 | Set the execution cell identity | `VECTIS_CELL_ID=local` |
 | Bind private cell ingress to another interface | `VECTIS_CELL_INGRESS_HOST=0.0.0.0` or `vectis-cell-ingress --host 0.0.0.0` |
 | Route API dispatch to a remote cell | `vectis-api --cell-ingress-endpoint iad-a=http://iad.example:8085` |
@@ -61,15 +63,15 @@ Use these prefixes when building service-specific environment variable names.
 | `vectis-api` | `VECTIS_API_SERVER` | `--host`, `--port`, `--cell-ingress-endpoint` |
 | `vectis-cell-ingress` | `VECTIS_CELL_INGRESS` | `--host`, `--port`, `--metrics-port`, `--repair-interval`, `--queue-address`, `--registry-address` |
 | `vectis-queue` | `VECTIS_QUEUE` | `--port`, `--metrics-port`, `--pool`, `--instance-id`, `--persistence-dir`, `--persistence-snapshot-every` |
-| `vectis-registry` | `VECTIS_REGISTRY` | `--port` |
-| `vectis-log` | `VECTIS_LOG` | `--instance-id`, `--storage-dir`, `--storage-read-only-min-free-bytes`, `--metrics-port`, `--max-run-buffers` |
+| `vectis-registry` | `VECTIS_REGISTRY` | `--port`; cluster membership uses `VECTIS_REGISTRY_CLUSTER_*` |
+| `vectis-log` | `VECTIS_LOG` | `--instance-id`, `--storage-dir`, `--storage-read-only-min-free-bytes`, `--grpc-port`, `--metrics-port`, `--max-run-buffers` |
 | `vectis-worker` | `VECTIS_WORKER` | `--metrics-port` |
 | `vectis-cron` | `VECTIS_CRON` | `--instance-id`, `--claim-ttl` |
 | `vectis-reconciler` | `VECTIS_RECONCILER` | `--interval`, `--lease-ttl`, `--metrics-port` |
 | `vectis-catalog` | `VECTIS_CATALOG` | `--interval`, `--batch-size`, `--metrics-port`, `--cell-database-dsn` |
 | `vectis-log-forwarder` | `VECTIS_LOG_FORWARDER` | `--socket`, `--lockfile`, `--spool-dir`, `--metrics-port` |
 | `vectis-docs` | `VECTIS_DOCS` | `--host`, `--port`, `--dir` |
-| `vectis-local` | `VECTIS_LOCAL` | `--host`, `--cell`, `--docs-port`, `--docs-dir`, `--log-level`, `--grpc-insecure` |
+| `vectis-local` | `VECTIS_LOCAL` | `--profile`, `--host`, `--cell`, `--docs-port`, `--docs-dir`, `--log-level`, `--grpc-insecure` |
 | `vectis-cli` | none for normal API commands | `VECTIS_API_TOKEN` for auth; `VECTIS_DATABASE_*` for `database migrate` |
 
 The API client IP trust setting is an intentionally separate API-wide variable: `VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS`.
@@ -204,6 +206,12 @@ Replace the prefix with the service prefix. For example:
 ```sh
 VECTIS_WORKER_DISCOVERY_REGISTRY_ADDRESS=localhost:8082
 VECTIS_WORKER_WORKER_QUEUE_ADDRESS=localhost:8081
+```
+
+For a multi-registry cell, set the unscoped registry list on every service that uses discovery:
+
+```sh
+VECTIS_DISCOVERY_REGISTRY_ADDRESSES=reg-a:8082,reg-b:8082,reg-c:8082
 ```
 
 Registration toggles:

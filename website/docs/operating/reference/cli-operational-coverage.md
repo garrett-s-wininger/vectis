@@ -20,7 +20,7 @@ For task walkthroughs, use the [CLI Guide](../../using/cli-guide.md). For repair
 | Health checks | Run operator checks against API and local deployment paths. | `vectis-cli health check`, `--json`, `--strict` |
 | Database migrations | Apply embedded SQL migrations during deploy, upgrade, or restore. | `vectis-cli database migrate` |
 | Retention | Preview or apply cleanup for old durable records. | `vectis-cli retention cleanup --dry-run`, `--yes` |
-| Reference deploy | Render, start, stop, and inspect the Podman reference deployment. | `vectis-cli deploy podman init`, `render`, `up`, `status`, `down` |
+| Reference deploy | Render, start, stop, and inspect the Podman reference deployment, including `--profile simple` and `--profile ha`. | `vectis-cli deploy podman init`, `render`, `up`, `status`, `down` |
 | Local reset | Preview or reset local Vectis development state. | `vectis-cli local reset --dry-run`, `--yes` |
 
 ## Routine Operator Commands

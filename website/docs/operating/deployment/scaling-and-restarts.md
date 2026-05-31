@@ -23,6 +23,17 @@ This page answers "is this component topology supported, and what happens when i
 | Log-forwarder | One per producer host or process group, each with its own socket/spool path. |
 | `vectis-local` | Development only. Do not treat it as a production control plane. |
 
+## Local HA Exercise Profiles
+
+Use these profiles when you want to test the single-cell HA contract without hand-starting every process:
+
+| Tool | Command | Shape |
+| --- | --- | --- |
+| `vectis-local` | `vectis-local --profile ha` | Starts a local multi-process cell with three registries, two queue shards, two log shards, two API replicas, two workers, two cron instances, and two reconcilers. |
+| Podman reference deployment | `vectis-cli deploy podman --profile ha up` | Renders and starts the same HA exercise shape inside the reference Podman pod, backed by the bundled Postgres and persistent queue/log volumes. |
+
+The default profile remains `simple` for both tools. HA profiles are intended for local validation of registry failover, queue/log sharding, cron claims, reconciler lease takeover, worker drain behavior, and API replica behavior.
+
 ## Replica Matrix
 
 | Binary | Safe default | Can run multiple? | What to watch |

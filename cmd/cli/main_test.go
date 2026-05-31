@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 	"vectis/api/gen/go"
 )
 
@@ -530,6 +531,323 @@ func TestDeployPodmanRender_jsonMetadataForFileOutput(t *testing.T) {
 
 	if result.Status != "rendered" || result.ManifestPath != out {
 		t.Fatalf("unexpected result: %+v", result)
+	}
+}
+
+func TestDeployPodmanRender_HAProfileAddsReplicaTopology(t *testing.T) {
+	t.Setenv(envDeployConfigDir, t.TempDir())
+
+	oldProfile := podmanProfile
+	oldKubeSpec := podmanKubeSpec
+	podmanProfile = podmanProfileHA
+	podmanKubeSpec = defaultPodmanKubeSpec
+	t.Cleanup(func() {
+		podmanProfile = oldProfile
+		podmanKubeSpec = oldKubeSpec
+	})
+
+	manifestBytes, _, _, err := renderPodmanManifest(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	docs := decodeYAMLDocuments(t, manifestBytes)
+	pod := findYAMLDocument(t, docs, "Pod", "vectis")
+	tlsEnv := configMapData(t, docs, "vectis-grpc-tls-env")
+	if got, want := tlsEnv["VECTIS_DISCOVERY_REGISTRY_ADDRESSES"], "127.0.0.1:8082,127.0.0.1:8182,127.0.0.1:8282"; got != want {
+		t.Fatalf("registry addresses = %q, want %q", got, want)
+	}
+
+	requireHostPort(t, findContainer(t, pod, "api-2"), 8180)
+	assertEnv(t, findContainer(t, pod, "queue-2"), "VECTIS_QUEUE_INSTANCE_ID", "queue-2")
+	assertEnv(t, findContainer(t, pod, "queue-2"), "VECTIS_QUEUE_PERSISTENCE_DIR", "/data/vectis/queue/local-ha/queue-2")
+	assertEnv(t, findContainer(t, pod, "log-2"), "VECTIS_LOG_STORAGE_DIR", "/data/vectis/jobs/log-2")
+	assertEnv(t, findContainer(t, pod, "worker-2"), "VECTIS_WORKER_METRICS_PORT", "9182")
+	assertEnv(t, findContainer(t, pod, "cron-2"), "VECTIS_CRON_INSTANCE_ID", "cron-2")
+	assertEnv(t, findContainer(t, pod, "reconciler-2"), "VECTIS_RECONCILER_METRICS_PORT", "9185")
+	findContainer(t, pod, "registry-3")
+
+	if _, ok := envMap(t, findContainer(t, pod, "worker"))["VECTIS_CRON_INSTANCE_ID"]; ok {
+		t.Fatalf("base worker inherited cron instance env")
+	}
+
+	assertStringSlice(t, prometheusTargets(t, docs, "vectis-queue"), []string{"127.0.0.1:9081", "127.0.0.1:9181"})
+}
+
+func TestDeployPodmanRender_SimpleProfileKeepsSingleReplicaTopology(t *testing.T) {
+	t.Setenv(envDeployConfigDir, t.TempDir())
+
+	oldProfile := podmanProfile
+	oldKubeSpec := podmanKubeSpec
+	podmanProfile = podmanProfileSimple
+	podmanKubeSpec = defaultPodmanKubeSpec
+	t.Cleanup(func() {
+		podmanProfile = oldProfile
+		podmanKubeSpec = oldKubeSpec
+	})
+
+	manifestBytes, _, _, err := renderPodmanManifest(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	docs := decodeYAMLDocuments(t, manifestBytes)
+	pod := findYAMLDocument(t, docs, "Pod", "vectis")
+	tlsEnv := configMapData(t, docs, "vectis-grpc-tls-env")
+	if _, ok := tlsEnv["VECTIS_DISCOVERY_REGISTRY_ADDRESSES"]; ok {
+		t.Fatalf("simple manifest unexpectedly included discovery registry addresses")
+	}
+
+	for _, name := range []string{"registry-2", "api-2", "queue-2", "log-2", "worker-2"} {
+		if findContainerOK(t, pod, name) {
+			t.Fatalf("simple manifest unexpectedly included container %s", name)
+		}
+	}
+
+	assertStringSlice(t, prometheusTargets(t, docs, "vectis-queue"), []string{"127.0.0.1:9081"})
+}
+
+func TestDeployPodmanRender_InvalidProfileFails(t *testing.T) {
+	oldProfile := podmanProfile
+	podmanProfile = "weird"
+	t.Cleanup(func() { podmanProfile = oldProfile })
+
+	if _, _, _, err := renderPodmanManifest(false); err == nil {
+		t.Fatalf("expected invalid profile error")
+	}
+}
+
+func decodeYAMLDocuments(t *testing.T, manifest []byte) []map[string]any {
+	t.Helper()
+
+	dec := yaml.NewDecoder(bytes.NewReader(manifest))
+	var docs []map[string]any
+	for {
+		var doc map[string]any
+		err := dec.Decode(&doc)
+		if err == io.EOF {
+			break
+		}
+
+		if err != nil {
+			t.Fatalf("decode YAML manifest: %v", err)
+		}
+
+		if len(doc) > 0 {
+			docs = append(docs, doc)
+		}
+	}
+
+	return docs
+}
+
+func findYAMLDocument(t *testing.T, docs []map[string]any, kind, name string) map[string]any {
+	t.Helper()
+
+	for _, doc := range docs {
+		if stringValue(doc["kind"]) != kind {
+			continue
+		}
+
+		metadata := mapValue(t, doc["metadata"])
+		if stringValue(metadata["name"]) == name {
+			return doc
+		}
+	}
+
+	t.Fatalf("YAML document %s/%s not found", kind, name)
+	return nil
+}
+
+func configMapData(t *testing.T, docs []map[string]any, name string) map[string]string {
+	t.Helper()
+
+	doc := findYAMLDocument(t, docs, "ConfigMap", name)
+	data := mapValue(t, doc["data"])
+	out := make(map[string]string, len(data))
+	for key, value := range data {
+		out[key] = stringValue(value)
+	}
+
+	return out
+}
+
+func findContainer(t *testing.T, pod map[string]any, name string) map[string]any {
+	t.Helper()
+
+	if container, ok := lookupContainer(pod, name); ok {
+		return container
+	}
+
+	t.Fatalf("container %s not found", name)
+	return nil
+}
+
+func findContainerOK(t *testing.T, pod map[string]any, name string) bool {
+	t.Helper()
+
+	_, ok := lookupContainer(pod, name)
+	return ok
+}
+
+func lookupContainer(pod map[string]any, name string) (map[string]any, bool) {
+	spec, ok := pod["spec"].(map[string]any)
+	if !ok {
+		return nil, false
+	}
+
+	containers, ok := spec["containers"].([]any)
+	if !ok {
+		return nil, false
+	}
+
+	for _, raw := range containers {
+		container, ok := raw.(map[string]any)
+		if ok && stringValue(container["name"]) == name {
+			return container, true
+		}
+	}
+
+	return nil, false
+}
+
+func envMap(t *testing.T, container map[string]any) map[string]string {
+	t.Helper()
+
+	out := map[string]string{}
+	rawEnv, ok := container["env"]
+	if !ok {
+		return out
+	}
+
+	for _, raw := range sliceValue(t, rawEnv) {
+		item := mapValue(t, raw)
+		name := stringValue(item["name"])
+		if name == "" {
+			continue
+		}
+
+		if value, ok := item["value"]; ok {
+			out[name] = stringValue(value)
+		}
+	}
+
+	return out
+}
+
+func assertEnv(t *testing.T, container map[string]any, name, want string) {
+	t.Helper()
+
+	if got := envMap(t, container)[name]; got != want {
+		t.Fatalf("%s env %s = %q, want %q", stringValue(container["name"]), name, got, want)
+	}
+}
+
+func requireHostPort(t *testing.T, container map[string]any, want int) {
+	t.Helper()
+
+	for _, raw := range sliceValue(t, container["ports"]) {
+		port := mapValue(t, raw)
+		if intValue(port["hostPort"]) == want {
+			return
+		}
+	}
+
+	t.Fatalf("%s missing hostPort %d", stringValue(container["name"]), want)
+}
+
+func prometheusTargets(t *testing.T, docs []map[string]any, jobName string) []string {
+	t.Helper()
+
+	data := configMapData(t, docs, "vectis-prometheus-config")
+	var prom map[string]any
+	if err := yaml.Unmarshal([]byte(data["prometheus.yml"]), &prom); err != nil {
+		t.Fatalf("decode prometheus.yml: %v", err)
+	}
+
+	for _, rawJob := range sliceValue(t, prom["scrape_configs"]) {
+		job := mapValue(t, rawJob)
+		if stringValue(job["job_name"]) != jobName {
+			continue
+		}
+
+		staticConfigs := sliceValue(t, job["static_configs"])
+		if len(staticConfigs) == 0 {
+			t.Fatalf("prometheus job %s has no static_configs", jobName)
+		}
+
+		targets := sliceValue(t, mapValue(t, staticConfigs[0])["targets"])
+		out := make([]string, 0, len(targets))
+		for _, target := range targets {
+			out = append(out, stringValue(target))
+		}
+
+		return out
+	}
+
+	t.Fatalf("prometheus job %s not found", jobName)
+	return nil
+}
+
+func assertStringSlice(t *testing.T, got, want []string) {
+	t.Helper()
+
+	if len(got) != len(want) {
+		t.Fatalf("slice length = %d, want %d; got %#v", len(got), len(want), got)
+	}
+
+	for i := range got {
+		if got[i] != want[i] {
+			t.Fatalf("slice[%d] = %q, want %q; got %#v", i, got[i], want[i], got)
+		}
+	}
+}
+
+func mapValue(t *testing.T, value any) map[string]any {
+	t.Helper()
+
+	m, ok := value.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map, got %T", value)
+	}
+
+	return m
+}
+
+func sliceValue(t *testing.T, value any) []any {
+	t.Helper()
+
+	s, ok := value.([]any)
+	if !ok {
+		t.Fatalf("expected slice, got %T", value)
+	}
+
+	return s
+}
+
+func stringValue(value any) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case fmt.Stringer:
+		return v.String()
+	case nil:
+		return ""
+	default:
+		return fmt.Sprint(v)
+	}
+}
+
+func intValue(value any) int {
+	switch v := value.(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case uint64:
+		return int(v)
+	default:
+		return 0
 	}
 }
 

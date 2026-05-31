@@ -267,6 +267,7 @@ func init() {
 	_ = viper.BindPFlag("persistence_dir", rootCmd.PersistentFlags().Lookup("persistence-dir"))
 	_ = viper.BindPFlag("persistence_snapshot_every", rootCmd.PersistentFlags().Lookup("persistence-snapshot-every"))
 	_ = viper.BindEnv("queue.register_with_registry", "VECTIS_QUEUE_REGISTER_WITH_REGISTRY")
+	_ = viper.BindEnv("queue.advertise_address", "VECTIS_QUEUE_ADVERTISE_ADDRESS")
 
 	viper.SetEnvPrefix("VECTIS_QUEUE")
 	viper.AutomaticEnv()

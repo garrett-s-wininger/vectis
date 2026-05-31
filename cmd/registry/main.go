@@ -80,6 +80,9 @@ func init() {
 	cli.ConfigureVersion(rootCmd)
 	rootCmd.PersistentFlags().Int("port", config.RegistryPort(), "Port for the registry")
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
+	_ = viper.BindEnv("registry.cluster.node_id", "VECTIS_REGISTRY_CLUSTER_NODE_ID")
+	_ = viper.BindEnv("registry.cluster.advertise_address", "VECTIS_REGISTRY_CLUSTER_ADVERTISE_ADDRESS")
+	_ = viper.BindEnv("registry.cluster.peer_addresses", "VECTIS_REGISTRY_CLUSTER_PEER_ADDRESSES")
 	viper.SetEnvPrefix("VECTIS_REGISTRY")
 	viper.AutomaticEnv()
 }

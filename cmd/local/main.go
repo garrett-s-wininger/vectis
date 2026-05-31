@@ -43,6 +43,7 @@ type serviceStage struct {
 type trackedCmd struct {
 	cmd    *exec.Cmd
 	binary string
+	name   string
 }
 
 type localCell struct {
@@ -85,6 +86,8 @@ const (
 	healthCheckInterval = 50 * time.Millisecond
 	healthCheckTimeout  = 10 * time.Second
 	cellPortStride      = 100
+	localProfileSimple  = "simple"
+	localProfileHA      = "ha"
 )
 
 func waitForHealthy(port int, serviceName string, timeout time.Duration) error {
@@ -119,6 +122,14 @@ func waitForHealthy(port int, serviceName string, timeout time.Duration) error {
 			}
 		}
 	}
+}
+
+func (svc serviceStage) label() string {
+	if svc.name != "" {
+		return svc.name
+	}
+
+	return svc.binary
 }
 
 func startService(logger interfaces.Logger, svc serviceStage, logLevel string, tlsEnv []string) (*exec.Cmd, error) {
@@ -174,15 +185,16 @@ func mergeEnv(groups ...[]string) []string {
 	return out
 }
 
-func (svc serviceStage) label() string {
-	if svc.name != "" {
-		return svc.name
+func localServices(logger interfaces.Logger, topology localTopology) []serviceStage {
+	switch localProfile() {
+	case localProfileHA:
+		return localHAProfileServices(logger, topology)
+	default:
+		return localSimpleProfileServices(logger, topology)
 	}
-
-	return svc.binary
 }
 
-func localServices(logger interfaces.Logger, topology localTopology) []serviceStage {
+func localSimpleProfileServices(logger interfaces.Logger, topology localTopology) []serviceStage {
 	services := make([]serviceStage, 0, len(orderedSingletonServices)+len(topology.Cells)*3)
 	for _, svc := range orderedSingletonServices {
 		if svc.binary == "vectis-docs" {
@@ -227,6 +239,195 @@ func localServices(logger interfaces.Logger, topology localTopology) []serviceSt
 	}
 
 	return services
+}
+
+func localHAProfileServices(logger interfaces.Logger, topology localTopology) []serviceStage {
+	cell := newLocalCell(config.CellID(), 0, "")
+	if len(topology.Cells) > 0 {
+		cell = topology.Cells[0]
+	}
+
+	registryPorts := []int{8082, 8182, 8282}
+	registryAddrs := make([]string, 0, len(registryPorts))
+	for _, port := range registryPorts {
+		registryAddrs = append(registryAddrs, netJoinLocal(port))
+	}
+
+	registryEnv := []string{"VECTIS_DISCOVERY_REGISTRY_ADDRESSES=" + strings.Join(registryAddrs, ",")}
+	services := make([]serviceStage, 0, 20)
+	for i, port := range registryPorts {
+		name := fmt.Sprintf("registry-%d", i+1)
+		peers := make([]string, 0, len(registryAddrs)-1)
+		for j, addr := range registryAddrs {
+			if j != i {
+				peers = append(peers, addr)
+			}
+		}
+
+		services = append(services, serviceStage{
+			binary:      "vectis-registry",
+			name:        name,
+			stage:       0,
+			checkHealth: true,
+			portFn:      fixedPort(port),
+			healthName:  "registry",
+			env: []string{
+				fmt.Sprintf("VECTIS_REGISTRY_PORT=%d", port),
+				"VECTIS_REGISTRY_CLUSTER_NODE_ID=" + name,
+				"VECTIS_REGISTRY_CLUSTER_ADVERTISE_ADDRESS=" + netJoinLocal(port),
+				"VECTIS_REGISTRY_CLUSTER_PEER_ADDRESSES=" + strings.Join(peers, ","),
+			},
+		})
+	}
+
+	queuePorts := []int{cell.QueuePort, cell.QueuePort + cellPortStride}
+	for i, port := range queuePorts {
+		name := fmt.Sprintf("queue-%d", i+1)
+		env := append([]string{}, registryEnv...)
+		env = append(env,
+			"VECTIS_CELL_ID="+cell.ID,
+			fmt.Sprintf("VECTIS_QUEUE_PORT=%d", port),
+			fmt.Sprintf("VECTIS_QUEUE_METRICS_PORT=%d", cell.QueueMetricsPort+(i*cellPortStride)),
+			"VECTIS_QUEUE_POOL=local-ha",
+			"VECTIS_QUEUE_INSTANCE_ID="+name,
+			"VECTIS_QUEUE_ADVERTISE_ADDRESS="+netJoinLocal(port),
+		)
+
+		services = append(services, serviceStage{
+			binary:      "vectis-queue",
+			name:        name,
+			stage:       1,
+			checkHealth: true,
+			portFn:      fixedPort(port),
+			healthName:  "queue",
+			env:         env,
+		})
+	}
+
+	logPorts := []int{8083, 8183}
+	for i, port := range logPorts {
+		name := fmt.Sprintf("log-%d", i+1)
+		env := append([]string{}, registryEnv...)
+		env = append(env,
+			fmt.Sprintf("VECTIS_LOG_GRPC_PORT=%d", port),
+			fmt.Sprintf("VECTIS_LOG_METRICS_PORT=%d", 9083+(i*100)),
+			"VECTIS_LOG_INSTANCE_ID="+name,
+			"VECTIS_LOG_GRPC_ADVERTISE_ADDRESS="+netJoinLocal(port),
+		)
+
+		services = append(services, serviceStage{
+			binary:      "vectis-log",
+			name:        name,
+			stage:       1,
+			checkHealth: true,
+			portFn:      fixedPort(port),
+			healthName:  "log",
+			env:         env,
+		})
+	}
+
+	for i, port := range []int{8080, 8180} {
+		env := append([]string{}, registryEnv...)
+		env = append(env,
+			fmt.Sprintf("VECTIS_API_SERVER_PORT=%d", port),
+			"VECTIS_API_SERVER_HOST="+localHost(),
+		)
+
+		services = append(services, serviceStage{
+			binary: "vectis-api",
+			name:   fmt.Sprintf("api-%d", i+1),
+			stage:  2,
+			env:    env,
+		})
+	}
+
+	ingressEnv := append([]string{}, registryEnv...)
+	ingressEnv = append(ingressEnv,
+		"VECTIS_CELL_ID="+cell.ID,
+		database.EnvCellDatabaseDSN+"="+cell.CellDB,
+		"VECTIS_CELL_INGRESS_HOST="+localHost(),
+		fmt.Sprintf("VECTIS_CELL_INGRESS_PORT=%d", cell.CellIngressPort),
+		fmt.Sprintf("VECTIS_CELL_INGRESS_METRICS_PORT=%d", cell.CellIngressMetricsPort),
+	)
+	services = append(services, serviceStage{
+		binary: "vectis-cell-ingress",
+		name:   fmt.Sprintf("vectis-cell-ingress[%s]", cell.ID),
+		stage:  2,
+		env:    ingressEnv,
+	})
+
+	for i := 0; i < 2; i++ {
+		env := append([]string{}, registryEnv...)
+		env = append(env,
+			"VECTIS_CELL_ID="+cell.ID,
+			database.EnvCellDatabaseDSN+"="+cell.CellDB,
+			fmt.Sprintf("VECTIS_WORKER_METRICS_PORT=%d", cell.WorkerMetricsPort+(i*cellPortStride)),
+			fmt.Sprintf("VECTIS_WORKER_CONTROL_PORT=%d", config.WorkerControlPort()+(i*cellPortStride)),
+		)
+
+		services = append(services, serviceStage{
+			binary: "vectis-worker",
+			name:   fmt.Sprintf("worker-%d", i+1),
+			stage:  2,
+			env:    env,
+		})
+	}
+
+	services = append(services, serviceStage{
+		binary: "vectis-catalog",
+		name:   "vectis-catalog",
+		stage:  2,
+		env:    registryEnv,
+	})
+
+	for i := 0; i < 2; i++ {
+		env := append([]string{}, registryEnv...)
+		env = append(env, fmt.Sprintf("VECTIS_CRON_INSTANCE_ID=cron-%d", i+1))
+		services = append(services, serviceStage{
+			binary: "vectis-cron",
+			name:   fmt.Sprintf("cron-%d", i+1),
+			stage:  2,
+			env:    env,
+		})
+	}
+
+	for i := 0; i < 2; i++ {
+		env := append([]string{}, registryEnv...)
+		env = append(env, fmt.Sprintf("VECTIS_RECONCILER_METRICS_PORT=%d", 9085+(i*100)))
+		services = append(services, serviceStage{
+			binary: "vectis-reconciler",
+			name:   fmt.Sprintf("reconciler-%d", i+1),
+			stage:  2,
+			env:    env,
+		})
+	}
+
+	if viper.GetBool("docs_enabled") {
+		if _, err := supervisor.FindBinary("vectis-docs"); err != nil {
+			logger.Warn("Docs enabled, but vectis-docs was not found; continuing without local docs")
+		} else {
+			services = append(services, serviceStage{binary: "vectis-docs", name: "docs", stage: 2})
+		}
+	}
+
+	return services
+}
+
+func fixedPort(port int) func() int {
+	return func() int { return port }
+}
+
+func netJoinLocal(port int) string {
+	return fmt.Sprintf("localhost:%d", port)
+}
+
+func localProfile() string {
+	profile := strings.ToLower(strings.TrimSpace(viper.GetString("profile")))
+	if profile == "" {
+		return localProfileSimple
+	}
+
+	return profile
 }
 
 func docsEnv() []string {
@@ -563,6 +764,11 @@ func runVectis(cmd *cobra.Command, args []string) {
 		logger.Fatal("invalid log level: %s (must be debug, info, warn, or error)", logLevel)
 	}
 
+	profile := localProfile()
+	if profile != localProfileSimple && profile != localProfileHA {
+		logger.Fatal("invalid profile: %s (must be simple or ha)", profile)
+	}
+
 	setLoggerLevel(logger, logLevel)
 
 	var tlsEnv []string
@@ -592,6 +798,9 @@ func runVectis(cmd *cobra.Command, args []string) {
 	topology, err := buildLocalTopology()
 	if err != nil {
 		logger.Fatal("%v", err)
+	}
+	if profile == localProfileHA && topology.multiCell() {
+		logger.Fatal("profile %q currently supports the default local execution cell only; use profile %q with --cell for multi-cell routing tests", localProfileHA, localProfileSimple)
 	}
 
 	if database.EffectiveDBDriver() == "sqlite3" {
@@ -632,9 +841,13 @@ func runVectis(cmd *cobra.Command, args []string) {
 	tlsEnv = append(tlsEnv, localCellIngressEndpointEnv(topology.Cells)...)
 	tlsEnv = append(tlsEnv, localCatalogCellDatabaseEnv(topology.Cells)...)
 	tlsEnv = append(tlsEnv, docsEnv()...)
+	logger.Info("Starting vectis-local profile: %s", profile)
 	logger.Info("API will be available at http://%s:%d", localHost(), config.APIEffectiveListenPort())
 	for _, cell := range topology.Cells {
 		logger.Info("Cell %s ingress will be available at http://%s:%d", cell.ID, localHost(), cell.CellIngressPort)
+	}
+	if profile == localProfileHA {
+		logger.Info("Additional HA API replica will be available at http://%s:%d", localHost(), 8180)
 	}
 
 	if hasService(services, "vectis-docs") {
@@ -682,7 +895,7 @@ func runVectis(cmd *cobra.Command, args []string) {
 
 				trackStarted(proc)
 				trackedMu.Lock()
-				tracked = append(tracked, trackedCmd{cmd: proc, binary: svc.label()})
+				tracked = append(tracked, trackedCmd{cmd: proc, binary: svc.binary, name: svc.label()})
 				trackedMu.Unlock()
 
 				if svc.checkHealth {
@@ -722,17 +935,17 @@ func runVectis(cmd *cobra.Command, args []string) {
 	trackedMu.Unlock()
 
 	exitCh := make(chan struct {
-		binary string
-		err    error
+		name string
+		err  error
 	}, len(toWait))
 
 	for _, t := range toWait {
-		go func() {
+		go func(t trackedCmd) {
 			exitCh <- struct {
-				binary string
-				err    error
-			}{t.binary, t.cmd.Wait()}
-		}()
+				name string
+				err  error
+			}{t.name, t.cmd.Wait()}
+		}(t)
 	}
 
 	for range toWait {
@@ -749,7 +962,7 @@ func runVectis(cmd *cobra.Command, args []string) {
 			return
 		}
 
-		logger.Fatal("%s exited: %v", ex.binary, ex.err)
+		logger.Fatal("%s exited: %v", ex.name, ex.err)
 	}
 }
 
@@ -801,7 +1014,11 @@ development.
 
 Use --cell repeatedly to add extra local execution cells over the default cell
 from VECTIS_CELL_ID. Extra cells are intended for local multi-cell routing tests
-and use per-cell SQLite databases, queues, ingress endpoints, and workers.`,
+and use per-cell SQLite databases, queues, ingress endpoints, and workers.
+
+Use --profile=ha to start a local multi-instance exercise cell with multiple
+registries, queue shards, log shards, API replicas, workers, cron instances,
+and reconcilers.`,
 	Run: runVectis,
 }
 
@@ -809,6 +1026,7 @@ func init() {
 	cli.ConfigureVersion(rootCmd)
 
 	rootCmd.PersistentFlags().String("log-level", "info", "Log level: debug, info, warn, error")
+	rootCmd.PersistentFlags().String("profile", localProfileSimple, "Local deployment profile: simple or ha")
 	rootCmd.PersistentFlags().Bool("grpc-insecure", false, "Use plaintext gRPC instead of bootstrapped local TLS")
 	rootCmd.PersistentFlags().String("host", "localhost", "Host/IP for the local API and docs sites to bind")
 	rootCmd.PersistentFlags().Bool("docs", true, "Start the local docs site")
@@ -816,6 +1034,7 @@ func init() {
 	rootCmd.PersistentFlags().String("docs-dir", "", "Directory containing a docs build to serve instead of embedded docs")
 	rootCmd.PersistentFlags().StringArray("cell", nil, "Additional local execution cell ID to start; may be repeated")
 	_ = viper.BindPFlag("log_level", rootCmd.PersistentFlags().Lookup("log-level"))
+	_ = viper.BindPFlag("profile", rootCmd.PersistentFlags().Lookup("profile"))
 	_ = viper.BindPFlag("grpc_insecure", rootCmd.PersistentFlags().Lookup("grpc-insecure"))
 	_ = viper.BindPFlag("host", rootCmd.PersistentFlags().Lookup("host"))
 	_ = viper.BindPFlag("docs_enabled", rootCmd.PersistentFlags().Lookup("docs"))
@@ -823,6 +1042,7 @@ func init() {
 	_ = viper.BindPFlag("docs_dir", rootCmd.PersistentFlags().Lookup("docs-dir"))
 	_ = viper.BindPFlag("cells", rootCmd.PersistentFlags().Lookup("cell"))
 	_ = viper.BindEnv("grpc_insecure", "VECTIS_LOCAL_GRPC_INSECURE")
+	_ = viper.BindEnv("profile", "VECTIS_LOCAL_PROFILE")
 	_ = viper.BindEnv("host", "VECTIS_LOCAL_HOST")
 	_ = viper.BindEnv("docs_enabled", "VECTIS_LOCAL_DOCS_ENABLED")
 	_ = viper.BindEnv("docs_port", "VECTIS_LOCAL_DOCS_PORT")

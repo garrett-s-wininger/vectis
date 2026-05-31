@@ -242,6 +242,11 @@ var (
 	parseErr error
 )
 
+func init() {
+	_ = viper.BindEnv("discovery.registry.address", "VECTIS_DISCOVERY_REGISTRY_ADDRESS")
+	_ = viper.BindEnv("discovery.registry.addresses", "VECTIS_DISCOVERY_REGISTRY_ADDRESSES")
+}
+
 func MustDefaults() Defaults {
 	once.Do(func() {
 		var d Defaults
@@ -675,6 +680,14 @@ func RegistryClusterPeerDialTimeout() time.Duration {
 }
 
 func LogGRPCPort() int {
+	if p := viper.GetInt("grpc_port"); p > 0 {
+		return p
+	}
+
+	if p := viper.GetInt("log.grpc.port"); p > 0 {
+		return p
+	}
+
 	return MustDefaults().Log.GRPC.Port
 }
 

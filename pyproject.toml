@@ -16,7 +16,6 @@ ignore = [
 
 [tool.mypy]
 files = [
-    "deploy/podman/generate-grafana-configmaps.py",
     "scripts/perf.py",
 ]
 python_version = "3.10"

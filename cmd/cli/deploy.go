@@ -6,20 +6,25 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/spf13/cobra"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"text/template"
+
+	"github.com/spf13/cobra"
 	podmanassets "vectis/deploy/podman"
 	"vectis/internal/database"
 )
 
 const (
-	defaultPodmanKubeSpec    = "deploy/podman/kube-spec.yaml"
+	defaultPodmanKubeSpec    = "deploy/podman/kube-spec.yaml.tmpl"
+	legacyPodmanKubeSpec     = "deploy/podman/kube-spec.yaml"
 	defaultPodmanGrafanaSpec = "deploy/podman/grafana-configmaps.gen.yaml"
 	podmanSecretName         = "vectis-podman-secrets"
 	envDeployConfigDir       = "VECTIS_DEPLOY_CONFIG_DIR"
+	podmanProfileSimple      = "simple"
+	podmanProfileHA          = "ha"
 )
 
 type podmanSecrets struct {
@@ -31,6 +36,7 @@ type podmanSecrets struct {
 
 type podmanCommandResult struct {
 	Status         string `json:"status"`
+	Profile        string `json:"profile,omitempty"`
 	SecretsPath    string `json:"secrets_path,omitempty"`
 	ManifestPath   string `json:"manifest_path,omitempty"`
 	Manifest       string `json:"manifest,omitempty"`
@@ -160,8 +166,8 @@ stringData:
 
 func readDeployFile(path string) ([]byte, error) {
 	switch path {
-	case "", defaultPodmanKubeSpec:
-		return podmanassets.KubeSpec, nil
+	case "", defaultPodmanKubeSpec, legacyPodmanKubeSpec:
+		return podmanassets.KubeSpecTemplate, nil
 	case defaultPodmanGrafanaSpec:
 		return podmanassets.GrafanaConfigMaps, nil
 	}
@@ -174,13 +180,260 @@ func readDeployFile(path string) ([]byte, error) {
 	return nil, fmt.Errorf("read %s: %w", path, err)
 }
 
+func normalizedPodmanProfile() (string, error) {
+	profile := strings.ToLower(strings.TrimSpace(podmanProfile))
+	if profile == "" {
+		profile = podmanProfileSimple
+	}
+
+	switch profile {
+	case podmanProfileSimple, podmanProfileHA:
+		return profile, nil
+	default:
+		return "", fmt.Errorf("invalid podman profile %q (must be simple or ha)", podmanProfile)
+	}
+}
+
+type podmanTemplateData struct {
+	Profile                     string
+	RegistryAddresses           string
+	PrometheusAPITargets        []string
+	PrometheusQueueTargets      []string
+	PrometheusWorkerTargets     []string
+	PrometheusLogTargets        []string
+	PrometheusReconcilerTargets []string
+	APIReplicas                 []podmanAPIReplica
+	CronReplicas                []podmanCronReplica
+	LogShards                   []podmanLogShard
+	QueueShards                 []podmanQueueShard
+	ReconcilerReplicas          []podmanReconcilerReplica
+	RegistryReplicas            []podmanRegistryReplica
+	WorkerReplicas              []podmanWorkerReplica
+}
+
+type podmanAPIReplica struct {
+	Name       string
+	Port       int
+	First      bool
+	SetPortEnv bool
+}
+
+type podmanCronReplica struct {
+	Name       string
+	InstanceID string
+}
+
+type podmanLogShard struct {
+	Name              string
+	GRPCPort          int
+	MetricsPort       int
+	StorageDir        string
+	InstanceID        string
+	AdvertiseAddress  string
+	SetGRPCPortEnv    bool
+	SetMetricsPortEnv bool
+}
+
+type podmanQueueShard struct {
+	Name              string
+	Port              int
+	MetricsPort       int
+	PersistenceDir    string
+	Pool              string
+	InstanceID        string
+	AdvertiseAddress  string
+	SetPortEnv        bool
+	SetMetricsPortEnv bool
+}
+
+type podmanReconcilerReplica struct {
+	Name              string
+	MetricsPort       int
+	SetMetricsPortEnv bool
+}
+
+type podmanRegistryReplica struct {
+	Name             string
+	Port             int
+	First            bool
+	SetPortEnv       bool
+	ClusterNodeID    string
+	AdvertiseAddress string
+	PeerAddresses    string
+}
+
+type podmanWorkerReplica struct {
+	Name              string
+	MetricsPort       int
+	ControlPort       int
+	SetMetricsPortEnv bool
+	SetControlPortEnv bool
+}
+
+func renderPodmanKubeSpec(profile string) ([]byte, error) {
+	kubeTemplate, err := readDeployFile(podmanKubeSpec)
+	if err != nil {
+		return nil, err
+	}
+
+	tmpl, err := template.New("podman-kube-spec").
+		Funcs(template.FuncMap{"quoteList": podmanQuoteList}).
+		Option("missingkey=error").
+		Parse(string(kubeTemplate))
+
+	if err != nil {
+		return nil, fmt.Errorf("parse podman kube template: %w", err)
+	}
+
+	var out bytes.Buffer
+	if err := tmpl.Execute(&out, podmanTemplateDataForProfile(profile)); err != nil {
+		return nil, fmt.Errorf("render podman kube template: %w", err)
+	}
+
+	return out.Bytes(), nil
+}
+
+func podmanQuoteList(values []string) string {
+	quoted := make([]string, 0, len(values))
+	for _, value := range values {
+		quoted = append(quoted, yamlString(value))
+	}
+
+	return "[" + strings.Join(quoted, ", ") + "]"
+}
+
+func podmanTemplateDataForProfile(profile string) podmanTemplateData {
+	data := podmanTemplateData{
+		Profile:                     profile,
+		PrometheusAPITargets:        podmanTargets(8080),
+		PrometheusQueueTargets:      podmanTargets(9081),
+		PrometheusWorkerTargets:     podmanTargets(9082),
+		PrometheusLogTargets:        podmanTargets(9083),
+		PrometheusReconcilerTargets: podmanTargets(9085),
+		APIReplicas: []podmanAPIReplica{
+			{Name: "api", Port: 8080, First: true},
+		},
+		CronReplicas: []podmanCronReplica{
+			{Name: "cron"},
+		},
+		LogShards: []podmanLogShard{
+			{Name: "log", GRPCPort: 8083, MetricsPort: 9083, StorageDir: "/data/vectis/jobs"},
+		},
+		QueueShards: []podmanQueueShard{
+			{Name: "queue", Port: 8081, MetricsPort: 9081, PersistenceDir: "/data/vectis/queue"},
+		},
+		ReconcilerReplicas: []podmanReconcilerReplica{
+			{Name: "reconciler", MetricsPort: 9085},
+		},
+		RegistryReplicas: []podmanRegistryReplica{
+			{Name: "registry", Port: 8082, First: true},
+		},
+		WorkerReplicas: []podmanWorkerReplica{
+			{Name: "worker", MetricsPort: 9082, ControlPort: 9084},
+		},
+	}
+
+	if profile != podmanProfileHA {
+		return data
+	}
+
+	registryPorts := []int{8082, 8182, 8282}
+	registryAddrs := make([]string, 0, len(registryPorts))
+	for _, port := range registryPorts {
+		registryAddrs = append(registryAddrs, podmanAddr(port))
+	}
+
+	data.RegistryAddresses = strings.Join(registryAddrs, ",")
+	data.PrometheusAPITargets = podmanTargets(8080, 8180)
+	data.PrometheusQueueTargets = podmanTargets(9081, 9181)
+	data.PrometheusWorkerTargets = podmanTargets(9082, 9182)
+	data.PrometheusLogTargets = podmanTargets(9083, 9183)
+	data.PrometheusReconcilerTargets = podmanTargets(9085, 9185)
+	data.APIReplicas = []podmanAPIReplica{
+		{Name: "api", Port: 8080, First: true},
+		{Name: "api-2", Port: 8180, SetPortEnv: true},
+	}
+
+	data.CronReplicas = []podmanCronReplica{
+		{Name: "cron", InstanceID: "cron-1"},
+		{Name: "cron-2", InstanceID: "cron-2"},
+	}
+
+	data.LogShards = []podmanLogShard{
+		{Name: "log", GRPCPort: 8083, MetricsPort: 9083, StorageDir: "/data/vectis/jobs/log-1", InstanceID: "log-1", AdvertiseAddress: podmanAddr(8083)},
+		{Name: "log-2", GRPCPort: 8183, MetricsPort: 9183, StorageDir: "/data/vectis/jobs/log-2", InstanceID: "log-2", AdvertiseAddress: podmanAddr(8183), SetGRPCPortEnv: true, SetMetricsPortEnv: true},
+	}
+
+	data.QueueShards = []podmanQueueShard{
+		{Name: "queue", Port: 8081, MetricsPort: 9081, Pool: "local-ha", InstanceID: "queue-1", AdvertiseAddress: podmanAddr(8081), PersistenceDir: "/data/vectis/queue/local-ha/queue-1"},
+		{Name: "queue-2", Port: 8181, MetricsPort: 9181, Pool: "local-ha", InstanceID: "queue-2", AdvertiseAddress: podmanAddr(8181), PersistenceDir: "/data/vectis/queue/local-ha/queue-2", SetPortEnv: true, SetMetricsPortEnv: true},
+	}
+
+	data.ReconcilerReplicas = []podmanReconcilerReplica{
+		{Name: "reconciler", MetricsPort: 9085},
+		{Name: "reconciler-2", MetricsPort: 9185, SetMetricsPortEnv: true},
+	}
+
+	data.RegistryReplicas = make([]podmanRegistryReplica, 0, len(registryPorts))
+	for i, port := range registryPorts {
+		name := fmt.Sprintf("registry-%d", i+1)
+		if i == 0 {
+			name = "registry"
+		}
+		data.RegistryReplicas = append(data.RegistryReplicas, podmanRegistryReplica{
+			Name:             name,
+			Port:             port,
+			First:            i == 0,
+			SetPortEnv:       i != 0,
+			ClusterNodeID:    fmt.Sprintf("registry-%d", i+1),
+			AdvertiseAddress: registryAddrs[i],
+			PeerAddresses:    podmanPeerAddresses(registryAddrs, i),
+		})
+	}
+	data.WorkerReplicas = []podmanWorkerReplica{
+		{Name: "worker", MetricsPort: 9082, ControlPort: 9084},
+		{Name: "worker-2", MetricsPort: 9182, ControlPort: 9184, SetMetricsPortEnv: true, SetControlPortEnv: true},
+	}
+
+	return data
+}
+
+func podmanTargets(ports ...int) []string {
+	targets := make([]string, 0, len(ports))
+	for _, port := range ports {
+		targets = append(targets, podmanAddr(port))
+	}
+
+	return targets
+}
+
+func podmanAddr(port int) string {
+	return fmt.Sprintf("127.0.0.1:%d", port)
+}
+
+func podmanPeerAddresses(addrs []string, self int) string {
+	peers := make([]string, 0, len(addrs)-1)
+	for i, addr := range addrs {
+		if i != self {
+			peers = append(peers, addr)
+		}
+	}
+
+	return strings.Join(peers, ",")
+}
+
 func renderPodmanManifest(rotate bool) ([]byte, podmanSecrets, bool, error) {
+	profile, err := normalizedPodmanProfile()
+	if err != nil {
+		return nil, podmanSecrets{}, false, err
+	}
+
 	secrets, created, err := loadOrCreatePodmanSecrets(rotate)
 	if err != nil {
 		return nil, podmanSecrets{}, false, err
 	}
 
-	kubeSpec, err := readDeployFile(podmanKubeSpec)
+	kubeSpec, err := renderPodmanKubeSpec(profile)
 	if err != nil {
 		return nil, podmanSecrets{}, false, err
 	}
@@ -260,11 +513,14 @@ func runDeployPodmanRender(cmd *cobra.Command, args []string) {
 	rotate, _ := cmd.Flags().GetBool("rotate")
 	manifest, _, created, err := renderPodmanManifest(rotate)
 	runCLIError(err)
+	profile, err := normalizedPodmanProfile()
+	runCLIError(err)
 
 	if podmanRenderOut == "" || podmanRenderOut == "-" {
 		if outputIsJSON() {
 			runCLIError(writeJSON(os.Stdout, podmanCommandResult{
 				Status:         "rendered",
+				Profile:        profile,
 				Manifest:       string(manifest),
 				SecretsCreated: created,
 			}))
@@ -287,6 +543,7 @@ func runDeployPodmanRender(cmd *cobra.Command, args []string) {
 	if outputIsJSON() {
 		runCLIError(writeJSON(os.Stdout, podmanCommandResult{
 			Status:         "rendered",
+			Profile:        profile,
 			ManifestPath:   podmanRenderOut,
 			SecretsCreated: created,
 		}))
@@ -294,11 +551,13 @@ func runDeployPodmanRender(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	fmt.Printf("Rendered Podman manifest: %s\n", podmanRenderOut)
+	fmt.Printf("Rendered Podman %s manifest: %s\n", profile, podmanRenderOut)
 }
 
 func runDeployPodmanUp(cmd *cobra.Command, args []string) {
 	manifestPath, secrets, created, err := writePodmanRenderedManifest(false)
+	runCLIError(err)
+	profile, err := normalizedPodmanProfile()
 	runCLIError(err)
 
 	if created && !outputIsJSON() {
@@ -351,6 +610,7 @@ func runDeployPodmanUp(cmd *cobra.Command, args []string) {
 	if outputIsJSON() {
 		runCLIError(writeJSON(os.Stdout, podmanCommandResult{
 			Status:         "up",
+			Profile:        profile,
 			ManifestPath:   manifestPath,
 			SecretsCreated: created,
 			Network:        podmanNetwork,
@@ -361,11 +621,13 @@ func runDeployPodmanUp(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	fmt.Println("Podman deployment is up and migrations are applied.")
+	fmt.Printf("Podman %s deployment is up and migrations are applied.\n", profile)
 }
 
 func runDeployPodmanDown(cmd *cobra.Command, args []string) {
 	manifestPath, _, _, err := writePodmanRenderedManifest(false)
+	runCLIError(err)
+	profile, err := normalizedPodmanProfile()
 	runCLIError(err)
 
 	playArgs := []string{"play", "kube", "--down", manifestPath}
@@ -386,6 +648,7 @@ func runDeployPodmanDown(cmd *cobra.Command, args []string) {
 	if outputIsJSON() {
 		runCLIError(writeJSON(os.Stdout, podmanCommandResult{
 			Status:       "down",
+			Profile:      profile,
 			ManifestPath: manifestPath,
 			PodmanStdout: podmanStdout.String(),
 			PodmanStderr: podmanStderr.String(),

@@ -14,6 +14,17 @@ It is not a turnkey production architecture.
 | Staging reference | Useful as a topology example, but review secrets, storage, auth, and network exposure. |
 | Production | Reference only. Use it as a map, not as the final operating model. |
 
+## Deployment Profiles
+
+The Podman reference deployment has two profiles:
+
+| Profile | Command | Shape |
+| --- | --- | --- |
+| `simple` | `vectis-cli deploy podman --profile simple up` | Default single-replica cell for local demos and smoke tests. |
+| `ha` | `vectis-cli deploy podman --profile ha up` | Local HA exercise profile with three registries, two API replicas, two queue shards, two log shards, two workers, two cron instances, and two reconciler instances. |
+
+Both profiles keep one Postgres database and the bundled observability stack. The HA profile is for validating the single-cell scale-out contract on one Podman host; it is not a production HA architecture by itself.
+
 ## What It Provides
 
 The reference deployment gives you a working single-site topology:
@@ -22,7 +33,7 @@ The reference deployment gives you a working single-site topology:
 | --- | --- |
 | Database | Bundled Postgres with generated password and TLS inside the pod. |
 | Internal gRPC | Generated CA and server certificate, mounted into Vectis containers. |
-| Queue/log storage | Persistent volume claims for queue and log data. |
+| Queue/log storage | Persistent volume claims for queue and log data. The HA profile gives each queue and log shard its own subdirectory on those volumes. |
 | Metrics | Prometheus scraping API, queue, worker, log, reconciler, catalog, and cell ingress metrics; log-forwarder metrics when deployed. |
 | Dashboards | Grafana with a provisioned Vectis overview dashboard. |
 | Traces | Jaeger collector/query backed by the bundled OpenSearch instance. |

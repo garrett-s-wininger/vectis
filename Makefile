@@ -73,6 +73,10 @@ $(DOCS_ASSETS_STAMP): $(WEBSITE_SOURCES)
 .PHONY: docs-assets
 docs-assets: $(DOCS_ASSETS_STAMP)
 
+.PHONY: podman-grafana-configmaps
+podman-grafana-configmaps:
+	go run ./deploy/podman/cmd/generate-grafana-configmaps -o deploy/podman/grafana-configmaps.gen.yaml
+
 .PHONY: build-container
 build-container: CGO_ENABLED = 0
 build-container: BUILD_OPTS = -tags=nosqlite
