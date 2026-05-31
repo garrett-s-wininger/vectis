@@ -903,6 +903,7 @@ func TestGetRun_success(t *testing.T) {
 			"run_id":         "run-1",
 			"run_index":      3,
 			"status":         "failed",
+			"owning_cell":    "pdx-b",
 			"failure_code":   "execution",
 			"failure_reason": "exit code 1",
 		})
@@ -917,6 +918,7 @@ func TestGetRun_success(t *testing.T) {
 		"run_id=run-1",
 		"run_index=3",
 		"status=failed",
+		"owning_cell=pdx-b",
 		"failure_code=execution",
 		"failure_reason=exit code 1",
 		"",
@@ -930,9 +932,10 @@ func TestGetRun_jsonOutput(t *testing.T) {
 	withOutputFormat(t, outputJSON)
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"run_id":    "run-1",
-			"run_index": 3,
-			"status":    "failed",
+			"run_id":      "run-1",
+			"run_index":   3,
+			"status":      "failed",
+			"owning_cell": "pdx-b",
 		})
 	})
 
@@ -946,7 +949,7 @@ func TestGetRun_jsonOutput(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if run["run_id"] != "run-1" || run["status"] != "failed" {
+	if run["run_id"] != "run-1" || run["status"] != "failed" || run["owning_cell"] != "pdx-b" {
 		t.Fatalf("unexpected JSON output: %#v", run)
 	}
 }

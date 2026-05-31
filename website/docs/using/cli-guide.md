@@ -185,6 +185,8 @@ Show one run:
 ./bin/vectis-cli runs show <run-id>
 ```
 
+The detail output includes `owning_cell` when the run belongs to a named execution cell.
+
 List runs for a stored job:
 
 ```sh

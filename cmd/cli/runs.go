@@ -17,6 +17,7 @@ type runDetail struct {
 	RunID          string          `json:"run_id"`
 	RunIndex       int             `json:"run_index"`
 	Status         string          `json:"status"`
+	OwningCell     string          `json:"owning_cell,omitempty"`
 	OrphanReason   *string         `json:"orphan_reason,omitempty"`
 	FailureCode    *string         `json:"failure_code,omitempty"`
 	CreatedAt      *string         `json:"created_at,omitempty"`
@@ -87,6 +88,10 @@ func getRun(runID string, w io.Writer) error {
 		fmt.Fprintf(w, "run_id=%s\n", run.RunID)
 		fmt.Fprintf(w, "run_index=%d\n", run.RunIndex)
 		fmt.Fprintf(w, "status=%s\n", run.Status)
+		if strings.TrimSpace(run.OwningCell) != "" {
+			fmt.Fprintf(w, "owning_cell=%s\n", run.OwningCell)
+		}
+
 		if run.CreatedAt != nil {
 			fmt.Fprintf(w, "created_at=%s\n", *run.CreatedAt)
 		}
