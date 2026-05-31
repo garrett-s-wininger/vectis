@@ -8,7 +8,6 @@ import { AppShell } from "./components";
 import { AppState } from "./components";
 import { FormError } from "./components";
 import { FormField } from "./components";
-import { NamespacePicker } from "./components";
 import {
   canDeleteMockNamespace,
   createMockJob,
@@ -38,7 +37,14 @@ import { NotFoundPage } from "./pages/NotFoundPage";
 import { RunDetailPage } from "./pages/RunDetailPage";
 import { RunsPage } from "./pages/RunsPage";
 import { UsersPage } from "./pages/UsersPage";
-import { navigateTo, primaryNavItems, routeFromPath, safeNextPath, type AppRoute } from "./routing/routes";
+import {
+  adminNavItems,
+  navigateTo,
+  primaryNavItems,
+  routeFromPath,
+  safeNextPath,
+  type AppRoute
+} from "./routing/routes";
 
 type SetupValues = {
   adminPassword: string;
@@ -250,26 +256,15 @@ export function App() {
     );
   }
 
-  const showNamespacePicker = route.kind === "jobs" || route.kind === "runs";
-
   return (
     <AppShell
       activeHref={route.activeHref}
-      actions={
-        <>
-          {consoleData && showNamespacePicker ? (
-            <NamespacePicker
-              namespaces={consoleData.namespaces}
-              onChange={setSelectedNamespacePath}
-              value={selectedNamespacePath}
-            />
-          ) : null}
-          <Button onClick={signOut}>Sign out</Button>
-        </>
-      }
+      accountName="admin"
       brand="Vectis"
       navItems={primaryNavItems}
       onNavigate={handleShellNavigate}
+      onSignOut={signOut}
+      utilityNavItems={adminNavItems}
     >
       <RouteContent
         consoleData={consoleData}
@@ -285,6 +280,7 @@ export function App() {
         onTriggerRun={handleTriggerRun}
         onUpdateJob={handleUpdateJob}
         onUpdateUserStatus={handleUpdateUserStatus}
+        onSelectNamespace={setSelectedNamespacePath}
         route={route}
       />
     </AppShell>
@@ -419,6 +415,7 @@ function RouteContent({
   onTriggerRun,
   onUpdateJob,
   onUpdateUserStatus,
+  onSelectNamespace,
   route
 }: {
   consoleData: MockConsoleData | null;
@@ -434,6 +431,7 @@ function RouteContent({
   onTriggerRun: (jobID: string) => void;
   onUpdateJob: (jobID: string, input: UpdateMockJob) => void;
   onUpdateUserStatus: (userID: string, status: MockUserStatus) => void;
+  onSelectNamespace: (namespacePath: string) => void;
   route: AppRoute;
 }) {
   if (consoleError) {
@@ -468,7 +466,9 @@ function RouteContent({
 
       return (
         <RunsPage
+          namespaces={consoleData.namespaces}
           namespacePath={namespacePath}
+          onSelectNamespace={onSelectNamespace}
           onSelectRun={(runID) => navigateTo(`/runs/${runID}`)}
           onSubmitEphemeralRun={onSubmitEphemeralRun}
           runs={scopedConsoleData.runs}
@@ -478,9 +478,11 @@ function RouteContent({
       return (
         <JobsPage
           jobs={scopedConsoleData.jobs}
+          namespaces={consoleData.namespaces}
           namespacePath={namespacePath}
           onCreateJob={onCreateJob}
           onDeleteJob={onDeleteJob}
+          onSelectNamespace={onSelectNamespace}
           onTriggerRun={onTriggerRun}
           onUpdateJob={onUpdateJob}
         />
@@ -503,6 +505,8 @@ function RouteContent({
           onDeleteNamespace={onDeleteNamespace}
         />
       );
+    case "profile":
+      return <AppState description="Account preferences and session details will live here." title="Profile" />;
     default:
       return <NotFoundPage />;
   }

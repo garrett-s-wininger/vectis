@@ -1,5 +1,5 @@
 export { AppShell } from "./layout/AppShell";
-export type { NavItem } from "./layout/AppShell";
+export type { NavEntry, NavGroup, NavItem } from "./layout/AppShell";
 export { AppState } from "./feedback/AppState";
 export { Button } from "./primitives/Button";
 export { DataTable } from "./data/DataTable";

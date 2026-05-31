@@ -3,10 +3,12 @@ import { useMemo, useState } from "react";
 import { Button } from "../components";
 import { FilterBar } from "../components";
 import { FormError } from "../components";
+import { NamespacePicker } from "../components";
 import { PageHeader } from "../components";
 import { RunList, type RunListItem } from "../components";
 import { SelectField } from "../components";
 import { TextAreaField } from "../components";
+import type { Namespace } from "../domain/console";
 import {
   defaultRunDefinition,
   runSourceOptions,
@@ -19,13 +21,22 @@ import {
 import { ResourceTitle } from "./shared";
 
 type RunsPageProps = {
+  namespaces: Namespace[];
   namespacePath: string;
+  onSelectNamespace: (namespacePath: string) => void;
   onSelectRun: (runID: string) => void;
   onSubmitEphemeralRun: (definition: string) => void;
   runs: RunListItem[];
 };
 
-export function RunsPage({ namespacePath, onSelectRun, onSubmitEphemeralRun, runs }: RunsPageProps) {
+export function RunsPage({
+  namespaces,
+  namespacePath,
+  onSelectNamespace,
+  onSelectRun,
+  onSubmitEphemeralRun,
+  runs
+}: RunsPageProps) {
   const [status, setStatus] = useState<RunFilter>("all");
   const [source, setSource] = useState<SourceFilter>("all");
   const [showRunOnce, setShowRunOnce] = useState(false);
@@ -67,9 +78,12 @@ export function RunsPage({ namespacePath, onSelectRun, onSubmitEphemeralRun, run
         description={`Recent queued, running, and completed work under ${namespacePath}.`}
         eyebrow="Runs"
         actions={
-          <Button aria-expanded={showRunOnce} onClick={() => setShowRunOnce((value) => !value)}>
-            {showRunOnce ? "Close" : "Run once"}
-          </Button>
+          <>
+            <NamespacePicker compact namespaces={namespaces} onChange={onSelectNamespace} value={namespacePath} />
+            <Button aria-expanded={showRunOnce} onClick={() => setShowRunOnce((value) => !value)}>
+              {showRunOnce ? "Close" : "Run once"}
+            </Button>
+          </>
         }
         title="Runs"
       />

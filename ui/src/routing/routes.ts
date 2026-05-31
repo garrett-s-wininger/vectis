@@ -1,4 +1,4 @@
-import type { NavItem } from "../components";
+import type { NavEntry } from "../components";
 
 export type AppRouteKind =
   | "dashboard"
@@ -7,6 +7,7 @@ export type AppRouteKind =
   | "jobs"
   | "users"
   | "namespaces"
+  | "profile"
   | "setup"
   | "login"
   | "notFound";
@@ -19,12 +20,20 @@ export type AppRoute = {
   runID?: string;
 };
 
-export const primaryNavItems: NavItem[] = [
-  { href: "/health", label: "Health" },
-  { href: "/runs", label: "Runs" },
+export const primaryNavItems: NavEntry[] = [
   { href: "/jobs", label: "Jobs" },
-  { href: "/users", label: "Users" },
-  { href: "/namespaces", label: "Namespaces" }
+  { href: "/runs", label: "Runs" }
+];
+
+export const adminNavItems: NavEntry[] = [
+  {
+    label: "Admin",
+    items: [
+      { href: "/health", label: "Health" },
+      { href: "/users", label: "Users" },
+      { href: "/namespaces", label: "Namespaces" }
+    ]
+  }
 ];
 
 export function routeFromPath(pathname: string): AppRoute {
@@ -72,6 +81,10 @@ export function routeFromPath(pathname: string): AppRoute {
 
   if (pathname === "/namespaces" || pathname.startsWith("/namespaces/")) {
     return { kind: "namespaces", activeHref: "/namespaces", pathname };
+  }
+
+  if (pathname === "/profile" || pathname.startsWith("/profile/")) {
+    return { kind: "profile", activeHref: "/profile", pathname };
   }
 
   return { kind: "notFound", activeHref: "", pathname };

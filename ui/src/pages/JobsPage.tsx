@@ -4,11 +4,12 @@ import { Button } from "../components";
 import { DataTable, type DataTableColumn } from "../components";
 import { FormError } from "../components";
 import { FormField } from "../components";
+import { NamespacePicker } from "../components";
 import { PageHeader } from "../components";
 import { SelectField } from "../components";
 import { StatusBadge } from "../components";
 import { TextAreaField } from "../components";
-import type { Job, JobStatus, NewJob, UpdateJob } from "../domain/console";
+import type { Job, JobStatus, Namespace, NewJob, UpdateJob } from "../domain/console";
 import { defaultJobDefinition, jobScheduleOptions, jobStatusOptions } from "../domain/consoleOptions";
 import { ResourceStatus, ResourceTitle, TableActions } from "./shared";
 
@@ -25,9 +26,11 @@ type JobFormValues = {
 
 type JobsPageProps = {
   jobs: Job[];
+  namespaces: Namespace[];
   namespacePath: string;
   onCreateJob: (input: NewJob) => void;
   onDeleteJob: (jobID: string) => void;
+  onSelectNamespace: (namespacePath: string) => void;
   onTriggerRun: (jobID: string) => void;
   onUpdateJob: (jobID: string, input: UpdateJob) => void;
 };
@@ -41,7 +44,16 @@ const emptyJobForm: JobFormValues = {
   status: "enabled"
 };
 
-export function JobsPage({ jobs, namespacePath, onCreateJob, onDeleteJob, onTriggerRun, onUpdateJob }: JobsPageProps) {
+export function JobsPage({
+  jobs,
+  namespaces,
+  namespacePath,
+  onCreateJob,
+  onDeleteJob,
+  onSelectNamespace,
+  onTriggerRun,
+  onUpdateJob
+}: JobsPageProps) {
   const [editorMode, setEditorMode] = useState<JobEditorMode>(null);
   const [values, setValues] = useState<JobFormValues>(emptyJobForm);
   const [formError, setFormError] = useState("");
@@ -147,9 +159,12 @@ export function JobsPage({ jobs, namespacePath, onCreateJob, onDeleteJob, onTrig
         description={`Configured job definitions under ${namespacePath}.`}
         eyebrow="Jobs"
         actions={
-          <Button aria-expanded={editorMode?.kind === "create"} onClick={startCreateJob}>
-            New job
-          </Button>
+          <>
+            <NamespacePicker compact namespaces={namespaces} onChange={onSelectNamespace} value={namespacePath} />
+            <Button aria-expanded={editorMode?.kind === "create"} onClick={startCreateJob}>
+              New job
+            </Button>
+          </>
         }
         title="Jobs"
       />

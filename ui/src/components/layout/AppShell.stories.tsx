@@ -9,12 +9,22 @@ const meta = {
   component: AppShell,
   args: {
     brand: "Vectis",
-    activeHref: "/health",
+    activeHref: "/runs",
     navItems: [
-      { href: "/health", label: "Health" },
-      { href: "/jobs", label: "Jobs" },
-      { href: "/runs", label: "Runs" }
+      { href: "/runs", label: "Runs" },
+      { href: "/jobs", label: "Jobs" }
     ],
+    utilityNavItems: [
+      {
+        label: "Admin",
+        items: [
+          { href: "/health", label: "Health" },
+          { href: "/users", label: "Users" },
+          { href: "/namespaces", label: "Namespaces" }
+        ]
+      }
+    ],
+    accountName: "admin",
     actions: <Button>Refresh</Button>,
     children: (
       <>

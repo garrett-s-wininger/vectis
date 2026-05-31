@@ -320,9 +320,8 @@ describe("App", () => {
 
     await screen.findByRole("heading", { name: "Jobs" });
 
-    fireEvent.change(screen.getByLabelText("Namespace"), {
-      target: { value: "/prod" }
-    });
+    fireEvent.click(screen.getByLabelText("Namespace"));
+    fireEvent.click(screen.getByRole("button", { name: "/prod" }));
 
     expect(screen.getByText("worker-image")).toBeInTheDocument();
     expect(screen.queryByText("api-test-suite")).not.toBeInTheDocument();

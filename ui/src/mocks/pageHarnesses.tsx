@@ -35,14 +35,17 @@ export function HealthPageHarness({ cells }: { cells: Cell[] }) {
 
 export function JobsPageHarness({ namespacePath = "/" }: { namespacePath?: string }) {
   const [data, setData] = useState<MockConsoleData>(() => createMockConsoleDataSnapshot());
-  const scopedData = scopeMockConsoleData(data, namespacePath);
+  const [selectedNamespacePath, setSelectedNamespacePath] = useState(namespacePath);
+  const scopedData = scopeMockConsoleData(data, selectedNamespacePath);
 
   return (
     <JobsPage
       jobs={scopedData.jobs}
-      namespacePath={namespacePath}
+      namespaces={data.namespaces}
+      namespacePath={selectedNamespacePath}
       onCreateJob={(input) => setData((current) => createMockJob(current, input))}
       onDeleteJob={(jobID) => setData((current) => deleteMockJob(current, jobID))}
+      onSelectNamespace={setSelectedNamespacePath}
       onTriggerRun={(jobID) => setData((current) => triggerMockRun(current, jobID))}
       onUpdateJob={(jobID, input) => setData((current) => updateMockJob(current, jobID, input))}
     />
@@ -64,17 +67,20 @@ export function NamespacesPageHarness() {
 
 export function RunsPageHarness({ namespacePath = "/" }: { namespacePath?: string }) {
   const [data, setData] = useState<MockConsoleData>(() => createMockConsoleDataSnapshot());
-  const scopedData = scopeMockConsoleData(data, namespacePath);
+  const [selectedNamespacePath, setSelectedNamespacePath] = useState(namespacePath);
+  const scopedData = scopeMockConsoleData(data, selectedNamespacePath);
 
   return (
     <RunsPage
-      namespacePath={namespacePath}
+      namespaces={data.namespaces}
+      namespacePath={selectedNamespacePath}
+      onSelectNamespace={setSelectedNamespacePath}
       onSelectRun={() => undefined}
       onSubmitEphemeralRun={(definition) =>
         setData((current) =>
           submitMockEphemeralRun(current, {
             definition,
-            namespacePath,
+            namespacePath: selectedNamespacePath,
             submittedBy: "admin"
           })
         )
@@ -97,7 +103,9 @@ export function MixedSourceRunsPageHarness() {
 
   return (
     <RunsPage
+      namespaces={data.namespaces}
       namespacePath={namespacePath}
+      onSelectNamespace={() => undefined}
       onSelectRun={() => undefined}
       onSubmitEphemeralRun={(definition) =>
         setData((current) =>

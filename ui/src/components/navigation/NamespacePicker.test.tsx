@@ -32,4 +32,15 @@ describe("NamespacePicker", () => {
 
     expect(onChange).toHaveBeenCalledWith("/team-a");
   });
+
+  it("renders the compact namespace menu and reports selection changes", () => {
+    const onChange = vi.fn();
+
+    render(<NamespacePicker compact namespaces={namespaces} onChange={onChange} value="/" />);
+
+    fireEvent.click(screen.getByLabelText("Namespace"));
+    fireEvent.click(screen.getByRole("button", { name: "/team-a" }));
+
+    expect(onChange).toHaveBeenCalledWith("/team-a");
+  });
 });

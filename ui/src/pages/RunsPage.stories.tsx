@@ -3,14 +3,18 @@ import { createMockConsoleDataSnapshot } from "../mocks/consoleData";
 import { MixedSourceRunsPageHarness, PageStoryFrame, RunsPageHarness } from "../mocks/pageHarnesses";
 import { RunsPage } from "./RunsPage";
 
+const data = createMockConsoleDataSnapshot();
+
 const meta = {
   title: "Pages/Runs",
   component: RunsPage,
   args: {
+    namespaces: data.namespaces,
     namespacePath: "/",
+    onSelectNamespace: () => undefined,
     onSelectRun: () => undefined,
     onSubmitEphemeralRun: () => undefined,
-    runs: createMockConsoleDataSnapshot().runs
+    runs: data.runs
   },
   decorators: [
     (Story) => (
@@ -39,6 +43,13 @@ export const NamespaceScoped: Story = {
 
 export const Empty: Story = {
   render: () => (
-    <RunsPage namespacePath="/sandbox" onSelectRun={() => undefined} onSubmitEphemeralRun={() => undefined} runs={[]} />
+    <RunsPage
+      namespaces={data.namespaces}
+      namespacePath="/sandbox"
+      onSelectNamespace={() => undefined}
+      onSelectRun={() => undefined}
+      onSubmitEphemeralRun={() => undefined}
+      runs={[]}
+    />
   )
 };

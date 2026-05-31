@@ -10,9 +10,11 @@ const meta = {
   component: JobsPage,
   args: {
     jobs: data.jobs,
+    namespaces: data.namespaces,
     namespacePath: "/",
     onCreateJob: () => undefined,
     onDeleteJob: () => undefined,
+    onSelectNamespace: () => undefined,
     onTriggerRun: () => undefined,
     onUpdateJob: () => undefined
   },
@@ -42,9 +44,11 @@ export const PausedJob: Story = {
     return (
       <JobsPage
         jobs={data.jobs.filter((job) => job.status === "paused")}
+        namespaces={data.namespaces}
         namespacePath="/prod"
         onCreateJob={() => undefined}
         onDeleteJob={() => undefined}
+        onSelectNamespace={() => undefined}
         onTriggerRun={() => undefined}
         onUpdateJob={() => undefined}
       />
@@ -56,9 +60,11 @@ export const Empty: Story = {
   render: () => (
     <JobsPage
       jobs={[]}
+      namespaces={data.namespaces}
       namespacePath="/sandbox"
       onCreateJob={() => undefined}
       onDeleteJob={() => undefined}
+      onSelectNamespace={() => undefined}
       onTriggerRun={() => undefined}
       onUpdateJob={() => undefined}
     />
