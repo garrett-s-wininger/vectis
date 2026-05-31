@@ -110,10 +110,10 @@ Use `source="api"` failures to find initial dispatch problems. Use `source="reco
 The global API also exposes configured ingress readiness:
 
 ```sh
-curl -sS http://localhost:8080/api/v1/cells/status
+./bin/vectis-cli cells status
 ```
 
-This reports cell IDs, ingress route readiness, queued/stuck run counts, and catalog inbox counts without returning the private ingress URLs. Cells are included when they have a configured ingress route or when the global run/catalog state already references them. `vectis-cli doctor` uses the same endpoint for the `cells.ingress` check, so work targeting a cell with no route shows up as `missing_route`.
+This reports cell IDs, ingress route readiness, queued/stuck run counts, and catalog inbox counts without returning the private ingress URLs. Use `--format json` when automation needs the raw response. Cells are included when they have a configured ingress route or when the global run/catalog state already references them. `vectis-cli doctor` uses the same endpoint for the `cells.ingress` check, so work targeting a cell with no route shows up as `missing_route`.
 
 ## Running Locally
 

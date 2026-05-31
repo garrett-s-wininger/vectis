@@ -211,6 +211,108 @@ func TestTriggerJobRequestBody_rejectsEmptyCell(t *testing.T) {
 	}
 }
 
+func TestCellsStatus_tableOutput(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/cells/status" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"cells": []map[string]any{
+				{
+					"cell_id":            "pdx-b",
+					"ingress_required":   true,
+					"ingress_configured": false,
+					"ingress_reachable":  false,
+					"status":             "missing_route",
+					"queued":             3,
+					"stuck":              2,
+					"catalog_pending":    4,
+					"catalog_failed":     1,
+					"catalog_total":      9,
+					"error":              "cell ingress endpoint is not configured",
+				},
+				{
+					"cell_id":            "iad-a",
+					"ingress_required":   true,
+					"ingress_configured": true,
+					"ingress_reachable":  true,
+					"status":             "ready",
+					"queued":             1,
+					"stuck":              0,
+					"catalog_pending":    0,
+					"catalog_failed":     0,
+					"catalog_total":      5,
+				},
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := cellsStatus(&buf); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"CELL", "STATUS", "CATALOG P/F/T", "iad-a", "ready", "0/0/5", "pdx-b", "missing_route", "4/1/9"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+
+	if strings.Index(out, "iad-a") > strings.Index(out, "pdx-b") {
+		t.Fatalf("expected cells to be sorted by cell ID, got:\n%s", out)
+	}
+}
+
+func TestCellsStatus_jsonOutput(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"cells": []map[string]any{
+				{
+					"cell_id":            "iad-a",
+					"ingress_required":   true,
+					"ingress_configured": true,
+					"ingress_reachable":  true,
+					"status":             "ready",
+					"queued":             1,
+					"stuck":              0,
+					"catalog_total":      5,
+				},
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := cellsStatus(&buf); err != nil {
+		t.Fatal(err)
+	}
+
+	var result cellsStatusResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
+	}
+
+	if len(result.Cells) != 1 || result.Cells[0].CellID != "iad-a" || result.Cells[0].CatalogTotal != 5 {
+		t.Fatalf("unexpected cells status JSON: %+v", result)
+	}
+}
+
+func TestCellsStatus_unexpectedStatus(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	if err := cellsStatus(io.Discard); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 func TestRunJob_sendsIdempotencyKey(t *testing.T) {
 	oldKey := runIdemKey
 	runIdemKey = "run-retry-key"

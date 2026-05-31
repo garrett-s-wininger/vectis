@@ -10,6 +10,7 @@ For task walkthroughs, use the [CLI Guide](../../using/cli-guide.md). For repair
 | --- | --- | --- |
 | Jobs | Manage stored jobs and run one-off job files. | `vectis-cli jobs list`, `show`, `create`, `edit`, `delete`, `trigger`, `run` |
 | Runs | Inspect, cancel, retry, or manually repair run state. | `vectis-cli runs list`, `show`, `cancel`, `retry`, `fail`, `repair mark-succeeded`, `mark-failed`, `mark-cancelled`, `mark-abandoned`, `mark-queued` |
+| Cells | Inspect execution cell routing, queued pressure, stuck dispatches, and catalog fan-in counts. | `vectis-cli cells status` |
 | Logs | Stream logs for one run or follow future runs for a job. | `vectis-cli logs run`, `logs job` |
 | Auth sessions | Log in and out for API-backed CLI use. | `vectis-cli auth login`, `logout` |
 | API tokens | Manage personal/API tokens through the auth API. | `vectis-cli auth tokens list`, `create`, `delete` |
@@ -28,6 +29,7 @@ For task walkthroughs, use the [CLI Guide](../../using/cli-guide.md). For repair
 | --- | --- |
 | Check whether the system is healthy | `vectis-cli health check --strict` |
 | Get machine-readable health evidence | `vectis-cli health check --json` |
+| Inspect multi-cell routing and fan-in state | `vectis-cli cells status` |
 | Inspect a stuck run | `vectis-cli runs show <run-id>` |
 | Cancel a running run | `vectis-cli runs cancel <run-id>` |
 | Retry a failed or repaired run | `vectis-cli runs retry <run-id>` |
