@@ -213,6 +213,97 @@ func TestIntegrationMultiCell_FanOutRunsAcrossCellsAndFanInIsIdempotent(t *testi
 	}
 }
 
+func TestIntegrationMultiCell_ReplayRunRoutesToNamedCellWithSourceSnapshot(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+
+	ctx := context.Background()
+	logger := mocks.NewMockLogger()
+	jobID := "integration-multicell-replay"
+	definitionV1 := `{"id":"integration-multicell-replay","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo replay-source"}}}`
+	definitionV2 := `{"id":"integration-multicell-replay","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo replay-current"}}}`
+
+	globalDB := dbtest.NewTestDB(t)
+	globalRepos := dal.NewSQLRepositoriesWithCellID(globalDB, dal.DefaultCellID)
+	if err := globalRepos.Jobs().Create(ctx, jobID, definitionV1, 1); err != nil {
+		t.Fatalf("create global job: %v", err)
+	}
+
+	logStore, err := logserver.NewLocalRunLogStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("create log store: %v", err)
+	}
+
+	_, logClient := grpcservices.StartLogServer(t, logger, logStore)
+	c := startIntegrationCell(t, "pdx-b", logger, logClient)
+
+	api := apiserver.NewAPIServer(logger, globalDB)
+	api.SetExecutionIngress(cell.NewStaticExecutionRouter(map[string]cell.ExecutionIngress{
+		c.id: c.ingress,
+	}))
+
+	sourceRunID := triggerJobInCell(t, api, jobID, c.id)
+	if err := c.worker.runOne(ctx); err != nil {
+		t.Fatalf("worker run for source: %v", err)
+	}
+
+	assertCellRunStatus(t, ctx, c.repos, sourceRunID, dal.RunStatusSucceeded)
+	fanInAndProcess(t, ctx, globalRepos, []*integrationCell{c})
+	assertGlobalAPIRunStatus(t, api, jobID, sourceRunID, c.id, dal.RunStatusSucceeded)
+
+	if _, err := globalRepos.Jobs().UpdateDefinition(ctx, jobID, definitionV2); err != nil {
+		t.Fatalf("update job definition: %v", err)
+	}
+
+	replayed := replayRunInCell(t, api, sourceRunID, c.id)
+	if replayed.RunID == sourceRunID {
+		t.Fatal("replay should create a new run id")
+	}
+
+	if replayed.JobID != jobID || replayed.CellID != c.id || replayed.ReplayOfRunID != sourceRunID {
+		t.Fatalf("unexpected replay response: %+v", replayed)
+	}
+
+	events := waitForDispatchEvents(t, ctx, globalRepos, replayed.RunID, 2)
+	assertDispatchSuccess(t, events)
+
+	replayRun, err := globalRepos.Runs().GetRun(ctx, replayed.RunID)
+	if err != nil {
+		t.Fatalf("get replay run: %v", err)
+	}
+
+	if replayRun.DefinitionVersion != 1 || replayRun.ReplayOfRunID == nil || *replayRun.ReplayOfRunID != sourceRunID {
+		t.Fatalf("unexpected replay audit metadata: %+v", replayRun)
+	}
+
+	payload, err := globalRepos.Runs().GetExecutionPayloadForRun(ctx, replayed.RunID)
+	if err != nil {
+		t.Fatalf("get replay execution payload: %v", err)
+	}
+
+	if !strings.Contains(payload.PayloadJSON, "replay-source") || strings.Contains(payload.PayloadJSON, "replay-current") {
+		t.Fatalf("replay payload did not preserve the source definition snapshot: %s", payload.PayloadJSON)
+	}
+
+	if err := c.worker.runOne(ctx); err != nil {
+		t.Fatalf("worker run for replay: %v", err)
+	}
+
+	assertCellRunStatus(t, ctx, c.repos, replayed.RunID, dal.RunStatusSucceeded)
+
+	fanInResult, processResult := fanInAndProcess(t, ctx, globalRepos, []*integrationCell{c})
+	if fanInResult.Copied == 0 || fanInResult.Read == 0 {
+		t.Fatalf("unexpected replay fan-in result: %+v", fanInResult)
+	}
+
+	if processResult.Failed != 0 || processResult.Applied == 0 {
+		t.Fatalf("unexpected replay catalog inbox result: %+v", processResult)
+	}
+
+	assertGlobalAPIRunStatus(t, api, jobID, replayed.RunID, c.id, dal.RunStatusSucceeded)
+}
+
 func TestIntegrationMultiCell_CellsStatusCombinesRoutesRunsAndCatalogSources(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
@@ -519,6 +610,14 @@ type triggeredRun struct {
 	CellID   string `json:"cell_id"`
 }
 
+type replayedRun struct {
+	JobID         string `json:"job_id"`
+	RunID         string `json:"run_id"`
+	RunIndex      int    `json:"run_index"`
+	CellID        string `json:"cell_id"`
+	ReplayOfRunID string `json:"replay_of_run_id"`
+}
+
 type apiRunExpectation struct {
 	status     string
 	owningCell string
@@ -704,6 +803,32 @@ func triggerJobInCells(t *testing.T, api *apiserver.APIServer, jobID string, cel
 	}
 
 	return resp.Runs
+}
+
+func replayRunInCell(t *testing.T, api *apiserver.APIServer, sourceRunID, cellID string) replayedRun {
+	t.Helper()
+
+	body := bytes.NewBufferString(fmt.Sprintf(`{"cell_id":%q}`, cellID))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runs/"+sourceRunID+"/replay", body)
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", sourceRunID)
+	rec := httptest.NewRecorder()
+
+	api.ReplayRun(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("replay status: got %d, want %d; body=%s", rec.Code, http.StatusAccepted, rec.Body.String())
+	}
+
+	var resp replayedRun
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode replay response: %v", err)
+	}
+
+	if resp.RunID == "" {
+		t.Fatalf("replay response did not include run_id: %s", rec.Body.String())
+	}
+
+	return resp
 }
 
 func assertCellRunStatus(t *testing.T, ctx context.Context, repos *dal.SQLRepositories, runID, want string) {

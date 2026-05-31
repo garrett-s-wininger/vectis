@@ -100,6 +100,21 @@ Multi-cell trigger responses return one run per target cell:
 }
 ```
 
+### Replay A Completed Run
+
+Replay creates a fresh run from the source run's captured definition version. It does not reuse or overwrite the source run ID.
+
+```sh
+curl -sS \
+  -X POST \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"cell_id":"pdx-b"}' \
+  http://localhost:8080/api/v1/runs/<run-id>/replay
+```
+
+If `cell_id` is omitted, Vectis targets the source run's owning cell. Replay accepts only one target cell; use a new replay request for a different target. Queued and running source runs cannot be replayed.
+
 ### Check Whether The System Is Ready
 
 Use the health endpoints for process-level checks:
@@ -234,11 +249,11 @@ List routes use `limit` and `cursor` query parameters where implemented. Paginat
 
 `GET /api/v1/jobs/{id}/runs` is backed by the global run catalog, not by per-cell fan-out. It returns summary run records from `job_runs`, including `owning_cell`, and accepts `after_index`, `since`, and `cell_id`/`owning_cell` filters.
 
-Run submission routes can target a cell with `cell_id`/`target_cell_id`; stored-job triggers can also fan out with `cell_ids`/`target_cell_ids`. Non-local targets require the API to be configured with matching private cell ingress endpoints.
+Run submission routes can target a cell with `cell_id`/`target_cell_id`; stored-job triggers can also fan out with `cell_ids`/`target_cell_ids`. Replay defaults to the source run's owning cell and can override it with one `cell_id`/`target_cell_id`. Non-local targets require the API to be configured with matching private cell ingress endpoints.
 
 Run list/detail responses include audit metadata such as `definition_version`, `definition_hash`, `owning_cell`, trigger invocation fields, requested cells, and `execution_payload_hash`. The frozen execution payload itself is available only through the operator-scoped execution-payload route.
 
-`POST /api/v1/jobs/run` and `POST /api/v1/jobs/trigger/{id}` accept `Idempotency-Key`. Use this header when a client might retry after a timeout or dropped connection. Retry guidance for each route family is in [Idempotency And Retries](./idempotency-and-retries.md).
+`POST /api/v1/jobs/run`, `POST /api/v1/jobs/trigger/{id}`, and `POST /api/v1/runs/{id}/replay` accept `Idempotency-Key`. Use this header when a client might retry after a timeout or dropped connection. Retry guidance for each route family is in [Idempotency And Retries](./idempotency-and-retries.md).
 
 Streaming routes return `text/event-stream`. Use `curl -N`, `EventSource`, or another SSE-capable client for `GET /api/v1/sse/jobs/{id}/runs` and `GET /api/v1/runs/{id}/logs`.
 

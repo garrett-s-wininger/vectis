@@ -16,6 +16,25 @@ For the configuration reference, see [Configuration](./configuration.md). For ru
 
 The single-cell deployment is the degenerate case: global and cell services can share one database and one queue. In multi-cell mode, prefer split global and cell databases so cell-local execution does not write through the global database on every status transition.
 
+## Production Stack Wiring
+
+Run one global control plane and one independently scaled stack per cell:
+
+```sh
+# global control plane
+VECTIS_GLOBAL_DATABASE_DSN=postgres://vectis-global/...
+VECTIS_CELL_INGRESS_ENDPOINTS=local=http://local-cell-ingress:8085,iad-a=http://iad-cell-ingress:8085,pdx-b=http://pdx-cell-ingress:8085
+VECTIS_CATALOG_CELL_DATABASE_DSNS=local=postgres://vectis-cell-local/...,iad-a=postgres://vectis-cell-iad/...,pdx-b=postgres://vectis-cell-pdx/...
+
+# each execution cell
+VECTIS_CELL_ID=iad-a
+VECTIS_CELL_DATABASE_DSN=postgres://vectis-cell-iad/...
+VECTIS_CELL_INGRESS_QUEUE_ADDRESS=iad-queue:9090
+VECTIS_WORKER_QUEUE_ADDRESS=iad-queue:9090
+```
+
+Start `vectis-api`, `vectis-cron`, `vectis-reconciler`, and `vectis-catalog` against the global database. Start `vectis-cell-ingress`, `vectis-queue`, and `vectis-worker` in each cell against that cell's database and queue. If a deployment keeps the default `local` cell, give it the same treatment as every other cell once global and cell databases are split.
+
 ## Request Flow
 
 1. A client triggers a stored job with `cell_id` or `cell_ids`.
@@ -60,6 +79,21 @@ VECTIS_CRON_CELL_INGRESS_ENDPOINTS=iad-a=http://iad.example:8085,pdx-b=http://pd
 Use the same cell IDs that clients pass as `cell_id` or `cell_ids`. If global and cell databases are split, configure an ingress endpoint for every execution target, including the local/default cell. Direct queue fallback is disabled when Vectis detects split global and cell databases.
 
 Cell ingress is private infrastructure, not a public API. Expose it only to global producers that are allowed to submit executions to that cell.
+
+## Cell Ingress Security
+
+`vectis-cell-ingress` exposes the internal execution submission route `POST /cell/v1/executions`, plus health and metrics endpoints. It is intentionally slim: user authentication, RBAC, namespace checks, and trigger authorization happen at the global API before dispatch. Cell ingress trusts that only approved global producers can reach it.
+
+For production-like deployments:
+
+- bind cell ingress on a private interface or behind an internal load balancer
+- restrict network reachability to global producers such as API, cron, and reconciler
+- use firewall rules, service mesh policy, or platform network policy to block user and internet traffic
+- put cell ingress behind HTTPS or mTLS-capable infrastructure when traffic crosses an untrusted network
+- keep the cell queue and cell database reachable only by services in that cell
+- scrape cell ingress health and metrics from a trusted monitoring network only
+
+The global API never returns private ingress URLs from `GET /api/v1/cells/status`; it reports readiness and counts only.
 
 ## Required Catalog Configuration
 
@@ -136,6 +170,15 @@ Run a one-off job file in one cell:
 ```sh
 ./bin/vectis-cli jobs run examples/sequenced.json --cell pdx-b
 ```
+
+Replay a completed run into its original cell, or override the target cell explicitly:
+
+```sh
+./bin/vectis-cli runs replay <run-id>
+./bin/vectis-cli runs replay <run-id> --cell pdx-b
+```
+
+Replay creates a new run ID. It does not take over the source run. The new run uses the source run's captured definition version and records `replay_of_run_id`, so operators can reproduce what originally ran even if the stored job has changed since then.
 
 Then list the global run catalog:
 

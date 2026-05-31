@@ -30,16 +30,18 @@ Only these routes currently record idempotency keys:
 | --- | --- | --- |
 | `POST /api/v1/jobs/run` | Start an ephemeral run from a job definition. | Same key and same request returns the same `202` response. |
 | `POST /api/v1/jobs/trigger/{id}` | Trigger a stored job. | Same key and same trigger returns the same `202` response. |
+| `POST /api/v1/runs/{id}/replay` | Create a fresh run from a completed source run's captured definition version. | Same key, source run, and replay target returns the same `202` response. |
 
 Other routes may be safe to retry for other reasons, but they do not replay a recorded response.
 
 ## CLI Usage
 
-Both one-off runs and stored-job triggers accept `--idempotency-key`:
+One-off runs, stored-job triggers, and replay requests accept `--idempotency-key`:
 
 ```sh
 ./bin/vectis-cli jobs run job.json --idempotency-key "$(uuidgen)"
 ./bin/vectis-cli jobs trigger build-main --idempotency-key "$(uuidgen)"
+./bin/vectis-cli runs replay <run-id> --idempotency-key "$(uuidgen)"
 ```
 
 For scripts, generate the key once and keep it with the operation you are trying to complete:
@@ -81,6 +83,12 @@ For ephemeral runs, the scope includes:
 - the namespace
 - the raw job definition request body
 
+For run replay, the scope includes:
+
+- the authenticated principal, or anonymous access when auth is disabled
+- the source run ID
+- the replay operation
+
 This means two users can safely use the same key without colliding. It also means the same user should not reuse one key for two different intended runs.
 
 ## Responses To Expect
@@ -100,6 +108,7 @@ When you get `idempotency_in_progress`, wait briefly and retry with the same key
 | --- | --- |
 | `POST /api/v1/jobs/run` | Use `Idempotency-Key` for safe retries. |
 | `POST /api/v1/jobs/trigger/{id}` | Use `Idempotency-Key` for safe retries. |
+| `POST /api/v1/runs/{id}/replay` | Use `Idempotency-Key` for safe retries. If you pass `cell_id`, retry with the same target cell. |
 | `POST /api/v1/jobs` | Retry only if `409 job_already_exists` is acceptable as "already stored." |
 | `PUT /api/v1/jobs/{id}` | Retrying the same body is generally safe because the route replaces the definition. |
 | `DELETE /api/v1/jobs/{id}` | Retry only if `404` is acceptable as "already deleted." |

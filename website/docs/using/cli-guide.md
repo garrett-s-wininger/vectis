@@ -200,6 +200,13 @@ Replay a completed run as a fresh queued run using the source run's captured def
 ./bin/vectis-cli runs replay <run-id>
 ```
 
+Replay back to a named execution cell, or make the request safe to retry:
+
+```sh
+./bin/vectis-cli runs replay <run-id> --cell pdx-b
+./bin/vectis-cli runs replay <run-id> --idempotency-key "$(uuidgen)"
+```
+
 List runs for a stored job:
 
 ```sh

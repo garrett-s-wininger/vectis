@@ -10,6 +10,7 @@ For outage behavior, see [Failure Domains](./failure-domains.md). For environmen
 | --- | --- | --- |
 | HTTP API | Authentication is off by default for local and development use. Local users, API tokens, RBAC, rate limits, and audit logging are available when API auth is enabled. | Enable API auth outside throwaway local use, terminate HTTPS at the edge, and restrict who can reach the API. |
 | Internal gRPC | Queue, registry, and log service traffic can use optional TLS or mTLS. Standalone binaries default to plaintext unless configured. | Keep internal ports private. Use TLS or mTLS on shared networks. |
+| Cell ingress HTTP | Cell ingress is an internal execution submission surface. It does not perform end-user authentication or RBAC; global producers authorize work before dispatch. | Keep cell ingress private, reachable only by approved global producers, and put it behind TLS or mTLS-capable infrastructure on untrusted networks. |
 | Service authorization | Internal gRPC servers do not yet enforce application-level per-service authorization. mTLS can verify certificates, but Vectis does not map cert identities to per-RPC allow/deny rules yet. | Treat network reachability to queue, registry, log, and worker-control paths as sensitive. |
 | Metrics | Prometheus endpoints are unauthenticated. Some deployments enable TLS for dedicated metrics listeners. | Scrape from a trusted network only, or block metrics at the edge. |
 | Database and files | SQL, SQLite files, queue persistence, logs, and backups may contain sensitive operational state. Vectis does not encrypt these at rest itself. | Use platform disk or volume encryption, filesystem permissions, and secret-store controls. |
@@ -68,6 +69,14 @@ Standalone binaries default to plaintext internal gRPC (`VECTIS_GRPC_TLS_INSECUR
 When `VECTIS_GRPC_TLS_INSECURE=false`, listeners need certificate and key files, and gRPC clients need a CA bundle. Optional mTLS can verify peer certificates when a client CA is configured, but Vectis does not yet use certificate identity as an application authorization policy.
 
 For the service identity matrix, private port guidance, and checklist for new internal RPCs, see [Internal Service Trust](./internal-service-trust.md).
+
+## Cell Ingress
+
+`vectis-cell-ingress` accepts routed executions on `POST /cell/v1/executions` and hands them to the cell-local queue after durable acceptance in the cell database. It is not a public API and does not replace the global API's authentication, RBAC, audit, and namespace checks.
+
+Restrict cell ingress reachability to trusted global producers such as `vectis-api`, `vectis-cron`, and `vectis-reconciler`. Keep it on private networks or behind internal load balancers, service mesh policy, firewall rules, or platform network policy. If cell ingress traffic crosses an untrusted network boundary, terminate HTTPS or mTLS in front of it. Health and metrics endpoints should follow the same private-network rule.
+
+For the multi-cell routing and fan-in shape, see [Multi-Cell Operation](../operating/multi-cell.md).
 
 ## Metrics
 
