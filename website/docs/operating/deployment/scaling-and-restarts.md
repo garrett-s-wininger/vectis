@@ -51,8 +51,11 @@ When adding workers, check:
 | Log service capacity | Every running job streams logs before and during execution. Add log shards when a single shard's ingest, replay, or disk pressure becomes the limit. |
 | Workload isolation | Shell and checkout actions consume host/container CPU, memory, disk, and network. |
 | Worker-control reachability | Remote cancel uses worker-control as a fast path; durable cancel intent is still stored in the database and polled by the assigned worker. |
+| Drain visibility | `vectis_worker_draining`, `vectis_worker_lifecycle_state`, and `vectis_worker_db_unavailable` show whether a worker is safely idle, still executing, finalizing DB state, or blocked on database recovery. |
 
 Each worker runs one job at a time today. To increase parallel job throughput, add workers rather than expecting one worker to run multiple jobs concurrently.
+
+During rolling restarts, wait for draining workers to report lifecycle state `idle` before forcing termination. A worker in `executing` or `finalizing` is still protecting the claimed run from unnecessary lease expiry and repair.
 
 ## API Replicas
 

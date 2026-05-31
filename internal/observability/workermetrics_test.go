@@ -28,6 +28,9 @@ func TestNewWorkerMetrics_appearsOnScrape(t *testing.T) {
 
 	wm.RecordJobReceived(ctx)
 	wm.RecordJobFinished(ctx, WorkerOutcomeSuccess, 50*time.Millisecond)
+	wm.SetLifecyclePhase(WorkerPhaseExecuting)
+	wm.SetDraining(true)
+	wm.SetDBUnavailable(true)
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/metrics", http.NoBody)
@@ -42,9 +45,24 @@ func TestNewWorkerMetrics_appearsOnScrape(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, want := range []string{"vectis_worker_jobs_received_total", "vectis_worker_job_duration_seconds"} {
+	for _, want := range []string{
+		"vectis_worker_jobs_received_total",
+		"vectis_worker_job_duration_seconds",
+		"vectis_worker_lifecycle_state",
+		"vectis_worker_draining",
+		"vectis_worker_db_unavailable",
+	} {
 		if _, ok := names[want]; !ok {
 			t.Fatalf("missing metric %q; got: %v", want, sortedFamilyNames(names))
 		}
+	}
+
+	families, err := metricFamilies(rr.Body.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !metricFamilyHasLabels(families["vectis_worker_lifecycle_state"], map[string]string{"state": WorkerPhaseExecuting}) {
+		t.Fatalf("lifecycle metric missing executing state: %v", families["vectis_worker_lifecycle_state"])
 	}
 }

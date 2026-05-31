@@ -313,6 +313,11 @@ func (w *worker) now() time.Time {
 }
 
 func (w *worker) run() {
+	w.setLifecyclePhase(observability.WorkerPhaseIdle)
+	w.setDraining(false)
+	stopDrainObserver := w.startDrainObserver()
+	defer close(stopDrainObserver)
+
 	for {
 		jobReq, keepGoing := w.dequeueNext()
 		if !keepGoing {
@@ -329,6 +334,7 @@ func (w *worker) run() {
 
 func (w *worker) dequeueNext() (*api.JobRequest, bool) {
 	w.logger.Debug("Initiating long poll from queue...")
+	w.setLifecyclePhase(observability.WorkerPhaseDequeuing)
 	pollCtx, cancelPoll := context.WithTimeout(w.ctx, longPollTimeout)
 	job, err := w.queue.Dequeue(pollCtx)
 	cancelPoll()
@@ -340,13 +346,48 @@ func (w *worker) dequeueNext() (*api.JobRequest, bool) {
 	w.dequeueFailAttempt = 0
 	if job == nil {
 		w.logger.Debug("Dequeue returned nil job, skipping")
+		w.setLifecyclePhase(observability.WorkerPhaseIdle)
 		return nil, true
 	}
 
 	return job, true
 }
 
+func (w *worker) startDrainObserver() chan struct{} {
+	stop := make(chan struct{})
+	if w.ctx == nil {
+		return stop
+	}
+
+	go func() {
+		select {
+		case <-w.ctx.Done():
+			w.setDraining(true)
+			if w.logger != nil {
+				w.logger.Info("Worker drain requested; dequeue loop will stop after active work")
+			}
+		case <-stop:
+		}
+	}()
+
+	return stop
+}
+
+func (w *worker) setLifecyclePhase(phase string) {
+	if w.metrics != nil {
+		w.metrics.SetLifecyclePhase(phase)
+	}
+}
+
+func (w *worker) setDraining(draining bool) {
+	if w.metrics != nil {
+		w.metrics.SetDraining(draining)
+	}
+}
+
 func (w *worker) logGracefulDequeueStop(cause error) {
+	w.setDraining(true)
+	w.setLifecyclePhase(observability.WorkerPhaseIdle)
 	w.logger.Info("Worker graceful shutdown; dequeue loop stopped")
 	if cause != nil {
 		w.logger.Debug("Dequeue shutdown detail: %v", cause)
@@ -402,6 +443,10 @@ func (w *worker) noteDBError(err error) {
 		return
 	}
 
+	if w.metrics != nil {
+		w.metrics.SetDBUnavailable(true)
+	}
+
 	w.dbMu.Lock()
 	defer w.dbMu.Unlock()
 	if !w.dbUnavailable {
@@ -411,6 +456,10 @@ func (w *worker) noteDBError(err error) {
 }
 
 func (w *worker) noteDBRecovered() {
+	if w.metrics != nil {
+		w.metrics.SetDBUnavailable(false)
+	}
+
 	w.dbMu.Lock()
 	defer w.dbMu.Unlock()
 	if w.dbUnavailable {
@@ -508,12 +557,14 @@ func (w *worker) handleJob(jobReq *api.JobRequest) {
 		return
 	}
 
+	w.setLifecyclePhase(observability.WorkerPhaseAcking)
 	if err := w.ackDelivery(deliveryID); err != nil {
 		w.logger.Error("Ack delivery %s failed for job %s: %v", deliveryID, jobID, err)
 		span.RecordError(err)
 		span.SetStatus(otelcodes.Error, "ack delivery")
 		span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeFailed))
 		span.End()
+		w.setLifecyclePhase(observability.WorkerPhaseIdle)
 		if w.metrics != nil {
 			w.metrics.RecordJobFinished(jobCtx, observability.WorkerOutcomeFailed, w.now().Sub(start))
 		}
@@ -524,8 +575,10 @@ func (w *worker) handleJob(jobReq *api.JobRequest) {
 	span.SetAttributes(attribute.String("vectis.worker.outcome", "consumed"))
 	span.End()
 
+	w.setLifecyclePhase(observability.WorkerPhaseExecuting)
 	if err := w.executor.ExecuteJob(jobCtx, job, w.logClient, w.logger); err != nil {
 		w.logger.Error("Job %s failed: %v", jobID, err)
+		w.setLifecyclePhase(observability.WorkerPhaseIdle)
 		if w.metrics != nil {
 			w.metrics.RecordJobFinished(jobCtx, observability.WorkerOutcomeFailed, w.now().Sub(start))
 		}
@@ -534,6 +587,7 @@ func (w *worker) handleJob(jobReq *api.JobRequest) {
 	}
 
 	w.logger.Info("Job completed successfully: %s", jobID)
+	w.setLifecyclePhase(observability.WorkerPhaseIdle)
 	if w.metrics != nil {
 		w.metrics.RecordJobFinished(jobCtx, observability.WorkerOutcomeSuccess, w.now().Sub(start))
 	}
@@ -560,6 +614,8 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 	if len(envelopes) > 0 {
 		executionEnvelope = envelopes[0]
 	}
+	w.setLifecyclePhase(observability.WorkerPhaseClaiming)
+	defer w.setLifecyclePhase(observability.WorkerPhaseIdle)
 
 	ctx, span := observability.Tracer("vectis/worker").Start(ctx, "worker.run.execute", trace.WithSpanKind(trace.SpanKindInternal))
 	span.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
@@ -586,6 +642,7 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 
 	if !claimed {
 		w.logger.Debug("Run %s not claimed (other worker or not queued); dropping message", runID)
+		w.setLifecyclePhase(observability.WorkerPhaseAcking)
 		if err := w.ackDelivery(deliveryID); err != nil {
 			w.logger.Warn("Ack delivery %s for unclaimed run %s failed: %v", deliveryID, runID, err)
 		}
@@ -596,12 +653,14 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 
 	w.recordRunCatalogEvent(dal.RunStatusUpdate{RunID: runID, Status: dal.RunStatusRunning})
 
+	w.setLifecyclePhase(observability.WorkerPhaseAcking)
 	if ackFailure := w.ackDeliveryWithRetry(ctx, deliveryID); ackFailure != nil {
 		w.logger.Error("Ack delivery %s failed for claimed run %s: %v (reason_code=%s)",
 			deliveryID, runID, ackFailure.err, ackFailure.decision.ReasonCode)
 		span.RecordError(ackFailure.err)
 		span.SetStatus(otelcodes.Error, "ack delivery retry exhausted")
 
+		w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
 		if markErr := w.markRunOrphanedWithRetry(runID, claimToken, ackFailure.decision.OrphanReason); markErr != nil {
 			w.logger.Error("Failed to mark run %s orphaned after ack error (%s): %v", runID, ackFailure.decision.ReasonCode, markErr)
 			span.RecordError(markErr)
@@ -612,11 +671,13 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 
 	w.markExecutionAccepted(ctx, executionEnvelope)
 	w.markExecutionStarted(ctx, executionEnvelope)
+	w.setLifecyclePhase(observability.WorkerPhaseExecuting)
 	execErr := w.executeWithLeaseRenewal(ctx, runID, claimToken, job)
 	if execErr != nil {
 		if errors.Is(execErr, errRunCancelled) {
 			span.AddEvent("run.cancelled")
 			span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeAborted))
+			w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
 			if err := w.markRunAbortedWithRetry(runID, claimToken, dal.CancelReasonAPI); err != nil {
 				w.logger.Error("Failed to mark run %s cancelled: %v", runID, err)
 				span.RecordError(err)
@@ -631,6 +692,7 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 		span.SetStatus(otelcodes.Error, "execute with lease renewal")
 		decision := runpolicy.Decide(runpolicy.Input{Trigger: runpolicy.TriggerExecutionResult})
 		reason := truncateFailureReason(execErr.Error())
+		w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
 		if err := w.markRunFailedWithRetry(runID, claimToken, decision.FailureCode, reason); err != nil {
 			w.logger.Error("Failed to mark run %s failed: %v", runID, err)
 			span.RecordError(err)
@@ -640,6 +702,7 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 		return observability.WorkerOutcomeFailed
 	}
 
+	w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
 	if err := w.markRunSucceededWithRetry(runID, claimToken); err != nil {
 		w.logger.Error("Failed to mark run %s succeeded: %v", runID, err)
 		span.RecordError(err)

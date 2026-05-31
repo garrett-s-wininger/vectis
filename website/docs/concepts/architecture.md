@@ -173,7 +173,7 @@ The common local defaults are:
 | Log HTTP | `8084` | Log-service HTTP surface; user-facing log streaming goes through the API. |
 | Docs HTTP | `8088` | Static documentation site. |
 
-Prometheus metrics are exposed on `/metrics`. The API serves metrics on its main HTTP listener; queue, worker, log, log-forwarder, reconciler, catalog, and cell ingress use dedicated metrics listeners by default.
+Prometheus metrics are exposed on `/metrics`. The API serves metrics on its main HTTP listener; queue, worker, log, log-forwarder, reconciler, catalog, and cell ingress use dedicated metrics listeners by default. Workers publish lifecycle gauges for drain, execution/finalization phase, and observed database unavailability.
 
 For exact ports, environment variables, TLS settings, and discovery settings, see [Configuration](../operating/configuration.md). For the REST route table, see [API Reference](../using/api-reference.md). gRPC contracts live under `api/proto/`.
 

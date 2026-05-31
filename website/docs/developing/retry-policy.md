@@ -101,7 +101,7 @@ Keep this section as a short index. Detailed operator steps belong in [Repair Ru
 
 - Queue enqueue exhaustion after API 202: keep `vectis-reconciler` running, inspect queued run age, and use `vectis-cli runs retry` only for manual intervention when automatic redispatch is insufficient.
 - Registry or pinned dial exhaustion at startup: verify address, DNS, network policy, and `VECTIS_GRPC_TLS_SERVER_NAME` / certificate SANs.
-- Worker ack/finalize exhaustion: inspect run status, worker logs, database availability, and queue delivery state. Avoid restarting repeatedly without checking whether the database can accept final status writes.
+- Worker ack/finalize exhaustion: inspect run status, worker logs, `vectis_worker_lifecycle_state`, `vectis_worker_db_unavailable`, database availability, and queue delivery state. Avoid restarting repeatedly without checking whether the database can accept final status writes.
 - Log retry exhaustion: inspect `vectis-log` health, storage directory writability, and worker spool warnings before retrying the run.
 - Migration lock exhaustion: confirm no other migrator is still running, then rerun `vectis-cli database migrate` after the lock holder exits.
 

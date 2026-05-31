@@ -18,6 +18,7 @@ import (
 	"vectis/internal/interfaces"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/job"
+	"vectis/internal/observability"
 	"vectis/internal/testutil/dbtest"
 
 	"github.com/spf13/viper"
@@ -91,6 +92,20 @@ func (s *flakyFinalizeRunsStore) MarkRunOrphaned(ctx context.Context, runID, cla
 	return s.RunsRepository.MarkRunOrphaned(ctx, runID, claimToken, reason)
 }
 
+type blockingSuccessStore struct {
+	dal.RunsRepository
+
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (s *blockingSuccessStore) MarkRunSucceeded(ctx context.Context, runID, claimToken string) error {
+	s.once.Do(func() { close(s.entered) })
+	<-s.release
+	return s.RunsRepository.MarkRunSucceeded(ctx, runID, claimToken)
+}
+
 func TestLeaseRenewalLoop_ReclaimsOrphanedRun(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
@@ -148,9 +163,14 @@ func TestLeaseRenewalLoop_ReclaimsOrphanedRun(t *testing.T) {
 
 func TestWorkerDBUnavailableSignals_LogOutageAndRecoveryOnce(t *testing.T) {
 	logger := mocks.NewMockLogger()
+	workerMetrics, err := observability.NewWorkerMetrics()
+	if err != nil {
+		t.Fatalf("worker metrics: %v", err)
+	}
 	w := &worker{
-		ctx:    context.Background(),
-		logger: logger,
+		ctx:     context.Background(),
+		logger:  logger,
+		metrics: workerMetrics,
 	}
 
 	w.noteDBError(errors.New("database is closed"))
@@ -161,7 +181,14 @@ func TestWorkerDBUnavailableSignals_LogOutageAndRecoveryOnce(t *testing.T) {
 		t.Fatalf("expected a single outage warning, got %d (%v)", len(warns), warns)
 	}
 
+	if !workerMetrics.DBUnavailable() {
+		t.Fatal("expected worker metrics to report database unavailable")
+	}
+
 	w.noteDBRecovered()
+	if workerMetrics.DBUnavailable() {
+		t.Fatal("expected worker metrics to clear database unavailable after recovery")
+	}
 
 	infos := logger.GetInfoCalls()
 	foundRecovery := false
@@ -665,6 +692,91 @@ func TestWorkerRunClaimedJob_FinalizeSucceededRetriesOnTransientStoreFailure(t *
 	}
 }
 
+func TestWorkerRunClaimedJob_LifecyclePhaseShowsFinalizing(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositories(db)
+	runs := repos.Runs()
+
+	runID, _, err := runs.CreateRun(ctx, "job-worker-finalizing-phase", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	workerMetrics, err := observability.NewWorkerMetrics()
+	if err != nil {
+		t.Fatalf("worker metrics: %v", err)
+	}
+
+	store := &blockingSuccessStore{
+		RunsRepository: runs,
+		entered:        make(chan struct{}),
+		release:        make(chan struct{}),
+	}
+
+	w := &worker{
+		ctx:           context.Background(),
+		runCtx:        context.Background(),
+		logger:        interfaces.NewLogger("worker-test"),
+		workerID:      "worker-test-finalizing-phase",
+		clock:         interfaces.SystemClock{},
+		renewInterval: time.Hour,
+		queue:         mocks.NewMockQueueClient(),
+		logClient:     mocks.NewMockLogClient(),
+		executor:      job.NewExecutor(),
+		store:         store,
+		metrics:       workerMetrics,
+	}
+
+	jobID := "job-worker-finalizing-phase"
+	deliveryID := "delivery-finalizing-phase"
+	commandNodeID := "node-1"
+	command := "echo finalizing-phase"
+	action := "builtins/shell"
+	root := &api.Node{
+		Id:   &commandNodeID,
+		Uses: &action,
+		With: map[string]string{"command": command},
+	}
+
+	j := &api.Job{
+		Id:         &jobID,
+		RunId:      &runID,
+		DeliveryId: &deliveryID,
+		Root:       root,
+	}
+
+	done := make(chan string, 1)
+	go func() {
+		done <- w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID)
+	}()
+
+	select {
+	case <-store.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for finalization to begin")
+	}
+
+	if got := workerMetrics.LifecyclePhase(); got != observability.WorkerPhaseFinalizing {
+		t.Fatalf("expected finalizing phase, got %q", got)
+	}
+
+	close(store.release)
+
+	select {
+	case outcome := <-done:
+		if outcome != observability.WorkerOutcomeSuccess {
+			t.Fatalf("expected success, got %q", outcome)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for finalizing run to finish")
+	}
+
+	if got := workerMetrics.LifecyclePhase(); got != observability.WorkerPhaseIdle {
+		t.Fatalf("expected idle phase after completion, got %q", got)
+	}
+}
+
 func TestWorkerRunClaimedJob_RenewLeaseTransientStoreFailure_StillSucceeds(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
@@ -930,12 +1042,18 @@ func TestWorkerDrain_ShutdownDuringRun_StillFinalizesRun(t *testing.T) {
 		Uses: &action,
 		With: map[string]string{"command": command},
 	}
+
 	queue.AddJob(&api.Job{
 		Id:         &jobID,
 		RunId:      &runID,
 		DeliveryId: &deliveryID,
 		Root:       root,
 	})
+
+	workerMetrics, err := observability.NewWorkerMetrics()
+	if err != nil {
+		t.Fatalf("worker metrics: %v", err)
+	}
 
 	w := &worker{
 		ctx:           shutdownCtx,
@@ -948,6 +1066,7 @@ func TestWorkerDrain_ShutdownDuringRun_StillFinalizesRun(t *testing.T) {
 		logClient:     mocks.NewMockLogClient(),
 		executor:      job.NewExecutor(),
 		store:         runs,
+		metrics:       workerMetrics,
 	}
 
 	done := make(chan struct{})
@@ -989,6 +1108,14 @@ func TestWorkerDrain_ShutdownDuringRun_StillFinalizesRun(t *testing.T) {
 
 	if statusVal != "succeeded" {
 		t.Fatalf("expected run succeeded after drain (shutdown during execution), got %q", statusVal)
+	}
+
+	if !workerMetrics.Draining() {
+		t.Fatal("expected worker metrics to report draining after shutdown")
+	}
+
+	if got := workerMetrics.LifecyclePhase(); got != observability.WorkerPhaseIdle {
+		t.Fatalf("expected worker lifecycle to return to idle after drain, got %q", got)
 	}
 }
 

@@ -3,6 +3,7 @@ package observability
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -15,11 +16,35 @@ const (
 	WorkerOutcomeFailed           = "failed"
 	WorkerOutcomeAborted          = "aborted"
 	WorkerOutcomeSkippedUnclaimed = "skipped_unclaimed"
+
+	WorkerPhaseIdle       = "idle"
+	WorkerPhaseDequeuing  = "dequeuing"
+	WorkerPhaseClaiming   = "claiming"
+	WorkerPhaseAcking     = "acking"
+	WorkerPhaseExecuting  = "executing"
+	WorkerPhaseFinalizing = "finalizing"
 )
 
+var workerPhases = []string{
+	WorkerPhaseIdle,
+	WorkerPhaseDequeuing,
+	WorkerPhaseClaiming,
+	WorkerPhaseAcking,
+	WorkerPhaseExecuting,
+	WorkerPhaseFinalizing,
+}
+
 type WorkerMetrics struct {
-	received metric.Int64Counter
-	duration metric.Float64Histogram
+	received      metric.Int64Counter
+	duration      metric.Float64Histogram
+	phaseGauge    metric.Int64ObservableGauge
+	drainingGauge metric.Int64ObservableGauge
+	dbGauge       metric.Int64ObservableGauge
+	callback      metric.Registration
+	mu            sync.RWMutex
+	phase         string
+	draining      bool
+	dbUnavailable bool
 }
 
 func NewWorkerMetrics() (*WorkerMetrics, error) {
@@ -42,7 +67,58 @@ func NewWorkerMetrics() (*WorkerMetrics, error) {
 		return nil, fmt.Errorf("vectis_worker_job_duration_seconds: %w", err)
 	}
 
-	return &WorkerMetrics{received: received, duration: duration}, nil
+	phaseGauge, err := m.Int64ObservableGauge("vectis_worker_lifecycle_state",
+		metric.WithDescription("Current worker lifecycle phase. One labelled state is 1 and the remaining states are 0."))
+
+	if err != nil {
+		return nil, fmt.Errorf("vectis_worker_lifecycle_state: %w", err)
+	}
+
+	drainingGauge, err := m.Int64ObservableGauge("vectis_worker_draining",
+		metric.WithDescription("Whether the worker has received shutdown and stopped accepting new dequeue work."))
+
+	if err != nil {
+		return nil, fmt.Errorf("vectis_worker_draining: %w", err)
+	}
+
+	dbGauge, err := m.Int64ObservableGauge("vectis_worker_db_unavailable",
+		metric.WithDescription("Whether the worker has observed database unavailability on DB-backed transitions."))
+
+	if err != nil {
+		return nil, fmt.Errorf("vectis_worker_db_unavailable: %w", err)
+	}
+
+	wm := &WorkerMetrics{
+		received:      received,
+		duration:      duration,
+		phaseGauge:    phaseGauge,
+		drainingGauge: drainingGauge,
+		dbGauge:       dbGauge,
+		phase:         WorkerPhaseIdle,
+	}
+
+	callback, err := m.RegisterCallback(func(_ context.Context, o metric.Observer) error {
+		phase, draining, dbUnavailable := wm.snapshot()
+		for _, known := range workerPhases {
+			value := int64(0)
+			if known == phase {
+				value = 1
+			}
+
+			o.ObserveInt64(phaseGauge, value, metric.WithAttributes(attribute.String("state", known)))
+		}
+
+		o.ObserveInt64(drainingGauge, boolInt64(draining))
+		o.ObserveInt64(dbGauge, boolInt64(dbUnavailable))
+		return nil
+	}, phaseGauge, drainingGauge, dbGauge)
+
+	if err != nil {
+		return nil, fmt.Errorf("worker lifecycle callback: %w", err)
+	}
+
+	wm.callback = callback
+	return wm, nil
 }
 
 func (wm *WorkerMetrics) RecordJobReceived(ctx context.Context) {
@@ -60,4 +136,78 @@ func (wm *WorkerMetrics) RecordJobFinished(ctx context.Context, outcome string, 
 
 	attrs := metric.WithAttributes(attribute.String("outcome", outcome))
 	wm.duration.Record(ctx, d.Seconds(), attrs)
+}
+
+func (wm *WorkerMetrics) SetLifecyclePhase(phase string) {
+	if wm == nil || phase == "" {
+		return
+	}
+
+	wm.mu.Lock()
+	wm.phase = phase
+	wm.mu.Unlock()
+}
+
+func (wm *WorkerMetrics) LifecyclePhase() string {
+	if wm == nil {
+		return ""
+	}
+
+	wm.mu.RLock()
+	defer wm.mu.RUnlock()
+	return wm.phase
+}
+
+func (wm *WorkerMetrics) SetDraining(draining bool) {
+	if wm == nil {
+		return
+	}
+
+	wm.mu.Lock()
+	wm.draining = draining
+	wm.mu.Unlock()
+}
+
+func (wm *WorkerMetrics) Draining() bool {
+	if wm == nil {
+		return false
+	}
+
+	wm.mu.RLock()
+	defer wm.mu.RUnlock()
+	return wm.draining
+}
+
+func (wm *WorkerMetrics) SetDBUnavailable(unavailable bool) {
+	if wm == nil {
+		return
+	}
+
+	wm.mu.Lock()
+	wm.dbUnavailable = unavailable
+	wm.mu.Unlock()
+}
+
+func (wm *WorkerMetrics) DBUnavailable() bool {
+	if wm == nil {
+		return false
+	}
+
+	wm.mu.RLock()
+	defer wm.mu.RUnlock()
+	return wm.dbUnavailable
+}
+
+func (wm *WorkerMetrics) snapshot() (string, bool, bool) {
+	wm.mu.RLock()
+	defer wm.mu.RUnlock()
+	return wm.phase, wm.draining, wm.dbUnavailable
+}
+
+func boolInt64(v bool) int64 {
+	if v {
+		return 1
+	}
+
+	return 0
 }
