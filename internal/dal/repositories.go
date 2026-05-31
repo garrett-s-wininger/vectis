@@ -76,9 +76,10 @@ const (
 	DispatchSourceCron       = "cron"
 	DispatchSourceReconciler = "reconciler"
 
-	DispatchEventAttempt = "attempt"
-	DispatchEventSuccess = "success"
-	DispatchEventFailure = "failure"
+	DispatchEventAccepted = "accepted"
+	DispatchEventAttempt  = "attempt"
+	DispatchEventSuccess  = "success"
+	DispatchEventFailure  = "failure"
 
 	TriggerTypeManual  = "manual"
 	TriggerTypeCron    = "cron"

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -21,7 +22,6 @@ import (
 	"vectis/internal/api/ratelimit"
 	"vectis/internal/backoff"
 	"vectis/internal/cell"
-	"vectis/internal/cli"
 	"vectis/internal/config"
 	"vectis/internal/dal"
 	"vectis/internal/database"
@@ -81,13 +81,15 @@ type APIServer struct {
 	logClient      atomic.Pointer[logClientHolder]
 	runBroadcaster *RunBroadcaster
 	dbUnavailable  atomic.Bool
+	draining       atomic.Bool
 	healthDB       *sql.DB
 	MetricsHandler http.Handler
 
 	// AccessLogger, when set, writes one structured slog record per HTTP request
 	// (typically JSON on stderr). Health and /metrics are excluded.
-	AccessLogger      *slog.Logger
-	logRoutingMetrics logclient.RoutingMetrics
+	AccessLogger       *slog.Logger
+	logRoutingMetrics  logclient.RoutingMetrics
+	apiDispatchMetrics *observability.APIDispatchMetrics
 
 	// authzOverride, if non-nil, replaces SelectAuthorizer(complete) in middleware (tests).
 	authzOverride authz.Authorizer
@@ -251,6 +253,14 @@ func (s *APIServer) recordDispatchEvent(ctx context.Context, runID, source, even
 	}
 }
 
+func (s *APIServer) recordAPIEnqueueMetric(ctx context.Context, runKind, outcome string) {
+	if s.apiDispatchMetrics == nil {
+		return
+	}
+
+	s.apiDispatchMetrics.RecordRunEnqueue(ctx, runKind, outcome)
+}
+
 func (s *APIServer) handleDBUnavailableError(w http.ResponseWriter, err error) bool {
 	if database.IsUnavailableError(err) {
 		s.markDBUnavailable(err)
@@ -409,6 +419,11 @@ func (s *APIServer) HealthLive(w http.ResponseWriter, _ *http.Request) {
 func (s *APIServer) HealthReady(w http.ResponseWriter, r *http.Request) {
 	writeVersionHeaders(w)
 
+	if s.draining.Load() {
+		writeAPIErrorCode(w, http.StatusServiceUnavailable, apiErrServerShuttingDown)
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), healthDBPingTimeout)
 	defer cancel()
 
@@ -485,6 +500,10 @@ func (s *APIServer) SetDispatchMetrics(m dispatchMetrics) {
 
 func (s *APIServer) SetLogRoutingMetrics(m logclient.RoutingMetrics) {
 	s.logRoutingMetrics = m
+}
+
+func (s *APIServer) SetAPIDispatchMetrics(m *observability.APIDispatchMetrics) {
+	s.apiDispatchMetrics = m
 }
 
 func (s *APIServer) auditLog(ctx context.Context, eventType string, actorID, targetID int64, metadata map[string]any) error {
@@ -569,7 +588,34 @@ func (s *APIServer) ConnectToLog(ctx context.Context) error {
 }
 
 func (s *APIServer) runHTTPServer(ctx context.Context, srv *http.Server, serve func() error) error {
-	return cli.ServeHTTP(ctx, srv, serve, defaultShutdownTimeout, "API server", s.logger)
+	s.draining.Store(false)
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- serve()
+	}()
+
+	select {
+	case <-ctx.Done():
+		s.draining.Store(true)
+		shutCtx, cancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
+		defer cancel()
+		if err := srv.Shutdown(shutCtx); err != nil && s.logger != nil {
+			s.logger.Warn("API server shutdown: %v", err)
+		}
+
+		err := <-errCh
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+
+		return nil
+	case err := <-errCh:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+
+		return err
+	}
 }
 
 func (s *APIServer) Run(ctx context.Context, addr string) error {

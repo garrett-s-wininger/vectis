@@ -72,6 +72,7 @@ const (
 	apiErrScopedTokenScopeRequired       apiErrorCode = "scoped_token_scope_required"
 	apiErrSelfDeleteForbidden            apiErrorCode = "self_delete_forbidden"
 	apiErrSelfDisableForbidden           apiErrorCode = "self_disable_forbidden"
+	apiErrServerShuttingDown             apiErrorCode = "server_shutting_down"
 	apiErrSetupAlreadyComplete           apiErrorCode = "setup_already_complete"
 	apiErrSetupRequired                  apiErrorCode = "setup_required"
 	apiErrStreamingUnsupported           apiErrorCode = "streaming_unsupported"
@@ -200,6 +201,8 @@ func (c apiErrorCode) message() string {
 		return "cannot delete yourself"
 	case apiErrSelfDisableForbidden:
 		return "cannot disable yourself"
+	case apiErrServerShuttingDown:
+		return "server is shutting down"
 	case apiErrSetupAlreadyComplete:
 		return "initial setup has already been performed"
 	case apiErrSetupRequired:

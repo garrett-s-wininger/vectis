@@ -1464,7 +1464,25 @@ func TestAPIServer_TriggerJob_QueueError(t *testing.T) {
 		t.Errorf("expected status %d, got %d", http.StatusAccepted, rec.Code)
 	}
 
+	var triggerResp struct {
+		RunID string `json:"run_id"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &triggerResp); err != nil {
+		t.Fatalf("parse trigger response: %v", err)
+	}
+
 	waitForLoggerErrorContaining(t, logger, "Failed to enqueue job")
+	waitForNDispatchEvents(t, db, triggerResp.RunID, 3)
+	events, err := dal.NewSQLRepositories(db).DispatchEvents().ListByRun(context.Background(), triggerResp.RunID)
+	if err != nil {
+		t.Fatalf("list dispatch events: %v", err)
+	}
+
+	if events[0].EventType != dal.DispatchEventAccepted || events[1].EventType != dal.DispatchEventAttempt || events[2].EventType != dal.DispatchEventFailure {
+		t.Fatalf("unexpected dispatch events after queue error: %+v", events)
+	}
+
 	if len(queueService.GetJobs()) != 0 {
 		t.Errorf("expected 0 jobs enqueued after queue error, got %d", len(queueService.GetJobs()))
 	}
@@ -1903,7 +1921,7 @@ func TestAPIServer_GetRun_EphemeralRun(t *testing.T) {
 	}
 
 	waitForNEnqueuedJobs(t, queueService, 1)
-	waitForNDispatchEvents(t, db, runResp.RunID, 2)
+	waitForNDispatchEvents(t, db, runResp.RunID, 3)
 
 	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+runResp.RunID, nil)
 	getReq.SetPathValue("id", runResp.RunID)
@@ -1936,16 +1954,20 @@ func TestAPIServer_GetRun_EphemeralRun(t *testing.T) {
 		t.Fatalf("status: want queued, got %q", got.Status)
 	}
 
-	if len(got.DispatchEvents) != 2 {
+	if len(got.DispatchEvents) != 3 {
 		t.Fatalf("expected dispatch trail in run response, got %+v", got.DispatchEvents)
 	}
 
-	if got.DispatchEvents[0].Source != dal.DispatchSourceAPI || got.DispatchEvents[0].EventType != dal.DispatchEventAttempt {
+	if got.DispatchEvents[0].Source != dal.DispatchSourceAPI || got.DispatchEvents[0].EventType != dal.DispatchEventAccepted {
 		t.Fatalf("unexpected first dispatch event: %+v", got.DispatchEvents[0])
 	}
 
-	if got.DispatchEvents[1].Source != dal.DispatchSourceAPI || got.DispatchEvents[1].EventType != dal.DispatchEventSuccess {
+	if got.DispatchEvents[1].Source != dal.DispatchSourceAPI || got.DispatchEvents[1].EventType != dal.DispatchEventAttempt {
 		t.Fatalf("unexpected second dispatch event: %+v", got.DispatchEvents[1])
+	}
+
+	if got.DispatchEvents[2].Source != dal.DispatchSourceAPI || got.DispatchEvents[2].EventType != dal.DispatchEventSuccess {
+		t.Fatalf("unexpected third dispatch event: %+v", got.DispatchEvents[2])
 	}
 }
 
@@ -2060,6 +2082,7 @@ func TestAPIServer_RunJob_OverwritesClientID(t *testing.T) {
 	var resp struct {
 		ID string `json:"id"`
 	}
+
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to parse response: %v", err)
 	}
@@ -2128,7 +2151,7 @@ func TestAPIServer_RunJob_MissingRoot(t *testing.T) {
 }
 
 func TestAPIServer_RunJob_QueueError(t *testing.T) {
-	server, logger, queueService, _ := setupTestServer(t)
+	server, logger, queueService, db := setupTestServer(t)
 
 	queueService.SetEnqueueError(errors.New("queue unavailable"))
 	jobDef := map[string]any{
@@ -2146,7 +2169,25 @@ func TestAPIServer_RunJob_QueueError(t *testing.T) {
 		t.Errorf("expected status %d, got %d", http.StatusAccepted, rec.Code)
 	}
 
+	var runResp struct {
+		RunID string `json:"run_id"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &runResp); err != nil {
+		t.Fatalf("parse run response: %v", err)
+	}
+
 	waitForLoggerErrorContaining(t, logger, "Failed to enqueue job")
+	waitForNDispatchEvents(t, db, runResp.RunID, 3)
+	events, err := dal.NewSQLRepositories(db).DispatchEvents().ListByRun(context.Background(), runResp.RunID)
+	if err != nil {
+		t.Fatalf("list dispatch events: %v", err)
+	}
+
+	if events[0].EventType != dal.DispatchEventAccepted || events[1].EventType != dal.DispatchEventAttempt || events[2].EventType != dal.DispatchEventFailure {
+		t.Fatalf("unexpected dispatch events after queue error: %+v", events)
+	}
+
 	if len(queueService.GetJobs()) != 0 {
 		t.Errorf("expected 0 jobs enqueued after queue error, got %d", len(queueService.GetJobs()))
 	}

@@ -15,6 +15,7 @@ import (
 	apigen "vectis/api/gen/go"
 	"vectis/internal/api"
 	"vectis/internal/api/audit"
+	"vectis/internal/api/ratelimit"
 	"vectis/internal/cli"
 	"vectis/internal/config"
 	"vectis/internal/dal"
@@ -139,10 +140,21 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		return
 	}
 
+	apiDispatchMetrics, err := observability.NewAPIDispatchMetrics()
+	if err != nil {
+		logger.Error("Failed to initialize API dispatch metrics: %v", err)
+		exitCode = 1
+		return
+	}
+
 	defer cli.DeferShutdown(logger, "Metrics", shutdownMetrics)()
 
 	server := api.NewAPIServer(logger, db)
 	server.MetricsHandler = metricsHandler
+	apiRateLimiter := ratelimit.NewMemoryRateLimiter()
+	defer apiRateLimiter.Stop()
+	server.SetRateLimiter(apiRateLimiter)
+
 	accessLogger, closeAccessLogger := buildAccessLogger(config.APILogFormat())
 	if closeAccessLogger != nil {
 		defer func() { _ = closeAccessLogger() }()
@@ -170,6 +182,7 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 	server.SetRetryMetrics(retryMetrics)
 	server.SetDispatchMetrics(dispatchMetrics)
 	server.SetLogRoutingMetrics(logRoutingMetrics)
+	server.SetAPIDispatchMetrics(apiDispatchMetrics)
 
 	// Wire up worker address resolution via registry for cancel endpoint.
 	if regAddr := config.APIRegistryDialAddress(); regAddr != "" {

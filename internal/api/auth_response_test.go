@@ -181,6 +181,7 @@ func TestAPIErrorCodeMessages_areNonEmpty(t *testing.T) {
 		apiErrScopedTokenScopeRequired,
 		apiErrSelfDeleteForbidden,
 		apiErrSelfDisableForbidden,
+		apiErrServerShuttingDown,
 		apiErrSetupAlreadyComplete,
 		apiErrSetupRequired,
 		apiErrStreamingUnsupported,

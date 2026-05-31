@@ -259,3 +259,58 @@ func TestAPIServer_Serve_ShutdownOnContextCancel(t *testing.T) {
 		t.Fatal("expected connection error after shutdown")
 	}
 }
+
+func TestAPIServer_HealthReady_DrainingAfterShutdown(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	srv := api.NewAPIServer(mocks.NewMockLogger(), db)
+	srv.SetQueueClient(mocks.NewMockQueueService())
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- srv.Serve(ctx, ln)
+	}()
+
+	base := "http://" + ln.Addr().String()
+	var client http.Client
+	var reached bool
+	for start := time.Now(); time.Since(start) < 5*time.Second; time.Sleep(10 * time.Millisecond) {
+		resp, err := client.Get(base + "/health/ready")
+		if err == nil {
+			code := resp.StatusCode
+			_ = resp.Body.Close()
+
+			if code == http.StatusOK {
+				reached = true
+				break
+			}
+		}
+	}
+
+	if !reached {
+		t.Fatal("server never became ready")
+	}
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("Serve returned error: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("timeout waiting for Serve to return after cancel")
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
+	srv.HealthReady(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected %d, got %d", http.StatusServiceUnavailable, rec.Code)
+	}
+}

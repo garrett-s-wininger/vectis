@@ -51,7 +51,7 @@ Treat `id`, `status`, and `severity` as the fields most suitable for automation.
 | Check ID | Severity | Source | Pass condition | Suggested first action |
 | --- | --- | --- | --- | --- |
 | `api.live` | critical | `GET /health/live` | API liveness endpoint returns `200`. | Check the API process and listener. |
-| `api.ready` | critical | `GET /health/ready` | API readiness endpoint returns `200`. | Check database and queue connectivity; see [Schema Or Migration Repair](../reliability/repair-runbooks.md#schema-or-migration-repair) if schema/database state is the issue. |
+| `api.ready` | critical | `GET /health/ready` | API readiness endpoint returns `200`. It returns `503` during API shutdown drain, database unavailability, or queue unavailability. | Check database and queue connectivity; see [Schema Or Migration Repair](../reliability/repair-runbooks.md#schema-or-migration-repair) if schema/database state is the issue. |
 | `setup.status` | warning | `GET /api/v1/setup/status` | Setup status is readable; incomplete setup warns only when API auth is enabled. | Complete setup when API auth is enabled. |
 | `cli.token` | warning | Local CLI config / `VECTIS_API_TOKEN` | A CLI API token is configured when API auth is enabled; auth-disabled deployments do not require one. | Run `vectis-cli auth login` or set `VECTIS_API_TOKEN` when auth is enabled. |
 | `db.schema.current` | critical | `GET /api/v1/schema/status` | Schema exists and reports a migration version. | [Schema Or Migration Repair](../reliability/repair-runbooks.md#schema-or-migration-repair). |

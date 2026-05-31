@@ -31,6 +31,7 @@ The event type may be:
 
 | Event type | Meaning |
 | --- | --- |
+| `accepted` | The API recorded the run and is about to return `202`; queue handoff may still be pending. |
 | `attempt` | A producer is about to submit the run to the queue. |
 | `success` | The queue accepted the handoff. |
 | `failure` | The producer could not complete the handoff or could not mark it complete. Read `message` next. |
@@ -49,7 +50,8 @@ Use the event source, timestamp, and message together:
 
 | Pattern | Meaning | Operator action |
 | --- | --- | --- |
-| Queued run with no dispatch event | The run was recorded, but queue handoff did not complete or has not been attempted yet. | Check API or cron logs, queue reachability, and reconciler health. |
+| Queued run with only `accepted` | The API returned or was about to return `202`, but its detached queue handoff did not start or did not record an attempt. | Check API logs, queue reachability, and reconciler health. |
+| Queued run with no dispatch event | The run was recorded by a non-API producer, but queue handoff did not complete or has not been attempted yet. | Check cron logs, queue reachability, and reconciler health. |
 | `attempt` without a later `success` | A producer started handoff, then failed or stopped before success was recorded. | Read nearby logs for that source and wait for reconciler repair if the run is not urgent. |
 | `attempt` followed by `success` | The queue accepted the handoff. | If the run is still queued, focus on worker availability and queue backlog. |
 | `failure` | The producer could not enqueue the run or could not record the dispatch completion. | Read `message`, then check queue health, registry or pinned address config, gRPC TLS, and retry exhaustion. |
@@ -111,7 +113,7 @@ increase(vectis_retries_exhausted_total[10m]) > 0
 
 Page when retry loops exhaust; use alongside run dispatch events to find the impacted handoff.
 
-There is not yet a direct dispatch failure counter or queued-run-age metric, so combine these signals with the run's dispatch events before deciding whether the problem is producer handoff, queue backlog, or worker capacity.
+For API-created runs, `vectis_api_run_enqueue_total{outcome=...}` counts `accepted`, `attempt`, `success`, `failed_enqueue`, and `failed_touch_dispatched` outcomes by run kind. There is not yet a direct queued-run-age metric, so combine these signals with the run's dispatch events before deciding whether the problem is producer handoff, queue backlog, or worker capacity.
 
 ## Related Docs
 

@@ -223,6 +223,7 @@ Common v1 error codes:
 | `request_body_too_large` | `413` | The request body exceeded the route limit. |
 | `database_unavailable` | `503` | The configured SQL database is temporarily unavailable. |
 | `queue_not_ready` | `503` | The API cannot currently hand work to the queue. |
+| `server_shutting_down` | `503` | The API has started shutdown drain and should not receive new requests. |
 | `rate_limit_exceeded` | `429` | The request exceeded the in-process rate limit; `Retry-After` is set. |
 | `idempotency_key_reused` | `409` | The same idempotency key was reused with a different request body or target. |
 | `idempotency_in_progress` | `409` | The original idempotent request has not completed yet. |
@@ -259,7 +260,7 @@ Streaming routes return `text/event-stream`. Use `curl -N`, `EventSource`, or an
 
 ## Routes
 
-Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`, and `token` buckets are per in-process API replica.
+Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`, and `token` buckets use the configured rate-limit backend; the default backend is per in-process API replica.
 
 | Method | Path | Purpose | Auth action | Rate limit | Success |
 | --- | --- | --- | --- | --- | --- |

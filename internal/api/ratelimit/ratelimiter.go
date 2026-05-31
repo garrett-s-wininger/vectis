@@ -8,7 +8,9 @@ import (
 	"vectis/internal/config"
 )
 
-// RateLimiter determines whether a request with the given key should be allowed.
+// RateLimiter is the API replica rate-limit backend contract. Implementations
+// can be process-local, forward keys to a hash-ring owner, or proxy a shared
+// store such as Redis without changing route middleware.
 type RateLimiter interface {
 	// Allow checks if the request identified by key is within rate limits for the given rule.
 	// Returns true if allowed, false if rate limited.

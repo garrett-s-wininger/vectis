@@ -27,7 +27,7 @@ This page answers "is this component topology supported, and what happens when i
 
 | Binary | Safe default | Can run multiple? | What to watch |
 | --- | ---: | --- | --- |
-| `vectis-api` | 1 | Conditional | Multiple API replicas can serve HTTP against the same database and queue. Rate limits are in-process per replica, SSE clients must reconnect through load balancers, and accepted-but-not-enqueued runs rely on the reconciler if an API exits after `202`. |
+| `vectis-api` | 1 | Conditional | Multiple API replicas can serve HTTP against the same database and queue. The default rate-limit backend is in-process per replica, SSE clients must reconnect through load balancers, and accepted-but-not-enqueued runs rely on the reconciler if an API exits after `202`. |
 | `vectis-worker` | N | Yes | Each worker executes one run at a time. Database claims and leases guard persisted runs against duplicate execution even if queue handoff is duplicated. Size DB pools, queue delivery timeouts, and log capacity for the fleet. |
 | `vectis-queue` | 1+ | Yes, as independent shards | Producers discover queue registrations and pick a shard. Workers dequeue across the pool and ack the shard encoded in the delivery ID. Do not duplicate active instance IDs or share one persistence directory across active queue processes. |
 | `vectis-registry` | 1 | Conditional | Single registry is the safe default. Clients can list multiple registry addresses and service registrations fail over between them, but gossip-based HA registry still requires every registry node to be configured with static cluster membership. Pin queue/log addresses if registry availability is a concern. |
@@ -60,12 +60,12 @@ API replicas are mostly stateless, but not perfectly interchangeable.
 
 | Behavior | Operator impact |
 | --- | --- |
-| Rate limits are in-memory per API process. | Adding replicas raises the effective limit unless an external limiter or sticky routing is used. |
+| Rate limits use the configured backend; the default backend is in-memory per API process. | Adding replicas raises the effective limit until a shared hash-owner or Redis-backed limiter is added. |
 | SSE streams are long-lived connections. | Clients should reconnect when a replica restarts or a load balancer moves them. |
 | Setup and admin writes use the shared database. | Database constraints remain the source of truth. |
-| Trigger requests can return `202` before queue handoff is complete. | Keep `vectis-reconciler` healthy so durable queued runs are redispatched if an API exits after accepting them. |
+| Trigger requests can return `202` before queue handoff is complete. | The API records an `accepted` dispatch event before returning `202`; keep `vectis-reconciler` healthy so durable queued runs are redispatched if an API exits after accepting them. |
 
-Put each API replica behind `/health/ready`, not just process liveness.
+Put each API replica behind `/health/ready`, not just process liveness. Readiness returns `503` as soon as shutdown drain begins, before the HTTP listener finishes draining in-flight requests.
 
 ## Singleton Services
 
@@ -81,7 +81,7 @@ Cron scale-out is active/active within one shared database cell. Replicas race o
 
 | Binary | What happens on restart | Operator expectation |
 | --- | --- | --- |
-| `vectis-api` | Stops accepting new HTTP requests and gives in-flight requests/SSE streams a bounded drain window. Detached enqueue work is not joined. | Use readiness checks and client retries. Keep reconciler running for accepted runs that missed queue handoff. |
+| `vectis-api` | Marks readiness unhealthy, stops accepting new HTTP requests, and gives in-flight requests/SSE streams a bounded drain window. Detached enqueue work is not joined. | Use readiness checks and client retries. Watch `accepted` dispatch events and `vectis_api_run_enqueue_total` outcomes. Keep reconciler running for accepted runs that missed queue handoff. |
 | `vectis-queue` | Reloads pending and in-flight delivery metadata for that shard when persistence is enabled. Without persistence, in-memory queue state for that shard is lost. | Keep each shard on a stable `--instance-id` and durable, separate `--persistence-dir`; when omitted, defaults are derived from `--pool` and `hostname-port`. Watch per-shard depth, delivery age, and reconciler repair. |
 | `vectis-registry` | A single registry loses in-memory registrations and must receive fresh registrations. In a configured gossip cluster, peers can retain converged entries within lease and tombstone behavior. Clients can fail over to other configured registry addresses, and service heartbeats republish to surviving or recovered targets. | Restart before dependents when possible, keep HA registry membership stable during planned restarts, or pin addresses for critical paths. |
 | `vectis-log` | Ingest and log streams for runs routed to that shard are interrupted. Durable log files remain if storage is preserved; stream buffers are process-local. | Keep each shard on a stable `--instance-id` and durable, separate `--storage-dir`; when omitted, defaults are derived from `hostname-port`. Workers need the owning log shard available before executing runs routed there. |

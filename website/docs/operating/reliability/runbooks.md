@@ -111,7 +111,7 @@ These are current monitoring limits operators should cover with external telemet
 | Gap | Practical workaround |
 | --- | --- |
 | No direct queued-run-age metric yet. | Use `vectis-cli health check`, stuck-run checks, dispatch events, and queue backlog alerts. |
-| No direct dispatch failure counter yet. | Inspect dispatch events and reconciler outcomes. |
+| Non-API dispatch failure counters are partial. | Use API enqueue outcomes, reconciler outcomes, and per-run dispatch events together. |
 | No rate-limit accepted/rejected metric yet. | Use API logs and HTTP status monitoring. |
 | File-backed run log and queue persistence pressure need filesystem telemetry. | Monitor the storage paths directly. |
 | Dashboard panels are not yet annotated with runbook links. | Keep alert annotations linked to repair runbooks. |

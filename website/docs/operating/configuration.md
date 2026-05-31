@@ -101,7 +101,7 @@ API audit events are enabled by default.
 | `VECTIS_API_AUDIT_ENABLED` / `api.audit.enabled` | Set to `false` to disable audit emission. |
 | `VECTIS_API_AUDIT_DURABILITY_OVERRIDES` / `api.audit.durability_overrides` | Comma-separated `event=durability` overrides, such as `auth.success=disabled,run.triggered=best_effort`. |
 
-API rate limits have embedded defaults for auth, token, and general routes. The shipped default keys live under `api.rate_limit.*`. The defaults are intended to protect the built-in auth surface from accidental or hostile bursts; tune them only when you understand the expected traffic shape.
+API rate limits have embedded defaults for auth, token, and general routes. The shipped default keys live under `api.rate_limit.*`. The default implementation is an in-process token bucket per API replica; the internal rate-limit contract is backend-oriented so a hash-owner or Redis-backed implementation can provide shared limits later. The defaults are intended to protect the built-in auth surface from accidental or hostile bursts; tune them only when you understand the expected traffic shape.
 
 When the API runs behind a trusted reverse proxy, configure client IP forwarding separately. See [Trusted Proxy Client IP](./deployment/trusted-proxy-client-ip.md).
 
