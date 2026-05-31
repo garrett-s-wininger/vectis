@@ -104,6 +104,12 @@ Without `--follow`, the command prints the `run_id`:
 ./bin/vectis-cli jobs run examples/sequenced.json
 ```
 
+Route a one-off run to a specific execution cell:
+
+```sh
+./bin/vectis-cli jobs run examples/sequenced.json --cell pdx-b
+```
+
 Use that ID later with:
 
 ```sh

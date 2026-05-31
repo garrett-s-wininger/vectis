@@ -198,7 +198,12 @@ func runJob(cmd *cobra.Command, args []string) {
 		runCLIError(fmt.Errorf("job must have a root node"))
 	}
 
-	req, err := newAPIRequest(http.MethodPost, "/api/v1/jobs/run", bytes.NewReader(body))
+	requestBody, err := runJobRequestBody(body, runCellID)
+	if err != nil {
+		runCLIError(err)
+	}
+
+	req, err := newAPIRequest(http.MethodPost, "/api/v1/jobs/run", requestBody)
 	if err != nil {
 		runCLIError(err)
 	}
@@ -243,6 +248,27 @@ func runJob(cmd *cobra.Command, args []string) {
 	default:
 		runCLIError(fmt.Errorf("unexpected status: %s", resp.Status))
 	}
+}
+
+func runJobRequestBody(jobBody []byte, cellID string) (io.Reader, error) {
+	cellID = strings.TrimSpace(cellID)
+	if cellID == "" {
+		return bytes.NewReader(jobBody), nil
+	}
+
+	body, err := json.Marshal(struct {
+		Job    json.RawMessage `json:"job"`
+		CellID string          `json:"cell_id"`
+	}{
+		Job:    json.RawMessage(jobBody),
+		CellID: cellID,
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode run options: %w", err)
+	}
+
+	return bytes.NewReader(body), nil
 }
 
 func fetchJobDefinitionBody(jobID string) ([]byte, int, error) {
@@ -686,7 +712,8 @@ var runCmd = &cobra.Command{
 	Use:   "run [path|-]",
 	Short: "Run a job definition once",
 	Long: `Submit a job definition to run once (ephemeral). Path is a JSON file; use "-" to read from stdin.
-On success prints the run ID. With --follow, streams logs for that run until it completes.`,
+On success prints the run ID. With --follow, streams logs for that run until it completes.
+Use --cell to route the one-off run into a named execution cell.`,
 	Args: cobra.ExactArgs(1),
 	Run:  runJob,
 }
@@ -739,6 +766,7 @@ func configureJobTriggerFlags(cmd *cobra.Command) {
 
 func configureJobRunFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolP("follow", "f", false, "After submitting, stream logs (same as logs run <run-id>)")
+	cmd.Flags().StringVar(&runCellID, "cell", "", "Target execution cell")
 	cmd.Flags().StringVar(&runIdemKey, "idempotency-key", "", "Optional Idempotency-Key header for safe ephemeral run retries")
 }
 

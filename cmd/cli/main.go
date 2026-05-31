@@ -68,6 +68,7 @@ var (
 	triggerIdemKey    string
 	triggerCellIDs    []string
 	runIdemKey        string
+	runCellID         string
 )
 
 var rootCmd = &cobra.Command{

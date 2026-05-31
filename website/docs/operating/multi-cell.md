@@ -131,6 +131,12 @@ Trigger one job across cells:
 ./bin/vectis-cli jobs trigger example-job --cell local --cell pdx-b --cell sjc-c
 ```
 
+Run a one-off job file in one cell:
+
+```sh
+./bin/vectis-cli jobs run examples/sequenced.json --cell pdx-b
+```
+
 Then list the global run catalog:
 
 ```sh

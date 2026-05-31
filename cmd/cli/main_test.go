@@ -317,6 +317,9 @@ func TestRunJob_sendsIdempotencyKey(t *testing.T) {
 	oldKey := runIdemKey
 	runIdemKey = "run-retry-key"
 	t.Cleanup(func() { runIdemKey = oldKey })
+	oldCell := runCellID
+	runCellID = ""
+	t.Cleanup(func() { runCellID = oldCell })
 
 	jobPath := filepath.Join(t.TempDir(), "job.json")
 	if err := os.WriteFile(jobPath, []byte(`{"root":{"id":"root","uses":"builtins/shell","with":{"command":"echo hi"}}}`), 0o600); err != nil {
@@ -336,9 +339,63 @@ func TestRunJob_sendsIdempotencyKey(t *testing.T) {
 			t.Errorf("Idempotency-Key=%q", got)
 		}
 
+		var body api.Job
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+
+		if body.GetRoot() == nil {
+			t.Errorf("expected raw job definition body, got root=nil")
+		}
+
 		w.WriteHeader(http.StatusAccepted)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"id": "job-ephemeral", "run_id": "run-1",
+		})
+	})
+
+	runJob(&cobra.Command{}, []string{jobPath})
+}
+
+func TestRunJob_sendsTargetCell(t *testing.T) {
+	oldCell := runCellID
+	runCellID = "pdx-b"
+	t.Cleanup(func() { runCellID = oldCell })
+
+	jobPath := filepath.Join(t.TempDir(), "job.json")
+	if err := os.WriteFile(jobPath, []byte(`{"root":{"id":"root","uses":"builtins/shell","with":{"command":"echo hi"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/jobs/run" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		var body struct {
+			Job    api.Job `json:"job"`
+			CellID string  `json:"cell_id"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+
+		if body.CellID != "pdx-b" {
+			t.Errorf("cell_id=%q, want pdx-b", body.CellID)
+		}
+
+		if body.Job.GetRoot() == nil {
+			t.Errorf("expected wrapped job definition, got root=nil")
+		}
+
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id": "job-ephemeral", "run_id": "run-pdx",
 		})
 	})
 
