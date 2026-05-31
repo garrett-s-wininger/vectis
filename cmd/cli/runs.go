@@ -44,6 +44,7 @@ type runListResult struct {
 		FinishedAt    *string `json:"finished_at,omitempty"`
 		FailureCode   *string `json:"failure_code,omitempty"`
 		FailureReason *string `json:"failure_reason,omitempty"`
+		OwningCell    string  `json:"owning_cell,omitempty"`
 	} `json:"data"`
 	NextCursor *int64 `json:"next_cursor,omitempty"`
 }
@@ -179,10 +180,10 @@ func runListRuns(cmd *cobra.Command, args []string) {
 	}
 
 	since, _ := cmd.Flags().GetString("since")
-	runCLIError(listRuns(jobID, runListLimit, runListCursor, since, os.Stdout))
+	runCLIError(listRuns(jobID, runListLimit, runListCursor, since, runListCellID, os.Stdout))
 }
 
-func listRuns(jobID string, limit, cursor int, since string, w io.Writer) error {
+func listRuns(jobID string, limit, cursor int, since string, cellID string, w io.Writer) error {
 	path := fmt.Sprintf("/api/v1/jobs/%s/runs", jobID)
 	params := url.Values{}
 	if limit > 0 {
@@ -195,6 +196,10 @@ func listRuns(jobID string, limit, cursor int, since string, w io.Writer) error 
 
 	if strings.TrimSpace(since) != "" {
 		params.Set("since", strings.TrimSpace(since))
+	}
+
+	if strings.TrimSpace(cellID) != "" {
+		params.Set("cell_id", strings.TrimSpace(cellID))
 	}
 
 	if encoded := params.Encode(); encoded != "" {
@@ -231,8 +236,8 @@ func listRuns(jobID string, limit, cursor int, since string, w io.Writer) error 
 		return nil
 	}
 
-	fmt.Fprintf(w, "%-20s %-5s %-12s %-24s %-24s %-24s\n",
-		"RUN ID", "INDEX", "STATUS", "CREATED", "STARTED", "FINISHED")
+	fmt.Fprintf(w, "%-20s %-5s %-12s %-12s %-24s %-24s %-24s\n",
+		"RUN ID", "INDEX", "CELL", "STATUS", "CREATED", "STARTED", "FINISHED")
 
 	for _, r := range result.Data {
 		created := "-"
@@ -250,8 +255,13 @@ func listRuns(jobID string, limit, cursor int, since string, w io.Writer) error 
 			finished = *r.FinishedAt
 		}
 
-		fmt.Fprintf(w, "%-20s %-5d %-12s %-24s %-24s %-24s\n",
-			r.RunID, r.RunIndex, r.Status, created, started, finished)
+		owningCell := strings.TrimSpace(r.OwningCell)
+		if owningCell == "" {
+			owningCell = "-"
+		}
+
+		fmt.Fprintf(w, "%-20s %-5d %-12s %-12s %-24s %-24s %-24s\n",
+			r.RunID, r.RunIndex, owningCell, r.Status, created, started, finished)
 	}
 
 	if result.NextCursor != nil {
@@ -490,6 +500,7 @@ var runListCmd = &cobra.Command{
 	Long: `List runs for a stored job, most recent first. Pass the job id as an argument or with --job.
 
 Use --since to filter to runs created at or after a date. Use --limit to control page size.
+Use --cell to filter to runs owned by one execution cell.
 When more runs are available, the command prints a cursor; pass that value back with --cursor
 to fetch the next page.`,
 	Args: cobra.MaximumNArgs(1),
@@ -500,6 +511,7 @@ func configureRunListFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&runListJobID, "job", "", "Job ID to list runs for")
 	cmd.Flags().IntVar(&runListLimit, "limit", 0, "Max runs to return (default 50)")
 	cmd.Flags().IntVar(&runListCursor, "cursor", 0, "Continue listing after this result cursor")
+	cmd.Flags().StringVar(&runListCellID, "cell", "", "Only list runs owned by this execution cell")
 	cmd.Flags().String("since", "", "Only list runs created at or after this RFC3339 timestamp or YYYY-MM-DD date")
 }
 

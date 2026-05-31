@@ -185,6 +185,12 @@ List runs for a stored job:
 ./bin/vectis-cli runs list sequenced-job
 ```
 
+Filter a stored job's runs to one execution cell:
+
+```sh
+./bin/vectis-cli runs list sequenced-job --cell pdx-b
+```
+
 Limit the number of runs:
 
 ```sh

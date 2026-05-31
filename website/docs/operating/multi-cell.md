@@ -134,10 +134,14 @@ Trigger one job across cells:
 Then list the global run catalog:
 
 ```sh
-curl -sS http://localhost:8080/api/v1/jobs/example-job/runs
+./bin/vectis-cli runs list example-job
 ```
 
-Each returned run includes `owning_cell`.
+The output includes the owning cell for each run. To focus on one cell:
+
+```sh
+./bin/vectis-cli runs list example-job --cell pdx-b
+```
 
 ## Operator Checklist
 

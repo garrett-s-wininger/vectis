@@ -9,7 +9,7 @@ For task walkthroughs, use the [CLI Guide](../../using/cli-guide.md). For repair
 | Area | Operator use | Commands |
 | --- | --- | --- |
 | Jobs | Manage stored jobs and run one-off job files. | `vectis-cli jobs list`, `show`, `create`, `edit`, `delete`, `trigger`, `run` |
-| Runs | Inspect, cancel, retry, or manually repair run state. | `vectis-cli runs list`, `show`, `cancel`, `retry`, `fail`, `repair mark-succeeded`, `mark-failed`, `mark-cancelled`, `mark-abandoned`, `mark-queued` |
+| Runs | Inspect, cancel, retry, or manually repair run state. | `vectis-cli runs list`, `runs list --cell`, `show`, `cancel`, `retry`, `fail`, `repair mark-succeeded`, `mark-failed`, `mark-cancelled`, `mark-abandoned`, `mark-queued` |
 | Cells | Inspect execution cell routing, queued pressure, stuck dispatches, and catalog fan-in counts. | `vectis-cli cells status` |
 | Logs | Stream logs for one run or follow future runs for a job. | `vectis-cli logs run`, `logs job` |
 | Auth sessions | Log in and out for API-backed CLI use. | `vectis-cli auth login`, `logout` |

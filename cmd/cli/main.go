@@ -64,6 +64,7 @@ var (
 	runListJobID      string
 	runListLimit      int
 	runListCursor     int
+	runListCellID     string
 	triggerIdemKey    string
 	triggerCellIDs    []string
 	runIdemKey        string

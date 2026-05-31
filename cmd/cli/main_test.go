@@ -917,8 +917,82 @@ func TestListRuns_sinceDateUsesSinceQuery(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{}})
 	})
 
-	if err := listRuns("job-1", 0, 42, "2026-05-15", io.Discard); err != nil {
+	if err := listRuns("job-1", 0, 42, "2026-05-15", "", io.Discard); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestListRuns_cellFilterAndTableOutput(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/jobs/job-1/runs" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		if got := r.URL.Query().Get("cell_id"); got != "pdx-b" {
+			t.Errorf("cell_id=%q, want pdx-b", got)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{
+				{
+					"run_id":      "run-pdx",
+					"run_index":   2,
+					"status":      "queued",
+					"owning_cell": "pdx-b",
+				},
+				{
+					"run_id":    "run-local",
+					"run_index": 3,
+					"status":    "succeeded",
+				},
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := listRuns("job-1", 0, 0, "", "pdx-b", &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"RUN ID", "INDEX", "CELL", "STATUS", "run-pdx", "pdx-b", "run-local"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestListRuns_jsonOutputIncludesOwningCell(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{
+				{
+					"run_id":      "run-pdx",
+					"run_index":   2,
+					"status":      "queued",
+					"owning_cell": "pdx-b",
+				},
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := listRuns("job-1", 0, 0, "", "", &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	var result runListResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
+	}
+
+	if len(result.Data) != 1 || result.Data[0].OwningCell != "pdx-b" {
+		t.Fatalf("unexpected runs JSON: %+v", result)
 	}
 }
 
