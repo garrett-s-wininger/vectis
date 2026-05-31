@@ -66,6 +66,7 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 		routeSpec{Pattern: "GET /api/v1/sse/jobs/{id}/runs", Handler: http.HandlerFunc(s.HandleSSEJobRuns), Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "GET /api/v1/runs/{id}", Handler: http.HandlerFunc(s.GetRun), Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "GET /api/v1/runs/{id}/execution-payload", Handler: http.HandlerFunc(s.GetRunExecutionPayload), Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General},
+		routeSpec{Pattern: "POST /api/v1/runs/{id}/replay", Handler: http.HandlerFunc(s.ReplayRun), Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "POST /api/v1/runs/{id}/cancel", Handler: http.HandlerFunc(s.CancelRun), Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "POST /api/v1/runs/{id}/repair/mark-succeeded", Handler: http.HandlerFunc(s.RepairMarkRunSucceeded), Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "POST /api/v1/runs/{id}/repair/mark-failed", Handler: http.HandlerFunc(s.RepairMarkRunFailed), Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General},

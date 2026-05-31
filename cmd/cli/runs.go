@@ -31,6 +31,7 @@ type runDetail struct {
 type RunAuditFields struct {
 	DefinitionVersion    int      `json:"definition_version,omitempty"`
 	DefinitionHash       string   `json:"definition_hash,omitempty"`
+	ReplayOfRunID        *string  `json:"replay_of_run_id,omitempty"`
 	TriggerInvocationID  *string  `json:"trigger_invocation_id,omitempty"`
 	TriggerID            *int64   `json:"trigger_id,omitempty"`
 	TriggerType          *string  `json:"trigger_type,omitempty"`
@@ -72,6 +73,14 @@ type runExecutionPayloadResult struct {
 	Payload        json.RawMessage `json:"payload"`
 }
 
+type runReplayResult struct {
+	JobID         string `json:"job_id"`
+	RunID         string `json:"run_id"`
+	RunIndex      int    `json:"run_index"`
+	CellID        string `json:"cell_id,omitempty"`
+	ReplayOfRunID string `json:"replay_of_run_id"`
+}
+
 type runRepairResult struct {
 	Status string `json:"status"`
 	RunID  string `json:"run_id"`
@@ -85,6 +94,10 @@ func runGetRun(cmd *cobra.Command, args []string) {
 
 func runGetRunPayload(cmd *cobra.Command, args []string) {
 	runCLIError(getRunExecutionPayload(args[0], os.Stdout))
+}
+
+func runReplayRun(cmd *cobra.Command, args []string) {
+	runCLIError(replayRun(args[0], runReplayCellID, runReplayIdemKey, os.Stdout))
 }
 
 func getRun(runID string, w io.Writer) error {
@@ -173,6 +186,10 @@ func writeRunAuditFields(w io.Writer, audit RunAuditFields) {
 		fmt.Fprintf(w, "definition_hash=%s\n", audit.DefinitionHash)
 	}
 
+	if audit.ReplayOfRunID != nil {
+		fmt.Fprintf(w, "replay_of_run_id=%s\n", *audit.ReplayOfRunID)
+	}
+
 	if audit.TriggerInvocationID != nil {
 		fmt.Fprintf(w, "trigger_invocation_id=%s\n", *audit.TriggerInvocationID)
 	}
@@ -244,6 +261,67 @@ func getRunExecutionPayload(runID string, w io.Writer) error {
 		return fmt.Errorf("execution payload for run %q not found", runID)
 	case http.StatusForbidden:
 		return fmt.Errorf("not authorized to read execution payload for run %q", runID)
+	default:
+		return fmt.Errorf("unexpected status: %s", resp.Status)
+	}
+}
+
+func replayRun(sourceRunID, cellID, idempotencyKey string, w io.Writer) error {
+	var body io.Reader
+	if strings.TrimSpace(cellID) != "" {
+		payload, err := json.Marshal(map[string]string{"cell_id": strings.TrimSpace(cellID)})
+		if err != nil {
+			return fmt.Errorf("failed to encode request body: %w", err)
+		}
+		body = bytes.NewReader(payload)
+	}
+
+	req, err := newAPIRequest(http.MethodPost, fmt.Sprintf("/api/v1/runs/%s/replay", sourceRunID), body)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	if strings.TrimSpace(idempotencyKey) != "" {
+		req.Header.Set("Idempotency-Key", strings.TrimSpace(idempotencyKey))
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusAccepted:
+		var result runReplayResult
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to parse response: %w", err)
+		}
+
+		if outputIsJSON() {
+			return writeJSON(w, result)
+		}
+
+		fmt.Fprintf(w, "replay_of_run_id=%s\n", result.ReplayOfRunID)
+		fmt.Fprintf(w, "run_id=%s\n", result.RunID)
+		fmt.Fprintf(w, "run_index=%d\n", result.RunIndex)
+		if strings.TrimSpace(result.JobID) != "" {
+			fmt.Fprintf(w, "job_id=%s\n", result.JobID)
+		}
+
+		if strings.TrimSpace(result.CellID) != "" {
+			fmt.Fprintf(w, "cell_id=%s\n", result.CellID)
+		}
+
+		return nil
+	case http.StatusNotFound:
+		return fmt.Errorf("run %q not found", sourceRunID)
+	case http.StatusConflict:
+		return fmt.Errorf("run %q cannot be replayed from its current status", sourceRunID)
 	default:
 		return fmt.Errorf("unexpected status: %s", resp.Status)
 	}
@@ -612,6 +690,14 @@ var runPayloadCmd = &cobra.Command{
 	Run:   runGetRunPayload,
 }
 
+var runReplayCmd = &cobra.Command{
+	Use:   "replay [run-id]",
+	Short: "Create a new run from a previous run's captured definition",
+	Long:  `Create a fresh queued run from the source run's captured job definition version. Replay creates a new run id and records replay lineage; it does not repair or mutate the source run.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   runReplayRun,
+}
+
 var runCancelCmd = &cobra.Command{
 	Use:   "cancel [run-id]",
 	Short: "Request cancellation for an executing run",
@@ -639,6 +725,11 @@ func configureRunListFlags(cmd *cobra.Command) {
 	cmd.Flags().IntVar(&runListCursor, "cursor", 0, "Continue listing after this result cursor")
 	cmd.Flags().StringVar(&runListCellID, "cell", "", "Only list runs owned by this execution cell")
 	cmd.Flags().String("since", "", "Only list runs created at or after this RFC3339 timestamp or YYYY-MM-DD date")
+}
+
+func configureRunReplayFlags(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&runReplayCellID, "cell", "", "Replay into this execution cell instead of the source run's cell")
+	cmd.Flags().StringVar(&runReplayIdemKey, "idempotency-key", "", "Idempotency key for safe replay request retries")
 }
 
 func configureForceFailFlags(cmd *cobra.Command) {

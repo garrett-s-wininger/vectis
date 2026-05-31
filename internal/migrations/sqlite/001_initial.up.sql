@@ -84,11 +84,13 @@ CREATE TABLE job_runs (
     definition_version INTEGER NOT NULL DEFAULT 1,
     definition_hash TEXT NOT NULL DEFAULT '',
     owning_cell TEXT NOT NULL DEFAULT 'local',
+    replay_of_run_id TEXT REFERENCES job_runs(run_id),
     trigger_invocation_id TEXT REFERENCES trigger_invocations(invocation_id),
     execution_payload_hash TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX idx_job_runs_job_id_run_index ON job_runs (job_id, run_index DESC);
+CREATE INDEX idx_job_runs_replay_of_run_id ON job_runs (replay_of_run_id);
 
 CREATE TABLE run_segments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

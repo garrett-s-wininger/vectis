@@ -82,6 +82,7 @@ const (
 
 	TriggerTypeManual  = "manual"
 	TriggerTypeCron    = "cron"
+	TriggerTypeReplay  = "replay"
 	TriggerTypeWebhook = "webhook"
 
 	CatalogEventStatusPending = "pending"
@@ -112,6 +113,7 @@ type RunRecord struct {
 	DefinitionVersion    int
 	DefinitionHash       string
 	OwningCell           string
+	ReplayOfRunID        *string
 	TriggerInvocationID  *string
 	TriggerID            *int64
 	TriggerType          *string
@@ -142,6 +144,7 @@ type CreatedRun struct {
 type RunAuditMetadata struct {
 	TriggerInvocationID  string
 	ExecutionPayloadHash string
+	ReplayOfRunID        string
 }
 
 type ExecutionPayloadRecord struct {
@@ -356,6 +359,7 @@ type RunsRepository interface {
 	CreateRunInCell(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellID string) (runID string, runIndexOut int, err error)
 	CreateRunsInCells(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellIDs []string) ([]CreatedRun, error)
 	CreateRunsInCellsWithAudit(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellIDs []string, audit RunAuditMetadata) ([]CreatedRun, error)
+	CreateReplayRun(ctx context.Context, sourceRunID string, targetCellID string, audit RunAuditMetadata) (CreatedRun, error)
 	RecordExecutionPayload(ctx context.Context, runID, payloadJSON, definitionHash string) (payloadHash string, recordedPayloadJSON string, err error)
 	GetExecutionPayloadForRun(ctx context.Context, runID string) (ExecutionPayloadRecord, error)
 	GetExecutionPayloadByHash(ctx context.Context, payloadHash string) (ExecutionPayloadRecord, error)
@@ -551,13 +555,14 @@ func (r *SQLRepositories) CreateDefinitionAndRunInCellWithAudit(ctx context.Cont
 	}
 
 	if _, err := tx.ExecContext(ctx,
-		rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, trigger_invocation_id, execution_payload_hash) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, 1, ?, ?, ?, ?)`),
+		rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, 1, ?, ?, ?, ?, ?)`),
 		runID,
 		jobID,
 		idx,
 		"queued",
 		definitionHash,
 		targetCellID,
+		nullableString(audit.ReplayOfRunID),
 		nullableString(audit.TriggerInvocationID),
 		strings.TrimSpace(audit.ExecutionPayloadHash),
 	); err != nil {

@@ -5,6 +5,7 @@ DROP INDEX IF EXISTS idx_audit_log_target_id;
 DROP INDEX IF EXISTS idx_job_runs_status;
 DROP INDEX IF EXISTS idx_job_runs_lease_until;
 DROP INDEX IF EXISTS idx_job_runs_status_dispatched;
+DROP INDEX IF EXISTS idx_job_runs_replay_of_run_id;
 DROP INDEX IF EXISTS idx_cell_catalog_events_source_received;
 DROP INDEX IF EXISTS idx_cell_catalog_events_status_id;
 DROP INDEX IF EXISTS idx_cell_execution_acceptances_run;

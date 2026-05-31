@@ -1212,6 +1212,148 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 	}
 }
 
+func TestAPIServer_ReplayRun_CreatesNewRunFromSourceDefinition(t *testing.T) {
+	server, _, queueService, db := setupTestServer(t)
+	jobID := "job-replay"
+	defV1 := `{"id": "job-replay", "root": {"id": "root", "uses": "builtins/shell", "with": {"command": "echo old"}}}`
+	defV2 := `{"id": "job-replay", "root": {"id": "root", "uses": "builtins/shell", "with": {"command": "echo new"}}}`
+	insertStoredJobForTest(t, db, jobID, defV1)
+
+	triggerReq := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, nil)
+	triggerReq.SetPathValue("id", jobID)
+	triggerRec := httptest.NewRecorder()
+	server.TriggerJob(triggerRec, triggerReq)
+	if triggerRec.Code != http.StatusAccepted {
+		t.Fatalf("trigger: expected status %d, got %d: %s", http.StatusAccepted, triggerRec.Code, triggerRec.Body.String())
+	}
+
+	waitForNEnqueuedJobs(t, queueService, 1)
+	sourceRunID := queueService.GetJobs()[0].GetRunId()
+	if sourceRunID == "" {
+		t.Fatal("expected source run id")
+	}
+
+	repos := dal.NewSQLRepositories(db)
+	if err := repos.Runs().MarkRunFailed(context.Background(), sourceRunID, "", dal.FailureCodeExecution, "environment failed"); err != nil {
+		t.Fatalf("mark source failed: %v", err)
+	}
+
+	updateReq := httptest.NewRequest(http.MethodPut, "/api/v1/jobs/"+jobID, strings.NewReader(defV2))
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateReq.SetPathValue("id", jobID)
+	updateRec := httptest.NewRecorder()
+	server.UpdateJobDefinition(updateRec, updateReq)
+	if updateRec.Code != http.StatusNoContent {
+		t.Fatalf("update definition: expected status %d, got %d: %s", http.StatusNoContent, updateRec.Code, updateRec.Body.String())
+	}
+
+	replayReq := httptest.NewRequest(http.MethodPost, "/api/v1/runs/"+sourceRunID+"/replay", nil)
+	replayReq.SetPathValue("id", sourceRunID)
+	replayRec := httptest.NewRecorder()
+	server.ReplayRun(replayRec, replayReq)
+	if replayRec.Code != http.StatusAccepted {
+		t.Fatalf("replay: expected status %d, got %d: %s", http.StatusAccepted, replayRec.Code, replayRec.Body.String())
+	}
+
+	var replayResp struct {
+		JobID         string `json:"job_id"`
+		RunID         string `json:"run_id"`
+		RunIndex      int    `json:"run_index"`
+		ReplayOfRunID string `json:"replay_of_run_id"`
+	}
+
+	if err := json.Unmarshal(replayRec.Body.Bytes(), &replayResp); err != nil {
+		t.Fatalf("decode replay response: %v", err)
+	}
+
+	if replayResp.JobID != jobID || replayResp.RunID == "" || replayResp.RunID == sourceRunID || replayResp.ReplayOfRunID != sourceRunID {
+		t.Fatalf("unexpected replay response: %+v", replayResp)
+	}
+
+	waitForNEnqueuedJobs(t, queueService, 2)
+	replayedJob := queueService.GetJobs()[1]
+	if replayedJob.GetRunId() != replayResp.RunID {
+		t.Fatalf("replayed job run id: got %q want %q", replayedJob.GetRunId(), replayResp.RunID)
+	}
+
+	if got := replayedJob.GetRoot().GetWith()["command"]; got != "echo old" {
+		t.Fatalf("replay should use source definition version, command=%q", got)
+	}
+
+	var replayOfRunID, invocationID, payloadHash string
+	var definitionVersion int
+	if err := db.QueryRow("SELECT replay_of_run_id, definition_version, trigger_invocation_id, execution_payload_hash FROM job_runs WHERE run_id = ?", replayResp.RunID).Scan(&replayOfRunID, &definitionVersion, &invocationID, &payloadHash); err != nil {
+		t.Fatalf("query replay run audit fields: %v", err)
+	}
+
+	if replayOfRunID != sourceRunID || definitionVersion != 1 {
+		t.Fatalf("replay audit row: replay_of=%q version=%d", replayOfRunID, definitionVersion)
+	}
+
+	if invocationID == "" || payloadHash == "" {
+		t.Fatalf("expected invocation and payload hash, got invocation=%q payload=%q", invocationID, payloadHash)
+	}
+
+	var triggerType string
+	if err := db.QueryRow("SELECT trigger_type FROM trigger_invocations WHERE invocation_id = ?", invocationID).Scan(&triggerType); err != nil {
+		t.Fatalf("query replay trigger invocation: %v", err)
+	}
+
+	if triggerType != dal.TriggerTypeReplay {
+		t.Fatalf("trigger type: got %q want %q", triggerType, dal.TriggerTypeReplay)
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+replayResp.RunID, nil)
+	getReq.SetPathValue("id", replayResp.RunID)
+	getRec := httptest.NewRecorder()
+	server.GetRun(getRec, getReq)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("GetRun replay: expected status %d, got %d: %s", http.StatusOK, getRec.Code, getRec.Body.String())
+	}
+
+	var gotRun struct {
+		ReplayOfRunID *string `json:"replay_of_run_id,omitempty"`
+		TriggerType   *string `json:"trigger_type,omitempty"`
+	}
+
+	if err := json.Unmarshal(getRec.Body.Bytes(), &gotRun); err != nil {
+		t.Fatalf("decode replay run detail: %v", err)
+	}
+
+	if gotRun.ReplayOfRunID == nil || *gotRun.ReplayOfRunID != sourceRunID {
+		t.Fatalf("run detail replay source: got %+v want %q", gotRun.ReplayOfRunID, sourceRunID)
+	}
+
+	if gotRun.TriggerType == nil || *gotRun.TriggerType != dal.TriggerTypeReplay {
+		t.Fatalf("run detail trigger type: got %+v want %q", gotRun.TriggerType, dal.TriggerTypeReplay)
+	}
+}
+
+func TestAPIServer_ReplayRun_RejectsActiveSourceRun(t *testing.T) {
+	server, _, queueService, db := setupTestServer(t)
+	jobID := "job-replay-active"
+	definition := `{"id": "job-replay-active", "root": {"uses": "builtins/shell", "with": {"command": "echo active"}}}`
+	insertStoredJobForTest(t, db, jobID, definition)
+
+	triggerReq := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, nil)
+	triggerReq.SetPathValue("id", jobID)
+	triggerRec := httptest.NewRecorder()
+	server.TriggerJob(triggerRec, triggerReq)
+	if triggerRec.Code != http.StatusAccepted {
+		t.Fatalf("trigger: expected status %d, got %d: %s", http.StatusAccepted, triggerRec.Code, triggerRec.Body.String())
+	}
+
+	waitForNEnqueuedJobs(t, queueService, 1)
+	sourceRunID := queueService.GetJobs()[0].GetRunId()
+
+	replayReq := httptest.NewRequest(http.MethodPost, "/api/v1/runs/"+sourceRunID+"/replay", nil)
+	replayReq.SetPathValue("id", sourceRunID)
+	replayRec := httptest.NewRecorder()
+	server.ReplayRun(replayRec, replayReq)
+
+	assertAPIError(t, replayRec, http.StatusConflict, "source_run_not_replayable")
+}
+
 func TestAPIServer_TriggerJob_IdempotencyKeyReplaysRun(t *testing.T) {
 	server, _, queueService, db := setupTestServer(t)
 	jobDef := `{"id": "job-idempotent", "root": {"id": "root", "uses": "builtins/shell", "with": {"command": "echo test"}}}`

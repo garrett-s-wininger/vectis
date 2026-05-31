@@ -194,6 +194,12 @@ Show the frozen execution payload captured for a run:
 ./bin/vectis-cli runs payload <run-id>
 ```
 
+Replay a completed run as a fresh queued run using the source run's captured definition version:
+
+```sh
+./bin/vectis-cli runs replay <run-id>
+```
+
 List runs for a stored job:
 
 ```sh

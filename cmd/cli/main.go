@@ -65,6 +65,8 @@ var (
 	runListLimit      int
 	runListCursor     int
 	runListCellID     string
+	runReplayCellID   string
+	runReplayIdemKey  string
 	triggerIdemKey    string
 	triggerCellIDs    []string
 	runIdemKey        string
@@ -114,13 +116,14 @@ func init() {
 	rootCmd.AddCommand(jobsCmd)
 
 	configureRunListFlags(runListCmd)
+	configureRunReplayFlags(runReplayCmd)
 	configureForceFailFlags(forceFailCmd)
 	configureRepairMarkFlags(repairMarkSucceededCmd)
 	configureRepairMarkFlags(repairMarkFailedCmd)
 	configureRepairMarkFlags(repairMarkCancelledCmd)
 	configureRepairMarkFlags(repairMarkAbandonedCmd)
 	runRepairCmd.AddCommand(repairMarkSucceededCmd, repairMarkFailedCmd, repairMarkCancelledCmd, repairMarkAbandonedCmd, repairMarkQueuedCmd)
-	runsCmd.AddCommand(runListCmd, runGetCmd, runPayloadCmd, runCancelCmd, runRepairCmd, forceFailCmd, forceRequeueCmd)
+	runsCmd.AddCommand(runListCmd, runGetCmd, runPayloadCmd, runReplayCmd, runCancelCmd, runRepairCmd, forceFailCmd, forceRequeueCmd)
 	rootCmd.AddCommand(runsCmd)
 
 	cellsCmd.AddCommand(cellsStatusCmd)

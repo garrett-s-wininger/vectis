@@ -3,6 +3,7 @@ package mocks
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -460,6 +461,42 @@ func (m *MockRunsRepository) CreateRunsInCellsWithAudit(ctx context.Context, job
 	}
 
 	return created, nil
+}
+
+func (m *MockRunsRepository) CreateReplayRun(ctx context.Context, sourceRunID string, targetCellID string, audit dal.RunAuditMetadata) (dal.CreatedRun, error) {
+	sourceRun, ok := m.RunRecords[sourceRunID]
+	if ok && (sourceRun.Status == dal.RunStatusQueued || sourceRun.Status == dal.RunStatusRunning) {
+		return dal.CreatedRun{}, fmt.Errorf("%w: source run %s in status %s cannot be replayed", dal.ErrConflict, sourceRunID, sourceRun.Status)
+	}
+
+	jobID := m.LastCreateJobID
+	definitionVersion := m.LastDefinitionVersion
+	if ok && sourceRun.DefinitionVersion > 0 {
+		definitionVersion = sourceRun.DefinitionVersion
+	}
+
+	if definitionVersion <= 0 {
+		definitionVersion = 1
+	}
+
+	if strings.TrimSpace(targetCellID) == "" && ok {
+		targetCellID = sourceRun.OwningCell
+	}
+
+	if strings.TrimSpace(audit.ReplayOfRunID) == "" {
+		audit.ReplayOfRunID = sourceRunID
+	}
+
+	created, err := m.CreateRunsInCellsWithAudit(ctx, jobID, nil, definitionVersion, []string{targetCellID}, audit)
+	if err != nil {
+		return dal.CreatedRun{}, err
+	}
+
+	if len(created) == 0 {
+		return dal.CreatedRun{}, fmt.Errorf("mock runs repository created no replay run")
+	}
+
+	return created[0], nil
 }
 
 func (m *MockRunsRepository) RecordExecutionPayload(ctx context.Context, runID, payloadJSON, definitionHash string) (string, string, error) {

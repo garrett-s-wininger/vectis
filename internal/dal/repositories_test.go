@@ -698,6 +698,99 @@ func TestRunsRepository_CreateRunInCell_TargetsExecutionCell(t *testing.T) {
 	}
 }
 
+func TestRunsRepository_CreateReplayRun_UsesSourceSnapshot(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-replay", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-replay"
+	defV1 := `{"id":"job-replay","root":{"uses":"builtins/shell","with":{"command":"echo old"}}}`
+	defV2 := `{"id":"job-replay","root":{"uses":"builtins/shell","with":{"command":"echo new"}}}`
+	if err := repos.Jobs().Create(ctx, jobID, defV1, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	sourceRunID, _, err := repos.Runs().CreateRunInCell(ctx, jobID, nil, 1, "pdx-b")
+	if err != nil {
+		t.Fatalf("create source run: %v", err)
+	}
+
+	if err := repos.Runs().MarkRunFailed(ctx, sourceRunID, "", dal.FailureCodeExecution, "environment failed"); err != nil {
+		t.Fatalf("mark source failed: %v", err)
+	}
+
+	if _, err := repos.Jobs().UpdateDefinition(ctx, jobID, defV2); err != nil {
+		t.Fatalf("update job definition: %v", err)
+	}
+
+	invocation, err := repos.TriggerInvocations().Record(ctx, dal.TriggerInvocation{
+		JobID:              jobID,
+		TriggerType:        dal.TriggerTypeReplay,
+		TriggerPayloadHash: dal.PayloadHash(`{"source_run_id":"` + sourceRunID + `"}`),
+		RequestedCells:     []string{"pdx-b"},
+	})
+
+	if err != nil {
+		t.Fatalf("record replay invocation: %v", err)
+	}
+
+	replay, err := repos.Runs().CreateReplayRun(ctx, sourceRunID, "", dal.RunAuditMetadata{
+		TriggerInvocationID: invocation.InvocationID,
+	})
+
+	if err != nil {
+		t.Fatalf("create replay run: %v", err)
+	}
+
+	if replay.RunID == sourceRunID {
+		t.Fatal("replay should create a new run id")
+	}
+
+	if replay.RunIndex != 2 || replay.TargetCellID != "pdx-b" {
+		t.Fatalf("replay created run: got index=%d cell=%q", replay.RunIndex, replay.TargetCellID)
+	}
+
+	run, err := repos.Runs().GetRun(ctx, replay.RunID)
+	if err != nil {
+		t.Fatalf("get replay run: %v", err)
+	}
+
+	if run.DefinitionVersion != 1 || run.DefinitionHash != dal.DefinitionHash(defV1) {
+		t.Fatalf("replay definition snapshot: got version=%d hash=%q", run.DefinitionVersion, run.DefinitionHash)
+	}
+
+	if run.ReplayOfRunID == nil || *run.ReplayOfRunID != sourceRunID {
+		t.Fatalf("replay source: got %+v want %q", run.ReplayOfRunID, sourceRunID)
+	}
+
+	if run.TriggerType == nil || *run.TriggerType != dal.TriggerTypeReplay {
+		t.Fatalf("replay trigger type: got %+v want %q", run.TriggerType, dal.TriggerTypeReplay)
+	}
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, replay.RunID)
+	if err != nil {
+		t.Fatalf("get replay pending execution: %v", err)
+	}
+
+	if dispatch.CellID != "pdx-b" || dispatch.DefinitionVersion != 1 {
+		t.Fatalf("replay dispatch: got cell=%q version=%d", dispatch.CellID, dispatch.DefinitionVersion)
+	}
+
+	activeRunID, _, err := repos.Runs().CreateRunInCell(ctx, jobID, nil, 1, "pdx-b")
+	if err != nil {
+		t.Fatalf("create active source run: %v", err)
+	}
+
+	if _, err := repos.Runs().CreateReplayRun(ctx, activeRunID, "", dal.RunAuditMetadata{}); !dal.IsConflict(err) {
+		t.Fatalf("expected active source replay to conflict, got %v", err)
+	}
+}
+
 func TestRunsRepository_CountByStatusByCell(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")

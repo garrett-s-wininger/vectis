@@ -109,6 +109,14 @@ type triggerJobResponseBody struct {
 	Runs     []triggerJobRunResponse `json:"runs,omitempty"`
 }
 
+type replayRunResponseBody struct {
+	JobID         string `json:"job_id"`
+	RunID         string `json:"run_id"`
+	RunIndex      int    `json:"run_index"`
+	CellID        string `json:"cell_id,omitempty"`
+	ReplayOfRunID string `json:"replay_of_run_id"`
+}
+
 func triggerJobResponse(jobID string, createdRuns []dal.CreatedRun) triggerJobResponseBody {
 	resp := triggerJobResponseBody{JobID: jobID}
 	if len(createdRuns) == 1 {
@@ -1205,6 +1213,237 @@ func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID strin
 	s.logger.Info("Triggered job: %s (run %s, index %d)", jobID, runID, runIndex)
 }
 
+func (s *APIServer) ReplayRun(w http.ResponseWriter, r *http.Request) {
+	sourceRunID := r.PathValue("id")
+	if sourceRunID == "" {
+		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
+		return
+	}
+
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	nsPath, ok := s.authorizeRunOperator(ctx, w, p, sourceRunID)
+	if !ok {
+		return
+	}
+
+	sourceRun, err := s.runs.GetRun(ctx, sourceRunID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	if sourceRun.Status == dal.RunStatusQueued || sourceRun.Status == dal.RunStatusRunning {
+		writeAPIError(w, http.StatusConflict, "source_run_not_replayable", "source run cannot be replayed from its current status", nil)
+		return
+	}
+
+	jobID, err := s.runs.GetRunJobID(ctx, sourceRunID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxJobDefinitionBodyBytes))
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "request_read_failed", "failed to read request body", nil)
+		return
+	}
+
+	if len(bytes.TrimSpace(body)) > 0 && !requestContentTypeIsJSON(r) {
+		writeAPIError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "content type must be application/json", nil)
+		return
+	}
+
+	targetCellIDs, err := parseRunTargetOptions(body)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_replay_options", "invalid replay options", nil)
+		return
+	}
+
+	if len(targetCellIDs) > 1 {
+		writeAPIError(w, http.StatusBadRequest, "invalid_replay_options", "replay accepts at most one target cell", nil)
+		return
+	}
+
+	targetCellID := sourceRun.OwningCell
+	if len(targetCellIDs) == 1 {
+		targetCellID = targetCellIDs[0]
+	}
+
+	definitionJSON, err := s.jobs.GetDefinitionVersion(ctx, jobID, sourceRun.DefinitionVersion)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "source_definition_not_found", "source run definition not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	var job api.Job
+	if err := protojson.Unmarshal([]byte(definitionJSON), &job); err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "invalid_stored_job_definition", "invalid job definition stored", nil)
+		return
+	}
+
+	definitionHash := sourceRun.DefinitionHash
+	if strings.TrimSpace(definitionHash) == "" {
+		definitionHash = dal.DefinitionHash(definitionJSON)
+	}
+
+	idempotencyKey := idempotencyKeyFromRequest(r)
+	idempotencyScope := principalIdempotencyScope("replay:"+sourceRunID, p)
+	idempotencyHash := hashIdempotencyRequest(http.MethodPost, "/api/v1/runs/"+sourceRunID+"/replay", string(bytes.TrimSpace(body)))
+	idempotencyRecord, idempotencyReserved, ok := s.reserveIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyHash)
+	if !ok {
+		return
+	}
+
+	if idempotencyRecord.ResponseJSON != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = io.WriteString(w, *idempotencyRecord.ResponseJSON)
+		return
+	}
+
+	triggerPayload := map[string]string{
+		"source_run_id":      sourceRunID,
+		"definition_hash":    definitionHash,
+		"definition_version": strconv.Itoa(sourceRun.DefinitionVersion),
+		"target_cell_id":     targetCellID,
+	}
+
+	triggerPayloadJSON, err := json.Marshal(triggerPayload)
+	if err != nil {
+		if idempotencyReserved {
+			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
+		}
+
+		s.logger.Error("Failed to encode replay trigger payload: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	invocationID, err := s.recordTriggerInvocation(ctx, jobID, dal.TriggerTypeReplay, string(triggerPayloadJSON), []string{targetCellID})
+	if err != nil {
+		if idempotencyReserved {
+			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error recording replay trigger invocation: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	createdRun, err := s.runs.CreateReplayRun(ctx, sourceRunID, targetCellID, dal.RunAuditMetadata{
+		TriggerInvocationID: invocationID,
+		ReplayOfRunID:       sourceRunID,
+	})
+
+	if err != nil {
+		if idempotencyReserved {
+			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		if dal.IsConflict(err) {
+			writeAPIError(w, http.StatusConflict, "source_run_not_replayable", "source run cannot be replayed from its current status", nil)
+			return
+		}
+
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+			return
+		}
+
+		s.logger.Error("Database error creating replay run: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+	s.markDBRecovered()
+
+	job.Id = &jobID
+	job.RunId = &createdRun.RunID
+
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	s.runBroadcaster.Broadcast(jobID, createdRun.RunID, createdRun.RunIndex)
+	s.auditLog(ctx, audit.EventRunTriggered, actorID, 0, map[string]any{
+		"job_id":           jobID,
+		"run_id":           createdRun.RunID,
+		"run_index":        createdRun.RunIndex,
+		"namespace":        nsPath,
+		"target_cell":      createdRun.TargetCellID,
+		"invocation":       invocationID,
+		"replay_of_run_id": sourceRunID,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	response := replayRunResponseBody{
+		JobID:         jobID,
+		RunID:         createdRun.RunID,
+		RunIndex:      createdRun.RunIndex,
+		CellID:        createdRun.TargetCellID,
+		ReplayOfRunID: sourceRunID,
+	}
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		s.logger.Error("Failed to encode replay response: %v", err)
+		return
+	}
+
+	_, _ = w.Write(buf.Bytes())
+	s.completeIdempotency(ctx, idempotencyScope, idempotencyKey, buf.Bytes())
+
+	bgCtx := detachedTraceContextFromRequest(r)
+	jobForRun := cloneJobForRun(&job, createdRun.RunID)
+	go s.finishTriggerEnqueue(bgCtx, jobID, createdRun.RunID, createdRun.RunIndex, jobForRun, definitionHash)
+}
+
 func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) {
 	jobID := r.PathValue("id")
 	if jobID == "" {
@@ -1733,6 +1972,7 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 		DefinitionVersion    int      `json:"definition_version"`
 		DefinitionHash       string   `json:"definition_hash,omitempty"`
 		OwningCell           string   `json:"owning_cell,omitempty"`
+		ReplayOfRunID        *string  `json:"replay_of_run_id,omitempty"`
 		TriggerInvocationID  *string  `json:"trigger_invocation_id,omitempty"`
 		TriggerID            *int64   `json:"trigger_id,omitempty"`
 		TriggerType          *string  `json:"trigger_type,omitempty"`
@@ -1756,6 +1996,7 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 			DefinitionVersion:    rec.DefinitionVersion,
 			DefinitionHash:       rec.DefinitionHash,
 			OwningCell:           rec.OwningCell,
+			ReplayOfRunID:        rec.ReplayOfRunID,
 			TriggerInvocationID:  rec.TriggerInvocationID,
 			TriggerID:            rec.TriggerID,
 			TriggerType:          rec.TriggerType,
@@ -1891,6 +2132,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		DefinitionVersion    int                `json:"definition_version"`
 		DefinitionHash       string             `json:"definition_hash,omitempty"`
 		OwningCell           string             `json:"owning_cell"`
+		ReplayOfRunID        *string            `json:"replay_of_run_id,omitempty"`
 		TriggerInvocationID  *string            `json:"trigger_invocation_id,omitempty"`
 		TriggerID            *int64             `json:"trigger_id,omitempty"`
 		TriggerType          *string            `json:"trigger_type,omitempty"`
@@ -1913,6 +2155,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		DefinitionVersion:    rec.DefinitionVersion,
 		DefinitionHash:       rec.DefinitionHash,
 		OwningCell:           rec.OwningCell,
+		ReplayOfRunID:        rec.ReplayOfRunID,
 		TriggerInvocationID:  rec.TriggerInvocationID,
 		TriggerID:            rec.TriggerID,
 		TriggerType:          rec.TriggerType,

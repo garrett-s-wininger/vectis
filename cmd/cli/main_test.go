@@ -1070,6 +1070,87 @@ func TestGetRunExecutionPayload_notFound(t *testing.T) {
 	}
 }
 
+func TestReplayRun_success(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/runs/run-1/replay" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		if got := r.Header.Get("Idempotency-Key"); got != "idem-1" {
+			t.Errorf("idempotency key=%q", got)
+		}
+
+		var body map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		if body["cell_id"] != "pdx-b" {
+			t.Fatalf("cell_id=%q", body["cell_id"])
+		}
+
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"job_id":           "job-1",
+			"run_id":           "run-2",
+			"run_index":        8,
+			"cell_id":          "pdx-b",
+			"replay_of_run_id": "run-1",
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := replayRun("run-1", "pdx-b", "idem-1", &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, want := range []string{"replay_of_run_id=run-1", "run_id=run-2", "run_index=8", "job_id=job-1", "cell_id=pdx-b"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, buf.String())
+		}
+	}
+}
+
+func TestReplayRun_jsonOutput(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"job_id":           "job-1",
+			"run_id":           "run-2",
+			"run_index":        8,
+			"replay_of_run_id": "run-1",
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := replayRun("run-1", "", "", &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	var result runReplayResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
+	}
+
+	if result.RunID != "run-2" || result.ReplayOfRunID != "run-1" || result.RunIndex != 8 {
+		t.Fatalf("unexpected replay JSON: %+v", result)
+	}
+}
+
+func TestReplayRun_conflict(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+	})
+
+	if err := replayRun("run-active", "", "", io.Discard); err == nil {
+		t.Fatal("expected conflict error")
+	}
+}
+
 func TestGetRun_notFound(t *testing.T) {
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
