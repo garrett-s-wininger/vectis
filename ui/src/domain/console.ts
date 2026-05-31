@@ -19,16 +19,26 @@ export type Cell = {
 };
 
 export type JobStatus = "enabled" | "paused";
+export type JobSourceKind = "db" | "repo" | "repo_collection";
+export type JobTriggerKind = "manual" | "webhook" | "schedule" | "poll";
+
+export type JobTrigger = {
+  detail: string;
+  kind: JobTriggerKind;
+};
 
 export type Job = {
   id: string;
   name: string;
   repository: string;
   branch: string;
+  sourceDetail: string;
+  sourceKind: JobSourceKind;
   definition?: string;
   namespacePath: string;
   schedule: string;
   nextRun: string;
+  triggers: JobTrigger[];
   lastRunStatus: RunStatus;
   status: JobStatus;
 };

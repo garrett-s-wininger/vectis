@@ -8,7 +8,7 @@ type Row = {
 };
 
 const columns: DataTableColumn<Row>[] = [
-  { header: "Name", cell: (row) => row.name },
+  { header: "Name", cell: (row) => row.name, width: "60%" },
   { header: "Status", cell: (row) => row.status, align: "end" }
 ];
 
@@ -23,6 +23,7 @@ describe("DataTable", () => {
     );
 
     expect(screen.getByRole("columnheader", { name: "Name" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Name" })).toHaveStyle({ "--column-width": "60%" });
     expect(screen.getByRole("cell", { name: "api-test-suite" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "Enabled" })).toHaveAttribute("data-align", "end");
   });
@@ -31,5 +32,22 @@ describe("DataTable", () => {
     render(<DataTable columns={columns} emptyMessage="No jobs." getRowKey={(row) => row.id} rows={[]} />);
 
     expect(screen.getByRole("cell", { name: "No jobs." })).toHaveAttribute("colspan", "2");
+  });
+
+  it("marks selected rows", () => {
+    render(
+      <DataTable
+        columns={columns}
+        getRowKey={(row) => row.id}
+        isRowSelected={(row) => row.id === "2"}
+        rows={[
+          { id: "1", name: "api-test-suite", status: "Enabled" },
+          { id: "2", name: "docs-publish", status: "Paused" }
+        ]}
+      />
+    );
+
+    expect(screen.getByRole("row", { name: "docs-publish Paused" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("row", { name: "api-test-suite Enabled" })).not.toHaveAttribute("aria-selected");
   });
 });

@@ -13,10 +13,11 @@ const meta = {
     namespaces: data.namespaces,
     namespacePath: "/",
     onCreateJob: () => undefined,
-    onDeleteJob: () => undefined,
+    onSelectRun: () => undefined,
     onSelectNamespace: () => undefined,
     onTriggerRun: () => undefined,
-    onUpdateJob: () => undefined
+    onUpdateJob: () => undefined,
+    runs: data.runs
   },
   decorators: [
     (Story) => (
@@ -47,10 +48,11 @@ export const PausedJob: Story = {
         namespaces={data.namespaces}
         namespacePath="/prod"
         onCreateJob={() => undefined}
-        onDeleteJob={() => undefined}
+        onSelectRun={() => undefined}
         onSelectNamespace={() => undefined}
         onTriggerRun={() => undefined}
         onUpdateJob={() => undefined}
+        runs={data.runs}
       />
     );
   }
@@ -63,10 +65,11 @@ export const Empty: Story = {
       namespaces={data.namespaces}
       namespacePath="/sandbox"
       onCreateJob={() => undefined}
-      onDeleteJob={() => undefined}
+      onSelectRun={() => undefined}
       onSelectNamespace={() => undefined}
       onTriggerRun={() => undefined}
       onUpdateJob={() => undefined}
+      runs={data.runs}
     />
   )
 };

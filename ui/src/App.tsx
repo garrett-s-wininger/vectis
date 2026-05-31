@@ -13,7 +13,6 @@ import {
   createMockJob,
   createMockNamespace,
   createMockUser,
-  deleteMockJob,
   deleteMockNamespace,
   deleteMockUser,
   loadMockConsoleData,
@@ -174,10 +173,6 @@ export function App() {
     updateConsoleData((data) => updateMockJob(data, jobID, input));
   }
 
-  function handleDeleteJob(jobID: string) {
-    updateConsoleData((data) => deleteMockJob(data, jobID));
-  }
-
   function handleDeleteNamespace(namespaceID: number) {
     const namespacePath = consoleData?.namespaces.find((namespace) => namespace.id === namespaceID)?.path;
 
@@ -273,7 +268,6 @@ export function App() {
         onCreateJob={handleCreateJob}
         onCreateNamespace={handleCreateNamespace}
         onCreateUser={handleCreateUser}
-        onDeleteJob={handleDeleteJob}
         onDeleteNamespace={handleDeleteNamespace}
         onDeleteUser={handleDeleteUser}
         onSubmitEphemeralRun={handleSubmitEphemeralRun}
@@ -408,7 +402,6 @@ function RouteContent({
   onCreateNamespace,
   onCreateUser,
   onCreateJob,
-  onDeleteJob,
   onDeleteNamespace,
   onDeleteUser,
   onSubmitEphemeralRun,
@@ -424,7 +417,6 @@ function RouteContent({
   onCreateJob: (input: NewMockJob) => void;
   onCreateNamespace: (input: NewMockNamespace) => void;
   onCreateUser: (input: NewMockUser) => void;
-  onDeleteJob: (jobID: string) => void;
   onDeleteNamespace: (namespaceID: number) => void;
   onDeleteUser: (userID: string) => void;
   onSubmitEphemeralRun: (definition: string) => void;
@@ -481,10 +473,11 @@ function RouteContent({
           namespaces={consoleData.namespaces}
           namespacePath={namespacePath}
           onCreateJob={onCreateJob}
-          onDeleteJob={onDeleteJob}
+          onSelectRun={(runID) => navigateTo(`/runs/${runID}`)}
           onSelectNamespace={onSelectNamespace}
           onTriggerRun={onTriggerRun}
           onUpdateJob={onUpdateJob}
+          runs={scopedConsoleData.runs}
         />
       );
     case "users":

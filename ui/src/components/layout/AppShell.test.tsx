@@ -115,4 +115,29 @@ describe("AppShell", () => {
     expect(onSignOut).toHaveBeenCalled();
     expect(accountMenu).not.toHaveAttribute("open");
   });
+
+  it("closes other dropdowns when a dropdown opens", () => {
+    render(
+      <AppShell
+        accountName="admin"
+        activeHref="/jobs"
+        brand="Vectis"
+        navItems={navItems}
+        utilityNavItems={utilityNavItems}
+      >
+        <h1>Jobs</h1>
+      </AppShell>
+    );
+
+    fireEvent.click(screen.getByText("Admin"));
+    const adminMenu = screen.getByText("Admin").closest("details");
+
+    expect(adminMenu).toHaveAttribute("open");
+
+    fireEvent.click(screen.getByText("admin"));
+    const accountMenu = screen.getByText("admin").closest("details");
+
+    expect(accountMenu).toHaveAttribute("open");
+    expect(adminMenu).not.toHaveAttribute("open");
+  });
 });

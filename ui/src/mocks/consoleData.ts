@@ -37,6 +37,8 @@ const jobs: Job[] = [
     name: "api-test-suite",
     repository: "github.com/vectis/api",
     branch: "main",
+    sourceDetail: "vectis/jobs/api-test-suite.json",
+    sourceKind: "repo_collection",
     definition: JSON.stringify(
       {
         id: "api-test-suite",
@@ -52,6 +54,10 @@ const jobs: Job[] = [
     namespacePath: "/team-a",
     schedule: "On push",
     nextRun: "Waiting for push",
+    triggers: [
+      { kind: "manual", detail: "On demand" },
+      { kind: "webhook", detail: "Git push" }
+    ],
     lastRunStatus: "running",
     status: "enabled"
   },
@@ -60,6 +66,8 @@ const jobs: Job[] = [
     name: "docs-publish",
     repository: "github.com/vectis/docs",
     branch: "main",
+    sourceDetail: ".vectis/job.json",
+    sourceKind: "repo",
     definition: JSON.stringify(
       {
         id: "docs-publish",
@@ -75,6 +83,10 @@ const jobs: Job[] = [
     namespacePath: "/team-a/edge",
     schedule: "Hourly",
     nextRun: "18m",
+    triggers: [
+      { kind: "manual", detail: "On demand" },
+      { kind: "schedule", detail: "Hourly" }
+    ],
     lastRunStatus: "queued",
     status: "enabled"
   },
@@ -83,6 +95,8 @@ const jobs: Job[] = [
     name: "worker-image",
     repository: "github.com/vectis/worker",
     branch: "release",
+    sourceDetail: "Stored definition",
+    sourceKind: "db",
     definition: JSON.stringify(
       {
         id: "worker-image",
@@ -98,6 +112,11 @@ const jobs: Job[] = [
     namespacePath: "/prod",
     schedule: "Nightly",
     nextRun: "7h 12m",
+    triggers: [
+      { kind: "manual", detail: "On demand" },
+      { kind: "schedule", detail: "Nightly" },
+      { kind: "poll", detail: "Release branch changes" }
+    ],
     lastRunStatus: "succeeded",
     status: "paused"
   }
@@ -445,9 +464,12 @@ export function createMockJob(data: MockConsoleData, input: NewMockJob): MockCon
     repository: input.repository.trim(),
     branch: input.branch.trim(),
     definition: input.definition.trim(),
+    sourceDetail: "Stored definition",
+    sourceKind: "db",
     namespacePath: input.namespacePath,
     schedule: input.schedule.trim(),
     nextRun: nextRunForSchedule(input.schedule),
+    triggers: [{ kind: "manual", detail: "On demand" }],
     lastRunStatus: "queued",
     status: input.status
   };

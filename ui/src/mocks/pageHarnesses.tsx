@@ -7,7 +7,6 @@ import {
   createMockJob,
   createMockNamespace,
   createMockUser,
-  deleteMockJob,
   deleteMockNamespace,
   deleteMockUser,
   scopeMockConsoleData,
@@ -44,10 +43,11 @@ export function JobsPageHarness({ namespacePath = "/" }: { namespacePath?: strin
       namespaces={data.namespaces}
       namespacePath={selectedNamespacePath}
       onCreateJob={(input) => setData((current) => createMockJob(current, input))}
-      onDeleteJob={(jobID) => setData((current) => deleteMockJob(current, jobID))}
+      onSelectRun={() => undefined}
       onSelectNamespace={setSelectedNamespacePath}
       onTriggerRun={(jobID) => setData((current) => triggerMockRun(current, jobID))}
       onUpdateJob={(jobID, input) => setData((current) => updateMockJob(current, jobID, input))}
+      runs={scopedData.runs}
     />
   );
 }

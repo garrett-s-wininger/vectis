@@ -6,12 +6,19 @@ import { FormError } from "../components";
 import { FormField } from "../components";
 import { NamespacePicker } from "../components";
 import { PageHeader } from "../components";
+import type { RunListItem } from "../components";
 import { SelectField } from "../components";
 import { StatusBadge } from "../components";
 import { TextAreaField } from "../components";
 import type { Job, JobStatus, Namespace, NewJob, UpdateJob } from "../domain/console";
 import { defaultJobDefinition, jobScheduleOptions, jobStatusOptions } from "../domain/consoleOptions";
-import { ResourceStatus, ResourceTitle, TableActions } from "./shared";
+import { ResourceStatus, ResourceTitle } from "./shared";
+import { JobActionPanel } from "./jobs/JobActionPanel";
+import { JobDetailsDrawer } from "./jobs/JobDetailsDrawer";
+import { JobIdentity } from "./jobs/JobIdentity";
+import styles from "./jobs/JobsPage.module.css";
+import { JobTriggers } from "./jobs/JobTriggers";
+import { getLatestRunForJob } from "./jobs/jobPresentation";
 
 type JobEditorMode = { kind: "create" } | { kind: "edit"; jobID: string } | null;
 
@@ -29,10 +36,11 @@ type JobsPageProps = {
   namespaces: Namespace[];
   namespacePath: string;
   onCreateJob: (input: NewJob) => void;
-  onDeleteJob: (jobID: string) => void;
+  onSelectRun: (runID: string) => void;
   onSelectNamespace: (namespacePath: string) => void;
   onTriggerRun: (jobID: string) => void;
   onUpdateJob: (jobID: string, input: UpdateJob) => void;
+  runs: RunListItem[];
 };
 
 const emptyJobForm: JobFormValues = {
@@ -49,14 +57,18 @@ export function JobsPage({
   namespaces,
   namespacePath,
   onCreateJob,
-  onDeleteJob,
+  onSelectRun,
   onSelectNamespace,
   onTriggerRun,
-  onUpdateJob
+  onUpdateJob,
+  runs
 }: JobsPageProps) {
   const [editorMode, setEditorMode] = useState<JobEditorMode>(null);
+  const [selectedJobID, setSelectedJobID] = useState("");
   const [values, setValues] = useState<JobFormValues>(emptyJobForm);
   const [formError, setFormError] = useState("");
+  const selectedJob = jobs.find((job) => job.id === selectedJobID);
+  const selectedJobLastRun = selectedJob ? getLatestRunForJob(selectedJob, runs) : undefined;
 
   function startCreateJob() {
     setEditorMode({ kind: "create" });
@@ -75,6 +87,10 @@ export function JobsPage({
       status: job.status
     });
     setFormError("");
+  }
+
+  function toggleSelectedJob(jobID: string) {
+    setSelectedJobID((currentJobID) => (currentJobID === jobID ? "" : jobID));
   }
 
   function closeEditor() {
@@ -105,64 +121,64 @@ export function JobsPage({
   const columns: DataTableColumn<Job>[] = [
     {
       header: "Job",
-      cell: (job) => <ResourceTitle subtitle={job.repository} title={job.name} />
+      width: "34%",
+      cell: (job) => (
+        <JobIdentity job={job} onSelect={() => toggleSelectedJob(job.id)} selected={selectedJob?.id === job.id} />
+      )
     },
     {
-      header: "Namespace",
-      cell: (job) => job.namespacePath
+      header: "Triggers",
+      hideOnMobile: true,
+      width: "34%",
+      cell: (job) => <JobTriggers job={job} />
     },
     {
-      header: "Branch",
-      cell: (job) => job.branch
-    },
-    {
-      header: "Schedule",
-      cell: (job) => <ResourceTitle subtitle={job.nextRun} title={job.schedule} />
-    },
-    {
-      header: "Last run",
-      cell: (job) => <StatusBadge status={job.lastRunStatus} />
+      header: "Details",
+      mobileOnly: true,
+      cell: (job) =>
+        selectedJob?.id === job.id ? (
+          <JobDetailsDrawer
+            job={job}
+            lastRun={getLatestRunForJob(job, runs)}
+            onEdit={() => startEditJob(job)}
+            onOpenLastRun={() => {
+              const lastRun = getLatestRunForJob(job, runs);
+              if (lastRun) {
+                onSelectRun(lastRun.id);
+              }
+            }}
+            onTrigger={() => onTriggerRun(job.id)}
+          />
+        ) : null
     },
     {
       align: "end",
       header: "State",
+      hideOnMobile: true,
+      width: "96px",
       cell: (job) => (
         <ResourceStatus tone={job.status}>{job.status === "enabled" ? "Enabled" : "Paused"}</ResourceStatus>
       )
     },
     {
       align: "end",
-      header: "Actions",
-      cell: (job) => (
-        <TableActions>
-          <Button
-            aria-label={`Trigger ${job.name}`}
-            disabled={job.status === "paused"}
-            onClick={() => onTriggerRun(job.id)}
-          >
-            Trigger
-          </Button>
-          <Button aria-label={`Edit ${job.name}`} onClick={() => startEditJob(job)}>
-            Edit
-          </Button>
-          <Button aria-label={`Delete ${job.name}`} onClick={() => onDeleteJob(job.id)}>
-            Delete
-          </Button>
-        </TableActions>
-      )
+      header: "Latest run",
+      hideOnMobile: true,
+      width: "96px",
+      cell: (job) => <StatusBadge status={job.lastRunStatus} />
     }
   ];
 
   return (
     <>
       <PageHeader
-        description={`Configured job definitions under ${namespacePath}.`}
+        description="Definitions, source of truth, and triggers."
         eyebrow="Jobs"
         actions={
           <>
             <NamespacePicker compact namespaces={namespaces} onChange={onSelectNamespace} value={namespacePath} />
             <Button aria-expanded={editorMode?.kind === "create"} onClick={startCreateJob}>
-              New job
+              New
             </Button>
           </>
         }
@@ -235,7 +251,28 @@ export function JobsPage({
           </form>
         </section>
       ) : null}
-      <DataTable columns={columns} emptyMessage="No jobs loaded." getRowKey={(job) => job.id} rows={jobs} />
+      <div className={selectedJob ? `${styles.workspace} ${styles.workspaceWithPanel}` : styles.workspace}>
+        <DataTable
+          columns={columns}
+          emptyMessage="No jobs loaded."
+          getRowKey={(job) => job.id}
+          isRowSelected={(job) => selectedJob?.id === job.id}
+          rows={jobs}
+        />
+        {selectedJob ? (
+          <JobActionPanel
+            job={selectedJob}
+            lastRun={selectedJobLastRun}
+            onEdit={() => startEditJob(selectedJob)}
+            onOpenLastRun={() => {
+              if (selectedJobLastRun) {
+                onSelectRun(selectedJobLastRun.id);
+              }
+            }}
+            onTrigger={() => onTriggerRun(selectedJob.id)}
+          />
+        ) : null}
+      </div>
     </>
   );
 }

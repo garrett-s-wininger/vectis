@@ -1,8 +1,11 @@
 .root {
   align-items: end;
+  border-bottom: 1px solid rgb(133 151 161 / 46%);
+  box-shadow: 0 1px 0 rgb(255 255 255 / 78%);
   display: grid;
   gap: var(--space-2xl);
   grid-template-columns: minmax(0, 1fr) auto;
+  padding-bottom: var(--space-2xl);
   width: min(var(--layout-panel-max), 100%);
 }
 
@@ -12,18 +15,21 @@
 }
 
 .eyebrow {
-  color: var(--text-navigation);
+  color: var(--color-primary-hover);
   font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
+  font-weight: var(--font-weight-strong);
   letter-spacing: var(--letter-spacing-eyebrow);
+  line-height: var(--line-height-tight);
   margin: 0;
   text-transform: uppercase;
 }
 
 .title {
+  color: var(--text-primary);
   font-size: var(--font-size-4xl);
   line-height: var(--line-height-heading);
   margin: 0;
+  text-shadow: 0 1px 0 rgb(255 255 255 / 80%);
 }
 
 .description {
@@ -38,15 +44,29 @@
   display: flex;
   gap: var(--space-sm);
   justify-content: end;
+  min-width: 0;
 }
 
-@media (max-width: 640px) {
+.actions > * {
+  min-width: 0;
+}
+
+@media (max-width: 440px) {
   .root {
     align-items: start;
     grid-template-columns: 1fr;
   }
 
   .actions {
+    width: 100%;
     justify-content: start;
+  }
+
+  .actions > :first-child {
+    flex: 1 1 auto;
+  }
+
+  .actions > button {
+    flex: 0 0 auto;
   }
 }

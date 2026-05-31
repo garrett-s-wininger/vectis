@@ -64,8 +64,11 @@ export function AppShell({
             </nav>
           ) : null}
           {accountName ? (
-            <details className={`${styles.accountMenu} ${isAccountActive ? styles.accountMenuActive : ""}`}>
-              <summary className={styles.accountSummary}>
+            <details
+              className={`${styles.accountMenu} ${isAccountActive ? styles.accountMenuActive : ""}`}
+              onToggle={(event) => closeOtherDetails(event.currentTarget)}
+            >
+              <summary className={styles.accountSummary} onClick={(event) => closeSiblingDetails(event.currentTarget)}>
                 <span className={styles.accountAvatar}>{accountName.slice(0, 1).toUpperCase()}</span>
                 <span className={styles.accountName}>{accountName}</span>
               </summary>
@@ -115,8 +118,12 @@ function NavEntries({
       const isActive = item.items.some((child) => child.href === activeHref);
 
       return (
-        <details className={`${styles.navGroup} ${isActive ? styles.navGroupActive : ""}`} key={item.label}>
-          <summary className={styles.navGroupSummary}>
+        <details
+          className={`${styles.navGroup} ${isActive ? styles.navGroupActive : ""}`}
+          key={item.label}
+          onToggle={(event) => closeOtherDetails(event.currentTarget)}
+        >
+          <summary className={styles.navGroupSummary} onClick={(event) => closeSiblingDetails(event.currentTarget)}>
             <span className={styles.navGroupLabel}>{item.label}</span>
           </summary>
           <div className={styles.navMenu}>
@@ -159,4 +166,23 @@ function closeParentDetails(element: HTMLElement) {
   if (details) {
     details.open = false;
   }
+}
+
+function closeOtherDetails(currentDetails: HTMLDetailsElement) {
+  if (!currentDetails.open) {
+    return;
+  }
+
+  closeSiblingDetails(currentDetails);
+}
+
+function closeSiblingDetails(element: HTMLElement) {
+  const currentDetails = element.closest("details");
+  const header = element.closest("header");
+
+  header?.querySelectorAll("details").forEach((details) => {
+    if (details !== currentDetails) {
+      details.open = false;
+    }
+  });
 }
