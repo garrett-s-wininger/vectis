@@ -65,6 +65,7 @@ var (
 	runListLimit      int
 	runListCursor     int
 	triggerIdemKey    string
+	triggerCellIDs    []string
 	runIdemKey        string
 )
 

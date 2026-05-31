@@ -135,6 +135,14 @@ Trigger without following:
 ./bin/vectis-cli jobs trigger sequenced-job
 ```
 
+Trigger a stored job in specific execution cells:
+
+```sh
+./bin/vectis-cli jobs trigger sequenced-job --cell local --cell pdx-b
+```
+
+When more than one cell is targeted, the command prints one run per cell. Use `runs list <job-id>` or `runs show <run-id>` to inspect the global run catalog.
+
 Edit a stored job in `$EDITOR`:
 
 ```sh

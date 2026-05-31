@@ -129,6 +129,88 @@ func TestTriggerJob_sendsIdempotencyKey(t *testing.T) {
 	triggerJob(&cobra.Command{}, []string{"job-1"})
 }
 
+func TestTriggerJob_sendsTargetCells(t *testing.T) {
+	oldCells := triggerCellIDs
+	triggerCellIDs = []string{"iad-a", "pdx-b", "iad-a", "sjc-c,pdx-b"}
+	t.Cleanup(func() { triggerCellIDs = oldCells })
+
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/jobs/trigger/job-1" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		var body struct {
+			CellIDs []string `json:"cell_ids"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+
+		wantCells := []string{"iad-a", "pdx-b", "sjc-c"}
+		if strings.Join(body.CellIDs, ",") != strings.Join(wantCells, ",") {
+			t.Errorf("cell_ids=%v, want %v", body.CellIDs, wantCells)
+		}
+
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"job_id": "job-1",
+			"runs": []map[string]any{
+				{"run_id": "run-a", "run_index": 1, "cell_id": "iad-a"},
+				{"run_id": "run-b", "run_index": 2, "cell_id": "pdx-b"},
+				{"run_id": "run-c", "run_index": 3, "cell_id": "sjc-c"},
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := triggerJobWithOutput(&cobra.Command{}, []string{"job-1"}, &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"CELL", "RUN ID", "iad-a", "run-a", "pdx-b", "run-b", "sjc-c", "run-c"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestWriteTriggerJobResult_jsonOutputIncludesMultiCellRuns(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+
+	result := jobRunResult{
+		JobID: "job-1",
+		Runs: []jobRunCellResult{
+			{RunID: "run-a", RunIndex: 1, CellID: "iad-a"},
+			{RunID: "run-b", RunIndex: 2, CellID: "pdx-b"},
+		},
+	}
+
+	var buf bytes.Buffer
+	if err := writeTriggerJobResult(&cobra.Command{}, &buf, result); err != nil {
+		t.Fatal(err)
+	}
+
+	var decoded jobRunResult
+	if err := json.Unmarshal(buf.Bytes(), &decoded); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
+	}
+
+	if decoded.JobID != "job-1" || len(decoded.Runs) != 2 || decoded.Runs[1].CellID != "pdx-b" {
+		t.Fatalf("unexpected JSON trigger output: %+v", decoded)
+	}
+}
+
+func TestTriggerJobRequestBody_rejectsEmptyCell(t *testing.T) {
+	if _, err := triggerJobRequestBody([]string{"iad-a,"}); err == nil {
+		t.Fatal("expected empty cell error")
+	}
+}
+
 func TestRunJob_sendsIdempotencyKey(t *testing.T) {
 	oldKey := runIdemKey
 	runIdemKey = "run-retry-key"

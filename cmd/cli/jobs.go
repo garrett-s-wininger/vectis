@@ -19,10 +19,17 @@ import (
 )
 
 type jobRunResult struct {
-	JobID    string `json:"job_id,omitempty"`
-	ID       string `json:"id,omitempty"`
+	JobID    string             `json:"job_id,omitempty"`
+	ID       string             `json:"id,omitempty"`
+	RunID    string             `json:"run_id,omitempty"`
+	RunIndex int                `json:"run_index,omitempty"`
+	Runs     []jobRunCellResult `json:"runs,omitempty"`
+}
+
+type jobRunCellResult struct {
 	RunID    string `json:"run_id"`
-	RunIndex int    `json:"run_index,omitempty"`
+	RunIndex int    `json:"run_index"`
+	CellID   string `json:"cell_id,omitempty"`
 }
 
 func setIdempotencyHeader(req *http.Request, key string) {
@@ -32,15 +39,24 @@ func setIdempotencyHeader(req *http.Request, key string) {
 }
 
 func triggerJob(cmd *cobra.Command, args []string) {
+	runCLIError(triggerJobWithOutput(cmd, args, os.Stdout))
+}
+
+func triggerJobWithOutput(cmd *cobra.Command, args []string, out io.Writer) error {
 	if len(args) < 1 {
 		_ = cmd.Usage()
-		runCLIError(fmt.Errorf("job-id is required"))
+		return fmt.Errorf("job-id is required")
 	}
 
 	jobID := args[0]
-	req, err := newAPIRequest(http.MethodPost, fmt.Sprintf("/api/v1/jobs/trigger/%s", jobID), nil)
+	body, err := triggerJobRequestBody(triggerCellIDs)
 	if err != nil {
-		runCLIError(fmt.Errorf("failed to create trigger request: %w", err))
+		return err
+	}
+
+	req, err := newAPIRequest(http.MethodPost, fmt.Sprintf("/api/v1/jobs/trigger/%s", jobID), body)
+	if err != nil {
+		return fmt.Errorf("failed to create trigger request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -48,7 +64,7 @@ func triggerJob(cmd *cobra.Command, args []string) {
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		runCLIError(fmt.Errorf("failed to trigger job: %w", err))
+		return fmt.Errorf("failed to trigger job: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -57,30 +73,101 @@ func triggerJob(cmd *cobra.Command, args []string) {
 		var result jobRunResult
 
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-			runCLIError(fmt.Errorf("failed to parse response: %w", err))
+			return fmt.Errorf("failed to parse response: %w", err)
 		}
 
-		if result.RunID == "" {
-			runCLIError(fmt.Errorf("response missing run_id"))
-		}
+		return writeTriggerJobResult(cmd, out, result)
+	case http.StatusNotFound:
+		return fmt.Errorf("job %q not found", jobID)
+	case http.StatusServiceUnavailable:
+		return fmt.Errorf("queue service unavailable")
+	default:
+		return fmt.Errorf("unexpected status: %s", resp.Status)
+	}
+}
 
+func triggerJobRequestBody(rawCellIDs []string) (io.Reader, error) {
+	cellIDs, err := normalizeTriggerCellIDs(rawCellIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(cellIDs) == 0 {
+		return nil, nil
+	}
+
+	body, err := json.Marshal(struct {
+		CellIDs []string `json:"cell_ids"`
+	}{CellIDs: cellIDs})
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode trigger options: %w", err)
+	}
+
+	return bytes.NewReader(body), nil
+}
+
+func normalizeTriggerCellIDs(rawCellIDs []string) ([]string, error) {
+	out := make([]string, 0, len(rawCellIDs))
+	seen := make(map[string]struct{}, len(rawCellIDs))
+	for _, raw := range rawCellIDs {
+		for _, value := range strings.Split(raw, ",") {
+			cellID := strings.TrimSpace(value)
+			if cellID == "" {
+				return nil, fmt.Errorf("--cell cannot be empty")
+			}
+
+			if _, ok := seen[cellID]; ok {
+				continue
+			}
+
+			seen[cellID] = struct{}{}
+			out = append(out, cellID)
+		}
+	}
+
+	return out, nil
+}
+
+func writeTriggerJobResult(cmd *cobra.Command, out io.Writer, result jobRunResult) error {
+	if len(result.Runs) > 0 {
 		follow, _ := cmd.Flags().GetBool("follow")
 		if follow {
-			if err := runLogStream(result.RunID, false, false); err != nil {
-				runCLIError(err)
-			}
-		} else if outputIsJSON() {
-			runCLIError(writeJSON(os.Stdout, result))
-		} else {
-			fmt.Println(result.RunID)
+			return fmt.Errorf("--follow is only supported when a trigger creates one run")
 		}
-	case http.StatusNotFound:
-		runCLIError(fmt.Errorf("job %q not found", jobID))
-	case http.StatusServiceUnavailable:
-		runCLIError(fmt.Errorf("queue service unavailable"))
-	default:
-		runCLIError(fmt.Errorf("unexpected status: %s", resp.Status))
+
+		if outputIsJSON() {
+			return writeJSON(out, result)
+		}
+
+		tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "CELL\tRUN ID\tINDEX")
+		for _, run := range result.Runs {
+			cellID := run.CellID
+			if cellID == "" {
+				cellID = "-"
+			}
+
+			fmt.Fprintf(tw, "%s\t%s\t%d\n", cellID, run.RunID, run.RunIndex)
+		}
+
+		return tw.Flush()
 	}
+
+	if result.RunID == "" {
+		return fmt.Errorf("response missing run_id")
+	}
+
+	follow, _ := cmd.Flags().GetBool("follow")
+	if follow {
+		return runLogStream(result.RunID, false, false)
+	}
+
+	if outputIsJSON() {
+		return writeJSON(out, result)
+	}
+
+	_, err := fmt.Fprintln(out, result.RunID)
+	return err
 }
 
 func runJob(cmd *cobra.Command, args []string) {
@@ -589,7 +676,8 @@ var triggerCmd = &cobra.Command{
 	Use:   "trigger [job-id]",
 	Short: "Trigger a stored job",
 	Long: `Trigger a stored job by its job-id. The job must exist in the database.
-The API records the run and returns immediately (202 with run_id); enqueue to the queue happens in the background, so a down queue does not block this command.`,
+The API records the run and returns immediately (202 with run_id); enqueue to the queue happens in the background, so a down queue does not block this command.
+Use --cell repeatedly to fan out the stored job into named execution cells.`,
 	Args: cobra.ExactArgs(1),
 	Run:  triggerJob,
 }
@@ -645,6 +733,7 @@ var listCmd = &cobra.Command{
 
 func configureJobTriggerFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolP("follow", "f", false, "After triggering, stream logs (same as logs run <run-id>)")
+	cmd.Flags().StringArrayVar(&triggerCellIDs, "cell", nil, "Target execution cell; may be repeated")
 	cmd.Flags().StringVar(&triggerIdemKey, "idempotency-key", "", "Optional Idempotency-Key header for safe trigger retries")
 }
 

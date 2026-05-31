@@ -128,10 +128,7 @@ This starts one global stack plus a queue, cell ingress, worker, and cell-local 
 Trigger one job across cells:
 
 ```sh
-curl -sS \
-  -H 'Content-Type: application/json' \
-  -d '{"cell_ids":["local","pdx-b","sjc-c"]}' \
-  http://localhost:8080/api/v1/jobs/trigger/example-job
+./bin/vectis-cli jobs trigger example-job --cell local --cell pdx-b --cell sjc-c
 ```
 
 Then list the global run catalog:
