@@ -72,7 +72,8 @@ func (r *SQLRunsRepository) MarkRunRunning(ctx context.Context, runID string) er
 
 func (r *SQLRunsRepository) MarkRunSucceeded(ctx context.Context, runID, claimToken string) error {
 	query := `UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP,
-		orphan_reason = '', failure_code = '', failure_reason = NULL, lease_owner = NULL, lease_until = NULL WHERE run_id = ?`
+		orphan_reason = '', failure_code = '', failure_reason = NULL, lease_owner = NULL, lease_until = NULL,
+		claim_token = NULL, cancel_token = NULL, cancel_requested_at = NULL, cancel_reason = NULL WHERE run_id = ?`
 	args := []any{"succeeded", runID}
 	if claimToken != "" {
 		query += ` AND status IN ('running', 'orphaned') AND claim_token = ?`
@@ -106,7 +107,9 @@ func (r *SQLRunsRepository) MarkRunFailed(ctx context.Context, runID, claimToken
 	}
 
 	query := `UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP, failure_code = ?, failure_reason = ?,
-		orphan_reason = '', lease_owner = NULL, lease_until = NULL WHERE run_id = ?`
+		orphan_reason = '', lease_owner = NULL, lease_until = NULL,
+		claim_token = NULL, cancel_token = NULL, cancel_requested_at = NULL, cancel_reason = NULL WHERE run_id = ?`
+
 	args := []any{"failed", failureCode, reason, runID}
 	if claimToken != "" {
 		query += ` AND status IN ('running', 'orphaned') AND claim_token = ?`
@@ -148,7 +151,8 @@ func (r *SQLRunsRepository) MarkRunCancelled(ctx context.Context, runID, claimTo
 	}
 
 	query := `UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP, failure_code = '', failure_reason = ?,
-		orphan_reason = '', lease_owner = NULL, lease_until = NULL, claim_token = NULL, cancel_token = NULL WHERE run_id = ?`
+		orphan_reason = '', lease_owner = NULL, lease_until = NULL, claim_token = NULL, cancel_token = NULL,
+		cancel_requested_at = NULL, cancel_reason = NULL WHERE run_id = ?`
 
 	args := []any{RunStatusCancelled, reason, runID}
 	if claimToken != "" {
@@ -216,10 +220,13 @@ func (r *SQLRunsRepository) repairMarkTerminal(ctx context.Context, runID, statu
 			lease_owner = NULL,
 			lease_until = NULL,
 			claim_token = NULL,
-			cancel_token = NULL
+			cancel_token = NULL,
+			cancel_requested_at = NULL,
+			cancel_reason = NULL
 		WHERE run_id = ?
 			AND status = 'orphaned'
 	`), status, failureCode, nullableReason(reason), runID)
+
 	if err != nil {
 		return normalizeSQLError(err)
 	}
@@ -308,6 +315,9 @@ func (r *SQLRunsRepository) RequeueRunForRetry(ctx context.Context, runID string
 			lease_owner = NULL,
 			lease_until = NULL,
 			claim_token = NULL,
+			cancel_token = NULL,
+			cancel_requested_at = NULL,
+			cancel_reason = NULL,
 			last_dispatched_at = NULL
 		WHERE run_id = ?
 			AND status IN ('queued', 'failed', 'orphaned', 'aborted', 'cancelled', 'abandoned')
@@ -428,6 +438,8 @@ func (r *SQLRunsRepository) TryClaim(ctx context.Context, runID, owner string, l
 			lease_until = ?,
 			claim_token = ?,
 			cancel_token = ?,
+			cancel_requested_at = NULL,
+			cancel_reason = NULL,
 			attempt = attempt + 1,
 			orphan_reason = '',
 			failure_code = '',
@@ -479,6 +491,66 @@ func (r *SQLRunsRepository) RenewLease(ctx context.Context, runID, owner, claimT
 	}
 
 	return nil
+}
+
+func (r *SQLRunsRepository) RequestRunCancel(ctx context.Context, runID, reason string) (RunForCancel, error) {
+	if reason == "" {
+		reason = CancelReasonAPI
+	}
+
+	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE job_runs
+		SET cancel_requested_at = COALESCE(cancel_requested_at, ?),
+			cancel_reason = CASE
+				WHEN cancel_reason IS NULL OR cancel_reason = '' THEN ?
+				ELSE cancel_reason
+			END
+		WHERE run_id = ?
+			AND status = ?
+	`), time.Now().Unix(), reason, runID, RunStatusRunning)
+
+	if err != nil {
+		return RunForCancel{}, normalizeSQLError(err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return RunForCancel{}, err
+	}
+
+	rec, err := r.GetRunForCancel(ctx, runID)
+	if err != nil {
+		return RunForCancel{}, err
+	}
+
+	if n != 1 {
+		return rec, fmt.Errorf("%w: run %s in status %s cannot be cancelled", ErrConflict, runID, rec.Status)
+	}
+
+	return rec, nil
+}
+
+func (r *SQLRunsRepository) RunCancelRequested(ctx context.Context, runID, claimToken string) (bool, error) {
+	if runID == "" || claimToken == "" {
+		return false, nil
+	}
+
+	var requestedAt sql.NullInt64
+	if err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT cancel_requested_at
+		FROM job_runs
+		WHERE run_id = ?
+			AND claim_token = ?
+			AND status IN (?, ?)
+	`), runID, claimToken, RunStatusRunning, RunStatusOrphaned).Scan(&requestedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+
+		return false, normalizeSQLError(err)
+	}
+
+	return requestedAt.Valid && requestedAt.Int64 > 0, nil
 }
 
 func (r *SQLRunsRepository) TouchDispatched(ctx context.Context, runID string) error {
@@ -1361,11 +1433,12 @@ func isTerminalExecutionStatus(status string) bool {
 
 func (r *SQLRunsRepository) GetRunForCancel(ctx context.Context, runID string) (RunForCancel, error) {
 	var rec RunForCancel
-	var leaseOwner, cancelToken sql.NullString
+	var leaseOwner, cancelToken, cancelReason sql.NullString
+	var cancelRequestedAt sql.NullInt64
 	if err := r.db.QueryRowContext(ctx,
-		rebindQueryForPgx("SELECT run_id, status, lease_owner, cancel_token FROM job_runs WHERE run_id = ?"),
+		rebindQueryForPgx("SELECT run_id, status, lease_owner, cancel_token, cancel_requested_at, cancel_reason FROM job_runs WHERE run_id = ?"),
 		runID,
-	).Scan(&rec.RunID, &rec.Status, &leaseOwner, &cancelToken); err != nil {
+	).Scan(&rec.RunID, &rec.Status, &leaseOwner, &cancelToken, &cancelRequestedAt, &cancelReason); err != nil {
 		if err == sql.ErrNoRows {
 			return RunForCancel{}, fmt.Errorf("%w: run %s", ErrNotFound, runID)
 		}
@@ -1379,6 +1452,15 @@ func (r *SQLRunsRepository) GetRunForCancel(ctx context.Context, runID string) (
 
 	if cancelToken.Valid {
 		rec.CancelToken = cancelToken.String
+	}
+
+	if cancelRequestedAt.Valid {
+		v := cancelRequestedAt.Int64
+		rec.CancelRequestedAt = &v
+	}
+
+	if cancelReason.Valid {
+		rec.CancelReason = cancelReason.String
 	}
 
 	return rec, nil

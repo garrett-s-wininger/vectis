@@ -313,10 +313,12 @@ type CronSchedule struct {
 }
 
 type RunForCancel struct {
-	RunID       string
-	Status      string
-	LeaseOwner  string
-	CancelToken string
+	RunID             string
+	Status            string
+	LeaseOwner        string
+	CancelToken       string
+	CancelRequestedAt *int64
+	CancelReason      string
 }
 
 type RunStatusUpdate struct {
@@ -355,6 +357,8 @@ type RunsRepository interface {
 	GetRunStatus(ctx context.Context, runID string) (status string, found bool, err error)
 	TryClaim(ctx context.Context, runID, owner string, leaseUntil time.Time) (bool, string, error)
 	RenewLease(ctx context.Context, runID, owner, claimToken string, leaseUntil time.Time) error
+	RequestRunCancel(ctx context.Context, runID, reason string) (RunForCancel, error)
+	RunCancelRequested(ctx context.Context, runID, claimToken string) (bool, error)
 	TouchDispatched(ctx context.Context, runID string) error
 	GetLogShard(ctx context.Context, runID string) (shardID string, assigned bool, err error)
 	AssignLogShard(ctx context.Context, runID, shardID string) (assignedShardID string, err error)

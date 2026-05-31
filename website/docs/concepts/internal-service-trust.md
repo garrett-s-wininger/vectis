@@ -96,13 +96,14 @@ For outage behavior with and without registry, see [Failure Domains](./failure-d
 
 ## Remote Cancel Boundary
 
-Remote cancel uses the worker-control gRPC service:
+Remote cancel records database intent and uses the worker-control gRPC service as a fast path:
 
 1. A client calls `POST /api/v1/runs/{id}/cancel` or `vectis-cli runs cancel <run-id>`.
-2. The API checks namespace authorization and loads the running run's lease owner and cancel token from the database.
-3. The API resolves the worker-control address for the lease owner.
+2. The API checks namespace authorization and records durable cancellation intent on the running run.
+3. If the run has an active lease owner, the API resolves the worker-control address for that worker.
 4. The API sends `CancelRun` to that worker with the run ID and cancel token.
-5. The worker accepts the request only if it is currently executing that run and the token matches.
+5. The worker accepts the fast-path request only if it is currently executing that run and the token matches.
+6. If the fast path is unavailable, the worker still polls the stored cancellation intent during execution.
 
 This protects against cancelling the wrong run, but the worker-control endpoint should still be private. It is a control path, and a reachable control path is operationally sensitive even with per-run tokens.
 

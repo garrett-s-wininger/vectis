@@ -1698,6 +1698,82 @@ func TestRunsRepository_ClaimRenewAndDispatchQueries(t *testing.T) {
 	}
 }
 
+func TestRunsRepository_RequestRunCancel_SetsDurableIntent(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	runs := dal.NewSQLRepositories(db).Runs()
+	ctx := context.Background()
+
+	runID, _, err := runs.CreateRun(ctx, "job-cancel-intent", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	claimed, token, err := runs.TryClaim(ctx, runID, "worker-cancel", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("try claim: %v", err)
+	}
+
+	if !claimed || token == "" {
+		t.Fatalf("expected claim token, got claimed=%v token=%q", claimed, token)
+	}
+
+	rec, err := runs.RequestRunCancel(ctx, runID, dal.CancelReasonAPI)
+	if err != nil {
+		t.Fatalf("request run cancel: %v", err)
+	}
+
+	if rec.Status != dal.RunStatusRunning {
+		t.Fatalf("expected running status, got %q", rec.Status)
+	}
+
+	if rec.LeaseOwner != "worker-cancel" {
+		t.Fatalf("expected lease owner worker-cancel, got %q", rec.LeaseOwner)
+	}
+
+	if rec.CancelToken != token {
+		t.Fatalf("cancel token should match worker claim token, got cancel=%q claim=%q", rec.CancelToken, token)
+	}
+
+	if rec.CancelRequestedAt == nil || *rec.CancelRequestedAt <= 0 {
+		t.Fatalf("expected cancel_requested_at to be set, got %v", rec.CancelRequestedAt)
+	}
+	if rec.CancelReason != dal.CancelReasonAPI {
+
+		t.Fatalf("expected cancel reason %q, got %q", dal.CancelReasonAPI, rec.CancelReason)
+	}
+
+	requested, err := runs.RunCancelRequested(ctx, runID, token)
+	if err != nil {
+		t.Fatalf("run cancel requested: %v", err)
+	}
+
+	if !requested {
+		t.Fatal("expected cancel request to be visible to active claim")
+	}
+
+	requested, err = runs.RunCancelRequested(ctx, runID, "stale-token")
+	if err != nil {
+		t.Fatalf("run cancel requested with stale token: %v", err)
+	}
+
+	if requested {
+		t.Fatal("expected stale token not to see cancel request")
+	}
+
+	if err := runs.MarkRunAborted(ctx, runID, token, dal.CancelReasonAPI); err != nil {
+		t.Fatalf("mark run aborted: %v", err)
+	}
+
+	requested, err = runs.RunCancelRequested(ctx, runID, token)
+	if err != nil {
+		t.Fatalf("run cancel requested after terminal transition: %v", err)
+	}
+
+	if requested {
+		t.Fatal("expected terminal transition to clear cancel request")
+	}
+}
+
 func TestRunsRepository_LogShardAssignment(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	runs := dal.NewSQLRepositories(db).Runs()
@@ -2046,6 +2122,7 @@ func TestRunsRepository_MarkRunAborted_SetsCancelledTerminalState(t *testing.T) 
 	if err != nil {
 		t.Fatalf("try claim: %v", err)
 	}
+
 	if !claimed || token == "" {
 		t.Fatalf("expected claim token, got claimed=%v token=%q", claimed, token)
 	}
@@ -2060,12 +2137,15 @@ func TestRunsRepository_MarkRunAborted_SetsCancelledTerminalState(t *testing.T) 
 	var finishedAt sql.NullString
 	var claimToken sql.NullString
 	var cancelToken sql.NullString
+	var cancelRequestedAt sql.NullInt64
+	var cancelReason sql.NullString
 	var leaseOwner sql.NullString
 	var leaseUntil sql.NullInt64
+
 	if err := db.QueryRowContext(ctx, `
-		SELECT status, failure_code, failure_reason, CAST(finished_at AS TEXT), claim_token, cancel_token, lease_owner, lease_until
+		SELECT status, failure_code, failure_reason, CAST(finished_at AS TEXT), claim_token, cancel_token, cancel_requested_at, cancel_reason, lease_owner, lease_until
 		FROM job_runs WHERE run_id = ?
-	`, runID).Scan(&status, &failureCode, &failure, &finishedAt, &claimToken, &cancelToken, &leaseOwner, &leaseUntil); err != nil {
+	`, runID).Scan(&status, &failureCode, &failure, &finishedAt, &claimToken, &cancelToken, &cancelRequestedAt, &cancelReason, &leaseOwner, &leaseUntil); err != nil {
 		t.Fatalf("query aborted run: %v", err)
 	}
 
@@ -2085,8 +2165,9 @@ func TestRunsRepository_MarkRunAborted_SetsCancelledTerminalState(t *testing.T) 
 		t.Fatal("expected finished_at to be set")
 	}
 
-	if claimToken.Valid || cancelToken.Valid || leaseOwner.Valid || leaseUntil.Valid {
-		t.Fatalf("expected abort to clear runtime fields; got claim=%v cancel=%v owner=%v lease_until=%v", claimToken, cancelToken, leaseOwner, leaseUntil)
+	if claimToken.Valid || cancelToken.Valid || cancelRequestedAt.Valid || cancelReason.Valid || leaseOwner.Valid || leaseUntil.Valid {
+		t.Fatalf("expected abort to clear runtime fields; got claim=%v cancel=%v cancel_at=%v cancel_reason=%v owner=%v lease_until=%v",
+			claimToken, cancelToken, cancelRequestedAt, cancelReason, leaseOwner, leaseUntil)
 	}
 
 	if err := runs.RequeueRunForRetry(ctx, runID); err != nil {

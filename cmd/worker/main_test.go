@@ -1132,6 +1132,105 @@ func TestWorkerRunClaimedJob_RemoteCancel_MarksRunAborted(t *testing.T) {
 	}
 }
 
+func TestWorkerRunClaimedJob_DurableCancel_MarksRunAborted(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositories(db)
+	runs := repos.Runs()
+
+	runID, _, err := runs.CreateRun(ctx, "job-worker-durable-cancel", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	w := &worker{
+		ctx:                context.Background(),
+		runCtx:             context.Background(),
+		logger:             interfaces.NewLogger("worker-test"),
+		workerID:           "worker-durable-cancel",
+		clock:              interfaces.SystemClock{},
+		renewInterval:      time.Hour,
+		cancelPollInterval: 10 * time.Millisecond,
+		queue:              mocks.NewMockQueueClient(),
+		logClient:          mocks.NewMockLogClient(),
+		executor:           job.NewExecutor(),
+		store:              runs,
+		cancelCh:           make(chan string, 1),
+	}
+
+	jobID := "job-worker-durable-cancel"
+	deliveryID := "delivery-durable-cancel"
+	commandNodeID := "node-1"
+	command := "exec sleep 5"
+	action := "builtins/shell"
+	root := &api.Node{
+		Id:   &commandNodeID,
+		Uses: &action,
+		With: map[string]string{"command": command},
+	}
+
+	j := &api.Job{
+		Id:         &jobID,
+		RunId:      &runID,
+		DeliveryId: &deliveryID,
+		Root:       root,
+	}
+
+	outcomeCh := make(chan string, 1)
+	go func() {
+		outcomeCh <- w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	var claimToken string
+	for {
+		currentRunID, currentClaimToken := w.getCurrentRunInfo()
+		if currentRunID == runID {
+			claimToken = currentClaimToken
+			break
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for worker to start cancellable run")
+		}
+
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	if _, err := runs.RequestRunCancel(ctx, runID, dal.CancelReasonAPI); err != nil {
+		t.Fatalf("request durable cancel: %v", err)
+	}
+
+	var outcome string
+	select {
+	case outcome = <-outcomeCh:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for durable-canceled run to finish")
+	}
+
+	if outcome != "aborted" {
+		t.Fatalf("expected worker outcome aborted, got %q", outcome)
+	}
+
+	requested, err := runs.RunCancelRequested(ctx, runID, claimToken)
+	if err != nil {
+		t.Fatalf("run cancel requested after abort: %v", err)
+	}
+
+	if requested {
+		t.Fatal("expected terminal transition to clear durable cancel request")
+	}
+
+	var statusVal string
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&statusVal); err != nil {
+		t.Fatalf("query durable-canceled run: %v", err)
+	}
+
+	if statusVal != dal.RunStatusCancelled {
+		t.Fatalf("expected cancelled status, got %q", statusVal)
+	}
+}
+
 func TestHandleDequeueError_ContextCanceledStops(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())

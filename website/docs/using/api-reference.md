@@ -292,7 +292,7 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | GET | `/api/v1/runs/{id}` | Get one run, including audit metadata and dispatch events | `run:read` | general | `200` JSON run |
 | GET | `/api/v1/runs/{id}/execution-payload` | Get the frozen execution payload for one run | `run:operator` | general | `200` JSON payload |
 | POST | `/api/v1/runs/{id}/replay` | Create a new run from the source run's captured definition version, optionally targeting `cell_id` | `run:operator` | general | `202` JSON run |
-| POST | `/api/v1/runs/{id}/cancel` | Request cancellation through worker control | `run:operator` | general | `202` JSON result |
+| POST | `/api/v1/runs/{id}/cancel` | Record durable cancellation intent, with worker-control fast path when reachable | `run:operator` | general | `204` empty or `202` JSON pending result |
 | POST | `/api/v1/runs/{id}/repair/mark-succeeded` | Resolve an orphaned run as succeeded | `run:operator` | general | `204` empty |
 | POST | `/api/v1/runs/{id}/repair/mark-failed` | Resolve an orphaned run as failed | `run:operator` | general | `204` empty |
 | POST | `/api/v1/runs/{id}/repair/mark-cancelled` | Resolve an orphaned run as cancelled | `run:operator` | general | `204` empty |

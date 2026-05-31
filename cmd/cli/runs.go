@@ -344,7 +344,7 @@ func cancelRun(runID string, w io.Writer) error {
 	defer resp.Body.Close()
 
 	switch resp.StatusCode {
-	case http.StatusNoContent:
+	case http.StatusNoContent, http.StatusAccepted:
 		if outputIsJSON() {
 			return writeJSON(w, map[string]string{"status": "cancel_requested", "run_id": runID})
 		}

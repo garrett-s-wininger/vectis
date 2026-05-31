@@ -50,6 +50,7 @@ const (
 	finalizeMaxAttempts = 4
 	finalizeBackoffBase = 150 * time.Millisecond
 	finalizeBackoffMax  = 2 * time.Second
+	cancelPollInterval  = 5 * time.Second
 )
 
 var errRunCancelled = errors.New("run cancelled")
@@ -286,6 +287,7 @@ type worker struct {
 	cellID             string
 	clock              interfaces.Clock
 	renewInterval      time.Duration
+	cancelPollInterval time.Duration
 	queue              interfaces.QueueClient
 	logClient          interfaces.LogClient
 	executor           *job.Executor
@@ -943,8 +945,9 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, claimToken 
 	defer execCancel()
 	cancelled := make(chan struct{})
 	var cancelOnce sync.Once
-	cancelRun := func() {
+	cancelRun := func(source string) {
 		cancelOnce.Do(func() {
+			w.logger.Info("Cancelling run %s via %s", runID, source)
 			close(cancelled)
 			execCancel()
 		})
@@ -968,8 +971,7 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, claimToken 
 			select {
 			case cancelledRunID := <-w.cancelCh:
 				if cancelledRunID == runID {
-					w.logger.Info("Cancelling run %s via remote request", runID)
-					cancelRun()
+					cancelRun("remote request")
 				}
 			case <-stopCancel:
 				return
@@ -978,6 +980,10 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, claimToken 
 			}
 		}
 	}()
+
+	if w.store != nil {
+		go w.cancelRequestLoop(execCtx, runID, claimToken, stopCancel, cancelRun)
+	}
 
 	err := w.executor.ExecuteJob(execCtx, job, w.logClient, w.logger)
 	close(stopRenew)
@@ -993,6 +999,49 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, claimToken 
 	}
 
 	return err
+}
+
+func (w *worker) cancelRequestLoop(
+	execCtx context.Context,
+	runID string,
+	claimToken string,
+	stopCancel <-chan struct{},
+	cancelRun func(string),
+) {
+	interval := w.cancelPollInterval
+	if interval <= 0 {
+		interval = cancelPollInterval
+	}
+
+	check := func() {
+		requested, err := w.store.RunCancelRequested(w.runCtx, runID, claimToken)
+		if err != nil {
+			w.noteDBError(err)
+			w.logger.Warn("Run %s: cancel request poll failed (will retry): %v", runID, err)
+			return
+		}
+		w.noteDBRecovered()
+
+		if requested {
+			cancelRun("durable request")
+		}
+	}
+
+	check()
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-stopCancel:
+			return
+		case <-execCtx.Done():
+			return
+		case <-ticker.C:
+			check()
+		}
+	}
 }
 
 func (w *worker) leaseRenewalLoop(

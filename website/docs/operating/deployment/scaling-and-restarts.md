@@ -50,7 +50,7 @@ When adding workers, check:
 | Queue throughput | More workers increase dequeue, ack, and redelivery pressure. |
 | Log service capacity | Every running job streams logs before and during execution. Add log shards when a single shard's ingest, replay, or disk pressure becomes the limit. |
 | Workload isolation | Shell and checkout actions consume host/container CPU, memory, disk, and network. |
-| Worker-control reachability | Remote cancel depends on resolving the assigned worker's control address. |
+| Worker-control reachability | Remote cancel uses worker-control as a fast path; durable cancel intent is still stored in the database and polled by the assigned worker. |
 
 Each worker runs one job at a time today. To increase parallel job throughput, add workers rather than expecting one worker to run multiple jobs concurrently.
 

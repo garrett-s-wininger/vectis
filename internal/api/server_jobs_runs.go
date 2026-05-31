@@ -544,10 +544,15 @@ func (s *APIServer) CancelRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rec, err := s.runs.GetRunForCancel(ctx, runID)
+	rec, err := s.runs.RequestRunCancel(ctx, runID, dal.CancelReasonAPI)
 	if err != nil {
 		if dal.IsNotFound(err) {
 			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+			return
+		}
+
+		if dal.IsConflict(err) {
+			writeAPIError(w, http.StatusConflict, "run_not_executing", "run is not executing", map[string]any{"status": rec.Status})
 			return
 		}
 
@@ -561,46 +566,42 @@ func (s *APIServer) CancelRun(w http.ResponseWriter, r *http.Request) {
 	}
 	s.markDBRecovered()
 
-	if rec.Status != "running" {
-		writeAPIError(w, http.StatusConflict, "run_not_executing", "run is not executing", map[string]any{"status": rec.Status})
-		return
-	}
-
-	if rec.LeaseOwner == "" {
-		writeAPIError(w, http.StatusConflict, "run_worker_missing", "run has no assigned worker", nil)
-		return
-	}
-
-	if s.ResolveWorkerAddress == nil {
-		writeAPIError(w, http.StatusServiceUnavailable, "worker_resolution_unavailable", "worker resolution not configured", nil)
-		return
-	}
-
-	workerAddr, err := s.ResolveWorkerAddress(ctx, rec.LeaseOwner)
-	if err != nil {
-		s.logger.Error("Failed to resolve worker %s for run %s: %v", rec.LeaseOwner, runID, err)
-		writeAPIError(w, http.StatusBadGateway, "worker_not_reachable", "worker not reachable", nil)
-		return
-	}
-
-	if err := s.sendCancelToWorker(ctx, workerAddr, runID, rec.CancelToken); err != nil {
-		s.logger.Error("Failed to send cancel to worker %s for run %s: %v", rec.LeaseOwner, runID, err)
-		writeAPIError(w, http.StatusBadGateway, "worker_cancel_failed", "failed to send cancel to worker", nil)
-		return
-	}
-
 	actorID := int64(0)
 	if p != nil {
 		actorID = p.LocalUserID
 	}
 
+	if rec.LeaseOwner != "" && rec.CancelToken != "" && s.ResolveWorkerAddress != nil {
+		workerAddr, err := s.ResolveWorkerAddress(ctx, rec.LeaseOwner)
+		if err != nil {
+			s.logger.Warn("Cancel request stored for run %s but worker %s could not be resolved: %v", runID, rec.LeaseOwner, err)
+		} else if err := s.sendCancelToWorker(ctx, workerAddr, runID, rec.CancelToken); err != nil {
+			s.logger.Warn("Cancel request stored for run %s but worker %s did not accept fast-path cancel: %v", runID, rec.LeaseOwner, err)
+		} else {
+			s.auditLog(ctx, audit.EventRunCancelled, actorID, 0, map[string]any{
+				"run_id":    runID,
+				"namespace": nsPath,
+				"delivery":  "worker_control",
+			})
+
+			s.logger.Info("Cancellation request sent to worker: %s", runID)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+	}
+
 	s.auditLog(ctx, audit.EventRunCancelled, actorID, 0, map[string]any{
 		"run_id":    runID,
 		"namespace": nsPath,
+		"delivery":  "pending",
 	})
 
-	s.logger.Info("Cancelation request sent to worker: %s", runID)
-	w.WriteHeader(http.StatusNoContent)
+	s.logger.Info("Cancellation request stored for run: %s", runID)
+	writeJSON(w, http.StatusAccepted, map[string]string{
+		"status":   "cancel_requested",
+		"run_id":   runID,
+		"delivery": "pending",
+	})
 }
 
 const workerCancelRPCTimeout = 10 * time.Second

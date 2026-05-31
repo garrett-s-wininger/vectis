@@ -215,6 +215,8 @@ type MockRunsRepository struct {
 	QueuedListErr          error
 	TryClaimErr            error
 	RenewLeaseErr          error
+	RequestCancelErr       error
+	CancelRequestedErr     error
 	MarkRunRunningErr      error
 	MarkRunSuccessErr      error
 	MarkRunFailedErr       error
@@ -238,13 +240,14 @@ type MockRunsRepository struct {
 	CountStuckResult          int64
 	CountStuckByCell          []dal.RunCountByCell
 
-	TryClaimResult bool
-	ClaimToken     string
-	RunStatus      string
-	RunStatusFound bool
-	OrphanedRunIDs []string
-	LogShardID     string
-	LogShardSet    bool
+	TryClaimResult  bool
+	ClaimToken      string
+	RunStatus       string
+	RunStatusFound  bool
+	CancelRequested bool
+	OrphanedRunIDs  []string
+	LogShardID      string
+	LogShardSet     bool
 
 	ListByJobResults []dal.RunRecord
 	RunRecords       map[string]dal.RunRecord
@@ -389,6 +392,32 @@ func (m *MockRunsRepository) TryClaim(ctx context.Context, runID, owner string, 
 
 func (m *MockRunsRepository) RenewLease(ctx context.Context, runID, owner, claimToken string, leaseUntil time.Time) error {
 	return m.RenewLeaseErr
+}
+
+func (m *MockRunsRepository) RequestRunCancel(ctx context.Context, runID, reason string) (dal.RunForCancel, error) {
+	if m.RequestCancelErr != nil {
+		return dal.RunForCancel{RunID: runID, Status: m.RunStatus}, m.RequestCancelErr
+	}
+
+	status := m.RunStatus
+	if status == "" {
+		status = dal.RunStatusRunning
+	}
+
+	return dal.RunForCancel{
+		RunID:       runID,
+		Status:      status,
+		LeaseOwner:  "mock-worker",
+		CancelToken: "mock-cancel-token",
+	}, nil
+}
+
+func (m *MockRunsRepository) RunCancelRequested(ctx context.Context, runID, claimToken string) (bool, error) {
+	if m.CancelRequestedErr != nil {
+		return false, m.CancelRequestedErr
+	}
+
+	return m.CancelRequested, nil
 }
 
 func (m *MockRunsRepository) TouchDispatched(ctx context.Context, runID string) error {

@@ -2559,9 +2559,29 @@ func TestAPIServer_CancelRun_ResolverUsesRequestBoundContext(t *testing.T) {
 
 	server.CancelRun(rec, req)
 
-	assertAPIError(t, rec, http.StatusBadGateway, "worker_not_reachable")
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected durable cancel acceptance, got status=%d body=%s", rec.Code, rec.Body.String())
+	}
 	if !sawDeadline {
 		t.Fatal("expected resolver to receive request-bound context with deadline")
+	}
+
+	var cancelRequestedAt sql.NullInt64
+	var cancelReason sql.NullString
+	if err := db.QueryRowContext(ctx, `
+		SELECT cancel_requested_at, cancel_reason
+		FROM job_runs
+		WHERE run_id = ?
+	`, runID).Scan(&cancelRequestedAt, &cancelReason); err != nil {
+		t.Fatalf("query cancel request: %v", err)
+	}
+
+	if !cancelRequestedAt.Valid || cancelRequestedAt.Int64 <= 0 {
+		t.Fatalf("expected durable cancel timestamp, got %v", cancelRequestedAt)
+	}
+
+	if !cancelReason.Valid || cancelReason.String != dal.CancelReasonAPI {
+		t.Fatalf("expected cancel reason %q, got %v", dal.CancelReasonAPI, cancelReason)
 	}
 }
 

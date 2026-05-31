@@ -1366,6 +1366,21 @@ func TestCancelRun_success(t *testing.T) {
 	}
 }
 
+func TestCancelRun_acceptedPending(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+	})
+
+	var buf bytes.Buffer
+	if err := cancelRun("run-1", &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := buf.String(); !strings.Contains(got, "Run run-1 cancel requested.") {
+		t.Fatalf("unexpected output: %s", got)
+	}
+}
+
 func TestCancelRun_conflict(t *testing.T) {
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusConflict)

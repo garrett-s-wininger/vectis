@@ -154,9 +154,9 @@ Workers execute jobs and coordinate ownership through database leases.
 | `SIGINT` or `SIGTERM` | Worker stops dequeuing new work and tries to let the current job finish and finalize state. |
 | `SIGKILL` or crash | No graceful drain. Leases, queue delivery timeouts, and reconciler behavior determine whether work is retried or stuck. |
 | Database loss mid-run | Lease renewal and final status updates can fail. A long outage can strand or fail runs until recovery or operator action. |
-| Remote cancel | `POST /api/v1/runs/{id}/cancel` and `vectis-cli runs cancel <run-id>` can request cancellation of a currently running run. The API resolves the lease owner to the worker-control endpoint, sends the run's cancel token over gRPC, and the worker cancels the execution context. |
+| Remote cancel | `POST /api/v1/runs/{id}/cancel` and `vectis-cli runs cancel <run-id>` record durable cancellation intent on the running run. If worker control is reachable, the API also sends the run's cancel token over gRPC as a fast path; otherwise the worker observes the stored intent while polling during execution. |
 
-Scale workers by running more worker processes. Remote cancel is available for executing runs when worker resolution is configured and the assigned worker is reachable. It is best-effort at the action boundary: actions that honor context cancellation should stop promptly, while external child processes or blocking operations may need their own cleanup behavior.
+Scale workers by running more worker processes. Cancellation is durable once the API commits the request to the database, while worker-control reachability determines only how quickly the assigned worker hears about it. It is best-effort at the action boundary: actions that honor context cancellation should stop promptly, while external child processes or blocking operations may need their own cleanup behavior.
 
 ## Cron Down
 
