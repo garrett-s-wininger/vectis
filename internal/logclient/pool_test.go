@@ -214,6 +214,53 @@ func TestLogPoolStreamsAssignedRunToShard(t *testing.T) {
 	}
 }
 
+func TestRoutingLogStreamUsesChunkAssignedShard(t *testing.T) {
+	a := &recordingLogClient{endpointID: "log-a"}
+	b := &recordingLogClient{endpointID: "log-b"}
+	metrics := &recordingRoutingMetrics{}
+	p := &logPool{
+		logger: mocks.NopLogger{},
+		opts:   PoolOptions{Metrics: metrics},
+		active: []*logEndpoint{
+			{id: a.endpointID, writer: a, writable: true},
+			{id: b.endpointID, writer: b, writable: true},
+		},
+	}
+
+	runID := "run-assigned"
+	assignedShardID := b.endpointID
+	stream, err := p.streamLogs(context.Background())
+	if err != nil {
+		t.Fatalf("stream logs: %v", err)
+	}
+
+	if err := stream.Send(&api.LogChunk{RunId: &runID, LogShardId: &assignedShardID}); err != nil {
+		t.Fatalf("send assigned chunk: %v", err)
+	}
+
+	if len(b.chunks) != 1 {
+		t.Fatalf("expected assigned shard to receive chunk, got %d", len(b.chunks))
+	}
+
+	if len(a.chunks) != 0 {
+		t.Fatalf("expected unassigned shard to receive no chunks, got %d", len(a.chunks))
+	}
+
+	otherShardID := a.endpointID
+	if err := stream.Send(&api.LogChunk{RunId: &runID, LogShardId: &otherShardID}); err == nil {
+		t.Fatal("expected mixed assigned-shard stream to be rejected")
+	}
+
+	if len(metrics.failures) != 1 {
+		t.Fatalf("failure metrics = %v, want one failure", metrics.failures)
+	}
+
+	got := metrics.failures[0]
+	if got.operation != ShardRouteOperationAssignedWrite || got.reason != ShardRouteFailureShardMismatch {
+		t.Fatalf("failure metric = %+v, want %s/%s", got, ShardRouteOperationAssignedWrite, ShardRouteFailureShardMismatch)
+	}
+}
+
 func TestLogPoolRecordsAssignedShardUnavailable(t *testing.T) {
 	writable := &recordingLogClient{endpointID: "log-writable"}
 	assignments := &memoryAssignmentStore{shardID: "log-missing", set: true}

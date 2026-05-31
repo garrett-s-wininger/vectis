@@ -6,6 +6,7 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/interfaces/mocks"
+	"vectis/internal/registry"
 )
 
 func completedLogEntry(ts time.Time, seq int64) LogEntry {
@@ -24,6 +25,22 @@ func stdoutLogEntry(ts time.Time, seq int64) LogEntry {
 		Sequence:  seq,
 		Data:      "line",
 	}
+}
+
+type logMetadataStore struct {
+	writable bool
+}
+
+func (s logMetadataStore) Append(string, LogEntry) error {
+	return nil
+}
+
+func (s logMetadataStore) List(string) ([]LogEntry, error) {
+	return nil, nil
+}
+
+func (s logMetadataStore) NewRunWritable() bool {
+	return s.writable
 }
 
 func TestServer_EvictsOldestTerminalBufferOverLimit(t *testing.T) {
@@ -110,6 +127,24 @@ func TestIsCompletedEvent(t *testing.T) {
 	entry.Data = `{"event":"start"}`
 	if isCompletedEvent(entry) {
 		t.Fatal("non-completed control event should not be completed")
+	}
+}
+
+func TestLogServiceMetadataReportsWritableState(t *testing.T) {
+	got := logServiceMetadata(logMetadataStore{writable: true})
+	if got[registry.MetadataLogWriteState] != registry.LogWriteStateWritable {
+		t.Fatalf("expected writable metadata, got %+v", got)
+	}
+
+	if got[registry.MetadataCellID] != registry.DefaultCellID {
+		t.Fatalf("expected default cell metadata, got %+v", got)
+	}
+}
+
+func TestLogServiceMetadataReportsReadOnlyState(t *testing.T) {
+	got := logServiceMetadata(logMetadataStore{writable: false})
+	if got[registry.MetadataLogWriteState] != registry.LogWriteStateReadOnly {
+		t.Fatalf("expected read-only metadata, got %+v", got)
 	}
 }
 
