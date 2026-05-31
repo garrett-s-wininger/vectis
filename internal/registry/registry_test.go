@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -290,6 +291,115 @@ func TestStartInstanceRegistrationHeartbeat(t *testing.T) {
 
 	if got != "10.0.0.1:50051" {
 		t.Fatalf("expected 10.0.0.1:50051 after heartbeat, got %s", got)
+	}
+}
+
+func TestRegisterWithHeartbeatUsesSponsorPrimaryOnly(t *testing.T) {
+	addr1, _ := setupTestRegistry(t)
+	addr2, _ := setupTestRegistry(t)
+
+	component := api.Component_COMPONENT_QUEUE
+	instanceID := "queue-1"
+	publishAddress := "queue-1:8081"
+	metadata := QueueIngressMetadata()
+	ordered := splitRegistryAddresses(sponsorOrderedRegistryAddress(addr1+","+addr2, component, instanceID, publishAddress))
+	if len(ordered) != 2 {
+		t.Fatalf("expected two ordered registry addresses, got %+v", ordered)
+	}
+
+	logger := mocks.NewMockLogger()
+	stop, err := RegisterWithHeartbeat(context.Background(), RegistrationOptions{
+		RegistryAddress: addr1 + "," + addr2,
+		Component:       component,
+		InstanceID:      instanceID,
+		PublishAddress:  publishAddress,
+		Metadata:        metadata,
+		RefreshInterval: time.Hour,
+		Logger:          logger,
+		Clock:           mocks.NewMockClock(),
+	})
+
+	if err != nil {
+		t.Fatalf("register with heartbeat: %v", err)
+	}
+	defer stop()
+
+	waitForRegistryRegistration(t, ordered[0], component, metadata, instanceID, publishAddress)
+	assertRegistryRegistrationAbsent(t, ordered[1], component, metadata, instanceID, publishAddress)
+}
+
+func TestRegisterWithHeartbeatSucceedsWhenARegistryTargetFails(t *testing.T) {
+	liveAddr, _ := setupTestRegistry(t)
+
+	logger := mocks.NewMockLogger()
+	stop, err := RegisterWithHeartbeat(context.Background(), RegistrationOptions{
+		RegistryAddress: "127.0.0.1:1," + liveAddr,
+		Component:       api.Component_COMPONENT_LOG,
+		InstanceID:      "log-1",
+		PublishAddress:  "log-1:8083",
+		Metadata:        DefaultServiceMetadata(),
+		RefreshInterval: time.Hour,
+		Logger:          logger,
+		Clock:           mocks.NewMockClock(),
+	})
+	if err != nil {
+		t.Fatalf("register with heartbeat: %v", err)
+	}
+	defer stop()
+
+	waitForRegistryRegistration(t, liveAddr, api.Component_COMPONENT_LOG, DefaultServiceMetadata(), "log-1", "log-1:8083")
+}
+
+func TestRegisterWithDynamicMetadataHeartbeatRefreshesMetadata(t *testing.T) {
+	addr, _ := setupTestRegistry(t)
+
+	var state atomic.Value
+	state.Store(LogWriteStateWritable)
+
+	metadata := func() map[string]string {
+		m := DefaultServiceMetadata()
+		m[MetadataLogWriteState] = state.Load().(string)
+		return m
+	}
+
+	logger := mocks.NewMockLogger()
+	stop, err := RegisterWithDynamicMetadataHeartbeat(context.Background(), RegistrationOptions{
+		RegistryAddress: addr,
+		Component:       api.Component_COMPONENT_LOG,
+		InstanceID:      "log-1",
+		PublishAddress:  "log-1:8083",
+		RefreshInterval: 20 * time.Millisecond,
+		Logger:          logger,
+		Clock:           mocks.NewMockClock(),
+	}, metadata)
+	if err != nil {
+		t.Fatalf("register with heartbeat: %v", err)
+	}
+	defer stop()
+
+	waitForRegistryRegistration(t, addr, api.Component_COMPONENT_LOG, map[string]string{MetadataLogWriteState: LogWriteStateWritable}, "log-1", "log-1:8083")
+
+	state.Store(LogWriteStateReadOnly)
+	waitForRegistryRegistration(t, addr, api.Component_COMPONENT_LOG, map[string]string{MetadataLogWriteState: LogWriteStateReadOnly}, "log-1", "log-1:8083")
+}
+
+func assertRegistryRegistrationAbsent(t *testing.T, registryAddr string, component api.Component, metadata map[string]string, wantInstanceID, wantAddress string) {
+	t.Helper()
+
+	client := newRegistryTestClient(t, registryAddr)
+	defer client.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	got, err := client.ListRegistrations(ctx, component, metadata)
+	cancel()
+	if err != nil {
+		t.Fatalf("list registrations from %s: %v", registryAddr, err)
+	}
+
+	for _, entry := range got {
+		if entry.GetInstanceId() == wantInstanceID && entry.GetAddress() == wantAddress {
+			t.Fatalf("registry %s unexpectedly listed %s/%q at %q", registryAddr, component.String(), wantInstanceID, wantAddress)
+		}
 	}
 }
 

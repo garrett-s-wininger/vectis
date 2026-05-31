@@ -214,6 +214,8 @@ Registration toggles:
 | `VECTIS_LOG_LOG_GRPC_REGISTER_WITH_REGISTRY` | Log service publishes its gRPC address to registry when enabled. |
 | `VECTIS_WORKER_WORKER_REGISTER_WITH_REGISTRY` | Worker publishes its worker-control address to registry when enabled. |
 
+Registry address settings may contain multiple comma-separated or space-separated registry addresses. Discovery clients fail over between configured targets. Registering services prefer a stable sponsor from that address set and fail over to another target on errors; they do not write every heartbeat to every registry node. For multi-node registry HA, the registry nodes still need deliberate static cluster membership and gossip configuration; otherwise they are independent registries with failover from the client's point of view but no converged shared state.
+
 When registry discovery is used, multiple `vectis-queue` instances may register as a pool. Each queue needs one stable `VECTIS_QUEUE_INSTANCE_ID` / `--instance-id`; if it is omitted, `vectis-queue` derives a stable ID from the system hostname and queue port. Producers choose among discovered queue shards; workers ack back to the shard encoded in the delivery ID.
 
 `VECTIS_QUEUE_POOL` / `--pool` names the local queue pool used when deriving the default persistence path. If `VECTIS_QUEUE_PERSISTENCE_DIR` / `--persistence-dir` is omitted, the queue uses `$XDG_DATA_HOME/vectis/queue/<pool>/<instance-id>`. Set a persistence directory explicitly only when you want to pin storage layout. An explicitly empty persistence directory disables queue persistence.

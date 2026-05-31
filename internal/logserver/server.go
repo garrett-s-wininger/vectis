@@ -721,49 +721,21 @@ func RunWithOptions(ctx context.Context, logger interfaces.Logger, store RunLogS
 }
 
 func registerLogWithHeartbeat(ctx context.Context, registryAddress, instanceID, publishAddress string, store RunLogStore, logger interfaces.Logger) (func(), error) {
-	registryClient, err := registry.New(ctx, registryAddress, logger, interfaces.SystemClock{}, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	registerOnce := func(ctx context.Context) error {
-		return registryClient.RegisterInstanceWithMetadata(ctx, api.Component_COMPONENT_LOG, instanceID, publishAddress, logServiceMetadata(store))
-	}
-
-	if err := registerOnce(ctx); err != nil {
-		_ = registryClient.Close()
-		return nil, err
-	}
-
 	interval := config.RegistryRegistrationRefresh()
 	if interval <= 0 {
 		interval = 45 * time.Second
 	}
 
-	loopCtx, cancel := context.WithCancel(ctx)
-	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-loopCtx.Done():
-				return
-			case <-ticker.C:
-			}
-
-			hbCtx, hbCancel := context.WithTimeout(loopCtx, 30*time.Second)
-			if err := registerOnce(hbCtx); err != nil {
-				logger.Debug("Registry registration heartbeat failed for log service: %v", err)
-			}
-			hbCancel()
-		}
-	}()
-
-	return func() {
-		cancel()
-		_ = registryClient.Close()
-	}, nil
+	return registry.RegisterWithDynamicMetadataHeartbeat(ctx, registry.RegistrationOptions{
+		RegistryAddress: registryAddress,
+		Component:       api.Component_COMPONENT_LOG,
+		InstanceID:      instanceID,
+		PublishAddress:  publishAddress,
+		RefreshInterval: interval,
+		Logger:          logger,
+	}, func() map[string]string {
+		return logServiceMetadata(store)
+	})
 }
 
 func logServiceMetadata(store RunLogStore) map[string]string {

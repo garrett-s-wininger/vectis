@@ -123,11 +123,11 @@ The registry matters when services use discovery instead of fixed addresses.
 
 | Component | Behavior |
 | --- | --- |
-| API, cron, reconciler | Usually cannot start if they need the registry to resolve the queue. |
-| Worker | Usually cannot start if it needs the registry to resolve queue or log addresses. |
-| Queue and log | Startup fails when they are configured to register and the registry is unavailable. |
+| API, cron, reconciler | Usually cannot start if they need the registry to resolve the queue and all configured registry addresses are unavailable. |
+| Worker | Usually cannot start if it needs the registry to resolve queue or log addresses and all configured registry addresses are unavailable. |
+| Queue and log | Startup fails when they are configured to register and no configured registry address accepts the registration. |
 
-Pin queue and log addresses when you want fewer startup dependencies. Keep the registry private when discovery is enabled.
+When multiple registry addresses are configured, discovery clients fail over between them and registering services publish heartbeats to one active target at a time. Pin queue and log addresses when you want fewer startup dependencies. Keep the registry private when discovery is enabled.
 
 ## API Down {#vectis-api}
 
