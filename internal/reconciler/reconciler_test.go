@@ -19,12 +19,12 @@ func TestService_Process_ReenqueuesQueuedRun(t *testing.T) {
 	ctx := context.Background()
 
 	jobDef := `{"id":"job-a","root":{"uses":"builtins/shell","with":{"command":"echo x"}}}`
-	_, err := db.ExecContext(ctx, `INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)`, "job-a", jobDef)
-	if err != nil {
+	repos := dal.NewSQLRepositories(db)
+	if err := repos.Jobs().Create(ctx, "job-a", jobDef, 1); err != nil {
 		t.Fatalf("insert stored job: %v", err)
 	}
 
-	runs := dal.NewSQLRepositories(db).Runs()
+	runs := repos.Runs()
 	runID, _, err := runs.CreateRun(ctx, "job-a", nil, 1)
 	if err != nil {
 		t.Fatalf("CreateRun: %v", err)
@@ -154,12 +154,12 @@ func TestService_Process_SkipsRecentDispatch(t *testing.T) {
 	ctx := context.Background()
 
 	jobDef := `{"id":"job-b","root":{"uses":"builtins/shell"}}`
-	_, err := db.ExecContext(ctx, `INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)`, "job-b", jobDef)
-	if err != nil {
+	repos := dal.NewSQLRepositories(db)
+	if err := repos.Jobs().Create(ctx, "job-b", jobDef, 1); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
 
-	runs := dal.NewSQLRepositories(db).Runs()
+	runs := repos.Runs()
 	runID, _, err := runs.CreateRun(ctx, "job-b", nil, 1)
 	if err != nil {
 		t.Fatalf("CreateRun: %v", err)
@@ -226,11 +226,11 @@ func TestService_Process_DBUnavailable_SkipsUntilRecovered(t *testing.T) {
 	ctx := context.Background()
 
 	jobDef := `{"id":"job-db-down","root":{"uses":"builtins/shell","with":{"command":"echo x"}}}`
-	if _, err := db.ExecContext(ctx, `INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)`, "job-db-down", jobDef); err != nil {
+	repos := dal.NewSQLRepositories(db)
+	if err := repos.Jobs().Create(ctx, "job-db-down", jobDef, 1); err != nil {
 		t.Fatalf("insert stored job: %v", err)
 	}
 
-	repos := dal.NewSQLRepositories(db)
 	if _, _, err := repos.Runs().CreateRun(ctx, "job-db-down", nil, 1); err != nil {
 		t.Fatalf("CreateRun: %v", err)
 	}

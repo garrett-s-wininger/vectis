@@ -2,12 +2,14 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"testing"
 
+	"vectis/internal/dal"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/testutil/dbtest"
 
@@ -658,9 +660,7 @@ func TestTokenScoping_endToEnd(t *testing.T) {
 	})
 
 	t.Run("propagated_token_allows_child_namespace", func(t *testing.T) {
-		// Create a job in the child namespace first
-		_, err := db.Exec("INSERT INTO stored_jobs (job_id, namespace_id, definition_json) VALUES (?, ?, ?)", "test-job", 2, "{}")
-		if err != nil {
+		if err := dal.NewSQLRepositories(db).Jobs().Create(context.Background(), "test-job", `{"id":"test-job"}`, 2); err != nil {
 			t.Fatalf("failed to create job: %v", err)
 		}
 

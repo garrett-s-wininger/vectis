@@ -22,6 +22,7 @@ func (r *SQLCellExecutionAcceptancesRepository) AcceptExecution(ctx context.Cont
 	}
 
 	acceptanceHash := cellExecutionAcceptanceHash(normalized)
+	executionPayloadHash := ExecutionPayloadHash(normalized.RequestJSON)
 	if created, err := r.acceptanceAlreadyRecorded(ctx, normalized.ExecutionID, acceptanceHash); err != nil || !created {
 		return created, err
 	}
@@ -36,7 +37,11 @@ func (r *SQLCellExecutionAcceptancesRepository) AcceptExecution(ctx context.Cont
 		return false, err
 	}
 
-	if err := ensureJobRunTx(ctx, tx, normalized); err != nil {
+	if err := ensureExecutionPayloadTx(ctx, tx, normalized, executionPayloadHash); err != nil {
+		return false, err
+	}
+
+	if err := ensureJobRunTx(ctx, tx, normalized, executionPayloadHash); err != nil {
 		return false, err
 	}
 
@@ -50,7 +55,7 @@ func (r *SQLCellExecutionAcceptancesRepository) AcceptExecution(ctx context.Cont
 
 	result, err := tx.ExecContext(ctx, rebindQueryForPgx(`
 		INSERT INTO cell_execution_acceptances
-			(execution_id, acceptance_hash, run_id, job_id, run_index, segment_id, segment_name, cell_id, attempt, definition_version, definition_hash, request_json, updated_at)
+			(execution_id, acceptance_hash, run_id, job_id, run_index, segment_id, segment_name, cell_id, attempt, definition_version, definition_hash, execution_payload_hash, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(execution_id) DO NOTHING
 	`),
@@ -65,7 +70,7 @@ func (r *SQLCellExecutionAcceptancesRepository) AcceptExecution(ctx context.Cont
 		normalized.Attempt,
 		normalized.DefinitionVersion,
 		normalized.DefinitionHash,
-		normalized.RequestJSON,
+		executionPayloadHash,
 	)
 
 	if err != nil {
@@ -154,8 +159,9 @@ func (r *SQLCellExecutionAcceptancesRepository) ListPendingQueueHandoffs(ctx con
 
 	cellID := normalizeTargetCellID("", r.cellID)
 	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
-		SELECT ca.execution_id, ca.run_id, ca.request_json, ca.enqueue_attempts
+		SELECT ca.execution_id, ca.run_id, ep.payload_json, ca.enqueue_attempts
 		FROM cell_execution_acceptances ca
+		JOIN execution_payloads ep ON ep.payload_hash = ca.execution_payload_hash
 		JOIN segment_executions se ON se.execution_id = ca.execution_id
 		WHERE ca.cell_id = ?
 			AND ca.enqueued_at IS NULL
@@ -338,6 +344,7 @@ func cellExecutionAcceptanceHash(a CellExecutionAcceptance) string {
 		fmt.Sprintf("%d", a.DefinitionVersion),
 		a.DefinitionHash,
 		a.DefinitionJSON,
+		ExecutionPayloadHash(a.RequestJSON),
 	}, "\x00")))
 
 	return hex.EncodeToString(sum[:])
@@ -345,10 +352,10 @@ func cellExecutionAcceptanceHash(a CellExecutionAcceptance) string {
 
 func ensureJobDefinitionTx(ctx context.Context, tx *sql.Tx, a CellExecutionAcceptance) error {
 	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
-		INSERT INTO job_definitions (global_id, job_id, version, definition_json, definition_hash, home_cell)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO job_definitions (global_id, job_id, version, definition_json, definition_hash)
+		VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT(job_id, version) DO NOTHING
-	`), newGlobalID(), a.JobID, a.DefinitionVersion, a.DefinitionJSON, a.DefinitionHash, a.CellID); err != nil {
+	`), newGlobalID(), a.JobID, a.DefinitionVersion, a.DefinitionJSON, a.DefinitionHash); err != nil {
 		return normalizeSQLError(err)
 	}
 
@@ -368,28 +375,70 @@ func ensureJobDefinitionTx(ctx context.Context, tx *sql.Tx, a CellExecutionAccep
 	return nil
 }
 
-func ensureJobRunTx(ctx context.Context, tx *sql.Tx, a CellExecutionAcceptance) error {
+func ensureExecutionPayloadTx(ctx context.Context, tx *sql.Tx, a CellExecutionAcceptance, executionPayloadHash string) error {
+	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		INSERT INTO execution_payloads (payload_hash, payload_json, definition_hash)
+		VALUES (?, ?, ?)
+		ON CONFLICT(payload_hash) DO NOTHING
+	`), executionPayloadHash, a.RequestJSON, a.DefinitionHash); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	var existingPayload string
+	if err := tx.QueryRowContext(ctx,
+		rebindQueryForPgx("SELECT payload_json FROM execution_payloads WHERE payload_hash = ?"),
+		executionPayloadHash,
+	).Scan(&existingPayload); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if existingPayload != a.RequestJSON {
+		return fmt.Errorf("%w: execution payload hash %s has different payload", ErrConflict, executionPayloadHash)
+	}
+
+	return nil
+}
+
+func ensureJobRunTx(ctx context.Context, tx *sql.Tx, a CellExecutionAcceptance, executionPayloadHash string) error {
 	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
 		INSERT INTO job_runs
-			(run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell)
-		VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?)
+			(run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, execution_payload_hash)
+		VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?)
 		ON CONFLICT(run_id) DO NOTHING
-	`), a.RunID, a.JobID, a.RunIndex, RunStatusQueued, a.DefinitionVersion, a.DefinitionHash, a.CellID); err != nil {
+	`), a.RunID, a.JobID, a.RunIndex, RunStatusQueued, a.DefinitionVersion, a.DefinitionHash, a.CellID, executionPayloadHash); err != nil {
 		return normalizeSQLError(err)
 	}
 
 	var jobID, definitionHash, owningCell string
+	var storedPayloadHash string
 	var runIndex, definitionVersion int
+
 	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
-		SELECT job_id, run_index, definition_version, definition_hash, owning_cell
+		SELECT job_id, run_index, definition_version, definition_hash, owning_cell, execution_payload_hash
 		FROM job_runs
 		WHERE run_id = ?
-	`), a.RunID).Scan(&jobID, &runIndex, &definitionVersion, &definitionHash, &owningCell); err != nil {
+	`), a.RunID).Scan(&jobID, &runIndex, &definitionVersion, &definitionHash, &owningCell, &storedPayloadHash); err != nil {
 		return normalizeSQLError(err)
 	}
 
 	if jobID != a.JobID || runIndex != a.RunIndex || definitionVersion != a.DefinitionVersion || definitionHash != a.DefinitionHash || owningCell != a.CellID {
 		return fmt.Errorf("%w: run %s has different accepted payload", ErrConflict, a.RunID)
+	}
+
+	if storedPayloadHash == "" {
+		if _, err := tx.ExecContext(ctx,
+			rebindQueryForPgx("UPDATE job_runs SET execution_payload_hash = ? WHERE run_id = ? AND execution_payload_hash = ''"),
+			executionPayloadHash,
+			a.RunID,
+		); err != nil {
+			return normalizeSQLError(err)
+		}
+
+		return nil
+	}
+
+	if storedPayloadHash != executionPayloadHash {
+		return fmt.Errorf("%w: run %s has different execution payload", ErrConflict, a.RunID)
 	}
 
 	return nil

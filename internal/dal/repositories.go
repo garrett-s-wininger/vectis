@@ -389,6 +389,11 @@ func DefinitionHash(definitionJSON string) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
+func ExecutionPayloadHash(payloadJSON string) string {
+	sum := sha256.Sum256([]byte(payloadJSON))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
 func newGlobalID() string {
 	return uuid.NewString()
 }
@@ -460,8 +465,8 @@ func (r *SQLRepositories) CreateDefinitionAndRunInCell(ctx context.Context, jobI
 	targetCellID = normalizeTargetCellID(targetCellID, r.cellID)
 	definitionHash := DefinitionHash(definitionJSON)
 	if _, err := tx.ExecContext(ctx,
-		rebindQueryForPgx(`INSERT INTO job_definitions (global_id, job_id, version, definition_json, definition_hash, home_cell) VALUES (?, ?, 1, ?, ?, ?)`),
-		newGlobalID(), jobID, definitionJSON, definitionHash, r.cellID,
+		rebindQueryForPgx(`INSERT INTO job_definitions (global_id, job_id, version, definition_json, definition_hash) VALUES (?, ?, 1, ?, ?)`),
+		newGlobalID(), jobID, definitionJSON, definitionHash,
 	); err != nil {
 		return "", 0, normalizeSQLError(err)
 	}

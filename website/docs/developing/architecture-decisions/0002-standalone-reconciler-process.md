@@ -19,7 +19,7 @@ The API could own all recovery through long-lived retries or background loops in
 Ship a dedicated binary, `vectis-reconciler`, that:
 
 1. On a configurable interval, queries runs in queued status whose last dispatch timestamp is older than a minimum gap (`MinDispatchGap`, default 30s) to avoid fighting normal enqueue latency.
-2. Loads the job definition (stored job or `job_definitions` fallback for ephemeral-style rows).
+2. Loads the job definition version pinned on the run from `job_definitions`.
 3. Enqueues with the same retry helper used elsewhere, then records dispatch metadata on success.
 
 The reconciler is not embedded in the API. Recovery should survive API restarts and apply uniformly to every enqueue source, not only HTTP triggers.

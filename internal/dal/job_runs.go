@@ -583,31 +583,11 @@ func lookupDefinitionHashTx(ctx context.Context, tx *sql.Tx, jobID string, versi
 		}
 
 		return hash, nil
-	} else if err != sql.ErrNoRows {
+	} else if err == sql.ErrNoRows {
+		return "", nil
+	} else {
 		return "", normalizeSQLError(err)
 	}
-
-	var currentVersion int
-	if err := tx.QueryRowContext(ctx,
-		rebindQueryForPgx("SELECT definition_hash, definition_json, version FROM stored_jobs WHERE job_id = ?"),
-		jobID,
-	).Scan(&hash, &definitionJSON, &currentVersion); err != nil {
-		if err == sql.ErrNoRows {
-			return "", nil
-		}
-
-		return "", normalizeSQLError(err)
-	}
-
-	if currentVersion == version {
-		if hash == "" {
-			hash = DefinitionHash(definitionJSON)
-		}
-
-		return hash, nil
-	}
-
-	return "", nil
 }
 
 func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, owningCell string, cursor int64, limit int) ([]RunRecord, int64, error) {

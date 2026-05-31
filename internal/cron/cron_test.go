@@ -26,6 +26,55 @@ func setupTestCronService(t *testing.T) (*cron.CronService, *mocks.MockLogger, *
 	return service, logger, queueService, db
 }
 
+func insertCronTestJob(t *testing.T, db *sql.DB, jobID, definitionJSON string) {
+	t.Helper()
+	if err := dal.NewSQLRepositories(db).Jobs().Create(context.Background(), jobID, definitionJSON, 1); err != nil {
+		t.Fatalf("insert stored job: %v", err)
+	}
+}
+
+func insertCronTestSchedule(t *testing.T, db *sql.DB, jobID, cronSpec string, nextRun time.Time) int64 {
+	t.Helper()
+
+	result, err := db.Exec("INSERT INTO job_triggers (job_id, trigger_type) VALUES (?, ?)", jobID, "cron")
+	if err != nil {
+		t.Fatalf("insert cron trigger: %v", err)
+	}
+
+	triggerID, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("cron trigger id: %v", err)
+	}
+
+	result, err = db.Exec("INSERT INTO cron_trigger_specs (trigger_id, cron_spec, next_run_at) VALUES (?, ?, ?)", triggerID, cronSpec, nextRun.Format(time.RFC3339))
+	if err != nil {
+		t.Fatalf("insert cron trigger spec: %v", err)
+	}
+
+	specID, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("cron trigger spec id: %v", err)
+	}
+
+	return specID
+}
+
+func queryCronTestNextRun(t *testing.T, db *sql.DB, jobID string) string {
+	t.Helper()
+
+	var nextRunStr string
+	if err := db.QueryRow(`
+		SELECT cts.next_run_at
+		FROM cron_trigger_specs cts
+		JOIN job_triggers jt ON jt.id = cts.trigger_id
+		WHERE jt.job_id = ?
+	`, jobID).Scan(&nextRunStr); err != nil {
+		t.Fatalf("query next_run_at: %v", err)
+	}
+
+	return nextRunStr
+}
+
 func TestCronService_ValidateCronSpec_Matches(t *testing.T) {
 	service, _, _, _ := setupTestCronService(t)
 
@@ -133,12 +182,10 @@ func TestCronService_GetReadySchedules_Empty(t *testing.T) {
 func TestCronService_GetReadySchedules_WithReadyJobs(t *testing.T) {
 	service, _, _, db := setupTestCronService(t)
 
-	db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)",
-		"test-job", `{"id": "test-job"}`)
+	insertCronTestJob(t, db, "test-job", `{"id": "test-job"}`)
 
-	pastTime := time.Now().Add(-24 * time.Hour).Format(time.RFC3339)
-	db.Exec("INSERT INTO job_cron_schedules (job_id, cron_spec, next_run_at) VALUES (?, ?, ?)",
-		"test-job", "* * * * *", pastTime)
+	pastTime := time.Now().Add(-24 * time.Hour)
+	insertCronTestSchedule(t, db, "test-job", "* * * * *", pastTime)
 
 	schedules, err := service.GetReadySchedules(context.Background())
 	if err != nil {
@@ -161,12 +208,10 @@ func TestCronService_GetReadySchedules_WithReadyJobs(t *testing.T) {
 func TestCronService_GetReadySchedules_FutureJobsNotIncluded(t *testing.T) {
 	service, _, _, db := setupTestCronService(t)
 
-	db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)",
-		"future-job", `{"id": "future-job"}`)
+	insertCronTestJob(t, db, "future-job", `{"id": "future-job"}`)
 
-	futureTime := time.Now().Add(1 * time.Hour).Format(time.RFC3339)
-	db.Exec("INSERT INTO job_cron_schedules (job_id, cron_spec, next_run_at) VALUES (?, ?, ?)",
-		"future-job", "* * * * *", futureTime)
+	futureTime := time.Now().Add(1 * time.Hour)
+	insertCronTestSchedule(t, db, "future-job", "* * * * *", futureTime)
 
 	schedules, err := service.GetReadySchedules(context.Background())
 	if err != nil {
@@ -182,8 +227,7 @@ func TestCronService_GetJobDefinition_Success(t *testing.T) {
 	service, _, _, db := setupTestCronService(t)
 
 	jobDef := `{"id": "test-job", "root": {"uses": "builtins/shell", "with": {"command": "echo hello"}}}`
-	db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)",
-		"test-job", jobDef)
+	insertCronTestJob(t, db, "test-job", jobDef)
 
 	job, err := service.GetJobDefinition(context.Background(), "test-job")
 	if err != nil {
@@ -211,14 +255,10 @@ func TestCronService_GetJobDefinition_NotFound(t *testing.T) {
 func TestCronService_ClaimAndCompleteSchedule(t *testing.T) {
 	service, _, _, db := setupTestCronService(t)
 
-	db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)",
-		"update-test", `{"id": "update-test"}`)
+	insertCronTestJob(t, db, "update-test", `{"id": "update-test"}`)
 
 	oldTime := time.Now().Add(-1 * time.Hour)
-	result, _ := db.Exec("INSERT INTO job_cron_schedules (job_id, cron_spec, next_run_at) VALUES (?, ?, ?)",
-		"update-test", "* * * * *", oldTime.Format(time.RFC3339))
-
-	scheduleID, _ := result.LastInsertId()
+	scheduleID := insertCronTestSchedule(t, db, "update-test", "* * * * *", oldTime)
 
 	newTime := time.Now().Add(1 * time.Hour)
 	claimToken := "claim-1"
@@ -251,7 +291,7 @@ func TestCronService_ClaimAndCompleteSchedule(t *testing.T) {
 	}
 
 	var storedTime string
-	db.QueryRow("SELECT next_run_at FROM job_cron_schedules WHERE id = ?", scheduleID).Scan(&storedTime)
+	db.QueryRow("SELECT next_run_at FROM cron_trigger_specs WHERE id = ?", scheduleID).Scan(&storedTime)
 	parsedTime, _ := time.Parse(time.RFC3339, storedTime)
 
 	// NOTE(garrett):Allow small time difference due to formatting
@@ -285,12 +325,10 @@ func TestCronService_ProcessSchedules_TriggerAndUpdate(t *testing.T) {
 	service, logger, queueService, db := setupTestCronService(t)
 
 	jobDef := `{"id": "cron-job", "root": {"uses": "builtins/shell", "with": {"command": "echo test"}}}`
-	db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)",
-		"cron-job", jobDef)
+	insertCronTestJob(t, db, "cron-job", jobDef)
 
 	pastTime := time.Now().Add(-24 * time.Hour)
-	db.Exec("INSERT INTO job_cron_schedules (job_id, cron_spec, next_run_at) VALUES (?, ?, ?)",
-		"cron-job", "* * * * *", pastTime.Format(time.RFC3339))
+	insertCronTestSchedule(t, db, "cron-job", "* * * * *", pastTime)
 
 	err := service.ProcessSchedules(context.Background())
 	if err != nil {
@@ -307,7 +345,7 @@ func TestCronService_ProcessSchedules_TriggerAndUpdate(t *testing.T) {
 	}
 
 	var nextRunStr string
-	db.QueryRow("SELECT next_run_at FROM job_cron_schedules WHERE job_id = ?", "cron-job").Scan(&nextRunStr)
+	nextRunStr = queryCronTestNextRun(t, db, "cron-job")
 	nextRun, _ := time.Parse(time.RFC3339, nextRunStr)
 
 	if !nextRun.After(pastTime) {
@@ -336,12 +374,10 @@ func TestCronService_ProcessSchedules_TriggerAndUpdate(t *testing.T) {
 func TestCronService_ProcessSchedules_InvalidCronSpec(t *testing.T) {
 	service, logger, queueService, db := setupTestCronService(t)
 
-	db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)",
-		"invalid-cron-job", `{"id": "invalid-cron-job"}`)
+	insertCronTestJob(t, db, "invalid-cron-job", `{"id": "invalid-cron-job"}`)
 
-	pastTime := time.Now().Add(-24 * time.Hour).Format(time.RFC3339)
-	db.Exec("INSERT INTO job_cron_schedules (job_id, cron_spec, next_run_at) VALUES (?, ?, ?)",
-		"invalid-cron-job", "invalid-spec", pastTime)
+	pastTime := time.Now().Add(-24 * time.Hour)
+	insertCronTestSchedule(t, db, "invalid-cron-job", "invalid-spec", pastTime)
 
 	err := service.ProcessSchedules(context.Background())
 	if err != nil {
@@ -370,12 +406,10 @@ func TestCronService_ProcessSchedules_InvalidCronSpec(t *testing.T) {
 func TestCronService_ProcessSchedules_QueueError(t *testing.T) {
 	service, logger, queueService, db := setupTestCronService(t)
 
-	db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)",
-		"queue-error-job", `{"id": "queue-error-job"}`)
+	insertCronTestJob(t, db, "queue-error-job", `{"id": "queue-error-job"}`)
 
 	pastTime := time.Now().Add(-24 * time.Hour)
-	db.Exec("INSERT INTO job_cron_schedules (job_id, cron_spec, next_run_at) VALUES (?, ?, ?)",
-		"queue-error-job", "* * * * *", pastTime.Format(time.RFC3339))
+	insertCronTestSchedule(t, db, "queue-error-job", "* * * * *", pastTime)
 
 	queueService.SetEnqueueError(errors.New("queue unavailable"))
 
@@ -398,7 +432,7 @@ func TestCronService_ProcessSchedules_QueueError(t *testing.T) {
 	}
 
 	var nextRunStr string
-	db.QueryRow("SELECT next_run_at FROM job_cron_schedules WHERE job_id = ?", "queue-error-job").Scan(&nextRunStr)
+	nextRunStr = queryCronTestNextRun(t, db, "queue-error-job")
 	if nextRunStr != pastTime.Format(time.RFC3339) {
 		t.Error("expected next_run_at to remain unchanged after queue error")
 	}
@@ -407,12 +441,10 @@ func TestCronService_ProcessSchedules_QueueError(t *testing.T) {
 func TestCronService_ProcessSchedules_TimeNotMatching(t *testing.T) {
 	service, logger, queueService, db := setupTestCronService(t)
 
-	db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)",
-		"future-job", `{"id": "future-job"}`)
+	insertCronTestJob(t, db, "future-job", `{"id": "future-job"}`)
 
 	midnight := time.Now().Truncate(24 * time.Hour)
-	db.Exec("INSERT INTO job_cron_schedules (job_id, cron_spec, next_run_at) VALUES (?, ?, ?)",
-		"future-job", "0 0 * * *", midnight.Add(-1*time.Hour).Format(time.RFC3339))
+	insertCronTestSchedule(t, db, "future-job", "0 0 * * *", midnight.Add(-1*time.Hour))
 
 	err := service.ProcessSchedules(context.Background())
 	if err != nil {
@@ -451,8 +483,7 @@ func TestCronService_TriggerJob_Success(t *testing.T) {
 	service, _, queueService, db := setupTestCronService(t)
 
 	jobDef := `{"id": "trigger-test", "root": {"uses": "builtins/shell"}}`
-	db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)",
-		"trigger-test", jobDef)
+	insertCronTestJob(t, db, "trigger-test", jobDef)
 
 	err := service.TriggerJob(context.Background(), "trigger-test")
 	if err != nil {

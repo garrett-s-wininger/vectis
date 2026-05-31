@@ -37,6 +37,19 @@ func setupTestServer(t *testing.T) (*api.APIServer, *mocks.MockLogger, *mocks.Mo
 	return server, logger, queueService, db
 }
 
+func insertStoredJobForTest(t *testing.T, db *sql.DB, jobID, definitionJSON string, namespaceIDs ...int64) {
+	t.Helper()
+
+	namespaceID := int64(1)
+	if len(namespaceIDs) > 0 {
+		namespaceID = namespaceIDs[0]
+	}
+
+	if err := dal.NewSQLRepositories(db).Jobs().Create(context.Background(), jobID, definitionJSON, namespaceID); err != nil {
+		t.Fatalf("insert stored job %s: %v", jobID, err)
+	}
+}
+
 func waitForNEnqueuedJobs(t *testing.T, q *mocks.MockQueueService, n int) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
@@ -503,9 +516,7 @@ func TestAPIServer_GetJobRuns_NotFound(t *testing.T) {
 func TestAPIServer_TriggerJob_DBUnavailableOnGetDefinition(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	jobDef := `{"id": "job-trig-db", "root": {"uses": "builtins/shell"}}`
-	if _, err := db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", "job-trig-db", jobDef); err != nil {
-		t.Fatalf("insert job: %v", err)
-	}
+	insertStoredJobForTest(t, db, "job-trig-db", jobDef)
 
 	if err := db.Close(); err != nil {
 		t.Fatalf("close db: %v", err)
@@ -817,8 +828,8 @@ func TestAPIServer_GetJobs_WithJobs(t *testing.T) {
 
 	job1 := `{"id": "job-1", "root": {"uses": "builtins/shell"}}`
 	job2 := `{"id": "job-2", "root": {"uses": "builtins/shell"}}`
-	db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", "job-1", job1)
-	db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", "job-2", job2)
+	insertStoredJobForTest(t, db, "job-1", job1)
+	insertStoredJobForTest(t, db, "job-2", job2)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
 	rec := httptest.NewRecorder()
@@ -855,9 +866,7 @@ func TestAPIServer_GetJob_Success(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 
 	jobDef := `{"id": "job-get-1", "root": {"uses": "builtins/shell"}}`
-	if _, err := db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", "job-get-1", jobDef); err != nil {
-		t.Fatalf("insert job: %v", err)
-	}
+	insertStoredJobForTest(t, db, "job-get-1", jobDef)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-get-1", nil)
 	req.SetPathValue("id", "job-get-1")
@@ -893,9 +902,7 @@ func TestAPIServer_GetJob_NotFound(t *testing.T) {
 func TestAPIServer_GetJob_DBUnavailable(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	jobDef := `{"id": "job-db-down", "root": {"uses": "builtins/shell"}}`
-	if _, err := db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", "job-db-down", jobDef); err != nil {
-		t.Fatalf("insert job: %v", err)
-	}
+	insertStoredJobForTest(t, db, "job-db-down", jobDef)
 	if err := db.Close(); err != nil {
 		t.Fatalf("close db: %v", err)
 	}
@@ -912,9 +919,7 @@ func TestAPIServer_GetJob_InvalidVersion(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 
 	jobDef := `{"id": "job-version", "root": {"uses": "builtins/shell"}}`
-	if _, err := db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", "job-version", jobDef); err != nil {
-		t.Fatalf("insert job: %v", err)
-	}
+	insertStoredJobForTest(t, db, "job-version", jobDef)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-version?version=abc", nil)
 	req.SetPathValue("id", "job-version")
@@ -928,9 +933,7 @@ func TestAPIServer_GetJob_VersionNotFound(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 
 	jobDef := `{"id": "job-version-missing", "root": {"uses": "builtins/shell"}}`
-	if _, err := db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", "job-version-missing", jobDef); err != nil {
-		t.Fatalf("insert job: %v", err)
-	}
+	insertStoredJobForTest(t, db, "job-version-missing", jobDef)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-version-missing?version=99", nil)
 	req.SetPathValue("id", "job-version-missing")
@@ -943,7 +946,7 @@ func TestAPIServer_GetJob_VersionNotFound(t *testing.T) {
 func TestAPIServer_DeleteJob_Success(t *testing.T) {
 	server, logger, _, db := setupTestServer(t)
 	jobDef := `{"id": "job-to-delete", "root": {"uses": "builtins/shell"}}`
-	db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", "job-to-delete", jobDef)
+	insertStoredJobForTest(t, db, "job-to-delete", jobDef)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/jobs/job-to-delete", nil)
 	req.SetPathValue("id", "job-to-delete")
@@ -1000,7 +1003,7 @@ func TestAPIServer_DeleteJob_NotFound(t *testing.T) {
 func TestAPIServer_TriggerJob_Success(t *testing.T) {
 	server, logger, queueService, db := setupTestServer(t)
 	jobDef := `{"id": "job-to-trigger", "root": {"uses": "builtins/shell", "with": {"command": "echo test"}}}`
-	db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", "job-to-trigger", jobDef)
+	insertStoredJobForTest(t, db, "job-to-trigger", jobDef)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/job-to-trigger", nil)
 	req.SetPathValue("id", "job-to-trigger")
@@ -1083,7 +1086,7 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 func TestAPIServer_TriggerJob_IdempotencyKeyReplaysRun(t *testing.T) {
 	server, _, queueService, db := setupTestServer(t)
 	jobDef := `{"id": "job-idempotent", "root": {"id": "root", "uses": "builtins/shell", "with": {"command": "echo test"}}}`
-	db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", "job-idempotent", jobDef)
+	insertStoredJobForTest(t, db, "job-idempotent", jobDef)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/job-idempotent", nil)
 	req.SetPathValue("id", "job-idempotent")
@@ -1124,8 +1127,8 @@ func TestAPIServer_TriggerJob_IdempotencyKeyReplaysRun(t *testing.T) {
 
 func TestAPIServer_TriggerJob_IdempotencyScopeIncludesJob(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
-	db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", "job-a", `{"id":"job-a","root":{"id":"root","uses":"builtins/shell"}}`)
-	db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", "job-b", `{"id":"job-b","root":{"id":"root","uses":"builtins/shell"}}`)
+	insertStoredJobForTest(t, db, "job-a", `{"id":"job-a","root":{"id":"root","uses":"builtins/shell"}}`)
+	insertStoredJobForTest(t, db, "job-b", `{"id":"job-b","root":{"id":"root","uses":"builtins/shell"}}`)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/job-a", nil)
 	req.SetPathValue("id", "job-a")
@@ -1177,7 +1180,7 @@ func TestAPIServer_TriggerJob_MissingID(t *testing.T) {
 func TestAPIServer_TriggerJob_QueueError(t *testing.T) {
 	server, logger, queueService, db := setupTestServer(t)
 	jobDef := `{"id": "job-trigger-fail", "root": {"uses": "builtins/shell"}}`
-	db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", "job-trigger-fail", jobDef)
+	insertStoredJobForTest(t, db, "job-trigger-fail", jobDef)
 
 	queueService.SetEnqueueError(errors.New("queue unavailable"))
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/job-trigger-fail", nil)
@@ -1199,7 +1202,7 @@ func TestAPIServer_TriggerJob_QueueError(t *testing.T) {
 func TestAPIServer_GetJobRuns_ReturnsStatusAndFailureReasonAfterStatusTransitions(t *testing.T) {
 	server, _, queueService, db := setupTestServer(t)
 	jobDef := `{"id": "job-runs-status", "root": {"uses": "builtins/shell", "with": {"command": "echo test"}}}`
-	db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", "job-runs-status", jobDef)
+	insertStoredJobForTest(t, db, "job-runs-status", jobDef)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/job-runs-status", nil)
 	req.SetPathValue("id", "job-runs-status")
@@ -1291,7 +1294,7 @@ func TestAPIServer_GetJobRuns_InvalidSince(t *testing.T) {
 func TestAPIServer_UpdateJobDefinition_Success(t *testing.T) {
 	server, logger, _, db := setupTestServer(t)
 	initialDef := `{"id": "job-to-update", "root": {"uses": "builtins/shell", "with": {"command": "echo old"}}}`
-	db.Exec("INSERT INTO stored_jobs (job_id, definition_json, version) VALUES (?, ?, 1)", "job-to-update", initialDef)
+	insertStoredJobForTest(t, db, "job-to-update", initialDef)
 
 	newDef := map[string]any{
 		"id": "job-to-update",
@@ -1320,8 +1323,10 @@ func TestAPIServer_UpdateJobDefinition_Success(t *testing.T) {
 		t.Errorf("expected X-Vectis-Version header 2, got %s", rec.Header().Get("X-Vectis-Version"))
 	}
 
-	var updatedDef string
-	db.QueryRow("SELECT definition_json FROM stored_jobs WHERE job_id = ?", "job-to-update").Scan(&updatedDef)
+	updatedDef, _, err := dal.NewSQLRepositories(db).Jobs().GetDefinition(context.Background(), "job-to-update")
+	if err != nil {
+		t.Fatalf("get updated definition: %v", err)
+	}
 	if !strings.Contains(updatedDef, "echo new") {
 		t.Errorf("expected updated definition to contain 'echo new', got: %s", updatedDef)
 	}
@@ -1399,9 +1404,7 @@ func TestAPIServer_UpdateJobDefinition_InvalidJSON(t *testing.T) {
 func TestAPIServer_UpdateJobDefinition_ValidationErrorDoesNotPersist(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	initialDef := `{"id": "job-validation-update", "root": {"id": "root", "uses": "builtins/shell", "with": {"command": "echo old"}}}`
-	if _, err := db.Exec("INSERT INTO stored_jobs (job_id, definition_json, version) VALUES (?, ?, 1)", "job-validation-update", initialDef); err != nil {
-		t.Fatalf("insert job: %v", err)
-	}
+	insertStoredJobForTest(t, db, "job-validation-update", initialDef)
 
 	newDef := map[string]any{
 		"id": "job-validation-update",
@@ -1436,7 +1439,8 @@ func TestAPIServer_UpdateJobDefinition_ValidationErrorDoesNotPersist(t *testing.
 
 	var gotDef string
 	var gotVersion int
-	if err := db.QueryRow("SELECT definition_json, version FROM stored_jobs WHERE job_id = ?", "job-validation-update").Scan(&gotDef, &gotVersion); err != nil {
+	gotDef, gotVersion, err := dal.NewSQLRepositories(db).Jobs().GetDefinition(context.Background(), "job-validation-update")
+	if err != nil {
 		t.Fatalf("select job: %v", err)
 	}
 
@@ -1881,10 +1885,7 @@ func TestAPIServer_SSEJobRuns_ReceivesRunOnTrigger(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	jobID := "job-sse-test"
 	jobDef := `{"id": "job-sse-test", "root": {"uses": "builtins/shell", "with": {"command": "echo test"}}}`
-	_, err := db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", jobID, jobDef)
-	if err != nil {
-		t.Fatalf("insert job: %v", err)
-	}
+	insertStoredJobForTest(t, db, jobID, jobDef)
 
 	httpServer := httptest.NewServer(server.Handler())
 	defer httpServer.Close()
@@ -1959,9 +1960,7 @@ func TestAPIServer_SSEJobRuns_ReceivesRunOnTrigger(t *testing.T) {
 func TestAPIServer_ForceFailRun_Success(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	ctx := context.Background()
-	if _, err := db.ExecContext(ctx, `INSERT INTO stored_jobs (job_id, namespace_id, definition_json) VALUES (?, ?, ?)`, "job-force-fail", 1, `{"id":"job-force-fail"}`); err != nil {
-		t.Fatalf("insert job: %v", err)
-	}
+	insertStoredJobForTest(t, db, "job-force-fail", `{"id":"job-force-fail"}`, 1)
 	runs := dal.NewSQLRepositories(db).Runs()
 
 	runID, _, err := runs.CreateRun(ctx, "job-force-fail", nil, 1)
@@ -2015,9 +2014,7 @@ func TestAPIServer_ForceFailRun_NotFound(t *testing.T) {
 func TestAPIServer_RepairMarkRun_ResolvesOrphanedRun(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	ctx := context.Background()
-	if _, err := db.ExecContext(ctx, `INSERT INTO stored_jobs (job_id, namespace_id, definition_json) VALUES (?, ?, ?)`, "job-repair-mark", 1, `{"id":"job-repair-mark"}`); err != nil {
-		t.Fatalf("insert job: %v", err)
-	}
+	insertStoredJobForTest(t, db, "job-repair-mark", `{"id":"job-repair-mark"}`, 1)
 	runs := dal.NewSQLRepositories(db).Runs()
 
 	runID, _, err := runs.CreateRun(ctx, "job-repair-mark", nil, 1)
@@ -2067,9 +2064,7 @@ func TestAPIServer_RepairMarkRun_ResolvesOrphanedRun(t *testing.T) {
 func TestAPIServer_RepairMarkRun_RunningConflict(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	ctx := context.Background()
-	if _, err := db.ExecContext(ctx, `INSERT INTO stored_jobs (job_id, namespace_id, definition_json) VALUES (?, ?, ?)`, "job-repair-running", 1, `{"id":"job-repair-running"}`); err != nil {
-		t.Fatalf("insert job: %v", err)
-	}
+	insertStoredJobForTest(t, db, "job-repair-running", `{"id":"job-repair-running"}`, 1)
 	runs := dal.NewSQLRepositories(db).Runs()
 
 	runID, _, err := runs.CreateRun(ctx, "job-repair-running", nil, 1)
@@ -2093,9 +2088,7 @@ func TestAPIServer_RepairMarkRun_RunningConflict(t *testing.T) {
 func TestAPIServer_ForceRequeueRun_Success(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	ctx := context.Background()
-	if _, err := db.ExecContext(ctx, `INSERT INTO stored_jobs (job_id, namespace_id, definition_json) VALUES (?, ?, ?)`, "job-force-requeue", 1, `{"id":"job-force-requeue"}`); err != nil {
-		t.Fatalf("insert job: %v", err)
-	}
+	insertStoredJobForTest(t, db, "job-force-requeue", `{"id":"job-force-requeue"}`, 1)
 	runs := dal.NewSQLRepositories(db).Runs()
 
 	runID, _, err := runs.CreateRun(ctx, "job-force-requeue", nil, 1)
@@ -2146,9 +2139,7 @@ func TestAPIServer_ForceRequeueRun_Success(t *testing.T) {
 func TestAPIServer_ForceRequeueRun_SucceededConflict(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	ctx := context.Background()
-	if _, err := db.ExecContext(ctx, `INSERT INTO stored_jobs (job_id, namespace_id, definition_json) VALUES (?, ?, ?)`, "job-force-requeue-succeeded", 1, `{"id":"job-force-requeue-succeeded"}`); err != nil {
-		t.Fatalf("insert job: %v", err)
-	}
+	insertStoredJobForTest(t, db, "job-force-requeue-succeeded", `{"id":"job-force-requeue-succeeded"}`, 1)
 	runs := dal.NewSQLRepositories(db).Runs()
 
 	runID, _, err := runs.CreateRun(ctx, "job-force-requeue-succeeded", nil, 1)
@@ -2172,9 +2163,7 @@ func TestAPIServer_ForceRequeueRun_SucceededConflict(t *testing.T) {
 func TestAPIServer_ForceRequeueRun_RunningConflict(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	ctx := context.Background()
-	if _, err := db.ExecContext(ctx, `INSERT INTO stored_jobs (job_id, namespace_id, definition_json) VALUES (?, ?, ?)`, "job-force-requeue-running", 1, `{"id":"job-force-requeue-running"}`); err != nil {
-		t.Fatalf("insert job: %v", err)
-	}
+	insertStoredJobForTest(t, db, "job-force-requeue-running", `{"id":"job-force-requeue-running"}`, 1)
 	runs := dal.NewSQLRepositories(db).Runs()
 
 	runID, _, err := runs.CreateRun(ctx, "job-force-requeue-running", nil, 1)
@@ -2202,9 +2191,7 @@ func TestAPIServer_ForceRequeueRun_RunningConflict(t *testing.T) {
 func TestAPIServer_CancelRun_NotExecutingConflict(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	ctx := context.Background()
-	if _, err := db.ExecContext(ctx, `INSERT INTO stored_jobs (job_id, namespace_id, definition_json) VALUES (?, ?, ?)`, "job-cancel-queued", 1, `{"id":"job-cancel-queued"}`); err != nil {
-		t.Fatalf("insert job: %v", err)
-	}
+	insertStoredJobForTest(t, db, "job-cancel-queued", `{"id":"job-cancel-queued"}`, 1)
 	runs := dal.NewSQLRepositories(db).Runs()
 
 	runID, _, err := runs.CreateRun(ctx, "job-cancel-queued", nil, 1)
@@ -2224,9 +2211,7 @@ func TestAPIServer_CancelRun_NotExecutingConflict(t *testing.T) {
 func TestAPIServer_CancelRun_ResolverUsesRequestBoundContext(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	ctx := context.Background()
-	if _, err := db.ExecContext(ctx, `INSERT INTO stored_jobs (job_id, namespace_id, definition_json) VALUES (?, ?, ?)`, "job-cancel-context", 1, `{"id":"job-cancel-context"}`); err != nil {
-		t.Fatalf("insert job: %v", err)
-	}
+	insertStoredJobForTest(t, db, "job-cancel-context", `{"id":"job-cancel-context"}`, 1)
 	runs := dal.NewSQLRepositories(db).Runs()
 
 	runID, _, err := runs.CreateRun(ctx, "job-cancel-context", nil, 1)

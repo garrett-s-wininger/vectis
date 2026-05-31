@@ -38,6 +38,10 @@ func TestSQLiteMigrations_UpDownRoundTrip(t *testing.T) {
 	assertTableExists(t, db, "run_segments")
 	assertTableExists(t, db, "segment_executions")
 	assertTableExists(t, db, "cell_execution_acceptances")
+	assertTableExists(t, db, "job_triggers")
+	assertTableExists(t, db, "cron_trigger_specs")
+	assertTableExists(t, db, "trigger_invocations")
+	assertTableExists(t, db, "execution_payloads")
 
 	if err := migrations.Down(db, "sqlite3"); err != nil {
 		t.Fatalf("run down migrations: %v", err)
@@ -48,6 +52,10 @@ func TestSQLiteMigrations_UpDownRoundTrip(t *testing.T) {
 	assertTableMissing(t, db, "run_segments")
 	assertTableMissing(t, db, "segment_executions")
 	assertTableMissing(t, db, "cell_execution_acceptances")
+	assertTableMissing(t, db, "job_triggers")
+	assertTableMissing(t, db, "cron_trigger_specs")
+	assertTableMissing(t, db, "trigger_invocations")
+	assertTableMissing(t, db, "execution_payloads")
 }
 
 func readMigrationVersions(t *testing.T, backend string) map[string]map[string]string {

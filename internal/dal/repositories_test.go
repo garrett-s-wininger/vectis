@@ -81,17 +81,22 @@ func TestJobsRepository_CRUDAndConflict(t *testing.T) {
 		t.Fatalf("definition version 2 mismatch: got %q want %q", gotV2, def2)
 	}
 
-	var storedHash, versionHash string
-	if err := db.QueryRowContext(ctx, "SELECT definition_hash FROM stored_jobs WHERE job_id = ?", jobID).Scan(&storedHash); err != nil {
-		t.Fatalf("scan stored job hash: %v", err)
+	var currentVersion int
+	var versionHash string
+	if err := db.QueryRowContext(ctx, "SELECT current_version FROM stored_jobs WHERE job_id = ?", jobID).Scan(&currentVersion); err != nil {
+		t.Fatalf("scan stored job current version: %v", err)
 	}
 
 	if err := db.QueryRowContext(ctx, "SELECT definition_hash FROM job_definitions WHERE job_id = ? AND version = 2", jobID).Scan(&versionHash); err != nil {
 		t.Fatalf("scan version hash: %v", err)
 	}
 
-	if want := dal.DefinitionHash(def2); storedHash != want || versionHash != want {
-		t.Fatalf("definition hash mismatch: stored=%q version=%q want=%q", storedHash, versionHash, want)
+	if currentVersion != 2 {
+		t.Fatalf("current version: got %d, want 2", currentVersion)
+	}
+
+	if want := dal.DefinitionHash(def2); versionHash != want {
+		t.Fatalf("definition hash mismatch: version=%q want=%q", versionHash, want)
 	}
 
 	list, _, err := jobs.List(ctx, 0, 100)
@@ -209,6 +214,16 @@ func TestCellExecutionAcceptances_AcceptExecutionMaterializesLocalRows(t *testin
 
 	if definitionHash != acceptance.DefinitionHash {
 		t.Fatalf("definition hash: got %q, want %q", definitionHash, acceptance.DefinitionHash)
+	}
+
+	payloadHash := dal.ExecutionPayloadHash(acceptance.RequestJSON)
+	var storedPayload string
+	if err := db.QueryRowContext(ctx, "SELECT payload_json FROM execution_payloads WHERE payload_hash = ?", payloadHash).Scan(&storedPayload); err != nil {
+		t.Fatalf("query execution payload: %v", err)
+	}
+
+	if storedPayload != acceptance.RequestJSON {
+		t.Fatalf("execution payload: got %q, want %q", storedPayload, acceptance.RequestJSON)
 	}
 }
 
@@ -394,17 +409,13 @@ func TestSQLRepositoriesWithCellID_WritesHomeAndOwningCell(t *testing.T) {
 		t.Fatalf("create run: %v", err)
 	}
 
-	var namespaceCell, jobCell, definitionCell, runCell, executionCell string
+	var namespaceCell, jobCell, runCell, executionCell string
 	if err := db.QueryRowContext(ctx, "SELECT home_cell FROM namespaces WHERE id = ?", ns.ID).Scan(&namespaceCell); err != nil {
 		t.Fatalf("query namespace cell: %v", err)
 	}
 
 	if err := db.QueryRowContext(ctx, "SELECT home_cell FROM stored_jobs WHERE job_id = ?", jobID).Scan(&jobCell); err != nil {
 		t.Fatalf("query job cell: %v", err)
-	}
-
-	if err := db.QueryRowContext(ctx, "SELECT home_cell FROM job_definitions WHERE job_id = ? AND version = 1", jobID).Scan(&definitionCell); err != nil {
-		t.Fatalf("query definition cell: %v", err)
 	}
 
 	if err := db.QueryRowContext(ctx, "SELECT owning_cell FROM job_runs WHERE run_id = ?", runID).Scan(&runCell); err != nil {
@@ -478,11 +489,10 @@ func TestSQLRepositoriesWithCellID_WritesHomeAndOwningCell(t *testing.T) {
 	}
 
 	for name, got := range map[string]string{
-		"namespace":  namespaceCell,
-		"job":        jobCell,
-		"definition": definitionCell,
-		"run":        runCell,
-		"execution":  executionCell,
+		"namespace": namespaceCell,
+		"job":       jobCell,
+		"run":       runCell,
+		"execution": executionCell,
 	} {
 		if got != "iad-a" {
 			t.Fatalf("%s cell: got %q", name, got)
@@ -741,15 +751,6 @@ func TestSQLRepositories_CreateDefinitionAndRunInCell_TargetsExecutionCell(t *te
 	runID, _, err := repos.CreateDefinitionAndRunInCell(ctx, jobID, def, nil, "pdx-b")
 	if err != nil {
 		t.Fatalf("CreateDefinitionAndRunInCell: %v", err)
-	}
-
-	var definitionHomeCell string
-	if err := db.QueryRowContext(ctx, "SELECT home_cell FROM job_definitions WHERE job_id = ? AND version = 1", jobID).Scan(&definitionHomeCell); err != nil {
-		t.Fatalf("query definition home cell: %v", err)
-	}
-
-	if definitionHomeCell != "global-a" {
-		t.Fatalf("definition home cell: got %q, want global-a", definitionHomeCell)
 	}
 
 	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
@@ -1186,44 +1187,40 @@ func assertExecutionAndSegmentStatus(t *testing.T, db *sql.DB, executionID, segm
 	}
 }
 
-func TestJobsRepository_UpdateBackfillsLegacyCurrentVersion(t *testing.T) {
-	db := dbtest.NewTestDB(t)
-	jobs := dal.NewSQLRepositories(db).Jobs()
-	ctx := context.Background()
+func insertCronTriggerSpec(t *testing.T, ctx context.Context, db *sql.DB, jobID, cronSpec string, nextRun time.Time) int64 {
+	t.Helper()
 
-	jobID := "legacy-job"
-	def1 := `{"id":"legacy-job","root":{"uses":"builtins/shell","with":{"command":"echo old"}}}`
-	def2 := `{"id":"legacy-job","root":{"uses":"builtins/shell","with":{"command":"echo new"}}}`
-	if _, err := db.ExecContext(ctx, "INSERT INTO stored_jobs (job_id, definition_json, version) VALUES (?, ?, 1)", jobID, def1); err != nil {
-		t.Fatalf("insert legacy job: %v", err)
-	}
-
-	newVersion, err := jobs.UpdateDefinition(ctx, jobID, def2)
+	result, err := db.ExecContext(ctx,
+		"INSERT INTO job_triggers (job_id, trigger_type) VALUES (?, ?)",
+		jobID,
+		"cron",
+	)
 	if err != nil {
-		t.Fatalf("update legacy job: %v", err)
+		t.Fatalf("insert cron trigger: %v", err)
 	}
 
-	if newVersion != 2 {
-		t.Fatalf("expected updated version 2, got %d", newVersion)
-	}
-
-	gotV1, err := jobs.GetDefinitionVersion(ctx, jobID, 1)
+	triggerID, err := result.LastInsertId()
 	if err != nil {
-		t.Fatalf("get backfilled version 1: %v", err)
+		t.Fatalf("cron trigger id: %v", err)
 	}
 
-	if gotV1 != def1 {
-		t.Fatalf("backfilled version mismatch: got %q want %q", gotV1, def1)
+	result, err = db.ExecContext(ctx,
+		"INSERT INTO cron_trigger_specs (trigger_id, cron_spec, next_run_at) VALUES (?, ?, ?)",
+		triggerID,
+		cronSpec,
+		nextRun.Format(time.RFC3339),
+	)
+
+	if err != nil {
+		t.Fatalf("insert cron trigger spec: %v", err)
 	}
 
-	var hash string
-	if err := db.QueryRowContext(ctx, "SELECT definition_hash FROM job_definitions WHERE job_id = ? AND version = 1", jobID).Scan(&hash); err != nil {
-		t.Fatalf("scan backfilled hash: %v", err)
+	specID, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("cron trigger spec id: %v", err)
 	}
 
-	if want := dal.DefinitionHash(def1); hash != want {
-		t.Fatalf("backfilled hash: want %q, got %q", want, hash)
-	}
+	return specID
 }
 
 func TestRunsRepository_CreateRunAndListSinceOrdered(t *testing.T) {
@@ -2131,17 +2128,8 @@ func TestSchedulesRepository_GetReadyClaimAndComplete(t *testing.T) {
 	past := now.Add(-1 * time.Minute)
 	future := now.Add(5 * time.Minute)
 
-	if _, err := db.ExecContext(ctx,
-		"INSERT INTO job_cron_schedules (job_id, cron_spec, next_run_at) VALUES (?, ?, ?)",
-		"cron-job", "* * * * *", past.Format(time.RFC3339)); err != nil {
-		t.Fatalf("insert past schedule: %v", err)
-	}
-
-	if _, err := db.ExecContext(ctx,
-		"INSERT INTO job_cron_schedules (job_id, cron_spec, next_run_at) VALUES (?, ?, ?)",
-		"cron-job", "0 * * * *", future.Format(time.RFC3339)); err != nil {
-		t.Fatalf("insert future schedule: %v", err)
-	}
+	insertCronTriggerSpec(t, ctx, db, "cron-job", "* * * * *", past)
+	insertCronTriggerSpec(t, ctx, db, "cron-job", "0 * * * *", future)
 
 	ready, err := schedules.GetReady(ctx, now)
 	if err != nil {
@@ -2206,17 +2194,7 @@ func TestSchedulesRepository_ClaimDueCompleteAndRelease(t *testing.T) {
 	observed := now.Add(-1 * time.Minute)
 	next := now.Add(10 * time.Minute)
 
-	result, err := db.ExecContext(ctx,
-		"INSERT INTO job_cron_schedules (job_id, cron_spec, next_run_at) VALUES (?, ?, ?)",
-		"cron-job", "* * * * *", observed.Format(time.RFC3339))
-	if err != nil {
-		t.Fatalf("insert schedule: %v", err)
-	}
-
-	scheduleID, err := result.LastInsertId()
-	if err != nil {
-		t.Fatalf("schedule id: %v", err)
-	}
+	scheduleID := insertCronTriggerSpec(t, ctx, db, "cron-job", "* * * * *", observed)
 
 	claimed, err := schedules.ClaimDue(ctx, scheduleID, observed, "claim-1", now.Add(5*time.Minute), now)
 	if err != nil {
@@ -2259,7 +2237,7 @@ func TestSchedulesRepository_ClaimDueCompleteAndRelease(t *testing.T) {
 	}
 
 	var nextRunStr string
-	if err := db.QueryRowContext(ctx, "SELECT next_run_at FROM job_cron_schedules WHERE id = ?", scheduleID).Scan(&nextRunStr); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT next_run_at FROM cron_trigger_specs WHERE id = ?", scheduleID).Scan(&nextRunStr); err != nil {
 		t.Fatalf("read next_run_at: %v", err)
 	}
 

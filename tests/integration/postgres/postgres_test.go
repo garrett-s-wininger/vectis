@@ -125,9 +125,18 @@ func TestPostgres_CronClaimAndDispatchSmoke(t *testing.T) {
 		t.Fatalf("create job: %v", err)
 	}
 
-	if _, err := db.ExecContext(ctx,
-		`INSERT INTO job_cron_schedules (job_id, cron_spec, next_run_at) VALUES ($1, $2, $3)`,
+	var triggerID int64
+	if err := db.QueryRowContext(ctx,
+		`INSERT INTO job_triggers (job_id, trigger_type) VALUES ($1, $2) RETURNING id`,
 		jobID,
+		"cron",
+	).Scan(&triggerID); err != nil {
+		t.Fatalf("insert trigger: %v", err)
+	}
+
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO cron_trigger_specs (trigger_id, cron_spec, next_run_at) VALUES ($1, $2, $3)`,
+		triggerID,
 		"* * * * *",
 		now.Add(-time.Minute).Format(time.RFC3339),
 	); err != nil {

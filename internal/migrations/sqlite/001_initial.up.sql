@@ -16,28 +16,52 @@ CREATE TABLE stored_jobs (
     global_id TEXT UNIQUE,
     job_id TEXT UNIQUE NOT NULL,
     namespace_id INTEGER NOT NULL DEFAULT 1 REFERENCES namespaces(id),
-    definition_json TEXT NOT NULL,
-    definition_hash TEXT NOT NULL DEFAULT '',
-    version INTEGER NOT NULL DEFAULT 1,
+    current_version INTEGER NOT NULL DEFAULT 1,
     home_cell TEXT NOT NULL DEFAULT 'local',
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE job_cron_schedules (
+CREATE TABLE job_triggers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     job_id TEXT NOT NULL REFERENCES stored_jobs(job_id),
+    trigger_type TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    home_cell TEXT NOT NULL DEFAULT 'local',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_job_triggers_job_type ON job_triggers(job_id, trigger_type);
+
+CREATE TABLE cron_trigger_specs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trigger_id INTEGER NOT NULL REFERENCES job_triggers(id) ON DELETE CASCADE,
     cron_spec TEXT NOT NULL,
     next_run_at TIMESTAMP NOT NULL,
     claim_token TEXT,
     claimed_until TIMESTAMP,
-    home_cell TEXT NOT NULL DEFAULT 'local',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(job_id, cron_spec)
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(trigger_id),
+    UNIQUE(cron_spec, trigger_id)
 );
 
-CREATE INDEX idx_cron_next_run ON job_cron_schedules(next_run_at);
-CREATE INDEX idx_cron_claimed_until ON job_cron_schedules(claimed_until);
+CREATE INDEX idx_cron_next_run ON cron_trigger_specs(next_run_at);
+CREATE INDEX idx_cron_claimed_until ON cron_trigger_specs(claimed_until);
+
+CREATE TABLE trigger_invocations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    invocation_id TEXT UNIQUE NOT NULL,
+    trigger_id INTEGER REFERENCES job_triggers(id) ON DELETE SET NULL,
+    job_id TEXT NOT NULL,
+    trigger_type TEXT NOT NULL,
+    trigger_payload_hash TEXT NOT NULL DEFAULT '',
+    requested_cells TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_trigger_invocations_job_created ON trigger_invocations(job_id, created_at, id);
 
 CREATE TABLE job_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -59,7 +83,9 @@ CREATE TABLE job_runs (
     last_dispatched_at INTEGER,
     definition_version INTEGER NOT NULL DEFAULT 1,
     definition_hash TEXT NOT NULL DEFAULT '',
-    owning_cell TEXT NOT NULL DEFAULT 'local'
+    owning_cell TEXT NOT NULL DEFAULT 'local',
+    trigger_invocation_id TEXT REFERENCES trigger_invocations(invocation_id),
+    execution_payload_hash TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX idx_job_runs_job_id_run_index ON job_runs (job_id, run_index DESC);
@@ -99,6 +125,13 @@ CREATE INDEX idx_segment_executions_segment_id ON segment_executions(segment_id)
 CREATE INDEX idx_segment_executions_run_id ON segment_executions(run_id);
 CREATE INDEX idx_segment_executions_cell_status ON segment_executions(cell_id, status);
 
+CREATE TABLE execution_payloads (
+    payload_hash TEXT PRIMARY KEY,
+    payload_json TEXT NOT NULL,
+    definition_hash TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE cell_execution_acceptances (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     execution_id TEXT UNIQUE NOT NULL,
@@ -112,7 +145,7 @@ CREATE TABLE cell_execution_acceptances (
     attempt INTEGER NOT NULL DEFAULT 1,
     definition_version INTEGER NOT NULL,
     definition_hash TEXT NOT NULL,
-    request_json TEXT NOT NULL,
+    execution_payload_hash TEXT NOT NULL REFERENCES execution_payloads(payload_hash),
     enqueued_at INTEGER,
     last_enqueue_attempt_at INTEGER,
     enqueue_attempts INTEGER NOT NULL DEFAULT 0,
@@ -170,7 +203,6 @@ CREATE TABLE job_definitions (
     version INTEGER NOT NULL,
     definition_json TEXT NOT NULL,
     definition_hash TEXT NOT NULL DEFAULT '',
-    home_cell TEXT NOT NULL DEFAULT 'local',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (job_id, version)
 );
