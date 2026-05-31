@@ -242,6 +242,7 @@ type MockRunsRepository struct {
 	OrphanedRunIDs []string
 
 	ListByJobResults []dal.RunRecord
+	RunRecords       map[string]dal.RunRecord
 	QueuedRuns       []dal.QueuedRun
 	PendingExecution dal.ExecutionDispatchRecord
 
@@ -254,6 +255,7 @@ type MockRunsRepository struct {
 	LastCreateTargetCell  string
 	LastCreateTargetCells []string
 	RecordedPayloads      map[string]string
+	ExecutionPayloads     map[string]dal.ExecutionPayloadRecord
 	LastListJobID         string
 	LastListAfterIndex    *int
 	LastListSince         *time.Time
@@ -477,6 +479,51 @@ func (m *MockRunsRepository) RecordExecutionPayload(ctx context.Context, runID, 
 	return payloadHash, payloadJSON, nil
 }
 
+func (m *MockRunsRepository) GetExecutionPayloadForRun(ctx context.Context, runID string) (dal.ExecutionPayloadRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.ExecutionPayloads != nil {
+		if rec, ok := m.ExecutionPayloads[runID]; ok {
+			return rec, nil
+		}
+	}
+
+	if payloadJSON, ok := m.RecordedPayloads[runID]; ok {
+		payloadHash := dal.ExecutionPayloadHash(payloadJSON)
+		return dal.ExecutionPayloadRecord{
+			RunID:       runID,
+			PayloadHash: payloadHash,
+			PayloadJSON: payloadJSON,
+		}, nil
+	}
+
+	return dal.ExecutionPayloadRecord{}, fmt.Errorf("%w: execution payload for run %s", dal.ErrNotFound, runID)
+}
+
+func (m *MockRunsRepository) GetExecutionPayloadByHash(ctx context.Context, payloadHash string) (dal.ExecutionPayloadRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, rec := range m.ExecutionPayloads {
+		if rec.PayloadHash == payloadHash {
+			return rec, nil
+		}
+	}
+
+	for runID, payloadJSON := range m.RecordedPayloads {
+		if dal.ExecutionPayloadHash(payloadJSON) == payloadHash {
+			return dal.ExecutionPayloadRecord{
+				RunID:       runID,
+				PayloadHash: payloadHash,
+				PayloadJSON: payloadJSON,
+			}, nil
+		}
+	}
+
+	return dal.ExecutionPayloadRecord{}, fmt.Errorf("%w: execution payload %s", dal.ErrNotFound, payloadHash)
+}
+
 func (m *MockRunsRepository) ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, owningCell string, cursor int64, limit int) ([]dal.RunRecord, int64, error) {
 	if m.ListByJobErr != nil {
 		return nil, 0, m.ListByJobErr
@@ -520,6 +567,15 @@ func (m *MockRunsRepository) CountStuckBeforeDispatchCutoffByCell(ctx context.Co
 }
 
 func (m *MockRunsRepository) GetRun(ctx context.Context, runID string) (dal.RunRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.RunRecords != nil {
+		if rec, ok := m.RunRecords[runID]; ok {
+			return rec, nil
+		}
+	}
+
 	return dal.RunRecord{RunID: runID, Status: m.RunStatus}, nil
 }
 

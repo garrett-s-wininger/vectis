@@ -100,18 +100,24 @@ type JobRecord struct {
 }
 
 type RunRecord struct {
-	RunID             string
-	RunIndex          int
-	Status            string
-	OrphanReason      *string
-	FailureCode       *string
-	CreatedAt         *string
-	StartedAt         *string
-	FinishedAt        *string
-	FailureReason     *string
-	DefinitionVersion int
-	DefinitionHash    string
-	OwningCell        string
+	RunID                string
+	RunIndex             int
+	Status               string
+	OrphanReason         *string
+	FailureCode          *string
+	CreatedAt            *string
+	StartedAt            *string
+	FinishedAt           *string
+	FailureReason        *string
+	DefinitionVersion    int
+	DefinitionHash       string
+	OwningCell           string
+	TriggerInvocationID  *string
+	TriggerID            *int64
+	TriggerType          *string
+	TriggerPayloadHash   *string
+	RequestedCells       []string
+	ExecutionPayloadHash string
 }
 
 type QueuedRun struct {
@@ -136,6 +142,13 @@ type CreatedRun struct {
 type RunAuditMetadata struct {
 	TriggerInvocationID  string
 	ExecutionPayloadHash string
+}
+
+type ExecutionPayloadRecord struct {
+	RunID          string
+	PayloadHash    string
+	PayloadJSON    string
+	DefinitionHash string
 }
 
 type ExecutionDispatchRecord struct {
@@ -344,6 +357,8 @@ type RunsRepository interface {
 	CreateRunsInCells(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellIDs []string) ([]CreatedRun, error)
 	CreateRunsInCellsWithAudit(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellIDs []string, audit RunAuditMetadata) ([]CreatedRun, error)
 	RecordExecutionPayload(ctx context.Context, runID, payloadJSON, definitionHash string) (payloadHash string, recordedPayloadJSON string, err error)
+	GetExecutionPayloadForRun(ctx context.Context, runID string) (ExecutionPayloadRecord, error)
+	GetExecutionPayloadByHash(ctx context.Context, payloadHash string) (ExecutionPayloadRecord, error)
 	ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, owningCell string, cursor int64, limit int) ([]RunRecord, int64, error)
 	ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]QueuedRun, error)
 	GetPendingExecution(ctx context.Context, runID string) (ExecutionDispatchRecord, error)

@@ -222,6 +222,45 @@ func TestTriggerInvocations_CreateRunAuditAndPayloadLedger(t *testing.T) {
 	if payloadRows != 1 {
 		t.Fatalf("expected only the frozen payload ledger row, got %d", payloadRows)
 	}
+
+	runRec, err := repos.Runs().GetRun(ctx, created[0].RunID)
+	if err != nil {
+		t.Fatalf("get audited run: %v", err)
+	}
+
+	if runRec.TriggerInvocationID == nil || *runRec.TriggerInvocationID != rec.InvocationID {
+		t.Fatalf("run trigger invocation id: got %+v want %q", runRec.TriggerInvocationID, rec.InvocationID)
+	}
+
+	if runRec.TriggerType == nil || *runRec.TriggerType != dal.TriggerTypeManual {
+		t.Fatalf("run trigger type: got %+v want %q", runRec.TriggerType, dal.TriggerTypeManual)
+	}
+
+	if runRec.ExecutionPayloadHash != payloadHash1 {
+		t.Fatalf("run execution payload hash: got %q want %q", runRec.ExecutionPayloadHash, payloadHash1)
+	}
+
+	if len(runRec.RequestedCells) != 2 || runRec.RequestedCells[0] != "iad-a" || runRec.RequestedCells[1] != "pdx-b" {
+		t.Fatalf("run requested cells: got %+v", runRec.RequestedCells)
+	}
+
+	payloadByRun, err := repos.Runs().GetExecutionPayloadForRun(ctx, created[0].RunID)
+	if err != nil {
+		t.Fatalf("get payload by run: %v", err)
+	}
+
+	if payloadByRun.PayloadHash != payloadHash1 || payloadByRun.PayloadJSON != payload1 {
+		t.Fatalf("payload by run: got hash=%q payload=%q", payloadByRun.PayloadHash, payloadByRun.PayloadJSON)
+	}
+
+	payloadByHash, err := repos.Runs().GetExecutionPayloadByHash(ctx, payloadHash1)
+	if err != nil {
+		t.Fatalf("get payload by hash: %v", err)
+	}
+
+	if payloadByHash.PayloadHash != payloadHash1 || payloadByHash.PayloadJSON != payload1 {
+		t.Fatalf("payload by hash: got hash=%q payload=%q", payloadByHash.PayloadHash, payloadByHash.PayloadJSON)
+	}
 }
 
 func TestCellExecutionAcceptances_AcceptExecutionMaterializesLocalRows(t *testing.T) {

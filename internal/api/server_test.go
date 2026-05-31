@@ -1099,6 +1099,100 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 		t.Fatalf("execution payload should contain run/job identity, got %s", executionPayload)
 	}
 
+	getRunsReq := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-to-trigger/runs", nil)
+	getRunsReq.SetPathValue("id", "job-to-trigger")
+	getRunsRec := httptest.NewRecorder()
+	server.GetJobRuns(getRunsRec, getRunsReq)
+	if getRunsRec.Code != http.StatusOK {
+		t.Fatalf("GetJobRuns: expected status %d, got %d: %s", http.StatusOK, getRunsRec.Code, getRunsRec.Body.String())
+	}
+
+	var runsResp struct {
+		Data []struct {
+			RunID                string   `json:"run_id"`
+			TriggerInvocationID  *string  `json:"trigger_invocation_id,omitempty"`
+			TriggerType          *string  `json:"trigger_type,omitempty"`
+			RequestedCells       []string `json:"requested_cells,omitempty"`
+			ExecutionPayloadHash string   `json:"execution_payload_hash,omitempty"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(getRunsRec.Body).Decode(&runsResp); err != nil {
+		t.Fatalf("decode runs response: %v", err)
+	}
+
+	if len(runsResp.Data) != 1 {
+		t.Fatalf("expected one run row, got %d", len(runsResp.Data))
+	}
+
+	listedRun := runsResp.Data[0]
+	if listedRun.RunID != runID || listedRun.ExecutionPayloadHash != payloadHash {
+		t.Fatalf("unexpected run audit row: %+v", listedRun)
+	}
+
+	if listedRun.TriggerInvocationID == nil || *listedRun.TriggerInvocationID != invocationID {
+		t.Fatalf("trigger invocation id from run list: got %+v want %q", listedRun.TriggerInvocationID, invocationID)
+	}
+
+	if listedRun.TriggerType == nil || *listedRun.TriggerType != dal.TriggerTypeManual {
+		t.Fatalf("trigger type from run list: got %+v want %q", listedRun.TriggerType, dal.TriggerTypeManual)
+	}
+
+	if len(listedRun.RequestedCells) != 1 || listedRun.RequestedCells[0] != dal.DefaultCellID {
+		t.Fatalf("requested cells from run list: got %+v", listedRun.RequestedCells)
+	}
+
+	getRunReq := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+runID, nil)
+	getRunReq.SetPathValue("id", runID)
+	getRunRec := httptest.NewRecorder()
+	server.GetRun(getRunRec, getRunReq)
+	if getRunRec.Code != http.StatusOK {
+		t.Fatalf("GetRun: expected status %d, got %d: %s", http.StatusOK, getRunRec.Code, getRunRec.Body.String())
+	}
+
+	var runResp struct {
+		RunID                string  `json:"run_id"`
+		TriggerInvocationID  *string `json:"trigger_invocation_id,omitempty"`
+		ExecutionPayloadHash string  `json:"execution_payload_hash,omitempty"`
+	}
+	if err := json.NewDecoder(getRunRec.Body).Decode(&runResp); err != nil {
+		t.Fatalf("decode run response: %v", err)
+	}
+
+	if runResp.RunID != runID || runResp.ExecutionPayloadHash != payloadHash {
+		t.Fatalf("unexpected run detail audit fields: %+v", runResp)
+	}
+
+	if runResp.TriggerInvocationID == nil || *runResp.TriggerInvocationID != invocationID {
+		t.Fatalf("trigger invocation id from run detail: got %+v want %q", runResp.TriggerInvocationID, invocationID)
+	}
+
+	payloadReq := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+runID+"/execution-payload", nil)
+	payloadReq.SetPathValue("id", runID)
+	payloadRec := httptest.NewRecorder()
+	server.GetRunExecutionPayload(payloadRec, payloadReq)
+	if payloadRec.Code != http.StatusOK {
+		t.Fatalf("GetRunExecutionPayload: expected status %d, got %d: %s", http.StatusOK, payloadRec.Code, payloadRec.Body.String())
+	}
+
+	var payloadResp struct {
+		RunID       string         `json:"run_id"`
+		PayloadHash string         `json:"payload_hash"`
+		Payload     map[string]any `json:"payload"`
+	}
+	if err := json.NewDecoder(payloadRec.Body).Decode(&payloadResp); err != nil {
+		t.Fatalf("decode execution payload response: %v", err)
+	}
+
+	if payloadResp.RunID != runID || payloadResp.PayloadHash != payloadHash {
+		t.Fatalf("unexpected execution payload response: %+v", payloadResp)
+	}
+
+	payloadJob, ok := payloadResp.Payload["job"].(map[string]any)
+	if !ok || payloadJob["id"] != "job-to-trigger" || payloadJob["runId"] != runID {
+		t.Fatalf("unexpected execution payload job identity: %+v", payloadResp.Payload["job"])
+	}
+
 	deadline := time.Now().Add(2 * time.Second)
 	hasTriggeredMsg := false
 	for time.Now().Before(deadline) && !hasTriggeredMsg {

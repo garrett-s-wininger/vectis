@@ -1721,31 +1721,47 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 	s.markDBRecovered()
 
 	type runRow struct {
-		RunID         string  `json:"run_id"`
-		RunIndex      int     `json:"run_index"`
-		Status        string  `json:"status"`
-		OrphanReason  *string `json:"orphan_reason,omitempty"`
-		FailureCode   *string `json:"failure_code,omitempty"`
-		CreatedAt     *string `json:"created_at,omitempty"`
-		StartedAt     *string `json:"started_at,omitempty"`
-		FinishedAt    *string `json:"finished_at,omitempty"`
-		FailureReason *string `json:"failure_reason,omitempty"`
-		OwningCell    string  `json:"owning_cell,omitempty"`
+		RunID                string   `json:"run_id"`
+		RunIndex             int      `json:"run_index"`
+		Status               string   `json:"status"`
+		OrphanReason         *string  `json:"orphan_reason,omitempty"`
+		FailureCode          *string  `json:"failure_code,omitempty"`
+		CreatedAt            *string  `json:"created_at,omitempty"`
+		StartedAt            *string  `json:"started_at,omitempty"`
+		FinishedAt           *string  `json:"finished_at,omitempty"`
+		FailureReason        *string  `json:"failure_reason,omitempty"`
+		DefinitionVersion    int      `json:"definition_version"`
+		DefinitionHash       string   `json:"definition_hash,omitempty"`
+		OwningCell           string   `json:"owning_cell,omitempty"`
+		TriggerInvocationID  *string  `json:"trigger_invocation_id,omitempty"`
+		TriggerID            *int64   `json:"trigger_id,omitempty"`
+		TriggerType          *string  `json:"trigger_type,omitempty"`
+		TriggerPayloadHash   *string  `json:"trigger_payload_hash,omitempty"`
+		RequestedCells       []string `json:"requested_cells,omitempty"`
+		ExecutionPayloadHash string   `json:"execution_payload_hash,omitempty"`
 	}
 
 	var runs []runRow
 	for _, rec := range runRows {
 		runs = append(runs, runRow{
-			RunID:         rec.RunID,
-			RunIndex:      rec.RunIndex,
-			Status:        rec.Status,
-			OrphanReason:  rec.OrphanReason,
-			FailureCode:   rec.FailureCode,
-			CreatedAt:     rec.CreatedAt,
-			StartedAt:     rec.StartedAt,
-			FinishedAt:    rec.FinishedAt,
-			FailureReason: rec.FailureReason,
-			OwningCell:    rec.OwningCell,
+			RunID:                rec.RunID,
+			RunIndex:             rec.RunIndex,
+			Status:               rec.Status,
+			OrphanReason:         rec.OrphanReason,
+			FailureCode:          rec.FailureCode,
+			CreatedAt:            rec.CreatedAt,
+			StartedAt:            rec.StartedAt,
+			FinishedAt:           rec.FinishedAt,
+			FailureReason:        rec.FailureReason,
+			DefinitionVersion:    rec.DefinitionVersion,
+			DefinitionHash:       rec.DefinitionHash,
+			OwningCell:           rec.OwningCell,
+			TriggerInvocationID:  rec.TriggerInvocationID,
+			TriggerID:            rec.TriggerID,
+			TriggerType:          rec.TriggerType,
+			TriggerPayloadHash:   rec.TriggerPayloadHash,
+			RequestedCells:       rec.RequestedCells,
+			ExecutionPayloadHash: rec.ExecutionPayloadHash,
 		})
 	}
 
@@ -1863,35 +1879,47 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type runRow struct {
-		RunID             string             `json:"run_id"`
-		RunIndex          int                `json:"run_index"`
-		Status            string             `json:"status"`
-		OrphanReason      *string            `json:"orphan_reason,omitempty"`
-		FailureCode       *string            `json:"failure_code,omitempty"`
-		CreatedAt         *string            `json:"created_at,omitempty"`
-		StartedAt         *string            `json:"started_at,omitempty"`
-		FinishedAt        *string            `json:"finished_at,omitempty"`
-		FailureReason     *string            `json:"failure_reason,omitempty"`
-		DefinitionVersion int                `json:"definition_version"`
-		DefinitionHash    string             `json:"definition_hash,omitempty"`
-		OwningCell        string             `json:"owning_cell"`
-		DispatchEvents    []dispatchEventRow `json:"dispatch_events"`
+		RunID                string             `json:"run_id"`
+		RunIndex             int                `json:"run_index"`
+		Status               string             `json:"status"`
+		OrphanReason         *string            `json:"orphan_reason,omitempty"`
+		FailureCode          *string            `json:"failure_code,omitempty"`
+		CreatedAt            *string            `json:"created_at,omitempty"`
+		StartedAt            *string            `json:"started_at,omitempty"`
+		FinishedAt           *string            `json:"finished_at,omitempty"`
+		FailureReason        *string            `json:"failure_reason,omitempty"`
+		DefinitionVersion    int                `json:"definition_version"`
+		DefinitionHash       string             `json:"definition_hash,omitempty"`
+		OwningCell           string             `json:"owning_cell"`
+		TriggerInvocationID  *string            `json:"trigger_invocation_id,omitempty"`
+		TriggerID            *int64             `json:"trigger_id,omitempty"`
+		TriggerType          *string            `json:"trigger_type,omitempty"`
+		TriggerPayloadHash   *string            `json:"trigger_payload_hash,omitempty"`
+		RequestedCells       []string           `json:"requested_cells,omitempty"`
+		ExecutionPayloadHash string             `json:"execution_payload_hash,omitempty"`
+		DispatchEvents       []dispatchEventRow `json:"dispatch_events"`
 	}
 
 	resp := runRow{
-		RunID:             rec.RunID,
-		RunIndex:          rec.RunIndex,
-		Status:            rec.Status,
-		OrphanReason:      rec.OrphanReason,
-		FailureCode:       rec.FailureCode,
-		CreatedAt:         rec.CreatedAt,
-		StartedAt:         rec.StartedAt,
-		FinishedAt:        rec.FinishedAt,
-		FailureReason:     rec.FailureReason,
-		DefinitionVersion: rec.DefinitionVersion,
-		DefinitionHash:    rec.DefinitionHash,
-		OwningCell:        rec.OwningCell,
-		DispatchEvents:    []dispatchEventRow{},
+		RunID:                rec.RunID,
+		RunIndex:             rec.RunIndex,
+		Status:               rec.Status,
+		OrphanReason:         rec.OrphanReason,
+		FailureCode:          rec.FailureCode,
+		CreatedAt:            rec.CreatedAt,
+		StartedAt:            rec.StartedAt,
+		FinishedAt:           rec.FinishedAt,
+		FailureReason:        rec.FailureReason,
+		DefinitionVersion:    rec.DefinitionVersion,
+		DefinitionHash:       rec.DefinitionHash,
+		OwningCell:           rec.OwningCell,
+		TriggerInvocationID:  rec.TriggerInvocationID,
+		TriggerID:            rec.TriggerID,
+		TriggerType:          rec.TriggerType,
+		TriggerPayloadHash:   rec.TriggerPayloadHash,
+		RequestedCells:       rec.RequestedCells,
+		ExecutionPayloadHash: rec.ExecutionPayloadHash,
+		DispatchEvents:       []dispatchEventRow{},
 	}
 
 	for _, event := range dispatchEvents {
@@ -1908,6 +1936,88 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(resp); err != nil {
 		s.logger.Error("Failed to encode run: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	_, _ = w.Write(buf.Bytes())
+}
+
+func (s *APIServer) GetRunExecutionPayload(w http.ResponseWriter, r *http.Request) {
+	runID := r.PathValue("id")
+	if runID == "" {
+		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
+		return
+	}
+
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	nsPath, err := s.getRunJobNamespacePath(ctx, runID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunOperator, nsPath) {
+		writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+		return
+	}
+
+	payload, err := s.runs.GetExecutionPayloadForRun(ctx, runID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "execution_payload_not_found", "execution payload not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+	s.markDBRecovered()
+
+	if !json.Valid([]byte(payload.PayloadJSON)) {
+		s.logger.Error("Stored execution payload for run %s is not valid JSON", runID)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	resp := struct {
+		RunID          string          `json:"run_id"`
+		PayloadHash    string          `json:"payload_hash"`
+		DefinitionHash string          `json:"definition_hash,omitempty"`
+		Payload        json.RawMessage `json:"payload"`
+	}{
+		RunID:          payload.RunID,
+		PayloadHash:    payload.PayloadHash,
+		DefinitionHash: payload.DefinitionHash,
+		Payload:        json.RawMessage(payload.PayloadJSON),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(resp); err != nil {
+		s.logger.Error("Failed to encode execution payload: %v", err)
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}

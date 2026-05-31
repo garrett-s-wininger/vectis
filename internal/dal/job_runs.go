@@ -3,6 +3,7 @@ package dal
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -700,6 +701,63 @@ func (r *SQLRunsRepository) RecordExecutionPayload(ctx context.Context, runID, p
 	return payloadHash, payloadJSON, nil
 }
 
+func (r *SQLRunsRepository) GetExecutionPayloadForRun(ctx context.Context, runID string) (ExecutionPayloadRecord, error) {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return ExecutionPayloadRecord{}, fmt.Errorf("%w: run_id is required", ErrNotFound)
+	}
+
+	var rec ExecutionPayloadRecord
+	var payloadJSON, definitionHash sql.NullString
+	if err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT jr.run_id, jr.execution_payload_hash, ep.payload_json, ep.definition_hash
+		FROM job_runs jr
+		LEFT JOIN execution_payloads ep ON ep.payload_hash = jr.execution_payload_hash
+		WHERE jr.run_id = ?
+	`), runID).Scan(&rec.RunID, &rec.PayloadHash, &payloadJSON, &definitionHash); err != nil {
+
+		if err == sql.ErrNoRows {
+			return ExecutionPayloadRecord{}, fmt.Errorf("%w: run %s", ErrNotFound, runID)
+		}
+
+		return ExecutionPayloadRecord{}, normalizeSQLError(err)
+	}
+
+	if strings.TrimSpace(rec.PayloadHash) == "" || !payloadJSON.Valid {
+		return ExecutionPayloadRecord{}, fmt.Errorf("%w: execution payload for run %s", ErrNotFound, runID)
+	}
+
+	rec.PayloadJSON = payloadJSON.String
+	if definitionHash.Valid {
+		rec.DefinitionHash = definitionHash.String
+	}
+
+	return rec, nil
+}
+
+func (r *SQLRunsRepository) GetExecutionPayloadByHash(ctx context.Context, payloadHash string) (ExecutionPayloadRecord, error) {
+	payloadHash = strings.TrimSpace(payloadHash)
+	if payloadHash == "" {
+		return ExecutionPayloadRecord{}, fmt.Errorf("%w: payload_hash is required", ErrNotFound)
+	}
+
+	var rec ExecutionPayloadRecord
+	if err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT payload_hash, payload_json, definition_hash
+		FROM execution_payloads
+		WHERE payload_hash = ?
+	`), payloadHash).Scan(&rec.PayloadHash, &rec.PayloadJSON, &rec.DefinitionHash); err != nil {
+
+		if err == sql.ErrNoRows {
+			return ExecutionPayloadRecord{}, fmt.Errorf("%w: execution payload %s", ErrNotFound, payloadHash)
+		}
+
+		return ExecutionPayloadRecord{}, normalizeSQLError(err)
+	}
+
+	return rec, nil
+}
+
 func nullableString(value string) any {
 	if strings.TrimSpace(value) == "" {
 		return nil
@@ -729,30 +787,53 @@ func lookupDefinitionHashTx(ctx context.Context, tx *sql.Tx, jobID string, versi
 }
 
 func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, owningCell string, cursor int64, limit int) ([]RunRecord, int64, error) {
-	query := "SELECT id, run_id, run_index, status, orphan_reason, failure_code, CAST(created_at AS TEXT), CAST(started_at AS TEXT), CAST(finished_at AS TEXT), failure_reason, definition_version, definition_hash, owning_cell FROM job_runs WHERE job_id = ?"
+	query := `
+		SELECT
+			jr.id,
+			jr.run_id,
+			jr.run_index,
+			jr.status,
+			jr.orphan_reason,
+			jr.failure_code,
+			CAST(jr.created_at AS TEXT),
+			CAST(jr.started_at AS TEXT),
+			CAST(jr.finished_at AS TEXT),
+			jr.failure_reason,
+			jr.definition_version,
+			jr.definition_hash,
+			jr.owning_cell,
+			jr.trigger_invocation_id,
+			jr.execution_payload_hash,
+			ti.trigger_id,
+			ti.trigger_type,
+			ti.trigger_payload_hash,
+			ti.requested_cells
+		FROM job_runs jr
+		LEFT JOIN trigger_invocations ti ON ti.invocation_id = jr.trigger_invocation_id
+		WHERE jr.job_id = ?`
 	args := []any{jobID}
 
 	if afterIndex != nil {
-		query += " AND run_index > ?"
+		query += " AND jr.run_index > ?"
 		args = append(args, *afterIndex)
 	}
 
 	if since != nil {
-		query += " AND created_at >= ?"
+		query += " AND jr.created_at >= ?"
 		args = append(args, since.UTC().Format("2006-01-02 15:04:05"))
 	}
 
 	if owningCell = strings.TrimSpace(owningCell); owningCell != "" {
-		query += " AND owning_cell = ?"
+		query += " AND jr.owning_cell = ?"
 		args = append(args, owningCell)
 	}
 
 	if cursor > 0 {
-		query += " AND id > ?"
+		query += " AND jr.id > ?"
 		args = append(args, cursor)
 	}
 
-	query += " ORDER BY id ASC LIMIT ?"
+	query += " ORDER BY jr.id ASC LIMIT ?"
 	args = append(args, limit+1)
 
 	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(query), args...)
@@ -767,8 +848,14 @@ func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, afterIn
 		var rec RunRecord
 		var id int64
 		var orphanReason, failureCode, createdAt, startedAt, finishedAt, failureReason sql.NullString
-		if err := rows.Scan(&id, &rec.RunID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &createdAt, &startedAt, &finishedAt, &failureReason, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell); err != nil {
+		var triggerInvocationID, triggerType, triggerPayloadHash, requestedCells sql.NullString
+		var triggerID sql.NullInt64
+		if err := rows.Scan(&id, &rec.RunID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &createdAt, &startedAt, &finishedAt, &failureReason, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell, &triggerInvocationID, &rec.ExecutionPayloadHash, &triggerID, &triggerType, &triggerPayloadHash, &requestedCells); err != nil {
 			return nil, 0, normalizeSQLError(err)
+		}
+
+		if err := applyRunAuditFields(&rec, triggerInvocationID, triggerID, triggerType, triggerPayloadHash, requestedCells); err != nil {
+			return nil, 0, err
 		}
 
 		lastID = id
@@ -1135,10 +1222,35 @@ func (r *SQLRunsRepository) CountStuckBeforeDispatchCutoffByCell(ctx context.Con
 func (r *SQLRunsRepository) GetRun(ctx context.Context, runID string) (RunRecord, error) {
 	var rec RunRecord
 	var orphanReason, failureCode, createdAt, startedAt, finishedAt, failureReason sql.NullString
+	var triggerInvocationID, triggerType, triggerPayloadHash, requestedCells sql.NullString
+	var triggerID sql.NullInt64
 	err := r.db.QueryRowContext(ctx,
-		rebindQueryForPgx("SELECT run_id, run_index, status, orphan_reason, failure_code, CAST(created_at AS TEXT), CAST(started_at AS TEXT), CAST(finished_at AS TEXT), failure_reason, definition_version, definition_hash, owning_cell FROM job_runs WHERE run_id = ?"),
+		rebindQueryForPgx(`
+			SELECT
+				jr.run_id,
+				jr.run_index,
+				jr.status,
+				jr.orphan_reason,
+				jr.failure_code,
+				CAST(jr.created_at AS TEXT),
+				CAST(jr.started_at AS TEXT),
+				CAST(jr.finished_at AS TEXT),
+				jr.failure_reason,
+				jr.definition_version,
+				jr.definition_hash,
+				jr.owning_cell,
+				jr.trigger_invocation_id,
+				jr.execution_payload_hash,
+				ti.trigger_id,
+				ti.trigger_type,
+				ti.trigger_payload_hash,
+				ti.requested_cells
+			FROM job_runs jr
+			LEFT JOIN trigger_invocations ti ON ti.invocation_id = jr.trigger_invocation_id
+			WHERE jr.run_id = ?
+		`),
 		runID,
-	).Scan(&rec.RunID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &createdAt, &startedAt, &finishedAt, &failureReason, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell)
+	).Scan(&rec.RunID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &createdAt, &startedAt, &finishedAt, &failureReason, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell, &triggerInvocationID, &rec.ExecutionPayloadHash, &triggerID, &triggerType, &triggerPayloadHash, &requestedCells)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -1172,5 +1284,39 @@ func (r *SQLRunsRepository) GetRun(ctx context.Context, runID string) (RunRecord
 		rec.FailureReason = &failureReason.String
 	}
 
+	if err := applyRunAuditFields(&rec, triggerInvocationID, triggerID, triggerType, triggerPayloadHash, requestedCells); err != nil {
+		return RunRecord{}, err
+	}
+
 	return rec, nil
+}
+
+func applyRunAuditFields(rec *RunRecord, triggerInvocationID sql.NullString, triggerID sql.NullInt64, triggerType, triggerPayloadHash, requestedCells sql.NullString) error {
+	if triggerInvocationID.Valid && strings.TrimSpace(triggerInvocationID.String) != "" {
+		rec.TriggerInvocationID = &triggerInvocationID.String
+	}
+
+	if triggerID.Valid {
+		v := triggerID.Int64
+		rec.TriggerID = &v
+	}
+
+	if triggerType.Valid && strings.TrimSpace(triggerType.String) != "" {
+		rec.TriggerType = &triggerType.String
+	}
+
+	if triggerPayloadHash.Valid && strings.TrimSpace(triggerPayloadHash.String) != "" {
+		rec.TriggerPayloadHash = &triggerPayloadHash.String
+	}
+
+	if requestedCells.Valid && strings.TrimSpace(requestedCells.String) != "" {
+		var cells []string
+		if err := json.Unmarshal([]byte(requestedCells.String), &cells); err != nil {
+			return fmt.Errorf("parse trigger requested cells: %w", err)
+		}
+
+		rec.RequestedCells = cells
+	}
+
+	return nil
 }

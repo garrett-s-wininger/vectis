@@ -517,6 +517,23 @@ func TestCronService_TriggerJob_Success(t *testing.T) {
 	if env.ExecutionID == "" || env.SegmentID == "" || env.CellID != dal.DefaultCellID {
 		t.Fatalf("unexpected envelope target: execution=%q segment=%q cell=%q", env.ExecutionID, env.SegmentID, env.CellID)
 	}
+
+	runRec, err := dal.NewSQLRepositories(db).Runs().GetRun(context.Background(), jobs[0].GetRunId())
+	if err != nil {
+		t.Fatalf("get cron run: %v", err)
+	}
+
+	if runRec.TriggerInvocationID == nil {
+		t.Fatal("expected cron trigger invocation id on run")
+	}
+
+	if runRec.TriggerType == nil || *runRec.TriggerType != dal.TriggerTypeCron {
+		t.Fatalf("trigger type: got %+v want %q", runRec.TriggerType, dal.TriggerTypeCron)
+	}
+
+	if runRec.ExecutionPayloadHash == "" {
+		t.Fatal("expected cron execution payload hash on run")
+	}
 }
 
 func TestCronService_WaitTimeToNextMinute_AtSecondZero(t *testing.T) {
