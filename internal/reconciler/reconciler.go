@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 const MinDispatchGap = 30 * time.Second
@@ -239,6 +240,20 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 	}
 
 	s.recordDispatchEvent(ctx, runID, qr.OwningCell, dal.DispatchEventAttempt, nil)
+	dispatchReq, err := s.recordExecutionPayload(ctx, runID, req, qr.DefinitionHash)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "record execution payload")
+		msg := err.Error()
+		s.recordDispatchEvent(ctx, runID, qr.OwningCell, dal.DispatchEventFailure, &msg)
+		if s.metrics != nil {
+			s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeFailedEnqueue)
+		}
+
+		return err
+	}
+	req = dispatchReq
+
 	ingress := s.ingress
 	if ingress == nil {
 		endpoints, err := config.CellIngressEndpoints()
@@ -310,4 +325,27 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 
 	s.logger.Info("reconciler: re-enqueued run %s (job %s, %s)", runID, jobID, decision.ReasonCode)
 	return nil
+}
+
+func (s *Service) recordExecutionPayload(ctx context.Context, runID string, req *api.JobRequest, definitionHash string) (*api.JobRequest, error) {
+	payloadJSON, err := protojson.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal execution payload: %w", err)
+	}
+
+	_, recordedPayloadJSON, err := s.runs.RecordExecutionPayload(ctx, runID, string(payloadJSON), definitionHash)
+	if err != nil {
+		return nil, fmt.Errorf("record execution payload: %w", err)
+	}
+
+	if recordedPayloadJSON == string(payloadJSON) {
+		return req, nil
+	}
+
+	var recordedReq api.JobRequest
+	if err := protojson.Unmarshal([]byte(recordedPayloadJSON), &recordedReq); err != nil {
+		return nil, fmt.Errorf("parse recorded execution payload: %w", err)
+	}
+
+	return &recordedReq, nil
 }

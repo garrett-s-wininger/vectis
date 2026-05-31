@@ -19,6 +19,10 @@ func (StubEphemeralRunStarter) CreateDefinitionAndRunInCell(context.Context, str
 	return "", 0, fmt.Errorf("stub ephemeral run starter: not configured")
 }
 
+func (StubEphemeralRunStarter) CreateDefinitionAndRunInCellWithAudit(context.Context, string, string, *int, string, dal.RunAuditMetadata) (string, int, error) {
+	return "", 0, fmt.Errorf("stub ephemeral run starter: not configured")
+}
+
 type MockJobsRepository struct {
 	Definitions        map[string]string
 	DefinitionVersions map[string]int
@@ -246,8 +250,10 @@ type MockRunsRepository struct {
 
 	LastCreateJobID       string
 	LastDefinitionVersion int
+	LastRunAudit          dal.RunAuditMetadata
 	LastCreateTargetCell  string
 	LastCreateTargetCells []string
+	RecordedPayloads      map[string]string
 	LastListJobID         string
 	LastListAfterIndex    *int
 	LastListSince         *time.Time
@@ -404,6 +410,10 @@ func (m *MockRunsRepository) CreateRunInCell(ctx context.Context, jobID string, 
 }
 
 func (m *MockRunsRepository) CreateRunsInCells(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellIDs []string) ([]dal.CreatedRun, error) {
+	return m.CreateRunsInCellsWithAudit(ctx, jobID, runIndex, definitionVersion, targetCellIDs, dal.RunAuditMetadata{})
+}
+
+func (m *MockRunsRepository) CreateRunsInCellsWithAudit(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellIDs []string, audit dal.RunAuditMetadata) ([]dal.CreatedRun, error) {
 	if m.CreateRunErr != nil {
 		return nil, m.CreateRunErr
 	}
@@ -423,6 +433,7 @@ func (m *MockRunsRepository) CreateRunsInCells(ctx context.Context, jobID string
 	m.mu.Lock()
 	m.LastCreateJobID = jobID
 	m.LastDefinitionVersion = definitionVersion
+	m.LastRunAudit = audit
 	m.LastCreateTargetCell = targetCellIDs[0]
 	m.LastCreateTargetCells = append([]string(nil), targetCellIDs...)
 	m.mu.Unlock()
@@ -447,6 +458,23 @@ func (m *MockRunsRepository) CreateRunsInCells(ctx context.Context, jobID string
 	}
 
 	return created, nil
+}
+
+func (m *MockRunsRepository) RecordExecutionPayload(ctx context.Context, runID, payloadJSON, definitionHash string) (string, string, error) {
+	payloadHash := dal.ExecutionPayloadHash(payloadJSON)
+	m.mu.Lock()
+	if m.RecordedPayloads == nil {
+		m.RecordedPayloads = map[string]string{}
+	}
+
+	if recordedPayloadJSON, ok := m.RecordedPayloads[runID]; ok {
+		m.mu.Unlock()
+		return dal.ExecutionPayloadHash(recordedPayloadJSON), recordedPayloadJSON, nil
+	}
+	m.RecordedPayloads[runID] = payloadJSON
+	m.mu.Unlock()
+
+	return payloadHash, payloadJSON, nil
 }
 
 func (m *MockRunsRepository) ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, owningCell string, cursor int64, limit int) ([]dal.RunRecord, int64, error) {
@@ -505,6 +533,12 @@ func (m *MockRunsRepository) SnapshotLastCreate() (string, int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.LastCreateJobID, m.LastDefinitionVersion
+}
+
+func (m *MockRunsRepository) SnapshotLastRunAudit() dal.RunAuditMetadata {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.LastRunAudit
 }
 
 func (m *MockRunsRepository) SnapshotLastCreateTargetCell() string {

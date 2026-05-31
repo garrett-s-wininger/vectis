@@ -80,6 +80,10 @@ const (
 	DispatchEventSuccess = "success"
 	DispatchEventFailure = "failure"
 
+	TriggerTypeManual  = "manual"
+	TriggerTypeCron    = "cron"
+	TriggerTypeWebhook = "webhook"
+
 	CatalogEventStatusPending = "pending"
 	CatalogEventStatusApplied = "applied"
 	CatalogEventStatusFailed  = "failed"
@@ -127,6 +131,11 @@ type CreatedRun struct {
 	RunID        string
 	RunIndex     int
 	TargetCellID string
+}
+
+type RunAuditMetadata struct {
+	TriggerInvocationID  string
+	ExecutionPayloadHash string
 }
 
 type ExecutionDispatchRecord struct {
@@ -229,6 +238,25 @@ type CatalogEventSourceSummary struct {
 	LastAppliedUnix  *int64
 }
 
+type TriggerInvocation struct {
+	InvocationID       string
+	TriggerID          *int64
+	JobID              string
+	TriggerType        string
+	TriggerPayloadHash string
+	RequestedCells     []string
+}
+
+type TriggerInvocationRecord struct {
+	ID                 int64
+	InvocationID       string
+	TriggerID          *int64
+	JobID              string
+	TriggerType        string
+	TriggerPayloadHash string
+	RequestedCellsJSON string
+}
+
 type IdempotencyRepository interface {
 	Reserve(ctx context.Context, scope, key, requestHash string) (record IdempotencyRecord, created bool, err error)
 	Complete(ctx context.Context, scope, key, responseJSON string) error
@@ -250,6 +278,10 @@ type CatalogEventsRepository interface {
 	SummaryBySource(ctx context.Context) ([]CatalogEventSourceSummary, error)
 }
 
+type TriggerInvocationsRepository interface {
+	Record(ctx context.Context, invocation TriggerInvocation) (TriggerInvocationRecord, error)
+}
+
 type CatalogStatusBackfillRepository interface {
 	ListMissingRunStatusCatalogEvents(ctx context.Context, sourceCell string, limit int) ([]RunStatusUpdate, error)
 	ListMissingExecutionStatusCatalogEvents(ctx context.Context, sourceCell string, limit int) ([]ExecutionStatusUpdate, error)
@@ -257,6 +289,7 @@ type CatalogStatusBackfillRepository interface {
 
 type CronSchedule struct {
 	ID        int64
+	TriggerID int64
 	JobID     string
 	CronSpec  string
 	NextRunAt time.Time
@@ -309,6 +342,8 @@ type RunsRepository interface {
 	CreateRun(ctx context.Context, jobID string, runIndex *int, definitionVersion int) (runID string, runIndexOut int, err error)
 	CreateRunInCell(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellID string) (runID string, runIndexOut int, err error)
 	CreateRunsInCells(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellIDs []string) ([]CreatedRun, error)
+	CreateRunsInCellsWithAudit(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellIDs []string, audit RunAuditMetadata) ([]CreatedRun, error)
+	RecordExecutionPayload(ctx context.Context, runID, payloadJSON, definitionHash string) (payloadHash string, recordedPayloadJSON string, err error)
 	ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, owningCell string, cursor int64, limit int) ([]RunRecord, int64, error)
 	ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]QueuedRun, error)
 	GetPendingExecution(ctx context.Context, runID string) (ExecutionDispatchRecord, error)
@@ -343,6 +378,11 @@ type JobsRepository interface {
 	UpdateDefinition(ctx context.Context, jobID, definitionJSON string) (newVersion int, err error)
 }
 
+type EphemeralRunStarterWithAudit interface {
+	EphemeralRunStarter
+	CreateDefinitionAndRunInCellWithAudit(ctx context.Context, jobID, definitionJSON string, runIndex *int, targetCellID string, audit RunAuditMetadata) (runID string, runIndexOut int, err error)
+}
+
 type SQLRepositories struct {
 	db           *sql.DB
 	cellID       string
@@ -354,6 +394,7 @@ type SQLRepositories struct {
 	roleBindings *SQLRoleBindingsRepository
 	idempotency  *SQLIdempotencyRepository
 	dispatch     *SQLDispatchEventsRepository
+	triggers     *SQLTriggerInvocationsRepository
 	catalog      *SQLCatalogEventsRepository
 	catalogState *SQLCatalogStatusBackfillRepository
 	cellAccept   *SQLCellExecutionAcceptancesRepository
@@ -376,6 +417,7 @@ func NewSQLRepositoriesWithCellID(db *sql.DB, cellID string) *SQLRepositories {
 		roleBindings: NewSQLRoleBindingsRepository(db),
 		idempotency:  &SQLIdempotencyRepository{db: db},
 		dispatch:     &SQLDispatchEventsRepository{db: db},
+		triggers:     &SQLTriggerInvocationsRepository{db: db},
 		catalog:      &SQLCatalogEventsRepository{db: db},
 		catalogState: &SQLCatalogStatusBackfillRepository{db: db},
 		cellAccept:   &SQLCellExecutionAcceptancesRepository{db: db, cellID: cellID},
@@ -383,15 +425,19 @@ func NewSQLRepositoriesWithCellID(db *sql.DB, cellID string) *SQLRepositories {
 }
 
 var _ EphemeralRunStarter = (*SQLRepositories)(nil)
+var _ EphemeralRunStarterWithAudit = (*SQLRepositories)(nil)
 
 func DefinitionHash(definitionJSON string) string {
-	sum := sha256.Sum256([]byte(definitionJSON))
+	return PayloadHash(definitionJSON)
+}
+
+func PayloadHash(payload string) string {
+	sum := sha256.Sum256([]byte(payload))
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 func ExecutionPayloadHash(payloadJSON string) string {
-	sum := sha256.Sum256([]byte(payloadJSON))
-	return "sha256:" + hex.EncodeToString(sum[:])
+	return PayloadHash(payloadJSON)
 }
 
 func newGlobalID() string {
@@ -456,6 +502,10 @@ func (r *SQLRepositories) CreateDefinitionAndRun(ctx context.Context, jobID, def
 }
 
 func (r *SQLRepositories) CreateDefinitionAndRunInCell(ctx context.Context, jobID, definitionJSON string, runIndex *int, targetCellID string) (runID string, runIndexOut int, err error) {
+	return r.CreateDefinitionAndRunInCellWithAudit(ctx, jobID, definitionJSON, runIndex, targetCellID, RunAuditMetadata{})
+}
+
+func (r *SQLRepositories) CreateDefinitionAndRunInCellWithAudit(ctx context.Context, jobID, definitionJSON string, runIndex *int, targetCellID string, audit RunAuditMetadata) (runID string, runIndexOut int, err error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", 0, err
@@ -486,13 +536,15 @@ func (r *SQLRepositories) CreateDefinitionAndRunInCell(ctx context.Context, jobI
 	}
 
 	if _, err := tx.ExecContext(ctx,
-		rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, 1, ?, ?)`),
+		rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, trigger_invocation_id, execution_payload_hash) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, 1, ?, ?, ?, ?)`),
 		runID,
 		jobID,
 		idx,
 		"queued",
 		definitionHash,
 		targetCellID,
+		nullableString(audit.TriggerInvocationID),
+		strings.TrimSpace(audit.ExecutionPayloadHash),
 	); err != nil {
 		return "", 0, normalizeSQLError(err)
 	}
@@ -538,6 +590,10 @@ func (r *SQLRepositories) Idempotency() IdempotencyRepository {
 
 func (r *SQLRepositories) DispatchEvents() DispatchEventsRepository {
 	return r.dispatch
+}
+
+func (r *SQLRepositories) TriggerInvocations() TriggerInvocationsRepository {
+	return r.triggers
 }
 
 func (r *SQLRepositories) CatalogEvents() CatalogEventsRepository {

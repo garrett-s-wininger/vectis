@@ -69,6 +69,7 @@ type APIServer struct {
 	roleBindings   dal.RoleBindingsRepository
 	idempotency    dal.IdempotencyRepository
 	dispatchEvents dal.DispatchEventsRepository
+	triggerEvents  dal.TriggerInvocationsRepository
 	catalogEvents  dal.CatalogEventsRepository
 	schedules      dal.SchedulesRepository
 	logger         interfaces.Logger
@@ -78,6 +79,7 @@ type APIServer struct {
 	dbUnavailable  atomic.Bool
 	healthDB       *sql.DB
 	MetricsHandler http.Handler
+
 	// AccessLogger, when set, writes one structured slog record per HTTP request
 	// (typically JSON on stderr). Health and /metrics are excluded.
 	AccessLogger *slog.Logger
@@ -127,6 +129,7 @@ func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
 	s.roleBindings = repos.RoleBindings()
 	s.idempotency = repos.Idempotency()
 	s.dispatchEvents = repos.DispatchEvents()
+	s.triggerEvents = repos.TriggerInvocations()
 	s.catalogEvents = repos.CatalogEvents()
 	s.schedules = repos.Schedules()
 	return s

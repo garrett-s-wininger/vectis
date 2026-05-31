@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -120,7 +121,8 @@ func TestIntegrationCron_TriggerJob_FullFlow(t *testing.T) {
 
 	var dbStatus string
 	var runIndex int
-	err := db.QueryRow("SELECT status, run_index FROM job_runs WHERE job_id = ? AND run_id = ?", jobID, runID).Scan(&dbStatus, &runIndex)
+	var invocationID, payloadHash string
+	err := db.QueryRow("SELECT status, run_index, trigger_invocation_id, execution_payload_hash FROM job_runs WHERE job_id = ? AND run_id = ?", jobID, runID).Scan(&dbStatus, &runIndex, &invocationID, &payloadHash)
 	if err != nil {
 		t.Fatalf("expected job_runs row for cron-triggered job: %v", err)
 	}
@@ -131,6 +133,36 @@ func TestIntegrationCron_TriggerJob_FullFlow(t *testing.T) {
 
 	if runIndex != 1 {
 		t.Errorf("expected run_index 1, got %d", runIndex)
+	}
+
+	if invocationID == "" {
+		t.Fatal("expected cron trigger invocation id")
+	}
+
+	if payloadHash == "" {
+		t.Fatal("expected cron execution payload hash")
+	}
+
+	var triggerType, payloadJSON string
+	if err := db.QueryRow("SELECT trigger_type, requested_cells FROM trigger_invocations WHERE invocation_id = ?", invocationID).Scan(&triggerType, &payloadJSON); err != nil {
+		t.Fatalf("query trigger invocation: %v", err)
+	}
+
+	if triggerType != dal.TriggerTypeCron {
+		t.Fatalf("trigger type: got %q want %q", triggerType, dal.TriggerTypeCron)
+	}
+
+	if !strings.Contains(payloadJSON, dal.DefaultCellID) {
+		t.Fatalf("expected cron requested cells to include default cell, got %s", payloadJSON)
+	}
+
+	var executionPayload string
+	if err := db.QueryRow("SELECT payload_json FROM execution_payloads WHERE payload_hash = ?", payloadHash).Scan(&executionPayload); err != nil {
+		t.Fatalf("query execution payload: %v", err)
+	}
+
+	if !strings.Contains(executionPayload, runID) || !strings.Contains(executionPayload, jobID) {
+		t.Fatalf("execution payload should contain run/job identity, got %s", executionPayload)
 	}
 
 	newNextRun := queryCronIntegrationNextRun(t, db, jobID)

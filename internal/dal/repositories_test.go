@@ -132,6 +132,98 @@ func TestJobsRepository_CRUDAndConflict(t *testing.T) {
 	}
 }
 
+func TestTriggerInvocations_CreateRunAuditAndPayloadLedger(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")
+	ctx := context.Background()
+
+	jobID := "job-audit"
+	definitionJSON := `{"id":"job-audit","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, definitionJSON, 1); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	rec, err := repos.TriggerInvocations().Record(ctx, dal.TriggerInvocation{
+		JobID:              jobID,
+		TriggerType:        dal.TriggerTypeManual,
+		TriggerPayloadHash: dal.PayloadHash(`{"target_cell_ids":["iad-a","pdx-b"]}`),
+		RequestedCells:     []string{"iad-a", "pdx-b"},
+	})
+
+	if err != nil {
+		t.Fatalf("record trigger invocation: %v", err)
+	}
+
+	created, err := repos.Runs().CreateRunsInCellsWithAudit(ctx, jobID, nil, 1, []string{"iad-a", "pdx-b"}, dal.RunAuditMetadata{
+		TriggerInvocationID: rec.InvocationID,
+	})
+	if err != nil {
+		t.Fatalf("create audited runs: %v", err)
+	}
+
+	if len(created) != 2 {
+		t.Fatalf("created runs: got %d, want 2", len(created))
+	}
+
+	for _, run := range created {
+		var invocationID, payloadHash string
+		if err := db.QueryRowContext(ctx, "SELECT trigger_invocation_id, execution_payload_hash FROM job_runs WHERE run_id = ?", run.RunID).Scan(&invocationID, &payloadHash); err != nil {
+			t.Fatalf("query run audit fields: %v", err)
+		}
+
+		if invocationID != rec.InvocationID {
+			t.Fatalf("run %s invocation: got %q want %q", run.RunID, invocationID, rec.InvocationID)
+		}
+
+		if payloadHash != "" {
+			t.Fatalf("run %s should not have payload hash before dispatch, got %q", run.RunID, payloadHash)
+		}
+	}
+
+	payload1 := `{"job":{"id":"job-audit","runId":"` + created[0].RunID + `"},"metadata":{"attempt":"1"}}`
+	payloadHash1, recordedPayload1, err := repos.Runs().RecordExecutionPayload(ctx, created[0].RunID, payload1, dal.DefinitionHash(definitionJSON))
+	if err != nil {
+		t.Fatalf("record execution payload: %v", err)
+	}
+
+	if recordedPayload1 != payload1 {
+		t.Fatalf("recorded payload: got %q want %q", recordedPayload1, payload1)
+	}
+
+	payload2 := `{"job":{"id":"job-audit","runId":"` + created[0].RunID + `"},"metadata":{"attempt":"2"}}`
+	payloadHash2, recordedPayload2, err := repos.Runs().RecordExecutionPayload(ctx, created[0].RunID, payload2, dal.DefinitionHash(definitionJSON))
+	if err != nil {
+		t.Fatalf("record replacement execution payload: %v", err)
+	}
+
+	if payloadHash2 != payloadHash1 {
+		t.Fatalf("replacement payload hash: got %q want frozen %q", payloadHash2, payloadHash1)
+	}
+
+	if recordedPayload2 != payload1 {
+		t.Fatalf("replacement payload should replay original: got %q want %q", recordedPayload2, payload1)
+	}
+
+	var currentPayloadHash string
+	if err := db.QueryRowContext(ctx, "SELECT execution_payload_hash FROM job_runs WHERE run_id = ?", created[0].RunID).Scan(&currentPayloadHash); err != nil {
+		t.Fatalf("query current payload hash: %v", err)
+	}
+
+	if currentPayloadHash != payloadHash1 {
+		t.Fatalf("current payload hash: got %q want %q", currentPayloadHash, payloadHash1)
+	}
+
+	attemptedPayloadHash2 := dal.ExecutionPayloadHash(payload2)
+	var payloadRows int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM execution_payloads WHERE payload_hash IN (?, ?)", payloadHash1, attemptedPayloadHash2).Scan(&payloadRows); err != nil {
+		t.Fatalf("count payload ledger rows: %v", err)
+	}
+
+	if payloadRows != 1 {
+		t.Fatalf("expected only the frozen payload ledger row, got %d", payloadRows)
+	}
+}
+
 func TestCellExecutionAcceptances_AcceptExecutionMaterializesLocalRows(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")

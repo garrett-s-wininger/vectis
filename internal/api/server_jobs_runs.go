@@ -1013,6 +1013,7 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	definitionHash := dal.DefinitionHash(definitionJSON)
 	job.Id = &jobID
 
 	triggerBody, err := io.ReadAll(io.LimitReader(r.Body, maxJobDefinitionBodyBytes))
@@ -1052,7 +1053,22 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	createdRuns, err := s.runs.CreateRunsInCells(ctx, jobID, nil, definitionVersion, targetCellIDs)
+	invocationID, err := s.recordTriggerInvocation(ctx, jobID, dal.TriggerTypeManual, string(bytes.TrimSpace(triggerBody)), targetCellIDs)
+	if err != nil {
+		if idempotencyReserved {
+			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error recording trigger invocation: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	createdRuns, err := s.runs.CreateRunsInCellsWithAudit(ctx, jobID, nil, definitionVersion, targetCellIDs, dal.RunAuditMetadata{TriggerInvocationID: invocationID})
 	if err != nil {
 		if idempotencyReserved {
 			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
@@ -1081,6 +1097,7 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 			"run_index":   createdRun.RunIndex,
 			"namespace":   nsPath,
 			"target_cell": createdRun.TargetCellID,
+			"invocation":  invocationID,
 		})
 	}
 
@@ -1102,11 +1119,11 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 	for _, createdRun := range createdRuns {
 		runID := createdRun.RunID
 		jobForRun := cloneJobForRun(&job, runID)
-		go s.finishTriggerEnqueue(bgCtx, jobID, runID, createdRun.RunIndex, jobForRun)
+		go s.finishTriggerEnqueue(bgCtx, jobID, runID, createdRun.RunIndex, jobForRun, definitionHash)
 	}
 }
 
-func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID string, runIndex int, job *api.Job) {
+func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID string, runIndex int, job *api.Job, definitionHash string) {
 	ctx, span := observability.Tracer("vectis/api").Start(ctx, "run.enqueue.trigger.async", trace.WithSpanKind(trace.SpanKindInternal))
 	span.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
 	span.SetAttributes(observability.RunIndexAttrs(runIndex)...)
@@ -1137,6 +1154,22 @@ func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID strin
 	}
 
 	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventAttempt, targetCellID, nil)
+	dispatchReq, err := s.recordExecutionPayload(ctx, runID, req, definitionHash)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "record execution payload")
+		span.End()
+		s.logger.Error("Failed to record execution payload (run %s): %v", runID, err)
+		msg := err.Error()
+		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg)
+		return
+	}
+
+	req = dispatchReq
+	if env, ok, envErr := cell.ExecutionEnvelopeFromRequest(req); envErr == nil && ok {
+		targetCellID = env.CellID
+	}
+
 	if err := s.submitExecution(ctx, qc, req); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "enqueue")
@@ -1319,6 +1352,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	definitionHash := dal.DefinitionHash(string(definitionJSON))
 	runIndexOne := 1
 	ctx, cancel := s.handlerDBCtx(r)
 	defer cancel()
@@ -1372,7 +1406,28 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	runID, _, err := s.ephemeralRuns.CreateDefinitionAndRunInCell(ctx, ephemeralJobID, string(definitionJSON), &runIndexOne, targetCellID)
+	invocationID, err := s.recordTriggerInvocation(ctx, ephemeralJobID, dal.TriggerTypeManual, string(bytes.TrimSpace(body)), []string{targetCellID})
+	if err != nil {
+		if idempotencyReserved {
+			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error recording trigger invocation: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	var runID string
+	if starter, ok := s.ephemeralRuns.(dal.EphemeralRunStarterWithAudit); ok {
+		runID, _, err = starter.CreateDefinitionAndRunInCellWithAudit(ctx, ephemeralJobID, string(definitionJSON), &runIndexOne, targetCellID, dal.RunAuditMetadata{TriggerInvocationID: invocationID})
+	} else {
+		runID, _, err = s.ephemeralRuns.CreateDefinitionAndRunInCell(ctx, ephemeralJobID, string(definitionJSON), &runIndexOne, targetCellID)
+	}
+
 	if err != nil {
 		if idempotencyReserved {
 			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
@@ -1396,10 +1451,11 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.auditLog(ctx, audit.EventRunTriggered, actorID, 0, map[string]any{
-		"job_id":    ephemeralJobID,
-		"run_id":    runID,
-		"namespace": ns.Path,
-		"ephemeral": true,
+		"job_id":     ephemeralJobID,
+		"run_id":     runID,
+		"namespace":  ns.Path,
+		"ephemeral":  true,
+		"invocation": invocationID,
 	})
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1418,10 +1474,10 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 
 	bgCtx := detachedTraceContextFromRequest(r)
 
-	go s.finishRunJobEnqueue(bgCtx, ephemeralJobID, runID, &job)
+	go s.finishRunJobEnqueue(bgCtx, ephemeralJobID, runID, &job, definitionHash)
 }
 
-func (s *APIServer) finishRunJobEnqueue(ctx context.Context, jobID, runID string, job *api.Job) {
+func (s *APIServer) finishRunJobEnqueue(ctx context.Context, jobID, runID string, job *api.Job, definitionHash string) {
 	ctx, span := observability.Tracer("vectis/api").Start(ctx, "run.enqueue.ephemeral.async", trace.WithSpanKind(trace.SpanKindInternal))
 	span.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
 	span.SetAttributes(attribute.Bool("vectis.run.ephemeral", true))
@@ -1453,6 +1509,22 @@ func (s *APIServer) finishRunJobEnqueue(ctx context.Context, jobID, runID string
 	}
 
 	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventAttempt, targetCellID, nil)
+	dispatchReq, err := s.recordExecutionPayload(ctx, runID, req, definitionHash)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "record execution payload")
+		span.End()
+		s.logger.Error("Failed to record execution payload (run %s): %v", runID, err)
+		msg := err.Error()
+		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg)
+		return
+	}
+
+	req = dispatchReq
+	if env, ok, envErr := cell.ExecutionEnvelopeFromRequest(req); envErr == nil && ok {
+		targetCellID = env.CellID
+	}
+
 	if err := s.submitExecution(ctx, qc, req); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "enqueue")
@@ -1483,6 +1555,71 @@ func (s *APIServer) finishRunJobEnqueue(ctx context.Context, jobID, runID string
 	tdSpan.End()
 
 	s.logger.Info("Enqueued ephemeral job: %s (run %s)", jobID, runID)
+}
+
+func (s *APIServer) recordTriggerInvocation(ctx context.Context, jobID, triggerType, triggerPayload string, targetCellIDs []string) (string, error) {
+	if s.triggerEvents == nil {
+		return "", nil
+	}
+
+	requestedCells := requestedCellsForInvocation(targetCellIDs)
+	rec, err := s.triggerEvents.Record(ctx, dal.TriggerInvocation{
+		JobID:              jobID,
+		TriggerType:        triggerType,
+		TriggerPayloadHash: dal.PayloadHash(triggerPayload),
+		RequestedCells:     requestedCells,
+	})
+
+	if err != nil {
+		return "", err
+	}
+
+	return rec.InvocationID, nil
+}
+
+func requestedCellsForInvocation(targetCellIDs []string) []string {
+	if len(targetCellIDs) == 0 {
+		return []string{config.CellID()}
+	}
+
+	out := make([]string, 0, len(targetCellIDs))
+	for _, cellID := range targetCellIDs {
+		cellID = strings.TrimSpace(cellID)
+		if cellID == "" {
+			continue
+		}
+
+		out = append(out, cellID)
+	}
+
+	if len(out) == 0 {
+		return []string{config.CellID()}
+	}
+
+	return out
+}
+
+func (s *APIServer) recordExecutionPayload(ctx context.Context, runID string, req *api.JobRequest, definitionHash string) (*api.JobRequest, error) {
+	payloadJSON, err := protojson.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal execution payload: %w", err)
+	}
+
+	_, recordedPayloadJSON, err := s.runs.RecordExecutionPayload(ctx, runID, string(payloadJSON), definitionHash)
+	if err != nil {
+		return nil, fmt.Errorf("record execution payload: %w", err)
+	}
+
+	if recordedPayloadJSON == string(payloadJSON) {
+		return req, nil
+	}
+
+	var recordedReq api.JobRequest
+	if err := protojson.Unmarshal([]byte(recordedPayloadJSON), &recordedReq); err != nil {
+		return nil, fmt.Errorf("parse recorded execution payload: %w", err)
+	}
+
+	return &recordedReq, nil
 }
 
 func (s *APIServer) attachExecutionEnvelope(ctx context.Context, req *api.JobRequest, runID string, createdAtUnixNano int64) (*cell.ExecutionEnvelope, error) {

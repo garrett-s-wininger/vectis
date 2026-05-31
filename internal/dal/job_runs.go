@@ -506,6 +506,10 @@ func (r *SQLRunsRepository) CreateRunInCell(ctx context.Context, jobID string, r
 }
 
 func (r *SQLRunsRepository) CreateRunsInCells(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellIDs []string) ([]CreatedRun, error) {
+	return r.CreateRunsInCellsWithAudit(ctx, jobID, runIndex, definitionVersion, targetCellIDs, RunAuditMetadata{})
+}
+
+func (r *SQLRunsRepository) CreateRunsInCellsWithAudit(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellIDs []string, audit RunAuditMetadata) ([]CreatedRun, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -531,6 +535,9 @@ func (r *SQLRunsRepository) CreateRunsInCells(ctx context.Context, jobID string,
 		targetCellIDs = []string{r.currentCellID()}
 	}
 
+	triggerInvocationID := strings.TrimSpace(audit.TriggerInvocationID)
+	executionPayloadHash := strings.TrimSpace(audit.ExecutionPayloadHash)
+
 	createdRuns := make([]CreatedRun, 0, len(targetCellIDs))
 	for i, targetCellID := range targetCellIDs {
 		targetCellID = normalizeTargetCellID(targetCellID, r.currentCellID())
@@ -538,7 +545,7 @@ func (r *SQLRunsRepository) CreateRunsInCells(ctx context.Context, jobID string,
 		runIndexOut := idx + i
 
 		_, err = tx.ExecContext(ctx,
-			rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?)`),
+			rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, trigger_invocation_id, execution_payload_hash) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?, ?)`),
 			runID,
 			jobID,
 			runIndexOut,
@@ -546,6 +553,8 @@ func (r *SQLRunsRepository) CreateRunsInCells(ctx context.Context, jobID string,
 			definitionVersion,
 			definitionHash,
 			targetCellID,
+			nullableString(triggerInvocationID),
+			executionPayloadHash,
 		)
 
 		if err != nil {
@@ -568,6 +577,135 @@ func (r *SQLRunsRepository) CreateRunsInCells(ctx context.Context, jobID string,
 	}
 
 	return createdRuns, nil
+}
+
+func (r *SQLRunsRepository) RecordExecutionPayload(ctx context.Context, runID, payloadJSON, definitionHash string) (string, string, error) {
+	runID = strings.TrimSpace(runID)
+	definitionHash = strings.TrimSpace(definitionHash)
+	if runID == "" {
+		return "", "", fmt.Errorf("%w: run_id is required", ErrConflict)
+	}
+
+	if strings.TrimSpace(payloadJSON) == "" {
+		return "", "", fmt.Errorf("%w: payload_json is required", ErrConflict)
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", "", err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	lookupPayload := func(payloadHash string) (string, error) {
+		var existingPayload string
+		if err := tx.QueryRowContext(ctx,
+			rebindQueryForPgx("SELECT payload_json FROM execution_payloads WHERE payload_hash = ?"),
+			payloadHash,
+		).Scan(&existingPayload); err != nil {
+			if err == sql.ErrNoRows {
+				return "", fmt.Errorf("%w: execution payload %s", ErrNotFound, payloadHash)
+			}
+
+			return "", normalizeSQLError(err)
+		}
+
+		return existingPayload, nil
+	}
+
+	var currentPayloadHash string
+	if err := tx.QueryRowContext(ctx,
+		rebindQueryForPgx("SELECT execution_payload_hash FROM job_runs WHERE run_id = ?"),
+		runID,
+	).Scan(&currentPayloadHash); err != nil {
+		if err == sql.ErrNoRows {
+			return "", "", fmt.Errorf("%w: run %s", ErrNotFound, runID)
+		}
+
+		return "", "", normalizeSQLError(err)
+	}
+
+	if currentPayloadHash != "" {
+		recordedPayloadJSON, err := lookupPayload(currentPayloadHash)
+		if err != nil {
+			return "", "", err
+		}
+
+		if err := tx.Commit(); err != nil {
+			return "", "", err
+		}
+
+		return currentPayloadHash, recordedPayloadJSON, nil
+	}
+
+	payloadHash := ExecutionPayloadHash(payloadJSON)
+	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		INSERT INTO execution_payloads (payload_hash, payload_json, definition_hash)
+		VALUES (?, ?, ?)
+		ON CONFLICT(payload_hash) DO NOTHING
+	`), payloadHash, payloadJSON, definitionHash); err != nil {
+		return "", "", normalizeSQLError(err)
+	}
+
+	existingPayload, err := lookupPayload(payloadHash)
+	if err != nil {
+		return "", "", err
+	}
+
+	if existingPayload != payloadJSON {
+		return "", "", fmt.Errorf("%w: execution payload hash %s has different payload", ErrConflict, payloadHash)
+	}
+
+	result, err := tx.ExecContext(ctx,
+		rebindQueryForPgx("UPDATE job_runs SET execution_payload_hash = ? WHERE run_id = ? AND execution_payload_hash = ''"),
+		payloadHash,
+		runID,
+	)
+	if err != nil {
+		return "", "", normalizeSQLError(err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return "", "", normalizeSQLError(err)
+	}
+
+	if rowsAffected == 0 {
+		if err := tx.QueryRowContext(ctx,
+			rebindQueryForPgx("SELECT execution_payload_hash FROM job_runs WHERE run_id = ?"),
+			runID,
+		).Scan(&currentPayloadHash); err != nil {
+			return "", "", normalizeSQLError(err)
+		}
+
+		if currentPayloadHash == "" {
+			return "", "", fmt.Errorf("%w: execution payload not recorded for run %s", ErrConflict, runID)
+		}
+
+		recordedPayloadJSON, err := lookupPayload(currentPayloadHash)
+		if err != nil {
+			return "", "", err
+		}
+
+		if err := tx.Commit(); err != nil {
+			return "", "", err
+		}
+
+		return currentPayloadHash, recordedPayloadJSON, nil
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", "", err
+	}
+
+	return payloadHash, payloadJSON, nil
+}
+
+func nullableString(value string) any {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+
+	return value
 }
 
 func lookupDefinitionHashTx(ctx context.Context, tx *sql.Tx, jobID string, version int) (string, error) {

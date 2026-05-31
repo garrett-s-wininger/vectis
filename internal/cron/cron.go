@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -21,10 +22,12 @@ import (
 	"vectis/internal/resolver"
 
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 type CronSchedule struct {
 	ID        int64
+	TriggerID int64
 	JobID     string
 	CronSpec  string
 	NextRunAt time.Time
@@ -35,6 +38,7 @@ type CronService struct {
 	runs         dal.RunsRepository
 	schedules    dal.SchedulesRepository
 	dispatch     dal.DispatchEventsRepository
+	triggers     dal.TriggerInvocationsRepository
 	logger       interfaces.Logger
 	queueClient  interfaces.QueueService
 	queueClose   func()
@@ -49,6 +53,7 @@ func NewCronService(logger interfaces.Logger, db *sql.DB) *CronService {
 	repos := dal.NewSQLRepositoriesWithCellID(db, config.CellID())
 	s := NewCronServiceWithRepositories(logger, repos.Jobs(), repos.Runs(), repos.Schedules())
 	s.dispatch = repos.DispatchEvents()
+	s.triggers = repos.TriggerInvocations()
 	return s
 }
 
@@ -91,6 +96,10 @@ func (s *CronService) SetClock(clock interfaces.Clock) {
 
 func (s *CronService) SetRetryMetrics(m backoff.RetryMetrics) {
 	s.retryMetrics = m
+}
+
+func (s *CronService) SetTriggerInvocations(triggers dal.TriggerInvocationsRepository) {
+	s.triggers = triggers
 }
 
 func (s *CronService) recordDispatchEvent(ctx context.Context, runID, eventType string, message *string) {
@@ -149,6 +158,7 @@ func (s *CronService) GetReadySchedules(ctx context.Context) ([]CronSchedule, er
 	for _, sched := range ready {
 		schedules = append(schedules, CronSchedule{
 			ID:        sched.ID,
+			TriggerID: sched.TriggerID,
 			JobID:     sched.JobID,
 			CronSpec:  sched.CronSpec,
 			NextRunAt: sched.NextRunAt,
@@ -182,51 +192,77 @@ func (s *CronService) CalculateNextRun(spec string, from time.Time) (time.Time, 
 }
 
 func (s *CronService) GetJobDefinition(ctx context.Context, jobID string) (*api.Job, error) {
-	job, _, err := s.getJobDefinitionWithVersion(ctx, jobID)
+	job, _, _, err := s.getJobDefinitionWithVersion(ctx, jobID)
 	return job, err
 }
 
-func (s *CronService) getJobDefinitionWithVersion(ctx context.Context, jobID string) (*api.Job, int, error) {
+func (s *CronService) getJobDefinitionWithVersion(ctx context.Context, jobID string) (*api.Job, int, string, error) {
 	definitionJSON, version, err := s.jobs.GetDefinition(ctx, jobID)
 	if err != nil {
 		if dal.IsNotFound(err) {
-			return nil, 0, fmt.Errorf("job not found: %s", jobID)
+			return nil, 0, "", fmt.Errorf("job not found: %s", jobID)
 		}
 
-		return nil, 0, fmt.Errorf("database error: %w", err)
+		return nil, 0, "", fmt.Errorf("database error: %w", err)
 	}
 
 	var job api.Job
 	if err := json.Unmarshal([]byte(definitionJSON), &job); err != nil {
-		return nil, 0, fmt.Errorf("failed to parse job definition: %w", err)
+		return nil, 0, "", fmt.Errorf("failed to parse job definition: %w", err)
 	}
 
-	return &job, version, nil
+	return &job, version, dal.DefinitionHash(definitionJSON), nil
 }
 
 func (s *CronService) TriggerJob(ctx context.Context, jobID string) error {
-	job, definitionVersion, err := s.getJobDefinitionWithVersion(ctx, jobID)
+	return s.triggerJob(ctx, jobID, nil)
+}
+
+func (s *CronService) triggerJob(ctx context.Context, jobID string, schedule *CronSchedule) error {
+	job, definitionVersion, definitionHash, err := s.getJobDefinitionWithVersion(ctx, jobID)
 	if err != nil {
 		return err
 	}
 
 	job.Id = &jobID
-	runID, _, err := s.runs.CreateRun(ctx, jobID, nil, definitionVersion)
+
+	invocationID, err := s.recordTriggerInvocation(ctx, jobID, schedule)
 	if err != nil {
 		return err
 	}
+
+	created, err := s.runs.CreateRunsInCellsWithAudit(ctx, jobID, nil, definitionVersion, nil, dal.RunAuditMetadata{TriggerInvocationID: invocationID})
+	if err != nil {
+		return err
+	}
+
+	if len(created) == 0 {
+		return fmt.Errorf("%w: no cron run created", dal.ErrNotFound)
+	}
+
+	runID := created[0].RunID
 
 	job.RunId = &runID
 	s.mu.Lock()
 	qc := s.queueClient
 	ingress := s.ingress
 	s.mu.Unlock()
+
 	req := &api.JobRequest{Job: job}
 	if _, err := cell.AttachPendingExecutionEnvelope(ctx, s.runs, req, runID, s.clock.Now().UnixNano()); err != nil {
 		s.logger.Error("Failed to attach execution envelope for cron run %s: %v", runID, err)
 	}
 
 	s.recordDispatchEvent(ctx, runID, dal.DispatchEventAttempt, nil)
+	dispatchReq, err := s.recordExecutionPayload(ctx, runID, req, definitionHash)
+	if err != nil {
+		msg := err.Error()
+		s.recordDispatchEvent(ctx, runID, dal.DispatchEventFailure, &msg)
+		return err
+	}
+
+	req = dispatchReq
+
 	if ingress == nil {
 		endpoints, err := config.CellIngressEndpoints()
 		if err != nil {
@@ -264,6 +300,71 @@ func (s *CronService) TriggerJob(ctx context.Context, jobID string) error {
 
 	s.recordDispatchEvent(ctx, runID, dal.DispatchEventSuccess, nil)
 	return nil
+}
+
+func (s *CronService) recordTriggerInvocation(ctx context.Context, jobID string, schedule *CronSchedule) (string, error) {
+	if s.triggers == nil {
+		return "", nil
+	}
+
+	var triggerID *int64
+	payload := map[string]string{
+		"job_id":    jobID,
+		"triggered": s.clock.Now().UTC().Format(time.RFC3339Nano),
+	}
+
+	if schedule != nil {
+		if schedule.TriggerID > 0 {
+			v := schedule.TriggerID
+			triggerID = &v
+		}
+
+		payload["schedule_id"] = strconv.FormatInt(schedule.ID, 10)
+		payload["cron_spec"] = schedule.CronSpec
+		payload["next_run_at"] = schedule.NextRunAt.UTC().Format(time.RFC3339Nano)
+	}
+
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal cron trigger payload: %w", err)
+	}
+
+	rec, err := s.triggers.Record(ctx, dal.TriggerInvocation{
+		TriggerID:          triggerID,
+		JobID:              jobID,
+		TriggerType:        dal.TriggerTypeCron,
+		TriggerPayloadHash: dal.PayloadHash(string(payloadJSON)),
+		RequestedCells:     []string{config.CellID()},
+	})
+
+	if err != nil {
+		return "", fmt.Errorf("record cron trigger invocation: %w", err)
+	}
+
+	return rec.InvocationID, nil
+}
+
+func (s *CronService) recordExecutionPayload(ctx context.Context, runID string, req *api.JobRequest, definitionHash string) (*api.JobRequest, error) {
+	payloadJSON, err := protojson.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal execution payload: %w", err)
+	}
+
+	_, recordedPayloadJSON, err := s.runs.RecordExecutionPayload(ctx, runID, string(payloadJSON), definitionHash)
+	if err != nil {
+		return nil, fmt.Errorf("record execution payload: %w", err)
+	}
+
+	if recordedPayloadJSON == string(payloadJSON) {
+		return req, nil
+	}
+
+	var recordedReq api.JobRequest
+	if err := protojson.Unmarshal([]byte(recordedPayloadJSON), &recordedReq); err != nil {
+		return nil, fmt.Errorf("parse recorded execution payload: %w", err)
+	}
+
+	return &recordedReq, nil
 }
 
 func (s *CronService) ClaimDue(ctx context.Context, scheduleID int64, observedNextRun time.Time, claimToken string, claimedUntil, now time.Time) (bool, error) {
@@ -327,7 +428,7 @@ func (s *CronService) ProcessSchedules(ctx context.Context) error {
 
 		s.logger.Info("Triggering job %s (spec: %q)", sched.JobID, sched.CronSpec)
 
-		if err := s.TriggerJob(ctx, sched.JobID); err != nil {
+		if err := s.triggerJob(ctx, sched.JobID, &sched); err != nil {
 			s.logger.Error("Failed to trigger job %s after claiming schedule: %v", sched.JobID, err)
 			s.ReleaseClaim(ctx, sched.ID, claimToken)
 			continue

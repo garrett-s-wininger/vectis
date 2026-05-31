@@ -1064,6 +1064,41 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 		t.Errorf("expected run_index 1, got %d", runIndex)
 	}
 
+	var invocationID, payloadHash string
+	if err := db.QueryRow("SELECT trigger_invocation_id, execution_payload_hash FROM job_runs WHERE run_id = ?", runID).Scan(&invocationID, &payloadHash); err != nil {
+		t.Fatalf("query run audit linkage: %v", err)
+	}
+
+	if invocationID == "" {
+		t.Fatal("expected trigger_invocation_id to be recorded")
+	}
+
+	if payloadHash == "" {
+		t.Fatal("expected execution_payload_hash to be recorded")
+	}
+
+	var triggerType, requestedCells string
+	if err := db.QueryRow("SELECT trigger_type, requested_cells FROM trigger_invocations WHERE invocation_id = ?", invocationID).Scan(&triggerType, &requestedCells); err != nil {
+		t.Fatalf("query trigger invocation: %v", err)
+	}
+
+	if triggerType != dal.TriggerTypeManual {
+		t.Fatalf("trigger type: got %q want %q", triggerType, dal.TriggerTypeManual)
+	}
+
+	if !strings.Contains(requestedCells, dal.DefaultCellID) {
+		t.Fatalf("expected requested cells to include default cell, got %s", requestedCells)
+	}
+
+	var executionPayload string
+	if err := db.QueryRow("SELECT payload_json FROM execution_payloads WHERE payload_hash = ?", payloadHash).Scan(&executionPayload); err != nil {
+		t.Fatalf("query execution payload: %v", err)
+	}
+
+	if !strings.Contains(executionPayload, runID) || !strings.Contains(executionPayload, "job-to-trigger") {
+		t.Fatalf("execution payload should contain run/job identity, got %s", executionPayload)
+	}
+
 	deadline := time.Now().Add(2 * time.Second)
 	hasTriggeredMsg := false
 	for time.Now().Before(deadline) && !hasTriggeredMsg {

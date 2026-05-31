@@ -75,6 +75,76 @@ func TestService_Process_ReenqueuesQueuedRun(t *testing.T) {
 	}
 }
 
+func TestService_Process_ReplaysFrozenPayloadOnRedispatch(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+
+	jobDef := `{"id":"job-frozen","root":{"uses":"builtins/shell","with":{"command":"echo x"}}}`
+	repos := dal.NewSQLRepositories(db)
+	if err := repos.Jobs().Create(ctx, "job-frozen", jobDef, 1); err != nil {
+		t.Fatalf("insert stored job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, "job-frozen", nil, 1)
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	q := mocks.NewMockQueueService()
+	clock := mocks.NewMockClock()
+	now := time.Date(2026, 5, 31, 12, 0, 0, 0, time.UTC)
+	clock.SetNow(now)
+	svc := NewService(interfaces.NewLogger("test"), db, q, clock)
+	svc.SetMinDispatchGap(1 * time.Second)
+
+	if err := svc.Process(ctx); err != nil {
+		t.Fatalf("first Process: %v", err)
+	}
+
+	reqs := q.GetJobRequests()
+	if len(reqs) != 1 {
+		t.Fatalf("want 1 enqueued request, got %d", len(reqs))
+	}
+	firstEnvelope := reqs[0].GetMetadata()[cell.ExecutionEnvelopeMetadataKey]
+	if firstEnvelope == "" {
+		t.Fatal("expected first dispatch envelope")
+	}
+
+	var firstPayloadHash string
+	if err := db.QueryRowContext(ctx, "SELECT execution_payload_hash FROM job_runs WHERE run_id = ?", runID).Scan(&firstPayloadHash); err != nil {
+		t.Fatalf("query first payload hash: %v", err)
+	}
+	if firstPayloadHash == "" {
+		t.Fatal("expected frozen execution payload hash")
+	}
+
+	if _, err := db.ExecContext(ctx, "UPDATE job_runs SET last_dispatched_at = ? WHERE run_id = ?", now.Add(-time.Hour).Unix(), runID); err != nil {
+		t.Fatalf("force redispatch eligibility: %v", err)
+	}
+	clock.SetNow(now.Add(time.Hour))
+
+	if err := svc.Process(ctx); err != nil {
+		t.Fatalf("second Process: %v", err)
+	}
+
+	reqs = q.GetJobRequests()
+	if len(reqs) != 2 {
+		t.Fatalf("want 2 enqueued requests, got %d", len(reqs))
+	}
+	secondEnvelope := reqs[1].GetMetadata()[cell.ExecutionEnvelopeMetadataKey]
+	if secondEnvelope != firstEnvelope {
+		t.Fatalf("redispatch envelope changed:\nfirst:  %s\nsecond: %s", firstEnvelope, secondEnvelope)
+	}
+
+	var secondPayloadHash string
+	if err := db.QueryRowContext(ctx, "SELECT execution_payload_hash FROM job_runs WHERE run_id = ?", runID).Scan(&secondPayloadHash); err != nil {
+		t.Fatalf("query second payload hash: %v", err)
+	}
+	if secondPayloadHash != firstPayloadHash {
+		t.Fatalf("payload hash changed: got %q want %q", secondPayloadHash, firstPayloadHash)
+	}
+}
+
 func TestService_Process_ReenqueuesCapturedDefinitionVersion(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
