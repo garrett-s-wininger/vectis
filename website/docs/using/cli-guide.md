@@ -186,6 +186,13 @@ Show one run:
 ```
 
 The detail output includes `owning_cell` when the run belongs to a named execution cell.
+It also prints audit fields such as the definition hash, trigger invocation, requested cells, and frozen execution payload hash when those fields are available.
+
+Show the frozen execution payload captured for a run:
+
+```sh
+./bin/vectis-cli runs payload <run-id>
+```
 
 List runs for a stored job:
 

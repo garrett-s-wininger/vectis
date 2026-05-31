@@ -120,7 +120,7 @@ func init() {
 	configureRepairMarkFlags(repairMarkCancelledCmd)
 	configureRepairMarkFlags(repairMarkAbandonedCmd)
 	runRepairCmd.AddCommand(repairMarkSucceededCmd, repairMarkFailedCmd, repairMarkCancelledCmd, repairMarkAbandonedCmd, repairMarkQueuedCmd)
-	runsCmd.AddCommand(runListCmd, runGetCmd, runCancelCmd, runRepairCmd, forceFailCmd, forceRequeueCmd)
+	runsCmd.AddCommand(runListCmd, runGetCmd, runPayloadCmd, runCancelCmd, runRepairCmd, forceFailCmd, forceRequeueCmd)
 	rootCmd.AddCommand(runsCmd)
 
 	cellsCmd.AddCommand(cellsStatusCmd)

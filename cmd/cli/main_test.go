@@ -928,14 +928,57 @@ func TestGetRun_success(t *testing.T) {
 	}
 }
 
+func TestGetRun_successIncludesAuditFields(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/runs/run-1" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"run_id":                 "run-1",
+			"run_index":              3,
+			"status":                 "queued",
+			"owning_cell":            "pdx-b",
+			"definition_version":     4,
+			"definition_hash":        "sha256:def",
+			"trigger_invocation_id":  "inv-1",
+			"trigger_type":           "manual",
+			"trigger_payload_hash":   "sha256:trigger",
+			"requested_cells":        []string{"iad-a", "pdx-b"},
+			"execution_payload_hash": "sha256:payload",
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := getRun("run-1", &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{
+		"definition_version=4",
+		"definition_hash=sha256:def",
+		"trigger_invocation_id=inv-1",
+		"trigger_type=manual",
+		"trigger_payload_hash=sha256:trigger",
+		"requested_cells=iad-a,pdx-b",
+		"execution_payload_hash=sha256:payload",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
 func TestGetRun_jsonOutput(t *testing.T) {
 	withOutputFormat(t, outputJSON)
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"run_id":      "run-1",
-			"run_index":   3,
-			"status":      "failed",
-			"owning_cell": "pdx-b",
+			"run_id":                 "run-1",
+			"run_index":              3,
+			"status":                 "failed",
+			"owning_cell":            "pdx-b",
+			"execution_payload_hash": "sha256:payload",
 		})
 	})
 
@@ -949,8 +992,81 @@ func TestGetRun_jsonOutput(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if run["run_id"] != "run-1" || run["status"] != "failed" || run["owning_cell"] != "pdx-b" {
+	if run["run_id"] != "run-1" || run["status"] != "failed" || run["owning_cell"] != "pdx-b" || run["execution_payload_hash"] != "sha256:payload" {
 		t.Fatalf("unexpected JSON output: %#v", run)
+	}
+}
+
+func TestGetRunExecutionPayload_success(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/runs/run-1/execution-payload" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"run_id":          "run-1",
+			"payload_hash":    "sha256:payload",
+			"definition_hash": "sha256:def",
+			"payload": map[string]any{
+				"job": map[string]any{
+					"id":    "job-1",
+					"runId": "run-1",
+				},
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := getRunExecutionPayload("run-1", &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"run_id=run-1", "payload_hash=sha256:payload", "definition_hash=sha256:def", `"runId": "run-1"`} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestGetRunExecutionPayload_jsonOutput(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"run_id":       "run-1",
+			"payload_hash": "sha256:payload",
+			"payload": map[string]any{
+				"job": map[string]any{"id": "job-1"},
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := getRunExecutionPayload("run-1", &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	var result runExecutionPayloadResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
+	}
+
+	if result.RunID != "run-1" || result.PayloadHash != "sha256:payload" || !strings.Contains(string(result.Payload), "job-1") {
+		t.Fatalf("unexpected payload JSON: %+v payload=%s", result, string(result.Payload))
+	}
+}
+
+func TestGetRunExecutionPayload_notFound(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})
+
+	if err := getRunExecutionPayload("missing", io.Discard); err == nil {
+		t.Fatal("expected error")
 	}
 }
 
@@ -1032,10 +1148,11 @@ func TestListRuns_jsonOutputIncludesOwningCell(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"data": []map[string]any{
 				{
-					"run_id":      "run-pdx",
-					"run_index":   2,
-					"status":      "queued",
-					"owning_cell": "pdx-b",
+					"run_id":                 "run-pdx",
+					"run_index":              2,
+					"status":                 "queued",
+					"owning_cell":            "pdx-b",
+					"execution_payload_hash": "sha256:payload",
 				},
 			},
 		})
@@ -1051,7 +1168,7 @@ func TestListRuns_jsonOutputIncludesOwningCell(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if len(result.Data) != 1 || result.Data[0].OwningCell != "pdx-b" {
+	if len(result.Data) != 1 || result.Data[0].OwningCell != "pdx-b" || result.Data[0].ExecutionPayloadHash != "sha256:payload" {
 		t.Fatalf("unexpected runs JSON: %+v", result)
 	}
 }

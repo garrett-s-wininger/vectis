@@ -25,6 +25,18 @@ type runDetail struct {
 	FinishedAt     *string         `json:"finished_at,omitempty"`
 	FailureReason  *string         `json:"failure_reason,omitempty"`
 	DispatchEvents []dispatchEvent `json:"dispatch_events,omitempty"`
+	RunAuditFields
+}
+
+type RunAuditFields struct {
+	DefinitionVersion    int      `json:"definition_version,omitempty"`
+	DefinitionHash       string   `json:"definition_hash,omitempty"`
+	TriggerInvocationID  *string  `json:"trigger_invocation_id,omitempty"`
+	TriggerID            *int64   `json:"trigger_id,omitempty"`
+	TriggerType          *string  `json:"trigger_type,omitempty"`
+	TriggerPayloadHash   *string  `json:"trigger_payload_hash,omitempty"`
+	RequestedCells       []string `json:"requested_cells,omitempty"`
+	ExecutionPayloadHash string   `json:"execution_payload_hash,omitempty"`
 }
 
 type dispatchEvent struct {
@@ -36,18 +48,28 @@ type dispatchEvent struct {
 }
 
 type runListResult struct {
-	Data []struct {
-		RunID         string  `json:"run_id"`
-		RunIndex      int     `json:"run_index"`
-		Status        string  `json:"status"`
-		CreatedAt     *string `json:"created_at,omitempty"`
-		StartedAt     *string `json:"started_at,omitempty"`
-		FinishedAt    *string `json:"finished_at,omitempty"`
-		FailureCode   *string `json:"failure_code,omitempty"`
-		FailureReason *string `json:"failure_reason,omitempty"`
-		OwningCell    string  `json:"owning_cell,omitempty"`
-	} `json:"data"`
-	NextCursor *int64 `json:"next_cursor,omitempty"`
+	Data       []runListRow `json:"data"`
+	NextCursor *int64       `json:"next_cursor,omitempty"`
+}
+
+type runListRow struct {
+	RunID         string  `json:"run_id"`
+	RunIndex      int     `json:"run_index"`
+	Status        string  `json:"status"`
+	CreatedAt     *string `json:"created_at,omitempty"`
+	StartedAt     *string `json:"started_at,omitempty"`
+	FinishedAt    *string `json:"finished_at,omitempty"`
+	FailureCode   *string `json:"failure_code,omitempty"`
+	FailureReason *string `json:"failure_reason,omitempty"`
+	OwningCell    string  `json:"owning_cell,omitempty"`
+	RunAuditFields
+}
+
+type runExecutionPayloadResult struct {
+	RunID          string          `json:"run_id"`
+	PayloadHash    string          `json:"payload_hash"`
+	DefinitionHash string          `json:"definition_hash,omitempty"`
+	Payload        json.RawMessage `json:"payload"`
 }
 
 type runRepairResult struct {
@@ -59,6 +81,10 @@ type runRepairResult struct {
 
 func runGetRun(cmd *cobra.Command, args []string) {
 	runCLIError(getRun(args[0], os.Stdout))
+}
+
+func runGetRunPayload(cmd *cobra.Command, args []string) {
+	runCLIError(getRunExecutionPayload(args[0], os.Stdout))
 }
 
 func getRun(runID string, w io.Writer) error {
@@ -91,6 +117,8 @@ func getRun(runID string, w io.Writer) error {
 		if strings.TrimSpace(run.OwningCell) != "" {
 			fmt.Fprintf(w, "owning_cell=%s\n", run.OwningCell)
 		}
+
+		writeRunAuditFields(w, run.RunAuditFields)
 
 		if run.CreatedAt != nil {
 			fmt.Fprintf(w, "created_at=%s\n", *run.CreatedAt)
@@ -131,6 +159,91 @@ func getRun(runID string, w io.Writer) error {
 		return nil
 	case http.StatusNotFound:
 		return fmt.Errorf("run %q not found", runID)
+	default:
+		return fmt.Errorf("unexpected status: %s", resp.Status)
+	}
+}
+
+func writeRunAuditFields(w io.Writer, audit RunAuditFields) {
+	if audit.DefinitionVersion > 0 {
+		fmt.Fprintf(w, "definition_version=%d\n", audit.DefinitionVersion)
+	}
+
+	if strings.TrimSpace(audit.DefinitionHash) != "" {
+		fmt.Fprintf(w, "definition_hash=%s\n", audit.DefinitionHash)
+	}
+
+	if audit.TriggerInvocationID != nil {
+		fmt.Fprintf(w, "trigger_invocation_id=%s\n", *audit.TriggerInvocationID)
+	}
+
+	if audit.TriggerID != nil {
+		fmt.Fprintf(w, "trigger_id=%d\n", *audit.TriggerID)
+	}
+
+	if audit.TriggerType != nil {
+		fmt.Fprintf(w, "trigger_type=%s\n", *audit.TriggerType)
+	}
+
+	if audit.TriggerPayloadHash != nil {
+		fmt.Fprintf(w, "trigger_payload_hash=%s\n", *audit.TriggerPayloadHash)
+	}
+
+	if len(audit.RequestedCells) > 0 {
+		fmt.Fprintf(w, "requested_cells=%s\n", strings.Join(audit.RequestedCells, ","))
+	}
+
+	if strings.TrimSpace(audit.ExecutionPayloadHash) != "" {
+		fmt.Fprintf(w, "execution_payload_hash=%s\n", audit.ExecutionPayloadHash)
+	}
+}
+
+func getRunExecutionPayload(runID string, w io.Writer) error {
+	req, err := newAPIRequest(http.MethodGet, fmt.Sprintf("/api/v1/runs/%s/execution-payload", runID), nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var result runExecutionPayloadResult
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to parse response: %w", err)
+		}
+
+		if outputIsJSON() {
+			return writeJSON(w, result)
+		}
+
+		fmt.Fprintf(w, "run_id=%s\n", result.RunID)
+		fmt.Fprintf(w, "payload_hash=%s\n", result.PayloadHash)
+		if strings.TrimSpace(result.DefinitionHash) != "" {
+			fmt.Fprintf(w, "definition_hash=%s\n", result.DefinitionHash)
+		}
+
+		fmt.Fprintln(w, "payload:")
+		var pretty bytes.Buffer
+		if err := json.Indent(&pretty, result.Payload, "", "  "); err == nil {
+			_, err = pretty.WriteTo(w)
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintln(w)
+			return err
+		}
+
+		_, err := fmt.Fprintln(w, string(result.Payload))
+		return err
+	case http.StatusNotFound:
+		return fmt.Errorf("execution payload for run %q not found", runID)
+	case http.StatusForbidden:
+		return fmt.Errorf("not authorized to read execution payload for run %q", runID)
 	default:
 		return fmt.Errorf("unexpected status: %s", resp.Status)
 	}
@@ -485,10 +598,18 @@ var repairMarkQueuedCmd = &cobra.Command{
 
 var runGetCmd = &cobra.Command{
 	Use:   "show [run-id]",
-	Short: "Show run status and failure details",
-	Long:  `Fetch a run by run-id and print operator-facing status and failure fields.`,
+	Short: "Show run status, audit metadata, and failure details",
+	Long:  `Fetch a run by run-id and print operator-facing status, audit metadata, dispatch events, and failure fields.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   runGetRun,
+}
+
+var runPayloadCmd = &cobra.Command{
+	Use:   "payload [run-id]",
+	Short: "Show the frozen execution payload for a run",
+	Long:  `Fetch the immutable execution payload captured at first durable dispatch for one run. This is an operator-only audit surface.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   runGetRunPayload,
 }
 
 var runCancelCmd = &cobra.Command{
