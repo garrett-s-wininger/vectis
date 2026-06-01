@@ -8,26 +8,22 @@ import { AppShell } from "./components";
 import { AppState } from "./components";
 import { FormError } from "./components";
 import { FormField } from "./components";
+import { createConsoleDataSource } from "./data/consoleDataSource";
+import type { NewJob, UpdateJob } from "./domain/console";
 import {
   canDeleteMockNamespace,
-  createMockJob,
   createMockNamespace,
   createMockUser,
   deleteMockNamespace,
   deleteMockUser,
-  loadMockConsoleData,
   nextMockRunID,
   scopeMockConsoleData,
   submitMockEphemeralRun,
-  triggerMockRun,
-  updateMockJob,
   updateMockUserStatus,
   type MockConsoleData,
   type MockUserStatus,
-  type NewMockJob,
   type NewMockNamespace,
-  type NewMockUser,
-  type UpdateMockJob
+  type NewMockUser
 } from "./mocks/consoleData";
 import { HealthPage } from "./pages/HealthPage";
 import { JobsPage } from "./pages/JobsPage";
@@ -72,6 +68,8 @@ export function App() {
 
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  const [accountName, setAccountName] = useState("admin");
+  const [consoleDataSource] = useState(() => createConsoleDataSource());
   const [consoleData, setConsoleData] = useState<MockConsoleData | null>(null);
   const [consoleError, setConsoleError] = useState("");
   const [selectedNamespacePath, setSelectedNamespacePath] = useState("/");
@@ -89,22 +87,30 @@ export function App() {
   useEffect(() => {
     let ignore = false;
 
-    loadMockConsoleData()
+    if (route.kind === "login" || route.kind === "setup") {
+      return () => {
+        ignore = true;
+      };
+    }
+
+    consoleDataSource
+      .loadConsole()
       .then((data) => {
         if (!ignore) {
           setConsoleData(data);
+          setConsoleError("");
         }
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (!ignore) {
-          setConsoleError("Unable to load console data.");
+          setConsoleError(error instanceof Error ? error.message : "Unable to load console data.");
         }
       });
 
     return () => {
       ignore = true;
     };
-  }, []);
+  }, [consoleDataSource, route.kind]);
 
   async function handleSetup(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -112,12 +118,13 @@ export function App() {
     setFormError("");
 
     try {
-      await completeSetup({
+      const response = await completeSetup({
         bootstrap_token: setupValues.bootstrapToken,
         admin_username: setupValues.adminUsername,
         admin_password: setupValues.adminPassword
       });
 
+      setAccountName(response.username);
       navigateAfterAuth();
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "Setup failed");
@@ -132,11 +139,12 @@ export function App() {
     setFormError("");
 
     try {
-      await login({
+      const response = await login({
         username: loginValues.username,
         password: loginValues.password
       });
 
+      setAccountName(response.username);
       navigateAfterAuth();
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "Login failed");
@@ -165,12 +173,22 @@ export function App() {
     updateConsoleData((data) => createMockNamespace(data, input));
   }
 
-  function handleCreateJob(input: NewMockJob) {
-    updateConsoleData((data) => createMockJob(data, input));
+  async function handleCreateJob(input: NewJob) {
+    try {
+      setConsoleData(await consoleDataSource.createJob(input));
+      setConsoleError("");
+    } catch (error) {
+      setConsoleError(error instanceof Error ? error.message : "Unable to create job.");
+    }
   }
 
-  function handleUpdateJob(jobID: string, input: UpdateMockJob) {
-    updateConsoleData((data) => updateMockJob(data, jobID, input));
+  async function handleUpdateJob(jobID: string, input: UpdateJob) {
+    try {
+      setConsoleData(await consoleDataSource.updateJob(jobID, input));
+      setConsoleError("");
+    } catch (error) {
+      setConsoleError(error instanceof Error ? error.message : "Unable to update job.");
+    }
   }
 
   function handleDeleteNamespace(namespaceID: number) {
@@ -183,8 +201,13 @@ export function App() {
     }
   }
 
-  function handleTriggerRun(jobID: string) {
-    updateConsoleData((data) => triggerMockRun(data, jobID));
+  async function handleTriggerRun(jobID: string) {
+    try {
+      setConsoleData(await consoleDataSource.triggerRun(jobID));
+      setConsoleError("");
+    } catch (error) {
+      setConsoleError(error instanceof Error ? error.message : "Unable to trigger job.");
+    }
   }
 
   function handleSubmitEphemeralRun(definition: string) {
@@ -223,6 +246,7 @@ export function App() {
     try {
       await logout();
     } finally {
+      setConsoleData(null);
       navigateTo("/login");
     }
   }
@@ -254,7 +278,7 @@ export function App() {
   return (
     <AppShell
       activeHref={route.activeHref}
-      accountName="admin"
+      accountName={accountName}
       brand="Vectis"
       navItems={primaryNavItems}
       onNavigate={handleShellNavigate}
@@ -414,14 +438,14 @@ function RouteContent({
   consoleData: MockConsoleData | null;
   consoleError: string;
   namespacePath: string;
-  onCreateJob: (input: NewMockJob) => void;
+  onCreateJob: (input: NewJob) => void;
   onCreateNamespace: (input: NewMockNamespace) => void;
   onCreateUser: (input: NewMockUser) => void;
   onDeleteNamespace: (namespaceID: number) => void;
   onDeleteUser: (userID: string) => void;
   onSubmitEphemeralRun: (definition: string) => void;
   onTriggerRun: (jobID: string) => void;
-  onUpdateJob: (jobID: string, input: UpdateMockJob) => void;
+  onUpdateJob: (jobID: string, input: UpdateJob) => void;
   onUpdateUserStatus: (userID: string, status: MockUserStatus) => void;
   onSelectNamespace: (namespacePath: string) => void;
   route: AppRoute;

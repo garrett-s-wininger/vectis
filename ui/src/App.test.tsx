@@ -11,6 +11,7 @@ describe("App", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
 
@@ -85,6 +86,75 @@ describe("App", () => {
     expect(fetchMock).toHaveBeenLastCalledWith(
       "/ui/api/login",
       expect.objectContaining({ credentials: "same-origin", method: "POST" })
+    );
+  });
+
+  it("loads live stored jobs after login when the API data source is enabled", async () => {
+    vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+    window.history.replaceState(null, "", "/login?next=%2Fjobs");
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ user_id: 1, username: "admin" }), {
+          status: 200
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              id: 1,
+              name: "/",
+              path: "/",
+              break_inheritance: false
+            }
+          ]),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                name: "live-smoke",
+                namespace: "/",
+                definition: {
+                  id: "live-smoke",
+                  root: { id: "root", uses: "builtins/shell" }
+                }
+              }
+            ]
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: []
+          }),
+          { status: 200 }
+        )
+      );
+
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText("Username"), {
+      target: { value: "admin" }
+    });
+
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "password123" }
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(await screen.findByRole("heading", { name: "Jobs" })).toBeInTheDocument();
+    expect(await screen.findByText("live-smoke")).toBeInTheDocument();
+    expect(screen.getByText("admin")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/jobs?limit=200",
+      expect.objectContaining({ credentials: "same-origin" })
     );
   });
 

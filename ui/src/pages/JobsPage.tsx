@@ -251,28 +251,42 @@ export function JobsPage({
           </form>
         </section>
       ) : null}
-      <div className={selectedJob ? `${styles.workspace} ${styles.workspaceWithPanel}` : styles.workspace}>
-        <DataTable
-          columns={columns}
-          emptyMessage="No jobs loaded."
-          getRowKey={(job) => job.id}
-          isRowSelected={(job) => selectedJob?.id === job.id}
-          rows={jobs}
-        />
-        {selectedJob ? (
-          <JobActionPanel
-            job={selectedJob}
-            lastRun={selectedJobLastRun}
-            onEdit={() => startEditJob(selectedJob)}
-            onOpenLastRun={() => {
-              if (selectedJobLastRun) {
-                onSelectRun(selectedJobLastRun.id);
-              }
-            }}
-            onTrigger={() => onTriggerRun(selectedJob.id)}
+      {jobs.length === 0 && !editorMode ? (
+        <section className={styles.emptyState} aria-labelledby="jobs-empty-title">
+          <div>
+            <p className="eyebrow">No stored jobs</p>
+            <h2 id="jobs-empty-title">Create One Today</h2>
+            <p>
+              Stored jobs are reusable definitions you can trigger manually now and connect to richer sources later.
+            </p>
+          </div>
+          <Button onClick={startCreateJob}>New</Button>
+        </section>
+      ) : null}
+      {jobs.length > 0 ? (
+        <div className={selectedJob ? `${styles.workspace} ${styles.workspaceWithPanel}` : styles.workspace}>
+          <DataTable
+            columns={columns}
+            emptyMessage="No jobs loaded."
+            getRowKey={(job) => job.id}
+            isRowSelected={(job) => selectedJob?.id === job.id}
+            rows={jobs}
           />
-        ) : null}
-      </div>
+          {selectedJob ? (
+            <JobActionPanel
+              job={selectedJob}
+              lastRun={selectedJobLastRun}
+              onEdit={() => startEditJob(selectedJob)}
+              onOpenLastRun={() => {
+                if (selectedJobLastRun) {
+                  onSelectRun(selectedJobLastRun.id);
+                }
+              }}
+              onTrigger={() => onTriggerRun(selectedJob.id)}
+            />
+          ) : null}
+        </div>
+      ) : null}
     </>
   );
 }

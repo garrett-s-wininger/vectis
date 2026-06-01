@@ -33,7 +33,7 @@ export async function requestNoContent(path: string, init: RequestInit = {}) {
   const response = await fetch(path, {
     ...init,
     credentials: init.credentials ?? "same-origin",
-    headers: requestHeaders(init, false)
+    headers: requestHeaders(init, init.body !== undefined)
   });
 
   if (!response.ok) {
