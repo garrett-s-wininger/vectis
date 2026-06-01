@@ -338,6 +338,8 @@ func TestCellExecutionAcceptances_AcceptExecutionMaterializesLocalRows(t *testin
 		t.Fatalf("execution status: got %q, want %q", executionStatus, dal.ExecutionStatusAccepted)
 	}
 
+	assertRootTaskAndAttemptStatus(t, db, acceptance.RunID, dal.TaskStatusAccepted, dal.TaskStatusAccepted, 1)
+
 	var definitionHash string
 	if err := db.QueryRowContext(ctx, "SELECT definition_hash FROM job_definitions WHERE job_id = ? AND version = ?", acceptance.JobID, acceptance.DefinitionVersion).Scan(&definitionHash); err != nil {
 		t.Fatalf("query job definition: %v", err)
@@ -553,7 +555,7 @@ func TestSQLRepositoriesWithCellID_WritesHomeAndOwningCell(t *testing.T) {
 		t.Fatalf("query run cell: %v", err)
 	}
 
-	var segmentCount, executionCount int
+	var segmentCount, executionCount, taskCount, taskAttemptCount int
 	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM run_segments WHERE run_id = ?", runID).Scan(&segmentCount); err != nil {
 		t.Fatalf("query segment count: %v", err)
 	}
@@ -562,8 +564,16 @@ func TestSQLRepositoriesWithCellID_WritesHomeAndOwningCell(t *testing.T) {
 		t.Fatalf("query execution count/cell: %v", err)
 	}
 
-	if segmentCount != 1 || executionCount != 1 {
-		t.Fatalf("expected one segment and one execution, got segments=%d executions=%d", segmentCount, executionCount)
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM run_tasks WHERE run_id = ? AND task_key = ?", runID, dal.RootTaskKey).Scan(&taskCount); err != nil {
+		t.Fatalf("query task count: %v", err)
+	}
+
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM task_attempts WHERE run_id = ? AND attempt = 1", runID).Scan(&taskAttemptCount); err != nil {
+		t.Fatalf("query task attempt count: %v", err)
+	}
+
+	if segmentCount != 1 || executionCount != 1 || taskCount != 1 || taskAttemptCount != 1 {
+		t.Fatalf("expected one root execution and task, got segments=%d executions=%d tasks=%d attempts=%d", segmentCount, executionCount, taskCount, taskAttemptCount)
 	}
 
 	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
@@ -1055,16 +1065,19 @@ func TestRunsRepository_ExecutionTransitions(t *testing.T) {
 		t.Fatalf("mark accepted: %v", err)
 	}
 	assertExecutionAndSegmentStatus(t, db, dispatch.ExecutionID, dispatch.SegmentID, dal.ExecutionStatusAccepted, dal.SegmentStatusAccepted, 1)
+	assertRootTaskAndAttemptStatus(t, db, runID, dal.TaskStatusAccepted, dal.TaskStatusAccepted, 1)
 
 	if err := repos.Runs().MarkExecutionStarted(ctx, dispatch.ExecutionID); err != nil {
 		t.Fatalf("mark started: %v", err)
 	}
 	assertExecutionAndSegmentStatus(t, db, dispatch.ExecutionID, dispatch.SegmentID, dal.ExecutionStatusRunning, dal.SegmentStatusRunning, 2)
+	assertRootTaskAndAttemptStatus(t, db, runID, dal.TaskStatusRunning, dal.TaskStatusRunning, 2)
 
 	if err := repos.Runs().MarkExecutionTerminal(ctx, dispatch.ExecutionID, dal.ExecutionStatusSucceeded); err != nil {
 		t.Fatalf("mark terminal: %v", err)
 	}
 	assertExecutionAndSegmentStatus(t, db, dispatch.ExecutionID, dispatch.SegmentID, dal.ExecutionStatusSucceeded, dal.SegmentStatusSucceeded, 3)
+	assertRootTaskAndAttemptStatus(t, db, runID, dal.TaskStatusSucceeded, dal.TaskStatusSucceeded, 3)
 
 	if err := repos.Runs().MarkExecutionStarted(ctx, dispatch.ExecutionID); !dal.IsConflict(err) {
 		t.Fatalf("expected conflict restarting terminal execution, got %v", err)
@@ -1408,6 +1421,53 @@ func assertExecutionAndSegmentStatus(t *testing.T, db *sql.DB, executionID, segm
 
 	if segmentStatus != wantSegmentStatus {
 		t.Fatalf("segment status: got %q, want %q", segmentStatus, wantSegmentStatus)
+	}
+}
+
+func assertRootTaskAndAttemptStatus(t *testing.T, db *sql.DB, runID, wantTaskStatus, wantAttemptStatus string, wantEventSequence int64) {
+	t.Helper()
+
+	taskID := runID + ":" + dal.RootTaskKey
+	var taskStatus string
+	if err := db.QueryRow("SELECT status FROM run_tasks WHERE task_id = ?", taskID).Scan(&taskStatus); err != nil {
+		t.Fatalf("query root task status: %v", err)
+	}
+
+	if taskStatus != wantTaskStatus {
+		t.Fatalf("root task status: got %q, want %q", taskStatus, wantTaskStatus)
+	}
+
+	var attemptStatus string
+	var eventSequence int64
+	var acceptedAt, startedAt, finishedAt sql.NullString
+	var lastObservedAt sql.NullInt64
+	if err := db.QueryRow("SELECT status, accepted_at, started_at, finished_at, last_observed_at, event_sequence FROM task_attempts WHERE task_id = ? AND attempt = 1", taskID).
+		Scan(&attemptStatus, &acceptedAt, &startedAt, &finishedAt, &lastObservedAt, &eventSequence); err != nil {
+		t.Fatalf("query root task attempt status: %v", err)
+	}
+
+	if attemptStatus != wantAttemptStatus {
+		t.Fatalf("root task attempt status: got %q, want %q", attemptStatus, wantAttemptStatus)
+	}
+
+	if eventSequence != wantEventSequence {
+		t.Fatalf("root task attempt event sequence: got %d, want %d", eventSequence, wantEventSequence)
+	}
+
+	if !lastObservedAt.Valid || lastObservedAt.Int64 == 0 {
+		t.Fatalf("root task attempt last_observed_at was not set")
+	}
+
+	if !acceptedAt.Valid {
+		t.Fatalf("root task attempt accepted_at was not set")
+	}
+
+	if wantAttemptStatus == dal.TaskStatusRunning && !startedAt.Valid {
+		t.Fatalf("root task attempt started_at was not set")
+	}
+
+	if wantAttemptStatus == dal.TaskStatusSucceeded && !finishedAt.Valid {
+		t.Fatalf("root task attempt finished_at was not set")
 	}
 }
 

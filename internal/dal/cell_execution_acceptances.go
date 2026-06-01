@@ -45,6 +45,10 @@ func (r *SQLCellExecutionAcceptancesRepository) AcceptExecution(ctx context.Cont
 		return false, err
 	}
 
+	if err := ensureRootTaskAttemptTx(ctx, tx, normalized); err != nil {
+		return false, err
+	}
+
 	if err := ensureRunSegmentTx(ctx, tx, normalized); err != nil {
 		return false, err
 	}
@@ -439,6 +443,75 @@ func ensureJobRunTx(ctx context.Context, tx *sql.Tx, a CellExecutionAcceptance, 
 
 	if storedPayloadHash != executionPayloadHash {
 		return fmt.Errorf("%w: run %s has different execution payload", ErrConflict, a.RunID)
+	}
+
+	return nil
+}
+
+func ensureRootTaskAttemptTx(ctx context.Context, tx *sql.Tx, a CellExecutionAcceptance) error {
+	taskID := rootTaskID(a.RunID)
+	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		INSERT INTO run_tasks (task_id, run_id, task_key, name, status)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(task_id) DO NOTHING
+	`), taskID, a.RunID, RootTaskKey, RootTaskKey, TaskStatusAccepted); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	var runID, taskKey, name, status string
+	if err := tx.QueryRowContext(ctx,
+		rebindQueryForPgx("SELECT run_id, task_key, name, status FROM run_tasks WHERE task_id = ?"),
+		taskID,
+	).Scan(&runID, &taskKey, &name, &status); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if runID != a.RunID || taskKey != RootTaskKey || name != RootTaskKey {
+		return fmt.Errorf("%w: task %s has different accepted payload", ErrConflict, taskID)
+	}
+
+	if status == TaskStatusPending {
+		if _, err := tx.ExecContext(ctx,
+			rebindQueryForPgx("UPDATE run_tasks SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE task_id = ?"),
+			TaskStatusAccepted,
+			taskID,
+		); err != nil {
+			return normalizeSQLError(err)
+		}
+	}
+
+	attemptID := rootTaskAttemptID(a.RunID, a.Attempt)
+	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		INSERT INTO task_attempts
+			(attempt_id, task_id, run_id, cell_id, attempt, status, accepted_at, last_observed_at, event_sequence)
+		VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, 1)
+		ON CONFLICT(task_id, attempt) DO NOTHING
+	`), attemptID, taskID, a.RunID, a.CellID, a.Attempt, TaskStatusAccepted, a.AcceptedAtUnixNano); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	var attemptRunID, attemptTaskID, cellID, attemptStatus string
+	var attempt int
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT run_id, task_id, cell_id, attempt, status
+		FROM task_attempts
+		WHERE task_id = ? AND attempt = ?
+	`), taskID, a.Attempt).Scan(&attemptRunID, &attemptTaskID, &cellID, &attempt, &attemptStatus); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if attemptRunID != a.RunID || attemptTaskID != taskID || cellID != a.CellID || attempt != a.Attempt {
+		return fmt.Errorf("%w: task attempt %s attempt %d has different accepted payload", ErrConflict, taskID, a.Attempt)
+	}
+
+	if attemptStatus == TaskStatusPending {
+		if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+			UPDATE task_attempts
+			SET status = ?, accepted_at = COALESCE(accepted_at, CURRENT_TIMESTAMP), last_observed_at = ?, event_sequence = event_sequence + 1, updated_at = CURRENT_TIMESTAMP
+			WHERE task_id = ? AND attempt = ?
+		`), TaskStatusAccepted, a.AcceptedAtUnixNano, taskID, a.Attempt); err != nil {
+			return normalizeSQLError(err)
+		}
 	}
 
 	return nil

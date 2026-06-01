@@ -1357,11 +1357,13 @@ func (r *SQLRunsRepository) transitionExecution(
 	defer func() { _ = tx.Rollback() }()
 
 	var segmentID string
+	var runID string
+	var attempt int
 	var currentStatus string
 	if err := tx.QueryRowContext(ctx,
-		rebindQueryForPgx("SELECT segment_id, status FROM segment_executions WHERE execution_id = ?"),
+		rebindQueryForPgx("SELECT segment_id, run_id, attempt, status FROM segment_executions WHERE execution_id = ?"),
 		executionID,
-	).Scan(&segmentID, &currentStatus); err != nil {
+	).Scan(&segmentID, &runID, &attempt, &currentStatus); err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("%w: execution %s", ErrNotFound, executionID)
 		}
@@ -1409,7 +1411,58 @@ func (r *SQLRunsRepository) transitionExecution(
 		return normalizeSQLError(err)
 	}
 
+	if err := transitionRootTaskAttemptTx(ctx, tx, runID, attempt, targetStatus, targetSegmentStatus, markAccepted, markStarted, markFinished); err != nil {
+		return err
+	}
+
 	return tx.Commit()
+}
+
+func transitionRootTaskAttemptTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	runID string,
+	attempt int,
+	targetAttemptStatus string,
+	targetTaskStatus string,
+	markAccepted bool,
+	markStarted bool,
+	markFinished bool,
+) error {
+	taskID := rootTaskID(runID)
+	setParts := []string{"status = ?"}
+	args := []any{targetAttemptStatus}
+	if markAccepted {
+		setParts = append(setParts, "accepted_at = COALESCE(accepted_at, CURRENT_TIMESTAMP)")
+	}
+
+	if markStarted {
+		setParts = append(setParts, "started_at = COALESCE(started_at, CURRENT_TIMESTAMP)")
+	}
+
+	if markFinished {
+		setParts = append(setParts, "finished_at = COALESCE(finished_at, CURRENT_TIMESTAMP)")
+	}
+
+	setParts = append(setParts, "last_observed_at = ?", "event_sequence = event_sequence + 1", "updated_at = CURRENT_TIMESTAMP")
+	args = append(args, time.Now().UnixNano(), taskID, attempt)
+
+	if _, err := tx.ExecContext(ctx,
+		rebindQueryForPgx("UPDATE task_attempts SET "+strings.Join(setParts, ", ")+" WHERE task_id = ? AND attempt = ?"),
+		args...,
+	); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		rebindQueryForPgx("UPDATE run_tasks SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE task_id = ?"),
+		targetTaskStatus,
+		taskID,
+	); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	return nil
 }
 
 func statusIn(status string, statuses []string) bool {

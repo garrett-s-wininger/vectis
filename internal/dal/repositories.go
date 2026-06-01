@@ -64,6 +64,14 @@ const (
 	SegmentStatusFailed      = "failed"
 	SegmentStatusCancelled   = "cancelled"
 	SegmentStatusAborted     = "aborted"
+	RootTaskKey              = "root"
+	TaskStatusPending        = "pending"
+	TaskStatusAccepted       = "accepted"
+	TaskStatusRunning        = "running"
+	TaskStatusSucceeded      = "succeeded"
+	TaskStatusFailed         = "failed"
+	TaskStatusCancelled      = "cancelled"
+	TaskStatusAborted        = "aborted"
 	ExecutionStatusPending   = "pending"
 	ExecutionStatusAccepted  = "accepted"
 	ExecutionStatusRunning   = "running"
@@ -486,6 +494,18 @@ func newExecutionID() string {
 	return uuid.NewString()
 }
 
+func rootTaskID(runID string) string {
+	return runID + ":" + RootTaskKey
+}
+
+func rootTaskAttemptID(runID string, attempt int) string {
+	if attempt <= 0 {
+		attempt = 1
+	}
+
+	return runID + ":" + RootTaskKey + ":attempt:" + strconv.Itoa(attempt)
+}
+
 func normalizeCellID(cellID string) string {
 	cellID = strings.TrimSpace(cellID)
 	if cellID == "" {
@@ -505,12 +525,16 @@ func normalizeTargetCellID(cellID, fallback string) string {
 }
 
 func createInitialSegmentExecutionTx(ctx context.Context, tx *sql.Tx, runID, cellID string) error {
+	if err := createInitialRootTaskAttemptTx(ctx, tx, runID, cellID); err != nil {
+		return err
+	}
+
 	segmentID := newSegmentID()
 	if _, err := tx.ExecContext(ctx,
 		rebindQueryForPgx("INSERT INTO run_segments (segment_id, run_id, name, status) VALUES (?, ?, ?, ?)"),
 		segmentID,
 		runID,
-		"root",
+		RootTaskKey,
 		SegmentStatusPending,
 	); err != nil {
 		return normalizeSQLError(err)
@@ -523,6 +547,34 @@ func createInitialSegmentExecutionTx(ctx context.Context, tx *sql.Tx, runID, cel
 		runID,
 		normalizeCellID(cellID),
 		ExecutionStatusPending,
+		1,
+	); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	return nil
+}
+
+func createInitialRootTaskAttemptTx(ctx context.Context, tx *sql.Tx, runID, cellID string) error {
+	taskID := rootTaskID(runID)
+	if _, err := tx.ExecContext(ctx,
+		rebindQueryForPgx("INSERT INTO run_tasks (task_id, run_id, task_key, name, status) VALUES (?, ?, ?, ?, ?)"),
+		taskID,
+		runID,
+		RootTaskKey,
+		RootTaskKey,
+		TaskStatusPending,
+	); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		rebindQueryForPgx("INSERT INTO task_attempts (attempt_id, task_id, run_id, cell_id, status, attempt) VALUES (?, ?, ?, ?, ?, ?)"),
+		rootTaskAttemptID(runID, 1),
+		taskID,
+		runID,
+		normalizeCellID(cellID),
+		TaskStatusPending,
 		1,
 	); err != nil {
 		return normalizeSQLError(err)

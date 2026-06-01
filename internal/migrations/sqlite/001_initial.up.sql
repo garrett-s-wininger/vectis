@@ -96,6 +96,46 @@ CREATE TABLE job_runs (
 CREATE INDEX idx_job_runs_job_id_run_index ON job_runs (job_id, run_index DESC);
 CREATE INDEX idx_job_runs_replay_of_run_id ON job_runs (replay_of_run_id);
 
+CREATE TABLE run_tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id TEXT UNIQUE NOT NULL,
+    run_id TEXT NOT NULL REFERENCES job_runs(run_id) ON DELETE CASCADE,
+    parent_task_id TEXT REFERENCES run_tasks(task_id) ON DELETE CASCADE,
+    task_key TEXT NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',
+    spec_hash TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(run_id, task_key)
+);
+
+CREATE INDEX idx_run_tasks_run_id ON run_tasks(run_id);
+CREATE INDEX idx_run_tasks_status ON run_tasks(status);
+CREATE INDEX idx_run_tasks_parent ON run_tasks(parent_task_id);
+
+CREATE TABLE task_attempts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    attempt_id TEXT UNIQUE NOT NULL,
+    task_id TEXT NOT NULL REFERENCES run_tasks(task_id) ON DELETE CASCADE,
+    run_id TEXT NOT NULL REFERENCES job_runs(run_id) ON DELETE CASCADE,
+    cell_id TEXT NOT NULL,
+    attempt INTEGER NOT NULL DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'pending',
+    accepted_at TIMESTAMP,
+    started_at TIMESTAMP,
+    finished_at TIMESTAMP,
+    last_observed_at INTEGER,
+    event_sequence INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(task_id, attempt)
+);
+
+CREATE INDEX idx_task_attempts_task_id ON task_attempts(task_id);
+CREATE INDEX idx_task_attempts_run_id ON task_attempts(run_id);
+CREATE INDEX idx_task_attempts_cell_status ON task_attempts(cell_id, status);
+
 CREATE TABLE run_segments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     segment_id TEXT UNIQUE NOT NULL,
