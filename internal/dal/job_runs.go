@@ -1245,6 +1245,186 @@ func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, afterIn
 	return out, nextCursor, nil
 }
 
+func (r *SQLRunsRepository) ListRunTasks(ctx context.Context, runID string, cursor int64, limit int) ([]TaskRecord, int64, error) {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return nil, 0, fmt.Errorf("%w: run_id is required", ErrNotFound)
+	}
+
+	if limit <= 0 {
+		limit = 100
+	}
+
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
+		WITH page_tasks AS (
+			SELECT
+				id,
+				task_id,
+				run_id,
+				parent_task_id,
+				task_key,
+				name,
+				status,
+				spec_hash,
+				created_at,
+				updated_at
+			FROM run_tasks
+			WHERE run_id = ?
+				AND (? <= 0 OR id > ?)
+			ORDER BY id ASC
+			LIMIT ?
+		)
+		SELECT
+			rt.id,
+			rt.task_id,
+			rt.run_id,
+			rt.parent_task_id,
+			rt.task_key,
+			rt.name,
+			rt.status,
+			rt.spec_hash,
+			CAST(rt.created_at AS TEXT),
+			CAST(rt.updated_at AS TEXT),
+			ta.attempt_id,
+			ta.task_id,
+			ta.run_id,
+			ta.cell_id,
+			ta.attempt,
+			ta.status,
+			CAST(ta.accepted_at AS TEXT),
+			CAST(ta.started_at AS TEXT),
+			CAST(ta.finished_at AS TEXT),
+			ta.last_observed_at,
+			ta.event_sequence,
+			CAST(ta.created_at AS TEXT),
+			CAST(ta.updated_at AS TEXT)
+		FROM page_tasks rt
+		LEFT JOIN task_attempts ta ON ta.task_id = rt.task_id
+		ORDER BY rt.id ASC, ta.attempt ASC, ta.id ASC
+	`), runID, cursor, cursor, limit+1)
+
+	if err != nil {
+		return nil, 0, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	byTaskID := map[string]int{}
+	var out []TaskRecord
+	for rows.Next() {
+		var rec TaskRecord
+		var parentTaskID, createdAt, updatedAt sql.NullString
+		var attemptID, attemptTaskID, attemptRunID, cellID, attemptStatus sql.NullString
+		var attempt sql.NullInt64
+		var acceptedAt, startedAt, finishedAt, attemptCreatedAt, attemptUpdatedAt sql.NullString
+		var lastObservedAt, eventSequence sql.NullInt64
+		if err := rows.Scan(
+			&rec.ID,
+			&rec.TaskID,
+			&rec.RunID,
+			&parentTaskID,
+			&rec.TaskKey,
+			&rec.Name,
+			&rec.Status,
+			&rec.SpecHash,
+			&createdAt,
+			&updatedAt,
+			&attemptID,
+			&attemptTaskID,
+			&attemptRunID,
+			&cellID,
+			&attempt,
+			&attemptStatus,
+			&acceptedAt,
+			&startedAt,
+			&finishedAt,
+			&lastObservedAt,
+			&eventSequence,
+			&attemptCreatedAt,
+			&attemptUpdatedAt,
+		); err != nil {
+			return nil, 0, normalizeSQLError(err)
+		}
+
+		idx, ok := byTaskID[rec.TaskID]
+		if !ok {
+			rec.ParentTaskID = nullStringPtr(parentTaskID)
+			rec.CreatedAt = nullStringPtr(createdAt)
+			rec.UpdatedAt = nullStringPtr(updatedAt)
+			out = append(out, rec)
+			idx = len(out) - 1
+			byTaskID[rec.TaskID] = idx
+		}
+
+		if !attemptID.Valid {
+			continue
+		}
+
+		attemptRec := TaskAttemptRecord{
+			AttemptID:      attemptID.String,
+			TaskID:         attemptTaskID.String,
+			RunID:          attemptRunID.String,
+			CellID:         cellID.String,
+			Status:         attemptStatus.String,
+			AcceptedAt:     nullStringPtr(acceptedAt),
+			StartedAt:      nullStringPtr(startedAt),
+			FinishedAt:     nullStringPtr(finishedAt),
+			LastObservedAt: nullInt64Ptr(lastObservedAt),
+			EventSequence:  eventSequence.Int64,
+			CreatedAt:      nullStringPtr(attemptCreatedAt),
+			UpdatedAt:      nullStringPtr(attemptUpdatedAt),
+		}
+		if attempt.Valid {
+			attemptRec.Attempt = int(attempt.Int64)
+		}
+
+		out[idx].Attempts = append(out[idx].Attempts, attemptRec)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, 0, normalizeSQLError(err)
+	}
+
+	if len(out) == 0 {
+		var existingRunID string
+		err := r.db.QueryRowContext(ctx, rebindQueryForPgx("SELECT run_id FROM job_runs WHERE run_id = ?"), runID).Scan(&existingRunID)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				return nil, 0, fmt.Errorf("%w: run %s", ErrNotFound, runID)
+			}
+
+			return nil, 0, normalizeSQLError(err)
+		}
+
+		return []TaskRecord{}, 0, nil
+	}
+
+	var nextCursor int64
+	if len(out) > limit {
+		nextCursor = out[limit-1].ID
+		out = out[:limit]
+	}
+
+	return out, nextCursor, nil
+}
+
+func nullStringPtr(value sql.NullString) *string {
+	if !value.Valid {
+		return nil
+	}
+
+	v := value.String
+	return &v
+}
+
+func nullInt64Ptr(value sql.NullInt64) *int64 {
+	if !value.Valid {
+		return nil
+	}
+
+	v := value.Int64
+	return &v
+}
+
 func (r *SQLRunsRepository) ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]QueuedRun, error) {
 	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
 		SELECT run_id, job_id, definition_version, definition_hash, owning_cell

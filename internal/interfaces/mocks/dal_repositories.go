@@ -212,6 +212,7 @@ type MockRunsRepository struct {
 	CreateRunErr           error
 	TouchDispatchedErr     error
 	ListByJobErr           error
+	ListRunTasksErr        error
 	QueuedListErr          error
 	TryClaimErr            error
 	RenewLeaseErr          error
@@ -250,6 +251,7 @@ type MockRunsRepository struct {
 	LogShardSet     bool
 
 	ListByJobResults []dal.RunRecord
+	TaskRecords      []dal.TaskRecord
 	RunRecords       map[string]dal.RunRecord
 	QueuedRuns       []dal.QueuedRun
 	PendingExecution dal.ExecutionDispatchRecord
@@ -270,6 +272,7 @@ type MockRunsRepository struct {
 	LastListAfterIndex    *int
 	LastListSince         *time.Time
 	LastListOwningCell    string
+	LastListRunTasksRunID string
 	LastRunStatusUpdate   dal.RunStatusUpdate
 	LastExecStatusUpdate  dal.ExecutionStatusUpdate
 }
@@ -661,6 +664,18 @@ func (m *MockRunsRepository) ListByJob(ctx context.Context, jobID string, afterI
 	m.mu.Unlock()
 
 	return append([]dal.RunRecord(nil), m.ListByJobResults...), 0, nil
+}
+
+func (m *MockRunsRepository) ListRunTasks(ctx context.Context, runID string, cursor int64, limit int) ([]dal.TaskRecord, int64, error) {
+	if m.ListRunTasksErr != nil {
+		return nil, 0, m.ListRunTasksErr
+	}
+
+	m.mu.Lock()
+	m.LastListRunTasksRunID = runID
+	m.mu.Unlock()
+
+	return append([]dal.TaskRecord(nil), m.TaskRecords...), 0, nil
 }
 
 func (m *MockRunsRepository) CountByStatus(ctx context.Context, status string) (int64, error) {

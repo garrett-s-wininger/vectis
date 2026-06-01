@@ -131,6 +131,36 @@ type RunRecord struct {
 	ExecutionPayloadHash string
 }
 
+type TaskRecord struct {
+	ID           int64
+	TaskID       string
+	RunID        string
+	ParentTaskID *string
+	TaskKey      string
+	Name         string
+	Status       string
+	SpecHash     string
+	CreatedAt    *string
+	UpdatedAt    *string
+	Attempts     []TaskAttemptRecord
+}
+
+type TaskAttemptRecord struct {
+	AttemptID      string
+	TaskID         string
+	RunID          string
+	CellID         string
+	Attempt        int
+	Status         string
+	AcceptedAt     *string
+	StartedAt      *string
+	FinishedAt     *string
+	LastObservedAt *int64
+	EventSequence  int64
+	CreatedAt      *string
+	UpdatedAt      *string
+}
+
 type QueuedRun struct {
 	RunID             string
 	JobID             string
@@ -380,6 +410,7 @@ type RunsRepository interface {
 	GetExecutionPayloadForRun(ctx context.Context, runID string) (ExecutionPayloadRecord, error)
 	GetExecutionPayloadByHash(ctx context.Context, payloadHash string) (ExecutionPayloadRecord, error)
 	ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, owningCell string, cursor int64, limit int) ([]RunRecord, int64, error)
+	ListRunTasks(ctx context.Context, runID string, cursor int64, limit int) ([]TaskRecord, int64, error)
 	ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]QueuedRun, error)
 	GetPendingExecution(ctx context.Context, runID string) (ExecutionDispatchRecord, error)
 	MarkExecutionAccepted(ctx context.Context, executionID string) error

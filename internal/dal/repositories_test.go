@@ -975,6 +975,88 @@ func TestRunsRepository_CreateRunsInCells_FanoutTargetsExecutionCells(t *testing
 	}
 }
 
+func TestRunsRepository_ListRunTasks_ReturnsRootTaskAndAttempt(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-tasks", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-root-task-list"
+	def := `{"id":"job-root-task-list","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	tasks, nextCursor, err := repos.Runs().ListRunTasks(ctx, runID, 0, 50)
+	if err != nil {
+		t.Fatalf("list run tasks: %v", err)
+	}
+
+	if nextCursor != 0 {
+		t.Fatalf("next cursor: got %d, want 0", nextCursor)
+	}
+
+	if len(tasks) != 1 {
+		t.Fatalf("tasks: got %d, want 1", len(tasks))
+	}
+
+	task := tasks[0]
+	if task.TaskID != runID+":root" || task.RunID != runID || task.TaskKey != dal.RootTaskKey || task.Name != dal.RootTaskKey || task.Status != dal.TaskStatusPending {
+		t.Fatalf("unexpected root task: %+v", task)
+	}
+
+	if task.ParentTaskID != nil {
+		t.Fatalf("root task parent: got %+v, want nil", task.ParentTaskID)
+	}
+
+	if len(task.Attempts) != 1 {
+		t.Fatalf("attempts: got %d, want 1", len(task.Attempts))
+	}
+
+	attempt := task.Attempts[0]
+	if attempt.AttemptID != runID+":root:attempt:1" || attempt.TaskID != task.TaskID || attempt.RunID != runID || attempt.CellID != "iad-a" || attempt.Attempt != 1 || attempt.Status != dal.TaskStatusPending {
+		t.Fatalf("unexpected root task attempt: %+v", attempt)
+	}
+
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO run_tasks (task_id, run_id, parent_task_id, task_key, name, status)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, runID+":child", runID, task.TaskID, "child", "child", dal.TaskStatusPending); err != nil {
+		t.Fatalf("insert child task: %v", err)
+	}
+
+	firstPage, nextCursor, err := repos.Runs().ListRunTasks(ctx, runID, 0, 1)
+	if err != nil {
+		t.Fatalf("list first task page: %v", err)
+	}
+
+	if len(firstPage) != 1 || firstPage[0].TaskID != task.TaskID || nextCursor == 0 {
+		t.Fatalf("first task page: tasks=%+v next=%d", firstPage, nextCursor)
+	}
+
+	secondPage, nextCursor, err := repos.Runs().ListRunTasks(ctx, runID, nextCursor, 1)
+	if err != nil {
+		t.Fatalf("list second task page: %v", err)
+	}
+
+	if len(secondPage) != 1 || secondPage[0].TaskID != runID+":child" || nextCursor != 0 {
+		t.Fatalf("second task page: tasks=%+v next=%d", secondPage, nextCursor)
+	}
+
+	if _, _, err := repos.Runs().ListRunTasks(ctx, "missing-run", 0, 50); !dal.IsNotFound(err) {
+		t.Fatalf("expected missing run to return ErrNotFound, got %v", err)
+	}
+}
+
 func TestSQLRepositories_CreateDefinitionAndRunInCell_TargetsExecutionCell(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")

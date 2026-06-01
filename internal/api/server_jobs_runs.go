@@ -2203,6 +2203,138 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(buf.Bytes())
 }
 
+func (s *APIServer) GetRunTasks(w http.ResponseWriter, r *http.Request) {
+	runID := r.PathValue("id")
+	if runID == "" {
+		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
+		return
+	}
+
+	params := parsePageParams(r)
+
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	nsPath, err := s.getRunJobNamespacePath(ctx, runID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunRead, nsPath) {
+		writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+		return
+	}
+
+	taskRecords, nextCursor, err := s.runs.ListRunTasks(ctx, runID, params.Cursor, params.Limit)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+	s.markDBRecovered()
+
+	type taskAttemptRow struct {
+		AttemptID      string  `json:"attempt_id"`
+		TaskID         string  `json:"task_id"`
+		RunID          string  `json:"run_id"`
+		CellID         string  `json:"cell_id"`
+		Attempt        int     `json:"attempt"`
+		Status         string  `json:"status"`
+		AcceptedAt     *string `json:"accepted_at,omitempty"`
+		StartedAt      *string `json:"started_at,omitempty"`
+		FinishedAt     *string `json:"finished_at,omitempty"`
+		LastObservedAt *int64  `json:"last_observed_at,omitempty"`
+		EventSequence  int64   `json:"event_sequence"`
+		CreatedAt      *string `json:"created_at,omitempty"`
+		UpdatedAt      *string `json:"updated_at,omitempty"`
+	}
+
+	type taskRow struct {
+		TaskID       string           `json:"task_id"`
+		RunID        string           `json:"run_id"`
+		ParentTaskID *string          `json:"parent_task_id,omitempty"`
+		TaskKey      string           `json:"task_key"`
+		Name         string           `json:"name"`
+		Status       string           `json:"status"`
+		SpecHash     string           `json:"spec_hash,omitempty"`
+		CreatedAt    *string          `json:"created_at,omitempty"`
+		UpdatedAt    *string          `json:"updated_at,omitempty"`
+		Attempts     []taskAttemptRow `json:"attempts"`
+	}
+
+	tasks := make([]taskRow, 0, len(taskRecords))
+	for _, rec := range taskRecords {
+		task := taskRow{
+			TaskID:       rec.TaskID,
+			RunID:        rec.RunID,
+			ParentTaskID: rec.ParentTaskID,
+			TaskKey:      rec.TaskKey,
+			Name:         rec.Name,
+			Status:       rec.Status,
+			SpecHash:     rec.SpecHash,
+			CreatedAt:    rec.CreatedAt,
+			UpdatedAt:    rec.UpdatedAt,
+			Attempts:     []taskAttemptRow{},
+		}
+
+		for _, attempt := range rec.Attempts {
+			task.Attempts = append(task.Attempts, taskAttemptRow{
+				AttemptID:      attempt.AttemptID,
+				TaskID:         attempt.TaskID,
+				RunID:          attempt.RunID,
+				CellID:         attempt.CellID,
+				Attempt:        attempt.Attempt,
+				Status:         attempt.Status,
+				AcceptedAt:     attempt.AcceptedAt,
+				StartedAt:      attempt.StartedAt,
+				FinishedAt:     attempt.FinishedAt,
+				LastObservedAt: attempt.LastObservedAt,
+				EventSequence:  attempt.EventSequence,
+				CreatedAt:      attempt.CreatedAt,
+				UpdatedAt:      attempt.UpdatedAt,
+			})
+		}
+
+		tasks = append(tasks, task)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	resp := buildPaginatedResponse(tasks, nextCursor)
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(resp); err != nil {
+		s.logger.Error("Failed to encode run tasks: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	_, _ = w.Write(buf.Bytes())
+}
+
 func (s *APIServer) GetRunExecutionPayload(w http.ResponseWriter, r *http.Request) {
 	runID := r.PathValue("id")
 	if runID == "" {

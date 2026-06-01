@@ -1167,6 +1167,53 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 		t.Fatalf("trigger invocation id from run detail: got %+v want %q", runResp.TriggerInvocationID, invocationID)
 	}
 
+	tasksReq := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+runID+"/tasks", nil)
+	tasksReq.SetPathValue("id", runID)
+	tasksRec := httptest.NewRecorder()
+	server.GetRunTasks(tasksRec, tasksReq)
+	if tasksRec.Code != http.StatusOK {
+		t.Fatalf("GetRunTasks: expected status %d, got %d: %s", http.StatusOK, tasksRec.Code, tasksRec.Body.String())
+	}
+
+	var tasksResp struct {
+		Data []struct {
+			TaskID   string `json:"task_id"`
+			RunID    string `json:"run_id"`
+			TaskKey  string `json:"task_key"`
+			Name     string `json:"name"`
+			Status   string `json:"status"`
+			Attempts []struct {
+				AttemptID string `json:"attempt_id"`
+				TaskID    string `json:"task_id"`
+				RunID     string `json:"run_id"`
+				CellID    string `json:"cell_id"`
+				Attempt   int    `json:"attempt"`
+				Status    string `json:"status"`
+			} `json:"attempts"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(tasksRec.Body).Decode(&tasksResp); err != nil {
+		t.Fatalf("decode run tasks response: %v", err)
+	}
+
+	if len(tasksResp.Data) != 1 {
+		t.Fatalf("expected one root task, got %d", len(tasksResp.Data))
+	}
+
+	rootTask := tasksResp.Data[0]
+	if rootTask.TaskID != runID+":root" || rootTask.RunID != runID || rootTask.TaskKey != dal.RootTaskKey || rootTask.Name != dal.RootTaskKey || rootTask.Status != dal.TaskStatusPending {
+		t.Fatalf("unexpected root task response: %+v", rootTask)
+	}
+
+	if len(rootTask.Attempts) != 1 {
+		t.Fatalf("expected one root task attempt, got %d", len(rootTask.Attempts))
+	}
+
+	rootAttempt := rootTask.Attempts[0]
+	if rootAttempt.AttemptID != runID+":root:attempt:1" || rootAttempt.TaskID != rootTask.TaskID || rootAttempt.RunID != runID || rootAttempt.CellID != dal.DefaultCellID || rootAttempt.Attempt != 1 || rootAttempt.Status != dal.TaskStatusPending {
+		t.Fatalf("unexpected root task attempt response: %+v", rootAttempt)
+	}
+
 	payloadReq := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+runID+"/execution-payload", nil)
 	payloadReq.SetPathValue("id", runID)
 	payloadRec := httptest.NewRecorder()
