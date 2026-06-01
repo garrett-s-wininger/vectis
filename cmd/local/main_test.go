@@ -814,3 +814,98 @@ func envContains(env []string, prefix, want string) bool {
 
 	return false
 }
+
+func TestUIEnvIncludesDevAssetsURLWhenEnabled(t *testing.T) {
+	withViperSettings(t, map[string]any{
+		"host":                  "localhost",
+		"ui_enabled":            true,
+		"ui_port":               8089,
+		"ui_dir":                "",
+		"ui_dev_assets_enabled": true,
+		"ui_dev_assets_host":    "127.0.0.1",
+		"ui_dev_assets_port":    5173,
+	})
+
+	env := uiEnv()
+	if !containsEnv(env, "VECTIS_UI_DEV_ASSETS_URL=http://127.0.0.1:5173") {
+		t.Fatalf("uiEnv() = %v, want dev assets URL", env)
+	}
+}
+
+func TestUIEnvOmitsDevAssetsURLByDefault(t *testing.T) {
+	withViperSettings(t, map[string]any{
+		"host":                  "localhost",
+		"ui_enabled":            true,
+		"ui_port":               8089,
+		"ui_dir":                "",
+		"ui_dev_assets_enabled": false,
+	})
+
+	env := uiEnv()
+	for _, value := range env {
+		if strings.HasPrefix(value, "VECTIS_UI_DEV_ASSETS_URL=") {
+			t.Fatalf("uiEnv() = %v, did not expect dev assets URL", env)
+		}
+	}
+}
+
+func TestValidateUIDevAssetsConfigRequiresUI(t *testing.T) {
+	withViperSettings(t, map[string]any{
+		"ui_enabled":            false,
+		"ui_dev_assets_enabled": true,
+	})
+
+	err := validateUIDevAssetsConfig()
+	if err == nil || !strings.Contains(err.Error(), "--ui-dev-assets requires the local UI") {
+		t.Fatalf("validateUIDevAssetsConfig() = %v, want UI required error", err)
+	}
+}
+
+func TestValidateUIDevAssetsDirRequiresPackageJSON(t *testing.T) {
+	dir := t.TempDir()
+
+	err := validateUIDevAssetsDir(dir)
+	if err == nil || !strings.Contains(err.Error(), "does not contain package.json") {
+		t.Fatalf("validateUIDevAssetsDir() = %v, want package.json error", err)
+	}
+}
+
+func TestValidateUIDevAssetsDirAcceptsUIPackage(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"scripts":{"dev":"vite"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := validateUIDevAssetsDir(dir); err != nil {
+		t.Fatalf("validateUIDevAssetsDir() = %v, want nil", err)
+	}
+}
+
+func withViperSettings(t *testing.T, settings map[string]any) {
+	t.Helper()
+
+	previous := make(map[string]any, len(settings))
+	for key := range settings {
+		previous[key] = viper.Get(key)
+	}
+
+	for key, value := range settings {
+		viper.Set(key, value)
+	}
+
+	t.Cleanup(func() {
+		for key, value := range previous {
+			viper.Set(key, value)
+		}
+	})
+}
+
+func containsEnv(env []string, want string) bool {
+	for _, value := range env {
+		if value == want {
+			return true
+		}
+	}
+
+	return false
+}

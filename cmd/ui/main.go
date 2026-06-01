@@ -6,6 +6,8 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -34,6 +36,17 @@ func runUI(cmd *cobra.Command, args []string) {
 	cli.SetLogLevel(logger)
 
 	ui, source := uiHandler(viper.GetString("dir"), logger)
+	devAssets := false
+	if rawDevAssetsURL := strings.TrimSpace(viper.GetString("dev-assets-url")); rawDevAssetsURL != "" {
+		devUI, devSource, err := devAssetsHandler(rawDevAssetsURL)
+		if err != nil {
+			logger.Fatal("Invalid Vite dev assets URL: %v", err)
+		}
+
+		ui, source = devUI, devSource
+		devAssets = true
+	}
+
 	backend, err := newUIBackend(viper.GetString("api-url"))
 	if err != nil {
 		logger.Fatal("Invalid API URL: %v", err)
@@ -49,7 +62,7 @@ func runUI(cmd *cobra.Command, args []string) {
 	mux.Handle("PUT /api/", api)
 	mux.Handle("PATCH /api/", api)
 	mux.Handle("DELETE /api/", api)
-	mux.Handle("GET /", backend.spaGate(ui))
+	mux.Handle("GET /", backend.spaGateWithDevAssets(ui, devAssets))
 	mux.Handle("GET /health/live", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok\n"))
@@ -73,6 +86,20 @@ func runUI(cmd *cobra.Command, args []string) {
 
 func uiHandler(configuredDir string, logger interfaces.Logger) (http.Handler, string) {
 	return uiHandlerWithFS(configuredDir, logger, embeddedUI)
+}
+
+func devAssetsHandler(rawURL string) (http.Handler, string, error) {
+	target, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return nil, "", err
+	}
+
+	if target.Scheme == "" || target.Host == "" {
+		return nil, "", fmt.Errorf("must include scheme and host")
+	}
+
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	return proxy, fmt.Sprintf("proxying Vite dev assets from %s", target.String()), nil
 }
 
 func uiHandlerWithFS(configuredDir string, logger interfaces.Logger, uiFS fs.FS) (http.Handler, string) {
@@ -172,15 +199,18 @@ func init() {
 	rootCmd.PersistentFlags().Int("port", defaultUIPort, "HTTP port for the UI")
 	rootCmd.PersistentFlags().String("host", "localhost", "Host/IP for the UI to bind")
 	rootCmd.PersistentFlags().String("dir", "", "Directory containing a UI build to serve instead of embedded UI")
+	rootCmd.PersistentFlags().String("dev-assets-url", "", "Vite dev server URL for hot-reloaded UI assets")
 	rootCmd.PersistentFlags().String("api-url", defaultAPIURL, "Base URL for proxied API requests")
 	rootCmd.PersistentFlags().String("log-level", "info", "Log level: debug, info, warn, error")
 
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
 	_ = viper.BindPFlag("host", rootCmd.PersistentFlags().Lookup("host"))
 	_ = viper.BindPFlag("dir", rootCmd.PersistentFlags().Lookup("dir"))
+	_ = viper.BindPFlag("dev-assets-url", rootCmd.PersistentFlags().Lookup("dev-assets-url"))
 	_ = viper.BindPFlag("api-url", rootCmd.PersistentFlags().Lookup("api-url"))
 	_ = viper.BindPFlag("log_level", rootCmd.PersistentFlags().Lookup("log-level"))
 	_ = viper.BindEnv("dir", "VECTIS_UI_DIR")
+	_ = viper.BindEnv("dev-assets-url", "VECTIS_UI_DEV_ASSETS_URL")
 	_ = viper.BindEnv("api-url", "VECTIS_UI_API_URL")
 	viper.SetEnvPrefix("VECTIS_UI")
 	viper.AutomaticEnv()

@@ -331,6 +331,7 @@ function SetupPage({
             required
             type="password"
             value={values.bootstrapToken}
+            wide
           />
           <FormField
             autoComplete="username"
@@ -339,6 +340,7 @@ function SetupPage({
             onChange={(event) => onChange({ ...values, adminUsername: event.target.value })}
             required
             value={values.adminUsername}
+            wide
           />
           <FormField
             autoComplete="new-password"
@@ -349,6 +351,7 @@ function SetupPage({
             required
             type="password"
             value={values.adminPassword}
+            wide
           />
           <FormError message={error} />
           <Button disabled={submitting} type="submit">

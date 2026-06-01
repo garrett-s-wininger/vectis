@@ -185,6 +185,57 @@ func startService(ctx context.Context, logger interfaces.Logger, svc serviceStag
 	return command, nil
 }
 
+func startUIDevAssets(logger interfaces.Logger) (*exec.Cmd, error) {
+	dir := strings.TrimSpace(viper.GetString("ui_dev_assets_dir"))
+	if dir == "" {
+		dir = "ui"
+	}
+	if err := validateUIDevAssetsDir(dir); err != nil {
+		return nil, err
+	}
+
+	command := exec.Command("npm", "run", "dev", "--", "--host", uiDevAssetsHost(), "--port", fmt.Sprintf("%d", viper.GetInt("ui_dev_assets_port")), "--strictPort") //#nosec G204
+	command.Dir = dir
+	command.Stdin = nil
+	command.Stdout = os.Stdout
+	command.Stderr = os.Stderr
+	command.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+	}
+	command.Env = os.Environ()
+
+	if err := command.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start UI Vite dev assets: %w", err)
+	}
+
+	logger.Info("UI Vite dev assets will be available at %s", uiDevAssetsURL())
+	return command, nil
+}
+
+func validateUIDevAssetsConfig() error {
+	if viper.GetBool("ui_dev_assets_enabled") && !viper.GetBool("ui_enabled") {
+		return fmt.Errorf("--ui-dev-assets requires the local UI; remove --ui=false or omit --ui-dev-assets")
+	}
+
+	return nil
+}
+
+func validateUIDevAssetsDir(dir string) error {
+	info, err := os.Stat(filepath.Join(dir, "package.json"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("UI dev assets directory %s does not contain package.json", dir)
+		}
+
+		return fmt.Errorf("inspect UI dev assets directory %s: %w", dir, err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("UI dev assets directory %s has package.json as a directory", dir)
+	}
+
+	return nil
+}
+
 func mergeEnv(groups ...[]string) []string {
 	out := make([]string, 0)
 	indexByKey := map[string]int{}
@@ -949,6 +1000,10 @@ func uiEnv() []string {
 		env = append(env, "VECTIS_UI_DIR="+dir)
 	}
 
+	if viper.GetBool("ui_dev_assets_enabled") {
+		env = append(env, "VECTIS_UI_DEV_ASSETS_URL="+uiDevAssetsURL())
+	}
+
 	return env
 }
 
@@ -1023,6 +1078,18 @@ func localSourceRepositorySpecs() []string {
 	}
 
 	return cleanCommaSeparated(values)
+}
+
+func uiDevAssetsHost() string {
+	if host := strings.TrimSpace(viper.GetString("ui_dev_assets_host")); host != "" {
+		return host
+	}
+
+	return "127.0.0.1"
+}
+
+func uiDevAssetsURL() string {
+	return fmt.Sprintf("http://%s:%d", uiDevAssetsHost(), viper.GetInt("ui_dev_assets_port"))
 }
 
 func queueEnv(cell localCell, multiCell bool) []string {
@@ -1488,6 +1555,10 @@ func runVectis(cmd *cobra.Command, args []string) {
 
 	setLoggerLevel(logger, logLevel)
 
+	if err := validateUIDevAssetsConfig(); err != nil {
+		logger.Fatal("%v", err)
+	}
+
 	var tlsEnv []string
 	var material *localpki.Material
 	tlsDir := configuredLocalTLSDir(utils.DataHome())
@@ -1616,6 +1687,18 @@ func runVectis(cmd *cobra.Command, args []string) {
 
 	if profile == localProfileHA {
 		logger.Info("Additional HA API replica will be available at %s://%s:%d", browserTLS.Scheme, localHost(), 8180)
+	}
+
+	if viper.GetBool("ui_enabled") && viper.GetBool("ui_dev_assets_enabled") {
+		proc, err := startUIDevAssets(logger)
+		if err != nil {
+			logger.Fatal("%v", err)
+		}
+
+		trackStarted(proc)
+		trackedMu.Lock()
+		tracked = append(tracked, trackedCmd{cmd: proc, binary: "vectis-ui-dev-assets"})
+		trackedMu.Unlock()
 	}
 
 	if hasService(services, "vectis-docs") {
@@ -1878,6 +1961,8 @@ does not start services or perform any other setup.
 	The UI is served from the vectis-ui binary on port 8089 by default. The docs
 	site is served from the vectis-docs binary on port 8088 by default. If either
 	web binary was not built, vectis-local logs a warning and continues without it.
+	Use --ui-dev-assets to start the Vite dev server and have vectis-ui proxy its
+	hot-reloaded assets while keeping the UI BFF, setup, login, and redirects active.
 	Use --host=0.0.0.0 to expose the local API, UI, and docs outside the development
 	machine. Use --ui=false or --docs=false to skip either web server explicitly
 	during local development. Local API authentication is enabled by default; pass
@@ -1947,6 +2032,10 @@ func init() {
 	rootCmd.PersistentFlags().Bool("ui", true, "Start the local UI")
 	rootCmd.PersistentFlags().Int("ui-port", 8089, "HTTP port for the local UI")
 	rootCmd.PersistentFlags().String("ui-dir", "", "Directory containing a UI build to serve instead of embedded UI")
+	rootCmd.PersistentFlags().Bool("ui-dev-assets", false, "Start Vite dev assets and proxy them through the local UI BFF")
+	rootCmd.PersistentFlags().String("ui-dev-assets-host", "127.0.0.1", "Host/IP for the UI Vite dev assets server to bind")
+	rootCmd.PersistentFlags().Int("ui-dev-assets-port", 5173, "HTTP port for the UI Vite dev assets server")
+	rootCmd.PersistentFlags().String("ui-dev-assets-dir", "ui", "Directory containing the UI package.json for Vite dev assets")
 	rootCmd.PersistentFlags().Bool("auth", true, "Enable local HTTP API authentication")
 	_ = viper.BindPFlag("log_level", rootCmd.PersistentFlags().Lookup("log-level"))
 	_ = viper.BindPFlag("profile", rootCmd.PersistentFlags().Lookup("profile"))
@@ -1973,6 +2062,10 @@ func init() {
 	_ = viper.BindPFlag("ui_enabled", rootCmd.PersistentFlags().Lookup("ui"))
 	_ = viper.BindPFlag("ui_port", rootCmd.PersistentFlags().Lookup("ui-port"))
 	_ = viper.BindPFlag("ui_dir", rootCmd.PersistentFlags().Lookup("ui-dir"))
+	_ = viper.BindPFlag("ui_dev_assets_enabled", rootCmd.PersistentFlags().Lookup("ui-dev-assets"))
+	_ = viper.BindPFlag("ui_dev_assets_host", rootCmd.PersistentFlags().Lookup("ui-dev-assets-host"))
+	_ = viper.BindPFlag("ui_dev_assets_port", rootCmd.PersistentFlags().Lookup("ui-dev-assets-port"))
+	_ = viper.BindPFlag("ui_dev_assets_dir", rootCmd.PersistentFlags().Lookup("ui-dev-assets-dir"))
 	_ = viper.BindPFlag("auth_enabled", rootCmd.PersistentFlags().Lookup("auth"))
 	_ = viper.BindEnv("grpc_insecure", "VECTIS_LOCAL_GRPC_INSECURE")
 	_ = viper.BindEnv("http_tls", "VECTIS_LOCAL_HTTP_TLS")
@@ -1998,6 +2091,10 @@ func init() {
 	_ = viper.BindEnv("ui_enabled", "VECTIS_LOCAL_UI_ENABLED")
 	_ = viper.BindEnv("ui_port", "VECTIS_LOCAL_UI_PORT")
 	_ = viper.BindEnv("ui_dir", "VECTIS_LOCAL_UI_DIR")
+	_ = viper.BindEnv("ui_dev_assets_enabled", "VECTIS_LOCAL_UI_DEV_ASSETS_ENABLED")
+	_ = viper.BindEnv("ui_dev_assets_host", "VECTIS_LOCAL_UI_DEV_ASSETS_HOST")
+	_ = viper.BindEnv("ui_dev_assets_port", "VECTIS_LOCAL_UI_DEV_ASSETS_PORT")
+	_ = viper.BindEnv("ui_dev_assets_dir", "VECTIS_LOCAL_UI_DEV_ASSETS_DIR")
 	_ = viper.BindEnv("auth_enabled", "VECTIS_LOCAL_AUTH_ENABLED")
 	viper.SetEnvPrefix("VECTIS_LOCAL")
 	viper.AutomaticEnv()

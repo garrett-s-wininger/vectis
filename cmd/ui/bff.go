@@ -162,8 +162,12 @@ func (b *uiBackend) apiProxyHandler() http.Handler {
 }
 
 func (b *uiBackend) spaGate(next http.Handler) http.Handler {
+	return b.spaGateWithDevAssets(next, false)
+}
+
+func (b *uiBackend) spaGateWithDevAssets(next http.Handler, devAssets bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if isStaticAssetPath(r.URL.Path) {
+		if isStaticAssetPath(r.URL.Path) || (devAssets && isViteDevRequest(r)) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -219,6 +223,45 @@ func isStaticAssetPath(path string) bool {
 	}
 
 	return strings.Contains(base, ".")
+}
+
+func isViteDevAssetPath(path string) bool {
+	switch {
+	case strings.HasPrefix(path, "/@vite/"):
+		return true
+	case strings.HasPrefix(path, "/@id/"):
+		return true
+	case path == "/@react-refresh":
+		return true
+	case strings.HasPrefix(path, "/@fs/"):
+		return true
+	case strings.HasPrefix(path, "/src/"):
+		return true
+	case strings.HasPrefix(path, "/node_modules/"):
+		return true
+	default:
+		return false
+	}
+}
+
+func isViteDevRequest(r *http.Request) bool {
+	return isViteDevAssetPath(r.URL.Path) || isWebSocketUpgrade(r)
+}
+
+func isWebSocketUpgrade(r *http.Request) bool {
+	if !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+		return false
+	}
+
+	for _, value := range r.Header.Values("Connection") {
+		for _, part := range strings.Split(value, ",") {
+			if strings.EqualFold(strings.TrimSpace(part), "upgrade") {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 func (b *uiBackend) setupStatus(w http.ResponseWriter, r *http.Request) (apiSetupStatusResponse, bool) {

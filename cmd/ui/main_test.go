@@ -141,6 +141,36 @@ func TestUIHandlerPlaceholderWhenNoUIAvailable(t *testing.T) {
 	}
 }
 
+func TestDevAssetsHandlerProxiesViteServer(t *testing.T) {
+	vite := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/src/main.tsx" {
+			t.Fatalf("proxied path = %q, want /src/main.tsx", r.URL.Path)
+		}
+		_, _ = w.Write([]byte("vite module"))
+	}))
+	t.Cleanup(vite.Close)
+
+	handler, source, err := devAssetsHandler(vite.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(source, "proxying Vite dev assets from") {
+		t.Fatalf("source = %q, want Vite proxy source", source)
+	}
+
+	body := requestUIPath(t, handler, "/src/main.tsx")
+	if body != "vite module" {
+		t.Fatalf("body = %q, want proxied module", body)
+	}
+}
+
+func TestDevAssetsHandlerRejectsURLWithoutHost(t *testing.T) {
+	if _, _, err := devAssetsHandler("localhost:5173"); err == nil {
+		t.Fatal("devAssetsHandler accepted URL without scheme and host")
+	}
+}
+
 func TestHasUIIndexFSRejectsMissingIndex(t *testing.T) {
 	if hasUIIndexFS(fstest.MapFS{}) {
 		t.Fatal("hasUIIndexFS returned true for an empty filesystem")
@@ -417,6 +447,47 @@ func TestSPAGateSkipsStaticAssets(t *testing.T) {
 	backend.spaGate(textHandler("asset")).ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || rec.Body.String() != "asset" {
 		t.Fatalf("code=%d body=%q, want asset", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSPAGateSkipsViteDevAssetsWhenEnabled(t *testing.T) {
+	backend, err := newUIBackend("http://api.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	backend.httpClient.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		t.Fatalf("Vite dev asset should not call API")
+		return nil, nil
+	})
+
+	for _, path := range []string{"/@vite/client", "/@id/react", "/@react-refresh", "/src/main.tsx", "/node_modules/.vite/deps/react.js"} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		backend.spaGateWithDevAssets(textHandler("asset"), true).ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || rec.Body.String() != "asset" {
+			t.Fatalf("%s code=%d body=%q, want asset", path, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestSPAGateSkipsViteWebSocketWhenEnabled(t *testing.T) {
+	backend, err := newUIBackend("http://api.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend.httpClient.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		t.Fatalf("Vite websocket should not call API")
+		return nil, nil
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Connection", "keep-alive, Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	backend.spaGateWithDevAssets(textHandler("hmr"), true).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || rec.Body.String() != "hmr" {
+		t.Fatalf("code=%d body=%q, want hmr", rec.Code, rec.Body.String())
 	}
 }
 
