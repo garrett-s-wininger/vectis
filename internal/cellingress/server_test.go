@@ -43,6 +43,10 @@ func TestSubmitExecutionAcceptsLocalEnvelope(t *testing.T) {
 		t.Fatalf("response cell_id: got %q, want iad-a", resp.CellID)
 	}
 
+	if resp.TaskID != "run-1:root" || resp.TaskAttemptID != "run-1:root:attempt:1" {
+		t.Fatalf("response task identity: got task=%q attempt=%q", resp.TaskID, resp.TaskAttemptID)
+	}
+
 	reqs := queue.GetJobRequests()
 	if len(reqs) != 1 {
 		t.Fatalf("queued requests: got %d, want 1", len(reqs))
@@ -111,7 +115,7 @@ func TestSubmitExecutionDurablyAcceptsBeforeReturningQueueUnavailable(t *testing
 	acceptances := &recordingAcceptanceStore{}
 	srv := NewQueueServer("iad-a", queue, mocks.NewMockLogger())
 	srv.SetAcceptanceStore(acceptances)
-	req := httptest.NewRequest(http.MethodPost, "/cell/v1/executions", executionBody(t, validJobRequestForCell(t, "iad-a")))
+	req := httptest.NewRequest(http.MethodPost, "/cell/v1/executions", executionBody(t, validJobRequestForCellAttempt(t, "iad-a", 2)))
 	rr := httptest.NewRecorder()
 
 	srv.ServeHTTP(rr, req)
@@ -125,6 +129,10 @@ func TestSubmitExecutionDurablyAcceptsBeforeReturningQueueUnavailable(t *testing
 
 	if got.RunID != "run-1" || got.JobID != "job-1" || got.CellID != "iad-a" {
 		t.Fatalf("unexpected acceptance: %+v", got)
+	}
+
+	if got.TaskID != "run-1:root" || got.TaskKey != dal.RootTaskKey || got.TaskAttemptID != "run-1:root:attempt:2" || got.Attempt != 2 {
+		t.Fatalf("unexpected acceptance task identity: %+v", got)
 	}
 
 	if got.DefinitionJSON == "" || got.RequestJSON == "" {
@@ -231,6 +239,12 @@ func executionBody(t *testing.T, req *api.JobRequest) *bytes.Reader {
 func validJobRequestForCell(t *testing.T, cellID string) *api.JobRequest {
 	t.Helper()
 
+	return validJobRequestForCellAttempt(t, cellID, 1)
+}
+
+func validJobRequestForCellAttempt(t *testing.T, cellID string, attempt int) *api.JobRequest {
+	t.Helper()
+
 	jobID := "job-1"
 	runID := "run-1"
 	action := "builtins/shell"
@@ -251,7 +265,7 @@ func validJobRequestForCell(t *testing.T, cellID string) *api.JobRequest {
 		SegmentID:         "segment-1",
 		ExecutionID:       "execution-1",
 		CellID:            cellID,
-		Attempt:           1,
+		Attempt:           attempt,
 		DefinitionVersion: 3,
 		DefinitionHash:    "sha256:abc123",
 		RunIndex:          5,

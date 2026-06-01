@@ -32,10 +32,12 @@ type submitExecutionRequest struct {
 }
 
 type submitExecutionResponse struct {
-	Status      string `json:"status"`
-	CellID      string `json:"cell_id"`
-	RunID       string `json:"run_id"`
-	ExecutionID string `json:"execution_id"`
+	Status        string `json:"status"`
+	CellID        string `json:"cell_id"`
+	RunID         string `json:"run_id"`
+	TaskID        string `json:"task_id"`
+	TaskAttemptID string `json:"task_attempt_id"`
+	ExecutionID   string `json:"execution_id"`
 }
 
 type errorResponse struct {
@@ -178,10 +180,12 @@ func (s *Server) submitExecution(w http.ResponseWriter, r *http.Request) {
 
 func acceptedExecutionResponse(submission cell.ExecutionSubmission) submitExecutionResponse {
 	return submitExecutionResponse{
-		Status:      "accepted",
-		CellID:      submission.Envelope.CellID,
-		RunID:       submission.Envelope.RunID,
-		ExecutionID: submission.Envelope.ExecutionID,
+		Status:        "accepted",
+		CellID:        submission.Envelope.CellID,
+		RunID:         submission.Envelope.RunID,
+		TaskID:        submission.Envelope.TaskID,
+		TaskAttemptID: submission.Envelope.TaskAttemptID,
+		ExecutionID:   submission.Envelope.ExecutionID,
 	}
 }
 
@@ -206,10 +210,14 @@ func executionAcceptance(submission cell.ExecutionSubmission) (dal.CellExecution
 		RunID:              env.RunID,
 		JobID:              env.Job.GetId(),
 		RunIndex:           env.RunIndex,
+		TaskID:             env.TaskID,
+		TaskKey:            env.TaskKey,
+		TaskName:           env.TaskName,
+		TaskAttemptID:      env.TaskAttemptID,
 		SegmentID:          env.SegmentID,
 		SegmentName:        "root",
 		CellID:             env.CellID,
-		Attempt:            1,
+		Attempt:            env.TaskAttempt,
 		DefinitionVersion:  env.DefinitionVersion,
 		DefinitionHash:     env.DefinitionHash,
 		DefinitionJSON:     string(definitionJSON),

@@ -197,6 +197,10 @@ type ExecutionDispatchRecord struct {
 	RunID             string
 	JobID             string
 	RunIndex          int
+	TaskID            string
+	TaskKey           string
+	TaskName          string
+	TaskAttemptID     string
 	SegmentID         string
 	SegmentName       string
 	SegmentStatus     string
@@ -214,6 +218,10 @@ type CellExecutionAcceptance struct {
 	RunID              string
 	JobID              string
 	RunIndex           int
+	TaskID             string
+	TaskKey            string
+	TaskName           string
+	TaskAttemptID      string
 	SegmentID          string
 	SegmentName        string
 	CellID             string
@@ -530,11 +538,15 @@ func rootTaskID(runID string) string {
 }
 
 func rootTaskAttemptID(runID string, attempt int) string {
+	return taskAttemptID(rootTaskID(runID), attempt)
+}
+
+func taskAttemptID(taskID string, attempt int) string {
 	if attempt <= 0 {
 		attempt = 1
 	}
 
-	return runID + ":" + RootTaskKey + ":attempt:" + strconv.Itoa(attempt)
+	return taskID + ":attempt:" + strconv.Itoa(attempt)
 }
 
 func normalizeCellID(cellID string) string {

@@ -593,6 +593,18 @@ func TestSQLRepositoriesWithCellID_WritesHomeAndOwningCell(t *testing.T) {
 		t.Fatal("dispatch segment id is empty")
 	}
 
+	if dispatch.TaskID != runID+":root" {
+		t.Fatalf("dispatch task id: got %q, want %s:root", dispatch.TaskID, runID)
+	}
+
+	if dispatch.TaskKey != dal.RootTaskKey || dispatch.TaskName != dal.RootTaskKey {
+		t.Fatalf("dispatch task key/name: got %q/%q, want root/root", dispatch.TaskKey, dispatch.TaskName)
+	}
+
+	if dispatch.TaskAttemptID != runID+":root:attempt:1" {
+		t.Fatalf("dispatch task attempt id: got %q, want %s:root:attempt:1", dispatch.TaskAttemptID, runID)
+	}
+
 	if dispatch.SegmentName != "root" {
 		t.Fatalf("dispatch segment name: got %q, want root", dispatch.SegmentName)
 	}

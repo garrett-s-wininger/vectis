@@ -33,6 +33,26 @@ func TestExecutionEnvelopeEncodeDecode(t *testing.T) {
 		t.Fatalf("run_index: got %d, want %d", got.RunIndex, env.RunIndex)
 	}
 
+	if got.TaskID != env.TaskID {
+		t.Fatalf("task_id: got %q, want %q", got.TaskID, env.TaskID)
+	}
+
+	if got.TaskKey != env.TaskKey {
+		t.Fatalf("task_key: got %q, want %q", got.TaskKey, env.TaskKey)
+	}
+
+	if got.TaskName != env.TaskName {
+		t.Fatalf("task_name: got %q, want %q", got.TaskName, env.TaskName)
+	}
+
+	if got.TaskAttemptID != env.TaskAttemptID {
+		t.Fatalf("task_attempt_id: got %q, want %q", got.TaskAttemptID, env.TaskAttemptID)
+	}
+
+	if got.TaskAttempt != env.TaskAttempt {
+		t.Fatalf("task_attempt: got %d, want %d", got.TaskAttempt, env.TaskAttempt)
+	}
+
 	if got.SegmentID != env.SegmentID {
 		t.Fatalf("segment_id: got %q, want %q", got.SegmentID, env.SegmentID)
 	}
@@ -93,6 +113,34 @@ func TestExecutionEnvelopeValidateRejectsMissingRequiredFields(t *testing.T) {
 				env.RunID = ""
 			},
 			want: "run_id is required",
+		},
+		{
+			name: "task id",
+			edit: func(env *ExecutionEnvelope) {
+				env.TaskID = ""
+			},
+			want: "task_id is required",
+		},
+		{
+			name: "task key",
+			edit: func(env *ExecutionEnvelope) {
+				env.TaskKey = ""
+			},
+			want: "task_key is required",
+		},
+		{
+			name: "task attempt id",
+			edit: func(env *ExecutionEnvelope) {
+				env.TaskAttemptID = ""
+			},
+			want: "task_attempt_id is required",
+		},
+		{
+			name: "task attempt",
+			edit: func(env *ExecutionEnvelope) {
+				env.TaskAttempt = 0
+			},
+			want: "task_attempt must be positive",
 		},
 		{
 			name: "segment id",
@@ -207,6 +255,10 @@ func TestAttachExecutionEnvelopeBuildsFromDispatchRecord(t *testing.T) {
 		RunID:             runID,
 		RunIndex:          9,
 		JobID:             jobID,
+		TaskID:            "run-1:root",
+		TaskKey:           dal.RootTaskKey,
+		TaskName:          dal.RootTaskKey,
+		TaskAttemptID:     "run-1:root:attempt:1",
 		SegmentID:         "segment-1",
 		ExecutionID:       "execution-1",
 		CellID:            "iad-a",
@@ -221,6 +273,10 @@ func TestAttachExecutionEnvelopeBuildsFromDispatchRecord(t *testing.T) {
 
 	if env.DefinitionVersion != 7 {
 		t.Fatalf("definition version: got %d, want 7", env.DefinitionVersion)
+	}
+
+	if env.TaskID != "run-1:root" || env.TaskKey != dal.RootTaskKey || env.TaskAttemptID != "run-1:root:attempt:1" || env.TaskAttempt != 1 {
+		t.Fatalf("unexpected task identity: task=%q key=%q attempt_id=%q attempt=%d", env.TaskID, env.TaskKey, env.TaskAttemptID, env.TaskAttempt)
 	}
 
 	payload := req.GetMetadata()[ExecutionEnvelopeMetadataKey]
@@ -247,6 +303,10 @@ func TestNewExecutionEnvelopeRejectsJobIDMismatch(t *testing.T) {
 	if _, err := NewExecutionEnvelope(dal.ExecutionDispatchRecord{
 		RunID:             env.RunID,
 		JobID:             "other-job",
+		TaskID:            env.TaskID,
+		TaskKey:           env.TaskKey,
+		TaskAttemptID:     env.TaskAttemptID,
+		Attempt:           env.TaskAttempt,
 		SegmentID:         env.SegmentID,
 		ExecutionID:       env.ExecutionID,
 		CellID:            env.CellID,
@@ -330,6 +390,11 @@ func validExecutionEnvelope() *ExecutionEnvelope {
 		EnvelopeVersion:   ExecutionEnvelopeVersion,
 		RunID:             runID,
 		RunIndex:          5,
+		TaskID:            runID + ":root",
+		TaskKey:           dal.RootTaskKey,
+		TaskName:          dal.RootTaskKey,
+		TaskAttemptID:     runID + ":root:attempt:1",
+		TaskAttempt:       1,
 		SegmentID:         "segment-1",
 		ExecutionID:       "execution-1",
 		CellID:            "iad-a",

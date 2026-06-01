@@ -45,7 +45,7 @@ func (r *SQLCellExecutionAcceptancesRepository) AcceptExecution(ctx context.Cont
 		return false, err
 	}
 
-	if err := ensureRootTaskAttemptTx(ctx, tx, normalized); err != nil {
+	if err := ensureAcceptedTaskAttemptTx(ctx, tx, normalized); err != nil {
 		return false, err
 	}
 
@@ -277,6 +277,10 @@ func normalizeCellExecutionAcceptance(a CellExecutionAcceptance, fallbackCellID 
 	a.ExecutionID = strings.TrimSpace(a.ExecutionID)
 	a.RunID = strings.TrimSpace(a.RunID)
 	a.JobID = strings.TrimSpace(a.JobID)
+	a.TaskID = strings.TrimSpace(a.TaskID)
+	a.TaskKey = strings.TrimSpace(a.TaskKey)
+	a.TaskName = strings.TrimSpace(a.TaskName)
+	a.TaskAttemptID = strings.TrimSpace(a.TaskAttemptID)
 	a.SegmentID = strings.TrimSpace(a.SegmentID)
 	a.SegmentName = strings.TrimSpace(a.SegmentName)
 	a.CellID = normalizeTargetCellID(a.CellID, fallbackCellID)
@@ -300,16 +304,32 @@ func normalizeCellExecutionAcceptance(a CellExecutionAcceptance, fallbackCellID 
 		a.RunIndex = 1
 	}
 
+	if a.TaskKey == "" {
+		a.TaskKey = RootTaskKey
+	}
+
+	if a.TaskName == "" {
+		a.TaskName = a.TaskKey
+	}
+
+	if a.TaskID == "" {
+		a.TaskID = a.RunID + ":" + a.TaskKey
+	}
+
+	if a.Attempt <= 0 {
+		a.Attempt = 1
+	}
+
+	if a.TaskAttemptID == "" {
+		a.TaskAttemptID = taskAttemptID(a.TaskID, a.Attempt)
+	}
+
 	if a.SegmentID == "" {
 		return CellExecutionAcceptance{}, fmt.Errorf("%w: segment_id is required", ErrConflict)
 	}
 
 	if a.SegmentName == "" {
 		a.SegmentName = "root"
-	}
-
-	if a.Attempt <= 0 {
-		a.Attempt = 1
 	}
 
 	if a.DefinitionVersion <= 0 {
@@ -341,6 +361,10 @@ func cellExecutionAcceptanceHash(a CellExecutionAcceptance) string {
 		a.RunID,
 		a.JobID,
 		fmt.Sprintf("%d", a.RunIndex),
+		a.TaskID,
+		a.TaskKey,
+		a.TaskName,
+		a.TaskAttemptID,
 		a.SegmentID,
 		a.SegmentName,
 		a.CellID,
@@ -448,13 +472,13 @@ func ensureJobRunTx(ctx context.Context, tx *sql.Tx, a CellExecutionAcceptance, 
 	return nil
 }
 
-func ensureRootTaskAttemptTx(ctx context.Context, tx *sql.Tx, a CellExecutionAcceptance) error {
-	taskID := rootTaskID(a.RunID)
+func ensureAcceptedTaskAttemptTx(ctx context.Context, tx *sql.Tx, a CellExecutionAcceptance) error {
+	taskID := a.TaskID
 	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
 		INSERT INTO run_tasks (task_id, run_id, task_key, name, status)
 		VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT(task_id) DO NOTHING
-	`), taskID, a.RunID, RootTaskKey, RootTaskKey, TaskStatusAccepted); err != nil {
+	`), taskID, a.RunID, a.TaskKey, a.TaskName, TaskStatusAccepted); err != nil {
 		return normalizeSQLError(err)
 	}
 
@@ -466,7 +490,7 @@ func ensureRootTaskAttemptTx(ctx context.Context, tx *sql.Tx, a CellExecutionAcc
 		return normalizeSQLError(err)
 	}
 
-	if runID != a.RunID || taskKey != RootTaskKey || name != RootTaskKey {
+	if runID != a.RunID || taskKey != a.TaskKey || name != a.TaskName {
 		return fmt.Errorf("%w: task %s has different accepted payload", ErrConflict, taskID)
 	}
 
@@ -480,27 +504,26 @@ func ensureRootTaskAttemptTx(ctx context.Context, tx *sql.Tx, a CellExecutionAcc
 		}
 	}
 
-	attemptID := rootTaskAttemptID(a.RunID, a.Attempt)
 	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
 		INSERT INTO task_attempts
 			(attempt_id, task_id, run_id, cell_id, attempt, status, accepted_at, last_observed_at, event_sequence)
 		VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, 1)
 		ON CONFLICT(task_id, attempt) DO NOTHING
-	`), attemptID, taskID, a.RunID, a.CellID, a.Attempt, TaskStatusAccepted, a.AcceptedAtUnixNano); err != nil {
+	`), a.TaskAttemptID, taskID, a.RunID, a.CellID, a.Attempt, TaskStatusAccepted, a.AcceptedAtUnixNano); err != nil {
 		return normalizeSQLError(err)
 	}
 
-	var attemptRunID, attemptTaskID, cellID, attemptStatus string
+	var storedAttemptID, attemptRunID, attemptTaskID, cellID, attemptStatus string
 	var attempt int
 	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
-		SELECT run_id, task_id, cell_id, attempt, status
+		SELECT attempt_id, run_id, task_id, cell_id, attempt, status
 		FROM task_attempts
 		WHERE task_id = ? AND attempt = ?
-	`), taskID, a.Attempt).Scan(&attemptRunID, &attemptTaskID, &cellID, &attempt, &attemptStatus); err != nil {
+	`), taskID, a.Attempt).Scan(&storedAttemptID, &attemptRunID, &attemptTaskID, &cellID, &attempt, &attemptStatus); err != nil {
 		return normalizeSQLError(err)
 	}
 
-	if attemptRunID != a.RunID || attemptTaskID != taskID || cellID != a.CellID || attempt != a.Attempt {
+	if storedAttemptID != a.TaskAttemptID || attemptRunID != a.RunID || attemptTaskID != taskID || cellID != a.CellID || attempt != a.Attempt {
 		return fmt.Errorf("%w: task attempt %s attempt %d has different accepted payload", ErrConflict, taskID, a.Attempt)
 	}
 

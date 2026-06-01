@@ -719,6 +719,10 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 func executionEnvelopeAttrs(env *cell.ExecutionEnvelope) []attribute.KeyValue {
 	return []attribute.KeyValue{
 		attribute.String("vectis.cell.id", env.CellID),
+		attribute.String("vectis.task.id", env.TaskID),
+		attribute.String("vectis.task.key", env.TaskKey),
+		attribute.String("vectis.task.attempt.id", env.TaskAttemptID),
+		attribute.Int("vectis.task.attempt", env.TaskAttempt),
 		attribute.String("vectis.segment.id", env.SegmentID),
 		attribute.String("vectis.execution.id", env.ExecutionID),
 		attribute.Int("vectis.definition.version", env.DefinitionVersion),

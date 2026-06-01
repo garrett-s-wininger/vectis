@@ -20,6 +20,11 @@ type ExecutionEnvelope struct {
 	EnvelopeVersion   int               `json:"envelope_version"`
 	RunID             string            `json:"run_id"`
 	RunIndex          int               `json:"run_index,omitempty"`
+	TaskID            string            `json:"task_id"`
+	TaskKey           string            `json:"task_key"`
+	TaskName          string            `json:"task_name,omitempty"`
+	TaskAttemptID     string            `json:"task_attempt_id"`
+	TaskAttempt       int               `json:"task_attempt"`
 	SegmentID         string            `json:"segment_id"`
 	ExecutionID       string            `json:"execution_id"`
 	CellID            string            `json:"cell_id"`
@@ -39,6 +44,11 @@ func NewExecutionEnvelope(dispatch dal.ExecutionDispatchRecord, job *api.Job, me
 		EnvelopeVersion:   ExecutionEnvelopeVersion,
 		RunID:             dispatch.RunID,
 		RunIndex:          dispatch.RunIndex,
+		TaskID:            defaultTaskID(dispatch.RunID, dispatch.TaskID, dispatch.TaskKey),
+		TaskKey:           defaultTaskKey(dispatch.TaskKey),
+		TaskName:          dispatch.TaskName,
+		TaskAttemptID:     defaultTaskAttemptID(dispatch.RunID, dispatch.TaskAttemptID, dispatch.TaskID, dispatch.TaskKey, dispatch.Attempt),
+		TaskAttempt:       defaultTaskAttempt(dispatch.Attempt),
 		SegmentID:         dispatch.SegmentID,
 		ExecutionID:       dispatch.ExecutionID,
 		CellID:            dispatch.CellID,
@@ -155,6 +165,22 @@ func (e *ExecutionEnvelope) Validate() error {
 		return errors.New("execution envelope run_id is required")
 	}
 
+	if strings.TrimSpace(e.TaskID) == "" {
+		return errors.New("execution envelope task_id is required")
+	}
+
+	if strings.TrimSpace(e.TaskKey) == "" {
+		return errors.New("execution envelope task_key is required")
+	}
+
+	if strings.TrimSpace(e.TaskAttemptID) == "" {
+		return errors.New("execution envelope task_attempt_id is required")
+	}
+
+	if e.TaskAttempt <= 0 {
+		return errors.New("execution envelope task_attempt must be positive")
+	}
+
 	if strings.TrimSpace(e.SegmentID) == "" {
 		return errors.New("execution envelope segment_id is required")
 	}
@@ -196,6 +222,41 @@ func (e *ExecutionEnvelope) Validate() error {
 	}
 
 	return nil
+}
+
+func defaultTaskKey(taskKey string) string {
+	taskKey = strings.TrimSpace(taskKey)
+	if taskKey == "" {
+		return dal.RootTaskKey
+	}
+
+	return taskKey
+}
+
+func defaultTaskID(runID, taskID, taskKey string) string {
+	taskID = strings.TrimSpace(taskID)
+	if taskID != "" {
+		return taskID
+	}
+
+	return strings.TrimSpace(runID) + ":" + defaultTaskKey(taskKey)
+}
+
+func defaultTaskAttempt(attempt int) int {
+	if attempt <= 0 {
+		return 1
+	}
+
+	return attempt
+}
+
+func defaultTaskAttemptID(runID, taskAttemptID, taskID, taskKey string, attempt int) string {
+	taskAttemptID = strings.TrimSpace(taskAttemptID)
+	if taskAttemptID != "" {
+		return taskAttemptID
+	}
+
+	return defaultTaskID(runID, taskID, taskKey) + ":attempt:" + fmt.Sprintf("%d", defaultTaskAttempt(attempt))
 }
 
 func cloneMetadata(metadata map[string]string) map[string]string {

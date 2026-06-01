@@ -1463,6 +1463,10 @@ func (r *SQLRunsRepository) GetPendingExecution(ctx context.Context, runID strin
 			jr.run_id,
 			jr.job_id,
 			jr.run_index,
+			rt.task_id,
+			rt.task_key,
+			rt.name,
+			ta.attempt_id,
 			rs.segment_id,
 			rs.name,
 			rs.status,
@@ -1476,15 +1480,23 @@ func (r *SQLRunsRepository) GetPendingExecution(ctx context.Context, runID strin
 		FROM job_runs jr
 		JOIN run_segments rs ON rs.run_id = jr.run_id
 		JOIN segment_executions se ON se.segment_id = rs.segment_id
+		JOIN run_tasks rt ON rt.run_id = jr.run_id AND rt.task_key = ?
+		JOIN task_attempts ta ON ta.task_id = rt.task_id AND ta.attempt = se.attempt
 		WHERE jr.run_id = ?
 			AND rs.status = ?
 			AND se.status = ?
+			AND rt.status = ?
+			AND ta.status = ?
 		ORDER BY rs.id ASC, se.attempt ASC, se.id ASC
 		LIMIT 1
-	`), runID, SegmentStatusPending, ExecutionStatusPending).Scan(
+	`), RootTaskKey, runID, SegmentStatusPending, ExecutionStatusPending, TaskStatusPending, TaskStatusPending).Scan(
 		&rec.RunID,
 		&rec.JobID,
 		&rec.RunIndex,
+		&rec.TaskID,
+		&rec.TaskKey,
+		&rec.TaskName,
+		&rec.TaskAttemptID,
 		&rec.SegmentID,
 		&rec.SegmentName,
 		&rec.SegmentStatus,
