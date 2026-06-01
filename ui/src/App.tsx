@@ -388,6 +388,7 @@ function LoginPage({
             onChange={(event) => onChange({ ...values, username: event.target.value })}
             required
             value={values.username}
+            wide
           />
           <FormField
             autoComplete="current-password"
@@ -397,6 +398,7 @@ function LoginPage({
             required
             type="password"
             value={values.password}
+            wide
           />
           <FormError message={error} />
           <Button disabled={submitting} type="submit">

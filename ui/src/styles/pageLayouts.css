@@ -69,6 +69,7 @@ h1 {
   background: var(--surface-panel);
   border: var(--panel-border);
   border-radius: var(--panel-radius);
+  box-sizing: border-box;
   box-shadow: var(--panel-shadow-raised);
   width: min(100%, var(--layout-card-max));
 }
@@ -141,6 +142,29 @@ h1 {
 
 .auth-form button {
   justify-self: start;
+}
+
+@media (max-width: 420px) {
+  .app-frame--centered {
+    align-items: start;
+    padding: var(--space-3xl) var(--space-xl);
+  }
+
+  .auth-panel {
+    padding: var(--space-2xl);
+    width: min(100%, 292px);
+  }
+
+  .auth-panel__header {
+    gap: var(--space-lg);
+    margin: calc(var(--space-lg) * -1) calc(var(--space-lg) * -1) var(--space-2xl);
+    padding: var(--space-lg);
+  }
+
+  .auth-form {
+    gap: var(--space-lg);
+    margin-top: var(--space-2xl);
+  }
 }
 
 .inline-form {
