@@ -200,6 +200,7 @@ func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
 		"username": username,
 	})
 
+	setNoStore(w)
 	writeJSON(w, http.StatusOK, setupCompleteResponse{
 		APIToken: plainToken,
 		Username: username,

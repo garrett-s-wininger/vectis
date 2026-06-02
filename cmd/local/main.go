@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"os/user"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
 	"vectis/internal/localpki"
+	"vectis/internal/platform"
 	"vectis/internal/supervisor"
 	"vectis/internal/utils"
 
@@ -88,6 +90,9 @@ const (
 	cellPortStride      = 100
 	localProfileSimple  = "simple"
 	localProfileHA      = "ha"
+	localHTTPSTLSAuto   = "auto"
+	localHTTPSTLSOn     = "on"
+	localHTTPSTLSOff    = "off"
 )
 
 func waitForHealthy(port int, serviceName string, timeout time.Duration) error {
@@ -430,6 +435,85 @@ func localProfile() string {
 	return profile
 }
 
+func localHTTPSTLSMode() string {
+	mode := strings.ToLower(strings.TrimSpace(viper.GetString("http_tls")))
+	if mode == "" {
+		return localHTTPSTLSAuto
+	}
+
+	return mode
+}
+
+func validLocalHTTPSTLSMode(mode string) bool {
+	switch mode {
+	case localHTTPSTLSAuto, localHTTPSTLSOn, localHTTPSTLSOff:
+		return true
+	default:
+		return false
+	}
+}
+
+func configuredLocalTLSDir(defaultDataHome string) string {
+	if dir := strings.TrimSpace(viper.GetString("tls_dir")); dir != "" {
+		return dir
+	}
+
+	return localpki.EnsureDir(defaultDataHome)
+}
+
+func defaultCertInstallDataHome() string {
+	sudoUser := strings.TrimSpace(os.Getenv("SUDO_USER"))
+	if sudoUser != "" && sudoUser != "root" {
+		if u, err := user.Lookup(sudoUser); err == nil && strings.TrimSpace(u.HomeDir) != "" {
+			return filepath.Join(u.HomeDir, ".local", "share")
+		}
+	}
+
+	return utils.DataHome()
+}
+
+type localBrowserTLSConfig struct {
+	Enabled bool
+	Scheme  string
+	Env     []string
+}
+
+func localBrowserTLS(material *localpki.Material, mode string, logger interfaces.Logger) localBrowserTLSConfig {
+	cfg := localBrowserTLSConfig{Scheme: "http"}
+	if mode == localHTTPSTLSOff || material == nil {
+		return cfg
+	}
+
+	enabled := mode == localHTTPSTLSOn
+	if mode == localHTTPSTLSAuto {
+		trusted, err := material.ServerTrustedBySystem()
+		if err != nil {
+			logger.Warn("Could not verify local browser TLS trust: %v", err)
+		}
+
+		enabled = trusted
+		if !trusted {
+			logger.Warn("Local API and docs will use HTTP because the generated CA is not trusted. Run vectis-local init and then run vectis-local install-cert with elevated privileges, or set --http-tls=on.")
+		}
+	}
+
+	if !enabled {
+		return cfg
+	}
+
+	cfg.Enabled = true
+	cfg.Scheme = "https"
+	cfg.Env = []string{
+		"VECTIS_API_TLS_CERT_FILE=" + material.ServerCert,
+		"VECTIS_API_TLS_KEY_FILE=" + material.ServerKey,
+		"VECTIS_API_SESSION_COOKIE_SECURE=true",
+		"VECTIS_DOCS_TLS_CERT_FILE=" + material.ServerCert,
+		"VECTIS_DOCS_TLS_KEY_FILE=" + material.ServerKey,
+	}
+
+	return cfg
+}
+
 func docsEnv() []string {
 	if !viper.GetBool("docs_enabled") {
 		return nil
@@ -769,9 +853,25 @@ func runVectis(cmd *cobra.Command, args []string) {
 		logger.Fatal("invalid profile: %s (must be simple or ha)", profile)
 	}
 
+	httpTLSMode := localHTTPSTLSMode()
+	if !validLocalHTTPSTLSMode(httpTLSMode) {
+		logger.Fatal("invalid http TLS mode: %s (must be auto, on, or off)", httpTLSMode)
+	}
+
 	setLoggerLevel(logger, logLevel)
 
 	var tlsEnv []string
+	var material *localpki.Material
+	tlsDir := configuredLocalTLSDir(utils.DataHome())
+	needsLocalPKI := !viper.GetBool("grpc_insecure") || httpTLSMode != localHTTPSTLSOff
+	if needsLocalPKI {
+		var err error
+		material, err = localpki.Ensure(tlsDir)
+		if err != nil {
+			logger.Fatal("bootstrap local TLS: %v", err)
+		}
+	}
+
 	if viper.GetBool("grpc_insecure") {
 		logger.Info("gRPC plaintext mode (--grpc-insecure or VECTIS_LOCAL_GRPC_INSECURE=true)")
 
@@ -779,12 +879,6 @@ func runVectis(cmd *cobra.Command, args []string) {
 		localpki.ApplyPlaintextParentViper(viper.Set)
 		tlsEnv = []string{"VECTIS_GRPC_TLS_INSECURE=true"}
 	} else {
-		tlsDir := localpki.EnsureDir(utils.DataHome())
-		material, err := localpki.Ensure(tlsDir)
-		if err != nil {
-			logger.Fatal("bootstrap local gRPC TLS: %v", err)
-		}
-
 		tlsEnv = material.EnvVars()
 		material.ApplyParentViper(viper.Set)
 		_ = os.Setenv("VECTIS_GRPC_TLS_INSECURE", "false")
@@ -794,6 +888,8 @@ func runVectis(cmd *cobra.Command, args []string) {
 
 		logger.Info("Bootstrapped gRPC TLS for local stack (material under %s)", tlsDir)
 	}
+	browserTLS := localBrowserTLS(material, httpTLSMode, logger)
+	tlsEnv = append(tlsEnv, browserTLS.Env...)
 
 	topology, err := buildLocalTopology()
 	if err != nil {
@@ -841,17 +937,20 @@ func runVectis(cmd *cobra.Command, args []string) {
 	tlsEnv = append(tlsEnv, localCellIngressEndpointEnv(topology.Cells)...)
 	tlsEnv = append(tlsEnv, localCatalogCellDatabaseEnv(topology.Cells)...)
 	tlsEnv = append(tlsEnv, docsEnv()...)
+
 	logger.Info("Starting vectis-local profile: %s", profile)
-	logger.Info("API will be available at http://%s:%d", localHost(), config.APIEffectiveListenPort())
+	logger.Info("API will be available at %s://%s:%d", browserTLS.Scheme, localHost(), config.APIEffectiveListenPort())
+
 	for _, cell := range topology.Cells {
 		logger.Info("Cell %s ingress will be available at http://%s:%d", cell.ID, localHost(), cell.CellIngressPort)
 	}
+
 	if profile == localProfileHA {
-		logger.Info("Additional HA API replica will be available at http://%s:%d", localHost(), 8180)
+		logger.Info("Additional HA API replica will be available at %s://%s:%d", browserTLS.Scheme, localHost(), 8180)
 	}
 
 	if hasService(services, "vectis-docs") {
-		logger.Info("Docs will be available at http://%s:%d", localHost(), viper.GetInt("docs_port"))
+		logger.Info("Docs will be available at %s://%s:%d", browserTLS.Scheme, localHost(), viper.GetInt("docs_port"))
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -994,6 +1093,72 @@ func hasService(svcs []serviceStage, binary string) bool {
 	return false
 }
 
+func runLocalInit(cmd *cobra.Command, args []string) {
+	logger := interfaces.NewLogger("cli")
+	setLoggerLevel(logger, viper.GetString("log_level"))
+
+	tlsDir := configuredLocalTLSDir(utils.DataHome())
+	material, err := localpki.Ensure(tlsDir)
+	if err != nil {
+		logger.Fatal("initialize local TLS material: %v", err)
+	}
+
+	logger.Info("Local TLS material ready under %s", tlsDir)
+	logger.Info("Local CA certificate: %s", material.CAFile)
+	logger.Info("Local server certificate: %s", material.ServerCert)
+
+	trusted, err := material.ServerTrustedBySystem()
+	if err != nil {
+		logger.Warn("Could not verify local CA trust: %v", err)
+		return
+	}
+
+	if trusted {
+		logger.Info("Local CA is already trusted by the system store")
+		return
+	}
+
+	logger.Info("To trust the local CA, run with elevated privileges: vectis-local --tls-dir %q install-cert", tlsDir)
+}
+
+func runLocalInstallCert(cmd *cobra.Command, args []string) {
+	logger := interfaces.NewLogger("cli")
+	setLoggerLevel(logger, viper.GetString("log_level"))
+
+	tlsDir := configuredLocalTLSDir(defaultCertInstallDataHome())
+	material, err := localpki.Load(tlsDir)
+	if err != nil {
+		logger.Fatal("%v", err)
+	}
+
+	trusted, err := material.ServerTrustedBySystem()
+	if err != nil {
+		logger.Warn("Could not verify local CA trust before install: %v", err)
+	}
+
+	if trusted {
+		logger.Info("Local CA is already trusted by the system store")
+		return
+	}
+
+	if err := platform.InstallCertificateAuthority(cmd.Context(), material.CAFile); err != nil {
+		logger.Fatal("install local CA into system trust store: %v", err)
+	}
+
+	trusted, err = material.ServerTrustedBySystem()
+	if err != nil {
+		logger.Warn("Installed local CA, but trust verification failed: %v", err)
+		return
+	}
+
+	if !trusted {
+		logger.Warn("Installed local CA, but the current process cannot verify it in the system trust store yet")
+		return
+	}
+
+	logger.Info("Local CA installed and trusted")
+}
+
 var rootCmd = &cobra.Command{
 	Use:   "vectis-local",
 	Short: "Run Vectis services locally for development",
@@ -1003,8 +1168,15 @@ It starts the registry, queue, log service, cell ingress, worker, cron,
 reconciler, catalog, API server, and docs site as child processes.
 
 By default it bootstraps a dev CA and TLS certificates (under the XDG data directory)
-and sets VECTIS_GRPC_TLS_* for child processes so internal gRPC uses TLS. Use
---grpc-insecure or VECTIS_LOCAL_GRPC_INSECURE=true for plaintext gRPC.
+and sets VECTIS_GRPC_TLS_* for child processes so internal gRPC uses TLS. It also
+uses HTTPS for the local API and docs when the generated CA is trusted by the
+system store, or when --http-tls=on is set. Use --grpc-insecure or
+VECTIS_LOCAL_GRPC_INSECURE=true for plaintext gRPC.
+
+Use "vectis-local init" to create or renew the local TLS material without
+privileges. Use "vectis-local install-cert" with elevated privileges only when
+you want to install that generated CA into the system trust store; that command
+does not start services or perform any other setup.
 
 The docs site is served from the vectis-docs binary on port 8088 by default.
 If vectis-docs was not built, vectis-local logs a warning and continues without
@@ -1022,12 +1194,36 @@ and reconcilers.`,
 	Run: runVectis,
 }
 
+var initCmd = &cobra.Command{
+	Use:   "init",
+	Short: "Initialize local TLS material without changing system trust",
+	Long: `Create or renew vectis-local TLS material under the local data directory.
+
+This command is intentionally unprivileged. It writes only the local CA, server
+certificate, and private keys used by vectis-local. Run install-cert separately
+with elevated privileges when you want to trust the generated CA system-wide.`,
+	Run: runLocalInit,
+}
+
+var installCertCmd = &cobra.Command{
+	Use:   "install-cert",
+	Short: "Install the initialized vectis-local CA into the system trust store",
+	Long: `Install the vectis-local CA certificate into the operating system trust store.
+
+This command does not generate TLS material, migrate databases, or start any
+Vectis services. Run vectis-local init as an unprivileged user first, then run
+this command with elevated privileges if your OS requires them.`,
+	Run: runLocalInstallCert,
+}
+
 func init() {
 	cli.ConfigureVersion(rootCmd)
 
 	rootCmd.PersistentFlags().String("log-level", "info", "Log level: debug, info, warn, error")
 	rootCmd.PersistentFlags().String("profile", localProfileSimple, "Local deployment profile: simple or ha")
 	rootCmd.PersistentFlags().Bool("grpc-insecure", false, "Use plaintext gRPC instead of bootstrapped local TLS")
+	rootCmd.PersistentFlags().String("http-tls", localHTTPSTLSAuto, "Local API/docs HTTPS mode: auto, on, or off")
+	rootCmd.PersistentFlags().String("tls-dir", "", "Directory for vectis-local generated TLS material")
 	rootCmd.PersistentFlags().String("host", "localhost", "Host/IP for the local API and docs sites to bind")
 	rootCmd.PersistentFlags().Bool("docs", true, "Start the local docs site")
 	rootCmd.PersistentFlags().Int("docs-port", 8088, "HTTP port for the local docs site")
@@ -1036,12 +1232,16 @@ func init() {
 	_ = viper.BindPFlag("log_level", rootCmd.PersistentFlags().Lookup("log-level"))
 	_ = viper.BindPFlag("profile", rootCmd.PersistentFlags().Lookup("profile"))
 	_ = viper.BindPFlag("grpc_insecure", rootCmd.PersistentFlags().Lookup("grpc-insecure"))
+	_ = viper.BindPFlag("http_tls", rootCmd.PersistentFlags().Lookup("http-tls"))
+	_ = viper.BindPFlag("tls_dir", rootCmd.PersistentFlags().Lookup("tls-dir"))
 	_ = viper.BindPFlag("host", rootCmd.PersistentFlags().Lookup("host"))
 	_ = viper.BindPFlag("docs_enabled", rootCmd.PersistentFlags().Lookup("docs"))
 	_ = viper.BindPFlag("docs_port", rootCmd.PersistentFlags().Lookup("docs-port"))
 	_ = viper.BindPFlag("docs_dir", rootCmd.PersistentFlags().Lookup("docs-dir"))
 	_ = viper.BindPFlag("cells", rootCmd.PersistentFlags().Lookup("cell"))
 	_ = viper.BindEnv("grpc_insecure", "VECTIS_LOCAL_GRPC_INSECURE")
+	_ = viper.BindEnv("http_tls", "VECTIS_LOCAL_HTTP_TLS")
+	_ = viper.BindEnv("tls_dir", "VECTIS_LOCAL_TLS_DIR")
 	_ = viper.BindEnv("profile", "VECTIS_LOCAL_PROFILE")
 	_ = viper.BindEnv("host", "VECTIS_LOCAL_HOST")
 	_ = viper.BindEnv("docs_enabled", "VECTIS_LOCAL_DOCS_ENABLED")
@@ -1050,6 +1250,7 @@ func init() {
 	_ = viper.BindEnv("cells", "VECTIS_LOCAL_CELLS")
 	viper.SetEnvPrefix("VECTIS_LOCAL")
 	viper.AutomaticEnv()
+	rootCmd.AddCommand(initCmd, installCertCmd)
 }
 
 func isValidLogLevel(level string) bool {

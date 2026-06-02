@@ -1,7 +1,10 @@
 package main
 
 import (
+	"context"
+	"crypto/tls"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net"
@@ -13,6 +16,7 @@ import (
 
 	"vectis/internal/cli"
 	"vectis/internal/interfaces"
+	"vectis/internal/tlsconfig"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -50,10 +54,65 @@ func runDocs(cmd *cobra.Command, args []string) {
 		IdleTimeout:       2 * time.Minute,
 	}
 
-	logger.Info("Docs listening on http://%s (%s)", addr, source)
-	if err := cli.ServeHTTP(cmd.Context(), srv, srv.ListenAndServe, defaultShutdownTimeout, "Docs HTTP", logger); err != nil {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		logger.Fatal("Listen: %v", err)
+	}
+
+	ln, scheme, err := docsTLSListener(cmd.Context(), ln)
+	if err != nil {
+		logger.Fatal("Docs TLS: %v", err)
+	}
+
+	logger.Info("Docs listening on %s://%s (%s)", scheme, addr, source)
+	if err := cli.ServeHTTP(cmd.Context(), srv, func() error { return srv.Serve(ln) }, defaultShutdownTimeout, "Docs HTTP", logger); err != nil {
 		logger.Fatal("Docs server failed: %v", err)
 	}
+}
+
+func docsTLSEnabled() bool {
+	return strings.TrimSpace(viper.GetString("tls_cert_file")) != "" || strings.TrimSpace(viper.GetString("tls_key_file")) != ""
+}
+
+func docsTLSOptions() tlsconfig.Options {
+	return tlsconfig.Options{
+		ServerCert: strings.TrimSpace(viper.GetString("tls_cert_file")),
+		ServerKey:  strings.TrimSpace(viper.GetString("tls_key_file")),
+	}
+}
+
+func docsTLSListener(ctx context.Context, ln net.Listener) (net.Listener, string, error) {
+	if !docsTLSEnabled() {
+		return ln, "http", nil
+	}
+
+	o := docsTLSOptions()
+	if o.ServerCert == "" || o.ServerKey == "" {
+		_ = ln.Close()
+		return nil, "", errors.New("cert file and key file are required together")
+	}
+
+	reloader, err := tlsconfig.NewReloader(o)
+	if err != nil {
+		_ = ln.Close()
+		return nil, "", err
+	}
+
+	cfg, err := reloader.ServerTLS()
+	if err != nil {
+		_ = ln.Close()
+		return nil, "", err
+	}
+
+	if interval := viper.GetDuration("tls_reload_interval"); interval > 0 {
+		go func() {
+			if err := reloader.RunReloadLoop(ctx, interval); err != nil {
+				_, _ = fmt.Fprintf(os.Stderr, "docs TLS reload loop error: %v\n", err)
+			}
+		}()
+	}
+
+	return tls.NewListener(ln, cfg), "https", nil
 }
 
 func docsHandler(configuredDir string, logger interfaces.Logger) (http.Handler, string) {
@@ -137,12 +196,21 @@ func init() {
 	rootCmd.PersistentFlags().String("host", "localhost", "Host/IP for the docs site to bind")
 	rootCmd.PersistentFlags().String("dir", "", "Directory containing a docs build to serve instead of embedded docs")
 	rootCmd.PersistentFlags().String("log-level", "info", "Log level: debug, info, warn, error")
+	rootCmd.PersistentFlags().String("tls-cert-file", "", "Certificate file for docs HTTPS")
+	rootCmd.PersistentFlags().String("tls-key-file", "", "Private key file for docs HTTPS")
+	rootCmd.PersistentFlags().Duration("tls-reload-interval", 0, "How often to poll docs HTTPS cert/key files for reload; 0 disables polling")
 
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
 	_ = viper.BindPFlag("host", rootCmd.PersistentFlags().Lookup("host"))
 	_ = viper.BindPFlag("dir", rootCmd.PersistentFlags().Lookup("dir"))
 	_ = viper.BindPFlag("log_level", rootCmd.PersistentFlags().Lookup("log-level"))
+	_ = viper.BindPFlag("tls_cert_file", rootCmd.PersistentFlags().Lookup("tls-cert-file"))
+	_ = viper.BindPFlag("tls_key_file", rootCmd.PersistentFlags().Lookup("tls-key-file"))
+	_ = viper.BindPFlag("tls_reload_interval", rootCmd.PersistentFlags().Lookup("tls-reload-interval"))
 	_ = viper.BindEnv("dir", "VECTIS_DOCS_DIR")
+	_ = viper.BindEnv("tls_cert_file", "VECTIS_DOCS_TLS_CERT_FILE")
+	_ = viper.BindEnv("tls_key_file", "VECTIS_DOCS_TLS_KEY_FILE")
+	_ = viper.BindEnv("tls_reload_interval", "VECTIS_DOCS_TLS_RELOAD_INTERVAL")
 	viper.SetEnvPrefix("VECTIS_DOCS")
 	viper.AutomaticEnv()
 }

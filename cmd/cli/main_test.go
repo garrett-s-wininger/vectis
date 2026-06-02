@@ -2063,9 +2063,9 @@ func TestDoLogin_success(t *testing.T) {
 			t.Errorf("path=%s", r.URL.Path)
 		}
 
-		var body map[string]string
+		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if body["username"] != "admin" || body["password"] != "secret" {
+		if body["username"] != "admin" || body["password"] != "secret" || body["return_token"] != true {
 			t.Errorf("unexpected body: %v", body)
 		}
 
@@ -2115,6 +2115,44 @@ func TestDoLogin_unexpectedStatus(t *testing.T) {
 	_, err := doLogin("admin", "secret")
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestDoLogout_success(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/logout" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		if got := r.Header.Get("Authorization"); got != "Bearer session-token" {
+			t.Errorf("Authorization=%q", got)
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	if err := doLogout("session-token"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDoLogout_unauthorizedIgnored(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	})
+
+	if err := doLogout("stale-token"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDoLogout_emptyToken(t *testing.T) {
+	if err := doLogout(""); err != nil {
+		t.Fatal(err)
 	}
 }
 

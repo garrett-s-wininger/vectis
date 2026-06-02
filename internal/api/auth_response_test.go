@@ -130,6 +130,8 @@ func TestAPIErrorCodeMessages_areNonEmpty(t *testing.T) {
 		apiErrBindingAlreadyExists,
 		apiErrBindingNotFound,
 		apiErrBootstrapNotConfigured,
+		apiErrCSRFOriginForbidden,
+		apiErrCSRFTokenRequired,
 		apiErrDatabaseNotReady,
 		apiErrInternal,
 		apiErrInvalidAdminPassword,

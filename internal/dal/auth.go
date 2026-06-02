@@ -326,6 +326,15 @@ func (r *SQLAuthRepository) ChangePasswordAndRevokeTokens(ctx context.Context, l
 		return normalizeSQLError(err)
 	}
 
+	_, err = tx.ExecContext(ctx,
+		rebindQueryForPgx(`DELETE FROM api_sessions WHERE local_user_id = ?`),
+		localUserID,
+	)
+
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
 	return tx.Commit()
 }
 

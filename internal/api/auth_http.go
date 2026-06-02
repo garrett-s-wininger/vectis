@@ -3,15 +3,27 @@ package api
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
 	"vectis/internal/api/audit"
 	"vectis/internal/api/authn"
 	"vectis/internal/api/authz"
+	"vectis/internal/cache"
 	"vectis/internal/config"
 	"vectis/internal/dal"
+)
+
+type credentialSource string
+
+const (
+	credentialSourceBearer credentialSource = "bearer"
+	credentialSourceCookie credentialSource = "cookie"
 )
 
 type routeAuthPolicy struct {
@@ -44,6 +56,88 @@ func bearerToken(h string) (string, bool) {
 	}
 
 	return t, true
+}
+
+func requestCredential(r *http.Request) (string, credentialSource, bool) {
+	if raw, ok := bearerToken(r.Header.Get("Authorization")); ok {
+		return raw, credentialSourceBearer, true
+	}
+
+	cookie, err := r.Cookie(sessionCookieName)
+	if err != nil {
+		return "", "", false
+	}
+
+	raw := strings.TrimSpace(cookie.Value)
+	if raw == "" {
+		return "", "", false
+	}
+
+	return raw, credentialSourceCookie, true
+}
+
+func csrfRequired(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodTrace:
+		return false
+	default:
+		return true
+	}
+}
+
+func validCSRFToken(raw, expectedHash string) bool {
+	if raw == "" || expectedHash == "" {
+		return false
+	}
+
+	got := hashAPIToken(raw)
+	return subtle.ConstantTimeCompare([]byte(got), []byte(expectedHash)) == 1
+}
+
+func validCSRFOrigin(r *http.Request) bool {
+	if origin := strings.TrimSpace(r.Header.Get("Origin")); origin != "" {
+		return originMatchesRequestHost(origin, r.Host)
+	}
+
+	if referer := strings.TrimSpace(r.Header.Get("Referer")); referer != "" {
+		return originMatchesRequestHost(referer, r.Host)
+	}
+
+	return true
+}
+
+func originMatchesRequestHost(rawOrigin, requestHost string) bool {
+	u, err := url.Parse(rawOrigin)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return false
+	}
+
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https":
+	default:
+		return false
+	}
+
+	return canonicalOriginHost(u.Host, u.Scheme) == canonicalOriginHost(requestHost, u.Scheme)
+}
+
+func canonicalOriginHost(host, scheme string) string {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "" {
+		return ""
+	}
+
+	h, p, err := net.SplitHostPort(host)
+	if err == nil {
+		h = strings.Trim(strings.ToLower(h), "[]")
+		if (scheme == "http" && p == "80") || (scheme == "https" && p == "443") {
+			return h
+		}
+
+		return net.JoinHostPort(h, p)
+	}
+
+	return strings.Trim(host, "[]")
 }
 
 func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Handler) http.Handler {
@@ -100,7 +194,7 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 			return
 		}
 
-		raw, ok := bearerToken(r.Header.Get("Authorization"))
+		raw, source, ok := requestCredential(r)
 		if !ok {
 			writeAPIErrorCode(w, http.StatusUnauthorized, apiErrAuthenticationRequired)
 			return
@@ -112,6 +206,75 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 		}
 
 		tokenKey := hashAPIToken(raw)
+		s.mu.RLock()
+		cacheService := s.cacheService
+		s.mu.RUnlock()
+
+		if cacheService != nil {
+			now := time.Now().UTC()
+			session, err := cacheService.ResolveSession(ctx, tokenKey, now, config.APISessionIdleTTL())
+			if err == nil {
+				if source == credentialSourceCookie && csrfRequired(r.Method) {
+					if !validCSRFToken(r.Header.Get(csrfHeaderName), session.CSRFTokenHash) {
+						writeAPIErrorCode(w, http.StatusForbidden, apiErrCSRFTokenRequired)
+						return
+					}
+
+					if !validCSRFOrigin(r) {
+						writeAPIErrorCode(w, http.StatusForbidden, apiErrCSRFOriginForbidden)
+						return
+					}
+				}
+
+				s.auditLog(r.Context(), audit.EventAuthSuccess, session.LocalUserID, 0, map[string]any{
+					"credential_type":   "session",
+					"credential_source": string(source),
+				})
+
+				// Best-effort; ignore errors so a metrics/update failure does not block the request.
+				_ = cacheService.TouchSession(ctx, tokenKey, now)
+
+				p := &authn.Principal{
+					LocalUserID: session.LocalUserID,
+					Username:    session.Username,
+					Kind:        authn.KindLocalUser,
+				}
+
+				if !z.Allow(ctx, p, action, authz.Resource{}) {
+					writeAPIErrorCode(w, http.StatusForbidden, apiErrAuthorizationDenied)
+					return
+				}
+
+				next.ServeHTTP(w, r.WithContext(authn.WithPrincipal(r.Context(), p)))
+				return
+			}
+
+			if !cache.IsNotFound(err) {
+				if s.handleDBUnavailableError(w, err) {
+					return
+				}
+
+				s.logger.Error("Cache error resolving session: %v", err)
+				writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+				return
+			}
+
+			if source == credentialSourceCookie {
+				s.auditLog(r.Context(), audit.EventAuthFailure, 0, 0, map[string]any{
+					"reason":            "invalid_session",
+					"credential_source": string(source),
+				})
+
+				writeAPIErrorCode(w, http.StatusUnauthorized, apiErrAuthenticationRequired)
+				return
+			}
+		}
+
+		if source == credentialSourceCookie {
+			writeAPIErrorCode(w, http.StatusServiceUnavailable, apiErrAuthUnavailable)
+			return
+		}
+
 		uid, uname, tokenID, err := s.authRepo.ResolveAPIToken(ctx, tokenKey)
 		if err != nil {
 			if dal.IsNotFound(err) {
@@ -132,7 +295,8 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 		}
 
 		s.auditLog(r.Context(), audit.EventAuthSuccess, uid, 0, map[string]any{
-			"token_id": tokenID,
+			"credential_type": "api_token",
+			"token_id":        tokenID,
 		})
 
 		// Best-effort; ignore errors so a metrics/update failure does not block the request.

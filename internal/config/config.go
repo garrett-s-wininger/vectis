@@ -68,12 +68,19 @@ type APIDefaults struct {
 	Auth                 APIAuthDefaults      `toml:"auth"`
 	Authz                APIAuthzDefaults     `toml:"authz"`
 	Audit                APIAuditDefaults     `toml:"audit"`
+	TLS                  APITLSDefaults       `toml:"tls"`
+	Session              APISessionDefaults   `toml:"session"`
+	Cache                APICacheDefaults     `toml:"cache"`
 	RateLimit            APIRateLimitDefaults `toml:"rate_limit"`
 	ClientIP             APIClientIPDefaults  `toml:"client_ip"`
 }
 
 type APIClientIPDefaults struct {
 	TrustedProxyCIDRs []string `toml:"trusted_proxy_cidrs"`
+}
+
+type APICacheDefaults struct {
+	Backend string `toml:"backend"`
 }
 
 type APIRateLimitDefaults struct {
@@ -97,6 +104,19 @@ type APIAuthzDefaults struct {
 type APIAuditDefaults struct {
 	Enabled             bool   `toml:"enabled"`
 	DurabilityOverrides string `toml:"durability_overrides"`
+}
+
+type APITLSDefaults struct {
+	CertFile       string       `toml:"cert_file"`
+	KeyFile        string       `toml:"key_file"`
+	ReloadInterval tomlDuration `toml:"reload_interval"`
+}
+
+type APISessionDefaults struct {
+	TTL                  tomlDuration `toml:"ttl"`
+	IdleTTL              tomlDuration `toml:"idle_ttl"`
+	CookieSecure         bool         `toml:"cookie_secure"`
+	AllowInsecureCookies bool         `toml:"allow_insecure_cookies"`
 }
 
 type QueueDefaults struct {
@@ -439,6 +459,22 @@ func validateDefaults(d Defaults) {
 
 	if e != "authenticated_full" && e != "hierarchical_rbac" {
 		panic("config defaults: api.authz.engine must be authenticated_full or hierarchical_rbac (got " + d.API.Authz.Engine + ")")
+	}
+
+	if b := normalizeAPICacheBackend(d.API.Cache.Backend); b != APICacheBackendDatabase && b != APICacheBackendMemory {
+		panic("config defaults: api.cache.backend must be database or memory (got " + d.API.Cache.Backend + ")")
+	}
+
+	if time.Duration(d.API.Session.TTL) <= 0 {
+		panic("config defaults: api.session.ttl must be > 0")
+	}
+
+	if time.Duration(d.API.Session.IdleTTL) <= 0 {
+		panic("config defaults: api.session.idle_ttl must be > 0")
+	}
+
+	if time.Duration(d.API.Session.IdleTTL) > time.Duration(d.API.Session.TTL) {
+		panic("config defaults: api.session.idle_ttl must be <= api.session.ttl")
 	}
 
 	rl := d.API.RateLimit

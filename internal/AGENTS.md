@@ -86,5 +86,6 @@ Builtins live in `internal/action/builtins/`. Currently registered action types 
 | Registry / dial | `internal/registry/`, `internal/resolver/` |
 | Logs / run tree | `internal/logserver/`, `internal/logforwarder/`, `internal/job/` |
 | TLS | `internal/tlsconfig/` (reload) |
+| Platform operations | `internal/platform/` (GOOS-specific host operations such as system trust-store changes; keep privileged OS actions here behind small APIs) |
 | DB bootstrap | `internal/database/` (`OpenDB`, `WaitForMigrations`), `internal/migrations/` (embedded SQL, SQLite + Postgres), `internal/dbdrivers/` (`_` import) |
 | Schedules / recovery | `internal/cron/`, `internal/reconciler/` · formal model [`../formal/tla/`](../formal/tla/) |

@@ -10,7 +10,7 @@ For the broader security posture, see [Security](../../concepts/security.md). Fo
 
 | Capability | Current behavior |
 | --- | --- |
-| API token storage | API tokens are stored hashed in the database. Plaintext tokens are only shown when created or returned from login. |
+| API token storage | API tokens are stored hashed in the database. Plaintext API tokens are only shown when created. Login session tokens are returned only when a non-browser client requests `return_token`. |
 | Password storage | Local user passwords are stored as bcrypt hashes. |
 | Bootstrap token | Used for initial setup when API auth is enabled. It remains a deploy/config secret until removed or rotated. |
 | Checkout URL validation | HTTP(S) checkout URLs with embedded user info are rejected. |

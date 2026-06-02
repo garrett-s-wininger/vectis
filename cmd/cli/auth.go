@@ -133,9 +133,10 @@ func runLogin(cmd *cobra.Command, args []string) {
 }
 
 func doLogin(username, password string) (string, error) {
-	body, err := json.Marshal(map[string]string{
-		"username": username,
-		"password": password,
+	body, err := json.Marshal(map[string]any{
+		"username":     username,
+		"password":     password,
+		"return_token": true,
 	})
 
 	if err != nil {
@@ -177,6 +178,35 @@ func doLogin(username, password string) (string, error) {
 	}
 }
 
+func doLogout(token string) error {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return nil
+	}
+
+	req, err := http.NewRequest(http.MethodPost, config.PublicAPIBaseURL()+"/api/v1/logout", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := apiHTTPClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("logout request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusNoContent, http.StatusUnauthorized:
+		return nil
+	case http.StatusServiceUnavailable:
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("service unavailable: %s", string(body))
+	default:
+		return fmt.Errorf("unexpected status: %s", resp.Status)
+	}
+}
+
 var authCmd = &cobra.Command{
 	Use:     "auth",
 	Short:   "Log in, log out, and manage API tokens",
@@ -192,6 +222,11 @@ var loginCmd = &cobra.Command{
 }
 
 func runLogout(cmd *cobra.Command, args []string) {
+	token := effectiveToken()
+	if err := doLogout(token); err != nil {
+		runCLIError(err)
+	}
+
 	if err := deletePersistedToken(); err != nil {
 		runCLIError(fmt.Errorf("failed to remove token: %w", err))
 	}
@@ -201,8 +236,8 @@ func runLogout(cmd *cobra.Command, args []string) {
 
 var logoutCmd = &cobra.Command{
 	Use:   "logout",
-	Short: "Remove the persisted API token",
-	Long:  `Remove the locally persisted API token. This does not invalidate the token on the server.`,
+	Short: "Log out of the Vectis API",
+	Long:  `Invalidate the current login session when possible and remove the locally persisted token.`,
 	Run:   runLogout,
 }
 

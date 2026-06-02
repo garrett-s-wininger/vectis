@@ -12,7 +12,7 @@ This page answers "can this deployment shape handle my workload?" Scaling And Re
 
 | Area | Known-safe posture | Validate before relying on |
 | --- | --- | --- |
-| API replicas | One API process | Horizontal API replicas, because rate limiting is in-process per replica. |
+| API replicas | One API process | Horizontal API replicas, load-balancer behavior, shared SQL rate-limit pressure, and SSE reconnect behavior. |
 | Queue | One or more independent queue shards | Shared multi-writer queue storage or active/passive failover for a single shard. |
 | Workers | Multiple workers, one run per process | Large worker fleets and DB pool sizing under high claim/renew/finalize rates. |
 | Task fan-out | Worker-choreographed fan-out through database-backed task dispatch intents | Very wide DAGs, deep continuation chains, and database/event growth under high task cardinality. |
@@ -45,9 +45,9 @@ Watch these when you increase workload, worker count, client concurrency, or log
 
 | Decision | Guidance |
 | --- | --- |
-| Add workers | Safe first lever for more parallel task delivery execution, but each worker adds database, queue, log, CPU, memory, disk, and network pressure. |
+| Add workers | Safe first lever for more parallel job and task delivery execution, but each worker adds database, queue, log, CPU, memory, disk, and network pressure. |
 | Increase task fan-out | Validate queue handoff rate, `vectis_task_dispatch_intents_total`, `vectis_task_dispatch_pending_intents`, task reduce/finalize decisions, dispatch event volume, task graph row counts in `vectis_storage_records`, database write load, and retention before relying on very wide or deep DAGs. |
-| Add API replicas | Validate load-balancer behavior, in-process rate limits, SSE reconnect behavior, and async enqueue repair. |
+| Add API replicas | Validate load-balancer behavior, shared rate-limit DB pressure, SSE reconnect behavior, and async enqueue repair. |
 | Increase DB pool size | Do this only with database host capacity in mind; raising pool limits can move pressure into the database. |
 | Increase trigger rate | Watch queue depth, dispatch events, DB pool waits, and idempotency behavior. |
 | Increase log readers | Watch log replay, active streams, storage pressure, and client disconnect behavior. |

@@ -602,6 +602,22 @@ func (s *APIServer) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.mu.RLock()
+	cacheService := s.cacheService
+	s.mu.RUnlock()
+
+	if cacheService != nil {
+		if err := cacheService.DeleteUserSessions(ctx, targetUserID); err != nil {
+			if s.handleDBUnavailableError(w, err) {
+				return
+			}
+
+			s.logger.Error("Cache error revoking user sessions: %v", err)
+			writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+			return
+		}
+	}
+
 	s.markDBRecovered()
 
 	actorID := int64(0)

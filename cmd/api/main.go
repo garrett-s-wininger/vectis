@@ -16,6 +16,7 @@ import (
 	"vectis/internal/api"
 	"vectis/internal/api/audit"
 	"vectis/internal/api/ratelimit"
+	"vectis/internal/cache"
 	"vectis/internal/cli"
 	"vectis/internal/config"
 	"vectis/internal/dal"
@@ -60,6 +61,12 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		return
 	}
 
+	if err := config.ValidateAPIHTTPS(); err != nil {
+		logger.Error("%v", err)
+		exitCode = 1
+		return
+	}
+
 	config.StartGRPCTLSReloadLoop(cmd.Context())
 
 	db, _, err := database.OpenReadyDBForRole(logger, database.RoleGlobal)
@@ -80,6 +87,18 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 	}
 
 	if err := config.ValidateAPIClientIPConfig(); err != nil {
+		logger.Error("%v", err)
+		exitCode = 1
+		return
+	}
+
+	if err := config.ValidateAPICacheConfig(); err != nil {
+		logger.Error("%v", err)
+		exitCode = 1
+		return
+	}
+
+	if err := config.ValidateAPISessionConfig(); err != nil {
 		logger.Error("%v", err)
 		exitCode = 1
 		return
@@ -157,9 +176,16 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 
 	server := api.NewAPIServer(logger, db)
 	server.MetricsHandler = metricsHandler
-	apiRateLimiter := ratelimit.NewMemoryRateLimiter()
-	defer apiRateLimiter.Stop()
-	server.SetRateLimiter(apiRateLimiter)
+	var cacheService cache.Service
+	switch config.APICacheBackend() {
+	case config.APICacheBackendDatabase:
+		cacheService = cache.NewSQLService(db, database.EffectiveDBDriver())
+	case config.APICacheBackendMemory:
+		cacheService = cache.NewMemoryService()
+	}
+
+	server.SetCacheService(cacheService)
+	server.SetRateLimiter(ratelimit.NewCacheRateLimiter(cacheService))
 
 	accessLogger, closeAccessLogger := buildAccessLogger(config.APILogFormat())
 	if closeAccessLogger != nil {
@@ -214,6 +240,22 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		return
 	}
 
+	apiTLSReloader, err := config.NewAPIHTTPSReloader()
+	if err != nil {
+		_ = ln.Close()
+		logger.Error("API TLS: %v", err)
+		exitCode = 1
+		return
+	}
+
+	ln, err = config.APIHTTPSListener(ln, apiTLSReloader)
+	if err != nil {
+		logger.Error("API TLS: %v", err)
+		exitCode = 1
+		return
+	}
+	config.StartAPIHTTPSReloadLoop(cmd.Context(), apiTLSReloader)
+
 	logger.Info("Establishing queue client connection...")
 	if err := server.ConnectToQueue(cmd.Context()); err != nil {
 		logger.Error("Failed to connect to services: %v", err)
@@ -254,9 +296,15 @@ func init() {
 	rootCmd.PersistentFlags().String("host", config.APIHost(), "Host/IP for the API server to bind")
 	rootCmd.PersistentFlags().Int("port", config.APIPort(), "Port for the API server")
 	rootCmd.PersistentFlags().StringSlice("cell-ingress-endpoint", config.APICellIngressEndpointSpecs(), "Cell ingress route in cell_id=url form; may be repeated")
+	rootCmd.PersistentFlags().String("tls-cert-file", config.APIHTTPSCertFile(), "Certificate file for browser-facing HTTPS")
+	rootCmd.PersistentFlags().String("tls-key-file", config.APIHTTPSKeyFile(), "Private key file for browser-facing HTTPS")
+	rootCmd.PersistentFlags().Duration("tls-reload-interval", config.APIHTTPSReloadInterval(), "How often to poll API HTTPS cert/key files for reload; 0 disables polling")
 	_ = viper.BindPFlag("host", rootCmd.PersistentFlags().Lookup("host"))
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
 	_ = viper.BindPFlag("cell_ingress_endpoints", rootCmd.PersistentFlags().Lookup("cell-ingress-endpoint"))
+	_ = viper.BindPFlag("api.tls.cert_file", rootCmd.PersistentFlags().Lookup("tls-cert-file"))
+	_ = viper.BindPFlag("api.tls.key_file", rootCmd.PersistentFlags().Lookup("tls-key-file"))
+	_ = viper.BindPFlag("api.tls.reload_interval", rootCmd.PersistentFlags().Lookup("tls-reload-interval"))
 	_ = viper.BindEnv("cell_ingress_endpoints", "VECTIS_API_SERVER_CELL_INGRESS_ENDPOINTS", "VECTIS_CELL_INGRESS_ENDPOINTS")
 	viper.SetEnvPrefix("VECTIS_API_SERVER")
 	viper.AutomaticEnv()

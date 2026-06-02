@@ -95,6 +95,7 @@ func TestTokenLifecycle_endToEnd(t *testing.T) {
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
 		}
+		assertNoStore(t, rec)
 
 		var out createTokenResponse
 		if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {

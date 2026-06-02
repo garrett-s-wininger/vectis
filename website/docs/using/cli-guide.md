@@ -36,7 +36,7 @@ When API authentication is enabled, log in once:
 ./bin/vectis-cli auth login --username <username>
 ```
 
-The CLI prompts for a password and saves the returned API token in your user config directory. Later commands use that saved token automatically.
+The CLI prompts for a password, requests a bearer-capable login session, and saves the returned session token in your user config directory. Later commands use that saved token automatically.
 
 You can also provide a token for one shell session:
 
@@ -50,7 +50,7 @@ To remove the locally saved token:
 ./bin/vectis-cli auth logout
 ```
 
-Logout removes the local token file. It does not revoke the token on the server.
+Logout invalidates the server-side session when the saved token is a login session, then removes the local token file. Durable API tokens are managed separately with `vectis-cli auth token delete`.
 
 ## Check Health
 

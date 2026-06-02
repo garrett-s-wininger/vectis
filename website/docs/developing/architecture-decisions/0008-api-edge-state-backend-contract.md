@@ -6,19 +6,19 @@ Accepted
 
 ## Context
 
-API replicas are mostly stateless, but some edge behavior is intentionally process-local today. Rate-limit buckets are the first concrete example: the default token bucket is simple and dependency-free, but adding API replicas raises the effective limit. Future features may need the same shape of shared edge state without making the HTTP API depend directly on a specific external system.
+API replicas are mostly stateless, but some edge behavior needs a shared backend when the API is fanned out. Rate-limit buckets are the first concrete example. Future features may need the same shape of shared edge state without making the HTTP API depend directly on a specific external system.
 
 Options for shared API edge state included:
 
 - **Keep all edge state process-local** — simplest, but only works when per-replica behavior is acceptable.
 - **Hard-code Redis** — gives a familiar shared backend, but makes a new dependency the default shape.
-- **Backend contract** — preserves the local default while allowing a hash-owner implementation or Redis proxy later.
+- **Backend contract** — preserves backend choice while allowing SQL, a hash-owner implementation, or a Redis proxy.
 
 ## Decision
 
-Use an interface-backed backend contract for API edge state. The first contract is `internal/api/ratelimit.RateLimiter`, which owns the atomic "allow this request key under this rule" decision.
+Use an interface-backed backend contract for API edge state. The shared contract is `internal/cache.Service`, which owns login sessions and atomic "allow this request key under this rule" decisions. `internal/api/ratelimit.RateLimiter` remains the HTTP middleware adapter.
 
-The default implementation remains an in-process token bucket. Future implementations can:
+The default implementation stores sessions and rate-limit buckets in the shared SQL database. The in-process cache remains available for deployments that explicitly want per-replica state. Future implementations can:
 
 - map each key to an owner with a simple hash ring and forward requests to that owner;
 - proxy requests to Redis or another external store;
@@ -28,8 +28,8 @@ This contract is separate from `vectis-registry`. The registry may help discover
 
 ## Consequences
 
-- Single-node and small deployments keep a no-dependency default.
-- Multi-replica API deployments have a clear upgrade path for shared rate-limit budgets.
+- Single-node and small deployments can still choose an in-memory no-dependency backend.
+- Multi-replica API deployments get shared login sessions and rate-limit budgets by default.
 - The route middleware stays stable while backend implementations evolve.
 - Backend implementations must preserve the same key semantics, rule semantics, and retry-after behavior.
 
@@ -37,5 +37,6 @@ This contract is separate from `vectis-registry`. The registry may help discover
 
 - [Scaling And Restarts](../../operating/deployment/scaling-and-restarts.md)
 - [Configuration](../../operating/configuration.md)
-- `internal/api/ratelimit/ratelimiter.go` — rate-limit backend contract
-- `internal/api/ratelimit/memory.go` — default in-process implementation
+- `internal/cache/cache.go` — API cache backend contract
+- `internal/cache/sql.go` — default shared SQL implementation
+- `internal/api/ratelimit/ratelimiter.go` — HTTP rate-limit adapter contract

@@ -11,6 +11,7 @@ import (
 	"vectis/internal/config"
 	"vectis/internal/database"
 	"vectis/internal/interfaces/mocks"
+	"vectis/internal/localpki"
 )
 
 func resetLocalTestConfig(t *testing.T) {
@@ -136,6 +137,69 @@ func TestLocalCatalogCellDatabaseEnv(t *testing.T) {
 	want := []string{"VECTIS_CATALOG_CELL_DATABASE_DSNS=iad-a=/tmp/iad.db,pdx-b=/tmp/pdx.db"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("catalog env: got %v, want %v", got, want)
+	}
+}
+
+func TestConfiguredLocalTLSDir(t *testing.T) {
+	resetLocalTestConfig(t)
+
+	if got := configuredLocalTLSDir("/tmp/data-home"); got != filepath.Join("/tmp/data-home", "vectis", "local-tls") {
+		t.Fatalf("default TLS dir = %q", got)
+	}
+
+	viper.Set("tls_dir", "/tmp/custom-vectis-tls")
+	if got := configuredLocalTLSDir("/tmp/data-home"); got != "/tmp/custom-vectis-tls" {
+		t.Fatalf("custom TLS dir = %q", got)
+	}
+}
+
+func TestLocalBrowserTLSOnSetsHTTPSVars(t *testing.T) {
+	resetLocalTestConfig(t)
+	m, err := localpki.Ensure(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := localBrowserTLS(m, localHTTPSTLSOn, mocks.NopLogger{})
+	if !cfg.Enabled || cfg.Scheme != "https" {
+		t.Fatalf("browser TLS config = %+v, want enabled https", cfg)
+	}
+
+	for _, want := range []string{
+		"VECTIS_API_TLS_CERT_FILE=" + m.ServerCert,
+		"VECTIS_API_TLS_KEY_FILE=" + m.ServerKey,
+		"VECTIS_API_SESSION_COOKIE_SECURE=true",
+		"VECTIS_DOCS_TLS_CERT_FILE=" + m.ServerCert,
+		"VECTIS_DOCS_TLS_KEY_FILE=" + m.ServerKey,
+	} {
+		if !hasEnv(cfg.Env, want) {
+			t.Fatalf("browser TLS env missing %q: %v", want, cfg.Env)
+		}
+	}
+}
+
+func TestLocalBrowserTLSOffUsesHTTP(t *testing.T) {
+	resetLocalTestConfig(t)
+	m, err := localpki.Ensure(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := localBrowserTLS(m, localHTTPSTLSOff, mocks.NopLogger{})
+	if cfg.Enabled || cfg.Scheme != "http" || len(cfg.Env) != 0 {
+		t.Fatalf("browser TLS off config = %+v, want plain HTTP", cfg)
+	}
+}
+
+func TestValidLocalHTTPSTLSMode(t *testing.T) {
+	for _, mode := range []string{localHTTPSTLSAuto, localHTTPSTLSOn, localHTTPSTLSOff} {
+		if !validLocalHTTPSTLSMode(mode) {
+			t.Fatalf("mode %q should be valid", mode)
+		}
+	}
+
+	if validLocalHTTPSTLSMode("sometimes") {
+		t.Fatal("unexpectedly accepted invalid mode")
 	}
 }
 

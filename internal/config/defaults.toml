@@ -19,6 +19,20 @@ engine = "hierarchical_rbac"
 enabled = true
 durability_overrides = ""
 
+[api.tls]
+cert_file = ""
+key_file = ""
+reload_interval = "0s"
+
+[api.session]
+ttl = "168h"
+idle_ttl = "24h"
+cookie_secure = false
+allow_insecure_cookies = false
+
+[api.cache]
+backend = "database"
+
 [api.rate_limit]
 auth_refill_rate = "12s"
 auth_burst_size = 5

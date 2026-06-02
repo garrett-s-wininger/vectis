@@ -60,7 +60,7 @@ Use these prefixes when building service-specific environment variable names.
 
 | Program | Env prefix | Useful flags |
 | --- | --- | --- |
-| `vectis-api` | `VECTIS_API_SERVER` | `--host`, `--port`, `--cell-ingress-endpoint` |
+| `vectis-api` | `VECTIS_API_SERVER` | `--host`, `--port`, `--cell-ingress-endpoint`, `--tls-cert-file`, `--tls-key-file` |
 | `vectis-cell-ingress` | `VECTIS_CELL_INGRESS` | `--host`, `--port`, `--metrics-port`, `--repair-interval`, `--queue-address`, `--registry-address` |
 | `vectis-queue` | `VECTIS_QUEUE` | `--port`, `--metrics-port`, `--pool`, `--instance-id`, `--persistence-dir`, `--persistence-snapshot-every` |
 | `vectis-registry` | `VECTIS_REGISTRY` | `--port`; cluster membership uses `VECTIS_REGISTRY_CLUSTER_*` |
@@ -70,8 +70,8 @@ Use these prefixes when building service-specific environment variable names.
 | `vectis-reconciler` | `VECTIS_RECONCILER` | `--interval`, `--lease-ttl`, `--metrics-port` |
 | `vectis-catalog` | `VECTIS_CATALOG` | `--interval`, `--batch-size`, `--metrics-port`, `--cell-database-dsn` |
 | `vectis-log-forwarder` | `VECTIS_LOG_FORWARDER` | `--socket`, `--lockfile`, `--spool-dir`, `--metrics-port` |
-| `vectis-docs` | `VECTIS_DOCS` | `--host`, `--port`, `--dir` |
-| `vectis-local` | `VECTIS_LOCAL` | `--profile`, `--host`, `--cell`, `--docs-port`, `--docs-dir`, `--log-level`, `--grpc-insecure` |
+| `vectis-docs` | `VECTIS_DOCS` | `--host`, `--port`, `--dir`, `--tls-cert-file`, `--tls-key-file` |
+| `vectis-local` | `VECTIS_LOCAL` | `--profile`, `--host`, `--cell`, `--docs-port`, `--docs-dir`, `--log-level`, `--grpc-insecure`, `--http-tls`, `--tls-dir`; subcommands: `init`, `install-cert` |
 | `vectis-cli` | none for normal API commands | `VECTIS_API_TOKEN` for auth; `VECTIS_DATABASE_*` for `database migrate` |
 
 The API client IP trust setting is an intentionally separate API-wide variable: `VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS`.
@@ -103,7 +103,13 @@ API audit events are enabled by default.
 | `VECTIS_API_AUDIT_ENABLED` / `api.audit.enabled` | Set to `false` to disable audit emission. |
 | `VECTIS_API_AUDIT_DURABILITY_OVERRIDES` / `api.audit.durability_overrides` | Comma-separated `event=durability` overrides, such as `auth.success=disabled,run.triggered=best_effort`. |
 
-API rate limits have embedded defaults for auth, token, and general routes. The shipped default keys live under `api.rate_limit.*`. The default implementation is an in-process token bucket per API replica; the internal rate-limit contract is backend-oriented so a hash-owner or Redis-backed implementation can provide shared limits later. The defaults are intended to protect the built-in auth surface from accidental or hostile bursts; tune them only when you understand the expected traffic shape.
+API sessions and rate-limit buckets use the API cache backend. The default is `api.cache.backend = "database"`, which stores shared state in the configured SQL database so multiple API replicas see the same sessions and enforce one rate-limit budget. Set `api.cache.backend = "memory"` or `VECTIS_API_CACHE_BACKEND=memory` only when per-process sessions and limits are acceptable. Login sessions have an absolute expiry from `api.session.ttl` / `VECTIS_API_SESSION_TTL` and an idle expiry from `api.session.idle_ttl` / `VECTIS_API_SESSION_IDLE_TTL`; the defaults are `168h` and `24h`. Browser session cookies are HttpOnly and SameSite=Lax. Direct TLS requests are always issued `Secure` cookies. When API auth is enabled behind an HTTPS ingress, edge proxy, or load balancer, set `api.session.cookie_secure = true` / `VECTIS_API_SESSION_COOKIE_SECURE=true`; use `api.session.allow_insecure_cookies = true` / `VECTIS_API_SESSION_ALLOW_INSECURE_COOKIES=true` only for local HTTP development.
+
+The API can serve browser-facing HTTPS directly with `--tls-cert-file` and `--tls-key-file`, or with `VECTIS_API_TLS_CERT_FILE` / `VECTIS_API_TLS_KEY_FILE`. `VECTIS_API_TLS_RELOAD_INTERVAL` enables polling reloads for rotated files. This is separate from internal gRPC TLS and metrics TLS.
+
+`vectis-docs` accepts the same shape through `--tls-cert-file`, `--tls-key-file`, and `--tls-reload-interval`, or `VECTIS_DOCS_TLS_CERT_FILE`, `VECTIS_DOCS_TLS_KEY_FILE`, and `VECTIS_DOCS_TLS_RELOAD_INTERVAL`.
+
+API rate limits have embedded defaults for auth, token, and general routes. The shipped limit keys live under `api.rate_limit.*`. The defaults are intended to protect the built-in auth surface from accidental or hostile bursts; tune them only when you understand the expected traffic shape.
 
 When the API runs behind a trusted reverse proxy, configure client IP forwarding separately. See [Trusted Proxy Client IP](./deployment/trusted-proxy-client-ip.md).
 
@@ -158,7 +164,7 @@ Internal gRPC TLS settings are global across Vectis binaries.
 | `VECTIS_GRPC_TLS_SERVER_NAME` | Optional server-name override for outbound TLS verification. Useful when discovery returns an IP but the certificate is issued for a DNS name. |
 | `VECTIS_GRPC_TLS_RELOAD_INTERVAL` | Positive duration to poll PEM files and reload them without restart. `0` disables polling. |
 
-Standalone binaries default to plaintext gRPC. `vectis-local` normally bootstraps a local development CA and sets `VECTIS_GRPC_TLS_*` for child processes unless you pass `--grpc-insecure`. The Podman reference deployment also generates internal gRPC TLS material and mounts it into the Vectis containers.
+Standalone binaries default to plaintext gRPC. `vectis-local` normally bootstraps a local development CA and sets `VECTIS_GRPC_TLS_*` for child processes unless you pass `--grpc-insecure`. The same generated server certificate can also be used for local API/docs HTTPS. Run `vectis-local init` as your normal user to create or renew the files, then run `vectis-local install-cert` with elevated privileges if your OS requires that to trust the generated CA. The `install-cert` command only installs the CA certificate; it does not create files, migrate databases, or start services. In normal runs, `--http-tls=auto` uses HTTPS when the generated certificate verifies against the system trust store, `--http-tls=on` forces HTTPS with the generated cert, and `--http-tls=off` keeps API/docs on HTTP. The Podman reference deployment also generates internal gRPC TLS material and mounts it into the Vectis containers.
 
 | Role | Binaries | Required material when TLS is enabled |
 | --- | --- | --- |

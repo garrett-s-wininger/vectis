@@ -57,6 +57,7 @@ func TestAPIRouteInventory(t *testing.T) {
 		{"GET /api/v1/setup/status", string(authz.ActionSetupStatus)},
 		{"POST /api/v1/setup/complete", string(authz.ActionSetupComplete)},
 		{"POST /api/v1/login", "public"},
+		{"POST /api/v1/logout", string(authz.ActionAPI)},
 		{"GET /api/v1/tokens", string(authz.ActionAPI)},
 		{"POST /api/v1/tokens", string(authz.ActionAPI)},
 		{"DELETE /api/v1/tokens/{id}", string(authz.ActionAPI)},

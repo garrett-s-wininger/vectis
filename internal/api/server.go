@@ -21,6 +21,7 @@ import (
 	"vectis/internal/api/authz"
 	"vectis/internal/api/ratelimit"
 	"vectis/internal/backoff"
+	"vectis/internal/cache"
 	"vectis/internal/cell"
 	"vectis/internal/config"
 	"vectis/internal/dal"
@@ -98,6 +99,9 @@ type APIServer struct {
 	// rateLimiter, when set, applies rate limiting to API routes.
 	rateLimiter ratelimit.RateLimiter
 
+	// cacheService stores shared API sessions and rate-limit buckets.
+	cacheService cache.Service
+
 	// auditor, when set, logs audit events for auth operations.
 	auditor audit.Auditor
 	// auditPolicy resolves event-specific audit durability.
@@ -141,6 +145,7 @@ func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
 	s.triggerEvents = repos.TriggerInvocations()
 	s.catalogEvents = repos.CatalogEvents()
 	s.schedules = repos.Schedules()
+	s.cacheService = cache.NewSQLService(db, database.EffectiveDBDriver())
 	return s
 }
 
@@ -478,6 +483,12 @@ func (s *APIServer) SetRateLimiter(limiter ratelimit.RateLimiter) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.rateLimiter = limiter
+}
+
+func (s *APIServer) SetCacheService(cacheService cache.Service) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cacheService = cacheService
 }
 
 func (s *APIServer) SetAuditor(auditor audit.Auditor) {

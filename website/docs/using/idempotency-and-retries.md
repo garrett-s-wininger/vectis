@@ -116,7 +116,7 @@ When you get `idempotency_in_progress`, wait briefly and retry with the same key
 | `POST /api/v1/runs/{id}/force-fail` | Manual operator action. Do not retry blindly. |
 | `POST /api/v1/runs/{id}/force-requeue` | Manual repair action. Do not retry blindly because run state can change. |
 | `POST /api/v1/setup/complete` | Retry only during bootstrap. `409 setup_already_complete` means setup already happened. |
-| `POST /api/v1/login` | Safe to retry, but each success creates a new token. |
+| `POST /api/v1/login` | Safe to retry, but each success creates a new session. |
 | `POST /api/v1/tokens` | Not idempotent. Retry can create duplicate tokens. |
 | `DELETE /api/v1/tokens/{id}` | Retry only if `404` is acceptable as "already deleted." |
 | User, namespace, and role-binding creates | Retry only if duplicate or conflict responses are acceptable. |

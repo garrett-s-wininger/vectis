@@ -38,7 +38,7 @@ The default profile remains `simple` for both tools. HA profiles are intended fo
 
 | Binary | Safe default | Can run multiple? | What to watch |
 | --- | ---: | --- | --- |
-| `vectis-api` | 1 | Conditional | Multiple API replicas can serve HTTP against the same database and queue. The default rate-limit backend is in-process per replica, SSE clients must reconnect through load balancers, and accepted-but-not-enqueued runs rely on the reconciler if an API exits after `202`. |
+| `vectis-api` | 1 | Conditional | Multiple API replicas can serve HTTP against the same database and queue. The default API cache backend shares sessions and rate limits through SQL, SSE clients must reconnect through load balancers, and accepted-but-not-enqueued runs rely on the reconciler if an API exits after `202`. |
 | `vectis-worker` | N | Yes | Each worker executes one run at a time. Database claims and leases guard persisted runs against duplicate execution even if queue handoff is duplicated. Size DB pools, queue delivery timeouts, and log capacity for the fleet. |
 | `vectis-queue` | 1+ | Yes, as independent shards | Producers discover queue registrations and pick a shard. Workers dequeue across the pool and ack the shard encoded in the delivery ID. Do not duplicate active instance IDs or share one persistence directory across active queue processes. |
 | `vectis-registry` | 1 | Conditional | Single registry is the safe default. Clients can list multiple registry addresses and service registrations fail over between them, but gossip-based HA registry still requires every registry node to be configured with static cluster membership. Pin queue/log addresses if registry availability is a concern. |
@@ -74,7 +74,7 @@ API replicas are mostly stateless, but not perfectly interchangeable.
 
 | Behavior | Operator impact |
 | --- | --- |
-| Rate limits use the configured backend; the default backend is in-memory per API process. | Adding replicas raises the effective limit until a shared hash-owner or Redis-backed limiter is added. |
+| Sessions and rate limits use the configured API cache backend; the default backend stores them in the shared SQL database. | Adding replicas preserves login sessions and one rate-limit budget unless `api.cache.backend` is changed to `memory`. |
 | SSE streams are long-lived connections. | Clients should reconnect when a replica restarts or a load balancer moves them. |
 | Setup and admin writes use the shared database. | Database constraints remain the source of truth. |
 | Trigger requests can return `202` before queue handoff is complete. | The API records an `accepted` dispatch event before returning `202`; keep `vectis-reconciler` healthy so durable queued runs are redispatched if an API exits after accepting them. |
@@ -140,7 +140,7 @@ For repair steps, see [Repair Runbooks](../reliability/repair-runbooks.md).
 | Area | Current limit |
 | --- | --- |
 | Database | One configured logical database and schema. No in-app database failover, read-replica routing, or cross-site replication. |
-| API rate limits | In-memory per API process. |
+| API rate limits | Shared through the configured SQL database by default; `memory` remains available for per-process buckets. |
 | Queue | Queue pool within one cell through registry discovery. Each shard has local persistence; no shared multi-writer queue storage. |
 | Logs | Run-sharded local storage within one cell with DB-backed shard assignments for DB-aware clients. There is no shared multi-writer log storage or S3-backed archive yet. The standalone log-forwarder remains DB-free: it uses worker-provided shard hints when present and deterministic routing from discovered shards otherwise. Disk-pressure read-only mode rejects new run log files on a pressured shard. |
 | Cron | DB-coordinated within one shared database cell; no built-in schedule partitioning across cells. |

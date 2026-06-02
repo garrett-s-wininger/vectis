@@ -58,6 +58,7 @@ func TestSetupHandlers_endToEndThroughHandler(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
 		}
+		assertNoStore(t, rec)
 
 		var out setupCompleteResponse
 		if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {

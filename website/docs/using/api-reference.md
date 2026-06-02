@@ -23,7 +23,7 @@ A local `vectis-local` stack exposes the API at:
 http://localhost:8080
 ```
 
-Examples below use that address. Replace it with your API URL in deployed environments.
+If you have initialized and trusted the generated local CA with `vectis-local init` and `vectis-local install-cert`, `vectis-local` may advertise `https://localhost:8080` instead. Examples below use the HTTP local default. Replace it with the URL printed by your local stack or with your deployed API URL.
 
 ## Common Flows
 
@@ -154,7 +154,7 @@ Ephemeral runs do not require a top-level job `id`. Stored jobs do. Job definiti
 
 ## Authentication
 
-When `api.auth.enabled=false`, API routes are accepted without bearer tokens. When auth is enabled, clients send:
+When `api.auth.enabled=false`, API routes are accepted without bearer tokens. When auth is enabled, non-browser clients send:
 
 ```http
 Authorization: Bearer <api_token>
@@ -162,16 +162,18 @@ Authorization: Bearer <api_token>
 
 Health endpoints, `/metrics`, and `POST /api/v1/login` are public. Setup routes use setup-specific authorization while the first admin is being created. Data routes authorize the action listed in the route table below; namespace-scoped resources are hidden with `404` when the caller is not allowed to see that namespace.
 
-To request a token with username/password credentials:
+`POST /api/v1/login` creates an expiring server-side session. Browser clients receive an HttpOnly `vectis_session` cookie plus a readable `vectis_csrf` cookie and `csrf_token` response field. Unsafe cookie-authenticated requests must copy that token into `X-CSRF-Token`; if the request includes `Origin` or `Referer`, its host must match the request host.
+
+Non-browser clients that need a bearer session token can request one explicitly:
 
 ```sh
 curl -sS \
   -H 'Content-Type: application/json' \
-  -d '{"username":"alice","password":"<password>"}' \
+  -d '{"username":"alice","password":"<password>","return_token":true}' \
   http://localhost:8080/api/v1/login
 ```
 
-Then send the returned token on later requests:
+Then send the returned `token` on later requests:
 
 ```http
 Authorization: Bearer <api_token>
@@ -204,7 +206,7 @@ Common status meanings:
 | `409` | Resource conflict, duplicate create, idempotency conflict, or invalid run repair state. |
 | `413` | Request body exceeds the route limit. |
 | `415` | JSON route received a non-JSON content type. |
-| `429` | In-process rate limit rejected the request. `Retry-After` is set. |
+| `429` | The configured rate-limit backend rejected the request. `Retry-After` is set. |
 | `500` | Unexpected server error. |
 | `503` | Database, auth persistence, queue, or setup state is not ready. |
 
@@ -224,7 +226,9 @@ Common v1 error codes:
 | `database_unavailable` | `503` | The configured SQL database is temporarily unavailable. |
 | `queue_not_ready` | `503` | The API cannot currently hand work to the queue. |
 | `server_shutting_down` | `503` | The API has started shutdown drain and should not receive new requests. |
-| `rate_limit_exceeded` | `429` | The request exceeded the in-process rate limit; `Retry-After` is set. |
+| `csrf_origin_forbidden` | `403` | A cookie-authenticated unsafe request came from a mismatched origin. |
+| `csrf_token_required` | `403` | A cookie-authenticated unsafe request is missing a valid `X-CSRF-Token`. |
+| `rate_limit_exceeded` | `429` | The request exceeded the configured rate limit; `Retry-After` is set. |
 | `idempotency_key_reused` | `409` | The same idempotency key was reused with a different request body or target. |
 | `idempotency_in_progress` | `409` | The original idempotent request has not completed yet. |
 | `validation_failed` | `400` | Job definition semantic validation failed; see [Job Definition Validation](./job-validation.md). |
@@ -260,7 +264,7 @@ Streaming routes return `text/event-stream`. Use `curl -N`, `EventSource`, or an
 
 ## Routes
 
-Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`, and `token` buckets use the configured rate-limit backend; the default backend is per in-process API replica.
+Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`, and `token` buckets use the configured API cache backend; the default `database` backend shares buckets across API replicas.
 
 | Method | Path | Purpose | Auth action | Rate limit | Success |
 | --- | --- | --- | --- | --- | --- |
@@ -304,7 +308,8 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | GET | `/api/v1/runs/{id}/logs` | Stream run logs as SSE | `run:read` | general | `200` `text/event-stream` |
 | GET | `/api/v1/setup/status` | Report whether initial setup is complete and API auth is enabled | `setup:status` | auth | `200` JSON status |
 | POST | `/api/v1/setup/complete` | Create the first admin account | `setup:complete` | auth | `200` JSON token |
-| POST | `/api/v1/login` | Exchange username/password for an API token | Public | auth | `200` JSON token |
+| POST | `/api/v1/login` | Exchange username/password for a session | Public | auth | `200` JSON session and cookies |
+| POST | `/api/v1/logout` | Invalidate the current login session | `api:any` | auth | `204` empty |
 | GET | `/api/v1/tokens` | List API tokens visible to the caller | `api:any` | token | `200` JSON list |
 | POST | `/api/v1/tokens` | Create an API token | `api:any` | token | `201` JSON token metadata and plaintext token |
 | DELETE | `/api/v1/tokens/{id}` | Delete an API token | `api:any` | token | `204` empty |

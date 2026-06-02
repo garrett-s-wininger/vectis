@@ -327,6 +327,29 @@ CREATE TABLE api_tokens (
 
 CREATE UNIQUE INDEX idx_api_tokens_token_hash ON api_tokens(token_hash);
 
+CREATE TABLE api_rate_limit_buckets (
+    bucket_key TEXT PRIMARY KEY,
+    tokens DOUBLE PRECISION NOT NULL,
+    last_refill_unix_nano BIGINT NOT NULL,
+    last_access_unix_nano BIGINT NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_api_rate_limit_buckets_last_access ON api_rate_limit_buckets(last_access_unix_nano);
+
+CREATE TABLE api_sessions (
+    session_hash TEXT PRIMARY KEY,
+    csrf_token_hash TEXT NOT NULL,
+    local_user_id BIGINT NOT NULL REFERENCES local_users(id) ON DELETE CASCADE,
+    expires_at_unix_nano BIGINT NOT NULL,
+    last_used_unix_nano BIGINT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    last_used_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_api_sessions_user ON api_sessions(local_user_id);
+CREATE INDEX idx_api_sessions_expires ON api_sessions(expires_at_unix_nano);
+
 CREATE TABLE role_bindings (
     id BIGSERIAL PRIMARY KEY,
     global_id TEXT UNIQUE,

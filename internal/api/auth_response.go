@@ -2,7 +2,10 @@ package api
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
+	"strconv"
+	"time"
 )
 
 type apiError struct {
@@ -21,6 +24,8 @@ const (
 	apiErrBindingAlreadyExists           apiErrorCode = "binding_already_exists"
 	apiErrBindingNotFound                apiErrorCode = "binding_not_found"
 	apiErrBootstrapNotConfigured         apiErrorCode = "bootstrap_not_configured"
+	apiErrCSRFOriginForbidden            apiErrorCode = "csrf_origin_forbidden"
+	apiErrCSRFTokenRequired              apiErrorCode = "csrf_token_required"
 	apiErrDatabaseNotReady               apiErrorCode = "database_not_ready"
 	apiErrInternal                       apiErrorCode = "internal_error"
 	apiErrInvalidAdminPassword           apiErrorCode = "invalid_admin_password"
@@ -99,6 +104,10 @@ func (c apiErrorCode) message() string {
 		return "binding not found"
 	case apiErrBootstrapNotConfigured:
 		return "server is missing a bootstrap token of sufficient length"
+	case apiErrCSRFOriginForbidden:
+		return "csrf origin forbidden"
+	case apiErrCSRFTokenRequired:
+		return "csrf token required"
 	case apiErrDatabaseNotReady:
 		return "database not ready"
 	case apiErrInternal:
@@ -252,4 +261,20 @@ func writeAPIError(w http.ResponseWriter, status int, code, message string, deta
 
 func writeAPIErrorCode(w http.ResponseWriter, status int, code apiErrorCode) {
 	writeAPIError(w, status, string(code), code.message(), nil)
+}
+
+func setNoStore(w http.ResponseWriter) {
+	h := w.Header()
+	h.Set("Cache-Control", "no-store")
+	h.Set("Pragma", "no-cache")
+	h.Set("Expires", "0")
+}
+
+func writeRateLimitExceeded(w http.ResponseWriter, retryAfter time.Duration) {
+	retrySeconds := int(math.Ceil(retryAfter.Seconds()))
+	if retrySeconds < 1 {
+		retrySeconds = 1
+	}
+	w.Header().Set("Retry-After", strconv.Itoa(retrySeconds))
+	writeAPIErrorCode(w, http.StatusTooManyRequests, apiErrRateLimitExceeded)
 }

@@ -8,7 +8,7 @@ For outage behavior, see [Failure Domains](./failure-domains.md). For environmen
 
 | Surface | Current behavior | Operator baseline |
 | --- | --- | --- |
-| HTTP API | Authentication is off by default for local and development use. Local users, API tokens, RBAC, rate limits, and audit logging are available when API auth is enabled. | Enable API auth outside throwaway local use, terminate HTTPS at the edge, and restrict who can reach the API. |
+| HTTP API | Authentication is off by default for local and development use. Local users, API tokens, RBAC, rate limits, audit logging, and direct HTTPS are available when configured. | Enable API auth outside throwaway local use, serve or terminate HTTPS, and restrict who can reach the API. |
 | Internal gRPC | Queue, registry, and log service traffic can use optional TLS or mTLS. Standalone binaries default to plaintext unless configured. | Keep internal ports private. Use TLS or mTLS on shared networks. |
 | Cell ingress HTTP | Cell ingress is an internal execution submission surface. It does not perform end-user authentication or RBAC; global producers authorize work before dispatch. | Keep cell ingress private, reachable only by approved global producers, and put it behind TLS or mTLS-capable infrastructure on untrusted networks. |
 | Service authorization | Internal gRPC servers do not yet enforce application-level per-service authorization. mTLS can verify certificates, but Vectis does not map cert identities to per-RPC allow/deny rules yet. | Treat network reachability to queue, registry, log, and worker-control paths as sensitive. |
@@ -38,7 +38,7 @@ Until setup completes, health, metrics, and `/api/v1/setup/*` remain available. 
 Authorization: Bearer <api_token>
 ```
 
-Vectis stores local user passwords with bcrypt. API tokens are generated from 32 random bytes and stored as SHA-256 hashes for lookup. Treat a database leak as credential exposure: rotate API tokens and bootstrap secrets if the database is compromised. Login tokens created by `POST /api/v1/login` default to a one-week expiry.
+Vectis stores local user passwords with bcrypt. API tokens are generated from 32 random bytes and stored as SHA-256 hashes for lookup. Login sessions are separate expiring cache entries keyed by the same SHA-256 token hash format; with the default database cache backend, API replicas share session state through SQL. Browser logins receive an HttpOnly session cookie plus a CSRF token cookie/response field, and the raw session token is omitted from the JSON response unless `return_token` is requested for a non-browser client. Direct TLS requests receive `Secure` cookies automatically; behind an HTTPS edge, set `VECTIS_API_SESSION_COOKIE_SECURE=true` explicitly. Internal gRPC or metrics TLS does not make browser-facing API cookies secure. Unsafe cookie-authenticated requests must send `X-CSRF-Token`; when the browser supplies an `Origin` or `Referer`, it must match the request host. Password changes revoke API tokens and login sessions. Treat a database leak as credential exposure: rotate API tokens, clear sessions, and rotate bootstrap secrets if the database is compromised. Login sessions created by `POST /api/v1/login` default to a one-week absolute expiry and a 24-hour idle expiry.
 
 API errors use a stable JSON envelope with a `code` value such as `setup_required`, `authentication_required`, `authorization_denied`, or `auth_unavailable`. Integrations should key off those codes. The public route and error contract lives in [API Reference](../using/api-reference.md).
 
@@ -82,7 +82,7 @@ For the multi-cell routing and fan-in shape, see [Multi-Cell Operation](../opera
 
 `vectis-api` serves `/metrics` on the same HTTP listener as the REST API. `vectis-queue`, `vectis-worker`, `vectis-log`, `vectis-reconciler`, `vectis-catalog`, and `vectis-cell-ingress` use dedicated metrics listeners by default.
 
-Metrics endpoints are not authenticated. The Podman reference deployment enables HTTPS on the dedicated queue, worker, and log metrics listeners through `VECTIS_METRICS_TLS_*`; standalone log-forwarders use the same metrics TLS settings when their metrics listener is enabled. API metrics remain on the API HTTP listener until API TLS is added separately.
+Metrics endpoints are not authenticated. The Podman reference deployment enables HTTPS on the dedicated queue, worker, and log metrics listeners through `VECTIS_METRICS_TLS_*`; standalone log-forwarders use the same metrics TLS settings when their metrics listener is enabled. API metrics remain on the API listener, so they use the same direct HTTPS settings as the REST API when API TLS is configured.
 
 Keep metrics scrape paths on trusted networks. Metrics are operational data, but they can still reveal deployment shape, service health, traffic patterns, error rates, and names of internal components.
 

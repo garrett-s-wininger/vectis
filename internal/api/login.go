@@ -1,19 +1,20 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"vectis/internal/api/audit"
+	"vectis/internal/cache"
 	"vectis/internal/config"
 	"vectis/internal/dal"
 
 	"golang.org/x/crypto/bcrypt"
 )
-
-const loginTokenDefaultExpiry = 7 * 24 * time.Hour
 
 // dummyBcryptHash is a valid bcrypt hash used for constant-time login failure paths
 // when the username does not exist. It ensures timing does not leak username enumeration.
@@ -21,12 +22,14 @@ const loginTokenDefaultExpiry = 7 * 24 * time.Hour
 var dummyBcryptHash = "$2a$10$RgvvFjOSrsWHTjz69BrUGOXOjgsfHXpxy0wLzBRDoIYPRlpTl/Xly"
 
 type loginRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+	Username    string `json:"username"`
+	Password    string `json:"password"`
+	ReturnToken bool   `json:"return_token,omitempty"`
 }
 
 type loginResponse struct {
-	Token     string     `json:"token"`
+	Token     string     `json:"token,omitempty"`
+	CSRFToken string     `json:"csrf_token,omitempty"`
 	UserID    int64      `json:"user_id"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
@@ -91,6 +94,30 @@ func (s *APIServer) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.mu.RLock()
+	cacheService := s.cacheService
+	s.mu.RUnlock()
+	if cacheService == nil {
+		writeAPIErrorCode(w, http.StatusServiceUnavailable, apiErrAuthUnavailable)
+		return
+	}
+
+	allowed, retryAfter, err := s.allowLoginForUsername(ctx, cacheService, req.Username)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Cache error checking login throttle: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+
+	if !allowed {
+		writeRateLimitExceeded(w, retryAfter)
+		return
+	}
+
 	uid, passHash, enabled, err := s.authRepo.GetLocalUserByUsername(ctx, req.Username)
 	if err != nil {
 		if dal.IsNotFound(err) {
@@ -145,35 +172,109 @@ func (s *APIServer) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tokenHash := hashAPIToken(plainToken)
-	expiresAt := time.Now().UTC().Add(loginTokenDefaultExpiry)
-
-	tokenID, err := s.authRepo.CreateAPIToken(ctx, uid, tokenHash, "login", &expiresAt)
+	csrfToken, err := randomHexToken(apiTokenRandomBytes)
 	if err != nil {
+		s.logger.Error("Failed to generate login csrf token: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+
+	expiresAt := time.Now().UTC().Add(config.APISessionTTL())
+
+	if err := cacheService.CreateSession(ctx, cache.Session{
+		TokenHash:     tokenHash,
+		CSRFTokenHash: hashAPIToken(csrfToken),
+		LocalUserID:   uid,
+		ExpiresAt:     expiresAt,
+	}); err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
 		}
 
-		s.logger.Error("Database error creating login token: %v", err)
+		s.logger.Error("Cache error creating login session: %v", err)
 		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
 
 	s.markDBRecovered()
 
-	s.auditLog(r.Context(), audit.EventAuthSuccess, uid, tokenID, map[string]any{
-		"method":   "password",
-		"username": req.Username,
+	s.auditLog(r.Context(), audit.EventAuthSuccess, uid, 0, map[string]any{
+		"method":          "password",
+		"username":        req.Username,
+		"credential_type": "session",
 	})
 
 	resp := loginResponse{
-		Token:     plainToken,
+		CSRFToken: csrfToken,
 		UserID:    uid,
 		ExpiresAt: &expiresAt,
 	}
 
+	if req.ReturnToken {
+		resp.Token = plainToken
+	}
+
+	setSessionCookies(w, r, plainToken, csrfToken, expiresAt)
+	setNoStore(w)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		s.logger.Error("Failed to encode login response: %v", err)
 	}
+}
+
+func (s *APIServer) allowLoginForUsername(ctx context.Context, cacheService cache.Service, username string) (bool, time.Duration, error) {
+	keyMaterial := strings.ToLower(strings.TrimSpace(username))
+	if keyMaterial == "" {
+		keyMaterial = "<empty>"
+	}
+
+	decision, err := cacheService.TakeRateLimitToken(ctx, "login:user:"+hashAPIToken(keyMaterial), cache.RateLimitRule{
+		RefillRate: config.RateLimitAuthRefillRate(),
+		BurstSize:  config.RateLimitAuthBurstSize(),
+	})
+
+	if err != nil {
+		return false, 0, err
+	}
+
+	return decision.Allowed, decision.RetryAfter, nil
+}
+
+func (s *APIServer) Logout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeAPIErrorCode(w, http.StatusMethodNotAllowed, apiErrMethodNotAllowed)
+		return
+	}
+
+	raw, _, ok := requestCredential(r)
+	if !ok || len(raw) > maxBearerTokenBytes {
+		writeAPIErrorCode(w, http.StatusUnauthorized, apiErrAuthenticationRequired)
+		return
+	}
+
+	s.mu.RLock()
+	cacheService := s.cacheService
+	s.mu.RUnlock()
+
+	if cacheService == nil {
+		writeAPIErrorCode(w, http.StatusServiceUnavailable, apiErrAuthUnavailable)
+		return
+	}
+
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	if err := cacheService.DeleteSession(ctx, hashAPIToken(raw)); err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Cache error deleting login session: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+
+	clearSessionCookies(w, r)
+	w.WriteHeader(http.StatusNoContent)
 }

@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/testutil/dbtest"
@@ -53,17 +55,93 @@ func TestLogin_endToEnd(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
 		}
+		assertNoStore(t, rec)
 
 		var out loginResponse
 		if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
 			t.Fatal(err)
 		}
 
-		if out.Token == "" || out.UserID == 0 || out.ExpiresAt == nil {
+		if out.Token != "" || out.UserID == 0 || out.ExpiresAt == nil {
 			t.Fatalf("bad response: %+v", out)
 		}
 
-		// Token should work on a protected route
+		if out.CSRFToken == "" {
+			t.Fatalf("missing csrf token: %+v", out)
+		}
+
+		cookies := rec.Result().Cookies()
+		var sessionCookie, csrfCookie *http.Cookie
+		for _, c := range cookies {
+			if c.Name == sessionCookieName {
+				sessionCookie = c
+			}
+
+			if c.Name == csrfCookieName {
+				csrfCookie = c
+			}
+		}
+
+		if sessionCookie == nil || csrfCookie == nil {
+			t.Fatalf("expected session and csrf cookies, got %+v", cookies)
+		}
+
+		if !sessionCookie.HttpOnly {
+			t.Fatal("session cookie must be HttpOnly")
+		}
+
+		if csrfCookie.HttpOnly {
+			t.Fatal("csrf cookie must be readable by browser clients")
+		}
+
+		if csrfCookie.Value != out.CSRFToken {
+			t.Fatal("csrf cookie must match csrf response token")
+		}
+
+		var loginTokenRows int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM api_tokens WHERE label = 'login'`).Scan(&loginTokenRows); err != nil {
+			t.Fatalf("count login api tokens: %v", err)
+		}
+
+		if loginTokenRows != 0 {
+			t.Fatalf("login should create cache sessions, got %d login api token rows", loginTokenRows)
+		}
+
+		rec2 := httptest.NewRecorder()
+		req2 := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
+		req2.AddCookie(sessionCookie)
+		h.ServeHTTP(rec2, req2)
+		if rec2.Code != http.StatusOK {
+			t.Fatalf("session cookie rejected code=%d", rec2.Code)
+		}
+	})
+
+	t.Run("return_token_allows_bearer_session", func(t *testing.T) {
+		body := map[string]any{
+			"username":     "root",
+			"password":     "longenough",
+			"return_token": true,
+		}
+
+		b, _ := json.Marshal(body)
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/login", bytes.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
+		}
+		assertNoStore(t, rec)
+
+		var out loginResponse
+		if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
+			t.Fatal(err)
+		}
+
+		if out.Token == "" || out.UserID == 0 || out.ExpiresAt == nil || out.CSRFToken == "" {
+			t.Fatalf("bad response: %+v", out)
+		}
+
 		rec2 := httptest.NewRecorder()
 		req2 := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
 		req2.Header.Set("Authorization", "Bearer "+out.Token)
@@ -111,6 +189,7 @@ func TestLogin_endToEnd(t *testing.T) {
 		if err := s.authRepo.UpdateLocalUserEnabled(ctx, 1, false); err != nil {
 			t.Fatalf("failed to disable user: %v", err)
 		}
+
 		t.Cleanup(func() {
 			_ = s.authRepo.UpdateLocalUserEnabled(ctx, 1, true)
 		})
@@ -200,6 +279,446 @@ func TestLogin_setupNotComplete(t *testing.T) {
 
 	if errResp.Code != string(apiErrSetupRequired) {
 		t.Fatalf("expected setup_required, got %q", errResp.Code)
+	}
+}
+
+func TestLogin_sessionSharedAcrossAPIServers(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "true")
+	t.Setenv("VECTIS_API_AUTH_BOOTSTRAP_TOKEN", "sixteenchars----")
+
+	db := dbtest.NewTestDB(t)
+	s1 := NewAPIServer(mocks.NewMockLogger(), db)
+	s1.SetQueueClient(mocks.NewMockQueueService())
+	h1 := s1.Handler()
+
+	s2 := NewAPIServer(mocks.NewMockLogger(), db)
+	s2.SetQueueClient(mocks.NewMockQueueService())
+	h2 := s2.Handler()
+
+	setupBody := map[string]string{
+		"bootstrap_token": "sixteenchars----",
+		"admin_username":  "root",
+		"admin_password":  "longenough",
+	}
+
+	b, _ := json.Marshal(setupBody)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/setup/complete", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	h1.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("setup failed code=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var setupOut setupCompleteResponse
+	if err := json.NewDecoder(rec.Body).Decode(&setupOut); err != nil {
+		t.Fatal(err)
+	}
+
+	loginBody := map[string]string{
+		"username": "root",
+		"password": "longenough",
+	}
+
+	b, _ = json.Marshal(loginBody)
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/login", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	h1.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login failed code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	assertNoStore(t, rec)
+
+	var out loginResponse
+	if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+
+	if out.Token != "" || out.CSRFToken == "" {
+		t.Fatalf("bad browser session response: %+v", out)
+	}
+
+	var sessionCookie *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == sessionCookieName {
+			sessionCookie = c
+			break
+		}
+	}
+
+	if sessionCookie == nil {
+		t.Fatal("expected session cookie")
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
+	req.AddCookie(sessionCookie)
+	h2.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("session rejected by second API server: code=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	changePasswordBody := map[string]string{
+		"current_password": "longenough",
+		"new_password":     "newpassword123",
+	}
+
+	b, _ = json.Marshal(changePasswordBody)
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/users/change-password", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+setupOut.APIToken)
+	h1.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("change password failed code=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
+	req.AddCookie(sessionCookie)
+	h2.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("session should be revoked after password change, got code=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestLogout_deletesSession(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "true")
+	t.Setenv("VECTIS_API_AUTH_BOOTSTRAP_TOKEN", "sixteenchars----")
+
+	db := dbtest.NewTestDB(t)
+	s := NewAPIServer(mocks.NewMockLogger(), db)
+	s.SetQueueClient(mocks.NewMockQueueService())
+	h := s.Handler()
+
+	setupBody := map[string]string{
+		"bootstrap_token": "sixteenchars----",
+		"admin_username":  "root",
+		"admin_password":  "longenough",
+	}
+
+	b, _ := json.Marshal(setupBody)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/setup/complete", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("setup failed code=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	loginBody := map[string]any{
+		"username":     "root",
+		"password":     "longenough",
+		"return_token": true,
+	}
+
+	b, _ = json.Marshal(loginBody)
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/login", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login failed code=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var out loginResponse
+	if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+
+	if out.Token == "" {
+		t.Fatal("expected bearer session token")
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/logout", nil)
+	req.Header.Set("Authorization", "Bearer "+out.Token)
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("logout failed code=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
+	req.Header.Set("Authorization", "Bearer "+out.Token)
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("session should be invalid after logout, got code=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCookieSessionAuth_requiresCSRFForUnsafeMethods(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "true")
+	t.Setenv("VECTIS_API_AUTH_BOOTSTRAP_TOKEN", "sixteenchars----")
+
+	db := dbtest.NewTestDB(t)
+	s := NewAPIServer(mocks.NewMockLogger(), db)
+	s.SetQueueClient(mocks.NewMockQueueService())
+	h := s.Handler()
+
+	setupBody := map[string]string{
+		"bootstrap_token": "sixteenchars----",
+		"admin_username":  "root",
+		"admin_password":  "longenough",
+	}
+
+	b, _ := json.Marshal(setupBody)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/setup/complete", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("setup failed code=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	loginBody := map[string]string{
+		"username": "root",
+		"password": "longenough",
+	}
+
+	b, _ = json.Marshal(loginBody)
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/login", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login failed code=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var out loginResponse
+	if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+
+	if out.Token != "" || out.CSRFToken == "" {
+		t.Fatalf("bad browser session response: %+v", out)
+	}
+
+	var sessionCookie *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == sessionCookieName {
+			sessionCookie = c
+			break
+		}
+	}
+
+	if sessionCookie == nil {
+		t.Fatal("expected session cookie")
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/logout", nil)
+	req.AddCookie(sessionCookie)
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("logout without csrf should be forbidden, got code=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/logout", nil)
+	req.AddCookie(sessionCookie)
+	req.Header.Set(csrfHeaderName, "wrong-csrf-token")
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("logout with wrong csrf should be forbidden, got code=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/logout", nil)
+	req.AddCookie(sessionCookie)
+	req.Header.Set(csrfHeaderName, out.CSRFToken)
+	req.Host = "vectis.example"
+	req.Header.Set("Origin", "https://evil.example")
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("logout with wrong origin should be forbidden, got code=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/logout", nil)
+	req.AddCookie(sessionCookie)
+	req.Header.Set(csrfHeaderName, out.CSRFToken)
+	req.Host = "vectis.example"
+	req.Header.Set("Origin", "https://vectis.example")
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("logout with csrf failed code=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	cleared := map[string]bool{}
+	for _, c := range rec.Result().Cookies() {
+		if (c.Name == sessionCookieName || c.Name == csrfCookieName) && c.MaxAge < 0 {
+			cleared[c.Name] = true
+		}
+	}
+
+	if !cleared[sessionCookieName] || !cleared[csrfCookieName] {
+		t.Fatalf("logout should clear session cookies, got %+v", rec.Result().Cookies())
+	}
+}
+
+func TestCookieSessionAuth_idleExpiry(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "true")
+	t.Setenv("VECTIS_API_AUTH_BOOTSTRAP_TOKEN", "sixteenchars----")
+	t.Setenv("VECTIS_API_SESSION_IDLE_TTL", "1h")
+
+	db := dbtest.NewTestDB(t)
+	s := NewAPIServer(mocks.NewMockLogger(), db)
+	s.SetQueueClient(mocks.NewMockQueueService())
+	h := s.Handler()
+
+	setupBody := map[string]string{
+		"bootstrap_token": "sixteenchars----",
+		"admin_username":  "root",
+		"admin_password":  "longenough",
+	}
+
+	b, _ := json.Marshal(setupBody)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/setup/complete", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("setup failed code=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	loginBody := map[string]string{
+		"username": "root",
+		"password": "longenough",
+	}
+
+	b, _ = json.Marshal(loginBody)
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/login", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login failed code=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var sessionCookie *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == sessionCookieName {
+			sessionCookie = c
+			break
+		}
+	}
+
+	if sessionCookie == nil {
+		t.Fatal("expected session cookie")
+	}
+
+	oldLastUsed := time.Now().UTC().Add(-2 * time.Hour).UnixNano()
+	if _, err := db.Exec(`UPDATE api_sessions SET last_used_unix_nano = ?`, oldLastUsed); err != nil {
+		t.Fatalf("make session idle: %v", err)
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
+	req.AddCookie(sessionCookie)
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("idle session should be rejected, got code=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestLogin_usernameThrottle(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "true")
+	t.Setenv("VECTIS_API_AUTH_BOOTSTRAP_TOKEN", "sixteenchars----")
+
+	db := dbtest.NewTestDB(t)
+	s := NewAPIServer(mocks.NewMockLogger(), db)
+	s.SetQueueClient(mocks.NewMockQueueService())
+	h := s.Handler()
+
+	setupBody := map[string]string{
+		"bootstrap_token": "sixteenchars----",
+		"admin_username":  "root",
+		"admin_password":  "longenough",
+	}
+
+	b, _ := json.Marshal(setupBody)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/setup/complete", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("setup failed code=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	for i := range 5 {
+		body := map[string]string{
+			"username": "root",
+			"password": "wrongpassword",
+		}
+
+		b, _ := json.Marshal(body)
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/login", bytes.NewReader(b))
+		req.RemoteAddr = fmt.Sprintf("203.0.113.%d:1234", i+1)
+		req.Header.Set("Content-Type", "application/json")
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("request %d code=%d body=%s", i+1, rec.Code, rec.Body.String())
+		}
+	}
+
+	body := map[string]string{
+		"username": "root",
+		"password": "wrongpassword",
+	}
+
+	b, _ = json.Marshal(body)
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/login", bytes.NewReader(b))
+	req.RemoteAddr = "203.0.113.99:1234"
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected username throttle 429, got code=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	if rec.Header().Get("Retry-After") == "" {
+		t.Fatal("expected Retry-After header")
+	}
+}
+
+func TestCookieSessionAuth_doesNotAcceptAPITokenCookie(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "true")
+	t.Setenv("VECTIS_API_AUTH_BOOTSTRAP_TOKEN", "sixteenchars----")
+
+	db := dbtest.NewTestDB(t)
+	s := NewAPIServer(mocks.NewMockLogger(), db)
+	s.SetQueueClient(mocks.NewMockQueueService())
+	h := s.Handler()
+
+	setupBody := map[string]string{
+		"bootstrap_token": "sixteenchars----",
+		"admin_username":  "root",
+		"admin_password":  "longenough",
+	}
+
+	b, _ := json.Marshal(setupBody)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/setup/complete", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("setup failed code=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var setupOut setupCompleteResponse
+	if err := json.NewDecoder(rec.Body).Decode(&setupOut); err != nil {
+		t.Fatal(err)
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: setupOut.APIToken})
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("api token presented as a session cookie should be rejected, got code=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 

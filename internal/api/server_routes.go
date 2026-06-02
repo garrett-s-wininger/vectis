@@ -2,9 +2,7 @@ package api
 
 import (
 	"fmt"
-	"math"
 	"net/http"
-	"strconv"
 
 	"vectis/internal/api/authz"
 	"vectis/internal/api/ratelimit"
@@ -80,6 +78,7 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 		routeSpec{Pattern: "GET /api/v1/setup/status", Handler: http.HandlerFunc(s.GetSetupStatus), Auth: routeAuthPolicy{Action: authz.ActionSetupStatus}, RateLimit: defaultLimits.Auth},
 		routeSpec{Pattern: "POST /api/v1/setup/complete", Handler: http.HandlerFunc(s.PostSetupComplete), Auth: routeAuthPolicy{Action: authz.ActionSetupComplete}, RateLimit: defaultLimits.Auth},
 		routeSpec{Pattern: "POST /api/v1/login", Handler: http.HandlerFunc(s.Login), Auth: routeAuthPolicy{Public: true}, RateLimit: defaultLimits.Auth},
+		routeSpec{Pattern: "POST /api/v1/logout", Handler: http.HandlerFunc(s.Logout), Auth: routeAuthPolicy{Action: authz.ActionAPI}, RateLimit: defaultLimits.Auth},
 		routeSpec{Pattern: "GET /api/v1/tokens", Handler: http.HandlerFunc(s.ListTokens), Auth: routeAuthPolicy{Action: authz.ActionAPI}, RateLimit: defaultLimits.Token},
 		routeSpec{Pattern: "POST /api/v1/tokens", Handler: http.HandlerFunc(s.CreateToken), Auth: routeAuthPolicy{Action: authz.ActionAPI}, RateLimit: defaultLimits.Token},
 		routeSpec{Pattern: "DELETE /api/v1/tokens/{id}", Handler: http.HandlerFunc(s.DeleteToken), Auth: routeAuthPolicy{Action: authz.ActionAPI}, RateLimit: defaultLimits.Token},
@@ -132,43 +131,66 @@ func (s *APIServer) registerRoute(mux *http.ServeMux, spec routeSpec) {
 	rl := s.rateLimiter
 	s.mu.RUnlock()
 	if rl != nil && spec.RateLimit.RefillRate > 0 {
-		handler = s.rateLimitMiddleware(rl, spec.RateLimit, handler)
+		handler = s.rateLimitMiddleware(rl, spec, handler)
 	}
 
 	mux.Handle(spec.Pattern, handler)
 }
 
-func (s *APIServer) rateLimitMiddleware(rl ratelimit.RateLimiter, rule ratelimit.Rule, next http.Handler) http.Handler {
+func (s *APIServer) rateLimitMiddleware(rl ratelimit.RateLimiter, spec routeSpec, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		key := s.rateLimitKey(r, rule)
-		allowed, retryAfter, err := rl.Allow(r.Context(), key, rule)
+		key := s.rateLimitKey(r, spec)
+		allowed, retryAfter, err := rl.Allow(r.Context(), key, spec.RateLimit)
 		if err != nil {
+			if s.handleDBUnavailableError(w, err) {
+				return
+			}
+
 			s.logger.Error("Rate limiter error: %v", err)
 			writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 			return
 		}
+
 		if !allowed {
-			retrySeconds := int(math.Ceil(retryAfter.Seconds()))
-			w.Header().Set("Retry-After", strconv.Itoa(retrySeconds))
-			writeAPIErrorCode(w, http.StatusTooManyRequests, apiErrRateLimitExceeded)
+			writeRateLimitExceeded(w, retryAfter)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
 }
 
-func (s *APIServer) rateLimitKey(r *http.Request, rule ratelimit.Rule) string {
-	// Use Authorization header for authenticated requests, client IP for public
+func (s *APIServer) rateLimitKey(r *http.Request, spec routeSpec) string {
+	rule := spec.RateLimit
 	var baseKey string
-	if token, ok := bearerToken(r.Header.Get("Authorization")); ok {
-		baseKey = hashAPIToken(token)
+
+	if rateLimitCanUseBearer(spec.Auth) {
+		token, ok := bearerToken(r.Header.Get("Authorization"))
+
+		if ok {
+			baseKey = hashAPIToken(token)
+		}
 	}
+
 	if baseKey == "" {
 		baseKey = config.HTTPClientIP(r)
 	}
 
-	// Include route pattern and rule parameters so different endpoints have isolated buckets
+	// Include route pattern and rule parameters so different endpoints have isolated buckets.
 	return fmt.Sprintf("%s:%s:%d:%d", baseKey, r.Pattern, rule.RefillRate, rule.BurstSize)
+}
+
+func rateLimitCanUseBearer(policy routeAuthPolicy) bool {
+	policy = policy.normalized()
+	if policy.Public {
+		return false
+	}
+
+	switch policy.Action {
+	case authz.ActionSetupStatus, authz.ActionSetupComplete:
+		return false
+	default:
+		return true
+	}
 }
 
 func (s *APIServer) registerRouteFunc(mux *http.ServeMux, spec routeSpec, handler http.HandlerFunc) {

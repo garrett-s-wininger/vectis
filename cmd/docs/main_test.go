@@ -11,7 +11,10 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/spf13/viper"
+
 	"vectis/internal/interfaces"
+	"vectis/internal/localpki"
 )
 
 func testLogger() interfaces.Logger {
@@ -108,5 +111,31 @@ func TestHasDocsIndexFSRejectsMissingIndex(t *testing.T) {
 
 	if hasDocsIndexFS(fstest.MapFS{"index.html": &fstest.MapFile{Mode: fs.ModeDir}}) {
 		t.Fatal("hasDocsIndexFS returned true when index.html is a directory")
+	}
+}
+
+func TestDocsTLSEnabledAndOptions(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	if docsTLSEnabled() {
+		t.Fatal("docs TLS should be disabled by default")
+	}
+
+	m, err := localpki.Ensure(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	viper.Set("tls_cert_file", m.ServerCert)
+	viper.Set("tls_key_file", m.ServerKey)
+
+	if !docsTLSEnabled() {
+		t.Fatal("docs TLS should be enabled when cert/key are set")
+	}
+
+	opts := docsTLSOptions()
+	if opts.ServerCert != m.ServerCert || opts.ServerKey != m.ServerKey {
+		t.Fatalf("docs TLS options = %+v, want cert/key from local PKI", opts)
 	}
 }

@@ -243,6 +243,57 @@ func TestAuthRepository_TouchAPITokenUsed(t *testing.T) {
 	}
 }
 
+func TestAuthRepository_ChangePasswordAndRevokeTokens_revokesSessions(t *testing.T) {
+	t.Parallel()
+
+	db := dbtest.NewTestDB(t)
+	repo := NewSQLAuthRepository(db)
+	ctx := context.Background()
+
+	passHash, err := bcrypt.GenerateFromPassword([]byte("longenough"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tokenHash := "abababababababababababababababababababababababababababababababab"
+	uid, err := repo.CompleteInitialSetup(ctx, "dana", string(passHash), tokenHash, "initial")
+	if err != nil {
+		t.Fatalf("CompleteInitialSetup: %v", err)
+	}
+
+	_, err = db.ExecContext(ctx, rebindQueryForPgx(
+		`INSERT INTO api_sessions (session_hash, csrf_token_hash, local_user_id, expires_at_unix_nano, last_used_unix_nano) VALUES (?, ?, ?, ?, ?)`),
+		"session-hash", "csrf-hash", uid, time.Now().UTC().Add(time.Hour).UnixNano(), time.Now().UTC().UnixNano(),
+	)
+
+	if err != nil {
+		t.Fatalf("insert session: %v", err)
+	}
+
+	newHash, err := bcrypt.GenerateFromPassword([]byte("newpassword123"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := repo.ChangePasswordAndRevokeTokens(ctx, uid, string(newHash)); err != nil {
+		t.Fatalf("ChangePasswordAndRevokeTokens: %v", err)
+	}
+
+	for table, query := range map[string]string{
+		"api_tokens":   `SELECT COUNT(*) FROM api_tokens WHERE local_user_id = ?`,
+		"api_sessions": `SELECT COUNT(*) FROM api_sessions WHERE local_user_id = ?`,
+	} {
+		var count int
+		if err := db.QueryRowContext(ctx, rebindQueryForPgx(query), uid).Scan(&count); err != nil {
+			t.Fatalf("count %s: %v", table, err)
+		}
+
+		if count != 0 {
+			t.Fatalf("expected no %s rows after password change, got %d", table, count)
+		}
+	}
+}
+
 func TestAuthRepository_RootAdminQueries(t *testing.T) {
 	t.Parallel()
 
