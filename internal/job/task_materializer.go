@@ -65,7 +65,7 @@ func EnsurePlannedTaskExecutions(ctx context.Context, runs dal.RunsRepository, r
 			return TaskMaterializationResult{}, fmt.Errorf("task %q parent %q has not been materialized", entry.TaskKey, parentKey)
 		}
 
-		rec, created, err := runs.EnsurePendingTaskExecution(ctx, dal.TaskExecutionCreate{
+		rec, created, err := runs.EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
 			RunID:        runID,
 			ParentTaskID: parentTaskID,
 			TaskKey:      entry.TaskKey,

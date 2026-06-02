@@ -817,6 +817,18 @@ func (m *MockRunsRepository) EnsurePendingTaskExecution(ctx context.Context, cre
 	return m.TaskExecution, m.TaskCreated, nil
 }
 
+func (m *MockRunsRepository) EnsurePlannedTaskExecution(ctx context.Context, create dal.TaskExecutionCreate) (dal.TaskExecutionRecord, bool, error) {
+	m.mu.Lock()
+	m.LastTaskExecution = create
+	m.mu.Unlock()
+
+	if m.EnsureTaskExecutionErr != nil {
+		return dal.TaskExecutionRecord{}, false, m.EnsureTaskExecutionErr
+	}
+
+	return m.TaskExecution, m.TaskCreated, nil
+}
+
 func (m *MockRunsRepository) MarkExecutionAccepted(ctx context.Context, executionID string) error {
 	if m.MarkExecutionErr != nil {
 		return m.MarkExecutionErr

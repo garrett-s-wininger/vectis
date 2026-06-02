@@ -494,7 +494,7 @@ func ensureAcceptedTaskAttemptTx(ctx context.Context, tx *sql.Tx, a CellExecutio
 		return fmt.Errorf("%w: task %s has different accepted payload", ErrConflict, taskID)
 	}
 
-	if status == TaskStatusPending {
+	if isPreDispatchStatus(status) {
 		if _, err := tx.ExecContext(ctx,
 			rebindQueryForPgx("UPDATE run_tasks SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE task_id = ?"),
 			TaskStatusAccepted,
@@ -527,7 +527,7 @@ func ensureAcceptedTaskAttemptTx(ctx context.Context, tx *sql.Tx, a CellExecutio
 		return fmt.Errorf("%w: task attempt %s attempt %d has different accepted payload", ErrConflict, taskID, a.Attempt)
 	}
 
-	if attemptStatus == TaskStatusPending {
+	if isPreDispatchStatus(attemptStatus) {
 		if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
 			UPDATE task_attempts
 			SET status = ?, accepted_at = COALESCE(accepted_at, CURRENT_TIMESTAMP), last_observed_at = ?, event_sequence = event_sequence + 1, updated_at = CURRENT_TIMESTAMP
@@ -561,7 +561,7 @@ func ensureRunSegmentTx(ctx context.Context, tx *sql.Tx, a CellExecutionAcceptan
 		return fmt.Errorf("%w: segment %s has different accepted payload", ErrConflict, a.SegmentID)
 	}
 
-	if status == SegmentStatusPending {
+	if isPreDispatchStatus(status) {
 		if _, err := tx.ExecContext(ctx,
 			rebindQueryForPgx("UPDATE run_segments SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE segment_id = ?"),
 			SegmentStatusAccepted,
@@ -598,7 +598,7 @@ func ensureSegmentExecutionTx(ctx context.Context, tx *sql.Tx, a CellExecutionAc
 		return fmt.Errorf("%w: execution %s has different accepted payload", ErrConflict, a.ExecutionID)
 	}
 
-	if status == ExecutionStatusPending {
+	if isPreDispatchStatus(status) {
 		if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
 			UPDATE segment_executions
 			SET status = ?, accepted_at = COALESCE(accepted_at, CURRENT_TIMESTAMP), last_observed_at = ?, event_sequence = event_sequence + 1, updated_at = CURRENT_TIMESTAMP
@@ -609,6 +609,10 @@ func ensureSegmentExecutionTx(ctx context.Context, tx *sql.Tx, a CellExecutionAc
 	}
 
 	return nil
+}
+
+func isPreDispatchStatus(status string) bool {
+	return status == TaskStatusPlanned || status == TaskStatusPending
 }
 
 var _ CellExecutionAcceptancesRepository = (*SQLCellExecutionAcceptancesRepository)(nil)

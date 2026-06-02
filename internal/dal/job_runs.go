@@ -1407,7 +1407,15 @@ func (r *SQLRunsRepository) ListRunTasks(ctx context.Context, runID string, curs
 	return out, nextCursor, nil
 }
 
+func (r *SQLRunsRepository) EnsurePlannedTaskExecution(ctx context.Context, create TaskExecutionCreate) (TaskExecutionRecord, bool, error) {
+	return r.ensureTaskExecution(ctx, create, TaskStatusPlanned, SegmentStatusPlanned, ExecutionStatusPlanned)
+}
+
 func (r *SQLRunsRepository) EnsurePendingTaskExecution(ctx context.Context, create TaskExecutionCreate) (TaskExecutionRecord, bool, error) {
+	return r.ensureTaskExecution(ctx, create, TaskStatusPending, SegmentStatusPending, ExecutionStatusPending)
+}
+
+func (r *SQLRunsRepository) ensureTaskExecution(ctx context.Context, create TaskExecutionCreate, taskStatus, segmentStatus, executionStatus string) (TaskExecutionRecord, bool, error) {
 	normalized, err := normalizeTaskExecutionCreate(create)
 	if err != nil {
 		return TaskExecutionRecord{}, false, err
@@ -1457,7 +1465,7 @@ func (r *SQLRunsRepository) EnsurePendingTaskExecution(ctx context.Context, crea
 		INSERT INTO run_tasks (task_id, run_id, parent_task_id, task_key, name, status, spec_hash)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(task_id) DO NOTHING
-	`), taskID, normalized.RunID, parentTaskID, normalized.TaskKey, normalized.Name, TaskStatusPending, normalized.SpecHash); err != nil {
+	`), taskID, normalized.RunID, parentTaskID, normalized.TaskKey, normalized.Name, taskStatus, normalized.SpecHash); err != nil {
 		return TaskExecutionRecord{}, false, normalizeSQLError(err)
 	}
 
@@ -1479,7 +1487,7 @@ func (r *SQLRunsRepository) EnsurePendingTaskExecution(ctx context.Context, crea
 		INSERT INTO task_attempts (attempt_id, task_id, run_id, cell_id, status, attempt)
 		VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(task_id, attempt) DO NOTHING
-	`), attemptID, taskID, normalized.RunID, cellID, TaskStatusPending, attempt); err != nil {
+	`), attemptID, taskID, normalized.RunID, cellID, taskStatus, attempt); err != nil {
 		return TaskExecutionRecord{}, false, normalizeSQLError(err)
 	}
 
@@ -1501,7 +1509,7 @@ func (r *SQLRunsRepository) EnsurePendingTaskExecution(ctx context.Context, crea
 		INSERT INTO run_segments (segment_id, run_id, name, status)
 		VALUES (?, ?, ?, ?)
 		ON CONFLICT(segment_id) DO NOTHING
-	`), segmentID, normalized.RunID, normalized.Name, SegmentStatusPending); err != nil {
+	`), segmentID, normalized.RunID, normalized.Name, segmentStatus); err != nil {
 		return TaskExecutionRecord{}, false, normalizeSQLError(err)
 	}
 
@@ -1522,7 +1530,7 @@ func (r *SQLRunsRepository) EnsurePendingTaskExecution(ctx context.Context, crea
 		INSERT INTO segment_executions (execution_id, segment_id, run_id, task_id, task_attempt_id, cell_id, status, attempt)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(task_attempt_id) DO NOTHING
-	`), executionID, segmentID, normalized.RunID, taskID, attemptID, cellID, ExecutionStatusPending, attempt)
+	`), executionID, segmentID, normalized.RunID, taskID, attemptID, cellID, executionStatus, attempt)
 	if err != nil {
 		return TaskExecutionRecord{}, false, normalizeSQLError(err)
 	}

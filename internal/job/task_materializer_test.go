@@ -80,6 +80,23 @@ func TestEnsureJobTaskExecutionsMaterializesPlannedTasks(t *testing.T) {
 	assertMaterializedTask(t, byKey, runID, "compile", "build")
 	assertMaterializedTask(t, byKey, runID, "test", "build")
 
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get root pending execution: %v", err)
+	}
+
+	if dispatch.TaskKey != dal.RootTaskKey {
+		t.Fatalf("pending execution task key: got %q, want %q", dispatch.TaskKey, dal.RootTaskKey)
+	}
+
+	if err := repos.Runs().MarkExecutionAccepted(ctx, dispatch.ExecutionID); err != nil {
+		t.Fatalf("mark root accepted: %v", err)
+	}
+
+	if _, err := repos.Runs().GetPendingExecution(ctx, runID); !dal.IsNotFound(err) {
+		t.Fatalf("planned tasks should not dispatch after root accepts, got %v", err)
+	}
+
 	again, err := job.EnsureJobTaskExecutions(ctx, repos.Runs(), j, "pdx-b")
 	if err != nil {
 		t.Fatalf("EnsureJobTaskExecutions again: %v", err)
@@ -122,7 +139,7 @@ func assertMaterializedTask(t *testing.T, byKey map[string]dal.TaskRecord, runID
 
 	wantTaskID := runID + ":" + taskKey
 	wantParentID := runID + ":" + parentKey
-	if task.TaskID != wantTaskID || task.RunID != runID || task.Name != taskKey || task.Status != dal.TaskStatusPending {
+	if task.TaskID != wantTaskID || task.RunID != runID || task.Name != taskKey || task.Status != dal.TaskStatusPlanned {
 		t.Fatalf("task %s mismatch: %+v", taskKey, task)
 	}
 
@@ -134,7 +151,7 @@ func assertMaterializedTask(t *testing.T, byKey map[string]dal.TaskRecord, runID
 		t.Fatalf("task %s spec hash: %q", taskKey, task.SpecHash)
 	}
 
-	if len(task.Attempts) != 1 || task.Attempts[0].CellID != "pdx-b" || task.Attempts[0].Status != dal.TaskStatusPending {
+	if len(task.Attempts) != 1 || task.Attempts[0].CellID != "pdx-b" || task.Attempts[0].Status != dal.TaskStatusPlanned {
 		t.Fatalf("task %s attempts: %+v", taskKey, task.Attempts)
 	}
 }

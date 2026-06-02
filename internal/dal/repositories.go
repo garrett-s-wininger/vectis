@@ -57,6 +57,7 @@ const (
 	FailureCodeExecution     = "execution_error"
 	FailureCodeForceFailed   = "force_failed"
 	DefaultCellID            = "local"
+	SegmentStatusPlanned     = "planned"
 	SegmentStatusPending     = "pending"
 	SegmentStatusAccepted    = "accepted"
 	SegmentStatusRunning     = "running"
@@ -65,6 +66,7 @@ const (
 	SegmentStatusCancelled   = "cancelled"
 	SegmentStatusAborted     = "aborted"
 	RootTaskKey              = "root"
+	TaskStatusPlanned        = "planned"
 	TaskStatusPending        = "pending"
 	TaskStatusAccepted       = "accepted"
 	TaskStatusRunning        = "running"
@@ -72,6 +74,7 @@ const (
 	TaskStatusFailed         = "failed"
 	TaskStatusCancelled      = "cancelled"
 	TaskStatusAborted        = "aborted"
+	ExecutionStatusPlanned   = "planned"
 	ExecutionStatusPending   = "pending"
 	ExecutionStatusAccepted  = "accepted"
 	ExecutionStatusRunning   = "running"
@@ -442,6 +445,7 @@ type RunsRepository interface {
 	GetExecutionPayloadByHash(ctx context.Context, payloadHash string) (ExecutionPayloadRecord, error)
 	ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, owningCell string, cursor int64, limit int) ([]RunRecord, int64, error)
 	ListRunTasks(ctx context.Context, runID string, cursor int64, limit int) ([]TaskRecord, int64, error)
+	EnsurePlannedTaskExecution(ctx context.Context, create TaskExecutionCreate) (TaskExecutionRecord, bool, error)
 	EnsurePendingTaskExecution(ctx context.Context, create TaskExecutionCreate) (TaskExecutionRecord, bool, error)
 	ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]QueuedRun, error)
 	GetPendingExecution(ctx context.Context, runID string) (ExecutionDispatchRecord, error)

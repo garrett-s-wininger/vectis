@@ -1174,6 +1174,94 @@ func TestRunsRepository_EnsurePendingTaskExecutionCreatesLinkedRows(t *testing.T
 	}
 }
 
+func TestRunsRepository_EnsurePlannedTaskExecutionCreatesNonDispatchableRows(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-task-plan", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-task-plan"
+	def := `{"id":"job-task-plan","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	rootDispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get root pending execution: %v", err)
+	}
+
+	child, created, err := repos.Runs().EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:        runID,
+		TaskKey:      "child",
+		Name:         "child task",
+		SpecHash:     "sha256:child",
+		TargetCellID: "pdx-b",
+	})
+	if err != nil {
+		t.Fatalf("EnsurePlannedTaskExecution: %v", err)
+	}
+
+	if !created {
+		t.Fatal("first EnsurePlannedTaskExecution should create rows")
+	}
+
+	if child.CellID != "pdx-b" {
+		t.Fatalf("child cell: got %q, want pdx-b", child.CellID)
+	}
+
+	assertTaskExecutionStatuses(t, db, child, dal.TaskStatusPlanned, dal.SegmentStatusPlanned, dal.ExecutionStatusPlanned, 0)
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution after planned child: %v", err)
+	}
+
+	if dispatch.ExecutionID != rootDispatch.ExecutionID || dispatch.TaskKey != dal.RootTaskKey {
+		t.Fatalf("planned child should not dispatch before root: got %+v, want root execution %q", dispatch, rootDispatch.ExecutionID)
+	}
+
+	if err := repos.Runs().MarkExecutionAccepted(ctx, rootDispatch.ExecutionID); err != nil {
+		t.Fatalf("mark root accepted: %v", err)
+	}
+
+	if _, err := repos.Runs().GetPendingExecution(ctx, runID); !dal.IsNotFound(err) {
+		t.Fatalf("planned child should not dispatch after root accepts, got %v", err)
+	}
+
+	if err := repos.Runs().MarkExecutionAccepted(ctx, child.ExecutionID); !dal.IsConflict(err) {
+		t.Fatalf("planned execution should reject dispatch transition, got %v", err)
+	}
+
+	again, created, err := repos.Runs().EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:        runID,
+		TaskKey:      "child",
+		Name:         "child task",
+		SpecHash:     "sha256:child",
+		TargetCellID: "pdx-b",
+	})
+	if err != nil {
+		t.Fatalf("idempotent EnsurePlannedTaskExecution: %v", err)
+	}
+
+	if created {
+		t.Fatal("duplicate EnsurePlannedTaskExecution should not create rows")
+	}
+
+	if again != child {
+		t.Fatalf("idempotent record mismatch: got %+v, want %+v", again, child)
+	}
+}
+
 func TestSQLRepositories_CreateDefinitionAndRunInCell_TargetsExecutionCell(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")
@@ -1651,6 +1739,68 @@ func assertExecutionTaskLink(t *testing.T, db *sql.DB, executionID, wantTaskID, 
 
 	if taskID != wantTaskID || taskAttemptID != wantTaskAttemptID {
 		t.Fatalf("execution task link: got task=%q attempt=%q, want task=%q attempt=%q", taskID, taskAttemptID, wantTaskID, wantTaskAttemptID)
+	}
+}
+
+func assertTaskExecutionStatuses(t *testing.T, db *sql.DB, rec dal.TaskExecutionRecord, wantTaskStatus, wantSegmentStatus, wantExecutionStatus string, wantEventSequence int64) {
+	t.Helper()
+
+	var taskStatus string
+	if err := db.QueryRow("SELECT status FROM run_tasks WHERE task_id = ?", rec.TaskID).Scan(&taskStatus); err != nil {
+		t.Fatalf("query task status: %v", err)
+	}
+
+	if taskStatus != wantTaskStatus {
+		t.Fatalf("task status: got %q, want %q", taskStatus, wantTaskStatus)
+	}
+
+	var attemptStatus string
+	var attemptEventSequence int64
+	var attemptLastObservedAt sql.NullInt64
+	if err := db.QueryRow("SELECT status, last_observed_at, event_sequence FROM task_attempts WHERE attempt_id = ?", rec.TaskAttemptID).
+		Scan(&attemptStatus, &attemptLastObservedAt, &attemptEventSequence); err != nil {
+		t.Fatalf("query task attempt status: %v", err)
+	}
+
+	if attemptStatus != wantTaskStatus {
+		t.Fatalf("task attempt status: got %q, want %q", attemptStatus, wantTaskStatus)
+	}
+
+	if attemptEventSequence != wantEventSequence {
+		t.Fatalf("task attempt event sequence: got %d, want %d", attemptEventSequence, wantEventSequence)
+	}
+
+	if wantEventSequence == 0 && attemptLastObservedAt.Valid {
+		t.Fatalf("task attempt last_observed_at should not be set before dispatch")
+	}
+
+	var segmentStatus string
+	if err := db.QueryRow("SELECT status FROM run_segments WHERE segment_id = ?", rec.SegmentID).Scan(&segmentStatus); err != nil {
+		t.Fatalf("query segment status: %v", err)
+	}
+
+	if segmentStatus != wantSegmentStatus {
+		t.Fatalf("segment status: got %q, want %q", segmentStatus, wantSegmentStatus)
+	}
+
+	var executionStatus string
+	var executionEventSequence int64
+	var executionLastObservedAt sql.NullInt64
+	if err := db.QueryRow("SELECT status, last_observed_at, event_sequence FROM segment_executions WHERE execution_id = ?", rec.ExecutionID).
+		Scan(&executionStatus, &executionLastObservedAt, &executionEventSequence); err != nil {
+		t.Fatalf("query execution status: %v", err)
+	}
+
+	if executionStatus != wantExecutionStatus {
+		t.Fatalf("execution status: got %q, want %q", executionStatus, wantExecutionStatus)
+	}
+
+	if executionEventSequence != wantEventSequence {
+		t.Fatalf("execution event sequence: got %d, want %d", executionEventSequence, wantEventSequence)
+	}
+
+	if wantEventSequence == 0 && executionLastObservedAt.Valid {
+		t.Fatalf("execution last_observed_at should not be set before dispatch")
 	}
 }
 
