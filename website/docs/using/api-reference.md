@@ -193,6 +193,8 @@ General API errors use this stable v1 envelope:
 
 All error responses use `Content-Type: application/json; charset=utf-8` and `X-Content-Type-Options: nosniff`. Browser-facing API responses also include baseline security headers such as `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, and a strict Content Security Policy. Protected API responses default to `Cache-Control: no-store`; event streams use `Cache-Control: no-cache`. Direct HTTPS requests include `Strict-Transport-Security`. `401` responses add `WWW-Authenticate: Bearer`.
 
+CORS is closed unless the operator configures exact allowed origins. Credentialed browser CORS never uses `*`; preflights are accepted only for allowed origins, methods, and request headers.
+
 The `code` field is intended for clients and scripts. The `message` field is human-readable and may become clearer over time without changing the machine meaning. `details` is optional structured data whose shape depends on `code`; clients should ignore unknown detail keys.
 
 Common status meanings:

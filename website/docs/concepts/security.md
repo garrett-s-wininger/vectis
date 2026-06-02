@@ -42,6 +42,8 @@ Vectis stores local user passwords with bcrypt. API tokens are generated from 32
 
 Browser-facing API and docs responses include baseline security headers: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Permissions-Policy`, and a Content Security Policy. API responses use a strict `default-src 'none'` policy; docs use a static-site policy that allows same-origin assets. Direct HTTPS requests also receive `Strict-Transport-Security`. Protected API routes default to `Cache-Control: no-store`; event-streaming routes set `Cache-Control: no-cache` in their handlers.
 
+Browser cross-origin API access is closed by default. Operators can allow specific browser frontends with `api.cors.allowed_origins` / `VECTIS_API_CORS_ALLOWED_ORIGINS`, but only exact `http://` or `https://` origins are accepted. Wildcard credentialed CORS is not supported.
+
 API errors use a stable JSON envelope with a `code` value such as `setup_required`, `authentication_required`, `authorization_denied`, or `auth_unavailable`. Integrations should key off those codes. The public route and error contract lives in [API Reference](../using/api-reference.md).
 
 ## Authorization

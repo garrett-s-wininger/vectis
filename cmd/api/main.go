@@ -100,6 +100,12 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		return
 	}
 
+	if err := config.ValidateAPICORSConfig(); err != nil {
+		logger.Error("%v", err)
+		exitCode = 1
+		return
+	}
+
 	if err := config.ValidateAPICacheConfig(); err != nil {
 		logger.Error("%v", err)
 		exitCode = 1

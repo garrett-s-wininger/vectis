@@ -48,6 +48,11 @@ general_burst_size = 150
 # 0.0.0.0/0 and ::/0 are rejected.
 trusted_proxy_cidrs = []
 
+[api.cors]
+# Browser cross-origin access is closed by default. Configure exact http(s) origins only;
+# wildcard credentialed CORS is intentionally unsupported.
+allowed_origins = []
+
 [queue]
 port = 8081
 metrics_port = 9081

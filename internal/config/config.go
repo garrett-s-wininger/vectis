@@ -73,10 +73,15 @@ type APIDefaults struct {
 	Cache                APICacheDefaults     `toml:"cache"`
 	RateLimit            APIRateLimitDefaults `toml:"rate_limit"`
 	ClientIP             APIClientIPDefaults  `toml:"client_ip"`
+	CORS                 APICORSDefaults      `toml:"cors"`
 }
 
 type APIClientIPDefaults struct {
 	TrustedProxyCIDRs []string `toml:"trusted_proxy_cidrs"`
+}
+
+type APICORSDefaults struct {
+	AllowedOrigins []string `toml:"allowed_origins"`
 }
 
 type APICacheDefaults struct {
@@ -463,6 +468,12 @@ func validateDefaults(d Defaults) {
 
 	if b := normalizeAPICacheBackend(d.API.Cache.Backend); b != APICacheBackendDatabase && b != APICacheBackendMemory {
 		panic("config defaults: api.cache.backend must be database or memory (got " + d.API.Cache.Backend + ")")
+	}
+
+	for _, origin := range d.API.CORS.AllowedOrigins {
+		if _, err := parseCORSOrigin(origin); err != nil {
+			panic("config defaults: " + err.Error())
+		}
 	}
 
 	if time.Duration(d.API.Session.TTL) <= 0 {
