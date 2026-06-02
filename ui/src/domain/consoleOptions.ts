@@ -1,19 +1,14 @@
 import type { RunListItem, RunStatus } from "../components";
-import type { CellStatus, JobStatus, UserRole } from "./console";
+import type { CellStatus, UserRole } from "./console";
 
 export type RunFilter = RunStatus | "all";
 export type SourceFilter = NonNullable<RunListItem["source"]> | "all";
 
-export const jobStatusOptions: { label: string; value: JobStatus }[] = [
-  { label: "Enabled", value: "enabled" },
-  { label: "Paused", value: "paused" }
-];
-
 export const jobScheduleOptions = [
-  { label: "Manual", value: "Manual" },
-  { label: "On push", value: "On push" },
+  { label: "None", value: "None" },
   { label: "Hourly", value: "Hourly" },
-  { label: "Nightly", value: "Nightly" }
+  { label: "Nightly", value: "Nightly" },
+  { label: "Custom", value: "Custom" }
 ];
 
 export const defaultJobDefinition = JSON.stringify(

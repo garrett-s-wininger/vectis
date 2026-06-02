@@ -46,6 +46,7 @@ export type Job = {
 export type NewJob = {
   branch: string;
   definition: string;
+  manualEnabled?: boolean;
   name: string;
   namespacePath: string;
   repository: string;

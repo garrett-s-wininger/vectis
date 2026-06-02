@@ -18,6 +18,7 @@ export type { RunListItem } from "./data/RunList";
 export { SectionPanel } from "./layout/SectionPanel";
 export { SelectField } from "./primitives/SelectField";
 export { TextAreaField } from "./primitives/TextAreaField";
+export { ToggleField } from "./primitives/ToggleField";
 export type { SelectOption } from "./primitives/SelectField";
 export { SignalList } from "./data/SignalList";
 export type { SignalItem, SignalState } from "./data/SignalList";

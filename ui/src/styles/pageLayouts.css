@@ -7,7 +7,9 @@
 
 .app-frame {
   box-sizing: border-box;
-  min-height: 100vh;
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: var(--space-5xl);
 }
 

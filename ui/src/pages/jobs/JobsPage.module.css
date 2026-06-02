@@ -203,6 +203,7 @@
 
 .emptyState {
   align-items: start;
+  align-self: start;
   background:
     linear-gradient(90deg, rgb(30 116 139 / 8%), transparent 42%),
     linear-gradient(180deg, rgb(255 255 255 / 86%), rgb(255 255 255 / 28%)),
@@ -220,7 +221,9 @@
   overflow: hidden;
   padding: var(--space-2xl);
   position: relative;
-  width: min(var(--layout-panel-max), 100%);
+  height: auto;
+  justify-self: center;
+  width: min(var(--layout-card-max), 100%);
 }
 
 .emptyState::before {
@@ -455,6 +458,7 @@
   .emptyState {
     padding: var(--space-xl);
   }
+
 }
 
 @media (max-width: 440px) {

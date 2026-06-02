@@ -1,0 +1,42 @@
+.triggerConfigurator {
+  align-items: stretch;
+  display: grid;
+  gap: var(--space-lg);
+  grid-template-columns: minmax(176px, 0.72fr) minmax(0, 1.28fr);
+}
+
+.triggerGroup {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 74%), rgb(255 255 255 / 18%)),
+    linear-gradient(180deg, #f8fafb 0%, #edf3f6 100%);
+  border: var(--panel-border-subtle);
+  border-radius: var(--radius-surface);
+  display: grid;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+}
+
+.triggerGroup small {
+  color: var(--text-subtle);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-body);
+}
+
+.scheduleGroup {
+  min-width: 0;
+}
+
+.scheduleFields {
+  align-items: end;
+  display: grid;
+  gap: var(--space-lg);
+  grid-template-columns: minmax(152px, 0.7fr) minmax(220px, 1.3fr);
+  min-width: 0;
+}
+
+@media (max-width: 700px) {
+  .scheduleFields,
+  .triggerConfigurator {
+    grid-template-columns: 1fr;
+  }
+}

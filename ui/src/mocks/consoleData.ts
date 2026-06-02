@@ -469,7 +469,7 @@ export function createMockJob(data: MockConsoleData, input: NewMockJob): MockCon
     namespacePath: input.namespacePath,
     schedule: input.schedule.trim(),
     nextRun: nextRunForSchedule(input.schedule),
-    triggers: [{ kind: "manual", detail: "On demand" }],
+    triggers: triggersForJobInput(input),
     lastRunStatus: "queued",
     status: input.status
   };
@@ -498,6 +498,7 @@ export function updateMockJob(data: MockConsoleData, jobID: string, input: Updat
             definition: input.definition.trim(),
             schedule: input.schedule.trim(),
             nextRun: nextRunForSchedule(input.schedule),
+            triggers: triggersForJobInput(input),
             status: input.status
           }
         : job
@@ -612,10 +613,6 @@ function uniqueMockJobID(data: MockConsoleData, name: string) {
 
 function nextRunForSchedule(schedule: string) {
   const normalized = schedule.trim().toLowerCase();
-  if (normalized === "on push") {
-    return "Waiting for push";
-  }
-
   if (normalized === "hourly") {
     return "1h";
   }
@@ -624,7 +621,25 @@ function nextRunForSchedule(schedule: string) {
     return "Tonight";
   }
 
+  if (normalized === "none") {
+    return "No trigger";
+  }
+
   return "Manual";
+}
+
+function triggersForJobInput(input: NewJob | UpdateJob) {
+  const triggers: Job["triggers"] = [];
+  if (input.manualEnabled ?? true) {
+    triggers.push({ kind: "manual", detail: "On demand" });
+  }
+
+  const schedule = input.schedule.trim();
+  if (schedule === "Hourly" || schedule === "Nightly" || schedule.startsWith("Cron:")) {
+    triggers.push({ kind: "schedule", detail: schedule });
+  }
+
+  return triggers;
 }
 
 function jobNameFromDefinition(definition: string) {

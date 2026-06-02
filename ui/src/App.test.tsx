@@ -338,20 +338,16 @@ describe("App", () => {
 
     await screen.findByRole("heading", { name: "Jobs" });
 
-    fireEvent.click(screen.getByRole("button", { name: "New" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
     fireEvent.change(screen.getByLabelText("Name"), {
       target: { value: "cache-warmup" }
     });
-    fireEvent.change(screen.getByLabelText("Repository"), {
-      target: { value: "github.com/vectis/cache" }
-    });
-    fireEvent.change(screen.getByLabelText("Branch"), {
-      target: { value: "main" }
-    });
+
     fireEvent.change(screen.getByLabelText("Schedule"), {
       target: { value: "Hourly" }
     });
-    fireEvent.change(screen.getByLabelText("Definition JSON"), {
+
+    fireEvent.change(screen.getByLabelText("JSON"), {
       target: {
         value: JSON.stringify({
           id: "cache-warmup",
@@ -359,7 +355,8 @@ describe("App", () => {
         })
       }
     });
-    fireEvent.click(screen.getByRole("button", { name: "Create job" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
     expect(await screen.findByText("cache-warmup")).toBeInTheDocument();
     expect(screen.getAllByText("database").length).toBeGreaterThan(0);
@@ -369,13 +366,8 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Name"), {
       target: { value: "cache-prime" }
     });
-    fireEvent.change(screen.getByLabelText("Branch"), {
-      target: { value: "release" }
-    });
-    fireEvent.change(screen.getByLabelText("State"), {
-      target: { value: "paused" }
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Save job" }));
+    fireEvent.click(screen.getByLabelText("State"));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     expect((await screen.findAllByText("cache-prime")).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "Trigger cache-prime" })).not.toBeInTheDocument();

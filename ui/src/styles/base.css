@@ -7,10 +7,22 @@
   text-rendering: optimizeLegibility;
 }
 
+html {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 body {
+  height: 100%;
   margin: 0;
   min-width: var(--layout-min-viewport);
-  min-height: 100vh;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+#root {
+  height: 100%;
 }
 
 button,

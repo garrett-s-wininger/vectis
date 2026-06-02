@@ -32,7 +32,10 @@
     linear-gradient(180deg, rgb(246 248 249 / 82%) 0, rgb(221 230 235 / 72%) 36rem, rgb(238 241 243 / 88%) 100%),
     repeating-linear-gradient(90deg, rgb(32 36 39 / 3%) 0 1px, transparent 1px 80px), var(--surface-metal);
   color: var(--text-primary);
-  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  overflow: hidden;
 }
 
 .topbar {
@@ -51,8 +54,7 @@
   grid-template-columns: auto auto minmax(0, 1fr);
   min-height: var(--size-topbar);
   padding: 0 var(--space-4xl);
-  position: sticky;
-  top: 0;
+  position: relative;
   z-index: 20;
 }
 
@@ -369,12 +371,16 @@
 }
 
 .main {
+  align-content: start;
+  box-sizing: border-box;
   display: grid;
   gap: var(--space-3xl);
   justify-items: center;
-  margin: 0 auto;
-  max-width: var(--layout-content-max);
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: var(--space-5xl) var(--space-3xl);
+  width: 100%;
 }
 
 @media (max-width: 860px) {
