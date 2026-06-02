@@ -229,6 +229,25 @@ CREATE TABLE run_dispatch_events (
 CREATE INDEX idx_run_dispatch_events_run_id_created_at ON run_dispatch_events(run_id, created_at, id);
 CREATE INDEX idx_run_dispatch_events_type ON run_dispatch_events(event_type);
 
+CREATE TABLE task_dispatch_intents (
+    id BIGSERIAL PRIMARY KEY,
+    execution_id TEXT UNIQUE NOT NULL REFERENCES segment_executions(execution_id) ON DELETE CASCADE,
+    run_id TEXT NOT NULL REFERENCES job_runs(run_id) ON DELETE CASCADE,
+    task_id TEXT NOT NULL REFERENCES run_tasks(task_id) ON DELETE CASCADE,
+    task_attempt_id TEXT NOT NULL REFERENCES task_attempts(attempt_id) ON DELETE CASCADE,
+    source_execution_id TEXT NOT NULL DEFAULT '',
+    cell_id TEXT NOT NULL,
+    enqueued_at BIGINT,
+    last_enqueue_attempt_at BIGINT,
+    enqueue_attempts INTEGER NOT NULL DEFAULT 0,
+    last_enqueue_error TEXT,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
+);
+
+CREATE INDEX idx_task_dispatch_intents_pending ON task_dispatch_intents(cell_id, enqueued_at, last_enqueue_attempt_at, id);
+CREATE INDEX idx_task_dispatch_intents_run ON task_dispatch_intents(run_id, id);
+
 CREATE TABLE cell_catalog_events (
     id BIGSERIAL PRIMARY KEY,
     source_cell TEXT NOT NULL,

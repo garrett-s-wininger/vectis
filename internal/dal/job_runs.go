@@ -2055,6 +2055,19 @@ func (r *SQLRunsRepository) MarkExecutionSucceededAndActivateChildren(ctx contex
 		return nil, 0, err
 	}
 
+	for _, child := range children {
+		if _, err := ensureTaskDispatchIntentTx(ctx, tx, TaskDispatchIntentCreate{
+			ExecutionID:       child.ExecutionID,
+			RunID:             child.RunID,
+			TaskID:            child.TaskID,
+			TaskAttemptID:     child.TaskAttemptID,
+			SourceExecutionID: executionID,
+			CellID:            child.CellID,
+		}); err != nil {
+			return nil, 0, err
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		return nil, 0, err
 	}

@@ -294,6 +294,31 @@ type DispatchEvent struct {
 	CreatedAt int64
 }
 
+type TaskDispatchIntentCreate struct {
+	ExecutionID       string
+	RunID             string
+	TaskID            string
+	TaskAttemptID     string
+	SourceExecutionID string
+	CellID            string
+}
+
+type TaskDispatchIntent struct {
+	ID                   int64
+	ExecutionID          string
+	RunID                string
+	TaskID               string
+	TaskAttemptID        string
+	SourceExecutionID    string
+	CellID               string
+	EnqueuedAt           *int64
+	LastEnqueueAttemptAt *int64
+	EnqueueAttempts      int
+	LastEnqueueError     *string
+	CreatedAt            int64
+	UpdatedAt            int64
+}
+
 type CatalogEventRecord struct {
 	ID         int64
 	SourceCell string
@@ -356,6 +381,13 @@ type DispatchEventsRepository interface {
 	Record(ctx context.Context, runID, source, eventType string, message *string) error
 	ListByRun(ctx context.Context, runID string) ([]DispatchEvent, error)
 	LastReconcilerActivity(ctx context.Context) (*int64, error)
+}
+
+type TaskDispatchIntentsRepository interface {
+	Ensure(ctx context.Context, create TaskDispatchIntentCreate) (TaskDispatchIntent, bool, error)
+	ListPending(ctx context.Context, cellID string, cutoffUnixNano int64, limit int) ([]TaskDispatchIntent, error)
+	MarkEnqueued(ctx context.Context, executionID string, enqueuedAtUnixNano int64) error
+	MarkEnqueueFailed(ctx context.Context, executionID string, attemptedAtUnixNano int64, message string) error
 }
 
 type CatalogEventsRepository interface {
@@ -504,6 +536,7 @@ type SQLRepositories struct {
 	roleBindings  *SQLRoleBindingsRepository
 	idempotency   *SQLIdempotencyRepository
 	dispatch      *SQLDispatchEventsRepository
+	taskDispatch  *SQLTaskDispatchIntentsRepository
 	triggers      *SQLTriggerInvocationsRepository
 	catalog       *SQLCatalogEventsRepository
 	catalogState  *SQLCatalogStatusBackfillRepository
@@ -528,6 +561,7 @@ func NewSQLRepositoriesWithCellID(db *sql.DB, cellID string) *SQLRepositories {
 		roleBindings:  NewSQLRoleBindingsRepository(db),
 		idempotency:   &SQLIdempotencyRepository{db: db},
 		dispatch:      &SQLDispatchEventsRepository{db: db},
+		taskDispatch:  &SQLTaskDispatchIntentsRepository{db: db, cellID: cellID},
 		triggers:      &SQLTriggerInvocationsRepository{db: db},
 		catalog:       &SQLCatalogEventsRepository{db: db},
 		catalogState:  &SQLCatalogStatusBackfillRepository{db: db},
@@ -767,6 +801,10 @@ func (r *SQLRepositories) Idempotency() IdempotencyRepository {
 
 func (r *SQLRepositories) DispatchEvents() DispatchEventsRepository {
 	return r.dispatch
+}
+
+func (r *SQLRepositories) TaskDispatchIntents() TaskDispatchIntentsRepository {
+	return r.taskDispatch
 }
 
 func (r *SQLRepositories) TriggerInvocations() TriggerInvocationsRepository {

@@ -1511,6 +1511,27 @@ func TestRunsRepository_MarkExecutionSucceededAndActivateChildren(t *testing.T) 
 	assertTaskExecutionStatuses(t, db, build, dal.TaskStatusPending, dal.SegmentStatusPending, dal.ExecutionStatusPending, 0)
 	assertTaskExecutionStatuses(t, db, compile, dal.TaskStatusPlanned, dal.SegmentStatusPlanned, dal.ExecutionStatusPlanned, 0)
 
+	intents, err := repos.TaskDispatchIntents().ListPending(ctx, "iad-a", 0, 100)
+	if err != nil {
+		t.Fatalf("list root fan-out dispatch intents: %v", err)
+	}
+
+	if len(intents) != 2 {
+		t.Fatalf("root fan-out dispatch intents: got %d, want 2: %+v", len(intents), intents)
+	}
+
+	intentsByExecution := taskDispatchIntentsByExecutionID(intents)
+	for _, child := range []dal.TaskExecutionRecord{setup, build} {
+		intent, ok := intentsByExecution[child.ExecutionID]
+		if !ok {
+			t.Fatalf("missing dispatch intent for child execution %s: %+v", child.ExecutionID, intents)
+		}
+
+		if intent.SourceExecutionID != rootDispatch.ExecutionID || intent.RunID != runID || intent.TaskID != child.TaskID || intent.TaskAttemptID != child.TaskAttemptID || intent.CellID != "iad-a" {
+			t.Fatalf("dispatch intent for %s mismatch: %+v", child.ExecutionID, intent)
+		}
+	}
+
 	children, activated, err = repos.Runs().MarkExecutionSucceededAndActivateChildren(ctx, rootDispatch.ExecutionID)
 	if err != nil {
 		t.Fatalf("idempotent root success fan-out: %v", err)
@@ -1518,6 +1539,15 @@ func TestRunsRepository_MarkExecutionSucceededAndActivateChildren(t *testing.T) 
 
 	if activated != 0 || len(children) != 2 {
 		t.Fatalf("idempotent root success fan-out: activated=%d children=%+v", activated, children)
+	}
+
+	intents, err = repos.TaskDispatchIntents().ListPending(ctx, "iad-a", 0, 100)
+	if err != nil {
+		t.Fatalf("list idempotent root fan-out dispatch intents: %v", err)
+	}
+
+	if len(intents) != 2 {
+		t.Fatalf("idempotent root fan-out should not duplicate dispatch intents, got %d: %+v", len(intents), intents)
 	}
 
 	grandchildren, activated, err := repos.Runs().MarkExecutionSucceededAndActivateChildren(ctx, setup.ExecutionID)
@@ -1533,6 +1563,29 @@ func TestRunsRepository_MarkExecutionSucceededAndActivateChildren(t *testing.T) 
 	assertTaskAndAttemptStatus(t, db, setup.TaskID, 1, dal.TaskStatusSucceeded, dal.TaskStatusSucceeded, 1)
 	assertTaskExecutionStatuses(t, db, compile, dal.TaskStatusPending, dal.SegmentStatusPending, dal.ExecutionStatusPending, 0)
 
+	intents, err = repos.TaskDispatchIntents().ListPending(ctx, "iad-a", 0, 100)
+	if err != nil {
+		t.Fatalf("list setup fan-out dispatch intents: %v", err)
+	}
+
+	if len(intents) != 2 {
+		t.Fatalf("setup fan-out should leave build and compile dispatchable, got %d: %+v", len(intents), intents)
+	}
+
+	intentsByExecution = taskDispatchIntentsByExecutionID(intents)
+	if _, ok := intentsByExecution[setup.ExecutionID]; ok {
+		t.Fatalf("succeeded setup execution should no longer be pending dispatch: %+v", intents)
+	}
+
+	compileIntent, ok := intentsByExecution[compile.ExecutionID]
+	if !ok {
+		t.Fatalf("missing compile dispatch intent: %+v", intents)
+	}
+
+	if compileIntent.SourceExecutionID != setup.ExecutionID {
+		t.Fatalf("compile dispatch source: got %q, want %q", compileIntent.SourceExecutionID, setup.ExecutionID)
+	}
+
 	if err := repos.Runs().MarkExecutionTerminal(ctx, build.ExecutionID, dal.ExecutionStatusFailed); err != nil {
 		t.Fatalf("mark build failed: %v", err)
 	}
@@ -1543,6 +1596,111 @@ func TestRunsRepository_MarkExecutionSucceededAndActivateChildren(t *testing.T) 
 
 	if _, _, err := repos.Runs().MarkExecutionSucceededAndActivateChildren(ctx, "missing-execution"); !dal.IsNotFound(err) {
 		t.Fatalf("missing execution success fan-out should return not found, got %v", err)
+	}
+}
+
+func TestTaskDispatchIntentsRepository_Lifecycle(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-task-dispatch-intents", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-task-dispatch-intents"
+	def := `{"id":"job-task-dispatch-intents","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	intents := repos.TaskDispatchIntents()
+	intent, created, err := intents.Ensure(ctx, dal.TaskDispatchIntentCreate{
+		ExecutionID:       dispatch.ExecutionID,
+		RunID:             dispatch.RunID,
+		TaskID:            dispatch.TaskID,
+		TaskAttemptID:     dispatch.TaskAttemptID,
+		SourceExecutionID: "source-execution",
+		CellID:            dispatch.CellID,
+	})
+	if err != nil {
+		t.Fatalf("ensure dispatch intent: %v", err)
+	}
+	if !created {
+		t.Fatal("first ensure should create dispatch intent")
+	}
+	if intent.ExecutionID != dispatch.ExecutionID || intent.RunID != runID || intent.TaskID != dispatch.TaskID || intent.TaskAttemptID != dispatch.TaskAttemptID || intent.SourceExecutionID != "source-execution" || intent.CellID != "iad-a" {
+		t.Fatalf("dispatch intent mismatch: %+v", intent)
+	}
+
+	pending, err := intents.ListPending(ctx, "iad-a", 0, 10)
+	if err != nil {
+		t.Fatalf("list pending dispatch intents: %v", err)
+	}
+	if len(pending) != 1 || pending[0].ExecutionID != dispatch.ExecutionID {
+		t.Fatalf("pending dispatch intents: %+v", pending)
+	}
+
+	if err := intents.MarkEnqueueFailed(ctx, dispatch.ExecutionID, 1000, "queue unavailable"); err != nil {
+		t.Fatalf("mark enqueue failed: %v", err)
+	}
+
+	pending, err = intents.ListPending(ctx, "iad-a", 999, 10)
+	if err != nil {
+		t.Fatalf("list pending before retry cutoff: %v", err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("intent should wait for retry cutoff, got %+v", pending)
+	}
+
+	pending, err = intents.ListPending(ctx, "iad-a", 1000, 10)
+	if err != nil {
+		t.Fatalf("list pending at retry cutoff: %v", err)
+	}
+	if len(pending) != 1 || pending[0].EnqueueAttempts != 1 || pending[0].LastEnqueueAttemptAt == nil || *pending[0].LastEnqueueAttemptAt != 1000 || pending[0].LastEnqueueError == nil {
+		t.Fatalf("pending dispatch intent after failure mismatch: %+v", pending)
+	}
+
+	again, created, err := intents.Ensure(ctx, dal.TaskDispatchIntentCreate{
+		ExecutionID:       dispatch.ExecutionID,
+		RunID:             dispatch.RunID,
+		TaskID:            dispatch.TaskID,
+		TaskAttemptID:     dispatch.TaskAttemptID,
+		SourceExecutionID: "source-execution",
+		CellID:            dispatch.CellID,
+	})
+	if err != nil {
+		t.Fatalf("idempotent ensure dispatch intent: %v", err)
+	}
+	if created || again.ID != intent.ID || again.EnqueueAttempts != 1 {
+		t.Fatalf("idempotent ensure mismatch: created=%v again=%+v first=%+v", created, again, intent)
+	}
+
+	if err := intents.MarkEnqueued(ctx, dispatch.ExecutionID, 2000); err != nil {
+		t.Fatalf("mark enqueued: %v", err)
+	}
+
+	pending, err = intents.ListPending(ctx, "iad-a", 3000, 10)
+	if err != nil {
+		t.Fatalf("list pending after enqueue: %v", err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("enqueued intent should not remain pending: %+v", pending)
+	}
+
+	if err := intents.MarkEnqueued(ctx, "missing-execution", 0); !dal.IsNotFound(err) {
+		t.Fatalf("mark missing enqueued should return not found, got %v", err)
 	}
 }
 
@@ -2030,6 +2188,15 @@ func taskExecutionRecordsByKey(records []dal.TaskExecutionRecord) map[string]dal
 	out := make(map[string]dal.TaskExecutionRecord, len(records))
 	for _, rec := range records {
 		out[rec.TaskKey] = rec
+	}
+
+	return out
+}
+
+func taskDispatchIntentsByExecutionID(intents []dal.TaskDispatchIntent) map[string]dal.TaskDispatchIntent {
+	out := make(map[string]dal.TaskDispatchIntent, len(intents))
+	for _, intent := range intents {
+		out[intent.ExecutionID] = intent
 	}
 
 	return out
