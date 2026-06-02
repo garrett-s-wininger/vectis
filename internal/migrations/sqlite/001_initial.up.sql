@@ -172,7 +172,7 @@ CREATE TABLE segment_executions (
 CREATE INDEX idx_segment_executions_segment_id ON segment_executions(segment_id);
 CREATE INDEX idx_segment_executions_run_id ON segment_executions(run_id);
 CREATE INDEX idx_segment_executions_task_id ON segment_executions(task_id);
-CREATE INDEX idx_segment_executions_task_attempt_id ON segment_executions(task_attempt_id);
+CREATE UNIQUE INDEX idx_segment_executions_task_attempt_id ON segment_executions(task_attempt_id);
 CREATE INDEX idx_segment_executions_cell_status ON segment_executions(cell_id, status);
 
 CREATE TABLE execution_payloads (

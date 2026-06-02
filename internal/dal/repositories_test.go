@@ -1071,6 +1071,109 @@ func TestRunsRepository_ListRunTasks_ReturnsRootTaskAndAttempt(t *testing.T) {
 	}
 }
 
+func TestRunsRepository_EnsurePendingTaskExecutionCreatesLinkedRows(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-task-create", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-task-create"
+	def := `{"id":"job-task-create","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	child, created, err := repos.Runs().EnsurePendingTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:    runID,
+		TaskKey:  "child",
+		Name:     "child task",
+		SpecHash: "sha256:child",
+	})
+	if err != nil {
+		t.Fatalf("EnsurePendingTaskExecution: %v", err)
+	}
+
+	if !created {
+		t.Fatal("first EnsurePendingTaskExecution should create rows")
+	}
+
+	wantTaskID := runID + ":child"
+	wantAttemptID := wantTaskID + ":attempt:1"
+	if child.RunID != runID || child.TaskID != wantTaskID || child.ParentTaskID != runID+":root" || child.TaskKey != "child" || child.Name != "child task" {
+		t.Fatalf("unexpected child task record: %+v", child)
+	}
+
+	if child.TaskAttemptID != wantAttemptID || child.SegmentID != wantTaskID+":segment" || child.ExecutionID != wantAttemptID+":execution" || child.CellID != "iad-a" || child.Attempt != 1 {
+		t.Fatalf("unexpected child execution record: %+v", child)
+	}
+	assertExecutionTaskLink(t, db, child.ExecutionID, child.TaskID, child.TaskAttemptID)
+
+	tasks, _, err := repos.Runs().ListRunTasks(ctx, runID, 0, 10)
+	if err != nil {
+		t.Fatalf("list run tasks: %v", err)
+	}
+
+	if len(tasks) != 2 {
+		t.Fatalf("tasks: got %d, want 2: %+v", len(tasks), tasks)
+	}
+
+	var childTask *dal.TaskRecord
+	for i := range tasks {
+		if tasks[i].TaskID == child.TaskID {
+			childTask = &tasks[i]
+			break
+		}
+	}
+
+	if childTask == nil {
+		t.Fatalf("child task %q missing from list: %+v", child.TaskID, tasks)
+	}
+
+	if childTask.ParentTaskID == nil || *childTask.ParentTaskID != runID+":root" || childTask.SpecHash != "sha256:child" {
+		t.Fatalf("unexpected listed child task: %+v", childTask)
+	}
+
+	if len(childTask.Attempts) != 1 || childTask.Attempts[0].AttemptID != child.TaskAttemptID || childTask.Attempts[0].CellID != "iad-a" || childTask.Attempts[0].Status != dal.TaskStatusPending {
+		t.Fatalf("unexpected listed child attempts: %+v", childTask.Attempts)
+	}
+
+	again, created, err := repos.Runs().EnsurePendingTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:    runID,
+		TaskKey:  "child",
+		Name:     "child task",
+		SpecHash: "sha256:child",
+	})
+	if err != nil {
+		t.Fatalf("idempotent EnsurePendingTaskExecution: %v", err)
+	}
+
+	if created {
+		t.Fatal("duplicate EnsurePendingTaskExecution should not create rows")
+	}
+
+	if again != child {
+		t.Fatalf("idempotent record mismatch: got %+v, want %+v", again, child)
+	}
+
+	if _, _, err := repos.Runs().EnsurePendingTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:    runID,
+		TaskKey:  "child",
+		Name:     "different",
+		SpecHash: "sha256:child",
+	}); !dal.IsConflict(err) {
+		t.Fatalf("expected conflicting duplicate to fail, got %v", err)
+	}
+}
+
 func TestSQLRepositories_CreateDefinitionAndRunInCell_TargetsExecutionCell(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")
@@ -1206,7 +1309,17 @@ func TestRunsRepository_DispatchAndTransitionsUseLinkedTaskAttempt(t *testing.T)
 		t.Fatalf("get root pending execution: %v", err)
 	}
 
-	childTaskID, childAttemptID, childSegmentID, childExecutionID := insertLinkedPendingExecution(t, db, runID, "child")
+	child, created, err := repos.Runs().EnsurePendingTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:   runID,
+		TaskKey: "child",
+	})
+	if err != nil {
+		t.Fatalf("ensure child task execution: %v", err)
+	}
+
+	if !created {
+		t.Fatal("child task execution should be created")
+	}
 
 	if err := repos.Runs().MarkExecutionAccepted(ctx, rootDispatch.ExecutionID); err != nil {
 		t.Fatalf("mark root accepted: %v", err)
@@ -1217,20 +1330,20 @@ func TestRunsRepository_DispatchAndTransitionsUseLinkedTaskAttempt(t *testing.T)
 		t.Fatalf("get child pending execution: %v", err)
 	}
 
-	if dispatch.ExecutionID != childExecutionID {
-		t.Fatalf("dispatch execution id: got %q, want %q", dispatch.ExecutionID, childExecutionID)
+	if dispatch.ExecutionID != child.ExecutionID {
+		t.Fatalf("dispatch execution id: got %q, want %q", dispatch.ExecutionID, child.ExecutionID)
 	}
 
-	if dispatch.TaskID != childTaskID || dispatch.TaskKey != "child" || dispatch.TaskName != "child" || dispatch.TaskAttemptID != childAttemptID {
+	if dispatch.TaskID != child.TaskID || dispatch.TaskKey != "child" || dispatch.TaskName != "child" || dispatch.TaskAttemptID != child.TaskAttemptID {
 		t.Fatalf("dispatch task identity: got task=%q key=%q name=%q attempt=%q", dispatch.TaskID, dispatch.TaskKey, dispatch.TaskName, dispatch.TaskAttemptID)
 	}
 
-	if err := repos.Runs().MarkExecutionAccepted(ctx, childExecutionID); err != nil {
+	if err := repos.Runs().MarkExecutionAccepted(ctx, child.ExecutionID); err != nil {
 		t.Fatalf("mark child accepted: %v", err)
 	}
 
-	assertExecutionAndSegmentStatus(t, db, childExecutionID, childSegmentID, dal.ExecutionStatusAccepted, dal.SegmentStatusAccepted, 1)
-	assertTaskAndAttemptStatus(t, db, childTaskID, 1, dal.TaskStatusAccepted, dal.TaskStatusAccepted, 1)
+	assertExecutionAndSegmentStatus(t, db, child.ExecutionID, child.SegmentID, dal.ExecutionStatusAccepted, dal.SegmentStatusAccepted, 1)
+	assertTaskAndAttemptStatus(t, db, child.TaskID, 1, dal.TaskStatusAccepted, dal.TaskStatusAccepted, 1)
 	assertRootTaskAndAttemptStatus(t, db, runID, dal.TaskStatusAccepted, dal.TaskStatusAccepted, 1)
 }
 
@@ -1526,64 +1639,6 @@ func TestCatalogEventsRepository_RejectsInvalidRecords(t *testing.T) {
 	if err := events.MarkApplied(ctx, 404); !dal.IsNotFound(err) {
 		t.Fatalf("expected missing applied mark to return not found, got %v", err)
 	}
-}
-
-func insertLinkedPendingExecution(t *testing.T, db *sql.DB, runID, taskKey string) (taskID, taskAttemptID, segmentID, executionID string) {
-	t.Helper()
-
-	taskID = runID + ":" + taskKey
-	taskAttemptID = taskID + ":attempt:1"
-	segmentID = runID + ":" + taskKey + ":segment"
-	executionID = runID + ":" + taskKey + ":execution"
-
-	if _, err := db.Exec(
-		"INSERT INTO run_tasks (task_id, run_id, task_key, name, status) VALUES (?, ?, ?, ?, ?)",
-		taskID,
-		runID,
-		taskKey,
-		taskKey,
-		dal.TaskStatusPending,
-	); err != nil {
-		t.Fatalf("insert linked task: %v", err)
-	}
-
-	if _, err := db.Exec(
-		"INSERT INTO task_attempts (attempt_id, task_id, run_id, cell_id, status, attempt) VALUES (?, ?, ?, ?, ?, ?)",
-		taskAttemptID,
-		taskID,
-		runID,
-		dal.DefaultCellID,
-		dal.TaskStatusPending,
-		1,
-	); err != nil {
-		t.Fatalf("insert linked task attempt: %v", err)
-	}
-
-	if _, err := db.Exec(
-		"INSERT INTO run_segments (segment_id, run_id, name, status) VALUES (?, ?, ?, ?)",
-		segmentID,
-		runID,
-		taskKey,
-		dal.SegmentStatusPending,
-	); err != nil {
-		t.Fatalf("insert linked segment: %v", err)
-	}
-
-	if _, err := db.Exec(
-		"INSERT INTO segment_executions (execution_id, segment_id, run_id, task_id, task_attempt_id, cell_id, status, attempt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		executionID,
-		segmentID,
-		runID,
-		taskID,
-		taskAttemptID,
-		dal.DefaultCellID,
-		dal.ExecutionStatusPending,
-		1,
-	); err != nil {
-		t.Fatalf("insert linked execution: %v", err)
-	}
-
-	return taskID, taskAttemptID, segmentID, executionID
 }
 
 func assertExecutionTaskLink(t *testing.T, db *sql.DB, executionID, wantTaskID, wantTaskAttemptID string) {

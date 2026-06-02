@@ -161,6 +161,29 @@ type TaskAttemptRecord struct {
 	UpdatedAt      *string
 }
 
+type TaskExecutionCreate struct {
+	RunID        string
+	ParentTaskID string
+	TaskKey      string
+	Name         string
+	SpecHash     string
+	TargetCellID string
+}
+
+type TaskExecutionRecord struct {
+	RunID         string
+	TaskID        string
+	ParentTaskID  string
+	TaskKey       string
+	Name          string
+	TaskAttemptID string
+	SegmentID     string
+	SegmentName   string
+	ExecutionID   string
+	CellID        string
+	Attempt       int
+}
+
 type QueuedRun struct {
 	RunID             string
 	JobID             string
@@ -419,6 +442,7 @@ type RunsRepository interface {
 	GetExecutionPayloadByHash(ctx context.Context, payloadHash string) (ExecutionPayloadRecord, error)
 	ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, owningCell string, cursor int64, limit int) ([]RunRecord, int64, error)
 	ListRunTasks(ctx context.Context, runID string, cursor int64, limit int) ([]TaskRecord, int64, error)
+	EnsurePendingTaskExecution(ctx context.Context, create TaskExecutionCreate) (TaskExecutionRecord, bool, error)
 	ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]QueuedRun, error)
 	GetPendingExecution(ctx context.Context, runID string) (ExecutionDispatchRecord, error)
 	MarkExecutionAccepted(ctx context.Context, executionID string) error
@@ -534,7 +558,11 @@ func newExecutionID() string {
 }
 
 func rootTaskID(runID string) string {
-	return runID + ":" + RootTaskKey
+	return taskIDForKey(runID, RootTaskKey)
+}
+
+func taskIDForKey(runID, taskKey string) string {
+	return runID + ":" + taskKey
 }
 
 func rootTaskAttemptID(runID string, attempt int) string {
@@ -547,6 +575,14 @@ func taskAttemptID(taskID string, attempt int) string {
 	}
 
 	return taskID + ":attempt:" + strconv.Itoa(attempt)
+}
+
+func taskSegmentID(taskID string) string {
+	return taskID + ":segment"
+}
+
+func taskExecutionID(taskAttemptID string) string {
+	return taskAttemptID + ":execution"
 }
 
 func normalizeCellID(cellID string) string {

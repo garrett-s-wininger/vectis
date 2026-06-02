@@ -1407,6 +1407,199 @@ func (r *SQLRunsRepository) ListRunTasks(ctx context.Context, runID string, curs
 	return out, nextCursor, nil
 }
 
+func (r *SQLRunsRepository) EnsurePendingTaskExecution(ctx context.Context, create TaskExecutionCreate) (TaskExecutionRecord, bool, error) {
+	normalized, err := normalizeTaskExecutionCreate(create)
+	if err != nil {
+		return TaskExecutionRecord{}, false, err
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return TaskExecutionRecord{}, false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var owningCell string
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT owning_cell FROM job_runs WHERE run_id = ?"), normalized.RunID).Scan(&owningCell); err != nil {
+		if err == sql.ErrNoRows {
+			return TaskExecutionRecord{}, false, fmt.Errorf("%w: run %s", ErrNotFound, normalized.RunID)
+		}
+
+		return TaskExecutionRecord{}, false, normalizeSQLError(err)
+	}
+
+	parentTaskID := normalized.ParentTaskID
+	if parentTaskID == "" {
+		parentTaskID = rootTaskID(normalized.RunID)
+	}
+
+	var parentRunID string
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT run_id FROM run_tasks WHERE task_id = ?"), parentTaskID).Scan(&parentRunID); err != nil {
+		if err == sql.ErrNoRows {
+			return TaskExecutionRecord{}, false, fmt.Errorf("%w: parent task %s", ErrNotFound, parentTaskID)
+		}
+
+		return TaskExecutionRecord{}, false, normalizeSQLError(err)
+	}
+
+	if parentRunID != normalized.RunID {
+		return TaskExecutionRecord{}, false, fmt.Errorf("%w: parent task %s belongs to run %s", ErrConflict, parentTaskID, parentRunID)
+	}
+
+	cellID := normalizeTargetCellID(normalized.TargetCellID, owningCell)
+	taskID := taskIDForKey(normalized.RunID, normalized.TaskKey)
+	attempt := 1
+	attemptID := taskAttemptID(taskID, attempt)
+	segmentID := taskSegmentID(taskID)
+	executionID := taskExecutionID(attemptID)
+
+	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		INSERT INTO run_tasks (task_id, run_id, parent_task_id, task_key, name, status, spec_hash)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(task_id) DO NOTHING
+	`), taskID, normalized.RunID, parentTaskID, normalized.TaskKey, normalized.Name, TaskStatusPending, normalized.SpecHash); err != nil {
+		return TaskExecutionRecord{}, false, normalizeSQLError(err)
+	}
+
+	var storedRunID, storedTaskKey, storedName, storedSpecHash string
+	var storedParentTaskID sql.NullString
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT run_id, parent_task_id, task_key, name, spec_hash
+		FROM run_tasks
+		WHERE task_id = ?
+	`), taskID).Scan(&storedRunID, &storedParentTaskID, &storedTaskKey, &storedName, &storedSpecHash); err != nil {
+		return TaskExecutionRecord{}, false, normalizeSQLError(err)
+	}
+
+	if storedRunID != normalized.RunID || nullStringValue(storedParentTaskID) != parentTaskID || storedTaskKey != normalized.TaskKey || storedName != normalized.Name || storedSpecHash != normalized.SpecHash {
+		return TaskExecutionRecord{}, false, fmt.Errorf("%w: task %s has different payload", ErrConflict, taskID)
+	}
+
+	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		INSERT INTO task_attempts (attempt_id, task_id, run_id, cell_id, status, attempt)
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(task_id, attempt) DO NOTHING
+	`), attemptID, taskID, normalized.RunID, cellID, TaskStatusPending, attempt); err != nil {
+		return TaskExecutionRecord{}, false, normalizeSQLError(err)
+	}
+
+	var storedAttemptID, attemptRunID, attemptTaskID, attemptCellID string
+	var storedAttempt int
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT attempt_id, run_id, task_id, cell_id, attempt
+		FROM task_attempts
+		WHERE task_id = ? AND attempt = ?
+	`), taskID, attempt).Scan(&storedAttemptID, &attemptRunID, &attemptTaskID, &attemptCellID, &storedAttempt); err != nil {
+		return TaskExecutionRecord{}, false, normalizeSQLError(err)
+	}
+
+	if storedAttemptID != attemptID || attemptRunID != normalized.RunID || attemptTaskID != taskID || attemptCellID != cellID || storedAttempt != attempt {
+		return TaskExecutionRecord{}, false, fmt.Errorf("%w: task attempt %s has different payload", ErrConflict, attemptID)
+	}
+
+	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		INSERT INTO run_segments (segment_id, run_id, name, status)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(segment_id) DO NOTHING
+	`), segmentID, normalized.RunID, normalized.Name, SegmentStatusPending); err != nil {
+		return TaskExecutionRecord{}, false, normalizeSQLError(err)
+	}
+
+	var segmentRunID, segmentName string
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT run_id, name
+		FROM run_segments
+		WHERE segment_id = ?
+	`), segmentID).Scan(&segmentRunID, &segmentName); err != nil {
+		return TaskExecutionRecord{}, false, normalizeSQLError(err)
+	}
+
+	if segmentRunID != normalized.RunID || segmentName != normalized.Name {
+		return TaskExecutionRecord{}, false, fmt.Errorf("%w: segment %s has different payload", ErrConflict, segmentID)
+	}
+
+	result, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		INSERT INTO segment_executions (execution_id, segment_id, run_id, task_id, task_attempt_id, cell_id, status, attempt)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(task_attempt_id) DO NOTHING
+	`), executionID, segmentID, normalized.RunID, taskID, attemptID, cellID, ExecutionStatusPending, attempt)
+	if err != nil {
+		return TaskExecutionRecord{}, false, normalizeSQLError(err)
+	}
+
+	created, err := insertedReceipt(result)
+	if err != nil {
+		return TaskExecutionRecord{}, false, err
+	}
+
+	var storedExecutionID, executionSegmentID, executionRunID, executionTaskID, executionTaskAttemptID, executionCellID string
+	var executionAttempt int
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT execution_id, segment_id, run_id, task_id, task_attempt_id, cell_id, attempt
+		FROM segment_executions
+		WHERE task_attempt_id = ?
+	`), attemptID).Scan(&storedExecutionID, &executionSegmentID, &executionRunID, &executionTaskID, &executionTaskAttemptID, &executionCellID, &executionAttempt); err != nil {
+		return TaskExecutionRecord{}, false, normalizeSQLError(err)
+	}
+
+	if storedExecutionID != executionID || executionSegmentID != segmentID || executionRunID != normalized.RunID || executionTaskID != taskID || executionTaskAttemptID != attemptID || executionCellID != cellID || executionAttempt != attempt {
+		return TaskExecutionRecord{}, false, fmt.Errorf("%w: execution %s has different payload", ErrConflict, executionID)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return TaskExecutionRecord{}, false, err
+	}
+
+	return TaskExecutionRecord{
+		RunID:         normalized.RunID,
+		TaskID:        taskID,
+		ParentTaskID:  parentTaskID,
+		TaskKey:       normalized.TaskKey,
+		Name:          normalized.Name,
+		TaskAttemptID: attemptID,
+		SegmentID:     segmentID,
+		SegmentName:   normalized.Name,
+		ExecutionID:   executionID,
+		CellID:        cellID,
+		Attempt:       attempt,
+	}, created, nil
+}
+
+func normalizeTaskExecutionCreate(create TaskExecutionCreate) (TaskExecutionCreate, error) {
+	create.RunID = strings.TrimSpace(create.RunID)
+	create.ParentTaskID = strings.TrimSpace(create.ParentTaskID)
+	create.TaskKey = strings.TrimSpace(create.TaskKey)
+	create.Name = strings.TrimSpace(create.Name)
+	create.SpecHash = strings.TrimSpace(create.SpecHash)
+	create.TargetCellID = strings.TrimSpace(create.TargetCellID)
+
+	if create.RunID == "" {
+		return TaskExecutionCreate{}, fmt.Errorf("%w: run_id is required", ErrNotFound)
+	}
+
+	if create.TaskKey == "" {
+		return TaskExecutionCreate{}, fmt.Errorf("%w: task_key is required", ErrConflict)
+	}
+
+	if create.TaskKey == RootTaskKey {
+		return TaskExecutionCreate{}, fmt.Errorf("%w: task_key %q is reserved", ErrConflict, RootTaskKey)
+	}
+
+	if create.Name == "" {
+		create.Name = create.TaskKey
+	}
+
+	return create, nil
+}
+
+func nullStringValue(value sql.NullString) string {
+	if !value.Valid {
+		return ""
+	}
+
+	return value.String
+}
+
 func nullStringPtr(value sql.NullString) *string {
 	if !value.Valid {
 		return nil
