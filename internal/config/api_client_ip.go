@@ -127,7 +127,7 @@ func HTTPClientIP(r *http.Request) string {
 	}
 
 	if xff := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); xff != "" {
-		for _, part := range strings.Split(xff, ",") {
+		for part := range strings.SplitSeq(xff, ",") {
 			candidate := strings.TrimSpace(part)
 			if candidate == "" {
 				continue

@@ -151,7 +151,7 @@ func TestRateLimitKey_ignoresSessionCookie(t *testing.T) {
 	rule := ratelimit.Rule{RefillRate: time.Second, BurstSize: 1}
 	spec := routeSpec{
 		Pattern:   "POST /api/v1/login",
-		Auth:      routeAuthPolicy{Public: true},
+		Auth:      routeAuthPolicy{mode: routeAuthPublic},
 		RateLimit: rule,
 	}
 

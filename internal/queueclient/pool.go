@@ -3,6 +3,7 @@ package queueclient
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -204,9 +205,7 @@ func (p *queuePool) refresh(ctx context.Context) error {
 
 	p.mu.RLock()
 	existing := make(map[string]*queuePoolEndpoint, len(p.endpoints))
-	for id, ep := range p.endpoints {
-		existing[id] = ep
-	}
+	maps.Copy(existing, p.endpoints)
 	p.mu.RUnlock()
 
 	replacements := make(map[string]*queuePoolEndpoint)
@@ -432,11 +431,7 @@ func (p *queuePool) enqueue(ctx context.Context, req *api.JobRequest) (*api.Empt
 	}
 
 	var lastErr error
-	attempts := len(endpoints)
-
-	if attempts < 1 {
-		attempts = 1
-	}
+	attempts := max(len(endpoints), 1)
 
 	if attempts > 2 {
 		attempts = 2

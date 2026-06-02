@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"maps"
 	"sort"
 	"sync"
 	"time"
@@ -203,9 +204,7 @@ func (p *logPool) refresh(ctx context.Context) error {
 
 	p.mu.RLock()
 	existing := make(map[string]*logEndpoint, len(p.endpoints))
-	for id, ep := range p.endpoints {
-		existing[id] = ep
-	}
+	maps.Copy(existing, p.endpoints)
 	p.mu.RUnlock()
 
 	replacements := make(map[string]*logEndpoint)

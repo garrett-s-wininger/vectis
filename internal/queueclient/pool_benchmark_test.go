@@ -187,7 +187,7 @@ func runQueuePoolEnqueueBurst(b *testing.B, shards int) {
 	start := time.Now()
 
 	var wg sync.WaitGroup
-	for worker := 0; worker < workers; worker++ {
+	for worker := range workers {
 		count := totalJobs / workers
 		if worker < totalJobs%workers {
 			count++
@@ -321,14 +321,10 @@ func runQueuePoolDequeueScenario(b *testing.B, opts queuePoolDequeueScenario) {
 					default:
 					}
 
-					got, err := dequeueAndAckOnce(workCtx, pool, &counts)
+					_, err := dequeueAndAckOnce(workCtx, pool, &counts)
 					if err != nil {
 						counts.err = err
 						return
-					}
-
-					if !got {
-						continue
 					}
 				}
 			})
@@ -424,7 +420,7 @@ func newLocalBenchmarkQueuePool(b *testing.B, shards int) (*queuePool, []localBe
 	services := make([]localBenchmarkQueueShard, 0, shards)
 	byID := make(map[string]localBenchmarkQueueShard, shards)
 
-	for i := 0; i < shards; i++ {
+	for i := range shards {
 		id := fmt.Sprintf("queue-%02d", i+1)
 		state := &localBenchmarkQueueShardState{}
 		client := &benchmarkQueueServiceClient{id: id, state: state}

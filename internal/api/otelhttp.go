@@ -14,7 +14,15 @@ func instrumentHTTPServer(next http.Handler) http.Handler {
 }
 
 func apiHTTPInstrumentationFilter(r *http.Request) bool {
-	return !apiHTTPExcludedFromAuxLogging(r)
+	return !apiHTTPExcludedFromInstrumentation(r)
+}
+
+func apiHTTPExcludedFromInstrumentation(r *http.Request) bool {
+	if apiHTTPExcludedFromAuxLogging(r) {
+		return true
+	}
+
+	return r.URL.Path == "/metrics"
 }
 
 func apiHTTPSpanName(_ string, r *http.Request) string {

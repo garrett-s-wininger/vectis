@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -579,7 +580,7 @@ func (r *SQLRunsRepository) CreateScheduledRun(ctx context.Context, scheduleID i
 
 	scheduledForKey := scheduledFor.UTC().Format(time.RFC3339)
 
-	for attempt := 0; attempt < 3; attempt++ {
+	for range 3 {
 		runID, runIndexOut, found, err := r.findScheduledRun(ctx, scheduleID, scheduledForKey)
 		if err != nil {
 			return "", 0, false, err
@@ -2696,13 +2697,7 @@ func transitionTaskAttemptTx(
 }
 
 func statusIn(status string, statuses []string) bool {
-	for _, candidate := range statuses {
-		if status == candidate {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(statuses, status)
 }
 
 func isTerminalExecutionStatus(status string) bool {

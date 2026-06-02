@@ -224,7 +224,7 @@ func TestCatalogInboxProcessor_ProcessPendingAppliesAndMarksEvents(t *testing.T)
 		"iad-a",
 		"event-execution-accepted",
 		CatalogEventTypeExecutionStatus,
-		[]byte(fmt.Sprintf(`{"execution_id":%q,"status":%q}`, dispatch.ExecutionID, dal.ExecutionStatusAccepted)),
+		fmt.Appendf(nil, `{"execution_id":%q,"status":%q}`, dispatch.ExecutionID, dal.ExecutionStatusAccepted),
 	); err != nil {
 		t.Fatalf("record execution event: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestCatalogInboxProcessor_ProcessPendingAppliesAndMarksEvents(t *testing.T)
 		"iad-a",
 		"event-run-running",
 		CatalogEventTypeRunStatus,
-		[]byte(fmt.Sprintf(`{"run_id":%q,"status":%q}`, runID, dal.RunStatusRunning)),
+		fmt.Appendf(nil, `{"run_id":%q,"status":%q}`, runID, dal.RunStatusRunning),
 	); err != nil {
 		t.Fatalf("record run event: %v", err)
 	}

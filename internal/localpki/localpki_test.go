@@ -20,6 +20,7 @@ func TestEnsure_generatesMaterial(t *testing.T) {
 
 	if m == nil {
 		t.Fatal("nil material")
+		return
 	}
 
 	for _, p := range []string{m.CAFile, m.ServerCert, m.ServerKey} {
@@ -51,6 +52,11 @@ func TestEnsure_generatesMaterial(t *testing.T) {
 	m2, err := Ensure(dir)
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	if m2 == nil {
+		t.Fatal("nil material on second Ensure")
+		return
 	}
 
 	if m2.CAFile != m.CAFile {

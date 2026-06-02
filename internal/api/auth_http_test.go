@@ -65,6 +65,25 @@ func TestBearerToken_caseInsensitive(t *testing.T) {
 	}
 }
 
+func TestRouteAuthPolicy_zeroValueDefaultsToAdmin(t *testing.T) {
+	p := routeAuthPolicy{}.normalized()
+	if p.isPublic() {
+		t.Fatal("zero-value route policy must not be public")
+	}
+
+	if p.Action != authz.ActionAdmin {
+		t.Fatalf("zero-value route action = %q, want %q", p.Action, authz.ActionAdmin)
+	}
+}
+
+func TestRouteAuthPolicy_publicOptOutRejectsAction(t *testing.T) {
+	p := routeAuthPolicy{mode: routeAuthPublic}
+	p.Action = authz.ActionAdmin
+	if err := p.validate(); err == nil {
+		t.Fatal("expected public route with auth action to fail validation")
+	}
+}
+
 func TestAccessControlledHandler_publicRoute(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "true")
 
@@ -72,7 +91,7 @@ func TestAccessControlledHandler_publicRoute(t *testing.T) {
 	s := NewAPIServer(mocks.NewMockLogger(), db)
 
 	var hit bool
-	h := s.accessControlledHandler(routeAuthPolicy{Public: true}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := s.accessControlledHandler(routeAuthPolicy{mode: routeAuthPublic}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hit = true
 		w.WriteHeader(http.StatusNoContent)
 	}))

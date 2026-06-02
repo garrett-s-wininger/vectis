@@ -128,7 +128,7 @@ test-race:
 
 .PHONY: test-quick
 test-quick:
-	go test -count=1 -timeout=60s ./internal/... ./cmd/... ./api/...
+	go test -count=1 -timeout=60s ./internal/... ./cmd/... ./api/... ./tools/...
 
 .PHONY: website-a11y
 website-a11y:
@@ -143,8 +143,12 @@ GOVULNCHECK_VERSION ?= v1.1.4
 # NOTE(garrett): Match the `go` directive in go.mod to use the same stdlib the module declares.
 GO_MOD_GO_VERSION := $(shell awk '/^go /{print $$2; exit}' go.mod)
 
+.PHONY: lint-api-routes
+lint-api-routes:
+	go run ./tools/vectis-lint ./internal/api
+
 .PHONY: lint
-lint:
+lint: lint-api-routes
 	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) run ./...
 
 .PHONY: vulncheck

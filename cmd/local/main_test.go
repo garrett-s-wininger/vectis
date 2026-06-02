@@ -3,6 +3,7 @@ package main
 import (
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -276,13 +277,7 @@ func TestLocalServices_HAProfileBuildsMultiInstanceCell(t *testing.T) {
 }
 
 func hasEnv(env []string, want string) bool {
-	for _, got := range env {
-		if got == want {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(env, want)
 }
 
 func hasEnvPrefix(env []string, prefix string) bool {

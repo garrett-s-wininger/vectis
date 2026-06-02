@@ -12,7 +12,7 @@ For outage behavior, see [Failure Domains](./failure-domains.md). For environmen
 | Internal gRPC | Queue, registry, and log service traffic can use optional TLS or mTLS. Standalone binaries default to plaintext unless configured. | Keep internal ports private. Use TLS or mTLS on shared networks. |
 | Cell ingress HTTP | Cell ingress is an internal execution submission surface. It does not perform end-user authentication or RBAC; global producers authorize work before dispatch. | Keep cell ingress private, reachable only by approved global producers, and put it behind TLS or mTLS-capable infrastructure on untrusted networks. |
 | Service authorization | Internal gRPC servers do not yet enforce application-level per-service authorization. mTLS can verify certificates, but Vectis does not map cert identities to per-RPC allow/deny rules yet. | Treat network reachability to queue, registry, log, and worker-control paths as sensitive. |
-| Metrics | Prometheus endpoints are unauthenticated. Some deployments enable TLS for dedicated metrics listeners. | Scrape from a trusted network only, or block metrics at the edge. |
+| Metrics | API metrics use the API route auth policy when API auth is enabled. Dedicated service metrics listeners are unauthenticated. Some deployments enable TLS for dedicated metrics listeners. | Scrape metrics from a trusted network, require API auth for API metrics, or block metrics at the edge. |
 | Database and files | SQL, SQLite files, queue persistence, logs, and backups may contain sensitive operational state. Vectis does not encrypt these at rest itself. | Use platform disk or volume encryption, filesystem permissions, and secret-store controls. |
 | Jobs and logs | Job definitions can cause workers to execute code. Logs may contain credentials or personal data emitted by build steps. | Limit who can define or trigger jobs, isolate workers where needed, and restrict log access. |
 
@@ -32,7 +32,7 @@ On a fresh database, configure a shared bootstrap secret before completing setup
 VECTIS_API_AUTH_BOOTSTRAP_TOKEN=<at-least-16-characters>
 ```
 
-Until setup completes, health, metrics, and `/api/v1/setup/*` remain available. Other API routes return `503 setup_required`. After setup, clients use:
+Until setup completes, health and `/api/v1/setup/*` remain available. Other API routes, including API metrics and diagnostics, return `503 setup_required`. After setup, clients use:
 
 ```http
 Authorization: Bearer <api_token>
@@ -80,9 +80,9 @@ For the multi-cell routing and fan-in shape, see [Multi-Cell Operation](../opera
 
 ## Metrics
 
-`vectis-api` serves `/metrics` on the same HTTP listener as the REST API. `vectis-queue`, `vectis-worker`, `vectis-log`, `vectis-reconciler`, `vectis-catalog`, and `vectis-cell-ingress` use dedicated metrics listeners by default.
+`vectis-api` serves `/metrics` on the same HTTP listener as the REST API. When API authentication is enabled, API metrics require the same authenticated admin posture as other operational API routes. `vectis-queue`, `vectis-worker`, `vectis-log`, `vectis-reconciler`, `vectis-catalog`, and `vectis-cell-ingress` use dedicated metrics listeners by default.
 
-Metrics endpoints are not authenticated. The Podman reference deployment enables HTTPS on the dedicated queue, worker, and log metrics listeners through `VECTIS_METRICS_TLS_*`; standalone log-forwarders use the same metrics TLS settings when their metrics listener is enabled. API metrics remain on the API listener, so they use the same direct HTTPS settings as the REST API when API TLS is configured.
+Dedicated service metrics endpoints are not authenticated. The Podman reference deployment enables HTTPS on the dedicated queue, worker, and log metrics listeners through `VECTIS_METRICS_TLS_*`; standalone log-forwarders use the same metrics TLS settings when their metrics listener is enabled. API metrics remain on the API listener, so they use the same direct HTTPS settings as the REST API when API TLS is configured.
 
 Keep metrics scrape paths on trusted networks. Metrics are operational data, but they can still reveal deployment shape, service health, traffic patterns, error rates, and names of internal components.
 

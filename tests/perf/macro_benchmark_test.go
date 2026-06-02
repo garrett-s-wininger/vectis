@@ -371,10 +371,8 @@ func triggerMacroBurst(
 	var wg sync.WaitGroup
 	for client := 0; client < clients; client++ {
 		client := client
-		wg.Add(1)
 
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for i := client; i < total; i += clients {
 				if workCtx.Err() != nil {
 					return
@@ -391,7 +389,7 @@ func triggerMacroBurst(
 					onInfo(info)
 				}
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -497,10 +495,8 @@ func startMacroWorkers(
 	var wg sync.WaitGroup
 	for i := 0; i < workers; i++ {
 		workerID := fmt.Sprintf("macro-worker-%d", i)
-		wg.Add(1)
 
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for {
 				select {
 				case <-ctx.Done():
@@ -534,7 +530,7 @@ func startMacroWorkers(
 					return
 				}
 			}
-		}()
+		})
 	}
 
 	return wg.Wait

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -26,17 +27,42 @@ const (
 	credentialSourceCookie credentialSource = "cookie"
 )
 
+type routeAuthMode int
+
+const (
+	routeAuthProtected routeAuthMode = iota
+	routeAuthPublic
+)
+
 type routeAuthPolicy struct {
-	Public bool
+	mode   routeAuthMode
 	Action authz.Action
 }
 
 func (p routeAuthPolicy) normalized() routeAuthPolicy {
-	if !p.Public && p.Action == "" {
+	if p.mode == routeAuthProtected && p.Action == "" {
 		p.Action = authz.ActionAdmin
 	}
 
 	return p
+}
+
+func (p routeAuthPolicy) isPublic() bool {
+	return p.normalized().mode == routeAuthPublic
+}
+
+func (p routeAuthPolicy) validate() error {
+	switch p.mode {
+	case routeAuthProtected:
+		return nil
+	case routeAuthPublic:
+		if p.Action != "" {
+			return fmt.Errorf("public routes must not set an auth action")
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown route auth mode %d", p.mode)
+	}
 }
 
 func hashAPIToken(plaintext string) string {
@@ -141,6 +167,10 @@ func canonicalOriginHost(host, scheme string) string {
 }
 
 func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Handler) http.Handler {
+	if err := policy.validate(); err != nil {
+		panic(fmt.Sprintf("invalid route auth policy: %v", err))
+	}
+
 	policy = policy.normalized()
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -148,7 +178,7 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 		ctx := context.WithValue(r.Context(), httpRequestKey{}, r)
 		r = r.WithContext(ctx)
 
-		if policy.Public || !config.APIAuthEnabled() {
+		if policy.isPublic() || !config.APIAuthEnabled() {
 			next.ServeHTTP(w, r)
 			return
 		}

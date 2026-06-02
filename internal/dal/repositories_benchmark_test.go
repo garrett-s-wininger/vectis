@@ -267,7 +267,7 @@ func BenchmarkDAL_ListByJob(b *testing.B) {
 
 			seedBenchmarkJob(b, ctx, repos, jobID)
 			runs := repos.Runs()
-			for i := 0; i < rows; i++ {
+			for i := range rows {
 				createBenchmarkRun(b, ctx, runs, jobID, i+1)
 			}
 
@@ -297,7 +297,7 @@ func BenchmarkDAL_ListQueuedBeforeDispatchCutoff(b *testing.B) {
 
 			seedBenchmarkJob(b, ctx, repos, jobID)
 			runs := repos.Runs()
-			for i := 0; i < rows; i++ {
+			for i := range rows {
 				createBenchmarkRun(b, ctx, runs, jobID, i+1)
 			}
 

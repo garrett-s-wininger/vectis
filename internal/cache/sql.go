@@ -164,10 +164,7 @@ func (s *SQLService) takeRateLimitTokenInTransaction(ctx context.Context, exec s
 	}
 
 	lastRefill := time.Unix(0, lastRefillUnix).UTC()
-	elapsed := now.Sub(lastRefill)
-	if elapsed < 0 {
-		elapsed = 0
-	}
+	elapsed := max(now.Sub(lastRefill), 0)
 
 	tokens = min(float64(rule.BurstSize), tokens+float64(elapsed)/float64(rule.RefillRate))
 	decision := RateLimitDecision{}

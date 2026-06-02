@@ -66,6 +66,8 @@ make test-quick        # fast unit feedback
 make test              # all default Go tests
 make test-integration  # integration tests with the integration build tag
 make test-race         # race detector
+make lint-api-routes   # parser-backed security lint for public API route opt-outs
+make lint              # route security lint plus golangci-lint
 ```
 
 For a narrow package loop:

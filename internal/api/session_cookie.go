@@ -22,10 +22,7 @@ func requestUsesTLS(r *http.Request) bool {
 }
 
 func setSessionCookies(w http.ResponseWriter, r *http.Request, sessionToken, csrfToken string, expiresAt time.Time) {
-	maxAge := int(time.Until(expiresAt).Seconds())
-	if maxAge < 0 {
-		maxAge = 0
-	}
+	maxAge := max(int(time.Until(expiresAt).Seconds()), 0)
 
 	secure := sessionCookieSecure(r)
 	http.SetCookie(w, &http.Cookie{

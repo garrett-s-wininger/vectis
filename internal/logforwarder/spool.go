@@ -62,10 +62,7 @@ func SpoolStats(dir string, now time.Time) (files int64, oldestAgeSeconds int64)
 		return files, 0
 	}
 
-	age := int64(now.Sub(oldest).Seconds())
-	if age < 0 {
-		age = 0
-	}
+	age := max(int64(now.Sub(oldest).Seconds()), 0)
 
 	return files, age
 }

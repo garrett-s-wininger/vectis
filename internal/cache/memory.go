@@ -63,10 +63,7 @@ func (m *MemoryService) TakeRateLimitToken(_ context.Context, key string, rule R
 		return RateLimitDecision{Allowed: true}, nil
 	}
 
-	elapsed := now.Sub(b.lastRefill)
-	if elapsed < 0 {
-		elapsed = 0
-	}
+	elapsed := max(now.Sub(b.lastRefill), 0)
 
 	b.tokens = min(float64(rule.BurstSize), b.tokens+float64(elapsed)/float64(rule.RefillRate))
 	b.lastRefill = now

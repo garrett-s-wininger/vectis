@@ -88,7 +88,7 @@ type APIServer struct {
 	MetricsHandler http.Handler
 
 	// AccessLogger, when set, writes one structured slog record per HTTP request
-	// (typically JSON on stderr). Health and /metrics are excluded.
+	// (typically JSON on stderr). Health probes are excluded.
 	AccessLogger       *slog.Logger
 	logRoutingMetrics  logclient.RoutingMetrics
 	apiDispatchMetrics *observability.APIDispatchMetrics

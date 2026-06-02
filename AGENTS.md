@@ -114,6 +114,7 @@ Targets and recipes live in the root [`Makefile`](Makefile): `build`, `test`, `t
 ```sh
 make proto                 # regenerate protobuf stubs
 make test-quick            # fast feedback (internal + cmd + api, 60s timeout)
+make lint                  # route security lint + golangci-lint
 make test-integration      # full integration suite
 ```
 

@@ -175,7 +175,7 @@ For trust boundaries and what mTLS does or does not authorize today, see [Intern
 
 ## Metrics TLS
 
-`VECTIS_METRICS_TLS_*` settings apply to dedicated metrics listeners, not the API's main HTTP listener. API metrics are served on the same HTTP listener as the REST API.
+`VECTIS_METRICS_TLS_*` settings apply to dedicated metrics listeners, not the API's main HTTP listener. API metrics are served on the same HTTP listener as the REST API and require API admin auth when API auth is enabled.
 
 | Variable | Purpose |
 | --- | --- |
@@ -183,7 +183,7 @@ For trust boundaries and what mTLS does or does not authorize today, see [Intern
 | `VECTIS_METRICS_TLS_CERT_FILE` / `VECTIS_METRICS_TLS_KEY_FILE` | Server certificate and key for metrics listeners. |
 | `VECTIS_METRICS_TLS_RELOAD_INTERVAL` | Positive duration to poll PEM files and reload them without restart. `0` disables polling. |
 
-The dedicated metrics listeners are queue, worker, log, log-forwarder, reconciler, catalog, and cell ingress. Keep metrics endpoints private; they are not authenticated. See [Security](../concepts/security.md).
+The dedicated metrics listeners are queue, worker, log, log-forwarder, reconciler, catalog, and cell ingress. Keep dedicated metrics endpoints private; they are not authenticated. See [Security](../concepts/security.md).
 
 ## Discovery And Fixed Addresses {#service-discovery-vs-fixed-addresses}
 

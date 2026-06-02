@@ -160,7 +160,7 @@ When `api.auth.enabled=false`, API routes are accepted without bearer tokens. Wh
 Authorization: Bearer <api_token>
 ```
 
-Health endpoints, `/metrics`, and `POST /api/v1/login` are public. Setup routes use setup-specific authorization while the first admin is being created. Data routes authorize the action listed in the route table below; namespace-scoped resources are hidden with `404` when the caller is not allowed to see that namespace.
+Health endpoints and `POST /api/v1/login` are public. Setup routes use setup-specific authorization while the first admin is being created. Diagnostics, API metrics, and data routes authorize the action listed in the route table below; namespace-scoped resources are hidden with `404` when the caller is not allowed to see that namespace.
 
 `POST /api/v1/login` creates an expiring server-side session. Browser clients receive an HttpOnly `vectis_session` cookie plus a readable `vectis_csrf` cookie and `csrf_token` response field. Unsafe cookie-authenticated requests must copy that token into `X-CSRF-Token`; if the request includes `Origin` or `Referer`, its host must match the request host.
 
@@ -241,7 +241,7 @@ The table below is the exact route inventory. Read it by family:
 
 | Family | Use it for |
 | --- | --- |
-| Health and diagnostics | Process health, schema state, queue pressure, log reachability, and Prometheus metrics. |
+| Health and diagnostics | Process health plus authenticated schema state, queue pressure, log reachability, and Prometheus metrics. |
 | Jobs | Store, replace, delete, list, and trigger reusable job definitions. |
 | Ephemeral runs | Submit one-off job definitions without storing them first. |
 | Runs and logs | Inspect run status, stream logs, cancel active work, or repair orphaned runs. |
@@ -270,19 +270,19 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | --- | --- | --- | --- | --- | --- |
 | GET | `/health/live` | Liveness probe | Public | none | `200` empty |
 | GET | `/health/ready` | Readiness probe | Public | none | `200` empty |
-| GET | `/api/v1/version` | Build and cell identity info | Public | none | `200` JSON version |
-| GET | `/api/v1/schema/status` | Migration schema status | Public | none | `200` JSON schema status |
-| GET | `/api/v1/reconciler/heartbeat` | Reconciler last-activity signal | Public | none | `200` JSON heartbeat |
-| GET | `/api/v1/audit/drops` | Audit event drop count | Public | none | `200` JSON drop count |
-| GET | `/api/v1/db/pool-stats` | Database connection pool stats | Public | none | `200` JSON pool stats |
-| GET | `/api/v1/queue/backlog` | Count of queued runs with per-cell counts and pending task continuation counts when available | Public | none | `200` JSON backlog |
-| GET | `/api/v1/reconciler/stuck-runs` | Count of stuck root-dispatch queued runs, pending task continuation dispatch intents, and pending orphaned task-finalization repairs, including per-cell counts when available | Public | none | `200` JSON stuck runs |
-| GET | `/api/v1/cells/status` | Cell route readiness plus queued, root-dispatch, task-dispatch, and catalog counts without exposing private route URLs | Public | none | `200` JSON cell status |
-| GET | `/api/v1/log/reachable` | Log service gRPC connectivity | Public | none | `200` JSON reachable |
-| GET | `/api/v1/audit/flush-failures` | Audit flush failure count | Public | none | `200` JSON flush failures |
-| GET | `/api/v1/cron/status` | Cron schedule count and activity | Public | none | `200` JSON cron status |
-| GET | `/api/v1/catalog/status` | Cell catalog inbox summary, including per-source-cell counts when available | Public | none | `200` JSON catalog status |
-| GET | `/metrics` | Prometheus metrics | Public | none | `200` metrics text |
+| GET | `/api/v1/version` | Build and cell identity info | `admin:*` | none | `200` JSON version |
+| GET | `/api/v1/schema/status` | Migration schema status | `admin:*` | none | `200` JSON schema status |
+| GET | `/api/v1/reconciler/heartbeat` | Reconciler last-activity signal | `admin:*` | none | `200` JSON heartbeat |
+| GET | `/api/v1/audit/drops` | Audit event drop count | `admin:*` | none | `200` JSON drop count |
+| GET | `/api/v1/db/pool-stats` | Database connection pool stats | `admin:*` | none | `200` JSON pool stats |
+| GET | `/api/v1/queue/backlog` | Count of queued runs with per-cell counts and pending task continuation counts when available | `admin:*` | none | `200` JSON backlog |
+| GET | `/api/v1/reconciler/stuck-runs` | Count of stuck root-dispatch queued runs, pending task continuation dispatch intents, and pending orphaned task-finalization repairs, including per-cell counts when available | `admin:*` | none | `200` JSON stuck runs |
+| GET | `/api/v1/cells/status` | Cell route readiness plus queued, root-dispatch, task-dispatch, and catalog counts without exposing private route URLs | `admin:*` | none | `200` JSON cell status |
+| GET | `/api/v1/log/reachable` | Log service gRPC connectivity | `admin:*` | none | `200` JSON reachable |
+| GET | `/api/v1/audit/flush-failures` | Audit flush failure count | `admin:*` | none | `200` JSON flush failures |
+| GET | `/api/v1/cron/status` | Cron schedule count and activity | `admin:*` | none | `200` JSON cron status |
+| GET | `/api/v1/catalog/status` | Cell catalog inbox summary, including per-source-cell counts when available | `admin:*` | none | `200` JSON catalog status |
+| GET | `/metrics` | Prometheus metrics | `admin:*` | none | `200` metrics text |
 | POST | `/api/v1/cells/{cell_id}/catalog-events` | Record a cell status event into the global catalog inbox | `run:operator` | general | `202` JSON event |
 | GET | `/api/v1/jobs` | List visible job definitions | `job:read` | general | `200` JSON list |
 | POST | `/api/v1/jobs` | Create a stored job definition | `job:write` | general | `201` JSON job |

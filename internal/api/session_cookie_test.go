@@ -21,9 +21,9 @@ func TestSetSessionCookies_secureConfig(t *testing.T) {
 		t.Fatalf("expected two cookies, got %+v", cookies)
 	}
 
-	byName := map[string]*http.Cookie{}
+	byName := map[string]http.Cookie{}
 	for _, c := range cookies {
-		byName[c.Name] = c
+		byName[c.Name] = *c
 		if !c.Secure {
 			t.Fatalf("%s cookie should be Secure when configured", c.Name)
 		}
@@ -37,10 +37,14 @@ func TestSetSessionCookies_secureConfig(t *testing.T) {
 		}
 	}
 
-	sessionCookie := byName[sessionCookieName]
-	csrfCookie := byName[csrfCookieName]
-	if sessionCookie == nil || csrfCookie == nil {
-		t.Fatalf("missing expected cookies: %+v", cookies)
+	sessionCookie, ok := byName[sessionCookieName]
+	if !ok {
+		t.Fatalf("missing session cookie: %+v", cookies)
+	}
+
+	csrfCookie, ok := byName[csrfCookieName]
+	if !ok {
+		t.Fatalf("missing csrf cookie: %+v", cookies)
 	}
 
 	if !sessionCookie.HttpOnly {

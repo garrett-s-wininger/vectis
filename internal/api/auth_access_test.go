@@ -265,7 +265,7 @@ func TestAccessControlledHandler_publicRouteBypassesAuth(t *testing.T) {
 	s.SetQueueClient(mocks.NewMockQueueService())
 
 	var hit bool
-	h := wrapTestAccessHandler(s, routeAuthPolicy{Public: true}, func(w http.ResponseWriter, r *http.Request) {
+	h := wrapTestAccessHandler(s, routeAuthPolicy{mode: routeAuthPublic}, func(w http.ResponseWriter, r *http.Request) {
 		hit = true
 		w.WriteHeader(http.StatusNoContent)
 	})

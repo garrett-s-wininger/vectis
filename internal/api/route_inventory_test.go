@@ -19,18 +19,18 @@ func TestAPIRouteInventory(t *testing.T) {
 	}{
 		{"GET /health/live", "public"},
 		{"GET /health/ready", "public"},
-		{"GET /api/v1/version", "public"},
-		{"GET /api/v1/schema/status", "public"},
-		{"GET /api/v1/reconciler/heartbeat", "public"},
-		{"GET /api/v1/audit/drops", "public"},
-		{"GET /api/v1/db/pool-stats", "public"},
-		{"GET /api/v1/queue/backlog", "public"},
-		{"GET /api/v1/reconciler/stuck-runs", "public"},
-		{"GET /api/v1/log/reachable", "public"},
-		{"GET /api/v1/audit/flush-failures", "public"},
-		{"GET /api/v1/cron/status", "public"},
-		{"GET /api/v1/catalog/status", "public"},
-		{"GET /api/v1/cells/status", "public"},
+		{"GET /api/v1/version", string(authz.ActionAdmin)},
+		{"GET /api/v1/schema/status", string(authz.ActionAdmin)},
+		{"GET /api/v1/reconciler/heartbeat", string(authz.ActionAdmin)},
+		{"GET /api/v1/audit/drops", string(authz.ActionAdmin)},
+		{"GET /api/v1/db/pool-stats", string(authz.ActionAdmin)},
+		{"GET /api/v1/queue/backlog", string(authz.ActionAdmin)},
+		{"GET /api/v1/reconciler/stuck-runs", string(authz.ActionAdmin)},
+		{"GET /api/v1/log/reachable", string(authz.ActionAdmin)},
+		{"GET /api/v1/audit/flush-failures", string(authz.ActionAdmin)},
+		{"GET /api/v1/cron/status", string(authz.ActionAdmin)},
+		{"GET /api/v1/catalog/status", string(authz.ActionAdmin)},
+		{"GET /api/v1/cells/status", string(authz.ActionAdmin)},
 		{"POST /api/v1/cells/{cell_id}/catalog-events", string(authz.ActionRunOperator)},
 		{"GET /api/v1/jobs", string(authz.ActionJobRead)},
 		{"GET /api/v1/jobs/{id}", string(authz.ActionJobRead)},
@@ -99,7 +99,28 @@ func TestAPIRouteInventory(t *testing.T) {
 		if auth := authLabel(spec.Auth); auth != want[i].auth {
 			t.Fatalf("route[%d] %q auth = %q, want %q", i, spec.Pattern, auth, want[i].auth)
 		}
+
+		if err := spec.Auth.validate(); err != nil {
+			t.Fatalf("route[%d] %q has invalid auth policy: %v", i, spec.Pattern, err)
+		}
 	}
+}
+
+func TestAPIRouteInventory_metricsRequiresAdmin(t *testing.T) {
+	s := &APIServer{MetricsHandler: http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})}
+	for _, spec := range s.routeSpecs(true) {
+		if spec.Pattern != "GET /metrics" {
+			continue
+		}
+
+		if auth := authLabel(spec.Auth); auth != string(authz.ActionAdmin) {
+			t.Fatalf("/metrics auth = %q, want %q", auth, authz.ActionAdmin)
+		}
+
+		return
+	}
+
+	t.Fatal("route inventory did not include /metrics")
 }
 
 func TestAPIReferenceListsRegisteredRoutes(t *testing.T) {
@@ -125,7 +146,7 @@ func TestAPIReferenceListsRegisteredRoutes(t *testing.T) {
 
 func authLabel(policy routeAuthPolicy) string {
 	policy = policy.normalized()
-	if policy.Public {
+	if policy.isPublic() {
 		return "public"
 	}
 

@@ -33,25 +33,25 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 		specs = append(specs, routeSpec{
 			Pattern: "GET /metrics",
 			Handler: s.MetricsHandler,
-			Auth:    routeAuthPolicy{Public: true},
+			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
 		})
 	}
 
 	specs = append(specs,
-		routeSpec{Pattern: "GET /health/live", Handler: http.HandlerFunc(s.HealthLive), Auth: routeAuthPolicy{Public: true}},
-		routeSpec{Pattern: "GET /health/ready", Handler: http.HandlerFunc(s.HealthReady), Auth: routeAuthPolicy{Public: true}},
-		routeSpec{Pattern: "GET /api/v1/version", Handler: http.HandlerFunc(s.GetVersion), Auth: routeAuthPolicy{Public: true}},
-		routeSpec{Pattern: "GET /api/v1/schema/status", Handler: http.HandlerFunc(s.GetSchemaStatus), Auth: routeAuthPolicy{Public: true}},
-		routeSpec{Pattern: "GET /api/v1/reconciler/heartbeat", Handler: http.HandlerFunc(s.GetReconcilerHeartbeat), Auth: routeAuthPolicy{Public: true}},
-		routeSpec{Pattern: "GET /api/v1/audit/drops", Handler: http.HandlerFunc(s.GetAuditDrops), Auth: routeAuthPolicy{Public: true}},
-		routeSpec{Pattern: "GET /api/v1/db/pool-stats", Handler: http.HandlerFunc(s.GetDBPoolStats), Auth: routeAuthPolicy{Public: true}},
-		routeSpec{Pattern: "GET /api/v1/queue/backlog", Handler: http.HandlerFunc(s.GetQueueBacklog), Auth: routeAuthPolicy{Public: true}},
-		routeSpec{Pattern: "GET /api/v1/reconciler/stuck-runs", Handler: http.HandlerFunc(s.GetStuckRuns), Auth: routeAuthPolicy{Public: true}},
-		routeSpec{Pattern: "GET /api/v1/log/reachable", Handler: http.HandlerFunc(s.GetLogReachable), Auth: routeAuthPolicy{Public: true}},
-		routeSpec{Pattern: "GET /api/v1/audit/flush-failures", Handler: http.HandlerFunc(s.GetAuditFlushFailures), Auth: routeAuthPolicy{Public: true}},
-		routeSpec{Pattern: "GET /api/v1/cron/status", Handler: http.HandlerFunc(s.GetCronStatus), Auth: routeAuthPolicy{Public: true}},
-		routeSpec{Pattern: "GET /api/v1/catalog/status", Handler: http.HandlerFunc(s.GetCatalogStatus), Auth: routeAuthPolicy{Public: true}},
-		routeSpec{Pattern: "GET /api/v1/cells/status", Handler: http.HandlerFunc(s.GetCellsStatus), Auth: routeAuthPolicy{Public: true}},
+		routeSpec{Pattern: "GET /health/live", Handler: http.HandlerFunc(s.HealthLive), Auth: routeAuthPolicy{mode: routeAuthPublic}},   // public route: orchestrator liveness probe
+		routeSpec{Pattern: "GET /health/ready", Handler: http.HandlerFunc(s.HealthReady), Auth: routeAuthPolicy{mode: routeAuthPublic}}, // public route: orchestrator readiness probe
+		routeSpec{Pattern: "GET /api/v1/version", Handler: http.HandlerFunc(s.GetVersion), Auth: routeAuthPolicy{Action: authz.ActionAdmin}},
+		routeSpec{Pattern: "GET /api/v1/schema/status", Handler: http.HandlerFunc(s.GetSchemaStatus), Auth: routeAuthPolicy{Action: authz.ActionAdmin}},
+		routeSpec{Pattern: "GET /api/v1/reconciler/heartbeat", Handler: http.HandlerFunc(s.GetReconcilerHeartbeat), Auth: routeAuthPolicy{Action: authz.ActionAdmin}},
+		routeSpec{Pattern: "GET /api/v1/audit/drops", Handler: http.HandlerFunc(s.GetAuditDrops), Auth: routeAuthPolicy{Action: authz.ActionAdmin}},
+		routeSpec{Pattern: "GET /api/v1/db/pool-stats", Handler: http.HandlerFunc(s.GetDBPoolStats), Auth: routeAuthPolicy{Action: authz.ActionAdmin}},
+		routeSpec{Pattern: "GET /api/v1/queue/backlog", Handler: http.HandlerFunc(s.GetQueueBacklog), Auth: routeAuthPolicy{Action: authz.ActionAdmin}},
+		routeSpec{Pattern: "GET /api/v1/reconciler/stuck-runs", Handler: http.HandlerFunc(s.GetStuckRuns), Auth: routeAuthPolicy{Action: authz.ActionAdmin}},
+		routeSpec{Pattern: "GET /api/v1/log/reachable", Handler: http.HandlerFunc(s.GetLogReachable), Auth: routeAuthPolicy{Action: authz.ActionAdmin}},
+		routeSpec{Pattern: "GET /api/v1/audit/flush-failures", Handler: http.HandlerFunc(s.GetAuditFlushFailures), Auth: routeAuthPolicy{Action: authz.ActionAdmin}},
+		routeSpec{Pattern: "GET /api/v1/cron/status", Handler: http.HandlerFunc(s.GetCronStatus), Auth: routeAuthPolicy{Action: authz.ActionAdmin}},
+		routeSpec{Pattern: "GET /api/v1/catalog/status", Handler: http.HandlerFunc(s.GetCatalogStatus), Auth: routeAuthPolicy{Action: authz.ActionAdmin}},
+		routeSpec{Pattern: "GET /api/v1/cells/status", Handler: http.HandlerFunc(s.GetCellsStatus), Auth: routeAuthPolicy{Action: authz.ActionAdmin}},
 		routeSpec{Pattern: "POST /api/v1/cells/{cell_id}/catalog-events", Handler: http.HandlerFunc(s.PostCellCatalogEvent), Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "GET /api/v1/jobs", Handler: http.HandlerFunc(s.GetJobs), Auth: routeAuthPolicy{Action: authz.ActionJobRead}, RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "GET /api/v1/jobs/{id}", Handler: http.HandlerFunc(s.GetJob), Auth: routeAuthPolicy{Action: authz.ActionJobRead}, RateLimit: defaultLimits.General},
@@ -77,7 +77,7 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 		routeSpec{Pattern: "GET /api/v1/runs/{id}/logs", Handler: http.HandlerFunc(s.GetRunLogs), Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "GET /api/v1/setup/status", Handler: http.HandlerFunc(s.GetSetupStatus), Auth: routeAuthPolicy{Action: authz.ActionSetupStatus}, RateLimit: defaultLimits.Auth},
 		routeSpec{Pattern: "POST /api/v1/setup/complete", Handler: http.HandlerFunc(s.PostSetupComplete), Auth: routeAuthPolicy{Action: authz.ActionSetupComplete}, RateLimit: defaultLimits.Auth},
-		routeSpec{Pattern: "POST /api/v1/login", Handler: http.HandlerFunc(s.Login), Auth: routeAuthPolicy{Public: true}, RateLimit: defaultLimits.Auth},
+		routeSpec{Pattern: "POST /api/v1/login", Handler: http.HandlerFunc(s.Login), Auth: routeAuthPolicy{mode: routeAuthPublic}, RateLimit: defaultLimits.Auth}, // public route: password login creates an authenticated session
 		routeSpec{Pattern: "POST /api/v1/logout", Handler: http.HandlerFunc(s.Logout), Auth: routeAuthPolicy{Action: authz.ActionAPI}, RateLimit: defaultLimits.Auth},
 		routeSpec{Pattern: "GET /api/v1/tokens", Handler: http.HandlerFunc(s.ListTokens), Auth: routeAuthPolicy{Action: authz.ActionAPI}, RateLimit: defaultLimits.Token},
 		routeSpec{Pattern: "POST /api/v1/tokens", Handler: http.HandlerFunc(s.CreateToken), Auth: routeAuthPolicy{Action: authz.ActionAPI}, RateLimit: defaultLimits.Token},
@@ -124,6 +124,10 @@ func (s *APIServer) registerRoute(mux *http.ServeMux, spec routeSpec) {
 	}
 	if spec.Handler == nil {
 		panic("api route handler must not be nil")
+	}
+
+	if err := spec.Auth.validate(); err != nil {
+		panic(fmt.Sprintf("api route %q has invalid auth policy: %v", spec.Pattern, err))
 	}
 
 	handler := s.accessControlledHandler(spec.Auth, spec.Handler)
@@ -181,7 +185,7 @@ func (s *APIServer) rateLimitKey(r *http.Request, spec routeSpec) string {
 
 func rateLimitCanUseBearer(policy routeAuthPolicy) bool {
 	policy = policy.normalized()
-	if policy.Public {
+	if policy.isPublic() {
 		return false
 	}
 

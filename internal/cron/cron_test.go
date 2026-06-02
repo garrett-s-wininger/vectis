@@ -344,8 +344,7 @@ func TestCronService_ProcessSchedules_TriggerAndUpdate(t *testing.T) {
 		t.Errorf("expected job ID 'cron-job', got %s", jobs[0].GetId())
 	}
 
-	var nextRunStr string
-	nextRunStr = queryCronTestNextRun(t, db, "cron-job")
+	nextRunStr := queryCronTestNextRun(t, db, "cron-job")
 	nextRun, _ := time.Parse(time.RFC3339, nextRunStr)
 
 	if !nextRun.After(pastTime) {
@@ -431,8 +430,7 @@ func TestCronService_ProcessSchedules_QueueError(t *testing.T) {
 		t.Errorf("expected 'Failed to trigger job' error log, got: %v", errorCalls)
 	}
 
-	var nextRunStr string
-	nextRunStr = queryCronTestNextRun(t, db, "queue-error-job")
+	nextRunStr := queryCronTestNextRun(t, db, "queue-error-job")
 	if nextRunStr != pastTime.Format(time.RFC3339) {
 		t.Error("expected next_run_at to remain unchanged after queue error")
 	}

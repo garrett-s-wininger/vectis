@@ -271,10 +271,7 @@ func setNoStore(w http.ResponseWriter) {
 }
 
 func writeRateLimitExceeded(w http.ResponseWriter, retryAfter time.Duration) {
-	retrySeconds := int(math.Ceil(retryAfter.Seconds()))
-	if retrySeconds < 1 {
-		retrySeconds = 1
-	}
+	retrySeconds := max(int(math.Ceil(retryAfter.Seconds())), 1)
 	w.Header().Set("Retry-After", strconv.Itoa(retrySeconds))
 	writeAPIErrorCode(w, http.StatusTooManyRequests, apiErrRateLimitExceeded)
 }

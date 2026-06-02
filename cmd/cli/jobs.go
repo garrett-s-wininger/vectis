@@ -110,7 +110,7 @@ func normalizeTriggerCellIDs(rawCellIDs []string) ([]string, error) {
 	out := make([]string, 0, len(rawCellIDs))
 	seen := make(map[string]struct{}, len(rawCellIDs))
 	for _, raw := range rawCellIDs {
-		for _, value := range strings.Split(raw, ",") {
+		for value := range strings.SplitSeq(raw, ",") {
 			cellID := strings.TrimSpace(value)
 			if cellID == "" {
 				return nil, fmt.Errorf("--cell cannot be empty")

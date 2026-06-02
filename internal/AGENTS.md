@@ -30,6 +30,16 @@ Hand-written SQL + `database/sql` (no ORM). This is a deliberate choice: the job
 3. Implement using `database/sql` patterns (see existing methods for row scanning idioms).
 4. Add a mock method in `internal/interfaces/mocks/`.
 
+## `internal/api/` — Route security
+
+HTTP routes are protected by default: a zero-value `routeAuthPolicy{}` normalizes to `admin:*`.
+
+Public route opt-outs must use `routeAuthPolicy{mode: routeAuthPublic}` and include a nearby source comment starting with `public route:` that explains why the route is unauthenticated. The source-level lint binary lives in `tools/vectis-lint`; run it directly with `make lint-api-routes`. It also runs as part of `make lint`.
+
+## Lint expectations
+
+`make lint` runs the first-party route security lint before golangci-lint. Staticcheck is part of that suite; in tests, make nil handling explicit enough for staticcheck to prove safety. For example, return after `t.Fatal` before dereferencing a possibly nil pointer, or copy pointer-backed values (such as `*http.Cookie`) into value variables after a presence check.
+
 ## `internal/config/`
 
 - **Defaults:** [`defaults.toml`](config/defaults.toml) (`//go:embed` in `config/load.go`).

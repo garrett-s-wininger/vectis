@@ -217,7 +217,6 @@ func localSimpleProfileServices(logger interfaces.Logger, topology localTopology
 	}
 
 	for _, cell := range topology.Cells {
-		cell := cell
 		services = append(services,
 			serviceStage{
 				binary:      "vectis-queue",
@@ -361,7 +360,7 @@ func localHAProfileServices(logger interfaces.Logger, topology localTopology) []
 		env:    ingressEnv,
 	})
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		env := append([]string{}, registryEnv...)
 		env = append(env,
 			"VECTIS_CELL_ID="+cell.ID,
@@ -385,7 +384,7 @@ func localHAProfileServices(logger interfaces.Logger, topology localTopology) []
 		env:    registryEnv,
 	})
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		env := append([]string{}, registryEnv...)
 		env = append(env, fmt.Sprintf("VECTIS_CRON_INSTANCE_ID=cron-%d", i+1))
 		services = append(services, serviceStage{
@@ -396,7 +395,7 @@ func localHAProfileServices(logger interfaces.Logger, topology localTopology) []
 		})
 	}
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		env := append([]string{}, registryEnv...)
 		env = append(env, fmt.Sprintf("VECTIS_RECONCILER_METRICS_PORT=%d", 9085+(i*100)))
 		services = append(services, serviceStage{
@@ -677,7 +676,7 @@ func localExtraCellIDs() []string {
 func cleanCellIDs(values []string) []string {
 	var out []string
 	for _, value := range values {
-		for _, part := range strings.Split(value, ",") {
+		for part := range strings.SplitSeq(value, ",") {
 			part = strings.TrimSpace(part)
 			if part != "" {
 				out = append(out, part)

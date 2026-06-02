@@ -71,18 +71,21 @@ func TestLogin_endToEnd(t *testing.T) {
 		}
 
 		cookies := rec.Result().Cookies()
-		var sessionCookie, csrfCookie *http.Cookie
+		var sessionCookie, csrfCookie http.Cookie
+		var hasSessionCookie, hasCSRFCookie bool
 		for _, c := range cookies {
 			if c.Name == sessionCookieName {
-				sessionCookie = c
+				sessionCookie = *c
+				hasSessionCookie = true
 			}
 
 			if c.Name == csrfCookieName {
-				csrfCookie = c
+				csrfCookie = *c
+				hasCSRFCookie = true
 			}
 		}
 
-		if sessionCookie == nil || csrfCookie == nil {
+		if !hasSessionCookie || !hasCSRFCookie {
 			t.Fatalf("expected session and csrf cookies, got %+v", cookies)
 		}
 
@@ -109,7 +112,7 @@ func TestLogin_endToEnd(t *testing.T) {
 
 		rec2 := httptest.NewRecorder()
 		req2 := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
-		req2.AddCookie(sessionCookie)
+		req2.AddCookie(&sessionCookie)
 		h.ServeHTTP(rec2, req2)
 		if rec2.Code != http.StatusOK {
 			t.Fatalf("session cookie rejected code=%d", rec2.Code)
