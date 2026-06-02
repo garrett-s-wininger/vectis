@@ -1415,6 +1415,148 @@ func (r *SQLRunsRepository) EnsurePendingTaskExecution(ctx context.Context, crea
 	return r.ensureTaskExecution(ctx, create, TaskStatusPending, SegmentStatusPending, ExecutionStatusPending)
 }
 
+type taskExecutionStatusSnapshot struct {
+	Record          TaskExecutionRecord
+	TaskStatus      string
+	AttemptStatus   string
+	SegmentStatus   string
+	ExecutionStatus string
+}
+
+func (r *SQLRunsRepository) ActivatePlannedTaskExecution(ctx context.Context, taskID string) (TaskExecutionRecord, bool, error) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return TaskExecutionRecord{}, false, fmt.Errorf("%w: task_id is required", ErrNotFound)
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return TaskExecutionRecord{}, false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	snapshot, err := taskExecutionStatusSnapshotByTaskIDTx(ctx, tx, taskID)
+	if err != nil {
+		return TaskExecutionRecord{}, false, err
+	}
+
+	if snapshot.hasStatuses(TaskStatusPending, SegmentStatusPending, ExecutionStatusPending) {
+		return snapshot.Record, false, nil
+	}
+
+	if !snapshot.hasStatuses(TaskStatusPlanned, SegmentStatusPlanned, ExecutionStatusPlanned) {
+		return TaskExecutionRecord{}, false, fmt.Errorf(
+			"%w: task %s statuses task=%s attempt=%s segment=%s execution=%s cannot activate",
+			ErrConflict,
+			taskID,
+			snapshot.TaskStatus,
+			snapshot.AttemptStatus,
+			snapshot.SegmentStatus,
+			snapshot.ExecutionStatus,
+		)
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		rebindQueryForPgx("UPDATE run_tasks SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE task_id = ?"),
+		TaskStatusPending,
+		snapshot.Record.TaskID,
+	); err != nil {
+		return TaskExecutionRecord{}, false, normalizeSQLError(err)
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		rebindQueryForPgx("UPDATE task_attempts SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE attempt_id = ?"),
+		TaskStatusPending,
+		snapshot.Record.TaskAttemptID,
+	); err != nil {
+		return TaskExecutionRecord{}, false, normalizeSQLError(err)
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		rebindQueryForPgx("UPDATE run_segments SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE segment_id = ?"),
+		SegmentStatusPending,
+		snapshot.Record.SegmentID,
+	); err != nil {
+		return TaskExecutionRecord{}, false, normalizeSQLError(err)
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		rebindQueryForPgx("UPDATE segment_executions SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE execution_id = ?"),
+		ExecutionStatusPending,
+		snapshot.Record.ExecutionID,
+	); err != nil {
+		return TaskExecutionRecord{}, false, normalizeSQLError(err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return TaskExecutionRecord{}, false, err
+	}
+
+	return snapshot.Record, true, nil
+}
+
+func taskExecutionStatusSnapshotByTaskIDTx(ctx context.Context, tx *sql.Tx, taskID string) (taskExecutionStatusSnapshot, error) {
+	var snapshot taskExecutionStatusSnapshot
+	var parentTaskID sql.NullString
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT
+			rt.run_id,
+			rt.task_id,
+			rt.parent_task_id,
+			rt.task_key,
+			rt.name,
+			ta.attempt_id,
+			rs.segment_id,
+			rs.name,
+			se.execution_id,
+			se.cell_id,
+			se.attempt,
+			rt.status,
+			ta.status,
+			rs.status,
+			se.status
+		FROM run_tasks rt
+		JOIN task_attempts ta ON ta.task_id = rt.task_id AND ta.run_id = rt.run_id
+		JOIN segment_executions se ON se.task_id = rt.task_id AND se.task_attempt_id = ta.attempt_id AND se.run_id = rt.run_id AND se.attempt = ta.attempt
+		JOIN run_segments rs ON rs.segment_id = se.segment_id AND rs.run_id = rt.run_id
+		WHERE rt.task_id = ?
+		ORDER BY ta.attempt ASC
+		LIMIT 1
+	`), taskID).Scan(
+		&snapshot.Record.RunID,
+		&snapshot.Record.TaskID,
+		&parentTaskID,
+		&snapshot.Record.TaskKey,
+		&snapshot.Record.Name,
+		&snapshot.Record.TaskAttemptID,
+		&snapshot.Record.SegmentID,
+		&snapshot.Record.SegmentName,
+		&snapshot.Record.ExecutionID,
+		&snapshot.Record.CellID,
+		&snapshot.Record.Attempt,
+		&snapshot.TaskStatus,
+		&snapshot.AttemptStatus,
+		&snapshot.SegmentStatus,
+		&snapshot.ExecutionStatus,
+	); err != nil {
+		if err == sql.ErrNoRows {
+			return taskExecutionStatusSnapshot{}, fmt.Errorf("%w: task execution %s", ErrNotFound, taskID)
+		}
+
+		return taskExecutionStatusSnapshot{}, normalizeSQLError(err)
+	}
+
+	snapshot.Record.ParentTaskID = nullStringValue(parentTaskID)
+	return snapshot, nil
+}
+
+func (s taskExecutionStatusSnapshot) hasStatuses(taskStatus, segmentStatus, executionStatus string) bool {
+	return s.TaskStatus == taskStatus &&
+		s.AttemptStatus == taskStatus &&
+		s.SegmentStatus == segmentStatus &&
+		s.ExecutionStatus == executionStatus
+}
+
 func (r *SQLRunsRepository) ensureTaskExecution(ctx context.Context, create TaskExecutionCreate, taskStatus, segmentStatus, executionStatus string) (TaskExecutionRecord, bool, error) {
 	normalized, err := normalizeTaskExecutionCreate(create)
 	if err != nil {

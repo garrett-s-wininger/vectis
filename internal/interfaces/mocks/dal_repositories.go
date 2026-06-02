@@ -214,6 +214,7 @@ type MockRunsRepository struct {
 	ListByJobErr           error
 	ListRunTasksErr        error
 	EnsureTaskExecutionErr error
+	ActivateTaskErr        error
 	QueuedListErr          error
 	TryClaimErr            error
 	RenewLeaseErr          error
@@ -255,6 +256,7 @@ type MockRunsRepository struct {
 	TaskRecords      []dal.TaskRecord
 	TaskExecution    dal.TaskExecutionRecord
 	TaskCreated      bool
+	TaskActivated    bool
 	RunRecords       map[string]dal.RunRecord
 	QueuedRuns       []dal.QueuedRun
 	PendingExecution dal.ExecutionDispatchRecord
@@ -277,6 +279,7 @@ type MockRunsRepository struct {
 	LastListOwningCell    string
 	LastListRunTasksRunID string
 	LastTaskExecution     dal.TaskExecutionCreate
+	LastActivatedTaskID   string
 	LastRunStatusUpdate   dal.RunStatusUpdate
 	LastExecStatusUpdate  dal.ExecutionStatusUpdate
 }
@@ -827,6 +830,18 @@ func (m *MockRunsRepository) EnsurePlannedTaskExecution(ctx context.Context, cre
 	}
 
 	return m.TaskExecution, m.TaskCreated, nil
+}
+
+func (m *MockRunsRepository) ActivatePlannedTaskExecution(ctx context.Context, taskID string) (dal.TaskExecutionRecord, bool, error) {
+	m.mu.Lock()
+	m.LastActivatedTaskID = taskID
+	m.mu.Unlock()
+
+	if m.ActivateTaskErr != nil {
+		return dal.TaskExecutionRecord{}, false, m.ActivateTaskErr
+	}
+
+	return m.TaskExecution, m.TaskActivated, nil
 }
 
 func (m *MockRunsRepository) MarkExecutionAccepted(ctx context.Context, executionID string) error {

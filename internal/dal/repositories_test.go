@@ -1260,6 +1260,54 @@ func TestRunsRepository_EnsurePlannedTaskExecutionCreatesNonDispatchableRows(t *
 	if again != child {
 		t.Fatalf("idempotent record mismatch: got %+v, want %+v", again, child)
 	}
+
+	activated, didActivate, err := repos.Runs().ActivatePlannedTaskExecution(ctx, child.TaskID)
+	if err != nil {
+		t.Fatalf("ActivatePlannedTaskExecution: %v", err)
+	}
+
+	if !didActivate {
+		t.Fatal("planned task activation should report a transition")
+	}
+
+	if activated != child {
+		t.Fatalf("activated record mismatch: got %+v, want %+v", activated, child)
+	}
+
+	assertTaskExecutionStatuses(t, db, child, dal.TaskStatusPending, dal.SegmentStatusPending, dal.ExecutionStatusPending, 0)
+
+	dispatch, err = repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution after activation: %v", err)
+	}
+
+	if dispatch.ExecutionID != child.ExecutionID || dispatch.TaskID != child.TaskID || dispatch.TaskKey != "child" {
+		t.Fatalf("activated child dispatch mismatch: %+v", dispatch)
+	}
+
+	activated, didActivate, err = repos.Runs().ActivatePlannedTaskExecution(ctx, child.TaskID)
+	if err != nil {
+		t.Fatalf("idempotent ActivatePlannedTaskExecution: %v", err)
+	}
+
+	if didActivate {
+		t.Fatal("pending task activation should be idempotent")
+	}
+
+	if activated != child {
+		t.Fatalf("idempotent activation record mismatch: got %+v, want %+v", activated, child)
+	}
+
+	if err := repos.Runs().MarkExecutionAccepted(ctx, child.ExecutionID); err != nil {
+		t.Fatalf("mark activated child accepted: %v", err)
+	}
+
+	assertExecutionAndSegmentStatus(t, db, child.ExecutionID, child.SegmentID, dal.ExecutionStatusAccepted, dal.SegmentStatusAccepted, 1)
+	assertTaskAndAttemptStatus(t, db, child.TaskID, 1, dal.TaskStatusAccepted, dal.TaskStatusAccepted, 1)
+
+	if _, _, err := repos.Runs().ActivatePlannedTaskExecution(ctx, child.TaskID); !dal.IsConflict(err) {
+		t.Fatalf("accepted task activation should conflict, got %v", err)
+	}
 }
 
 func TestSQLRepositories_CreateDefinitionAndRunInCell_TargetsExecutionCell(t *testing.T) {
