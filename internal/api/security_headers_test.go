@@ -27,6 +27,7 @@ func TestHandlerAppliesSecurityHeaders(t *testing.T) {
 	if got := rec.Header().Get("Strict-Transport-Security"); got != "" {
 		t.Fatalf("Strict-Transport-Security over HTTP = %q, want empty", got)
 	}
+	assertNoStoreAbsent(t, rec)
 }
 
 func TestHandlerAppliesHSTSForDirectTLS(t *testing.T) {
@@ -42,6 +43,22 @@ func TestHandlerAppliesHSTSForDirectTLS(t *testing.T) {
 	assertSecurityHeader(t, rec, "Strict-Transport-Security", "max-age=31536000")
 }
 
+func TestProtectedRoutesDefaultNoStore(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	s := NewAPIServer(mocks.NewMockLogger(), db)
+	s.SetQueueClient(mocks.NewMockQueueService())
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/version", nil)
+	s.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	assertNoStore(t, rec)
+}
+
 func assertNoStore(t *testing.T, rec *httptest.ResponseRecorder) {
 	t.Helper()
 
@@ -55,6 +72,16 @@ func assertNoStore(t *testing.T, rec *httptest.ResponseRecorder) {
 
 	if got := rec.Header().Get("Expires"); got != "0" {
 		t.Fatalf("Expires=%q, want 0", got)
+	}
+}
+
+func assertNoStoreAbsent(t *testing.T, rec *httptest.ResponseRecorder) {
+	t.Helper()
+
+	for _, key := range []string{"Cache-Control", "Pragma", "Expires"} {
+		if got := rec.Header().Get(key); got != "" {
+			t.Fatalf("%s=%q, want empty", key, got)
+		}
 	}
 }
 

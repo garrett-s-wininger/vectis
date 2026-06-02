@@ -125,6 +125,7 @@ type routeSpec struct {
 	Pattern   string
 	Handler   http.Handler
 	Auth      routeAuthPolicy
+	Cache     routeCachePolicy
 	RateLimit ratelimit.Rule
 }
 

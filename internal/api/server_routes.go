@@ -63,7 +63,7 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 		routeSpec{Pattern: "PUT /api/v1/jobs/{id}", Handler: http.HandlerFunc(s.UpdateJobDefinition), Auth: routeAuthPolicy{Action: authz.ActionJobWrite}, RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "POST /api/v1/jobs/trigger/{id}", Handler: http.HandlerFunc(s.TriggerJob), Auth: routeAuthPolicy{Action: authz.ActionRunTrigger}, RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "GET /api/v1/jobs/{id}/runs", Handler: http.HandlerFunc(s.GetJobRuns), Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "GET /api/v1/sse/jobs/{id}/runs", Handler: http.HandlerFunc(s.HandleSSEJobRuns), Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General},
+		routeSpec{Pattern: "GET /api/v1/sse/jobs/{id}/runs", Handler: http.HandlerFunc(s.HandleSSEJobRuns), Auth: routeAuthPolicy{Action: authz.ActionRunRead}, Cache: routeCachePolicy{mode: routeCacheHandlerManaged}, RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "GET /api/v1/runs/{id}", Handler: http.HandlerFunc(s.GetRun), Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "GET /api/v1/runs/{id}/tasks", Handler: http.HandlerFunc(s.GetRunTasks), Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "GET /api/v1/runs/{id}/execution-payload", Handler: http.HandlerFunc(s.GetRunExecutionPayload), Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General},
@@ -76,7 +76,7 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 		routeSpec{Pattern: "POST /api/v1/runs/{id}/repair/mark-queued", Handler: http.HandlerFunc(s.RepairMarkRunQueued), Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "POST /api/v1/runs/{id}/force-fail", Handler: http.HandlerFunc(s.ForceFailRun), Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "POST /api/v1/runs/{id}/force-requeue", Handler: http.HandlerFunc(s.ForceRequeueRun), Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "GET /api/v1/runs/{id}/logs", Handler: http.HandlerFunc(s.GetRunLogs), Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General},
+		routeSpec{Pattern: "GET /api/v1/runs/{id}/logs", Handler: http.HandlerFunc(s.GetRunLogs), Auth: routeAuthPolicy{Action: authz.ActionRunRead}, Cache: routeCachePolicy{mode: routeCacheHandlerManaged}, RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "GET /api/v1/setup/status", Handler: http.HandlerFunc(s.GetSetupStatus), Auth: routeAuthPolicy{Action: authz.ActionSetupStatus}, RateLimit: defaultLimits.Auth},
 		routeSpec{Pattern: "POST /api/v1/setup/complete", Handler: http.HandlerFunc(s.PostSetupComplete), Auth: routeAuthPolicy{Action: authz.ActionSetupComplete}, RateLimit: defaultLimits.Auth},
 		routeSpec{Pattern: "POST /api/v1/login", Handler: http.HandlerFunc(s.Login), Auth: routeAuthPolicy{mode: routeAuthPublic}, RateLimit: defaultLimits.Auth}, // public route: password login creates an authenticated session
@@ -131,6 +131,9 @@ func (s *APIServer) registerRoute(mux *http.ServeMux, spec routeSpec) {
 	if err := spec.Auth.validate(); err != nil {
 		panic(fmt.Sprintf("api route %q has invalid auth policy: %v", spec.Pattern, err))
 	}
+	if err := spec.Cache.validate(); err != nil {
+		panic(fmt.Sprintf("api route %q has invalid cache policy: %v", spec.Pattern, err))
+	}
 
 	handler := s.accessControlledHandler(spec.Auth, spec.Handler)
 	s.mu.RLock()
@@ -138,6 +141,9 @@ func (s *APIServer) registerRoute(mux *http.ServeMux, spec routeSpec) {
 	s.mu.RUnlock()
 	if rl != nil && spec.RateLimit.RefillRate > 0 {
 		handler = s.rateLimitMiddleware(rl, spec, handler)
+	}
+	if spec.Cache.shouldSetNoStore(spec.Auth) {
+		handler = noStoreMiddleware(handler)
 	}
 
 	mux.Handle(spec.Pattern, handler)
@@ -204,6 +210,7 @@ func (s *APIServer) registerRouteFunc(mux *http.ServeMux, spec routeSpec, handle
 		Pattern:   spec.Pattern,
 		Handler:   handler,
 		Auth:      spec.Auth,
+		Cache:     spec.Cache,
 		RateLimit: spec.RateLimit,
 	})
 }

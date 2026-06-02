@@ -103,6 +103,43 @@ func TestAPIRouteInventory(t *testing.T) {
 		if err := spec.Auth.validate(); err != nil {
 			t.Fatalf("route[%d] %q has invalid auth policy: %v", i, spec.Pattern, err)
 		}
+
+		if err := spec.Cache.validate(); err != nil {
+			t.Fatalf("route[%d] %q has invalid cache policy: %v", i, spec.Pattern, err)
+		}
+	}
+}
+
+func TestProtectedRoutesDefaultNoStorePolicy(t *testing.T) {
+	s := &APIServer{}
+	handlerManaged := map[string]bool{
+		"GET /api/v1/sse/jobs/{id}/runs": true,
+		"GET /api/v1/runs/{id}/logs":     true,
+	}
+
+	for _, spec := range s.routeSpecs(true) {
+		if spec.Auth.isPublic() {
+			if spec.Cache.shouldSetNoStore(spec.Auth) {
+				t.Fatalf("public route %q should not default to no-store", spec.Pattern)
+			}
+			continue
+		}
+
+		if handlerManaged[spec.Pattern] {
+			if spec.Cache.mode != routeCacheHandlerManaged {
+				t.Fatalf("streaming route %q cache mode = %d, want handler-managed", spec.Pattern, spec.Cache.mode)
+			}
+
+			if spec.Cache.shouldSetNoStore(spec.Auth) {
+				t.Fatalf("streaming route %q should manage cache headers in handler", spec.Pattern)
+			}
+
+			continue
+		}
+
+		if !spec.Cache.shouldSetNoStore(spec.Auth) {
+			t.Fatalf("protected route %q should default to no-store", spec.Pattern)
+		}
 	}
 }
 

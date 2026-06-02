@@ -38,6 +38,10 @@ Public route opt-outs must use `routeAuthPolicy{mode: routeAuthPublic}` and incl
 
 Browser-facing API/docs security headers live in `internal/httpsecurity`; use that shared middleware instead of setting ad hoc header strings in individual handlers.
 
+Protected API routes default to `Cache-Control: no-store` through `routeCachePolicy`. Only handler-managed streaming responses should opt out, and they must set their own cache headers explicitly.
+
+The API cache backend is shared security state for sessions and rate limits. Database mode is the replica-safe default. Memory mode is process-local, cleans expired entries opportunistically, and should stay limited to tests, local development, or deliberate single-process deployments.
+
 ## Lint expectations
 
 `make lint` runs the first-party route security lint before golangci-lint. Staticcheck is part of that suite; in tests, make nil handling explicit enough for staticcheck to prove safety. For example, return after `t.Fatal` before dereferencing a possibly nil pointer, or copy pointer-backed values (such as `*http.Cookie`) into value variables after a presence check.

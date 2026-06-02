@@ -40,6 +40,14 @@ func buildAccessLogger(format string) (*slog.Logger, func() error) {
 	return nil, nil
 }
 
+func warnIfProcessLocalAPICache(logger interfaces.Logger, backend string, authEnabled bool) {
+	if logger == nil || backend != config.APICacheBackendMemory || !authEnabled {
+		return
+	}
+
+	logger.Warn("API auth is enabled with api.cache.backend=memory; login sessions and rate-limit buckets are process-local and will not be shared across API replicas")
+}
+
 func runVectisAPI(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewAsyncLogger("api")
 	defer logger.Close()
@@ -184,6 +192,7 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		cacheService = cache.NewMemoryService()
 	}
 
+	warnIfProcessLocalAPICache(logger, config.APICacheBackend(), config.APIAuthEnabled())
 	server.SetCacheService(cacheService)
 	server.SetRateLimiter(ratelimit.NewCacheRateLimiter(cacheService))
 

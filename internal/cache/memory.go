@@ -9,15 +9,18 @@ import (
 
 // MemoryService is a process-local cache backend for tests and single-replica deployments.
 type MemoryService struct {
-	buckets  map[string]*memoryBucket
-	sessions map[string]Session
-	mu       sync.Mutex
-	clock    clock
+	buckets            map[string]*memoryBucket
+	sessions           map[string]Session
+	mu                 sync.Mutex
+	clock              clock
+	lastBucketCleanup  time.Time
+	lastSessionCleanup time.Time
 }
 
 type memoryBucket struct {
 	tokens     float64
 	lastRefill time.Time
+	lastAccess time.Time
 }
 
 func NewMemoryService() *MemoryService {
@@ -58,7 +61,9 @@ func (m *MemoryService) TakeRateLimitToken(_ context.Context, key string, rule R
 		m.buckets[key] = &memoryBucket{
 			tokens:     float64(rule.BurstSize - 1),
 			lastRefill: now,
+			lastAccess: now,
 		}
+		m.cleanupRateLimitBucketsLocked(now)
 
 		return RateLimitDecision{Allowed: true}, nil
 	}
@@ -67,11 +72,14 @@ func (m *MemoryService) TakeRateLimitToken(_ context.Context, key string, rule R
 
 	b.tokens = min(float64(rule.BurstSize), b.tokens+float64(elapsed)/float64(rule.RefillRate))
 	b.lastRefill = now
+	b.lastAccess = now
 	if b.tokens >= 1 {
 		b.tokens--
+		m.cleanupRateLimitBucketsLocked(now)
 		return RateLimitDecision{Allowed: true}, nil
 	}
 
+	m.cleanupRateLimitBucketsLocked(now)
 	return RateLimitDecision{RetryAfter: time.Duration((1 - b.tokens) * float64(rule.RefillRate))}, nil
 }
 
@@ -99,6 +107,7 @@ func (m *MemoryService) CreateSession(_ context.Context, session Session) error 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.sessions[session.TokenHash] = session
+	m.cleanupSessionsLocked(m.clock.Now().UTC())
 	return nil
 }
 
@@ -108,10 +117,15 @@ func (m *MemoryService) ResolveSession(_ context.Context, tokenHash string, now 
 
 	session, ok := m.sessions[tokenHash]
 	if !ok || !session.ExpiresAt.After(now) {
+		if ok {
+			delete(m.sessions, tokenHash)
+		}
+
 		return Session{}, ErrNotFound
 	}
 
 	if idleTTL > 0 && !session.LastUsedAt.After(now.Add(-idleTTL)) {
+		delete(m.sessions, tokenHash)
 		return Session{}, ErrNotFound
 	}
 
@@ -151,6 +165,33 @@ func (m *MemoryService) DeleteUserSessions(_ context.Context, localUserID int64)
 	}
 
 	return nil
+}
+
+func (m *MemoryService) cleanupRateLimitBucketsLocked(now time.Time) {
+	if !m.lastBucketCleanup.IsZero() && now.Sub(m.lastBucketCleanup) < rateLimitBucketCleanupInterval {
+		return
+	}
+
+	m.lastBucketCleanup = now
+	cutoff := now.Add(-rateLimitBucketTTL)
+	for key, bucket := range m.buckets {
+		if bucket.lastAccess.Before(cutoff) {
+			delete(m.buckets, key)
+		}
+	}
+}
+
+func (m *MemoryService) cleanupSessionsLocked(now time.Time) {
+	if !m.lastSessionCleanup.IsZero() && now.Sub(m.lastSessionCleanup) < sessionCleanupInterval {
+		return
+	}
+
+	m.lastSessionCleanup = now
+	for tokenHash, session := range m.sessions {
+		if !session.ExpiresAt.After(now) {
+			delete(m.sessions, tokenHash)
+		}
+	}
 }
 
 var _ Service = (*MemoryService)(nil)

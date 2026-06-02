@@ -1,7 +1,12 @@
 package main
 
 import (
+	"bytes"
+	"strings"
 	"testing"
+
+	"vectis/internal/config"
+	"vectis/internal/interfaces"
 )
 
 func TestBuildAccessLogger_json(t *testing.T) {
@@ -45,5 +50,21 @@ func TestBuildAccessLogger_empty(t *testing.T) {
 
 	if log != nil {
 		t.Fatal("expected nil logger for empty format")
+	}
+}
+
+func TestWarnIfProcessLocalAPICache(t *testing.T) {
+	var buf bytes.Buffer
+	logger := interfaces.NewLogger("api-test").WithOutput(&buf)
+
+	warnIfProcessLocalAPICache(logger, config.APICacheBackendDatabase, true)
+	warnIfProcessLocalAPICache(logger, config.APICacheBackendMemory, false)
+	if buf.Len() != 0 {
+		t.Fatalf("unexpected warning: %s", buf.String())
+	}
+
+	warnIfProcessLocalAPICache(logger, config.APICacheBackendMemory, true)
+	if got := buf.String(); !strings.Contains(got, "api.cache.backend=memory") || !strings.Contains(got, "process-local") {
+		t.Fatalf("warning = %q, want process-local memory cache warning", got)
 	}
 }
