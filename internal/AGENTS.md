@@ -42,6 +42,8 @@ API CORS is closed by default. Configure only exact `http://` or `https://` orig
 
 Protected API routes default to `Cache-Control: no-store` through `routeCachePolicy`. Only handler-managed streaming responses should opt out, and they must set their own cache headers explicitly.
 
+API routes reject request bodies by default through `routeBodyPolicy`. JSON body routes must opt in with an explicit size cap in `routeSpec.Body`; use `readRequestBody` rather than ad hoc `io.LimitReader` calls so oversized streamed bodies return `413`.
+
 The API cache backend is shared security state for sessions and rate limits. Database mode is the replica-safe default. Memory mode is process-local, cleans expired entries opportunistically, and should stay limited to tests, local development, or deliberate single-process deployments.
 
 ## Lint expectations

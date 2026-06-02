@@ -119,11 +119,12 @@ Vectis rejects checkout URLs that embed user info, such as `https://user:token@e
 
 API audit events are enabled by default. Operators can disable audit emission or override per-event durability with `api.audit.*` or `VECTIS_API_AUDIT_*` settings. Dropped audit events and flush failures remain observable through audit metrics and health checks.
 
-The auth surface also has bounded request sizes and token parsing limits:
+The API also has bounded request sizes and token parsing limits:
 
 | Limit | Purpose |
 | --- | --- |
-| Setup and login JSON body cap | Limits memory and parsing work on hostile requests. |
+| Route-declared request body policy | Rejects request bodies on routes that do not explicitly accept them. |
+| JSON body caps | Limits memory and parsing work on hostile requests; job-definition routes have a larger dedicated cap. |
 | Bearer token length cap | Prevents oversized authorization headers from causing extra CPU or memory work. |
 | Admin username and password bounds | Keeps setup input predictable. |
 

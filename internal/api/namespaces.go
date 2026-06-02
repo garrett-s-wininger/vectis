@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"io"
 	"net/http"
 	"strconv"
 
@@ -40,9 +39,8 @@ func (s *APIServer) CreateNamespace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxJSONDocumentBodyBytes))
-	if err != nil {
-		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrRequestReadFailed)
+	body, ok := readRequestBody(w, r, maxJSONDocumentBodyBytes)
+	if !ok {
 		return
 	}
 

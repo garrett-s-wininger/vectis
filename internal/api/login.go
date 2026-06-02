@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -50,14 +49,8 @@ func (s *APIServer) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxLoginBodyBytes+1))
-	if err != nil {
-		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrRequestReadFailed)
-		return
-	}
-
-	if len(body) > maxLoginBodyBytes {
-		writeAPIErrorCode(w, http.StatusRequestEntityTooLarge, apiErrRequestBodyTooLarge)
+	body, ok := readRequestBody(w, r, maxLoginBodyBytes)
+	if !ok {
 		return
 	}
 

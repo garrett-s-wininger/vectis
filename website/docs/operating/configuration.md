@@ -113,6 +113,8 @@ The API can serve browser-facing HTTPS directly with `--tls-cert-file` and `--tl
 
 API and docs responses set browser hardening headers by default, including `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, and Content Security Policy. `Strict-Transport-Security` is sent only on direct HTTPS requests; if TLS terminates at an ingress or load balancer, configure HSTS at that edge. Protected API routes default to `Cache-Control: no-store` unless a streaming handler explicitly manages cache headers.
 
+API routes reject request bodies unless the route inventory explicitly declares a JSON body policy. Declared JSON body routes enforce per-route size caps before parsing, including smaller caps for auth/user/token/control routes and a larger cap for job definitions.
+
 API rate limits have embedded defaults for auth, token, and general routes. The shipped limit keys live under `api.rate_limit.*`. The defaults are intended to protect the built-in auth surface from accidental or hostile bursts; tune them only when you understand the expected traffic shape.
 
 When the API runs behind a trusted reverse proxy, configure client IP forwarding separately. See [Trusted Proxy Client IP](./deployment/trusted-proxy-client-ip.md).

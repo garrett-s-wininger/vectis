@@ -107,6 +107,63 @@ func TestAPIRouteInventory(t *testing.T) {
 		if err := spec.Cache.validate(); err != nil {
 			t.Fatalf("route[%d] %q has invalid cache policy: %v", i, spec.Pattern, err)
 		}
+
+		if err := spec.Body.validate(); err != nil {
+			t.Fatalf("route[%d] %q has invalid body policy: %v", i, spec.Pattern, err)
+		}
+	}
+}
+
+func TestAPIRouteInventory_bodyPolicies(t *testing.T) {
+	s := &APIServer{}
+	want := map[string]routeBodyPolicy{
+		"POST /api/v1/cells/{cell_id}/catalog-events":  routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
+		"POST /api/v1/jobs":                            routeBodyJSONPolicy(maxJobDefinitionBodyBytes),
+		"POST /api/v1/jobs/run":                        routeBodyJSONPolicy(maxJobDefinitionBodyBytes),
+		"PUT /api/v1/jobs/{id}":                        routeBodyJSONPolicy(maxJobDefinitionBodyBytes),
+		"POST /api/v1/jobs/trigger/{id}":               routeBodyOptionalJSONPolicy(maxJobDefinitionBodyBytes),
+		"POST /api/v1/runs/{id}/replay":                routeBodyOptionalJSONPolicy(maxJobDefinitionBodyBytes),
+		"POST /api/v1/runs/{id}/repair/mark-succeeded": routeBodyOptionalJSONPolicy(maxJSONDocumentBodyBytes),
+		"POST /api/v1/runs/{id}/repair/mark-failed":    routeBodyOptionalJSONPolicy(maxJSONDocumentBodyBytes),
+		"POST /api/v1/runs/{id}/repair/mark-cancelled": routeBodyOptionalJSONPolicy(maxJSONDocumentBodyBytes),
+		"POST /api/v1/runs/{id}/repair/mark-abandoned": routeBodyOptionalJSONPolicy(maxJSONDocumentBodyBytes),
+		"POST /api/v1/runs/{id}/repair/mark-queued":    routeBodyOptionalJSONPolicy(maxJSONDocumentBodyBytes),
+		"POST /api/v1/runs/{id}/force-fail":            routeBodyOptionalJSONPolicy(maxJSONDocumentBodyBytes),
+		"POST /api/v1/setup/complete":                  routeBodyJSONPolicy(maxSetupCompleteBodyBytes),
+		"POST /api/v1/login":                           routeBodyJSONPolicy(maxLoginBodyBytes),
+		"POST /api/v1/tokens":                          routeBodyJSONPolicy(maxTokenBodyBytes),
+		"POST /api/v1/users/change-password":           routeBodyJSONPolicy(maxChangePasswordBodyBytes),
+		"POST /api/v1/users":                           routeBodyJSONPolicy(maxUserBodyBytes),
+		"PUT /api/v1/users/{id}":                       routeBodyJSONPolicy(maxUserBodyBytes),
+		"POST /api/v1/namespaces":                      routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
+		"POST /api/v1/namespaces/{id}/bindings":        routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
+	}
+
+	seen := make(map[string]bool, len(want))
+	for _, spec := range s.routeSpecs(true) {
+		if err := spec.Body.validate(); err != nil {
+			t.Fatalf("route %q has invalid body policy: %v", spec.Pattern, err)
+		}
+
+		wantPolicy, ok := want[spec.Pattern]
+		if !ok {
+			if spec.Body.allowsBody() {
+				t.Fatalf("route %q allows a request body without an inventory expectation", spec.Pattern)
+			}
+
+			continue
+		}
+
+		seen[spec.Pattern] = true
+		if spec.Body != wantPolicy {
+			t.Fatalf("route %q body policy = %+v, want %+v", spec.Pattern, spec.Body, wantPolicy)
+		}
+	}
+
+	for pattern := range want {
+		if !seen[pattern] {
+			t.Fatalf("route inventory did not include body policy for %q", pattern)
+		}
 	}
 }
 
@@ -122,6 +179,7 @@ func TestProtectedRoutesDefaultNoStorePolicy(t *testing.T) {
 			if spec.Cache.shouldSetNoStore(spec.Auth) {
 				t.Fatalf("public route %q should not default to no-store", spec.Pattern)
 			}
+
 			continue
 		}
 

@@ -438,11 +438,13 @@ func TestCronService_ProcessSchedules_QueueError(t *testing.T) {
 
 func TestCronService_ProcessSchedules_TimeNotMatching(t *testing.T) {
 	service, logger, queueService, db := setupTestCronService(t)
+	clock := mocks.NewMockClock()
+	now := time.Date(2026, 3, 15, 12, 34, 0, 0, time.UTC)
+	clock.SetNow(now)
+	service.SetClock(clock)
 
 	insertCronTestJob(t, db, "future-job", `{"id": "future-job"}`)
-
-	midnight := time.Now().Truncate(24 * time.Hour)
-	insertCronTestSchedule(t, db, "future-job", "0 0 * * *", midnight.Add(-1*time.Hour))
+	insertCronTestSchedule(t, db, "future-job", "0 0 * * *", now.Add(-1*time.Hour))
 
 	err := service.ProcessSchedules(context.Background())
 	if err != nil {

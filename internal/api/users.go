@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -75,14 +74,8 @@ func (s *APIServer) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxUserBodyBytes+1))
-	if err != nil {
-		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrRequestReadFailed)
-		return
-	}
-
-	if len(body) > maxUserBodyBytes {
-		writeAPIErrorCode(w, http.StatusRequestEntityTooLarge, apiErrRequestBodyTooLarge)
+	body, ok := readRequestBody(w, r, maxUserBodyBytes)
+	if !ok {
 		return
 	}
 
@@ -287,14 +280,8 @@ func (s *APIServer) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxUserBodyBytes+1))
-	if err != nil {
-		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrRequestReadFailed)
-		return
-	}
-
-	if len(body) > maxUserBodyBytes {
-		writeAPIErrorCode(w, http.StatusRequestEntityTooLarge, apiErrRequestBodyTooLarge)
+	body, ok := readRequestBody(w, r, maxUserBodyBytes)
+	if !ok {
 		return
 	}
 
@@ -478,13 +465,8 @@ func (s *APIServer) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxChangePasswordBodyBytes+1))
-	if err != nil {
-		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrRequestReadFailed)
-		return
-	}
-	if len(body) > maxChangePasswordBodyBytes {
-		writeAPIErrorCode(w, http.StatusRequestEntityTooLarge, apiErrRequestBodyTooLarge)
+	body, ok := readRequestBody(w, r, maxChangePasswordBodyBytes)
+	if !ok {
 		return
 	}
 

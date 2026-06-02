@@ -70,6 +70,7 @@ const (
 	apiErrPasswordTooShort               apiErrorCode = "password_too_short"
 	apiErrQueueNotReady                  apiErrorCode = "queue_not_ready"
 	apiErrRateLimitExceeded              apiErrorCode = "rate_limit_exceeded"
+	apiErrRequestBodyNotAllowed          apiErrorCode = "request_body_not_allowed"
 	apiErrRequestBodyTooLarge            apiErrorCode = "request_body_too_large"
 	apiErrRequestReadFailed              apiErrorCode = "request_read_failed"
 	apiErrRoleBindingsNotConfigured      apiErrorCode = "role_bindings_not_configured"
@@ -196,6 +197,8 @@ func (c apiErrorCode) message() string {
 		return "queue not ready"
 	case apiErrRateLimitExceeded:
 		return "rate limit exceeded"
+	case apiErrRequestBodyNotAllowed:
+		return "request body is not allowed for this route"
 	case apiErrRequestBodyTooLarge:
 		return "request body too large"
 	case apiErrRequestReadFailed:

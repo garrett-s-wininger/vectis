@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"strings"
 	"unicode/utf8"
@@ -105,14 +104,8 @@ func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxSetupCompleteBodyBytes+1))
-	if err != nil {
-		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
-		return
-	}
-
-	if len(body) > maxSetupCompleteBodyBytes {
-		writeAPIErrorCode(w, http.StatusRequestEntityTooLarge, apiErrRequestBodyTooLarge)
+	body, ok := readRequestBody(w, r, maxSetupCompleteBodyBytes)
+	if !ok {
 		return
 	}
 

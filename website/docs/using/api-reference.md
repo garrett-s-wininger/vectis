@@ -195,13 +195,15 @@ All error responses use `Content-Type: application/json; charset=utf-8` and `X-C
 
 CORS is closed unless the operator configures exact allowed origins. Credentialed browser CORS never uses `*`; preflights are accepted only for allowed origins, methods, and request headers.
 
+Routes reject request bodies unless the route explicitly accepts a JSON body. JSON routes enforce a per-route body cap before parsing; job-definition routes have a larger cap than auth, user, token, namespace, and control routes.
+
 The `code` field is intended for clients and scripts. The `message` field is human-readable and may become clearer over time without changing the machine meaning. `details` is optional structured data whose shape depends on `code`; clients should ignore unknown detail keys.
 
 Common status meanings:
 
 | Status | Meaning |
 | --- | --- |
-| `400` | Invalid JSON, invalid IDs, missing required fields, or invalid state transition input. |
+| `400` | Invalid JSON, invalid IDs, missing required fields, unexpected request bodies, or invalid state transition input. |
 | `401` | Missing, malformed, expired, or invalid bearer credentials. |
 | `403` | Authenticated principal is not allowed to perform a visible global action. |
 | `404` | Resource is absent or hidden by namespace authorization. |
@@ -224,6 +226,7 @@ Common v1 error codes:
 | `bootstrap_not_configured` | `503` | Initial setup needs a sufficiently long configured bootstrap token. |
 | `invalid_bootstrap_token` | `401` | The supplied setup bootstrap token does not match the server configuration. |
 | `unsupported_media_type` | `415` | A JSON route received a non-JSON `Content-Type`. |
+| `request_body_not_allowed` | `400` | The route does not accept a request body. |
 | `request_body_too_large` | `413` | The request body exceeded the route limit. |
 | `database_unavailable` | `503` | The configured SQL database is temporarily unavailable. |
 | `queue_not_ready` | `503` | The API cannot currently hand work to the queue. |

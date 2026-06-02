@@ -3,7 +3,6 @@ package api
 import (
 	"bytes"
 	"encoding/json"
-	"io"
 	"net/http"
 	"strings"
 
@@ -43,14 +42,8 @@ func (s *APIServer) PostCellCatalogEvent(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxJSONDocumentBodyBytes+1))
-	if err != nil {
-		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrRequestReadFailed)
-		return
-	}
-
-	if len(body) > maxJSONDocumentBodyBytes {
-		writeAPIErrorCode(w, http.StatusRequestEntityTooLarge, apiErrRequestBodyTooLarge)
+	body, ok := readRequestBody(w, r, maxJSONDocumentBodyBytes)
+	if !ok {
 		return
 	}
 
