@@ -257,6 +257,8 @@ type MockRunsRepository struct {
 	TaskExecution    dal.TaskExecutionRecord
 	TaskCreated      bool
 	TaskActivated    bool
+	TaskExecutions   []dal.TaskExecutionRecord
+	TaskActivatedN   int
 	RunRecords       map[string]dal.RunRecord
 	QueuedRuns       []dal.QueuedRun
 	PendingExecution dal.ExecutionDispatchRecord
@@ -280,6 +282,7 @@ type MockRunsRepository struct {
 	LastListRunTasksRunID string
 	LastTaskExecution     dal.TaskExecutionCreate
 	LastActivatedTaskID   string
+	LastActivatedParentID string
 	LastRunStatusUpdate   dal.RunStatusUpdate
 	LastExecStatusUpdate  dal.ExecutionStatusUpdate
 }
@@ -842,6 +845,18 @@ func (m *MockRunsRepository) ActivatePlannedTaskExecution(ctx context.Context, t
 	}
 
 	return m.TaskExecution, m.TaskActivated, nil
+}
+
+func (m *MockRunsRepository) ActivatePlannedChildTaskExecutions(ctx context.Context, parentTaskID string) ([]dal.TaskExecutionRecord, int, error) {
+	m.mu.Lock()
+	m.LastActivatedParentID = parentTaskID
+	m.mu.Unlock()
+
+	if m.ActivateTaskErr != nil {
+		return nil, 0, m.ActivateTaskErr
+	}
+
+	return append([]dal.TaskExecutionRecord(nil), m.TaskExecutions...), m.TaskActivatedN, nil
 }
 
 func (m *MockRunsRepository) MarkExecutionAccepted(ctx context.Context, executionID string) error {

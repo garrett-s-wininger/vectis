@@ -1310,6 +1310,133 @@ func TestRunsRepository_EnsurePlannedTaskExecutionCreatesNonDispatchableRows(t *
 	}
 }
 
+func TestRunsRepository_ActivatePlannedChildTaskExecutionsFansOutDirectChildren(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-task-child-activate", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-task-child-activate"
+	def := `{"id":"job-task-child-activate","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	rootDispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get root pending execution: %v", err)
+	}
+
+	setup, _, err := repos.Runs().EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:    runID,
+		TaskKey:  "setup",
+		SpecHash: "sha256:setup",
+	})
+	if err != nil {
+		t.Fatalf("ensure setup: %v", err)
+	}
+
+	build, _, err := repos.Runs().EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:    runID,
+		TaskKey:  "build",
+		SpecHash: "sha256:build",
+	})
+	if err != nil {
+		t.Fatalf("ensure build: %v", err)
+	}
+
+	compile, _, err := repos.Runs().EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:        runID,
+		ParentTaskID: setup.TaskID,
+		TaskKey:      "compile",
+		SpecHash:     "sha256:compile",
+	})
+	if err != nil {
+		t.Fatalf("ensure compile: %v", err)
+	}
+
+	if err := repos.Runs().MarkExecutionAccepted(ctx, rootDispatch.ExecutionID); err != nil {
+		t.Fatalf("mark root accepted: %v", err)
+	}
+
+	if _, err := repos.Runs().GetPendingExecution(ctx, runID); !dal.IsNotFound(err) {
+		t.Fatalf("planned descendants should not dispatch before fan-out, got %v", err)
+	}
+
+	children, activated, err := repos.Runs().ActivatePlannedChildTaskExecutions(ctx, rootDispatch.TaskID)
+	if err != nil {
+		t.Fatalf("ActivatePlannedChildTaskExecutions: %v", err)
+	}
+
+	if activated != 2 || len(children) != 2 {
+		t.Fatalf("activated root children: activated=%d children=%+v", activated, children)
+	}
+
+	byKey := taskExecutionRecordsByKey(children)
+	if byKey["setup"] != setup || byKey["build"] != build {
+		t.Fatalf("activated root children mismatch: %+v", children)
+	}
+
+	assertTaskExecutionStatuses(t, db, setup, dal.TaskStatusPending, dal.SegmentStatusPending, dal.ExecutionStatusPending, 0)
+	assertTaskExecutionStatuses(t, db, build, dal.TaskStatusPending, dal.SegmentStatusPending, dal.ExecutionStatusPending, 0)
+	assertTaskExecutionStatuses(t, db, compile, dal.TaskStatusPlanned, dal.SegmentStatusPlanned, dal.ExecutionStatusPlanned, 0)
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution after root fan-out: %v", err)
+	}
+
+	if dispatch.TaskKey != "setup" && dispatch.TaskKey != "build" {
+		t.Fatalf("pending execution after root fan-out: %+v", dispatch)
+	}
+
+	children, activated, err = repos.Runs().ActivatePlannedChildTaskExecutions(ctx, rootDispatch.TaskID)
+	if err != nil {
+		t.Fatalf("idempotent ActivatePlannedChildTaskExecutions: %v", err)
+	}
+
+	if activated != 0 || len(children) != 2 {
+		t.Fatalf("idempotent root fan-out: activated=%d children=%+v", activated, children)
+	}
+
+	if err := repos.Runs().MarkExecutionAccepted(ctx, setup.ExecutionID); err != nil {
+		t.Fatalf("mark setup accepted: %v", err)
+	}
+
+	children, activated, err = repos.Runs().ActivatePlannedChildTaskExecutions(ctx, rootDispatch.TaskID)
+	if err != nil {
+		t.Fatalf("replayed root fan-out after setup accepted: %v", err)
+	}
+
+	if activated != 0 || len(children) != 1 || children[0] != build {
+		t.Fatalf("replayed root fan-out should return only dispatchable build: activated=%d children=%+v", activated, children)
+	}
+
+	grandchildren, activated, err := repos.Runs().ActivatePlannedChildTaskExecutions(ctx, setup.TaskID)
+	if err != nil {
+		t.Fatalf("activate setup children: %v", err)
+	}
+
+	if activated != 1 || len(grandchildren) != 1 || grandchildren[0] != compile {
+		t.Fatalf("activated setup children: activated=%d grandchildren=%+v", activated, grandchildren)
+	}
+
+	assertTaskExecutionStatuses(t, db, compile, dal.TaskStatusPending, dal.SegmentStatusPending, dal.ExecutionStatusPending, 0)
+
+	if _, _, err := repos.Runs().ActivatePlannedChildTaskExecutions(ctx, "missing-parent"); !dal.IsNotFound(err) {
+		t.Fatalf("missing parent fan-out should return not found, got %v", err)
+	}
+}
+
 func TestSQLRepositories_CreateDefinitionAndRunInCell_TargetsExecutionCell(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")
@@ -1788,6 +1915,15 @@ func assertExecutionTaskLink(t *testing.T, db *sql.DB, executionID, wantTaskID, 
 	if taskID != wantTaskID || taskAttemptID != wantTaskAttemptID {
 		t.Fatalf("execution task link: got task=%q attempt=%q, want task=%q attempt=%q", taskID, taskAttemptID, wantTaskID, wantTaskAttemptID)
 	}
+}
+
+func taskExecutionRecordsByKey(records []dal.TaskExecutionRecord) map[string]dal.TaskExecutionRecord {
+	out := make(map[string]dal.TaskExecutionRecord, len(records))
+	for _, rec := range records {
+		out[rec.TaskKey] = rec
+	}
+
+	return out
 }
 
 func assertTaskExecutionStatuses(t *testing.T, db *sql.DB, rec dal.TaskExecutionRecord, wantTaskStatus, wantSegmentStatus, wantExecutionStatus string, wantEventSequence int64) {

@@ -1444,11 +1444,83 @@ func (r *SQLRunsRepository) ActivatePlannedTaskExecution(ctx context.Context, ta
 		return snapshot.Record, false, nil
 	}
 
+	activated, err := activatePlannedTaskExecutionSnapshotTx(ctx, tx, snapshot)
+	if err != nil {
+		return TaskExecutionRecord{}, false, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return TaskExecutionRecord{}, false, err
+	}
+
+	return snapshot.Record, activated, nil
+}
+
+func (r *SQLRunsRepository) ActivatePlannedChildTaskExecutions(ctx context.Context, parentTaskID string) ([]TaskExecutionRecord, int, error) {
+	parentTaskID = strings.TrimSpace(parentTaskID)
+	if parentTaskID == "" {
+		return nil, 0, fmt.Errorf("%w: parent_task_id is required", ErrNotFound)
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if err := ensureTaskExistsTx(ctx, tx, parentTaskID); err != nil {
+		return nil, 0, err
+	}
+
+	snapshots, err := taskExecutionStatusSnapshotsByParentTaskIDTx(ctx, tx, parentTaskID)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	records := make([]TaskExecutionRecord, 0, len(snapshots))
+	activatedCount := 0
+	for _, snapshot := range snapshots {
+		switch {
+		case snapshot.hasStatuses(TaskStatusPlanned, SegmentStatusPlanned, ExecutionStatusPlanned):
+			activated, err := activatePlannedTaskExecutionSnapshotTx(ctx, tx, snapshot)
+			if err != nil {
+				return nil, 0, err
+			}
+
+			if activated {
+				activatedCount++
+			}
+			records = append(records, snapshot.Record)
+		case snapshot.hasStatuses(TaskStatusPending, SegmentStatusPending, ExecutionStatusPending):
+			records = append(records, snapshot.Record)
+		case snapshot.hasConsistentAdvancedStatus():
+			continue
+		default:
+			return nil, 0, fmt.Errorf(
+				"%w: child task %s statuses task=%s attempt=%s segment=%s execution=%s cannot activate",
+				ErrConflict,
+				snapshot.Record.TaskID,
+				snapshot.TaskStatus,
+				snapshot.AttemptStatus,
+				snapshot.SegmentStatus,
+				snapshot.ExecutionStatus,
+			)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, 0, err
+	}
+
+	return records, activatedCount, nil
+}
+
+func activatePlannedTaskExecutionSnapshotTx(ctx context.Context, tx *sql.Tx, snapshot taskExecutionStatusSnapshot) (bool, error) {
 	if !snapshot.hasStatuses(TaskStatusPlanned, SegmentStatusPlanned, ExecutionStatusPlanned) {
-		return TaskExecutionRecord{}, false, fmt.Errorf(
+		return false, fmt.Errorf(
 			"%w: task %s statuses task=%s attempt=%s segment=%s execution=%s cannot activate",
 			ErrConflict,
-			taskID,
+			snapshot.Record.TaskID,
 			snapshot.TaskStatus,
 			snapshot.AttemptStatus,
 			snapshot.SegmentStatus,
@@ -1461,7 +1533,7 @@ func (r *SQLRunsRepository) ActivatePlannedTaskExecution(ctx context.Context, ta
 		TaskStatusPending,
 		snapshot.Record.TaskID,
 	); err != nil {
-		return TaskExecutionRecord{}, false, normalizeSQLError(err)
+		return false, normalizeSQLError(err)
 	}
 
 	if _, err := tx.ExecContext(ctx,
@@ -1469,7 +1541,7 @@ func (r *SQLRunsRepository) ActivatePlannedTaskExecution(ctx context.Context, ta
 		TaskStatusPending,
 		snapshot.Record.TaskAttemptID,
 	); err != nil {
-		return TaskExecutionRecord{}, false, normalizeSQLError(err)
+		return false, normalizeSQLError(err)
 	}
 
 	if _, err := tx.ExecContext(ctx,
@@ -1477,7 +1549,7 @@ func (r *SQLRunsRepository) ActivatePlannedTaskExecution(ctx context.Context, ta
 		SegmentStatusPending,
 		snapshot.Record.SegmentID,
 	); err != nil {
-		return TaskExecutionRecord{}, false, normalizeSQLError(err)
+		return false, normalizeSQLError(err)
 	}
 
 	if _, err := tx.ExecContext(ctx,
@@ -1485,20 +1557,14 @@ func (r *SQLRunsRepository) ActivatePlannedTaskExecution(ctx context.Context, ta
 		ExecutionStatusPending,
 		snapshot.Record.ExecutionID,
 	); err != nil {
-		return TaskExecutionRecord{}, false, normalizeSQLError(err)
+		return false, normalizeSQLError(err)
 	}
 
-	if err := tx.Commit(); err != nil {
-		return TaskExecutionRecord{}, false, err
-	}
-
-	return snapshot.Record, true, nil
+	return true, nil
 }
 
 func taskExecutionStatusSnapshotByTaskIDTx(ctx context.Context, tx *sql.Tx, taskID string) (taskExecutionStatusSnapshot, error) {
-	var snapshot taskExecutionStatusSnapshot
-	var parentTaskID sql.NullString
-	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
+	snapshot, err := scanTaskExecutionStatusSnapshot(tx.QueryRowContext(ctx, rebindQueryForPgx(`
 		SELECT
 			rt.run_id,
 			rt.task_id,
@@ -1522,7 +1588,74 @@ func taskExecutionStatusSnapshotByTaskIDTx(ctx context.Context, tx *sql.Tx, task
 		WHERE rt.task_id = ?
 		ORDER BY ta.attempt ASC
 		LIMIT 1
-	`), taskID).Scan(
+	`), taskID))
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return taskExecutionStatusSnapshot{}, fmt.Errorf("%w: task execution %s", ErrNotFound, taskID)
+		}
+
+		return taskExecutionStatusSnapshot{}, normalizeSQLError(err)
+	}
+
+	return snapshot, nil
+}
+
+func taskExecutionStatusSnapshotsByParentTaskIDTx(ctx context.Context, tx *sql.Tx, parentTaskID string) ([]taskExecutionStatusSnapshot, error) {
+	rows, err := tx.QueryContext(ctx, rebindQueryForPgx(`
+		SELECT
+			rt.run_id,
+			rt.task_id,
+			rt.parent_task_id,
+			rt.task_key,
+			rt.name,
+			ta.attempt_id,
+			rs.segment_id,
+			rs.name,
+			se.execution_id,
+			se.cell_id,
+			se.attempt,
+			rt.status,
+			ta.status,
+			rs.status,
+			se.status
+		FROM run_tasks rt
+		JOIN task_attempts ta ON ta.task_id = rt.task_id AND ta.run_id = rt.run_id
+		JOIN segment_executions se ON se.task_id = rt.task_id AND se.task_attempt_id = ta.attempt_id AND se.run_id = rt.run_id AND se.attempt = ta.attempt
+		JOIN run_segments rs ON rs.segment_id = se.segment_id AND rs.run_id = rt.run_id
+		WHERE rt.parent_task_id = ?
+		ORDER BY rt.id ASC, ta.attempt ASC
+	`), parentTaskID)
+
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	var out []taskExecutionStatusSnapshot
+	for rows.Next() {
+		snapshot, err := scanTaskExecutionStatusSnapshot(rows)
+		if err != nil {
+			return nil, normalizeSQLError(err)
+		}
+
+		out = append(out, snapshot)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	return out, nil
+}
+
+type taskExecutionStatusScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanTaskExecutionStatusSnapshot(scanner taskExecutionStatusScanner) (taskExecutionStatusSnapshot, error) {
+	var snapshot taskExecutionStatusSnapshot
+	var parentTaskID sql.NullString
+	if err := scanner.Scan(
 		&snapshot.Record.RunID,
 		&snapshot.Record.TaskID,
 		&parentTaskID,
@@ -1539,15 +1672,24 @@ func taskExecutionStatusSnapshotByTaskIDTx(ctx context.Context, tx *sql.Tx, task
 		&snapshot.SegmentStatus,
 		&snapshot.ExecutionStatus,
 	); err != nil {
-		if err == sql.ErrNoRows {
-			return taskExecutionStatusSnapshot{}, fmt.Errorf("%w: task execution %s", ErrNotFound, taskID)
-		}
-
-		return taskExecutionStatusSnapshot{}, normalizeSQLError(err)
+		return taskExecutionStatusSnapshot{}, err
 	}
 
 	snapshot.Record.ParentTaskID = nullStringValue(parentTaskID)
 	return snapshot, nil
+}
+
+func ensureTaskExistsTx(ctx context.Context, tx *sql.Tx, taskID string) error {
+	var found string
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT task_id FROM run_tasks WHERE task_id = ?"), taskID).Scan(&found); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("%w: task %s", ErrNotFound, taskID)
+		}
+
+		return normalizeSQLError(err)
+	}
+
+	return nil
 }
 
 func (s taskExecutionStatusSnapshot) hasStatuses(taskStatus, segmentStatus, executionStatus string) bool {
@@ -1555,6 +1697,14 @@ func (s taskExecutionStatusSnapshot) hasStatuses(taskStatus, segmentStatus, exec
 		s.AttemptStatus == taskStatus &&
 		s.SegmentStatus == segmentStatus &&
 		s.ExecutionStatus == executionStatus
+}
+
+func (s taskExecutionStatusSnapshot) hasConsistentAdvancedStatus() bool {
+	if !s.hasStatuses(s.TaskStatus, s.TaskStatus, s.TaskStatus) {
+		return false
+	}
+
+	return s.TaskStatus != TaskStatusPlanned && s.TaskStatus != TaskStatusPending
 }
 
 func (r *SQLRunsRepository) ensureTaskExecution(ctx context.Context, create TaskExecutionCreate, taskStatus, segmentStatus, executionStatus string) (TaskExecutionRecord, bool, error) {
