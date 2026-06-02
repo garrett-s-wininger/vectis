@@ -447,6 +447,25 @@ func TestWorkerRegisterWithRegistry_OverrideFalse(t *testing.T) {
 	}
 }
 
+func TestWorkerTaskCompletionFanout_DefaultsFalse(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	if WorkerTaskCompletionFanout() {
+		t.Fatalf("expected WorkerTaskCompletionFanout() to default false")
+	}
+}
+
+func TestWorkerTaskCompletionFanout_OverrideTrue(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("worker.task_completion_fanout", true)
+
+	if !WorkerTaskCompletionFanout() {
+		t.Fatalf("expected WorkerTaskCompletionFanout() to honor worker.task_completion_fanout=true")
+	}
+}
+
 func TestDiscovery_RegistryFallback(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)

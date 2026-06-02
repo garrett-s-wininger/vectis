@@ -157,20 +157,21 @@ func runWorker(cmd *cobra.Command, args []string) {
 	logClient = interfaces.NewPreferForwarderLogClient(forwarderSocket, logClient)
 
 	w := &worker{
-		ctx:           shutdownCtx,
-		runCtx:        runCtx,
-		logger:        logger,
-		workerID:      workerID,
-		cellID:        config.CellID(),
-		clock:         interfaces.SystemClock{},
-		renewInterval: dal.DefaultRenewInterval,
-		queue:         clients,
-		logClient:     logClient,
-		executor:      job.NewExecutor(),
-		store:         runsRepo,
-		catalog:       cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
-		metrics:       workerMetrics,
-		cancelCh:      make(chan string, 1),
+		ctx:                  shutdownCtx,
+		runCtx:               runCtx,
+		logger:               logger,
+		workerID:             workerID,
+		cellID:               config.CellID(),
+		clock:                interfaces.SystemClock{},
+		renewInterval:        dal.DefaultRenewInterval,
+		queue:                clients,
+		logClient:            logClient,
+		executor:             job.NewExecutor(),
+		store:                runsRepo,
+		catalog:              cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
+		metrics:              workerMetrics,
+		taskCompletionFanout: config.WorkerTaskCompletionFanout(),
+		cancelCh:             make(chan string, 1),
 	}
 
 	// Start worker control server for remote cancellation.
@@ -280,28 +281,29 @@ func controlPublishAddress(addr string) string {
 }
 
 type worker struct {
-	ctx                context.Context // canceled on SIGINT/SIGTERM; dequeue and between-job backoff only
-	runCtx             context.Context // Background; execution, lease renew, ack, finalize survive SIGTERM until dequeue stops
-	logger             interfaces.Logger
-	workerID           string
-	cellID             string
-	clock              interfaces.Clock
-	renewInterval      time.Duration
-	cancelPollInterval time.Duration
-	queue              interfaces.QueueClient
-	logClient          interfaces.LogClient
-	executor           *job.Executor
-	store              dal.RunsRepository
-	catalog            cell.CatalogEventPublisher
-	metrics            *observability.WorkerMetrics
-	dequeueFailAttempt int
-	dbUnavailable      bool
-	dbFailAttempt      int
-	dbMu               sync.Mutex
-	cancelCh           chan string
-	currentRunID       string
-	currentClaimToken  string
-	currentMu          sync.Mutex
+	ctx                  context.Context // canceled on SIGINT/SIGTERM; dequeue and between-job backoff only
+	runCtx               context.Context // Background; execution, lease renew, ack, finalize survive SIGTERM until dequeue stops
+	logger               interfaces.Logger
+	workerID             string
+	cellID               string
+	clock                interfaces.Clock
+	renewInterval        time.Duration
+	cancelPollInterval   time.Duration
+	queue                interfaces.QueueClient
+	logClient            interfaces.LogClient
+	executor             *job.Executor
+	store                dal.RunsRepository
+	catalog              cell.CatalogEventPublisher
+	metrics              *observability.WorkerMetrics
+	taskCompletionFanout bool
+	dequeueFailAttempt   int
+	dbUnavailable        bool
+	dbFailAttempt        int
+	dbMu                 sync.Mutex
+	cancelCh             chan string
+	currentRunID         string
+	currentClaimToken    string
+	currentMu            sync.Mutex
 }
 
 func (w *worker) now() time.Time {
@@ -769,7 +771,20 @@ func (w *worker) markExecutionTerminal(ctx context.Context, env *cell.ExecutionE
 		return
 	}
 
-	if err := w.store.MarkExecutionTerminal(w.runCtx, env.ExecutionID, status); err != nil {
+	var activatedChildren int
+	var dispatchableChildren int
+	if w.taskCompletionFanout && status == dal.ExecutionStatusSucceeded {
+		result, err := job.CompleteTaskExecution(w.runCtx, w.store, env.ExecutionID, status)
+		if err != nil {
+			w.noteDBError(err)
+			w.logger.Warn("CompleteTaskExecution execution %s status %s failed: %v", env.ExecutionID, status, err)
+			trace.SpanFromContext(ctx).RecordError(err)
+			return
+		}
+
+		activatedChildren = result.Activated
+		dispatchableChildren = len(result.Children)
+	} else if err := w.store.MarkExecutionTerminal(w.runCtx, env.ExecutionID, status); err != nil {
 		w.noteDBError(err)
 		w.logger.Warn("MarkExecutionTerminal execution %s status %s failed: %v", env.ExecutionID, status, err)
 		trace.SpanFromContext(ctx).RecordError(err)
@@ -779,7 +794,12 @@ func (w *worker) markExecutionTerminal(ctx context.Context, env *cell.ExecutionE
 	w.noteDBRecovered()
 	w.recordExecutionCatalogEvent(ctx, env, status)
 	trace.SpanFromContext(ctx).AddEvent("execution.terminal", trace.WithAttributes(
-		append(executionEnvelopeAttrs(env), attribute.String("vectis.execution.status", status))...,
+		append(
+			executionEnvelopeAttrs(env),
+			attribute.String("vectis.execution.status", status),
+			attribute.Int("vectis.task.children.activated", activatedChildren),
+			attribute.Int("vectis.task.children.dispatchable", dispatchableChildren),
+		)...,
 	))
 }
 
@@ -1178,6 +1198,7 @@ func init() {
 	_ = viper.BindEnv("worker.log.address", "VECTIS_WORKER_LOG_ADDRESS")
 	_ = viper.BindEnv("worker.registry.address", "VECTIS_WORKER_REGISTRY_ADDRESS")
 	_ = viper.BindEnv("worker.control.mode", "VECTIS_WORKER_CONTROL_MODE")
+	_ = viper.BindEnv("worker.task_completion_fanout", "VECTIS_WORKER_TASK_COMPLETION_FANOUT")
 	_ = viper.BindEnv("control_port", "VECTIS_WORKER_CONTROL_PORT")
 	_ = viper.BindEnv("control_port_min", "VECTIS_WORKER_CONTROL_PORT_MIN")
 	_ = viper.BindEnv("control_port_max", "VECTIS_WORKER_CONTROL_PORT_MAX")

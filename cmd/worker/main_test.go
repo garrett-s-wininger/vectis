@@ -432,6 +432,59 @@ func TestWorkerRunClaimedJob_WithExecutionEnvelope_TransitionsExecution(t *testi
 	}
 }
 
+func TestWorkerMarkExecutionTerminal_DefaultUsesLegacyTransition(t *testing.T) {
+	t.Parallel()
+
+	runs := mocks.NewMockRunsRepository()
+	w := &worker{
+		runCtx:  context.Background(),
+		logger:  interfaces.NewLogger("worker-test"),
+		store:   runs,
+		catalog: cell.NewCatalogEventPublisher("local", nil),
+	}
+	env := &cell.ExecutionEnvelope{ExecutionID: "execution-legacy"}
+
+	w.markExecutionTerminal(context.Background(), env, dal.ExecutionStatusSucceeded)
+
+	if runs.LastSucceededExecID != "" {
+		t.Fatalf("default terminal path should not use task completion fan-out, got %q", runs.LastSucceededExecID)
+	}
+
+	if len(runs.ExecutionTransitions) != 1 || runs.ExecutionTransitions[0] != "execution-legacy:"+dal.ExecutionStatusSucceeded {
+		t.Fatalf("execution transitions: %+v", runs.ExecutionTransitions)
+	}
+}
+
+func TestWorkerMarkExecutionTerminal_OptInSuccessUsesTaskCompletionFanout(t *testing.T) {
+	t.Parallel()
+
+	runs := mocks.NewMockRunsRepository()
+	runs.TaskExecutions = []dal.TaskExecutionRecord{{
+		TaskID:  "run-1:child",
+		TaskKey: "child",
+	}}
+	runs.TaskActivatedN = 1
+
+	w := &worker{
+		runCtx:               context.Background(),
+		logger:               interfaces.NewLogger("worker-test"),
+		store:                runs,
+		catalog:              cell.NewCatalogEventPublisher("local", nil),
+		taskCompletionFanout: true,
+	}
+	env := &cell.ExecutionEnvelope{ExecutionID: "execution-root"}
+
+	w.markExecutionTerminal(context.Background(), env, dal.ExecutionStatusSucceeded)
+
+	if runs.LastSucceededExecID != "execution-root" {
+		t.Fatalf("last succeeded execution: got %q, want execution-root", runs.LastSucceededExecID)
+	}
+
+	if len(runs.ExecutionTransitions) != 1 || runs.ExecutionTransitions[0] != "execution-root:"+dal.ExecutionStatusSucceeded {
+		t.Fatalf("execution transitions: %+v", runs.ExecutionTransitions)
+	}
+}
+
 type scriptedAckQueue struct {
 	ackErrors []error
 	ackCalls  int
