@@ -542,6 +542,16 @@ func TestCookieSessionAuth_requiresCSRFForUnsafeMethods(t *testing.T) {
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/logout", nil)
 	req.AddCookie(sessionCookie)
 	req.Header.Set(csrfHeaderName, out.CSRFToken)
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("logout with cross-site fetch metadata should be forbidden, got code=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/logout", nil)
+	req.AddCookie(sessionCookie)
+	req.Header.Set(csrfHeaderName, out.CSRFToken)
 	req.Host = "vectis.example"
 	req.Header.Set("Origin", "https://vectis.example")
 	h.ServeHTTP(rec, req)

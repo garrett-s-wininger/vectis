@@ -191,7 +191,7 @@ General API errors use this stable v1 envelope:
 }
 ```
 
-All error responses use `Content-Type: application/json; charset=utf-8` and `X-Content-Type-Options: nosniff`. `401` responses add `WWW-Authenticate: Bearer`.
+All error responses use `Content-Type: application/json; charset=utf-8` and `X-Content-Type-Options: nosniff`. Browser-facing API responses also include baseline security headers such as `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, and a strict Content Security Policy. Direct HTTPS requests include `Strict-Transport-Security`. `401` responses add `WWW-Authenticate: Bearer`.
 
 The `code` field is intended for clients and scripts. The `message` field is human-readable and may become clearer over time without changing the machine meaning. `details` is optional structured data whose shape depends on `code`; clients should ignore unknown detail keys.
 

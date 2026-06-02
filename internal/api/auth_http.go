@@ -132,6 +132,18 @@ func validCSRFOrigin(r *http.Request) bool {
 	return true
 }
 
+func validCSRFFetchMetadata(r *http.Request) bool {
+	site := strings.ToLower(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site")))
+	switch site {
+	case "", "same-origin", "same-site", "none":
+		return true
+	case "cross-site":
+		return false
+	default:
+		return true
+	}
+}
+
 func originMatchesRequestHost(rawOrigin, requestHost string) bool {
 	u, err := url.Parse(rawOrigin)
 	if err != nil || u.Scheme == "" || u.Host == "" {
@@ -245,6 +257,11 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 			session, err := cacheService.ResolveSession(ctx, tokenKey, now, config.APISessionIdleTTL())
 			if err == nil {
 				if source == credentialSourceCookie && csrfRequired(r.Method) {
+					if !validCSRFFetchMetadata(r) {
+						writeAPIErrorCode(w, http.StatusForbidden, apiErrCSRFOriginForbidden)
+						return
+					}
+
 					if !validCSRFToken(r.Header.Get(csrfHeaderName), session.CSRFTokenHash) {
 						writeAPIErrorCode(w, http.StatusForbidden, apiErrCSRFTokenRequired)
 						return

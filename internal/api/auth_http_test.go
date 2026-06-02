@@ -256,6 +256,35 @@ func TestAccessControlledHandler_validToken(t *testing.T) {
 	}
 }
 
+func TestValidCSRFFetchMetadata(t *testing.T) {
+	tests := []struct {
+		name string
+		site string
+		want bool
+	}{
+		{name: "absent", want: true},
+		{name: "same_origin", site: "same-origin", want: true},
+		{name: "same_site", site: "same-site", want: true},
+		{name: "none", site: "none", want: true},
+		{name: "cross_site", site: "cross-site", want: false},
+		{name: "case_insensitive", site: "Cross-Site", want: false},
+		{name: "unknown", site: "weird-client", want: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/logout", nil)
+			if tc.site != "" {
+				req.Header.Set("Sec-Fetch-Site", tc.site)
+			}
+
+			if got := validCSRFFetchMetadata(req); got != tc.want {
+				t.Fatalf("validCSRFFetchMetadata(%q) = %v, want %v", tc.site, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestAccessControlledHandler_authorizationDenied(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "true")
 	t.Setenv("VECTIS_API_AUTH_BOOTSTRAP_TOKEN", "sixteenchars----")

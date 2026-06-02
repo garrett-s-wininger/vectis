@@ -7,6 +7,7 @@ import (
 	"vectis/internal/api/authz"
 	"vectis/internal/api/ratelimit"
 	"vectis/internal/config"
+	"vectis/internal/httpsecurity"
 	"vectis/internal/interfaces"
 	"vectis/internal/observability"
 )
@@ -21,6 +22,7 @@ func (s *APIServer) Handler() http.Handler {
 	h := http.Handler(mux)
 	h = accessLogMiddleware(s.AccessLogger, apiHTTPExcludedFromAuxLogging, h)
 	h = observability.CorrelationMiddleware(h)
+	h = httpsecurity.HeaderMiddleware(httpsecurity.APIHeaderPolicy(), h)
 	h = panicRecoveryMiddleware(s.logger, h)
 	return instrumentHTTPServer(h)
 }

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"vectis/internal/cli"
+	"vectis/internal/httpsecurity"
 	"vectis/internal/interfaces"
 	"vectis/internal/tlsconfig"
 
@@ -37,17 +38,10 @@ func runDocs(cmd *cobra.Command, args []string) {
 
 	handler, source := docsHandler(viper.GetString("dir"), logger)
 
-	mux := http.NewServeMux()
-	mux.Handle("GET /", handler)
-	mux.Handle("GET /health/live", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok\n"))
-	}))
-
 	addr := net.JoinHostPort(viper.GetString("host"), fmt.Sprintf("%d", viper.GetInt("port")))
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           docsServerHandler(handler),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -68,6 +62,17 @@ func runDocs(cmd *cobra.Command, args []string) {
 	if err := cli.ServeHTTP(cmd.Context(), srv, func() error { return srv.Serve(ln) }, defaultShutdownTimeout, "Docs HTTP", logger); err != nil {
 		logger.Fatal("Docs server failed: %v", err)
 	}
+}
+
+func docsServerHandler(handler http.Handler) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("GET /", handler)
+	mux.Handle("GET /health/live", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok\n"))
+	}))
+
+	return httpsecurity.HeaderMiddleware(httpsecurity.DocsHeaderPolicy(), mux)
 }
 
 func docsTLSEnabled() bool {

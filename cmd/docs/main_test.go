@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/tls"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -104,6 +105,41 @@ func TestDocsHandlerPlaceholderWhenNoDocsAvailable(t *testing.T) {
 	}
 }
 
+func TestDocsServerHandlerAppliesSecurityHeaders(t *testing.T) {
+	handler := docsServerHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("docs"))
+	}))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	handler.ServeHTTP(rec, req)
+
+	assertDocsHeader(t, rec, "X-Content-Type-Options", "nosniff")
+	assertDocsHeader(t, rec, "X-Frame-Options", "DENY")
+	assertDocsHeader(t, rec, "Referrer-Policy", "no-referrer")
+	if got := rec.Header().Get("Content-Security-Policy"); !strings.Contains(got, "default-src 'self'") || !strings.Contains(got, "frame-ancestors 'none'") {
+		t.Fatalf("Content-Security-Policy = %q, want docs policy", got)
+	}
+	if got := rec.Header().Get("Strict-Transport-Security"); got != "" {
+		t.Fatalf("Strict-Transport-Security over HTTP = %q, want empty", got)
+	}
+}
+
+func TestDocsServerHandlerAppliesHSTSForDirectTLS(t *testing.T) {
+	handler := docsServerHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("docs"))
+	}))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "https://example.test/", nil)
+	req.TLS = &tls.ConnectionState{}
+	handler.ServeHTTP(rec, req)
+
+	assertDocsHeader(t, rec, "Strict-Transport-Security", "max-age=31536000")
+}
+
 func TestHasDocsIndexFSRejectsMissingIndex(t *testing.T) {
 	if hasDocsIndexFS(fstest.MapFS{}) {
 		t.Fatal("hasDocsIndexFS returned true for an empty filesystem")
@@ -137,5 +173,13 @@ func TestDocsTLSEnabledAndOptions(t *testing.T) {
 	opts := docsTLSOptions()
 	if opts.ServerCert != m.ServerCert || opts.ServerKey != m.ServerKey {
 		t.Fatalf("docs TLS options = %+v, want cert/key from local PKI", opts)
+	}
+}
+
+func assertDocsHeader(t *testing.T, rec *httptest.ResponseRecorder, key, want string) {
+	t.Helper()
+
+	if got := rec.Header().Get(key); got != want {
+		t.Fatalf("%s = %q, want %q", key, got, want)
 	}
 }
