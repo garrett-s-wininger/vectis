@@ -1437,6 +1437,115 @@ func TestRunsRepository_ActivatePlannedChildTaskExecutionsFansOutDirectChildren(
 	}
 }
 
+func TestRunsRepository_MarkExecutionSucceededAndActivateChildren(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-task-success-fanout", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-task-success-fanout"
+	def := `{"id":"job-task-success-fanout","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	rootDispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get root pending execution: %v", err)
+	}
+
+	setup, _, err := repos.Runs().EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:    runID,
+		TaskKey:  "setup",
+		SpecHash: "sha256:setup",
+	})
+	if err != nil {
+		t.Fatalf("ensure setup: %v", err)
+	}
+
+	build, _, err := repos.Runs().EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:    runID,
+		TaskKey:  "build",
+		SpecHash: "sha256:build",
+	})
+	if err != nil {
+		t.Fatalf("ensure build: %v", err)
+	}
+
+	compile, _, err := repos.Runs().EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:        runID,
+		ParentTaskID: setup.TaskID,
+		TaskKey:      "compile",
+		SpecHash:     "sha256:compile",
+	})
+	if err != nil {
+		t.Fatalf("ensure compile: %v", err)
+	}
+
+	children, activated, err := repos.Runs().MarkExecutionSucceededAndActivateChildren(ctx, rootDispatch.ExecutionID)
+	if err != nil {
+		t.Fatalf("MarkExecutionSucceededAndActivateChildren root: %v", err)
+	}
+
+	if activated != 2 || len(children) != 2 {
+		t.Fatalf("root success fan-out: activated=%d children=%+v", activated, children)
+	}
+
+	byKey := taskExecutionRecordsByKey(children)
+	if byKey["setup"] != setup || byKey["build"] != build {
+		t.Fatalf("root success children mismatch: %+v", children)
+	}
+
+	assertExecutionAndSegmentStatus(t, db, rootDispatch.ExecutionID, rootDispatch.SegmentID, dal.ExecutionStatusSucceeded, dal.SegmentStatusSucceeded, 1)
+	assertRootTaskAndAttemptStatus(t, db, runID, dal.TaskStatusSucceeded, dal.TaskStatusSucceeded, 1)
+	assertTaskExecutionStatuses(t, db, setup, dal.TaskStatusPending, dal.SegmentStatusPending, dal.ExecutionStatusPending, 0)
+	assertTaskExecutionStatuses(t, db, build, dal.TaskStatusPending, dal.SegmentStatusPending, dal.ExecutionStatusPending, 0)
+	assertTaskExecutionStatuses(t, db, compile, dal.TaskStatusPlanned, dal.SegmentStatusPlanned, dal.ExecutionStatusPlanned, 0)
+
+	children, activated, err = repos.Runs().MarkExecutionSucceededAndActivateChildren(ctx, rootDispatch.ExecutionID)
+	if err != nil {
+		t.Fatalf("idempotent root success fan-out: %v", err)
+	}
+
+	if activated != 0 || len(children) != 2 {
+		t.Fatalf("idempotent root success fan-out: activated=%d children=%+v", activated, children)
+	}
+
+	grandchildren, activated, err := repos.Runs().MarkExecutionSucceededAndActivateChildren(ctx, setup.ExecutionID)
+	if err != nil {
+		t.Fatalf("setup success fan-out: %v", err)
+	}
+
+	if activated != 1 || len(grandchildren) != 1 || grandchildren[0] != compile {
+		t.Fatalf("setup success children: activated=%d grandchildren=%+v", activated, grandchildren)
+	}
+
+	assertExecutionAndSegmentStatus(t, db, setup.ExecutionID, setup.SegmentID, dal.ExecutionStatusSucceeded, dal.SegmentStatusSucceeded, 1)
+	assertTaskAndAttemptStatus(t, db, setup.TaskID, 1, dal.TaskStatusSucceeded, dal.TaskStatusSucceeded, 1)
+	assertTaskExecutionStatuses(t, db, compile, dal.TaskStatusPending, dal.SegmentStatusPending, dal.ExecutionStatusPending, 0)
+
+	if err := repos.Runs().MarkExecutionTerminal(ctx, build.ExecutionID, dal.ExecutionStatusFailed); err != nil {
+		t.Fatalf("mark build failed: %v", err)
+	}
+
+	if _, _, err := repos.Runs().MarkExecutionSucceededAndActivateChildren(ctx, build.ExecutionID); !dal.IsConflict(err) {
+		t.Fatalf("failed execution success fan-out should conflict, got %v", err)
+	}
+
+	if _, _, err := repos.Runs().MarkExecutionSucceededAndActivateChildren(ctx, "missing-execution"); !dal.IsNotFound(err) {
+		t.Fatalf("missing execution success fan-out should return not found, got %v", err)
+	}
+}
+
 func TestSQLRepositories_CreateDefinitionAndRunInCell_TargetsExecutionCell(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")

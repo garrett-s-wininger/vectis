@@ -454,6 +454,7 @@ type RunsRepository interface {
 	MarkExecutionAccepted(ctx context.Context, executionID string) error
 	MarkExecutionStarted(ctx context.Context, executionID string) error
 	MarkExecutionTerminal(ctx context.Context, executionID, status string) error
+	MarkExecutionSucceededAndActivateChildren(ctx context.Context, executionID string) ([]TaskExecutionRecord, int, error)
 	CountByStatus(ctx context.Context, status string) (int64, error)
 	CountByStatusByCell(ctx context.Context, status string) ([]RunCountByCell, error)
 	CountStuckBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) (int64, error)

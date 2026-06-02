@@ -283,6 +283,7 @@ type MockRunsRepository struct {
 	LastTaskExecution     dal.TaskExecutionCreate
 	LastActivatedTaskID   string
 	LastActivatedParentID string
+	LastSucceededExecID   string
 	LastRunStatusUpdate   dal.RunStatusUpdate
 	LastExecStatusUpdate  dal.ExecutionStatusUpdate
 }
@@ -890,6 +891,23 @@ func (m *MockRunsRepository) MarkExecutionTerminal(ctx context.Context, executio
 	m.ExecutionTransitions = append(m.ExecutionTransitions, executionID+":"+status)
 	m.mu.Unlock()
 	return nil
+}
+
+func (m *MockRunsRepository) MarkExecutionSucceededAndActivateChildren(ctx context.Context, executionID string) ([]dal.TaskExecutionRecord, int, error) {
+	if m.MarkExecutionErr != nil {
+		return nil, 0, m.MarkExecutionErr
+	}
+
+	if m.ActivateTaskErr != nil {
+		return nil, 0, m.ActivateTaskErr
+	}
+
+	m.mu.Lock()
+	m.LastSucceededExecID = executionID
+	m.ExecutionTransitions = append(m.ExecutionTransitions, executionID+":"+dal.ExecutionStatusSucceeded)
+	m.mu.Unlock()
+
+	return append([]dal.TaskExecutionRecord(nil), m.TaskExecutions...), m.TaskActivatedN, nil
 }
 
 func (m *MockRunsRepository) GetRunJobID(ctx context.Context, runID string) (string, error) {

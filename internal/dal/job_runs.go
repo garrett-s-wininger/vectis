@@ -1468,6 +1468,19 @@ func (r *SQLRunsRepository) ActivatePlannedChildTaskExecutions(ctx context.Conte
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	records, activatedCount, err := activatePlannedChildTaskExecutionsTx(ctx, tx, parentTaskID)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, 0, err
+	}
+
+	return records, activatedCount, nil
+}
+
+func activatePlannedChildTaskExecutionsTx(ctx context.Context, tx *sql.Tx, parentTaskID string) ([]TaskExecutionRecord, int, error) {
 	if err := ensureTaskExistsTx(ctx, tx, parentTaskID); err != nil {
 		return nil, 0, err
 	}
@@ -1506,10 +1519,6 @@ func (r *SQLRunsRepository) ActivatePlannedChildTaskExecutions(ctx context.Conte
 				snapshot.ExecutionStatus,
 			)
 		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		return nil, 0, err
 	}
 
 	return records, activatedCount, nil
@@ -2029,6 +2038,30 @@ func (r *SQLRunsRepository) MarkExecutionTerminal(ctx context.Context, execution
 	return r.transitionExecution(ctx, executionID, status, status, []string{ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}, true, false, true)
 }
 
+func (r *SQLRunsRepository) MarkExecutionSucceededAndActivateChildren(ctx context.Context, executionID string) ([]TaskExecutionRecord, int, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	taskID, err := transitionExecutionTx(ctx, tx, executionID, ExecutionStatusSucceeded, SegmentStatusSucceeded, []string{ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}, true, false, true)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	children, activated, err := activatePlannedChildTaskExecutionsTx(ctx, tx, taskID)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, 0, err
+	}
+
+	return children, activated, nil
+}
+
 func (r *SQLRunsRepository) transitionExecution(
 	ctx context.Context,
 	executionID, targetStatus, targetSegmentStatus string,
@@ -2041,6 +2074,20 @@ func (r *SQLRunsRepository) transitionExecution(
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if _, err := transitionExecutionTx(ctx, tx, executionID, targetStatus, targetSegmentStatus, allowedFrom, markAccepted, markStarted, markFinished); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func transitionExecutionTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	executionID, targetStatus, targetSegmentStatus string,
+	allowedFrom []string,
+	markAccepted, markStarted, markFinished bool,
+) (string, error) {
 	var segmentID string
 	var runID string
 	var taskID string
@@ -2052,18 +2099,18 @@ func (r *SQLRunsRepository) transitionExecution(
 		executionID,
 	).Scan(&segmentID, &runID, &taskID, &taskAttemptID, &attempt, &currentStatus); err != nil {
 		if err == sql.ErrNoRows {
-			return fmt.Errorf("%w: execution %s", ErrNotFound, executionID)
+			return "", fmt.Errorf("%w: execution %s", ErrNotFound, executionID)
 		}
 
-		return normalizeSQLError(err)
+		return "", normalizeSQLError(err)
 	}
 
 	if currentStatus == targetStatus {
-		return nil
+		return taskID, nil
 	}
 
 	if !statusIn(currentStatus, allowedFrom) {
-		return fmt.Errorf("%w: execution %s status %s cannot transition to %s", ErrConflict, executionID, currentStatus, targetStatus)
+		return "", fmt.Errorf("%w: execution %s status %s cannot transition to %s", ErrConflict, executionID, currentStatus, targetStatus)
 	}
 
 	setParts := []string{"status = ?"}
@@ -2087,7 +2134,7 @@ func (r *SQLRunsRepository) transitionExecution(
 		rebindQueryForPgx("UPDATE segment_executions SET "+strings.Join(setParts, ", ")+" WHERE execution_id = ?"),
 		args...,
 	); err != nil {
-		return normalizeSQLError(err)
+		return "", normalizeSQLError(err)
 	}
 
 	if _, err := tx.ExecContext(ctx,
@@ -2095,14 +2142,14 @@ func (r *SQLRunsRepository) transitionExecution(
 		targetSegmentStatus,
 		segmentID,
 	); err != nil {
-		return normalizeSQLError(err)
+		return "", normalizeSQLError(err)
 	}
 
 	if err := transitionTaskAttemptTx(ctx, tx, taskID, taskAttemptID, attempt, targetStatus, targetSegmentStatus, markAccepted, markStarted, markFinished); err != nil {
-		return err
+		return "", err
 	}
 
-	return tx.Commit()
+	return taskID, nil
 }
 
 func transitionTaskAttemptTx(
