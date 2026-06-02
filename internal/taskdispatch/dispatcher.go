@@ -1,0 +1,143 @@
+package taskdispatch
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	api "vectis/api/gen/go"
+	"vectis/internal/cell"
+	"vectis/internal/dal"
+	"vectis/internal/interfaces"
+
+	"google.golang.org/protobuf/encoding/protojson"
+)
+
+const defaultDrainLimit = 100
+
+type Dispatcher struct {
+	runs    dal.RunsRepository
+	intents dal.TaskDispatchIntentsRepository
+	ingress cell.ExecutionIngress
+	clock   interfaces.Clock
+}
+
+type DrainOptions struct {
+	CellID              string
+	Limit               int
+	RetryCutoffUnixNano int64
+}
+
+type DrainResult struct {
+	Listed   int
+	Enqueued int
+	Failed   int
+}
+
+func New(runs dal.RunsRepository, intents dal.TaskDispatchIntentsRepository, ingress cell.ExecutionIngress, clock interfaces.Clock) *Dispatcher {
+	if clock == nil {
+		clock = interfaces.SystemClock{}
+	}
+
+	return &Dispatcher{
+		runs:    runs,
+		intents: intents,
+		ingress: ingress,
+		clock:   clock,
+	}
+}
+
+func (d *Dispatcher) Drain(ctx context.Context, opts DrainOptions) (DrainResult, error) {
+	if d == nil {
+		return DrainResult{}, errors.New("task dispatcher is required")
+	}
+
+	if d.runs == nil {
+		return DrainResult{}, errors.New("runs repository is required")
+	}
+
+	if d.intents == nil {
+		return DrainResult{}, errors.New("task dispatch intents repository is required")
+	}
+
+	if d.ingress == nil {
+		return DrainResult{}, errors.New("execution ingress is required")
+	}
+
+	limit := opts.Limit
+	if limit <= 0 {
+		limit = defaultDrainLimit
+	}
+
+	cutoff := opts.RetryCutoffUnixNano
+	if cutoff <= 0 {
+		cutoff = d.clock.Now().UnixNano()
+	}
+
+	pending, err := d.intents.ListPending(ctx, opts.CellID, cutoff, limit)
+	if err != nil {
+		return DrainResult{}, fmt.Errorf("list pending task dispatch intents: %w", err)
+	}
+
+	result := DrainResult{Listed: len(pending)}
+	for _, intent := range pending {
+		attemptedAt := d.clock.Now().UnixNano()
+		if err := d.dispatchOne(ctx, intent, attemptedAt); err != nil {
+			result.Failed++
+			if markErr := d.intents.MarkEnqueueFailed(ctx, intent.ExecutionID, attemptedAt, err.Error()); markErr != nil {
+				return result, fmt.Errorf("mark task dispatch intent %s failed after dispatch error %q: %w", intent.ExecutionID, err.Error(), markErr)
+			}
+
+			continue
+		}
+
+		if err := d.intents.MarkEnqueued(ctx, intent.ExecutionID, d.clock.Now().UnixNano()); err != nil {
+			return result, fmt.Errorf("mark task dispatch intent %s enqueued: %w", intent.ExecutionID, err)
+		}
+
+		result.Enqueued++
+	}
+
+	return result, nil
+}
+
+func (d *Dispatcher) dispatchOne(ctx context.Context, intent dal.TaskDispatchIntent, createdAtUnixNano int64) error {
+	req, err := d.requestForIntent(ctx, intent, createdAtUnixNano)
+	if err != nil {
+		return err
+	}
+
+	submission, err := cell.NewExecutionSubmission(req)
+	if err != nil {
+		return fmt.Errorf("execution submission: %w", err)
+	}
+
+	if err := d.ingress.SubmitExecution(ctx, submission); err != nil {
+		return fmt.Errorf("submit execution: %w", err)
+	}
+
+	return nil
+}
+
+func (d *Dispatcher) requestForIntent(ctx context.Context, intent dal.TaskDispatchIntent, createdAtUnixNano int64) (*api.JobRequest, error) {
+	dispatch, err := d.runs.GetExecutionDispatch(ctx, intent.ExecutionID)
+	if err != nil {
+		return nil, fmt.Errorf("load execution dispatch record: %w", err)
+	}
+
+	payload, err := d.runs.GetExecutionPayloadForRun(ctx, dispatch.RunID)
+	if err != nil {
+		return nil, fmt.Errorf("load execution payload: %w", err)
+	}
+
+	var req api.JobRequest
+	if err := protojson.Unmarshal([]byte(payload.PayloadJSON), &req); err != nil {
+		return nil, fmt.Errorf("parse execution payload: %w", err)
+	}
+
+	if _, err := cell.AttachExecutionEnvelope(&req, dispatch, createdAtUnixNano); err != nil {
+		return nil, fmt.Errorf("attach execution envelope: %w", err)
+	}
+
+	return &req, nil
+}

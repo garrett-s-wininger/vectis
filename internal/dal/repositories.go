@@ -483,6 +483,7 @@ type RunsRepository interface {
 	ActivatePlannedChildTaskExecutions(ctx context.Context, parentTaskID string) ([]TaskExecutionRecord, int, error)
 	ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]QueuedRun, error)
 	GetPendingExecution(ctx context.Context, runID string) (ExecutionDispatchRecord, error)
+	GetExecutionDispatch(ctx context.Context, executionID string) (ExecutionDispatchRecord, error)
 	MarkExecutionAccepted(ctx context.Context, executionID string) error
 	MarkExecutionStarted(ctx context.Context, executionID string) error
 	MarkExecutionTerminal(ctx context.Context, executionID, status string) error

@@ -252,16 +252,17 @@ type MockRunsRepository struct {
 	LogShardID      string
 	LogShardSet     bool
 
-	ListByJobResults []dal.RunRecord
-	TaskRecords      []dal.TaskRecord
-	TaskExecution    dal.TaskExecutionRecord
-	TaskCreated      bool
-	TaskActivated    bool
-	TaskExecutions   []dal.TaskExecutionRecord
-	TaskActivatedN   int
-	RunRecords       map[string]dal.RunRecord
-	QueuedRuns       []dal.QueuedRun
-	PendingExecution dal.ExecutionDispatchRecord
+	ListByJobResults    []dal.RunRecord
+	TaskRecords         []dal.TaskRecord
+	TaskExecution       dal.TaskExecutionRecord
+	TaskCreated         bool
+	TaskActivated       bool
+	TaskExecutions      []dal.TaskExecutionRecord
+	TaskActivatedN      int
+	RunRecords          map[string]dal.RunRecord
+	QueuedRuns          []dal.QueuedRun
+	PendingExecution    dal.ExecutionDispatchRecord
+	ExecutionDispatches map[string]dal.ExecutionDispatchRecord
 
 	TouchedRunIDs        []string
 	ExecutionTransitions []string
@@ -807,6 +808,25 @@ func (m *MockRunsRepository) GetPendingExecution(ctx context.Context, runID stri
 	rec := m.PendingExecution
 	if rec.RunID == "" {
 		rec.RunID = runID
+	}
+
+	return rec, nil
+}
+
+func (m *MockRunsRepository) GetExecutionDispatch(ctx context.Context, executionID string) (dal.ExecutionDispatchRecord, error) {
+	if m.PendingExecutionErr != nil {
+		return dal.ExecutionDispatchRecord{}, m.PendingExecutionErr
+	}
+
+	if m.ExecutionDispatches != nil {
+		if rec, ok := m.ExecutionDispatches[executionID]; ok {
+			return rec, nil
+		}
+	}
+
+	rec := m.PendingExecution
+	if rec.ExecutionID == "" {
+		rec.ExecutionID = executionID
 	}
 
 	return rec, nil

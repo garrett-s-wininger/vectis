@@ -69,13 +69,19 @@ func (r *SQLTaskDispatchIntentsRepository) ListPending(ctx context.Context, cell
 			tdi.updated_at
 		FROM task_dispatch_intents tdi
 		JOIN segment_executions se ON se.execution_id = tdi.execution_id
+		JOIN run_segments rs ON rs.segment_id = se.segment_id AND rs.run_id = tdi.run_id
+		JOIN run_tasks rt ON rt.task_id = tdi.task_id AND rt.run_id = tdi.run_id
+		JOIN task_attempts ta ON ta.attempt_id = tdi.task_attempt_id AND ta.task_id = rt.task_id AND ta.run_id = tdi.run_id
 		WHERE tdi.cell_id = ?
 			AND tdi.enqueued_at IS NULL
+			AND rs.status = ?
 			AND se.status = ?
+			AND rt.status = ?
+			AND ta.status = ?
 			AND (tdi.last_enqueue_attempt_at IS NULL OR tdi.last_enqueue_attempt_at <= ?)
 		ORDER BY tdi.id ASC
 		LIMIT ?
-	`), cellID, ExecutionStatusPending, cutoffUnixNano, limit)
+	`), cellID, SegmentStatusPending, ExecutionStatusPending, TaskStatusPending, TaskStatusPending, cutoffUnixNano, limit)
 
 	if err != nil {
 		return nil, normalizeSQLError(err)

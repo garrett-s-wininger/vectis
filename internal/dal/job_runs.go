@@ -1959,8 +1959,7 @@ func (r *SQLRunsRepository) ListQueuedBeforeDispatchCutoff(ctx context.Context, 
 }
 
 func (r *SQLRunsRepository) GetPendingExecution(ctx context.Context, runID string) (ExecutionDispatchRecord, error) {
-	var rec ExecutionDispatchRecord
-	err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+	rec, err := scanExecutionDispatchRecord(r.db.QueryRowContext(ctx, rebindQueryForPgx(`
 		SELECT
 			jr.run_id,
 			jr.job_id,
@@ -1991,7 +1990,75 @@ func (r *SQLRunsRepository) GetPendingExecution(ctx context.Context, runID strin
 			AND ta.status = ?
 		ORDER BY rs.id ASC, se.attempt ASC, se.id ASC
 		LIMIT 1
-	`), runID, SegmentStatusPending, ExecutionStatusPending, TaskStatusPending, TaskStatusPending).Scan(
+	`), runID, SegmentStatusPending, ExecutionStatusPending, TaskStatusPending, TaskStatusPending))
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return ExecutionDispatchRecord{}, fmt.Errorf("%w: pending execution for run %s", ErrNotFound, runID)
+		}
+
+		return ExecutionDispatchRecord{}, normalizeSQLError(err)
+	}
+
+	return rec, nil
+}
+
+func (r *SQLRunsRepository) GetExecutionDispatch(ctx context.Context, executionID string) (ExecutionDispatchRecord, error) {
+	executionID = strings.TrimSpace(executionID)
+	if executionID == "" {
+		return ExecutionDispatchRecord{}, fmt.Errorf("%w: execution_id is required", ErrNotFound)
+	}
+
+	rec, err := scanExecutionDispatchRecord(r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT
+			jr.run_id,
+			jr.job_id,
+			jr.run_index,
+			rt.task_id,
+			rt.task_key,
+			rt.name,
+			ta.attempt_id,
+			rs.segment_id,
+			rs.name,
+			rs.status,
+			se.execution_id,
+			se.status,
+			se.cell_id,
+			se.attempt,
+			jr.definition_version,
+			jr.definition_hash,
+			jr.owning_cell
+		FROM segment_executions se
+		JOIN job_runs jr ON jr.run_id = se.run_id
+		JOIN run_segments rs ON rs.segment_id = se.segment_id AND rs.run_id = jr.run_id
+		JOIN run_tasks rt ON rt.task_id = se.task_id AND rt.run_id = jr.run_id
+		JOIN task_attempts ta ON ta.attempt_id = se.task_attempt_id AND ta.task_id = rt.task_id AND ta.run_id = jr.run_id AND ta.attempt = se.attempt
+		WHERE se.execution_id = ?
+			AND rs.status = ?
+			AND se.status = ?
+			AND rt.status = ?
+			AND ta.status = ?
+		LIMIT 1
+	`), executionID, SegmentStatusPending, ExecutionStatusPending, TaskStatusPending, TaskStatusPending))
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return ExecutionDispatchRecord{}, fmt.Errorf("%w: pending execution %s", ErrNotFound, executionID)
+		}
+
+		return ExecutionDispatchRecord{}, normalizeSQLError(err)
+	}
+
+	return rec, nil
+}
+
+type executionDispatchRecordScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanExecutionDispatchRecord(scanner executionDispatchRecordScanner) (ExecutionDispatchRecord, error) {
+	var rec ExecutionDispatchRecord
+	if err := scanner.Scan(
 		&rec.RunID,
 		&rec.JobID,
 		&rec.RunIndex,
@@ -2009,14 +2076,8 @@ func (r *SQLRunsRepository) GetPendingExecution(ctx context.Context, runID strin
 		&rec.DefinitionVersion,
 		&rec.DefinitionHash,
 		&rec.OwningCell,
-	)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return ExecutionDispatchRecord{}, fmt.Errorf("%w: pending execution for run %s", ErrNotFound, runID)
-		}
-
-		return ExecutionDispatchRecord{}, normalizeSQLError(err)
+	); err != nil {
+		return ExecutionDispatchRecord{}, err
 	}
 
 	return rec, nil
