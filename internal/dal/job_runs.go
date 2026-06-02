@@ -1480,8 +1480,8 @@ func (r *SQLRunsRepository) GetPendingExecution(ctx context.Context, runID strin
 		FROM job_runs jr
 		JOIN run_segments rs ON rs.run_id = jr.run_id
 		JOIN segment_executions se ON se.segment_id = rs.segment_id
-		JOIN run_tasks rt ON rt.run_id = jr.run_id AND rt.task_key = ?
-		JOIN task_attempts ta ON ta.task_id = rt.task_id AND ta.attempt = se.attempt
+		JOIN run_tasks rt ON rt.task_id = se.task_id AND rt.run_id = jr.run_id
+		JOIN task_attempts ta ON ta.attempt_id = se.task_attempt_id AND ta.task_id = rt.task_id AND ta.run_id = jr.run_id AND ta.attempt = se.attempt
 		WHERE jr.run_id = ?
 			AND rs.status = ?
 			AND se.status = ?
@@ -1489,7 +1489,7 @@ func (r *SQLRunsRepository) GetPendingExecution(ctx context.Context, runID strin
 			AND ta.status = ?
 		ORDER BY rs.id ASC, se.attempt ASC, se.id ASC
 		LIMIT 1
-	`), RootTaskKey, runID, SegmentStatusPending, ExecutionStatusPending, TaskStatusPending, TaskStatusPending).Scan(
+	`), runID, SegmentStatusPending, ExecutionStatusPending, TaskStatusPending, TaskStatusPending).Scan(
 		&rec.RunID,
 		&rec.JobID,
 		&rec.RunIndex,
@@ -1550,12 +1550,14 @@ func (r *SQLRunsRepository) transitionExecution(
 
 	var segmentID string
 	var runID string
+	var taskID string
+	var taskAttemptID string
 	var attempt int
 	var currentStatus string
 	if err := tx.QueryRowContext(ctx,
-		rebindQueryForPgx("SELECT segment_id, run_id, attempt, status FROM segment_executions WHERE execution_id = ?"),
+		rebindQueryForPgx("SELECT segment_id, run_id, task_id, task_attempt_id, attempt, status FROM segment_executions WHERE execution_id = ?"),
 		executionID,
-	).Scan(&segmentID, &runID, &attempt, &currentStatus); err != nil {
+	).Scan(&segmentID, &runID, &taskID, &taskAttemptID, &attempt, &currentStatus); err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("%w: execution %s", ErrNotFound, executionID)
 		}
@@ -1603,17 +1605,18 @@ func (r *SQLRunsRepository) transitionExecution(
 		return normalizeSQLError(err)
 	}
 
-	if err := transitionRootTaskAttemptTx(ctx, tx, runID, attempt, targetStatus, targetSegmentStatus, markAccepted, markStarted, markFinished); err != nil {
+	if err := transitionTaskAttemptTx(ctx, tx, taskID, taskAttemptID, attempt, targetStatus, targetSegmentStatus, markAccepted, markStarted, markFinished); err != nil {
 		return err
 	}
 
 	return tx.Commit()
 }
 
-func transitionRootTaskAttemptTx(
+func transitionTaskAttemptTx(
 	ctx context.Context,
 	tx *sql.Tx,
-	runID string,
+	taskID string,
+	taskAttemptID string,
 	attempt int,
 	targetAttemptStatus string,
 	targetTaskStatus string,
@@ -1621,7 +1624,6 @@ func transitionRootTaskAttemptTx(
 	markStarted bool,
 	markFinished bool,
 ) error {
-	taskID := rootTaskID(runID)
 	setParts := []string{"status = ?"}
 	args := []any{targetAttemptStatus}
 	if markAccepted {
@@ -1637,10 +1639,10 @@ func transitionRootTaskAttemptTx(
 	}
 
 	setParts = append(setParts, "last_observed_at = ?", "event_sequence = event_sequence + 1", "updated_at = CURRENT_TIMESTAMP")
-	args = append(args, time.Now().UnixNano(), taskID, attempt)
+	args = append(args, time.Now().UnixNano(), taskAttemptID, taskID, attempt)
 
 	if _, err := tx.ExecContext(ctx,
-		rebindQueryForPgx("UPDATE task_attempts SET "+strings.Join(setParts, ", ")+" WHERE task_id = ? AND attempt = ?"),
+		rebindQueryForPgx("UPDATE task_attempts SET "+strings.Join(setParts, ", ")+" WHERE attempt_id = ? AND task_id = ? AND attempt = ?"),
 		args...,
 	); err != nil {
 		return normalizeSQLError(err)

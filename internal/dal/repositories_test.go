@@ -338,6 +338,7 @@ func TestCellExecutionAcceptances_AcceptExecutionMaterializesLocalRows(t *testin
 		t.Fatalf("execution status: got %q, want %q", executionStatus, dal.ExecutionStatusAccepted)
 	}
 
+	assertExecutionTaskLink(t, db, acceptance.ExecutionID, acceptance.RunID+":root", acceptance.RunID+":root:attempt:1")
 	assertRootTaskAndAttemptStatus(t, db, acceptance.RunID, dal.TaskStatusAccepted, dal.TaskStatusAccepted, 1)
 
 	var definitionHash string
@@ -604,6 +605,7 @@ func TestSQLRepositoriesWithCellID_WritesHomeAndOwningCell(t *testing.T) {
 	if dispatch.TaskAttemptID != runID+":root:attempt:1" {
 		t.Fatalf("dispatch task attempt id: got %q, want %s:root:attempt:1", dispatch.TaskAttemptID, runID)
 	}
+	assertExecutionTaskLink(t, db, dispatch.ExecutionID, dispatch.TaskID, dispatch.TaskAttemptID)
 
 	if dispatch.SegmentName != "root" {
 		t.Fatalf("dispatch segment name: got %q, want root", dispatch.SegmentName)
@@ -1178,6 +1180,60 @@ func TestRunsRepository_ExecutionTransitions(t *testing.T) {
 	}
 }
 
+func TestRunsRepository_DispatchAndTransitionsUseLinkedTaskAttempt(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-linked-task", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-linked-task"
+	def := `{"id":"job-linked-task","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	rootDispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get root pending execution: %v", err)
+	}
+
+	childTaskID, childAttemptID, childSegmentID, childExecutionID := insertLinkedPendingExecution(t, db, runID, "child")
+
+	if err := repos.Runs().MarkExecutionAccepted(ctx, rootDispatch.ExecutionID); err != nil {
+		t.Fatalf("mark root accepted: %v", err)
+	}
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get child pending execution: %v", err)
+	}
+
+	if dispatch.ExecutionID != childExecutionID {
+		t.Fatalf("dispatch execution id: got %q, want %q", dispatch.ExecutionID, childExecutionID)
+	}
+
+	if dispatch.TaskID != childTaskID || dispatch.TaskKey != "child" || dispatch.TaskName != "child" || dispatch.TaskAttemptID != childAttemptID {
+		t.Fatalf("dispatch task identity: got task=%q key=%q name=%q attempt=%q", dispatch.TaskID, dispatch.TaskKey, dispatch.TaskName, dispatch.TaskAttemptID)
+	}
+
+	if err := repos.Runs().MarkExecutionAccepted(ctx, childExecutionID); err != nil {
+		t.Fatalf("mark child accepted: %v", err)
+	}
+
+	assertExecutionAndSegmentStatus(t, db, childExecutionID, childSegmentID, dal.ExecutionStatusAccepted, dal.SegmentStatusAccepted, 1)
+	assertTaskAndAttemptStatus(t, db, childTaskID, 1, dal.TaskStatusAccepted, dal.TaskStatusAccepted, 1)
+	assertRootTaskAndAttemptStatus(t, db, runID, dal.TaskStatusAccepted, dal.TaskStatusAccepted, 1)
+}
+
 func TestRunCatalogUpdater_AppliesRunAndExecutionStatusUpdates(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)
@@ -1472,6 +1528,77 @@ func TestCatalogEventsRepository_RejectsInvalidRecords(t *testing.T) {
 	}
 }
 
+func insertLinkedPendingExecution(t *testing.T, db *sql.DB, runID, taskKey string) (taskID, taskAttemptID, segmentID, executionID string) {
+	t.Helper()
+
+	taskID = runID + ":" + taskKey
+	taskAttemptID = taskID + ":attempt:1"
+	segmentID = runID + ":" + taskKey + ":segment"
+	executionID = runID + ":" + taskKey + ":execution"
+
+	if _, err := db.Exec(
+		"INSERT INTO run_tasks (task_id, run_id, task_key, name, status) VALUES (?, ?, ?, ?, ?)",
+		taskID,
+		runID,
+		taskKey,
+		taskKey,
+		dal.TaskStatusPending,
+	); err != nil {
+		t.Fatalf("insert linked task: %v", err)
+	}
+
+	if _, err := db.Exec(
+		"INSERT INTO task_attempts (attempt_id, task_id, run_id, cell_id, status, attempt) VALUES (?, ?, ?, ?, ?, ?)",
+		taskAttemptID,
+		taskID,
+		runID,
+		dal.DefaultCellID,
+		dal.TaskStatusPending,
+		1,
+	); err != nil {
+		t.Fatalf("insert linked task attempt: %v", err)
+	}
+
+	if _, err := db.Exec(
+		"INSERT INTO run_segments (segment_id, run_id, name, status) VALUES (?, ?, ?, ?)",
+		segmentID,
+		runID,
+		taskKey,
+		dal.SegmentStatusPending,
+	); err != nil {
+		t.Fatalf("insert linked segment: %v", err)
+	}
+
+	if _, err := db.Exec(
+		"INSERT INTO segment_executions (execution_id, segment_id, run_id, task_id, task_attempt_id, cell_id, status, attempt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		executionID,
+		segmentID,
+		runID,
+		taskID,
+		taskAttemptID,
+		dal.DefaultCellID,
+		dal.ExecutionStatusPending,
+		1,
+	); err != nil {
+		t.Fatalf("insert linked execution: %v", err)
+	}
+
+	return taskID, taskAttemptID, segmentID, executionID
+}
+
+func assertExecutionTaskLink(t *testing.T, db *sql.DB, executionID, wantTaskID, wantTaskAttemptID string) {
+	t.Helper()
+
+	var taskID, taskAttemptID string
+	if err := db.QueryRow("SELECT task_id, task_attempt_id FROM segment_executions WHERE execution_id = ?", executionID).Scan(&taskID, &taskAttemptID); err != nil {
+		t.Fatalf("query execution task link: %v", err)
+	}
+
+	if taskID != wantTaskID || taskAttemptID != wantTaskAttemptID {
+		t.Fatalf("execution task link: got task=%q attempt=%q, want task=%q attempt=%q", taskID, taskAttemptID, wantTaskID, wantTaskAttemptID)
+	}
+}
+
 func assertExecutionAndSegmentStatus(t *testing.T, db *sql.DB, executionID, segmentID, wantExecutionStatus, wantSegmentStatus string, wantEventSequence int64) {
 	t.Helper()
 
@@ -1521,47 +1648,52 @@ func assertExecutionAndSegmentStatus(t *testing.T, db *sql.DB, executionID, segm
 func assertRootTaskAndAttemptStatus(t *testing.T, db *sql.DB, runID, wantTaskStatus, wantAttemptStatus string, wantEventSequence int64) {
 	t.Helper()
 
-	taskID := runID + ":" + dal.RootTaskKey
+	assertTaskAndAttemptStatus(t, db, runID+":"+dal.RootTaskKey, 1, wantTaskStatus, wantAttemptStatus, wantEventSequence)
+}
+
+func assertTaskAndAttemptStatus(t *testing.T, db *sql.DB, taskID string, attempt int, wantTaskStatus, wantAttemptStatus string, wantEventSequence int64) {
+	t.Helper()
+
 	var taskStatus string
 	if err := db.QueryRow("SELECT status FROM run_tasks WHERE task_id = ?", taskID).Scan(&taskStatus); err != nil {
-		t.Fatalf("query root task status: %v", err)
+		t.Fatalf("query task status: %v", err)
 	}
 
 	if taskStatus != wantTaskStatus {
-		t.Fatalf("root task status: got %q, want %q", taskStatus, wantTaskStatus)
+		t.Fatalf("task status: got %q, want %q", taskStatus, wantTaskStatus)
 	}
 
 	var attemptStatus string
 	var eventSequence int64
 	var acceptedAt, startedAt, finishedAt sql.NullString
 	var lastObservedAt sql.NullInt64
-	if err := db.QueryRow("SELECT status, accepted_at, started_at, finished_at, last_observed_at, event_sequence FROM task_attempts WHERE task_id = ? AND attempt = 1", taskID).
+	if err := db.QueryRow("SELECT status, accepted_at, started_at, finished_at, last_observed_at, event_sequence FROM task_attempts WHERE task_id = ? AND attempt = ?", taskID, attempt).
 		Scan(&attemptStatus, &acceptedAt, &startedAt, &finishedAt, &lastObservedAt, &eventSequence); err != nil {
-		t.Fatalf("query root task attempt status: %v", err)
+		t.Fatalf("query task attempt status: %v", err)
 	}
 
 	if attemptStatus != wantAttemptStatus {
-		t.Fatalf("root task attempt status: got %q, want %q", attemptStatus, wantAttemptStatus)
+		t.Fatalf("task attempt status: got %q, want %q", attemptStatus, wantAttemptStatus)
 	}
 
 	if eventSequence != wantEventSequence {
-		t.Fatalf("root task attempt event sequence: got %d, want %d", eventSequence, wantEventSequence)
+		t.Fatalf("task attempt event sequence: got %d, want %d", eventSequence, wantEventSequence)
 	}
 
 	if !lastObservedAt.Valid || lastObservedAt.Int64 == 0 {
-		t.Fatalf("root task attempt last_observed_at was not set")
+		t.Fatalf("task attempt last_observed_at was not set")
 	}
 
 	if !acceptedAt.Valid {
-		t.Fatalf("root task attempt accepted_at was not set")
+		t.Fatalf("task attempt accepted_at was not set")
 	}
 
 	if wantAttemptStatus == dal.TaskStatusRunning && !startedAt.Valid {
-		t.Fatalf("root task attempt started_at was not set")
+		t.Fatalf("task attempt started_at was not set")
 	}
 
 	if wantAttemptStatus == dal.TaskStatusSucceeded && !finishedAt.Valid {
-		t.Fatalf("root task attempt finished_at was not set")
+		t.Fatalf("task attempt finished_at was not set")
 	}
 }
 

@@ -154,6 +154,8 @@ CREATE TABLE segment_executions (
     execution_id TEXT UNIQUE NOT NULL,
     segment_id TEXT NOT NULL REFERENCES run_segments(segment_id) ON DELETE CASCADE,
     run_id TEXT NOT NULL REFERENCES job_runs(run_id) ON DELETE CASCADE,
+    task_id TEXT NOT NULL REFERENCES run_tasks(task_id) ON DELETE CASCADE,
+    task_attempt_id TEXT NOT NULL REFERENCES task_attempts(attempt_id) ON DELETE CASCADE,
     cell_id TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',
     attempt INTEGER NOT NULL DEFAULT 1,
@@ -169,6 +171,8 @@ CREATE TABLE segment_executions (
 
 CREATE INDEX idx_segment_executions_segment_id ON segment_executions(segment_id);
 CREATE INDEX idx_segment_executions_run_id ON segment_executions(run_id);
+CREATE INDEX idx_segment_executions_task_id ON segment_executions(task_id);
+CREATE INDEX idx_segment_executions_task_attempt_id ON segment_executions(task_attempt_id);
 CREATE INDEX idx_segment_executions_cell_status ON segment_executions(cell_id, status);
 
 CREATE TABLE execution_payloads (

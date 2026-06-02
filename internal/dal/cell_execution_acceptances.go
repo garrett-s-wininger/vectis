@@ -577,24 +577,24 @@ func ensureRunSegmentTx(ctx context.Context, tx *sql.Tx, a CellExecutionAcceptan
 func ensureSegmentExecutionTx(ctx context.Context, tx *sql.Tx, a CellExecutionAcceptance) error {
 	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
 		INSERT INTO segment_executions
-			(execution_id, segment_id, run_id, cell_id, status, attempt, accepted_at, last_observed_at, event_sequence)
-		VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, 1)
+			(execution_id, segment_id, run_id, task_id, task_attempt_id, cell_id, status, attempt, accepted_at, last_observed_at, event_sequence)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, 1)
 		ON CONFLICT(execution_id) DO NOTHING
-	`), a.ExecutionID, a.SegmentID, a.RunID, a.CellID, ExecutionStatusAccepted, a.Attempt, a.AcceptedAtUnixNano); err != nil {
+	`), a.ExecutionID, a.SegmentID, a.RunID, a.TaskID, a.TaskAttemptID, a.CellID, ExecutionStatusAccepted, a.Attempt, a.AcceptedAtUnixNano); err != nil {
 		return normalizeSQLError(err)
 	}
 
-	var segmentID, runID, cellID, status string
+	var segmentID, runID, taskID, taskAttemptID, cellID, status string
 	var attempt int
 	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
-		SELECT segment_id, run_id, cell_id, attempt, status
+		SELECT segment_id, run_id, task_id, task_attempt_id, cell_id, attempt, status
 		FROM segment_executions
 		WHERE execution_id = ?
-	`), a.ExecutionID).Scan(&segmentID, &runID, &cellID, &attempt, &status); err != nil {
+	`), a.ExecutionID).Scan(&segmentID, &runID, &taskID, &taskAttemptID, &cellID, &attempt, &status); err != nil {
 		return normalizeSQLError(err)
 	}
 
-	if segmentID != a.SegmentID || runID != a.RunID || cellID != a.CellID || attempt != a.Attempt {
+	if segmentID != a.SegmentID || runID != a.RunID || taskID != a.TaskID || taskAttemptID != a.TaskAttemptID || cellID != a.CellID || attempt != a.Attempt {
 		return fmt.Errorf("%w: execution %s has different accepted payload", ErrConflict, a.ExecutionID)
 	}
 

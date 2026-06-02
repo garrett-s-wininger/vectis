@@ -572,6 +572,8 @@ func createInitialSegmentExecutionTx(ctx context.Context, tx *sql.Tx, runID, cel
 		return err
 	}
 
+	taskID := rootTaskID(runID)
+	taskAttemptID := rootTaskAttemptID(runID, 1)
 	segmentID := newSegmentID()
 	if _, err := tx.ExecContext(ctx,
 		rebindQueryForPgx("INSERT INTO run_segments (segment_id, run_id, name, status) VALUES (?, ?, ?, ?)"),
@@ -584,10 +586,12 @@ func createInitialSegmentExecutionTx(ctx context.Context, tx *sql.Tx, runID, cel
 	}
 
 	if _, err := tx.ExecContext(ctx,
-		rebindQueryForPgx("INSERT INTO segment_executions (execution_id, segment_id, run_id, cell_id, status, attempt) VALUES (?, ?, ?, ?, ?, ?)"),
+		rebindQueryForPgx("INSERT INTO segment_executions (execution_id, segment_id, run_id, task_id, task_attempt_id, cell_id, status, attempt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"),
 		newExecutionID(),
 		segmentID,
 		runID,
+		taskID,
+		taskAttemptID,
 		normalizeCellID(cellID),
 		ExecutionStatusPending,
 		1,

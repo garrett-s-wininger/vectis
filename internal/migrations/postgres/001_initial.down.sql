@@ -25,6 +25,8 @@ DROP INDEX IF EXISTS idx_run_tasks_parent;
 DROP INDEX IF EXISTS idx_run_tasks_status;
 DROP INDEX IF EXISTS idx_run_tasks_run_id;
 DROP INDEX IF EXISTS idx_segment_executions_cell_status;
+DROP INDEX IF EXISTS idx_segment_executions_task_attempt_id;
+DROP INDEX IF EXISTS idx_segment_executions_task_id;
 DROP INDEX IF EXISTS idx_segment_executions_run_id;
 DROP INDEX IF EXISTS idx_segment_executions_segment_id;
 DROP INDEX IF EXISTS idx_run_segments_status;
