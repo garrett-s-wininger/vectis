@@ -265,5 +265,6 @@ func (s *APIServer) Logout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	clearSessionCookies(w, r)
+	clearLogoutSiteData(w)
 	w.WriteHeader(http.StatusNoContent)
 }

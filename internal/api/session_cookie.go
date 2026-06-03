@@ -11,6 +11,8 @@ const (
 	sessionCookieName = "vectis_session"
 	csrfCookieName    = "vectis_csrf"
 	csrfHeaderName    = "X-CSRF-Token"
+
+	logoutClearSiteData = `"cache", "storage"`
 )
 
 func sessionCookieSecure(r *http.Request) bool {
@@ -62,4 +64,8 @@ func clearSessionCookies(w http.ResponseWriter, r *http.Request) {
 			SameSite: http.SameSiteLaxMode,
 		})
 	}
+}
+
+func clearLogoutSiteData(w http.ResponseWriter) {
+	w.Header().Set("Clear-Site-Data", logoutClearSiteData)
 }

@@ -441,6 +441,9 @@ func TestLogout_deletesSession(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("logout failed code=%d body=%s", rec.Code, rec.Body.String())
 	}
+	if got := rec.Header().Get("Clear-Site-Data"); got != logoutClearSiteData {
+		t.Fatalf("Clear-Site-Data=%q, want %q", got, logoutClearSiteData)
+	}
 
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
@@ -519,6 +522,9 @@ func TestCookieSessionAuth_requiresCSRFForUnsafeMethods(t *testing.T) {
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("logout without csrf should be forbidden, got code=%d body=%s", rec.Code, rec.Body.String())
 	}
+	if got := rec.Header().Get("Clear-Site-Data"); got != "" {
+		t.Fatalf("Clear-Site-Data on forbidden logout = %q, want empty", got)
+	}
 
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/logout", nil)
@@ -559,6 +565,9 @@ func TestCookieSessionAuth_requiresCSRFForUnsafeMethods(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("logout with csrf failed code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Clear-Site-Data"); got != logoutClearSiteData {
+		t.Fatalf("Clear-Site-Data=%q, want %q", got, logoutClearSiteData)
 	}
 
 	cleared := map[string]bool{}

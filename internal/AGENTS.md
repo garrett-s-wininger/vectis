@@ -60,6 +60,8 @@ API Host, CORS, CSRF, method, media-type, body-policy, and rate-limit rejections
 
 The API cache backend is shared security state for sessions and rate limits. Database mode is the replica-safe default. Memory mode is process-local, cleans expired entries opportunistically, and should stay limited to tests, local development, or deliberate single-process deployments.
 
+Logout must delete the server-side session, clear the Vectis session/CSRF cookies, and send `Clear-Site-Data: "cache", "storage"`. Do not add the `cookies` directive unless the deployment model intentionally accepts clearing cookies for the same domain and subdomains.
+
 ## Lint expectations
 
 `make lint` runs the first-party route security lint before golangci-lint. Staticcheck is part of that suite; in tests, make nil handling explicit enough for staticcheck to prove safety. For example, return after `t.Fatal` before dereferencing a possibly nil pointer, or copy pointer-backed values (such as `*http.Cookie`) into value variables after a presence check.
