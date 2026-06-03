@@ -399,6 +399,7 @@ type DispatchEventsRepository interface {
 type TaskDispatchIntentsRepository interface {
 	Ensure(ctx context.Context, create TaskDispatchIntentCreate) (TaskDispatchIntent, bool, error)
 	ListPending(ctx context.Context, cellID string, cutoffUnixNano int64, limit int) ([]TaskDispatchIntent, error)
+	ListPendingForRun(ctx context.Context, runID, cellID string, cutoffUnixNano int64, limit int) ([]TaskDispatchIntent, error)
 	MarkEnqueued(ctx context.Context, executionID string, enqueuedAtUnixNano int64) error
 	MarkEnqueueFailed(ctx context.Context, executionID string, attemptedAtUnixNano int64, message string) error
 }

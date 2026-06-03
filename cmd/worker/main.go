@@ -1038,7 +1038,7 @@ func (w *worker) continueTaskRun(ctx context.Context, runID, claimToken string, 
 		return false, nil
 	}
 
-	opts := taskdispatch.DrainOptions{CellID: w.cellID, Limit: 1}
+	opts := taskdispatch.DrainOptions{CellID: w.cellID, RunID: runID, Limit: 1}
 	if !knownPending {
 		pending, err := w.taskDispatchService.HasPending(w.runCtx, opts)
 		if err != nil {

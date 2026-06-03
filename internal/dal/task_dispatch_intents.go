@@ -43,6 +43,19 @@ func (r *SQLTaskDispatchIntentsRepository) Ensure(ctx context.Context, create Ta
 }
 
 func (r *SQLTaskDispatchIntentsRepository) ListPending(ctx context.Context, cellID string, cutoffUnixNano int64, limit int) ([]TaskDispatchIntent, error) {
+	return r.listPending(ctx, "", cellID, cutoffUnixNano, limit)
+}
+
+func (r *SQLTaskDispatchIntentsRepository) ListPendingForRun(ctx context.Context, runID, cellID string, cutoffUnixNano int64, limit int) ([]TaskDispatchIntent, error) {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return nil, fmt.Errorf("%w: run_id is required", ErrConflict)
+	}
+
+	return r.listPending(ctx, runID, cellID, cutoffUnixNano, limit)
+}
+
+func (r *SQLTaskDispatchIntentsRepository) listPending(ctx context.Context, runID, cellID string, cutoffUnixNano int64, limit int) ([]TaskDispatchIntent, error) {
 	cellID = normalizeTargetCellID(cellID, r.cellID)
 	if cutoffUnixNano <= 0 {
 		cutoffUnixNano = time.Now().UnixNano()
@@ -51,6 +64,14 @@ func (r *SQLTaskDispatchIntentsRepository) ListPending(ctx context.Context, cell
 	if limit <= 0 {
 		limit = 100
 	}
+
+	runFilter := ""
+	args := []any{cellID}
+	if runID != "" {
+		runFilter = " AND tdi.run_id = ?"
+		args = append(args, runID)
+	}
+	args = append(args, SegmentStatusPending, ExecutionStatusPending, TaskStatusPending, TaskStatusPending, cutoffUnixNano, limit)
 
 	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
 		SELECT
@@ -73,6 +94,7 @@ func (r *SQLTaskDispatchIntentsRepository) ListPending(ctx context.Context, cell
 		JOIN run_tasks rt ON rt.task_id = tdi.task_id AND rt.run_id = tdi.run_id
 		JOIN task_attempts ta ON ta.attempt_id = tdi.task_attempt_id AND ta.task_id = rt.task_id AND ta.run_id = tdi.run_id
 		WHERE tdi.cell_id = ?
+`+runFilter+`
 			AND tdi.enqueued_at IS NULL
 			AND rs.status = ?
 			AND se.status = ?
@@ -81,7 +103,7 @@ func (r *SQLTaskDispatchIntentsRepository) ListPending(ctx context.Context, cell
 			AND (tdi.last_enqueue_attempt_at IS NULL OR tdi.last_enqueue_attempt_at <= ?)
 		ORDER BY tdi.id ASC
 		LIMIT ?
-	`), cellID, SegmentStatusPending, ExecutionStatusPending, TaskStatusPending, TaskStatusPending, cutoffUnixNano, limit)
+	`), args...)
 
 	if err != nil {
 		return nil, normalizeSQLError(err)

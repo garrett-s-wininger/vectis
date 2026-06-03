@@ -3,6 +3,7 @@ package taskdispatch_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -170,6 +171,64 @@ func TestDispatcherDrainMarksFailedIntentForRetry(t *testing.T) {
 	}
 }
 
+func TestDispatcherDrainRunIDScopesPendingIntents(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
+
+	ns, err := repos.Namespaces().Create(ctx, "team-task-dispatch-run-scope", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	older := setupDispatchableChildForJob(t, ctx, repos, ns.ID, "job-task-dispatch-run-scope-older", "trace-older")
+	target := setupDispatchableChildForJob(t, ctx, repos, ns.ID, "job-task-dispatch-run-scope-target", "trace-target")
+
+	queue := mocks.NewMockQueueService()
+	clock := mocks.NewMockClock()
+	clock.SetNow(time.Unix(0, 3000))
+	dispatcher := taskdispatch.New(
+		repos.Runs(),
+		repos.TaskDispatchIntents(),
+		repos.DispatchEvents(),
+		cell.NewQueueExecutionIngress(queue, mocks.NewMockLogger()),
+		clock,
+	)
+
+	result, err := dispatcher.Drain(ctx, taskdispatch.DrainOptions{CellID: "iad-a", RunID: target.RunID, Limit: 1})
+	if err != nil {
+		t.Fatalf("Drain: %v", err)
+	}
+
+	if result.Listed != 1 || result.Enqueued != 1 || result.Failed != 0 {
+		t.Fatalf("drain result: %+v", result)
+	}
+
+	reqs := queue.GetJobRequests()
+	if len(reqs) != 1 {
+		t.Fatalf("queued requests: got %d, want 1", len(reqs))
+	}
+
+	env, ok, err := cell.ExecutionEnvelopeFromRequest(reqs[0])
+	if err != nil {
+		t.Fatalf("queued envelope: %v", err)
+	}
+	if !ok {
+		t.Fatal("queued request missing execution envelope")
+	}
+	if env.RunID != target.RunID || env.ExecutionID != target.ExecutionID {
+		t.Fatalf("queued envelope scoped to wrong run: got run=%q execution=%q, want run=%q execution=%q", env.RunID, env.ExecutionID, target.RunID, target.ExecutionID)
+	}
+
+	pending, err := repos.TaskDispatchIntents().ListPending(ctx, "iad-a", clock.Now().UnixNano(), 10)
+	if err != nil {
+		t.Fatalf("list pending after scoped drain: %v", err)
+	}
+	if len(pending) != 1 || pending[0].ExecutionID != older.ExecutionID {
+		t.Fatalf("remaining pending intents: %+v, want older execution %s", pending, older.ExecutionID)
+	}
+}
+
 func setupDispatchableChild(t *testing.T, ctx context.Context) (*dal.SQLRepositories, dal.TaskExecutionRecord) {
 	t.Helper()
 
@@ -181,10 +240,16 @@ func setupDispatchableChild(t *testing.T, ctx context.Context) (*dal.SQLReposito
 		t.Fatalf("create namespace: %v", err)
 	}
 
-	jobID := "job-task-dispatch-drain"
-	def := `{"id":"job-task-dispatch-drain","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo root"}}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
-		t.Fatalf("create job: %v", err)
+	child := setupDispatchableChildForJob(t, ctx, repos, ns.ID, "job-task-dispatch-drain", "trace-a")
+	return repos, child
+}
+
+func setupDispatchableChildForJob(t *testing.T, ctx context.Context, repos *dal.SQLRepositories, namespaceID int64, jobID, traceparent string) dal.TaskExecutionRecord {
+	t.Helper()
+
+	def := fmt.Sprintf(`{"id":"%s","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo root"}}}`, jobID)
+	if err := repos.Jobs().Create(ctx, jobID, def, namespaceID); err != nil {
+		t.Fatalf("create job %s: %v", jobID, err)
 	}
 
 	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
@@ -225,7 +290,7 @@ func setupDispatchableChild(t *testing.T, ctx context.Context) (*dal.SQLReposito
 	rootReq := &api.JobRequest{
 		Job: job,
 		Metadata: map[string]string{
-			"traceparent": "trace-a",
+			"traceparent": traceparent,
 		},
 	}
 
@@ -248,5 +313,5 @@ func setupDispatchableChild(t *testing.T, ctx context.Context) (*dal.SQLReposito
 		t.Fatalf("root success fan-out activated: got %d, want 1", activated)
 	}
 
-	return repos, child
+	return child
 }

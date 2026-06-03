@@ -1781,6 +1781,72 @@ func TestTaskDispatchIntentsRepository_Lifecycle(t *testing.T) {
 	}
 }
 
+func TestTaskDispatchIntentsRepository_ListPendingForRunScopesResults(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-task-dispatch-intents-run-scope", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-task-dispatch-intents-run-scope"
+	def := `{"id":"job-task-dispatch-intents-run-scope","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	intents := repos.TaskDispatchIntents()
+	var runs []dal.ExecutionDispatchRecord
+	for i := 0; i < 2; i++ {
+		runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+		if err != nil {
+			t.Fatalf("create run %d: %v", i, err)
+		}
+
+		dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+		if err != nil {
+			t.Fatalf("get pending execution %d: %v", i, err)
+		}
+
+		if _, _, err := intents.Ensure(ctx, dal.TaskDispatchIntentCreate{
+			ExecutionID:       dispatch.ExecutionID,
+			RunID:             dispatch.RunID,
+			TaskID:            dispatch.TaskID,
+			TaskAttemptID:     dispatch.TaskAttemptID,
+			SourceExecutionID: "source-execution",
+			CellID:            dispatch.CellID,
+		}); err != nil {
+			t.Fatalf("ensure dispatch intent %d: %v", i, err)
+		}
+
+		runs = append(runs, dispatch)
+	}
+
+	all, err := intents.ListPending(ctx, "iad-a", 0, 10)
+	if err != nil {
+		t.Fatalf("list all pending dispatch intents: %v", err)
+	}
+
+	if len(all) != 2 {
+		t.Fatalf("all pending intents: got %d, want 2: %+v", len(all), all)
+	}
+
+	scoped, err := intents.ListPendingForRun(ctx, runs[1].RunID, "iad-a", 0, 10)
+	if err != nil {
+		t.Fatalf("list pending dispatch intents for run: %v", err)
+	}
+
+	if len(scoped) != 1 || scoped[0].ExecutionID != runs[1].ExecutionID {
+		t.Fatalf("scoped pending intents: %+v, want execution %s", scoped, runs[1].ExecutionID)
+	}
+
+	if _, err := intents.ListPendingForRun(ctx, "", "iad-a", 0, 10); !dal.IsConflict(err) {
+		t.Fatalf("missing run id should return conflict, got %v", err)
+	}
+}
+
 func TestSQLRepositories_CreateDefinitionAndRunInCell_TargetsExecutionCell(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")

@@ -25,6 +25,7 @@ type Dispatcher struct {
 
 type DrainOptions struct {
 	CellID              string
+	RunID               string
 	Limit               int
 	RetryCutoffUnixNano int64
 }
@@ -59,7 +60,7 @@ func (d *Dispatcher) Drain(ctx context.Context, opts DrainOptions) (DrainResult,
 		limit = defaultDrainLimit
 	}
 
-	pending, err := d.intents.ListPending(ctx, opts.CellID, d.retryCutoff(opts.RetryCutoffUnixNano), limit)
+	pending, err := d.listPending(ctx, opts, limit)
 	if err != nil {
 		return DrainResult{}, fmt.Errorf("list pending task dispatch intents: %w", err)
 	}
@@ -94,7 +95,7 @@ func (d *Dispatcher) HasPending(ctx context.Context, opts DrainOptions) (bool, e
 		return false, err
 	}
 
-	pending, err := d.intents.ListPending(ctx, opts.CellID, d.retryCutoff(opts.RetryCutoffUnixNano), 1)
+	pending, err := d.listPending(ctx, opts, 1)
 	if err != nil {
 		return false, fmt.Errorf("list pending task dispatch intents: %w", err)
 	}
@@ -128,6 +129,15 @@ func (d *Dispatcher) retryCutoff(cutoff int64) int64 {
 	}
 
 	return cutoff
+}
+
+func (d *Dispatcher) listPending(ctx context.Context, opts DrainOptions, limit int) ([]dal.TaskDispatchIntent, error) {
+	cutoff := d.retryCutoff(opts.RetryCutoffUnixNano)
+	if opts.RunID != "" {
+		return d.intents.ListPendingForRun(ctx, opts.RunID, opts.CellID, cutoff, limit)
+	}
+
+	return d.intents.ListPending(ctx, opts.CellID, cutoff, limit)
 }
 
 func (d *Dispatcher) dispatchOne(ctx context.Context, intent dal.TaskDispatchIntent, createdAtUnixNano int64) error {

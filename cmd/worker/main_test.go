@@ -80,19 +80,23 @@ type recordingTaskDispatchDrainer struct {
 	drainErr     error
 	pendingCalls int
 	drainCalls   int
+	pendingOpts  taskdispatch.DrainOptions
+	drainOpts    taskdispatch.DrainOptions
 }
 
-func (d *recordingTaskDispatchDrainer) HasPending(context.Context, taskdispatch.DrainOptions) (bool, error) {
+func (d *recordingTaskDispatchDrainer) HasPending(_ context.Context, opts taskdispatch.DrainOptions) (bool, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.pendingCalls++
+	d.pendingOpts = opts
 	return d.pending, d.pendingErr
 }
 
-func (d *recordingTaskDispatchDrainer) Drain(context.Context, taskdispatch.DrainOptions) (taskdispatch.DrainResult, error) {
+func (d *recordingTaskDispatchDrainer) Drain(_ context.Context, opts taskdispatch.DrainOptions) (taskdispatch.DrainResult, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.drainCalls++
+	d.drainOpts = opts
 	return d.drainResult, d.drainErr
 }
 
@@ -100,6 +104,12 @@ func (d *recordingTaskDispatchDrainer) calls() (pending, drain int) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.pendingCalls, d.drainCalls
+}
+
+func (d *recordingTaskDispatchDrainer) options() (pending, drain taskdispatch.DrainOptions) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.pendingOpts, d.drainOpts
 }
 
 type flakyFinalizeRunsStore struct {
@@ -1225,6 +1235,11 @@ func TestWorkerContinueTaskRun_KnownPendingSkipsPendingLookup(t *testing.T) {
 		t.Fatalf("dispatch calls: pending=%d drain=%d, want pending=0 drain=1", pendingCalls, drainCalls)
 	}
 
+	_, drainOpts := drainer.options()
+	if drainOpts.RunID != "run-known-pending" || drainOpts.CellID != "local" || drainOpts.Limit != 1 {
+		t.Fatalf("drain options: %+v", drainOpts)
+	}
+
 	if len(runs.ExecutionTransitions) != 1 || runs.ExecutionTransitions[0] != "run-known-pending:queued" {
 		t.Fatalf("run transitions: %+v", runs.ExecutionTransitions)
 	}
@@ -1255,6 +1270,11 @@ func TestWorkerContinueTaskRun_UnknownPendingChecksService(t *testing.T) {
 	pendingCalls, drainCalls := drainer.calls()
 	if pendingCalls != 1 || drainCalls != 0 {
 		t.Fatalf("dispatch calls: pending=%d drain=%d, want pending=1 drain=0", pendingCalls, drainCalls)
+	}
+
+	pendingOpts, _ := drainer.options()
+	if pendingOpts.RunID != "run-no-pending" || pendingOpts.CellID != "local" || pendingOpts.Limit != 1 {
+		t.Fatalf("pending options: %+v", pendingOpts)
 	}
 
 	if len(runs.ExecutionTransitions) != 0 {
