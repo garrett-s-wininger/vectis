@@ -2,18 +2,10 @@ package api
 
 import (
 	"net/http"
-	"sort"
 	"strings"
-)
 
-var apiAllowedMethodOrder = []string{
-	http.MethodGet,
-	http.MethodHead,
-	http.MethodPost,
-	http.MethodPut,
-	http.MethodDelete,
-	http.MethodOptions,
-}
+	"vectis/internal/httpsecurity"
+)
 
 type apiRouteIndex struct {
 	routes []apiRoutePattern
@@ -114,12 +106,7 @@ func routeSegmentsMatch(pattern, request []string) bool {
 }
 
 func (m apiRouteMatch) methodAllowed(method string) bool {
-	method = strings.TrimSpace(method)
-	if m.methods[method] {
-		return true
-	}
-
-	return method == http.MethodHead && m.methods[http.MethodGet]
+	return httpsecurity.MethodAllowed(method, m.allowedMethods()...)
 }
 
 func (m apiRouteMatch) allowHeader() string {
@@ -127,32 +114,16 @@ func (m apiRouteMatch) allowHeader() string {
 		return ""
 	}
 
-	allowed := make(map[string]bool, len(m.methods)+1)
+	return httpsecurity.AllowHeader(m.allowedMethods()...)
+}
+
+func (m apiRouteMatch) allowedMethods() []string {
+	allowed := make([]string, 0, len(m.methods))
 	for method := range m.methods {
-		allowed[method] = true
+		allowed = append(allowed, method)
 	}
 
-	if allowed[http.MethodGet] {
-		allowed[http.MethodHead] = true
-	}
-
-	var methods []string
-	for _, method := range apiAllowedMethodOrder {
-		if allowed[method] {
-			methods = append(methods, method)
-			delete(allowed, method)
-		}
-	}
-
-	var extra []string
-	for method := range allowed {
-		extra = append(extra, method)
-	}
-
-	sort.Strings(extra)
-	methods = append(methods, extra...)
-
-	return strings.Join(methods, ", ")
+	return allowed
 }
 
 func (m apiRouteMatch) securityRoute() string {
@@ -163,20 +134,11 @@ func (m apiRouteMatch) securityRoute() string {
 	return m.pathPattern
 }
 
-func disallowedHTTPMethod(method string) bool {
-	switch strings.ToUpper(strings.TrimSpace(method)) {
-	case http.MethodTrace, "TRACK", http.MethodConnect:
-		return true
-	default:
-		return false
-	}
-}
-
 func (s *APIServer) routeGuardMiddleware(index *apiRouteIndex, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		match := index.match(r.URL.Path)
 
-		if disallowedHTTPMethod(r.Method) {
+		if httpsecurity.DangerousHTTPMethod(r.Method) {
 			s.recordSecurityRejectionForRoute(r, securityReasonUnsupportedHTTPMethod, match.securityRoute(), http.StatusMethodNotAllowed)
 			writeMethodNotAllowed(w, match.allowHeader())
 			return

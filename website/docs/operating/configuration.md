@@ -116,11 +116,13 @@ The API can serve browser-facing HTTPS directly with `--tls-cert-file` and `--tl
 
 `vectis-docs` accepts the same shape through `--tls-cert-file`, `--tls-key-file`, and `--tls-reload-interval`, or `VECTIS_DOCS_TLS_CERT_FILE`, `VECTIS_DOCS_TLS_KEY_FILE`, and `VECTIS_DOCS_TLS_RELOAD_INTERVAL`.
 
-API and docs responses set browser hardening headers by default, including `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, and Content Security Policy. `Strict-Transport-Security` is sent only on direct HTTPS requests; if TLS terminates at an ingress or load balancer, configure HSTS at that edge. Protected API routes default to `Cache-Control: no-store` unless a streaming handler explicitly manages cache headers.
+API and docs responses set browser hardening headers by default, including `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, and Content Security Policy. `Strict-Transport-Security` is sent only on direct HTTPS requests; if TLS terminates at an ingress or load balancer, configure HSTS at that edge. Protected API routes default to `Cache-Control: no-store` unless a streaming handler explicitly manages cache headers. The docs server rejects non-`GET`/`HEAD` methods before static file handling.
 
 API routes reject request bodies unless the route inventory explicitly declares a JSON body policy. Declared JSON body routes enforce `application/json` media types and per-route size caps before parsing, including smaller caps for auth/user/token/control routes and a larger cap for job definitions.
 
 API route matching returns JSON API errors for unknown routes and method mismatches. Method mismatches include an `Allow` header, and TRACE, TRACK, and CONNECT are rejected before route handlers run.
+
+Cell ingress route matching is similarly narrow: health endpoints allow `GET`/`HEAD`, execution submission allows `POST`, and other paths or methods return JSON errors before handler logic runs.
 
 HTTP servers for the API, docs, cell ingress, and metrics endpoints cap request headers at 32 KiB. Keep reverse proxy and ingress header limits at or below that size so oversized requests are rejected before reaching Vectis.
 

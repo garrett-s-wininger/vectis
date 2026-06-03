@@ -66,7 +66,7 @@ func NewServer(localCellID string, ingress cell.ExecutionIngress, logger interfa
 }
 
 func (s *Server) Handler() http.Handler {
-	return s.mux
+	return http.HandlerFunc(s.ServeHTTP)
 }
 
 func (s *Server) SetAcceptanceStore(acceptances dal.CellExecutionAcceptancesRepository) {
@@ -74,7 +74,30 @@ func (s *Server) SetAcceptanceStore(acceptances dal.CellExecutionAcceptancesRepo
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	allowed := cellIngressAllowedMethods(r.URL.Path)
+	if len(allowed) == 0 {
+		writeError(w, http.StatusNotFound, "route_not_found", "route not found")
+		return
+	}
+
+	if !httpsecurity.MethodAllowed(r.Method, allowed...) {
+		w.Header().Set("Allow", httpsecurity.AllowHeader(allowed...))
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+
 	s.mux.ServeHTTP(w, r)
+}
+
+func cellIngressAllowedMethods(path string) []string {
+	switch path {
+	case "/health/live", "/health/ready":
+		return []string{http.MethodGet}
+	case "/cell/v1/executions":
+		return []string{http.MethodPost}
+	default:
+		return nil
+	}
 }
 
 func (s *Server) routes() {

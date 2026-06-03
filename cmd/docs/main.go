@@ -77,7 +77,24 @@ func docsServerHandler(handler http.Handler) http.Handler {
 		_, _ = w.Write([]byte("ok\n"))
 	}))
 
-	return httpsecurity.HeaderMiddleware(httpsecurity.DocsHeaderPolicy(), mux)
+	return httpsecurity.HeaderMiddleware(httpsecurity.DocsHeaderPolicy(), docsReadOnlyMiddleware(mux))
+}
+
+func docsReadOnlyMiddleware(next http.Handler) http.Handler {
+	if next == nil {
+		next = http.NotFoundHandler()
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !httpsecurity.MethodAllowed(r.Method, http.MethodGet) {
+			w.Header().Set("Allow", httpsecurity.AllowHeader(http.MethodGet))
+			w.Header().Set("Cache-Control", "no-store")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 func docsTLSEnabled() bool {

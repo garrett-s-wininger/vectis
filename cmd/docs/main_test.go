@@ -127,6 +127,49 @@ func TestDocsServerHandlerAppliesSecurityHeaders(t *testing.T) {
 	}
 }
 
+func TestDocsServerHandlerAllowsHEAD(t *testing.T) {
+	handler := docsServerHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodHead, "/", nil)
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+}
+
+func TestDocsServerHandlerRejectsNonReadMethods(t *testing.T) {
+	handler := docsServerHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not be called")
+	}))
+
+	for _, method := range []string{http.MethodPost, http.MethodTrace, http.MethodConnect, "TRACK"} {
+		t.Run(method, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(method, "/", nil)
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusMethodNotAllowed {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusMethodNotAllowed, rec.Body.String())
+			}
+
+			if got := rec.Header().Get("Allow"); got != "GET, HEAD" {
+				t.Fatalf("Allow = %q, want GET, HEAD", got)
+			}
+
+			if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+				t.Fatalf("Cache-Control = %q, want no-store", got)
+			}
+
+			assertDocsHeader(t, rec, "X-Content-Type-Options", "nosniff")
+			assertDocsHeader(t, rec, "X-Frame-Options", "DENY")
+		})
+	}
+}
+
 func TestDocsHTTPServerSetsMaxHeaderBytes(t *testing.T) {
 	srv := docsHTTPServer("127.0.0.1:0", http.NotFoundHandler())
 	if srv.MaxHeaderBytes != httpsecurity.DefaultMaxHeaderBytes {

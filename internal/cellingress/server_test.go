@@ -228,6 +228,58 @@ func TestHealthEndpoints(t *testing.T) {
 	}
 }
 
+func TestRouteGuardRejectsUnknownCellIngressRoute(t *testing.T) {
+	srv := NewQueueServer("iad-a", mocks.NewMockQueueService(), mocks.NewMockLogger())
+	req := httptest.NewRequest(http.MethodGet, "/cell/v1/not-found", nil)
+	rr := httptest.NewRecorder()
+
+	srv.ServeHTTP(rr, req)
+
+	assertErrorCode(t, rr, http.StatusNotFound, "route_not_found")
+}
+
+func TestRouteGuardRejectsCellIngressMethodMismatch(t *testing.T) {
+	srv := NewQueueServer("iad-a", mocks.NewMockQueueService(), mocks.NewMockLogger())
+
+	tests := []struct {
+		name      string
+		method    string
+		path      string
+		wantAllow string
+	}{
+		{name: "health post", method: http.MethodPost, path: "/health/live", wantAllow: "GET, HEAD"},
+		{name: "execution get", method: http.MethodGet, path: "/cell/v1/executions", wantAllow: "POST"},
+		{name: "execution trace", method: http.MethodTrace, path: "/cell/v1/executions", wantAllow: "POST"},
+		{name: "lowercase post", method: "post", path: "/cell/v1/executions", wantAllow: "POST"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			rr := httptest.NewRecorder()
+
+			srv.ServeHTTP(rr, req)
+
+			assertErrorCode(t, rr, http.StatusMethodNotAllowed, "method_not_allowed")
+			if got := rr.Header().Get("Allow"); got != tt.wantAllow {
+				t.Fatalf("Allow = %q, want %q", got, tt.wantAllow)
+			}
+		})
+	}
+}
+
+func TestRouteGuardAllowsHEADForCellIngressHealth(t *testing.T) {
+	srv := NewQueueServer("iad-a", mocks.NewMockQueueService(), mocks.NewMockLogger())
+	req := httptest.NewRequest(http.MethodHead, "/health/live", nil)
+	rr := httptest.NewRecorder()
+
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want %d; body=%s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+}
+
 func executionBody(t *testing.T, req *api.JobRequest) *bytes.Reader {
 	t.Helper()
 
