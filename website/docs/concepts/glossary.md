@@ -22,7 +22,7 @@ This page defines the words Vectis uses across the docs, API, and CLI. For the s
 
 **Delivery** — One handoff of queued work from `vectis-queue` to a worker. A run can have more than one delivery over time if queue handoff or worker execution needs recovery.
 
-**Dispatch** — The act of submitting a recorded run to the queue. The API, cron, and reconciler can all dispatch runs.
+**Dispatch** — The act of submitting recorded work to the queue. The API, cron, reconciler, cell ingress, and worker task continuations can all dispatch work.
 
 ## E
 
@@ -60,7 +60,7 @@ This page defines the words Vectis uses across the docs, API, and CLI. For the s
 
 **Pinned address** — A queue, log, or registry address set explicitly in configuration. Pinned addresses let a component avoid relying on registry lookup for that dependency.
 
-**Producer** — A component that submits work to the queue. Current producers are `vectis-api`, `vectis-cron`, and `vectis-reconciler`.
+**Producer** — A component that submits work to the queue. Current producers are `vectis-api`, `vectis-cell-ingress`, `vectis-cron`, `vectis-reconciler`, and `vectis-worker` for task continuations.
 
 ## Q
 

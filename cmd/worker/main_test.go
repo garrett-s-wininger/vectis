@@ -524,7 +524,7 @@ func TestWorkerRunClaimedJob_TaskFanoutQueuesContinuation(t *testing.T) {
 		executor:             job.NewExecutor(),
 		store:                runs,
 		catalog:              cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
-		taskDispatcher:       taskdispatch.New(runs, repos.TaskDispatchIntents(), cell.NewQueueExecutionIngress(queueClientServiceAdapter{queue: queue}, interfaces.NewLogger("worker-test")), clock),
+		taskDispatcher:       taskdispatch.New(runs, repos.TaskDispatchIntents(), repos.DispatchEvents(), cell.NewQueueExecutionIngress(queueClientServiceAdapter{queue: queue}, interfaces.NewLogger("worker-test")), clock),
 		taskCompletionFanout: true,
 	}
 

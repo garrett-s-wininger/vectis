@@ -113,12 +113,13 @@ flowchart TB
 
 ## Producers And Workers
 
-Four components can produce work:
+Five components can produce work:
 
 - `vectis-api`, when a client submits or triggers a job
 - `vectis-cell-ingress`, when `vectis-api` hands this cell an execution envelope or a durable accepted execution needs local queue repair
 - `vectis-cron`, when a schedule is due
 - `vectis-reconciler`, when a recorded run still needs queue handoff
+- `vectis-worker`, when task fan-out produces a continuation execution
 
 Workers are the execution side. Each `vectis-worker` process handles one run at a time. Run claims and leases live in the database, so the database is what prevents two workers from owning the same persisted run at the same time.
 

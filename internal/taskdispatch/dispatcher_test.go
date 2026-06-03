@@ -3,6 +3,7 @@ package taskdispatch_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,6 +27,7 @@ func TestDispatcherDrainEnqueuesPendingTaskIntent(t *testing.T) {
 	dispatcher := taskdispatch.New(
 		repos.Runs(),
 		repos.TaskDispatchIntents(),
+		repos.DispatchEvents(),
 		cell.NewQueueExecutionIngress(queue, mocks.NewMockLogger()),
 		clock,
 	)
@@ -77,6 +79,26 @@ func TestDispatcherDrainEnqueuesPendingTaskIntent(t *testing.T) {
 	if len(pending) != 0 {
 		t.Fatalf("drained intent should not remain pending: %+v", pending)
 	}
+
+	events, err := repos.DispatchEvents().ListByRun(ctx, child.RunID)
+	if err != nil {
+		t.Fatalf("list dispatch events: %v", err)
+	}
+
+	if len(events) != 2 {
+		t.Fatalf("dispatch events: got %d, want 2: %+v", len(events), events)
+	}
+
+	for i, want := range []string{dal.DispatchEventAttempt, dal.DispatchEventSuccess} {
+		event := events[i]
+		if event.Source != dal.DispatchSourceTask || event.EventType != want {
+			t.Fatalf("dispatch event %d: got source=%q type=%q, want source=%q type=%q", i, event.Source, event.EventType, dal.DispatchSourceTask, want)
+		}
+
+		if event.Message == nil || !strings.Contains(*event.Message, child.ExecutionID) || !strings.Contains(*event.Message, child.TaskAttemptID) {
+			t.Fatalf("dispatch event %d missing task identity: %+v", i, event)
+		}
+	}
 }
 
 func TestDispatcherDrainMarksFailedIntentForRetry(t *testing.T) {
@@ -90,6 +112,7 @@ func TestDispatcherDrainMarksFailedIntentForRetry(t *testing.T) {
 	dispatcher := taskdispatch.New(
 		repos.Runs(),
 		repos.TaskDispatchIntents(),
+		repos.DispatchEvents(),
 		cell.NewQueueExecutionIngress(queue, mocks.NewMockLogger()),
 		clock,
 	)
@@ -123,6 +146,27 @@ func TestDispatcherDrainMarksFailedIntentForRetry(t *testing.T) {
 
 	if len(pending) != 1 || pending[0].ExecutionID != child.ExecutionID || pending[0].EnqueueAttempts != 1 || pending[0].LastEnqueueError == nil {
 		t.Fatalf("failed intent retry state mismatch: %+v", pending)
+	}
+
+	events, err := repos.DispatchEvents().ListByRun(ctx, child.RunID)
+	if err != nil {
+		t.Fatalf("list dispatch events: %v", err)
+	}
+
+	if len(events) != 2 {
+		t.Fatalf("dispatch events: got %d, want 2: %+v", len(events), events)
+	}
+
+	if events[0].Source != dal.DispatchSourceTask || events[0].EventType != dal.DispatchEventAttempt {
+		t.Fatalf("attempt dispatch event mismatch: %+v", events[0])
+	}
+
+	if events[1].Source != dal.DispatchSourceTask || events[1].EventType != dal.DispatchEventFailure || events[1].Message == nil {
+		t.Fatalf("failure dispatch event mismatch: %+v", events[1])
+	}
+
+	if !strings.Contains(*events[1].Message, child.ExecutionID) || !strings.Contains(*events[1].Message, "queue unavailable") {
+		t.Fatalf("failure dispatch event message missing context: %+v", events[1])
 	}
 }
 

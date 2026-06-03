@@ -16,10 +16,11 @@ import (
 const defaultDrainLimit = 100
 
 type Dispatcher struct {
-	runs    dal.RunsRepository
-	intents dal.TaskDispatchIntentsRepository
-	ingress cell.ExecutionIngress
-	clock   interfaces.Clock
+	runs     dal.RunsRepository
+	intents  dal.TaskDispatchIntentsRepository
+	dispatch dal.DispatchEventsRepository
+	ingress  cell.ExecutionIngress
+	clock    interfaces.Clock
 }
 
 type DrainOptions struct {
@@ -34,16 +35,17 @@ type DrainResult struct {
 	Failed   int
 }
 
-func New(runs dal.RunsRepository, intents dal.TaskDispatchIntentsRepository, ingress cell.ExecutionIngress, clock interfaces.Clock) *Dispatcher {
+func New(runs dal.RunsRepository, intents dal.TaskDispatchIntentsRepository, dispatch dal.DispatchEventsRepository, ingress cell.ExecutionIngress, clock interfaces.Clock) *Dispatcher {
 	if clock == nil {
 		clock = interfaces.SystemClock{}
 	}
 
 	return &Dispatcher{
-		runs:    runs,
-		intents: intents,
-		ingress: ingress,
-		clock:   clock,
+		runs:     runs,
+		intents:  intents,
+		dispatch: dispatch,
+		ingress:  ingress,
+		clock:    clock,
 	}
 }
 
@@ -65,8 +67,10 @@ func (d *Dispatcher) Drain(ctx context.Context, opts DrainOptions) (DrainResult,
 	result := DrainResult{Listed: len(pending)}
 	for _, intent := range pending {
 		attemptedAt := d.clock.Now().UnixNano()
+		d.recordDispatchEvent(ctx, intent, dal.DispatchEventAttempt, nil)
 		if err := d.dispatchOne(ctx, intent, attemptedAt); err != nil {
 			result.Failed++
+			d.recordDispatchEvent(ctx, intent, dal.DispatchEventFailure, err)
 			if markErr := d.intents.MarkEnqueueFailed(ctx, intent.ExecutionID, attemptedAt, err.Error()); markErr != nil {
 				return result, fmt.Errorf("mark task dispatch intent %s failed after dispatch error %q: %w", intent.ExecutionID, err.Error(), markErr)
 			}
@@ -78,6 +82,7 @@ func (d *Dispatcher) Drain(ctx context.Context, opts DrainOptions) (DrainResult,
 			return result, fmt.Errorf("mark task dispatch intent %s enqueued: %w", intent.ExecutionID, err)
 		}
 
+		d.recordDispatchEvent(ctx, intent, dal.DispatchEventSuccess, nil)
 		result.Enqueued++
 	}
 
@@ -164,4 +169,27 @@ func (d *Dispatcher) requestForIntent(ctx context.Context, intent dal.TaskDispat
 	}
 
 	return &req, nil
+}
+
+func (d *Dispatcher) recordDispatchEvent(ctx context.Context, intent dal.TaskDispatchIntent, eventType string, dispatchErr error) {
+	if d.dispatch == nil {
+		return
+	}
+
+	message := taskDispatchEventMessage(intent, dispatchErr)
+	_ = d.dispatch.Record(ctx, intent.RunID, dal.DispatchSourceTask, eventType, &message)
+}
+
+func taskDispatchEventMessage(intent dal.TaskDispatchIntent, dispatchErr error) string {
+	message := fmt.Sprintf("execution_id=%s task_id=%s task_attempt_id=%s", intent.ExecutionID, intent.TaskID, intent.TaskAttemptID)
+	if dispatchErr != nil {
+		message = fmt.Sprintf("%s error=%s", message, dispatchErr.Error())
+	}
+
+	const maxMessageLen = 1000
+	if len(message) > maxMessageLen {
+		return message[:maxMessageLen]
+	}
+
+	return message
 }

@@ -172,7 +172,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 		store:                runsRepo,
 		catalog:              cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
 		metrics:              workerMetrics,
-		taskDispatcher:       taskdispatch.New(runsRepo, repos.TaskDispatchIntents(), cell.NewQueueExecutionIngress(queueClientServiceAdapter{queue: clients}, logger), interfaces.SystemClock{}),
+		taskDispatcher:       taskdispatch.New(runsRepo, repos.TaskDispatchIntents(), repos.DispatchEvents(), cell.NewQueueExecutionIngress(queueClientServiceAdapter{queue: clients}, logger), interfaces.SystemClock{}),
 		taskReducer:          taskreduce.New(runsRepo),
 		taskCompletionFanout: config.WorkerTaskCompletionFanout(),
 		cancelCh:             make(chan string, 1),

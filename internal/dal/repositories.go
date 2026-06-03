@@ -86,6 +86,7 @@ const (
 	DispatchSourceAPI        = "api"
 	DispatchSourceCron       = "cron"
 	DispatchSourceReconciler = "reconciler"
+	DispatchSourceTask       = "task_dispatch"
 
 	DispatchEventAccepted = "accepted"
 	DispatchEventAttempt  = "attempt"
