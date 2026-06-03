@@ -48,6 +48,12 @@ general_burst_size = 150
 # 0.0.0.0/0 and ::/0 are rejected.
 trusted_proxy_cidrs = []
 
+[api.host_validation]
+# Browser-facing API Host headers are limited to the listen host and loopback
+# names by default. Configure exact external hosts when serving behind an ingress
+# or binding to 0.0.0.0 for non-local access.
+allowed_hosts = []
+
 [api.cors]
 # Browser cross-origin access is closed by default. Configure exact http(s) origins only;
 # wildcard credentialed CORS is intentionally unsupported.

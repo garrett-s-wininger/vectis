@@ -28,6 +28,7 @@ const (
 	apiErrCSRFTokenRequired              apiErrorCode = "csrf_token_required"
 	apiErrDatabaseNotReady               apiErrorCode = "database_not_ready"
 	apiErrInternal                       apiErrorCode = "internal_error"
+	apiErrInvalidHostHeader              apiErrorCode = "invalid_host_header"
 	apiErrInvalidAdminPassword           apiErrorCode = "invalid_admin_password"
 	apiErrInvalidAdminUsername           apiErrorCode = "invalid_admin_username"
 	apiErrInvalidBootstrapToken          apiErrorCode = "invalid_bootstrap_token"
@@ -113,6 +114,8 @@ func (c apiErrorCode) message() string {
 		return "database not ready"
 	case apiErrInternal:
 		return "internal server error"
+	case apiErrInvalidHostHeader:
+		return "invalid host header"
 	case apiErrInvalidAdminPassword:
 		return "invalid admin_password"
 	case apiErrInvalidAdminUsername:

@@ -85,6 +85,7 @@ func TestWriteAPIErrorCode_statusMatrix(t *testing.T) {
 		code   apiErrorCode
 	}{
 		{name: "bad request", status: http.StatusBadRequest, code: apiErrInvalidRequestBody},
+		{name: "invalid host", status: http.StatusBadRequest, code: apiErrInvalidHostHeader},
 		{name: "auth required", status: http.StatusUnauthorized, code: apiErrAuthenticationRequired},
 		{name: "auth denied", status: http.StatusForbidden, code: apiErrAuthorizationDenied},
 		{name: "conflict", status: http.StatusConflict, code: apiErrUsernameAlreadyExists},
@@ -135,6 +136,7 @@ func TestAPIErrorCodeMessages_areNonEmpty(t *testing.T) {
 		apiErrCSRFTokenRequired,
 		apiErrDatabaseNotReady,
 		apiErrInternal,
+		apiErrInvalidHostHeader,
 		apiErrInvalidAdminPassword,
 		apiErrInvalidAdminUsername,
 		apiErrInvalidBootstrapToken,

@@ -21,6 +21,7 @@ func (s *APIServer) Handler() http.Handler {
 
 	h := http.Handler(mux)
 	h = corsMiddleware(h)
+	h = hostHeaderMiddleware(h)
 	h = accessLogMiddleware(s.AccessLogger, apiHTTPExcludedFromAuxLogging, h)
 	h = observability.CorrelationMiddleware(h)
 	h = httpsecurity.HeaderMiddleware(httpsecurity.APIHeaderPolicy(), h)

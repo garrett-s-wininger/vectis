@@ -85,6 +85,7 @@ API authentication is off by default for local development. Enable it before exp
 | `VECTIS_API_AUTH_ENABLED` / `api.auth.enabled` | Enables Bearer-token authentication on protected API routes after setup. |
 | `VECTIS_API_AUTH_BOOTSTRAP_TOKEN` / `api.auth.bootstrap_token` | Shared secret for `POST /api/v1/setup/complete` on a new database. Must be at least 16 characters until setup is recorded in the database. |
 | `VECTIS_API_AUTHZ_ENGINE` / `api.authz.engine` | Selects authorization policy: `hierarchical_rbac` by default, or `authenticated_full` for simpler trusted setups. |
+| `VECTIS_API_ALLOWED_HOSTS` / `api.host_validation.allowed_hosts` | Comma-separated exact Host header allowlist for the browser-facing API. Defaults to the API listen host plus loopback names; configure external DNS names when serving behind an ingress or binding to `0.0.0.0`. |
 
 `vectis-cli login` calls `POST /api/v1/login` and saves the returned token in the OS user config directory. You can override the saved token for one shell session with:
 
@@ -104,6 +105,8 @@ API audit events are enabled by default.
 | `VECTIS_API_AUDIT_DURABILITY_OVERRIDES` / `api.audit.durability_overrides` | Comma-separated `event=durability` overrides, such as `auth.success=disabled,run.triggered=best_effort`. |
 
 API CORS is closed by default. Set `api.cors.allowed_origins` or `VECTIS_API_CORS_ALLOWED_ORIGINS` to a comma-separated list of exact browser origins, such as `https://ui.example.com` or `http://localhost:3000`. Origins with wildcards, `null`, paths, query strings, or non-HTTP schemes are rejected. Allowed browser requests receive credentialed CORS headers; preflight requests are rejected unless the requested method and headers are in the API allowlist.
+
+API Host header validation is enabled by default. Requests whose `Host` does not match `api.host_validation.allowed_hosts` / `VECTIS_API_ALLOWED_HOSTS` are rejected before route handling. Allowed host entries are hostnames or IP literals, optionally with a port; wildcard, URL, path, query, and userinfo forms are rejected at startup.
 
 API sessions and rate-limit buckets use the API cache backend. The default is `api.cache.backend = "database"`, which stores shared state in the configured SQL database so multiple API replicas see the same sessions and enforce one rate-limit budget. Set `api.cache.backend = "memory"` or `VECTIS_API_CACHE_BACKEND=memory` only when per-process sessions and limits are acceptable; memory mode cleans expired entries but still logs a warning when API auth is enabled because sessions and limits are not shared across replicas. Login sessions have an absolute expiry from `api.session.ttl` / `VECTIS_API_SESSION_TTL` and an idle expiry from `api.session.idle_ttl` / `VECTIS_API_SESSION_IDLE_TTL`; the defaults are `168h` and `24h`. Browser session cookies are HttpOnly and SameSite=Lax. Direct TLS requests are always issued `Secure` cookies. When API auth is enabled behind an HTTPS ingress, edge proxy, or load balancer, set `api.session.cookie_secure = true` / `VECTIS_API_SESSION_COOKIE_SECURE=true`; use `api.session.allow_insecure_cookies = true` / `VECTIS_API_SESSION_ALLOW_INSECURE_COOKIES=true` only for local HTTP development. Unsafe cookie-authenticated requests require `X-CSRF-Token`; cross-site browser requests carrying Fetch Metadata are rejected.
 

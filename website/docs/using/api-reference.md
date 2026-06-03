@@ -160,7 +160,7 @@ When `api.auth.enabled=false`, API routes are accepted without bearer tokens. Wh
 Authorization: Bearer <api_token>
 ```
 
-Health endpoints and `POST /api/v1/login` are public. Setup routes use setup-specific authorization while the first admin is being created. Diagnostics, API metrics, and data routes authorize the action listed in the route table below; namespace-scoped resources are hidden with `404` when the caller is not allowed to see that namespace.
+Health endpoints and `POST /api/v1/login` are public. Setup routes use setup-specific authorization while the first admin is being created. Diagnostics, API metrics, and data routes authorize the action listed in the route table below; namespace-scoped resources are hidden with `404` when the caller is not allowed to see that namespace. Browser-facing requests must use a trusted `Host` value from the API host allowlist.
 
 `POST /api/v1/login` creates an expiring server-side session. Browser clients receive an HttpOnly `vectis_session` cookie plus a readable `vectis_csrf` cookie and `csrf_token` response field. Unsafe cookie-authenticated requests must copy that token into `X-CSRF-Token`; if the request includes `Origin` or `Referer`, its host must match the request host.
 
@@ -195,6 +195,8 @@ All error responses use `Content-Type: application/json; charset=utf-8` and `X-C
 
 CORS is closed unless the operator configures exact allowed origins. Credentialed browser CORS never uses `*`; preflights are accepted only for allowed origins, methods, and request headers.
 
+Host header validation is enabled by default. Requests with untrusted, wildcard, URL-shaped, or otherwise invalid `Host` values are rejected before route handling.
+
 Routes reject request bodies unless the route explicitly accepts a JSON body. JSON routes enforce a per-route body cap before parsing; job-definition routes have a larger cap than auth, user, token, namespace, and control routes.
 
 The `code` field is intended for clients and scripts. The `message` field is human-readable and may become clearer over time without changing the machine meaning. `details` is optional structured data whose shape depends on `code`; clients should ignore unknown detail keys.
@@ -219,6 +221,7 @@ Common v1 error codes:
 | Code | Typical status | Meaning |
 | --- | --- | --- |
 | `invalid_request_body` | `400` | JSON could not be decoded or did not match the expected request shape. |
+| `invalid_host_header` | `400` | The request `Host` header is invalid or not in the API host allowlist. |
 | `authentication_required` | `401` | Missing, malformed, expired, or invalid bearer credentials. |
 | `authorization_denied` | `403` | Authenticated principal is not allowed to perform the requested visible action. |
 | `auth_unavailable` | `503` | Authentication persistence or configuration is not available. |
