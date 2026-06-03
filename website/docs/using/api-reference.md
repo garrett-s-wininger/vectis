@@ -197,11 +197,13 @@ CORS is closed unless the operator configures exact allowed origins. Credentiale
 
 Host header validation is enabled by default. Requests with untrusted, wildcard, URL-shaped, or otherwise invalid `Host` values are rejected before route handling.
 
-Security-control rejections for Host validation, CORS preflight checks, CSRF checks, request body policy, and rate limits are logged with sanitized fields and counted by the `vectis_api_security_rejections_total` metric.
+Security-control rejections for Host validation, CORS preflight checks, CSRF checks, method checks, request body policy, and rate limits are logged with sanitized fields and counted by the `vectis_api_security_rejections_total` metric.
 
 The API server caps request headers at 32 KiB. Requests above that parser limit are rejected by the HTTP server before route handling.
 
 Routes reject request bodies unless the route explicitly accepts a JSON body. JSON routes enforce a per-route body cap before parsing; job-definition routes have a larger cap than auth, user, token, namespace, and control routes.
+
+Unknown routes return `route_not_found`. Method mismatches return `method_not_allowed` with an `Allow` header; TRACE, TRACK, and CONNECT are always rejected.
 
 The `code` field is intended for clients and scripts. The `message` field is human-readable and may become clearer over time without changing the machine meaning. `details` is optional structured data whose shape depends on `code`; clients should ignore unknown detail keys.
 
@@ -235,6 +237,8 @@ Common v1 error codes:
 | `unsupported_media_type` | `415` | A JSON route received a non-JSON `Content-Type`. |
 | `request_body_not_allowed` | `400` | The route does not accept a request body. |
 | `request_body_too_large` | `413` | The request body exceeded the route limit. |
+| `route_not_found` | `404` | No API route matched the request path. |
+| `method_not_allowed` | `405` | The route exists but does not accept the request method; `Allow` is set. |
 | `database_unavailable` | `503` | The configured SQL database is temporarily unavailable. |
 | `queue_not_ready` | `503` | The API cannot currently hand work to the queue. |
 | `server_shutting_down` | `503` | The API has started shutdown drain and should not receive new requests. |

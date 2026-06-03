@@ -75,6 +75,7 @@ const (
 	apiErrRequestBodyTooLarge            apiErrorCode = "request_body_too_large"
 	apiErrRequestReadFailed              apiErrorCode = "request_read_failed"
 	apiErrRoleBindingsNotConfigured      apiErrorCode = "role_bindings_not_configured"
+	apiErrRouteNotFound                  apiErrorCode = "route_not_found"
 	apiErrRootNamespaceDeleteForbidden   apiErrorCode = "root_namespace_delete_forbidden"
 	apiErrScopedTokenScopeRequired       apiErrorCode = "scoped_token_scope_required"
 	apiErrSelfDeleteForbidden            apiErrorCode = "self_delete_forbidden"
@@ -208,6 +209,8 @@ func (c apiErrorCode) message() string {
 		return "failed to read request body"
 	case apiErrRoleBindingsNotConfigured:
 		return "role bindings not configured"
+	case apiErrRouteNotFound:
+		return "route not found"
 	case apiErrRootNamespaceDeleteForbidden:
 		return "cannot delete root namespace"
 	case apiErrScopedTokenScopeRequired:
@@ -267,6 +270,15 @@ func writeAPIError(w http.ResponseWriter, status int, code, message string, deta
 
 func writeAPIErrorCode(w http.ResponseWriter, status int, code apiErrorCode) {
 	writeAPIError(w, status, string(code), code.message(), nil)
+}
+
+func writeMethodNotAllowed(w http.ResponseWriter, allow string) {
+	if allow != "" {
+		w.Header().Set("Allow", allow)
+	}
+
+	setNoStore(w)
+	writeAPIErrorCode(w, http.StatusMethodNotAllowed, apiErrMethodNotAllowed)
 }
 
 func setNoStore(w http.ResponseWriter) {

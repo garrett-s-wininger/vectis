@@ -104,7 +104,7 @@ API audit events are enabled by default.
 | `VECTIS_API_AUDIT_ENABLED` / `api.audit.enabled` | Set to `false` to disable audit emission. |
 | `VECTIS_API_AUDIT_DURABILITY_OVERRIDES` / `api.audit.durability_overrides` | Comma-separated `event=durability` overrides, such as `auth.success=disabled,run.triggered=best_effort`. |
 
-API Host, CORS, CSRF, body-policy, and rate-limit rejects emit sanitized warning logs and increment `vectis_api_security_rejections_total`. Alert on sustained or sudden increases by `reason`; the metric uses only `reason`, `route`, and `status` labels to avoid attacker-controlled cardinality.
+API Host, CORS, CSRF, method, body-policy, and rate-limit rejects emit sanitized warning logs and increment `vectis_api_security_rejections_total`. Alert on sustained or sudden increases by `reason`; the metric uses only `reason`, `route`, and `status` labels to avoid attacker-controlled cardinality.
 
 API CORS is closed by default. Set `api.cors.allowed_origins` or `VECTIS_API_CORS_ALLOWED_ORIGINS` to a comma-separated list of exact browser origins, such as `https://ui.example.com` or `http://localhost:3000`. Origins with wildcards, `null`, paths, query strings, or non-HTTP schemes are rejected. Allowed browser requests receive credentialed CORS headers; preflight requests are rejected unless the requested method and headers are in the API allowlist.
 
@@ -119,6 +119,8 @@ The API can serve browser-facing HTTPS directly with `--tls-cert-file` and `--tl
 API and docs responses set browser hardening headers by default, including `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, and Content Security Policy. `Strict-Transport-Security` is sent only on direct HTTPS requests; if TLS terminates at an ingress or load balancer, configure HSTS at that edge. Protected API routes default to `Cache-Control: no-store` unless a streaming handler explicitly manages cache headers.
 
 API routes reject request bodies unless the route inventory explicitly declares a JSON body policy. Declared JSON body routes enforce per-route size caps before parsing, including smaller caps for auth/user/token/control routes and a larger cap for job definitions.
+
+API route matching returns JSON API errors for unknown routes and method mismatches. Method mismatches include an `Allow` header, and TRACE, TRACK, and CONNECT are rejected before route handlers run.
 
 HTTP servers for the API, docs, cell ingress, and metrics endpoints cap request headers at 32 KiB. Keep reverse proxy and ingress header limits at or below that size so oversized requests are rejected before reaching Vectis.
 

@@ -17,9 +17,11 @@ const (
 	securityReasonCSRFFetchMetadataBlocked = "csrf_fetch_metadata_forbidden"
 	securityReasonCSRFOriginForbidden      = "csrf_origin_forbidden"
 	securityReasonCSRFTokenRequired        = "csrf_token_required"
+	securityReasonMethodNotAllowed         = "method_not_allowed"
 	securityReasonRateLimitExceeded        = "rate_limit_exceeded"
 	securityReasonRequestBodyNotAllowed    = "request_body_not_allowed"
 	securityReasonRequestBodyTooLarge      = "request_body_too_large"
+	securityReasonUnsupportedHTTPMethod    = "unsupported_http_method"
 
 	maxSecurityLogValueBytes = 160
 )
@@ -33,11 +35,18 @@ type securityRejectionRecorder func(*http.Request, string, int)
 type securityRejectionRecorderKey struct{}
 
 func (s *APIServer) recordSecurityRejection(r *http.Request, reason string, status int) {
+	s.recordSecurityRejectionForRoute(r, reason, securityRoute(r), status)
+}
+
+func (s *APIServer) recordSecurityRejectionForRoute(r *http.Request, reason, route string, status int) {
 	if r == nil {
 		return
 	}
 
-	route := securityRoute(r)
+	if strings.TrimSpace(route) == "" {
+		route = securityRejectionUnknownRoute
+	}
+
 	if s.apiSecurityMetrics != nil {
 		s.apiSecurityMetrics.RecordSecurityRejection(r.Context(), reason, route, status)
 	}

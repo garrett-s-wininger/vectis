@@ -14,12 +14,14 @@ import (
 
 func (s *APIServer) Handler() http.Handler {
 	mux := http.NewServeMux()
+	specs := s.routeSpecs(true)
 
-	for _, spec := range s.routeSpecs(true) {
+	for _, spec := range specs {
 		s.registerRoute(mux, spec)
 	}
 
 	h := http.Handler(mux)
+	h = s.routeGuardMiddleware(newAPIRouteIndex(specs), h)
 	h = s.corsMiddleware(h)
 	h = s.hostHeaderMiddleware(h)
 	h = accessLogMiddleware(s.AccessLogger, apiHTTPExcludedFromAuxLogging, h)
