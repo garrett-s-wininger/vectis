@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"vectis/internal/config"
+	"vectis/internal/httpsecurity"
 	"vectis/internal/interfaces"
 )
 
@@ -26,14 +27,7 @@ func StartMetricsHTTPServer(
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", handler)
 
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           mux,
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       2 * time.Minute,
-	}
+	srv := newMetricsHTTPServer(addr, mux)
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -58,6 +52,18 @@ func StartMetricsHTTPServer(
 	}
 
 	return &MetricsHTTPServer{server: srv, logger: logger}, nil
+}
+
+func newMetricsHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+		MaxHeaderBytes:    httpsecurity.DefaultMaxHeaderBytes,
+	}
 }
 
 func (s *MetricsHTTPServer) Shutdown() {

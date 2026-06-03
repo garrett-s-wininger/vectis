@@ -3,9 +3,13 @@ package httpsecurity
 import "net/http"
 
 const (
+	// DefaultMaxHeaderBytes caps request headers for Vectis HTTP servers.
+	DefaultMaxHeaderBytes = 32 << 10
+
 	apiContentSecurityPolicy  = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 	docsContentSecurityPolicy = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; " +
 		"img-src 'self' data:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'"
+
 	defaultHSTS = "max-age=31536000"
 )
 

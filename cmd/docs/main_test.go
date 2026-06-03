@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/viper"
 
+	"vectis/internal/httpsecurity"
 	"vectis/internal/interfaces"
 	"vectis/internal/localpki"
 )
@@ -123,6 +124,13 @@ func TestDocsServerHandlerAppliesSecurityHeaders(t *testing.T) {
 	}
 	if got := rec.Header().Get("Strict-Transport-Security"); got != "" {
 		t.Fatalf("Strict-Transport-Security over HTTP = %q, want empty", got)
+	}
+}
+
+func TestDocsHTTPServerSetsMaxHeaderBytes(t *testing.T) {
+	srv := docsHTTPServer("127.0.0.1:0", http.NotFoundHandler())
+	if srv.MaxHeaderBytes != httpsecurity.DefaultMaxHeaderBytes {
+		t.Fatalf("MaxHeaderBytes = %d, want %d", srv.MaxHeaderBytes, httpsecurity.DefaultMaxHeaderBytes)
 	}
 }
 

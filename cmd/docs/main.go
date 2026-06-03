@@ -39,14 +39,7 @@ func runDocs(cmd *cobra.Command, args []string) {
 	handler, source := docsHandler(viper.GetString("dir"), logger)
 
 	addr := net.JoinHostPort(viper.GetString("host"), fmt.Sprintf("%d", viper.GetInt("port")))
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           docsServerHandler(handler),
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       2 * time.Minute,
-	}
+	srv := docsHTTPServer(addr, handler)
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -61,6 +54,18 @@ func runDocs(cmd *cobra.Command, args []string) {
 	logger.Info("Docs listening on %s://%s (%s)", scheme, addr, source)
 	if err := cli.ServeHTTP(cmd.Context(), srv, func() error { return srv.Serve(ln) }, defaultShutdownTimeout, "Docs HTTP", logger); err != nil {
 		logger.Fatal("Docs server failed: %v", err)
+	}
+}
+
+func docsHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           docsServerHandler(handler),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+		MaxHeaderBytes:    httpsecurity.DefaultMaxHeaderBytes,
 	}
 }
 

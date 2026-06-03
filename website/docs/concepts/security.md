@@ -125,6 +125,7 @@ The API also has bounded request sizes and token parsing limits:
 | --- | --- |
 | Route-declared request body policy | Rejects request bodies on routes that do not explicitly accept them. |
 | JSON body caps | Limits memory and parsing work on hostile requests; job-definition routes have a larger dedicated cap. |
+| HTTP request header cap | Bounds parser memory for oversized header attacks across API, docs, cell ingress, and metrics HTTP servers. |
 | Trusted Host header allowlist | Reduces Host-header confusion and DNS-rebinding risk for browser-facing API requests. |
 | Bearer token length cap | Prevents oversized authorization headers from causing extra CPU or memory work. |
 | Admin username and password bounds | Keeps setup input predictable. |

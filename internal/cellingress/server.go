@@ -12,6 +12,7 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/cell"
 	"vectis/internal/dal"
+	"vectis/internal/httpsecurity"
 	"vectis/internal/interfaces"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -255,5 +256,6 @@ func HTTPServer(addr string, handler http.Handler) *http.Server {
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       2 * time.Minute,
+		MaxHeaderBytes:    httpsecurity.DefaultMaxHeaderBytes,
 	}
 }

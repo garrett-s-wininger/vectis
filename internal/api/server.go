@@ -26,6 +26,7 @@ import (
 	"vectis/internal/config"
 	"vectis/internal/dal"
 	"vectis/internal/database"
+	"vectis/internal/httpsecurity"
 	"vectis/internal/interfaces"
 	"vectis/internal/logclient"
 	"vectis/internal/observability"
@@ -638,15 +639,7 @@ func (s *APIServer) Run(ctx context.Context, addr string) error {
 	defer srvCancel()
 	s.srvCtx.Store(&ctxHolder{ctx: srvCtx})
 
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           s.Handler(),
-		ReadHeaderTimeout: defaultReadHeaderTimeout,
-		ReadTimeout:       defaultReadTimeout,
-		WriteTimeout:      defaultWriteTimeout,
-		IdleTimeout:       defaultIdleTimeout,
-	}
-
+	srv := s.newHTTPServer(addr)
 	s.logger.Info("API server listening on %s", addr)
 	return s.runHTTPServer(ctx, srv, srv.ListenAndServe)
 }
@@ -656,14 +649,19 @@ func (s *APIServer) Serve(ctx context.Context, l net.Listener) error {
 	defer srvCancel()
 	s.srvCtx.Store(&ctxHolder{ctx: srvCtx})
 
-	srv := &http.Server{
+	srv := s.newHTTPServer("")
+	s.logger.Info("API server serving on %s", l.Addr().String())
+	return s.runHTTPServer(ctx, srv, func() error { return srv.Serve(l) })
+}
+
+func (s *APIServer) newHTTPServer(addr string) *http.Server {
+	return &http.Server{
+		Addr:              addr,
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: defaultReadHeaderTimeout,
 		ReadTimeout:       defaultReadTimeout,
 		WriteTimeout:      defaultWriteTimeout,
 		IdleTimeout:       defaultIdleTimeout,
+		MaxHeaderBytes:    httpsecurity.DefaultMaxHeaderBytes,
 	}
-
-	s.logger.Info("API server serving on %s", l.Addr().String())
-	return s.runHTTPServer(ctx, srv, func() error { return srv.Serve(l) })
 }

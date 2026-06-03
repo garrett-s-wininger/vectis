@@ -197,6 +197,8 @@ CORS is closed unless the operator configures exact allowed origins. Credentiale
 
 Host header validation is enabled by default. Requests with untrusted, wildcard, URL-shaped, or otherwise invalid `Host` values are rejected before route handling.
 
+The API server caps request headers at 32 KiB. Requests above that parser limit are rejected by the HTTP server before route handling.
+
 Routes reject request bodies unless the route explicitly accepts a JSON body. JSON routes enforce a per-route body cap before parsing; job-definition routes have a larger cap than auth, user, token, namespace, and control routes.
 
 The `code` field is intended for clients and scripts. The `message` field is human-readable and may become clearer over time without changing the machine meaning. `details` is optional structured data whose shape depends on `code`; clients should ignore unknown detail keys.

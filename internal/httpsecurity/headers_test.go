@@ -27,6 +27,12 @@ func TestHeaderMiddleware_appliesBaselineHeaders(t *testing.T) {
 	}
 }
 
+func TestDefaultMaxHeaderBytes(t *testing.T) {
+	if DefaultMaxHeaderBytes != 32<<10 {
+		t.Fatalf("DefaultMaxHeaderBytes = %d, want %d", DefaultMaxHeaderBytes, 32<<10)
+	}
+}
+
 func TestHeaderMiddleware_setsHSTSForTLS(t *testing.T) {
 	h := HeaderMiddleware(APIHeaderPolicy(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)

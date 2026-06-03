@@ -13,10 +13,18 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/cell"
 	"vectis/internal/dal"
+	"vectis/internal/httpsecurity"
 	"vectis/internal/interfaces/mocks"
 
 	"google.golang.org/protobuf/encoding/protojson"
 )
+
+func TestHTTPServerSetsMaxHeaderBytes(t *testing.T) {
+	srv := HTTPServer("127.0.0.1:0", http.NotFoundHandler())
+	if srv.MaxHeaderBytes != httpsecurity.DefaultMaxHeaderBytes {
+		t.Fatalf("MaxHeaderBytes = %d, want %d", srv.MaxHeaderBytes, httpsecurity.DefaultMaxHeaderBytes)
+	}
+}
 
 func TestSubmitExecutionAcceptsLocalEnvelope(t *testing.T) {
 	queue := mocks.NewMockQueueService()
