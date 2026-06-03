@@ -40,6 +40,8 @@ Browser-facing API/docs security headers live in `internal/httpsecurity`; use th
 
 HTTP server parser limits use `httpsecurity.DefaultMaxHeaderBytes`; keep API, docs, cell ingress, and metrics servers on that shared cap unless a route-specific threat model justifies a different one.
 
+Metrics HTTP servers must go through `internal/cli.StartMetricsHTTPServer`; it applies the shared `/metrics` route guard, security headers, and `no-store` cache policy for every service.
+
 HTTP method allowlists should use `internal/httpsecurity` helpers for shared `Allow` header and `HEAD`-for-`GET` behavior. Docs stay read-only (`GET`/`HEAD`); cell ingress should keep its route surface explicitly guarded.
 
 Cell ingress JSON responses should stay `nosniff` and `no-store` by default; route guard errors, health checks, and execution submission responses all flow through the shared JSON writer.

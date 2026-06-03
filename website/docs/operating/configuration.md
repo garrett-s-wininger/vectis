@@ -126,6 +126,8 @@ Cell ingress route matching is similarly narrow: health endpoints allow `GET`/`H
 
 HTTP servers for the API, docs, cell ingress, and metrics endpoints cap request headers at 32 KiB. Keep reverse proxy and ingress header limits at or below that size so oversized requests are rejected before reaching Vectis.
 
+Per-service metrics servers only serve `GET`/`HEAD /metrics`; other paths or methods are rejected before the Prometheus handler runs. Metrics responses use baseline security headers and `Cache-Control: no-store` because metrics can disclose operational state.
+
 API rate limits have embedded defaults for auth, token, and general routes. The shipped limit keys live under `api.rate_limit.*`. The defaults are intended to protect the built-in auth surface from accidental or hostile bursts; tune them only when you understand the expected traffic shape.
 
 When the API runs behind a trusted reverse proxy, configure client IP forwarding separately. See [Trusted Proxy Client IP](./deployment/trusted-proxy-client-ip.md).

@@ -24,10 +24,7 @@ func StartMetricsHTTPServer(
 	serviceName string,
 	logger interfaces.Logger,
 ) (*MetricsHTTPServer, error) {
-	mux := http.NewServeMux()
-	mux.Handle("GET /metrics", handler)
-
-	srv := newMetricsHTTPServer(addr, mux)
+	srv := newMetricsHTTPServer(addr, metricsServerHandler(handler))
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -64,6 +61,36 @@ func newMetricsHTTPServer(addr string, handler http.Handler) *http.Server {
 		IdleTimeout:       2 * time.Minute,
 		MaxHeaderBytes:    httpsecurity.DefaultMaxHeaderBytes,
 	}
+}
+
+func metricsServerHandler(handler http.Handler) http.Handler {
+	if handler == nil {
+		handler = http.NotFoundHandler()
+	}
+
+	return httpsecurity.HeaderMiddleware(httpsecurity.APIHeaderPolicy(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		setMetricsNoStore(w)
+
+		if r.URL.Path != "/metrics" {
+			http.NotFound(w, r)
+			return
+		}
+
+		if !httpsecurity.MethodAllowed(r.Method, http.MethodGet) {
+			w.Header().Set("Allow", httpsecurity.AllowHeader(http.MethodGet))
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		handler.ServeHTTP(w, r)
+	}))
+}
+
+func setMetricsNoStore(w http.ResponseWriter) {
+	h := w.Header()
+	h.Set("Cache-Control", "no-store")
+	h.Set("Pragma", "no-cache")
+	h.Set("Expires", "0")
 }
 
 func (s *MetricsHTTPServer) Shutdown() {
