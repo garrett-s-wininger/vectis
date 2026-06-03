@@ -149,23 +149,33 @@ func docsHandler(configuredDir string, logger interfaces.Logger) (http.Handler, 
 func docsHandlerWithFS(configuredDir string, logger interfaces.Logger, docsFS fs.FS) (http.Handler, string) {
 	if dir := strings.TrimSpace(configuredDir); dir != "" {
 		if hasDocsIndex(dir) {
-			return http.FileServer(http.Dir(dir)), fmt.Sprintf("serving %s", dir)
-		}
+			handler, err := docsLocalHandler(dir)
+			if err == nil {
+				return handler, fmt.Sprintf("serving %s", dir)
+			}
 
-		logger.Warn("configured docs dir %s does not contain index.html; falling back to embedded docs", dir)
+			logger.Warn("configured docs dir %s could not be prepared safely: %v; falling back to embedded docs", dir, err)
+		} else {
+			logger.Warn("configured docs dir %s does not contain index.html; falling back to embedded docs", dir)
+		}
 	}
 
 	if env := strings.TrimSpace(os.Getenv("VECTIS_DOCS_DIR")); env != "" && env != strings.TrimSpace(configuredDir) {
 		if hasDocsIndex(env) {
-			return http.FileServer(http.Dir(env)), fmt.Sprintf("serving %s", env)
-		}
+			handler, err := docsLocalHandler(env)
+			if err == nil {
+				return handler, fmt.Sprintf("serving %s", env)
+			}
 
-		logger.Warn("VECTIS_DOCS_DIR %s does not contain index.html; falling back to embedded docs", env)
+			logger.Warn("VECTIS_DOCS_DIR %s could not be prepared safely: %v; falling back to embedded docs", env, err)
+		} else {
+			logger.Warn("VECTIS_DOCS_DIR %s does not contain index.html; falling back to embedded docs", env)
+		}
 	}
 
 	sub, err := fs.Sub(docsFS, "embedded")
 	if err == nil && hasDocsIndexFS(sub) {
-		return http.FileServer(http.FS(sub)), "serving embedded docs"
+		return docsStaticFileServer(http.FS(sub)), "serving embedded docs"
 	}
 
 	logger.Warn("embedded docs build not found; rebuild vectis-docs without SKIP_WEB_BUILD=1")
@@ -189,6 +199,15 @@ func docsHandlerWithFS(configuredDir string, logger interfaces.Logger, docsFS fs
 </body>
 </html>`))
 	}), "embedded docs not available"
+}
+
+func docsLocalHandler(dir string) (http.Handler, error) {
+	fsys, err := newDocsLocalFileSystem(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	return http.FileServer(fsys), nil
 }
 
 func hasDocsIndex(dir string) bool {

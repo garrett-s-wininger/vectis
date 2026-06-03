@@ -34,15 +34,22 @@ func writeDocsIndex(t *testing.T, dir, body string) {
 func requestDocsIndex(t *testing.T, handler http.Handler) string {
 	t.Helper()
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
+	rec := requestDocsPath(t, handler, "/")
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 
 	return rec.Body.String()
+}
+
+func requestDocsPath(t *testing.T, handler http.Handler, target string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodGet, target, nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	return rec
 }
 
 func TestDocsHandlerUsesConfiguredDirectory(t *testing.T) {
@@ -56,6 +63,108 @@ func TestDocsHandlerUsesConfiguredDirectory(t *testing.T) {
 
 	if body := requestDocsIndex(t, handler); !strings.Contains(body, "configured docs") {
 		t.Fatalf("body did not come from configured dir: %q", body)
+	}
+}
+
+func TestDocsHandlerConfiguredDirectoryDoesNotListDirectories(t *testing.T) {
+	dir := t.TempDir()
+	writeDocsIndex(t, dir, "configured docs")
+	if err := os.Mkdir(filepath.Join(dir, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "assets", "main.js"), []byte("console.log('secret name')"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	handler, _ := docsHandlerWithFS(dir, testLogger(), fstest.MapFS{})
+	rec := requestDocsPath(t, handler, "/assets/")
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusNotFound, rec.Body.String())
+	}
+
+	if strings.Contains(rec.Body.String(), "main.js") {
+		t.Fatalf("directory listing exposed file name: %q", rec.Body.String())
+	}
+}
+
+func TestDocsHandlerConfiguredDirectoryServesNestedIndex(t *testing.T) {
+	dir := t.TempDir()
+	writeDocsIndex(t, dir, "configured docs")
+	guideDir := filepath.Join(dir, "guide")
+	if err := os.Mkdir(guideDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(guideDir, "index.html"), []byte("guide docs"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	handler, _ := docsHandlerWithFS(dir, testLogger(), fstest.MapFS{})
+	rec := requestDocsPath(t, handler, "/guide/")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	if !strings.Contains(rec.Body.String(), "guide docs") {
+		t.Fatalf("body did not come from nested index: %q", rec.Body.String())
+	}
+}
+
+func TestDocsHandlerConfiguredDirectoryHidesDotfiles(t *testing.T) {
+	dir := t.TempDir()
+	writeDocsIndex(t, dir, "configured docs")
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("SECRET=value"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Mkdir(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, ".git", "config"), []byte("[remote]\nurl=secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	handler, _ := docsHandlerWithFS(dir, testLogger(), fstest.MapFS{})
+	for _, target := range []string{"/.env", "/.git/config"} {
+		t.Run(target, func(t *testing.T) {
+			rec := requestDocsPath(t, handler, target)
+
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusNotFound, rec.Body.String())
+			}
+
+			if strings.Contains(rec.Body.String(), "SECRET") || strings.Contains(rec.Body.String(), "remote") {
+				t.Fatalf("dotfile content leaked: %q", rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestDocsHandlerConfiguredDirectoryRejectsSymlinkEscape(t *testing.T) {
+	dir := t.TempDir()
+	writeDocsIndex(t, dir, "configured docs")
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("outside secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Symlink(filepath.Join(outside, "secret.txt"), filepath.Join(dir, "secret.txt")); err != nil {
+		t.Skipf("symlink not available: %v", err)
+	}
+
+	handler, _ := docsHandlerWithFS(dir, testLogger(), fstest.MapFS{})
+	rec := requestDocsPath(t, handler, "/secret.txt")
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusNotFound, rec.Body.String())
+	}
+
+	if strings.Contains(rec.Body.String(), "outside secret") {
+		t.Fatalf("symlink target content leaked: %q", rec.Body.String())
 	}
 }
 
@@ -85,6 +194,23 @@ func TestDocsHandlerUsesEmbeddedDocs(t *testing.T) {
 
 	if body := requestDocsIndex(t, handler); !strings.Contains(body, "embedded docs") {
 		t.Fatalf("body did not come from embedded docs: %q", body)
+	}
+}
+
+func TestDocsHandlerEmbeddedDocsDoesNotListDirectories(t *testing.T) {
+	handler, _ := docsHandlerWithFS("", testLogger(), fstest.MapFS{
+		"embedded/index.html":     &fstest.MapFile{Data: []byte("embedded docs")},
+		"embedded/assets/main.js": &fstest.MapFile{Data: []byte("console.log('asset')")},
+	})
+
+	rec := requestDocsPath(t, handler, "/assets/")
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusNotFound, rec.Body.String())
+	}
+
+	if strings.Contains(rec.Body.String(), "main.js") {
+		t.Fatalf("directory listing exposed embedded file name: %q", rec.Body.String())
 	}
 }
 

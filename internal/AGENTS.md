@@ -42,6 +42,8 @@ HTTP server parser limits use `httpsecurity.DefaultMaxHeaderBytes`; keep API, do
 
 HTTP method allowlists should use `internal/httpsecurity` helpers for shared `Allow` header and `HEAD`-for-`GET` behavior. Docs stay read-only (`GET`/`HEAD`); cell ingress should keep its route surface explicitly guarded.
 
+Docs static file serving must go through the hardened docs file server wrapper, not raw `http.FileServer`, so directory listings, dotfile paths, and local docs symlink escapes stay blocked.
+
 API Host header validation is enabled by default through `api.host_validation.allowed_hosts` / `VECTIS_API_ALLOWED_HOSTS`. Defaults derive from the API listen host plus loopback; external DNS names must be explicit.
 
 API CORS is closed by default. Configure only exact `http://` or `https://` origins through `api.cors.allowed_origins` / `VECTIS_API_CORS_ALLOWED_ORIGINS`; wildcard credentialed CORS is intentionally rejected.
