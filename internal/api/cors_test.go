@@ -86,6 +86,8 @@ func TestCORSMiddlewarePreflightRejectsUnlistedHeader(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	s := NewAPIServer(mocks.NewMockLogger(), db)
 	s.SetQueueClient(mocks.NewMockQueueService())
+	metrics := &fakeSecurityRejectionMetrics{}
+	s.SetAPISecurityMetrics(metrics)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodOptions, "/api/v1/jobs", nil)
@@ -100,6 +102,8 @@ func TestCORSMiddlewarePreflightRejectsUnlistedHeader(t *testing.T) {
 	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
 		t.Fatalf("Access-Control-Allow-Origin = %q, want empty on rejected preflight", got)
 	}
+
+	requireSecurityRejection(t, metrics, securityReasonCORSPreflightForbidden, securityRejectionUnknownRoute, http.StatusForbidden)
 }
 
 func TestCORSAllowedHeaders(t *testing.T) {

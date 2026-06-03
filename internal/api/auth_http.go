@@ -258,16 +258,19 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 			if err == nil {
 				if source == credentialSourceCookie && csrfRequired(r.Method) {
 					if !validCSRFFetchMetadata(r) {
+						s.recordSecurityRejection(r, securityReasonCSRFFetchMetadataBlocked, http.StatusForbidden)
 						writeAPIErrorCode(w, http.StatusForbidden, apiErrCSRFOriginForbidden)
 						return
 					}
 
 					if !validCSRFToken(r.Header.Get(csrfHeaderName), session.CSRFTokenHash) {
+						s.recordSecurityRejection(r, securityReasonCSRFTokenRequired, http.StatusForbidden)
 						writeAPIErrorCode(w, http.StatusForbidden, apiErrCSRFTokenRequired)
 						return
 					}
 
 					if !validCSRFOrigin(r) {
+						s.recordSecurityRejection(r, securityReasonCSRFOriginForbidden, http.StatusForbidden)
 						writeAPIErrorCode(w, http.StatusForbidden, apiErrCSRFOriginForbidden)
 						return
 					}

@@ -458,6 +458,8 @@ func TestCookieSessionAuth_requiresCSRFForUnsafeMethods(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	s := NewAPIServer(mocks.NewMockLogger(), db)
 	s.SetQueueClient(mocks.NewMockQueueService())
+	metrics := &fakeSecurityRejectionMetrics{}
+	s.SetAPISecurityMetrics(metrics)
 	h := s.Handler()
 
 	setupBody := map[string]string{
@@ -569,6 +571,13 @@ func TestCookieSessionAuth_requiresCSRFForUnsafeMethods(t *testing.T) {
 	if !cleared[sessionCookieName] || !cleared[csrfCookieName] {
 		t.Fatalf("logout should clear session cookies, got %+v", rec.Result().Cookies())
 	}
+
+	if got := countSecurityRejections(metrics, securityReasonCSRFTokenRequired, "POST /api/v1/logout", http.StatusForbidden); got != 2 {
+		t.Fatalf("csrf token rejection count=%d, want 2 in %+v", got, metrics.Records())
+	}
+
+	requireSecurityRejection(t, metrics, securityReasonCSRFOriginForbidden, "POST /api/v1/logout", http.StatusForbidden)
+	requireSecurityRejection(t, metrics, securityReasonCSRFFetchMetadataBlocked, "POST /api/v1/logout", http.StatusForbidden)
 }
 
 func TestCookieSessionAuth_idleExpiry(t *testing.T) {
@@ -643,6 +652,8 @@ func TestLogin_usernameThrottle(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	s := NewAPIServer(mocks.NewMockLogger(), db)
 	s.SetQueueClient(mocks.NewMockQueueService())
+	metrics := &fakeSecurityRejectionMetrics{}
+	s.SetAPISecurityMetrics(metrics)
 	h := s.Handler()
 
 	setupBody := map[string]string{
@@ -695,6 +706,8 @@ func TestLogin_usernameThrottle(t *testing.T) {
 	if rec.Header().Get("Retry-After") == "" {
 		t.Fatal("expected Retry-After header")
 	}
+
+	requireSecurityRejection(t, metrics, securityReasonRateLimitExceeded, "POST /api/v1/login", http.StatusTooManyRequests)
 }
 
 func TestCookieSessionAuth_doesNotAcceptAPITokenCookie(t *testing.T) {

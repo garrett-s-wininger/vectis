@@ -192,6 +192,13 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		return
 	}
 
+	apiSecurityMetrics, err := observability.NewAPISecurityMetrics()
+	if err != nil {
+		logger.Error("Failed to initialize API security metrics: %v", err)
+		exitCode = 1
+		return
+	}
+
 	defer cli.DeferShutdown(logger, "Metrics", shutdownMetrics)()
 
 	server := api.NewAPIServer(logger, db)
@@ -236,6 +243,7 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 	server.SetDispatchMetrics(dispatchMetrics)
 	server.SetLogRoutingMetrics(logRoutingMetrics)
 	server.SetAPIDispatchMetrics(apiDispatchMetrics)
+	server.SetAPISecurityMetrics(apiSecurityMetrics)
 
 	// Wire up worker address resolution via registry for cancel endpoint.
 	if regAddr := config.APIRegistryDialAddress(); regAddr != "" {

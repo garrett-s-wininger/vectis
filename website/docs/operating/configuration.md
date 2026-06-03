@@ -104,6 +104,8 @@ API audit events are enabled by default.
 | `VECTIS_API_AUDIT_ENABLED` / `api.audit.enabled` | Set to `false` to disable audit emission. |
 | `VECTIS_API_AUDIT_DURABILITY_OVERRIDES` / `api.audit.durability_overrides` | Comma-separated `event=durability` overrides, such as `auth.success=disabled,run.triggered=best_effort`. |
 
+API Host, CORS, CSRF, body-policy, and rate-limit rejects emit sanitized warning logs and increment `vectis_api_security_rejections_total`. Alert on sustained or sudden increases by `reason`; the metric uses only `reason`, `route`, and `status` labels to avoid attacker-controlled cardinality.
+
 API CORS is closed by default. Set `api.cors.allowed_origins` or `VECTIS_API_CORS_ALLOWED_ORIGINS` to a comma-separated list of exact browser origins, such as `https://ui.example.com` or `http://localhost:3000`. Origins with wildcards, `null`, paths, query strings, or non-HTTP schemes are rejected. Allowed browser requests receive credentialed CORS headers; preflight requests are rejected unless the requested method and headers are in the API allowlist.
 
 API Host header validation is enabled by default. Requests whose `Host` does not match `api.host_validation.allowed_hosts` / `VECTIS_API_ALLOWED_HOSTS` are rejected before route handling. Allowed host entries are hostnames or IP literals, optionally with a port; wildcard, URL, path, query, and userinfo forms are rejected at startup.

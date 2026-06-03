@@ -21,6 +21,10 @@ var corsAllowedRequestHeaders = map[string]string{
 }
 
 func corsMiddleware(next http.Handler) http.Handler {
+	return (*APIServer)(nil).corsMiddleware(next)
+}
+
+func (s *APIServer) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := strings.TrimSpace(r.Header.Get("Origin"))
 		if origin == "" {
@@ -31,12 +35,20 @@ func corsMiddleware(next http.Handler) http.Handler {
 		allowed := corsOriginAllowed(origin)
 		if isCORSPreflight(r) {
 			if !allowed || !corsMethodAllowed(r.Header.Get("Access-Control-Request-Method")) {
+				if s != nil {
+					s.recordSecurityRejection(r, securityReasonCORSPreflightForbidden, http.StatusForbidden)
+				}
+
 				w.WriteHeader(http.StatusForbidden)
 				return
 			}
 
 			headers, ok := corsAllowedHeaders(r.Header.Get("Access-Control-Request-Headers"))
 			if !ok {
+				if s != nil {
+					s.recordSecurityRejection(r, securityReasonCORSPreflightForbidden, http.StatusForbidden)
+				}
+
 				w.WriteHeader(http.StatusForbidden)
 				return
 			}

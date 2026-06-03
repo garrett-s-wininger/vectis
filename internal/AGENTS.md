@@ -48,6 +48,8 @@ Protected API routes default to `Cache-Control: no-store` through `routeCachePol
 
 API routes reject request bodies by default through `routeBodyPolicy`. JSON body routes must opt in with an explicit size cap in `routeSpec.Body`; use `readRequestBody` rather than ad hoc `io.LimitReader` calls so oversized streamed bodies return `413`.
 
+API Host, CORS, CSRF, body-policy, and rate-limit rejections must flow through `recordSecurityRejection` / the route body recorder so `vectis_api_security_rejections_total` and sanitized warning logs stay complete. Keep metric labels low-cardinality; do not include raw headers, tokens, cookies, or request bodies in security rejection logs.
+
 The API cache backend is shared security state for sessions and rate limits. Database mode is the replica-safe default. Memory mode is process-local, cleans expired entries opportunistically, and should stay limited to tests, local development, or deliberate single-process deployments.
 
 ## Lint expectations
@@ -72,7 +74,7 @@ Each service chooses its init entrypoints from `cmd/*/main.go` (search `observab
 | Tracing | `observability.SetupTracing(ctx, serviceName, opts...)` — OTLP exporter via env-configured endpoint |
 | Metrics | Prometheus via OTel exporter; `observability.RegisterPoolMetrics(db)` for SQL pool stats |
 | Correlation | `observability/correlation.go` — gRPC metadata propagation (trace ID → log fields) |
-| Per-service metrics | `apimetrics.go`, `queuemetrics.go`, `workermetrics.go`, `logmetrics.go` — init in the binary's `runXxx` |
+| Per-service metrics | `apimetrics.go`, `apisecuritymetrics.go`, `queuemetrics.go`, `workermetrics.go`, `logmetrics.go` — init in the binary's `runXxx` |
 
 **To add a new metric:** create a `<name>metrics.go` in `observability/` following the existing pattern (e.g. `queuemetrics.go`), wire init in the binary's `runXxx`, and expose domain-specific counters/histograms. If operators should alert or troubleshoot with it, update the relevant docs under `website/docs/operating/`.
 

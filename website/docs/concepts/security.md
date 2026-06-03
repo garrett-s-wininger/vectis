@@ -119,6 +119,8 @@ Vectis rejects checkout URLs that embed user info, such as `https://user:token@e
 
 API audit events are enabled by default. Operators can disable audit emission or override per-event durability with `api.audit.*` or `VECTIS_API_AUDIT_*` settings. Dropped audit events and flush failures remain observable through audit metrics and health checks.
 
+API web-security rejections are also observable. Host allowlist failures, denied CORS preflights, CSRF failures, body-policy rejects, and rate-limit rejects emit sanitized warning logs and increment `vectis_api_security_rejections_total` with low-cardinality `reason`, `route`, and `status` labels. Credential headers and CSRF token values are not logged.
+
 The API also has bounded request sizes and token parsing limits:
 
 | Limit | Purpose |

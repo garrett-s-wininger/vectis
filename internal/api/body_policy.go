@@ -49,10 +49,18 @@ func (p routeBodyPolicy) allowsBody() bool {
 	return p.mode == routeBodyJSON || p.mode == routeBodyOptionalJSON
 }
 
-func routeBodyMiddleware(policy routeBodyPolicy, next http.Handler) http.Handler {
+func routeBodyMiddleware(policy routeBodyPolicy, next http.Handler, recorders ...securityRejectionRecorder) http.Handler {
+	var record securityRejectionRecorder
+	if len(recorders) > 0 {
+		record = recorders[0]
+	}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !policy.allowsBody() {
 			if requestHasBody(r) {
+				if record != nil {
+					record(r, securityReasonRequestBodyNotAllowed, http.StatusBadRequest)
+				}
 				writeAPIErrorCode(w, http.StatusBadRequest, apiErrRequestBodyNotAllowed)
 				return
 			}
@@ -62,10 +70,14 @@ func routeBodyMiddleware(policy routeBodyPolicy, next http.Handler) http.Handler
 		}
 
 		if r.ContentLength > policy.maxBytes {
+			if record != nil {
+				record(r, securityReasonRequestBodyTooLarge, http.StatusRequestEntityTooLarge)
+			}
 			writeAPIErrorCode(w, http.StatusRequestEntityTooLarge, apiErrRequestBodyTooLarge)
 			return
 		}
 
+		r = withSecurityRejectionRecorder(r, record)
 		if r.Body != nil {
 			r.Body = http.MaxBytesReader(w, r.Body, policy.maxBytes)
 		}
@@ -96,6 +108,7 @@ func readRequestBody(w http.ResponseWriter, r *http.Request, maxBytes int64) ([]
 	if err != nil {
 		var maxErr *http.MaxBytesError
 		if errors.As(err, &maxErr) {
+			recordSecurityRejectionFromRequest(r, securityReasonRequestBodyTooLarge, http.StatusRequestEntityTooLarge)
 			writeAPIErrorCode(w, http.StatusRequestEntityTooLarge, apiErrRequestBodyTooLarge)
 			return nil, false
 		}
@@ -105,6 +118,7 @@ func readRequestBody(w http.ResponseWriter, r *http.Request, maxBytes int64) ([]
 	}
 
 	if int64(len(body)) > maxBytes {
+		recordSecurityRejectionFromRequest(r, securityReasonRequestBodyTooLarge, http.StatusRequestEntityTooLarge)
 		writeAPIErrorCode(w, http.StatusRequestEntityTooLarge, apiErrRequestBodyTooLarge)
 		return nil, false
 	}

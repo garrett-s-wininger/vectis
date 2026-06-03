@@ -107,6 +107,7 @@ func (s *APIServer) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !allowed {
+		s.recordSecurityRejection(r, securityReasonRateLimitExceeded, http.StatusTooManyRequests)
 		writeRateLimitExceeded(w, retryAfter)
 		return
 	}

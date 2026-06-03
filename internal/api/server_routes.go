@@ -20,8 +20,8 @@ func (s *APIServer) Handler() http.Handler {
 	}
 
 	h := http.Handler(mux)
-	h = corsMiddleware(h)
-	h = hostHeaderMiddleware(h)
+	h = s.corsMiddleware(h)
+	h = s.hostHeaderMiddleware(h)
 	h = accessLogMiddleware(s.AccessLogger, apiHTTPExcludedFromAuxLogging, h)
 	h = observability.CorrelationMiddleware(h)
 	h = httpsecurity.HeaderMiddleware(httpsecurity.APIHeaderPolicy(), h)
@@ -146,7 +146,8 @@ func (s *APIServer) registerRoute(mux *http.ServeMux, spec routeSpec) {
 	}
 
 	handler := s.accessControlledHandler(spec.Auth, spec.Handler)
-	handler = routeBodyMiddleware(spec.Body, handler)
+	handler = routeBodyMiddleware(spec.Body, handler, s.recordSecurityRejection)
+
 	s.mu.RLock()
 	rl := s.rateLimiter
 	s.mu.RUnlock()
@@ -177,9 +178,11 @@ func (s *APIServer) rateLimitMiddleware(rl ratelimit.RateLimiter, spec routeSpec
 		}
 
 		if !allowed {
+			s.recordSecurityRejection(r, securityReasonRateLimitExceeded, http.StatusTooManyRequests)
 			writeRateLimitExceeded(w, retryAfter)
 			return
 		}
+
 		next.ServeHTTP(w, r)
 	})
 }

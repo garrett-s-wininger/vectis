@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"vectis/internal/interfaces/mocks"
 )
 
 type unknownLengthReader struct {
@@ -93,6 +95,46 @@ func TestReadRequestBodyRejectsStreamingOversizeBody(t *testing.T) {
 	if body.Code != string(apiErrRequestBodyTooLarge) {
 		t.Fatalf("code=%q, want %q", body.Code, apiErrRequestBodyTooLarge)
 	}
+}
+
+func TestAPIServerRecordsNoBodyRouteSecurityRejection(t *testing.T) {
+	metrics := &fakeSecurityRejectionMetrics{}
+	s := NewAPIServerWithRepositories(mocks.NewMockLogger(), nil, nil, nil)
+	s.SetAPISecurityMetrics(metrics)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/version", strings.NewReader("{}"))
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d, want %d", rec.Code, http.StatusBadRequest)
+	}
+
+	requireSecurityRejection(t, metrics, securityReasonRequestBodyNotAllowed, "GET /api/v1/version", http.StatusBadRequest)
+}
+
+func TestAPIServerRecordsStreamingOversizeBodySecurityRejection(t *testing.T) {
+	metrics := &fakeSecurityRejectionMetrics{}
+	s := NewAPIServerWithRepositories(mocks.NewMockLogger(), nil, nil, nil)
+	s.SetAPISecurityMetrics(metrics)
+	handler := routeBodyMiddleware(routeBodyJSONPolicy(4), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := readRequestBody(w, r, 4); !ok {
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}), s.recordSecurityRejection)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/login", unknownLengthReader{Reader: strings.NewReader("12345")})
+	req.Pattern = "POST /api/v1/login"
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status=%d, want %d", rec.Code, http.StatusRequestEntityTooLarge)
+	}
+
+	requireSecurityRejection(t, metrics, securityReasonRequestBodyTooLarge, "POST /api/v1/login", http.StatusRequestEntityTooLarge)
 }
 
 func TestRouteBodyPolicyValidation(t *testing.T) {

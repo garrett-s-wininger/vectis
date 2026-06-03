@@ -58,6 +58,8 @@ func TestAPIServerHandlerRejectsUntrustedHostWithSecurityHeaders(t *testing.T) {
 	t.Setenv("VECTIS_API_ALLOWED_HOSTS", "api.example")
 
 	s := &APIServer{}
+	metrics := &fakeSecurityRejectionMetrics{}
+	s.SetAPISecurityMetrics(metrics)
 	req := httptest.NewRequest(http.MethodGet, "/health/live", nil)
 	req.Host = "evil.example"
 	rec := httptest.NewRecorder()
@@ -80,4 +82,6 @@ func TestAPIServerHandlerRejectsUntrustedHostWithSecurityHeaders(t *testing.T) {
 	if body.Code != string(apiErrInvalidHostHeader) {
 		t.Fatalf("code=%q, want %q", body.Code, apiErrInvalidHostHeader)
 	}
+
+	requireSecurityRejection(t, metrics, securityReasonInvalidHostHeader, securityRejectionUnknownRoute, http.StatusBadRequest)
 }
