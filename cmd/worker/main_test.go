@@ -112,6 +112,28 @@ func (d *recordingTaskDispatchDrainer) options() (pending, drain taskdispatch.Dr
 	return d.pendingOpts, d.drainOpts
 }
 
+type recordingTaskCompleter struct {
+	mu     sync.Mutex
+	result job.TaskCompletionResult
+	err    error
+	calls  []string
+}
+
+func (c *recordingTaskCompleter) CompleteTaskExecution(_ context.Context, executionID, status string) (job.TaskCompletionResult, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.calls = append(c.calls, executionID+":"+status)
+	return c.result, c.err
+}
+
+func (c *recordingTaskCompleter) recordedCalls() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return append([]string(nil), c.calls...)
+}
+
 type flakyFinalizeRunsStore struct {
 	dal.RunsRepository
 
@@ -1202,6 +1224,33 @@ func TestWorkerMarkExecutionTerminal_OptInSuccessUsesTaskCompletionFanout(t *tes
 
 	if len(runs.ExecutionTransitions) != 1 || runs.ExecutionTransitions[0] != "execution-root:"+dal.ExecutionStatusSucceeded {
 		t.Fatalf("execution transitions: %+v", runs.ExecutionTransitions)
+	}
+}
+
+func TestWorkerMarkExecutionTerminal_OptInFailureUsesTaskCompletionService(t *testing.T) {
+	t.Parallel()
+
+	runs := mocks.NewMockRunsRepository()
+	completer := &recordingTaskCompleter{}
+	w := &worker{
+		runCtx:                context.Background(),
+		logger:                interfaces.NewLogger("worker-test"),
+		store:                 runs,
+		catalog:               cell.NewCatalogEventPublisher("local", nil),
+		taskCompletionService: completer,
+		taskCompletionFanout:  true,
+	}
+
+	env := &cell.ExecutionEnvelope{ExecutionID: "execution-root"}
+	w.markExecutionTerminal(context.Background(), env, dal.ExecutionStatusFailed)
+
+	calls := completer.recordedCalls()
+	if len(calls) != 1 || calls[0] != "execution-root:"+dal.ExecutionStatusFailed {
+		t.Fatalf("task completion calls: %+v", calls)
+	}
+
+	if len(runs.ExecutionTransitions) != 0 {
+		t.Fatalf("legacy execution transitions should not be used: %+v", runs.ExecutionTransitions)
 	}
 }
 

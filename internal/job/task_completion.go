@@ -13,6 +13,26 @@ type TaskCompletionResult struct {
 	Activated int
 }
 
+type TaskCompleter interface {
+	CompleteTaskExecution(ctx context.Context, executionID, status string) (TaskCompletionResult, error)
+}
+
+type TaskCompletionService struct {
+	runs dal.RunsRepository
+}
+
+func NewTaskCompletionService(runs dal.RunsRepository) *TaskCompletionService {
+	return &TaskCompletionService{runs: runs}
+}
+
+func (s *TaskCompletionService) CompleteTaskExecution(ctx context.Context, executionID, status string) (TaskCompletionResult, error) {
+	if s == nil {
+		return TaskCompletionResult{}, fmt.Errorf("task completion service is required")
+	}
+
+	return CompleteTaskExecution(ctx, s.runs, executionID, status)
+}
+
 func CompleteTaskExecution(ctx context.Context, runs dal.RunsRepository, executionID, status string) (TaskCompletionResult, error) {
 	if runs == nil {
 		return TaskCompletionResult{}, fmt.Errorf("runs repository is required")

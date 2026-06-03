@@ -160,23 +160,24 @@ func runWorker(cmd *cobra.Command, args []string) {
 
 	taskDispatcher := taskdispatch.New(runsRepo, repos.TaskDispatchIntents(), repos.DispatchEvents(), cell.NewQueueExecutionIngress(queueClientServiceAdapter{queue: clients}, logger), interfaces.SystemClock{})
 	w := &worker{
-		ctx:                  shutdownCtx,
-		runCtx:               runCtx,
-		logger:               logger,
-		workerID:             workerID,
-		cellID:               config.CellID(),
-		clock:                interfaces.SystemClock{},
-		renewInterval:        dal.DefaultRenewInterval,
-		queue:                clients,
-		logClient:            logClient,
-		executor:             job.NewExecutor(),
-		store:                runsRepo,
-		catalog:              cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
-		metrics:              workerMetrics,
-		taskDispatchService:  taskdispatch.NewService(logger, taskDispatcher),
-		taskReduceService:    taskreduce.NewService(taskreduce.New(runsRepo)),
-		taskCompletionFanout: config.WorkerTaskCompletionFanout(),
-		cancelCh:             make(chan string, 1),
+		ctx:                   shutdownCtx,
+		runCtx:                runCtx,
+		logger:                logger,
+		workerID:              workerID,
+		cellID:                config.CellID(),
+		clock:                 interfaces.SystemClock{},
+		renewInterval:         dal.DefaultRenewInterval,
+		queue:                 clients,
+		logClient:             logClient,
+		executor:              job.NewExecutor(),
+		store:                 runsRepo,
+		catalog:               cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
+		metrics:               workerMetrics,
+		taskDispatchService:   taskdispatch.NewService(logger, taskDispatcher),
+		taskReduceService:     taskreduce.NewService(taskreduce.New(runsRepo)),
+		taskCompletionService: job.NewTaskCompletionService(runsRepo),
+		taskCompletionFanout:  config.WorkerTaskCompletionFanout(),
+		cancelCh:              make(chan string, 1),
 	}
 
 	// Start worker control server for remote cancellation.
@@ -286,31 +287,32 @@ func controlPublishAddress(addr string) string {
 }
 
 type worker struct {
-	ctx                  context.Context // canceled on SIGINT/SIGTERM; dequeue and between-job backoff only
-	runCtx               context.Context // Background; execution, lease renew, ack, finalize survive SIGTERM until dequeue stops
-	logger               interfaces.Logger
-	workerID             string
-	cellID               string
-	clock                interfaces.Clock
-	renewInterval        time.Duration
-	cancelPollInterval   time.Duration
-	queue                interfaces.QueueClient
-	logClient            interfaces.LogClient
-	executor             *job.Executor
-	store                dal.RunsRepository
-	catalog              cell.CatalogEventPublisher
-	metrics              *observability.WorkerMetrics
-	taskDispatchService  *taskdispatch.Service
-	taskReduceService    *taskreduce.Service
-	taskCompletionFanout bool
-	dequeueFailAttempt   int
-	dbUnavailable        bool
-	dbFailAttempt        int
-	dbMu                 sync.Mutex
-	cancelCh             chan string
-	currentRunID         string
-	currentClaimToken    string
-	currentMu            sync.Mutex
+	ctx                   context.Context // canceled on SIGINT/SIGTERM; dequeue and between-job backoff only
+	runCtx                context.Context // Background; execution, lease renew, ack, finalize survive SIGTERM until dequeue stops
+	logger                interfaces.Logger
+	workerID              string
+	cellID                string
+	clock                 interfaces.Clock
+	renewInterval         time.Duration
+	cancelPollInterval    time.Duration
+	queue                 interfaces.QueueClient
+	logClient             interfaces.LogClient
+	executor              *job.Executor
+	store                 dal.RunsRepository
+	catalog               cell.CatalogEventPublisher
+	metrics               *observability.WorkerMetrics
+	taskDispatchService   *taskdispatch.Service
+	taskReduceService     *taskreduce.Service
+	taskCompletionService job.TaskCompleter
+	taskCompletionFanout  bool
+	dequeueFailAttempt    int
+	dbUnavailable         bool
+	dbFailAttempt         int
+	dbMu                  sync.Mutex
+	cancelCh              chan string
+	currentRunID          string
+	currentClaimToken     string
+	currentMu             sync.Mutex
 }
 
 type queueClientServiceAdapter struct {
@@ -915,8 +917,13 @@ func (w *worker) completeExecutionTerminal(ctx context.Context, env *cell.Execut
 	}
 
 	var result executionTerminalResult
-	if w.taskCompletionFanout && status == dal.ExecutionStatusSucceeded {
-		completion, err := job.CompleteTaskExecution(w.runCtx, w.store, env.ExecutionID, status)
+	if w.taskCompletionFanout {
+		service := w.taskCompletionService
+		if service == nil {
+			service = job.NewTaskCompletionService(w.store)
+		}
+
+		completion, err := service.CompleteTaskExecution(w.runCtx, env.ExecutionID, status)
 		if err != nil {
 			w.noteDBError(err)
 			w.logger.Warn("CompleteTaskExecution execution %s status %s failed: %v", env.ExecutionID, status, err)

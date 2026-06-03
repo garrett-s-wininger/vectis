@@ -88,3 +88,17 @@ func TestCompleteTaskExecutionRejectsMissingInputs(t *testing.T) {
 		t.Fatalf("expected not found for missing execution id, got %v", err)
 	}
 }
+
+func TestTaskCompletionServiceRejectsMissingDependencies(t *testing.T) {
+	t.Parallel()
+
+	var service *job.TaskCompletionService
+	if _, err := service.CompleteTaskExecution(context.Background(), "execution-root", dal.ExecutionStatusSucceeded); err == nil || !strings.Contains(err.Error(), "task completion service is required") {
+		t.Fatalf("expected service error, got %v", err)
+	}
+
+	service = job.NewTaskCompletionService(nil)
+	if _, err := service.CompleteTaskExecution(context.Background(), "execution-root", dal.ExecutionStatusSucceeded); err == nil || !strings.Contains(err.Error(), "runs repository is required") {
+		t.Fatalf("expected runs repository error, got %v", err)
+	}
+}
