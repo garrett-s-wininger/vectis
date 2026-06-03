@@ -174,7 +174,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 		catalog:              cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
 		metrics:              workerMetrics,
 		taskDispatchService:  taskdispatch.NewService(logger, taskDispatcher),
-		taskReducer:          taskreduce.New(runsRepo),
+		taskReduceService:    taskreduce.NewService(taskreduce.New(runsRepo)),
 		taskCompletionFanout: config.WorkerTaskCompletionFanout(),
 		cancelCh:             make(chan string, 1),
 	}
@@ -301,7 +301,7 @@ type worker struct {
 	catalog              cell.CatalogEventPublisher
 	metrics              *observability.WorkerMetrics
 	taskDispatchService  *taskdispatch.Service
-	taskReducer          *taskreduce.Reducer
+	taskReduceService    *taskreduce.Service
 	taskCompletionFanout bool
 	dequeueFailAttempt   int
 	dbUnavailable        bool
@@ -838,12 +838,12 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 }
 
 func (w *worker) reduceTaskRun(ctx context.Context, runID string) (taskreduce.Decision, error) {
-	reducer := w.taskReducer
-	if reducer == nil {
-		reducer = taskreduce.New(w.store)
+	service := w.taskReduceService
+	if service == nil {
+		service = taskreduce.NewService(taskreduce.New(w.store))
 	}
 
-	decision, err := reducer.Reduce(w.runCtx, runID)
+	decision, err := service.Process(w.runCtx, runID)
 	if err != nil {
 		return taskreduce.Decision{}, err
 	}
