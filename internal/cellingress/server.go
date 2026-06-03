@@ -266,9 +266,17 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	setNoStore(w)
 	w.WriteHeader(status)
 	enc := json.NewEncoder(w)
 	_ = enc.Encode(payload)
+}
+
+func setNoStore(w http.ResponseWriter) {
+	h := w.Header()
+	h.Set("Cache-Control", "no-store")
+	h.Set("Pragma", "no-cache")
+	h.Set("Expires", "0")
 }
 
 func HTTPServer(addr string, handler http.Handler) *http.Server {

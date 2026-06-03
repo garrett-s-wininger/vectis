@@ -42,6 +42,8 @@ HTTP server parser limits use `httpsecurity.DefaultMaxHeaderBytes`; keep API, do
 
 HTTP method allowlists should use `internal/httpsecurity` helpers for shared `Allow` header and `HEAD`-for-`GET` behavior. Docs stay read-only (`GET`/`HEAD`); cell ingress should keep its route surface explicitly guarded.
 
+Cell ingress JSON responses should stay `nosniff` and `no-store` by default; route guard errors, health checks, and execution submission responses all flow through the shared JSON writer.
+
 Docs static file serving must go through the hardened docs file server wrapper, not raw `http.FileServer`, so directory listings, dotfile paths, and local docs symlink escapes stay blocked.
 
 API Host header validation is enabled by default through `api.host_validation.allowed_hosts` / `VECTIS_API_ALLOWED_HOSTS`. Defaults derive from the API listen host plus loopback; external DNS names must be explicit.

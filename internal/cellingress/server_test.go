@@ -37,6 +37,7 @@ func TestSubmitExecutionAcceptsLocalEnvelope(t *testing.T) {
 	if rr.Code != http.StatusAccepted {
 		t.Fatalf("status: got %d, want %d; body=%s", rr.Code, http.StatusAccepted, rr.Body.String())
 	}
+	assertNoStore(t, rr)
 
 	var resp submitExecutionResponse
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
@@ -224,6 +225,7 @@ func TestHealthEndpoints(t *testing.T) {
 			if rr.Code != http.StatusOK {
 				t.Fatalf("status: got %d, want %d; body=%s", rr.Code, http.StatusOK, rr.Body.String())
 			}
+			assertNoStore(t, rr)
 		})
 	}
 }
@@ -236,6 +238,7 @@ func TestRouteGuardRejectsUnknownCellIngressRoute(t *testing.T) {
 	srv.ServeHTTP(rr, req)
 
 	assertErrorCode(t, rr, http.StatusNotFound, "route_not_found")
+	assertNoStore(t, rr)
 }
 
 func TestRouteGuardRejectsCellIngressMethodMismatch(t *testing.T) {
@@ -261,6 +264,7 @@ func TestRouteGuardRejectsCellIngressMethodMismatch(t *testing.T) {
 			srv.ServeHTTP(rr, req)
 
 			assertErrorCode(t, rr, http.StatusMethodNotAllowed, "method_not_allowed")
+			assertNoStore(t, rr)
 			if got := rr.Header().Get("Allow"); got != tt.wantAllow {
 				t.Fatalf("Allow = %q, want %q", got, tt.wantAllow)
 			}
@@ -278,6 +282,8 @@ func TestRouteGuardAllowsHEADForCellIngressHealth(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status: got %d, want %d; body=%s", rr.Code, http.StatusOK, rr.Body.String())
 	}
+
+	assertNoStore(t, rr)
 }
 
 func executionBody(t *testing.T, req *api.JobRequest) *bytes.Reader {
@@ -350,6 +356,22 @@ func assertErrorCode(t *testing.T, rr *httptest.ResponseRecorder, status int, co
 
 	if resp.Code != code {
 		t.Fatalf("error code: got %q, want %q; body=%s", resp.Code, code, rr.Body.String())
+	}
+}
+
+func assertNoStore(t *testing.T, rr *httptest.ResponseRecorder) {
+	t.Helper()
+
+	if got := rr.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", got)
+	}
+
+	if got := rr.Header().Get("Pragma"); got != "no-cache" {
+		t.Fatalf("Pragma = %q, want no-cache", got)
+	}
+
+	if got := rr.Header().Get("Expires"); got != "0" {
+		t.Fatalf("Expires = %q, want 0", got)
 	}
 }
 
