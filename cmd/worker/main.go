@@ -158,6 +158,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 	forwarderSocket := forwarderSocketPath()
 	logClient = interfaces.NewPreferForwarderLogClient(forwarderSocket, logClient)
 
+	taskDispatcher := taskdispatch.New(runsRepo, repos.TaskDispatchIntents(), repos.DispatchEvents(), cell.NewQueueExecutionIngress(queueClientServiceAdapter{queue: clients}, logger), interfaces.SystemClock{})
 	w := &worker{
 		ctx:                  shutdownCtx,
 		runCtx:               runCtx,
@@ -172,7 +173,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 		store:                runsRepo,
 		catalog:              cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
 		metrics:              workerMetrics,
-		taskDispatcher:       taskdispatch.New(runsRepo, repos.TaskDispatchIntents(), repos.DispatchEvents(), cell.NewQueueExecutionIngress(queueClientServiceAdapter{queue: clients}, logger), interfaces.SystemClock{}),
+		taskDispatchService:  taskdispatch.NewService(logger, taskDispatcher),
 		taskReducer:          taskreduce.New(runsRepo),
 		taskCompletionFanout: config.WorkerTaskCompletionFanout(),
 		cancelCh:             make(chan string, 1),
@@ -299,7 +300,7 @@ type worker struct {
 	store                dal.RunsRepository
 	catalog              cell.CatalogEventPublisher
 	metrics              *observability.WorkerMetrics
-	taskDispatcher       *taskdispatch.Dispatcher
+	taskDispatchService  *taskdispatch.Service
 	taskReducer          *taskreduce.Reducer
 	taskCompletionFanout bool
 	dequeueFailAttempt   int
@@ -1032,12 +1033,12 @@ func (w *worker) ackDeliveryWithRetry(ctx context.Context, deliveryID string) *a
 }
 
 func (w *worker) continueTaskRun(ctx context.Context, runID, claimToken string) (bool, error) {
-	if w.taskDispatcher == nil {
+	if w.taskDispatchService == nil {
 		return false, nil
 	}
 
 	opts := taskdispatch.DrainOptions{CellID: w.cellID, Limit: 1}
-	pending, err := w.taskDispatcher.HasPending(w.runCtx, opts)
+	pending, err := w.taskDispatchService.HasPending(w.runCtx, opts)
 	if err != nil {
 		return false, err
 	}
@@ -1049,7 +1050,7 @@ func (w *worker) continueTaskRun(ctx context.Context, runID, claimToken string) 
 		return false, err
 	}
 
-	result, err := w.taskDispatcher.Drain(w.runCtx, opts)
+	result, err := w.taskDispatchService.Process(w.runCtx, opts)
 	if err != nil {
 		return true, err
 	}

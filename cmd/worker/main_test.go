@@ -511,6 +511,7 @@ func TestWorkerRunClaimedJob_TaskFanoutQueuesContinuation(t *testing.T) {
 
 	queue := mocks.NewMockQueueClient()
 	clock := mocks.NewMockClock()
+	taskDispatcher := taskdispatch.New(runs, repos.TaskDispatchIntents(), repos.DispatchEvents(), cell.NewQueueExecutionIngress(queueClientServiceAdapter{queue: queue}, interfaces.NewLogger("worker-test")), clock)
 	w := &worker{
 		ctx:                  context.Background(),
 		runCtx:               context.Background(),
@@ -524,7 +525,7 @@ func TestWorkerRunClaimedJob_TaskFanoutQueuesContinuation(t *testing.T) {
 		executor:             job.NewExecutor(),
 		store:                runs,
 		catalog:              cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
-		taskDispatcher:       taskdispatch.New(runs, repos.TaskDispatchIntents(), repos.DispatchEvents(), cell.NewQueueExecutionIngress(queueClientServiceAdapter{queue: queue}, interfaces.NewLogger("worker-test")), clock),
+		taskDispatchService:  taskdispatch.NewService(interfaces.NewLogger("worker-test"), taskDispatcher),
 		taskCompletionFanout: true,
 	}
 

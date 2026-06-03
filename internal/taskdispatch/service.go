@@ -14,6 +14,10 @@ type Drainer interface {
 	Drain(ctx context.Context, opts DrainOptions) (DrainResult, error)
 }
 
+type PendingChecker interface {
+	HasPending(ctx context.Context, opts DrainOptions) (bool, error)
+}
+
 type Service struct {
 	logger  interfaces.Logger
 	drainer Drainer
@@ -49,6 +53,23 @@ func (s *Service) Process(ctx context.Context, opts DrainOptions) (DrainResult, 
 	}
 
 	return s.drainer.Drain(ctx, opts)
+}
+
+func (s *Service) HasPending(ctx context.Context, opts DrainOptions) (bool, error) {
+	if s == nil {
+		return false, errors.New("task dispatch service is required")
+	}
+
+	if s.drainer == nil {
+		return false, errors.New("task dispatch drainer is required")
+	}
+
+	checker, ok := s.drainer.(PendingChecker)
+	if !ok {
+		return false, errors.New("task dispatch pending checker is required")
+	}
+
+	return checker.HasPending(ctx, opts)
 }
 
 func (s *Service) Run(ctx context.Context, interval time.Duration, opts DrainOptions) error {

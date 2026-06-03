@@ -13,11 +13,12 @@ import (
 )
 
 type recordingDrainer struct {
-	mu     sync.Mutex
-	calls  []taskdispatch.DrainOptions
-	result taskdispatch.DrainResult
-	err    error
-	called chan struct{}
+	mu      sync.Mutex
+	calls   []taskdispatch.DrainOptions
+	result  taskdispatch.DrainResult
+	err     error
+	pending bool
+	called  chan struct{}
 }
 
 func newRecordingDrainer() *recordingDrainer {
@@ -37,6 +38,12 @@ func (d *recordingDrainer) Drain(_ context.Context, opts taskdispatch.DrainOptio
 	}
 
 	return result, err
+}
+
+func (d *recordingDrainer) HasPending(context.Context, taskdispatch.DrainOptions) (bool, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.pending, d.err
 }
 
 func (d *recordingDrainer) callCount() int {
@@ -119,6 +126,21 @@ func TestServiceProcessRejectsMissingDrainer(t *testing.T) {
 
 	if _, err := svc.Process(context.Background(), taskdispatch.DrainOptions{}); err == nil {
 		t.Fatal("Process should reject missing drainer")
+	}
+}
+
+func TestServiceHasPendingUsesDrainer(t *testing.T) {
+	drainer := newRecordingDrainer()
+	drainer.pending = true
+	svc := taskdispatch.NewService(nil, drainer)
+
+	pending, err := svc.HasPending(context.Background(), taskdispatch.DrainOptions{CellID: "iad-a"})
+	if err != nil {
+		t.Fatalf("HasPending: %v", err)
+	}
+
+	if !pending {
+		t.Fatal("HasPending returned false, want true")
 	}
 }
 
