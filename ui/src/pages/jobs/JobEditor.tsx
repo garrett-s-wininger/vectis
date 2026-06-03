@@ -111,6 +111,7 @@ export function JobEditor({
     <section className={`${styles.editorPanel} resource-editor-panel`} aria-labelledby="job-editor-title">
       <div className={styles.editorHeader}>
         <ResourceTitle id="job-editor-title" title={mode.kind === "create" ? "Create" : "Configure"} />
+        <Button onClick={onCancel}>Cancel</Button>
       </div>
       <form className={`${styles.editorForm} resource-editor-form`} onSubmit={submitJob}>
         <div className={styles.editorLayout}>
@@ -120,6 +121,7 @@ export function JobEditor({
             </div>
             <div className={styles.fieldGrid}>
               <FormField
+                disabled={mode.kind === "edit"}
                 label="Name"
                 name="jobName"
                 onChange={(event) => setValues({ ...values, name: event.target.value })}

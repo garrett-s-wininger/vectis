@@ -16,6 +16,7 @@ export type AppRoute = {
   cellID?: string;
   kind: AppRouteKind;
   activeHref: string;
+  jobEditor?: { kind: "create" } | { kind: "edit"; jobID: string };
   pathname: string;
   runID?: string;
 };
@@ -69,6 +70,18 @@ export function routeFromPath(pathname: string): AppRoute {
       pathname,
       runID: pathname.slice("/runs/".length)
     };
+  }
+
+  if (pathname === "/jobs/create") {
+    return { kind: "jobs", activeHref: "/jobs", jobEditor: { kind: "create" }, pathname };
+  }
+
+  if (pathname.startsWith("/jobs/") && pathname.endsWith("/config")) {
+    const jobID = pathname.slice("/jobs/".length, -"/config".length);
+
+    if (jobID) {
+      return { kind: "jobs", activeHref: "/jobs", jobEditor: { kind: "edit", jobID }, pathname };
+    }
   }
 
   if (pathname === "/jobs" || pathname.startsWith("/jobs/")) {

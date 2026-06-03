@@ -18,10 +18,14 @@ import { getLatestRunForJob } from "./jobs/jobPresentation";
 type ActiveJobEditorMode = JobEditorMode | null;
 
 type JobsPageProps = {
+  editorMode?: ActiveJobEditorMode;
   jobs: Job[];
   namespaces: Namespace[];
   namespacePath: string;
+  onCloseEditor: () => void;
   onCreateJob: (input: NewJob) => void;
+  onOpenCreate: () => void;
+  onOpenEditor: (jobID: string) => void;
   onSelectRun: (runID: string) => void;
   onSelectNamespace: (namespacePath: string) => void;
   onTriggerRun: (jobID: string) => void;
@@ -30,42 +34,33 @@ type JobsPageProps = {
 };
 
 export function JobsPage({
+  editorMode = null,
   jobs,
   namespaces,
   namespacePath,
+  onCloseEditor,
   onCreateJob,
+  onOpenCreate,
+  onOpenEditor,
   onSelectRun,
   onSelectNamespace,
   onTriggerRun,
   onUpdateJob,
   runs
 }: JobsPageProps) {
-  const [editorMode, setEditorMode] = useState<ActiveJobEditorMode>(null);
   const [selectedJobID, setSelectedJobID] = useState("");
-  const [values, setValues] = useState<JobFormValues>(emptyJobForm);
-  const [formError, setFormError] = useState("");
   const selectedJob = jobs.find((job) => job.id === selectedJobID);
   const selectedJobLastRun = selectedJob ? getLatestRunForJob(selectedJob, runs) : undefined;
-
-  function startCreateJob() {
-    setEditorMode({ kind: "create" });
-    setValues(emptyJobForm);
-    setFormError("");
-  }
+  const editorJob = editorMode?.kind === "edit" ? jobs.find((candidate) => candidate.id === editorMode.jobID) : null;
+  const editorInitialValues = editorJob ? valuesFromJob(editorJob) : emptyJobForm;
+  const editorKey = editorMode?.kind === "edit" ? `edit:${editorMode.jobID}` : editorMode?.kind ?? "";
 
   function startEditJob(job: Job) {
-    setEditorMode({ kind: "edit", jobID: job.id });
-    setValues(valuesFromJob(job));
-    setFormError("");
+    onOpenEditor(job.id);
   }
 
   function toggleSelectedJob(jobID: string) {
     setSelectedJobID((currentJobID) => (currentJobID === jobID ? "" : jobID));
-  }
-
-  function closeEditor() {
-    setEditorMode(null);
-    setFormError("");
   }
 
   const columns: DataTableColumn<Job>[] = [
@@ -132,7 +127,7 @@ export function JobsPage({
           !editorMode && jobs.length > 0 ? (
             <>
               <NamespacePicker compact namespaces={namespaces} onChange={onSelectNamespace} value={namespacePath} />
-              <Button aria-expanded={false} onClick={startCreateJob}>
+              <Button aria-expanded={false} onClick={onOpenCreate}>
                 Create
               </Button>
             </>
@@ -141,19 +136,17 @@ export function JobsPage({
         title="Jobs"
       />
       {editorMode ? (
-        <JobEditor
-          error={formError}
+        <RoutedJobEditor
+          key={editorKey}
+          initialValues={editorInitialValues}
           mode={editorMode}
           namespacePath={namespacePath}
-          onCancel={closeEditor}
+          onCancel={onCloseEditor}
           onCreateJob={onCreateJob}
-          onError={setFormError}
           onUpdateJob={onUpdateJob}
-          onValuesChange={setValues}
-          values={values}
         />
       ) : null}
-      {jobs.length === 0 && !editorMode ? (
+      {!editorMode && jobs.length === 0 ? (
         <section className={styles.emptyState} aria-labelledby="jobs-empty-title">
           <div>
             <p className="eyebrow">No stored jobs</p>
@@ -162,10 +155,10 @@ export function JobsPage({
               Stored jobs are reusable definitions you can trigger manually now and connect to richer sources later.
             </p>
           </div>
-          <Button onClick={startCreateJob}>Create</Button>
+          <Button onClick={onOpenCreate}>Create</Button>
         </section>
       ) : null}
-      {jobs.length > 0 ? (
+      {!editorMode && jobs.length > 0 ? (
         <div className={selectedJob ? `${styles.workspace} ${styles.workspaceWithPanel}` : styles.workspace}>
           <DataTable
             columns={columns}
@@ -190,5 +183,38 @@ export function JobsPage({
         </div>
       ) : null}
     </>
+  );
+}
+
+function RoutedJobEditor({
+  initialValues,
+  mode,
+  namespacePath,
+  onCancel,
+  onCreateJob,
+  onUpdateJob
+}: {
+  initialValues: JobFormValues;
+  mode: JobEditorMode;
+  namespacePath: string;
+  onCancel: () => void;
+  onCreateJob: (input: NewJob) => void;
+  onUpdateJob: (jobID: string, input: UpdateJob) => void;
+}) {
+  const [values, setValues] = useState<JobFormValues>(initialValues);
+  const [formError, setFormError] = useState("");
+
+  return (
+    <JobEditor
+      error={formError}
+      mode={mode}
+      namespacePath={namespacePath}
+      onCancel={onCancel}
+      onCreateJob={onCreateJob}
+      onError={setFormError}
+      onUpdateJob={onUpdateJob}
+      onValuesChange={setValues}
+      values={values}
+    />
   );
 }

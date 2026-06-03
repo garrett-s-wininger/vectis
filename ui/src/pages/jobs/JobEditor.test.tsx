@@ -50,6 +50,30 @@ describe("JobEditor", () => {
     expect(cancel).not.toHaveBeenCalled();
   });
 
+  it("keeps the name read-only while configuring an existing job", () => {
+    const updateJob = vi.fn();
+
+    render(
+      <JobEditor
+        error=""
+        mode={{ kind: "edit", jobID: "worker-image" }}
+        namespacePath="/"
+        onCancel={() => undefined}
+        onCreateJob={() => undefined}
+        onError={() => undefined}
+        onUpdateJob={updateJob}
+        onValuesChange={() => undefined}
+        values={{ ...emptyJobForm, name: "worker-image" }}
+      />
+    );
+
+    expect(screen.getByLabelText("Name")).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(updateJob).toHaveBeenCalledWith("worker-image", expect.objectContaining({ name: "worker-image" }));
+  });
+
   it("serializes manual-only jobs for the API", () => {
     expect(jobInputFromValues({ ...emptyJobForm, manualEnabled: true, schedule: "None" })).toEqual(
       expect.objectContaining({ schedule: "Manual" })

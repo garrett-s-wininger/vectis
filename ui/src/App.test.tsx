@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { App } from "./App";
 
 describe("App", () => {
@@ -372,6 +372,27 @@ describe("App", () => {
     expect((await screen.findAllByText("cache-prime")).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "Trigger cache-prime" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete cache-prime" })).not.toBeInTheDocument();
+  });
+
+  it("opens job creation through browser navigation and backs out", async () => {
+    window.history.replaceState(null, "", "/jobs");
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Jobs" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(await screen.findByRole("region", { name: "Create" })).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(window.location.pathname).toBe("/jobs/create");
+
+    act(() => {
+      window.history.back();
+    });
+
+    await waitFor(() => expect(window.location.pathname).toBe("/jobs"));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Create" })).not.toBeInTheDocument());
   });
 
   it("scopes jobs by selected namespace", async () => {

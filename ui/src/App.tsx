@@ -532,10 +532,14 @@ function RouteContent({
     case "jobs":
       return (
         <JobsPage
+          editorMode={route.jobEditor ?? null}
           jobs={scopedConsoleData.jobs}
           namespaces={consoleData.namespaces}
           namespacePath={namespacePath}
+          onCloseEditor={() => navigateTo("/jobs")}
           onCreateJob={onCreateJob}
+          onOpenCreate={() => navigateTo("/jobs/create")}
+          onOpenEditor={(jobID) => navigateTo(`/jobs/${encodeURIComponent(jobID)}/config`)}
           onSelectRun={(runID) => navigateTo(`/runs/${runID}`)}
           onSelectNamespace={onSelectNamespace}
           onTriggerRun={onTriggerRun}

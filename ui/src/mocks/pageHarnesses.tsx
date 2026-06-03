@@ -18,6 +18,7 @@ import {
 } from "./consoleData";
 import { HealthPage } from "../pages/HealthPage";
 import { JobsPage } from "../pages/JobsPage";
+import type { JobEditorMode } from "../pages/jobs/JobEditor";
 import { NamespacesPage } from "../pages/NamespacesPage";
 import { RunsPage } from "../pages/RunsPage";
 import { UsersPage } from "../pages/UsersPage";
@@ -34,15 +35,20 @@ export function HealthPageHarness({ cells }: { cells: Cell[] }) {
 
 export function JobsPageHarness({ namespacePath = "/" }: { namespacePath?: string }) {
   const [data, setData] = useState<MockConsoleData>(() => createMockConsoleDataSnapshot());
+  const [editorMode, setEditorMode] = useState<JobEditorMode | null>(null);
   const [selectedNamespacePath, setSelectedNamespacePath] = useState(namespacePath);
   const scopedData = scopeMockConsoleData(data, selectedNamespacePath);
 
   return (
     <JobsPage
+      editorMode={editorMode}
       jobs={scopedData.jobs}
       namespaces={data.namespaces}
       namespacePath={selectedNamespacePath}
+      onCloseEditor={() => setEditorMode(null)}
       onCreateJob={(input) => setData((current) => createMockJob(current, input))}
+      onOpenCreate={() => setEditorMode({ kind: "create" })}
+      onOpenEditor={(jobID) => setEditorMode({ kind: "edit", jobID })}
       onSelectRun={() => undefined}
       onSelectNamespace={setSelectedNamespacePath}
       onTriggerRun={(jobID) => setData((current) => triggerMockRun(current, jobID))}

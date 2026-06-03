@@ -7,6 +7,8 @@ describe("routes", () => {
     ["/runs", "runs", "/runs"],
     ["/runs/123", "runs", "/runs"],
     ["/jobs", "jobs", "/jobs"],
+    ["/jobs/create", "jobs", "/jobs"],
+    ["/jobs/worker-image/config", "jobs", "/jobs"],
     ["/users/1", "users", "/users"],
     ["/namespaces", "namespaces", "/namespaces"],
     ["/profile", "profile", "/profile"],
@@ -21,6 +23,18 @@ describe("routes", () => {
     expect(routeFromPath("/runs/run-1240")).toMatchObject({
       kind: "runs",
       runID: "run-1240"
+    });
+  });
+
+  it("extracts job editor routes", () => {
+    expect(routeFromPath("/jobs/create")).toMatchObject({
+      kind: "jobs",
+      jobEditor: { kind: "create" }
+    });
+
+    expect(routeFromPath("/jobs/worker-image/config")).toMatchObject({
+      kind: "jobs",
+      jobEditor: { kind: "edit", jobID: "worker-image" }
     });
   });
 

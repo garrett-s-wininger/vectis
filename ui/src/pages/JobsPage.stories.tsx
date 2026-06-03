@@ -12,7 +12,10 @@ const meta = {
     jobs: data.jobs,
     namespaces: data.namespaces,
     namespacePath: "/",
+    onCloseEditor: () => undefined,
     onCreateJob: () => undefined,
+    onOpenCreate: () => undefined,
+    onOpenEditor: () => undefined,
     onSelectRun: () => undefined,
     onSelectNamespace: () => undefined,
     onTriggerRun: () => undefined,
@@ -47,7 +50,10 @@ export const PausedJob: Story = {
         jobs={data.jobs.filter((job) => job.status === "paused")}
         namespaces={data.namespaces}
         namespacePath="/prod"
+        onCloseEditor={() => undefined}
         onCreateJob={() => undefined}
+        onOpenCreate={() => undefined}
+        onOpenEditor={() => undefined}
         onSelectRun={() => undefined}
         onSelectNamespace={() => undefined}
         onTriggerRun={() => undefined}
@@ -64,7 +70,10 @@ export const Empty: Story = {
       jobs={[]}
       namespaces={data.namespaces}
       namespacePath="/sandbox"
+      onCloseEditor={() => undefined}
       onCreateJob={() => undefined}
+      onOpenCreate={() => undefined}
+      onOpenEditor={() => undefined}
       onSelectRun={() => undefined}
       onSelectNamespace={() => undefined}
       onTriggerRun={() => undefined}

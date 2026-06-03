@@ -14,13 +14,17 @@ const namespaces = [
 describe("JobsPage", () => {
   it("renders a first-job empty state", () => {
     const createJob = vi.fn();
+    const openCreate = vi.fn();
 
     render(
       <JobsPage
         jobs={[]}
         namespaces={namespaces}
         namespacePath="/"
+        onCloseEditor={() => undefined}
         onCreateJob={createJob}
+        onOpenCreate={openCreate}
+        onOpenEditor={() => undefined}
         onSelectNamespace={() => undefined}
         onSelectRun={() => undefined}
         onTriggerRun={() => undefined}
@@ -35,8 +39,7 @@ describe("JobsPage", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "Create" })[0]);
 
-    expect(screen.getByRole("region", { name: "Create" })).toBeInTheDocument();
-    expect(screen.queryByLabelText("Namespace")).not.toBeInTheDocument();
+    expect(openCreate).toHaveBeenCalled();
   });
 
   it("creates a stored job from the new job workflow", () => {
@@ -44,10 +47,14 @@ describe("JobsPage", () => {
 
     render(
       <JobsPage
+        editorMode={{ kind: "create" }}
         jobs={[]}
         namespaces={namespaces}
         namespacePath="/platform"
+        onCloseEditor={() => undefined}
         onCreateJob={createJob}
+        onOpenCreate={() => undefined}
+        onOpenEditor={() => undefined}
         onSelectNamespace={() => undefined}
         onSelectRun={() => undefined}
         onTriggerRun={() => undefined}
@@ -55,8 +62,6 @@ describe("JobsPage", () => {
         runs={[]}
       />
     );
-
-    fireEvent.click(screen.getAllByRole("button", { name: "Create" })[0]);
 
     expect(screen.getByRole("heading", { name: "Source" })).toBeInTheDocument();
     expect(screen.getByText("Source Control")).toBeInTheDocument();
@@ -112,7 +117,10 @@ describe("JobsPage", () => {
         jobs={[job]}
         namespaces={namespaces}
         namespacePath="/"
+        onCloseEditor={() => undefined}
         onCreateJob={() => undefined}
+        onOpenCreate={() => undefined}
+        onOpenEditor={() => undefined}
         onSelectNamespace={() => undefined}
         onSelectRun={() => undefined}
         onTriggerRun={() => undefined}
