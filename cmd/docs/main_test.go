@@ -245,9 +245,13 @@ func TestDocsServerHandlerAppliesSecurityHeaders(t *testing.T) {
 	assertDocsHeader(t, rec, "X-Content-Type-Options", "nosniff")
 	assertDocsHeader(t, rec, "X-Frame-Options", "DENY")
 	assertDocsHeader(t, rec, "Referrer-Policy", "no-referrer")
+	assertDocsHeader(t, rec, "Cross-Origin-Opener-Policy", "same-origin")
+	assertDocsHeader(t, rec, "Cross-Origin-Resource-Policy", "same-origin")
+
 	if got := rec.Header().Get("Content-Security-Policy"); !strings.Contains(got, "default-src 'self'") || !strings.Contains(got, "frame-ancestors 'none'") {
 		t.Fatalf("Content-Security-Policy = %q, want docs policy", got)
 	}
+
 	if got := rec.Header().Get("Strict-Transport-Security"); got != "" {
 		t.Fatalf("Strict-Transport-Security over HTTP = %q, want empty", got)
 	}

@@ -24,10 +24,14 @@ func TestHandlerAppliesSecurityHeaders(t *testing.T) {
 	assertSecurityHeader(t, rec, "X-Frame-Options", "DENY")
 	assertSecurityHeader(t, rec, "Referrer-Policy", "no-referrer")
 	assertSecurityHeader(t, rec, "Permissions-Policy", "camera=(), geolocation=(), microphone=(), payment=(), usb=()")
+	assertSecurityHeader(t, rec, "Cross-Origin-Opener-Policy", "same-origin")
+	assertSecurityHeader(t, rec, "Cross-Origin-Resource-Policy", "same-origin")
 	assertSecurityHeader(t, rec, "Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
+
 	if got := rec.Header().Get("Strict-Transport-Security"); got != "" {
 		t.Fatalf("Strict-Transport-Security over HTTP = %q, want empty", got)
 	}
+
 	assertNoStoreAbsent(t, rec)
 }
 

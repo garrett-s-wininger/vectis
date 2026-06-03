@@ -11,6 +11,9 @@ const (
 		"img-src 'self' data:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'"
 
 	defaultHSTS = "max-age=31536000"
+
+	defaultCrossOriginOpenerPolicy   = "same-origin"
+	defaultCrossOriginResourcePolicy = "same-origin"
 )
 
 // Policy describes browser-facing HTTP response headers.
@@ -41,6 +44,8 @@ func HeaderMiddleware(policy Policy, next http.Handler) http.Handler {
 		setHeaderIfEmpty(h, "X-Frame-Options", "DENY")
 		setHeaderIfEmpty(h, "Referrer-Policy", "no-referrer")
 		setHeaderIfEmpty(h, "Permissions-Policy", "camera=(), geolocation=(), microphone=(), payment=(), usb=()")
+		setHeaderIfEmpty(h, "Cross-Origin-Opener-Policy", defaultCrossOriginOpenerPolicy)
+		setHeaderIfEmpty(h, "Cross-Origin-Resource-Policy", defaultCrossOriginResourcePolicy)
 
 		if policy.ContentSecurityPolicy != "" {
 			setHeaderIfEmpty(h, "Content-Security-Policy", policy.ContentSecurityPolicy)

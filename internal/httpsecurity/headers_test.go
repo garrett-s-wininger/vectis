@@ -21,7 +21,10 @@ func TestHeaderMiddleware_appliesBaselineHeaders(t *testing.T) {
 	assertHeader(t, rec, "X-Frame-Options", "DENY")
 	assertHeader(t, rec, "Referrer-Policy", "no-referrer")
 	assertHeader(t, rec, "Permissions-Policy", "camera=(), geolocation=(), microphone=(), payment=(), usb=()")
+	assertHeader(t, rec, "Cross-Origin-Opener-Policy", defaultCrossOriginOpenerPolicy)
+	assertHeader(t, rec, "Cross-Origin-Resource-Policy", defaultCrossOriginResourcePolicy)
 	assertHeader(t, rec, "Content-Security-Policy", apiContentSecurityPolicy)
+
 	if got := rec.Header().Get("Strict-Transport-Security"); got != "" {
 		t.Fatalf("Strict-Transport-Security on HTTP = %q, want empty", got)
 	}
@@ -49,6 +52,8 @@ func TestHeaderMiddleware_setsHSTSForTLS(t *testing.T) {
 func TestHeaderMiddleware_preservesExistingHeaders(t *testing.T) {
 	h := HeaderMiddleware(APIHeaderPolicy(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Security-Policy", "default-src 'self'")
+		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin-allow-popups")
+		w.Header().Set("Cross-Origin-Resource-Policy", "same-site")
 		w.Header().Set("Strict-Transport-Security", "max-age=60")
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -59,6 +64,8 @@ func TestHeaderMiddleware_preservesExistingHeaders(t *testing.T) {
 	h.ServeHTTP(rec, req)
 
 	assertHeader(t, rec, "Content-Security-Policy", "default-src 'self'")
+	assertHeader(t, rec, "Cross-Origin-Opener-Policy", "same-origin-allow-popups")
+	assertHeader(t, rec, "Cross-Origin-Resource-Policy", "same-site")
 	assertHeader(t, rec, "Strict-Transport-Security", "max-age=60")
 }
 

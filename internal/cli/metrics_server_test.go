@@ -37,6 +37,8 @@ func TestMetricsServerHandlerServesMetricsWithSecurityHeaders(t *testing.T) {
 	assertMetricsNoStore(t, rec)
 	assertMetricsHeader(t, rec, "X-Content-Type-Options", "nosniff")
 	assertMetricsHeader(t, rec, "X-Frame-Options", "DENY")
+	assertMetricsHeader(t, rec, "Cross-Origin-Opener-Policy", "same-origin")
+	assertMetricsHeader(t, rec, "Cross-Origin-Resource-Policy", "same-origin")
 	assertMetricsHeader(t, rec, "Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
 }
 
