@@ -74,6 +74,16 @@ type uiSessionResponse struct {
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
 
+type uiContextPrincipal struct {
+	Kind     string `json:"kind"`
+	Username string `json:"username"`
+}
+
+type uiContextResponse struct {
+	AuthEnabled bool               `json:"auth_enabled"`
+	Principal   uiContextPrincipal `json:"principal"`
+}
+
 func newUIBackend(rawURL string) (*uiBackend, error) {
 	target, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil {
@@ -178,6 +188,11 @@ func (b *uiBackend) spaGateWithDevAssets(next http.Handler, devAssets bool) http
 		}
 
 		if !status.AuthEnabled {
+			if r.URL.Path == "/login" || r.URL.Path == "/setup" {
+				http.Redirect(w, r, safeNextPath(r, "/"), http.StatusFound)
+				return
+			}
+
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -345,9 +360,50 @@ func bffOnlyAPIPath(path string) bool {
 	return path == "/api/v1/tokens" || strings.HasPrefix(path, "/api/v1/tokens/")
 }
 
+func (b *uiBackend) context(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeBFFError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+
+	status, ok := b.setupStatus(w, r)
+	if !ok {
+		return
+	}
+
+	if !status.AuthEnabled {
+		writeBFFJSON(w, http.StatusOK, uiContextResponse{
+			AuthEnabled: false,
+			Principal: uiContextPrincipal{
+				Kind:     "auth_disabled",
+				Username: "Anonymous",
+			},
+		})
+		return
+	}
+
+	session, hasSession := b.sessionFromRequest(r)
+	if !hasSession {
+		writeBFFError(w, http.StatusUnauthorized, "authentication_required", "authentication required")
+		return
+	}
+
+	writeBFFJSON(w, http.StatusOK, uiContextResponse{
+		AuthEnabled: true,
+		Principal: uiContextPrincipal{
+			Kind:     "local_user",
+			Username: session.Username,
+		},
+	})
+}
+
 func (b *uiBackend) login(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeBFFError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+
+	if !b.authRouteEnabled(w, r) {
 		return
 	}
 
@@ -399,6 +455,10 @@ func (b *uiBackend) completeSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !b.authRouteEnabled(w, r) {
+		return
+	}
+
 	body, err := readBFFBody(r)
 	if err != nil {
 		writeBFFError(w, http.StatusRequestEntityTooLarge, "request_body_too_large", "request body too large")
@@ -441,12 +501,36 @@ func (b *uiBackend) logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	status, ok := b.setupStatus(w, r)
+	if !ok {
+		return
+	}
+
+	if !status.AuthEnabled {
+		writeBFFError(w, http.StatusNotFound, "auth_disabled", "authentication is disabled")
+		return
+	}
+
 	if cookie, err := r.Cookie(uiSessionCookieName); err == nil {
 		b.sessions.delete(cookie.Value)
 	}
 
 	clearUISessionCookie(w, r)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (b *uiBackend) authRouteEnabled(w http.ResponseWriter, r *http.Request) bool {
+	status, ok := b.setupStatus(w, r)
+	if !ok {
+		return false
+	}
+
+	if !status.AuthEnabled {
+		writeBFFError(w, http.StatusNotFound, "auth_disabled", "authentication is disabled")
+		return false
+	}
+
+	return true
 }
 
 func (b *uiBackend) sessionFromRequest(r *http.Request) (uiSession, bool) {

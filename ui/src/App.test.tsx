@@ -411,7 +411,17 @@ describe("App", () => {
 
   it("logs out and returns to login", async () => {
     window.history.replaceState(null, "", "/runs/123");
-    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            auth_enabled: true,
+            principal: { kind: "local_user", username: "admin" }
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
 
     render(<App />);
 
@@ -424,5 +434,24 @@ describe("App", () => {
       "/ui/api/logout",
       expect.objectContaining({ credentials: "same-origin", method: "POST" })
     );
+  });
+
+  it("hides sign out when the BFF reports auth disabled", async () => {
+    window.history.replaceState(null, "", "/jobs");
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          auth_enabled: false,
+          principal: { kind: "auth_disabled", username: "Anonymous" }
+        }),
+        { status: 200 }
+      )
+    );
+
+    render(<App />);
+
+    expect(await screen.findByText("Anonymous")).toBeInTheDocument();
+    expect(screen.queryByText("Auth disabled")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument();
   });
 });

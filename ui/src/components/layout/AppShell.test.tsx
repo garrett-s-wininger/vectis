@@ -116,6 +116,39 @@ describe("AppShell", () => {
     expect(accountMenu).not.toHaveAttribute("open");
   });
 
+  it("can render an auth-disabled account indicator without session actions", () => {
+    render(
+      <AppShell
+        accountDetail="Auth disabled"
+        accountName="Anonymous"
+        activeHref="/jobs"
+        brand="Vectis"
+        navItems={navItems}
+        showProfile={false}
+      >
+        <h1>Jobs</h1>
+      </AppShell>
+    );
+
+    expect(screen.getByText("Anonymous")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Profile" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Auth disabled")).not.toBeInTheDocument();
+  });
+
+  it("omits sign out when no sign out handler is provided", () => {
+    render(
+      <AppShell accountName="admin" activeHref="/jobs" brand="Vectis" navItems={navItems}>
+        <h1>Jobs</h1>
+      </AppShell>
+    );
+
+    fireEvent.click(screen.getByText("admin"));
+
+    expect(screen.getByRole("link", { name: "Profile" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument();
+  });
+
   it("closes other dropdowns when a dropdown opens", () => {
     render(
       <AppShell

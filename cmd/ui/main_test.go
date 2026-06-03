@@ -195,6 +195,8 @@ func TestBFFLoginCreatesHTTPSessionAndProxiesBearerToken(t *testing.T) {
 	}
 	backend.httpClient.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		switch r.URL.Path {
+		case "/api/v1/setup/status":
+			return jsonResponse(http.StatusOK, `{"setup_complete":true,"auth_enabled":true}`), nil
 		case "/api/v1/login":
 			return jsonResponse(http.StatusOK, `{"token":"api-token","user_id":7,"expires_at":"2030-01-01T00:00:00Z"}`), nil
 		case "/api/v1/jobs":
@@ -241,7 +243,12 @@ func TestBFFSetupCreatesSessionWithoutLeakingAPIToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	backend.httpClient.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path == "/api/v1/setup/status" {
+			return jsonResponse(http.StatusOK, `{"setup_complete":false,"auth_enabled":true}`), nil
+		}
+
 		if r.URL.Path != "/api/v1/setup/complete" {
 			return jsonResponse(http.StatusNotFound, `{"code":"not_found","message":"not found"}`), nil
 		}
@@ -265,10 +272,10 @@ func TestBFFSetupCreatesSessionWithoutLeakingAPIToken(t *testing.T) {
 }
 
 func TestBFFLogoutClearsSession(t *testing.T) {
-	backend, err := newUIBackend("http://127.0.0.1:1")
-	if err != nil {
-		t.Fatal(err)
-	}
+	backend := testBackendWithSetupStatus(t, apiSetupStatusResponse{
+		AuthEnabled:   true,
+		SetupComplete: true,
+	})
 
 	sessionID, err := backend.sessions.create(uiSession{
 		APIToken:  "api-token",
@@ -297,11 +304,99 @@ func TestBFFLogoutClearsSession(t *testing.T) {
 	}
 }
 
+func TestBFFContextReportsAuthDisabledPrincipal(t *testing.T) {
+	backend := testBackendWithSetupStatus(t, apiSetupStatusResponse{
+		AuthEnabled:   false,
+		SetupComplete: false,
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/ui/api/context", nil)
+	backend.context(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("context code=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	if !strings.Contains(rec.Body.String(), `"auth_enabled":false`) ||
+		!strings.Contains(rec.Body.String(), `"kind":"auth_disabled"`) ||
+		!strings.Contains(rec.Body.String(), `"username":"Anonymous"`) {
+		t.Fatalf("unexpected context body: %s", rec.Body.String())
+	}
+}
+
+func TestBFFContextReportsAuthenticatedSession(t *testing.T) {
+	backend := testBackendWithSetupStatus(t, apiSetupStatusResponse{
+		AuthEnabled:   true,
+		SetupComplete: true,
+	})
+
+	sessionCookie := createTestSessionCookie(t, backend)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/ui/api/context", nil)
+	req.AddCookie(sessionCookie)
+	backend.context(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("context code=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	if !strings.Contains(rec.Body.String(), `"auth_enabled":true`) ||
+		!strings.Contains(rec.Body.String(), `"kind":"local_user"`) ||
+		!strings.Contains(rec.Body.String(), `"username":"root"`) {
+		t.Fatalf("unexpected context body: %s", rec.Body.String())
+	}
+}
+
+func TestBFFContextRequiresSessionWhenAuthEnabled(t *testing.T) {
+	backend := testBackendWithSetupStatus(t, apiSetupStatusResponse{
+		AuthEnabled:   true,
+		SetupComplete: true,
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/ui/api/context", nil)
+	backend.context(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("context code=%d body=%s, want 401", rec.Code, rec.Body.String())
+	}
+}
+
+func TestBFFAuthRoutesDisabledWhenAuthDisabled(t *testing.T) {
+	backend := testBackendWithSetupStatus(t, apiSetupStatusResponse{
+		AuthEnabled:   false,
+		SetupComplete: false,
+	})
+
+	for _, tc := range []struct {
+		name    string
+		path    string
+		handler http.HandlerFunc
+	}{
+		{name: "login", path: "/ui/api/login", handler: backend.login},
+		{name: "setup", path: "/ui/api/setup/complete", handler: backend.completeSetup},
+		{name: "logout", path: "/ui/api/logout", handler: backend.logout},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(`{}`))
+			tc.handler(rec, req)
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("%s code=%d body=%s, want 404", tc.name, rec.Code, rec.Body.String())
+			}
+
+			if !strings.Contains(rec.Body.String(), "auth_disabled") {
+				t.Fatalf("%s body missing auth_disabled: %s", tc.name, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestBFFBlocksTokenRoutesThroughBrowserProxy(t *testing.T) {
 	backend, err := newUIBackend("http://api.test")
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	backend.httpClient.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		t.Fatalf("blocked route reached API: %s", r.URL.Path)
 		return nil, nil
@@ -429,6 +524,26 @@ func TestSPAGateServesShellWhenAuthDisabled(t *testing.T) {
 	backend.spaGate(textHandler("shell")).ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || rec.Body.String() != "shell" {
 		t.Fatalf("code=%d body=%q, want shell", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSPAGateRedirectsAuthRoutesWhenAuthDisabled(t *testing.T) {
+	backend := testBackendWithSetupStatus(t, apiSetupStatusResponse{
+		AuthEnabled:   false,
+		SetupComplete: false,
+	})
+
+	for _, path := range []string{"/login", "/setup"} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		backend.spaGate(textHandler("shell")).ServeHTTP(rec, req)
+		if rec.Code != http.StatusFound {
+			t.Fatalf("%s code=%d body=%s, want redirect", path, rec.Code, rec.Body.String())
+		}
+
+		if location := rec.Header().Get("Location"); location != "/" {
+			t.Fatalf("%s Location = %q, want /", path, location)
+		}
 	}
 }
 

@@ -2,7 +2,7 @@ import type { FormEvent, MouseEvent } from "react";
 import { useEffect, useState } from "react";
 import "./index.css";
 import vectisLogo from "../../assets/brand/public/vectis.png";
-import { completeSetup, login, logout } from "./api/auth";
+import { completeSetup, loadUIContext, login, logout } from "./api/auth";
 import { Button } from "./components";
 import { AppShell } from "./components";
 import { AppState } from "./components";
@@ -69,6 +69,7 @@ export function App() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
   const [accountName, setAccountName] = useState("admin");
+  const [authEnabled, setAuthEnabled] = useState(true);
   const [consoleDataSource] = useState(() => createConsoleDataSource());
   const [consoleData, setConsoleData] = useState<MockConsoleData | null>(null);
   const [consoleError, setConsoleError] = useState("");
@@ -82,6 +83,35 @@ export function App() {
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  useEffect(() => {
+    if (route.kind === "login" || route.kind === "setup") {
+      return;
+    }
+
+    let ignore = false;
+
+    loadUIContext()
+      .then((context) => {
+        if (ignore) {
+          return;
+        }
+
+        setAuthEnabled(context.auth_enabled);
+        setAccountName(context.principal.username);
+      })
+      .catch(() => {
+        // Older dev servers and Storybook do not expose UI context. Keep the
+        // existing authenticated-looking shell as the compatibility fallback.
+      });
+
+    return () => {
+      ignore = true;
+    };
+    // Only discover server context for the route the BFF initially served.
+    // Login/setup responses update the account state directly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -125,6 +155,7 @@ export function App() {
       });
 
       setAccountName(response.username);
+      setAuthEnabled(true);
       navigateAfterAuth();
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "Setup failed");
@@ -145,6 +176,7 @@ export function App() {
       });
 
       setAccountName(response.username);
+      setAuthEnabled(true);
       navigateAfterAuth();
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "Login failed");
@@ -278,11 +310,13 @@ export function App() {
   return (
     <AppShell
       activeHref={route.activeHref}
+      accountDetail={authEnabled ? undefined : "Auth disabled"}
       accountName={accountName}
       brand="Vectis"
       navItems={primaryNavItems}
       onNavigate={handleShellNavigate}
-      onSignOut={signOut}
+      onSignOut={authEnabled ? signOut : undefined}
+      showProfile={authEnabled}
       utilityNavItems={adminNavItems}
     >
       <RouteContent

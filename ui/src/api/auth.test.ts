@@ -1,4 +1,4 @@
-import { completeSetup, login, logout } from "./auth";
+import { completeSetup, loadUIContext, login, logout } from "./auth";
 
 describe("auth API client", () => {
   const fetchMock = vi.fn();
@@ -52,6 +52,28 @@ describe("auth API client", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "/ui/api/logout",
       expect.objectContaining({ credentials: "same-origin", method: "POST" })
+    );
+  });
+
+  it("loads UI context", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          auth_enabled: false,
+          principal: { kind: "auth_disabled", username: "Anonymous" }
+        }),
+        { status: 200 }
+      )
+    );
+
+    await expect(loadUIContext()).resolves.toEqual({
+      auth_enabled: false,
+      principal: { kind: "auth_disabled", username: "Anonymous" }
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/ui/api/context",
+      expect.objectContaining({ credentials: "same-origin" })
     );
   });
 

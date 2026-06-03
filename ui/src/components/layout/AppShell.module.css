@@ -282,6 +282,7 @@
   position: relative;
 }
 
+.accountIndicator,
 .accountSummary {
   align-items: center;
   background: var(--shell-subtle-control-bg);
@@ -290,7 +291,6 @@
   box-shadow: var(--shell-subtle-control-shadow);
   color: var(--text-primary);
   box-sizing: border-box;
-  cursor: pointer;
   display: inline-flex;
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
@@ -298,6 +298,14 @@
   height: var(--control-height-md);
   padding: 0 var(--space-md) 0 var(--space-xs);
   position: relative;
+}
+
+.accountSummary {
+  cursor: pointer;
+}
+
+.accountIndicator {
+  cursor: default;
 }
 
 .accountSummary::-webkit-details-marker {
@@ -350,6 +358,14 @@
   right: 0;
   top: calc(100% + var(--space-sm));
   z-index: 10;
+}
+
+.accountDetail {
+  color: var(--text-subtle);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  padding: var(--space-sm) var(--space-md);
+  white-space: nowrap;
 }
 
 .accountAction {
@@ -493,6 +509,7 @@
     width: 100%;
   }
 
+  .accountIndicator,
   .accountMenu {
     position: relative;
     width: 100%;
@@ -538,11 +555,13 @@
     width: 100%;
   }
 
+  .accountIndicator,
   .accountSummary {
     width: 100%;
   }
 
   .utilityNav .navGroupSummary,
+  .accountIndicator,
   .accountSummary {
     justify-content: space-between;
   }
@@ -597,6 +616,7 @@
     position: static;
   }
 
+  .accountIndicator,
   .accountMenu {
     position: static;
   }

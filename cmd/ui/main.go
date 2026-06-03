@@ -54,6 +54,7 @@ func runUI(cmd *cobra.Command, args []string) {
 
 	mux := http.NewServeMux()
 	api := backend.apiProxyHandler()
+	mux.Handle("GET /ui/api/context", http.HandlerFunc(backend.context))
 	mux.Handle("POST /ui/api/setup/complete", http.HandlerFunc(backend.completeSetup))
 	mux.Handle("POST /ui/api/login", http.HandlerFunc(backend.login))
 	mux.Handle("POST /ui/api/logout", http.HandlerFunc(backend.logout))

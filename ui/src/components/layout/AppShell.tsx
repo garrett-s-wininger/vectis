@@ -18,8 +18,10 @@ type AppShellProps = {
   navItems: NavEntry[];
   activeHref: string;
   actions?: ReactNode;
+  accountDetail?: string;
   accountName?: string;
   children: ReactNode;
+  showProfile?: boolean;
   onSignOut?: () => void;
   utilityNavItems?: NavEntry[];
   onNavigate?: (href: string, event: MouseEvent<HTMLAnchorElement>) => void;
@@ -27,6 +29,7 @@ type AppShellProps = {
 
 export function AppShell({
   accountName,
+  accountDetail,
   brand,
   navItems,
   activeHref,
@@ -34,9 +37,11 @@ export function AppShell({
   children,
   onNavigate,
   onSignOut,
+  showProfile = true,
   utilityNavItems = []
 }: AppShellProps) {
   const isAccountActive = activeHref === "/profile";
+  const hasAccountMenu = showProfile || onSignOut;
 
   return (
     <div className={styles.root}>
@@ -63,7 +68,13 @@ export function AppShell({
               <NavEntries activeHref={activeHref} items={utilityNavItems} onNavigate={onNavigate} />
             </nav>
           ) : null}
-          {accountName ? (
+          {accountName && !hasAccountMenu ? (
+            <div className={styles.accountIndicator} title={accountDetail}>
+              <span className={styles.accountAvatar}>{accountName.slice(0, 1).toUpperCase()}</span>
+              <span className={styles.accountName}>{accountName}</span>
+            </div>
+          ) : null}
+          {accountName && hasAccountMenu ? (
             <details
               className={`${styles.accountMenu} ${isAccountActive ? styles.accountMenuActive : ""}`}
               onToggle={(event) => closeOtherDetails(event.currentTarget)}
@@ -73,27 +84,32 @@ export function AppShell({
                 <span className={styles.accountName}>{accountName}</span>
               </summary>
               <div className={styles.accountPanel}>
-                <a
-                  aria-current={isAccountActive ? "page" : undefined}
-                  className={styles.navMenuLink}
-                  href="/profile"
-                  onClick={(event) => {
-                    onNavigate?.("/profile", event);
-                    closeParentDetails(event.currentTarget);
-                  }}
-                >
-                  Profile
-                </a>
-                <button
-                  className={styles.accountAction}
-                  onClick={(event) => {
-                    closeParentDetails(event.currentTarget);
-                    onSignOut?.();
-                  }}
-                  type="button"
-                >
-                  Sign out
-                </button>
+                {accountDetail ? <span className={styles.accountDetail}>{accountDetail}</span> : null}
+                {showProfile ? (
+                  <a
+                    aria-current={isAccountActive ? "page" : undefined}
+                    className={styles.navMenuLink}
+                    href="/profile"
+                    onClick={(event) => {
+                      onNavigate?.("/profile", event);
+                      closeParentDetails(event.currentTarget);
+                    }}
+                  >
+                    Profile
+                  </a>
+                ) : null}
+                {onSignOut ? (
+                  <button
+                    className={styles.accountAction}
+                    onClick={(event) => {
+                      closeParentDetails(event.currentTarget);
+                      onSignOut();
+                    }}
+                    type="button"
+                  >
+                    Sign out
+                  </button>
+                ) : null}
               </div>
             </details>
           ) : null}

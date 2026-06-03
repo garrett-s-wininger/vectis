@@ -22,7 +22,19 @@ export type LoginResponse = {
   expires_at?: string;
 };
 
+export type UIContext = {
+  auth_enabled: boolean;
+  principal: {
+    kind: "auth_disabled" | "local_user";
+    username: string;
+  };
+};
+
 export { VectisAPIError };
+
+export function loadUIContext() {
+  return requestJSON<UIContext>("/ui/api/context");
+}
 
 export function completeSetup(payload: SetupCompleteRequest) {
   return requestJSON<SetupCompleteResponse>("/ui/api/setup/complete", {
