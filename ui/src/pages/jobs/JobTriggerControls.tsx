@@ -4,6 +4,7 @@ import styles from "./JobTriggerControls.module.css";
 
 type JobTriggerControlsProps = {
   cronSpec: string;
+  cronSpecError?: string;
   manualEnabled: boolean;
   onCronSpecChange: (cronSpec: string) => void;
   onManualChange: (enabled: boolean) => void;
@@ -13,7 +14,7 @@ type JobTriggerControlsProps = {
 
 const schedulePresetSpecs: Record<string, string> = {
   Hourly: "0 * * * *",
-  Nightly: "0 2 * * *"
+  Nightly: "0 0 * * *"
 };
 
 export function cronSpecFromSchedule(schedule: string) {
@@ -21,7 +22,7 @@ export function cronSpecFromSchedule(schedule: string) {
     return schedulePresetSpecs[schedule] ?? "";
   }
 
-  return schedule.replace(/^Cron:\s*/, "").trim() || "0 2 * * *";
+  return schedule.replace(/^Cron:\s*/, "").trim() || "0 0 * * *";
 }
 
 export function cronSpecForSchedule(schedule: string, cronSpec: string) {
@@ -38,6 +39,7 @@ export function schedulePresetSpec(schedule: string) {
 
 export function JobTriggerControls({
   cronSpec,
+  cronSpecError,
   manualEnabled,
   onCronSpecChange,
   onManualChange,
@@ -47,20 +49,28 @@ export function JobTriggerControls({
   return (
     <div className={styles.triggerConfigurator}>
       <div className={styles.triggerGroup}>
+        <div className={styles.triggerIntro}>
+          <h4>Manual</h4>
+          <p>Allow users to start this job on demand.</p>
+        </div>
         <ToggleField
           checked={manualEnabled}
+          hideLabel
           label="Manual"
           name="jobManualTrigger"
           offText="Off"
           onChange={onManualChange}
           onText="Allowed"
         />
-        <small>Allow users to start this job on demand.</small>
       </div>
       <div className={`${styles.triggerGroup} ${styles.scheduleGroup}`}>
+        <div className={styles.triggerIntro}>
+          <h4>Schedule</h4>
+          <p>Periodically run this job from a preset or custom cron schedule.</p>
+        </div>
         <div className={styles.scheduleFields}>
           <SelectField
-            label="Schedule"
+            label="Cadence"
             name="jobSchedule"
             onChange={(event) => onScheduleChange(event.target.value)}
             options={jobScheduleOptions}
@@ -69,16 +79,17 @@ export function JobTriggerControls({
           />
           <FormField
             disabled={schedule !== "Custom"}
+            error={cronSpecError}
             label="Cron Spec"
             name="jobCronSpec"
             onChange={(event) => onCronSpecChange(event.target.value)}
-            placeholder={schedule === "None" ? "No automatic schedule" : "0 2 * * *"}
+            placeholder={schedule === "None" ? "No automatic schedule" : "0 0 * * *"}
             required={schedule === "Custom"}
+            reserveErrorSpace
             value={cronSpecForSchedule(schedule, cronSpec)}
             wide
           />
         </div>
-        <small>Periodically run this job from a preset or custom cron schedule.</small>
       </div>
     </div>
   );

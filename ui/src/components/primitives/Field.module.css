@@ -6,9 +6,14 @@
   max-width: var(--layout-field-max);
 }
 
-.root span {
+.root label {
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-body);
+}
+
+.root span {
+  line-height: inherit;
 }
 
 .root input,
@@ -18,6 +23,9 @@
   border-radius: var(--control-radius);
   box-sizing: border-box;
   color: var(--text-primary);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-tight);
   min-height: var(--control-height-md);
   padding: 0 var(--space-md);
 }
@@ -115,6 +123,27 @@
 .root textarea:focus-visible {
   outline: var(--control-focus-ring);
   outline-offset: var(--control-focus-offset);
+}
+
+.root input[aria-invalid="true"],
+.root select[aria-invalid="true"],
+.root textarea[aria-invalid="true"] {
+  border-color: var(--status-danger-border);
+  box-shadow:
+    inset 0 0 0 1px rgb(156 53 53 / 18%),
+    0 0 0 1px rgb(156 53 53 / 12%);
+}
+
+.error {
+  color: var(--status-danger-text);
+  display: block;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-compact);
+}
+
+.errorReserved {
+  min-height: calc(var(--font-size-sm) * var(--line-height-compact) * 2);
 }
 
 @media (max-width: 720px) {

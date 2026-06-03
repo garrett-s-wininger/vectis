@@ -19,7 +19,7 @@ describe("JobTriggerControls", () => {
     );
 
     fireEvent.click(screen.getByLabelText("Manual"));
-    fireEvent.change(screen.getByLabelText("Schedule"), { target: { value: "Nightly" } });
+    fireEvent.change(screen.getByLabelText("Cadence"), { target: { value: "Nightly" } });
     fireEvent.change(screen.getByLabelText("Cron Spec"), { target: { value: "0 4 * * *" } });
 
     expect(onManualChange).toHaveBeenCalledWith(false);
@@ -42,5 +42,23 @@ describe("JobTriggerControls", () => {
     expect(screen.getByLabelText("Cron Spec")).toBeDisabled();
     expect(screen.getByLabelText("Cron Spec")).toHaveValue("0 * * * *");
     expect(cronSpecForSchedule("Custom", "*/10 * * * *")).toBe("*/10 * * * *");
+    expect(cronSpecForSchedule("Nightly", "")).toBe("0 0 * * *");
+  });
+
+  it("shows cron validation errors", () => {
+    render(
+      <JobTriggerControls
+        cronSpec="60 * * * *"
+        cronSpecError="Minute must be between 0 and 59."
+        manualEnabled
+        onCronSpecChange={() => undefined}
+        onManualChange={() => undefined}
+        onScheduleChange={() => undefined}
+        schedule="Custom"
+      />
+    );
+
+    expect(screen.getByLabelText("Cron Spec")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("Cron Spec")).toHaveAccessibleDescription("Minute must be between 0 and 59.");
   });
 });

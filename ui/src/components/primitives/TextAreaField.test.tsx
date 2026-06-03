@@ -7,4 +7,11 @@ describe("TextAreaField", () => {
 
     expect(screen.getByLabelText("Definition JSON")).toHaveValue("{}");
   });
+
+  it("renders an accessible field error", () => {
+    render(<TextAreaField error="Definition must be valid JSON." label="Definition JSON" name="definition" />);
+
+    expect(screen.getByLabelText("Definition JSON")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("Definition JSON")).toHaveAccessibleDescription("Definition must be valid JSON.");
+  });
 });

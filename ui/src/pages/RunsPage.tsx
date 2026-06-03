@@ -2,7 +2,6 @@ import type { FormEvent } from "react";
 import { useMemo, useState } from "react";
 import { Button } from "../components";
 import { FilterBar } from "../components";
-import { FormError } from "../components";
 import { NamespacePicker } from "../components";
 import { PageHeader } from "../components";
 import { RunList, type RunListItem } from "../components";
@@ -18,6 +17,7 @@ import {
   type RunFilter,
   type SourceFilter
 } from "../domain/consoleOptions";
+import { jsonObject } from "../validation/formValidation";
 import { ResourceTitle } from "./shared";
 
 type RunsPageProps = {
@@ -59,10 +59,9 @@ export function RunsPage({
     event.preventDefault();
     setDefinitionError("");
 
-    try {
-      JSON.parse(definition);
-    } catch {
-      setDefinitionError("Definition must be valid JSON.");
+    const definitionResult = jsonObject(definition);
+    if (!definitionResult.valid) {
+      setDefinitionError(definitionResult.message);
       return;
     }
 
@@ -94,15 +93,18 @@ export function RunsPage({
           </div>
           <form className="run-once-form" onSubmit={submitRunOnce}>
             <TextAreaField
+              error={definitionError}
               label="Job definition JSON"
               name="definition"
-              onChange={(event) => setDefinition(event.target.value)}
+              onChange={(event) => {
+                setDefinitionError("");
+                setDefinition(event.target.value);
+              }}
               required
               rows={10}
               value={definition}
               wide
             />
-            <FormError message={definitionError} />
             <div className="run-once-form__actions">
               <Button type="submit">Submit run</Button>
             </div>

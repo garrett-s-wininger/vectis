@@ -11,11 +11,15 @@
   line-height: var(--line-height-body);
 }
 
+.labelHidden {
+  gap: 0;
+}
+
 .control {
   align-items: center;
   display: flex;
   gap: var(--space-sm);
-  min-height: var(--control-height-md);
+  height: var(--control-height-md);
   min-width: 0;
 }
 
@@ -92,8 +96,12 @@
 }
 
 .value {
+  align-items: center;
   color: var(--text-navigation);
+  display: flex;
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-strong);
+  line-height: var(--line-height-tight);
+  min-height: var(--control-height-md);
   min-width: 52px;
 }

@@ -1,5 +1,5 @@
 .triggerConfigurator {
-  align-items: stretch;
+  align-items: start;
   display: grid;
   gap: var(--space-lg);
   grid-template-columns: minmax(176px, 0.72fr) minmax(0, 1.28fr);
@@ -11,15 +11,34 @@
     linear-gradient(180deg, #f8fafb 0%, #edf3f6 100%);
   border: var(--panel-border-subtle);
   border-radius: var(--radius-surface);
+  align-content: start;
   display: grid;
-  gap: var(--space-sm);
+  gap: var(--space-md);
   padding: var(--space-md);
 }
 
-.triggerGroup small {
+.triggerIntro {
+  display: grid;
+  gap: var(--space-2xs);
+  min-height: calc(
+    (var(--font-size-md) * var(--line-height-compact)) + var(--space-2xs) +
+      (var(--font-size-sm) * var(--line-height-body) * 2)
+  );
+}
+
+.triggerIntro h4 {
+  color: var(--text-primary);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-strong);
+  line-height: var(--line-height-compact);
+  margin: 0;
+}
+
+.triggerIntro p {
   color: var(--text-subtle);
   font-size: var(--font-size-sm);
   line-height: var(--line-height-body);
+  margin: 0;
 }
 
 .scheduleGroup {
@@ -27,7 +46,7 @@
 }
 
 .scheduleFields {
-  align-items: end;
+  align-items: start;
   display: grid;
   gap: var(--space-lg);
   grid-template-columns: minmax(152px, 0.7fr) minmax(220px, 1.3fr);

@@ -343,7 +343,7 @@ describe("App", () => {
       target: { value: "cache-warmup" }
     });
 
-    fireEvent.change(screen.getByLabelText("Schedule"), {
+    fireEvent.change(screen.getByLabelText("Cadence"), {
       target: { value: "Hourly" }
     });
 

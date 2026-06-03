@@ -2,6 +2,7 @@ import styles from "./ToggleField.module.css";
 
 type ToggleFieldProps = {
   checked: boolean;
+  hideLabel?: boolean;
   label: string;
   name: string;
   offText: string;
@@ -9,10 +10,10 @@ type ToggleFieldProps = {
   onText: string;
 };
 
-export function ToggleField({ checked, label, name, offText, onChange, onText }: ToggleFieldProps) {
+export function ToggleField({ checked, hideLabel, label, name, offText, onChange, onText }: ToggleFieldProps) {
   return (
-    <label className={styles.root}>
-      <span>{label}</span>
+    <label className={`${styles.root} ${hideLabel ? styles.labelHidden : ""}`}>
+      {hideLabel ? null : <span>{label}</span>}
       <span className={styles.control}>
         <input
           aria-label={label}

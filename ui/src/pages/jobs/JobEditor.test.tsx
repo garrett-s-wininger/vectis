@@ -1,5 +1,7 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { JobEditor, emptyJobForm, jobInputFromValues } from "./JobEditor";
+import type { JobFormValues } from "./JobEditor";
 
 describe("JobEditor", () => {
   it("submits a valid create input", () => {
@@ -27,7 +29,6 @@ describe("JobEditor", () => {
   });
 
   it("reports invalid JSON without closing", () => {
-    const onError = vi.fn();
     const cancel = vi.fn();
 
     render(
@@ -37,7 +38,7 @@ describe("JobEditor", () => {
         namespacePath="/"
         onCancel={cancel}
         onCreateJob={() => undefined}
-        onError={onError}
+        onError={() => undefined}
         onUpdateJob={() => undefined}
         onValuesChange={() => undefined}
         values={{ ...emptyJobForm, definition: "{", name: "broken" }}
@@ -46,8 +47,76 @@ describe("JobEditor", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
-    expect(onError).toHaveBeenLastCalledWith("Definition must be valid JSON.");
+    expect(screen.getByLabelText("JSON")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("JSON")).toHaveAccessibleDescription("Definition must be valid JSON.");
     expect(cancel).not.toHaveBeenCalled();
+  });
+
+  it("reports invalid custom cron specs without closing", () => {
+    const cancel = vi.fn();
+
+    render(
+      <JobEditor
+        error=""
+        mode={{ kind: "create" }}
+        namespacePath="/"
+        onCancel={cancel}
+        onCreateJob={() => undefined}
+        onError={() => undefined}
+        onUpdateJob={() => undefined}
+        onValuesChange={() => undefined}
+        values={{ ...emptyJobForm, cronSpec: "60 * * * *", name: "broken-schedule", schedule: "Custom" }}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(screen.getByLabelText("Cron Spec")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("Cron Spec")).toHaveAccessibleDescription("Minute must be between 0 and 59.");
+    expect(cancel).not.toHaveBeenCalled();
+  });
+
+  it("reports invalid custom cron specs after typing settles", () => {
+    vi.useFakeTimers();
+
+    function EditorHarness() {
+      const [values, setValues] = useState<JobFormValues>({
+        ...emptyJobForm,
+        name: "debounced-schedule",
+        schedule: "Custom"
+      });
+
+      return (
+        <JobEditor
+          error=""
+          mode={{ kind: "create" }}
+          namespacePath="/"
+          onCancel={() => undefined}
+          onCreateJob={() => undefined}
+          onError={() => undefined}
+          onUpdateJob={() => undefined}
+          onValuesChange={setValues}
+          values={values}
+        />
+      );
+    }
+
+    try {
+      render(<EditorHarness />);
+
+      fireEvent.change(screen.getByLabelText("Cron Spec"), { target: { value: "60 * * * *" } });
+
+      expect(screen.getByLabelText("Cron Spec")).not.toHaveAttribute("aria-invalid", "true");
+
+      act(() => {
+        vi.advanceTimersByTime(350);
+      });
+
+      expect(screen.getByLabelText("Cron Spec")).toHaveAttribute("aria-invalid", "true");
+      expect(screen.getByLabelText("Cron Spec")).toHaveAccessibleDescription("Minute must be between 0 and 59.");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps the name read-only while configuring an existing job", () => {

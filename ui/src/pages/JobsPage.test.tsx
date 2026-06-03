@@ -69,7 +69,7 @@ describe("JobsPage", () => {
 
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "worker-image" } });
     fireEvent.click(screen.getByLabelText("Manual"));
-    fireEvent.change(screen.getByLabelText("Schedule"), { target: { value: "Custom" } });
+    fireEvent.change(screen.getByLabelText("Cadence"), { target: { value: "Custom" } });
     fireEvent.change(screen.getByLabelText("Cron Spec"), { target: { value: "*/15 * * * *" } });
     fireEvent.change(screen.getByLabelText("JSON"), {
       target: {

@@ -1,7 +1,9 @@
 import type { FormEvent } from "react";
+import { useEffect, useState } from "react";
 import { Button, FormError, FormField, TextAreaField, ToggleField } from "../../components";
 import type { Job, JobStatus, NewJob, UpdateJob } from "../../domain/console";
 import { defaultJobDefinition } from "../../domain/consoleOptions";
+import { cronSpec, jsonObject, required } from "../../validation/formValidation";
 import { ResourceTitle } from "../shared";
 import { JobSourceOptions } from "./JobSourceOptions";
 import { cronSpecFromSchedule, scheduleMode, schedulePresetSpec, JobTriggerControls } from "./JobTriggerControls";
@@ -31,6 +33,8 @@ type JobEditorProps = {
   values: JobFormValues;
   onValuesChange: (values: JobFormValues) => void;
 };
+
+type JobEditorFieldErrors = Partial<Record<"cronSpec" | "definition" | "name", string>>;
 
 export const emptyJobForm: JobFormValues = {
   branch: "main",
@@ -80,20 +84,53 @@ export function JobEditor({
   onValuesChange,
   values
 }: JobEditorProps) {
+  const [fieldErrors, setFieldErrors] = useState<JobEditorFieldErrors>({});
+  const [cronSpecEdited, setCronSpecEdited] = useState(false);
+
   function setValues(nextValues: JobFormValues) {
     onValuesChange(nextValues);
   }
 
+  function clearFieldError(field: keyof JobEditorFieldErrors) {
+    setFieldErrors((currentErrors) => {
+      const nextErrors = { ...currentErrors };
+      delete nextErrors[field];
+      return nextErrors;
+    });
+  }
+
+  useEffect(() => {
+    if (!cronSpecEdited || values.schedule !== "Custom") {
+      return;
+    }
+
+    const validationTimer = window.setTimeout(() => {
+      const result = cronSpec(values.cronSpec);
+      setFieldErrors((currentErrors) => {
+        const nextErrors = { ...currentErrors };
+        if (result.valid) {
+          delete nextErrors.cronSpec;
+        } else {
+          nextErrors.cronSpec = result.message;
+        }
+        return nextErrors;
+      });
+    }, 350);
+
+    return () => window.clearTimeout(validationTimer);
+  }, [cronSpecEdited, values.cronSpec, values.schedule]);
+
   function submitJob(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     onError("");
+    const nextFieldErrors = validateJobForm(values);
 
-    try {
-      JSON.parse(values.definition);
-    } catch {
-      onError("Definition must be valid JSON.");
+    if (Object.keys(nextFieldErrors).length > 0) {
+      setFieldErrors(nextFieldErrors);
       return;
     }
+
+    setFieldErrors({});
 
     if (mode.kind === "edit") {
       onUpdateJob(mode.jobID, jobInputFromValues(values));
@@ -122,9 +159,13 @@ export function JobEditor({
             <div className={styles.fieldGrid}>
               <FormField
                 disabled={mode.kind === "edit"}
+                error={fieldErrors.name}
                 label="Name"
                 name="jobName"
-                onChange={(event) => setValues({ ...values, name: event.target.value })}
+                onChange={(event) => {
+                  clearFieldError("name");
+                  setValues({ ...values, name: event.target.value });
+                }}
                 placeholder="worker-image"
                 required
                 value={values.name}
@@ -157,16 +198,23 @@ export function JobEditor({
             </div>
             <JobTriggerControls
               cronSpec={values.cronSpec}
+              cronSpecError={fieldErrors.cronSpec}
               manualEnabled={values.manualEnabled}
-              onCronSpecChange={(cronSpec) => setValues({ ...values, cronSpec })}
+              onCronSpecChange={(nextCronSpec) => {
+                setCronSpecEdited(true);
+                clearFieldError("cronSpec");
+                setValues({ ...values, cronSpec: nextCronSpec });
+              }}
               onManualChange={(manualEnabled) => setValues({ ...values, manualEnabled })}
-              onScheduleChange={(schedule) =>
+              onScheduleChange={(schedule) => {
+                setCronSpecEdited(false);
+                clearFieldError("cronSpec");
                 setValues({
                   ...values,
                   cronSpec: schedulePresetSpec(schedule) ?? values.cronSpec,
                   schedule
-                })
-              }
+                });
+              }}
               schedule={values.schedule}
             />
           </section>
@@ -176,9 +224,13 @@ export function JobEditor({
             </div>
             <TextAreaField
               code
+              error={fieldErrors.definition}
               label="JSON"
               name="jobDefinition"
-              onChange={(event) => setValues({ ...values, definition: event.target.value })}
+              onChange={(event) => {
+                clearFieldError("definition");
+                setValues({ ...values, definition: event.target.value });
+              }}
               required
               rows={10}
               value={values.definition}
@@ -194,4 +246,25 @@ export function JobEditor({
       </form>
     </section>
   );
+}
+
+function validateJobForm(values: JobFormValues) {
+  const errors: JobEditorFieldErrors = {};
+  const nameResult = required(values.name, "Enter a job name.");
+  const definitionResult = jsonObject(values.definition);
+  const cronResult = values.schedule === "Custom" ? cronSpec(values.cronSpec) : { valid: true as const };
+
+  if (!nameResult.valid) {
+    errors.name = nameResult.message;
+  }
+
+  if (!definitionResult.valid) {
+    errors.definition = definitionResult.message;
+  }
+
+  if (!cronResult.valid) {
+    errors.cronSpec = cronResult.message;
+  }
+
+  return errors;
 }
