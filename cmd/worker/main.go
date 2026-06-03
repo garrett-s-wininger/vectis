@@ -764,12 +764,13 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 
 	w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
 	if w.taskCompletionFanout && executionEnvelope != nil {
-		if _, ok := w.completeExecutionTerminal(ctx, executionEnvelope, dal.ExecutionStatusSucceeded); !ok {
+		completion, ok := w.completeExecutionTerminal(ctx, executionEnvelope, dal.ExecutionStatusSucceeded)
+		if !ok {
 			span.SetStatus(otelcodes.Error, "complete task execution")
 			return observability.WorkerOutcomeFailed
 		}
 
-		continued, err := w.continueTaskRun(ctx, runID, claimToken)
+		continued, err := w.continueTaskRun(ctx, runID, claimToken, completion.dispatchableChildren > 0)
 		if err != nil {
 			w.logger.Error("Failed to continue task run %s: %v", runID, err)
 			span.RecordError(err)
@@ -1032,18 +1033,21 @@ func (w *worker) ackDeliveryWithRetry(ctx context.Context, deliveryID string) *a
 	return &ackDeliveryFailure{err: status.Error(codes.Unavailable, "ack retries exhausted"), attempt: ackMaxAttempts, decision: decision}
 }
 
-func (w *worker) continueTaskRun(ctx context.Context, runID, claimToken string) (bool, error) {
+func (w *worker) continueTaskRun(ctx context.Context, runID, claimToken string, knownPending bool) (bool, error) {
 	if w.taskDispatchService == nil {
 		return false, nil
 	}
 
 	opts := taskdispatch.DrainOptions{CellID: w.cellID, Limit: 1}
-	pending, err := w.taskDispatchService.HasPending(w.runCtx, opts)
-	if err != nil {
-		return false, err
-	}
-	if !pending {
-		return false, nil
+	if !knownPending {
+		pending, err := w.taskDispatchService.HasPending(w.runCtx, opts)
+		if err != nil {
+			return false, err
+		}
+
+		if !pending {
+			return false, nil
+		}
 	}
 
 	if err := w.markRunQueuedForContinuationWithRetry(runID, claimToken); err != nil {

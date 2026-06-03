@@ -72,6 +72,36 @@ func (s *requireAbortedExecutionBeforeRunAbortedStore) MarkRunAborted(ctx contex
 	return s.RunsRepository.MarkRunAborted(ctx, runID, claimToken, reason)
 }
 
+type recordingTaskDispatchDrainer struct {
+	mu           sync.Mutex
+	pending      bool
+	pendingErr   error
+	drainResult  taskdispatch.DrainResult
+	drainErr     error
+	pendingCalls int
+	drainCalls   int
+}
+
+func (d *recordingTaskDispatchDrainer) HasPending(context.Context, taskdispatch.DrainOptions) (bool, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.pendingCalls++
+	return d.pending, d.pendingErr
+}
+
+func (d *recordingTaskDispatchDrainer) Drain(context.Context, taskdispatch.DrainOptions) (taskdispatch.DrainResult, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.drainCalls++
+	return d.drainResult, d.drainErr
+}
+
+func (d *recordingTaskDispatchDrainer) calls() (pending, drain int) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.pendingCalls, d.drainCalls
+}
+
 type flakyFinalizeRunsStore struct {
 	dal.RunsRepository
 
@@ -1162,6 +1192,73 @@ func TestWorkerMarkExecutionTerminal_OptInSuccessUsesTaskCompletionFanout(t *tes
 
 	if len(runs.ExecutionTransitions) != 1 || runs.ExecutionTransitions[0] != "execution-root:"+dal.ExecutionStatusSucceeded {
 		t.Fatalf("execution transitions: %+v", runs.ExecutionTransitions)
+	}
+}
+
+func TestWorkerContinueTaskRun_KnownPendingSkipsPendingLookup(t *testing.T) {
+	t.Parallel()
+
+	runs := mocks.NewMockRunsRepository()
+	drainer := &recordingTaskDispatchDrainer{
+		drainResult: taskdispatch.DrainResult{Listed: 1, Enqueued: 1},
+	}
+
+	w := &worker{
+		runCtx:              context.Background(),
+		logger:              interfaces.NewLogger("worker-test"),
+		cellID:              "local",
+		store:               runs,
+		taskDispatchService: taskdispatch.NewService(interfaces.NewLogger("worker-test"), drainer),
+	}
+
+	continued, err := w.continueTaskRun(context.Background(), "run-known-pending", "claim-token", true)
+	if err != nil {
+		t.Fatalf("continueTaskRun: %v", err)
+	}
+
+	if !continued {
+		t.Fatal("continueTaskRun returned false, want true")
+	}
+
+	pendingCalls, drainCalls := drainer.calls()
+	if pendingCalls != 0 || drainCalls != 1 {
+		t.Fatalf("dispatch calls: pending=%d drain=%d, want pending=0 drain=1", pendingCalls, drainCalls)
+	}
+
+	if len(runs.ExecutionTransitions) != 1 || runs.ExecutionTransitions[0] != "run-known-pending:queued" {
+		t.Fatalf("run transitions: %+v", runs.ExecutionTransitions)
+	}
+}
+
+func TestWorkerContinueTaskRun_UnknownPendingChecksService(t *testing.T) {
+	t.Parallel()
+
+	runs := mocks.NewMockRunsRepository()
+	drainer := &recordingTaskDispatchDrainer{}
+	w := &worker{
+		runCtx:              context.Background(),
+		logger:              interfaces.NewLogger("worker-test"),
+		cellID:              "local",
+		store:               runs,
+		taskDispatchService: taskdispatch.NewService(interfaces.NewLogger("worker-test"), drainer),
+	}
+
+	continued, err := w.continueTaskRun(context.Background(), "run-no-pending", "claim-token", false)
+	if err != nil {
+		t.Fatalf("continueTaskRun: %v", err)
+	}
+
+	if continued {
+		t.Fatal("continueTaskRun returned true, want false")
+	}
+
+	pendingCalls, drainCalls := drainer.calls()
+	if pendingCalls != 1 || drainCalls != 0 {
+		t.Fatalf("dispatch calls: pending=%d drain=%d, want pending=1 drain=0", pendingCalls, drainCalls)
+	}
+
+	if len(runs.ExecutionTransitions) != 0 {
+		t.Fatalf("run should not be queued without pending work: %+v", runs.ExecutionTransitions)
 	}
 }
 
