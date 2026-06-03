@@ -79,6 +79,7 @@ func TestReadRequestBodyRejectsStreamingOversizeBody(t *testing.T) {
 	if req.ContentLength != -1 {
 		t.Fatalf("test request ContentLength=%d, want unknown length", req.ContentLength)
 	}
+	req.Header.Set("Content-Type", "application/json")
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -127,6 +128,7 @@ func TestAPIServerRecordsStreamingOversizeBodySecurityRejection(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/login", unknownLengthReader{Reader: strings.NewReader("12345")})
 	req.Pattern = "POST /api/v1/login"
+	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -135,6 +137,90 @@ func TestAPIServerRecordsStreamingOversizeBodySecurityRejection(t *testing.T) {
 	}
 
 	requireSecurityRejection(t, metrics, securityReasonRequestBodyTooLarge, "POST /api/v1/login", http.StatusRequestEntityTooLarge)
+}
+
+func TestRouteBodyMiddlewareRejectsMissingJSONContentType(t *testing.T) {
+	called := false
+	handler := routeBodyMiddleware(routeBodyJSONPolicy(128), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/login", strings.NewReader("{}"))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if called {
+		t.Fatal("handler should not be called for missing JSON content type")
+	}
+
+	if rec.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("status=%d, want %d", rec.Code, http.StatusUnsupportedMediaType)
+	}
+
+	var body apiError
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode error: %v; body=%s", err, rec.Body.String())
+	}
+
+	if body.Code != string(apiErrUnsupportedMediaType) {
+		t.Fatalf("code=%q, want %q", body.Code, apiErrUnsupportedMediaType)
+	}
+}
+
+func TestRouteBodyMiddlewareOptionalJSONContentType(t *testing.T) {
+	tests := []struct {
+		name        string
+		body        string
+		contentType string
+		wantStatus  int
+	}{
+		{name: "empty without content type", wantStatus: http.StatusNoContent},
+		{name: "body without content type", body: "{}", wantStatus: http.StatusUnsupportedMediaType},
+		{name: "body with json content type", body: "{}", contentType: "application/json; charset=utf-8", wantStatus: http.StatusNoContent},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler := routeBodyMiddleware(routeBodyOptionalJSONPolicy(128), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusNoContent)
+			}))
+
+			var body io.Reader
+			if tt.body != "" {
+				body = strings.NewReader(tt.body)
+			}
+
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/runs/1/replay", body)
+			if tt.contentType != "" {
+				req.Header.Set("Content-Type", tt.contentType)
+			}
+
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status=%d, want %d; body=%s", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestAPIServerRecordsUnsupportedMediaTypeSecurityRejection(t *testing.T) {
+	metrics := &fakeSecurityRejectionMetrics{}
+	s := NewAPIServerWithRepositories(mocks.NewMockLogger(), nil, nil, nil)
+	s.SetAPISecurityMetrics(metrics)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/login", strings.NewReader("{}"))
+	req.Header.Set("Content-Type", "text/plain")
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("status=%d, want %d", rec.Code, http.StatusUnsupportedMediaType)
+	}
+
+	requireSecurityRejection(t, metrics, securityReasonUnsupportedMediaType, "POST /api/v1/login", http.StatusUnsupportedMediaType)
 }
 
 func TestRouteBodyPolicyValidation(t *testing.T) {

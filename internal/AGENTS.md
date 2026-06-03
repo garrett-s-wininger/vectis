@@ -46,9 +46,9 @@ API CORS is closed by default. Configure only exact `http://` or `https://` orig
 
 Protected API routes default to `Cache-Control: no-store` through `routeCachePolicy`. Only handler-managed streaming responses should opt out, and they must set their own cache headers explicitly.
 
-API routes reject request bodies by default through `routeBodyPolicy`. JSON body routes must opt in with an explicit size cap in `routeSpec.Body`; use `readRequestBody` rather than ad hoc `io.LimitReader` calls so oversized streamed bodies return `413`.
+API routes reject request bodies by default through `routeBodyPolicy`. JSON body routes must opt in with an explicit size cap in `routeSpec.Body`; the body middleware enforces JSON media types before handlers run. Use `readRequestBody` rather than ad hoc `io.LimitReader` calls so oversized streamed bodies return `413`.
 
-API Host, CORS, CSRF, method, body-policy, and rate-limit rejections must flow through `recordSecurityRejection` / the route body recorder so `vectis_api_security_rejections_total` and sanitized warning logs stay complete. Keep metric labels low-cardinality; do not include raw headers, tokens, cookies, or request bodies in security rejection logs.
+API Host, CORS, CSRF, method, media-type, body-policy, and rate-limit rejections must flow through `recordSecurityRejection` / the route body recorder so `vectis_api_security_rejections_total` and sanitized warning logs stay complete. Keep metric labels low-cardinality; do not include raw headers, tokens, cookies, or request bodies in security rejection logs.
 
 The API cache backend is shared security state for sessions and rate limits. Database mode is the replica-safe default. Memory mode is process-local, cleans expired entries opportunistically, and should stay limited to tests, local development, or deliberate single-process deployments.
 

@@ -31,11 +31,6 @@ func (s *APIServer) PostCellCatalogEvent(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if !requestContentTypeIsJSON(r) {
-		writeAPIErrorCode(w, http.StatusUnsupportedMediaType, apiErrUnsupportedMediaType)
-		return
-	}
-
 	sourceCell := strings.TrimSpace(r.PathValue("cell_id"))
 	if sourceCell == "" {
 		writeAPIError(w, http.StatusBadRequest, "missing_cell_id", "cell_id is required", nil)

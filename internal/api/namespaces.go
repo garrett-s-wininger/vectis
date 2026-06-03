@@ -34,11 +34,6 @@ func namespaceRecordToResponse(rec *dal.NamespaceRecord) namespaceResponse {
 }
 
 func (s *APIServer) CreateNamespace(w http.ResponseWriter, r *http.Request) {
-	if !requestContentTypeIsJSON(r) {
-		writeAPIErrorCode(w, http.StatusUnsupportedMediaType, apiErrUnsupportedMediaType)
-		return
-	}
-
 	body, ok := readRequestBody(w, r, maxJSONDocumentBodyBytes)
 	if !ok {
 		return

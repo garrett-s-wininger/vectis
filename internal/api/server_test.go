@@ -234,7 +234,7 @@ func TestAPIServer_CreateJob_InvalidContentType(t *testing.T) {
 	req.Header.Set("Content-Type", "text/plain")
 	rec := httptest.NewRecorder()
 
-	server.CreateJob(rec, req)
+	server.Handler().ServeHTTP(rec, req)
 
 	assertAPIError(t, rec, http.StatusUnsupportedMediaType, "unsupported_media_type")
 }
@@ -2022,10 +2022,9 @@ func TestAPIServer_UpdateJobDefinition_InvalidContentType(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/jobs/job-1", strings.NewReader("{}"))
 	req.Header.Set("Content-Type", "text/plain")
-	req.SetPathValue("id", "job-1")
 	rec := httptest.NewRecorder()
 
-	server.UpdateJobDefinition(rec, req)
+	server.Handler().ServeHTTP(rec, req)
 
 	assertAPIError(t, rec, http.StatusUnsupportedMediaType, "unsupported_media_type")
 }
@@ -2662,7 +2661,7 @@ func TestAPIServer_RunJob_InvalidContentType(t *testing.T) {
 	req.Header.Set("Content-Type", "text/plain")
 	rec := httptest.NewRecorder()
 
-	server.RunJob(rec, req)
+	server.Handler().ServeHTTP(rec, req)
 
 	assertAPIError(t, rec, http.StatusUnsupportedMediaType, "unsupported_media_type")
 }

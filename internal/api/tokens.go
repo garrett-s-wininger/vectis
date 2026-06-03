@@ -149,11 +149,6 @@ func (s *APIServer) ListTokens(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) CreateToken(w http.ResponseWriter, r *http.Request) {
-	if !requestContentTypeIsJSON(r) {
-		writeAPIErrorCode(w, http.StatusUnsupportedMediaType, apiErrUnsupportedMediaType)
-		return
-	}
-
 	body, ok := readRequestBody(w, r, maxTokenBodyBytes)
 	if !ok {
 		return

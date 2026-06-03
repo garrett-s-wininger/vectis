@@ -197,11 +197,11 @@ CORS is closed unless the operator configures exact allowed origins. Credentiale
 
 Host header validation is enabled by default. Requests with untrusted, wildcard, URL-shaped, or otherwise invalid `Host` values are rejected before route handling.
 
-Security-control rejections for Host validation, CORS preflight checks, CSRF checks, method checks, request body policy, and rate limits are logged with sanitized fields and counted by the `vectis_api_security_rejections_total` metric.
+Security-control rejections for Host validation, CORS preflight checks, CSRF checks, method checks, media-type checks, request body policy, and rate limits are logged with sanitized fields and counted by the `vectis_api_security_rejections_total` metric.
 
 The API server caps request headers at 32 KiB. Requests above that parser limit are rejected by the HTTP server before route handling.
 
-Routes reject request bodies unless the route explicitly accepts a JSON body. JSON routes enforce a per-route body cap before parsing; job-definition routes have a larger cap than auth, user, token, namespace, and control routes.
+Routes reject request bodies unless the route explicitly accepts a JSON body. JSON routes enforce `application/json` and a per-route body cap before parsing; job-definition routes have a larger cap than auth, user, token, namespace, and control routes. Optional JSON routes allow an absent body without `Content-Type`, but any present body must use JSON.
 
 Unknown routes return `route_not_found`. Method mismatches return `method_not_allowed` with an `Allow` header; TRACE, TRACK, and CONNECT are always rejected.
 

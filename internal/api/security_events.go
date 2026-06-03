@@ -22,6 +22,7 @@ const (
 	securityReasonRequestBodyNotAllowed    = "request_body_not_allowed"
 	securityReasonRequestBodyTooLarge      = "request_body_too_large"
 	securityReasonUnsupportedHTTPMethod    = "unsupported_http_method"
+	securityReasonUnsupportedMediaType     = "unsupported_media_type"
 
 	maxSecurityLogValueBytes = 160
 )

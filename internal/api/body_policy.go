@@ -77,6 +77,15 @@ func routeBodyMiddleware(policy routeBodyPolicy, next http.Handler, recorders ..
 			return
 		}
 
+		if policy.requiresJSONContentType(r) && !requestContentTypeIsJSON(r) {
+			if record != nil {
+				record(r, securityReasonUnsupportedMediaType, http.StatusUnsupportedMediaType)
+			}
+
+			writeAPIErrorCode(w, http.StatusUnsupportedMediaType, apiErrUnsupportedMediaType)
+			return
+		}
+
 		r = withSecurityRejectionRecorder(r, record)
 		if r.Body != nil {
 			r.Body = http.MaxBytesReader(w, r.Body, policy.maxBytes)
@@ -96,6 +105,17 @@ func requestHasBody(r *http.Request) bool {
 	}
 
 	return r.ContentLength < 0 && r.Body != nil && r.Body != http.NoBody
+}
+
+func (p routeBodyPolicy) requiresJSONContentType(r *http.Request) bool {
+	switch p.mode {
+	case routeBodyJSON:
+		return true
+	case routeBodyOptionalJSON:
+		return requestHasBody(r)
+	default:
+		return false
+	}
 }
 
 func readRequestBody(w http.ResponseWriter, r *http.Request, maxBytes int64) ([]byte, bool) {

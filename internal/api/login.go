@@ -39,11 +39,6 @@ func (s *APIServer) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !requestContentTypeIsJSON(r) {
-		writeAPIErrorCode(w, http.StatusUnsupportedMediaType, apiErrUnsupportedMediaType)
-		return
-	}
-
 	if !config.APIAuthEnabled() {
 		writeAPIErrorCode(w, http.StatusServiceUnavailable, apiErrAuthUnavailable)
 		return

@@ -630,11 +630,6 @@ func (s *APIServer) sendCancelToWorker(ctx context.Context, workerAddr, runID, c
 }
 
 func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
-	if !requestContentTypeIsJSON(r) {
-		writeAPIError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "content type must be application/json", nil)
-		return
-	}
-
 	body, ok := readRequestBody(w, r, maxJobDefinitionBodyBytes)
 	if !ok {
 		return
@@ -1027,11 +1022,6 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(bytes.TrimSpace(triggerBody)) > 0 && !requestContentTypeIsJSON(r) {
-		writeAPIError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "content type must be application/json", nil)
-		return
-	}
-
 	targetCellIDs, err := parseRunTargetOptions(triggerBody)
 	if err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_trigger_options", "invalid trigger options", nil)
@@ -1281,11 +1271,6 @@ func (s *APIServer) ReplayRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(bytes.TrimSpace(body)) > 0 && !requestContentTypeIsJSON(r) {
-		writeAPIError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "content type must be application/json", nil)
-		return
-	}
-
 	targetCellIDs, err := parseRunTargetOptions(body)
 	if err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_replay_options", "invalid replay options", nil)
@@ -1459,11 +1444,6 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if !requestContentTypeIsJSON(r) {
-		writeAPIError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "content type must be application/json", nil)
-		return
-	}
-
 	body, ok := readRequestBody(w, r, maxJobDefinitionBodyBytes)
 	if !ok {
 		return
@@ -1550,11 +1530,6 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 // Ephemeral runs persist definition version 1 in job_definitions so the reconciler can re-enqueue if the queue drops work.
 // The API always assigns a fresh job id server-side; any id in the request body is ignored (idempotency hashes the raw body).
 func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
-	if !requestContentTypeIsJSON(r) {
-		writeAPIError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "content type must be application/json", nil)
-		return
-	}
-
 	body, ok := readRequestBody(w, r, maxJobDefinitionBodyBytes)
 	if !ok {
 		return

@@ -75,11 +75,6 @@ func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !requestContentTypeIsJSON(r) {
-		writeAPIErrorCode(w, http.StatusUnsupportedMediaType, apiErrUnsupportedMediaType)
-		return
-	}
-
 	ctx, cancel := s.handlerDBCtx(r)
 	defer cancel()
 

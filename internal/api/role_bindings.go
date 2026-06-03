@@ -22,11 +22,6 @@ type bindingResponse struct {
 }
 
 func (s *APIServer) CreateBinding(w http.ResponseWriter, r *http.Request) {
-	if !requestContentTypeIsJSON(r) {
-		writeAPIErrorCode(w, http.StatusUnsupportedMediaType, apiErrUnsupportedMediaType)
-		return
-	}
-
 	nsIDStr := r.PathValue("id")
 	nsID, err := strconv.ParseInt(nsIDStr, 10, 64)
 	if err != nil || nsID <= 0 {

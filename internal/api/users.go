@@ -69,11 +69,6 @@ func generateRandomPassword() (string, error) {
 }
 
 func (s *APIServer) CreateUser(w http.ResponseWriter, r *http.Request) {
-	if !requestContentTypeIsJSON(r) {
-		writeAPIErrorCode(w, http.StatusUnsupportedMediaType, apiErrUnsupportedMediaType)
-		return
-	}
-
 	body, ok := readRequestBody(w, r, maxUserBodyBytes)
 	if !ok {
 		return
@@ -275,11 +270,6 @@ func (s *APIServer) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !requestContentTypeIsJSON(r) {
-		writeAPIErrorCode(w, http.StatusUnsupportedMediaType, apiErrUnsupportedMediaType)
-		return
-	}
-
 	body, ok := readRequestBody(w, r, maxUserBodyBytes)
 	if !ok {
 		return
@@ -460,11 +450,6 @@ type changePasswordRequest struct {
 }
 
 func (s *APIServer) ChangePassword(w http.ResponseWriter, r *http.Request) {
-	if !requestContentTypeIsJSON(r) {
-		writeAPIErrorCode(w, http.StatusUnsupportedMediaType, apiErrUnsupportedMediaType)
-		return
-	}
-
 	body, ok := readRequestBody(w, r, maxChangePasswordBodyBytes)
 	if !ok {
 		return
