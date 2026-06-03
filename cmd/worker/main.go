@@ -693,7 +693,7 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 	w.markExecutionAccepted(ctx, executionEnvelope)
 	w.markExecutionStarted(ctx, executionEnvelope)
 	w.setLifecyclePhase(observability.WorkerPhaseExecuting)
-	execErr := w.executeWithLeaseRenewal(ctx, runID, claimToken, job)
+	execErr := w.executeWithLeaseRenewal(ctx, runID, claimToken, job, executionEnvelope)
 	if execErr != nil {
 		if errors.Is(execErr, errRunCancelled) {
 			span.AddEvent("run.cancelled")
@@ -1143,7 +1143,7 @@ func (w *worker) getCurrentRunInfo() (string, string) {
 	return w.currentRunID, w.currentClaimToken
 }
 
-func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, claimToken string, job *api.Job) error {
+func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, claimToken string, job *api.Job, executionEnvelope *cell.ExecutionEnvelope) error {
 	w.setCurrentRun(runID, claimToken)
 	defer w.clearCurrentRun()
 
@@ -1191,7 +1191,12 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, claimToken 
 		go w.cancelRequestLoop(execCtx, runID, claimToken, stopCancel, cancelRun)
 	}
 
-	err := w.executor.ExecuteJob(execCtx, job, w.logClient, w.logger)
+	var err error
+	if w.taskCompletionFanout && executionEnvelope != nil {
+		err = w.executor.ExecuteTask(execCtx, job, executionEnvelope.TaskKey, w.logClient, w.logger)
+	} else {
+		err = w.executor.ExecuteJob(execCtx, job, w.logClient, w.logger)
+	}
 	close(stopRenew)
 	<-doneRenew
 

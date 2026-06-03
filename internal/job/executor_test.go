@@ -10,9 +10,12 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/dal"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/job"
 )
+
+func executorStrp(s string) *string { return &s }
 
 func executeAndWait(t *testing.T, executor *job.Executor, testJob *api.Job, mockLogClient *mocks.MockLogClient, mockLogger *mocks.MockLogger) error {
 	t.Helper()
@@ -32,6 +35,53 @@ func executeAndWait(t *testing.T, executor *job.Executor, testJob *api.Job, mock
 	}
 
 	return err
+}
+
+func executeTaskAndWait(t *testing.T, executor *job.Executor, testJob *api.Job, taskKey string, mockLogClient *mocks.MockLogClient, mockLogger *mocks.MockLogger) error {
+	t.Helper()
+	streamCh := make(chan job.LogStreamWaiter, 1)
+	executor.TestLogStreamHook = streamCh
+	defer func() { executor.TestLogStreamHook = nil }()
+
+	err := executor.ExecuteTask(context.Background(), testJob, taskKey, mockLogClient, mockLogger)
+
+	select {
+	case stream := <-streamCh:
+		if waitErr := stream.WaitForDone(5 * time.Second); waitErr != nil {
+			t.Errorf("wait for log stream done: %v", waitErr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for log stream hook")
+	}
+
+	return err
+}
+
+func logChunkStrings(chunks []*api.LogChunk) []string {
+	out := make([]string, len(chunks))
+	for i, chunk := range chunks {
+		out[i] = string(chunk.GetData())
+	}
+	return out
+}
+
+func assertLogContains(t *testing.T, chunks []string, expected string) {
+	t.Helper()
+	for _, chunk := range chunks {
+		if strings.Contains(chunk, expected) {
+			return
+		}
+	}
+	t.Fatalf("expected log chunk containing %q not found. Got chunks: %v", expected, chunks)
+}
+
+func assertLogNotContains(t *testing.T, chunks []string, unexpected string) {
+	t.Helper()
+	for _, chunk := range chunks {
+		if strings.Contains(chunk, unexpected) {
+			t.Fatalf("unexpected log chunk containing %q found. Got chunks: %v", unexpected, chunks)
+		}
+	}
 }
 
 func TestExecutor_ExecuteJob_Success(t *testing.T) {
@@ -127,6 +177,133 @@ func TestExecutor_ExecuteJob_Success(t *testing.T) {
 	errorCalls := mockLogger.GetErrorCalls()
 	if len(errorCalls) > 0 {
 		t.Errorf("expected no error logs, got: %v", errorCalls)
+	}
+}
+
+func TestExecutor_ExecuteTask_ExecutesSelectedNodeOnly(t *testing.T) {
+	executor := job.NewExecutor()
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+
+	testJob := &api.Job{
+		Id:    executorStrp("test-job-task-selected"),
+		RunId: executorStrp("test-run-task-selected"),
+		Root: &api.Node{
+			Id:   executorStrp("root-node"),
+			Uses: executorStrp("builtins/sequence"),
+			Steps: []*api.Node{
+				{
+					Id:   executorStrp("first"),
+					Uses: executorStrp("builtins/shell"),
+					With: map[string]string{"command": "echo task-first-marker"},
+				},
+				{
+					Id:   executorStrp("second"),
+					Uses: executorStrp("builtins/shell"),
+					With: map[string]string{"command": "echo task-second-marker"},
+				},
+			},
+		},
+	}
+
+	err := executeTaskAndWait(t, executor, testJob, "second", mockLogClient, mockLogger)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	chunks := logChunkStrings(mockLogClient.GetChunks())
+	assertLogContains(t, chunks, "Starting task execution: test-job-task-selected task second")
+	assertLogContains(t, chunks, "task-second-marker")
+	assertLogNotContains(t, chunks, "task-first-marker")
+}
+
+func TestExecutor_ExecuteTask_DoesNotExecuteChildTasks(t *testing.T) {
+	executor := job.NewExecutor()
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+
+	testJob := &api.Job{
+		Id:    executorStrp("test-job-task-parent"),
+		RunId: executorStrp("test-run-task-parent"),
+		Root: &api.Node{
+			Id:   executorStrp("root-node"),
+			Uses: executorStrp("builtins/sequence"),
+			Steps: []*api.Node{
+				{
+					Id:   executorStrp("branch"),
+					Uses: executorStrp("builtins/sequence"),
+					Steps: []*api.Node{
+						{
+							Id:   executorStrp("nested"),
+							Uses: executorStrp("builtins/shell"),
+							With: map[string]string{"command": "echo nested-child-marker"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	err := executeTaskAndWait(t, executor, testJob, "branch", mockLogClient, mockLogger)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	chunks := logChunkStrings(mockLogClient.GetChunks())
+	assertLogContains(t, chunks, "Starting task execution: test-job-task-parent task branch")
+	assertLogContains(t, chunks, "Executing node: builtins/sequence")
+	assertLogNotContains(t, chunks, "nested-child-marker")
+}
+
+func TestExecutor_ExecuteTask_RootTaskSuppressesChildren(t *testing.T) {
+	executor := job.NewExecutor()
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+
+	testJob := &api.Job{
+		Id:    executorStrp("test-job-task-root"),
+		RunId: executorStrp("test-run-task-root"),
+		Root: &api.Node{
+			Id:   executorStrp("root-node"),
+			Uses: executorStrp("builtins/sequence"),
+			Steps: []*api.Node{
+				{
+					Id:   executorStrp("child"),
+					Uses: executorStrp("builtins/shell"),
+					With: map[string]string{"command": "echo root-child-marker"},
+				},
+			},
+		},
+	}
+
+	err := executeTaskAndWait(t, executor, testJob, dal.RootTaskKey, mockLogClient, mockLogger)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	chunks := logChunkStrings(mockLogClient.GetChunks())
+	assertLogContains(t, chunks, "Starting task execution: test-job-task-root task root")
+	assertLogContains(t, chunks, "Executing node: builtins/sequence")
+	assertLogNotContains(t, chunks, "root-child-marker")
+}
+
+func TestExecutor_ExecuteTask_MissingTask(t *testing.T) {
+	executor := job.NewExecutor()
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+
+	testJob := &api.Job{
+		Id:    executorStrp("test-job-task-missing"),
+		RunId: executorStrp("test-run-task-missing"),
+		Root: &api.Node{
+			Id:   executorStrp("root-node"),
+			Uses: executorStrp("builtins/sequence"),
+		},
+	}
+
+	err := executor.ExecuteTask(context.Background(), testJob, "missing", mockLogClient, mockLogger)
+	if err == nil || !strings.Contains(err.Error(), `task node "missing" not found`) {
+		t.Fatalf("expected missing task error, got %v", err)
 	}
 }
 

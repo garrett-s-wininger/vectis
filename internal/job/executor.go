@@ -11,6 +11,7 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
 	"vectis/internal/action/builtins"
+	"vectis/internal/dal"
 	"vectis/internal/interfaces"
 	"vectis/internal/observability"
 
@@ -46,7 +47,7 @@ func sanitizeJobIDForPrefix(id string) string {
 }
 
 func (e *Executor) ExecuteJob(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger) (err error) {
-	return e.executeJob(ctx, job, logClient, logger, "")
+	return e.execute(ctx, job, logClient, logger, "", "", false)
 }
 
 func (e *Executor) ExecuteJobInWorkspace(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger, workspace string) (err error) {
@@ -54,10 +55,22 @@ func (e *Executor) ExecuteJobInWorkspace(ctx context.Context, job *api.Job, logC
 		return fmt.Errorf("workspace is required")
 	}
 
-	return e.executeJob(ctx, job, logClient, logger, workspace)
+	return e.execute(ctx, job, logClient, logger, workspace, "", false)
 }
 
-func (e *Executor) executeJob(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger, workspace string) (err error) {
+func (e *Executor) ExecuteTask(ctx context.Context, job *api.Job, taskKey string, logClient interfaces.LogClient, logger interfaces.Logger) (err error) {
+	return e.execute(ctx, job, logClient, logger, "", taskKey, true)
+}
+
+func (e *Executor) ExecuteTaskInWorkspace(ctx context.Context, job *api.Job, taskKey string, logClient interfaces.LogClient, logger interfaces.Logger, workspace string) (err error) {
+	if workspace == "" {
+		return fmt.Errorf("workspace is required")
+	}
+
+	return e.execute(ctx, job, logClient, logger, workspace, taskKey, true)
+}
+
+func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger, workspace, taskKey string, taskScoped bool) (err error) {
 	if job.GetRoot() == nil {
 		return fmt.Errorf("job has no root node")
 	}
@@ -68,6 +81,17 @@ func (e *Executor) executeJob(ctx context.Context, job *api.Job, logClient inter
 
 	if job.GetRunId() == "" {
 		return fmt.Errorf("job has no run id")
+	}
+
+	node := job.GetRoot()
+	children := node.GetSteps()
+	if taskScoped {
+		node, err = findTaskNode(job, taskKey)
+		if err != nil {
+			return err
+		}
+
+		children = nil
 	}
 
 	cleanupWorkspace := false
@@ -119,12 +143,16 @@ func (e *Executor) executeJob(ctx context.Context, job *api.Job, logClient inter
 		Resolver:  e.registry,
 	}
 
-	logger.Info("Starting job execution: %s", job.GetId())
-
 	sendLog(state, api.Stream_STREAM_CONTROL, `{"event":"start"}`)
-	sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Starting job execution: %s", job.GetId()))
+	if taskScoped {
+		logger.Info("Starting task execution: %s task %s", job.GetId(), taskKey)
+		sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Starting task execution: %s task %s", job.GetId(), taskKey))
+	} else {
+		logger.Info("Starting job execution: %s", job.GetId())
+		sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Starting job execution: %s", job.GetId()))
+	}
 
-	result := e.executeNode(ctx, job.GetRoot(), state)
+	result := e.executeNodeWithChildren(ctx, node, state, children)
 
 	if result.Status == action.StatusFailure {
 		if ctx.Err() != nil {
@@ -146,6 +174,10 @@ func (e *Executor) executeJob(ctx context.Context, job *api.Job, logClient inter
 }
 
 func (e *Executor) executeNode(ctx context.Context, node *api.Node, state *action.ExecutionState) action.Result {
+	return e.executeNodeWithChildren(ctx, node, state, node.GetSteps())
+}
+
+func (e *Executor) executeNodeWithChildren(ctx context.Context, node *api.Node, state *action.ExecutionState, children []*api.Node) action.Result {
 	if node == nil {
 		return action.NewFailureResult(fmt.Errorf("nil node"))
 	}
@@ -155,7 +187,7 @@ func (e *Executor) executeNode(ctx context.Context, node *api.Node, state *actio
 	span.SetAttributes(
 		attribute.String("action.type", node.GetUses()),
 		attribute.String("action.node.id", node.GetId()),
-		attribute.Bool("action.has_children", len(node.GetSteps()) > 0),
+		attribute.Bool("action.has_children", len(children) > 0),
 	)
 	defer span.End()
 
@@ -180,13 +212,48 @@ func (e *Executor) executeNode(ctx context.Context, node *api.Node, state *actio
 
 	sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Executing node: %s", nodeImpl.Type()))
 
-	result := nodeImpl.Execute(nodeCtx, state, inputs, node.GetSteps())
+	result := nodeImpl.Execute(nodeCtx, state, inputs, children)
 	if result.Status == action.StatusFailure && result.Error != nil {
 		span.RecordError(result.Error)
 		span.SetStatus(otelcodes.Error, "action failed")
 	}
 
 	return result
+}
+
+func findTaskNode(job *api.Job, taskKey string) (*api.Node, error) {
+	taskKey = strings.TrimSpace(taskKey)
+	if taskKey == "" {
+		return nil, fmt.Errorf("task key is required")
+	}
+
+	if taskKey == dal.RootTaskKey {
+		return job.GetRoot(), nil
+	}
+
+	if node := findNodeByID(job.GetRoot(), taskKey); node != nil {
+		return node, nil
+	}
+
+	return nil, fmt.Errorf("task node %q not found", taskKey)
+}
+
+func findNodeByID(node *api.Node, id string) *api.Node {
+	if node == nil {
+		return nil
+	}
+
+	if strings.TrimSpace(node.GetId()) == id {
+		return node
+	}
+
+	for _, child := range node.GetSteps() {
+		if found := findNodeByID(child, id); found != nil {
+			return found
+		}
+	}
+
+	return nil
 }
 
 func sendLog(state *action.ExecutionState, streamType api.Stream, message string) {

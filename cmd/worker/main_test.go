@@ -572,6 +572,151 @@ func TestWorkerRunClaimedJob_TaskFanoutQueuesContinuation(t *testing.T) {
 	}
 }
 
+func TestWorkerRunClaimedJob_TaskFanoutExecutesEnvelopeTaskOnly(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
+	runs := repos.Runs()
+
+	jobID := "job-worker-task-scope"
+	runID, runIndex, err := runs.CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	rootDispatch, err := runs.GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get root dispatch: %v", err)
+	}
+
+	second, _, err := runs.EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:        runID,
+		ParentTaskID: rootDispatch.TaskID,
+		TaskKey:      "second",
+		Name:         "second",
+		SpecHash:     "sha256:second",
+		TargetCellID: "local",
+	})
+
+	if err != nil {
+		t.Fatalf("ensure second task: %v", err)
+	}
+
+	if err := runs.MarkExecutionTerminal(ctx, rootDispatch.ExecutionID, dal.ExecutionStatusSucceeded); err != nil {
+		t.Fatalf("mark root execution succeeded: %v", err)
+	}
+
+	if _, _, err := runs.ActivatePlannedChildTaskExecutions(ctx, rootDispatch.TaskID); err != nil {
+		t.Fatalf("activate child task: %v", err)
+	}
+
+	queue := mocks.NewMockQueueClient()
+	logClient := mocks.NewMockLogClient()
+	clock := mocks.NewMockClock()
+	executor := job.NewExecutor()
+	streamCh := make(chan job.LogStreamWaiter, 1)
+	executor.TestLogStreamHook = streamCh
+	defer func() { executor.TestLogStreamHook = nil }()
+
+	w := &worker{
+		ctx:                  context.Background(),
+		runCtx:               context.Background(),
+		logger:               interfaces.NewLogger("worker-test"),
+		workerID:             "worker-task-scope",
+		cellID:               "local",
+		clock:                clock,
+		renewInterval:        time.Hour,
+		queue:                queue,
+		logClient:            logClient,
+		executor:             executor,
+		store:                runs,
+		catalog:              cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
+		taskCompletionFanout: true,
+	}
+
+	deliveryID := "delivery-task-scope"
+	rootID := "root-node"
+	firstID := "first"
+	secondID := "second"
+	sequenceAction := "builtins/sequence"
+	shellAction := "builtins/shell"
+	j := &api.Job{
+		Id:         &jobID,
+		RunId:      &runID,
+		DeliveryId: &deliveryID,
+		Root: &api.Node{
+			Id:   &rootID,
+			Uses: &sequenceAction,
+			Steps: []*api.Node{
+				{
+					Id:   &firstID,
+					Uses: &shellAction,
+					With: map[string]string{"command": "echo worker-first-marker"},
+				},
+				{
+					Id:   &secondID,
+					Uses: &shellAction,
+					With: map[string]string{"command": "echo worker-second-marker"},
+				},
+			},
+		},
+	}
+
+	req := &api.JobRequest{Job: j, Metadata: map[string]string{"traceparent": "trace-task-scope"}}
+	dispatch := dal.ExecutionDispatchRecord{
+		RunID:             runID,
+		JobID:             jobID,
+		RunIndex:          runIndex,
+		TaskID:            second.TaskID,
+		TaskKey:           second.TaskKey,
+		TaskName:          second.Name,
+		TaskAttemptID:     second.TaskAttemptID,
+		SegmentID:         second.SegmentID,
+		SegmentName:       second.SegmentName,
+		SegmentStatus:     dal.SegmentStatusPending,
+		ExecutionID:       second.ExecutionID,
+		ExecutionStatus:   dal.ExecutionStatusPending,
+		CellID:            "local",
+		Attempt:           second.Attempt,
+		DefinitionVersion: 1,
+		DefinitionHash:    dal.DefinitionHash(`{"id":"job-worker-task-scope"}`),
+		OwningCell:        "local",
+	}
+	if _, err := cell.AttachExecutionEnvelope(req, dispatch, 1); err != nil {
+		t.Fatalf("attach child envelope: %v", err)
+	}
+
+	w.handleJob(req)
+
+	select {
+	case stream := <-streamCh:
+		if err := stream.WaitForDone(5 * time.Second); err != nil {
+			t.Fatalf("wait for log stream: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for log stream hook")
+	}
+
+	chunks := logClient.GetChunks()
+	if len(chunks) == 0 {
+		t.Fatal("expected log chunks")
+	}
+
+	var sawSecond bool
+	for _, chunk := range chunks {
+		data := string(chunk.GetData())
+		if strings.Contains(data, "worker-first-marker") {
+			t.Fatalf("worker replayed sibling task; chunks=%v", chunks)
+		}
+		if strings.Contains(data, "worker-second-marker") {
+			sawSecond = true
+		}
+	}
+	if !sawSecond {
+		t.Fatalf("expected selected task marker in chunks=%v", chunks)
+	}
+}
+
 func TestWorkerMarkExecutionTerminal_DefaultUsesLegacyTransition(t *testing.T) {
 	t.Parallel()
 
