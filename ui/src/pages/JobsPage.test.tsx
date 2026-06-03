@@ -90,4 +90,42 @@ describe("JobsPage", () => {
       })
     );
   });
+
+  it("shows an explicit no-runs state for jobs without run history", () => {
+    const job = {
+      id: "test-run",
+      name: "test-run",
+      repository: "",
+      branch: "",
+      sourceDetail: "Stored in Vectis",
+      sourceKind: "db" as const,
+      definition: JSON.stringify({ id: "test-run", root: {} }),
+      namespacePath: "/",
+      schedule: "Manual",
+      nextRun: "On demand",
+      triggers: [{ kind: "manual" as const, detail: "On demand" }],
+      status: "enabled" as const
+    };
+
+    render(
+      <JobsPage
+        jobs={[job]}
+        namespaces={namespaces}
+        namespacePath="/"
+        onCreateJob={() => undefined}
+        onSelectNamespace={() => undefined}
+        onSelectRun={() => undefined}
+        onTriggerRun={() => undefined}
+        onUpdateJob={() => undefined}
+        runs={[]}
+      />
+    );
+
+    expect(screen.getByText("None")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /test-run/ }));
+
+    expect(screen.getAllByText("None")).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "Open latest run for test-run" })).not.toBeInTheDocument();
+  });
 });

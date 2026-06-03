@@ -87,6 +87,48 @@ describe("console data source", () => {
     });
   });
 
+  it("does not invent a latest run status for API jobs with no runs", async () => {
+    vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse([
+          {
+            id: 1,
+            name: "/",
+            path: "/",
+            break_inheritance: false
+          }
+        ])
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [
+            {
+              name: "test-run",
+              namespace: "/",
+              definition: {
+                id: "test-run",
+                root: {
+                  id: "root",
+                  uses: "builtins/shell"
+                }
+              }
+            }
+          ]
+        })
+      )
+      .mockResolvedValueOnce(jsonResponse({ data: [] }));
+
+    const data = await createConsoleDataSource().loadConsole();
+
+    expect(data.runs).toEqual([]);
+    expect(data.jobs[0]).toMatchObject({
+      id: "test-run",
+      lastRunStatus: undefined
+    });
+  });
+
   it("creates stored jobs through the API source", async () => {
     vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
 

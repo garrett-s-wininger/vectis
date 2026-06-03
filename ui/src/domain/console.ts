@@ -39,7 +39,7 @@ export type Job = {
   schedule: string;
   nextRun: string;
   triggers: JobTrigger[];
-  lastRunStatus: RunStatus;
+  lastRunStatus?: RunStatus;
   status: JobStatus;
 };
 

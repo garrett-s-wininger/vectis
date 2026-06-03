@@ -23,14 +23,18 @@ export function JobDetailsDrawer({
     <div className={styles.detailsDrawer}>
       <div className={styles.detailsRows}>
         <div className={`${styles.detailRow} ${styles.detailRowLatestRun}`}>
-          <span>Latest run</span>
+          <span>Latest Run</span>
           <div>
-            <StatusBadge status={job.lastRunStatus} />
             {lastRun ? (
-              <small>
-                #{lastRun.runNumber} · {lastRun.duration}
-              </small>
-            ) : null}
+              <>
+                <StatusBadge status={lastRun.status} />
+                <small>
+                  #{lastRun.runNumber} · {lastRun.duration}
+                </small>
+              </>
+            ) : (
+              <StatusBadge status="empty" />
+            )}
           </div>
           <div>
             {lastRun ? (

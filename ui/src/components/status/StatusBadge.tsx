@@ -1,6 +1,6 @@
 import styles from "./StatusBadge.module.css";
 
-const statusLabels = {
+const runStatusLabels = {
   queued: "Queued",
   running: "Running",
   succeeded: "Succeeded",
@@ -9,10 +9,16 @@ const statusLabels = {
   abandoned: "Abandoned"
 } as const;
 
-export type RunStatus = keyof typeof statusLabels;
+const statusLabels = {
+  ...runStatusLabels,
+  empty: "None"
+} as const;
+
+export type RunStatus = keyof typeof runStatusLabels;
+export type StatusBadgeTone = keyof typeof statusLabels;
 
 type StatusBadgeProps = {
-  status: RunStatus;
+  status: StatusBadgeTone;
 };
 
 export function StatusBadge({ status }: StatusBadgeProps) {

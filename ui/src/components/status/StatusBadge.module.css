@@ -22,6 +22,12 @@
   color: var(--status-neutral-text);
 }
 
+.empty {
+  background: rgb(255 255 255 / 54%);
+  border-color: rgb(151 168 177 / 46%);
+  color: var(--text-subtle);
+}
+
 .running {
   background: var(--status-info-bg);
   border-color: var(--status-info-border);

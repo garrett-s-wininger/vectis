@@ -133,7 +133,8 @@ async function loadAPIConsoleData(): Promise<ConsoleData> {
     ...mockBase,
     jobs: jobs.map((job) => ({
       ...job,
-      lastRunStatus: latestRuns.find((run) => run.jobName === job.name)?.status ?? "queued"
+      lastRunStatus: latestRuns.find((run) => run.jobName === job.name && run.namespacePath === job.namespacePath)
+        ?.status
     })),
     namespaces,
     runs: latestRuns
@@ -191,7 +192,6 @@ function apiJobToConsoleJob(job: APIJob): Job {
     schedule: "Manual",
     nextRun: "On demand",
     triggers: [{ kind: "manual", detail: "On demand" }],
-    lastRunStatus: "queued",
     status: "enabled"
   };
 }

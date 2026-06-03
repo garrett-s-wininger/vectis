@@ -115,7 +115,11 @@ export function JobsPage({
       header: "Latest run",
       hideOnMobile: true,
       width: "96px",
-      cell: (job) => <StatusBadge status={job.lastRunStatus} />
+      cell: (job) => {
+        const lastRun = getLatestRunForJob(job, runs);
+
+        return lastRun ? <StatusBadge status={lastRun.status} /> : <StatusBadge status="empty" />;
+      }
     }
   ];
 
