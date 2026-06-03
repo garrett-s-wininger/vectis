@@ -44,7 +44,7 @@ Metrics HTTP servers must go through `internal/cli.StartMetricsHTTPServer`; it a
 
 HTTP method allowlists should use `internal/httpsecurity` helpers for shared `Allow` header and `HEAD`-for-`GET` behavior. Docs stay read-only (`GET`/`HEAD`); cell ingress should keep its route surface explicitly guarded.
 
-Cell ingress JSON responses should stay `nosniff` and `no-store` by default; route guard errors, health checks, and execution submission responses all flow through the shared JSON writer.
+Cell ingress should keep both direct `ServeHTTP` and `Handler()` callers behind the shared `httpsecurity` header middleware. JSON responses should stay `no-store` by default; route guard errors, health checks, and execution submission responses all flow through the shared JSON writer.
 
 Docs static file serving must go through the hardened docs file server wrapper, not raw `http.FileServer`, so directory listings, dotfile paths, and local docs symlink escapes stay blocked.
 

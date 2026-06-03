@@ -26,6 +26,7 @@ type Server struct {
 	acceptances dal.CellExecutionAcceptancesRepository
 	logger      interfaces.Logger
 	mux         *http.ServeMux
+	handler     http.Handler
 }
 
 type submitExecutionRequest struct {
@@ -62,11 +63,16 @@ func NewServer(localCellID string, ingress cell.ExecutionIngress, logger interfa
 	}
 
 	s.routes()
+	s.handler = httpsecurity.HeaderMiddleware(httpsecurity.APIHeaderPolicy(), http.HandlerFunc(s.serveHTTP))
 	return s
 }
 
 func (s *Server) Handler() http.Handler {
-	return http.HandlerFunc(s.ServeHTTP)
+	if s == nil || s.handler == nil {
+		return http.NotFoundHandler()
+	}
+
+	return s.handler
 }
 
 func (s *Server) SetAcceptanceStore(acceptances dal.CellExecutionAcceptancesRepository) {
@@ -74,6 +80,10 @@ func (s *Server) SetAcceptanceStore(acceptances dal.CellExecutionAcceptancesRepo
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.Handler().ServeHTTP(w, r)
+}
+
+func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	allowed := cellIngressAllowedMethods(r.URL.Path)
 	if len(allowed) == 0 {
 		writeError(w, http.StatusNotFound, "route_not_found", "route not found")

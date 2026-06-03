@@ -3,6 +3,7 @@ package cellingress
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -24,6 +25,44 @@ func TestHTTPServerSetsMaxHeaderBytes(t *testing.T) {
 	if srv.MaxHeaderBytes != httpsecurity.DefaultMaxHeaderBytes {
 		t.Fatalf("MaxHeaderBytes = %d, want %d", srv.MaxHeaderBytes, httpsecurity.DefaultMaxHeaderBytes)
 	}
+}
+
+func TestServerAppliesSecurityHeaders(t *testing.T) {
+	srv := NewQueueServer("iad-a", mocks.NewMockQueueService(), mocks.NewMockLogger())
+	req := httptest.NewRequest(http.MethodGet, "/health/live", nil)
+	rr := httptest.NewRecorder()
+
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want %d; body=%s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	assertSecurityHeader(t, rr, "X-Content-Type-Options", "nosniff")
+	assertSecurityHeader(t, rr, "X-Frame-Options", "DENY")
+	assertSecurityHeader(t, rr, "Referrer-Policy", "no-referrer")
+	assertSecurityHeader(t, rr, "Permissions-Policy", "camera=(), geolocation=(), microphone=(), payment=(), usb=()")
+	assertSecurityHeader(t, rr, "Cross-Origin-Opener-Policy", "same-origin")
+	assertSecurityHeader(t, rr, "Cross-Origin-Resource-Policy", "same-origin")
+	assertSecurityHeader(t, rr, "Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
+	if got := rr.Header().Get("Strict-Transport-Security"); got != "" {
+		t.Fatalf("Strict-Transport-Security over HTTP = %q, want empty", got)
+	}
+}
+
+func TestServerAppliesHSTSForDirectTLS(t *testing.T) {
+	srv := NewQueueServer("iad-a", mocks.NewMockQueueService(), mocks.NewMockLogger())
+	req := httptest.NewRequest(http.MethodGet, "https://example.test/health/live", nil)
+	req.TLS = &tls.ConnectionState{}
+	rr := httptest.NewRecorder()
+
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want %d; body=%s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	assertSecurityHeader(t, rr, "Strict-Transport-Security", "max-age=31536000")
 }
 
 func TestSubmitExecutionAcceptsLocalEnvelope(t *testing.T) {
@@ -372,6 +411,14 @@ func assertNoStore(t *testing.T, rr *httptest.ResponseRecorder) {
 
 	if got := rr.Header().Get("Expires"); got != "0" {
 		t.Fatalf("Expires = %q, want 0", got)
+	}
+}
+
+func assertSecurityHeader(t *testing.T, rr *httptest.ResponseRecorder, key, want string) {
+	t.Helper()
+
+	if got := rr.Header().Get(key); got != want {
+		t.Fatalf("%s = %q, want %q", key, got, want)
 	}
 }
 
