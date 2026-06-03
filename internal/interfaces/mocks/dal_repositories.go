@@ -215,6 +215,7 @@ type MockRunsRepository struct {
 	ListRunTasksErr        error
 	EnsureTaskExecutionErr error
 	ActivateTaskErr        error
+	TaskCompletionErr      error
 	QueuedListErr          error
 	TryClaimErr            error
 	RenewLeaseErr          error
@@ -260,6 +261,7 @@ type MockRunsRepository struct {
 	TaskActivated       bool
 	TaskExecutions      []dal.TaskExecutionRecord
 	TaskActivatedN      int
+	TaskCompletion      dal.RunTaskCompletion
 	RunRecords          map[string]dal.RunRecord
 	QueuedRuns          []dal.QueuedRun
 	PendingExecution    dal.ExecutionDispatchRecord
@@ -941,6 +943,22 @@ func (m *MockRunsRepository) MarkExecutionSucceededAndActivateChildren(ctx conte
 	m.mu.Unlock()
 
 	return append([]dal.TaskExecutionRecord(nil), m.TaskExecutions...), m.TaskActivatedN, nil
+}
+
+func (m *MockRunsRepository) GetRunTaskCompletion(ctx context.Context, runID string) (dal.RunTaskCompletion, error) {
+	if m.TaskCompletionErr != nil {
+		return dal.RunTaskCompletion{}, m.TaskCompletionErr
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	summary := m.TaskCompletion
+	if summary.RunID == "" {
+		summary.RunID = runID
+	}
+
+	return summary, nil
 }
 
 func (m *MockRunsRepository) GetRunJobID(ctx context.Context, runID string) (string, error) {

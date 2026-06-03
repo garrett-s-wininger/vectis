@@ -1525,6 +1525,40 @@ func (r *SQLRunsRepository) ActivatePlannedChildTaskExecutions(ctx context.Conte
 	return records, activatedCount, nil
 }
 
+func (r *SQLRunsRepository) GetRunTaskCompletion(ctx context.Context, runID string) (RunTaskCompletion, error) {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return RunTaskCompletion{}, fmt.Errorf("%w: run_id is required", ErrNotFound)
+	}
+
+	var summary RunTaskCompletion
+	summary.RunID = runID
+	if err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT
+			COUNT(rt.task_id),
+			COALESCE(SUM(CASE WHEN rt.status = ? THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN rt.status IN (?, ?, ?) THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN rt.status NOT IN (?, ?, ?, ?) THEN 1 ELSE 0 END), 0)
+		FROM job_runs jr
+		LEFT JOIN run_tasks rt ON rt.run_id = jr.run_id
+		WHERE jr.run_id = ?
+		GROUP BY jr.run_id
+	`),
+		TaskStatusSucceeded,
+		TaskStatusFailed, TaskStatusCancelled, TaskStatusAborted,
+		TaskStatusSucceeded, TaskStatusFailed, TaskStatusCancelled, TaskStatusAborted,
+		runID,
+	).Scan(&summary.Total, &summary.Succeeded, &summary.TerminalFailed, &summary.Incomplete); err != nil {
+		if err == sql.ErrNoRows {
+			return RunTaskCompletion{}, fmt.Errorf("%w: run %s", ErrNotFound, runID)
+		}
+
+		return RunTaskCompletion{}, normalizeSQLError(err)
+	}
+
+	return summary, nil
+}
+
 func activatePlannedChildTaskExecutionsTx(ctx context.Context, tx *sql.Tx, parentTaskID string) ([]TaskExecutionRecord, int, error) {
 	if err := ensureTaskExistsTx(ctx, tx, parentTaskID); err != nil {
 		return nil, 0, err

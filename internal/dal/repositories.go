@@ -319,6 +319,18 @@ type TaskDispatchIntent struct {
 	UpdatedAt            int64
 }
 
+type RunTaskCompletion struct {
+	RunID          string
+	Total          int
+	Succeeded      int
+	TerminalFailed int
+	Incomplete     int
+}
+
+func (s RunTaskCompletion) AllSucceeded() bool {
+	return s.Total > 0 && s.Succeeded == s.Total && s.TerminalFailed == 0 && s.Incomplete == 0
+}
+
 type CatalogEventRecord struct {
 	ID         int64
 	SourceCell string
@@ -482,6 +494,7 @@ type RunsRepository interface {
 	EnsurePendingTaskExecution(ctx context.Context, create TaskExecutionCreate) (TaskExecutionRecord, bool, error)
 	ActivatePlannedTaskExecution(ctx context.Context, taskID string) (TaskExecutionRecord, bool, error)
 	ActivatePlannedChildTaskExecutions(ctx context.Context, parentTaskID string) ([]TaskExecutionRecord, int, error)
+	GetRunTaskCompletion(ctx context.Context, runID string) (RunTaskCompletion, error)
 	ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]QueuedRun, error)
 	GetPendingExecution(ctx context.Context, runID string) (ExecutionDispatchRecord, error)
 	GetExecutionDispatch(ctx context.Context, executionID string) (ExecutionDispatchRecord, error)

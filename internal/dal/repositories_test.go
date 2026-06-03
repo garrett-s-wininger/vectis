@@ -1599,6 +1599,83 @@ func TestRunsRepository_MarkExecutionSucceededAndActivateChildren(t *testing.T) 
 	}
 }
 
+func TestRunsRepository_GetRunTaskCompletion(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-task-completion", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-task-completion"
+	def := `{"id":"job-task-completion","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	rootDispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get root pending execution: %v", err)
+	}
+
+	child, _, err := repos.Runs().EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:        runID,
+		ParentTaskID: rootDispatch.TaskID,
+		TaskKey:      "child",
+		SpecHash:     "sha256:child",
+	})
+
+	if err != nil {
+		t.Fatalf("ensure child: %v", err)
+	}
+
+	summary, err := repos.Runs().GetRunTaskCompletion(ctx, runID)
+	if err != nil {
+		t.Fatalf("initial GetRunTaskCompletion: %v", err)
+	}
+
+	if summary.RunID != runID || summary.Total != 2 || summary.Succeeded != 0 || summary.TerminalFailed != 0 || summary.Incomplete != 2 || summary.AllSucceeded() {
+		t.Fatalf("initial summary mismatch: %+v", summary)
+	}
+
+	if _, _, err := repos.Runs().MarkExecutionSucceededAndActivateChildren(ctx, rootDispatch.ExecutionID); err != nil {
+		t.Fatalf("root success: %v", err)
+	}
+
+	summary, err = repos.Runs().GetRunTaskCompletion(ctx, runID)
+	if err != nil {
+		t.Fatalf("after root success GetRunTaskCompletion: %v", err)
+	}
+
+	if summary.Total != 2 || summary.Succeeded != 1 || summary.TerminalFailed != 0 || summary.Incomplete != 1 || summary.AllSucceeded() {
+		t.Fatalf("after root success summary mismatch: %+v", summary)
+	}
+
+	if err := repos.Runs().MarkExecutionTerminal(ctx, child.ExecutionID, dal.ExecutionStatusFailed); err != nil {
+		t.Fatalf("child failed: %v", err)
+	}
+
+	summary, err = repos.Runs().GetRunTaskCompletion(ctx, runID)
+	if err != nil {
+		t.Fatalf("after child failed GetRunTaskCompletion: %v", err)
+	}
+
+	if summary.Total != 2 || summary.Succeeded != 1 || summary.TerminalFailed != 1 || summary.Incomplete != 0 || summary.AllSucceeded() {
+		t.Fatalf("after child failed summary mismatch: %+v", summary)
+	}
+
+	if _, err := repos.Runs().GetRunTaskCompletion(ctx, "missing-run"); !dal.IsNotFound(err) {
+		t.Fatalf("missing run should return not found, got %v", err)
+	}
+}
+
 func TestTaskDispatchIntentsRepository_Lifecycle(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")

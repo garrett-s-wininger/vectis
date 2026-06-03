@@ -36,6 +36,42 @@ func (p *permBadFinalizeStore) MarkRunSucceeded(ctx context.Context, runID, clai
 	return errors.New("simulated bad claim token")
 }
 
+type requireFailedExecutionBeforeRunFailedStore struct {
+	dal.RunsRepository
+	db          *sql.DB
+	executionID string
+}
+
+func (s *requireFailedExecutionBeforeRunFailedStore) MarkRunFailed(ctx context.Context, runID, claimToken, failureCode, reason string) error {
+	var status string
+	if err := s.db.QueryRowContext(ctx, `SELECT status FROM segment_executions WHERE execution_id = ?`, s.executionID).Scan(&status); err != nil {
+		return err
+	}
+	if status != dal.ExecutionStatusFailed {
+		return fmt.Errorf("execution %s status is %q before MarkRunFailed", s.executionID, status)
+	}
+
+	return s.RunsRepository.MarkRunFailed(ctx, runID, claimToken, failureCode, reason)
+}
+
+type requireAbortedExecutionBeforeRunAbortedStore struct {
+	dal.RunsRepository
+	db          *sql.DB
+	executionID string
+}
+
+func (s *requireAbortedExecutionBeforeRunAbortedStore) MarkRunAborted(ctx context.Context, runID, claimToken, reason string) error {
+	var status string
+	if err := s.db.QueryRowContext(ctx, `SELECT status FROM segment_executions WHERE execution_id = ?`, s.executionID).Scan(&status); err != nil {
+		return err
+	}
+	if status != dal.ExecutionStatusAborted {
+		return fmt.Errorf("execution %s status is %q before MarkRunAborted", s.executionID, status)
+	}
+
+	return s.RunsRepository.MarkRunAborted(ctx, runID, claimToken, reason)
+}
+
 type flakyFinalizeRunsStore struct {
 	dal.RunsRepository
 
@@ -572,6 +608,355 @@ func TestWorkerRunClaimedJob_TaskFanoutQueuesContinuation(t *testing.T) {
 	}
 }
 
+func TestWorkerRunClaimedJob_TaskFanoutWaitingReductionRequeuesRun(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
+	runs := repos.Runs()
+
+	ns, err := repos.Namespaces().Create(ctx, "worker-task-reduce-waiting", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-worker-task-reduce-waiting"
+	def := `{"id":"job-worker-task-reduce-waiting","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo root"}}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := runs.CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	rootDispatch, err := runs.GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get root dispatch: %v", err)
+	}
+
+	if _, _, err := runs.EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:        runID,
+		ParentTaskID: rootDispatch.TaskID,
+		TaskKey:      "child",
+		Name:         "child",
+		SpecHash:     "sha256:child",
+		TargetCellID: "local",
+	}); err != nil {
+		t.Fatalf("ensure child task: %v", err)
+	}
+
+	queue := mocks.NewMockQueueClient()
+	w := &worker{
+		ctx:                  context.Background(),
+		runCtx:               context.Background(),
+		logger:               interfaces.NewLogger("worker-test"),
+		workerID:             "worker-task-reduce-waiting",
+		cellID:               "local",
+		clock:                mocks.NewMockClock(),
+		renewInterval:        time.Hour,
+		queue:                queue,
+		logClient:            mocks.NewMockLogClient(),
+		executor:             job.NewExecutor(),
+		store:                runs,
+		catalog:              cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
+		taskCompletionFanout: true,
+	}
+
+	deliveryID := "delivery-task-reduce-waiting"
+	rootID := "root"
+	action := "builtins/shell"
+	j := &api.Job{
+		Id:         &jobID,
+		RunId:      &runID,
+		DeliveryId: &deliveryID,
+		Root: &api.Node{
+			Id:   &rootID,
+			Uses: &action,
+			With: map[string]string{"command": "echo root"},
+		},
+	}
+
+	req := &api.JobRequest{Job: j, Metadata: map[string]string{"traceparent": "trace-waiting"}}
+	if _, err := cell.AttachExecutionEnvelope(req, rootDispatch, 1); err != nil {
+		t.Fatalf("attach root envelope: %v", err)
+	}
+
+	w.handleJob(req)
+
+	var runStatus string
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&runStatus); err != nil {
+		t.Fatalf("query run status: %v", err)
+	}
+
+	if runStatus != dal.RunStatusQueued {
+		t.Fatalf("run status after waiting reduction: got %q, want %q", runStatus, dal.RunStatusQueued)
+	}
+
+	pending, err := repos.TaskDispatchIntents().ListPending(ctx, "local", w.clock.Now().UnixNano(), 10)
+	if err != nil {
+		t.Fatalf("list pending intents: %v", err)
+	}
+
+	if len(pending) != 1 {
+		t.Fatalf("pending child intent: got %d, want 1: %+v", len(pending), pending)
+	}
+}
+
+func TestWorkerRunClaimedJob_TaskFanoutFailureCompletesTaskBeforeRun(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
+	runs := repos.Runs()
+
+	ns, err := repos.Namespaces().Create(ctx, "worker-task-failure-order", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-worker-task-failure-order"
+	def := `{"id":"job-worker-task-failure-order","root":{"id":"root","uses":"builtins/shell","with":{"command":"false"}}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := runs.CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	rootDispatch, err := runs.GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get root dispatch: %v", err)
+	}
+
+	store := &requireFailedExecutionBeforeRunFailedStore{
+		RunsRepository: runs,
+		db:             db,
+		executionID:    rootDispatch.ExecutionID,
+	}
+
+	w := &worker{
+		ctx:                  context.Background(),
+		runCtx:               context.Background(),
+		logger:               interfaces.NewLogger("worker-test"),
+		workerID:             "worker-task-failure-order",
+		cellID:               "local",
+		clock:                mocks.NewMockClock(),
+		renewInterval:        time.Hour,
+		queue:                mocks.NewMockQueueClient(),
+		logClient:            mocks.NewMockLogClient(),
+		executor:             job.NewExecutor(),
+		store:                store,
+		catalog:              cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
+		taskCompletionFanout: true,
+	}
+
+	deliveryID := "delivery-task-failure-order"
+	rootID := "root"
+	action := "builtins/shell"
+	j := &api.Job{
+		Id:         &jobID,
+		RunId:      &runID,
+		DeliveryId: &deliveryID,
+		Root: &api.Node{
+			Id:   &rootID,
+			Uses: &action,
+			With: map[string]string{"command": "false"},
+		},
+	}
+
+	req := &api.JobRequest{Job: j, Metadata: map[string]string{"traceparent": "trace-failure-order"}}
+	if _, err := cell.AttachExecutionEnvelope(req, rootDispatch, 1); err != nil {
+		t.Fatalf("attach root envelope: %v", err)
+	}
+
+	w.handleJob(req)
+
+	var runStatus string
+	var failureReason sql.NullString
+	if err := db.QueryRowContext(ctx, `SELECT status, failure_reason FROM job_runs WHERE run_id = ?`, runID).Scan(&runStatus, &failureReason); err != nil {
+		t.Fatalf("query run status: %v", err)
+	}
+
+	if runStatus != dal.RunStatusFailed {
+		t.Fatalf("run status after failed task: got %q, want %q", runStatus, dal.RunStatusFailed)
+	}
+
+	if !failureReason.Valid || (!strings.Contains(failureReason.String, "command failed") && !strings.Contains(failureReason.String, "exit status")) {
+		t.Fatalf("failure reason should describe command failure, got %+v", failureReason)
+	}
+
+	var executionStatus string
+	if err := db.QueryRowContext(ctx, `SELECT status FROM segment_executions WHERE execution_id = ?`, rootDispatch.ExecutionID).Scan(&executionStatus); err != nil {
+		t.Fatalf("query execution status: %v", err)
+	}
+
+	if executionStatus != dal.ExecutionStatusFailed {
+		t.Fatalf("execution status after failed task: got %q, want %q", executionStatus, dal.ExecutionStatusFailed)
+	}
+
+	summary, err := runs.GetRunTaskCompletion(ctx, runID)
+	if err != nil {
+		t.Fatalf("get task completion: %v", err)
+	}
+
+	if summary.Total != 1 || summary.TerminalFailed != 1 || summary.Incomplete != 0 {
+		t.Fatalf("task completion summary after failed task: %+v", summary)
+	}
+}
+
+func TestWorkerRunClaimedJob_TaskFanoutCancelCompletesTaskBeforeRun(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
+	runs := repos.Runs()
+
+	ns, err := repos.Namespaces().Create(ctx, "worker-task-cancel-order", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-worker-task-cancel-order"
+	def := `{"id":"job-worker-task-cancel-order","root":{"id":"root","uses":"builtins/shell","with":{"command":"exec sleep 5"}}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := runs.CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	rootDispatch, err := runs.GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get root dispatch: %v", err)
+	}
+
+	store := &requireAbortedExecutionBeforeRunAbortedStore{
+		RunsRepository: runs,
+		db:             db,
+		executionID:    rootDispatch.ExecutionID,
+	}
+
+	w := &worker{
+		ctx:                  context.Background(),
+		runCtx:               context.Background(),
+		logger:               interfaces.NewLogger("worker-test"),
+		workerID:             "worker-task-cancel-order",
+		cellID:               "local",
+		clock:                interfaces.SystemClock{},
+		renewInterval:        time.Hour,
+		queue:                mocks.NewMockQueueClient(),
+		logClient:            mocks.NewMockLogClient(),
+		executor:             job.NewExecutor(),
+		store:                store,
+		catalog:              cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
+		taskCompletionFanout: true,
+		cancelCh:             make(chan string, 1),
+	}
+
+	deliveryID := "delivery-task-cancel-order"
+	rootID := "root"
+	action := "builtins/shell"
+	j := &api.Job{
+		Id:         &jobID,
+		RunId:      &runID,
+		DeliveryId: &deliveryID,
+		Root: &api.Node{
+			Id:   &rootID,
+			Uses: &action,
+			With: map[string]string{"command": "exec sleep 5"},
+		},
+	}
+
+	req := &api.JobRequest{Job: j, Metadata: map[string]string{"traceparent": "trace-cancel-order"}}
+	env, err := cell.AttachExecutionEnvelope(req, rootDispatch, 1)
+	if err != nil {
+		t.Fatalf("attach root envelope: %v", err)
+	}
+
+	outcomeCh := make(chan string, 1)
+	finished := make(chan struct{})
+	go func() {
+		outcomeCh <- w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID, env)
+		close(finished)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		currentRunID, _ := w.getCurrentRunInfo()
+		if currentRunID == runID {
+			break
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for worker to start cancellable task run")
+		}
+
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	cancelTicker := time.NewTicker(10 * time.Millisecond)
+	defer cancelTicker.Stop()
+	go func() {
+		for {
+			select {
+			case <-finished:
+				return
+			case <-cancelTicker.C:
+				select {
+				case w.cancelCh <- runID:
+				default:
+				}
+			}
+		}
+	}()
+
+	var outcome string
+	select {
+	case outcome = <-outcomeCh:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for canceled task run to finish")
+	}
+
+	if outcome != observability.WorkerOutcomeAborted {
+		t.Fatalf("expected worker outcome aborted, got %q", outcome)
+	}
+
+	var runStatus string
+	var failureReason sql.NullString
+	if err := db.QueryRowContext(ctx, `SELECT status, failure_reason FROM job_runs WHERE run_id = ?`, runID).Scan(&runStatus, &failureReason); err != nil {
+		t.Fatalf("query canceled run: %v", err)
+	}
+
+	if runStatus != dal.RunStatusCancelled {
+		t.Fatalf("run status after canceled task: got %q, want %q", runStatus, dal.RunStatusCancelled)
+	}
+
+	if !failureReason.Valid || failureReason.String != dal.CancelReasonAPI {
+		t.Fatalf("expected failure_reason %q, got %+v", dal.CancelReasonAPI, failureReason)
+	}
+
+	var executionStatus string
+	if err := db.QueryRowContext(ctx, `SELECT status FROM segment_executions WHERE execution_id = ?`, rootDispatch.ExecutionID).Scan(&executionStatus); err != nil {
+		t.Fatalf("query execution status: %v", err)
+	}
+
+	if executionStatus != dal.ExecutionStatusAborted {
+		t.Fatalf("execution status after canceled task: got %q, want %q", executionStatus, dal.ExecutionStatusAborted)
+	}
+
+	summary, err := runs.GetRunTaskCompletion(ctx, runID)
+	if err != nil {
+		t.Fatalf("get task completion: %v", err)
+	}
+
+	if summary.Total != 1 || summary.TerminalFailed != 1 || summary.Incomplete != 0 {
+		t.Fatalf("task completion summary after canceled task: %+v", summary)
+	}
+}
+
 func TestWorkerRunClaimedJob_TaskFanoutExecutesEnvelopeTaskOnly(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
@@ -714,6 +1099,15 @@ func TestWorkerRunClaimedJob_TaskFanoutExecutesEnvelopeTaskOnly(t *testing.T) {
 	}
 	if !sawSecond {
 		t.Fatalf("expected selected task marker in chunks=%v", chunks)
+	}
+
+	var runStatus string
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&runStatus); err != nil {
+		t.Fatalf("query run status: %v", err)
+	}
+
+	if runStatus != dal.RunStatusSucceeded {
+		t.Fatalf("run status after final task: got %q, want %q", runStatus, dal.RunStatusSucceeded)
 	}
 }
 
