@@ -49,6 +49,23 @@ func TestHeaderMiddleware_setsHSTSForTLS(t *testing.T) {
 	assertHeader(t, rec, "Strict-Transport-Security", defaultHSTS)
 }
 
+func TestHeaderMiddleware_usesPolicyRequestSecure(t *testing.T) {
+	policy := APIHeaderPolicy()
+	policy.RequestSecure = func(*http.Request) bool {
+		return true
+	}
+
+	h := HeaderMiddleware(policy, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "http://example.test/api/v1/jobs", nil)
+	h.ServeHTTP(rec, req)
+
+	assertHeader(t, rec, "Strict-Transport-Security", defaultHSTS)
+}
+
 func TestHeaderMiddleware_preservesExistingHeaders(t *testing.T) {
 	h := HeaderMiddleware(APIHeaderPolicy(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Security-Policy", "default-src 'self'")

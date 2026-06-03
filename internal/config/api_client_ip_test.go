@@ -1,6 +1,7 @@
 package config
 
 import (
+	"crypto/tls"
 	"net"
 	"net/http"
 	"testing"
@@ -97,6 +98,86 @@ func TestHTTPClientIP_trustedAllXffInvalidFallsBackToDirect(t *testing.T) {
 
 	if got := HTTPClientIP(req); got != "10.0.0.2" {
 		t.Fatalf("got %q want direct peer when forwarded headers unusable", got)
+	}
+}
+
+func TestHTTPOriginalRequestSecure_directTLS(t *testing.T) {
+	req := mustNewRequest(t)
+	req.TLS = &tls.ConnectionState{}
+	req.Header.Set("X-Forwarded-Proto", "http")
+
+	if !HTTPOriginalRequestSecure(req) {
+		t.Fatal("direct TLS request should be secure")
+	}
+}
+
+func TestHTTPOriginalRequestSecure_ignoresForwardedProtoWithoutTrustedProxy(t *testing.T) {
+	req := mustNewRequest(t)
+	req.RemoteAddr = "198.51.100.1:1234"
+	req.Header.Set("X-Forwarded-Proto", "https")
+
+	if HTTPOriginalRequestSecure(req) {
+		t.Fatal("unconfigured trusted proxies should not make forwarded proto trusted")
+	}
+}
+
+func TestHTTPOriginalRequestSecure_ignoresForwardedProtoFromUntrustedPeer(t *testing.T) {
+	t.Setenv(envAPIClientIPTrustedProxyCIDRs, "10.0.0.0/8")
+
+	req := mustNewRequest(t)
+	req.RemoteAddr = "198.51.100.1:1234"
+	req.Header.Set("X-Forwarded-Proto", "https")
+
+	if HTTPOriginalRequestSecure(req) {
+		t.Fatal("untrusted peer should not make forwarded proto trusted")
+	}
+}
+
+func TestHTTPOriginalRequestSecure_usesXForwardedProtoFromTrustedProxy(t *testing.T) {
+	t.Setenv(envAPIClientIPTrustedProxyCIDRs, "10.0.0.0/8")
+
+	req := mustNewRequest(t)
+	req.RemoteAddr = "10.0.0.2:443"
+	req.Header.Set("X-Forwarded-Proto", "HTTPS, http")
+
+	if !HTTPOriginalRequestSecure(req) {
+		t.Fatal("trusted X-Forwarded-Proto=https should mark original request secure")
+	}
+}
+
+func TestHTTPOriginalRequestSecure_normalizesQuotedXForwardedProtoFromTrustedProxy(t *testing.T) {
+	t.Setenv(envAPIClientIPTrustedProxyCIDRs, "10.0.0.0/8")
+
+	req := mustNewRequest(t)
+	req.RemoteAddr = "10.0.0.2:443"
+	req.Header.Set("X-Forwarded-Proto", ` "HTTPS" , http`)
+
+	if !HTTPOriginalRequestSecure(req) {
+		t.Fatal("trusted quoted X-Forwarded-Proto=https should mark original request secure")
+	}
+}
+
+func TestHTTPOriginalRequestSecure_usesForwardedProtoFromTrustedProxy(t *testing.T) {
+	t.Setenv(envAPIClientIPTrustedProxyCIDRs, "10.0.0.0/8")
+
+	req := mustNewRequest(t)
+	req.RemoteAddr = "10.0.0.2:443"
+	req.Header.Set("Forwarded", `for=203.0.113.5; proto="https"; host=api.example`)
+
+	if !HTTPOriginalRequestSecure(req) {
+		t.Fatal("trusted Forwarded proto=https should mark original request secure")
+	}
+}
+
+func TestHTTPOriginalRequestSecure_httpForwardedProtoFromTrustedProxy(t *testing.T) {
+	t.Setenv(envAPIClientIPTrustedProxyCIDRs, "10.0.0.0/8")
+
+	req := mustNewRequest(t)
+	req.RemoteAddr = "10.0.0.2:443"
+	req.Header.Set("X-Forwarded-Proto", "http")
+
+	if HTTPOriginalRequestSecure(req) {
+		t.Fatal("trusted X-Forwarded-Proto=http should not mark original request secure")
 	}
 }
 

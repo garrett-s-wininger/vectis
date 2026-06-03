@@ -19,6 +19,7 @@ const (
 // Policy describes browser-facing HTTP response headers.
 type Policy struct {
 	ContentSecurityPolicy string
+	RequestSecure         func(*http.Request) bool
 }
 
 // APIHeaderPolicy returns strict defaults for JSON/API responses.
@@ -51,12 +52,20 @@ func HeaderMiddleware(policy Policy, next http.Handler) http.Handler {
 			setHeaderIfEmpty(h, "Content-Security-Policy", policy.ContentSecurityPolicy)
 		}
 
-		if r != nil && r.TLS != nil {
+		if policy.requestSecure(r) {
 			setHeaderIfEmpty(h, "Strict-Transport-Security", defaultHSTS)
 		}
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (p Policy) requestSecure(r *http.Request) bool {
+	if p.RequestSecure != nil {
+		return p.RequestSecure(r)
+	}
+
+	return r != nil && r.TLS != nil
 }
 
 func setHeaderIfEmpty(h http.Header, key, value string) {

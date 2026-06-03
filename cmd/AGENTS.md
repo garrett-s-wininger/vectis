@@ -59,7 +59,7 @@ Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-thirteen-
 
 | Binary | `viper.SetEnvPrefix` | Primary TOML / notes |
 |--------|----------------------|----------------------|
-| `vectis-api` | `VECTIS_API_SERVER` | `[api]` in [`../internal/config/defaults.toml`](../internal/config/defaults.toml); `VECTIS_API_SERVER_HOST` / `--host` controls HTTP bind host; `--tls-cert-file` / `--tls-key-file` enable browser-facing HTTPS; `--cell-ingress-endpoint cell=url` configures remote cell execution ingress routes; ad hoc `VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS` for [`trusted-proxy-client-ip.md`](../website/docs/operating/deployment/trusted-proxy-client-ip.md) |
+| `vectis-api` | `VECTIS_API_SERVER` | `[api]` in [`../internal/config/defaults.toml`](../internal/config/defaults.toml); `VECTIS_API_SERVER_HOST` / `--host` controls HTTP bind host; `--tls-cert-file` / `--tls-key-file` enable browser-facing HTTPS; `--cell-ingress-endpoint cell=url` configures remote cell execution ingress routes; ad hoc `VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS` for trusted proxy headers in [`trusted-proxy-client-ip.md`](../website/docs/operating/deployment/trusted-proxy-client-ip.md) |
 | `vectis-cell-ingress` | `VECTIS_CELL_INGRESS` | `[cell_ingress]`; private HTTP `POST /cell/v1/executions`, local execution repair, plus queue discovery/pinned queue settings |
 | `vectis-queue` | `VECTIS_QUEUE` | `[queue]`; default instance ID is `hostname-port`, default persistence is `queue/<pool>/<instance-id>`; keep active shards unique |
 | `vectis-registry` | `VECTIS_REGISTRY` | `[registry]`; HA gossip membership uses `VECTIS_REGISTRY_CLUSTER_*` |

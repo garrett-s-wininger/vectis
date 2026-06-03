@@ -44,8 +44,8 @@ general_burst_size = 150
 [api.client_ip]
 # When empty, client IP for rate limits and audit logs is always the TCP peer (RemoteAddr).
 # When set to one or more CIDRs, a request whose peer address falls in any CIDR may use
-# X-Forwarded-For (left-most valid IP) or X-Real-IP instead. Do not list broad ranges:
-# 0.0.0.0/0 and ::/0 are rejected.
+# X-Forwarded-For (left-most valid IP), X-Real-IP, X-Forwarded-Proto, or
+# Forwarded proto. Do not list broad ranges: 0.0.0.0/0 and ::/0 are rejected.
 trusted_proxy_cidrs = []
 
 [api.host_validation]

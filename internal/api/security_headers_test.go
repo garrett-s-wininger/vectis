@@ -48,6 +48,40 @@ func TestHandlerAppliesHSTSForDirectTLS(t *testing.T) {
 	assertSecurityHeader(t, rec, "Strict-Transport-Security", "max-age=31536000")
 }
 
+func TestHandlerAppliesHSTSForTrustedProxyHTTPS(t *testing.T) {
+	t.Setenv("VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS", "10.0.0.0/8")
+
+	db := dbtest.NewTestDB(t)
+	s := NewAPIServer(mocks.NewMockLogger(), db)
+	s.SetQueueClient(mocks.NewMockQueueService())
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "http://example.test/health/live", nil)
+	req.RemoteAddr = "10.0.0.2:443"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	s.Handler().ServeHTTP(rec, req)
+
+	assertSecurityHeader(t, rec, "Strict-Transport-Security", "max-age=31536000")
+}
+
+func TestHandlerIgnoresSpoofedForwardedProtoForHSTS(t *testing.T) {
+	t.Setenv("VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS", "10.0.0.0/8")
+
+	db := dbtest.NewTestDB(t)
+	s := NewAPIServer(mocks.NewMockLogger(), db)
+	s.SetQueueClient(mocks.NewMockQueueService())
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "http://example.test/health/live", nil)
+	req.RemoteAddr = "198.51.100.1:1234"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	s.Handler().ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("Strict-Transport-Security"); got != "" {
+		t.Fatalf("Strict-Transport-Security from untrusted forwarded proto = %q, want empty", got)
+	}
+}
+
 func TestProtectedRoutesDefaultNoStore(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	s := NewAPIServer(mocks.NewMockLogger(), db)

@@ -70,6 +70,40 @@ func TestSetSessionCookies_secureWhenRequestUsesTLS(t *testing.T) {
 	}
 }
 
+func TestSetSessionCookies_secureWhenTrustedProxyForwardedProtoHTTPS(t *testing.T) {
+	t.Setenv("VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS", "10.0.0.0/8")
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "http://example.test/api/v1/login", nil)
+	req.RemoteAddr = "10.0.0.2:443"
+	req.Header.Set("X-Forwarded-Proto", "https")
+
+	setSessionCookies(rec, req, "session-token", "csrf-token", time.Now().UTC().Add(time.Hour))
+
+	for _, c := range rec.Result().Cookies() {
+		if !c.Secure {
+			t.Fatalf("%s cookie should be Secure for trusted proxy HTTPS requests", c.Name)
+		}
+	}
+}
+
+func TestSetSessionCookies_ignoresSpoofedForwardedProtoFromUntrustedPeer(t *testing.T) {
+	t.Setenv("VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS", "10.0.0.0/8")
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "http://example.test/api/v1/login", nil)
+	req.RemoteAddr = "198.51.100.1:1234"
+	req.Header.Set("X-Forwarded-Proto", "https")
+
+	setSessionCookies(rec, req, "session-token", "csrf-token", time.Now().UTC().Add(time.Hour))
+
+	for _, c := range rec.Result().Cookies() {
+		if c.Secure {
+			t.Fatalf("%s cookie should not trust forwarded proto from an untrusted peer", c.Name)
+		}
+	}
+}
+
 func TestSetSessionCookies_internalTLSDoesNotForceSecure(t *testing.T) {
 	t.Setenv("VECTIS_GRPC_TLS_INSECURE", "false")
 	t.Setenv("VECTIS_METRICS_TLS_INSECURE", "false")

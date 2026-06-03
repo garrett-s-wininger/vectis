@@ -110,7 +110,7 @@ API CORS is closed by default. Set `api.cors.allowed_origins` or `VECTIS_API_COR
 
 API Host header validation is enabled by default. Requests whose `Host` does not match `api.host_validation.allowed_hosts` / `VECTIS_API_ALLOWED_HOSTS` are rejected before route handling. Allowed host entries are hostnames or IP literals, optionally with a port; wildcard, URL, path, query, and userinfo forms are rejected at startup.
 
-API sessions and rate-limit buckets use the API cache backend. The default is `api.cache.backend = "database"`, which stores shared state in the configured SQL database so multiple API replicas see the same sessions and enforce one rate-limit budget. Set `api.cache.backend = "memory"` or `VECTIS_API_CACHE_BACKEND=memory` only when per-process sessions and limits are acceptable; memory mode cleans expired entries but still logs a warning when API auth is enabled because sessions and limits are not shared across replicas. Login sessions have an absolute expiry from `api.session.ttl` / `VECTIS_API_SESSION_TTL` and an idle expiry from `api.session.idle_ttl` / `VECTIS_API_SESSION_IDLE_TTL`; the defaults are `168h` and `24h`. Browser session cookies are HttpOnly and SameSite=Lax. Direct TLS requests are always issued `Secure` cookies. When API auth is enabled behind an HTTPS ingress, edge proxy, or load balancer, set `api.session.cookie_secure = true` / `VECTIS_API_SESSION_COOKIE_SECURE=true`; use `api.session.allow_insecure_cookies = true` / `VECTIS_API_SESSION_ALLOW_INSECURE_COOKIES=true` only for local HTTP development. Unsafe cookie-authenticated requests require `X-CSRF-Token`; cross-site browser requests carrying Fetch Metadata are rejected.
+API sessions and rate-limit buckets use the API cache backend. The default is `api.cache.backend = "database"`, which stores shared state in the configured SQL database so multiple API replicas see the same sessions and enforce one rate-limit budget. Set `api.cache.backend = "memory"` or `VECTIS_API_CACHE_BACKEND=memory` only when per-process sessions and limits are acceptable; memory mode cleans expired entries but still logs a warning when API auth is enabled because sessions and limits are not shared across replicas. Login sessions have an absolute expiry from `api.session.ttl` / `VECTIS_API_SESSION_TTL` and an idle expiry from `api.session.idle_ttl` / `VECTIS_API_SESSION_IDLE_TTL`; the defaults are `168h` and `24h`. Browser session cookies are HttpOnly and SameSite=Lax. Direct TLS requests are always issued `Secure` cookies. When API auth is enabled behind an HTTPS ingress, edge proxy, or load balancer, either set `api.session.cookie_secure = true` / `VECTIS_API_SESSION_COOKIE_SECURE=true` or configure trusted proxy CIDRs so Vectis can trust `X-Forwarded-Proto` / `Forwarded: proto=https` only from that proxy. Use `api.session.allow_insecure_cookies = true` / `VECTIS_API_SESSION_ALLOW_INSECURE_COOKIES=true` only for local HTTP development. Unsafe cookie-authenticated requests require `X-CSRF-Token`; cross-site browser requests carrying Fetch Metadata are rejected.
 
 The API can serve browser-facing HTTPS directly with `--tls-cert-file` and `--tls-key-file`, or with `VECTIS_API_TLS_CERT_FILE` / `VECTIS_API_TLS_KEY_FILE`. `VECTIS_API_TLS_RELOAD_INTERVAL` enables polling reloads for rotated files. This is separate from internal gRPC TLS and metrics TLS.
 
@@ -132,7 +132,7 @@ Per-service metrics servers only serve `GET`/`HEAD /metrics`; other paths or met
 
 API rate limits have embedded defaults for auth, token, and general routes. The shipped limit keys live under `api.rate_limit.*`. The defaults are intended to protect the built-in auth surface from accidental or hostile bursts; tune them only when you understand the expected traffic shape.
 
-When the API runs behind a trusted reverse proxy, configure client IP forwarding separately. See [Trusted Proxy Client IP](./deployment/trusted-proxy-client-ip.md).
+When the API runs behind a trusted reverse proxy, configure forwarded client IP and original scheme handling separately. See [Trusted Proxy Headers](./deployment/trusted-proxy-client-ip.md).
 
 ## Database
 
@@ -348,5 +348,5 @@ Treat the reference deployment as a helpful starting point, not a production sec
 | Repair recipes | [Repair Runbooks](./reliability/repair-runbooks.md) |
 | Dispatch handoff triage | [Dispatch Visibility](./reliability/dispatch-visibility.md) |
 | Backup and restore | [Backup And Restore](./reliability/backup-restore.md) |
-| Trusted proxy client IPs | [Trusted Proxy Client IP](./deployment/trusted-proxy-client-ip.md) |
+| Trusted proxy headers | [Trusted Proxy Headers](./deployment/trusted-proxy-client-ip.md) |
 | Releases and upgrades | [Releases And Upgrades](../developing/releases.md) |

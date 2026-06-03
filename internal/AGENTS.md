@@ -50,6 +50,8 @@ Docs static file serving must go through the hardened docs file server wrapper, 
 
 API Host header validation is enabled by default through `api.host_validation.allowed_hosts` / `VECTIS_API_ALLOWED_HOSTS`. Defaults derive from the API listen host plus loopback; external DNS names must be explicit.
 
+API forwarded headers are trusted only when the TCP peer is inside `api.client_ip.trusted_proxy_cidrs`. Keep client IP and original-scheme inference (`X-Forwarded-For`, `X-Real-IP`, `X-Forwarded-Proto`, `Forwarded`) on that shared boundary; never trust those headers from direct clients.
+
 API CORS is closed by default. Configure only exact `http://` or `https://` origins through `api.cors.allowed_origins` / `VECTIS_API_CORS_ALLOWED_ORIGINS`; wildcard credentialed CORS is intentionally rejected.
 
 Protected API routes default to `Cache-Control: no-store` through `routeCachePolicy`. Setup and login routes must remain explicit `no-store` routes so public/setup-time validation and rate-limit failures are covered before handlers run. Only handler-managed streaming responses should opt out, and they must set their own cache headers explicitly.

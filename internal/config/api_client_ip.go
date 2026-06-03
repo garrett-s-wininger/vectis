@@ -95,6 +95,25 @@ func ValidateAPIClientIPConfig() error {
 	return err
 }
 
+// HTTPOriginalRequestSecure reports whether the client-facing request used HTTPS.
+// Direct TLS is always trusted. Forwarded scheme headers are trusted only when
+// the TCP peer is inside api.client_ip.trusted_proxy_cidrs.
+func HTTPOriginalRequestSecure(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+
+	if r.TLS != nil {
+		return true
+	}
+
+	if !requestFromTrustedProxy(r) {
+		return false
+	}
+
+	return forwardedProto(r) == "https"
+}
+
 // HTTPClientIP returns the client IP used for rate limiting, audit logs, and HTTP access logs.
 // When the TCP peer is in a configured trusted-proxy CIDR, the left-most valid IP from
 // X-Forwarded-For is preferred, then X-Real-IP; otherwise forwarded headers are ignored.
@@ -109,20 +128,7 @@ func HTTPClientIP(r *http.Request) string {
 		return directHost
 	}
 
-	nets, err := ParseTrustedProxyIPNets(APIClientIPTrustedProxyCIDRStrings())
-	if err != nil || len(nets) == 0 {
-		return directIP.String()
-	}
-
-	trusted := false
-	for _, n := range nets {
-		if n.Contains(directIP) {
-			trusted = true
-			break
-		}
-	}
-
-	if !trusted {
+	if !requestFromTrustedProxy(r) {
 		return directIP.String()
 	}
 
@@ -150,6 +156,73 @@ func HTTPClientIP(r *http.Request) string {
 	}
 
 	return directIP.String()
+}
+
+func requestFromTrustedProxy(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+
+	directIP := net.ParseIP(hostFromRemoteAddr(r.RemoteAddr))
+	if directIP == nil {
+		return false
+	}
+
+	nets, err := ParseTrustedProxyIPNets(APIClientIPTrustedProxyCIDRStrings())
+	if err != nil || len(nets) == 0 {
+		return false
+	}
+
+	for _, n := range nets {
+		if n.Contains(directIP) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func forwardedProto(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+
+	if xfp := firstCommaValue(r.Header.Get("X-Forwarded-Proto")); xfp != "" {
+		return normalizeProtoValue(xfp)
+	}
+
+	forwarded := firstCommaValue(r.Header.Get("Forwarded"))
+	if forwarded == "" {
+		return ""
+	}
+
+	for part := range strings.SplitSeq(forwarded, ";") {
+		key, value, ok := strings.Cut(strings.TrimSpace(part), "=")
+		if !ok || !strings.EqualFold(strings.TrimSpace(key), "proto") {
+			continue
+		}
+
+		return normalizeProtoValue(value)
+	}
+
+	return ""
+}
+
+func normalizeProtoValue(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.Trim(value, `"`)
+	value = strings.TrimSpace(value)
+	return strings.ToLower(value)
+}
+
+func firstCommaValue(raw string) string {
+	for part := range strings.SplitSeq(raw, ",") {
+		if value := strings.TrimSpace(part); value != "" {
+			return value
+		}
+	}
+
+	return ""
 }
 
 func hostFromRemoteAddr(remoteAddr string) string {

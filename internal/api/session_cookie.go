@@ -16,11 +16,7 @@ const (
 )
 
 func sessionCookieSecure(r *http.Request) bool {
-	return config.APISessionCookieSecure() || requestUsesTLS(r)
-}
-
-func requestUsesTLS(r *http.Request) bool {
-	return r != nil && r.TLS != nil
+	return config.APISessionCookieSecure() || config.HTTPOriginalRequestSecure(r)
 }
 
 func setSessionCookies(w http.ResponseWriter, r *http.Request, sessionToken, csrfToken string, expiresAt time.Time) {

@@ -1,6 +1,6 @@
-# Trusted Proxy Client IP
+# Trusted Proxy Headers
 
-Use this setting when `vectis-api` runs behind a reverse proxy or load balancer and you want rate limits, audit logs, and API access logs to record the original client IP instead of the proxy's IP.
+Use this setting when `vectis-api` runs behind a reverse proxy or load balancer and you want Vectis to trust selected forwarded headers from that proxy. Trusted proxy headers affect the resolved client IP used by rate limits, audit logs, and API access logs. They also let Vectis recognize that the original browser-facing request used HTTPS when the API itself receives plaintext traffic from a trusted TLS-terminating proxy.
 
 By default, Vectis does not trust forwarded headers. It uses the TCP peer address from `RemoteAddr`.
 
@@ -11,7 +11,7 @@ Configure trusted proxy CIDRs only when both are true:
 1. All client traffic reaches `vectis-api` through proxies or load balancers you control.
 2. You know the source IP ranges those proxies use when connecting to the API.
 
-Do not configure this for direct internet clients. A client can set `X-Forwarded-For` itself, so Vectis only reads forwarded headers when the TCP peer is inside one of your trusted proxy CIDRs.
+Do not configure this for direct internet clients. A client can set forwarded headers itself, so Vectis only reads them when the TCP peer is inside one of your trusted proxy CIDRs.
 
 ## Configuration
 
@@ -49,6 +49,19 @@ When the TCP peer is inside a trusted CIDR, Vectis chooses in this order:
 
 This means your proxy should set or sanitize `X-Forwarded-For` consistently. If your proxy appends to an incoming header without clearing untrusted client-provided values, the left-most value may be attacker-controlled.
 
+## How Vectis Detects Original HTTPS
+
+Direct TLS requests are always treated as HTTPS.
+
+When the TCP peer is not inside a trusted CIDR, Vectis ignores `X-Forwarded-Proto` and `Forwarded` and treats the request as plaintext unless the API connection itself uses TLS.
+
+When the TCP peer is inside a trusted CIDR, Vectis treats the original request as HTTPS when either header reports `https`:
+
+1. `X-Forwarded-Proto: https`
+2. `Forwarded: proto=https`
+
+This controls API `Secure` session-cookie inference and whether the API emits `Strict-Transport-Security` on a response that arrived through a trusted TLS-terminating proxy. If you do not configure trusted proxy CIDRs, set `api.session.cookie_secure = true` explicitly for HTTPS edge deployments.
+
 ## What This Affects
 
 | Area | Impact |
@@ -56,6 +69,8 @@ This means your proxy should set or sanitize `X-Forwarded-For` consistently. If 
 | Unauthenticated rate limits | The client IP becomes part of the rate-limit key. Without this setting, all clients behind one proxy may share one bucket. |
 | Audit logs | Audit `IPAddress` fields use the resolved client IP. |
 | API access logs | Structured HTTP access log lines include the resolved `client_ip` field when access logs are enabled. |
+| Browser session cookies | Trusted forwarded `https` lets the API set `Secure` cookies when TLS terminates at the proxy. |
+| HSTS | Trusted forwarded `https` lets the API emit `Strict-Transport-Security` through a TLS-terminating proxy. |
 
 This setting does not authenticate the client and does not replace API auth, TLS, or network policy.
 
@@ -63,10 +78,11 @@ This setting does not authenticate the client and does not replace API auth, TLS
 
 1. Identify the exact proxy or load-balancer source CIDRs that connect to `vectis-api`.
 2. Configure only those CIDRs.
-3. Make sure the proxy overwrites or safely normalizes `X-Forwarded-For`.
+3. Make sure the proxy overwrites or safely normalizes `X-Forwarded-For`, `X-Real-IP`, `X-Forwarded-Proto`, and `Forwarded`.
 4. Confirm direct clients cannot connect around the proxy.
 5. Enable API access logs temporarily and check that `client_ip` matches the real client you expect.
-6. Watch rate-limit behavior after rollout, especially on login and setup routes.
+6. Confirm browser logins receive `Secure` cookies when requests arrive through the proxy over HTTPS.
+7. Watch rate-limit behavior after rollout, especially on login and setup routes.
 
 ## Related Documentation
 
