@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"vectis/internal/interfaces/mocks"
@@ -57,6 +58,63 @@ func TestProtectedRoutesDefaultNoStore(t *testing.T) {
 	}
 
 	assertNoStore(t, rec)
+}
+
+func TestSensitiveAuthRoutesSetNoStoreBeforeHandlers(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	s := NewAPIServer(mocks.NewMockLogger(), db)
+	s.SetQueueClient(mocks.NewMockQueueService())
+	h := s.Handler()
+
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		body       string
+		contentTyp string
+		wantStatus int
+	}{
+		{
+			name:       "setup status",
+			method:     http.MethodGet,
+			path:       "/api/v1/setup/status",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "setup complete media type rejection",
+			method:     http.MethodPost,
+			path:       "/api/v1/setup/complete",
+			body:       "{}",
+			contentTyp: "text/plain",
+			wantStatus: http.StatusUnsupportedMediaType,
+		},
+		{
+			name:       "login media type rejection",
+			method:     http.MethodPost,
+			path:       "/api/v1/login",
+			body:       "{}",
+			contentTyp: "text/plain",
+			wantStatus: http.StatusUnsupportedMediaType,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
+			if tt.contentTyp != "" {
+				req.Header.Set("Content-Type", tt.contentTyp)
+			}
+
+			h.ServeHTTP(rec, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status=%d, want %d; body=%s", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+
+			assertNoStore(t, rec)
+		})
+	}
 }
 
 func assertNoStore(t *testing.T, rec *httptest.ResponseRecorder) {

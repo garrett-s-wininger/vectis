@@ -48,7 +48,7 @@ API Host header validation is enabled by default through `api.host_validation.al
 
 API CORS is closed by default. Configure only exact `http://` or `https://` origins through `api.cors.allowed_origins` / `VECTIS_API_CORS_ALLOWED_ORIGINS`; wildcard credentialed CORS is intentionally rejected.
 
-Protected API routes default to `Cache-Control: no-store` through `routeCachePolicy`. Only handler-managed streaming responses should opt out, and they must set their own cache headers explicitly.
+Protected API routes default to `Cache-Control: no-store` through `routeCachePolicy`. Setup and login routes must remain explicit `no-store` routes so public/setup-time validation and rate-limit failures are covered before handlers run. Only handler-managed streaming responses should opt out, and they must set their own cache headers explicitly.
 
 API routes reject request bodies by default through `routeBodyPolicy`. JSON body routes must opt in with an explicit size cap in `routeSpec.Body`; the body middleware enforces JSON media types before handlers run. Use `readRequestBody` rather than ad hoc `io.LimitReader` calls so oversized streamed bodies return `413`.
 

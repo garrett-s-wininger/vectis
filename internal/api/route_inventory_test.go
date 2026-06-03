@@ -173,8 +173,25 @@ func TestProtectedRoutesDefaultNoStorePolicy(t *testing.T) {
 		"GET /api/v1/sse/jobs/{id}/runs": true,
 		"GET /api/v1/runs/{id}/logs":     true,
 	}
+	explicitNoStore := map[string]bool{
+		"GET /api/v1/setup/status":    true,
+		"POST /api/v1/setup/complete": true,
+		"POST /api/v1/login":          true,
+	}
 
 	for _, spec := range s.routeSpecs(true) {
+		if explicitNoStore[spec.Pattern] {
+			if spec.Cache.mode != routeCacheNoStore {
+				t.Fatalf("sensitive route %q cache mode = %d, want no-store", spec.Pattern, spec.Cache.mode)
+			}
+
+			if !spec.Cache.shouldSetNoStore(spec.Auth) {
+				t.Fatalf("sensitive route %q should set no-store", spec.Pattern)
+			}
+
+			continue
+		}
+
 		if spec.Auth.isPublic() {
 			if spec.Cache.shouldSetNoStore(spec.Auth) {
 				t.Fatalf("public route %q should not default to no-store", spec.Pattern)
