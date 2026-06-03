@@ -101,6 +101,51 @@ func (r *SQLRunsRepository) MarkRunSucceeded(ctx context.Context, runID, claimTo
 	return nil
 }
 
+func (r *SQLRunsRepository) MarkRunQueuedForContinuation(ctx context.Context, runID, claimToken string) error {
+	runID = strings.TrimSpace(runID)
+	claimToken = strings.TrimSpace(claimToken)
+	if runID == "" {
+		return fmt.Errorf("%w: run_id is required", ErrConflict)
+	}
+
+	if claimToken == "" {
+		return fmt.Errorf("%w: claim_token is required", ErrConflict)
+	}
+
+	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE job_runs
+		SET status = ?,
+			orphan_reason = '',
+			failure_code = '',
+			failure_reason = NULL,
+			lease_owner = NULL,
+			lease_until = NULL,
+			claim_token = NULL,
+			cancel_token = NULL,
+			cancel_requested_at = NULL,
+			cancel_reason = NULL,
+			last_dispatched_at = NULL
+		WHERE run_id = ?
+			AND status = ?
+			AND claim_token = ?
+	`), RunStatusQueued, runID, RunStatusRunning, claimToken)
+
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if n == 0 {
+		return fmt.Errorf("mark run queued for continuation: no matching active row for run_id=%q claim_token=%q", runID, claimToken)
+	}
+
+	return nil
+}
+
 func (r *SQLRunsRepository) MarkRunFailed(ctx context.Context, runID, claimToken, failureCode, reason string) error {
 	if failureCode == "" {
 		failureCode = FailureCodeExecution

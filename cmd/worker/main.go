@@ -34,6 +34,7 @@ import (
 	"vectis/internal/queueclient"
 	"vectis/internal/registry"
 	"vectis/internal/runpolicy"
+	"vectis/internal/taskdispatch"
 	"vectis/internal/utils"
 
 	_ "vectis/internal/dbdrivers"
@@ -170,6 +171,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 		store:                runsRepo,
 		catalog:              cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
 		metrics:              workerMetrics,
+		taskDispatcher:       taskdispatch.New(runsRepo, repos.TaskDispatchIntents(), cell.NewQueueExecutionIngress(queueClientServiceAdapter{queue: clients}, logger), interfaces.SystemClock{}),
 		taskCompletionFanout: config.WorkerTaskCompletionFanout(),
 		cancelCh:             make(chan string, 1),
 	}
@@ -295,6 +297,7 @@ type worker struct {
 	store                dal.RunsRepository
 	catalog              cell.CatalogEventPublisher
 	metrics              *observability.WorkerMetrics
+	taskDispatcher       *taskdispatch.Dispatcher
 	taskCompletionFanout bool
 	dequeueFailAttempt   int
 	dbUnavailable        bool
@@ -304,6 +307,22 @@ type worker struct {
 	currentRunID         string
 	currentClaimToken    string
 	currentMu            sync.Mutex
+}
+
+type queueClientServiceAdapter struct {
+	queue interfaces.QueueClient
+}
+
+func (a queueClientServiceAdapter) Enqueue(ctx context.Context, req *api.JobRequest) (*api.Empty, error) {
+	if a.queue == nil {
+		return nil, errors.New("queue client is required")
+	}
+
+	if err := a.queue.Enqueue(ctx, req); err != nil {
+		return nil, err
+	}
+
+	return &api.Empty{}, nil
 }
 
 func (w *worker) now() time.Time {
@@ -705,13 +724,37 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 	}
 
 	w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
+	if w.taskCompletionFanout && executionEnvelope != nil {
+		if _, ok := w.completeExecutionTerminal(ctx, executionEnvelope, dal.ExecutionStatusSucceeded); !ok {
+			span.SetStatus(otelcodes.Error, "complete task execution")
+			return observability.WorkerOutcomeFailed
+		}
+
+		continued, err := w.continueTaskRun(ctx, runID, claimToken)
+		if err != nil {
+			w.logger.Error("Failed to continue task run %s: %v", runID, err)
+			span.RecordError(err)
+			span.SetStatus(otelcodes.Error, "continue task run")
+			return observability.WorkerOutcomeFailed
+		}
+
+		if continued {
+			span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeSuccess))
+			w.logger.Info("Task completed successfully; run queued for continuation: %s", jobID)
+			return observability.WorkerOutcomeSuccess
+		}
+	}
+
 	if err := w.markRunSucceededWithRetry(runID, claimToken); err != nil {
 		w.logger.Error("Failed to mark run %s succeeded: %v", runID, err)
 		span.RecordError(err)
 		span.SetStatus(otelcodes.Error, "mark run succeeded")
 		return observability.WorkerOutcomeFailed
 	}
-	w.markExecutionTerminal(ctx, executionEnvelope, dal.ExecutionStatusSucceeded)
+
+	if !(w.taskCompletionFanout && executionEnvelope != nil) {
+		w.markExecutionTerminal(ctx, executionEnvelope, dal.ExecutionStatusSucceeded)
+	}
 
 	span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeSuccess))
 	w.logger.Info("Job completed successfully: %s", jobID)
@@ -766,29 +809,37 @@ func (w *worker) markExecutionStarted(ctx context.Context, env *cell.ExecutionEn
 	trace.SpanFromContext(ctx).AddEvent("execution.started", trace.WithAttributes(executionEnvelopeAttrs(env)...))
 }
 
+type executionTerminalResult struct {
+	activatedChildren    int
+	dispatchableChildren int
+}
+
 func (w *worker) markExecutionTerminal(ctx context.Context, env *cell.ExecutionEnvelope, status string) {
+	_, _ = w.completeExecutionTerminal(ctx, env, status)
+}
+
+func (w *worker) completeExecutionTerminal(ctx context.Context, env *cell.ExecutionEnvelope, status string) (executionTerminalResult, bool) {
 	if env == nil {
-		return
+		return executionTerminalResult{}, true
 	}
 
-	var activatedChildren int
-	var dispatchableChildren int
+	var result executionTerminalResult
 	if w.taskCompletionFanout && status == dal.ExecutionStatusSucceeded {
-		result, err := job.CompleteTaskExecution(w.runCtx, w.store, env.ExecutionID, status)
+		completion, err := job.CompleteTaskExecution(w.runCtx, w.store, env.ExecutionID, status)
 		if err != nil {
 			w.noteDBError(err)
 			w.logger.Warn("CompleteTaskExecution execution %s status %s failed: %v", env.ExecutionID, status, err)
 			trace.SpanFromContext(ctx).RecordError(err)
-			return
+			return executionTerminalResult{}, false
 		}
 
-		activatedChildren = result.Activated
-		dispatchableChildren = len(result.Children)
+		result.activatedChildren = completion.Activated
+		result.dispatchableChildren = len(completion.Children)
 	} else if err := w.store.MarkExecutionTerminal(w.runCtx, env.ExecutionID, status); err != nil {
 		w.noteDBError(err)
 		w.logger.Warn("MarkExecutionTerminal execution %s status %s failed: %v", env.ExecutionID, status, err)
 		trace.SpanFromContext(ctx).RecordError(err)
-		return
+		return executionTerminalResult{}, false
 	}
 
 	w.noteDBRecovered()
@@ -797,10 +848,11 @@ func (w *worker) markExecutionTerminal(ctx context.Context, env *cell.ExecutionE
 		append(
 			executionEnvelopeAttrs(env),
 			attribute.String("vectis.execution.status", status),
-			attribute.Int("vectis.task.children.activated", activatedChildren),
-			attribute.Int("vectis.task.children.dispatchable", dispatchableChildren),
+			attribute.Int("vectis.task.children.activated", result.activatedChildren),
+			attribute.Int("vectis.task.children.dispatchable", result.dispatchableChildren),
 		)...,
 	))
+	return result, true
 }
 
 func (w *worker) ackDelivery(deliveryID string) error {
@@ -876,6 +928,42 @@ func (w *worker) ackDeliveryWithRetry(ctx context.Context, deliveryID string) *a
 	return &ackDeliveryFailure{err: status.Error(codes.Unavailable, "ack retries exhausted"), attempt: ackMaxAttempts, decision: decision}
 }
 
+func (w *worker) continueTaskRun(ctx context.Context, runID, claimToken string) (bool, error) {
+	if w.taskDispatcher == nil {
+		return false, nil
+	}
+
+	opts := taskdispatch.DrainOptions{CellID: w.cellID, Limit: 1}
+	pending, err := w.taskDispatcher.HasPending(w.runCtx, opts)
+	if err != nil {
+		return false, err
+	}
+	if !pending {
+		return false, nil
+	}
+
+	if err := w.markRunQueuedForContinuationWithRetry(runID, claimToken); err != nil {
+		return false, err
+	}
+
+	result, err := w.taskDispatcher.Drain(w.runCtx, opts)
+	if err != nil {
+		return true, err
+	}
+
+	trace.SpanFromContext(ctx).AddEvent("task.dispatch.drain", trace.WithAttributes(
+		attribute.Int("vectis.task.dispatch.listed", result.Listed),
+		attribute.Int("vectis.task.dispatch.enqueued", result.Enqueued),
+		attribute.Int("vectis.task.dispatch.failed", result.Failed),
+	))
+
+	if result.Enqueued == 0 {
+		w.logger.Warn("Task run %s queued for continuation, but no task dispatch intent was enqueued (listed=%d failed=%d)", runID, result.Listed, result.Failed)
+	}
+
+	return true, nil
+}
+
 func (w *worker) markRunSucceededWithRetry(runID, claimToken string) error {
 	var lastErr error
 	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
@@ -898,6 +986,37 @@ func (w *worker) markRunSucceededWithRetry(runID, claimToken string) error {
 
 		delay := backoff.ExponentialDelay(finalizeBackoffBase, attempt-1, finalizeBackoffMax)
 		w.logger.Warn("MarkRunSucceeded run %s failed (attempt %d/%d): %v; retrying in %v",
+			runID, attempt, finalizeMaxAttempts, err, delay)
+
+		if sleepErr := w.clock.Sleep(w.runCtx, delay); sleepErr != nil {
+			return sleepErr
+		}
+	}
+
+	return lastErr
+}
+
+func (w *worker) markRunQueuedForContinuationWithRetry(runID, claimToken string) error {
+	var lastErr error
+	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
+		err := w.store.MarkRunQueuedForContinuation(w.runCtx, runID, claimToken)
+		if err == nil {
+			w.noteDBRecovered()
+			return nil
+		}
+		w.noteDBError(err)
+
+		lastErr = err
+		if !database.IsUnavailableError(err) {
+			break
+		}
+
+		if attempt == finalizeMaxAttempts {
+			break
+		}
+
+		delay := backoff.ExponentialDelay(finalizeBackoffBase, attempt-1, finalizeBackoffMax)
+		w.logger.Warn("MarkRunQueuedForContinuation run %s failed (attempt %d/%d): %v; retrying in %v",
 			runID, attempt, finalizeMaxAttempts, err, delay)
 
 		if sleepErr := w.clock.Sleep(w.runCtx, delay); sleepErr != nil {

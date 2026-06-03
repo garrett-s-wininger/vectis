@@ -226,6 +226,7 @@ type MockRunsRepository struct {
 	MarkRunCancelledErr    error
 	MarkRunAbortedErr      error
 	MarkRunOrphanedErr     error
+	MarkRunQueuedErr       error
 	RepairMarkErr          error
 	RequeueRunErr          error
 	MarkOrphanedErr        error
@@ -361,6 +362,18 @@ func (m *MockRunsRepository) MarkRunAborted(ctx context.Context, runID, claimTok
 
 func (m *MockRunsRepository) MarkRunOrphaned(ctx context.Context, runID, claimToken, reason string) error {
 	return m.MarkRunOrphanedErr
+}
+
+func (m *MockRunsRepository) MarkRunQueuedForContinuation(ctx context.Context, runID, claimToken string) error {
+	if m.MarkRunQueuedErr != nil {
+		return m.MarkRunQueuedErr
+	}
+
+	m.mu.Lock()
+	m.ExecutionTransitions = append(m.ExecutionTransitions, runID+":queued")
+	m.mu.Unlock()
+
+	return nil
 }
 
 func (m *MockRunsRepository) RepairMarkRunSucceeded(ctx context.Context, runID, reason string) error {

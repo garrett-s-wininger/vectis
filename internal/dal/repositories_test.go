@@ -3184,6 +3184,64 @@ func TestRunsRepository_RequeueRunForRetry_ClearsLeaseAndToken(t *testing.T) {
 	}
 }
 
+func TestRunsRepository_MarkRunQueuedForContinuation_ReleasesClaimedRun(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	runs := dal.NewSQLRepositories(db).Runs()
+	ctx := context.Background()
+
+	runID, _, err := runs.CreateRun(ctx, "job-continuation", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	claimed, token, err := runs.TryClaim(ctx, runID, "worker-a", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("try claim: %v", err)
+	}
+
+	if !claimed || token == "" {
+		t.Fatalf("expected claim token, got claimed=%v token=%q", claimed, token)
+	}
+
+	if err := runs.MarkRunQueuedForContinuation(ctx, runID, token); err != nil {
+		t.Fatalf("MarkRunQueuedForContinuation: %v", err)
+	}
+
+	var status string
+	var claimToken sql.NullString
+	var leaseOwner sql.NullString
+	var leaseUntil sql.NullInt64
+	var lastDispatched sql.NullInt64
+	if err := db.QueryRowContext(ctx, `
+		SELECT status, claim_token, lease_owner, lease_until, last_dispatched_at
+		FROM job_runs WHERE run_id = ?
+	`, runID).Scan(&status, &claimToken, &leaseOwner, &leaseUntil, &lastDispatched); err != nil {
+		t.Fatalf("query continuation run: %v", err)
+	}
+
+	if status != dal.RunStatusQueued {
+		t.Fatalf("status: got %q, want %q", status, dal.RunStatusQueued)
+	}
+
+	if claimToken.Valid || leaseOwner.Valid || leaseUntil.Valid || lastDispatched.Valid {
+		t.Fatalf("expected continuation to clear runtime dispatch fields; got claim=%v owner=%v lease_until=%v last_dispatched=%v",
+			claimToken, leaseOwner, leaseUntil, lastDispatched)
+	}
+
+	claimed, nextToken, err := runs.TryClaim(ctx, runID, "worker-b", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("try claim continuation: %v", err)
+	}
+
+	if !claimed || nextToken == "" || nextToken == token {
+		t.Fatalf("expected fresh continuation claim, got claimed=%v token=%q old=%q", claimed, nextToken, token)
+	}
+
+	if err := runs.MarkRunQueuedForContinuation(ctx, runID, token); err == nil {
+		t.Fatal("expected stale continuation token to fail")
+	}
+}
+
 func TestRunsRepository_RepairMarkRunAbandoned_OnlyFromOrphaned(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	runs := dal.NewSQLRepositories(db).Runs()

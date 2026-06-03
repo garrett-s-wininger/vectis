@@ -452,6 +452,7 @@ type RunsRepository interface {
 	MarkRunCancelled(ctx context.Context, runID, claimToken, reason string) error
 	MarkRunAborted(ctx context.Context, runID, claimToken, reason string) error
 	MarkRunOrphaned(ctx context.Context, runID, claimToken, reason string) error
+	MarkRunQueuedForContinuation(ctx context.Context, runID, claimToken string) error
 	RepairMarkRunSucceeded(ctx context.Context, runID, reason string) error
 	RepairMarkRunFailed(ctx context.Context, runID, reason string) error
 	RepairMarkRunCancelled(ctx context.Context, runID, reason string) error

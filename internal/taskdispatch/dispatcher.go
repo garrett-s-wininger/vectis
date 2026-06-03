@@ -48,20 +48,8 @@ func New(runs dal.RunsRepository, intents dal.TaskDispatchIntentsRepository, ing
 }
 
 func (d *Dispatcher) Drain(ctx context.Context, opts DrainOptions) (DrainResult, error) {
-	if d == nil {
-		return DrainResult{}, errors.New("task dispatcher is required")
-	}
-
-	if d.runs == nil {
-		return DrainResult{}, errors.New("runs repository is required")
-	}
-
-	if d.intents == nil {
-		return DrainResult{}, errors.New("task dispatch intents repository is required")
-	}
-
-	if d.ingress == nil {
-		return DrainResult{}, errors.New("execution ingress is required")
+	if err := d.validate(); err != nil {
+		return DrainResult{}, err
 	}
 
 	limit := opts.Limit
@@ -69,12 +57,7 @@ func (d *Dispatcher) Drain(ctx context.Context, opts DrainOptions) (DrainResult,
 		limit = defaultDrainLimit
 	}
 
-	cutoff := opts.RetryCutoffUnixNano
-	if cutoff <= 0 {
-		cutoff = d.clock.Now().UnixNano()
-	}
-
-	pending, err := d.intents.ListPending(ctx, opts.CellID, cutoff, limit)
+	pending, err := d.intents.ListPending(ctx, opts.CellID, d.retryCutoff(opts.RetryCutoffUnixNano), limit)
 	if err != nil {
 		return DrainResult{}, fmt.Errorf("list pending task dispatch intents: %w", err)
 	}
@@ -99,6 +82,47 @@ func (d *Dispatcher) Drain(ctx context.Context, opts DrainOptions) (DrainResult,
 	}
 
 	return result, nil
+}
+
+func (d *Dispatcher) HasPending(ctx context.Context, opts DrainOptions) (bool, error) {
+	if err := d.validate(); err != nil {
+		return false, err
+	}
+
+	pending, err := d.intents.ListPending(ctx, opts.CellID, d.retryCutoff(opts.RetryCutoffUnixNano), 1)
+	if err != nil {
+		return false, fmt.Errorf("list pending task dispatch intents: %w", err)
+	}
+
+	return len(pending) > 0, nil
+}
+
+func (d *Dispatcher) validate() error {
+	if d == nil {
+		return errors.New("task dispatcher is required")
+	}
+
+	if d.runs == nil {
+		return errors.New("runs repository is required")
+	}
+
+	if d.intents == nil {
+		return errors.New("task dispatch intents repository is required")
+	}
+
+	if d.ingress == nil {
+		return errors.New("execution ingress is required")
+	}
+
+	return nil
+}
+
+func (d *Dispatcher) retryCutoff(cutoff int64) int64 {
+	if cutoff <= 0 {
+		cutoff = d.clock.Now().UnixNano()
+	}
+
+	return cutoff
 }
 
 func (d *Dispatcher) dispatchOne(ctx context.Context, intent dal.TaskDispatchIntent, createdAtUnixNano int64) error {

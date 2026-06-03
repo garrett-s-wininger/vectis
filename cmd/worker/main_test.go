@@ -19,11 +19,13 @@ import (
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/job"
 	"vectis/internal/observability"
+	"vectis/internal/taskdispatch"
 	"vectis/internal/testutil/dbtest"
 
 	"github.com/spf13/viper"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 type permBadFinalizeStore struct {
@@ -429,6 +431,144 @@ func TestWorkerRunClaimedJob_WithExecutionEnvelope_TransitionsExecution(t *testi
 			t.Fatalf("catalog event %d: got source=%q key=%q type=%q, want source=local key=%q type=%q",
 				i, events[i].SourceCell, events[i].EventKey, events[i].EventType, want.key, want.eventType)
 		}
+	}
+}
+
+func TestWorkerRunClaimedJob_TaskFanoutQueuesContinuation(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
+	runs := repos.Runs()
+
+	ns, err := repos.Namespaces().Create(ctx, "worker-task-fanout", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-worker-task-fanout"
+	def := `{"id":"job-worker-task-fanout","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo root"}}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := runs.CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	rootDispatch, err := runs.GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get root dispatch: %v", err)
+	}
+
+	child, _, err := runs.EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:        runID,
+		ParentTaskID: rootDispatch.TaskID,
+		TaskKey:      "child",
+		Name:         "child",
+		SpecHash:     "sha256:child",
+		TargetCellID: "local",
+	})
+	if err != nil {
+		t.Fatalf("ensure child task: %v", err)
+	}
+
+	queue := mocks.NewMockQueueClient()
+	clock := mocks.NewMockClock()
+	w := &worker{
+		ctx:                  context.Background(),
+		runCtx:               context.Background(),
+		logger:               interfaces.NewLogger("worker-test"),
+		workerID:             "worker-task-fanout",
+		cellID:               "local",
+		clock:                clock,
+		renewInterval:        time.Hour,
+		queue:                queue,
+		logClient:            mocks.NewMockLogClient(),
+		executor:             job.NewExecutor(),
+		store:                runs,
+		catalog:              cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
+		taskDispatcher:       taskdispatch.New(runs, repos.TaskDispatchIntents(), cell.NewQueueExecutionIngress(queueClientServiceAdapter{queue: queue}, interfaces.NewLogger("worker-test")), clock),
+		taskCompletionFanout: true,
+	}
+
+	deliveryID := "delivery-task-fanout"
+	rootID := "root"
+	action := "builtins/shell"
+	j := &api.Job{
+		Id:         &jobID,
+		RunId:      &runID,
+		DeliveryId: &deliveryID,
+		Root: &api.Node{
+			Id:   &rootID,
+			Uses: &action,
+			With: map[string]string{"command": "echo root"},
+		},
+	}
+
+	req := &api.JobRequest{Job: j, Metadata: map[string]string{"traceparent": "trace-a"}}
+	if _, err := cell.AttachExecutionEnvelope(req, rootDispatch, 1); err != nil {
+		t.Fatalf("attach root envelope: %v", err)
+	}
+
+	payloadJSON, err := protojson.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal root payload: %v", err)
+	}
+
+	if _, _, err := runs.RecordExecutionPayload(ctx, runID, string(payloadJSON), dal.DefinitionHash(def)); err != nil {
+		t.Fatalf("record execution payload: %v", err)
+	}
+
+	w.handleJob(req)
+
+	var runStatus string
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&runStatus); err != nil {
+		t.Fatalf("query run status: %v", err)
+	}
+
+	if runStatus != dal.RunStatusQueued {
+		t.Fatalf("run status: got %q, want %q", runStatus, dal.RunStatusQueued)
+	}
+
+	var rootExecutionStatus string
+	if err := db.QueryRowContext(ctx, `SELECT status FROM segment_executions WHERE execution_id = ?`, rootDispatch.ExecutionID).Scan(&rootExecutionStatus); err != nil {
+		t.Fatalf("query root execution status: %v", err)
+	}
+
+	if rootExecutionStatus != dal.ExecutionStatusSucceeded {
+		t.Fatalf("root execution status: got %q, want %q", rootExecutionStatus, dal.ExecutionStatusSucceeded)
+	}
+
+	reqs := queue.GetJobRequests()
+	if len(reqs) != 1 {
+		t.Fatalf("queued continuation requests: got %d, want 1", len(reqs))
+	}
+
+	env, ok, err := cell.ExecutionEnvelopeFromRequest(reqs[0])
+	if err != nil {
+		t.Fatalf("queued child envelope: %v", err)
+	}
+
+	if !ok {
+		t.Fatal("queued continuation missing execution envelope")
+	}
+
+	if env.ExecutionID != child.ExecutionID || env.TaskID != child.TaskID || env.TaskKey != child.TaskKey {
+		t.Fatalf("queued child envelope mismatch: got %+v want child %+v", env, child)
+	}
+
+	if env.Metadata["traceparent"] != "trace-a" {
+		t.Fatalf("queued child trace metadata: got %q, want trace-a", env.Metadata["traceparent"])
+	}
+
+	pending, err := repos.TaskDispatchIntents().ListPending(ctx, "local", clock.Now().UnixNano(), 10)
+	if err != nil {
+		t.Fatalf("list pending intents after continuation: %v", err)
+	}
+
+	if len(pending) != 0 {
+		t.Fatalf("dispatched child intent should not remain pending: %+v", pending)
 	}
 }
 
