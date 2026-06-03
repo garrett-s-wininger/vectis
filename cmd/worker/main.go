@@ -843,27 +843,13 @@ func (w *worker) reduceTaskRun(ctx context.Context, runID string) (taskreduce.De
 		service = taskreduce.NewService(taskreduce.New(w.store))
 	}
 
-	decision, err := service.Process(w.runCtx, runID)
+	reduceCtx := trace.ContextWithSpan(w.runCtx, trace.SpanFromContext(ctx))
+	decision, err := service.Process(reduceCtx, runID)
 	if err != nil {
 		return taskreduce.Decision{}, err
 	}
 
-	span := trace.SpanFromContext(ctx)
-	attrs := taskReduceAttrs(decision)
-	span.SetAttributes(attrs...)
-	span.AddEvent("task.reduce", trace.WithAttributes(attrs...))
-
 	return decision, nil
-}
-
-func taskReduceAttrs(decision taskreduce.Decision) []attribute.KeyValue {
-	return []attribute.KeyValue{
-		attribute.String("vectis.task.reduce.outcome", string(decision.Outcome)),
-		attribute.Int("vectis.task.total", decision.Summary.Total),
-		attribute.Int("vectis.task.succeeded", decision.Summary.Succeeded),
-		attribute.Int("vectis.task.terminal_failed", decision.Summary.TerminalFailed),
-		attribute.Int("vectis.task.incomplete", decision.Summary.Incomplete),
-	}
 }
 
 func executionEnvelopeAttrs(env *cell.ExecutionEnvelope) []attribute.KeyValue {
