@@ -20,9 +20,13 @@ import (
 	"vectis/internal/job"
 	"vectis/internal/observability"
 	"vectis/internal/taskdispatch"
+	"vectis/internal/taskfinalize"
 	"vectis/internal/testutil/dbtest"
 
 	"github.com/spf13/viper"
+	"go.opentelemetry.io/otel/attribute"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -230,6 +234,38 @@ func (s *recordingSucceededRunsStore) succeededCalls() []string {
 	defer s.mu.Unlock()
 
 	return append([]string(nil), s.calls...)
+}
+
+func spanAttributeString(attrs []attribute.KeyValue, key string) string {
+	for _, attr := range attrs {
+		if string(attr.Key) == key {
+			return attr.Value.AsString()
+		}
+	}
+
+	return ""
+}
+
+func assertTaskFinalizeOutcome(t *testing.T, recorder *tracetest.SpanRecorder, want taskfinalize.Outcome) {
+	t.Helper()
+
+	spans := recorder.Ended()
+	if len(spans) != 1 {
+		t.Fatalf("ended spans: got %d, want 1", len(spans))
+	}
+
+	for _, event := range spans[0].Events() {
+		if event.Name != "task.finalize" {
+			continue
+		}
+
+		if got := spanAttributeString(event.Attributes, "vectis.task.finalize.outcome"); got != string(want) {
+			t.Fatalf("task finalize outcome: got %q, want %q", got, want)
+		}
+		return
+	}
+
+	t.Fatalf("task.finalize event missing: %+v", spans[0].Events())
 }
 
 type flakyFinalizeRunsStore struct {
@@ -1432,6 +1468,11 @@ func TestWorkerContinueTaskRun_UnknownPendingChecksService(t *testing.T) {
 func TestWorkerFinalizeFailedTaskRun_CompletesExecutionBeforeRunFailure(t *testing.T) {
 	t.Parallel()
 
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	defer func() { _ = provider.Shutdown(context.Background()) }()
+
+	ctx, span := provider.Tracer("worker-test").Start(context.Background(), "finalize-failed")
 	order := &recordingOrder{}
 	base := mocks.NewMockRunsRepository()
 	base.TaskCompletion = dal.RunTaskCompletion{RunID: "run-failed", Total: 1, TerminalFailed: 1}
@@ -1447,7 +1488,8 @@ func TestWorkerFinalizeFailedTaskRun_CompletesExecutionBeforeRunFailure(t *testi
 	}
 	env := &cell.ExecutionEnvelope{ExecutionID: "execution-root"}
 
-	outcome := w.finalizeFailedTaskRun(context.Background(), "run-failed", "claim-token", "task_failed", "command failed", env)
+	outcome := w.finalizeFailedTaskRun(ctx, "run-failed", "claim-token", "task_failed", "command failed", env)
+	span.End()
 	if outcome != observability.WorkerOutcomeFailed {
 		t.Fatalf("outcome: got %q, want %q", outcome, observability.WorkerOutcomeFailed)
 	}
@@ -1461,11 +1503,18 @@ func TestWorkerFinalizeFailedTaskRun_CompletesExecutionBeforeRunFailure(t *testi
 	if len(calls) != 1 || calls[0] != "run-failed:claim-token:task_failed:command failed" {
 		t.Fatalf("mark failed calls: %+v", calls)
 	}
+
+	assertTaskFinalizeOutcome(t, recorder, taskfinalize.OutcomeExecutionFailed)
 }
 
 func TestWorkerFinalizeAbortedTaskRun_CompletesExecutionBeforeRunAbort(t *testing.T) {
 	t.Parallel()
 
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	defer func() { _ = provider.Shutdown(context.Background()) }()
+
+	ctx, span := provider.Tracer("worker-test").Start(context.Background(), "finalize-aborted")
 	order := &recordingOrder{}
 	base := mocks.NewMockRunsRepository()
 	store := &recordingAbortedRunsStore{RunsRepository: base, order: order}
@@ -1480,7 +1529,8 @@ func TestWorkerFinalizeAbortedTaskRun_CompletesExecutionBeforeRunAbort(t *testin
 	}
 	env := &cell.ExecutionEnvelope{ExecutionID: "execution-root"}
 
-	outcome := w.finalizeAbortedTaskRun(context.Background(), "run-aborted", "claim-token", dal.CancelReasonAPI, env)
+	outcome := w.finalizeAbortedTaskRun(ctx, "run-aborted", "claim-token", dal.CancelReasonAPI, env)
+	span.End()
 	if outcome != observability.WorkerOutcomeAborted {
 		t.Fatalf("outcome: got %q, want %q", outcome, observability.WorkerOutcomeAborted)
 	}
@@ -1494,6 +1544,8 @@ func TestWorkerFinalizeAbortedTaskRun_CompletesExecutionBeforeRunAbort(t *testin
 	if len(calls) != 1 || calls[0] != "run-aborted:claim-token:"+dal.CancelReasonAPI {
 		t.Fatalf("mark aborted calls: %+v", calls)
 	}
+
+	assertTaskFinalizeOutcome(t, recorder, taskfinalize.OutcomeExecutionAborted)
 }
 
 func TestWorkerFinalizeSucceededTaskRun_DispatchableChildrenContinue(t *testing.T) {

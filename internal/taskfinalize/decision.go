@@ -13,10 +13,12 @@ import (
 type Outcome string
 
 const (
-	OutcomeContinue        Outcome = "continue"
-	OutcomeReduceSucceeded Outcome = "reduce_succeeded"
-	OutcomeReduceFailed    Outcome = "reduce_failed"
-	OutcomeIncomplete      Outcome = "incomplete"
+	OutcomeContinue         Outcome = "continue"
+	OutcomeReduceSucceeded  Outcome = "reduce_succeeded"
+	OutcomeReduceFailed     Outcome = "reduce_failed"
+	OutcomeIncomplete       Outcome = "incomplete"
+	OutcomeExecutionFailed  Outcome = "execution_failed"
+	OutcomeExecutionAborted Outcome = "execution_aborted"
 )
 
 type Decision struct {
@@ -39,6 +41,14 @@ func Decide(continued bool, reduce taskreduce.Decision) Decision {
 	}
 }
 
+func ExecutionFailed(reduce taskreduce.Decision) Decision {
+	return Decision{Outcome: OutcomeExecutionFailed, Reduce: reduce}
+}
+
+func ExecutionAborted() Decision {
+	return Decision{Outcome: OutcomeExecutionAborted}
+}
+
 func FailureReason(decision Decision) string {
 	return fmt.Sprintf("%d task execution(s) ended in a terminal failure", decision.Reduce.Summary.TerminalFailed)
 }
@@ -55,7 +65,7 @@ func DecisionAttributes(decision Decision) []attribute.KeyValue {
 		attribute.String("vectis.task.finalize.outcome", string(decision.Outcome)),
 	}
 
-	if decision.Outcome == OutcomeContinue {
+	if decision.Reduce.Outcome == "" {
 		return attrs
 	}
 

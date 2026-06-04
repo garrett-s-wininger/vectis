@@ -776,6 +776,8 @@ func (w *worker) finalizeAbortedTaskRun(ctx context.Context, runID, claimToken, 
 		return observability.WorkerOutcomeFailed
 	}
 
+	taskfinalize.RecordDecision(ctx, taskfinalize.ExecutionAborted())
+
 	if err := w.markRunAbortedWithRetry(runID, claimToken, reason); err != nil {
 		w.logger.Error("Failed to mark run %s cancelled: %v", runID, err)
 		span.RecordError(err)
@@ -792,13 +794,15 @@ func (w *worker) finalizeFailedTaskRun(ctx context.Context, runID, claimToken, f
 		return observability.WorkerOutcomeFailed
 	}
 
-	_, err := w.reduceTaskRun(ctx, runID)
+	reduceDecision, err := w.reduceTaskRun(ctx, runID)
 	if err != nil {
 		w.logger.Error("Failed to reduce failed task run %s: %v", runID, err)
 		span.RecordError(err)
 		span.SetStatus(otelcodes.Error, "reduce failed task run")
 		return observability.WorkerOutcomeFailed
 	}
+
+	taskfinalize.RecordDecision(ctx, taskfinalize.ExecutionFailed(reduceDecision))
 
 	if err := w.markRunFailedWithRetry(runID, claimToken, failureCode, reason); err != nil {
 		w.logger.Error("Failed to mark run %s failed after task execution failure: %v", runID, err)
