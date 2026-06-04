@@ -241,6 +241,7 @@ func TestAccessControlledHandler_validToken(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
 	req.Header.Set("Authorization", "Bearer "+plain)
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
 	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusNoContent {
@@ -256,7 +257,7 @@ func TestAccessControlledHandler_validToken(t *testing.T) {
 	}
 }
 
-func TestValidCSRFFetchMetadata(t *testing.T) {
+func TestValidFetchMetadata(t *testing.T) {
 	tests := []struct {
 		name string
 		site string
@@ -278,8 +279,8 @@ func TestValidCSRFFetchMetadata(t *testing.T) {
 				req.Header.Set("Sec-Fetch-Site", tc.site)
 			}
 
-			if got := validCSRFFetchMetadata(req); got != tc.want {
-				t.Fatalf("validCSRFFetchMetadata(%q) = %v, want %v", tc.site, got, tc.want)
+			if got := validFetchMetadata(req); got != tc.want {
+				t.Fatalf("validFetchMetadata(%q) = %v, want %v", tc.site, got, tc.want)
 			}
 		})
 	}

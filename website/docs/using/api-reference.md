@@ -162,7 +162,7 @@ Authorization: Bearer <api_token>
 
 Health endpoints and `POST /api/v1/login` are public. Setup routes use setup-specific authorization while the first admin is being created. Diagnostics, API metrics, and data routes authorize the action listed in the route table below; namespace-scoped resources are hidden with `404` when the caller is not allowed to see that namespace. Browser-facing requests must use a trusted `Host` value from the API host allowlist.
 
-`POST /api/v1/login` creates an expiring server-side session. Browser clients receive an HttpOnly `vectis_session` cookie plus a readable `vectis_csrf` cookie and `csrf_token` response field. Unsafe cookie-authenticated requests must copy that token into `X-CSRF-Token`; if the request includes `Origin` or `Referer`, its host must match the request host.
+`POST /api/v1/login` creates an expiring server-side session. Browser clients receive an HttpOnly `vectis_session` cookie plus a readable `vectis_csrf` cookie and `csrf_token` response field. Cookie-authenticated requests carrying `Sec-Fetch-Site: cross-site` are rejected before route handling. Unsafe cookie-authenticated requests must copy the CSRF token into `X-CSRF-Token`; if the request includes `Origin` or `Referer`, its host must match the request host.
 
 Non-browser clients that need a bearer session token can request one explicitly:
 
@@ -197,7 +197,7 @@ CORS is closed unless the operator configures exact allowed origins. Credentiale
 
 Host header validation is enabled by default. Requests with untrusted, wildcard, URL-shaped, or otherwise invalid `Host` values are rejected before route handling.
 
-Security-control rejections for Host validation, CORS preflight checks, CSRF checks, method checks, media-type checks, request body policy, and rate limits are logged with sanitized fields and counted by the `vectis_api_security_rejections_total` metric.
+Security-control rejections for Host validation, CORS preflight checks, Fetch Metadata checks, CSRF checks, method checks, media-type checks, request body policy, and rate limits are logged with sanitized fields and counted by the `vectis_api_security_rejections_total` metric.
 
 The API server caps request headers at 32 KiB. Requests above that parser limit are rejected by the HTTP server before route handling.
 
@@ -242,6 +242,7 @@ Common v1 error codes:
 | `database_unavailable` | `503` | The configured SQL database is temporarily unavailable. |
 | `queue_not_ready` | `503` | The API cannot currently hand work to the queue. |
 | `server_shutting_down` | `503` | The API has started shutdown drain and should not receive new requests. |
+| `fetch_metadata_forbidden` | `403` | A cookie-authenticated safe request carried cross-site Fetch Metadata. |
 | `csrf_origin_forbidden` | `403` | A cookie-authenticated unsafe request came from a mismatched origin. |
 | `csrf_token_required` | `403` | A cookie-authenticated unsafe request is missing a valid `X-CSRF-Token`. |
 | `rate_limit_exceeded` | `429` | The request exceeded the configured rate limit; `Retry-After` is set. |

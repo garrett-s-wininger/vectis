@@ -136,6 +136,7 @@ func TestAPIErrorCodeMessages_areNonEmpty(t *testing.T) {
 		apiErrCSRFOriginForbidden,
 		apiErrCSRFTokenRequired,
 		apiErrDatabaseNotReady,
+		apiErrFetchMetadataForbidden,
 		apiErrInternal,
 		apiErrInvalidHostHeader,
 		apiErrInvalidAdminPassword,

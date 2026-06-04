@@ -27,6 +27,7 @@ const (
 	apiErrCSRFOriginForbidden            apiErrorCode = "csrf_origin_forbidden"
 	apiErrCSRFTokenRequired              apiErrorCode = "csrf_token_required"
 	apiErrDatabaseNotReady               apiErrorCode = "database_not_ready"
+	apiErrFetchMetadataForbidden         apiErrorCode = "fetch_metadata_forbidden"
 	apiErrInternal                       apiErrorCode = "internal_error"
 	apiErrInvalidHostHeader              apiErrorCode = "invalid_host_header"
 	apiErrInvalidAdminPassword           apiErrorCode = "invalid_admin_password"
@@ -113,6 +114,8 @@ func (c apiErrorCode) message() string {
 		return "csrf token required"
 	case apiErrDatabaseNotReady:
 		return "database not ready"
+	case apiErrFetchMetadataForbidden:
+		return "fetch metadata forbidden"
 	case apiErrInternal:
 		return "internal server error"
 	case apiErrInvalidHostHeader:

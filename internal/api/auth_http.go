@@ -132,7 +132,7 @@ func validCSRFOrigin(r *http.Request) bool {
 	return true
 }
 
-func validCSRFFetchMetadata(r *http.Request) bool {
+func validFetchMetadata(r *http.Request) bool {
 	site := strings.ToLower(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site")))
 	switch site {
 	case "", "same-origin", "same-site", "none":
@@ -247,6 +247,18 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 			return
 		}
 
+		if source == credentialSourceCookie && !validFetchMetadata(r) {
+			if csrfRequired(r.Method) {
+				s.recordSecurityRejection(r, securityReasonCSRFFetchMetadataBlocked, http.StatusForbidden)
+				writeAPIErrorCode(w, http.StatusForbidden, apiErrCSRFOriginForbidden)
+			} else {
+				s.recordSecurityRejection(r, securityReasonFetchMetadataForbidden, http.StatusForbidden)
+				writeAPIErrorCode(w, http.StatusForbidden, apiErrFetchMetadataForbidden)
+			}
+
+			return
+		}
+
 		tokenKey := hashAPIToken(raw)
 		s.mu.RLock()
 		cacheService := s.cacheService
@@ -257,12 +269,6 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 			session, err := cacheService.ResolveSession(ctx, tokenKey, now, config.APISessionIdleTTL())
 			if err == nil {
 				if source == credentialSourceCookie && csrfRequired(r.Method) {
-					if !validCSRFFetchMetadata(r) {
-						s.recordSecurityRejection(r, securityReasonCSRFFetchMetadataBlocked, http.StatusForbidden)
-						writeAPIErrorCode(w, http.StatusForbidden, apiErrCSRFOriginForbidden)
-						return
-					}
-
 					if !validCSRFToken(r.Header.Get(csrfHeaderName), session.CSRFTokenHash) {
 						s.recordSecurityRejection(r, securityReasonCSRFTokenRequired, http.StatusForbidden)
 						writeAPIErrorCode(w, http.StatusForbidden, apiErrCSRFTokenRequired)

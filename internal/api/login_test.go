@@ -516,6 +516,24 @@ func TestCookieSessionAuth_requiresCSRFForUnsafeMethods(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
+	req.AddCookie(sessionCookie)
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("cross-site cookie read should be forbidden, got code=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var readErr apiError
+	if err := json.NewDecoder(rec.Body).Decode(&readErr); err != nil {
+		t.Fatalf("decode cross-site cookie read error: %v; body=%s", err, rec.Body.String())
+	}
+
+	if readErr.Code != string(apiErrFetchMetadataForbidden) {
+		t.Fatalf("cross-site cookie read code=%q, want %q", readErr.Code, apiErrFetchMetadataForbidden)
+	}
+
+	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/logout", nil)
 	req.AddCookie(sessionCookie)
 	h.ServeHTTP(rec, req)
@@ -587,6 +605,7 @@ func TestCookieSessionAuth_requiresCSRFForUnsafeMethods(t *testing.T) {
 
 	requireSecurityRejection(t, metrics, securityReasonCSRFOriginForbidden, "POST /api/v1/logout", http.StatusForbidden)
 	requireSecurityRejection(t, metrics, securityReasonCSRFFetchMetadataBlocked, "POST /api/v1/logout", http.StatusForbidden)
+	requireSecurityRejection(t, metrics, securityReasonFetchMetadataForbidden, "GET /api/v1/jobs", http.StatusForbidden)
 }
 
 func TestCookieSessionAuth_idleExpiry(t *testing.T) {

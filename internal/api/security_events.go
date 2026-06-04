@@ -17,6 +17,7 @@ const (
 	securityReasonCSRFFetchMetadataBlocked = "csrf_fetch_metadata_forbidden"
 	securityReasonCSRFOriginForbidden      = "csrf_origin_forbidden"
 	securityReasonCSRFTokenRequired        = "csrf_token_required"
+	securityReasonFetchMetadataForbidden   = "fetch_metadata_forbidden"
 	securityReasonMethodNotAllowed         = "method_not_allowed"
 	securityReasonRateLimitExceeded        = "rate_limit_exceeded"
 	securityReasonRequestBodyNotAllowed    = "request_body_not_allowed"
