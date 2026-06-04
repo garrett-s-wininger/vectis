@@ -75,6 +75,12 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		return
 	}
 
+	if err := config.ValidateAPIHSTSConfig(); err != nil {
+		logger.Error("%v", err)
+		exitCode = 1
+		return
+	}
+
 	config.StartGRPCTLSReloadLoop(cmd.Context())
 
 	db, _, err := database.OpenReadyDBForRole(logger, database.RoleGlobal)

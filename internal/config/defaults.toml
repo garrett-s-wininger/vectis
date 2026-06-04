@@ -24,6 +24,11 @@ cert_file = ""
 key_file = ""
 reload_interval = "0s"
 
+[api.hsts]
+max_age_seconds = 31536000
+include_subdomains = false
+preload = false
+
 [api.session]
 ttl = "168h"
 idle_ttl = "24h"

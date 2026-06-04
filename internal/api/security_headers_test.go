@@ -51,6 +51,23 @@ func TestHandlerAppliesHSTSForDirectTLS(t *testing.T) {
 	assertSecurityHeader(t, rec, "Strict-Transport-Security", "max-age=31536000")
 }
 
+func TestHandlerAppliesConfiguredHSTSForDirectTLS(t *testing.T) {
+	t.Setenv("VECTIS_API_HSTS_MAX_AGE_SECONDS", "63072000")
+	t.Setenv("VECTIS_API_HSTS_INCLUDE_SUBDOMAINS", "true")
+	t.Setenv("VECTIS_API_HSTS_PRELOAD", "true")
+
+	db := dbtest.NewTestDB(t)
+	s := NewAPIServer(mocks.NewMockLogger(), db)
+	s.SetQueueClient(mocks.NewMockQueueService())
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "https://example.test/health/live", nil)
+	req.TLS = &tls.ConnectionState{}
+	s.Handler().ServeHTTP(rec, req)
+
+	assertSecurityHeader(t, rec, "Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
+}
+
 func TestHandlerAppliesHSTSForTrustedProxyHTTPS(t *testing.T) {
 	t.Setenv("VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS", "10.0.0.0/8")
 

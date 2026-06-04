@@ -69,6 +69,7 @@ type APIDefaults struct {
 	Authz                APIAuthzDefaults     `toml:"authz"`
 	Audit                APIAuditDefaults     `toml:"audit"`
 	TLS                  APITLSDefaults       `toml:"tls"`
+	HSTS                 APIHSTSDefaults      `toml:"hsts"`
 	Session              APISessionDefaults   `toml:"session"`
 	Cache                APICacheDefaults     `toml:"cache"`
 	RateLimit            APIRateLimitDefaults `toml:"rate_limit"`
@@ -120,6 +121,12 @@ type APITLSDefaults struct {
 	CertFile       string       `toml:"cert_file"`
 	KeyFile        string       `toml:"key_file"`
 	ReloadInterval tomlDuration `toml:"reload_interval"`
+}
+
+type APIHSTSDefaults struct {
+	MaxAgeSeconds     int  `toml:"max_age_seconds"`
+	IncludeSubDomains bool `toml:"include_subdomains"`
+	Preload           bool `toml:"preload"`
 }
 
 type APISessionDefaults struct {
@@ -497,6 +504,18 @@ func validateDefaults(d Defaults) {
 
 	if time.Duration(d.API.Session.IdleTTL) > time.Duration(d.API.Session.TTL) {
 		panic("config defaults: api.session.idle_ttl must be <= api.session.ttl")
+	}
+
+	if d.API.HSTS.MaxAgeSeconds < 0 {
+		panic("config defaults: api.hsts.max_age_seconds must be >= 0")
+	}
+
+	if d.API.HSTS.Preload && !d.API.HSTS.IncludeSubDomains {
+		panic("config defaults: api.hsts.preload requires api.hsts.include_subdomains=true")
+	}
+
+	if d.API.HSTS.Preload && d.API.HSTS.MaxAgeSeconds < apiHSTSPreloadMinMaxAgeSeconds {
+		panic(fmt.Sprintf("config defaults: api.hsts.preload requires api.hsts.max_age_seconds >= %d", apiHSTSPreloadMinMaxAgeSeconds))
 	}
 
 	rl := d.API.RateLimit

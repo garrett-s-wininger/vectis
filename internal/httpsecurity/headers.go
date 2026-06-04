@@ -21,18 +21,25 @@ const (
 
 // Policy describes browser-facing HTTP response headers.
 type Policy struct {
-	ContentSecurityPolicy string
-	RequestSecure         func(*http.Request) bool
+	ContentSecurityPolicy   string
+	StrictTransportSecurity string
+	RequestSecure           func(*http.Request) bool
 }
 
 // APIHeaderPolicy returns strict defaults for JSON/API responses.
 func APIHeaderPolicy() Policy {
-	return Policy{ContentSecurityPolicy: apiContentSecurityPolicy}
+	return Policy{
+		ContentSecurityPolicy:   apiContentSecurityPolicy,
+		StrictTransportSecurity: defaultHSTS,
+	}
 }
 
 // DocsHeaderPolicy returns defaults that still allow the static docs app to run.
 func DocsHeaderPolicy() Policy {
-	return Policy{ContentSecurityPolicy: docsContentSecurityPolicy}
+	return Policy{
+		ContentSecurityPolicy:   docsContentSecurityPolicy,
+		StrictTransportSecurity: defaultHSTS,
+	}
 }
 
 // HeaderMiddleware applies baseline browser security headers. Existing handler
@@ -58,8 +65,8 @@ func HeaderMiddleware(policy Policy, next http.Handler) http.Handler {
 			setHeaderIfEmpty(h, "Content-Security-Policy", policy.ContentSecurityPolicy)
 		}
 
-		if policy.requestSecure(r) {
-			setHeaderIfEmpty(h, "Strict-Transport-Security", defaultHSTS)
+		if policy.StrictTransportSecurity != "" && policy.requestSecure(r) {
+			setHeaderIfEmpty(h, "Strict-Transport-Security", policy.StrictTransportSecurity)
 		}
 
 		next.ServeHTTP(w, r)

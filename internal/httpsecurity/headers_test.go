@@ -69,6 +69,22 @@ func TestHeaderMiddleware_usesPolicyRequestSecure(t *testing.T) {
 	assertHeader(t, rec, "Strict-Transport-Security", defaultHSTS)
 }
 
+func TestHeaderMiddleware_usesConfiguredStrictTransportSecurity(t *testing.T) {
+	policy := APIHeaderPolicy()
+	policy.StrictTransportSecurity = "max-age=63072000; includeSubDomains; preload"
+
+	h := HeaderMiddleware(policy, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "https://example.test/api/v1/jobs", nil)
+	req.TLS = &tls.ConnectionState{}
+	h.ServeHTTP(rec, req)
+
+	assertHeader(t, rec, "Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
+}
+
 func TestHeaderMiddleware_preservesExistingHeaders(t *testing.T) {
 	h := HeaderMiddleware(APIHeaderPolicy(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Security-Policy", "default-src 'self'")

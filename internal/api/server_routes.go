@@ -27,6 +27,7 @@ func (s *APIServer) Handler() http.Handler {
 	h = accessLogMiddleware(s.AccessLogger, apiHTTPExcludedFromAuxLogging, h)
 	h = observability.CorrelationMiddleware(h)
 	headerPolicy := httpsecurity.APIHeaderPolicy()
+	headerPolicy.StrictTransportSecurity = config.APIHSTSHeaderValue()
 	headerPolicy.RequestSecure = config.HTTPOriginalRequestSecure
 	h = httpsecurity.HeaderMiddleware(headerPolicy, h)
 	h = panicRecoveryMiddleware(s.logger, h)
