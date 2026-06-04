@@ -36,6 +36,7 @@ func TestValidateAPICORSConfigRejectsUnsafeOrigins(t *testing.T) {
 		"*",
 		"null",
 		"file://example.test",
+		"http://ui.example",
 		"https://example.test/path",
 		"https://example.test?query=1",
 		"https://user@example.test",
@@ -51,9 +52,32 @@ func TestValidateAPICORSConfigRejectsUnsafeOrigins(t *testing.T) {
 	}
 }
 
-func TestValidateAPICORSConfigAllowsExactHTTPOrigins(t *testing.T) {
-	t.Setenv(envAPICORSAllowedOrigins, "https://ui.example,http://localhost:3000")
+func TestValidateAPICORSConfigAllowsHTTPSAndLocalHTTPOrigins(t *testing.T) {
+	t.Setenv(envAPICORSAllowedOrigins, "https://ui.example,http://localhost:3000,http://127.0.0.1:3000,http://[::1]:3000,http://dev.localhost:3000")
 	if err := ValidateAPICORSConfig(); err != nil {
 		t.Fatalf("ValidateAPICORSConfig(): %v", err)
+	}
+}
+
+func TestIsLoopbackCORSOriginHost(t *testing.T) {
+	tests := []struct {
+		host string
+		want bool
+	}{
+		{host: "localhost", want: true},
+		{host: "localhost.", want: true},
+		{host: "dev.localhost", want: true},
+		{host: "127.0.0.1", want: true},
+		{host: "::1", want: true},
+		{host: "ui.example", want: false},
+		{host: "10.0.0.1", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.host, func(t *testing.T) {
+			if got := isLoopbackCORSOriginHost(tt.host); got != tt.want {
+				t.Fatalf("isLoopbackCORSOriginHost(%q) = %v, want %v", tt.host, got, tt.want)
+			}
+		})
 	}
 }

@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"strings"
@@ -88,9 +89,23 @@ func parseCORSOrigin(origin string) (*url.URL, error) {
 		return nil, fmt.Errorf("api.cors.allowed_origins origin %q must include a host", origin)
 	}
 
+	if u.Scheme == "http" && !isLoopbackCORSOriginHost(u.Hostname()) {
+		return nil, fmt.Errorf("api.cors.allowed_origins origin %q must use https unless the host is loopback or localhost", origin)
+	}
+
 	if u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
 		return nil, fmt.Errorf("api.cors.allowed_origins origin %q must not include user info, path, query, or fragment", origin)
 	}
 
 	return u, nil
+}
+
+func isLoopbackCORSOriginHost(host string) bool {
+	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

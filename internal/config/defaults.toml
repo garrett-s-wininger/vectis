@@ -55,8 +55,9 @@ trusted_proxy_cidrs = []
 allowed_hosts = []
 
 [api.cors]
-# Browser cross-origin access is closed by default. Configure exact http(s) origins only;
-# wildcard credentialed CORS is intentionally unsupported.
+# Browser cross-origin access is closed by default. Configure exact HTTPS origins
+# for browser frontends; HTTP origins are accepted only for loopback/localhost
+# development. Wildcard credentialed CORS is intentionally unsupported.
 allowed_origins = []
 
 [queue]

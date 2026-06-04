@@ -193,7 +193,7 @@ General API errors use this stable v1 envelope:
 
 All error responses use `Content-Type: application/json; charset=utf-8` and `X-Content-Type-Options: nosniff`. Browser-facing API responses also include baseline security headers such as `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`, `Origin-Agent-Cluster`, and a strict Content Security Policy. Protected API responses default to `Cache-Control: no-store`; event streams use `Cache-Control: no-cache`. Direct HTTPS requests include `Strict-Transport-Security`; responses behind a trusted TLS-terminating proxy include it when the proxy forwards the original scheme as HTTPS. `401` responses add `WWW-Authenticate: Bearer`.
 
-CORS is closed unless the operator configures exact allowed origins. Credentialed browser CORS never uses `*`; preflights are accepted only for allowed origins, methods, and request headers.
+CORS is closed unless the operator configures exact allowed origins. Credentialed browser CORS never uses `*`; non-local browser origins must use HTTPS, while HTTP origins are limited to loopback or localhost development. Preflights are accepted only for allowed origins, methods, and request headers.
 
 Host header validation is enabled by default. Requests with untrusted, wildcard, URL-shaped, or otherwise invalid `Host` values are rejected before route handling.
 
