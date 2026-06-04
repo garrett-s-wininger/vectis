@@ -24,6 +24,7 @@ The producer may be:
 | `api` | A user or API client created or retried a run. |
 | `cron` | `vectis-cron` created a run from a schedule. |
 | `reconciler` | `vectis-reconciler` found a queued run that still needed queue handoff. |
+| `task_dispatch` | A worker completed a task and handed off newly dispatchable task work inside the same run. |
 
 In multi-cell deployments, dispatch events still live on the global run. A failure message can describe a missing cell route, an unavailable private cell ingress endpoint, or a local queue handoff failure inside the target cell. See [Multi-Cell Operation](../multi-cell.md) for the routing and repair shape.
 
@@ -56,6 +57,7 @@ Use the event source, timestamp, and message together:
 | `attempt` followed by `success` | The queue accepted the handoff. | If the run is still queued, focus on worker availability and queue backlog. |
 | `failure` | The producer could not enqueue the run or could not record the dispatch completion. | Read `message`, then check queue health, registry or pinned address config, gRPC TLS, and retry exhaustion. |
 | `reconciler` event | The reconciler tried to repair a queued run that missed or lost its original handoff. | Occasional repair is expected. Repeated repair points to producer, queue, or network instability. |
+| `task_dispatch` event | A task completion produced continuation work for the same run. | Repeated failures point to queue handoff, worker capacity, or task fan-out pressure. |
 | Multiple successful handoff events | A retry or reconciler submitted the same run more than once. | Worker database claims should prevent duplicate execution for the same run ID; inspect queue duplicate pressure. |
 
 ## Runbook: Queued With No Dispatch {#runbook-queued-with-no-dispatch}
@@ -71,7 +73,7 @@ Use the event source, timestamp, and message together:
 ## Runbook: Dispatch Failure {#runbook-dispatch-failure}
 
 1. Read the dispatch failure message from the run detail.
-2. Check whether the failure came from API, cron, or reconciler.
+2. Check whether the failure came from API, cron, task dispatch, or reconciler.
 3. Verify queue address resolution: pinned address, registry availability, and advertised queue address.
 4. Verify gRPC TLS settings, especially CA file and server name/SAN matching.
 5. Check `vectis_retries_exhausted_total` when retry metrics are available for the path.
@@ -93,7 +95,7 @@ Use emitted metrics first. The example rules live in [`prometheus-examples.yml`]
 increase(vectis_run_dispatch_events_total{event_type="failure"}[10m]) > 0
 ```
 
-Warn when API, cron, or reconciler dispatch handoff is failing. In multi-cell deployments, group by `target_cell` to find the affected cell.
+Warn when API, cron, task dispatch, or reconciler handoff is failing. In multi-cell deployments, group by `target_cell` to find the affected cell.
 
 ```promql
 increase(vectis_reconciler_reenqueue_total{outcome!="success"}[10m]) > 0

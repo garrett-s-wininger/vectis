@@ -15,6 +15,7 @@ This page answers "can this deployment shape handle my workload?" Scaling And Re
 | API replicas | One API process | Horizontal API replicas, because rate limiting is in-process per replica. |
 | Queue | One or more independent queue shards | Shared multi-writer queue storage or active/passive failover for a single shard. |
 | Workers | Multiple workers, one run per process | Large worker fleets and DB pool sizing under high claim/renew/finalize rates. |
+| Task fan-out | Worker-choreographed fan-out through database-backed task dispatch intents | Very wide DAGs, deep continuation chains, and database/event growth under high task cardinality. |
 | Cron | One or more cron processes in one shared database cell | Large schedule sets, cross-cell partitioning, and clock-skew tolerance. |
 | Reconciler | One active reconciler, with optional active/passive standbys | Sharded reconcilers under heavy queued-run repair load. |
 | Logs | Durable local JSONL storage plus bounded in-memory terminal buffers | Very large persisted logs and many replaying clients. |
@@ -32,6 +33,7 @@ Watch these when you increase workload, worker count, client concurrency, or log
 | API | Rising request latency, `429`, `503`, or readiness failures | API replicas, rate limits, DB, queue, or log dependencies are saturated or unavailable. |
 | Queue | Pending depth grows and does not drain after load stops | Producers are outpacing workers, a queue shard is unhealthy, or workers cannot claim work. |
 | Workers | Queued-to-running latency rises | Worker count, worker host resources, database claims, or queue delivery are limiting throughput. |
+| Task dispatch | Frequent dispatch failures with source `task_dispatch` or repeated continuation handoffs for the same run | Task fan-out is creating more queue handoff or database work than the deployment can absorb. |
 | Database | Pool waits, maxed in-use connections, slow queries, or storage growth | Pool size, query load, retention, or database host capacity needs attention. |
 | Logs | Append failures, shard route failures, replay truncation, stream disconnects, forwarder spool backlog, or low log storage space | Log service, forwarding, storage, or client replay demand is limiting observability. |
 | Reconciler | Re-enqueue failures or repeated repair for the same runs | Dispatch handoff, queue reachability, registry, TLS, or database state needs repair. |
@@ -44,6 +46,7 @@ Watch these when you increase workload, worker count, client concurrency, or log
 | Decision | Guidance |
 | --- | --- |
 | Add workers | Safe first lever for more parallel job execution, but each worker adds database, queue, log, CPU, memory, disk, and network pressure. |
+| Increase task fan-out | Validate queue handoff rate, dispatch event volume, database write load, and retention before relying on very wide or deep DAGs. |
 | Add API replicas | Validate load-balancer behavior, in-process rate limits, SSE reconnect behavior, and async enqueue repair. |
 | Increase DB pool size | Do this only with database host capacity in mind; raising pool limits can move pressure into the database. |
 | Increase trigger rate | Watch queue depth, dispatch events, DB pool waits, and idempotency behavior. |
@@ -67,6 +70,7 @@ Watch these when you increase workload, worker count, client concurrency, or log
 Revalidate the envelope before relying on a new operating point when you:
 
 - add a larger workload class;
+- increase task fan-out width, continuation depth, or task cardinality;
 - significantly increase worker count or trigger concurrency;
 - change database driver, host size, pool settings, or storage class;
 - change queue persistence, log storage, or log-forwarder spool storage;

@@ -123,6 +123,20 @@ Five components can produce work:
 
 Workers are the execution side. Each `vectis-worker` process handles one run at a time. Run claims and leases live in the database, so the database is what prevents two workers from owning the same persisted run at the same time.
 
+### Task-Mode Choreography
+
+Task-mode execution is still worker-choreographed. A separate orchestrator does not normally materialize child tasks, reduce task state, or decide fan-in outcomes.
+
+The worker that completes a task owns the event-path decisions for that completion:
+
+1. It marks the task execution terminal through the task completion boundary.
+2. Successful task completion may activate planned child task executions and create task dispatch intents.
+3. The task dispatch service drains pending intents for that run and enqueues continuation work to the local queue.
+4. If there is no immediate continuation, the task reduce service summarizes task state. Terminal failure dominates incomplete siblings; all-succeeded reduces to run success; incomplete work leaves the run available for later continuation.
+5. The task finalization boundary records the finalization outcome before the worker writes a terminal or continuation run state.
+
+The reconciler remains a repair loop. It repairs missed queue handoffs for queued work; it is not the normal event path for task fan-out or fan-in.
+
 ## Logs
 
 Workers do not send job output directly to API clients. The log path is:
