@@ -134,6 +134,28 @@ func (c *recordingTaskCompleter) recordedCalls() []string {
 	return append([]string(nil), c.calls...)
 }
 
+type recordingSucceededRunsStore struct {
+	dal.RunsRepository
+
+	mu    sync.Mutex
+	calls []string
+}
+
+func (s *recordingSucceededRunsStore) MarkRunSucceeded(ctx context.Context, runID, claimToken string) error {
+	s.mu.Lock()
+	s.calls = append(s.calls, runID+":"+claimToken)
+	s.mu.Unlock()
+
+	return s.RunsRepository.MarkRunSucceeded(ctx, runID, claimToken)
+}
+
+func (s *recordingSucceededRunsStore) succeededCalls() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return append([]string(nil), s.calls...)
+}
+
 type flakyFinalizeRunsStore struct {
 	dal.RunsRepository
 
@@ -1328,6 +1350,62 @@ func TestWorkerContinueTaskRun_UnknownPendingChecksService(t *testing.T) {
 
 	if len(runs.ExecutionTransitions) != 0 {
 		t.Fatalf("run should not be queued without pending work: %+v", runs.ExecutionTransitions)
+	}
+}
+
+func TestWorkerFinalizeSucceededTaskRun_DispatchableChildrenContinue(t *testing.T) {
+	t.Parallel()
+
+	runs := mocks.NewMockRunsRepository()
+	drainer := &recordingTaskDispatchDrainer{
+		drainResult: taskdispatch.DrainResult{Listed: 1, Enqueued: 1},
+	}
+
+	w := &worker{
+		runCtx:              context.Background(),
+		logger:              interfaces.NewLogger("worker-test"),
+		cellID:              "local",
+		store:               runs,
+		catalog:             cell.NewCatalogEventPublisher("local", nil),
+		taskDispatchService: taskdispatch.NewService(interfaces.NewLogger("worker-test"), drainer),
+	}
+
+	outcome := w.finalizeSucceededTaskRun(context.Background(), "job-known-pending", "run-known-pending", "claim-token", executionTerminalResult{dispatchableChildren: 1})
+	if outcome != observability.WorkerOutcomeSuccess {
+		t.Fatalf("outcome: got %q, want %q", outcome, observability.WorkerOutcomeSuccess)
+	}
+
+	pendingCalls, drainCalls := drainer.calls()
+	if pendingCalls != 0 || drainCalls != 1 {
+		t.Fatalf("dispatch calls: pending=%d drain=%d, want pending=0 drain=1", pendingCalls, drainCalls)
+	}
+
+	if len(runs.ExecutionTransitions) != 1 || runs.ExecutionTransitions[0] != "run-known-pending:queued" {
+		t.Fatalf("run transitions: %+v", runs.ExecutionTransitions)
+	}
+}
+
+func TestWorkerFinalizeSucceededTaskRun_ReduceSucceededMarksRunSucceeded(t *testing.T) {
+	t.Parallel()
+
+	base := mocks.NewMockRunsRepository()
+	base.TaskCompletion = dal.RunTaskCompletion{RunID: "run-reduced", Total: 1, Succeeded: 1}
+	store := &recordingSucceededRunsStore{RunsRepository: base}
+	w := &worker{
+		runCtx:  context.Background(),
+		logger:  interfaces.NewLogger("worker-test"),
+		store:   store,
+		catalog: cell.NewCatalogEventPublisher("local", nil),
+	}
+
+	outcome := w.finalizeSucceededTaskRun(context.Background(), "job-reduced", "run-reduced", "claim-token", executionTerminalResult{})
+	if outcome != observability.WorkerOutcomeSuccess {
+		t.Fatalf("outcome: got %q, want %q", outcome, observability.WorkerOutcomeSuccess)
+	}
+
+	calls := store.succeededCalls()
+	if len(calls) != 1 || calls[0] != "run-reduced:claim-token" {
+		t.Fatalf("mark succeeded calls: %+v", calls)
 	}
 }
 
