@@ -1475,7 +1475,7 @@ func TestWorkerFinalizeFailedTaskRun_CompletesExecutionBeforeRunFailure(t *testi
 	ctx, span := provider.Tracer("worker-test").Start(context.Background(), "finalize-failed")
 	order := &recordingOrder{}
 	base := mocks.NewMockRunsRepository()
-	base.TaskCompletion = dal.RunTaskCompletion{RunID: "run-failed", Total: 1, TerminalFailed: 1}
+	base.TaskCompletion = dal.RunTaskCompletion{RunID: "run-failed", Total: 3, Succeeded: 1, TerminalFailed: 1, Incomplete: 1}
 	store := &recordingFailedRunsStore{RunsRepository: base, order: order}
 	completer := &recordingTaskCompleter{order: order}
 	w := &worker{
