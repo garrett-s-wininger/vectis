@@ -60,7 +60,7 @@ When the TCP peer is inside a trusted CIDR, Vectis treats the original request a
 1. `X-Forwarded-Proto: https`
 2. `Forwarded: proto=https`
 
-This controls API `Secure` session-cookie inference and whether the API emits `Strict-Transport-Security` on a response that arrived through a trusted TLS-terminating proxy. If you do not configure trusted proxy CIDRs, set `api.session.cookie_secure = true` explicitly for HTTPS edge deployments.
+This controls request-aware API `Secure` session-cookie inference and whether the API emits `Strict-Transport-Security` on a response that arrived through a trusted TLS-terminating proxy. When API auth is enabled behind an HTTPS edge, still set `api.session.cookie_secure = true` explicitly: trusted proxy headers do not satisfy startup secure-cookie validation because direct HTTP bypasses could issue insecure cookies.
 
 ## What This Affects
 

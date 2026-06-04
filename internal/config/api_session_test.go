@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -112,6 +113,18 @@ func TestValidateAPISessionConfig_requiresSecureCookiesWhenAuthEnabled(t *testin
 	}
 }
 
+func TestValidateAPISessionConfig_allowsExplicitSecureCookiesWhenAuthEnabled(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	t.Setenv(envAPIAuthEnabled, "true")
+	t.Setenv(envAPISessionCookieSecure, "true")
+
+	if err := ValidateAPISessionConfig(); err != nil {
+		t.Fatalf("expected explicit secure cookie setting to validate: %v", err)
+	}
+}
+
 func TestValidateAPISessionConfig_allowsDirectAPITLSWhenAuthEnabled(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
@@ -126,6 +139,23 @@ func TestValidateAPISessionConfig_allowsDirectAPITLSWhenAuthEnabled(t *testing.T
 	viper.Set("api.tls.key_file", m.ServerKey)
 	if err := ValidateAPISessionConfig(); err != nil {
 		t.Fatalf("expected direct API TLS to satisfy secure-cookie validation: %v", err)
+	}
+}
+
+func TestValidateAPISessionConfig_trustedProxyDoesNotSatisfySecureCookieValidation(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	t.Setenv(envAPIAuthEnabled, "true")
+	t.Setenv(envAPIClientIPTrustedProxyCIDRs, "10.0.0.0/8")
+
+	err := ValidateAPISessionConfig()
+	if err == nil {
+		t.Fatal("expected trusted proxy headers alone to be insufficient for secure-cookie validation")
+	}
+
+	if !strings.Contains(err.Error(), "trusted proxy") {
+		t.Fatalf("error=%q, want trusted proxy guidance", err)
 	}
 }
 
