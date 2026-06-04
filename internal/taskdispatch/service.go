@@ -14,6 +14,10 @@ type Drainer interface {
 	Drain(ctx context.Context, opts DrainOptions) (DrainResult, error)
 }
 
+type Metrics interface {
+	RecordDrain(ctx context.Context, opts DrainOptions, result DrainResult, err error)
+}
+
 type PendingChecker interface {
 	HasPending(ctx context.Context, opts DrainOptions) (bool, error)
 }
@@ -21,6 +25,7 @@ type PendingChecker interface {
 type Service struct {
 	logger  interfaces.Logger
 	drainer Drainer
+	metrics Metrics
 	wake    chan struct{}
 }
 
@@ -30,6 +35,14 @@ func NewService(logger interfaces.Logger, drainer Drainer) *Service {
 		drainer: drainer,
 		wake:    make(chan struct{}, 1),
 	}
+}
+
+func (s *Service) SetMetrics(metrics Metrics) {
+	if s == nil {
+		return
+	}
+
+	s.metrics = metrics
 }
 
 func (s *Service) Notify() {
@@ -52,7 +65,12 @@ func (s *Service) Process(ctx context.Context, opts DrainOptions) (DrainResult, 
 		return DrainResult{}, errors.New("task dispatch drainer is required")
 	}
 
-	return s.drainer.Drain(ctx, opts)
+	result, err := s.drainer.Drain(ctx, opts)
+	if s.metrics != nil {
+		s.metrics.RecordDrain(ctx, opts, result, err)
+	}
+
+	return result, err
 }
 
 func (s *Service) HasPending(ctx context.Context, opts DrainOptions) (bool, error) {

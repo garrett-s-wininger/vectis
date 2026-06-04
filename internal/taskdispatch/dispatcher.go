@@ -16,11 +16,16 @@ import (
 const defaultDrainLimit = 100
 
 type Dispatcher struct {
-	runs     dal.RunsRepository
-	intents  dal.TaskDispatchIntentsRepository
-	dispatch dal.DispatchEventsRepository
-	ingress  cell.ExecutionIngress
-	clock    interfaces.Clock
+	runs            dal.RunsRepository
+	intents         dal.TaskDispatchIntentsRepository
+	dispatch        dal.DispatchEventsRepository
+	dispatchMetrics DispatchMetrics
+	ingress         cell.ExecutionIngress
+	clock           interfaces.Clock
+}
+
+type DispatchMetrics interface {
+	RecordDispatchEvent(ctx context.Context, source, eventType, targetCell string)
 }
 
 type DrainOptions struct {
@@ -48,6 +53,14 @@ func New(runs dal.RunsRepository, intents dal.TaskDispatchIntentsRepository, dis
 		ingress:  ingress,
 		clock:    clock,
 	}
+}
+
+func (d *Dispatcher) SetDispatchMetrics(metrics DispatchMetrics) {
+	if d == nil {
+		return
+	}
+
+	d.dispatchMetrics = metrics
 }
 
 func (d *Dispatcher) Drain(ctx context.Context, opts DrainOptions) (DrainResult, error) {
@@ -182,6 +195,10 @@ func (d *Dispatcher) requestForIntent(ctx context.Context, intent dal.TaskDispat
 }
 
 func (d *Dispatcher) recordDispatchEvent(ctx context.Context, intent dal.TaskDispatchIntent, eventType string, dispatchErr error) {
+	if d.dispatchMetrics != nil {
+		d.dispatchMetrics.RecordDispatchEvent(ctx, dal.DispatchSourceTask, eventType, intent.CellID)
+	}
+
 	if d.dispatch == nil {
 		return
 	}

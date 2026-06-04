@@ -21,6 +21,29 @@ type recordingDrainer struct {
 	called  chan struct{}
 }
 
+type recordingMetrics struct {
+	mu      sync.Mutex
+	calls   []taskdispatch.DrainOptions
+	results []taskdispatch.DrainResult
+	errs    []error
+}
+
+func (m *recordingMetrics) RecordDrain(_ context.Context, opts taskdispatch.DrainOptions, result taskdispatch.DrainResult, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.calls = append(m.calls, opts)
+	m.results = append(m.results, result)
+	m.errs = append(m.errs, err)
+}
+
+func (m *recordingMetrics) callCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return len(m.calls)
+}
+
 func newRecordingDrainer() *recordingDrainer {
 	return &recordingDrainer{called: make(chan struct{}, 10)}
 }
@@ -80,6 +103,56 @@ func TestServiceProcessDrainsWithOptions(t *testing.T) {
 
 	if got := drainer.callAt(0); got != opts {
 		t.Fatalf("drain options: got %+v, want %+v", got, opts)
+	}
+}
+
+func TestServiceProcessRecordsMetrics(t *testing.T) {
+	drainer := newRecordingDrainer()
+	drainer.result = taskdispatch.DrainResult{Listed: 2, Enqueued: 1, Failed: 1}
+	metrics := &recordingMetrics{}
+
+	svc := taskdispatch.NewService(nil, drainer)
+	svc.SetMetrics(metrics)
+	opts := taskdispatch.DrainOptions{CellID: "iad-a", RunID: "run-1", Limit: 7}
+
+	result, err := svc.Process(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+
+	if result != drainer.result {
+		t.Fatalf("result: got %+v, want %+v", result, drainer.result)
+	}
+
+	if got := metrics.callCount(); got != 1 {
+		t.Fatalf("metric calls: got %d, want 1", got)
+	}
+
+	if metrics.calls[0] != opts || metrics.results[0] != drainer.result || metrics.errs[0] != nil {
+		t.Fatalf("metric payload mismatch: calls=%+v results=%+v errs=%+v", metrics.calls, metrics.results, metrics.errs)
+	}
+}
+
+func TestServiceProcessRecordsMetricsForDrainError(t *testing.T) {
+	wantErr := errors.New("db unavailable")
+	drainer := newRecordingDrainer()
+	drainer.result = taskdispatch.DrainResult{Listed: 1, Failed: 1}
+	drainer.err = wantErr
+	metrics := &recordingMetrics{}
+
+	svc := taskdispatch.NewService(nil, drainer)
+	svc.SetMetrics(metrics)
+
+	if _, err := svc.Process(context.Background(), taskdispatch.DrainOptions{CellID: "iad-a"}); !errors.Is(err, wantErr) {
+		t.Fatalf("Process error: got %v, want %v", err, wantErr)
+	}
+
+	if got := metrics.callCount(); got != 1 {
+		t.Fatalf("metric calls: got %d, want 1", got)
+	}
+
+	if !errors.Is(metrics.errs[0], wantErr) || metrics.results[0] != drainer.result {
+		t.Fatalf("metric error payload mismatch: results=%+v errs=%+v", metrics.results, metrics.errs)
 	}
 }
 

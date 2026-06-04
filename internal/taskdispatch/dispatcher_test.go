@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,12 +19,42 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
+type recordingDispatchMetrics struct {
+	mu     sync.Mutex
+	events []recordedDispatchMetricEvent
+}
+
+type recordedDispatchMetricEvent struct {
+	source     string
+	eventType  string
+	targetCell string
+}
+
+func (m *recordingDispatchMetrics) RecordDispatchEvent(_ context.Context, source, eventType, targetCell string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.events = append(m.events, recordedDispatchMetricEvent{
+		source:     source,
+		eventType:  eventType,
+		targetCell: targetCell,
+	})
+}
+
+func (m *recordingDispatchMetrics) snapshot() []recordedDispatchMetricEvent {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return append([]recordedDispatchMetricEvent(nil), m.events...)
+}
+
 func TestDispatcherDrainEnqueuesPendingTaskIntent(t *testing.T) {
 	ctx := context.Background()
 	repos, child := setupDispatchableChild(t, ctx)
 	queue := mocks.NewMockQueueService()
 	clock := mocks.NewMockClock()
 	clock.SetNow(time.Unix(0, 123456789))
+	metrics := &recordingDispatchMetrics{}
 
 	dispatcher := taskdispatch.New(
 		repos.Runs(),
@@ -32,6 +63,7 @@ func TestDispatcherDrainEnqueuesPendingTaskIntent(t *testing.T) {
 		cell.NewQueueExecutionIngress(queue, mocks.NewMockLogger()),
 		clock,
 	)
+	dispatcher.SetDispatchMetrics(metrics)
 
 	result, err := dispatcher.Drain(ctx, taskdispatch.DrainOptions{CellID: "iad-a", Limit: 10})
 	if err != nil {
@@ -98,6 +130,18 @@ func TestDispatcherDrainEnqueuesPendingTaskIntent(t *testing.T) {
 
 		if event.Message == nil || !strings.Contains(*event.Message, child.ExecutionID) || !strings.Contains(*event.Message, child.TaskAttemptID) {
 			t.Fatalf("dispatch event %d missing task identity: %+v", i, event)
+		}
+	}
+
+	metricEvents := metrics.snapshot()
+	if len(metricEvents) != 2 {
+		t.Fatalf("dispatch metric events: got %d, want 2: %+v", len(metricEvents), metricEvents)
+	}
+
+	for i, want := range []string{dal.DispatchEventAttempt, dal.DispatchEventSuccess} {
+		event := metricEvents[i]
+		if event.source != dal.DispatchSourceTask || event.eventType != want || event.targetCell != "iad-a" {
+			t.Fatalf("dispatch metric event %d mismatch: %+v", i, event)
 		}
 	}
 }

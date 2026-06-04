@@ -122,6 +122,16 @@ func runWorker(cmd *cobra.Command, args []string) {
 		logger.Fatal("Failed to initialize log routing metrics: %v", err)
 	}
 
+	dispatchMetrics, err := observability.NewDispatchMetrics()
+	if err != nil {
+		logger.Fatal("Failed to initialize dispatch metrics: %v", err)
+	}
+
+	taskDispatchMetrics, err := observability.NewTaskDispatchMetrics()
+	if err != nil {
+		logger.Fatal("Failed to initialize task dispatch metrics: %v", err)
+	}
+
 	defer cli.DeferShutdown(logger, "Metrics", shutdownMetrics)()
 
 	metricsPort := config.WorkerMetricsEffectiveListenPort()
@@ -160,6 +170,9 @@ func runWorker(cmd *cobra.Command, args []string) {
 	logClient = interfaces.NewPreferForwarderLogClient(forwarderSocket, logClient)
 
 	taskDispatcher := taskdispatch.New(runsRepo, repos.TaskDispatchIntents(), repos.DispatchEvents(), cell.NewQueueExecutionIngress(queueClientServiceAdapter{queue: clients}, logger), interfaces.SystemClock{})
+	taskDispatcher.SetDispatchMetrics(dispatchMetrics)
+	taskDispatchService := taskdispatch.NewService(logger, taskDispatcher)
+	taskDispatchService.SetMetrics(taskDispatchMetrics)
 	w := &worker{
 		ctx:                   shutdownCtx,
 		runCtx:                runCtx,
@@ -174,7 +187,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 		store:                 runsRepo,
 		catalog:               cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
 		metrics:               workerMetrics,
-		taskDispatchService:   taskdispatch.NewService(logger, taskDispatcher),
+		taskDispatchService:   taskDispatchService,
 		taskReduceService:     taskreduce.NewService(taskreduce.New(runsRepo)),
 		taskCompletionService: job.NewTaskCompletionService(runsRepo),
 		taskCompletionFanout:  config.WorkerTaskCompletionFanout(),

@@ -33,7 +33,7 @@ Watch these when you increase workload, worker count, client concurrency, or log
 | API | Rising request latency, `429`, `503`, or readiness failures | API replicas, rate limits, DB, queue, or log dependencies are saturated or unavailable. |
 | Queue | Pending depth grows and does not drain after load stops | Producers are outpacing workers, a queue shard is unhealthy, or workers cannot claim work. |
 | Workers | Queued-to-running latency rises | Worker count, worker host resources, database claims, or queue delivery are limiting throughput. |
-| Task dispatch | Frequent dispatch failures with source `task_dispatch` or repeated continuation handoffs for the same run | Task fan-out is creating more queue handoff or database work than the deployment can absorb. |
+| Task dispatch | Frequent dispatch failures with source `task_dispatch`, rising `vectis_task_dispatch_intents_total{outcome="failed"}`, or repeated continuation handoffs for the same run | Task fan-out is creating more queue handoff or database work than the deployment can absorb. |
 | Database | Pool waits, maxed in-use connections, slow queries, or storage growth | Pool size, query load, retention, or database host capacity needs attention. |
 | Logs | Append failures, shard route failures, replay truncation, stream disconnects, forwarder spool backlog, or low log storage space | Log service, forwarding, storage, or client replay demand is limiting observability. |
 | Reconciler | Re-enqueue failures or repeated repair for the same runs | Dispatch handoff, queue reachability, registry, TLS, or database state needs repair. |
@@ -46,7 +46,7 @@ Watch these when you increase workload, worker count, client concurrency, or log
 | Decision | Guidance |
 | --- | --- |
 | Add workers | Safe first lever for more parallel job execution, but each worker adds database, queue, log, CPU, memory, disk, and network pressure. |
-| Increase task fan-out | Validate queue handoff rate, dispatch event volume, database write load, and retention before relying on very wide or deep DAGs. |
+| Increase task fan-out | Validate queue handoff rate, `vectis_task_dispatch_intents_total`, dispatch event volume, database write load, and retention before relying on very wide or deep DAGs. |
 | Add API replicas | Validate load-balancer behavior, in-process rate limits, SSE reconnect behavior, and async enqueue repair. |
 | Increase DB pool size | Do this only with database host capacity in mind; raising pool limits can move pressure into the database. |
 | Increase trigger rate | Watch queue depth, dispatch events, DB pool waits, and idempotency behavior. |

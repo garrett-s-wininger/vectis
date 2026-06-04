@@ -27,6 +27,14 @@ groups:
           summary: Vectis reconciler failed to reenqueue runs
           runbook: docs/REPAIR_RUNBOOKS.md#reconciler-repair
 
+      - alert: VectisTaskDispatchFailures
+        expr: increase(vectis_task_dispatch_intents_total{outcome="failed"}[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis task dispatch failed to enqueue continuation work
+          runbook: docs/REPAIR_RUNBOOKS.md#queued-runs-or-backlog
+
       - alert: VectisWorkerHighFailureRatio
         expr: |
           sum(rate(vectis_worker_job_duration_seconds_count{outcome!="success"}[15m]))

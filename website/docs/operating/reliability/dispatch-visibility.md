@@ -98,6 +98,12 @@ increase(vectis_run_dispatch_events_total{event_type="failure"}[10m]) > 0
 Warn when API, cron, task dispatch, or reconciler handoff is failing. In multi-cell deployments, group by `target_cell` to find the affected cell.
 
 ```promql
+increase(vectis_task_dispatch_intents_total{outcome="failed"}[10m]) > 0
+```
+
+Warn when worker-owned task continuation handoff is failing. Pair this with `vectis_task_dispatch_drains_total` to see whether the failure is isolated or part of sustained fan-out pressure.
+
+```promql
 increase(vectis_reconciler_reenqueue_total{outcome!="success"}[10m]) > 0
 ```
 
