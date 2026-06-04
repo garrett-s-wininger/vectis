@@ -1604,6 +1604,36 @@ func TestWorkerFinalizeSucceededTaskRun_ReduceSucceededMarksRunSucceeded(t *test
 	}
 }
 
+func TestWorkerFinalizeSucceededTaskRun_IncompleteReductionQueuesContinuation(t *testing.T) {
+	t.Parallel()
+
+	runs := mocks.NewMockRunsRepository()
+	runs.TaskCompletion = dal.RunTaskCompletion{RunID: "run-incomplete", Total: 2, Succeeded: 1, Incomplete: 1}
+	drainer := &recordingTaskDispatchDrainer{}
+	w := &worker{
+		runCtx:              context.Background(),
+		logger:              interfaces.NewLogger("worker-test"),
+		cellID:              "local",
+		store:               runs,
+		catalog:             cell.NewCatalogEventPublisher("local", nil),
+		taskDispatchService: taskdispatch.NewService(interfaces.NewLogger("worker-test"), drainer),
+	}
+
+	outcome := w.finalizeSucceededTaskRun(context.Background(), "job-incomplete", "run-incomplete", "claim-token", executionTerminalResult{})
+	if outcome != observability.WorkerOutcomeSuccess {
+		t.Fatalf("outcome: got %q, want %q", outcome, observability.WorkerOutcomeSuccess)
+	}
+
+	pendingCalls, drainCalls := drainer.calls()
+	if pendingCalls != 1 || drainCalls != 0 {
+		t.Fatalf("dispatch calls: pending=%d drain=%d, want pending=1 drain=0", pendingCalls, drainCalls)
+	}
+
+	if len(runs.ExecutionTransitions) != 1 || runs.ExecutionTransitions[0] != "run-incomplete:queued" {
+		t.Fatalf("run transitions: %+v", runs.ExecutionTransitions)
+	}
+}
+
 type scriptedAckQueue struct {
 	ackErrors []error
 	ackCalls  int
