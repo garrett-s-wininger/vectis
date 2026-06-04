@@ -23,6 +23,9 @@ func TestHeaderMiddleware_appliesBaselineHeaders(t *testing.T) {
 	assertHeader(t, rec, "Permissions-Policy", "camera=(), geolocation=(), microphone=(), payment=(), usb=()")
 	assertHeader(t, rec, "Cross-Origin-Opener-Policy", defaultCrossOriginOpenerPolicy)
 	assertHeader(t, rec, "Cross-Origin-Resource-Policy", defaultCrossOriginResourcePolicy)
+	assertHeader(t, rec, "Origin-Agent-Cluster", defaultOriginAgentCluster)
+	assertHeader(t, rec, "X-Permitted-Cross-Domain-Policies", defaultCrossDomainPolicies)
+	assertHeader(t, rec, "X-Download-Options", defaultDownloadOptions)
 	assertHeader(t, rec, "Content-Security-Policy", apiContentSecurityPolicy)
 
 	if got := rec.Header().Get("Strict-Transport-Security"); got != "" {
@@ -71,6 +74,9 @@ func TestHeaderMiddleware_preservesExistingHeaders(t *testing.T) {
 		w.Header().Set("Content-Security-Policy", "default-src 'self'")
 		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin-allow-popups")
 		w.Header().Set("Cross-Origin-Resource-Policy", "same-site")
+		w.Header().Set("Origin-Agent-Cluster", "?0")
+		w.Header().Set("X-Permitted-Cross-Domain-Policies", "master-only")
+		w.Header().Set("X-Download-Options", "open")
 		w.Header().Set("Strict-Transport-Security", "max-age=60")
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -83,6 +89,9 @@ func TestHeaderMiddleware_preservesExistingHeaders(t *testing.T) {
 	assertHeader(t, rec, "Content-Security-Policy", "default-src 'self'")
 	assertHeader(t, rec, "Cross-Origin-Opener-Policy", "same-origin-allow-popups")
 	assertHeader(t, rec, "Cross-Origin-Resource-Policy", "same-site")
+	assertHeader(t, rec, "Origin-Agent-Cluster", "?0")
+	assertHeader(t, rec, "X-Permitted-Cross-Domain-Policies", "master-only")
+	assertHeader(t, rec, "X-Download-Options", "open")
 	assertHeader(t, rec, "Strict-Transport-Security", "max-age=60")
 }
 

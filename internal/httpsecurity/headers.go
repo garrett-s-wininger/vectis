@@ -14,6 +14,9 @@ const (
 
 	defaultCrossOriginOpenerPolicy   = "same-origin"
 	defaultCrossOriginResourcePolicy = "same-origin"
+	defaultOriginAgentCluster        = "?1"
+	defaultCrossDomainPolicies       = "none"
+	defaultDownloadOptions           = "noopen"
 )
 
 // Policy describes browser-facing HTTP response headers.
@@ -47,6 +50,9 @@ func HeaderMiddleware(policy Policy, next http.Handler) http.Handler {
 		setHeaderIfEmpty(h, "Permissions-Policy", "camera=(), geolocation=(), microphone=(), payment=(), usb=()")
 		setHeaderIfEmpty(h, "Cross-Origin-Opener-Policy", defaultCrossOriginOpenerPolicy)
 		setHeaderIfEmpty(h, "Cross-Origin-Resource-Policy", defaultCrossOriginResourcePolicy)
+		setHeaderIfEmpty(h, "Origin-Agent-Cluster", defaultOriginAgentCluster)
+		setHeaderIfEmpty(h, "X-Permitted-Cross-Domain-Policies", defaultCrossDomainPolicies)
+		setHeaderIfEmpty(h, "X-Download-Options", defaultDownloadOptions)
 
 		if policy.ContentSecurityPolicy != "" {
 			setHeaderIfEmpty(h, "Content-Security-Policy", policy.ContentSecurityPolicy)

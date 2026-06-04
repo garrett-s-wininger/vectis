@@ -36,7 +36,7 @@ HTTP routes are protected by default: a zero-value `routeAuthPolicy{}` normalize
 
 Public route opt-outs must use `routeAuthPolicy{mode: routeAuthPublic}` and include a nearby source comment starting with `public route:` that explains why the route is unauthenticated. The source-level lint binary lives in `tools/vectis-lint`; run it directly with `make lint-api-routes`. It also runs as part of `make lint`.
 
-Browser-facing API/docs security headers live in `internal/httpsecurity`; use that shared middleware instead of setting ad hoc header strings in individual handlers. Keep response isolation headers such as `Cross-Origin-Opener-Policy` and `Cross-Origin-Resource-Policy` centralized there so API, docs, and metrics stay aligned.
+Browser-facing API/docs security headers live in `internal/httpsecurity`; use that shared middleware instead of setting ad hoc header strings in individual handlers. Keep response isolation and legacy browser hardening headers such as `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`, `Origin-Agent-Cluster`, `X-Permitted-Cross-Domain-Policies`, and `X-Download-Options` centralized there so API, docs, cell ingress, and metrics stay aligned.
 
 HTTP server parser limits use `httpsecurity.DefaultMaxHeaderBytes`; keep API, docs, cell ingress, and metrics servers on that shared cap unless a route-specific threat model justifies a different one.
 

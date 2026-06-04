@@ -44,6 +44,9 @@ func TestServerAppliesSecurityHeaders(t *testing.T) {
 	assertSecurityHeader(t, rr, "Permissions-Policy", "camera=(), geolocation=(), microphone=(), payment=(), usb=()")
 	assertSecurityHeader(t, rr, "Cross-Origin-Opener-Policy", "same-origin")
 	assertSecurityHeader(t, rr, "Cross-Origin-Resource-Policy", "same-origin")
+	assertSecurityHeader(t, rr, "Origin-Agent-Cluster", "?1")
+	assertSecurityHeader(t, rr, "X-Permitted-Cross-Domain-Policies", "none")
+	assertSecurityHeader(t, rr, "X-Download-Options", "noopen")
 	assertSecurityHeader(t, rr, "Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
 	if got := rr.Header().Get("Strict-Transport-Security"); got != "" {
 		t.Fatalf("Strict-Transport-Security over HTTP = %q, want empty", got)
