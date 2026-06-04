@@ -225,9 +225,41 @@ func TestDocsHandlerPlaceholderWhenNoDocsAvailable(t *testing.T) {
 		"The docs server is running",
 		"does not include an embedded docs build",
 		"VECTIS_DOCS_DIR",
+		`href="` + docsPlaceholderStylesheet + `"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("placeholder body missing %q: %q", want, body)
+		}
+	}
+
+	for _, blocked := range []string{"<style", "<script", " style="} {
+		if strings.Contains(strings.ToLower(body), blocked) {
+			t.Fatalf("placeholder body contains inline style/script marker %q: %q", blocked, body)
+		}
+	}
+}
+
+func TestDocsServerHandlerServesPlaceholderStylesheet(t *testing.T) {
+	handler := docsServerHandler(http.NotFoundHandler())
+
+	rec := requestDocsPath(t, handler, docsPlaceholderStylesheet)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	if got := rec.Header().Get("Content-Type"); got != docsPlaceholderStylesheetCT {
+		t.Fatalf("Content-Type = %q, want %q", got, docsPlaceholderStylesheetCT)
+	}
+
+	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", got)
+	}
+
+	body := rec.Body.String()
+	for _, want := range []string{"font-family: system-ui", "max-width: 720px", "code {"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("placeholder stylesheet missing %q: %q", want, body)
 		}
 	}
 }
@@ -253,6 +285,10 @@ func TestDocsServerHandlerAppliesSecurityHeaders(t *testing.T) {
 
 	if got := rec.Header().Get("Content-Security-Policy"); !strings.Contains(got, "default-src 'self'") || !strings.Contains(got, "frame-ancestors 'none'") {
 		t.Fatalf("Content-Security-Policy = %q, want docs policy", got)
+	}
+
+	if got := rec.Header().Get("Content-Security-Policy"); strings.Contains(got, "'unsafe-inline'") {
+		t.Fatalf("Content-Security-Policy = %q, must not allow unsafe-inline", got)
 	}
 
 	if got := rec.Header().Get("Strict-Transport-Security"); got != "" {

@@ -24,8 +24,10 @@ import (
 )
 
 const (
-	defaultDocsPort        = 8088
-	defaultShutdownTimeout = 5 * time.Second
+	defaultDocsPort             = 8088
+	defaultShutdownTimeout      = 5 * time.Second
+	docsPlaceholderStylesheet   = "/__vectis/docs-placeholder.css"
+	docsPlaceholderStylesheetCT = "text/css; charset=utf-8"
 )
 
 //go:embed all:embedded
@@ -71,6 +73,7 @@ func docsHTTPServer(addr string, handler http.Handler) *http.Server {
 
 func docsServerHandler(handler http.Handler) http.Handler {
 	mux := http.NewServeMux()
+	mux.Handle("GET "+docsPlaceholderStylesheet, http.HandlerFunc(docsPlaceholderCSS))
 	mux.Handle("GET /", handler)
 	mux.Handle("GET /health/live", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -95,6 +98,28 @@ func docsReadOnlyMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func docsPlaceholderCSS(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", docsPlaceholderStylesheetCT)
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`body {
+  font-family: system-ui, sans-serif;
+  max-width: 720px;
+  margin: 4rem auto;
+  line-height: 1.5;
+  color: #202427;
+  padding: 0 1rem;
+}
+
+code {
+  background: #eef2f4;
+  border: 1px solid #d3dde3;
+  border-radius: 4px;
+  padding: 0.1rem 0.25rem;
+}
+`))
 }
 
 func docsTLSEnabled() bool {
@@ -187,10 +212,7 @@ func docsHandlerWithFS(configuredDir string, logger interfaces.Logger, docsFS fs
 <head>
   <meta charset="utf-8">
   <title>Vectis Docs</title>
-  <style>
-    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 4rem auto; line-height: 1.5; color: #202427; padding: 0 1rem; }
-    code { background: #eef2f4; border: 1px solid #d3dde3; border-radius: 4px; padding: 0.1rem 0.25rem; }
-  </style>
+  <link rel="stylesheet" href="` + docsPlaceholderStylesheet + `">
 </head>
 <body>
   <h1>Vectis Docs</h1>

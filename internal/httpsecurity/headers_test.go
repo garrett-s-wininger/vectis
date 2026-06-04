@@ -121,10 +121,14 @@ func TestDocsHeaderPolicy_allowsStaticDocsAssets(t *testing.T) {
 	h.ServeHTTP(rec, req)
 
 	csp := rec.Header().Get("Content-Security-Policy")
-	for _, want := range []string{"default-src 'self'", "script-src 'self' 'unsafe-inline'", "style-src 'self' 'unsafe-inline'", "frame-ancestors 'none'"} {
+	for _, want := range []string{"default-src 'self'", "script-src 'self'", "style-src 'self'", "frame-ancestors 'none'"} {
 		if !strings.Contains(csp, want) {
 			t.Fatalf("Content-Security-Policy = %q, missing %q", csp, want)
 		}
+	}
+
+	if strings.Contains(csp, "'unsafe-inline'") {
+		t.Fatalf("Content-Security-Policy = %q, must not allow unsafe-inline", csp)
 	}
 }
 
