@@ -112,11 +112,38 @@ func (d *recordingTaskDispatchDrainer) options() (pending, drain taskdispatch.Dr
 	return d.pendingOpts, d.drainOpts
 }
 
+type recordingOrder struct {
+	mu     sync.Mutex
+	events []string
+}
+
+func (o *recordingOrder) add(event string) {
+	if o == nil {
+		return
+	}
+
+	o.mu.Lock()
+	o.events = append(o.events, event)
+	o.mu.Unlock()
+}
+
+func (o *recordingOrder) snapshot() []string {
+	if o == nil {
+		return nil
+	}
+
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	return append([]string(nil), o.events...)
+}
+
 type recordingTaskCompleter struct {
 	mu     sync.Mutex
 	result job.TaskCompletionResult
 	err    error
 	calls  []string
+	order  *recordingOrder
 }
 
 func (c *recordingTaskCompleter) CompleteTaskExecution(_ context.Context, executionID, status string) (job.TaskCompletionResult, error) {
@@ -124,6 +151,7 @@ func (c *recordingTaskCompleter) CompleteTaskExecution(_ context.Context, execut
 	defer c.mu.Unlock()
 
 	c.calls = append(c.calls, executionID+":"+status)
+	c.order.add("complete:" + executionID + ":" + status)
 	return c.result, c.err
 }
 
@@ -132,6 +160,30 @@ func (c *recordingTaskCompleter) recordedCalls() []string {
 	defer c.mu.Unlock()
 
 	return append([]string(nil), c.calls...)
+}
+
+type recordingFailedRunsStore struct {
+	dal.RunsRepository
+
+	mu    sync.Mutex
+	calls []string
+	order *recordingOrder
+}
+
+func (s *recordingFailedRunsStore) MarkRunFailed(ctx context.Context, runID, claimToken, failureCode, reason string) error {
+	s.mu.Lock()
+	s.calls = append(s.calls, runID+":"+claimToken+":"+failureCode+":"+reason)
+	s.mu.Unlock()
+	s.order.add("failed:" + runID)
+
+	return s.RunsRepository.MarkRunFailed(ctx, runID, claimToken, failureCode, reason)
+}
+
+func (s *recordingFailedRunsStore) failedCalls() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return append([]string(nil), s.calls...)
 }
 
 type recordingSucceededRunsStore struct {
@@ -1350,6 +1402,40 @@ func TestWorkerContinueTaskRun_UnknownPendingChecksService(t *testing.T) {
 
 	if len(runs.ExecutionTransitions) != 0 {
 		t.Fatalf("run should not be queued without pending work: %+v", runs.ExecutionTransitions)
+	}
+}
+
+func TestWorkerFinalizeFailedTaskRun_CompletesExecutionBeforeRunFailure(t *testing.T) {
+	t.Parallel()
+
+	order := &recordingOrder{}
+	base := mocks.NewMockRunsRepository()
+	base.TaskCompletion = dal.RunTaskCompletion{RunID: "run-failed", Total: 1, TerminalFailed: 1}
+	store := &recordingFailedRunsStore{RunsRepository: base, order: order}
+	completer := &recordingTaskCompleter{order: order}
+	w := &worker{
+		runCtx:                context.Background(),
+		logger:                interfaces.NewLogger("worker-test"),
+		store:                 store,
+		catalog:               cell.NewCatalogEventPublisher("local", nil),
+		taskCompletionService: completer,
+		taskCompletionFanout:  true,
+	}
+	env := &cell.ExecutionEnvelope{ExecutionID: "execution-root"}
+
+	outcome := w.finalizeFailedTaskRun(context.Background(), "run-failed", "claim-token", "task_failed", "command failed", env)
+	if outcome != observability.WorkerOutcomeFailed {
+		t.Fatalf("outcome: got %q, want %q", outcome, observability.WorkerOutcomeFailed)
+	}
+
+	events := order.snapshot()
+	if len(events) != 2 || events[0] != "complete:execution-root:"+dal.ExecutionStatusFailed || events[1] != "failed:run-failed" {
+		t.Fatalf("events: %+v", events)
+	}
+
+	calls := store.failedCalls()
+	if len(calls) != 1 || calls[0] != "run-failed:claim-token:task_failed:command failed" {
+		t.Fatalf("mark failed calls: %+v", calls)
 	}
 }
 

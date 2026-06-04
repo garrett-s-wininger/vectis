@@ -732,28 +732,7 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 		w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
 
 		if w.taskCompletionFanout && executionEnvelope != nil {
-			if _, ok := w.completeExecutionTerminal(ctx, executionEnvelope, dal.ExecutionStatusFailed); !ok {
-				span.SetStatus(otelcodes.Error, "complete failed task execution")
-				return observability.WorkerOutcomeFailed
-			}
-
-			_, err := w.reduceTaskRun(ctx, runID)
-			if err != nil {
-				w.logger.Error("Failed to reduce failed task run %s: %v", runID, err)
-				span.RecordError(err)
-				span.SetStatus(otelcodes.Error, "reduce failed task run")
-				return observability.WorkerOutcomeFailed
-			}
-
-			if err := w.markRunFailedWithRetry(runID, claimToken, decision.FailureCode, reason); err != nil {
-				w.logger.Error("Failed to mark run %s failed after task execution failure: %v", runID, err)
-				span.RecordError(err)
-				span.SetStatus(otelcodes.Error, "mark failed task run failed")
-				return observability.WorkerOutcomeFailed
-			}
-
-			span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeFailed))
-			return observability.WorkerOutcomeFailed
+			return w.finalizeFailedTaskRun(ctx, runID, claimToken, decision.FailureCode, reason, executionEnvelope)
 		}
 
 		if err := w.markRunFailedWithRetry(runID, claimToken, decision.FailureCode, reason); err != nil {
@@ -790,6 +769,33 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 	span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeSuccess))
 	w.logger.Info("Job completed successfully: %s", jobID)
 	return observability.WorkerOutcomeSuccess
+}
+
+func (w *worker) finalizeFailedTaskRun(ctx context.Context, runID, claimToken, failureCode, reason string, executionEnvelope *cell.ExecutionEnvelope) string {
+	span := trace.SpanFromContext(ctx)
+
+	if _, ok := w.completeExecutionTerminal(ctx, executionEnvelope, dal.ExecutionStatusFailed); !ok {
+		span.SetStatus(otelcodes.Error, "complete failed task execution")
+		return observability.WorkerOutcomeFailed
+	}
+
+	_, err := w.reduceTaskRun(ctx, runID)
+	if err != nil {
+		w.logger.Error("Failed to reduce failed task run %s: %v", runID, err)
+		span.RecordError(err)
+		span.SetStatus(otelcodes.Error, "reduce failed task run")
+		return observability.WorkerOutcomeFailed
+	}
+
+	if err := w.markRunFailedWithRetry(runID, claimToken, failureCode, reason); err != nil {
+		w.logger.Error("Failed to mark run %s failed after task execution failure: %v", runID, err)
+		span.RecordError(err)
+		span.SetStatus(otelcodes.Error, "mark failed task run failed")
+		return observability.WorkerOutcomeFailed
+	}
+
+	span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeFailed))
+	return observability.WorkerOutcomeFailed
 }
 
 func (w *worker) finalizeSucceededTaskRun(ctx context.Context, jobID, runID, claimToken string, completion executionTerminalResult) string {
