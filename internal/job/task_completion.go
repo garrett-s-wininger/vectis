@@ -6,11 +6,16 @@ import (
 	"strings"
 
 	"vectis/internal/dal"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type TaskCompletionResult struct {
-	Children  []dal.TaskExecutionRecord
-	Activated int
+	ExecutionID string
+	Status      string
+	Children    []dal.TaskExecutionRecord
+	Activated   int
 }
 
 type TaskCompleter interface {
@@ -30,7 +35,30 @@ func (s *TaskCompletionService) CompleteTaskExecution(ctx context.Context, execu
 		return TaskCompletionResult{}, fmt.Errorf("task completion service is required")
 	}
 
-	return CompleteTaskExecution(ctx, s.runs, executionID, status)
+	result, err := CompleteTaskExecution(ctx, s.runs, executionID, status)
+	if err != nil {
+		return TaskCompletionResult{}, err
+	}
+
+	RecordTaskCompletion(ctx, result)
+	return result, nil
+}
+
+func RecordTaskCompletion(ctx context.Context, result TaskCompletionResult) {
+	span := trace.SpanFromContext(ctx)
+	attrs := TaskCompletionAttributes(result)
+	span.SetAttributes(attrs...)
+	span.AddEvent("task.complete", trace.WithAttributes(attrs...))
+}
+
+func TaskCompletionAttributes(result TaskCompletionResult) []attribute.KeyValue {
+	return []attribute.KeyValue{
+		attribute.String("vectis.execution.id", result.ExecutionID),
+		attribute.String("vectis.execution.status", result.Status),
+		attribute.Int("vectis.task.children.activated", result.Activated),
+		attribute.Int("vectis.task.children.dispatchable", len(result.Children)),
+		attribute.Bool("vectis.task.fanout.activation_point", len(result.Children) > 0),
+	}
 }
 
 func CompleteTaskExecution(ctx context.Context, runs dal.RunsRepository, executionID, status string) (TaskCompletionResult, error) {
@@ -52,15 +80,20 @@ func CompleteTaskExecution(ctx context.Context, runs dal.RunsRepository, executi
 		}
 
 		return TaskCompletionResult{
-			Children:  children,
-			Activated: activated,
+			ExecutionID: executionID,
+			Status:      status,
+			Children:    children,
+			Activated:   activated,
 		}, nil
 	case dal.ExecutionStatusFailed, dal.ExecutionStatusCancelled, dal.ExecutionStatusAborted:
 		if err := runs.MarkExecutionTerminal(ctx, executionID, status); err != nil {
 			return TaskCompletionResult{}, err
 		}
 
-		return TaskCompletionResult{}, nil
+		return TaskCompletionResult{
+			ExecutionID: executionID,
+			Status:      status,
+		}, nil
 	default:
 		return TaskCompletionResult{}, fmt.Errorf("%w: unsupported terminal execution status %s", dal.ErrConflict, status)
 	}

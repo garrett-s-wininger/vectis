@@ -923,7 +923,8 @@ func (w *worker) completeExecutionTerminal(ctx context.Context, env *cell.Execut
 			service = job.NewTaskCompletionService(w.store)
 		}
 
-		completion, err := service.CompleteTaskExecution(w.runCtx, env.ExecutionID, status)
+		completionCtx := trace.ContextWithSpan(w.runCtx, trace.SpanFromContext(ctx))
+		completion, err := service.CompleteTaskExecution(completionCtx, env.ExecutionID, status)
 		if err != nil {
 			w.noteDBError(err)
 			w.logger.Warn("CompleteTaskExecution execution %s status %s failed: %v", env.ExecutionID, status, err)

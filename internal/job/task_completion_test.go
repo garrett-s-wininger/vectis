@@ -8,6 +8,10 @@ import (
 	"vectis/internal/dal"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/job"
+
+	"go.opentelemetry.io/otel/attribute"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 func TestCompleteTaskExecutionSucceededActivatesChildren(t *testing.T) {
@@ -101,4 +105,86 @@ func TestTaskCompletionServiceRejectsMissingDependencies(t *testing.T) {
 	if _, err := service.CompleteTaskExecution(context.Background(), "execution-root", dal.ExecutionStatusSucceeded); err == nil || !strings.Contains(err.Error(), "runs repository is required") {
 		t.Fatalf("expected runs repository error, got %v", err)
 	}
+}
+
+func TestTaskCompletionServiceRecordsTraceCompletion(t *testing.T) {
+	t.Parallel()
+
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	defer func() { _ = provider.Shutdown(context.Background()) }()
+
+	ctx, span := provider.Tracer("task-completion-test").Start(context.Background(), "complete")
+	runs := mocks.NewMockRunsRepository()
+	runs.TaskExecutions = []dal.TaskExecutionRecord{
+		{TaskID: "run-1:build", TaskKey: "build"},
+		{TaskID: "run-1:test", TaskKey: "test"},
+	}
+	runs.TaskActivatedN = 2
+
+	result, err := job.NewTaskCompletionService(runs).CompleteTaskExecution(ctx, " execution-root ", " "+dal.ExecutionStatusSucceeded+" ")
+	if err != nil {
+		t.Fatalf("CompleteTaskExecution: %v", err)
+	}
+	span.End()
+
+	if result.ExecutionID != "execution-root" || result.Status != dal.ExecutionStatusSucceeded {
+		t.Fatalf("normalized completion result: %+v", result)
+	}
+
+	spans := recorder.Ended()
+	if len(spans) != 1 {
+		t.Fatalf("ended spans: got %d, want 1", len(spans))
+	}
+
+	if got := spanAttributeString(spans[0].Attributes(), "vectis.execution.id"); got != "execution-root" {
+		t.Fatalf("execution id attr: got %q, want execution-root", got)
+	}
+
+	if got := spanAttributeInt(spans[0].Attributes(), "vectis.task.children.dispatchable"); got != 2 {
+		t.Fatalf("dispatchable children attr: got %d, want 2", got)
+	}
+
+	if got := spanAttributeBool(spans[0].Attributes(), "vectis.task.fanout.activation_point"); !got {
+		t.Fatalf("fanout activation point attr: got false, want true")
+	}
+
+	events := spans[0].Events()
+	if len(events) != 1 || events[0].Name != "task.complete" {
+		t.Fatalf("events: %+v", events)
+	}
+
+	if got := spanAttributeInt(events[0].Attributes, "vectis.task.children.activated"); got != 2 {
+		t.Fatalf("event activated children attr: got %d, want 2", got)
+	}
+}
+
+func spanAttributeString(attrs []attribute.KeyValue, key string) string {
+	for _, attr := range attrs {
+		if string(attr.Key) == key {
+			return attr.Value.AsString()
+		}
+	}
+
+	return ""
+}
+
+func spanAttributeInt(attrs []attribute.KeyValue, key string) int64 {
+	for _, attr := range attrs {
+		if string(attr.Key) == key {
+			return attr.Value.AsInt64()
+		}
+	}
+
+	return 0
+}
+
+func spanAttributeBool(attrs []attribute.KeyValue, key string) bool {
+	for _, attr := range attrs {
+		if string(attr.Key) == key {
+			return attr.Value.AsBool()
+		}
+	}
+
+	return false
 }
