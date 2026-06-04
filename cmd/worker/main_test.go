@@ -186,6 +186,30 @@ func (s *recordingFailedRunsStore) failedCalls() []string {
 	return append([]string(nil), s.calls...)
 }
 
+type recordingAbortedRunsStore struct {
+	dal.RunsRepository
+
+	mu    sync.Mutex
+	calls []string
+	order *recordingOrder
+}
+
+func (s *recordingAbortedRunsStore) MarkRunAborted(ctx context.Context, runID, claimToken, reason string) error {
+	s.mu.Lock()
+	s.calls = append(s.calls, runID+":"+claimToken+":"+reason)
+	s.mu.Unlock()
+	s.order.add("aborted:" + runID)
+
+	return s.RunsRepository.MarkRunAborted(ctx, runID, claimToken, reason)
+}
+
+func (s *recordingAbortedRunsStore) abortedCalls() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return append([]string(nil), s.calls...)
+}
+
 type recordingSucceededRunsStore struct {
 	dal.RunsRepository
 
@@ -1436,6 +1460,39 @@ func TestWorkerFinalizeFailedTaskRun_CompletesExecutionBeforeRunFailure(t *testi
 	calls := store.failedCalls()
 	if len(calls) != 1 || calls[0] != "run-failed:claim-token:task_failed:command failed" {
 		t.Fatalf("mark failed calls: %+v", calls)
+	}
+}
+
+func TestWorkerFinalizeAbortedTaskRun_CompletesExecutionBeforeRunAbort(t *testing.T) {
+	t.Parallel()
+
+	order := &recordingOrder{}
+	base := mocks.NewMockRunsRepository()
+	store := &recordingAbortedRunsStore{RunsRepository: base, order: order}
+	completer := &recordingTaskCompleter{order: order}
+	w := &worker{
+		runCtx:                context.Background(),
+		logger:                interfaces.NewLogger("worker-test"),
+		store:                 store,
+		catalog:               cell.NewCatalogEventPublisher("local", nil),
+		taskCompletionService: completer,
+		taskCompletionFanout:  true,
+	}
+	env := &cell.ExecutionEnvelope{ExecutionID: "execution-root"}
+
+	outcome := w.finalizeAbortedTaskRun(context.Background(), "run-aborted", "claim-token", dal.CancelReasonAPI, env)
+	if outcome != observability.WorkerOutcomeAborted {
+		t.Fatalf("outcome: got %q, want %q", outcome, observability.WorkerOutcomeAborted)
+	}
+
+	events := order.snapshot()
+	if len(events) != 2 || events[0] != "complete:execution-root:"+dal.ExecutionStatusAborted || events[1] != "aborted:run-aborted" {
+		t.Fatalf("events: %+v", events)
+	}
+
+	calls := store.abortedCalls()
+	if len(calls) != 1 || calls[0] != "run-aborted:claim-token:"+dal.CancelReasonAPI {
+		t.Fatalf("mark aborted calls: %+v", calls)
 	}
 }
 

@@ -707,10 +707,7 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 			span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeAborted))
 			w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
 			if w.taskCompletionFanout && executionEnvelope != nil {
-				if _, ok := w.completeExecutionTerminal(ctx, executionEnvelope, dal.ExecutionStatusAborted); !ok {
-					span.SetStatus(otelcodes.Error, "complete aborted task execution")
-					return observability.WorkerOutcomeFailed
-				}
+				return w.finalizeAbortedTaskRun(ctx, runID, claimToken, dal.CancelReasonAPI, executionEnvelope)
 			}
 
 			if err := w.markRunAbortedWithRetry(runID, claimToken, dal.CancelReasonAPI); err != nil {
@@ -769,6 +766,22 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 	span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeSuccess))
 	w.logger.Info("Job completed successfully: %s", jobID)
 	return observability.WorkerOutcomeSuccess
+}
+
+func (w *worker) finalizeAbortedTaskRun(ctx context.Context, runID, claimToken, reason string, executionEnvelope *cell.ExecutionEnvelope) string {
+	span := trace.SpanFromContext(ctx)
+
+	if _, ok := w.completeExecutionTerminal(ctx, executionEnvelope, dal.ExecutionStatusAborted); !ok {
+		span.SetStatus(otelcodes.Error, "complete aborted task execution")
+		return observability.WorkerOutcomeFailed
+	}
+
+	if err := w.markRunAbortedWithRetry(runID, claimToken, reason); err != nil {
+		w.logger.Error("Failed to mark run %s cancelled: %v", runID, err)
+		span.RecordError(err)
+	}
+
+	return observability.WorkerOutcomeAborted
 }
 
 func (w *worker) finalizeFailedTaskRun(ctx context.Context, runID, claimToken, failureCode, reason string, executionEnvelope *cell.ExecutionEnvelope) string {
