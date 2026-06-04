@@ -35,6 +35,7 @@ import (
 	"vectis/internal/registry"
 	"vectis/internal/runpolicy"
 	"vectis/internal/taskdispatch"
+	"vectis/internal/taskfinalize"
 	"vectis/internal/taskreduce"
 	"vectis/internal/utils"
 
@@ -781,6 +782,8 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 		}
 
 		if continued {
+			finalizeDecision := taskfinalize.Decide(true, taskreduce.Decision{})
+			taskfinalize.RecordDecision(ctx, finalizeDecision)
 			span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeSuccess))
 			w.logger.Info("Task completed successfully; run queued for continuation: %s", jobID)
 			return observability.WorkerOutcomeSuccess
@@ -794,11 +797,14 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 			return observability.WorkerOutcomeFailed
 		}
 
-		switch reduceDecision.Outcome {
-		case taskreduce.OutcomeSucceeded:
-		case taskreduce.OutcomeFailed:
+		finalizeDecision := taskfinalize.Decide(false, reduceDecision)
+		taskfinalize.RecordDecision(ctx, finalizeDecision)
+
+		switch finalizeDecision.Outcome {
+		case taskfinalize.OutcomeReduceSucceeded:
+		case taskfinalize.OutcomeReduceFailed:
 			decision := runpolicy.Decide(runpolicy.Input{Trigger: runpolicy.TriggerExecutionResult})
-			reason := truncateFailureReason(fmt.Sprintf("%d task execution(s) ended in a terminal failure", reduceDecision.Summary.TerminalFailed))
+			reason := truncateFailureReason(taskfinalize.FailureReason(finalizeDecision))
 			if err := w.markRunFailedWithRetry(runID, claimToken, decision.FailureCode, reason); err != nil {
 				w.logger.Error("Failed to mark run %s failed after task reduction: %v", runID, err)
 				span.RecordError(err)
@@ -809,7 +815,7 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 			span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeFailed))
 			w.logger.Info("Task run reduced to failed: %s", jobID)
 			return observability.WorkerOutcomeFailed
-		default:
+		case taskfinalize.OutcomeIncomplete:
 			if err := w.markRunQueuedForContinuationWithRetry(runID, claimToken); err != nil {
 				w.logger.Error("Failed to queue incomplete task run %s for continuation: %v", runID, err)
 				span.RecordError(err)
@@ -820,6 +826,10 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 			span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeSuccess))
 			w.logger.Info("Task run has incomplete work; run queued for continuation: %s", jobID)
 			return observability.WorkerOutcomeSuccess
+		default:
+			span.RecordError(fmt.Errorf("unsupported task finalize outcome %q", finalizeDecision.Outcome))
+			span.SetStatus(otelcodes.Error, "unsupported task finalize outcome")
+			return observability.WorkerOutcomeFailed
 		}
 	}
 
