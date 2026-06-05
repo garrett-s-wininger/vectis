@@ -162,7 +162,7 @@ Authorization: Bearer <api_token>
 
 Health endpoints and `POST /api/v1/login` are public. Setup routes use setup-specific authorization while the first admin is being created. Diagnostics, API metrics, and data routes authorize the action listed in the route table below; namespace-scoped resources are hidden with `404` when the caller is not allowed to see that namespace. Browser-facing requests must use a trusted `Host` value from the API host allowlist.
 
-`POST /api/v1/login` creates an expiring server-side session. Browser clients receive a `Secure` HttpOnly `__Host-vectis_session` cookie plus a `Secure` readable `__Host-vectis_csrf` cookie and `csrf_token` response field. Cookie-authenticated browser login requires HTTPS or local TLS because Vectis does not issue or accept unprefixed fallback session cookies. Cookie-authenticated requests carrying `Sec-Fetch-Site: cross-site` are rejected before route handling. Unsafe cookie-authenticated requests must copy the CSRF token into `X-CSRF-Token` and include a same-origin `Origin` or `Referer`; requests without origin metadata are rejected.
+`POST /api/v1/login` creates an expiring server-side session. Browser clients receive a `Secure` HttpOnly `__Host-vectis_session` cookie plus a `Secure` readable `__Host-vectis_csrf` cookie and `csrf_token` response field. Cookie-authenticated browser login requires HTTPS or local TLS because Vectis does not issue or accept unprefixed fallback session cookies. Browser-marked cross-site requests without `Origin` are rejected before route handling; cross-site requests with `Origin` must pass CORS. Cookie-authenticated requests carrying `Sec-Fetch-Site: cross-site` are rejected even when other metadata is present. Unsafe cookie-authenticated requests must copy the CSRF token into `X-CSRF-Token` and include a same-origin `Origin` or `Referer`; requests without origin metadata are rejected.
 
 Non-browser clients that need a bearer session token can request one explicitly:
 
@@ -243,7 +243,7 @@ Common v1 error codes:
 | `database_unavailable` | `503` | The configured SQL database is temporarily unavailable. |
 | `queue_not_ready` | `503` | The API cannot currently hand work to the queue. |
 | `server_shutting_down` | `503` | The API has started shutdown drain and should not receive new requests. |
-| `fetch_metadata_forbidden` | `403` | A cookie-authenticated safe request carried cross-site Fetch Metadata. |
+| `fetch_metadata_forbidden` | `403` | A browser-marked cross-site request omitted `Origin`, or a cookie-authenticated request carried cross-site Fetch Metadata. |
 | `csrf_origin_forbidden` | `403` | A cookie-authenticated unsafe request omitted origin metadata or came from a mismatched origin. |
 | `csrf_token_required` | `403` | A cookie-authenticated unsafe request is missing a valid `X-CSRF-Token`. |
 | `rate_limit_exceeded` | `429` | The request exceeded the configured rate limit; `Retry-After` is set. |

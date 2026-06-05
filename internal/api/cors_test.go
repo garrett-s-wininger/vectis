@@ -21,6 +21,7 @@ func TestCORSMiddlewareDefaultClosed(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/health/live", nil)
 	req.Host = "localhost"
 	req.Header.Set("Origin", "https://ui.example")
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
 	s.Handler().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusForbidden {

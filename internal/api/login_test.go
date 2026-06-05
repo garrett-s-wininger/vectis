@@ -577,6 +577,8 @@ func TestCookieSessionAuth_requiresCSRFForUnsafeMethods(t *testing.T) {
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/logout", nil)
 	req.AddCookie(sessionCookie)
 	req.Header.Set(csrfHeaderName, out.CSRFToken)
+	req.Host = "vectis.example"
+	req.Header.Set("Origin", "https://vectis.example")
 	req.Header.Set("Sec-Fetch-Site", "cross-site")
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {
@@ -618,7 +620,7 @@ func TestCookieSessionAuth_requiresCSRFForUnsafeMethods(t *testing.T) {
 
 	requireSecurityRejection(t, metrics, securityReasonCORSOriginForbidden, securityRejectionUnknownRoute, http.StatusForbidden)
 	requireSecurityRejection(t, metrics, securityReasonCSRFFetchMetadataBlocked, "POST /api/v1/logout", http.StatusForbidden)
-	requireSecurityRejection(t, metrics, securityReasonFetchMetadataForbidden, "GET /api/v1/jobs", http.StatusForbidden)
+	requireSecurityRejection(t, metrics, securityReasonFetchMetadataForbidden, securityRejectionUnknownRoute, http.StatusForbidden)
 }
 
 func TestCookieSessionAuth_idleExpiry(t *testing.T) {
