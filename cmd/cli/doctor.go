@@ -506,8 +506,10 @@ func doctorQueueBacklog() doctorCheck {
 	}
 
 	var result struct {
-		Queued int64                    `json:"queued"`
-		Cells  []doctorQueueBacklogCell `json:"cells"`
+		Queued              int64                    `json:"queued"`
+		Cells               []doctorQueueBacklogCell `json:"cells"`
+		TaskDispatchPending int64                    `json:"task_dispatch_pending"`
+		TaskDispatchCells   []doctorTaskDispatchCell `json:"task_dispatch_cells"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -515,10 +517,10 @@ func doctorQueueBacklog() doctorCheck {
 	}
 
 	if result.Queued > 100 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("backlog high: %d queued", result.Queued), Evidence: formatDoctorQueueBacklogEvidence(result.Queued, result.Cells), SuggestedAction: "Check queue service health and worker count", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("backlog high: %d queued", result.Queued), Evidence: formatDoctorQueueBacklogEvidence(result.Queued, result.Cells, result.TaskDispatchPending, result.TaskDispatchCells), SuggestedAction: "Check queue service health and worker count", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("backlog ok: %d queued", result.Queued), Evidence: formatDoctorQueueBacklogEvidence(result.Queued, result.Cells), DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("backlog ok: %d queued", result.Queued), Evidence: formatDoctorQueueBacklogEvidence(result.Queued, result.Cells, result.TaskDispatchPending, result.TaskDispatchCells), DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 }
 
 type doctorQueueBacklogCell struct {
@@ -526,25 +528,42 @@ type doctorQueueBacklogCell struct {
 	Queued int64  `json:"queued"`
 }
 
-func formatDoctorQueueBacklogEvidence(queued int64, cells []doctorQueueBacklogCell) string {
-	if len(cells) == 0 {
+func formatDoctorQueueBacklogEvidence(queued int64, cells []doctorQueueBacklogCell, taskDispatchPending int64, taskDispatchCells []doctorTaskDispatchCell) string {
+	if len(cells) == 0 && taskDispatchPending == 0 && len(taskDispatchCells) == 0 {
 		return fmt.Sprintf("%d", queued)
 	}
 
-	parts := make([]string, 0, len(cells))
+	parts := []string{fmt.Sprintf("queued=%d", queued)}
+	cellParts := make([]string, 0, len(cells))
 	for _, cell := range cells {
 		if cell.Queued <= 0 {
 			continue
 		}
 
-		parts = append(parts, fmt.Sprintf("%s:%d", cell.CellID, cell.Queued))
+		cellParts = append(cellParts, fmt.Sprintf("%s:%d", cell.CellID, cell.Queued))
 	}
 
-	if len(parts) == 0 {
-		return fmt.Sprintf("queued=%d", queued)
+	if len(cellParts) > 0 {
+		parts = append(parts, "cells="+strings.Join(cellParts, ","))
 	}
 
-	return fmt.Sprintf("queued=%d cells=%s", queued, strings.Join(parts, ","))
+	if taskDispatchPending > 0 || len(taskDispatchCells) > 0 {
+		parts = append(parts, fmt.Sprintf("task_dispatch_pending=%d", taskDispatchPending))
+		taskCellParts := make([]string, 0, len(taskDispatchCells))
+		for _, cell := range taskDispatchCells {
+			if cell.Pending <= 0 {
+				continue
+			}
+
+			taskCellParts = append(taskCellParts, fmt.Sprintf("%s:%d", cell.CellID, cell.Pending))
+		}
+
+		if len(taskCellParts) > 0 {
+			parts = append(parts, "task_cells="+strings.Join(taskCellParts, ","))
+		}
+	}
+
+	return strings.Join(parts, " ")
 }
 
 func doctorStuckRuns() doctorCheck {

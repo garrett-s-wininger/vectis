@@ -315,6 +315,77 @@ func TestAPIServer_GetQueueBacklogIncludesCellBreakdown(t *testing.T) {
 	}
 }
 
+func TestAPIServer_GetQueueBacklogIncludesTaskDispatchPending(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-queue-task-dispatch", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-queue-task-dispatch"
+	def := `{"id":"job-queue-task-dispatch","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRunInCell(ctx, jobID, nil, 1, "iad-a")
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	if _, _, err := repos.TaskDispatchIntents().Ensure(ctx, dal.TaskDispatchIntentCreate{
+		ExecutionID:       dispatch.ExecutionID,
+		RunID:             dispatch.RunID,
+		TaskID:            dispatch.TaskID,
+		TaskAttemptID:     dispatch.TaskAttemptID,
+		SourceExecutionID: "source-execution",
+		CellID:            dispatch.CellID,
+	}); err != nil {
+		t.Fatalf("ensure task dispatch intent: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/queue/backlog", nil)
+	rec := httptest.NewRecorder()
+	server.GetQueueBacklog(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var body struct {
+		Queued              int64 `json:"queued"`
+		TaskDispatchPending int64 `json:"task_dispatch_pending"`
+		TaskDispatchCells   []struct {
+			CellID  string `json:"cell_id"`
+			Pending int64  `json:"pending"`
+		} `json:"task_dispatch_cells"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v; body=%s", err, rec.Body.String())
+	}
+
+	if body.Queued != 1 {
+		t.Fatalf("queued total: got %d, want 1", body.Queued)
+	}
+
+	if body.TaskDispatchPending != 1 {
+		t.Fatalf("task dispatch pending: got %d, want 1", body.TaskDispatchPending)
+	}
+
+	if len(body.TaskDispatchCells) != 1 || body.TaskDispatchCells[0].CellID != "iad-a" || body.TaskDispatchCells[0].Pending != 1 {
+		t.Fatalf("task dispatch cells: %+v", body.TaskDispatchCells)
+	}
+}
+
 func TestAPIServer_GetCellsStatusChecksConfiguredIngress(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)

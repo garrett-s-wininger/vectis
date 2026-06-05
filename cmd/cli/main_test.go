@@ -2649,10 +2649,14 @@ func TestDoctor_reconcilerNoRecoveryActivityIsHealthy(t *testing.T) {
 
 func TestDoctor_queueBacklogEvidenceIncludesCells(t *testing.T) {
 	check := doctorCheckQueueBacklogResponse(t, map[string]any{
-		"queued": 101,
+		"queued":                101,
+		"task_dispatch_pending": 4,
 		"cells": []map[string]any{
 			{"cell_id": "iad-a", "queued": 75},
 			{"cell_id": "pdx-b", "queued": 26},
+		},
+		"task_dispatch_cells": []map[string]any{
+			{"cell_id": "iad-a", "pending": 4},
 		},
 	})
 
@@ -2660,7 +2664,7 @@ func TestDoctor_queueBacklogEvidenceIncludesCells(t *testing.T) {
 		t.Fatalf("expected queue backlog to warn, got %#v", check)
 	}
 
-	for _, want := range []string{"queued=101", "iad-a:75", "pdx-b:26"} {
+	for _, want := range []string{"queued=101", "iad-a:75", "pdx-b:26", "task_dispatch_pending=4", "task_cells=iad-a:4"} {
 		if !strings.Contains(check.Evidence, want) {
 			t.Fatalf("expected evidence to contain %q, got %q", want, check.Evidence)
 		}
