@@ -131,6 +131,7 @@ type routeSpec struct {
 	Body      routeBodyPolicy
 	Accept    routeAcceptPolicy
 	Query     routeQueryPolicy
+	Headers   routeHeaderPolicy
 	RateLimit ratelimit.Rule
 }
 
@@ -184,7 +185,7 @@ func (s *APIServer) markDBRecovered() {
 }
 
 func idempotencyKeyFromRequest(r *http.Request) string {
-	return r.Header.Get("Idempotency-Key")
+	return r.Header.Get(idempotencyKeyHeaderName)
 }
 
 func hashIdempotencyRequest(parts ...string) string {

@@ -85,6 +85,7 @@ func TestWriteAPIErrorCode_statusMatrix(t *testing.T) {
 		code   apiErrorCode
 	}{
 		{name: "bad request", status: http.StatusBadRequest, code: apiErrInvalidRequestBody},
+		{name: "invalid header", status: http.StatusBadRequest, code: apiErrInvalidRequestHeader},
 		{name: "invalid host", status: http.StatusBadRequest, code: apiErrInvalidHostHeader},
 		{name: "invalid query", status: http.StatusBadRequest, code: apiErrInvalidQueryParameter},
 		{name: "auth required", status: http.StatusUnauthorized, code: apiErrAuthenticationRequired},
@@ -154,6 +155,7 @@ func TestAPIErrorCodeMessages_areNonEmpty(t *testing.T) {
 		apiErrInvalidNewPassword,
 		apiErrInvalidPassword,
 		apiErrInvalidRequestBody,
+		apiErrInvalidRequestHeader,
 		apiErrInvalidRole,
 		apiErrInvalidScopeAction,
 		apiErrInvalidUserID,

@@ -65,7 +65,7 @@ curl -sS \
   http://localhost:8080/api/v1/jobs/trigger/build-main
 ```
 
-Keys are opaque client strings. Use at least 128 bits of randomness, or use a stable operation ID from the system calling Vectis. Do not put secrets, tokens, passwords, or customer data in the key.
+Keys are opaque client strings. Use at least 128 bits of randomness, or use a stable operation ID from the system calling Vectis. Keys must be 1-255 visible ASCII characters and cannot contain whitespace or commas. Do not put secrets, tokens, passwords, or customer data in the key.
 
 ## What Vectis Compares
 
@@ -99,6 +99,7 @@ This means two users can safely use the same key without colliding. It also mean
 | Retry with the same key and same request after success. | `202` with the recorded response. |
 | Retry while the first request is still in progress. | `409 idempotency_in_progress`. Retry later with the same key. |
 | Reuse the same key for a different request. | `409 idempotency_key_reused`. Stop and create a new key for the new operation. |
+| Send `Idempotency-Key` to a route that does not document support for it, or send an invalid key. | `400 invalid_request_header`. Remove the header or generate a valid key. |
 
 When you get `idempotency_in_progress`, wait briefly and retry with the same key. When you get `idempotency_key_reused`, do not keep retrying that key with a changed request.
 

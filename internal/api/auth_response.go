@@ -42,6 +42,7 @@ const (
 	apiErrInvalidNewPassword             apiErrorCode = "invalid_new_password"
 	apiErrInvalidPassword                apiErrorCode = "invalid_password"
 	apiErrInvalidRequestBody             apiErrorCode = "invalid_request_body"
+	apiErrInvalidRequestHeader           apiErrorCode = "invalid_request_header"
 	apiErrInvalidRole                    apiErrorCode = "invalid_role"
 	apiErrInvalidScopeAction             apiErrorCode = "invalid_scope_action"
 	apiErrInvalidUserID                  apiErrorCode = "invalid_user_id"
@@ -149,6 +150,8 @@ func (c apiErrorCode) message() string {
 		return "invalid password"
 	case apiErrInvalidRequestBody:
 		return "invalid request body"
+	case apiErrInvalidRequestHeader:
+		return "invalid request header"
 	case apiErrInvalidRole:
 		return "invalid role"
 	case apiErrInvalidScopeAction:

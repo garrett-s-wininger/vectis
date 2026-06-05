@@ -21,6 +21,7 @@ const (
 	securityReasonFetchMetadataForbidden   = "fetch_metadata_forbidden"
 	securityReasonMethodNotAllowed         = "method_not_allowed"
 	securityReasonMethodOverrideForbidden  = "method_override_forbidden"
+	securityReasonInvalidRequestHeader     = "invalid_request_header"
 	securityReasonInvalidQueryParameter    = "invalid_query_parameter"
 	securityReasonNotAcceptable            = "not_acceptable"
 	securityReasonRateLimitExceeded        = "rate_limit_exceeded"

@@ -48,7 +48,8 @@ Only documented routes accept `Idempotency-Key`. For clients, the important ques
 | Behavior | User/operator expectation |
 | --- | --- |
 | A route documents `Idempotency-Key` support | Retrying with the same key should follow the documented replay behavior. |
-| A route does not document idempotency | Do not assume retrying is duplicate-safe. |
+| A route does not document idempotency | The API rejects `Idempotency-Key` instead of silently ignoring retry intent. |
+| `400 invalid_request_header` | The idempotency key was malformed, duplicated, or sent to a route that does not accept it. |
 | `409 idempotency_key_reused` | The key was reused for a different operation or incompatible payload. |
 | `409 idempotency_in_progress` | The original operation is still being processed. |
 

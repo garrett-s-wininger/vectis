@@ -119,6 +119,10 @@ func TestAPIRouteInventory(t *testing.T) {
 		if err := spec.Query.validate(); err != nil {
 			t.Fatalf("route[%d] %q has invalid query policy: %v", i, spec.Pattern, err)
 		}
+
+		if err := spec.Headers.validate(); err != nil {
+			t.Fatalf("route[%d] %q has invalid header policy: %v", i, spec.Pattern, err)
+		}
 	}
 }
 
@@ -300,6 +304,41 @@ func TestAPIRouteInventory_queryPolicies(t *testing.T) {
 	for pattern := range want {
 		if !seen[pattern] {
 			t.Fatalf("route inventory did not include query policy for %q", pattern)
+		}
+	}
+}
+
+func TestAPIRouteInventory_headerPolicies(t *testing.T) {
+	s := &APIServer{}
+	wantIdempotency := map[string]bool{
+		"POST /api/v1/jobs/run":          true,
+		"POST /api/v1/jobs/trigger/{id}": true,
+		"POST /api/v1/runs/{id}/replay":  true,
+	}
+
+	seen := make(map[string]bool, len(wantIdempotency))
+	for _, spec := range s.routeSpecs(true) {
+		if err := spec.Headers.validate(); err != nil {
+			t.Fatalf("route %q has invalid header policy: %v", spec.Pattern, err)
+		}
+
+		if !wantIdempotency[spec.Pattern] {
+			if spec.Headers.allowIdempotencyKey {
+				t.Fatalf("route %q accepts Idempotency-Key without an inventory expectation", spec.Pattern)
+			}
+
+			continue
+		}
+
+		seen[spec.Pattern] = true
+		if !spec.Headers.allowIdempotencyKey {
+			t.Fatalf("route %q should accept Idempotency-Key", spec.Pattern)
+		}
+	}
+
+	for pattern := range wantIdempotency {
+		if !seen[pattern] {
+			t.Fatalf("route inventory did not include header policy for %q", pattern)
 		}
 	}
 }

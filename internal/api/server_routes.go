@@ -54,18 +54,18 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 
 	specs = append(specs, []routeSpec{
 		{
-			// Public route: orchestrator liveness probe; OK response has no representation.
 			Pattern: "GET /health/live",
 			Handler: http.HandlerFunc(s.HealthLive),
-			Auth:    routeAuthPolicy{mode: routeAuthPublic},
-			Accept:  routeAcceptAnyPolicy(),
+			// public route: orchestrator liveness probe; OK response has no representation.
+			Auth:   routeAuthPolicy{mode: routeAuthPublic},
+			Accept: routeAcceptAnyPolicy(),
 		},
 		{
-			// Public route: orchestrator readiness probe; OK response has no representation.
 			Pattern: "GET /health/ready",
 			Handler: http.HandlerFunc(s.HealthReady),
-			Auth:    routeAuthPolicy{mode: routeAuthPublic},
-			Accept:  routeAcceptAnyPolicy(),
+			// public route: orchestrator readiness probe; OK response has no representation.
+			Auth:   routeAuthPolicy{mode: routeAuthPublic},
+			Accept: routeAcceptAnyPolicy(),
 		},
 		{
 			Pattern: "GET /api/v1/version",
@@ -160,6 +160,7 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 			Handler:   http.HandlerFunc(s.RunJob),
 			Auth:      routeAuthPolicy{Action: authz.ActionRunTrigger},
 			Body:      jobDefinitionBody,
+			Headers:   routeHeadersIdempotencyPolicy(),
 			RateLimit: defaultLimits.General,
 		},
 		{
@@ -180,6 +181,7 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 			Handler:   http.HandlerFunc(s.TriggerJob),
 			Auth:      routeAuthPolicy{Action: authz.ActionRunTrigger},
 			Body:      optionalJobDefinitionBody,
+			Headers:   routeHeadersIdempotencyPolicy(),
 			RateLimit: defaultLimits.General,
 		},
 		{
@@ -228,6 +230,7 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 			Handler:   http.HandlerFunc(s.ReplayRun),
 			Auth:      routeAuthPolicy{Action: authz.ActionRunOperator},
 			Body:      optionalJobDefinitionBody,
+			Headers:   routeHeadersIdempotencyPolicy(),
 			RateLimit: defaultLimits.General,
 		},
 		{
@@ -313,9 +316,9 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 			RateLimit: defaultLimits.Auth,
 		},
 		{
-			// Public route: password login creates an authenticated session.
-			Pattern:   "POST /api/v1/login",
-			Handler:   http.HandlerFunc(s.Login),
+			Pattern: "POST /api/v1/login",
+			Handler: http.HandlerFunc(s.Login),
+			// public route: password login creates an authenticated session.
 			Auth:      routeAuthPolicy{mode: routeAuthPublic},
 			Cache:     routeCachePolicy{mode: routeCacheNoStore},
 			Body:      routeBodyJSONPolicy(maxLoginBodyBytes),
@@ -481,6 +484,10 @@ func (s *APIServer) registerRoute(mux *http.ServeMux, spec routeSpec) {
 		panic(fmt.Sprintf("api route %q has invalid query policy: %v", spec.Pattern, err))
 	}
 
+	if err := spec.Headers.validate(); err != nil {
+		panic(fmt.Sprintf("api route %q has invalid header policy: %v", spec.Pattern, err))
+	}
+
 	handler := s.accessControlledHandler(spec.Auth, spec.Handler)
 	handler = routeBodyMiddleware(spec.Body, handler, s.recordSecurityRejection)
 	handler = routeAcceptMiddleware(spec.Accept, handler, s.recordSecurityRejection)
@@ -494,6 +501,7 @@ func (s *APIServer) registerRoute(mux *http.ServeMux, spec routeSpec) {
 	}
 
 	handler = routeQueryMiddleware(spec.Query, handler, s.recordSecurityRejection)
+	handler = routeHeaderMiddleware(spec.Headers, handler, s.recordSecurityRejection)
 
 	if spec.Cache.shouldSetNoStore(spec.Auth) {
 		handler = noStoreMiddleware(handler)
@@ -569,6 +577,7 @@ func (s *APIServer) registerRouteFunc(mux *http.ServeMux, spec routeSpec, handle
 		Body:      spec.Body,
 		Accept:    spec.Accept,
 		Query:     spec.Query,
+		Headers:   spec.Headers,
 		RateLimit: spec.RateLimit,
 	})
 }

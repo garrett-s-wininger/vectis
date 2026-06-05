@@ -197,13 +197,15 @@ CORS is closed unless the operator configures exact allowed origins. Same-origin
 
 Host header validation is enabled by default. Requests with untrusted, wildcard, URL-shaped, or otherwise invalid `Host` values are rejected before route handling.
 
-Security-control rejections for Host validation, CORS checks, Fetch Metadata checks, CSRF checks, request-target checks, query-parameter checks, method override headers, method checks, response `Accept` negotiation, media-type checks, request body policy, and rate limits are logged with sanitized fields and counted by the `vectis_api_security_rejections_total` metric.
+Security-control rejections for Host validation, CORS checks, Fetch Metadata checks, CSRF checks, request-target checks, request-header checks, query-parameter checks, method override headers, method checks, response `Accept` negotiation, media-type checks, request body policy, and rate limits are logged with sanitized fields and counted by the `vectis_api_security_rejections_total` metric.
 
 The API server caps request headers at 32 KiB. Requests above that parser limit are rejected by the HTTP server before route handling.
 
 Routes reject request bodies unless the route explicitly accepts a JSON body. JSON routes enforce `application/json` and a per-route body cap before parsing; job-definition routes have a larger cap than auth, user, token, namespace, and control routes. Optional JSON routes allow an absent body without `Content-Type`, but any present body must use JSON.
 
 Requests must use origin-form, unescaped, canonical API paths. Absolute-form proxy request targets, `OPTIONS *`, percent-encoded path text, duplicate slash paths, dot segments, and trailing slash aliases return `invalid_request_target`. Unknown routes return `route_not_found`. Method mismatches return `method_not_allowed` with an `Allow` header; TRACE, TRACK, and CONNECT are always rejected. Method override headers such as `X-HTTP-Method`, `X-HTTP-Method-Override`, and `X-Method-Override` return `method_override_forbidden`.
+
+Routes also validate selected request headers before handler logic. Duplicate singleton security headers such as `Authorization`, `Content-Type`, `X-CSRF-Token`, `Origin`, `Referer`, and `Idempotency-Key` return `invalid_request_header`. Routes that do not document idempotency support reject `Idempotency-Key`.
 
 Routes also validate query parameters before handler logic. Query strings must parse cleanly; keys must be declared for the route; and repeated keys are rejected. Routes with no declared query policy reject all query parameters with `invalid_query_parameter`.
 
@@ -215,7 +217,7 @@ Common status meanings:
 
 | Status | Meaning |
 | --- | --- |
-| `400` | Invalid JSON, invalid IDs, missing required fields, unexpected request bodies, malformed or unsupported query parameters, forbidden method override headers, or invalid state transition input. |
+| `400` | Invalid JSON, invalid IDs, missing required fields, unexpected request bodies, malformed or unsupported request headers or query parameters, forbidden method override headers, or invalid state transition input. |
 | `401` | Missing, malformed, expired, or invalid bearer credentials. |
 | `403` | Authenticated principal is not allowed to perform a visible global action. |
 | `404` | Resource is absent or hidden by namespace authorization. |
@@ -232,6 +234,7 @@ Common v1 error codes:
 | Code | Typical status | Meaning |
 | --- | --- | --- |
 | `invalid_request_body` | `400` | JSON could not be decoded or did not match the expected request shape. |
+| `invalid_request_header` | `400` | The request supplied a duplicated singleton security header, malformed idempotency key, or idempotency key on a route that does not accept it. |
 | `invalid_host_header` | `400` | The request `Host` header is invalid or not in the API host allowlist. |
 | `invalid_request_target` | `400` | The request target is not an origin-form, unescaped, canonical API path. |
 | `invalid_query_parameter` | `400` | The request supplied a malformed, repeated, or unsupported query parameter. |
@@ -285,7 +288,7 @@ Run submission routes can target a cell with `cell_id`/`target_cell_id`; stored-
 
 Run list/detail responses include audit metadata such as `definition_version`, `definition_hash`, `owning_cell`, trigger invocation fields, requested cells, and `execution_payload_hash`. Run detail also includes `dispatch_events`, a compact `task_completion` summary when task records exist, and, when task fan-out has produced continuation handoffs, a bounded `task_dispatch` summary with pending, failed, and enqueued intent counts. Queued run detail may include `next_action` with `task_dispatch_pending`, `task_dispatch_retry_pending`, or `task_completion_pending` when task-level continuation work explains what the run is waiting on; orphaned task-run detail may include `task_finalization_repair_pending` when the stored task summary can already reduce to a terminal state. `GET /api/v1/runs/{id}/tasks` includes task-attempt execution identity, execution status, and execution lease owner/expiry when an attempt is owned by a worker; claim tokens are not exposed. The frozen execution payload itself is available only through the operator-scoped execution-payload route.
 
-`POST /api/v1/jobs/run`, `POST /api/v1/jobs/trigger/{id}`, and `POST /api/v1/runs/{id}/replay` accept `Idempotency-Key`. Use this header when a client might retry after a timeout or dropped connection. Retry guidance for each route family is in [Idempotency And Retries](./idempotency-and-retries.md).
+`POST /api/v1/jobs/run`, `POST /api/v1/jobs/trigger/{id}`, and `POST /api/v1/runs/{id}/replay` accept `Idempotency-Key`. Use this header when a client might retry after a timeout or dropped connection. Keys must be 1-255 visible ASCII characters and cannot contain whitespace or commas. Other routes reject the header. Retry guidance for each route family is in [Idempotency And Retries](./idempotency-and-retries.md).
 
 Streaming routes return `text/event-stream`. Use `curl -N`, `EventSource`, or another SSE-capable client for `GET /api/v1/sse/jobs/{id}/runs` and `GET /api/v1/runs/{id}/logs`.
 
