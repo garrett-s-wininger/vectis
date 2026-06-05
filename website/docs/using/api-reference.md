@@ -197,13 +197,13 @@ CORS is closed unless the operator configures exact allowed origins. Same-origin
 
 Host header validation is enabled by default. Requests with untrusted, wildcard, URL-shaped, or otherwise invalid `Host` values are rejected before route handling.
 
-Security-control rejections for Host validation, CORS checks, Fetch Metadata checks, CSRF checks, method checks, media-type checks, request body policy, and rate limits are logged with sanitized fields and counted by the `vectis_api_security_rejections_total` metric.
+Security-control rejections for Host validation, CORS checks, Fetch Metadata checks, CSRF checks, request-target checks, method checks, media-type checks, request body policy, and rate limits are logged with sanitized fields and counted by the `vectis_api_security_rejections_total` metric.
 
 The API server caps request headers at 32 KiB. Requests above that parser limit are rejected by the HTTP server before route handling.
 
 Routes reject request bodies unless the route explicitly accepts a JSON body. JSON routes enforce `application/json` and a per-route body cap before parsing; job-definition routes have a larger cap than auth, user, token, namespace, and control routes. Optional JSON routes allow an absent body without `Content-Type`, but any present body must use JSON.
 
-Unknown routes return `route_not_found`. Method mismatches return `method_not_allowed` with an `Allow` header; TRACE, TRACK, and CONNECT are always rejected.
+Absolute-form proxy request targets and `OPTIONS *` return `invalid_request_target`. Unknown routes return `route_not_found`. Method mismatches return `method_not_allowed` with an `Allow` header; TRACE, TRACK, and CONNECT are always rejected.
 
 The `code` field is intended for clients and scripts. The `message` field is human-readable and may become clearer over time without changing the machine meaning. `details` is optional structured data whose shape depends on `code`; clients should ignore unknown detail keys.
 
@@ -228,6 +228,7 @@ Common v1 error codes:
 | --- | --- | --- |
 | `invalid_request_body` | `400` | JSON could not be decoded or did not match the expected request shape. |
 | `invalid_host_header` | `400` | The request `Host` header is invalid or not in the API host allowlist. |
+| `invalid_request_target` | `400` | The request target is not an origin-form API path. |
 | `authentication_required` | `401` | Missing, malformed, expired, or invalid bearer credentials. |
 | `authorization_denied` | `403` | Authenticated principal is not allowed to perform the requested visible action. |
 | `auth_unavailable` | `503` | Authentication persistence or configuration is not available. |

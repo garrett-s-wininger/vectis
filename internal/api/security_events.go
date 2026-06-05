@@ -23,6 +23,7 @@ const (
 	securityReasonRateLimitExceeded        = "rate_limit_exceeded"
 	securityReasonRequestBodyNotAllowed    = "request_body_not_allowed"
 	securityReasonRequestBodyTooLarge      = "request_body_too_large"
+	securityReasonRequestTargetInvalid     = "request_target_invalid"
 	securityReasonUnsupportedHTTPMethod    = "unsupported_http_method"
 	securityReasonUnsupportedMediaType     = "unsupported_media_type"
 

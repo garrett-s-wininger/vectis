@@ -104,7 +104,7 @@ API audit events are enabled by default.
 | `VECTIS_API_AUDIT_ENABLED` / `api.audit.enabled` | Set to `false` to disable audit emission. |
 | `VECTIS_API_AUDIT_DURABILITY_OVERRIDES` / `api.audit.durability_overrides` | Comma-separated `event=durability` overrides, such as `auth.success=disabled,run.triggered=best_effort`. |
 
-API Host, CORS, CSRF, method, media-type, body-policy, and rate-limit rejects emit sanitized warning logs and increment `vectis_api_security_rejections_total`. Alert on sustained or sudden increases by `reason`; the metric uses only `reason`, `route`, and `status` labels to avoid attacker-controlled cardinality.
+API Host, CORS, CSRF, request-target, method, media-type, body-policy, and rate-limit rejects emit sanitized warning logs and increment `vectis_api_security_rejections_total`. Alert on sustained or sudden increases by `reason`; the metric uses only `reason`, `route`, and `status` labels to avoid attacker-controlled cardinality.
 
 API CORS is closed by default. Same-origin `Origin` headers, matching the browser-facing scheme, host, and port, are allowed without CORS response headers. Set `api.cors.allowed_origins` or `VECTIS_API_CORS_ALLOWED_ORIGINS` to a comma-separated list of exact browser origins, such as `https://ui.example.com` or `http://localhost:3000`. Non-local browser frontends must use `https://`; `http://` origins are accepted only for loopback or localhost development. Origins with wildcards, `null`, paths, query strings, user info, or non-HTTP schemes are rejected. Allowed browser requests receive credentialed CORS headers; disallowed cross-origin actual requests and preflights are rejected before route handling.
 
@@ -122,7 +122,7 @@ Successful logout clears the Vectis session cookies and sends `Clear-Site-Data: 
 
 API routes reject request bodies unless the route inventory explicitly declares a JSON body policy. Declared JSON body routes enforce `application/json` media types and per-route size caps before parsing, including smaller caps for auth/user/token/control routes and a larger cap for job definitions.
 
-API route matching returns JSON API errors for unknown routes and method mismatches. Method mismatches include an `Allow` header, and TRACE, TRACK, and CONNECT are rejected before route handlers run.
+API route matching returns JSON API errors for invalid request targets, unknown routes, and method mismatches. Absolute-form proxy request targets and `OPTIONS *` are rejected before route handlers run. Method mismatches include an `Allow` header, and TRACE, TRACK, and CONNECT are rejected before route handlers run.
 
 Cell ingress route matching is similarly narrow: health endpoints allow `GET`/`HEAD`, execution submission allows `POST`, and other paths or methods return JSON errors before handler logic runs. Cell ingress responses use the shared baseline security headers and `Cache-Control: no-store`.
 

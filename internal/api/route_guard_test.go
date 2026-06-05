@@ -21,6 +21,38 @@ func TestRouteGuardUnknownRouteReturnsJSON(t *testing.T) {
 	assertNoStore(t, rec)
 }
 
+func TestRouteGuardRejectsAbsoluteFormRequestTarget(t *testing.T) {
+	t.Setenv("VECTIS_API_ALLOWED_HOSTS", "api.example")
+
+	metrics := &fakeSecurityRejectionMetrics{}
+	s := NewAPIServerWithRepositories(mocks.NewMockLogger(), nil, nil, nil)
+	s.SetAPISecurityMetrics(metrics)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "http://api.example/api/v1/version", nil)
+	s.Handler().ServeHTTP(rec, req)
+
+	assertRouteGuardAPIError(t, rec, http.StatusBadRequest, apiErrInvalidRequestTarget)
+	assertNoStore(t, rec)
+	requireSecurityRejection(t, metrics, securityReasonRequestTargetInvalid, "/api/v1/version", http.StatusBadRequest)
+}
+
+func TestRouteGuardRejectsAsteriskRequestTarget(t *testing.T) {
+	metrics := &fakeSecurityRejectionMetrics{}
+	s := NewAPIServerWithRepositories(mocks.NewMockLogger(), nil, nil, nil)
+	s.SetAPISecurityMetrics(metrics)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodOptions, "/api/v1/version", nil)
+	req.URL.Path = "*"
+	req.RequestURI = "*"
+	s.Handler().ServeHTTP(rec, req)
+
+	assertRouteGuardAPIError(t, rec, http.StatusBadRequest, apiErrInvalidRequestTarget)
+	assertNoStore(t, rec)
+	requireSecurityRejection(t, metrics, securityReasonRequestTargetInvalid, securityRejectionUnknownRoute, http.StatusBadRequest)
+}
+
 func TestRouteGuardMethodNotAllowedReturnsJSONAllowAndMetric(t *testing.T) {
 	metrics := &fakeSecurityRejectionMetrics{}
 	s := NewAPIServerWithRepositories(mocks.NewMockLogger(), nil, nil, nil)

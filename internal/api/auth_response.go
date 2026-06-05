@@ -45,6 +45,7 @@ const (
 	apiErrInvalidScopeAction             apiErrorCode = "invalid_scope_action"
 	apiErrInvalidUserID                  apiErrorCode = "invalid_user_id"
 	apiErrInvalidUsername                apiErrorCode = "invalid_username"
+	apiErrInvalidRequestTarget           apiErrorCode = "invalid_request_target"
 	apiErrLastAdminDeleteForbidden       apiErrorCode = "last_admin_delete_forbidden"
 	apiErrLastAdminDisableForbidden      apiErrorCode = "last_admin_disable_forbidden"
 	apiErrMethodNotAllowed               apiErrorCode = "method_not_allowed"
@@ -151,6 +152,8 @@ func (c apiErrorCode) message() string {
 		return "invalid user id"
 	case apiErrInvalidUsername:
 		return "invalid username"
+	case apiErrInvalidRequestTarget:
+		return "invalid request target"
 	case apiErrLastAdminDeleteForbidden:
 		return "cannot delete the last admin"
 	case apiErrLastAdminDisableForbidden:

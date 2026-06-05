@@ -136,7 +136,14 @@ func (m apiRouteMatch) securityRoute() string {
 
 func (s *APIServer) routeGuardMiddleware(index *apiRouteIndex, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		match := index.match(r.URL.Path)
+		match := index.match(apiRequestPath(r))
+
+		if !apiRequestTargetAllowed(r) {
+			s.recordSecurityRejectionForRoute(r, securityReasonRequestTargetInvalid, match.securityRoute(), http.StatusBadRequest)
+			setNoStore(w)
+			writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidRequestTarget)
+			return
+		}
 
 		if httpsecurity.DangerousHTTPMethod(r.Method) {
 			s.recordSecurityRejectionForRoute(r, securityReasonUnsupportedHTTPMethod, match.securityRoute(), http.StatusMethodNotAllowed)
@@ -158,4 +165,24 @@ func (s *APIServer) routeGuardMiddleware(index *apiRouteIndex, next http.Handler
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func apiRequestPath(r *http.Request) string {
+	if r == nil || r.URL == nil {
+		return ""
+	}
+
+	return r.URL.Path
+}
+
+func apiRequestTargetAllowed(r *http.Request) bool {
+	if r == nil || r.URL == nil {
+		return false
+	}
+
+	if r.URL.IsAbs() || r.URL.Host != "" || r.URL.Opaque != "" {
+		return false
+	}
+
+	return r.URL.Path != "*"
 }
