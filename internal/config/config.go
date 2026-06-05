@@ -186,7 +186,6 @@ type WorkerDefaults struct {
 	MetricsPort          int                   `toml:"metrics_port"`
 	Control              WorkerControlDefaults `toml:"control"`
 	RegisterWithRegistry bool                  `toml:"register_with_registry"`
-	TaskCompletionFanout bool                  `toml:"task_completion_fanout"`
 }
 
 type CronDefaults struct {
@@ -584,14 +583,6 @@ func WorkerRegisterWithRegistry() bool {
 	}
 
 	return MustDefaults().Worker.RegisterWithRegistry
-}
-
-func WorkerTaskCompletionFanout() bool {
-	if viper.IsSet("worker.task_completion_fanout") {
-		return viper.GetBool("worker.task_completion_fanout")
-	}
-
-	return MustDefaults().Worker.TaskCompletionFanout
 }
 
 func RegistryPort() int {

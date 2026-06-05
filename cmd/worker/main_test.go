@@ -76,6 +76,26 @@ func (s *requireAbortedExecutionBeforeRunAbortedStore) MarkRunAborted(ctx contex
 	return s.RunsRepository.MarkRunAborted(ctx, runID, claimToken, reason)
 }
 
+func attachPendingExecutionEnvelopeForTest(t *testing.T, runs dal.RunsRepository, j *api.Job, runID string) *cell.ExecutionEnvelope {
+	t.Helper()
+
+	dispatch, err := runs.GetPendingExecution(context.Background(), runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	if dispatch.DefinitionHash == "" {
+		dispatch.DefinitionHash = "test-definition-hash"
+	}
+
+	env, err := cell.AttachExecutionEnvelope(&api.JobRequest{Job: j}, dispatch, time.Now().UnixNano())
+	if err != nil {
+		t.Fatalf("attach execution envelope: %v", err)
+	}
+
+	return env
+}
+
 type recordingTaskDispatchDrainer struct {
 	mu           sync.Mutex
 	pending      bool
@@ -483,10 +503,11 @@ func TestWorkerRunClaimedJob_CompletesWhileOrphaned_MarksSucceeded(t *testing.T)
 		DeliveryId: &deliveryID,
 		Root:       root,
 	}
+	env := attachPendingExecutionEnvelopeForTest(t, runs, j, runID)
 
 	done := make(chan struct{})
 	go func() {
-		w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID)
+		w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID, env)
 		close(done)
 	}()
 
@@ -651,9 +672,10 @@ func TestWorkerRunClaimedJob_WithExecutionEnvelope_TransitionsExecution(t *testi
 		{key: cell.CatalogRunStatusEventKey(runID, dal.RunStatusRunning), eventType: cell.CatalogEventTypeRunStatus},
 		{key: cell.CatalogExecutionStatusEventKey(env.ExecutionID, dal.ExecutionStatusAccepted), eventType: cell.CatalogEventTypeExecutionStatus},
 		{key: cell.CatalogExecutionStatusEventKey(env.ExecutionID, dal.ExecutionStatusRunning), eventType: cell.CatalogEventTypeExecutionStatus},
-		{key: cell.CatalogRunStatusEventKey(runID, dal.RunStatusSucceeded), eventType: cell.CatalogEventTypeRunStatus},
 		{key: cell.CatalogExecutionStatusEventKey(env.ExecutionID, dal.ExecutionStatusSucceeded), eventType: cell.CatalogEventTypeExecutionStatus},
+		{key: cell.CatalogRunStatusEventKey(runID, dal.RunStatusSucceeded), eventType: cell.CatalogEventTypeRunStatus},
 	}
+
 	if len(events) != len(wantEvents) {
 		t.Fatalf("catalog events: got %d, want %d (%+v)", len(events), len(wantEvents), events)
 	}
@@ -709,20 +731,19 @@ func TestWorkerRunClaimedJob_TaskFanoutQueuesContinuation(t *testing.T) {
 	clock := mocks.NewMockClock()
 	taskDispatcher := taskdispatch.New(runs, repos.TaskDispatchIntents(), repos.DispatchEvents(), cell.NewQueueExecutionIngress(queueClientServiceAdapter{queue: queue}, interfaces.NewLogger("worker-test")), clock)
 	w := &worker{
-		ctx:                  context.Background(),
-		runCtx:               context.Background(),
-		logger:               interfaces.NewLogger("worker-test"),
-		workerID:             "worker-task-fanout",
-		cellID:               "local",
-		clock:                clock,
-		renewInterval:        time.Hour,
-		queue:                queue,
-		logClient:            mocks.NewMockLogClient(),
-		executor:             job.NewExecutor(),
-		store:                runs,
-		catalog:              cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
-		taskDispatchService:  taskdispatch.NewService(interfaces.NewLogger("worker-test"), taskDispatcher),
-		taskCompletionFanout: true,
+		ctx:                 context.Background(),
+		runCtx:              context.Background(),
+		logger:              interfaces.NewLogger("worker-test"),
+		workerID:            "worker-task-fanout",
+		cellID:              "local",
+		clock:               clock,
+		renewInterval:       time.Hour,
+		queue:               queue,
+		logClient:           mocks.NewMockLogClient(),
+		executor:            job.NewExecutor(),
+		store:               runs,
+		catalog:             cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
+		taskDispatchService: taskdispatch.NewService(interfaces.NewLogger("worker-test"), taskDispatcher),
 	}
 
 	deliveryID := "delivery-task-fanout"
@@ -845,19 +866,18 @@ func TestWorkerRunClaimedJob_TaskFanoutWaitingReductionRequeuesRun(t *testing.T)
 
 	queue := mocks.NewMockQueueClient()
 	w := &worker{
-		ctx:                  context.Background(),
-		runCtx:               context.Background(),
-		logger:               interfaces.NewLogger("worker-test"),
-		workerID:             "worker-task-reduce-waiting",
-		cellID:               "local",
-		clock:                mocks.NewMockClock(),
-		renewInterval:        time.Hour,
-		queue:                queue,
-		logClient:            mocks.NewMockLogClient(),
-		executor:             job.NewExecutor(),
-		store:                runs,
-		catalog:              cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
-		taskCompletionFanout: true,
+		ctx:           context.Background(),
+		runCtx:        context.Background(),
+		logger:        interfaces.NewLogger("worker-test"),
+		workerID:      "worker-task-reduce-waiting",
+		cellID:        "local",
+		clock:         mocks.NewMockClock(),
+		renewInterval: time.Hour,
+		queue:         queue,
+		logClient:     mocks.NewMockLogClient(),
+		executor:      job.NewExecutor(),
+		store:         runs,
+		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
 	}
 
 	deliveryID := "delivery-task-reduce-waiting"
@@ -934,19 +954,18 @@ func TestWorkerRunClaimedJob_TaskFanoutFailureCompletesTaskBeforeRun(t *testing.
 	}
 
 	w := &worker{
-		ctx:                  context.Background(),
-		runCtx:               context.Background(),
-		logger:               interfaces.NewLogger("worker-test"),
-		workerID:             "worker-task-failure-order",
-		cellID:               "local",
-		clock:                mocks.NewMockClock(),
-		renewInterval:        time.Hour,
-		queue:                mocks.NewMockQueueClient(),
-		logClient:            mocks.NewMockLogClient(),
-		executor:             job.NewExecutor(),
-		store:                store,
-		catalog:              cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
-		taskCompletionFanout: true,
+		ctx:           context.Background(),
+		runCtx:        context.Background(),
+		logger:        interfaces.NewLogger("worker-test"),
+		workerID:      "worker-task-failure-order",
+		cellID:        "local",
+		clock:         mocks.NewMockClock(),
+		renewInterval: time.Hour,
+		queue:         mocks.NewMockQueueClient(),
+		logClient:     mocks.NewMockLogClient(),
+		executor:      job.NewExecutor(),
+		store:         store,
+		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
 	}
 
 	deliveryID := "delivery-task-failure-order"
@@ -1037,20 +1056,19 @@ func TestWorkerRunClaimedJob_TaskFanoutCancelCompletesTaskBeforeRun(t *testing.T
 	}
 
 	w := &worker{
-		ctx:                  context.Background(),
-		runCtx:               context.Background(),
-		logger:               interfaces.NewLogger("worker-test"),
-		workerID:             "worker-task-cancel-order",
-		cellID:               "local",
-		clock:                interfaces.SystemClock{},
-		renewInterval:        time.Hour,
-		queue:                mocks.NewMockQueueClient(),
-		logClient:            mocks.NewMockLogClient(),
-		executor:             job.NewExecutor(),
-		store:                store,
-		catalog:              cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
-		taskCompletionFanout: true,
-		cancelCh:             make(chan string, 1),
+		ctx:           context.Background(),
+		runCtx:        context.Background(),
+		logger:        interfaces.NewLogger("worker-test"),
+		workerID:      "worker-task-cancel-order",
+		cellID:        "local",
+		clock:         interfaces.SystemClock{},
+		renewInterval: time.Hour,
+		queue:         mocks.NewMockQueueClient(),
+		logClient:     mocks.NewMockLogClient(),
+		executor:      job.NewExecutor(),
+		store:         store,
+		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
+		cancelCh:      make(chan string, 1),
 	}
 
 	deliveryID := "delivery-task-cancel-order"
@@ -1201,19 +1219,18 @@ func TestWorkerRunClaimedJob_TaskFanoutExecutesEnvelopeTaskOnly(t *testing.T) {
 	defer func() { executor.TestLogStreamHook = nil }()
 
 	w := &worker{
-		ctx:                  context.Background(),
-		runCtx:               context.Background(),
-		logger:               interfaces.NewLogger("worker-test"),
-		workerID:             "worker-task-scope",
-		cellID:               "local",
-		clock:                clock,
-		renewInterval:        time.Hour,
-		queue:                queue,
-		logClient:            logClient,
-		executor:             executor,
-		store:                runs,
-		catalog:              cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
-		taskCompletionFanout: true,
+		ctx:           context.Background(),
+		runCtx:        context.Background(),
+		logger:        interfaces.NewLogger("worker-test"),
+		workerID:      "worker-task-scope",
+		cellID:        "local",
+		clock:         clock,
+		renewInterval: time.Hour,
+		queue:         queue,
+		logClient:     logClient,
+		executor:      executor,
+		store:         runs,
+		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
 	}
 
 	deliveryID := "delivery-task-scope"
@@ -1308,7 +1325,7 @@ func TestWorkerRunClaimedJob_TaskFanoutExecutesEnvelopeTaskOnly(t *testing.T) {
 	}
 }
 
-func TestWorkerMarkExecutionTerminal_DefaultUsesLegacyTransition(t *testing.T) {
+func TestWorkerMarkExecutionTerminal_UsesTaskCompletion(t *testing.T) {
 	t.Parallel()
 
 	runs := mocks.NewMockRunsRepository()
@@ -1318,20 +1335,42 @@ func TestWorkerMarkExecutionTerminal_DefaultUsesLegacyTransition(t *testing.T) {
 		store:   runs,
 		catalog: cell.NewCatalogEventPublisher("local", nil),
 	}
-	env := &cell.ExecutionEnvelope{ExecutionID: "execution-legacy"}
+	env := &cell.ExecutionEnvelope{ExecutionID: "execution-task"}
 
 	w.markExecutionTerminal(context.Background(), env, dal.ExecutionStatusSucceeded)
 
-	if runs.LastSucceededExecID != "" {
-		t.Fatalf("default terminal path should not use task completion fan-out, got %q", runs.LastSucceededExecID)
+	if runs.LastSucceededExecID != "execution-task" {
+		t.Fatalf("last succeeded execution: got %q, want execution-task", runs.LastSucceededExecID)
 	}
 
-	if len(runs.ExecutionTransitions) != 1 || runs.ExecutionTransitions[0] != "execution-legacy:"+dal.ExecutionStatusSucceeded {
+	if len(runs.ExecutionTransitions) != 1 || runs.ExecutionTransitions[0] != "execution-task:"+dal.ExecutionStatusSucceeded {
 		t.Fatalf("execution transitions: %+v", runs.ExecutionTransitions)
 	}
 }
 
-func TestWorkerMarkExecutionTerminal_OptInSuccessUsesTaskCompletionFanout(t *testing.T) {
+func TestWorkerMarkExecutionTerminal_FanoutRequiresExecutionEnvelope(t *testing.T) {
+	t.Parallel()
+
+	runs := mocks.NewMockRunsRepository()
+	w := &worker{
+		runCtx:  context.Background(),
+		logger:  interfaces.NewLogger("worker-test"),
+		store:   runs,
+		catalog: cell.NewCatalogEventPublisher("local", nil),
+	}
+
+	w.markExecutionTerminal(context.Background(), nil, dal.ExecutionStatusSucceeded)
+
+	if runs.LastSucceededExecID != "" {
+		t.Fatalf("fan-out without an execution envelope should not complete a task, got %q", runs.LastSucceededExecID)
+	}
+
+	if len(runs.ExecutionTransitions) != 0 {
+		t.Fatalf("fan-out without an execution envelope should not transition an execution: %+v", runs.ExecutionTransitions)
+	}
+}
+
+func TestWorkerMarkExecutionTerminal_FanoutSuccessUsesTaskCompletion(t *testing.T) {
 	t.Parallel()
 
 	runs := mocks.NewMockRunsRepository()
@@ -1342,11 +1381,10 @@ func TestWorkerMarkExecutionTerminal_OptInSuccessUsesTaskCompletionFanout(t *tes
 	runs.TaskActivatedN = 1
 
 	w := &worker{
-		runCtx:               context.Background(),
-		logger:               interfaces.NewLogger("worker-test"),
-		store:                runs,
-		catalog:              cell.NewCatalogEventPublisher("local", nil),
-		taskCompletionFanout: true,
+		runCtx:  context.Background(),
+		logger:  interfaces.NewLogger("worker-test"),
+		store:   runs,
+		catalog: cell.NewCatalogEventPublisher("local", nil),
 	}
 	env := &cell.ExecutionEnvelope{ExecutionID: "execution-root"}
 
@@ -1361,7 +1399,7 @@ func TestWorkerMarkExecutionTerminal_OptInSuccessUsesTaskCompletionFanout(t *tes
 	}
 }
 
-func TestWorkerMarkExecutionTerminal_OptInFailureUsesTaskCompletionService(t *testing.T) {
+func TestWorkerMarkExecutionTerminal_FanoutFailureUsesTaskCompletionService(t *testing.T) {
 	t.Parallel()
 
 	runs := mocks.NewMockRunsRepository()
@@ -1372,7 +1410,6 @@ func TestWorkerMarkExecutionTerminal_OptInFailureUsesTaskCompletionService(t *te
 		store:                 runs,
 		catalog:               cell.NewCatalogEventPublisher("local", nil),
 		taskCompletionService: completer,
-		taskCompletionFanout:  true,
 	}
 
 	env := &cell.ExecutionEnvelope{ExecutionID: "execution-root"}
@@ -1484,7 +1521,6 @@ func TestWorkerFinalizeFailedTaskRun_CompletesExecutionBeforeRunFailure(t *testi
 		store:                 store,
 		catalog:               cell.NewCatalogEventPublisher("local", nil),
 		taskCompletionService: completer,
-		taskCompletionFanout:  true,
 	}
 	env := &cell.ExecutionEnvelope{ExecutionID: "execution-root"}
 
@@ -1525,7 +1561,6 @@ func TestWorkerFinalizeAbortedTaskRun_CompletesExecutionBeforeRunAbort(t *testin
 		store:                 store,
 		catalog:               cell.NewCatalogEventPublisher("local", nil),
 		taskCompletionService: completer,
-		taskCompletionFanout:  true,
 	}
 	env := &cell.ExecutionEnvelope{ExecutionID: "execution-root"}
 
@@ -1662,6 +1697,87 @@ func (q *scriptedAckQueue) Ack(context.Context, string) error {
 	return err
 }
 
+func TestWorkerRunClaimedJob_MissingExecutionEnvelopeFailsRun(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositories(db)
+	runs := repos.Runs()
+
+	runID, _, err := runs.CreateRun(ctx, "job-worker-missing-envelope", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	queue := &scriptedAckQueue{}
+	logClient := mocks.NewMockLogClient()
+	w := &worker{
+		ctx:           context.Background(),
+		runCtx:        context.Background(),
+		logger:        interfaces.NewLogger("worker-test"),
+		workerID:      "worker-test-missing-envelope",
+		clock:         mocks.NewMockClock(),
+		renewInterval: time.Hour,
+		queue:         queue,
+		logClient:     logClient,
+		executor:      job.NewExecutor(),
+		store:         runs,
+	}
+
+	jobID := "job-worker-missing-envelope"
+	deliveryID := "delivery-missing-envelope"
+	commandNodeID := "node-1"
+	command := "echo should-not-run"
+	action := "builtins/shell"
+	root := &api.Node{
+		Id:   &commandNodeID,
+		Uses: &action,
+		With: map[string]string{"command": command},
+	}
+
+	j := &api.Job{
+		Id:         &jobID,
+		RunId:      &runID,
+		DeliveryId: &deliveryID,
+		Root:       root,
+	}
+
+	outcome := w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID)
+	if outcome != observability.WorkerOutcomeFailed {
+		t.Fatalf("outcome: got %q, want %q", outcome, observability.WorkerOutcomeFailed)
+	}
+
+	var runStatus string
+	var failureCode string
+	var failureReason sql.NullString
+	if err := db.QueryRowContext(ctx, `
+		SELECT status, failure_code, failure_reason
+		FROM job_runs
+		WHERE run_id = ?
+	`, runID).Scan(&runStatus, &failureCode, &failureReason); err != nil {
+		t.Fatalf("query run status: %v", err)
+	}
+
+	if runStatus != dal.RunStatusFailed {
+		t.Fatalf("run status: got %q, want %q", runStatus, dal.RunStatusFailed)
+	}
+
+	if failureCode != dal.FailureCodeInvalidEnvelope {
+		t.Fatalf("failure code: got %q, want %q", failureCode, dal.FailureCodeInvalidEnvelope)
+	}
+
+	if !failureReason.Valid || !strings.Contains(failureReason.String, "execution envelope") {
+		t.Fatalf("failure reason should describe missing envelope, got %+v", failureReason)
+	}
+
+	if queue.ackCalls != 1 {
+		t.Fatalf("ack calls: got %d, want 1", queue.ackCalls)
+	}
+
+	if logClient.GetStreamCount() != 0 {
+		t.Fatalf("expected job execution to not start after missing envelope, got %d log streams", logClient.GetStreamCount())
+	}
+}
+
 func TestWorkerRunClaimedJob_AckTransientThenSuccess_Completes(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
@@ -1715,7 +1831,8 @@ func TestWorkerRunClaimedJob_AckTransientThenSuccess_Completes(t *testing.T) {
 		Root:       root,
 	}
 
-	w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID)
+	env := attachPendingExecutionEnvelopeForTest(t, runs, j, runID)
+	w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID, env)
 
 	var statusVal string
 	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&statusVal); err != nil {
@@ -1790,7 +1907,8 @@ func TestWorkerRunClaimedJob_AckPersistentFailure_OrphansRunWithoutExecution(t *
 		Root:       root,
 	}
 
-	w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID)
+	env := attachPendingExecutionEnvelopeForTest(t, runs, j, runID)
+	w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID, env)
 
 	var statusVal string
 	var reason sql.NullString
@@ -1877,7 +1995,8 @@ func TestWorkerRunClaimedJob_FinalizeSucceededRetriesOnTransientStoreFailure(t *
 		Root:       root,
 	}
 
-	w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID)
+	env := attachPendingExecutionEnvelopeForTest(t, runs, j, runID)
+	w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID, env)
 
 	var statusVal string
 	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&statusVal); err != nil {
@@ -1947,10 +2066,11 @@ func TestWorkerRunClaimedJob_LifecyclePhaseShowsFinalizing(t *testing.T) {
 		DeliveryId: &deliveryID,
 		Root:       root,
 	}
+	env := attachPendingExecutionEnvelopeForTest(t, runs, j, runID)
 
 	done := make(chan string, 1)
 	go func() {
-		done <- w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID)
+		done <- w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID, env)
 	}()
 
 	select {
@@ -2029,7 +2149,8 @@ func TestWorkerRunClaimedJob_RenewLeaseTransientStoreFailure_StillSucceeds(t *te
 		Root:       root,
 	}
 
-	w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID)
+	env := attachPendingExecutionEnvelopeForTest(t, runs, j, runID)
+	w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID, env)
 
 	var statusVal string
 	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&statusVal); err != nil {
@@ -2112,7 +2233,8 @@ func TestWorkerRestartMidRun_LeaseExpiryThenRequeue_AllowsRecovery(t *testing.T)
 		Root:       root,
 	}
 
-	w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID)
+	env := attachPendingExecutionEnvelopeForTest(t, runs, j, runID)
+	w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID, env)
 
 	var statusVal string
 	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&statusVal); err != nil {
@@ -2176,7 +2298,8 @@ func TestWorkerRunClaimedJob_FinalizeSucceededExhausted_LeavesRunningForOrphanSw
 		Root:       root,
 	}
 
-	w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID)
+	env := attachPendingExecutionEnvelopeForTest(t, runs, j, runID)
+	w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID, env)
 
 	sleeps := clock.GetSleeps()
 	if len(sleeps) != finalizeMaxAttempts-1 {
@@ -2245,13 +2368,28 @@ func TestWorkerDrain_ShutdownDuringRun_StillFinalizesRun(t *testing.T) {
 		With: map[string]string{"command": command},
 	}
 
-	queue.AddJob(&api.Job{
+	j := &api.Job{
 		Id:         &jobID,
 		RunId:      &runID,
 		DeliveryId: &deliveryID,
 		Root:       root,
-	})
+	}
 
+	req := &api.JobRequest{Job: j}
+	dispatch, err := runs.GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	if dispatch.DefinitionHash == "" {
+		dispatch.DefinitionHash = "test-definition-hash"
+	}
+
+	if _, err := cell.AttachExecutionEnvelope(req, dispatch, time.Now().UnixNano()); err != nil {
+		t.Fatalf("attach execution envelope: %v", err)
+	}
+
+	queue.AddJobRequest(req)
 	workerMetrics, err := observability.NewWorkerMetrics()
 	if err != nil {
 		t.Fatalf("worker metrics: %v", err)
@@ -2364,11 +2502,12 @@ func TestWorkerRunClaimedJob_RemoteCancel_MarksRunAborted(t *testing.T) {
 		DeliveryId: &deliveryID,
 		Root:       root,
 	}
+	env := attachPendingExecutionEnvelopeForTest(t, runs, j, runID)
 
 	outcomeCh := make(chan string, 1)
 	finished := make(chan struct{})
 	go func() {
-		outcomeCh <- w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID)
+		outcomeCh <- w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID, env)
 		close(finished)
 	}()
 
@@ -2452,10 +2591,12 @@ func TestWorkerRunClaimedJob_RemoteCancel_MarksRunAborted(t *testing.T) {
 			found = true
 			break
 		}
-		if strings.Contains(event.EventKey, dal.RunStatusAborted) {
+
+		if event.EventType == cell.CatalogEventTypeRunStatus && strings.Contains(event.EventKey, dal.RunStatusAborted) {
 			t.Fatalf("unexpected aborted run catalog event: %+v", event)
 		}
 	}
+
 	if !found {
 		t.Fatalf("expected cancelled catalog event %q, got %+v", wantKey, events)
 	}
@@ -2504,10 +2645,11 @@ func TestWorkerRunClaimedJob_DurableCancel_MarksRunAborted(t *testing.T) {
 		DeliveryId: &deliveryID,
 		Root:       root,
 	}
+	env := attachPendingExecutionEnvelopeForTest(t, runs, j, runID)
 
 	outcomeCh := make(chan string, 1)
 	go func() {
-		outcomeCh <- w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID)
+		outcomeCh <- w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID, env)
 	}()
 
 	deadline := time.Now().Add(2 * time.Second)

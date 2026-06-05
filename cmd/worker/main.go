@@ -190,7 +190,6 @@ func runWorker(cmd *cobra.Command, args []string) {
 		taskDispatchService:   taskDispatchService,
 		taskReduceService:     taskreduce.NewService(taskreduce.New(runsRepo)),
 		taskCompletionService: job.NewTaskCompletionService(runsRepo),
-		taskCompletionFanout:  config.WorkerTaskCompletionFanout(),
 		cancelCh:              make(chan string, 1),
 	}
 
@@ -318,7 +317,6 @@ type worker struct {
 	taskDispatchService   *taskdispatch.Service
 	taskReduceService     *taskreduce.Service
 	taskCompletionService job.TaskCompleter
-	taskCompletionFanout  bool
 	dequeueFailAttempt    int
 	dbUnavailable         bool
 	dbFailAttempt         int
@@ -710,6 +708,20 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 		return observability.WorkerOutcomeFailed
 	}
 
+	if executionEnvelope == nil {
+		span.AddEvent("execution.envelope.missing")
+		span.SetStatus(otelcodes.Error, "missing or invalid execution envelope")
+		w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
+		reason := "missing or invalid execution envelope for persisted run"
+		if err := w.markRunFailedWithRetry(runID, claimToken, dal.FailureCodeInvalidEnvelope, reason); err != nil {
+			w.logger.Error("Failed to mark run %s failed after missing execution envelope: %v", runID, err)
+			span.RecordError(err)
+		}
+
+		span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeFailed))
+		return observability.WorkerOutcomeFailed
+	}
+
 	w.markExecutionAccepted(ctx, executionEnvelope)
 	w.markExecutionStarted(ctx, executionEnvelope)
 	w.setLifecyclePhase(observability.WorkerPhaseExecuting)
@@ -719,19 +731,7 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 			span.AddEvent("run.cancelled")
 			span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeAborted))
 			w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
-			if w.taskCompletionFanout && executionEnvelope != nil {
-				return w.finalizeAbortedTaskRun(ctx, runID, claimToken, dal.CancelReasonAPI, executionEnvelope)
-			}
-
-			if err := w.markRunAbortedWithRetry(runID, claimToken, dal.CancelReasonAPI); err != nil {
-				w.logger.Error("Failed to mark run %s cancelled: %v", runID, err)
-				span.RecordError(err)
-			}
-			if !(w.taskCompletionFanout && executionEnvelope != nil) {
-				w.markExecutionTerminal(ctx, executionEnvelope, dal.ExecutionStatusAborted)
-			}
-
-			return observability.WorkerOutcomeAborted
+			return w.finalizeAbortedTaskRun(ctx, runID, claimToken, dal.CancelReasonAPI, executionEnvelope)
 		}
 
 		w.logger.Error("Job %s failed: %v", jobID, execErr)
@@ -741,44 +741,17 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 		reason := truncateFailureReason(execErr.Error())
 		w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
 
-		if w.taskCompletionFanout && executionEnvelope != nil {
-			return w.finalizeFailedTaskRun(ctx, runID, claimToken, decision.FailureCode, reason, executionEnvelope)
-		}
-
-		if err := w.markRunFailedWithRetry(runID, claimToken, decision.FailureCode, reason); err != nil {
-			w.logger.Error("Failed to mark run %s failed: %v", runID, err)
-			span.RecordError(err)
-		}
-		w.markExecutionTerminal(ctx, executionEnvelope, dal.ExecutionStatusFailed)
-
-		return observability.WorkerOutcomeFailed
+		return w.finalizeFailedTaskRun(ctx, runID, claimToken, decision.FailureCode, reason, executionEnvelope)
 	}
 
 	w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
-	if w.taskCompletionFanout && executionEnvelope != nil {
-		completion, ok := w.completeExecutionTerminal(ctx, executionEnvelope, dal.ExecutionStatusSucceeded)
-		if !ok {
-			span.SetStatus(otelcodes.Error, "complete task execution")
-			return observability.WorkerOutcomeFailed
-		}
-
-		return w.finalizeSucceededTaskRun(ctx, jobID, runID, claimToken, completion)
-	}
-
-	if err := w.markRunSucceededWithRetry(runID, claimToken); err != nil {
-		w.logger.Error("Failed to mark run %s succeeded: %v", runID, err)
-		span.RecordError(err)
-		span.SetStatus(otelcodes.Error, "mark run succeeded")
+	completion, ok := w.completeExecutionTerminal(ctx, executionEnvelope, dal.ExecutionStatusSucceeded)
+	if !ok {
+		span.SetStatus(otelcodes.Error, "complete task execution")
 		return observability.WorkerOutcomeFailed
 	}
 
-	if !(w.taskCompletionFanout && executionEnvelope != nil) {
-		w.markExecutionTerminal(ctx, executionEnvelope, dal.ExecutionStatusSucceeded)
-	}
-
-	span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeSuccess))
-	w.logger.Info("Job completed successfully: %s", jobID)
-	return observability.WorkerOutcomeSuccess
+	return w.finalizeSucceededTaskRun(ctx, jobID, runID, claimToken, completion)
 }
 
 func (w *worker) finalizeAbortedTaskRun(ctx context.Context, runID, claimToken, reason string, executionEnvelope *cell.ExecutionEnvelope) string {
@@ -979,30 +952,22 @@ func (w *worker) completeExecutionTerminal(ctx context.Context, env *cell.Execut
 	}
 
 	var result executionTerminalResult
-	if w.taskCompletionFanout {
-		service := w.taskCompletionService
-		if service == nil {
-			service = job.NewTaskCompletionService(w.store)
-		}
+	service := w.taskCompletionService
+	if service == nil {
+		service = job.NewTaskCompletionService(w.store)
+	}
 
-		completionCtx := trace.ContextWithSpan(w.runCtx, trace.SpanFromContext(ctx))
-		completion, err := service.CompleteTaskExecution(completionCtx, env.ExecutionID, status)
-		if err != nil {
-			w.noteDBError(err)
-			w.logger.Warn("CompleteTaskExecution execution %s status %s failed: %v", env.ExecutionID, status, err)
-			trace.SpanFromContext(ctx).RecordError(err)
-			return executionTerminalResult{}, false
-		}
-
-		result.activatedChildren = completion.Activated
-		result.dispatchableChildren = len(completion.Children)
-	} else if err := w.store.MarkExecutionTerminal(w.runCtx, env.ExecutionID, status); err != nil {
+	completionCtx := trace.ContextWithSpan(w.runCtx, trace.SpanFromContext(ctx))
+	completion, err := service.CompleteTaskExecution(completionCtx, env.ExecutionID, status)
+	if err != nil {
 		w.noteDBError(err)
-		w.logger.Warn("MarkExecutionTerminal execution %s status %s failed: %v", env.ExecutionID, status, err)
+		w.logger.Warn("CompleteTaskExecution execution %s status %s failed: %v", env.ExecutionID, status, err)
 		trace.SpanFromContext(ctx).RecordError(err)
 		return executionTerminalResult{}, false
 	}
 
+	result.activatedChildren = completion.Activated
+	result.dispatchableChildren = len(completion.Children)
 	w.noteDBRecovered()
 	w.recordExecutionCatalogEvent(ctx, env, status)
 	trace.SpanFromContext(ctx).AddEvent("execution.terminal", trace.WithAttributes(
@@ -1013,6 +978,7 @@ func (w *worker) completeExecutionTerminal(ctx context.Context, env *cell.Execut
 			attribute.Int("vectis.task.children.dispatchable", result.dispatchableChildren),
 		)...,
 	))
+
 	return result, true
 }
 
@@ -1355,12 +1321,7 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, claimToken 
 		go w.cancelRequestLoop(execCtx, runID, claimToken, stopCancel, cancelRun)
 	}
 
-	var err error
-	if w.taskCompletionFanout && executionEnvelope != nil {
-		err = w.executor.ExecuteTask(execCtx, job, executionEnvelope.TaskKey, w.logClient, w.logger)
-	} else {
-		err = w.executor.ExecuteJob(execCtx, job, w.logClient, w.logger)
-	}
+	err := w.executor.ExecuteTask(execCtx, job, executionEnvelope.TaskKey, w.logClient, w.logger)
 	close(stopRenew)
 	<-doneRenew
 
@@ -1486,7 +1447,6 @@ func init() {
 	_ = viper.BindEnv("worker.log.address", "VECTIS_WORKER_LOG_ADDRESS")
 	_ = viper.BindEnv("worker.registry.address", "VECTIS_WORKER_REGISTRY_ADDRESS")
 	_ = viper.BindEnv("worker.control.mode", "VECTIS_WORKER_CONTROL_MODE")
-	_ = viper.BindEnv("worker.task_completion_fanout", "VECTIS_WORKER_TASK_COMPLETION_FANOUT")
 	_ = viper.BindEnv("control_port", "VECTIS_WORKER_CONTROL_PORT")
 	_ = viper.BindEnv("control_port_min", "VECTIS_WORKER_CONTROL_PORT_MIN")
 	_ = viper.BindEnv("control_port_max", "VECTIS_WORKER_CONTROL_PORT_MAX")

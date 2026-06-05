@@ -103,6 +103,8 @@ const (
 	CatalogEventStatusFailed  = "failed"
 )
 
+const FailureCodeInvalidEnvelope = "invalid_execution_envelope"
+
 type JobRecord struct {
 	GlobalID       string
 	JobID          string

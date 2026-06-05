@@ -8,6 +8,7 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/cell"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
 	"vectis/internal/interfaces/mocks"
@@ -57,7 +58,12 @@ func TestIntegrationWorker_DequeueClaimExecuteFinalize(t *testing.T) {
 		},
 	}
 
-	if err := queueClient.Enqueue(ctx, &api.JobRequest{Job: enqueueJob}); err != nil {
+	req := &api.JobRequest{Job: enqueueJob}
+	if _, err := cell.AttachPendingExecutionEnvelope(ctx, repos.Runs(), req, runID, time.Now().UnixNano()); err != nil {
+		t.Fatalf("attach execution envelope: %v", err)
+	}
+
+	if err := queueClient.Enqueue(ctx, req); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
 
@@ -81,12 +87,12 @@ func TestIntegrationWorker_DequeueClaimExecuteFinalize(t *testing.T) {
 	workerDone := make(chan struct{})
 	go func() {
 		defer close(workerDone)
-		j, keepGoing := w.dequeueNext()
-		if !keepGoing || j == nil {
+		req, keepGoing := w.dequeueNext()
+		if !keepGoing || req == nil {
 			return
 		}
 
-		w.handleJob(j)
+		w.handleJob(req)
 	}()
 
 	// Wait for run to complete.
@@ -150,7 +156,7 @@ type worker struct {
 	metrics       *observability.WorkerMetrics
 }
 
-func (w *worker) dequeueNext() (*api.Job, bool) {
+func (w *worker) dequeueNext() (*api.JobRequest, bool) {
 	pollCtx, cancel := context.WithTimeout(w.ctx, 5*time.Second)
 	defer cancel()
 
@@ -168,18 +174,27 @@ func (w *worker) dequeueNext() (*api.Job, bool) {
 		return nil, true
 	}
 
-	return req.GetJob(), true
+	return req, true
 }
 
-func (w *worker) handleJob(job *api.Job) {
-	jobID := job.GetId()
-	runID := job.GetRunId()
-	deliveryID := job.GetDeliveryId()
+func (w *worker) handleJob(req *api.JobRequest) {
+	work := req.GetJob()
+	jobID := work.GetId()
+	runID := work.GetRunId()
+	deliveryID := work.GetDeliveryId()
 	w.logger.Info("Dequeued job: %s (run %s)", jobID, runID)
 
 	if runID == "" {
 		w.logger.Error("Job has no run_id")
 		_ = w.queue.Ack(w.runCtx, deliveryID)
+		return
+	}
+
+	env, ok, err := cell.ExecutionEnvelopeFromRequest(req)
+	if err != nil || !ok {
+		w.logger.Error("Invalid execution envelope for run %s: %v", runID, err)
+		_ = w.queue.Ack(w.runCtx, deliveryID)
+		_ = w.store.MarkRunFailed(w.runCtx, runID, "", dal.FailureCodeInvalidEnvelope, "missing or invalid execution envelope for persisted run")
 		return
 	}
 
@@ -202,10 +217,20 @@ func (w *worker) handleJob(job *api.Job) {
 		return
 	}
 
-	execErr := w.executor.ExecuteJob(w.runCtx, job, w.logClient, w.logger)
+	_ = w.store.MarkExecutionAccepted(w.runCtx, env.ExecutionID)
+	_ = w.store.MarkExecutionStarted(w.runCtx, env.ExecutionID)
+
+	completer := job.NewTaskCompletionService(w.store)
+	execErr := w.executor.ExecuteTask(w.runCtx, work, env.TaskKey, w.logClient, w.logger)
 	if execErr != nil {
 		w.logger.Error("Job %s failed: %v", jobID, execErr)
+		_, _ = completer.CompleteTaskExecution(w.runCtx, env.ExecutionID, dal.ExecutionStatusFailed)
 		_ = w.store.MarkRunFailed(w.runCtx, runID, claimToken, "execution_error", execErr.Error())
+		return
+	}
+
+	if _, err := completer.CompleteTaskExecution(w.runCtx, env.ExecutionID, dal.ExecutionStatusSucceeded); err != nil {
+		w.logger.Error("CompleteTaskExecution failed: %v", err)
 		return
 	}
 
