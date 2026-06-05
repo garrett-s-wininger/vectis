@@ -343,6 +343,36 @@ func TestRouteGuardRejectsCellIngressMethodMismatch(t *testing.T) {
 	}
 }
 
+func TestRouteGuardRejectsUnacceptableCellIngressMediaType(t *testing.T) {
+	srv := NewQueueServer("iad-a", mocks.NewMockQueueService(), mocks.NewMockLogger())
+	req := httptest.NewRequest(http.MethodGet, "/health/live", nil)
+	req.Header.Set("Accept", "text/html")
+	rr := httptest.NewRecorder()
+
+	srv.ServeHTTP(rr, req)
+
+	assertErrorCode(t, rr, http.StatusNotAcceptable, "not_acceptable")
+	assertNoStore(t, rr)
+}
+
+func TestRouteGuardAllowsJSONCellIngressAcceptHeaders(t *testing.T) {
+	srv := NewQueueServer("iad-a", mocks.NewMockQueueService(), mocks.NewMockLogger())
+
+	for _, accept := range []string{"", "application/json", "application/*", "*/*"} {
+		t.Run(accept, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/health/live", nil)
+			req.Header.Set("Accept", accept)
+			rr := httptest.NewRecorder()
+
+			srv.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusOK {
+				t.Fatalf("status: got %d, want %d; body=%s", rr.Code, http.StatusOK, rr.Body.String())
+			}
+		})
+	}
+}
+
 func TestRouteGuardAllowsHEADForCellIngressHealth(t *testing.T) {
 	srv := NewQueueServer("iad-a", mocks.NewMockQueueService(), mocks.NewMockLogger())
 	req := httptest.NewRequest(http.MethodHead, "/health/live", nil)

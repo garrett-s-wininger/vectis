@@ -70,6 +70,7 @@ const (
 	apiErrNamespacePathForbidden         apiErrorCode = "namespace_path_forbidden"
 	apiErrNamespaceRepositoryUnavailable apiErrorCode = "namespace_repository_unavailable"
 	apiErrNamespacesNotConfigured        apiErrorCode = "namespaces_not_configured"
+	apiErrNotAcceptable                  apiErrorCode = "not_acceptable"
 	apiErrParentNamespaceNotFound        apiErrorCode = "parent_namespace_not_found"
 	apiErrPasswordTooShort               apiErrorCode = "password_too_short"
 	apiErrQueueNotReady                  apiErrorCode = "queue_not_ready"
@@ -202,6 +203,8 @@ func (c apiErrorCode) message() string {
 		return "namespace repository unavailable"
 	case apiErrNamespacesNotConfigured:
 		return "namespaces not configured"
+	case apiErrNotAcceptable:
+		return "requested response media type is not acceptable"
 	case apiErrParentNamespaceNotFound:
 		return "parent namespace not found"
 	case apiErrPasswordTooShort:

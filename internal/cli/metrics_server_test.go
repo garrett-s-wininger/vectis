@@ -142,6 +142,54 @@ func TestMetricsServerHandlerRejectsNonReadMethods(t *testing.T) {
 	}
 }
 
+func TestMetricsServerHandlerRejectsUnacceptableMediaType(t *testing.T) {
+	handler := metricsServerHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("metrics handler should not be called")
+	}))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req.Header.Set("Accept", "text/html")
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotAcceptable {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusNotAcceptable, rec.Body.String())
+	}
+
+	assertMetricsNoStore(t, rec)
+	assertMetricsHeader(t, rec, "X-Content-Type-Options", "nosniff")
+}
+
+func TestMetricsServerHandlerAllowsPrometheusAcceptHeaders(t *testing.T) {
+	for _, accept := range []string{
+		"",
+		"text/plain; version=0.0.4",
+		"application/openmetrics-text; version=1.0.0",
+		"application/openmetrics-text; version=1.0.0;q=0.75, text/plain; version=0.0.4;q=0.5, */*;q=0.1",
+	} {
+		t.Run(accept, func(t *testing.T) {
+			called := false
+			handler := metricsServerHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				called = true
+				w.WriteHeader(http.StatusOK)
+			}))
+
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+			req.Header.Set("Accept", accept)
+			handler.ServeHTTP(rec, req)
+
+			if !called {
+				t.Fatal("metrics handler was not called")
+			}
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestMetricsServerHandlerAppliesHSTSForDirectTLS(t *testing.T) {
 	handler := metricsServerHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

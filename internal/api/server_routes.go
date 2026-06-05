@@ -48,12 +48,13 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 			Pattern: "GET /metrics",
 			Handler: s.MetricsHandler,
 			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
+			Accept:  routeAcceptMetricsPolicy(),
 		})
 	}
 
 	specs = append(specs,
-		routeSpec{Pattern: "GET /health/live", Handler: http.HandlerFunc(s.HealthLive), Auth: routeAuthPolicy{mode: routeAuthPublic}},   // public route: orchestrator liveness probe
-		routeSpec{Pattern: "GET /health/ready", Handler: http.HandlerFunc(s.HealthReady), Auth: routeAuthPolicy{mode: routeAuthPublic}}, // public route: orchestrator readiness probe
+		routeSpec{Pattern: "GET /health/live", Handler: http.HandlerFunc(s.HealthLive), Auth: routeAuthPolicy{mode: routeAuthPublic}, Accept: routeAcceptAnyPolicy()},   // public route: orchestrator liveness probe; OK response has no representation
+		routeSpec{Pattern: "GET /health/ready", Handler: http.HandlerFunc(s.HealthReady), Auth: routeAuthPolicy{mode: routeAuthPublic}, Accept: routeAcceptAnyPolicy()}, // public route: orchestrator readiness probe; OK response has no representation
 		routeSpec{Pattern: "GET /api/v1/version", Handler: http.HandlerFunc(s.GetVersion), Auth: routeAuthPolicy{Action: authz.ActionAdmin}},
 		routeSpec{Pattern: "GET /api/v1/schema/status", Handler: http.HandlerFunc(s.GetSchemaStatus), Auth: routeAuthPolicy{Action: authz.ActionAdmin}},
 		routeSpec{Pattern: "GET /api/v1/reconciler/heartbeat", Handler: http.HandlerFunc(s.GetReconcilerHeartbeat), Auth: routeAuthPolicy{Action: authz.ActionAdmin}},
@@ -75,7 +76,7 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 		routeSpec{Pattern: "PUT /api/v1/jobs/{id}", Handler: http.HandlerFunc(s.UpdateJobDefinition), Auth: routeAuthPolicy{Action: authz.ActionJobWrite}, Body: jobDefinitionBody, RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "POST /api/v1/jobs/trigger/{id}", Handler: http.HandlerFunc(s.TriggerJob), Auth: routeAuthPolicy{Action: authz.ActionRunTrigger}, Body: optionalJobDefinitionBody, RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "GET /api/v1/jobs/{id}/runs", Handler: http.HandlerFunc(s.GetJobRuns), Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "GET /api/v1/sse/jobs/{id}/runs", Handler: http.HandlerFunc(s.HandleSSEJobRuns), Auth: routeAuthPolicy{Action: authz.ActionRunRead}, Cache: routeCachePolicy{mode: routeCacheHandlerManaged}, RateLimit: defaultLimits.General},
+		routeSpec{Pattern: "GET /api/v1/sse/jobs/{id}/runs", Handler: http.HandlerFunc(s.HandleSSEJobRuns), Auth: routeAuthPolicy{Action: authz.ActionRunRead}, Cache: routeCachePolicy{mode: routeCacheHandlerManaged}, Accept: routeAcceptSSEPolicy(), RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "GET /api/v1/runs/{id}", Handler: http.HandlerFunc(s.GetRun), Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "GET /api/v1/runs/{id}/tasks", Handler: http.HandlerFunc(s.GetRunTasks), Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "GET /api/v1/runs/{id}/execution-payload", Handler: http.HandlerFunc(s.GetRunExecutionPayload), Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General},
@@ -88,7 +89,7 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 		routeSpec{Pattern: "POST /api/v1/runs/{id}/repair/mark-queued", Handler: http.HandlerFunc(s.RepairMarkRunQueued), Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, Body: optionalJSONDocumentBody, RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "POST /api/v1/runs/{id}/force-fail", Handler: http.HandlerFunc(s.ForceFailRun), Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, Body: optionalJSONDocumentBody, RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "POST /api/v1/runs/{id}/force-requeue", Handler: http.HandlerFunc(s.ForceRequeueRun), Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "GET /api/v1/runs/{id}/logs", Handler: http.HandlerFunc(s.GetRunLogs), Auth: routeAuthPolicy{Action: authz.ActionRunRead}, Cache: routeCachePolicy{mode: routeCacheHandlerManaged}, RateLimit: defaultLimits.General},
+		routeSpec{Pattern: "GET /api/v1/runs/{id}/logs", Handler: http.HandlerFunc(s.GetRunLogs), Auth: routeAuthPolicy{Action: authz.ActionRunRead}, Cache: routeCachePolicy{mode: routeCacheHandlerManaged}, Accept: routeAcceptSSEPolicy(), RateLimit: defaultLimits.General},
 		routeSpec{Pattern: "GET /api/v1/setup/status", Handler: http.HandlerFunc(s.GetSetupStatus), Auth: routeAuthPolicy{Action: authz.ActionSetupStatus}, Cache: routeCachePolicy{mode: routeCacheNoStore}, RateLimit: defaultLimits.Auth},
 		routeSpec{Pattern: "POST /api/v1/setup/complete", Handler: http.HandlerFunc(s.PostSetupComplete), Auth: routeAuthPolicy{Action: authz.ActionSetupComplete}, Cache: routeCachePolicy{mode: routeCacheNoStore}, Body: routeBodyJSONPolicy(maxSetupCompleteBodyBytes), RateLimit: defaultLimits.Auth},
 		routeSpec{Pattern: "POST /api/v1/login", Handler: http.HandlerFunc(s.Login), Auth: routeAuthPolicy{mode: routeAuthPublic}, Cache: routeCachePolicy{mode: routeCacheNoStore}, Body: routeBodyJSONPolicy(maxLoginBodyBytes), RateLimit: defaultLimits.Auth}, // public route: password login creates an authenticated session
@@ -151,8 +152,13 @@ func (s *APIServer) registerRoute(mux *http.ServeMux, spec routeSpec) {
 		panic(fmt.Sprintf("api route %q has invalid body policy: %v", spec.Pattern, err))
 	}
 
+	if err := spec.Accept.validate(); err != nil {
+		panic(fmt.Sprintf("api route %q has invalid accept policy: %v", spec.Pattern, err))
+	}
+
 	handler := s.accessControlledHandler(spec.Auth, spec.Handler)
 	handler = routeBodyMiddleware(spec.Body, handler, s.recordSecurityRejection)
+	handler = routeAcceptMiddleware(spec.Accept, handler, s.recordSecurityRejection)
 
 	s.mu.RLock()
 	rl := s.rateLimiter
@@ -234,6 +240,7 @@ func (s *APIServer) registerRouteFunc(mux *http.ServeMux, spec routeSpec, handle
 		Auth:      spec.Auth,
 		Cache:     spec.Cache,
 		Body:      spec.Body,
+		Accept:    spec.Accept,
 		RateLimit: spec.RateLimit,
 	})
 }

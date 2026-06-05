@@ -111,6 +111,10 @@ func TestAPIRouteInventory(t *testing.T) {
 		if err := spec.Body.validate(); err != nil {
 			t.Fatalf("route[%d] %q has invalid body policy: %v", i, spec.Pattern, err)
 		}
+
+		if err := spec.Accept.validate(); err != nil {
+			t.Fatalf("route[%d] %q has invalid accept policy: %v", i, spec.Pattern, err)
+		}
 	}
 }
 
@@ -214,6 +218,44 @@ func TestProtectedRoutesDefaultNoStorePolicy(t *testing.T) {
 
 		if !spec.Cache.shouldSetNoStore(spec.Auth) {
 			t.Fatalf("protected route %q should default to no-store", spec.Pattern)
+		}
+	}
+}
+
+func TestAPIRouteInventory_acceptPolicies(t *testing.T) {
+	s := &APIServer{MetricsHandler: http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})}
+	want := map[string]routeAcceptPolicy{
+		"GET /health/live":               routeAcceptAnyPolicy(),
+		"GET /health/ready":              routeAcceptAnyPolicy(),
+		"GET /metrics":                   routeAcceptMetricsPolicy(),
+		"GET /api/v1/sse/jobs/{id}/runs": routeAcceptSSEPolicy(),
+		"GET /api/v1/runs/{id}/logs":     routeAcceptSSEPolicy(),
+	}
+
+	seen := make(map[string]bool, len(want))
+	for _, spec := range s.routeSpecs(true) {
+		if err := spec.Accept.validate(); err != nil {
+			t.Fatalf("route %q has invalid accept policy: %v", spec.Pattern, err)
+		}
+
+		wantPolicy, ok := want[spec.Pattern]
+		if !ok {
+			if spec.Accept.mode != routeAcceptJSON {
+				t.Fatalf("route %q accept policy = %+v, want default JSON", spec.Pattern, spec.Accept)
+			}
+
+			continue
+		}
+
+		seen[spec.Pattern] = true
+		if spec.Accept != wantPolicy {
+			t.Fatalf("route %q accept policy = %+v, want %+v", spec.Pattern, spec.Accept, wantPolicy)
+		}
+	}
+
+	for pattern := range want {
+		if !seen[pattern] {
+			t.Fatalf("route inventory did not include accept policy for %q", pattern)
 		}
 	}
 }

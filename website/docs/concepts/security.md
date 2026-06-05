@@ -129,6 +129,7 @@ The API also has bounded request sizes and token parsing limits:
 | JSON body caps | Limits memory and parsing work on hostile requests; job-definition routes have a larger dedicated cap. |
 | HTTP request header cap | Bounds parser memory for oversized header attacks across API, docs, cell ingress, and metrics HTTP servers. |
 | Trusted Host header allowlist | Reduces Host-header confusion and DNS-rebinding risk for browser-facing API requests. |
+| Response `Accept` negotiation | Rejects requests for response media types a route does not produce. API JSON, SSE, API metrics, dedicated metrics, and cell ingress JSON responses each declare their allowed media types; no-body health probe OK responses explicitly opt out. |
 | Strict request-target guard | Rejects absolute-form proxy targets, `OPTIONS *`, escaped path text, duplicate slash paths, and dot segments across API, docs, cell ingress, and metrics HTTP servers. API routes also reject trailing slash aliases. |
 | Strict route and method guard | Returns JSON API errors for unknown routes or method mismatches, preserves `Allow`, and rejects TRACE/TRACK/CONNECT. |
 | Bearer token length cap | Prevents oversized authorization headers from causing extra CPU or memory work. |

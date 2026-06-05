@@ -101,6 +101,11 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !httpsecurity.AcceptsAny(r.Header.Get("Accept"), httpsecurity.MediaTypeJSON) {
+		writeError(w, http.StatusNotAcceptable, "not_acceptable", "requested response media type is not acceptable")
+		return
+	}
+
 	s.mux.ServeHTTP(w, r)
 }
 

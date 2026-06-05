@@ -197,13 +197,15 @@ CORS is closed unless the operator configures exact allowed origins. Same-origin
 
 Host header validation is enabled by default. Requests with untrusted, wildcard, URL-shaped, or otherwise invalid `Host` values are rejected before route handling.
 
-Security-control rejections for Host validation, CORS checks, Fetch Metadata checks, CSRF checks, request-target checks, method checks, media-type checks, request body policy, and rate limits are logged with sanitized fields and counted by the `vectis_api_security_rejections_total` metric.
+Security-control rejections for Host validation, CORS checks, Fetch Metadata checks, CSRF checks, request-target checks, method checks, response `Accept` negotiation, media-type checks, request body policy, and rate limits are logged with sanitized fields and counted by the `vectis_api_security_rejections_total` metric.
 
 The API server caps request headers at 32 KiB. Requests above that parser limit are rejected by the HTTP server before route handling.
 
 Routes reject request bodies unless the route explicitly accepts a JSON body. JSON routes enforce `application/json` and a per-route body cap before parsing; job-definition routes have a larger cap than auth, user, token, namespace, and control routes. Optional JSON routes allow an absent body without `Content-Type`, but any present body must use JSON.
 
 Requests must use origin-form, unescaped, canonical API paths. Absolute-form proxy request targets, `OPTIONS *`, percent-encoded path text, duplicate slash paths, dot segments, and trailing slash aliases return `invalid_request_target`. Unknown routes return `route_not_found`. Method mismatches return `method_not_allowed` with an `Allow` header; TRACE, TRACK, and CONNECT are always rejected.
+
+Routes also validate the response `Accept` header. JSON routes accept an absent `Accept`, `application/json`, compatible wildcards such as `application/*` or `*/*`, and weighted lists that include JSON. SSE routes require `text/event-stream` or a compatible wildcard. Metrics routes accept Prometheus text or OpenMetrics response types. Health probe OK responses carry no representation and allow any `Accept` value. Incompatible response negotiation returns `not_acceptable`.
 
 The `code` field is intended for clients and scripts. The `message` field is human-readable and may become clearer over time without changing the machine meaning. `details` is optional structured data whose shape depends on `code`; clients should ignore unknown detail keys.
 
@@ -215,6 +217,7 @@ Common status meanings:
 | `401` | Missing, malformed, expired, or invalid bearer credentials. |
 | `403` | Authenticated principal is not allowed to perform a visible global action. |
 | `404` | Resource is absent or hidden by namespace authorization. |
+| `406` | Route cannot produce any media type allowed by the request `Accept` header. |
 | `409` | Resource conflict, duplicate create, idempotency conflict, or invalid run repair state. |
 | `413` | Request body exceeds the route limit. |
 | `415` | JSON route received a non-JSON content type. |
@@ -231,6 +234,7 @@ Common v1 error codes:
 | `invalid_request_target` | `400` | The request target is not an origin-form, unescaped, canonical API path. |
 | `authentication_required` | `401` | Missing, malformed, expired, or invalid bearer credentials. |
 | `authorization_denied` | `403` | Authenticated principal is not allowed to perform the requested visible action. |
+| `not_acceptable` | `406` | The route cannot produce any media type allowed by the request `Accept` header. |
 | `auth_unavailable` | `503` | Authentication persistence or configuration is not available. |
 | `setup_required` | `503` | Initial setup must be completed before using the requested route. |
 | `bootstrap_not_configured` | `503` | Initial setup needs a sufficiently long configured bootstrap token. |

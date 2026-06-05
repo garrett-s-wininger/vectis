@@ -87,6 +87,11 @@ func metricsServerHandler(handler http.Handler) http.Handler {
 			return
 		}
 
+		if !httpsecurity.AcceptsAny(r.Header.Get("Accept"), httpsecurity.MediaTypePlainText, httpsecurity.MediaTypeOpenMetricsText) {
+			http.Error(w, "not acceptable", http.StatusNotAcceptable)
+			return
+		}
+
 		handler.ServeHTTP(w, r)
 	}))
 }
