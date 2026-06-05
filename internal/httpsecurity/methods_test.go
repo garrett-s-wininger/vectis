@@ -34,3 +34,34 @@ func TestDangerousHTTPMethod(t *testing.T) {
 		t.Fatal("GET should not be classified as dangerous")
 	}
 }
+
+func TestMethodOverrideHeader(t *testing.T) {
+	for _, header := range []string{"X-HTTP-Method", "X-HTTP-Method-Override", "X-Method-Override"} {
+		t.Run(header, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodGet, "/", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			req.Header.Set(header, http.MethodDelete)
+			got, ok := MethodOverrideHeader(req)
+			if !ok {
+				t.Fatal("MethodOverrideHeader() ok = false, want true")
+			}
+
+			if got != header {
+				t.Fatalf("MethodOverrideHeader() = %q, want %q", got, header)
+			}
+		})
+	}
+
+	req, err := http.NewRequest(http.MethodGet, "/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req.Header.Set("X-HTTP-Method-Override", " ")
+	if got, ok := MethodOverrideHeader(req); ok {
+		t.Fatalf("blank override header = (%q, true), want false", got)
+	}
+}

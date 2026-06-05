@@ -197,13 +197,13 @@ CORS is closed unless the operator configures exact allowed origins. Same-origin
 
 Host header validation is enabled by default. Requests with untrusted, wildcard, URL-shaped, or otherwise invalid `Host` values are rejected before route handling.
 
-Security-control rejections for Host validation, CORS checks, Fetch Metadata checks, CSRF checks, request-target checks, method checks, response `Accept` negotiation, media-type checks, request body policy, and rate limits are logged with sanitized fields and counted by the `vectis_api_security_rejections_total` metric.
+Security-control rejections for Host validation, CORS checks, Fetch Metadata checks, CSRF checks, request-target checks, method override headers, method checks, response `Accept` negotiation, media-type checks, request body policy, and rate limits are logged with sanitized fields and counted by the `vectis_api_security_rejections_total` metric.
 
 The API server caps request headers at 32 KiB. Requests above that parser limit are rejected by the HTTP server before route handling.
 
 Routes reject request bodies unless the route explicitly accepts a JSON body. JSON routes enforce `application/json` and a per-route body cap before parsing; job-definition routes have a larger cap than auth, user, token, namespace, and control routes. Optional JSON routes allow an absent body without `Content-Type`, but any present body must use JSON.
 
-Requests must use origin-form, unescaped, canonical API paths. Absolute-form proxy request targets, `OPTIONS *`, percent-encoded path text, duplicate slash paths, dot segments, and trailing slash aliases return `invalid_request_target`. Unknown routes return `route_not_found`. Method mismatches return `method_not_allowed` with an `Allow` header; TRACE, TRACK, and CONNECT are always rejected.
+Requests must use origin-form, unescaped, canonical API paths. Absolute-form proxy request targets, `OPTIONS *`, percent-encoded path text, duplicate slash paths, dot segments, and trailing slash aliases return `invalid_request_target`. Unknown routes return `route_not_found`. Method mismatches return `method_not_allowed` with an `Allow` header; TRACE, TRACK, and CONNECT are always rejected. Method override headers such as `X-HTTP-Method`, `X-HTTP-Method-Override`, and `X-Method-Override` return `method_override_forbidden`.
 
 Routes also validate the response `Accept` header. JSON routes accept an absent `Accept`, `application/json`, compatible wildcards such as `application/*` or `*/*`, and weighted lists that include JSON. SSE routes require `text/event-stream` or a compatible wildcard. Metrics routes accept Prometheus text or OpenMetrics response types. Health probe OK responses carry no representation and allow any `Accept` value. Incompatible response negotiation returns `not_acceptable`.
 
@@ -213,7 +213,7 @@ Common status meanings:
 
 | Status | Meaning |
 | --- | --- |
-| `400` | Invalid JSON, invalid IDs, missing required fields, unexpected request bodies, or invalid state transition input. |
+| `400` | Invalid JSON, invalid IDs, missing required fields, unexpected request bodies, forbidden method override headers, or invalid state transition input. |
 | `401` | Missing, malformed, expired, or invalid bearer credentials. |
 | `403` | Authenticated principal is not allowed to perform a visible global action. |
 | `404` | Resource is absent or hidden by namespace authorization. |
@@ -232,6 +232,7 @@ Common v1 error codes:
 | `invalid_request_body` | `400` | JSON could not be decoded or did not match the expected request shape. |
 | `invalid_host_header` | `400` | The request `Host` header is invalid or not in the API host allowlist. |
 | `invalid_request_target` | `400` | The request target is not an origin-form, unescaped, canonical API path. |
+| `method_override_forbidden` | `400` | The request supplied a method override header, which Vectis does not honor. |
 | `authentication_required` | `401` | Missing, malformed, expired, or invalid bearer credentials. |
 | `authorization_denied` | `403` | Authenticated principal is not allowed to perform the requested visible action. |
 | `not_acceptable` | `406` | The route cannot produce any media type allowed by the request `Accept` header. |

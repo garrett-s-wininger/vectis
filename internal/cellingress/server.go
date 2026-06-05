@@ -89,6 +89,11 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if _, ok := httpsecurity.MethodOverrideHeader(r); ok {
+		writeError(w, http.StatusBadRequest, "method_override_forbidden", "method override headers are not allowed")
+		return
+	}
+
 	allowed := cellIngressAllowedMethods(r.URL.Path)
 	if len(allowed) == 0 {
 		writeError(w, http.StatusNotFound, "route_not_found", "route not found")

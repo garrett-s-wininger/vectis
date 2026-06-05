@@ -126,6 +126,25 @@ func TestRouteGuardRejectsDangerousHTTPMethods(t *testing.T) {
 	requireSecurityRejection(t, metrics, securityReasonUnsupportedHTTPMethod, "/api/v1/jobs", http.StatusMethodNotAllowed)
 }
 
+func TestRouteGuardRejectsMethodOverrideHeaders(t *testing.T) {
+	for _, header := range []string{"X-HTTP-Method", "X-HTTP-Method-Override", "X-Method-Override"} {
+		t.Run(header, func(t *testing.T) {
+			metrics := &fakeSecurityRejectionMetrics{}
+			s := NewAPIServerWithRepositories(mocks.NewMockLogger(), nil, nil, nil)
+			s.SetAPISecurityMetrics(metrics)
+
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/version", nil)
+			req.Header.Set(header, http.MethodDelete)
+			s.Handler().ServeHTTP(rec, req)
+
+			assertRouteGuardAPIError(t, rec, http.StatusBadRequest, apiErrMethodOverrideForbidden)
+			assertNoStore(t, rec)
+			requireSecurityRejection(t, metrics, securityReasonMethodOverrideForbidden, "/api/v1/version", http.StatusBadRequest)
+		})
+	}
+}
+
 func TestRouteGuardLowercaseMethodReturnsJSON(t *testing.T) {
 	metrics := &fakeSecurityRejectionMetrics{}
 	s := NewAPIServerWithRepositories(mocks.NewMockLogger(), nil, nil, nil)

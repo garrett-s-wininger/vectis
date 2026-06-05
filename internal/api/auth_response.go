@@ -49,6 +49,7 @@ const (
 	apiErrLastAdminDeleteForbidden       apiErrorCode = "last_admin_delete_forbidden"
 	apiErrLastAdminDisableForbidden      apiErrorCode = "last_admin_disable_forbidden"
 	apiErrMethodNotAllowed               apiErrorCode = "method_not_allowed"
+	apiErrMethodOverrideForbidden        apiErrorCode = "method_override_forbidden"
 	apiErrMissingCredentials             apiErrorCode = "missing_credentials"
 	apiErrMissingAdminUsername           apiErrorCode = "missing_admin_username"
 	apiErrAdminPasswordTooShort          apiErrorCode = "admin_password_too_short"
@@ -161,6 +162,8 @@ func (c apiErrorCode) message() string {
 		return "cannot disable the last admin"
 	case apiErrMethodNotAllowed:
 		return "method not allowed"
+	case apiErrMethodOverrideForbidden:
+		return "method override headers are not allowed"
 	case apiErrMissingCredentials:
 		return "username and password are required"
 	case apiErrMissingAdminUsername:

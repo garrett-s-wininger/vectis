@@ -95,6 +95,12 @@ func docsReadOnlyMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		if _, ok := httpsecurity.MethodOverrideHeader(r); ok {
+			w.Header().Set("Cache-Control", "no-store")
+			http.Error(w, "method override headers are not allowed", http.StatusBadRequest)
+			return
+		}
+
 		if !httpsecurity.MethodAllowed(r.Method, http.MethodGet) {
 			w.Header().Set("Allow", httpsecurity.AllowHeader(http.MethodGet))
 			w.Header().Set("Cache-Control", "no-store")

@@ -20,6 +20,7 @@ const (
 	securityReasonCSRFTokenRequired        = "csrf_token_required"
 	securityReasonFetchMetadataForbidden   = "fetch_metadata_forbidden"
 	securityReasonMethodNotAllowed         = "method_not_allowed"
+	securityReasonMethodOverrideForbidden  = "method_override_forbidden"
 	securityReasonNotAcceptable            = "not_acceptable"
 	securityReasonRateLimitExceeded        = "rate_limit_exceeded"
 	securityReasonRequestBodyNotAllowed    = "request_body_not_allowed"

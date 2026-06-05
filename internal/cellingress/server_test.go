@@ -343,6 +343,22 @@ func TestRouteGuardRejectsCellIngressMethodMismatch(t *testing.T) {
 	}
 }
 
+func TestRouteGuardRejectsCellIngressMethodOverrideHeaders(t *testing.T) {
+	for _, header := range []string{"X-HTTP-Method", "X-HTTP-Method-Override", "X-Method-Override"} {
+		t.Run(header, func(t *testing.T) {
+			srv := NewQueueServer("iad-a", mocks.NewMockQueueService(), mocks.NewMockLogger())
+			req := httptest.NewRequest(http.MethodGet, "/health/live", nil)
+			req.Header.Set(header, http.MethodDelete)
+			rr := httptest.NewRecorder()
+
+			srv.ServeHTTP(rr, req)
+
+			assertErrorCode(t, rr, http.StatusBadRequest, "method_override_forbidden")
+			assertNoStore(t, rr)
+		})
+	}
+}
+
 func TestRouteGuardRejectsUnacceptableCellIngressMediaType(t *testing.T) {
 	srv := NewQueueServer("iad-a", mocks.NewMockQueueService(), mocks.NewMockLogger())
 	req := httptest.NewRequest(http.MethodGet, "/health/live", nil)

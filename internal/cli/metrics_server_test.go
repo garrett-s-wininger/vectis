@@ -142,6 +142,28 @@ func TestMetricsServerHandlerRejectsNonReadMethods(t *testing.T) {
 	}
 }
 
+func TestMetricsServerHandlerRejectsMethodOverrideHeaders(t *testing.T) {
+	for _, header := range []string{"X-HTTP-Method", "X-HTTP-Method-Override", "X-Method-Override"} {
+		t.Run(header, func(t *testing.T) {
+			handler := metricsServerHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				t.Fatal("metrics handler should not be called")
+			}))
+
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+			req.Header.Set(header, http.MethodDelete)
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+			}
+
+			assertMetricsNoStore(t, rec)
+			assertMetricsHeader(t, rec, "X-Content-Type-Options", "nosniff")
+		})
+	}
+}
+
 func TestMetricsServerHandlerRejectsUnacceptableMediaType(t *testing.T) {
 	handler := metricsServerHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("metrics handler should not be called")

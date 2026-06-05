@@ -76,6 +76,11 @@ func metricsServerHandler(handler http.Handler) http.Handler {
 			return
 		}
 
+		if _, ok := httpsecurity.MethodOverrideHeader(r); ok {
+			http.Error(w, "method override headers are not allowed", http.StatusBadRequest)
+			return
+		}
+
 		if r.URL.Path != "/metrics" {
 			http.NotFound(w, r)
 			return

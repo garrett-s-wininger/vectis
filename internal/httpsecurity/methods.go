@@ -15,6 +15,12 @@ var methodAllowHeaderOrder = []string{
 	http.MethodOptions,
 }
 
+var methodOverrideHeaders = []string{
+	"X-HTTP-Method",
+	"X-HTTP-Method-Override",
+	"X-Method-Override",
+}
+
 func DangerousHTTPMethod(method string) bool {
 	switch strings.ToUpper(strings.TrimSpace(method)) {
 	case http.MethodTrace, "TRACK", http.MethodConnect:
@@ -22,6 +28,20 @@ func DangerousHTTPMethod(method string) bool {
 	default:
 		return false
 	}
+}
+
+func MethodOverrideHeader(r *http.Request) (string, bool) {
+	if r == nil {
+		return "", false
+	}
+
+	for _, header := range methodOverrideHeaders {
+		if strings.TrimSpace(r.Header.Get(header)) != "" {
+			return header, true
+		}
+	}
+
+	return "", false
 }
 
 func MethodAllowed(method string, allowed ...string) bool {
