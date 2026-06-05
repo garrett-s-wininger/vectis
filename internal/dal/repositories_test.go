@@ -894,13 +894,29 @@ func TestRunsRepository_CountStuckBeforeDispatchCutoffByCell(t *testing.T) {
 		t.Fatalf("touch recently dispatched run: %v", err)
 	}
 
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, created[0].RunID)
+	if err != nil {
+		t.Fatalf("get pending execution for task dispatch run: %v", err)
+	}
+
+	if _, _, err := repos.TaskDispatchIntents().Ensure(ctx, dal.TaskDispatchIntentCreate{
+		ExecutionID:       dispatch.ExecutionID,
+		RunID:             dispatch.RunID,
+		TaskID:            dispatch.TaskID,
+		TaskAttemptID:     dispatch.TaskAttemptID,
+		SourceExecutionID: "source-execution",
+		CellID:            dispatch.CellID,
+	}); err != nil {
+		t.Fatalf("ensure task dispatch intent: %v", err)
+	}
+
 	cutoff := time.Now().Add(-1 * time.Minute).Unix()
 	total, err := repos.Runs().CountStuckBeforeDispatchCutoff(ctx, cutoff)
 	if err != nil {
 		t.Fatalf("CountStuckBeforeDispatchCutoff: %v", err)
 	}
-	if total != 3 {
-		t.Fatalf("stuck total: got %d, want 3", total)
+	if total != 2 {
+		t.Fatalf("stuck total: got %d, want 2", total)
 	}
 
 	counts, err := repos.Runs().CountStuckBeforeDispatchCutoffByCell(ctx, cutoff)
@@ -909,12 +925,14 @@ func TestRunsRepository_CountStuckBeforeDispatchCutoffByCell(t *testing.T) {
 	}
 
 	want := []dal.RunCountByCell{
-		{CellID: "iad-a", Count: 2},
+		{CellID: "iad-a", Count: 1},
 		{CellID: "pdx-b", Count: 1},
 	}
+
 	if len(counts) != len(want) {
 		t.Fatalf("counts len: got %d want %d (%+v)", len(counts), len(want), counts)
 	}
+
 	for i := range want {
 		if counts[i] != want[i] {
 			t.Fatalf("counts[%d]: got %+v want %+v", i, counts[i], want[i])

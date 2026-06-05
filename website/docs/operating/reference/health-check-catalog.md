@@ -59,7 +59,7 @@ Treat `id`, `status`, and `severity` as the fields most suitable for automation.
 | `audit.drops.recent` | warning | `GET /api/v1/audit/drops` | Audit dropped-event counter is zero. | [Audit Durability Repair](../reliability/repair-runbooks.md#audit-durability-repair). |
 | `db.connection.pool` | warning | `GET /api/v1/db/pool-stats` | The pool is not fully in use while waits have been recorded. | [Database Pool Pressure](../reliability/repair-runbooks.md#database-pool-pressure). |
 | `queue.backlog.ratio` | warning | `GET /api/v1/queue/backlog` | Queued run count is at or below the built-in threshold of 100. | [Queued Runs Or Backlog](../reliability/repair-runbooks.md#queued-runs-or-backlog). |
-| `reconciler.stuck.runs` | warning | `GET /api/v1/reconciler/stuck-runs` | No queued runs are older than the reconciler dispatch gap, and no task continuation dispatch intents are pending for enqueue. | [Reconciler Repair](../reliability/repair-runbooks.md#reconciler-repair). |
+| `reconciler.stuck.runs` | warning | `GET /api/v1/reconciler/stuck-runs` | No root-dispatch queued runs are older than the reconciler dispatch gap, and no task continuation dispatch intents are pending for enqueue. | [Reconciler Repair](../reliability/repair-runbooks.md#reconciler-repair). |
 | `cells.ingress` | warning | `GET /api/v1/cells/status` | Required cell ingress routes answer readiness checks. | Check cell ingress processes, route map, and network path. |
 | `catalog.inbox` | warning | `GET /api/v1/catalog/status` | No catalog events are failed, and pending cell catalog events are at or below the built-in threshold of 100. | Check `vectis-catalog` process health, logs, and database write latency. |
 | `log.reachable` | warning | `GET /api/v1/log/reachable` | API's log gRPC connection is `READY` or `IDLE`. | [Log Service Repair](../reliability/repair-runbooks.md#log-service-repair). |
@@ -71,7 +71,7 @@ Treat `id`, `status`, and `severity` as the fields most suitable for automation.
 
 When `queue.backlog.ratio` warns in a multi-cell deployment, `evidence` includes a per-cell breakdown from the global run catalog, for example `queued=101 cells=iad-a:75,pdx-b:26`.
 
-When `reconciler.stuck.runs` warns in a multi-cell deployment, `evidence` includes a per-cell breakdown from the global run catalog, for example `stuck=3 cells=iad-a:2,pdx-b:1`. If task continuation dispatch is stalled, evidence also includes `task_dispatch_pending` and `task_cells`, for example `stuck=0 task_dispatch_pending=2 task_cells=iad-a:2`.
+When `reconciler.stuck.runs` warns in a multi-cell deployment, `evidence` includes a per-cell breakdown from the global run catalog, for example `stuck=3 cells=iad-a:2,pdx-b:1`. The `stuck` bucket is scoped to root-dispatch redispatch candidates; task continuation dispatch has its own `task_dispatch_pending` and `task_cells` evidence, for example `stuck=0 task_dispatch_pending=2 task_cells=iad-a:2`.
 
 When `cells.ingress` warns, `evidence` includes each observed cell and readiness state, for example `iad-a:ready,pdx-b:missing_route`. The endpoint reports cell IDs, route health, queued/stuck run counts, and catalog inbox counts; it does not return private ingress URLs.
 
