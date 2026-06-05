@@ -130,6 +130,7 @@ type routeSpec struct {
 	Cache     routeCachePolicy
 	Body      routeBodyPolicy
 	Accept    routeAcceptPolicy
+	Query     routeQueryPolicy
 	RateLimit ratelimit.Rule
 }
 

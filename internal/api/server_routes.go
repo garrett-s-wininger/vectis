@@ -52,65 +52,386 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 		})
 	}
 
-	specs = append(specs,
-		routeSpec{Pattern: "GET /health/live", Handler: http.HandlerFunc(s.HealthLive), Auth: routeAuthPolicy{mode: routeAuthPublic}, Accept: routeAcceptAnyPolicy()},   // public route: orchestrator liveness probe; OK response has no representation
-		routeSpec{Pattern: "GET /health/ready", Handler: http.HandlerFunc(s.HealthReady), Auth: routeAuthPolicy{mode: routeAuthPublic}, Accept: routeAcceptAnyPolicy()}, // public route: orchestrator readiness probe; OK response has no representation
-		routeSpec{Pattern: "GET /api/v1/version", Handler: http.HandlerFunc(s.GetVersion), Auth: routeAuthPolicy{Action: authz.ActionAdmin}},
-		routeSpec{Pattern: "GET /api/v1/schema/status", Handler: http.HandlerFunc(s.GetSchemaStatus), Auth: routeAuthPolicy{Action: authz.ActionAdmin}},
-		routeSpec{Pattern: "GET /api/v1/reconciler/heartbeat", Handler: http.HandlerFunc(s.GetReconcilerHeartbeat), Auth: routeAuthPolicy{Action: authz.ActionAdmin}},
-		routeSpec{Pattern: "GET /api/v1/audit/drops", Handler: http.HandlerFunc(s.GetAuditDrops), Auth: routeAuthPolicy{Action: authz.ActionAdmin}},
-		routeSpec{Pattern: "GET /api/v1/db/pool-stats", Handler: http.HandlerFunc(s.GetDBPoolStats), Auth: routeAuthPolicy{Action: authz.ActionAdmin}},
-		routeSpec{Pattern: "GET /api/v1/queue/backlog", Handler: http.HandlerFunc(s.GetQueueBacklog), Auth: routeAuthPolicy{Action: authz.ActionAdmin}},
-		routeSpec{Pattern: "GET /api/v1/reconciler/stuck-runs", Handler: http.HandlerFunc(s.GetStuckRuns), Auth: routeAuthPolicy{Action: authz.ActionAdmin}},
-		routeSpec{Pattern: "GET /api/v1/log/reachable", Handler: http.HandlerFunc(s.GetLogReachable), Auth: routeAuthPolicy{Action: authz.ActionAdmin}},
-		routeSpec{Pattern: "GET /api/v1/audit/flush-failures", Handler: http.HandlerFunc(s.GetAuditFlushFailures), Auth: routeAuthPolicy{Action: authz.ActionAdmin}},
-		routeSpec{Pattern: "GET /api/v1/cron/status", Handler: http.HandlerFunc(s.GetCronStatus), Auth: routeAuthPolicy{Action: authz.ActionAdmin}},
-		routeSpec{Pattern: "GET /api/v1/catalog/status", Handler: http.HandlerFunc(s.GetCatalogStatus), Auth: routeAuthPolicy{Action: authz.ActionAdmin}},
-		routeSpec{Pattern: "GET /api/v1/cells/status", Handler: http.HandlerFunc(s.GetCellsStatus), Auth: routeAuthPolicy{Action: authz.ActionAdmin}},
-		routeSpec{Pattern: "POST /api/v1/cells/{cell_id}/catalog-events", Handler: http.HandlerFunc(s.PostCellCatalogEvent), Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, Body: jsonDocumentBody, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "GET /api/v1/jobs", Handler: http.HandlerFunc(s.GetJobs), Auth: routeAuthPolicy{Action: authz.ActionJobRead}, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "GET /api/v1/jobs/{id}", Handler: http.HandlerFunc(s.GetJob), Auth: routeAuthPolicy{Action: authz.ActionJobRead}, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "POST /api/v1/jobs", Handler: http.HandlerFunc(s.CreateJob), Auth: routeAuthPolicy{Action: authz.ActionJobWrite}, Body: jobDefinitionBody, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "POST /api/v1/jobs/run", Handler: http.HandlerFunc(s.RunJob), Auth: routeAuthPolicy{Action: authz.ActionRunTrigger}, Body: jobDefinitionBody, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "DELETE /api/v1/jobs/{id}", Handler: http.HandlerFunc(s.DeleteJob), Auth: routeAuthPolicy{Action: authz.ActionJobWrite}, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "PUT /api/v1/jobs/{id}", Handler: http.HandlerFunc(s.UpdateJobDefinition), Auth: routeAuthPolicy{Action: authz.ActionJobWrite}, Body: jobDefinitionBody, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "POST /api/v1/jobs/trigger/{id}", Handler: http.HandlerFunc(s.TriggerJob), Auth: routeAuthPolicy{Action: authz.ActionRunTrigger}, Body: optionalJobDefinitionBody, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "GET /api/v1/jobs/{id}/runs", Handler: http.HandlerFunc(s.GetJobRuns), Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "GET /api/v1/sse/jobs/{id}/runs", Handler: http.HandlerFunc(s.HandleSSEJobRuns), Auth: routeAuthPolicy{Action: authz.ActionRunRead}, Cache: routeCachePolicy{mode: routeCacheHandlerManaged}, Accept: routeAcceptSSEPolicy(), RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "GET /api/v1/runs/{id}", Handler: http.HandlerFunc(s.GetRun), Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "GET /api/v1/runs/{id}/tasks", Handler: http.HandlerFunc(s.GetRunTasks), Auth: routeAuthPolicy{Action: authz.ActionRunRead}, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "GET /api/v1/runs/{id}/execution-payload", Handler: http.HandlerFunc(s.GetRunExecutionPayload), Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "POST /api/v1/runs/{id}/replay", Handler: http.HandlerFunc(s.ReplayRun), Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, Body: optionalJobDefinitionBody, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "POST /api/v1/runs/{id}/cancel", Handler: http.HandlerFunc(s.CancelRun), Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "POST /api/v1/runs/{id}/repair/mark-succeeded", Handler: http.HandlerFunc(s.RepairMarkRunSucceeded), Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, Body: optionalJSONDocumentBody, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "POST /api/v1/runs/{id}/repair/mark-failed", Handler: http.HandlerFunc(s.RepairMarkRunFailed), Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, Body: optionalJSONDocumentBody, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "POST /api/v1/runs/{id}/repair/mark-cancelled", Handler: http.HandlerFunc(s.RepairMarkRunCancelled), Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, Body: optionalJSONDocumentBody, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "POST /api/v1/runs/{id}/repair/mark-abandoned", Handler: http.HandlerFunc(s.RepairMarkRunAbandoned), Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, Body: optionalJSONDocumentBody, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "POST /api/v1/runs/{id}/repair/mark-queued", Handler: http.HandlerFunc(s.RepairMarkRunQueued), Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, Body: optionalJSONDocumentBody, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "POST /api/v1/runs/{id}/force-fail", Handler: http.HandlerFunc(s.ForceFailRun), Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, Body: optionalJSONDocumentBody, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "POST /api/v1/runs/{id}/force-requeue", Handler: http.HandlerFunc(s.ForceRequeueRun), Auth: routeAuthPolicy{Action: authz.ActionRunOperator}, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "GET /api/v1/runs/{id}/logs", Handler: http.HandlerFunc(s.GetRunLogs), Auth: routeAuthPolicy{Action: authz.ActionRunRead}, Cache: routeCachePolicy{mode: routeCacheHandlerManaged}, Accept: routeAcceptSSEPolicy(), RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "GET /api/v1/setup/status", Handler: http.HandlerFunc(s.GetSetupStatus), Auth: routeAuthPolicy{Action: authz.ActionSetupStatus}, Cache: routeCachePolicy{mode: routeCacheNoStore}, RateLimit: defaultLimits.Auth},
-		routeSpec{Pattern: "POST /api/v1/setup/complete", Handler: http.HandlerFunc(s.PostSetupComplete), Auth: routeAuthPolicy{Action: authz.ActionSetupComplete}, Cache: routeCachePolicy{mode: routeCacheNoStore}, Body: routeBodyJSONPolicy(maxSetupCompleteBodyBytes), RateLimit: defaultLimits.Auth},
-		routeSpec{Pattern: "POST /api/v1/login", Handler: http.HandlerFunc(s.Login), Auth: routeAuthPolicy{mode: routeAuthPublic}, Cache: routeCachePolicy{mode: routeCacheNoStore}, Body: routeBodyJSONPolicy(maxLoginBodyBytes), RateLimit: defaultLimits.Auth}, // public route: password login creates an authenticated session
-		routeSpec{Pattern: "POST /api/v1/logout", Handler: http.HandlerFunc(s.Logout), Auth: routeAuthPolicy{Action: authz.ActionAPI}, RateLimit: defaultLimits.Auth},
-		routeSpec{Pattern: "GET /api/v1/tokens", Handler: http.HandlerFunc(s.ListTokens), Auth: routeAuthPolicy{Action: authz.ActionAPI}, RateLimit: defaultLimits.Token},
-		routeSpec{Pattern: "POST /api/v1/tokens", Handler: http.HandlerFunc(s.CreateToken), Auth: routeAuthPolicy{Action: authz.ActionAPI}, Body: routeBodyJSONPolicy(maxTokenBodyBytes), RateLimit: defaultLimits.Token},
-		routeSpec{Pattern: "DELETE /api/v1/tokens/{id}", Handler: http.HandlerFunc(s.DeleteToken), Auth: routeAuthPolicy{Action: authz.ActionAPI}, RateLimit: defaultLimits.Token},
-		routeSpec{Pattern: "POST /api/v1/users/change-password", Handler: http.HandlerFunc(s.ChangePassword), Auth: routeAuthPolicy{Action: authz.ActionAPI}, Body: routeBodyJSONPolicy(maxChangePasswordBodyBytes), RateLimit: defaultLimits.Auth},
-		routeSpec{Pattern: "POST /api/v1/users", Handler: http.HandlerFunc(s.CreateUser), Auth: routeAuthPolicy{Action: authz.ActionUserAdmin}, Body: routeBodyJSONPolicy(maxUserBodyBytes), RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "GET /api/v1/users", Handler: http.HandlerFunc(s.ListUsers), Auth: routeAuthPolicy{Action: authz.ActionUserAdmin}, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "GET /api/v1/users/{id}", Handler: http.HandlerFunc(s.GetUser), Auth: routeAuthPolicy{Action: authz.ActionUserAdmin}, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "PUT /api/v1/users/{id}", Handler: http.HandlerFunc(s.UpdateUser), Auth: routeAuthPolicy{Action: authz.ActionUserAdmin}, Body: routeBodyJSONPolicy(maxUserBodyBytes), RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "DELETE /api/v1/users/{id}", Handler: http.HandlerFunc(s.DeleteUser), Auth: routeAuthPolicy{Action: authz.ActionUserAdmin}, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "GET /api/v1/namespaces", Handler: http.HandlerFunc(s.ListNamespaces), Auth: routeAuthPolicy{Action: authz.ActionJobRead}, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "POST /api/v1/namespaces", Handler: http.HandlerFunc(s.CreateNamespace), Auth: routeAuthPolicy{Action: authz.ActionAdmin}, Body: jsonDocumentBody, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "GET /api/v1/namespaces/{id}", Handler: http.HandlerFunc(s.GetNamespace), Auth: routeAuthPolicy{Action: authz.ActionJobRead}, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "DELETE /api/v1/namespaces/{id}", Handler: http.HandlerFunc(s.DeleteNamespace), Auth: routeAuthPolicy{Action: authz.ActionAdmin}, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "GET /api/v1/namespaces/{id}/bindings", Handler: http.HandlerFunc(s.ListBindings), Auth: routeAuthPolicy{Action: authz.ActionAdmin}, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "POST /api/v1/namespaces/{id}/bindings", Handler: http.HandlerFunc(s.CreateBinding), Auth: routeAuthPolicy{Action: authz.ActionAdmin}, Body: jsonDocumentBody, RateLimit: defaultLimits.General},
-		routeSpec{Pattern: "DELETE /api/v1/namespaces/{id}/bindings/{user_id}", Handler: http.HandlerFunc(s.DeleteBinding), Auth: routeAuthPolicy{Action: authz.ActionAdmin}, RateLimit: defaultLimits.General},
-	)
+	specs = append(specs, []routeSpec{
+		{
+			// Public route: orchestrator liveness probe; OK response has no representation.
+			Pattern: "GET /health/live",
+			Handler: http.HandlerFunc(s.HealthLive),
+			Auth:    routeAuthPolicy{mode: routeAuthPublic},
+			Accept:  routeAcceptAnyPolicy(),
+		},
+		{
+			// Public route: orchestrator readiness probe; OK response has no representation.
+			Pattern: "GET /health/ready",
+			Handler: http.HandlerFunc(s.HealthReady),
+			Auth:    routeAuthPolicy{mode: routeAuthPublic},
+			Accept:  routeAcceptAnyPolicy(),
+		},
+		{
+			Pattern: "GET /api/v1/version",
+			Handler: http.HandlerFunc(s.GetVersion),
+			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
+		},
+		{
+			Pattern: "GET /api/v1/schema/status",
+			Handler: http.HandlerFunc(s.GetSchemaStatus),
+			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
+		},
+		{
+			Pattern: "GET /api/v1/reconciler/heartbeat",
+			Handler: http.HandlerFunc(s.GetReconcilerHeartbeat),
+			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
+		},
+		{
+			Pattern: "GET /api/v1/audit/drops",
+			Handler: http.HandlerFunc(s.GetAuditDrops),
+			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
+		},
+		{
+			Pattern: "GET /api/v1/db/pool-stats",
+			Handler: http.HandlerFunc(s.GetDBPoolStats),
+			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
+		},
+		{
+			Pattern: "GET /api/v1/queue/backlog",
+			Handler: http.HandlerFunc(s.GetQueueBacklog),
+			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
+		},
+		{
+			Pattern: "GET /api/v1/reconciler/stuck-runs",
+			Handler: http.HandlerFunc(s.GetStuckRuns),
+			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
+		},
+		{
+			Pattern: "GET /api/v1/log/reachable",
+			Handler: http.HandlerFunc(s.GetLogReachable),
+			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
+		},
+		{
+			Pattern: "GET /api/v1/audit/flush-failures",
+			Handler: http.HandlerFunc(s.GetAuditFlushFailures),
+			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
+		},
+		{
+			Pattern: "GET /api/v1/cron/status",
+			Handler: http.HandlerFunc(s.GetCronStatus),
+			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
+		},
+		{
+			Pattern: "GET /api/v1/catalog/status",
+			Handler: http.HandlerFunc(s.GetCatalogStatus),
+			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
+		},
+		{
+			Pattern: "GET /api/v1/cells/status",
+			Handler: http.HandlerFunc(s.GetCellsStatus),
+			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
+		},
+		{
+			Pattern:   "POST /api/v1/cells/{cell_id}/catalog-events",
+			Handler:   http.HandlerFunc(s.PostCellCatalogEvent),
+			Auth:      routeAuthPolicy{Action: authz.ActionRunOperator},
+			Body:      jsonDocumentBody,
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "GET /api/v1/jobs",
+			Handler:   http.HandlerFunc(s.GetJobs),
+			Auth:      routeAuthPolicy{Action: authz.ActionJobRead},
+			Query:     routeQueryParams("cursor", "limit"),
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "GET /api/v1/jobs/{id}",
+			Handler:   http.HandlerFunc(s.GetJob),
+			Auth:      routeAuthPolicy{Action: authz.ActionJobRead},
+			Query:     routeQueryParams("version"),
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "POST /api/v1/jobs",
+			Handler:   http.HandlerFunc(s.CreateJob),
+			Auth:      routeAuthPolicy{Action: authz.ActionJobWrite},
+			Body:      jobDefinitionBody,
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "POST /api/v1/jobs/run",
+			Handler:   http.HandlerFunc(s.RunJob),
+			Auth:      routeAuthPolicy{Action: authz.ActionRunTrigger},
+			Body:      jobDefinitionBody,
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "DELETE /api/v1/jobs/{id}",
+			Handler:   http.HandlerFunc(s.DeleteJob),
+			Auth:      routeAuthPolicy{Action: authz.ActionJobWrite},
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "PUT /api/v1/jobs/{id}",
+			Handler:   http.HandlerFunc(s.UpdateJobDefinition),
+			Auth:      routeAuthPolicy{Action: authz.ActionJobWrite},
+			Body:      jobDefinitionBody,
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "POST /api/v1/jobs/trigger/{id}",
+			Handler:   http.HandlerFunc(s.TriggerJob),
+			Auth:      routeAuthPolicy{Action: authz.ActionRunTrigger},
+			Body:      optionalJobDefinitionBody,
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern: "GET /api/v1/jobs/{id}/runs",
+			Handler: http.HandlerFunc(s.GetJobRuns),
+			Auth:    routeAuthPolicy{Action: authz.ActionRunRead},
+			Query: routeQueryParams(
+				"after_index",
+				"cell_id",
+				"cursor",
+				"limit",
+				"owning_cell",
+				"since",
+			),
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "GET /api/v1/sse/jobs/{id}/runs",
+			Handler:   http.HandlerFunc(s.HandleSSEJobRuns),
+			Auth:      routeAuthPolicy{Action: authz.ActionRunRead},
+			Cache:     routeCachePolicy{mode: routeCacheHandlerManaged},
+			Accept:    routeAcceptSSEPolicy(),
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "GET /api/v1/runs/{id}",
+			Handler:   http.HandlerFunc(s.GetRun),
+			Auth:      routeAuthPolicy{Action: authz.ActionRunRead},
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "GET /api/v1/runs/{id}/tasks",
+			Handler:   http.HandlerFunc(s.GetRunTasks),
+			Auth:      routeAuthPolicy{Action: authz.ActionRunRead},
+			Query:     routeQueryParams("cursor", "limit"),
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "GET /api/v1/runs/{id}/execution-payload",
+			Handler:   http.HandlerFunc(s.GetRunExecutionPayload),
+			Auth:      routeAuthPolicy{Action: authz.ActionRunOperator},
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "POST /api/v1/runs/{id}/replay",
+			Handler:   http.HandlerFunc(s.ReplayRun),
+			Auth:      routeAuthPolicy{Action: authz.ActionRunOperator},
+			Body:      optionalJobDefinitionBody,
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "POST /api/v1/runs/{id}/cancel",
+			Handler:   http.HandlerFunc(s.CancelRun),
+			Auth:      routeAuthPolicy{Action: authz.ActionRunOperator},
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "POST /api/v1/runs/{id}/repair/mark-succeeded",
+			Handler:   http.HandlerFunc(s.RepairMarkRunSucceeded),
+			Auth:      routeAuthPolicy{Action: authz.ActionRunOperator},
+			Body:      optionalJSONDocumentBody,
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "POST /api/v1/runs/{id}/repair/mark-failed",
+			Handler:   http.HandlerFunc(s.RepairMarkRunFailed),
+			Auth:      routeAuthPolicy{Action: authz.ActionRunOperator},
+			Body:      optionalJSONDocumentBody,
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "POST /api/v1/runs/{id}/repair/mark-cancelled",
+			Handler:   http.HandlerFunc(s.RepairMarkRunCancelled),
+			Auth:      routeAuthPolicy{Action: authz.ActionRunOperator},
+			Body:      optionalJSONDocumentBody,
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "POST /api/v1/runs/{id}/repair/mark-abandoned",
+			Handler:   http.HandlerFunc(s.RepairMarkRunAbandoned),
+			Auth:      routeAuthPolicy{Action: authz.ActionRunOperator},
+			Body:      optionalJSONDocumentBody,
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "POST /api/v1/runs/{id}/repair/mark-queued",
+			Handler:   http.HandlerFunc(s.RepairMarkRunQueued),
+			Auth:      routeAuthPolicy{Action: authz.ActionRunOperator},
+			Body:      optionalJSONDocumentBody,
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "POST /api/v1/runs/{id}/force-fail",
+			Handler:   http.HandlerFunc(s.ForceFailRun),
+			Auth:      routeAuthPolicy{Action: authz.ActionRunOperator},
+			Body:      optionalJSONDocumentBody,
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "POST /api/v1/runs/{id}/force-requeue",
+			Handler:   http.HandlerFunc(s.ForceRequeueRun),
+			Auth:      routeAuthPolicy{Action: authz.ActionRunOperator},
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern: "GET /api/v1/runs/{id}/logs",
+			Handler: http.HandlerFunc(s.GetRunLogs),
+			Auth:    routeAuthPolicy{Action: authz.ActionRunRead},
+			Cache:   routeCachePolicy{mode: routeCacheHandlerManaged},
+			Accept:  routeAcceptSSEPolicy(),
+			Query: routeQueryParams(
+				"replay_limit",
+				"since_sequence",
+				"tail",
+			),
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "GET /api/v1/setup/status",
+			Handler:   http.HandlerFunc(s.GetSetupStatus),
+			Auth:      routeAuthPolicy{Action: authz.ActionSetupStatus},
+			Cache:     routeCachePolicy{mode: routeCacheNoStore},
+			RateLimit: defaultLimits.Auth,
+		},
+		{
+			Pattern:   "POST /api/v1/setup/complete",
+			Handler:   http.HandlerFunc(s.PostSetupComplete),
+			Auth:      routeAuthPolicy{Action: authz.ActionSetupComplete},
+			Cache:     routeCachePolicy{mode: routeCacheNoStore},
+			Body:      routeBodyJSONPolicy(maxSetupCompleteBodyBytes),
+			RateLimit: defaultLimits.Auth,
+		},
+		{
+			// Public route: password login creates an authenticated session.
+			Pattern:   "POST /api/v1/login",
+			Handler:   http.HandlerFunc(s.Login),
+			Auth:      routeAuthPolicy{mode: routeAuthPublic},
+			Cache:     routeCachePolicy{mode: routeCacheNoStore},
+			Body:      routeBodyJSONPolicy(maxLoginBodyBytes),
+			RateLimit: defaultLimits.Auth,
+		},
+		{
+			Pattern:   "POST /api/v1/logout",
+			Handler:   http.HandlerFunc(s.Logout),
+			Auth:      routeAuthPolicy{Action: authz.ActionAPI},
+			RateLimit: defaultLimits.Auth,
+		},
+		{
+			Pattern:   "GET /api/v1/tokens",
+			Handler:   http.HandlerFunc(s.ListTokens),
+			Auth:      routeAuthPolicy{Action: authz.ActionAPI},
+			Query:     routeQueryParams("user_id"),
+			RateLimit: defaultLimits.Token,
+		},
+		{
+			Pattern:   "POST /api/v1/tokens",
+			Handler:   http.HandlerFunc(s.CreateToken),
+			Auth:      routeAuthPolicy{Action: authz.ActionAPI},
+			Body:      routeBodyJSONPolicy(maxTokenBodyBytes),
+			RateLimit: defaultLimits.Token,
+		},
+		{
+			Pattern:   "DELETE /api/v1/tokens/{id}",
+			Handler:   http.HandlerFunc(s.DeleteToken),
+			Auth:      routeAuthPolicy{Action: authz.ActionAPI},
+			RateLimit: defaultLimits.Token,
+		},
+		{
+			Pattern:   "POST /api/v1/users/change-password",
+			Handler:   http.HandlerFunc(s.ChangePassword),
+			Auth:      routeAuthPolicy{Action: authz.ActionAPI},
+			Body:      routeBodyJSONPolicy(maxChangePasswordBodyBytes),
+			RateLimit: defaultLimits.Auth,
+		},
+		{
+			Pattern:   "POST /api/v1/users",
+			Handler:   http.HandlerFunc(s.CreateUser),
+			Auth:      routeAuthPolicy{Action: authz.ActionUserAdmin},
+			Body:      routeBodyJSONPolicy(maxUserBodyBytes),
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "GET /api/v1/users",
+			Handler:   http.HandlerFunc(s.ListUsers),
+			Auth:      routeAuthPolicy{Action: authz.ActionUserAdmin},
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "GET /api/v1/users/{id}",
+			Handler:   http.HandlerFunc(s.GetUser),
+			Auth:      routeAuthPolicy{Action: authz.ActionUserAdmin},
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "PUT /api/v1/users/{id}",
+			Handler:   http.HandlerFunc(s.UpdateUser),
+			Auth:      routeAuthPolicy{Action: authz.ActionUserAdmin},
+			Body:      routeBodyJSONPolicy(maxUserBodyBytes),
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "DELETE /api/v1/users/{id}",
+			Handler:   http.HandlerFunc(s.DeleteUser),
+			Auth:      routeAuthPolicy{Action: authz.ActionUserAdmin},
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "GET /api/v1/namespaces",
+			Handler:   http.HandlerFunc(s.ListNamespaces),
+			Auth:      routeAuthPolicy{Action: authz.ActionJobRead},
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "POST /api/v1/namespaces",
+			Handler:   http.HandlerFunc(s.CreateNamespace),
+			Auth:      routeAuthPolicy{Action: authz.ActionAdmin},
+			Body:      jsonDocumentBody,
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "GET /api/v1/namespaces/{id}",
+			Handler:   http.HandlerFunc(s.GetNamespace),
+			Auth:      routeAuthPolicy{Action: authz.ActionJobRead},
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "DELETE /api/v1/namespaces/{id}",
+			Handler:   http.HandlerFunc(s.DeleteNamespace),
+			Auth:      routeAuthPolicy{Action: authz.ActionAdmin},
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "GET /api/v1/namespaces/{id}/bindings",
+			Handler:   http.HandlerFunc(s.ListBindings),
+			Auth:      routeAuthPolicy{Action: authz.ActionAdmin},
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "POST /api/v1/namespaces/{id}/bindings",
+			Handler:   http.HandlerFunc(s.CreateBinding),
+			Auth:      routeAuthPolicy{Action: authz.ActionAdmin},
+			Body:      jsonDocumentBody,
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "DELETE /api/v1/namespaces/{id}/bindings/{user_id}",
+			Handler:   http.HandlerFunc(s.DeleteBinding),
+			Auth:      routeAuthPolicy{Action: authz.ActionAdmin},
+			Query:     routeQueryParams("role"),
+			RateLimit: defaultLimits.General,
+		},
+	}...)
 
 	return specs
 }
@@ -156,6 +477,10 @@ func (s *APIServer) registerRoute(mux *http.ServeMux, spec routeSpec) {
 		panic(fmt.Sprintf("api route %q has invalid accept policy: %v", spec.Pattern, err))
 	}
 
+	if err := spec.Query.validate(); err != nil {
+		panic(fmt.Sprintf("api route %q has invalid query policy: %v", spec.Pattern, err))
+	}
+
 	handler := s.accessControlledHandler(spec.Auth, spec.Handler)
 	handler = routeBodyMiddleware(spec.Body, handler, s.recordSecurityRejection)
 	handler = routeAcceptMiddleware(spec.Accept, handler, s.recordSecurityRejection)
@@ -167,6 +492,8 @@ func (s *APIServer) registerRoute(mux *http.ServeMux, spec routeSpec) {
 	if rl != nil && spec.RateLimit.RefillRate > 0 {
 		handler = s.rateLimitMiddleware(rl, spec, handler)
 	}
+
+	handler = routeQueryMiddleware(spec.Query, handler, s.recordSecurityRejection)
 
 	if spec.Cache.shouldSetNoStore(spec.Auth) {
 		handler = noStoreMiddleware(handler)
@@ -241,6 +568,7 @@ func (s *APIServer) registerRouteFunc(mux *http.ServeMux, spec routeSpec, handle
 		Cache:     spec.Cache,
 		Body:      spec.Body,
 		Accept:    spec.Accept,
+		Query:     spec.Query,
 		RateLimit: spec.RateLimit,
 	})
 }

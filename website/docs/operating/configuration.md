@@ -123,6 +123,8 @@ Successful logout clears the Vectis session cookies and sends `Clear-Site-Data: 
 
 API routes reject request bodies unless the route inventory explicitly declares a JSON body policy. Declared JSON body routes enforce `application/json` media types and per-route size caps before parsing, including smaller caps for auth/user/token/control routes and a larger cap for job definitions.
 
+API routes also reject query parameters unless the route inventory explicitly declares the key. Query strings must parse cleanly, and repeated keys are rejected before route handlers run so handlers never silently ignore typos or conflicting values.
+
 API routes also enforce response `Accept` negotiation. JSON routes accept absent `Accept`, `application/json`, `application/*`, `*/*`, or weighted lists that include JSON. SSE routes accept `text/event-stream` or compatible wildcards. API metrics accept Prometheus text or OpenMetrics response types. Health probe OK responses carry no representation and allow any `Accept` value. Incompatible `Accept` values return `not_acceptable` with status `406` before route handlers run.
 
 API route matching returns JSON API errors for invalid request targets, unknown routes, and method mismatches. Requests must use origin-form, unescaped, canonical API paths; absolute-form proxy request targets, `OPTIONS *`, percent-encoded path text, duplicate slash paths, dot segments, and trailing slash aliases are rejected before route handlers run. Method mismatches include an `Allow` header, TRACE/TRACK/CONNECT are rejected, and method override headers such as `X-HTTP-Method`, `X-HTTP-Method-Override`, and `X-Method-Override` return `method_override_forbidden` before route handlers run.

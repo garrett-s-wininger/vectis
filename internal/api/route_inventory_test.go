@@ -115,6 +115,10 @@ func TestAPIRouteInventory(t *testing.T) {
 		if err := spec.Accept.validate(); err != nil {
 			t.Fatalf("route[%d] %q has invalid accept policy: %v", i, spec.Pattern, err)
 		}
+
+		if err := spec.Query.validate(); err != nil {
+			t.Fatalf("route[%d] %q has invalid query policy: %v", i, spec.Pattern, err)
+		}
 	}
 }
 
@@ -256,6 +260,46 @@ func TestAPIRouteInventory_acceptPolicies(t *testing.T) {
 	for pattern := range want {
 		if !seen[pattern] {
 			t.Fatalf("route inventory did not include accept policy for %q", pattern)
+		}
+	}
+}
+
+func TestAPIRouteInventory_queryPolicies(t *testing.T) {
+	s := &APIServer{}
+	want := map[string]routeQueryPolicy{
+		"GET /api/v1/jobs":                                  routeQueryParams("cursor", "limit"),
+		"GET /api/v1/jobs/{id}":                             routeQueryParams("version"),
+		"GET /api/v1/jobs/{id}/runs":                        routeQueryParams("after_index", "cell_id", "cursor", "limit", "owning_cell", "since"),
+		"GET /api/v1/runs/{id}/tasks":                       routeQueryParams("cursor", "limit"),
+		"GET /api/v1/runs/{id}/logs":                        routeQueryParams("replay_limit", "since_sequence", "tail"),
+		"GET /api/v1/tokens":                                routeQueryParams("user_id"),
+		"DELETE /api/v1/namespaces/{id}/bindings/{user_id}": routeQueryParams("role"),
+	}
+
+	seen := make(map[string]bool, len(want))
+	for _, spec := range s.routeSpecs(true) {
+		if err := spec.Query.validate(); err != nil {
+			t.Fatalf("route %q has invalid query policy: %v", spec.Pattern, err)
+		}
+
+		wantPolicy, ok := want[spec.Pattern]
+		if !ok {
+			if len(spec.Query.allowed) != 0 {
+				t.Fatalf("route %q query policy = %+v, want no query parameters", spec.Pattern, spec.Query)
+			}
+
+			continue
+		}
+
+		seen[spec.Pattern] = true
+		if !spec.Query.sameAllowed(wantPolicy) {
+			t.Fatalf("route %q query policy = %+v, want %+v", spec.Pattern, spec.Query, wantPolicy)
+		}
+	}
+
+	for pattern := range want {
+		if !seen[pattern] {
+			t.Fatalf("route inventory did not include query policy for %q", pattern)
 		}
 	}
 }

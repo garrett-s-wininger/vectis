@@ -31,6 +31,7 @@ const (
 	apiErrFetchMetadataForbidden         apiErrorCode = "fetch_metadata_forbidden"
 	apiErrInternal                       apiErrorCode = "internal_error"
 	apiErrInvalidHostHeader              apiErrorCode = "invalid_host_header"
+	apiErrInvalidQueryParameter          apiErrorCode = "invalid_query_parameter"
 	apiErrInvalidAdminPassword           apiErrorCode = "invalid_admin_password"
 	apiErrInvalidAdminUsername           apiErrorCode = "invalid_admin_username"
 	apiErrInvalidBootstrapToken          apiErrorCode = "invalid_bootstrap_token"
@@ -126,6 +127,8 @@ func (c apiErrorCode) message() string {
 		return "internal server error"
 	case apiErrInvalidHostHeader:
 		return "invalid host header"
+	case apiErrInvalidQueryParameter:
+		return "invalid query parameter"
 	case apiErrInvalidAdminPassword:
 		return "invalid admin_password"
 	case apiErrInvalidAdminUsername:
