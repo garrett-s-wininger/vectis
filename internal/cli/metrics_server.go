@@ -71,6 +71,11 @@ func metricsServerHandler(handler http.Handler) http.Handler {
 	return httpsecurity.HeaderMiddleware(httpsecurity.APIHeaderPolicy(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		setMetricsNoStore(w)
 
+		if !httpsecurity.SafeRequestTarget(r) {
+			http.Error(w, "invalid request target", http.StatusBadRequest)
+			return
+		}
+
 		if r.URL.Path != "/metrics" {
 			http.NotFound(w, r)
 			return

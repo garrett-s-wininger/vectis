@@ -340,6 +340,42 @@ func TestDocsServerHandlerRejectsNonReadMethods(t *testing.T) {
 	}
 }
 
+func TestDocsServerHandlerRejectsUnsafeRequestTargets(t *testing.T) {
+	handler := docsServerHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not be called")
+	}))
+
+	tests := []struct {
+		name   string
+		target string
+	}{
+		{name: "absolute form", target: "http://example.test/"},
+		{name: "encoded path", target: "/%69ndex.html"},
+		{name: "encoded slash", target: "/assets%2Fmain.js"},
+		{name: "dot segment", target: "/guide/../index.html"},
+		{name: "duplicate slash", target: "/assets//main.js"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, tt.target, nil)
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+			}
+
+			if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+				t.Fatalf("Cache-Control = %q, want no-store", got)
+			}
+
+			assertDocsHeader(t, rec, "X-Content-Type-Options", "nosniff")
+			assertDocsHeader(t, rec, "X-Frame-Options", "DENY")
+		})
+	}
+}
+
 func TestDocsHTTPServerSetsMaxHeaderBytes(t *testing.T) {
 	srv := docsHTTPServer("127.0.0.1:0", http.NotFoundHandler())
 	if srv.MaxHeaderBytes != httpsecurity.DefaultMaxHeaderBytes {
@@ -354,7 +390,7 @@ func TestDocsServerHandlerAppliesHSTSForDirectTLS(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "https://example.test/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.TLS = &tls.ConnectionState{}
 	handler.ServeHTTP(rec, req)
 

@@ -85,6 +85,38 @@ func TestMetricsServerHandlerRejectsUnknownRoute(t *testing.T) {
 	assertMetricsHeader(t, rec, "X-Content-Type-Options", "nosniff")
 }
 
+func TestMetricsServerHandlerRejectsUnsafeRequestTargets(t *testing.T) {
+	handler := metricsServerHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("metrics handler should not be called")
+	}))
+
+	tests := []struct {
+		name   string
+		target string
+	}{
+		{name: "absolute form", target: "http://example.test/metrics"},
+		{name: "encoded path", target: "/%6detrics"},
+		{name: "encoded slash", target: "/metrics%2Fextra"},
+		{name: "dot segment", target: "/metrics/.."},
+		{name: "duplicate slash", target: "//metrics"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, tt.target, nil)
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+			}
+
+			assertMetricsNoStore(t, rec)
+			assertMetricsHeader(t, rec, "X-Content-Type-Options", "nosniff")
+		})
+	}
+}
+
 func TestMetricsServerHandlerRejectsNonReadMethods(t *testing.T) {
 	handler := metricsServerHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("metrics handler should not be called")
@@ -116,7 +148,7 @@ func TestMetricsServerHandlerAppliesHSTSForDirectTLS(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "https://example.test/metrics", nil)
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	req.TLS = &tls.ConnectionState{}
 	handler.ServeHTTP(rec, req)
 

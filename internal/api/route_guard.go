@@ -2,7 +2,6 @@ package api
 
 import (
 	"net/http"
-	pathpkg "path"
 	"strings"
 
 	"vectis/internal/httpsecurity"
@@ -139,7 +138,7 @@ func (s *APIServer) routeGuardMiddleware(index *apiRouteIndex, next http.Handler
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		match := index.match(apiRequestPath(r))
 
-		if !apiRequestTargetAllowed(r) {
+		if !httpsecurity.CanonicalRequestTarget(r) {
 			s.recordSecurityRejectionForRoute(r, securityReasonRequestTargetInvalid, match.securityRoute(), http.StatusBadRequest)
 			setNoStore(w)
 			writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidRequestTarget)
@@ -174,25 +173,4 @@ func apiRequestPath(r *http.Request) string {
 	}
 
 	return r.URL.Path
-}
-
-func apiRequestTargetAllowed(r *http.Request) bool {
-	if r == nil || r.URL == nil {
-		return false
-	}
-
-	if r.URL.IsAbs() || r.URL.Host != "" || r.URL.Opaque != "" {
-		return false
-	}
-
-	requestPath := r.URL.Path
-	if requestPath == "" || requestPath[0] != '/' || requestPath == "*" {
-		return false
-	}
-
-	if strings.Contains(r.URL.EscapedPath(), "%") {
-		return false
-	}
-
-	return pathpkg.Clean(requestPath) == requestPath
 }

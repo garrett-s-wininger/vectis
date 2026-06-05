@@ -84,6 +84,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
+	if !httpsecurity.SafeRequestTarget(r) {
+		writeError(w, http.StatusBadRequest, "invalid_request_target", "invalid request target")
+		return
+	}
+
 	allowed := cellIngressAllowedMethods(r.URL.Path)
 	if len(allowed) == 0 {
 		writeError(w, http.StatusNotFound, "route_not_found", "route not found")

@@ -78,7 +78,7 @@ For the service identity matrix, private port guidance, and checklist for new in
 
 `vectis-cell-ingress` accepts routed executions on `POST /cell/v1/executions` and hands them to the cell-local queue after durable acceptance in the cell database. It is not a public API and does not replace the global API's authentication, RBAC, audit, and namespace checks.
 
-Restrict cell ingress reachability to trusted global producers such as `vectis-api`, `vectis-cron`, and `vectis-reconciler`. Keep it on private networks or behind internal load balancers, service mesh policy, firewall rules, or platform network policy. If cell ingress traffic crosses an untrusted network boundary, terminate HTTPS or mTLS in front of it. Cell ingress only accepts `GET`/`HEAD` health checks and `POST /cell/v1/executions`; unknown routes and method mismatches return JSON errors. Cell ingress responses use the shared baseline security headers and `no-store` so routed execution state and errors are not cached by intermediaries. Metrics endpoints only serve `GET`/`HEAD /metrics` and also use baseline security headers plus `no-store`, but they can still reveal operational state. Health and metrics endpoints should follow the same private-network rule.
+Restrict cell ingress reachability to trusted global producers such as `vectis-api`, `vectis-cron`, and `vectis-reconciler`. Keep it on private networks or behind internal load balancers, service mesh policy, firewall rules, or platform network policy. If cell ingress traffic crosses an untrusted network boundary, terminate HTTPS or mTLS in front of it. Cell ingress only accepts `GET`/`HEAD` health checks and `POST /cell/v1/executions`; unknown routes, method mismatches, and unsafe request targets return JSON errors. Cell ingress responses use the shared baseline security headers and `no-store` so routed execution state and errors are not cached by intermediaries. Metrics endpoints only serve `GET`/`HEAD /metrics` and reject unsafe request targets before the Prometheus handler runs. They also use baseline security headers plus `no-store`, but they can still reveal operational state. Health and metrics endpoints should follow the same private-network rule.
 
 For the multi-cell routing and fan-in shape, see [Multi-Cell Operation](../operating/multi-cell.md).
 
@@ -129,7 +129,8 @@ The API also has bounded request sizes and token parsing limits:
 | JSON body caps | Limits memory and parsing work on hostile requests; job-definition routes have a larger dedicated cap. |
 | HTTP request header cap | Bounds parser memory for oversized header attacks across API, docs, cell ingress, and metrics HTTP servers. |
 | Trusted Host header allowlist | Reduces Host-header confusion and DNS-rebinding risk for browser-facing API requests. |
-| Strict route and method guard | Returns JSON API errors for invalid, escaped, or non-canonical request targets, unknown routes, or method mismatches, preserves `Allow`, and rejects TRACE/TRACK/CONNECT. |
+| Strict request-target guard | Rejects absolute-form proxy targets, `OPTIONS *`, escaped path text, duplicate slash paths, and dot segments across API, docs, cell ingress, and metrics HTTP servers. API routes also reject trailing slash aliases. |
+| Strict route and method guard | Returns JSON API errors for unknown routes or method mismatches, preserves `Allow`, and rejects TRACE/TRACK/CONNECT. |
 | Bearer token length cap | Prevents oversized authorization headers from causing extra CPU or memory work. |
 | Admin username and password bounds | Keeps setup input predictable. |
 

@@ -56,7 +56,7 @@ func TestServerAppliesSecurityHeaders(t *testing.T) {
 
 func TestServerAppliesHSTSForDirectTLS(t *testing.T) {
 	srv := NewQueueServer("iad-a", mocks.NewMockQueueService(), mocks.NewMockLogger())
-	req := httptest.NewRequest(http.MethodGet, "https://example.test/health/live", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health/live", nil)
 	req.TLS = &tls.ConnectionState{}
 	rr := httptest.NewRecorder()
 
@@ -282,6 +282,34 @@ func TestRouteGuardRejectsUnknownCellIngressRoute(t *testing.T) {
 
 	assertErrorCode(t, rr, http.StatusNotFound, "route_not_found")
 	assertNoStore(t, rr)
+}
+
+func TestRouteGuardRejectsUnsafeCellIngressRequestTargets(t *testing.T) {
+	srv := NewQueueServer("iad-a", mocks.NewMockQueueService(), mocks.NewMockLogger())
+
+	tests := []struct {
+		name   string
+		target string
+	}{
+		{name: "absolute form", target: "http://example.test/health/live"},
+		{name: "encoded path", target: "/%68ealth/live"},
+		{name: "encoded slash", target: "/health%2Flive"},
+		{name: "dot segment", target: "/health/../health/live"},
+		{name: "duplicate slash", target: "/health//live"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tt.target, nil)
+			rr := httptest.NewRecorder()
+
+			srv.ServeHTTP(rr, req)
+
+			assertErrorCode(t, rr, http.StatusBadRequest, "invalid_request_target")
+			assertNoStore(t, rr)
+			assertSecurityHeader(t, rr, "X-Content-Type-Options", "nosniff")
+		})
+	}
 }
 
 func TestRouteGuardRejectsCellIngressMethodMismatch(t *testing.T) {

@@ -89,6 +89,12 @@ func docsReadOnlyMiddleware(next http.Handler) http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !httpsecurity.SafeRequestTarget(r) {
+			w.Header().Set("Cache-Control", "no-store")
+			http.Error(w, "invalid request target", http.StatusBadRequest)
+			return
+		}
+
 		if !httpsecurity.MethodAllowed(r.Method, http.MethodGet) {
 			w.Header().Set("Allow", httpsecurity.AllowHeader(http.MethodGet))
 			w.Header().Set("Cache-Control", "no-store")

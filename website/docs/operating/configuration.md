@@ -125,7 +125,7 @@ API routes reject request bodies unless the route inventory explicitly declares 
 
 API route matching returns JSON API errors for invalid request targets, unknown routes, and method mismatches. Requests must use origin-form, unescaped, canonical API paths; absolute-form proxy request targets, `OPTIONS *`, percent-encoded path text, duplicate slash paths, dot segments, and trailing slash aliases are rejected before route handlers run. Method mismatches include an `Allow` header, and TRACE, TRACK, and CONNECT are rejected before route handlers run.
 
-Cell ingress route matching is similarly narrow: health endpoints allow `GET`/`HEAD`, execution submission allows `POST`, and other paths or methods return JSON errors before handler logic runs. Cell ingress responses use the shared baseline security headers and `Cache-Control: no-store`.
+Docs, cell ingress, and dedicated metrics listeners also reject unsafe request targets before handler logic runs, including absolute-form proxy request targets, `OPTIONS *`, percent-encoded path text, duplicate slash paths, and dot segments. Cell ingress route matching is similarly narrow: health endpoints allow `GET`/`HEAD`, execution submission allows `POST`, and other paths or methods return JSON errors before handler logic runs. Cell ingress responses use the shared baseline security headers and `Cache-Control: no-store`.
 
 HTTP servers for the API, docs, cell ingress, and metrics endpoints cap request headers at 32 KiB. Keep reverse proxy and ingress header limits at or below that size so oversized requests are rejected before reaching Vectis.
 
