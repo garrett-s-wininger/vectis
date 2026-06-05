@@ -16,6 +16,7 @@ const meta = {
     onCreateJob: () => undefined,
     onOpenCreate: () => undefined,
     onOpenEditor: () => undefined,
+    onOpenJob: () => undefined,
     onSelectRun: () => undefined,
     onSelectNamespace: () => undefined,
     onTriggerRun: () => undefined,
@@ -54,6 +55,7 @@ export const PausedJob: Story = {
         onCreateJob={() => undefined}
         onOpenCreate={() => undefined}
         onOpenEditor={() => undefined}
+        onOpenJob={() => undefined}
         onSelectRun={() => undefined}
         onSelectNamespace={() => undefined}
         onTriggerRun={() => undefined}
@@ -74,6 +76,7 @@ export const Empty: Story = {
       onCreateJob={() => undefined}
       onOpenCreate={() => undefined}
       onOpenEditor={() => undefined}
+      onOpenJob={() => undefined}
       onSelectRun={() => undefined}
       onSelectNamespace={() => undefined}
       onTriggerRun={() => undefined}

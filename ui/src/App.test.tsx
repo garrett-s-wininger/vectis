@@ -271,6 +271,48 @@ describe("App", () => {
     expect(screen.getByText(/manual · Queued/)).toBeInTheDocument();
   });
 
+  it("opens a job detail page from the jobs list", async () => {
+    window.history.replaceState(null, "", "/jobs");
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Jobs" });
+
+    fireEvent.click(screen.getByRole("button", { name: /docs-publish/ }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Open docs-publish" })[0]);
+
+    expect(await screen.findByRole("heading", { name: "docs-publish" })).toBeInTheDocument();
+    expect(screen.getByText("Publishes documentation updates from the reviewed docs repository.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Definition" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/jobs/job-docs-publish");
+
+    fireEvent.click(screen.getByRole("button", { name: "Jobs" }));
+
+    expect(await screen.findByRole("heading", { name: "Jobs" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/jobs");
+  });
+
+  it("returns from job config to the detail page that opened it", async () => {
+    window.history.replaceState(null, "", "/jobs/job-docs-publish");
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "docs-publish" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Config docs-publish" }));
+
+    expect(await screen.findByRole("heading", { name: "Configure" })).toBeInTheDocument();
+    expect(screen.getByText("Review and adjust the stored definition, state, and triggers.")).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Configure" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/jobs/job-docs-publish/config");
+    expect(new URLSearchParams(window.location.search).get("returnTo")).toBe("/jobs/job-docs-publish");
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Cancel" })[0]);
+
+    expect(await screen.findByRole("heading", { name: "docs-publish" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/jobs/job-docs-publish");
+  });
+
   it("opens a run detail placeholder from the runs list", async () => {
     window.history.replaceState(null, "", "/runs");
 

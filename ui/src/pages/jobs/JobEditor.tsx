@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Button, FormError, FormField, TextAreaField, ToggleField } from "../../components";
 import type { Job, JobStatus, NewJob, UpdateJob } from "../../domain/console";
 import { defaultJobDefinition } from "../../domain/consoleOptions";
-import { cronSpec, jsonObject, required } from "../../validation/formValidation";
+import { cronSpec, jsonObject, required } from "../../validation/FormValidation";
 import { ResourceTitle } from "../shared";
 import { JobSourceOptions } from "./JobSourceOptions";
 import { cronSpecFromSchedule, scheduleMode, schedulePresetSpec, JobTriggerControls } from "./JobTriggerControls";

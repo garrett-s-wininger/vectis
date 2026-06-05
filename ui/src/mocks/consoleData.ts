@@ -35,6 +35,7 @@ const jobs: Job[] = [
   {
     id: "job-api-test-suite",
     name: "api-test-suite",
+    description: "Runs the API test suite before service changes move toward release.",
     repository: "github.com/vectis/api",
     branch: "main",
     sourceDetail: "vectis/jobs/api-test-suite.json",
@@ -64,6 +65,7 @@ const jobs: Job[] = [
   {
     id: "job-docs-publish",
     name: "docs-publish",
+    description: "Publishes documentation updates from the reviewed docs repository.",
     repository: "github.com/vectis/docs",
     branch: "main",
     sourceDetail: ".vectis/job.json",
@@ -93,6 +95,7 @@ const jobs: Job[] = [
   {
     id: "job-worker-image",
     name: "worker-image",
+    description: "Builds the worker container image from the release branch.",
     repository: "github.com/vectis/worker",
     branch: "release",
     sourceDetail: "Stored definition",
@@ -461,6 +464,7 @@ export function createMockJob(data: MockConsoleData, input: NewMockJob): MockCon
   const job: MockJob = {
     id: uniqueMockJobID(data, name),
     name,
+    description: "Reusable job definition stored in Vectis.",
     repository: input.repository.trim(),
     branch: input.branch.trim(),
     definition: input.definition.trim(),

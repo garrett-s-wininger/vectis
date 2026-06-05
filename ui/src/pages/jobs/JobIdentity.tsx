@@ -1,7 +1,7 @@
 import type { Job } from "../../domain/console";
 import { ResourceStatus } from "../shared";
 import styles from "./JobsPage.module.css";
-import { getJobSourceDetail } from "./jobPresentation";
+import { getJobSourceDetail } from "./JobPresentation";
 
 export function JobIdentity({ job, onSelect, selected }: { job: Job; onSelect: () => void; selected: boolean }) {
   return (

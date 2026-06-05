@@ -1,6 +1,6 @@
 import type { Job } from "../../domain/console";
 import styles from "./JobsPage.module.css";
-import { triggerKindLabel } from "./jobPresentation";
+import { triggerKindLabel } from "./JobPresentation";
 
 export function JobTriggers({ job }: { job: Job }) {
   const visibleTriggers = job.triggers.length > 2 ? job.triggers.slice(0, 1) : job.triggers;

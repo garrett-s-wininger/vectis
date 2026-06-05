@@ -1,4 +1,4 @@
-import { cronSpec, jsonObject, required } from "./formValidation";
+import { cronSpec, jsonObject, required } from "./FormValidation";
 
 describe("form validation", () => {
   it("validates required text", () => {

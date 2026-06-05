@@ -30,6 +30,7 @@ export type JobTrigger = {
 export type Job = {
   id: string;
   name: string;
+  description?: string;
   repository: string;
   branch: string;
   sourceDetail: string;

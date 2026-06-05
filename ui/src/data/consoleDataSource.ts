@@ -16,6 +16,7 @@ type PaginatedResponse<T> = {
 };
 
 type APIJob = {
+  description?: string;
   definition: unknown;
   name: string;
   namespace?: string;
@@ -183,6 +184,7 @@ function apiJobToConsoleJob(job: APIJob): Job {
   return {
     id: job.name,
     name: job.name,
+    description: job.description,
     repository: "",
     branch: "",
     sourceDetail: "Stored in Vectis",

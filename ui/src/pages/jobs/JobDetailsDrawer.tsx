@@ -4,18 +4,20 @@ import { StatusBadge } from "../../components";
 import type { Job } from "../../domain/console";
 import styles from "./JobsPage.module.css";
 import { JobTriggers } from "./JobTriggers";
-import { canTriggerRun, getJobPathDetail, jobConfigurationActionLabel } from "./jobPresentation";
+import { canTriggerRun, getJobPathDetail, jobConfigurationActionLabel } from "./JobPresentation";
 
 export function JobDetailsDrawer({
   job,
   lastRun,
   onEdit,
+  onOpen,
   onOpenLastRun,
   onTrigger
 }: {
   job: Job;
   lastRun?: RunListItem;
   onEdit: () => void;
+  onOpen: () => void;
   onOpenLastRun: () => void;
   onTrigger: () => void;
 }) {
@@ -50,10 +52,13 @@ export function JobDetailsDrawer({
             <small>{getJobPathDetail(job)}</small>
           </div>
           <div>
+            <Button aria-label={`Open ${job.name}`} onClick={onOpen} variant="quiet">
+              Open
+            </Button>
             <Button
-              className={styles.detailButtonQuiet}
               aria-label={`${jobConfigurationActionLabel} ${job.name}`}
               onClick={onEdit}
+              variant="quiet"
             >
               {jobConfigurationActionLabel}
             </Button>
@@ -66,7 +71,7 @@ export function JobDetailsDrawer({
           </div>
           {canTriggerRun(job) ? (
             <div>
-              <Button className={styles.detailButtonQuiet} aria-label={`Run ${job.name}`} onClick={onTrigger}>
+              <Button aria-label={`Run ${job.name}`} onClick={onTrigger} variant="quiet">
                 Run
               </Button>
             </div>

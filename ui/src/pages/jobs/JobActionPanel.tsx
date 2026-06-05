@@ -4,18 +4,20 @@ import { StatusBadge } from "../../components";
 import type { Job } from "../../domain/console";
 import { ResourceTitle, TableActions } from "../shared";
 import styles from "./JobsPage.module.css";
-import { canTriggerRun, getJobActionFacts, jobConfigurationActionLabel } from "./jobPresentation";
+import { canTriggerRun, getJobActionFacts, jobConfigurationActionLabel } from "./JobPresentation";
 
 export function JobActionPanel({
   job,
   lastRun,
   onEdit,
+  onOpen,
   onOpenLastRun,
   onTrigger
 }: {
   job: Job;
   lastRun?: RunListItem;
   onEdit: () => void;
+  onOpen: () => void;
   onOpenLastRun: () => void;
   onTrigger: () => void;
 }) {
@@ -40,19 +42,22 @@ export function JobActionPanel({
           <span>Latest run</span>
           <div>
             <StatusBadge status={lastRun.status} />
-            <Button aria-label={`Open latest run for ${job.name}`} onClick={onOpenLastRun}>
+            <Button aria-label={`Open latest run for ${job.name}`} onClick={onOpenLastRun} variant="quiet">
               View
             </Button>
           </div>
         </div>
       ) : null}
       <TableActions className={styles.actionButtons}>
+        <Button aria-label={`Open ${job.name}`} onClick={onOpen} variant="quiet">
+          Open
+        </Button>
         {canTriggerRun(job) ? (
-          <Button aria-label={`Trigger ${job.name}`} onClick={onTrigger}>
+          <Button aria-label={`Trigger ${job.name}`} onClick={onTrigger} variant="quiet">
             Run
           </Button>
         ) : null}
-        <Button aria-label={`${jobConfigurationActionLabel} ${job.name}`} onClick={onEdit}>
+        <Button aria-label={`${jobConfigurationActionLabel} ${job.name}`} onClick={onEdit} variant="quiet">
           {jobConfigurationActionLabel}
         </Button>
       </TableActions>

@@ -10,6 +10,16 @@ export const triggerKindLabel: Record<Job["triggers"][number]["kind"], string> =
   webhook: "Webhook"
 };
 
+export function getJobDescription(job: Job) {
+  if (job.description) {
+    return job.description;
+  }
+
+  return job.sourceKind === "db"
+    ? "Reusable job definition stored in Vectis."
+    : "Reusable job definition read from source control.";
+}
+
 export function getJobSourceDetail(job: Job) {
   return job.sourceKind === "db" ? "database" : `${job.repository} (${job.branch})`;
 }

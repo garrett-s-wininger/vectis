@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { AppState } from "../components";
 import { Button } from "../components";
+import { BreadcrumbTrail } from "../components";
 import { DataTable, type DataTableColumn } from "../components";
 import { NamespacePicker } from "../components";
 import { PageHeader } from "../components";
@@ -8,16 +10,19 @@ import { StatusBadge } from "../components";
 import type { Job, Namespace, NewJob, UpdateJob } from "../domain/console";
 import { ResourceStatus } from "./shared";
 import { JobActionPanel } from "./jobs/JobActionPanel";
+import { JobDetailPage } from "./jobs/JobDetailPage";
 import { JobDetailsDrawer } from "./jobs/JobDetailsDrawer";
 import { emptyJobForm, JobEditor, type JobEditorMode, type JobFormValues, valuesFromJob } from "./jobs/JobEditor";
 import { JobIdentity } from "./jobs/JobIdentity";
 import styles from "./jobs/JobsPage.module.css";
 import { JobTriggers } from "./jobs/JobTriggers";
-import { getLatestRunForJob } from "./jobs/jobPresentation";
+import { jobEditorBreadcrumbItems, jobsIndexBreadcrumbItems } from "./jobs/JobBreadcrumbs";
+import { getLatestRunForJob } from "./jobs/JobPresentation";
 
 type ActiveJobEditorMode = JobEditorMode | null;
 
 type JobsPageProps = {
+  detailJobID?: string;
   editorMode?: ActiveJobEditorMode;
   jobs: Job[];
   namespaces: Namespace[];
@@ -26,6 +31,7 @@ type JobsPageProps = {
   onCreateJob: (input: NewJob) => void;
   onOpenCreate: () => void;
   onOpenEditor: (jobID: string) => void;
+  onOpenJob: (jobID: string) => void;
   onSelectRun: (runID: string) => void;
   onSelectNamespace: (namespacePath: string) => void;
   onTriggerRun: (jobID: string) => void;
@@ -34,6 +40,7 @@ type JobsPageProps = {
 };
 
 export function JobsPage({
+  detailJobID,
   editorMode = null,
   jobs,
   namespaces,
@@ -42,6 +49,7 @@ export function JobsPage({
   onCreateJob,
   onOpenCreate,
   onOpenEditor,
+  onOpenJob,
   onSelectRun,
   onSelectNamespace,
   onTriggerRun,
@@ -50,10 +58,21 @@ export function JobsPage({
 }: JobsPageProps) {
   const [selectedJobID, setSelectedJobID] = useState("");
   const selectedJob = jobs.find((job) => job.id === selectedJobID);
+  const detailJob = detailJobID ? jobs.find((job) => job.id === detailJobID) : null;
   const selectedJobLastRun = selectedJob ? getLatestRunForJob(selectedJob, runs) : undefined;
-  const editorJob = editorMode?.kind === "edit" ? jobs.find((candidate) => candidate.id === editorMode.jobID) : null;
+  const editorJob =
+    editorMode?.kind === "edit" ? (jobs.find((candidate) => candidate.id === editorMode.jobID) ?? null) : null;
+
   const editorInitialValues = editorJob ? valuesFromJob(editorJob) : emptyJobForm;
   const editorKey = editorMode?.kind === "edit" ? `edit:${editorMode.jobID}` : editorMode?.kind ?? "";
+  const editorNamespacePath = editorJob?.namespacePath ?? namespacePath;
+  const editorJobName = editorJob?.name ?? "Create";
+  const pageTitle = editorMode ? (editorMode.kind === "edit" ? "Configure" : "Create") : "Jobs";
+  const pageDescription = editorMode
+    ? editorMode.kind === "edit"
+      ? "Review and adjust the stored definition, state, and triggers."
+      : "Define a reusable stored job and trigger policy."
+    : "Stored definitions and triggers.";
 
   function startEditJob(job: Job) {
     onOpenEditor(job.id);
@@ -61,6 +80,29 @@ export function JobsPage({
 
   function toggleSelectedJob(jobID: string) {
     setSelectedJobID((currentJobID) => (currentJobID === jobID ? "" : jobID));
+  }
+
+  if (detailJobID && !detailJob) {
+    return <AppState description={`Job ${detailJobID} was not found in ${namespacePath}.`} title="Job not found" />;
+  }
+
+  if (detailJob) {
+    const latestRun = getLatestRunForJob(detailJob, runs);
+
+    return (
+      <JobDetailPage
+        job={detailJob}
+        lastRun={latestRun}
+        onBack={() => onOpenJob("")}
+        onConfigure={() => startEditJob(detailJob)}
+        onOpenLastRun={() => {
+          if (latestRun) {
+            onSelectRun(latestRun.id);
+          }
+        }}
+        onTrigger={() => onTriggerRun(detailJob.id)}
+      />
+    );
   }
 
   const columns: DataTableColumn<Job>[] = [
@@ -86,6 +128,7 @@ export function JobsPage({
             job={job}
             lastRun={getLatestRunForJob(job, runs)}
             onEdit={() => startEditJob(job)}
+            onOpen={() => onOpenJob(job.id)}
             onOpenLastRun={() => {
               const lastRun = getLatestRunForJob(job, runs);
               if (lastRun) {
@@ -121,8 +164,25 @@ export function JobsPage({
   return (
     <>
       <PageHeader
-        description={`Stored definitions and triggers for ${namespacePath === "/" ? "/ root" : namespacePath}.`}
-        eyebrow="Jobs"
+        description={pageDescription}
+        navigation={
+          editorMode ? (
+            <BreadcrumbTrail
+              items={jobEditorBreadcrumbItems({
+                editorJobName,
+                mode: editorMode,
+                namespacePath: editorNamespacePath,
+                onBack: onCloseEditor
+              })}
+              label="Job editor location"
+            />
+          ) : (
+            <BreadcrumbTrail
+              items={jobsIndexBreadcrumbItems(namespacePath)}
+              label="Jobs location"
+            />
+          )
+        }
         actions={
           !editorMode && jobs.length > 0 ? (
             <>
@@ -133,7 +193,7 @@ export function JobsPage({
             </>
           ) : null
         }
-        title="Jobs"
+        title={pageTitle}
       />
       {editorMode ? (
         <RoutedJobEditor
@@ -172,6 +232,7 @@ export function JobsPage({
               job={selectedJob}
               lastRun={selectedJobLastRun}
               onEdit={() => startEditJob(selectedJob)}
+              onOpen={() => onOpenJob(selectedJob.id)}
               onOpenLastRun={() => {
                 if (selectedJobLastRun) {
                   onSelectRun(selectedJobLastRun.id);

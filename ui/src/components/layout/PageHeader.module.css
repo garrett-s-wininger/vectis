@@ -14,6 +14,31 @@
   gap: var(--space-sm);
 }
 
+.navigation {
+  align-items: center;
+  color: var(--text-navigation);
+  display: flex;
+  flex-wrap: nowrap;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  gap: var(--space-xs);
+  line-height: var(--line-height-tight);
+  min-width: 0;
+}
+
+.navigation button {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+}
+
+.navigation button:hover {
+  color: var(--color-primary-hover);
+}
+
 .eyebrow {
   color: var(--color-primary-hover);
   font-size: var(--font-size-sm);

@@ -35,12 +35,14 @@ export function HealthPageHarness({ cells }: { cells: Cell[] }) {
 
 export function JobsPageHarness({ namespacePath = "/" }: { namespacePath?: string }) {
   const [data, setData] = useState<MockConsoleData>(() => createMockConsoleDataSnapshot());
+  const [detailJobID, setDetailJobID] = useState<string | undefined>();
   const [editorMode, setEditorMode] = useState<JobEditorMode | null>(null);
   const [selectedNamespacePath, setSelectedNamespacePath] = useState(namespacePath);
   const scopedData = scopeMockConsoleData(data, selectedNamespacePath);
 
   return (
     <JobsPage
+      detailJobID={detailJobID}
       editorMode={editorMode}
       jobs={scopedData.jobs}
       namespaces={data.namespaces}
@@ -49,6 +51,7 @@ export function JobsPageHarness({ namespacePath = "/" }: { namespacePath?: strin
       onCreateJob={(input) => setData((current) => createMockJob(current, input))}
       onOpenCreate={() => setEditorMode({ kind: "create" })}
       onOpenEditor={(jobID) => setEditorMode({ kind: "edit", jobID })}
+      onOpenJob={(jobID) => setDetailJobID(jobID || undefined)}
       onSelectRun={() => undefined}
       onSelectNamespace={setSelectedNamespacePath}
       onTriggerRun={(jobID) => setData((current) => triggerMockRun(current, jobID))}

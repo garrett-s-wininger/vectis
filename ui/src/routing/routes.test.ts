@@ -1,4 +1,4 @@
-import { routeFromPath, safeNextPath } from "./routes";
+import { routeFromPath, safeNextPath, safeReturnPath } from "./routes";
 
 describe("routes", () => {
   it.each([
@@ -38,6 +38,13 @@ describe("routes", () => {
     });
   });
 
+  it("extracts job detail routes", () => {
+    expect(routeFromPath("/jobs/worker-image")).toMatchObject({
+      kind: "jobs",
+      jobID: "worker-image"
+    });
+  });
+
   it("returns same-origin next paths", () => {
     expect(safeNextPath("?next=%2Fruns%2F123%3Fstatus%3Drunning%23logs", "http://ui.test")).toBe(
       "/runs/123?status=running#logs"
@@ -48,6 +55,17 @@ describe("routes", () => {
     "rejects unsafe next value %s",
     (search) => {
       expect(safeNextPath(search, "http://ui.test")).toBeNull();
+    }
+  );
+
+  it("returns same-origin return paths", () => {
+    expect(safeReturnPath("?returnTo=%2Fjobs%2Fworker-image", "http://ui.test")).toBe("/jobs/worker-image");
+  });
+
+  it.each([["?returnTo=https%3A%2F%2Fevil.test"], ["?returnTo=%2Flogin"], ["?returnTo=%2Fsetup"], [""]])(
+    "rejects unsafe return value %s",
+    (search) => {
+      expect(safeReturnPath(search, "http://ui.test")).toBeNull();
     }
   );
 });

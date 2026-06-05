@@ -17,6 +17,7 @@ export type AppRoute = {
   kind: AppRouteKind;
   activeHref: string;
   jobEditor?: { kind: "create" } | { kind: "edit"; jobID: string };
+  jobID?: string;
   pathname: string;
   runID?: string;
 };
@@ -84,7 +85,15 @@ export function routeFromPath(pathname: string): AppRoute {
     }
   }
 
-  if (pathname === "/jobs" || pathname.startsWith("/jobs/")) {
+  if (pathname.startsWith("/jobs/")) {
+    const jobID = pathname.slice("/jobs/".length);
+
+    if (jobID) {
+      return { kind: "jobs", activeHref: "/jobs", jobID, pathname };
+    }
+  }
+
+  if (pathname === "/jobs") {
     return { kind: "jobs", activeHref: "/jobs", pathname };
   }
 
@@ -116,6 +125,28 @@ export function safeNextPath(search = window.location.search, origin = window.lo
 
   try {
     const url = new URL(next, origin);
+    if (url.origin !== origin) {
+      return null;
+    }
+
+    if (url.pathname === "/login" || url.pathname === "/setup") {
+      return null;
+    }
+
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return null;
+  }
+}
+
+export function safeReturnPath(search = window.location.search, origin = window.location.origin) {
+  const returnTo = new URLSearchParams(search).get("returnTo");
+  if (!returnTo) {
+    return null;
+  }
+
+  try {
+    const url = new URL(returnTo, origin);
     if (url.origin !== origin) {
       return null;
     }

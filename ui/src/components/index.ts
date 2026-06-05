@@ -2,6 +2,8 @@ export { AppShell } from "./layout/AppShell";
 export type { NavEntry, NavGroup, NavItem } from "./layout/AppShell";
 export { AppState } from "./feedback/AppState";
 export { Button } from "./primitives/Button";
+export { BreadcrumbTrail } from "./navigation/BreadcrumbTrail";
+export type { BreadcrumbItem } from "./navigation/BreadcrumbTrail";
 export { DataTable } from "./data/DataTable";
 export type { DataTableColumn } from "./data/DataTable";
 export { FilterBar } from "./navigation/FilterBar";

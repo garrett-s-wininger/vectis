@@ -38,6 +38,7 @@ import {
   primaryNavItems,
   routeFromPath,
   safeNextPath,
+  safeReturnPath,
   type AppRoute
 } from "./routing/routes";
 
@@ -532,14 +533,16 @@ function RouteContent({
     case "jobs":
       return (
         <JobsPage
+          detailJobID={route.jobID}
           editorMode={route.jobEditor ?? null}
           jobs={scopedConsoleData.jobs}
           namespaces={consoleData.namespaces}
           namespacePath={namespacePath}
-          onCloseEditor={() => navigateTo("/jobs")}
+          onCloseEditor={() => navigateTo(safeReturnPath() ?? "/jobs")}
           onCreateJob={onCreateJob}
           onOpenCreate={() => navigateTo("/jobs/create")}
-          onOpenEditor={(jobID) => navigateTo(`/jobs/${encodeURIComponent(jobID)}/config`)}
+          onOpenEditor={(jobID) => navigateTo(jobConfigPath(jobID, route))}
+          onOpenJob={(jobID) => navigateTo(jobID ? `/jobs/${encodeURIComponent(jobID)}` : "/jobs")}
           onSelectRun={(runID) => navigateTo(`/runs/${runID}`)}
           onSelectNamespace={onSelectNamespace}
           onTriggerRun={onTriggerRun}
@@ -574,4 +577,10 @@ function RouteContent({
 
 function navigateAfterAuth() {
   navigateTo(safeNextPath() ?? "/");
+}
+
+function jobConfigPath(jobID: string, route: AppRoute) {
+  const jobPath = `/jobs/${encodeURIComponent(jobID)}`;
+  const returnTo = route.jobID === jobID ? jobPath : route.pathname;
+  return `${jobPath}/config?returnTo=${encodeURIComponent(returnTo)}`;
 }
