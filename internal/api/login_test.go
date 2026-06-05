@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -578,6 +579,7 @@ func TestCookieSessionAuth_requiresCSRFForUnsafeMethods(t *testing.T) {
 	req.AddCookie(sessionCookie)
 	req.Header.Set(csrfHeaderName, out.CSRFToken)
 	req.Host = "vectis.example"
+	req.TLS = &tls.ConnectionState{}
 	req.Header.Set("Origin", "https://vectis.example")
 	req.Header.Set("Sec-Fetch-Site", "cross-site")
 	h.ServeHTTP(rec, req)
@@ -590,6 +592,7 @@ func TestCookieSessionAuth_requiresCSRFForUnsafeMethods(t *testing.T) {
 	req.AddCookie(sessionCookie)
 	req.Header.Set(csrfHeaderName, out.CSRFToken)
 	req.Host = "vectis.example"
+	req.TLS = &tls.ConnectionState{}
 	req.Header.Set("Origin", "https://vectis.example")
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent {

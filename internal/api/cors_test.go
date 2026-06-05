@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/tls"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -65,6 +66,51 @@ func TestCORSMiddlewareAllowsSameOriginWithoutConfiguredCORS(t *testing.T) {
 	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
 		t.Fatalf("Access-Control-Allow-Origin = %q, want empty for same-origin", got)
 	}
+}
+
+func TestCORSMiddlewareAllowsHTTPSameOriginWithoutConfiguredCORS(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	s := NewAPIServer(mocks.NewMockLogger(), db)
+	s.SetQueueClient(mocks.NewMockQueueService())
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/health/live", nil)
+	req.Host = "localhost"
+	req.TLS = &tls.ConnectionState{}
+	req.Header.Set("Origin", "https://localhost")
+	s.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("https same-origin code = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("Access-Control-Allow-Origin = %q, want empty for same-origin", got)
+	}
+}
+
+func TestCORSMiddlewareRejectsSameHostDifferentSchemeWithoutConfiguredCORS(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	s := NewAPIServer(mocks.NewMockLogger(), db)
+	s.SetQueueClient(mocks.NewMockQueueService())
+	metrics := &fakeSecurityRejectionMetrics{}
+	s.SetAPISecurityMetrics(metrics)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/health/live", nil)
+	req.Host = "localhost"
+	req.Header.Set("Origin", "https://localhost")
+	s.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("same-host different-scheme code = %d, want %d; body=%s", rec.Code, http.StatusForbidden, rec.Body.String())
+	}
+
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("Access-Control-Allow-Origin = %q, want empty", got)
+	}
+
+	requireSecurityRejection(t, metrics, securityReasonCORSOriginForbidden, securityRejectionUnknownRoute, http.StatusForbidden)
 }
 
 func TestCORSMiddlewareAllowsConfiguredOrigin(t *testing.T) {

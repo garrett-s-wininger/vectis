@@ -32,7 +32,7 @@ func (s *APIServer) corsMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		sameOrigin := originMatchesRequestHost(origin, r.Host)
+		sameOrigin := originMatchesRequest(origin, r)
 		allowed := corsOriginAllowed(origin)
 		if isCORSPreflight(r) {
 			if !allowed || !corsMethodAllowed(r.Header.Get("Access-Control-Request-Method")) {

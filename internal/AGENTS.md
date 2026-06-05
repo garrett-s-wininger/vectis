@@ -56,7 +56,7 @@ API Host header validation is enabled by default through `api.host_validation.al
 
 API forwarded headers are trusted only when the TCP peer is inside `api.client_ip.trusted_proxy_cidrs`. Keep client IP and original-scheme inference (`X-Forwarded-For`, `X-Real-IP`, `X-Forwarded-Proto`, `Forwarded`) on that shared boundary; never trust those headers from direct clients. Trusted proxy scheme inference does not replace `api.session.cookie_secure=true` for auth-enabled HTTPS edge deployments.
 
-API CORS is closed by default. Same-origin `Origin` headers pass without CORS response headers; disallowed cross-origin actual requests and preflights must be rejected before route handling. Configure only exact `https://` origins through `api.cors.allowed_origins` / `VECTIS_API_CORS_ALLOWED_ORIGINS`; `http://` origins are accepted only for loopback/localhost development, and wildcard credentialed CORS is intentionally rejected.
+API CORS is closed by default. Same-origin `Origin` headers, matching the browser-facing scheme, host, and port, pass without CORS response headers; disallowed cross-origin actual requests and preflights must be rejected before route handling. Configure only exact `https://` origins through `api.cors.allowed_origins` / `VECTIS_API_CORS_ALLOWED_ORIGINS`; `http://` origins are accepted only for loopback/localhost development, and wildcard credentialed CORS is intentionally rejected.
 
 Fetch Metadata is enforced before route handling for browser-marked cross-site requests that omit `Origin`; cross-site requests with an `Origin` must then pass CORS. Cookie-authenticated requests still reject `Sec-Fetch-Site: cross-site` even when other metadata is present.
 
@@ -68,7 +68,7 @@ API Host, CORS, Fetch Metadata, CSRF, method, media-type, body-policy, and rate-
 
 The API cache backend is shared security state for sessions and rate limits. Database mode is the replica-safe default. Memory mode is process-local, cleans expired entries opportunistically, and should stay limited to tests, local development, or deliberate single-process deployments.
 
-Secure browser sessions use only `__Host-` session/CSRF cookie names with `Secure`, `Path=/`, and no `Domain`; do not add unprefixed aliases or migration fallbacks. Browser cookie auth requires HTTPS or local TLS. Unsafe cookie-authenticated requests must include a valid CSRF token and a same-origin `Origin` or `Referer`; do not allow missing origin metadata. Logout must delete the server-side session, clear the canonical Vectis session/CSRF cookies, and send `Clear-Site-Data: "cache", "storage"`. Do not add the `cookies` directive unless the deployment model intentionally accepts clearing cookies for the same domain and subdomains.
+Secure browser sessions use only `__Host-` session/CSRF cookie names with `Secure`, `Path=/`, and no `Domain`; do not add unprefixed aliases or migration fallbacks. Browser cookie auth requires HTTPS or local TLS. Unsafe cookie-authenticated requests must include a valid CSRF token and an `Origin` or `Referer` that matches the browser-facing scheme, host, and port; do not allow missing origin metadata. Logout must delete the server-side session, clear the canonical Vectis session/CSRF cookies, and send `Clear-Site-Data: "cache", "storage"`. Do not add the `cookies` directive unless the deployment model intentionally accepts clearing cookies for the same domain and subdomains.
 
 ## Lint expectations
 

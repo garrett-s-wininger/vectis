@@ -122,11 +122,11 @@ func validCSRFToken(raw, expectedHash string) bool {
 
 func validCSRFOrigin(r *http.Request) bool {
 	if origin := strings.TrimSpace(r.Header.Get("Origin")); origin != "" {
-		return originMatchesRequestHost(origin, r.Host)
+		return originMatchesRequest(origin, r)
 	}
 
 	if referer := strings.TrimSpace(r.Header.Get("Referer")); referer != "" {
-		return originMatchesRequestHost(referer, r.Host)
+		return originMatchesRequest(referer, r)
 	}
 
 	return false
@@ -144,19 +144,33 @@ func validFetchMetadata(r *http.Request) bool {
 	}
 }
 
-func originMatchesRequestHost(rawOrigin, requestHost string) bool {
+func originMatchesRequest(rawOrigin string, r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+
 	u, err := url.Parse(rawOrigin)
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return false
 	}
 
-	switch strings.ToLower(u.Scheme) {
+	originScheme := strings.ToLower(strings.TrimSpace(u.Scheme))
+	switch originScheme {
 	case "http", "https":
 	default:
 		return false
 	}
 
-	return canonicalOriginHost(u.Host, u.Scheme) == canonicalOriginHost(requestHost, u.Scheme)
+	requestScheme := "http"
+	if config.HTTPOriginalRequestSecure(r) {
+		requestScheme = "https"
+	}
+
+	if originScheme != requestScheme {
+		return false
+	}
+
+	return canonicalOriginHost(u.Host, originScheme) == canonicalOriginHost(r.Host, requestScheme)
 }
 
 func canonicalOriginHost(host, scheme string) string {

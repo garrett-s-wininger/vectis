@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/tls"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -104,6 +105,7 @@ func TestValidCSRFOriginRequiresOriginOrReferer(t *testing.T) {
 func TestValidCSRFOriginAcceptsMatchingOrigin(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/logout", nil)
 	req.Host = "api.example"
+	req.TLS = &tls.ConnectionState{}
 	req.Header.Set("Origin", "https://api.example")
 
 	if !validCSRFOrigin(req) {
@@ -114,6 +116,7 @@ func TestValidCSRFOriginAcceptsMatchingOrigin(t *testing.T) {
 func TestValidCSRFOriginAcceptsMatchingReferer(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/logout", nil)
 	req.Host = "api.example"
+	req.TLS = &tls.ConnectionState{}
 	req.Header.Set("Referer", "https://api.example/account")
 
 	if !validCSRFOrigin(req) {
@@ -124,10 +127,36 @@ func TestValidCSRFOriginAcceptsMatchingReferer(t *testing.T) {
 func TestValidCSRFOriginRejectsMismatchedOrigin(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/logout", nil)
 	req.Host = "api.example"
+	req.TLS = &tls.ConnectionState{}
 	req.Header.Set("Origin", "https://evil.example")
 
 	if validCSRFOrigin(req) {
 		t.Fatal("mismatched Origin should be invalid")
+	}
+}
+
+func TestValidCSRFOriginRejectsSchemeMismatch(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/logout", nil)
+	req.Host = "api.example"
+	req.TLS = &tls.ConnectionState{}
+	req.Header.Set("Origin", "http://api.example")
+
+	if validCSRFOrigin(req) {
+		t.Fatal("same-host Origin with the wrong scheme should be invalid")
+	}
+}
+
+func TestValidCSRFOriginUsesTrustedForwardedProto(t *testing.T) {
+	t.Setenv("VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS", "10.0.0.0/8")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/logout", nil)
+	req.Host = "api.example"
+	req.RemoteAddr = "10.0.0.2:443"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("Origin", "https://api.example")
+
+	if !validCSRFOrigin(req) {
+		t.Fatal("trusted forwarded HTTPS request should accept matching HTTPS Origin")
 	}
 }
 
