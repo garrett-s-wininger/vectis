@@ -2018,6 +2018,98 @@ func TestAPIServer_GetRun_EphemeralRun(t *testing.T) {
 	}
 }
 
+func TestAPIServer_GetRun_IncludesTaskDispatchState(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
+	ctx := context.Background()
+
+	insertStoredJobForTest(t, db, "job-task-dispatch-detail", `{"id":"job-task-dispatch-detail","root":{"uses":"builtins/shell"}}`)
+	runID, _, err := repos.Runs().CreateRun(ctx, "job-task-dispatch-detail", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	if _, _, err := repos.TaskDispatchIntents().Ensure(ctx, dal.TaskDispatchIntentCreate{
+		ExecutionID:       dispatch.ExecutionID,
+		RunID:             dispatch.RunID,
+		TaskID:            dispatch.TaskID,
+		TaskAttemptID:     dispatch.TaskAttemptID,
+		SourceExecutionID: "source-execution",
+		CellID:            dispatch.CellID,
+	}); err != nil {
+		t.Fatalf("ensure task dispatch intent: %v", err)
+	}
+
+	if err := repos.TaskDispatchIntents().MarkEnqueueFailed(ctx, dispatch.ExecutionID, 1000, "queue unavailable"); err != nil {
+		t.Fatalf("mark task dispatch failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+runID, nil)
+	req.SetPathValue("id", runID)
+	rec := httptest.NewRecorder()
+	server.GetRun(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GetRun: expected status %d, got %d: %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var got struct {
+		RunID        string `json:"run_id"`
+		TaskDispatch *struct {
+			Total     int  `json:"total"`
+			Pending   int  `json:"pending"`
+			Failed    int  `json:"failed"`
+			Enqueued  int  `json:"enqueued"`
+			Truncated bool `json:"truncated"`
+			Limit     int  `json:"limit"`
+			Intents   []struct {
+				ExecutionID          string  `json:"execution_id"`
+				TaskID               string  `json:"task_id"`
+				TaskAttemptID        string  `json:"task_attempt_id"`
+				SourceExecutionID    string  `json:"source_execution_id"`
+				CellID               string  `json:"cell_id"`
+				State                string  `json:"state"`
+				EnqueueAttempts      int     `json:"enqueue_attempts"`
+				LastEnqueueAttemptAt *int64  `json:"last_enqueue_attempt_at"`
+				LastEnqueueError     *string `json:"last_enqueue_error"`
+			} `json:"intents"`
+		} `json:"task_dispatch"`
+	}
+
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode run detail: %v", err)
+	}
+
+	if got.RunID != runID {
+		t.Fatalf("run_id: got %q, want %q", got.RunID, runID)
+	}
+
+	if got.TaskDispatch == nil {
+		t.Fatalf("missing task_dispatch in response: %s", rec.Body.String())
+	}
+
+	if got.TaskDispatch.Total != 1 || got.TaskDispatch.Pending != 0 || got.TaskDispatch.Failed != 1 || got.TaskDispatch.Enqueued != 0 || got.TaskDispatch.Truncated || got.TaskDispatch.Limit != 50 {
+		t.Fatalf("task dispatch summary mismatch: %+v", got.TaskDispatch)
+	}
+
+	if len(got.TaskDispatch.Intents) != 1 {
+		t.Fatalf("task dispatch intents: %+v", got.TaskDispatch.Intents)
+	}
+
+	intent := got.TaskDispatch.Intents[0]
+	if intent.ExecutionID != dispatch.ExecutionID || intent.TaskID != dispatch.TaskID || intent.TaskAttemptID != dispatch.TaskAttemptID || intent.SourceExecutionID != "source-execution" || intent.CellID != "local" {
+		t.Fatalf("task dispatch intent identity mismatch: %+v", intent)
+	}
+
+	if intent.State != "failed_pending" || intent.EnqueueAttempts != 1 || intent.LastEnqueueAttemptAt == nil || *intent.LastEnqueueAttemptAt != 1000 || intent.LastEnqueueError == nil || *intent.LastEnqueueError != "queue unavailable" {
+		t.Fatalf("task dispatch intent state mismatch: %+v", intent)
+	}
+}
+
 func TestAPIServer_RunJob_IdempotencyKeyReplaysRun(t *testing.T) {
 	server, _, queueService, db := setupTestServer(t)
 

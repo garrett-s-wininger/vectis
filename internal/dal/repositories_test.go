@@ -1749,6 +1749,22 @@ func TestTaskDispatchIntentsRepository_Lifecycle(t *testing.T) {
 		t.Fatalf("pending dispatch intent after failure mismatch: %+v", pending)
 	}
 
+	summary, err := intents.GetRunSummary(ctx, runID)
+	if err != nil {
+		t.Fatalf("get dispatch summary after failure: %v", err)
+	}
+	if summary.Total != 1 || summary.Pending != 0 || summary.Failed != 1 || summary.Enqueued != 0 || summary.UnknownState != 0 {
+		t.Fatalf("dispatch summary after failure mismatch: %+v", summary)
+	}
+
+	byRun, err := intents.ListByRun(ctx, runID, 10)
+	if err != nil {
+		t.Fatalf("list dispatch intents by run: %v", err)
+	}
+	if len(byRun) != 1 || byRun[0].ExecutionID != dispatch.ExecutionID || byRun[0].LastEnqueueError == nil {
+		t.Fatalf("dispatch intents by run mismatch: %+v", byRun)
+	}
+
 	again, created, err := intents.Ensure(ctx, dal.TaskDispatchIntentCreate{
 		ExecutionID:       dispatch.ExecutionID,
 		RunID:             dispatch.RunID,
@@ -1774,6 +1790,15 @@ func TestTaskDispatchIntentsRepository_Lifecycle(t *testing.T) {
 	}
 	if len(pending) != 0 {
 		t.Fatalf("enqueued intent should not remain pending: %+v", pending)
+	}
+
+	summary, err = intents.GetRunSummary(ctx, runID)
+	if err != nil {
+		t.Fatalf("get dispatch summary after enqueue: %v", err)
+	}
+
+	if summary.Total != 1 || summary.Pending != 0 || summary.Failed != 0 || summary.Enqueued != 1 || summary.UnknownState != 0 {
+		t.Fatalf("dispatch summary after enqueue mismatch: %+v", summary)
 	}
 
 	if err := intents.MarkEnqueued(ctx, "missing-execution", 0); !dal.IsNotFound(err) {

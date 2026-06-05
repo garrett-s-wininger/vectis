@@ -252,7 +252,7 @@ List routes use `limit` and `cursor` query parameters where implemented. Paginat
 
 Run submission routes can target a cell with `cell_id`/`target_cell_id`; stored-job triggers can also fan out with `cell_ids`/`target_cell_ids`. Replay defaults to the source run's owning cell and can override it with one `cell_id`/`target_cell_id`. Non-local targets require the API to be configured with matching private cell ingress endpoints.
 
-Run list/detail responses include audit metadata such as `definition_version`, `definition_hash`, `owning_cell`, trigger invocation fields, requested cells, and `execution_payload_hash`. The frozen execution payload itself is available only through the operator-scoped execution-payload route.
+Run list/detail responses include audit metadata such as `definition_version`, `definition_hash`, `owning_cell`, trigger invocation fields, requested cells, and `execution_payload_hash`. Run detail also includes `dispatch_events` and, when task fan-out has produced continuation handoffs, a bounded `task_dispatch` summary with pending, failed, and enqueued intent counts. The frozen execution payload itself is available only through the operator-scoped execution-payload route.
 
 `POST /api/v1/jobs/run`, `POST /api/v1/jobs/trigger/{id}`, and `POST /api/v1/runs/{id}/replay` accept `Idempotency-Key`. Use this header when a client might retry after a timeout or dropped connection. Retry guidance for each route family is in [Idempotency And Retries](./idempotency-and-retries.md).
 
@@ -289,7 +289,7 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | POST | `/api/v1/jobs/trigger/{id}` | Start one or more runs from a stored job, optionally targeting `cell_id` or `cell_ids` | `run:trigger` | general | `202` JSON run |
 | GET | `/api/v1/jobs/{id}/runs` | List global catalog runs for one job, optionally filtering by `cell_id` | `run:read` | general | `200` JSON list |
 | GET | `/api/v1/sse/jobs/{id}/runs` | Stream run events for one job | `run:read` | general | `200` `text/event-stream` |
-| GET | `/api/v1/runs/{id}` | Get one run, including audit metadata and dispatch events | `run:read` | general | `200` JSON run |
+| GET | `/api/v1/runs/{id}` | Get one run, including audit metadata, dispatch events, and task dispatch summary when present | `run:read` | general | `200` JSON run |
 | GET | `/api/v1/runs/{id}/tasks` | List task graph nodes and task attempts for one run | `run:read` | general | `200` JSON list |
 | GET | `/api/v1/runs/{id}/execution-payload` | Get the frozen execution payload for one run | `run:operator` | general | `200` JSON payload |
 | POST | `/api/v1/runs/{id}/replay` | Create a new run from the source run's captured definition version, optionally targeting `cell_id` | `run:operator` | general | `202` JSON run |

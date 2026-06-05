@@ -25,6 +25,7 @@ type runDetail struct {
 	FinishedAt     *string         `json:"finished_at,omitempty"`
 	FailureReason  *string         `json:"failure_reason,omitempty"`
 	DispatchEvents []dispatchEvent `json:"dispatch_events,omitempty"`
+	TaskDispatch   *taskDispatch   `json:"task_dispatch,omitempty"`
 	RunAuditFields
 }
 
@@ -46,6 +47,32 @@ type dispatchEvent struct {
 	EventType string  `json:"event_type"`
 	Message   *string `json:"message,omitempty"`
 	CreatedAt int64   `json:"created_at"`
+}
+
+type taskDispatch struct {
+	Total        int                  `json:"total"`
+	Pending      int                  `json:"pending"`
+	Failed       int                  `json:"failed"`
+	Enqueued     int                  `json:"enqueued"`
+	UnknownState int                  `json:"unknown_state,omitempty"`
+	Truncated    bool                 `json:"truncated"`
+	Limit        int                  `json:"limit"`
+	Intents      []taskDispatchIntent `json:"intents,omitempty"`
+}
+
+type taskDispatchIntent struct {
+	ExecutionID          string  `json:"execution_id"`
+	TaskID               string  `json:"task_id"`
+	TaskAttemptID        string  `json:"task_attempt_id"`
+	SourceExecutionID    string  `json:"source_execution_id,omitempty"`
+	CellID               string  `json:"cell_id"`
+	State                string  `json:"state"`
+	EnqueueAttempts      int     `json:"enqueue_attempts"`
+	LastEnqueueError     *string `json:"last_enqueue_error,omitempty"`
+	EnqueuedAt           *int64  `json:"enqueued_at,omitempty"`
+	LastEnqueueAttemptAt *int64  `json:"last_enqueue_attempt_at,omitempty"`
+	CreatedAt            int64   `json:"created_at"`
+	UpdatedAt            int64   `json:"updated_at"`
 }
 
 type runListResult struct {
@@ -157,6 +184,8 @@ func getRun(runID string, w io.Writer) error {
 			fmt.Fprintf(w, "orphan_reason=%s\n", *run.OrphanReason)
 		}
 
+		writeTaskDispatch(w, run.TaskDispatch)
+
 		if len(run.DispatchEvents) > 0 {
 			fmt.Fprintln(w, "dispatch_events:")
 			for _, ev := range run.DispatchEvents {
@@ -175,6 +204,46 @@ func getRun(runID string, w io.Writer) error {
 	default:
 		return fmt.Errorf("unexpected status: %s", resp.Status)
 	}
+}
+
+func writeTaskDispatch(w io.Writer, td *taskDispatch) {
+	if td == nil || td.Total == 0 {
+		return
+	}
+
+	fmt.Fprintf(w, "task_dispatch: total=%d pending=%d failed=%d enqueued=%d", td.Total, td.Pending, td.Failed, td.Enqueued)
+	if td.UnknownState > 0 {
+		fmt.Fprintf(w, " unknown=%d", td.UnknownState)
+	}
+
+	if td.Truncated {
+		fmt.Fprintf(w, " truncated=true limit=%d", td.Limit)
+	}
+
+	fmt.Fprintln(w)
+
+	for _, intent := range td.Intents {
+		fmt.Fprintf(w, "  %s execution=%s task=%s attempt=%s cell=%s enqueue_attempts=%d",
+			intent.State, intent.ExecutionID, intent.TaskID, intent.TaskAttemptID, intent.CellID, intent.EnqueueAttempts)
+
+		if intent.LastEnqueueAttemptAt != nil {
+			fmt.Fprintf(w, " last_attempt=%s", formatUnixNano(*intent.LastEnqueueAttemptAt))
+		}
+
+		if intent.EnqueuedAt != nil {
+			fmt.Fprintf(w, " enqueued_at=%s", formatUnixNano(*intent.EnqueuedAt))
+		}
+
+		if intent.LastEnqueueError != nil {
+			fmt.Fprintf(w, " error=%q", *intent.LastEnqueueError)
+		}
+
+		fmt.Fprintln(w)
+	}
+}
+
+func formatUnixNano(value int64) string {
+	return time.Unix(0, value).UTC().Format(time.RFC3339)
 }
 
 func writeRunAuditFields(w io.Writer, audit RunAuditFields) {

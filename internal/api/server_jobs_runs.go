@@ -2128,6 +2128,17 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	taskDispatch, err := s.getRunTaskDispatch(ctx, runID)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
 	type dispatchEventRow struct {
 		ID        int64   `json:"id"`
 		Source    string  `json:"source"`
@@ -2157,6 +2168,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		RequestedCells       []string           `json:"requested_cells,omitempty"`
 		ExecutionPayloadHash string             `json:"execution_payload_hash,omitempty"`
 		DispatchEvents       []dispatchEventRow `json:"dispatch_events"`
+		TaskDispatch         *taskDispatchRow   `json:"task_dispatch,omitempty"`
 	}
 
 	resp := runRow{
@@ -2180,6 +2192,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		RequestedCells:       rec.RequestedCells,
 		ExecutionPayloadHash: rec.ExecutionPayloadHash,
 		DispatchEvents:       []dispatchEventRow{},
+		TaskDispatch:         taskDispatch,
 	}
 
 	for _, event := range dispatchEvents {
@@ -2201,6 +2214,96 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, _ = w.Write(buf.Bytes())
+}
+
+const runTaskDispatchIntentLimit = 50
+
+type taskDispatchRow struct {
+	Total        int                     `json:"total"`
+	Pending      int                     `json:"pending"`
+	Failed       int                     `json:"failed"`
+	Enqueued     int                     `json:"enqueued"`
+	UnknownState int                     `json:"unknown_state,omitempty"`
+	Truncated    bool                    `json:"truncated"`
+	Limit        int                     `json:"limit"`
+	Intents      []taskDispatchIntentRow `json:"intents"`
+}
+
+type taskDispatchIntentRow struct {
+	ExecutionID          string  `json:"execution_id"`
+	TaskID               string  `json:"task_id"`
+	TaskAttemptID        string  `json:"task_attempt_id"`
+	SourceExecutionID    string  `json:"source_execution_id,omitempty"`
+	CellID               string  `json:"cell_id"`
+	State                string  `json:"state"`
+	EnqueueAttempts      int     `json:"enqueue_attempts"`
+	LastEnqueueError     *string `json:"last_enqueue_error,omitempty"`
+	EnqueuedAt           *int64  `json:"enqueued_at,omitempty"`
+	LastEnqueueAttemptAt *int64  `json:"last_enqueue_attempt_at,omitempty"`
+	CreatedAt            int64   `json:"created_at"`
+	UpdatedAt            int64   `json:"updated_at"`
+}
+
+func (s *APIServer) getRunTaskDispatch(ctx context.Context, runID string) (*taskDispatchRow, error) {
+	if s.taskDispatch == nil {
+		return nil, nil
+	}
+
+	summary, err := s.taskDispatch.GetRunSummary(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+
+	if summary.Total == 0 {
+		return nil, nil
+	}
+
+	intents, err := s.taskDispatch.ListByRun(ctx, runID, runTaskDispatchIntentLimit)
+	if err != nil {
+		return nil, err
+	}
+
+	row := &taskDispatchRow{
+		Total:        summary.Total,
+		Pending:      summary.Pending,
+		Failed:       summary.Failed,
+		Enqueued:     summary.Enqueued,
+		UnknownState: summary.UnknownState,
+		Truncated:    summary.Total > len(intents),
+		Limit:        runTaskDispatchIntentLimit,
+		Intents:      make([]taskDispatchIntentRow, 0, len(intents)),
+	}
+
+	for _, intent := range intents {
+		row.Intents = append(row.Intents, taskDispatchIntentRow{
+			ExecutionID:          intent.ExecutionID,
+			TaskID:               intent.TaskID,
+			TaskAttemptID:        intent.TaskAttemptID,
+			SourceExecutionID:    intent.SourceExecutionID,
+			CellID:               intent.CellID,
+			State:                taskDispatchIntentState(intent),
+			EnqueueAttempts:      intent.EnqueueAttempts,
+			LastEnqueueError:     intent.LastEnqueueError,
+			EnqueuedAt:           intent.EnqueuedAt,
+			LastEnqueueAttemptAt: intent.LastEnqueueAttemptAt,
+			CreatedAt:            intent.CreatedAt,
+			UpdatedAt:            intent.UpdatedAt,
+		})
+	}
+
+	return row, nil
+}
+
+func taskDispatchIntentState(intent dal.TaskDispatchIntent) string {
+	if intent.EnqueuedAt != nil {
+		return "enqueued"
+	}
+
+	if intent.LastEnqueueError != nil {
+		return "failed_pending"
+	}
+
+	return "pending"
 }
 
 func (s *APIServer) GetRunTasks(w http.ResponseWriter, r *http.Request) {

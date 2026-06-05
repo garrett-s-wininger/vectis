@@ -320,6 +320,15 @@ type TaskDispatchIntent struct {
 	UpdatedAt            int64
 }
 
+type TaskDispatchSummary struct {
+	RunID        string
+	Total        int
+	Pending      int
+	Failed       int
+	Enqueued     int
+	UnknownState int
+}
+
 type RunTaskCompletion struct {
 	RunID          string
 	Total          int
@@ -398,6 +407,8 @@ type DispatchEventsRepository interface {
 
 type TaskDispatchIntentsRepository interface {
 	Ensure(ctx context.Context, create TaskDispatchIntentCreate) (TaskDispatchIntent, bool, error)
+	GetRunSummary(ctx context.Context, runID string) (TaskDispatchSummary, error)
+	ListByRun(ctx context.Context, runID string, limit int) ([]TaskDispatchIntent, error)
 	ListPending(ctx context.Context, cellID string, cutoffUnixNano int64, limit int) ([]TaskDispatchIntent, error)
 	ListPendingForRun(ctx context.Context, runID, cellID string, cutoffUnixNano int64, limit int) ([]TaskDispatchIntent, error)
 	MarkEnqueued(ctx context.Context, executionID string, enqueuedAtUnixNano int64) error

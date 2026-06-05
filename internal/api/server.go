@@ -73,6 +73,7 @@ type APIServer struct {
 	roleBindings   dal.RoleBindingsRepository
 	idempotency    dal.IdempotencyRepository
 	dispatchEvents dal.DispatchEventsRepository
+	taskDispatch   dal.TaskDispatchIntentsRepository
 	triggerEvents  dal.TriggerInvocationsRepository
 	catalogEvents  dal.CatalogEventsRepository
 	schedules      dal.SchedulesRepository
@@ -136,6 +137,7 @@ func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
 	s.roleBindings = repos.RoleBindings()
 	s.idempotency = repos.Idempotency()
 	s.dispatchEvents = repos.DispatchEvents()
+	s.taskDispatch = repos.TaskDispatchIntents()
 	s.triggerEvents = repos.TriggerInvocations()
 	s.catalogEvents = repos.CatalogEvents()
 	s.schedules = repos.Schedules()

@@ -1288,6 +1288,60 @@ func TestGetRun_successIncludesAuditFields(t *testing.T) {
 	}
 }
 
+func TestGetRun_successIncludesTaskDispatch(t *testing.T) {
+	lastAttempt := int64(1_000_000_000)
+	errMsg := "queue unavailable"
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/runs/run-1" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"run_id":      "run-1",
+			"run_index":   3,
+			"status":      "queued",
+			"owning_cell": "pdx-b",
+			"task_dispatch": map[string]any{
+				"total":     2,
+				"pending":   1,
+				"failed":    1,
+				"enqueued":  0,
+				"truncated": true,
+				"limit":     1,
+				"intents": []map[string]any{
+					{
+						"execution_id":            "exec-1",
+						"task_id":                 "task-1",
+						"task_attempt_id":         "attempt-1",
+						"cell_id":                 "iad-a",
+						"state":                   "failed_pending",
+						"enqueue_attempts":        2,
+						"last_enqueue_attempt_at": lastAttempt,
+						"last_enqueue_error":      errMsg,
+						"created_at":              lastAttempt,
+						"updated_at":              lastAttempt,
+					},
+				},
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := getRun("run-1", &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{
+		"task_dispatch: total=2 pending=1 failed=1 enqueued=0 truncated=true limit=1",
+		`failed_pending execution=exec-1 task=task-1 attempt=attempt-1 cell=iad-a enqueue_attempts=2 last_attempt=1970-01-01T00:00:01Z error="queue unavailable"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
 func TestGetRun_jsonOutput(t *testing.T) {
 	withOutputFormat(t, outputJSON)
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {

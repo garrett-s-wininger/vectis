@@ -55,6 +55,92 @@ func (r *SQLTaskDispatchIntentsRepository) ListPendingForRun(ctx context.Context
 	return r.listPending(ctx, runID, cellID, cutoffUnixNano, limit)
 }
 
+func (r *SQLTaskDispatchIntentsRepository) GetRunSummary(ctx context.Context, runID string) (TaskDispatchSummary, error) {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return TaskDispatchSummary{}, fmt.Errorf("%w: run_id is required", ErrConflict)
+	}
+
+	row := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT
+			COUNT(*),
+			COALESCE(SUM(CASE WHEN enqueued_at IS NULL AND last_enqueue_error IS NULL THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN enqueued_at IS NULL AND last_enqueue_error IS NOT NULL THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN enqueued_at IS NOT NULL THEN 1 ELSE 0 END), 0)
+		FROM task_dispatch_intents
+		WHERE run_id = ?
+	`), runID)
+
+	var summary TaskDispatchSummary
+	summary.RunID = runID
+	if err := row.Scan(&summary.Total, &summary.Pending, &summary.Failed, &summary.Enqueued); err != nil {
+		return TaskDispatchSummary{}, normalizeSQLError(err)
+	}
+
+	summary.UnknownState = summary.Total - summary.Pending - summary.Failed - summary.Enqueued
+	if summary.UnknownState < 0 {
+		summary.UnknownState = 0
+	}
+
+	return summary, nil
+}
+
+func (r *SQLTaskDispatchIntentsRepository) ListByRun(ctx context.Context, runID string, limit int) ([]TaskDispatchIntent, error) {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return nil, fmt.Errorf("%w: run_id is required", ErrConflict)
+	}
+
+	if limit <= 0 {
+		limit = 100
+	}
+
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
+		SELECT
+			id,
+			execution_id,
+			run_id,
+			task_id,
+			task_attempt_id,
+			source_execution_id,
+			cell_id,
+			enqueued_at,
+			last_enqueue_attempt_at,
+			enqueue_attempts,
+			last_enqueue_error,
+			created_at,
+			updated_at
+		FROM task_dispatch_intents
+		WHERE run_id = ?
+		ORDER BY
+			CASE WHEN enqueued_at IS NULL THEN 0 ELSE 1 END ASC,
+			CASE WHEN enqueued_at IS NULL AND last_enqueue_error IS NOT NULL THEN 0 ELSE 1 END ASC,
+			id ASC
+		LIMIT ?
+	`), runID, limit)
+
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	var out []TaskDispatchIntent
+	for rows.Next() {
+		rec, err := scanTaskDispatchIntent(rows)
+		if err != nil {
+			return nil, err
+		}
+
+		out = append(out, rec)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	return out, nil
+}
+
 func (r *SQLTaskDispatchIntentsRepository) listPending(ctx context.Context, runID, cellID string, cutoffUnixNano int64, limit int) ([]TaskDispatchIntent, error) {
 	cellID = normalizeTargetCellID(cellID, r.cellID)
 	if cutoffUnixNano <= 0 {
