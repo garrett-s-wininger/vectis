@@ -12,10 +12,10 @@ The database and queue are the two services to protect first.
 | --- | --- |
 | Database | Durable source of truth for jobs, runs, schedules, leases, users, tokens, namespaces, audit records, and idempotency keys. |
 | Queue | Handoff point between producers such as API, cron, and reconciler, and consumers such as workers. |
-| Log service | Required before a worker starts normal job execution. Log shards own ingest and streaming for routed runs, not authoritative run state. |
+| Log service | Required before a worker starts normal task delivery execution. Log shards own ingest and streaming for routed runs, not authoritative run state. |
 | Registry | Service discovery. It is avoidable for some paths when queue and log addresses are pinned in config. |
 | API | User and automation entry point. Running work does not depend on the API once workers have claimed it. |
-| Worker | Executes jobs. Capacity and failure handling are mostly worker-count and lease behavior questions. |
+| Worker | Executes envelope-backed task deliveries for persisted runs. Capacity and failure handling are mostly worker-count and lease behavior questions. |
 | Cron | Turns schedules into queued work. Manual and API triggers can still work without it. |
 | Reconciler | Repairs the gap where a run is durable in the database but was not successfully handed to the queue. |
 
@@ -111,7 +111,7 @@ The log service collects worker log chunks and serves log streams to clients. Mu
 
 | Component | Behavior |
 | --- | --- |
-| Worker | Must open a log stream before normal job execution. If the owning log shard is down, read-only for a new run, or does not respond in time, the run fails before meaningful job steps execute. |
+| Worker | Must open a log stream before normal task delivery execution. If the owning log shard is down, read-only for a new run, or does not respond in time, the run fails before meaningful steps execute. |
 | API clients | Cannot read live or stored logs for runs owned by an unavailable shard through the normal log paths until that shard is back. |
 | API status routes | Can still report run state from the database when the API and database are healthy. |
 
@@ -151,7 +151,7 @@ Workers execute envelope-backed task deliveries for persisted runs and coordinat
 | --- | --- |
 | All workers offline | Work can remain queued. Throughput returns when workers return. |
 | Worker overloaded | Queue depth and queued-run age grow. Add workers or reduce incoming work. |
-| `SIGINT` or `SIGTERM` | Worker marks itself draining, stops dequeuing new work, and tries to let the current job finish and finalize state. Watch `vectis_worker_draining` and `vectis_worker_lifecycle_state` to tell whether it is still executing or finalizing. |
+| `SIGINT` or `SIGTERM` | Worker marks itself draining, stops dequeuing new work, and tries to let the current task delivery finish and finalize state. Watch `vectis_worker_draining` and `vectis_worker_lifecycle_state` to tell whether it is still executing or finalizing. |
 | `SIGKILL` or crash | No graceful drain. Leases, queue delivery timeouts, and reconciler behavior determine whether work is retried or stuck. |
 | Database loss mid-run | Lease renewal and final status updates can fail. Workers expose `vectis_worker_db_unavailable` after observing DB-backed transition failures. A long outage can strand or fail runs until recovery or operator action. |
 | Remote cancel | `POST /api/v1/runs/{id}/cancel` and `vectis-cli runs cancel <run-id>` record durable cancellation intent on the running run. If worker control is reachable, the API also sends the run's cancel token over gRPC as a fast path; otherwise the worker observes the stored intent while polling during execution. |
@@ -200,7 +200,7 @@ For reference deploys, add probes in dependency order: registry, queue, and log 
 | Database | One configured SQL backend, embedded migrations, no in-app failover. | Managed PostgreSQL, tested backups, restore drills, and deployment-level HA. |
 | Queue | One or more independent queue shards with optional per-shard disk persistence. | Durable per-shard storage, queue-depth alerts, and capacity planning. |
 | Registry | Commonly a single discovery point unless addresses are pinned. | Redundant discovery or fixed service addresses. |
-| Log service | Required before normal job execution. Run-sharded local storage, DB-backed shard assignment for DB-aware clients, and disk-pressure refusal for new run logs on a pressured shard. | Replication, S3/archive storage, or DB-aware forwarding if log availability must not block work. |
+| Log service | Required before normal task delivery execution. Run-sharded local storage, DB-backed shard assignment for DB-aware clients, and disk-pressure refusal for new run logs on a pressured shard. | Replication, S3/archive storage, or DB-aware forwarding if log availability must not block work. |
 | API | Health probes, graceful HTTP shutdown, auth when enabled, async enqueue backstopped by reconciler. | Edge TLS, idempotent clients, multiple replicas, and alerts on enqueue or reconciler failures. |
 | Worker | Graceful drain on `SIGINT` and `SIGTERM`; no drain on crash or `SIGKILL`. | Worker isolation, bounded drain policy, and clear operator run-stop procedures. |
 | Cron | Database schedule claims and per-tick run idempotency within one database cell; no built-in schedule sharding. | Explicit partition ownership or an external scheduler if schedules span multiple cells. |

@@ -23,6 +23,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 	"vectis/api/gen/go"
+	"vectis/internal/retention"
 )
 
 func TestEffectiveToken_envOverridesFile(t *testing.T) {
@@ -91,6 +92,54 @@ func TestTokenPersistence(t *testing.T) {
 
 	if got := readPersistedToken(); got != "" {
 		t.Fatalf("expected empty after delete, got %s", got)
+	}
+}
+
+func TestPrintRetentionReport_includesTaskCascadeCounts(t *testing.T) {
+	cutoff := time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC)
+	report := retention.Report{
+		DryRun: true,
+		Cutoffs: retention.Cutoffs{
+			TerminalRuns:    &cutoff,
+			JobDefinitions:  &cutoff,
+			IdempotencyKeys: &cutoff,
+			AuditLog:        &cutoff,
+		},
+		Counts: retention.Counts{
+			TerminalRuns:        3,
+			RunDispatchEvents:   4,
+			RunTasks:            5,
+			TaskAttempts:        6,
+			RunSegments:         7,
+			SegmentExecutions:   8,
+			TaskDispatchIntents: 9,
+			JobDefinitions:      10,
+			IdempotencyKeys:     11,
+			AuditLog:            12,
+		},
+	}
+
+	var buf bytes.Buffer
+	printRetentionReport(&buf, report, retention.FileReport{RunLogFiles: 13, RunLogBytes: 14})
+
+	out := buf.String()
+	for _, want := range []string{
+		"would_delete.terminal_runs=3",
+		"would_delete.run_dispatch_events=4",
+		"would_delete.run_tasks=5",
+		"would_delete.task_attempts=6",
+		"would_delete.run_segments=7",
+		"would_delete.segment_executions=8",
+		"would_delete.task_dispatch_intents=9",
+		"would_delete.job_definitions=10",
+		"would_delete.idempotency_keys=11",
+		"would_delete.audit_log=12",
+		"would_delete.run_log_files=13",
+		"would_delete.run_log_bytes=14",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
 	}
 }
 

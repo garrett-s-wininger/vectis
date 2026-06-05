@@ -45,7 +45,7 @@ Watch these when you increase workload, worker count, client concurrency, or log
 
 | Decision | Guidance |
 | --- | --- |
-| Add workers | Safe first lever for more parallel job execution, but each worker adds database, queue, log, CPU, memory, disk, and network pressure. |
+| Add workers | Safe first lever for more parallel task delivery execution, but each worker adds database, queue, log, CPU, memory, disk, and network pressure. |
 | Increase task fan-out | Validate queue handoff rate, `vectis_task_dispatch_intents_total`, dispatch event volume, database write load, and retention before relying on very wide or deep DAGs. |
 | Add API replicas | Validate load-balancer behavior, in-process rate limits, SSE reconnect behavior, and async enqueue repair. |
 | Increase DB pool size | Do this only with database host capacity in mind; raising pool limits can move pressure into the database. |

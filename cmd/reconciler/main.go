@@ -135,7 +135,7 @@ func runReconciler(cmd *cobra.Command, args []string) {
 
 var rootCmd = &cobra.Command{
 	Use:   "vectis-reconciler",
-	Short: "Re-enqueue queued job runs that were never dispatched or need a queue retry",
+	Short: "Repair queued run and task continuation dispatch",
 	Run:   runReconciler,
 }
 
