@@ -703,6 +703,83 @@ func TestAPIServer_GetStuckRunsIncludesTaskDispatchPending(t *testing.T) {
 	}
 }
 
+func TestAPIServer_GetStuckRunsIncludesTaskFinalizationPending(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-stuck-task-finalization", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-stuck-task-finalization"
+	def := `{"id":"job-stuck-task-finalization","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRunInCell(ctx, jobID, nil, 1, "pdx-b")
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	claimed, token, err := repos.Runs().TryClaim(ctx, runID, "worker-task-finalization", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("claim run: %v", err)
+	}
+
+	if !claimed {
+		t.Fatal("expected run claim")
+	}
+
+	if _, _, err := repos.Runs().MarkExecutionSucceededAndActivateChildren(ctx, dispatch.ExecutionID); err != nil {
+		t.Fatalf("mark execution succeeded: %v", err)
+	}
+
+	if err := repos.Runs().MarkRunOrphaned(ctx, runID, token, "lease expired"); err != nil {
+		t.Fatalf("mark orphaned: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/reconciler/stuck-runs", nil)
+	rec := httptest.NewRecorder()
+	server.GetStuckRuns(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var body struct {
+		Stuck                   int64 `json:"stuck"`
+		TaskFinalizationPending int64 `json:"task_finalization_pending"`
+		TaskFinalizationCells   []struct {
+			CellID  string `json:"cell_id"`
+			Pending int64  `json:"pending"`
+		} `json:"task_finalization_cells"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v; body=%s", err, rec.Body.String())
+	}
+
+	if body.Stuck != 0 {
+		t.Fatalf("stuck total: got %d, want 0", body.Stuck)
+	}
+
+	if body.TaskFinalizationPending != 1 {
+		t.Fatalf("task finalization pending: got %d, want 1", body.TaskFinalizationPending)
+	}
+
+	if len(body.TaskFinalizationCells) != 1 || body.TaskFinalizationCells[0].CellID != "pdx-b" || body.TaskFinalizationCells[0].Pending != 1 {
+		t.Fatalf("task finalization cells: %+v", body.TaskFinalizationCells)
+	}
+}
+
 func TestAPIServer_GetJobRuns_DBUnavailable(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	if err := db.Close(); err != nil {

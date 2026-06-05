@@ -57,14 +57,14 @@ Use this when `health check` warns on `queue.backlog.ratio`, queued runs are not
 
 ## Reconciler Repair
 
-Use this when `health check` warns on `reconciler.stuck.runs`, cannot read reconciler recovery visibility, task continuations remain pending for enqueue, or `VectisReconcilerReenqueueFailures` fires.
+Use this when `health check` warns on `reconciler.stuck.runs`, cannot read reconciler recovery visibility, task continuations remain pending for enqueue, or `VectisReconcilerReenqueueFailures` / `VectisReconcilerTaskFinalizationRepairFailures` fires.
 
 1. Confirm API readiness with `vectis-cli health check --strict`.
 2. Confirm at least one reconciler is running, and that only one instance is actively holding the service lease; see [Scaling And Restarts](../deployment/scaling-and-restarts.md).
 3. Check reconciler process logs for database, queue, registry, or gRPC TLS errors.
 4. Verify the reconciler is using the same global database as the API and cron: shared `VECTIS_DATABASE_DSN`, or `VECTIS_GLOBAL_DATABASE_DSN` when global/cell databases are split.
 5. Verify queue resolution through the pinned queue address or registry path configured for the reconciler.
-6. Inspect `vectis_reconciler_reenqueue_total` by outcome and `vectis_retries_exhausted_total`.
+6. Inspect `vectis_reconciler_reenqueue_total`, `vectis_reconciler_task_finalization_repairs_total`, and `vectis_retries_exhausted_total`.
 7. For impacted runs, use `vectis-cli runs show <run-id>` and `vectis-cli runs tasks <run-id>` to confirm whether root dispatch or task continuation dispatch is stuck.
 8. If the reconciler is healthy but one urgent run remains queued, use `vectis-cli runs retry <run-id>` after confirming no worker currently owns it.
 

@@ -514,6 +514,8 @@ type RunsRepository interface {
 	ActivatePlannedChildTaskExecutions(ctx context.Context, parentTaskID string) ([]TaskExecutionRecord, int, error)
 	GetRunTaskCompletion(ctx context.Context, runID string) (RunTaskCompletion, error)
 	ListOrphanedTaskFinalizationCandidates(ctx context.Context, limit int) ([]RunTaskCompletion, error)
+	CountOrphanedTaskFinalizationCandidates(ctx context.Context) (int64, error)
+	CountOrphanedTaskFinalizationCandidatesByCell(ctx context.Context) ([]RunCountByCell, error)
 	ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]QueuedRun, error)
 	GetPendingExecution(ctx context.Context, runID string) (ExecutionDispatchRecord, error)
 	GetExecutionDispatch(ctx context.Context, executionID string) (ExecutionDispatchRecord, error)

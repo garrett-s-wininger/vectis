@@ -1624,6 +1624,80 @@ func (r *SQLRunsRepository) ListOrphanedTaskFinalizationCandidates(ctx context.C
 	return out, nil
 }
 
+func (r *SQLRunsRepository) CountOrphanedTaskFinalizationCandidates(ctx context.Context) (int64, error) {
+	var count int64
+	err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT COUNT(*)
+		FROM (
+			SELECT jr.id
+			FROM job_runs jr
+			JOIN run_tasks rt ON rt.run_id = jr.run_id
+			WHERE jr.status = ?
+			GROUP BY jr.id
+			HAVING COUNT(rt.task_id) > 0
+				AND (
+					COALESCE(SUM(CASE WHEN rt.status IN (?, ?, ?) THEN 1 ELSE 0 END), 0) > 0
+					OR COALESCE(SUM(CASE WHEN rt.status = ? THEN 1 ELSE 0 END), 0) = COUNT(rt.task_id)
+				)
+		) candidates
+	`),
+		RunStatusOrphaned,
+		TaskStatusFailed, TaskStatusCancelled, TaskStatusAborted,
+		TaskStatusSucceeded,
+	).Scan(&count)
+
+	if err != nil {
+		return 0, normalizeSQLError(err)
+	}
+
+	return count, nil
+}
+
+func (r *SQLRunsRepository) CountOrphanedTaskFinalizationCandidatesByCell(ctx context.Context) ([]RunCountByCell, error) {
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
+		SELECT owning_cell, COUNT(*)
+		FROM (
+			SELECT jr.id, jr.owning_cell
+			FROM job_runs jr
+			JOIN run_tasks rt ON rt.run_id = jr.run_id
+			WHERE jr.status = ?
+			GROUP BY jr.id, jr.owning_cell
+			HAVING COUNT(rt.task_id) > 0
+				AND (
+					COALESCE(SUM(CASE WHEN rt.status IN (?, ?, ?) THEN 1 ELSE 0 END), 0) > 0
+					OR COALESCE(SUM(CASE WHEN rt.status = ? THEN 1 ELSE 0 END), 0) = COUNT(rt.task_id)
+				)
+		) candidates
+		GROUP BY owning_cell
+		ORDER BY owning_cell ASC
+	`),
+		RunStatusOrphaned,
+		TaskStatusFailed, TaskStatusCancelled, TaskStatusAborted,
+		TaskStatusSucceeded,
+	)
+
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	var counts []RunCountByCell
+	for rows.Next() {
+		var count RunCountByCell
+		if err := rows.Scan(&count.CellID, &count.Count); err != nil {
+			return nil, normalizeSQLError(err)
+		}
+
+		counts = append(counts, count)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	return counts, nil
+}
+
 func activatePlannedChildTaskExecutionsTx(ctx context.Context, tx *sql.Tx, parentTaskID string) ([]TaskExecutionRecord, int, error) {
 	if err := ensureTaskExistsTx(ctx, tx, parentTaskID); err != nil {
 		return nil, 0, err

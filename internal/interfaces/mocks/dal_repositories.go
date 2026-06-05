@@ -209,41 +209,45 @@ type MockRunsRepository struct {
 	CreateRunIndex   int
 	CreateRunCreated bool
 
-	CreateRunErr           error
-	TouchDispatchedErr     error
-	ListByJobErr           error
-	ListRunTasksErr        error
-	EnsureTaskExecutionErr error
-	ActivateTaskErr        error
-	TaskCompletionErr      error
-	QueuedListErr          error
-	TryClaimErr            error
-	RenewLeaseErr          error
-	RequestCancelErr       error
-	CancelRequestedErr     error
-	MarkRunRunningErr      error
-	MarkRunSuccessErr      error
-	MarkRunFailedErr       error
-	MarkRunCancelledErr    error
-	MarkRunAbortedErr      error
-	MarkRunOrphanedErr     error
-	MarkRunQueuedErr       error
-	RepairMarkErr          error
-	RequeueRunErr          error
-	MarkOrphanedErr        error
-	GetRunStatusErr        error
-	CountByStatusErr       error
-	CountByStatusByCellErr error
-	CountStuckErr          error
-	CountStuckByCellErr    error
-	PendingExecutionErr    error
-	MarkExecutionErr       error
-	LogShardErr            error
+	CreateRunErr               error
+	TouchDispatchedErr         error
+	ListByJobErr               error
+	ListRunTasksErr            error
+	EnsureTaskExecutionErr     error
+	ActivateTaskErr            error
+	TaskCompletionErr          error
+	QueuedListErr              error
+	TryClaimErr                error
+	RenewLeaseErr              error
+	RequestCancelErr           error
+	CancelRequestedErr         error
+	MarkRunRunningErr          error
+	MarkRunSuccessErr          error
+	MarkRunFailedErr           error
+	MarkRunCancelledErr        error
+	MarkRunAbortedErr          error
+	MarkRunOrphanedErr         error
+	MarkRunQueuedErr           error
+	RepairMarkErr              error
+	RequeueRunErr              error
+	MarkOrphanedErr            error
+	GetRunStatusErr            error
+	CountByStatusErr           error
+	CountByStatusByCellErr     error
+	CountStuckErr              error
+	CountStuckByCellErr        error
+	CountTaskFinalizeErr       error
+	CountTaskFinalizeByCellErr error
+	PendingExecutionErr        error
+	MarkExecutionErr           error
+	LogShardErr                error
 
 	CountByStatusResult       int64
 	CountByStatusByCellResult []dal.RunCountByCell
 	CountStuckResult          int64
 	CountStuckByCell          []dal.RunCountByCell
+	CountTaskFinalizeResult   int64
+	CountTaskFinalizeByCell   []dal.RunCountByCell
 
 	TryClaimResult  bool
 	ClaimToken      string
@@ -980,6 +984,22 @@ func (m *MockRunsRepository) ListOrphanedTaskFinalizationCandidates(ctx context.
 	}
 
 	return candidates, nil
+}
+
+func (m *MockRunsRepository) CountOrphanedTaskFinalizationCandidates(ctx context.Context) (int64, error) {
+	if m.CountTaskFinalizeErr != nil {
+		return 0, m.CountTaskFinalizeErr
+	}
+
+	return m.CountTaskFinalizeResult, nil
+}
+
+func (m *MockRunsRepository) CountOrphanedTaskFinalizationCandidatesByCell(ctx context.Context) ([]dal.RunCountByCell, error) {
+	if m.CountTaskFinalizeByCellErr != nil {
+		return nil, m.CountTaskFinalizeByCellErr
+	}
+
+	return append([]dal.RunCountByCell(nil), m.CountTaskFinalizeByCell...), nil
 }
 
 func (m *MockRunsRepository) GetRunJobID(ctx context.Context, runID string) (string, error) {

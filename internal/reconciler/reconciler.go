@@ -249,6 +249,7 @@ func (s *Service) Process(ctx context.Context) error {
 func (s *Service) repairTaskFinalization(ctx context.Context) error {
 	candidates, err := s.runs.ListOrphanedTaskFinalizationCandidates(ctx, TaskFinalizeRepairLimit)
 	if err != nil {
+		s.recordTaskFinalizationRepair(ctx, observability.ReconcilerTaskFinalizationOutcomeError, observability.ReconcilerTaskFinalizationReduceOutcomeUnknown)
 		return err
 	}
 
@@ -262,30 +263,44 @@ func (s *Service) repairTaskFinalization(ctx context.Context) error {
 		case taskreduce.OutcomeSucceeded:
 			if err := s.runs.RepairMarkRunSucceeded(ctx, summary.RunID, ""); err != nil {
 				if dal.IsConflict(err) || dal.IsNotFound(err) {
+					s.recordTaskFinalizationRepair(ctx, observability.ReconcilerTaskFinalizationOutcomeSkippedConflict, string(decision.Outcome))
 					s.logger.Warn("reconciler: task finalization repair skipped run %s: %v", summary.RunID, err)
 					continue
 				}
 
+				s.recordTaskFinalizationRepair(ctx, observability.ReconcilerTaskFinalizationOutcomeError, string(decision.Outcome))
 				return err
 			}
 
+			s.recordTaskFinalizationRepair(ctx, observability.ReconcilerTaskFinalizationOutcomeSuccess, string(decision.Outcome))
 			s.logger.Info("reconciler: repaired orphaned task run %s to succeeded", summary.RunID)
 		case taskreduce.OutcomeFailed:
 			reason := taskfinalize.FailureReason(taskfinalize.Decision{Reduce: decision})
 			if err := s.runs.RepairMarkRunFailedWithCode(ctx, summary.RunID, dal.FailureCodeExecution, reason); err != nil {
 				if dal.IsConflict(err) || dal.IsNotFound(err) {
+					s.recordTaskFinalizationRepair(ctx, observability.ReconcilerTaskFinalizationOutcomeSkippedConflict, string(decision.Outcome))
 					s.logger.Warn("reconciler: task finalization repair skipped run %s: %v", summary.RunID, err)
 					continue
 				}
 
+				s.recordTaskFinalizationRepair(ctx, observability.ReconcilerTaskFinalizationOutcomeError, string(decision.Outcome))
 				return err
 			}
 
+			s.recordTaskFinalizationRepair(ctx, observability.ReconcilerTaskFinalizationOutcomeSuccess, string(decision.Outcome))
 			s.logger.Info("reconciler: repaired orphaned task run %s to failed", summary.RunID)
 		}
 	}
 
 	return nil
+}
+
+func (s *Service) recordTaskFinalizationRepair(ctx context.Context, outcome, reduceOutcome string) {
+	if s.metrics == nil {
+		return
+	}
+
+	s.metrics.RecordTaskFinalizationRepair(ctx, outcome, reduceOutcome)
 }
 
 func (s *Service) repairTaskDispatch(ctx context.Context) error {
@@ -297,6 +312,7 @@ func (s *Service) repairTaskDispatch(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
 	if len(pending) == 0 {
 		return nil
 	}

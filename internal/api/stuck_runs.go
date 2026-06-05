@@ -8,11 +8,13 @@ import (
 )
 
 type stuckRunsResponse struct {
-	Stuck               int64                             `json:"stuck"`
-	DispatchGapSecs     int64                             `json:"dispatch_gap_secs"`
-	Cells               []stuckRunsCellResponse           `json:"cells,omitempty"`
-	TaskDispatchPending int64                             `json:"task_dispatch_pending"`
-	TaskDispatchCells   []taskDispatchPendingCellResponse `json:"task_dispatch_cells,omitempty"`
+	Stuck                   int64                             `json:"stuck"`
+	DispatchGapSecs         int64                             `json:"dispatch_gap_secs"`
+	Cells                   []stuckRunsCellResponse           `json:"cells,omitempty"`
+	TaskDispatchPending     int64                             `json:"task_dispatch_pending"`
+	TaskDispatchCells       []taskDispatchPendingCellResponse `json:"task_dispatch_cells,omitempty"`
+	TaskFinalizationPending int64                             `json:"task_finalization_pending"`
+	TaskFinalizationCells   []taskDispatchPendingCellResponse `json:"task_finalization_cells,omitempty"`
 }
 
 type stuckRunsCellResponse struct {
@@ -96,11 +98,43 @@ func (s *APIServer) GetStuckRuns(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	taskFinalizationPending, err := s.runs.CountOrphanedTaskFinalizationCandidates(ctx)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("pending task finalization query failed: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	taskFinalizationCounts, err := s.runs.CountOrphanedTaskFinalizationCandidatesByCell(ctx)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("pending task finalization by cell query failed: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	taskFinalizationCells := make([]taskDispatchPendingCellResponse, 0, len(taskFinalizationCounts))
+	for _, count := range taskFinalizationCounts {
+		taskFinalizationCells = append(taskFinalizationCells, taskDispatchPendingCellResponse{
+			CellID:  count.CellID,
+			Pending: count.Count,
+		})
+	}
+
 	writeJSON(w, http.StatusOK, stuckRunsResponse{
-		Stuck:               n,
-		DispatchGapSecs:     int64(reconciler.MinDispatchGap.Seconds()),
-		Cells:               cells,
-		TaskDispatchPending: taskDispatchPending,
-		TaskDispatchCells:   taskDispatchCells,
+		Stuck:                   n,
+		DispatchGapSecs:         int64(reconciler.MinDispatchGap.Seconds()),
+		Cells:                   cells,
+		TaskDispatchPending:     taskDispatchPending,
+		TaskDispatchCells:       taskDispatchCells,
+		TaskFinalizationPending: taskFinalizationPending,
+		TaskFinalizationCells:   taskFinalizationCells,
 	})
 }

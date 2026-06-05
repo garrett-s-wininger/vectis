@@ -123,7 +123,13 @@ Warn when a worker cannot reduce task completion into a run-level decision. Pair
 increase(vectis_reconciler_reenqueue_total{outcome!="success"}[10m]) > 0
 ```
 
-Warn when reconciler repair attempts are failing.
+Warn when reconciler queued-run redispatch attempts are failing.
+
+```promql
+increase(vectis_reconciler_task_finalization_repairs_total{outcome="error"}[10m]) > 0
+```
+
+Warn when reconciler repair of orphaned task finalization is failing. Group by `reduce_outcome` to separate reduce-to-succeeded and reduce-to-failed repairs.
 
 ```promql
 sum(rate(vectis_queue_jobs_pending[10m])) > 0 and vectis_queue_jobs_pending > 0
