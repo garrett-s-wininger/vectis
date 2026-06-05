@@ -29,7 +29,11 @@ func (s *APIServer) fetchMetadataMiddleware(next http.Handler) http.Handler {
 }
 
 func fetchMetadataAllowedBeforeRoute(r *http.Request) bool {
-	if validFetchMetadata(r) {
+	if !fetchMetadataModeDestAllowed(r) {
+		return false
+	}
+
+	if fetchMetadataSiteAllowed(r) {
 		return true
 	}
 
@@ -37,4 +41,42 @@ func fetchMetadataAllowedBeforeRoute(r *http.Request) bool {
 	// Cross-site browser navigations and subresource loads commonly omit Origin,
 	// so reject those before route handling.
 	return strings.TrimSpace(r.Header.Get("Origin")) != ""
+}
+
+func fetchMetadataSiteAllowed(r *http.Request) bool {
+	site := strings.ToLower(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site")))
+	switch site {
+	case "", "same-origin", "same-site", "none":
+		return true
+	case "cross-site":
+		return false
+	default:
+		return true
+	}
+}
+
+func fetchMetadataModeDestAllowed(r *http.Request) bool {
+	mode := strings.ToLower(strings.TrimSpace(r.Header.Get("Sec-Fetch-Mode")))
+	dest := strings.ToLower(strings.TrimSpace(r.Header.Get("Sec-Fetch-Dest")))
+
+	if strings.TrimSpace(r.Header.Get("Sec-Fetch-User")) != "" {
+		return false
+	}
+
+	if mode == "" && dest == "" {
+		return true
+	}
+
+	switch mode {
+	case "", "cors", "same-origin":
+	default:
+		return false
+	}
+
+	switch dest {
+	case "", "empty":
+		return true
+	default:
+		return false
+	}
 }

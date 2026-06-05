@@ -133,15 +133,7 @@ func validCSRFOrigin(r *http.Request) bool {
 }
 
 func validFetchMetadata(r *http.Request) bool {
-	site := strings.ToLower(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site")))
-	switch site {
-	case "", "same-origin", "same-site", "none":
-		return true
-	case "cross-site":
-		return false
-	default:
-		return true
-	}
+	return fetchMetadataSiteAllowed(r) && fetchMetadataModeDestAllowed(r)
 }
 
 func originMatchesRequest(rawOrigin string, r *http.Request) bool {
