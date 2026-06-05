@@ -24,6 +24,7 @@ func (s *APIServer) Handler() http.Handler {
 	h = s.routeGuardMiddleware(newAPIRouteIndex(specs), h)
 	h = s.corsMiddleware(h)
 	h = s.fetchMetadataMiddleware(h)
+	h = s.requestHeaderGuardMiddleware(h)
 	h = s.hostHeaderMiddleware(h)
 	h = accessLogMiddleware(s.AccessLogger, apiHTTPExcludedFromAuxLogging, h)
 	h = observability.CorrelationMiddleware(h)

@@ -201,6 +201,8 @@ Security-control rejections for Host validation, CORS checks, Fetch Metadata che
 
 The API server caps request headers at 32 KiB. Requests above that parser limit are rejected by the HTTP server before route handling.
 
+Before CORS and Fetch Metadata checks read browser-supplied metadata, the API rejects duplicate or malformed `Origin`, `Access-Control-Request-Method`, `Access-Control-Request-Headers`, and `Sec-Fetch-*` headers with `invalid_request_header`.
+
 Routes reject request bodies unless the route explicitly accepts a JSON body. JSON routes enforce `application/json` and a per-route body cap before parsing; job-definition routes have a larger cap than auth, user, token, namespace, and control routes. Optional JSON routes allow an absent body without `Content-Type`, but any present body must use JSON.
 
 Requests must use origin-form, unescaped, canonical API paths. Absolute-form proxy request targets, `OPTIONS *`, percent-encoded path text, duplicate slash paths, dot segments, and trailing slash aliases return `invalid_request_target`. Unknown routes return `route_not_found`. Method mismatches return `method_not_allowed` with an `Allow` header; TRACE, TRACK, and CONNECT are always rejected. Method override headers such as `X-HTTP-Method`, `X-HTTP-Method-Override`, and `X-Method-Override` return `method_override_forbidden`.
@@ -234,7 +236,7 @@ Common v1 error codes:
 | Code | Typical status | Meaning |
 | --- | --- | --- |
 | `invalid_request_body` | `400` | JSON could not be decoded or did not match the expected request shape. |
-| `invalid_request_header` | `400` | The request supplied a duplicated singleton security header, malformed idempotency key, or idempotency key on a route that does not accept it. |
+| `invalid_request_header` | `400` | The request supplied a duplicated or malformed security header, malformed idempotency key, or idempotency key on a route that does not accept it. |
 | `invalid_host_header` | `400` | The request `Host` header is invalid or not in the API host allowlist. |
 | `invalid_request_target` | `400` | The request target is not an origin-form, unescaped, canonical API path. |
 | `invalid_query_parameter` | `400` | The request supplied a malformed, repeated, or unsupported query parameter. |
