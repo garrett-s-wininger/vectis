@@ -53,6 +53,18 @@ func TestMustDefaults_ReconcilerInterval(t *testing.T) {
 		t.Fatalf("expected reconciler.metrics_port 9085, got %d", d.Reconciler.MetricsPort)
 	}
 
+	if d.Reconciler.MetricsHost != "localhost" {
+		t.Fatalf("expected reconciler.metrics_host localhost, got %q", d.Reconciler.MetricsHost)
+	}
+
+	if got := ReconcilerMetricsHost(); got != "localhost" {
+		t.Fatalf("ReconcilerMetricsHost() with empty viper: got %q", got)
+	}
+
+	if got := ReconcilerMetricsListenAddr(); got != "localhost:9085" {
+		t.Fatalf("ReconcilerMetricsListenAddr() with empty viper: got %q", got)
+	}
+
 	if got := ReconcilerMetricsPort(); got != 9085 {
 		t.Fatalf("ReconcilerMetricsPort() with empty viper: got %d", got)
 	}
@@ -61,11 +73,32 @@ func TestMustDefaults_ReconcilerInterval(t *testing.T) {
 		t.Fatalf("expected log_forwarder.metrics_port 9088, got %d", d.LogForwarder.MetricsPort)
 	}
 
+	if d.LogForwarder.MetricsHost != "localhost" {
+		t.Fatalf("expected log_forwarder.metrics_host localhost, got %q", d.LogForwarder.MetricsHost)
+	}
+
+	if got := LogForwarderMetricsHost(); got != "localhost" {
+		t.Fatalf("LogForwarderMetricsHost() with empty viper: got %q", got)
+	}
+
+	if got := LogForwarderMetricsListenAddr(); got != "localhost:9088" {
+		t.Fatalf("LogForwarderMetricsListenAddr() with empty viper: got %q", got)
+	}
+
 	if got := LogForwarderMetricsPort(); got != 9088 {
 		t.Fatalf("LogForwarderMetricsPort() with empty viper: got %d", got)
 	}
 
+	viper.Set("metrics_host", "0.0.0.0")
 	viper.Set("metrics_port", 19086)
+	if got := LogForwarderMetricsHost(); got != "0.0.0.0" {
+		t.Fatalf("LogForwarderMetricsHost() override: got %q", got)
+	}
+
+	if got := LogForwarderMetricsListenAddr(); got != "0.0.0.0:19086" {
+		t.Fatalf("LogForwarderMetricsListenAddr() override: got %q", got)
+	}
+
 	if got := LogForwarderMetricsEffectiveListenPort(); got != 19086 {
 		t.Fatalf("LogForwarderMetricsEffectiveListenPort() override: got %d", got)
 	}
@@ -94,6 +127,18 @@ func TestMustDefaults_Catalog(t *testing.T) {
 
 	if d.Catalog.MetricsPort != 9086 {
 		t.Fatalf("expected catalog.metrics_port 9086, got %d", d.Catalog.MetricsPort)
+	}
+
+	if d.Catalog.MetricsHost != "localhost" {
+		t.Fatalf("expected catalog.metrics_host localhost, got %q", d.Catalog.MetricsHost)
+	}
+
+	if got := CatalogMetricsHost(); got != "localhost" {
+		t.Fatalf("CatalogMetricsHost() with empty viper: got %q", got)
+	}
+
+	if got := CatalogMetricsListenAddr(); got != "localhost:9086" {
+		t.Fatalf("CatalogMetricsListenAddr() with empty viper: got %q", got)
 	}
 
 	if got := CatalogMetricsPort(); got != 9086 {
@@ -130,8 +175,20 @@ func TestMustDefaults_CellIngress(t *testing.T) {
 		t.Fatalf("expected cell_ingress.metrics_port 9087, got %d", d.CellIngress.MetricsPort)
 	}
 
+	if d.CellIngress.MetricsHost != "localhost" {
+		t.Fatalf("expected cell_ingress.metrics_host localhost, got %q", d.CellIngress.MetricsHost)
+	}
+
+	if got := CellIngressMetricsHost(); got != "localhost" {
+		t.Fatalf("CellIngressMetricsHost() with empty viper: got %q", got)
+	}
+
 	if got := CellIngressMetricsEffectiveListenPort(); got != 9087 {
 		t.Fatalf("CellIngressMetricsEffectiveListenPort() with empty viper: got %d", got)
+	}
+
+	if got := CellIngressMetricsListenAddr(); got != "localhost:9087" {
+		t.Fatalf("CellIngressMetricsListenAddr() with empty viper: got %q", got)
 	}
 
 	if time.Duration(d.CellIngress.RepairInterval) != 30*time.Second {
@@ -149,6 +206,7 @@ func TestCellIngressConfigOverrides(t *testing.T) {
 
 	viper.Set("host", "0.0.0.0")
 	viper.Set("port", 18085)
+	viper.Set("metrics_host", "127.0.0.1")
 	viper.Set("metrics_port", 19087)
 	viper.Set("repair_interval", 2*time.Second)
 	viper.Set("cell_ingress.queue.address", "queue.local:8081")
@@ -162,6 +220,10 @@ func TestCellIngressConfigOverrides(t *testing.T) {
 		t.Fatalf("CellIngressMetricsEffectiveListenPort() override: got %d", got)
 	}
 
+	if got := CellIngressMetricsListenAddr(); got != "127.0.0.1:19087" {
+		t.Fatalf("CellIngressMetricsListenAddr() override: got %q", got)
+	}
+
 	if got := CellIngressRepairInterval(); got != 2*time.Second {
 		t.Fatalf("CellIngressRepairInterval() override: got %v", got)
 	}
@@ -172,6 +234,46 @@ func TestCellIngressConfigOverrides(t *testing.T) {
 
 	if got := CellIngressRegistryAddress(); got != "registry.local:8082" {
 		t.Fatalf("CellIngressRegistryAddress() override: got %q", got)
+	}
+}
+
+func TestMetricsListenAddressesDefaultToLocalhost(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	d := MustDefaults()
+	cases := []struct {
+		name string
+		host string
+		addr string
+	}{
+		{name: "queue", host: d.Queue.MetricsHost, addr: QueueMetricsListenAddr()},
+		{name: "log", host: d.Log.MetricsHost, addr: LogMetricsListenAddr()},
+		{name: "worker", host: d.Worker.MetricsHost, addr: WorkerMetricsListenAddr()},
+	}
+
+	for _, tc := range cases {
+		if tc.host != "localhost" {
+			t.Fatalf("%s metrics_host default = %q, want localhost", tc.name, tc.host)
+		}
+	}
+
+	wantAddr := map[string]string{
+		"queue":  "localhost:9081",
+		"log":    "localhost:9083",
+		"worker": "localhost:9082",
+	}
+
+	for _, tc := range cases {
+		if tc.addr != wantAddr[tc.name] {
+			t.Fatalf("%s metrics listen addr = %q, want %q", tc.name, tc.addr, wantAddr[tc.name])
+		}
+	}
+
+	viper.Set("metrics_host", "::1")
+	viper.Set("metrics_port", 19081)
+	if got := QueueMetricsListenAddr(); got != "[::1]:19081" {
+		t.Fatalf("QueueMetricsListenAddr() override = %q, want [::1]:19081", got)
 	}
 }
 

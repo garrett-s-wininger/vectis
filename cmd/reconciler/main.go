@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"time"
 
@@ -102,8 +101,7 @@ func runReconciler(cmd *cobra.Command, args []string) {
 	}
 	svc.SetTaskDispatchMetrics(taskDispatchMetrics)
 
-	metricsPort := viper.GetInt("metrics_port")
-	metricsAddr := fmt.Sprintf(":%d", metricsPort)
+	metricsAddr := config.ReconcilerMetricsListenAddr()
 	metricsSrv, err := cli.StartMetricsHTTPServer(metricsHandler, metricsAddr, "Reconciler", logger)
 	if err != nil {
 		logger.Fatal("%v", err)
@@ -143,11 +141,14 @@ func init() {
 	cli.ConfigureVersion(rootCmd)
 	rootCmd.PersistentFlags().Duration("interval", config.ReconcilerInterval(), "How often to scan for queued runs")
 	rootCmd.PersistentFlags().Duration("lease-ttl", config.ReconcilerLeaseTTL(), "How long a reconciler instance owns the active service lease")
+	rootCmd.PersistentFlags().String("metrics-host", config.ReconcilerMetricsHost(), "Host/IP for the Prometheus /metrics HTTP server to bind")
 	rootCmd.PersistentFlags().Int("metrics-port", config.ReconcilerMetricsPort(), "HTTP port for Prometheus /metrics")
 	_ = viper.BindPFlag("interval", rootCmd.PersistentFlags().Lookup("interval"))
 	_ = viper.BindPFlag("lease_ttl", rootCmd.PersistentFlags().Lookup("lease-ttl"))
+	_ = viper.BindPFlag("metrics_host", rootCmd.PersistentFlags().Lookup("metrics-host"))
 	_ = viper.BindPFlag("metrics_port", rootCmd.PersistentFlags().Lookup("metrics-port"))
 	_ = viper.BindEnv("cell_ingress_endpoints", "VECTIS_RECONCILER_CELL_INGRESS_ENDPOINTS", "VECTIS_CELL_INGRESS_ENDPOINTS")
+	viper.SetDefault("metrics_host", config.ReconcilerMetricsHost())
 	viper.SetDefault("metrics_port", config.ReconcilerMetricsPort())
 	viper.SetEnvPrefix("VECTIS_RECONCILER")
 	viper.AutomaticEnv()

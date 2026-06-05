@@ -138,6 +138,7 @@ type APISessionDefaults struct {
 
 type QueueDefaults struct {
 	Port                 int    `toml:"port"`
+	MetricsHost          string `toml:"metrics_host"`
 	MetricsPort          int    `toml:"metrics_port"`
 	RegistryAddress      string `toml:"registry.address"`
 	ResolverAddress      string `toml:"resolver.address"`
@@ -163,6 +164,7 @@ type RegistryClusterDefaults struct {
 
 type LogDefaults struct {
 	Host                        string       `toml:"host"`
+	MetricsHost                 string       `toml:"metrics_host"`
 	MetricsPort                 int          `toml:"metrics_port"`
 	MaxRunBuffers               int          `toml:"max_run_buffers"`
 	StorageReadOnlyMinFreeBytes uint64       `toml:"storage_read_only_min_free_bytes"`
@@ -171,7 +173,8 @@ type LogDefaults struct {
 }
 
 type LogForwarderDefaults struct {
-	MetricsPort int `toml:"metrics_port"`
+	MetricsHost string `toml:"metrics_host"`
+	MetricsPort int    `toml:"metrics_port"`
 }
 
 type GRPCDefaults struct {
@@ -220,6 +223,7 @@ type WorkerDefaults struct {
 	RegistryAddress      string                `toml:"registry.address"`
 	QueueAddress         string                `toml:"queue.address"`
 	LogAddress           string                `toml:"log.address"`
+	MetricsHost          string                `toml:"metrics_host"`
 	MetricsPort          int                   `toml:"metrics_port"`
 	Control              WorkerControlDefaults `toml:"control"`
 	RegisterWithRegistry bool                  `toml:"register_with_registry"`
@@ -236,18 +240,21 @@ type ReconcilerDefaults struct {
 	QueueAddress    string       `toml:"queue.address"`
 	Interval        tomlDuration `toml:"interval"`
 	LeaseTTL        tomlDuration `toml:"lease_ttl"`
+	MetricsHost     string       `toml:"metrics_host"`
 	MetricsPort     int          `toml:"metrics_port"`
 }
 
 type CatalogDefaults struct {
 	Interval    tomlDuration `toml:"interval"`
 	BatchSize   int          `toml:"batch_size"`
+	MetricsHost string       `toml:"metrics_host"`
 	MetricsPort int          `toml:"metrics_port"`
 }
 
 type CellIngressDefaults struct {
 	Host            string       `toml:"host"`
 	Port            int          `toml:"port"`
+	MetricsHost     string       `toml:"metrics_host"`
 	MetricsPort     int          `toml:"metrics_port"`
 	RepairInterval  tomlDuration `toml:"repair_interval"`
 	RegistryAddress string       `toml:"registry.address"`
@@ -317,9 +324,15 @@ func validateDefaults(d Defaults) {
 			panic(fmt.Sprintf("config defaults: %s must be > 0 (got %d)", name, port))
 		}
 	}
+	validateHost := func(host, name string) {
+		if strings.TrimSpace(host) == "" {
+			panic(fmt.Sprintf("config defaults: %s must not be empty", name))
+		}
+	}
 
 	validatePort(d.API.Port, "api.port")
 	validatePort(d.Queue.Port, "queue.port")
+	validateHost(d.Queue.MetricsHost, "queue.metrics_host")
 	validatePort(d.Queue.MetricsPort, "queue.metrics_port")
 	if d.Queue.MetricsPort == d.Queue.Port {
 		panic("config defaults: queue.metrics_port must differ from queue.port")
@@ -348,6 +361,7 @@ func validateDefaults(d Defaults) {
 	}
 
 	validatePort(d.Log.GRPC.Port, "log.grpc.port")
+	validateHost(d.Log.MetricsHost, "log.metrics_host")
 	validatePort(d.Log.MetricsPort, "log.metrics_port")
 	if d.Log.MetricsPort == d.Log.GRPC.Port {
 		panic("config defaults: log.metrics_port must differ from log.grpc.port")
@@ -357,6 +371,7 @@ func validateDefaults(d Defaults) {
 		panic("config defaults: log.metrics_port must differ from queue.metrics_port and worker.metrics_port")
 	}
 
+	validateHost(d.LogForwarder.MetricsHost, "log_forwarder.metrics_host")
 	validatePort(d.LogForwarder.MetricsPort, "log_forwarder.metrics_port")
 	if d.LogForwarder.MetricsPort == d.Queue.MetricsPort ||
 		d.LogForwarder.MetricsPort == d.Worker.MetricsPort ||
@@ -377,6 +392,7 @@ func validateDefaults(d Defaults) {
 		panic("config defaults: database.dsn must not be empty")
 	}
 
+	validateHost(d.Worker.MetricsHost, "worker.metrics_host")
 	validatePort(d.Worker.MetricsPort, "worker.metrics_port")
 	if d.Worker.MetricsPort == d.Queue.MetricsPort {
 		panic("config defaults: worker.metrics_port must differ from queue.metrics_port")
@@ -411,6 +427,7 @@ func validateDefaults(d Defaults) {
 		panic("config defaults: reconciler.lease_ttl must be > 0")
 	}
 
+	validateHost(d.Reconciler.MetricsHost, "reconciler.metrics_host")
 	validatePort(d.Reconciler.MetricsPort, "reconciler.metrics_port")
 	if d.Reconciler.MetricsPort == d.Queue.MetricsPort ||
 		d.Reconciler.MetricsPort == d.Worker.MetricsPort ||
@@ -428,6 +445,7 @@ func validateDefaults(d Defaults) {
 		panic("config defaults: catalog.batch_size must be > 0")
 	}
 
+	validateHost(d.Catalog.MetricsHost, "catalog.metrics_host")
 	validatePort(d.Catalog.MetricsPort, "catalog.metrics_port")
 	if d.Catalog.MetricsPort == d.Queue.MetricsPort ||
 		d.Catalog.MetricsPort == d.Worker.MetricsPort ||
@@ -449,6 +467,7 @@ func validateDefaults(d Defaults) {
 		panic("config defaults: cell_ingress.port must differ from api/queue/registry/log ports")
 	}
 
+	validateHost(d.CellIngress.MetricsHost, "cell_ingress.metrics_host")
 	validatePort(d.CellIngress.MetricsPort, "cell_ingress.metrics_port")
 	if d.CellIngress.MetricsPort == d.CellIngress.Port ||
 		d.CellIngress.MetricsPort == d.Queue.MetricsPort ||
@@ -613,16 +632,52 @@ func APIPort() int {
 	return MustDefaults().API.Port
 }
 
+func metricsHost(flatKey, namespacedKey, fallback string) string {
+	if host := strings.TrimSpace(viper.GetString(flatKey)); host != "" {
+		return host
+	}
+
+	if host := strings.TrimSpace(viper.GetString(namespacedKey)); host != "" {
+		return host
+	}
+
+	if host := strings.TrimSpace(fallback); host != "" {
+		return host
+	}
+
+	return "localhost"
+}
+
+func metricsListenAddr(host string, port int) string {
+	return net.JoinHostPort(host, strconv.Itoa(port))
+}
+
 func QueuePort() int {
 	return MustDefaults().Queue.Port
+}
+
+func QueueMetricsHost() string {
+	return metricsHost("metrics_host", "queue.metrics_host", MustDefaults().Queue.MetricsHost)
 }
 
 func QueueMetricsPort() int {
 	return MustDefaults().Queue.MetricsPort
 }
 
+func QueueMetricsListenAddr() string {
+	return metricsListenAddr(QueueMetricsHost(), QueueMetricsEffectiveListenPort())
+}
+
+func WorkerMetricsHost() string {
+	return metricsHost("metrics_host", "worker.metrics_host", MustDefaults().Worker.MetricsHost)
+}
+
 func WorkerMetricsPort() int {
 	return MustDefaults().Worker.MetricsPort
+}
+
+func WorkerMetricsListenAddr() string {
+	return metricsListenAddr(WorkerMetricsHost(), WorkerMetricsEffectiveListenPort())
 }
 
 func WorkerControlMode() string {
@@ -768,6 +823,10 @@ func LogGRPCPort() int {
 	return MustDefaults().Log.GRPC.Port
 }
 
+func LogMetricsHost() string {
+	return metricsHost("metrics_host", "log.metrics_host", MustDefaults().Log.MetricsHost)
+}
+
 func LogMetricsPort() int {
 	return MustDefaults().Log.MetricsPort
 }
@@ -780,6 +839,14 @@ func LogMetricsEffectiveListenPort() int {
 	return LogMetricsPort()
 }
 
+func LogMetricsListenAddr() string {
+	return metricsListenAddr(LogMetricsHost(), LogMetricsEffectiveListenPort())
+}
+
+func LogForwarderMetricsHost() string {
+	return metricsHost("metrics_host", "log_forwarder.metrics_host", MustDefaults().LogForwarder.MetricsHost)
+}
+
 func LogForwarderMetricsPort() int {
 	return MustDefaults().LogForwarder.MetricsPort
 }
@@ -790,6 +857,10 @@ func LogForwarderMetricsEffectiveListenPort() int {
 	}
 
 	return LogForwarderMetricsPort()
+}
+
+func LogForwarderMetricsListenAddr() string {
+	return metricsListenAddr(LogForwarderMetricsHost(), LogForwarderMetricsEffectiveListenPort())
 }
 
 func LogMaxRunBuffers() int {
@@ -1259,6 +1330,22 @@ func ReconcilerMetricsPort() int {
 	return MustDefaults().Reconciler.MetricsPort
 }
 
+func ReconcilerMetricsEffectiveListenPort() int {
+	if p := viper.GetInt("metrics_port"); p > 0 {
+		return p
+	}
+
+	return ReconcilerMetricsPort()
+}
+
+func ReconcilerMetricsHost() string {
+	return metricsHost("metrics_host", "reconciler.metrics_host", MustDefaults().Reconciler.MetricsHost)
+}
+
+func ReconcilerMetricsListenAddr() string {
+	return metricsListenAddr(ReconcilerMetricsHost(), ReconcilerMetricsEffectiveListenPort())
+}
+
 func CatalogInterval() time.Duration {
 	if d := viper.GetDuration("interval"); d > 0 {
 		return d
@@ -1286,6 +1373,22 @@ func CatalogBatchSize() int {
 
 func CatalogMetricsPort() int {
 	return MustDefaults().Catalog.MetricsPort
+}
+
+func CatalogMetricsEffectiveListenPort() int {
+	if p := viper.GetInt("metrics_port"); p > 0 {
+		return p
+	}
+
+	return CatalogMetricsPort()
+}
+
+func CatalogMetricsHost() string {
+	return metricsHost("metrics_host", "catalog.metrics_host", MustDefaults().Catalog.MetricsHost)
+}
+
+func CatalogMetricsListenAddr() string {
+	return metricsListenAddr(CatalogMetricsHost(), CatalogMetricsEffectiveListenPort())
 }
 
 func CellIngressHost() string {
@@ -1316,6 +1419,10 @@ func CellIngressMetricsPort() int {
 	return MustDefaults().CellIngress.MetricsPort
 }
 
+func CellIngressMetricsHost() string {
+	return metricsHost("metrics_host", "cell_ingress.metrics_host", MustDefaults().CellIngress.MetricsHost)
+}
+
 func CellIngressMetricsEffectiveListenPort() int {
 	if p := viper.GetInt("metrics_port"); p > 0 {
 		return p
@@ -1326,6 +1433,10 @@ func CellIngressMetricsEffectiveListenPort() int {
 	}
 
 	return CellIngressMetricsPort()
+}
+
+func CellIngressMetricsListenAddr() string {
+	return metricsListenAddr(CellIngressMetricsHost(), CellIngressMetricsEffectiveListenPort())
 }
 
 func CellIngressRepairInterval() time.Duration {

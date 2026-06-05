@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 
@@ -71,8 +70,7 @@ func runLog(cmd *cobra.Command, args []string) {
 
 	defer cli.DeferShutdown(logger, "Metrics", shutdownMetrics)()
 
-	metricsPort := config.LogMetricsEffectiveListenPort()
-	metricsAddr := fmt.Sprintf(":%d", metricsPort)
+	metricsAddr := config.LogMetricsListenAddr()
 	metricsSrv, err := cli.StartMetricsHTTPServer(metricsHandler, metricsAddr, "Log", logger)
 	if err != nil {
 		logger.Fatal("%v", err)
@@ -95,6 +93,7 @@ func init() {
 	viper.SetDefault("storage_dir", "")
 	viper.SetDefault("instance_id", "")
 	viper.SetDefault("grpc_port", config.LogGRPCPort())
+	viper.SetDefault("metrics_host", config.LogMetricsHost())
 	viper.SetDefault("metrics_port", config.LogMetricsPort())
 	viper.SetDefault("max_run_buffers", config.LogMaxRunBuffers())
 	viper.SetDefault("storage_read_only_min_free_bytes", config.LogStorageReadOnlyMinFreeBytes())
@@ -102,12 +101,14 @@ func init() {
 	rootCmd.PersistentFlags().String("storage-dir", "", "Directory for durable run log files (default: $XDG_DATA_HOME/vectis/log/<instance-id>)")
 	rootCmd.PersistentFlags().String("instance-id", "", "Stable log shard identifier used for registry routing (default: hostname-port)")
 	rootCmd.PersistentFlags().Int("grpc-port", config.LogGRPCPort(), "gRPC port for log ingest and reads")
+	rootCmd.PersistentFlags().String("metrics-host", config.LogMetricsHost(), "Host/IP for the Prometheus /metrics HTTP server to bind")
 	rootCmd.PersistentFlags().Int("metrics-port", config.LogMetricsPort(), "HTTP port for Prometheus /metrics")
 	rootCmd.PersistentFlags().Int("max-run-buffers", config.LogMaxRunBuffers(), "Maximum in-memory run log buffers before terminal buffers are evicted")
 	rootCmd.PersistentFlags().Uint64("storage-read-only-min-free-bytes", config.LogStorageReadOnlyMinFreeBytes(), "Minimum free bytes required before accepting logs for a new run (0 disables)")
 	_ = viper.BindPFlag("storage_dir", rootCmd.PersistentFlags().Lookup("storage-dir"))
 	_ = viper.BindPFlag("instance_id", rootCmd.PersistentFlags().Lookup("instance-id"))
 	_ = viper.BindPFlag("grpc_port", rootCmd.PersistentFlags().Lookup("grpc-port"))
+	_ = viper.BindPFlag("metrics_host", rootCmd.PersistentFlags().Lookup("metrics-host"))
 	_ = viper.BindPFlag("metrics_port", rootCmd.PersistentFlags().Lookup("metrics-port"))
 	_ = viper.BindPFlag("max_run_buffers", rootCmd.PersistentFlags().Lookup("max-run-buffers"))
 	_ = viper.BindPFlag("storage_read_only_min_free_bytes", rootCmd.PersistentFlags().Lookup("storage-read-only-min-free-bytes"))

@@ -112,8 +112,7 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 		logger.Fatal("Failed to register queue metrics: %v", err)
 	}
 
-	metricsPort := config.QueueMetricsEffectiveListenPort()
-	metricsAddr := fmt.Sprintf(":%d", metricsPort)
+	metricsAddr := config.QueueMetricsListenAddr()
 	metricsSrv, err := cli.StartMetricsHTTPServer(metricsHandler, metricsAddr, "Queue", logger)
 	if err != nil {
 		logger.Fatal("%v", err)
@@ -248,12 +247,14 @@ func init() {
 	cli.ConfigureVersion(rootCmd)
 
 	viper.SetDefault("port", config.QueuePort())
+	viper.SetDefault("metrics_host", config.QueueMetricsHost())
 	viper.SetDefault("metrics_port", config.QueueMetricsPort())
 	viper.SetDefault("pool", defaultQueuePool)
 	viper.SetDefault("instance_id", "")
 	viper.SetDefault("persistence_snapshot_every", 128)
 
 	rootCmd.PersistentFlags().Int("port", config.QueuePort(), "Port for the queue")
+	rootCmd.PersistentFlags().String("metrics-host", config.QueueMetricsHost(), "Host/IP for the Prometheus /metrics HTTP server to bind")
 	rootCmd.PersistentFlags().Int("metrics-port", config.QueueMetricsPort(), "HTTP port for Prometheus /metrics")
 	rootCmd.PersistentFlags().String("pool", defaultQueuePool, "Queue pool name used for default local persistence grouping")
 	rootCmd.PersistentFlags().String("instance-id", "", "Stable queue instance ID for registry and delivery routing")
@@ -261,6 +262,7 @@ func init() {
 	rootCmd.PersistentFlags().Int("persistence-snapshot-every", 128, "Persisted queue snapshot interval in queue mutations")
 
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
+	_ = viper.BindPFlag("metrics_host", rootCmd.PersistentFlags().Lookup("metrics-host"))
 	_ = viper.BindPFlag("metrics_port", rootCmd.PersistentFlags().Lookup("metrics-port"))
 	_ = viper.BindPFlag("pool", rootCmd.PersistentFlags().Lookup("pool"))
 	_ = viper.BindPFlag("instance_id", rootCmd.PersistentFlags().Lookup("instance-id"))

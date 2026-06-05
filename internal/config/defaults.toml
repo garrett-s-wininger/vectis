@@ -67,6 +67,7 @@ allowed_origins = []
 
 [queue]
 port = 8081
+metrics_host = "localhost"
 metrics_port = 9081
 register_with_registry = true
 advertise_address = ""
@@ -86,6 +87,7 @@ peer_dial_timeout = "3s"
 
 [log]
 host = "localhost"
+metrics_host = "localhost"
 metrics_port = 9083
 max_run_buffers = 1024
 storage_read_only_min_free_bytes = 1073741824
@@ -96,6 +98,7 @@ register_with_registry = true
 advertise_address = ""
 
 [log_forwarder]
+metrics_host = "localhost"
 metrics_port = 9088
 
 [discovery]
@@ -111,16 +114,19 @@ claim_ttl = "5m"
 [reconciler]
 interval = "30s"
 lease_ttl = "2m"
+metrics_host = "localhost"
 metrics_port = 9085
 
 [catalog]
 interval = "1s"
 batch_size = 100
+metrics_host = "localhost"
 metrics_port = 9086
 
 [cell_ingress]
 host = "localhost"
 port = 8085
+metrics_host = "localhost"
 metrics_port = 9087
 repair_interval = "30s"
 registry.address = ""
@@ -137,6 +143,7 @@ conn_max_lifetime = "1h"
 conn_max_idle_time = "15m"
 
 [worker]
+metrics_host = "localhost"
 metrics_port = 9082
 register_with_registry = true
 

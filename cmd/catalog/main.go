@@ -81,7 +81,7 @@ func runCatalog(cmd *cobra.Command, args []string) {
 		logger.Info("Catalog fan-in enabled for %d cell database(s)", len(fanInSources))
 	}
 
-	metricsAddr := fmt.Sprintf(":%d", viper.GetInt("metrics_port"))
+	metricsAddr := config.CatalogMetricsListenAddr()
 	metricsSrv, err := cli.StartMetricsHTTPServer(metricsHandler, metricsAddr, "Catalog", logger)
 	if err != nil {
 		logger.Fatal("%v", err)
@@ -162,15 +162,18 @@ func init() {
 	cli.ConfigureVersion(rootCmd)
 	rootCmd.PersistentFlags().Duration("interval", config.CatalogInterval(), "How often to drain pending cell catalog events")
 	rootCmd.PersistentFlags().Int("batch-size", config.CatalogBatchSize(), "Maximum cell catalog events to process per batch")
+	rootCmd.PersistentFlags().String("metrics-host", config.CatalogMetricsHost(), "Host/IP for the Prometheus /metrics HTTP server to bind")
 	rootCmd.PersistentFlags().Int("metrics-port", config.CatalogMetricsPort(), "HTTP port for Prometheus /metrics")
 	rootCmd.PersistentFlags().StringSlice("cell-database-dsn", config.CatalogCellDatabaseSpecs(), "Cell catalog source in cell_id=dsn form; may be repeated")
 	_ = viper.BindPFlag("interval", rootCmd.PersistentFlags().Lookup("interval"))
 	_ = viper.BindPFlag("batch_size", rootCmd.PersistentFlags().Lookup("batch-size"))
+	_ = viper.BindPFlag("metrics_host", rootCmd.PersistentFlags().Lookup("metrics-host"))
 	_ = viper.BindPFlag("metrics_port", rootCmd.PersistentFlags().Lookup("metrics-port"))
 	_ = viper.BindPFlag("cell_database_dsns", rootCmd.PersistentFlags().Lookup("cell-database-dsn"))
 	_ = viper.BindEnv("cell_database_dsns", "VECTIS_CATALOG_CELL_DATABASE_DSNS")
 	viper.SetDefault("interval", config.CatalogInterval())
 	viper.SetDefault("batch_size", config.CatalogBatchSize())
+	viper.SetDefault("metrics_host", config.CatalogMetricsHost())
 	viper.SetDefault("metrics_port", config.CatalogMetricsPort())
 	viper.SetEnvPrefix("VECTIS_CATALOG")
 	viper.AutomaticEnv()

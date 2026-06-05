@@ -139,8 +139,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 
 	defer cli.DeferShutdown(logger, "Metrics", shutdownMetrics)()
 
-	metricsPort := config.WorkerMetricsEffectiveListenPort()
-	metricsAddr := fmt.Sprintf(":%d", metricsPort)
+	metricsAddr := config.WorkerMetricsListenAddr()
 	metricsSrv, err := cli.StartMetricsHTTPServer(metricsHandler, metricsAddr, "Worker", logger)
 	if err != nil {
 		logger.Fatal("%v", err)
@@ -1367,9 +1366,12 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	cli.ConfigureVersion(rootCmd)
+	viper.SetDefault("metrics_host", config.WorkerMetricsHost())
 	viper.SetDefault("metrics_port", config.WorkerMetricsPort())
 
+	rootCmd.PersistentFlags().String("metrics-host", config.WorkerMetricsHost(), "Host/IP for the Prometheus /metrics HTTP server to bind")
 	rootCmd.PersistentFlags().Int("metrics-port", config.WorkerMetricsPort(), "HTTP port for Prometheus /metrics")
+	_ = viper.BindPFlag("metrics_host", rootCmd.PersistentFlags().Lookup("metrics-host"))
 	_ = viper.BindPFlag("metrics_port", rootCmd.PersistentFlags().Lookup("metrics-port"))
 	_ = viper.BindEnv("worker.queue.address", "VECTIS_WORKER_QUEUE_ADDRESS")
 	_ = viper.BindEnv("worker.log.address", "VECTIS_WORKER_LOG_ADDRESS")

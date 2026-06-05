@@ -46,6 +46,7 @@ Some settings are global and intentionally do not use a service prefix, such as 
 | Enable API access logs | `VECTIS_API_SERVER_LOG_FORMAT=json` |
 | Pin worker to a queue address | `VECTIS_WORKER_QUEUE_ADDRESS=host:8081` |
 | Persist queue backlog to disk | `VECTIS_QUEUE_PERSISTENCE_DIR=/path/to/queue-shard` |
+| Expose a dedicated metrics listener off-host | Set the service `--metrics-host` flag or `VECTIS_<SERVICE>_METRICS_HOST=0.0.0.0` deliberately |
 | Change reconciler interval | `VECTIS_RECONCILER_INTERVAL=30s` |
 | Change reconciler failover TTL | `VECTIS_RECONCILER_LEASE_TTL=2m` |
 | Set cron claim TTL | `VECTIS_CRON_CLAIM_TTL=5m` or `vectis-cron --claim-ttl 5m` |
@@ -61,15 +62,15 @@ Use these prefixes when building service-specific environment variable names.
 | Program | Env prefix | Useful flags |
 | --- | --- | --- |
 | `vectis-api` | `VECTIS_API_SERVER` | `--host`, `--port`, `--cell-ingress-endpoint`, `--tls-cert-file`, `--tls-key-file` |
-| `vectis-cell-ingress` | `VECTIS_CELL_INGRESS` | `--host`, `--port`, `--metrics-port`, `--repair-interval`, `--queue-address`, `--registry-address` |
-| `vectis-queue` | `VECTIS_QUEUE` | `--port`, `--metrics-port`, `--pool`, `--instance-id`, `--persistence-dir`, `--persistence-snapshot-every` |
+| `vectis-cell-ingress` | `VECTIS_CELL_INGRESS` | `--host`, `--port`, `--metrics-host`, `--metrics-port`, `--repair-interval`, `--queue-address`, `--registry-address` |
+| `vectis-queue` | `VECTIS_QUEUE` | `--port`, `--metrics-host`, `--metrics-port`, `--pool`, `--instance-id`, `--persistence-dir`, `--persistence-snapshot-every` |
 | `vectis-registry` | `VECTIS_REGISTRY` | `--port`; cluster membership uses `VECTIS_REGISTRY_CLUSTER_*` |
-| `vectis-log` | `VECTIS_LOG` | `--instance-id`, `--storage-dir`, `--storage-read-only-min-free-bytes`, `--grpc-port`, `--metrics-port`, `--max-run-buffers` |
-| `vectis-worker` | `VECTIS_WORKER` | `--metrics-port` |
+| `vectis-log` | `VECTIS_LOG` | `--instance-id`, `--storage-dir`, `--storage-read-only-min-free-bytes`, `--grpc-port`, `--metrics-host`, `--metrics-port`, `--max-run-buffers` |
+| `vectis-worker` | `VECTIS_WORKER` | `--metrics-host`, `--metrics-port` |
 | `vectis-cron` | `VECTIS_CRON` | `--instance-id`, `--claim-ttl` |
-| `vectis-reconciler` | `VECTIS_RECONCILER` | `--interval`, `--lease-ttl`, `--metrics-port` |
-| `vectis-catalog` | `VECTIS_CATALOG` | `--interval`, `--batch-size`, `--metrics-port`, `--cell-database-dsn` |
-| `vectis-log-forwarder` | `VECTIS_LOG_FORWARDER` | `--socket`, `--lockfile`, `--spool-dir`, `--metrics-port` |
+| `vectis-reconciler` | `VECTIS_RECONCILER` | `--interval`, `--lease-ttl`, `--metrics-host`, `--metrics-port` |
+| `vectis-catalog` | `VECTIS_CATALOG` | `--interval`, `--batch-size`, `--metrics-host`, `--metrics-port`, `--cell-database-dsn` |
+| `vectis-log-forwarder` | `VECTIS_LOG_FORWARDER` | `--socket`, `--lockfile`, `--spool-dir`, `--metrics-host`, `--metrics-port` |
 | `vectis-docs` | `VECTIS_DOCS` | `--host`, `--port`, `--dir`, `--tls-cert-file`, `--tls-key-file` |
 | `vectis-local` | `VECTIS_LOCAL` | `--profile`, `--host`, `--cell`, `--docs-port`, `--docs-dir`, `--log-level`, `--grpc-insecure`, `--http-tls`, `--tls-dir`; subcommands: `init`, `install-cert` |
 | `vectis-cli` | none for normal API commands | `VECTIS_API_TOKEN` for auth; `VECTIS_DATABASE_*` for `database migrate` |
@@ -128,7 +129,7 @@ Cell ingress route matching is similarly narrow: health endpoints allow `GET`/`H
 
 HTTP servers for the API, docs, cell ingress, and metrics endpoints cap request headers at 32 KiB. Keep reverse proxy and ingress header limits at or below that size so oversized requests are rejected before reaching Vectis.
 
-Per-service metrics servers only serve `GET`/`HEAD /metrics`; other paths or methods are rejected before the Prometheus handler runs. Metrics responses use baseline security headers and `Cache-Control: no-store` because metrics can disclose operational state.
+Per-service metrics servers bind to `localhost` by default and only serve `GET`/`HEAD /metrics`; other paths or methods are rejected before the Prometheus handler runs. Set the relevant service's `--metrics-host` flag or `VECTIS_<SERVICE>_METRICS_HOST` only when a trusted scraper needs off-host access. Metrics responses use baseline security headers and `Cache-Control: no-store` because metrics can disclose operational state.
 
 API rate limits have embedded defaults for auth, token, and general routes. The shipped limit keys live under `api.rate_limit.*`. The defaults are intended to protect the built-in auth surface from accidental or hostile bursts; tune them only when you understand the expected traffic shape.
 
@@ -204,7 +205,7 @@ For trust boundaries and what mTLS does or does not authorize today, see [Intern
 | `VECTIS_METRICS_TLS_CERT_FILE` / `VECTIS_METRICS_TLS_KEY_FILE` | Server certificate and key for metrics listeners. |
 | `VECTIS_METRICS_TLS_RELOAD_INTERVAL` | Positive duration to poll PEM files and reload them without restart. `0` disables polling. |
 
-The dedicated metrics listeners are queue, worker, log, log-forwarder, reconciler, catalog, and cell ingress. Keep dedicated metrics endpoints private; they are not authenticated. See [Security](../concepts/security.md).
+The dedicated metrics listeners are queue, worker, log, log-forwarder, reconciler, catalog, and cell ingress. They bind to `localhost` by default; set each service's `--metrics-host` / `VECTIS_<SERVICE>_METRICS_HOST` only for trusted scrape networks. Keep dedicated metrics endpoints private; they are not authenticated. See [Security](../concepts/security.md).
 
 ## Discovery And Fixed Addresses {#service-discovery-vs-fixed-addresses}
 

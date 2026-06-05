@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -86,8 +85,7 @@ func runLogForwarder(cmd *cobra.Command, args []string) {
 
 	defer cli.DeferShutdown(logger, "Metrics", shutdownMetrics)()
 
-	metricsPort := config.LogForwarderMetricsEffectiveListenPort()
-	metricsAddr := fmt.Sprintf(":%d", metricsPort)
+	metricsAddr := config.LogForwarderMetricsListenAddr()
 	metricsSrv, err := cli.StartMetricsHTTPServer(metricsHandler, metricsAddr, "Log-forwarder", logger)
 	if err != nil {
 		logger.Fatal("%v", err)
@@ -219,6 +217,7 @@ func init() {
 	v.SetDefault("max_chunks_per_sec", 10000)
 	v.SetDefault("buffer_size", 1024)
 	v.SetDefault("shutdown_timeout", "10s")
+	v.SetDefault("metrics_host", config.LogForwarderMetricsHost())
 	v.SetDefault("metrics_port", config.LogForwarderMetricsPort())
 
 	rootCmd.PersistentFlags().String("socket", "", "Unix socket path (default: $XDG_RUNTIME_DIR/vectis/log-forwarder.sock)")
@@ -228,6 +227,7 @@ func init() {
 	rootCmd.PersistentFlags().Int("max-chunks-per-sec", 10000, "Rate limit for forwarding")
 	rootCmd.PersistentFlags().Int("buffer-size", 1024, "Unix socket receive buffer size")
 	rootCmd.PersistentFlags().Duration("shutdown-timeout", 10*time.Second, "Graceful shutdown timeout")
+	rootCmd.PersistentFlags().String("metrics-host", config.LogForwarderMetricsHost(), "Host/IP for the Prometheus /metrics HTTP server to bind")
 	rootCmd.PersistentFlags().Int("metrics-port", config.LogForwarderMetricsPort(), "HTTP port for Prometheus /metrics")
 
 	_ = v.BindPFlag("socket", rootCmd.PersistentFlags().Lookup("socket"))
@@ -237,6 +237,7 @@ func init() {
 	_ = v.BindPFlag("max_chunks_per_sec", rootCmd.PersistentFlags().Lookup("max-chunks-per-sec"))
 	_ = v.BindPFlag("buffer_size", rootCmd.PersistentFlags().Lookup("buffer-size"))
 	_ = v.BindPFlag("shutdown_timeout", rootCmd.PersistentFlags().Lookup("shutdown-timeout"))
+	_ = v.BindPFlag("metrics_host", rootCmd.PersistentFlags().Lookup("metrics-host"))
 	_ = v.BindPFlag("metrics_port", rootCmd.PersistentFlags().Lookup("metrics-port"))
 
 	viper.SetEnvPrefix("VECTIS_LOG_FORWARDER")

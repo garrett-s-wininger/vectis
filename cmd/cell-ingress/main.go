@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"os"
 	"time"
@@ -79,7 +78,7 @@ func runCellIngress(cmd *cobra.Command, args []string) {
 		logger.Info("Connected to queue via registry resolution")
 	}
 
-	metricsAddr := fmt.Sprintf(":%d", config.CellIngressMetricsEffectiveListenPort())
+	metricsAddr := config.CellIngressMetricsListenAddr()
 	metricsSrv, err := cli.StartMetricsHTTPServer(metricsHandler, metricsAddr, "Cell ingress", logger)
 	if err != nil {
 		logger.Fatal("%v", err)
@@ -119,24 +118,28 @@ func init() {
 	cli.ConfigureVersion(rootCmd)
 	rootCmd.PersistentFlags().String("host", config.CellIngressHost(), "Host/IP for the cell ingress HTTP server to bind")
 	rootCmd.PersistentFlags().Int("port", config.CellIngressPort(), "HTTP port for the cell ingress server")
+	rootCmd.PersistentFlags().String("metrics-host", config.CellIngressMetricsHost(), "Host/IP for the Prometheus /metrics HTTP server to bind")
 	rootCmd.PersistentFlags().Int("metrics-port", config.CellIngressMetricsPort(), "HTTP port for Prometheus /metrics")
 	rootCmd.PersistentFlags().Duration("repair-interval", config.CellIngressRepairInterval(), "How often to retry accepted executions that missed local queue handoff")
 	rootCmd.PersistentFlags().String("queue-address", config.CellIngressQueueAddress(), "Pinned local queue gRPC address; empty uses registry discovery")
 	rootCmd.PersistentFlags().String("registry-address", config.CellIngressRegistryAddress(), "Registry gRPC address for queue discovery")
 	_ = viper.BindPFlag("host", rootCmd.PersistentFlags().Lookup("host"))
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
+	_ = viper.BindPFlag("metrics_host", rootCmd.PersistentFlags().Lookup("metrics-host"))
 	_ = viper.BindPFlag("metrics_port", rootCmd.PersistentFlags().Lookup("metrics-port"))
 	_ = viper.BindPFlag("repair_interval", rootCmd.PersistentFlags().Lookup("repair-interval"))
 	_ = viper.BindPFlag("cell_ingress.queue.address", rootCmd.PersistentFlags().Lookup("queue-address"))
 	_ = viper.BindPFlag("cell_ingress.registry.address", rootCmd.PersistentFlags().Lookup("registry-address"))
 	_ = viper.BindEnv("host", "VECTIS_CELL_INGRESS_HOST")
 	_ = viper.BindEnv("port", "VECTIS_CELL_INGRESS_PORT")
+	_ = viper.BindEnv("metrics_host", "VECTIS_CELL_INGRESS_METRICS_HOST")
 	_ = viper.BindEnv("metrics_port", "VECTIS_CELL_INGRESS_METRICS_PORT")
 	_ = viper.BindEnv("repair_interval", "VECTIS_CELL_INGRESS_REPAIR_INTERVAL")
 	_ = viper.BindEnv("cell_ingress.queue.address", "VECTIS_CELL_INGRESS_QUEUE_ADDRESS")
 	_ = viper.BindEnv("cell_ingress.registry.address", "VECTIS_CELL_INGRESS_REGISTRY_ADDRESS")
 	viper.SetDefault("host", config.CellIngressHost())
 	viper.SetDefault("port", config.CellIngressPort())
+	viper.SetDefault("metrics_host", config.CellIngressMetricsHost())
 	viper.SetDefault("metrics_port", config.CellIngressMetricsPort())
 	viper.SetDefault("repair_interval", config.CellIngressRepairInterval())
 	viper.SetEnvPrefix("VECTIS_CELL_INGRESS")

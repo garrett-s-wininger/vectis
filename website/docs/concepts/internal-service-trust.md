@@ -42,7 +42,7 @@ Internal gRPC servers do not currently enforce application-level service authori
 | Reconciler | Registry | Resolve queue when discovery is used. | Pin queue address if you want to avoid this dependency. |
 | Queue | Registry | Publish queue address when registration is enabled. | Consumers trust this address for future dials. |
 | Log service | Registry | Publish log address when registration is enabled. | Consumers trust this address for future dials. |
-| Metrics scraper | API, queue, worker, log, log-forwarder, reconciler metrics listeners | Observe service health and pressure. | API metrics follow API auth when enabled. Dedicated service metrics are unauthenticated; scrape them from trusted networks only. |
+| Metrics scraper | API, queue, worker, log, log-forwarder, reconciler, catalog, and cell ingress metrics listeners | Observe service health and pressure. | API metrics follow API auth when enabled. Dedicated service metrics bind to localhost by default, are unauthenticated, and should be exposed only to trusted scrape networks. |
 
 ## Ports To Keep Private
 
@@ -58,6 +58,8 @@ Internal gRPC servers do not currently enforce application-level service authori
 | Worker metrics | `9082` | Exposes worker health, outcomes, and pressure. |
 | Log metrics | `9083` | Exposes log ingest and stream pressure. |
 | Reconciler metrics | `9085` | Exposes repair activity and dependency failures. |
+| Catalog metrics | `9086` | Exposes cell catalog drain and fan-in state. |
+| Cell ingress metrics | `9087` | Exposes cell execution ingress and repair pressure. |
 | Log-forwarder metrics | `9088` | Exposes local spool backlog and forwarding pressure. |
 
 Worker-control can also use an ephemeral port or a configured port range. When workers register with the registry, the published worker-control address is what the API uses for remote cancellation.
@@ -75,7 +77,7 @@ Internal gRPC TLS is controlled by `VECTIS_GRPC_TLS_*` settings:
 | `VECTIS_GRPC_TLS_CLIENT_CERT_FILE` and `VECTIS_GRPC_TLS_CLIENT_KEY_FILE` | Let clients present a certificate for mTLS. |
 | `VECTIS_GRPC_TLS_SERVER_NAME` | Sets the name clients verify in the server certificate. Useful when discovery resolves to an address that differs from the certificate name. |
 
-Metrics TLS uses `VECTIS_METRICS_TLS_*` for dedicated metrics listeners. API metrics are served on the API HTTP listener and use the API route auth policy when API auth is enabled.
+Metrics TLS uses `VECTIS_METRICS_TLS_*` for dedicated metrics listeners. Dedicated metrics listeners bind to `localhost` by default; set a service-specific `--metrics-host` only for trusted scrape networks. API metrics are served on the API HTTP listener and use the API route auth policy when API auth is enabled.
 
 Use TLS or mTLS when internal traffic crosses shared infrastructure. Still keep internal ports private, because mTLS identity is not yet an application authorization policy inside Vectis.
 
