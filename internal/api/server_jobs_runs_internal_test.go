@@ -19,6 +19,35 @@ func TestRunNextAction(t *testing.T) {
 			status: dal.RunStatusRunning,
 		},
 		{
+			name:   "orphaned task finalization repair succeeded",
+			status: dal.RunStatusOrphaned,
+			taskCompletion: dal.RunTaskCompletion{
+				Total:     2,
+				Succeeded: 2,
+			},
+			want: stringPtr(runNextActionTaskFinalizationRepairPending),
+		},
+		{
+			name:   "orphaned task finalization repair failed",
+			status: dal.RunStatusOrphaned,
+			taskCompletion: dal.RunTaskCompletion{
+				Total:          3,
+				Succeeded:      1,
+				TerminalFailed: 1,
+				Incomplete:     1,
+			},
+			want: stringPtr(runNextActionTaskFinalizationRepairPending),
+		},
+		{
+			name:   "orphaned incomplete has no next action",
+			status: dal.RunStatusOrphaned,
+			taskCompletion: dal.RunTaskCompletion{
+				Total:      2,
+				Succeeded:  1,
+				Incomplete: 1,
+			},
+		},
+		{
 			name:   "pending task dispatch",
 			status: dal.RunStatusQueued,
 			taskDispatch: &taskDispatchRow{

@@ -2252,9 +2252,10 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 const runTaskDispatchIntentLimit = 50
 
 const (
-	runNextActionTaskDispatchPending      = "task_dispatch_pending"
-	runNextActionTaskDispatchRetryPending = "task_dispatch_retry_pending"
-	runNextActionTaskCompletionPending    = "task_completion_pending"
+	runNextActionTaskDispatchPending           = "task_dispatch_pending"
+	runNextActionTaskDispatchRetryPending      = "task_dispatch_retry_pending"
+	runNextActionTaskCompletionPending         = "task_completion_pending"
+	runNextActionTaskFinalizationRepairPending = "task_finalization_repair_pending"
 )
 
 type taskDispatchRow struct {
@@ -2346,6 +2347,11 @@ func taskDispatchIntentState(intent dal.TaskDispatchIntent) string {
 }
 
 func runNextAction(status string, taskCompletion dal.RunTaskCompletion, taskDispatch *taskDispatchRow) *string {
+	if status == dal.RunStatusOrphaned && taskCompletion.Total > 0 && (taskCompletion.TerminalFailed > 0 || taskCompletion.AllSucceeded()) {
+		action := runNextActionTaskFinalizationRepairPending
+		return &action
+	}
+
 	if status != dal.RunStatusQueued {
 		return nil
 	}

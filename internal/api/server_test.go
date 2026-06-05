@@ -2421,6 +2421,84 @@ func TestAPIServer_GetRun_IncludesTaskDispatchState(t *testing.T) {
 	}
 }
 
+func TestAPIServer_GetRun_IncludesTaskFinalizationRepairNextAction(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
+	ctx := context.Background()
+
+	insertStoredJobForTest(t, db, "job-task-finalization-detail", `{"id":"job-task-finalization-detail","root":{"uses":"builtins/shell"}}`)
+	runID, _, err := repos.Runs().CreateRun(ctx, "job-task-finalization-detail", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	claimed, token, err := repos.Runs().TryClaim(ctx, runID, "worker-task-finalization-detail", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("claim run: %v", err)
+	}
+
+	if !claimed {
+		t.Fatal("expected run claim")
+	}
+
+	if _, _, err := repos.Runs().MarkExecutionSucceededAndActivateChildren(ctx, dispatch.ExecutionID); err != nil {
+		t.Fatalf("mark execution succeeded: %v", err)
+	}
+
+	if err := repos.Runs().MarkRunOrphaned(ctx, runID, token, dal.OrphanReasonLeaseExpired); err != nil {
+		t.Fatalf("mark run orphaned: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+runID, nil)
+	req.SetPathValue("id", runID)
+	rec := httptest.NewRecorder()
+	server.GetRun(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GetRun: expected status %d, got %d: %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var got struct {
+		RunID          string  `json:"run_id"`
+		Status         string  `json:"status"`
+		NextAction     *string `json:"next_action"`
+		TaskCompletion *struct {
+			Total          int `json:"total"`
+			Succeeded      int `json:"succeeded"`
+			TerminalFailed int `json:"terminal_failed"`
+			Incomplete     int `json:"incomplete"`
+		} `json:"task_completion"`
+	}
+
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode run detail: %v", err)
+	}
+
+	if got.RunID != runID {
+		t.Fatalf("run_id: got %q, want %q", got.RunID, runID)
+	}
+
+	if got.Status != dal.RunStatusOrphaned {
+		t.Fatalf("status: got %q, want %q", got.Status, dal.RunStatusOrphaned)
+	}
+
+	if got.NextAction == nil || *got.NextAction != "task_finalization_repair_pending" {
+		t.Fatalf("next_action: got %+v, want task_finalization_repair_pending", got.NextAction)
+	}
+
+	if got.TaskCompletion == nil {
+		t.Fatal("missing task_completion in response")
+	}
+
+	if got.TaskCompletion.Total != 1 || got.TaskCompletion.Succeeded != 1 || got.TaskCompletion.TerminalFailed != 0 || got.TaskCompletion.Incomplete != 0 {
+		t.Fatalf("task completion summary mismatch: %+v", got.TaskCompletion)
+	}
+}
+
 func TestAPIServer_RunJob_IdempotencyKeyReplaysRun(t *testing.T) {
 	server, _, queueService, db := setupTestServer(t)
 
