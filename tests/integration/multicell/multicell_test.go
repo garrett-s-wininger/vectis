@@ -265,7 +265,7 @@ func TestIntegrationMultiCell_ReplayRunRoutesToNamedCellWithSourceSnapshot(t *te
 		t.Fatalf("unexpected replay response: %+v", replayed)
 	}
 
-	events := waitForDispatchEvents(t, ctx, globalRepos, replayed.RunID, 2)
+	events := waitForDispatchEvents(t, ctx, globalRepos, replayed.RunID, 3)
 	assertDispatchSuccess(t, events)
 
 	replayRun, err := globalRepos.Runs().GetRun(ctx, replayed.RunID)
@@ -348,10 +348,10 @@ func TestIntegrationMultiCell_CellsStatusCombinesRoutesRunsAndCatalogSources(t *
 		t.Fatalf("trigger response missing expected cells: %+v", triggered)
 	}
 
-	readyEvents := waitForDispatchEvents(t, ctx, globalRepos, runByCell[readyCell.id], 2)
+	readyEvents := waitForDispatchEvents(t, ctx, globalRepos, runByCell[readyCell.id], 3)
 	assertDispatchSuccess(t, readyEvents)
 
-	missingEvents := waitForDispatchEvents(t, ctx, globalRepos, runByCell[missingCellID], 2)
+	missingEvents := waitForDispatchEvents(t, ctx, globalRepos, runByCell[missingCellID], 3)
 	assertDispatchFailure(t, missingEvents, missingCellID, "cell not routable")
 
 	status := getCellsStatus(t, api)
@@ -481,7 +481,7 @@ func TestIntegrationMultiCell_UnroutableCellRecordsDispatchFailure(t *testing.T)
 	api.SetExecutionIngress(cell.NewStaticExecutionRouter(map[string]cell.ExecutionIngress{}))
 
 	runID := triggerJobInCell(t, api, jobID, cellID)
-	events := waitForDispatchEvents(t, ctx, globalRepos, runID, 2)
+	events := waitForDispatchEvents(t, ctx, globalRepos, runID, 3)
 	assertDispatchFailure(t, events, cellID, "cell not routable")
 	assertGlobalAPIRunStatus(t, api, jobID, runID, cellID, dal.RunStatusQueued)
 }
@@ -516,7 +516,7 @@ func TestIntegrationMultiCell_UnavailableCellIngressRecordsDispatchFailure(t *te
 	}))
 
 	runID := triggerJobInCell(t, api, jobID, cellID)
-	events := waitForDispatchEvents(t, ctx, globalRepos, runID, 2)
+	events := waitForDispatchEvents(t, ctx, globalRepos, runID, 3)
 	assertDispatchFailure(t, events, "submit execution to cell ingress")
 	assertGlobalAPIRunStatus(t, api, jobID, runID, cellID, dal.RunStatusQueued)
 }
@@ -542,7 +542,7 @@ func TestIntegrationMultiCell_ReconcilerRepairsFailedDispatchThroughCellIngress(
 	api.SetExecutionIngress(cell.NewStaticExecutionRouter(map[string]cell.ExecutionIngress{}))
 
 	runID := triggerJobInCell(t, api, jobID, cellID)
-	events := waitForDispatchEvents(t, ctx, globalRepos, runID, 2)
+	events := waitForDispatchEvents(t, ctx, globalRepos, runID, 3)
 	assertDispatchFailure(t, events, cellID, "cell not routable")
 	assertGlobalAPIRunStatus(t, api, jobID, runID, cellID, dal.RunStatusQueued)
 
@@ -564,7 +564,7 @@ func TestIntegrationMultiCell_ReconcilerRepairsFailedDispatchThroughCellIngress(
 		t.Fatalf("reconciler process: %v", err)
 	}
 
-	events = waitForDispatchEvents(t, ctx, globalRepos, runID, 4)
+	events = waitForDispatchEvents(t, ctx, globalRepos, runID, 5)
 	assertDispatchSuccessAfterFailure(t, events)
 
 	if err := c.worker.runOne(ctx); err != nil {
@@ -923,11 +923,16 @@ func waitForDispatchEvents(t *testing.T, ctx context.Context, repos *dal.SQLRepo
 func assertDispatchFailure(t *testing.T, events []dal.DispatchEvent, messageParts ...string) {
 	t.Helper()
 
-	if len(events) < 2 {
-		t.Fatalf("expected at least dispatch attempt and failure, got %+v", events)
+	if len(events) < 3 {
+		t.Fatalf("expected at least dispatch accepted, attempt, and failure, got %+v", events)
 	}
 
-	attempt := events[0]
+	accepted := events[0]
+	if accepted.Source != dal.DispatchSourceAPI || accepted.EventType != dal.DispatchEventAccepted {
+		t.Fatalf("unexpected dispatch accepted event: %+v", accepted)
+	}
+
+	attempt := events[1]
 	if attempt.Source != dal.DispatchSourceAPI || attempt.EventType != dal.DispatchEventAttempt {
 		t.Fatalf("unexpected dispatch attempt event: %+v", attempt)
 	}
@@ -957,11 +962,16 @@ func assertDispatchFailure(t *testing.T, events []dal.DispatchEvent, messagePart
 func assertDispatchSuccess(t *testing.T, events []dal.DispatchEvent) {
 	t.Helper()
 
-	if len(events) < 2 {
-		t.Fatalf("expected at least dispatch attempt and success, got %+v", events)
+	if len(events) < 3 {
+		t.Fatalf("expected at least dispatch accepted, attempt, and success, got %+v", events)
 	}
 
-	attempt := events[0]
+	accepted := events[0]
+	if accepted.Source != dal.DispatchSourceAPI || accepted.EventType != dal.DispatchEventAccepted {
+		t.Fatalf("unexpected dispatch accepted event: %+v", accepted)
+	}
+
+	attempt := events[1]
 	if attempt.Source != dal.DispatchSourceAPI || attempt.EventType != dal.DispatchEventAttempt {
 		t.Fatalf("unexpected dispatch attempt event: %+v", attempt)
 	}
@@ -975,7 +985,7 @@ func assertDispatchSuccess(t *testing.T, events []dal.DispatchEvent) {
 func assertDispatchSuccessAfterFailure(t *testing.T, events []dal.DispatchEvent) {
 	t.Helper()
 
-	if len(events) < 4 {
+	if len(events) < 5 {
 		t.Fatalf("expected API failure and reconciler success dispatch events, got %+v", events)
 	}
 

@@ -1431,6 +1431,9 @@ func (s *APIServer) ReplayRun(w http.ResponseWriter, r *http.Request) {
 		"replay_of_run_id": sourceRunID,
 	})
 
+	s.recordDispatchEvent(ctx, createdRun.RunID, dal.DispatchSourceAPI, dal.DispatchEventAccepted, createdRun.TargetCellID, nil)
+	s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindStored, observability.APIEnqueueOutcomeAccepted)
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	response := replayRunResponseBody{
