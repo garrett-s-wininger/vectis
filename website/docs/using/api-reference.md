@@ -252,7 +252,7 @@ List routes use `limit` and `cursor` query parameters where implemented. Paginat
 
 Run submission routes can target a cell with `cell_id`/`target_cell_id`; stored-job triggers can also fan out with `cell_ids`/`target_cell_ids`. Replay defaults to the source run's owning cell and can override it with one `cell_id`/`target_cell_id`. Non-local targets require the API to be configured with matching private cell ingress endpoints.
 
-Run list/detail responses include audit metadata such as `definition_version`, `definition_hash`, `owning_cell`, trigger invocation fields, requested cells, and `execution_payload_hash`. Run detail also includes `dispatch_events` and, when task fan-out has produced continuation handoffs, a bounded `task_dispatch` summary with pending, failed, and enqueued intent counts. The frozen execution payload itself is available only through the operator-scoped execution-payload route.
+Run list/detail responses include audit metadata such as `definition_version`, `definition_hash`, `owning_cell`, trigger invocation fields, requested cells, and `execution_payload_hash`. Run detail also includes `dispatch_events`, a compact `task_completion` summary when task records exist, and, when task fan-out has produced continuation handoffs, a bounded `task_dispatch` summary with pending, failed, and enqueued intent counts. The frozen execution payload itself is available only through the operator-scoped execution-payload route.
 
 `POST /api/v1/jobs/run`, `POST /api/v1/jobs/trigger/{id}`, and `POST /api/v1/runs/{id}/replay` accept `Idempotency-Key`. Use this header when a client might retry after a timeout or dropped connection. Retry guidance for each route family is in [Idempotency And Retries](./idempotency-and-retries.md).
 

@@ -1301,6 +1301,12 @@ func TestGetRun_successIncludesTaskDispatch(t *testing.T) {
 			"run_index":   3,
 			"status":      "queued",
 			"owning_cell": "pdx-b",
+			"task_completion": map[string]any{
+				"total":           3,
+				"succeeded":       1,
+				"terminal_failed": 1,
+				"incomplete":      1,
+			},
 			"task_dispatch": map[string]any{
 				"total":     2,
 				"pending":   1,
@@ -1333,6 +1339,7 @@ func TestGetRun_successIncludesTaskDispatch(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
+		"task_completion: total=3 succeeded=1 terminal_failed=1 incomplete=1",
 		"task_dispatch: total=2 pending=1 failed=1 enqueued=0 truncated=true limit=1",
 		`failed_pending execution=exec-1 task=task-1 attempt=attempt-1 cell=iad-a enqueue_attempts=2 last_attempt=1970-01-01T00:00:01Z error="queue unavailable"`,
 	} {
@@ -1366,6 +1373,38 @@ func TestGetRun_jsonOutput(t *testing.T) {
 
 	if run["run_id"] != "run-1" || run["status"] != "failed" || run["owning_cell"] != "pdx-b" || run["execution_payload_hash"] != "sha256:payload" {
 		t.Fatalf("unexpected JSON output: %#v", run)
+	}
+}
+
+func TestGetRun_jsonOutputIncludesTaskCompletion(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"run_id":      "run-1",
+			"run_index":   3,
+			"status":      "failed",
+			"owning_cell": "pdx-b",
+			"task_completion": map[string]any{
+				"total":           4,
+				"succeeded":       2,
+				"terminal_failed": 1,
+				"incomplete":      1,
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := getRun("run-1", &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	var run runDetail
+	if err := json.Unmarshal(buf.Bytes(), &run); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
+	}
+
+	if run.TaskCompletion == nil || run.TaskCompletion.Total != 4 || run.TaskCompletion.Succeeded != 2 || run.TaskCompletion.TerminalFailed != 1 || run.TaskCompletion.Incomplete != 1 {
+		t.Fatalf("unexpected task completion JSON: %+v", run.TaskCompletion)
 	}
 }
 

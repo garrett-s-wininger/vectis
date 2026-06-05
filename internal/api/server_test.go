@@ -2058,7 +2058,13 @@ func TestAPIServer_GetRun_IncludesTaskDispatchState(t *testing.T) {
 	}
 
 	var got struct {
-		RunID        string `json:"run_id"`
+		RunID          string `json:"run_id"`
+		TaskCompletion *struct {
+			Total          int `json:"total"`
+			Succeeded      int `json:"succeeded"`
+			TerminalFailed int `json:"terminal_failed"`
+			Incomplete     int `json:"incomplete"`
+		} `json:"task_completion"`
 		TaskDispatch *struct {
 			Total     int  `json:"total"`
 			Pending   int  `json:"pending"`
@@ -2086,6 +2092,14 @@ func TestAPIServer_GetRun_IncludesTaskDispatchState(t *testing.T) {
 
 	if got.RunID != runID {
 		t.Fatalf("run_id: got %q, want %q", got.RunID, runID)
+	}
+
+	if got.TaskCompletion == nil {
+		t.Fatalf("missing task_completion in response: %s", rec.Body.String())
+	}
+
+	if got.TaskCompletion.Total != 1 || got.TaskCompletion.Succeeded != 0 || got.TaskCompletion.TerminalFailed != 0 || got.TaskCompletion.Incomplete != 1 {
+		t.Fatalf("task completion summary mismatch: %+v", got.TaskCompletion)
 	}
 
 	if got.TaskDispatch == nil {

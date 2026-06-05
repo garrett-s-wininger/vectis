@@ -25,6 +25,7 @@ type runDetail struct {
 	FinishedAt     *string         `json:"finished_at,omitempty"`
 	FailureReason  *string         `json:"failure_reason,omitempty"`
 	DispatchEvents []dispatchEvent `json:"dispatch_events,omitempty"`
+	TaskCompletion *taskCompletion `json:"task_completion,omitempty"`
 	TaskDispatch   *taskDispatch   `json:"task_dispatch,omitempty"`
 	RunAuditFields
 }
@@ -47,6 +48,13 @@ type dispatchEvent struct {
 	EventType string  `json:"event_type"`
 	Message   *string `json:"message,omitempty"`
 	CreatedAt int64   `json:"created_at"`
+}
+
+type taskCompletion struct {
+	Total          int `json:"total"`
+	Succeeded      int `json:"succeeded"`
+	TerminalFailed int `json:"terminal_failed"`
+	Incomplete     int `json:"incomplete"`
 }
 
 type taskDispatch struct {
@@ -197,6 +205,7 @@ func getRun(runID string, w io.Writer) error {
 		}
 
 		writeRunAuditFields(w, run.RunAuditFields)
+		writeTaskCompletion(w, run.TaskCompletion)
 
 		if run.CreatedAt != nil {
 			fmt.Fprintf(w, "created_at=%s\n", *run.CreatedAt)
@@ -242,6 +251,15 @@ func getRun(runID string, w io.Writer) error {
 	default:
 		return fmt.Errorf("unexpected status: %s", resp.Status)
 	}
+}
+
+func writeTaskCompletion(w io.Writer, tc *taskCompletion) {
+	if tc == nil || tc.Total == 0 {
+		return
+	}
+
+	fmt.Fprintf(w, "task_completion: total=%d succeeded=%d terminal_failed=%d incomplete=%d\n",
+		tc.Total, tc.Succeeded, tc.TerminalFailed, tc.Incomplete)
 }
 
 func writeTaskDispatch(w io.Writer, td *taskDispatch) {

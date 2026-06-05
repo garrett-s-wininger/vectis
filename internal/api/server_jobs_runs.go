@@ -2142,12 +2142,30 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	taskCompletionSummary, err := s.runs.GetRunTaskCompletion(ctx, runID)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
 	type dispatchEventRow struct {
 		ID        int64   `json:"id"`
 		Source    string  `json:"source"`
 		EventType string  `json:"event_type"`
 		Message   *string `json:"message,omitempty"`
 		CreatedAt int64   `json:"created_at"`
+	}
+
+	type taskCompletionRow struct {
+		Total          int `json:"total"`
+		Succeeded      int `json:"succeeded"`
+		TerminalFailed int `json:"terminal_failed"`
+		Incomplete     int `json:"incomplete"`
 	}
 
 	type runRow struct {
@@ -2171,6 +2189,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		RequestedCells       []string           `json:"requested_cells,omitempty"`
 		ExecutionPayloadHash string             `json:"execution_payload_hash,omitempty"`
 		DispatchEvents       []dispatchEventRow `json:"dispatch_events"`
+		TaskCompletion       *taskCompletionRow `json:"task_completion,omitempty"`
 		TaskDispatch         *taskDispatchRow   `json:"task_dispatch,omitempty"`
 	}
 
@@ -2196,6 +2215,15 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		ExecutionPayloadHash: rec.ExecutionPayloadHash,
 		DispatchEvents:       []dispatchEventRow{},
 		TaskDispatch:         taskDispatch,
+	}
+
+	if taskCompletionSummary.Total > 0 {
+		resp.TaskCompletion = &taskCompletionRow{
+			Total:          taskCompletionSummary.Total,
+			Succeeded:      taskCompletionSummary.Succeeded,
+			TerminalFailed: taskCompletionSummary.TerminalFailed,
+			Incomplete:     taskCompletionSummary.Incomplete,
+		}
 	}
 
 	for _, event := range dispatchEvents {
