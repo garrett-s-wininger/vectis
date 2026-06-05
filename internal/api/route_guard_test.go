@@ -62,6 +62,9 @@ func TestRouteGuardRejectsNonCanonicalPathTargets(t *testing.T) {
 		{name: "trailing slash", path: "/api/v1/version/", wantRoute: "/api/v1/version"},
 		{name: "duplicate slash", path: "/api/v1//version", wantRoute: securityRejectionUnknownRoute},
 		{name: "dot segment", path: "/api/v1/../api/v1/version", wantRoute: securityRejectionUnknownRoute},
+		{name: "encoded static segment", path: "/api/v1/%76ersion", wantRoute: "/api/v1/version"},
+		{name: "encoded slash", path: "/api/v1/jobs/job%2Fid", wantRoute: securityRejectionUnknownRoute},
+		{name: "encoded variable byte", path: "/api/v1/jobs/job%20id", wantRoute: "/api/v1/jobs/{id}"},
 	}
 
 	for _, tt := range tests {

@@ -190,5 +190,9 @@ func apiRequestTargetAllowed(r *http.Request) bool {
 		return false
 	}
 
+	if strings.Contains(r.URL.EscapedPath(), "%") {
+		return false
+	}
+
 	return pathpkg.Clean(requestPath) == requestPath
 }
