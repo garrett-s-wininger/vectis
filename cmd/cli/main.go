@@ -66,6 +66,8 @@ var (
 	runListLimit      int
 	runListCursor     int
 	runListCellID     string
+	runTasksLimit     int
+	runTasksCursor    int
 	runReplayCellID   string
 	runReplayIdemKey  string
 	triggerIdemKey    string
@@ -81,7 +83,7 @@ var rootCmd = &cobra.Command{
 
 Commands are grouped around the thing you want to work with:
   jobs       create, show, trigger, run, edit, and delete job definitions
-  runs       show run status, list run history, cancel, fail, or retry runs
+  runs       show run status, list task attempts or run history, cancel, fail, or retry runs
   cells      inspect execution cell routing and catalog state
   logs       stream run logs or follow future runs for a job
   auth       log in, log out, and manage API tokens`,
@@ -117,6 +119,7 @@ func init() {
 	rootCmd.AddCommand(jobsCmd)
 
 	configureRunListFlags(runListCmd)
+	configureRunTasksFlags(runTasksCmd)
 	configureRunReplayFlags(runReplayCmd)
 	configureForceFailFlags(forceFailCmd)
 	configureRepairMarkFlags(repairMarkSucceededCmd)
@@ -124,7 +127,7 @@ func init() {
 	configureRepairMarkFlags(repairMarkCancelledCmd)
 	configureRepairMarkFlags(repairMarkAbandonedCmd)
 	runRepairCmd.AddCommand(repairMarkSucceededCmd, repairMarkFailedCmd, repairMarkCancelledCmd, repairMarkAbandonedCmd, repairMarkQueuedCmd)
-	runsCmd.AddCommand(runListCmd, runGetCmd, runPayloadCmd, runReplayCmd, runCancelCmd, runRepairCmd, forceFailCmd, forceRequeueCmd)
+	runsCmd.AddCommand(runListCmd, runGetCmd, runTasksCmd, runPayloadCmd, runReplayCmd, runCancelCmd, runRepairCmd, forceFailCmd, forceRequeueCmd)
 	rootCmd.AddCommand(runsCmd)
 
 	cellsCmd.AddCommand(cellsStatusCmd)

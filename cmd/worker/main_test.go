@@ -1325,7 +1325,7 @@ func TestWorkerRunClaimedJob_TaskFanoutExecutesEnvelopeTaskOnly(t *testing.T) {
 	}
 }
 
-func TestWorkerMarkExecutionTerminal_UsesTaskCompletion(t *testing.T) {
+func TestWorkerCompleteExecutionTerminal_UsesTaskCompletion(t *testing.T) {
 	t.Parallel()
 
 	runs := mocks.NewMockRunsRepository()
@@ -1337,7 +1337,9 @@ func TestWorkerMarkExecutionTerminal_UsesTaskCompletion(t *testing.T) {
 	}
 	env := &cell.ExecutionEnvelope{ExecutionID: "execution-task"}
 
-	w.markExecutionTerminal(context.Background(), env, dal.ExecutionStatusSucceeded)
+	if _, ok := w.completeExecutionTerminal(context.Background(), env, dal.ExecutionStatusSucceeded); !ok {
+		t.Fatal("completeExecutionTerminal returned false")
+	}
 
 	if runs.LastSucceededExecID != "execution-task" {
 		t.Fatalf("last succeeded execution: got %q, want execution-task", runs.LastSucceededExecID)
@@ -1348,7 +1350,7 @@ func TestWorkerMarkExecutionTerminal_UsesTaskCompletion(t *testing.T) {
 	}
 }
 
-func TestWorkerMarkExecutionTerminal_FanoutRequiresExecutionEnvelope(t *testing.T) {
+func TestWorkerCompleteExecutionTerminal_MissingEnvelopeNoops(t *testing.T) {
 	t.Parallel()
 
 	runs := mocks.NewMockRunsRepository()
@@ -1359,7 +1361,9 @@ func TestWorkerMarkExecutionTerminal_FanoutRequiresExecutionEnvelope(t *testing.
 		catalog: cell.NewCatalogEventPublisher("local", nil),
 	}
 
-	w.markExecutionTerminal(context.Background(), nil, dal.ExecutionStatusSucceeded)
+	if _, ok := w.completeExecutionTerminal(context.Background(), nil, dal.ExecutionStatusSucceeded); !ok {
+		t.Fatal("completeExecutionTerminal returned false for missing envelope")
+	}
 
 	if runs.LastSucceededExecID != "" {
 		t.Fatalf("fan-out without an execution envelope should not complete a task, got %q", runs.LastSucceededExecID)
@@ -1370,7 +1374,7 @@ func TestWorkerMarkExecutionTerminal_FanoutRequiresExecutionEnvelope(t *testing.
 	}
 }
 
-func TestWorkerMarkExecutionTerminal_FanoutSuccessUsesTaskCompletion(t *testing.T) {
+func TestWorkerCompleteExecutionTerminal_FanoutSuccessUsesTaskCompletion(t *testing.T) {
 	t.Parallel()
 
 	runs := mocks.NewMockRunsRepository()
@@ -1388,10 +1392,17 @@ func TestWorkerMarkExecutionTerminal_FanoutSuccessUsesTaskCompletion(t *testing.
 	}
 	env := &cell.ExecutionEnvelope{ExecutionID: "execution-root"}
 
-	w.markExecutionTerminal(context.Background(), env, dal.ExecutionStatusSucceeded)
+	result, ok := w.completeExecutionTerminal(context.Background(), env, dal.ExecutionStatusSucceeded)
+	if !ok {
+		t.Fatal("completeExecutionTerminal returned false")
+	}
 
 	if runs.LastSucceededExecID != "execution-root" {
 		t.Fatalf("last succeeded execution: got %q, want execution-root", runs.LastSucceededExecID)
+	}
+
+	if result.activatedChildren != 1 {
+		t.Fatalf("activated children: got %d, want 1", result.activatedChildren)
 	}
 
 	if len(runs.ExecutionTransitions) != 1 || runs.ExecutionTransitions[0] != "execution-root:"+dal.ExecutionStatusSucceeded {
@@ -1399,7 +1410,7 @@ func TestWorkerMarkExecutionTerminal_FanoutSuccessUsesTaskCompletion(t *testing.
 	}
 }
 
-func TestWorkerMarkExecutionTerminal_FanoutFailureUsesTaskCompletionService(t *testing.T) {
+func TestWorkerCompleteExecutionTerminal_FanoutFailureUsesTaskCompletionService(t *testing.T) {
 	t.Parallel()
 
 	runs := mocks.NewMockRunsRepository()
@@ -1413,7 +1424,9 @@ func TestWorkerMarkExecutionTerminal_FanoutFailureUsesTaskCompletionService(t *t
 	}
 
 	env := &cell.ExecutionEnvelope{ExecutionID: "execution-root"}
-	w.markExecutionTerminal(context.Background(), env, dal.ExecutionStatusFailed)
+	if _, ok := w.completeExecutionTerminal(context.Background(), env, dal.ExecutionStatusFailed); !ok {
+		t.Fatal("completeExecutionTerminal returned false")
+	}
 
 	calls := completer.recordedCalls()
 	if len(calls) != 1 || calls[0] != "execution-root:"+dal.ExecutionStatusFailed {

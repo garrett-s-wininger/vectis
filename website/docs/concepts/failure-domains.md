@@ -145,7 +145,7 @@ Background enqueue after an HTTP `202` uses the reconciler as a backstop if the 
 
 ## Workers Down or Interrupted
 
-Workers execute jobs and coordinate ownership through database leases.
+Workers execute envelope-backed task deliveries for persisted runs and coordinate ownership through database leases.
 
 | Event | Behavior |
 | --- | --- |

@@ -93,6 +93,40 @@ type runListRow struct {
 	RunAuditFields
 }
 
+type runTasksResult struct {
+	Data       []runTaskRow `json:"data"`
+	NextCursor *int64       `json:"next_cursor,omitempty"`
+}
+
+type runTaskRow struct {
+	TaskID       string              `json:"task_id"`
+	RunID        string              `json:"run_id"`
+	ParentTaskID *string             `json:"parent_task_id,omitempty"`
+	TaskKey      string              `json:"task_key"`
+	Name         string              `json:"name"`
+	Status       string              `json:"status"`
+	SpecHash     string              `json:"spec_hash,omitempty"`
+	CreatedAt    *string             `json:"created_at,omitempty"`
+	UpdatedAt    *string             `json:"updated_at,omitempty"`
+	Attempts     []runTaskAttemptRow `json:"attempts"`
+}
+
+type runTaskAttemptRow struct {
+	AttemptID      string  `json:"attempt_id"`
+	TaskID         string  `json:"task_id"`
+	RunID          string  `json:"run_id"`
+	CellID         string  `json:"cell_id"`
+	Attempt        int     `json:"attempt"`
+	Status         string  `json:"status"`
+	AcceptedAt     *string `json:"accepted_at,omitempty"`
+	StartedAt      *string `json:"started_at,omitempty"`
+	FinishedAt     *string `json:"finished_at,omitempty"`
+	LastObservedAt *int64  `json:"last_observed_at,omitempty"`
+	EventSequence  int64   `json:"event_sequence"`
+	CreatedAt      *string `json:"created_at,omitempty"`
+	UpdatedAt      *string `json:"updated_at,omitempty"`
+}
+
 type runExecutionPayloadResult struct {
 	RunID          string          `json:"run_id"`
 	PayloadHash    string          `json:"payload_hash"`
@@ -121,6 +155,10 @@ func runGetRun(cmd *cobra.Command, args []string) {
 
 func runGetRunPayload(cmd *cobra.Command, args []string) {
 	runCLIError(getRunExecutionPayload(args[0], os.Stdout))
+}
+
+func runGetRunTasks(cmd *cobra.Command, args []string) {
+	runCLIError(getRunTasks(args[0], runTasksLimit, runTasksCursor, os.Stdout))
 }
 
 func runReplayRun(cmd *cobra.Command, args []string) {
@@ -333,6 +371,134 @@ func getRunExecutionPayload(runID string, w io.Writer) error {
 	default:
 		return fmt.Errorf("unexpected status: %s", resp.Status)
 	}
+}
+
+func getRunTasks(runID string, limit, cursor int, w io.Writer) error {
+	path := fmt.Sprintf("/api/v1/runs/%s/tasks", runID)
+	params := url.Values{}
+	if limit > 0 {
+		params.Set("limit", fmt.Sprintf("%d", limit))
+	}
+
+	if cursor > 0 {
+		params.Set("cursor", fmt.Sprintf("%d", cursor))
+	}
+
+	if encoded := params.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+
+	req, err := newAPIRequest(http.MethodGet, path, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var result runTasksResult
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to parse response: %w", err)
+		}
+
+		if outputIsJSON() {
+			return writeJSON(w, result)
+		}
+
+		if len(result.Data) == 0 {
+			fmt.Fprintln(w, "No tasks found")
+			return nil
+		}
+
+		for _, task := range result.Data {
+			writeRunTask(w, task)
+		}
+
+		if result.NextCursor != nil {
+			fmt.Fprintf(w, "\nMore tasks available. Continue with --cursor %d.\n", *result.NextCursor)
+		}
+
+		return nil
+	case http.StatusNotFound:
+		return fmt.Errorf("run %q not found", runID)
+	case http.StatusForbidden:
+		return fmt.Errorf("not authorized to read tasks for run %q", runID)
+	default:
+		return fmt.Errorf("unexpected status: %s", resp.Status)
+	}
+}
+
+func writeRunTask(w io.Writer, task runTaskRow) {
+	parentID := "-"
+	if task.ParentTaskID != nil && strings.TrimSpace(*task.ParentTaskID) != "" {
+		parentID = *task.ParentTaskID
+	}
+
+	taskKey := strings.TrimSpace(task.TaskKey)
+	if taskKey == "" {
+		taskKey = "-"
+	}
+
+	name := strings.TrimSpace(task.Name)
+	if name == "" {
+		name = "-"
+	}
+
+	status := strings.TrimSpace(task.Status)
+	if status == "" {
+		status = "-"
+	}
+
+	fmt.Fprintf(w, "task_id=%s parent=%s key=%s name=%s status=%s attempts=%d",
+		task.TaskID, parentID, taskKey, name, status, len(task.Attempts))
+
+	if strings.TrimSpace(task.SpecHash) != "" {
+		fmt.Fprintf(w, " spec_hash=%s", task.SpecHash)
+	}
+
+	fmt.Fprintln(w)
+
+	for _, attempt := range task.Attempts {
+		writeRunTaskAttempt(w, attempt)
+	}
+}
+
+func writeRunTaskAttempt(w io.Writer, attempt runTaskAttemptRow) {
+	cellID := strings.TrimSpace(attempt.CellID)
+	if cellID == "" {
+		cellID = "-"
+	}
+
+	status := strings.TrimSpace(attempt.Status)
+	if status == "" {
+		status = "-"
+	}
+
+	fmt.Fprintf(w, "  attempt=%d id=%s cell=%s status=%s event_sequence=%d",
+		attempt.Attempt, attempt.AttemptID, cellID, status, attempt.EventSequence)
+
+	if attempt.AcceptedAt != nil {
+		fmt.Fprintf(w, " accepted_at=%s", *attempt.AcceptedAt)
+	}
+
+	if attempt.StartedAt != nil {
+		fmt.Fprintf(w, " started_at=%s", *attempt.StartedAt)
+	}
+
+	if attempt.FinishedAt != nil {
+		fmt.Fprintf(w, " finished_at=%s", *attempt.FinishedAt)
+	}
+
+	if attempt.LastObservedAt != nil {
+		fmt.Fprintf(w, " last_observed_at=%s", formatUnixNano(*attempt.LastObservedAt))
+	}
+
+	fmt.Fprintln(w)
 }
 
 func replayRun(sourceRunID, cellID, idempotencyKey string, w io.Writer) error {
@@ -668,6 +834,7 @@ var runsCmd = &cobra.Command{
 
 Common flows:
   vectis-cli runs show run-123
+  vectis-cli runs tasks run-123
   vectis-cli runs list build-main
   vectis-cli runs repair mark-queued run-123`,
 	GroupID: cliGroupWorkflows,
@@ -759,6 +926,14 @@ var runPayloadCmd = &cobra.Command{
 	Run:   runGetRunPayload,
 }
 
+var runTasksCmd = &cobra.Command{
+	Use:   "tasks [run-id]",
+	Short: "List task graph nodes and attempts for a run",
+	Long:  `List the task graph nodes and task attempt state recorded for one run.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   runGetRunTasks,
+}
+
 var runReplayCmd = &cobra.Command{
 	Use:   "replay [run-id]",
 	Short: "Create a new run from a previous run's captured definition",
@@ -794,6 +969,11 @@ func configureRunListFlags(cmd *cobra.Command) {
 	cmd.Flags().IntVar(&runListCursor, "cursor", 0, "Continue listing after this result cursor")
 	cmd.Flags().StringVar(&runListCellID, "cell", "", "Only list runs owned by this execution cell")
 	cmd.Flags().String("since", "", "Only list runs created at or after this RFC3339 timestamp or YYYY-MM-DD date")
+}
+
+func configureRunTasksFlags(cmd *cobra.Command) {
+	cmd.Flags().IntVar(&runTasksLimit, "limit", 0, "Max tasks to return (default 100)")
+	cmd.Flags().IntVar(&runTasksCursor, "cursor", 0, "Continue listing after this result cursor")
 }
 
 func configureRunReplayFlags(cmd *cobra.Command) {

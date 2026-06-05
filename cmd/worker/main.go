@@ -933,10 +933,6 @@ type executionTerminalResult struct {
 	dispatchableChildren int
 }
 
-func (w *worker) markExecutionTerminal(ctx context.Context, env *cell.ExecutionEnvelope, status string) {
-	_, _ = w.completeExecutionTerminal(ctx, env, status)
-}
-
 func (w *worker) completeExecutionTerminal(ctx context.Context, env *cell.ExecutionEnvelope, status string) (executionTerminalResult, bool) {
 	if env == nil {
 		return executionTerminalResult{}, true
@@ -1424,7 +1420,7 @@ func truncateFailureReason(reason string) string {
 var rootCmd = &cobra.Command{
 	Use:   "vectis-worker",
 	Short: "Vectis Worker",
-	Long:  `The Vectis Worker executes jobs from the queue using the action system.`,
+	Long:  `The Vectis Worker executes envelope-backed task deliveries from the queue using the action system.`,
 	Run:   runWorker,
 }
 

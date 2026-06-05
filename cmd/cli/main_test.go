@@ -1442,6 +1442,136 @@ func TestGetRunExecutionPayload_notFound(t *testing.T) {
 	}
 }
 
+func TestGetRunTasks_success(t *testing.T) {
+	lastObserved := int64(1_000_000_000)
+	next := int64(17)
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/runs/run-1/tasks" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		if got := r.URL.Query().Get("limit"); got != "2" {
+			t.Errorf("limit=%q, want 2", got)
+		}
+
+		if got := r.URL.Query().Get("cursor"); got != "9" {
+			t.Errorf("cursor=%q, want 9", got)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{
+				{
+					"task_id":  "run-1:root",
+					"run_id":   "run-1",
+					"task_key": "root",
+					"name":     "Root",
+					"status":   "succeeded",
+					"attempts": []map[string]any{
+						{
+							"attempt_id":       "attempt-root",
+							"task_id":          "run-1:root",
+							"run_id":           "run-1",
+							"cell_id":          "local",
+							"attempt":          1,
+							"status":           "succeeded",
+							"finished_at":      "2026-06-01T12:00:00Z",
+							"last_observed_at": lastObserved,
+							"event_sequence":   3,
+						},
+					},
+				},
+				{
+					"task_id":        "run-1:child",
+					"run_id":         "run-1",
+					"parent_task_id": "run-1:root",
+					"task_key":       "child",
+					"name":           "Child",
+					"status":         "running",
+					"spec_hash":      "sha256:child",
+					"attempts": []map[string]any{
+						{
+							"attempt_id":     "attempt-child",
+							"task_id":        "run-1:child",
+							"run_id":         "run-1",
+							"cell_id":        "pdx-b",
+							"attempt":        1,
+							"status":         "running",
+							"accepted_at":    "2026-06-01T12:01:00Z",
+							"started_at":     "2026-06-01T12:01:01Z",
+							"event_sequence": 2,
+						},
+					},
+				},
+			},
+			"next_cursor": next,
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := getRunTasks("run-1", 2, 9, &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{
+		"task_id=run-1:root parent=- key=root name=Root status=succeeded attempts=1",
+		"attempt=1 id=attempt-root cell=local status=succeeded event_sequence=3 finished_at=2026-06-01T12:00:00Z last_observed_at=1970-01-01T00:00:01Z",
+		"task_id=run-1:child parent=run-1:root key=child name=Child status=running attempts=1 spec_hash=sha256:child",
+		"attempt=1 id=attempt-child cell=pdx-b status=running event_sequence=2 accepted_at=2026-06-01T12:01:00Z started_at=2026-06-01T12:01:01Z",
+		"More tasks available. Continue with --cursor 17.",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestGetRunTasks_jsonOutput(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{
+				{
+					"task_id":  "run-1:root",
+					"run_id":   "run-1",
+					"task_key": "root",
+					"name":     "Root",
+					"status":   "succeeded",
+					"attempts": []map[string]any{},
+				},
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := getRunTasks("run-1", 0, 0, &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	var result runTasksResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
+	}
+
+	if len(result.Data) != 1 || result.Data[0].TaskID != "run-1:root" || result.Data[0].Status != "succeeded" {
+		t.Fatalf("unexpected tasks JSON: %+v", result)
+	}
+}
+
+func TestGetRunTasks_notFound(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})
+
+	if err := getRunTasks("missing", 0, 0, io.Discard); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 func TestReplayRun_success(t *testing.T) {
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
