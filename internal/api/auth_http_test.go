@@ -92,6 +92,45 @@ func TestRequestCredential_rejectsUnprefixedSessionCookie(t *testing.T) {
 	}
 }
 
+func TestValidCSRFOriginRequiresOriginOrReferer(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/logout", nil)
+	req.Host = "api.example"
+
+	if validCSRFOrigin(req) {
+		t.Fatal("missing Origin and Referer must be invalid for unsafe cookie requests")
+	}
+}
+
+func TestValidCSRFOriginAcceptsMatchingOrigin(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/logout", nil)
+	req.Host = "api.example"
+	req.Header.Set("Origin", "https://api.example")
+
+	if !validCSRFOrigin(req) {
+		t.Fatal("matching Origin should be valid")
+	}
+}
+
+func TestValidCSRFOriginAcceptsMatchingReferer(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/logout", nil)
+	req.Host = "api.example"
+	req.Header.Set("Referer", "https://api.example/account")
+
+	if !validCSRFOrigin(req) {
+		t.Fatal("matching Referer should be valid when Origin is absent")
+	}
+}
+
+func TestValidCSRFOriginRejectsMismatchedOrigin(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/logout", nil)
+	req.Host = "api.example"
+	req.Header.Set("Origin", "https://evil.example")
+
+	if validCSRFOrigin(req) {
+		t.Fatal("mismatched Origin should be invalid")
+	}
+}
+
 func TestRouteAuthPolicy_zeroValueDefaultsToAdmin(t *testing.T) {
 	p := routeAuthPolicy{}.normalized()
 	if p.isPublic() {

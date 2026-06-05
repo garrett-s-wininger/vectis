@@ -129,7 +129,7 @@ func validCSRFOrigin(r *http.Request) bool {
 		return originMatchesRequestHost(referer, r.Host)
 	}
 
-	return true
+	return false
 }
 
 func validFetchMetadata(r *http.Request) bool {

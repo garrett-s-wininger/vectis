@@ -557,6 +557,15 @@ func TestCookieSessionAuth_requiresCSRFForUnsafeMethods(t *testing.T) {
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/logout", nil)
 	req.AddCookie(sessionCookie)
 	req.Header.Set(csrfHeaderName, out.CSRFToken)
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("logout without origin should be forbidden, got code=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/logout", nil)
+	req.AddCookie(sessionCookie)
+	req.Header.Set(csrfHeaderName, out.CSRFToken)
 	req.Host = "vectis.example"
 	req.Header.Set("Origin", "https://evil.example")
 	h.ServeHTTP(rec, req)
@@ -603,7 +612,11 @@ func TestCookieSessionAuth_requiresCSRFForUnsafeMethods(t *testing.T) {
 		t.Fatalf("csrf token rejection count=%d, want 2 in %+v", got, metrics.Records())
 	}
 
-	requireSecurityRejection(t, metrics, securityReasonCSRFOriginForbidden, "POST /api/v1/logout", http.StatusForbidden)
+	if got := countSecurityRejections(metrics, securityReasonCSRFOriginForbidden, "POST /api/v1/logout", http.StatusForbidden); got != 1 {
+		t.Fatalf("csrf origin rejection count=%d, want 1 in %+v", got, metrics.Records())
+	}
+
+	requireSecurityRejection(t, metrics, securityReasonCORSOriginForbidden, securityRejectionUnknownRoute, http.StatusForbidden)
 	requireSecurityRejection(t, metrics, securityReasonCSRFFetchMetadataBlocked, "POST /api/v1/logout", http.StatusForbidden)
 	requireSecurityRejection(t, metrics, securityReasonFetchMetadataForbidden, "GET /api/v1/jobs", http.StatusForbidden)
 }

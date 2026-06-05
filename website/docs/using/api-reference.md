@@ -162,7 +162,7 @@ Authorization: Bearer <api_token>
 
 Health endpoints and `POST /api/v1/login` are public. Setup routes use setup-specific authorization while the first admin is being created. Diagnostics, API metrics, and data routes authorize the action listed in the route table below; namespace-scoped resources are hidden with `404` when the caller is not allowed to see that namespace. Browser-facing requests must use a trusted `Host` value from the API host allowlist.
 
-`POST /api/v1/login` creates an expiring server-side session. Browser clients receive a `Secure` HttpOnly `__Host-vectis_session` cookie plus a `Secure` readable `__Host-vectis_csrf` cookie and `csrf_token` response field. Cookie-authenticated browser login requires HTTPS or local TLS because Vectis does not issue or accept unprefixed fallback session cookies. Cookie-authenticated requests carrying `Sec-Fetch-Site: cross-site` are rejected before route handling. Unsafe cookie-authenticated requests must copy the CSRF token into `X-CSRF-Token`; if the request includes `Origin` or `Referer`, its host must match the request host.
+`POST /api/v1/login` creates an expiring server-side session. Browser clients receive a `Secure` HttpOnly `__Host-vectis_session` cookie plus a `Secure` readable `__Host-vectis_csrf` cookie and `csrf_token` response field. Cookie-authenticated browser login requires HTTPS or local TLS because Vectis does not issue or accept unprefixed fallback session cookies. Cookie-authenticated requests carrying `Sec-Fetch-Site: cross-site` are rejected before route handling. Unsafe cookie-authenticated requests must copy the CSRF token into `X-CSRF-Token` and include a same-origin `Origin` or `Referer`; requests without origin metadata are rejected.
 
 Non-browser clients that need a bearer session token can request one explicitly:
 
@@ -193,11 +193,11 @@ General API errors use this stable v1 envelope:
 
 All error responses use `Content-Type: application/json; charset=utf-8` and `X-Content-Type-Options: nosniff`. Browser-facing API responses also include baseline security headers such as `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`, `Origin-Agent-Cluster`, and a strict Content Security Policy. Protected API responses default to `Cache-Control: no-store`; event streams use `Cache-Control: no-cache`. Direct HTTPS requests include the configured `Strict-Transport-Security` policy; responses behind a trusted TLS-terminating proxy include it when the proxy forwards the original scheme as HTTPS. `401` responses add `WWW-Authenticate: Bearer`.
 
-CORS is closed unless the operator configures exact allowed origins. Credentialed browser CORS never uses `*`; non-local browser origins must use HTTPS, while HTTP origins are limited to loopback or localhost development. Preflights are accepted only for allowed origins, methods, and request headers.
+CORS is closed unless the operator configures exact allowed origins. Same-origin `Origin` headers are allowed without CORS response headers. Credentialed browser CORS never uses `*`; non-local browser origins must use HTTPS, while HTTP origins are limited to loopback or localhost development. Disallowed cross-origin actual requests and preflights are rejected before route handling. Preflights are accepted only for allowed origins, methods, and request headers.
 
 Host header validation is enabled by default. Requests with untrusted, wildcard, URL-shaped, or otherwise invalid `Host` values are rejected before route handling.
 
-Security-control rejections for Host validation, CORS preflight checks, Fetch Metadata checks, CSRF checks, method checks, media-type checks, request body policy, and rate limits are logged with sanitized fields and counted by the `vectis_api_security_rejections_total` metric.
+Security-control rejections for Host validation, CORS checks, Fetch Metadata checks, CSRF checks, method checks, media-type checks, request body policy, and rate limits are logged with sanitized fields and counted by the `vectis_api_security_rejections_total` metric.
 
 The API server caps request headers at 32 KiB. Requests above that parser limit are rejected by the HTTP server before route handling.
 
@@ -234,6 +234,7 @@ Common v1 error codes:
 | `setup_required` | `503` | Initial setup must be completed before using the requested route. |
 | `bootstrap_not_configured` | `503` | Initial setup needs a sufficiently long configured bootstrap token. |
 | `invalid_bootstrap_token` | `401` | The supplied setup bootstrap token does not match the server configuration. |
+| `cors_origin_forbidden` | `403` | A cross-origin request came from an origin that is not in the CORS allowlist. |
 | `unsupported_media_type` | `415` | A JSON route received a non-JSON `Content-Type`. |
 | `request_body_not_allowed` | `400` | The route does not accept a request body. |
 | `request_body_too_large` | `413` | The request body exceeded the route limit. |
@@ -243,7 +244,7 @@ Common v1 error codes:
 | `queue_not_ready` | `503` | The API cannot currently hand work to the queue. |
 | `server_shutting_down` | `503` | The API has started shutdown drain and should not receive new requests. |
 | `fetch_metadata_forbidden` | `403` | A cookie-authenticated safe request carried cross-site Fetch Metadata. |
-| `csrf_origin_forbidden` | `403` | A cookie-authenticated unsafe request came from a mismatched origin. |
+| `csrf_origin_forbidden` | `403` | A cookie-authenticated unsafe request omitted origin metadata or came from a mismatched origin. |
 | `csrf_token_required` | `403` | A cookie-authenticated unsafe request is missing a valid `X-CSRF-Token`. |
 | `rate_limit_exceeded` | `429` | The request exceeded the configured rate limit; `Retry-After` is set. |
 | `idempotency_key_reused` | `409` | The same idempotency key was reused with a different request body or target. |

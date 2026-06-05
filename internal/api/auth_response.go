@@ -24,6 +24,7 @@ const (
 	apiErrBindingAlreadyExists           apiErrorCode = "binding_already_exists"
 	apiErrBindingNotFound                apiErrorCode = "binding_not_found"
 	apiErrBootstrapNotConfigured         apiErrorCode = "bootstrap_not_configured"
+	apiErrCORSOriginForbidden            apiErrorCode = "cors_origin_forbidden"
 	apiErrCSRFOriginForbidden            apiErrorCode = "csrf_origin_forbidden"
 	apiErrCSRFTokenRequired              apiErrorCode = "csrf_token_required"
 	apiErrDatabaseNotReady               apiErrorCode = "database_not_ready"
@@ -108,6 +109,8 @@ func (c apiErrorCode) message() string {
 		return "binding not found"
 	case apiErrBootstrapNotConfigured:
 		return "server is missing a bootstrap token of sufficient length"
+	case apiErrCORSOriginForbidden:
+		return "cors origin forbidden"
 	case apiErrCSRFOriginForbidden:
 		return "csrf origin forbidden"
 	case apiErrCSRFTokenRequired:

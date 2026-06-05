@@ -14,11 +14,18 @@ func TestCORSMiddlewareDefaultClosed(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	s := NewAPIServer(mocks.NewMockLogger(), db)
 	s.SetQueueClient(mocks.NewMockQueueService())
+	metrics := &fakeSecurityRejectionMetrics{}
+	s.SetAPISecurityMetrics(metrics)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/health/live", nil)
+	req.Host = "localhost"
 	req.Header.Set("Origin", "https://ui.example")
 	s.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("actual cross-origin code = %d, want %d; body=%s", rec.Code, http.StatusForbidden, rec.Body.String())
+	}
 
 	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
 		t.Fatalf("Access-Control-Allow-Origin = %q, want empty", got)
@@ -26,12 +33,36 @@ func TestCORSMiddlewareDefaultClosed(t *testing.T) {
 
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodOptions, "/api/v1/jobs", nil)
+	req.Host = "localhost"
 	req.Header.Set("Origin", "https://ui.example")
 	req.Header.Set("Access-Control-Request-Method", http.MethodGet)
 	s.Handler().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("preflight code = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+
+	requireSecurityRejection(t, metrics, securityReasonCORSOriginForbidden, securityRejectionUnknownRoute, http.StatusForbidden)
+	requireSecurityRejection(t, metrics, securityReasonCORSPreflightForbidden, securityRejectionUnknownRoute, http.StatusForbidden)
+}
+
+func TestCORSMiddlewareAllowsSameOriginWithoutConfiguredCORS(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	s := NewAPIServer(mocks.NewMockLogger(), db)
+	s.SetQueueClient(mocks.NewMockQueueService())
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/health/live", nil)
+	req.Host = "localhost"
+	req.Header.Set("Origin", "http://localhost")
+	s.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("same-origin code = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("Access-Control-Allow-Origin = %q, want empty for same-origin", got)
 	}
 }
 
@@ -44,8 +75,13 @@ func TestCORSMiddlewareAllowsConfiguredOrigin(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/health/live", nil)
+	req.Host = "localhost"
 	req.Header.Set("Origin", "https://ui.example")
 	s.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("configured origin code = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
 
 	assertCORSAllowed(t, rec, "https://ui.example")
 }
@@ -59,6 +95,7 @@ func TestCORSMiddlewarePreflightAllowsConfiguredOriginAndHeaders(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodOptions, "/api/v1/jobs", nil)
+	req.Host = "localhost"
 	req.Header.Set("Origin", "https://ui.example")
 	req.Header.Set("Access-Control-Request-Method", http.MethodPost)
 	req.Header.Set("Access-Control-Request-Headers", "Authorization, X-CSRF-Token, Content-Type")
@@ -91,6 +128,7 @@ func TestCORSMiddlewarePreflightRejectsUnlistedHeader(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodOptions, "/api/v1/jobs", nil)
+	req.Host = "localhost"
 	req.Header.Set("Origin", "https://ui.example")
 	req.Header.Set("Access-Control-Request-Method", http.MethodPost)
 	req.Header.Set("Access-Control-Request-Headers", "X-Not-Allowed")

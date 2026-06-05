@@ -32,6 +32,7 @@ func (s *APIServer) corsMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		sameOrigin := originMatchesRequestHost(origin, r.Host)
 		allowed := corsOriginAllowed(origin)
 		if isCORSPreflight(r) {
 			if !allowed || !corsMethodAllowed(r.Header.Get("Access-Control-Request-Method")) {
@@ -63,10 +64,21 @@ func (s *APIServer) corsMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		if allowed {
-			setCORSResponseHeaders(w, origin)
+		if sameOrigin {
+			next.ServeHTTP(w, r)
+			return
 		}
 
+		if !allowed {
+			if s != nil {
+				s.recordSecurityRejection(r, securityReasonCORSOriginForbidden, http.StatusForbidden)
+			}
+
+			writeAPIErrorCode(w, http.StatusForbidden, apiErrCORSOriginForbidden)
+			return
+		}
+
+		setCORSResponseHeaders(w, origin)
 		next.ServeHTTP(w, r)
 	})
 }

@@ -13,6 +13,7 @@ const (
 	securityRejectionUnknownRoute = "unknown"
 
 	securityReasonInvalidHostHeader        = "invalid_host_header"
+	securityReasonCORSOriginForbidden      = "cors_origin_forbidden"
 	securityReasonCORSPreflightForbidden   = "cors_preflight_forbidden"
 	securityReasonCSRFFetchMetadataBlocked = "csrf_fetch_metadata_forbidden"
 	securityReasonCSRFOriginForbidden      = "csrf_origin_forbidden"
