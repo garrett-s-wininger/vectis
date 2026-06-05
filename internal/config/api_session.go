@@ -77,7 +77,7 @@ func validateAPISessionSecureCookiePolicy() error {
 		return nil
 	}
 
-	return fmt.Errorf("api.session.cookie_secure must be true when api.auth.enabled is true unless browser-facing API TLS is configured; trusted proxy forwarded headers do not satisfy startup secure-cookie validation because direct HTTP bypasses could issue insecure cookies; set api.session.allow_insecure_cookies=true only for local HTTP-only development")
+	return fmt.Errorf("api.session.cookie_secure must be true when api.auth.enabled is true unless browser-facing API TLS is configured; trusted proxy forwarded headers do not satisfy startup secure-cookie validation because direct HTTP browser logins cannot persist Secure cookies; set api.session.allow_insecure_cookies=true only for local HTTP-only bearer or return_token development")
 }
 
 func validateAPISessionDuration(envName, key string, fallback time.Duration) (time.Duration, error) {

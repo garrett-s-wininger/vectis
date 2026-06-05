@@ -65,6 +65,33 @@ func TestBearerToken_caseInsensitive(t *testing.T) {
 	}
 }
 
+func TestRequestCredential_acceptsSessionCookie(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "session"})
+
+	token, source, ok := requestCredential(req)
+	if !ok {
+		t.Fatal("expected cookie credential")
+	}
+
+	if source != credentialSourceCookie {
+		t.Fatalf("source=%q, want %q", source, credentialSourceCookie)
+	}
+
+	if token != "session" {
+		t.Fatalf("token=%q, want canonical cookie", token)
+	}
+}
+
+func TestRequestCredential_rejectsUnprefixedSessionCookie(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
+	req.AddCookie(&http.Cookie{Name: "vectis_session", Value: "legacy-session"})
+
+	if token, source, ok := requestCredential(req); ok {
+		t.Fatalf("token=%q source=%q, want no credential", token, source)
+	}
+}
+
 func TestRouteAuthPolicy_zeroValueDefaultsToAdmin(t *testing.T) {
 	p := routeAuthPolicy{}.normalized()
 	if p.isPublic() {

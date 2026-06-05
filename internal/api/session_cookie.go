@@ -3,26 +3,19 @@ package api
 import (
 	"net/http"
 	"time"
-
-	"vectis/internal/config"
 )
 
 const (
-	sessionCookieName = "vectis_session"
-	csrfCookieName    = "vectis_csrf"
+	sessionCookieName = "__Host-vectis_session"
+	csrfCookieName    = "__Host-vectis_csrf"
 	csrfHeaderName    = "X-CSRF-Token"
 
 	logoutClearSiteData = `"cache", "storage"`
 )
 
-func sessionCookieSecure(r *http.Request) bool {
-	return config.APISessionCookieSecure() || config.HTTPOriginalRequestSecure(r)
-}
-
-func setSessionCookies(w http.ResponseWriter, r *http.Request, sessionToken, csrfToken string, expiresAt time.Time) {
+func setSessionCookies(w http.ResponseWriter, _ *http.Request, sessionToken, csrfToken string, expiresAt time.Time) {
 	maxAge := max(int(time.Until(expiresAt).Seconds()), 0)
 
-	secure := sessionCookieSecure(r)
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    sessionToken,
@@ -30,7 +23,7 @@ func setSessionCookies(w http.ResponseWriter, r *http.Request, sessionToken, csr
 		Expires:  expiresAt,
 		MaxAge:   maxAge,
 		HttpOnly: true,
-		Secure:   secure,
+		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 	})
 
@@ -41,27 +34,29 @@ func setSessionCookies(w http.ResponseWriter, r *http.Request, sessionToken, csr
 		Expires:  expiresAt,
 		MaxAge:   maxAge,
 		HttpOnly: false,
-		Secure:   secure,
+		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 	})
 }
 
-func clearSessionCookies(w http.ResponseWriter, r *http.Request) {
-	secure := sessionCookieSecure(r)
-	for _, name := range []string{sessionCookieName, csrfCookieName} {
-		http.SetCookie(w, &http.Cookie{
-			Name:     name,
-			Value:    "",
-			Path:     "/",
-			Expires:  time.Unix(0, 0).UTC(),
-			MaxAge:   -1,
-			HttpOnly: name == sessionCookieName,
-			Secure:   secure,
-			SameSite: http.SameSiteLaxMode,
-		})
-	}
+func clearSessionCookies(w http.ResponseWriter, _ *http.Request) {
+	clearCookie(w, sessionCookieName)
+	clearCookie(w, csrfCookieName)
 }
 
 func clearLogoutSiteData(w http.ResponseWriter) {
 	w.Header().Set("Clear-Site-Data", logoutClearSiteData)
+}
+
+func clearCookie(w http.ResponseWriter, name string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     name,
+		Value:    "",
+		Path:     "/",
+		Expires:  time.Unix(0, 0).UTC(),
+		MaxAge:   -1,
+		HttpOnly: name == sessionCookieName,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
 }

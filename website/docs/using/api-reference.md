@@ -162,7 +162,7 @@ Authorization: Bearer <api_token>
 
 Health endpoints and `POST /api/v1/login` are public. Setup routes use setup-specific authorization while the first admin is being created. Diagnostics, API metrics, and data routes authorize the action listed in the route table below; namespace-scoped resources are hidden with `404` when the caller is not allowed to see that namespace. Browser-facing requests must use a trusted `Host` value from the API host allowlist.
 
-`POST /api/v1/login` creates an expiring server-side session. Browser clients receive an HttpOnly `vectis_session` cookie plus a readable `vectis_csrf` cookie and `csrf_token` response field. Cookie-authenticated requests carrying `Sec-Fetch-Site: cross-site` are rejected before route handling. Unsafe cookie-authenticated requests must copy the CSRF token into `X-CSRF-Token`; if the request includes `Origin` or `Referer`, its host must match the request host.
+`POST /api/v1/login` creates an expiring server-side session. Browser clients receive a `Secure` HttpOnly `__Host-vectis_session` cookie plus a `Secure` readable `__Host-vectis_csrf` cookie and `csrf_token` response field. Cookie-authenticated browser login requires HTTPS or local TLS because Vectis does not issue or accept unprefixed fallback session cookies. Cookie-authenticated requests carrying `Sec-Fetch-Site: cross-site` are rejected before route handling. Unsafe cookie-authenticated requests must copy the CSRF token into `X-CSRF-Token`; if the request includes `Origin` or `Referer`, its host must match the request host.
 
 Non-browser clients that need a bearer session token can request one explicitly:
 

@@ -66,7 +66,7 @@ API Host, CORS, Fetch Metadata, CSRF, method, media-type, body-policy, and rate-
 
 The API cache backend is shared security state for sessions and rate limits. Database mode is the replica-safe default. Memory mode is process-local, cleans expired entries opportunistically, and should stay limited to tests, local development, or deliberate single-process deployments.
 
-Logout must delete the server-side session, clear the Vectis session/CSRF cookies, and send `Clear-Site-Data: "cache", "storage"`. Do not add the `cookies` directive unless the deployment model intentionally accepts clearing cookies for the same domain and subdomains.
+Secure browser sessions use only `__Host-` session/CSRF cookie names with `Secure`, `Path=/`, and no `Domain`; do not add unprefixed aliases or migration fallbacks. Browser cookie auth requires HTTPS or local TLS. Logout must delete the server-side session, clear the canonical Vectis session/CSRF cookies, and send `Clear-Site-Data: "cache", "storage"`. Do not add the `cookies` directive unless the deployment model intentionally accepts clearing cookies for the same domain and subdomains.
 
 ## Lint expectations
 

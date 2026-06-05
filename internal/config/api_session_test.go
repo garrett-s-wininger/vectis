@@ -98,18 +98,18 @@ func TestValidateAPISessionConfig_invalidCookieSecure(t *testing.T) {
 	}
 }
 
-func TestValidateAPISessionConfig_requiresSecureCookiesWhenAuthEnabled(t *testing.T) {
+func TestValidateAPISessionConfig_requiresHTTPSOrExplicitEdgeModeWhenAuthEnabled(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 
 	t.Setenv(envAPIAuthEnabled, "true")
 	if err := ValidateAPISessionConfig(); err == nil {
-		t.Fatal("expected auth-enabled insecure cookies to be invalid")
+		t.Fatal("expected auth-enabled HTTP browser-cookie mode to be invalid")
 	}
 
 	t.Setenv(envAPISessionAllowInsecureCookies, "true")
 	if err := ValidateAPISessionConfig(); err != nil {
-		t.Fatalf("expected explicit insecure cookie opt-in to validate: %v", err)
+		t.Fatalf("expected local HTTP bearer/return_token opt-in to validate: %v", err)
 	}
 }
 
@@ -183,16 +183,16 @@ func TestAPISessionAllowInsecureCookies(t *testing.T) {
 	t.Cleanup(viper.Reset)
 
 	if got := APISessionAllowInsecureCookies(); got {
-		t.Fatal("default insecure cookie opt-in should be false")
+		t.Fatal("default local HTTP opt-in should be false")
 	}
 
 	viper.Set("api.session.allow_insecure_cookies", true)
 	if got := APISessionAllowInsecureCookies(); !got {
-		t.Fatal("viper insecure cookie opt-in should be true")
+		t.Fatal("viper local HTTP opt-in should be true")
 	}
 
 	t.Setenv(envAPISessionAllowInsecureCookies, "false")
 	if got := APISessionAllowInsecureCookies(); got {
-		t.Fatal("env insecure cookie opt-in override should be false")
+		t.Fatal("env local HTTP opt-in override should be false")
 	}
 }

@@ -1,121 +1,161 @@
 package api
 
 import (
-	"crypto/tls"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 )
 
-func TestSetSessionCookies_secureConfig(t *testing.T) {
-	t.Setenv("VECTIS_API_SESSION_COOKIE_SECURE", "true")
-
+func TestSetSessionCookies_usesHostPrefixedSecureCookies(t *testing.T) {
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/login", nil)
+	req := httptest.NewRequest(http.MethodPost, "http://example.test/api/v1/login", nil)
 	expiresAt := time.Now().UTC().Add(time.Hour)
+
 	setSessionCookies(rec, req, "session-token", "csrf-token", expiresAt)
 
 	cookies := rec.Result().Cookies()
 	if len(cookies) != 2 {
-		t.Fatalf("expected two cookies, got %+v", cookies)
+		t.Fatalf("cookies len=%d, want 2: %+v", len(cookies), cookies)
 	}
 
-	byName := map[string]http.Cookie{}
-	for _, c := range cookies {
-		byName[c.Name] = *c
-		if !c.Secure {
-			t.Fatalf("%s cookie should be Secure when configured", c.Name)
-		}
-
-		if c.SameSite != http.SameSiteLaxMode {
-			t.Fatalf("%s SameSite=%v, want Lax", c.Name, c.SameSite)
-		}
-
-		if c.Path != "/" {
-			t.Fatalf("%s Path=%q, want /", c.Name, c.Path)
-		}
-	}
-
+	byName := cookiesByName(cookies)
 	sessionCookie, ok := byName[sessionCookieName]
 	if !ok {
-		t.Fatalf("missing session cookie: %+v", cookies)
+		t.Fatalf("missing session cookie %s: %+v", sessionCookieName, cookies)
 	}
 
 	csrfCookie, ok := byName[csrfCookieName]
 	if !ok {
-		t.Fatalf("missing csrf cookie: %+v", cookies)
+		t.Fatalf("missing csrf cookie %s: %+v", csrfCookieName, cookies)
 	}
 
+	assertActiveSessionCookie(t, sessionCookie, "session-token")
+	assertActiveCSRFCookie(t, csrfCookie, "csrf-token")
+}
+
+func TestSetSessionCookies_neverIssuesUnprefixedCookies(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "http://example.test/api/v1/login", nil)
+
+	setSessionCookies(rec, req, "session-token", "csrf-token", time.Now().UTC().Add(time.Hour))
+
+	byName := cookiesByName(rec.Result().Cookies())
+	if _, ok := byName["vectis_session"]; ok {
+		t.Fatalf("must not issue unprefixed session cookie: %+v", byName)
+	}
+
+	if _, ok := byName["vectis_csrf"]; ok {
+		t.Fatalf("must not issue unprefixed csrf cookie: %+v", byName)
+	}
+}
+
+func TestClearSessionCookies_clearsOnlyHostPrefixedNames(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/logout", nil)
+
+	clearSessionCookies(rec, req)
+
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 2 {
+		t.Fatalf("cookies len=%d, want 2: %+v", len(cookies), cookies)
+	}
+
+	byName := cookiesByName(cookies)
+	sessionCookie := assertClearedCookie(t, byName, sessionCookieName)
+	csrfCookie := assertClearedCookie(t, byName, csrfCookieName)
+
 	if !sessionCookie.HttpOnly {
-		t.Fatal("session cookie must be HttpOnly")
+		t.Fatalf("%s must be HttpOnly", sessionCookieName)
 	}
 
 	if csrfCookie.HttpOnly {
-		t.Fatal("csrf cookie must be readable by browser clients")
+		t.Fatalf("%s must remain browser-readable", csrfCookieName)
+	}
+
+	if _, ok := byName["vectis_session"]; ok {
+		t.Fatalf("must not clear unprefixed session cookie: %+v", byName)
+	}
+
+	if _, ok := byName["vectis_csrf"]; ok {
+		t.Fatalf("must not clear unprefixed csrf cookie: %+v", byName)
 	}
 }
 
-func TestSetSessionCookies_secureWhenRequestUsesTLS(t *testing.T) {
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "https://example.test/api/v1/login", nil)
-	req.TLS = &tls.ConnectionState{}
+func assertActiveSessionCookie(t *testing.T, cookie http.Cookie, value string) {
+	t.Helper()
 
-	setSessionCookies(rec, req, "session-token", "csrf-token", time.Now().UTC().Add(time.Hour))
-
-	for _, c := range rec.Result().Cookies() {
-		if !c.Secure {
-			t.Fatalf("%s cookie should be Secure for direct TLS requests", c.Name)
-		}
+	assertHostCookieBase(t, cookie, value)
+	if !cookie.HttpOnly {
+		t.Fatalf("%s must be HttpOnly", cookie.Name)
 	}
 }
 
-func TestSetSessionCookies_secureWhenTrustedProxyForwardedProtoHTTPS(t *testing.T) {
-	t.Setenv("VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS", "10.0.0.0/8")
+func assertActiveCSRFCookie(t *testing.T, cookie http.Cookie, value string) {
+	t.Helper()
 
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "http://example.test/api/v1/login", nil)
-	req.RemoteAddr = "10.0.0.2:443"
-	req.Header.Set("X-Forwarded-Proto", "https")
-
-	setSessionCookies(rec, req, "session-token", "csrf-token", time.Now().UTC().Add(time.Hour))
-
-	for _, c := range rec.Result().Cookies() {
-		if !c.Secure {
-			t.Fatalf("%s cookie should be Secure for trusted proxy HTTPS requests", c.Name)
-		}
+	assertHostCookieBase(t, cookie, value)
+	if cookie.HttpOnly {
+		t.Fatalf("%s must be readable by browser clients", cookie.Name)
 	}
 }
 
-func TestSetSessionCookies_ignoresSpoofedForwardedProtoFromUntrustedPeer(t *testing.T) {
-	t.Setenv("VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS", "10.0.0.0/8")
+func assertHostCookieBase(t *testing.T, cookie http.Cookie, value string) {
+	t.Helper()
 
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "http://example.test/api/v1/login", nil)
-	req.RemoteAddr = "198.51.100.1:1234"
-	req.Header.Set("X-Forwarded-Proto", "https")
+	if cookie.Value != value {
+		t.Fatalf("%s value=%q, want %q", cookie.Name, cookie.Value, value)
+	}
 
-	setSessionCookies(rec, req, "session-token", "csrf-token", time.Now().UTC().Add(time.Hour))
+	if !cookie.Secure {
+		t.Fatalf("%s must be Secure", cookie.Name)
+	}
 
-	for _, c := range rec.Result().Cookies() {
-		if c.Secure {
-			t.Fatalf("%s cookie should not trust forwarded proto from an untrusted peer", c.Name)
-		}
+	if cookie.SameSite != http.SameSiteLaxMode {
+		t.Fatalf("%s SameSite=%v, want Lax", cookie.Name, cookie.SameSite)
+	}
+
+	if cookie.Path != "/" {
+		t.Fatalf("%s Path=%q, want /", cookie.Name, cookie.Path)
+	}
+
+	if cookie.Domain != "" {
+		t.Fatalf("%s Domain=%q, want host-only cookie", cookie.Name, cookie.Domain)
 	}
 }
 
-func TestSetSessionCookies_internalTLSDoesNotForceSecure(t *testing.T) {
-	t.Setenv("VECTIS_GRPC_TLS_INSECURE", "false")
-	t.Setenv("VECTIS_METRICS_TLS_INSECURE", "false")
+func assertClearedCookie(t *testing.T, byName map[string]http.Cookie, name string) http.Cookie {
+	t.Helper()
 
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "http://example.test/api/v1/login", nil)
-
-	setSessionCookies(rec, req, "session-token", "csrf-token", time.Now().UTC().Add(time.Hour))
-
-	for _, c := range rec.Result().Cookies() {
-		if c.Secure {
-			t.Fatalf("%s cookie should not infer Secure from internal gRPC or metrics TLS", c.Name)
-		}
+	cookie, ok := byName[name]
+	if !ok {
+		t.Fatalf("missing cleared cookie %s in %+v", name, byName)
 	}
+
+	if cookie.MaxAge >= 0 {
+		t.Fatalf("%s MaxAge=%d, want negative", name, cookie.MaxAge)
+	}
+
+	if !cookie.Secure {
+		t.Fatalf("%s must be Secure", name)
+	}
+
+	if cookie.Path != "/" {
+		t.Fatalf("%s Path=%q, want /", name, cookie.Path)
+	}
+
+	if cookie.Domain != "" {
+		t.Fatalf("%s Domain=%q, want host-only cookie", name, cookie.Domain)
+	}
+
+	return cookie
+}
+
+func cookiesByName(cookies []*http.Cookie) map[string]http.Cookie {
+	byName := make(map[string]http.Cookie, len(cookies))
+	for _, c := range cookies {
+		byName[c.Name] = *c
+	}
+
+	return byName
 }
