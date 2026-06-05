@@ -488,6 +488,81 @@ func TestAPIServer_GetStuckRunsIncludesCellBreakdown(t *testing.T) {
 	}
 }
 
+func TestAPIServer_GetStuckRunsIncludesTaskDispatchPending(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-stuck-task-dispatch", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-stuck-task-dispatch"
+	def := `{"id":"job-stuck-task-dispatch","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRunInCell(ctx, jobID, nil, 1, "pdx-b")
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	if err := repos.Runs().TouchDispatched(ctx, runID); err != nil {
+		t.Fatalf("touch dispatched: %v", err)
+	}
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	if _, _, err := repos.TaskDispatchIntents().Ensure(ctx, dal.TaskDispatchIntentCreate{
+		ExecutionID:       dispatch.ExecutionID,
+		RunID:             dispatch.RunID,
+		TaskID:            dispatch.TaskID,
+		TaskAttemptID:     dispatch.TaskAttemptID,
+		SourceExecutionID: "source-execution",
+		CellID:            dispatch.CellID,
+	}); err != nil {
+		t.Fatalf("ensure task dispatch intent: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/reconciler/stuck-runs", nil)
+	rec := httptest.NewRecorder()
+	server.GetStuckRuns(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var body struct {
+		Stuck               int64 `json:"stuck"`
+		TaskDispatchPending int64 `json:"task_dispatch_pending"`
+		TaskDispatchCells   []struct {
+			CellID  string `json:"cell_id"`
+			Pending int64  `json:"pending"`
+		} `json:"task_dispatch_cells"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v; body=%s", err, rec.Body.String())
+	}
+
+	if body.Stuck != 0 {
+		t.Fatalf("stuck total: got %d, want 0", body.Stuck)
+	}
+
+	if body.TaskDispatchPending != 1 {
+		t.Fatalf("task dispatch pending: got %d, want 1", body.TaskDispatchPending)
+	}
+
+	if len(body.TaskDispatchCells) != 1 || body.TaskDispatchCells[0].CellID != "pdx-b" || body.TaskDispatchCells[0].Pending != 1 {
+		t.Fatalf("task dispatch cells: %+v", body.TaskDispatchCells)
+	}
+}
+
 func TestAPIServer_GetJobRuns_DBUnavailable(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	if err := db.Close(); err != nil {

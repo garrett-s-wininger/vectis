@@ -55,6 +55,82 @@ func (r *SQLTaskDispatchIntentsRepository) ListPendingForRun(ctx context.Context
 	return r.listPending(ctx, runID, cellID, cutoffUnixNano, limit)
 }
 
+func (r *SQLTaskDispatchIntentsRepository) CountPending(ctx context.Context, cutoffUnixNano int64) (int64, error) {
+	if cutoffUnixNano <= 0 {
+		cutoffUnixNano = time.Now().UnixNano()
+	}
+
+	var count int64
+	err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT COUNT(*)
+		FROM task_dispatch_intents tdi
+		JOIN job_runs jr ON jr.run_id = tdi.run_id
+		JOIN segment_executions se ON se.execution_id = tdi.execution_id
+		JOIN run_segments rs ON rs.segment_id = se.segment_id AND rs.run_id = tdi.run_id
+		JOIN run_tasks rt ON rt.task_id = tdi.task_id AND rt.run_id = tdi.run_id
+		JOIN task_attempts ta ON ta.attempt_id = tdi.task_attempt_id AND ta.task_id = rt.task_id AND ta.run_id = tdi.run_id
+		WHERE tdi.enqueued_at IS NULL
+			AND rs.status = ?
+			AND se.status = ?
+			AND rt.status = ?
+			AND ta.status = ?
+			AND jr.status = ?
+			AND (tdi.last_enqueue_attempt_at IS NULL OR tdi.last_enqueue_attempt_at <= ?)
+	`), SegmentStatusPending, ExecutionStatusPending, TaskStatusPending, TaskStatusPending, RunStatusQueued, cutoffUnixNano).Scan(&count)
+
+	if err != nil {
+		return 0, normalizeSQLError(err)
+	}
+
+	return count, nil
+}
+
+func (r *SQLTaskDispatchIntentsRepository) CountPendingByCell(ctx context.Context, cutoffUnixNano int64) ([]RunCountByCell, error) {
+	if cutoffUnixNano <= 0 {
+		cutoffUnixNano = time.Now().UnixNano()
+	}
+
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
+		SELECT tdi.cell_id, COUNT(*)
+		FROM task_dispatch_intents tdi
+		JOIN job_runs jr ON jr.run_id = tdi.run_id
+		JOIN segment_executions se ON se.execution_id = tdi.execution_id
+		JOIN run_segments rs ON rs.segment_id = se.segment_id AND rs.run_id = tdi.run_id
+		JOIN run_tasks rt ON rt.task_id = tdi.task_id AND rt.run_id = tdi.run_id
+		JOIN task_attempts ta ON ta.attempt_id = tdi.task_attempt_id AND ta.task_id = rt.task_id AND ta.run_id = tdi.run_id
+		WHERE tdi.enqueued_at IS NULL
+			AND rs.status = ?
+			AND se.status = ?
+			AND rt.status = ?
+			AND ta.status = ?
+			AND jr.status = ?
+			AND (tdi.last_enqueue_attempt_at IS NULL OR tdi.last_enqueue_attempt_at <= ?)
+		GROUP BY tdi.cell_id
+		ORDER BY tdi.cell_id ASC
+	`), SegmentStatusPending, ExecutionStatusPending, TaskStatusPending, TaskStatusPending, RunStatusQueued, cutoffUnixNano)
+
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	var counts []RunCountByCell
+	for rows.Next() {
+		var count RunCountByCell
+		if err := rows.Scan(&count.CellID, &count.Count); err != nil {
+			return nil, normalizeSQLError(err)
+		}
+
+		counts = append(counts, count)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	return counts, nil
+}
+
 func (r *SQLTaskDispatchIntentsRepository) GetRunSummary(ctx context.Context, runID string) (TaskDispatchSummary, error) {
 	runID = strings.TrimSpace(runID)
 	if runID == "" {

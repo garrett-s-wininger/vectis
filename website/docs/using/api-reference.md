@@ -272,7 +272,7 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | GET | `/api/v1/audit/drops` | Audit event drop count | Public | none | `200` JSON drop count |
 | GET | `/api/v1/db/pool-stats` | Database connection pool stats | Public | none | `200` JSON pool stats |
 | GET | `/api/v1/queue/backlog` | Count of queued runs, including per-cell counts when available | Public | none | `200` JSON backlog |
-| GET | `/api/v1/reconciler/stuck-runs` | Count of stuck (undispatched) queued runs, including per-cell counts when available | Public | none | `200` JSON stuck runs |
+| GET | `/api/v1/reconciler/stuck-runs` | Count of stuck queued runs plus pending task continuation dispatch intents, including per-cell counts when available | Public | none | `200` JSON stuck runs |
 | GET | `/api/v1/cells/status` | Cell route readiness plus queued/stuck/catalog counts without exposing private route URLs | Public | none | `200` JSON cell status |
 | GET | `/api/v1/log/reachable` | Log service gRPC connectivity | Public | none | `200` JSON reachable |
 | GET | `/api/v1/audit/flush-failures` | Audit flush failure count | Public | none | `200` JSON flush failures |

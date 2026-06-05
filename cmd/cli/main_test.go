@@ -2703,6 +2703,30 @@ func TestDoctor_stuckRunsEvidenceIncludesCells(t *testing.T) {
 	}
 }
 
+func TestDoctor_stuckRunsWarnsForPendingTaskDispatch(t *testing.T) {
+	check := doctorCheckStuckRunsResponse(t, map[string]any{
+		"stuck":                 0,
+		"task_dispatch_pending": 2,
+		"task_dispatch_cells": []map[string]any{
+			{"cell_id": "iad-a", "pending": 2},
+		},
+	})
+
+	if check.Status != doctorWarn {
+		t.Fatalf("expected pending task dispatch to warn, got %#v", check)
+	}
+
+	if !strings.Contains(check.Summary, "2 pending task continuations detected") {
+		t.Fatalf("unexpected summary: %q", check.Summary)
+	}
+
+	for _, want := range []string{"stuck=0", "task_dispatch_pending=2", "task_cells=iad-a:2"} {
+		if !strings.Contains(check.Evidence, want) {
+			t.Fatalf("expected evidence to contain %q, got %q", want, check.Evidence)
+		}
+	}
+}
+
 func TestDoctor_catalogInboxWarnsForFailedEvents(t *testing.T) {
 	check := doctorCheckCatalogStatusResponse(t, map[string]any{
 		"pending": 2,

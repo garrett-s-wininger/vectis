@@ -411,6 +411,8 @@ type TaskDispatchIntentsRepository interface {
 	Ensure(ctx context.Context, create TaskDispatchIntentCreate) (TaskDispatchIntent, bool, error)
 	GetRunSummary(ctx context.Context, runID string) (TaskDispatchSummary, error)
 	ListByRun(ctx context.Context, runID string, limit int) ([]TaskDispatchIntent, error)
+	CountPending(ctx context.Context, cutoffUnixNano int64) (int64, error)
+	CountPendingByCell(ctx context.Context, cutoffUnixNano int64) ([]RunCountByCell, error)
 	ListPending(ctx context.Context, cellID string, cutoffUnixNano int64, limit int) ([]TaskDispatchIntent, error)
 	ListPendingForRun(ctx context.Context, runID, cellID string, cutoffUnixNano int64, limit int) ([]TaskDispatchIntent, error)
 	MarkEnqueued(ctx context.Context, executionID string, enqueuedAtUnixNano int64) error

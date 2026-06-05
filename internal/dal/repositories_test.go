@@ -1729,6 +1729,22 @@ func TestTaskDispatchIntentsRepository_Lifecycle(t *testing.T) {
 		t.Fatalf("pending dispatch intents: %+v", pending)
 	}
 
+	pendingCount, err := intents.CountPending(ctx, 0)
+	if err != nil {
+		t.Fatalf("count pending dispatch intents: %v", err)
+	}
+	if pendingCount != 1 {
+		t.Fatalf("pending dispatch intent count: got %d, want 1", pendingCount)
+	}
+
+	pendingByCell, err := intents.CountPendingByCell(ctx, 0)
+	if err != nil {
+		t.Fatalf("count pending dispatch intents by cell: %v", err)
+	}
+	if len(pendingByCell) != 1 || pendingByCell[0].CellID != "iad-a" || pendingByCell[0].Count != 1 {
+		t.Fatalf("pending dispatch intent counts by cell: %+v", pendingByCell)
+	}
+
 	queued, err := repos.Runs().ListQueuedBeforeDispatchCutoff(ctx, time.Now().Unix()+60)
 	if err != nil {
 		t.Fatalf("list queued before dispatch cutoff: %v", err)
@@ -1749,12 +1765,29 @@ func TestTaskDispatchIntentsRepository_Lifecycle(t *testing.T) {
 		t.Fatalf("intent should wait for retry cutoff, got %+v", pending)
 	}
 
+	pendingCount, err = intents.CountPending(ctx, 999)
+	if err != nil {
+		t.Fatalf("count pending before retry cutoff: %v", err)
+	}
+
+	if pendingCount != 0 {
+		t.Fatalf("intent count should wait for retry cutoff, got %d", pendingCount)
+	}
+
 	pending, err = intents.ListPending(ctx, "iad-a", 1000, 10)
 	if err != nil {
 		t.Fatalf("list pending at retry cutoff: %v", err)
 	}
 	if len(pending) != 1 || pending[0].EnqueueAttempts != 1 || pending[0].LastEnqueueAttemptAt == nil || *pending[0].LastEnqueueAttemptAt != 1000 || pending[0].LastEnqueueError == nil {
 		t.Fatalf("pending dispatch intent after failure mismatch: %+v", pending)
+	}
+
+	pendingCount, err = intents.CountPending(ctx, 1000)
+	if err != nil {
+		t.Fatalf("count pending at retry cutoff: %v", err)
+	}
+	if pendingCount != 1 {
+		t.Fatalf("intent count at retry cutoff: got %d, want 1", pendingCount)
 	}
 
 	summary, err := intents.GetRunSummary(ctx, runID)
@@ -1799,6 +1832,14 @@ func TestTaskDispatchIntentsRepository_Lifecycle(t *testing.T) {
 
 	if len(pending) != 0 {
 		t.Fatalf("enqueued intent should not remain pending: %+v", pending)
+	}
+
+	pendingCount, err = intents.CountPending(ctx, 3000)
+	if err != nil {
+		t.Fatalf("count pending after enqueue: %v", err)
+	}
+	if pendingCount != 0 {
+		t.Fatalf("enqueued intent should not remain pending in count, got %d", pendingCount)
 	}
 
 	summary, err = intents.GetRunSummary(ctx, runID)
