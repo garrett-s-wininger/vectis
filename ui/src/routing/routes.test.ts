@@ -26,6 +26,13 @@ describe("routes", () => {
     });
   });
 
+  it("extracts run job filters from run list search", () => {
+    expect(routeFromPath("/runs", "?job=docs-publish")).toMatchObject({
+      kind: "runs",
+      runJobName: "docs-publish"
+    });
+  });
+
   it("extracts job editor routes", () => {
     expect(routeFromPath("/jobs/create")).toMatchObject({
       kind: "jobs",

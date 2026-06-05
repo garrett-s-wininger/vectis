@@ -286,10 +286,24 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "Definition" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/jobs/job-docs-publish");
 
+    fireEvent.click(screen.getByRole("button", { name: "Open all runs for docs-publish" }));
+
+    expect(await screen.findByRole("heading", { name: "Runs" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "docs-publish runs" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/runs");
+    expect(new URLSearchParams(window.location.search).get("job")).toBe("docs-publish");
+
+    window.history.replaceState(null, "", "/jobs/job-docs-publish");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+
+    expect(await screen.findByRole("heading", { name: "docs-publish" })).toBeInTheDocument();
+
     fireEvent.click(screen.getByRole("button", { name: "Jobs" }));
 
     expect(await screen.findByRole("heading", { name: "Jobs" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/jobs");
+    expect(screen.getByText("docs-publish")).toBeInTheDocument();
+    expect(screen.queryByText("api-test-suite")).not.toBeInTheDocument();
   });
 
   it("returns from job config to the detail page that opened it", async () => {

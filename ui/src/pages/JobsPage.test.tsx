@@ -26,6 +26,7 @@ describe("JobsPage", () => {
         onOpenCreate={openCreate}
         onOpenEditor={() => undefined}
         onOpenJob={() => undefined}
+        onOpenJobRuns={() => undefined}
         onSelectNamespace={() => undefined}
         onSelectRun={() => undefined}
         onTriggerRun={() => undefined}
@@ -59,6 +60,7 @@ describe("JobsPage", () => {
         onOpenCreate={() => undefined}
         onOpenEditor={() => undefined}
         onOpenJob={() => undefined}
+        onOpenJobRuns={() => undefined}
         onSelectNamespace={() => undefined}
         onSelectRun={() => undefined}
         onTriggerRun={() => undefined}
@@ -126,6 +128,7 @@ describe("JobsPage", () => {
         onOpenCreate={() => undefined}
         onOpenEditor={() => undefined}
         onOpenJob={() => undefined}
+        onOpenJobRuns={() => undefined}
         onSelectNamespace={() => undefined}
         onSelectRun={() => undefined}
         onTriggerRun={() => undefined}
@@ -145,6 +148,7 @@ describe("JobsPage", () => {
   it("renders a job detail view", () => {
     const openJob = vi.fn();
     const openEditor = vi.fn();
+    const openJobRuns = vi.fn();
     const selectNamespace = vi.fn();
     const triggerRun = vi.fn();
     const job = {
@@ -173,6 +177,7 @@ describe("JobsPage", () => {
         onOpenCreate={() => undefined}
         onOpenEditor={openEditor}
         onOpenJob={openJob}
+        onOpenJobRuns={openJobRuns}
         onSelectNamespace={selectNamespace}
         onSelectRun={() => undefined}
         onTriggerRun={triggerRun}
@@ -198,5 +203,57 @@ describe("JobsPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Config test-run" }));
     expect(openEditor).toHaveBeenCalledWith("test-run");
+
+    fireEvent.click(screen.getByRole("button", { name: "Open all runs for test-run" }));
+    expect(openJobRuns).toHaveBeenCalledWith("test-run");
+  });
+
+  it("uses all jobs for routed detail views while preserving scoped list jobs", () => {
+    const scopedJob = {
+      id: "scoped-job",
+      name: "scoped-job",
+      repository: "",
+      branch: "",
+      sourceDetail: "Stored in Vectis",
+      sourceKind: "db" as const,
+      definition: JSON.stringify({ id: "scoped-job", root: {} }),
+      namespacePath: "/",
+      schedule: "Manual",
+      nextRun: "On demand",
+      triggers: [{ kind: "manual" as const, detail: "On demand" }],
+      status: "enabled" as const
+    };
+
+    const routedJob = {
+      ...scopedJob,
+      definition: JSON.stringify({ id: "routed-job", root: {} }),
+      id: "routed-job",
+      name: "routed-job",
+      namespacePath: "/team-a"
+    };
+
+    render(
+      <JobsPage
+        allJobs={[scopedJob, routedJob]}
+        detailJobID="routed-job"
+        jobs={[scopedJob]}
+        namespaces={namespaces}
+        namespacePath="/"
+        onCloseEditor={() => undefined}
+        onCreateJob={() => undefined}
+        onOpenCreate={() => undefined}
+        onOpenEditor={() => undefined}
+        onOpenJob={() => undefined}
+        onOpenJobRuns={() => undefined}
+        onSelectNamespace={() => undefined}
+        onSelectRun={() => undefined}
+        onTriggerRun={() => undefined}
+        onUpdateJob={() => undefined}
+        runs={[]}
+      />
+    );
+
+    expect(screen.getByRole("heading", { name: "routed-job" })).toBeInTheDocument();
+    expect(screen.getByText("/team-a")).toBeInTheDocument();
   });
 });

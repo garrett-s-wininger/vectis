@@ -6,9 +6,10 @@ import { jobDetailBreadcrumbItems } from "./JobBreadcrumbs";
 import {
   canTriggerRun,
   getJobDescription,
-  getJobActionFacts,
   getJobPathDetail,
-  getJobSourceDetail,
+  getManualTriggerDetail,
+  getRunHealthSummary,
+  getScheduleDetail,
   jobConfigurationActionLabel
 } from "./JobPresentation";
 import styles from "./JobDetailPage.module.css";
@@ -16,20 +17,26 @@ import styles from "./JobDetailPage.module.css";
 type JobDetailPageProps = {
   job: Job;
   lastRun?: RunListItem;
+  runs: RunListItem[];
   onBack: () => void;
   onConfigure: () => void;
   onOpenLastRun: () => void;
+  onOpenRuns: () => void;
   onTrigger: () => void;
 };
 
 export function JobDetailPage({
   job,
   lastRun,
+  runs,
   onBack,
   onConfigure,
   onOpenLastRun,
+  onOpenRuns,
   onTrigger
 }: JobDetailPageProps) {
+  const runHealth = getRunHealthSummary(runs);
+
   return (
     <section className={styles.detailPage} aria-labelledby="job-detail-title">
       <PageHeader
@@ -42,68 +49,67 @@ export function JobDetailPage({
         description={getJobDescription(job)}
         title={job.name}
         titleID="job-detail-title"
-        actions={
-          <>
-            <ResourceStatus tone={job.status}>{job.status === "enabled" ? "Enabled" : "Paused"}</ResourceStatus>
-            {canTriggerRun(job) ? (
-              <Button aria-label={`Run ${job.name}`} onClick={onTrigger}>
-                Run
-              </Button>
-            ) : null}
-            <Button aria-label={`${jobConfigurationActionLabel} ${job.name}`} onClick={onConfigure}>
-              {jobConfigurationActionLabel}
-            </Button>
-          </>
-        }
       />
 
       <div className={styles.summaryGrid}>
-        <section className={styles.panel} aria-labelledby="job-source-title">
+        <section className={styles.panel} aria-labelledby="job-execution-title">
           <div className={styles.panelHeader}>
-            <h3 id="job-source-title">Source</h3>
-            <p>{getJobSourceDetail(job)}</p>
+            <h3 id="job-execution-title">Execution</h3>
+            <p>{runHealth.detail}</p>
           </div>
-          <dl className={styles.factList}>
-            {getJobActionFacts(job).map((fact) => (
-              <div key={fact.label}>
-                <dt>{fact.label}</dt>
-                <dd>{fact.value}</dd>
+          <div className={styles.executionSummary}>
+            <div className={styles.healthSummary}>
+              <StatusBadge status={runHealth.tone} />
+              <Button aria-label={`Open all runs for ${job.name}`} onClick={onOpenRuns}>
+                All Runs
+              </Button>
+            </div>
+            {lastRun ? (
+              <div className={styles.latestRun}>
+                <span>
+                  Latest #{lastRun.runNumber} · {lastRun.duration}
+                </span>
+                <Button aria-label={`Open latest run for ${job.name}`} onClick={onOpenLastRun} variant="quiet">
+                  Latest Run
+                </Button>
               </div>
-            ))}
-          </dl>
+            ) : null}
+          </div>
+        </section>
+
+        <section className={`${styles.panel} ${styles.commandPanel}`} aria-labelledby="job-readiness-title">
+          <div className={styles.panelHeader}>
+            <h3 id="job-readiness-title">Run Readiness</h3>
+            <p>{getManualTriggerDetail(job)}</p>
+          </div>
+          <div className={styles.commandStack}>
+            <ResourceStatus tone={job.status}>{job.status === "enabled" ? "Enabled" : "Paused"}</ResourceStatus>
+            {canTriggerRun(job) ? (
+              <Button aria-label={`Run ${job.name}`} onClick={onTrigger} variant="quiet">
+                Run Now
+              </Button>
+            ) : null}
+          </div>
         </section>
 
         <section className={styles.panel} aria-labelledby="job-triggers-title">
           <div className={styles.panelHeader}>
             <h3 id="job-triggers-title">Triggers</h3>
-            <p>Configured ways this definition can enter the queue.</p>
+            <p>{getScheduleDetail(job)}</p>
           </div>
           <JobTriggers job={job} />
-        </section>
-
-        <section className={styles.panel} aria-labelledby="job-latest-run-title">
-          <div className={styles.panelHeader}>
-            <h3 id="job-latest-run-title">Latest Run</h3>
-            <p>{lastRun ? `Run #${lastRun.runNumber}` : "No runs have been created for this job."}</p>
-          </div>
-          {lastRun ? (
-            <div className={styles.latestRun}>
-              <StatusBadge status={lastRun.status} />
-              <span>{lastRun.duration}</span>
-              <Button aria-label={`Open latest run for ${job.name}`} onClick={onOpenLastRun}>
-                View
-              </Button>
-            </div>
-          ) : (
-            <StatusBadge status="empty" />
-          )}
         </section>
       </div>
 
       <section className={`${styles.panel} ${styles.definitionPanel}`} aria-labelledby="job-definition-title">
-        <div className={styles.panelHeader}>
-          <h3 id="job-definition-title">Definition</h3>
-          <p>{getJobPathDetail(job)}</p>
+        <div className={styles.definitionHeader}>
+          <div className={styles.panelHeader}>
+            <h3 id="job-definition-title">Definition</h3>
+            <p>{getJobPathDetail(job)}</p>
+          </div>
+          <Button aria-label={`${jobConfigurationActionLabel} ${job.name}`} onClick={onConfigure} variant="quiet">
+            {jobConfigurationActionLabel}
+          </Button>
         </div>
         <pre className={styles.definitionPreview}>{formatDefinition(job.definition)}</pre>
       </section>

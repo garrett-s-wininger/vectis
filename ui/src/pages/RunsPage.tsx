@@ -21,6 +21,7 @@ import { jsonObject } from "../validation/FormValidation";
 import { ResourceTitle } from "./shared";
 
 type RunsPageProps = {
+  jobName?: string;
   namespaces: Namespace[];
   namespacePath: string;
   onSelectNamespace: (namespacePath: string) => void;
@@ -30,6 +31,7 @@ type RunsPageProps = {
 };
 
 export function RunsPage({
+  jobName,
   namespaces,
   namespacePath,
   onSelectNamespace,
@@ -44,11 +46,12 @@ export function RunsPage({
   const [definitionError, setDefinitionError] = useState("");
   const filteredRuns = useMemo(() => {
     return runs.filter((run) => {
+      const jobMatches = !jobName || run.jobName === jobName;
       const sourceMatches = source === "all" || (run.source ?? "stored") === source;
       const statusMatches = status === "all" || run.status === status;
-      return sourceMatches && statusMatches;
+      return jobMatches && sourceMatches && statusMatches;
     });
-  }, [runs, source, status]);
+  }, [runs, jobName, source, status]);
 
   function clearFilters() {
     setSource("all");
@@ -74,7 +77,11 @@ export function RunsPage({
   return (
     <>
       <PageHeader
-        description={`Recent queued, running, and completed work under ${namespacePath}.`}
+        description={
+          jobName
+            ? `Recent queued, running, and completed work for ${jobName}.`
+            : `Recent queued, running, and completed work under ${namespacePath}.`
+        }
         eyebrow="Runs"
         actions={
           <>
@@ -136,12 +143,16 @@ export function RunsPage({
           </>
         }
       />
-      <RunList onSelectRun={onSelectRun} title={runListTitle(status, source)} runs={filteredRuns} />
+      <RunList onSelectRun={onSelectRun} title={runListTitle(status, source, jobName)} runs={filteredRuns} />
     </>
   );
 }
 
-function runListTitle(status: RunFilter, source: SourceFilter) {
+function runListTitle(status: RunFilter, source: SourceFilter, jobName?: string) {
+  if (jobName) {
+    return `${jobName} runs`;
+  }
+
   if (status === "all" && source === "all") {
     return "All runs";
   }

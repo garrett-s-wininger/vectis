@@ -19,6 +19,7 @@ export type AppRoute = {
   jobEditor?: { kind: "create" } | { kind: "edit"; jobID: string };
   jobID?: string;
   pathname: string;
+  runJobName?: string;
   runID?: string;
 };
 
@@ -38,7 +39,7 @@ export const adminNavItems: NavEntry[] = [
   }
 ];
 
-export function routeFromPath(pathname: string): AppRoute {
+export function routeFromPath(pathname: string, search = ""): AppRoute {
   if (pathname === "/setup") {
     return { kind: "setup", activeHref: "", pathname };
   }
@@ -61,7 +62,7 @@ export function routeFromPath(pathname: string): AppRoute {
   }
 
   if (pathname === "/runs" || pathname === "/runs/") {
-    return { kind: "runs", activeHref: "/runs", pathname };
+    return { kind: "runs", activeHref: "/runs", pathname, runJobName: jobFilterFromSearch(search) };
   }
 
   if (pathname.startsWith("/runs/")) {
@@ -110,6 +111,11 @@ export function routeFromPath(pathname: string): AppRoute {
   }
 
   return { kind: "notFound", activeHref: "", pathname };
+}
+
+function jobFilterFromSearch(search: string) {
+  const job = new URLSearchParams(search).get("job")?.trim();
+  return job || undefined;
 }
 
 export function navigateTo(path: string) {

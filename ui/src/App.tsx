@@ -54,7 +54,7 @@ type LoginValues = {
 };
 
 export function App() {
-  const [route, setRoute] = useState<AppRoute>(() => routeFromPath(window.location.pathname));
+  const [route, setRoute] = useState<AppRoute>(() => routeFromPath(window.location.pathname, window.location.search));
 
   const [setupValues, setSetupValues] = useState<SetupValues>({
     bootstrapToken: "",
@@ -78,13 +78,20 @@ export function App() {
 
   useEffect(() => {
     const onPopState = () => {
+      const nextRoute = routeFromPath(window.location.pathname, window.location.search);
       setFormError("");
       setSubmitting(false);
-      setRoute(routeFromPath(window.location.pathname));
+      setRoute(nextRoute);
+      if (consoleData) {
+        const routeNamespacePath = jobNamespacePathForRoute(consoleData, nextRoute);
+        if (routeNamespacePath) {
+          setSelectedNamespacePath(routeNamespacePath);
+        }
+      }
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
-  }, []);
+  }, [consoleData]);
 
   useEffect(() => {
     if (route.kind === "login" || route.kind === "setup") {
@@ -129,6 +136,11 @@ export function App() {
       .then((data) => {
         if (!ignore) {
           setConsoleData(data);
+          const currentRoute = routeFromPath(window.location.pathname, window.location.search);
+          const routeNamespacePath = jobNamespacePathForRoute(data, currentRoute);
+          if (routeNamespacePath) {
+            setSelectedNamespacePath(routeNamespacePath);
+          }
           setConsoleError("");
         }
       })
@@ -527,6 +539,7 @@ function RouteContent({
           onSelectNamespace={onSelectNamespace}
           onSelectRun={(runID) => navigateTo(`/runs/${runID}`)}
           onSubmitEphemeralRun={onSubmitEphemeralRun}
+          jobName={route.runJobName}
           runs={scopedConsoleData.runs}
         />
       );
@@ -535,6 +548,7 @@ function RouteContent({
         <JobsPage
           detailJobID={route.jobID}
           editorMode={route.jobEditor ?? null}
+          allJobs={consoleData.jobs}
           jobs={scopedConsoleData.jobs}
           namespaces={consoleData.namespaces}
           namespacePath={namespacePath}
@@ -543,11 +557,12 @@ function RouteContent({
           onOpenCreate={() => navigateTo("/jobs/create")}
           onOpenEditor={(jobID) => navigateTo(jobConfigPath(jobID, route))}
           onOpenJob={(jobID) => navigateTo(jobID ? `/jobs/${encodeURIComponent(jobID)}` : "/jobs")}
+          onOpenJobRuns={(jobName) => navigateTo(`/runs?job=${encodeURIComponent(jobName)}`)}
           onSelectRun={(runID) => navigateTo(`/runs/${runID}`)}
           onSelectNamespace={onSelectNamespace}
           onTriggerRun={onTriggerRun}
           onUpdateJob={onUpdateJob}
-          runs={scopedConsoleData.runs}
+          runs={consoleData.runs}
         />
       );
     case "users":
@@ -583,4 +598,21 @@ function jobConfigPath(jobID: string, route: AppRoute) {
   const jobPath = `/jobs/${encodeURIComponent(jobID)}`;
   const returnTo = route.jobID === jobID ? jobPath : route.pathname;
   return `${jobPath}/config?returnTo=${encodeURIComponent(returnTo)}`;
+}
+
+function jobNamespacePathForRoute(consoleData: MockConsoleData, route: AppRoute) {
+  if (route.kind === "runs" && route.runJobName) {
+    return consoleData.jobs.find((job) => job.name === route.runJobName)?.namespacePath ?? null;
+  }
+
+  if (route.kind !== "jobs") {
+    return null;
+  }
+
+  const jobID = route.jobID ?? (route.jobEditor?.kind === "edit" ? route.jobEditor.jobID : null);
+  if (!jobID) {
+    return null;
+  }
+
+  return consoleData.jobs.find((job) => job.id === jobID)?.namespacePath ?? null;
 }

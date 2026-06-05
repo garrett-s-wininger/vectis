@@ -17,11 +17,12 @@ import { JobIdentity } from "./jobs/JobIdentity";
 import styles from "./jobs/JobsPage.module.css";
 import { JobTriggers } from "./jobs/JobTriggers";
 import { jobEditorBreadcrumbItems, jobsIndexBreadcrumbItems } from "./jobs/JobBreadcrumbs";
-import { getLatestRunForJob } from "./jobs/JobPresentation";
+import { getLatestRunForJob, getRunsForJob } from "./jobs/JobPresentation";
 
 type ActiveJobEditorMode = JobEditorMode | null;
 
 type JobsPageProps = {
+  allJobs?: Job[];
   detailJobID?: string;
   editorMode?: ActiveJobEditorMode;
   jobs: Job[];
@@ -32,6 +33,7 @@ type JobsPageProps = {
   onOpenCreate: () => void;
   onOpenEditor: (jobID: string) => void;
   onOpenJob: (jobID: string) => void;
+  onOpenJobRuns?: (jobName: string) => void;
   onSelectRun: (runID: string) => void;
   onSelectNamespace: (namespacePath: string) => void;
   onTriggerRun: (jobID: string) => void;
@@ -40,6 +42,7 @@ type JobsPageProps = {
 };
 
 export function JobsPage({
+  allJobs,
   detailJobID,
   editorMode = null,
   jobs,
@@ -50,18 +53,20 @@ export function JobsPage({
   onOpenCreate,
   onOpenEditor,
   onOpenJob,
+  onOpenJobRuns,
   onSelectRun,
   onSelectNamespace,
   onTriggerRun,
   onUpdateJob,
   runs
 }: JobsPageProps) {
+  const routableJobs = allJobs ?? jobs;
   const [selectedJobID, setSelectedJobID] = useState("");
   const selectedJob = jobs.find((job) => job.id === selectedJobID);
-  const detailJob = detailJobID ? jobs.find((job) => job.id === detailJobID) : null;
+  const detailJob = detailJobID ? routableJobs.find((job) => job.id === detailJobID) : null;
   const selectedJobLastRun = selectedJob ? getLatestRunForJob(selectedJob, runs) : undefined;
   const editorJob =
-    editorMode?.kind === "edit" ? (jobs.find((candidate) => candidate.id === editorMode.jobID) ?? null) : null;
+    editorMode?.kind === "edit" ? (routableJobs.find((candidate) => candidate.id === editorMode.jobID) ?? null) : null;
 
   const editorInitialValues = editorJob ? valuesFromJob(editorJob) : emptyJobForm;
   const editorKey = editorMode?.kind === "edit" ? `edit:${editorMode.jobID}` : editorMode?.kind ?? "";
@@ -88,11 +93,13 @@ export function JobsPage({
 
   if (detailJob) {
     const latestRun = getLatestRunForJob(detailJob, runs);
+    const jobRuns = getRunsForJob(detailJob, runs);
 
     return (
       <JobDetailPage
         job={detailJob}
         lastRun={latestRun}
+        runs={jobRuns}
         onBack={() => onOpenJob("")}
         onConfigure={() => startEditJob(detailJob)}
         onOpenLastRun={() => {
@@ -100,6 +107,7 @@ export function JobsPage({
             onSelectRun(latestRun.id);
           }
         }}
+        onOpenRuns={() => onOpenJobRuns?.(detailJob.name)}
         onTrigger={() => onTriggerRun(detailJob.id)}
       />
     );
