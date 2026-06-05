@@ -157,7 +157,8 @@ func (r *SQLTaskDispatchIntentsRepository) listPending(ctx context.Context, runI
 		runFilter = " AND tdi.run_id = ?"
 		args = append(args, runID)
 	}
-	args = append(args, SegmentStatusPending, ExecutionStatusPending, TaskStatusPending, TaskStatusPending, cutoffUnixNano, limit)
+
+	args = append(args, SegmentStatusPending, ExecutionStatusPending, TaskStatusPending, TaskStatusPending, RunStatusQueued, cutoffUnixNano, limit)
 
 	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
 		SELECT
@@ -175,6 +176,7 @@ func (r *SQLTaskDispatchIntentsRepository) listPending(ctx context.Context, runI
 			tdi.created_at,
 			tdi.updated_at
 		FROM task_dispatch_intents tdi
+		JOIN job_runs jr ON jr.run_id = tdi.run_id
 		JOIN segment_executions se ON se.execution_id = tdi.execution_id
 		JOIN run_segments rs ON rs.segment_id = se.segment_id AND rs.run_id = tdi.run_id
 		JOIN run_tasks rt ON rt.task_id = tdi.task_id AND rt.run_id = tdi.run_id
@@ -186,6 +188,7 @@ func (r *SQLTaskDispatchIntentsRepository) listPending(ctx context.Context, runI
 			AND se.status = ?
 			AND rt.status = ?
 			AND ta.status = ?
+			AND jr.status = ?
 			AND (tdi.last_enqueue_attempt_at IS NULL OR tdi.last_enqueue_attempt_at <= ?)
 		ORDER BY tdi.id ASC
 		LIMIT ?

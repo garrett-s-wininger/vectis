@@ -24,7 +24,7 @@ The producer may be:
 | `api` | A user or API client created or retried a run. |
 | `cron` | `vectis-cron` created a run from a schedule. |
 | `reconciler` | `vectis-reconciler` found a queued run that still needed queue handoff. |
-| `task_dispatch` | A worker completed a task and handed off newly dispatchable task work inside the same run. |
+| `task_dispatch` | Task dispatch handed off newly dispatchable task work inside the same run, normally from worker completion and later from reconciler repair when an intent remained pending. |
 
 In multi-cell deployments, dispatch events still live on the global run. A failure message can describe a missing cell route, an unavailable private cell ingress endpoint, or a local queue handoff failure inside the target cell. See [Multi-Cell Operation](../multi-cell.md) for the routing and repair shape.
 

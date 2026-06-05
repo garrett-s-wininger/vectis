@@ -135,7 +135,7 @@ The worker that completes a task owns the event-path decisions for that completi
 4. If there is no immediate continuation, the task reduce service summarizes task state. Terminal failure dominates incomplete siblings; all-succeeded reduces to run success; incomplete work leaves the run available for later continuation.
 5. The task finalization boundary records the finalization outcome before the worker writes a terminal or continuation run state.
 
-The reconciler remains a repair loop. It repairs missed queue handoffs for queued work; it is not the normal event path for task fan-out or fan-in.
+The reconciler remains a repair loop. It repairs missed queue handoffs for queued work, including queued task dispatch intents left pending after a failed continuation handoff; it is not the normal event path for task fan-out or fan-in.
 
 ## Logs
 

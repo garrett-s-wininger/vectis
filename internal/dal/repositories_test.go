@@ -1729,6 +1729,14 @@ func TestTaskDispatchIntentsRepository_Lifecycle(t *testing.T) {
 		t.Fatalf("pending dispatch intents: %+v", pending)
 	}
 
+	queued, err := repos.Runs().ListQueuedBeforeDispatchCutoff(ctx, time.Now().Unix()+60)
+	if err != nil {
+		t.Fatalf("list queued before dispatch cutoff: %v", err)
+	}
+	if len(queued) != 0 {
+		t.Fatalf("queued run with pending task dispatch intent should not be a root dispatch candidate: %+v", queued)
+	}
+
 	if err := intents.MarkEnqueueFailed(ctx, dispatch.ExecutionID, 1000, "queue unavailable"); err != nil {
 		t.Fatalf("mark enqueue failed: %v", err)
 	}
@@ -1788,6 +1796,7 @@ func TestTaskDispatchIntentsRepository_Lifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list pending after enqueue: %v", err)
 	}
+
 	if len(pending) != 0 {
 		t.Fatalf("enqueued intent should not remain pending: %+v", pending)
 	}
@@ -1869,6 +1878,75 @@ func TestTaskDispatchIntentsRepository_ListPendingForRunScopesResults(t *testing
 
 	if _, err := intents.ListPendingForRun(ctx, "", "iad-a", 0, 10); !dal.IsConflict(err) {
 		t.Fatalf("missing run id should return conflict, got %v", err)
+	}
+}
+
+func TestTaskDispatchIntentsRepository_ListPendingRequiresQueuedRun(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-task-dispatch-intents-run-status", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-task-dispatch-intents-run-status"
+	def := `{"id":"job-task-dispatch-intents-run-status","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	if _, _, err := repos.TaskDispatchIntents().Ensure(ctx, dal.TaskDispatchIntentCreate{
+		ExecutionID:       dispatch.ExecutionID,
+		RunID:             dispatch.RunID,
+		TaskID:            dispatch.TaskID,
+		TaskAttemptID:     dispatch.TaskAttemptID,
+		SourceExecutionID: "source-execution",
+		CellID:            dispatch.CellID,
+	}); err != nil {
+		t.Fatalf("ensure dispatch intent: %v", err)
+	}
+
+	claimed, claimToken, err := repos.Runs().TryClaim(ctx, runID, "worker-a", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("claim run: %v", err)
+	}
+
+	if !claimed {
+		t.Fatal("expected to claim queued run")
+	}
+
+	pending, err := repos.TaskDispatchIntents().ListPending(ctx, "iad-a", time.Now().UnixNano(), 10)
+	if err != nil {
+		t.Fatalf("list pending while running: %v", err)
+	}
+
+	if len(pending) != 0 {
+		t.Fatalf("running run should not expose pending task dispatch intents: %+v", pending)
+	}
+
+	if err := repos.Runs().MarkRunQueuedForContinuation(ctx, runID, claimToken); err != nil {
+		t.Fatalf("mark queued for continuation: %v", err)
+	}
+
+	pending, err = repos.TaskDispatchIntents().ListPending(ctx, "iad-a", time.Now().UnixNano(), 10)
+	if err != nil {
+		t.Fatalf("list pending after queued: %v", err)
+	}
+
+	if len(pending) != 1 || pending[0].ExecutionID != dispatch.ExecutionID {
+		t.Fatalf("queued run should expose pending task dispatch intent: %+v", pending)
 	}
 }
 

@@ -96,6 +96,10 @@ func (d *Dispatcher) Drain(ctx context.Context, opts DrainOptions) (DrainResult,
 			return result, fmt.Errorf("mark task dispatch intent %s enqueued: %w", intent.ExecutionID, err)
 		}
 
+		if err := d.runs.TouchDispatched(ctx, intent.RunID); err != nil {
+			return result, fmt.Errorf("touch task dispatch run %s dispatched: %w", intent.RunID, err)
+		}
+
 		d.recordDispatchEvent(ctx, intent, dal.DispatchEventSuccess, nil)
 		result.Enqueued++
 	}

@@ -2012,6 +2012,12 @@ func (r *SQLRunsRepository) ListQueuedBeforeDispatchCutoff(ctx context.Context, 
 		FROM job_runs
 		WHERE status = 'queued'
 			AND (last_dispatched_at IS NULL OR last_dispatched_at < ?)
+			AND NOT EXISTS (
+				SELECT 1
+				FROM task_dispatch_intents tdi
+				WHERE tdi.run_id = job_runs.run_id
+					AND tdi.enqueued_at IS NULL
+			)
 		ORDER BY id ASC
 	`), cutoffUnix)
 

@@ -113,6 +113,15 @@ func TestDispatcherDrainEnqueuesPendingTaskIntent(t *testing.T) {
 		t.Fatalf("drained intent should not remain pending: %+v", pending)
 	}
 
+	queued, err := repos.Runs().ListQueuedBeforeDispatchCutoff(ctx, time.Now().Unix()-1)
+	if err != nil {
+		t.Fatalf("list queued after drain: %v", err)
+	}
+
+	if len(queued) != 0 {
+		t.Fatalf("task dispatch success should touch run dispatched; queued repair candidates: %+v", queued)
+	}
+
 	events, err := repos.DispatchEvents().ListByRun(ctx, child.RunID)
 	if err != nil {
 		t.Fatalf("list dispatch events: %v", err)

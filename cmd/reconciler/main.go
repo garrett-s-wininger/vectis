@@ -96,6 +96,12 @@ func runReconciler(cmd *cobra.Command, args []string) {
 	}
 	svc.SetDispatchMetrics(dispatchMetrics)
 
+	taskDispatchMetrics, err := observability.NewTaskDispatchMetrics()
+	if err != nil {
+		logger.Fatal("Failed to initialize task dispatch metrics: %v", err)
+	}
+	svc.SetTaskDispatchMetrics(taskDispatchMetrics)
+
 	metricsPort := viper.GetInt("metrics_port")
 	metricsAddr := fmt.Sprintf(":%d", metricsPort)
 	metricsSrv, err := cli.StartMetricsHTTPServer(metricsHandler, metricsAddr, "Reconciler", logger)

@@ -18,6 +18,7 @@ import (
 	"vectis/internal/interfaces"
 	"vectis/internal/observability"
 	"vectis/internal/runpolicy"
+	"vectis/internal/taskdispatch"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -35,6 +36,7 @@ type Service struct {
 	jobs            dal.JobsRepository
 	runs            dal.RunsRepository
 	dispatch        dal.DispatchEventsRepository
+	taskDispatch    dal.TaskDispatchIntentsRepository
 	leases          dal.ServiceLeasesRepository
 	logger          interfaces.Logger
 	queueClient     interfaces.QueueService
@@ -45,6 +47,7 @@ type Service struct {
 	dbMu            sync.Mutex
 	metrics         *observability.ReconcilerMetrics
 	dispatchMetrics dispatchMetrics
+	taskMetrics     taskdispatch.Metrics
 	leaseName       string
 	leaseOwner      string
 	leaseTTL        time.Duration
@@ -60,6 +63,7 @@ func NewService(logger interfaces.Logger, db *sql.DB, queue interfaces.QueueServ
 	repos := dal.NewSQLRepositories(db)
 	s := NewServiceWithRepositories(logger, repos.Jobs(), repos.Runs(), queue, clock)
 	s.dispatch = repos.DispatchEvents()
+	s.taskDispatch = repos.TaskDispatchIntents()
 	s.leases = repos.ServiceLeases()
 	return s
 }
@@ -102,6 +106,10 @@ func (s *Service) SetServiceLeases(repo dal.ServiceLeasesRepository) {
 	s.leases = repo
 }
 
+func (s *Service) SetTaskDispatchIntents(repo dal.TaskDispatchIntentsRepository) {
+	s.taskDispatch = repo
+}
+
 func (s *Service) SetLeaseOwner(owner string) {
 	if owner != "" {
 		s.leaseOwner = owner
@@ -134,6 +142,10 @@ func (s *Service) SetDispatchMetrics(metrics dispatchMetrics) {
 	s.dispatchMetrics = metrics
 }
 
+func (s *Service) SetTaskDispatchMetrics(metrics taskdispatch.Metrics) {
+	s.taskMetrics = metrics
+}
+
 func (s *Service) Process(ctx context.Context) error {
 	if s.queueClient == nil {
 		return fmt.Errorf("queue client is not set")
@@ -163,6 +175,15 @@ func (s *Service) Process(ctx context.Context) error {
 	for _, runID := range orphaned {
 		decision := runpolicy.Decide(runpolicy.Input{Trigger: runpolicy.TriggerLeaseExpired})
 		s.logger.Warn("reconciler: run %s moved to orphaned (%s)", runID, decision.ReasonCode)
+	}
+
+	if err := s.repairTaskDispatch(ctx); err != nil {
+		if database.IsUnavailableError(err) {
+			s.noteDBUnavailable(err)
+			return nil
+		}
+
+		return fmt.Errorf("repair task dispatch: %w", err)
 	}
 
 	cutoff := now.Add(-s.minGap).Unix()
@@ -208,6 +229,42 @@ func (s *Service) Process(ctx context.Context) error {
 
 			s.logger.Error("reconciler: run %s: %v", r.RunID, err)
 		}
+	}
+
+	return nil
+}
+
+func (s *Service) repairTaskDispatch(ctx context.Context) error {
+	if s.taskDispatch == nil {
+		return nil
+	}
+
+	pending, err := s.taskDispatch.ListPending(ctx, config.CellID(), s.clock.Now().UnixNano(), 1)
+	if err != nil {
+		return err
+	}
+	if len(pending) == 0 {
+		return nil
+	}
+
+	ingress, err := s.executionIngress()
+	if err != nil {
+		return err
+	}
+
+	dispatcher := taskdispatch.New(s.runs, s.taskDispatch, s.dispatch, ingress, s.clock)
+	dispatcher.SetDispatchMetrics(s.dispatchMetrics)
+
+	service := taskdispatch.NewService(s.logger, dispatcher)
+	service.SetMetrics(s.taskMetrics)
+
+	result, err := service.Process(ctx, taskdispatch.DrainOptions{CellID: config.CellID()})
+	if err != nil {
+		return err
+	}
+
+	if result.Listed > 0 || result.Enqueued > 0 || result.Failed > 0 {
+		s.logger.Info("reconciler: repaired task dispatch intents listed=%d enqueued=%d failed=%d", result.Listed, result.Enqueued, result.Failed)
 	}
 
 	return nil
@@ -398,28 +455,18 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 	}
 	req = dispatchReq
 
-	ingress := s.ingress
-	if ingress == nil {
-		endpoints, err := config.CellIngressEndpoints()
-		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "cell ingress endpoints")
-			msg := err.Error()
-			s.recordDispatchEvent(ctx, runID, qr.OwningCell, dal.DispatchEventFailure, &msg)
+	ingress, err := s.executionIngress()
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "cell ingress endpoints")
+		msg := err.Error()
+		s.recordDispatchEvent(ctx, runID, qr.OwningCell, dal.DispatchEventFailure, &msg)
 
-			if s.metrics != nil {
-				s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeFailedEnqueue)
-			}
-
-			return fmt.Errorf("cell ingress endpoints: %w", err)
+		if s.metrics != nil {
+			s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeFailedEnqueue)
 		}
 
-		queueClient := s.queueClient
-		if database.GlobalAndCellDatabasesAreSplit() {
-			queueClient = nil
-		}
-
-		ingress = cell.NewExecutionRouter(config.CellID(), queueClient, endpoints, s.logger)
+		return fmt.Errorf("cell ingress endpoints: %w", err)
 	}
 
 	submission, err := cell.NewExecutionSubmission(req)
@@ -469,6 +516,24 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 
 	s.logger.Info("reconciler: re-enqueued run %s (job %s, %s)", runID, jobID, decision.ReasonCode)
 	return nil
+}
+
+func (s *Service) executionIngress() (cell.ExecutionIngress, error) {
+	if s.ingress != nil {
+		return s.ingress, nil
+	}
+
+	endpoints, err := config.CellIngressEndpoints()
+	if err != nil {
+		return nil, err
+	}
+
+	queueClient := s.queueClient
+	if database.GlobalAndCellDatabasesAreSplit() {
+		queueClient = nil
+	}
+
+	return cell.NewExecutionRouter(config.CellID(), queueClient, endpoints, s.logger), nil
 }
 
 func (s *Service) recordExecutionPayload(ctx context.Context, runID string, req *api.JobRequest, definitionHash string) (*api.JobRequest, error) {
