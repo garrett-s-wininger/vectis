@@ -16,6 +16,7 @@ const (
 	WorkerOutcomeFailed           = "failed"
 	WorkerOutcomeAborted          = "aborted"
 	WorkerOutcomeSkippedUnclaimed = "skipped_unclaimed"
+	WorkerOutcomeMalformed        = "malformed"
 
 	WorkerPhaseIdle       = "idle"
 	WorkerPhaseDequeuing  = "dequeuing"

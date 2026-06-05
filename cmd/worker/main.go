@@ -596,6 +596,7 @@ func (w *worker) handleJob(jobReq *api.JobRequest) {
 		return
 	}
 
+	w.logger.Error("Dropping malformed queue delivery for job %s: missing run_id", jobID)
 	w.setLifecyclePhase(observability.WorkerPhaseAcking)
 	if err := w.ackDelivery(deliveryID); err != nil {
 		w.logger.Error("Ack delivery %s failed for job %s: %v", deliveryID, jobID, err)
@@ -611,24 +612,14 @@ func (w *worker) handleJob(jobReq *api.JobRequest) {
 		return
 	}
 
-	span.SetAttributes(attribute.String("vectis.worker.outcome", "consumed"))
+	span.AddEvent("queue.delivery.malformed", trace.WithAttributes(attribute.String("reason", "missing_run_id")))
+	span.SetStatus(otelcodes.Error, "missing run_id")
+	span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeMalformed))
 	span.End()
 
-	w.setLifecyclePhase(observability.WorkerPhaseExecuting)
-	if err := w.executor.ExecuteJob(jobCtx, job, w.logClient, w.logger); err != nil {
-		w.logger.Error("Job %s failed: %v", jobID, err)
-		w.setLifecyclePhase(observability.WorkerPhaseIdle)
-		if w.metrics != nil {
-			w.metrics.RecordJobFinished(jobCtx, observability.WorkerOutcomeFailed, w.now().Sub(start))
-		}
-
-		return
-	}
-
-	w.logger.Info("Job completed successfully: %s", jobID)
 	w.setLifecyclePhase(observability.WorkerPhaseIdle)
 	if w.metrics != nil {
-		w.metrics.RecordJobFinished(jobCtx, observability.WorkerOutcomeSuccess, w.now().Sub(start))
+		w.metrics.RecordJobFinished(jobCtx, observability.WorkerOutcomeMalformed, w.now().Sub(start))
 	}
 }
 

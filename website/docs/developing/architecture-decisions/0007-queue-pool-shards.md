@@ -30,7 +30,7 @@ Support multiple `vectis-queue` instances as a pool within one execution cell:
 - Starting two active queues with the same instance ID is a misconfiguration: the registry treats that ID as one logical shard, so the later registration can steal ack routing from the earlier process.
 - Total queue ordering is no longer global when more than one shard is active.
 - Active/passive failover for one shard is deferred. It is mainly useful for deployments where local persistent storage cannot restart with the queue process.
-- Jobs without a `run_id` still depend solely on queue delivery state. New production trigger paths should continue to create durable runs first.
+- Queue deliveries without a `run_id` are malformed at the worker boundary and are acked without execution. Producers create durable runs first and include the run identity in every worker delivery.
 
 ## References
 

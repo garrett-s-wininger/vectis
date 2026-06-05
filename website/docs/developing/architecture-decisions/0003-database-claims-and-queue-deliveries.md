@@ -19,7 +19,7 @@ Use two coordinated layers:
 
 The queue provides buffering and fan-out. The database provides authoritative concurrency control and durable run state. Re-enqueue from the API async path or reconciler can produce duplicate messages; `TryClaim` prevents double execution of the same run.
 
-A legacy path still handles jobs without `run_id` by acking and executing without a database claim. New trigger flows set `run_id`.
+Workers require queue deliveries for persisted work to carry a `run_id` and execution envelope. A delivery without `run_id` is malformed at the worker boundary: the worker acks it to avoid poison-message loops and does not execute it.
 
 ## Consequences
 

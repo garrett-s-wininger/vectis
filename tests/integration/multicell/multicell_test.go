@@ -717,21 +717,22 @@ func (w *integrationWorker) runOne(ctx context.Context) error {
 		return fmt.Errorf("record running execution catalog event: %w", err)
 	}
 
-	if err := w.executor.ExecuteJob(w.runCtx, jobReq, w.logClient, w.logger); err != nil {
+	completer := job.NewTaskCompletionService(w.store)
+	if err := w.executor.ExecuteTask(w.runCtx, jobReq, env.TaskKey, w.logClient, w.logger); err != nil {
 		reason := err.Error()
+		_, _ = completer.CompleteTaskExecution(w.runCtx, env.ExecutionID, dal.ExecutionStatusFailed)
 		_ = w.store.MarkRunFailed(w.runCtx, runID, claimToken, dal.FailureCodeExecution, reason)
 		_ = w.catalog.RecordRunStatus(w.runCtx, dal.RunStatusUpdate{RunID: runID, Status: dal.RunStatusFailed, FailureCode: dal.FailureCodeExecution, Reason: reason})
-		_ = w.store.MarkExecutionTerminal(w.runCtx, env.ExecutionID, dal.ExecutionStatusFailed)
 		_ = w.catalog.RecordExecutionStatus(w.runCtx, dal.ExecutionStatusUpdate{ExecutionID: env.ExecutionID, Status: dal.ExecutionStatusFailed})
-		return fmt.Errorf("execute job: %w", err)
+		return fmt.Errorf("execute task: %w", err)
+	}
+
+	if _, err := completer.CompleteTaskExecution(w.runCtx, env.ExecutionID, dal.ExecutionStatusSucceeded); err != nil {
+		return fmt.Errorf("complete task execution succeeded: %w", err)
 	}
 
 	if err := w.store.MarkRunSucceeded(w.runCtx, runID, claimToken); err != nil {
 		return fmt.Errorf("mark run succeeded: %w", err)
-	}
-
-	if err := w.store.MarkExecutionTerminal(w.runCtx, env.ExecutionID, dal.ExecutionStatusSucceeded); err != nil {
-		return fmt.Errorf("mark execution succeeded: %w", err)
 	}
 
 	if w.recordTerminalCatalog {

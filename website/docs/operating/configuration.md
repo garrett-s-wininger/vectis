@@ -222,7 +222,7 @@ Registration toggles:
 | `VECTIS_LOG_LOG_GRPC_REGISTER_WITH_REGISTRY` | Log service publishes its gRPC address to registry when enabled. |
 | `VECTIS_WORKER_WORKER_REGISTER_WITH_REGISTRY` | Worker publishes its worker-control address to registry when enabled. |
 
-Envelope-backed worker deliveries complete through the task boundary, activate child task executions, and enqueue task continuations from the worker event path. Persisted run deliveries must include an execution envelope; missing or invalid envelope metadata is treated as malformed work rather than falling back to whole-run execution.
+Envelope-backed worker deliveries complete through the task boundary, activate child task executions, and enqueue task continuations from the worker event path. Worker deliveries must include a `run_id` and execution envelope; missing or invalid run/envelope metadata is treated as malformed work rather than falling back to whole-run execution.
 
 Registry address settings may contain multiple comma-separated or space-separated registry addresses. Discovery clients fail over between configured targets. Registering services prefer a stable sponsor from that address set and fail over to another target on errors; they do not write every heartbeat to every registry node. For multi-node registry HA, the registry nodes still need deliberate static cluster membership and gossip configuration; otherwise they are independent registries with failover from the client's point of view but no converged shared state.
 

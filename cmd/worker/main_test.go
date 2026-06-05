@@ -1697,6 +1697,57 @@ func (q *scriptedAckQueue) Ack(context.Context, string) error {
 	return err
 }
 
+func TestWorkerHandleJob_RunlessDeliveryIsMalformed(t *testing.T) {
+	queue := &scriptedAckQueue{}
+	logClient := mocks.NewMockLogClient()
+	workerMetrics, err := observability.NewWorkerMetrics()
+	if err != nil {
+		t.Fatalf("worker metrics: %v", err)
+	}
+
+	w := &worker{
+		ctx:           context.Background(),
+		runCtx:        context.Background(),
+		logger:        interfaces.NewLogger("worker-test"),
+		workerID:      "worker-test-runless",
+		clock:         mocks.NewMockClock(),
+		renewInterval: time.Hour,
+		queue:         queue,
+		logClient:     logClient,
+		executor:      job.NewExecutor(),
+		metrics:       workerMetrics,
+	}
+
+	jobID := "job-worker-runless"
+	deliveryID := "delivery-runless"
+	commandNodeID := "node-1"
+	command := "echo should-not-run"
+	action := "builtins/shell"
+	req := &api.JobRequest{Job: &api.Job{
+		Id:         &jobID,
+		DeliveryId: &deliveryID,
+		Root: &api.Node{
+			Id:   &commandNodeID,
+			Uses: &action,
+			With: map[string]string{"command": command},
+		},
+	}}
+
+	w.handleJob(req)
+
+	if queue.ackCalls != 1 {
+		t.Fatalf("ack calls: got %d, want 1", queue.ackCalls)
+	}
+
+	if logClient.GetStreamCount() != 0 {
+		t.Fatalf("expected job execution to not start after runless delivery, got %d log streams", logClient.GetStreamCount())
+	}
+
+	if got := workerMetrics.LifecyclePhase(); got != observability.WorkerPhaseIdle {
+		t.Fatalf("expected worker to return idle after malformed delivery, got %q", got)
+	}
+}
+
 func TestWorkerRunClaimedJob_MissingExecutionEnvelopeFailsRun(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()

@@ -16,6 +16,7 @@ import (
 
 	apipb "vectis/api/gen/go"
 	"vectis/internal/api"
+	"vectis/internal/cell"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
 	"vectis/internal/interfaces/mocks"
@@ -616,6 +617,15 @@ func finishDequeuedMacroJob(
 		return macroRunTimings{}, fmt.Errorf("dequeued run_id=%q, want %q", queuedJob.GetRunId(), info.runID)
 	}
 
+	executionEnvelope, ok, err := cell.ExecutionEnvelopeFromRequest(jobReq)
+	if err != nil {
+		return macroRunTimings{}, fmt.Errorf("decode execution envelope: %w", err)
+	}
+
+	if !ok {
+		return macroRunTimings{}, fmt.Errorf("missing execution envelope")
+	}
+
 	queueAcceptedAt := info.httpAcceptedAt
 	if raw := jobReq.GetMetadata()[observability.JobEnqueueAcceptedUnixNanoKey]; raw != "" {
 		if ns, err := parseUnixNano(raw); err == nil {
@@ -641,8 +651,21 @@ func finishDequeuedMacroJob(
 	logDone := make(chan job.LogStreamWaiter, 1)
 	exec := job.NewExecutor()
 	exec.TestLogStreamHook = logDone
-	if err := exec.ExecuteJob(ctx, queuedJob, logSink, env.log); err != nil {
-		return macroRunTimings{}, fmt.Errorf("execute job %s: %w", queuedJob.GetId(), err)
+	if err := env.runs.MarkExecutionAccepted(ctx, executionEnvelope.ExecutionID); err != nil {
+		return macroRunTimings{}, fmt.Errorf("mark execution accepted %s: %w", executionEnvelope.ExecutionID, err)
+	}
+
+	if err := env.runs.MarkExecutionStarted(ctx, executionEnvelope.ExecutionID); err != nil {
+		return macroRunTimings{}, fmt.Errorf("mark execution started %s: %w", executionEnvelope.ExecutionID, err)
+	}
+
+	if err := exec.ExecuteTask(ctx, queuedJob, executionEnvelope.TaskKey, logSink, env.log); err != nil {
+		_, _ = job.NewTaskCompletionService(env.runs).CompleteTaskExecution(ctx, executionEnvelope.ExecutionID, dal.ExecutionStatusFailed)
+		return macroRunTimings{}, fmt.Errorf("execute task %s: %w", queuedJob.GetId(), err)
+	}
+
+	if _, err := job.NewTaskCompletionService(env.runs).CompleteTaskExecution(ctx, executionEnvelope.ExecutionID, dal.ExecutionStatusSucceeded); err != nil {
+		return macroRunTimings{}, fmt.Errorf("complete task execution %s: %w", executionEnvelope.ExecutionID, err)
 	}
 
 	if err := env.runs.MarkRunSucceeded(ctx, info.runID, claimToken); err != nil {
