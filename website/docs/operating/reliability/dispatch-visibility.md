@@ -106,6 +106,12 @@ increase(vectis_task_dispatch_intents_total{outcome="failed"}[10m]) > 0
 Warn when worker-owned task continuation handoff is failing. Pair this with `vectis_task_dispatch_drains_total` to see whether the failure is isolated or part of sustained fan-out pressure.
 
 ```promql
+sum(vectis_task_dispatch_pending_intents) > 0
+```
+
+Warn when retry-eligible task continuation work remains pending. The API emits this SQL-backed gauge with `cell_id` labels, so group by `cell_id` to find the affected target cell.
+
+```promql
 increase(vectis_reconciler_reenqueue_total{outcome!="success"}[10m]) > 0
 ```
 

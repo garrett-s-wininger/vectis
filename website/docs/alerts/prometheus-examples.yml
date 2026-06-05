@@ -35,6 +35,15 @@ groups:
           summary: Vectis task dispatch failed to enqueue continuation work
           runbook: docs/REPAIR_RUNBOOKS.md#queued-runs-or-backlog
 
+      - alert: VectisTaskDispatchPendingIntents
+        expr: sum(vectis_task_dispatch_pending_intents) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis task dispatch has pending continuation work
+          runbook: docs/REPAIR_RUNBOOKS.md#queued-runs-or-backlog
+
       - alert: VectisWorkerHighFailureRatio
         expr: |
           sum(rate(vectis_worker_job_duration_seconds_count{outcome!="success"}[15m]))
