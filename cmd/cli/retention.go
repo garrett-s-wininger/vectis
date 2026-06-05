@@ -82,13 +82,18 @@ func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy,
 				"audit_log":        retentionCutoff(report.Cutoffs.AuditLog),
 			},
 			"counts": map[string]int64{
-				"terminal_runs":       report.Counts.TerminalRuns,
-				"run_dispatch_events": report.Counts.RunDispatchEvents,
-				"job_definitions":     report.Counts.JobDefinitions,
-				"idempotency_keys":    report.Counts.IdempotencyKeys,
-				"audit_log":           report.Counts.AuditLog,
-				"run_log_files":       fileReport.RunLogFiles,
-				"run_log_bytes":       fileReport.RunLogBytes,
+				"terminal_runs":         report.Counts.TerminalRuns,
+				"run_dispatch_events":   report.Counts.RunDispatchEvents,
+				"run_tasks":             report.Counts.RunTasks,
+				"task_attempts":         report.Counts.TaskAttempts,
+				"run_segments":          report.Counts.RunSegments,
+				"segment_executions":    report.Counts.SegmentExecutions,
+				"task_dispatch_intents": report.Counts.TaskDispatchIntents,
+				"job_definitions":       report.Counts.JobDefinitions,
+				"idempotency_keys":      report.Counts.IdempotencyKeys,
+				"audit_log":             report.Counts.AuditLog,
+				"run_log_files":         fileReport.RunLogFiles,
+				"run_log_bytes":         fileReport.RunLogBytes,
 			},
 			"audit": map[string]bool{"event_inserted": report.AuditEventInserted},
 		})
@@ -117,6 +122,11 @@ func printRetentionReport(w io.Writer, report retention.Report, fileReport reten
 	fmt.Fprintf(w, "cutoff.audit_log=%s\n", retentionCutoff(report.Cutoffs.AuditLog))
 	fmt.Fprintf(w, "%s.terminal_runs=%d\n", prefix, report.Counts.TerminalRuns)
 	fmt.Fprintf(w, "%s.run_dispatch_events=%d\n", prefix, report.Counts.RunDispatchEvents)
+	fmt.Fprintf(w, "%s.run_tasks=%d\n", prefix, report.Counts.RunTasks)
+	fmt.Fprintf(w, "%s.task_attempts=%d\n", prefix, report.Counts.TaskAttempts)
+	fmt.Fprintf(w, "%s.run_segments=%d\n", prefix, report.Counts.RunSegments)
+	fmt.Fprintf(w, "%s.segment_executions=%d\n", prefix, report.Counts.SegmentExecutions)
+	fmt.Fprintf(w, "%s.task_dispatch_intents=%d\n", prefix, report.Counts.TaskDispatchIntents)
 	fmt.Fprintf(w, "%s.job_definitions=%d\n", prefix, report.Counts.JobDefinitions)
 	fmt.Fprintf(w, "%s.idempotency_keys=%d\n", prefix, report.Counts.IdempotencyKeys)
 	fmt.Fprintf(w, "%s.audit_log=%d\n", prefix, report.Counts.AuditLog)
@@ -143,8 +153,9 @@ var retentionCmd = &cobra.Command{
 var retentionCleanupCmd = &cobra.Command{
 	Use:   "cleanup",
 	Short: "Prune old terminal runs and related durable records",
-	Long: `Prune old terminal run rows, dispatch events, orphaned ephemeral job definitions,
-idempotency keys, audit log rows, and optionally local durable run log files.
+	Long: `Prune old terminal run rows, task graph rows, dispatch events, orphaned
+ephemeral job definitions, idempotency keys, audit log rows, and optionally local
+durable run log files.
 
 The command is destructive. Use --dry-run first, then pass --yes to apply.`,
 	Args: cobra.NoArgs,

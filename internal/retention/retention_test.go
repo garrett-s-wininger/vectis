@@ -35,6 +35,10 @@ func TestSQLCleanerPreviewDoesNotMutate(t *testing.T) {
 		t.Fatalf("dispatch event candidates: got %d want 3", report.Counts.RunDispatchEvents)
 	}
 
+	if report.Counts.RunTasks != 3 || report.Counts.TaskAttempts != 3 || report.Counts.RunSegments != 3 || report.Counts.SegmentExecutions != 3 || report.Counts.TaskDispatchIntents != 3 {
+		t.Fatalf("task cascade candidates: %+v", report.Counts)
+	}
+
 	if report.Counts.JobDefinitions != 4 {
 		t.Fatalf("job definition candidates: got %d want 4", report.Counts.JobDefinitions)
 	}
@@ -48,6 +52,11 @@ func TestSQLCleanerPreviewDoesNotMutate(t *testing.T) {
 	}
 
 	assertCount(t, db, `SELECT COUNT(*) FROM job_runs`, 6)
+	assertCount(t, db, `SELECT COUNT(*) FROM run_tasks`, 4)
+	assertCount(t, db, `SELECT COUNT(*) FROM task_attempts`, 4)
+	assertCount(t, db, `SELECT COUNT(*) FROM run_segments`, 4)
+	assertCount(t, db, `SELECT COUNT(*) FROM segment_executions`, 4)
+	assertCount(t, db, `SELECT COUNT(*) FROM task_dispatch_intents`, 4)
 	assertCount(t, db, `SELECT COUNT(*) FROM audit_log WHERE event_type = 'retention.cleanup'`, 0)
 }
 
@@ -78,10 +87,24 @@ func TestSQLCleanerApplyDeletesOnlyEligibleState(t *testing.T) {
 		t.Fatalf("deleted job definitions: got %d want 4", report.Counts.JobDefinitions)
 	}
 
+	if report.Counts.RunTasks != 3 || report.Counts.TaskAttempts != 3 || report.Counts.RunSegments != 3 || report.Counts.SegmentExecutions != 3 || report.Counts.TaskDispatchIntents != 3 {
+		t.Fatalf("deleted task cascade counts mismatch: %+v", report.Counts)
+	}
+
 	assertCount(t, db, `SELECT COUNT(*) FROM job_runs WHERE run_id IN ('old-success', 'old-failed', 'old-aborted')`, 0)
 	assertCount(t, db, `SELECT COUNT(*) FROM job_runs WHERE run_id IN ('queued-old', 'running-old', 'new-success')`, 3)
 	assertCount(t, db, `SELECT COUNT(*) FROM run_dispatch_events WHERE run_id IN ('old-success', 'old-failed', 'old-aborted')`, 0)
 	assertCount(t, db, `SELECT COUNT(*) FROM run_dispatch_events WHERE run_id = 'queued-old'`, 1)
+	assertCount(t, db, `SELECT COUNT(*) FROM run_tasks WHERE run_id IN ('old-success', 'old-failed', 'old-aborted')`, 0)
+	assertCount(t, db, `SELECT COUNT(*) FROM task_attempts WHERE run_id IN ('old-success', 'old-failed', 'old-aborted')`, 0)
+	assertCount(t, db, `SELECT COUNT(*) FROM run_segments WHERE run_id IN ('old-success', 'old-failed', 'old-aborted')`, 0)
+	assertCount(t, db, `SELECT COUNT(*) FROM segment_executions WHERE run_id IN ('old-success', 'old-failed', 'old-aborted')`, 0)
+	assertCount(t, db, `SELECT COUNT(*) FROM task_dispatch_intents WHERE run_id IN ('old-success', 'old-failed', 'old-aborted')`, 0)
+	assertCount(t, db, `SELECT COUNT(*) FROM run_tasks WHERE run_id = 'queued-old'`, 1)
+	assertCount(t, db, `SELECT COUNT(*) FROM task_attempts WHERE run_id = 'queued-old'`, 1)
+	assertCount(t, db, `SELECT COUNT(*) FROM run_segments WHERE run_id = 'queued-old'`, 1)
+	assertCount(t, db, `SELECT COUNT(*) FROM segment_executions WHERE run_id = 'queued-old'`, 1)
+	assertCount(t, db, `SELECT COUNT(*) FROM task_dispatch_intents WHERE run_id = 'queued-old'`, 1)
 	assertCount(t, db, `SELECT COUNT(*) FROM job_definitions WHERE job_id IN ('old-success-job', 'old-failed-job', 'old-aborted-job', 'orphan-job')`, 0)
 	assertCount(t, db, `SELECT COUNT(*) FROM job_definitions WHERE job_id = 'queued-job'`, 1)
 	assertCount(t, db, `SELECT COUNT(*) FROM idempotency_keys WHERE key = 'old-key'`, 0)
@@ -150,6 +173,8 @@ func seedRetentionRows(t *testing.T, db *sql.DB, now time.Time) {
 		`, runID, now.Unix()); err != nil {
 			t.Fatalf("insert dispatch event %s: %v", runID, err)
 		}
+
+		insertTaskCascadeRows(t, db, runID)
 	}
 
 	for _, jobID := range []string{"old-success-job", "old-failed-job", "old-aborted-job", "queued-job", "orphan-job"} {
@@ -173,6 +198,50 @@ func seedRetentionRows(t *testing.T, db *sql.DB, now time.Time) {
 		VALUES ('old.event', '{}', ?), ('new.event', '{}', ?)
 	`, old, recent); err != nil {
 		t.Fatalf("insert audit rows: %v", err)
+	}
+}
+
+func insertTaskCascadeRows(t *testing.T, db *sql.DB, runID string) {
+	t.Helper()
+
+	taskID := runID + ":root"
+	attemptID := runID + ":attempt-1"
+	segmentID := runID + ":segment"
+	executionID := runID + ":execution"
+
+	if _, err := db.Exec(`
+		INSERT INTO run_tasks (task_id, run_id, task_key, name, status)
+		VALUES (?, ?, 'root', 'root', 'pending')
+	`, taskID, runID); err != nil {
+		t.Fatalf("insert run task %s: %v", runID, err)
+	}
+
+	if _, err := db.Exec(`
+		INSERT INTO task_attempts (attempt_id, task_id, run_id, cell_id, attempt, status)
+		VALUES (?, ?, ?, 'local', 1, 'pending')
+	`, attemptID, taskID, runID); err != nil {
+		t.Fatalf("insert task attempt %s: %v", runID, err)
+	}
+
+	if _, err := db.Exec(`
+		INSERT INTO run_segments (segment_id, run_id, name, status)
+		VALUES (?, ?, 'root', 'pending')
+	`, segmentID, runID); err != nil {
+		t.Fatalf("insert run segment %s: %v", runID, err)
+	}
+
+	if _, err := db.Exec(`
+		INSERT INTO segment_executions (execution_id, segment_id, run_id, task_id, task_attempt_id, cell_id, status, attempt)
+		VALUES (?, ?, ?, ?, ?, 'local', 'pending', 1)
+	`, executionID, segmentID, runID, taskID, attemptID); err != nil {
+		t.Fatalf("insert segment execution %s: %v", runID, err)
+	}
+
+	if _, err := db.Exec(`
+		INSERT INTO task_dispatch_intents (execution_id, run_id, task_id, task_attempt_id, cell_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, 'local', ?, ?)
+	`, executionID, runID, taskID, attemptID, fixedNow().UnixNano(), fixedNow().UnixNano()); err != nil {
+		t.Fatalf("insert task dispatch intent %s: %v", runID, err)
 	}
 }
 

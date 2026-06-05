@@ -24,6 +24,7 @@ By default, cleanup uses these windows:
 | --- | ---: | --- |
 | Terminal runs | 30 days | Deletes terminal runs older than the cutoff: `succeeded`, `failed`, `aborted`, `cancelled`, and `abandoned`. |
 | Run dispatch events | follows terminal runs | Deletes dispatch events for runs being deleted. |
+| Task graph rows | follows terminal runs | Deletes task nodes, task attempts, run segments, segment executions, and task dispatch intents for runs being deleted. |
 | Ephemeral job definitions | 30 days | Deletes unreferenced `job_definitions` rows older than the cutoff. Stored-job definitions are preserved. |
 | Idempotency keys | 24 hours | Deletes old idempotency records; retry deduplication is no longer guaranteed after the window. |
 | Audit log | 365 days | Deletes old audit rows and inserts a fresh `retention.cleanup` audit event when cleanup is applied. |
@@ -106,6 +107,11 @@ dry_run=true
 cutoff.terminal_runs=2026-04-16T12:00:00Z
 would_delete.terminal_runs=42
 would_delete.run_dispatch_events=84
+would_delete.run_tasks=84
+would_delete.task_attempts=84
+would_delete.run_segments=42
+would_delete.segment_executions=84
+would_delete.task_dispatch_intents=40
 would_delete.run_log_files=42
 Cleanup not applied.
 ```
@@ -116,6 +122,11 @@ Apply output uses `deleted.*` keys:
 dry_run=false
 deleted.terminal_runs=42
 deleted.run_dispatch_events=84
+deleted.run_tasks=84
+deleted.task_attempts=84
+deleted.run_segments=42
+deleted.segment_executions=84
+deleted.task_dispatch_intents=40
 audit_event_inserted=true
 Cleanup applied.
 ```

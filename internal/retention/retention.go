@@ -42,11 +42,16 @@ type Cutoffs struct {
 }
 
 type Counts struct {
-	TerminalRuns      int64
-	RunDispatchEvents int64
-	JobDefinitions    int64
-	IdempotencyKeys   int64
-	AuditLog          int64
+	TerminalRuns        int64
+	RunDispatchEvents   int64
+	RunTasks            int64
+	TaskAttempts        int64
+	RunSegments         int64
+	SegmentExecutions   int64
+	TaskDispatchIntents int64
+	JobDefinitions      int64
+	IdempotencyKeys     int64
+	AuditLog            int64
 }
 
 type Report struct {
@@ -114,6 +119,21 @@ func (c *SQLCleaner) Apply(ctx context.Context, policy Policy, now time.Time) (R
 			)
 		`, sqlTimeParam(*report.Cutoffs.TerminalRuns)); err != nil {
 			return Report{}, fmt.Errorf("delete run dispatch events: %w", err)
+		}
+
+		for _, child := range []struct {
+			table string
+			label string
+		}{
+			{table: "task_dispatch_intents", label: "task dispatch intents"},
+			{table: "segment_executions", label: "segment executions"},
+			{table: "run_segments", label: "run segments"},
+			{table: "task_attempts", label: "task attempts"},
+			{table: "run_tasks", label: "run tasks"},
+		} {
+			if err := deleteTerminalRunChildren(ctx, tx, child.table, *report.Cutoffs.TerminalRuns); err != nil {
+				return Report{}, fmt.Errorf("delete %s: %w", child.label, err)
+			}
 		}
 
 		deletedRuns, err := execRows(ctx, tx, `
@@ -246,6 +266,31 @@ func (c *SQLCleaner) counts(ctx context.Context, tx *sql.Tx, cutoffs Cutoffs) (C
 		if err != nil {
 			return Counts{}, fmt.Errorf("count run dispatch events: %w", err)
 		}
+
+		out.RunTasks, err = c.countTerminalRunChildren(ctx, tx, "run_tasks", *cutoffs.TerminalRuns)
+		if err != nil {
+			return Counts{}, fmt.Errorf("count run tasks: %w", err)
+		}
+
+		out.TaskAttempts, err = c.countTerminalRunChildren(ctx, tx, "task_attempts", *cutoffs.TerminalRuns)
+		if err != nil {
+			return Counts{}, fmt.Errorf("count task attempts: %w", err)
+		}
+
+		out.RunSegments, err = c.countTerminalRunChildren(ctx, tx, "run_segments", *cutoffs.TerminalRuns)
+		if err != nil {
+			return Counts{}, fmt.Errorf("count run segments: %w", err)
+		}
+
+		out.SegmentExecutions, err = c.countTerminalRunChildren(ctx, tx, "segment_executions", *cutoffs.TerminalRuns)
+		if err != nil {
+			return Counts{}, fmt.Errorf("count segment executions: %w", err)
+		}
+
+		out.TaskDispatchIntents, err = c.countTerminalRunChildren(ctx, tx, "task_dispatch_intents", *cutoffs.TerminalRuns)
+		if err != nil {
+			return Counts{}, fmt.Errorf("count task dispatch intents: %w", err)
+		}
 	}
 
 	if cutoffs.JobDefinitions != nil {
@@ -300,6 +345,34 @@ func (c *SQLCleaner) counts(ctx context.Context, tx *sql.Tx, cutoffs Cutoffs) (C
 	}
 
 	return out, nil
+}
+
+func (c *SQLCleaner) countTerminalRunChildren(ctx context.Context, tx *sql.Tx, table string, cutoff time.Time) (int64, error) {
+	return c.queryCount(ctx, tx, `
+		SELECT COUNT(*)
+		FROM `+table+`
+		WHERE run_id IN (
+			SELECT run_id
+			FROM job_runs
+			WHERE status IN ('succeeded', 'failed', 'aborted', 'cancelled', 'abandoned')
+				AND finished_at IS NOT NULL
+				AND finished_at < ?
+		)
+	`, sqlTimeParam(cutoff))
+}
+
+func deleteTerminalRunChildren(ctx context.Context, tx *sql.Tx, table string, cutoff time.Time) error {
+	_, err := execRows(ctx, tx, `
+		DELETE FROM `+table+`
+		WHERE run_id IN (
+			SELECT run_id
+			FROM job_runs
+			WHERE status IN ('succeeded', 'failed', 'aborted', 'cancelled', 'abandoned')
+				AND finished_at IS NOT NULL
+				AND finished_at < ?
+		)
+	`, sqlTimeParam(cutoff))
+	return err
 }
 
 type LocalRunLogCleaner struct {
@@ -406,11 +479,16 @@ func insertCleanupAuditEvent(ctx context.Context, tx *sql.Tx, report Report) err
 	metadata, err := json.Marshal(map[string]any{
 		"dry_run": report.DryRun,
 		"counts": map[string]int64{
-			"terminal_runs":       report.Counts.TerminalRuns,
-			"run_dispatch_events": report.Counts.RunDispatchEvents,
-			"job_definitions":     report.Counts.JobDefinitions,
-			"idempotency_keys":    report.Counts.IdempotencyKeys,
-			"audit_log":           report.Counts.AuditLog,
+			"terminal_runs":         report.Counts.TerminalRuns,
+			"run_dispatch_events":   report.Counts.RunDispatchEvents,
+			"run_tasks":             report.Counts.RunTasks,
+			"task_attempts":         report.Counts.TaskAttempts,
+			"run_segments":          report.Counts.RunSegments,
+			"segment_executions":    report.Counts.SegmentExecutions,
+			"task_dispatch_intents": report.Counts.TaskDispatchIntents,
+			"job_definitions":       report.Counts.JobDefinitions,
+			"idempotency_keys":      report.Counts.IdempotencyKeys,
+			"audit_log":             report.Counts.AuditLog,
 		},
 		"cutoffs": map[string]string{
 			"terminal_runs":    formatCutoff(report.Cutoffs.TerminalRuns),
