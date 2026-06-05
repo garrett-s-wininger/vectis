@@ -254,18 +254,19 @@ type MockRunsRepository struct {
 	LogShardID      string
 	LogShardSet     bool
 
-	ListByJobResults    []dal.RunRecord
-	TaskRecords         []dal.TaskRecord
-	TaskExecution       dal.TaskExecutionRecord
-	TaskCreated         bool
-	TaskActivated       bool
-	TaskExecutions      []dal.TaskExecutionRecord
-	TaskActivatedN      int
-	TaskCompletion      dal.RunTaskCompletion
-	RunRecords          map[string]dal.RunRecord
-	QueuedRuns          []dal.QueuedRun
-	PendingExecution    dal.ExecutionDispatchRecord
-	ExecutionDispatches map[string]dal.ExecutionDispatchRecord
+	ListByJobResults       []dal.RunRecord
+	TaskRecords            []dal.TaskRecord
+	TaskExecution          dal.TaskExecutionRecord
+	TaskCreated            bool
+	TaskActivated          bool
+	TaskExecutions         []dal.TaskExecutionRecord
+	TaskActivatedN         int
+	TaskCompletion         dal.RunTaskCompletion
+	TaskFinalizeCandidates []dal.RunTaskCompletion
+	RunRecords             map[string]dal.RunRecord
+	QueuedRuns             []dal.QueuedRun
+	PendingExecution       dal.ExecutionDispatchRecord
+	ExecutionDispatches    map[string]dal.ExecutionDispatchRecord
 
 	TouchedRunIDs        []string
 	ExecutionTransitions []string
@@ -383,6 +384,10 @@ func (m *MockRunsRepository) RepairMarkRunSucceeded(ctx context.Context, runID, 
 }
 
 func (m *MockRunsRepository) RepairMarkRunFailed(ctx context.Context, runID, reason string) error {
+	return m.RepairMarkErr
+}
+
+func (m *MockRunsRepository) RepairMarkRunFailedWithCode(ctx context.Context, runID, failureCode, reason string) error {
 	return m.RepairMarkErr
 }
 
@@ -959,6 +964,22 @@ func (m *MockRunsRepository) GetRunTaskCompletion(ctx context.Context, runID str
 	}
 
 	return summary, nil
+}
+
+func (m *MockRunsRepository) ListOrphanedTaskFinalizationCandidates(ctx context.Context, limit int) ([]dal.RunTaskCompletion, error) {
+	if m.TaskCompletionErr != nil {
+		return nil, m.TaskCompletionErr
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	candidates := append([]dal.RunTaskCompletion(nil), m.TaskFinalizeCandidates...)
+	if limit > 0 && len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+
+	return candidates, nil
 }
 
 func (m *MockRunsRepository) GetRunJobID(ctx context.Context, runID string) (string, error) {

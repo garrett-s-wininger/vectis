@@ -19,6 +19,8 @@ import (
 	"vectis/internal/observability"
 	"vectis/internal/runpolicy"
 	"vectis/internal/taskdispatch"
+	"vectis/internal/taskfinalize"
+	"vectis/internal/taskreduce"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -27,9 +29,10 @@ import (
 )
 
 const (
-	MinDispatchGap         = 30 * time.Second
-	DefaultServiceLeaseTTL = 2 * time.Minute
-	ServiceLeaseName       = "reconciler"
+	MinDispatchGap          = 30 * time.Second
+	DefaultServiceLeaseTTL  = 2 * time.Minute
+	ServiceLeaseName        = "reconciler"
+	TaskFinalizeRepairLimit = 100
 )
 
 type Service struct {
@@ -177,6 +180,15 @@ func (s *Service) Process(ctx context.Context) error {
 		s.logger.Warn("reconciler: run %s moved to orphaned (%s)", runID, decision.ReasonCode)
 	}
 
+	if err := s.repairTaskFinalization(ctx); err != nil {
+		if database.IsUnavailableError(err) {
+			s.noteDBUnavailable(err)
+			return nil
+		}
+
+		return fmt.Errorf("repair task finalization: %w", err)
+	}
+
 	if err := s.repairTaskDispatch(ctx); err != nil {
 		if database.IsUnavailableError(err) {
 			s.noteDBUnavailable(err)
@@ -228,6 +240,48 @@ func (s *Service) Process(ctx context.Context) error {
 			}
 
 			s.logger.Error("reconciler: run %s: %v", r.RunID, err)
+		}
+	}
+
+	return nil
+}
+
+func (s *Service) repairTaskFinalization(ctx context.Context) error {
+	candidates, err := s.runs.ListOrphanedTaskFinalizationCandidates(ctx, TaskFinalizeRepairLimit)
+	if err != nil {
+		return err
+	}
+
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	for _, summary := range candidates {
+		decision := taskreduce.Decide(summary)
+		switch decision.Outcome {
+		case taskreduce.OutcomeSucceeded:
+			if err := s.runs.RepairMarkRunSucceeded(ctx, summary.RunID, ""); err != nil {
+				if dal.IsConflict(err) || dal.IsNotFound(err) {
+					s.logger.Warn("reconciler: task finalization repair skipped run %s: %v", summary.RunID, err)
+					continue
+				}
+
+				return err
+			}
+
+			s.logger.Info("reconciler: repaired orphaned task run %s to succeeded", summary.RunID)
+		case taskreduce.OutcomeFailed:
+			reason := taskfinalize.FailureReason(taskfinalize.Decision{Reduce: decision})
+			if err := s.runs.RepairMarkRunFailedWithCode(ctx, summary.RunID, dal.FailureCodeExecution, reason); err != nil {
+				if dal.IsConflict(err) || dal.IsNotFound(err) {
+					s.logger.Warn("reconciler: task finalization repair skipped run %s: %v", summary.RunID, err)
+					continue
+				}
+
+				return err
+			}
+
+			s.logger.Info("reconciler: repaired orphaned task run %s to failed", summary.RunID)
 		}
 	}
 

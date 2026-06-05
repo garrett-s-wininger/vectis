@@ -235,7 +235,18 @@ func (r *SQLRunsRepository) RepairMarkRunFailed(ctx context.Context, runID, reas
 		reason = RepairReasonManual
 	}
 
-	return r.repairMarkTerminal(ctx, runID, RunStatusFailed, FailureCodeForceFailed, reason)
+	return r.RepairMarkRunFailedWithCode(ctx, runID, FailureCodeForceFailed, reason)
+}
+
+func (r *SQLRunsRepository) RepairMarkRunFailedWithCode(ctx context.Context, runID, failureCode, reason string) error {
+	if failureCode == "" {
+		failureCode = FailureCodeForceFailed
+	}
+	if reason == "" {
+		reason = RepairReasonManual
+	}
+
+	return r.repairMarkTerminal(ctx, runID, RunStatusFailed, failureCode, reason)
 }
 
 func (r *SQLRunsRepository) RepairMarkRunCancelled(ctx context.Context, runID, reason string) error {
@@ -1557,6 +1568,60 @@ func (r *SQLRunsRepository) GetRunTaskCompletion(ctx context.Context, runID stri
 	}
 
 	return summary, nil
+}
+
+func (r *SQLRunsRepository) ListOrphanedTaskFinalizationCandidates(ctx context.Context, limit int) ([]RunTaskCompletion, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
+		SELECT run_id, total, succeeded, terminal_failed, incomplete
+		FROM (
+			SELECT
+				jr.id,
+				jr.run_id,
+				COUNT(rt.task_id) AS total,
+				COALESCE(SUM(CASE WHEN rt.status = ? THEN 1 ELSE 0 END), 0) AS succeeded,
+				COALESCE(SUM(CASE WHEN rt.status IN (?, ?, ?) THEN 1 ELSE 0 END), 0) AS terminal_failed,
+				COALESCE(SUM(CASE WHEN rt.status NOT IN (?, ?, ?, ?) THEN 1 ELSE 0 END), 0) AS incomplete
+			FROM job_runs jr
+			JOIN run_tasks rt ON rt.run_id = jr.run_id
+			WHERE jr.status = ?
+			GROUP BY jr.id, jr.run_id
+		) summary
+		WHERE total > 0
+			AND (terminal_failed > 0 OR succeeded = total)
+		ORDER BY id ASC
+		LIMIT ?
+	`),
+		TaskStatusSucceeded,
+		TaskStatusFailed, TaskStatusCancelled, TaskStatusAborted,
+		TaskStatusSucceeded, TaskStatusFailed, TaskStatusCancelled, TaskStatusAborted,
+		RunStatusOrphaned,
+		limit,
+	)
+
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	var out []RunTaskCompletion
+	for rows.Next() {
+		var summary RunTaskCompletion
+		if err := rows.Scan(&summary.RunID, &summary.Total, &summary.Succeeded, &summary.TerminalFailed, &summary.Incomplete); err != nil {
+			return nil, normalizeSQLError(err)
+		}
+
+		out = append(out, summary)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	return out, nil
 }
 
 func activatePlannedChildTaskExecutionsTx(ctx context.Context, tx *sql.Tx, parentTaskID string) ([]TaskExecutionRecord, int, error) {

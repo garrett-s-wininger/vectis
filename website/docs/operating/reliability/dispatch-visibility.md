@@ -62,7 +62,7 @@ Use the event source, timestamp, and message together:
 | `task_dispatch` event | A task completion produced continuation work for the same run. | Repeated failures point to queue handoff, worker capacity, or task fan-out pressure. |
 | Multiple successful handoff events | A retry or reconciler submitted the same run more than once. | Worker database claims should prevent duplicate execution for the same run ID; inspect queue duplicate pressure. |
 
-Task fan-in is reduction based: any terminal task failure reduces the run to failed, even when sibling branches are still incomplete; all tasks must succeed before the run reduces to succeeded; otherwise the run is queued for continuation. Worker spans emit `task.reduce` and `task.finalize` events, and worker metrics emit `vectis_task_reduce_decisions_total` and `vectis_task_finalize_decisions_total`.
+Task fan-in is reduction based: any terminal task failure reduces the run to failed, even when sibling branches are still incomplete; all tasks must succeed before the run reduces to succeeded; otherwise the run is queued for continuation. Workers own normal reduce/finalize. If a worker expires after task completion but before finalizing the run, the reconciler can repair an orphaned task run whose stored task summary already reduces to succeeded or failed. Worker spans emit `task.reduce` and `task.finalize` events, and worker metrics emit `vectis_task_reduce_decisions_total` and `vectis_task_finalize_decisions_total`.
 
 ## Runbook: Queued With No Dispatch {#runbook-queued-with-no-dispatch}
 

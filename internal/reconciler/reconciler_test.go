@@ -197,6 +197,185 @@ func TestService_Process_RepairsTaskDispatchIntent(t *testing.T) {
 	}
 }
 
+func TestService_Process_RepairsOrphanedTaskRunSucceeded(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+
+	jobID := "job-task-finalize-repair-success"
+	jobDef := `{"id":"job-task-finalize-repair-success","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo root"}}}`
+	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
+	if err := repos.Jobs().Create(ctx, jobID, jobDef, 1); err != nil {
+		t.Fatalf("insert stored job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	rootDispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get root execution: %v", err)
+	}
+
+	claimed, token, err := repos.Runs().TryClaim(ctx, runID, "worker-task-finalize-success", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("claim run: %v", err)
+	}
+
+	if !claimed {
+		t.Fatal("expected run claim")
+	}
+
+	if _, _, err := repos.Runs().MarkExecutionSucceededAndActivateChildren(ctx, rootDispatch.ExecutionID); err != nil {
+		t.Fatalf("mark root succeeded: %v", err)
+	}
+
+	if err := repos.Runs().MarkRunOrphaned(ctx, runID, token, "lease expired"); err != nil {
+		t.Fatalf("mark orphaned: %v", err)
+	}
+
+	q := mocks.NewMockQueueService()
+	svc := NewService(interfaces.NewLogger("test"), db, q, interfaces.SystemClock{})
+	svc.SetMinDispatchGap(1 * time.Millisecond)
+
+	if err := svc.Process(ctx); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+
+	var status string
+	var failureReason sql.NullString
+	if err := db.QueryRowContext(ctx, `
+		SELECT status, failure_reason
+		FROM job_runs
+		WHERE run_id = ?
+	`, runID).Scan(&status, &failureReason); err != nil {
+		t.Fatalf("query run: %v", err)
+	}
+
+	if status != dal.RunStatusSucceeded {
+		t.Fatalf("status: got %q, want %q", status, dal.RunStatusSucceeded)
+	}
+
+	if failureReason.Valid {
+		t.Fatalf("succeeded repair should not leave failure reason, got %q", failureReason.String)
+	}
+
+	if len(q.GetJobRequests()) != 0 {
+		t.Fatalf("terminal repair should not enqueue work: %+v", q.GetJobRequests())
+	}
+}
+
+func TestService_Process_RepairsOrphanedTaskRunFailedWithIncompleteSibling(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+
+	jobID := "job-task-finalize-repair-failed"
+	jobDef := `{"id":"job-task-finalize-repair-failed","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo root"}}}`
+	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
+	if err := repos.Jobs().Create(ctx, jobID, jobDef, 1); err != nil {
+		t.Fatalf("insert stored job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	rootDispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get root execution: %v", err)
+	}
+
+	failedBranch, _, err := repos.Runs().EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:        runID,
+		ParentTaskID: rootDispatch.TaskID,
+		TaskKey:      "failed-branch",
+		Name:         "failed branch",
+		SpecHash:     "sha256:failed-branch",
+		TargetCellID: "local",
+	})
+	if err != nil {
+		t.Fatalf("ensure failed branch: %v", err)
+	}
+
+	incompleteBranch, _, err := repos.Runs().EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:        runID,
+		ParentTaskID: rootDispatch.TaskID,
+		TaskKey:      "incomplete-branch",
+		Name:         "incomplete branch",
+		SpecHash:     "sha256:incomplete-branch",
+		TargetCellID: "local",
+	})
+	if err != nil {
+		t.Fatalf("ensure incomplete branch: %v", err)
+	}
+
+	claimed, token, err := repos.Runs().TryClaim(ctx, runID, "worker-task-finalize-failed", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("claim run: %v", err)
+	}
+	if !claimed {
+		t.Fatal("expected run claim")
+	}
+
+	activated, count, err := repos.Runs().MarkExecutionSucceededAndActivateChildren(ctx, rootDispatch.ExecutionID)
+	if err != nil {
+		t.Fatalf("activate child executions: %v", err)
+	}
+	if count != 2 || len(activated) != 2 {
+		t.Fatalf("activated children mismatch: count=%d children=%+v", count, activated)
+	}
+
+	if err := repos.Runs().MarkExecutionTerminal(ctx, failedBranch.ExecutionID, dal.ExecutionStatusFailed); err != nil {
+		t.Fatalf("mark failed branch terminal: %v", err)
+	}
+
+	if err := repos.Runs().MarkRunOrphaned(ctx, runID, token, "lease expired"); err != nil {
+		t.Fatalf("mark orphaned: %v", err)
+	}
+
+	q := mocks.NewMockQueueService()
+	svc := NewService(interfaces.NewLogger("test"), db, q, interfaces.SystemClock{})
+	svc.SetMinDispatchGap(1 * time.Millisecond)
+
+	if err := svc.Process(ctx); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+
+	var status string
+	var failureCode string
+	var failureReason sql.NullString
+	if err := db.QueryRowContext(ctx, `
+		SELECT status, failure_code, failure_reason
+		FROM job_runs
+		WHERE run_id = ?
+	`, runID).Scan(&status, &failureCode, &failureReason); err != nil {
+		t.Fatalf("query run: %v", err)
+	}
+
+	if status != dal.RunStatusFailed {
+		t.Fatalf("status: got %q, want %q", status, dal.RunStatusFailed)
+	}
+	if failureCode != dal.FailureCodeExecution {
+		t.Fatalf("failure_code: got %q, want %q", failureCode, dal.FailureCodeExecution)
+	}
+	if !failureReason.Valid || !strings.Contains(failureReason.String, "1 task execution(s) ended in a terminal failure") {
+		t.Fatalf("failure reason: %+v", failureReason)
+	}
+	if len(q.GetJobRequests()) != 0 {
+		t.Fatalf("terminal repair should not enqueue sibling continuation: %+v", q.GetJobRequests())
+	}
+
+	pendingSibling, err := repos.Runs().GetExecutionDispatch(ctx, incompleteBranch.ExecutionID)
+	if err != nil {
+		t.Fatalf("incomplete sibling should remain dispatchable record: %v", err)
+	}
+	if pendingSibling.ExecutionID != incompleteBranch.ExecutionID {
+		t.Fatalf("wrong incomplete sibling: %+v", pendingSibling)
+	}
+}
+
 func TestService_Process_ReplaysFrozenPayloadOnRedispatch(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()

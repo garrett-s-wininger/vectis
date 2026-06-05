@@ -484,6 +484,7 @@ type RunsRepository interface {
 	MarkRunQueuedForContinuation(ctx context.Context, runID, claimToken string) error
 	RepairMarkRunSucceeded(ctx context.Context, runID, reason string) error
 	RepairMarkRunFailed(ctx context.Context, runID, reason string) error
+	RepairMarkRunFailedWithCode(ctx context.Context, runID, failureCode, reason string) error
 	RepairMarkRunCancelled(ctx context.Context, runID, reason string) error
 	RepairMarkRunAbandoned(ctx context.Context, runID, reason string) error
 	RequeueRunForRetry(ctx context.Context, runID string) error
@@ -512,6 +513,7 @@ type RunsRepository interface {
 	ActivatePlannedTaskExecution(ctx context.Context, taskID string) (TaskExecutionRecord, bool, error)
 	ActivatePlannedChildTaskExecutions(ctx context.Context, parentTaskID string) ([]TaskExecutionRecord, int, error)
 	GetRunTaskCompletion(ctx context.Context, runID string) (RunTaskCompletion, error)
+	ListOrphanedTaskFinalizationCandidates(ctx context.Context, limit int) ([]RunTaskCompletion, error)
 	ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]QueuedRun, error)
 	GetPendingExecution(ctx context.Context, runID string) (ExecutionDispatchRecord, error)
 	GetExecutionDispatch(ctx context.Context, executionID string) (ExecutionDispatchRecord, error)
