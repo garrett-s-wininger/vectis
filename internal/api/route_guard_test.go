@@ -53,6 +53,34 @@ func TestRouteGuardRejectsAsteriskRequestTarget(t *testing.T) {
 	requireSecurityRejection(t, metrics, securityReasonRequestTargetInvalid, securityRejectionUnknownRoute, http.StatusBadRequest)
 }
 
+func TestRouteGuardRejectsNonCanonicalPathTargets(t *testing.T) {
+	tests := []struct {
+		name      string
+		path      string
+		wantRoute string
+	}{
+		{name: "trailing slash", path: "/api/v1/version/", wantRoute: "/api/v1/version"},
+		{name: "duplicate slash", path: "/api/v1//version", wantRoute: securityRejectionUnknownRoute},
+		{name: "dot segment", path: "/api/v1/../api/v1/version", wantRoute: securityRejectionUnknownRoute},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			metrics := &fakeSecurityRejectionMetrics{}
+			s := NewAPIServerWithRepositories(mocks.NewMockLogger(), nil, nil, nil)
+			s.SetAPISecurityMetrics(metrics)
+
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			s.Handler().ServeHTTP(rec, req)
+
+			assertRouteGuardAPIError(t, rec, http.StatusBadRequest, apiErrInvalidRequestTarget)
+			assertNoStore(t, rec)
+			requireSecurityRejection(t, metrics, securityReasonRequestTargetInvalid, tt.wantRoute, http.StatusBadRequest)
+		})
+	}
+}
+
 func TestRouteGuardMethodNotAllowedReturnsJSONAllowAndMetric(t *testing.T) {
 	metrics := &fakeSecurityRejectionMetrics{}
 	s := NewAPIServerWithRepositories(mocks.NewMockLogger(), nil, nil, nil)

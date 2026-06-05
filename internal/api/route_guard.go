@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	pathpkg "path"
 	"strings"
 
 	"vectis/internal/httpsecurity"
@@ -184,5 +185,10 @@ func apiRequestTargetAllowed(r *http.Request) bool {
 		return false
 	}
 
-	return r.URL.Path != "*"
+	requestPath := r.URL.Path
+	if requestPath == "" || requestPath[0] != '/' || requestPath == "*" {
+		return false
+	}
+
+	return pathpkg.Clean(requestPath) == requestPath
 }

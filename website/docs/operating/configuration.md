@@ -122,7 +122,7 @@ Successful logout clears the Vectis session cookies and sends `Clear-Site-Data: 
 
 API routes reject request bodies unless the route inventory explicitly declares a JSON body policy. Declared JSON body routes enforce `application/json` media types and per-route size caps before parsing, including smaller caps for auth/user/token/control routes and a larger cap for job definitions.
 
-API route matching returns JSON API errors for invalid request targets, unknown routes, and method mismatches. Absolute-form proxy request targets and `OPTIONS *` are rejected before route handlers run. Method mismatches include an `Allow` header, and TRACE, TRACK, and CONNECT are rejected before route handlers run.
+API route matching returns JSON API errors for invalid request targets, unknown routes, and method mismatches. Requests must use origin-form canonical API paths; absolute-form proxy request targets, `OPTIONS *`, duplicate slash paths, dot segments, and trailing slash aliases are rejected before route handlers run. Method mismatches include an `Allow` header, and TRACE, TRACK, and CONNECT are rejected before route handlers run.
 
 Cell ingress route matching is similarly narrow: health endpoints allow `GET`/`HEAD`, execution submission allows `POST`, and other paths or methods return JSON errors before handler logic runs. Cell ingress responses use the shared baseline security headers and `Cache-Control: no-store`.
 
