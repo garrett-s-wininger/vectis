@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
+	"vectis/internal/database"
 	"vectis/internal/version"
 
 	promclient "github.com/prometheus/client_golang/prometheus"
@@ -139,6 +142,11 @@ func RegisterRetentionStorageMetrics(db *sql.DB) error {
 		{"active_runs", `SELECT COUNT(*) FROM job_runs WHERE status NOT IN ('succeeded', 'failed')`},
 		{"terminal_runs", `SELECT COUNT(*) FROM job_runs WHERE status IN ('succeeded', 'failed', 'aborted', 'cancelled', 'abandoned')`},
 		{"run_dispatch_events", `SELECT COUNT(*) FROM run_dispatch_events`},
+		{"run_tasks", `SELECT COUNT(*) FROM run_tasks`},
+		{"task_attempts", `SELECT COUNT(*) FROM task_attempts`},
+		{"run_segments", `SELECT COUNT(*) FROM run_segments`},
+		{"segment_executions", `SELECT COUNT(*) FROM segment_executions`},
+		{"task_dispatch_intents", `SELECT COUNT(*) FROM task_dispatch_intents`},
 		{"job_definitions", `SELECT COUNT(*) FROM job_definitions`},
 		{"idempotency_keys", `SELECT COUNT(*) FROM idempotency_keys`},
 		{"audit_log", `SELECT COUNT(*) FROM audit_log`},
@@ -234,7 +242,7 @@ type metricCountByCell struct {
 }
 
 func queryTaskDispatchPendingByCell(ctx context.Context, db *sql.DB, cutoffUnixNano int64) ([]metricCountByCell, error) {
-	rows, err := db.QueryContext(ctx, fmt.Sprintf(`
+	rows, err := db.QueryContext(ctx, rebindMetricQueryForPgx(`
 		SELECT tdi.cell_id, COUNT(*)
 		FROM task_dispatch_intents tdi
 		JOIN job_runs jr ON jr.run_id = tdi.run_id
@@ -248,10 +256,11 @@ func queryTaskDispatchPendingByCell(ctx context.Context, db *sql.DB, cutoffUnixN
 			AND rt.status = 'pending'
 			AND ta.status = 'pending'
 			AND jr.status = 'queued'
-			AND (tdi.last_enqueue_attempt_at IS NULL OR tdi.last_enqueue_attempt_at <= %d)
+			AND (tdi.last_enqueue_attempt_at IS NULL OR tdi.last_enqueue_attempt_at <= ?)
 		GROUP BY tdi.cell_id
 		ORDER BY tdi.cell_id ASC
-	`, cutoffUnixNano))
+	`), cutoffUnixNano)
+
 	if err != nil {
 		return nil, err
 	}
@@ -272,6 +281,28 @@ func queryTaskDispatchPendingByCell(ctx context.Context, db *sql.DB, cutoffUnixN
 	}
 
 	return out, nil
+}
+
+func rebindMetricQueryForPgx(query string) string {
+	if os.Getenv(database.EnvDatabaseDriver) != "pgx" {
+		return query
+	}
+
+	var b strings.Builder
+	b.Grow(len(query) + 8)
+	argNum := 1
+	for i := 0; i < len(query); i++ {
+		if query[i] == '?' {
+			b.WriteByte('$')
+			b.WriteString(strconv.Itoa(argNum))
+			argNum++
+			continue
+		}
+
+		b.WriteByte(query[i])
+	}
+
+	return b.String()
 }
 
 func queryTime(ctx context.Context, db *sql.DB, query string) (time.Time, bool, error) {

@@ -2188,6 +2188,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		TriggerPayloadHash   *string            `json:"trigger_payload_hash,omitempty"`
 		RequestedCells       []string           `json:"requested_cells,omitempty"`
 		ExecutionPayloadHash string             `json:"execution_payload_hash,omitempty"`
+		NextAction           *string            `json:"next_action,omitempty"`
 		DispatchEvents       []dispatchEventRow `json:"dispatch_events"`
 		TaskCompletion       *taskCompletionRow `json:"task_completion,omitempty"`
 		TaskDispatch         *taskDispatchRow   `json:"task_dispatch,omitempty"`
@@ -2213,6 +2214,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		TriggerPayloadHash:   rec.TriggerPayloadHash,
 		RequestedCells:       rec.RequestedCells,
 		ExecutionPayloadHash: rec.ExecutionPayloadHash,
+		NextAction:           runNextAction(rec.Status, taskCompletionSummary, taskDispatch),
 		DispatchEvents:       []dispatchEventRow{},
 		TaskDispatch:         taskDispatch,
 	}
@@ -2248,6 +2250,12 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 }
 
 const runTaskDispatchIntentLimit = 50
+
+const (
+	runNextActionTaskDispatchPending      = "task_dispatch_pending"
+	runNextActionTaskDispatchRetryPending = "task_dispatch_retry_pending"
+	runNextActionTaskCompletionPending    = "task_completion_pending"
+)
 
 type taskDispatchRow struct {
 	Total        int                     `json:"total"`
@@ -2335,6 +2343,36 @@ func taskDispatchIntentState(intent dal.TaskDispatchIntent) string {
 	}
 
 	return "pending"
+}
+
+func runNextAction(status string, taskCompletion dal.RunTaskCompletion, taskDispatch *taskDispatchRow) *string {
+	if status != dal.RunStatusQueued {
+		return nil
+	}
+
+	if taskDispatch != nil {
+		if taskDispatch.Pending > 0 {
+			action := runNextActionTaskDispatchPending
+			return &action
+		}
+
+		if taskDispatch.Failed > 0 {
+			action := runNextActionTaskDispatchRetryPending
+			return &action
+		}
+
+		if taskDispatch.Enqueued > 0 && taskCompletion.Incomplete > 0 {
+			action := runNextActionTaskCompletionPending
+			return &action
+		}
+	}
+
+	if taskCompletion.Total > 0 && taskCompletion.Incomplete > 0 {
+		action := runNextActionTaskCompletionPending
+		return &action
+	}
+
+	return nil
 }
 
 func (s *APIServer) GetRunTasks(w http.ResponseWriter, r *http.Request) {

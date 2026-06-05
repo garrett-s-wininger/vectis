@@ -39,9 +39,9 @@ The event type may be:
 
 ## Where To Look
 
-- `vectis-cli runs show <run-id>` prints dispatch events, task completion, and task dispatch summary with the rest of the run detail.
+- `vectis-cli runs show <run-id>` prints `next_action`, dispatch events, task completion, and task dispatch summary with the rest of the run detail.
 - `vectis-cli runs tasks <run-id>` lists task graph nodes and task attempts for the run.
-- `GET /api/v1/runs/{id}` includes `dispatch_events` and, when present, `task_dispatch` for API-based tooling.
+- `GET /api/v1/runs/{id}` includes `next_action`, `dispatch_events`, and, when present, `task_dispatch` for API-based tooling.
 - `GET /api/v1/runs/{id}/tasks` returns task graph nodes and attempts for API-based tooling.
 - Reconciler metrics and logs explain whether stuck queued runs are being scanned and redispatched.
 
@@ -61,6 +61,8 @@ Use the event source, timestamp, and message together:
 | `reconciler` event | The reconciler tried to repair a queued run that missed or lost its original handoff. | Occasional repair is expected. Repeated repair points to producer, queue, or network instability. |
 | `task_dispatch` event | A task completion produced continuation work for the same run. | Repeated failures point to queue handoff, worker capacity, or task fan-out pressure. |
 | Multiple successful handoff events | A retry or reconciler submitted the same run more than once. | Worker database claims should prevent duplicate execution for the same run ID; inspect queue duplicate pressure. |
+
+Task fan-in is reduction based: any terminal task failure reduces the run to failed, even when sibling branches are still incomplete; all tasks must succeed before the run reduces to succeeded; otherwise the run is queued for continuation. Worker spans emit `task.reduce` and `task.finalize` events, and worker metrics emit `vectis_task_reduce_decisions_total` and `vectis_task_finalize_decisions_total`.
 
 ## Runbook: Queued With No Dispatch {#runbook-queued-with-no-dispatch}
 
@@ -110,6 +112,12 @@ sum(vectis_task_dispatch_pending_intents) > 0
 ```
 
 Warn when retry-eligible task continuation work remains pending. The API emits this SQL-backed gauge with `cell_id` labels, so group by `cell_id` to find the affected target cell.
+
+```promql
+increase(vectis_task_reduce_decisions_total{outcome="error"}[10m]) > 0
+```
+
+Warn when a worker cannot reduce task completion into a run-level decision. Pair this with `vectis_task_finalize_decisions_total` to see whether runs are continuing, reducing to terminal states, or remaining incomplete.
 
 ```promql
 increase(vectis_reconciler_reenqueue_total{outcome!="success"}[10m]) > 0

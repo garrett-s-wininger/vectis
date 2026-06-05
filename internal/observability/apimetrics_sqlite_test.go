@@ -112,6 +112,15 @@ func TestRegisterRetentionStorageMetrics_appearsInScrape(t *testing.T) {
 			t.Fatalf("missing metric %q; got: %v", want, sortedFamilyNames(names))
 		}
 	}
+
+	families, err := metricFamilies(rr.Body.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !metricFamilyHasLabels(families["vectis_storage_records"], map[string]string{"surface": "task_dispatch_intents"}) {
+		t.Fatalf("storage records metric missing task_dispatch_intents surface: %v", families["vectis_storage_records"])
+	}
 }
 
 func TestRegisterTaskDispatchBacklogMetrics_appearsInScrape(t *testing.T) {

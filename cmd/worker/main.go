@@ -132,6 +132,11 @@ func runWorker(cmd *cobra.Command, args []string) {
 		logger.Fatal("Failed to initialize task dispatch metrics: %v", err)
 	}
 
+	taskFinalizeMetrics, err := observability.NewTaskFinalizeMetrics()
+	if err != nil {
+		logger.Fatal("Failed to initialize task finalize metrics: %v", err)
+	}
+
 	defer cli.DeferShutdown(logger, "Metrics", shutdownMetrics)()
 
 	metricsPort := config.WorkerMetricsEffectiveListenPort()
@@ -188,6 +193,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 		catalog:               cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
 		metrics:               workerMetrics,
 		taskDispatchService:   taskDispatchService,
+		taskFinalizeMetrics:   taskFinalizeMetrics,
 		taskReduceService:     taskreduce.NewService(taskreduce.New(runsRepo)),
 		taskCompletionService: job.NewTaskCompletionService(runsRepo),
 		cancelCh:              make(chan string, 1),
@@ -315,6 +321,7 @@ type worker struct {
 	catalog               cell.CatalogEventPublisher
 	metrics               *observability.WorkerMetrics
 	taskDispatchService   *taskdispatch.Service
+	taskFinalizeMetrics   *observability.TaskFinalizeMetrics
 	taskReduceService     *taskreduce.Service
 	taskCompletionService job.TaskCompleter
 	dequeueFailAttempt    int
@@ -753,7 +760,7 @@ func (w *worker) finalizeAbortedTaskRun(ctx context.Context, runID, claimToken, 
 		return observability.WorkerOutcomeFailed
 	}
 
-	taskfinalize.RecordDecision(ctx, taskfinalize.ExecutionAborted())
+	w.recordTaskFinalizeDecision(ctx, taskfinalize.ExecutionAborted())
 
 	if err := w.markRunAbortedWithRetry(runID, claimToken, reason); err != nil {
 		w.logger.Error("Failed to mark run %s cancelled: %v", runID, err)
@@ -779,7 +786,7 @@ func (w *worker) finalizeFailedTaskRun(ctx context.Context, runID, claimToken, f
 		return observability.WorkerOutcomeFailed
 	}
 
-	taskfinalize.RecordDecision(ctx, taskfinalize.ExecutionFailed(reduceDecision))
+	w.recordTaskFinalizeDecision(ctx, taskfinalize.ExecutionFailed(reduceDecision))
 
 	if err := w.markRunFailedWithRetry(runID, claimToken, failureCode, reason); err != nil {
 		w.logger.Error("Failed to mark run %s failed after task execution failure: %v", runID, err)
@@ -805,7 +812,7 @@ func (w *worker) finalizeSucceededTaskRun(ctx context.Context, jobID, runID, cla
 
 	if continued {
 		finalizeDecision := taskfinalize.Decide(true, taskreduce.Decision{})
-		taskfinalize.RecordDecision(ctx, finalizeDecision)
+		w.recordTaskFinalizeDecision(ctx, finalizeDecision)
 		span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeSuccess))
 		w.logger.Info("Task completed successfully; run queued for continuation: %s", jobID)
 		return observability.WorkerOutcomeSuccess
@@ -820,7 +827,7 @@ func (w *worker) finalizeSucceededTaskRun(ctx context.Context, jobID, runID, cla
 	}
 
 	finalizeDecision := taskfinalize.Decide(false, reduceDecision)
-	taskfinalize.RecordDecision(ctx, finalizeDecision)
+	w.recordTaskFinalizeDecision(ctx, finalizeDecision)
 
 	switch finalizeDecision.Outcome {
 	case taskfinalize.OutcomeReduceSucceeded:
@@ -873,11 +880,29 @@ func (w *worker) reduceTaskRun(ctx context.Context, runID string) (taskreduce.De
 
 	reduceCtx := trace.ContextWithSpan(w.runCtx, trace.SpanFromContext(ctx))
 	decision, err := service.Process(reduceCtx, runID)
+	w.recordTaskReduceDecision(reduceCtx, decision, err)
 	if err != nil {
 		return taskreduce.Decision{}, err
 	}
 
 	return decision, nil
+}
+
+func (w *worker) recordTaskReduceDecision(ctx context.Context, decision taskreduce.Decision, err error) {
+	if w.taskFinalizeMetrics == nil {
+		return
+	}
+
+	w.taskFinalizeMetrics.RecordReduce(ctx, decision, err)
+}
+
+func (w *worker) recordTaskFinalizeDecision(ctx context.Context, decision taskfinalize.Decision) {
+	taskfinalize.RecordDecision(ctx, decision)
+	if w.taskFinalizeMetrics == nil {
+		return
+	}
+
+	w.taskFinalizeMetrics.RecordFinalize(ctx, decision)
 }
 
 func executionEnvelopeAttrs(env *cell.ExecutionEnvelope) []attribute.KeyValue {

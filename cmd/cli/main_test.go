@@ -1352,6 +1352,7 @@ func TestGetRun_successIncludesTaskDispatch(t *testing.T) {
 			"run_id":      "run-1",
 			"run_index":   3,
 			"status":      "queued",
+			"next_action": "task_dispatch_pending",
 			"owning_cell": "pdx-b",
 			"task_completion": map[string]any{
 				"total":           3,
@@ -1391,6 +1392,7 @@ func TestGetRun_successIncludesTaskDispatch(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
+		"next_action=task_dispatch_pending",
 		"task_completion: total=3 succeeded=1 terminal_failed=1 incomplete=1",
 		"task_dispatch: total=2 pending=1 failed=1 enqueued=0 truncated=true limit=1",
 		`failed_pending execution=exec-1 task=task-1 attempt=attempt-1 cell=iad-a enqueue_attempts=2 last_attempt=1970-01-01T00:00:01Z error="queue unavailable"`,

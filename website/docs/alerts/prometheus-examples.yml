@@ -44,6 +44,23 @@ groups:
           summary: Vectis task dispatch has pending continuation work
           runbook: docs/REPAIR_RUNBOOKS.md#queued-runs-or-backlog
 
+      - alert: VectisTaskReduceErrors
+        expr: increase(vectis_task_reduce_decisions_total{outcome="error"}[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis workers failed to reduce task completion
+          runbook: docs/REPAIR_RUNBOOKS.md#manual-run-intervention
+
+      - alert: VectisTaskGraphRowsHigh
+        expr: sum(vectis_storage_records{surface=~"run_tasks|task_attempts|run_segments|segment_executions|task_dispatch_intents"}) > 1000000
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis task graph SQL row count is above the example threshold
+          runbook: docs/REPAIR_RUNBOOKS.md#retention-cleanup
+
       - alert: VectisWorkerHighFailureRatio
         expr: |
           sum(rate(vectis_worker_job_duration_seconds_count{outcome!="success"}[15m]))

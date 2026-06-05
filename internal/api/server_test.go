@@ -2273,7 +2273,8 @@ func TestAPIServer_GetRun_IncludesTaskDispatchState(t *testing.T) {
 	}
 
 	var got struct {
-		RunID          string `json:"run_id"`
+		RunID          string  `json:"run_id"`
+		NextAction     *string `json:"next_action"`
 		TaskCompletion *struct {
 			Total          int `json:"total"`
 			Succeeded      int `json:"succeeded"`
@@ -2307,6 +2308,10 @@ func TestAPIServer_GetRun_IncludesTaskDispatchState(t *testing.T) {
 
 	if got.RunID != runID {
 		t.Fatalf("run_id: got %q, want %q", got.RunID, runID)
+	}
+
+	if got.NextAction == nil || *got.NextAction != "task_dispatch_retry_pending" {
+		t.Fatalf("next_action: got %+v, want task_dispatch_retry_pending", got.NextAction)
 	}
 
 	if got.TaskCompletion == nil {
