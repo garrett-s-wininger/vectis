@@ -442,6 +442,75 @@ func TestAPIServer_GetCellsStatusIncludesCatalogSourceCounts(t *testing.T) {
 	}
 }
 
+func TestAPIServer_GetCellsStatusIncludesTaskDispatchPending(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	server, _, _, db := setupTestServer(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-cell-task-dispatch", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-cell-task-dispatch"
+	def := `{"id":"job-cell-task-dispatch","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRunInCell(ctx, jobID, nil, 1, "pdx-b")
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	if _, _, err := repos.TaskDispatchIntents().Ensure(ctx, dal.TaskDispatchIntentCreate{
+		ExecutionID:       dispatch.ExecutionID,
+		RunID:             dispatch.RunID,
+		TaskID:            dispatch.TaskID,
+		TaskAttemptID:     dispatch.TaskAttemptID,
+		SourceExecutionID: "source-execution",
+		CellID:            dispatch.CellID,
+	}); err != nil {
+		t.Fatalf("ensure task dispatch intent: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cells/status", nil)
+	rec := httptest.NewRecorder()
+	server.GetCellsStatus(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var body struct {
+		Cells []struct {
+			CellID              string `json:"cell_id"`
+			Status              string `json:"status"`
+			TaskDispatchPending int64  `json:"task_dispatch_pending"`
+		} `json:"cells"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v; body=%s", err, rec.Body.String())
+	}
+
+	if len(body.Cells) != 1 {
+		t.Fatalf("cells len: got %d, want 1 (%+v)", len(body.Cells), body.Cells)
+	}
+
+	if body.Cells[0].CellID != "pdx-b" || body.Cells[0].Status != "missing_route" || body.Cells[0].TaskDispatchPending != 1 {
+		t.Fatalf("unexpected task dispatch cell status: %+v", body.Cells[0])
+	}
+}
+
 func TestAPIServer_GetStuckRunsIncludesCellBreakdown(t *testing.T) {
 	runs := mocks.NewMockRunsRepository()
 	runs.CountStuckResult = 3

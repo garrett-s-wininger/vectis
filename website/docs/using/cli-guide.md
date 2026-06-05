@@ -72,11 +72,11 @@ For automation, emit JSON:
 ./bin/vectis-cli health check --json
 ```
 
-The health check covers API liveness/readiness, schema state, queue backlog, reconciler visibility, stuck queued runs, catalog inbox health, log reachability, audit durability, and database pool pressure.
+The health check covers API liveness/readiness, schema state, queue backlog, reconciler visibility, stuck root or task dispatch, catalog inbox health, log reachability, audit durability, and database pool pressure.
 
 ## Inspect Cells
 
-In multi-cell deployments, inspect execution cell routing and fan-in pressure directly:
+In multi-cell deployments, inspect execution cell routing, dispatch repair pressure, and fan-in pressure directly:
 
 ```sh
 ./bin/vectis-cli cells status
