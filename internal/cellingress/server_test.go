@@ -44,6 +44,7 @@ func TestServerAppliesSecurityHeaders(t *testing.T) {
 	assertSecurityHeader(t, rr, "Permissions-Policy", "camera=(), geolocation=(), microphone=(), payment=(), usb=()")
 	assertSecurityHeader(t, rr, "Cross-Origin-Opener-Policy", "same-origin")
 	assertSecurityHeader(t, rr, "Cross-Origin-Resource-Policy", "same-origin")
+	assertSecurityHeader(t, rr, "Cross-Origin-Embedder-Policy", "require-corp")
 	assertSecurityHeader(t, rr, "Origin-Agent-Cluster", "?1")
 	assertSecurityHeader(t, rr, "X-Permitted-Cross-Domain-Policies", "none")
 	assertSecurityHeader(t, rr, "X-Download-Options", "noopen")

@@ -36,7 +36,7 @@ HTTP routes are protected by default: a zero-value `routeAuthPolicy{}` normalize
 
 Public route opt-outs must use `routeAuthPolicy{mode: routeAuthPublic}` and include a nearby source comment starting with `public route:` that explains why the route is unauthenticated. The source-level lint binary lives in `tools/vectis-lint`; run it directly with `make lint-api-routes`. It also runs as part of `make lint`.
 
-Browser-facing API/docs security headers live in `internal/httpsecurity`; use that shared middleware instead of setting ad hoc header strings in individual handlers. Keep response isolation and legacy browser hardening headers such as `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`, `Origin-Agent-Cluster`, `X-Permitted-Cross-Domain-Policies`, and `X-Download-Options` centralized there so API, docs, cell ingress, and metrics stay aligned.
+Browser-facing API/docs security headers live in `internal/httpsecurity`; use that shared middleware instead of setting ad hoc header strings in individual handlers. Keep response isolation and legacy browser hardening headers such as `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`, `Cross-Origin-Embedder-Policy`, `Origin-Agent-Cluster`, `X-Permitted-Cross-Domain-Policies`, and `X-Download-Options` centralized there so API, docs, cell ingress, and metrics stay aligned.
 
 Docs CSP intentionally excludes `unsafe-inline`; docs pages, placeholder HTML, and generated docs builds should use same-origin script/style assets instead of inline blocks, inline style attributes, or inline event handlers.
 
