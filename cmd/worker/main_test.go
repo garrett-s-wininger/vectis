@@ -298,6 +298,44 @@ type flakyFinalizeRunsStore struct {
 	orphanFailuresLeft  int
 }
 
+type recordingExecutionClaimStore struct {
+	dal.RunsRepository
+
+	mu                   sync.Mutex
+	claimedExecutions    []string
+	renewedExecutions    []string
+	executionClaimTokens []string
+}
+
+func (s *recordingExecutionClaimStore) TryClaimExecution(ctx context.Context, executionID, owner string, leaseUntil time.Time) (bool, string, error) {
+	claimed, token, err := s.RunsRepository.TryClaimExecution(ctx, executionID, owner, leaseUntil)
+
+	s.mu.Lock()
+	s.claimedExecutions = append(s.claimedExecutions, executionID)
+	if token != "" {
+		s.executionClaimTokens = append(s.executionClaimTokens, token)
+	}
+	s.mu.Unlock()
+
+	return claimed, token, err
+}
+
+func (s *recordingExecutionClaimStore) RenewExecutionLease(ctx context.Context, executionID, owner, claimToken string, leaseUntil time.Time) error {
+	err := s.RunsRepository.RenewExecutionLease(ctx, executionID, owner, claimToken, leaseUntil)
+	s.mu.Lock()
+	s.renewedExecutions = append(s.renewedExecutions, executionID)
+	s.mu.Unlock()
+
+	return err
+}
+
+func (s *recordingExecutionClaimStore) executionClaimCounts() (claimed, renewed int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return len(s.claimedExecutions), len(s.renewedExecutions)
+}
+
 func (s *flakyFinalizeRunsStore) RenewLease(ctx context.Context, runID, owner, claimToken string, leaseUntil time.Time) error {
 	s.mu.Lock()
 	if s.renewFailuresLeft > 0 {
@@ -394,7 +432,7 @@ func TestLeaseRenewalLoop_ReclaimsOrphanedRun(t *testing.T) {
 
 	stopRenew := make(chan struct{})
 	doneRenew := make(chan struct{})
-	go w.leaseRenewalLoop(execCtx, runID, claimToken, stopRenew, doneRenew)
+	go w.leaseRenewalLoop(execCtx, runID, claimToken, nil, "", stopRenew, doneRenew)
 
 	time.Sleep(30 * time.Millisecond)
 	close(stopRenew)
@@ -2181,6 +2219,7 @@ func TestWorkerRunClaimedJob_RenewLeaseTransientStoreFailure_StillSucceeds(t *te
 		RunsRepository:    runs,
 		renewFailuresLeft: 2,
 	}
+	recordingStore := &recordingExecutionClaimStore{RunsRepository: store}
 
 	w := &worker{
 		ctx:           context.Background(),
@@ -2192,7 +2231,7 @@ func TestWorkerRunClaimedJob_RenewLeaseTransientStoreFailure_StillSucceeds(t *te
 		queue:         queue,
 		logClient:     logClient,
 		executor:      job.NewExecutor(),
-		store:         store,
+		store:         recordingStore,
 	}
 
 	jobID := "job-worker-renew-retry"
@@ -2222,6 +2261,15 @@ func TestWorkerRunClaimedJob_RenewLeaseTransientStoreFailure_StillSucceeds(t *te
 	}
 	if statusVal != "succeeded" {
 		t.Fatalf("expected succeeded after transient renew failures, got %q", statusVal)
+	}
+
+	claimedExecutions, renewedExecutions := recordingStore.executionClaimCounts()
+	if claimedExecutions == 0 {
+		t.Fatal("expected worker to claim the execution")
+	}
+
+	if renewedExecutions == 0 {
+		t.Fatal("expected worker to renew the execution lease")
 	}
 }
 
