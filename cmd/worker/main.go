@@ -730,7 +730,19 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 		return observability.WorkerOutcomeFailed
 	}
 
-	executionClaimToken := w.tryClaimExecution(ctx, executionEnvelope, leaseUntil)
+	executionClaimToken, executionClaimed := w.tryClaimExecution(ctx, executionEnvelope, leaseUntil)
+	if !executionClaimed {
+		span.SetStatus(otelcodes.Error, "claim execution")
+		w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
+		if err := w.markRunOrphanedWithRetry(runID, claimToken, dal.OrphanReasonAckUncertain); err != nil {
+			w.logger.Error("Failed to mark run %s orphaned after execution claim failure: %v", runID, err)
+			span.RecordError(err)
+		}
+
+		span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeFailed))
+		return observability.WorkerOutcomeFailed
+	}
+
 	w.markExecutionAccepted(ctx, executionEnvelope)
 	w.markExecutionStarted(ctx, executionEnvelope)
 	w.setLifecyclePhase(observability.WorkerPhaseExecuting)
@@ -1510,9 +1522,9 @@ func (w *worker) getCurrentRunInfo() (string, string) {
 	return w.currentRunID, w.currentClaimToken
 }
 
-func (w *worker) tryClaimExecution(ctx context.Context, executionEnvelope *cell.ExecutionEnvelope, leaseUntil time.Time) string {
+func (w *worker) tryClaimExecution(ctx context.Context, executionEnvelope *cell.ExecutionEnvelope, leaseUntil time.Time) (string, bool) {
 	if executionEnvelope == nil || w.store == nil {
-		return ""
+		return "", false
 	}
 
 	span := trace.SpanFromContext(ctx)
@@ -1520,21 +1532,21 @@ func (w *worker) tryClaimExecution(ctx context.Context, executionEnvelope *cell.
 	claimed, token, err := w.store.TryClaimExecution(w.runCtx, executionEnvelope.ExecutionID, w.workerID, leaseUntil)
 	if err != nil {
 		w.noteDBError(err)
-		w.logger.Warn("TryClaimExecution %s failed; continuing under run claim: %v", executionEnvelope.ExecutionID, err)
+		w.logger.Warn("TryClaimExecution %s failed; stopping before task execution: %v", executionEnvelope.ExecutionID, err)
 		span.RecordError(err)
 		span.AddEvent("execution.claim.error", trace.WithAttributes(attribute.String("error", err.Error())))
-		return ""
+		return "", false
 	}
 
 	w.noteDBRecovered()
 	if !claimed {
-		w.logger.Warn("Execution %s not claimed; continuing under run claim", executionEnvelope.ExecutionID)
+		w.logger.Warn("Execution %s not claimed; stopping before task execution", executionEnvelope.ExecutionID)
 		span.AddEvent("execution.claim.skipped")
-		return ""
+		return "", false
 	}
 
 	span.AddEvent("execution.claim.success")
-	return token
+	return token, true
 }
 
 func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, claimToken, executionClaimToken string, job *api.Job, executionEnvelope *cell.ExecutionEnvelope) error {

@@ -1948,6 +1948,122 @@ func TestWorkerRunClaimedJob_MissingExecutionEnvelopeFailsRun(t *testing.T) {
 	}
 }
 
+func TestWorkerRunClaimedJob_ExecutionClaimRequiredBeforeExecute(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
+	runs := repos.Runs()
+
+	ns, err := repos.Namespaces().Create(ctx, "worker-execution-claim-required", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-worker-execution-claim-required"
+	def := `{"id":"job-worker-execution-claim-required","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo should-not-run"}}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := runs.CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	dispatch, err := runs.GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	claimed, token, err := runs.TryClaimExecution(ctx, dispatch.ExecutionID, "other-worker", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("preclaim execution: %v", err)
+	}
+
+	if !claimed || token == "" {
+		t.Fatalf("expected preclaimed execution, claimed=%v token=%q", claimed, token)
+	}
+
+	queue := mocks.NewMockQueueClient()
+	logClient := mocks.NewMockLogClient()
+	w := &worker{
+		ctx:           context.Background(),
+		runCtx:        context.Background(),
+		logger:        interfaces.NewLogger("worker-test"),
+		workerID:      "worker-claim-required",
+		cellID:        "local",
+		clock:         mocks.NewMockClock(),
+		renewInterval: time.Hour,
+		queue:         queue,
+		logClient:     logClient,
+		executor:      job.NewExecutor(),
+		store:         runs,
+		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
+	}
+
+	deliveryID := "delivery-claim-required"
+	rootID := "root"
+	action := "builtins/shell"
+	j := &api.Job{
+		Id:         &jobID,
+		RunId:      &runID,
+		DeliveryId: &deliveryID,
+		Root: &api.Node{
+			Id:   &rootID,
+			Uses: &action,
+			With: map[string]string{"command": "echo should-not-run"},
+		},
+	}
+
+	req := &api.JobRequest{Job: j}
+	env, err := cell.AttachExecutionEnvelope(req, dispatch, 1)
+	if err != nil {
+		t.Fatalf("attach execution envelope: %v", err)
+	}
+
+	outcome := w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID, env)
+	if outcome != observability.WorkerOutcomeFailed {
+		t.Fatalf("outcome: got %q, want %q", outcome, observability.WorkerOutcomeFailed)
+	}
+
+	if logClient.GetStreamCount() != 0 {
+		t.Fatalf("expected job execution not to start without execution claim, got %d log streams", logClient.GetStreamCount())
+	}
+
+	var runStatus string
+	var failureReason sql.NullString
+	var orphanReason sql.NullString
+	if err := db.QueryRowContext(ctx, `
+		SELECT status, failure_reason, orphan_reason
+		FROM job_runs
+		WHERE run_id = ?
+	`, runID).Scan(&runStatus, &failureReason, &orphanReason); err != nil {
+		t.Fatalf("query run status: %v", err)
+	}
+
+	if runStatus != dal.RunStatusOrphaned {
+		t.Fatalf("run status: got %q, want %q", runStatus, dal.RunStatusOrphaned)
+	}
+
+	if !failureReason.Valid || failureReason.String != dal.OrphanReasonAckUncertain || !orphanReason.Valid || orphanReason.String != dal.OrphanReasonAckUncertain {
+		t.Fatalf("orphan reasons: failure=%v orphan=%v", failureReason, orphanReason)
+	}
+
+	var executionStatus string
+	var leaseOwner sql.NullString
+	if err := db.QueryRowContext(ctx, `
+		SELECT status, lease_owner
+		FROM segment_executions
+		WHERE execution_id = ?
+	`, dispatch.ExecutionID).Scan(&executionStatus, &leaseOwner); err != nil {
+		t.Fatalf("query execution state: %v", err)
+	}
+
+	if executionStatus != dal.ExecutionStatusAccepted || !leaseOwner.Valid || leaseOwner.String != "other-worker" {
+		t.Fatalf("execution state: status=%q owner=%v", executionStatus, leaseOwner)
+	}
+}
+
 func TestWorkerRunClaimedJob_AckTransientThenSuccess_Completes(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
