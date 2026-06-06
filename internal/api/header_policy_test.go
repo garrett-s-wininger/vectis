@@ -132,6 +132,36 @@ func TestRequestHeaderGuardMiddlewareAllowsWellFormedBrowserSecurityHeaders(t *t
 	}
 }
 
+func TestRequestHeaderGuardMiddlewareAllowsWellFormedProxyHeaders(t *testing.T) {
+	tests := []struct {
+		name   string
+		header string
+		value  string
+	}{
+		{name: "forwarded for", header: "X-Forwarded-For", value: "203.0.113.1, [2001:db8::1]:443"},
+		{name: "forwarded proto", header: "X-Forwarded-Proto", value: "https"},
+		{name: "real ip", header: "X-Real-IP", value: "203.0.113.2"},
+		{name: "forwarded", header: "Forwarded", value: `for=203.0.113.5; proto="https"; host=api.example`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler := requestHeaderGuardMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusNoContent)
+			}))
+
+			req := httptest.NewRequest(http.MethodGet, "/health/live", nil)
+			req.Header.Set(tt.header, tt.value)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusNoContent {
+				t.Fatalf("status=%d, want %d; body=%s", rec.Code, http.StatusNoContent, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestRequestHeaderGuardMiddlewareRejectsDuplicateEarlyHeaders(t *testing.T) {
 	for _, header := range earlyRequestSingletonHeaders {
 		t.Run(header, func(t *testing.T) {
@@ -169,6 +199,18 @@ func TestRequestHeaderGuardMiddlewareRejectsMalformedEarlyHeaders(t *testing.T) 
 		{name: "fetch mode control", header: "Sec-Fetch-Mode", value: "cors\n"},
 		{name: "fetch dest empty", header: "Sec-Fetch-Dest", value: ""},
 		{name: "fetch user unsupported", header: "Sec-Fetch-User", value: "?0"},
+		{name: "forwarded for unknown", header: "X-Forwarded-For", value: "unknown, 203.0.113.9"},
+		{name: "forwarded for empty part", header: "X-Forwarded-For", value: "203.0.113.9,,198.51.100.1"},
+		{name: "forwarded for quoted", header: "X-Forwarded-For", value: `"203.0.113.9"`},
+		{name: "forwarded proto list", header: "X-Forwarded-Proto", value: "https, http"},
+		{name: "forwarded proto unsupported", header: "X-Forwarded-Proto", value: "websocket"},
+		{name: "forwarded proto open quote", header: "X-Forwarded-Proto", value: `"https`},
+		{name: "real ip list", header: "X-Real-IP", value: "203.0.113.2, 198.51.100.1"},
+		{name: "real ip host port", header: "X-Real-IP", value: "203.0.113.2:443"},
+		{name: "forwarded multi element", header: "Forwarded", value: "for=203.0.113.5; proto=https, for=198.51.100.1; proto=http"},
+		{name: "forwarded duplicate proto", header: "Forwarded", value: "for=203.0.113.5; proto=https; proto=http"},
+		{name: "forwarded unsupported proto", header: "Forwarded", value: "for=203.0.113.5; proto=gopher"},
+		{name: "forwarded empty param", header: "Forwarded", value: "for=; proto=https"},
 	}
 
 	for _, tt := range tests {
@@ -251,6 +293,14 @@ func validEarlyHeaderTestValue(header string) string {
 		return "empty"
 	case "Sec-Fetch-User":
 		return "?1"
+	case "X-Forwarded-For":
+		return "203.0.113.9"
+	case "X-Forwarded-Proto":
+		return "https"
+	case "X-Real-IP":
+		return "203.0.113.10"
+	case "Forwarded":
+		return "for=203.0.113.9;proto=https"
 	default:
 		return "value"
 	}

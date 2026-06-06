@@ -1,6 +1,7 @@
 package api
 
 import (
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -28,6 +29,10 @@ var earlyRequestSingletonHeaders = []string{
 	"Sec-Fetch-Mode",
 	"Sec-Fetch-Dest",
 	"Sec-Fetch-User",
+	"X-Forwarded-For",
+	"X-Forwarded-Proto",
+	"X-Real-IP",
+	"Forwarded",
 }
 
 type routeHeaderPolicy struct {
@@ -163,9 +168,149 @@ func validEarlyRequestHeaderValue(name, value string) bool {
 		return validHeaderTokenValue(value, 128)
 	case "Sec-Fetch-User":
 		return value == "?1"
+	case "X-Forwarded-For":
+		return validForwardedForHeaderValue(value)
+	case "X-Forwarded-Proto":
+		return validSingleForwardedProtoHeaderValue(value)
+	case "X-Real-IP":
+		return validXRealIPHeaderValue(value)
+	case "Forwarded":
+		return validForwardedHeaderValue(value)
 	default:
 		return true
 	}
+}
+
+func validForwardedForHeaderValue(value string) bool {
+	if value == "" || len(value) > 4096 || value != strings.TrimSpace(value) {
+		return false
+	}
+
+	for part := range strings.SplitSeq(value, ",") {
+		if !validForwardedIPPart(strings.TrimSpace(part), true) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func validXRealIPHeaderValue(value string) bool {
+	if value == "" || len(value) > 256 || value != strings.TrimSpace(value) || strings.Contains(value, ",") {
+		return false
+	}
+
+	return validForwardedIPPart(value, false)
+}
+
+func validForwardedIPPart(value string, allowPort bool) bool {
+	if value == "" || value != strings.TrimSpace(value) || strings.ContainsAny(value, " \t\r\n\"") {
+		return false
+	}
+
+	if allowPort {
+		if host, _, err := net.SplitHostPort(value); err == nil {
+			value = host
+		}
+	}
+
+	if strings.HasPrefix(value, "[") || strings.HasSuffix(value, "]") {
+		if !strings.HasPrefix(value, "[") || !strings.HasSuffix(value, "]") {
+			return false
+		}
+
+		value = strings.TrimPrefix(strings.TrimSuffix(value, "]"), "[")
+		if strings.ContainsAny(value, "[]") {
+			return false
+		}
+	}
+
+	return net.ParseIP(value) != nil
+}
+
+func validSingleForwardedProtoHeaderValue(value string) bool {
+	proto, ok := normalizedSingleForwardedProto(value)
+	return ok && (proto == "http" || proto == "https")
+}
+
+func normalizedSingleForwardedProto(value string) (string, bool) {
+	if value == "" || len(value) > 64 || value != strings.TrimSpace(value) || strings.Contains(value, ",") {
+		return "", false
+	}
+
+	if value[0] == '"' || value[len(value)-1] == '"' {
+		if len(value) < 2 || value[0] != '"' || value[len(value)-1] != '"' {
+			return "", false
+		}
+
+		value = strings.TrimSpace(value[1 : len(value)-1])
+		if value == "" || strings.ContainsAny(value, "\"\r\n\t ") {
+			return "", false
+		}
+	}
+
+	return strings.ToLower(value), true
+}
+
+func validForwardedHeaderValue(value string) bool {
+	if value == "" || len(value) > 4096 || value != strings.TrimSpace(value) || strings.Contains(value, ",") {
+		return false
+	}
+
+	seen := map[string]bool{}
+	for part := range strings.SplitSeq(value, ";") {
+		key, rawValue, ok := strings.Cut(strings.TrimSpace(part), "=")
+		if !ok {
+			return false
+		}
+
+		key = strings.ToLower(strings.TrimSpace(key))
+		rawValue = strings.TrimSpace(rawValue)
+		if !validHeaderToken(key) || rawValue == "" || seen[key] {
+			return false
+		}
+		seen[key] = true
+
+		if key == "proto" {
+			if !validSingleForwardedProtoHeaderValue(rawValue) {
+				return false
+			}
+			continue
+		}
+
+		if !validForwardedHeaderParamValue(rawValue) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func validForwardedHeaderParamValue(value string) bool {
+	if value == "" {
+		return false
+	}
+
+	if value[0] == '"' || value[len(value)-1] == '"' {
+		if len(value) < 2 || value[0] != '"' || value[len(value)-1] != '"' {
+			return false
+		}
+
+		value = value[1 : len(value)-1]
+	}
+
+	if value == "" {
+		return false
+	}
+
+	for i := range len(value) {
+		c := value[i]
+		if c < 0x21 || c > 0x7e || c == ',' || c == ';' {
+			return false
+		}
+	}
+
+	return true
 }
 
 func validOriginHeaderValue(value string) bool {

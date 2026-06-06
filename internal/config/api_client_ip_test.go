@@ -64,15 +64,41 @@ func TestHTTPClientIP_xRealIPFallback(t *testing.T) {
 	}
 }
 
-func TestHTTPClientIP_xffSkipsInvalidUsesFirstValid(t *testing.T) {
+func TestHTTPClientIP_duplicateXRealIPFallsBackToDirect(t *testing.T) {
+	t.Setenv(envAPIClientIPTrustedProxyCIDRs, "10.0.0.0/8")
+
+	req := mustNewRequest(t)
+	req.RemoteAddr = "10.0.0.2:443"
+	req.Header.Add("X-Real-IP", "203.0.113.2")
+	req.Header.Add("X-Real-IP", "198.51.100.1")
+
+	if got := HTTPClientIP(req); got != "10.0.0.2" {
+		t.Fatalf("got %q want direct peer when X-Real-IP is duplicated", got)
+	}
+}
+
+func TestHTTPClientIP_xffInvalidFallsBackToDirect(t *testing.T) {
 	t.Setenv(envAPIClientIPTrustedProxyCIDRs, "10.0.0.0/8")
 
 	req := mustNewRequest(t)
 	req.RemoteAddr = "10.0.0.2:443"
 	req.Header.Set("X-Forwarded-For", "not-an-ip, 203.0.113.9, 198.51.100.1")
 
-	if got := HTTPClientIP(req); got != "203.0.113.9" {
-		t.Fatalf("got %q want first parsable XFF entry", got)
+	if got := HTTPClientIP(req); got != "10.0.0.2" {
+		t.Fatalf("got %q want direct peer when XFF is malformed", got)
+	}
+}
+
+func TestHTTPClientIP_duplicateXffFallsBackToDirect(t *testing.T) {
+	t.Setenv(envAPIClientIPTrustedProxyCIDRs, "10.0.0.0/8")
+
+	req := mustNewRequest(t)
+	req.RemoteAddr = "10.0.0.2:443"
+	req.Header.Add("X-Forwarded-For", "203.0.113.9")
+	req.Header.Add("X-Forwarded-For", "198.51.100.1")
+
+	if got := HTTPClientIP(req); got != "10.0.0.2" {
+		t.Fatalf("got %q want direct peer when XFF is duplicated", got)
 	}
 }
 
@@ -138,7 +164,7 @@ func TestHTTPOriginalRequestSecure_usesXForwardedProtoFromTrustedProxy(t *testin
 
 	req := mustNewRequest(t)
 	req.RemoteAddr = "10.0.0.2:443"
-	req.Header.Set("X-Forwarded-Proto", "HTTPS, http")
+	req.Header.Set("X-Forwarded-Proto", "HTTPS")
 
 	if !HTTPOriginalRequestSecure(req) {
 		t.Fatal("trusted X-Forwarded-Proto=https should mark original request secure")
@@ -150,7 +176,7 @@ func TestHTTPOriginalRequestSecure_normalizesQuotedXForwardedProtoFromTrustedPro
 
 	req := mustNewRequest(t)
 	req.RemoteAddr = "10.0.0.2:443"
-	req.Header.Set("X-Forwarded-Proto", ` "HTTPS" , http`)
+	req.Header.Set("X-Forwarded-Proto", `"HTTPS"`)
 
 	if !HTTPOriginalRequestSecure(req) {
 		t.Fatal("trusted quoted X-Forwarded-Proto=https should mark original request secure")
@@ -166,6 +192,56 @@ func TestHTTPOriginalRequestSecure_usesForwardedProtoFromTrustedProxy(t *testing
 
 	if !HTTPOriginalRequestSecure(req) {
 		t.Fatal("trusted Forwarded proto=https should mark original request secure")
+	}
+}
+
+func TestHTTPOriginalRequestSecure_rejectsAmbiguousXForwardedProtoFromTrustedProxy(t *testing.T) {
+	t.Setenv(envAPIClientIPTrustedProxyCIDRs, "10.0.0.0/8")
+
+	req := mustNewRequest(t)
+	req.RemoteAddr = "10.0.0.2:443"
+	req.Header.Set("X-Forwarded-Proto", "https, http")
+
+	if HTTPOriginalRequestSecure(req) {
+		t.Fatal("multi-value X-Forwarded-Proto should not mark original request secure")
+	}
+}
+
+func TestHTTPOriginalRequestSecure_rejectsDuplicateXForwardedProtoFromTrustedProxy(t *testing.T) {
+	t.Setenv(envAPIClientIPTrustedProxyCIDRs, "10.0.0.0/8")
+
+	req := mustNewRequest(t)
+	req.RemoteAddr = "10.0.0.2:443"
+	req.Header.Add("X-Forwarded-Proto", "https")
+	req.Header.Add("X-Forwarded-Proto", "http")
+
+	if HTTPOriginalRequestSecure(req) {
+		t.Fatal("duplicate X-Forwarded-Proto should not mark original request secure")
+	}
+}
+
+func TestHTTPOriginalRequestSecure_doesNotFallBackFromInvalidXForwardedProto(t *testing.T) {
+	t.Setenv(envAPIClientIPTrustedProxyCIDRs, "10.0.0.0/8")
+
+	req := mustNewRequest(t)
+	req.RemoteAddr = "10.0.0.2:443"
+	req.Header.Set("X-Forwarded-Proto", "gopher")
+	req.Header.Set("Forwarded", "proto=https")
+
+	if HTTPOriginalRequestSecure(req) {
+		t.Fatal("invalid X-Forwarded-Proto should not fall back to Forwarded proto")
+	}
+}
+
+func TestHTTPOriginalRequestSecure_rejectsAmbiguousForwardedProtoFromTrustedProxy(t *testing.T) {
+	t.Setenv(envAPIClientIPTrustedProxyCIDRs, "10.0.0.0/8")
+
+	req := mustNewRequest(t)
+	req.RemoteAddr = "10.0.0.2:443"
+	req.Header.Set("Forwarded", `for=203.0.113.5; proto=https, for=198.51.100.2; proto=http`)
+
+	if HTTPOriginalRequestSecure(req) {
+		t.Fatal("multi-element Forwarded header should not mark original request secure")
 	}
 }
 

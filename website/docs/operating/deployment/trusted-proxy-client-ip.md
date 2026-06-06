@@ -49,6 +49,21 @@ When the TCP peer is inside a trusted CIDR, Vectis chooses in this order:
 
 This means your proxy should set or sanitize `X-Forwarded-For` consistently. If your proxy appends to an incoming header without clearing untrusted client-provided values, the left-most value may be attacker-controlled.
 
+## Header Shape Vectis Accepts
+
+Vectis treats forwarded headers as security-sensitive input. The API rejects duplicate or malformed proxy headers with `invalid_request_header` before route handling.
+
+Use one sanitized representation from the proxy that connects directly to `vectis-api`:
+
+| Header | Accepted shape |
+| --- | --- |
+| `X-Forwarded-For` | One header line containing a comma-separated list of IP literals; host:port is accepted for entries that include a port. Values such as `unknown` are rejected. |
+| `X-Real-IP` | One header line containing one IP literal. |
+| `X-Forwarded-Proto` | One header line containing only `http` or `https`. Do not append a comma-separated scheme chain. |
+| `Forwarded` | One RFC `Forwarded` element. Comma-separated proxy chains are rejected; if `proto` is present, it must be `http` or `https`. |
+
+Configure the edge to overwrite untrusted client-supplied forwarding headers before it sends the request to Vectis. For original HTTPS detection, prefer either `X-Forwarded-Proto: https` or `Forwarded: proto=https` consistently rather than mixing formats.
+
 ## How Vectis Detects Original HTTPS
 
 Direct TLS requests are always treated as HTTPS.
@@ -79,7 +94,7 @@ This setting does not authenticate the client and does not replace API auth, TLS
 
 1. Identify the exact proxy or load-balancer source CIDRs that connect to `vectis-api`.
 2. Configure only those CIDRs.
-3. Make sure the proxy overwrites or safely normalizes `X-Forwarded-For`, `X-Real-IP`, `X-Forwarded-Proto`, and `Forwarded`.
+3. Make sure the proxy overwrites `X-Forwarded-For`, `X-Real-IP`, `X-Forwarded-Proto`, and `Forwarded` into one sanitized form before forwarding to Vectis.
 4. Confirm direct clients cannot connect around the proxy.
 5. Enable API access logs temporarily and check that `client_ip` matches the real client you expect.
 6. Confirm browser logins receive `Secure` cookies when requests arrive through the proxy over HTTPS.

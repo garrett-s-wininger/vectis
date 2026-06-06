@@ -132,25 +132,24 @@ func HTTPClientIP(r *http.Request) string {
 		return directIP.String()
 	}
 
+	if len(r.Header.Values("X-Forwarded-For")) > 1 {
+		return directIP.String()
+	}
+
 	if xff := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); xff != "" {
-		for part := range strings.SplitSeq(xff, ",") {
-			candidate := strings.TrimSpace(part)
-			if candidate == "" {
-				continue
-			}
-
-			if host, _, err := net.SplitHostPort(candidate); err == nil {
-				candidate = host
-			}
-
-			if ip := net.ParseIP(candidate); ip != nil {
-				return ip.String()
-			}
+		if ip, ok := firstForwardedForIP(xff); ok {
+			return ip.String()
 		}
+
+		return directIP.String()
+	}
+
+	if len(r.Header.Values("X-Real-IP")) > 1 {
+		return directIP.String()
 	}
 
 	if xr := strings.TrimSpace(r.Header.Get("X-Real-IP")); xr != "" {
-		if ip := net.ParseIP(xr); ip != nil {
+		if ip := forwardedIPPart(xr, false); ip != nil {
 			return ip.String()
 		}
 	}
@@ -182,47 +181,137 @@ func requestFromTrustedProxy(r *http.Request) bool {
 	return false
 }
 
+func firstForwardedForIP(raw string) (net.IP, bool) {
+	if raw == "" || raw != strings.TrimSpace(raw) {
+		return nil, false
+	}
+
+	var first net.IP
+	for part := range strings.SplitSeq(raw, ",") {
+		ip := forwardedIPPart(strings.TrimSpace(part), true)
+		if ip == nil {
+			return nil, false
+		}
+
+		if first == nil {
+			first = ip
+		}
+	}
+
+	if first == nil {
+		return nil, false
+	}
+
+	return first, true
+}
+
+func forwardedIPPart(value string, allowPort bool) net.IP {
+	if value == "" || value != strings.TrimSpace(value) || strings.ContainsAny(value, " \t\r\n\"") {
+		return nil
+	}
+
+	if allowPort {
+		if host, _, err := net.SplitHostPort(value); err == nil {
+			value = host
+		}
+	}
+
+	if strings.HasPrefix(value, "[") || strings.HasSuffix(value, "]") {
+		if !strings.HasPrefix(value, "[") || !strings.HasSuffix(value, "]") {
+			return nil
+		}
+
+		value = strings.TrimPrefix(strings.TrimSuffix(value, "]"), "[")
+		if strings.ContainsAny(value, "[]") {
+			return nil
+		}
+	}
+
+	return net.ParseIP(value)
+}
+
 func forwardedProto(r *http.Request) string {
 	if r == nil {
 		return ""
 	}
 
-	if xfp := firstCommaValue(r.Header.Get("X-Forwarded-Proto")); xfp != "" {
-		return normalizeProtoValue(xfp)
+	if len(r.Header.Values("X-Forwarded-Proto")) > 1 {
+		return ""
 	}
 
-	forwarded := firstCommaValue(r.Header.Get("Forwarded"))
+	if xfp := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); xfp != "" {
+		proto, ok := singleForwardedProtoValue(xfp)
+		if !ok {
+			return ""
+		}
+
+		return proto
+	}
+
+	if len(r.Header.Values("Forwarded")) > 1 {
+		return ""
+	}
+
+	forwarded := strings.TrimSpace(r.Header.Get("Forwarded"))
 	if forwarded == "" {
 		return ""
 	}
 
+	if strings.Contains(forwarded, ",") {
+		return ""
+	}
+
+	var proto string
 	for part := range strings.SplitSeq(forwarded, ";") {
 		key, value, ok := strings.Cut(strings.TrimSpace(part), "=")
 		if !ok || !strings.EqualFold(strings.TrimSpace(key), "proto") {
 			continue
 		}
 
-		return normalizeProtoValue(value)
+		if proto != "" {
+			return ""
+		}
+
+		normalized, ok := singleForwardedProtoValue(value)
+		if !ok {
+			return ""
+		}
+
+		proto = normalized
 	}
 
-	return ""
+	return proto
+}
+
+func singleForwardedProtoValue(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || strings.Contains(raw, ",") {
+		return "", false
+	}
+
+	proto := normalizeProtoValue(raw)
+	return proto, proto == "http" || proto == "https"
 }
 
 func normalizeProtoValue(value string) string {
 	value = strings.TrimSpace(value)
-	value = strings.Trim(value, `"`)
-	value = strings.TrimSpace(value)
-	return strings.ToLower(value)
-}
+	if value == "" {
+		return ""
+	}
 
-func firstCommaValue(raw string) string {
-	for part := range strings.SplitSeq(raw, ",") {
-		if value := strings.TrimSpace(part); value != "" {
-			return value
+	if value[0] == '"' || value[len(value)-1] == '"' {
+		if len(value) < 2 || value[0] != '"' || value[len(value)-1] != '"' {
+			return ""
+		}
+
+		value = strings.TrimSpace(value[1 : len(value)-1])
+		if value == "" || strings.ContainsAny(value, "\"\r\n\t ") {
+			return ""
 		}
 	}
 
-	return ""
+	value = strings.TrimSpace(value)
+	return strings.ToLower(value)
 }
 
 func hostFromRemoteAddr(remoteAddr string) string {
