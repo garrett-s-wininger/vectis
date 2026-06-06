@@ -96,6 +96,7 @@ The reference pod exposes API and docs listeners directly on host ports. Before 
 | Terminate HTTPS at the edge or serve API/docs HTTPS directly | Browser session cookies are `Secure` and require a browser-facing HTTPS origin. |
 | Set `api.session.cookie_secure = true` when API auth is enabled behind HTTPS | Startup validation then matches the intended browser-facing security posture. |
 | Configure `api.host_validation.allowed_hosts` for the external API hostname | Host validation should match the public DNS name, not only the pod's listen address. |
+| Configure `VECTIS_DOCS_ALLOWED_HOSTS` for the external docs hostname | Docs Host validation should match the public DNS name when docs are published outside localhost. |
 | Configure trusted proxy CIDRs only for the proxies that connect to `vectis-api` | Rate limits, audit logs, access logs, HSTS, CORS, and CSRF use trusted forwarded client IP and scheme information. |
 | Overwrite forwarded headers at the proxy | Vectis rejects duplicate or malformed `X-Forwarded-*`, `X-Real-IP`, and `Forwarded` headers before route handling. |
 | Block direct client access to the API listener around the proxy | Otherwise clients can bypass edge TLS, access controls, and forwarding-header sanitization. |

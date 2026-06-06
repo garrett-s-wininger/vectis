@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"vectis/internal/cli"
+	"vectis/internal/config"
 	"vectis/internal/httpsecurity"
 	"vectis/internal/interfaces"
 	"vectis/internal/tlsconfig"
@@ -40,7 +41,12 @@ func runDocs(cmd *cobra.Command, args []string) {
 
 	handler, source := docsHandler(viper.GetString("dir"), logger)
 
-	addr := net.JoinHostPort(viper.GetString("host"), fmt.Sprintf("%d", viper.GetInt("port")))
+	host := docsBindHost()
+	if err := config.ValidateDocsHostConfig(host); err != nil {
+		logger.Fatal("Docs Host validation config: %v", err)
+	}
+
+	addr := net.JoinHostPort(host, fmt.Sprintf("%d", viper.GetInt("port")))
 	srv := docsHTTPServer(addr, handler)
 
 	ln, err := net.Listen("tcp", addr)
@@ -89,6 +95,12 @@ func docsReadOnlyMiddleware(next http.Handler) http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !config.DocsHostAllowed(docsBindHost(), r.Host) {
+			w.Header().Set("Cache-Control", "no-store")
+			http.Error(w, "invalid host header", http.StatusBadRequest)
+			return
+		}
+
 		if !httpsecurity.SafeRequestTarget(r) {
 			w.Header().Set("Cache-Control", "no-store")
 			http.Error(w, "invalid request target", http.StatusBadRequest)
@@ -138,6 +150,14 @@ code {
   padding: 0.1rem 0.25rem;
 }
 `))
+}
+
+func docsBindHost() string {
+	if host := strings.TrimSpace(viper.GetString("host")); host != "" {
+		return host
+	}
+
+	return "localhost"
 }
 
 func docsTLSEnabled() bool {
@@ -281,6 +301,7 @@ func init() {
 	rootCmd.PersistentFlags().Int("port", defaultDocsPort, "HTTP port for the docs site")
 	rootCmd.PersistentFlags().String("host", "localhost", "Host/IP for the docs site to bind")
 	rootCmd.PersistentFlags().String("dir", "", "Directory containing a docs build to serve instead of embedded docs")
+	rootCmd.PersistentFlags().StringSlice("allowed-host", nil, "Allowed Host header for the docs site; may be repeated or comma-separated")
 	rootCmd.PersistentFlags().String("log-level", "info", "Log level: debug, info, warn, error")
 	rootCmd.PersistentFlags().String("tls-cert-file", "", "Certificate file for docs HTTPS")
 	rootCmd.PersistentFlags().String("tls-key-file", "", "Private key file for docs HTTPS")
@@ -289,11 +310,13 @@ func init() {
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
 	_ = viper.BindPFlag("host", rootCmd.PersistentFlags().Lookup("host"))
 	_ = viper.BindPFlag("dir", rootCmd.PersistentFlags().Lookup("dir"))
+	_ = viper.BindPFlag("allowed_hosts", rootCmd.PersistentFlags().Lookup("allowed-host"))
 	_ = viper.BindPFlag("log_level", rootCmd.PersistentFlags().Lookup("log-level"))
 	_ = viper.BindPFlag("tls_cert_file", rootCmd.PersistentFlags().Lookup("tls-cert-file"))
 	_ = viper.BindPFlag("tls_key_file", rootCmd.PersistentFlags().Lookup("tls-key-file"))
 	_ = viper.BindPFlag("tls_reload_interval", rootCmd.PersistentFlags().Lookup("tls-reload-interval"))
 	_ = viper.BindEnv("dir", "VECTIS_DOCS_DIR")
+	_ = viper.BindEnv("allowed_hosts", "VECTIS_DOCS_ALLOWED_HOSTS")
 	_ = viper.BindEnv("tls_cert_file", "VECTIS_DOCS_TLS_CERT_FILE")
 	_ = viper.BindEnv("tls_key_file", "VECTIS_DOCS_TLS_KEY_FILE")
 	_ = viper.BindEnv("tls_reload_interval", "VECTIS_DOCS_TLS_RELOAD_INTERVAL")

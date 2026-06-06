@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/tls"
+	"io"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -47,9 +48,16 @@ func requestDocsPath(t *testing.T, handler http.Handler, target string) *httptes
 	t.Helper()
 
 	req := httptest.NewRequest(http.MethodGet, target, nil)
+	req.Host = "localhost"
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	return rec
+}
+
+func newDocsServerRequest(method, target string, body io.Reader) *http.Request {
+	req := httptest.NewRequest(method, target, body)
+	req.Host = "localhost"
+	return req
 }
 
 func TestDocsHandlerUsesConfiguredDirectory(t *testing.T) {
@@ -271,7 +279,7 @@ func TestDocsServerHandlerAppliesSecurityHeaders(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := newDocsServerRequest(http.MethodGet, "/", nil)
 	handler.ServeHTTP(rec, req)
 
 	assertDocsHeader(t, rec, "X-Content-Type-Options", "nosniff")
@@ -297,13 +305,58 @@ func TestDocsServerHandlerAppliesSecurityHeaders(t *testing.T) {
 	}
 }
 
+func TestDocsServerHandlerAllowsConfiguredHost(t *testing.T) {
+	t.Setenv("VECTIS_DOCS_ALLOWED_HOSTS", "docs.example:8088")
+	called := false
+	handler := docsServerHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Host = "docs.example:8088"
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusNoContent, rec.Body.String())
+	}
+
+	if !called {
+		t.Fatal("handler was not called")
+	}
+}
+
+func TestDocsServerHandlerRejectsUntrustedHost(t *testing.T) {
+	t.Setenv("VECTIS_DOCS_ALLOWED_HOSTS", "docs.example")
+	handler := docsServerHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not be called")
+	}))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Host = "evil.example"
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+
+	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", got)
+	}
+
+	assertDocsHeader(t, rec, "X-Content-Type-Options", "nosniff")
+	assertDocsHeader(t, rec, "X-Frame-Options", "DENY")
+}
+
 func TestDocsServerHandlerAllowsHEAD(t *testing.T) {
 	handler := docsServerHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodHead, "/", nil)
+	req := newDocsServerRequest(http.MethodHead, "/", nil)
 	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -319,7 +372,7 @@ func TestDocsServerHandlerRejectsNonReadMethods(t *testing.T) {
 	for _, method := range []string{http.MethodPost, http.MethodTrace, http.MethodConnect, "TRACK"} {
 		t.Run(method, func(t *testing.T) {
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(method, "/", nil)
+			req := newDocsServerRequest(method, "/", nil)
 			handler.ServeHTTP(rec, req)
 
 			if rec.Code != http.StatusMethodNotAllowed {
@@ -348,7 +401,7 @@ func TestDocsServerHandlerRejectsReadRequestBodies(t *testing.T) {
 	for _, method := range []string{http.MethodGet, http.MethodHead} {
 		t.Run(method, func(t *testing.T) {
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(method, "/", strings.NewReader("body"))
+			req := newDocsServerRequest(method, "/", strings.NewReader("body"))
 			handler.ServeHTTP(rec, req)
 
 			if rec.Code != http.StatusBadRequest {
@@ -373,7 +426,7 @@ func TestDocsServerHandlerRejectsMethodOverrideHeaders(t *testing.T) {
 			}))
 
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req := newDocsServerRequest(http.MethodGet, "/", nil)
 			req.Header.Set(header, http.MethodPost)
 			handler.ServeHTTP(rec, req)
 
@@ -410,7 +463,7 @@ func TestDocsServerHandlerRejectsUnsafeRequestTargets(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, tt.target, nil)
+			req := newDocsServerRequest(http.MethodGet, tt.target, nil)
 			handler.ServeHTTP(rec, req)
 
 			if rec.Code != http.StatusBadRequest {
@@ -441,7 +494,7 @@ func TestDocsServerHandlerAppliesHSTSForDirectTLS(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := newDocsServerRequest(http.MethodGet, "/", nil)
 	req.TLS = &tls.ConnectionState{}
 	handler.ServeHTTP(rec, req)
 

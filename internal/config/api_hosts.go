@@ -10,7 +10,10 @@ import (
 	"github.com/spf13/viper"
 )
 
-const envAPIAllowedHosts = "VECTIS_API_ALLOWED_HOSTS"
+const (
+	envAPIAllowedHosts  = "VECTIS_API_ALLOWED_HOSTS"
+	envDocsAllowedHosts = "VECTIS_DOCS_ALLOWED_HOSTS"
+)
 
 type apiAllowedHost struct {
 	host string
@@ -32,7 +35,7 @@ func APIAllowedHosts() []string {
 		return defaults
 	}
 
-	return defaultAPIAllowedHosts()
+	return defaultAllowedHosts(APIHost())
 }
 
 func ValidateAPIHostConfig() error {
@@ -69,8 +72,55 @@ func APIHostAllowed(hostHeader string) bool {
 	return false
 }
 
-func defaultAPIAllowedHosts() []string {
-	hosts := []string{APIHost(), "localhost", "127.0.0.1", "::1"}
+// DocsAllowedHosts returns hostnames accepted in the browser-facing docs Host header.
+func DocsAllowedHosts(bindHost string) []string {
+	if v := strings.TrimSpace(os.Getenv(envDocsAllowedHosts)); v != "" {
+		return normalizeAPIAllowedHostList(splitCommaNonEmpty(v))
+	}
+
+	if viper.IsSet("allowed_hosts") {
+		return normalizeAPIAllowedHostList(stringSliceFromViper("allowed_hosts"))
+	}
+
+	return defaultAllowedHosts(bindHost)
+}
+
+func ValidateDocsHostConfig(bindHost string) error {
+	for _, host := range DocsAllowedHosts(bindHost) {
+		if _, err := parseAPIAllowedHost(host); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func DocsHostAllowed(bindHost, hostHeader string) bool {
+	requestHost, err := parseAPIAllowedHost(hostHeader)
+	if err != nil {
+		return false
+	}
+
+	for _, raw := range DocsAllowedHosts(bindHost) {
+		allowed, err := parseAPIAllowedHost(raw)
+		if err != nil {
+			continue
+		}
+
+		if requestHost.host != allowed.host {
+			continue
+		}
+
+		if allowed.port == "" || allowed.port == requestHost.port {
+			return true
+		}
+	}
+
+	return false
+}
+
+func defaultAllowedHosts(bindHost string) []string {
+	hosts := []string{bindHost, "localhost", "127.0.0.1", "::1"}
 	out := make([]string, 0, len(hosts))
 
 	for _, host := range hosts {

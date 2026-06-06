@@ -111,3 +111,73 @@ func TestAPIHostAllowed(t *testing.T) {
 		})
 	}
 }
+
+func TestDocsAllowedHostsDefaultsToBindHostAndLoopback(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	want := []string{"docs.example.com", "localhost", "127.0.0.1", "::1"}
+	if got := DocsAllowedHosts("docs.example.com"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("DocsAllowedHosts() = %v, want %v", got, want)
+	}
+}
+
+func TestDocsAllowedHostsDoesNotTrustUnspecifiedBindHost(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	want := []string{"localhost", "127.0.0.1", "::1"}
+	if got := DocsAllowedHosts("0.0.0.0"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("DocsAllowedHosts() = %v, want %v", got, want)
+	}
+}
+
+func TestDocsAllowedHostsOverrides(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	viper.Set("allowed_hosts", []string{"Docs.Example.com.", "docs.example.com", "localhost:8088"})
+	if got, want := DocsAllowedHosts("localhost"), []string{"docs.example.com", "localhost:8088"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("DocsAllowedHosts() viper = %v, want %v", got, want)
+	}
+
+	t.Setenv(envDocsAllowedHosts, "docs-env.example, [::1]:8088")
+	if got, want := DocsAllowedHosts("localhost"), []string{"docs-env.example", "[::1]:8088"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("DocsAllowedHosts() env = %v, want %v", got, want)
+	}
+}
+
+func TestValidateDocsHostConfigRejectsUnsafeHosts(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv(envDocsAllowedHosts, "https://docs.example")
+
+	if err := ValidateDocsHostConfig("localhost"); err == nil {
+		t.Fatal("ValidateDocsHostConfig() succeeded, want error")
+	}
+}
+
+func TestDocsHostAllowed(t *testing.T) {
+	t.Setenv(envDocsAllowedHosts, "docs.example,localhost:8088,[::1]:9090")
+
+	tests := []struct {
+		host string
+		want bool
+	}{
+		{host: "docs.example", want: true},
+		{host: "docs.example:8443", want: true},
+		{host: "localhost:8088", want: true},
+		{host: "localhost:9090", want: false},
+		{host: "[::1]:9090", want: true},
+		{host: "evil.example", want: false},
+		{host: "https://docs.example", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.host, func(t *testing.T) {
+			if got := DocsHostAllowed("localhost", tt.host); got != tt.want {
+				t.Fatalf("DocsHostAllowed(%q) = %v, want %v", tt.host, got, tt.want)
+			}
+		})
+	}
+}

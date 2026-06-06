@@ -86,7 +86,7 @@ If your browser is on a different machine than the dev shell, start the stack wi
 ./bin/vectis-local --host 0.0.0.0
 ```
 
-Then open the API or docs using the dev machine's address. Use this only on a trusted network or behind your own access controls.
+Then open the API or docs using the dev machine's address. If you open docs with a hostname other than `localhost`, set `VECTIS_DOCS_ALLOWED_HOSTS` to that hostname before starting `vectis-local`; docs Host validation stays strict even when the listener binds to `0.0.0.0`. Use this only on a trusted network or behind your own access controls.
 
 `vectis-local` serves docs from the `vectis-docs` binary. If you built with `SKIP_WEB_BUILD=1`, `vectis-local` logs a warning and continues without the docs site. You can also start the stack with `./bin/vectis-local --docs=false`.
 
