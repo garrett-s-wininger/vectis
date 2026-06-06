@@ -358,6 +358,16 @@ func (w *worker) now() time.Time {
 	return time.Now()
 }
 
+func (w *worker) leaseDeadline() time.Time {
+	now := w.now().UTC()
+	realNow := time.Now().UTC()
+	if now.Before(realNow) {
+		now = realNow
+	}
+
+	return now.Add(dal.DefaultLeaseTTL)
+}
+
 func (w *worker) run() {
 	w.setLifecyclePhase(observability.WorkerPhaseIdle)
 	w.setDraining(false)
@@ -663,7 +673,7 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 	}
 	defer span.End()
 
-	leaseUntil := w.now().Add(dal.DefaultLeaseTTL)
+	leaseUntil := w.leaseDeadline()
 	span.AddEvent("run.claim.attempt", trace.WithAttributes(attribute.Int("attempt", 1)))
 	claimed, claimToken, claimErr := w.store.TryClaim(w.runCtx, runID, w.workerID, leaseUntil)
 	if claimErr != nil {
@@ -740,10 +750,18 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 		reason := truncateFailureReason(execErr.Error())
 		w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
 
+		if executionClaimToken != "" {
+			return w.finalizeFailedTaskRunByExecutionClaim(ctx, runID, executionClaimToken, decision.FailureCode, reason, executionEnvelope)
+		}
+
 		return w.finalizeFailedTaskRun(ctx, runID, claimToken, decision.FailureCode, reason, executionEnvelope)
 	}
 
 	w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
+	if executionClaimToken != "" {
+		return w.finalizeSucceededTaskRunByExecutionClaim(ctx, jobID, runID, executionClaimToken, executionEnvelope)
+	}
+
 	completion, ok := w.completeExecutionTerminal(ctx, executionEnvelope, dal.ExecutionStatusSucceeded)
 	if !ok {
 		span.SetStatus(otelcodes.Error, "complete task execution")
@@ -751,6 +769,29 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 	}
 
 	return w.finalizeSucceededTaskRun(ctx, jobID, runID, claimToken, completion)
+}
+
+func (w *worker) finalizeFailedTaskRunByExecutionClaim(ctx context.Context, runID, executionClaimToken, failureCode, reason string, executionEnvelope *cell.ExecutionEnvelope) string {
+	span := trace.SpanFromContext(ctx)
+
+	result, ok := w.completeExecutionAndFinalizeRunByClaim(ctx, executionEnvelope, executionClaimToken, dal.ExecutionStatusFailed, failureCode, reason)
+	if !ok {
+		span.SetStatus(otelcodes.Error, "complete failed task execution by claim")
+		return observability.WorkerOutcomeFailed
+	}
+
+	reduceDecision := taskreduce.Decide(result.Summary)
+	w.recordTaskFinalizeDecision(ctx, taskfinalize.ExecutionFailed(reduceDecision))
+
+	if result.Outcome != dal.ExecutionFinalizationOutcomeRunFailed {
+		err := fmt.Errorf("failed execution finalization produced outcome %q", result.Outcome)
+		span.RecordError(err)
+		span.SetStatus(otelcodes.Error, "unexpected failed execution finalization outcome")
+		return observability.WorkerOutcomeFailed
+	}
+
+	span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeFailed))
+	return observability.WorkerOutcomeFailed
 }
 
 func (w *worker) finalizeAbortedTaskRun(ctx context.Context, runID, claimToken, reason string, executionEnvelope *cell.ExecutionEnvelope) string {
@@ -798,6 +839,51 @@ func (w *worker) finalizeFailedTaskRun(ctx context.Context, runID, claimToken, f
 
 	span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeFailed))
 	return observability.WorkerOutcomeFailed
+}
+
+func (w *worker) finalizeSucceededTaskRunByExecutionClaim(ctx context.Context, jobID, runID, executionClaimToken string, executionEnvelope *cell.ExecutionEnvelope) string {
+	span := trace.SpanFromContext(ctx)
+
+	result, ok := w.completeExecutionAndFinalizeRunByClaim(ctx, executionEnvelope, executionClaimToken, dal.ExecutionStatusSucceeded, "", "")
+	if !ok {
+		span.SetStatus(otelcodes.Error, "complete succeeded task execution by claim")
+		return observability.WorkerOutcomeFailed
+	}
+
+	reduceDecision := taskreduce.Decide(result.Summary)
+	switch result.Outcome {
+	case dal.ExecutionFinalizationOutcomeRunSucceeded:
+		finalizeDecision := taskfinalize.Decide(false, reduceDecision)
+		w.recordTaskFinalizeDecision(ctx, finalizeDecision)
+		span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeSuccess))
+		w.logger.Info("Job completed successfully: %s", jobID)
+		return observability.WorkerOutcomeSuccess
+	case dal.ExecutionFinalizationOutcomeRunFailed:
+		finalizeDecision := taskfinalize.Decide(false, reduceDecision)
+		w.recordTaskFinalizeDecision(ctx, finalizeDecision)
+		span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeFailed))
+		w.logger.Info("Task run reduced to failed: %s", jobID)
+		return observability.WorkerOutcomeFailed
+	case dal.ExecutionFinalizationOutcomeContinued, dal.ExecutionFinalizationOutcomeWaiting:
+		knownPending := result.Outcome == dal.ExecutionFinalizationOutcomeContinued
+		continued, err := w.drainQueuedTaskRunContinuation(ctx, runID, knownPending)
+		if err != nil {
+			w.logger.Error("Failed to continue task run %s: %v", runID, err)
+			span.RecordError(err)
+			span.SetStatus(otelcodes.Error, "continue task run")
+			return observability.WorkerOutcomeFailed
+		}
+
+		finalizeDecision := taskfinalize.Decide(continued, reduceDecision)
+		w.recordTaskFinalizeDecision(ctx, finalizeDecision)
+		span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeSuccess))
+		w.logger.Info("Task run has incomplete work; run queued for continuation: %s", jobID)
+		return observability.WorkerOutcomeSuccess
+	default:
+		span.RecordError(fmt.Errorf("unsupported execution finalization outcome %q", result.Outcome))
+		span.SetStatus(otelcodes.Error, "unsupported execution finalization outcome")
+		return observability.WorkerOutcomeFailed
+	}
 }
 
 func (w *worker) finalizeSucceededTaskRun(ctx context.Context, jobID, runID, claimToken string, completion executionTerminalResult) string {
@@ -995,6 +1081,93 @@ func (w *worker) completeExecutionTerminal(ctx context.Context, env *cell.Execut
 	return result, true
 }
 
+func (w *worker) completeExecutionAndFinalizeRunByClaim(ctx context.Context, env *cell.ExecutionEnvelope, executionClaimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, bool) {
+	if env == nil {
+		return dal.ExecutionFinalizationResult{}, true
+	}
+
+	completionCtx := trace.ContextWithSpan(w.runCtx, trace.SpanFromContext(ctx))
+	result, err := w.completeExecutionAndFinalizeRunByClaimWithRetry(completionCtx, env.ExecutionID, executionClaimToken, status, failureCode, reason)
+	if err != nil {
+		w.logger.Warn("CompleteExecutionAndFinalizeRunByClaim execution %s status %s failed: %v", env.ExecutionID, status, err)
+		trace.SpanFromContext(ctx).RecordError(err)
+		return dal.ExecutionFinalizationResult{}, false
+	}
+
+	job.RecordTaskCompletion(ctx, job.TaskCompletionResult{
+		ExecutionID: env.ExecutionID,
+		Status:      status,
+		Children:    result.Children,
+		Activated:   result.Activated,
+	})
+
+	w.recordExecutionCatalogEvent(ctx, env, status)
+	w.recordRunCatalogEventForExecutionFinalization(result, failureCode, reason)
+	trace.SpanFromContext(ctx).AddEvent("execution.finalized", trace.WithAttributes(
+		append(
+			executionEnvelopeAttrs(env),
+			attribute.String("vectis.execution.status", status),
+			attribute.String("vectis.execution.finalization.outcome", string(result.Outcome)),
+			attribute.Int("vectis.task.children.activated", result.Activated),
+			attribute.Int("vectis.task.children.dispatchable", len(result.Children)),
+			attribute.Int("vectis.task.total", result.Summary.Total),
+			attribute.Int("vectis.task.succeeded", result.Summary.Succeeded),
+			attribute.Int("vectis.task.terminal_failed", result.Summary.TerminalFailed),
+			attribute.Int("vectis.task.incomplete", result.Summary.Incomplete),
+		)...,
+	))
+
+	return result, true
+}
+
+func (w *worker) completeExecutionAndFinalizeRunByClaimWithRetry(ctx context.Context, executionID, executionClaimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
+	var lastErr error
+	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
+		result, err := w.store.CompleteExecutionAndFinalizeRunByClaim(ctx, executionID, w.workerID, executionClaimToken, status, failureCode, reason)
+		if err == nil {
+			w.noteDBRecovered()
+			return result, nil
+		}
+		w.noteDBError(err)
+
+		lastErr = err
+		if !database.IsUnavailableError(err) {
+			break
+		}
+
+		if attempt == finalizeMaxAttempts {
+			break
+		}
+
+		delay := backoff.ExponentialDelay(finalizeBackoffBase, attempt-1, finalizeBackoffMax)
+		w.logger.Warn("CompleteExecutionAndFinalizeRunByClaim execution %s status %s failed (attempt %d/%d): %v; retrying in %v",
+			executionID, status, attempt, finalizeMaxAttempts, err, delay)
+
+		if sleepErr := w.clock.Sleep(w.runCtx, delay); sleepErr != nil {
+			return dal.ExecutionFinalizationResult{}, sleepErr
+		}
+	}
+
+	return dal.ExecutionFinalizationResult{}, lastErr
+}
+
+func (w *worker) recordRunCatalogEventForExecutionFinalization(result dal.ExecutionFinalizationResult, failureCode, reason string) {
+	switch result.Outcome {
+	case dal.ExecutionFinalizationOutcomeRunSucceeded:
+		w.recordRunCatalogEvent(dal.RunStatusUpdate{RunID: result.RunID, Status: dal.RunStatusSucceeded})
+	case dal.ExecutionFinalizationOutcomeRunFailed:
+		if failureCode == "" {
+			failureCode = dal.FailureCodeExecution
+		}
+
+		if reason == "" {
+			reason = taskfinalize.FailureReason(taskfinalize.Decision{Reduce: taskreduce.Decide(result.Summary)})
+		}
+
+		w.recordRunCatalogEvent(dal.RunStatusUpdate{RunID: result.RunID, Status: dal.RunStatusFailed, FailureCode: failureCode, Reason: reason})
+	}
+}
+
 func (w *worker) ackDelivery(deliveryID string) error {
 	if deliveryID == "" {
 		return nil
@@ -1087,6 +1260,26 @@ func (w *worker) continueTaskRun(ctx context.Context, runID, claimToken string, 
 
 	if err := w.markRunQueuedForContinuationWithRetry(runID, claimToken); err != nil {
 		return false, err
+	}
+
+	return w.drainQueuedTaskRunContinuation(ctx, runID, true)
+}
+
+func (w *worker) drainQueuedTaskRunContinuation(ctx context.Context, runID string, knownPending bool) (bool, error) {
+	if w.taskDispatchService == nil {
+		return false, nil
+	}
+
+	opts := taskdispatch.DrainOptions{CellID: w.cellID, RunID: runID, Limit: 1}
+	if !knownPending {
+		pending, err := w.taskDispatchService.HasPending(w.runCtx, opts)
+		if err != nil {
+			return false, err
+		}
+
+		if !pending {
+			return false, nil
+		}
 	}
 
 	result, err := w.taskDispatchService.Process(w.runCtx, opts)
@@ -1447,7 +1640,7 @@ func (w *worker) leaseRenewalLoop(
 		case <-execCtx.Done():
 			return
 		case <-ticker.C:
-			next := w.now().Add(dal.DefaultLeaseTTL)
+			next := w.leaseDeadline()
 			if err := w.store.RenewLease(w.runCtx, runID, w.workerID, claimToken, next); err != nil {
 				w.noteDBError(err)
 				renewFailed = true

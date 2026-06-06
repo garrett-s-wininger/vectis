@@ -2437,8 +2437,8 @@ func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_WaitsForIncomplet
 		t.Fatalf("get run status: %v", err)
 	}
 
-	if !found || status != dal.RunStatusRunning {
-		t.Fatalf("run should remain running while sibling is incomplete: found=%v status=%q", found, status)
+	if !found || status != dal.RunStatusQueued {
+		t.Fatalf("run should be queued while sibling is incomplete: found=%v status=%q", found, status)
 	}
 
 	assertExecutionAndSegmentStatus(t, db, setup.Dispatch.ExecutionID, setup.Dispatch.SegmentID, dal.ExecutionStatusSucceeded, dal.SegmentStatusSucceeded, 2)
@@ -2482,8 +2482,8 @@ func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_ActivatesChildren
 		t.Fatalf("get run status: %v", err)
 	}
 
-	if !found || status != dal.RunStatusRunning {
-		t.Fatalf("run should remain running after fan-out: found=%v status=%q", found, status)
+	if !found || status != dal.RunStatusQueued {
+		t.Fatalf("run should be queued after fan-out: found=%v status=%q", found, status)
 	}
 
 	assertTaskExecutionStatuses(t, db, child, dal.TaskStatusPending, dal.SegmentStatusPending, dal.ExecutionStatusPending, 0)
@@ -2520,6 +2520,42 @@ func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_RejectsStaleClaim
 	assertExecutionAndSegmentStatus(t, db, setup.Dispatch.ExecutionID, setup.Dispatch.SegmentID, dal.ExecutionStatusAccepted, dal.SegmentStatusAccepted, 1)
 	assertRootTaskAndAttemptStatus(t, db, setup.RunID, dal.TaskStatusAccepted, dal.TaskStatusAccepted, 1)
 	assertExecutionClaim(t, db, setup.Dispatch.ExecutionID, "worker-a", setup.LeaseUntil, setup.Token)
+}
+
+func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_RecoversOrphanedRun(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+	setup := setupClaimedExecutionFinalizationRun(t, ctx, repos, "orphaned")
+
+	if _, err := db.ExecContext(ctx, `
+		UPDATE job_runs
+		SET status = ?, lease_until = ?
+		WHERE run_id = ?
+	`, dal.RunStatusOrphaned, time.Now().Add(-time.Minute).Unix(), setup.RunID); err != nil {
+		t.Fatalf("mark run orphaned: %v", err)
+	}
+
+	result, err := repos.Runs().CompleteExecutionAndFinalizeRunByClaim(ctx, setup.Dispatch.ExecutionID, "worker-a", setup.Token, dal.ExecutionStatusSucceeded, "", "")
+	if err != nil {
+		t.Fatalf("CompleteExecutionAndFinalizeRunByClaim orphaned success: %v", err)
+	}
+
+	if result.Outcome != dal.ExecutionFinalizationOutcomeRunSucceeded || !result.Summary.AllSucceeded() {
+		t.Fatalf("orphaned success result mismatch: %+v", result)
+	}
+
+	status, found, err := repos.Runs().GetRunStatus(ctx, setup.RunID)
+	if err != nil {
+		t.Fatalf("get run status: %v", err)
+	}
+
+	if !found || status != dal.RunStatusSucceeded {
+		t.Fatalf("orphaned run should recover to succeeded: found=%v status=%q", found, status)
+	}
+
+	assertExecutionAndSegmentStatus(t, db, setup.Dispatch.ExecutionID, setup.Dispatch.SegmentID, dal.ExecutionStatusSucceeded, dal.SegmentStatusSucceeded, 2)
+	assertExecutionClaimCleared(t, db, setup.Dispatch.ExecutionID)
 }
 
 func TestRunsRepository_DispatchAndTransitionsUseLinkedTaskAttempt(t *testing.T) {

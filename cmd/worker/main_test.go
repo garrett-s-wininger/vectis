@@ -372,6 +372,27 @@ func (s *flakyFinalizeRunsStore) MarkRunFailed(ctx context.Context, runID, claim
 	return s.RunsRepository.MarkRunFailed(ctx, runID, claimToken, failureCode, reason)
 }
 
+func (s *flakyFinalizeRunsStore) CompleteExecutionAndFinalizeRunByClaim(ctx context.Context, executionID, owner, claimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
+	s.mu.Lock()
+	switch status {
+	case dal.ExecutionStatusSucceeded:
+		if s.succeedFailuresLeft > 0 {
+			s.succeedFailuresLeft--
+			s.mu.Unlock()
+			return dal.ExecutionFinalizationResult{}, fmt.Errorf("finalize success: %w", sql.ErrConnDone)
+		}
+	case dal.ExecutionStatusFailed:
+		if s.failedFailuresLeft > 0 {
+			s.failedFailuresLeft--
+			s.mu.Unlock()
+			return dal.ExecutionFinalizationResult{}, fmt.Errorf("finalize failed: %w", sql.ErrConnDone)
+		}
+	}
+	s.mu.Unlock()
+
+	return s.RunsRepository.CompleteExecutionAndFinalizeRunByClaim(ctx, executionID, owner, claimToken, status, failureCode, reason)
+}
+
 func (s *flakyFinalizeRunsStore) MarkRunOrphaned(ctx context.Context, runID, claimToken, reason string) error {
 	s.mu.Lock()
 	if s.orphanFailuresLeft > 0 {
@@ -396,6 +417,15 @@ func (s *blockingSuccessStore) MarkRunSucceeded(ctx context.Context, runID, clai
 	s.once.Do(func() { close(s.entered) })
 	<-s.release
 	return s.RunsRepository.MarkRunSucceeded(ctx, runID, claimToken)
+}
+
+func (s *blockingSuccessStore) CompleteExecutionAndFinalizeRunByClaim(ctx context.Context, executionID, owner, claimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
+	if status == dal.ExecutionStatusSucceeded {
+		s.once.Do(func() { close(s.entered) })
+		<-s.release
+	}
+
+	return s.RunsRepository.CompleteExecutionAndFinalizeRunByClaim(ctx, executionID, owner, claimToken, status, failureCode, reason)
 }
 
 func TestLeaseRenewalLoop_ReclaimsOrphanedRun(t *testing.T) {

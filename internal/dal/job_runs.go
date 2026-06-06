@@ -2556,7 +2556,15 @@ func (r *SQLRunsRepository) CompleteExecutionAndFinalizeRunByClaim(ctx context.C
 
 		result.Outcome = ExecutionFinalizationOutcomeRunSucceeded
 	case len(children) > 0:
+		if err := markRunQueuedForContinuationTx(ctx, tx, runID); err != nil {
+			return ExecutionFinalizationResult{}, err
+		}
+
 		result.Outcome = ExecutionFinalizationOutcomeContinued
+	default:
+		if err := markRunQueuedForContinuationTx(ctx, tx, runID); err != nil {
+			return ExecutionFinalizationResult{}, err
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -2585,7 +2593,7 @@ func validateExecutionClaimForCompletionTx(ctx context.Context, tx *sql.Tx, exec
 		return "", normalizeSQLError(err)
 	}
 
-	if runStatus != RunStatusRunning {
+	if !statusIn(runStatus, []string{RunStatusRunning, RunStatusOrphaned}) {
 		return "", fmt.Errorf("%w: run %s status %s cannot be finalized by execution claim", ErrConflict, runID, runStatus)
 	}
 
@@ -2598,6 +2606,40 @@ func validateExecutionClaimForCompletionTx(ctx context.Context, tx *sql.Tx, exec
 	}
 
 	return runID, nil
+}
+
+func markRunQueuedForContinuationTx(ctx context.Context, tx *sql.Tx, runID string) error {
+	res, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE job_runs
+		SET status = ?,
+			orphan_reason = '',
+			failure_code = '',
+			failure_reason = NULL,
+			lease_owner = NULL,
+			lease_until = NULL,
+			claim_token = NULL,
+			cancel_token = NULL,
+			cancel_requested_at = NULL,
+			cancel_reason = NULL,
+			last_dispatched_at = NULL
+		WHERE run_id = ?
+			AND status IN (?, ?)
+	`), RunStatusQueued, runID, RunStatusRunning, RunStatusOrphaned)
+
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if n != 1 {
+		return fmt.Errorf("%w: run %s cannot be queued for continuation from active status", ErrConflict, runID)
+	}
+
+	return nil
 }
 
 func markRunTerminalTx(ctx context.Context, tx *sql.Tx, runID, status, failureCode, reason string) error {
@@ -2615,8 +2657,8 @@ func markRunTerminalTx(ctx context.Context, tx *sql.Tx, runID, status, failureCo
 			cancel_requested_at = NULL,
 			cancel_reason = NULL
 		WHERE run_id = ?
-			AND status = ?
-	`), status, failureCode, nullableReason(reason), runID, RunStatusRunning)
+			AND status IN (?, ?)
+	`), status, failureCode, nullableReason(reason), runID, RunStatusRunning, RunStatusOrphaned)
 	if err != nil {
 		return normalizeSQLError(err)
 	}
@@ -2627,7 +2669,7 @@ func markRunTerminalTx(ctx context.Context, tx *sql.Tx, runID, status, failureCo
 	}
 
 	if n != 1 {
-		return fmt.Errorf("%w: run %s cannot be finalized from status %s", ErrConflict, runID, RunStatusRunning)
+		return fmt.Errorf("%w: run %s cannot be finalized from active status", ErrConflict, runID)
 	}
 
 	return nil
