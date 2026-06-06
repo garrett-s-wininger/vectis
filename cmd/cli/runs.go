@@ -121,19 +121,23 @@ type runTaskRow struct {
 }
 
 type runTaskAttemptRow struct {
-	AttemptID      string  `json:"attempt_id"`
-	TaskID         string  `json:"task_id"`
-	RunID          string  `json:"run_id"`
-	CellID         string  `json:"cell_id"`
-	Attempt        int     `json:"attempt"`
-	Status         string  `json:"status"`
-	AcceptedAt     *string `json:"accepted_at,omitempty"`
-	StartedAt      *string `json:"started_at,omitempty"`
-	FinishedAt     *string `json:"finished_at,omitempty"`
-	LastObservedAt *int64  `json:"last_observed_at,omitempty"`
-	EventSequence  int64   `json:"event_sequence"`
-	CreatedAt      *string `json:"created_at,omitempty"`
-	UpdatedAt      *string `json:"updated_at,omitempty"`
+	AttemptID       string  `json:"attempt_id"`
+	TaskID          string  `json:"task_id"`
+	RunID           string  `json:"run_id"`
+	ExecutionID     string  `json:"execution_id,omitempty"`
+	ExecutionStatus string  `json:"execution_status,omitempty"`
+	CellID          string  `json:"cell_id"`
+	LeaseOwner      *string `json:"lease_owner,omitempty"`
+	LeaseUntil      *int64  `json:"lease_until,omitempty"`
+	Attempt         int     `json:"attempt"`
+	Status          string  `json:"status"`
+	AcceptedAt      *string `json:"accepted_at,omitempty"`
+	StartedAt       *string `json:"started_at,omitempty"`
+	FinishedAt      *string `json:"finished_at,omitempty"`
+	LastObservedAt  *int64  `json:"last_observed_at,omitempty"`
+	EventSequence   int64   `json:"event_sequence"`
+	CreatedAt       *string `json:"created_at,omitempty"`
+	UpdatedAt       *string `json:"updated_at,omitempty"`
 }
 
 type runExecutionPayloadResult struct {
@@ -505,6 +509,22 @@ func writeRunTaskAttempt(w io.Writer, attempt runTaskAttemptRow) {
 
 	fmt.Fprintf(w, "  attempt=%d id=%s cell=%s status=%s event_sequence=%d",
 		attempt.Attempt, attempt.AttemptID, cellID, status, attempt.EventSequence)
+
+	if strings.TrimSpace(attempt.ExecutionID) != "" {
+		fmt.Fprintf(w, " execution_id=%s", attempt.ExecutionID)
+	}
+
+	if strings.TrimSpace(attempt.ExecutionStatus) != "" {
+		fmt.Fprintf(w, " execution_status=%s", attempt.ExecutionStatus)
+	}
+
+	if attempt.LeaseOwner != nil && strings.TrimSpace(*attempt.LeaseOwner) != "" {
+		fmt.Fprintf(w, " lease_owner=%s", *attempt.LeaseOwner)
+	}
+
+	if attempt.LeaseUntil != nil {
+		fmt.Fprintf(w, " lease_until=%s", time.Unix(*attempt.LeaseUntil, 0).UTC().Format(time.RFC3339))
+	}
 
 	if attempt.AcceptedAt != nil {
 		fmt.Fprintf(w, " accepted_at=%s", *attempt.AcceptedAt)

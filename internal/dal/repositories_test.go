@@ -1059,6 +1059,14 @@ func TestRunsRepository_ListRunTasks_ReturnsRootTaskAndAttempt(t *testing.T) {
 		t.Fatalf("unexpected root task attempt: %+v", attempt)
 	}
 
+	if attempt.ExecutionID == "" || attempt.ExecutionStatus != dal.ExecutionStatusPending {
+		t.Fatalf("unexpected root execution identity: %+v", attempt)
+	}
+
+	if attempt.LeaseOwner != nil || attempt.LeaseUntil != nil {
+		t.Fatalf("unclaimed execution should not expose lease fields: %+v", attempt)
+	}
+
 	if _, err := db.ExecContext(ctx, `
 		INSERT INTO run_tasks (task_id, run_id, parent_task_id, task_key, name, status)
 		VALUES (?, ?, ?, ?, ?, ?)
@@ -2157,6 +2165,24 @@ func TestRunsRepository_ExecutionClaims(t *testing.T) {
 	assertExecutionAndSegmentStatus(t, db, dispatch.ExecutionID, dispatch.SegmentID, dal.ExecutionStatusAccepted, dal.SegmentStatusAccepted, 1)
 	assertRootTaskAndAttemptStatus(t, db, runID, dal.TaskStatusAccepted, dal.TaskStatusAccepted, 1)
 	assertExecutionClaim(t, db, dispatch.ExecutionID, "worker-a", leaseUntil.Unix(), token)
+
+	tasks, _, err := repos.Runs().ListRunTasks(ctx, runID, 0, 10)
+	if err != nil {
+		t.Fatalf("list run tasks after execution claim: %v", err)
+	}
+
+	if len(tasks) != 1 || len(tasks[0].Attempts) != 1 {
+		t.Fatalf("claimed task attempts: %+v", tasks)
+	}
+
+	claimedAttempt := tasks[0].Attempts[0]
+	if claimedAttempt.ExecutionID != dispatch.ExecutionID || claimedAttempt.ExecutionStatus != dal.ExecutionStatusAccepted {
+		t.Fatalf("claimed attempt execution state: %+v", claimedAttempt)
+	}
+
+	if claimedAttempt.LeaseOwner == nil || *claimedAttempt.LeaseOwner != "worker-a" || claimedAttempt.LeaseUntil == nil || *claimedAttempt.LeaseUntil != leaseUntil.Unix() {
+		t.Fatalf("claimed attempt lease fields: %+v", claimedAttempt)
+	}
 
 	claimed, duplicateToken, err := repos.Runs().TryClaimExecution(ctx, dispatch.ExecutionID, "worker-b", time.Now().Add(2*time.Minute))
 	if err != nil {

@@ -1344,7 +1344,11 @@ func (r *SQLRunsRepository) ListRunTasks(ctx context.Context, runID string, curs
 			ta.attempt_id,
 			ta.task_id,
 			ta.run_id,
+			se.execution_id,
+			se.status,
 			ta.cell_id,
+			se.lease_owner,
+			se.lease_until,
 			ta.attempt,
 			ta.status,
 			CAST(ta.accepted_at AS TEXT),
@@ -1356,6 +1360,7 @@ func (r *SQLRunsRepository) ListRunTasks(ctx context.Context, runID string, curs
 			CAST(ta.updated_at AS TEXT)
 		FROM page_tasks rt
 		LEFT JOIN task_attempts ta ON ta.task_id = rt.task_id
+		LEFT JOIN segment_executions se ON se.task_attempt_id = ta.attempt_id AND se.task_id = ta.task_id AND se.run_id = ta.run_id AND se.attempt = ta.attempt
 		ORDER BY rt.id ASC, ta.attempt ASC, ta.id ASC
 	`), runID, cursor, cursor, limit+1)
 
@@ -1369,10 +1374,10 @@ func (r *SQLRunsRepository) ListRunTasks(ctx context.Context, runID string, curs
 	for rows.Next() {
 		var rec TaskRecord
 		var parentTaskID, createdAt, updatedAt sql.NullString
-		var attemptID, attemptTaskID, attemptRunID, cellID, attemptStatus sql.NullString
+		var attemptID, attemptTaskID, attemptRunID, executionID, executionStatus, cellID, leaseOwner, attemptStatus sql.NullString
 		var attempt sql.NullInt64
 		var acceptedAt, startedAt, finishedAt, attemptCreatedAt, attemptUpdatedAt sql.NullString
-		var lastObservedAt, eventSequence sql.NullInt64
+		var leaseUntil, lastObservedAt, eventSequence sql.NullInt64
 		if err := rows.Scan(
 			&rec.ID,
 			&rec.TaskID,
@@ -1387,7 +1392,11 @@ func (r *SQLRunsRepository) ListRunTasks(ctx context.Context, runID string, curs
 			&attemptID,
 			&attemptTaskID,
 			&attemptRunID,
+			&executionID,
+			&executionStatus,
 			&cellID,
+			&leaseOwner,
+			&leaseUntil,
 			&attempt,
 			&attemptStatus,
 			&acceptedAt,
@@ -1416,18 +1425,22 @@ func (r *SQLRunsRepository) ListRunTasks(ctx context.Context, runID string, curs
 		}
 
 		attemptRec := TaskAttemptRecord{
-			AttemptID:      attemptID.String,
-			TaskID:         attemptTaskID.String,
-			RunID:          attemptRunID.String,
-			CellID:         cellID.String,
-			Status:         attemptStatus.String,
-			AcceptedAt:     nullStringPtr(acceptedAt),
-			StartedAt:      nullStringPtr(startedAt),
-			FinishedAt:     nullStringPtr(finishedAt),
-			LastObservedAt: nullInt64Ptr(lastObservedAt),
-			EventSequence:  eventSequence.Int64,
-			CreatedAt:      nullStringPtr(attemptCreatedAt),
-			UpdatedAt:      nullStringPtr(attemptUpdatedAt),
+			AttemptID:       attemptID.String,
+			TaskID:          attemptTaskID.String,
+			RunID:           attemptRunID.String,
+			ExecutionID:     executionID.String,
+			ExecutionStatus: executionStatus.String,
+			CellID:          cellID.String,
+			LeaseOwner:      nullStringPtr(leaseOwner),
+			LeaseUntil:      nullInt64Ptr(leaseUntil),
+			Status:          attemptStatus.String,
+			AcceptedAt:      nullStringPtr(acceptedAt),
+			StartedAt:       nullStringPtr(startedAt),
+			FinishedAt:      nullStringPtr(finishedAt),
+			LastObservedAt:  nullInt64Ptr(lastObservedAt),
+			EventSequence:   eventSequence.Int64,
+			CreatedAt:       nullStringPtr(attemptCreatedAt),
+			UpdatedAt:       nullStringPtr(attemptUpdatedAt),
 		}
 		if attempt.Valid {
 			attemptRec.Attempt = int(attempt.Int64)

@@ -1459,6 +1459,16 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 		t.Fatalf("trigger invocation id from run detail: got %+v want %q", runResp.TriggerInvocationID, invocationID)
 	}
 
+	leaseUntil := time.Now().Add(time.Minute)
+	claimedExecution, executionClaimToken, err := dal.NewSQLRepositories(db).Runs().TryClaimExecution(context.Background(), env.ExecutionID, "worker-api-task-list", leaseUntil)
+	if err != nil {
+		t.Fatalf("claim execution for task list: %v", err)
+	}
+
+	if !claimedExecution || executionClaimToken == "" {
+		t.Fatalf("expected execution claim before task list, claimed=%v token=%q", claimedExecution, executionClaimToken)
+	}
+
 	tasksReq := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+runID+"/tasks", nil)
 	tasksReq.SetPathValue("id", runID)
 	tasksRec := httptest.NewRecorder()
@@ -1475,15 +1485,20 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 			Name     string `json:"name"`
 			Status   string `json:"status"`
 			Attempts []struct {
-				AttemptID string `json:"attempt_id"`
-				TaskID    string `json:"task_id"`
-				RunID     string `json:"run_id"`
-				CellID    string `json:"cell_id"`
-				Attempt   int    `json:"attempt"`
-				Status    string `json:"status"`
+				AttemptID       string  `json:"attempt_id"`
+				TaskID          string  `json:"task_id"`
+				RunID           string  `json:"run_id"`
+				ExecutionID     string  `json:"execution_id"`
+				ExecutionStatus string  `json:"execution_status"`
+				CellID          string  `json:"cell_id"`
+				LeaseOwner      *string `json:"lease_owner"`
+				LeaseUntil      *int64  `json:"lease_until"`
+				Attempt         int     `json:"attempt"`
+				Status          string  `json:"status"`
 			} `json:"attempts"`
 		} `json:"data"`
 	}
+
 	if err := json.NewDecoder(tasksRec.Body).Decode(&tasksResp); err != nil {
 		t.Fatalf("decode run tasks response: %v", err)
 	}
@@ -1493,7 +1508,7 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 	}
 
 	rootTask := tasksResp.Data[0]
-	if rootTask.TaskID != runID+":root" || rootTask.RunID != runID || rootTask.TaskKey != dal.RootTaskKey || rootTask.Name != dal.RootTaskKey || rootTask.Status != dal.TaskStatusPending {
+	if rootTask.TaskID != runID+":root" || rootTask.RunID != runID || rootTask.TaskKey != dal.RootTaskKey || rootTask.Name != dal.RootTaskKey || rootTask.Status != dal.TaskStatusAccepted {
 		t.Fatalf("unexpected root task response: %+v", rootTask)
 	}
 
@@ -1502,8 +1517,16 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 	}
 
 	rootAttempt := rootTask.Attempts[0]
-	if rootAttempt.AttemptID != runID+":root:attempt:1" || rootAttempt.TaskID != rootTask.TaskID || rootAttempt.RunID != runID || rootAttempt.CellID != dal.DefaultCellID || rootAttempt.Attempt != 1 || rootAttempt.Status != dal.TaskStatusPending {
+	if rootAttempt.AttemptID != runID+":root:attempt:1" || rootAttempt.TaskID != rootTask.TaskID || rootAttempt.RunID != runID || rootAttempt.CellID != dal.DefaultCellID || rootAttempt.Attempt != 1 || rootAttempt.Status != dal.TaskStatusAccepted {
 		t.Fatalf("unexpected root task attempt response: %+v", rootAttempt)
+	}
+
+	if rootAttempt.ExecutionID != env.ExecutionID || rootAttempt.ExecutionStatus != dal.ExecutionStatusAccepted {
+		t.Fatalf("unexpected root task execution response: %+v", rootAttempt)
+	}
+
+	if rootAttempt.LeaseOwner == nil || *rootAttempt.LeaseOwner != "worker-api-task-list" || rootAttempt.LeaseUntil == nil || *rootAttempt.LeaseUntil != leaseUntil.Unix() {
+		t.Fatalf("unexpected root task lease response: %+v", rootAttempt)
 	}
 
 	payloadReq := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+runID+"/execution-payload", nil)

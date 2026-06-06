@@ -152,19 +152,23 @@ type TaskRecord struct {
 }
 
 type TaskAttemptRecord struct {
-	AttemptID      string
-	TaskID         string
-	RunID          string
-	CellID         string
-	Attempt        int
-	Status         string
-	AcceptedAt     *string
-	StartedAt      *string
-	FinishedAt     *string
-	LastObservedAt *int64
-	EventSequence  int64
-	CreatedAt      *string
-	UpdatedAt      *string
+	AttemptID       string
+	TaskID          string
+	RunID           string
+	ExecutionID     string
+	ExecutionStatus string
+	CellID          string
+	LeaseOwner      *string
+	LeaseUntil      *int64
+	Attempt         int
+	Status          string
+	AcceptedAt      *string
+	StartedAt       *string
+	FinishedAt      *string
+	LastObservedAt  *int64
+	EventSequence   int64
+	CreatedAt       *string
+	UpdatedAt       *string
 }
 
 type TaskExecutionCreate struct {

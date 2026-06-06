@@ -2437,19 +2437,23 @@ func (s *APIServer) GetRunTasks(w http.ResponseWriter, r *http.Request) {
 	s.markDBRecovered()
 
 	type taskAttemptRow struct {
-		AttemptID      string  `json:"attempt_id"`
-		TaskID         string  `json:"task_id"`
-		RunID          string  `json:"run_id"`
-		CellID         string  `json:"cell_id"`
-		Attempt        int     `json:"attempt"`
-		Status         string  `json:"status"`
-		AcceptedAt     *string `json:"accepted_at,omitempty"`
-		StartedAt      *string `json:"started_at,omitempty"`
-		FinishedAt     *string `json:"finished_at,omitempty"`
-		LastObservedAt *int64  `json:"last_observed_at,omitempty"`
-		EventSequence  int64   `json:"event_sequence"`
-		CreatedAt      *string `json:"created_at,omitempty"`
-		UpdatedAt      *string `json:"updated_at,omitempty"`
+		AttemptID       string  `json:"attempt_id"`
+		TaskID          string  `json:"task_id"`
+		RunID           string  `json:"run_id"`
+		ExecutionID     string  `json:"execution_id,omitempty"`
+		ExecutionStatus string  `json:"execution_status,omitempty"`
+		CellID          string  `json:"cell_id"`
+		LeaseOwner      *string `json:"lease_owner,omitempty"`
+		LeaseUntil      *int64  `json:"lease_until,omitempty"`
+		Attempt         int     `json:"attempt"`
+		Status          string  `json:"status"`
+		AcceptedAt      *string `json:"accepted_at,omitempty"`
+		StartedAt       *string `json:"started_at,omitempty"`
+		FinishedAt      *string `json:"finished_at,omitempty"`
+		LastObservedAt  *int64  `json:"last_observed_at,omitempty"`
+		EventSequence   int64   `json:"event_sequence"`
+		CreatedAt       *string `json:"created_at,omitempty"`
+		UpdatedAt       *string `json:"updated_at,omitempty"`
 	}
 
 	type taskRow struct {
@@ -2482,19 +2486,23 @@ func (s *APIServer) GetRunTasks(w http.ResponseWriter, r *http.Request) {
 
 		for _, attempt := range rec.Attempts {
 			task.Attempts = append(task.Attempts, taskAttemptRow{
-				AttemptID:      attempt.AttemptID,
-				TaskID:         attempt.TaskID,
-				RunID:          attempt.RunID,
-				CellID:         attempt.CellID,
-				Attempt:        attempt.Attempt,
-				Status:         attempt.Status,
-				AcceptedAt:     attempt.AcceptedAt,
-				StartedAt:      attempt.StartedAt,
-				FinishedAt:     attempt.FinishedAt,
-				LastObservedAt: attempt.LastObservedAt,
-				EventSequence:  attempt.EventSequence,
-				CreatedAt:      attempt.CreatedAt,
-				UpdatedAt:      attempt.UpdatedAt,
+				AttemptID:       attempt.AttemptID,
+				TaskID:          attempt.TaskID,
+				RunID:           attempt.RunID,
+				ExecutionID:     attempt.ExecutionID,
+				ExecutionStatus: attempt.ExecutionStatus,
+				CellID:          attempt.CellID,
+				LeaseOwner:      attempt.LeaseOwner,
+				LeaseUntil:      attempt.LeaseUntil,
+				Attempt:         attempt.Attempt,
+				Status:          attempt.Status,
+				AcceptedAt:      attempt.AcceptedAt,
+				StartedAt:       attempt.StartedAt,
+				FinishedAt:      attempt.FinishedAt,
+				LastObservedAt:  attempt.LastObservedAt,
+				EventSequence:   attempt.EventSequence,
+				CreatedAt:       attempt.CreatedAt,
+				UpdatedAt:       attempt.UpdatedAt,
 			})
 		}
 

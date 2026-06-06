@@ -195,6 +195,8 @@ List the task graph nodes and task attempts recorded for one run:
 ./bin/vectis-cli runs tasks <run-id>
 ```
 
+Attempt rows include execution ID/status and worker lease owner/expiry when the execution is actively owned.
+
 Show the frozen execution payload captured for a run:
 
 ```sh
