@@ -354,6 +354,7 @@ const (
 	ExecutionFinalizationOutcomeWaiting      ExecutionFinalizationOutcome = "waiting"
 	ExecutionFinalizationOutcomeRunSucceeded ExecutionFinalizationOutcome = "run_succeeded"
 	ExecutionFinalizationOutcomeRunFailed    ExecutionFinalizationOutcome = "run_failed"
+	ExecutionFinalizationOutcomeRunCancelled ExecutionFinalizationOutcome = "run_cancelled"
 )
 
 type ExecutionFinalizationResult struct {

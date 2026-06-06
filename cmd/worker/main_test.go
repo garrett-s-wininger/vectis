@@ -1664,6 +1664,44 @@ func TestWorkerFinalizeAbortedTaskRun_CompletesExecutionBeforeRunAbort(t *testin
 	assertTaskFinalizeOutcome(t, recorder, taskfinalize.OutcomeExecutionAborted)
 }
 
+func TestWorkerFinalizeAbortedTaskRunByExecutionClaim_CancelsRun(t *testing.T) {
+	t.Parallel()
+
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	defer func() { _ = provider.Shutdown(context.Background()) }()
+
+	ctx, span := provider.Tracer("worker-test").Start(context.Background(), "finalize-aborted-by-claim")
+	runs := mocks.NewMockRunsRepository()
+	runs.ExecutionFinalization = dal.ExecutionFinalizationResult{
+		ExecutionID: "execution-root",
+		RunID:       "run-aborted",
+		Outcome:     dal.ExecutionFinalizationOutcomeRunCancelled,
+		Summary:     dal.RunTaskCompletion{RunID: "run-aborted", Total: 1, TerminalFailed: 1},
+	}
+
+	w := &worker{
+		runCtx:   context.Background(),
+		logger:   interfaces.NewLogger("worker-test"),
+		workerID: "worker-a",
+		store:    runs,
+		catalog:  cell.NewCatalogEventPublisher("local", nil),
+	}
+
+	env := &cell.ExecutionEnvelope{ExecutionID: "execution-root"}
+	outcome := w.finalizeAbortedTaskRunByExecutionClaim(ctx, "execution-claim-token", dal.CancelReasonAPI, env)
+	span.End()
+	if outcome != observability.WorkerOutcomeAborted {
+		t.Fatalf("outcome: got %q, want %q", outcome, observability.WorkerOutcomeAborted)
+	}
+
+	if runs.LastFinalizedExecID != "execution-root" || runs.LastExecutionOwner != "worker-a" || runs.LastFinalizedStatus != dal.ExecutionStatusAborted {
+		t.Fatalf("finalized execution call mismatch: exec=%q owner=%q status=%q", runs.LastFinalizedExecID, runs.LastExecutionOwner, runs.LastFinalizedStatus)
+	}
+
+	assertTaskFinalizeOutcome(t, recorder, taskfinalize.OutcomeExecutionAborted)
+}
+
 func TestWorkerFinalizeSucceededTaskRun_DispatchableChildrenContinue(t *testing.T) {
 	t.Parallel()
 

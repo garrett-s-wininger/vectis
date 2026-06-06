@@ -740,6 +740,10 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 			span.AddEvent("run.cancelled")
 			span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeAborted))
 			w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
+			if executionClaimToken != "" {
+				return w.finalizeAbortedTaskRunByExecutionClaim(ctx, executionClaimToken, dal.CancelReasonAPI, executionEnvelope)
+			}
+
 			return w.finalizeAbortedTaskRun(ctx, runID, claimToken, dal.CancelReasonAPI, executionEnvelope)
 		}
 
@@ -792,6 +796,27 @@ func (w *worker) finalizeFailedTaskRunByExecutionClaim(ctx context.Context, runI
 
 	span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeFailed))
 	return observability.WorkerOutcomeFailed
+}
+
+func (w *worker) finalizeAbortedTaskRunByExecutionClaim(ctx context.Context, executionClaimToken, reason string, executionEnvelope *cell.ExecutionEnvelope) string {
+	span := trace.SpanFromContext(ctx)
+
+	result, ok := w.completeExecutionAndFinalizeRunByClaim(ctx, executionEnvelope, executionClaimToken, dal.ExecutionStatusAborted, "", reason)
+	if !ok {
+		span.SetStatus(otelcodes.Error, "complete aborted task execution by claim")
+		return observability.WorkerOutcomeFailed
+	}
+
+	w.recordTaskFinalizeDecision(ctx, taskfinalize.ExecutionAborted())
+
+	if result.Outcome != dal.ExecutionFinalizationOutcomeRunCancelled {
+		err := fmt.Errorf("aborted execution finalization produced outcome %q", result.Outcome)
+		span.RecordError(err)
+		span.SetStatus(otelcodes.Error, "unexpected aborted execution finalization outcome")
+		return observability.WorkerOutcomeFailed
+	}
+
+	return observability.WorkerOutcomeAborted
 }
 
 func (w *worker) finalizeAbortedTaskRun(ctx context.Context, runID, claimToken, reason string, executionEnvelope *cell.ExecutionEnvelope) string {
@@ -1165,6 +1190,12 @@ func (w *worker) recordRunCatalogEventForExecutionFinalization(result dal.Execut
 		}
 
 		w.recordRunCatalogEvent(dal.RunStatusUpdate{RunID: result.RunID, Status: dal.RunStatusFailed, FailureCode: failureCode, Reason: reason})
+	case dal.ExecutionFinalizationOutcomeRunCancelled:
+		if reason == "" {
+			reason = dal.CancelReasonAPI
+		}
+
+		w.recordRunCatalogEvent(dal.RunStatusUpdate{RunID: result.RunID, Status: dal.RunStatusCancelled, Reason: reason})
 	}
 }
 

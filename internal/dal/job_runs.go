@@ -2535,6 +2535,16 @@ func (r *SQLRunsRepository) CompleteExecutionAndFinalizeRunByClaim(ctx context.C
 	}
 
 	switch {
+	case statusIn(status, []string{ExecutionStatusCancelled, ExecutionStatusAborted}):
+		if reason == "" {
+			reason = CancelReasonAPI
+		}
+
+		if err := markRunTerminalTx(ctx, tx, runID, RunStatusCancelled, "", reason); err != nil {
+			return ExecutionFinalizationResult{}, err
+		}
+
+		result.Outcome = ExecutionFinalizationOutcomeRunCancelled
 	case summary.TerminalFailed > 0:
 		if failureCode == "" {
 			failureCode = FailureCodeExecution

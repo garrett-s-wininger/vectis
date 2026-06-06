@@ -2399,6 +2399,41 @@ func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_FailsRun(t *testi
 	assertExecutionClaimCleared(t, db, setup.Dispatch.ExecutionID)
 }
 
+func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_CancelsRun(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+	setup := setupClaimedExecutionFinalizationRun(t, ctx, repos, "cancelled")
+
+	result, err := repos.Runs().CompleteExecutionAndFinalizeRunByClaim(ctx, setup.Dispatch.ExecutionID, "worker-a", setup.Token, dal.ExecutionStatusAborted, "", dal.CancelReasonAPI)
+	if err != nil {
+		t.Fatalf("CompleteExecutionAndFinalizeRunByClaim aborted: %v", err)
+	}
+
+	if result.Outcome != dal.ExecutionFinalizationOutcomeRunCancelled || result.Summary.Total != 1 || result.Summary.TerminalFailed != 1 {
+		t.Fatalf("cancelled result mismatch: %+v", result)
+	}
+
+	var status string
+	var failureCode string
+	var failureReason sql.NullString
+	if err := db.QueryRowContext(ctx, `
+		SELECT status, failure_code, failure_reason
+		FROM job_runs
+		WHERE run_id = ?
+	`, setup.RunID).Scan(&status, &failureCode, &failureReason); err != nil {
+		t.Fatalf("query cancelled run: %v", err)
+	}
+
+	if status != dal.RunStatusCancelled || failureCode != "" || !failureReason.Valid || failureReason.String != dal.CancelReasonAPI {
+		t.Fatalf("cancelled run state mismatch: status=%q code=%q reason=%v", status, failureCode, failureReason)
+	}
+
+	assertExecutionAndSegmentStatus(t, db, setup.Dispatch.ExecutionID, setup.Dispatch.SegmentID, dal.ExecutionStatusAborted, dal.SegmentStatusAborted, 2)
+	assertRootTaskAndAttemptStatus(t, db, setup.RunID, dal.TaskStatusAborted, dal.TaskStatusAborted, 2)
+	assertExecutionClaimCleared(t, db, setup.Dispatch.ExecutionID)
+}
+
 func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_WaitsForIncompleteTasks(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)
