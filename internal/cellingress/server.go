@@ -106,6 +106,23 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if r.Method != http.MethodPost && httpsecurity.RequestHasBody(r) {
+		writeError(w, http.StatusBadRequest, "request_body_not_allowed", "request body is not allowed")
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		if !httpsecurity.RequestContentTypeIsJSON(r) {
+			writeError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "request content type must be application/json")
+			return
+		}
+
+		if r.ContentLength > maxExecutionRequestBytes {
+			writeError(w, http.StatusRequestEntityTooLarge, "request_body_too_large", "request body is too large")
+			return
+		}
+	}
+
 	if !httpsecurity.AcceptsAny(r.Header.Get("Accept"), httpsecurity.MediaTypeJSON) {
 		writeError(w, http.StatusNotAcceptable, "not_acceptable", "requested response media type is not acceptable")
 		return
@@ -144,6 +161,12 @@ func (s *Server) submitExecution(w http.ResponseWriter, r *http.Request) {
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxExecutionRequestBytes))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&body); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeError(w, http.StatusRequestEntityTooLarge, "request_body_too_large", "request body is too large")
+			return
+		}
+
 		writeError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("invalid execution request: %v", err))
 		return
 	}

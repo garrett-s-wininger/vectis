@@ -340,6 +340,31 @@ func TestDocsServerHandlerRejectsNonReadMethods(t *testing.T) {
 	}
 }
 
+func TestDocsServerHandlerRejectsReadRequestBodies(t *testing.T) {
+	handler := docsServerHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not be called")
+	}))
+
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		t.Run(method, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(method, "/", strings.NewReader("body"))
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+			}
+
+			if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+				t.Fatalf("Cache-Control = %q, want no-store", got)
+			}
+
+			assertDocsHeader(t, rec, "X-Content-Type-Options", "nosniff")
+			assertDocsHeader(t, rec, "X-Frame-Options", "DENY")
+		})
+	}
+}
+
 func TestDocsServerHandlerRejectsMethodOverrideHeaders(t *testing.T) {
 	for _, header := range []string{"X-HTTP-Method", "X-HTTP-Method-Override", "X-Method-Override"} {
 		t.Run(header, func(t *testing.T) {

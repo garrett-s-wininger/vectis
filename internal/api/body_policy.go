@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"vectis/internal/httpsecurity"
 )
 
 type routeBodyMode int
@@ -57,7 +59,7 @@ func routeBodyMiddleware(policy routeBodyPolicy, next http.Handler, recorders ..
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !policy.allowsBody() {
-			if requestHasBody(r) {
+			if httpsecurity.RequestHasBody(r) {
 				if record != nil {
 					record(r, securityReasonRequestBodyNotAllowed, http.StatusBadRequest)
 				}
@@ -95,24 +97,12 @@ func routeBodyMiddleware(policy routeBodyPolicy, next http.Handler, recorders ..
 	})
 }
 
-func requestHasBody(r *http.Request) bool {
-	if r.ContentLength > 0 {
-		return true
-	}
-
-	if len(r.TransferEncoding) > 0 {
-		return true
-	}
-
-	return r.ContentLength < 0 && r.Body != nil && r.Body != http.NoBody
-}
-
 func (p routeBodyPolicy) requiresJSONContentType(r *http.Request) bool {
 	switch p.mode {
 	case routeBodyJSON:
 		return true
 	case routeBodyOptionalJSON:
-		return requestHasBody(r)
+		return httpsecurity.RequestHasBody(r)
 	default:
 		return false
 	}

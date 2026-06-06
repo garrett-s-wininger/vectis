@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"vectis/internal/httpsecurity"
@@ -134,6 +135,27 @@ func TestMetricsServerHandlerRejectsNonReadMethods(t *testing.T) {
 
 			if got := rec.Header().Get("Allow"); got != "GET, HEAD" {
 				t.Fatalf("Allow = %q, want GET, HEAD", got)
+			}
+
+			assertMetricsNoStore(t, rec)
+			assertMetricsHeader(t, rec, "X-Content-Type-Options", "nosniff")
+		})
+	}
+}
+
+func TestMetricsServerHandlerRejectsReadRequestBodies(t *testing.T) {
+	handler := metricsServerHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("metrics handler should not be called")
+	}))
+
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		t.Run(method, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(method, "/metrics", strings.NewReader("body"))
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
 			}
 
 			assertMetricsNoStore(t, rec)

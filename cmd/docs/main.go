@@ -108,6 +108,12 @@ func docsReadOnlyMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		if httpsecurity.RequestHasBody(r) {
+			w.Header().Set("Cache-Control", "no-store")
+			http.Error(w, "request body is not allowed", http.StatusBadRequest)
+			return
+		}
+
 		next.ServeHTTP(w, r)
 	})
 }

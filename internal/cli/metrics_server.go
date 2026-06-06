@@ -92,6 +92,11 @@ func metricsServerHandler(handler http.Handler) http.Handler {
 			return
 		}
 
+		if httpsecurity.RequestHasBody(r) {
+			http.Error(w, "request body is not allowed", http.StatusBadRequest)
+			return
+		}
+
 		if !httpsecurity.AcceptsAny(r.Header.Get("Accept"), httpsecurity.MediaTypePlainText, httpsecurity.MediaTypeOpenMetricsText) {
 			http.Error(w, "not acceptable", http.StatusNotAcceptable)
 			return

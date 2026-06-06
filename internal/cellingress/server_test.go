@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -72,7 +73,7 @@ func TestServerAppliesHSTSForDirectTLS(t *testing.T) {
 func TestSubmitExecutionAcceptsLocalEnvelope(t *testing.T) {
 	queue := mocks.NewMockQueueService()
 	srv := NewQueueServer("iad-a", queue, mocks.NewMockLogger())
-	req := httptest.NewRequest(http.MethodPost, "/cell/v1/executions", executionBody(t, validJobRequestForCell(t, "iad-a")))
+	req := newExecutionRequest(t, executionBody(t, validJobRequestForCell(t, "iad-a")))
 	rr := httptest.NewRecorder()
 
 	srv.ServeHTTP(rr, req)
@@ -111,7 +112,7 @@ func TestSubmitExecutionAcceptsLocalEnvelope(t *testing.T) {
 
 func TestSubmitExecutionRequiresJobRequest(t *testing.T) {
 	srv := NewQueueServer("iad-a", mocks.NewMockQueueService(), mocks.NewMockLogger())
-	req := httptest.NewRequest(http.MethodPost, "/cell/v1/executions", strings.NewReader(`{}`))
+	req := newExecutionRequest(t, strings.NewReader(`{}`))
 	rr := httptest.NewRecorder()
 
 	srv.ServeHTTP(rr, req)
@@ -124,7 +125,7 @@ func TestSubmitExecutionRequiresEnvelope(t *testing.T) {
 	srv := NewQueueServer("iad-a", queue, mocks.NewMockLogger())
 	jobReq := validJobRequestForCell(t, "iad-a")
 	delete(jobReq.Metadata, cell.ExecutionEnvelopeMetadataKey)
-	req := httptest.NewRequest(http.MethodPost, "/cell/v1/executions", executionBody(t, jobReq))
+	req := newExecutionRequest(t, executionBody(t, jobReq))
 	rr := httptest.NewRecorder()
 
 	srv.ServeHTTP(rr, req)
@@ -138,7 +139,7 @@ func TestSubmitExecutionRequiresEnvelope(t *testing.T) {
 func TestSubmitExecutionRejectsWrongCell(t *testing.T) {
 	queue := mocks.NewMockQueueService()
 	srv := NewQueueServer("iad-a", queue, mocks.NewMockLogger())
-	req := httptest.NewRequest(http.MethodPost, "/cell/v1/executions", executionBody(t, validJobRequestForCell(t, "pdx-b")))
+	req := newExecutionRequest(t, executionBody(t, validJobRequestForCell(t, "pdx-b")))
 	rr := httptest.NewRecorder()
 
 	srv.ServeHTTP(rr, req)
@@ -153,7 +154,7 @@ func TestSubmitExecutionReturnsQueueUnavailable(t *testing.T) {
 	queue := mocks.NewMockQueueService()
 	queue.SetEnqueueError(errors.New("queue closed"))
 	srv := NewQueueServer("iad-a", queue, mocks.NewMockLogger())
-	req := httptest.NewRequest(http.MethodPost, "/cell/v1/executions", executionBody(t, validJobRequestForCell(t, "iad-a")))
+	req := newExecutionRequest(t, executionBody(t, validJobRequestForCell(t, "iad-a")))
 	rr := httptest.NewRecorder()
 
 	srv.ServeHTTP(rr, req)
@@ -167,7 +168,7 @@ func TestSubmitExecutionDurablyAcceptsBeforeReturningQueueUnavailable(t *testing
 	acceptances := &recordingAcceptanceStore{}
 	srv := NewQueueServer("iad-a", queue, mocks.NewMockLogger())
 	srv.SetAcceptanceStore(acceptances)
-	req := httptest.NewRequest(http.MethodPost, "/cell/v1/executions", executionBody(t, validJobRequestForCellAttempt(t, "iad-a", 2)))
+	req := newExecutionRequest(t, executionBody(t, validJobRequestForCellAttempt(t, "iad-a", 2)))
 	rr := httptest.NewRecorder()
 
 	srv.ServeHTTP(rr, req)
@@ -205,7 +206,7 @@ func TestSubmitExecutionMarksDurableAcceptanceEnqueued(t *testing.T) {
 	acceptances := &recordingAcceptanceStore{}
 	srv := NewQueueServer("iad-a", queue, mocks.NewMockLogger())
 	srv.SetAcceptanceStore(acceptances)
-	req := httptest.NewRequest(http.MethodPost, "/cell/v1/executions", executionBody(t, validJobRequestForCell(t, "iad-a")))
+	req := newExecutionRequest(t, executionBody(t, validJobRequestForCell(t, "iad-a")))
 	rr := httptest.NewRecorder()
 
 	srv.ServeHTTP(rr, req)
@@ -228,7 +229,7 @@ func TestSubmitExecutionRejectsWrongCellBeforeDurableAccept(t *testing.T) {
 	acceptances := &recordingAcceptanceStore{}
 	srv := NewQueueServer("iad-a", queue, mocks.NewMockLogger())
 	srv.SetAcceptanceStore(acceptances)
-	req := httptest.NewRequest(http.MethodPost, "/cell/v1/executions", executionBody(t, validJobRequestForCell(t, "pdx-b")))
+	req := newExecutionRequest(t, executionBody(t, validJobRequestForCell(t, "pdx-b")))
 	rr := httptest.NewRecorder()
 
 	srv.ServeHTTP(rr, req)
@@ -244,7 +245,7 @@ func TestSubmitExecutionReturnsConflictWhenAcceptanceConflicts(t *testing.T) {
 	acceptances := &recordingAcceptanceStore{err: dal.ErrConflict}
 	srv := NewQueueServer("iad-a", queue, mocks.NewMockLogger())
 	srv.SetAcceptanceStore(acceptances)
-	req := httptest.NewRequest(http.MethodPost, "/cell/v1/executions", executionBody(t, validJobRequestForCell(t, "iad-a")))
+	req := newExecutionRequest(t, executionBody(t, validJobRequestForCell(t, "iad-a")))
 	rr := httptest.NewRecorder()
 
 	srv.ServeHTTP(rr, req)
@@ -343,6 +344,72 @@ func TestRouteGuardRejectsCellIngressMethodMismatch(t *testing.T) {
 	}
 }
 
+func TestRouteGuardRejectsCellIngressReadRequestBodies(t *testing.T) {
+	srv := NewQueueServer("iad-a", mocks.NewMockQueueService(), mocks.NewMockLogger())
+
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		t.Run(method, func(t *testing.T) {
+			req := httptest.NewRequest(method, "/health/live", strings.NewReader("body"))
+			rr := httptest.NewRecorder()
+
+			srv.ServeHTTP(rr, req)
+
+			assertErrorCode(t, rr, http.StatusBadRequest, "request_body_not_allowed")
+			assertNoStore(t, rr)
+		})
+	}
+}
+
+func TestRouteGuardRejectsCellIngressUnsupportedMediaType(t *testing.T) {
+	tests := []struct {
+		name        string
+		contentType string
+	}{
+		{name: "missing"},
+		{name: "text plain", contentType: "text/plain"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := NewQueueServer("iad-a", mocks.NewMockQueueService(), mocks.NewMockLogger())
+			req := httptest.NewRequest(http.MethodPost, "/cell/v1/executions", strings.NewReader(`{}`))
+			if tt.contentType != "" {
+				req.Header.Set("Content-Type", tt.contentType)
+			}
+			rr := httptest.NewRecorder()
+
+			srv.ServeHTTP(rr, req)
+
+			assertErrorCode(t, rr, http.StatusUnsupportedMediaType, "unsupported_media_type")
+			assertNoStore(t, rr)
+		})
+	}
+}
+
+func TestRouteGuardRejectsCellIngressOversizedBody(t *testing.T) {
+	srv := NewQueueServer("iad-a", mocks.NewMockQueueService(), mocks.NewMockLogger())
+	req := newExecutionRequest(t, strings.NewReader(strings.Repeat("a", maxExecutionRequestBytes+1)))
+	rr := httptest.NewRecorder()
+
+	srv.ServeHTTP(rr, req)
+
+	assertErrorCode(t, rr, http.StatusRequestEntityTooLarge, "request_body_too_large")
+	assertNoStore(t, rr)
+}
+
+func TestSubmitExecutionRejectsStreamingOversizedBody(t *testing.T) {
+	srv := NewQueueServer("iad-a", mocks.NewMockQueueService(), mocks.NewMockLogger())
+	body := `{"job_request":"` + strings.Repeat("a", maxExecutionRequestBytes+1) + `"}`
+	req := newExecutionRequest(t, strings.NewReader(body))
+	req.ContentLength = -1
+	rr := httptest.NewRecorder()
+
+	srv.ServeHTTP(rr, req)
+
+	assertErrorCode(t, rr, http.StatusRequestEntityTooLarge, "request_body_too_large")
+	assertNoStore(t, rr)
+}
+
 func TestRouteGuardRejectsCellIngressMethodOverrideHeaders(t *testing.T) {
 	for _, header := range []string{"X-HTTP-Method", "X-HTTP-Method-Override", "X-Method-Override"} {
 		t.Run(header, func(t *testing.T) {
@@ -401,6 +468,13 @@ func TestRouteGuardAllowsHEADForCellIngressHealth(t *testing.T) {
 	}
 
 	assertNoStore(t, rr)
+}
+
+func newExecutionRequest(t *testing.T, body io.Reader) *http.Request {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/cell/v1/executions", body)
+	req.Header.Set("Content-Type", "application/json")
+	return req
 }
 
 func executionBody(t *testing.T, req *api.JobRequest) *bytes.Reader {

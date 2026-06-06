@@ -82,7 +82,7 @@ Cell ingress is private infrastructure, not a public API. Expose it only to glob
 
 ## Cell Ingress Security
 
-`vectis-cell-ingress` exposes the internal execution submission route `POST /cell/v1/executions`, plus health and metrics endpoints. It is intentionally slim: user authentication, RBAC, namespace checks, and trigger authorization happen at the global API before dispatch. Cell ingress trusts that only approved global producers can reach it.
+`vectis-cell-ingress` exposes the internal execution submission route `POST /cell/v1/executions`, plus health and metrics endpoints. Execution submissions must use `application/json` and are capped at 2 MiB; health and metrics reads do not accept request bodies. It is intentionally slim: user authentication, RBAC, namespace checks, and trigger authorization happen at the global API before dispatch. Cell ingress trusts that only approved global producers can reach it.
 
 For production-like deployments:
 
