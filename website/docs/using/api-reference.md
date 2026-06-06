@@ -199,7 +199,7 @@ Host header validation is enabled by default. Requests with untrusted, wildcard,
 
 Security-control rejections for Host validation, CORS checks, Fetch Metadata checks, CSRF checks, request-target checks, request-header checks, query-parameter checks, method override headers, method checks, response `Accept` negotiation, media-type checks, request body policy, and rate limits are logged with sanitized fields and counted by the `vectis_api_security_rejections_total` metric.
 
-The API server caps request headers at 32 KiB. Requests above that parser limit are rejected by the HTTP server before route handling.
+The API server caps request headers at 32 KiB. Requests above that parser limit are rejected by the HTTP server before route handling. Malformed HTTP framing, such as conflicting `Content-Length` headers or unsupported `Transfer-Encoding` values, is rejected by the HTTP parser before API route handling.
 
 Before CORS and Fetch Metadata checks read browser-supplied metadata, the API rejects duplicate or malformed `Origin`, `Access-Control-Request-Method`, `Access-Control-Request-Headers`, and `Sec-Fetch-*` headers with `invalid_request_header`.
 
