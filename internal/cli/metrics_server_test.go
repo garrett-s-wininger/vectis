@@ -2,6 +2,7 @@ package cli
 
 import (
 	"crypto/tls"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,10 +11,37 @@ import (
 	"vectis/internal/httpsecurity"
 )
 
+func newMetricsRequest(method, target string, body io.Reader) *http.Request {
+	req := httptest.NewRequest(method, target, body)
+	req.Host = "localhost"
+	return req
+}
+
 func TestNewMetricsHTTPServerSetsMaxHeaderBytes(t *testing.T) {
 	srv := newMetricsHTTPServer("127.0.0.1:0", http.NotFoundHandler())
 	if srv.MaxHeaderBytes != httpsecurity.DefaultMaxHeaderBytes {
 		t.Fatalf("MaxHeaderBytes = %d, want %d", srv.MaxHeaderBytes, httpsecurity.DefaultMaxHeaderBytes)
+	}
+}
+
+func TestStartMetricsHTTPServerRejectsInvalidHostConfigBeforeListen(t *testing.T) {
+	t.Setenv("VECTIS_METRICS_ALLOWED_HOSTS", "https://metrics.example")
+
+	srv, err := StartMetricsHTTPServer(http.NotFoundHandler(), "127.0.0.1:0", "Test", nil)
+	if err == nil {
+		if srv != nil {
+			srv.Shutdown()
+		}
+		t.Fatal("StartMetricsHTTPServer() succeeded, want error")
+	}
+
+	if srv != nil {
+		srv.Shutdown()
+		t.Fatal("StartMetricsHTTPServer() returned a server on invalid config")
+	}
+
+	if !strings.Contains(err.Error(), "metrics host validation config") {
+		t.Fatalf("error = %q, want metrics host validation config", err.Error())
 	}
 }
 
@@ -24,7 +52,7 @@ func TestMetricsServerHandlerServesMetricsWithSecurityHeaders(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req := newMetricsRequest(http.MethodGet, "/metrics", nil)
 	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -47,6 +75,48 @@ func TestMetricsServerHandlerServesMetricsWithSecurityHeaders(t *testing.T) {
 	assertMetricsHeader(t, rec, "Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
 }
 
+func TestMetricsServerHandlerAllowsConfiguredHost(t *testing.T) {
+	t.Setenv("VECTIS_METRICS_ALLOWED_HOSTS", "metrics.example:9090")
+	called := false
+	handler := metricsServerHandlerForHost("0.0.0.0", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req.Host = "metrics.example:9090"
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusNoContent, rec.Body.String())
+	}
+
+	if !called {
+		t.Fatal("metrics handler was not called")
+	}
+}
+
+func TestMetricsServerHandlerRejectsUntrustedHost(t *testing.T) {
+	t.Setenv("VECTIS_METRICS_ALLOWED_HOSTS", "metrics.example")
+	handler := metricsServerHandlerForHost("0.0.0.0", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("metrics handler should not be called")
+	}))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req.Host = "evil.example"
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+
+	assertMetricsNoStore(t, rec)
+	assertMetricsHeader(t, rec, "X-Content-Type-Options", "nosniff")
+	assertMetricsHeader(t, rec, "X-Frame-Options", "DENY")
+}
+
 func TestMetricsServerHandlerAllowsHEAD(t *testing.T) {
 	called := false
 	handler := metricsServerHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -55,7 +125,7 @@ func TestMetricsServerHandlerAllowsHEAD(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodHead, "/metrics", nil)
+	req := newMetricsRequest(http.MethodHead, "/metrics", nil)
 	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -75,7 +145,7 @@ func TestMetricsServerHandlerRejectsUnknownRoute(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/not-metrics", nil)
+	req := newMetricsRequest(http.MethodGet, "/not-metrics", nil)
 	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusNotFound {
@@ -105,7 +175,7 @@ func TestMetricsServerHandlerRejectsUnsafeRequestTargets(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, tt.target, nil)
+			req := newMetricsRequest(http.MethodGet, tt.target, nil)
 			handler.ServeHTTP(rec, req)
 
 			if rec.Code != http.StatusBadRequest {
@@ -126,7 +196,7 @@ func TestMetricsServerHandlerRejectsNonReadMethods(t *testing.T) {
 	for _, method := range []string{http.MethodPost, http.MethodTrace, http.MethodConnect, "TRACK"} {
 		t.Run(method, func(t *testing.T) {
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(method, "/metrics", nil)
+			req := newMetricsRequest(method, "/metrics", nil)
 			handler.ServeHTTP(rec, req)
 
 			if rec.Code != http.StatusMethodNotAllowed {
@@ -151,7 +221,7 @@ func TestMetricsServerHandlerRejectsReadRequestBodies(t *testing.T) {
 	for _, method := range []string{http.MethodGet, http.MethodHead} {
 		t.Run(method, func(t *testing.T) {
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(method, "/metrics", strings.NewReader("body"))
+			req := newMetricsRequest(method, "/metrics", strings.NewReader("body"))
 			handler.ServeHTTP(rec, req)
 
 			if rec.Code != http.StatusBadRequest {
@@ -172,7 +242,7 @@ func TestMetricsServerHandlerRejectsMethodOverrideHeaders(t *testing.T) {
 			}))
 
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+			req := newMetricsRequest(http.MethodGet, "/metrics", nil)
 			req.Header.Set(header, http.MethodDelete)
 			handler.ServeHTTP(rec, req)
 
@@ -192,7 +262,7 @@ func TestMetricsServerHandlerRejectsUnacceptableMediaType(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req := newMetricsRequest(http.MethodGet, "/metrics", nil)
 	req.Header.Set("Accept", "text/html")
 	handler.ServeHTTP(rec, req)
 
@@ -219,7 +289,7 @@ func TestMetricsServerHandlerAllowsPrometheusAcceptHeaders(t *testing.T) {
 			}))
 
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+			req := newMetricsRequest(http.MethodGet, "/metrics", nil)
 			req.Header.Set("Accept", accept)
 			handler.ServeHTTP(rec, req)
 
@@ -240,7 +310,7 @@ func TestMetricsServerHandlerAppliesHSTSForDirectTLS(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req := newMetricsRequest(http.MethodGet, "/metrics", nil)
 	req.TLS = &tls.ConnectionState{}
 	handler.ServeHTTP(rec, req)
 

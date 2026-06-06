@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	envAPIAllowedHosts  = "VECTIS_API_ALLOWED_HOSTS"
-	envDocsAllowedHosts = "VECTIS_DOCS_ALLOWED_HOSTS"
+	envAPIAllowedHosts     = "VECTIS_API_ALLOWED_HOSTS"
+	envDocsAllowedHosts    = "VECTIS_DOCS_ALLOWED_HOSTS"
+	envMetricsAllowedHosts = "VECTIS_METRICS_ALLOWED_HOSTS"
 )
 
 type apiAllowedHost struct {
@@ -49,27 +50,7 @@ func ValidateAPIHostConfig() error {
 }
 
 func APIHostAllowed(hostHeader string) bool {
-	requestHost, err := parseAPIAllowedHost(hostHeader)
-	if err != nil {
-		return false
-	}
-
-	for _, raw := range APIAllowedHosts() {
-		allowed, err := parseAPIAllowedHost(raw)
-		if err != nil {
-			continue
-		}
-
-		if requestHost.host != allowed.host {
-			continue
-		}
-
-		if allowed.port == "" || allowed.port == requestHost.port {
-			return true
-		}
-	}
-
-	return false
+	return hostAllowed(hostHeader, APIAllowedHosts())
 }
 
 // DocsAllowedHosts returns hostnames accepted in the browser-facing docs Host header.
@@ -96,12 +77,51 @@ func ValidateDocsHostConfig(bindHost string) error {
 }
 
 func DocsHostAllowed(bindHost, hostHeader string) bool {
+	return hostAllowed(hostHeader, DocsAllowedHosts(bindHost))
+}
+
+// MetricsAllowedHosts returns hostnames accepted by dedicated /metrics listeners.
+func MetricsAllowedHosts(bindHost string) []string {
+	if hosts := hostListFromViper("metrics_allowed_hosts"); len(hosts) > 0 {
+		return normalizeAPIAllowedHostList(hosts)
+	}
+
+	if hosts := hostListFromViper("metrics.allowed_hosts"); len(hosts) > 0 {
+		return normalizeAPIAllowedHostList(hosts)
+	}
+
+	if v := strings.TrimSpace(os.Getenv(envMetricsAllowedHosts)); v != "" {
+		return normalizeAPIAllowedHostList(splitCommaNonEmpty(v))
+	}
+
+	return defaultAllowedHosts(bindHost)
+}
+
+func hostListFromViper(key string) []string {
+	return cleanStringSlice(append(viper.GetStringSlice(key), viper.GetString(key)))
+}
+
+func ValidateMetricsHostConfig(bindHost string) error {
+	for _, host := range MetricsAllowedHosts(bindHost) {
+		if _, err := parseAPIAllowedHost(host); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func MetricsHostAllowed(bindHost, hostHeader string) bool {
+	return hostAllowed(hostHeader, MetricsAllowedHosts(bindHost))
+}
+
+func hostAllowed(hostHeader string, allowedHosts []string) bool {
 	requestHost, err := parseAPIAllowedHost(hostHeader)
 	if err != nil {
 		return false
 	}
 
-	for _, raw := range DocsAllowedHosts(bindHost) {
+	for _, raw := range allowedHosts {
 		allowed, err := parseAPIAllowedHost(raw)
 		if err != nil {
 			continue

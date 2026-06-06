@@ -24,7 +24,16 @@ func StartMetricsHTTPServer(
 	serviceName string,
 	logger interfaces.Logger,
 ) (*MetricsHTTPServer, error) {
-	srv := newMetricsHTTPServer(addr, metricsServerHandler(handler))
+	bindHost, err := metricsBindHost(addr)
+	if err != nil {
+		return nil, fmt.Errorf("metrics listen address: %w", err)
+	}
+
+	if err := config.ValidateMetricsHostConfig(bindHost); err != nil {
+		return nil, fmt.Errorf("metrics host validation config: %w", err)
+	}
+
+	srv := newMetricsHTTPServer(addr, metricsServerHandlerForHost(bindHost, handler))
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -51,6 +60,15 @@ func StartMetricsHTTPServer(
 	return &MetricsHTTPServer{server: srv, logger: logger}, nil
 }
 
+func metricsBindHost(addr string) (string, error) {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "", err
+	}
+
+	return host, nil
+}
+
 func newMetricsHTTPServer(addr string, handler http.Handler) *http.Server {
 	return &http.Server{
 		Addr:              addr,
@@ -64,12 +82,21 @@ func newMetricsHTTPServer(addr string, handler http.Handler) *http.Server {
 }
 
 func metricsServerHandler(handler http.Handler) http.Handler {
+	return metricsServerHandlerForHost("localhost", handler)
+}
+
+func metricsServerHandlerForHost(bindHost string, handler http.Handler) http.Handler {
 	if handler == nil {
 		handler = http.NotFoundHandler()
 	}
 
 	return httpsecurity.HeaderMiddleware(httpsecurity.APIHeaderPolicy(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		setMetricsNoStore(w)
+
+		if !config.MetricsHostAllowed(bindHost, r.Host) {
+			http.Error(w, "invalid host header", http.StatusBadRequest)
+			return
+		}
 
 		if !httpsecurity.SafeRequestTarget(r) {
 			http.Error(w, "invalid request target", http.StatusBadRequest)

@@ -57,6 +57,8 @@ Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-thirteen-
 
 **If this table disagrees with code, code wins:** `rg SetEnvPrefix cmd/`.
 
+Dedicated metrics listeners accept the service bind host plus loopback Host headers by default. Use `VECTIS_METRICS_ALLOWED_HOSTS` or the service-prefixed `VECTIS_<SERVICE>_METRICS_ALLOWED_HOSTS` when publishing metrics outside localhost.
+
 | Binary | `viper.SetEnvPrefix` | Primary TOML / notes |
 |--------|----------------------|----------------------|
 | `vectis-api` | `VECTIS_API_SERVER` | `[api]` in [`../internal/config/defaults.toml`](../internal/config/defaults.toml); `VECTIS_API_SERVER_HOST` / `--host` controls HTTP bind host; `--tls-cert-file` / `--tls-key-file` enable browser-facing HTTPS; `--cell-ingress-endpoint cell=url` configures remote cell execution ingress routes; ad hoc `VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS` for trusted proxy headers in [`trusted-proxy-client-ip.md`](../website/docs/operating/deployment/trusted-proxy-client-ip.md) |

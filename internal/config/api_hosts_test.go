@@ -181,3 +181,85 @@ func TestDocsHostAllowed(t *testing.T) {
 		})
 	}
 }
+
+func TestMetricsAllowedHostsDefaultsToBindHostAndLoopback(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	want := []string{"metrics.example.com", "localhost", "127.0.0.1", "::1"}
+	if got := MetricsAllowedHosts("metrics.example.com"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("MetricsAllowedHosts() = %v, want %v", got, want)
+	}
+}
+
+func TestMetricsAllowedHostsDoesNotTrustUnspecifiedBindHost(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	want := []string{"localhost", "127.0.0.1", "::1"}
+	if got := MetricsAllowedHosts("0.0.0.0"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("MetricsAllowedHosts() = %v, want %v", got, want)
+	}
+}
+
+func TestMetricsAllowedHostsOverrides(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	viper.Set("metrics_allowed_hosts", []string{"Metrics.Example.com.", "metrics.example.com", "localhost:9090"})
+	if got, want := MetricsAllowedHosts("localhost"), []string{"metrics.example.com", "localhost:9090"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("MetricsAllowedHosts() viper = %v, want %v", got, want)
+	}
+
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv(envMetricsAllowedHosts, "metrics-env.example, [::1]:9090")
+	if got, want := MetricsAllowedHosts("localhost"), []string{"metrics-env.example", "[::1]:9090"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("MetricsAllowedHosts() global env = %v, want %v", got, want)
+	}
+
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.SetEnvPrefix("VECTIS_QUEUE")
+	viper.AutomaticEnv()
+	t.Setenv("VECTIS_QUEUE_METRICS_ALLOWED_HOSTS", "queue-metrics.example")
+	t.Setenv(envMetricsAllowedHosts, "global-metrics.example")
+	if got, want := MetricsAllowedHosts("localhost"), []string{"queue-metrics.example"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("MetricsAllowedHosts() service env = %v, want %v", got, want)
+	}
+}
+
+func TestValidateMetricsHostConfigRejectsUnsafeHosts(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv(envMetricsAllowedHosts, "https://metrics.example")
+
+	if err := ValidateMetricsHostConfig("localhost"); err == nil {
+		t.Fatal("ValidateMetricsHostConfig() succeeded, want error")
+	}
+}
+
+func TestMetricsHostAllowed(t *testing.T) {
+	t.Setenv(envMetricsAllowedHosts, "metrics.example,localhost:9090,[::1]:9091")
+
+	tests := []struct {
+		host string
+		want bool
+	}{
+		{host: "metrics.example", want: true},
+		{host: "metrics.example:19090", want: true},
+		{host: "localhost:9090", want: true},
+		{host: "localhost:9091", want: false},
+		{host: "[::1]:9091", want: true},
+		{host: "evil.example", want: false},
+		{host: "https://metrics.example", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.host, func(t *testing.T) {
+			if got := MetricsHostAllowed("localhost", tt.host); got != tt.want {
+				t.Fatalf("MetricsHostAllowed(%q) = %v, want %v", tt.host, got, tt.want)
+			}
+		})
+	}
+}
