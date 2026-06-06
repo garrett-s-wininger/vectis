@@ -2269,6 +2269,259 @@ func TestRunsRepository_ExecutionClaimsAllowExpiredAcceptedReclaim(t *testing.T)
 	assertExecutionClaim(t, db, dispatch.ExecutionID, "worker-b", reclaimedUntil.Unix(), secondToken)
 }
 
+type claimedExecutionFinalizationRun struct {
+	RunID      string
+	Dispatch   dal.ExecutionDispatchRecord
+	Token      string
+	LeaseUntil int64
+}
+
+func setupClaimedExecutionFinalizationRun(t *testing.T, ctx context.Context, repos *dal.SQLRepositories, suffix string) claimedExecutionFinalizationRun {
+	t.Helper()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-execution-finalize-"+suffix, nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-execution-finalize-" + suffix
+	def := `{"id":"` + jobID + `","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	claimedRun, runToken, err := repos.Runs().TryClaim(ctx, runID, "run-worker", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("claim run: %v", err)
+	}
+
+	if !claimedRun || runToken == "" {
+		t.Fatalf("expected run claim with token, claimed=%v token=%q", claimedRun, runToken)
+	}
+
+	executionLeaseUntil := time.Now().Add(time.Minute)
+	claimedExecution, token, err := repos.Runs().TryClaimExecution(ctx, dispatch.ExecutionID, "worker-a", executionLeaseUntil)
+	if err != nil {
+		t.Fatalf("claim execution: %v", err)
+	}
+
+	if !claimedExecution || token == "" {
+		t.Fatalf("expected execution claim with token, claimed=%v token=%q", claimedExecution, token)
+	}
+
+	return claimedExecutionFinalizationRun{
+		RunID:      runID,
+		Dispatch:   dispatch,
+		Token:      token,
+		LeaseUntil: executionLeaseUntil.Unix(),
+	}
+}
+
+func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_Succeeds(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+	setup := setupClaimedExecutionFinalizationRun(t, ctx, repos, "success")
+
+	result, err := repos.Runs().CompleteExecutionAndFinalizeRunByClaim(ctx, setup.Dispatch.ExecutionID, "worker-a", setup.Token, dal.ExecutionStatusSucceeded, "", "")
+	if err != nil {
+		t.Fatalf("CompleteExecutionAndFinalizeRunByClaim success: %v", err)
+	}
+
+	if result.ExecutionID != setup.Dispatch.ExecutionID || result.RunID != setup.RunID || result.Outcome != dal.ExecutionFinalizationOutcomeRunSucceeded {
+		t.Fatalf("success result mismatch: %+v", result)
+	}
+
+	if result.Summary.Total != 1 || result.Summary.Succeeded != 1 || result.Summary.TerminalFailed != 0 || result.Summary.Incomplete != 0 || !result.Summary.AllSucceeded() {
+		t.Fatalf("success summary mismatch: %+v", result.Summary)
+	}
+
+	if result.Activated != 0 || len(result.Children) != 0 {
+		t.Fatalf("single task success should not activate children: %+v", result)
+	}
+
+	status, found, err := repos.Runs().GetRunStatus(ctx, setup.RunID)
+	if err != nil {
+		t.Fatalf("get run status: %v", err)
+	}
+
+	if !found || status != dal.RunStatusSucceeded {
+		t.Fatalf("run status: found=%v status=%q", found, status)
+	}
+
+	assertExecutionAndSegmentStatus(t, db, setup.Dispatch.ExecutionID, setup.Dispatch.SegmentID, dal.ExecutionStatusSucceeded, dal.SegmentStatusSucceeded, 2)
+	assertRootTaskAndAttemptStatus(t, db, setup.RunID, dal.TaskStatusSucceeded, dal.TaskStatusSucceeded, 2)
+	assertExecutionClaimCleared(t, db, setup.Dispatch.ExecutionID)
+}
+
+func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_FailsRun(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+	setup := setupClaimedExecutionFinalizationRun(t, ctx, repos, "failed")
+
+	result, err := repos.Runs().CompleteExecutionAndFinalizeRunByClaim(ctx, setup.Dispatch.ExecutionID, "worker-a", setup.Token, dal.ExecutionStatusFailed, dal.FailureCodeExecution, "boom")
+	if err != nil {
+		t.Fatalf("CompleteExecutionAndFinalizeRunByClaim failed: %v", err)
+	}
+
+	if result.Outcome != dal.ExecutionFinalizationOutcomeRunFailed || result.Summary.Total != 1 || result.Summary.TerminalFailed != 1 {
+		t.Fatalf("failed result mismatch: %+v", result)
+	}
+
+	var status string
+	var failureCode string
+	var failureReason sql.NullString
+	if err := db.QueryRowContext(ctx, `
+		SELECT status, failure_code, failure_reason
+		FROM job_runs
+		WHERE run_id = ?
+	`, setup.RunID).Scan(&status, &failureCode, &failureReason); err != nil {
+		t.Fatalf("query failed run: %v", err)
+	}
+
+	if status != dal.RunStatusFailed || failureCode != dal.FailureCodeExecution || !failureReason.Valid || failureReason.String != "boom" {
+		t.Fatalf("failed run state mismatch: status=%q code=%q reason=%v", status, failureCode, failureReason)
+	}
+
+	assertExecutionAndSegmentStatus(t, db, setup.Dispatch.ExecutionID, setup.Dispatch.SegmentID, dal.ExecutionStatusFailed, dal.SegmentStatusFailed, 2)
+	assertRootTaskAndAttemptStatus(t, db, setup.RunID, dal.TaskStatusFailed, dal.TaskStatusFailed, 2)
+	assertExecutionClaimCleared(t, db, setup.Dispatch.ExecutionID)
+}
+
+func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_WaitsForIncompleteTasks(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+	setup := setupClaimedExecutionFinalizationRun(t, ctx, repos, "waiting")
+
+	sibling, created, err := repos.Runs().EnsurePendingTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:    setup.RunID,
+		TaskKey:  "sibling",
+		SpecHash: "sha256:sibling",
+	})
+
+	if err != nil {
+		t.Fatalf("ensure sibling: %v", err)
+	}
+
+	if !created {
+		t.Fatal("expected sibling task to be created")
+	}
+
+	if err := repos.Runs().MarkExecutionAccepted(ctx, sibling.ExecutionID); err != nil {
+		t.Fatalf("mark sibling accepted: %v", err)
+	}
+
+	result, err := repos.Runs().CompleteExecutionAndFinalizeRunByClaim(ctx, setup.Dispatch.ExecutionID, "worker-a", setup.Token, dal.ExecutionStatusSucceeded, "", "")
+	if err != nil {
+		t.Fatalf("CompleteExecutionAndFinalizeRunByClaim waiting: %v", err)
+	}
+
+	if result.Outcome != dal.ExecutionFinalizationOutcomeWaiting || result.Summary.Total != 2 || result.Summary.Succeeded != 1 || result.Summary.Incomplete != 1 {
+		t.Fatalf("waiting result mismatch: %+v", result)
+	}
+
+	status, found, err := repos.Runs().GetRunStatus(ctx, setup.RunID)
+	if err != nil {
+		t.Fatalf("get run status: %v", err)
+	}
+
+	if !found || status != dal.RunStatusRunning {
+		t.Fatalf("run should remain running while sibling is incomplete: found=%v status=%q", found, status)
+	}
+
+	assertExecutionAndSegmentStatus(t, db, setup.Dispatch.ExecutionID, setup.Dispatch.SegmentID, dal.ExecutionStatusSucceeded, dal.SegmentStatusSucceeded, 2)
+	assertExecutionAndSegmentStatus(t, db, sibling.ExecutionID, sibling.SegmentID, dal.ExecutionStatusAccepted, dal.SegmentStatusAccepted, 1)
+	assertTaskAndAttemptStatus(t, db, sibling.TaskID, 1, dal.TaskStatusAccepted, dal.TaskStatusAccepted, 1)
+	assertExecutionClaimCleared(t, db, setup.Dispatch.ExecutionID)
+}
+
+func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_ActivatesChildren(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
+	ctx := context.Background()
+	setup := setupClaimedExecutionFinalizationRun(t, ctx, repos, "continued")
+
+	child, _, err := repos.Runs().EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:        setup.RunID,
+		ParentTaskID: setup.Dispatch.TaskID,
+		TaskKey:      "child",
+		SpecHash:     "sha256:child",
+	})
+
+	if err != nil {
+		t.Fatalf("ensure child: %v", err)
+	}
+
+	result, err := repos.Runs().CompleteExecutionAndFinalizeRunByClaim(ctx, setup.Dispatch.ExecutionID, "worker-a", setup.Token, dal.ExecutionStatusSucceeded, "", "")
+	if err != nil {
+		t.Fatalf("CompleteExecutionAndFinalizeRunByClaim continued: %v", err)
+	}
+
+	if result.Outcome != dal.ExecutionFinalizationOutcomeContinued || result.Activated != 1 || len(result.Children) != 1 || result.Children[0] != child {
+		t.Fatalf("continued result mismatch: %+v", result)
+	}
+
+	if result.Summary.Total != 2 || result.Summary.Succeeded != 1 || result.Summary.Incomplete != 1 {
+		t.Fatalf("continued summary mismatch: %+v", result.Summary)
+	}
+
+	status, found, err := repos.Runs().GetRunStatus(ctx, setup.RunID)
+	if err != nil {
+		t.Fatalf("get run status: %v", err)
+	}
+
+	if !found || status != dal.RunStatusRunning {
+		t.Fatalf("run should remain running after fan-out: found=%v status=%q", found, status)
+	}
+
+	assertTaskExecutionStatuses(t, db, child, dal.TaskStatusPending, dal.SegmentStatusPending, dal.ExecutionStatusPending, 0)
+
+	intents, err := repos.TaskDispatchIntents().ListByRun(ctx, setup.RunID, 100)
+	if err != nil {
+		t.Fatalf("list dispatch intents: %v", err)
+	}
+
+	if len(intents) != 1 || intents[0].ExecutionID != child.ExecutionID || intents[0].SourceExecutionID != setup.Dispatch.ExecutionID {
+		t.Fatalf("dispatch intent mismatch: %+v", intents)
+	}
+}
+
+func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_RejectsStaleClaim(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+	setup := setupClaimedExecutionFinalizationRun(t, ctx, repos, "stale")
+
+	if _, err := repos.Runs().CompleteExecutionAndFinalizeRunByClaim(ctx, setup.Dispatch.ExecutionID, "worker-a", "stale-token", dal.ExecutionStatusSucceeded, "", ""); !dal.IsConflict(err) {
+		t.Fatalf("expected stale execution claim conflict, got %v", err)
+	}
+
+	status, found, err := repos.Runs().GetRunStatus(ctx, setup.RunID)
+	if err != nil {
+		t.Fatalf("get run status: %v", err)
+	}
+
+	if !found || status != dal.RunStatusRunning {
+		t.Fatalf("run should remain running after stale finalization: found=%v status=%q", found, status)
+	}
+
+	assertExecutionAndSegmentStatus(t, db, setup.Dispatch.ExecutionID, setup.Dispatch.SegmentID, dal.ExecutionStatusAccepted, dal.SegmentStatusAccepted, 1)
+	assertRootTaskAndAttemptStatus(t, db, setup.RunID, dal.TaskStatusAccepted, dal.TaskStatusAccepted, 1)
+	assertExecutionClaim(t, db, setup.Dispatch.ExecutionID, "worker-a", setup.LeaseUntil, setup.Token)
+}
+
 func TestRunsRepository_DispatchAndTransitionsUseLinkedTaskAttempt(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)

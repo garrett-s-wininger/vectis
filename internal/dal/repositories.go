@@ -347,6 +347,24 @@ func (s RunTaskCompletion) AllSucceeded() bool {
 	return s.Total > 0 && s.Succeeded == s.Total && s.TerminalFailed == 0 && s.Incomplete == 0
 }
 
+type ExecutionFinalizationOutcome string
+
+const (
+	ExecutionFinalizationOutcomeContinued    ExecutionFinalizationOutcome = "continued"
+	ExecutionFinalizationOutcomeWaiting      ExecutionFinalizationOutcome = "waiting"
+	ExecutionFinalizationOutcomeRunSucceeded ExecutionFinalizationOutcome = "run_succeeded"
+	ExecutionFinalizationOutcomeRunFailed    ExecutionFinalizationOutcome = "run_failed"
+)
+
+type ExecutionFinalizationResult struct {
+	ExecutionID string
+	RunID       string
+	Outcome     ExecutionFinalizationOutcome
+	Summary     RunTaskCompletion
+	Children    []TaskExecutionRecord
+	Activated   int
+}
+
 type CatalogEventRecord struct {
 	ID         int64
 	SourceCell string
@@ -525,6 +543,7 @@ type RunsRepository interface {
 	GetExecutionDispatch(ctx context.Context, executionID string) (ExecutionDispatchRecord, error)
 	TryClaimExecution(ctx context.Context, executionID, owner string, leaseUntil time.Time) (bool, string, error)
 	RenewExecutionLease(ctx context.Context, executionID, owner, claimToken string, leaseUntil time.Time) error
+	CompleteExecutionAndFinalizeRunByClaim(ctx context.Context, executionID, owner, claimToken, status, failureCode, reason string) (ExecutionFinalizationResult, error)
 	MarkExecutionAccepted(ctx context.Context, executionID string) error
 	MarkExecutionStarted(ctx context.Context, executionID string) error
 	MarkExecutionTerminal(ctx context.Context, executionID, status string) error

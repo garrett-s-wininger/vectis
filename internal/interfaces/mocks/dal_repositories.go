@@ -242,6 +242,7 @@ type MockRunsRepository struct {
 	CountTaskFinalizeByCellErr error
 	PendingExecutionErr        error
 	MarkExecutionErr           error
+	ExecutionFinalizationErr   error
 	LogShardErr                error
 
 	CountByStatusResult       int64
@@ -270,6 +271,7 @@ type MockRunsRepository struct {
 	TaskExecutions         []dal.TaskExecutionRecord
 	TaskActivatedN         int
 	TaskCompletion         dal.RunTaskCompletion
+	ExecutionFinalization  dal.ExecutionFinalizationResult
 	TaskFinalizeCandidates []dal.RunTaskCompletion
 	RunRecords             map[string]dal.RunRecord
 	QueuedRuns             []dal.QueuedRun
@@ -300,6 +302,8 @@ type MockRunsRepository struct {
 	LastExecutionClaimID  string
 	LastExecutionOwner    string
 	LastExecutionRenewID  string
+	LastFinalizedExecID   string
+	LastFinalizedStatus   string
 	LastRunStatusUpdate   dal.RunStatusUpdate
 	LastExecStatusUpdate  dal.ExecutionStatusUpdate
 }
@@ -994,6 +998,25 @@ func (m *MockRunsRepository) MarkExecutionSucceededAndActivateChildren(ctx conte
 	m.mu.Unlock()
 
 	return append([]dal.TaskExecutionRecord(nil), m.TaskExecutions...), m.TaskActivatedN, nil
+}
+
+func (m *MockRunsRepository) CompleteExecutionAndFinalizeRunByClaim(ctx context.Context, executionID, owner, claimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
+	if m.ExecutionFinalizationErr != nil {
+		return dal.ExecutionFinalizationResult{}, m.ExecutionFinalizationErr
+	}
+
+	m.mu.Lock()
+	m.LastFinalizedExecID = executionID
+	m.LastExecutionOwner = owner
+	m.LastFinalizedStatus = status
+	m.mu.Unlock()
+
+	result := m.ExecutionFinalization
+	if result.ExecutionID == "" {
+		result.ExecutionID = executionID
+	}
+
+	return result, nil
 }
 
 func (m *MockRunsRepository) GetRunTaskCompletion(ctx context.Context, runID string) (dal.RunTaskCompletion, error) {

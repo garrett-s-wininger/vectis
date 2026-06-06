@@ -1555,9 +1555,21 @@ func (r *SQLRunsRepository) GetRunTaskCompletion(ctx context.Context, runID stri
 		return RunTaskCompletion{}, fmt.Errorf("%w: run_id is required", ErrNotFound)
 	}
 
+	return getRunTaskCompletion(ctx, r.db, runID)
+}
+
+type runTaskCompletionQueryer interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+func getRunTaskCompletionTx(ctx context.Context, tx *sql.Tx, runID string) (RunTaskCompletion, error) {
+	return getRunTaskCompletion(ctx, tx, runID)
+}
+
+func getRunTaskCompletion(ctx context.Context, q runTaskCompletionQueryer, runID string) (RunTaskCompletion, error) {
 	var summary RunTaskCompletion
 	summary.RunID = runID
-	if err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+	if err := q.QueryRowContext(ctx, rebindQueryForPgx(`
 		SELECT
 			COUNT(rt.task_id),
 			COALESCE(SUM(CASE WHEN rt.status = ? THEN 1 ELSE 0 END), 0),
@@ -2447,6 +2459,175 @@ func (r *SQLRunsRepository) RenewExecutionLease(ctx context.Context, executionID
 
 	if n == 0 {
 		return fmt.Errorf("%w: renew execution lease: no matching active row for execution_id=%q owner=%q claim_token=%q", ErrConflict, executionID, owner, claimToken)
+	}
+
+	return nil
+}
+
+func (r *SQLRunsRepository) CompleteExecutionAndFinalizeRunByClaim(ctx context.Context, executionID, owner, claimToken, status, failureCode, reason string) (ExecutionFinalizationResult, error) {
+	executionID = strings.TrimSpace(executionID)
+	owner = strings.TrimSpace(owner)
+	claimToken = strings.TrimSpace(claimToken)
+	status = strings.TrimSpace(status)
+	if executionID == "" || owner == "" || claimToken == "" {
+		return ExecutionFinalizationResult{}, fmt.Errorf("%w: execution_id, owner, and claim_token are required", ErrConflict)
+	}
+
+	if !isTerminalExecutionStatus(status) {
+		return ExecutionFinalizationResult{}, fmt.Errorf("%w: unsupported terminal execution status %s", ErrConflict, status)
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ExecutionFinalizationResult{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	runID, err := validateExecutionClaimForCompletionTx(ctx, tx, executionID, owner, claimToken, time.Now().UTC().Unix())
+	if err != nil {
+		return ExecutionFinalizationResult{}, err
+	}
+
+	var children []TaskExecutionRecord
+	var activated int
+	if status == ExecutionStatusSucceeded {
+		var taskID string
+		taskID, err = transitionExecutionTx(ctx, tx, executionID, ExecutionStatusSucceeded, SegmentStatusSucceeded, []string{ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}, true, false, true)
+		if err != nil {
+			return ExecutionFinalizationResult{}, err
+		}
+
+		children, activated, err = activatePlannedChildTaskExecutionsTx(ctx, tx, taskID)
+		if err != nil {
+			return ExecutionFinalizationResult{}, err
+		}
+
+		for _, child := range children {
+			if _, err := ensureTaskDispatchIntentTx(ctx, tx, TaskDispatchIntentCreate{
+				ExecutionID:       child.ExecutionID,
+				RunID:             child.RunID,
+				TaskID:            child.TaskID,
+				TaskAttemptID:     child.TaskAttemptID,
+				SourceExecutionID: executionID,
+				CellID:            child.CellID,
+			}); err != nil {
+				return ExecutionFinalizationResult{}, err
+			}
+		}
+	} else {
+		if _, err := transitionExecutionTx(ctx, tx, executionID, status, status, []string{ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}, true, false, true); err != nil {
+			return ExecutionFinalizationResult{}, err
+		}
+	}
+
+	summary, err := getRunTaskCompletionTx(ctx, tx, runID)
+	if err != nil {
+		return ExecutionFinalizationResult{}, err
+	}
+
+	result := ExecutionFinalizationResult{
+		ExecutionID: executionID,
+		RunID:       runID,
+		Outcome:     ExecutionFinalizationOutcomeWaiting,
+		Summary:     summary,
+		Children:    children,
+		Activated:   activated,
+	}
+
+	switch {
+	case summary.TerminalFailed > 0:
+		if failureCode == "" {
+			failureCode = FailureCodeExecution
+		}
+
+		if reason == "" {
+			reason = fmt.Sprintf("%d task execution(s) ended in a terminal failure", summary.TerminalFailed)
+		}
+
+		if err := markRunTerminalTx(ctx, tx, runID, RunStatusFailed, failureCode, reason); err != nil {
+			return ExecutionFinalizationResult{}, err
+		}
+
+		result.Outcome = ExecutionFinalizationOutcomeRunFailed
+	case summary.AllSucceeded():
+		if err := markRunTerminalTx(ctx, tx, runID, RunStatusSucceeded, "", ""); err != nil {
+			return ExecutionFinalizationResult{}, err
+		}
+
+		result.Outcome = ExecutionFinalizationOutcomeRunSucceeded
+	case len(children) > 0:
+		result.Outcome = ExecutionFinalizationOutcomeContinued
+	}
+
+	if err := tx.Commit(); err != nil {
+		return ExecutionFinalizationResult{}, err
+	}
+
+	return result, nil
+}
+
+func validateExecutionClaimForCompletionTx(ctx context.Context, tx *sql.Tx, executionID, owner, claimToken string, nowUnix int64) (string, error) {
+	var runID string
+	var runStatus string
+	var executionStatus string
+	var leaseOwner, storedClaimToken sql.NullString
+	var leaseUntil sql.NullInt64
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT se.run_id, jr.status, se.status, se.lease_owner, se.claim_token, se.lease_until
+		FROM segment_executions se
+		JOIN job_runs jr ON jr.run_id = se.run_id
+		WHERE se.execution_id = ?
+	`), executionID).Scan(&runID, &runStatus, &executionStatus, &leaseOwner, &storedClaimToken, &leaseUntil); err != nil {
+		if err == sql.ErrNoRows {
+			return "", fmt.Errorf("%w: execution %s", ErrNotFound, executionID)
+		}
+
+		return "", normalizeSQLError(err)
+	}
+
+	if runStatus != RunStatusRunning {
+		return "", fmt.Errorf("%w: run %s status %s cannot be finalized by execution claim", ErrConflict, runID, runStatus)
+	}
+
+	if !statusIn(executionStatus, []string{ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}) {
+		return "", fmt.Errorf("%w: execution %s status %s cannot be finalized by execution claim", ErrConflict, executionID, executionStatus)
+	}
+
+	if !leaseOwner.Valid || leaseOwner.String != owner || !storedClaimToken.Valid || storedClaimToken.String != claimToken || !leaseUntil.Valid || leaseUntil.Int64 < nowUnix {
+		return "", fmt.Errorf("%w: execution %s claim is not active for owner %q", ErrConflict, executionID, owner)
+	}
+
+	return runID, nil
+}
+
+func markRunTerminalTx(ctx context.Context, tx *sql.Tx, runID, status, failureCode, reason string) error {
+	res, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE job_runs
+		SET status = ?,
+			finished_at = CURRENT_TIMESTAMP,
+			orphan_reason = '',
+			failure_code = ?,
+			failure_reason = ?,
+			lease_owner = NULL,
+			lease_until = NULL,
+			claim_token = NULL,
+			cancel_token = NULL,
+			cancel_requested_at = NULL,
+			cancel_reason = NULL
+		WHERE run_id = ?
+			AND status = ?
+	`), status, failureCode, nullableReason(reason), runID, RunStatusRunning)
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if n != 1 {
+		return fmt.Errorf("%w: run %s cannot be finalized from status %s", ErrConflict, runID, RunStatusRunning)
 	}
 
 	return nil
