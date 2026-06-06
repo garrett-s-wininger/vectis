@@ -2307,6 +2307,138 @@ func scanExecutionDispatchRecord(scanner executionDispatchRecordScanner) (Execut
 	return rec, nil
 }
 
+func (r *SQLRunsRepository) TryClaimExecution(ctx context.Context, executionID, owner string, leaseUntil time.Time) (bool, string, error) {
+	executionID = strings.TrimSpace(executionID)
+	owner = strings.TrimSpace(owner)
+	if executionID == "" || owner == "" {
+		return false, "", nil
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, "", err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var segmentID string
+	var taskID string
+	var taskAttemptID string
+	var attempt int
+	var currentStatus string
+	var currentLeaseUntil sql.NullInt64
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT segment_id, task_id, task_attempt_id, attempt, status, lease_until
+		FROM segment_executions
+		WHERE execution_id = ?
+	`), executionID).Scan(&segmentID, &taskID, &taskAttemptID, &attempt, &currentStatus, &currentLeaseUntil); err != nil {
+		if err == sql.ErrNoRows {
+			return false, "", nil
+		}
+
+		return false, "", normalizeSQLError(err)
+	}
+
+	if !statusIn(currentStatus, []string{ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}) {
+		return false, "", nil
+	}
+
+	now := time.Now().UTC()
+	nowUnix := now.Unix()
+	if currentLeaseUntil.Valid && currentLeaseUntil.Int64 >= nowUnix {
+		return false, "", nil
+	}
+
+	claimToken := uuid.NewString()
+	setParts := []string{"lease_owner = ?", "lease_until = ?", "claim_token = ?"}
+	args := []any{owner, leaseUntil.UTC().Unix(), claimToken}
+	if currentStatus == ExecutionStatusPending {
+		setParts = append(setParts,
+			"status = ?",
+			"accepted_at = COALESCE(accepted_at, CURRENT_TIMESTAMP)",
+			"last_observed_at = ?",
+			"event_sequence = event_sequence + 1",
+		)
+
+		args = append(args, ExecutionStatusAccepted, now.UnixNano())
+	}
+
+	setParts = append(setParts, "updated_at = CURRENT_TIMESTAMP")
+	args = append(args, executionID, currentStatus, nowUnix)
+	res, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE segment_executions
+		SET `+strings.Join(setParts, ", ")+`
+		WHERE execution_id = ?
+			AND status = ?
+			AND (lease_until IS NULL OR lease_until < ?)
+	`), args...)
+
+	if err != nil {
+		return false, "", normalizeSQLError(err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, "", err
+	}
+
+	if n != 1 {
+		return false, "", nil
+	}
+
+	if currentStatus == ExecutionStatusPending {
+		if _, err := tx.ExecContext(ctx,
+			rebindQueryForPgx("UPDATE run_segments SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE segment_id = ?"),
+			SegmentStatusAccepted,
+			segmentID,
+		); err != nil {
+			return false, "", normalizeSQLError(err)
+		}
+
+		if err := transitionTaskAttemptTx(ctx, tx, taskID, taskAttemptID, attempt, TaskStatusAccepted, TaskStatusAccepted, true, false, false); err != nil {
+			return false, "", err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, "", err
+	}
+
+	return true, claimToken, nil
+}
+
+func (r *SQLRunsRepository) RenewExecutionLease(ctx context.Context, executionID, owner, claimToken string, leaseUntil time.Time) error {
+	executionID = strings.TrimSpace(executionID)
+	owner = strings.TrimSpace(owner)
+	claimToken = strings.TrimSpace(claimToken)
+	if executionID == "" || owner == "" || claimToken == "" {
+		return fmt.Errorf("%w: execution_id, owner, and claim_token are required", ErrConflict)
+	}
+
+	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE segment_executions
+		SET lease_until = ?,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE execution_id = ?
+			AND lease_owner = ?
+			AND claim_token = ?
+			AND status IN (?, ?)
+	`), leaseUntil.UTC().Unix(), executionID, owner, claimToken, ExecutionStatusAccepted, ExecutionStatusRunning)
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if n == 0 {
+		return fmt.Errorf("%w: renew execution lease: no matching active row for execution_id=%q owner=%q claim_token=%q", ErrConflict, executionID, owner, claimToken)
+	}
+
+	return nil
+}
+
 func (r *SQLRunsRepository) MarkExecutionAccepted(ctx context.Context, executionID string) error {
 	return r.transitionExecution(ctx, executionID, ExecutionStatusAccepted, SegmentStatusAccepted, []string{ExecutionStatusPending}, true, false, false)
 }
@@ -2422,7 +2554,12 @@ func transitionExecutionTx(
 	}
 
 	if markFinished {
-		setParts = append(setParts, "finished_at = COALESCE(finished_at, CURRENT_TIMESTAMP)")
+		setParts = append(setParts,
+			"finished_at = COALESCE(finished_at, CURRENT_TIMESTAMP)",
+			"lease_owner = NULL",
+			"lease_until = NULL",
+			"claim_token = NULL",
+		)
 	}
 
 	setParts = append(setParts, "last_observed_at = ?", "event_sequence = event_sequence + 1", "updated_at = CURRENT_TIMESTAMP")

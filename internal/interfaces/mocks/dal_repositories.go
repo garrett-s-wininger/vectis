@@ -218,7 +218,9 @@ type MockRunsRepository struct {
 	TaskCompletionErr          error
 	QueuedListErr              error
 	TryClaimErr                error
+	TryClaimExecutionErr       error
 	RenewLeaseErr              error
+	RenewExecutionLeaseErr     error
 	RequestCancelErr           error
 	CancelRequestedErr         error
 	MarkRunRunningErr          error
@@ -249,14 +251,16 @@ type MockRunsRepository struct {
 	CountTaskFinalizeResult   int64
 	CountTaskFinalizeByCell   []dal.RunCountByCell
 
-	TryClaimResult  bool
-	ClaimToken      string
-	RunStatus       string
-	RunStatusFound  bool
-	CancelRequested bool
-	OrphanedRunIDs  []string
-	LogShardID      string
-	LogShardSet     bool
+	TryClaimResult          bool
+	TryClaimExecutionResult bool
+	ClaimToken              string
+	ExecutionClaimToken     string
+	RunStatus               string
+	RunStatusFound          bool
+	CancelRequested         bool
+	OrphanedRunIDs          []string
+	LogShardID              string
+	LogShardSet             bool
 
 	ListByJobResults       []dal.RunRecord
 	TaskRecords            []dal.TaskRecord
@@ -293,6 +297,9 @@ type MockRunsRepository struct {
 	LastActivatedTaskID   string
 	LastActivatedParentID string
 	LastSucceededExecID   string
+	LastExecutionClaimID  string
+	LastExecutionOwner    string
+	LastExecutionRenewID  string
 	LastRunStatusUpdate   dal.RunStatusUpdate
 	LastExecStatusUpdate  dal.ExecutionStatusUpdate
 }
@@ -854,6 +861,41 @@ func (m *MockRunsRepository) GetExecutionDispatch(ctx context.Context, execution
 	}
 
 	return rec, nil
+}
+
+func (m *MockRunsRepository) TryClaimExecution(ctx context.Context, executionID, owner string, leaseUntil time.Time) (bool, string, error) {
+	if m.TryClaimExecutionErr != nil {
+		return false, "", m.TryClaimExecutionErr
+	}
+
+	m.mu.Lock()
+	m.LastExecutionClaimID = executionID
+	m.LastExecutionOwner = owner
+	m.mu.Unlock()
+
+	if !m.TryClaimExecutionResult {
+		return false, "", nil
+	}
+
+	token := m.ExecutionClaimToken
+	if token == "" {
+		token = "mock-execution-claim-token"
+	}
+
+	return true, token, nil
+}
+
+func (m *MockRunsRepository) RenewExecutionLease(ctx context.Context, executionID, owner, claimToken string, leaseUntil time.Time) error {
+	if m.RenewExecutionLeaseErr != nil {
+		return m.RenewExecutionLeaseErr
+	}
+
+	m.mu.Lock()
+	m.LastExecutionRenewID = executionID
+	m.LastExecutionOwner = owner
+	m.mu.Unlock()
+
+	return nil
 }
 
 func (m *MockRunsRepository) EnsurePendingTaskExecution(ctx context.Context, create dal.TaskExecutionCreate) (dal.TaskExecutionRecord, bool, error) {

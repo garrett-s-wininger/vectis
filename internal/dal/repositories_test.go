@@ -2118,6 +2118,131 @@ func TestRunsRepository_ExecutionTransitions(t *testing.T) {
 	}
 }
 
+func TestRunsRepository_ExecutionClaims(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-execution-claims", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-execution-claims"
+	def := `{"id":"job-execution-claims","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	leaseUntil := time.Now().Add(time.Minute)
+	claimed, token, err := repos.Runs().TryClaimExecution(ctx, dispatch.ExecutionID, "worker-a", leaseUntil)
+	if err != nil {
+		t.Fatalf("claim execution: %v", err)
+	}
+
+	if !claimed || token == "" {
+		t.Fatalf("expected execution claim with token, claimed=%v token=%q", claimed, token)
+	}
+
+	assertExecutionAndSegmentStatus(t, db, dispatch.ExecutionID, dispatch.SegmentID, dal.ExecutionStatusAccepted, dal.SegmentStatusAccepted, 1)
+	assertRootTaskAndAttemptStatus(t, db, runID, dal.TaskStatusAccepted, dal.TaskStatusAccepted, 1)
+	assertExecutionClaim(t, db, dispatch.ExecutionID, "worker-a", leaseUntil.Unix(), token)
+
+	claimed, duplicateToken, err := repos.Runs().TryClaimExecution(ctx, dispatch.ExecutionID, "worker-b", time.Now().Add(2*time.Minute))
+	if err != nil {
+		t.Fatalf("duplicate claim execution: %v", err)
+	}
+
+	if claimed || duplicateToken != "" {
+		t.Fatalf("active execution lease should not be claimable, claimed=%v token=%q", claimed, duplicateToken)
+	}
+
+	renewedUntil := time.Now().Add(3 * time.Minute)
+	if err := repos.Runs().RenewExecutionLease(ctx, dispatch.ExecutionID, "worker-a", token, renewedUntil); err != nil {
+		t.Fatalf("renew execution lease: %v", err)
+	}
+	assertExecutionClaim(t, db, dispatch.ExecutionID, "worker-a", renewedUntil.Unix(), token)
+
+	if err := repos.Runs().RenewExecutionLease(ctx, dispatch.ExecutionID, "worker-b", token, time.Now().Add(4*time.Minute)); !dal.IsConflict(err) {
+		t.Fatalf("expected conflicting execution lease renewal, got %v", err)
+	}
+
+	if err := repos.Runs().MarkExecutionTerminal(ctx, dispatch.ExecutionID, dal.ExecutionStatusSucceeded); err != nil {
+		t.Fatalf("mark execution terminal: %v", err)
+	}
+	assertExecutionAndSegmentStatus(t, db, dispatch.ExecutionID, dispatch.SegmentID, dal.ExecutionStatusSucceeded, dal.SegmentStatusSucceeded, 2)
+	assertExecutionClaimCleared(t, db, dispatch.ExecutionID)
+
+	claimed, terminalToken, err := repos.Runs().TryClaimExecution(ctx, dispatch.ExecutionID, "worker-c", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("claim terminal execution: %v", err)
+	}
+
+	if claimed || terminalToken != "" {
+		t.Fatalf("terminal execution should not be claimable, claimed=%v token=%q", claimed, terminalToken)
+	}
+}
+
+func TestRunsRepository_ExecutionClaimsAllowExpiredAcceptedReclaim(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-execution-reclaim", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-execution-reclaim"
+	def := `{"id":"job-execution-reclaim","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	expiredUntil := time.Now().Add(-time.Minute)
+	claimed, firstToken, err := repos.Runs().TryClaimExecution(ctx, dispatch.ExecutionID, "worker-a", expiredUntil)
+	if err != nil {
+		t.Fatalf("claim execution with expired lease: %v", err)
+	}
+
+	if !claimed || firstToken == "" {
+		t.Fatalf("expected first execution claim, claimed=%v token=%q", claimed, firstToken)
+	}
+
+	reclaimedUntil := time.Now().Add(time.Minute)
+	claimed, secondToken, err := repos.Runs().TryClaimExecution(ctx, dispatch.ExecutionID, "worker-b", reclaimedUntil)
+	if err != nil {
+		t.Fatalf("reclaim execution: %v", err)
+	}
+
+	if !claimed || secondToken == "" || secondToken == firstToken {
+		t.Fatalf("expected expired execution lease reclaim, claimed=%v first=%q second=%q", claimed, firstToken, secondToken)
+	}
+
+	assertExecutionAndSegmentStatus(t, db, dispatch.ExecutionID, dispatch.SegmentID, dal.ExecutionStatusAccepted, dal.SegmentStatusAccepted, 1)
+	assertExecutionClaim(t, db, dispatch.ExecutionID, "worker-b", reclaimedUntil.Unix(), secondToken)
+}
+
 func TestRunsRepository_DispatchAndTransitionsUseLinkedTaskAttempt(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)
@@ -2486,6 +2611,36 @@ func assertExecutionTaskLink(t *testing.T, db *sql.DB, executionID, wantTaskID, 
 
 	if taskID != wantTaskID || taskAttemptID != wantTaskAttemptID {
 		t.Fatalf("execution task link: got task=%q attempt=%q, want task=%q attempt=%q", taskID, taskAttemptID, wantTaskID, wantTaskAttemptID)
+	}
+}
+
+func assertExecutionClaim(t *testing.T, db *sql.DB, executionID, wantOwner string, wantLeaseUntil int64, wantToken string) {
+	t.Helper()
+
+	var owner, token sql.NullString
+	var leaseUntil sql.NullInt64
+	if err := db.QueryRow("SELECT lease_owner, lease_until, claim_token FROM segment_executions WHERE execution_id = ?", executionID).
+		Scan(&owner, &leaseUntil, &token); err != nil {
+		t.Fatalf("query execution claim: %v", err)
+	}
+
+	if !owner.Valid || owner.String != wantOwner || !leaseUntil.Valid || leaseUntil.Int64 != wantLeaseUntil || !token.Valid || token.String != wantToken {
+		t.Fatalf("execution claim: got owner=%v lease_until=%v token=%v, want owner=%q lease_until=%d token=%q", owner, leaseUntil, token, wantOwner, wantLeaseUntil, wantToken)
+	}
+}
+
+func assertExecutionClaimCleared(t *testing.T, db *sql.DB, executionID string) {
+	t.Helper()
+
+	var owner, token sql.NullString
+	var leaseUntil sql.NullInt64
+	if err := db.QueryRow("SELECT lease_owner, lease_until, claim_token FROM segment_executions WHERE execution_id = ?", executionID).
+		Scan(&owner, &leaseUntil, &token); err != nil {
+		t.Fatalf("query execution claim: %v", err)
+	}
+
+	if owner.Valid || leaseUntil.Valid || token.Valid {
+		t.Fatalf("execution claim should be cleared, got owner=%v lease_until=%v token=%v", owner, leaseUntil, token)
 	}
 }
 

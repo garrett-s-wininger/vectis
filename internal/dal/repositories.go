@@ -519,6 +519,8 @@ type RunsRepository interface {
 	ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]QueuedRun, error)
 	GetPendingExecution(ctx context.Context, runID string) (ExecutionDispatchRecord, error)
 	GetExecutionDispatch(ctx context.Context, executionID string) (ExecutionDispatchRecord, error)
+	TryClaimExecution(ctx context.Context, executionID, owner string, leaseUntil time.Time) (bool, string, error)
+	RenewExecutionLease(ctx context.Context, executionID, owner, claimToken string, leaseUntil time.Time) error
 	MarkExecutionAccepted(ctx context.Context, executionID string) error
 	MarkExecutionStarted(ctx context.Context, executionID string) error
 	MarkExecutionTerminal(ctx context.Context, executionID, status string) error

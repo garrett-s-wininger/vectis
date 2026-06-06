@@ -159,6 +159,9 @@ CREATE TABLE segment_executions (
     cell_id TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',
     attempt INTEGER NOT NULL DEFAULT 1,
+    lease_owner TEXT,
+    lease_until BIGINT,
+    claim_token TEXT,
     accepted_at TIMESTAMPTZ,
     started_at TIMESTAMPTZ,
     finished_at TIMESTAMPTZ,
@@ -174,6 +177,7 @@ CREATE INDEX idx_segment_executions_run_id ON segment_executions(run_id);
 CREATE INDEX idx_segment_executions_task_id ON segment_executions(task_id);
 CREATE UNIQUE INDEX idx_segment_executions_task_attempt_id ON segment_executions(task_attempt_id);
 CREATE INDEX idx_segment_executions_cell_status ON segment_executions(cell_id, status);
+CREATE INDEX idx_segment_executions_lease_until ON segment_executions(lease_until);
 
 CREATE TABLE execution_payloads (
     payload_hash TEXT PRIMARY KEY,
