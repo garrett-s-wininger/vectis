@@ -147,3 +147,21 @@ groups:
         annotations:
           summary: Vectis database pool usage is high
           runbook: docs/REPAIR_RUNBOOKS.md#database-pool-pressure
+
+      - alert: VectisAPISecurityRejectionsSustained
+        expr: sum(rate(vectis_api_security_rejections_total[10m])) > 0.1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis API security rejections are sustained
+          runbook: docs/REPAIR_RUNBOOKS.md#api-security-rejections
+
+      - alert: VectisAPISecurityRejectionSpike
+        expr: sum by (reason, route, status) (increase(vectis_api_security_rejections_total[5m])) > 25
+        labels:
+          severity: warning
+        annotations:
+          summary: "Vectis API security rejection spike on {{ $labels.route }}"
+          description: "reason={{ $labels.reason }} status={{ $labels.status }}"
+          runbook: docs/REPAIR_RUNBOOKS.md#api-security-rejections

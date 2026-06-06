@@ -26,6 +26,7 @@ That command shows run status and dispatch events without direct database access
 | `audit.drops.recent`, `audit.flush.failures`, audit alert | [Audit Durability Repair](#audit-durability-repair) |
 | `db.connection.pool`, DB pool alert | [Database Pool Pressure](#database-pool-pressure) |
 | `db.schema.current`, API readiness schema error | [Schema Or Migration Repair](#schema-or-migration-repair) |
+| API security rejection alert | [API Security Rejections](#api-security-rejections) |
 | Old retained records or SQL storage pressure | [Retention Cleanup](#retention-cleanup) |
 | One run needs operator action | [Manual Run Intervention](#manual-run-intervention) |
 
@@ -41,6 +42,21 @@ Manual run repair can create confusing history if automatic repair is still work
 6. Prefer the narrowest action that matches the situation.
 
 Do not requeue a succeeded run. Do not requeue a running run unless you have confirmed the worker is gone and duplicate execution is not possible.
+
+## API Security Rejections
+
+Use this when `VectisAPISecurityRejectionsSustained` or `VectisAPISecurityRejectionSpike` fires, or when API logs show repeated `API security rejection` warnings.
+
+1. Start with the alert labels: `reason`, `route`, and `status`. They are intentionally low-cardinality and safe to use for grouping.
+2. Check whether the affected `route` is `unknown`. A spike there usually points at scans, malformed request targets, Host header mismatches, or direct traffic around the intended edge.
+3. Compare the first spike timestamp with deploys, ingress/proxy changes, API allowed-host changes, CORS origin changes, and browser UI releases.
+4. Inspect edge logs for the same window. Confirm direct clients cannot bypass the proxy and that the proxy overwrites `X-Forwarded-For`, `X-Real-IP`, `X-Forwarded-Proto`, and `Forwarded`.
+5. For `invalid_request_header`, check duplicate or malformed browser/proxy headers first: `Origin`, CORS preflight headers, `Sec-Fetch-*`, `X-Forwarded-*`, `X-Real-IP`, and `Forwarded`.
+6. For `invalid_host_header`, confirm `api.host_validation.allowed_hosts` includes the browser-facing API hostname and that the proxy preserves the expected `Host`.
+7. For CORS or CSRF reasons, verify the browser-facing scheme, host, and port match the configured origins and trusted proxy original-HTTPS handling.
+8. For `rate_limit_exceeded`, identify whether the key is collapsing behind an untrusted proxy, a client retry loop, or expected load that needs a deliberate rate-limit change.
+9. If the traffic is hostile or unknown, block or challenge it at the edge. If it is legitimate, fix the caller or edge configuration before loosening Vectis security policy.
+10. After repair, confirm the alert expression returns to baseline and keep API access logs enabled long enough to validate the affected clients.
 
 ## Queued Runs Or Backlog
 

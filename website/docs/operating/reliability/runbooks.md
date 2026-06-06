@@ -39,6 +39,7 @@ That command shows status and dispatch events without requiring direct database 
 | Audit drops or flush failures | API health, database health, audit buffer pressure, event volume. | [Audit Durability Repair](./repair-runbooks.md#audit-durability-repair) |
 | Retry exhaustion | Component label, dependency health, TLS mismatch, network policy. | [Repair Runbooks](./repair-runbooks.md#quick-map) |
 | DB pool saturation | Postgres availability, pool sizing, replica count, slow queries. | [Database Pool Pressure](./repair-runbooks.md#database-pool-pressure) |
+| API security rejection spike | `reason`, `route`, `status`, edge proxy logs, recent client or ingress changes. | [API Security Rejections](./repair-runbooks.md#api-security-rejections) |
 | Old retained records or SQL growth | Retention policy, dry-run cleanup counts, backup status. | [Retention Cleanup](./repair-runbooks.md#retention-cleanup) |
 | A run needs manual action | Run status, dispatch events, worker ownership, automatic repair state. | [Manual Run Intervention](./repair-runbooks.md#manual-run-intervention) |
 
@@ -73,6 +74,7 @@ Use these as starter operating signals, not contractual product SLOs. Production
 | Audit durability | `vectis_audit_events_dropped_total` and `vectis_audit_flush_failures_total`. | Audit drops should be zero. |
 | Retry health | `vectis_retries_exhausted_total` and retry delay histogram. | Retry exhaustion should be rare and investigated. |
 | Database pressure | `database/sql` pool gauges where DB pool metrics are registered. | Connections should not sit at configured limits. |
+| API security posture | `vectis_api_security_rejections_total` by `reason`, `route`, and `status`. | Rejections should match expected noise; sustained changes should be investigated. |
 | Storage pressure | `vectis_storage_records` and `vectis_storage_oldest_record_age_seconds`. | Durable SQL state should stay within the retention and capacity plan. |
 
 ## Alert Examples
@@ -85,7 +87,8 @@ Prometheus examples live in [prometheus-examples.yml](../../alerts/prometheus-ex
 - log append failures, shard routing failures, subscriber drops, and log-forwarder spool backlog;
 - audit drops and flush failures;
 - retry exhaustion;
-- database pool saturation.
+- database pool saturation;
+- API security rejection spikes and sustained rejection rates.
 
 Tune thresholds by environment. The Podman reference deployment is useful for demos and smoke tests, but production alert routing should live in the operator's telemetry system.
 
@@ -112,7 +115,7 @@ These are current monitoring limits operators should cover with external telemet
 | --- | --- |
 | No direct queued-run-age metric yet. | Use `vectis-cli health check`, stuck-run checks, dispatch events, and queue backlog alerts. |
 | Non-API dispatch failure counters are partial. | Use API enqueue outcomes, reconciler outcomes, and per-run dispatch events together. |
-| No rate-limit accepted/rejected metric yet. | Use API logs and HTTP status monitoring. |
+| No rate-limit accepted metric yet. | Use `vectis_api_security_rejections_total{reason="rate_limit_exceeded"}` for rejects, plus API access logs and HTTP status monitoring for accepted traffic. |
 | File-backed run log and queue persistence pressure need filesystem telemetry. | Monitor the storage paths directly. |
 | Dashboard panels are not yet annotated with runbook links. | Keep alert annotations linked to repair runbooks. |
 
