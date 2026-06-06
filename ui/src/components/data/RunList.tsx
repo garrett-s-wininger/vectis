@@ -1,5 +1,15 @@
+import type { ReactNode } from "react";
+import { Clock, Server, User, Zap } from "lucide-react";
+import { OperationalFact } from "../primitives/OperationalFact";
 import { StatusBadge, type RunStatus } from "../status/StatusBadge";
-import { Button } from "../primitives/Button";
+import {
+  runActorLabel,
+  runCountLabel,
+  runDurationLabel,
+  runStatusClass,
+  runTriggerLabel,
+  type RunTrigger
+} from "./RunPresentation";
 import styles from "./RunList.module.css";
 
 export type RunListItem = {
@@ -13,55 +23,79 @@ export type RunListItem = {
   namespacePath?: string;
   source?: "stored" | "ephemeral";
   submittedBy?: string;
+  trigger?: RunTrigger;
   status: RunStatus;
 };
 
 type RunListProps = {
+  emptyMessage?: string;
+  hideJobName?: boolean;
   onSelectRun?: (runID: string) => void;
   title: string;
   runs: RunListItem[];
 };
 
-export function RunList({ onSelectRun, title, runs }: RunListProps) {
+export function RunList({ emptyMessage = "No runs found.", hideJobName, onSelectRun, title, runs }: RunListProps) {
   return (
     <section className={styles.root} aria-labelledby="run-list-title">
       <div className={styles.header}>
-        <h2 id="run-list-title">{title}</h2>
+        <div className={styles.headingGroup}>
+          <h2 id="run-list-title">{title}</h2>
+          <p>Latest execution records</p>
+        </div>
+        <span className={styles.count}>{runCountLabel(runs.length)}</span>
       </div>
       {runs.length > 0 ? (
         <ul className={styles.items}>
           {runs.map((run) => (
-            <li className={styles.item} key={run.id}>
-              <div className={styles.summary}>
-                <div className={styles.title}>
-                  <strong>
-                    {run.jobName} <span>#{run.runNumber}</span>
-                  </strong>
-                  <span className={`${styles.source} ${styles[run.source ?? "stored"]}`}>
-                    {run.source === "ephemeral" ? "Ephemeral" : "Stored"}
-                  </span>
+            <li className={`${styles.item} ${styles[runStatusClass(run.status)]}`} key={run.id}>
+              <RunRowAction label={`Open run ${run.jobName} #${run.runNumber}`} onSelect={onSelectRun} runID={run.id}>
+                <div className={styles.summary}>
+                  <div className={styles.identity}>
+                    <strong>{hideJobName ? `Run #${run.runNumber}` : run.jobName}</strong>
+                    {!hideJobName ? <span>Run #{run.runNumber}</span> : null}
+                  </div>
+                  <dl className={styles.meta}>
+                    <OperationalFact emphasis icon={Clock} label={runDurationLabel(run.status)} value={run.duration} />
+                    <OperationalFact icon={Server} label="Cell" value={run.cellName ?? "Unassigned"} />
+                    <OperationalFact icon={Zap} label="Trigger" value={runTriggerLabel(run)} />
+                    {run.submittedBy ? (
+                      <OperationalFact icon={User} label="Actor" value={runActorLabel(run.submittedBy)} />
+                    ) : null}
+                  </dl>
                 </div>
-                <small>
-                  {run.namespacePath ? `${run.namespacePath} · ` : null}
-                  {run.cellName ? `${run.cellName} · ` : null}
-                  {run.submittedBy ? `${run.submittedBy} · ` : null}
-                  {run.commit} · {run.duration}
-                </small>
-              </div>
+              </RunRowAction>
               <div className={styles.actions}>
                 <StatusBadge status={run.status} />
-                {onSelectRun ? (
-                  <Button aria-label={`Open run ${run.jobName} #${run.runNumber}`} onClick={() => onSelectRun(run.id)}>
-                    Open
-                  </Button>
-                ) : null}
               </div>
             </li>
           ))}
         </ul>
       ) : (
-        <p className={styles.empty}>No runs to show.</p>
+        <p className={styles.empty}>{emptyMessage}</p>
       )}
     </section>
+  );
+}
+
+function RunRowAction({
+  children,
+  label,
+  onSelect,
+  runID
+}: {
+  children: ReactNode;
+  label: string;
+  onSelect?: (runID: string) => void;
+  runID: string;
+}) {
+  if (!onSelect) {
+    return <div className={styles.rowAction}>{children}</div>;
+  }
+
+  return (
+    <button aria-label={label} className={styles.rowAction} onClick={() => onSelect(runID)} type="button">
+      {children}
+    </button>
   );
 }

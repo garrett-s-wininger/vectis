@@ -535,6 +535,7 @@ export function triggerMockRun(data: MockConsoleData, jobID: string): MockConsol
     namespacePath: job.namespacePath,
     source: "stored",
     submittedBy: "admin",
+    trigger: "ui",
     status: "queued"
   };
 
@@ -565,6 +566,7 @@ export function submitMockEphemeralRun(data: MockConsoleData, input: NewMockEphe
     namespacePath: input.namespacePath,
     source: "ephemeral",
     submittedBy: input.submittedBy ?? "admin",
+    trigger: "ui",
     status: "queued"
   };
 

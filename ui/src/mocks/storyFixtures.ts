@@ -19,6 +19,7 @@ export const storyRunListItems: RunListItem[] = [
     namespacePath: "/team-a",
     source: "stored",
     submittedBy: "mira",
+    trigger: "manual",
     status: "running"
   },
   {
@@ -31,6 +32,7 @@ export const storyRunListItems: RunListItem[] = [
     namespacePath: "/team-a/edge",
     source: "ephemeral",
     submittedBy: "admin",
+    trigger: "manual",
     status: "running"
   },
   {
@@ -43,6 +45,7 @@ export const storyRunListItems: RunListItem[] = [
     namespacePath: "/prod",
     source: "stored",
     submittedBy: "cron",
+    trigger: "schedule",
     status: "failed"
   }
 ];

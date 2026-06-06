@@ -267,8 +267,13 @@ describe("App", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Trigger docs-publish" })[0]);
     fireEvent.click(screen.getByRole("link", { name: "Runs" }));
 
-    expect(await screen.findByText("#1241")).toBeInTheDocument();
-    expect(screen.getByText(/manual · Queued/)).toBeInTheDocument();
+    expect(await screen.findByText("Run #1241")).toBeInTheDocument();
+    expect(screen.getAllByText("Waiting").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Cell").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Trigger").length).toBeGreaterThan(0);
+    expect(screen.getByText("UI")).toBeInTheDocument();
+    expect(screen.getAllByText("Actor").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Queued").length).toBeGreaterThan(0);
   });
 
   it("opens a job detail page from the jobs list", async () => {
@@ -289,7 +294,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open all runs for docs-publish" }));
 
     expect(await screen.findByRole("heading", { name: "Runs" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "docs-publish runs" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "All Runs" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/runs");
     expect(new URLSearchParams(window.location.search).get("job")).toBe("docs-publish");
 
@@ -353,7 +358,7 @@ describe("App", () => {
 
     await screen.findByRole("heading", { name: "Runs" });
 
-    fireEvent.click(screen.getByRole("button", { name: "Run once" }));
+    fireEvent.click(screen.getByRole("button", { name: "Run Once" }));
     fireEvent.change(screen.getByLabelText("Job definition JSON"), {
       target: {
         value: JSON.stringify({

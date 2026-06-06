@@ -12,6 +12,7 @@ export { FormField } from "./primitives/FormField";
 export { MetricCard } from "./data/MetricCard";
 export type { MetricCardProps, MetricTone } from "./data/MetricCard";
 export { NamespacePicker } from "./navigation/NamespacePicker";
+export { OperationalFact } from "./primitives/OperationalFact";
 export { PageHeader } from "./layout/PageHeader";
 export { ProgressMeter } from "./data/ProgressMeter";
 export type { ProgressMeterProps, ProgressTone } from "./data/ProgressMeter";

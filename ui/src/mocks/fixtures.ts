@@ -63,6 +63,7 @@ export const activeRuns: RunListItem[] = [
     namespacePath: "/team-a",
     source: "stored",
     submittedBy: "mira",
+    trigger: "manual",
     status: "running"
   },
   {
@@ -86,7 +87,8 @@ export const activeRuns: RunListItem[] = [
     duration: "1m 48s",
     namespacePath: "/team-a/edge",
     source: "stored",
-    submittedBy: "lee",
+    submittedBy: "cron",
+    trigger: "schedule",
     status: "queued"
   },
   {
@@ -111,6 +113,7 @@ export const activeRuns: RunListItem[] = [
     namespacePath: "/prod",
     source: "stored",
     submittedBy: "admin",
+    trigger: "manual",
     status: "succeeded"
   }
 ];

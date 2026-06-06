@@ -58,13 +58,13 @@ export const runStatusOptions = Object.entries(runStatusLabels).map(([value, lab
 
 export const runSourceLabels: Record<SourceFilter, string> = {
   all: "All",
-  stored: "Stored jobs",
+  stored: "Saved",
   ephemeral: "Ephemeral"
 };
 
 export const runSourceTitleLabels: Record<SourceFilter, string> = {
   all: "All",
-  stored: "Stored job",
+  stored: "Saved",
   ephemeral: "Ephemeral"
 };
 

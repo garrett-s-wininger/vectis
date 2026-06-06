@@ -210,7 +210,8 @@ function apiRunToConsoleRun(run: APIRun, job: Job): RunListItem {
     cellName: "local",
     source: "stored",
     definition: job.definition,
-    submittedBy: "api"
+    submittedBy: "anonymous",
+    trigger: "api"
   };
 }
 

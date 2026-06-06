@@ -158,7 +158,8 @@ describe("mock console data", () => {
       definition: JSON.stringify({ id: "cache-prime", root: {} }),
       jobName: "cache-prime",
       namespacePath: "/team-a",
-      source: "stored"
+      source: "stored",
+      trigger: "ui"
     });
 
     expect(deleteMockJob(triggered, job.id).jobs).toHaveLength(data.jobs.length);
@@ -174,7 +175,8 @@ describe("mock console data", () => {
       namespacePath: "/team-a/edge",
       runNumber: 1241,
       source: "stored",
-      status: "queued"
+      status: "queued",
+      trigger: "ui"
     });
 
     expect(next.jobs.find((job) => job.id === "job-docs-publish")).toMatchObject({
@@ -198,7 +200,8 @@ describe("mock console data", () => {
       namespacePath: "/team-a",
       source: "ephemeral",
       submittedBy: "admin",
-      status: "queued"
+      status: "queued",
+      trigger: "ui"
     });
   });
 });
