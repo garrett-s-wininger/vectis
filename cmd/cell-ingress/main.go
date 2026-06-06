@@ -39,6 +39,10 @@ func runCellIngress(cmd *cobra.Command, args []string) {
 		logger.Fatal("%v", err)
 	}
 
+	if err := config.ValidateCellIngressHostConfig(config.CellID(), config.CellIngressHost()); err != nil {
+		logger.Fatal("Cell ingress Host validation config: %v", err)
+	}
+
 	config.StartGRPCTLSReloadLoop(ctx)
 	config.StartMetricsTLSReloadLoop(ctx)
 
@@ -118,6 +122,7 @@ func init() {
 	cli.ConfigureVersion(rootCmd)
 	rootCmd.PersistentFlags().String("host", config.CellIngressHost(), "Host/IP for the cell ingress HTTP server to bind")
 	rootCmd.PersistentFlags().Int("port", config.CellIngressPort(), "HTTP port for the cell ingress server")
+	rootCmd.PersistentFlags().StringSlice("allowed-host", nil, "Allowed Host header for the cell ingress HTTP server; may be repeated or comma-separated")
 	rootCmd.PersistentFlags().String("metrics-host", config.CellIngressMetricsHost(), "Host/IP for the Prometheus /metrics HTTP server to bind")
 	rootCmd.PersistentFlags().Int("metrics-port", config.CellIngressMetricsPort(), "HTTP port for Prometheus /metrics")
 	rootCmd.PersistentFlags().Duration("repair-interval", config.CellIngressRepairInterval(), "How often to retry accepted executions that missed local queue handoff")
@@ -125,6 +130,7 @@ func init() {
 	rootCmd.PersistentFlags().String("registry-address", config.CellIngressRegistryAddress(), "Registry gRPC address for queue discovery")
 	_ = viper.BindPFlag("host", rootCmd.PersistentFlags().Lookup("host"))
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
+	_ = viper.BindPFlag("allowed_hosts", rootCmd.PersistentFlags().Lookup("allowed-host"))
 	_ = viper.BindPFlag("metrics_host", rootCmd.PersistentFlags().Lookup("metrics-host"))
 	_ = viper.BindPFlag("metrics_port", rootCmd.PersistentFlags().Lookup("metrics-port"))
 	_ = viper.BindPFlag("repair_interval", rootCmd.PersistentFlags().Lookup("repair-interval"))
@@ -132,6 +138,7 @@ func init() {
 	_ = viper.BindPFlag("cell_ingress.registry.address", rootCmd.PersistentFlags().Lookup("registry-address"))
 	_ = viper.BindEnv("host", "VECTIS_CELL_INGRESS_HOST")
 	_ = viper.BindEnv("port", "VECTIS_CELL_INGRESS_PORT")
+	_ = viper.BindEnv("allowed_hosts", "VECTIS_CELL_INGRESS_ALLOWED_HOSTS")
 	_ = viper.BindEnv("metrics_host", "VECTIS_CELL_INGRESS_METRICS_HOST")
 	_ = viper.BindEnv("metrics_port", "VECTIS_CELL_INGRESS_METRICS_PORT")
 	_ = viper.BindEnv("repair_interval", "VECTIS_CELL_INGRESS_REPAIR_INTERVAL")

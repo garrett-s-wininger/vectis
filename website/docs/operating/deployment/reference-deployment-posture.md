@@ -112,7 +112,7 @@ Use the reference deployment as a starting checklist, then replace the demo assu
 1. Bring your own Postgres or harden the bundled one with TLS, backups, restore drills, and monitored capacity.
 2. Enable API auth and complete setup.
 3. Put the API behind HTTPS, trusted proxy configuration, allowed-host validation, and access controls.
-4. Keep internal gRPC, metrics, worker-control, log, and database ports private; configure metrics allowed Hosts if a trusted scraper must reach metrics off-host.
+4. Keep internal gRPC, metrics, cell ingress, worker-control, log, and database ports private; configure cell ingress and metrics allowed Hosts if trusted internal clients must reach them off-host.
 5. Use internal TLS or mTLS consistently.
 6. Store bootstrap token, API tokens, Postgres password, and TLS keys in a secret manager.
 7. Decide whether bundled Prometheus, Grafana, Jaeger, OpenSearch, and Fluent Bit are temporary or production-managed.

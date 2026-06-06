@@ -263,3 +263,88 @@ func TestMetricsHostAllowed(t *testing.T) {
 		})
 	}
 }
+
+func TestCellIngressAllowedHostsDefaultsToBindHostLoopbackAndStaticLocalEndpoint(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("cell_ingress_endpoints", []string{
+		"iad-a=http://Ingress.Example.com:8085",
+		"pdx-b=http://pdx.example:8085",
+	})
+
+	want := []string{"localhost", "127.0.0.1", "::1", "ingress.example.com:8085"}
+	if got := CellIngressAllowedHosts("iad-a", "0.0.0.0"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("CellIngressAllowedHosts() = %v, want %v", got, want)
+	}
+}
+
+func TestCellIngressAllowedHostsOverrides(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("cell_ingress_endpoints", []string{"iad-a=http://ingress.example:8085"})
+	viper.Set("allowed_hosts", []string{"Ingress.Override.Example.", "ingress.override.example:8085"})
+
+	if got, want := CellIngressAllowedHosts("iad-a", "localhost"), []string{"ingress.override.example", "ingress.override.example:8085"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("CellIngressAllowedHosts() viper = %v, want %v", got, want)
+	}
+
+	t.Setenv(envCellIngressAllowedHosts, "ingress-env.example, [::1]:8085")
+	if got, want := CellIngressAllowedHosts("iad-a", "localhost"), []string{"ingress-env.example", "[::1]:8085"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("CellIngressAllowedHosts() env = %v, want %v", got, want)
+	}
+}
+
+func TestValidateCellIngressHostConfigRejectsUnsafeHosts(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv(envCellIngressAllowedHosts, "https://ingress.example")
+
+	if err := ValidateCellIngressHostConfig("iad-a", "localhost"); err == nil {
+		t.Fatal("ValidateCellIngressHostConfig() succeeded, want error")
+	}
+}
+
+func TestValidateCellIngressHostConfigRejectsInvalidStaticLocalEndpoint(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("cell_ingress_endpoints", []string{"iad-a=ftp://ingress.example:8085"})
+
+	if err := ValidateCellIngressHostConfig("iad-a", "localhost"); err == nil {
+		t.Fatal("ValidateCellIngressHostConfig() succeeded, want error")
+	}
+}
+
+func TestCellIngressHostAllowedFailsClosedForInvalidStaticLocalEndpoint(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("cell_ingress_endpoints", []string{"iad-a=ftp://ingress.example:8085"})
+
+	if CellIngressHostAllowed("iad-a", "localhost", "localhost") {
+		t.Fatal("CellIngressHostAllowed() accepted host with invalid static local endpoint")
+	}
+}
+
+func TestCellIngressHostAllowed(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("cell_ingress_endpoints", []string{"iad-a=http://ingress.example:8085"})
+
+	tests := []struct {
+		host string
+		want bool
+	}{
+		{host: "localhost", want: true},
+		{host: "ingress.example:8085", want: true},
+		{host: "ingress.example:8086", want: false},
+		{host: "pdx.example:8085", want: false},
+		{host: "https://ingress.example:8085", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.host, func(t *testing.T) {
+			if got := CellIngressHostAllowed("iad-a", "localhost", tt.host); got != tt.want {
+				t.Fatalf("CellIngressHostAllowed(%q) = %v, want %v", tt.host, got, tt.want)
+			}
+		})
+	}
+}

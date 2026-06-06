@@ -11,6 +11,7 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/cell"
+	"vectis/internal/config"
 	"vectis/internal/dal"
 	"vectis/internal/httpsecurity"
 	"vectis/internal/interfaces"
@@ -84,6 +85,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
+	if !config.CellIngressHostAllowed(s.localCellID, config.CellIngressHost(), r.Host) {
+		writeError(w, http.StatusBadRequest, "invalid_host_header", "invalid host header")
+		return
+	}
+
 	if !httpsecurity.SafeRequestTarget(r) {
 		writeError(w, http.StatusBadRequest, "invalid_request_target", "invalid request target")
 		return

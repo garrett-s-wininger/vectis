@@ -82,7 +82,7 @@ Cell ingress is private infrastructure, not a public API. Expose it only to glob
 
 ## Cell Ingress Security
 
-`vectis-cell-ingress` exposes the internal execution submission route `POST /cell/v1/executions`, plus health and metrics endpoints. Execution submissions must use `application/json` and are capped at 2 MiB; health and metrics reads do not accept request bodies. It is intentionally slim: user authentication, RBAC, namespace checks, and trigger authorization happen at the global API before dispatch. Cell ingress trusts that only approved global producers can reach it.
+`vectis-cell-ingress` exposes the internal execution submission route `POST /cell/v1/executions`, plus health and metrics endpoints. Execution submissions must use `application/json` and are capped at 2 MiB; health and metrics reads do not accept request bodies. Host validation accepts the bind host, loopback, and the local cell's Host from the shared static ingress endpoint map; set `VECTIS_CELL_INGRESS_ALLOWED_HOSTS` when the cell process does not read that map. It is intentionally slim: user authentication, RBAC, namespace checks, and trigger authorization happen at the global API before dispatch. Cell ingress trusts that only approved global producers can reach it.
 
 For production-like deployments:
 
@@ -201,6 +201,7 @@ Before enabling multi-cell routing outside local development:
 | Stable cell IDs are chosen | Cell IDs appear in API requests, run catalog rows, dispatch events, and catalog source config. |
 | API, cron, and reconciler share the same ingress map | A run created by one producer must be repairable by the reconciler. |
 | Every cell runs cell ingress, queue, and workers | Ingress only accepts work; queue and workers execute it. |
+| Cell ingress Host validation matches the static route map | Each cell accepts the Host used by producers for that cell's endpoint. |
 | Cell ingress can reach its local queue | Ingress durably accepts before local queue handoff, then repairs missed local queue handoff. |
 | `vectis-catalog` can read every cell DB | Global run status depends on fan-in from cell-local event inboxes. |
 | `vectis-cli doctor` is clean | The doctor checks catalog backlog, stuck runs, queue backlog, and core API reachability. |

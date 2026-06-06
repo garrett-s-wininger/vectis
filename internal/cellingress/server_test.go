@@ -21,6 +21,12 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
+func newCellIngressRequest(method, target string, body io.Reader) *http.Request {
+	req := httptest.NewRequest(method, target, body)
+	req.Host = "localhost"
+	return req
+}
+
 func TestHTTPServerSetsMaxHeaderBytes(t *testing.T) {
 	srv := HTTPServer("127.0.0.1:0", http.NotFoundHandler())
 	if srv.MaxHeaderBytes != httpsecurity.DefaultMaxHeaderBytes {
@@ -30,7 +36,7 @@ func TestHTTPServerSetsMaxHeaderBytes(t *testing.T) {
 
 func TestServerAppliesSecurityHeaders(t *testing.T) {
 	srv := NewQueueServer("iad-a", mocks.NewMockQueueService(), mocks.NewMockLogger())
-	req := httptest.NewRequest(http.MethodGet, "/health/live", nil)
+	req := newCellIngressRequest(http.MethodGet, "/health/live", nil)
 	rr := httptest.NewRecorder()
 
 	srv.ServeHTTP(rr, req)
@@ -55,9 +61,40 @@ func TestServerAppliesSecurityHeaders(t *testing.T) {
 	}
 }
 
+func TestServerAllowsConfiguredHost(t *testing.T) {
+	t.Setenv("VECTIS_CELL_INGRESS_ALLOWED_HOSTS", "ingress.example:8085")
+	srv := NewQueueServer("iad-a", mocks.NewMockQueueService(), mocks.NewMockLogger())
+	req := newCellIngressRequest(http.MethodGet, "/health/live", nil)
+	req.Host = "ingress.example:8085"
+	rr := httptest.NewRecorder()
+
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want %d; body=%s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	assertNoStore(t, rr)
+}
+
+func TestServerRejectsUntrustedHost(t *testing.T) {
+	t.Setenv("VECTIS_CELL_INGRESS_ALLOWED_HOSTS", "ingress.example")
+	srv := NewQueueServer("iad-a", mocks.NewMockQueueService(), mocks.NewMockLogger())
+	req := newCellIngressRequest(http.MethodGet, "/health/live", nil)
+	req.Host = "evil.example"
+	rr := httptest.NewRecorder()
+
+	srv.ServeHTTP(rr, req)
+
+	assertErrorCode(t, rr, http.StatusBadRequest, "invalid_host_header")
+	assertNoStore(t, rr)
+	assertSecurityHeader(t, rr, "X-Content-Type-Options", "nosniff")
+	assertSecurityHeader(t, rr, "X-Frame-Options", "DENY")
+}
+
 func TestServerAppliesHSTSForDirectTLS(t *testing.T) {
 	srv := NewQueueServer("iad-a", mocks.NewMockQueueService(), mocks.NewMockLogger())
-	req := httptest.NewRequest(http.MethodGet, "/health/live", nil)
+	req := newCellIngressRequest(http.MethodGet, "/health/live", nil)
 	req.TLS = &tls.ConnectionState{}
 	rr := httptest.NewRecorder()
 
@@ -261,7 +298,7 @@ func TestHealthEndpoints(t *testing.T) {
 
 	for _, path := range []string{"/health/live", "/health/ready"} {
 		t.Run(path, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, path, nil)
+			req := newCellIngressRequest(http.MethodGet, path, nil)
 			rr := httptest.NewRecorder()
 
 			srv.ServeHTTP(rr, req)
@@ -276,7 +313,7 @@ func TestHealthEndpoints(t *testing.T) {
 
 func TestRouteGuardRejectsUnknownCellIngressRoute(t *testing.T) {
 	srv := NewQueueServer("iad-a", mocks.NewMockQueueService(), mocks.NewMockLogger())
-	req := httptest.NewRequest(http.MethodGet, "/cell/v1/not-found", nil)
+	req := newCellIngressRequest(http.MethodGet, "/cell/v1/not-found", nil)
 	rr := httptest.NewRecorder()
 
 	srv.ServeHTTP(rr, req)
@@ -301,7 +338,7 @@ func TestRouteGuardRejectsUnsafeCellIngressRequestTargets(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, tt.target, nil)
+			req := newCellIngressRequest(http.MethodGet, tt.target, nil)
 			rr := httptest.NewRecorder()
 
 			srv.ServeHTTP(rr, req)
@@ -330,7 +367,7 @@ func TestRouteGuardRejectsCellIngressMethodMismatch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(tt.method, tt.path, nil)
+			req := newCellIngressRequest(tt.method, tt.path, nil)
 			rr := httptest.NewRecorder()
 
 			srv.ServeHTTP(rr, req)
@@ -349,7 +386,7 @@ func TestRouteGuardRejectsCellIngressReadRequestBodies(t *testing.T) {
 
 	for _, method := range []string{http.MethodGet, http.MethodHead} {
 		t.Run(method, func(t *testing.T) {
-			req := httptest.NewRequest(method, "/health/live", strings.NewReader("body"))
+			req := newCellIngressRequest(method, "/health/live", strings.NewReader("body"))
 			rr := httptest.NewRecorder()
 
 			srv.ServeHTTP(rr, req)
@@ -372,7 +409,7 @@ func TestRouteGuardRejectsCellIngressUnsupportedMediaType(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := NewQueueServer("iad-a", mocks.NewMockQueueService(), mocks.NewMockLogger())
-			req := httptest.NewRequest(http.MethodPost, "/cell/v1/executions", strings.NewReader(`{}`))
+			req := newCellIngressRequest(http.MethodPost, "/cell/v1/executions", strings.NewReader(`{}`))
 			if tt.contentType != "" {
 				req.Header.Set("Content-Type", tt.contentType)
 			}
@@ -414,7 +451,7 @@ func TestRouteGuardRejectsCellIngressMethodOverrideHeaders(t *testing.T) {
 	for _, header := range []string{"X-HTTP-Method", "X-HTTP-Method-Override", "X-Method-Override"} {
 		t.Run(header, func(t *testing.T) {
 			srv := NewQueueServer("iad-a", mocks.NewMockQueueService(), mocks.NewMockLogger())
-			req := httptest.NewRequest(http.MethodGet, "/health/live", nil)
+			req := newCellIngressRequest(http.MethodGet, "/health/live", nil)
 			req.Header.Set(header, http.MethodDelete)
 			rr := httptest.NewRecorder()
 
@@ -428,7 +465,7 @@ func TestRouteGuardRejectsCellIngressMethodOverrideHeaders(t *testing.T) {
 
 func TestRouteGuardRejectsUnacceptableCellIngressMediaType(t *testing.T) {
 	srv := NewQueueServer("iad-a", mocks.NewMockQueueService(), mocks.NewMockLogger())
-	req := httptest.NewRequest(http.MethodGet, "/health/live", nil)
+	req := newCellIngressRequest(http.MethodGet, "/health/live", nil)
 	req.Header.Set("Accept", "text/html")
 	rr := httptest.NewRecorder()
 
@@ -443,7 +480,7 @@ func TestRouteGuardAllowsJSONCellIngressAcceptHeaders(t *testing.T) {
 
 	for _, accept := range []string{"", "application/json", "application/*", "*/*"} {
 		t.Run(accept, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/health/live", nil)
+			req := newCellIngressRequest(http.MethodGet, "/health/live", nil)
 			req.Header.Set("Accept", accept)
 			rr := httptest.NewRecorder()
 
@@ -458,7 +495,7 @@ func TestRouteGuardAllowsJSONCellIngressAcceptHeaders(t *testing.T) {
 
 func TestRouteGuardAllowsHEADForCellIngressHealth(t *testing.T) {
 	srv := NewQueueServer("iad-a", mocks.NewMockQueueService(), mocks.NewMockLogger())
-	req := httptest.NewRequest(http.MethodHead, "/health/live", nil)
+	req := newCellIngressRequest(http.MethodHead, "/health/live", nil)
 	rr := httptest.NewRecorder()
 
 	srv.ServeHTTP(rr, req)
@@ -472,7 +509,7 @@ func TestRouteGuardAllowsHEADForCellIngressHealth(t *testing.T) {
 
 func newExecutionRequest(t *testing.T, body io.Reader) *http.Request {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/cell/v1/executions", body)
+	req := newCellIngressRequest(http.MethodPost, "/cell/v1/executions", body)
 	req.Header.Set("Content-Type", "application/json")
 	return req
 }

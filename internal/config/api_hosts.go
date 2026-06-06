@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -11,9 +12,10 @@ import (
 )
 
 const (
-	envAPIAllowedHosts     = "VECTIS_API_ALLOWED_HOSTS"
-	envDocsAllowedHosts    = "VECTIS_DOCS_ALLOWED_HOSTS"
-	envMetricsAllowedHosts = "VECTIS_METRICS_ALLOWED_HOSTS"
+	envAPIAllowedHosts         = "VECTIS_API_ALLOWED_HOSTS"
+	envDocsAllowedHosts        = "VECTIS_DOCS_ALLOWED_HOSTS"
+	envMetricsAllowedHosts     = "VECTIS_METRICS_ALLOWED_HOSTS"
+	envCellIngressAllowedHosts = "VECTIS_CELL_INGRESS_ALLOWED_HOSTS"
 )
 
 type apiAllowedHost struct {
@@ -113,6 +115,98 @@ func ValidateMetricsHostConfig(bindHost string) error {
 
 func MetricsHostAllowed(bindHost, hostHeader string) bool {
 	return hostAllowed(hostHeader, MetricsAllowedHosts(bindHost))
+}
+
+// CellIngressAllowedHosts returns hostnames accepted by the private cell ingress HTTP listener.
+func CellIngressAllowedHosts(localCellID, bindHost string) []string {
+	hosts, err := cellIngressAllowedHosts(localCellID, bindHost)
+	if err != nil {
+		return nil
+	}
+
+	return hosts
+}
+
+func ValidateCellIngressHostConfig(localCellID, bindHost string) error {
+	hosts, err := cellIngressAllowedHosts(localCellID, bindHost)
+	if err != nil {
+		return err
+	}
+
+	for _, host := range hosts {
+		if _, err := parseAPIAllowedHost(host); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func CellIngressHostAllowed(localCellID, bindHost, hostHeader string) bool {
+	return hostAllowed(hostHeader, CellIngressAllowedHosts(localCellID, bindHost))
+}
+
+func cellIngressAllowedHosts(localCellID, bindHost string) ([]string, error) {
+	if v := strings.TrimSpace(os.Getenv(envCellIngressAllowedHosts)); v != "" {
+		return normalizeAPIAllowedHostList(splitCommaNonEmpty(v)), nil
+	}
+
+	if hosts := hostListFromViper("allowed_hosts"); len(hosts) > 0 {
+		return normalizeAPIAllowedHostList(hosts), nil
+	}
+
+	if hosts := hostListFromViper("cell_ingress.allowed_hosts"); len(hosts) > 0 {
+		return normalizeAPIAllowedHostList(hosts), nil
+	}
+
+	hosts := defaultAllowedHosts(bindHost)
+	endpointHosts, err := cellIngressEndpointAllowedHosts(localCellID)
+	if err != nil {
+		return nil, err
+	}
+
+	return normalizeAPIAllowedHostList(append(hosts, endpointHosts...)), nil
+}
+
+func cellIngressEndpointAllowedHosts(localCellID string) ([]string, error) {
+	endpoints, err := CellIngressEndpoints()
+	if err != nil {
+		return nil, err
+	}
+
+	localCellID = strings.TrimSpace(localCellID)
+	if localCellID == "" {
+		localCellID = CellID()
+	}
+
+	endpoint := strings.TrimSpace(endpoints[localCellID])
+	if endpoint == "" {
+		return nil, nil
+	}
+
+	host, err := cellIngressEndpointHost(endpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	return []string{host}, nil
+}
+
+func cellIngressEndpointHost(endpoint string) (string, error) {
+	u, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil {
+		return "", fmt.Errorf("cell ingress endpoint host validation: %w", err)
+	}
+
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", fmt.Errorf("cell ingress endpoint host validation: endpoint must use http or https")
+	}
+
+	if strings.TrimSpace(u.Host) == "" {
+		return "", fmt.Errorf("cell ingress endpoint host validation: endpoint host is required")
+	}
+
+	return u.Host, nil
 }
 
 func hostAllowed(hostHeader string, allowedHosts []string) bool {
