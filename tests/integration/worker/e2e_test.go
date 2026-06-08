@@ -217,14 +217,14 @@ func (w *worker) handleJob(req *api.JobRequest) {
 		return
 	}
 
-	executionClaimed, executionClaimToken, err := w.store.TryClaimExecution(w.runCtx, env.ExecutionID, w.workerID, time.Now().Add(dal.DefaultLeaseTTL))
+	executionClaim, err := w.store.TryClaimExecution(w.runCtx, env.ExecutionID, w.workerID, time.Now().Add(dal.DefaultLeaseTTL))
 	if err != nil {
 		w.logger.Error("TryClaimExecution %s: %v", env.ExecutionID, err)
 		_ = w.store.MarkRunOrphaned(w.runCtx, runID, claimToken, "ack_uncertain")
 		return
 	}
 
-	if !executionClaimed {
+	if !executionClaim.Claimed {
 		w.logger.Error("Execution %s not claimed", env.ExecutionID)
 		_ = w.store.MarkRunOrphaned(w.runCtx, runID, claimToken, "ack_uncertain")
 		return
@@ -235,11 +235,11 @@ func (w *worker) handleJob(req *api.JobRequest) {
 	execErr := w.executor.ExecuteTask(w.runCtx, work, env.TaskKey, w.logClient, w.logger)
 	if execErr != nil {
 		w.logger.Error("Job %s failed: %v", jobID, execErr)
-		_, _ = w.store.CompleteExecutionAndFinalizeRunByClaim(w.runCtx, env.ExecutionID, w.workerID, executionClaimToken, dal.ExecutionStatusFailed, dal.FailureCodeExecution, execErr.Error())
+		_, _ = w.store.CompleteExecutionAndFinalizeRunByClaim(w.runCtx, env.ExecutionID, w.workerID, executionClaim.ClaimToken, dal.ExecutionStatusFailed, dal.FailureCodeExecution, execErr.Error())
 		return
 	}
 
-	finalized, err := w.store.CompleteExecutionAndFinalizeRunByClaim(w.runCtx, env.ExecutionID, w.workerID, executionClaimToken, dal.ExecutionStatusSucceeded, "", "")
+	finalized, err := w.store.CompleteExecutionAndFinalizeRunByClaim(w.runCtx, env.ExecutionID, w.workerID, executionClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
 	if err != nil {
 		w.logger.Error("CompleteExecutionAndFinalizeRunByClaim failed: %v", err)
 		return

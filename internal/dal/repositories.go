@@ -490,6 +490,14 @@ type ExecutionStatusUpdate struct {
 	Status      string `json:"status"`
 }
 
+// ExecutionClaimResult describes an execution lease claim and whether it also
+// performed the pending-to-accepted state transition.
+type ExecutionClaimResult struct {
+	Claimed                bool
+	ClaimToken             string
+	TransitionedToAccepted bool
+}
+
 type RunCatalogUpdater interface {
 	ApplyRunStatusUpdate(ctx context.Context, update RunStatusUpdate) error
 	ApplyExecutionStatusUpdate(ctx context.Context, update ExecutionStatusUpdate) error
@@ -541,10 +549,9 @@ type RunsRepository interface {
 	ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]QueuedRun, error)
 	GetPendingExecution(ctx context.Context, runID string) (ExecutionDispatchRecord, error)
 	GetExecutionDispatch(ctx context.Context, executionID string) (ExecutionDispatchRecord, error)
-	TryClaimExecution(ctx context.Context, executionID, owner string, leaseUntil time.Time) (bool, string, error)
+	TryClaimExecution(ctx context.Context, executionID, owner string, leaseUntil time.Time) (ExecutionClaimResult, error)
 	RenewExecutionLease(ctx context.Context, executionID, owner, claimToken string, leaseUntil time.Time) error
 	CompleteExecutionAndFinalizeRunByClaim(ctx context.Context, executionID, owner, claimToken, status, failureCode, reason string) (ExecutionFinalizationResult, error)
-	MarkExecutionAccepted(ctx context.Context, executionID string) error
 	MarkExecutionStarted(ctx context.Context, executionID string) error
 	CountByStatus(ctx context.Context, status string) (int64, error)
 	CountByStatusByCell(ctx context.Context, status string) ([]RunCountByCell, error)

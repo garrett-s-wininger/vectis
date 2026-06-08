@@ -739,7 +739,6 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 		return observability.WorkerOutcomeFailed
 	}
 
-	w.markExecutionAccepted(ctx, executionEnvelope)
 	w.markExecutionStarted(ctx, executionEnvelope)
 	w.setLifecyclePhase(observability.WorkerPhaseExecuting)
 	execErr := w.executeWithLeaseRenewal(ctx, runID, claimToken, executionClaimToken, job, executionEnvelope)
@@ -885,23 +884,6 @@ func executionEnvelopeAttrs(env *cell.ExecutionEnvelope) []attribute.KeyValue {
 		attribute.Int("vectis.definition.version", env.DefinitionVersion),
 		attribute.String("vectis.definition.hash", env.DefinitionHash),
 	}
-}
-
-func (w *worker) markExecutionAccepted(ctx context.Context, env *cell.ExecutionEnvelope) {
-	if env == nil {
-		return
-	}
-
-	if err := w.store.MarkExecutionAccepted(w.runCtx, env.ExecutionID); err != nil {
-		w.noteDBError(err)
-		w.logger.Warn("MarkExecutionAccepted execution %s failed: %v", env.ExecutionID, err)
-		trace.SpanFromContext(ctx).RecordError(err)
-		return
-	}
-
-	w.noteDBRecovered()
-	w.recordExecutionCatalogEvent(ctx, env, dal.ExecutionStatusAccepted)
-	trace.SpanFromContext(ctx).AddEvent("execution.accepted", trace.WithAttributes(executionEnvelopeAttrs(env)...))
 }
 
 func (w *worker) markExecutionStarted(ctx context.Context, env *cell.ExecutionEnvelope) {
@@ -1213,7 +1195,7 @@ func (w *worker) tryClaimExecution(ctx context.Context, executionEnvelope *cell.
 
 	span := trace.SpanFromContext(ctx)
 	span.AddEvent("execution.claim.attempt", trace.WithAttributes(executionEnvelopeAttrs(executionEnvelope)...))
-	claimed, token, err := w.store.TryClaimExecution(w.runCtx, executionEnvelope.ExecutionID, w.workerID, leaseUntil)
+	claim, err := w.store.TryClaimExecution(w.runCtx, executionEnvelope.ExecutionID, w.workerID, leaseUntil)
 	if err != nil {
 		w.noteDBError(err)
 		w.logger.Warn("TryClaimExecution %s failed; stopping before task execution: %v", executionEnvelope.ExecutionID, err)
@@ -1223,14 +1205,19 @@ func (w *worker) tryClaimExecution(ctx context.Context, executionEnvelope *cell.
 	}
 
 	w.noteDBRecovered()
-	if !claimed {
+	if !claim.Claimed {
 		w.logger.Warn("Execution %s not claimed; stopping before task execution", executionEnvelope.ExecutionID)
 		span.AddEvent("execution.claim.skipped")
 		return "", false
 	}
 
 	span.AddEvent("execution.claim.success")
-	return token, true
+	if claim.TransitionedToAccepted {
+		w.recordExecutionCatalogEvent(ctx, executionEnvelope, dal.ExecutionStatusAccepted)
+		span.AddEvent("execution.accepted", trace.WithAttributes(executionEnvelopeAttrs(executionEnvelope)...))
+	}
+
+	return claim.ClaimToken, true
 }
 
 func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, claimToken, executionClaimToken string, job *api.Job, executionEnvelope *cell.ExecutionEnvelope) error {

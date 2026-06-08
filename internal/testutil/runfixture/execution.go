@@ -42,15 +42,15 @@ func FinalizeExecutionByClaimWithFailure(t testing.TB, ctx context.Context, repo
 		}
 	}
 
-	claimed, token, err := repos.Runs().TryClaimExecution(ctx, executionID, owner, leaseUntil)
+	claim, err := repos.Runs().TryClaimExecution(ctx, executionID, owner, leaseUntil)
 	if err != nil {
 		t.Fatalf("claim execution %s: %v", executionID, err)
 	}
-	if !claimed || token == "" {
+	if !claim.Claimed || claim.ClaimToken == "" {
 		t.Fatalf("execution %s was not claimable", executionID)
 	}
 
-	result, err := repos.Runs().CompleteExecutionAndFinalizeRunByClaim(ctx, executionID, owner, token, status, failureCode, reason)
+	result, err := repos.Runs().CompleteExecutionAndFinalizeRunByClaim(ctx, executionID, owner, claim.ClaimToken, status, failureCode, reason)
 	if err != nil {
 		t.Fatalf("finalize execution %s as %s: %v", executionID, status, err)
 	}

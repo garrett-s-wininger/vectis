@@ -104,17 +104,17 @@ type recordingExecutionClaimStore struct {
 	executionClaimTokens []string
 }
 
-func (s *recordingExecutionClaimStore) TryClaimExecution(ctx context.Context, executionID, owner string, leaseUntil time.Time) (bool, string, error) {
-	claimed, token, err := s.RunsRepository.TryClaimExecution(ctx, executionID, owner, leaseUntil)
+func (s *recordingExecutionClaimStore) TryClaimExecution(ctx context.Context, executionID, owner string, leaseUntil time.Time) (dal.ExecutionClaimResult, error) {
+	claim, err := s.RunsRepository.TryClaimExecution(ctx, executionID, owner, leaseUntil)
 
 	s.mu.Lock()
 	s.claimedExecutions = append(s.claimedExecutions, executionID)
-	if token != "" {
-		s.executionClaimTokens = append(s.executionClaimTokens, token)
+	if claim.ClaimToken != "" {
+		s.executionClaimTokens = append(s.executionClaimTokens, claim.ClaimToken)
 	}
 	s.mu.Unlock()
 
-	return claimed, token, err
+	return claim, err
 }
 
 func (s *recordingExecutionClaimStore) RenewExecutionLease(ctx context.Context, executionID, owner, claimToken string, leaseUntil time.Time) error {
@@ -131,6 +131,76 @@ func (s *recordingExecutionClaimStore) executionClaimCounts() (claimed, renewed 
 	defer s.mu.Unlock()
 
 	return len(s.claimedExecutions), len(s.renewedExecutions)
+}
+
+type recordedCatalogEvent struct {
+	sourceCell string
+	eventKey   string
+	eventType  string
+	payload    []byte
+}
+
+type recordingCatalogEventsRepository struct {
+	mu     sync.Mutex
+	events []recordedCatalogEvent
+}
+
+func (r *recordingCatalogEventsRepository) Record(ctx context.Context, sourceCell, eventKey, eventType string, payload []byte) (dal.CatalogEventRecord, bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.events = append(r.events, recordedCatalogEvent{
+		sourceCell: sourceCell,
+		eventKey:   eventKey,
+		eventType:  eventType,
+		payload:    append([]byte(nil), payload...),
+	})
+
+	now := time.Now().UnixNano()
+	return dal.CatalogEventRecord{
+		ID:         int64(len(r.events)),
+		SourceCell: sourceCell,
+		EventKey:   eventKey,
+		EventType:  eventType,
+		Payload:    append([]byte(nil), payload...),
+		Status:     dal.CatalogEventStatusPending,
+		ReceivedAt: now,
+		UpdatedAt:  now,
+	}, true, nil
+}
+
+func (r *recordingCatalogEventsRepository) ListPending(ctx context.Context, limit int) ([]dal.CatalogEventRecord, error) {
+	return nil, nil
+}
+
+func (r *recordingCatalogEventsRepository) MarkApplied(ctx context.Context, id int64) error {
+	return nil
+}
+
+func (r *recordingCatalogEventsRepository) MarkFailed(ctx context.Context, id int64, message string) error {
+	return nil
+}
+
+func (r *recordingCatalogEventsRepository) Summary(ctx context.Context) (dal.CatalogEventSummary, error) {
+	return dal.CatalogEventSummary{}, nil
+}
+
+func (r *recordingCatalogEventsRepository) SummaryBySource(ctx context.Context) ([]dal.CatalogEventSourceSummary, error) {
+	return nil, nil
+}
+
+func (r *recordingCatalogEventsRepository) countByKey(eventKey string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	count := 0
+	for _, event := range r.events {
+		if event.eventKey == eventKey {
+			count++
+		}
+	}
+
+	return count
 }
 
 func (s *flakyFinalizeRunsStore) RenewLease(ctx context.Context, runID, owner, claimToken string, leaseUntil time.Time) error {
@@ -532,6 +602,77 @@ func TestWorkerRunClaimedJob_WithExecutionEnvelope_TransitionsExecution(t *testi
 			t.Fatalf("catalog event %d: got source=%q key=%q type=%q, want source=local key=%q type=%q",
 				i, events[i].SourceCell, events[i].EventKey, events[i].EventType, want.key, want.eventType)
 		}
+	}
+}
+
+func TestWorkerTryClaimExecution_RecordsAcceptedOnlyOnInitialClaim(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositories(db)
+	runs := repos.Runs()
+
+	ns, err := repos.Namespaces().Create(ctx, "worker-execution-reclaim-catalog", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-worker-execution-reclaim-catalog"
+	def := `{"id":"job-worker-execution-reclaim-catalog","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo claim"}}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := runs.CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	dispatch, err := runs.GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	rootID := "root"
+	action := "builtins/shell"
+	j := &api.Job{
+		Id:    &jobID,
+		RunId: &runID,
+		Root: &api.Node{
+			Id:   &rootID,
+			Uses: &action,
+			With: map[string]string{"command": "echo claim"},
+		},
+	}
+
+	env, err := cell.NewExecutionEnvelope(dispatch, j, nil, 1)
+	if err != nil {
+		t.Fatalf("build execution envelope: %v", err)
+	}
+
+	catalogEvents := &recordingCatalogEventsRepository{}
+	w := &worker{
+		ctx:      context.Background(),
+		runCtx:   context.Background(),
+		logger:   interfaces.NewLogger("worker-test"),
+		workerID: "worker-execution-reclaim-catalog",
+		cellID:   "local",
+		store:    runs,
+		catalog:  cell.NewCatalogEventPublisher("local", catalogEvents),
+	}
+
+	firstToken, claimed := w.tryClaimExecution(ctx, env, time.Now().Add(-time.Minute))
+	if !claimed || firstToken == "" {
+		t.Fatalf("expected first execution claim, claimed=%v token=%q", claimed, firstToken)
+	}
+
+	secondToken, claimed := w.tryClaimExecution(ctx, env, time.Now().Add(time.Minute))
+	if !claimed || secondToken == "" || secondToken == firstToken {
+		t.Fatalf("expected expired execution reclaim, claimed=%v first=%q second=%q", claimed, firstToken, secondToken)
+	}
+
+	acceptedKey := cell.CatalogExecutionStatusEventKey(env.ExecutionID, dal.ExecutionStatusAccepted)
+	if got := catalogEvents.countByKey(acceptedKey); got != 1 {
+		t.Fatalf("accepted catalog events: got %d, want 1", got)
 	}
 }
 
@@ -1379,13 +1520,13 @@ func TestWorkerRunClaimedJob_ExecutionClaimRequiredBeforeExecute(t *testing.T) {
 		t.Fatalf("get pending execution: %v", err)
 	}
 
-	claimed, token, err := runs.TryClaimExecution(ctx, dispatch.ExecutionID, "other-worker", time.Now().Add(time.Minute))
+	claim, err := runs.TryClaimExecution(ctx, dispatch.ExecutionID, "other-worker", time.Now().Add(time.Minute))
 	if err != nil {
 		t.Fatalf("preclaim execution: %v", err)
 	}
 
-	if !claimed || token == "" {
-		t.Fatalf("expected preclaimed execution, claimed=%v token=%q", claimed, token)
+	if !claim.Claimed || claim.ClaimToken == "" {
+		t.Fatalf("expected preclaimed execution, claim=%+v", claim)
 	}
 
 	queue := mocks.NewMockQueueClient()

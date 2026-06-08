@@ -648,12 +648,12 @@ func finishDequeuedMacroJob(
 		return macroRunTimings{}, fmt.Errorf("ack delivery %s: %w", deliveryID, err)
 	}
 
-	executionClaimed, executionClaimToken, err := env.runs.TryClaimExecution(ctx, executionEnvelope.ExecutionID, workerID, time.Now().Add(dal.DefaultLeaseTTL))
+	executionClaim, err := env.runs.TryClaimExecution(ctx, executionEnvelope.ExecutionID, workerID, time.Now().Add(dal.DefaultLeaseTTL))
 	if err != nil {
 		return macroRunTimings{}, fmt.Errorf("try claim execution %s: %w", executionEnvelope.ExecutionID, err)
 	}
 
-	if !executionClaimed {
+	if !executionClaim.Claimed {
 		return macroRunTimings{}, fmt.Errorf("execution %s was not claimed", executionEnvelope.ExecutionID)
 	}
 
@@ -665,11 +665,11 @@ func finishDequeuedMacroJob(
 	}
 
 	if err := exec.ExecuteTask(ctx, queuedJob, executionEnvelope.TaskKey, logSink, env.log); err != nil {
-		_, _ = env.runs.CompleteExecutionAndFinalizeRunByClaim(ctx, executionEnvelope.ExecutionID, workerID, executionClaimToken, dal.ExecutionStatusFailed, dal.FailureCodeExecution, err.Error())
+		_, _ = env.runs.CompleteExecutionAndFinalizeRunByClaim(ctx, executionEnvelope.ExecutionID, workerID, executionClaim.ClaimToken, dal.ExecutionStatusFailed, dal.FailureCodeExecution, err.Error())
 		return macroRunTimings{}, fmt.Errorf("execute task %s: %w", queuedJob.GetId(), err)
 	}
 
-	finalized, err := env.runs.CompleteExecutionAndFinalizeRunByClaim(ctx, executionEnvelope.ExecutionID, workerID, executionClaimToken, dal.ExecutionStatusSucceeded, "", "")
+	finalized, err := env.runs.CompleteExecutionAndFinalizeRunByClaim(ctx, executionEnvelope.ExecutionID, workerID, executionClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
 	if err != nil {
 		return macroRunTimings{}, fmt.Errorf("finalize execution %s: %w", executionEnvelope.ExecutionID, err)
 	}

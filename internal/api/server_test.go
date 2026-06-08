@@ -1451,13 +1451,13 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 	}
 
 	leaseUntil := time.Now().Add(time.Minute)
-	claimedExecution, executionClaimToken, err := dal.NewSQLRepositories(db).Runs().TryClaimExecution(context.Background(), env.ExecutionID, "worker-api-task-list", leaseUntil)
+	executionClaim, err := dal.NewSQLRepositories(db).Runs().TryClaimExecution(context.Background(), env.ExecutionID, "worker-api-task-list", leaseUntil)
 	if err != nil {
 		t.Fatalf("claim execution for task list: %v", err)
 	}
 
-	if !claimedExecution || executionClaimToken == "" {
-		t.Fatalf("expected execution claim before task list, claimed=%v token=%q", claimedExecution, executionClaimToken)
+	if !executionClaim.Claimed || executionClaim.ClaimToken == "" {
+		t.Fatalf("expected execution claim before task list, claim=%+v", executionClaim)
 	}
 
 	tasksReq := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+runID+"/tasks", nil)

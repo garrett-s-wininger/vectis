@@ -701,17 +701,19 @@ func (w *integrationWorker) runOne(ctx context.Context) error {
 		return fmt.Errorf("ack delivery: %w", err)
 	}
 
-	executionClaimed, executionClaimToken, err := w.store.TryClaimExecution(w.runCtx, env.ExecutionID, w.workerID, time.Now().Add(dal.DefaultLeaseTTL))
+	executionClaim, err := w.store.TryClaimExecution(w.runCtx, env.ExecutionID, w.workerID, time.Now().Add(dal.DefaultLeaseTTL))
 	if err != nil {
 		return fmt.Errorf("claim execution: %w", err)
 	}
 
-	if !executionClaimed {
+	if !executionClaim.Claimed {
 		return fmt.Errorf("execution %s was not claimable", env.ExecutionID)
 	}
 
-	if err := w.catalog.RecordExecutionStatus(w.runCtx, dal.ExecutionStatusUpdate{ExecutionID: env.ExecutionID, Status: dal.ExecutionStatusAccepted}); err != nil {
-		return fmt.Errorf("record accepted catalog event: %w", err)
+	if executionClaim.TransitionedToAccepted {
+		if err := w.catalog.RecordExecutionStatus(w.runCtx, dal.ExecutionStatusUpdate{ExecutionID: env.ExecutionID, Status: dal.ExecutionStatusAccepted}); err != nil {
+			return fmt.Errorf("record accepted catalog event: %w", err)
+		}
 	}
 
 	if err := w.store.MarkExecutionStarted(w.runCtx, env.ExecutionID); err != nil {
@@ -724,13 +726,13 @@ func (w *integrationWorker) runOne(ctx context.Context) error {
 
 	if err := w.executor.ExecuteTask(w.runCtx, jobReq, env.TaskKey, w.logClient, w.logger); err != nil {
 		reason := err.Error()
-		_, _ = w.store.CompleteExecutionAndFinalizeRunByClaim(w.runCtx, env.ExecutionID, w.workerID, executionClaimToken, dal.ExecutionStatusFailed, dal.FailureCodeExecution, reason)
+		_, _ = w.store.CompleteExecutionAndFinalizeRunByClaim(w.runCtx, env.ExecutionID, w.workerID, executionClaim.ClaimToken, dal.ExecutionStatusFailed, dal.FailureCodeExecution, reason)
 		_ = w.catalog.RecordRunStatus(w.runCtx, dal.RunStatusUpdate{RunID: runID, Status: dal.RunStatusFailed, FailureCode: dal.FailureCodeExecution, Reason: reason})
 		_ = w.catalog.RecordExecutionStatus(w.runCtx, dal.ExecutionStatusUpdate{ExecutionID: env.ExecutionID, Status: dal.ExecutionStatusFailed})
 		return fmt.Errorf("execute task: %w", err)
 	}
 
-	finalized, err := w.store.CompleteExecutionAndFinalizeRunByClaim(w.runCtx, env.ExecutionID, w.workerID, executionClaimToken, dal.ExecutionStatusSucceeded, "", "")
+	finalized, err := w.store.CompleteExecutionAndFinalizeRunByClaim(w.runCtx, env.ExecutionID, w.workerID, executionClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
 	if err != nil {
 		return fmt.Errorf("finalize execution succeeded: %w", err)
 	}

@@ -52,7 +52,7 @@ func (r *SQLRunsRepository) ApplyExecutionStatusUpdate(ctx context.Context, upda
 
 	switch update.Status {
 	case ExecutionStatusAccepted:
-		return r.MarkExecutionAccepted(ctx, executionID)
+		return r.markExecutionAccepted(ctx, executionID)
 	case ExecutionStatusRunning:
 		return r.MarkExecutionStarted(ctx, executionID)
 	case ExecutionStatusSucceeded, ExecutionStatusFailed, ExecutionStatusCancelled, ExecutionStatusAborted:
@@ -2287,16 +2287,16 @@ func scanExecutionDispatchRecord(scanner executionDispatchRecordScanner) (Execut
 	return rec, nil
 }
 
-func (r *SQLRunsRepository) TryClaimExecution(ctx context.Context, executionID, owner string, leaseUntil time.Time) (bool, string, error) {
+func (r *SQLRunsRepository) TryClaimExecution(ctx context.Context, executionID, owner string, leaseUntil time.Time) (ExecutionClaimResult, error) {
 	executionID = strings.TrimSpace(executionID)
 	owner = strings.TrimSpace(owner)
 	if executionID == "" || owner == "" {
-		return false, "", nil
+		return ExecutionClaimResult{}, nil
 	}
 
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return false, "", err
+		return ExecutionClaimResult{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
 
@@ -2312,26 +2312,27 @@ func (r *SQLRunsRepository) TryClaimExecution(ctx context.Context, executionID, 
 		WHERE execution_id = ?
 	`), executionID).Scan(&segmentID, &taskID, &taskAttemptID, &attempt, &currentStatus, &currentLeaseUntil); err != nil {
 		if err == sql.ErrNoRows {
-			return false, "", nil
+			return ExecutionClaimResult{}, nil
 		}
 
-		return false, "", normalizeSQLError(err)
+		return ExecutionClaimResult{}, normalizeSQLError(err)
 	}
 
 	if !statusIn(currentStatus, []string{ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}) {
-		return false, "", nil
+		return ExecutionClaimResult{}, nil
 	}
 
 	now := time.Now().UTC()
 	nowUnix := now.Unix()
 	if currentLeaseUntil.Valid && currentLeaseUntil.Int64 >= nowUnix {
-		return false, "", nil
+		return ExecutionClaimResult{}, nil
 	}
 
 	claimToken := uuid.NewString()
+	transitionedToAccepted := currentStatus == ExecutionStatusPending
 	setParts := []string{"lease_owner = ?", "lease_until = ?", "claim_token = ?"}
 	args := []any{owner, leaseUntil.UTC().Unix(), claimToken}
-	if currentStatus == ExecutionStatusPending {
+	if transitionedToAccepted {
 		setParts = append(setParts,
 			"status = ?",
 			"accepted_at = COALESCE(accepted_at, CURRENT_TIMESTAMP)",
@@ -2353,37 +2354,41 @@ func (r *SQLRunsRepository) TryClaimExecution(ctx context.Context, executionID, 
 	`), args...)
 
 	if err != nil {
-		return false, "", normalizeSQLError(err)
+		return ExecutionClaimResult{}, normalizeSQLError(err)
 	}
 
 	n, err := res.RowsAffected()
 	if err != nil {
-		return false, "", err
+		return ExecutionClaimResult{}, err
 	}
 
 	if n != 1 {
-		return false, "", nil
+		return ExecutionClaimResult{}, nil
 	}
 
-	if currentStatus == ExecutionStatusPending {
+	if transitionedToAccepted {
 		if _, err := tx.ExecContext(ctx,
 			rebindQueryForPgx("UPDATE run_segments SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE segment_id = ?"),
 			SegmentStatusAccepted,
 			segmentID,
 		); err != nil {
-			return false, "", normalizeSQLError(err)
+			return ExecutionClaimResult{}, normalizeSQLError(err)
 		}
 
 		if err := transitionTaskAttemptTx(ctx, tx, taskID, taskAttemptID, attempt, TaskStatusAccepted, TaskStatusAccepted, true, false, false); err != nil {
-			return false, "", err
+			return ExecutionClaimResult{}, err
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		return false, "", err
+		return ExecutionClaimResult{}, err
 	}
 
-	return true, claimToken, nil
+	return ExecutionClaimResult{
+		Claimed:                true,
+		ClaimToken:             claimToken,
+		TransitionedToAccepted: transitionedToAccepted,
+	}, nil
 }
 
 func (r *SQLRunsRepository) RenewExecutionLease(ctx context.Context, executionID, owner, claimToken string, leaseUntil time.Time) error {
@@ -2640,7 +2645,7 @@ func markRunTerminalTx(ctx context.Context, tx *sql.Tx, runID, status, failureCo
 	return nil
 }
 
-func (r *SQLRunsRepository) MarkExecutionAccepted(ctx context.Context, executionID string) error {
+func (r *SQLRunsRepository) markExecutionAccepted(ctx context.Context, executionID string) error {
 	return r.transitionExecution(ctx, executionID, ExecutionStatusAccepted, SegmentStatusAccepted, []string{ExecutionStatusPending}, true, false, false)
 }
 

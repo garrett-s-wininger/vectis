@@ -4,11 +4,25 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"vectis/internal/dal"
 	"vectis/internal/job"
 	"vectis/internal/testutil/dbtest"
 )
+
+func claimExecutionAccepted(t testing.TB, ctx context.Context, runs dal.RunsRepository, executionID string) {
+	t.Helper()
+
+	claim, err := runs.TryClaimExecution(ctx, executionID, "task-materializer-test", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("claim execution %s: %v", executionID, err)
+	}
+
+	if !claim.Claimed || claim.ClaimToken == "" {
+		t.Fatalf("expected execution %s to be claimable, claim=%+v", executionID, claim)
+	}
+}
 
 func TestEnsureJobTaskExecutionsMaterializesPlannedTasks(t *testing.T) {
 	db := dbtest.NewTestDB(t)
@@ -89,9 +103,7 @@ func TestEnsureJobTaskExecutionsMaterializesPlannedTasks(t *testing.T) {
 		t.Fatalf("pending execution task key: got %q, want %q", dispatch.TaskKey, dal.RootTaskKey)
 	}
 
-	if err := repos.Runs().MarkExecutionAccepted(ctx, dispatch.ExecutionID); err != nil {
-		t.Fatalf("mark root accepted: %v", err)
-	}
+	claimExecutionAccepted(t, ctx, repos.Runs(), dispatch.ExecutionID)
 
 	if _, err := repos.Runs().GetPendingExecution(ctx, runID); !dal.IsNotFound(err) {
 		t.Fatalf("planned tasks should not dispatch after root accepts, got %v", err)

@@ -11,6 +11,20 @@ import (
 	"vectis/internal/testutil/runfixture"
 )
 
+func claimExecutionAccepted(t testing.TB, ctx context.Context, runs dal.RunsRepository, executionID, owner string) dal.ExecutionClaimResult {
+	t.Helper()
+
+	claim, err := runs.TryClaimExecution(ctx, executionID, owner, time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("claim execution %s: %v", executionID, err)
+	}
+	if !claim.Claimed || claim.ClaimToken == "" {
+		t.Fatalf("expected execution %s to be claimable, claim=%+v", executionID, claim)
+	}
+
+	return claim
+}
+
 func TestJobsRepository_CRUDAndConflict(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)
@@ -1257,16 +1271,19 @@ func TestRunsRepository_EnsurePlannedTaskExecutionCreatesNonDispatchableRows(t *
 		t.Fatalf("planned child should not dispatch before root: got %+v, want root execution %q", dispatch, rootDispatch.ExecutionID)
 	}
 
-	if err := repos.Runs().MarkExecutionAccepted(ctx, rootDispatch.ExecutionID); err != nil {
-		t.Fatalf("mark root accepted: %v", err)
-	}
+	claimExecutionAccepted(t, ctx, repos.Runs(), rootDispatch.ExecutionID, "worker-root")
 
 	if _, err := repos.Runs().GetPendingExecution(ctx, runID); !dal.IsNotFound(err) {
 		t.Fatalf("planned child should not dispatch after root accepts, got %v", err)
 	}
 
-	if err := repos.Runs().MarkExecutionAccepted(ctx, child.ExecutionID); !dal.IsConflict(err) {
-		t.Fatalf("planned execution should reject dispatch transition, got %v", err)
+	plannedClaim, err := repos.Runs().TryClaimExecution(ctx, child.ExecutionID, "worker-planned", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("claim planned child execution: %v", err)
+	}
+
+	if plannedClaim.Claimed {
+		t.Fatalf("planned execution should not be claimable, claim=%+v", plannedClaim)
 	}
 
 	again, created, err := repos.Runs().EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
@@ -1325,9 +1342,7 @@ func TestRunsRepository_EnsurePlannedTaskExecutionCreatesNonDispatchableRows(t *
 		t.Fatalf("idempotent activation record mismatch: got %+v, want %+v", activated, child)
 	}
 
-	if err := repos.Runs().MarkExecutionAccepted(ctx, child.ExecutionID); err != nil {
-		t.Fatalf("mark activated child accepted: %v", err)
-	}
+	claimExecutionAccepted(t, ctx, repos.Runs(), child.ExecutionID, "worker-child")
 
 	assertExecutionAndSegmentStatus(t, db, child.ExecutionID, child.SegmentID, dal.ExecutionStatusAccepted, dal.SegmentStatusAccepted, 1)
 	assertTaskAndAttemptStatus(t, db, child.TaskID, 1, dal.TaskStatusAccepted, dal.TaskStatusAccepted, 1)
@@ -1391,9 +1406,7 @@ func TestRunsRepository_ActivatePlannedChildTaskExecutionsFansOutDirectChildren(
 		t.Fatalf("ensure compile: %v", err)
 	}
 
-	if err := repos.Runs().MarkExecutionAccepted(ctx, rootDispatch.ExecutionID); err != nil {
-		t.Fatalf("mark root accepted: %v", err)
-	}
+	claimExecutionAccepted(t, ctx, repos.Runs(), rootDispatch.ExecutionID, "worker-root")
 
 	if _, err := repos.Runs().GetPendingExecution(ctx, runID); !dal.IsNotFound(err) {
 		t.Fatalf("planned descendants should not dispatch before fan-out, got %v", err)
@@ -1435,9 +1448,7 @@ func TestRunsRepository_ActivatePlannedChildTaskExecutionsFansOutDirectChildren(
 		t.Fatalf("idempotent root fan-out: activated=%d children=%+v", activated, children)
 	}
 
-	if err := repos.Runs().MarkExecutionAccepted(ctx, setup.ExecutionID); err != nil {
-		t.Fatalf("mark setup accepted: %v", err)
-	}
+	claimExecutionAccepted(t, ctx, repos.Runs(), setup.ExecutionID, "worker-setup")
 
 	children, activated, err = repos.Runs().ActivatePlannedChildTaskExecutions(ctx, rootDispatch.TaskID)
 	if err != nil {
@@ -1942,9 +1953,7 @@ func TestRunsRepository_ExecutionTransitions(t *testing.T) {
 		t.Fatalf("get pending execution: %v", err)
 	}
 
-	if err := repos.Runs().MarkExecutionAccepted(ctx, dispatch.ExecutionID); err != nil {
-		t.Fatalf("mark accepted: %v", err)
-	}
+	claimExecutionAccepted(t, ctx, repos.Runs(), dispatch.ExecutionID, "worker-dispatch")
 	assertExecutionAndSegmentStatus(t, db, dispatch.ExecutionID, dispatch.SegmentID, dal.ExecutionStatusAccepted, dal.SegmentStatusAccepted, 1)
 	assertRootTaskAndAttemptStatus(t, db, runID, dal.TaskStatusAccepted, dal.TaskStatusAccepted, 1)
 
@@ -1992,18 +2001,18 @@ func TestRunsRepository_ExecutionClaims(t *testing.T) {
 	}
 
 	leaseUntil := time.Now().Add(time.Minute)
-	claimed, token, err := repos.Runs().TryClaimExecution(ctx, dispatch.ExecutionID, "worker-a", leaseUntil)
+	claim, err := repos.Runs().TryClaimExecution(ctx, dispatch.ExecutionID, "worker-a", leaseUntil)
 	if err != nil {
 		t.Fatalf("claim execution: %v", err)
 	}
 
-	if !claimed || token == "" {
-		t.Fatalf("expected execution claim with token, claimed=%v token=%q", claimed, token)
+	if !claim.Claimed || claim.ClaimToken == "" || !claim.TransitionedToAccepted {
+		t.Fatalf("expected execution claim to accept with token, claim=%+v", claim)
 	}
 
 	assertExecutionAndSegmentStatus(t, db, dispatch.ExecutionID, dispatch.SegmentID, dal.ExecutionStatusAccepted, dal.SegmentStatusAccepted, 1)
 	assertRootTaskAndAttemptStatus(t, db, runID, dal.TaskStatusAccepted, dal.TaskStatusAccepted, 1)
-	assertExecutionClaim(t, db, dispatch.ExecutionID, "worker-a", leaseUntil.Unix(), token)
+	assertExecutionClaim(t, db, dispatch.ExecutionID, "worker-a", leaseUntil.Unix(), claim.ClaimToken)
 
 	tasks, _, err := repos.Runs().ListRunTasks(ctx, runID, 0, 10)
 	if err != nil {
@@ -2023,22 +2032,22 @@ func TestRunsRepository_ExecutionClaims(t *testing.T) {
 		t.Fatalf("claimed attempt lease fields: %+v", claimedAttempt)
 	}
 
-	claimed, duplicateToken, err := repos.Runs().TryClaimExecution(ctx, dispatch.ExecutionID, "worker-b", time.Now().Add(2*time.Minute))
+	duplicateClaim, err := repos.Runs().TryClaimExecution(ctx, dispatch.ExecutionID, "worker-b", time.Now().Add(2*time.Minute))
 	if err != nil {
 		t.Fatalf("duplicate claim execution: %v", err)
 	}
 
-	if claimed || duplicateToken != "" {
-		t.Fatalf("active execution lease should not be claimable, claimed=%v token=%q", claimed, duplicateToken)
+	if duplicateClaim.Claimed || duplicateClaim.ClaimToken != "" || duplicateClaim.TransitionedToAccepted {
+		t.Fatalf("active execution lease should not be claimable, claim=%+v", duplicateClaim)
 	}
 
 	renewedUntil := time.Now().Add(3 * time.Minute)
-	if err := repos.Runs().RenewExecutionLease(ctx, dispatch.ExecutionID, "worker-a", token, renewedUntil); err != nil {
+	if err := repos.Runs().RenewExecutionLease(ctx, dispatch.ExecutionID, "worker-a", claim.ClaimToken, renewedUntil); err != nil {
 		t.Fatalf("renew execution lease: %v", err)
 	}
-	assertExecutionClaim(t, db, dispatch.ExecutionID, "worker-a", renewedUntil.Unix(), token)
+	assertExecutionClaim(t, db, dispatch.ExecutionID, "worker-a", renewedUntil.Unix(), claim.ClaimToken)
 
-	if err := repos.Runs().RenewExecutionLease(ctx, dispatch.ExecutionID, "worker-b", token, time.Now().Add(4*time.Minute)); !dal.IsConflict(err) {
+	if err := repos.Runs().RenewExecutionLease(ctx, dispatch.ExecutionID, "worker-b", claim.ClaimToken, time.Now().Add(4*time.Minute)); !dal.IsConflict(err) {
 		t.Fatalf("expected conflicting execution lease renewal, got %v", err)
 	}
 
@@ -2050,19 +2059,19 @@ func TestRunsRepository_ExecutionClaims(t *testing.T) {
 		t.Fatal("expected run claim before execution finalization")
 	}
 
-	if _, err := repos.Runs().CompleteExecutionAndFinalizeRunByClaim(ctx, dispatch.ExecutionID, "worker-a", token, dal.ExecutionStatusSucceeded, "", ""); err != nil {
+	if _, err := repos.Runs().CompleteExecutionAndFinalizeRunByClaim(ctx, dispatch.ExecutionID, "worker-a", claim.ClaimToken, dal.ExecutionStatusSucceeded, "", ""); err != nil {
 		t.Fatalf("complete execution by claim: %v", err)
 	}
 	assertExecutionAndSegmentStatus(t, db, dispatch.ExecutionID, dispatch.SegmentID, dal.ExecutionStatusSucceeded, dal.SegmentStatusSucceeded, 2)
 	assertExecutionClaimCleared(t, db, dispatch.ExecutionID)
 
-	claimed, terminalToken, err := repos.Runs().TryClaimExecution(ctx, dispatch.ExecutionID, "worker-c", time.Now().Add(time.Minute))
+	terminalClaim, err := repos.Runs().TryClaimExecution(ctx, dispatch.ExecutionID, "worker-c", time.Now().Add(time.Minute))
 	if err != nil {
 		t.Fatalf("claim terminal execution: %v", err)
 	}
 
-	if claimed || terminalToken != "" {
-		t.Fatalf("terminal execution should not be claimable, claimed=%v token=%q", claimed, terminalToken)
+	if terminalClaim.Claimed || terminalClaim.ClaimToken != "" || terminalClaim.TransitionedToAccepted {
+		t.Fatalf("terminal execution should not be claimable, claim=%+v", terminalClaim)
 	}
 }
 
@@ -2093,27 +2102,27 @@ func TestRunsRepository_ExecutionClaimsAllowExpiredAcceptedReclaim(t *testing.T)
 	}
 
 	expiredUntil := time.Now().Add(-time.Minute)
-	claimed, firstToken, err := repos.Runs().TryClaimExecution(ctx, dispatch.ExecutionID, "worker-a", expiredUntil)
+	firstClaim, err := repos.Runs().TryClaimExecution(ctx, dispatch.ExecutionID, "worker-a", expiredUntil)
 	if err != nil {
 		t.Fatalf("claim execution with expired lease: %v", err)
 	}
 
-	if !claimed || firstToken == "" {
-		t.Fatalf("expected first execution claim, claimed=%v token=%q", claimed, firstToken)
+	if !firstClaim.Claimed || firstClaim.ClaimToken == "" || !firstClaim.TransitionedToAccepted {
+		t.Fatalf("expected first execution claim to accept, claim=%+v", firstClaim)
 	}
 
 	reclaimedUntil := time.Now().Add(time.Minute)
-	claimed, secondToken, err := repos.Runs().TryClaimExecution(ctx, dispatch.ExecutionID, "worker-b", reclaimedUntil)
+	secondClaim, err := repos.Runs().TryClaimExecution(ctx, dispatch.ExecutionID, "worker-b", reclaimedUntil)
 	if err != nil {
 		t.Fatalf("reclaim execution: %v", err)
 	}
 
-	if !claimed || secondToken == "" || secondToken == firstToken {
-		t.Fatalf("expected expired execution lease reclaim, claimed=%v first=%q second=%q", claimed, firstToken, secondToken)
+	if !secondClaim.Claimed || secondClaim.ClaimToken == "" || secondClaim.ClaimToken == firstClaim.ClaimToken || secondClaim.TransitionedToAccepted {
+		t.Fatalf("expected expired execution lease reclaim without accepted transition, first=%+v second=%+v", firstClaim, secondClaim)
 	}
 
 	assertExecutionAndSegmentStatus(t, db, dispatch.ExecutionID, dispatch.SegmentID, dal.ExecutionStatusAccepted, dal.SegmentStatusAccepted, 1)
-	assertExecutionClaim(t, db, dispatch.ExecutionID, "worker-b", reclaimedUntil.Unix(), secondToken)
+	assertExecutionClaim(t, db, dispatch.ExecutionID, "worker-b", reclaimedUntil.Unix(), secondClaim.ClaimToken)
 }
 
 type claimedExecutionFinalizationRun struct {
@@ -2157,19 +2166,19 @@ func setupClaimedExecutionFinalizationRun(t *testing.T, ctx context.Context, rep
 	}
 
 	executionLeaseUntil := time.Now().Add(time.Minute)
-	claimedExecution, token, err := repos.Runs().TryClaimExecution(ctx, dispatch.ExecutionID, "worker-a", executionLeaseUntil)
+	claim, err := repos.Runs().TryClaimExecution(ctx, dispatch.ExecutionID, "worker-a", executionLeaseUntil)
 	if err != nil {
 		t.Fatalf("claim execution: %v", err)
 	}
 
-	if !claimedExecution || token == "" {
-		t.Fatalf("expected execution claim with token, claimed=%v token=%q", claimedExecution, token)
+	if !claim.Claimed || claim.ClaimToken == "" {
+		t.Fatalf("expected execution claim with token, claim=%+v", claim)
 	}
 
 	return claimedExecutionFinalizationRun{
 		RunID:      runID,
 		Dispatch:   dispatch,
-		Token:      token,
+		Token:      claim.ClaimToken,
 		LeaseUntil: executionLeaseUntil.Unix(),
 	}
 }
@@ -2301,9 +2310,7 @@ func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_WaitsForIncomplet
 		t.Fatal("expected sibling task to be created")
 	}
 
-	if err := repos.Runs().MarkExecutionAccepted(ctx, sibling.ExecutionID); err != nil {
-		t.Fatalf("mark sibling accepted: %v", err)
-	}
+	claimExecutionAccepted(t, ctx, repos.Runs(), sibling.ExecutionID, "worker-sibling")
 
 	result, err := repos.Runs().CompleteExecutionAndFinalizeRunByClaim(ctx, setup.Dispatch.ExecutionID, "worker-a", setup.Token, dal.ExecutionStatusSucceeded, "", "")
 	if err != nil {
@@ -2478,9 +2485,7 @@ func TestRunsRepository_DispatchAndTransitionsUseLinkedTaskAttempt(t *testing.T)
 		t.Fatal("child task execution should be created")
 	}
 
-	if err := repos.Runs().MarkExecutionAccepted(ctx, rootDispatch.ExecutionID); err != nil {
-		t.Fatalf("mark root accepted: %v", err)
-	}
+	claimExecutionAccepted(t, ctx, repos.Runs(), rootDispatch.ExecutionID, "worker-root")
 
 	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
 	if err != nil {
@@ -2495,10 +2500,7 @@ func TestRunsRepository_DispatchAndTransitionsUseLinkedTaskAttempt(t *testing.T)
 		t.Fatalf("dispatch task identity: got task=%q key=%q name=%q attempt=%q", dispatch.TaskID, dispatch.TaskKey, dispatch.TaskName, dispatch.TaskAttemptID)
 	}
 
-	if err := repos.Runs().MarkExecutionAccepted(ctx, child.ExecutionID); err != nil {
-		t.Fatalf("mark child accepted: %v", err)
-	}
-
+	claimExecutionAccepted(t, ctx, repos.Runs(), child.ExecutionID, "worker-child")
 	assertExecutionAndSegmentStatus(t, db, child.ExecutionID, child.SegmentID, dal.ExecutionStatusAccepted, dal.SegmentStatusAccepted, 1)
 	assertTaskAndAttemptStatus(t, db, child.TaskID, 1, dal.TaskStatusAccepted, dal.TaskStatusAccepted, 1)
 	assertRootTaskAndAttemptStatus(t, db, runID, dal.TaskStatusAccepted, dal.TaskStatusAccepted, 1)
@@ -2599,7 +2601,7 @@ func TestRunsRepository_ExecutionTransitionsRejectInvalidTargets(t *testing.T) {
 		t.Fatalf("expected unsupported run status to return ErrConflict, got %v", err)
 	}
 
-	if err := repos.Runs().MarkExecutionAccepted(ctx, "missing-execution"); !dal.IsNotFound(err) {
+	if err := repos.Runs().ApplyExecutionStatusUpdate(ctx, dal.ExecutionStatusUpdate{ExecutionID: "missing-execution", Status: dal.ExecutionStatusAccepted}); !dal.IsNotFound(err) {
 		t.Fatalf("expected missing execution to return ErrNotFound, got %v", err)
 	}
 

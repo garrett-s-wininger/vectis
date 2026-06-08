@@ -251,16 +251,17 @@ type MockRunsRepository struct {
 	CountTaskFinalizeResult   int64
 	CountTaskFinalizeByCell   []dal.RunCountByCell
 
-	TryClaimResult          bool
-	TryClaimExecutionResult bool
-	ClaimToken              string
-	ExecutionClaimToken     string
-	RunStatus               string
-	RunStatusFound          bool
-	CancelRequested         bool
-	OrphanedRunIDs          []string
-	LogShardID              string
-	LogShardSet             bool
+	TryClaimResult                   bool
+	TryClaimExecutionResult          bool
+	TryClaimExecutionAlreadyAccepted bool
+	ClaimToken                       string
+	ExecutionClaimToken              string
+	RunStatus                        string
+	RunStatusFound                   bool
+	CancelRequested                  bool
+	OrphanedRunIDs                   []string
+	LogShardID                       string
+	LogShardSet                      bool
 
 	ListByJobResults       []dal.RunRecord
 	TaskRecords            []dal.TaskRecord
@@ -350,7 +351,15 @@ func (m *MockRunsRepository) ApplyExecutionStatusUpdate(ctx context.Context, upd
 
 	switch update.Status {
 	case dal.ExecutionStatusAccepted:
-		return m.MarkExecutionAccepted(ctx, update.ExecutionID)
+		if m.MarkExecutionErr != nil {
+			return m.MarkExecutionErr
+		}
+
+		m.mu.Lock()
+		m.ExecutionTransitions = append(m.ExecutionTransitions, update.ExecutionID+":"+dal.ExecutionStatusAccepted)
+		m.mu.Unlock()
+
+		return nil
 	case dal.ExecutionStatusRunning:
 		return m.MarkExecutionStarted(ctx, update.ExecutionID)
 	case dal.ExecutionStatusSucceeded, dal.ExecutionStatusFailed, dal.ExecutionStatusCancelled, dal.ExecutionStatusAborted:
@@ -860,9 +869,9 @@ func (m *MockRunsRepository) GetExecutionDispatch(ctx context.Context, execution
 	return rec, nil
 }
 
-func (m *MockRunsRepository) TryClaimExecution(ctx context.Context, executionID, owner string, leaseUntil time.Time) (bool, string, error) {
+func (m *MockRunsRepository) TryClaimExecution(ctx context.Context, executionID, owner string, leaseUntil time.Time) (dal.ExecutionClaimResult, error) {
 	if m.TryClaimExecutionErr != nil {
-		return false, "", m.TryClaimExecutionErr
+		return dal.ExecutionClaimResult{}, m.TryClaimExecutionErr
 	}
 
 	m.mu.Lock()
@@ -871,7 +880,7 @@ func (m *MockRunsRepository) TryClaimExecution(ctx context.Context, executionID,
 	m.mu.Unlock()
 
 	if !m.TryClaimExecutionResult {
-		return false, "", nil
+		return dal.ExecutionClaimResult{}, nil
 	}
 
 	token := m.ExecutionClaimToken
@@ -879,7 +888,11 @@ func (m *MockRunsRepository) TryClaimExecution(ctx context.Context, executionID,
 		token = "mock-execution-claim-token"
 	}
 
-	return true, token, nil
+	return dal.ExecutionClaimResult{
+		Claimed:                true,
+		ClaimToken:             token,
+		TransitionedToAccepted: !m.TryClaimExecutionAlreadyAccepted,
+	}, nil
 }
 
 func (m *MockRunsRepository) RenewExecutionLease(ctx context.Context, executionID, owner, claimToken string, leaseUntil time.Time) error {
@@ -941,17 +954,6 @@ func (m *MockRunsRepository) ActivatePlannedChildTaskExecutions(ctx context.Cont
 	}
 
 	return append([]dal.TaskExecutionRecord(nil), m.TaskExecutions...), m.TaskActivatedN, nil
-}
-
-func (m *MockRunsRepository) MarkExecutionAccepted(ctx context.Context, executionID string) error {
-	if m.MarkExecutionErr != nil {
-		return m.MarkExecutionErr
-	}
-
-	m.mu.Lock()
-	m.ExecutionTransitions = append(m.ExecutionTransitions, executionID+":"+dal.ExecutionStatusAccepted)
-	m.mu.Unlock()
-	return nil
 }
 
 func (m *MockRunsRepository) MarkExecutionStarted(ctx context.Context, executionID string) error {
