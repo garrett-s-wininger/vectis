@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Clock, Code2, FileText, History, Server, User, Zap } from "lucide-react";
 import {
   AppState,
@@ -8,7 +9,8 @@ import {
   StatusBadge,
   type RunListItem
 } from "../components";
-import { runActorLabel, runDurationLabel, runTriggerLabel } from "../components/data/RunPresentation";
+import { runActorLabel, runDisplayName, runDurationLabel, runTriggerLabel } from "../components/data/RunPresentation";
+import { streamRunLogs, type RunLogEntry } from "../data/runLogs";
 import { formatNamespaceCrumb } from "./jobs/JobBreadcrumbs";
 import {
   formatRunDefinition,
@@ -66,13 +68,16 @@ export function RunDetailPage({ onBack, onOpenJob, run, runID }: RunDetailPagePr
             items={[
               { label: formatNamespaceCrumb(run.namespacePath ?? "/") },
               { label: "Runs", onClick: onBack },
-              { label: run.jobName, onClick: onOpenJob ? () => onOpenJob(run.jobName) : undefined },
+              {
+                label: runDisplayName(run),
+                onClick: run.source === "stored" && onOpenJob ? () => onOpenJob(run.jobName) : undefined
+              },
               { label: `#${run.runNumber}`, current: true }
             ]}
             label="Run location"
           />
         }
-        title={`${run.jobName} (#${run.runNumber})`}
+        title={`${runDisplayName(run)} (#${run.runNumber})`}
       />
 
       <section
@@ -133,6 +138,39 @@ function RunGraph({ run }: { run: RunListItem }) {
 }
 
 function RunLogs({ run }: { run: RunListItem }) {
+  const [logState, setLogState] = useState<{ entries: RunLogEntry[]; error: string; runID: string }>({
+    entries: [],
+    error: "",
+    runID: run.id
+  });
+
+  useEffect(() => {
+    return streamRunLogs(
+      run.id,
+      (entry) => {
+        setLogState((state) => {
+          const entries = state.runID === run.id ? state.entries : [];
+          if (entries.some((candidate) => candidate.sequence === entry.sequence && entry.sequence >= 0)) {
+            return state;
+          }
+
+          return {
+            runID: run.id,
+            error: "",
+            entries: [...entries, entry].sort((a, b) => a.sequence - b.sequence)
+          };
+        });
+      },
+      (error) => setLogState({ runID: run.id, entries: [], error })
+    );
+  }, [run.id]);
+
+  const visibleLogState = logState.runID === run.id ? logState : { entries: [], error: "", runID: run.id };
+  const logLines =
+    visibleLogState.entries.length > 0
+      ? formatRunLogEntries(visibleLogState.entries)
+      : fallbackLogLines(run, visibleLogState.error);
+
   return (
     <section
       className={`${styles.panel} ${styles.primaryPanel} polished-panel polished-panel--accent-top`}
@@ -144,9 +182,21 @@ function RunLogs({ run }: { run: RunListItem }) {
           <p>Worker output and dispatch messages for this run.</p>
         </div>
       </div>
-      <pre className={`code-block ${styles.logs}`}>{runLogLines(run).join("\n")}</pre>
+      <pre className={`code-block ${styles.logs}`}>{logLines.join("\n")}</pre>
     </section>
   );
+}
+
+function formatRunLogEntries(entries: RunLogEntry[]) {
+  return entries.map((entry) => (entry.stream === "stderr" ? `[stderr] ${entry.data}` : entry.data));
+}
+
+function fallbackLogLines(run: RunListItem, logError: string) {
+  if (logError) {
+    return [logError];
+  }
+
+  return runLogLines(run);
 }
 
 function RunTimeline({ run }: { run: RunListItem }) {

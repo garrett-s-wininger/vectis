@@ -2830,31 +2830,85 @@ func (r *SQLRunsRepository) ListBySourceRepositoryJob(ctx context.Context, repos
 			return nil, 0, err
 		}
 
+		rec.JobID = jobID
 		lastID = id
-		if orphanReason.Valid && orphanReason.String != "" {
-			rec.OrphanReason = &orphanReason.String
+		populateRunRecordNullableFields(&rec, orphanReason, failureCode, createdAt, startedAt, finishedAt, failureReason)
+		out = append(out, rec)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, 0, normalizeSQLError(err)
+	}
+
+	var nextCursor int64
+	if len(out) > limit {
+		out = out[:limit]
+		nextCursor = lastID
+	}
+
+	return out, nextCursor, nil
+}
+
+func (r *SQLRunsRepository) ListAll(ctx context.Context, cursor int64, limit int) ([]RunRecord, int64, error) {
+	query := `
+		SELECT
+			jr.id,
+			jr.run_id,
+			jr.job_id,
+			jr.run_index,
+			jr.status,
+			jr.orphan_reason,
+			jr.failure_code,
+			CAST(jr.created_at AS TEXT),
+			CAST(jr.started_at AS TEXT),
+			CAST(jr.finished_at AS TEXT),
+			jr.failure_reason,
+			jr.definition_version,
+			jr.definition_hash,
+			jr.owning_cell,
+			jr.replay_of_run_id,
+			jr.trigger_invocation_id,
+			jr.execution_payload_hash,
+			ti.trigger_id,
+			ti.trigger_type,
+			ti.trigger_payload_hash,
+			ti.requested_cells
+		FROM job_runs jr
+		LEFT JOIN trigger_invocations ti ON ti.invocation_id = jr.trigger_invocation_id`
+	args := []any{}
+
+	if cursor > 0 {
+		query += " WHERE jr.id < ?"
+		args = append(args, cursor)
+	}
+
+	query += " ORDER BY jr.id DESC LIMIT ?"
+	args = append(args, limit+1)
+
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(query), args...)
+	if err != nil {
+		return nil, 0, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	var out []RunRecord
+	var lastID int64
+	for rows.Next() {
+		var rec RunRecord
+		var id int64
+		var orphanReason, failureCode, createdAt, startedAt, finishedAt, failureReason sql.NullString
+		var replayOfRunID, triggerInvocationID, triggerType, triggerPayloadHash, requestedCells sql.NullString
+		var triggerID sql.NullInt64
+		if err := rows.Scan(&id, &rec.RunID, &rec.JobID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &createdAt, &startedAt, &finishedAt, &failureReason, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell, &replayOfRunID, &triggerInvocationID, &rec.ExecutionPayloadHash, &triggerID, &triggerType, &triggerPayloadHash, &requestedCells); err != nil {
+			return nil, 0, normalizeSQLError(err)
 		}
 
-		if createdAt.Valid {
-			rec.CreatedAt = &createdAt.String
+		if err := applyRunAuditFields(&rec, replayOfRunID, triggerInvocationID, triggerID, triggerType, triggerPayloadHash, requestedCells); err != nil {
+			return nil, 0, err
 		}
 
-		if startedAt.Valid {
-			rec.StartedAt = &startedAt.String
-		}
-
-		if finishedAt.Valid {
-			rec.FinishedAt = &finishedAt.String
-		}
-
-		if failureCode.Valid && failureCode.String != "" {
-			rec.FailureCode = &failureCode.String
-		}
-
-		if failureReason.Valid {
-			rec.FailureReason = &failureReason.String
-		}
-
+		lastID = id
+		populateRunRecordNullableFields(&rec, orphanReason, failureCode, createdAt, startedAt, finishedAt, failureReason)
 		out = append(out, rec)
 	}
 
@@ -4708,6 +4762,32 @@ func unixNanoStringPtr(value sql.NullInt64) *string {
 
 	v := time.Unix(0, value.Int64).UTC().Format(time.RFC3339Nano)
 	return &v
+}
+
+func populateRunRecordNullableFields(rec *RunRecord, orphanReason, failureCode, createdAt, startedAt, finishedAt, failureReason sql.NullString) {
+	if orphanReason.Valid && orphanReason.String != "" {
+		rec.OrphanReason = &orphanReason.String
+	}
+
+	if createdAt.Valid {
+		rec.CreatedAt = &createdAt.String
+	}
+
+	if startedAt.Valid {
+		rec.StartedAt = &startedAt.String
+	}
+
+	if finishedAt.Valid {
+		rec.FinishedAt = &finishedAt.String
+	}
+
+	if failureCode.Valid && failureCode.String != "" {
+		rec.FailureCode = &failureCode.String
+	}
+
+	if failureReason.Valid {
+		rec.FailureReason = &failureReason.String
+	}
 }
 
 func (r *SQLRunsRepository) ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]QueuedRun, error) {

@@ -1,10 +1,10 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { JobEditor, emptyJobForm, jobInputFromValues } from "./JobEditor";
 import type { JobFormValues } from "./JobEditor";
 
 describe("JobEditor", () => {
-  it("submits a valid create input", () => {
+  it("submits a valid create input", async () => {
     const createJob = vi.fn();
     const cancel = vi.fn();
 
@@ -24,6 +24,8 @@ describe("JobEditor", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
+    await waitFor(() => expect(cancel).toHaveBeenCalled());
+
     expect(createJob).toHaveBeenCalledWith(
       expect.objectContaining({
         description: "Warms cache before release deploys.",
@@ -31,7 +33,66 @@ describe("JobEditor", () => {
         namespacePath: "/platform"
       })
     );
-    expect(cancel).toHaveBeenCalled();
+  });
+
+  it("waits for a successful update before closing", async () => {
+    let resolveUpdate: (() => void) | undefined;
+    const updateJob = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveUpdate = resolve;
+        })
+    );
+    const cancel = vi.fn();
+
+    render(
+      <JobEditor
+        error=""
+        mode={{ kind: "edit", jobID: "worker-image" }}
+        namespacePath="/"
+        onCancel={cancel}
+        onCreateJob={() => undefined}
+        onError={() => undefined}
+        onUpdateJob={updateJob}
+        onValuesChange={() => undefined}
+        values={{ ...emptyJobForm, name: "worker-image" }}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(updateJob).toHaveBeenCalledWith("worker-image", expect.objectContaining({ name: "worker-image" }));
+    expect(cancel).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveUpdate?.();
+    });
+
+    await waitFor(() => expect(cancel).toHaveBeenCalled());
+  });
+
+  it("keeps the editor open when update fails", async () => {
+    const cancel = vi.fn();
+    const onError = vi.fn();
+
+    render(
+      <JobEditor
+        error=""
+        mode={{ kind: "edit", jobID: "worker-image" }}
+        namespacePath="/"
+        onCancel={cancel}
+        onCreateJob={() => undefined}
+        onError={onError}
+        onUpdateJob={() => Promise.reject(new Error("invalid stored definition"))}
+        onValuesChange={() => undefined}
+        values={{ ...emptyJobForm, name: "worker-image" }}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(onError).toHaveBeenCalledWith("invalid stored definition"));
+    expect(cancel).not.toHaveBeenCalled();
   });
 
   it("reports invalid JSON without closing", () => {
@@ -125,7 +186,7 @@ describe("JobEditor", () => {
     }
   });
 
-  it("keeps the name read-only while configuring an existing job", () => {
+  it("keeps the name read-only while configuring an existing job", async () => {
     const updateJob = vi.fn();
 
     render(
@@ -146,12 +207,29 @@ describe("JobEditor", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(updateJob).toHaveBeenCalledWith("worker-image", expect.objectContaining({ name: "worker-image" }));
+    await waitFor(() =>
+      expect(updateJob).toHaveBeenCalledWith("worker-image", expect.objectContaining({ name: "worker-image" }))
+    );
   });
 
   it("serializes manual-only jobs for the API", () => {
     expect(jobInputFromValues({ ...emptyJobForm, manualEnabled: true, schedule: "None" })).toEqual(
       expect.objectContaining({ schedule: "Manual" })
     );
+  });
+
+  it("starts with a runnable shell definition by default", () => {
+    const input = jobInputFromValues({ ...emptyJobForm, name: "hello-vectis" });
+    const definition = JSON.parse(input.definition) as {
+      root?: {
+        uses?: string;
+        with?: {
+          command?: string;
+        };
+      };
+    };
+
+    expect(definition.root?.uses).toBe("builtins/shell");
+    expect(definition.root?.with?.command).toBe("echo 'Hello from Vectis'");
   });
 });

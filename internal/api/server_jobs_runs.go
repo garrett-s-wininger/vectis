@@ -1633,6 +1633,101 @@ func detachedTraceContextFromContext(ctx context.Context) context.Context {
 	return trace.ContextWithSpanContext(ctx, sc)
 }
 
+func (s *APIServer) ListRuns(w http.ResponseWriter, r *http.Request) {
+	params := parsePageParams(r)
+
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	runRows, nextCursor, err := s.runs.ListAll(ctx, params.Cursor, params.Limit)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+	s.markDBRecovered()
+
+	type runRow struct {
+		RunID             string  `json:"run_id"`
+		JobID             string  `json:"job_id"`
+		Namespace         string  `json:"namespace"`
+		RunIndex          int     `json:"run_index"`
+		Status            string  `json:"status"`
+		OrphanReason      *string `json:"orphan_reason,omitempty"`
+		FailureCode       *string `json:"failure_code,omitempty"`
+		CreatedAt         *string `json:"created_at,omitempty"`
+		StartedAt         *string `json:"started_at,omitempty"`
+		FinishedAt        *string `json:"finished_at,omitempty"`
+		FailureReason     *string `json:"failure_reason,omitempty"`
+		DefinitionVersion int     `json:"definition_version"`
+		DefinitionHash    string  `json:"definition_hash,omitempty"`
+		OwningCell        string  `json:"owning_cell"`
+	}
+
+	var runs []runRow
+	for _, rec := range runRows {
+		nsPath, err := s.getJobNamespacePath(ctx, rec.JobID)
+		if err != nil {
+			if dal.IsNotFound(err) {
+				nsPath = "/"
+			} else {
+				if s.handleDBUnavailableError(w, err) {
+					return
+				}
+
+				s.logger.Error("Database error: %v", err)
+				writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+				return
+			}
+		}
+
+		if !s.checkNamespaceAuth(ctx, p, authz.ActionRunRead, nsPath) {
+			continue
+		}
+
+		runs = append(runs, runRow{
+			RunID:             rec.RunID,
+			JobID:             rec.JobID,
+			Namespace:         nsPath,
+			RunIndex:          rec.RunIndex,
+			Status:            rec.Status,
+			OrphanReason:      rec.OrphanReason,
+			FailureCode:       rec.FailureCode,
+			CreatedAt:         rec.CreatedAt,
+			StartedAt:         rec.StartedAt,
+			FinishedAt:        rec.FinishedAt,
+			FailureReason:     rec.FailureReason,
+			DefinitionVersion: rec.DefinitionVersion,
+			DefinitionHash:    rec.DefinitionHash,
+			OwningCell:        rec.OwningCell,
+		})
+	}
+
+	if runs == nil {
+		runs = []runRow{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	resp := buildPaginatedResponse(runs, nextCursor)
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(resp); err != nil {
+		s.logger.Error("Failed to encode runs: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	_, _ = w.Write(buf.Bytes())
+}
+
 func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 	repositoryID, ok := requireSourceJobRepositoryIDFromQuery(w, r)
 	if !ok {
@@ -1841,7 +1936,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 	}
 	s.markDBRecovered()
 
-	nsPath, err := s.getRunJobNamespacePath(ctx, runID)
+	jobID, err := s.runs.GetRunJobID(ctx, runID)
 	if err != nil {
 		if dal.IsNotFound(err) {
 			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
@@ -1851,6 +1946,19 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("Database error: %v", err)
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
+	}
+
+	nsPath, err := s.getJobNamespacePath(ctx, jobID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			// Ephemeral runs don't have stored_jobs entries;
+			// they run in the default namespace.
+			nsPath = "/"
+		} else {
+			s.logger.Error("Database error: %v", err)
+			writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+			return
+		}
 	}
 
 	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunRead, nsPath) {
@@ -1952,6 +2060,8 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 
 	type runRow struct {
 		RunID                     string                     `json:"run_id"`
+		JobID                     string                     `json:"job_id"`
+		Namespace                 string                     `json:"namespace"`
 		RunIndex                  int                        `json:"run_index"`
 		Status                    string                     `json:"status"`
 		OrphanReason              *string                    `json:"orphan_reason,omitempty"`
@@ -1999,6 +2109,8 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 
 	resp := runRow{
 		RunID:                rec.RunID,
+		JobID:                jobID,
+		Namespace:            nsPath,
 		RunIndex:             rec.RunIndex,
 		Status:               effectiveStatus,
 		OrphanReason:         rec.OrphanReason,

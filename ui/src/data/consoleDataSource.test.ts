@@ -50,6 +50,8 @@ describe("console data source", () => {
           data: [
             {
               run_id: "run-1",
+              job_id: "smoke-test",
+              namespace: "/",
               run_index: 4,
               created_at: "2026-05-31T11:59:55Z",
               definition_version: 3,
@@ -59,7 +61,8 @@ describe("console data source", () => {
             }
           ]
         })
-      );
+      )
+      .mockResolvedValueOnce(jsonResponse({ data: [] }));
 
     const data = await createConsoleDataSource().loadConsole();
 
@@ -98,6 +101,7 @@ describe("console data source", () => {
       trigger: "api",
       duration: "42s"
     });
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/v1/runs?limit=200", expect.any(Object));
   });
 
   it("does not invent a latest run status for API jobs with no runs", async () => {
@@ -148,11 +152,13 @@ describe("console data source", () => {
     fetchMock
       .mockResolvedValueOnce(new Response(null, { status: 201 }))
       .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }))
       .mockResolvedValueOnce(jsonResponse({ data: [] }));
 
     await createConsoleDataSource().createJob({
       branch: "",
       definition: JSON.stringify({ root: { id: "root", uses: "builtins/shell" } }),
+      description: "Shown in the editor, not written into the definition.",
       name: "database-vacuum",
       namespacePath: "/",
       repository: "",
@@ -174,6 +180,188 @@ describe("console data source", () => {
         })
       })
     );
+  });
+
+  it("updates stored job definitions without injecting form-only description text", async () => {
+    vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+
+    fetchMock
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }));
+
+    await createConsoleDataSource().updateJob("database-vacuum", {
+      branch: "",
+      definition: JSON.stringify({
+        root: { id: "root", uses: "builtins/shell" }
+      }),
+      description: "Do not write this back into JSON.",
+      name: "ignored-by-update",
+      repository: "",
+      schedule: "Manual",
+      status: "enabled"
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/v1/jobs/database-vacuum",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          root: { id: "root", uses: "builtins/shell" },
+          id: "database-vacuum"
+        })
+      })
+    );
+  });
+
+  it("submits ephemeral runs through the API source", async () => {
+    vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+    const definition = JSON.stringify({
+      id: "ad-hoc-backfill",
+      root: { id: "root", uses: "builtins/shell" }
+    });
+
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ id: "ephemeral-job", run_id: "run-ephemeral-1" }))
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [
+            {
+              run_id: "run-ephemeral-1",
+              job_id: "ephemeral-job",
+              namespace: "/",
+              run_index: 1,
+              created_at: "2026-05-31T12:00:00Z",
+              definition_version: 1,
+              status: "queued",
+              owning_cell: "local"
+            }
+          ]
+        })
+      );
+
+    const source = createConsoleDataSource();
+    const data = await source.submitEphemeralRun({
+      definition,
+      namespacePath: "/platform",
+      submittedBy: "admin"
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/v1/jobs/run",
+      expect.objectContaining({
+        method: "POST",
+        body: definition
+      })
+    );
+
+    expect(data.runs[0]).toMatchObject({
+      id: "run-ephemeral-1",
+      jobName: "ephemeral-job",
+      namespacePath: "/",
+      source: "ephemeral",
+      status: "queued",
+      submittedBy: "anonymous",
+      trigger: "api"
+    });
+
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [
+            {
+              run_id: "run-ephemeral-1",
+              job_id: "ephemeral-job",
+              namespace: "/",
+              run_index: 1,
+              created_at: "2026-05-31T12:00:00Z",
+              definition_version: 1,
+              status: "queued",
+              owning_cell: "local"
+            }
+          ]
+        })
+      );
+
+    const reloadedData = await source.loadConsole();
+
+    expect(reloadedData.runs[0]).toMatchObject({
+      id: "run-ephemeral-1",
+      source: "ephemeral"
+    });
+  });
+
+  it("uses the post-submit fallback only when the runs endpoint has not caught up", async () => {
+    vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+    const definition = JSON.stringify({
+      id: "ad-hoc-backfill",
+      root: { id: "root", uses: "builtins/shell" }
+    });
+
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ id: "ephemeral-job", run_id: "run-ephemeral-1" }))
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }));
+
+    const data = await createConsoleDataSource().submitEphemeralRun({
+      definition,
+      namespacePath: "/platform",
+      submittedBy: "admin"
+    });
+
+    expect(data.runs[0]).toMatchObject({
+      id: "run-ephemeral-1",
+      jobName: "ad-hoc-backfill",
+      namespacePath: "/platform",
+      source: "ephemeral",
+      status: "queued",
+      submittedBy: "admin",
+      trigger: "ui"
+    });
+  });
+
+  it("loads an inline run by id through the API source", async () => {
+    vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          run_id: "run-inline-1",
+          job_id: "inline-job",
+          namespace: "/",
+          run_index: 1,
+          status: "queued",
+          created_at: "2026-05-31T12:00:00Z",
+          definition_version: 1,
+          definition: {
+            id: "ad-hoc-backfill",
+            root: { id: "root", uses: "builtins/shell" }
+          },
+          owning_cell: "local"
+        })
+      )
+      .mockResolvedValueOnce(jsonResponse({ data: [] }));
+
+    const run = await createConsoleDataSource().loadRun("run-inline-1");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/v1/runs/run-inline-1", expect.any(Object));
+    expect(run).toMatchObject({
+      id: "run-inline-1",
+      jobName: "ad-hoc-backfill",
+      namespacePath: "/",
+      source: "ephemeral",
+      status: "queued",
+      definitionVersion: 1
+    });
+    expect(run.definition).toContain('"id": "ad-hoc-backfill"');
   });
 });
 

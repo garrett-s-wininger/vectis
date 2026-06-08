@@ -55,6 +55,32 @@ describe("RunList", () => {
     expect(selectRun).toHaveBeenCalledWith("run-184");
   });
 
+  it("uses a concise label for generated inline runs", () => {
+    const selectRun = vi.fn();
+
+    render(
+      <RunList
+        onSelectRun={selectRun}
+        title="Active runs"
+        runs={[
+          {
+            ...runs[0],
+            id: "run-2a5ed99c-6d51-4c50-97e9-e31b23da7469",
+            jobName: "2a5ed99c-6d51-4c50-97e9-e31b23da7469",
+            runNumber: 1,
+            source: "ephemeral"
+          }
+        ]}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open run 97e9-e31b23da7469 #1" }));
+
+    expect(screen.getByText("97e9-e31b23da7469")).toBeInTheDocument();
+    expect(screen.queryByText("2a5ed99c-6d51-4c50-97e9-e31b23da7469")).not.toBeInTheDocument();
+    expect(selectRun).toHaveBeenCalledWith("run-2a5ed99c-6d51-4c50-97e9-e31b23da7469");
+  });
+
   it("renders an empty state when no runs are present", () => {
     render(<RunList title="Recent failures" runs={[]} />);
 

@@ -48,7 +48,9 @@ export const runStatusLabels: Record<RunFilter, string> = {
   succeeded: "Succeeded",
   failed: "Failed",
   cancelled: "Cancelled",
-  abandoned: "Abandoned"
+  abandoned: "Abandoned",
+  orphaned: "Orphaned",
+  aborted: "Aborted"
 };
 
 export const runStatusOptions = Object.entries(runStatusLabels).map(([value, label]) => ({

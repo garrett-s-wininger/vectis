@@ -37,6 +37,14 @@ export function runDurationLabel(status: RunStatus) {
   return "Duration";
 }
 
+export function runDisplayName(run: { id?: string; jobName: string; source?: "stored" | "ephemeral" }) {
+  if (run.source === "ephemeral" && isGeneratedID(run.jobName)) {
+    return run.id ? shortRunID(run.id) : "Inline";
+  }
+
+  return run.jobName;
+}
+
 export function runStatusClass(status: RunStatus) {
   return `status${status[0].toUpperCase()}${status.slice(1)}` as const;
 }
@@ -72,4 +80,17 @@ function inferredRunTrigger(run: RunPresentationInput): RunTrigger {
   }
 
   return "manual";
+}
+
+function isGeneratedID(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function shortRunID(runID: string) {
+  const uuid = runID.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-([89ab][0-9a-f]{3})-([0-9a-f]{12})/i);
+  if (uuid) {
+    return `${uuid[1]}-${uuid[2]}`;
+  }
+
+  return runID.slice(-17);
 }

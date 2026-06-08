@@ -7,8 +7,8 @@ type RoutedJobEditorProps = {
   mode: JobEditorMode;
   namespacePath: string;
   onCancel: () => void;
-  onCreateJob: (input: NewJob) => void;
-  onUpdateJob: (jobID: string, input: UpdateJob) => void;
+  onCreateJob: (input: NewJob) => Promise<void> | void;
+  onUpdateJob: (jobID: string, input: UpdateJob) => Promise<void> | void;
 };
 
 export function RoutedJobEditor({

@@ -26,7 +26,7 @@ export function sourceLabel(source: NonNullable<RunListItem["source"]>) {
 
 export function referenceLabel(run: RunListItem) {
   if (run.source === "ephemeral") {
-    return "Inline submission";
+    return "Inline";
   }
 
   if (run.definitionVersion) {

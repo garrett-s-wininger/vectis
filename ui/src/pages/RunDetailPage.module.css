@@ -29,7 +29,7 @@
 .facts {
   display: grid;
   gap: var(--space-lg);
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
   margin: 0;
 }
 
@@ -161,20 +161,26 @@
 }
 
 .failed .graphIndicator,
-.cancelled .graphIndicator {
+.cancelled .graphIndicator,
+.abandoned .graphIndicator,
+.aborted .graphIndicator {
   border-color: var(--status-danger-border);
 }
 
 .failed .graphIndicator::after,
-.cancelled .graphIndicator::after {
+.cancelled .graphIndicator::after,
+.abandoned .graphIndicator::after,
+.aborted .graphIndicator::after {
   background: var(--status-danger-text);
 }
 
-.queued .graphIndicator {
+.queued .graphIndicator,
+.orphaned .graphIndicator {
   border-color: var(--status-warning-border);
 }
 
-.queued .graphIndicator::after {
+.queued .graphIndicator::after,
+.orphaned .graphIndicator::after {
   background: var(--status-warning-text);
 }
 
@@ -182,6 +188,9 @@
 .succeeded .graphLabel,
 .failed .graphLabel,
 .cancelled .graphLabel,
+.abandoned .graphLabel,
+.orphaned .graphLabel,
+.aborted .graphLabel,
 .queued .graphLabel {
   color: var(--text-primary);
 }
@@ -230,7 +239,7 @@
   font-size: var(--font-size-md);
 }
 
-.eventTime {
+.eventList .eventTime {
   align-items: center;
   color: var(--text-subtle);
   display: flex;
@@ -242,7 +251,7 @@
   line-height: var(--line-height-tight);
 }
 
-.eventTime small {
+.eventList .eventTime small {
   background: rgb(255 255 255 / 54%);
   border: 1px solid rgb(151 168 177 / 28%);
   border-radius: var(--radius-pill);

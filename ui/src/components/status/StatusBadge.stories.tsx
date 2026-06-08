@@ -11,7 +11,7 @@ const meta = {
   argTypes: {
     status: {
       control: "select",
-      options: ["queued", "running", "succeeded", "failed", "cancelled", "abandoned", "empty"]
+      options: ["queued", "running", "succeeded", "failed", "cancelled", "abandoned", "orphaned", "aborted", "empty"]
     }
   }
 } satisfies Meta<typeof StatusBadge>;
@@ -31,6 +31,8 @@ export const AllStatuses: Story = {
       <StatusBadge status="failed" />
       <StatusBadge status="cancelled" />
       <StatusBadge status="abandoned" />
+      <StatusBadge status="orphaned" />
+      <StatusBadge status="aborted" />
       <StatusBadge status="empty" />
     </div>
   )

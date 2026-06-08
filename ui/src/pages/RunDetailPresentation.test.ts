@@ -33,7 +33,7 @@ describe("run detail presentation", () => {
     expect(sourceLabel("stored")).toBe("Saved");
     expect(sourceLabel("ephemeral")).toBe("Ephemeral");
     expect(referenceLabel(run)).toBe("v3");
-    expect(referenceLabel({ ...run, source: "ephemeral" })).toBe("Inline submission");
+    expect(referenceLabel({ ...run, source: "ephemeral" })).toBe("Inline");
   });
 
   it("describes the definition panel for stored and ephemeral runs", () => {

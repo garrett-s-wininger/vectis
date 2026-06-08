@@ -145,6 +145,7 @@ type MockRunsRepository struct {
 	CreateRunCreated bool
 
 	CreateRunErr                  error
+	ListAllErr                    error
 	TouchDispatchedErr            error
 	ListByJobErr                  error
 	ListRunTasksErr               error
@@ -207,6 +208,7 @@ type MockRunsRepository struct {
 	LogShardID                       string
 	LogShardSet                      bool
 
+	ListAllResults         []dal.RunRecord
 	ListByJobResults       []dal.RunRecord
 	TaskRecords            []dal.TaskRecord
 	LatestSecurityEvent    *dal.ExecutionSecurityEvent
@@ -895,6 +897,14 @@ func (m *MockRunsRepository) SnapshotExecutionSecurityEvents() []dal.RecordExecu
 	defer m.mu.Unlock()
 
 	return append([]dal.RecordExecutionSecurityEventParams(nil), m.RecordedSecurityEvents...)
+}
+
+func (m *MockRunsRepository) ListAll(ctx context.Context, cursor int64, limit int) ([]dal.RunRecord, int64, error) {
+	if m.ListAllErr != nil {
+		return nil, 0, m.ListAllErr
+	}
+
+	return append([]dal.RunRecord(nil), m.ListAllResults...), 0, nil
 }
 
 func (m *MockRunsRepository) CountByStatus(ctx context.Context, status string) (int64, error) {

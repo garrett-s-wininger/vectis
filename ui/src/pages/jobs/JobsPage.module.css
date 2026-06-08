@@ -178,6 +178,12 @@
   width: 100%;
 }
 
+.emptyStateRail {
+  display: flex;
+  justify-content: center;
+  width: min(var(--layout-panel-max), 100%);
+}
+
 .workspaceWithPanel {
   align-items: start;
   grid-template-columns: minmax(0, 1fr) minmax(196px, 232px);

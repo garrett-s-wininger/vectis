@@ -1,4 +1,4 @@
-import type { FormEvent, MouseEvent } from "react";
+import type { FormEvent, MouseEvent, ReactNode } from "react";
 import { useEffect, useState } from "react";
 import "./index.css";
 import vectisLogo from "../../assets/brand/public/vectis.png";
@@ -8,6 +8,7 @@ import { AppShell } from "./components";
 import { AppState } from "./components";
 import { FormError } from "./components";
 import { FormField } from "./components";
+import { VectisAPIError } from "./api/client";
 import { createConsoleDataSource } from "./data/consoleDataSource";
 import type { NewJob, UpdateJob } from "./domain/console";
 import {
@@ -18,7 +19,6 @@ import {
   deleteMockUser,
   nextMockRunID,
   scopeMockConsoleData,
-  submitMockEphemeralRun,
   updateMockUserStatus,
   type MockConsoleData,
   type MockUserStatus,
@@ -74,11 +74,14 @@ export function App() {
   const [consoleDataSource] = useState(() => createConsoleDataSource());
   const [consoleData, setConsoleData] = useState<MockConsoleData | null>(null);
   const [consoleError, setConsoleError] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [missingRunID, setMissingRunID] = useState<string | null>(null);
   const [selectedNamespacePath, setSelectedNamespacePath] = useState("/");
 
   useEffect(() => {
     const onPopState = () => {
       const nextRoute = routeFromPath(window.location.pathname, window.location.search);
+      setActionError("");
       setFormError("");
       setSubmitting(false);
       setRoute(nextRoute);
@@ -142,6 +145,7 @@ export function App() {
             setSelectedNamespacePath(routeNamespacePath);
           }
           setConsoleError("");
+          setActionError("");
         }
       })
       .catch((error: unknown) => {
@@ -154,6 +158,60 @@ export function App() {
       ignore = true;
     };
   }, [consoleDataSource, route.kind]);
+
+  useEffect(() => {
+    if (route.kind !== "runs" || !route.runID || !consoleData) {
+      return;
+    }
+
+    if (consoleData.runs.some((run) => run.id === route.runID)) {
+      return;
+    }
+
+    let ignore = false;
+
+    consoleDataSource
+      .loadRun(route.runID)
+      .then((run) => {
+        if (ignore) {
+          return;
+        }
+
+        setConsoleData((data) => {
+          if (!data || data.runs.some((candidate) => candidate.id === run.id)) {
+            return data;
+          }
+
+          return {
+            ...data,
+            runs: [run, ...data.runs]
+          };
+        });
+
+        setMissingRunID(null);
+        setConsoleError("");
+        setActionError("");
+      })
+      .catch((error: unknown) => {
+        if (!ignore) {
+          if (error instanceof VectisAPIError && error.code === "run_not_found") {
+            setMissingRunID(route.runID ?? null);
+            return;
+          }
+
+          const message = error instanceof Error ? error.message : "Unable to load run.";
+          if (message !== "Run not found.") {
+            setConsoleError(message);
+          } else {
+            setMissingRunID(route.runID ?? null);
+          }
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [consoleData, consoleDataSource, route]);
 
   async function handleSetup(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -222,8 +280,11 @@ export function App() {
     try {
       setConsoleData(await consoleDataSource.createJob(input));
       setConsoleError("");
+      setActionError("");
     } catch (error) {
-      setConsoleError(error instanceof Error ? error.message : "Unable to create job.");
+      const message = error instanceof Error ? error.message : "Unable to create job.";
+      setActionError(message);
+      throw new Error(message, { cause: error });
     }
   }
 
@@ -231,8 +292,11 @@ export function App() {
     try {
       setConsoleData(await consoleDataSource.updateJob(jobID, input));
       setConsoleError("");
+      setActionError("");
     } catch (error) {
-      setConsoleError(error instanceof Error ? error.message : "Unable to update job.");
+      const message = error instanceof Error ? error.message : "Unable to update job.";
+      setActionError(message);
+      throw new Error(message, { cause: error });
     }
   }
 
@@ -250,24 +314,32 @@ export function App() {
     try {
       setConsoleData(await consoleDataSource.triggerRun(jobID));
       setConsoleError("");
+      setActionError("");
     } catch (error) {
-      setConsoleError(error instanceof Error ? error.message : "Unable to trigger job.");
+      setActionError(error instanceof Error ? error.message : "Unable to trigger job.");
     }
   }
 
-  function handleSubmitEphemeralRun(definition: string) {
-    const runID = consoleData ? nextMockRunID(consoleData) : null;
+  async function handleSubmitEphemeralRun(definition: string) {
+    const fallbackRunID = consoleData ? nextMockRunID(consoleData) : null;
 
-    updateConsoleData((data) =>
-      submitMockEphemeralRun(data, {
+    try {
+      const nextData = await consoleDataSource.submitEphemeralRun({
         definition,
         namespacePath: selectedNamespacePath,
         submittedBy: "admin"
-      })
-    );
+      });
+      const runID = nextData.runs[0]?.id ?? fallbackRunID;
 
-    if (runID) {
-      navigateTo(`/runs/${runID}`);
+      setConsoleData(nextData);
+      setConsoleError("");
+      setActionError("");
+
+      if (runID) {
+        navigateTo(`/runs/${runID}`);
+      }
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Unable to submit run.");
     }
   }
 
@@ -333,8 +405,10 @@ export function App() {
       utilityNavItems={adminNavItems}
     >
       <RouteContent
+        actionError={actionError}
         consoleData={consoleData}
         consoleError={consoleError}
+        missingRunID={missingRunID}
         namespacePath={selectedNamespacePath}
         onCreateJob={handleCreateJob}
         onCreateNamespace={handleCreateNamespace}
@@ -472,8 +546,10 @@ function AuthHeader({ subtitle, title, titleID }: { subtitle: string; title: str
 }
 
 function RouteContent({
+  actionError,
   consoleData,
   consoleError,
+  missingRunID,
   namespacePath,
   onCreateNamespace,
   onCreateUser,
@@ -487,22 +563,24 @@ function RouteContent({
   onSelectNamespace,
   route
 }: {
+  actionError: string;
   consoleData: MockConsoleData | null;
   consoleError: string;
+  missingRunID: string | null;
   namespacePath: string;
-  onCreateJob: (input: NewJob) => void;
+  onCreateJob: (input: NewJob) => Promise<void> | void;
   onCreateNamespace: (input: NewMockNamespace) => void;
   onCreateUser: (input: NewMockUser) => void;
   onDeleteNamespace: (namespaceID: number) => void;
   onDeleteUser: (userID: string) => void;
-  onSubmitEphemeralRun: (definition: string) => void;
+  onSubmitEphemeralRun: (definition: string) => Promise<void> | void;
   onTriggerRun: (jobID: string) => void;
-  onUpdateJob: (jobID: string, input: UpdateJob) => void;
+  onUpdateJob: (jobID: string, input: UpdateJob) => Promise<void> | void;
   onUpdateUserStatus: (userID: string, status: MockUserStatus) => void;
   onSelectNamespace: (namespacePath: string) => void;
   route: AppRoute;
 }) {
-  if (consoleError) {
+  if (consoleError && !consoleData) {
     return <AppState description={consoleError} title="Unable to load console" tone="error" />;
   }
 
@@ -511,10 +589,13 @@ function RouteContent({
   }
 
   const scopedConsoleData = scopeMockConsoleData(consoleData, namespacePath);
+  const withActionAlert = (children: ReactNode) => (
+    <PageWithActionAlert actionError={actionError}>{children}</PageWithActionAlert>
+  );
 
   switch (route.kind) {
     case "health":
-      return (
+      return withActionAlert(
         <HealthPage
           cells={consoleData.cells}
           onSelectCell={(cellID) => navigateTo(`/health/${cellID}`)}
@@ -523,17 +604,22 @@ function RouteContent({
       );
     case "runs":
       if (route.runID) {
-        return (
+        const run = consoleData.runs.find((candidate) => candidate.id === route.runID);
+        if (!run && missingRunID !== route.runID) {
+          return <AppState title="Loading run" tone="loading" />;
+        }
+
+        return withActionAlert(
           <RunDetailPage
             onBack={() => navigateTo("/runs")}
             onOpenJob={(jobName) => navigateTo(jobPathForRunJob(consoleData, jobName))}
-            run={consoleData.runs.find((run) => run.id === route.runID)}
+            run={run}
             runID={route.runID}
           />
         );
       }
 
-      return (
+      return withActionAlert(
         <RunsPage
           namespaces={consoleData.namespaces}
           namespacePath={namespacePath}
@@ -545,7 +631,7 @@ function RouteContent({
         />
       );
     case "jobs":
-      return (
+      return withActionAlert(
         <JobsPage
           detailJobID={route.jobID}
           editorMode={route.jobEditor ?? null}
@@ -567,7 +653,7 @@ function RouteContent({
         />
       );
     case "users":
-      return (
+      return withActionAlert(
         <UsersPage
           onCreateUser={onCreateUser}
           onDeleteUser={onDeleteUser}
@@ -576,7 +662,7 @@ function RouteContent({
         />
       );
     case "namespaces":
-      return (
+      return withActionAlert(
         <NamespacesPage
           canDeleteNamespace={(namespaceID) => canDeleteMockNamespace(consoleData, namespaceID)}
           namespaces={consoleData.namespaces}
@@ -585,10 +671,25 @@ function RouteContent({
         />
       );
     case "profile":
-      return <AppState description="Account preferences and session details will live here." title="Profile" />;
+      return withActionAlert(
+        <AppState description="Account preferences and session details will live here." title="Profile" />
+      );
     default:
       return <NotFoundPage />;
   }
+}
+
+function PageWithActionAlert({ actionError, children }: { actionError: string; children: ReactNode }) {
+  return (
+    <>
+      {actionError ? (
+        <div className="app-alert-rail">
+          <FormError message={actionError} />
+        </div>
+      ) : null}
+      {children}
+    </>
+  );
 }
 
 function navigateAfterAuth() {

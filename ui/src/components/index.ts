@@ -26,5 +26,5 @@ export { ToggleField } from "./primitives/ToggleField";
 export type { SelectOption } from "./primitives/SelectField";
 export { SignalList } from "./data/SignalList";
 export type { SignalItem, SignalState } from "./data/SignalList";
-export { StatusBadge } from "./status/StatusBadge";
+export { StatusBadge, statusBadgeLabel } from "./status/StatusBadge";
 export type { RunStatus } from "./status/StatusBadge";

@@ -5,6 +5,7 @@ import { StatusBadge, type RunStatus } from "../status/StatusBadge";
 import {
   runActorLabel,
   runCountLabel,
+  runDisplayName,
   runDurationLabel,
   runStatusClass,
   runTriggerLabel,
@@ -53,10 +54,14 @@ export function RunList({ emptyMessage = "No runs found.", hideJobName, onSelect
         <ul className={styles.items}>
           {runs.map((run) => (
             <li className={`${styles.item} ${styles[runStatusClass(run.status)]}`} key={run.id}>
-              <RunRowAction label={`Open run ${run.jobName} #${run.runNumber}`} onSelect={onSelectRun} runID={run.id}>
+              <RunRowAction
+                label={`Open run ${runDisplayName(run)} #${run.runNumber}`}
+                onSelect={onSelectRun}
+                runID={run.id}
+              >
                 <div className={styles.summary}>
                   <div className={styles.identity}>
-                    <strong>{hideJobName ? `Run #${run.runNumber}` : run.jobName}</strong>
+                    <strong>{hideJobName ? `Run #${run.runNumber}` : runDisplayName(run)}</strong>
                     {!hideJobName ? <span>Run #{run.runNumber}</span> : null}
                   </div>
                   <dl className={styles.meta}>

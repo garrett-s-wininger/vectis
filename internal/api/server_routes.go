@@ -394,6 +394,13 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 			RateLimit: defaultLimits.General,
 		},
 		{
+			Pattern:   "GET /api/v1/runs",
+			Handler:   http.HandlerFunc(s.ListRuns),
+			Auth:      routeAuthPolicy{Action: authz.ActionRunRead},
+			Query:     routeQueryParams("cursor", "limit"),
+			RateLimit: defaultLimits.General,
+		},
+		{
 			Pattern:   "GET /api/v1/runs/{id}",
 			Handler:   http.HandlerFunc(s.GetRun),
 			Auth:      routeAuthPolicy{Action: authz.ActionRunRead},

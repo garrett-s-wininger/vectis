@@ -14,3 +14,16 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
+
+export const PageAlert: Story = {
+  args: {
+    message: "Unable to trigger job. The saved definition could not be enqueued."
+  },
+  decorators: [
+    (Story) => (
+      <div className="app-alert-rail">
+        <Story />
+      </div>
+    )
+  ]
+};

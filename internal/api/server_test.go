@@ -2473,6 +2473,8 @@ func TestAPIServer_GetRun_EphemeralRun(t *testing.T) {
 
 	var got struct {
 		RunID           string `json:"run_id"`
+		JobID           string `json:"job_id"`
+		Namespace       string `json:"namespace"`
 		Status          string `json:"status"`
 		DispatchSummary []struct {
 			Source        string `json:"source"`
@@ -2500,6 +2502,14 @@ func TestAPIServer_GetRun_EphemeralRun(t *testing.T) {
 
 	if got.Status != "queued" {
 		t.Fatalf("status: want queued, got %q", got.Status)
+	}
+
+	if got.JobID == "" {
+		t.Fatal("expected job_id in run response")
+	}
+
+	if got.Namespace != "/" {
+		t.Fatalf("namespace: want /, got %q", got.Namespace)
 	}
 
 	if len(got.DispatchEvents) != 3 {
@@ -2826,6 +2836,94 @@ func TestAPIServer_GetRun_IncludesSecurityGateNextAction(t *testing.T) {
 
 	if got.LatestFailedSecurityEvent == nil || got.LatestFailedSecurityEvent.EventType != dal.ExecutionSecurityEventSecretResolution || got.LatestFailedSecurityEvent.Outcome != "denied" || got.LatestFailedSecurityEvent.Provider == nil || *got.LatestFailedSecurityEvent.Provider != "encryptedfs" {
 		t.Fatalf("latest_failed_security_event: %+v", got.LatestFailedSecurityEvent)
+	}
+}
+
+func TestAPIServer_ListRuns_IncludesEphemeralRuns(t *testing.T) {
+	server, _, queueService, _ := setupTestServer(t)
+
+	jobDef := map[string]any{
+		"root": map[string]any{
+			"id":   "node-1",
+			"uses": "builtins/shell",
+			"with": map[string]string{
+				"command": "echo hello",
+			},
+		},
+	}
+
+	body, _ := json.Marshal(jobDef)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/run", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	server.RunJob(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("RunJob: expected status %d, got %d: %s", http.StatusAccepted, rec.Code, rec.Body.String())
+	}
+
+	var runResp struct {
+		ID    string `json:"id"`
+		RunID string `json:"run_id"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &runResp); err != nil {
+		t.Fatalf("parse run response: %v", err)
+	}
+
+	if runResp.ID == "" || runResp.RunID == "" {
+		t.Fatalf("expected job id and run id, got %+v", runResp)
+	}
+
+	waitForNEnqueuedJobs(t, queueService, 1)
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/runs?limit=20", nil)
+	listRec := httptest.NewRecorder()
+
+	server.ListRuns(listRec, listReq)
+
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("ListRuns: expected status %d, got %d: %s", http.StatusOK, listRec.Code, listRec.Body.String())
+	}
+
+	var got struct {
+		Data []struct {
+			RunID             string `json:"run_id"`
+			JobID             string `json:"job_id"`
+			Namespace         string `json:"namespace"`
+			RunIndex          int    `json:"run_index"`
+			Status            string `json:"status"`
+			DefinitionVersion int    `json:"definition_version"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(listRec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("parse list runs response: %v", err)
+	}
+
+	if len(got.Data) != 1 {
+		t.Fatalf("expected one run, got %+v", got.Data)
+	}
+
+	if got.Data[0].RunID != runResp.RunID {
+		t.Fatalf("run_id: want %q, got %q", runResp.RunID, got.Data[0].RunID)
+	}
+
+	if got.Data[0].JobID != runResp.ID {
+		t.Fatalf("job_id: want %q, got %q", runResp.ID, got.Data[0].JobID)
+	}
+
+	if got.Data[0].Namespace != "/" {
+		t.Fatalf("namespace: want /, got %q", got.Data[0].Namespace)
+	}
+
+	if got.Data[0].Status != "queued" {
+		t.Fatalf("status: want queued, got %q", got.Data[0].Status)
+	}
+
+	if got.Data[0].RunIndex != 1 || got.Data[0].DefinitionVersion != 1 {
+		t.Fatalf("unexpected run metadata: %+v", got.Data[0])
 	}
 }
 

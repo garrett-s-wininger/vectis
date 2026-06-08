@@ -47,7 +47,9 @@
 }
 
 .cancelled,
-.abandoned {
+.abandoned,
+.orphaned,
+.aborted {
   background: var(--status-warning-bg);
   border-color: var(--status-warning-border-muted);
   color: var(--status-warning-muted-text);

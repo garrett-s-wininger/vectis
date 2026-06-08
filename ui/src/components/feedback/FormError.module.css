@@ -1,8 +1,13 @@
 .root {
-  background: var(--status-danger-bg);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 66%), rgb(255 255 255 / 14%)), var(--status-danger-bg);
   border: var(--border-danger);
   border-radius: var(--control-radius);
+  box-shadow:
+    inset var(--space-2xs) 0 0 var(--status-danger-text),
+    inset 0 1px 0 rgb(255 255 255 / 72%),
+    0 8px 18px rgb(124 44 32 / 8%);
   color: var(--status-danger-text-dark);
   margin: 0;
-  padding: var(--space-md) var(--space-lg);
+  padding: var(--space-md) var(--space-lg) var(--space-md) var(--space-xl);
 }

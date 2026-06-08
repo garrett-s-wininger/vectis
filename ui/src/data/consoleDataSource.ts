@@ -1,10 +1,11 @@
 import type { RunListItem, RunStatus } from "../components";
-import type { ConsoleData, Job, Namespace, NewJob, UpdateJob } from "../domain/console";
+import type { ConsoleData, Job, Namespace, NewEphemeralRun, NewJob, UpdateJob } from "../domain/console";
 import { requestJSON, requestNoContent } from "../api/client";
 import {
   createMockConsoleDataSnapshot,
   createMockJob,
   scopeMockConsoleData,
+  submitMockEphemeralRun,
   triggerMockRun,
   updateMockJob,
   type MockConsoleData
@@ -32,17 +33,28 @@ type APINamespace = {
 
 type APIRun = {
   created_at?: string;
+  definition?: unknown;
   definition_version?: number;
   finished_at?: string;
+  job_id?: string;
+  namespace?: string;
+  owning_cell?: string;
   run_id: string;
   run_index: number;
   started_at?: string;
   status: string;
 };
 
+type APIEphemeralRunResponse = {
+  id: string;
+  run_id: string;
+};
+
 export type ConsoleDataSource = {
   createJob(input: NewJob): Promise<ConsoleData>;
   loadConsole(): Promise<ConsoleData>;
+  loadRun(runID: string): Promise<RunListItem>;
+  submitEphemeralRun(input: NewEphemeralRun): Promise<ConsoleData>;
   triggerRun(jobID: string): Promise<ConsoleData>;
   updateJob(jobID: string, input: UpdateJob): Promise<ConsoleData>;
 };
@@ -76,6 +88,17 @@ function createMockConsoleDataSource(): ConsoleDataSource {
     async loadConsole() {
       return cloneConsoleData(data);
     },
+    async loadRun(runID) {
+      const run = data.runs.find((candidate) => candidate.id === runID);
+      if (!run) {
+        throw new Error("Run not found.");
+      }
+      return run;
+    },
+    async submitEphemeralRun(input) {
+      data = submitMockEphemeralRun(data, input);
+      return cloneConsoleData(data);
+    },
     async triggerRun(jobID) {
       data = triggerMockRun(data, jobID);
       return cloneConsoleData(data);
@@ -92,9 +115,6 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
     async createJob(input) {
       const definition = parseJobDefinition(input.definition);
       definition.id = input.name;
-      if (input.description) {
-        definition.description = input.description;
-      }
 
       await requestNoContent("/api/v1/jobs", {
         method: "POST",
@@ -107,6 +127,29 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
       return loadAPIConsoleData();
     },
     loadConsole: loadAPIConsoleData,
+    async loadRun(runID) {
+      const [run, jobsPage] = await Promise.all([loadAPIRun(runID), loadAPIJobs()]);
+      const jobs = jobsPage.data.map(apiJobToConsoleJob);
+      const job = jobs.find((candidate) => candidate.id === run.job_id);
+      return apiRunToConsoleRun(run, runDetailJob(run, job));
+    },
+    async submitEphemeralRun(input) {
+      const definition = parseJobDefinition(input.definition);
+      const response = await requestJSON<APIEphemeralRunResponse>("/api/v1/jobs/run", {
+        method: "POST",
+        body: input.definition
+      });
+      const data = await loadAPIConsoleData();
+
+      if (data.runs.some((run) => run.id === response.run_id)) {
+        return data;
+      }
+
+      return {
+        ...data,
+        runs: [apiEphemeralRunToConsoleRun(response, definition, input), ...data.runs]
+      };
+    },
     async triggerRun(jobID) {
       await requestJSON(`/api/v1/jobs/trigger/${encodeURIComponent(jobID)}`, {
         method: "POST"
@@ -117,9 +160,6 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
     async updateJob(jobID, input) {
       const definition = parseJobDefinition(input.definition);
       definition.id = jobID;
-      if (input.description) {
-        definition.description = input.description;
-      }
 
       await requestNoContent(`/api/v1/jobs/${encodeURIComponent(jobID)}`, {
         method: "PUT",
@@ -135,17 +175,16 @@ async function loadAPIConsoleData(): Promise<ConsoleData> {
   const mockBase = createMockConsoleDataSnapshot();
   const [namespaces, jobsPage] = await Promise.all([loadAPINamespaces(), loadAPIJobs()]);
   const jobs = jobsPage.data.map(apiJobToConsoleJob);
-  const latestRuns = await loadLatestRuns(jobs);
+  const runs = await loadAPIRuns(jobs);
 
   return {
     ...mockBase,
     jobs: jobs.map((job) => ({
       ...job,
-      lastRunStatus: latestRuns.find((run) => run.jobName === job.name && run.namespacePath === job.namespacePath)
-        ?.status
+      lastRunStatus: runs.find((run) => run.jobName === job.name && run.namespacePath === job.namespacePath)?.status
     })),
     namespaces,
-    runs: latestRuns
+    runs
   };
 }
 
@@ -159,18 +198,17 @@ async function loadAPIJobs() {
   return requestJSON<PaginatedResponse<APIJob>>("/api/v1/jobs?limit=200");
 }
 
-async function loadLatestRuns(jobs: Job[]) {
-  const runLists = await Promise.all(
-    jobs.map(async (job) => {
-      const runs = await requestJSON<PaginatedResponse<APIRun>>(
-        `/api/v1/jobs/${encodeURIComponent(job.name)}/runs?limit=1`
-      );
+async function loadAPIRuns(jobs: Job[]) {
+  const runs = await requestJSON<PaginatedResponse<APIRun>>("/api/v1/runs?limit=200");
 
-      return runs.data.map((run) => apiRunToConsoleRun(run, job));
-    })
-  );
+  return runs.data.map((run) => {
+    const job = jobs.find((candidate) => candidate.id === run.job_id);
+    return apiRunToConsoleRun(run, runDetailJob(run, job));
+  });
+}
 
-  return runLists.flat();
+async function loadAPIRun(runID: string) {
+  return requestJSON<APIRun>(`/api/v1/runs/${encodeURIComponent(runID)}`);
 }
 
 function apiNamespaceToConsoleNamespace(namespace: APINamespace): Namespace {
@@ -222,12 +260,73 @@ function apiRunToConsoleRun(run: APIRun, job: Job): RunListItem {
     status: apiRunStatusToConsoleStatus(run.status),
     duration: formatRunDuration(run),
     finishedAt: run.finished_at,
-    cellName: "local",
-    source: "stored",
+    cellName: run.owning_cell ?? "local",
+    source: job.sourceDetail === "Inline" ? "ephemeral" : "stored",
     startedAt: run.started_at,
-    definition: job.definition,
+    definition: apiRunDefinition(run) ?? job.definition,
     submittedBy: "anonymous",
     trigger: "api"
+  };
+}
+
+function runDetailJob(run: APIRun, job?: Job): Job {
+  if (job) {
+    return job;
+  }
+
+  const definition = apiRunDefinition(run);
+  const normalizedDefinition = definition
+    ? normalizeJobDefinition(JSON.parse(definition), run.job_id ?? run.run_id)
+    : null;
+  const jobName =
+    stringField(normalizedDefinition ?? {}, "name") ??
+    stringField(normalizedDefinition ?? {}, "id") ??
+    run.job_id ??
+    run.run_id;
+
+  return {
+    id: jobName,
+    name: jobName,
+    repository: "",
+    branch: "",
+    sourceDetail: "Inline",
+    sourceKind: "db",
+    definition,
+    namespacePath: run.namespace ?? "/",
+    schedule: "Manual",
+    nextRun: "On demand",
+    triggers: [{ kind: "manual", detail: "On demand" }],
+    status: "enabled"
+  };
+}
+
+function apiRunDefinition(run: APIRun) {
+  if (!run.definition) {
+    return undefined;
+  }
+
+  return JSON.stringify(run.definition, null, 2);
+}
+
+function apiEphemeralRunToConsoleRun(
+  response: APIEphemeralRunResponse,
+  definition: Record<string, unknown>,
+  input: NewEphemeralRun
+): RunListItem {
+  return {
+    id: response.run_id,
+    jobName: stringField(definition, "name") ?? stringField(definition, "id") ?? response.id,
+    namespacePath: input.namespacePath,
+    runNumber: 1,
+    commit: "inline definition",
+    createdAt: new Date().toISOString(),
+    definition: JSON.stringify(definition, null, 2),
+    duration: "Queued",
+    cellName: "local",
+    source: "ephemeral",
+    submittedBy: input.submittedBy ?? "anonymous",
+    trigger: "ui",
+    status: "queued"
   };
 }
 
@@ -242,6 +341,9 @@ function apiRunStatusToConsoleStatus(status: string): RunStatus {
     case "queued":
     case "running":
     case "succeeded":
+    case "orphaned":
+    case "abandoned":
+    case "aborted":
       return status;
     default:
       return "queued";

@@ -211,6 +211,7 @@ type JobDefinitionSourceRecord struct {
 }
 
 type RunRecord struct {
+	JobID                string
 	RunID                string
 	JobID                string
 	RunIndex             int
@@ -976,6 +977,7 @@ type RunsRepository interface {
 	UpsertRunHotStateOwner(ctx context.Context, update RunHotStateOwnerUpdate) error
 	ClearRunHotStateOwner(ctx context.Context, runID string) error
 	GetRunHotStateOwner(ctx context.Context, runID string) (RunHotStateOwnerRecord, bool, error)
+	ListAll(ctx context.Context, cursor int64, limit int) ([]RunRecord, int64, error)
 	ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, owningCell string, cursor int64, limit int) ([]RunRecord, int64, error)
 	ListRunTasks(ctx context.Context, runID string, cursor int64, limit int) ([]TaskRecord, int64, error)
 	GetRunNamespacePath(ctx context.Context, runID string) (string, error)

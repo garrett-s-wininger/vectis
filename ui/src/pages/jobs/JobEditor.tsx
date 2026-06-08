@@ -27,9 +27,9 @@ type JobEditorProps = {
   error: string;
   mode: JobEditorMode;
   onCancel: () => void;
-  onCreateJob: (input: NewJob) => void;
+  onCreateJob: (input: NewJob) => Promise<void> | void;
   onError: (message: string) => void;
-  onUpdateJob: (jobID: string, input: UpdateJob) => void;
+  onUpdateJob: (jobID: string, input: UpdateJob) => Promise<void> | void;
   namespacePath: string;
   values: JobFormValues;
   onValuesChange: (values: JobFormValues) => void;
@@ -125,7 +125,7 @@ export function JobEditor({
     return () => window.clearTimeout(validationTimer);
   }, [cronSpecEdited, values.cronSpec, values.schedule]);
 
-  function submitJob(event: FormEvent<HTMLFormElement>) {
+  async function submitJob(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     onError("");
     const nextFieldErrors = validateJobForm(values);
@@ -137,13 +137,18 @@ export function JobEditor({
 
     setFieldErrors({});
 
-    if (mode.kind === "edit") {
-      onUpdateJob(mode.jobID, jobInputFromValues(values));
-    } else {
-      onCreateJob({
-        ...jobInputFromValues(values),
-        namespacePath
-      });
+    try {
+      if (mode.kind === "edit") {
+        await onUpdateJob(mode.jobID, jobInputFromValues(values));
+      } else {
+        await onCreateJob({
+          ...jobInputFromValues(values),
+          namespacePath
+        });
+      }
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "Unable to save job.");
+      return;
     }
 
     onCancel();

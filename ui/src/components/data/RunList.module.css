@@ -200,8 +200,13 @@ button.rowAction:focus-visible {
 }
 
 .statusCancelled::before,
-.statusAbandoned::before {
+.statusAbandoned::before,
+.statusAborted::before {
   background: var(--status-warning-border-muted);
+}
+
+.statusOrphaned::before {
+  background: var(--status-warning-border);
 }
 
 @media (max-width: 860px) {

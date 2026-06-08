@@ -214,6 +214,14 @@ h1 {
   width: min(var(--layout-panel-max), 100%);
 }
 
+.app-alert-rail {
+  width: min(var(--layout-panel-max), 100%);
+}
+
+.app-alert-rail > * {
+  width: 100%;
+}
+
 .resource-title {
   display: grid;
   gap: var(--space-3xs);

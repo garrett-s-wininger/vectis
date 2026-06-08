@@ -6,7 +6,9 @@ const runStatusLabels = {
   succeeded: "Succeeded",
   failed: "Failed",
   cancelled: "Cancelled",
-  abandoned: "Abandoned"
+  abandoned: "Abandoned",
+  orphaned: "Orphaned",
+  aborted: "Aborted"
 } as const;
 
 const statusLabels = {
@@ -23,4 +25,8 @@ type StatusBadgeProps = {
 
 export function StatusBadge({ status }: StatusBadgeProps) {
   return <span className={`${styles.root} ${styles[status]}`}>{statusLabels[status]}</span>;
+}
+
+export function statusBadgeLabel(status: StatusBadgeTone) {
+  return statusLabels[status];
 }

@@ -11,6 +11,7 @@ import { emptyJobForm, type JobEditorMode, valuesFromJob } from "./jobs/JobEdito
 import { JobWorkspace } from "./jobs/JobWorkspace";
 import { jobEditorBreadcrumbItems, jobsIndexBreadcrumbItems } from "./jobs/JobBreadcrumbs";
 import { getLatestRunForJob, getRunsForJob } from "./jobs/JobPresentation";
+import styles from "./jobs/JobsPage.module.css";
 import { RoutedJobEditor } from "./jobs/RoutedJobEditor";
 
 type ActiveJobEditorMode = JobEditorMode | null;
@@ -23,7 +24,7 @@ type JobsPageProps = {
   namespaces: Namespace[];
   namespacePath: string;
   onCloseEditor: () => void;
-  onCreateJob: (input: NewJob) => void;
+  onCreateJob: (input: NewJob) => Promise<void> | void;
   onOpenCreate: () => void;
   onOpenEditor: (jobID: string) => void;
   onOpenJob: (jobID: string) => void;
@@ -31,7 +32,7 @@ type JobsPageProps = {
   onSelectRun: (runID: string) => void;
   onSelectNamespace: (namespacePath: string) => void;
   onTriggerRun: (jobID: string) => void;
-  onUpdateJob: (jobID: string, input: UpdateJob) => void;
+  onUpdateJob: (jobID: string, input: UpdateJob) => Promise<void> | void;
   runs: RunListItem[];
 };
 
@@ -151,13 +152,15 @@ export function JobsPage({
         />
       ) : null}
       {!editorMode && jobs.length === 0 ? (
-        <EmptyStatePanel
-          actions={<Button onClick={onOpenCreate}>Create</Button>}
-          description="Stored jobs are reusable definitions you can trigger manually now and connect to richer sources later."
-          eyebrow="No stored jobs"
-          title="Create One Today"
-          titleID="jobs-empty-title"
-        />
+        <div className={styles.emptyStateRail}>
+          <EmptyStatePanel
+            actions={<Button onClick={onOpenCreate}>Create</Button>}
+            description="Stored jobs are reusable definitions you can trigger manually now and connect to richer sources later."
+            eyebrow="No stored jobs"
+            title="Create One Today"
+            titleID="jobs-empty-title"
+          />
+        </div>
       ) : null}
       {!editorMode && jobs.length > 0 ? (
         <JobWorkspace

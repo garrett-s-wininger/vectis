@@ -285,14 +285,14 @@ describe("App", () => {
     await screen.findByRole("heading", { name: "Jobs" });
 
     fireEvent.click(screen.getByRole("button", { name: /docs-publish/ }));
-    fireEvent.click(screen.getAllByRole("button", { name: "Open docs-publish" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "View docs-publish" })[0]);
 
     expect(await screen.findByRole("heading", { name: "docs-publish" })).toBeInTheDocument();
     expect(screen.getByText("Publishes documentation updates from the reviewed docs repository.")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Definition" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/jobs/job-docs-publish");
 
-    fireEvent.click(screen.getByRole("button", { name: "Open all runs for docs-publish" }));
+    fireEvent.click(screen.getByRole("button", { name: "View all runs for docs-publish" }));
 
     expect(await screen.findByRole("heading", { name: "Runs" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "All Runs" })).toBeInTheDocument();
@@ -319,11 +319,11 @@ describe("App", () => {
 
     expect(await screen.findByRole("heading", { name: "docs-publish" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Config docs-publish" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit docs-publish" }));
 
     expect(await screen.findByRole("heading", { name: "Configure" })).toBeInTheDocument();
-    expect(screen.getByText("Review and adjust the stored definition, state, and triggers.")).toBeInTheDocument();
-    expect(await screen.findByRole("region", { name: "Configure" })).toBeInTheDocument();
+    expect(screen.getByText("Review the saved definition, state, and trigger policy.")).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Job Definition" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/jobs/job-docs-publish/config");
     expect(new URLSearchParams(window.location.search).get("returnTo")).toBe("/jobs/job-docs-publish");
 
@@ -386,7 +386,7 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "database-backfill (#1241)" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: "Summary" })).toBeInTheDocument();
     expect(screen.getByText("Ephemeral")).toBeInTheDocument();
-    expect(screen.getByText("Inline submission")).toBeInTheDocument();
+    expect(screen.getByText("Inline")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Submitted Definition" })).toBeInTheDocument();
     expect(screen.getByText(/"id": "database-backfill"/)).toBeInTheDocument();
 
@@ -435,7 +435,7 @@ describe("App", () => {
     expect(screen.getAllByText("database").length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: /cache-warmup/ }));
-    fireEvent.click(screen.getAllByRole("button", { name: "Config cache-warmup" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit cache-warmup" })[0]);
     fireEvent.change(screen.getByLabelText("Name"), {
       target: { value: "cache-prime" }
     });
@@ -456,7 +456,7 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
-    expect(await screen.findByRole("region", { name: "Create" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Job Definition" })).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
     expect(window.location.pathname).toBe("/jobs/create");
 
@@ -465,7 +465,7 @@ describe("App", () => {
     });
 
     await waitFor(() => expect(window.location.pathname).toBe("/jobs"));
-    await waitFor(() => expect(screen.queryByRole("region", { name: "Create" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Job Definition" })).not.toBeInTheDocument());
   });
 
   it("scopes jobs by selected namespace", async () => {

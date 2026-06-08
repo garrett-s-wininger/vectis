@@ -385,6 +385,7 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | GET | `/api/v1/jobs/{id}/runs` | List global catalog runs for one source-backed job; requires `repository_id` | `run:read` | general | `200` JSON list |
 | GET | `/api/v1/sse/jobs/{id}/runs` | Stream run events for one source-backed job; requires `repository_id` | `run:read` | general | `200` `text/event-stream` |
 | GET | `/api/v1/sse/source-repositories/{id}/jobs/{job_id}/runs` | Stream run events for a source repository job | `run:read` | general | `200` `text/event-stream` |
+| GET | `/api/v1/runs` | List recent runs across visible namespaces | `run:read` | general | `200` JSON list |
 | GET | `/api/v1/runs/{id}` | Get one run, including audit metadata, dispatch summary/events, and task completion summary when present | `run:read` | general | `200` JSON run |
 | GET | `/api/v1/runs/{id}/definition` | Get the frozen job definition snapshot for one run | `run:read` | general | `200` JSON definition |
 | GET | `/api/v1/runs/{id}/tasks` | List task graph nodes and task attempts for one run | `run:read` | general | `200` JSON list |
