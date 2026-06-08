@@ -183,37 +183,6 @@
   grid-template-columns: minmax(0, 1fr) minmax(196px, 232px);
 }
 
-.emptyState {
-  align-items: start;
-  align-self: start;
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  padding: var(--space-2xl);
-  height: auto;
-  justify-self: center;
-  width: min(var(--layout-card-max), 100%);
-}
-
-.emptyState h2 {
-  color: var(--text-primary);
-  font-size: var(--font-size-3xl);
-  line-height: var(--line-height-tight);
-  margin: 0;
-}
-
-.emptyState p {
-  color: var(--text-subtle);
-  margin: var(--space-lg) 0 0;
-  max-width: 56ch;
-}
-
-.emptyState button {
-  flex: 0 0 auto;
-  margin-top: var(--space-lg);
-  width: auto;
-}
-
 .actionPanel {
   display: grid;
   gap: var(--space-lg);
@@ -393,10 +362,6 @@
 
   .actionPanel {
     display: none;
-  }
-
-  .emptyState {
-    padding: var(--space-xl);
   }
 }
 

@@ -1,17 +1,17 @@
-import { useState } from "react";
 import { AppState } from "../components";
 import { Button } from "../components";
 import { BreadcrumbTrail } from "../components";
+import { EmptyStatePanel } from "../components";
 import { NamespacePicker } from "../components";
 import { PageHeader } from "../components";
 import type { RunListItem } from "../components";
 import type { Job, Namespace, NewJob, UpdateJob } from "../domain/console";
 import { JobDetailPage } from "./jobs/JobDetailPage";
-import { emptyJobForm, JobEditor, type JobEditorMode, type JobFormValues, valuesFromJob } from "./jobs/JobEditor";
-import styles from "./jobs/JobsPage.module.css";
+import { emptyJobForm, type JobEditorMode, valuesFromJob } from "./jobs/JobEditor";
 import { JobWorkspace } from "./jobs/JobWorkspace";
 import { jobEditorBreadcrumbItems, jobsIndexBreadcrumbItems } from "./jobs/JobBreadcrumbs";
 import { getLatestRunForJob, getRunsForJob } from "./jobs/JobPresentation";
+import { RoutedJobEditor } from "./jobs/RoutedJobEditor";
 
 type ActiveJobEditorMode = JobEditorMode | null;
 
@@ -151,19 +151,13 @@ export function JobsPage({
         />
       ) : null}
       {!editorMode && jobs.length === 0 ? (
-        <section
-          className={`${styles.emptyState} polished-panel polished-panel--accent-top`}
-          aria-labelledby="jobs-empty-title"
-        >
-          <div>
-            <p className="eyebrow">No stored jobs</p>
-            <h2 id="jobs-empty-title">Create One Today</h2>
-            <p>
-              Stored jobs are reusable definitions you can trigger manually now and connect to richer sources later.
-            </p>
-          </div>
-          <Button onClick={onOpenCreate}>Create</Button>
-        </section>
+        <EmptyStatePanel
+          actions={<Button onClick={onOpenCreate}>Create</Button>}
+          description="Stored jobs are reusable definitions you can trigger manually now and connect to richer sources later."
+          eyebrow="No stored jobs"
+          title="Create One Today"
+          titleID="jobs-empty-title"
+        />
       ) : null}
       {!editorMode && jobs.length > 0 ? (
         <JobWorkspace
@@ -176,38 +170,5 @@ export function JobsPage({
         />
       ) : null}
     </>
-  );
-}
-
-function RoutedJobEditor({
-  initialValues,
-  mode,
-  namespacePath,
-  onCancel,
-  onCreateJob,
-  onUpdateJob
-}: {
-  initialValues: JobFormValues;
-  mode: JobEditorMode;
-  namespacePath: string;
-  onCancel: () => void;
-  onCreateJob: (input: NewJob) => void;
-  onUpdateJob: (jobID: string, input: UpdateJob) => void;
-}) {
-  const [values, setValues] = useState<JobFormValues>(initialValues);
-  const [formError, setFormError] = useState("");
-
-  return (
-    <JobEditor
-      error={formError}
-      mode={mode}
-      namespacePath={namespacePath}
-      onCancel={onCancel}
-      onCreateJob={onCreateJob}
-      onError={setFormError}
-      onUpdateJob={onUpdateJob}
-      onValuesChange={setValues}
-      values={values}
-    />
   );
 }
