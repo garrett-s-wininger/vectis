@@ -30,15 +30,15 @@ func (r *SQLRunsRepository) ApplyRunStatusUpdate(ctx context.Context, update Run
 	case RunStatusRunning:
 		return r.MarkRunRunning(ctx, runID)
 	case RunStatusSucceeded:
-		return r.MarkRunSucceeded(ctx, runID, update.ClaimToken)
+		return r.MarkRunSucceeded(ctx, runID, "")
 	case RunStatusFailed:
-		return r.MarkRunFailed(ctx, runID, update.ClaimToken, update.FailureCode, update.Reason)
+		return r.MarkRunFailed(ctx, runID, "", update.FailureCode, update.Reason)
 	case RunStatusCancelled:
-		return r.MarkRunCancelled(ctx, runID, update.ClaimToken, update.Reason)
+		return r.MarkRunCancelled(ctx, runID, "", update.Reason)
 	case RunStatusAborted:
-		return r.MarkRunAborted(ctx, runID, update.ClaimToken, update.Reason)
+		return r.MarkRunAborted(ctx, runID, "", update.Reason)
 	case RunStatusOrphaned:
-		return r.MarkRunOrphaned(ctx, runID, update.ClaimToken, update.Reason)
+		return r.MarkRunOrphaned(ctx, runID, "", update.Reason)
 	default:
 		return fmt.Errorf("%w: unsupported run status %s", ErrConflict, update.Status)
 	}
@@ -490,7 +490,7 @@ func (r *SQLRunsRepository) RequestRunCancel(ctx context.Context, runID, reason 
 	return rec, nil
 }
 
-func (r *SQLRunsRepository) RunCancelRequested(ctx context.Context, runID, claimToken string) (bool, error) {
+func (r *SQLRunsRepository) RunCancelRequested(ctx context.Context, runID string) (bool, error) {
 	if runID == "" {
 		return false, nil
 	}

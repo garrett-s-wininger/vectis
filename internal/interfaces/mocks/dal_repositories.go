@@ -324,15 +324,15 @@ func (m *MockRunsRepository) ApplyRunStatusUpdate(ctx context.Context, update da
 	case dal.RunStatusRunning:
 		return m.MarkRunRunning(ctx, update.RunID)
 	case dal.RunStatusSucceeded:
-		return m.MarkRunSucceeded(ctx, update.RunID, update.ClaimToken)
+		return m.MarkRunSucceeded(ctx, update.RunID, "")
 	case dal.RunStatusFailed:
-		return m.MarkRunFailed(ctx, update.RunID, update.ClaimToken, update.FailureCode, update.Reason)
+		return m.MarkRunFailed(ctx, update.RunID, "", update.FailureCode, update.Reason)
 	case dal.RunStatusCancelled:
-		return m.MarkRunCancelled(ctx, update.RunID, update.ClaimToken, update.Reason)
+		return m.MarkRunCancelled(ctx, update.RunID, "", update.Reason)
 	case dal.RunStatusAborted:
-		return m.MarkRunAborted(ctx, update.RunID, update.ClaimToken, update.Reason)
+		return m.MarkRunAborted(ctx, update.RunID, "", update.Reason)
 	case dal.RunStatusOrphaned:
-		return m.MarkRunOrphaned(ctx, update.RunID, update.ClaimToken, update.Reason)
+		return m.MarkRunOrphaned(ctx, update.RunID, "", update.Reason)
 	default:
 		return fmt.Errorf("%w: unsupported run status %s", dal.ErrConflict, update.Status)
 	}
@@ -447,7 +447,7 @@ func (m *MockRunsRepository) RequestRunCancel(ctx context.Context, runID, reason
 	}, nil
 }
 
-func (m *MockRunsRepository) RunCancelRequested(ctx context.Context, runID, claimToken string) (bool, error) {
+func (m *MockRunsRepository) RunCancelRequested(ctx context.Context, runID string) (bool, error) {
 	if m.CancelRequestedErr != nil {
 		return false, m.CancelRequestedErr
 	}

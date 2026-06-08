@@ -480,7 +480,6 @@ type RunForCancel struct {
 type RunStatusUpdate struct {
 	RunID       string `json:"run_id"`
 	Status      string `json:"status"`
-	ClaimToken  string `json:"claim_token,omitempty"`
 	FailureCode string `json:"failure_code,omitempty"`
 	Reason      string `json:"reason,omitempty"`
 }
@@ -521,7 +520,7 @@ type RunsRepository interface {
 	MarkExpiredRunningAsOrphaned(ctx context.Context, cutoffUnix int64) ([]string, error)
 	GetRunStatus(ctx context.Context, runID string) (status string, found bool, err error)
 	RequestRunCancel(ctx context.Context, runID, reason string) (RunForCancel, error)
-	RunCancelRequested(ctx context.Context, runID, claimToken string) (bool, error)
+	RunCancelRequested(ctx context.Context, runID string) (bool, error)
 	TouchDispatched(ctx context.Context, runID string) error
 	GetLogShard(ctx context.Context, runID string) (shardID string, assigned bool, err error)
 	AssignLogShard(ctx context.Context, runID, shardID string) (assignedShardID string, err error)

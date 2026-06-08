@@ -2032,7 +2032,7 @@ func TestRunsRepository_ExecutionClaims(t *testing.T) {
 	assertExecutionAndSegmentStatus(t, db, dispatch.ExecutionID, dispatch.SegmentID, dal.ExecutionStatusAccepted, dal.SegmentStatusAccepted, 1)
 	assertRootTaskAndAttemptStatus(t, db, runID, dal.TaskStatusAccepted, dal.TaskStatusAccepted, 1)
 	assertExecutionClaim(t, db, dispatch.ExecutionID, "worker-a", leaseUntil.Unix(), claim.ClaimToken)
-	assertRunClaim(t, db, runID, dal.RunStatusRunning, "worker-a", leaseUntil.Unix(), claim.ClaimToken)
+	assertRunExecutionOwner(t, db, runID, dal.RunStatusRunning, "worker-a", leaseUntil.Unix(), claim.ClaimToken)
 
 	tasks, _, err := repos.Runs().ListRunTasks(ctx, runID, 0, 10)
 	if err != nil {
@@ -2827,7 +2827,7 @@ func assertExecutionClaim(t *testing.T, db *sql.DB, executionID, wantOwner strin
 	}
 }
 
-func assertRunClaim(t *testing.T, db *sql.DB, runID, wantStatus, wantOwner string, wantLeaseUntil int64, wantToken string) {
+func assertRunExecutionOwner(t *testing.T, db *sql.DB, runID, wantStatus, wantOwner string, wantLeaseUntil int64, wantToken string) {
 	t.Helper()
 
 	var status string
@@ -2835,11 +2835,11 @@ func assertRunClaim(t *testing.T, db *sql.DB, runID, wantStatus, wantOwner strin
 	var leaseUntil sql.NullInt64
 	if err := db.QueryRow("SELECT status, lease_owner, lease_until, claim_token FROM job_runs WHERE run_id = ?", runID).
 		Scan(&status, &owner, &leaseUntil, &token); err != nil {
-		t.Fatalf("query run claim: %v", err)
+		t.Fatalf("query run execution owner: %v", err)
 	}
 
 	if status != wantStatus || !owner.Valid || owner.String != wantOwner || !leaseUntil.Valid || leaseUntil.Int64 != wantLeaseUntil || !token.Valid || token.String != wantToken {
-		t.Fatalf("run claim: got status=%q owner=%v lease_until=%v token=%v, want status=%q owner=%q lease_until=%d token=%q", status, owner, leaseUntil, token, wantStatus, wantOwner, wantLeaseUntil, wantToken)
+		t.Fatalf("run execution owner: got status=%q owner=%v lease_until=%v token=%v, want status=%q owner=%q lease_until=%d token=%q", status, owner, leaseUntil, token, wantStatus, wantOwner, wantLeaseUntil, wantToken)
 	}
 }
 
@@ -3358,29 +3358,20 @@ func TestRunsRepository_RequestRunCancel_SetsDurableIntent(t *testing.T) {
 		t.Fatalf("expected cancel reason %q, got %q", dal.CancelReasonAPI, rec.CancelReason)
 	}
 
-	requested, err := runs.RunCancelRequested(ctx, runID, token)
+	requested, err := runs.RunCancelRequested(ctx, runID)
 	if err != nil {
 		t.Fatalf("run cancel requested: %v", err)
 	}
 
 	if !requested {
-		t.Fatal("expected cancel request to be visible to active claim")
-	}
-
-	requested, err = runs.RunCancelRequested(ctx, runID, "stale-token")
-	if err != nil {
-		t.Fatalf("run cancel requested with stale token: %v", err)
-	}
-
-	if !requested {
-		t.Fatal("expected run-level cancel request to be visible despite stale token")
+		t.Fatal("expected run-level cancel request to be visible")
 	}
 
 	if err := runs.MarkRunAborted(ctx, runID, token, dal.CancelReasonAPI); err != nil {
 		t.Fatalf("mark run aborted: %v", err)
 	}
 
-	requested, err = runs.RunCancelRequested(ctx, runID, token)
+	requested, err = runs.RunCancelRequested(ctx, runID)
 	if err != nil {
 		t.Fatalf("run cancel requested after terminal transition: %v", err)
 	}

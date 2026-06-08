@@ -64,8 +64,8 @@ func runWorker(cmd *cobra.Command, args []string) {
 		shutdownCtx = context.Background()
 	}
 
-	// runCtx intentionally survives SIGINT/SIGTERM so a claimed run can finish
-	// its action, ack, lease, and terminal DB update during graceful drain.
+	// runCtx intentionally survives SIGINT/SIGTERM so the active task execution
+	// can finish its action, lease, and terminal DB update during graceful drain.
 	runCtx := context.Background()
 	logger := interfaces.NewAsyncLogger("worker")
 	defer logger.Close()
@@ -601,7 +601,7 @@ func (w *worker) handleJob(jobReq *api.JobRequest) {
 	if runID != "" {
 		span.SetAttributes(attribute.String("vectis.worker.outcome", "consumed"))
 		span.End()
-		outcome := w.runClaimedJob(jobCtx, job, jobID, runID, deliveryID, executionEnvelope)
+		outcome := w.runTaskExecution(jobCtx, job, jobID, runID, deliveryID, executionEnvelope)
 		if w.metrics != nil && outcome != "" {
 			w.metrics.RecordJobFinished(jobCtx, outcome, w.now().Sub(start))
 		}
@@ -652,7 +652,7 @@ func (w *worker) executionEnvelopeFromRequest(jobReq *api.JobRequest) *cell.Exec
 	return env
 }
 
-func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, deliveryID string, envelopes ...*cell.ExecutionEnvelope) string {
+func (w *worker) runTaskExecution(ctx context.Context, job *api.Job, jobID, runID, deliveryID string, envelopes ...*cell.ExecutionEnvelope) string {
 	var executionEnvelope *cell.ExecutionEnvelope
 	if len(envelopes) > 0 {
 		executionEnvelope = envelopes[0]
@@ -1244,7 +1244,7 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, executionCl
 	}()
 
 	if w.store != nil {
-		go w.cancelRequestLoop(execCtx, runID, executionClaimToken, stopCancel, cancelRun)
+		go w.cancelRequestLoop(execCtx, runID, stopCancel, cancelRun)
 	}
 
 	err := w.executor.ExecuteTask(execCtx, job, executionEnvelope.TaskKey, w.logClient, w.logger)
@@ -1266,7 +1266,6 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, executionCl
 func (w *worker) cancelRequestLoop(
 	execCtx context.Context,
 	runID string,
-	claimToken string,
 	stopCancel <-chan struct{},
 	cancelRun func(string),
 ) {
@@ -1276,7 +1275,7 @@ func (w *worker) cancelRequestLoop(
 	}
 
 	check := func() {
-		requested, err := w.store.RunCancelRequested(w.runCtx, runID, claimToken)
+		requested, err := w.store.RunCancelRequested(w.runCtx, runID)
 		if err != nil {
 			w.noteDBError(err)
 			w.logger.Warn("Run %s: cancel request poll failed (will retry): %v", runID, err)

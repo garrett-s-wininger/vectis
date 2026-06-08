@@ -66,7 +66,7 @@ When adding workers, check:
 
 Each worker runs one job at a time today. To increase parallel job throughput, add workers rather than expecting one worker to run multiple jobs concurrently.
 
-During rolling restarts, wait for draining workers to report lifecycle state `idle` before forcing termination. A worker in `executing` or `finalizing` is still protecting the claimed run from unnecessary lease expiry and repair.
+During rolling restarts, wait for draining workers to report lifecycle state `idle` before forcing termination. A worker in `executing` or `finalizing` is still protecting an active task execution from unnecessary lease expiry and repair.
 
 ## API Replicas
 

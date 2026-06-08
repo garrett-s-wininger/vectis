@@ -383,7 +383,7 @@ func TestWorkerDBUnavailableSignals_LogOutageAndRecoveryOnce(t *testing.T) {
 	}
 }
 
-func TestWorkerRunClaimedJob_CompletesWhileOrphaned_MarksSucceeded(t *testing.T) {
+func TestWorkerRunTaskExecution_CompletesWhileOrphaned_MarksSucceeded(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	repos := dal.NewSQLRepositories(db)
@@ -432,7 +432,7 @@ func TestWorkerRunClaimedJob_CompletesWhileOrphaned_MarksSucceeded(t *testing.T)
 
 	done := make(chan struct{})
 	go func() {
-		w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID, env)
+		w.runTaskExecution(context.Background(), j, jobID, runID, deliveryID, env)
 		close(done)
 	}()
 
@@ -465,7 +465,7 @@ func TestWorkerRunClaimedJob_CompletesWhileOrphaned_MarksSucceeded(t *testing.T)
 	select {
 	case <-done:
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for worker runClaimedJob")
+		t.Fatal("timed out waiting for worker runTaskExecution")
 	}
 
 	var status string
@@ -488,7 +488,7 @@ func TestWorkerRunClaimedJob_CompletesWhileOrphaned_MarksSucceeded(t *testing.T)
 	}
 }
 
-func TestWorkerRunClaimedJob_WithExecutionEnvelope_TransitionsExecution(t *testing.T) {
+func TestWorkerRunTaskExecution_WithExecutionEnvelope_TransitionsExecution(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	repos := dal.NewSQLRepositories(db)
@@ -690,7 +690,7 @@ func TestWorkerTryClaimExecution_RecordsAcceptedOnlyOnInitialClaim(t *testing.T)
 	}
 }
 
-func TestWorkerRunClaimedJob_TaskFanoutQueuesContinuation(t *testing.T) {
+func TestWorkerRunTaskExecution_TaskFanoutQueuesContinuation(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
@@ -828,7 +828,7 @@ func TestWorkerRunClaimedJob_TaskFanoutQueuesContinuation(t *testing.T) {
 	}
 }
 
-func TestWorkerRunClaimedJob_TaskFanoutWaitingReductionRequeuesRun(t *testing.T) {
+func TestWorkerRunTaskExecution_TaskFanoutWaitingReductionRequeuesRun(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
@@ -922,7 +922,7 @@ func TestWorkerRunClaimedJob_TaskFanoutWaitingReductionRequeuesRun(t *testing.T)
 	}
 }
 
-func TestWorkerRunClaimedJob_TaskFanoutFailureFinalizesExecutionAndRun(t *testing.T) {
+func TestWorkerRunTaskExecution_TaskFanoutFailureFinalizesExecutionAndRun(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
@@ -1018,7 +1018,7 @@ func TestWorkerRunClaimedJob_TaskFanoutFailureFinalizesExecutionAndRun(t *testin
 	}
 }
 
-func TestWorkerRunClaimedJob_TaskFanoutCancelFinalizesExecutionAndRun(t *testing.T) {
+func TestWorkerRunTaskExecution_TaskFanoutCancelFinalizesExecutionAndRun(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
@@ -1084,7 +1084,7 @@ func TestWorkerRunClaimedJob_TaskFanoutCancelFinalizesExecutionAndRun(t *testing
 	outcomeCh := make(chan string, 1)
 	finished := make(chan struct{})
 	go func() {
-		outcomeCh <- w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID, env)
+		outcomeCh <- w.runTaskExecution(context.Background(), j, jobID, runID, deliveryID, env)
 		close(finished)
 	}()
 
@@ -1162,7 +1162,7 @@ func TestWorkerRunClaimedJob_TaskFanoutCancelFinalizesExecutionAndRun(t *testing
 	}
 }
 
-func TestWorkerRunClaimedJob_TaskFanoutExecutesEnvelopeTaskOnly(t *testing.T) {
+func TestWorkerRunTaskExecution_TaskFanoutExecutesEnvelopeTaskOnly(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
@@ -1426,7 +1426,7 @@ func TestWorkerHandleJob_RunlessDeliveryIsMalformed(t *testing.T) {
 	}
 }
 
-func TestWorkerRunClaimedJob_MissingExecutionEnvelopeFailsRun(t *testing.T) {
+func TestWorkerRunTaskExecution_MissingExecutionEnvelopeFailsRun(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	repos := dal.NewSQLRepositories(db)
@@ -1470,7 +1470,7 @@ func TestWorkerRunClaimedJob_MissingExecutionEnvelopeFailsRun(t *testing.T) {
 		Root:       root,
 	}
 
-	outcome := w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID)
+	outcome := w.runTaskExecution(context.Background(), j, jobID, runID, deliveryID)
 	if outcome != observability.WorkerOutcomeFailed {
 		t.Fatalf("outcome: got %q, want %q", outcome, observability.WorkerOutcomeFailed)
 	}
@@ -1507,7 +1507,7 @@ func TestWorkerRunClaimedJob_MissingExecutionEnvelopeFailsRun(t *testing.T) {
 	}
 }
 
-func TestWorkerRunClaimedJob_ExecutionClaimRequiredBeforeExecute(t *testing.T) {
+func TestWorkerRunTaskExecution_ExecutionClaimRequiredBeforeExecute(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
@@ -1580,7 +1580,7 @@ func TestWorkerRunClaimedJob_ExecutionClaimRequiredBeforeExecute(t *testing.T) {
 		t.Fatalf("attach execution envelope: %v", err)
 	}
 
-	outcome := w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID, env)
+	outcome := w.runTaskExecution(context.Background(), j, jobID, runID, deliveryID, env)
 	if outcome != observability.WorkerOutcomeSkippedUnclaimed {
 		t.Fatalf("outcome: got %q, want %q", outcome, observability.WorkerOutcomeSkippedUnclaimed)
 	}
@@ -1617,7 +1617,7 @@ func TestWorkerRunClaimedJob_ExecutionClaimRequiredBeforeExecute(t *testing.T) {
 	}
 }
 
-func TestWorkerRunClaimedJob_AckTransientThenSuccess_Completes(t *testing.T) {
+func TestWorkerRunTaskExecution_AckTransientThenSuccess_Completes(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	repos := dal.NewSQLRepositories(db)
@@ -1671,7 +1671,7 @@ func TestWorkerRunClaimedJob_AckTransientThenSuccess_Completes(t *testing.T) {
 	}
 
 	env := attachPendingExecutionEnvelopeForTest(t, runs, j, runID)
-	w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID, env)
+	w.runTaskExecution(context.Background(), j, jobID, runID, deliveryID, env)
 
 	var statusVal string
 	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&statusVal); err != nil {
@@ -1692,7 +1692,7 @@ func TestWorkerRunClaimedJob_AckTransientThenSuccess_Completes(t *testing.T) {
 	}
 }
 
-func TestWorkerRunClaimedJob_AckPersistentFailure_OrphansRunWithoutExecution(t *testing.T) {
+func TestWorkerRunTaskExecution_AckPersistentFailure_OrphansRunWithoutExecution(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	repos := dal.NewSQLRepositories(db)
@@ -1747,7 +1747,7 @@ func TestWorkerRunClaimedJob_AckPersistentFailure_OrphansRunWithoutExecution(t *
 	}
 
 	env := attachPendingExecutionEnvelopeForTest(t, runs, j, runID)
-	w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID, env)
+	w.runTaskExecution(context.Background(), j, jobID, runID, deliveryID, env)
 
 	var statusVal string
 	var reason sql.NullString
@@ -1783,7 +1783,7 @@ func TestWorkerRunClaimedJob_AckPersistentFailure_OrphansRunWithoutExecution(t *
 	}
 }
 
-func TestWorkerRunClaimedJob_FinalizeSucceededRetriesOnTransientStoreFailure(t *testing.T) {
+func TestWorkerRunTaskExecution_FinalizeSucceededRetriesOnTransientStoreFailure(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	repos := dal.NewSQLRepositories(db)
@@ -1835,7 +1835,7 @@ func TestWorkerRunClaimedJob_FinalizeSucceededRetriesOnTransientStoreFailure(t *
 	}
 
 	env := attachPendingExecutionEnvelopeForTest(t, runs, j, runID)
-	w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID, env)
+	w.runTaskExecution(context.Background(), j, jobID, runID, deliveryID, env)
 
 	var statusVal string
 	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&statusVal); err != nil {
@@ -1852,7 +1852,7 @@ func TestWorkerRunClaimedJob_FinalizeSucceededRetriesOnTransientStoreFailure(t *
 	}
 }
 
-func TestWorkerRunClaimedJob_LifecyclePhaseShowsFinalizing(t *testing.T) {
+func TestWorkerRunTaskExecution_LifecyclePhaseShowsFinalizing(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	repos := dal.NewSQLRepositories(db)
@@ -1909,7 +1909,7 @@ func TestWorkerRunClaimedJob_LifecyclePhaseShowsFinalizing(t *testing.T) {
 
 	done := make(chan string, 1)
 	go func() {
-		done <- w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID, env)
+		done <- w.runTaskExecution(context.Background(), j, jobID, runID, deliveryID, env)
 	}()
 
 	select {
@@ -1938,7 +1938,7 @@ func TestWorkerRunClaimedJob_LifecyclePhaseShowsFinalizing(t *testing.T) {
 	}
 }
 
-func TestWorkerRunClaimedJob_RenewExecutionLeaseTransientStoreFailure_StillSucceeds(t *testing.T) {
+func TestWorkerRunTaskExecution_RenewExecutionLeaseTransientStoreFailure_StillSucceeds(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	repos := dal.NewSQLRepositories(db)
@@ -1990,7 +1990,7 @@ func TestWorkerRunClaimedJob_RenewExecutionLeaseTransientStoreFailure_StillSucce
 	}
 
 	env := attachPendingExecutionEnvelopeForTest(t, runs, j, runID)
-	w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID, env)
+	w.runTaskExecution(context.Background(), j, jobID, runID, deliveryID, env)
 
 	var statusVal string
 	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&statusVal); err != nil {
@@ -2077,7 +2077,7 @@ func TestWorkerRestartMidRun_LeaseExpiryThenRequeue_AllowsRecovery(t *testing.T)
 		store:         runs,
 	}
 
-	w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID, env)
+	w.runTaskExecution(context.Background(), j, jobID, runID, deliveryID, env)
 
 	var statusVal string
 	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&statusVal); err != nil {
@@ -2089,7 +2089,7 @@ func TestWorkerRestartMidRun_LeaseExpiryThenRequeue_AllowsRecovery(t *testing.T)
 	}
 }
 
-func TestWorkerRunClaimedJob_FinalizeSucceededExhausted_LeavesRunningForOrphanSweep(t *testing.T) {
+func TestWorkerRunTaskExecution_FinalizeSucceededExhausted_LeavesRunningForOrphanSweep(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	repos := dal.NewSQLRepositories(db)
@@ -2142,7 +2142,7 @@ func TestWorkerRunClaimedJob_FinalizeSucceededExhausted_LeavesRunningForOrphanSw
 	}
 
 	env := attachPendingExecutionEnvelopeForTest(t, runs, j, runID)
-	w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID, env)
+	w.runTaskExecution(context.Background(), j, jobID, runID, deliveryID, env)
 
 	sleeps := clock.GetSleeps()
 	if len(sleeps) != finalizeMaxAttempts-1 {
@@ -2307,7 +2307,7 @@ func TestWorkerDrain_ShutdownDuringRun_StillFinalizesRun(t *testing.T) {
 	}
 }
 
-func TestWorkerRunClaimedJob_RemoteCancel_MarksRunAborted(t *testing.T) {
+func TestWorkerRunTaskExecution_RemoteCancel_MarksRunAborted(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	repos := dal.NewSQLRepositories(db)
@@ -2355,7 +2355,7 @@ func TestWorkerRunClaimedJob_RemoteCancel_MarksRunAborted(t *testing.T) {
 	outcomeCh := make(chan string, 1)
 	finished := make(chan struct{})
 	go func() {
-		outcomeCh <- w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID, env)
+		outcomeCh <- w.runTaskExecution(context.Background(), j, jobID, runID, deliveryID, env)
 		close(finished)
 	}()
 
@@ -2450,7 +2450,7 @@ func TestWorkerRunClaimedJob_RemoteCancel_MarksRunAborted(t *testing.T) {
 	}
 }
 
-func TestWorkerRunClaimedJob_DurableCancel_MarksRunAborted(t *testing.T) {
+func TestWorkerRunTaskExecution_DurableCancel_MarksRunAborted(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	repos := dal.NewSQLRepositories(db)
@@ -2497,15 +2497,13 @@ func TestWorkerRunClaimedJob_DurableCancel_MarksRunAborted(t *testing.T) {
 
 	outcomeCh := make(chan string, 1)
 	go func() {
-		outcomeCh <- w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID, env)
+		outcomeCh <- w.runTaskExecution(context.Background(), j, jobID, runID, deliveryID, env)
 	}()
 
 	deadline := time.Now().Add(2 * time.Second)
-	var claimToken string
 	for {
-		currentRunID, currentClaimToken := w.getCurrentRunInfo()
+		currentRunID, _ := w.getCurrentRunInfo()
 		if currentRunID == runID {
-			claimToken = currentClaimToken
 			break
 		}
 
@@ -2531,7 +2529,7 @@ func TestWorkerRunClaimedJob_DurableCancel_MarksRunAborted(t *testing.T) {
 		t.Fatalf("expected worker outcome aborted, got %q", outcome)
 	}
 
-	requested, err := runs.RunCancelRequested(ctx, runID, claimToken)
+	requested, err := runs.RunCancelRequested(ctx, runID)
 	if err != nil {
 		t.Fatalf("run cancel requested after abort: %v", err)
 	}

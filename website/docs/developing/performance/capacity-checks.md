@@ -198,7 +198,7 @@ The current checks are intentionally simple. A fuller framework should add repre
 
 | Workload shape | What it should cover |
 | --- | --- |
-| Small fast jobs | Queue handoff, run claiming, and terminal-state churn. |
+| Small fast jobs | Queue handoff, execution claiming, and terminal-state churn. |
 | Log-heavy jobs | Log append, replay, storage growth, and reader fan-out. |
 | Cron bursts | Schedule-to-run latency and duplicate/missed enqueue detection. |
 | Mixed API/admin traffic | Job listing, run lookup, auth/token paths, and rate-limit behavior under build traffic. |

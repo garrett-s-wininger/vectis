@@ -85,9 +85,9 @@ Task fan-in is reduction based: any terminal task failure reduces the run to fai
 
 ## Runbook: Duplicate Dispatch {#runbook-duplicate-dispatch}
 
-Duplicate handoff can happen when a producer retries after an uncertain failure or when the reconciler repairs a run whose queue state was lost. The database run claim is the execution guard, so duplicate handoff should not become duplicate execution for the same run ID.
+Duplicate handoff can happen when a producer retries after an uncertain failure or when the reconciler repairs a run whose queue state was lost. The database execution claim is the execution guard, so duplicate handoff should not become duplicate execution for the same task execution.
 
-1. Confirm only one worker claims the run.
+1. Confirm only one worker claims the execution.
 2. Inspect queue delivery and DLQ metrics.
 3. If duplicate delivery is persistent, check producer retry logs and reconciler interval/min-age settings.
 
