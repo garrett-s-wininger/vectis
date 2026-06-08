@@ -20,6 +20,7 @@ import {
   runTimelineEvents,
   sourceLabel
 } from "./RunDetailPresentation";
+import styles from "./RunDetailPage.module.css";
 
 type RunDetailPageProps = {
   onBack: () => void;
@@ -75,17 +76,17 @@ export function RunDetailPage({ onBack, onOpenJob, run, runID }: RunDetailPagePr
       />
 
       <section
-        className="run-investigation-hero polished-panel polished-panel--accent-top"
+        className={`${styles.hero} polished-panel polished-panel--accent-top`}
         aria-label="Run investigation summary"
       >
-        <div className="run-investigation-hero__header">
+        <div className={styles.heroHeader}>
           <div>
             <h2>Summary</h2>
             <p>{run.id}</p>
           </div>
           <StatusBadge status={run.status} />
         </div>
-        <dl className="run-investigation-facts">
+        <dl className={styles.facts}>
           <OperationalFact emphasis icon={Clock} label={runDurationLabel(run.status)} value={run.duration} />
           <OperationalFact icon={Server} label="Cell" value={run.cellName ?? "Unassigned"} />
           <OperationalFact icon={Zap} label="Trigger" value={runTriggerLabel(run)} />
@@ -99,7 +100,7 @@ export function RunDetailPage({ onBack, onOpenJob, run, runID }: RunDetailPagePr
         </dl>
       </section>
 
-      <section className="run-investigation-layout" aria-label="Run investigation">
+      <section className={styles.layout} aria-label="Run investigation">
         <RunGraph run={run} />
         <RunLogs run={run} />
         <RunDefinition run={run} />
@@ -112,19 +113,19 @@ export function RunDetailPage({ onBack, onOpenJob, run, runID }: RunDetailPagePr
 function RunGraph({ run }: { run: RunListItem }) {
   return (
     <section
-      className="run-investigation-panel run-graph-panel polished-panel polished-panel--accent-top"
+      className={`${styles.panel} ${styles.graphPanel} polished-panel polished-panel--accent-top`}
       aria-labelledby="run-graph-title"
     >
-      <div className="run-investigation-panel__header">
+      <div className={styles.panelHeader}>
         <div>
           <h2 id="run-graph-title">Graph</h2>
           <p>Execution nodes and selected task context.</p>
         </div>
       </div>
-      <div className="run-node-graph" aria-label="Execution graph">
-        <span className={`run-node-graph__node run-node-graph__node--${run.status}`}>
-          <span className="run-node-graph__indicator" aria-hidden="true" />
-          <span className="run-node-graph__label">root</span>
+      <div className={styles.graph} aria-label="Execution graph">
+        <span className={`${styles.graphNode} ${styles[run.status]}`}>
+          <span className={styles.graphIndicator} aria-hidden="true" />
+          <span className={styles.graphLabel}>root</span>
         </span>
       </div>
     </section>
@@ -134,16 +135,16 @@ function RunGraph({ run }: { run: RunListItem }) {
 function RunLogs({ run }: { run: RunListItem }) {
   return (
     <section
-      className="run-investigation-panel run-investigation-panel--primary polished-panel polished-panel--accent-top"
+      className={`${styles.panel} ${styles.primaryPanel} polished-panel polished-panel--accent-top`}
       aria-labelledby="run-logs-title"
     >
-      <div className="run-investigation-panel__header">
+      <div className={styles.panelHeader}>
         <div>
           <h2 id="run-logs-title">Logs</h2>
           <p>Worker output and dispatch messages for this run.</p>
         </div>
       </div>
-      <pre className="code-block">{runLogLines(run).join("\n")}</pre>
+      <pre className={`code-block ${styles.logs}`}>{runLogLines(run).join("\n")}</pre>
     </section>
   );
 }
@@ -151,23 +152,23 @@ function RunLogs({ run }: { run: RunListItem }) {
 function RunTimeline({ run }: { run: RunListItem }) {
   return (
     <section
-      className="run-investigation-panel polished-panel polished-panel--accent-top"
+      className={`${styles.panel} polished-panel polished-panel--accent-top`}
       aria-labelledby="run-timeline-title"
     >
-      <div className="run-investigation-panel__header">
+      <div className={styles.panelHeader}>
         <div>
           <h2 id="run-timeline-title">Timeline</h2>
           <p>How this run moved through the system.</p>
         </div>
       </div>
-      <ol className="run-event-list">
+      <ol className={styles.eventList}>
         {runTimelineEvents(run).map((event) => (
           <li key={event.label}>
             <History aria-hidden="true" />
             <div>
               <strong>
                 {event.label}
-                <span className="run-event-list__time">
+                <span className={styles.eventTime}>
                   {event.time}
                   {event.delta ? <small>{event.delta}</small> : null}
                 </span>
@@ -184,10 +185,10 @@ function RunTimeline({ run }: { run: RunListItem }) {
 function RunDefinition({ run }: { run: RunListItem }) {
   return (
     <section
-      className="run-investigation-panel polished-panel polished-panel--accent-top"
+      className={`${styles.panel} polished-panel polished-panel--accent-top`}
       aria-labelledby="run-definition-title"
     >
-      <div className="run-investigation-panel__header">
+      <div className={styles.panelHeader}>
         <div>
           <h2 id="run-definition-title">{runDefinitionTitle(run)}</h2>
           <p>{runDefinitionDescription(run)}</p>
