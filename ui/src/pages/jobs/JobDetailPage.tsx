@@ -52,7 +52,7 @@ export function JobDetailPage({
       />
 
       <div className={styles.summaryGrid}>
-        <section className={styles.panel} aria-labelledby="job-execution-title">
+        <section className={`${styles.panel} polished-panel`} aria-labelledby="job-execution-title">
           <div className={styles.panelHeader}>
             <h3 id="job-execution-title">Execution</h3>
             <p>{runHealth.detail}</p>
@@ -77,7 +77,10 @@ export function JobDetailPage({
           </div>
         </section>
 
-        <section className={`${styles.panel} ${styles.commandPanel}`} aria-labelledby="job-readiness-title">
+        <section
+          className={`${styles.panel} ${styles.commandPanel} polished-panel`}
+          aria-labelledby="job-readiness-title"
+        >
           <div className={styles.panelHeader}>
             <h3 id="job-readiness-title">Run Readiness</h3>
             <p>{getManualTriggerDetail(job)}</p>
@@ -92,7 +95,7 @@ export function JobDetailPage({
           </div>
         </section>
 
-        <section className={styles.panel} aria-labelledby="job-triggers-title">
+        <section className={`${styles.panel} polished-panel`} aria-labelledby="job-triggers-title">
           <div className={styles.panelHeader}>
             <h3 id="job-triggers-title">Triggers</h3>
             <p>{getScheduleDetail(job)}</p>
@@ -101,7 +104,10 @@ export function JobDetailPage({
         </section>
       </div>
 
-      <section className={`${styles.panel} ${styles.definitionPanel}`} aria-labelledby="job-definition-title">
+      <section
+        className={`${styles.panel} polished-panel polished-panel--accent-top`}
+        aria-labelledby="job-definition-title"
+      >
         <div className={styles.definitionHeader}>
           <div className={styles.panelHeader}>
             <h3 id="job-definition-title">Definition</h3>
@@ -111,7 +117,7 @@ export function JobDetailPage({
             {jobConfigurationActionLabel}
           </Button>
         </div>
-        <pre className={styles.definitionPreview}>{formatDefinition(job.definition)}</pre>
+        <pre className="definition-preview">{formatDefinition(job.definition)}</pre>
       </section>
     </section>
   );

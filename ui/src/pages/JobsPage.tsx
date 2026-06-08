@@ -69,7 +69,7 @@ export function JobsPage({
     editorMode?.kind === "edit" ? (routableJobs.find((candidate) => candidate.id === editorMode.jobID) ?? null) : null;
 
   const editorInitialValues = editorJob ? valuesFromJob(editorJob) : emptyJobForm;
-  const editorKey = editorMode?.kind === "edit" ? `edit:${editorMode.jobID}` : editorMode?.kind ?? "";
+  const editorKey = editorMode?.kind === "edit" ? `edit:${editorMode.jobID}` : (editorMode?.kind ?? "");
   const editorNamespacePath = editorJob?.namespacePath ?? namespacePath;
   const editorJobName = editorJob?.name ?? "Create";
   const pageTitle = editorMode ? (editorMode.kind === "edit" ? "Configure" : "Create") : "Jobs";
@@ -185,10 +185,7 @@ export function JobsPage({
               label="Job editor location"
             />
           ) : (
-            <BreadcrumbTrail
-              items={jobsIndexBreadcrumbItems(namespacePath)}
-              label="Jobs location"
-            />
+            <BreadcrumbTrail items={jobsIndexBreadcrumbItems(namespacePath)} label="Jobs location" />
           )
         }
         actions={
@@ -215,7 +212,10 @@ export function JobsPage({
         />
       ) : null}
       {!editorMode && jobs.length === 0 ? (
-        <section className={styles.emptyState} aria-labelledby="jobs-empty-title">
+        <section
+          className={`${styles.emptyState} polished-panel polished-panel--accent-top`}
+          aria-labelledby="jobs-empty-title"
+        >
           <div>
             <p className="eyebrow">No stored jobs</p>
             <h2 id="jobs-empty-title">Create One Today</h2>

@@ -22,7 +22,10 @@ export function JobActionPanel({
   onTrigger: () => void;
 }) {
   return (
-    <section className={styles.actionPanel} aria-labelledby="job-action-title">
+    <section
+      className={`${styles.actionPanel} polished-panel polished-panel--accent-left`}
+      aria-labelledby="job-action-title"
+    >
       <ResourceTitle
         className={styles.actionTitle}
         id="job-action-title"

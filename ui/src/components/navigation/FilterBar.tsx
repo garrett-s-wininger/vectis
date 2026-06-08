@@ -8,7 +8,7 @@ type FilterBarProps = {
 
 export function FilterBar({ filters, actions }: FilterBarProps) {
   return (
-    <div className={styles.root}>
+    <div className={`${styles.root} polished-panel`}>
       <div className={styles.filters}>{filters}</div>
       {actions ? <div className={styles.actions}>{actions}</div> : null}
     </div>

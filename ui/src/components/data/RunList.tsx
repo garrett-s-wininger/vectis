@@ -41,7 +41,7 @@ type RunListProps = {
 
 export function RunList({ emptyMessage = "No runs found.", hideJobName, onSelectRun, title, runs }: RunListProps) {
   return (
-    <section className={styles.root} aria-labelledby="run-list-title">
+    <section className={`${styles.root} polished-panel polished-panel--accent-top`} aria-labelledby="run-list-title">
       <div className={styles.header}>
         <div className={styles.headingGroup}>
           <h2 id="run-list-title">{title}</h2>

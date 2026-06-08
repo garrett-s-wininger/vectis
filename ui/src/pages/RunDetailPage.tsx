@@ -74,7 +74,10 @@ export function RunDetailPage({ onBack, onOpenJob, run, runID }: RunDetailPagePr
         title={`${run.jobName} (#${run.runNumber})`}
       />
 
-      <section className="run-investigation-hero" aria-label="Run investigation summary">
+      <section
+        className="run-investigation-hero polished-panel polished-panel--accent-top"
+        aria-label="Run investigation summary"
+      >
         <div className="run-investigation-hero__header">
           <div>
             <h2>Summary</h2>
@@ -108,7 +111,10 @@ export function RunDetailPage({ onBack, onOpenJob, run, runID }: RunDetailPagePr
 
 function RunGraph({ run }: { run: RunListItem }) {
   return (
-    <section className="run-investigation-panel run-graph-panel" aria-labelledby="run-graph-title">
+    <section
+      className="run-investigation-panel run-graph-panel polished-panel polished-panel--accent-top"
+      aria-labelledby="run-graph-title"
+    >
       <div className="run-investigation-panel__header">
         <div>
           <h2 id="run-graph-title">Graph</h2>
@@ -127,7 +133,10 @@ function RunGraph({ run }: { run: RunListItem }) {
 
 function RunLogs({ run }: { run: RunListItem }) {
   return (
-    <section className="run-investigation-panel run-investigation-panel--primary" aria-labelledby="run-logs-title">
+    <section
+      className="run-investigation-panel run-investigation-panel--primary polished-panel polished-panel--accent-top"
+      aria-labelledby="run-logs-title"
+    >
       <div className="run-investigation-panel__header">
         <div>
           <h2 id="run-logs-title">Logs</h2>
@@ -141,7 +150,10 @@ function RunLogs({ run }: { run: RunListItem }) {
 
 function RunTimeline({ run }: { run: RunListItem }) {
   return (
-    <section className="run-investigation-panel" aria-labelledby="run-timeline-title">
+    <section
+      className="run-investigation-panel polished-panel polished-panel--accent-top"
+      aria-labelledby="run-timeline-title"
+    >
       <div className="run-investigation-panel__header">
         <div>
           <h2 id="run-timeline-title">Timeline</h2>
@@ -171,7 +183,10 @@ function RunTimeline({ run }: { run: RunListItem }) {
 
 function RunDefinition({ run }: { run: RunListItem }) {
   return (
-    <section className="run-investigation-panel" aria-labelledby="run-definition-title">
+    <section
+      className="run-investigation-panel polished-panel polished-panel--accent-top"
+      aria-labelledby="run-definition-title"
+    >
       <div className="run-investigation-panel__header">
         <div>
           <h2 id="run-definition-title">{runDefinitionTitle(run)}</h2>
