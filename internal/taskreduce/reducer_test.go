@@ -8,6 +8,7 @@ import (
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/taskreduce"
 	"vectis/internal/testutil/dbtest"
+	"vectis/internal/testutil/runfixture"
 )
 
 func TestDecide(t *testing.T) {
@@ -125,15 +126,12 @@ func TestReducerReduceFailureDominatesIncompleteSibling(t *testing.T) {
 		t.Fatalf("ensure incomplete branch: %v", err)
 	}
 
-	if children, activated, err := repos.SQLRuns().MarkExecutionSucceededAndActivateChildren(ctx, root.ExecutionID); err != nil {
-		t.Fatalf("root success fan-out: %v", err)
-	} else if activated != 2 || len(children) != 2 {
+	result := runfixture.FinalizeExecutionByClaim(t, ctx, repos, root.ExecutionID, dal.ExecutionStatusSucceeded)
+	if activated, children := result.Activated, result.Children; activated != 2 || len(children) != 2 {
 		t.Fatalf("root success fan-out activated=%d children=%+v", activated, children)
 	}
 
-	if err := repos.SQLRuns().MarkExecutionTerminal(ctx, failedBranch.ExecutionID, dal.ExecutionStatusFailed); err != nil {
-		t.Fatalf("mark failed branch failed: %v", err)
-	}
+	runfixture.FinalizeExecutionByClaimWithFailure(t, ctx, repos, failedBranch.ExecutionID, dal.ExecutionStatusFailed, dal.FailureCodeExecution, "failed branch")
 
 	decision, err := taskreduce.New(repos.Runs()).Reduce(ctx, runID)
 	if err != nil {

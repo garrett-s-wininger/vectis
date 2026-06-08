@@ -22,6 +22,7 @@ import (
 	"vectis/internal/taskdispatch"
 	"vectis/internal/taskfinalize"
 	"vectis/internal/testutil/dbtest"
+	"vectis/internal/testutil/runfixture"
 
 	"github.com/spf13/viper"
 	"go.opentelemetry.io/otel/attribute"
@@ -538,7 +539,7 @@ func TestWorkerRunClaimedJob_TaskFanoutQueuesContinuation(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
-	runs := repos.SQLRuns()
+	runs := repos.Runs()
 
 	ns, err := repos.Namespaces().Create(ctx, "worker-task-fanout", nil)
 	if err != nil {
@@ -1010,7 +1011,7 @@ func TestWorkerRunClaimedJob_TaskFanoutExecutesEnvelopeTaskOnly(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
-	runs := repos.SQLRuns()
+	runs := repos.Runs()
 
 	jobID := "job-worker-task-scope"
 	runID, runIndex, err := runs.CreateRun(ctx, jobID, nil, 1)
@@ -1036,13 +1037,7 @@ func TestWorkerRunClaimedJob_TaskFanoutExecutesEnvelopeTaskOnly(t *testing.T) {
 		t.Fatalf("ensure second task: %v", err)
 	}
 
-	if err := runs.MarkExecutionTerminal(ctx, rootDispatch.ExecutionID, dal.ExecutionStatusSucceeded); err != nil {
-		t.Fatalf("mark root execution succeeded: %v", err)
-	}
-
-	if _, _, err := runs.ActivatePlannedChildTaskExecutions(ctx, rootDispatch.TaskID); err != nil {
-		t.Fatalf("activate child task: %v", err)
-	}
+	runfixture.FinalizeExecutionByClaim(t, ctx, repos, rootDispatch.ExecutionID, dal.ExecutionStatusSucceeded)
 
 	queue := mocks.NewMockQueueClient()
 	logClient := mocks.NewMockLogClient()

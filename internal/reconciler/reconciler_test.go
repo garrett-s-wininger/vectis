@@ -13,6 +13,7 @@ import (
 	"vectis/internal/interfaces"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/testutil/dbtest"
+	"vectis/internal/testutil/runfixture"
 
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -139,13 +140,9 @@ func TestService_Process_RepairsTaskDispatchIntent(t *testing.T) {
 		t.Fatalf("ensure child execution: %v", err)
 	}
 
-	activated, count, err := repos.SQLRuns().MarkExecutionSucceededAndActivateChildren(ctx, rootDispatch.ExecutionID)
-	if err != nil {
-		t.Fatalf("activate child execution: %v", err)
-	}
-
-	if count != 1 || len(activated) != 1 || activated[0].ExecutionID != child.ExecutionID {
-		t.Fatalf("activated child mismatch: count=%d children=%+v want %+v", count, activated, child)
+	result := runfixture.FinalizeExecutionByClaim(t, ctx, repos, rootDispatch.ExecutionID, dal.ExecutionStatusSucceeded)
+	if result.Activated != 1 || len(result.Children) != 1 || result.Children[0].ExecutionID != child.ExecutionID {
+		t.Fatalf("activated child mismatch: count=%d children=%+v want %+v", result.Activated, result.Children, child)
 	}
 
 	q := mocks.NewMockQueueService()
@@ -219,20 +216,9 @@ func TestService_Process_RepairsOrphanedTaskRunSucceeded(t *testing.T) {
 		t.Fatalf("get root execution: %v", err)
 	}
 
-	claimed, token, err := repos.Runs().TryClaim(ctx, runID, "worker-task-finalize-success", time.Now().Add(time.Minute))
-	if err != nil {
-		t.Fatalf("claim run: %v", err)
-	}
+	runfixture.FinalizeExecutionByClaim(t, ctx, repos, rootDispatch.ExecutionID, dal.ExecutionStatusSucceeded)
 
-	if !claimed {
-		t.Fatal("expected run claim")
-	}
-
-	if _, _, err := repos.SQLRuns().MarkExecutionSucceededAndActivateChildren(ctx, rootDispatch.ExecutionID); err != nil {
-		t.Fatalf("mark root succeeded: %v", err)
-	}
-
-	if err := repos.Runs().MarkRunOrphaned(ctx, runID, token, "lease expired"); err != nil {
+	if err := repos.Runs().MarkRunOrphaned(ctx, runID, "", "lease expired"); err != nil {
 		t.Fatalf("mark orphaned: %v", err)
 	}
 
@@ -312,28 +298,14 @@ func TestService_Process_RepairsOrphanedTaskRunFailedWithIncompleteSibling(t *te
 		t.Fatalf("ensure incomplete branch: %v", err)
 	}
 
-	claimed, token, err := repos.Runs().TryClaim(ctx, runID, "worker-task-finalize-failed", time.Now().Add(time.Minute))
-	if err != nil {
-		t.Fatalf("claim run: %v", err)
-	}
-	if !claimed {
-		t.Fatal("expected run claim")
+	result := runfixture.FinalizeExecutionByClaim(t, ctx, repos, rootDispatch.ExecutionID, dal.ExecutionStatusSucceeded)
+	if result.Activated != 2 || len(result.Children) != 2 {
+		t.Fatalf("activated children mismatch: count=%d children=%+v", result.Activated, result.Children)
 	}
 
-	activated, count, err := repos.SQLRuns().MarkExecutionSucceededAndActivateChildren(ctx, rootDispatch.ExecutionID)
-	if err != nil {
-		t.Fatalf("activate child executions: %v", err)
-	}
+	runfixture.FinalizeExecutionByClaimWithFailure(t, ctx, repos, failedBranch.ExecutionID, dal.ExecutionStatusFailed, dal.FailureCodeExecution, "failed branch")
 
-	if count != 2 || len(activated) != 2 {
-		t.Fatalf("activated children mismatch: count=%d children=%+v", count, activated)
-	}
-
-	if err := repos.SQLRuns().MarkExecutionTerminal(ctx, failedBranch.ExecutionID, dal.ExecutionStatusFailed); err != nil {
-		t.Fatalf("mark failed branch terminal: %v", err)
-	}
-
-	if err := repos.Runs().MarkRunOrphaned(ctx, runID, token, "lease expired"); err != nil {
+	if err := repos.Runs().MarkRunOrphaned(ctx, runID, "", "lease expired"); err != nil {
 		t.Fatalf("mark orphaned: %v", err)
 	}
 

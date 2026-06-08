@@ -229,7 +229,6 @@ type MockRunsRepository struct {
 	MarkRunCancelledErr        error
 	MarkRunAbortedErr          error
 	MarkRunOrphanedErr         error
-	MarkRunQueuedErr           error
 	RepairMarkErr              error
 	RequeueRunErr              error
 	MarkOrphanedErr            error
@@ -298,7 +297,6 @@ type MockRunsRepository struct {
 	LastTaskExecution     dal.TaskExecutionCreate
 	LastActivatedTaskID   string
 	LastActivatedParentID string
-	LastSucceededExecID   string
 	LastExecutionClaimID  string
 	LastExecutionOwner    string
 	LastExecutionRenewID  string
@@ -356,7 +354,14 @@ func (m *MockRunsRepository) ApplyExecutionStatusUpdate(ctx context.Context, upd
 	case dal.ExecutionStatusRunning:
 		return m.MarkExecutionStarted(ctx, update.ExecutionID)
 	case dal.ExecutionStatusSucceeded, dal.ExecutionStatusFailed, dal.ExecutionStatusCancelled, dal.ExecutionStatusAborted:
-		return m.MarkExecutionTerminal(ctx, update.ExecutionID, update.Status)
+		if m.MarkExecutionErr != nil {
+			return m.MarkExecutionErr
+		}
+
+		m.mu.Lock()
+		m.ExecutionTransitions = append(m.ExecutionTransitions, update.ExecutionID+":"+update.Status)
+		m.mu.Unlock()
+		return nil
 	default:
 		return fmt.Errorf("%w: unsupported execution status %s", dal.ErrConflict, update.Status)
 	}
@@ -380,18 +385,6 @@ func (m *MockRunsRepository) MarkRunAborted(ctx context.Context, runID, claimTok
 
 func (m *MockRunsRepository) MarkRunOrphaned(ctx context.Context, runID, claimToken, reason string) error {
 	return m.MarkRunOrphanedErr
-}
-
-func (m *MockRunsRepository) MarkRunQueuedForContinuation(ctx context.Context, runID, claimToken string) error {
-	if m.MarkRunQueuedErr != nil {
-		return m.MarkRunQueuedErr
-	}
-
-	m.mu.Lock()
-	m.ExecutionTransitions = append(m.ExecutionTransitions, runID+":queued")
-	m.mu.Unlock()
-
-	return nil
 }
 
 func (m *MockRunsRepository) RepairMarkRunSucceeded(ctx context.Context, runID, reason string) error {
@@ -970,34 +963,6 @@ func (m *MockRunsRepository) MarkExecutionStarted(ctx context.Context, execution
 	m.ExecutionTransitions = append(m.ExecutionTransitions, executionID+":"+dal.ExecutionStatusRunning)
 	m.mu.Unlock()
 	return nil
-}
-
-func (m *MockRunsRepository) MarkExecutionTerminal(ctx context.Context, executionID, status string) error {
-	if m.MarkExecutionErr != nil {
-		return m.MarkExecutionErr
-	}
-
-	m.mu.Lock()
-	m.ExecutionTransitions = append(m.ExecutionTransitions, executionID+":"+status)
-	m.mu.Unlock()
-	return nil
-}
-
-func (m *MockRunsRepository) MarkExecutionSucceededAndActivateChildren(ctx context.Context, executionID string) ([]dal.TaskExecutionRecord, int, error) {
-	if m.MarkExecutionErr != nil {
-		return nil, 0, m.MarkExecutionErr
-	}
-
-	if m.ActivateTaskErr != nil {
-		return nil, 0, m.ActivateTaskErr
-	}
-
-	m.mu.Lock()
-	m.LastSucceededExecID = executionID
-	m.ExecutionTransitions = append(m.ExecutionTransitions, executionID+":"+dal.ExecutionStatusSucceeded)
-	m.mu.Unlock()
-
-	return append([]dal.TaskExecutionRecord(nil), m.TaskExecutions...), m.TaskActivatedN, nil
 }
 
 func (m *MockRunsRepository) CompleteExecutionAndFinalizeRunByClaim(ctx context.Context, executionID, owner, claimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {

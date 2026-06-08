@@ -15,6 +15,7 @@ import (
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/taskdispatch"
 	"vectis/internal/testutil/dbtest"
+	"vectis/internal/testutil/runfixture"
 
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -360,10 +361,9 @@ func setupDispatchableChildForJob(t *testing.T, ctx context.Context, repos *dal.
 		t.Fatalf("record root execution payload: %v", err)
 	}
 
-	if _, activated, err := repos.SQLRuns().MarkExecutionSucceededAndActivateChildren(ctx, rootDispatch.ExecutionID); err != nil {
-		t.Fatalf("root success fan-out: %v", err)
-	} else if activated != 1 {
-		t.Fatalf("root success fan-out activated: got %d, want 1", activated)
+	result := runfixture.FinalizeExecutionByClaim(t, ctx, repos, rootDispatch.ExecutionID, dal.ExecutionStatusSucceeded)
+	if result.Activated != 1 {
+		t.Fatalf("root success fan-out activated: got %d, want 1", result.Activated)
 	}
 
 	return child

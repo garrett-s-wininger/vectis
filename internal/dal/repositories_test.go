@@ -8,6 +8,7 @@ import (
 
 	"vectis/internal/dal"
 	"vectis/internal/testutil/dbtest"
+	"vectis/internal/testutil/runfixture"
 )
 
 func TestJobsRepository_CRUDAndConflict(t *testing.T) {
@@ -1463,168 +1464,6 @@ func TestRunsRepository_ActivatePlannedChildTaskExecutionsFansOutDirectChildren(
 	}
 }
 
-func TestRunsRepository_MarkExecutionSucceededAndActivateChildren(t *testing.T) {
-	db := dbtest.NewTestDB(t)
-	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
-	ctx := context.Background()
-
-	ns, err := repos.Namespaces().Create(ctx, "team-task-success-fanout", nil)
-	if err != nil {
-		t.Fatalf("create namespace: %v", err)
-	}
-
-	jobID := "job-task-success-fanout"
-	def := `{"id":"job-task-success-fanout","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
-		t.Fatalf("create job: %v", err)
-	}
-
-	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
-	if err != nil {
-		t.Fatalf("create run: %v", err)
-	}
-
-	rootDispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
-	if err != nil {
-		t.Fatalf("get root pending execution: %v", err)
-	}
-
-	setup, _, err := repos.Runs().EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
-		RunID:    runID,
-		TaskKey:  "setup",
-		SpecHash: "sha256:setup",
-	})
-	if err != nil {
-		t.Fatalf("ensure setup: %v", err)
-	}
-
-	build, _, err := repos.Runs().EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
-		RunID:    runID,
-		TaskKey:  "build",
-		SpecHash: "sha256:build",
-	})
-	if err != nil {
-		t.Fatalf("ensure build: %v", err)
-	}
-
-	compile, _, err := repos.Runs().EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
-		RunID:        runID,
-		ParentTaskID: setup.TaskID,
-		TaskKey:      "compile",
-		SpecHash:     "sha256:compile",
-	})
-	if err != nil {
-		t.Fatalf("ensure compile: %v", err)
-	}
-
-	children, activated, err := repos.SQLRuns().MarkExecutionSucceededAndActivateChildren(ctx, rootDispatch.ExecutionID)
-	if err != nil {
-		t.Fatalf("MarkExecutionSucceededAndActivateChildren root: %v", err)
-	}
-
-	if activated != 2 || len(children) != 2 {
-		t.Fatalf("root success fan-out: activated=%d children=%+v", activated, children)
-	}
-
-	byKey := taskExecutionRecordsByKey(children)
-	if byKey["setup"] != setup || byKey["build"] != build {
-		t.Fatalf("root success children mismatch: %+v", children)
-	}
-
-	assertExecutionAndSegmentStatus(t, db, rootDispatch.ExecutionID, rootDispatch.SegmentID, dal.ExecutionStatusSucceeded, dal.SegmentStatusSucceeded, 1)
-	assertRootTaskAndAttemptStatus(t, db, runID, dal.TaskStatusSucceeded, dal.TaskStatusSucceeded, 1)
-	assertTaskExecutionStatuses(t, db, setup, dal.TaskStatusPending, dal.SegmentStatusPending, dal.ExecutionStatusPending, 0)
-	assertTaskExecutionStatuses(t, db, build, dal.TaskStatusPending, dal.SegmentStatusPending, dal.ExecutionStatusPending, 0)
-	assertTaskExecutionStatuses(t, db, compile, dal.TaskStatusPlanned, dal.SegmentStatusPlanned, dal.ExecutionStatusPlanned, 0)
-
-	intents, err := repos.TaskDispatchIntents().ListPending(ctx, "iad-a", 0, 100)
-	if err != nil {
-		t.Fatalf("list root fan-out dispatch intents: %v", err)
-	}
-
-	if len(intents) != 2 {
-		t.Fatalf("root fan-out dispatch intents: got %d, want 2: %+v", len(intents), intents)
-	}
-
-	intentsByExecution := taskDispatchIntentsByExecutionID(intents)
-	for _, child := range []dal.TaskExecutionRecord{setup, build} {
-		intent, ok := intentsByExecution[child.ExecutionID]
-		if !ok {
-			t.Fatalf("missing dispatch intent for child execution %s: %+v", child.ExecutionID, intents)
-		}
-
-		if intent.SourceExecutionID != rootDispatch.ExecutionID || intent.RunID != runID || intent.TaskID != child.TaskID || intent.TaskAttemptID != child.TaskAttemptID || intent.CellID != "iad-a" {
-			t.Fatalf("dispatch intent for %s mismatch: %+v", child.ExecutionID, intent)
-		}
-	}
-
-	children, activated, err = repos.SQLRuns().MarkExecutionSucceededAndActivateChildren(ctx, rootDispatch.ExecutionID)
-	if err != nil {
-		t.Fatalf("idempotent root success fan-out: %v", err)
-	}
-
-	if activated != 0 || len(children) != 2 {
-		t.Fatalf("idempotent root success fan-out: activated=%d children=%+v", activated, children)
-	}
-
-	intents, err = repos.TaskDispatchIntents().ListPending(ctx, "iad-a", 0, 100)
-	if err != nil {
-		t.Fatalf("list idempotent root fan-out dispatch intents: %v", err)
-	}
-
-	if len(intents) != 2 {
-		t.Fatalf("idempotent root fan-out should not duplicate dispatch intents, got %d: %+v", len(intents), intents)
-	}
-
-	grandchildren, activated, err := repos.SQLRuns().MarkExecutionSucceededAndActivateChildren(ctx, setup.ExecutionID)
-	if err != nil {
-		t.Fatalf("setup success fan-out: %v", err)
-	}
-
-	if activated != 1 || len(grandchildren) != 1 || grandchildren[0] != compile {
-		t.Fatalf("setup success children: activated=%d grandchildren=%+v", activated, grandchildren)
-	}
-
-	assertExecutionAndSegmentStatus(t, db, setup.ExecutionID, setup.SegmentID, dal.ExecutionStatusSucceeded, dal.SegmentStatusSucceeded, 1)
-	assertTaskAndAttemptStatus(t, db, setup.TaskID, 1, dal.TaskStatusSucceeded, dal.TaskStatusSucceeded, 1)
-	assertTaskExecutionStatuses(t, db, compile, dal.TaskStatusPending, dal.SegmentStatusPending, dal.ExecutionStatusPending, 0)
-
-	intents, err = repos.TaskDispatchIntents().ListPending(ctx, "iad-a", 0, 100)
-	if err != nil {
-		t.Fatalf("list setup fan-out dispatch intents: %v", err)
-	}
-
-	if len(intents) != 2 {
-		t.Fatalf("setup fan-out should leave build and compile dispatchable, got %d: %+v", len(intents), intents)
-	}
-
-	intentsByExecution = taskDispatchIntentsByExecutionID(intents)
-	if _, ok := intentsByExecution[setup.ExecutionID]; ok {
-		t.Fatalf("succeeded setup execution should no longer be pending dispatch: %+v", intents)
-	}
-
-	compileIntent, ok := intentsByExecution[compile.ExecutionID]
-	if !ok {
-		t.Fatalf("missing compile dispatch intent: %+v", intents)
-	}
-
-	if compileIntent.SourceExecutionID != setup.ExecutionID {
-		t.Fatalf("compile dispatch source: got %q, want %q", compileIntent.SourceExecutionID, setup.ExecutionID)
-	}
-
-	if err := repos.SQLRuns().MarkExecutionTerminal(ctx, build.ExecutionID, dal.ExecutionStatusFailed); err != nil {
-		t.Fatalf("mark build failed: %v", err)
-	}
-
-	if _, _, err := repos.SQLRuns().MarkExecutionSucceededAndActivateChildren(ctx, build.ExecutionID); !dal.IsConflict(err) {
-		t.Fatalf("failed execution success fan-out should conflict, got %v", err)
-	}
-
-	if _, _, err := repos.SQLRuns().MarkExecutionSucceededAndActivateChildren(ctx, "missing-execution"); !dal.IsNotFound(err) {
-		t.Fatalf("missing execution success fan-out should return not found, got %v", err)
-	}
-}
-
 func TestRunsRepository_GetRunTaskCompletion(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
@@ -1671,9 +1510,7 @@ func TestRunsRepository_GetRunTaskCompletion(t *testing.T) {
 		t.Fatalf("initial summary mismatch: %+v", summary)
 	}
 
-	if _, _, err := repos.SQLRuns().MarkExecutionSucceededAndActivateChildren(ctx, rootDispatch.ExecutionID); err != nil {
-		t.Fatalf("root success: %v", err)
-	}
+	runfixture.FinalizeExecutionByClaim(t, ctx, repos, rootDispatch.ExecutionID, dal.ExecutionStatusSucceeded)
 
 	summary, err = repos.Runs().GetRunTaskCompletion(ctx, runID)
 	if err != nil {
@@ -1684,9 +1521,7 @@ func TestRunsRepository_GetRunTaskCompletion(t *testing.T) {
 		t.Fatalf("after root success summary mismatch: %+v", summary)
 	}
 
-	if err := repos.SQLRuns().MarkExecutionTerminal(ctx, child.ExecutionID, dal.ExecutionStatusFailed); err != nil {
-		t.Fatalf("child failed: %v", err)
-	}
+	runfixture.FinalizeExecutionByClaimWithFailure(t, ctx, repos, child.ExecutionID, dal.ExecutionStatusFailed, dal.FailureCodeExecution, "child failed")
 
 	summary, err = repos.Runs().GetRunTaskCompletion(ctx, runID)
 	if err != nil {
@@ -2003,8 +1838,12 @@ func TestTaskDispatchIntentsRepository_ListPendingRequiresQueuedRun(t *testing.T
 		t.Fatalf("running run should not expose pending task dispatch intents: %+v", pending)
 	}
 
-	if err := repos.SQLRuns().MarkRunQueuedForContinuation(ctx, runID, claimToken); err != nil {
-		t.Fatalf("mark queued for continuation: %v", err)
+	if err := repos.Runs().MarkRunOrphaned(ctx, runID, claimToken, dal.OrphanReasonLeaseExpired); err != nil {
+		t.Fatalf("mark orphaned before requeue: %v", err)
+	}
+
+	if err := repos.Runs().RequeueRunForRetry(ctx, runID); err != nil {
+		t.Fatalf("requeue run for retry: %v", err)
 	}
 
 	pending, err = repos.TaskDispatchIntents().ListPending(ctx, "iad-a", time.Now().UnixNano(), 10)
@@ -2115,8 +1954,8 @@ func TestRunsRepository_ExecutionTransitions(t *testing.T) {
 	assertExecutionAndSegmentStatus(t, db, dispatch.ExecutionID, dispatch.SegmentID, dal.ExecutionStatusRunning, dal.SegmentStatusRunning, 2)
 	assertRootTaskAndAttemptStatus(t, db, runID, dal.TaskStatusRunning, dal.TaskStatusRunning, 2)
 
-	if err := repos.SQLRuns().MarkExecutionTerminal(ctx, dispatch.ExecutionID, dal.ExecutionStatusSucceeded); err != nil {
-		t.Fatalf("mark terminal: %v", err)
+	if err := repos.Runs().ApplyExecutionStatusUpdate(ctx, dal.ExecutionStatusUpdate{ExecutionID: dispatch.ExecutionID, Status: dal.ExecutionStatusSucceeded}); err != nil {
+		t.Fatalf("apply terminal execution status: %v", err)
 	}
 	assertExecutionAndSegmentStatus(t, db, dispatch.ExecutionID, dispatch.SegmentID, dal.ExecutionStatusSucceeded, dal.SegmentStatusSucceeded, 3)
 	assertRootTaskAndAttemptStatus(t, db, runID, dal.TaskStatusSucceeded, dal.TaskStatusSucceeded, 3)
@@ -2203,8 +2042,16 @@ func TestRunsRepository_ExecutionClaims(t *testing.T) {
 		t.Fatalf("expected conflicting execution lease renewal, got %v", err)
 	}
 
-	if err := repos.SQLRuns().MarkExecutionTerminal(ctx, dispatch.ExecutionID, dal.ExecutionStatusSucceeded); err != nil {
-		t.Fatalf("mark execution terminal: %v", err)
+	claimedRun, _, err := repos.Runs().TryClaim(ctx, runID, "worker-a", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("claim run before execution finalization: %v", err)
+	}
+	if !claimedRun {
+		t.Fatal("expected run claim before execution finalization")
+	}
+
+	if _, err := repos.Runs().CompleteExecutionAndFinalizeRunByClaim(ctx, dispatch.ExecutionID, "worker-a", token, dal.ExecutionStatusSucceeded, "", ""); err != nil {
+		t.Fatalf("complete execution by claim: %v", err)
 	}
 	assertExecutionAndSegmentStatus(t, db, dispatch.ExecutionID, dispatch.SegmentID, dal.ExecutionStatusSucceeded, dal.SegmentStatusSucceeded, 2)
 	assertExecutionClaimCleared(t, db, dispatch.ExecutionID)
@@ -2756,10 +2603,6 @@ func TestRunsRepository_ExecutionTransitionsRejectInvalidTargets(t *testing.T) {
 		t.Fatalf("expected missing execution to return ErrNotFound, got %v", err)
 	}
 
-	if err := repos.SQLRuns().MarkExecutionTerminal(ctx, "missing-execution", dal.ExecutionStatusRunning); !dal.IsConflict(err) {
-		t.Fatalf("expected non-terminal status to return ErrConflict, got %v", err)
-	}
-
 	if err := repos.Runs().ApplyExecutionStatusUpdate(ctx, dal.ExecutionStatusUpdate{ExecutionID: "execution-invalid-update", Status: dal.ExecutionStatusPending}); !dal.IsConflict(err) {
 		t.Fatalf("expected unsupported execution status to return ErrConflict, got %v", err)
 	}
@@ -3210,7 +3053,7 @@ func insertCronTriggerSpec(t *testing.T, ctx context.Context, db *sql.DB, jobID,
 
 func TestRunsRepository_CreateRunAndListSinceOrdered(t *testing.T) {
 	db := dbtest.NewTestDB(t)
-	runs := dal.NewSQLRepositories(db).SQLRuns()
+	runs := dal.NewSQLRepositories(db).Runs()
 	ctx := context.Background()
 
 	runID1, idx1, err := runs.CreateRun(ctx, "job-order", nil, 1)
@@ -3345,7 +3188,7 @@ func TestRunsRepository_CreateScheduledRunIdempotentByScheduleTick(t *testing.T)
 
 func TestRunsRepository_ClaimRenewAndDispatchQueries(t *testing.T) {
 	db := dbtest.NewTestDB(t)
-	runs := dal.NewSQLRepositories(db).SQLRuns()
+	runs := dal.NewSQLRepositories(db).Runs()
 	ctx := context.Background()
 
 	runID, _, err := runs.CreateRun(ctx, "job-claim", nil, 1)
@@ -3461,7 +3304,7 @@ func TestRunsRepository_ClaimRenewAndDispatchQueries(t *testing.T) {
 
 func TestRunsRepository_RequestRunCancel_SetsDurableIntent(t *testing.T) {
 	db := dbtest.NewTestDB(t)
-	runs := dal.NewSQLRepositories(db).SQLRuns()
+	runs := dal.NewSQLRepositories(db).Runs()
 	ctx := context.Background()
 
 	runID, _, err := runs.CreateRun(ctx, "job-cancel-intent", nil, 1)
@@ -3537,7 +3380,7 @@ func TestRunsRepository_RequestRunCancel_SetsDurableIntent(t *testing.T) {
 
 func TestRunsRepository_LogShardAssignment(t *testing.T) {
 	db := dbtest.NewTestDB(t)
-	runs := dal.NewSQLRepositories(db).SQLRuns()
+	runs := dal.NewSQLRepositories(db).Runs()
 	ctx := context.Background()
 
 	runID, _, err := runs.CreateRun(ctx, "job-log-shard", nil, 1)
@@ -3684,7 +3527,7 @@ func TestRunsRepository_MarkExpiredRunningAsOrphaned(t *testing.T) {
 
 func TestRunsRepository_MarkRunSucceeded_FromOrphaned(t *testing.T) {
 	db := dbtest.NewTestDB(t)
-	runs := dal.NewSQLRepositories(db).SQLRuns()
+	runs := dal.NewSQLRepositories(db).Runs()
 	ctx := context.Background()
 
 	runID, _, err := runs.CreateRun(ctx, "job-orphan-finish", nil, 1)
@@ -3731,7 +3574,7 @@ func TestRunsRepository_MarkRunSucceeded_FromOrphaned(t *testing.T) {
 
 func TestRunsRepository_FencingTokenRejectsStaleFinalizeAndRenew(t *testing.T) {
 	db := dbtest.NewTestDB(t)
-	runs := dal.NewSQLRepositories(db).SQLRuns()
+	runs := dal.NewSQLRepositories(db).Runs()
 	ctx := context.Background()
 
 	runID, _, err := runs.CreateRun(ctx, "job-fencing", nil, 1)
@@ -3809,7 +3652,7 @@ func TestRunsRepository_FencingTokenRejectsStaleFinalizeAndRenew(t *testing.T) {
 
 func TestRunsRepository_FencingTokenRejectsStaleFailedAndOrphaned(t *testing.T) {
 	db := dbtest.NewTestDB(t)
-	runs := dal.NewSQLRepositories(db).SQLRuns()
+	runs := dal.NewSQLRepositories(db).Runs()
 	ctx := context.Background()
 
 	runID, _, err := runs.CreateRun(ctx, "job-fencing-stale-fail", nil, 1)
@@ -3871,7 +3714,7 @@ func TestRunsRepository_FencingTokenRejectsStaleFailedAndOrphaned(t *testing.T) 
 
 func TestRunsRepository_MarkRunAborted_SetsCancelledTerminalState(t *testing.T) {
 	db := dbtest.NewTestDB(t)
-	runs := dal.NewSQLRepositories(db).SQLRuns()
+	runs := dal.NewSQLRepositories(db).Runs()
 	ctx := context.Background()
 
 	runID, _, err := runs.CreateRun(ctx, "job-abort-run", nil, 1)
@@ -3946,7 +3789,7 @@ func TestRunsRepository_MarkRunAborted_SetsCancelledTerminalState(t *testing.T) 
 
 func TestRunsRepository_RequeueRunForRetry_ClearsLeaseAndToken(t *testing.T) {
 	db := dbtest.NewTestDB(t)
-	runs := dal.NewSQLRepositories(db).SQLRuns()
+	runs := dal.NewSQLRepositories(db).Runs()
 	ctx := context.Background()
 
 	runID, _, err := runs.CreateRun(ctx, "job-requeue-retry", nil, 1)
@@ -3994,67 +3837,9 @@ func TestRunsRepository_RequeueRunForRetry_ClearsLeaseAndToken(t *testing.T) {
 	}
 }
 
-func TestRunsRepository_MarkRunQueuedForContinuation_ReleasesClaimedRun(t *testing.T) {
-	db := dbtest.NewTestDB(t)
-	runs := dal.NewSQLRepositories(db).SQLRuns()
-	ctx := context.Background()
-
-	runID, _, err := runs.CreateRun(ctx, "job-continuation", nil, 1)
-	if err != nil {
-		t.Fatalf("create run: %v", err)
-	}
-
-	claimed, token, err := runs.TryClaim(ctx, runID, "worker-a", time.Now().Add(time.Minute))
-	if err != nil {
-		t.Fatalf("try claim: %v", err)
-	}
-
-	if !claimed || token == "" {
-		t.Fatalf("expected claim token, got claimed=%v token=%q", claimed, token)
-	}
-
-	if err := runs.MarkRunQueuedForContinuation(ctx, runID, token); err != nil {
-		t.Fatalf("MarkRunQueuedForContinuation: %v", err)
-	}
-
-	var status string
-	var claimToken sql.NullString
-	var leaseOwner sql.NullString
-	var leaseUntil sql.NullInt64
-	var lastDispatched sql.NullInt64
-	if err := db.QueryRowContext(ctx, `
-		SELECT status, claim_token, lease_owner, lease_until, last_dispatched_at
-		FROM job_runs WHERE run_id = ?
-	`, runID).Scan(&status, &claimToken, &leaseOwner, &leaseUntil, &lastDispatched); err != nil {
-		t.Fatalf("query continuation run: %v", err)
-	}
-
-	if status != dal.RunStatusQueued {
-		t.Fatalf("status: got %q, want %q", status, dal.RunStatusQueued)
-	}
-
-	if claimToken.Valid || leaseOwner.Valid || leaseUntil.Valid || lastDispatched.Valid {
-		t.Fatalf("expected continuation to clear runtime dispatch fields; got claim=%v owner=%v lease_until=%v last_dispatched=%v",
-			claimToken, leaseOwner, leaseUntil, lastDispatched)
-	}
-
-	claimed, nextToken, err := runs.TryClaim(ctx, runID, "worker-b", time.Now().Add(time.Minute))
-	if err != nil {
-		t.Fatalf("try claim continuation: %v", err)
-	}
-
-	if !claimed || nextToken == "" || nextToken == token {
-		t.Fatalf("expected fresh continuation claim, got claimed=%v token=%q old=%q", claimed, nextToken, token)
-	}
-
-	if err := runs.MarkRunQueuedForContinuation(ctx, runID, token); err == nil {
-		t.Fatal("expected stale continuation token to fail")
-	}
-}
-
 func TestRunsRepository_RepairMarkRunAbandoned_OnlyFromOrphaned(t *testing.T) {
 	db := dbtest.NewTestDB(t)
-	runs := dal.NewSQLRepositories(db).SQLRuns()
+	runs := dal.NewSQLRepositories(db).Runs()
 	ctx := context.Background()
 
 	runningRunID, _, err := runs.CreateRun(ctx, "job-repair-running", nil, 1)
@@ -4101,7 +3886,7 @@ func TestRunsRepository_RepairMarkRunAbandoned_OnlyFromOrphaned(t *testing.T) {
 
 func TestRunsRepository_RequeueRunForRetry_RejectsRunning(t *testing.T) {
 	db := dbtest.NewTestDB(t)
-	runs := dal.NewSQLRepositories(db).SQLRuns()
+	runs := dal.NewSQLRepositories(db).Runs()
 	ctx := context.Background()
 
 	runID, _, err := runs.CreateRun(ctx, "job-requeue-running", nil, 1)
@@ -4126,7 +3911,7 @@ func TestRunsRepository_RequeueRunForRetry_RejectsRunning(t *testing.T) {
 
 func TestRunsRepository_MarkRunOrphaned_WithClaimToken(t *testing.T) {
 	db := dbtest.NewTestDB(t)
-	runs := dal.NewSQLRepositories(db).SQLRuns()
+	runs := dal.NewSQLRepositories(db).Runs()
 	ctx := context.Background()
 
 	runID, _, err := runs.CreateRun(ctx, "job-mark-orphaned", nil, 1)
@@ -4178,7 +3963,7 @@ func TestRunsRepository_MarkRunOrphaned_WithClaimToken(t *testing.T) {
 
 func TestRunsRepository_CreateRunWithExplicitRunIndex(t *testing.T) {
 	db := dbtest.NewTestDB(t)
-	runs := dal.NewSQLRepositories(db).SQLRuns()
+	runs := dal.NewSQLRepositories(db).Runs()
 	ctx := context.Background()
 
 	runID, _, err := runs.CreateRun(ctx, "job-explicit", nil, 1)

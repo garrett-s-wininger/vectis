@@ -56,7 +56,7 @@ func (r *SQLRunsRepository) ApplyExecutionStatusUpdate(ctx context.Context, upda
 	case ExecutionStatusRunning:
 		return r.MarkExecutionStarted(ctx, executionID)
 	case ExecutionStatusSucceeded, ExecutionStatusFailed, ExecutionStatusCancelled, ExecutionStatusAborted:
-		return r.MarkExecutionTerminal(ctx, executionID, update.Status)
+		return r.markExecutionTerminal(ctx, executionID, update.Status)
 	default:
 		return fmt.Errorf("%w: unsupported execution status %s", ErrConflict, update.Status)
 	}
@@ -96,51 +96,6 @@ func (r *SQLRunsRepository) MarkRunSucceeded(ctx context.Context, runID, claimTo
 
 	if n == 0 {
 		return fmt.Errorf("mark run succeeded: no matching active row for run_id=%q claim_token=%q", runID, claimToken)
-	}
-
-	return nil
-}
-
-func (r *SQLRunsRepository) MarkRunQueuedForContinuation(ctx context.Context, runID, claimToken string) error {
-	runID = strings.TrimSpace(runID)
-	claimToken = strings.TrimSpace(claimToken)
-	if runID == "" {
-		return fmt.Errorf("%w: run_id is required", ErrConflict)
-	}
-
-	if claimToken == "" {
-		return fmt.Errorf("%w: claim_token is required", ErrConflict)
-	}
-
-	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
-		UPDATE job_runs
-		SET status = ?,
-			orphan_reason = '',
-			failure_code = '',
-			failure_reason = NULL,
-			lease_owner = NULL,
-			lease_until = NULL,
-			claim_token = NULL,
-			cancel_token = NULL,
-			cancel_requested_at = NULL,
-			cancel_reason = NULL,
-			last_dispatched_at = NULL
-		WHERE run_id = ?
-			AND status = ?
-			AND claim_token = ?
-	`), RunStatusQueued, runID, RunStatusRunning, claimToken)
-
-	if err != nil {
-		return normalizeSQLError(err)
-	}
-
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-
-	if n == 0 {
-		return fmt.Errorf("mark run queued for continuation: no matching active row for run_id=%q claim_token=%q", runID, claimToken)
 	}
 
 	return nil
@@ -2693,49 +2648,12 @@ func (r *SQLRunsRepository) MarkExecutionStarted(ctx context.Context, executionI
 	return r.transitionExecution(ctx, executionID, ExecutionStatusRunning, SegmentStatusRunning, []string{ExecutionStatusPending, ExecutionStatusAccepted}, true, true, false)
 }
 
-func (r *SQLRunsRepository) MarkExecutionTerminal(ctx context.Context, executionID, status string) error {
+func (r *SQLRunsRepository) markExecutionTerminal(ctx context.Context, executionID, status string) error {
 	if !isTerminalExecutionStatus(status) {
 		return fmt.Errorf("%w: unsupported terminal execution status %s", ErrConflict, status)
 	}
 
 	return r.transitionExecution(ctx, executionID, status, status, []string{ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}, true, false, true)
-}
-
-func (r *SQLRunsRepository) MarkExecutionSucceededAndActivateChildren(ctx context.Context, executionID string) ([]TaskExecutionRecord, int, error) {
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	taskID, err := transitionExecutionTx(ctx, tx, executionID, ExecutionStatusSucceeded, SegmentStatusSucceeded, []string{ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}, true, false, true)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	children, activated, err := activatePlannedChildTaskExecutionsTx(ctx, tx, taskID)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	for _, child := range children {
-		if _, err := ensureTaskDispatchIntentTx(ctx, tx, TaskDispatchIntentCreate{
-			ExecutionID:       child.ExecutionID,
-			RunID:             child.RunID,
-			TaskID:            child.TaskID,
-			TaskAttemptID:     child.TaskAttemptID,
-			SourceExecutionID: executionID,
-			CellID:            child.CellID,
-		}); err != nil {
-			return nil, 0, err
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		return nil, 0, err
-	}
-
-	return children, activated, nil
 }
 
 func (r *SQLRunsRepository) transitionExecution(

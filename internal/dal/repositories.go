@@ -838,10 +838,6 @@ func (r *SQLRepositories) Runs() RunsRepository {
 	return r.runs
 }
 
-func (r *SQLRepositories) SQLRuns() *SQLRunsRepository {
-	return r.runs
-}
-
 func (r *SQLRepositories) Schedules() SchedulesRepository {
 	return r.schedules
 }
