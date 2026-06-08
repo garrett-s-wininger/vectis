@@ -80,6 +80,7 @@ These are the built-in actions that the validator knows today:
 | `builtins/timeout` | `duration` | `body` | Runs the ordered `body` port with a deadline such as `30s`, `5m`, or `1h`. Local-only until durable timeout recovery is modeled. |
 | `builtins/finally` | none | `body`, `always` | Runs `body`, then always runs `always`. Body failure remains the final failure unless cleanup is the only failure. Local-only until durable finalizer semantics are modeled. |
 | `builtins/fallback` | none | `choices` | Runs choice nodes in order and returns the first success. If every choice fails, the final result is the last failure. Local-only until durable fallback attempts are modeled. |
+| `builtins/result` | `success` | none | Returns success when `success` is `true` and failure when `false`; no subprocess is started. |
 | `builtins/upload-artifact` | `name`, `path` | none | Publishes a workspace-relative file as a run artifact. Optional `content_type`, `metadata_json`, and `max_bytes` keys are accepted. Paths must stay inside the workspace. `max_bytes` can lower, but not raise, the worker upload cap. |
 
 The action name can include the `builtins/` prefix. The built-in registry also accepts short names internally, but docs and examples use the full form so job files stay clear.
@@ -335,7 +336,7 @@ This fails because Vectis does not know `builtins/not-real`:
 }
 ```
 
-Use one of the supported actions, such as `builtins/shell`, `builtins/checkout`, `builtins/sequence`, `builtins/parallel`, or `builtins/upload-artifact`.
+Use one of the supported actions, such as `builtins/shell`, `builtins/test`, `builtins/checkout`, `builtins/sequence`, `builtins/parallel`, `builtins/result`, or `builtins/upload-artifact`.
 
 ### Invalid `with` Fields
 

@@ -36,7 +36,8 @@ Match the evidence to the risk of the change:
 | --- | --- |
 | Queue internals, delivery, persistence, or retry paths | `make perf SUITE=queue` output before/after, plus `benchstat` comparison and notes on variance. |
 | API trigger, run state, dispatch, or idempotency path | `make perf SUITE=dal` when SQL hot paths changed, plus a deployed-stack check if concurrency behavior changed. |
-| Worker claim, lease, finalization, or log forwarding path | Deployed-stack check with worker count, DB pool settings, queue depth, terminal outcomes, and log health. |
+| Job executor, built-in action, or durable worker log flush path | `make perf SUITE=job` output before/after, plus macro or deployed-stack evidence if worker throughput changes. |
+| Worker claim, lease, finalization, or log forwarding path | `make perf SUITE=macro` for local flow slices, plus deployed-stack check with worker count, DB pool settings, queue depth, terminal outcomes, and log health. |
 | Log streaming, replay, or storage path | Deployed-stack check with concurrent readers, log volume, replay behavior, and storage/spool pressure. |
 | Release note that changes the operating envelope | Repeatable check record, raw output, observed limiting component, and docs update. |
 
@@ -89,7 +90,10 @@ Useful knobs:
 | `VECTIS_PERF_COUNT` | `1` | Repetition count. Use `3` or more for baseline capture. |
 | `VECTIS_PERF_QUEUE_BENCH` | Queue round-trip, concurrent, sustained, and latency benches | Override to focus on one scenario. |
 | `VECTIS_PERF_DAL_BENCH` | DAL hot-path benchmarks | Override to focus on one DAL scenario. |
+| `VECTIS_PERF_JOB_BENCH` | Job executor benchmarks | Override to focus on one executor scenario. |
 | `VECTIS_PERF_MACRO_BENCH` | API-to-terminal macro benchmarks | Override to focus on one macro scenario. |
+| `VECTIS_PERF_TRIGGER_CLIENTS` | `4` | Concurrent trigger clients used by macro trigger-to-terminal benchmarks. |
+| `VECTIS_PERF_WORKERS` | `4` | Concurrent worker loops used by macro worker and trigger-to-terminal benchmarks. |
 | `VECTIS_PERF_ARTIFACT_DIR` | `artifacts/perf` | Directory where harness artifacts are written. |
 | `VECTIS_PERF_RUN_NAME` | timestamp and suite | Optional artifact run directory name. |
 | `VECTIS_PERF_BASELINE` | unset | Optional baseline Go benchmark output for `benchstat` comparison during a queue run. |
@@ -107,12 +111,39 @@ VECTIS_PERF_RUN_NAME=main-dal VECTIS_PERF_BENCHTIME=5s VECTIS_PERF_COUNT=3 make 
 
 The DAL suite is SQLite-backed for local repeatability. Use it as a fast regression tripwire, then run a deployed-stack check against Postgres before making claims about production scale.
 
+## Local Job Executor Benchmark Check
+
+Use this check when a change affects executor behavior, built-in action overhead, workspace setup, subprocess creation, or durable worker log flush.
+
+```sh
+VECTIS_PERF_RUN_NAME=main-job VECTIS_PERF_BENCHTIME=5s VECTIS_PERF_COUNT=3 make perf SUITE=job
+```
+
+To compare process-spawn overhead against an in-process action result, focus the executor suite:
+
+```sh
+VECTIS_PERF_JOB_BENCH='BenchmarkExecutor_Execute(ShellTrue|ResultTrue)' make perf SUITE=job
+```
+
 ## Local Macro Benchmark Check
 
 Use this check when the architectural question crosses component boundaries. The macro suite includes in-process sequential and concurrent no-op API trigger paths through SQLite-backed run creation, async queue enqueue, queue dequeue/ack, worker-style DB claim, shell execution, and terminal status update. It also includes a log-heavy variant that exercises worker durable log flush plus local log-store replay.
 
 ```sh
 VECTIS_PERF_RUN_NAME=main-macro VECTIS_PERF_BENCHTIME=5s VECTIS_PERF_COUNT=3 make perf SUITE=macro
+```
+
+For worker scaling checks, either set `VECTIS_PERF_WORKERS` on a normal macro run or focus on the checked-in scaling curve:
+
+```sh
+VECTIS_PERF_MACRO_BENCH=BenchmarkMacro_WorkerScale_ClaimAckComplete make perf SUITE=macro
+```
+
+Use the result action checks when you want to remove subprocess creation from the macro workload and isolate worker, database, queue, and log-flush overhead:
+
+```sh
+VECTIS_PERF_MACRO_BENCH=BenchmarkMacro_WorkerScale_ResultActionClaimAckComplete make perf SUITE=macro
+VECTIS_PERF_MACRO_BENCH=BenchmarkMacro_ResultActionWorkerClaimAckComplete make perf SUITE=macro
 ```
 
 This is a fast macro regression check, not a deployment capacity claim. Follow it with the deployed stack check when worker count, Postgres, log service, network, TLS, or service process boundaries matter.

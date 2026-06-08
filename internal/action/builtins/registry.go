@@ -30,6 +30,7 @@ func NewRegistry() *Registry {
 	r.Register(&TimeoutNode{})
 	r.Register(&FinallyNode{})
 	r.Register(&FallbackNode{})
+	r.Register(&ResultAction{})
 
 	return r
 }

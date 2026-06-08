@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"slices"
 	"strconv"
 	"sync"
@@ -27,6 +28,11 @@ import (
 	"vectis/internal/queue"
 
 	_ "github.com/mattn/go-sqlite3"
+)
+
+const (
+	defaultMacroTriggerClients = 4
+	defaultMacroWorkers        = 4
 )
 
 type noopLogClient struct{}
@@ -50,10 +56,16 @@ func (noopLogStream) CloseSend() error {
 }
 
 type macroBenchEnv struct {
-	handler http.Handler
-	queue   apipb.QueueServiceServer
-	runs    dal.RunsRepository
-	log     interfaces.Logger
+	handler  http.Handler
+	queue    macroWorkerQueue
+	apiQueue interfaces.QueueService
+	runs     dal.RunsRepository
+	log      interfaces.Logger
+}
+
+type macroWorkerQueue interface {
+	TryDequeue(context.Context, *apipb.Empty) (*apipb.JobRequest, error)
+	Ack(context.Context, *apipb.AckRequest) (*apipb.Empty, error)
 }
 
 type macroLogBenchEnv struct {
@@ -78,6 +90,30 @@ type macroTriggerInfo struct {
 	runID          string
 	triggerStart   time.Time
 	httpAcceptedAt time.Time
+}
+
+func macroBenchmarkEnvInt(b *testing.B, name string, defaultValue int) int {
+	b.Helper()
+
+	raw := os.Getenv(name)
+	if raw == "" {
+		return defaultValue
+	}
+
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		b.Fatalf("%s must be a positive integer, got %q", name, raw)
+	}
+
+	return value
+}
+
+func macroBenchmarkTriggerClients(b *testing.B) int {
+	return macroBenchmarkEnvInt(b, "VECTIS_PERF_TRIGGER_CLIENTS", defaultMacroTriggerClients)
+}
+
+func macroBenchmarkWorkers(b *testing.B) int {
+	return macroBenchmarkEnvInt(b, "VECTIS_PERF_WORKERS", defaultMacroWorkers)
 }
 
 func BenchmarkMacro_APIQueueWorker_TriggerToTerminal(b *testing.B) {
@@ -119,10 +155,14 @@ func BenchmarkMacro_APIQueueWorker_TriggerToTerminal(b *testing.B) {
 }
 
 func BenchmarkMacro_ConcurrentNoop_TriggerToTerminal(b *testing.B) {
-	const (
-		triggerClients = 4
-		workerCount    = 4
-	)
+	runMacroConcurrentNoopTriggerToTerminalBenchmark(b)
+}
+
+func runMacroConcurrentNoopTriggerToTerminalBenchmark(b *testing.B) {
+	b.Helper()
+
+	triggerClients := macroBenchmarkTriggerClients(b)
+	workerCount := macroBenchmarkWorkers(b)
 
 	ctx := context.Background()
 	env := newMacroBenchEnv(b, []storedMacroJob{noopMacroJob()})
@@ -189,6 +229,42 @@ func BenchmarkMacro_ConcurrentNoop_TriggerToTerminal(b *testing.B) {
 	b.ReportMetric(float64(totalRuns), "total_runs")
 }
 
+func BenchmarkMacro_APITriggerToQueued(b *testing.B) {
+	runMacroAPITriggerToQueuedBenchmark(b)
+}
+
+func BenchmarkMacro_WorkerClaimAck(b *testing.B) {
+	runMacroWorkerClaimAckBenchmark(b)
+}
+
+func BenchmarkMacro_WorkerClaimAckComplete(b *testing.B) {
+	runMacroWorkerClaimAckCompleteBenchmark(b)
+}
+
+func BenchmarkMacro_ResultActionWorkerClaimAckComplete(b *testing.B) {
+	runMacroWorkerClaimAckCompleteBenchmarkWithWorkersAndJob(b, macroBenchmarkWorkers(b), resultMacroJob())
+}
+
+func BenchmarkMacro_WorkerClaimAckFinalize(b *testing.B) {
+	runMacroWorkerClaimAckFinalizeBenchmark(b)
+}
+
+func BenchmarkMacro_WorkerScale_ClaimAckComplete(b *testing.B) {
+	for _, workers := range []int{1, 2, 4, 8, 16} {
+		b.Run(fmt.Sprintf("workers_%02d", workers), func(b *testing.B) {
+			runMacroWorkerClaimAckCompleteBenchmarkWithWorkers(b, workers)
+		})
+	}
+}
+
+func BenchmarkMacro_WorkerScale_ResultActionClaimAckComplete(b *testing.B) {
+	for _, workers := range []int{1, 2, 4, 8, 16} {
+		b.Run(fmt.Sprintf("workers_%02d", workers), func(b *testing.B) {
+			runMacroWorkerClaimAckCompleteBenchmarkWithWorkersAndJob(b, workers, resultMacroJob())
+		})
+	}
+}
+
 func BenchmarkMacro_LogHeavy_TriggerToTerminalReplay(b *testing.B) {
 	ctx := context.Background()
 	env := newMacroLogBenchEnv(b, 200)
@@ -238,17 +314,26 @@ func BenchmarkMacro_LogHeavy_TriggerToTerminalReplay(b *testing.B) {
 
 type storedMacroJob struct {
 	id      string
+	uses    string
+	with    map[string]string
 	command string
 }
 
 func noopMacroJob() storedMacroJob {
-	return storedMacroJob{id: "macro-noop", command: "true"}
+	return storedMacroJob{id: "macro-noop", uses: "builtins/shell", with: map[string]string{"command": "true"}, command: "true"}
+}
+
+func resultMacroJob() storedMacroJob {
+	return storedMacroJob{id: "macro-result", uses: "builtins/result", with: map[string]string{"success": "true"}}
 }
 
 func logHeavyMacroJob(lines int) storedMacroJob {
+	command := fmt.Sprintf(`i=0; while [ "$i" -lt %d ]; do printf 'line-%%04d\n' "$i"; i=$((i + 1)); done`, lines)
 	return storedMacroJob{
 		id:      "macro-log-heavy",
-		command: fmt.Sprintf(`i=0; while [ "$i" -lt %d ]; do printf 'line-%%04d\n' "$i"; i=$((i + 1)); done`, lines),
+		uses:    "builtins/shell",
+		with:    map[string]string{"command": command},
+		command: command,
 	}
 }
 
@@ -270,8 +355,8 @@ func newMacroBenchEnv(b *testing.B, jobs []storedMacroJob) macroBenchEnv {
 	b.Cleanup(func() { _ = db.Close() })
 
 	logger := mocks.NopLogger{}
-	queueService := queue.NewQueueService(logger)
 	server := api.NewAPIServer(logger, db)
+	queueService := queue.NewQueueService(logger)
 	server.SetQueueClient(queueService)
 
 	handler := server.Handler()
@@ -282,11 +367,656 @@ func newMacroBenchEnv(b *testing.B, jobs []storedMacroJob) macroBenchEnv {
 	job.SetLogSpoolDirForTest(b.TempDir())
 
 	return macroBenchEnv{
-		handler: handler,
-		queue:   queueService,
-		runs:    dal.NewSQLRepositories(db).Runs(),
-		log:     logger,
+		handler:  handler,
+		queue:    queueService,
+		apiQueue: queueService,
+		runs:     dal.NewSQLRepositories(db).Runs(),
+		log:      logger,
 	}
+}
+
+func runMacroAPITriggerToQueuedBenchmark(b *testing.B) {
+	b.Helper()
+
+	ctx := context.Background()
+	env := newMacroBenchEnv(b, []storedMacroJob{noopMacroJob()})
+
+	acceptedToQueueSamples := make([]int64, 0, b.N)
+	triggerToQueueSamples := make([]int64, 0, b.N)
+	queueToDequeuedSamples := make([]int64, 0, b.N)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	start := time.Now()
+
+	for i := 0; i < b.N; i++ {
+		info, err := triggerMacroJob(ctx, env.handler, noopMacroJob().id, fmt.Sprintf("%s-queued-%d", noopMacroJob().id, i))
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		jobReq, dequeuedAt := waitForDequeuedJob(b, ctx, env.queue)
+		queuedJob := jobReq.GetJob()
+		if queuedJob.GetRunId() != info.runID {
+			b.Fatalf("dequeued run_id=%q, want %q", queuedJob.GetRunId(), info.runID)
+		}
+
+		queueAcceptedAt := macroQueueAcceptedAt(jobReq, info.httpAcceptedAt)
+		deliveryID := queuedJob.GetDeliveryId()
+		if _, err := env.queue.Ack(ctx, &apipb.AckRequest{DeliveryId: &deliveryID}); err != nil {
+			b.Fatalf("ack queued delivery %s: %v", deliveryID, err)
+		}
+
+		acceptedToQueueSamples = append(acceptedToQueueSamples, max(queueAcceptedAt.Sub(info.httpAcceptedAt).Nanoseconds(), 0))
+		triggerToQueueSamples = append(triggerToQueueSamples, max(queueAcceptedAt.Sub(info.triggerStart).Nanoseconds(), 0))
+		queueToDequeuedSamples = append(queueToDequeuedSamples, max(dequeuedAt.Sub(queueAcceptedAt).Nanoseconds(), 0))
+	}
+
+	elapsed := time.Since(start)
+	b.StopTimer()
+
+	reportLatencyMetrics(b, "accepted_to_queue", acceptedToQueueSamples)
+	reportLatencyMetrics(b, "trigger_to_queue", triggerToQueueSamples)
+	reportLatencyMetrics(b, "queue_to_dequeued", queueToDequeuedSamples)
+	if elapsed > 0 {
+		b.ReportMetric(float64(b.N)/elapsed.Seconds(), "queued_runs/s")
+	}
+
+	b.ReportMetric(float64(b.N), "total_runs")
+}
+
+func runMacroWorkerClaimAckBenchmark(b *testing.B) {
+	b.Helper()
+
+	runMacroWorkerClaimAckBenchmarkWithWorkers(b, macroBenchmarkWorkers(b))
+}
+
+func runMacroWorkerClaimAckBenchmarkWithWorkers(b *testing.B, workerCount int) {
+	b.Helper()
+
+	ctx := context.Background()
+	env := newMacroBenchEnv(b, []storedMacroJob{noopMacroJob()})
+	preseedMacroQueuedRuns(b, ctx, env, noopMacroJob(), b.N)
+
+	resultCh := make(chan macroClaimAckResult, b.N)
+	workCtx, cancel := context.WithCancel(ctx)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	start := time.Now()
+	waitWorkers := startMacroClaimAckWorkers(workCtx, env, workerCount, resultCh)
+	defer func() {
+		cancel()
+		waitWorkers()
+	}()
+
+	results := collectMacroClaimAckResults(b, resultCh, b.N)
+	elapsed := time.Since(start)
+	b.StopTimer()
+
+	cancel()
+	waitWorkers()
+
+	reportMacroClaimAckMetrics(b, results)
+	if elapsed > 0 {
+		b.ReportMetric(float64(b.N)/elapsed.Seconds(), "dispatches/s")
+	}
+
+	b.ReportMetric(float64(workerCount), "worker_count")
+	b.ReportMetric(float64(b.N), "total_runs")
+}
+
+func runMacroWorkerClaimAckCompleteBenchmark(b *testing.B) {
+	b.Helper()
+
+	runMacroWorkerClaimAckCompleteBenchmarkWithWorkers(b, macroBenchmarkWorkers(b))
+}
+
+func runMacroWorkerClaimAckCompleteBenchmarkWithWorkers(b *testing.B, workerCount int) {
+	b.Helper()
+
+	runMacroWorkerClaimAckCompleteBenchmarkWithWorkersAndJob(b, workerCount, noopMacroJob())
+}
+
+func runMacroWorkerClaimAckCompleteBenchmarkWithWorkersAndJob(
+	b *testing.B,
+	workerCount int,
+	macroJob storedMacroJob,
+) {
+	b.Helper()
+
+	ctx := context.Background()
+	env := newMacroBenchEnv(b, []storedMacroJob{macroJob})
+	preseedMacroQueuedRuns(b, ctx, env, macroJob, b.N)
+
+	resultCh := make(chan macroWorkerResult, b.N)
+	workCtx, cancel := context.WithCancel(ctx)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	start := time.Now()
+	waitWorkers := startMacroCompleteWorkers(workCtx, env, workerCount, resultCh)
+	defer func() {
+		cancel()
+		waitWorkers()
+	}()
+
+	results := collectMacroWorkerResults(b, resultCh, b.N)
+	elapsed := time.Since(start)
+	b.StopTimer()
+
+	cancel()
+	waitWorkers()
+
+	reportMacroRunTimingMetrics(b, results)
+	if elapsed > 0 {
+		b.ReportMetric(float64(b.N)/elapsed.Seconds(), "terminal_runs/s")
+	}
+
+	b.ReportMetric(float64(workerCount), "worker_count")
+	b.ReportMetric(float64(b.N), "total_runs")
+}
+
+func runMacroWorkerClaimAckFinalizeBenchmark(b *testing.B) {
+	b.Helper()
+
+	runMacroWorkerClaimAckFinalizeBenchmarkWithWorkers(b, macroBenchmarkWorkers(b))
+}
+
+func runMacroWorkerClaimAckFinalizeBenchmarkWithWorkers(b *testing.B, workerCount int) {
+	b.Helper()
+
+	ctx := context.Background()
+	env := newMacroBenchEnv(b, []storedMacroJob{noopMacroJob()})
+	preseedMacroQueuedRuns(b, ctx, env, noopMacroJob(), b.N)
+
+	resultCh := make(chan macroClaimAckFinalizeResult, b.N)
+	workCtx, cancel := context.WithCancel(ctx)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	start := time.Now()
+	waitWorkers := startMacroClaimAckFinalizeWorkers(workCtx, env, workerCount, resultCh)
+	defer func() {
+		cancel()
+		waitWorkers()
+	}()
+
+	results := collectMacroClaimAckFinalizeResults(b, resultCh, b.N)
+	elapsed := time.Since(start)
+	b.StopTimer()
+
+	cancel()
+	waitWorkers()
+
+	reportMacroClaimAckFinalizeMetrics(b, results)
+	if elapsed > 0 {
+		b.ReportMetric(float64(b.N)/elapsed.Seconds(), "finalized_runs/s")
+	}
+
+	b.ReportMetric(float64(workerCount), "worker_count")
+	b.ReportMetric(float64(b.N), "total_runs")
+}
+
+func preseedMacroQueuedRuns(b *testing.B, ctx context.Context, env macroBenchEnv, job storedMacroJob, total int) {
+	b.Helper()
+
+	for i := 0; i < total; i++ {
+		runIndex := i + 1
+		runID, _, err := env.runs.CreateRun(ctx, job.id, &runIndex, 1)
+		if err != nil {
+			b.Fatalf("create queued run %d: %v", i, err)
+		}
+
+		req := macroJobRequest(job, runID)
+		if _, err := env.apiQueue.Enqueue(ctx, req); err != nil {
+			b.Fatalf("enqueue queued run %s: %v", runID, err)
+		}
+	}
+}
+
+func macroJobRequest(job storedMacroJob, runID string) *apipb.JobRequest {
+	rootID := "root"
+	uses := job.uses
+	if uses == "" {
+		uses = "builtins/shell"
+	}
+
+	with := make(map[string]string, len(job.with))
+	for k, v := range job.with {
+		with[k] = v
+	}
+
+	if len(with) == 0 && job.command != "" {
+		with["command"] = job.command
+	}
+
+	return &apipb.JobRequest{
+		Job: &apipb.Job{
+			Id:    &job.id,
+			RunId: &runID,
+			Root: &apipb.Node{
+				Id:   &rootID,
+				Uses: &uses,
+				With: with,
+			},
+		},
+	}
+}
+
+type macroClaimAckTimings struct {
+	queueAcceptedToDequeued int64
+	dequeuedToClaimed       int64
+	claimedToAcked          int64
+	dequeuedToAcked         int64
+}
+
+type macroClaimAckResult struct {
+	timings macroClaimAckTimings
+	err     error
+}
+
+type macroClaimAckFinalizeTimings struct {
+	dequeuedToClaimed   int64
+	claimedToAcked      int64
+	ackedToFinalized    int64
+	claimedToFinalized  int64
+	dequeuedToFinalized int64
+}
+
+type macroClaimAckFinalizeResult struct {
+	timings macroClaimAckFinalizeTimings
+	err     error
+}
+
+func startMacroClaimAckWorkers(
+	ctx context.Context,
+	env macroBenchEnv,
+	workers int,
+	resultCh chan<- macroClaimAckResult,
+) func() {
+	if workers <= 0 {
+		workers = 1
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		workerID := fmt.Sprintf("macro-claim-worker-%d", i)
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+
+				jobReq, err := env.queue.TryDequeue(ctx, &apipb.Empty{})
+				if err != nil {
+					sendMacroClaimAckResult(ctx, resultCh, macroClaimAckResult{err: fmt.Errorf("try dequeue: %w", err)})
+					return
+				}
+
+				if jobReq == nil {
+					time.Sleep(10 * time.Microsecond)
+					continue
+				}
+
+				dequeuedAt := time.Now()
+				timings, err := finishDequeuedMacroClaimAck(ctx, env, jobReq, dequeuedAt, workerID)
+				sendMacroClaimAckResult(ctx, resultCh, macroClaimAckResult{timings: timings, err: err})
+				if err != nil {
+					return
+				}
+			}
+		}()
+	}
+
+	return wg.Wait
+}
+
+func startMacroClaimAckFinalizeWorkers(
+	ctx context.Context,
+	env macroBenchEnv,
+	workers int,
+	resultCh chan<- macroClaimAckFinalizeResult,
+) func() {
+	if workers <= 0 {
+		workers = 1
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		workerID := fmt.Sprintf("macro-finalize-worker-%d", i)
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+
+				jobReq, err := env.queue.TryDequeue(ctx, &apipb.Empty{})
+				if err != nil {
+					sendMacroClaimAckFinalizeResult(ctx, resultCh, macroClaimAckFinalizeResult{err: fmt.Errorf("try dequeue: %w", err)})
+					return
+				}
+
+				if jobReq == nil {
+					time.Sleep(10 * time.Microsecond)
+					continue
+				}
+
+				dequeuedAt := time.Now()
+				timings, err := finishDequeuedMacroClaimAckFinalize(ctx, env, jobReq, dequeuedAt, workerID)
+				sendMacroClaimAckFinalizeResult(ctx, resultCh, macroClaimAckFinalizeResult{timings: timings, err: err})
+
+				if err != nil {
+					return
+				}
+			}
+		}()
+	}
+
+	return wg.Wait
+}
+
+func startMacroCompleteWorkers(
+	ctx context.Context,
+	env macroBenchEnv,
+	workers int,
+	resultCh chan<- macroWorkerResult,
+) func() {
+	if workers <= 0 {
+		workers = 1
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		workerID := fmt.Sprintf("macro-complete-worker-%d", i)
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+
+				jobReq, err := env.queue.TryDequeue(ctx, &apipb.Empty{})
+				if err != nil {
+					sendMacroWorkerResult(ctx, resultCh, macroWorkerResult{err: fmt.Errorf("try dequeue: %w", err)})
+					return
+				}
+
+				if jobReq == nil {
+					time.Sleep(10 * time.Microsecond)
+					continue
+				}
+
+				dequeuedAt := time.Now()
+				runID := jobReq.GetJob().GetRunId()
+				queueAcceptedAt := macroQueueAcceptedAt(jobReq, dequeuedAt)
+				info := macroTriggerInfo{
+					runID:          runID,
+					triggerStart:   queueAcceptedAt,
+					httpAcceptedAt: queueAcceptedAt,
+				}
+
+				timings, err := finishDequeuedMacroJob(ctx, env, jobReq, info, dequeuedAt, workerID, noopLogClient{})
+				sendMacroWorkerResult(ctx, resultCh, macroWorkerResult{timings: timings, err: err})
+				if err != nil {
+					return
+				}
+			}
+		}()
+	}
+
+	return wg.Wait
+}
+
+func finishDequeuedMacroClaimAck(
+	ctx context.Context,
+	env macroBenchEnv,
+	jobReq *apipb.JobRequest,
+	dequeuedAt time.Time,
+	workerID string,
+) (macroClaimAckTimings, error) {
+	queuedJob := jobReq.GetJob()
+	runID := queuedJob.GetRunId()
+	if runID == "" {
+		return macroClaimAckTimings{}, fmt.Errorf("dequeued job missing run_id")
+	}
+
+	queueAcceptedAt := macroQueueAcceptedAt(jobReq, dequeuedAt)
+	claimed, _, err := env.runs.TryClaim(ctx, runID, workerID, time.Now().Add(dal.DefaultLeaseTTL))
+	claimedAt := time.Now()
+	if err != nil {
+		return macroClaimAckTimings{}, fmt.Errorf("try claim run %s: %w", runID, err)
+	}
+
+	if !claimed {
+		return macroClaimAckTimings{}, fmt.Errorf("run %s was not claimed", runID)
+	}
+
+	deliveryID := queuedJob.GetDeliveryId()
+	if deliveryID == "" {
+		return macroClaimAckTimings{}, fmt.Errorf("run %s missing delivery id", runID)
+	}
+
+	if _, err := env.queue.Ack(ctx, &apipb.AckRequest{DeliveryId: &deliveryID}); err != nil {
+		return macroClaimAckTimings{}, fmt.Errorf("ack delivery %s: %w", deliveryID, err)
+	}
+
+	ackedAt := time.Now()
+
+	return macroClaimAckTimings{
+		queueAcceptedToDequeued: max(dequeuedAt.Sub(queueAcceptedAt).Nanoseconds(), 0),
+		dequeuedToClaimed:       max(claimedAt.Sub(dequeuedAt).Nanoseconds(), 0),
+		claimedToAcked:          max(ackedAt.Sub(claimedAt).Nanoseconds(), 0),
+		dequeuedToAcked:         max(ackedAt.Sub(dequeuedAt).Nanoseconds(), 0),
+	}, nil
+}
+
+func finishDequeuedMacroClaimAckFinalize(
+	ctx context.Context,
+	env macroBenchEnv,
+	jobReq *apipb.JobRequest,
+	dequeuedAt time.Time,
+	workerID string,
+) (macroClaimAckFinalizeTimings, error) {
+	queuedJob := jobReq.GetJob()
+	runID := queuedJob.GetRunId()
+	if runID == "" {
+		return macroClaimAckFinalizeTimings{}, fmt.Errorf("dequeued job missing run_id")
+	}
+
+	claimed, claimToken, err := env.runs.TryClaim(ctx, runID, workerID, time.Now().Add(dal.DefaultLeaseTTL))
+	claimedAt := time.Now()
+	if err != nil {
+		return macroClaimAckFinalizeTimings{}, fmt.Errorf("try claim run %s: %w", runID, err)
+	}
+
+	if !claimed {
+		return macroClaimAckFinalizeTimings{}, fmt.Errorf("run %s was not claimed", runID)
+	}
+
+	deliveryID := queuedJob.GetDeliveryId()
+	if deliveryID == "" {
+		return macroClaimAckFinalizeTimings{}, fmt.Errorf("run %s missing delivery id", runID)
+	}
+
+	if _, err := env.queue.Ack(ctx, &apipb.AckRequest{DeliveryId: &deliveryID}); err != nil {
+		return macroClaimAckFinalizeTimings{}, fmt.Errorf("ack delivery %s: %w", deliveryID, err)
+	}
+
+	ackedAt := time.Now()
+
+	if err := env.runs.MarkRunSucceeded(ctx, runID, claimToken); err != nil {
+		return macroClaimAckFinalizeTimings{}, fmt.Errorf("mark run succeeded %s: %w", runID, err)
+	}
+
+	finalizedAt := time.Now()
+
+	return macroClaimAckFinalizeTimings{
+		dequeuedToClaimed:   max(claimedAt.Sub(dequeuedAt).Nanoseconds(), 0),
+		claimedToAcked:      max(ackedAt.Sub(claimedAt).Nanoseconds(), 0),
+		ackedToFinalized:    max(finalizedAt.Sub(ackedAt).Nanoseconds(), 0),
+		claimedToFinalized:  max(finalizedAt.Sub(claimedAt).Nanoseconds(), 0),
+		dequeuedToFinalized: max(finalizedAt.Sub(dequeuedAt).Nanoseconds(), 0),
+	}, nil
+}
+
+func collectMacroClaimAckResults(
+	b *testing.B,
+	resultCh <-chan macroClaimAckResult,
+	total int,
+) []macroClaimAckTimings {
+	b.Helper()
+
+	results := make([]macroClaimAckTimings, 0, total)
+	timeout := time.NewTimer(30 * time.Second)
+	defer timeout.Stop()
+
+	for len(results) < total {
+		select {
+		case result := <-resultCh:
+			if result.err != nil {
+				b.Fatalf("drain claim/ack queue: %v", result.err)
+			}
+			results = append(results, result.timings)
+		case <-timeout.C:
+			b.Fatalf("timed out draining claim/ack queue: got %d of %d results", len(results), total)
+		}
+	}
+
+	return results
+}
+
+func collectMacroClaimAckFinalizeResults(
+	b *testing.B,
+	resultCh <-chan macroClaimAckFinalizeResult,
+	total int,
+) []macroClaimAckFinalizeTimings {
+	b.Helper()
+
+	results := make([]macroClaimAckFinalizeTimings, 0, total)
+	timeout := time.NewTimer(30 * time.Second)
+	defer timeout.Stop()
+
+	for len(results) < total {
+		select {
+		case result := <-resultCh:
+			if result.err != nil {
+				b.Fatalf("drain claim/ack/finalize queue: %v", result.err)
+			}
+			results = append(results, result.timings)
+		case <-timeout.C:
+			b.Fatalf("timed out draining claim/ack/finalize queue: got %d of %d results", len(results), total)
+		}
+	}
+
+	return results
+}
+
+func sendMacroClaimAckResult(ctx context.Context, ch chan<- macroClaimAckResult, result macroClaimAckResult) {
+	select {
+	case ch <- result:
+	case <-ctx.Done():
+	}
+}
+
+func sendMacroClaimAckFinalizeResult(ctx context.Context, ch chan<- macroClaimAckFinalizeResult, result macroClaimAckFinalizeResult) {
+	select {
+	case ch <- result:
+	case <-ctx.Done():
+	}
+}
+
+func reportMacroClaimAckMetrics(b *testing.B, results []macroClaimAckTimings) {
+	b.Helper()
+
+	dequeuedToClaimedSamples := make([]int64, 0, len(results))
+	claimedToAckedSamples := make([]int64, 0, len(results))
+	dequeuedToAckedSamples := make([]int64, 0, len(results))
+
+	for _, timings := range results {
+		dequeuedToClaimedSamples = append(dequeuedToClaimedSamples, timings.dequeuedToClaimed)
+		claimedToAckedSamples = append(claimedToAckedSamples, timings.claimedToAcked)
+		dequeuedToAckedSamples = append(dequeuedToAckedSamples, timings.dequeuedToAcked)
+	}
+
+	reportLatencyMetrics(b, "dequeued_to_claimed", dequeuedToClaimedSamples)
+	reportLatencyMetrics(b, "claimed_to_acked", claimedToAckedSamples)
+	reportLatencyMetrics(b, "dequeued_to_acked", dequeuedToAckedSamples)
+}
+
+func reportMacroClaimAckFinalizeMetrics(b *testing.B, results []macroClaimAckFinalizeTimings) {
+	b.Helper()
+
+	dequeuedToClaimedSamples := make([]int64, 0, len(results))
+	claimedToAckedSamples := make([]int64, 0, len(results))
+	ackedToFinalizedSamples := make([]int64, 0, len(results))
+	claimedToFinalizedSamples := make([]int64, 0, len(results))
+	dequeuedToFinalizedSamples := make([]int64, 0, len(results))
+
+	for _, timings := range results {
+		dequeuedToClaimedSamples = append(dequeuedToClaimedSamples, timings.dequeuedToClaimed)
+		claimedToAckedSamples = append(claimedToAckedSamples, timings.claimedToAcked)
+		ackedToFinalizedSamples = append(ackedToFinalizedSamples, timings.ackedToFinalized)
+		claimedToFinalizedSamples = append(claimedToFinalizedSamples, timings.claimedToFinalized)
+		dequeuedToFinalizedSamples = append(dequeuedToFinalizedSamples, timings.dequeuedToFinalized)
+	}
+
+	reportLatencyMetrics(b, "dequeued_to_claimed", dequeuedToClaimedSamples)
+	reportLatencyMetrics(b, "claimed_to_acked", claimedToAckedSamples)
+	reportLatencyMetrics(b, "acked_to_finalized", ackedToFinalizedSamples)
+	reportLatencyMetrics(b, "claimed_to_finalized", claimedToFinalizedSamples)
+	reportLatencyMetrics(b, "dequeued_to_finalized", dequeuedToFinalizedSamples)
+}
+
+func reportMacroRunTimingMetrics(b *testing.B, results []macroRunTimings) {
+	b.Helper()
+
+	dequeuedToClaimedSamples := make([]int64, 0, len(results))
+	claimedToTerminalSamples := make([]int64, 0, len(results))
+	dequeuedToTerminalSamples := make([]int64, 0, len(results))
+	logFlushSamples := make([]int64, 0, len(results))
+
+	for _, timings := range results {
+		dequeuedToClaimedSamples = append(dequeuedToClaimedSamples, timings.dequeuedToClaimed)
+		claimedToTerminalSamples = append(claimedToTerminalSamples, timings.claimedToTerminal)
+		dequeuedToTerminalSamples = append(dequeuedToTerminalSamples, timings.dequeuedToClaimed+timings.claimedToTerminal)
+		logFlushSamples = append(logFlushSamples, timings.logFlush)
+	}
+
+	reportLatencyMetrics(b, "dequeued_to_claimed", dequeuedToClaimedSamples)
+	reportLatencyMetrics(b, "claimed_to_terminal", claimedToTerminalSamples)
+	reportLatencyMetrics(b, "dequeued_to_terminal", dequeuedToTerminalSamples)
+	reportLatencyMetrics(b, "log_flush", logFlushSamples)
+}
+
+func macroQueueAcceptedAt(req *apipb.JobRequest, fallback time.Time) time.Time {
+	if raw := req.GetMetadata()[observability.JobEnqueueAcceptedUnixNanoKey]; raw != "" {
+		if ns, err := parseUnixNano(raw); err == nil && ns > 0 {
+			return time.Unix(0, ns)
+		}
+	}
+
+	if raw := req.GetMetadata()[observability.JobEnqueuedAtUnixNanoKey]; raw != "" {
+		if ns, err := parseUnixNano(raw); err == nil && ns > 0 {
+			return time.Unix(0, ns)
+		}
+	}
+
+	return fallback
 }
 
 func newMacroLogBenchEnv(b *testing.B, lines int) macroLogBenchEnv {
@@ -297,6 +1027,7 @@ func newMacroLogBenchEnv(b *testing.B, lines int) macroLogBenchEnv {
 	if err != nil {
 		b.Fatalf("create log store: %v", err)
 	}
+
 	macroJob := logHeavyMacroJob(lines)
 
 	return macroLogBenchEnv{
@@ -310,12 +1041,26 @@ func newMacroLogBenchEnv(b *testing.B, lines int) macroLogBenchEnv {
 func createStoredMacroJob(b *testing.B, handler http.Handler, job storedMacroJob) {
 	b.Helper()
 
+	uses := job.uses
+	if uses == "" {
+		uses = "builtins/shell"
+	}
+
+	with := make(map[string]string, len(job.with))
+	for k, v := range job.with {
+		with[k] = v
+	}
+
+	if len(with) == 0 && job.command != "" {
+		with["command"] = job.command
+	}
+
 	body, err := json.Marshal(map[string]any{
 		"id": job.id,
 		"root": map[string]any{
 			"id":   "root",
-			"uses": "builtins/shell",
-			"with": map[string]string{"command": job.command},
+			"uses": uses,
+			"with": with,
 		},
 	})
 
@@ -797,7 +1542,7 @@ func (s *storeLogStream) CloseSend() error {
 	return nil
 }
 
-func waitForDequeuedJob(b *testing.B, ctx context.Context, queueService apipb.QueueServiceServer) (*apipb.JobRequest, time.Time) {
+func waitForDequeuedJob(b *testing.B, ctx context.Context, queueService macroWorkerQueue) (*apipb.JobRequest, time.Time) {
 	b.Helper()
 
 	deadline := time.Now().Add(5 * time.Second)

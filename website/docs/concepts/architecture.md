@@ -206,7 +206,7 @@ Jobs are trees of nodes. Each node has:
 - `steps`, child nodes
 - `isolation`, an optional `host` or `vm` execution request
 
-Built-in actions currently include `builtins/shell`, `builtins/checkout`, and `builtins/sequence`. Job shape and validation are covered in [Your First Job](../using/your-first-job.md) and [Job Definition Validation](../using/job-validation.md). Contributor guidance for adding actions is in [Adding Actions](../developing/actions.md).
+Built-in actions currently include `builtins/shell`, `builtins/checkout`, `builtins/sequence`, and `builtins/result`. Job shape and validation are covered in [Your First Job](../using/your-first-job.md) and [Job Definition Validation](../using/job-validation.md). Contributor guidance for adding actions is in [Adding Actions](../developing/actions.md).
 
 ## Worker Execution Environment
 

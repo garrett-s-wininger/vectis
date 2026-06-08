@@ -6,7 +6,7 @@ This page defines the words Vectis uses across the docs, API, and CLI. For the s
 
 **Ack** — Short for acknowledge. After a worker accepts responsibility for a queued delivery, it tells the queue that the delivery is complete from the queue's point of view. Acking prevents the same queue delivery from being handed out again.
 
-**Action** — One executable unit inside a job node. Examples include `builtins/shell`, `builtins/checkout`, and `builtins/sequence`. A node chooses its action with `uses` and passes inputs with `with`.
+**Action** — One executable unit inside a job node. Examples include `builtins/shell`, `builtins/checkout`, `builtins/sequence`, and `builtins/result`. A node chooses its action with `uses` and passes inputs with `with`.
 
 **API (`vectis-api`)** — The HTTP service clients talk to. It stores job definitions, creates runs, reports status, streams logs through SSE, and exposes health and metrics.
 

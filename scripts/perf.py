@@ -38,6 +38,7 @@ DEFAULT_QUEUE_BENCH = (
 )
 
 DEFAULT_DAL_BENCH = r"BenchmarkDAL_"
+DEFAULT_JOB_BENCH = r"BenchmarkExecutor_"
 DEFAULT_MACRO_BENCH = r"BenchmarkMacro_"
 DEFAULT_ARTIFACT_DIR = "artifacts/perf"
 MIN_BENCHMARK_FIELDS = 2
@@ -109,6 +110,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             package="./internal/dal",
             default_bench=DEFAULT_DAL_BENCH,
             bench_env="VECTIS_PERF_DAL_BENCH",
+        ),
+        GoBenchmarkSuite(
+            name="job",
+            help_text="Run job executor microbenchmarks.",
+            package="./internal/job",
+            default_bench=DEFAULT_JOB_BENCH,
+            bench_env="VECTIS_PERF_JOB_BENCH",
         ),
         GoBenchmarkSuite(
             name="macro",
