@@ -24,22 +24,12 @@ func FinalizeExecutionByClaimWithFailure(t testing.TB, ctx context.Context, repo
 
 	owner := "runfixture-finalizer"
 	leaseUntil := time.Now().Add(dal.DefaultLeaseTTL)
-	runStatus, found, err := repos.Runs().GetRunStatus(ctx, dispatch.RunID)
+	_, found, err := repos.Runs().GetRunStatus(ctx, dispatch.RunID)
 	if err != nil {
 		t.Fatalf("get run status %s: %v", dispatch.RunID, err)
 	}
 	if !found {
 		t.Fatalf("run %s not found for execution %s", dispatch.RunID, executionID)
-	}
-
-	if runStatus == dal.RunStatusQueued {
-		claimed, _, err := repos.Runs().TryClaim(ctx, dispatch.RunID, owner, leaseUntil)
-		if err != nil {
-			t.Fatalf("claim run %s: %v", dispatch.RunID, err)
-		}
-		if !claimed {
-			t.Fatalf("run %s was not claimable", dispatch.RunID)
-		}
 	}
 
 	claim, err := repos.Runs().TryClaimExecution(ctx, executionID, owner, leaseUntil)

@@ -55,18 +55,30 @@ func createBenchmarkRun(b *testing.B, ctx context.Context, runs dal.RunsReposito
 	return runID
 }
 
+func claimBenchmarkRunExecution(b *testing.B, ctx context.Context, runs dal.RunsRepository, runID string) (string, string) {
+	b.Helper()
+
+	dispatch, err := runs.GetPendingExecution(ctx, runID)
+	if err != nil {
+		b.Fatalf("get pending benchmark execution: %v", err)
+	}
+
+	claim, err := runs.TryClaimExecution(ctx, dispatch.ExecutionID, "bench-worker", time.Now().Add(dal.DefaultLeaseTTL))
+	if err != nil {
+		b.Fatalf("claim benchmark execution: %v", err)
+	}
+
+	if !claim.Claimed {
+		b.Fatalf("benchmark execution %s was not claimed", dispatch.ExecutionID)
+	}
+
+	return dispatch.ExecutionID, claim.ClaimToken
+}
+
 func claimBenchmarkRun(b *testing.B, ctx context.Context, runs dal.RunsRepository, runID string) string {
 	b.Helper()
 
-	claimed, claimToken, err := runs.TryClaim(ctx, runID, "bench-worker", time.Now().Add(dal.DefaultLeaseTTL))
-	if err != nil {
-		b.Fatalf("claim benchmark run: %v", err)
-	}
-
-	if !claimed {
-		b.Fatalf("benchmark run %s was not claimed", runID)
-	}
-
+	_, claimToken := claimBenchmarkRunExecution(b, ctx, runs, runID)
 	return claimToken
 }
 
@@ -178,10 +190,10 @@ func BenchmarkDAL_DispatchEvents_Record(b *testing.B) {
 	}
 }
 
-func BenchmarkDAL_TryClaim(b *testing.B) {
+func BenchmarkDAL_TryClaimExecution(b *testing.B) {
 	ctx := context.Background()
 	repos := newBenchmarkRepos(b)
-	jobID := "bench-try-claim"
+	jobID := "bench-try-claim-execution"
 
 	seedBenchmarkJob(b, ctx, repos, jobID)
 	runs := repos.Runs()
@@ -192,36 +204,40 @@ func BenchmarkDAL_TryClaim(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
 		runID := createBenchmarkRun(b, ctx, runs, jobID, i+1)
+		dispatch, err := runs.GetPendingExecution(ctx, runID)
+		if err != nil {
+			b.Fatalf("get pending execution: %v", err)
+		}
 		b.StartTimer()
 
-		claimed, _, err := runs.TryClaim(ctx, runID, "bench-worker", time.Now().Add(dal.DefaultLeaseTTL))
+		claim, err := runs.TryClaimExecution(ctx, dispatch.ExecutionID, "bench-worker", time.Now().Add(dal.DefaultLeaseTTL))
 		if err != nil {
-			b.Fatalf("try claim: %v", err)
+			b.Fatalf("try claim execution: %v", err)
 		}
 
-		if !claimed {
-			b.Fatalf("run %s was not claimed", runID)
+		if !claim.Claimed {
+			b.Fatalf("execution %s was not claimed", dispatch.ExecutionID)
 		}
 	}
 }
 
-func BenchmarkDAL_RenewLease(b *testing.B) {
+func BenchmarkDAL_RenewExecutionLease(b *testing.B) {
 	ctx := context.Background()
 	repos := newBenchmarkRepos(b)
-	jobID := "bench-renew-lease"
+	jobID := "bench-renew-execution-lease"
 
 	seedBenchmarkJob(b, ctx, repos, jobID)
 	runs := repos.Runs()
 	runID := createBenchmarkRun(b, ctx, runs, jobID, 1)
-	claimToken := claimBenchmarkRun(b, ctx, runs, runID)
+	executionID, claimToken := claimBenchmarkRunExecution(b, ctx, runs, runID)
 
 	b.ReportAllocs()
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
 		leaseUntil := time.Now().Add(dal.DefaultLeaseTTL + time.Duration(i)*time.Second)
-		if err := runs.RenewLease(ctx, runID, "bench-worker", claimToken, leaseUntil); err != nil {
-			b.Fatalf("renew lease: %v", err)
+		if err := runs.RenewExecutionLease(ctx, executionID, "bench-worker", claimToken, leaseUntil); err != nil {
+			b.Fatalf("renew execution lease: %v", err)
 		}
 	}
 }

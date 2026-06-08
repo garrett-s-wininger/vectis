@@ -361,13 +361,20 @@ func (r *SQLRunsRepository) RequeueRunForRetry(ctx context.Context, runID string
 
 func (r *SQLRunsRepository) MarkExpiredRunningAsOrphaned(ctx context.Context, cutoffUnix int64) ([]string, error) {
 	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
-		SELECT run_id
-		FROM job_runs
-		WHERE status = 'running'
-			AND lease_until IS NOT NULL
-			AND lease_until < ?
+		SELECT jr.run_id
+		FROM job_runs jr
+		WHERE jr.status = 'running'
+			AND (jr.lease_until IS NULL OR jr.lease_until < ?)
+			AND NOT EXISTS (
+				SELECT 1
+				FROM segment_executions se
+				WHERE se.run_id = jr.run_id
+					AND se.status IN (?, ?)
+					AND se.lease_until IS NOT NULL
+					AND se.lease_until >= ?
+			)
 		ORDER BY id ASC
-	`), cutoffUnix)
+	`), cutoffUnix, ExecutionStatusAccepted, ExecutionStatusRunning, cutoffUnix)
 
 	if err != nil {
 		return nil, normalizeSQLError(err)
@@ -397,9 +404,16 @@ func (r *SQLRunsRepository) MarkExpiredRunningAsOrphaned(ctx context.Context, cu
 				failure_code = ''
 			WHERE run_id = ?
 				AND status = 'running'
-				AND lease_until IS NOT NULL
-				AND lease_until < ?
-		`), OrphanReasonLeaseExpired, runID, cutoffUnix)
+				AND (lease_until IS NULL OR lease_until < ?)
+				AND NOT EXISTS (
+					SELECT 1
+					FROM segment_executions se
+					WHERE se.run_id = job_runs.run_id
+						AND se.status IN (?, ?)
+						AND se.lease_until IS NOT NULL
+						AND se.lease_until >= ?
+				)
+		`), OrphanReasonLeaseExpired, runID, cutoffUnix, ExecutionStatusAccepted, ExecutionStatusRunning, cutoffUnix)
 
 		if err != nil {
 			return nil, normalizeSQLError(err)
@@ -437,71 +451,6 @@ func (r *SQLRunsRepository) GetRunStatus(ctx context.Context, runID string) (sta
 	}
 
 	return status, true, nil
-}
-
-func (r *SQLRunsRepository) TryClaim(ctx context.Context, runID, owner string, leaseUntil time.Time) (bool, string, error) {
-	now := time.Now().UTC()
-	nowUnix := now.Unix()
-	claimToken := uuid.NewString()
-	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
-		UPDATE job_runs SET
-			lease_owner = ?,
-			lease_until = ?,
-			claim_token = ?,
-			cancel_token = ?,
-			cancel_requested_at = NULL,
-			cancel_reason = NULL,
-			attempt = attempt + 1,
-			orphan_reason = '',
-			failure_code = '',
-			status = 'running',
-			started_at = COALESCE(started_at, CURRENT_TIMESTAMP)
-		WHERE run_id = ?
-			AND status = 'queued'
-			AND (lease_until IS NULL OR lease_until < ?)
-	`), owner, leaseUntil.Unix(), claimToken, claimToken, runID, nowUnix)
-
-	if err != nil {
-		return false, "", normalizeSQLError(err)
-	}
-
-	n, err := res.RowsAffected()
-	if err != nil {
-		return false, "", err
-	}
-
-	if n != 1 {
-		return false, "", nil
-	}
-
-	return true, claimToken, nil
-}
-
-func (r *SQLRunsRepository) RenewLease(ctx context.Context, runID, owner, claimToken string, leaseUntil time.Time) error {
-	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
-		UPDATE job_runs
-		SET lease_until = ?, orphan_reason = '', status = 'running'
-			, failure_code = ''
-		WHERE run_id = ?
-			AND lease_owner = ?
-			AND claim_token = ?
-			AND status IN ('running', 'orphaned')
-	`), leaseUntil.Unix(), runID, owner, claimToken)
-
-	if err != nil {
-		return normalizeSQLError(err)
-	}
-
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-
-	if n == 0 {
-		return fmt.Errorf("renew lease: no matching active row for run_id=%q owner=%q claim_token=%q", runID, owner, claimToken)
-	}
-
-	return nil
 }
 
 func (r *SQLRunsRepository) RequestRunCancel(ctx context.Context, runID, reason string) (RunForCancel, error) {
@@ -542,7 +491,7 @@ func (r *SQLRunsRepository) RequestRunCancel(ctx context.Context, runID, reason 
 }
 
 func (r *SQLRunsRepository) RunCancelRequested(ctx context.Context, runID, claimToken string) (bool, error) {
-	if runID == "" || claimToken == "" {
+	if runID == "" {
 		return false, nil
 	}
 
@@ -551,9 +500,8 @@ func (r *SQLRunsRepository) RunCancelRequested(ctx context.Context, runID, claim
 		SELECT cancel_requested_at
 		FROM job_runs
 		WHERE run_id = ?
-			AND claim_token = ?
 			AND status IN (?, ?)
-	`), runID, claimToken, RunStatusRunning, RunStatusOrphaned).Scan(&requestedAt); err != nil {
+	`), runID, RunStatusRunning, RunStatusOrphaned).Scan(&requestedAt); err != nil {
 		if err == sql.ErrNoRows {
 			return false, nil
 		}
@@ -2300,17 +2248,20 @@ func (r *SQLRunsRepository) TryClaimExecution(ctx context.Context, executionID, 
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	var runID string
 	var segmentID string
 	var taskID string
 	var taskAttemptID string
 	var attempt int
 	var currentStatus string
+	var runStatus string
 	var currentLeaseUntil sql.NullInt64
 	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
-		SELECT segment_id, task_id, task_attempt_id, attempt, status, lease_until
-		FROM segment_executions
-		WHERE execution_id = ?
-	`), executionID).Scan(&segmentID, &taskID, &taskAttemptID, &attempt, &currentStatus, &currentLeaseUntil); err != nil {
+		SELECT se.run_id, se.segment_id, se.task_id, se.task_attempt_id, se.attempt, se.status, se.lease_until, jr.status
+		FROM segment_executions se
+		JOIN job_runs jr ON jr.run_id = se.run_id
+		WHERE se.execution_id = ?
+	`), executionID).Scan(&runID, &segmentID, &taskID, &taskAttemptID, &attempt, &currentStatus, &currentLeaseUntil, &runStatus); err != nil {
 		if err == sql.ErrNoRows {
 			return ExecutionClaimResult{}, nil
 		}
@@ -2319,6 +2270,10 @@ func (r *SQLRunsRepository) TryClaimExecution(ctx context.Context, executionID, 
 	}
 
 	if !statusIn(currentStatus, []string{ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}) {
+		return ExecutionClaimResult{}, nil
+	}
+
+	if !statusIn(runStatus, []string{RunStatusQueued, RunStatusRunning, RunStatusOrphaned}) {
 		return ExecutionClaimResult{}, nil
 	}
 
@@ -2380,6 +2335,33 @@ func (r *SQLRunsRepository) TryClaimExecution(ctx context.Context, executionID, 
 		}
 	}
 
+	runRes, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE job_runs
+		SET lease_owner = ?,
+			lease_until = ?,
+			claim_token = ?,
+			cancel_token = ?,
+			cancel_requested_at = CASE WHEN status = ? THEN cancel_requested_at ELSE NULL END,
+			cancel_reason = CASE WHEN status = ? THEN cancel_reason ELSE NULL END,
+			attempt = CASE WHEN status = ? THEN attempt + 1 ELSE attempt END,
+			orphan_reason = '',
+			failure_code = '',
+			status = ?,
+			started_at = COALESCE(started_at, CURRENT_TIMESTAMP)
+		WHERE run_id = ?
+			AND status IN (?, ?, ?)
+	`), owner, leaseUntil.UTC().Unix(), claimToken, claimToken, RunStatusRunning, RunStatusRunning, RunStatusQueued, RunStatusRunning, runID, RunStatusQueued, RunStatusRunning, RunStatusOrphaned)
+	if err != nil {
+		return ExecutionClaimResult{}, normalizeSQLError(err)
+	}
+	runUpdated, err := runRes.RowsAffected()
+	if err != nil {
+		return ExecutionClaimResult{}, err
+	}
+	if runUpdated != 1 {
+		return ExecutionClaimResult{}, fmt.Errorf("%w: run %s cannot be promoted for execution claim", ErrConflict, runID)
+	}
+
 	if err := tx.Commit(); err != nil {
 		return ExecutionClaimResult{}, err
 	}
@@ -2408,6 +2390,7 @@ func (r *SQLRunsRepository) RenewExecutionLease(ctx context.Context, executionID
 			AND claim_token = ?
 			AND status IN (?, ?)
 	`), leaseUntil.UTC().Unix(), executionID, owner, claimToken, ExecutionStatusAccepted, ExecutionStatusRunning)
+
 	if err != nil {
 		return normalizeSQLError(err)
 	}

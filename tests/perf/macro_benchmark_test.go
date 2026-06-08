@@ -633,22 +633,13 @@ func finishDequeuedMacroJob(
 		}
 	}
 
-	claimed, _, err := env.runs.TryClaim(ctx, info.runID, workerID, time.Now().Add(dal.DefaultLeaseTTL))
-	claimedAt := time.Now()
-	if err != nil {
-		return macroRunTimings{}, fmt.Errorf("try claim run %s: %w", info.runID, err)
-	}
-
-	if !claimed {
-		return macroRunTimings{}, fmt.Errorf("run %s was not claimed", info.runID)
-	}
-
 	deliveryID := queuedJob.GetDeliveryId()
 	if _, err := env.queue.Ack(ctx, &apipb.AckRequest{DeliveryId: &deliveryID}); err != nil {
 		return macroRunTimings{}, fmt.Errorf("ack delivery %s: %w", deliveryID, err)
 	}
 
 	executionClaim, err := env.runs.TryClaimExecution(ctx, executionEnvelope.ExecutionID, workerID, time.Now().Add(dal.DefaultLeaseTTL))
+	claimedAt := time.Now()
 	if err != nil {
 		return macroRunTimings{}, fmt.Errorf("try claim execution %s: %w", executionEnvelope.ExecutionID, err)
 	}

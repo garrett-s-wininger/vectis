@@ -410,7 +410,7 @@ def _print_next_checks(suite: str) -> None:
             "accepted-to-enqueued timing.",
         )
         _emit(
-            "- Worker scale: compare TryClaim/finalize timing against DB pool "
+            "- Worker scale: compare execution-claim/finalize timing against DB pool "
             "pressure under multiple workers.",
         )
         _emit(

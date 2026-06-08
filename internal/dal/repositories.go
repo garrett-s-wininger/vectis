@@ -520,8 +520,6 @@ type RunsRepository interface {
 	RequeueRunForRetry(ctx context.Context, runID string) error
 	MarkExpiredRunningAsOrphaned(ctx context.Context, cutoffUnix int64) ([]string, error)
 	GetRunStatus(ctx context.Context, runID string) (status string, found bool, err error)
-	TryClaim(ctx context.Context, runID, owner string, leaseUntil time.Time) (bool, string, error)
-	RenewLease(ctx context.Context, runID, owner, claimToken string, leaseUntil time.Time) error
 	RequestRunCancel(ctx context.Context, runID, reason string) (RunForCancel, error)
 	RunCancelRequested(ctx context.Context, runID, claimToken string) (bool, error)
 	TouchDispatched(ctx context.Context, runID string) error

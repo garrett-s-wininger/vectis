@@ -670,41 +670,15 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 	defer span.End()
 
 	leaseUntil := w.leaseDeadline()
-	span.AddEvent("run.claim.attempt", trace.WithAttributes(attribute.Int("attempt", 1)))
-	claimed, claimToken, claimErr := w.store.TryClaim(w.runCtx, runID, w.workerID, leaseUntil)
-	if claimErr != nil {
-		w.noteDBError(claimErr)
-		_ = w.sleepDBBackoff()
-		w.logger.Error("TryClaim %s: %v", runID, claimErr)
-		span.RecordError(claimErr)
-		span.SetStatus(otelcodes.Error, "try claim")
-		span.AddEvent("run.claim.error", trace.WithAttributes(attribute.String("error", claimErr.Error())))
-		return observability.WorkerOutcomeFailed
-	}
-	w.noteDBRecovered()
-
-	if !claimed {
-		w.logger.Debug("Run %s not claimed (other worker or not queued); dropping message", runID)
-		w.setLifecyclePhase(observability.WorkerPhaseAcking)
-		if err := w.ackDelivery(deliveryID); err != nil {
-			w.logger.Warn("Ack delivery %s for unclaimed run %s failed: %v", deliveryID, runID, err)
-		}
-		span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeSkippedUnclaimed))
-
-		return observability.WorkerOutcomeSkippedUnclaimed
-	}
-
-	w.recordRunCatalogEvent(dal.RunStatusUpdate{RunID: runID, Status: dal.RunStatusRunning})
-
 	w.setLifecyclePhase(observability.WorkerPhaseAcking)
 	if ackFailure := w.ackDeliveryWithRetry(ctx, deliveryID); ackFailure != nil {
-		w.logger.Error("Ack delivery %s failed for claimed run %s: %v (reason_code=%s)",
+		w.logger.Error("Ack delivery %s failed for run %s: %v (reason_code=%s)",
 			deliveryID, runID, ackFailure.err, ackFailure.decision.ReasonCode)
 		span.RecordError(ackFailure.err)
 		span.SetStatus(otelcodes.Error, "ack delivery retry exhausted")
 
 		w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
-		if markErr := w.markRunOrphanedWithRetry(runID, claimToken, ackFailure.decision.OrphanReason); markErr != nil {
+		if markErr := w.markRunOrphanedWithRetry(runID, "", ackFailure.decision.OrphanReason); markErr != nil {
 			w.logger.Error("Failed to mark run %s orphaned after ack error (%s): %v", runID, ackFailure.decision.ReasonCode, markErr)
 			span.RecordError(markErr)
 		}
@@ -717,7 +691,7 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 		span.SetStatus(otelcodes.Error, "missing or invalid execution envelope")
 		w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
 		reason := "missing or invalid execution envelope for persisted run"
-		if err := w.markRunFailedWithRetry(runID, claimToken, dal.FailureCodeInvalidEnvelope, reason); err != nil {
+		if err := w.markRunFailedWithRetry(runID, "", dal.FailureCodeInvalidEnvelope, reason); err != nil {
 			w.logger.Error("Failed to mark run %s failed after missing execution envelope: %v", runID, err)
 			span.RecordError(err)
 		}
@@ -726,11 +700,11 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 		return observability.WorkerOutcomeFailed
 	}
 
-	executionClaimToken, executionClaimed := w.tryClaimExecution(ctx, executionEnvelope, leaseUntil)
-	if !executionClaimed {
+	executionClaimToken, executionClaimed, executionClaimErr := w.tryClaimExecution(ctx, executionEnvelope, leaseUntil)
+	if executionClaimErr != nil {
 		span.SetStatus(otelcodes.Error, "claim execution")
 		w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
-		if err := w.markRunOrphanedWithRetry(runID, claimToken, dal.OrphanReasonAckUncertain); err != nil {
+		if err := w.markRunOrphanedWithRetry(runID, "", dal.OrphanReasonAckUncertain); err != nil {
 			w.logger.Error("Failed to mark run %s orphaned after execution claim failure: %v", runID, err)
 			span.RecordError(err)
 		}
@@ -738,10 +712,15 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 		span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeFailed))
 		return observability.WorkerOutcomeFailed
 	}
+	if !executionClaimed {
+		span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeSkippedUnclaimed))
+		return observability.WorkerOutcomeSkippedUnclaimed
+	}
 
+	w.recordRunCatalogEvent(dal.RunStatusUpdate{RunID: runID, Status: dal.RunStatusRunning})
 	w.markExecutionStarted(ctx, executionEnvelope)
 	w.setLifecyclePhase(observability.WorkerPhaseExecuting)
-	execErr := w.executeWithLeaseRenewal(ctx, runID, claimToken, executionClaimToken, job, executionEnvelope)
+	execErr := w.executeWithLeaseRenewal(ctx, runID, executionClaimToken, job, executionEnvelope)
 	if execErr != nil {
 		if errors.Is(execErr, errRunCancelled) {
 			span.AddEvent("run.cancelled")
@@ -1188,9 +1167,9 @@ func (w *worker) getCurrentRunInfo() (string, string) {
 	return w.currentRunID, w.currentClaimToken
 }
 
-func (w *worker) tryClaimExecution(ctx context.Context, executionEnvelope *cell.ExecutionEnvelope, leaseUntil time.Time) (string, bool) {
+func (w *worker) tryClaimExecution(ctx context.Context, executionEnvelope *cell.ExecutionEnvelope, leaseUntil time.Time) (string, bool, error) {
 	if executionEnvelope == nil || w.store == nil {
-		return "", false
+		return "", false, nil
 	}
 
 	span := trace.SpanFromContext(ctx)
@@ -1201,14 +1180,14 @@ func (w *worker) tryClaimExecution(ctx context.Context, executionEnvelope *cell.
 		w.logger.Warn("TryClaimExecution %s failed; stopping before task execution: %v", executionEnvelope.ExecutionID, err)
 		span.RecordError(err)
 		span.AddEvent("execution.claim.error", trace.WithAttributes(attribute.String("error", err.Error())))
-		return "", false
+		return "", false, err
 	}
 
 	w.noteDBRecovered()
 	if !claim.Claimed {
 		w.logger.Warn("Execution %s not claimed; stopping before task execution", executionEnvelope.ExecutionID)
 		span.AddEvent("execution.claim.skipped")
-		return "", false
+		return "", false, nil
 	}
 
 	span.AddEvent("execution.claim.success")
@@ -1217,11 +1196,11 @@ func (w *worker) tryClaimExecution(ctx context.Context, executionEnvelope *cell.
 		span.AddEvent("execution.accepted", trace.WithAttributes(executionEnvelopeAttrs(executionEnvelope)...))
 	}
 
-	return claim.ClaimToken, true
+	return claim.ClaimToken, true, nil
 }
 
-func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, claimToken, executionClaimToken string, job *api.Job, executionEnvelope *cell.ExecutionEnvelope) error {
-	w.setCurrentRun(runID, claimToken)
+func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, executionClaimToken string, job *api.Job, executionEnvelope *cell.ExecutionEnvelope) error {
+	w.setCurrentRun(runID, executionClaimToken)
 	defer w.clearCurrentRun()
 
 	execCtx, execCancel := context.WithCancel(ctx)
@@ -1239,7 +1218,7 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, claimToken,
 	stopRenew := make(chan struct{})
 	doneRenew := make(chan struct{})
 
-	go w.leaseRenewalLoop(execCtx, runID, claimToken, executionEnvelope, executionClaimToken, stopRenew, doneRenew)
+	go w.leaseRenewalLoop(execCtx, runID, executionEnvelope, executionClaimToken, stopRenew, doneRenew)
 
 	// Listen for remote cancel requests.
 	// Drain any stale cancel from a previous job so the buffer is free for this run.
@@ -1265,7 +1244,7 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, claimToken,
 	}()
 
 	if w.store != nil {
-		go w.cancelRequestLoop(execCtx, runID, claimToken, stopCancel, cancelRun)
+		go w.cancelRequestLoop(execCtx, runID, executionClaimToken, stopCancel, cancelRun)
 	}
 
 	err := w.executor.ExecuteTask(execCtx, job, executionEnvelope.TaskKey, w.logClient, w.logger)
@@ -1330,7 +1309,6 @@ func (w *worker) cancelRequestLoop(
 func (w *worker) leaseRenewalLoop(
 	execCtx context.Context,
 	runID string,
-	claimToken string,
 	executionEnvelope *cell.ExecutionEnvelope,
 	executionClaimToken string,
 	stopRenew <-chan struct{},
@@ -1355,14 +1333,6 @@ func (w *worker) leaseRenewalLoop(
 			return
 		case <-ticker.C:
 			next := w.leaseDeadline()
-			if err := w.store.RenewLease(w.runCtx, runID, w.workerID, claimToken, next); err != nil {
-				w.noteDBError(err)
-				renewFailed = true
-				w.logger.Warn("Run %s: lease renew failed (will retry): %v", runID, err)
-				continue
-			}
-			w.noteDBRecovered()
-
 			if executionEnvelope != nil && executionClaimToken != "" {
 				if err := w.store.RenewExecutionLease(w.runCtx, executionEnvelope.ExecutionID, w.workerID, executionClaimToken, next); err != nil {
 					w.noteDBError(err)

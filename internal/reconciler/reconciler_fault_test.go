@@ -254,21 +254,26 @@ func TestService_Process_DuplicateDelivery_AllowsSingleClaimedExecution(t *testi
 	store := dal.NewSQLRepositories(db).Runs()
 	leaseUntil := time.Now().Add(time.Minute)
 
-	ok1, _, err := store.TryClaim(ctx, runID, "worker-a", leaseUntil)
+	dispatch, err := store.GetPendingExecution(ctx, runID)
 	if err != nil {
-		t.Fatalf("TryClaim worker-a: %v", err)
+		t.Fatalf("get pending execution: %v", err)
 	}
 
-	if !ok1 {
-		t.Fatal("expected worker-a to claim run")
-	}
-
-	ok2, _, err := store.TryClaim(ctx, runID, "worker-b", leaseUntil)
+	claim1, err := store.TryClaimExecution(ctx, dispatch.ExecutionID, "worker-a", leaseUntil)
 	if err != nil {
-		t.Fatalf("TryClaim worker-b: %v", err)
+		t.Fatalf("TryClaimExecution worker-a: %v", err)
 	}
 
-	if ok2 {
-		t.Fatal("expected worker-b claim to fail after run already claimed")
+	if !claim1.Claimed {
+		t.Fatal("expected worker-a to claim execution")
+	}
+
+	claim2, err := store.TryClaimExecution(ctx, dispatch.ExecutionID, "worker-b", leaseUntil)
+	if err != nil {
+		t.Fatalf("TryClaimExecution worker-b: %v", err)
+	}
+
+	if claim2.Claimed {
+		t.Fatal("expected worker-b execution claim to fail after execution already claimed")
 	}
 }

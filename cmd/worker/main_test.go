@@ -203,16 +203,16 @@ func (r *recordingCatalogEventsRepository) countByKey(eventKey string) int {
 	return count
 }
 
-func (s *flakyFinalizeRunsStore) RenewLease(ctx context.Context, runID, owner, claimToken string, leaseUntil time.Time) error {
+func (s *flakyFinalizeRunsStore) RenewExecutionLease(ctx context.Context, executionID, owner, claimToken string, leaseUntil time.Time) error {
 	s.mu.Lock()
 	if s.renewFailuresLeft > 0 {
 		s.renewFailuresLeft--
 		s.mu.Unlock()
-		return fmt.Errorf("renew: %w", sql.ErrConnDone)
+		return fmt.Errorf("renew execution: %w", sql.ErrConnDone)
 	}
 	s.mu.Unlock()
 
-	return s.RunsRepository.RenewLease(ctx, runID, owner, claimToken, leaseUntil)
+	return s.RunsRepository.RenewExecutionLease(ctx, executionID, owner, claimToken, leaseUntil)
 }
 
 func (s *flakyFinalizeRunsStore) MarkRunFailed(ctx context.Context, runID, claimToken, failureCode, reason string) error {
@@ -277,25 +277,30 @@ func (s *blockingSuccessStore) CompleteExecutionAndFinalizeRunByClaim(ctx contex
 	return s.RunsRepository.CompleteExecutionAndFinalizeRunByClaim(ctx, executionID, owner, claimToken, status, failureCode, reason)
 }
 
-func TestLeaseRenewalLoop_ReclaimsOrphanedRun(t *testing.T) {
+func TestLeaseRenewalLoop_RenewsExecutionLease(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	repos := dal.NewSQLRepositories(db)
 	runs := repos.Runs()
 
-	runID, _, err := runs.CreateRun(ctx, "job-worker-reclaim", nil, 1)
+	runID, _, err := runs.CreateRun(ctx, "job-worker-execution-renew", nil, 1)
 	if err != nil {
 		t.Fatalf("create run: %v", err)
 	}
 
+	dispatch, err := runs.GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
 	workerID := "worker-test-1"
-	claimToken := "claim-test-1"
-	if _, err := db.ExecContext(ctx, `
-		UPDATE job_runs
-		SET status = 'orphaned', lease_owner = ?, claim_token = ?, lease_until = ?
-		WHERE run_id = ?
-	`, workerID, claimToken, time.Now().Add(-1*time.Minute).Unix(), runID); err != nil {
-		t.Fatalf("seed orphaned run: %v", err)
+	claim, err := runs.TryClaimExecution(ctx, dispatch.ExecutionID, workerID, time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("claim execution: %v", err)
+	}
+
+	if !claim.Claimed || claim.ClaimToken == "" {
+		t.Fatalf("expected execution claim, got %+v", claim)
 	}
 
 	w := &worker{
@@ -311,7 +316,8 @@ func TestLeaseRenewalLoop_ReclaimsOrphanedRun(t *testing.T) {
 
 	stopRenew := make(chan struct{})
 	doneRenew := make(chan struct{})
-	go w.leaseRenewalLoop(execCtx, runID, claimToken, nil, "", stopRenew, doneRenew)
+	env := &cell.ExecutionEnvelope{ExecutionID: dispatch.ExecutionID}
+	go w.leaseRenewalLoop(execCtx, runID, env, claim.ClaimToken, stopRenew, doneRenew)
 
 	time.Sleep(30 * time.Millisecond)
 	close(stopRenew)
@@ -319,16 +325,18 @@ func TestLeaseRenewalLoop_ReclaimsOrphanedRun(t *testing.T) {
 
 	var status string
 	var leaseUntil int64
-	if err := db.QueryRowContext(ctx, `SELECT status, lease_until FROM job_runs WHERE run_id = ?`, runID).Scan(&status, &leaseUntil); err != nil {
-		t.Fatalf("query run state: %v", err)
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&status); err != nil {
+		t.Fatalf("query run status: %v", err)
 	}
-
 	if status != "running" {
-		t.Fatalf("expected run status running after renew, got %q", status)
+		t.Fatalf("expected run status running after execution claim, got %q", status)
 	}
 
+	if err := db.QueryRowContext(ctx, `SELECT lease_until FROM segment_executions WHERE execution_id = ?`, dispatch.ExecutionID).Scan(&leaseUntil); err != nil {
+		t.Fatalf("query execution lease: %v", err)
+	}
 	if leaseUntil <= time.Now().Unix() {
-		t.Fatalf("expected lease_until to be renewed into the future, got %d", leaseUntil)
+		t.Fatalf("expected execution lease_until to be renewed into the future, got %d", leaseUntil)
 	}
 }
 
@@ -586,8 +594,8 @@ func TestWorkerRunClaimedJob_WithExecutionEnvelope_TransitionsExecution(t *testi
 		key       string
 		eventType string
 	}{
-		{key: cell.CatalogRunStatusEventKey(runID, dal.RunStatusRunning), eventType: cell.CatalogEventTypeRunStatus},
 		{key: cell.CatalogExecutionStatusEventKey(env.ExecutionID, dal.ExecutionStatusAccepted), eventType: cell.CatalogEventTypeExecutionStatus},
+		{key: cell.CatalogRunStatusEventKey(runID, dal.RunStatusRunning), eventType: cell.CatalogEventTypeRunStatus},
 		{key: cell.CatalogExecutionStatusEventKey(env.ExecutionID, dal.ExecutionStatusRunning), eventType: cell.CatalogEventTypeExecutionStatus},
 		{key: cell.CatalogExecutionStatusEventKey(env.ExecutionID, dal.ExecutionStatusSucceeded), eventType: cell.CatalogEventTypeExecutionStatus},
 		{key: cell.CatalogRunStatusEventKey(runID, dal.RunStatusSucceeded), eventType: cell.CatalogEventTypeRunStatus},
@@ -660,12 +668,18 @@ func TestWorkerTryClaimExecution_RecordsAcceptedOnlyOnInitialClaim(t *testing.T)
 		catalog:  cell.NewCatalogEventPublisher("local", catalogEvents),
 	}
 
-	firstToken, claimed := w.tryClaimExecution(ctx, env, time.Now().Add(-time.Minute))
+	firstToken, claimed, err := w.tryClaimExecution(ctx, env, time.Now().Add(-time.Minute))
+	if err != nil {
+		t.Fatalf("first claim execution: %v", err)
+	}
 	if !claimed || firstToken == "" {
 		t.Fatalf("expected first execution claim, claimed=%v token=%q", claimed, firstToken)
 	}
 
-	secondToken, claimed := w.tryClaimExecution(ctx, env, time.Now().Add(time.Minute))
+	secondToken, claimed, err := w.tryClaimExecution(ctx, env, time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("second claim execution: %v", err)
+	}
 	if !claimed || secondToken == "" || secondToken == firstToken {
 		t.Fatalf("expected expired execution reclaim, claimed=%v first=%q second=%q", claimed, firstToken, secondToken)
 	}
@@ -1567,8 +1581,8 @@ func TestWorkerRunClaimedJob_ExecutionClaimRequiredBeforeExecute(t *testing.T) {
 	}
 
 	outcome := w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID, env)
-	if outcome != observability.WorkerOutcomeFailed {
-		t.Fatalf("outcome: got %q, want %q", outcome, observability.WorkerOutcomeFailed)
+	if outcome != observability.WorkerOutcomeSkippedUnclaimed {
+		t.Fatalf("outcome: got %q, want %q", outcome, observability.WorkerOutcomeSkippedUnclaimed)
 	}
 
 	if logClient.GetStreamCount() != 0 {
@@ -1576,22 +1590,16 @@ func TestWorkerRunClaimedJob_ExecutionClaimRequiredBeforeExecute(t *testing.T) {
 	}
 
 	var runStatus string
-	var failureReason sql.NullString
-	var orphanReason sql.NullString
 	if err := db.QueryRowContext(ctx, `
-		SELECT status, failure_reason, orphan_reason
+		SELECT status
 		FROM job_runs
 		WHERE run_id = ?
-	`, runID).Scan(&runStatus, &failureReason, &orphanReason); err != nil {
+	`, runID).Scan(&runStatus); err != nil {
 		t.Fatalf("query run status: %v", err)
 	}
 
-	if runStatus != dal.RunStatusOrphaned {
-		t.Fatalf("run status: got %q, want %q", runStatus, dal.RunStatusOrphaned)
-	}
-
-	if !failureReason.Valid || failureReason.String != dal.OrphanReasonAckUncertain || !orphanReason.Valid || orphanReason.String != dal.OrphanReasonAckUncertain {
-		t.Fatalf("orphan reasons: failure=%v orphan=%v", failureReason, orphanReason)
+	if runStatus != dal.RunStatusRunning {
+		t.Fatalf("run status: got %q, want %q", runStatus, dal.RunStatusRunning)
 	}
 
 	var executionStatus string
@@ -1930,7 +1938,7 @@ func TestWorkerRunClaimedJob_LifecyclePhaseShowsFinalizing(t *testing.T) {
 	}
 }
 
-func TestWorkerRunClaimedJob_RenewLeaseTransientStoreFailure_StillSucceeds(t *testing.T) {
+func TestWorkerRunClaimedJob_RenewExecutionLeaseTransientStoreFailure_StillSucceeds(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	repos := dal.NewSQLRepositories(db)
@@ -2013,21 +2021,34 @@ func TestWorkerRestartMidRun_LeaseExpiryThenRequeue_AllowsRecovery(t *testing.T)
 		t.Fatalf("create run: %v", err)
 	}
 
-	claimed, tokenA, err := runs.TryClaim(ctx, runID, "worker-a", time.Now().Add(time.Minute))
+	jobID := "job-worker-restart-recovery"
+	deliveryID := "delivery-restart-recovery"
+	commandNodeID := "node-1"
+	command := "echo restart-recovered"
+	action := "builtins/shell"
+	root := &api.Node{
+		Id:   &commandNodeID,
+		Uses: &action,
+		With: map[string]string{"command": command},
+	}
+
+	j := &api.Job{
+		Id:         &jobID,
+		RunId:      &runID,
+		DeliveryId: &deliveryID,
+		Root:       root,
+	}
+
+	env := attachPendingExecutionEnvelopeForTest(t, runs, j, runID)
+
+	expiredLease := time.Now().Add(-1 * time.Minute)
+	claim, err := runs.TryClaimExecution(ctx, env.ExecutionID, "worker-a", expiredLease)
 	if err != nil {
-		t.Fatalf("try claim worker-a: %v", err)
+		t.Fatalf("claim execution worker-a: %v", err)
 	}
 
-	if !claimed || tokenA == "" {
-		t.Fatalf("expected worker-a claim and token, got claimed=%v token=%q", claimed, tokenA)
-	}
-
-	if _, err := db.ExecContext(ctx, `
-		UPDATE job_runs
-		SET lease_until = ?
-		WHERE run_id = ?
-	`, time.Now().Add(-1*time.Minute).Unix(), runID); err != nil {
-		t.Fatalf("force expired lease: %v", err)
+	if !claim.Claimed || claim.ClaimToken == "" {
+		t.Fatalf("expected worker-a execution claim and token, got %+v", claim)
 	}
 
 	orphaned, err := runs.MarkExpiredRunningAsOrphaned(ctx, time.Now().Unix())
@@ -2056,25 +2077,6 @@ func TestWorkerRestartMidRun_LeaseExpiryThenRequeue_AllowsRecovery(t *testing.T)
 		store:         runs,
 	}
 
-	jobID := "job-worker-restart-recovery"
-	deliveryID := "delivery-restart-recovery"
-	commandNodeID := "node-1"
-	command := "echo restart-recovered"
-	action := "builtins/shell"
-	root := &api.Node{
-		Id:   &commandNodeID,
-		Uses: &action,
-		With: map[string]string{"command": command},
-	}
-
-	j := &api.Job{
-		Id:         &jobID,
-		RunId:      &runID,
-		DeliveryId: &deliveryID,
-		Root:       root,
-	}
-
-	env := attachPendingExecutionEnvelopeForTest(t, runs, j, runID)
 	w.runClaimedJob(context.Background(), j, jobID, runID, deliveryID, env)
 
 	var statusVal string
@@ -2161,8 +2163,13 @@ func TestWorkerRunClaimedJob_FinalizeSucceededExhausted_LeavesRunningForOrphanSw
 		t.Fatalf("should not log successful completion when run finalize exhausted; info logs: %v", logger.GetInfoCalls())
 	}
 
-	if _, err := db.ExecContext(ctx, `UPDATE job_runs SET lease_until = ? WHERE run_id = ?`, time.Now().Add(-1*time.Minute).Unix(), runID); err != nil {
+	expiredLease := time.Now().Add(-1 * time.Minute).Unix()
+	if _, err := db.ExecContext(ctx, `UPDATE job_runs SET lease_until = ? WHERE run_id = ?`, expiredLease, runID); err != nil {
 		t.Fatalf("force lease expiry: %v", err)
+	}
+
+	if _, err := db.ExecContext(ctx, `UPDATE segment_executions SET lease_until = ? WHERE execution_id = ?`, expiredLease, env.ExecutionID); err != nil {
+		t.Fatalf("force execution lease expiry: %v", err)
 	}
 
 	orphaned, err := runs.MarkExpiredRunningAsOrphaned(ctx, time.Now().Unix())

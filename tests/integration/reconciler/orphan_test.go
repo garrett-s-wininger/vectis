@@ -103,21 +103,25 @@ func TestIntegrationReconciler_OrphansExpiredLease(t *testing.T) {
 		t.Fatalf("create job: %v", err)
 	}
 
-	// Create a run and claim it with an expired lease.
+	// Create a run and claim its pending execution with an expired lease.
 	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
 	if err != nil {
 		t.Fatalf("create run: %v", err)
 	}
 
-	// Manually claim with an expired lease.
-	expiredLease := time.Now().Add(-1 * time.Hour)
-	claimed, _, err := repos.Runs().TryClaim(ctx, runID, "test-worker", expiredLease)
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
 	if err != nil {
-		t.Fatalf("try claim: %v", err)
+		t.Fatalf("get pending execution: %v", err)
 	}
 
-	if !claimed {
-		t.Fatal("expected claim to succeed")
+	expiredLease := time.Now().Add(-1 * time.Hour)
+	claim, err := repos.Runs().TryClaimExecution(ctx, dispatch.ExecutionID, "test-worker", expiredLease)
+	if err != nil {
+		t.Fatalf("try claim execution: %v", err)
+	}
+
+	if !claim.Claimed {
+		t.Fatal("expected execution claim to succeed")
 	}
 
 	_, _, queueService := grpcservices.StartQueueServer(t, mocks.NewMockLogger())

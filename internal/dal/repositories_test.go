@@ -25,6 +25,25 @@ func claimExecutionAccepted(t testing.TB, ctx context.Context, runs dal.RunsRepo
 	return claim
 }
 
+func claimPendingRunExecution(t testing.TB, ctx context.Context, runs dal.RunsRepository, runID, owner string, leaseUntil time.Time) (dal.ExecutionDispatchRecord, dal.ExecutionClaimResult) {
+	t.Helper()
+
+	dispatch, err := runs.GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution for run %s: %v", runID, err)
+	}
+
+	claim, err := runs.TryClaimExecution(ctx, dispatch.ExecutionID, owner, leaseUntil)
+	if err != nil {
+		t.Fatalf("claim pending execution %s: %v", dispatch.ExecutionID, err)
+	}
+	if !claim.Claimed || claim.ClaimToken == "" {
+		t.Fatalf("expected pending execution %s to be claimable, claim=%+v", dispatch.ExecutionID, claim)
+	}
+
+	return dispatch, claim
+}
+
 func TestJobsRepository_CRUDAndConflict(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)
@@ -1794,7 +1813,7 @@ func TestTaskDispatchIntentsRepository_ListPendingForRunScopesResults(t *testing
 	}
 }
 
-func TestTaskDispatchIntentsRepository_ListPendingRequiresQueuedRun(t *testing.T) {
+func TestTaskDispatchIntentsRepository_ListPendingRequiresQueuedPendingExecution(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
 	ctx := context.Background()
@@ -1831,13 +1850,13 @@ func TestTaskDispatchIntentsRepository_ListPendingRequiresQueuedRun(t *testing.T
 		t.Fatalf("ensure dispatch intent: %v", err)
 	}
 
-	claimed, claimToken, err := repos.Runs().TryClaim(ctx, runID, "worker-a", time.Now().Add(time.Minute))
+	claim, err := repos.Runs().TryClaimExecution(ctx, dispatch.ExecutionID, "worker-a", time.Now().Add(time.Minute))
 	if err != nil {
-		t.Fatalf("claim run: %v", err)
+		t.Fatalf("claim execution: %v", err)
 	}
 
-	if !claimed {
-		t.Fatal("expected to claim queued run")
+	if !claim.Claimed || claim.ClaimToken == "" {
+		t.Fatalf("expected to claim queued run execution, claim=%+v", claim)
 	}
 
 	pending, err := repos.TaskDispatchIntents().ListPending(ctx, "iad-a", time.Now().UnixNano(), 10)
@@ -1849,7 +1868,7 @@ func TestTaskDispatchIntentsRepository_ListPendingRequiresQueuedRun(t *testing.T
 		t.Fatalf("running run should not expose pending task dispatch intents: %+v", pending)
 	}
 
-	if err := repos.Runs().MarkRunOrphaned(ctx, runID, claimToken, dal.OrphanReasonLeaseExpired); err != nil {
+	if err := repos.Runs().MarkRunOrphaned(ctx, runID, claim.ClaimToken, dal.OrphanReasonLeaseExpired); err != nil {
 		t.Fatalf("mark orphaned before requeue: %v", err)
 	}
 
@@ -1862,8 +1881,8 @@ func TestTaskDispatchIntentsRepository_ListPendingRequiresQueuedRun(t *testing.T
 		t.Fatalf("list pending after queued: %v", err)
 	}
 
-	if len(pending) != 1 || pending[0].ExecutionID != dispatch.ExecutionID {
-		t.Fatalf("queued run should expose pending task dispatch intent: %+v", pending)
+	if len(pending) != 0 {
+		t.Fatalf("queued run with accepted execution should not expose pending task dispatch intent: %+v", pending)
 	}
 }
 
@@ -2013,6 +2032,7 @@ func TestRunsRepository_ExecutionClaims(t *testing.T) {
 	assertExecutionAndSegmentStatus(t, db, dispatch.ExecutionID, dispatch.SegmentID, dal.ExecutionStatusAccepted, dal.SegmentStatusAccepted, 1)
 	assertRootTaskAndAttemptStatus(t, db, runID, dal.TaskStatusAccepted, dal.TaskStatusAccepted, 1)
 	assertExecutionClaim(t, db, dispatch.ExecutionID, "worker-a", leaseUntil.Unix(), claim.ClaimToken)
+	assertRunClaim(t, db, runID, dal.RunStatusRunning, "worker-a", leaseUntil.Unix(), claim.ClaimToken)
 
 	tasks, _, err := repos.Runs().ListRunTasks(ctx, runID, 0, 10)
 	if err != nil {
@@ -2049,14 +2069,6 @@ func TestRunsRepository_ExecutionClaims(t *testing.T) {
 
 	if err := repos.Runs().RenewExecutionLease(ctx, dispatch.ExecutionID, "worker-b", claim.ClaimToken, time.Now().Add(4*time.Minute)); !dal.IsConflict(err) {
 		t.Fatalf("expected conflicting execution lease renewal, got %v", err)
-	}
-
-	claimedRun, _, err := repos.Runs().TryClaim(ctx, runID, "worker-a", time.Now().Add(time.Minute))
-	if err != nil {
-		t.Fatalf("claim run before execution finalization: %v", err)
-	}
-	if !claimedRun {
-		t.Fatal("expected run claim before execution finalization")
 	}
 
 	if _, err := repos.Runs().CompleteExecutionAndFinalizeRunByClaim(ctx, dispatch.ExecutionID, "worker-a", claim.ClaimToken, dal.ExecutionStatusSucceeded, "", ""); err != nil {
@@ -2154,15 +2166,6 @@ func setupClaimedExecutionFinalizationRun(t *testing.T, ctx context.Context, rep
 	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
 	if err != nil {
 		t.Fatalf("get pending execution: %v", err)
-	}
-
-	claimedRun, runToken, err := repos.Runs().TryClaim(ctx, runID, "run-worker", time.Now().Add(time.Minute))
-	if err != nil {
-		t.Fatalf("claim run: %v", err)
-	}
-
-	if !claimedRun || runToken == "" {
-		t.Fatalf("expected run claim with token, claimed=%v token=%q", claimedRun, runToken)
 	}
 
 	executionLeaseUntil := time.Now().Add(time.Minute)
@@ -2824,6 +2827,22 @@ func assertExecutionClaim(t *testing.T, db *sql.DB, executionID, wantOwner strin
 	}
 }
 
+func assertRunClaim(t *testing.T, db *sql.DB, runID, wantStatus, wantOwner string, wantLeaseUntil int64, wantToken string) {
+	t.Helper()
+
+	var status string
+	var owner, token sql.NullString
+	var leaseUntil sql.NullInt64
+	if err := db.QueryRow("SELECT status, lease_owner, lease_until, claim_token FROM job_runs WHERE run_id = ?", runID).
+		Scan(&status, &owner, &leaseUntil, &token); err != nil {
+		t.Fatalf("query run claim: %v", err)
+	}
+
+	if status != wantStatus || !owner.Valid || owner.String != wantOwner || !leaseUntil.Valid || leaseUntil.Int64 != wantLeaseUntil || !token.Valid || token.String != wantToken {
+		t.Fatalf("run claim: got status=%q owner=%v lease_until=%v token=%v, want status=%q owner=%q lease_until=%d token=%q", status, owner, leaseUntil, token, wantStatus, wantOwner, wantLeaseUntil, wantToken)
+	}
+}
+
 func assertExecutionClaimCleared(t *testing.T, db *sql.DB, executionID string) {
 	t.Helper()
 
@@ -3188,7 +3207,7 @@ func TestRunsRepository_CreateScheduledRunIdempotentByScheduleTick(t *testing.T)
 	}
 }
 
-func TestRunsRepository_ClaimRenewAndDispatchQueries(t *testing.T) {
+func TestRunsRepository_ExecutionClaimRenewAndDispatchQueries(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	runs := dal.NewSQLRepositories(db).Runs()
 	ctx := context.Background()
@@ -3226,18 +3245,8 @@ func TestRunsRepository_ClaimRenewAndDispatchQueries(t *testing.T) {
 		t.Fatalf("started_at should be empty before claim, got %s", *beforeClaim.StartedAt)
 	}
 
-	claimed, claimToken, err := runs.TryClaim(ctx, runID, "worker-1", time.Now().Add(1*time.Minute))
-	if err != nil {
-		t.Fatalf("try claim first: %v", err)
-	}
-
-	if !claimed {
-		t.Fatal("expected first claim to succeed")
-	}
-
-	if claimToken == "" {
-		t.Fatal("expected non-empty claim token on successful claim")
-	}
+	dispatch, claim := claimPendingRunExecution(t, ctx, runs, runID, "worker-1", time.Now().Add(1*time.Minute))
+	claimToken := claim.ClaimToken
 
 	afterClaim, err := runs.GetRun(ctx, runID)
 	if err != nil {
@@ -3253,24 +3262,24 @@ func TestRunsRepository_ClaimRenewAndDispatchQueries(t *testing.T) {
 		t.Fatalf("get run for cancel: %v", err)
 	}
 	if cancelRec.CancelToken != claimToken {
-		t.Fatalf("cancel token should match worker claim token, got cancel=%q claim=%q", cancelRec.CancelToken, claimToken)
+		t.Fatalf("cancel token should match execution claim token, got cancel=%q claim=%q", cancelRec.CancelToken, claimToken)
 	}
 
-	claimed, _, err = runs.TryClaim(ctx, runID, "worker-2", time.Now().Add(1*time.Minute))
+	duplicateClaim, err := runs.TryClaimExecution(ctx, dispatch.ExecutionID, "worker-2", time.Now().Add(1*time.Minute))
 	if err != nil {
-		t.Fatalf("try claim second: %v", err)
+		t.Fatalf("try claim execution second: %v", err)
 	}
 
-	if claimed {
-		t.Fatal("expected second claim to fail")
+	if duplicateClaim.Claimed {
+		t.Fatal("expected second execution claim to fail")
 	}
 
-	if err := runs.RenewLease(ctx, runID, "worker-1", claimToken, time.Now().Add(2*time.Minute)); err != nil {
-		t.Fatalf("renew lease for owner: %v", err)
+	if err := runs.RenewExecutionLease(ctx, dispatch.ExecutionID, "worker-1", claimToken, time.Now().Add(2*time.Minute)); err != nil {
+		t.Fatalf("renew execution lease for owner: %v", err)
 	}
 
-	if err := runs.RenewLease(ctx, runID, "worker-2", claimToken, time.Now().Add(2*time.Minute)); err == nil {
-		t.Fatal("expected renew lease by non-owner to fail")
+	if err := runs.RenewExecutionLease(ctx, dispatch.ExecutionID, "worker-2", claimToken, time.Now().Add(2*time.Minute)); err == nil {
+		t.Fatal("expected renew execution lease by non-owner to fail")
 	}
 
 	if err := runs.TouchDispatched(ctx, runID); err != nil {
@@ -3289,9 +3298,16 @@ func TestRunsRepository_ClaimRenewAndDispatchQueries(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `UPDATE job_runs SET status = 'orphaned' WHERE run_id = ?`, runID); err != nil {
 		t.Fatalf("force orphaned status: %v", err)
 	}
+	if _, err := db.ExecContext(ctx, `UPDATE segment_executions SET lease_until = ? WHERE execution_id = ?`, time.Now().Add(-1*time.Minute).Unix(), dispatch.ExecutionID); err != nil {
+		t.Fatalf("force execution lease expiry: %v", err)
+	}
 
-	if err := runs.RenewLease(ctx, runID, "worker-1", claimToken, time.Now().Add(3*time.Minute)); err != nil {
-		t.Fatalf("renew lease should recover orphaned run: %v", err)
+	reclaim, err := runs.TryClaimExecution(ctx, dispatch.ExecutionID, "worker-1", time.Now().Add(3*time.Minute))
+	if err != nil {
+		t.Fatalf("reclaim execution should recover orphaned run: %v", err)
+	}
+	if !reclaim.Claimed {
+		t.Fatal("expected expired execution reclaim to recover orphaned run")
 	}
 
 	var status string
@@ -3314,14 +3330,8 @@ func TestRunsRepository_RequestRunCancel_SetsDurableIntent(t *testing.T) {
 		t.Fatalf("create run: %v", err)
 	}
 
-	claimed, token, err := runs.TryClaim(ctx, runID, "worker-cancel", time.Now().Add(time.Minute))
-	if err != nil {
-		t.Fatalf("try claim: %v", err)
-	}
-
-	if !claimed || token == "" {
-		t.Fatalf("expected claim token, got claimed=%v token=%q", claimed, token)
-	}
+	_, claim := claimPendingRunExecution(t, ctx, runs, runID, "worker-cancel", time.Now().Add(time.Minute))
+	token := claim.ClaimToken
 
 	rec, err := runs.RequestRunCancel(ctx, runID, dal.CancelReasonAPI)
 	if err != nil {
@@ -3362,8 +3372,8 @@ func TestRunsRepository_RequestRunCancel_SetsDurableIntent(t *testing.T) {
 		t.Fatalf("run cancel requested with stale token: %v", err)
 	}
 
-	if requested {
-		t.Fatal("expected stale token not to see cancel request")
+	if !requested {
+		t.Fatal("expected run-level cancel request to be visible despite stale token")
 	}
 
 	if err := runs.MarkRunAborted(ctx, runID, token, dal.CancelReasonAPI); err != nil {
@@ -3584,46 +3594,37 @@ func TestRunsRepository_FencingTokenRejectsStaleFinalizeAndRenew(t *testing.T) {
 		t.Fatalf("create run: %v", err)
 	}
 
-	claimed, tokenA, err := runs.TryClaim(ctx, runID, "worker-a", time.Now().Add(1*time.Minute))
+	dispatch, err := runs.GetPendingExecution(ctx, runID)
 	if err != nil {
-		t.Fatalf("try claim worker-a: %v", err)
+		t.Fatalf("get pending execution: %v", err)
 	}
 
-	if !claimed || tokenA == "" {
-		t.Fatalf("expected worker-a claim and token, got claimed=%v token=%q", claimed, tokenA)
-	}
-
-	if _, err := db.ExecContext(ctx, `
-		UPDATE job_runs
-		SET status = 'queued', lease_owner = NULL, lease_until = NULL, claim_token = NULL
-		WHERE run_id = ?
-	`, runID); err != nil {
-		t.Fatalf("force requeue: %v", err)
-	}
-
-	claimed, tokenB, err := runs.TryClaim(ctx, runID, "worker-b", time.Now().Add(1*time.Minute))
+	claimA, err := runs.TryClaimExecution(ctx, dispatch.ExecutionID, "worker-a", time.Now().Add(-1*time.Minute))
 	if err != nil {
-		t.Fatalf("try claim worker-b: %v", err)
+		t.Fatalf("try claim execution worker-a: %v", err)
 	}
 
-	if !claimed || tokenB == "" {
-		t.Fatalf("expected worker-b claim and token, got claimed=%v token=%q", claimed, tokenB)
+	if !claimA.Claimed || claimA.ClaimToken == "" {
+		t.Fatalf("expected worker-a execution claim and token, got %+v", claimA)
 	}
+	tokenA := claimA.ClaimToken
+
+	claimB, err := runs.TryClaimExecution(ctx, dispatch.ExecutionID, "worker-b", time.Now().Add(1*time.Minute))
+	if err != nil {
+		t.Fatalf("try claim execution worker-b: %v", err)
+	}
+
+	if !claimB.Claimed || claimB.ClaimToken == "" {
+		t.Fatalf("expected worker-b execution claim and token, got %+v", claimB)
+	}
+	tokenB := claimB.ClaimToken
 
 	if tokenA == tokenB {
-		t.Fatal("expected distinct claim tokens across attempts")
+		t.Fatal("expected distinct claim tokens across execution claims")
 	}
 
-	var attempt int
-	if err := db.QueryRowContext(ctx, `SELECT attempt FROM job_runs WHERE run_id = ?`, runID).Scan(&attempt); err != nil {
-		t.Fatalf("scan attempt: %v", err)
-	}
-	if attempt != 2 {
-		t.Fatalf("expected attempt=2 after two successful claims, got %d", attempt)
-	}
-
-	if err := runs.RenewLease(ctx, runID, "worker-b", tokenA, time.Now().Add(2*time.Minute)); err == nil {
-		t.Fatal("expected stale token renew to fail")
+	if err := runs.RenewExecutionLease(ctx, dispatch.ExecutionID, "worker-b", tokenA, time.Now().Add(2*time.Minute)); err == nil {
+		t.Fatal("expected stale token execution renew to fail")
 	}
 
 	if err := runs.MarkRunSucceeded(ctx, runID, tokenA); err == nil {
@@ -3662,31 +3663,30 @@ func TestRunsRepository_FencingTokenRejectsStaleFailedAndOrphaned(t *testing.T) 
 		t.Fatalf("create run: %v", err)
 	}
 
-	claimed, tokenA, err := runs.TryClaim(ctx, runID, "worker-a", time.Now().Add(1*time.Minute))
+	dispatch, err := runs.GetPendingExecution(ctx, runID)
 	if err != nil {
-		t.Fatalf("try claim worker-a: %v", err)
+		t.Fatalf("get pending execution: %v", err)
 	}
 
-	if !claimed || tokenA == "" {
-		t.Fatalf("expected worker-a claim and token, got claimed=%v token=%q", claimed, tokenA)
-	}
-
-	if err := runs.MarkRunFailed(ctx, runID, tokenA, dal.FailureCodeExecution, "first attempt failed"); err != nil {
-		t.Fatalf("mark failed for first attempt: %v", err)
-	}
-
-	if err := runs.RequeueRunForRetry(ctx, runID); err != nil {
-		t.Fatalf("requeue run for retry: %v", err)
-	}
-
-	claimed, tokenB, err := runs.TryClaim(ctx, runID, "worker-b", time.Now().Add(1*time.Minute))
+	claimA, err := runs.TryClaimExecution(ctx, dispatch.ExecutionID, "worker-a", time.Now().Add(-1*time.Minute))
 	if err != nil {
-		t.Fatalf("try claim worker-b: %v", err)
+		t.Fatalf("try claim execution worker-a: %v", err)
 	}
 
-	if !claimed || tokenB == "" {
-		t.Fatalf("expected worker-b claim and token, got claimed=%v token=%q", claimed, tokenB)
+	if !claimA.Claimed || claimA.ClaimToken == "" {
+		t.Fatalf("expected worker-a execution claim and token, got %+v", claimA)
 	}
+	tokenA := claimA.ClaimToken
+
+	claimB, err := runs.TryClaimExecution(ctx, dispatch.ExecutionID, "worker-b", time.Now().Add(1*time.Minute))
+	if err != nil {
+		t.Fatalf("try claim execution worker-b: %v", err)
+	}
+
+	if !claimB.Claimed || claimB.ClaimToken == "" {
+		t.Fatalf("expected worker-b execution claim and token, got %+v", claimB)
+	}
+	tokenB := claimB.ClaimToken
 
 	if err := runs.MarkRunFailed(ctx, runID, tokenA, dal.FailureCodeExecution, "stale token fail"); err == nil {
 		t.Fatal("expected stale token MarkRunFailed to fail")
@@ -3724,14 +3724,8 @@ func TestRunsRepository_MarkRunAborted_SetsCancelledTerminalState(t *testing.T) 
 		t.Fatalf("create run: %v", err)
 	}
 
-	claimed, token, err := runs.TryClaim(ctx, runID, "worker-a", time.Now().Add(time.Minute))
-	if err != nil {
-		t.Fatalf("try claim: %v", err)
-	}
-
-	if !claimed || token == "" {
-		t.Fatalf("expected claim token, got claimed=%v token=%q", claimed, token)
-	}
+	_, claim := claimPendingRunExecution(t, ctx, runs, runID, "worker-a", time.Now().Add(time.Minute))
+	token := claim.ClaimToken
 
 	if err := runs.MarkRunAborted(ctx, runID, token, dal.CancelReasonAPI); err != nil {
 		t.Fatalf("mark run aborted: %v", err)
@@ -3799,13 +3793,8 @@ func TestRunsRepository_RequeueRunForRetry_ClearsLeaseAndToken(t *testing.T) {
 		t.Fatalf("create run: %v", err)
 	}
 
-	claimed, token, err := runs.TryClaim(ctx, runID, "worker-a", time.Now().Add(time.Minute))
-	if err != nil {
-		t.Fatalf("try claim: %v", err)
-	}
-	if !claimed || token == "" {
-		t.Fatalf("expected claim token, got claimed=%v token=%q", claimed, token)
-	}
+	_, claim := claimPendingRunExecution(t, ctx, runs, runID, "worker-a", time.Now().Add(time.Minute))
+	token := claim.ClaimToken
 
 	if err := runs.MarkRunFailed(ctx, runID, token, dal.FailureCodeExecution, "test failure"); err != nil {
 		t.Fatalf("mark run failed: %v", err)
@@ -3848,9 +3837,7 @@ func TestRunsRepository_RepairMarkRunAbandoned_OnlyFromOrphaned(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create running run: %v", err)
 	}
-	if claimed, _, err := runs.TryClaim(ctx, runningRunID, "worker-a", time.Now().Add(time.Minute)); err != nil || !claimed {
-		t.Fatalf("claim running run claimed=%v err=%v", claimed, err)
-	}
+	claimPendingRunExecution(t, ctx, runs, runningRunID, "worker-a", time.Now().Add(time.Minute))
 	if err := runs.RepairMarkRunAbandoned(ctx, runningRunID, "worker deleted"); !dal.IsConflict(err) {
 		t.Fatalf("expected running run conflict, got %v", err)
 	}
@@ -3859,14 +3846,8 @@ func TestRunsRepository_RepairMarkRunAbandoned_OnlyFromOrphaned(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create orphan run: %v", err)
 	}
-	claimed, token, err := runs.TryClaim(ctx, orphanRunID, "worker-a", time.Now().Add(time.Minute))
-	if err != nil {
-		t.Fatalf("claim orphan run: %v", err)
-	}
-	if !claimed {
-		t.Fatal("expected orphan run claim")
-	}
-	if err := runs.MarkRunOrphaned(ctx, orphanRunID, token, dal.OrphanReasonLeaseExpired); err != nil {
+	_, orphanClaim := claimPendingRunExecution(t, ctx, runs, orphanRunID, "worker-a", time.Now().Add(time.Minute))
+	if err := runs.MarkRunOrphaned(ctx, orphanRunID, orphanClaim.ClaimToken, dal.OrphanReasonLeaseExpired); err != nil {
 		t.Fatalf("mark orphaned: %v", err)
 	}
 	if err := runs.RepairMarkRunAbandoned(ctx, orphanRunID, "worker deleted"); err != nil {
@@ -3896,14 +3877,7 @@ func TestRunsRepository_RequeueRunForRetry_RejectsRunning(t *testing.T) {
 		t.Fatalf("create run: %v", err)
 	}
 
-	claimed, _, err := runs.TryClaim(ctx, runID, "worker-a", time.Now().Add(time.Minute))
-	if err != nil {
-		t.Fatalf("try claim: %v", err)
-	}
-
-	if !claimed {
-		t.Fatal("expected claim to succeed")
-	}
+	claimPendingRunExecution(t, ctx, runs, runID, "worker-a", time.Now().Add(time.Minute))
 
 	err = runs.RequeueRunForRetry(ctx, runID)
 	if !dal.IsConflict(err) {
@@ -3921,14 +3895,8 @@ func TestRunsRepository_MarkRunOrphaned_WithClaimToken(t *testing.T) {
 		t.Fatalf("create run: %v", err)
 	}
 
-	claimed, token, err := runs.TryClaim(ctx, runID, "worker-a", time.Now().Add(time.Minute))
-	if err != nil {
-		t.Fatalf("try claim: %v", err)
-	}
-
-	if !claimed || token == "" {
-		t.Fatalf("expected claim token, got claimed=%v token=%q", claimed, token)
-	}
+	_, claim := claimPendingRunExecution(t, ctx, runs, runID, "worker-a", time.Now().Add(time.Minute))
+	token := claim.ClaimToken
 
 	if err := runs.MarkRunOrphaned(ctx, runID, token, dal.OrphanReasonAckUncertain); err != nil {
 		t.Fatalf("MarkRunOrphaned: %v", err)

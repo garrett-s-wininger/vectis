@@ -217,9 +217,7 @@ type MockRunsRepository struct {
 	ActivateTaskErr            error
 	TaskCompletionErr          error
 	QueuedListErr              error
-	TryClaimErr                error
 	TryClaimExecutionErr       error
-	RenewLeaseErr              error
 	RenewExecutionLeaseErr     error
 	RequestCancelErr           error
 	CancelRequestedErr         error
@@ -251,10 +249,8 @@ type MockRunsRepository struct {
 	CountTaskFinalizeResult   int64
 	CountTaskFinalizeByCell   []dal.RunCountByCell
 
-	TryClaimResult                   bool
 	TryClaimExecutionResult          bool
 	TryClaimExecutionAlreadyAccepted bool
-	ClaimToken                       string
 	ExecutionClaimToken              string
 	RunStatus                        string
 	RunStatusFound                   bool
@@ -312,8 +308,6 @@ func NewMockRunsRepository() *MockRunsRepository {
 		CreateRunID:      "mock-run-id",
 		CreateRunIndex:   1,
 		CreateRunCreated: true,
-		TryClaimResult:   false,
-		ClaimToken:       "mock-claim-token",
 	}
 }
 
@@ -433,17 +427,6 @@ func (m *MockRunsRepository) GetRunStatus(ctx context.Context, runID string) (st
 		return "", false, m.GetRunStatusErr
 	}
 	return m.RunStatus, m.RunStatusFound, nil
-}
-
-func (m *MockRunsRepository) TryClaim(ctx context.Context, runID, owner string, leaseUntil time.Time) (bool, string, error) {
-	if m.TryClaimErr != nil {
-		return false, "", m.TryClaimErr
-	}
-	return m.TryClaimResult, m.ClaimToken, nil
-}
-
-func (m *MockRunsRepository) RenewLease(ctx context.Context, runID, owner, claimToken string, leaseUntil time.Time) error {
-	return m.RenewLeaseErr
 }
 
 func (m *MockRunsRepository) RequestRunCancel(ctx context.Context, runID, reason string) (dal.RunForCancel, error) {

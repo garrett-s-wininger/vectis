@@ -684,19 +684,6 @@ func (w *integrationWorker) runOne(ctx context.Context) error {
 	}
 
 	runID := jobReq.GetRunId()
-	claimed, _, err := w.store.TryClaim(w.runCtx, runID, w.workerID, time.Now().Add(dal.DefaultLeaseTTL))
-	if err != nil {
-		return fmt.Errorf("claim run: %w", err)
-	}
-
-	if !claimed {
-		return fmt.Errorf("run %s was not claimable", runID)
-	}
-
-	if err := w.catalog.RecordRunStatus(w.runCtx, dal.RunStatusUpdate{RunID: runID, Status: dal.RunStatusRunning}); err != nil {
-		return fmt.Errorf("record running catalog event: %w", err)
-	}
-
 	if err := w.queue.Ack(w.runCtx, jobReq.GetDeliveryId()); err != nil {
 		return fmt.Errorf("ack delivery: %w", err)
 	}
@@ -714,6 +701,10 @@ func (w *integrationWorker) runOne(ctx context.Context) error {
 		if err := w.catalog.RecordExecutionStatus(w.runCtx, dal.ExecutionStatusUpdate{ExecutionID: env.ExecutionID, Status: dal.ExecutionStatusAccepted}); err != nil {
 			return fmt.Errorf("record accepted catalog event: %w", err)
 		}
+	}
+
+	if err := w.catalog.RecordRunStatus(w.runCtx, dal.RunStatusUpdate{RunID: runID, Status: dal.RunStatusRunning}); err != nil {
+		return fmt.Errorf("record running catalog event: %w", err)
 	}
 
 	if err := w.store.MarkExecutionStarted(w.runCtx, env.ExecutionID); err != nil {

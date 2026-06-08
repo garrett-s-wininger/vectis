@@ -198,35 +198,20 @@ func (w *worker) handleJob(req *api.JobRequest) {
 		return
 	}
 
-	leaseUntil := time.Now().Add(dal.DefaultLeaseTTL)
-	claimed, claimToken, err := w.store.TryClaim(w.runCtx, runID, w.workerID, leaseUntil)
-	if err != nil {
-		w.logger.Error("TryClaim %s: %v", runID, err)
-		return
-	}
-
-	if !claimed {
-		w.logger.Debug("Run %s not claimed", runID)
-		_ = w.queue.Ack(w.runCtx, deliveryID)
-		return
-	}
-
 	if err := w.queue.Ack(w.runCtx, deliveryID); err != nil {
 		w.logger.Error("Ack failed: %v", err)
-		_ = w.store.MarkRunOrphaned(w.runCtx, runID, claimToken, "ack_uncertain")
 		return
 	}
 
 	executionClaim, err := w.store.TryClaimExecution(w.runCtx, env.ExecutionID, w.workerID, time.Now().Add(dal.DefaultLeaseTTL))
 	if err != nil {
 		w.logger.Error("TryClaimExecution %s: %v", env.ExecutionID, err)
-		_ = w.store.MarkRunOrphaned(w.runCtx, runID, claimToken, "ack_uncertain")
+		_ = w.store.MarkRunOrphaned(w.runCtx, runID, "", "ack_uncertain")
 		return
 	}
 
 	if !executionClaim.Claimed {
 		w.logger.Error("Execution %s not claimed", env.ExecutionID)
-		_ = w.store.MarkRunOrphaned(w.runCtx, runID, claimToken, "ack_uncertain")
 		return
 	}
 

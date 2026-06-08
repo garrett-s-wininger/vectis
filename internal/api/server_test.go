@@ -51,6 +51,26 @@ func insertStoredJobForTest(t *testing.T, db *sql.DB, jobID, definitionJSON stri
 	}
 }
 
+func claimPendingRunExecutionForAPITest(t *testing.T, runs dal.RunsRepository, runID, owner string, leaseUntil time.Time) dal.ExecutionClaimResult {
+	t.Helper()
+
+	dispatch, err := runs.GetPendingExecution(context.Background(), runID)
+	if err != nil {
+		t.Fatalf("get pending execution for run %s: %v", runID, err)
+	}
+
+	claim, err := runs.TryClaimExecution(context.Background(), dispatch.ExecutionID, owner, leaseUntil)
+	if err != nil {
+		t.Fatalf("claim execution %s: %v", dispatch.ExecutionID, err)
+	}
+
+	if !claim.Claimed || claim.ClaimToken == "" {
+		t.Fatalf("expected execution %s to be claimable, claim=%+v", dispatch.ExecutionID, claim)
+	}
+
+	return claim
+}
+
 func waitForNEnqueuedJobs(t *testing.T, q *mocks.MockQueueService, n int) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
@@ -2865,16 +2885,9 @@ func TestAPIServer_RepairMarkRun_ResolvesOrphanedRun(t *testing.T) {
 		t.Fatalf("CreateRun: %v", err)
 	}
 
-	claimed, token, err := runs.TryClaim(ctx, runID, "worker-a", time.Now().Add(-time.Minute))
-	if err != nil {
-		t.Fatalf("TryClaim: %v", err)
-	}
+	claim := claimPendingRunExecutionForAPITest(t, runs, runID, "worker-a", time.Now().Add(-time.Minute))
 
-	if !claimed || token == "" {
-		t.Fatalf("expected claim token, got claimed=%v token=%q", claimed, token)
-	}
-
-	if err := runs.MarkRunOrphaned(ctx, runID, token, dal.OrphanReasonLeaseExpired); err != nil {
+	if err := runs.MarkRunOrphaned(ctx, runID, claim.ClaimToken, dal.OrphanReasonLeaseExpired); err != nil {
 		t.Fatalf("MarkRunOrphaned: %v", err)
 	}
 
@@ -2915,9 +2928,7 @@ func TestAPIServer_RepairMarkRun_RunningConflict(t *testing.T) {
 		t.Fatalf("CreateRun: %v", err)
 	}
 
-	if claimed, _, err := runs.TryClaim(ctx, runID, "worker-a", time.Now().Add(time.Minute)); err != nil || !claimed {
-		t.Fatalf("TryClaim claimed=%v err=%v", claimed, err)
-	}
+	claimPendingRunExecutionForAPITest(t, runs, runID, "worker-a", time.Now().Add(time.Minute))
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/runs/"+runID+"/repair/mark-failed", strings.NewReader(`{}`))
 	req.SetPathValue("id", runID)
@@ -2939,15 +2950,9 @@ func TestAPIServer_ForceRequeueRun_Success(t *testing.T) {
 		t.Fatalf("CreateRun: %v", err)
 	}
 
-	claimed, token, err := runs.TryClaim(ctx, runID, "worker-a", time.Now().Add(time.Minute))
-	if err != nil {
-		t.Fatalf("TryClaim: %v", err)
-	}
-	if !claimed || token == "" {
-		t.Fatalf("expected claim token, got claimed=%v token=%q", claimed, token)
-	}
+	claim := claimPendingRunExecutionForAPITest(t, runs, runID, "worker-a", time.Now().Add(time.Minute))
 
-	if err := runs.MarkRunFailed(ctx, runID, token, dal.FailureCodeExecution, "transient failure"); err != nil {
+	if err := runs.MarkRunFailed(ctx, runID, claim.ClaimToken, dal.FailureCodeExecution, "transient failure"); err != nil {
 		t.Fatalf("MarkRunFailed: %v", err)
 	}
 
@@ -3014,13 +3019,7 @@ func TestAPIServer_ForceRequeueRun_RunningConflict(t *testing.T) {
 		t.Fatalf("CreateRun: %v", err)
 	}
 
-	claimed, _, err := runs.TryClaim(ctx, runID, "worker-a", time.Now().Add(time.Minute))
-	if err != nil {
-		t.Fatalf("TryClaim: %v", err)
-	}
-	if !claimed {
-		t.Fatal("expected TryClaim to succeed")
-	}
+	claimPendingRunExecutionForAPITest(t, runs, runID, "worker-a", time.Now().Add(time.Minute))
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/runs/"+runID+"/force-requeue", nil)
 	req.SetPathValue("id", runID)
@@ -3062,14 +3061,7 @@ func TestAPIServer_CancelRun_ResolverUsesRequestBoundContext(t *testing.T) {
 		t.Fatalf("CreateRun: %v", err)
 	}
 
-	claimed, token, err := runs.TryClaim(ctx, runID, "worker-a", time.Now().Add(time.Minute))
-	if err != nil {
-		t.Fatalf("TryClaim: %v", err)
-	}
-
-	if !claimed || token == "" {
-		t.Fatalf("expected claim token, got claimed=%v token=%q", claimed, token)
-	}
+	claimPendingRunExecutionForAPITest(t, runs, runID, "worker-a", time.Now().Add(time.Minute))
 
 	resolverErr := errors.New("resolver stopped before worker RPC")
 	var sawDeadline bool
