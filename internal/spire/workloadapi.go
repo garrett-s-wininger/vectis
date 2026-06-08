@@ -73,20 +73,20 @@ func (s *WorkloadAPISource) FetchX509SVIDs(ctx context.Context) ([]X509SVID, err
 	return out, nil
 }
 
-func RequireX509SVID(ctx context.Context, source X509SVIDSource, expectedSPIFFEID string) error {
+func FetchX509SVID(ctx context.Context, source X509SVIDSource, expectedSPIFFEID string) (X509SVID, error) {
 	if source == nil {
-		return ErrX509SVIDSourceRequired
+		return X509SVID{}, ErrX509SVIDSourceRequired
 	}
 
 	normalized, err := serviceidentity.NormalizeSPIFFEAllowlist([]string{expectedSPIFFEID})
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrExpectedSPIFFEIDInvalid, err)
+		return X509SVID{}, fmt.Errorf("%w: %v", ErrExpectedSPIFFEIDInvalid, err)
 	}
 	expectedSPIFFEID = normalized[0]
 
 	svids, err := source.FetchX509SVIDs(ctx)
 	if err != nil {
-		return err
+		return X509SVID{}, err
 	}
 
 	for _, svid := range svids {
@@ -96,9 +96,14 @@ func RequireX509SVID(ctx context.Context, source X509SVIDSource, expectedSPIFFEI
 		}
 
 		if normalized[0] == expectedSPIFFEID {
-			return nil
+			return X509SVID{SPIFFEID: normalized[0]}, nil
 		}
 	}
 
-	return ErrNoMatchingX509SVID
+	return X509SVID{}, ErrNoMatchingX509SVID
+}
+
+func RequireX509SVID(ctx context.Context, source X509SVIDSource, expectedSPIFFEID string) error {
+	_, err := FetchX509SVID(ctx, source, expectedSPIFFEID)
+	return err
 }

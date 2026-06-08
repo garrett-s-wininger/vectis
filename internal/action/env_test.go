@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"vectis/internal/workloadidentity"
 )
 
 func TestSanitizedProcessEnvAllowsOnlyStableExecutionVariables(t *testing.T) {
@@ -43,6 +45,29 @@ func TestCommandEnvReturnsCopy(t *testing.T) {
 
 	if !reflect.DeepEqual(state.ProcessEnv, []string{"PATH=/bin"}) {
 		t.Fatalf("CommandEnv mutated state env: %v", state.ProcessEnv)
+	}
+}
+
+func TestCommandEnvDoesNotExposeWorkloadIdentity(t *testing.T) {
+	state := &ExecutionState{
+		Workspace: "/work/run-1",
+		Workload: &workloadidentity.Identity{
+			SPIFFEID: "spiffe://prod.example/cell/local/job/job-1/run/run-1/execution/execution-1",
+			X509SVID: &workloadidentity.X509SVID{
+				SPIFFEID: "spiffe://prod.example/cell/local/job/job-1/run/run-1/execution/execution-1",
+			},
+		},
+	}
+
+	got := state.CommandEnv()
+	for _, key := range []string{
+		"SPIFFE_ENDPOINT_SOCKET",
+		"VECTIS_WORKLOAD_SPIFFE_ID",
+		"VECTIS_WORKLOAD_X509_SVID",
+	} {
+		if _, ok := envLookup(got, key); ok {
+			t.Fatalf("CommandEnv leaked %s in %v", key, got)
+		}
 	}
 }
 

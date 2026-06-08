@@ -692,14 +692,13 @@ func TestWorkerTryClaimExecution_RecordsAcceptedOnlyOnInitialClaim(t *testing.T)
 	}
 }
 
-func TestWorkerRunClaimedJob_RequireExecutionSVIDRejectsBeforeAction(t *testing.T) {
+func TestWorkerRunClaimedJob_SPIREEnabledRejectsMissingSVIDBeforeAction(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 	viper.Set("worker.execution_identity.enabled", true)
 	viper.Set("worker.execution_identity.trust_domain", "prod.example")
 	viper.Set("worker.spire.enabled", true)
 	viper.Set("worker.spire.workload_api_address", "unix:///tmp/spire-agent.sock")
-	viper.Set("worker.spire.require_execution_svid", true)
 
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
@@ -3036,6 +3035,70 @@ func TestRequireExecutionSVIDDisabled(t *testing.T) {
 	}
 }
 
+func TestAcquireExecutionSVIDDisabledDoesNotFetch(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	identity := workerTestWorkloadIdentity()
+	w := &worker{spireSVIDSource: fakeWorkerSVIDSource{err: errors.New("should not fetch")}}
+
+	got, err := w.acquireExecutionSVID(context.Background(), identity)
+	if err != nil {
+		t.Fatalf("acquireExecutionSVID disabled: %v", err)
+	}
+
+	if got != identity {
+		t.Fatalf("acquireExecutionSVID returned a different identity when disabled: got=%p want=%p", got, identity)
+	}
+
+	if got.X509SVID != nil {
+		t.Fatalf("acquireExecutionSVID attached SVID while disabled: %+v", got.X509SVID)
+	}
+}
+
+func TestAcquireExecutionSVIDSPIREEnabledAttachesMatchedSVID(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("worker.spire.enabled", true)
+
+	identity := workerTestWorkloadIdentity()
+	w := &worker{spireSVIDSource: fakeWorkerSVIDSource{svids: []spire.X509SVID{
+		{SPIFFEID: identity.SPIFFEID},
+	}}}
+
+	got, err := w.acquireExecutionSVID(context.Background(), identity)
+	if err != nil {
+		t.Fatalf("acquireExecutionSVID: %v", err)
+	}
+
+	if got == identity {
+		t.Fatal("acquireExecutionSVID returned original identity, want SVID-bearing copy")
+	}
+
+	if identity.X509SVID != nil {
+		t.Fatalf("acquireExecutionSVID mutated original identity: %+v", identity.X509SVID)
+	}
+
+	if got.X509SVID == nil || got.X509SVID.SPIFFEID != identity.SPIFFEID {
+		t.Fatalf("acquireExecutionSVID X509SVID = %+v, want %q", got.X509SVID, identity.SPIFFEID)
+	}
+}
+
+func TestAcquireExecutionSVIDSPIREEnabledRejectsMissingSVIDWithoutRequireFlag(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("worker.spire.enabled", true)
+
+	w := &worker{spireSVIDSource: fakeWorkerSVIDSource{svids: []spire.X509SVID{
+		{SPIFFEID: "spiffe://prod.example/cell/iad-a/namespace/team-a/job/job-1/run/run-1/execution/other"},
+	}}}
+
+	_, err := w.acquireExecutionSVID(context.Background(), workerTestWorkloadIdentity())
+	if err == nil || !strings.Contains(err.Error(), "no X.509-SVID") {
+		t.Fatalf("acquireExecutionSVID error = %v, want missing SVID even without require flag", err)
+	}
+}
+
 func TestRequireExecutionSVIDRequiresIdentity(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
@@ -3128,6 +3191,16 @@ func TestWorkerSPIRESVIDFailureReason(t *testing.T) {
 			name: "missing source",
 			err:  fmt.Errorf("wrapped: %w", spire.ErrX509SVIDSourceRequired),
 			want: observability.WorkerSPIRESVIDReasonMissingSource,
+		},
+		{
+			name: "source timeout",
+			err:  fmt.Errorf("wrapped: %w", context.DeadlineExceeded),
+			want: observability.WorkerSPIRESVIDReasonSourceTimeout,
+		},
+		{
+			name: "canceled",
+			err:  fmt.Errorf("wrapped: %w", context.Canceled),
+			want: observability.WorkerSPIRESVIDReasonCanceled,
 		},
 		{
 			name: "source error",

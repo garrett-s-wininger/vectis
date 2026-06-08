@@ -50,6 +50,28 @@ func TestRequireX509SVIDAcceptsMatchingSVID(t *testing.T) {
 	}
 }
 
+func TestFetchX509SVIDReturnsMatchingSVID(t *testing.T) {
+	source := fakeX509SVIDSource{svids: []X509SVID{
+		{SPIFFEID: "not a spiffe id"},
+		{SPIFFEID: "spiffe://prod.example/cell/local/job/other"},
+		{SPIFFEID: "spiffe://prod.example/cell/local/job/job-1/run/run-1/execution/execution-1"},
+	}}
+
+	got, err := FetchX509SVID(
+		context.Background(),
+		source,
+		"spiffe://prod.example/cell/local/job/job-1/run/run-1/execution/execution-1",
+	)
+	if err != nil {
+		t.Fatalf("FetchX509SVID: %v", err)
+	}
+
+	want := "spiffe://prod.example/cell/local/job/job-1/run/run-1/execution/execution-1"
+	if got.SPIFFEID != want {
+		t.Fatalf("FetchX509SVID = %+v, want %q", got, want)
+	}
+}
+
 func TestRequireX509SVIDRejectsMissingSVID(t *testing.T) {
 	source := fakeX509SVIDSource{svids: []X509SVID{
 		{SPIFFEID: "spiffe://prod.example/cell/local/job/other"},

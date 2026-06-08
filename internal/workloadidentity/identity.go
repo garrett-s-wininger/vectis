@@ -32,6 +32,21 @@ type Identity struct {
 	JobID         string
 	RunID         string
 	ExecutionID   string
+	X509SVID      *X509SVID
+}
+
+type X509SVID struct {
+	SPIFFEID string
+}
+
+func (i *Identity) WithX509SVID(svid X509SVID) *Identity {
+	if i == nil {
+		return nil
+	}
+
+	out := *i
+	out.X509SVID = &X509SVID{SPIFFEID: svid.SPIFFEID}
+	return &out
 }
 
 func SPIFFEID(trustDomain, pathTemplate string, execution Execution) (string, error) {

@@ -34,6 +34,8 @@ const (
 	WorkerSPIRESVIDReasonInvalidExpectedID = "invalid_expected_id"
 	WorkerSPIRESVIDReasonMismatch          = "mismatch"
 	WorkerSPIRESVIDReasonSourceError       = "source_error"
+	WorkerSPIRESVIDReasonSourceTimeout     = "source_timeout"
+	WorkerSPIRESVIDReasonCanceled          = "canceled"
 	WorkerSPIRESVIDReasonUnknown           = "unknown"
 )
 

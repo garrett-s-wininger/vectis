@@ -99,6 +99,30 @@ func TestNewIdentityIncludesPolicyFields(t *testing.T) {
 	}
 }
 
+func TestIdentityWithX509SVIDReturnsCopy(t *testing.T) {
+	identity, err := NewIdentity("prod.example", "", validExecution())
+	if err != nil {
+		t.Fatalf("NewIdentity: %v", err)
+	}
+
+	got := identity.WithX509SVID(X509SVID{SPIFFEID: identity.SPIFFEID})
+	if got == nil {
+		t.Fatal("WithX509SVID returned nil")
+	}
+
+	if got == identity {
+		t.Fatal("WithX509SVID returned original identity")
+	}
+
+	if identity.X509SVID != nil {
+		t.Fatalf("original identity was mutated: %+v", identity.X509SVID)
+	}
+
+	if got.X509SVID == nil || got.X509SVID.SPIFFEID != identity.SPIFFEID {
+		t.Fatalf("X509SVID = %+v, want %q", got.X509SVID, identity.SPIFFEID)
+	}
+}
+
 func validExecution() Execution {
 	return Execution{
 		CellID:            "iad-a",

@@ -78,6 +78,10 @@ func ValidateWorkerSPIREConfig() error {
 		return fmt.Errorf("worker.spire: %w", err)
 	}
 
+	if !WorkerExecutionIdentityEnabled() {
+		return fmt.Errorf("worker.spire: enabled requires worker.execution_identity.enabled")
+	}
+
 	if WorkerSPIRERequireExecutionSVID() && !WorkerExecutionIdentityEnabled() {
 		return fmt.Errorf("worker.spire: require_execution_svid requires worker.execution_identity.enabled")
 	}

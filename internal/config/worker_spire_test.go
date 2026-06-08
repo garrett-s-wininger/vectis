@@ -91,11 +91,29 @@ func TestValidateWorkerSPIRERejectsBadAddress(t *testing.T) {
 func TestValidateWorkerSPIREAcceptsAddress(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
+	viper.Set("worker.execution_identity.enabled", true)
+	viper.Set("worker.execution_identity.trust_domain", "prod.example")
 	viper.Set("worker.spire.enabled", true)
 	viper.Set("worker.spire.workload_api_address", "unix:///tmp/spire-agent.sock")
 
+	if err := ValidateWorkerExecutionIdentityConfig(); err != nil {
+		t.Fatalf("ValidateWorkerExecutionIdentityConfig: %v", err)
+	}
+
 	if err := ValidateWorkerSPIREConfig(); err != nil {
 		t.Fatalf("ValidateWorkerSPIREConfig: %v", err)
+	}
+}
+
+func TestValidateWorkerSPIREEnabledNeedsExecutionIdentity(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("worker.spire.enabled", true)
+	viper.Set("worker.spire.workload_api_address", "unix:///tmp/spire-agent.sock")
+
+	err := ValidateWorkerSPIREConfig()
+	if err == nil || !strings.Contains(err.Error(), "worker.execution_identity.enabled") {
+		t.Fatalf("ValidateWorkerSPIREConfig error = %v, want execution identity requirement", err)
 	}
 }
 

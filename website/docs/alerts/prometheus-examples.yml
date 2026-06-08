@@ -83,7 +83,7 @@ groups:
           runbook: docs/REPAIR_RUNBOOKS.md#manual-run-intervention
 
       - alert: VectisWorkerSPIRESVIDCheckFailures
-        expr: increase(vectis_worker_spire_svid_checks_total{outcome="failed"}[10m]) > 0
+        expr: increase(vectis_worker_spire_svid_checks_total{outcome="failed",reason!="canceled"}[10m]) > 0
         labels:
           severity: warning
         annotations:

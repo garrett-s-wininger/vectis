@@ -63,14 +63,16 @@ Use this when `VectisAPISecurityRejectionsSustained` or `VectisAPISecurityReject
 
 Use this when `VectisWorkerSPIRESVIDCheckFailures` fires or when `vectis_worker_spire_svid_checks_total{outcome="failed"}` increases.
 
-1. Start with the `reason` label. It is intentionally low-cardinality: `mismatch`, `source_error`, `missing_identity`, `missing_source`, or `invalid_expected_id`.
+1. Start with the `reason` label. It is intentionally low-cardinality: `mismatch`, `source_error`, `source_timeout`, `canceled`, `missing_identity`, `missing_source`, or `invalid_expected_id`.
 2. For `mismatch`, compare the worker's configured `worker.execution_identity.*` template and trust domain with the SPIRE registration entries that apply to that worker. The worker requires an exact X.509-SVID SPIFFE ID match for the execution.
-3. For `source_error`, check the SPIRE agent process, Workload API socket path, filesystem permissions, `worker.spire.fetch_timeout`, and whether the worker can connect to `worker.spire.workload_api_address`.
-4. For `missing_identity`, confirm the run reached the worker through cell execution dispatch with an execution envelope and that `worker.execution_identity.enabled=true` is configured consistently.
-5. For `missing_source`, confirm `worker.spire.enabled=true` and `worker.spire.workload_api_address` are set on the worker process when `worker.spire.require_execution_svid=true`.
-6. For `invalid_expected_id`, validate `worker.execution_identity.trust_domain` and `worker.execution_identity.path_template` against the allowed SPIFFE URI shape.
-7. Do not fix these alerts by exposing the SPIRE Workload API socket, SVID, private key, or derived identity to shell actions. Repair the worker-controlled SPIRE registration or configuration path.
-8. After repair, retry only the failed runs that are safe to re-run and confirm the failed-check counter no longer increases.
+3. For `source_timeout`, check SPIRE agent responsiveness, socket filesystem health, and whether `worker.spire.fetch_timeout` is too low for the deployment.
+4. For `source_error`, check the SPIRE agent process, Workload API socket path, filesystem permissions, and whether the worker can connect to `worker.spire.workload_api_address`.
+5. For `canceled`, check whether the run was canceled by API/operator request or worker shutdown while the pre-action check was in progress; the starter alert excludes this reason.
+6. For `missing_identity`, confirm the run reached the worker through cell execution dispatch with an execution envelope and that `worker.execution_identity.enabled=true` is configured consistently.
+7. For `missing_source`, confirm `worker.spire.enabled=true` and `worker.spire.workload_api_address` are set on the worker process.
+8. For `invalid_expected_id`, validate `worker.execution_identity.trust_domain` and `worker.execution_identity.path_template` against the allowed SPIFFE URI shape.
+9. Do not fix these alerts by exposing the SPIRE Workload API socket, SVID, private key, or derived identity to shell actions. Repair the worker-controlled SPIRE registration or configuration path.
+10. After repair, retry only the failed runs that are safe to re-run and confirm the failed-check counter no longer increases.
 
 ## Queued Runs Or Backlog
 

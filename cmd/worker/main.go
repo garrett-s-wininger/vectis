@@ -916,9 +916,9 @@ func executionWorkloadIdentity(env *cell.ExecutionEnvelope) (*workloadidentity.I
 	)
 }
 
-func (w *worker) requireExecutionSVID(ctx context.Context, identity *workloadidentity.Identity) error {
-	if !config.WorkerSPIRERequireExecutionSVID() {
-		return nil
+func (w *worker) acquireExecutionSVID(ctx context.Context, identity *workloadidentity.Identity) (*workloadidentity.Identity, error) {
+	if !config.WorkerSPIREEnabled() && !config.WorkerSPIRERequireExecutionSVID() {
+		return identity, nil
 	}
 
 	if identity == nil {
@@ -926,7 +926,7 @@ func (w *worker) requireExecutionSVID(ctx context.Context, identity *workloadide
 			w.metrics.RecordSPIRESVIDCheck(ctx, observability.WorkerSPIRESVIDOutcomeFailed, observability.WorkerSPIRESVIDReasonMissingIdentity)
 		}
 
-		return fmt.Errorf("worker SPIRE execution SVID is required but execution identity is missing")
+		return identity, fmt.Errorf("worker SPIRE execution SVID is required but execution identity is missing")
 	}
 
 	source := w.spireSVIDSource
@@ -935,7 +935,7 @@ func (w *worker) requireExecutionSVID(ctx context.Context, identity *workloadide
 			w.metrics.RecordSPIRESVIDCheck(ctx, observability.WorkerSPIRESVIDOutcomeFailed, observability.WorkerSPIRESVIDReasonMissingSource)
 		}
 
-		return fmt.Errorf("worker SPIRE execution SVID is required but SPIRE source is not configured")
+		return identity, fmt.Errorf("worker SPIRE execution SVID is required but SPIRE source is not configured")
 	}
 
 	checkCtx := ctx
@@ -945,19 +945,25 @@ func (w *worker) requireExecutionSVID(ctx context.Context, identity *workloadide
 	}
 	defer cancel()
 
-	if err := spire.RequireX509SVID(checkCtx, source, identity.SPIFFEID); err != nil {
+	svid, err := spire.FetchX509SVID(checkCtx, source, identity.SPIFFEID)
+	if err != nil {
 		if w.metrics != nil {
 			w.metrics.RecordSPIRESVIDCheck(ctx, observability.WorkerSPIRESVIDOutcomeFailed, workerSPIRESVIDFailureReason(err))
 		}
 
-		return fmt.Errorf("worker SPIRE execution SVID: %w", err)
+		return identity, fmt.Errorf("worker SPIRE execution SVID: %w", err)
 	}
 
 	if w.metrics != nil {
 		w.metrics.RecordSPIRESVIDCheck(ctx, observability.WorkerSPIRESVIDOutcomeSuccess, observability.WorkerSPIRESVIDReasonMatched)
 	}
 
-	return nil
+	return identity.WithX509SVID(workloadidentity.X509SVID{SPIFFEID: svid.SPIFFEID}), nil
+}
+
+func (w *worker) requireExecutionSVID(ctx context.Context, identity *workloadidentity.Identity) error {
+	_, err := w.acquireExecutionSVID(ctx, identity)
+	return err
 }
 
 func workerSPIRESVIDFailureReason(err error) string {
@@ -968,6 +974,10 @@ func workerSPIRESVIDFailureReason(err error) string {
 		return observability.WorkerSPIRESVIDReasonMismatch
 	case errors.Is(err, spire.ErrX509SVIDSourceRequired):
 		return observability.WorkerSPIRESVIDReasonMissingSource
+	case errors.Is(err, context.DeadlineExceeded):
+		return observability.WorkerSPIRESVIDReasonSourceTimeout
+	case errors.Is(err, context.Canceled):
+		return observability.WorkerSPIRESVIDReasonCanceled
 	default:
 		return observability.WorkerSPIRESVIDReasonSourceError
 	}
@@ -1357,7 +1367,7 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, executionCl
 
 	workloadIdentity, err := executionWorkloadIdentity(env)
 	if err == nil {
-		err = w.requireExecutionSVID(execCtx, workloadIdentity)
+		workloadIdentity, err = w.acquireExecutionSVID(execCtx, workloadIdentity)
 	}
 
 	if err == nil {

@@ -459,6 +459,10 @@ func validateDefaults(d Defaults) {
 		panic("config defaults: worker.spire.workload_api_address must not be empty when enabled")
 	}
 
+	if d.Worker.SPIRE.Enabled && !d.Worker.ExecutionIdentity.Enabled {
+		panic("config defaults: worker.spire.enabled requires worker.execution_identity.enabled")
+	}
+
 	if d.Worker.SPIRE.RequireExecutionSVID && !d.Worker.SPIRE.Enabled {
 		panic("config defaults: worker.spire.require_execution_svid requires worker.spire.enabled")
 	}
