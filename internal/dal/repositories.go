@@ -504,7 +504,6 @@ type RunsRepository interface {
 	MarkRunCancelled(ctx context.Context, runID, claimToken, reason string) error
 	MarkRunAborted(ctx context.Context, runID, claimToken, reason string) error
 	MarkRunOrphaned(ctx context.Context, runID, claimToken, reason string) error
-	MarkRunQueuedForContinuation(ctx context.Context, runID, claimToken string) error
 	RepairMarkRunSucceeded(ctx context.Context, runID, reason string) error
 	RepairMarkRunFailed(ctx context.Context, runID, reason string) error
 	RepairMarkRunFailedWithCode(ctx context.Context, runID, failureCode, reason string) error
@@ -547,8 +546,6 @@ type RunsRepository interface {
 	CompleteExecutionAndFinalizeRunByClaim(ctx context.Context, executionID, owner, claimToken, status, failureCode, reason string) (ExecutionFinalizationResult, error)
 	MarkExecutionAccepted(ctx context.Context, executionID string) error
 	MarkExecutionStarted(ctx context.Context, executionID string) error
-	MarkExecutionTerminal(ctx context.Context, executionID, status string) error
-	MarkExecutionSucceededAndActivateChildren(ctx context.Context, executionID string) ([]TaskExecutionRecord, int, error)
 	CountByStatus(ctx context.Context, status string) (int64, error)
 	CountByStatusByCell(ctx context.Context, status string) ([]RunCountByCell, error)
 	CountStuckBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) (int64, error)
@@ -838,6 +835,10 @@ func (r *SQLRepositories) Jobs() JobsRepository {
 }
 
 func (r *SQLRepositories) Runs() RunsRepository {
+	return r.runs
+}
+
+func (r *SQLRepositories) SQLRuns() *SQLRunsRepository {
 	return r.runs
 }
 

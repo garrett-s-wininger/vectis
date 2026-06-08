@@ -125,13 +125,13 @@ func TestReducerReduceFailureDominatesIncompleteSibling(t *testing.T) {
 		t.Fatalf("ensure incomplete branch: %v", err)
 	}
 
-	if children, activated, err := repos.Runs().MarkExecutionSucceededAndActivateChildren(ctx, root.ExecutionID); err != nil {
+	if children, activated, err := repos.SQLRuns().MarkExecutionSucceededAndActivateChildren(ctx, root.ExecutionID); err != nil {
 		t.Fatalf("root success fan-out: %v", err)
 	} else if activated != 2 || len(children) != 2 {
 		t.Fatalf("root success fan-out activated=%d children=%+v", activated, children)
 	}
 
-	if err := repos.Runs().MarkExecutionTerminal(ctx, failedBranch.ExecutionID, dal.ExecutionStatusFailed); err != nil {
+	if err := repos.SQLRuns().MarkExecutionTerminal(ctx, failedBranch.ExecutionID, dal.ExecutionStatusFailed); err != nil {
 		t.Fatalf("mark failed branch failed: %v", err)
 	}
 

@@ -139,10 +139,11 @@ func TestService_Process_RepairsTaskDispatchIntent(t *testing.T) {
 		t.Fatalf("ensure child execution: %v", err)
 	}
 
-	activated, count, err := repos.Runs().MarkExecutionSucceededAndActivateChildren(ctx, rootDispatch.ExecutionID)
+	activated, count, err := repos.SQLRuns().MarkExecutionSucceededAndActivateChildren(ctx, rootDispatch.ExecutionID)
 	if err != nil {
 		t.Fatalf("activate child execution: %v", err)
 	}
+
 	if count != 1 || len(activated) != 1 || activated[0].ExecutionID != child.ExecutionID {
 		t.Fatalf("activated child mismatch: count=%d children=%+v want %+v", count, activated, child)
 	}
@@ -227,7 +228,7 @@ func TestService_Process_RepairsOrphanedTaskRunSucceeded(t *testing.T) {
 		t.Fatal("expected run claim")
 	}
 
-	if _, _, err := repos.Runs().MarkExecutionSucceededAndActivateChildren(ctx, rootDispatch.ExecutionID); err != nil {
+	if _, _, err := repos.SQLRuns().MarkExecutionSucceededAndActivateChildren(ctx, rootDispatch.ExecutionID); err != nil {
 		t.Fatalf("mark root succeeded: %v", err)
 	}
 
@@ -319,15 +320,16 @@ func TestService_Process_RepairsOrphanedTaskRunFailedWithIncompleteSibling(t *te
 		t.Fatal("expected run claim")
 	}
 
-	activated, count, err := repos.Runs().MarkExecutionSucceededAndActivateChildren(ctx, rootDispatch.ExecutionID)
+	activated, count, err := repos.SQLRuns().MarkExecutionSucceededAndActivateChildren(ctx, rootDispatch.ExecutionID)
 	if err != nil {
 		t.Fatalf("activate child executions: %v", err)
 	}
+
 	if count != 2 || len(activated) != 2 {
 		t.Fatalf("activated children mismatch: count=%d children=%+v", count, activated)
 	}
 
-	if err := repos.Runs().MarkExecutionTerminal(ctx, failedBranch.ExecutionID, dal.ExecutionStatusFailed); err != nil {
+	if err := repos.SQLRuns().MarkExecutionTerminal(ctx, failedBranch.ExecutionID, dal.ExecutionStatusFailed); err != nil {
 		t.Fatalf("mark failed branch terminal: %v", err)
 	}
 

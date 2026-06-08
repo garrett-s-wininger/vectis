@@ -738,7 +738,7 @@ func TestAPIServer_GetStuckRunsIncludesTaskFinalizationPending(t *testing.T) {
 		t.Fatal("expected run claim")
 	}
 
-	if _, _, err := repos.Runs().MarkExecutionSucceededAndActivateChildren(ctx, dispatch.ExecutionID); err != nil {
+	if _, _, err := repos.SQLRuns().MarkExecutionSucceededAndActivateChildren(ctx, dispatch.ExecutionID); err != nil {
 		t.Fatalf("mark execution succeeded: %v", err)
 	}
 
@@ -1447,6 +1447,7 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 		TriggerInvocationID  *string `json:"trigger_invocation_id,omitempty"`
 		ExecutionPayloadHash string  `json:"execution_payload_hash,omitempty"`
 	}
+
 	if err := json.NewDecoder(getRunRec.Body).Decode(&runResp); err != nil {
 		t.Fatalf("decode run response: %v", err)
 	}
@@ -1460,7 +1461,7 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 	}
 
 	leaseUntil := time.Now().Add(time.Minute)
-	claimedExecution, executionClaimToken, err := dal.NewSQLRepositories(db).Runs().TryClaimExecution(context.Background(), env.ExecutionID, "worker-api-task-list", leaseUntil)
+	claimedExecution, executionClaimToken, err := dal.NewSQLRepositories(db).SQLRuns().TryClaimExecution(context.Background(), env.ExecutionID, "worker-api-task-list", leaseUntil)
 	if err != nil {
 		t.Fatalf("claim execution for task list: %v", err)
 	}
@@ -1870,7 +1871,7 @@ func TestAPIServer_GetJobRuns_ReturnsStatusAndFailureReasonAfterStatusTransition
 	}
 
 	runID := jobs[0].GetRunId()
-	store := dal.NewSQLRepositories(db).Runs()
+	store := dal.NewSQLRepositories(db).SQLRuns()
 	ctx := req.Context()
 
 	if err := store.MarkRunRunning(ctx, runID); err != nil {
@@ -2469,7 +2470,7 @@ func TestAPIServer_GetRun_IncludesTaskFinalizationRepairNextAction(t *testing.T)
 		t.Fatal("expected run claim")
 	}
 
-	if _, _, err := repos.Runs().MarkExecutionSucceededAndActivateChildren(ctx, dispatch.ExecutionID); err != nil {
+	if _, _, err := repos.SQLRuns().MarkExecutionSucceededAndActivateChildren(ctx, dispatch.ExecutionID); err != nil {
 		t.Fatalf("mark execution succeeded: %v", err)
 	}
 
@@ -2824,7 +2825,7 @@ func TestAPIServer_ForceFailRun_Success(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	ctx := context.Background()
 	insertStoredJobForTest(t, db, "job-force-fail", `{"id":"job-force-fail"}`, 1)
-	runs := dal.NewSQLRepositories(db).Runs()
+	runs := dal.NewSQLRepositories(db).SQLRuns()
 
 	runID, _, err := runs.CreateRun(ctx, "job-force-fail", nil, 1)
 	if err != nil {
@@ -2878,7 +2879,7 @@ func TestAPIServer_RepairMarkRun_ResolvesOrphanedRun(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	ctx := context.Background()
 	insertStoredJobForTest(t, db, "job-repair-mark", `{"id":"job-repair-mark"}`, 1)
-	runs := dal.NewSQLRepositories(db).Runs()
+	runs := dal.NewSQLRepositories(db).SQLRuns()
 
 	runID, _, err := runs.CreateRun(ctx, "job-repair-mark", nil, 1)
 	if err != nil {
@@ -2928,7 +2929,7 @@ func TestAPIServer_RepairMarkRun_RunningConflict(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	ctx := context.Background()
 	insertStoredJobForTest(t, db, "job-repair-running", `{"id":"job-repair-running"}`, 1)
-	runs := dal.NewSQLRepositories(db).Runs()
+	runs := dal.NewSQLRepositories(db).SQLRuns()
 
 	runID, _, err := runs.CreateRun(ctx, "job-repair-running", nil, 1)
 	if err != nil {
@@ -2952,7 +2953,7 @@ func TestAPIServer_ForceRequeueRun_Success(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	ctx := context.Background()
 	insertStoredJobForTest(t, db, "job-force-requeue", `{"id":"job-force-requeue"}`, 1)
-	runs := dal.NewSQLRepositories(db).Runs()
+	runs := dal.NewSQLRepositories(db).SQLRuns()
 
 	runID, _, err := runs.CreateRun(ctx, "job-force-requeue", nil, 1)
 	if err != nil {
@@ -3003,7 +3004,7 @@ func TestAPIServer_ForceRequeueRun_SucceededConflict(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	ctx := context.Background()
 	insertStoredJobForTest(t, db, "job-force-requeue-succeeded", `{"id":"job-force-requeue-succeeded"}`, 1)
-	runs := dal.NewSQLRepositories(db).Runs()
+	runs := dal.NewSQLRepositories(db).SQLRuns()
 
 	runID, _, err := runs.CreateRun(ctx, "job-force-requeue-succeeded", nil, 1)
 	if err != nil {
@@ -3027,7 +3028,7 @@ func TestAPIServer_ForceRequeueRun_RunningConflict(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	ctx := context.Background()
 	insertStoredJobForTest(t, db, "job-force-requeue-running", `{"id":"job-force-requeue-running"}`, 1)
-	runs := dal.NewSQLRepositories(db).Runs()
+	runs := dal.NewSQLRepositories(db).SQLRuns()
 
 	runID, _, err := runs.CreateRun(ctx, "job-force-requeue-running", nil, 1)
 	if err != nil {
@@ -3055,7 +3056,7 @@ func TestAPIServer_CancelRun_NotExecutingConflict(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	ctx := context.Background()
 	insertStoredJobForTest(t, db, "job-cancel-queued", `{"id":"job-cancel-queued"}`, 1)
-	runs := dal.NewSQLRepositories(db).Runs()
+	runs := dal.NewSQLRepositories(db).SQLRuns()
 
 	runID, _, err := runs.CreateRun(ctx, "job-cancel-queued", nil, 1)
 	if err != nil {
@@ -3075,7 +3076,7 @@ func TestAPIServer_CancelRun_ResolverUsesRequestBoundContext(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	ctx := context.Background()
 	insertStoredJobForTest(t, db, "job-cancel-context", `{"id":"job-cancel-context"}`, 1)
-	runs := dal.NewSQLRepositories(db).Runs()
+	runs := dal.NewSQLRepositories(db).SQLRuns()
 
 	runID, _, err := runs.CreateRun(ctx, "job-cancel-context", nil, 1)
 	if err != nil {

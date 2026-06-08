@@ -360,7 +360,7 @@ func setupDispatchableChildForJob(t *testing.T, ctx context.Context, repos *dal.
 		t.Fatalf("record root execution payload: %v", err)
 	}
 
-	if _, activated, err := repos.Runs().MarkExecutionSucceededAndActivateChildren(ctx, rootDispatch.ExecutionID); err != nil {
+	if _, activated, err := repos.SQLRuns().MarkExecutionSucceededAndActivateChildren(ctx, rootDispatch.ExecutionID); err != nil {
 		t.Fatalf("root success fan-out: %v", err)
 	} else if activated != 1 {
 		t.Fatalf("root success fan-out activated: got %d, want 1", activated)

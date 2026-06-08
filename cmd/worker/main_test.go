@@ -538,7 +538,7 @@ func TestWorkerRunClaimedJob_TaskFanoutQueuesContinuation(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
-	runs := repos.Runs()
+	runs := repos.SQLRuns()
 
 	ns, err := repos.Namespaces().Create(ctx, "worker-task-fanout", nil)
 	if err != nil {
@@ -1010,7 +1010,7 @@ func TestWorkerRunClaimedJob_TaskFanoutExecutesEnvelopeTaskOnly(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
-	runs := repos.Runs()
+	runs := repos.SQLRuns()
 
 	jobID := "job-worker-task-scope"
 	runID, runIndex, err := runs.CreateRun(ctx, jobID, nil, 1)
