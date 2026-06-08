@@ -2,12 +2,19 @@ package spire
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"vectis/internal/serviceidentity"
 
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
+)
+
+var (
+	ErrX509SVIDSourceRequired  = errors.New("spire: X.509-SVID source is required")
+	ErrExpectedSPIFFEIDInvalid = errors.New("spire: expected execution SPIFFE ID is invalid")
+	ErrNoMatchingX509SVID      = errors.New("spire: no X.509-SVID for expected execution identity")
 )
 
 type X509SVID struct {
@@ -68,12 +75,12 @@ func (s *WorkloadAPISource) FetchX509SVIDs(ctx context.Context) ([]X509SVID, err
 
 func RequireX509SVID(ctx context.Context, source X509SVIDSource, expectedSPIFFEID string) error {
 	if source == nil {
-		return fmt.Errorf("spire: X.509-SVID source is required")
+		return ErrX509SVIDSourceRequired
 	}
 
 	normalized, err := serviceidentity.NormalizeSPIFFEAllowlist([]string{expectedSPIFFEID})
 	if err != nil {
-		return fmt.Errorf("spire: expected execution SPIFFE ID: %w", err)
+		return fmt.Errorf("%w: %v", ErrExpectedSPIFFEIDInvalid, err)
 	}
 	expectedSPIFFEID = normalized[0]
 
@@ -93,5 +100,5 @@ func RequireX509SVID(ctx context.Context, source X509SVIDSource, expectedSPIFFEI
 		}
 	}
 
-	return fmt.Errorf("spire: no X.509-SVID for expected execution identity %s", expectedSPIFFEID)
+	return fmt.Errorf("%w: %s", ErrNoMatchingX509SVID, expectedSPIFFEID)
 }

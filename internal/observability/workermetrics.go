@@ -24,6 +24,17 @@ const (
 	WorkerPhaseAcking     = "acking"
 	WorkerPhaseExecuting  = "executing"
 	WorkerPhaseFinalizing = "finalizing"
+
+	WorkerSPIRESVIDOutcomeSuccess = "success"
+	WorkerSPIRESVIDOutcomeFailed  = "failed"
+
+	WorkerSPIRESVIDReasonMatched           = "matched"
+	WorkerSPIRESVIDReasonMissingIdentity   = "missing_identity"
+	WorkerSPIRESVIDReasonMissingSource     = "missing_source"
+	WorkerSPIRESVIDReasonInvalidExpectedID = "invalid_expected_id"
+	WorkerSPIRESVIDReasonMismatch          = "mismatch"
+	WorkerSPIRESVIDReasonSourceError       = "source_error"
+	WorkerSPIRESVIDReasonUnknown           = "unknown"
 )
 
 var workerPhases = []string{
@@ -36,16 +47,17 @@ var workerPhases = []string{
 }
 
 type WorkerMetrics struct {
-	received      metric.Int64Counter
-	duration      metric.Float64Histogram
-	phaseGauge    metric.Int64ObservableGauge
-	drainingGauge metric.Int64ObservableGauge
-	dbGauge       metric.Int64ObservableGauge
-	callback      metric.Registration
-	mu            sync.RWMutex
-	phase         string
-	draining      bool
-	dbUnavailable bool
+	received        metric.Int64Counter
+	duration        metric.Float64Histogram
+	spireSVIDChecks metric.Int64Counter
+	phaseGauge      metric.Int64ObservableGauge
+	drainingGauge   metric.Int64ObservableGauge
+	dbGauge         metric.Int64ObservableGauge
+	callback        metric.Registration
+	mu              sync.RWMutex
+	phase           string
+	draining        bool
+	dbUnavailable   bool
 }
 
 func NewWorkerMetrics() (*WorkerMetrics, error) {
@@ -66,6 +78,14 @@ func NewWorkerMetrics() (*WorkerMetrics, error) {
 
 	if err != nil {
 		return nil, fmt.Errorf("vectis_worker_job_duration_seconds: %w", err)
+	}
+
+	spireSVIDChecks, err := m.Int64Counter("vectis_worker_spire_svid_checks_total",
+		metric.WithDescription("Worker SPIRE execution X.509-SVID checks by outcome and reason"),
+		metric.WithUnit("{check}"))
+
+	if err != nil {
+		return nil, fmt.Errorf("vectis_worker_spire_svid_checks_total: %w", err)
 	}
 
 	phaseGauge, err := m.Int64ObservableGauge("vectis_worker_lifecycle_state",
@@ -90,12 +110,13 @@ func NewWorkerMetrics() (*WorkerMetrics, error) {
 	}
 
 	wm := &WorkerMetrics{
-		received:      received,
-		duration:      duration,
-		phaseGauge:    phaseGauge,
-		drainingGauge: drainingGauge,
-		dbGauge:       dbGauge,
-		phase:         WorkerPhaseIdle,
+		received:        received,
+		duration:        duration,
+		spireSVIDChecks: spireSVIDChecks,
+		phaseGauge:      phaseGauge,
+		drainingGauge:   drainingGauge,
+		dbGauge:         dbGauge,
+		phase:           WorkerPhaseIdle,
 	}
 
 	callback, err := m.RegisterCallback(func(_ context.Context, o metric.Observer) error {
@@ -137,6 +158,25 @@ func (wm *WorkerMetrics) RecordJobFinished(ctx context.Context, outcome string, 
 
 	attrs := metric.WithAttributes(attribute.String("outcome", outcome))
 	wm.duration.Record(ctx, d.Seconds(), attrs)
+}
+
+func (wm *WorkerMetrics) RecordSPIRESVIDCheck(ctx context.Context, outcome, reason string) {
+	if wm == nil {
+		return
+	}
+
+	if outcome == "" {
+		outcome = WorkerSPIRESVIDOutcomeFailed
+	}
+
+	if reason == "" {
+		reason = WorkerSPIRESVIDReasonUnknown
+	}
+
+	wm.spireSVIDChecks.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("outcome", outcome),
+		attribute.String("reason", reason),
+	))
 }
 
 func (wm *WorkerMetrics) SetLifecyclePhase(phase string) {

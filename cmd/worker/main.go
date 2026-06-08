@@ -922,19 +922,48 @@ func (w *worker) requireExecutionSVID(ctx context.Context, identity *workloadide
 	}
 
 	if identity == nil {
+		if w.metrics != nil {
+			w.metrics.RecordSPIRESVIDCheck(ctx, observability.WorkerSPIRESVIDOutcomeFailed, observability.WorkerSPIRESVIDReasonMissingIdentity)
+		}
+
 		return fmt.Errorf("worker SPIRE execution SVID is required but execution identity is missing")
 	}
 
 	source := w.spireSVIDSource
 	if source == nil {
+		if w.metrics != nil {
+			w.metrics.RecordSPIRESVIDCheck(ctx, observability.WorkerSPIRESVIDOutcomeFailed, observability.WorkerSPIRESVIDReasonMissingSource)
+		}
+
 		return fmt.Errorf("worker SPIRE execution SVID is required but SPIRE source is not configured")
 	}
 
 	if err := spire.RequireX509SVID(ctx, source, identity.SPIFFEID); err != nil {
+		if w.metrics != nil {
+			w.metrics.RecordSPIRESVIDCheck(ctx, observability.WorkerSPIRESVIDOutcomeFailed, workerSPIRESVIDFailureReason(err))
+		}
+
 		return fmt.Errorf("worker SPIRE execution SVID: %w", err)
 	}
 
+	if w.metrics != nil {
+		w.metrics.RecordSPIRESVIDCheck(ctx, observability.WorkerSPIRESVIDOutcomeSuccess, observability.WorkerSPIRESVIDReasonMatched)
+	}
+
 	return nil
+}
+
+func workerSPIRESVIDFailureReason(err error) string {
+	switch {
+	case errors.Is(err, spire.ErrExpectedSPIFFEIDInvalid):
+		return observability.WorkerSPIRESVIDReasonInvalidExpectedID
+	case errors.Is(err, spire.ErrNoMatchingX509SVID):
+		return observability.WorkerSPIRESVIDReasonMismatch
+	case errors.Is(err, spire.ErrX509SVIDSourceRequired):
+		return observability.WorkerSPIRESVIDReasonMissingSource
+	default:
+		return observability.WorkerSPIRESVIDReasonSourceError
+	}
 }
 
 func (w *worker) markExecutionStarted(ctx context.Context, env *cell.ExecutionEnvelope) {

@@ -63,6 +63,9 @@ func TestRequireX509SVIDRejectsMissingSVID(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "no X.509-SVID") {
 		t.Fatalf("RequireX509SVID error = %v, want missing SVID", err)
 	}
+	if !errors.Is(err, ErrNoMatchingX509SVID) {
+		t.Fatalf("RequireX509SVID error = %v, want ErrNoMatchingX509SVID", err)
+	}
 }
 
 func TestRequireX509SVIDPropagatesSourceError(t *testing.T) {
@@ -81,5 +84,19 @@ func TestRequireX509SVIDRejectsBadExpectedID(t *testing.T) {
 	err := RequireX509SVID(context.Background(), fakeX509SVIDSource{}, "https://prod.example/not-spiffe")
 	if err == nil || !strings.Contains(err.Error(), "spiffe://") {
 		t.Fatalf("RequireX509SVID error = %v, want SPIFFE validation error", err)
+	}
+	if !errors.Is(err, ErrExpectedSPIFFEIDInvalid) {
+		t.Fatalf("RequireX509SVID error = %v, want ErrExpectedSPIFFEIDInvalid", err)
+	}
+}
+
+func TestRequireX509SVIDRejectsNilSource(t *testing.T) {
+	err := RequireX509SVID(
+		context.Background(),
+		nil,
+		"spiffe://prod.example/cell/local/job/job-1/run/run-1/execution/execution-1",
+	)
+	if !errors.Is(err, ErrX509SVIDSourceRequired) {
+		t.Fatalf("RequireX509SVID error = %v, want ErrX509SVIDSourceRequired", err)
 	}
 }

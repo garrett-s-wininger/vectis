@@ -68,7 +68,7 @@ Use these as starter operating signals, not contractual product SLOs. Production
 | --- | --- | --- |
 | Trigger acceptance | API request success and low 5xx rate on trigger/run routes. | Dependency failures should be visible quickly. |
 | Queue handoff | Queue pending/in-flight gauges and reconciler reenqueue outcomes. | Queued work should drain within one reconciler interval under normal load. |
-| Worker execution | `vectis_worker_jobs_received_total` and `vectis_worker_job_duration_seconds`. | Workers should keep receiving jobs; terminal outcomes should match workload expectations. |
+| Worker execution | `vectis_worker_jobs_received_total`, `vectis_worker_job_duration_seconds`, and `vectis_worker_spire_svid_checks_total` when SPIRE execution SVID checks are enabled. | Workers should keep receiving jobs; terminal outcomes should match workload expectations, and SPIRE SVID check failures should be investigated. |
 | Log availability | `vectis_log_storage_append_failures_total`, `vectis_log_shard_route_failures_total`, log drops, and gRPC chunk rate. | Log append and shard routing failures should be zero. |
 | Log-forwarder backlog | `vectis_log_forwarder_spool_files`, `vectis_log_forwarder_spool_oldest_age_seconds`, and `vectis_log_forwarder_batches_total`. | Spool backlog should drain quickly after log service recovery. |
 | Audit durability | `vectis_audit_events_dropped_total` and `vectis_audit_flush_failures_total`. | Audit drops should be zero. |

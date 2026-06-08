@@ -3080,6 +3080,43 @@ func TestRequireExecutionSVIDRejectsMissingSVID(t *testing.T) {
 	}
 }
 
+func TestWorkerSPIRESVIDFailureReason(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{
+			name: "invalid expected id",
+			err:  fmt.Errorf("wrapped: %w", spire.ErrExpectedSPIFFEIDInvalid),
+			want: observability.WorkerSPIRESVIDReasonInvalidExpectedID,
+		},
+		{
+			name: "mismatch",
+			err:  fmt.Errorf("wrapped: %w", spire.ErrNoMatchingX509SVID),
+			want: observability.WorkerSPIRESVIDReasonMismatch,
+		},
+		{
+			name: "missing source",
+			err:  fmt.Errorf("wrapped: %w", spire.ErrX509SVIDSourceRequired),
+			want: observability.WorkerSPIRESVIDReasonMissingSource,
+		},
+		{
+			name: "source error",
+			err:  errors.New("workload API unavailable"),
+			want: observability.WorkerSPIRESVIDReasonSourceError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := workerSPIRESVIDFailureReason(tt.err); got != tt.want {
+				t.Fatalf("workerSPIRESVIDFailureReason() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func logContains(logs []string, substr string) bool {
 	for _, msg := range logs {
 		if strings.Contains(msg, substr) {
