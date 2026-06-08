@@ -48,7 +48,7 @@ Metrics HTTP servers must go through `internal/cli.StartMetricsHTTPServer`; it a
 
 HTTP method allowlists should use `internal/httpsecurity` helpers for shared `Allow` header and `HEAD`-for-`GET` behavior. Docs stay read-only (`GET`/`HEAD`); cell ingress should keep its route surface explicitly guarded.
 
-Cell ingress should keep both direct `ServeHTTP` and `Handler()` callers behind the shared `httpsecurity` header middleware and cell-ingress Host validation. The listener/client wiring must use internal `VECTIS_GRPC_TLS_*` mTLS for non-loopback `POST /cell/v1/executions` submissions. JSON responses should stay `no-store` by default; route guard errors, health checks, and execution submission responses all flow through the shared JSON writer.
+Cell ingress should keep both direct `ServeHTTP` and `Handler()` callers behind the shared `httpsecurity` header middleware and cell-ingress Host validation. The listener/client wiring must use internal `VECTIS_GRPC_TLS_*` mTLS for non-loopback `POST /cell/v1/executions` submissions. If `service_identity.cell_ingress_allowed_producer_identities` is configured, execution submission must require an exact producer SPIFFE URI SAN; health and metrics remain route-level reads but still follow listener TLS/Host policy. JSON responses should stay `no-store` by default; route guard errors, health checks, and execution submission responses all flow through the shared JSON writer.
 
 Docs static file serving must go through the hardened docs file server wrapper, not raw `http.FileServer`, so directory listings, dotfile paths, and local docs symlink escapes stay blocked.
 
@@ -78,6 +78,7 @@ Secure browser sessions use only `__Host-` session/CSRF cookie names with `Secur
 
 - **Defaults:** [`defaults.toml`](config/defaults.toml) (`//go:embed` in `config/load.go`).
 - **Validators:** `Validate*` functions sit alongside the options struct they guard (e.g. `api_auth.go` has `ValidateAPIAuthConfig`, `grpc_tls.go` has `ValidateTLSOptions`). Validators return a descriptive error string — callers log them at startup and exit.
+- **Service identity:** gRPC servers should use `GRPCServerOptionsForRole`, not the compatibility `GRPCServerOptions`, so configured SPIFFE URI SAN allowlists are enforced for registry, queue, log, and worker-control listeners.
 - **Binaries wire flags** in `cmd/*/main.go` and read via helpers in `config/*.go` (e.g. `config.APIPort()`, `config.GRPCTLSEnabled()`).
 - **Env override:** use `BindEnv` helpers or `viper.SetEnvPrefix` + `AutomaticEnv()` per binary. Ad-hoc env vars (no prefix, e.g. `VECTIS_API_TOKEN`) are read via `os.Getenv` in the relevant package — see `api_auth.go`.
 

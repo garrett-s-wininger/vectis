@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -18,6 +20,7 @@ import (
 	"vectis/internal/httpsecurity"
 	"vectis/internal/interfaces/mocks"
 
+	"github.com/spf13/viper"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
@@ -144,6 +147,76 @@ func TestSubmitExecutionAcceptsLocalEnvelope(t *testing.T) {
 
 	if reqs[0].GetJob().GetRunId() != "run-1" {
 		t.Fatalf("queued run id: got %q, want run-1", reqs[0].GetJob().GetRunId())
+	}
+}
+
+func TestSubmitExecutionRequiresAllowedProducerIdentityWhenConfigured(t *testing.T) {
+	tests := []struct {
+		name       string
+		tlsState   *tls.ConnectionState
+		wantStatus int
+		wantCode   string
+		wantQueued int
+	}{
+		{
+			name:       "missing peer cert",
+			wantStatus: http.StatusForbidden,
+			wantCode:   "authorization_denied",
+		},
+		{
+			name:       "wrong producer identity",
+			tlsState:   tlsStateWithURI(t, "spiffe://vectis.local/service/worker"),
+			wantStatus: http.StatusForbidden,
+			wantCode:   "authorization_denied",
+		},
+		{
+			name:       "allowed producer identity",
+			tlsState:   tlsStateWithURI(t, "spiffe://vectis.local/service/api"),
+			wantStatus: http.StatusAccepted,
+			wantQueued: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			viper.Reset()
+			t.Cleanup(viper.Reset)
+			viper.Set("service_identity.cell_ingress_allowed_producer_identities", []string{"spiffe://vectis.local/service/api"})
+
+			queue := mocks.NewMockQueueService()
+			srv := NewQueueServer("iad-a", queue, mocks.NewMockLogger())
+			req := newExecutionRequest(t, executionBody(t, validJobRequestForCell(t, "iad-a")))
+			req.TLS = tt.tlsState
+			rr := httptest.NewRecorder()
+
+			srv.ServeHTTP(rr, req)
+
+			if tt.wantCode != "" {
+				assertErrorCode(t, rr, tt.wantStatus, tt.wantCode)
+			} else if rr.Code != tt.wantStatus {
+				t.Fatalf("status: got %d, want %d; body=%s", rr.Code, tt.wantStatus, rr.Body.String())
+			}
+
+			if got := len(queue.GetJobRequests()); got != tt.wantQueued {
+				t.Fatalf("queued requests: got %d, want %d", got, tt.wantQueued)
+			}
+		})
+	}
+}
+
+func TestProducerIdentityPolicyDoesNotBlockCellIngressHealth(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("service_identity.cell_ingress_allowed_producer_identities", []string{"spiffe://vectis.local/service/api"})
+
+	srv := NewQueueServer("iad-a", mocks.NewMockQueueService(), mocks.NewMockLogger())
+	req := newCellIngressRequest(http.MethodGet, "/health/live", nil)
+	rr := httptest.NewRecorder()
+
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want %d; body=%s", rr.Code, http.StatusOK, rr.Body.String())
 	}
 }
 
@@ -568,6 +641,21 @@ func validJobRequestForCellAttempt(t *testing.T, cellID string, attempt int) *ap
 	}
 
 	return req
+}
+
+func tlsStateWithURI(t *testing.T, raw string) *tls.ConnectionState {
+	t.Helper()
+
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("parse URI %q: %v", raw, err)
+	}
+
+	return &tls.ConnectionState{
+		PeerCertificates: []*x509.Certificate{
+			{URIs: []*url.URL{u}},
+		},
+	}
 }
 
 func assertErrorCode(t *testing.T, rr *httptest.ResponseRecorder, status int, code string) {

@@ -49,7 +49,7 @@ func runVectisRegistry(cmd *cobra.Command, args []string) {
 		PeerDialTimeout:     config.RegistryClusterPeerDialTimeout(),
 	})
 
-	srvOpts, err := config.GRPCServerOptions()
+	srvOpts, err := config.GRPCServerOptionsForRole(config.ServiceIdentityRoleRegistry)
 	if err != nil {
 		logger.Fatal("grpc tls: %v", err)
 	}

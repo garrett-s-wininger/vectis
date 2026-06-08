@@ -26,6 +26,26 @@ func TestValidateCellIngressHTTPMTLSConfig(t *testing.T) {
 			},
 		},
 		{
+			name:     "identity allowlist requires mtls even on loopback",
+			bindHost: "localhost",
+			setupTLS: func(t *testing.T) {
+				t.Helper()
+				viper.Set("grpc_tls.insecure", true)
+				viper.Set("service_identity.cell_ingress_allowed_producer_identities", []string{"spiffe://vectis.local/service/api"})
+			},
+			wantErr: "cell_ingress_allowed_producer_identities",
+		},
+		{
+			name:     "identity allowlist validates spiffe ids",
+			bindHost: "localhost",
+			setupTLS: func(t *testing.T) {
+				t.Helper()
+				viper.Set("grpc_tls.insecure", true)
+				viper.Set("service_identity.cell_ingress_allowed_producer_identities", []string{"https://vectis.local/service/api"})
+			},
+			wantErr: "spiffe://",
+		},
+		{
 			name:     "non loopback bind requires mtls",
 			bindHost: "0.0.0.0",
 			setupTLS: func(t *testing.T) {

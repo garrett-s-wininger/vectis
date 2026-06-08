@@ -19,7 +19,20 @@ func ValidateCellIngressHTTPMTLSConfig(localCellID, bindHost string) error {
 		return err
 	}
 
+	allowedIdentities, err := validateServiceIdentityAllowlist(
+		"service_identity.cell_ingress_allowed_producer_identities",
+		CellIngressAllowedProducerIdentities(),
+	)
+
+	if err != nil {
+		return err
+	}
+
 	if GRPCTLSInsecure() {
+		if len(allowedIdentities) > 0 {
+			return errors.New("cell_ingress: grpc_tls.insecure must be false when service_identity.cell_ingress_allowed_producer_identities is configured")
+		}
+
 		if required {
 			return errors.New("cell_ingress: grpc_tls.insecure must be false when cell ingress binds or advertises a non-loopback endpoint")
 		}

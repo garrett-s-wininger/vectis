@@ -660,7 +660,7 @@ func (s *Server) RunGRPC(ctx context.Context, port string) error {
 		return err
 	}
 
-	srvOpts, err := config.GRPCServerOptions()
+	srvOpts, err := config.GRPCServerOptionsForRole(config.ServiceIdentityRoleLog)
 	if err != nil {
 		return err
 	}

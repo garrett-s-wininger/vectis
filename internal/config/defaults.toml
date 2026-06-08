@@ -132,6 +132,13 @@ repair_interval = "30s"
 registry.address = ""
 queue.address = ""
 
+[service_identity]
+registry_allowed_client_identities = []
+queue_allowed_client_identities = []
+log_allowed_client_identities = []
+worker_control_allowed_client_identities = []
+cell_ingress_allowed_producer_identities = []
+
 [database]
 driver = "sqlite3"
 dsn = "{{data_home}}/vectis/db.sqlite3"

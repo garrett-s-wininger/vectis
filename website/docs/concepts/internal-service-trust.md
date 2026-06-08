@@ -6,22 +6,23 @@ For the overall security posture, see [Security](./security.md). For startup and
 
 ## Trust Model
 
-Vectis currently relies on three layers for internal service trust:
+Vectis currently relies on four layers for internal service trust:
 
 | Layer | What it provides | What it does not provide |
 | --- | --- | --- |
 | Network placement | Keeps queue, registry, log, worker-control, and metrics endpoints away from untrusted clients. | It does not identify a caller once the caller is on the trusted network. |
-| TLS or mTLS | Encrypts internal gRPC traffic and can verify certificates when configured. | Vectis does not yet map certificate identities to per-RPC authorization rules. |
+| TLS or mTLS | Encrypts internal gRPC and cell-ingress traffic and can verify certificates when configured. | It proves the peer chains to a trusted CA; by itself it does not say which service role may call which listener. |
+| Service identity allowlists | Optionally maps exact SPIFFE URI SANs to internal gRPC listener roles and cell-ingress execution producers. | It is role-level authorization, not a full per-RPC policy language. Empty allowlists leave this layer disabled. |
 | Per-run cancel token | Lets the API prove it is cancelling the run that a worker currently owns. | It is not a general worker-control authentication system. Worker-control reachability still matters. |
 
-Internal gRPC servers do not currently enforce application-level service authorization. Optional mTLS can verify peer certificates, but Vectis does not yet say "this certificate may call this RPC and that one may not."
+When a service identity allowlist is configured, the listener requires verified mTLS and the client certificate leaf must include a URI SAN that exactly matches one configured `spiffe://` identity. gRPC allowlists apply to the whole listener role, including health RPCs; cell ingress applies the producer allowlist to `POST /cell/v1/executions`.
 
 ## Deployment Defaults
 
 | Deployment shape | Default trust posture |
 | --- | --- |
 | Standalone binaries | Internal gRPC may be plaintext by default. Use only on trusted hosts or networks unless TLS is configured. |
-| `vectis-local` | Bootstraps local development TLS unless `--grpc-insecure` is used. It is a development supervisor, not a production isolation boundary. |
+| `vectis-local` | Bootstraps local development TLS and a local SPIFFE identity allowlist unless `--grpc-insecure` is used. It is a development supervisor, not a production isolation boundary. |
 | Podman reference deployment | Generates internal gRPC and metrics TLS material. Treat it as a reference deployment with demo assumptions unless you replace secrets and lock down exposure. |
 | Production | Keep internal ports private. Use TLS or mTLS on shared networks. Restrict metrics and log access. |
 
@@ -79,7 +80,21 @@ Internal gRPC TLS is controlled by `VECTIS_GRPC_TLS_*` settings. Cell ingress HT
 
 Metrics TLS uses `VECTIS_METRICS_TLS_*` for dedicated metrics listeners. Dedicated metrics listeners bind to `localhost` by default; set a service-specific `--metrics-host` only for trusted scrape networks. API metrics are served on the API HTTP listener and use the API route auth policy when API auth is enabled.
 
-Use TLS or mTLS when internal traffic crosses shared infrastructure. Still keep internal ports private, because mTLS identity is not yet an application authorization policy inside Vectis.
+Use TLS or mTLS when internal traffic crosses shared infrastructure. Still keep internal ports private; service identity allowlists are defense in depth for expected callers, not a replacement for network policy.
+
+## Service Identity Authorization
+
+Service identity authorization is configured with comma-separated exact SPIFFE IDs:
+
+| Setting | Listener protected |
+| --- | --- |
+| `VECTIS_SERVICE_IDENTITY_REGISTRY_ALLOWED_CLIENT_IDENTITIES` / `service_identity.registry_allowed_client_identities` | Registry gRPC |
+| `VECTIS_SERVICE_IDENTITY_QUEUE_ALLOWED_CLIENT_IDENTITIES` / `service_identity.queue_allowed_client_identities` | Queue gRPC |
+| `VECTIS_SERVICE_IDENTITY_LOG_ALLOWED_CLIENT_IDENTITIES` / `service_identity.log_allowed_client_identities` | Log gRPC |
+| `VECTIS_SERVICE_IDENTITY_WORKER_CONTROL_ALLOWED_CLIENT_IDENTITIES` / `service_identity.worker_control_allowed_client_identities` | Worker-control gRPC |
+| `VECTIS_SERVICE_IDENTITY_CELL_INGRESS_ALLOWED_PRODUCER_IDENTITIES` / `service_identity.cell_ingress_allowed_producer_identities` | Cell ingress `POST /cell/v1/executions` |
+
+Each entry must be a `spiffe://` URI with a trust domain and workload path, such as `spiffe://prod.example/vectis/api`. Matching is exact after URI normalization. If any allowlist above is non-empty, startup fails unless `VECTIS_GRPC_TLS_INSECURE=false` and the listener has `VECTIS_GRPC_TLS_CLIENT_CA_FILE` so peer certificates are verified. Clients must present `VECTIS_GRPC_TLS_CLIENT_CERT_FILE` / `VECTIS_GRPC_TLS_CLIENT_KEY_FILE` material that contains one of the listener's allowed URI SANs.
 
 ## Registry And Pinned Addresses
 

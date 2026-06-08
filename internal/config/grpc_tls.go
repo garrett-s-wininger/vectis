@@ -9,13 +9,17 @@ import (
 	"sync"
 	"time"
 
+	"vectis/internal/serviceidentity"
 	"vectis/internal/tlsconfig"
 
 	"github.com/spf13/viper"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/peer"
+	"google.golang.org/grpc/status"
 )
 
 func init() {
@@ -130,9 +134,35 @@ func grpcTLSReloader() (*tlsconfig.Reloader, error) {
 	return grpcTLSRel, grpcTLSErr
 }
 
+// GRPCServerOptions is a compatibility wrapper for tests and role-neutral
+// servers. Internal service listeners should use GRPCServerOptionsForRole.
 func GRPCServerOptions() ([]grpc.ServerOption, error) {
+	return GRPCServerOptionsForRole(ServiceIdentityRoleNone)
+}
+
+func GRPCServerOptionsForRole(role ServiceIdentityRole) ([]grpc.ServerOption, error) {
 	opts := []grpc.ServerOption{
 		grpc.StatsHandler(otelgrpc.NewServerHandler()),
+	}
+
+	allowedIdentities, err := grpcServiceIdentityAllowlist(role)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(allowedIdentities) > 0 {
+		if GRPCTLSInsecure() {
+			return nil, fmt.Errorf("%s requires grpc_tls.insecure=false", serviceIdentityAllowlistLabel(role))
+		}
+
+		if grpctlsOptionsFromViper().ClientCA == "" {
+			return nil, fmt.Errorf("%s requires grpc_tls.client_ca_file so peer certificates are verified", serviceIdentityAllowlistLabel(role))
+		}
+
+		opts = append(opts,
+			grpc.ChainUnaryInterceptor(serviceIdentityUnaryInterceptor(role, allowedIdentities)),
+			grpc.ChainStreamInterceptor(serviceIdentityStreamInterceptor(role, allowedIdentities)),
+		)
 	}
 
 	if GRPCTLSInsecure() {
@@ -155,6 +185,78 @@ func GRPCServerOptions() ([]grpc.ServerOption, error) {
 
 	opts = append(opts, grpc.Creds(creds))
 	return opts, nil
+}
+
+func grpcServiceIdentityAllowlist(role ServiceIdentityRole) ([]string, error) {
+	switch role {
+	case ServiceIdentityRoleNone:
+		return nil, nil
+	case ServiceIdentityRoleRegistry, ServiceIdentityRoleQueue, ServiceIdentityRoleLog, ServiceIdentityRoleWorkerControl:
+	default:
+		return nil, fmt.Errorf("service_identity: unknown gRPC service identity role %d", role)
+	}
+
+	return validateServiceIdentityAllowlist(serviceIdentityAllowlistLabel(role), ServiceIdentityAllowedClientIdentities(role))
+}
+
+func serviceIdentityAllowlistLabel(role ServiceIdentityRole) string {
+	switch role {
+	case ServiceIdentityRoleRegistry:
+		return "service_identity.registry_allowed_client_identities"
+	case ServiceIdentityRoleQueue:
+		return "service_identity.queue_allowed_client_identities"
+	case ServiceIdentityRoleLog:
+		return "service_identity.log_allowed_client_identities"
+	case ServiceIdentityRoleWorkerControl:
+		return "service_identity.worker_control_allowed_client_identities"
+	default:
+		return "service_identity"
+	}
+}
+
+func serviceIdentityUnaryInterceptor(role ServiceIdentityRole, allowedIdentities []string) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		if err := authorizeGRPCPeerIdentity(ctx, role, allowedIdentities); err != nil {
+			return nil, err
+		}
+
+		return handler(ctx, req)
+	}
+}
+
+func serviceIdentityStreamInterceptor(role ServiceIdentityRole, allowedIdentities []string) grpc.StreamServerInterceptor {
+	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		if err := authorizeGRPCPeerIdentity(ss.Context(), role, allowedIdentities); err != nil {
+			return err
+		}
+
+		return handler(srv, ss)
+	}
+}
+
+func authorizeGRPCPeerIdentity(ctx context.Context, role ServiceIdentityRole, allowedIdentities []string) error {
+	p, ok := peer.FromContext(ctx)
+	if !ok {
+		return status.Error(codes.Unauthenticated, "service identity: missing gRPC peer")
+	}
+
+	tlsInfo, ok := p.AuthInfo.(credentials.TLSInfo)
+	if !ok {
+		return status.Error(codes.Unauthenticated, "service identity: verified mTLS peer certificate is required")
+	}
+
+	if _, err := serviceidentity.AuthorizePeerCertificate(tlsInfo.State.PeerCertificates, allowedIdentities); err != nil {
+		switch {
+		case errors.Is(err, serviceidentity.ErrNoPeerCertificate), errors.Is(err, serviceidentity.ErrNoPeerIdentity):
+			return status.Error(codes.Unauthenticated, err.Error())
+		case errors.Is(err, serviceidentity.ErrIdentityDenied):
+			return status.Error(codes.PermissionDenied, err.Error())
+		default:
+			return status.Errorf(codes.PermissionDenied, "service identity: invalid %s policy: %v", role.String(), err)
+		}
+	}
+
+	return nil
 }
 
 func grpcTransportCredsForTarget(directHostPort string) (credentials.TransportCredentials, error) {

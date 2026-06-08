@@ -9,9 +9,9 @@ For outage behavior, see [Failure Domains](./failure-domains.md). For environmen
 | Surface | Current behavior | Operator baseline |
 | --- | --- | --- |
 | HTTP API | Authentication is off by default for local and development use. Local users, API tokens, RBAC, rate limits, audit logging, and direct HTTPS are available when configured. | Enable API auth outside throwaway local use, serve or terminate HTTPS, and restrict who can reach the API. |
-| Internal gRPC | Queue, registry, and log service traffic can use optional TLS or mTLS. Standalone binaries default to plaintext unless configured. | Keep internal ports private. Use TLS or mTLS on shared networks. |
-| Cell ingress HTTP | Cell ingress is an internal execution submission surface. It uses the internal TLS/mTLS material when exposed off-loopback, but does not perform end-user authentication or RBAC; global producers authorize work before dispatch. | Keep cell ingress private, reachable only by approved global producers, and use mTLS for non-loopback ingress endpoints. |
-| Service authorization | Internal gRPC servers do not yet enforce application-level per-service authorization. mTLS can verify certificates, but Vectis does not map cert identities to per-RPC allow/deny rules yet. | Treat network reachability to queue, registry, log, and worker-control paths as sensitive. |
+| Internal gRPC | Queue, registry, log, and worker-control traffic can use optional TLS/mTLS. Standalone binaries default to plaintext unless configured. | Keep internal ports private. Use TLS/mTLS and service identity allowlists on shared networks. |
+| Cell ingress HTTP | Cell ingress is an internal execution submission surface. It uses the internal TLS/mTLS material when exposed off-loopback and can require exact producer SPIFFE identities for execution submissions. It does not perform end-user authentication or RBAC; global producers authorize work before dispatch. | Keep cell ingress private, reachable only by approved global producers, and use mTLS plus producer identity allowlists for non-loopback ingress endpoints. |
+| Service authorization | Internal gRPC listeners can enforce role-level exact SPIFFE URI SAN allowlists when configured. This is listener authorization, not a full per-RPC policy language. | Configure expected service identities and still treat network reachability to queue, registry, log, and worker-control paths as sensitive. |
 | Metrics | API metrics use the API route auth policy when API auth is enabled. Dedicated service metrics listeners are unauthenticated and bind to localhost by default. Some deployments enable TLS for dedicated metrics listeners. | Scrape metrics from a trusted network, require API auth for API metrics, and only set dedicated metrics `--metrics-host` values for trusted scrape networks. |
 | Database and files | SQL, SQLite files, queue persistence, logs, and backups may contain sensitive operational state. Vectis does not encrypt these at rest itself. | Use platform disk or volume encryption, filesystem permissions, and secret-store controls. |
 | Jobs and logs | Job definitions can cause workers to execute code. Logs may contain credentials or personal data emitted by build steps. | Limit who can define or trigger jobs, isolate workers where needed, and restrict log access. |
@@ -70,7 +70,7 @@ Vectis services communicate over gRPC:
 
 Standalone binaries default to plaintext internal gRPC (`VECTIS_GRPC_TLS_INSECURE=true`) unless TLS is configured. `vectis-local` bootstraps development TLS by default and injects the relevant `VECTIS_GRPC_TLS_*` variables into child processes. The Podman reference deployment also generates and mounts internal gRPC TLS material.
 
-When `VECTIS_GRPC_TLS_INSECURE=false`, listeners need certificate and key files, and gRPC clients need a CA bundle. Optional mTLS can verify peer certificates when a client CA is configured, but Vectis does not yet use certificate identity as an application authorization policy.
+When `VECTIS_GRPC_TLS_INSECURE=false`, listeners need certificate and key files, and gRPC clients need a CA bundle. mTLS verifies peer certificates when a client CA is configured. Service identity allowlists can then require the client certificate leaf to contain an exact `spiffe://` URI SAN for each protected listener role: registry, queue, log, worker-control, and cell-ingress execution producers. Empty allowlists leave this role-level authorization layer disabled.
 
 For the service identity matrix, private port guidance, and checklist for new internal RPCs, see [Internal Service Trust](./internal-service-trust.md).
 
@@ -78,7 +78,7 @@ For the service identity matrix, private port guidance, and checklist for new in
 
 `vectis-cell-ingress` accepts routed executions on `POST /cell/v1/executions` and hands them to the cell-local queue after durable acceptance in the cell database. It is not a public API and does not replace the global API's authentication, RBAC, audit, and namespace checks.
 
-Restrict cell ingress reachability to trusted global producers such as `vectis-api`, `vectis-cron`, and `vectis-reconciler`. Keep it on private networks or behind internal load balancers, service mesh policy, firewall rules, or platform network policy. Cell ingress uses the same `VECTIS_GRPC_TLS_*` material as internal gRPC for HTTP mTLS: non-loopback ingress requires `VECTIS_GRPC_TLS_INSECURE=false`, a server cert/key, a client CA on `vectis-cell-ingress`, and client cert/key material on producers. Cell ingress only accepts trusted Host headers, bodyless `GET`/`HEAD` health checks, and mTLS-protected JSON `POST /cell/v1/executions` submissions capped at 2 MiB; unknown routes, method mismatches, unsafe request targets, wrong media types, and unexpected request bodies return JSON errors. Its Host allowlist defaults to the bind host, loopback, and the local cell's static ingress endpoint Host. Cell ingress responses use the shared baseline security headers and `no-store` so routed execution state and errors are not cached by intermediaries. Metrics endpoints only serve bodyless `GET`/`HEAD /metrics` with trusted Host headers and reject untrusted Host headers or unsafe request targets before the Prometheus handler runs. They also use baseline security headers plus `no-store`, but they can still reveal operational state. Health and metrics endpoints should follow the same private-network rule.
+Restrict cell ingress reachability to trusted global producers such as `vectis-api`, `vectis-cron`, and `vectis-reconciler`. Keep it on private networks or behind internal load balancers, service mesh policy, firewall rules, or platform network policy. Cell ingress uses the same `VECTIS_GRPC_TLS_*` material as internal gRPC for HTTP mTLS: non-loopback ingress requires `VECTIS_GRPC_TLS_INSECURE=false`, a server cert/key, a client CA on `vectis-cell-ingress`, and client cert/key material on producers. Set `VECTIS_SERVICE_IDENTITY_CELL_INGRESS_ALLOWED_PRODUCER_IDENTITIES` to require exact producer SPIFFE URI SANs on execution submissions. Cell ingress only accepts trusted Host headers, bodyless `GET`/`HEAD` health checks, and mTLS-protected JSON `POST /cell/v1/executions` submissions capped at 2 MiB; unknown routes, method mismatches, unsafe request targets, wrong media types, and unexpected request bodies return JSON errors. Its Host allowlist defaults to the bind host, loopback, and the local cell's static ingress endpoint Host. Cell ingress responses use the shared baseline security headers and `no-store` so routed execution state and errors are not cached by intermediaries. Metrics endpoints only serve bodyless `GET`/`HEAD /metrics` with trusted Host headers and reject untrusted Host headers or unsafe request targets before the Prometheus handler runs. They also use baseline security headers plus `no-store`, but they can still reveal operational state. Health and metrics endpoints should follow the same private-network rule.
 
 For the multi-cell routing and fan-in shape, see [Multi-Cell Operation](../operating/multi-cell.md).
 
@@ -147,10 +147,11 @@ Use this as the minimum checklist before treating a deployment as shared or prod
 3. Terminate HTTPS at an ingress, reverse proxy, or platform edge.
 4. Keep queue, registry, log, worker-control, and metrics ports off public networks.
 5. Enable internal gRPC TLS or mTLS on shared networks.
-6. Store database DSNs, API tokens, bootstrap tokens, and deploy TLS material in a secret manager.
-7. Restrict who can define jobs, trigger jobs, and read logs.
-8. Protect SQL, SQLite, queue, log, and backup storage like sensitive application data.
-9. Monitor audit drops, audit flush failures, auth failures, queue health, and service readiness.
+6. Configure service identity allowlists for expected internal SPIFFE IDs.
+7. Store database DSNs, API tokens, bootstrap tokens, and deploy TLS material in a secret manager.
+8. Restrict who can define jobs, trigger jobs, and read logs.
+9. Protect SQL, SQLite, queue, log, and backup storage like sensitive application data.
+10. Monitor audit drops, audit flush failures, auth failures, queue health, and service readiness.
 
 ## Reporting Security Issues
 

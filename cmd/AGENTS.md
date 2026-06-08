@@ -62,11 +62,11 @@ Dedicated metrics listeners accept the service bind host plus loopback Host head
 | Binary | `viper.SetEnvPrefix` | Primary TOML / notes |
 |--------|----------------------|----------------------|
 | `vectis-api` | `VECTIS_API_SERVER` | `[api]` in [`../internal/config/defaults.toml`](../internal/config/defaults.toml); `VECTIS_API_SERVER_HOST` / `--host` controls HTTP bind host; `--tls-cert-file` / `--tls-key-file` enable browser-facing HTTPS; `--cell-ingress-endpoint cell=url` configures remote cell execution ingress routes; ad hoc `VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS` for trusted proxy headers in [`trusted-proxy-client-ip.md`](../website/docs/operating/deployment/trusted-proxy-client-ip.md) |
-| `vectis-cell-ingress` | `VECTIS_CELL_INGRESS` | `[cell_ingress]`; private HTTP `POST /cell/v1/executions` uses internal `VECTIS_GRPC_TLS_*` mTLS when exposed off-loopback, `--allowed-host` / `VECTIS_CELL_INGRESS_ALLOWED_HOSTS` configure accepted Host headers, local execution repair, metrics host/port, plus queue discovery/pinned queue settings |
-| `vectis-queue` | `VECTIS_QUEUE` | `[queue]`; default instance ID is `hostname-port`, default persistence is `queue/<pool>/<instance-id>`; metrics host defaults to localhost; keep active shards unique |
-| `vectis-registry` | `VECTIS_REGISTRY` | `[registry]`; HA gossip membership uses `VECTIS_REGISTRY_CLUSTER_*` |
-| `vectis-log` | `VECTIS_LOG` | `[log]`; default instance ID is `hostname-port`, default storage is `log/<instance-id>`, `--grpc-port` changes the ingest/read listener, `--metrics-host` controls the localhost-default metrics bind host, and `--storage-read-only-min-free-bytes` protects new run files under disk pressure |
-| `vectis-worker` | `VECTIS_WORKER` | `[worker]`; `--metrics-host` defaults to localhost |
+| `vectis-cell-ingress` | `VECTIS_CELL_INGRESS` | `[cell_ingress]`; private HTTP `POST /cell/v1/executions` uses internal `VECTIS_GRPC_TLS_*` mTLS when exposed off-loopback, can require producer SPIFFE URI SANs via `VECTIS_SERVICE_IDENTITY_CELL_INGRESS_ALLOWED_PRODUCER_IDENTITIES`, `--allowed-host` / `VECTIS_CELL_INGRESS_ALLOWED_HOSTS` configure accepted Host headers, local execution repair, metrics host/port, plus queue discovery/pinned queue settings |
+| `vectis-queue` | `VECTIS_QUEUE` | `[queue]`; default instance ID is `hostname-port`, default persistence is `queue/<pool>/<instance-id>`; metrics host defaults to localhost; keep active shards unique; gRPC listener uses `config.GRPCServerOptionsForRole(config.ServiceIdentityRoleQueue)` |
+| `vectis-registry` | `VECTIS_REGISTRY` | `[registry]`; HA gossip membership uses `VECTIS_REGISTRY_CLUSTER_*`; gRPC listener uses `config.GRPCServerOptionsForRole(config.ServiceIdentityRoleRegistry)` |
+| `vectis-log` | `VECTIS_LOG` | `[log]`; default instance ID is `hostname-port`, default storage is `log/<instance-id>`, `--grpc-port` changes the ingest/read listener, `--metrics-host` controls the localhost-default metrics bind host, `--storage-read-only-min-free-bytes` protects new run files under disk pressure, and the gRPC listener uses `config.GRPCServerOptionsForRole(config.ServiceIdentityRoleLog)` |
+| `vectis-worker` | `VECTIS_WORKER` | `[worker]`; `--metrics-host` defaults to localhost; worker-control gRPC uses `config.GRPCServerOptionsForRole(config.ServiceIdentityRoleWorkerControl)` |
 | `vectis-cron` | `VECTIS_CRON` | `[cron]`; `--instance-id` labels schedule claims, `--claim-ttl` bounds claim failover |
 | `vectis-catalog` | `VECTIS_CATALOG` | `[catalog]`; `--cell-database-dsn cell=dsn` / `VECTIS_CATALOG_CELL_DATABASE_DSNS` configures catalog fan-in from cell-local DBs; metrics host defaults to localhost |
 | `vectis-docs` | `VECTIS_DOCS` | static docs server; default host `localhost`, default port `8088`, serves embedded docs unless `VECTIS_DOCS_DIR` overrides; `--allowed-host` / `VECTIS_DOCS_ALLOWED_HOSTS` configure accepted Host headers; `--tls-cert-file` / `--tls-key-file` enable HTTPS |
@@ -75,7 +75,7 @@ Dedicated metrics listeners accept the service bind host plus loopback Host head
 | `vectis-local` | `VECTIS_LOCAL` | orchestrates stack; `VECTIS_LOCAL_PROFILE=ha` starts a local multi-instance HA exercise cell, `VECTIS_LOCAL_HOST` controls local API and docs bind host, `--http-tls` controls local API/docs HTTPS, `init` creates local TLS material, `install-cert` only installs the generated CA, and `--cell` / `VECTIS_LOCAL_CELLS` adds extra local execution cells in the simple profile |
 | `vectis-cli` | *(none)* | [`internal/config`](../internal/config/) + `os.Getenv` — see [`../internal/config/api_auth.go`](../internal/config/api_auth.go) |
 
-Shared TOML sections: [`../internal/config/defaults.toml`](../internal/config/defaults.toml) (`[database]`, `[discovery]`, `[grpc_tls]`, `[metrics_tls]`, …).
+Shared TOML sections: [`../internal/config/defaults.toml`](../internal/config/defaults.toml) (`[database]`, `[discovery]`, `[grpc_tls]`, `[service_identity]`, `[metrics_tls]`, …).
 
 ## Common pitfalls
 

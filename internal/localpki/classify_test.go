@@ -166,6 +166,32 @@ func TestEnsure_renewsNearExpiryLeaf(t *testing.T) {
 	}
 }
 
+func TestClassifyMaterial_renewsWhenLeafMissingServiceIdentity(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	caCertPath := filepath.Join(dir, caCertFile)
+	caKeyPath := filepath.Join(dir, caKeyFile)
+	srvCertPath := filepath.Join(dir, serverCertFile)
+	srvKeyPath := filepath.Join(dir, serverKeyFile)
+
+	if err := generateFullChain(caCertPath, caKeyPath, srvCertPath, srvKeyPath); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := writeLeafWithoutServiceIdentity(caCertPath, caKeyPath, srvCertPath, srvKeyPath, time.Now().Add(serverCertLifetime)); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := classifyMaterial(caCertPath, caKeyPath, srvCertPath, srvKeyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if a != materialRenewServer {
+		t.Fatalf("leaf without service identity: got %v want materialRenewServer", a)
+	}
+}
+
 func TestClassifyMaterial_fullRegenWhenCABad(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -190,4 +216,51 @@ func TestClassifyMaterial_fullRegenWhenCABad(t *testing.T) {
 	if a != materialRegenerateFull {
 		t.Fatalf("corrupt CA: got %v want materialRegenerateFull", a)
 	}
+}
+
+func writeLeafWithoutServiceIdentity(caCertPath, caKeyPath, srvCertPath, srvKeyPath string, notAfter time.Time) error {
+	caCert, caKey, err := loadCAKeyPair(caCertPath, caKeyPath)
+	if err != nil {
+		return err
+	}
+
+	srvKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return err
+	}
+
+	srvSerial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return err
+	}
+
+	now := time.Now()
+	srvTmpl := &x509.Certificate{
+		SerialNumber: srvSerial,
+		Subject:      pkix.Name{Organization: []string{"vectis-local"}, CommonName: "localhost"},
+		NotBefore:    now.Add(-time.Hour),
+		NotAfter:     notAfter,
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
+		DNSNames:     []string{"localhost"},
+		IPAddresses:  []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback},
+	}
+
+	srvDER, err := x509.CreateCertificate(rand.Reader, srvTmpl, caCert, &srvKey.PublicKey, caKey)
+	if err != nil {
+		return err
+	}
+
+	srvCertPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srvDER})
+	srvKeyDER, err := x509.MarshalECPrivateKey(srvKey)
+	if err != nil {
+		return err
+	}
+
+	srvKeyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: srvKeyDER})
+	if err := os.WriteFile(srvCertPath, srvCertPEM, 0o644); err != nil {
+		return err
+	}
+
+	return os.WriteFile(srvKeyPath, srvKeyPEM, 0o600)
 }

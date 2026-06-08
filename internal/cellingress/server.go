@@ -112,6 +112,11 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if r.Method == http.MethodPost && r.URL.Path == "/cell/v1/executions" && !config.CellIngressProducerIdentityAllowed(r) {
+		writeError(w, http.StatusForbidden, "authorization_denied", "producer service identity is not allowed")
+		return
+	}
+
 	if r.Method != http.MethodPost && httpsecurity.RequestHasBody(r) {
 		writeError(w, http.StatusBadRequest, "request_body_not_allowed", "request body is not allowed")
 		return

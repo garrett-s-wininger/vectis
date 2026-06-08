@@ -49,6 +49,7 @@ type Defaults struct {
 	Reconciler   ReconcilerDefaults   `toml:"reconciler"`
 	Catalog      CatalogDefaults      `toml:"catalog"`
 	CellIngress  CellIngressDefaults  `toml:"cell_ingress"`
+	ServiceID    ServiceIdentityDefaults `toml:"service_identity"`
 	GRPCTLS      GRPCTLSDefaults      `toml:"grpc_tls"`
 	MetricsTLS   MetricsTLSDefaults   `toml:"metrics_tls"`
 }
@@ -259,6 +260,14 @@ type CellIngressDefaults struct {
 	RepairInterval  tomlDuration `toml:"repair_interval"`
 	RegistryAddress string       `toml:"registry.address"`
 	QueueAddress    string       `toml:"queue.address"`
+}
+
+type ServiceIdentityDefaults struct {
+	RegistryAllowedClientIdentities     []string `toml:"registry_allowed_client_identities"`
+	QueueAllowedClientIdentities        []string `toml:"queue_allowed_client_identities"`
+	LogAllowedClientIdentities          []string `toml:"log_allowed_client_identities"`
+	WorkerControlAllowedClientIdentities []string `toml:"worker_control_allowed_client_identities"`
+	CellIngressAllowedProducerIdentities []string `toml:"cell_ingress_allowed_producer_identities"`
 }
 
 type GRPCTLSDefaults struct {
@@ -560,6 +569,18 @@ func validateDefaults(d Defaults) {
 
 	if rl.GeneralBurstSize <= 0 {
 		panic("config defaults: api.rate_limit.general_burst_size must be > 0")
+	}
+
+	for name, identities := range map[string][]string{
+		"registry_allowed_client_identities":       d.ServiceID.RegistryAllowedClientIdentities,
+		"queue_allowed_client_identities":          d.ServiceID.QueueAllowedClientIdentities,
+		"log_allowed_client_identities":            d.ServiceID.LogAllowedClientIdentities,
+		"worker_control_allowed_client_identities": d.ServiceID.WorkerControlAllowedClientIdentities,
+		"cell_ingress_allowed_producer_identities": d.ServiceID.CellIngressAllowedProducerIdentities,
+	} {
+		if _, err := validateServiceIdentityAllowlist("config defaults: service_identity."+name, identities); err != nil {
+			panic(err.Error())
+		}
 	}
 }
 

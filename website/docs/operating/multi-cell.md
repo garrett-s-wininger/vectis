@@ -89,13 +89,14 @@ Cell ingress is private infrastructure, not a public API. Expose it only to glob
 
 ## Cell Ingress Security
 
-`vectis-cell-ingress` exposes the internal execution submission route `POST /cell/v1/executions`, plus health and metrics endpoints. Non-loopback ingress uses the shared internal mTLS settings: cell ingress serves HTTPS with `grpc_tls.cert_file` / `grpc_tls.key_file` and verifies producer certificates with `grpc_tls.client_ca_file`; producers verify cell ingress with `grpc_tls.ca_file` and present `grpc_tls.client_cert_file` / `grpc_tls.client_key_file`. Execution submissions must use `application/json` and are capped at 2 MiB; health and metrics reads do not accept request bodies. Host validation accepts the bind host, loopback, and the local cell's Host from the shared static ingress endpoint map; set `VECTIS_CELL_INGRESS_ALLOWED_HOSTS` when the cell process does not read that map. It is intentionally slim: user authentication, RBAC, namespace checks, and trigger authorization happen at the global API before dispatch.
+`vectis-cell-ingress` exposes the internal execution submission route `POST /cell/v1/executions`, plus health and metrics endpoints. Non-loopback ingress uses the shared internal mTLS settings: cell ingress serves HTTPS with `grpc_tls.cert_file` / `grpc_tls.key_file` and verifies producer certificates with `grpc_tls.client_ca_file`; producers verify cell ingress with `grpc_tls.ca_file` and present `grpc_tls.client_cert_file` / `grpc_tls.client_key_file`. Set `VECTIS_SERVICE_IDENTITY_CELL_INGRESS_ALLOWED_PRODUCER_IDENTITIES` to a comma-separated list of exact producer `spiffe://` URI SANs when you want cell ingress to admit only specific API/cron/reconciler identities. Execution submissions must use `application/json` and are capped at 2 MiB; health and metrics reads do not accept request bodies. Host validation accepts the bind host, loopback, and the local cell's Host from the shared static ingress endpoint map; set `VECTIS_CELL_INGRESS_ALLOWED_HOSTS` when the cell process does not read that map. It is intentionally slim: user authentication, RBAC, namespace checks, and trigger authorization happen at the global API before dispatch.
 
 For production-like deployments:
 
 - bind cell ingress on a private interface or behind an internal load balancer
 - restrict network reachability to global producers such as API, cron, and reconciler
 - use `https://` cell ingress endpoints with internal mTLS material for non-loopback routing
+- configure `VECTIS_SERVICE_IDENTITY_CELL_INGRESS_ALLOWED_PRODUCER_IDENTITIES` for expected producer SPIFFE IDs
 - use firewall rules, service mesh policy, or platform network policy to block user and internet traffic
 - keep the cell queue and cell database reachable only by services in that cell
 - scrape cell ingress health and metrics from a trusted monitoring network only
