@@ -2,20 +2,14 @@ import { useState } from "react";
 import { AppState } from "../components";
 import { Button } from "../components";
 import { BreadcrumbTrail } from "../components";
-import { DataTable, type DataTableColumn } from "../components";
 import { NamespacePicker } from "../components";
 import { PageHeader } from "../components";
 import type { RunListItem } from "../components";
-import { StatusBadge } from "../components";
 import type { Job, Namespace, NewJob, UpdateJob } from "../domain/console";
-import { ResourceStatus } from "./shared";
-import { JobActionPanel } from "./jobs/JobActionPanel";
 import { JobDetailPage } from "./jobs/JobDetailPage";
-import { JobDetailsDrawer } from "./jobs/JobDetailsDrawer";
 import { emptyJobForm, JobEditor, type JobEditorMode, type JobFormValues, valuesFromJob } from "./jobs/JobEditor";
-import { JobIdentity } from "./jobs/JobIdentity";
 import styles from "./jobs/JobsPage.module.css";
-import { JobTriggers } from "./jobs/JobTriggers";
+import { JobWorkspace } from "./jobs/JobWorkspace";
 import { jobEditorBreadcrumbItems, jobsIndexBreadcrumbItems } from "./jobs/JobBreadcrumbs";
 import { getLatestRunForJob, getRunsForJob } from "./jobs/JobPresentation";
 
@@ -61,10 +55,7 @@ export function JobsPage({
   runs
 }: JobsPageProps) {
   const routableJobs = allJobs ?? jobs;
-  const [selectedJobID, setSelectedJobID] = useState("");
-  const selectedJob = jobs.find((job) => job.id === selectedJobID);
   const detailJob = detailJobID ? routableJobs.find((job) => job.id === detailJobID) : null;
-  const selectedJobLastRun = selectedJob ? getLatestRunForJob(selectedJob, runs) : undefined;
   const editorJob =
     editorMode?.kind === "edit" ? (routableJobs.find((candidate) => candidate.id === editorMode.jobID) ?? null) : null;
 
@@ -81,10 +72,6 @@ export function JobsPage({
 
   function startEditJob(job: Job) {
     onOpenEditor(job.id);
-  }
-
-  function toggleSelectedJob(jobID: string) {
-    setSelectedJobID((currentJobID) => (currentJobID === jobID ? "" : jobID));
   }
 
   if (detailJobID && !detailJob) {
@@ -112,62 +99,6 @@ export function JobsPage({
       />
     );
   }
-
-  const columns: DataTableColumn<Job>[] = [
-    {
-      header: "Job",
-      width: "34%",
-      cell: (job) => (
-        <JobIdentity job={job} onSelect={() => toggleSelectedJob(job.id)} selected={selectedJob?.id === job.id} />
-      )
-    },
-    {
-      header: "Triggers",
-      hideOnMobile: true,
-      width: "34%",
-      cell: (job) => <JobTriggers job={job} />
-    },
-    {
-      header: "Details",
-      mobileOnly: true,
-      cell: (job) =>
-        selectedJob?.id === job.id ? (
-          <JobDetailsDrawer
-            job={job}
-            lastRun={getLatestRunForJob(job, runs)}
-            onEdit={() => startEditJob(job)}
-            onOpen={() => onOpenJob(job.id)}
-            onOpenLastRun={() => {
-              const lastRun = getLatestRunForJob(job, runs);
-              if (lastRun) {
-                onSelectRun(lastRun.id);
-              }
-            }}
-            onTrigger={() => onTriggerRun(job.id)}
-          />
-        ) : null
-    },
-    {
-      align: "end",
-      header: "State",
-      hideOnMobile: true,
-      width: "96px",
-      cell: (job) => (
-        <ResourceStatus tone={job.status}>{job.status === "enabled" ? "Enabled" : "Paused"}</ResourceStatus>
-      )
-    },
-    {
-      align: "end",
-      header: "Latest run",
-      hideOnMobile: true,
-      width: "96px",
-      cell: (job) => {
-        const lastRun = getLatestRunForJob(job, runs);
-
-        return lastRun ? <StatusBadge status={lastRun.status} /> : <StatusBadge status="empty" />;
-      }
-    }
-  ];
 
   return (
     <>
@@ -235,29 +166,14 @@ export function JobsPage({
         </section>
       ) : null}
       {!editorMode && jobs.length > 0 ? (
-        <div className={selectedJob ? `${styles.workspace} ${styles.workspaceWithPanel}` : styles.workspace}>
-          <DataTable
-            columns={columns}
-            emptyMessage="No jobs loaded."
-            getRowKey={(job) => job.id}
-            isRowSelected={(job) => selectedJob?.id === job.id}
-            rows={jobs}
-          />
-          {selectedJob ? (
-            <JobActionPanel
-              job={selectedJob}
-              lastRun={selectedJobLastRun}
-              onEdit={() => startEditJob(selectedJob)}
-              onOpen={() => onOpenJob(selectedJob.id)}
-              onOpenLastRun={() => {
-                if (selectedJobLastRun) {
-                  onSelectRun(selectedJobLastRun.id);
-                }
-              }}
-              onTrigger={() => onTriggerRun(selectedJob.id)}
-            />
-          ) : null}
-        </div>
+        <JobWorkspace
+          jobs={jobs}
+          onEdit={startEditJob}
+          onOpen={onOpenJob}
+          onSelectRun={onSelectRun}
+          onTrigger={onTriggerRun}
+          runs={runs}
+        />
       ) : null}
     </>
   );
