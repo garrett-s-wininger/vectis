@@ -147,6 +147,7 @@ Worker SPIRE integration is disabled by default. Enable it only when a SPIRE age
 | `VECTIS_WORKER_SPIRE_ENABLED` / `worker.spire.enabled` | Enables worker-side SPIRE Workload API integration. Requires an explicit Workload API address. |
 | `VECTIS_WORKER_SPIRE_WORKLOAD_API_ADDRESS` / `worker.spire.workload_api_address` | SPIRE Workload API address, such as `unix:///run/spire/sockets/agent.sock`. |
 | `VECTIS_WORKER_SPIRE_REQUIRE_EXECUTION_SVID` / `worker.spire.require_execution_svid` | Requires the Workload API to return an X.509-SVID whose SPIFFE ID exactly matches the derived execution identity before action code runs. Requires `worker.execution_identity.enabled=true`. |
+| `VECTIS_WORKER_SPIRE_FETCH_TIMEOUT` / `worker.spire.fetch_timeout` | Maximum time to wait for a Workload API SVID fetch during the pre-action execution SVID check. Defaults to `5s` and must be positive. |
 
 The execution SVID check happens inside Vectis-controlled worker code. Vectis does not export the Workload API socket, SVID, private key, or derived SPIFFE ID to shell commands. This setting does not create SPIRE registration entries; operators still need a SPIRE registration workflow that grants the worker the expected execution identities. Workers emit `vectis_worker_spire_svid_checks_total` with fixed `outcome` and `reason` labels for this gate.
 

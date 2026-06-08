@@ -241,9 +241,10 @@ type WorkerExecutionIdentityDefaults struct {
 }
 
 type WorkerSPIREDefaults struct {
-	Enabled              bool   `toml:"enabled"`
-	WorkloadAPIAddress   string `toml:"workload_api_address"`
-	RequireExecutionSVID bool   `toml:"require_execution_svid"`
+	Enabled              bool         `toml:"enabled"`
+	WorkloadAPIAddress   string       `toml:"workload_api_address"`
+	RequireExecutionSVID bool         `toml:"require_execution_svid"`
+	FetchTimeout         tomlDuration `toml:"fetch_timeout"`
 }
 
 type CronDefaults struct {
@@ -464,6 +465,10 @@ func validateDefaults(d Defaults) {
 
 	if d.Worker.SPIRE.RequireExecutionSVID && !d.Worker.ExecutionIdentity.Enabled {
 		panic("config defaults: worker.spire.require_execution_svid requires worker.execution_identity.enabled")
+	}
+
+	if d.Worker.SPIRE.FetchTimeout <= 0 {
+		panic("config defaults: worker.spire.fetch_timeout must be > 0")
 	}
 
 	p := d.Database.PgxPool

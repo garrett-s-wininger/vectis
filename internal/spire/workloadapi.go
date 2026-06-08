@@ -100,5 +100,5 @@ func RequireX509SVID(ctx context.Context, source X509SVIDSource, expectedSPIFFEI
 		}
 	}
 
-	return fmt.Errorf("%w: %s", ErrNoMatchingX509SVID, expectedSPIFFEID)
+	return ErrNoMatchingX509SVID
 }

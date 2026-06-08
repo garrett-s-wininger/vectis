@@ -3,6 +3,7 @@ package config
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 )
@@ -19,8 +20,48 @@ func TestWorkerSPIREDefaultsDisabled(t *testing.T) {
 		t.Fatal("WorkerSPIRERequireExecutionSVID = true, want false")
 	}
 
+	if got := WorkerSPIREFetchTimeout(); got <= 0 {
+		t.Fatalf("WorkerSPIREFetchTimeout = %v, want > 0", got)
+	}
+
 	if err := ValidateWorkerSPIREConfig(); err != nil {
 		t.Fatalf("ValidateWorkerSPIREConfig disabled defaults: %v", err)
+	}
+}
+
+func TestValidateWorkerSPIREFetchTimeoutRejectsInvalidDuration(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("worker.spire.fetch_timeout", "not a duration")
+
+	err := ValidateWorkerSPIREConfig()
+	if err == nil || !strings.Contains(err.Error(), "fetch_timeout must be a valid duration") {
+		t.Fatalf("ValidateWorkerSPIREConfig error = %v, want invalid fetch_timeout", err)
+	}
+}
+
+func TestValidateWorkerSPIREFetchTimeoutRejectsNonPositiveDuration(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("worker.spire.fetch_timeout", 0)
+
+	err := ValidateWorkerSPIREConfig()
+	if err == nil || !strings.Contains(err.Error(), "fetch_timeout must be > 0") {
+		t.Fatalf("ValidateWorkerSPIREConfig error = %v, want non-positive fetch_timeout", err)
+	}
+}
+
+func TestWorkerSPIREFetchTimeoutAcceptsConfiguredDuration(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("worker.spire.fetch_timeout", 250*time.Millisecond)
+
+	if got := WorkerSPIREFetchTimeout(); got != 250*time.Millisecond {
+		t.Fatalf("WorkerSPIREFetchTimeout = %v, want 250ms", got)
+	}
+
+	if err := ValidateWorkerSPIREConfig(); err != nil {
+		t.Fatalf("ValidateWorkerSPIREConfig: %v", err)
 	}
 }
 

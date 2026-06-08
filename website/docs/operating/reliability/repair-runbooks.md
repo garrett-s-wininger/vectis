@@ -65,7 +65,7 @@ Use this when `VectisWorkerSPIRESVIDCheckFailures` fires or when `vectis_worker_
 
 1. Start with the `reason` label. It is intentionally low-cardinality: `mismatch`, `source_error`, `missing_identity`, `missing_source`, or `invalid_expected_id`.
 2. For `mismatch`, compare the worker's configured `worker.execution_identity.*` template and trust domain with the SPIRE registration entries that apply to that worker. The worker requires an exact X.509-SVID SPIFFE ID match for the execution.
-3. For `source_error`, check the SPIRE agent process, Workload API socket path, filesystem permissions, and whether the worker can connect to `worker.spire.workload_api_address`.
+3. For `source_error`, check the SPIRE agent process, Workload API socket path, filesystem permissions, `worker.spire.fetch_timeout`, and whether the worker can connect to `worker.spire.workload_api_address`.
 4. For `missing_identity`, confirm the run reached the worker through cell execution dispatch with an execution envelope and that `worker.execution_identity.enabled=true` is configured consistently.
 5. For `missing_source`, confirm `worker.spire.enabled=true` and `worker.spire.workload_api_address` are set on the worker process when `worker.spire.require_execution_svid=true`.
 6. For `invalid_expected_id`, validate `worker.execution_identity.trust_domain` and `worker.execution_identity.path_template` against the allowed SPIFFE URI shape.

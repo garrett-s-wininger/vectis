@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"vectis/internal/spire"
 
@@ -13,6 +14,7 @@ func init() {
 	_ = viper.BindEnv("worker.spire.enabled", "VECTIS_WORKER_SPIRE_ENABLED")
 	_ = viper.BindEnv("worker.spire.workload_api_address", "VECTIS_WORKER_SPIRE_WORKLOAD_API_ADDRESS")
 	_ = viper.BindEnv("worker.spire.require_execution_svid", "VECTIS_WORKER_SPIRE_REQUIRE_EXECUTION_SVID")
+	_ = viper.BindEnv("worker.spire.fetch_timeout", "VECTIS_WORKER_SPIRE_FETCH_TIMEOUT")
 }
 
 func WorkerSPIREEnabled() bool {
@@ -39,8 +41,20 @@ func WorkerSPIRERequireExecutionSVID() bool {
 	return MustDefaults().Worker.SPIRE.RequireExecutionSVID
 }
 
+func WorkerSPIREFetchTimeout() time.Duration {
+	d, err := workerSPIREFetchTimeout()
+	if err != nil {
+		return 0
+	}
+
+	return d
+}
+
 func ValidateWorkerSPIREConfig() error {
 	address := WorkerSPIREWorkloadAPIAddress()
+	if _, err := workerSPIREFetchTimeout(); err != nil {
+		return err
+	}
 
 	if !WorkerSPIREEnabled() {
 		if WorkerSPIRERequireExecutionSVID() {
@@ -69,4 +83,36 @@ func ValidateWorkerSPIREConfig() error {
 	}
 
 	return nil
+}
+
+func workerSPIREFetchTimeout() (time.Duration, error) {
+	if viper.IsSet("worker.spire.fetch_timeout") {
+		raw := strings.TrimSpace(viper.GetString("worker.spire.fetch_timeout"))
+		if raw != "" {
+			d, err := time.ParseDuration(raw)
+			if err != nil {
+				return 0, fmt.Errorf("worker.spire: fetch_timeout must be a valid duration (got %q): %w", raw, err)
+			}
+
+			if d <= 0 {
+				return 0, fmt.Errorf("worker.spire: fetch_timeout must be > 0 (got %s)", d)
+			}
+
+			return d, nil
+		}
+
+		d := viper.GetDuration("worker.spire.fetch_timeout")
+		if d <= 0 {
+			return 0, fmt.Errorf("worker.spire: fetch_timeout must be > 0 (got %s)", d)
+		}
+
+		return d, nil
+	}
+
+	d := time.Duration(MustDefaults().Worker.SPIRE.FetchTimeout)
+	if d <= 0 {
+		return 0, fmt.Errorf("worker.spire: fetch_timeout must be > 0 (got %s)", d)
+	}
+
+	return d, nil
 }

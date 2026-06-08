@@ -54,17 +54,21 @@ func TestRequireX509SVIDRejectsMissingSVID(t *testing.T) {
 	source := fakeX509SVIDSource{svids: []X509SVID{
 		{SPIFFEID: "spiffe://prod.example/cell/local/job/other"},
 	}}
+	expected := "spiffe://prod.example/cell/local/job/job-1/run/run-1/execution/execution-1"
 
 	err := RequireX509SVID(
 		context.Background(),
 		source,
-		"spiffe://prod.example/cell/local/job/job-1/run/run-1/execution/execution-1",
+		expected,
 	)
 	if err == nil || !strings.Contains(err.Error(), "no X.509-SVID") {
 		t.Fatalf("RequireX509SVID error = %v, want missing SVID", err)
 	}
 	if !errors.Is(err, ErrNoMatchingX509SVID) {
 		t.Fatalf("RequireX509SVID error = %v, want ErrNoMatchingX509SVID", err)
+	}
+	if strings.Contains(err.Error(), expected) {
+		t.Fatalf("RequireX509SVID error included expected SPIFFE ID: %v", err)
 	}
 }
 

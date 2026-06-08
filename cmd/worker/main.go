@@ -938,7 +938,14 @@ func (w *worker) requireExecutionSVID(ctx context.Context, identity *workloadide
 		return fmt.Errorf("worker SPIRE execution SVID is required but SPIRE source is not configured")
 	}
 
-	if err := spire.RequireX509SVID(ctx, source, identity.SPIFFEID); err != nil {
+	checkCtx := ctx
+	cancel := func() {}
+	if timeout := config.WorkerSPIREFetchTimeout(); timeout > 0 {
+		checkCtx, cancel = context.WithTimeout(ctx, timeout)
+	}
+	defer cancel()
+
+	if err := spire.RequireX509SVID(checkCtx, source, identity.SPIFFEID); err != nil {
 		if w.metrics != nil {
 			w.metrics.RecordSPIRESVIDCheck(ctx, observability.WorkerSPIRESVIDOutcomeFailed, workerSPIRESVIDFailureReason(err))
 		}

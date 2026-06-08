@@ -3007,11 +3007,20 @@ func TestHandleJobExecutionIdentityEnabledRejectsJobWithoutRunContext(t *testing
 type fakeWorkerSVIDSource struct {
 	svids []spire.X509SVID
 	err   error
+	wait  <-chan struct{}
 }
 
-func (s fakeWorkerSVIDSource) FetchX509SVIDs(context.Context) ([]spire.X509SVID, error) {
+func (s fakeWorkerSVIDSource) FetchX509SVIDs(ctx context.Context) ([]spire.X509SVID, error) {
 	if s.err != nil {
 		return nil, s.err
+	}
+
+	if s.wait != nil {
+		select {
+		case <-s.wait:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 
 	return append([]spire.X509SVID(nil), s.svids...), nil
@@ -3077,6 +3086,25 @@ func TestRequireExecutionSVIDRejectsMissingSVID(t *testing.T) {
 	err := w.requireExecutionSVID(context.Background(), workerTestWorkloadIdentity())
 	if err == nil || !strings.Contains(err.Error(), "no X.509-SVID") {
 		t.Fatalf("requireExecutionSVID error = %v, want missing SVID", err)
+	}
+}
+
+func TestRequireExecutionSVIDUsesFetchTimeout(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("worker.spire.require_execution_svid", true)
+	viper.Set("worker.spire.fetch_timeout", time.Millisecond)
+
+	w := &worker{spireSVIDSource: fakeWorkerSVIDSource{wait: make(chan struct{})}}
+
+	started := time.Now()
+	err := w.requireExecutionSVID(context.Background(), workerTestWorkloadIdentity())
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("requireExecutionSVID error = %v, want context deadline exceeded", err)
+	}
+
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("requireExecutionSVID elapsed = %v, want bounded by fetch timeout", elapsed)
 	}
 }
 
