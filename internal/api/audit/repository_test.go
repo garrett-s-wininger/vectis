@@ -43,6 +43,9 @@ func (m *mockAuthRepo) DeleteAllAPITokensForUser(_ context.Context, _ int64) err
 func (m *mockAuthRepo) ChangePasswordAndRevokeTokens(_ context.Context, _ int64, _ string) error {
 	return nil
 }
+func (m *mockAuthRepo) DisableLocalUserAndRevokeTokens(_ context.Context, _ int64) error {
+	return nil
+}
 func (m *mockAuthRepo) ListAPITokens(_ context.Context, _ int64) ([]*dal.APITokenRecord, error) {
 	return nil, nil
 }

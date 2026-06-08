@@ -334,19 +334,44 @@ func (s *APIServer) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := s.authRepo.UpdateLocalUserEnabled(ctx, id, *req.Enabled); err != nil {
-		if dal.IsNotFound(err) {
+	var updateErr error
+	if *req.Enabled {
+		updateErr = s.authRepo.UpdateLocalUserEnabled(ctx, id, true)
+	} else {
+		updateErr = s.authRepo.DisableLocalUserAndRevokeTokens(ctx, id)
+	}
+
+	if updateErr != nil {
+		if dal.IsNotFound(updateErr) {
 			writeAPIErrorCode(w, http.StatusNotFound, apiErrUserNotFound)
 			return
 		}
 
-		if s.handleDBUnavailableError(w, err) {
+		if s.handleDBUnavailableError(w, updateErr) {
 			return
 		}
 
-		s.logger.Error("Database error updating user: %v", err)
+		s.logger.Error("Database error updating user: %v", updateErr)
 		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
+	}
+
+	if !*req.Enabled {
+		s.mu.RLock()
+		cacheService := s.cacheService
+		s.mu.RUnlock()
+
+		if cacheService != nil {
+			if err := cacheService.DeleteUserSessions(ctx, id); err != nil {
+				if s.handleDBUnavailableError(w, err) {
+					return
+				}
+
+				s.logger.Error("Cache error revoking disabled user sessions: %v", err)
+				writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+				return
+			}
+		}
 	}
 
 	s.markDBRecovered()

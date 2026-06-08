@@ -294,6 +294,69 @@ func TestAuthRepository_ChangePasswordAndRevokeTokens_revokesSessions(t *testing
 	}
 }
 
+func TestAuthRepository_DisableLocalUserAndRevokeTokens(t *testing.T) {
+	t.Parallel()
+
+	db := dbtest.NewTestDB(t)
+	repo := NewSQLAuthRepository(db)
+	ctx := context.Background()
+
+	passHash, err := bcrypt.GenerateFromPassword([]byte("longenough"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tokenHash := "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+	uid, err := repo.CompleteInitialSetup(ctx, "disabled-user", string(passHash), tokenHash, "initial")
+	if err != nil {
+		t.Fatalf("CompleteInitialSetup: %v", err)
+	}
+
+	_, err = db.ExecContext(ctx, rebindQueryForPgx(
+		`INSERT INTO api_sessions (session_hash, csrf_token_hash, local_user_id, expires_at_unix_nano, last_used_unix_nano) VALUES (?, ?, ?, ?, ?)`),
+		"disabled-session-hash", "disabled-csrf-hash", uid, time.Now().UTC().Add(time.Hour).UnixNano(), time.Now().UTC().UnixNano(),
+	)
+
+	if err != nil {
+		t.Fatalf("insert session: %v", err)
+	}
+
+	if err := repo.DisableLocalUserAndRevokeTokens(ctx, uid); err != nil {
+		t.Fatalf("DisableLocalUserAndRevokeTokens: %v", err)
+	}
+
+	enabled, err := repo.UserEnabled(ctx, uid)
+	if err != nil {
+		t.Fatalf("UserEnabled: %v", err)
+	}
+
+	if enabled {
+		t.Fatal("disabled user still enabled")
+	}
+
+	for table, query := range map[string]string{
+		"api_tokens":   `SELECT COUNT(*) FROM api_tokens WHERE local_user_id = ?`,
+		"api_sessions": `SELECT COUNT(*) FROM api_sessions WHERE local_user_id = ?`,
+	} {
+		var count int
+		if err := db.QueryRowContext(ctx, rebindQueryForPgx(query), uid).Scan(&count); err != nil {
+			t.Fatalf("count %s: %v", table, err)
+		}
+
+		if count != 0 {
+			t.Fatalf("expected no %s rows after disabling user, got %d", table, count)
+		}
+	}
+
+	if err := repo.UpdateLocalUserEnabled(ctx, uid, true); err != nil {
+		t.Fatalf("re-enable user: %v", err)
+	}
+
+	if _, _, _, err := repo.ResolveAPIToken(ctx, tokenHash); !IsNotFound(err) {
+		t.Fatalf("old token resolved after disable/re-enable, err=%v", err)
+	}
+}
+
 func TestAuthRepository_RootAdminQueries(t *testing.T) {
 	t.Parallel()
 

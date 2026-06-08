@@ -59,6 +59,7 @@ type AuthRepository interface {
 	UpdateUserPassword(ctx context.Context, localUserID int64, passwordHash string) error
 	DeleteAllAPITokensForUser(ctx context.Context, localUserID int64) error
 	ChangePasswordAndRevokeTokens(ctx context.Context, localUserID int64, passwordHash string) error
+	DisableLocalUserAndRevokeTokens(ctx context.Context, localUserID int64) error
 	ListAPITokens(ctx context.Context, localUserID int64) ([]*APITokenRecord, error)
 	CreateAPIToken(ctx context.Context, localUserID int64, tokenHash, label string, expiresAt *time.Time) (int64, error)
 	CreateAPITokenWithScopes(ctx context.Context, localUserID int64, tokenHash, label string, expiresAt *time.Time, scopes []*TokenScopeRecord) (int64, error)
@@ -508,6 +509,52 @@ func (r *SQLAuthRepository) UpdateLocalUserEnabled(ctx context.Context, id int64
 	}
 
 	return nil
+}
+
+func (r *SQLAuthRepository) DisableLocalUserAndRevokeTokens(ctx context.Context, localUserID int64) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.ExecContext(ctx,
+		rebindQueryForPgx(`UPDATE local_users SET enabled = ? WHERE id = ?`),
+		false, localUserID,
+	)
+
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if rowsAffected == 0 {
+		return ErrNotFound
+	}
+
+	_, err = tx.ExecContext(ctx,
+		rebindQueryForPgx(`DELETE FROM api_tokens WHERE local_user_id = ?`),
+		localUserID,
+	)
+
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	_, err = tx.ExecContext(ctx,
+		rebindQueryForPgx(`DELETE FROM api_sessions WHERE local_user_id = ?`),
+		localUserID,
+	)
+
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	return tx.Commit()
 }
 
 func (r *SQLAuthRepository) DeleteLocalUser(ctx context.Context, id int64) error {

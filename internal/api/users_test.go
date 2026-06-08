@@ -13,6 +13,125 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+func TestDisableUserRevokesCredentialsAcrossReenable(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "true")
+	t.Setenv("VECTIS_API_AUTH_BOOTSTRAP_TOKEN", "sixteenchars----")
+	t.Setenv("VECTIS_API_AUTHZ_ENGINE", "authenticated_full")
+
+	db := dbtest.NewTestDB(t)
+	s := NewAPIServer(mocks.NewMockLogger(), db)
+	s.SetQueueClient(mocks.NewMockQueueService())
+	h := s.Handler()
+
+	setupBody := map[string]string{
+		"bootstrap_token": "sixteenchars----",
+		"admin_username":  "root",
+		"admin_password":  "longenough",
+	}
+
+	setupJSON, _ := json.Marshal(setupBody)
+	setupRec := httptest.NewRecorder()
+	setupReq := httptest.NewRequest(http.MethodPost, "/api/v1/setup/complete", bytes.NewReader(setupJSON))
+	setupReq.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(setupRec, setupReq)
+
+	if setupRec.Code != http.StatusOK {
+		t.Fatalf("setup failed: code=%d body=%s", setupRec.Code, setupRec.Body.String())
+	}
+
+	var setupOut setupCompleteResponse
+	if err := json.NewDecoder(setupRec.Body).Decode(&setupOut); err != nil {
+		t.Fatal(err)
+	}
+
+	passHash, err := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := db.Exec("INSERT INTO local_users (username, password_hash, enabled) VALUES (?, ?, ?)", "target", string(passHash), true)
+	if err != nil {
+		t.Fatalf("insert target user: %v", err)
+	}
+
+	targetUserID, err := res.LastInsertId()
+	if err != nil {
+		t.Fatalf("target user id: %v", err)
+	}
+
+	targetAPIToken, err := randomHexToken(apiTokenRandomBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := db.Exec("INSERT INTO api_tokens (local_user_id, token_hash, label) VALUES (?, ?, ?)", targetUserID, hashAPIToken(targetAPIToken), "target-token"); err != nil {
+		t.Fatalf("insert target token: %v", err)
+	}
+
+	loginBody := map[string]string{
+		"username": "target",
+		"password": "password123",
+	}
+
+	loginJSON, _ := json.Marshal(loginBody)
+	loginRec := httptest.NewRecorder()
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/login", bytes.NewReader(loginJSON))
+	loginReq.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(loginRec, loginReq)
+	if loginRec.Code != http.StatusOK {
+		t.Fatalf("login failed: code=%d body=%s", loginRec.Code, loginRec.Body.String())
+	}
+
+	sessionCookies := loginRec.Result().Cookies()
+	if len(sessionCookies) == 0 {
+		t.Fatal("login did not set session cookies")
+	}
+
+	assertVersionStatus := func(name, credential string, cookies []*http.Cookie, want int) {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/version", nil)
+		if credential != "" {
+			req.Header.Set("Authorization", "Bearer "+credential)
+		}
+
+		for _, cookie := range cookies {
+			req.AddCookie(cookie)
+		}
+
+		h.ServeHTTP(rec, req)
+		if rec.Code != want {
+			t.Fatalf("%s status=%d, want %d; body=%s", name, rec.Code, want, rec.Body.String())
+		}
+	}
+
+	assertVersionStatus("target api token before disable", targetAPIToken, nil, http.StatusOK)
+	assertVersionStatus("target session before disable", "", sessionCookies, http.StatusOK)
+
+	disableBody, _ := json.Marshal(map[string]bool{"enabled": false})
+	disableRec := httptest.NewRecorder()
+	disableReq := httptest.NewRequest(http.MethodPut, "/api/v1/users/"+formatInt64(targetUserID), bytes.NewReader(disableBody))
+	disableReq.Header.Set("Content-Type", "application/json")
+	disableReq.Header.Set("Authorization", "Bearer "+setupOut.APIToken)
+	h.ServeHTTP(disableRec, disableReq)
+	if disableRec.Code != http.StatusNoContent {
+		t.Fatalf("disable failed: code=%d body=%s", disableRec.Code, disableRec.Body.String())
+	}
+
+	enableBody, _ := json.Marshal(map[string]bool{"enabled": true})
+	enableRec := httptest.NewRecorder()
+	enableReq := httptest.NewRequest(http.MethodPut, "/api/v1/users/"+formatInt64(targetUserID), bytes.NewReader(enableBody))
+	enableReq.Header.Set("Content-Type", "application/json")
+	enableReq.Header.Set("Authorization", "Bearer "+setupOut.APIToken)
+	h.ServeHTTP(enableRec, enableReq)
+	if enableRec.Code != http.StatusNoContent {
+		t.Fatalf("re-enable failed: code=%d body=%s", enableRec.Code, enableRec.Body.String())
+	}
+
+	assertVersionStatus("target api token after re-enable", targetAPIToken, nil, http.StatusUnauthorized)
+	assertVersionStatus("target session after re-enable", "", sessionCookies, http.StatusUnauthorized)
+}
+
 func TestChangePassword_endToEnd(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "true")
 	t.Setenv("VECTIS_API_AUTH_BOOTSTRAP_TOKEN", "sixteenchars----")

@@ -164,6 +164,8 @@ Health endpoints and `POST /api/v1/login` are public. Setup routes use setup-spe
 
 `POST /api/v1/login` creates an expiring server-side session. Browser clients receive a `Secure` HttpOnly `__Host-vectis_session` cookie plus a `Secure` readable `__Host-vectis_csrf` cookie and `csrf_token` response field. Cookie-authenticated browser login requires HTTPS or local TLS because Vectis does not issue or accept unprefixed fallback session cookies. Browser-marked cross-site requests without `Origin` are rejected before route handling; cross-site requests with `Origin` must pass CORS. Browser requests with Fetch Metadata must use API request shapes such as `Sec-Fetch-Mode: cors` or `same-origin` and `Sec-Fetch-Dest: empty`; document navigations and subresource loads are rejected. Cookie-authenticated requests carrying `Sec-Fetch-Site: cross-site` are rejected even when other metadata is present. Unsafe cookie-authenticated requests must copy the CSRF token into `X-CSRF-Token` and include an `Origin` or `Referer` matching the browser-facing scheme, host, and port; requests without origin metadata are rejected.
 
+Password changes and user disables revoke that user's API tokens and login sessions. Re-enabling a disabled user does not resurrect old credentials.
+
 Non-browser clients that need a bearer session token can request one explicitly:
 
 ```sh
@@ -349,7 +351,7 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | GET | `/api/v1/users` | List users | `user:admin` | general | `200` JSON list |
 | POST | `/api/v1/users` | Create a user | `user:admin` | general | `201` JSON user |
 | GET | `/api/v1/users/{id}` | Get one user | `user:admin` | general | `200` JSON user |
-| PUT | `/api/v1/users/{id}` | Update a user | `user:admin` | general | `200` JSON user |
+| PUT | `/api/v1/users/{id}` | Enable or disable a user; disabling revokes API tokens and login sessions | `user:admin` | general | `204` empty |
 | DELETE | `/api/v1/users/{id}` | Delete a user | `user:admin` | general | `204` empty |
 | GET | `/api/v1/namespaces` | List namespaces visible to the caller | `job:read` | general | `200` JSON list |
 | POST | `/api/v1/namespaces` | Create a namespace | `admin:*` | general | `201` JSON namespace |
