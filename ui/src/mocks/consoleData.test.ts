@@ -156,6 +156,8 @@ describe("mock console data", () => {
 
     expect(triggered.runs[0]).toMatchObject({
       definition: JSON.stringify({ id: "cache-prime", root: {} }),
+      definitionVersion: 1,
+      commit: "v1",
       jobName: "cache-prime",
       namespacePath: "/team-a",
       source: "stored",
@@ -174,6 +176,8 @@ describe("mock console data", () => {
       cellName: "edge",
       namespacePath: "/team-a/edge",
       runNumber: 1241,
+      commit: "v1",
+      definitionVersion: 1,
       source: "stored",
       status: "queued",
       trigger: "ui"

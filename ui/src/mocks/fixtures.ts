@@ -47,6 +47,7 @@ export const activeRuns: RunListItem[] = [
     runNumber: 1240,
     cellName: "local",
     commit: "8f12c4a",
+    createdAt: "2026-05-31T12:00:00Z",
     definition: JSON.stringify(
       {
         id: "api-test-suite",
@@ -62,6 +63,7 @@ export const activeRuns: RunListItem[] = [
     duration: "4m 12s",
     namespacePath: "/team-a",
     source: "stored",
+    startedAt: "2026-05-31T12:00:05Z",
     submittedBy: "mira",
     trigger: "manual",
     status: "running"
@@ -72,6 +74,7 @@ export const activeRuns: RunListItem[] = [
     runNumber: 1239,
     cellName: "edge",
     commit: "1d9a0b3",
+    createdAt: "2026-05-31T11:20:00Z",
     definition: JSON.stringify(
       {
         id: "docs-publish",
@@ -97,6 +100,7 @@ export const activeRuns: RunListItem[] = [
     runNumber: 1238,
     cellName: "prod-west",
     commit: "54fd901",
+    createdAt: "2026-05-31T10:00:00Z",
     definition: JSON.stringify(
       {
         id: "worker-image",
@@ -110,8 +114,10 @@ export const activeRuns: RunListItem[] = [
       2
     ),
     duration: "7m 31s",
+    finishedAt: "2026-05-31T10:07:36Z",
     namespacePath: "/prod",
     source: "stored",
+    startedAt: "2026-05-31T10:00:05Z",
     submittedBy: "admin",
     trigger: "manual",
     status: "succeeded"

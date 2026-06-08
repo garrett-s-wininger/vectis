@@ -50,6 +50,8 @@ describe("console data source", () => {
             {
               run_id: "run-1",
               run_index: 4,
+              created_at: "2026-05-31T11:59:55Z",
+              definition_version: 3,
               status: "succeeded",
               started_at: "2026-05-31T12:00:00Z",
               finished_at: "2026-05-31T12:00:42Z"
@@ -69,6 +71,7 @@ describe("console data source", () => {
         role: "Admin"
       }
     ]);
+
     expect(data.jobs[0]).toMatchObject({
       id: "smoke-test",
       name: "smoke-test",
@@ -78,11 +81,19 @@ describe("console data source", () => {
       triggers: [{ kind: "manual", detail: "On demand" }],
       lastRunStatus: "succeeded"
     });
+
     expect(data.runs[0]).toMatchObject({
       id: "run-1",
       jobName: "smoke-test",
       runNumber: 4,
+      commit: "v3",
+      createdAt: "2026-05-31T11:59:55Z",
+      definitionVersion: 3,
+      finishedAt: "2026-05-31T12:00:42Z",
       status: "succeeded",
+      startedAt: "2026-05-31T12:00:00Z",
+      submittedBy: "anonymous",
+      trigger: "api",
       duration: "42s"
     });
   });

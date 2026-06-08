@@ -32,6 +32,7 @@ type APINamespace = {
 
 type APIRun = {
   created_at?: string;
+  definition_version?: number;
   finished_at?: string;
   run_id: string;
   run_index: number;
@@ -204,15 +205,23 @@ function apiRunToConsoleRun(run: APIRun, job: Job): RunListItem {
     jobName: job.name,
     namespacePath: job.namespacePath,
     runNumber: run.run_index,
-    commit: "manual",
+    createdAt: run.created_at,
+    commit: definitionReference(run.definition_version),
+    definitionVersion: run.definition_version,
     status: apiRunStatusToConsoleStatus(run.status),
     duration: formatRunDuration(run),
+    finishedAt: run.finished_at,
     cellName: "local",
     source: "stored",
+    startedAt: run.started_at,
     definition: job.definition,
     submittedBy: "anonymous",
     trigger: "api"
   };
+}
+
+function definitionReference(version?: number) {
+  return version ? `v${version}` : "v1";
 }
 
 function apiRunStatusToConsoleStatus(status: string): RunStatus {

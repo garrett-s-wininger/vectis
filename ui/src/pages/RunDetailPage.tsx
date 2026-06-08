@@ -1,38 +1,53 @@
-import { useState } from "react";
-import { AppState } from "../components";
-import { Button } from "../components";
-import { PageHeader } from "../components";
-import type { RunListItem } from "../components";
-import { StatusBadge } from "../components";
-
-type RunDetailTab = "summary" | "definition" | "logs";
+import { Clock, Code2, FileText, History, Server, User, Zap } from "lucide-react";
+import {
+  AppState,
+  BreadcrumbTrail,
+  Button,
+  OperationalFact,
+  PageHeader,
+  StatusBadge,
+  type RunListItem
+} from "../components";
+import { runActorLabel, runDurationLabel, runTriggerLabel } from "../components/data/RunPresentation";
+import { formatNamespaceCrumb } from "./jobs/JobBreadcrumbs";
+import {
+  formatRunDefinition,
+  referenceLabel,
+  runDefinitionDescription,
+  runDefinitionTitle,
+  runDetailDescription,
+  runLogLines,
+  runTimelineEvents,
+  sourceLabel
+} from "./RunDetailPresentation";
 
 type RunDetailPageProps = {
   onBack: () => void;
+  onOpenJob?: (jobName: string) => void;
   run?: RunListItem;
   runID: string;
 };
 
-const tabLabels: Record<RunDetailTab, string> = {
-  summary: "Summary",
-  definition: "Definition",
-  logs: "Logs"
-};
-
-export function RunDetailPage({ onBack, run, runID }: RunDetailPageProps) {
-  const [activeTab, setActiveTab] = useState<RunDetailTab>("summary");
-
+export function RunDetailPage({ onBack, onOpenJob, run, runID }: RunDetailPageProps) {
   if (!run) {
     return (
       <>
         <PageHeader
-          actions={<Button onClick={onBack}>Back to runs</Button>}
+          actions={<Button onClick={onBack}>Back to Runs</Button>}
           description={`No run matched ${runID}.`}
-          eyebrow="Run detail"
+          navigation={
+            <BreadcrumbTrail
+              items={[
+                { label: "Runs", onClick: onBack },
+                { label: runID, current: true }
+              ]}
+              label="Run location"
+            />
+          }
           title="Run not found"
         />
         <AppState
-          actions={<Button onClick={onBack}>Back to runs</Button>}
+          actions={<Button onClick={onBack}>Back to Runs</Button>}
           description="The selected run is not present in the current console data."
           title="Run not found"
           tone="empty"
@@ -41,175 +56,129 @@ export function RunDetailPage({ onBack, run, runID }: RunDetailPageProps) {
     );
   }
 
-  const source = run.source ?? "stored";
-
   return (
     <>
       <PageHeader
-        actions={<Button onClick={onBack}>Back to runs</Button>}
-        description={`${run.namespacePath ?? "/"} · ${run.cellName ?? "unknown cell"} · ${sourceLabel(source)}`}
-        eyebrow="Run detail"
-        title={`${run.jobName} #${run.runNumber}`}
+        description={runDetailDescription()}
+        navigation={
+          <BreadcrumbTrail
+            items={[
+              { label: formatNamespaceCrumb(run.namespacePath ?? "/") },
+              { label: "Runs", onClick: onBack },
+              { label: run.jobName, onClick: onOpenJob ? () => onOpenJob(run.jobName) : undefined },
+              { label: `#${run.runNumber}`, current: true }
+            ]}
+            label="Run location"
+          />
+        }
+        title={`${run.jobName} (#${run.runNumber})`}
       />
-      <div className="run-detail-tabs" role="tablist" aria-label="Run detail">
-        {Object.entries(tabLabels).map(([tab, label]) => (
-          <button
-            aria-selected={activeTab === tab}
-            className="run-detail-tabs__tab"
-            key={tab}
-            onClick={() => setActiveTab(tab as RunDetailTab)}
-            role="tab"
-            type="button"
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      {activeTab === "summary" ? <RunSummary run={run} /> : null}
-      {activeTab === "definition" ? <RunDefinition run={run} /> : null}
-      {activeTab === "logs" ? <RunLogs run={run} /> : null}
+
+      <section className="run-investigation-hero" aria-label="Run investigation summary">
+        <div className="run-investigation-hero__header">
+          <div>
+            <h2>Summary</h2>
+            <p>{run.id}</p>
+          </div>
+          <StatusBadge status={run.status} />
+        </div>
+        <dl className="run-investigation-facts">
+          <OperationalFact emphasis icon={Clock} label={runDurationLabel(run.status)} value={run.duration} />
+          <OperationalFact icon={Server} label="Cell" value={run.cellName ?? "Unassigned"} />
+          <OperationalFact icon={Zap} label="Trigger" value={runTriggerLabel(run)} />
+          <OperationalFact
+            icon={User}
+            label="Actor"
+            value={run.submittedBy ? runActorLabel(run.submittedBy) : "Unknown"}
+          />
+          <OperationalFact icon={FileText} label="Source" value={sourceLabel(run.source ?? "stored")} />
+          <OperationalFact icon={Code2} label="Reference" value={referenceLabel(run)} />
+        </dl>
+      </section>
+
+      <section className="run-investigation-layout" aria-label="Run investigation">
+        <RunGraph run={run} />
+        <RunLogs run={run} />
+        <RunDefinition run={run} />
+        <RunTimeline run={run} />
+      </section>
     </>
   );
 }
 
-function RunSummary({ run }: { run: RunListItem }) {
-  const source = run.source ?? "stored";
-
+function RunGraph({ run }: { run: RunListItem }) {
   return (
-    <section className="run-detail-layout" aria-label="Run summary">
-      <div className="run-detail-panel">
-        <div className="run-detail-panel__header">
-          <h2>Summary</h2>
-          <StatusBadge status={run.status} />
+    <section className="run-investigation-panel run-graph-panel" aria-labelledby="run-graph-title">
+      <div className="run-investigation-panel__header">
+        <div>
+          <h2 id="run-graph-title">Graph</h2>
+          <p>Execution nodes and selected task context.</p>
         </div>
-        <dl className="run-detail-facts">
-          <div>
-            <dt>Run ID</dt>
-            <dd>{run.id}</dd>
-          </div>
-          <div>
-            <dt>Source</dt>
-            <dd>
-              <span className={`run-source run-source--${source}`}>{sourceLabel(source)}</span>
-            </dd>
-          </div>
-          <div>
-            <dt>Namespace</dt>
-            <dd>{run.namespacePath ?? "/"}</dd>
-          </div>
-          <div>
-            <dt>Cell</dt>
-            <dd>{run.cellName ?? "unknown"}</dd>
-          </div>
-          <div>
-            <dt>Submitted by</dt>
-            <dd>{run.submittedBy ?? "unknown"}</dd>
-          </div>
-          <div>
-            <dt>Reference</dt>
-            <dd>{run.commit}</dd>
-          </div>
-          <div>
-            <dt>Duration</dt>
-            <dd>{run.duration}</dd>
-          </div>
-        </dl>
       </div>
-      <div className="run-detail-panel">
-        <div className="run-detail-panel__header">
-          <h2>Events</h2>
-        </div>
-        <ol className="run-event-list">
-          {eventsForRun(run).map((event) => (
-            <li key={event.label}>
-              <strong>{event.label}</strong>
-              <span>{event.detail}</span>
-            </li>
-          ))}
-        </ol>
+      <div className="run-node-graph" aria-label="Execution graph">
+        <span className={`run-node-graph__node run-node-graph__node--${run.status}`}>
+          <span className="run-node-graph__indicator" aria-hidden="true" />
+          <span className="run-node-graph__label">root</span>
+        </span>
       </div>
-    </section>
-  );
-}
-
-function RunDefinition({ run }: { run: RunListItem }) {
-  return (
-    <section className="run-detail-panel run-detail-panel--wide">
-      <div className="run-detail-panel__header">
-        <h2>{run.source === "ephemeral" ? "Submitted definition" : "Stored job definition"}</h2>
-      </div>
-      <pre className="code-block">{definitionForRun(run)}</pre>
     </section>
   );
 }
 
 function RunLogs({ run }: { run: RunListItem }) {
   return (
-    <section className="run-detail-panel run-detail-panel--wide">
-      <div className="run-detail-panel__header">
-        <h2>Logs</h2>
-        <StatusBadge status={run.status} />
+    <section className="run-investigation-panel run-investigation-panel--primary" aria-labelledby="run-logs-title">
+      <div className="run-investigation-panel__header">
+        <div>
+          <h2 id="run-logs-title">Logs</h2>
+          <p>Worker output and dispatch messages for this run.</p>
+        </div>
       </div>
-      <pre className="code-block">{logsForRun(run).join("\n")}</pre>
+      <pre className="code-block">{runLogLines(run).join("\n")}</pre>
     </section>
   );
 }
 
-function sourceLabel(source: NonNullable<RunListItem["source"]>) {
-  return source === "ephemeral" ? "Ephemeral" : "Stored";
+function RunTimeline({ run }: { run: RunListItem }) {
+  return (
+    <section className="run-investigation-panel" aria-labelledby="run-timeline-title">
+      <div className="run-investigation-panel__header">
+        <div>
+          <h2 id="run-timeline-title">Timeline</h2>
+          <p>How this run moved through the system.</p>
+        </div>
+      </div>
+      <ol className="run-event-list">
+        {runTimelineEvents(run).map((event) => (
+          <li key={event.label}>
+            <History aria-hidden="true" />
+            <div>
+              <strong>
+                {event.label}
+                <span className="run-event-list__time">
+                  {event.time}
+                  {event.delta ? <small>{event.delta}</small> : null}
+                </span>
+              </strong>
+              <span>{event.detail}</span>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
 }
 
-function definitionForRun(run: RunListItem) {
-  if (!run.definition) {
-    return JSON.stringify(
-      {
-        id: run.jobName,
-        source: run.source ?? "stored",
-        run_id: run.id
-      },
-      null,
-      2
-    );
-  }
-
-  try {
-    return JSON.stringify(JSON.parse(run.definition), null, 2);
-  } catch {
-    return run.definition;
-  }
-}
-
-function eventsForRun(run: RunListItem) {
-  const source = sourceLabel(run.source ?? "stored").toLowerCase();
-  return [
-    {
-      label: "Accepted",
-      detail: `${run.submittedBy ?? "unknown"} submitted ${source} work`
-    },
-    {
-      label: "Persisted",
-      detail: `${run.id} stored under ${run.namespacePath ?? "/"}`
-    },
-    {
-      label: "Dispatch",
-      detail: `${run.cellName ?? "unknown cell"} reports ${run.status}`
-    }
-  ];
-}
-
-function logsForRun(run: RunListItem) {
-  const prefix = run.id;
-  if (run.status === "queued") {
-    return [`[${prefix}] accepted ${run.jobName}`, `[${prefix}] waiting for queue dispatch`];
-  }
-
-  if (run.status === "running") {
-    return [
-      `[${prefix}] accepted ${run.jobName}`,
-      `[${prefix}] worker claimed run`,
-      `[${prefix}] streaming output from ${run.cellName ?? "cell"}`
-    ];
-  }
-
-  return [`[${prefix}] accepted ${run.jobName}`, `[${prefix}] completed with status ${run.status}`];
+function RunDefinition({ run }: { run: RunListItem }) {
+  return (
+    <section className="run-investigation-panel" aria-labelledby="run-definition-title">
+      <div className="run-investigation-panel__header">
+        <div>
+          <h2 id="run-definition-title">{runDefinitionTitle(run)}</h2>
+          <p>{runDefinitionDescription(run)}</p>
+        </div>
+      </div>
+      <pre className="definition-preview">{formatRunDefinition(run)}</pre>
+    </section>
+  );
 }

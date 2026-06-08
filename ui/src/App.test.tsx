@@ -188,7 +188,8 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "api-test-suite #1240" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "api-test-suite (#1240)" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Summary" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Runs" })).toHaveAttribute("aria-current", "page");
   });
 
@@ -332,7 +333,7 @@ describe("App", () => {
     expect(window.location.pathname).toBe("/jobs/job-docs-publish");
   });
 
-  it("opens a run detail placeholder from the runs list", async () => {
+  it("opens a run detail page from the runs list", async () => {
     window.history.replaceState(null, "", "/runs");
 
     render(<App />);
@@ -341,14 +342,26 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Open run api-test-suite #1240" }));
 
-    expect(await screen.findByRole("heading", { name: "api-test-suite #1240" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "api-test-suite (#1240)" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Summary" })).toBeInTheDocument();
     expect(screen.getByText("run-1240")).toBeInTheDocument();
-    expect(screen.getByText("Stored")).toBeInTheDocument();
+    expect(screen.getByText("Saved")).toBeInTheDocument();
     expect(window.location.pathname).toBe("/runs/run-1240");
-
-    fireEvent.click(screen.getByRole("tab", { name: "Definition" }));
-
+    expect(screen.getByRole("heading", { name: "Logs" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Timeline" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Job Definition" })).toBeInTheDocument();
+    expect(screen.getByText("Submitted via Manual by mira.")).toBeInTheDocument();
+    expect(screen.getByText("Assigned ID run-1240.")).toBeInTheDocument();
+    expect(screen.getByText("Worker selected on local.")).toBeInTheDocument();
+    expect(screen.getByText(/\+0s/)).toBeInTheDocument();
+    expect(screen.getByText(/\+5s/)).toBeInTheDocument();
+    expect(screen.getByText("Streaming")).toBeInTheDocument();
     expect(screen.getByText(/go test \.\/internal\/api/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "api-test-suite" }));
+
+    expect(await screen.findByRole("heading", { level: 1, name: "api-test-suite" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/jobs/job-api-test-suite");
   });
 
   it("submits an ephemeral run from the runs page", async () => {
@@ -370,12 +383,11 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Submit run" }));
 
-    expect(await screen.findByRole("heading", { name: "database-backfill #1241" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "database-backfill (#1241)" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Summary" })).toBeInTheDocument();
     expect(screen.getByText("Ephemeral")).toBeInTheDocument();
-    expect(screen.getByText("inline definition")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("tab", { name: "Definition" }));
-
+    expect(screen.getByText("Inline submission")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Submitted Definition" })).toBeInTheDocument();
     expect(screen.getByText(/"id": "database-backfill"/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("link", { name: "Jobs" }));

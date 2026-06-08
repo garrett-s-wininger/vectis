@@ -17,11 +17,15 @@ export type RunListItem = {
   jobName: string;
   runNumber: number;
   commit: string;
+  createdAt?: string;
   definition?: string;
+  definitionVersion?: number;
   duration: string;
+  finishedAt?: string;
   cellName?: string;
   namespacePath?: string;
   source?: "stored" | "ephemeral";
+  startedAt?: string;
   submittedBy?: string;
   trigger?: RunTrigger;
   status: RunStatus;

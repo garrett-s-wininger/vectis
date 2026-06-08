@@ -526,6 +526,7 @@ function RouteContent({
         return (
           <RunDetailPage
             onBack={() => navigateTo("/runs")}
+            onOpenJob={(jobName) => navigateTo(jobPathForRunJob(consoleData, jobName))}
             run={consoleData.runs.find((run) => run.id === route.runID)}
             runID={route.runID}
           />
@@ -598,6 +599,11 @@ function jobConfigPath(jobID: string, route: AppRoute) {
   const jobPath = `/jobs/${encodeURIComponent(jobID)}`;
   const returnTo = route.jobID === jobID ? jobPath : route.pathname;
   return `${jobPath}/config?returnTo=${encodeURIComponent(returnTo)}`;
+}
+
+function jobPathForRunJob(consoleData: MockConsoleData, jobName: string) {
+  const job = consoleData.jobs.find((candidate) => candidate.name === jobName);
+  return job ? `/jobs/${encodeURIComponent(job.id)}` : `/runs?job=${encodeURIComponent(jobName)}`;
 }
 
 function jobNamespacePathForRoute(consoleData: MockConsoleData, route: AppRoute) {
