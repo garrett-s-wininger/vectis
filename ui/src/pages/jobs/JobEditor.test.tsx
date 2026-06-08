@@ -18,13 +18,19 @@ describe("JobEditor", () => {
         onError={() => undefined}
         onUpdateJob={() => undefined}
         onValuesChange={() => undefined}
-        values={{ ...emptyJobForm, name: "cache-warmup" }}
+        values={{ ...emptyJobForm, description: "Warms cache before release deploys.", name: "cache-warmup" }}
       />
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
-    expect(createJob).toHaveBeenCalledWith(expect.objectContaining({ name: "cache-warmup", namespacePath: "/platform" }));
+    expect(createJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        description: "Warms cache before release deploys.",
+        name: "cache-warmup",
+        namespacePath: "/platform"
+      })
+    );
     expect(cancel).toHaveBeenCalled();
   });
 

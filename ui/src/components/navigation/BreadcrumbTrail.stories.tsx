@@ -6,11 +6,7 @@ const meta = {
   component: BreadcrumbTrail,
   args: {
     label: "Job location",
-    items: [
-      { label: "Root" },
-      { label: "Jobs", onClick: () => undefined },
-      { label: "docs-publish", current: true }
-    ]
+    items: [{ label: "Root" }, { label: "Jobs", onClick: () => undefined }, { label: "docs-publish", current: true }]
   }
 } satisfies Meta<typeof BreadcrumbTrail>;
 
@@ -42,7 +38,7 @@ export const JobConfig: Story = {
       { label: "/team-a/edge" },
       { label: "Jobs", onClick: () => undefined },
       { label: "docs-publish", onClick: () => undefined },
-      { label: "Config", current: true }
+      { label: "Configure", current: true }
     ]
   }
 };

@@ -40,7 +40,7 @@ export function JobDetailsDrawer({
           </div>
           <div>
             {lastRun ? (
-              <Button aria-label={`Open latest run for ${job.name}`} onClick={onOpenLastRun}>
+              <Button aria-label={`View latest run for ${job.name}`} onClick={onOpenLastRun}>
                 View
               </Button>
             ) : null}
@@ -52,14 +52,10 @@ export function JobDetailsDrawer({
             <small>{getJobPathDetail(job)}</small>
           </div>
           <div>
-            <Button aria-label={`Open ${job.name}`} onClick={onOpen} variant="quiet">
-              Open
+            <Button aria-label={`View ${job.name}`} onClick={onOpen} variant="quiet">
+              View
             </Button>
-            <Button
-              aria-label={`${jobConfigurationActionLabel} ${job.name}`}
-              onClick={onEdit}
-              variant="quiet"
-            >
+            <Button aria-label={`${jobConfigurationActionLabel} ${job.name}`} onClick={onEdit} variant="quiet">
               {jobConfigurationActionLabel}
             </Button>
           </div>

@@ -92,6 +92,9 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
     async createJob(input) {
       const definition = parseJobDefinition(input.definition);
       definition.id = input.name;
+      if (input.description) {
+        definition.description = input.description;
+      }
 
       await requestNoContent("/api/v1/jobs", {
         method: "POST",
@@ -114,6 +117,9 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
     async updateJob(jobID, input) {
       const definition = parseJobDefinition(input.definition);
       definition.id = jobID;
+      if (input.description) {
+        definition.description = input.description;
+      }
 
       await requestNoContent(`/api/v1/jobs/${encodeURIComponent(jobID)}`, {
         method: "PUT",
@@ -185,7 +191,7 @@ function apiJobToConsoleJob(job: APIJob): Job {
   return {
     id: job.name,
     name: job.name,
-    description: job.description,
+    description: job.description ?? stringField(definition, "description"),
     repository: "",
     branch: "",
     sourceDetail: "Stored in Vectis",
@@ -197,6 +203,11 @@ function apiJobToConsoleJob(job: APIJob): Job {
     triggers: [{ kind: "manual", detail: "On demand" }],
     status: "enabled"
   };
+}
+
+function stringField(value: Record<string, unknown>, key: string) {
+  const field = value[key];
+  return typeof field === "string" && field.trim() ? field : undefined;
 }
 
 function apiRunToConsoleRun(run: APIRun, job: Job): RunListItem {

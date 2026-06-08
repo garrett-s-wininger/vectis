@@ -14,6 +14,7 @@ export type JobEditorMode = { kind: "create" } | { kind: "edit"; jobID: string }
 export type JobFormValues = {
   branch: string;
   cronSpec: string;
+  description: string;
   definition: string;
   manualEnabled: boolean;
   name: string;
@@ -39,6 +40,7 @@ type JobEditorFieldErrors = Partial<Record<"cronSpec" | "definition" | "name", s
 export const emptyJobForm: JobFormValues = {
   branch: "main",
   cronSpec: "",
+  description: "",
   definition: defaultJobDefinition,
   manualEnabled: true,
   name: "",
@@ -50,6 +52,7 @@ export const emptyJobForm: JobFormValues = {
 export function valuesFromJob(job: Job): JobFormValues {
   return {
     branch: job.branch,
+    description: job.description ?? "",
     definition: job.definition ?? defaultJobDefinition,
     cronSpec: cronSpecFromSchedule(job.schedule),
     manualEnabled: job.triggers.some((trigger) => trigger.kind === "manual"),
@@ -64,6 +67,7 @@ export function jobInputFromValues(values: JobFormValues) {
   const schedule = values.schedule === "Custom" ? `Cron: ${values.cronSpec}` : values.schedule;
   return {
     branch: values.branch,
+    description: values.description.trim() || undefined,
     definition: values.definition,
     manualEnabled: values.manualEnabled,
     name: values.name,
@@ -86,6 +90,7 @@ export function JobEditor({
 }: JobEditorProps) {
   const [fieldErrors, setFieldErrors] = useState<JobEditorFieldErrors>({});
   const [cronSpecEdited, setCronSpecEdited] = useState(false);
+  const isConfigureMode = mode.kind === "edit";
 
   function setValues(nextValues: JobFormValues) {
     onValuesChange(nextValues);
@@ -147,7 +152,15 @@ export function JobEditor({
   return (
     <section className={`${styles.editorPanel} resource-editor-panel`} aria-labelledby="job-editor-title">
       <div className={styles.editorHeader}>
-        <ResourceTitle id="job-editor-title" title={mode.kind === "create" ? "Create" : "Configure"} />
+        <ResourceTitle
+          id="job-editor-title"
+          subtitle={
+            isConfigureMode
+              ? "Adjust editable fields for this saved job."
+              : "Set the identity, source, triggers, and definition."
+          }
+          title="Job Definition"
+        />
         <Button onClick={onCancel}>Cancel</Button>
       </div>
       <form className={`${styles.editorForm} resource-editor-form`} onSubmit={submitJob}>
@@ -155,10 +168,11 @@ export function JobEditor({
           <section className={styles.editorSection} aria-labelledby="job-basics-title">
             <div className={styles.sectionIntro}>
               <h3 id="job-basics-title">Identity</h3>
+              <p>Name the saved definition and decide whether it can accept new runs.</p>
             </div>
             <div className={styles.fieldGrid}>
               <FormField
-                disabled={mode.kind === "edit"}
+                disabled={isConfigureMode}
                 error={fieldErrors.name}
                 label="Name"
                 name="jobName"
@@ -169,6 +183,14 @@ export function JobEditor({
                 placeholder="worker-image"
                 required
                 value={values.name}
+                wide
+              />
+              <FormField
+                label="Description"
+                name="jobDescription"
+                onChange={(event) => setValues({ ...values, description: event.target.value })}
+                placeholder="Coordinates a repeatable workflow"
+                value={values.description}
                 wide
               />
               <ToggleField
@@ -189,12 +211,14 @@ export function JobEditor({
           <section className={styles.editorSection} aria-labelledby="job-source-title">
             <div className={styles.sectionIntro}>
               <h3 id="job-source-title">Source</h3>
+              <p>Choose where Vectis should treat the job definition as authoritative.</p>
             </div>
             <JobSourceOptions />
           </section>
           <section className={styles.editorSection} aria-labelledby="job-triggers-title">
             <div className={styles.sectionIntro}>
               <h3 id="job-triggers-title">Triggers</h3>
+              <p>Allow manual starts, scheduled starts, or both.</p>
             </div>
             <JobTriggerControls
               cronSpec={values.cronSpec}
@@ -221,6 +245,7 @@ export function JobEditor({
           <section className={styles.editorSection} aria-labelledby="job-definition-title">
             <div className={styles.sectionIntro}>
               <h3 id="job-definition-title">Definition</h3>
+              <p>Edit the JSON payload Vectis stores and submits when this job runs.</p>
             </div>
             <TextAreaField
               code

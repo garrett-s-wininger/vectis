@@ -55,6 +55,13 @@
   margin: 0;
 }
 
+.sectionIntro p {
+  color: var(--text-subtle);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-body);
+  margin: 0;
+}
+
 .fieldGrid {
   align-items: end;
   display: grid;

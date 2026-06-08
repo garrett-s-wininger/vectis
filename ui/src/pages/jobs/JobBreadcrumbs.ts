@@ -43,7 +43,7 @@ export function jobEditorBreadcrumbItems({
     return [...baseItems, { label: "Create", current: true }];
   }
 
-  return [...baseItems, { label: editorJobName, onClick: onJob }, { label: "Config", current: true }];
+  return [...baseItems, { label: editorJobName, onClick: onJob }, { label: "Configure", current: true }];
 }
 
 export function formatNamespaceCrumb(namespacePath: string) {

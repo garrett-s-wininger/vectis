@@ -63,11 +63,11 @@ export function JobsPage({
   const editorKey = editorMode?.kind === "edit" ? `edit:${editorMode.jobID}` : (editorMode?.kind ?? "");
   const editorNamespacePath = editorJob?.namespacePath ?? namespacePath;
   const editorJobName = editorJob?.name ?? "Create";
-  const pageTitle = editorMode ? (editorMode.kind === "edit" ? "Configure" : "Create") : "Jobs";
+  const pageTitle = editorMode ? (editorMode.kind === "edit" ? "Configure" : "New Job") : "Jobs";
   const pageDescription = editorMode
     ? editorMode.kind === "edit"
-      ? "Review and adjust the stored definition, state, and triggers."
-      : "Define a reusable stored job and trigger policy."
+      ? "Review the saved definition, state, and trigger policy."
+      : "Create a saved job definition and choose how it can be triggered."
     : "Stored definitions and triggers.";
 
   function startEditJob(job: Job) {

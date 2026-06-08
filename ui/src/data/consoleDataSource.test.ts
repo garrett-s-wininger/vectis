@@ -34,6 +34,7 @@ describe("console data source", () => {
               name: "smoke-test",
               namespace: "/",
               definition: {
+                description: "Runs smoke tests before deployment.",
                 id: "smoke-test",
                 root: {
                   id: "root",
@@ -76,6 +77,7 @@ describe("console data source", () => {
       id: "smoke-test",
       name: "smoke-test",
       namespacePath: "/",
+      description: "Runs smoke tests before deployment.",
       sourceKind: "db",
       sourceDetail: "Stored in Vectis",
       triggers: [{ kind: "manual", detail: "On demand" }],

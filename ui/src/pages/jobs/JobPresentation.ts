@@ -1,7 +1,7 @@
 import type { RunListItem } from "../../components";
 import type { Job } from "../../domain/console";
 
-export const jobConfigurationActionLabel = "Config";
+export const jobConfigurationActionLabel = "Edit";
 
 export const triggerKindLabel: Record<Job["triggers"][number]["kind"], string> = {
   manual: "Manual",
@@ -80,10 +80,7 @@ export function getRunHealthSummary(runs: RunListItem[]) {
 
   if (failedRuns === recentRuns.length) {
     return {
-      detail:
-        failedRuns === 1
-          ? "The latest run failed."
-          : `The last ${failedRuns} runs failed.`,
+      detail: failedRuns === 1 ? "The latest run failed." : `The last ${failedRuns} runs failed.`,
       label: "All failing",
       tone: "failed" as const
     };

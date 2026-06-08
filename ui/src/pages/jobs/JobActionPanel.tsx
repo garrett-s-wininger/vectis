@@ -45,15 +45,15 @@ export function JobActionPanel({
           <span>Latest run</span>
           <div>
             <StatusBadge status={lastRun.status} />
-            <Button aria-label={`Open latest run for ${job.name}`} onClick={onOpenLastRun} variant="quiet">
+            <Button aria-label={`View latest run for ${job.name}`} onClick={onOpenLastRun} variant="quiet">
               View
             </Button>
           </div>
         </div>
       ) : null}
       <TableActions className={styles.actionButtons}>
-        <Button aria-label={`Open ${job.name}`} onClick={onOpen} variant="quiet">
-          Open
+        <Button aria-label={`View ${job.name}`} onClick={onOpen} variant="quiet">
+          View
         </Button>
         {canTriggerRun(job) ? (
           <Button aria-label={`Trigger ${job.name}`} onClick={onTrigger} variant="quiet">

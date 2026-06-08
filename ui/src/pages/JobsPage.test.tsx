@@ -142,7 +142,7 @@ describe("JobsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /test-run/ }));
 
     expect(screen.getAllByText("None")).toHaveLength(2);
-    expect(screen.queryByRole("button", { name: "Open latest run for test-run" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "View latest run for test-run" })).not.toBeInTheDocument();
   });
 
   it("renders a job detail view", () => {
@@ -195,16 +195,16 @@ describe("JobsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Jobs" }));
     expect(openJob).toHaveBeenCalledWith("");
 
-    expect(screen.queryByRole("button", { name: "Open Root namespace jobs" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "View Root namespace jobs" })).not.toBeInTheDocument();
     expect(selectNamespace).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Run test-run" }));
     expect(triggerRun).toHaveBeenCalledWith("test-run");
 
-    fireEvent.click(screen.getByRole("button", { name: "Config test-run" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit test-run" }));
     expect(openEditor).toHaveBeenCalledWith("test-run");
 
-    fireEvent.click(screen.getByRole("button", { name: "Open all runs for test-run" }));
+    fireEvent.click(screen.getByRole("button", { name: "View all runs for test-run" }));
     expect(openJobRuns).toHaveBeenCalledWith("test-run");
   });
 

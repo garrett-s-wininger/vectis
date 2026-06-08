@@ -2,12 +2,14 @@ import styles from "./JobSourceOptions.module.css";
 
 const sourceOptions = [
   {
-    description: "Best for quick setup or local definitions. Vectis stores the JSON and owns changes from this screen.",
+    description:
+      "Store the job definition in Vectis. Best for local workflows, quick jobs, and definitions managed through the API.",
     label: "Inline",
     status: "Available"
   },
   {
-    description: "Best for reviewed definitions. Vectis reads job files from a repository; edits happen through code review.",
+    description:
+      "Use a repository path as the source of truth. Vectis will read definitions from the configured repo browser once enabled.",
     label: "Source Control",
     status: "Coming soon"
   }

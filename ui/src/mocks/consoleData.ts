@@ -464,7 +464,7 @@ export function createMockJob(data: MockConsoleData, input: NewMockJob): MockCon
   const job: MockJob = {
     id: uniqueMockJobID(data, name),
     name,
-    description: "Reusable job definition stored in Vectis.",
+    description: input.description?.trim() || "Reusable job definition stored in Vectis.",
     repository: input.repository.trim(),
     branch: input.branch.trim(),
     definition: input.definition.trim(),
@@ -497,6 +497,7 @@ export function updateMockJob(data: MockConsoleData, jobID: string, input: Updat
         ? {
             ...job,
             name,
+            description: input.description?.trim() || undefined,
             repository: input.repository.trim(),
             branch: input.branch.trim(),
             definition: input.definition.trim(),

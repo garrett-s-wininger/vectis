@@ -60,7 +60,7 @@ export function JobDetailPage({
           <div className={styles.executionSummary}>
             <div className={styles.healthSummary}>
               <StatusBadge status={runHealth.tone} />
-              <Button aria-label={`Open all runs for ${job.name}`} onClick={onOpenRuns}>
+              <Button aria-label={`View all runs for ${job.name}`} onClick={onOpenRuns}>
                 All Runs
               </Button>
             </div>
@@ -69,7 +69,7 @@ export function JobDetailPage({
                 <span>
                   Latest #{lastRun.runNumber} · {lastRun.duration}
                 </span>
-                <Button aria-label={`Open latest run for ${job.name}`} onClick={onOpenLastRun} variant="quiet">
+                <Button aria-label={`View latest run for ${job.name}`} onClick={onOpenLastRun} variant="quiet">
                   Latest Run
                 </Button>
               </div>
