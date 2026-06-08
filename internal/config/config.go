@@ -230,6 +230,7 @@ type WorkerDefaults struct {
 	MetricsPort          int                             `toml:"metrics_port"`
 	Control              WorkerControlDefaults           `toml:"control"`
 	ExecutionIdentity    WorkerExecutionIdentityDefaults `toml:"execution_identity"`
+	SPIRE                WorkerSPIREDefaults             `toml:"spire"`
 	RegisterWithRegistry bool                            `toml:"register_with_registry"`
 }
 
@@ -237,6 +238,12 @@ type WorkerExecutionIdentityDefaults struct {
 	Enabled      bool   `toml:"enabled"`
 	TrustDomain  string `toml:"trust_domain"`
 	PathTemplate string `toml:"path_template"`
+}
+
+type WorkerSPIREDefaults struct {
+	Enabled              bool   `toml:"enabled"`
+	WorkloadAPIAddress   string `toml:"workload_api_address"`
+	RequireExecutionSVID bool   `toml:"require_execution_svid"`
 }
 
 type CronDefaults struct {
@@ -445,6 +452,18 @@ func validateDefaults(d Defaults) {
 		DefinitionHash:    "sha256:sample",
 	}); err != nil {
 		panic("config defaults: worker.execution_identity: " + err.Error())
+	}
+
+	if d.Worker.SPIRE.Enabled && strings.TrimSpace(d.Worker.SPIRE.WorkloadAPIAddress) == "" {
+		panic("config defaults: worker.spire.workload_api_address must not be empty when enabled")
+	}
+
+	if d.Worker.SPIRE.RequireExecutionSVID && !d.Worker.SPIRE.Enabled {
+		panic("config defaults: worker.spire.require_execution_svid requires worker.spire.enabled")
+	}
+
+	if d.Worker.SPIRE.RequireExecutionSVID && !d.Worker.ExecutionIdentity.Enabled {
+		panic("config defaults: worker.spire.require_execution_svid requires worker.execution_identity.enabled")
 	}
 
 	p := d.Database.PgxPool

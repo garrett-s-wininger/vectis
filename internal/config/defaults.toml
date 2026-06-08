@@ -165,6 +165,11 @@ enabled = false
 trust_domain = ""
 path_template = "/cell/{cell}/namespace/{namespace}/job/{job}/run/{run}/execution/{execution}"
 
+[worker.spire]
+enabled = false
+workload_api_address = ""
+require_execution_svid = false
+
 [grpc_tls]
 insecure = true
 ca_file = ""

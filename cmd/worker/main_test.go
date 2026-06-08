@@ -19,10 +19,12 @@ import (
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/job"
 	"vectis/internal/observability"
+	"vectis/internal/spire"
 	"vectis/internal/taskdispatch"
 	"vectis/internal/taskfinalize"
 	"vectis/internal/testutil/dbtest"
 	"vectis/internal/testutil/runfixture"
+	"vectis/internal/workloadidentity"
 
 	"github.com/spf13/viper"
 	"go.opentelemetry.io/otel/attribute"
@@ -687,6 +689,137 @@ func TestWorkerTryClaimExecution_RecordsAcceptedOnlyOnInitialClaim(t *testing.T)
 	acceptedKey := cell.CatalogExecutionStatusEventKey(env.ExecutionID, dal.ExecutionStatusAccepted)
 	if got := catalogEvents.countByKey(acceptedKey); got != 1 {
 		t.Fatalf("accepted catalog events: got %d, want 1", got)
+	}
+}
+
+func TestWorkerRunClaimedJob_RequireExecutionSVIDRejectsBeforeAction(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("worker.execution_identity.enabled", true)
+	viper.Set("worker.execution_identity.trust_domain", "prod.example")
+	viper.Set("worker.spire.enabled", true)
+	viper.Set("worker.spire.workload_api_address", "unix:///tmp/spire-agent.sock")
+	viper.Set("worker.spire.require_execution_svid", true)
+
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositories(db)
+	runs := repos.Runs()
+
+	ns, err := repos.Namespaces().Create(ctx, "worker-spire-gate", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-worker-spire-gate"
+	def := `{"id":"job-worker-spire-gate","root":{"uses":"builtins/shell","with":{"command":"echo spire"}}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := runs.CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	dispatch, err := runs.GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	marker := t.TempDir() + "/action-ran"
+	command := fmt.Sprintf("printf ok > %q", marker)
+
+	workerID := "worker-test-spire-gate"
+	queue := mocks.NewMockQueueClient()
+	logClient := mocks.NewMockLogClient()
+	w := &worker{
+		ctx:           context.Background(),
+		runCtx:        context.Background(),
+		logger:        interfaces.NewLogger("worker-test"),
+		workerID:      workerID,
+		cellID:        "local",
+		renewInterval: time.Hour,
+		queue:         queue,
+		logClient:     logClient,
+		executor:      job.NewExecutor(),
+		store:         runs,
+		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
+		spireSVIDSource: fakeWorkerSVIDSource{svids: []spire.X509SVID{
+			{SPIFFEID: "spiffe://prod.example/cell/other/namespace/other/job/other/run/other/execution/other"},
+		}},
+	}
+
+	deliveryID := "delivery-spire-gate"
+	commandNodeID := "node-1"
+	action := "builtins/shell"
+	root := &api.Node{
+		Id:   &commandNodeID,
+		Uses: &action,
+		With: map[string]string{"command": command},
+	}
+
+	j := &api.Job{
+		Id:         &jobID,
+		RunId:      &runID,
+		DeliveryId: &deliveryID,
+		Root:       root,
+	}
+
+	req := &api.JobRequest{Job: j}
+	env, err := cell.AttachExecutionEnvelope(req, dispatch, 1)
+	if err != nil {
+		t.Fatalf("attach execution envelope: %v", err)
+	}
+
+	w.handleJob(req)
+
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("action marker stat error = %v, want file not created", err)
+	}
+
+	var runStatus string
+	var executionStatus string
+	var segmentStatus string
+	var eventSequence int64
+	var acceptedAt, startedAt, finishedAt sql.NullString
+	if err := db.QueryRowContext(ctx, `
+		SELECT jr.status, se.status, rs.status, se.accepted_at, se.started_at, se.finished_at, se.event_sequence
+		FROM job_runs jr
+		JOIN segment_executions se ON se.run_id = jr.run_id
+		JOIN run_segments rs ON rs.segment_id = se.segment_id
+		WHERE jr.run_id = ? AND se.execution_id = ?
+	`, runID, env.ExecutionID).Scan(
+		&runStatus,
+		&executionStatus,
+		&segmentStatus,
+		&acceptedAt,
+		&startedAt,
+		&finishedAt,
+		&eventSequence,
+	); err != nil {
+		t.Fatalf("query execution state: %v", err)
+	}
+
+	if runStatus != dal.RunStatusFailed {
+		t.Fatalf("run status: got %q, want %q", runStatus, dal.RunStatusFailed)
+	}
+
+	if executionStatus != dal.ExecutionStatusFailed {
+		t.Fatalf("execution status: got %q, want %q", executionStatus, dal.ExecutionStatusFailed)
+	}
+
+	if segmentStatus != dal.SegmentStatusFailed {
+		t.Fatalf("segment status: got %q, want %q", segmentStatus, dal.SegmentStatusFailed)
+	}
+
+	if !acceptedAt.Valid || startedAt.Valid || !finishedAt.Valid {
+		t.Fatalf("expected accepted and finished timestamps without started; got accepted=%v started=%v finished=%v",
+			acceptedAt, startedAt, finishedAt)
+	}
+
+	if eventSequence != 2 {
+		t.Fatalf("event sequence: got %d, want 2", eventSequence)
 	}
 }
 
@@ -2871,6 +3004,82 @@ func TestHandleJobExecutionIdentityEnabledRejectsJobWithoutRunContext(t *testing
 	}
 }
 
+type fakeWorkerSVIDSource struct {
+	svids []spire.X509SVID
+	err   error
+}
+
+func (s fakeWorkerSVIDSource) FetchX509SVIDs(context.Context) ([]spire.X509SVID, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+
+	return append([]spire.X509SVID(nil), s.svids...), nil
+}
+
+func TestRequireExecutionSVIDDisabled(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	w := &worker{}
+	if err := w.requireExecutionSVID(context.Background(), workerTestWorkloadIdentity()); err != nil {
+		t.Fatalf("requireExecutionSVID disabled: %v", err)
+	}
+}
+
+func TestRequireExecutionSVIDRequiresIdentity(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("worker.spire.require_execution_svid", true)
+
+	w := &worker{spireSVIDSource: fakeWorkerSVIDSource{}}
+	err := w.requireExecutionSVID(context.Background(), nil)
+	if err == nil || !strings.Contains(err.Error(), "execution identity is missing") {
+		t.Fatalf("requireExecutionSVID error = %v, want missing identity", err)
+	}
+}
+
+func TestRequireExecutionSVIDRequiresSource(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("worker.spire.require_execution_svid", true)
+
+	w := &worker{}
+	err := w.requireExecutionSVID(context.Background(), workerTestWorkloadIdentity())
+	if err == nil || !strings.Contains(err.Error(), "SPIRE source is not configured") {
+		t.Fatalf("requireExecutionSVID error = %v, want missing source", err)
+	}
+}
+
+func TestRequireExecutionSVIDAcceptsMatchingSource(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("worker.spire.require_execution_svid", true)
+
+	w := &worker{spireSVIDSource: fakeWorkerSVIDSource{svids: []spire.X509SVID{
+		{SPIFFEID: workerTestWorkloadIdentity().SPIFFEID},
+	}}}
+
+	if err := w.requireExecutionSVID(context.Background(), workerTestWorkloadIdentity()); err != nil {
+		t.Fatalf("requireExecutionSVID: %v", err)
+	}
+}
+
+func TestRequireExecutionSVIDRejectsMissingSVID(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("worker.spire.require_execution_svid", true)
+
+	w := &worker{spireSVIDSource: fakeWorkerSVIDSource{svids: []spire.X509SVID{
+		{SPIFFEID: "spiffe://prod.example/cell/iad-a/namespace/team-a/job/job-1/run/run-1/execution/other"},
+	}}}
+
+	err := w.requireExecutionSVID(context.Background(), workerTestWorkloadIdentity())
+	if err == nil || !strings.Contains(err.Error(), "no X.509-SVID") {
+		t.Fatalf("requireExecutionSVID error = %v, want missing SVID", err)
+	}
+}
+
 func logContains(logs []string, substr string) bool {
 	for _, msg := range logs {
 		if strings.Contains(msg, substr) {
@@ -2879,6 +3088,12 @@ func logContains(logs []string, substr string) bool {
 	}
 
 	return false
+}
+
+func workerTestWorkloadIdentity() *workloadidentity.Identity {
+	return &workloadidentity.Identity{
+		SPIFFEID: "spiffe://prod.example/cell/iad-a/namespace/team-a/job/job-1/run/run-1/execution/execution-1",
+	}
 }
 
 func workerTestExecutionEnvelope() *cell.ExecutionEnvelope {

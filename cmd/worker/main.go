@@ -34,6 +34,7 @@ import (
 	"vectis/internal/queueclient"
 	"vectis/internal/registry"
 	"vectis/internal/runpolicy"
+	"vectis/internal/spire"
 	"vectis/internal/taskdispatch"
 	"vectis/internal/taskfinalize"
 	"vectis/internal/taskreduce"
@@ -82,6 +83,10 @@ func runWorker(cmd *cobra.Command, args []string) {
 	}
 
 	if err := config.ValidateWorkerExecutionIdentityConfig(); err != nil {
+		logger.Fatal("%v", err)
+	}
+
+	if err := config.ValidateWorkerSPIREConfig(); err != nil {
 		logger.Fatal("%v", err)
 	}
 
@@ -182,6 +187,16 @@ func runWorker(cmd *cobra.Command, args []string) {
 	taskDispatcher.SetDispatchMetrics(dispatchMetrics)
 	taskDispatchService := taskdispatch.NewService(logger, taskDispatcher)
 	taskDispatchService.SetMetrics(taskDispatchMetrics)
+	var spireSVIDSource spire.X509SVIDSource
+	if config.WorkerSPIREEnabled() {
+		src, err := spire.NewWorkloadAPISource(config.WorkerSPIREWorkloadAPIAddress())
+		if err != nil {
+			logger.Fatal("Failed to configure SPIRE Workload API source: %v", err)
+		}
+
+		spireSVIDSource = src
+	}
+
 	w := &worker{
 		ctx:                 shutdownCtx,
 		runCtx:              runCtx,
@@ -198,6 +213,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 		metrics:             workerMetrics,
 		taskDispatchService: taskDispatchService,
 		taskFinalizeMetrics: taskFinalizeMetrics,
+		spireSVIDSource:     spireSVIDSource,
 		cancelCh:            make(chan string, 1),
 	}
 
@@ -324,6 +340,7 @@ type worker struct {
 	metrics             *observability.WorkerMetrics
 	taskDispatchService *taskdispatch.Service
 	taskFinalizeMetrics *observability.TaskFinalizeMetrics
+	spireSVIDSource     spire.X509SVIDSource
 	dequeueFailAttempt  int
 	dbUnavailable       bool
 	dbFailAttempt       int
@@ -725,7 +742,6 @@ func (w *worker) runTaskExecution(ctx context.Context, job *api.Job, jobID, runI
 	}
 
 	w.recordRunCatalogEvent(dal.RunStatusUpdate{RunID: runID, Status: dal.RunStatusRunning})
-	w.markExecutionStarted(ctx, executionEnvelope)
 	w.setLifecyclePhase(observability.WorkerPhaseExecuting)
 	execErr := w.executeWithLeaseRenewal(ctx, runID, executionClaimToken, job, executionEnvelope)
 	if execErr != nil {
@@ -898,6 +914,27 @@ func executionWorkloadIdentity(env *cell.ExecutionEnvelope) (*workloadidentity.I
 			DefinitionHash:    env.DefinitionHash,
 		},
 	)
+}
+
+func (w *worker) requireExecutionSVID(ctx context.Context, identity *workloadidentity.Identity) error {
+	if !config.WorkerSPIRERequireExecutionSVID() {
+		return nil
+	}
+
+	if identity == nil {
+		return fmt.Errorf("worker SPIRE execution SVID is required but execution identity is missing")
+	}
+
+	source := w.spireSVIDSource
+	if source == nil {
+		return fmt.Errorf("worker SPIRE execution SVID is required but SPIRE source is not configured")
+	}
+
+	if err := spire.RequireX509SVID(ctx, source, identity.SPIFFEID); err != nil {
+		return fmt.Errorf("worker SPIRE execution SVID: %w", err)
+	}
+
+	return nil
 }
 
 func (w *worker) markExecutionStarted(ctx context.Context, env *cell.ExecutionEnvelope) {
@@ -1284,10 +1321,16 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, executionCl
 
 	workloadIdentity, err := executionWorkloadIdentity(env)
 	if err == nil {
+		err = w.requireExecutionSVID(execCtx, workloadIdentity)
+	}
+
+	if err == nil {
+		w.markExecutionStarted(ctx, env)
 		err = w.executor.ExecuteTaskWithOptions(execCtx, runJob, env.TaskKey, w.logClient, w.logger, job.ExecuteOptions{
 			WorkloadIdentity: workloadIdentity,
 		})
 	}
+
 	close(stopRenew)
 	<-doneRenew
 
