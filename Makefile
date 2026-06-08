@@ -152,6 +152,16 @@ test-property:
 	go test -count=1 ./internal/logforwarder -run 'Property'
 	go test -count=1 ./internal/catalog -run 'Property'
 
+.PHONY: deploy-artifacts-test
+deploy-artifacts-test:
+	go test ./deploy/linux/...
+
+DEPLOY_LINUX_OUT ?= artifacts/deploy/linux
+
+.PHONY: deploy-artifacts-render
+deploy-artifacts-render:
+	go run ./deploy/linux/cmd/render -out $(DEPLOY_LINUX_OUT)
+
 .PHONY: website-a11y
 website-a11y:
 	cd website && \
@@ -199,6 +209,7 @@ fuzz-api-auth:
 .PHONY: clean
 clean:
 	rm -rf artifacts/perf/
+	rm -rf artifacts/deploy/
 	rm -rf ${OUT_DIR}
 	rm -rf formal/tla/*_TTrace_*
 	rm -rf states/

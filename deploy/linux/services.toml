@@ -1,0 +1,286 @@
+[target]
+name = "vectis.target"
+description = "Vectis standalone service stack"
+documentation = "https://github.com/garrett-s-wininger/vectis"
+
+[defaults]
+network_unit = "network-online.target"
+migration_unit = "vectis-db-migrate.service"
+user = "vectis"
+group = "vectis"
+working_directory = "/var/lib/vectis"
+state_directory = "vectis"
+cache_directory = ""
+logs_directory = "vectis"
+runtime_directory = "vectis"
+runtime_directory_mode = "0750"
+runtime_directory_preserve = "yes"
+common_env_file = "-/etc/vectis/vectis.env"
+restart = "on-failure"
+restart_sec = "5s"
+timeout_stop_sec = "45s"
+kill_signal = "SIGTERM"
+umask = "0027"
+limit_nofile = "65535"
+no_new_privileges = "true"
+private_tmp = "true"
+protect_system = "full"
+protect_home = "true"
+
+# Example values only. Config management or package defaults should write the
+# real /etc/vectis/vectis.env for a target host.
+[common_env_example]
+XDG_DATA_HOME = "/var/lib"
+XDG_CACHE_HOME = "/var/cache"
+XDG_CONFIG_HOME = "/etc"
+XDG_RUNTIME_DIR = "/run"
+VECTIS_CELL_ID = "local"
+VECTIS_LOG_FORMAT = "json"
+VECTIS_LOG_DIR = "/var/log/vectis/components"
+VECTIS_DATABASE_DRIVER = "pgx"
+VECTIS_DATABASE_DSN = "postgres://vectis:change-me@127.0.0.1:5432/vectis?sslmode=require"
+VECTIS_DATABASE_PGX_MAX_OPEN_CONNS = "25"
+VECTIS_DATABASE_PGX_MAX_IDLE_CONNS = "10"
+VECTIS_DATABASE_PGX_CONN_MAX_LIFETIME = "1h"
+VECTIS_DATABASE_PGX_CONN_MAX_IDLE_TIME = "15m"
+VECTIS_DISCOVERY_REGISTRY_ADDRESS = "127.0.0.1:8082"
+VECTIS_GRPC_TLS_INSECURE = "true"
+VECTIS_METRICS_TLS_INSECURE = "true"
+
+[[tmpfiles]]
+type = "d"
+path = "/etc/vectis"
+mode = "0750"
+user = "root"
+group = "vectis"
+age = "-"
+
+[[tmpfiles]]
+type = "d"
+path = "/var/lib/vectis"
+mode = "0750"
+user = "vectis"
+group = "vectis"
+age = "-"
+
+[[tmpfiles]]
+type = "d"
+path = "/var/cache/vectis"
+mode = "0750"
+user = "vectis"
+group = "vectis"
+age = "-"
+
+[[tmpfiles]]
+type = "d"
+path = "/var/log/vectis"
+mode = "0750"
+user = "vectis"
+group = "vectis"
+age = "-"
+
+[[tmpfiles]]
+type = "d"
+path = "/var/log/vectis/components"
+mode = "0750"
+user = "vectis"
+group = "vectis"
+age = "-"
+
+[[tmpfiles]]
+type = "d"
+path = "/run/vectis"
+mode = "0750"
+user = "vectis"
+group = "vectis"
+age = "-"
+
+[[sysusers]]
+type = "u"
+name = "vectis"
+id = "-"
+gecos = "Vectis service user"
+home = "/var/lib/vectis"
+shell = "/usr/sbin/nologin"
+
+[[unit]]
+id = "db-migrate"
+description = "Apply Vectis database migrations"
+exec_start = "/usr/bin/vectis-cli database migrate"
+type = "oneshot"
+target_member = true
+common_env = true
+
+[[unit]]
+id = "registry"
+description = "Vectis registry service"
+target_member = true
+common_env = true
+
+[unit.env_example]
+VECTIS_REGISTRY_PORT = "8082"
+
+[[unit]]
+id = "queue"
+description = "Vectis queue service"
+target_member = true
+common_env = true
+wants = ["registry"]
+after = ["registry"]
+
+[unit.env_example]
+VECTIS_QUEUE_PORT = "8081"
+VECTIS_QUEUE_METRICS_PORT = "9081"
+VECTIS_QUEUE_POOL = "default"
+VECTIS_QUEUE_INSTANCE_ID = "queue-1"
+VECTIS_QUEUE_PERSISTENCE_DIR = "/var/lib/vectis/queue/default/queue-1"
+VECTIS_QUEUE_PERSISTENCE_SNAPSHOT_EVERY = "128"
+VECTIS_QUEUE_REGISTER_WITH_REGISTRY = "true"
+
+[[unit]]
+id = "log"
+description = "Vectis log service"
+target_member = true
+common_env = true
+wants = ["registry"]
+after = ["registry"]
+
+[unit.env_example]
+VECTIS_LOG_GRPC_PORT = "8083"
+VECTIS_LOG_METRICS_PORT = "9083"
+VECTIS_LOG_INSTANCE_ID = "log-1"
+VECTIS_LOG_STORAGE_DIR = "/var/lib/vectis/log/log-1"
+VECTIS_LOG_STORAGE_READ_ONLY_MIN_FREE_BYTES = "1073741824"
+
+[[unit]]
+id = "log-forwarder"
+description = "Vectis log forwarder service"
+target_member = true
+common_env = true
+wants = ["registry", "log"]
+after = ["registry", "log"]
+
+[unit.env_example]
+VECTIS_LOG_FORWARDER_SOCKET = "/run/vectis/log-forwarder.sock"
+VECTIS_LOG_FORWARDER_LOCKFILE = "/run/vectis/log-forwarder.lock"
+VECTIS_LOG_FORWARDER_SPOOL_DIR = "/var/lib/vectis/log-forwarder/spool"
+VECTIS_LOG_FORWARDER_BATCH_SIZE = "100"
+VECTIS_LOG_FORWARDER_MAX_CHUNKS_PER_SEC = "10000"
+VECTIS_LOG_FORWARDER_BUFFER_SIZE = "1024"
+VECTIS_LOG_FORWARDER_SHUTDOWN_TIMEOUT = "10s"
+VECTIS_LOG_FORWARDER_METRICS_PORT = "9088"
+
+[[unit]]
+id = "api"
+description = "Vectis API service"
+target_member = true
+common_env = true
+db_backed = true
+wants = ["registry", "queue", "log"]
+after = ["registry", "queue", "log"]
+
+[unit.env_example]
+VECTIS_API_SERVER_HOST = "0.0.0.0"
+VECTIS_API_SERVER_PORT = "8080"
+
+[[unit]]
+id = "cell-ingress"
+description = "Vectis cell ingress service"
+target_member = true
+common_env = true
+db_backed = true
+wants = ["registry", "queue"]
+after = ["registry", "queue"]
+
+[unit.env_example]
+VECTIS_CELL_INGRESS_HOST = "0.0.0.0"
+VECTIS_CELL_INGRESS_PORT = "8085"
+VECTIS_CELL_INGRESS_METRICS_PORT = "9087"
+VECTIS_CELL_INGRESS_REPAIR_INTERVAL = "30s"
+
+[[unit]]
+id = "worker"
+description = "Vectis worker service"
+target_member = true
+common_env = true
+db_backed = true
+wants = ["registry", "queue", "log", "log-forwarder"]
+after = ["registry", "queue", "log", "log-forwarder"]
+timeout_stop_sec = "120s"
+
+[unit.env_example]
+VECTIS_WORKER_METRICS_PORT = "9082"
+VECTIS_WORKER_CONTROL_MODE = "static"
+VECTIS_WORKER_CONTROL_PORT = "9084"
+
+[[unit]]
+id = "cron"
+description = "Vectis cron service"
+target_member = true
+common_env = true
+db_backed = true
+wants = ["registry", "queue"]
+after = ["registry", "queue"]
+
+[unit.env_example]
+VECTIS_CRON_INSTANCE_ID = "cron-1"
+VECTIS_CRON_CLAIM_TTL = "5m"
+
+[[unit]]
+id = "catalog"
+description = "Vectis catalog service"
+target_member = true
+common_env = true
+db_backed = true
+
+[unit.env_example]
+VECTIS_CATALOG_INTERVAL = "1s"
+VECTIS_CATALOG_BATCH_SIZE = "100"
+VECTIS_CATALOG_METRICS_PORT = "9086"
+
+[[unit]]
+id = "reconciler"
+description = "Vectis reconciler service"
+target_member = true
+common_env = true
+db_backed = true
+wants = ["registry", "queue"]
+after = ["registry", "queue"]
+
+[unit.env_example]
+VECTIS_RECONCILER_INTERVAL = "30s"
+VECTIS_RECONCILER_LEASE_TTL = "2m"
+VECTIS_RECONCILER_METRICS_PORT = "9085"
+
+[[unit]]
+id = "docs"
+description = "Vectis docs service"
+target_member = true
+common_env = true
+
+[unit.env_example]
+VECTIS_DOCS_HOST = "0.0.0.0"
+VECTIS_DOCS_PORT = "8088"
+VECTIS_DOCS_LOG_LEVEL = "info"
+
+[[unit]]
+id = "local"
+description = "Vectis local one-box service stack"
+target_member = false
+common_env = false
+install_wanted_by = "multi-user.target"
+timeout_stop_sec = "90s"
+cache_directory = "vectis"
+
+[unit.env_example]
+XDG_DATA_HOME = "/var/lib"
+XDG_CACHE_HOME = "/var/cache"
+XDG_CONFIG_HOME = "/etc"
+XDG_RUNTIME_DIR = "/run"
+VECTIS_LOCAL_HOST = "0.0.0.0"
+VECTIS_LOCAL_PROFILE = "simple"
+VECTIS_LOCAL_DOCS_ENABLED = "true"
+VECTIS_LOCAL_DOCS_PORT = "8088"
+VECTIS_LOCAL_GRPC_INSECURE = "false"
+VECTIS_LOG_FORMAT = "json"
+VECTIS_LOG_DIR = "/var/log/vectis/components"
