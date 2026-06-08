@@ -179,24 +179,22 @@ func runWorker(cmd *cobra.Command, args []string) {
 	taskDispatchService := taskdispatch.NewService(logger, taskDispatcher)
 	taskDispatchService.SetMetrics(taskDispatchMetrics)
 	w := &worker{
-		ctx:                   shutdownCtx,
-		runCtx:                runCtx,
-		logger:                logger,
-		workerID:              workerID,
-		cellID:                config.CellID(),
-		clock:                 interfaces.SystemClock{},
-		renewInterval:         dal.DefaultRenewInterval,
-		queue:                 clients,
-		logClient:             logClient,
-		executor:              job.NewExecutor(),
-		store:                 runsRepo,
-		catalog:               cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
-		metrics:               workerMetrics,
-		taskDispatchService:   taskDispatchService,
-		taskFinalizeMetrics:   taskFinalizeMetrics,
-		taskReduceService:     taskreduce.NewService(taskreduce.New(runsRepo)),
-		taskCompletionService: job.NewTaskCompletionService(runsRepo),
-		cancelCh:              make(chan string, 1),
+		ctx:                 shutdownCtx,
+		runCtx:              runCtx,
+		logger:              logger,
+		workerID:            workerID,
+		cellID:              config.CellID(),
+		clock:               interfaces.SystemClock{},
+		renewInterval:       dal.DefaultRenewInterval,
+		queue:               clients,
+		logClient:           logClient,
+		executor:            job.NewExecutor(),
+		store:               runsRepo,
+		catalog:             cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
+		metrics:             workerMetrics,
+		taskDispatchService: taskDispatchService,
+		taskFinalizeMetrics: taskFinalizeMetrics,
+		cancelCh:            make(chan string, 1),
 	}
 
 	// Start worker control server for remote cancellation.
@@ -306,32 +304,30 @@ func controlPublishAddress(addr string) string {
 }
 
 type worker struct {
-	ctx                   context.Context // canceled on SIGINT/SIGTERM; dequeue and between-job backoff only
-	runCtx                context.Context // Background; execution, lease renew, ack, finalize survive SIGTERM until dequeue stops
-	logger                interfaces.Logger
-	workerID              string
-	cellID                string
-	clock                 interfaces.Clock
-	renewInterval         time.Duration
-	cancelPollInterval    time.Duration
-	queue                 interfaces.QueueClient
-	logClient             interfaces.LogClient
-	executor              *job.Executor
-	store                 dal.RunsRepository
-	catalog               cell.CatalogEventPublisher
-	metrics               *observability.WorkerMetrics
-	taskDispatchService   *taskdispatch.Service
-	taskFinalizeMetrics   *observability.TaskFinalizeMetrics
-	taskReduceService     *taskreduce.Service
-	taskCompletionService job.TaskCompleter
-	dequeueFailAttempt    int
-	dbUnavailable         bool
-	dbFailAttempt         int
-	dbMu                  sync.Mutex
-	cancelCh              chan string
-	currentRunID          string
-	currentClaimToken     string
-	currentMu             sync.Mutex
+	ctx                 context.Context // canceled on SIGINT/SIGTERM; dequeue and between-job backoff only
+	runCtx              context.Context // Background; execution, lease renew, ack, finalize survive SIGTERM until dequeue stops
+	logger              interfaces.Logger
+	workerID            string
+	cellID              string
+	clock               interfaces.Clock
+	renewInterval       time.Duration
+	cancelPollInterval  time.Duration
+	queue               interfaces.QueueClient
+	logClient           interfaces.LogClient
+	executor            *job.Executor
+	store               dal.RunsRepository
+	catalog             cell.CatalogEventPublisher
+	metrics             *observability.WorkerMetrics
+	taskDispatchService *taskdispatch.Service
+	taskFinalizeMetrics *observability.TaskFinalizeMetrics
+	dequeueFailAttempt  int
+	dbUnavailable       bool
+	dbFailAttempt       int
+	dbMu                sync.Mutex
+	cancelCh            chan string
+	currentRunID        string
+	currentClaimToken   string
+	currentMu           sync.Mutex
 }
 
 type queueClientServiceAdapter struct {
@@ -752,11 +748,7 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 			span.AddEvent("run.cancelled")
 			span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeAborted))
 			w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
-			if executionClaimToken != "" {
-				return w.finalizeAbortedTaskRunByExecutionClaim(ctx, executionClaimToken, dal.CancelReasonAPI, executionEnvelope)
-			}
-
-			return w.finalizeAbortedTaskRun(ctx, runID, claimToken, dal.CancelReasonAPI, executionEnvelope)
+			return w.finalizeAbortedTaskRunByExecutionClaim(ctx, executionClaimToken, dal.CancelReasonAPI, executionEnvelope)
 		}
 
 		w.logger.Error("Job %s failed: %v", jobID, execErr)
@@ -766,28 +758,14 @@ func (w *worker) runClaimedJob(ctx context.Context, job *api.Job, jobID, runID, 
 		reason := truncateFailureReason(execErr.Error())
 		w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
 
-		if executionClaimToken != "" {
-			return w.finalizeFailedTaskRunByExecutionClaim(ctx, runID, executionClaimToken, decision.FailureCode, reason, executionEnvelope)
-		}
-
-		return w.finalizeFailedTaskRun(ctx, runID, claimToken, decision.FailureCode, reason, executionEnvelope)
+		return w.finalizeFailedTaskRunByExecutionClaim(ctx, executionClaimToken, decision.FailureCode, reason, executionEnvelope)
 	}
 
 	w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
-	if executionClaimToken != "" {
-		return w.finalizeSucceededTaskRunByExecutionClaim(ctx, jobID, runID, executionClaimToken, executionEnvelope)
-	}
-
-	completion, ok := w.completeExecutionTerminal(ctx, executionEnvelope, dal.ExecutionStatusSucceeded)
-	if !ok {
-		span.SetStatus(otelcodes.Error, "complete task execution")
-		return observability.WorkerOutcomeFailed
-	}
-
-	return w.finalizeSucceededTaskRun(ctx, jobID, runID, claimToken, completion)
+	return w.finalizeSucceededTaskRunByExecutionClaim(ctx, jobID, runID, executionClaimToken, executionEnvelope)
 }
 
-func (w *worker) finalizeFailedTaskRunByExecutionClaim(ctx context.Context, runID, executionClaimToken, failureCode, reason string, executionEnvelope *cell.ExecutionEnvelope) string {
+func (w *worker) finalizeFailedTaskRunByExecutionClaim(ctx context.Context, executionClaimToken, failureCode, reason string, executionEnvelope *cell.ExecutionEnvelope) string {
 	span := trace.SpanFromContext(ctx)
 
 	result, ok := w.completeExecutionAndFinalizeRunByClaim(ctx, executionEnvelope, executionClaimToken, dal.ExecutionStatusFailed, failureCode, reason)
@@ -797,6 +775,7 @@ func (w *worker) finalizeFailedTaskRunByExecutionClaim(ctx context.Context, runI
 	}
 
 	reduceDecision := taskreduce.Decide(result.Summary)
+	w.recordTaskReduceDecision(ctx, reduceDecision, nil)
 	w.recordTaskFinalizeDecision(ctx, taskfinalize.ExecutionFailed(reduceDecision))
 
 	if result.Outcome != dal.ExecutionFinalizationOutcomeRunFailed {
@@ -831,53 +810,6 @@ func (w *worker) finalizeAbortedTaskRunByExecutionClaim(ctx context.Context, exe
 	return observability.WorkerOutcomeAborted
 }
 
-func (w *worker) finalizeAbortedTaskRun(ctx context.Context, runID, claimToken, reason string, executionEnvelope *cell.ExecutionEnvelope) string {
-	span := trace.SpanFromContext(ctx)
-
-	if _, ok := w.completeExecutionTerminal(ctx, executionEnvelope, dal.ExecutionStatusAborted); !ok {
-		span.SetStatus(otelcodes.Error, "complete aborted task execution")
-		return observability.WorkerOutcomeFailed
-	}
-
-	w.recordTaskFinalizeDecision(ctx, taskfinalize.ExecutionAborted())
-
-	if err := w.markRunAbortedWithRetry(runID, claimToken, reason); err != nil {
-		w.logger.Error("Failed to mark run %s cancelled: %v", runID, err)
-		span.RecordError(err)
-	}
-
-	return observability.WorkerOutcomeAborted
-}
-
-func (w *worker) finalizeFailedTaskRun(ctx context.Context, runID, claimToken, failureCode, reason string, executionEnvelope *cell.ExecutionEnvelope) string {
-	span := trace.SpanFromContext(ctx)
-
-	if _, ok := w.completeExecutionTerminal(ctx, executionEnvelope, dal.ExecutionStatusFailed); !ok {
-		span.SetStatus(otelcodes.Error, "complete failed task execution")
-		return observability.WorkerOutcomeFailed
-	}
-
-	reduceDecision, err := w.reduceTaskRun(ctx, runID)
-	if err != nil {
-		w.logger.Error("Failed to reduce failed task run %s: %v", runID, err)
-		span.RecordError(err)
-		span.SetStatus(otelcodes.Error, "reduce failed task run")
-		return observability.WorkerOutcomeFailed
-	}
-
-	w.recordTaskFinalizeDecision(ctx, taskfinalize.ExecutionFailed(reduceDecision))
-
-	if err := w.markRunFailedWithRetry(runID, claimToken, failureCode, reason); err != nil {
-		w.logger.Error("Failed to mark run %s failed after task execution failure: %v", runID, err)
-		span.RecordError(err)
-		span.SetStatus(otelcodes.Error, "mark failed task run failed")
-		return observability.WorkerOutcomeFailed
-	}
-
-	span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeFailed))
-	return observability.WorkerOutcomeFailed
-}
-
 func (w *worker) finalizeSucceededTaskRunByExecutionClaim(ctx context.Context, jobID, runID, executionClaimToken string, executionEnvelope *cell.ExecutionEnvelope) string {
 	span := trace.SpanFromContext(ctx)
 
@@ -888,6 +820,7 @@ func (w *worker) finalizeSucceededTaskRunByExecutionClaim(ctx context.Context, j
 	}
 
 	reduceDecision := taskreduce.Decide(result.Summary)
+	w.recordTaskReduceDecision(ctx, reduceDecision, nil)
 	switch result.Outcome {
 	case dal.ExecutionFinalizationOutcomeRunSucceeded:
 		finalizeDecision := taskfinalize.Decide(false, reduceDecision)
@@ -921,95 +854,6 @@ func (w *worker) finalizeSucceededTaskRunByExecutionClaim(ctx context.Context, j
 		span.SetStatus(otelcodes.Error, "unsupported execution finalization outcome")
 		return observability.WorkerOutcomeFailed
 	}
-}
-
-func (w *worker) finalizeSucceededTaskRun(ctx context.Context, jobID, runID, claimToken string, completion executionTerminalResult) string {
-	span := trace.SpanFromContext(ctx)
-
-	continued, err := w.continueTaskRun(ctx, runID, claimToken, completion.dispatchableChildren > 0)
-	if err != nil {
-		w.logger.Error("Failed to continue task run %s: %v", runID, err)
-		span.RecordError(err)
-		span.SetStatus(otelcodes.Error, "continue task run")
-		return observability.WorkerOutcomeFailed
-	}
-
-	if continued {
-		finalizeDecision := taskfinalize.Decide(true, taskreduce.Decision{})
-		w.recordTaskFinalizeDecision(ctx, finalizeDecision)
-		span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeSuccess))
-		w.logger.Info("Task completed successfully; run queued for continuation: %s", jobID)
-		return observability.WorkerOutcomeSuccess
-	}
-
-	reduceDecision, err := w.reduceTaskRun(ctx, runID)
-	if err != nil {
-		w.logger.Error("Failed to reduce task run %s: %v", runID, err)
-		span.RecordError(err)
-		span.SetStatus(otelcodes.Error, "reduce task run")
-		return observability.WorkerOutcomeFailed
-	}
-
-	finalizeDecision := taskfinalize.Decide(false, reduceDecision)
-	w.recordTaskFinalizeDecision(ctx, finalizeDecision)
-
-	switch finalizeDecision.Outcome {
-	case taskfinalize.OutcomeReduceSucceeded:
-		if err := w.markRunSucceededWithRetry(runID, claimToken); err != nil {
-			w.logger.Error("Failed to mark run %s succeeded: %v", runID, err)
-			span.RecordError(err)
-			span.SetStatus(otelcodes.Error, "mark run succeeded")
-			return observability.WorkerOutcomeFailed
-		}
-
-		span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeSuccess))
-		w.logger.Info("Job completed successfully: %s", jobID)
-		return observability.WorkerOutcomeSuccess
-	case taskfinalize.OutcomeReduceFailed:
-		decision := runpolicy.Decide(runpolicy.Input{Trigger: runpolicy.TriggerExecutionResult})
-		reason := truncateFailureReason(taskfinalize.FailureReason(finalizeDecision))
-		if err := w.markRunFailedWithRetry(runID, claimToken, decision.FailureCode, reason); err != nil {
-			w.logger.Error("Failed to mark run %s failed after task reduction: %v", runID, err)
-			span.RecordError(err)
-			span.SetStatus(otelcodes.Error, "mark reduced run failed")
-			return observability.WorkerOutcomeFailed
-		}
-
-		span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeFailed))
-		w.logger.Info("Task run reduced to failed: %s", jobID)
-		return observability.WorkerOutcomeFailed
-	case taskfinalize.OutcomeIncomplete:
-		if err := w.markRunQueuedForContinuationWithRetry(runID, claimToken); err != nil {
-			w.logger.Error("Failed to queue incomplete task run %s for continuation: %v", runID, err)
-			span.RecordError(err)
-			span.SetStatus(otelcodes.Error, "queue reduced run continuation")
-			return observability.WorkerOutcomeFailed
-		}
-
-		span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeSuccess))
-		w.logger.Info("Task run has incomplete work; run queued for continuation: %s", jobID)
-		return observability.WorkerOutcomeSuccess
-	default:
-		span.RecordError(fmt.Errorf("unsupported task finalize outcome %q", finalizeDecision.Outcome))
-		span.SetStatus(otelcodes.Error, "unsupported task finalize outcome")
-		return observability.WorkerOutcomeFailed
-	}
-}
-
-func (w *worker) reduceTaskRun(ctx context.Context, runID string) (taskreduce.Decision, error) {
-	service := w.taskReduceService
-	if service == nil {
-		service = taskreduce.NewService(taskreduce.New(w.store))
-	}
-
-	reduceCtx := trace.ContextWithSpan(w.runCtx, trace.SpanFromContext(ctx))
-	decision, err := service.Process(reduceCtx, runID)
-	w.recordTaskReduceDecision(reduceCtx, decision, err)
-	if err != nil {
-		return taskreduce.Decision{}, err
-	}
-
-	return decision, nil
 }
 
 func (w *worker) recordTaskReduceDecision(ctx context.Context, decision taskreduce.Decision, err error) {
@@ -1075,47 +919,6 @@ func (w *worker) markExecutionStarted(ctx context.Context, env *cell.ExecutionEn
 	w.noteDBRecovered()
 	w.recordExecutionCatalogEvent(ctx, env, dal.ExecutionStatusRunning)
 	trace.SpanFromContext(ctx).AddEvent("execution.started", trace.WithAttributes(executionEnvelopeAttrs(env)...))
-}
-
-type executionTerminalResult struct {
-	activatedChildren    int
-	dispatchableChildren int
-}
-
-func (w *worker) completeExecutionTerminal(ctx context.Context, env *cell.ExecutionEnvelope, status string) (executionTerminalResult, bool) {
-	if env == nil {
-		return executionTerminalResult{}, true
-	}
-
-	var result executionTerminalResult
-	service := w.taskCompletionService
-	if service == nil {
-		service = job.NewTaskCompletionService(w.store)
-	}
-
-	completionCtx := trace.ContextWithSpan(w.runCtx, trace.SpanFromContext(ctx))
-	completion, err := service.CompleteTaskExecution(completionCtx, env.ExecutionID, status)
-	if err != nil {
-		w.noteDBError(err)
-		w.logger.Warn("CompleteTaskExecution execution %s status %s failed: %v", env.ExecutionID, status, err)
-		trace.SpanFromContext(ctx).RecordError(err)
-		return executionTerminalResult{}, false
-	}
-
-	result.activatedChildren = completion.Activated
-	result.dispatchableChildren = len(completion.Children)
-	w.noteDBRecovered()
-	w.recordExecutionCatalogEvent(ctx, env, status)
-	trace.SpanFromContext(ctx).AddEvent("execution.terminal", trace.WithAttributes(
-		append(
-			executionEnvelopeAttrs(env),
-			attribute.String("vectis.execution.status", status),
-			attribute.Int("vectis.task.children.activated", result.activatedChildren),
-			attribute.Int("vectis.task.children.dispatchable", result.dispatchableChildren),
-		)...,
-	))
-
-	return result, true
 }
 
 func (w *worker) completeExecutionAndFinalizeRunByClaim(ctx context.Context, env *cell.ExecutionEnvelope, executionClaimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, bool) {
@@ -1284,30 +1087,6 @@ func (w *worker) ackDeliveryWithRetry(ctx context.Context, deliveryID string) *a
 	return &ackDeliveryFailure{err: status.Error(codes.Unavailable, "ack retries exhausted"), attempt: ackMaxAttempts, decision: decision}
 }
 
-func (w *worker) continueTaskRun(ctx context.Context, runID, claimToken string, knownPending bool) (bool, error) {
-	if w.taskDispatchService == nil {
-		return false, nil
-	}
-
-	opts := taskdispatch.DrainOptions{CellID: w.cellID, RunID: runID, Limit: 1}
-	if !knownPending {
-		pending, err := w.taskDispatchService.HasPending(w.runCtx, opts)
-		if err != nil {
-			return false, err
-		}
-
-		if !pending {
-			return false, nil
-		}
-	}
-
-	if err := w.markRunQueuedForContinuationWithRetry(runID, claimToken); err != nil {
-		return false, err
-	}
-
-	return w.drainQueuedTaskRunContinuation(ctx, runID, true)
-}
-
 func (w *worker) drainQueuedTaskRunContinuation(ctx context.Context, runID string, knownPending bool) (bool, error) {
 	if w.taskDispatchService == nil {
 		return false, nil
@@ -1343,69 +1122,6 @@ func (w *worker) drainQueuedTaskRunContinuation(ctx context.Context, runID strin
 	return true, nil
 }
 
-func (w *worker) markRunSucceededWithRetry(runID, claimToken string) error {
-	var lastErr error
-	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
-		err := w.store.MarkRunSucceeded(w.runCtx, runID, claimToken)
-		if err == nil {
-			w.noteDBRecovered()
-			w.recordRunCatalogEvent(dal.RunStatusUpdate{RunID: runID, Status: dal.RunStatusSucceeded})
-			return nil
-		}
-		w.noteDBError(err)
-
-		lastErr = err
-		if !database.IsUnavailableError(err) {
-			break
-		}
-
-		if attempt == finalizeMaxAttempts {
-			break
-		}
-
-		delay := backoff.ExponentialDelay(finalizeBackoffBase, attempt-1, finalizeBackoffMax)
-		w.logger.Warn("MarkRunSucceeded run %s failed (attempt %d/%d): %v; retrying in %v",
-			runID, attempt, finalizeMaxAttempts, err, delay)
-
-		if sleepErr := w.clock.Sleep(w.runCtx, delay); sleepErr != nil {
-			return sleepErr
-		}
-	}
-
-	return lastErr
-}
-
-func (w *worker) markRunQueuedForContinuationWithRetry(runID, claimToken string) error {
-	var lastErr error
-	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
-		err := w.store.MarkRunQueuedForContinuation(w.runCtx, runID, claimToken)
-		if err == nil {
-			w.noteDBRecovered()
-			return nil
-		}
-		w.noteDBError(err)
-
-		lastErr = err
-		if !database.IsUnavailableError(err) {
-			break
-		}
-
-		if attempt == finalizeMaxAttempts {
-			break
-		}
-
-		delay := backoff.ExponentialDelay(finalizeBackoffBase, attempt-1, finalizeBackoffMax)
-		w.logger.Warn("MarkRunQueuedForContinuation run %s failed (attempt %d/%d): %v; retrying in %v",
-			runID, attempt, finalizeMaxAttempts, err, delay)
-
-		if sleepErr := w.clock.Sleep(w.runCtx, delay); sleepErr != nil {
-			return sleepErr
-		}
-	}
-
-	return lastErr
-}
-
 func (w *worker) markRunFailedWithRetry(runID, claimToken, failureCode, reason string) error {
 	var lastErr error
 	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
@@ -1428,38 +1144,6 @@ func (w *worker) markRunFailedWithRetry(runID, claimToken, failureCode, reason s
 
 		delay := backoff.ExponentialDelay(finalizeBackoffBase, attempt-1, finalizeBackoffMax)
 		w.logger.Warn("MarkRunFailed run %s failed (attempt %d/%d): %v; retrying in %v",
-			runID, attempt, finalizeMaxAttempts, err, delay)
-
-		if sleepErr := w.clock.Sleep(w.runCtx, delay); sleepErr != nil {
-			return sleepErr
-		}
-	}
-
-	return lastErr
-}
-
-func (w *worker) markRunAbortedWithRetry(runID, claimToken, reason string) error {
-	var lastErr error
-	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
-		err := w.store.MarkRunAborted(w.runCtx, runID, claimToken, reason)
-		if err == nil {
-			w.noteDBRecovered()
-			w.recordRunCatalogEvent(dal.RunStatusUpdate{RunID: runID, Status: dal.RunStatusCancelled, Reason: reason})
-			return nil
-		}
-		w.noteDBError(err)
-
-		lastErr = err
-		if !database.IsUnavailableError(err) {
-			break
-		}
-
-		if attempt == finalizeMaxAttempts {
-			break
-		}
-
-		delay := backoff.ExponentialDelay(finalizeBackoffBase, attempt-1, finalizeBackoffMax)
-		w.logger.Warn("MarkRunAborted run %s failed (attempt %d/%d): %v; retrying in %v",
 			runID, attempt, finalizeMaxAttempts, err, delay)
 
 		if sleepErr := w.clock.Sleep(w.runCtx, delay); sleepErr != nil {

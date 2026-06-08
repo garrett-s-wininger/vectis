@@ -32,50 +32,6 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
-type permBadFinalizeStore struct {
-	dal.RunsRepository
-}
-
-func (p *permBadFinalizeStore) MarkRunSucceeded(ctx context.Context, runID, claimToken string) error {
-	return errors.New("simulated bad claim token")
-}
-
-type requireFailedExecutionBeforeRunFailedStore struct {
-	dal.RunsRepository
-	db          *sql.DB
-	executionID string
-}
-
-func (s *requireFailedExecutionBeforeRunFailedStore) MarkRunFailed(ctx context.Context, runID, claimToken, failureCode, reason string) error {
-	var status string
-	if err := s.db.QueryRowContext(ctx, `SELECT status FROM segment_executions WHERE execution_id = ?`, s.executionID).Scan(&status); err != nil {
-		return err
-	}
-	if status != dal.ExecutionStatusFailed {
-		return fmt.Errorf("execution %s status is %q before MarkRunFailed", s.executionID, status)
-	}
-
-	return s.RunsRepository.MarkRunFailed(ctx, runID, claimToken, failureCode, reason)
-}
-
-type requireAbortedExecutionBeforeRunAbortedStore struct {
-	dal.RunsRepository
-	db          *sql.DB
-	executionID string
-}
-
-func (s *requireAbortedExecutionBeforeRunAbortedStore) MarkRunAborted(ctx context.Context, runID, claimToken, reason string) error {
-	var status string
-	if err := s.db.QueryRowContext(ctx, `SELECT status FROM segment_executions WHERE execution_id = ?`, s.executionID).Scan(&status); err != nil {
-		return err
-	}
-	if status != dal.ExecutionStatusAborted {
-		return fmt.Errorf("execution %s status is %q before MarkRunAborted", s.executionID, status)
-	}
-
-	return s.RunsRepository.MarkRunAborted(ctx, runID, claimToken, reason)
-}
-
 func attachPendingExecutionEnvelopeForTest(t *testing.T, runs dal.RunsRepository, j *api.Job, runID string) *cell.ExecutionEnvelope {
 	t.Helper()
 
@@ -94,166 +50,6 @@ func attachPendingExecutionEnvelopeForTest(t *testing.T, runs dal.RunsRepository
 	}
 
 	return env
-}
-
-type recordingTaskDispatchDrainer struct {
-	mu           sync.Mutex
-	pending      bool
-	pendingErr   error
-	drainResult  taskdispatch.DrainResult
-	drainErr     error
-	pendingCalls int
-	drainCalls   int
-	pendingOpts  taskdispatch.DrainOptions
-	drainOpts    taskdispatch.DrainOptions
-}
-
-func (d *recordingTaskDispatchDrainer) HasPending(_ context.Context, opts taskdispatch.DrainOptions) (bool, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.pendingCalls++
-	d.pendingOpts = opts
-	return d.pending, d.pendingErr
-}
-
-func (d *recordingTaskDispatchDrainer) Drain(_ context.Context, opts taskdispatch.DrainOptions) (taskdispatch.DrainResult, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.drainCalls++
-	d.drainOpts = opts
-	return d.drainResult, d.drainErr
-}
-
-func (d *recordingTaskDispatchDrainer) calls() (pending, drain int) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.pendingCalls, d.drainCalls
-}
-
-func (d *recordingTaskDispatchDrainer) options() (pending, drain taskdispatch.DrainOptions) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.pendingOpts, d.drainOpts
-}
-
-type recordingOrder struct {
-	mu     sync.Mutex
-	events []string
-}
-
-func (o *recordingOrder) add(event string) {
-	if o == nil {
-		return
-	}
-
-	o.mu.Lock()
-	o.events = append(o.events, event)
-	o.mu.Unlock()
-}
-
-func (o *recordingOrder) snapshot() []string {
-	if o == nil {
-		return nil
-	}
-
-	o.mu.Lock()
-	defer o.mu.Unlock()
-
-	return append([]string(nil), o.events...)
-}
-
-type recordingTaskCompleter struct {
-	mu     sync.Mutex
-	result job.TaskCompletionResult
-	err    error
-	calls  []string
-	order  *recordingOrder
-}
-
-func (c *recordingTaskCompleter) CompleteTaskExecution(_ context.Context, executionID, status string) (job.TaskCompletionResult, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.calls = append(c.calls, executionID+":"+status)
-	c.order.add("complete:" + executionID + ":" + status)
-	return c.result, c.err
-}
-
-func (c *recordingTaskCompleter) recordedCalls() []string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	return append([]string(nil), c.calls...)
-}
-
-type recordingFailedRunsStore struct {
-	dal.RunsRepository
-
-	mu    sync.Mutex
-	calls []string
-	order *recordingOrder
-}
-
-func (s *recordingFailedRunsStore) MarkRunFailed(ctx context.Context, runID, claimToken, failureCode, reason string) error {
-	s.mu.Lock()
-	s.calls = append(s.calls, runID+":"+claimToken+":"+failureCode+":"+reason)
-	s.mu.Unlock()
-	s.order.add("failed:" + runID)
-
-	return s.RunsRepository.MarkRunFailed(ctx, runID, claimToken, failureCode, reason)
-}
-
-func (s *recordingFailedRunsStore) failedCalls() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return append([]string(nil), s.calls...)
-}
-
-type recordingAbortedRunsStore struct {
-	dal.RunsRepository
-
-	mu    sync.Mutex
-	calls []string
-	order *recordingOrder
-}
-
-func (s *recordingAbortedRunsStore) MarkRunAborted(ctx context.Context, runID, claimToken, reason string) error {
-	s.mu.Lock()
-	s.calls = append(s.calls, runID+":"+claimToken+":"+reason)
-	s.mu.Unlock()
-	s.order.add("aborted:" + runID)
-
-	return s.RunsRepository.MarkRunAborted(ctx, runID, claimToken, reason)
-}
-
-func (s *recordingAbortedRunsStore) abortedCalls() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return append([]string(nil), s.calls...)
-}
-
-type recordingSucceededRunsStore struct {
-	dal.RunsRepository
-
-	mu    sync.Mutex
-	calls []string
-}
-
-func (s *recordingSucceededRunsStore) MarkRunSucceeded(ctx context.Context, runID, claimToken string) error {
-	s.mu.Lock()
-	s.calls = append(s.calls, runID+":"+claimToken)
-	s.mu.Unlock()
-
-	return s.RunsRepository.MarkRunSucceeded(ctx, runID, claimToken)
-}
-
-func (s *recordingSucceededRunsStore) succeededCalls() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return append([]string(nil), s.calls...)
 }
 
 func spanAttributeString(attrs []attribute.KeyValue, key string) string {
@@ -348,18 +144,6 @@ func (s *flakyFinalizeRunsStore) RenewLease(ctx context.Context, runID, owner, c
 	return s.RunsRepository.RenewLease(ctx, runID, owner, claimToken, leaseUntil)
 }
 
-func (s *flakyFinalizeRunsStore) MarkRunSucceeded(ctx context.Context, runID, claimToken string) error {
-	s.mu.Lock()
-	if s.succeedFailuresLeft > 0 {
-		s.succeedFailuresLeft--
-		s.mu.Unlock()
-		return fmt.Errorf("finalize success: %w", sql.ErrConnDone)
-	}
-	s.mu.Unlock()
-
-	return s.RunsRepository.MarkRunSucceeded(ctx, runID, claimToken)
-}
-
 func (s *flakyFinalizeRunsStore) MarkRunFailed(ctx context.Context, runID, claimToken, failureCode, reason string) error {
 	s.mu.Lock()
 	if s.failedFailuresLeft > 0 {
@@ -411,12 +195,6 @@ type blockingSuccessStore struct {
 	entered chan struct{}
 	release chan struct{}
 	once    sync.Once
-}
-
-func (s *blockingSuccessStore) MarkRunSucceeded(ctx context.Context, runID, claimToken string) error {
-	s.once.Do(func() { close(s.entered) })
-	<-s.release
-	return s.RunsRepository.MarkRunSucceeded(ctx, runID, claimToken)
 }
 
 func (s *blockingSuccessStore) CompleteExecutionAndFinalizeRunByClaim(ctx context.Context, executionID, owner, claimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
@@ -988,7 +766,7 @@ func TestWorkerRunClaimedJob_TaskFanoutWaitingReductionRequeuesRun(t *testing.T)
 	}
 }
 
-func TestWorkerRunClaimedJob_TaskFanoutFailureCompletesTaskBeforeRun(t *testing.T) {
+func TestWorkerRunClaimedJob_TaskFanoutFailureFinalizesExecutionAndRun(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
@@ -1015,12 +793,6 @@ func TestWorkerRunClaimedJob_TaskFanoutFailureCompletesTaskBeforeRun(t *testing.
 		t.Fatalf("get root dispatch: %v", err)
 	}
 
-	store := &requireFailedExecutionBeforeRunFailedStore{
-		RunsRepository: runs,
-		db:             db,
-		executionID:    rootDispatch.ExecutionID,
-	}
-
 	w := &worker{
 		ctx:           context.Background(),
 		runCtx:        context.Background(),
@@ -1032,7 +804,7 @@ func TestWorkerRunClaimedJob_TaskFanoutFailureCompletesTaskBeforeRun(t *testing.
 		queue:         mocks.NewMockQueueClient(),
 		logClient:     mocks.NewMockLogClient(),
 		executor:      job.NewExecutor(),
-		store:         store,
+		store:         runs,
 		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
 	}
 
@@ -1090,7 +862,7 @@ func TestWorkerRunClaimedJob_TaskFanoutFailureCompletesTaskBeforeRun(t *testing.
 	}
 }
 
-func TestWorkerRunClaimedJob_TaskFanoutCancelCompletesTaskBeforeRun(t *testing.T) {
+func TestWorkerRunClaimedJob_TaskFanoutCancelFinalizesExecutionAndRun(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
@@ -1117,12 +889,6 @@ func TestWorkerRunClaimedJob_TaskFanoutCancelCompletesTaskBeforeRun(t *testing.T
 		t.Fatalf("get root dispatch: %v", err)
 	}
 
-	store := &requireAbortedExecutionBeforeRunAbortedStore{
-		RunsRepository: runs,
-		db:             db,
-		executionID:    rootDispatch.ExecutionID,
-	}
-
 	w := &worker{
 		ctx:           context.Background(),
 		runCtx:        context.Background(),
@@ -1134,7 +900,7 @@ func TestWorkerRunClaimedJob_TaskFanoutCancelCompletesTaskBeforeRun(t *testing.T
 		queue:         mocks.NewMockQueueClient(),
 		logClient:     mocks.NewMockLogClient(),
 		executor:      job.NewExecutor(),
-		store:         store,
+		store:         runs,
 		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
 		cancelCh:      make(chan string, 1),
 	}
@@ -1393,277 +1159,6 @@ func TestWorkerRunClaimedJob_TaskFanoutExecutesEnvelopeTaskOnly(t *testing.T) {
 	}
 }
 
-func TestWorkerCompleteExecutionTerminal_UsesTaskCompletion(t *testing.T) {
-	t.Parallel()
-
-	runs := mocks.NewMockRunsRepository()
-	w := &worker{
-		runCtx:  context.Background(),
-		logger:  interfaces.NewLogger("worker-test"),
-		store:   runs,
-		catalog: cell.NewCatalogEventPublisher("local", nil),
-	}
-	env := &cell.ExecutionEnvelope{ExecutionID: "execution-task"}
-
-	if _, ok := w.completeExecutionTerminal(context.Background(), env, dal.ExecutionStatusSucceeded); !ok {
-		t.Fatal("completeExecutionTerminal returned false")
-	}
-
-	if runs.LastSucceededExecID != "execution-task" {
-		t.Fatalf("last succeeded execution: got %q, want execution-task", runs.LastSucceededExecID)
-	}
-
-	if len(runs.ExecutionTransitions) != 1 || runs.ExecutionTransitions[0] != "execution-task:"+dal.ExecutionStatusSucceeded {
-		t.Fatalf("execution transitions: %+v", runs.ExecutionTransitions)
-	}
-}
-
-func TestWorkerCompleteExecutionTerminal_MissingEnvelopeNoops(t *testing.T) {
-	t.Parallel()
-
-	runs := mocks.NewMockRunsRepository()
-	w := &worker{
-		runCtx:  context.Background(),
-		logger:  interfaces.NewLogger("worker-test"),
-		store:   runs,
-		catalog: cell.NewCatalogEventPublisher("local", nil),
-	}
-
-	if _, ok := w.completeExecutionTerminal(context.Background(), nil, dal.ExecutionStatusSucceeded); !ok {
-		t.Fatal("completeExecutionTerminal returned false for missing envelope")
-	}
-
-	if runs.LastSucceededExecID != "" {
-		t.Fatalf("fan-out without an execution envelope should not complete a task, got %q", runs.LastSucceededExecID)
-	}
-
-	if len(runs.ExecutionTransitions) != 0 {
-		t.Fatalf("fan-out without an execution envelope should not transition an execution: %+v", runs.ExecutionTransitions)
-	}
-}
-
-func TestWorkerCompleteExecutionTerminal_FanoutSuccessUsesTaskCompletion(t *testing.T) {
-	t.Parallel()
-
-	runs := mocks.NewMockRunsRepository()
-	runs.TaskExecutions = []dal.TaskExecutionRecord{{
-		TaskID:  "run-1:child",
-		TaskKey: "child",
-	}}
-	runs.TaskActivatedN = 1
-
-	w := &worker{
-		runCtx:  context.Background(),
-		logger:  interfaces.NewLogger("worker-test"),
-		store:   runs,
-		catalog: cell.NewCatalogEventPublisher("local", nil),
-	}
-	env := &cell.ExecutionEnvelope{ExecutionID: "execution-root"}
-
-	result, ok := w.completeExecutionTerminal(context.Background(), env, dal.ExecutionStatusSucceeded)
-	if !ok {
-		t.Fatal("completeExecutionTerminal returned false")
-	}
-
-	if runs.LastSucceededExecID != "execution-root" {
-		t.Fatalf("last succeeded execution: got %q, want execution-root", runs.LastSucceededExecID)
-	}
-
-	if result.activatedChildren != 1 {
-		t.Fatalf("activated children: got %d, want 1", result.activatedChildren)
-	}
-
-	if len(runs.ExecutionTransitions) != 1 || runs.ExecutionTransitions[0] != "execution-root:"+dal.ExecutionStatusSucceeded {
-		t.Fatalf("execution transitions: %+v", runs.ExecutionTransitions)
-	}
-}
-
-func TestWorkerCompleteExecutionTerminal_FanoutFailureUsesTaskCompletionService(t *testing.T) {
-	t.Parallel()
-
-	runs := mocks.NewMockRunsRepository()
-	completer := &recordingTaskCompleter{}
-	w := &worker{
-		runCtx:                context.Background(),
-		logger:                interfaces.NewLogger("worker-test"),
-		store:                 runs,
-		catalog:               cell.NewCatalogEventPublisher("local", nil),
-		taskCompletionService: completer,
-	}
-
-	env := &cell.ExecutionEnvelope{ExecutionID: "execution-root"}
-	if _, ok := w.completeExecutionTerminal(context.Background(), env, dal.ExecutionStatusFailed); !ok {
-		t.Fatal("completeExecutionTerminal returned false")
-	}
-
-	calls := completer.recordedCalls()
-	if len(calls) != 1 || calls[0] != "execution-root:"+dal.ExecutionStatusFailed {
-		t.Fatalf("task completion calls: %+v", calls)
-	}
-
-	if len(runs.ExecutionTransitions) != 0 {
-		t.Fatalf("legacy execution transitions should not be used: %+v", runs.ExecutionTransitions)
-	}
-}
-
-func TestWorkerContinueTaskRun_KnownPendingSkipsPendingLookup(t *testing.T) {
-	t.Parallel()
-
-	runs := mocks.NewMockRunsRepository()
-	drainer := &recordingTaskDispatchDrainer{
-		drainResult: taskdispatch.DrainResult{Listed: 1, Enqueued: 1},
-	}
-
-	w := &worker{
-		runCtx:              context.Background(),
-		logger:              interfaces.NewLogger("worker-test"),
-		cellID:              "local",
-		store:               runs,
-		taskDispatchService: taskdispatch.NewService(interfaces.NewLogger("worker-test"), drainer),
-	}
-
-	continued, err := w.continueTaskRun(context.Background(), "run-known-pending", "claim-token", true)
-	if err != nil {
-		t.Fatalf("continueTaskRun: %v", err)
-	}
-
-	if !continued {
-		t.Fatal("continueTaskRun returned false, want true")
-	}
-
-	pendingCalls, drainCalls := drainer.calls()
-	if pendingCalls != 0 || drainCalls != 1 {
-		t.Fatalf("dispatch calls: pending=%d drain=%d, want pending=0 drain=1", pendingCalls, drainCalls)
-	}
-
-	_, drainOpts := drainer.options()
-	if drainOpts.RunID != "run-known-pending" || drainOpts.CellID != "local" || drainOpts.Limit != 1 {
-		t.Fatalf("drain options: %+v", drainOpts)
-	}
-
-	if len(runs.ExecutionTransitions) != 1 || runs.ExecutionTransitions[0] != "run-known-pending:queued" {
-		t.Fatalf("run transitions: %+v", runs.ExecutionTransitions)
-	}
-}
-
-func TestWorkerContinueTaskRun_UnknownPendingChecksService(t *testing.T) {
-	t.Parallel()
-
-	runs := mocks.NewMockRunsRepository()
-	drainer := &recordingTaskDispatchDrainer{}
-	w := &worker{
-		runCtx:              context.Background(),
-		logger:              interfaces.NewLogger("worker-test"),
-		cellID:              "local",
-		store:               runs,
-		taskDispatchService: taskdispatch.NewService(interfaces.NewLogger("worker-test"), drainer),
-	}
-
-	continued, err := w.continueTaskRun(context.Background(), "run-no-pending", "claim-token", false)
-	if err != nil {
-		t.Fatalf("continueTaskRun: %v", err)
-	}
-
-	if continued {
-		t.Fatal("continueTaskRun returned true, want false")
-	}
-
-	pendingCalls, drainCalls := drainer.calls()
-	if pendingCalls != 1 || drainCalls != 0 {
-		t.Fatalf("dispatch calls: pending=%d drain=%d, want pending=1 drain=0", pendingCalls, drainCalls)
-	}
-
-	pendingOpts, _ := drainer.options()
-	if pendingOpts.RunID != "run-no-pending" || pendingOpts.CellID != "local" || pendingOpts.Limit != 1 {
-		t.Fatalf("pending options: %+v", pendingOpts)
-	}
-
-	if len(runs.ExecutionTransitions) != 0 {
-		t.Fatalf("run should not be queued without pending work: %+v", runs.ExecutionTransitions)
-	}
-}
-
-func TestWorkerFinalizeFailedTaskRun_CompletesExecutionBeforeRunFailure(t *testing.T) {
-	t.Parallel()
-
-	recorder := tracetest.NewSpanRecorder()
-	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
-	defer func() { _ = provider.Shutdown(context.Background()) }()
-
-	ctx, span := provider.Tracer("worker-test").Start(context.Background(), "finalize-failed")
-	order := &recordingOrder{}
-	base := mocks.NewMockRunsRepository()
-	base.TaskCompletion = dal.RunTaskCompletion{RunID: "run-failed", Total: 3, Succeeded: 1, TerminalFailed: 1, Incomplete: 1}
-	store := &recordingFailedRunsStore{RunsRepository: base, order: order}
-	completer := &recordingTaskCompleter{order: order}
-	w := &worker{
-		runCtx:                context.Background(),
-		logger:                interfaces.NewLogger("worker-test"),
-		store:                 store,
-		catalog:               cell.NewCatalogEventPublisher("local", nil),
-		taskCompletionService: completer,
-	}
-	env := &cell.ExecutionEnvelope{ExecutionID: "execution-root"}
-
-	outcome := w.finalizeFailedTaskRun(ctx, "run-failed", "claim-token", "task_failed", "command failed", env)
-	span.End()
-	if outcome != observability.WorkerOutcomeFailed {
-		t.Fatalf("outcome: got %q, want %q", outcome, observability.WorkerOutcomeFailed)
-	}
-
-	events := order.snapshot()
-	if len(events) != 2 || events[0] != "complete:execution-root:"+dal.ExecutionStatusFailed || events[1] != "failed:run-failed" {
-		t.Fatalf("events: %+v", events)
-	}
-
-	calls := store.failedCalls()
-	if len(calls) != 1 || calls[0] != "run-failed:claim-token:task_failed:command failed" {
-		t.Fatalf("mark failed calls: %+v", calls)
-	}
-
-	assertTaskFinalizeOutcome(t, recorder, taskfinalize.OutcomeExecutionFailed)
-}
-
-func TestWorkerFinalizeAbortedTaskRun_CompletesExecutionBeforeRunAbort(t *testing.T) {
-	t.Parallel()
-
-	recorder := tracetest.NewSpanRecorder()
-	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
-	defer func() { _ = provider.Shutdown(context.Background()) }()
-
-	ctx, span := provider.Tracer("worker-test").Start(context.Background(), "finalize-aborted")
-	order := &recordingOrder{}
-	base := mocks.NewMockRunsRepository()
-	store := &recordingAbortedRunsStore{RunsRepository: base, order: order}
-	completer := &recordingTaskCompleter{order: order}
-	w := &worker{
-		runCtx:                context.Background(),
-		logger:                interfaces.NewLogger("worker-test"),
-		store:                 store,
-		catalog:               cell.NewCatalogEventPublisher("local", nil),
-		taskCompletionService: completer,
-	}
-	env := &cell.ExecutionEnvelope{ExecutionID: "execution-root"}
-
-	outcome := w.finalizeAbortedTaskRun(ctx, "run-aborted", "claim-token", dal.CancelReasonAPI, env)
-	span.End()
-	if outcome != observability.WorkerOutcomeAborted {
-		t.Fatalf("outcome: got %q, want %q", outcome, observability.WorkerOutcomeAborted)
-	}
-
-	events := order.snapshot()
-	if len(events) != 2 || events[0] != "complete:execution-root:"+dal.ExecutionStatusAborted || events[1] != "aborted:run-aborted" {
-		t.Fatalf("events: %+v", events)
-	}
-
-	calls := store.abortedCalls()
-	if len(calls) != 1 || calls[0] != "run-aborted:claim-token:"+dal.CancelReasonAPI {
-		t.Fatalf("mark aborted calls: %+v", calls)
-	}
-
-	assertTaskFinalizeOutcome(t, recorder, taskfinalize.OutcomeExecutionAborted)
-}
-
 func TestWorkerFinalizeAbortedTaskRunByExecutionClaim_CancelsRun(t *testing.T) {
 	t.Parallel()
 
@@ -1700,92 +1195,6 @@ func TestWorkerFinalizeAbortedTaskRunByExecutionClaim_CancelsRun(t *testing.T) {
 	}
 
 	assertTaskFinalizeOutcome(t, recorder, taskfinalize.OutcomeExecutionAborted)
-}
-
-func TestWorkerFinalizeSucceededTaskRun_DispatchableChildrenContinue(t *testing.T) {
-	t.Parallel()
-
-	runs := mocks.NewMockRunsRepository()
-	drainer := &recordingTaskDispatchDrainer{
-		drainResult: taskdispatch.DrainResult{Listed: 1, Enqueued: 1},
-	}
-
-	w := &worker{
-		runCtx:              context.Background(),
-		logger:              interfaces.NewLogger("worker-test"),
-		cellID:              "local",
-		store:               runs,
-		catalog:             cell.NewCatalogEventPublisher("local", nil),
-		taskDispatchService: taskdispatch.NewService(interfaces.NewLogger("worker-test"), drainer),
-	}
-
-	outcome := w.finalizeSucceededTaskRun(context.Background(), "job-known-pending", "run-known-pending", "claim-token", executionTerminalResult{dispatchableChildren: 1})
-	if outcome != observability.WorkerOutcomeSuccess {
-		t.Fatalf("outcome: got %q, want %q", outcome, observability.WorkerOutcomeSuccess)
-	}
-
-	pendingCalls, drainCalls := drainer.calls()
-	if pendingCalls != 0 || drainCalls != 1 {
-		t.Fatalf("dispatch calls: pending=%d drain=%d, want pending=0 drain=1", pendingCalls, drainCalls)
-	}
-
-	if len(runs.ExecutionTransitions) != 1 || runs.ExecutionTransitions[0] != "run-known-pending:queued" {
-		t.Fatalf("run transitions: %+v", runs.ExecutionTransitions)
-	}
-}
-
-func TestWorkerFinalizeSucceededTaskRun_ReduceSucceededMarksRunSucceeded(t *testing.T) {
-	t.Parallel()
-
-	base := mocks.NewMockRunsRepository()
-	base.TaskCompletion = dal.RunTaskCompletion{RunID: "run-reduced", Total: 1, Succeeded: 1}
-	store := &recordingSucceededRunsStore{RunsRepository: base}
-	w := &worker{
-		runCtx:  context.Background(),
-		logger:  interfaces.NewLogger("worker-test"),
-		store:   store,
-		catalog: cell.NewCatalogEventPublisher("local", nil),
-	}
-
-	outcome := w.finalizeSucceededTaskRun(context.Background(), "job-reduced", "run-reduced", "claim-token", executionTerminalResult{})
-	if outcome != observability.WorkerOutcomeSuccess {
-		t.Fatalf("outcome: got %q, want %q", outcome, observability.WorkerOutcomeSuccess)
-	}
-
-	calls := store.succeededCalls()
-	if len(calls) != 1 || calls[0] != "run-reduced:claim-token" {
-		t.Fatalf("mark succeeded calls: %+v", calls)
-	}
-}
-
-func TestWorkerFinalizeSucceededTaskRun_IncompleteReductionQueuesContinuation(t *testing.T) {
-	t.Parallel()
-
-	runs := mocks.NewMockRunsRepository()
-	runs.TaskCompletion = dal.RunTaskCompletion{RunID: "run-incomplete", Total: 2, Succeeded: 1, Incomplete: 1}
-	drainer := &recordingTaskDispatchDrainer{}
-	w := &worker{
-		runCtx:              context.Background(),
-		logger:              interfaces.NewLogger("worker-test"),
-		cellID:              "local",
-		store:               runs,
-		catalog:             cell.NewCatalogEventPublisher("local", nil),
-		taskDispatchService: taskdispatch.NewService(interfaces.NewLogger("worker-test"), drainer),
-	}
-
-	outcome := w.finalizeSucceededTaskRun(context.Background(), "job-incomplete", "run-incomplete", "claim-token", executionTerminalResult{})
-	if outcome != observability.WorkerOutcomeSuccess {
-		t.Fatalf("outcome: got %q, want %q", outcome, observability.WorkerOutcomeSuccess)
-	}
-
-	pendingCalls, drainCalls := drainer.calls()
-	if pendingCalls != 1 || drainCalls != 0 {
-		t.Fatalf("dispatch calls: pending=%d drain=%d, want pending=1 drain=0", pendingCalls, drainCalls)
-	}
-
-	if len(runs.ExecutionTransitions) != 1 || runs.ExecutionTransitions[0] != "run-incomplete:queued" {
-		t.Fatalf("run transitions: %+v", runs.ExecutionTransitions)
-	}
 }
 
 type scriptedAckQueue struct {
@@ -3030,43 +2439,6 @@ func TestHandleDequeueError_GRPCCanceledStops(t *testing.T) {
 
 	if len(logger.GetWarnCalls()) != 0 {
 		t.Fatalf("expected no warn on grpc Canceled shutdown, got %v", logger.GetWarnCalls())
-	}
-}
-
-func TestMarkRunSucceededWithRetry_PermanentStoreErrorNoBackoff(t *testing.T) {
-	db := dbtest.NewTestDB(t)
-	ctx := context.Background()
-	repos := dal.NewSQLRepositories(db)
-	runs := repos.Runs()
-
-	runID, _, err := runs.CreateRun(ctx, "job-perm-finalize", nil, 1)
-	if err != nil {
-		t.Fatalf("create run: %v", err)
-	}
-
-	claimed, token, err := runs.TryClaim(ctx, runID, "worker-perm", time.Now().Add(time.Minute))
-	if err != nil {
-		t.Fatalf("try claim: %v", err)
-	}
-
-	if !claimed || token == "" {
-		t.Fatalf("expected claim")
-	}
-
-	clock := mocks.NewMockClock()
-	store := &permBadFinalizeStore{RunsRepository: runs}
-	w := &worker{
-		runCtx: ctx,
-		clock:  clock,
-		store:  store,
-	}
-
-	if err := w.markRunSucceededWithRetry(runID, token); err == nil {
-		t.Fatal("expected error from permanent finalize failure")
-	}
-
-	if len(clock.GetSleeps()) != 0 {
-		t.Fatalf("expected no backoff sleep for permanent DB error, got %d sleeps", len(clock.GetSleeps()))
 	}
 }
 

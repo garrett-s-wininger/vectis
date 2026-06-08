@@ -633,7 +633,7 @@ func finishDequeuedMacroJob(
 		}
 	}
 
-	claimed, claimToken, err := env.runs.TryClaim(ctx, info.runID, workerID, time.Now().Add(dal.DefaultLeaseTTL))
+	claimed, _, err := env.runs.TryClaim(ctx, info.runID, workerID, time.Now().Add(dal.DefaultLeaseTTL))
 	claimedAt := time.Now()
 	if err != nil {
 		return macroRunTimings{}, fmt.Errorf("try claim run %s: %w", info.runID, err)
@@ -648,28 +648,33 @@ func finishDequeuedMacroJob(
 		return macroRunTimings{}, fmt.Errorf("ack delivery %s: %w", deliveryID, err)
 	}
 
+	executionClaimed, executionClaimToken, err := env.runs.TryClaimExecution(ctx, executionEnvelope.ExecutionID, workerID, time.Now().Add(dal.DefaultLeaseTTL))
+	if err != nil {
+		return macroRunTimings{}, fmt.Errorf("try claim execution %s: %w", executionEnvelope.ExecutionID, err)
+	}
+
+	if !executionClaimed {
+		return macroRunTimings{}, fmt.Errorf("execution %s was not claimed", executionEnvelope.ExecutionID)
+	}
+
 	logDone := make(chan job.LogStreamWaiter, 1)
 	exec := job.NewExecutor()
 	exec.TestLogStreamHook = logDone
-	if err := env.runs.MarkExecutionAccepted(ctx, executionEnvelope.ExecutionID); err != nil {
-		return macroRunTimings{}, fmt.Errorf("mark execution accepted %s: %w", executionEnvelope.ExecutionID, err)
-	}
-
 	if err := env.runs.MarkExecutionStarted(ctx, executionEnvelope.ExecutionID); err != nil {
 		return macroRunTimings{}, fmt.Errorf("mark execution started %s: %w", executionEnvelope.ExecutionID, err)
 	}
 
 	if err := exec.ExecuteTask(ctx, queuedJob, executionEnvelope.TaskKey, logSink, env.log); err != nil {
-		_, _ = job.NewTaskCompletionService(env.runs).CompleteTaskExecution(ctx, executionEnvelope.ExecutionID, dal.ExecutionStatusFailed)
+		_, _ = env.runs.CompleteExecutionAndFinalizeRunByClaim(ctx, executionEnvelope.ExecutionID, workerID, executionClaimToken, dal.ExecutionStatusFailed, dal.FailureCodeExecution, err.Error())
 		return macroRunTimings{}, fmt.Errorf("execute task %s: %w", queuedJob.GetId(), err)
 	}
 
-	if _, err := job.NewTaskCompletionService(env.runs).CompleteTaskExecution(ctx, executionEnvelope.ExecutionID, dal.ExecutionStatusSucceeded); err != nil {
-		return macroRunTimings{}, fmt.Errorf("complete task execution %s: %w", executionEnvelope.ExecutionID, err)
+	finalized, err := env.runs.CompleteExecutionAndFinalizeRunByClaim(ctx, executionEnvelope.ExecutionID, workerID, executionClaimToken, dal.ExecutionStatusSucceeded, "", "")
+	if err != nil {
+		return macroRunTimings{}, fmt.Errorf("finalize execution %s: %w", executionEnvelope.ExecutionID, err)
 	}
-
-	if err := env.runs.MarkRunSucceeded(ctx, info.runID, claimToken); err != nil {
-		return macroRunTimings{}, fmt.Errorf("mark run succeeded %s: %w", info.runID, err)
+	if finalized.Outcome != dal.ExecutionFinalizationOutcomeRunSucceeded {
+		return macroRunTimings{}, fmt.Errorf("finalize execution %s outcome %q", executionEnvelope.ExecutionID, finalized.Outcome)
 	}
 
 	terminalAt := time.Now()

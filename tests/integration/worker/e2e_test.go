@@ -217,25 +217,36 @@ func (w *worker) handleJob(req *api.JobRequest) {
 		return
 	}
 
-	_ = w.store.MarkExecutionAccepted(w.runCtx, env.ExecutionID)
+	executionClaimed, executionClaimToken, err := w.store.TryClaimExecution(w.runCtx, env.ExecutionID, w.workerID, time.Now().Add(dal.DefaultLeaseTTL))
+	if err != nil {
+		w.logger.Error("TryClaimExecution %s: %v", env.ExecutionID, err)
+		_ = w.store.MarkRunOrphaned(w.runCtx, runID, claimToken, "ack_uncertain")
+		return
+	}
+
+	if !executionClaimed {
+		w.logger.Error("Execution %s not claimed", env.ExecutionID)
+		_ = w.store.MarkRunOrphaned(w.runCtx, runID, claimToken, "ack_uncertain")
+		return
+	}
+
 	_ = w.store.MarkExecutionStarted(w.runCtx, env.ExecutionID)
 
-	completer := job.NewTaskCompletionService(w.store)
 	execErr := w.executor.ExecuteTask(w.runCtx, work, env.TaskKey, w.logClient, w.logger)
 	if execErr != nil {
 		w.logger.Error("Job %s failed: %v", jobID, execErr)
-		_, _ = completer.CompleteTaskExecution(w.runCtx, env.ExecutionID, dal.ExecutionStatusFailed)
-		_ = w.store.MarkRunFailed(w.runCtx, runID, claimToken, "execution_error", execErr.Error())
+		_, _ = w.store.CompleteExecutionAndFinalizeRunByClaim(w.runCtx, env.ExecutionID, w.workerID, executionClaimToken, dal.ExecutionStatusFailed, dal.FailureCodeExecution, execErr.Error())
 		return
 	}
 
-	if _, err := completer.CompleteTaskExecution(w.runCtx, env.ExecutionID, dal.ExecutionStatusSucceeded); err != nil {
-		w.logger.Error("CompleteTaskExecution failed: %v", err)
+	finalized, err := w.store.CompleteExecutionAndFinalizeRunByClaim(w.runCtx, env.ExecutionID, w.workerID, executionClaimToken, dal.ExecutionStatusSucceeded, "", "")
+	if err != nil {
+		w.logger.Error("CompleteExecutionAndFinalizeRunByClaim failed: %v", err)
 		return
 	}
 
-	if err := w.store.MarkRunSucceeded(w.runCtx, runID, claimToken); err != nil {
-		w.logger.Error("MarkRunSucceeded failed: %v", err)
+	if finalized.Outcome != dal.ExecutionFinalizationOutcomeRunSucceeded {
+		w.logger.Error("CompleteExecutionAndFinalizeRunByClaim outcome %q", finalized.Outcome)
 		return
 	}
 
