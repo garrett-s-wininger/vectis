@@ -202,6 +202,6 @@ For reference deploys, add probes in dependency order: registry, queue, and log 
 | Registry | Commonly a single discovery point unless addresses are pinned. | Redundant discovery or fixed service addresses. |
 | Log service | Required before normal task delivery execution. Run-sharded local storage, DB-backed shard assignment for DB-aware clients, and disk-pressure refusal for new run logs on a pressured shard. | Replication, S3/archive storage, or DB-aware forwarding if log availability must not block work. |
 | API | Health probes, graceful HTTP shutdown, auth when enabled, async enqueue backstopped by reconciler. | Edge TLS, idempotent clients, multiple replicas, and alerts on enqueue or reconciler failures. |
-| Worker | Graceful drain on `SIGINT` and `SIGTERM`; no drain on crash or `SIGKILL`. | Worker isolation, bounded drain policy, and clear operator run-stop procedures. |
+| Worker | Graceful drain on `SIGINT` and `SIGTERM`; no drain on crash or `SIGKILL`. Per-run workspaces are not a security sandbox. | Worker execution containment, bounded drain policy, and clear operator run-stop procedures. |
 | Cron | Database schedule claims and per-tick run idempotency within one database cell; no built-in schedule sharding. | Explicit partition ownership or an external scheduler if schedules span multiple cells. |
 | Auth | HTTP API auth is configurable and off by default. | Enable auth or protect the API at the edge before shared use. |

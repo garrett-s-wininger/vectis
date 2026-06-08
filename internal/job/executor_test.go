@@ -811,6 +811,53 @@ func TestExecutor_ExecuteJobInWorkspace_DoesNotRemoveWorkspace(t *testing.T) {
 	}
 }
 
+func TestExecutor_ExecuteJobInWorkspace_UsesConfiguredProcessExecutor(t *testing.T) {
+	mockProcessExecutor := mocks.NewMockExecExecutor()
+	mockProcess := mocks.NewMockProcess()
+	mockProcess.SetStdout("")
+	mockProcess.SetStderr("")
+	mockProcess.SetWaitError(nil)
+	mockProcessExecutor.SetProcess(mockProcess)
+
+	executor := job.NewExecutor(job.WithProcessExecutor(mockProcessExecutor))
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+
+	workspace := t.TempDir()
+	jobID := "test-job-custom-process-executor"
+	runID := "test-job-custom-process-executor-run"
+	nodeID := "node-1"
+	uses := "builtins/shell"
+	testJob := &api.Job{
+		Id:    &jobID,
+		RunId: &runID,
+		Root: &api.Node{
+			Id:   &nodeID,
+			Uses: &uses,
+			With: map[string]string{
+				"command": "echo custom",
+			},
+		},
+	}
+
+	if err := executor.ExecuteJobInWorkspace(context.Background(), testJob, mockLogClient, mockLogger, workspace); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	paths := mockProcessExecutor.GetPaths()
+	args := mockProcessExecutor.GetArgs()
+	workDirs := mockProcessExecutor.GetWorkDirs()
+	if len(paths) != 1 || paths[0] != "sh" {
+		t.Fatalf("expected one shell execution through configured process executor, got paths=%v", paths)
+	}
+	if len(args) != 1 || len(args[0]) != 2 || args[0][0] != "-c" || args[0][1] != "echo custom" {
+		t.Fatalf("expected args [-c echo custom], got %v", args)
+	}
+	if len(workDirs) != 1 || workDirs[0] != workspace {
+		t.Fatalf("expected configured workspace %q, got workDirs=%v", workspace, workDirs)
+	}
+}
+
 func TestExecutor_ExecuteJobInWorkspace_RequiresWorkspace(t *testing.T) {
 	executor := job.NewExecutor()
 	err := executor.ExecuteJobInWorkspace(context.Background(), &api.Job{}, mocks.NewMockLogClient(), mocks.NewMockLogger(), "")

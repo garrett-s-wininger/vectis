@@ -16,9 +16,6 @@ type CheckoutAction struct {
 }
 
 func NewCheckoutAction(executor interfaces.ExecExecutor) *CheckoutAction {
-	if executor == nil {
-		executor = interfaces.NewDirectExecutor()
-	}
 	return &CheckoutAction{
 		executor: executor,
 	}
@@ -63,7 +60,7 @@ func (c *CheckoutAction) Execute(ctx context.Context, state *action.ExecutionSta
 	sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Cloning %s...", displayURL))
 
 	env := action.AppendEnv(state.CommandEnv(), "GIT_TERMINAL_PROMPT", "0")
-	process, err := c.executor.Start(ctx, "git", []string{"clone", url, "."}, state.Workspace, env)
+	process, err := c.processExecutor(state).Start(ctx, "git", []string{"clone", url, "."}, state.Workspace, env)
 	if err != nil {
 		return action.NewFailureResult(fmt.Errorf("failed to start git clone: %w", err))
 	}
@@ -93,6 +90,18 @@ func (c *CheckoutAction) Execute(ctx context.Context, state *action.ExecutionSta
 	state.Logger.Info("Checkout completed successfully")
 	sendLog(state, api.Stream_STREAM_STDOUT, "Checkout completed successfully")
 	return action.NewSuccessResult(nil)
+}
+
+func (c *CheckoutAction) processExecutor(state *action.ExecutionState) interfaces.ExecExecutor {
+	if c.executor != nil {
+		return c.executor
+	}
+
+	if state != nil && state.ProcessExecutor != nil {
+		return state.ProcessExecutor
+	}
+
+	return interfaces.NewDirectExecutor()
 }
 
 func hasCredentialedCloneURL(raw string) bool {

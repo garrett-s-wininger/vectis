@@ -203,12 +203,19 @@ Jobs are trees of nodes. Each node has:
 
 Built-in actions currently include `builtins/shell`, `builtins/checkout`, and `builtins/sequence`. Job shape and validation are covered in [Your First Job](../using/your-first-job.md) and [Job Definition Validation](../using/job-validation.md). Contributor guidance for adding actions is in [Adding Actions](../developing/actions.md).
 
+## Worker Execution Environment
+
+Today, a worker creates a per-run workspace directory and executes built-in actions as child processes on the worker host. The workspace is useful operational isolation: checkout and shell steps share a predictable directory, and the executor can clean it up when the run finishes.
+
+That workspace is not a security sandbox. Host execution still shares the worker user's permissions, host kernel, process environment, network access, and mounted credentials. The accepted target design for stronger containment is [ADR 0009](../developing/architecture-decisions/0009-worker-execution-containment-providers.md): keep host execution as the default compatibility path, then add container and VM execution providers behind a worker runner boundary.
+
 ## What Is Not In This Architecture
 
 Vectis does not currently ship:
 
 - a projects API
 - an artifacts API
+- built-in container or VM worker execution containment
 - shared-storage active/active queue or log clustering
 - multi-site federation
 - an OpenAPI artifact

@@ -32,7 +32,7 @@ Vectis is a self-hosted orchestrator for generic job graphs and CI/CD-style work
 | Triggers | Add webhook and optional VCS polling support. Decide whether future trigger types belong in one trigger service or separate binaries. |
 | Operational coverage | Extend `health check` into deploy-specific checks that cannot be inferred through the API, including TLS files and writable storage paths. |
 | Observability | Improve run correlation across API, queue, worker, log service, and database. Keep Prometheus metrics; add richer traces only where they help operators debug real failures. |
-| Worker safety | Define containment, resource limits, action policy, environment filtering, workspace controls, and executor boundaries before positioning Vectis for untrusted workloads. |
+| Worker safety | Implement the [worker execution containment provider](../architecture-decisions/0009-worker-execution-containment-providers.md) path: runner boundary first, then container profiles, then VM profiles for stronger isolation. |
 | Secrets | Design a local secrets service with provider-neutral contracts, worker-side resolution, authorization, audit, and redaction hooks. |
 | Federation | Defer until single-cell behavior is boring. Future federation should use a gateway over distributed Vectis cells, not one shared global database. |
 
@@ -44,7 +44,7 @@ These areas are intentionally not active implementation plans yet. They should b
 | --- | --- | --- |
 | Multi-replica semantics | Deferred | Long-term API rate-limit behavior, queue/log HA posture, cron leader election or partitioning, reconciler duplicate-handoff bounds, pool-aware worker scale-out, and rolling-restart tests. |
 | Retention and storage pressure | Deferred | Production defaults, cleanup cadence, queue persistence, log-forwarder spools, backup/restore interaction, and deploy-specific disk pressure checks. |
-| Worker execution containment | Deferred | Isolation model, resource limits, action policy, environment filtering, workspace controls, executor boundary, and sandbox path. |
+| Worker execution containment | Accepted design; implementation pending | Runner boundary, execution profiles, container provider, VM provider, resource limits, action policy, environment filtering, workspace controls, placement, and cleanup behavior. |
 | Local secrets service | Deferred | Provider-neutral service contract, encrypted local backend, runtime identity and authorization, worker-side resolution, audit events, and redaction hooks. |
 
 ## Federation Direction

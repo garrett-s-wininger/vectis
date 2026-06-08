@@ -30,7 +30,8 @@ type LogStreamWaiter interface {
 }
 
 type Executor struct {
-	registry *builtins.Registry
+	registry        *builtins.Registry
+	processExecutor interfaces.ExecExecutor
 
 	// TestLogStreamHook is a test-only channel that receives the LogStreamWaiter
 	// created during ExecuteJob. It allows tests to wait for background flush
@@ -42,10 +43,32 @@ type ExecuteOptions struct {
 	WorkloadIdentity *workloadidentity.Identity
 }
 
-func NewExecutor() *Executor {
-	return &Executor{
-		registry: builtins.NewRegistry(),
+// ExecutorOption configures a job executor.
+type ExecutorOption func(*Executor)
+
+// WithProcessExecutor sets the command execution backend used by built-in
+// actions during a run. Nil preserves the default host process executor.
+func WithProcessExecutor(processExecutor interfaces.ExecExecutor) ExecutorOption {
+	return func(e *Executor) {
+		if processExecutor != nil {
+			e.processExecutor = processExecutor
+		}
 	}
+}
+
+func NewExecutor(options ...ExecutorOption) *Executor {
+	e := &Executor{
+		registry:        builtins.NewRegistry(),
+		processExecutor: interfaces.NewDirectExecutor(),
+	}
+
+	for _, option := range options {
+		if option != nil {
+			option(e)
+		}
+	}
+
+	return e
 }
 
 func sanitizeJobIDForPrefix(id string) string {
@@ -159,11 +182,12 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 			workspace,
 			os.Environ(),
 		),
-		Logger:    logger,
-		LogClient: logClient,
-		LogStream: logStream,
-		Resolver:  e.registry,
-		Workload:  opts.WorkloadIdentity,
+		Logger:          logger,
+		LogClient:       logClient,
+		LogStream:       logStream,
+		Resolver:        e.registry,
+		Workload:        opts.WorkloadIdentity,
+		ProcessExecutor: e.processExecutor,
 	}
 
 	sendLog(state, api.Stream_STREAM_CONTROL, `{"event":"start"}`)

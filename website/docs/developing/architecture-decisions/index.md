@@ -20,6 +20,7 @@ New decisions add the next numbered file. Keep older decisions in place; when a 
 | [0006](./0006-global-coordination-cell-local-execution.md) | Accepted | Global coordination and cell-local execution |
 | [0007](./0007-queue-pool-shards.md) | Accepted | Queue pool shards |
 | [0008](./0008-api-edge-state-backend-contract.md) | Accepted | API edge-state backend contract |
+| [0009](./0009-worker-execution-containment-providers.md) | Accepted | Worker execution containment providers |
 
 ## Writing Style
 

@@ -41,18 +41,19 @@ type Result struct {
 }
 
 type ExecutionState struct {
-	JobID         string
-	RunID         string
-	Workspace     string
-	ProcessEnv    []string
-	Logger        interfaces.Logger
-	LogClient     interfaces.LogClient
-	LogStream     interfaces.LogStream
-	Resolver      Resolver
-	Workload      *workloadidentity.Identity
-	outputsMu     sync.RWMutex
-	outputsByNode map[string]map[string]any
-	nextSequence  int64
+	JobID           string
+	RunID           string
+	Workspace       string
+	ProcessEnv      []string
+	Logger          interfaces.Logger
+	LogClient       interfaces.LogClient
+	LogStream       interfaces.LogStream
+	Resolver        Resolver
+	Workload        *workloadidentity.Identity
+	ProcessExecutor interfaces.ExecExecutor
+	outputsMu       sync.RWMutex
+	outputsByNode   map[string]map[string]any
+	nextSequence    int64
 }
 
 func (s *ExecutionState) NextSequence() int64 {

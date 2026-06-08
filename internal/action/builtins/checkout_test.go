@@ -19,10 +19,43 @@ func TestCheckoutAction_Type(t *testing.T) {
 	}
 }
 
-func TestNewCheckoutAction_DefaultExecutor(t *testing.T) {
+func TestCheckoutAction_Execute_UsesStateProcessExecutor(t *testing.T) {
+	mockExecutor := mocks.NewMockExecExecutor()
+	mockProcess := mocks.NewMockProcess()
+	mockProcess.SetStdout("")
+	mockProcess.SetStderr("")
+	mockProcess.SetWaitError(nil)
+	mockExecutor.SetProcess(mockProcess)
+
 	checkoutAction := NewCheckoutAction(nil)
-	if checkoutAction.executor == nil {
-		t.Error("expected default executor to be set")
+	mockStream := &mockLogStream{}
+	state := createTestState(mockStream)
+	state.Workspace = "/tmp/vectis-state-checkout"
+	state.ProcessExecutor = mockExecutor
+
+	url := "https://github.com/example/repo.git"
+	inputs := map[string]any{
+		"url": url,
+	}
+
+	result := checkoutAction.Execute(context.Background(), state, inputs, nil)
+	if result.Status != action.StatusSuccess {
+		t.Errorf("expected success, got %v with error: %v", result.Status, result.Error)
+	}
+
+	paths := mockExecutor.GetPaths()
+	args := mockExecutor.GetArgs()
+	workDirs := mockExecutor.GetWorkDirs()
+	if len(paths) != 1 || paths[0] != "git" {
+		t.Fatalf("expected one git execution, got paths=%v", paths)
+	}
+
+	if len(args) != 1 || len(args[0]) != 3 || args[0][0] != "clone" || args[0][1] != url || args[0][2] != "." {
+		t.Fatalf("expected checkout args [clone %s .], got %v", url, args)
+	}
+
+	if len(workDirs) != 1 || workDirs[0] != "/tmp/vectis-state-checkout" {
+		t.Fatalf("expected workspace from state, got workDirs=%v", workDirs)
 	}
 }
 

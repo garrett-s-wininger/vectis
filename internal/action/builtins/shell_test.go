@@ -393,10 +393,42 @@ func TestShellAction_Type(t *testing.T) {
 	}
 }
 
-func TestNewShellAction_DefaultExecutor(t *testing.T) {
+func TestShellAction_Execute_UsesStateProcessExecutor(t *testing.T) {
+	mockExecutor := mocks.NewMockExecExecutor()
+	mockProcess := mocks.NewMockProcess()
+	mockProcess.SetStdout("")
+	mockProcess.SetStderr("")
+	mockProcess.SetWaitError(nil)
+	mockExecutor.SetProcess(mockProcess)
+
 	shellAction := NewShellAction(nil)
-	if shellAction.executor == nil {
-		t.Error("expected default executor to be set")
+	mockStream := &mockLogStream{}
+	state := createTestState(mockStream)
+	state.Workspace = "/tmp/vectis-state-executor"
+	state.ProcessExecutor = mockExecutor
+
+	inputs := map[string]any{
+		"command": "echo state",
+	}
+
+	result := shellAction.Execute(context.Background(), state, inputs, nil)
+	if result.Status != action.StatusSuccess {
+		t.Errorf("expected success, got %v with error: %v", result.Status, result.Error)
+	}
+
+	paths := mockExecutor.GetPaths()
+	args := mockExecutor.GetArgs()
+	workDirs := mockExecutor.GetWorkDirs()
+	if len(paths) != 1 || paths[0] != "sh" {
+		t.Fatalf("expected one sh execution, got paths=%v", paths)
+	}
+
+	if len(args) != 1 || len(args[0]) != 2 || args[0][0] != "-c" || args[0][1] != "echo state" {
+		t.Fatalf("expected shell args [-c echo state], got %v", args)
+	}
+
+	if len(workDirs) != 1 || workDirs[0] != "/tmp/vectis-state-executor" {
+		t.Fatalf("expected workspace from state, got workDirs=%v", workDirs)
 	}
 }
 

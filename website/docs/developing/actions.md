@@ -14,6 +14,8 @@ Built-in actions live under `internal/action/builtins/`. Each action provides:
 
 The built-in registry resolves the `uses` value from a job node to one of these action implementations.
 
+Actions that need to execute commands should use the worker-provided execution path instead of creating host child processes directly. The current host runner preserves existing behavior, but [ADR 0009](./architecture-decisions/0009-worker-execution-containment-providers.md) makes the runner boundary the path for future container and VM providers.
+
 ## Validation Contract
 
 Every built-in action should validate its `with` map before execution. Good validation catches user mistakes while the job is being created or submitted, instead of waiting for a worker to fail later.

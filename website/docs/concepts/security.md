@@ -14,7 +14,7 @@ For outage behavior, see [Failure Domains](./failure-domains.md). For environmen
 | Service authorization | Internal gRPC listeners can enforce role-level exact SPIFFE URI SAN allowlists when configured. This is listener authorization, not a full per-RPC policy language. | Configure expected service identities and still treat network reachability to queue, registry, log, and worker-control paths as sensitive. |
 | Metrics | API metrics use the API route auth policy when API auth is enabled. Dedicated service metrics listeners are unauthenticated and bind to localhost by default. Some deployments enable TLS for dedicated metrics listeners. | Scrape metrics from a trusted network, require API auth for API metrics, and only set dedicated metrics `--metrics-host` values for trusted scrape networks. |
 | Database and files | SQL, SQLite files, queue persistence, logs, and backups may contain sensitive operational state. Vectis does not encrypt these at rest itself. | Use platform disk or volume encryption, filesystem permissions, and secret-store controls. |
-| Jobs and logs | Job definitions can cause workers to execute code. Logs may contain credentials or personal data emitted by build steps. | Limit who can define or trigger jobs, isolate workers where needed, and restrict log access. |
+| Jobs and logs | Job definitions can cause workers to execute code. Workers currently provide per-run workspace separation, not a secure sandbox. Logs may contain credentials or personal data emitted by build steps. | Limit who can define or trigger jobs, isolate workers where needed, and restrict log access. |
 
 ## HTTP API Authentication
 
@@ -111,6 +111,8 @@ For the current sensitive-surface inventory and redaction guidance, see [Secrets
 
 Workers run actions from job definitions. A shell action or checkout source should be treated as code execution capability.
 
+Current workers create a separate run workspace and then execute built-in actions as host child processes from that workspace. That separation reduces file collisions and simplifies cleanup, but it does not isolate the host user, kernel, process namespace, network, or credentials available to the worker.
+
 Only trusted users should define jobs or trigger runs in a shared deployment. If jobs come from less-trusted teams or repositories, isolate workers with the controls available in your environment: separate hosts, containers, service accounts, read-only roots, restricted network access, and careful secret mounting.
 
 Process-launching built-ins such as `builtins/shell` and `builtins/checkout` receive a minimal Vectis-built environment instead of inheriting the worker service environment. The child environment includes stable process basics such as `PATH`, workspace-local `HOME`/`TMPDIR`, and `CI=true`; it strips deployment variables such as database DSNs, TLS settings, API bootstrap material, and SPIRE endpoint sockets. Jobs can still read any files or mounts that the worker runtime exposes to them, so worker isolation remains the stronger boundary.
@@ -118,6 +120,8 @@ Process-launching built-ins such as `builtins/shell` and `builtins/checkout` rec
 Workers can derive an expected per-execution SPIFFE ID from the execution envelope with `worker.execution_identity.*`. That identity includes cell, namespace, job, run, and execution scope and is attached only to Vectis' in-process action state and tracing today. If `worker.spire.enabled=true`, the worker requires its SPIRE Workload API source to return an X.509-SVID with that exact SPIFFE ID before action code runs. The acquired SVID marker stays in Vectis in-process action state; it does not expose a SPIRE Workload API socket, SVID, private key, or derived SPIFFE ID to shell commands. Treat it as the policy anchor for future secret brokering: the job process should receive only the specific credentials a Vectis-controlled broker chooses to release for that execution identity.
 
 Vectis rejects checkout URLs that embed user info, such as `https://user:token@example.com/org/repo.git`, because those credentials can leak through persisted job definitions, logs, or process surfaces. Build steps can still print secrets themselves, so log access remains sensitive.
+
+The accepted target design is [ADR 0009: Worker execution containment providers](../developing/architecture-decisions/0009-worker-execution-containment-providers.md). It keeps the current host behavior as the default, adds container profiles as the first stronger provider, and uses VM profiles as the target for higher-isolation workloads. Until those providers ship and are configured, treat Vectis workers as trusted-execution hosts.
 
 ## Audit and Abuse Controls
 
@@ -155,7 +159,8 @@ Use this as the minimum checklist before treating a deployment as shared or prod
 7. Store database DSNs, API tokens, bootstrap tokens, and deploy TLS material in a secret manager.
 8. Restrict who can define jobs, trigger jobs, and read logs.
 9. Protect SQL, SQLite, queue, log, and backup storage like sensitive application data.
-10. Monitor audit drops, audit flush failures, auth failures, queue health, and service readiness.
+10. Run less-trusted workloads on separately isolated worker hosts or external sandboxing until built-in container or VM providers are available and configured.
+11. Monitor audit drops, audit flush failures, auth failures, queue health, and service readiness.
 
 ## Reporting Security Issues
 
