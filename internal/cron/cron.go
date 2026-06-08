@@ -352,7 +352,9 @@ func (s *CronService) dispatchRun(ctx context.Context, job *api.Job, runID, defi
 			qc = nil
 		}
 
-		ingress = cell.NewExecutionRouter(config.CellID(), qc, endpoints, s.logger)
+		ingress = cell.NewExecutionRouterWithOptions(config.CellID(), qc, endpoints, s.logger, cell.ExecutionRouterOptions{
+			TLSConfigForEndpoint: config.CellIngressHTTPClientTLSConfig,
+		})
 	}
 
 	submission, err := cell.NewExecutionSubmission(req)

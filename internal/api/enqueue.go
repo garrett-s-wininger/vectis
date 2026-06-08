@@ -43,5 +43,7 @@ func (s *APIServer) executionRouter(q interfaces.QueueService) (cell.ExecutionIn
 		q = nil
 	}
 
-	return cell.NewExecutionRouter(config.CellID(), q, endpoints, s.logger), nil
+	return cell.NewExecutionRouterWithOptions(config.CellID(), q, endpoints, s.logger, cell.ExecutionRouterOptions{
+		TLSConfigForEndpoint: config.CellIngressHTTPClientTLSConfig,
+	}), nil
 }

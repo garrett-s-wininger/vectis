@@ -26,8 +26,12 @@ func runVectisCron(cmd *cobra.Command, args []string) {
 	if err := config.ValidateGRPCTLSForRole(config.GRPCTLSDaemonClientOnly); err != nil {
 		logger.Fatal("%v", err)
 	}
-	config.StartGRPCTLSReloadLoop(cmd.Context())
 
+	if err := config.ValidateCellIngressHTTPClientMTLSConfig(config.CellIngressEndpointSpecs()); err != nil {
+		logger.Fatal("Cell ingress HTTP mTLS config: %v", err)
+	}
+
+	config.StartGRPCTLSReloadLoop(cmd.Context())
 	db, _, err := database.OpenReadyDBForRole(logger, database.RoleGlobal)
 	if err != nil {
 		logger.Fatal("Failed to initialize database: %v", err)

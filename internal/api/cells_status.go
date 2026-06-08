@@ -128,6 +128,17 @@ func checkCellIngressReady(ctx context.Context, cellID, endpoint string) cellSta
 		return resp
 	}
 
+	client := &http.Client{Timeout: cellStatusTimeout}
+	if tlsConfig, err := config.CellIngressHTTPClientTLSConfig(endpoint); err != nil {
+		resp.Status = "invalid"
+		resp.Error = err.Error()
+		return resp
+	} else if tlsConfig != nil {
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = tlsConfig
+		client.Transport = transport
+	}
+
 	reqCtx, cancel := context.WithTimeout(ctx, cellStatusTimeout)
 	defer cancel()
 
@@ -138,7 +149,7 @@ func checkCellIngressReady(ctx context.Context, cellID, endpoint string) cellSta
 		return resp
 	}
 
-	httpResp, err := http.DefaultClient.Do(req)
+	httpResp, err := client.Do(req)
 	if err != nil {
 		resp.Status = "unreachable"
 		resp.Error = err.Error()

@@ -66,7 +66,7 @@ Worker-control can also use an ephemeral port or a configured port range. When w
 
 ## TLS And mTLS
 
-Internal gRPC TLS is controlled by `VECTIS_GRPC_TLS_*` settings:
+Internal gRPC TLS is controlled by `VECTIS_GRPC_TLS_*` settings. Cell ingress HTTP also uses this same material for mTLS when it is exposed off-loopback:
 
 | Setting group | Purpose |
 | --- | --- |

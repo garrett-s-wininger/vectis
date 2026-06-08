@@ -30,6 +30,10 @@ func runReconciler(cmd *cobra.Command, args []string) {
 		logger.Fatal("%v", err)
 	}
 
+	if err := config.ValidateCellIngressHTTPClientMTLSConfig(config.CellIngressEndpointSpecs()); err != nil {
+		logger.Fatal("Cell ingress HTTP mTLS config: %v", err)
+	}
+
 	if err := config.ValidateMetricsTLS(); err != nil {
 		logger.Fatal("%v", err)
 	}

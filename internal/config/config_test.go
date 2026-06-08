@@ -362,13 +362,13 @@ func TestAPICellIngressEndpoints_DefaultAndOverride(t *testing.T) {
 		t.Fatalf("APICellIngressEndpointSpecs default: got %+v, want empty", got)
 	}
 
-	viper.Set("cell_ingress_endpoints", []string{"iad-a=http://iad.example:8085", "pdx-b=https://pdx.example"})
+	viper.Set("cell_ingress_endpoints", []string{"iad-a=https://iad.example:8085", "pdx-b=https://pdx.example"})
 	got, err := APICellIngressEndpoints()
 	if err != nil {
 		t.Fatalf("APICellIngressEndpoints: %v", err)
 	}
 
-	if got["iad-a"] != "http://iad.example:8085" {
+	if got["iad-a"] != "https://iad.example:8085" {
 		t.Fatalf("iad endpoint: got %q", got["iad-a"])
 	}
 

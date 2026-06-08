@@ -121,9 +121,16 @@ func TestLocalCellIngressEndpointSpecs(t *testing.T) {
 	}
 
 	got := localCellIngressEndpointSpecs(cells)
-	want := []string{"iad-a=http://localhost:8085", "pdx-b=http://localhost:8185"}
+	want := []string{"iad-a=https://localhost:8085", "pdx-b=https://localhost:8185"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("endpoint specs: got %v, want %v", got, want)
+	}
+
+	viper.Set("grpc_insecure", true)
+	got = localCellIngressEndpointSpecs(cells)
+	want = []string{"iad-a=http://localhost:8085", "pdx-b=http://localhost:8185"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("insecure endpoint specs: got %v, want %v", got, want)
 	}
 }
 

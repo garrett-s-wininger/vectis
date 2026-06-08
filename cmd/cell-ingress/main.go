@@ -43,6 +43,10 @@ func runCellIngress(cmd *cobra.Command, args []string) {
 		logger.Fatal("Cell ingress Host validation config: %v", err)
 	}
 
+	if err := config.ValidateCellIngressHTTPMTLSConfig(config.CellID(), config.CellIngressHost()); err != nil {
+		logger.Fatal("Cell ingress HTTP mTLS config: %v", err)
+	}
+
 	config.StartGRPCTLSReloadLoop(ctx)
 	config.StartMetricsTLSReloadLoop(ctx)
 
@@ -95,6 +99,11 @@ func runCellIngress(cmd *cobra.Command, args []string) {
 		logger.Fatal("Listen: %v", err)
 	}
 
+	ln, scheme, err := config.CellIngressHTTPSListener(ln)
+	if err != nil {
+		logger.Fatal("Cell ingress HTTP mTLS: %v", err)
+	}
+
 	acceptances := dal.NewSQLRepositoriesWithCellID(db, config.CellID()).CellExecutionAcceptances()
 	repairInterval := config.CellIngressRepairInterval()
 	repair := cellingress.NewExecutionRepairService(acceptances, queue, logger, interfaces.SystemClock{})
@@ -105,7 +114,7 @@ func runCellIngress(cmd *cobra.Command, args []string) {
 	ingressServer.SetAcceptanceStore(acceptances)
 	handler := ingressServer.Handler()
 	httpSrv := cellingress.HTTPServer(addr, handler)
-	logger.Info("Cell ingress listening on http://%s; execution repair polling every %v", addr, repairInterval)
+	logger.Info("Cell ingress listening on %s://%s; execution repair polling every %v", scheme, addr, repairInterval)
 
 	if err := cli.ServeHTTP(ctx, httpSrv, func() error { return httpSrv.Serve(ln) }, 10*time.Second, "Cell ingress HTTP", logger); err != nil {
 		logger.Fatal("Cell ingress HTTP server failed: %v", err)

@@ -584,12 +584,21 @@ func localQueueAddress(cell localCell) string {
 
 func localCellIngressEndpointSpecs(cells []localCell) []string {
 	specs := make([]string, 0, len(cells))
+	scheme := localCellIngressEndpointScheme()
 	for _, cell := range cells {
-		endpoint := "http://" + net.JoinHostPort(localConnectHost(), fmt.Sprintf("%d", cell.CellIngressPort))
+		endpoint := scheme + "://" + net.JoinHostPort(localConnectHost(), fmt.Sprintf("%d", cell.CellIngressPort))
 		specs = append(specs, fmt.Sprintf("%s=%s", cell.ID, endpoint))
 	}
 
 	return specs
+}
+
+func localCellIngressEndpointScheme() string {
+	if viper.GetBool("grpc_insecure") {
+		return "http"
+	}
+
+	return "https"
 }
 
 func localCellIngressEndpointEnv(cells []localCell) []string {
@@ -941,7 +950,7 @@ func runVectis(cmd *cobra.Command, args []string) {
 	logger.Info("API will be available at %s://%s:%d", browserTLS.Scheme, localHost(), config.APIEffectiveListenPort())
 
 	for _, cell := range topology.Cells {
-		logger.Info("Cell %s ingress will be available at http://%s:%d", cell.ID, localHost(), cell.CellIngressPort)
+		logger.Info("Cell %s ingress will be available at %s://%s:%d", cell.ID, localCellIngressEndpointScheme(), localHost(), cell.CellIngressPort)
 	}
 
 	if profile == localProfileHA {
@@ -1167,10 +1176,11 @@ It starts the registry, queue, log service, cell ingress, worker, cron,
 reconciler, catalog, API server, and docs site as child processes.
 
 By default it bootstraps a dev CA and TLS certificates (under the XDG data directory)
-and sets VECTIS_GRPC_TLS_* for child processes so internal gRPC uses TLS. It also
-uses HTTPS for the local API and docs when the generated CA is trusted by the
-system store, or when --http-tls=on is set. Use --grpc-insecure or
-VECTIS_LOCAL_GRPC_INSECURE=true for plaintext gRPC.
+and sets VECTIS_GRPC_TLS_* for child processes so internal gRPC and cell ingress
+HTTP use TLS/mTLS. It also uses HTTPS for the local API and docs when the
+generated CA is trusted by the system store, or when --http-tls=on is set. Use
+--grpc-insecure or VECTIS_LOCAL_GRPC_INSECURE=true for plaintext internal gRPC
+and loopback cell ingress HTTP.
 
 Use "vectis-local init" to create or renew the local TLS material without
 privileges. Use "vectis-local install-cert" with elevated privileges only when

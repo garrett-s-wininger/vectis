@@ -30,7 +30,7 @@ func TestEnsure_generatesMaterial(t *testing.T) {
 	}
 
 	ev := m.EnvVars()
-	if len(ev) != 5 {
+	if len(ev) != 8 {
 		t.Fatalf("env vars: %d", len(ev))
 	}
 
@@ -43,6 +43,9 @@ func TestEnsure_generatesMaterial(t *testing.T) {
 		"VECTIS_GRPC_TLS_CA_FILE=",
 		"VECTIS_GRPC_TLS_CERT_FILE=",
 		"VECTIS_GRPC_TLS_KEY_FILE=",
+		"VECTIS_GRPC_TLS_CLIENT_CA_FILE=",
+		"VECTIS_GRPC_TLS_CLIENT_CERT_FILE=",
+		"VECTIS_GRPC_TLS_CLIENT_KEY_FILE=",
 	} {
 		if !slices.ContainsFunc(ev, func(s string) bool { return strings.HasPrefix(s, prefix) }) {
 			t.Fatalf("EnvVars missing entry with prefix %q: %v", prefix, ev)
@@ -86,6 +89,14 @@ func TestMaterial_ApplyParentViper_setsTLSAndServerName(t *testing.T) {
 
 	if viper.GetString("grpc_tls.ca_file") != m.CAFile {
 		t.Fatal("grpc_tls.ca_file mismatch")
+	}
+
+	if viper.GetString("grpc_tls.client_ca_file") != m.CAFile {
+		t.Fatal("grpc_tls.client_ca_file mismatch")
+	}
+
+	if viper.GetString("grpc_tls.client_cert_file") != m.ServerCert {
+		t.Fatal("grpc_tls.client_cert_file mismatch")
 	}
 }
 

@@ -167,13 +167,22 @@ func hasLocalhostSANs(c *x509.Certificate) bool {
 func verifyChain(leaf, ca *x509.Certificate) error {
 	pool := x509.NewCertPool()
 	pool.AddCert(ca)
-	opts := x509.VerifyOptions{
+	serverOpts := x509.VerifyOptions{
 		Roots:     pool,
 		DNSName:   "localhost",
 		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	}
 
-	_, err := leaf.Verify(opts)
+	if _, err := leaf.Verify(serverOpts); err != nil {
+		return err
+	}
+
+	clientOpts := x509.VerifyOptions{
+		Roots:     pool,
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+
+	_, err := leaf.Verify(clientOpts)
 	return err
 }
 
@@ -226,7 +235,7 @@ func generateFullChain(caCertPath, caKeyPath, srvCertPath, srvKeyPath string) er
 		NotBefore:    now.Add(-1 * time.Hour),
 		NotAfter:     now.Add(serverCertLifetime),
 		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
 		DNSNames:     []string{"localhost"},
 		IPAddresses:  []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback},
 	}
@@ -347,7 +356,7 @@ func renewServerCert(caCertPath, caKeyPath, srvCertPath, srvKeyPath string) erro
 		NotBefore:    now.Add(-1 * time.Hour),
 		NotAfter:     now.Add(serverCertLifetime),
 		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
 		DNSNames:     []string{"localhost"},
 		IPAddresses:  []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback},
 	}
@@ -417,6 +426,9 @@ func (m *Material) EnvVars() []string {
 		"VECTIS_GRPC_TLS_CA_FILE=" + m.CAFile,
 		"VECTIS_GRPC_TLS_CERT_FILE=" + m.ServerCert,
 		"VECTIS_GRPC_TLS_KEY_FILE=" + m.ServerKey,
+		"VECTIS_GRPC_TLS_CLIENT_CA_FILE=" + m.CAFile,
+		"VECTIS_GRPC_TLS_CLIENT_CERT_FILE=" + m.ServerCert,
+		"VECTIS_GRPC_TLS_CLIENT_KEY_FILE=" + m.ServerKey,
 		// Resolver dials use 127.0.0.1:*; leaf SANs include localhost — set SNI/verify name.
 		"VECTIS_GRPC_TLS_SERVER_NAME=localhost",
 	}
@@ -431,6 +443,9 @@ func (m *Material) ApplyParentViper(set func(key string, value any)) {
 	set("grpc_tls.ca_file", m.CAFile)
 	set("grpc_tls.cert_file", m.ServerCert)
 	set("grpc_tls.key_file", m.ServerKey)
+	set("grpc_tls.client_ca_file", m.CAFile)
+	set("grpc_tls.client_cert_file", m.ServerCert)
+	set("grpc_tls.client_key_file", m.ServerKey)
 	set("grpc_tls.server_name", "localhost")
 }
 

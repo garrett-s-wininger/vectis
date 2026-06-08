@@ -1,13 +1,18 @@
 package cell
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/localpki"
+	"vectis/internal/tlsconfig"
 
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -67,6 +72,73 @@ func TestHTTPExecutionIngressSubmitsToCellIngress(t *testing.T) {
 	}
 	if env.CellID != "iad-a" {
 		t.Fatalf("posted envelope cell: got %q, want iad-a", env.CellID)
+	}
+}
+
+func TestHTTPExecutionIngressUsesMTLSConfig(t *testing.T) {
+	m, err := localpki.Ensure(t.TempDir())
+	if err != nil {
+		t.Fatalf("localpki.Ensure: %v", err)
+	}
+
+	caPEM, err := os.ReadFile(m.CAFile)
+	if err != nil {
+		t.Fatalf("read CA: %v", err)
+	}
+
+	caPool := x509.NewCertPool()
+	if !caPool.AppendCertsFromPEM(caPEM) {
+		t.Fatal("append CA PEM")
+	}
+
+	serverCert, err := tls.LoadX509KeyPair(m.ServerCert, m.ServerKey)
+	if err != nil {
+		t.Fatalf("load server cert: %v", err)
+	}
+
+	sawClientCert := make(chan bool, 1)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawClientCert <- r.TLS != nil && len(r.TLS.PeerCertificates) > 0
+		w.WriteHeader(http.StatusAccepted)
+	}))
+
+	server.TLS = &tls.Config{
+		MinVersion:   tls.VersionTLS12,
+		Certificates: []tls.Certificate{serverCert},
+		ClientCAs:    caPool,
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+	}
+
+	server.StartTLS()
+	defer server.Close()
+
+	submission, err := NewExecutionSubmission(validJobRequestForCell(t, "iad-a"))
+	if err != nil {
+		t.Fatalf("NewExecutionSubmission: %v", err)
+	}
+
+	reloader, err := tlsconfig.NewReloader(tlsconfig.Options{
+		RootCA:     m.CAFile,
+		ClientCert: m.ServerCert,
+		ClientKey:  m.ServerKey,
+	})
+
+	if err != nil {
+		t.Fatalf("NewReloader: %v", err)
+	}
+
+	ingress := NewHTTPExecutionIngressWithOptions(server.URL, nil, nil, HTTPExecutionIngressOptions{
+		TLSConfigForEndpoint: func(string) (*tls.Config, error) {
+			return reloader.ClientTLS("localhost")
+		},
+	})
+
+	if err := ingress.SubmitExecution(t.Context(), submission); err != nil {
+		t.Fatalf("SubmitExecution: %v", err)
+	}
+
+	if !<-sawClientCert {
+		t.Fatal("server did not receive a verified client certificate")
 	}
 }
 

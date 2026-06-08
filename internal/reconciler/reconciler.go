@@ -603,7 +603,9 @@ func (s *Service) executionIngress() (cell.ExecutionIngress, error) {
 		queueClient = nil
 	}
 
-	return cell.NewExecutionRouter(config.CellID(), queueClient, endpoints, s.logger), nil
+	return cell.NewExecutionRouterWithOptions(config.CellID(), queueClient, endpoints, s.logger, cell.ExecutionRouterOptions{
+		TLSConfigForEndpoint: config.CellIngressHTTPClientTLSConfig,
+	}), nil
 }
 
 func (s *Service) recordExecutionPayload(ctx context.Context, runID string, req *api.JobRequest, definitionHash string) (*api.JobRequest, error) {

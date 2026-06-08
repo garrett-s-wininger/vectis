@@ -3,6 +3,7 @@ package cell
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,7 +18,7 @@ import (
 )
 
 const (
-	defaultHTTPIngressTimeout = 30 * time.Second
+	DefaultHTTPIngressTimeout = 30 * time.Second
 	httpIngressErrorBytes     = 4096
 )
 
@@ -26,25 +27,34 @@ type HTTPDoer interface {
 }
 
 type HTTPExecutionIngress struct {
-	endpoint string
-	client   HTTPDoer
-	logger   interfaces.Logger
+	endpoint             string
+	client               HTTPDoer
+	logger               interfaces.Logger
+	tlsConfigForEndpoint HTTPTLSConfigProvider
 }
 
 type httpExecutionRequest struct {
 	JobRequest json.RawMessage `json:"job_request"`
 }
 
+type HTTPExecutionIngressOptions struct {
+	TLSConfigForEndpoint HTTPTLSConfigProvider
+}
+
+type HTTPTLSConfigProvider func(endpoint string) (*tls.Config, error)
+
 func NewHTTPExecutionIngress(endpoint string, client HTTPDoer, logger interfaces.Logger) HTTPExecutionIngress {
+	return NewHTTPExecutionIngressWithOptions(endpoint, client, logger, HTTPExecutionIngressOptions{})
+}
+
+func NewHTTPExecutionIngressWithOptions(endpoint string, client HTTPDoer, logger interfaces.Logger, opts HTTPExecutionIngressOptions) HTTPExecutionIngress {
 	endpoint = strings.TrimSpace(endpoint)
-	if client == nil {
-		client = &http.Client{Timeout: defaultHTTPIngressTimeout}
-	}
 
 	return HTTPExecutionIngress{
-		endpoint: endpoint,
-		client:   client,
-		logger:   logger,
+		endpoint:             endpoint,
+		client:               client,
+		logger:               logger,
+		tlsConfigForEndpoint: opts.TLSConfigForEndpoint,
 	}
 }
 
@@ -74,7 +84,12 @@ func (i HTTPExecutionIngress) SubmitExecution(ctx context.Context, submission Ex
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := i.client.Do(req)
+	client, err := i.httpClient(endpoint)
+	if err != nil {
+		return err
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("submit execution to cell ingress: %w", err)
 	}
@@ -90,6 +105,33 @@ func (i HTTPExecutionIngress) SubmitExecution(ctx context.Context, submission Ex
 
 	errBody, _ := io.ReadAll(io.LimitReader(resp.Body, httpIngressErrorBytes))
 	return fmt.Errorf("cell ingress returned %s: %s", resp.Status, strings.TrimSpace(string(errBody)))
+}
+
+func (i HTTPExecutionIngress) httpClient(endpoint string) (HTTPDoer, error) {
+	if i.client != nil {
+		return i.client, nil
+	}
+
+	var tlsConfig *tls.Config
+	if i.tlsConfigForEndpoint != nil {
+		cfg, err := i.tlsConfigForEndpoint(endpoint)
+		if err != nil {
+			return nil, err
+		}
+
+		tlsConfig = cfg
+	}
+
+	if tlsConfig == nil {
+		return &http.Client{Timeout: DefaultHTTPIngressTimeout}, nil
+	}
+
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = tlsConfig
+	return &http.Client{
+		Timeout:   DefaultHTTPIngressTimeout,
+		Transport: transport,
+	}, nil
 }
 
 func cellIngressExecutionURL(endpoint string) (string, error) {
