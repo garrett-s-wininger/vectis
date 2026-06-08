@@ -1752,9 +1752,8 @@ func TestWorkerRunTaskExecution_AckPersistentFailure_OrphansRunWithoutExecution(
 	var statusVal string
 	var reason sql.NullString
 	var orphanReason sql.NullString
-	var claimToken sql.NullString
-	if err := db.QueryRowContext(ctx, `SELECT status, failure_reason, orphan_reason, claim_token FROM job_runs WHERE run_id = ?`, runID).
-		Scan(&statusVal, &reason, &orphanReason, &claimToken); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT status, failure_reason, orphan_reason FROM job_runs WHERE run_id = ?`, runID).
+		Scan(&statusVal, &reason, &orphanReason); err != nil {
 		t.Fatalf("query final status: %v", err)
 	}
 
@@ -1768,10 +1767,6 @@ func TestWorkerRunTaskExecution_AckPersistentFailure_OrphansRunWithoutExecution(
 
 	if !orphanReason.Valid || orphanReason.String != dal.OrphanReasonAckUncertain {
 		t.Fatalf("expected orphan_reason %q, got %v", dal.OrphanReasonAckUncertain, orphanReason)
-	}
-
-	if claimToken.Valid {
-		t.Fatalf("expected claim_token cleared after orphaning, got %v", claimToken)
 	}
 
 	if queue.ackCalls != ackMaxAttempts {

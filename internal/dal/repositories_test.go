@@ -2032,7 +2032,7 @@ func TestRunsRepository_ExecutionClaims(t *testing.T) {
 	assertExecutionAndSegmentStatus(t, db, dispatch.ExecutionID, dispatch.SegmentID, dal.ExecutionStatusAccepted, dal.SegmentStatusAccepted, 1)
 	assertRootTaskAndAttemptStatus(t, db, runID, dal.TaskStatusAccepted, dal.TaskStatusAccepted, 1)
 	assertExecutionClaim(t, db, dispatch.ExecutionID, "worker-a", leaseUntil.Unix(), claim.ClaimToken)
-	assertRunExecutionOwner(t, db, runID, dal.RunStatusRunning, "worker-a", leaseUntil.Unix(), claim.ClaimToken)
+	assertRunExecutionOwner(t, db, runID, dal.RunStatusRunning, "worker-a", leaseUntil.Unix())
 
 	tasks, _, err := repos.Runs().ListRunTasks(ctx, runID, 0, 10)
 	if err != nil {
@@ -2827,19 +2827,19 @@ func assertExecutionClaim(t *testing.T, db *sql.DB, executionID, wantOwner strin
 	}
 }
 
-func assertRunExecutionOwner(t *testing.T, db *sql.DB, runID, wantStatus, wantOwner string, wantLeaseUntil int64, wantToken string) {
+func assertRunExecutionOwner(t *testing.T, db *sql.DB, runID, wantStatus, wantOwner string, wantLeaseUntil int64) {
 	t.Helper()
 
 	var status string
-	var owner, token sql.NullString
+	var owner sql.NullString
 	var leaseUntil sql.NullInt64
-	if err := db.QueryRow("SELECT status, lease_owner, lease_until, claim_token FROM job_runs WHERE run_id = ?", runID).
-		Scan(&status, &owner, &leaseUntil, &token); err != nil {
+	if err := db.QueryRow("SELECT status, lease_owner, lease_until FROM job_runs WHERE run_id = ?", runID).
+		Scan(&status, &owner, &leaseUntil); err != nil {
 		t.Fatalf("query run execution owner: %v", err)
 	}
 
-	if status != wantStatus || !owner.Valid || owner.String != wantOwner || !leaseUntil.Valid || leaseUntil.Int64 != wantLeaseUntil || !token.Valid || token.String != wantToken {
-		t.Fatalf("run execution owner: got status=%q owner=%v lease_until=%v token=%v, want status=%q owner=%q lease_until=%d token=%q", status, owner, leaseUntil, token, wantStatus, wantOwner, wantLeaseUntil, wantToken)
+	if status != wantStatus || !owner.Valid || owner.String != wantOwner || !leaseUntil.Valid || leaseUntil.Int64 != wantLeaseUntil {
+		t.Fatalf("run execution owner: got status=%q owner=%v lease_until=%v, want status=%q owner=%q lease_until=%d", status, owner, leaseUntil, wantStatus, wantOwner, wantLeaseUntil)
 	}
 }
 
@@ -3254,7 +3254,7 @@ func TestRunsRepository_ExecutionClaimRenewAndDispatchQueries(t *testing.T) {
 	}
 
 	if afterClaim.StartedAt == nil {
-		t.Fatal("started_at should be set when run is claimed")
+		t.Fatal("started_at should be set by the execution claim")
 	}
 
 	cancelRec, err := runs.GetRunForCancel(ctx, runID)
@@ -3347,7 +3347,7 @@ func TestRunsRepository_RequestRunCancel_SetsDurableIntent(t *testing.T) {
 	}
 
 	if rec.CancelToken != token {
-		t.Fatalf("cancel token should match worker claim token, got cancel=%q claim=%q", rec.CancelToken, token)
+		t.Fatalf("cancel token should match execution claim token, got cancel=%q claim=%q", rec.CancelToken, token)
 	}
 
 	if rec.CancelRequestedAt == nil || *rec.CancelRequestedAt <= 0 {
@@ -3721,7 +3721,6 @@ func TestRunsRepository_MarkRunAborted_SetsCancelledTerminalState(t *testing.T) 
 	var failureCode string
 	var failure sql.NullString
 	var finishedAt sql.NullString
-	var claimToken sql.NullString
 	var cancelToken sql.NullString
 	var cancelRequestedAt sql.NullInt64
 	var cancelReason sql.NullString
@@ -3729,9 +3728,9 @@ func TestRunsRepository_MarkRunAborted_SetsCancelledTerminalState(t *testing.T) 
 	var leaseUntil sql.NullInt64
 
 	if err := db.QueryRowContext(ctx, `
-		SELECT status, failure_code, failure_reason, CAST(finished_at AS TEXT), claim_token, cancel_token, cancel_requested_at, cancel_reason, lease_owner, lease_until
+		SELECT status, failure_code, failure_reason, CAST(finished_at AS TEXT), cancel_token, cancel_requested_at, cancel_reason, lease_owner, lease_until
 		FROM job_runs WHERE run_id = ?
-	`, runID).Scan(&status, &failureCode, &failure, &finishedAt, &claimToken, &cancelToken, &cancelRequestedAt, &cancelReason, &leaseOwner, &leaseUntil); err != nil {
+	`, runID).Scan(&status, &failureCode, &failure, &finishedAt, &cancelToken, &cancelRequestedAt, &cancelReason, &leaseOwner, &leaseUntil); err != nil {
 		t.Fatalf("query aborted run: %v", err)
 	}
 
@@ -3751,9 +3750,9 @@ func TestRunsRepository_MarkRunAborted_SetsCancelledTerminalState(t *testing.T) 
 		t.Fatal("expected finished_at to be set")
 	}
 
-	if claimToken.Valid || cancelToken.Valid || cancelRequestedAt.Valid || cancelReason.Valid || leaseOwner.Valid || leaseUntil.Valid {
-		t.Fatalf("expected abort to clear runtime fields; got claim=%v cancel=%v cancel_at=%v cancel_reason=%v owner=%v lease_until=%v",
-			claimToken, cancelToken, cancelRequestedAt, cancelReason, leaseOwner, leaseUntil)
+	if cancelToken.Valid || cancelRequestedAt.Valid || cancelReason.Valid || leaseOwner.Valid || leaseUntil.Valid {
+		t.Fatalf("expected abort to clear runtime fields; got cancel=%v cancel_at=%v cancel_reason=%v owner=%v lease_until=%v",
+			cancelToken, cancelRequestedAt, cancelReason, leaseOwner, leaseUntil)
 	}
 
 	if err := runs.RequeueRunForRetry(ctx, runID); err != nil {
@@ -3769,7 +3768,7 @@ func TestRunsRepository_MarkRunAborted_SetsCancelledTerminalState(t *testing.T) 
 	}
 }
 
-func TestRunsRepository_RequeueRunForRetry_ClearsLeaseAndToken(t *testing.T) {
+func TestRunsRepository_RequeueRunForRetry_ClearsRuntimeFields(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	runs := dal.NewSQLRepositories(db).Runs()
 	ctx := context.Background()
@@ -3792,14 +3791,13 @@ func TestRunsRepository_RequeueRunForRetry_ClearsLeaseAndToken(t *testing.T) {
 	var status string
 	var failureCode string
 	var failure sql.NullString
-	var claimToken sql.NullString
 	var leaseOwner sql.NullString
 	var leaseUntil sql.NullInt64
 	var lastDispatched sql.NullInt64
 	if err := db.QueryRowContext(ctx, `
-		SELECT status, failure_code, failure_reason, claim_token, lease_owner, lease_until, last_dispatched_at
+		SELECT status, failure_code, failure_reason, lease_owner, lease_until, last_dispatched_at
 		FROM job_runs WHERE run_id = ?
-	`, runID).Scan(&status, &failureCode, &failure, &claimToken, &leaseOwner, &leaseUntil, &lastDispatched); err != nil {
+	`, runID).Scan(&status, &failureCode, &failure, &leaseOwner, &leaseUntil, &lastDispatched); err != nil {
 		t.Fatalf("query requeued run: %v", err)
 	}
 
@@ -3807,9 +3805,9 @@ func TestRunsRepository_RequeueRunForRetry_ClearsLeaseAndToken(t *testing.T) {
 		t.Fatalf("expected queued status, got %q", status)
 	}
 
-	if failureCode != "" || failure.Valid || claimToken.Valid || leaseOwner.Valid || leaseUntil.Valid || lastDispatched.Valid {
-		t.Fatalf("expected queue retry to clear runtime fields; got failure_code=%q failure=%v token=%v owner=%v lease_until=%v dispatched=%v",
-			failureCode, failure, claimToken, leaseOwner, leaseUntil, lastDispatched)
+	if failureCode != "" || failure.Valid || leaseOwner.Valid || leaseUntil.Valid || lastDispatched.Valid {
+		t.Fatalf("expected queue retry to clear runtime fields; got failure_code=%q failure=%v owner=%v lease_until=%v dispatched=%v",
+			failureCode, failure, leaseOwner, leaseUntil, lastDispatched)
 	}
 }
 
@@ -3891,11 +3889,10 @@ func TestRunsRepository_MarkRunOrphaned_ClearsExecutionOwner(t *testing.T) {
 	var orphanReason sql.NullString
 	var leaseOwner sql.NullString
 	var leaseUntil sql.NullInt64
-	var claimToken sql.NullString
 	if err := db.QueryRowContext(ctx, `
-		SELECT status, failure_reason, orphan_reason, lease_owner, lease_until, claim_token
+		SELECT status, failure_reason, orphan_reason, lease_owner, lease_until
 		FROM job_runs WHERE run_id = ?
-	`, runID).Scan(&status, &reason, &orphanReason, &leaseOwner, &leaseUntil, &claimToken); err != nil {
+	`, runID).Scan(&status, &reason, &orphanReason, &leaseOwner, &leaseUntil); err != nil {
 		t.Fatalf("query run: %v", err)
 	}
 
@@ -3910,8 +3907,8 @@ func TestRunsRepository_MarkRunOrphaned_ClearsExecutionOwner(t *testing.T) {
 		t.Fatalf("expected orphan_reason, got %v", orphanReason)
 	}
 
-	if leaseOwner.Valid || leaseUntil.Valid || claimToken.Valid {
-		t.Fatalf("expected lease/token cleared, got owner=%v lease=%v token=%v", leaseOwner, leaseUntil, claimToken)
+	if leaseOwner.Valid || leaseUntil.Valid {
+		t.Fatalf("expected run owner cleared, got owner=%v lease=%v", leaseOwner, leaseUntil)
 	}
 }
 

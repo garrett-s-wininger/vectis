@@ -74,7 +74,7 @@ func (r *SQLRunsRepository) MarkRunSucceeded(ctx context.Context, runID string) 
 	_, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
 		UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP,
 		orphan_reason = '', failure_code = '', failure_reason = NULL, lease_owner = NULL, lease_until = NULL,
-		claim_token = NULL, cancel_token = NULL, cancel_requested_at = NULL, cancel_reason = NULL WHERE run_id = ?
+		cancel_token = NULL, cancel_requested_at = NULL, cancel_reason = NULL WHERE run_id = ?
 	`), "succeeded", runID)
 
 	return normalizeSQLError(err)
@@ -88,7 +88,7 @@ func (r *SQLRunsRepository) MarkRunFailed(ctx context.Context, runID, failureCod
 	_, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
 		UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP, failure_code = ?, failure_reason = ?,
 		orphan_reason = '', lease_owner = NULL, lease_until = NULL,
-		claim_token = NULL, cancel_token = NULL, cancel_requested_at = NULL, cancel_reason = NULL WHERE run_id = ?
+		cancel_token = NULL, cancel_requested_at = NULL, cancel_reason = NULL WHERE run_id = ?
 	`), "failed", failureCode, reason, runID)
 
 	return normalizeSQLError(err)
@@ -109,7 +109,7 @@ func (r *SQLRunsRepository) MarkRunCancelled(ctx context.Context, runID, reason 
 
 	_, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
 		UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP, failure_code = '', failure_reason = ?,
-		orphan_reason = '', lease_owner = NULL, lease_until = NULL, claim_token = NULL, cancel_token = NULL,
+		orphan_reason = '', lease_owner = NULL, lease_until = NULL, cancel_token = NULL,
 		cancel_requested_at = NULL, cancel_reason = NULL WHERE run_id = ?
 	`), RunStatusCancelled, reason, runID)
 
@@ -165,7 +165,6 @@ func (r *SQLRunsRepository) repairMarkTerminal(ctx context.Context, runID, statu
 			failure_reason = ?,
 			lease_owner = NULL,
 			lease_until = NULL,
-			claim_token = NULL,
 			cancel_token = NULL,
 			cancel_requested_at = NULL,
 			cancel_reason = NULL
@@ -214,7 +213,7 @@ func (r *SQLRunsRepository) MarkRunOrphaned(ctx context.Context, runID, reason s
 
 	_, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
 		UPDATE job_runs SET status = ?, failure_reason = ?,
-		orphan_reason = ?, failure_code = '', lease_owner = NULL, lease_until = NULL, claim_token = NULL WHERE run_id = ?
+		orphan_reason = ?, failure_code = '', lease_owner = NULL, lease_until = NULL WHERE run_id = ?
 	`), "orphaned", reason, orphanReason, runID)
 
 	return normalizeSQLError(err)
@@ -239,7 +238,6 @@ func (r *SQLRunsRepository) RequeueRunForRetry(ctx context.Context, runID string
 			failure_reason = NULL,
 			lease_owner = NULL,
 			lease_until = NULL,
-			claim_token = NULL,
 			cancel_token = NULL,
 			cancel_requested_at = NULL,
 			cancel_reason = NULL,
@@ -2253,7 +2251,6 @@ func (r *SQLRunsRepository) TryClaimExecution(ctx context.Context, executionID, 
 		UPDATE job_runs
 		SET lease_owner = ?,
 			lease_until = ?,
-			claim_token = ?,
 			cancel_token = ?,
 			cancel_requested_at = CASE WHEN status = ? THEN cancel_requested_at ELSE NULL END,
 			cancel_reason = CASE WHEN status = ? THEN cancel_reason ELSE NULL END,
@@ -2264,7 +2261,7 @@ func (r *SQLRunsRepository) TryClaimExecution(ctx context.Context, executionID, 
 			started_at = COALESCE(started_at, CURRENT_TIMESTAMP)
 		WHERE run_id = ?
 			AND status IN (?, ?, ?)
-	`), owner, leaseUntil.UTC().Unix(), claimToken, claimToken, RunStatusRunning, RunStatusRunning, RunStatusQueued, RunStatusRunning, runID, RunStatusQueued, RunStatusRunning, RunStatusOrphaned)
+	`), owner, leaseUntil.UTC().Unix(), claimToken, RunStatusRunning, RunStatusRunning, RunStatusQueued, RunStatusRunning, runID, RunStatusQueued, RunStatusRunning, RunStatusOrphaned)
 	if err != nil {
 		return ExecutionClaimResult{}, normalizeSQLError(err)
 	}
@@ -2484,7 +2481,6 @@ func markRunQueuedForContinuationTx(ctx context.Context, tx *sql.Tx, runID strin
 			failure_reason = NULL,
 			lease_owner = NULL,
 			lease_until = NULL,
-			claim_token = NULL,
 			cancel_token = NULL,
 			cancel_requested_at = NULL,
 			cancel_reason = NULL,
@@ -2519,7 +2515,6 @@ func markRunTerminalTx(ctx context.Context, tx *sql.Tx, runID, status, failureCo
 			failure_reason = ?,
 			lease_owner = NULL,
 			lease_until = NULL,
-			claim_token = NULL,
 			cancel_token = NULL,
 			cancel_requested_at = NULL,
 			cancel_reason = NULL

@@ -76,7 +76,6 @@ CREATE TABLE job_runs (
     failure_code TEXT NOT NULL DEFAULT '',
     failure_reason TEXT,
     attempt INTEGER NOT NULL DEFAULT 0,
-    claim_token TEXT,
     cancel_token TEXT,
     cancel_requested_at INTEGER,
     cancel_reason TEXT,

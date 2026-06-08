@@ -2969,9 +2969,8 @@ func TestAPIServer_ForceRequeueRun_Success(t *testing.T) {
 	var status string
 	var failureCode string
 	var failure sql.NullString
-	var claimToken sql.NullString
-	if err := db.QueryRowContext(ctx, `SELECT status, failure_code, failure_reason, claim_token FROM job_runs WHERE run_id = ?`, runID).
-		Scan(&status, &failureCode, &failure, &claimToken); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT status, failure_code, failure_reason FROM job_runs WHERE run_id = ?`, runID).
+		Scan(&status, &failureCode, &failure); err != nil {
 		t.Fatalf("query run: %v", err)
 	}
 
@@ -2979,8 +2978,8 @@ func TestAPIServer_ForceRequeueRun_Success(t *testing.T) {
 		t.Fatalf("expected queued status, got %q", status)
 	}
 
-	if failureCode != "" || failure.Valid || claimToken.Valid {
-		t.Fatalf("expected cleared failure fields/token, got failure_code=%q failure=%v claim_token=%v", failureCode, failure, claimToken)
+	if failureCode != "" || failure.Valid {
+		t.Fatalf("expected cleared failure fields, got failure_code=%q failure=%v", failureCode, failure)
 	}
 }
 
