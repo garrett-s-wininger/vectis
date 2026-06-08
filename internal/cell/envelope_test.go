@@ -53,6 +53,10 @@ func TestExecutionEnvelopeEncodeDecode(t *testing.T) {
 		t.Fatalf("task_attempt: got %d, want %d", got.TaskAttempt, env.TaskAttempt)
 	}
 
+	if got.NamespacePath != env.NamespacePath {
+		t.Fatalf("namespace_path: got %q, want %q", got.NamespacePath, env.NamespacePath)
+	}
+
 	if got.SegmentID != env.SegmentID {
 		t.Fatalf("segment_id: got %q, want %q", got.SegmentID, env.SegmentID)
 	}
@@ -63,6 +67,10 @@ func TestExecutionEnvelopeEncodeDecode(t *testing.T) {
 
 	if got.CellID != env.CellID {
 		t.Fatalf("cell_id: got %q, want %q", got.CellID, env.CellID)
+	}
+
+	if got.Attempt != env.Attempt {
+		t.Fatalf("attempt: got %d, want %d", got.Attempt, env.Attempt)
 	}
 
 	if got.DefinitionVersion != env.DefinitionVersion {
@@ -259,6 +267,7 @@ func TestAttachExecutionEnvelopeBuildsFromDispatchRecord(t *testing.T) {
 		TaskKey:           dal.RootTaskKey,
 		TaskName:          dal.RootTaskKey,
 		TaskAttemptID:     "run-1:root:attempt:1",
+		NamespacePath:     "/teams/build",
 		SegmentID:         "segment-1",
 		ExecutionID:       "execution-1",
 		CellID:            "iad-a",
@@ -277,6 +286,10 @@ func TestAttachExecutionEnvelopeBuildsFromDispatchRecord(t *testing.T) {
 
 	if env.TaskID != "run-1:root" || env.TaskKey != dal.RootTaskKey || env.TaskAttemptID != "run-1:root:attempt:1" || env.TaskAttempt != 1 {
 		t.Fatalf("unexpected task identity: task=%q key=%q attempt_id=%q attempt=%d", env.TaskID, env.TaskKey, env.TaskAttemptID, env.TaskAttempt)
+	}
+
+	if env.NamespacePath != "/teams/build" {
+		t.Fatalf("namespace path: got %q, want /teams/build", env.NamespacePath)
 	}
 
 	payload := req.GetMetadata()[ExecutionEnvelopeMetadataKey]
@@ -395,9 +408,11 @@ func validExecutionEnvelope() *ExecutionEnvelope {
 		TaskName:          dal.RootTaskKey,
 		TaskAttemptID:     runID + ":root:attempt:1",
 		TaskAttempt:       1,
+		NamespacePath:     "/teams/build",
 		SegmentID:         "segment-1",
 		ExecutionID:       "execution-1",
 		CellID:            "iad-a",
+		Attempt:           2,
 		DefinitionVersion: 3,
 		DefinitionHash:    "sha256:abc123",
 		Job: &api.Job{

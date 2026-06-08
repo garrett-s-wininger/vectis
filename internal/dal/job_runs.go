@@ -2028,6 +2028,7 @@ func (r *SQLRunsRepository) GetPendingExecution(ctx context.Context, runID strin
 		SELECT
 			jr.run_id,
 			jr.job_id,
+			COALESCE(ns.path, '/'),
 			jr.run_index,
 			rt.task_id,
 			rt.task_key,
@@ -2048,6 +2049,8 @@ func (r *SQLRunsRepository) GetPendingExecution(ctx context.Context, runID strin
 		JOIN segment_executions se ON se.segment_id = rs.segment_id
 		JOIN run_tasks rt ON rt.task_id = se.task_id AND rt.run_id = jr.run_id
 		JOIN task_attempts ta ON ta.attempt_id = se.task_attempt_id AND ta.task_id = rt.task_id AND ta.run_id = jr.run_id AND ta.attempt = se.attempt
+		LEFT JOIN stored_jobs sj ON sj.job_id = jr.job_id
+		LEFT JOIN namespaces ns ON ns.id = sj.namespace_id
 		WHERE jr.run_id = ?
 			AND rs.status = ?
 			AND se.status = ?
@@ -2078,6 +2081,7 @@ func (r *SQLRunsRepository) GetExecutionDispatch(ctx context.Context, executionI
 		SELECT
 			jr.run_id,
 			jr.job_id,
+			COALESCE(ns.path, '/'),
 			jr.run_index,
 			rt.task_id,
 			rt.task_key,
@@ -2098,6 +2102,8 @@ func (r *SQLRunsRepository) GetExecutionDispatch(ctx context.Context, executionI
 		JOIN run_segments rs ON rs.segment_id = se.segment_id AND rs.run_id = jr.run_id
 		JOIN run_tasks rt ON rt.task_id = se.task_id AND rt.run_id = jr.run_id
 		JOIN task_attempts ta ON ta.attempt_id = se.task_attempt_id AND ta.task_id = rt.task_id AND ta.run_id = jr.run_id AND ta.attempt = se.attempt
+		LEFT JOIN stored_jobs sj ON sj.job_id = jr.job_id
+		LEFT JOIN namespaces ns ON ns.id = sj.namespace_id
 		WHERE se.execution_id = ?
 			AND rs.status = ?
 			AND se.status = ?
@@ -2126,6 +2132,7 @@ func scanExecutionDispatchRecord(scanner executionDispatchRecordScanner) (Execut
 	if err := scanner.Scan(
 		&rec.RunID,
 		&rec.JobID,
+		&rec.NamespacePath,
 		&rec.RunIndex,
 		&rec.TaskID,
 		&rec.TaskKey,

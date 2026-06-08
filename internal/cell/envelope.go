@@ -25,9 +25,11 @@ type ExecutionEnvelope struct {
 	TaskName          string            `json:"task_name,omitempty"`
 	TaskAttemptID     string            `json:"task_attempt_id"`
 	TaskAttempt       int               `json:"task_attempt"`
+	NamespacePath     string            `json:"namespace_path,omitempty"`
 	SegmentID         string            `json:"segment_id"`
 	ExecutionID       string            `json:"execution_id"`
 	CellID            string            `json:"cell_id"`
+	Attempt           int               `json:"attempt,omitempty"`
 	DefinitionVersion int               `json:"definition_version"`
 	DefinitionHash    string            `json:"definition_hash"`
 	Job               *api.Job          `json:"job"`
@@ -49,9 +51,11 @@ func NewExecutionEnvelope(dispatch dal.ExecutionDispatchRecord, job *api.Job, me
 		TaskName:          dispatch.TaskName,
 		TaskAttemptID:     defaultTaskAttemptID(dispatch.RunID, dispatch.TaskAttemptID, dispatch.TaskID, dispatch.TaskKey, dispatch.Attempt),
 		TaskAttempt:       defaultTaskAttempt(dispatch.Attempt),
+		NamespacePath:     normalizeNamespacePath(dispatch.NamespacePath),
 		SegmentID:         dispatch.SegmentID,
 		ExecutionID:       dispatch.ExecutionID,
 		CellID:            dispatch.CellID,
+		Attempt:           dispatch.Attempt,
 		DefinitionVersion: dispatch.DefinitionVersion,
 		DefinitionHash:    dispatch.DefinitionHash,
 		Job:               job,
@@ -181,6 +185,8 @@ func (e *ExecutionEnvelope) Validate() error {
 		return errors.New("execution envelope task_attempt must be positive")
 	}
 
+	e.NamespacePath = normalizeNamespacePath(e.NamespacePath)
+
 	if strings.TrimSpace(e.SegmentID) == "" {
 		return errors.New("execution envelope segment_id is required")
 	}
@@ -191,6 +197,10 @@ func (e *ExecutionEnvelope) Validate() error {
 
 	if strings.TrimSpace(e.CellID) == "" {
 		return errors.New("execution envelope cell_id is required")
+	}
+
+	if e.Attempt <= 0 {
+		e.Attempt = 1
 	}
 
 	if e.DefinitionVersion <= 0 {
@@ -257,6 +267,27 @@ func defaultTaskAttemptID(runID, taskAttemptID, taskID, taskKey string, attempt 
 	}
 
 	return defaultTaskID(runID, taskID, taskKey) + ":attempt:" + fmt.Sprintf("%d", defaultTaskAttempt(attempt))
+}
+
+func normalizeNamespacePath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "/"
+	}
+
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+
+	if len(path) > 1 {
+		path = strings.TrimRight(path, "/")
+	}
+
+	if path == "" {
+		return "/"
+	}
+
+	return path
 }
 
 func cloneMetadata(metadata map[string]string) map[string]string {

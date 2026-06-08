@@ -38,6 +38,7 @@ import (
 	"vectis/internal/taskfinalize"
 	"vectis/internal/taskreduce"
 	"vectis/internal/utils"
+	"vectis/internal/workloadidentity"
 
 	_ "vectis/internal/dbdrivers"
 )
@@ -77,6 +78,10 @@ func runWorker(cmd *cobra.Command, args []string) {
 	}
 
 	if err := config.ValidateMetricsTLS(); err != nil {
+		logger.Fatal("%v", err)
+	}
+
+	if err := config.ValidateWorkerExecutionIdentityConfig(); err != nil {
 		logger.Fatal("%v", err)
 	}
 
@@ -608,6 +613,9 @@ func (w *worker) handleJob(jobReq *api.JobRequest) {
 		return
 	}
 
+	if config.WorkerExecutionIdentityEnabled() {
+		w.logger.Error("Job %s missing run context; worker execution identity requires execution envelope", jobID)
+	}
 	w.logger.Error("Dropping malformed queue delivery for job %s: missing run_id", jobID)
 	w.setLifecyclePhase(observability.WorkerPhaseAcking)
 	if err := w.ackDelivery(deliveryID); err != nil {
@@ -853,6 +861,7 @@ func (w *worker) recordTaskFinalizeDecision(ctx context.Context, decision taskfi
 func executionEnvelopeAttrs(env *cell.ExecutionEnvelope) []attribute.KeyValue {
 	return []attribute.KeyValue{
 		attribute.String("vectis.cell.id", env.CellID),
+		attribute.String("vectis.namespace.path", env.NamespacePath),
 		attribute.String("vectis.task.id", env.TaskID),
 		attribute.String("vectis.task.key", env.TaskKey),
 		attribute.String("vectis.task.attempt.id", env.TaskAttemptID),
@@ -862,6 +871,33 @@ func executionEnvelopeAttrs(env *cell.ExecutionEnvelope) []attribute.KeyValue {
 		attribute.Int("vectis.definition.version", env.DefinitionVersion),
 		attribute.String("vectis.definition.hash", env.DefinitionHash),
 	}
+}
+
+func executionWorkloadIdentity(env *cell.ExecutionEnvelope) (*workloadidentity.Identity, error) {
+	if !config.WorkerExecutionIdentityEnabled() {
+		return nil, nil
+	}
+
+	if env == nil {
+		return nil, fmt.Errorf("worker execution identity is enabled but execution envelope is missing")
+	}
+
+	return workloadidentity.NewIdentity(
+		config.WorkerExecutionIdentityTrustDomain(),
+		config.WorkerExecutionIdentityPathTemplate(),
+		workloadidentity.Execution{
+			CellID:            env.CellID,
+			NamespacePath:     env.NamespacePath,
+			JobID:             env.Job.GetId(),
+			RunID:             env.RunID,
+			RunIndex:          env.RunIndex,
+			SegmentID:         env.SegmentID,
+			ExecutionID:       env.ExecutionID,
+			Attempt:           env.Attempt,
+			DefinitionVersion: env.DefinitionVersion,
+			DefinitionHash:    env.DefinitionHash,
+		},
+	)
 }
 
 func (w *worker) markExecutionStarted(ctx context.Context, env *cell.ExecutionEnvelope) {
@@ -1198,7 +1234,7 @@ func (w *worker) tryClaimExecution(ctx context.Context, executionEnvelope *cell.
 	return claim.ClaimToken, true, nil
 }
 
-func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, executionClaimToken string, job *api.Job, executionEnvelope *cell.ExecutionEnvelope) error {
+func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, executionClaimToken string, runJob *api.Job, env *cell.ExecutionEnvelope) error {
 	w.setCurrentRun(runID, executionClaimToken)
 	defer w.clearCurrentRun()
 
@@ -1217,7 +1253,7 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, executionCl
 	stopRenew := make(chan struct{})
 	doneRenew := make(chan struct{})
 
-	go w.leaseRenewalLoop(execCtx, runID, executionEnvelope, executionClaimToken, stopRenew, doneRenew)
+	go w.leaseRenewalLoop(execCtx, runID, env, executionClaimToken, stopRenew, doneRenew)
 
 	// Listen for remote cancel requests.
 	// Drain any stale cancel from a previous job so the buffer is free for this run.
@@ -1246,7 +1282,12 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, executionCl
 		go w.cancelRequestLoop(execCtx, runID, stopCancel, cancelRun)
 	}
 
-	err := w.executor.ExecuteTask(execCtx, job, executionEnvelope.TaskKey, w.logClient, w.logger)
+	workloadIdentity, err := executionWorkloadIdentity(env)
+	if err == nil {
+		err = w.executor.ExecuteTaskWithOptions(execCtx, runJob, env.TaskKey, w.logClient, w.logger, job.ExecuteOptions{
+			WorkloadIdentity: workloadIdentity,
+		})
+	}
 	close(stopRenew)
 	<-doneRenew
 

@@ -2787,3 +2787,121 @@ func TestStartControlListener_RangeExhausted(t *testing.T) {
 		t.Fatalf("error = %v, want no available port range", err)
 	}
 }
+
+func TestExecutionWorkloadIdentityDisabled(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	got, err := executionWorkloadIdentity(workerTestExecutionEnvelope())
+	if err != nil {
+		t.Fatalf("executionWorkloadIdentity: %v", err)
+	}
+
+	if got != nil {
+		t.Fatalf("executionWorkloadIdentity = %+v, want nil when disabled", got)
+	}
+}
+
+func TestExecutionWorkloadIdentityEnabled(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("worker.execution_identity.enabled", true)
+	viper.Set("worker.execution_identity.trust_domain", "prod.example")
+
+	got, err := executionWorkloadIdentity(workerTestExecutionEnvelope())
+	if err != nil {
+		t.Fatalf("executionWorkloadIdentity: %v", err)
+	}
+
+	want := "spiffe://prod.example/cell/iad-a/namespace/team-a/job/job-1/run/run-1/execution/execution-1"
+	if got == nil || got.SPIFFEID != want {
+		t.Fatalf("SPIFFEID = %+v, want %q", got, want)
+	}
+}
+
+func TestExecutionWorkloadIdentityEnabledRequiresEnvelope(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("worker.execution_identity.enabled", true)
+	viper.Set("worker.execution_identity.trust_domain", "prod.example")
+
+	if _, err := executionWorkloadIdentity(nil); err == nil {
+		t.Fatal("executionWorkloadIdentity accepted missing envelope")
+	}
+}
+
+func TestHandleJobExecutionIdentityEnabledRejectsJobWithoutRunContext(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("worker.execution_identity.enabled", true)
+	viper.Set("worker.execution_identity.trust_domain", "prod.example")
+
+	logger := mocks.NewMockLogger()
+	w := &worker{
+		ctx:       context.Background(),
+		runCtx:    context.Background(),
+		logger:    logger,
+		queue:     mocks.NewMockQueueClient(),
+		logClient: mocks.NewMockLogClient(),
+		executor:  job.NewExecutor(),
+	}
+
+	jobID := "job-without-run-context"
+	deliveryID := "delivery-without-run-context"
+	action := "builtins/shell"
+	command := "echo should-not-run"
+	w.handleJob(&api.JobRequest{
+		Job: &api.Job{
+			Id:         &jobID,
+			DeliveryId: &deliveryID,
+			Root: &api.Node{
+				Uses: &action,
+				With: map[string]string{"command": command},
+			},
+		},
+	})
+
+	errors := logger.GetErrorCalls()
+	if !logContains(errors, "worker execution identity requires execution envelope") {
+		t.Fatalf("expected missing envelope error, got %v", errors)
+	}
+
+	if logContains(errors, "job has no run id") {
+		t.Fatalf("executor ran for job without run context: %v", errors)
+	}
+}
+
+func logContains(logs []string, substr string) bool {
+	for _, msg := range logs {
+		if strings.Contains(msg, substr) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func workerTestExecutionEnvelope() *cell.ExecutionEnvelope {
+	jobID := "job-1"
+	runID := "run-1"
+	action := "builtins/shell"
+	return &cell.ExecutionEnvelope{
+		EnvelopeVersion:   cell.ExecutionEnvelopeVersion,
+		RunID:             runID,
+		RunIndex:          7,
+		NamespacePath:     "/team-a",
+		SegmentID:         "segment-1",
+		ExecutionID:       "execution-1",
+		CellID:            "iad-a",
+		Attempt:           1,
+		DefinitionVersion: 3,
+		DefinitionHash:    "sha256:abc123",
+		Job: &api.Job{
+			Id:    &jobID,
+			RunId: &runID,
+			Root: &api.Node{
+				Uses: &action,
+			},
+		},
+	}
+}

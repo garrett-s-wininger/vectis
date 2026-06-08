@@ -14,6 +14,7 @@ import (
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
 	"vectis/internal/observability"
+	"vectis/internal/workloadidentity"
 
 	"go.opentelemetry.io/otel/attribute"
 	otelcodes "go.opentelemetry.io/otel/codes"
@@ -36,6 +37,10 @@ type Executor struct {
 	TestLogStreamHook chan LogStreamWaiter
 }
 
+type ExecuteOptions struct {
+	WorkloadIdentity *workloadidentity.Identity
+}
+
 func NewExecutor() *Executor {
 	return &Executor{
 		registry: builtins.NewRegistry(),
@@ -47,7 +52,11 @@ func sanitizeJobIDForPrefix(id string) string {
 }
 
 func (e *Executor) ExecuteJob(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger) (err error) {
-	return e.execute(ctx, job, logClient, logger, "", "", false)
+	return e.ExecuteJobWithOptions(ctx, job, logClient, logger, ExecuteOptions{})
+}
+
+func (e *Executor) ExecuteJobWithOptions(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger, opts ExecuteOptions) (err error) {
+	return e.execute(ctx, job, logClient, logger, "", "", false, opts)
 }
 
 func (e *Executor) ExecuteJobInWorkspace(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger, workspace string) (err error) {
@@ -55,11 +64,15 @@ func (e *Executor) ExecuteJobInWorkspace(ctx context.Context, job *api.Job, logC
 		return fmt.Errorf("workspace is required")
 	}
 
-	return e.execute(ctx, job, logClient, logger, workspace, "", false)
+	return e.execute(ctx, job, logClient, logger, workspace, "", false, ExecuteOptions{})
 }
 
 func (e *Executor) ExecuteTask(ctx context.Context, job *api.Job, taskKey string, logClient interfaces.LogClient, logger interfaces.Logger) (err error) {
-	return e.execute(ctx, job, logClient, logger, "", taskKey, true)
+	return e.ExecuteTaskWithOptions(ctx, job, taskKey, logClient, logger, ExecuteOptions{})
+}
+
+func (e *Executor) ExecuteTaskWithOptions(ctx context.Context, job *api.Job, taskKey string, logClient interfaces.LogClient, logger interfaces.Logger, opts ExecuteOptions) (err error) {
+	return e.execute(ctx, job, logClient, logger, "", taskKey, true, opts)
 }
 
 func (e *Executor) ExecuteTaskInWorkspace(ctx context.Context, job *api.Job, taskKey string, logClient interfaces.LogClient, logger interfaces.Logger, workspace string) (err error) {
@@ -67,10 +80,10 @@ func (e *Executor) ExecuteTaskInWorkspace(ctx context.Context, job *api.Job, tas
 		return fmt.Errorf("workspace is required")
 	}
 
-	return e.execute(ctx, job, logClient, logger, workspace, taskKey, true)
+	return e.execute(ctx, job, logClient, logger, workspace, taskKey, true, ExecuteOptions{})
 }
 
-func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger, workspace, taskKey string, taskScoped bool) (err error) {
+func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger, workspace, taskKey string, taskScoped bool, opts ExecuteOptions) (err error) {
 	if job.GetRoot() == nil {
 		return fmt.Errorf("job has no root node")
 	}
@@ -141,6 +154,7 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 		LogClient: logClient,
 		LogStream: logStream,
 		Resolver:  e.registry,
+		Workload:  opts.WorkloadIdentity,
 	}
 
 	sendLog(state, api.Stream_STREAM_CONTROL, `{"event":"start"}`)
@@ -189,6 +203,9 @@ func (e *Executor) executeNodeWithChildren(ctx context.Context, node *api.Node, 
 		attribute.String("action.node.id", node.GetId()),
 		attribute.Bool("action.has_children", len(children) > 0),
 	)
+	if state.Workload != nil {
+		span.SetAttributes(attribute.String("vectis.workload.spiffe_id", state.Workload.SPIFFEID))
+	}
 	defer span.End()
 
 	nodeImpl, err := e.registry.Resolve(node.GetUses())

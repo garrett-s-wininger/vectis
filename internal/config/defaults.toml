@@ -160,6 +160,11 @@ port = 9084
 port_min = 20000
 port_max = 30000
 
+[worker.execution_identity]
+enabled = false
+trust_domain = ""
+path_template = "/cell/{cell}/namespace/{namespace}/job/{job}/run/{run}/execution/{execution}"
+
 [grpc_tls]
 insecure = true
 ca_file = ""

@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 
 	"vectis/internal/interfaces"
+	"vectis/internal/workloadidentity"
 
 	api "vectis/api/gen/go"
 )
@@ -46,6 +47,7 @@ type ExecutionState struct {
 	LogClient    interfaces.LogClient
 	LogStream    interfaces.LogStream
 	Resolver     Resolver
+	Workload     *workloadidentity.Identity
 	nextSequence int64
 }
 

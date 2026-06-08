@@ -113,6 +113,8 @@ Workers run actions from job definitions. A shell action or checkout source shou
 
 Only trusted users should define jobs or trigger runs in a shared deployment. If jobs come from less-trusted teams or repositories, isolate workers with the controls available in your environment: separate hosts, containers, service accounts, read-only roots, restricted network access, and careful secret mounting.
 
+Workers can derive an expected per-execution SPIFFE ID from the execution envelope with `worker.execution_identity.*`. That identity includes cell, namespace, job, run, and execution scope and is attached only to Vectis' in-process action state and tracing today. It does not expose a SPIRE Workload API socket or SVID to shell commands. Treat it as the policy anchor for future secret brokering: the job process should receive only the specific credentials a Vectis-controlled broker chooses to release for that execution identity.
+
 Vectis rejects checkout URLs that embed user info, such as `https://user:token@example.com/org/repo.git`, because those credentials can leak through persisted job definitions, logs, or process surfaces. Build steps can still print secrets themselves, so log access remains sensitive.
 
 ## Audit and Abuse Controls

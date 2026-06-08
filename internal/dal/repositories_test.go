@@ -624,6 +624,10 @@ func TestSQLRepositoriesWithCellID_WritesHomeAndOwningCell(t *testing.T) {
 		t.Fatalf("dispatch job id: got %q, want %q", dispatch.JobID, jobID)
 	}
 
+	if dispatch.NamespacePath != "/team-a" {
+		t.Fatalf("dispatch namespace path: got %q, want /team-a", dispatch.NamespacePath)
+	}
+
 	if dispatch.SegmentID == "" {
 		t.Fatal("dispatch segment id is empty")
 	}

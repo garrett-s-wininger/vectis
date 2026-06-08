@@ -16,6 +16,7 @@ For the broader security posture, see [Security](../../concepts/security.md). Fo
 | Checkout URL validation | HTTP(S) checkout URLs with embedded user info are rejected. |
 | Log redaction | There is no general-purpose run-log redaction layer. Jobs can print secrets. |
 | Job secret backend | Not shipped today. Job definitions should not contain plaintext secrets. |
+| Execution identity | Workers can derive an expected per-execution SPIFFE ID for future secret policy, but Vectis does not yet fetch SPIRE SVIDs or release secrets from that identity. |
 | Storage encryption | Vectis relies on platform disk, volume, database, and backup encryption. |
 
 ## Sensitive Surfaces
@@ -46,6 +47,8 @@ Avoid putting secrets in:
 - files mounted into workers unless every job author on that worker is trusted to read them.
 
 If a job needs credentials today, prefer short-lived credentials delivered by your runtime environment and limit which workers can see them. Vectis currently assumes job authors are trusted not to print, persist, or exfiltrate those values.
+
+When `worker.execution_identity.enabled=true`, workers fail closed for jobs that lack a Vectis execution envelope and derive an expected `spiffe://` identity for accepted executions. That identity is not a secret and is not placed in shell environment variables. Use it to plan secret-store policy and SPIRE registration paths; do not mount a broad SPIRE Workload API socket directly into untrusted job processes unless the runtime isolation layer can ensure the job receives only its own scoped SVID.
 
 ## Checkout URL Policy
 

@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"vectis/internal/workloadidentity"
+
 	"github.com/pelletier/go-toml/v2"
 	"github.com/spf13/viper"
 )
@@ -36,22 +38,22 @@ func (d *tomlDuration) UnmarshalText(text []byte) error {
 }
 
 type Defaults struct {
-	Cell         CellDefaults         `toml:"cell"`
-	API          APIDefaults          `toml:"api"`
-	Queue        QueueDefaults        `toml:"queue"`
-	Registry     RegistryDefaults     `toml:"registry"`
-	Log          LogDefaults          `toml:"log"`
-	LogForwarder LogForwarderDefaults `toml:"log_forwarder"`
-	Discovery    DiscoveryDefaults    `toml:"discovery"`
-	Database     DatabaseDefaults     `toml:"database"`
-	Worker       WorkerDefaults       `toml:"worker"`
-	Cron         CronDefaults         `toml:"cron"`
-	Reconciler   ReconcilerDefaults   `toml:"reconciler"`
-	Catalog      CatalogDefaults      `toml:"catalog"`
-	CellIngress  CellIngressDefaults  `toml:"cell_ingress"`
+	Cell         CellDefaults            `toml:"cell"`
+	API          APIDefaults             `toml:"api"`
+	Queue        QueueDefaults           `toml:"queue"`
+	Registry     RegistryDefaults        `toml:"registry"`
+	Log          LogDefaults             `toml:"log"`
+	LogForwarder LogForwarderDefaults    `toml:"log_forwarder"`
+	Discovery    DiscoveryDefaults       `toml:"discovery"`
+	Database     DatabaseDefaults        `toml:"database"`
+	Worker       WorkerDefaults          `toml:"worker"`
+	Cron         CronDefaults            `toml:"cron"`
+	Reconciler   ReconcilerDefaults      `toml:"reconciler"`
+	Catalog      CatalogDefaults         `toml:"catalog"`
+	CellIngress  CellIngressDefaults     `toml:"cell_ingress"`
 	ServiceID    ServiceIdentityDefaults `toml:"service_identity"`
-	GRPCTLS      GRPCTLSDefaults      `toml:"grpc_tls"`
-	MetricsTLS   MetricsTLSDefaults   `toml:"metrics_tls"`
+	GRPCTLS      GRPCTLSDefaults         `toml:"grpc_tls"`
+	MetricsTLS   MetricsTLSDefaults      `toml:"metrics_tls"`
 }
 
 type CellDefaults struct {
@@ -221,13 +223,20 @@ type WorkerControlDefaults struct {
 }
 
 type WorkerDefaults struct {
-	RegistryAddress      string                `toml:"registry.address"`
-	QueueAddress         string                `toml:"queue.address"`
-	LogAddress           string                `toml:"log.address"`
-	MetricsHost          string                `toml:"metrics_host"`
-	MetricsPort          int                   `toml:"metrics_port"`
-	Control              WorkerControlDefaults `toml:"control"`
-	RegisterWithRegistry bool                  `toml:"register_with_registry"`
+	RegistryAddress      string                          `toml:"registry.address"`
+	QueueAddress         string                          `toml:"queue.address"`
+	LogAddress           string                          `toml:"log.address"`
+	MetricsHost          string                          `toml:"metrics_host"`
+	MetricsPort          int                             `toml:"metrics_port"`
+	Control              WorkerControlDefaults           `toml:"control"`
+	ExecutionIdentity    WorkerExecutionIdentityDefaults `toml:"execution_identity"`
+	RegisterWithRegistry bool                            `toml:"register_with_registry"`
+}
+
+type WorkerExecutionIdentityDefaults struct {
+	Enabled      bool   `toml:"enabled"`
+	TrustDomain  string `toml:"trust_domain"`
+	PathTemplate string `toml:"path_template"`
 }
 
 type CronDefaults struct {
@@ -263,9 +272,9 @@ type CellIngressDefaults struct {
 }
 
 type ServiceIdentityDefaults struct {
-	RegistryAllowedClientIdentities     []string `toml:"registry_allowed_client_identities"`
-	QueueAllowedClientIdentities        []string `toml:"queue_allowed_client_identities"`
-	LogAllowedClientIdentities          []string `toml:"log_allowed_client_identities"`
+	RegistryAllowedClientIdentities      []string `toml:"registry_allowed_client_identities"`
+	QueueAllowedClientIdentities         []string `toml:"queue_allowed_client_identities"`
+	LogAllowedClientIdentities           []string `toml:"log_allowed_client_identities"`
 	WorkerControlAllowedClientIdentities []string `toml:"worker_control_allowed_client_identities"`
 	CellIngressAllowedProducerIdentities []string `toml:"cell_ingress_allowed_producer_identities"`
 }
@@ -409,6 +418,33 @@ func validateDefaults(d Defaults) {
 
 	if d.Worker.MetricsPort == d.LogForwarder.MetricsPort {
 		panic("config defaults: worker.metrics_port must differ from log_forwarder.metrics_port")
+	}
+
+	if strings.TrimSpace(d.Worker.ExecutionIdentity.PathTemplate) == "" {
+		panic("config defaults: worker.execution_identity.path_template must not be empty")
+	}
+
+	if d.Worker.ExecutionIdentity.Enabled && strings.TrimSpace(d.Worker.ExecutionIdentity.TrustDomain) == "" {
+		panic("config defaults: worker.execution_identity.trust_domain must not be empty when enabled")
+	}
+
+	defaultTrustDomain := strings.TrimSpace(d.Worker.ExecutionIdentity.TrustDomain)
+	if defaultTrustDomain == "" {
+		defaultTrustDomain = "example.invalid"
+	}
+	if _, err := workloadidentity.SPIFFEID(defaultTrustDomain, d.Worker.ExecutionIdentity.PathTemplate, workloadidentity.Execution{
+		CellID:            "local",
+		NamespacePath:     "/",
+		JobID:             "job",
+		RunID:             "run",
+		RunIndex:          1,
+		SegmentID:         "segment",
+		ExecutionID:       "execution",
+		Attempt:           1,
+		DefinitionVersion: 1,
+		DefinitionHash:    "sha256:sample",
+	}); err != nil {
+		panic("config defaults: worker.execution_identity: " + err.Error())
 	}
 
 	p := d.Database.PgxPool

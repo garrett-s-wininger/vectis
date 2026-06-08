@@ -229,6 +229,7 @@ type ExecutionPayloadRecord struct {
 type ExecutionDispatchRecord struct {
 	RunID             string
 	JobID             string
+	NamespacePath     string
 	RunIndex          int
 	TaskID            string
 	TaskKey           string
