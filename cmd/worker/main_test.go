@@ -215,7 +215,7 @@ func (s *flakyFinalizeRunsStore) RenewExecutionLease(ctx context.Context, execut
 	return s.RunsRepository.RenewExecutionLease(ctx, executionID, owner, claimToken, leaseUntil)
 }
 
-func (s *flakyFinalizeRunsStore) MarkRunFailed(ctx context.Context, runID, claimToken, failureCode, reason string) error {
+func (s *flakyFinalizeRunsStore) MarkRunFailed(ctx context.Context, runID, failureCode, reason string) error {
 	s.mu.Lock()
 	if s.failedFailuresLeft > 0 {
 		s.failedFailuresLeft--
@@ -224,7 +224,7 @@ func (s *flakyFinalizeRunsStore) MarkRunFailed(ctx context.Context, runID, claim
 	}
 	s.mu.Unlock()
 
-	return s.RunsRepository.MarkRunFailed(ctx, runID, claimToken, failureCode, reason)
+	return s.RunsRepository.MarkRunFailed(ctx, runID, failureCode, reason)
 }
 
 func (s *flakyFinalizeRunsStore) CompleteExecutionAndFinalizeRunByClaim(ctx context.Context, executionID, owner, claimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
@@ -248,7 +248,7 @@ func (s *flakyFinalizeRunsStore) CompleteExecutionAndFinalizeRunByClaim(ctx cont
 	return s.RunsRepository.CompleteExecutionAndFinalizeRunByClaim(ctx, executionID, owner, claimToken, status, failureCode, reason)
 }
 
-func (s *flakyFinalizeRunsStore) MarkRunOrphaned(ctx context.Context, runID, claimToken, reason string) error {
+func (s *flakyFinalizeRunsStore) MarkRunOrphaned(ctx context.Context, runID, reason string) error {
 	s.mu.Lock()
 	if s.orphanFailuresLeft > 0 {
 		s.orphanFailuresLeft--
@@ -257,7 +257,7 @@ func (s *flakyFinalizeRunsStore) MarkRunOrphaned(ctx context.Context, runID, cla
 	}
 	s.mu.Unlock()
 
-	return s.RunsRepository.MarkRunOrphaned(ctx, runID, claimToken, reason)
+	return s.RunsRepository.MarkRunOrphaned(ctx, runID, reason)
 }
 
 type blockingSuccessStore struct {

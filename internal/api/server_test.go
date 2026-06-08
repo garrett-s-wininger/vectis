@@ -752,7 +752,7 @@ func TestAPIServer_GetStuckRunsIncludesTaskFinalizationPending(t *testing.T) {
 
 	runfixture.FinalizeExecutionByClaim(t, ctx, repos, dispatch.ExecutionID, dal.ExecutionStatusSucceeded)
 
-	if err := repos.Runs().MarkRunOrphaned(ctx, runID, "", "lease expired"); err != nil {
+	if err := repos.Runs().MarkRunOrphaned(ctx, runID, "lease expired"); err != nil {
 		t.Fatalf("mark orphaned: %v", err)
 	}
 
@@ -1607,7 +1607,7 @@ func TestAPIServer_ReplayRun_CreatesNewRunFromSourceDefinition(t *testing.T) {
 	}
 
 	repos := dal.NewSQLRepositories(db)
-	if err := repos.Runs().MarkRunFailed(context.Background(), sourceRunID, "", dal.FailureCodeExecution, "environment failed"); err != nil {
+	if err := repos.Runs().MarkRunFailed(context.Background(), sourceRunID, dal.FailureCodeExecution, "environment failed"); err != nil {
 		t.Fatalf("mark source failed: %v", err)
 	}
 
@@ -1888,7 +1888,7 @@ func TestAPIServer_GetJobRuns_ReturnsStatusAndFailureReasonAfterStatusTransition
 		t.Fatalf("MarkRunRunning: %v", err)
 	}
 
-	if err := store.MarkRunFailed(ctx, runID, "", dal.FailureCodeExecution, "step failed: exit code 1"); err != nil {
+	if err := store.MarkRunFailed(ctx, runID, dal.FailureCodeExecution, "step failed: exit code 1"); err != nil {
 		t.Fatalf("MarkRunFailed: %v", err)
 	}
 
@@ -2473,7 +2473,7 @@ func TestAPIServer_GetRun_IncludesTaskFinalizationRepairNextAction(t *testing.T)
 
 	runfixture.FinalizeExecutionByClaim(t, ctx, repos, dispatch.ExecutionID, dal.ExecutionStatusSucceeded)
 
-	if err := repos.Runs().MarkRunOrphaned(ctx, runID, "", dal.OrphanReasonLeaseExpired); err != nil {
+	if err := repos.Runs().MarkRunOrphaned(ctx, runID, dal.OrphanReasonLeaseExpired); err != nil {
 		t.Fatalf("mark run orphaned: %v", err)
 	}
 
@@ -2885,9 +2885,9 @@ func TestAPIServer_RepairMarkRun_ResolvesOrphanedRun(t *testing.T) {
 		t.Fatalf("CreateRun: %v", err)
 	}
 
-	claim := claimPendingRunExecutionForAPITest(t, runs, runID, "worker-a", time.Now().Add(-time.Minute))
+	claimPendingRunExecutionForAPITest(t, runs, runID, "worker-a", time.Now().Add(-time.Minute))
 
-	if err := runs.MarkRunOrphaned(ctx, runID, claim.ClaimToken, dal.OrphanReasonLeaseExpired); err != nil {
+	if err := runs.MarkRunOrphaned(ctx, runID, dal.OrphanReasonLeaseExpired); err != nil {
 		t.Fatalf("MarkRunOrphaned: %v", err)
 	}
 
@@ -2950,9 +2950,9 @@ func TestAPIServer_ForceRequeueRun_Success(t *testing.T) {
 		t.Fatalf("CreateRun: %v", err)
 	}
 
-	claim := claimPendingRunExecutionForAPITest(t, runs, runID, "worker-a", time.Now().Add(time.Minute))
+	claimPendingRunExecutionForAPITest(t, runs, runID, "worker-a", time.Now().Add(time.Minute))
 
-	if err := runs.MarkRunFailed(ctx, runID, claim.ClaimToken, dal.FailureCodeExecution, "transient failure"); err != nil {
+	if err := runs.MarkRunFailed(ctx, runID, dal.FailureCodeExecution, "transient failure"); err != nil {
 		t.Fatalf("MarkRunFailed: %v", err)
 	}
 
@@ -2995,7 +2995,7 @@ func TestAPIServer_ForceRequeueRun_SucceededConflict(t *testing.T) {
 		t.Fatalf("CreateRun: %v", err)
 	}
 
-	if err := runs.MarkRunSucceeded(ctx, runID, ""); err != nil {
+	if err := runs.MarkRunSucceeded(ctx, runID); err != nil {
 		t.Fatalf("MarkRunSucceeded: %v", err)
 	}
 

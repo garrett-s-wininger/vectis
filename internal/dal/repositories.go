@@ -506,11 +506,11 @@ type RunsRepository interface {
 	RunCatalogUpdater
 
 	MarkRunRunning(ctx context.Context, runID string) error
-	MarkRunSucceeded(ctx context.Context, runID, claimToken string) error
-	MarkRunFailed(ctx context.Context, runID, claimToken, failureCode, reason string) error
-	MarkRunCancelled(ctx context.Context, runID, claimToken, reason string) error
-	MarkRunAborted(ctx context.Context, runID, claimToken, reason string) error
-	MarkRunOrphaned(ctx context.Context, runID, claimToken, reason string) error
+	MarkRunSucceeded(ctx context.Context, runID string) error
+	MarkRunFailed(ctx context.Context, runID, failureCode, reason string) error
+	MarkRunCancelled(ctx context.Context, runID, reason string) error
+	MarkRunAborted(ctx context.Context, runID, reason string) error
+	MarkRunOrphaned(ctx context.Context, runID, reason string) error
 	RepairMarkRunSucceeded(ctx context.Context, runID, reason string) error
 	RepairMarkRunFailed(ctx context.Context, runID, reason string) error
 	RepairMarkRunFailedWithCode(ctx context.Context, runID, failureCode, reason string) error

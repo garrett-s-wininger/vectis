@@ -324,15 +324,15 @@ func (m *MockRunsRepository) ApplyRunStatusUpdate(ctx context.Context, update da
 	case dal.RunStatusRunning:
 		return m.MarkRunRunning(ctx, update.RunID)
 	case dal.RunStatusSucceeded:
-		return m.MarkRunSucceeded(ctx, update.RunID, "")
+		return m.MarkRunSucceeded(ctx, update.RunID)
 	case dal.RunStatusFailed:
-		return m.MarkRunFailed(ctx, update.RunID, "", update.FailureCode, update.Reason)
+		return m.MarkRunFailed(ctx, update.RunID, update.FailureCode, update.Reason)
 	case dal.RunStatusCancelled:
-		return m.MarkRunCancelled(ctx, update.RunID, "", update.Reason)
+		return m.MarkRunCancelled(ctx, update.RunID, update.Reason)
 	case dal.RunStatusAborted:
-		return m.MarkRunAborted(ctx, update.RunID, "", update.Reason)
+		return m.MarkRunAborted(ctx, update.RunID, update.Reason)
 	case dal.RunStatusOrphaned:
-		return m.MarkRunOrphaned(ctx, update.RunID, "", update.Reason)
+		return m.MarkRunOrphaned(ctx, update.RunID, update.Reason)
 	default:
 		return fmt.Errorf("%w: unsupported run status %s", dal.ErrConflict, update.Status)
 	}
@@ -370,23 +370,23 @@ func (m *MockRunsRepository) ApplyExecutionStatusUpdate(ctx context.Context, upd
 	}
 }
 
-func (m *MockRunsRepository) MarkRunSucceeded(ctx context.Context, runID, claimToken string) error {
+func (m *MockRunsRepository) MarkRunSucceeded(ctx context.Context, runID string) error {
 	return m.MarkRunSuccessErr
 }
 
-func (m *MockRunsRepository) MarkRunFailed(ctx context.Context, runID, claimToken, failureCode, reason string) error {
+func (m *MockRunsRepository) MarkRunFailed(ctx context.Context, runID, failureCode, reason string) error {
 	return m.MarkRunFailedErr
 }
 
-func (m *MockRunsRepository) MarkRunCancelled(ctx context.Context, runID, claimToken, reason string) error {
+func (m *MockRunsRepository) MarkRunCancelled(ctx context.Context, runID, reason string) error {
 	return m.MarkRunCancelledErr
 }
 
-func (m *MockRunsRepository) MarkRunAborted(ctx context.Context, runID, claimToken, reason string) error {
+func (m *MockRunsRepository) MarkRunAborted(ctx context.Context, runID, reason string) error {
 	return m.MarkRunAbortedErr
 }
 
-func (m *MockRunsRepository) MarkRunOrphaned(ctx context.Context, runID, claimToken, reason string) error {
+func (m *MockRunsRepository) MarkRunOrphaned(ctx context.Context, runID, reason string) error {
 	return m.MarkRunOrphanedErr
 }
 

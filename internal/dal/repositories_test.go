@@ -778,7 +778,7 @@ func TestRunsRepository_CreateReplayRun_UsesSourceSnapshot(t *testing.T) {
 		t.Fatalf("create source run: %v", err)
 	}
 
-	if err := repos.Runs().MarkRunFailed(ctx, sourceRunID, "", dal.FailureCodeExecution, "environment failed"); err != nil {
+	if err := repos.Runs().MarkRunFailed(ctx, sourceRunID, dal.FailureCodeExecution, "environment failed"); err != nil {
 		t.Fatalf("mark source failed: %v", err)
 	}
 
@@ -1868,7 +1868,7 @@ func TestTaskDispatchIntentsRepository_ListPendingRequiresQueuedPendingExecution
 		t.Fatalf("running run should not expose pending task dispatch intents: %+v", pending)
 	}
 
-	if err := repos.Runs().MarkRunOrphaned(ctx, runID, claim.ClaimToken, dal.OrphanReasonLeaseExpired); err != nil {
+	if err := repos.Runs().MarkRunOrphaned(ctx, runID, dal.OrphanReasonLeaseExpired); err != nil {
 		t.Fatalf("mark orphaned before requeue: %v", err)
 	}
 
@@ -3367,7 +3367,7 @@ func TestRunsRepository_RequestRunCancel_SetsDurableIntent(t *testing.T) {
 		t.Fatal("expected run-level cancel request to be visible")
 	}
 
-	if err := runs.MarkRunAborted(ctx, runID, token, dal.CancelReasonAPI); err != nil {
+	if err := runs.MarkRunAborted(ctx, runID, dal.CancelReasonAPI); err != nil {
 		t.Fatalf("mark run aborted: %v", err)
 	}
 
@@ -3546,7 +3546,7 @@ func TestRunsRepository_MarkRunSucceeded_FromOrphaned(t *testing.T) {
 		t.Fatalf("seed orphaned run: %v", err)
 	}
 
-	if err := runs.MarkRunSucceeded(ctx, runID, ""); err != nil {
+	if err := runs.MarkRunSucceeded(ctx, runID); err != nil {
 		t.Fatalf("MarkRunSucceeded from orphaned: %v", err)
 	}
 
@@ -3618,8 +3618,8 @@ func TestRunsRepository_FencingTokenRejectsStaleFinalizeAndRenew(t *testing.T) {
 		t.Fatal("expected stale token execution renew to fail")
 	}
 
-	if err := runs.MarkRunSucceeded(ctx, runID, tokenA); err == nil {
-		t.Fatal("expected stale token finalize to fail")
+	if _, err := runs.CompleteExecutionAndFinalizeRunByClaim(ctx, dispatch.ExecutionID, "worker-a", tokenA, dal.ExecutionStatusSucceeded, "", ""); err == nil {
+		t.Fatal("expected stale token execution finalization to fail")
 	}
 
 	var status string
@@ -3631,8 +3631,8 @@ func TestRunsRepository_FencingTokenRejectsStaleFinalizeAndRenew(t *testing.T) {
 		t.Fatalf("expected status to remain running for active token, got %q", status)
 	}
 
-	if err := runs.MarkRunSucceeded(ctx, runID, tokenB); err != nil {
-		t.Fatalf("expected active token finalize to succeed: %v", err)
+	if _, err := runs.CompleteExecutionAndFinalizeRunByClaim(ctx, dispatch.ExecutionID, "worker-b", tokenB, dal.ExecutionStatusSucceeded, "", ""); err != nil {
+		t.Fatalf("expected active token execution finalization to succeed: %v", err)
 	}
 
 	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&status); err != nil {
@@ -3644,7 +3644,7 @@ func TestRunsRepository_FencingTokenRejectsStaleFinalizeAndRenew(t *testing.T) {
 	}
 }
 
-func TestRunsRepository_FencingTokenRejectsStaleFailedAndOrphaned(t *testing.T) {
+func TestRunsRepository_FencingTokenRejectsStaleFailedAndAbortedFinalization(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	runs := dal.NewSQLRepositories(db).Runs()
 	ctx := context.Background()
@@ -3679,16 +3679,12 @@ func TestRunsRepository_FencingTokenRejectsStaleFailedAndOrphaned(t *testing.T) 
 	}
 	tokenB := claimB.ClaimToken
 
-	if err := runs.MarkRunFailed(ctx, runID, tokenA, dal.FailureCodeExecution, "stale token fail"); err == nil {
-		t.Fatal("expected stale token MarkRunFailed to fail")
+	if _, err := runs.CompleteExecutionAndFinalizeRunByClaim(ctx, dispatch.ExecutionID, "worker-a", tokenA, dal.ExecutionStatusFailed, dal.FailureCodeExecution, "stale token fail"); err == nil {
+		t.Fatal("expected stale token failed execution finalization to fail")
 	}
 
-	if err := runs.MarkRunOrphaned(ctx, runID, tokenA, dal.OrphanReasonAckUncertain); err == nil {
-		t.Fatal("expected stale token MarkRunOrphaned to fail")
-	}
-
-	if err := runs.MarkRunAborted(ctx, runID, tokenA, dal.CancelReasonAPI); err == nil {
-		t.Fatal("expected stale token MarkRunAborted to fail")
+	if _, err := runs.CompleteExecutionAndFinalizeRunByClaim(ctx, dispatch.ExecutionID, "worker-a", tokenA, dal.ExecutionStatusAborted, "", dal.CancelReasonAPI); err == nil {
+		t.Fatal("expected stale token aborted execution finalization to fail")
 	}
 
 	var status string
@@ -3700,8 +3696,8 @@ func TestRunsRepository_FencingTokenRejectsStaleFailedAndOrphaned(t *testing.T) 
 		t.Fatalf("expected status running after stale transitions, got %q", status)
 	}
 
-	if err := runs.MarkRunSucceeded(ctx, runID, tokenB); err != nil {
-		t.Fatalf("mark succeeded with active token: %v", err)
+	if _, err := runs.CompleteExecutionAndFinalizeRunByClaim(ctx, dispatch.ExecutionID, "worker-b", tokenB, dal.ExecutionStatusSucceeded, "", ""); err != nil {
+		t.Fatalf("finalize succeeded with active token: %v", err)
 	}
 }
 
@@ -3715,10 +3711,9 @@ func TestRunsRepository_MarkRunAborted_SetsCancelledTerminalState(t *testing.T) 
 		t.Fatalf("create run: %v", err)
 	}
 
-	_, claim := claimPendingRunExecution(t, ctx, runs, runID, "worker-a", time.Now().Add(time.Minute))
-	token := claim.ClaimToken
+	claimPendingRunExecution(t, ctx, runs, runID, "worker-a", time.Now().Add(time.Minute))
 
-	if err := runs.MarkRunAborted(ctx, runID, token, dal.CancelReasonAPI); err != nil {
+	if err := runs.MarkRunAborted(ctx, runID, dal.CancelReasonAPI); err != nil {
 		t.Fatalf("mark run aborted: %v", err)
 	}
 
@@ -3784,10 +3779,9 @@ func TestRunsRepository_RequeueRunForRetry_ClearsLeaseAndToken(t *testing.T) {
 		t.Fatalf("create run: %v", err)
 	}
 
-	_, claim := claimPendingRunExecution(t, ctx, runs, runID, "worker-a", time.Now().Add(time.Minute))
-	token := claim.ClaimToken
+	claimPendingRunExecution(t, ctx, runs, runID, "worker-a", time.Now().Add(time.Minute))
 
-	if err := runs.MarkRunFailed(ctx, runID, token, dal.FailureCodeExecution, "test failure"); err != nil {
+	if err := runs.MarkRunFailed(ctx, runID, dal.FailureCodeExecution, "test failure"); err != nil {
 		t.Fatalf("mark run failed: %v", err)
 	}
 
@@ -3837,8 +3831,8 @@ func TestRunsRepository_RepairMarkRunAbandoned_OnlyFromOrphaned(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create orphan run: %v", err)
 	}
-	_, orphanClaim := claimPendingRunExecution(t, ctx, runs, orphanRunID, "worker-a", time.Now().Add(time.Minute))
-	if err := runs.MarkRunOrphaned(ctx, orphanRunID, orphanClaim.ClaimToken, dal.OrphanReasonLeaseExpired); err != nil {
+	claimPendingRunExecution(t, ctx, runs, orphanRunID, "worker-a", time.Now().Add(time.Minute))
+	if err := runs.MarkRunOrphaned(ctx, orphanRunID, dal.OrphanReasonLeaseExpired); err != nil {
 		t.Fatalf("mark orphaned: %v", err)
 	}
 	if err := runs.RepairMarkRunAbandoned(ctx, orphanRunID, "worker deleted"); err != nil {
@@ -3876,7 +3870,7 @@ func TestRunsRepository_RequeueRunForRetry_RejectsRunning(t *testing.T) {
 	}
 }
 
-func TestRunsRepository_MarkRunOrphaned_WithClaimToken(t *testing.T) {
+func TestRunsRepository_MarkRunOrphaned_ClearsExecutionOwner(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	runs := dal.NewSQLRepositories(db).Runs()
 	ctx := context.Background()
@@ -3886,10 +3880,9 @@ func TestRunsRepository_MarkRunOrphaned_WithClaimToken(t *testing.T) {
 		t.Fatalf("create run: %v", err)
 	}
 
-	_, claim := claimPendingRunExecution(t, ctx, runs, runID, "worker-a", time.Now().Add(time.Minute))
-	token := claim.ClaimToken
+	claimPendingRunExecution(t, ctx, runs, runID, "worker-a", time.Now().Add(time.Minute))
 
-	if err := runs.MarkRunOrphaned(ctx, runID, token, dal.OrphanReasonAckUncertain); err != nil {
+	if err := runs.MarkRunOrphaned(ctx, runID, dal.OrphanReasonAckUncertain); err != nil {
 		t.Fatalf("MarkRunOrphaned: %v", err)
 	}
 

@@ -30,15 +30,15 @@ func (r *SQLRunsRepository) ApplyRunStatusUpdate(ctx context.Context, update Run
 	case RunStatusRunning:
 		return r.MarkRunRunning(ctx, runID)
 	case RunStatusSucceeded:
-		return r.MarkRunSucceeded(ctx, runID, "")
+		return r.MarkRunSucceeded(ctx, runID)
 	case RunStatusFailed:
-		return r.MarkRunFailed(ctx, runID, "", update.FailureCode, update.Reason)
+		return r.MarkRunFailed(ctx, runID, update.FailureCode, update.Reason)
 	case RunStatusCancelled:
-		return r.MarkRunCancelled(ctx, runID, "", update.Reason)
+		return r.MarkRunCancelled(ctx, runID, update.Reason)
 	case RunStatusAborted:
-		return r.MarkRunAborted(ctx, runID, "", update.Reason)
+		return r.MarkRunAborted(ctx, runID, update.Reason)
 	case RunStatusOrphaned:
-		return r.MarkRunOrphaned(ctx, runID, "", update.Reason)
+		return r.MarkRunOrphaned(ctx, runID, update.Reason)
 	default:
 		return fmt.Errorf("%w: unsupported run status %s", ErrConflict, update.Status)
 	}
@@ -70,115 +70,50 @@ func (r *SQLRunsRepository) MarkRunRunning(ctx context.Context, runID string) er
 	return normalizeSQLError(err)
 }
 
-func (r *SQLRunsRepository) MarkRunSucceeded(ctx context.Context, runID, claimToken string) error {
-	query := `UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP,
+func (r *SQLRunsRepository) MarkRunSucceeded(ctx context.Context, runID string) error {
+	_, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP,
 		orphan_reason = '', failure_code = '', failure_reason = NULL, lease_owner = NULL, lease_until = NULL,
-		claim_token = NULL, cancel_token = NULL, cancel_requested_at = NULL, cancel_reason = NULL WHERE run_id = ?`
-	args := []any{"succeeded", runID}
-	if claimToken != "" {
-		query += ` AND status IN ('running', 'orphaned') AND claim_token = ?`
-		args = append(args, claimToken)
-	}
+		claim_token = NULL, cancel_token = NULL, cancel_requested_at = NULL, cancel_reason = NULL WHERE run_id = ?
+	`), "succeeded", runID)
 
-	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(query), args...)
-	if err != nil {
-		return normalizeSQLError(err)
-	}
-
-	if claimToken == "" {
-		return nil
-	}
-
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-
-	if n == 0 {
-		return fmt.Errorf("mark run succeeded: no matching active row for run_id=%q claim_token=%q", runID, claimToken)
-	}
-
-	return nil
+	return normalizeSQLError(err)
 }
 
-func (r *SQLRunsRepository) MarkRunFailed(ctx context.Context, runID, claimToken, failureCode, reason string) error {
+func (r *SQLRunsRepository) MarkRunFailed(ctx context.Context, runID, failureCode, reason string) error {
 	if failureCode == "" {
 		failureCode = FailureCodeExecution
 	}
 
-	query := `UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP, failure_code = ?, failure_reason = ?,
+	_, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP, failure_code = ?, failure_reason = ?,
 		orphan_reason = '', lease_owner = NULL, lease_until = NULL,
-		claim_token = NULL, cancel_token = NULL, cancel_requested_at = NULL, cancel_reason = NULL WHERE run_id = ?`
+		claim_token = NULL, cancel_token = NULL, cancel_requested_at = NULL, cancel_reason = NULL WHERE run_id = ?
+	`), "failed", failureCode, reason, runID)
 
-	args := []any{"failed", failureCode, reason, runID}
-	if claimToken != "" {
-		query += ` AND status IN ('running', 'orphaned') AND claim_token = ?`
-		args = append(args, claimToken)
-	}
-
-	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(query), args...)
-	if err != nil {
-		return normalizeSQLError(err)
-	}
-
-	if claimToken == "" {
-		return nil
-	}
-
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-
-	if n == 0 {
-		return fmt.Errorf("mark run failed: no matching active row for run_id=%q claim_token=%q", runID, claimToken)
-	}
-
-	return nil
+	return normalizeSQLError(err)
 }
 
-func (r *SQLRunsRepository) MarkRunAborted(ctx context.Context, runID, claimToken, reason string) error {
+func (r *SQLRunsRepository) MarkRunAborted(ctx context.Context, runID, reason string) error {
 	if reason == "" {
 		reason = CancelReasonAPI
 	}
 
-	return r.MarkRunCancelled(ctx, runID, claimToken, reason)
+	return r.MarkRunCancelled(ctx, runID, reason)
 }
 
-func (r *SQLRunsRepository) MarkRunCancelled(ctx context.Context, runID, claimToken, reason string) error {
+func (r *SQLRunsRepository) MarkRunCancelled(ctx context.Context, runID, reason string) error {
 	if reason == "" {
 		reason = CancelReasonAPI
 	}
 
-	query := `UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP, failure_code = '', failure_reason = ?,
+	_, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP, failure_code = '', failure_reason = ?,
 		orphan_reason = '', lease_owner = NULL, lease_until = NULL, claim_token = NULL, cancel_token = NULL,
-		cancel_requested_at = NULL, cancel_reason = NULL WHERE run_id = ?`
+		cancel_requested_at = NULL, cancel_reason = NULL WHERE run_id = ?
+	`), RunStatusCancelled, reason, runID)
 
-	args := []any{RunStatusCancelled, reason, runID}
-	if claimToken != "" {
-		query += ` AND status IN ('running', 'orphaned') AND claim_token = ?`
-		args = append(args, claimToken)
-	}
-
-	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(query), args...)
-	if err != nil {
-		return normalizeSQLError(err)
-	}
-
-	if claimToken == "" {
-		return nil
-	}
-
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-
-	if n == 0 {
-		return fmt.Errorf("mark run cancelled: no matching active row for run_id=%q claim_token=%q", runID, claimToken)
-	}
-
-	return nil
+	return normalizeSQLError(err)
 }
 
 func (r *SQLRunsRepository) RepairMarkRunSucceeded(ctx context.Context, runID, reason string) error {
@@ -271,39 +206,18 @@ func nullableReason(reason string) any {
 	return reason
 }
 
-func (r *SQLRunsRepository) MarkRunOrphaned(ctx context.Context, runID, claimToken, reason string) error {
+func (r *SQLRunsRepository) MarkRunOrphaned(ctx context.Context, runID, reason string) error {
 	if reason == "" {
 		reason = "unknown"
 	}
 	orphanReason := classifyOrphanReason(reason)
 
-	query := `UPDATE job_runs SET status = ?, failure_reason = ?,
-		orphan_reason = ?, failure_code = '', lease_owner = NULL, lease_until = NULL, claim_token = NULL WHERE run_id = ?`
-	args := []any{"orphaned", reason, orphanReason, runID}
-	if claimToken != "" {
-		query += ` AND status IN ('running', 'orphaned') AND claim_token = ?`
-		args = append(args, claimToken)
-	}
+	_, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE job_runs SET status = ?, failure_reason = ?,
+		orphan_reason = ?, failure_code = '', lease_owner = NULL, lease_until = NULL, claim_token = NULL WHERE run_id = ?
+	`), "orphaned", reason, orphanReason, runID)
 
-	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(query), args...)
-	if err != nil {
-		return normalizeSQLError(err)
-	}
-
-	if claimToken == "" {
-		return nil
-	}
-
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-
-	if n == 0 {
-		return fmt.Errorf("mark run orphaned: no matching active row for run_id=%q claim_token=%q", runID, claimToken)
-	}
-
-	return nil
+	return normalizeSQLError(err)
 }
 
 func classifyOrphanReason(reason string) string {

@@ -218,7 +218,7 @@ func TestService_Process_RepairsOrphanedTaskRunSucceeded(t *testing.T) {
 
 	runfixture.FinalizeExecutionByClaim(t, ctx, repos, rootDispatch.ExecutionID, dal.ExecutionStatusSucceeded)
 
-	if err := repos.Runs().MarkRunOrphaned(ctx, runID, "", "lease expired"); err != nil {
+	if err := repos.Runs().MarkRunOrphaned(ctx, runID, "lease expired"); err != nil {
 		t.Fatalf("mark orphaned: %v", err)
 	}
 
@@ -305,7 +305,7 @@ func TestService_Process_RepairsOrphanedTaskRunFailedWithIncompleteSibling(t *te
 
 	runfixture.FinalizeExecutionByClaimWithFailure(t, ctx, repos, failedBranch.ExecutionID, dal.ExecutionStatusFailed, dal.FailureCodeExecution, "failed branch")
 
-	if err := repos.Runs().MarkRunOrphaned(ctx, runID, "", "lease expired"); err != nil {
+	if err := repos.Runs().MarkRunOrphaned(ctx, runID, "lease expired"); err != nil {
 		t.Fatalf("mark orphaned: %v", err)
 	}
 

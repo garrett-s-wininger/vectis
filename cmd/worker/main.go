@@ -678,7 +678,7 @@ func (w *worker) runTaskExecution(ctx context.Context, job *api.Job, jobID, runI
 		span.SetStatus(otelcodes.Error, "ack delivery retry exhausted")
 
 		w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
-		if markErr := w.markRunOrphanedWithRetry(runID, "", ackFailure.decision.OrphanReason); markErr != nil {
+		if markErr := w.markRunOrphanedWithRetry(runID, ackFailure.decision.OrphanReason); markErr != nil {
 			w.logger.Error("Failed to mark run %s orphaned after ack error (%s): %v", runID, ackFailure.decision.ReasonCode, markErr)
 			span.RecordError(markErr)
 		}
@@ -691,7 +691,7 @@ func (w *worker) runTaskExecution(ctx context.Context, job *api.Job, jobID, runI
 		span.SetStatus(otelcodes.Error, "missing or invalid execution envelope")
 		w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
 		reason := "missing or invalid execution envelope for persisted run"
-		if err := w.markRunFailedWithRetry(runID, "", dal.FailureCodeInvalidEnvelope, reason); err != nil {
+		if err := w.markRunFailedWithRetry(runID, dal.FailureCodeInvalidEnvelope, reason); err != nil {
 			w.logger.Error("Failed to mark run %s failed after missing execution envelope: %v", runID, err)
 			span.RecordError(err)
 		}
@@ -704,7 +704,7 @@ func (w *worker) runTaskExecution(ctx context.Context, job *api.Job, jobID, runI
 	if executionClaimErr != nil {
 		span.SetStatus(otelcodes.Error, "claim execution")
 		w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
-		if err := w.markRunOrphanedWithRetry(runID, "", dal.OrphanReasonAckUncertain); err != nil {
+		if err := w.markRunOrphanedWithRetry(runID, dal.OrphanReasonAckUncertain); err != nil {
 			w.logger.Error("Failed to mark run %s orphaned after execution claim failure: %v", runID, err)
 			span.RecordError(err)
 		}
@@ -1083,10 +1083,10 @@ func (w *worker) drainQueuedTaskRunContinuation(ctx context.Context, runID strin
 	return true, nil
 }
 
-func (w *worker) markRunFailedWithRetry(runID, claimToken, failureCode, reason string) error {
+func (w *worker) markRunFailedWithRetry(runID, failureCode, reason string) error {
 	var lastErr error
 	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
-		err := w.store.MarkRunFailed(w.runCtx, runID, claimToken, failureCode, reason)
+		err := w.store.MarkRunFailed(w.runCtx, runID, failureCode, reason)
 		if err == nil {
 			w.noteDBRecovered()
 			w.recordRunCatalogEvent(dal.RunStatusUpdate{RunID: runID, Status: dal.RunStatusFailed, FailureCode: failureCode, Reason: reason})
@@ -1115,10 +1115,10 @@ func (w *worker) markRunFailedWithRetry(runID, claimToken, failureCode, reason s
 	return lastErr
 }
 
-func (w *worker) markRunOrphanedWithRetry(runID, claimToken, reason string) error {
+func (w *worker) markRunOrphanedWithRetry(runID, reason string) error {
 	var lastErr error
 	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
-		err := w.store.MarkRunOrphaned(w.runCtx, runID, claimToken, reason)
+		err := w.store.MarkRunOrphaned(w.runCtx, runID, reason)
 		if err == nil {
 			w.noteDBRecovered()
 			w.recordRunCatalogEvent(dal.RunStatusUpdate{RunID: runID, Status: dal.RunStatusOrphaned, Reason: reason})

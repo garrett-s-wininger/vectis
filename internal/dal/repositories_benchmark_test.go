@@ -55,7 +55,7 @@ func createBenchmarkRun(b *testing.B, ctx context.Context, runs dal.RunsReposito
 	return runID
 }
 
-func claimBenchmarkRunExecution(b *testing.B, ctx context.Context, runs dal.RunsRepository, runID string) (string, string) {
+func claimBenchmarkExecution(b *testing.B, ctx context.Context, runs dal.RunsRepository, runID string) (string, string) {
 	b.Helper()
 
 	dispatch, err := runs.GetPendingExecution(ctx, runID)
@@ -73,13 +73,6 @@ func claimBenchmarkRunExecution(b *testing.B, ctx context.Context, runs dal.Runs
 	}
 
 	return dispatch.ExecutionID, claim.ClaimToken
-}
-
-func claimBenchmarkRun(b *testing.B, ctx context.Context, runs dal.RunsRepository, runID string) string {
-	b.Helper()
-
-	_, claimToken := claimBenchmarkRunExecution(b, ctx, runs, runID)
-	return claimToken
 }
 
 func BenchmarkDAL_CreateRun_AutoIndex(b *testing.B) {
@@ -229,7 +222,7 @@ func BenchmarkDAL_RenewExecutionLease(b *testing.B) {
 	seedBenchmarkJob(b, ctx, repos, jobID)
 	runs := repos.Runs()
 	runID := createBenchmarkRun(b, ctx, runs, jobID, 1)
-	executionID, claimToken := claimBenchmarkRunExecution(b, ctx, runs, runID)
+	executionID, claimToken := claimBenchmarkExecution(b, ctx, runs, runID)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -256,10 +249,10 @@ func BenchmarkDAL_MarkRunSucceeded(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
 		runID := createBenchmarkRun(b, ctx, runs, jobID, i+1)
-		claimToken := claimBenchmarkRun(b, ctx, runs, runID)
+		claimBenchmarkExecution(b, ctx, runs, runID)
 		b.StartTimer()
 
-		if err := runs.MarkRunSucceeded(ctx, runID, claimToken); err != nil {
+		if err := runs.MarkRunSucceeded(ctx, runID); err != nil {
 			b.Fatalf("mark run succeeded: %v", err)
 		}
 	}

@@ -389,7 +389,7 @@ func (s *APIServer) ForceFailRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := s.runs.MarkRunFailed(ctx, runID, "", dal.FailureCodeForceFailed, reason); err != nil {
+	if err := s.runs.MarkRunFailed(ctx, runID, dal.FailureCodeForceFailed, reason); err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
 		}

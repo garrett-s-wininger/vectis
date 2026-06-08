@@ -194,7 +194,7 @@ func (w *worker) handleJob(req *api.JobRequest) {
 	if err != nil || !ok {
 		w.logger.Error("Invalid execution envelope for run %s: %v", runID, err)
 		_ = w.queue.Ack(w.runCtx, deliveryID)
-		_ = w.store.MarkRunFailed(w.runCtx, runID, "", dal.FailureCodeInvalidEnvelope, "missing or invalid execution envelope for persisted run")
+		_ = w.store.MarkRunFailed(w.runCtx, runID, dal.FailureCodeInvalidEnvelope, "missing or invalid execution envelope for persisted run")
 		return
 	}
 
@@ -206,7 +206,7 @@ func (w *worker) handleJob(req *api.JobRequest) {
 	executionClaim, err := w.store.TryClaimExecution(w.runCtx, env.ExecutionID, w.workerID, time.Now().Add(dal.DefaultLeaseTTL))
 	if err != nil {
 		w.logger.Error("TryClaimExecution %s: %v", env.ExecutionID, err)
-		_ = w.store.MarkRunOrphaned(w.runCtx, runID, "", "ack_uncertain")
+		_ = w.store.MarkRunOrphaned(w.runCtx, runID, "ack_uncertain")
 		return
 	}
 
