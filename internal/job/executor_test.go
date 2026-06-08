@@ -771,6 +771,57 @@ func TestExecutor_ExecuteJob_WorkspaceCreationAndCleanup(t *testing.T) {
 	}
 }
 
+func TestExecutor_ExecuteJob_UsesConfiguredWorkspaceRoot(t *testing.T) {
+	mockProcessExecutor := mocks.NewMockExecExecutor()
+	mockProcess := mocks.NewMockProcess()
+	mockProcess.SetStdout("")
+	mockProcess.SetStderr("")
+	mockProcess.SetWaitError(nil)
+	mockProcessExecutor.SetProcess(mockProcess)
+
+	workspaceRoot := t.TempDir()
+	executor := job.NewExecutor(
+		job.WithProcessExecutor(mockProcessExecutor),
+		job.WithWorkspaceRoot(workspaceRoot),
+	)
+
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+
+	jobID := "test-job-workspace-root"
+	runID := "test-job-workspace-root-run"
+	nodeID := "node-1"
+	uses := "builtins/shell"
+	testJob := &api.Job{
+		Id:    &jobID,
+		RunId: &runID,
+		Root: &api.Node{
+			Id:   &nodeID,
+			Uses: &uses,
+			With: map[string]string{
+				"command": "pwd",
+			},
+		},
+	}
+
+	if err := executor.ExecuteJob(context.Background(), testJob, mockLogClient, mockLogger); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	workDirs := mockProcessExecutor.GetWorkDirs()
+	if len(workDirs) != 1 {
+		t.Fatalf("expected one command workdir, got %v", workDirs)
+	}
+
+	if !strings.HasPrefix(workDirs[0], workspaceRoot+string(os.PathSeparator)) {
+		t.Fatalf("expected workspace under %q, got %q", workspaceRoot, workDirs[0])
+	}
+
+	if _, err := os.Stat(workDirs[0]); !os.IsNotExist(err) {
+		t.Fatalf("expected workspace %q to be cleaned up, stat err=%v", workDirs[0], err)
+	}
+}
+
 func TestExecutor_ExecuteJobInWorkspace_DoesNotRemoveWorkspace(t *testing.T) {
 	executor := job.NewExecutor()
 	mockLogClient := mocks.NewMockLogClient()

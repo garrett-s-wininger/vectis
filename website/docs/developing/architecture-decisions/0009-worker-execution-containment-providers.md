@@ -27,7 +27,7 @@ The default provider remains `host`. It preserves current behavior: create a per
 Add stronger providers in layers:
 
 1. `container`: run the whole job or segment inside an OCI-style container where a supported runtime is available. The provider owns image selection, workspace mounts, environment filtering, resource limits, network mode, read-only root configuration, user mapping, and cleanup. Container providers improve filesystem, process, and resource isolation, but they still share a kernel with the container runtime's host or VM.
-2. `vm`: run the whole job or segment inside a disposable VM created from a prepared image or snapshot. The provider owns boot, guest transport, workspace transfer or mount, network policy, resource limits, cancellation, log forwarding, and teardown. VM providers are the target for stronger untrusted-workload isolation, at higher startup and operational cost.
+2. `vm`: run the whole job or segment inside a VM created from a prepared image, snapshot, or operator-managed instance. The provider owns or integrates with boot, guest transport, workspace transfer or mount, network policy, resource limits, cancellation, log forwarding, and teardown. VM providers are the target for stronger untrusted-workload isolation, at higher startup and operational cost. The first implementation path is a Lima command backend for macOS worker experiments; disposable VM lifecycle remains a later milestone.
 
 The runner boundary should sit under the worker and above action implementation:
 
@@ -57,7 +57,7 @@ Provider configuration must be operator-controlled. Job authors can select an al
 3. Add worker execution profiles with validation, documentation, and no silent fallback across isolation levels.
 4. Implement a container provider with conservative defaults: non-privileged, minimal mounts, environment allowlist, configurable image, resource limits, cleanup on cancellation, and documented runtime requirements.
 5. Add placement and operational checks so workers only receive runs whose requested profile they can satisfy.
-6. Implement VM providers behind the same runner contract, starting with one supported backend before expanding provider-specific drivers.
+6. Expand VM providers behind the same runner contract, starting from the Lima command backend before adding disposable VM lifecycle and additional provider-specific drivers.
 7. Add run metadata, metrics, and log annotations for provider, profile, setup time, cleanup outcome, and policy denial.
 
 ## Non-Goals

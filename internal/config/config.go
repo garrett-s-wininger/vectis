@@ -222,6 +222,20 @@ type WorkerControlDefaults struct {
 	PortMax int    `toml:"port_max"`
 }
 
+type WorkerExecutionDefaults struct {
+	Backend       string                      `toml:"backend"`
+	WorkspaceRoot string                      `toml:"workspace_root"`
+	Lima          WorkerExecutionLimaDefaults `toml:"lima"`
+}
+
+type WorkerExecutionLimaDefaults struct {
+	Path               string `toml:"path"`
+	Instance           string `toml:"instance"`
+	GuestWorkspaceRoot string `toml:"guest_workspace_root"`
+	Start              bool   `toml:"start"`
+	PreserveEnv        bool   `toml:"preserve_env"`
+}
+
 type WorkerDefaults struct {
 	RegistryAddress      string                          `toml:"registry.address"`
 	QueueAddress         string                          `toml:"queue.address"`
@@ -229,6 +243,7 @@ type WorkerDefaults struct {
 	MetricsHost          string                          `toml:"metrics_host"`
 	MetricsPort          int                             `toml:"metrics_port"`
 	Control              WorkerControlDefaults           `toml:"control"`
+	Execution            WorkerExecutionDefaults         `toml:"execution"`
 	ExecutionIdentity    WorkerExecutionIdentityDefaults `toml:"execution_identity"`
 	SPIRE                WorkerSPIREDefaults             `toml:"spire"`
 	RegisterWithRegistry bool                            `toml:"register_with_registry"`
@@ -791,6 +806,57 @@ func WorkerRegisterWithRegistry() bool {
 	}
 
 	return MustDefaults().Worker.RegisterWithRegistry
+}
+
+func WorkerExecutionBackend() string {
+	backend := strings.TrimSpace(viper.GetString("worker.execution.backend"))
+	if backend == "" {
+		backend = MustDefaults().Worker.Execution.Backend
+	}
+	return strings.ToLower(strings.TrimSpace(backend))
+}
+
+func WorkerExecutionWorkspaceRoot() string {
+	if viper.IsSet("worker.execution.workspace_root") {
+		return strings.TrimSpace(viper.GetString("worker.execution.workspace_root"))
+	}
+	return MustDefaults().Worker.Execution.WorkspaceRoot
+}
+
+func WorkerExecutionLimaPath() string {
+	path := strings.TrimSpace(viper.GetString("worker.execution.lima.path"))
+	if path != "" {
+		return path
+	}
+	return MustDefaults().Worker.Execution.Lima.Path
+}
+
+func WorkerExecutionLimaInstance() string {
+	if viper.IsSet("worker.execution.lima.instance") {
+		return strings.TrimSpace(viper.GetString("worker.execution.lima.instance"))
+	}
+	return MustDefaults().Worker.Execution.Lima.Instance
+}
+
+func WorkerExecutionLimaGuestWorkspaceRoot() string {
+	if viper.IsSet("worker.execution.lima.guest_workspace_root") {
+		return strings.TrimSpace(viper.GetString("worker.execution.lima.guest_workspace_root"))
+	}
+	return MustDefaults().Worker.Execution.Lima.GuestWorkspaceRoot
+}
+
+func WorkerExecutionLimaStart() bool {
+	if viper.IsSet("worker.execution.lima.start") {
+		return viper.GetBool("worker.execution.lima.start")
+	}
+	return MustDefaults().Worker.Execution.Lima.Start
+}
+
+func WorkerExecutionLimaPreserveEnv() bool {
+	if viper.IsSet("worker.execution.lima.preserve_env") {
+		return viper.GetBool("worker.execution.lima.preserve_env")
+	}
+	return MustDefaults().Worker.Execution.Lima.PreserveEnv
 }
 
 func RegistryPort() int {

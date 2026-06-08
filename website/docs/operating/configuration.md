@@ -46,6 +46,7 @@ Some settings are global and intentionally do not use a service prefix, such as 
 | Enable API access logs | `VECTIS_API_SERVER_LOG_FORMAT=json` |
 | Serve docs behind an external hostname | `VECTIS_DOCS_ALLOWED_HOSTS=docs.example.com` or `vectis-docs --allowed-host docs.example.com` |
 | Pin worker to a queue address | `VECTIS_WORKER_QUEUE_ADDRESS=host:8081` |
+| Run worker commands through a Lima VM | `VECTIS_WORKER_EXECUTION_BACKEND=lima`, `VECTIS_WORKER_LIMA_INSTANCE=vectis-worker`, and `VECTIS_WORKER_WORKSPACE_ROOT=/path/mounted/in/guest` |
 | Persist queue backlog to disk | `VECTIS_QUEUE_PERSISTENCE_DIR=/path/to/queue-shard` |
 | Expose a dedicated metrics listener off-host | Set the service `--metrics-host` flag or `VECTIS_<SERVICE>_METRICS_HOST=0.0.0.0` plus `VECTIS_METRICS_ALLOWED_HOSTS=<scrape-host>` |
 | Change reconciler interval | `VECTIS_RECONCILER_INTERVAL=30s` |
@@ -67,7 +68,7 @@ Use these prefixes when building service-specific environment variable names.
 | `vectis-queue` | `VECTIS_QUEUE` | `--port`, `--metrics-host`, `--metrics-port`, `--pool`, `--instance-id`, `--persistence-dir`, `--persistence-snapshot-every` |
 | `vectis-registry` | `VECTIS_REGISTRY` | `--port`; cluster membership uses `VECTIS_REGISTRY_CLUSTER_*` |
 | `vectis-log` | `VECTIS_LOG` | `--instance-id`, `--storage-dir`, `--storage-read-only-min-free-bytes`, `--grpc-port`, `--metrics-host`, `--metrics-port`, `--max-run-buffers` |
-| `vectis-worker` | `VECTIS_WORKER` | `--metrics-host`, `--metrics-port` |
+| `vectis-worker` | `VECTIS_WORKER` | `--metrics-host`, `--metrics-port`, `--execution-backend`, `--workspace-root`, `--lima-instance`, `--lima-start` |
 | `vectis-cron` | `VECTIS_CRON` | `--instance-id`, `--claim-ttl` |
 | `vectis-reconciler` | `VECTIS_RECONCILER` | `--interval`, `--lease-ttl`, `--metrics-host`, `--metrics-port` |
 | `vectis-catalog` | `VECTIS_CATALOG` | `--interval`, `--batch-size`, `--metrics-host`, `--metrics-port`, `--cell-database-dsn` |
@@ -318,6 +319,44 @@ When registry discovery is used, multiple `vectis-log` instances may register as
 Discovery timing defaults include resolver refresh `10s`, poll timeout `5s`, error refresh `2s`, and registration heartbeat `45s`.
 
 For failure behavior with and without registry, see [Failure Domains](../concepts/failure-domains.md#registry-down).
+
+## Worker Execution Backend
+
+Workers default to the `host` execution backend. In that mode, built-in actions execute as child processes on the worker host inside the per-run workspace. This is compatible with existing deployments, but it is not a security sandbox.
+
+The first VM-oriented backend is `lima`, intended for macOS worker isolation experiments with a prepared [Lima](https://lima-vm.io/) instance:
+
+```sh
+vectis-worker \
+  --execution-backend lima \
+  --workspace-root /Users/ci/vectis-workspaces \
+  --lima-instance vectis-worker \
+  --lima-start
+```
+
+Equivalent environment variables:
+
+| Variable / key | Purpose |
+| --- | --- |
+| `VECTIS_WORKER_EXECUTION_BACKEND` / `worker.execution.backend` | `host` by default, or `lima` to run action commands through `limactl shell`. |
+| `VECTIS_WORKER_WORKSPACE_ROOT` / `worker.execution.workspace_root` | Parent directory for automatically-created run workspaces. For Lima, set this to a path that exists and is writable inside the guest. Empty uses the host OS temp directory. |
+| `VECTIS_WORKER_LIMA_INSTANCE` / `worker.execution.lima.instance` | Required Lima instance name for the `lima` backend. |
+| `VECTIS_WORKER_LIMA_PATH` / `worker.execution.lima.path` | Path to `limactl`; defaults to `limactl` from `PATH`. |
+| `VECTIS_WORKER_LIMA_GUEST_WORKSPACE_ROOT` / `worker.execution.lima.guest_workspace_root` | Optional guest-side parent directory for Lima workspaces, such as `/tmp/vectis-workspaces`. When set, commands for the same run use the same guest workspace even if the host workspace mount is read-only. |
+| `VECTIS_WORKER_LIMA_START` / `worker.execution.lima.start` | Passes `--start` to `limactl shell` before each command. It starts an existing instance; it does not create or configure one. |
+| `VECTIS_WORKER_LIMA_PRESERVE_ENV` / `worker.execution.lima.preserve_env` | Passes `--preserve-env` to `limactl shell`. Off by default to avoid leaking host environment variables into the guest. |
+
+The Lima backend does not silently fall back to host execution. Startup fails if `backend=lima` is selected without an instance name. Command execution fails if the Lima instance is unavailable. If `VECTIS_WORKER_LIMA_GUEST_WORKSPACE_ROOT` is empty, the run workspace path must be visible and writable inside the guest; configure `VECTIS_WORKER_WORKSPACE_ROOT` and Lima mounts accordingly. If `VECTIS_WORKER_LIMA_GUEST_WORKSPACE_ROOT` is set, Vectis maps each run workspace to a same-named guest directory under that root and creates it before each command.
+
+To smoke test the executor against a prepared instance from a development checkout:
+
+```sh
+VECTIS_TEST_LIMA_INSTANCE=vectis-worker make test-lima
+```
+
+By default, that test creates a temporary workspace under the development checkout, so the checkout path must also be writable inside the Lima guest. Set `VECTIS_TEST_LIMA_WORKSPACE_ROOT=/path/mounted/in/guest` to test another host-mounted workspace root, or `VECTIS_TEST_LIMA_GUEST_WORKSPACE_ROOT=/tmp/vectis-workspaces` to test the guest-owned workspace mode.
+
+This backend is a first command-execution boundary, not the full profile-aware isolation system described in [ADR 0009](../developing/architecture-decisions/0009-worker-execution-containment-providers.md). Worker placement, per-job profile selection, container backends, disposable VM lifecycle, and provider-specific security posture docs remain follow-up work.
 
 ## Logs And Tracing
 

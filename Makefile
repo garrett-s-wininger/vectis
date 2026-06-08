@@ -118,6 +118,10 @@ test:
 test-integration:
 	go test -tags=integration ./...
 
+.PHONY: test-lima
+test-lima:
+	go test ./internal/platform -run TestLimaExecutorIntegration -count=1 -v
+
 .PHONY: test-postgres-integration
 test-postgres-integration:
 	go test -tags=integration ./tests/integration/postgres

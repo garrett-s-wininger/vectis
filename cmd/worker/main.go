@@ -31,6 +31,7 @@ import (
 	"vectis/internal/job"
 	"vectis/internal/multidial"
 	"vectis/internal/observability"
+	"vectis/internal/platform"
 	"vectis/internal/queueclient"
 	"vectis/internal/registry"
 	"vectis/internal/runpolicy"
@@ -197,6 +198,11 @@ func runWorker(cmd *cobra.Command, args []string) {
 		spireSVIDSource = src
 	}
 
+	executor, err := configuredJobExecutor(logger)
+	if err != nil {
+		logger.Fatal("Invalid worker execution backend: %v", err)
+	}
+
 	w := &worker{
 		ctx:                 shutdownCtx,
 		runCtx:              runCtx,
@@ -207,7 +213,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 		renewInterval:       dal.DefaultRenewInterval,
 		queue:               clients,
 		logClient:           logClient,
-		executor:            job.NewExecutor(),
+		executor:            executor,
 		store:               runsRepo,
 		catalog:             cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
 		metrics:             workerMetrics,
@@ -266,6 +272,48 @@ func runWorker(cmd *cobra.Command, args []string) {
 
 func forwarderSocketPath() string {
 	return filepath.Join(utils.RuntimeDir(), "log-forwarder.sock")
+}
+
+func configuredJobExecutor(logger interfaces.Logger) (*job.Executor, error) {
+	processExecutor, backend, err := configuredProcessExecutor()
+	if err != nil {
+		return nil, err
+	}
+
+	if logger != nil {
+		logger.Info("Worker execution backend: %s", backend)
+	}
+
+	options := []job.ExecutorOption{}
+	if workspaceRoot := config.WorkerExecutionWorkspaceRoot(); workspaceRoot != "" {
+		options = append(options, job.WithWorkspaceRoot(workspaceRoot))
+	}
+	if processExecutor == nil {
+		return job.NewExecutor(options...), nil
+	}
+	options = append(options, job.WithProcessExecutor(processExecutor))
+	return job.NewExecutor(options...), nil
+}
+
+func configuredProcessExecutor() (interfaces.ExecExecutor, string, error) {
+	switch backend := config.WorkerExecutionBackend(); backend {
+	case "", "host":
+		return nil, "host", nil
+	case "lima":
+		executor, err := platform.NewLimaExecutor(platform.LimaExecutorOptions{
+			Instance:           config.WorkerExecutionLimaInstance(),
+			LimactlPath:        config.WorkerExecutionLimaPath(),
+			GuestWorkspaceRoot: config.WorkerExecutionLimaGuestWorkspaceRoot(),
+			Start:              config.WorkerExecutionLimaStart(),
+			PreserveEnv:        config.WorkerExecutionLimaPreserveEnv(),
+		})
+		if err != nil {
+			return nil, "", err
+		}
+		return executor, "lima", nil
+	default:
+		return nil, "", fmt.Errorf("unknown execution backend %q", backend)
+	}
 }
 
 func startControlListener() (net.Listener, string, error) {
@@ -1496,8 +1544,22 @@ func init() {
 
 	rootCmd.PersistentFlags().String("metrics-host", config.WorkerMetricsHost(), "Host/IP for the Prometheus /metrics HTTP server to bind")
 	rootCmd.PersistentFlags().Int("metrics-port", config.WorkerMetricsPort(), "HTTP port for Prometheus /metrics")
+	rootCmd.PersistentFlags().String("execution-backend", config.WorkerExecutionBackend(), "Command execution backend: host or lima")
+	rootCmd.PersistentFlags().String("workspace-root", config.WorkerExecutionWorkspaceRoot(), "Parent directory for automatically-created run workspaces")
+	rootCmd.PersistentFlags().String("lima-path", config.WorkerExecutionLimaPath(), "Path to limactl when --execution-backend=lima")
+	rootCmd.PersistentFlags().String("lima-instance", config.WorkerExecutionLimaInstance(), "Lima instance name when --execution-backend=lima")
+	rootCmd.PersistentFlags().String("lima-guest-workspace-root", config.WorkerExecutionLimaGuestWorkspaceRoot(), "Guest-side parent directory for Lima workspaces")
+	rootCmd.PersistentFlags().Bool("lima-start", config.WorkerExecutionLimaStart(), "Start the Lima instance before each command when --execution-backend=lima")
+	rootCmd.PersistentFlags().Bool("lima-preserve-env", config.WorkerExecutionLimaPreserveEnv(), "Preserve host environment variables in Lima shell commands")
 	_ = viper.BindPFlag("metrics_host", rootCmd.PersistentFlags().Lookup("metrics-host"))
 	_ = viper.BindPFlag("metrics_port", rootCmd.PersistentFlags().Lookup("metrics-port"))
+	_ = viper.BindPFlag("worker.execution.backend", rootCmd.PersistentFlags().Lookup("execution-backend"))
+	_ = viper.BindPFlag("worker.execution.workspace_root", rootCmd.PersistentFlags().Lookup("workspace-root"))
+	_ = viper.BindPFlag("worker.execution.lima.path", rootCmd.PersistentFlags().Lookup("lima-path"))
+	_ = viper.BindPFlag("worker.execution.lima.instance", rootCmd.PersistentFlags().Lookup("lima-instance"))
+	_ = viper.BindPFlag("worker.execution.lima.guest_workspace_root", rootCmd.PersistentFlags().Lookup("lima-guest-workspace-root"))
+	_ = viper.BindPFlag("worker.execution.lima.start", rootCmd.PersistentFlags().Lookup("lima-start"))
+	_ = viper.BindPFlag("worker.execution.lima.preserve_env", rootCmd.PersistentFlags().Lookup("lima-preserve-env"))
 	_ = viper.BindEnv("worker.queue.address", "VECTIS_WORKER_QUEUE_ADDRESS")
 	_ = viper.BindEnv("worker.log.address", "VECTIS_WORKER_LOG_ADDRESS")
 	_ = viper.BindEnv("worker.registry.address", "VECTIS_WORKER_REGISTRY_ADDRESS")
@@ -1505,6 +1567,13 @@ func init() {
 	_ = viper.BindEnv("control_port", "VECTIS_WORKER_CONTROL_PORT")
 	_ = viper.BindEnv("control_port_min", "VECTIS_WORKER_CONTROL_PORT_MIN")
 	_ = viper.BindEnv("control_port_max", "VECTIS_WORKER_CONTROL_PORT_MAX")
+	_ = viper.BindEnv("worker.execution.backend", "VECTIS_WORKER_EXECUTION_BACKEND")
+	_ = viper.BindEnv("worker.execution.workspace_root", "VECTIS_WORKER_WORKSPACE_ROOT")
+	_ = viper.BindEnv("worker.execution.lima.path", "VECTIS_WORKER_LIMA_PATH")
+	_ = viper.BindEnv("worker.execution.lima.instance", "VECTIS_WORKER_LIMA_INSTANCE")
+	_ = viper.BindEnv("worker.execution.lima.guest_workspace_root", "VECTIS_WORKER_LIMA_GUEST_WORKSPACE_ROOT")
+	_ = viper.BindEnv("worker.execution.lima.start", "VECTIS_WORKER_LIMA_START")
+	_ = viper.BindEnv("worker.execution.lima.preserve_env", "VECTIS_WORKER_LIMA_PRESERVE_ENV")
 
 	viper.SetEnvPrefix("VECTIS_WORKER")
 	viper.AutomaticEnv()

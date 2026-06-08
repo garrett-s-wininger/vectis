@@ -549,6 +549,63 @@ func TestWorkerRegisterWithRegistry_OverrideFalse(t *testing.T) {
 	}
 }
 
+func TestWorkerExecutionDefaultsAndOverrides(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	if got := WorkerExecutionBackend(); got != "host" {
+		t.Fatalf("default backend = %q, want host", got)
+	}
+	if got := WorkerExecutionLimaPath(); got != "limactl" {
+		t.Fatalf("default lima path = %q, want limactl", got)
+	}
+	if got := WorkerExecutionWorkspaceRoot(); got != "" {
+		t.Fatalf("default workspace root = %q, want empty", got)
+	}
+	if got := WorkerExecutionLimaInstance(); got != "" {
+		t.Fatalf("default lima instance = %q, want empty", got)
+	}
+	if got := WorkerExecutionLimaGuestWorkspaceRoot(); got != "" {
+		t.Fatalf("default lima guest workspace root = %q, want empty", got)
+	}
+	if WorkerExecutionLimaStart() {
+		t.Fatal("default lima start = true, want false")
+	}
+	if WorkerExecutionLimaPreserveEnv() {
+		t.Fatal("default lima preserve env = true, want false")
+	}
+
+	viper.Set("worker.execution.backend", " LIMA ")
+	viper.Set("worker.execution.workspace_root", "/Users/me/vectis-work")
+	viper.Set("worker.execution.lima.path", "/opt/homebrew/bin/limactl")
+	viper.Set("worker.execution.lima.instance", "vectis-worker")
+	viper.Set("worker.execution.lima.guest_workspace_root", "/tmp/vectis-workspaces")
+	viper.Set("worker.execution.lima.start", true)
+	viper.Set("worker.execution.lima.preserve_env", true)
+
+	if got := WorkerExecutionBackend(); got != "lima" {
+		t.Fatalf("override backend = %q, want lima", got)
+	}
+	if got := WorkerExecutionWorkspaceRoot(); got != "/Users/me/vectis-work" {
+		t.Fatalf("override workspace root = %q", got)
+	}
+	if got := WorkerExecutionLimaPath(); got != "/opt/homebrew/bin/limactl" {
+		t.Fatalf("override lima path = %q", got)
+	}
+	if got := WorkerExecutionLimaInstance(); got != "vectis-worker" {
+		t.Fatalf("override lima instance = %q", got)
+	}
+	if got := WorkerExecutionLimaGuestWorkspaceRoot(); got != "/tmp/vectis-workspaces" {
+		t.Fatalf("override lima guest workspace root = %q", got)
+	}
+	if !WorkerExecutionLimaStart() {
+		t.Fatal("override lima start = false, want true")
+	}
+	if !WorkerExecutionLimaPreserveEnv() {
+		t.Fatal("override lima preserve env = false, want true")
+	}
+}
+
 func TestDiscovery_RegistryFallback(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)

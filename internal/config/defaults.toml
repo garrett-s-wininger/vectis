@@ -154,6 +154,17 @@ metrics_host = "localhost"
 metrics_port = 9082
 register_with_registry = true
 
+[worker.execution]
+backend = "host"
+workspace_root = ""
+
+[worker.execution.lima]
+path = "limactl"
+instance = ""
+guest_workspace_root = ""
+start = false
+preserve_env = false
+
 [worker.control]
 mode = "static"
 port = 9084

@@ -21,7 +21,8 @@ type Process interface {
 	Stderr() io.ReadCloser
 }
 
-func startProcess(cmd *exec.Cmd) (Process, error) {
+// StartProcess starts cmd and adapts it to the Process interface.
+func StartProcess(cmd *exec.Cmd) (Process, error) {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
@@ -53,7 +54,7 @@ func (e *DirectExecutor) Start(ctx context.Context, path string, args []string, 
 	cmd := exec.CommandContext(ctx, path, args...)
 	cmd.Dir = workDir
 	cmd.Env = append([]string{}, env...)
-	return startProcess(cmd)
+	return StartProcess(cmd)
 }
 
 type OSExecutor struct{}
@@ -66,7 +67,7 @@ func (e *OSExecutor) Start(ctx context.Context, command string, workDir string, 
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 	cmd.Dir = workDir
 	cmd.Env = append([]string{}, env...)
-	return startProcess(cmd)
+	return StartProcess(cmd)
 }
 
 type osProcess struct {

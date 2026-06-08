@@ -19,6 +19,7 @@ import (
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/job"
 	"vectis/internal/observability"
+	"vectis/internal/platform"
 	"vectis/internal/spire"
 	"vectis/internal/taskdispatch"
 	"vectis/internal/taskfinalize"
@@ -2833,6 +2834,62 @@ func TestStartControlListener_StaticUsesConfiguredPort(t *testing.T) {
 
 	if addr != "127.0.0.1:19084" {
 		t.Fatalf("addr = %q, want %q", addr, "127.0.0.1:19084")
+	}
+}
+
+func TestConfiguredProcessExecutor_DefaultHost(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	executor, backend, err := configuredProcessExecutor()
+	if err != nil {
+		t.Fatalf("configuredProcessExecutor: %v", err)
+	}
+	if backend != "host" {
+		t.Fatalf("backend = %q, want host", backend)
+	}
+	if executor != nil {
+		t.Fatalf("host backend returned executor %#v, want nil", executor)
+	}
+}
+
+func TestConfiguredProcessExecutor_Lima(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("worker.execution.backend", "lima")
+	viper.Set("worker.execution.lima.instance", "vectis-worker")
+
+	executor, backend, err := configuredProcessExecutor()
+	if err != nil {
+		t.Fatalf("configuredProcessExecutor(lima): %v", err)
+	}
+	if backend != "lima" {
+		t.Fatalf("backend = %q, want lima", backend)
+	}
+	if _, ok := executor.(*platform.LimaExecutor); !ok {
+		t.Fatalf("executor = %T, want *platform.LimaExecutor", executor)
+	}
+}
+
+func TestConfiguredProcessExecutor_LimaRequiresInstance(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("worker.execution.backend", "lima")
+
+	_, _, err := configuredProcessExecutor()
+	if err == nil || !strings.Contains(err.Error(), "lima instance is required") {
+		t.Fatalf("expected missing lima instance error, got %v", err)
+	}
+}
+
+func TestConfiguredProcessExecutor_UnknownBackend(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("worker.execution.backend", "wat")
+
+	_, _, err := configuredProcessExecutor()
+	if err == nil || !strings.Contains(err.Error(), "unknown execution backend") {
+		t.Fatalf("expected unknown backend error, got %v", err)
 	}
 }
 

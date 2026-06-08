@@ -32,6 +32,7 @@ type LogStreamWaiter interface {
 type Executor struct {
 	registry        *builtins.Registry
 	processExecutor interfaces.ExecExecutor
+	workspaceRoot   string
 
 	// TestLogStreamHook is a test-only channel that receives the LogStreamWaiter
 	// created during ExecuteJob. It allows tests to wait for background flush
@@ -53,6 +54,14 @@ func WithProcessExecutor(processExecutor interfaces.ExecExecutor) ExecutorOption
 		if processExecutor != nil {
 			e.processExecutor = processExecutor
 		}
+	}
+}
+
+// WithWorkspaceRoot sets the parent directory for automatically-created run
+// workspaces. Empty preserves os.TempDir().
+func WithWorkspaceRoot(root string) ExecutorOption {
+	return func(e *Executor) {
+		e.workspaceRoot = strings.TrimSpace(root)
 	}
 }
 
@@ -134,7 +143,12 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 	cleanupWorkspace := false
 	if workspace == "" {
 		prefix := "vectis-" + sanitizeJobIDForPrefix(job.GetRunId()) + "-"
-		workspace, err = os.MkdirTemp(os.TempDir(), prefix)
+		workspaceRoot := e.workspaceRoot
+		if workspaceRoot == "" {
+			workspaceRoot = os.TempDir()
+		}
+
+		workspace, err = os.MkdirTemp(workspaceRoot, prefix)
 		if err != nil {
 			return fmt.Errorf("failed to create workspace: %w", err)
 		}
