@@ -43,6 +43,7 @@ type ExecutionState struct {
 	JobID        string
 	RunID        string
 	Workspace    string
+	ProcessEnv   []string
 	Logger       interfaces.Logger
 	LogClient    interfaces.LogClient
 	LogStream    interfaces.LogStream

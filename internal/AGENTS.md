@@ -50,7 +50,7 @@ HTTP method allowlists should use `internal/httpsecurity` helpers for shared `Al
 
 Cell ingress should keep both direct `ServeHTTP` and `Handler()` callers behind the shared `httpsecurity` header middleware and cell-ingress Host validation. The listener/client wiring must use internal `VECTIS_GRPC_TLS_*` mTLS for non-loopback `POST /cell/v1/executions` submissions. If `service_identity.cell_ingress_allowed_producer_identities` is configured, execution submission must require an exact producer SPIFFE URI SAN; health and metrics remain route-level reads but still follow listener TLS/Host policy. JSON responses should stay `no-store` by default; route guard errors, health checks, and execution submission responses all flow through the shared JSON writer.
 
-Worker execution identity should stay scoped to Vectis-owned action state until worker isolation and a secret broker are in place. Do not expose SPIRE Workload API sockets, SVIDs, or derived execution identity values as ambient shell environment variables for arbitrary job commands.
+Worker execution identity should stay scoped to Vectis-owned action state until worker isolation and a secret broker are in place. Do not expose SPIRE Workload API sockets, SVIDs, or derived execution identity values as ambient shell environment variables for arbitrary job commands. Process-launching actions must use `ExecutionState.CommandEnv()` so worker service env vars are not inherited by job commands.
 
 Docs static file serving must go through the hardened docs file server wrapper, not raw `http.FileServer`, so directory listings, dotfile paths, and local docs symlink escapes stay blocked.
 

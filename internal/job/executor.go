@@ -126,6 +126,10 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 		}()
 	}
 
+	if err := os.MkdirAll(filepath.Join(workspace, ".tmp"), 0o700); err != nil {
+		return fmt.Errorf("failed to create workspace temp dir: %w", err)
+	}
+
 	logger.Info("Created workspace: %s", workspace)
 
 	logStream, err := newDurableLogStream(logClient, logger, job.GetRunId())
@@ -150,6 +154,10 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 		JobID:     job.GetId(),
 		RunID:     job.GetRunId(),
 		Workspace: workspace,
+		ProcessEnv: action.SanitizedProcessEnv(
+			workspace,
+			os.Environ(),
+		),
 		Logger:    logger,
 		LogClient: logClient,
 		LogStream: logStream,

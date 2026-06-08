@@ -30,7 +30,8 @@ For the broader security posture, see [Security](../../concepts/security.md). Fo
 | Generated deploy secrets | Include Postgres password, bootstrap token, and rendered DSNs. | Protect the deploy config directory; rotate into platform-managed secrets for shared environments. |
 | Job definitions | Persisted in SQL and may include commands, URLs, and action inputs. | Do not put plaintext credentials in job JSON. |
 | Checkout URLs | Credentialed URLs can leak through persisted definitions, logs, or process surfaces. | Use public URLs or credential-free SSH/SCP-style URLs. |
-| Shell output | Jobs can echo arbitrary environment, files, credentials, or source data. | Restrict job authors, worker environments, and mounted secrets. |
+| Shell environment | Process-launching built-ins receive a minimal Vectis-built environment, not the worker service environment. | Do not rely on worker env vars for job secrets; use a secret-aware delivery path when one exists. |
+| Shell output | Jobs can echo arbitrary environment, files, credentials, or source data. | Restrict job authors, worker file mounts, and any credentials deliberately injected into jobs. |
 | Run logs | May contain credentials, PII, source, or build output. | Store, retain, back up, and delete as sensitive data. |
 | Service logs | May include paths, usernames, run IDs, config errors, and operational context. | Structured logs help routing, but they are not a scrubber. |
 | Backups | Can contain database records, logs, queue state, tokens hashes, and deploy secrets. | Apply the same access controls and retention policy as production data. |
@@ -43,10 +44,10 @@ Avoid putting secrets in:
 - shell command text;
 - HTTP(S) clone URLs;
 - action inputs;
-- long-lived worker environment variables visible to all jobs;
+- long-lived worker environment variables as a job secret-delivery mechanism;
 - files mounted into workers unless every job author on that worker is trusted to read them.
 
-If a job needs credentials today, prefer short-lived credentials delivered by your runtime environment and limit which workers can see them. Vectis currently assumes job authors are trusted not to print, persist, or exfiltrate those values.
+If a job needs credentials today, prefer short-lived credentials delivered by your runtime environment and limit which workers can see them. Vectis does not pass the worker service environment through to shell or checkout child processes, but files, sockets, and volumes visible to the worker runtime can still be visible to job commands. Vectis currently assumes job authors are trusted not to print, persist, or exfiltrate deliberately provided credentials.
 
 When `worker.execution_identity.enabled=true`, workers fail closed for jobs that lack a Vectis execution envelope and derive an expected `spiffe://` identity for accepted executions. That identity is not a secret and is not placed in shell environment variables. Use it to plan secret-store policy and SPIRE registration paths; do not mount a broad SPIRE Workload API socket directly into untrusted job processes unless the runtime isolation layer can ensure the job receives only its own scoped SVID.
 

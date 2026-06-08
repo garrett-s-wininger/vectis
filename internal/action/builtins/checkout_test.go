@@ -95,6 +95,19 @@ func TestCheckoutAction_Execute_Success(t *testing.T) {
 		t.Errorf("expected args [clone %s .], got %v", url, args[0])
 	}
 
+	envs := mockExecutor.GetEnvs()
+	if len(envs) != 1 {
+		t.Fatalf("expected 1 env, got %d", len(envs))
+	}
+
+	if got, ok := testEnvLookup(envs[0], "GIT_TERMINAL_PROMPT"); !ok || got != "0" {
+		t.Fatalf("GIT_TERMINAL_PROMPT env = %q, %v; want 0", got, ok)
+	}
+
+	if _, ok := testEnvLookup(envs[0], "VECTIS_DATABASE_DSN"); ok {
+		t.Fatalf("checkout action leaked worker database DSN env: %v", envs[0])
+	}
+
 	if !mockProcess.WaitCalled() {
 		t.Error("expected Wait to be called")
 	}

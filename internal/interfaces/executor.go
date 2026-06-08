@@ -8,11 +8,11 @@ import (
 )
 
 type CommandExecutor interface {
-	Start(ctx context.Context, command string, workDir string) (Process, error)
+	Start(ctx context.Context, command string, workDir string, env []string) (Process, error)
 }
 
 type ExecExecutor interface {
-	Start(ctx context.Context, path string, args []string, workDir string) (Process, error)
+	Start(ctx context.Context, path string, args []string, workDir string, env []string) (Process, error)
 }
 
 type Process interface {
@@ -49,9 +49,10 @@ func NewDirectExecutor() *DirectExecutor {
 
 type DirectExecutor struct{}
 
-func (e *DirectExecutor) Start(ctx context.Context, path string, args []string, workDir string) (Process, error) {
+func (e *DirectExecutor) Start(ctx context.Context, path string, args []string, workDir string, env []string) (Process, error) {
 	cmd := exec.CommandContext(ctx, path, args...)
 	cmd.Dir = workDir
+	cmd.Env = append([]string{}, env...)
 	return startProcess(cmd)
 }
 
@@ -61,9 +62,10 @@ func NewOSExecutor() *OSExecutor {
 	return &OSExecutor{}
 }
 
-func (e *OSExecutor) Start(ctx context.Context, command string, workDir string) (Process, error) {
+func (e *OSExecutor) Start(ctx context.Context, command string, workDir string, env []string) (Process, error) {
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 	cmd.Dir = workDir
+	cmd.Env = append([]string{}, env...)
 	return startProcess(cmd)
 }
 

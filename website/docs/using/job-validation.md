@@ -250,7 +250,7 @@ Use a URL without inline credentials:
 }
 ```
 
-Secrets should come from a secret-aware mechanism, not from the job definition itself.
+Secrets should come from a secret-aware mechanism, not from the job definition itself. Shell and checkout actions do not inherit the worker service environment; they run with a minimal Vectis-built environment so deployment secrets such as database DSNs, TLS settings, bootstrap material, and SPIRE endpoint sockets are not passed as ambient child-process variables.
 
 ## Validation Boundaries
 

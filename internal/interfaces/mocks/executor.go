@@ -14,6 +14,7 @@ type MockExecutor struct {
 	mu       sync.Mutex
 	commands []string
 	workDirs []string
+	envs     [][]string
 	process  interfaces.Process
 	err      error
 }
@@ -22,6 +23,7 @@ func NewMockExecutor() *MockExecutor {
 	return &MockExecutor{
 		commands: make([]string, 0),
 		workDirs: make([]string, 0),
+		envs:     make([][]string, 0),
 	}
 }
 
@@ -53,12 +55,25 @@ func (m *MockExecutor) GetWorkDirs() []string {
 	return result
 }
 
-func (m *MockExecutor) Start(ctx context.Context, command string, workDir string) (interfaces.Process, error) {
+func (m *MockExecutor) GetEnvs() [][]string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([][]string, len(m.envs))
+	for i, env := range m.envs {
+		result[i] = make([]string, len(env))
+		copy(result[i], env)
+	}
+
+	return result
+}
+
+func (m *MockExecutor) Start(ctx context.Context, command string, workDir string, env []string) (interfaces.Process, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	m.commands = append(m.commands, command)
 	m.workDirs = append(m.workDirs, workDir)
+	m.envs = append(m.envs, append([]string(nil), env...))
 
 	if m.err != nil {
 		return nil, m.err
@@ -76,6 +91,7 @@ type MockExecExecutor struct {
 	paths    []string
 	args     [][]string
 	workDirs []string
+	envs     [][]string
 	process  interfaces.Process
 	err      error
 }
@@ -85,6 +101,7 @@ func NewMockExecExecutor() *MockExecExecutor {
 		paths:    make([]string, 0),
 		args:     make([][]string, 0),
 		workDirs: make([]string, 0),
+		envs:     make([][]string, 0),
 	}
 }
 
@@ -128,13 +145,26 @@ func (m *MockExecExecutor) GetWorkDirs() []string {
 	return result
 }
 
-func (m *MockExecExecutor) Start(ctx context.Context, path string, args []string, workDir string) (interfaces.Process, error) {
+func (m *MockExecExecutor) GetEnvs() [][]string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([][]string, len(m.envs))
+	for i, env := range m.envs {
+		result[i] = make([]string, len(env))
+		copy(result[i], env)
+	}
+
+	return result
+}
+
+func (m *MockExecExecutor) Start(ctx context.Context, path string, args []string, workDir string, env []string) (interfaces.Process, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	m.paths = append(m.paths, path)
 	m.args = append(m.args, args)
 	m.workDirs = append(m.workDirs, workDir)
+	m.envs = append(m.envs, append([]string(nil), env...))
 
 	if m.err != nil {
 		return nil, m.err

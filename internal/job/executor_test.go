@@ -180,6 +180,43 @@ func TestExecutor_ExecuteJob_Success(t *testing.T) {
 	}
 }
 
+func TestExecutor_ExecuteJob_DoesNotInheritWorkerEnvironment(t *testing.T) {
+	t.Setenv("VECTIS_DATABASE_DSN", "postgres://secret")
+	t.Setenv("SPIFFE_ENDPOINT_SOCKET", "unix:///tmp/spire-agent.sock")
+
+	executor := job.NewExecutor()
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+
+	jobID := "test-job-env"
+	nodeID := "node-1"
+	uses := "builtins/shell"
+	runID := "test-run-env"
+	testJob := &api.Job{
+		Id:    &jobID,
+		RunId: &runID,
+		Root: &api.Node{
+			Id:   &nodeID,
+			Uses: &uses,
+			With: map[string]string{
+				"command": `if env | grep -q 'VECTIS_DATABASE_DSN\|SPIFFE_ENDPOINT_SOCKET'; then echo leaked; exit 1; fi; echo clean`,
+			},
+		},
+	}
+
+	err := executeAndWait(t, executor, testJob, mockLogClient, mockLogger)
+	if err != nil {
+		t.Fatalf("expected sanitized child environment, got %v", err)
+	}
+
+	for _, chunk := range mockLogClient.GetChunks() {
+		data := string(chunk.GetData())
+		if strings.Contains(data, "postgres://secret") || strings.Contains(data, "unix:///tmp/spire-agent.sock") {
+			t.Fatalf("child environment leaked worker secret in log chunk %q", data)
+		}
+	}
+}
+
 func TestExecutor_ExecuteTask_ExecutesSelectedNodeOnly(t *testing.T) {
 	executor := job.NewExecutor()
 	mockLogClient := mocks.NewMockLogClient()

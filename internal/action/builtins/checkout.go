@@ -55,7 +55,8 @@ func (c *CheckoutAction) Execute(ctx context.Context, state *action.ExecutionSta
 	state.Logger.Info("Cloning repository: %s", displayURL)
 	sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Cloning %s...", displayURL))
 
-	process, err := c.executor.Start(ctx, "git", []string{"clone", url, "."}, state.Workspace)
+	env := action.AppendEnv(state.CommandEnv(), "GIT_TERMINAL_PROMPT", "0")
+	process, err := c.executor.Start(ctx, "git", []string{"clone", url, "."}, state.Workspace, env)
 	if err != nil {
 		return action.NewFailureResult(fmt.Errorf("failed to start git clone: %w", err))
 	}

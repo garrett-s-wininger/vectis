@@ -71,9 +71,11 @@ var _ api.LogService_StreamLogsClient = (*mockLogStream)(nil)
 
 func createTestState(logStream api.LogService_StreamLogsClient) *action.ExecutionState {
 	return &action.ExecutionState{
-		JobID:     "test-job",
-		Logger:    interfaces.NewLogger("test"),
-		LogStream: logStream,
+		JobID:      "test-job",
+		Workspace:  "/tmp/vectis-test-workspace",
+		ProcessEnv: action.SanitizedProcessEnv("/tmp/vectis-test-workspace", []string{"PATH=/usr/bin", "VECTIS_DATABASE_DSN=secret"}),
+		Logger:     interfaces.NewLogger("test"),
+		LogStream:  logStream,
 	}
 }
 
@@ -104,11 +106,26 @@ func TestShellAction_Execute_Success(t *testing.T) {
 	if len(paths) != 1 || len(args) != 1 {
 		t.Errorf("expected 1 Start call, got paths=%d args=%d", len(paths), len(args))
 	}
+
 	if paths[0] != "sh" {
 		t.Errorf("expected path 'sh', got '%s'", paths[0])
 	}
+
 	if len(args[0]) != 2 || args[0][0] != "-c" || args[0][1] != "echo hello" {
 		t.Errorf("expected args [-c echo hello], got %v", args[0])
+	}
+
+	envs := mockExecutor.GetEnvs()
+	if len(envs) != 1 {
+		t.Fatalf("expected 1 env, got %d", len(envs))
+	}
+
+	if _, ok := testEnvLookup(envs[0], "VECTIS_DATABASE_DSN"); ok {
+		t.Fatalf("shell action leaked worker database DSN env: %v", envs[0])
+	}
+
+	if got, ok := testEnvLookup(envs[0], "PATH"); !ok || got != "/usr/bin" {
+		t.Fatalf("PATH env = %q, %v; want /usr/bin", got, ok)
 	}
 
 	if !mockProcess.WaitCalled() {
@@ -351,4 +368,15 @@ func TestShellAction_Execute_WorkspacePassed(t *testing.T) {
 	if workDirs[0] != "/tmp/vectis-test-job" {
 		t.Errorf("expected workspace '/tmp/vectis-test-job', got '%s'", workDirs[0])
 	}
+}
+
+func testEnvLookup(env []string, key string) (string, bool) {
+	for _, entry := range env {
+		k, v, ok := strings.Cut(entry, "=")
+		if ok && k == key {
+			return v, true
+		}
+	}
+
+	return "", false
 }
