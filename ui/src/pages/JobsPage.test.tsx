@@ -256,4 +256,50 @@ describe("JobsPage", () => {
     expect(screen.getByRole("heading", { name: "routed-job" })).toBeInTheDocument();
     expect(screen.getByText("/team-a")).toBeInTheDocument();
   });
+
+  it("routes configure breadcrumbs to the job detail and jobs index separately", () => {
+    const closeEditor = vi.fn();
+    const openJob = vi.fn();
+    const job = {
+      id: "test-run",
+      name: "test-run",
+      repository: "",
+      branch: "",
+      sourceDetail: "Stored in Vectis",
+      sourceKind: "db" as const,
+      definition: JSON.stringify({ id: "test-run", root: {} }),
+      namespacePath: "/",
+      schedule: "Manual",
+      nextRun: "On demand",
+      triggers: [{ kind: "manual" as const, detail: "On demand" }],
+      status: "enabled" as const
+    };
+
+    render(
+      <JobsPage
+        editorMode={{ kind: "edit", jobID: "test-run" }}
+        jobs={[job]}
+        namespaces={namespaces}
+        namespacePath="/"
+        onCloseEditor={closeEditor}
+        onCreateJob={() => undefined}
+        onOpenCreate={() => undefined}
+        onOpenEditor={() => undefined}
+        onOpenJob={openJob}
+        onOpenJobRuns={() => undefined}
+        onSelectNamespace={() => undefined}
+        onSelectRun={() => undefined}
+        onTriggerRun={() => undefined}
+        onUpdateJob={() => undefined}
+        runs={[]}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "test-run" }));
+    expect(openJob).toHaveBeenCalledWith("test-run");
+    expect(closeEditor).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Jobs" }));
+    expect(closeEditor).toHaveBeenCalled();
+  });
 });

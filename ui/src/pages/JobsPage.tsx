@@ -180,7 +180,15 @@ export function JobsPage({
                 editorJobName,
                 mode: editorMode,
                 namespacePath: editorNamespacePath,
-                onBack: onCloseEditor
+                onJob: () => {
+                  if (editorMode.kind === "edit") {
+                    onOpenJob(editorMode.jobID);
+                    return;
+                  }
+
+                  onCloseEditor();
+                },
+                onJobs: onCloseEditor
               })}
               label="Job editor location"
             />

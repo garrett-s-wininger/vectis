@@ -14,27 +14,36 @@ export function jobDetailBreadcrumbItems({
   namespacePath: string;
   onJobs: () => void;
 }): BreadcrumbItem[] {
-  return [{ label: formatNamespaceCrumb(namespacePath) }, { label: "Jobs", onClick: onJobs }, { label: jobName, current: true }];
+  return [
+    { label: formatNamespaceCrumb(namespacePath) },
+    { label: "Jobs", onClick: onJobs },
+    { label: jobName, current: true }
+  ];
 }
 
 export function jobEditorBreadcrumbItems({
   editorJobName,
   mode,
   namespacePath,
-  onBack
+  onJob,
+  onJobs
 }: {
   editorJobName: string;
   mode: JobEditorMode;
   namespacePath: string;
-  onBack: () => void;
+  onJob: () => void;
+  onJobs: () => void;
 }): BreadcrumbItem[] {
-  const baseItems: BreadcrumbItem[] = [{ label: formatNamespaceCrumb(namespacePath) }, { label: "Jobs", onClick: onBack }];
+  const baseItems: BreadcrumbItem[] = [
+    { label: formatNamespaceCrumb(namespacePath) },
+    { label: "Jobs", onClick: onJobs }
+  ];
 
   if (mode.kind === "create") {
     return [...baseItems, { label: "Create", current: true }];
   }
 
-  return [...baseItems, { label: editorJobName, onClick: onBack }, { label: "Config", current: true }];
+  return [...baseItems, { label: editorJobName, onClick: onJob }, { label: "Config", current: true }];
 }
 
 export function formatNamespaceCrumb(namespacePath: string) {
