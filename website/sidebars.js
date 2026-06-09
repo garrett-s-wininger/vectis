@@ -100,6 +100,8 @@ const sidebars = {
             'developing/architecture-decisions/queue-pool-shards',
             'developing/architecture-decisions/api-edge-state-backend-contract',
             'developing/architecture-decisions/worker-execution-containment-providers',
+            'developing/architecture-decisions/versioned-action-registry',
+            'developing/architecture-decisions/artifact-service-local-cas',
           ],
         },
       ],
