@@ -16,13 +16,16 @@ const (
 	postgresPassword     = "vectis"
 	postgresUser         = "vectis"
 
-	envDatabaseDriver = "VECTIS_PERF_DATABASE_DRIVER"
-	envDatabaseDSN    = "VECTIS_PERF_DATABASE_DSN"
-	envPodman         = "VECTIS_PERF_PODMAN"
-	envPostgresImage  = "VECTIS_PERF_POSTGRES_IMAGE"
-	envPostgresPort   = "VECTIS_PERF_POSTGRES_PORT"
-	envVectisDriver   = "VECTIS_DATABASE_DRIVER"
-	envVectisDSN      = "VECTIS_DATABASE_DSN"
+	envDatabaseDriver  = "VECTIS_PERF_DATABASE_DRIVER"
+	envDatabaseDSN     = "VECTIS_PERF_DATABASE_DSN"
+	envPodman          = "VECTIS_PERF_PODMAN"
+	envPostgresImage   = "VECTIS_PERF_POSTGRES_IMAGE"
+	envPostgresProfile = "VECTIS_PERF_POSTGRES_DURABILITY"
+	envPostgresPort    = "VECTIS_PERF_POSTGRES_PORT"
+	envVectisDriver    = "VECTIS_DATABASE_DRIVER"
+	envVectisDSN       = "VECTIS_DATABASE_DSN"
+
+	postgresDurabilityUnsafe = "unsafe"
 )
 
 func main() {
@@ -134,6 +137,18 @@ func startPostgres(ctx context.Context, podman, image, containerName, hostPort s
 		"127.0.0.1:" + hostPort + ":5432",
 		image,
 	}
+	if postgresDurabilityProfile() == postgresDurabilityUnsafe {
+		args = append(
+			args,
+			"postgres",
+			"-c",
+			"fsync=off",
+			"-c",
+			"synchronous_commit=off",
+			"-c",
+			"full_page_writes=off",
+		)
+	}
 
 	output, err := exec.CommandContext(ctx, podman, args...).CombinedOutput()
 	if err != nil {
@@ -141,6 +156,10 @@ func startPostgres(ctx context.Context, podman, image, containerName, hostPort s
 	}
 
 	return strings.TrimSpace(string(output)), nil
+}
+
+func postgresDurabilityProfile() string {
+	return strings.ToLower(strings.TrimSpace(os.Getenv(envPostgresProfile)))
 }
 
 func waitForPostgres(ctx context.Context, podman, containerID string) error {

@@ -92,11 +92,12 @@ Useful knobs:
 | `VECTIS_PERF_DAL_BENCH` | DAL hot-path benchmarks | Override to focus on one DAL scenario. |
 | `VECTIS_PERF_JOB_BENCH` | Job executor benchmarks | Override to focus on one executor scenario. |
 | `VECTIS_PERF_MACRO_BENCH` | API-to-terminal macro benchmarks | Override to focus on one macro scenario. |
-| `VECTIS_PERF_MACRO_DATABASES` | unset | Optional comma-separated macro database matrix, such as `sqlite3,pgx_podman`. |
+| `VECTIS_PERF_MACRO_DATABASES` | unset | Optional comma-separated macro database matrix, such as `sqlite3,pgx_podman,pgx_podman_unsafe`. |
 | `VECTIS_PERF_DATABASE_DRIVER` | `sqlite3` | Database driver used by macro benchmarks when not running a matrix. |
 | `VECTIS_PERF_DATABASE_DSN` | `:memory:` for SQLite, required for `pgx` | Macro benchmark database DSN. Use only disposable databases. |
 | `VECTIS_PERF_POSTGRES_DSN` | unset | Postgres DSN used for `pgx` matrix entries, so SQLite entries can keep using `:memory:`. |
 | `VECTIS_PERF_POSTGRES_IMAGE` | `postgres:18-alpine` | Postgres image used by `pgx_podman` matrix entries. |
+| `VECTIS_PERF_POSTGRES_DURABILITY` | `safe` | Podman Postgres durability profile. `pgx_podman_unsafe` sets this to `unsafe`. |
 | `VECTIS_PERF_POSTGRES_PORT` | auto-selected | Optional fixed localhost port for `pgx_podman` matrix entries. |
 | `VECTIS_PERF_PODMAN` | `podman` | Podman binary used by `pgx_podman` matrix entries. |
 | `VECTIS_PERF_SQLITE_DSN` | unset | Optional SQLite DSN used for `sqlite3` matrix entries. |
@@ -146,11 +147,13 @@ VECTIS_PERF_RUN_NAME=main-macro VECTIS_PERF_BENCHTIME=5s VECTIS_PERF_COUNT=3 mak
 SQLite is the default local backend and uses an in-memory database with one SQL connection. To compare the same macro slice against disposable Postgres, use the Podman-backed matrix entry:
 
 ```sh
-VECTIS_PERF_MACRO_DATABASES=sqlite3,pgx_podman \
+VECTIS_PERF_MACRO_DATABASES=sqlite3,pgx_podman,pgx_podman_unsafe \
 make perf SUITE=macro
 ```
 
-The matrix tags parsed benchmark rows with `db_sqlite3` or `db_pgx_podman`. The Podman entry starts `postgres:18-alpine`, runs the Go benchmark with `VECTIS_PERF_DATABASE_DRIVER=pgx`, and force-removes the disposable container afterward. The Podman machine or socket must already be running; on macOS, start it with `podman machine start`.
+The matrix tags parsed benchmark rows with `db_sqlite3`, `db_pgx_podman`, or `db_pgx_podman_unsafe`. The Podman entries start `postgres:18-alpine`, run the Go benchmark with `VECTIS_PERF_DATABASE_DRIVER=pgx`, and force-remove the disposable container afterward. The Podman machine or socket must already be running; on macOS, start it with `podman machine start`.
+
+The `pgx_podman_unsafe` entry disables Postgres durability settings with `fsync=off`, `synchronous_commit=off`, and `full_page_writes=off`. Use it only for disposable local measurement. It approximates a lower bound for client/server, query, lock, and index overhead; it is not a deployable configuration.
 
 The harness mirrors macro database settings into `VECTIS_DATABASE_DRIVER` for the benchmark child process so DAL SQL placeholder rebinding follows the selected backend.
 

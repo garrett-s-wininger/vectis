@@ -48,9 +48,12 @@ CONFIG_ERROR_STATUS = 2
 ENV_PERF_DATABASE_DSN = "VECTIS_PERF_DATABASE_DSN"
 ENV_PERF_DATABASE_DRIVER = "VECTIS_PERF_DATABASE_DRIVER"
 ENV_PERF_POSTGRES_DSN = "VECTIS_PERF_POSTGRES_DSN"
+ENV_PERF_POSTGRES_DURABILITY = "VECTIS_PERF_POSTGRES_DURABILITY"
 ENV_PERF_SQLITE_DSN = "VECTIS_PERF_SQLITE_DSN"
 ENV_VECTIS_DATABASE_DSN = "VECTIS_DATABASE_DSN"
 ENV_VECTIS_DATABASE_DRIVER = "VECTIS_DATABASE_DRIVER"
+POSTGRES_DURABILITY_SAFE = "safe"
+POSTGRES_DURABILITY_UNSAFE = "unsafe"
 
 
 @dataclass(frozen=True)
@@ -221,7 +224,8 @@ def _add_go_benchmark_suite(
             default=os.getenv("VECTIS_PERF_MACRO_DATABASES", ""),
             help=(
                 "Optional comma-separated macro DB matrix, such as sqlite3,pgx. "
-                "Use pgx_podman for a disposable Podman Postgres, or pgx with "
+                "Use pgx_podman for disposable Podman Postgres, "
+                "pgx_podman_unsafe for non-durable Podman Postgres, or pgx with "
                 "VECTIS_PERF_POSTGRES_DSN / VECTIS_PERF_DATABASE_DSN."
             ),
         )
@@ -408,11 +412,16 @@ def _macro_database_env(database: str) -> dict[str, str]:
     env = os.environ.copy()
     driver = _canonical_macro_database_driver(database)
 
-    if driver == "pgx_podman":
+    if driver in {"pgx_podman", "pgx_podman_unsafe"}:
         env.pop(ENV_PERF_DATABASE_DSN, None)
         env.pop(ENV_VECTIS_DATABASE_DSN, None)
         env[ENV_PERF_DATABASE_DRIVER] = "pgx"
         env[ENV_VECTIS_DATABASE_DRIVER] = "pgx"
+        env[ENV_PERF_POSTGRES_DURABILITY] = (
+            POSTGRES_DURABILITY_UNSAFE
+            if driver == "pgx_podman_unsafe"
+            else POSTGRES_DURABILITY_SAFE
+        )
         return env
 
     env[ENV_PERF_DATABASE_DRIVER] = driver
@@ -459,7 +468,10 @@ def _go_benchmark_env(args: argparse.Namespace) -> dict[str, str] | None:
 
 
 def _macro_database_command(command: list[str], database: str) -> list[str]:
-    if _canonical_macro_database_driver(database) != "pgx_podman":
+    if _canonical_macro_database_driver(database) not in {
+        "pgx_podman",
+        "pgx_podman_unsafe",
+    }:
         return command
 
     return [command[0], "run", "./scripts/perf-postgres-podman", "--", *command]
@@ -473,11 +485,14 @@ def _canonical_macro_database_driver(database: str) -> str:
         return "pgx"
     if value in {"pgx_podman", "postgres_podman", "podman"}:
         return "pgx_podman"
+    if value in {"pgx_podman_unsafe", "postgres_podman_unsafe", "podman_unsafe"}:
+        return "pgx_podman_unsafe"
     if value in {"pgx_container", "postgres_container", "testcontainers", "testcontainer"}:
         return "pgx_podman"
 
     message = (
-        f"unsupported macro database backend {database!r}; expected sqlite3, pgx, or pgx_podman"
+        f"unsupported macro database backend {database!r}; "
+        "expected sqlite3, pgx, pgx_podman, or pgx_podman_unsafe"
     )
     raise ValueError(message)
 
