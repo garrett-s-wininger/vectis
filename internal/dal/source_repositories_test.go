@@ -75,6 +75,12 @@ func TestSourcesRepository_CreateRepositoryConflicts(t *testing.T) {
 		t.Fatalf("expected conflict on duplicate repository, got %v", err)
 	}
 
+	duplicatePath := rec
+	duplicatePath.RepositoryID = "vectis-alias"
+	if _, err := sources.CreateRepository(ctx, duplicatePath); !dal.IsConflict(err) {
+		t.Fatalf("expected conflict on duplicate checkout path, got %v", err)
+	}
+
 	if _, err := sources.CreateRepository(ctx, dal.SourceRepositoryRecord{
 		RepositoryID: "missing-path",
 		NamespaceID:  1,
@@ -92,6 +98,107 @@ func TestSourcesRepository_CreateRepositoryConflicts(t *testing.T) {
 		Enabled:      true,
 	}); !dal.IsConflict(err) {
 		t.Fatalf("expected conflict for unsupported source kind, got %v", err)
+	}
+}
+
+func TestSourcesRepository_UpdateRepository(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	sources := dal.NewSQLRepositories(db).Sources()
+	ctx := context.Background()
+
+	if _, err := sources.CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "vectis-local",
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/vectis",
+		DefaultRef:   "main",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("CreateRepository: %v", err)
+	}
+
+	updated, err := sources.UpdateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID:  "vectis-local",
+		SourceKind:    dal.SourceKindLocalCheckout,
+		CheckoutPath:  "/work/vectis-next",
+		CanonicalURL:  "https://example.invalid/vectis.git",
+		DefaultRef:    "release",
+		CredentialRef: "secret://git/vectis",
+		Enabled:       false,
+	})
+
+	if err != nil {
+		t.Fatalf("UpdateRepository: %v", err)
+	}
+
+	if updated.CheckoutPath != "/work/vectis-next" ||
+		updated.CanonicalURL != "https://example.invalid/vectis.git" ||
+		updated.DefaultRef != "release" ||
+		updated.CredentialRef != "secret://git/vectis" ||
+		updated.Enabled {
+		t.Fatalf("updated repository mismatch: %+v", updated)
+	}
+
+	got, err := sources.GetRepository(ctx, "vectis-local")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+
+	if got.CheckoutPath != updated.CheckoutPath || got.DefaultRef != updated.DefaultRef || got.Enabled != updated.Enabled {
+		t.Fatalf("persisted update mismatch: got %+v want %+v", got, updated)
+	}
+
+	if _, err := sources.UpdateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "missing",
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/missing",
+		Enabled:      true,
+	}); !dal.IsNotFound(err) {
+		t.Fatalf("expected not found for missing repository, got %v", err)
+	}
+}
+
+func TestSourcesRepository_UpdateRepositoryConflicts(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	sources := dal.NewSQLRepositories(db).Sources()
+	ctx := context.Background()
+
+	for _, rec := range []dal.SourceRepositoryRecord{
+		{
+			RepositoryID: "vectis-local",
+			NamespaceID:  1,
+			SourceKind:   dal.SourceKindLocalCheckout,
+			CheckoutPath: "/work/vectis",
+			Enabled:      true,
+		},
+		{
+			RepositoryID: "other",
+			NamespaceID:  1,
+			SourceKind:   dal.SourceKindLocalCheckout,
+			CheckoutPath: "/work/other",
+			Enabled:      true,
+		},
+	} {
+		if _, err := sources.CreateRepository(ctx, rec); err != nil {
+			t.Fatalf("CreateRepository(%s): %v", rec.RepositoryID, err)
+		}
+	}
+
+	if _, err := sources.UpdateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "other",
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/vectis",
+		Enabled:      true,
+	}); !dal.IsConflict(err) {
+		t.Fatalf("expected duplicate checkout path conflict, got %v", err)
+	}
+
+	if _, err := sources.UpdateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "other",
+		SourceKind:   dal.SourceKindLocalCheckout,
+		Enabled:      true,
+	}); !dal.IsConflict(err) {
+		t.Fatalf("expected missing checkout path conflict, got %v", err)
 	}
 }
 

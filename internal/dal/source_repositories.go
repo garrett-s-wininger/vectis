@@ -13,31 +13,9 @@ type SQLSourcesRepository struct {
 }
 
 func (r *SQLSourcesRepository) CreateRepository(ctx context.Context, rec SourceRepositoryRecord) (SourceRepositoryRecord, error) {
-	rec.RepositoryID = strings.TrimSpace(rec.RepositoryID)
-	rec.SourceKind = strings.TrimSpace(rec.SourceKind)
-	rec.CheckoutPath = strings.TrimSpace(rec.CheckoutPath)
-	rec.CanonicalURL = strings.TrimSpace(rec.CanonicalURL)
-	rec.DefaultRef = strings.TrimSpace(rec.DefaultRef)
-	rec.CredentialRef = strings.TrimSpace(rec.CredentialRef)
-
-	if rec.RepositoryID == "" {
-		return SourceRepositoryRecord{}, fmt.Errorf("%w: repository_id is required", ErrConflict)
-	}
-
-	if rec.SourceKind == "" {
-		return SourceRepositoryRecord{}, fmt.Errorf("%w: source_kind is required", ErrConflict)
-	}
-
-	if rec.SourceKind != SourceKindLocalCheckout {
-		return SourceRepositoryRecord{}, fmt.Errorf("%w: unsupported source_kind %q", ErrConflict, rec.SourceKind)
-	}
-
-	if rec.CheckoutPath == "" {
-		return SourceRepositoryRecord{}, fmt.Errorf("%w: checkout_path is required for %s", ErrConflict, SourceKindLocalCheckout)
-	}
-
-	if rec.NamespaceID <= 0 {
-		rec.NamespaceID = 1
+	rec, err := normalizeSourceRepositoryRecord(rec)
+	if err != nil {
+		return SourceRepositoryRecord{}, err
 	}
 
 	var id int64
@@ -67,6 +45,49 @@ func (r *SQLSourcesRepository) CreateRepository(ctx context.Context, rec SourceR
 		rec.Enabled,
 	).Scan(&id); err != nil {
 		return SourceRepositoryRecord{}, normalizeSQLError(err)
+	}
+
+	return r.GetRepository(ctx, rec.RepositoryID)
+}
+
+func (r *SQLSourcesRepository) UpdateRepository(ctx context.Context, rec SourceRepositoryRecord) (SourceRepositoryRecord, error) {
+	rec, err := normalizeSourceRepositoryRecord(rec)
+	if err != nil {
+		return SourceRepositoryRecord{}, err
+	}
+
+	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE source_repositories
+		SET
+			source_kind = ?,
+			checkout_path = ?,
+			canonical_url = ?,
+			default_ref = ?,
+			credential_ref = ?,
+			enabled = ?,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE repository_id = ?
+	`),
+		rec.SourceKind,
+		rec.CheckoutPath,
+		rec.CanonicalURL,
+		rec.DefaultRef,
+		rec.CredentialRef,
+		rec.Enabled,
+		rec.RepositoryID,
+	)
+
+	if err != nil {
+		return SourceRepositoryRecord{}, normalizeSQLError(err)
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return SourceRepositoryRecord{}, normalizeSQLError(err)
+	}
+
+	if rowsAffected == 0 {
+		return SourceRepositoryRecord{}, fmt.Errorf("%w: source repository %s", ErrNotFound, rec.RepositoryID)
 	}
 
 	return r.GetRepository(ctx, rec.RepositoryID)
@@ -142,6 +163,37 @@ func (r *SQLSourcesRepository) ListRepositories(ctx context.Context, namespaceID
 	}
 
 	return out, nil
+}
+
+func normalizeSourceRepositoryRecord(rec SourceRepositoryRecord) (SourceRepositoryRecord, error) {
+	rec.RepositoryID = strings.TrimSpace(rec.RepositoryID)
+	rec.SourceKind = strings.TrimSpace(rec.SourceKind)
+	rec.CheckoutPath = strings.TrimSpace(rec.CheckoutPath)
+	rec.CanonicalURL = strings.TrimSpace(rec.CanonicalURL)
+	rec.DefaultRef = strings.TrimSpace(rec.DefaultRef)
+	rec.CredentialRef = strings.TrimSpace(rec.CredentialRef)
+
+	if rec.RepositoryID == "" {
+		return SourceRepositoryRecord{}, fmt.Errorf("%w: repository_id is required", ErrConflict)
+	}
+
+	if rec.SourceKind == "" {
+		return SourceRepositoryRecord{}, fmt.Errorf("%w: source_kind is required", ErrConflict)
+	}
+
+	if rec.SourceKind != SourceKindLocalCheckout {
+		return SourceRepositoryRecord{}, fmt.Errorf("%w: unsupported source_kind %q", ErrConflict, rec.SourceKind)
+	}
+
+	if rec.CheckoutPath == "" {
+		return SourceRepositoryRecord{}, fmt.Errorf("%w: checkout_path is required for %s", ErrConflict, SourceKindLocalCheckout)
+	}
+
+	if rec.NamespaceID <= 0 {
+		rec.NamespaceID = 1
+	}
+
+	return rec, nil
 }
 
 func (r *SQLSourcesRepository) RecordDefinitionSource(ctx context.Context, rec JobDefinitionSourceRecord) error {

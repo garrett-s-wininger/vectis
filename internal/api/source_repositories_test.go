@@ -252,6 +252,136 @@ func TestAPIServer_CreateJobFromSourceRejectsDisabledRepository(t *testing.T) {
 	}
 }
 
+func TestAPIServer_UpdateSourceRepository(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+
+	server, _, _, _ := setupTestServer(t)
+	handler := server.Handler()
+	repoPath := initAPIGitRepo(t)
+	writeAPIJobDefinitionAndCommit(t, repoPath, "true", "definition")
+
+	registerBody := map[string]any{
+		"repository_id": "vectis-local",
+		"source_kind":   dal.SourceKindLocalCheckout,
+		"checkout_path": repoPath,
+		"default_ref":   "HEAD",
+	}
+
+	registerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", registerBody)
+	if registerRec.Code != http.StatusCreated {
+		t.Fatalf("register source repository: status=%d body=%s", registerRec.Code, registerRec.Body.String())
+	}
+
+	commit := apiGitOutput(t, repoPath, "rev-parse", "HEAD")
+	updateBody := map[string]any{
+		"default_ref":    commit,
+		"canonical_url":  "https://example.invalid/vectis.git",
+		"credential_ref": "secret://git/vectis",
+		"enabled":        false,
+	}
+
+	updateRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/vectis-local", updateBody)
+	if updateRec.Code != http.StatusOK {
+		t.Fatalf("update source repository: status=%d body=%s", updateRec.Code, updateRec.Body.String())
+	}
+
+	var updateResp struct {
+		RepositoryID  string `json:"repository_id"`
+		CheckoutPath  string `json:"checkout_path"`
+		CanonicalURL  string `json:"canonical_url"`
+		DefaultRef    string `json:"default_ref"`
+		CredentialRef string `json:"credential_ref"`
+		Enabled       bool   `json:"enabled"`
+	}
+
+	if err := json.NewDecoder(updateRec.Body).Decode(&updateResp); err != nil {
+		t.Fatal(err)
+	}
+
+	if updateResp.RepositoryID != "vectis-local" ||
+		updateResp.CheckoutPath != repoPath ||
+		updateResp.CanonicalURL != "https://example.invalid/vectis.git" ||
+		updateResp.DefaultRef != commit ||
+		updateResp.CredentialRef != "secret://git/vectis" ||
+		updateResp.Enabled {
+		t.Fatalf("update response mismatch: %+v", updateResp)
+	}
+
+	resolveRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/vectis-local/definitions/resolve", map[string]any{
+		"path": ".vectis/jobs/build.json",
+	})
+
+	assertAPIError(t, resolveRec, http.StatusConflict, "source_repository_disabled")
+	enableRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/vectis-local", map[string]any{
+		"enabled": true,
+	})
+
+	if enableRec.Code != http.StatusOK {
+		t.Fatalf("enable source repository: status=%d body=%s", enableRec.Code, enableRec.Body.String())
+	}
+
+	resolveRec = doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/vectis-local/definitions/resolve", map[string]any{
+		"path": ".vectis/jobs/build.json",
+	})
+
+	if resolveRec.Code != http.StatusOK {
+		t.Fatalf("resolve after enable: status=%d body=%s", resolveRec.Code, resolveRec.Body.String())
+	}
+
+	resolveResp := decodeResolvedSourceDefinitionResponse(t, resolveRec)
+	if resolveResp.Source.RequestedRef != commit || resolveResp.Source.ResolvedCommit != commit {
+		t.Fatalf("resolve after update should use updated default ref: %+v", resolveResp)
+	}
+
+	missingRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/missing", map[string]any{
+		"enabled": false,
+	})
+
+	assertAPIError(t, missingRec, http.StatusNotFound, "source_repository_not_found")
+}
+
+func TestAPIServer_UpdateSourceRepositoryRejectsDuplicateCheckoutPath(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+
+	server, _, _, _ := setupTestServer(t)
+	handler := server.Handler()
+	firstPath := initAPIGitRepo(t)
+	secondPath := initAPIGitRepo(t)
+
+	for _, body := range []map[string]any{
+		{
+			"repository_id": "first",
+			"source_kind":   dal.SourceKindLocalCheckout,
+			"checkout_path": firstPath,
+			"default_ref":   "HEAD",
+		},
+		{
+			"repository_id": "second",
+			"source_kind":   dal.SourceKindLocalCheckout,
+			"checkout_path": secondPath,
+			"default_ref":   "HEAD",
+		},
+	} {
+		rec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", body)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("register source repository: status=%d body=%s", rec.Code, rec.Body.String())
+		}
+	}
+
+	updateRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/second", map[string]any{
+		"checkout_path": firstPath,
+	})
+
+	assertAPIError(t, updateRec, http.StatusConflict, "source_repository_conflict")
+	createRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
+		"repository_id": "alias",
+		"source_kind":   dal.SourceKindLocalCheckout,
+		"checkout_path": firstPath,
+	})
+
+	assertAPIError(t, createRec, http.StatusConflict, "source_repository_conflict")
+}
+
 func TestAPIServer_GetJobSourceReturnsNotFoundForPlainJob(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 

@@ -13,6 +13,7 @@ func TestPolicy_DurabilityFor_Defaults(t *testing.T) {
 		EventSetupCompleted:          DurabilityFailClosed,
 		EventRunForceRequeued:        DurabilityDurableBestEffort,
 		EventSourceRepositoryCreated: DurabilityDurableBestEffort,
+		EventSourceRepositoryUpdated: DurabilityDurableBestEffort,
 	}
 
 	for eventType, want := range tests {

@@ -301,7 +301,7 @@ Run list/detail responses include audit metadata such as `definition_version`, `
 
 `POST /api/v1/jobs/run`, `POST /api/v1/jobs/trigger/{id}`, and `POST /api/v1/runs/{id}/replay` accept `Idempotency-Key`. Use this header when a client might retry after a timeout or dropped connection. Keys must be 1-255 visible ASCII characters and cannot contain whitespace or commas. Other routes reject the header. Retry guidance for each route family is in [Idempotency And Retries](./idempotency-and-retries.md).
 
-Source repository routes currently register local Git checkouts with `source_kind: "local_checkout"` and a `checkout_path`. Resolve a definition from source with `ref` (optional when the repository has `default_ref`) and `path` to preview the canonical JSON plus resolved commit and blob SHA. Create or update a stored job from source with `repository_id`, `ref`, and `path`; the response includes the resolved commit, path, blob SHA, stored definition version, and definition hash. Query stored source provenance with `GET /api/v1/jobs/{id}/source` and optional `version`.
+Source repository routes currently register local Git checkouts with `source_kind: "local_checkout"` and a `checkout_path`; each checkout path can be registered once. Update a repository to change its checkout path, default ref, metadata, or enabled state. Resolve a definition from source with `ref` (optional when the repository has `default_ref`) and `path` to preview the canonical JSON plus resolved commit and blob SHA. Create or update a stored job from source with `repository_id`, `ref`, and `path`; the response includes the resolved commit, path, blob SHA, stored definition version, and definition hash. Query stored source provenance with `GET /api/v1/jobs/{id}/source` and optional `version`.
 
 Streaming routes return `text/event-stream`. Use `curl -N`, `EventSource`, or another SSE-capable client for `GET /api/v1/sse/jobs/{id}/runs` and `GET /api/v1/runs/{id}/logs`.
 
@@ -330,6 +330,7 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | GET | `/api/v1/source-repositories` | List registered source repositories in a namespace | `job:read` | general | `200` JSON list |
 | POST | `/api/v1/source-repositories` | Register a source repository checkout | `job:write` | general | `201` JSON repository |
 | GET | `/api/v1/source-repositories/{id}` | Get one source repository registration | `job:read` | general | `200` JSON repository |
+| PUT | `/api/v1/source-repositories/{id}` | Update a source repository checkout registration | `job:write` | general | `200` JSON repository |
 | POST | `/api/v1/source-repositories/{id}/definitions/resolve` | Resolve and validate one job definition from a repository ref and path without storing it | `job:read` | general | `200` JSON definition |
 | GET | `/api/v1/jobs` | List visible job definitions | `job:read` | general | `200` JSON list |
 | POST | `/api/v1/jobs` | Create a stored job definition | `job:write` | general | `201` JSON job |

@@ -349,6 +349,7 @@ CREATE TABLE source_repositories (
 );
 
 CREATE INDEX idx_source_repositories_namespace ON source_repositories(namespace_id);
+CREATE UNIQUE INDEX uidx_source_repositories_kind_checkout_path ON source_repositories(source_kind, checkout_path);
 
 CREATE TABLE job_definition_sources (
     job_id TEXT NOT NULL,

@@ -43,6 +43,7 @@ const (
 	EventJobDeleted              = "job.deleted"
 	EventJobUpdated              = "job.updated"
 	EventSourceRepositoryCreated = "source_repository.created"
+	EventSourceRepositoryUpdated = "source_repository.updated"
 	EventRunTriggered            = "run.triggered"
 	EventRunRepairMarked         = "run.repair_marked"
 	EventRunForceFailed          = "run.force_failed"

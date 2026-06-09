@@ -7,6 +7,7 @@ DROP INDEX IF EXISTS idx_job_runs_lease_until;
 DROP INDEX IF EXISTS idx_job_runs_status_dispatched;
 DROP INDEX IF EXISTS idx_job_runs_replay_of_run_id;
 DROP INDEX IF EXISTS idx_job_definition_sources_repository;
+DROP INDEX IF EXISTS uidx_source_repositories_kind_checkout_path;
 DROP INDEX IF EXISTS idx_source_repositories_namespace;
 DROP INDEX IF EXISTS idx_cell_catalog_events_source_received;
 DROP INDEX IF EXISTS idx_cell_catalog_events_status_id;

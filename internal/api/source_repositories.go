@@ -28,6 +28,15 @@ type sourceRepositoryRequest struct {
 	Enabled       *bool  `json:"enabled"`
 }
 
+type sourceRepositoryUpdateRequest struct {
+	SourceKind    *string `json:"source_kind"`
+	CheckoutPath  *string `json:"checkout_path"`
+	CanonicalURL  *string `json:"canonical_url"`
+	DefaultRef    *string `json:"default_ref"`
+	CredentialRef *string `json:"credential_ref"`
+	Enabled       *bool   `json:"enabled"`
+}
+
 type sourceRepositoryResponse struct {
 	RepositoryID  string `json:"repository_id"`
 	Namespace     string `json:"namespace"`
@@ -285,6 +294,103 @@ func (s *APIServer) GetSourceRepository(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, http.StatusOK, sourceRepositoryRecordToResponse(rec, nsPath))
+}
+
+func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Request) {
+	if !requestContentTypeIsJSON(r) {
+		writeAPIErrorCode(w, http.StatusUnsupportedMediaType, apiErrUnsupportedMediaType)
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxJSONDocumentBodyBytes))
+	if err != nil {
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrRequestReadFailed)
+		return
+	}
+
+	var req sourceRepositoryUpdateRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidRequestBody)
+		return
+	}
+
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireNamespaces(w) || !s.requireSources(w) {
+		return
+	}
+
+	rec, nsPath, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionJobWrite, false)
+	if !ok {
+		return
+	}
+
+	updated := rec
+	if req.SourceKind != nil {
+		updated.SourceKind = strings.TrimSpace(*req.SourceKind)
+	}
+
+	if req.CheckoutPath != nil {
+		updated.CheckoutPath = strings.TrimSpace(*req.CheckoutPath)
+	}
+
+	if req.CanonicalURL != nil {
+		updated.CanonicalURL = strings.TrimSpace(*req.CanonicalURL)
+	}
+
+	if req.DefaultRef != nil {
+		updated.DefaultRef = strings.TrimSpace(*req.DefaultRef)
+	}
+
+	if req.CredentialRef != nil {
+		updated.CredentialRef = strings.TrimSpace(*req.CredentialRef)
+	}
+
+	if req.Enabled != nil {
+		updated.Enabled = *req.Enabled
+	}
+
+	updated, err = s.sources.UpdateRepository(ctx, updated)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "source_repository_not_found", "source repository not found", nil)
+			return
+		}
+
+		if dal.IsConflict(err) {
+			writeAPIError(w, http.StatusConflict, "source_repository_conflict", "source repository conflict", nil)
+			return
+		}
+
+		s.logger.Error("Database error updating source repository: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+	s.markDBRecovered()
+
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	s.auditLog(ctx, audit.EventSourceRepositoryUpdated, actorID, 0, map[string]any{
+		"repository_id": updated.RepositoryID,
+		"namespace":     nsPath,
+		"source_kind":   updated.SourceKind,
+		"enabled":       updated.Enabled,
+	})
+
+	writeJSON(w, http.StatusOK, sourceRepositoryRecordToResponse(updated, nsPath))
 }
 
 func (s *APIServer) ResolveSourceDefinition(w http.ResponseWriter, r *http.Request) {
