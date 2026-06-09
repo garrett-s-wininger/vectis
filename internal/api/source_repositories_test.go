@@ -208,6 +208,83 @@ func TestAPIServer_SourceBackedJobLifecycle(t *testing.T) {
 	if getSourceResp.JobID != "build" || getSourceResp.Version != 1 || getSourceResp.Source.ResolvedCommit != firstCommit {
 		t.Fatalf("historical job source response mismatch: %+v", getSourceResp)
 	}
+
+	triggerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/jobs/trigger/build", map[string]any{})
+	if triggerRec.Code != http.StatusAccepted {
+		t.Fatalf("trigger source-backed job: status=%d body=%s", triggerRec.Code, triggerRec.Body.String())
+	}
+
+	var triggerResp struct {
+		RunID string `json:"run_id"`
+	}
+
+	if err := json.NewDecoder(triggerRec.Body).Decode(&triggerResp); err != nil {
+		t.Fatal(err)
+	}
+
+	if triggerResp.RunID == "" {
+		t.Fatal("expected trigger response run_id")
+	}
+
+	listRunsRec := httptest.NewRecorder()
+	listRunsReq := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/build/runs", nil)
+	handler.ServeHTTP(listRunsRec, listRunsReq)
+	if listRunsRec.Code != http.StatusOK {
+		t.Fatalf("list source-backed job runs: status=%d body=%s", listRunsRec.Code, listRunsRec.Body.String())
+	}
+
+	var runsResp struct {
+		Data []struct {
+			RunID             string `json:"run_id"`
+			DefinitionVersion int    `json:"definition_version"`
+			Source            *struct {
+				RepositoryID   string `json:"repository_id"`
+				RequestedRef   string `json:"requested_ref"`
+				ResolvedCommit string `json:"resolved_commit"`
+				Path           string `json:"path"`
+				BlobSHA        string `json:"blob_sha"`
+			} `json:"source,omitempty"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(listRunsRec.Body).Decode(&runsResp); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(runsResp.Data) != 1 {
+		t.Fatalf("expected one run row, got %+v", runsResp.Data)
+	}
+
+	if runsResp.Data[0].RunID != triggerResp.RunID || runsResp.Data[0].DefinitionVersion != 2 || runsResp.Data[0].Source == nil || runsResp.Data[0].Source.ResolvedCommit != secondCommit {
+		t.Fatalf("run list source provenance mismatch: %+v", runsResp.Data[0])
+	}
+
+	getRunRec := httptest.NewRecorder()
+	getRunReq := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+triggerResp.RunID, nil)
+	handler.ServeHTTP(getRunRec, getRunReq)
+	if getRunRec.Code != http.StatusOK {
+		t.Fatalf("get source-backed run: status=%d body=%s", getRunRec.Code, getRunRec.Body.String())
+	}
+
+	var runResp struct {
+		RunID             string `json:"run_id"`
+		DefinitionVersion int    `json:"definition_version"`
+		Source            *struct {
+			RepositoryID   string `json:"repository_id"`
+			RequestedRef   string `json:"requested_ref"`
+			ResolvedCommit string `json:"resolved_commit"`
+			Path           string `json:"path"`
+			BlobSHA        string `json:"blob_sha"`
+		} `json:"source,omitempty"`
+	}
+
+	if err := json.NewDecoder(getRunRec.Body).Decode(&runResp); err != nil {
+		t.Fatal(err)
+	}
+
+	if runResp.RunID != triggerResp.RunID || runResp.DefinitionVersion != 2 || runResp.Source == nil || runResp.Source.ResolvedCommit != secondCommit {
+		t.Fatalf("run detail source provenance mismatch: %+v", runResp)
+	}
 }
 
 func TestAPIServer_CreateJobFromSourceRejectsDisabledRepository(t *testing.T) {

@@ -244,6 +244,31 @@ func TestSourcesRepository_RecordAndGetDefinitionSource(t *testing.T) {
 	if got != rec {
 		t.Fatalf("definition source mismatch: got %+v want %+v", got, rec)
 	}
+
+	if _, err := repos.Jobs().UpdateDefinition(ctx, "build", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"false"}}}`); err != nil {
+		t.Fatalf("update job: %v", err)
+	}
+
+	rec.Version = 2
+	rec.ResolvedCommit = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	rec.BlobSHA = "blob2"
+	if err := sources.RecordDefinitionSource(ctx, rec); err != nil {
+		t.Fatalf("RecordDefinitionSource v2: %v", err)
+	}
+
+	batch, err := sources.GetDefinitionSources(ctx, "build", []int{2, 1, 2, 99, -1})
+	if err != nil {
+		t.Fatalf("GetDefinitionSources: %v", err)
+	}
+
+	if len(batch) != 2 {
+		t.Fatalf("batch len: got %d want 2 (%+v)", len(batch), batch)
+	}
+
+	if batch[1].ResolvedCommit != "0123456789abcdef0123456789abcdef01234567" ||
+		batch[2].ResolvedCommit != "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" {
+		t.Fatalf("batch records mismatch: %+v", batch)
+	}
 }
 
 func TestSourcesRepository_RecordDefinitionSourceRequiresExistingRows(t *testing.T) {

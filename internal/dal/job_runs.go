@@ -1405,6 +1405,7 @@ func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, afterIn
 		var orphanReason, failureCode, createdAt, startedAt, finishedAt, failureReason sql.NullString
 		var replayOfRunID, triggerInvocationID, triggerType, triggerPayloadHash, requestedCells sql.NullString
 		var triggerID sql.NullInt64
+		rec.JobID = jobID
 		if err := rows.Scan(&id, &rec.RunID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &createdAt, &startedAt, &finishedAt, &failureReason, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell, &replayOfRunID, &triggerInvocationID, &rec.ExecutionPayloadHash, &triggerID, &triggerType, &triggerPayloadHash, &requestedCells); err != nil {
 			return nil, 0, normalizeSQLError(err)
 		}
@@ -4158,6 +4159,7 @@ func (r *SQLRunsRepository) GetRun(ctx context.Context, runID string) (RunRecord
 		rebindQueryForPgx(`
 			SELECT
 				jr.run_id,
+				jr.job_id,
 				jr.run_index,
 				jr.status,
 				jr.orphan_reason,
@@ -4181,7 +4183,7 @@ func (r *SQLRunsRepository) GetRun(ctx context.Context, runID string) (RunRecord
 			WHERE jr.run_id = ?
 		`),
 		runID,
-	).Scan(&rec.RunID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &createdAt, &startedAt, &finishedAt, &failureReason, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell, &replayOfRunID, &triggerInvocationID, &rec.ExecutionPayloadHash, &triggerID, &triggerType, &triggerPayloadHash, &requestedCells)
+	).Scan(&rec.RunID, &rec.JobID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &createdAt, &startedAt, &finishedAt, &failureReason, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell, &replayOfRunID, &triggerInvocationID, &rec.ExecutionPayloadHash, &triggerID, &triggerType, &triggerPayloadHash, &requestedCells)
 
 	if err != nil {
 		if err == sql.ErrNoRows {

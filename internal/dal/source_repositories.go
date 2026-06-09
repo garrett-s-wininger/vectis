@@ -418,6 +418,78 @@ func (r *SQLSourcesRepository) GetDefinitionSource(ctx context.Context, jobID st
 	return rec, nil
 }
 
+func (r *SQLSourcesRepository) GetDefinitionSources(ctx context.Context, jobID string, versions []int) (map[int]JobDefinitionSourceRecord, error) {
+	jobID = strings.TrimSpace(jobID)
+	if jobID == "" || len(versions) == 0 {
+		return map[int]JobDefinitionSourceRecord{}, nil
+	}
+
+	uniqueVersions := make([]int, 0, len(versions))
+	seen := make(map[int]bool, len(versions))
+	for _, version := range versions {
+		if version <= 0 || seen[version] {
+			continue
+		}
+
+		seen[version] = true
+		uniqueVersions = append(uniqueVersions, version)
+	}
+
+	if len(uniqueVersions) == 0 {
+		return map[int]JobDefinitionSourceRecord{}, nil
+	}
+
+	placeholders := make([]string, len(uniqueVersions))
+	args := make([]any, 0, 1+len(uniqueVersions))
+	args = append(args, jobID)
+	for i, version := range uniqueVersions {
+		placeholders[i] = "?"
+		args = append(args, version)
+	}
+
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
+		SELECT
+			job_id,
+			version,
+			repository_id,
+			requested_ref,
+			resolved_commit,
+			definition_path,
+			blob_sha
+		FROM job_definition_sources
+		WHERE job_id = ? AND version IN (`+strings.Join(placeholders, ",")+`)
+	`), args...)
+
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	out := make(map[int]JobDefinitionSourceRecord, len(uniqueVersions))
+	for rows.Next() {
+		var rec JobDefinitionSourceRecord
+		if err := rows.Scan(
+			&rec.JobID,
+			&rec.Version,
+			&rec.RepositoryID,
+			&rec.RequestedRef,
+			&rec.ResolvedCommit,
+			&rec.DefinitionPath,
+			&rec.BlobSHA,
+		); err != nil {
+			return nil, normalizeSQLError(err)
+		}
+
+		out[rec.Version] = rec
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	return out, nil
+}
+
 func (r *SQLSourcesRepository) scanRepositoryRow(row *sql.Row) (SourceRepositoryRecord, error) {
 	var rec SourceRepositoryRecord
 	var enabledRaw any

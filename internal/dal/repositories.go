@@ -146,6 +146,7 @@ type JobDefinitionSourceRecord struct {
 
 type RunRecord struct {
 	RunID                string
+	JobID                string
 	RunIndex             int
 	Status               string
 	OrphanReason         *string
@@ -718,6 +719,7 @@ type SourcesRepository interface {
 	ListRepositories(ctx context.Context, namespaceID int64) ([]SourceRepositoryRecord, error)
 	RecordDefinitionSource(ctx context.Context, rec JobDefinitionSourceRecord) error
 	GetDefinitionSource(ctx context.Context, jobID string, version int) (JobDefinitionSourceRecord, error)
+	GetDefinitionSources(ctx context.Context, jobID string, versions []int) (map[int]JobDefinitionSourceRecord, error)
 }
 
 type EphemeralRunStarterWithAudit interface {

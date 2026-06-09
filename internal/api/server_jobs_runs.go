@@ -2141,30 +2141,53 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 	}
 	s.markDBRecovered()
 
+	versions := make([]int, 0, len(runRows))
+	for _, rec := range runRows {
+		versions = append(versions, rec.DefinitionVersion)
+	}
+
+	sourceByVersion, err := s.definitionSourceProvenanceByVersion(ctx, jobID, versions)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error getting run source provenance: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+	s.markDBRecovered()
+
 	type runRow struct {
-		RunID                string   `json:"run_id"`
-		RunIndex             int      `json:"run_index"`
-		Status               string   `json:"status"`
-		OrphanReason         *string  `json:"orphan_reason,omitempty"`
-		FailureCode          *string  `json:"failure_code,omitempty"`
-		CreatedAt            *string  `json:"created_at,omitempty"`
-		StartedAt            *string  `json:"started_at,omitempty"`
-		FinishedAt           *string  `json:"finished_at,omitempty"`
-		FailureReason        *string  `json:"failure_reason,omitempty"`
-		DefinitionVersion    int      `json:"definition_version"`
-		DefinitionHash       string   `json:"definition_hash,omitempty"`
-		OwningCell           string   `json:"owning_cell,omitempty"`
-		ReplayOfRunID        *string  `json:"replay_of_run_id,omitempty"`
-		TriggerInvocationID  *string  `json:"trigger_invocation_id,omitempty"`
-		TriggerID            *int64   `json:"trigger_id,omitempty"`
-		TriggerType          *string  `json:"trigger_type,omitempty"`
-		TriggerPayloadHash   *string  `json:"trigger_payload_hash,omitempty"`
-		RequestedCells       []string `json:"requested_cells,omitempty"`
-		ExecutionPayloadHash string   `json:"execution_payload_hash,omitempty"`
+		RunID                string                    `json:"run_id"`
+		RunIndex             int                       `json:"run_index"`
+		Status               string                    `json:"status"`
+		OrphanReason         *string                   `json:"orphan_reason,omitempty"`
+		FailureCode          *string                   `json:"failure_code,omitempty"`
+		CreatedAt            *string                   `json:"created_at,omitempty"`
+		StartedAt            *string                   `json:"started_at,omitempty"`
+		FinishedAt           *string                   `json:"finished_at,omitempty"`
+		FailureReason        *string                   `json:"failure_reason,omitempty"`
+		DefinitionVersion    int                       `json:"definition_version"`
+		DefinitionHash       string                    `json:"definition_hash,omitempty"`
+		Source               *sourceProvenanceResponse `json:"source,omitempty"`
+		OwningCell           string                    `json:"owning_cell,omitempty"`
+		ReplayOfRunID        *string                   `json:"replay_of_run_id,omitempty"`
+		TriggerInvocationID  *string                   `json:"trigger_invocation_id,omitempty"`
+		TriggerID            *int64                    `json:"trigger_id,omitempty"`
+		TriggerType          *string                   `json:"trigger_type,omitempty"`
+		TriggerPayloadHash   *string                   `json:"trigger_payload_hash,omitempty"`
+		RequestedCells       []string                  `json:"requested_cells,omitempty"`
+		ExecutionPayloadHash string                    `json:"execution_payload_hash,omitempty"`
 	}
 
 	var runs []runRow
 	for _, rec := range runRows {
+		var source *sourceProvenanceResponse
+		if sourceValue, ok := sourceByVersion[rec.DefinitionVersion]; ok {
+			source = &sourceValue
+		}
+
 		runs = append(runs, runRow{
 			RunID:                rec.RunID,
 			RunIndex:             rec.RunIndex,
@@ -2177,6 +2200,7 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 			FailureReason:        rec.FailureReason,
 			DefinitionVersion:    rec.DefinitionVersion,
 			DefinitionHash:       rec.DefinitionHash,
+			Source:               source,
 			OwningCell:           rec.OwningCell,
 			ReplayOfRunID:        rec.ReplayOfRunID,
 			TriggerInvocationID:  rec.TriggerInvocationID,
@@ -2279,6 +2303,18 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	source, err := s.definitionSourceProvenance(ctx, rec.JobID, rec.DefinitionVersion)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error getting run source provenance: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+	s.markDBRecovered()
+
 	dispatchEvents := []dal.DispatchEvent{}
 	if s.dispatchEvents != nil {
 		dispatchEvents, err = s.dispatchEvents.ListByRun(ctx, runID)
@@ -2371,6 +2407,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		FailureReason             *string                    `json:"failure_reason,omitempty"`
 		DefinitionVersion         int                        `json:"definition_version"`
 		DefinitionHash            string                     `json:"definition_hash,omitempty"`
+		Source                    *sourceProvenanceResponse  `json:"source,omitempty"`
 		OwningCell                string                     `json:"owning_cell"`
 		ReplayOfRunID             *string                    `json:"replay_of_run_id,omitempty"`
 		TriggerInvocationID       *string                    `json:"trigger_invocation_id,omitempty"`
@@ -2398,6 +2435,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		FailureReason:        rec.FailureReason,
 		DefinitionVersion:    rec.DefinitionVersion,
 		DefinitionHash:       rec.DefinitionHash,
+		Source:               source,
 		OwningCell:           rec.OwningCell,
 		ReplayOfRunID:        rec.ReplayOfRunID,
 		TriggerInvocationID:  rec.TriggerInvocationID,

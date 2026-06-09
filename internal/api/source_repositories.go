@@ -829,6 +829,38 @@ func sourceRecordToProvenance(rec dal.JobDefinitionSourceRecord) sourceProvenanc
 	}
 }
 
+func (s *APIServer) definitionSourceProvenance(ctx context.Context, jobID string, version int) (*sourceProvenanceResponse, error) {
+	sources, err := s.definitionSourceProvenanceByVersion(ctx, jobID, []int{version})
+	if err != nil {
+		return nil, err
+	}
+
+	source, ok := sources[version]
+	if !ok {
+		return nil, nil
+	}
+
+	return &source, nil
+}
+
+func (s *APIServer) definitionSourceProvenanceByVersion(ctx context.Context, jobID string, versions []int) (map[int]sourceProvenanceResponse, error) {
+	out := map[int]sourceProvenanceResponse{}
+	if s.sources == nil || strings.TrimSpace(jobID) == "" || len(versions) == 0 {
+		return out, nil
+	}
+
+	records, err := s.sources.GetDefinitionSources(ctx, jobID, versions)
+	if err != nil {
+		return nil, err
+	}
+
+	for version, rec := range records {
+		out[version] = sourceRecordToProvenance(rec)
+	}
+
+	return out, nil
+}
+
 func (s *APIServer) writeSourceDefinitionError(w http.ResponseWriter, err error) {
 	if s.handleDBUnavailableError(w, err) {
 		return
