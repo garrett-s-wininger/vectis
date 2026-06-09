@@ -10,6 +10,7 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -38,6 +39,11 @@ const (
 	envMacroDatabaseDSN          = "VECTIS_PERF_DATABASE_DSN"
 	envMacroDatabaseMaxOpenConns = "VECTIS_PERF_DATABASE_MAX_OPEN_CONNS"
 	envMacroDatabaseMaxIdleConns = "VECTIS_PERF_DATABASE_MAX_IDLE_CONNS"
+	envMacroPGStatStatements     = "VECTIS_PERF_PG_STAT_STATEMENTS"
+	envMacroPGStatStatementsOut  = "VECTIS_PERF_PG_STAT_STATEMENTS_OUTPUT"
+
+	macroPGStatStatementsTopLimit = 12
+	macroPGStatQueryMaxLen        = 240
 )
 
 var macroJobSequence atomic.Uint64
@@ -68,6 +74,8 @@ type macroBenchEnv struct {
 	apiQueue interfaces.QueueService
 	runs     dal.RunsRepository
 	log      interfaces.Logger
+	db       *sql.DB
+	dbDriver string
 }
 
 type macroWorkerQueue interface {
@@ -189,10 +197,138 @@ func macroBenchmarkOptionalEnvInt(b *testing.B, name string, defaultValue int) i
 	return value
 }
 
+func resetMacroDBStats(b *testing.B, env macroBenchEnv) bool {
+	b.Helper()
+
+	if !macroPGStatStatementsEnabled(env) {
+		return false
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if _, err := env.db.ExecContext(ctx, "CREATE EXTENSION IF NOT EXISTS pg_stat_statements"); err != nil {
+		emitMacroPGStatLine(b, "# pg_stat_statements benchmark=%s iterations=%d unavailable create_extension=%q", b.Name(), b.N, err)
+		return false
+	}
+
+	if _, err := env.db.ExecContext(ctx, "SELECT pg_stat_statements_reset()"); err != nil {
+		emitMacroPGStatLine(b, "# pg_stat_statements benchmark=%s iterations=%d unavailable reset=%q", b.Name(), b.N, err)
+		return false
+	}
+
+	return true
+}
+
+func reportMacroDBStats(b *testing.B, env macroBenchEnv, enabled bool) {
+	b.Helper()
+
+	if !enabled {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	rows, err := env.db.QueryContext(ctx, `
+		SELECT query, calls, total_exec_time, mean_exec_time, rows
+		FROM pg_stat_statements
+		WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+		  AND query NOT LIKE '%pg_stat_statements%'
+		ORDER BY total_exec_time DESC
+		LIMIT $1
+	`, macroPGStatStatementsTopLimit)
+	if err != nil {
+		emitMacroPGStatLine(b, "# pg_stat_statements benchmark=%s iterations=%d unavailable query=%q", b.Name(), b.N, err)
+		return
+	}
+	defer rows.Close()
+
+	rank := 0
+	for rows.Next() {
+		var query string
+		var calls int64
+		var totalMS float64
+		var meanMS float64
+		var returnedRows int64
+		if err := rows.Scan(&query, &calls, &totalMS, &meanMS, &returnedRows); err != nil {
+			emitMacroPGStatLine(b, "# pg_stat_statements benchmark=%s iterations=%d unavailable scan=%q", b.Name(), b.N, err)
+			return
+		}
+
+		rank++
+		emitMacroPGStatLine(
+			b,
+			"# pg_stat_statements benchmark=%s iterations=%d rank=%d calls=%d total_ms=%.3f mean_ms=%.3f rows=%d query=%q",
+			b.Name(),
+			b.N,
+			rank,
+			calls,
+			totalMS,
+			meanMS,
+			returnedRows,
+			compactMacroSQL(query),
+		)
+	}
+
+	if err := rows.Err(); err != nil {
+		emitMacroPGStatLine(b, "# pg_stat_statements benchmark=%s iterations=%d unavailable rows=%q", b.Name(), b.N, err)
+	}
+}
+
+func emitMacroPGStatLine(b *testing.B, format string, args ...any) {
+	b.Helper()
+
+	line := fmt.Sprintf(format, args...)
+	path := strings.TrimSpace(os.Getenv(envMacroPGStatStatementsOut))
+	if path == "" {
+		b.Log(line)
+		return
+	}
+
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		b.Logf("write pg_stat_statements output %s: %v", path, err)
+		b.Log(line)
+		return
+	}
+	defer file.Close()
+
+	if _, err := fmt.Fprintln(file, line); err != nil {
+		b.Logf("write pg_stat_statements output %s: %v", path, err)
+		b.Log(line)
+	}
+}
+
+func macroPGStatStatementsEnabled(env macroBenchEnv) bool {
+	if env.db == nil || env.dbDriver != "pgx" {
+		return false
+	}
+
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(envMacroPGStatStatements))) {
+	case "", "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return true
+	}
+}
+
+func compactMacroSQL(query string) string {
+	query = strings.Join(strings.Fields(query), " ")
+	if len(query) <= macroPGStatQueryMaxLen {
+		return query
+	}
+
+	return query[:macroPGStatQueryMaxLen-3] + "..."
+}
+
 func BenchmarkMacro_APIQueueWorker_TriggerToTerminal(b *testing.B) {
 	ctx := context.Background()
 	macroJob := uniqueStoredMacroJob(noopMacroJob())
 	env := newMacroBenchEnv(b, []storedMacroJob{macroJob})
+	statsEnabled := resetMacroDBStats(b, env)
 
 	acceptedToQueueSamples := make([]int64, 0, b.N)
 	queueToDequeuedSamples := make([]int64, 0, b.N)
@@ -215,6 +351,7 @@ func BenchmarkMacro_APIQueueWorker_TriggerToTerminal(b *testing.B) {
 	}
 
 	b.StopTimer()
+	reportMacroDBStats(b, env, statsEnabled)
 
 	reportLatencyMetrics(b, "accepted_to_queue", acceptedToQueueSamples)
 	reportLatencyMetrics(b, "queue_to_dequeued", queueToDequeuedSamples)
@@ -242,6 +379,7 @@ func runMacroConcurrentNoopTriggerToTerminalBenchmark(b *testing.B) {
 	macroJob := uniqueStoredMacroJob(noopMacroJob())
 	env := newMacroBenchEnv(b, []storedMacroJob{macroJob})
 	totalRuns := b.N
+	statsEnabled := resetMacroDBStats(b, env)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -262,6 +400,9 @@ func runMacroConcurrentNoopTriggerToTerminalBenchmark(b *testing.B) {
 	terminalDone := time.Now()
 
 	b.StopTimer()
+	cancel()
+	waitWorkers()
+	reportMacroDBStats(b, env, statsEnabled)
 
 	acceptedToQueueSamples := make([]int64, 0, len(results))
 	queueToDequeuedSamples := make([]int64, 0, len(results))
@@ -343,6 +484,7 @@ func BenchmarkMacro_WorkerScale_ResultActionClaimAckComplete(b *testing.B) {
 func BenchmarkMacro_LogHeavy_TriggerToTerminalReplay(b *testing.B) {
 	ctx := context.Background()
 	env := newMacroLogBenchEnv(b, 200)
+	statsEnabled := resetMacroDBStats(b, env.macroBenchEnv)
 
 	acceptedToQueueSamples := make([]int64, 0, b.N)
 	queueToDequeuedSamples := make([]int64, 0, b.N)
@@ -371,6 +513,7 @@ func BenchmarkMacro_LogHeavy_TriggerToTerminalReplay(b *testing.B) {
 	}
 
 	b.StopTimer()
+	reportMacroDBStats(b, env.macroBenchEnv, statsEnabled)
 
 	reportLatencyMetrics(b, "accepted_to_queue", acceptedToQueueSamples)
 	reportLatencyMetrics(b, "queue_to_dequeued", queueToDequeuedSamples)
@@ -454,6 +597,8 @@ func newMacroBenchEnv(b *testing.B, jobs []storedMacroJob) macroBenchEnv {
 		apiQueue: queueService,
 		runs:     repos.Runs(),
 		log:      logger,
+		db:       db,
+		dbDriver: dbConfig.driver,
 	}
 }
 
@@ -463,6 +608,7 @@ func runMacroAPITriggerToQueuedBenchmark(b *testing.B) {
 	ctx := context.Background()
 	macroJob := uniqueStoredMacroJob(noopMacroJob())
 	env := newMacroBenchEnv(b, []storedMacroJob{macroJob})
+	statsEnabled := resetMacroDBStats(b, env)
 
 	acceptedToQueueSamples := make([]int64, 0, b.N)
 	triggerToQueueSamples := make([]int64, 0, b.N)
@@ -497,6 +643,7 @@ func runMacroAPITriggerToQueuedBenchmark(b *testing.B) {
 
 	elapsed := time.Since(start)
 	b.StopTimer()
+	reportMacroDBStats(b, env, statsEnabled)
 
 	reportLatencyMetrics(b, "accepted_to_queue", acceptedToQueueSamples)
 	reportLatencyMetrics(b, "trigger_to_queue", triggerToQueueSamples)
@@ -521,6 +668,7 @@ func runMacroWorkerClaimAckBenchmarkWithWorkers(b *testing.B, workerCount int) {
 	macroJob := uniqueStoredMacroJob(noopMacroJob())
 	env := newMacroBenchEnv(b, []storedMacroJob{macroJob})
 	preseedMacroQueuedRuns(b, ctx, env, macroJob, b.N)
+	statsEnabled := resetMacroDBStats(b, env)
 
 	resultCh := make(chan macroClaimAckResult, b.N)
 	workCtx, cancel := context.WithCancel(ctx)
@@ -540,6 +688,7 @@ func runMacroWorkerClaimAckBenchmarkWithWorkers(b *testing.B, workerCount int) {
 
 	cancel()
 	waitWorkers()
+	reportMacroDBStats(b, env, statsEnabled)
 
 	reportMacroClaimAckMetrics(b, results)
 	if elapsed > 0 {
@@ -573,6 +722,7 @@ func runMacroWorkerClaimAckCompleteBenchmarkWithWorkersAndJob(
 	macroJob = uniqueStoredMacroJob(macroJob)
 	env := newMacroBenchEnv(b, []storedMacroJob{macroJob})
 	preseedMacroQueuedRuns(b, ctx, env, macroJob, b.N)
+	statsEnabled := resetMacroDBStats(b, env)
 
 	resultCh := make(chan macroWorkerResult, b.N)
 	workCtx, cancel := context.WithCancel(ctx)
@@ -592,6 +742,7 @@ func runMacroWorkerClaimAckCompleteBenchmarkWithWorkersAndJob(
 
 	cancel()
 	waitWorkers()
+	reportMacroDBStats(b, env, statsEnabled)
 
 	reportMacroRunTimingMetrics(b, results)
 	if elapsed > 0 {
@@ -615,6 +766,7 @@ func runMacroWorkerClaimAckFinalizeBenchmarkWithWorkers(b *testing.B, workerCoun
 	macroJob := uniqueStoredMacroJob(noopMacroJob())
 	env := newMacroBenchEnv(b, []storedMacroJob{macroJob})
 	preseedMacroQueuedRuns(b, ctx, env, macroJob, b.N)
+	statsEnabled := resetMacroDBStats(b, env)
 
 	resultCh := make(chan macroClaimAckFinalizeResult, b.N)
 	workCtx, cancel := context.WithCancel(ctx)
@@ -634,6 +786,7 @@ func runMacroWorkerClaimAckFinalizeBenchmarkWithWorkers(b *testing.B, workerCoun
 
 	cancel()
 	waitWorkers()
+	reportMacroDBStats(b, env, statsEnabled)
 
 	reportMacroClaimAckFinalizeMetrics(b, results)
 	if elapsed > 0 {

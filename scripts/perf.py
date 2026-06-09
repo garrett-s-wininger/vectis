@@ -9,6 +9,7 @@ performance suite.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as dt
 import json
 import os
@@ -47,6 +48,7 @@ CONFIG_ERROR_STATUS = 2
 
 ENV_PERF_DATABASE_DSN = "VECTIS_PERF_DATABASE_DSN"
 ENV_PERF_DATABASE_DRIVER = "VECTIS_PERF_DATABASE_DRIVER"
+ENV_PERF_PG_STAT_STATEMENTS_OUTPUT = "VECTIS_PERF_PG_STAT_STATEMENTS_OUTPUT"
 ENV_PERF_POSTGRES_DSN = "VECTIS_PERF_POSTGRES_DSN"
 ENV_PERF_POSTGRES_DURABILITY = "VECTIS_PERF_POSTGRES_DURABILITY"
 ENV_PERF_SQLITE_DSN = "VECTIS_PERF_SQLITE_DSN"
@@ -254,6 +256,7 @@ def _run_go_benchmark_suite(args: argparse.Namespace) -> int:
             args,
             command,
             database_matrix,
+            run_dir,
         )
     except ValueError as err:
         _emit(str(err), stream=sys.stderr)
@@ -357,11 +360,20 @@ def _capture_go_benchmark_output(
     args: argparse.Namespace,
     command: list[str],
     database_matrix: list[str],
+    run_dir: Path,
 ) -> tuple[str, int, list[str]]:
     if database_matrix:
-        return _run_macro_database_matrix(command, database_matrix)
+        return _run_macro_database_matrix(command, database_matrix, run_dir)
 
     env = _go_benchmark_env(args)
+    pg_stat_output = None
+    if getattr(args, "suite", "") == "macro":
+        pg_stat_output = run_dir / "pg-stat-statements.txt"
+        _prepare_pg_stat_output(pg_stat_output)
+        if env is None:
+            env = os.environ.copy()
+        env[ENV_PERF_PG_STAT_STATEMENTS_OUTPUT] = str(pg_stat_output)
+
     proc = subprocess.run(  # noqa: S603 - harness executes configured benchmark tools.
         command,
         cwd=_repo_root(),
@@ -371,7 +383,9 @@ def _capture_go_benchmark_output(
         check=False,
         env=env,
     )
-    return proc.stdout, proc.returncode, command
+
+    raw_output = _append_pg_stat_output(proc.stdout, pg_stat_output, None)
+    return raw_output, proc.returncode, command
 
 
 def _macro_database_matrix(args: argparse.Namespace) -> list[str]:
@@ -383,7 +397,7 @@ def _macro_database_matrix(args: argparse.Namespace) -> list[str]:
 
 
 def _run_macro_database_matrix(
-    command: list[str], databases: list[str]
+    command: list[str], databases: list[str], run_dir: Path
 ) -> tuple[str, int, list[str]]:
     outputs: list[str] = []
     status = 0
@@ -391,6 +405,9 @@ def _run_macro_database_matrix(
     for database in databases:
         tag = "db_" + _sanitize_benchmark_part(_macro_database_tag(database))
         env = _macro_database_env(database)
+        pg_stat_output = run_dir / f"pg-stat-statements-{tag}.txt"
+        _prepare_pg_stat_output(pg_stat_output)
+        env[ENV_PERF_PG_STAT_STATEMENTS_OUTPUT] = str(pg_stat_output)
         database_command = _macro_database_command(command, database)
         proc = subprocess.run(  # noqa: S603 - harness executes configured benchmark tools.
             database_command,
@@ -402,7 +419,9 @@ def _run_macro_database_matrix(
             env=env,
         )
         status = status or proc.returncode
-        outputs.append(f"# database: {database}\n{_tag_go_benchmark_output(proc.stdout, tag)}")
+        go_output = _tag_go_benchmark_output(proc.stdout, tag)
+        go_output = _append_pg_stat_output(go_output, pg_stat_output, tag)
+        outputs.append(f"# database: {database}\n{go_output}")
 
     metadata_command = ["database-matrix=" + ",".join(databases), *command]
     return "\n".join(outputs), status, metadata_command
@@ -522,6 +541,47 @@ def _tag_go_benchmark_line(line: str, tag: str) -> str:
         return line
 
     return f"{match.group(1)}/{tag}{match.group(2)} {fields[1]}"
+
+
+def _prepare_pg_stat_output(path: Path) -> None:
+    with contextlib.suppress(FileNotFoundError):
+        path.unlink()
+
+
+def _append_pg_stat_output(output: str, path: Path | None, tag: str | None) -> str:
+    if path is None:
+        return output
+
+    try:
+        pg_stat_output = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return output
+
+    if not pg_stat_output:
+        return output
+
+    if tag:
+        pg_stat_output = _tag_pg_stat_output(pg_stat_output, tag)
+
+    if output and not output.endswith("\n"):
+        output += "\n"
+    return output + pg_stat_output
+
+
+def _tag_pg_stat_output(output: str, tag: str) -> str:
+    lines = [_tag_pg_stat_line(line, tag) for line in output.splitlines()]
+    tagged = "\n".join(lines)
+    if output.endswith("\n"):
+        tagged += "\n"
+    return tagged
+
+
+def _tag_pg_stat_line(line: str, tag: str) -> str:
+    prefix = "# pg_stat_statements "
+    if not line.startswith(prefix):
+        return line
+
+    return f"{prefix}database={tag} {line[len(prefix) :]}"
 
 
 def _sanitize_benchmark_part(value: str) -> str:

@@ -136,11 +136,16 @@ func startPostgres(ctx context.Context, podman, image, containerName, hostPort s
 		"-p",
 		"127.0.0.1:" + hostPort + ":5432",
 		image,
+		"postgres",
+		"-c",
+		"shared_preload_libraries=pg_stat_statements",
+		"-c",
+		"pg_stat_statements.track=all",
 	}
+
 	if postgresDurabilityProfile() == postgresDurabilityUnsafe {
 		args = append(
 			args,
-			"postgres",
 			"-c",
 			"fsync=off",
 			"-c",
