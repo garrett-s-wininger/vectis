@@ -160,7 +160,26 @@ DEPLOY_LINUX_OUT ?= artifacts/deploy/linux
 
 .PHONY: deploy-artifacts-render
 deploy-artifacts-render:
-	go run ./deploy/linux/cmd/render -out $(DEPLOY_LINUX_OUT)
+	go run ./cmd/cli deploy linux render --output $(DEPLOY_LINUX_OUT)
+
+LIMA_INSTANCE ?= vectis-deploy-smoke
+LIMA_TEMPLATE ?= ubuntu-lts
+
+.PHONY: deploy-linux-lima-verify
+deploy-linux-lima-verify:
+	go run ./cmd/cli deploy linux lima verify --instance $(LIMA_INSTANCE) --template $(LIMA_TEMPLATE)
+
+.PHONY: deploy-linux-lima-clean
+deploy-linux-lima-clean:
+	go run ./cmd/cli deploy linux lima clean --instance $(LIMA_INSTANCE)
+
+.PHONY: deploy-linux-lima-down
+deploy-linux-lima-down:
+	go run ./cmd/cli deploy linux lima down --instance $(LIMA_INSTANCE)
+
+.PHONY: deploy-linux-lima-delete
+deploy-linux-lima-delete:
+	go run ./cmd/cli deploy linux lima delete --instance $(LIMA_INSTANCE)
 
 .PHONY: website-a11y
 website-a11y:

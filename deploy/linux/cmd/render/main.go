@@ -18,20 +18,8 @@ func main() {
 		os.Exit(2)
 	}
 
-	manifest, err := linux.LoadManifest(*manifestPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "load manifest: %v\n", err)
-		os.Exit(1)
-	}
-
-	files, err := manifest.RenderFiles()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "render files: %v\n", err)
-		os.Exit(1)
-	}
-
-	if err := linux.WriteFiles(*outDir, files); err != nil {
-		fmt.Fprintf(os.Stderr, "write files: %v\n", err)
+	if _, err := linux.RenderToDir(linux.RenderOptions{ManifestPath: *manifestPath, OutDir: *outDir}); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
 }

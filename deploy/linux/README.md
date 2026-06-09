@@ -4,6 +4,8 @@ This directory contains the first production-install artifact set for Linux
 hosts. The checked-in source of truth is `services.toml`; systemd units,
 environment examples, sysusers, and tmpfiles entries are rendered from that
 manifest. The render and validation path works on macOS without booting a VM.
+The Lima smoke path adds a real Linux systemd check when developers want the
+heavier cross-platform lane.
 
 ## What Is Included
 
@@ -11,7 +13,8 @@ manifest. The render and validation path works on macOS without booting a VM.
 | --- | --- |
 | `services.toml` | Linux service inventory, systemd defaults, and env examples |
 | `artifacts.go` | Renderer for systemd units, env examples, sysusers, and tmpfiles |
-| `cmd/render` | CLI used by packaging, config management, or manual installs to render files |
+| `lima.go` | macOS-to-Linux systemd smoke orchestration through Lima |
+| `cmd/render` | small renderer entrypoint retained for package/build integrations |
 
 The standalone units are Postgres-first. Set `VECTIS_DATABASE_DRIVER=pgx` and a
 real PostgreSQL DSN after copying the rendered `env/vectis.env.example` to
@@ -56,14 +59,51 @@ migration ordering, and baseline hardening settings.
 Render the installable files with:
 
 ```sh
-make deploy-artifacts-render OUT_DIR=artifacts/deploy/linux
+go run ./cmd/cli deploy linux render --output artifacts/deploy/linux
+make deploy-artifacts-render DEPLOY_LINUX_OUT=artifacts/deploy/linux
+```
+
+## Linux VM Validation On macOS
+
+When Lima is installed, macOS developers can run the rendered artifacts through
+real Linux systemd without leaving the workstation:
+
+```sh
+go run ./cmd/cli deploy linux lima verify
+make deploy-linux-lima-verify
+```
+
+This creates or starts a Lima instance named `vectis-deploy-smoke` from the
+`ubuntu-lts` template, renders the Linux artifacts into a temporary local
+directory, copies them into the guest, installs them under `/etc/systemd/system`,
+`/etc/vectis`, `/usr/lib/sysusers.d`, and `/usr/lib/tmpfiles.d`, creates
+temporary Vectis stub binaries, and runs `systemd-analyze verify`,
+`systemd-sysusers`, `systemd-tmpfiles`, and `systemctl daemon-reload`.
+
+On success, the verify command removes the smoke artifacts from the guest and
+deletes the temporary local render directory. For debugging, pass
+`--keep-artifacts` and optionally `--artifacts <dir>`.
+
+The Lima lane verifies that the generated files are accepted by a real Linux
+systemd host. It does not yet prove a full Vectis process stack with real
+binaries and Postgres. That is the next smoke profile.
+
+Useful cleanup commands for interrupted runs or `--keep-artifacts` sessions:
+
+```sh
+go run ./cmd/cli deploy linux lima clean
+go run ./cmd/cli deploy linux lima down
+go run ./cmd/cli deploy linux lima delete
+make deploy-linux-lima-clean
+make deploy-linux-lima-down
+make deploy-linux-lima-delete
 ```
 
 ## Manual Install Sketch
 
 Package scripts or config management should eventually own this, but the intended shape is:
 
-1. Render the artifacts with `make deploy-artifacts-render`.
+1. Render the artifacts with `vectis-cli deploy linux render`.
 2. Install `vectis-*` binaries into `/usr/bin`.
 3. Install rendered `systemd/*.service` and `systemd/*.target` into the system unit dir.
 4. Install rendered `sysusers.d/vectis.conf` and `tmpfiles.d/vectis.conf`.

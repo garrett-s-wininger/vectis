@@ -2,6 +2,7 @@ package linux
 
 import (
 	"bytes"
+	_ "embed"
 	"fmt"
 	"os"
 	"path"
@@ -12,7 +13,25 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-const DefaultManifestPath = "deploy/linux/services.toml"
+const (
+	DefaultArtifactDir  = "artifacts/deploy/linux"
+	DefaultManifestPath = "deploy/linux/services.toml"
+)
+
+//go:embed services.toml
+var embeddedManifest []byte
+
+type RenderOptions struct {
+	ManifestPath string
+	OutDir       string
+}
+
+type RenderResult struct {
+	Status       string `json:"status"`
+	ManifestPath string `json:"manifest_path"`
+	OutputDir    string `json:"output_dir"`
+	Files        int    `json:"files"`
+}
 
 type Manifest struct {
 	Target           TargetConfig      `toml:"target"`
@@ -89,9 +108,22 @@ type Unit struct {
 }
 
 func LoadManifest(path string) (Manifest, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return Manifest{}, err
+	if path == "" {
+		path = DefaultManifestPath
+	}
+
+	var (
+		b   []byte
+		err error
+	)
+
+	if path == DefaultManifestPath {
+		b = embeddedManifest
+	} else {
+		b, err = os.ReadFile(path)
+		if err != nil {
+			return Manifest{}, err
+		}
 	}
 
 	var manifest Manifest
@@ -104,6 +136,37 @@ func LoadManifest(path string) (Manifest, error) {
 	}
 
 	return manifest, nil
+}
+
+func RenderToDir(opts RenderOptions) (RenderResult, error) {
+	if opts.ManifestPath == "" {
+		opts.ManifestPath = DefaultManifestPath
+	}
+
+	if opts.OutDir == "" {
+		return RenderResult{}, fmt.Errorf("output directory is required")
+	}
+
+	manifest, err := LoadManifest(opts.ManifestPath)
+	if err != nil {
+		return RenderResult{}, fmt.Errorf("load manifest: %w", err)
+	}
+
+	files, err := manifest.RenderFiles()
+	if err != nil {
+		return RenderResult{}, fmt.Errorf("render files: %w", err)
+	}
+
+	if err := WriteFiles(opts.OutDir, files); err != nil {
+		return RenderResult{}, fmt.Errorf("write files: %w", err)
+	}
+
+	return RenderResult{
+		Status:       "rendered",
+		ManifestPath: opts.ManifestPath,
+		OutputDir:    opts.OutDir,
+		Files:        len(files),
+	}, nil
 }
 
 func (m Manifest) RenderFiles() (map[string]string, error) {

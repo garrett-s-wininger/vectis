@@ -234,6 +234,51 @@ func TestWriteFiles(t *testing.T) {
 	}
 }
 
+func TestRenderToDirUsesEmbeddedDefaultManifest(t *testing.T) {
+	out := t.TempDir()
+	result, err := RenderToDir(RenderOptions{OutDir: out})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result.Status != "rendered" {
+		t.Fatalf("status = %q, want rendered", result.Status)
+	}
+
+	if result.ManifestPath != DefaultManifestPath {
+		t.Fatalf("manifest path = %q, want %q", result.ManifestPath, DefaultManifestPath)
+	}
+
+	if result.Files == 0 {
+		t.Fatalf("rendered no files")
+	}
+
+	if _, err := os.Stat(filepath.Join(out, "systemd", targetUnit)); err != nil {
+		t.Fatalf("embedded default render missing target unit: %v", err)
+	}
+}
+
+func TestPrepareLimaArtifactDirUsesTemporaryDirectory(t *testing.T) {
+	opts := LimaOptions{}
+	cleanup, err := prepareLimaArtifactDir(&opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(opts.ArtifactDir) })
+
+	if opts.ArtifactDir == "" {
+		t.Fatalf("artifact dir was not set")
+	}
+
+	if !cleanup {
+		t.Fatalf("expected temporary artifact dir to be marked for cleanup")
+	}
+
+	if strings.Contains(opts.ArtifactDir, DefaultArtifactDir) {
+		t.Fatalf("temporary Lima artifact dir should not default to repo artifacts path: %s", opts.ArtifactDir)
+	}
+}
+
 type parsedUnit map[string]map[string][]string
 
 func loadTestManifest(t *testing.T) Manifest {
