@@ -14,6 +14,9 @@ const (
 	ExecutionDistributed = "distributed"
 	StepsPort            = "steps"
 	BranchesPort         = "branches"
+	ConditionPort        = "condition"
+	ThenPort             = "then"
+	ElsePort             = "else"
 )
 
 type ChildRef struct {

@@ -17,9 +17,11 @@ func NewRegistry() *Registry {
 	}
 
 	r.Register(NewShellAction(nil))
+	r.Register(NewTestAction(nil))
 	r.Register(NewCheckoutAction(nil))
 	r.Register(&SequenceNode{})
 	r.Register(&ParallelNode{})
+	r.Register(&IfNode{})
 
 	return r
 }

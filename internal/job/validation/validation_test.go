@@ -402,6 +402,139 @@ func TestValidateJob_RejectsLeafChildPorts(t *testing.T) {
 	}
 }
 
+func TestValidateJob_IfPorts(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root = &api.Node{
+		Id:   strp("deploy-gate"),
+		Uses: strp("builtins/if"),
+		Ports: map[string]*api.NodePort{
+			taskgraph.ConditionPort: nodePort(&api.Node{
+				Id:   strp("has-changes"),
+				Uses: strp("builtins/test"),
+				With: map[string]string{"command": "test -f deploy.changed"},
+			}),
+			taskgraph.ThenPort: nodePort(&api.Node{
+				Id:   strp("deploy"),
+				Uses: strp("builtins/shell"),
+				With: map[string]string{"command": "make deploy"},
+			}),
+			taskgraph.ElsePort: nodePort(&api.Node{
+				Id:   strp("skip-note"),
+				Uses: strp("builtins/shell"),
+				With: map[string]string{"command": "echo no deploy"},
+			}),
+		},
+	}
+
+	if err := validation.ValidateJob(job, validation.Options{RequireJobID: true}); err != nil {
+		t.Fatalf("expected if job to validate: %v", err)
+	}
+}
+
+func TestValidateJob_IfRequiresOneCondition(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root = &api.Node{
+		Id:   strp("deploy-gate"),
+		Uses: strp("builtins/if"),
+		Ports: map[string]*api.NodePort{
+			taskgraph.ConditionPort: nodePort(),
+		},
+	}
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
+	if err == nil {
+		t.Fatal("expected validation error for missing condition")
+	}
+
+	if msg := err.Error(); !strings.Contains(msg, `root.ports.condition: requires at least 1 node(s)`) {
+		t.Fatalf("expected condition cardinality error, got %q", msg)
+	}
+}
+
+func TestValidateJob_IfRejectsStepsShorthand(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root.Uses = strp("builtins/if")
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
+	if err == nil {
+		t.Fatal("expected validation error for if steps")
+	}
+
+	if msg := err.Error(); !strings.Contains(msg, `root.steps: action "builtins/if" does not accept child steps`) {
+		t.Fatalf("expected if steps error, got %q", msg)
+	}
+}
+
+func TestValidateJob_IfRejectsDistributedDescendants(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root = &api.Node{
+		Id:   strp("deploy-gate"),
+		Uses: strp("builtins/if"),
+		Ports: map[string]*api.NodePort{
+			taskgraph.ConditionPort: nodePort(&api.Node{
+				Id:   strp("has-changes"),
+				Uses: strp("builtins/test"),
+				With: map[string]string{"command": "test -f deploy.changed"},
+			}),
+			taskgraph.ThenPort: nodePort(&api.Node{
+				Id:   strp("checks"),
+				Uses: strp("builtins/parallel"),
+				Ports: map[string]*api.NodePort{
+					taskgraph.BranchesPort: nodePort(&api.Node{
+						Id:   strp("unit"),
+						Uses: strp("builtins/shell"),
+						With: map[string]string{"command": "go test ./..."},
+					}),
+				},
+			}),
+		},
+	}
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
+	if err == nil {
+		t.Fatal("expected validation error for distributed descendant")
+	}
+
+	if msg := err.Error(); !strings.Contains(msg, `action "builtins/if" only supports local child ports for now`) {
+		t.Fatalf("expected local-only descendant error, got %q", msg)
+	}
+}
+
+func TestValidateJob_IfRejectsDistributedExecution(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root = &api.Node{
+		Id:   strp("deploy-gate"),
+		Uses: strp("builtins/if"),
+		With: map[string]string{"execution": "distributed"},
+		Ports: map[string]*api.NodePort{
+			taskgraph.ConditionPort: nodePort(&api.Node{
+				Id:   strp("has-changes"),
+				Uses: strp("builtins/test"),
+				With: map[string]string{"command": "test -f deploy.changed"},
+			}),
+		},
+	}
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
+	if err == nil {
+		t.Fatal("expected validation error for distributed if")
+	}
+
+	if msg := err.Error(); !strings.Contains(msg, `root.with.execution: must be "local" for action "builtins/if"`) {
+		t.Fatalf("expected local-only execution error, got %q", msg)
+	}
+}
+
 func TestValidateJob_ControlExecutionModeMustBeKnown(t *testing.T) {
 	t.Parallel()
 

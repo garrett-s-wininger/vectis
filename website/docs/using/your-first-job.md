@@ -156,9 +156,11 @@ These are the built-ins available today:
 | Action | Required `with` fields | What it does |
 | --- | --- | --- |
 | `builtins/shell` | `command` | Runs `sh -c <command>` in the run workspace. |
+| `builtins/test` | `command` | Runs a predicate command and returns a boolean `result` output. |
 | `builtins/checkout` | `url` | Runs `git clone <url> .` in the run workspace. |
 | `builtins/sequence` | none | Runs child `steps` in order. |
 | `builtins/parallel` | none | Runs child `branches` concurrently or fans them out across workers. |
+| `builtins/if` | none | Runs a `condition` node, then runs either the `then` or `else` port. |
 
 Actions are intentionally small right now. Pipeline-as-code and richer action syntax are future work; today, JSON is the source format.
 

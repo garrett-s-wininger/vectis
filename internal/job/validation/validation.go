@@ -153,14 +153,15 @@ func (v *validator) walk(node *api.Node, path string, depth int) {
 		v.add(path+".uses", "is required")
 	} else if resolved, err := v.opts.Resolver.Resolve(uses); err != nil {
 		v.add(path+".uses", fmt.Sprintf("unknown action %q", uses))
-	} else if fieldErrs := resolved.ValidateWith(taskgraph.ActionWith(node.GetWith())); len(fieldErrs) > 0 {
-		for _, fe := range fieldErrs {
-			v.add(path+".with."+fe.Field, fe.Message)
+	} else {
+		if fieldErrs := resolved.ValidateWith(taskgraph.ActionWith(node.GetWith())); len(fieldErrs) > 0 {
+			for _, fe := range fieldErrs {
+				v.add(path+".with."+fe.Field, fe.Message)
+			}
 		}
 
 		v.validatePorts(path, node, resolved)
-	} else {
-		v.validatePorts(path, node, resolved)
+		v.validateExecutionScope(path, node, resolved)
 	}
 
 	for _, ref := range taskgraph.ChildRefs(node, path) {
@@ -177,10 +178,6 @@ func (v *validator) validatePorts(path string, node *api.Node, resolved action.N
 		if spec.Primary {
 			primaryPort = spec.Name
 		}
-	}
-
-	if primaryPort == "" && len(specs) > 0 {
-		primaryPort = specs[0].Name
 	}
 
 	if len(node.GetSteps()) > 0 {
@@ -224,6 +221,23 @@ func (v *validator) validatePorts(path string, node *api.Node, resolved action.N
 
 		if count < min {
 			v.add(path+".ports."+spec.Name, fmt.Sprintf("requires at least %d node(s)", min))
+		}
+	}
+}
+
+func (v *validator) validateExecutionScope(path string, node *api.Node, resolved action.Node) {
+	if !action.LocalOnly(resolved) {
+		return
+	}
+
+	if taskgraph.ExecutionMode(node) == taskgraph.ExecutionDistributed {
+		v.add(path+".with."+taskgraph.ExecutionField, fmt.Sprintf("must be %q for action %q", taskgraph.ExecutionLocal, resolved.Type()))
+	}
+
+	for _, ref := range taskgraph.ChildRefs(node, path) {
+		if taskgraph.ContainsDistributedBoundary(ref.Node) {
+			v.add(path+".ports", fmt.Sprintf("action %q only supports local child ports for now; %s contains a distributed boundary", resolved.Type(), ref.Path))
+			return
 		}
 	}
 }

@@ -85,6 +85,10 @@ type PortSchemaProvider interface {
 	PortSchema() []PortSpec
 }
 
+type LocalOnlyProvider interface {
+	LocalOnly() bool
+}
+
 func PortSchema(node Node) []PortSpec {
 	provider, ok := node.(PortSchemaProvider)
 	if !ok {
@@ -95,6 +99,11 @@ func PortSchema(node Node) []PortSpec {
 	out := make([]PortSpec, len(specs))
 	copy(out, specs)
 	return out
+}
+
+func LocalOnly(node Node) bool {
+	provider, ok := node.(LocalOnlyProvider)
+	return ok && provider.LocalOnly()
 }
 
 type FieldError struct {
