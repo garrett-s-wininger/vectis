@@ -102,6 +102,8 @@ const (
 	TriggerTypeReplay  = "replay"
 	TriggerTypeWebhook = "webhook"
 
+	SourceKindLocalCheckout = "local_checkout"
+
 	CatalogEventStatusPending = "pending"
 	CatalogEventStatusApplied = "applied"
 	CatalogEventStatusFailed  = "failed"
@@ -117,6 +119,29 @@ type JobRecord struct {
 	DefinitionHash string
 	Version        int
 	HomeCell       string
+}
+
+type SourceRepositoryRecord struct {
+	ID            int64
+	GlobalID      string
+	RepositoryID  string
+	NamespaceID   int64
+	SourceKind    string
+	CheckoutPath  string
+	CanonicalURL  string
+	DefaultRef    string
+	CredentialRef string
+	Enabled       bool
+}
+
+type JobDefinitionSourceRecord struct {
+	JobID          string
+	Version        int
+	RepositoryID   string
+	RequestedRef   string
+	ResolvedCommit string
+	DefinitionPath string
+	BlobSHA        string
 }
 
 type RunRecord struct {
@@ -681,6 +706,14 @@ type JobsRepository interface {
 	UpdateDefinition(ctx context.Context, jobID, definitionJSON string) (newVersion int, err error)
 }
 
+type SourcesRepository interface {
+	CreateRepository(ctx context.Context, rec SourceRepositoryRecord) (SourceRepositoryRecord, error)
+	GetRepository(ctx context.Context, repositoryID string) (SourceRepositoryRecord, error)
+	ListRepositories(ctx context.Context, namespaceID int64) ([]SourceRepositoryRecord, error)
+	RecordDefinitionSource(ctx context.Context, rec JobDefinitionSourceRecord) error
+	GetDefinitionSource(ctx context.Context, jobID string, version int) (JobDefinitionSourceRecord, error)
+}
+
 type EphemeralRunStarterWithAudit interface {
 	EphemeralRunStarter
 	CreateDefinitionAndRunInCellWithAudit(ctx context.Context, jobID, definitionJSON string, runIndex *int, targetCellID string, audit RunAuditMetadata) (runID string, runIndexOut int, err error)
@@ -703,6 +736,7 @@ type SQLRepositories struct {
 	catalogState  *SQLCatalogStatusBackfillRepository
 	cellAccept    *SQLCellExecutionAcceptancesRepository
 	serviceLeases *SQLServiceLeasesRepository
+	sources       *SQLSourcesRepository
 }
 
 func NewSQLRepositories(db *sql.DB) *SQLRepositories {
@@ -728,6 +762,7 @@ func NewSQLRepositoriesWithCellID(db *sql.DB, cellID string) *SQLRepositories {
 		catalogState:  &SQLCatalogStatusBackfillRepository{db: db},
 		cellAccept:    &SQLCellExecutionAcceptancesRepository{db: db, cellID: cellID},
 		serviceLeases: &SQLServiceLeasesRepository{db: db},
+		sources:       &SQLSourcesRepository{db: db},
 	}
 }
 
@@ -995,4 +1030,8 @@ func (r *SQLRepositories) CellExecutionAcceptances() CellExecutionAcceptancesRep
 
 func (r *SQLRepositories) ServiceLeases() ServiceLeasesRepository {
 	return r.serviceLeases
+}
+
+func (r *SQLRepositories) Sources() SourcesRepository {
+	return r.sources
 }

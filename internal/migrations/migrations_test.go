@@ -51,6 +51,8 @@ func TestSQLiteMigrations_UpDownRoundTrip(t *testing.T) {
 	assertTableExists(t, db, "service_leases")
 	assertTableExists(t, db, "api_rate_limit_buckets")
 	assertTableExists(t, db, "api_sessions")
+	assertTableExists(t, db, "source_repositories")
+	assertTableExists(t, db, "job_definition_sources")
 	assertSQLiteIndexColumns(t, db, "idx_run_artifacts_task", []string{"run_id", "task_id", "id"})
 	assertSQLiteIndexColumns(t, db, "idx_run_artifacts_task_attempt", []string{"run_id", "task_attempt_id", "id"})
 	assertSQLiteIndexColumns(t, db, "idx_run_artifacts_execution", []string{"run_id", "execution_id", "id"})
@@ -77,6 +79,8 @@ func TestSQLiteMigrations_UpDownRoundTrip(t *testing.T) {
 	assertTableMissing(t, db, "service_leases")
 	assertTableMissing(t, db, "api_rate_limit_buckets")
 	assertTableMissing(t, db, "api_sessions")
+	assertTableMissing(t, db, "source_repositories")
+	assertTableMissing(t, db, "job_definition_sources")
 }
 
 func readMigrationVersions(t *testing.T, backend string) map[string]map[string]string {

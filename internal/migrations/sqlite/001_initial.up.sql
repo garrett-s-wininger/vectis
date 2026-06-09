@@ -333,6 +333,38 @@ CREATE TABLE job_definitions (
     PRIMARY KEY (job_id, version)
 );
 
+CREATE TABLE source_repositories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    global_id TEXT UNIQUE,
+    repository_id TEXT UNIQUE NOT NULL,
+    namespace_id INTEGER NOT NULL DEFAULT 1 REFERENCES namespaces(id),
+    source_kind TEXT NOT NULL,
+    checkout_path TEXT NOT NULL DEFAULT '',
+    canonical_url TEXT NOT NULL DEFAULT '',
+    default_ref TEXT NOT NULL DEFAULT '',
+    credential_ref TEXT NOT NULL DEFAULT '',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_source_repositories_namespace ON source_repositories(namespace_id);
+
+CREATE TABLE job_definition_sources (
+    job_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    repository_id TEXT NOT NULL REFERENCES source_repositories(repository_id),
+    requested_ref TEXT NOT NULL,
+    resolved_commit TEXT NOT NULL,
+    definition_path TEXT NOT NULL,
+    blob_sha TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (job_id, version),
+    FOREIGN KEY (job_id, version) REFERENCES job_definitions(job_id, version) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_job_definition_sources_repository ON job_definition_sources(repository_id);
+
 CREATE TABLE auth_instance_state (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     setup_completed_at TIMESTAMP
