@@ -144,7 +144,11 @@ JSON routes expect `Content-Type: application/json`. Job create and run routes a
     "root": {
       "id": "root",
       "uses": "builtins/sequence",
-      "steps": []
+      "ports": {
+        "steps": {
+          "nodes": []
+        }
+      }
     }
   }
 }

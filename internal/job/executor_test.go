@@ -13,6 +13,7 @@ import (
 	"vectis/internal/dal"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/job"
+	"vectis/internal/taskgraph"
 )
 
 func executorStrp(s string) *string { return &s }
@@ -63,6 +64,10 @@ func logChunkStrings(chunks []*api.LogChunk) []string {
 		out[i] = string(chunk.GetData())
 	}
 	return out
+}
+
+func executorNodePort(nodes ...*api.Node) *api.NodePort {
+	return &api.NodePort{Nodes: nodes}
 }
 
 func assertLogContains(t *testing.T, chunks []string, expected string) {
@@ -322,6 +327,37 @@ func TestExecutor_ExecuteTask_RootTaskExecutesLocalChildren(t *testing.T) {
 	assertLogContains(t, chunks, "Starting task execution: test-job-task-root task root")
 	assertLogContains(t, chunks, "Executing node: builtins/sequence")
 	assertLogContains(t, chunks, "root-child-marker")
+}
+
+func TestExecutor_ExecuteTask_RootTaskExecutesExplicitPorts(t *testing.T) {
+	executor := job.NewExecutor()
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+
+	testJob := &api.Job{
+		Id:    executorStrp("test-job-task-root-ports"),
+		RunId: executorStrp("test-run-task-root-ports"),
+		Root: &api.Node{
+			Id:   executorStrp("root-node"),
+			Uses: executorStrp("builtins/sequence"),
+			Ports: map[string]*api.NodePort{
+				taskgraph.StepsPort: executorNodePort(&api.Node{
+					Id:   executorStrp("child"),
+					Uses: executorStrp("builtins/shell"),
+					With: map[string]string{"command": "echo explicit-port-marker"},
+				}),
+			},
+		},
+	}
+
+	err := executeTaskAndWait(t, executor, testJob, dal.RootTaskKey, mockLogClient, mockLogger)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	chunks := logChunkStrings(mockLogClient.GetChunks())
+	assertLogContains(t, chunks, "Starting task execution: test-job-task-root-ports task root")
+	assertLogContains(t, chunks, "explicit-port-marker")
 }
 
 func TestExecutor_ExecuteTask_StopsAtDistributedBoundary(t *testing.T) {

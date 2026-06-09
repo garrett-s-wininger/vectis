@@ -25,6 +25,11 @@ message Node {
     string uses = 2;
     map<string, string> with = 3;
     repeated Node steps = 4;
+    map<string, NodePort> ports = 5;
+}
+
+message NodePort {
+    repeated Node nodes = 1;
 }
 
 enum RunOutcome {

@@ -65,14 +65,33 @@ Vectis reports all validation errors it can find in one response, so fixing one 
 
 These are the built-in actions that the validator knows today:
 
-| Action | Required `with` | Optional `with` | Notes |
+| Action | Required `with` | Ports | Notes |
 | --- | --- | --- | --- |
-| `builtins/shell` | `command` | `execution` | Runs the command with `sh -c`. Empty commands and unknown action keys are rejected. |
-| `builtins/checkout` | `url` | `execution` | Accepts HTTP(S) clone URLs without embedded credentials and SCP-style Git URLs. Unknown action keys are rejected. |
-| `builtins/sequence` | none | `execution` | Runs child `steps` in order. Defaults to `execution: "local"`, so children run in the same worker workspace unless a distributed boundary is reached. Unknown optional keys are tolerated for compatibility. |
-| `builtins/parallel` | none | `execution` | Runs child `steps` concurrently when local, or fans them out as task executions when distributed. Defaults to `execution: "distributed"`. Unknown optional keys are tolerated for compatibility. |
+| `builtins/shell` | `command` | none | Runs the command with `sh -c`. Empty commands and unknown action keys are rejected. |
+| `builtins/checkout` | `url` | none | Accepts HTTP(S) clone URLs without embedded credentials and SCP-style Git URLs. Unknown action keys are rejected. |
+| `builtins/sequence` | none | `steps` | Runs child nodes in order. Defaults to `execution: "local"`, so children run in the same worker workspace unless a distributed boundary is reached. Unknown optional `with` keys are tolerated for compatibility. |
+| `builtins/parallel` | none | `branches` | Runs branch nodes concurrently when local, or fans them out as task executions when distributed. Defaults to `execution: "distributed"`. Unknown optional `with` keys are tolerated for compatibility. |
 
 The action name can include the `builtins/` prefix. The built-in registry also accepts short names internally, but docs and examples use the full form so job files stay clear.
+
+Child nodes can be attached through typed ports:
+
+```json
+{
+  "id": "checks",
+  "uses": "builtins/parallel",
+  "ports": {
+    "branches": {
+      "nodes": [
+        {"id": "unit", "uses": "builtins/shell", "with": {"command": "go test ./..."}},
+        {"id": "lint", "uses": "builtins/shell", "with": {"command": "go vet ./..."}}
+      ]
+    }
+  }
+}
+```
+
+The legacy `steps` field remains shorthand for a node's primary port. For `builtins/sequence`, `steps` means `ports.steps.nodes`; for `builtins/parallel`, `steps` means `ports.branches.nodes`. Do not set both `steps` and the matching primary port on the same node.
 
 `with.execution` is scheduling metadata accepted on any node and is not passed to the action implementation. It controls whether the node runs inside the current task or is materialized as a task boundary:
 
@@ -110,6 +129,7 @@ Each entry in `details.fields` points to a field path in the job document:
 | `root.uses` | The root node is missing or names an unknown action. |
 | `root.with.command` | The root action rejected its `command` input. |
 | `root.steps[0].id` | The first child step has an ID problem. |
+| `root.ports.branches.nodes[0].id` | The first node attached to the `branches` port has an ID problem. |
 
 ## Common Fixes
 

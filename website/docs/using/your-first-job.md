@@ -95,6 +95,26 @@ If one step fails, the sequence stops and the run fails.
 
 The repository includes a working version of this pattern at `examples/sequenced.json`.
 
+`steps` is shorthand for the `builtins/sequence` primary port. The equivalent explicit form is `ports.steps.nodes`, which is friendlier for generated jobs and visual node editors:
+
+```json
+{
+  "id": "multi-step-job",
+  "root": {
+    "id": "root",
+    "uses": "builtins/sequence",
+    "ports": {
+      "steps": {
+        "nodes": [
+          {"id": "hello", "uses": "builtins/shell", "with": {"command": "echo hello"}},
+          {"id": "where-am-i", "uses": "builtins/shell", "with": {"command": "pwd"}}
+        ]
+      }
+    }
+  }
+}
+```
+
 ## Checkout Then Build
 
 Use `builtins/checkout` to clone a Git repository into the run workspace. Shell steps after checkout run from that workspace.
@@ -138,6 +158,7 @@ These are the built-ins available today:
 | `builtins/shell` | `command` | Runs `sh -c <command>` in the run workspace. |
 | `builtins/checkout` | `url` | Runs `git clone <url> .` in the run workspace. |
 | `builtins/sequence` | none | Runs child `steps` in order. |
+| `builtins/parallel` | none | Runs child `branches` concurrently or fans them out across workers. |
 
 Actions are intentionally small right now. Pipeline-as-code and richer action syntax are future work; today, JSON is the source format.
 

@@ -2,6 +2,7 @@ package taskgraph
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	api "vectis/api/gen/go"
@@ -11,7 +12,16 @@ const (
 	ExecutionField       = "execution"
 	ExecutionLocal       = "local"
 	ExecutionDistributed = "distributed"
+	StepsPort            = "steps"
+	BranchesPort         = "branches"
 )
+
+type ChildRef struct {
+	PortName string
+	Index    int
+	Path     string
+	Node     *api.Node
+}
 
 type BoundaryEntry struct {
 	TaskKey       string
@@ -75,6 +85,133 @@ func ValidExecutionMode(mode string) bool {
 	}
 }
 
+func PrimaryPortName(node *api.Node) string {
+	switch NormalizeUses(node.GetUses()) {
+	case "builtins/parallel":
+		return BranchesPort
+	default:
+		return StepsPort
+	}
+}
+
+func ExplicitPortChildren(node *api.Node, portName string) []*api.Node {
+	if node == nil {
+		return nil
+	}
+
+	port, ok := node.GetPorts()[portName]
+	if !ok {
+		return nil
+	}
+
+	return port.GetNodes()
+}
+
+func HasExplicitPort(node *api.Node, portName string) bool {
+	if node == nil {
+		return false
+	}
+
+	_, ok := node.GetPorts()[portName]
+	return ok
+}
+
+func ChildPorts(node *api.Node) map[string][]*api.Node {
+	if node == nil {
+		return nil
+	}
+
+	out := make(map[string][]*api.Node, len(node.GetPorts())+1)
+	if steps := node.GetSteps(); len(steps) > 0 {
+		primary := PrimaryPortName(node)
+		out[primary] = append(out[primary], steps...)
+	}
+
+	for _, portName := range sortedPortNames(node) {
+		nodes := ExplicitPortChildren(node, portName)
+		if len(nodes) == 0 {
+			if _, exists := out[portName]; !exists {
+				out[portName] = nil
+			}
+			continue
+		}
+
+		out[portName] = append(out[portName], nodes...)
+	}
+
+	if len(out) == 0 {
+		return nil
+	}
+
+	return out
+}
+
+func PrimaryChildren(node *api.Node) []*api.Node {
+	if node == nil {
+		return nil
+	}
+
+	return ChildPorts(node)[PrimaryPortName(node)]
+}
+
+func AllChildren(node *api.Node) []*api.Node {
+	refs := ChildRefs(node, "")
+	children := make([]*api.Node, 0, len(refs))
+	for _, ref := range refs {
+		children = append(children, ref.Node)
+	}
+
+	return children
+}
+
+func HasChildren(node *api.Node) bool {
+	return len(AllChildren(node)) > 0
+}
+
+func ChildRefs(node *api.Node, parentPath string) []ChildRef {
+	if node == nil {
+		return nil
+	}
+
+	var refs []ChildRef
+	primary := PrimaryPortName(node)
+	for i, child := range node.GetSteps() {
+		refs = append(refs, ChildRef{
+			PortName: primary,
+			Index:    i,
+			Path:     childPath(parentPath, fmt.Sprintf("steps[%d]", i)),
+			Node:     child,
+		})
+	}
+
+	for _, portName := range sortedPortNames(node) {
+		nodes := ExplicitPortChildren(node, portName)
+		for i, child := range nodes {
+			refs = append(refs, ChildRef{
+				PortName: portName,
+				Index:    i,
+				Path:     childPath(parentPath, fmt.Sprintf("ports.%s.nodes[%d]", portName, i)),
+				Node:     child,
+			})
+		}
+	}
+
+	return refs
+}
+
+func ValidatePortLayout(node *api.Node, path string) error {
+	if node == nil {
+		return nil
+	}
+
+	primary := PrimaryPortName(node)
+	if len(node.GetSteps()) > 0 && HasExplicitPort(node, primary) {
+		return fmt.Errorf("%s.steps cannot be used together with %s.ports.%s", path, path, primary)
+	}
+
+	return nil
+}
+
 func ActionWith(with map[string]string) map[string]string {
 	if len(with) == 0 {
 		return nil
@@ -117,6 +254,27 @@ func ActionInputs(with map[string]string) map[string]any {
 	return out
 }
 
+func sortedPortNames(node *api.Node) []string {
+	if node == nil || len(node.GetPorts()) == 0 {
+		return nil
+	}
+
+	names := make([]string, 0, len(node.GetPorts()))
+	for name := range node.GetPorts() {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func childPath(parentPath, suffix string) string {
+	if parentPath == "" {
+		return suffix
+	}
+
+	return parentPath + "." + suffix
+}
+
 func IsSequence(node *api.Node) bool {
 	return NormalizeUses(node.GetUses()) == "builtins/sequence"
 }
@@ -130,8 +288,8 @@ func ContainsDistributedBoundary(node *api.Node) bool {
 		return true
 	}
 
-	for _, child := range node.GetSteps() {
-		if ContainsDistributedBoundary(child) {
+	for _, ref := range ChildRefs(node, "") {
+		if ContainsDistributedBoundary(ref.Node) {
 			return true
 		}
 	}
@@ -140,38 +298,58 @@ func ContainsDistributedBoundary(node *api.Node) bool {
 }
 
 func LocalChildrenForTask(node *api.Node) []*api.Node {
+	return LocalPortsForTask(node)[PrimaryPortName(node)]
+}
+
+func LocalPortsForTask(node *api.Node) map[string][]*api.Node {
 	if node == nil || ExecutionMode(node) == ExecutionDistributed {
 		return nil
 	}
 
-	children := node.GetSteps()
-	if len(children) == 0 {
+	ports := ChildPorts(node)
+	if len(ports) == 0 {
 		return nil
 	}
 
 	if !IsSequence(node) {
-		local := make([]*api.Node, 0, len(children))
-		for _, child := range children {
-			if ContainsDistributedBoundary(child) {
-				continue
+		localPorts := make(map[string][]*api.Node, len(ports))
+		for portName, children := range ports {
+			for _, child := range children {
+				if ContainsDistributedBoundary(child) {
+					continue
+				}
+
+				localPorts[portName] = append(localPorts[portName], child)
 			}
 
-			local = append(local, child)
+			if len(localPorts[portName]) == 0 {
+				delete(localPorts, portName)
+			}
 		}
 
-		return local
+		if len(localPorts) == 0 {
+			return nil
+		}
+
+		return localPorts
 	}
 
-	local := make([]*api.Node, 0, len(children))
+	primary := PrimaryPortName(node)
+	children := ports[primary]
+	localPorts := make(map[string][]*api.Node, 1)
 	for _, child := range children {
 		if ContainsDistributedBoundary(child) {
 			break
 		}
 
-		local = append(local, child)
+		localPorts[primary] = append(localPorts[primary], child)
 	}
 
-	return local
+	if len(localPorts[primary]) == 0 {
+		return nil
+	}
+
+	return localPorts
 }
 
 func PlanTaskBoundaries(job *api.Job, rootTaskKey string) (BoundaryPlan, error) {
@@ -221,14 +399,14 @@ type boundaryBuilder struct {
 }
 
 func (b *boundaryBuilder) collect(parentNode *api.Node, parentTaskKey, parentPath string) error {
-	children := parentNode.GetSteps()
-	if len(children) == 0 {
+	refs := ChildRefs(parentNode, parentPath)
+	if len(refs) == 0 {
 		return nil
 	}
 
 	if ExecutionMode(parentNode) == ExecutionDistributed {
-		for i, child := range children {
-			if err := b.addBoundary(child, parentTaskKey, fmt.Sprintf("%s.steps[%d]", parentPath, i)); err != nil {
+		for _, ref := range refs {
+			if err := b.addBoundary(ref.Node, parentTaskKey, ref.Path); err != nil {
 				return err
 			}
 		}
@@ -238,14 +416,27 @@ func (b *boundaryBuilder) collect(parentNode *api.Node, parentTaskKey, parentPat
 
 	if IsSequence(parentNode) {
 		blocked := false
-		for i, child := range children {
-			childPath := fmt.Sprintf("%s.steps[%d]", parentPath, i)
-			if err := b.validateNode(child, childPath); err != nil {
+		for _, ref := range refs {
+			if ref.PortName != PrimaryPortName(parentNode) {
+				if err := b.validateNode(ref.Node, ref.Path); err != nil {
+					return err
+				}
+
+				if ContainsDistributedBoundary(ref.Node) {
+					if err := b.addBoundary(ref.Node, parentTaskKey, ref.Path); err != nil {
+						return err
+					}
+				}
+
+				continue
+			}
+
+			if err := b.validateNode(ref.Node, ref.Path); err != nil {
 				return err
 			}
 
-			if blocked || ContainsDistributedBoundary(child) {
-				if err := b.addBoundary(child, parentTaskKey, childPath); err != nil {
+			if blocked || ContainsDistributedBoundary(ref.Node) {
+				if err := b.addBoundary(ref.Node, parentTaskKey, ref.Path); err != nil {
 					return err
 				}
 
@@ -256,14 +447,13 @@ func (b *boundaryBuilder) collect(parentNode *api.Node, parentTaskKey, parentPat
 		return nil
 	}
 
-	for i, child := range children {
-		childPath := fmt.Sprintf("%s.steps[%d]", parentPath, i)
-		if err := b.validateNode(child, childPath); err != nil {
+	for _, ref := range refs {
+		if err := b.validateNode(ref.Node, ref.Path); err != nil {
 			return err
 		}
 
-		if ContainsDistributedBoundary(child) {
-			if err := b.addBoundary(child, parentTaskKey, childPath); err != nil {
+		if ContainsDistributedBoundary(ref.Node) {
+			if err := b.addBoundary(ref.Node, parentTaskKey, ref.Path); err != nil {
 				return err
 			}
 		}
@@ -299,6 +489,9 @@ func (b *boundaryBuilder) validateNode(node *api.Node, path string) error {
 	if node == nil {
 		return fmt.Errorf("%s is required", path)
 	}
+	if err := ValidatePortLayout(node, path); err != nil {
+		return err
+	}
 
 	taskKey := strings.TrimSpace(node.GetId())
 	if taskKey == "" {
@@ -313,13 +506,13 @@ func (b *boundaryBuilder) validateNode(node *api.Node, path string) error {
 		return fmt.Errorf("%s.uses is required", path)
 	}
 
-	for i, child := range node.GetSteps() {
-		if child == nil {
-			return fmt.Errorf("%s.steps[%d] is required", path, i)
+	for _, ref := range ChildRefs(node, path) {
+		if ref.Node == nil {
+			return fmt.Errorf("%s is required", ref.Path)
 		}
 
-		if strings.TrimSpace(child.GetId()) == "" {
-			return fmt.Errorf("%s.steps[%d].id is required", path, i)
+		if strings.TrimSpace(ref.Node.GetId()) == "" {
+			return fmt.Errorf("%s.id is required", ref.Path)
 		}
 	}
 
@@ -329,6 +522,9 @@ func (b *boundaryBuilder) validateNode(node *api.Node, path string) error {
 func validateTree(node *api.Node, path, rootTaskKey string, seen map[string]string) error {
 	if node == nil {
 		return fmt.Errorf("%s is required", path)
+	}
+	if err := ValidatePortLayout(node, path); err != nil {
+		return err
 	}
 
 	if path != "root" {
@@ -352,8 +548,8 @@ func validateTree(node *api.Node, path, rootTaskKey string, seen map[string]stri
 		return fmt.Errorf("%s.uses is required", path)
 	}
 
-	for i, child := range node.GetSteps() {
-		if err := validateTree(child, fmt.Sprintf("%s.steps[%d]", path, i), rootTaskKey, seen); err != nil {
+	for _, ref := range ChildRefs(node, path) {
+		if err := validateTree(ref.Node, ref.Path, rootTaskKey, seen); err != nil {
 			return err
 		}
 	}

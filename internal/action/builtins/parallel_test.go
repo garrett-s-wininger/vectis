@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	api "vectis/api/gen/go"
 	"vectis/internal/action"
 	"vectis/internal/interfaces"
+	"vectis/internal/taskgraph"
 )
 
 type testResolver map[string]action.Node
@@ -33,7 +33,7 @@ func (n *barrierNode) Type() string { return "test/barrier" }
 
 func (n *barrierNode) ValidateWith(map[string]string) []action.FieldError { return nil }
 
-func (n *barrierNode) Execute(ctx context.Context, _ *action.ExecutionState, _ map[string]any, _ []*api.Node) action.Result {
+func (n *barrierNode) Execute(ctx context.Context, _ *action.ExecutionState, _ map[string]any, _ action.Ports) action.Result {
 	select {
 	case n.started <- struct{}{}:
 	case <-ctx.Done():
@@ -57,7 +57,7 @@ func (n *countedNode) Type() string { return "test/counted" }
 
 func (n *countedNode) ValidateWith(map[string]string) []action.FieldError { return nil }
 
-func (n *countedNode) Execute(context.Context, *action.ExecutionState, map[string]any, []*api.Node) action.Result {
+func (n *countedNode) Execute(context.Context, *action.ExecutionState, map[string]any, action.Ports) action.Result {
 	n.count.Add(1)
 	return n.result
 }
@@ -72,11 +72,11 @@ func TestParallelNodeExecuteRunsChildrenConcurrently(t *testing.T) {
 		Resolver: testResolver{"test/barrier": child},
 	}
 	uses := "test/barrier"
-	children := []*api.Node{{Uses: &uses}, {Uses: &uses}}
+	ports := action.Ports{taskgraph.BranchesPort: {{Uses: &uses}, {Uses: &uses}}}
 
 	done := make(chan action.Result, 1)
 	go func() {
-		done <- (&ParallelNode{}).Execute(context.Background(), state, nil, children)
+		done <- (&ParallelNode{}).Execute(context.Background(), state, nil, ports)
 	}()
 
 	for i := 0; i < 2; i++ {
@@ -109,9 +109,9 @@ func TestParallelNodeExecuteReturnsFirstFailure(t *testing.T) {
 	}
 
 	uses := "test/counted"
-	children := []*api.Node{{Uses: &uses}, {Uses: &uses}}
+	ports := action.Ports{taskgraph.BranchesPort: {{Uses: &uses}, {Uses: &uses}}}
 
-	result := (&ParallelNode{}).Execute(context.Background(), state, nil, children)
+	result := (&ParallelNode{}).Execute(context.Background(), state, nil, ports)
 	if result.Status != action.StatusFailure {
 		t.Fatalf("parallel result: got %s, want failure", result.Status)
 	}

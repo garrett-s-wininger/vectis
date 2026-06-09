@@ -24,7 +24,17 @@ func (s *SequenceNode) Type() string {
 	return "builtins/sequence"
 }
 
-func (s *SequenceNode) Execute(ctx context.Context, state *action.ExecutionState, _ map[string]any, children []*api.Node) action.Result {
+func (s *SequenceNode) PortSchema() []action.PortSpec {
+	return []action.PortSpec{{
+		Name:    taskgraph.StepsPort,
+		Max:     action.PortUnlimited,
+		Primary: true,
+		Ordered: true,
+	}}
+}
+
+func (s *SequenceNode) Execute(ctx context.Context, state *action.ExecutionState, _ map[string]any, ports action.Ports) action.Result {
+	children := ports.Children(taskgraph.StepsPort)
 	if len(children) == 0 {
 		return action.NewSuccessResult(nil)
 	}
@@ -54,7 +64,7 @@ func executeChildNode(ctx context.Context, node *api.Node, state *action.Executi
 	span.SetAttributes(
 		attribute.String("action.type", node.GetUses()),
 		attribute.String("action.node.id", node.GetId()),
-		attribute.Bool("action.has_children", len(node.GetSteps()) > 0),
+		attribute.Bool("action.has_children", taskgraph.HasChildren(node)),
 	)
 	defer span.End()
 
@@ -89,7 +99,7 @@ func executeChildNode(ctx context.Context, node *api.Node, state *action.Executi
 		)
 	}
 
-	result := act.Execute(childCtx, state, inputs, node.GetSteps())
+	result := act.Execute(childCtx, state, inputs, action.Ports(taskgraph.ChildPorts(node)))
 	if result.Status == action.StatusFailure && result.Error != nil {
 		span.RecordError(result.Error)
 		span.SetStatus(otelcodes.Error, "action failed")

@@ -1,11 +1,13 @@
 package validation_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/job/validation"
+	"vectis/internal/taskgraph"
 )
 
 func strp(s string) *string { return &s }
@@ -23,6 +25,10 @@ func validJob() *api.Job {
 			}},
 		},
 	}
+}
+
+func nodePort(nodes ...*api.Node) *api.NodePort {
+	return &api.NodePort{Nodes: nodes}
 }
 
 func TestValidateJob_Valid(t *testing.T) {
@@ -261,6 +267,138 @@ func TestValidateJob_ParallelAnyWith(t *testing.T) {
 
 	if err := validation.ValidateJob(job, validation.Options{RequireJobID: true}); err != nil {
 		t.Fatalf("expected valid parallel job: %v", err)
+	}
+}
+
+func TestValidateJob_ExplicitPorts(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root.Steps = nil
+	job.Root.Ports = map[string]*api.NodePort{
+		taskgraph.StepsPort: nodePort(&api.Node{
+			Id:   strp("shell"),
+			Uses: strp("builtins/shell"),
+			With: map[string]string{"command": "echo hi"},
+		}),
+	}
+
+	if err := validation.ValidateJob(job, validation.Options{RequireJobID: true}); err != nil {
+		t.Fatalf("expected explicit sequence port job to validate: %v", err)
+	}
+}
+
+func TestValidateJob_ExplicitPortsJSON(t *testing.T) {
+	t.Parallel()
+
+	raw := []byte(`{
+		"id": "job-ports-json",
+		"root": {
+			"id": "root",
+			"uses": "builtins/sequence",
+			"ports": {
+				"steps": {
+					"nodes": [
+						{"id": "shell", "uses": "builtins/shell", "with": {"command": "echo hi"}}
+					]
+				}
+			}
+		}
+	}`)
+
+	var job api.Job
+	if err := json.Unmarshal(raw, &job); err != nil {
+		t.Fatalf("unmarshal job: %v", err)
+	}
+
+	if err := validation.ValidateJob(&job, validation.Options{RequireJobID: true}); err != nil {
+		t.Fatalf("expected explicit ports JSON to validate: %v", err)
+	}
+}
+
+func TestValidateJob_ParallelBranchesPort(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root.Uses = strp("builtins/parallel")
+	job.Root.Steps = nil
+	job.Root.Ports = map[string]*api.NodePort{
+		taskgraph.BranchesPort: nodePort(&api.Node{
+			Id:   strp("shell"),
+			Uses: strp("builtins/shell"),
+			With: map[string]string{"command": "echo hi"},
+		}),
+	}
+
+	if err := validation.ValidateJob(job, validation.Options{RequireJobID: true}); err != nil {
+		t.Fatalf("expected explicit parallel branches job to validate: %v", err)
+	}
+}
+
+func TestValidateJob_RejectsUnknownPort(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root.Steps = nil
+	job.Root.Ports = map[string]*api.NodePort{
+		"condition": nodePort(&api.Node{
+			Id:   strp("shell"),
+			Uses: strp("builtins/shell"),
+			With: map[string]string{"command": "echo hi"},
+		}),
+	}
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
+	if err == nil {
+		t.Fatal("expected validation error for unknown port")
+	}
+
+	if msg := err.Error(); !strings.Contains(msg, `root.ports.condition: unknown port "condition" for action "builtins/sequence"`) {
+		t.Fatalf("expected unknown port error, got %q", msg)
+	}
+}
+
+func TestValidateJob_RejectsStepsAndPrimaryPortTogether(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root.Ports = map[string]*api.NodePort{
+		taskgraph.StepsPort: nodePort(&api.Node{
+			Id:   strp("second"),
+			Uses: strp("builtins/shell"),
+			With: map[string]string{"command": "echo second"},
+		}),
+	}
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
+	if err == nil {
+		t.Fatal("expected validation error for mixed steps and primary port")
+	}
+
+	if msg := err.Error(); !strings.Contains(msg, `root.steps: cannot be used together with ports.steps`) {
+		t.Fatalf("expected mixed steps/ports error, got %q", msg)
+	}
+}
+
+func TestValidateJob_RejectsLeafChildPorts(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root.Steps[0].Ports = map[string]*api.NodePort{
+		taskgraph.StepsPort: nodePort(&api.Node{
+			Id:   strp("grandchild"),
+			Uses: strp("builtins/shell"),
+			With: map[string]string{"command": "echo grandchild"},
+		}),
+	}
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
+	if err == nil {
+		t.Fatal("expected validation error for leaf child port")
+	}
+
+	if msg := err.Error(); !strings.Contains(msg, `root.steps[0].ports.steps: unknown port "steps" for action "builtins/shell"`) {
+		t.Fatalf("expected leaf port error, got %q", msg)
 	}
 }
 

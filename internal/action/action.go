@@ -60,6 +60,43 @@ type Resolver interface {
 	Resolve(uses string) (Node, error)
 }
 
+const PortUnlimited = -1
+
+type Ports map[string][]*api.Node
+
+func (p Ports) Children(name string) []*api.Node {
+	if len(p) == 0 {
+		return nil
+	}
+
+	return p[name]
+}
+
+type PortSpec struct {
+	Name     string
+	Min      int
+	Max      int
+	Primary  bool
+	Ordered  bool
+	Required bool
+}
+
+type PortSchemaProvider interface {
+	PortSchema() []PortSpec
+}
+
+func PortSchema(node Node) []PortSpec {
+	provider, ok := node.(PortSchemaProvider)
+	if !ok {
+		return nil
+	}
+
+	specs := provider.PortSchema()
+	out := make([]PortSpec, len(specs))
+	copy(out, specs)
+	return out
+}
+
 type FieldError struct {
 	Field   string
 	Message string
@@ -135,7 +172,7 @@ func isValidURL(raw string) bool {
 
 type Node interface {
 	Type() string
-	Execute(ctx context.Context, state *ExecutionState, inputs map[string]any, children []*api.Node) Result
+	Execute(ctx context.Context, state *ExecutionState, inputs map[string]any, ports Ports) Result
 	ValidateWith(with map[string]string) []FieldError
 }
 

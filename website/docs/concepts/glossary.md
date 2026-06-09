@@ -52,7 +52,7 @@ This page defines the words Vectis uses across the docs, API, and CLI. For the s
 
 **Namespace** — A scope for jobs and permissions. Namespaces let operators organize jobs and grant roles such as viewer, trigger, operator, or admin within a tree.
 
-**Node** — One step-like vertex in a job tree. A node has an `id`, a `uses` action, optional `with` inputs, and optional child `steps`.
+**Node** — One step-like vertex in a job tree. A node has an `id`, a `uses` action, optional `with` inputs, and optional child nodes attached through typed `ports`. The legacy `steps` field is shorthand for a node's primary port.
 
 **Node ID** — The identifier for one node inside a job. Node IDs must be unique within a job. They are not the same thing as the top-level job ID.
 

@@ -20,26 +20,35 @@ func (p *ParallelNode) Type() string {
 	return "builtins/parallel"
 }
 
-func (p *ParallelNode) Execute(ctx context.Context, state *action.ExecutionState, _ map[string]any, children []*api.Node) action.Result {
-	if len(children) == 0 {
+func (p *ParallelNode) PortSchema() []action.PortSpec {
+	return []action.PortSpec{{
+		Name:    taskgraph.BranchesPort,
+		Max:     action.PortUnlimited,
+		Primary: true,
+	}}
+}
+
+func (p *ParallelNode) Execute(ctx context.Context, state *action.ExecutionState, _ map[string]any, ports action.Ports) action.Result {
+	branches := ports.Children(taskgraph.BranchesPort)
+	if len(branches) == 0 {
 		return action.NewSuccessResult(nil)
 	}
 
-	state.Logger.Info("Executing parallel with %d children", len(children))
-	sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Executing parallel with %d children", len(children)))
+	state.Logger.Info("Executing parallel with %d branches", len(branches))
+	sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Executing parallel with %d branches", len(branches)))
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var firstFailure action.Result
 	failed := false
 
-	for i, child := range children {
+	for i, child := range branches {
 		i, child := i, child
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 
-			sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Executing branch %d/%d", i+1, len(children)))
+			sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Executing branch %d/%d", i+1, len(branches)))
 
 			result := executeChildNode(ctx, child, state, taskgraph.ActionInputs(child.GetWith()))
 			if result.Status != action.StatusFailure {

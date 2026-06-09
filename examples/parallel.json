@@ -6,44 +6,52 @@
     "with": {
       "execution": "local"
     },
-    "steps": [
-      {
-        "id": "setup",
-        "uses": "builtins/shell",
-        "with": {
-          "command": "echo 'Preparing workspace'"
-        }
-      },
-      {
-        "id": "checks",
-        "uses": "builtins/parallel",
-        "with": {
-          "execution": "distributed"
-        },
-        "steps": [
+    "ports": {
+      "steps": {
+        "nodes": [
           {
-            "id": "unit-tests",
+            "id": "setup",
             "uses": "builtins/shell",
             "with": {
-              "command": "echo 'Running unit tests'"
+              "command": "echo 'Preparing workspace'"
             }
           },
           {
-            "id": "lint",
+            "id": "checks",
+            "uses": "builtins/parallel",
+            "with": {
+              "execution": "distributed"
+            },
+            "ports": {
+              "branches": {
+                "nodes": [
+                  {
+                    "id": "unit-tests",
+                    "uses": "builtins/shell",
+                    "with": {
+                      "command": "echo 'Running unit tests'"
+                    }
+                  },
+                  {
+                    "id": "lint",
+                    "uses": "builtins/shell",
+                    "with": {
+                      "command": "echo 'Running lint'"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "id": "finish",
             "uses": "builtins/shell",
             "with": {
-              "command": "echo 'Running lint'"
+              "command": "echo 'All checks complete'"
             }
           }
         ]
-      },
-      {
-        "id": "finish",
-        "uses": "builtins/shell",
-        "with": {
-          "command": "echo 'All checks complete'"
-        }
       }
-    ]
+    }
   }
 }

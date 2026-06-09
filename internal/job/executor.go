@@ -98,14 +98,14 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 	}
 
 	node := job.GetRoot()
-	children := node.GetSteps()
+	ports := taskgraph.ChildPorts(node)
 	if taskScoped {
 		node, err = findTaskNode(job, taskKey)
 		if err != nil {
 			return err
 		}
 
-		children = taskgraph.LocalChildrenForTask(node)
+		ports = taskgraph.LocalPortsForTask(node)
 	}
 
 	cleanupWorkspace := false
@@ -175,7 +175,7 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 		sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Starting job execution: %s", job.GetId()))
 	}
 
-	result := e.executeNodeWithChildren(ctx, node, state, children)
+	result := e.executeNodeWithPorts(ctx, node, state, ports)
 
 	if result.Status == action.StatusFailure {
 		if ctx.Err() != nil {
@@ -197,10 +197,10 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 }
 
 func (e *Executor) executeNode(ctx context.Context, node *api.Node, state *action.ExecutionState) action.Result {
-	return e.executeNodeWithChildren(ctx, node, state, node.GetSteps())
+	return e.executeNodeWithPorts(ctx, node, state, taskgraph.ChildPorts(node))
 }
 
-func (e *Executor) executeNodeWithChildren(ctx context.Context, node *api.Node, state *action.ExecutionState, children []*api.Node) action.Result {
+func (e *Executor) executeNodeWithPorts(ctx context.Context, node *api.Node, state *action.ExecutionState, ports map[string][]*api.Node) action.Result {
 	if node == nil {
 		return action.NewFailureResult(fmt.Errorf("nil node"))
 	}
@@ -210,7 +210,7 @@ func (e *Executor) executeNodeWithChildren(ctx context.Context, node *api.Node, 
 	span.SetAttributes(
 		attribute.String("action.type", node.GetUses()),
 		attribute.String("action.node.id", node.GetId()),
-		attribute.Bool("action.has_children", len(children) > 0),
+		attribute.Bool("action.has_children", len(ports) > 0),
 	)
 	if state.Workload != nil {
 		span.SetAttributes(attribute.String("vectis.workload.spiffe_id", state.Workload.SPIFFEID))
@@ -233,7 +233,7 @@ func (e *Executor) executeNodeWithChildren(ctx context.Context, node *api.Node, 
 
 	sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Executing node: %s", nodeImpl.Type()))
 
-	result := nodeImpl.Execute(nodeCtx, state, taskgraph.ActionInputs(node.GetWith()), children)
+	result := nodeImpl.Execute(nodeCtx, state, taskgraph.ActionInputs(node.GetWith()), action.Ports(ports))
 	if result.Status == action.StatusFailure && result.Error != nil {
 		span.RecordError(result.Error)
 		span.SetStatus(otelcodes.Error, "action failed")
@@ -268,7 +268,7 @@ func findNodeByID(node *api.Node, id string) *api.Node {
 		return node
 	}
 
-	for _, child := range node.GetSteps() {
+	for _, child := range taskgraph.AllChildren(node) {
 		if found := findNodeByID(child, id); found != nil {
 			return found
 		}

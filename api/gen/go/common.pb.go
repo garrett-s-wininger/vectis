@@ -285,6 +285,7 @@ type Node struct {
 	Uses          *string                `protobuf:"bytes,2,opt,name=uses" json:"uses,omitempty"`
 	With          map[string]string      `protobuf:"bytes,3,rep,name=with" json:"with,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	Steps         []*Node                `protobuf:"bytes,4,rep,name=steps" json:"steps,omitempty"`
+	Ports         map[string]*NodePort   `protobuf:"bytes,5,rep,name=ports" json:"ports,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -347,6 +348,57 @@ func (x *Node) GetSteps() []*Node {
 	return nil
 }
 
+func (x *Node) GetPorts() map[string]*NodePort {
+	if x != nil {
+		return x.Ports
+	}
+	return nil
+}
+
+type NodePort struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Nodes         []*Node                `protobuf:"bytes,1,rep,name=nodes" json:"nodes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NodePort) Reset() {
+	*x = NodePort{}
+	mi := &file_common_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NodePort) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NodePort) ProtoMessage() {}
+
+func (x *NodePort) ProtoReflect() protoreflect.Message {
+	mi := &file_common_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NodePort.ProtoReflect.Descriptor instead.
+func (*NodePort) Descriptor() ([]byte, []int) {
+	return file_common_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *NodePort) GetNodes() []*Node {
+	if x != nil {
+		return x.Nodes
+	}
+	return nil
+}
+
 type LogChunk struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RunId         *string                `protobuf:"bytes,1,opt,name=run_id,json=runId" json:"run_id,omitempty"`
@@ -362,7 +414,7 @@ type LogChunk struct {
 
 func (x *LogChunk) Reset() {
 	*x = LogChunk{}
-	mi := &file_common_proto_msgTypes[4]
+	mi := &file_common_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -374,7 +426,7 @@ func (x *LogChunk) String() string {
 func (*LogChunk) ProtoMessage() {}
 
 func (x *LogChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_common_proto_msgTypes[4]
+	mi := &file_common_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -387,7 +439,7 @@ func (x *LogChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogChunk.ProtoReflect.Descriptor instead.
 func (*LogChunk) Descriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{4}
+	return file_common_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *LogChunk) GetRunId() string {
@@ -457,15 +509,22 @@ const file_common_proto_rawDesc = "" +
 	"\bmetadata\x18\x02 \x03(\v2 .common.JobRequest.MetadataEntryR\bmetadata\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb3\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xae\x02\n" +
 	"\x04Node\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04uses\x18\x02 \x01(\tR\x04uses\x12*\n" +
 	"\x04with\x18\x03 \x03(\v2\x16.common.Node.WithEntryR\x04with\x12\"\n" +
-	"\x05steps\x18\x04 \x03(\v2\f.common.NodeR\x05steps\x1a7\n" +
+	"\x05steps\x18\x04 \x03(\v2\f.common.NodeR\x05steps\x12-\n" +
+	"\x05ports\x18\x05 \x03(\v2\x17.common.Node.PortsEntryR\x05ports\x1a7\n" +
 	"\tWithEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x87\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aJ\n" +
+	"\n" +
+	"PortsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12&\n" +
+	"\x05value\x18\x02 \x01(\v2\x10.common.NodePortR\x05value:\x028\x01\".\n" +
+	"\bNodePort\x12\"\n" +
+	"\x05nodes\x18\x01 \x03(\v2\f.common.NodeR\x05nodes\"\x87\x02\n" +
 	"\bLogChunk\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x12\n" +
 	"\x04data\x18\x02 \x01(\fR\x04data\x12\x1a\n" +
@@ -499,7 +558,7 @@ func file_common_proto_rawDescGZIP() []byte {
 }
 
 var file_common_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_common_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_common_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_common_proto_goTypes = []any{
 	(RunOutcome)(0),               // 0: common.RunOutcome
 	(Stream)(0),                   // 1: common.Stream
@@ -507,25 +566,30 @@ var file_common_proto_goTypes = []any{
 	(*Job)(nil),                   // 3: common.Job
 	(*JobRequest)(nil),            // 4: common.JobRequest
 	(*Node)(nil),                  // 5: common.Node
-	(*LogChunk)(nil),              // 6: common.LogChunk
-	nil,                           // 7: common.JobRequest.MetadataEntry
-	nil,                           // 8: common.Node.WithEntry
-	(*timestamppb.Timestamp)(nil), // 9: google.protobuf.Timestamp
+	(*NodePort)(nil),              // 6: common.NodePort
+	(*LogChunk)(nil),              // 7: common.LogChunk
+	nil,                           // 8: common.JobRequest.MetadataEntry
+	nil,                           // 9: common.Node.WithEntry
+	nil,                           // 10: common.Node.PortsEntry
+	(*timestamppb.Timestamp)(nil), // 11: google.protobuf.Timestamp
 }
 var file_common_proto_depIdxs = []int32{
-	5, // 0: common.Job.root:type_name -> common.Node
-	3, // 1: common.JobRequest.job:type_name -> common.Job
-	7, // 2: common.JobRequest.metadata:type_name -> common.JobRequest.MetadataEntry
-	8, // 3: common.Node.with:type_name -> common.Node.WithEntry
-	5, // 4: common.Node.steps:type_name -> common.Node
-	1, // 5: common.LogChunk.stream:type_name -> common.Stream
-	0, // 6: common.LogChunk.completed:type_name -> common.RunOutcome
-	9, // 7: common.LogChunk.timestamp:type_name -> google.protobuf.Timestamp
-	8, // [8:8] is the sub-list for method output_type
-	8, // [8:8] is the sub-list for method input_type
-	8, // [8:8] is the sub-list for extension type_name
-	8, // [8:8] is the sub-list for extension extendee
-	0, // [0:8] is the sub-list for field type_name
+	5,  // 0: common.Job.root:type_name -> common.Node
+	3,  // 1: common.JobRequest.job:type_name -> common.Job
+	8,  // 2: common.JobRequest.metadata:type_name -> common.JobRequest.MetadataEntry
+	9,  // 3: common.Node.with:type_name -> common.Node.WithEntry
+	5,  // 4: common.Node.steps:type_name -> common.Node
+	10, // 5: common.Node.ports:type_name -> common.Node.PortsEntry
+	5,  // 6: common.NodePort.nodes:type_name -> common.Node
+	1,  // 7: common.LogChunk.stream:type_name -> common.Stream
+	0,  // 8: common.LogChunk.completed:type_name -> common.RunOutcome
+	11, // 9: common.LogChunk.timestamp:type_name -> google.protobuf.Timestamp
+	6,  // 10: common.Node.PortsEntry.value:type_name -> common.NodePort
+	11, // [11:11] is the sub-list for method output_type
+	11, // [11:11] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_common_proto_init() }
@@ -539,7 +603,7 @@ func file_common_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_common_proto_rawDesc), len(file_common_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   7,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

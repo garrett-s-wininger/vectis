@@ -157,10 +157,89 @@ func (v *validator) walk(node *api.Node, path string, depth int) {
 		for _, fe := range fieldErrs {
 			v.add(path+".with."+fe.Field, fe.Message)
 		}
+
+		v.validatePorts(path, node, resolved)
+	} else {
+		v.validatePorts(path, node, resolved)
 	}
 
-	for i, child := range node.GetSteps() {
-		v.walk(child, fmt.Sprintf("%s.steps[%d]", path, i), depth+1)
+	for _, ref := range taskgraph.ChildRefs(node, path) {
+		v.walk(ref.Node, ref.Path, depth+1)
+	}
+}
+
+func (v *validator) validatePorts(path string, node *api.Node, resolved action.Node) {
+	specs := action.PortSchema(resolved)
+	specByName := make(map[string]action.PortSpec, len(specs))
+	primaryPort := ""
+	for _, spec := range specs {
+		specByName[spec.Name] = spec
+		if spec.Primary {
+			primaryPort = spec.Name
+		}
+	}
+
+	if primaryPort == "" && len(specs) > 0 {
+		primaryPort = specs[0].Name
+	}
+
+	if len(node.GetSteps()) > 0 {
+		if primaryPort == "" {
+			v.add(path+".steps", fmt.Sprintf("action %q does not accept child steps", resolved.Type()))
+		} else if taskgraph.HasExplicitPort(node, primaryPort) {
+			v.add(path+".steps", fmt.Sprintf("cannot be used together with ports.%s", primaryPort))
+		}
+	}
+
+	for portName, port := range node.GetPorts() {
+		spec, ok := specByName[portName]
+		if !ok {
+			v.add(path+".ports."+portName, fmt.Sprintf("unknown port %q for action %q", portName, resolved.Type()))
+			continue
+		}
+
+		v.validatePortCardinality(path, portName, len(port.GetNodes()), spec)
+	}
+
+	if len(node.GetSteps()) > 0 && primaryPort != "" {
+		if spec, ok := specByName[primaryPort]; ok && !taskgraph.HasExplicitPort(node, primaryPort) {
+			v.validatePortCardinality(path, primaryPort, len(node.GetSteps()), spec)
+		}
+	}
+
+	for _, spec := range specs {
+		if spec.Min <= 0 && !spec.Required {
+			continue
+		}
+
+		count := len(taskgraph.ExplicitPortChildren(node, spec.Name))
+		if spec.Name == primaryPort && len(node.GetSteps()) > 0 && !taskgraph.HasExplicitPort(node, primaryPort) {
+			count = len(node.GetSteps())
+		}
+
+		min := spec.Min
+		if spec.Required && min == 0 {
+			min = 1
+		}
+
+		if count < min {
+			v.add(path+".ports."+spec.Name, fmt.Sprintf("requires at least %d node(s)", min))
+		}
+	}
+}
+
+func (v *validator) validatePortCardinality(path, portName string, count int, spec action.PortSpec) {
+	min := spec.Min
+	if spec.Required && min == 0 {
+		min = 1
+	}
+
+	if count < min {
+		v.add(path+".ports."+portName, fmt.Sprintf("requires at least %d node(s)", min))
+	}
+
+	if spec.Max >= 0 && count > spec.Max {
+		v.add(path+".ports."+portName, fmt.Sprintf("allows at most %d node(s)", spec.Max))
 	}
 }
 

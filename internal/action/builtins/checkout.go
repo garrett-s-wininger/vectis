@@ -45,7 +45,7 @@ func (c *CheckoutAction) Type() string {
 	return "builtins/checkout"
 }
 
-func (c *CheckoutAction) Execute(ctx context.Context, state *action.ExecutionState, inputs map[string]any, _ []*api.Node) action.Result {
+func (c *CheckoutAction) Execute(ctx context.Context, state *action.ExecutionState, inputs map[string]any, _ action.Ports) action.Result {
 	url, ok := inputs["url"].(string)
 	if !ok || url == "" {
 		return action.NewFailureResult(fmt.Errorf("checkout action requires 'url' input"))
