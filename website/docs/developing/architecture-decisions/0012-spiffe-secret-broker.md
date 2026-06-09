@@ -50,7 +50,9 @@ values themselves in environment variables by default.
 
 `vectis-secrets` authorizes each resolution request with both:
 
-- SPIFFE-authenticated mTLS identity for the calling worker workload;
+- SPIFFE-authenticated mTLS identity for the calling execution workload, which
+  must exactly match the SPIFFE ID the broker derives from the active execution
+  record and configured identity template;
 - the execution ID and execution claim token proving the worker currently owns
   that task attempt in the cell database.
 

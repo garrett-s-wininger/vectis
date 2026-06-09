@@ -2558,6 +2558,74 @@ func (r *SQLRunsRepository) GetExecutionDispatch(ctx context.Context, executionI
 	return rec, nil
 }
 
+func (r *SQLRunsRepository) GetActiveExecutionDispatch(ctx context.Context, runID, executionID string) (ExecutionDispatchRecord, error) {
+	runID = strings.TrimSpace(runID)
+	executionID = strings.TrimSpace(executionID)
+	if runID == "" || executionID == "" {
+		return ExecutionDispatchRecord{}, fmt.Errorf("%w: run_id and execution_id are required", ErrNotFound)
+	}
+
+	rec, err := scanExecutionDispatchRecord(r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT
+			jr.run_id,
+			jr.job_id,
+			COALESCE(ns.path, '/'),
+			jr.run_index,
+			rt.task_id,
+			rt.task_key,
+			rt.name,
+			ta.attempt_id,
+			rs.segment_id,
+			rs.name,
+			rs.status,
+			se.execution_id,
+			se.status,
+			se.cell_id,
+			se.attempt,
+			jr.definition_version,
+			jr.definition_hash,
+			jr.owning_cell
+		FROM segment_executions se
+		JOIN job_runs jr ON jr.run_id = se.run_id
+		JOIN run_segments rs ON rs.segment_id = se.segment_id AND rs.run_id = jr.run_id
+		JOIN run_tasks rt ON rt.task_id = se.task_id AND rt.run_id = jr.run_id
+		JOIN task_attempts ta ON ta.attempt_id = se.task_attempt_id AND ta.task_id = rt.task_id AND ta.run_id = jr.run_id AND ta.attempt = se.attempt
+		LEFT JOIN stored_jobs sj ON sj.job_id = jr.job_id
+		LEFT JOIN namespaces ns ON ns.id = sj.namespace_id
+		WHERE jr.run_id = ?
+			AND se.execution_id = ?
+			AND jr.status IN (?, ?)
+			AND rs.status IN (?, ?)
+			AND se.status IN (?, ?)
+			AND rt.status IN (?, ?)
+			AND ta.status IN (?, ?)
+		LIMIT 1
+	`),
+		runID,
+		executionID,
+		RunStatusRunning,
+		RunStatusOrphaned,
+		SegmentStatusAccepted,
+		SegmentStatusRunning,
+		ExecutionStatusAccepted,
+		ExecutionStatusRunning,
+		TaskStatusAccepted,
+		TaskStatusRunning,
+		TaskStatusAccepted,
+		TaskStatusRunning,
+	))
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return ExecutionDispatchRecord{}, fmt.Errorf("%w: active execution %s in run %s", ErrNotFound, executionID, runID)
+		}
+
+		return ExecutionDispatchRecord{}, normalizeSQLError(err)
+	}
+
+	return rec, nil
+}
+
 type executionDispatchRecordScanner interface {
 	Scan(dest ...any) error
 }

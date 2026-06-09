@@ -1,6 +1,13 @@
 package workloadidentity
 
-import "testing"
+import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"strings"
+	"testing"
+)
 
 func TestSPIFFEIDDefaultTemplate(t *testing.T) {
 	got, err := SPIFFEID("Prod.Example", "", validExecution())
@@ -105,7 +112,18 @@ func TestIdentityWithX509SVIDReturnsCopy(t *testing.T) {
 		t.Fatalf("NewIdentity: %v", err)
 	}
 
-	got := identity.WithX509SVID(X509SVID{SPIFFEID: identity.SPIFFEID})
+	cert := &x509.Certificate{Raw: []byte{1, 2, 3}}
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+
+	got := identity.WithX509SVID(X509SVID{
+		SPIFFEID:     identity.SPIFFEID,
+		Certificates: []*x509.Certificate{cert},
+		PrivateKey:   key,
+	})
+
 	if got == nil {
 		t.Fatal("WithX509SVID returned nil")
 	}
@@ -120,6 +138,68 @@ func TestIdentityWithX509SVIDReturnsCopy(t *testing.T) {
 
 	if got.X509SVID == nil || got.X509SVID.SPIFFEID != identity.SPIFFEID {
 		t.Fatalf("X509SVID = %+v, want %q", got.X509SVID, identity.SPIFFEID)
+	}
+
+	if len(got.X509SVID.Certificates) != 1 || got.X509SVID.Certificates[0] != cert || got.X509SVID.PrivateKey != key {
+		t.Fatalf("X509SVID material was not preserved: %+v", got.X509SVID)
+	}
+
+	got.X509SVID.Certificates[0] = nil
+	if cert == nil || identity.X509SVID != nil {
+		t.Fatalf("WithX509SVID did not isolate certificate slice")
+	}
+}
+
+func TestX509SVIDTLSCertificate(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+
+	leaf := &x509.Certificate{Raw: []byte{1, 2, 3}}
+	intermediate := &x509.Certificate{Raw: []byte{4, 5, 6}}
+	cert, err := X509SVID{
+		SPIFFEID:     "spiffe://prod.example/cell/local/job/job-1/run/run-1/execution/execution-1",
+		Certificates: []*x509.Certificate{leaf, intermediate},
+		PrivateKey:   key,
+	}.TLSCertificate()
+
+	if err != nil {
+		t.Fatalf("TLSCertificate: %v", err)
+	}
+
+	if cert.Leaf != leaf || cert.PrivateKey != key {
+		t.Fatalf("TLSCertificate material = %+v, want leaf/private key", cert)
+	}
+
+	if len(cert.Certificate) != 2 || string(cert.Certificate[0]) != string(leaf.Raw) || string(cert.Certificate[1]) != string(intermediate.Raw) {
+		t.Fatalf("TLSCertificate chain = %v", cert.Certificate)
+	}
+
+	cert.Certificate[0][0] = 9
+	if leaf.Raw[0] == 9 {
+		t.Fatal("TLSCertificate did not copy certificate DER")
+	}
+}
+
+func TestX509SVIDTLSCertificateRequiresMaterial(t *testing.T) {
+	tests := []struct {
+		name string
+		svid X509SVID
+		want string
+	}{
+		{name: "missing id", svid: X509SVID{}, want: "SPIFFE ID"},
+		{name: "missing cert", svid: X509SVID{SPIFFEID: "spiffe://prod.example/workload"}, want: "certificate chain"},
+		{name: "missing key", svid: X509SVID{SPIFFEID: "spiffe://prod.example/workload", Certificates: []*x509.Certificate{{Raw: []byte{1}}}}, want: "private key"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := tt.svid.TLSCertificate()
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("TLSCertificate error = %v, want %q", err, tt.want)
+			}
+		})
 	}
 }
 

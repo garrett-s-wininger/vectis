@@ -145,6 +145,8 @@ Short aliases such as `VECTIS_QUEUE_ALLOWED_CLIENT_IDENTITIES`, `VECTIS_REGISTRY
 
 Worker artifact uploads are capped by `VECTIS_WORKER_ARTIFACT_MAX_BYTES` / `worker.artifact_max_bytes` / `--artifact-max-bytes`. The default is `1073741824` bytes (1 GiB), and `0` disables the worker-level cap. `builtins/upload-artifact` can set `max_bytes` to use a lower per-node limit, but it cannot raise an upload above the worker cap. Runs are also capped by `VECTIS_WORKER_ARTIFACT_MAX_RUN_BYTES` / `worker.artifact_max_run_bytes` / `--artifact-max-run-bytes`, default `10737418240` bytes (10 GiB), and `VECTIS_WORKER_ARTIFACT_MAX_COUNT` / `worker.artifact_max_count` / `--artifact-max-count`, default `1000`; set either to `0` to disable that per-run quota.
 
+For job secret resolution, `vectis-secrets` performs its own per-execution authorization inside the secrets RPC. It verifies the caller's mTLS client certificate, derives the expected execution SPIFFE ID from the active execution record, and requires an exact match. Keep `service_identity.secrets_allowed_client_identities` empty unless you intentionally want an additional exact-match allowlist for known caller identities; a static worker service identity allowlist will block dynamic per-execution SVID callers.
+
 Worker execution identity is disabled by default. Enable it when you want workers to derive an expected SPIFFE ID for each accepted execution before action code runs:
 
 | Variable / key | Purpose |
@@ -153,7 +155,7 @@ Worker execution identity is disabled by default. Enable it when you want worker
 | `VECTIS_WORKER_EXECUTION_IDENTITY_TRUST_DOMAIN` / `worker.execution_identity.trust_domain` | SPIFFE trust domain used for derived execution IDs, such as `prod.example`. Required when enabled. |
 | `VECTIS_WORKER_EXECUTION_IDENTITY_PATH_TEMPLATE` / `worker.execution_identity.path_template` | Path template for derived execution IDs. Defaults to `/cell/{cell}/namespace/{namespace}/job/{job}/run/{run}/execution/{execution}`. |
 
-Supported template placeholders are `{cell}`, `{namespace}`, `{job}`, `{run}`, `{run_index}`, `{segment}`, `{execution}`, `{attempt}`, `{definition_version}`, and `{definition_hash}`. The derived identity is attached to Vectis' in-process action state and tracing. It is not exported to shell process environment variables. By itself, execution identity derivation does not fetch SPIRE SVIDs; enable `worker.spire.enabled` to require the worker's Workload API source to return the exact derived ID before action code runs.
+Supported template placeholders are `{cell}`, `{namespace}`, `{job}`, `{run}`, `{run_index}`, `{segment}`, `{execution}`, `{attempt}`, `{definition_version}`, and `{definition_hash}`. The derived identity is attached to Vectis' in-process action state and tracing. It is not exported to shell process environment variables. By itself, execution identity derivation does not fetch SPIRE SVIDs; enable `worker.spire.enabled` to require the worker's Workload API source to return the exact derived ID before action code runs. Configure the same `worker.execution_identity.*` values on `vectis-secrets`; the broker uses those settings to derive the expected caller identity from the active execution row.
 
 Worker SPIRE integration is disabled by default. Enable it only when a SPIRE agent Workload API is available to the worker process:
 
@@ -163,7 +165,9 @@ Worker SPIRE integration is disabled by default. Enable it only when a SPIRE age
 | `VECTIS_WORKER_SPIRE_WORKLOAD_API_ADDRESS` / `worker.spire.workload_api_address` | SPIRE Workload API address, such as `unix:///run/spire/sockets/agent.sock`. |
 | `VECTIS_WORKER_SPIRE_FETCH_TIMEOUT` / `worker.spire.fetch_timeout` | Maximum time to wait for a Workload API SVID fetch during pre-action execution SVID acquisition. Defaults to `5s` and must be positive. |
 
-Execution SVID acquisition happens inside Vectis-controlled worker code. The matched SVID is represented only as Vectis in-process action state for future secret brokering; Vectis does not export the Workload API socket, SVID, private key, or derived SPIFFE ID to shell commands. This setting does not create SPIRE registration entries; operators still need a SPIRE registration workflow that grants the worker the expected execution identities. Workers emit `vectis_worker_spire_svid_checks_total` with fixed `outcome` and `reason` labels for this gate.
+Execution SVID acquisition happens inside Vectis-controlled worker code. When a task declares secrets, the worker uses the matched X.509-SVID as the gRPC client certificate for the `vectis-secrets` resolution call. Vectis does not export the Workload API socket, SVID, private key, or derived SPIFFE ID to shell commands. This setting does not create SPIRE registration entries; operators still need a SPIRE registration workflow that grants the worker the expected execution identities. Workers emit `vectis_worker_spire_svid_checks_total` with fixed `outcome` and `reason` labels for this gate.
+
+Secret resolution requires internal gRPC TLS with server certificates, `grpc_tls.ca_file` for workers, and `grpc_tls.client_ca_file` for `vectis-secrets` so workload client certificates are requested and verified. `vectis-secrets` fails startup when gRPC TLS is enabled without `grpc_tls.client_ca_file`.
 
 SPIRE registration expectations:
 
@@ -171,7 +175,7 @@ SPIRE registration expectations:
 2. Namespace `/` renders as `namespace/root`. Non-root namespace paths are trimmed, split on `/`, and URL-escaped segment by segment, so registration tooling should use the same template rules as Vectis.
 3. Registration selectors should identify the trusted worker workload or worker runtime boundary, such as a service account, systemd unit, UID, binary path, pod identity, or node-attested worker placement. They should not depend on job-controlled files, command arguments, or environment variables.
 4. Registration lifecycle should be as narrow as the deployment can support: create or make available the execution identity before the worker starts the task, and expire or remove it after the execution reaches a terminal state. Avoid long-lived registrations that let a worker fetch broad sets of historical or unrelated execution IDs.
-5. The registration workflow should live outside arbitrary job actions. Do not give shell steps the SPIRE Workload API socket, the SVID private key, or registration authority credentials; future secret brokering should consume the worker-owned acquired SVID marker instead.
+5. The registration workflow should live outside arbitrary job actions. Do not give shell steps the SPIRE Workload API socket, the SVID private key, or registration authority credentials; secret brokering consumes the worker-owned acquired SVID instead.
 
 ## Action Registry
 

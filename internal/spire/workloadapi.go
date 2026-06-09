@@ -2,6 +2,8 @@ package spire
 
 import (
 	"context"
+	"crypto"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"strings"
@@ -18,7 +20,9 @@ var (
 )
 
 type X509SVID struct {
-	SPIFFEID string
+	SPIFFEID     string
+	Certificates []*x509.Certificate
+	PrivateKey   crypto.Signer
 }
 
 type X509SVIDSource interface {
@@ -67,7 +71,11 @@ func (s *WorkloadAPISource) FetchX509SVIDs(ctx context.Context) ([]X509SVID, err
 			continue
 		}
 
-		out = append(out, X509SVID{SPIFFEID: svid.ID.String()})
+		out = append(out, X509SVID{
+			SPIFFEID:     svid.ID.String(),
+			Certificates: append([]*x509.Certificate(nil), svid.Certificates...),
+			PrivateKey:   svid.PrivateKey,
+		})
 	}
 
 	return out, nil
@@ -96,7 +104,9 @@ func FetchX509SVID(ctx context.Context, source X509SVIDSource, expectedSPIFFEID 
 		}
 
 		if normalized[0] == expectedSPIFFEID {
-			return X509SVID{SPIFFEID: normalized[0]}, nil
+			svid.SPIFFEID = normalized[0]
+			svid.Certificates = append([]*x509.Certificate(nil), svid.Certificates...)
+			return svid, nil
 		}
 	}
 

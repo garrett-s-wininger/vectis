@@ -1,6 +1,9 @@
 package workloadidentity
 
 import (
+	"crypto"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -36,7 +39,9 @@ type Identity struct {
 }
 
 type X509SVID struct {
-	SPIFFEID string
+	SPIFFEID     string
+	Certificates []*x509.Certificate
+	PrivateKey   crypto.Signer
 }
 
 func (i *Identity) WithX509SVID(svid X509SVID) *Identity {
@@ -45,8 +50,42 @@ func (i *Identity) WithX509SVID(svid X509SVID) *Identity {
 	}
 
 	out := *i
-	out.X509SVID = &X509SVID{SPIFFEID: svid.SPIFFEID}
+	out.X509SVID = &X509SVID{
+		SPIFFEID:     svid.SPIFFEID,
+		Certificates: append([]*x509.Certificate(nil), svid.Certificates...),
+		PrivateKey:   svid.PrivateKey,
+	}
 	return &out
+}
+
+func (s X509SVID) TLSCertificate() (*tls.Certificate, error) {
+	if strings.TrimSpace(s.SPIFFEID) == "" {
+		return nil, fmt.Errorf("workload identity: X.509-SVID SPIFFE ID is required")
+	}
+
+	if len(s.Certificates) == 0 || s.Certificates[0] == nil {
+		return nil, fmt.Errorf("workload identity: X.509-SVID certificate chain is required")
+	}
+
+	if s.PrivateKey == nil {
+		return nil, fmt.Errorf("workload identity: X.509-SVID private key is required")
+	}
+
+	cert := &tls.Certificate{
+		Certificate: make([][]byte, 0, len(s.Certificates)),
+		PrivateKey:  s.PrivateKey,
+		Leaf:        s.Certificates[0],
+	}
+
+	for _, c := range s.Certificates {
+		if c == nil {
+			return nil, fmt.Errorf("workload identity: X.509-SVID certificate chain contains nil certificate")
+		}
+
+		cert.Certificate = append(cert.Certificate, append([]byte(nil), c.Raw...))
+	}
+
+	return cert, nil
 }
 
 func SPIFFEID(trustDomain, pathTemplate string, execution Execution) (string, error) {

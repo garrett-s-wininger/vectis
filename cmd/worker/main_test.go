@@ -167,6 +167,68 @@ func TestWorkerResolveExecutionSecretsSendsTaskScopedRequest(t *testing.T) {
 	}
 }
 
+func TestWorkerResolveExecutionSecretsUsesWorkloadResolverFactory(t *testing.T) {
+	fileType := api.SecretDeliveryType_SECRET_DELIVERY_TYPE_FILE
+	resolver := &recordingSecretsResolver{
+		bundle: secrets.Bundle{Files: []secrets.FileMaterial{{
+			ID:   "npm-token",
+			Path: "npm/token",
+			Data: []byte("secret-value"),
+			Mode: secrets.DefaultFileMode,
+		}}},
+	}
+
+	workload := &workloadidentity.Identity{SPIFFEID: "spiffe://vectis.local/execution/run-1"}
+	cleanupCalled := false
+	factoryCalled := false
+	w := &worker{
+		secretResolver: &recordingSecretsResolver{err: errors.New("static resolver should not be used")},
+		secretResolverForWorkload: func(got *workloadidentity.Identity) (secrets.Resolver, func(), error) {
+			factoryCalled = true
+			if got != workload {
+				t.Fatalf("factory workload = %+v, want original workload", got)
+			}
+
+			return resolver, func() { cleanupCalled = true }, nil
+		},
+	}
+
+	files, err := w.resolveExecutionSecrets(context.Background(), &api.Job{
+		Secrets: []*api.SecretReference{{
+			Id:  workerStrp("npm-token"),
+			Ref: workerStrp("encryptedfs://team/npm-token"),
+			Delivery: &api.SecretDelivery{
+				Type: &fileType,
+				Path: workerStrp("npm/token"),
+			},
+		}},
+	}, &cell.ExecutionEnvelope{
+		RunID:       "run-1",
+		TaskKey:     "root",
+		ExecutionID: "execution-1",
+	}, "claim-1", workload)
+
+	if err != nil {
+		t.Fatalf("resolveExecutionSecrets: %v", err)
+	}
+
+	if !factoryCalled {
+		t.Fatal("workload resolver factory was not called")
+	}
+
+	if !cleanupCalled {
+		t.Fatal("workload resolver cleanup was not called")
+	}
+
+	if len(files) != 1 || files[0].ID != "npm-token" {
+		t.Fatalf("files = %+v", files)
+	}
+
+	if resolver.req.Workload != workload || resolver.req.ExecutionClaimToken != "claim-1" {
+		t.Fatalf("resolver request = %+v", resolver.req)
+	}
+}
+
 func TestWorkerResolveExecutionSecretsRequiresResolverForDeclaredSecrets(t *testing.T) {
 	fileType := api.SecretDeliveryType_SECRET_DELIVERY_TYPE_FILE
 	w := &worker{}

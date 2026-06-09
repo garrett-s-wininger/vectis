@@ -2149,6 +2149,12 @@ func TestRunsRepository_ValidateActiveExecutionClaim(t *testing.T) {
 	if !ok {
 		t.Fatalf("runs repository cannot validate active execution claims")
 	}
+	activeDispatches, ok := repos.Runs().(interface {
+		GetActiveExecutionDispatch(context.Context, string, string) (dal.ExecutionDispatchRecord, error)
+	})
+	if !ok {
+		t.Fatalf("runs repository cannot load active execution dispatches")
+	}
 
 	ns, err := repos.Namespaces().Create(ctx, "team-validate-execution-claims", nil)
 	if err != nil {
@@ -2169,6 +2175,15 @@ func TestRunsRepository_ValidateActiveExecutionClaim(t *testing.T) {
 	dispatch, claim := claimPendingRunExecution(t, ctx, repos.Runs(), runID, "worker-a", time.Now().Add(time.Minute))
 	if err := validator.ValidateActiveExecutionClaim(ctx, runID, dispatch.ExecutionID, claim.ClaimToken); err != nil {
 		t.Fatalf("validate active execution claim: %v", err)
+	}
+
+	activeDispatch, err := activeDispatches.GetActiveExecutionDispatch(ctx, runID, dispatch.ExecutionID)
+	if err != nil {
+		t.Fatalf("get active execution dispatch: %v", err)
+	}
+
+	if activeDispatch.RunID != runID || activeDispatch.ExecutionID != dispatch.ExecutionID || activeDispatch.JobID != jobID || activeDispatch.NamespacePath != "/team-validate-execution-claims" {
+		t.Fatalf("active execution dispatch = %+v", activeDispatch)
 	}
 
 	if err := validator.ValidateActiveExecutionClaim(ctx, runID, dispatch.ExecutionID, "wrong-token"); !dal.IsConflict(err) {

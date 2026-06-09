@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -97,6 +98,14 @@ func ValidateGRPCTLSForRole(role GRPCTLSDaemonRole) error {
 		if o.ServerCert == "" || o.ServerKey == "" {
 			return errors.New("grpc_tls: cert_file and key_file are required for vectis-registry when grpc_tls.insecure is false")
 		}
+	case GRPCTLSDaemonSecrets:
+		if o.ServerCert == "" || o.ServerKey == "" {
+			return errors.New("grpc_tls: cert_file and key_file are required for vectis-secrets when grpc_tls.insecure is false")
+		}
+
+		if o.ClientCA == "" {
+			return errors.New("grpc_tls: client_ca_file is required for vectis-secrets when grpc_tls.insecure is false so workload client certificates are verified")
+		}
 	case GRPCTLSDaemonQueue, GRPCTLSDaemonLog, GRPCTLSDaemonArtifact, GRPCTLSDaemonWorker, GRPCTLSDaemonOrchestrator:
 		if o.ServerCert == "" || o.ServerKey == "" {
 			return errors.New("grpc_tls: cert_file and key_file are required when grpc_tls.insecure is false")
@@ -104,10 +113,6 @@ func ValidateGRPCTLSForRole(role GRPCTLSDaemonRole) error {
 
 		if o.RootCA == "" {
 			return errors.New("grpc_tls: ca_file is required to dial the registry when grpc_tls.insecure is false")
-		}
-	case GRPCTLSDaemonSecrets:
-		if o.ServerCert == "" || o.ServerKey == "" {
-			return errors.New("grpc_tls: cert_file and key_file are required for vectis-secrets when grpc_tls.insecure is false")
 		}
 	case GRPCTLSDaemonClientOnly:
 		if o.RootCA == "" {
@@ -276,6 +281,15 @@ func grpcTransportCredsForTarget(directHostPort string) (credentials.TransportCr
 		return insecure.NewCredentials(), nil
 	}
 
+	cfg, err := grpcClientTLSConfigForTarget(directHostPort)
+	if err != nil {
+		return nil, err
+	}
+
+	return credentials.NewTLS(cfg), nil
+}
+
+func grpcClientTLSConfigForTarget(directHostPort string) (*tls.Config, error) {
 	r, err := grpcTLSReloader()
 	if err != nil {
 		return nil, err
@@ -294,7 +308,7 @@ func grpcTransportCredsForTarget(directHostPort string) (credentials.TransportCr
 		sn = tlsServerNameFromHostPort(directHostPort)
 	}
 
-	return r.ClientGRPC(sn)
+	return r.ClientTLS(sn)
 }
 
 func GRPCClientDialOptions(directHostPort string) ([]grpc.DialOption, error) {
@@ -307,6 +321,41 @@ func GRPCClientDialOptions(directHostPort string) ([]grpc.DialOption, error) {
 		grpc.WithTransportCredentials(tc),
 		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 	}, nil
+}
+
+func GRPCClientDialOptionsWithClientCertificate(directHostPort string, cert tls.Certificate) ([]grpc.DialOption, error) {
+	if GRPCTLSInsecure() {
+		return nil, errors.New("grpc_tls: client certificate requires grpc_tls.insecure=false")
+	}
+
+	if len(cert.Certificate) == 0 || cert.PrivateKey == nil {
+		return nil, errors.New("grpc_tls: client certificate and private key are required")
+	}
+
+	cfg, err := grpcClientTLSConfigForTarget(directHostPort)
+	if err != nil {
+		return nil, err
+	}
+
+	clientCert := cloneTLSCertificate(cert)
+	cfg.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+		return &clientCert, nil
+	}
+
+	return []grpc.DialOption{
+		grpc.WithTransportCredentials(credentials.NewTLS(cfg)),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+	}, nil
+}
+
+func cloneTLSCertificate(cert tls.Certificate) tls.Certificate {
+	out := cert
+	out.Certificate = make([][]byte, 0, len(cert.Certificate))
+	for _, der := range cert.Certificate {
+		out.Certificate = append(out.Certificate, append([]byte(nil), der...))
+	}
+
+	return out
 }
 
 func GRPCResolverDialOptions() ([]grpc.DialOption, error) {

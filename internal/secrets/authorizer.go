@@ -4,18 +4,39 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"vectis/internal/serviceidentity"
 )
 
 type ExecutionClaimValidator interface {
 	ValidateActiveExecutionClaim(ctx context.Context, runID, executionID, claimToken string) error
 }
 
-type ClaimAuthorizer struct {
-	claims ExecutionClaimValidator
+type ExpectedWorkloadResolver interface {
+	ExpectedWorkloadSPIFFEID(ctx context.Context, runID, executionID string) (string, error)
 }
 
-func NewClaimAuthorizer(claims ExecutionClaimValidator) *ClaimAuthorizer {
-	return &ClaimAuthorizer{claims: claims}
+type ClaimAuthorizer struct {
+	claims            ExecutionClaimValidator
+	expectedWorkloads ExpectedWorkloadResolver
+}
+
+type ClaimAuthorizerOption func(*ClaimAuthorizer)
+
+func WithExpectedWorkloadResolver(resolver ExpectedWorkloadResolver) ClaimAuthorizerOption {
+	return func(a *ClaimAuthorizer) {
+		a.expectedWorkloads = resolver
+	}
+}
+
+func NewClaimAuthorizer(claims ExecutionClaimValidator, opts ...ClaimAuthorizerOption) *ClaimAuthorizer {
+	a := &ClaimAuthorizer{claims: claims}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(a)
+		}
+	}
+	return a
 }
 
 func (a *ClaimAuthorizer) AuthorizeResolve(ctx context.Context, req ResolveRequest) error {
@@ -23,7 +44,8 @@ func (a *ClaimAuthorizer) AuthorizeResolve(ctx context.Context, req ResolveReque
 		return fmt.Errorf("%w: execution claim validator is not configured", ErrDenied)
 	}
 
-	if strings.TrimSpace(req.PeerSPIFFEID) == "" {
+	peerSPIFFEID, err := normalizePeerSPIFFEID(req.PeerSPIFFEID)
+	if err != nil {
 		return fmt.Errorf("%w: peer SPIFFE ID is required", ErrDenied)
 	}
 
@@ -38,5 +60,34 @@ func (a *ClaimAuthorizer) AuthorizeResolve(ctx context.Context, req ResolveReque
 		return fmt.Errorf("%w: execution claim is not active: %v", ErrDenied, err)
 	}
 
+	if a.expectedWorkloads != nil {
+		expected, err := a.expectedWorkloads.ExpectedWorkloadSPIFFEID(ctx, runID, executionID)
+		if err != nil {
+			return fmt.Errorf("%w: expected workload identity is unavailable: %v", ErrDenied, err)
+		}
+
+		expected, err = normalizePeerSPIFFEID(expected)
+		if err != nil {
+			return fmt.Errorf("%w: expected workload SPIFFE ID is invalid: %v", ErrDenied, err)
+		}
+
+		if peerSPIFFEID != expected {
+			return fmt.Errorf("%w: peer SPIFFE ID does not match execution workload identity", ErrDenied)
+		}
+	}
+
 	return nil
+}
+
+func normalizePeerSPIFFEID(raw string) (string, error) {
+	normalized, err := serviceidentity.NormalizeSPIFFEAllowlist([]string{raw})
+	if err != nil {
+		return "", err
+	}
+
+	if len(normalized) == 0 {
+		return "", fmt.Errorf("empty SPIFFE ID")
+	}
+
+	return normalized[0], nil
 }

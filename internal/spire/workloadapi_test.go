@@ -2,6 +2,10 @@ package spire
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
 	"errors"
 	"strings"
 	"testing"
@@ -51,10 +55,20 @@ func TestRequireX509SVIDAcceptsMatchingSVID(t *testing.T) {
 }
 
 func TestFetchX509SVIDReturnsMatchingSVID(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+
+	cert := &x509.Certificate{Raw: []byte{1, 2, 3}}
 	source := fakeX509SVIDSource{svids: []X509SVID{
 		{SPIFFEID: "not a spiffe id"},
 		{SPIFFEID: "spiffe://prod.example/cell/local/job/other"},
-		{SPIFFEID: "spiffe://prod.example/cell/local/job/job-1/run/run-1/execution/execution-1"},
+		{
+			SPIFFEID:     "spiffe://prod.example/cell/local/job/job-1/run/run-1/execution/execution-1",
+			Certificates: []*x509.Certificate{cert},
+			PrivateKey:   key,
+		},
 	}}
 
 	got, err := FetchX509SVID(
@@ -69,6 +83,15 @@ func TestFetchX509SVIDReturnsMatchingSVID(t *testing.T) {
 	want := "spiffe://prod.example/cell/local/job/job-1/run/run-1/execution/execution-1"
 	if got.SPIFFEID != want {
 		t.Fatalf("FetchX509SVID = %+v, want %q", got, want)
+	}
+
+	if len(got.Certificates) != 1 || got.Certificates[0] != cert || got.PrivateKey != key {
+		t.Fatalf("FetchX509SVID did not preserve SVID material: %+v", got)
+	}
+
+	got.Certificates[0] = nil
+	if cert == nil {
+		t.Fatal("FetchX509SVID did not isolate certificate slice")
 	}
 }
 

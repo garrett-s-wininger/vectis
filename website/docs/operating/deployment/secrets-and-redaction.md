@@ -1,6 +1,6 @@
 # Secrets And Redaction
 
-Vectis does not yet provide a job secret backend or a general run-log redaction layer. Treat job definitions, action output, service logs, run logs, database backups, queue persistence, and deployment config as potentially sensitive.
+Vectis provides an initial job secret path through the cell-local `vectis-secrets` broker and encrypted filesystem provider, but it does not provide a general run-log redaction layer. Treat job definitions, action output, service logs, run logs, database backups, queue persistence, secret stores, key files, and deployment config as potentially sensitive.
 
 This page is for operators deciding where secrets may appear and how to reduce accidental exposure.
 
@@ -15,8 +15,8 @@ For the broader security posture, see [Security](../../concepts/security.md). Fo
 | Bootstrap token | Used for initial setup when API auth is enabled. It remains a deploy/config secret until removed or rotated. |
 | Checkout URL validation | HTTP(S) checkout URLs with embedded user info are rejected. |
 | Log redaction | There is no general-purpose run-log redaction layer. Jobs can print secrets. |
-| Job secret backend | Not shipped today. Job definitions should not contain plaintext secrets. |
-| Execution identity | Workers can derive an expected per-execution SPIFFE ID, and SPIRE-enabled workers require their Workload API source to return a matching X.509-SVID before action code runs. Vectis does not release secrets from that identity today. |
+| Job secret backend | `vectis-secrets` can resolve top-level job secret references from an encrypted filesystem store and deliver task-scoped files under `.vectis/secrets`. Job definitions should not contain plaintext secrets. |
+| Execution identity | Workers can derive an expected per-execution SPIFFE ID, and SPIRE-enabled workers require their Workload API source to return a matching X.509-SVID before action code runs. Secret resolution uses that SVID as the mTLS client certificate, and the broker requires it to match the active execution. |
 | Storage encryption | Vectis relies on platform disk, volume, database, and backup encryption. |
 
 ## Sensitive Surfaces
@@ -49,7 +49,7 @@ Avoid putting secrets in:
 
 If a job needs credentials today, prefer short-lived credentials delivered by your runtime environment and limit which workers can see them. Vectis does not pass the worker service environment through to shell or checkout child processes, but files, sockets, and volumes visible to the worker runtime can still be visible to job commands. Vectis currently assumes job authors are trusted not to print, persist, or exfiltrate deliberately provided credentials.
 
-When `worker.execution_identity.enabled=true`, workers fail closed for jobs that lack a Vectis execution envelope and derive an expected `spiffe://` identity for accepted executions. With `worker.spire.enabled=true`, the worker also requires its configured SPIRE Workload API source to return an X.509-SVID whose SPIFFE ID exactly matches that derived identity before action code runs. The acquired SVID marker stays in Vectis in-process action state for future secret brokering. The derived identity is not a secret, and Vectis does not place the identity, SVID, private key, or Workload API socket in shell environment variables. Use it to plan secret-store policy and SPIRE registration paths; do not mount a broad SPIRE Workload API socket directly into untrusted job processes unless the runtime isolation layer can ensure the job receives only its own scoped SVID.
+When `worker.execution_identity.enabled=true`, workers fail closed for jobs that lack a Vectis execution envelope and derive an expected `spiffe://` identity for accepted executions. With `worker.spire.enabled=true`, the worker also requires its configured SPIRE Workload API source to return an X.509-SVID whose SPIFFE ID exactly matches that derived identity before action code runs. When the task declares secrets, Vectis uses that SVID only inside worker-controlled code as the mTLS client certificate for `vectis-secrets`; the broker derives the expected identity from the active execution record and requires a match. The derived identity is not a secret, and Vectis does not place the identity, SVID, private key, or Workload API socket in shell environment variables. Use it to plan secret-store policy and SPIRE registration paths; do not mount a broad SPIRE Workload API socket directly into untrusted job processes unless the runtime isolation layer can ensure the job receives only its own scoped SVID.
 
 ## Checkout URL Policy
 

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"net"
 	"os"
 
@@ -13,6 +15,7 @@ import (
 	"vectis/internal/interfaces"
 	"vectis/internal/observability"
 	"vectis/internal/secrets"
+	"vectis/internal/workloadidentity"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -59,9 +62,15 @@ func runVectisSecrets(cmd *cobra.Command, args []string) {
 	defer db.Close()
 
 	repos := dal.NewSQLRepositoriesWithCellID(db, config.CellID())
-	claimValidator, ok := repos.Runs().(secrets.ExecutionClaimValidator)
+	runs := repos.Runs()
+	claimValidator, ok := runs.(secrets.ExecutionClaimValidator)
 	if !ok {
 		logger.Fatal("Runs repository cannot validate active execution claims")
+	}
+
+	activeExecutions, ok := runs.(activeExecutionDispatchStore)
+	if !ok {
+		logger.Fatal("Runs repository cannot resolve active execution workload identities")
 	}
 
 	addr := config.SecretsListenAddr()
@@ -77,6 +86,14 @@ func runVectisSecrets(cmd *cobra.Command, args []string) {
 
 	provider := secrets.Provider(secrets.UnconfiguredProvider{})
 	if root := config.SecretsEncryptedFSRoot(); root != "" {
+		if !config.WorkerExecutionIdentityEnabled() {
+			logger.Fatal("encryptedfs secret provider requires worker.execution_identity.enabled=true so workload callers can be authorized")
+		}
+
+		if err := config.ValidateWorkerExecutionIdentityConfig(); err != nil {
+			logger.Fatal("Invalid worker execution identity config for secret authorization: %v", err)
+		}
+
 		keyFile := config.SecretsEncryptedFSKeyFile()
 		if keyFile == "" {
 			logger.Fatal("encryptedfs secret provider requires --encryptedfs-key-file or VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE")
@@ -94,8 +111,12 @@ func runVectisSecrets(cmd *cobra.Command, args []string) {
 	}
 
 	grpcServer := grpc.NewServer(srvOpts...)
-	api.RegisterSecretsServiceServer(grpcServer, secrets.NewServer(provider, secrets.NewClaimAuthorizer(claimValidator)))
+	authorizer := secrets.NewClaimAuthorizer(
+		claimValidator,
+		secrets.WithExpectedWorkloadResolver(executionWorkloadResolver{store: activeExecutions}),
+	)
 
+	api.RegisterSecretsServiceServer(grpcServer, secrets.NewServer(provider, authorizer))
 	hs := health.NewServer()
 	healthpb.RegisterHealthServer(grpcServer, hs)
 	hs.SetServingStatus("secrets", healthpb.HealthCheckResponse_SERVING)
@@ -112,6 +133,52 @@ func runVectisSecrets(cmd *cobra.Command, args []string) {
 	if err := cli.ServeGRPC(ctx, grpcServer, ln, "Secrets", logger); err != nil {
 		logger.Error("gRPC server failed: %v", err)
 	}
+}
+
+type activeExecutionDispatchStore interface {
+	GetActiveExecutionDispatch(ctx context.Context, runID, executionID string) (dal.ExecutionDispatchRecord, error)
+}
+
+type executionWorkloadResolver struct {
+	store activeExecutionDispatchStore
+}
+
+func (r executionWorkloadResolver) ExpectedWorkloadSPIFFEID(ctx context.Context, runID, executionID string) (string, error) {
+	if r.store == nil {
+		return "", errors.New("active execution store is not configured")
+	}
+
+	if !config.WorkerExecutionIdentityEnabled() {
+		return "", errors.New("worker execution identity is disabled")
+	}
+
+	dispatch, err := r.store.GetActiveExecutionDispatch(ctx, runID, executionID)
+	if err != nil {
+		return "", err
+	}
+
+	identity, err := workloadidentity.NewIdentity(
+		config.WorkerExecutionIdentityTrustDomain(),
+		config.WorkerExecutionIdentityPathTemplate(),
+		workloadidentity.Execution{
+			CellID:            dispatch.CellID,
+			NamespacePath:     dispatch.NamespacePath,
+			JobID:             dispatch.JobID,
+			RunID:             dispatch.RunID,
+			RunIndex:          dispatch.RunIndex,
+			SegmentID:         dispatch.SegmentID,
+			ExecutionID:       dispatch.ExecutionID,
+			Attempt:           dispatch.Attempt,
+			DefinitionVersion: dispatch.DefinitionVersion,
+			DefinitionHash:    dispatch.DefinitionHash,
+		},
+	)
+
+	if err != nil {
+		return "", err
+	}
+
+	return identity.SPIFFEID, nil
 }
 
 var rootCmd = &cobra.Command{

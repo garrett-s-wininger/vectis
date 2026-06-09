@@ -226,13 +226,9 @@ func runWorker(cmd *cobra.Command, args []string) {
 	forwarderSocket := forwarderSocketPath()
 	logClient = interfaces.NewPreferForwarderLogClient(forwarderSocket, logClient)
 
-	secretResolver, cleanupSecrets, err := newSecretsResolver(logger)
+	secretResolverForWorkload, err := newSecretsResolverFactory(logger)
 	if err != nil {
 		logger.Fatal("Failed to configure secrets service client: %v", err)
-	}
-
-	if cleanupSecrets != nil {
-		defer cleanupSecrets()
 	}
 
 	var spireSVIDSource spire.X509SVIDSource
@@ -251,32 +247,32 @@ func runWorker(cmd *cobra.Command, args []string) {
 	}
 
 	w := &worker{
-		ctx:                 shutdownCtx,
-		runCtx:              runCtx,
-		logger:              logger,
-		workerID:            workerID,
-		cellID:              config.CellID(),
-		clock:               interfaces.SystemClock{},
-		renewInterval:       dal.DefaultRenewInterval,
-		queue:               clients,
-		logClient:           logClient,
-		core:                executionCore,
-		coreShell:           coreShell,
-		coreShellEndpoint:   coreShellEndpoint,
-		actionResolver:      actionResolver,
-		store:               runsRepo,
-		artifactManifests:   repos.Artifacts(),
-		artifactMaxBytes:    config.WorkerArtifactMaxBytes(),
-		artifactMaxRunBytes: config.WorkerArtifactMaxRunBytes(),
-		artifactMaxCount:    config.WorkerArtifactMaxCount(),
-		retryMetrics:        retryMetrics,
-		choreographer:       newGRPCExecutionChoreographer(api.NewOrchestratorServiceClient(orchestratorConn)),
-		secretResolver:      secretResolver,
-		catalog:             cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
-		metrics:             workerMetrics,
-		taskFinalizeMetrics: taskFinalizeMetrics,
-		spireSVIDSource:     spireSVIDSource,
-		cancelCh:            make(chan string, 1),
+		ctx:                       shutdownCtx,
+		runCtx:                    runCtx,
+		logger:                    logger,
+		workerID:                  workerID,
+		cellID:                    config.CellID(),
+		clock:                     interfaces.SystemClock{},
+		renewInterval:             dal.DefaultRenewInterval,
+		queue:                     clients,
+		logClient:                 logClient,
+		core:                      executionCore,
+		coreShell:                 coreShell,
+		coreShellEndpoint:         coreShellEndpoint,
+		actionResolver:            actionResolver,
+		store:                     runsRepo,
+		artifactManifests:         repos.Artifacts(),
+		artifactMaxBytes:          config.WorkerArtifactMaxBytes(),
+		artifactMaxRunBytes:       config.WorkerArtifactMaxRunBytes(),
+		artifactMaxCount:          config.WorkerArtifactMaxCount(),
+		retryMetrics:              retryMetrics,
+		choreographer:             newGRPCExecutionChoreographer(api.NewOrchestratorServiceClient(orchestratorConn)),
+		secretResolverForWorkload: secretResolverForWorkload,
+		catalog:                   cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
+		metrics:                   workerMetrics,
+		taskFinalizeMetrics:       taskFinalizeMetrics,
+		spireSVIDSource:           spireSVIDSource,
+		cancelCh:                  make(chan string, 1),
 	}
 
 	// Start worker control server for remote cancellation.
@@ -464,63 +460,77 @@ func controlPublishAddress(addr string) string {
 }
 
 type worker struct {
-	ctx                 context.Context // canceled on SIGINT/SIGTERM; dequeue and between-job backoff only
-	runCtx              context.Context // Background; execution, lease renew, ack, finalize survive SIGTERM until dequeue stops
-	logger              interfaces.Logger
-	workerID            string
-	cellID              string
-	clock               interfaces.Clock
-	renewInterval       time.Duration
-	cancelPollInterval  time.Duration
-	queue               interfaces.QueueClient
-	logClient           interfaces.LogClient
-	core                workercore.Core
-	coreShell           *workercore.ShellServer
-	coreShellEndpoint   string
-	actionResolver      actionregistry.Resolver
-	store               dal.RunsRepository
-	artifactManifests   dal.ArtifactsRepository
-	artifactMaxBytes    int64
-	artifactMaxRunBytes int64
-	artifactMaxCount    int64
-	retryMetrics        backoff.RetryMetrics
-	choreographer       executionChoreographer
-	secretResolver      secrets.Resolver
-	catalog             cell.CatalogEventPublisher
-	metrics             *observability.WorkerMetrics
-	taskFinalizeMetrics *observability.TaskFinalizeMetrics
-	spireSVIDSource     spire.X509SVIDSource
-	dequeueFailAttempt  int
-	dbUnavailable       bool
-	dbFailAttempt       int
-	dbMu                sync.Mutex
-	cancelCh            chan string
-	currentRunID        string
-	currentClaimToken   string
-	currentMu           sync.Mutex
+	ctx                       context.Context // canceled on SIGINT/SIGTERM; dequeue and between-job backoff only
+	runCtx                    context.Context // Background; execution, lease renew, ack, finalize survive SIGTERM until dequeue stops
+	logger                    interfaces.Logger
+	workerID                  string
+	cellID                    string
+	clock                     interfaces.Clock
+	renewInterval             time.Duration
+	cancelPollInterval        time.Duration
+	queue                     interfaces.QueueClient
+	logClient                 interfaces.LogClient
+	core                      workercore.Core
+	coreShell                 *workercore.ShellServer
+	coreShellEndpoint         string
+	actionResolver            actionregistry.Resolver
+	store                     dal.RunsRepository
+	artifactManifests         dal.ArtifactsRepository
+	artifactMaxBytes          int64
+	artifactMaxRunBytes       int64
+	artifactMaxCount          int64
+	retryMetrics              backoff.RetryMetrics
+	choreographer             executionChoreographer
+	secretResolver            secrets.Resolver
+	secretResolverForWorkload secretResolverFactory
+	catalog                   cell.CatalogEventPublisher
+	metrics                   *observability.WorkerMetrics
+	taskFinalizeMetrics       *observability.TaskFinalizeMetrics
+	spireSVIDSource           spire.X509SVIDSource
+	dequeueFailAttempt        int
+	dbUnavailable             bool
+	dbFailAttempt             int
+	dbMu                      sync.Mutex
+	cancelCh                  chan string
+	currentRunID              string
+	currentClaimToken         string
+	currentMu                 sync.Mutex
 }
 
-func newSecretsResolver(logger interfaces.Logger) (secrets.Resolver, func(), error) {
+type secretResolverFactory func(*workloadidentity.Identity) (secrets.Resolver, func(), error)
+
+func newSecretsResolverFactory(logger interfaces.Logger) (secretResolverFactory, error) {
 	addr := strings.TrimSpace(config.WorkerSecretsAddress())
 	if addr == "" {
-		return nil, nil, nil
-	}
-
-	dialOpts, err := config.GRPCClientDialOptions(addr)
-	if err != nil {
-		return nil, nil, fmt.Errorf("grpc tls: %w", err)
-	}
-
-	conn, err := grpc.NewClient(addr, dialOpts...)
-	if err != nil {
-		return nil, nil, fmt.Errorf("dial %s: %w", addr, err)
+		return nil, nil
 	}
 
 	if logger != nil {
-		logger.Info("Configured secrets service client for %s", addr)
+		logger.Info("Configured workload-authenticated secrets service client for %s", addr)
 	}
 
-	return secrets.NewGRPCResolver(conn), func() { _ = conn.Close() }, nil
+	return func(workload *workloadidentity.Identity) (secrets.Resolver, func(), error) {
+		if workload == nil || workload.X509SVID == nil {
+			return nil, nil, fmt.Errorf("workload X.509-SVID is required for secret resolution")
+		}
+
+		clientCert, err := workload.X509SVID.TLSCertificate()
+		if err != nil {
+			return nil, nil, err
+		}
+
+		dialOpts, err := config.GRPCClientDialOptionsWithClientCertificate(addr, *clientCert)
+		if err != nil {
+			return nil, nil, fmt.Errorf("grpc tls: %w", err)
+		}
+
+		conn, err := grpc.NewClient(addr, dialOpts...)
+		if err != nil {
+			return nil, nil, fmt.Errorf("dial %s: %w", addr, err)
+		}
+
+		return secrets.NewGRPCResolver(conn), func() { _ = conn.Close() }, nil
+	}, nil
 }
 
 func (w *worker) now() time.Time {
@@ -1405,7 +1415,11 @@ func (w *worker) acquireExecutionSVID(ctx context.Context, identity *workloadide
 		w.metrics.RecordSPIRESVIDCheck(ctx, observability.WorkerSPIRESVIDOutcomeSuccess, observability.WorkerSPIRESVIDReasonMatched)
 	}
 
-	return identity.WithX509SVID(workloadidentity.X509SVID{SPIFFEID: svid.SPIFFEID}), nil
+	return identity.WithX509SVID(workloadidentity.X509SVID{
+		SPIFFEID:     svid.SPIFFEID,
+		Certificates: svid.Certificates,
+		PrivateKey:   svid.PrivateKey,
+	}), nil
 }
 
 func workerSPIRESVIDFailureReason(err error) string {
@@ -2149,11 +2163,30 @@ func (w *worker) resolveExecutionSecrets(ctx context.Context, runJob *api.Job, e
 		return nil, nil
 	}
 
-	if w == nil || w.secretResolver == nil {
+	if w == nil {
 		return nil, fmt.Errorf("job declares secrets but worker secrets resolver is not configured")
 	}
 
-	bundle, err := w.secretResolver.Resolve(ctx, secrets.ResolveRequest{
+	resolver := w.secretResolver
+	cleanup := func() {}
+	if w.secretResolverForWorkload != nil {
+		workloadResolver, workloadCleanup, err := w.secretResolverForWorkload(workloadIdentity)
+		if err != nil {
+			return nil, err
+		}
+
+		resolver = workloadResolver
+		if workloadCleanup != nil {
+			cleanup = workloadCleanup
+		}
+	}
+
+	if resolver == nil {
+		return nil, fmt.Errorf("job declares secrets but worker secrets resolver is not configured")
+	}
+	defer cleanup()
+
+	bundle, err := resolver.Resolve(ctx, secrets.ResolveRequest{
 		RunID:               env.RunID,
 		ExecutionID:         env.ExecutionID,
 		ExecutionClaimToken: executionClaimToken,
