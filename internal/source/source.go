@@ -7,9 +7,10 @@ import (
 )
 
 var (
-	ErrInvalidReference = errors.New("invalid source reference")
-	ErrNotFound         = errors.New("source not found")
-	ErrTooLarge         = errors.New("source file too large")
+	ErrInvalidReference  = errors.New("invalid source reference")
+	ErrInvalidDefinition = errors.New("invalid source definition")
+	ErrNotFound          = errors.New("source not found")
+	ErrTooLarge          = errors.New("source file too large")
 )
 
 const DefaultMaxFileBytes int64 = 1024 * 1024
