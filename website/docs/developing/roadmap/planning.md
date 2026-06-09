@@ -42,7 +42,7 @@ These areas are intentionally not active implementation plans yet. They should b
 
 | Area | Status | What needs a decision |
 | --- | --- | --- |
-| Multi-replica semantics | Deferred | Long-term API rate-limit behavior, queue/log HA posture, cron leader election or partitioning, reconciler duplicate-handoff bounds, pool-aware worker scale-out, and rolling-restart tests. |
+| Multi-replica semantics | Deferred | Long-term API rate-limit behavior, queue/log/artifact HA posture, cron leader election or partitioning, reconciler duplicate-handoff bounds, pool-aware worker scale-out, and rolling-restart tests. |
 | Retention and storage pressure | Deferred | Production defaults, cleanup cadence, queue persistence, log-forwarder spools, backup/restore interaction, and deploy-specific disk pressure checks. |
 | Worker execution containment | Accepted design; implementation pending | Runner boundary, execution profiles, container provider, VM provider, resource limits, action policy, environment filtering, workspace controls, placement, and cleanup behavior. |
 | Local secrets service | Deferred | Provider-neutral service contract, encrypted local backend, runtime identity and authorization, worker-side resolution, audit events, and redaction hooks. |

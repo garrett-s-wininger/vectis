@@ -55,7 +55,7 @@ In one terminal, run:
 ./bin/vectis-local
 ```
 
-Leave this process running. It supervises the local API, cell ingress, queue, worker, log service, registry, cron, reconciler, catalog, and docs site.
+Leave this process running. It supervises the local API, cell ingress, queue, worker, log service, artifact service, registry, cron, reconciler, catalog, and docs site.
 
 By default, `vectis-local` creates local TLS material. Internal gRPC uses it immediately. The local API and docs use HTTPS automatically when that generated CA is already trusted by the system store, or when you start with `--http-tls=on`. Otherwise they keep using HTTP and log the trust-store setup command.
 

@@ -9,6 +9,7 @@
 | Directory | Binary | Nature |
 |-----------|--------|--------|
 | `api/` | `vectis-api` | daemon (REST + metrics) |
+| `artifact/` | `vectis-artifact` | daemon (artifact blob storage) |
 | `cell-ingress/` | `vectis-cell-ingress` | daemon (private cell execution ingress) |
 | `queue/` | `vectis-queue` | daemon (FIFO) |
 | `registry/` | `vectis-registry` | daemon (service discovery) |
@@ -51,7 +52,7 @@ func main() {
 
 ## Which binaries need the database import
 
-Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-thirteen-cmd): `api`, `cell-ingress`, `worker`, `cron`, `reconciler`, `catalog`, `local`, and `cli` need the `dbdrivers` import. `queue`, `registry`, `log`, `log-forwarder`, and `docs` do not.
+Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-fourteen-cmd): `api`, `cell-ingress`, `worker`, `cron`, `reconciler`, `catalog`, `local`, and `cli` need the `dbdrivers` import. `artifact`, `queue`, `registry`, `log`, `log-forwarder`, and `docs` do not.
 
 ## Env prefix mapping
 
@@ -62,6 +63,7 @@ Dedicated metrics listeners accept the service bind host plus loopback Host head
 | Binary | `viper.SetEnvPrefix` | Primary TOML / notes |
 |--------|----------------------|----------------------|
 | `vectis-api` | `VECTIS_API_SERVER` | `[api]` in [`../internal/config/defaults.toml`](../internal/config/defaults.toml); `VECTIS_API_SERVER_HOST` / `--host` controls HTTP bind host; `--tls-cert-file` / `--tls-key-file` enable browser-facing HTTPS; `--cell-ingress-endpoint cell=url` configures remote cell execution ingress routes; ad hoc `VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS` for trusted proxy headers in [`trusted-proxy-client-ip.md`](../website/docs/operating/deployment/trusted-proxy-client-ip.md) |
+| `vectis-artifact` | `VECTIS_ARTIFACT` | `[artifact]`; default instance ID is `hostname-port`, default storage is `artifact/<instance-id>`, `--grpc-port` changes the internal upload/read listener, `--metrics-host` controls the localhost-default metrics bind host, `--storage-read-only-min-free-bytes` protects new blobs under disk pressure, and the gRPC listener uses `config.GRPCServerOptionsForRole(config.ServiceIdentityRoleArtifact)` |
 | `vectis-cell-ingress` | `VECTIS_CELL_INGRESS` | `[cell_ingress]`; private HTTP `POST /cell/v1/executions` uses internal `VECTIS_GRPC_TLS_*` mTLS when exposed off-loopback, can require producer SPIFFE URI SANs via `VECTIS_SERVICE_IDENTITY_CELL_INGRESS_ALLOWED_PRODUCER_IDENTITIES`, `--allowed-host` / `VECTIS_CELL_INGRESS_ALLOWED_HOSTS` configure accepted Host headers, local execution repair, metrics host/port, plus queue discovery/pinned queue settings |
 | `vectis-queue` | `VECTIS_QUEUE` | `[queue]`; default instance ID is `hostname-port`, default persistence is `queue/<pool>/<instance-id>`; metrics host defaults to localhost; keep active shards unique; gRPC listener uses `config.GRPCServerOptionsForRole(config.ServiceIdentityRoleQueue)` |
 | `vectis-registry` | `VECTIS_REGISTRY` | `[registry]`; HA gossip membership uses `VECTIS_REGISTRY_CLUSTER_*`; gRPC listener uses `config.GRPCServerOptionsForRole(config.ServiceIdentityRoleRegistry)` |

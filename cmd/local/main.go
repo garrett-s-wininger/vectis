@@ -69,6 +69,7 @@ var (
 	orderedSingletonServices = []serviceStage{
 		{binary: "vectis-registry", stage: 0, checkHealth: true, portFn: config.RegistryEffectiveListenPort, healthName: "registry"},
 		{binary: "vectis-log", stage: 1, checkHealth: true, portFn: config.LogGRPCPort, healthName: "log"},
+		{binary: "vectis-artifact", stage: 1, checkHealth: true, portFn: config.ArtifactGRPCPort, healthName: "artifact"},
 		{binary: "vectis-cron", stage: 2, checkHealth: false},
 		{binary: "vectis-reconciler", stage: 2, checkHealth: false},
 		{binary: "vectis-catalog", stage: 2, checkHealth: false},
@@ -326,6 +327,28 @@ func localHAProfileServices(logger interfaces.Logger, topology localTopology) []
 			checkHealth: true,
 			portFn:      fixedPort(port),
 			healthName:  "log",
+			env:         env,
+		})
+	}
+
+	artifactPorts := []int{8086, 8186}
+	for i, port := range artifactPorts {
+		name := fmt.Sprintf("artifact-%d", i+1)
+		env := append([]string{}, registryEnv...)
+		env = append(env,
+			fmt.Sprintf("VECTIS_ARTIFACT_GRPC_PORT=%d", port),
+			fmt.Sprintf("VECTIS_ARTIFACT_METRICS_PORT=%d", 9089+(i*100)),
+			"VECTIS_ARTIFACT_INSTANCE_ID="+name,
+			"VECTIS_ARTIFACT_GRPC_ADVERTISE_ADDRESS="+netJoinLocal(port),
+		)
+
+		services = append(services, serviceStage{
+			binary:      "vectis-artifact",
+			name:        name,
+			stage:       1,
+			checkHealth: true,
+			portFn:      fixedPort(port),
+			healthName:  "artifact",
 			env:         env,
 		})
 	}
@@ -1172,8 +1195,8 @@ var rootCmd = &cobra.Command{
 	Short: "Run Vectis services locally for development",
 	Long: `Vectis Local runs all Vectis services locally for development and testing.
 
-It starts the registry, queue, log service, cell ingress, worker, cron,
-reconciler, catalog, API server, and docs site as child processes.
+It starts the registry, queue, log service, artifact service, cell ingress,
+worker, cron, reconciler, catalog, API server, and docs site as child processes.
 
 By default it bootstraps a dev CA and TLS certificates (under the XDG data directory)
 and sets VECTIS_GRPC_TLS_* for child processes so internal gRPC and cell ingress
@@ -1198,8 +1221,8 @@ from VECTIS_CELL_ID. Extra cells are intended for local multi-cell routing tests
 and use per-cell SQLite databases, queues, ingress endpoints, and workers.
 
 Use --profile=ha to start a local multi-instance exercise cell with multiple
-registries, queue shards, log shards, API replicas, workers, cron instances,
-and reconcilers.`,
+registries, queue shards, log shards, artifact shards, API replicas, workers,
+cron instances, and reconcilers.`,
 	Run: runVectis,
 }
 

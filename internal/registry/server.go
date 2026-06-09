@@ -119,6 +119,8 @@ func (s *registryServer) logRegistrationChange(change registrationChange, comp a
 		log("%s queue registration at: %s", action, address)
 	case api.Component_COMPONENT_LOG:
 		log("%s log registration at: %s", action, address)
+	case api.Component_COMPONENT_ARTIFACT:
+		log("%s artifact registration %s at: %s", action, instanceID, address)
 	case api.Component_COMPONENT_WORKER:
 		log("%s worker registration %s at: %s", action, instanceID, address)
 	}

@@ -6,15 +6,18 @@ const (
 	MetadataCellID                   = "cell.id"
 	MetadataQueueRole                = "queue.role"
 	MetadataLogWriteState            = "log.write_state"
+	MetadataArtifactWriteState       = "artifact.write_state"
 	MetadataWorkerExecutionBackend   = "worker.execution.backend"
 	MetadataWorkerDefaultIsolation   = "worker.execution.default_isolation"
 	MetadataWorkerSupportedIsolation = "worker.execution.supported_isolation"
 
-	DefaultCellID         = "local"
-	QueueRoleIngress      = "ingress"
-	QueueRolePool         = "pool"
-	LogWriteStateWritable = "writable"
-	LogWriteStateReadOnly = "read_only"
+	DefaultCellID              = "local"
+	QueueRoleIngress           = "ingress"
+	QueueRolePool              = "pool"
+	LogWriteStateWritable      = "writable"
+	LogWriteStateReadOnly      = "read_only"
+	ArtifactWriteStateWritable = "writable"
+	ArtifactWriteStateReadOnly = "read_only"
 )
 
 func DefaultServiceMetadataForCell(cellID string) map[string]string {

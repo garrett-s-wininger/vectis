@@ -43,6 +43,7 @@ type Defaults struct {
 	Queue          QueueDefaults           `toml:"queue"`
 	Registry       RegistryDefaults        `toml:"registry"`
 	Log            LogDefaults             `toml:"log"`
+	Artifact       ArtifactDefaults        `toml:"artifact"`
 	LogForwarder   LogForwarderDefaults    `toml:"log_forwarder"`
 	Discovery      DiscoveryDefaults       `toml:"discovery"`
 	Dispatch       DispatchDefaults        `toml:"dispatch"`
@@ -184,6 +185,14 @@ type LogDefaults struct {
 	GRPC                        GRPCDefaults `toml:"grpc"`
 }
 
+type ArtifactDefaults struct {
+	MetricsHost                 string       `toml:"metrics_host"`
+	MetricsPort                 int          `toml:"metrics_port"`
+	StorageReadOnlyMinFreeBytes uint64       `toml:"storage_read_only_min_free_bytes"`
+	RegistryAddress             string       `toml:"registry.address"`
+	GRPC                        GRPCDefaults `toml:"grpc"`
+}
+
 type LogForwarderDefaults struct {
 	MetricsHost string `toml:"metrics_host"`
 	MetricsPort int    `toml:"metrics_port"`
@@ -214,10 +223,13 @@ type DiscoveryDefaults struct {
 	RegistryAddresses            []string     `toml:"registry.addresses"`
 	QueueResolverAddress         string       `toml:"queue.resolver.address"`
 	LogGRPCResolverAddress       string       `toml:"log.grpc.resolver.address"`
+	ArtifactGRPCResolverAddress  string       `toml:"artifact.grpc.resolver.address"`
 	QueueAddress                 string       `toml:"queue.address"`
 	LogAddress                   string       `toml:"log.address"`
+	ArtifactAddress              string       `toml:"artifact.address"`
 	QueueAdvertiseAddress        string       `toml:"queue.advertise.address"`
 	LogGRPCAdvertiseAddress      string       `toml:"log.grpc.advertise.address"`
+	ArtifactGRPCAdvertiseAddress string       `toml:"artifact.grpc.advertise.address"`
 	RegistryResolverRefresh      tomlDuration `toml:"registry_resolver_refresh"`
 	RegistryResolverPollTimeout  tomlDuration `toml:"registry_resolver_poll_timeout"`
 	RegistryResolverErrorRefresh tomlDuration `toml:"registry_resolver_error_refresh"`
@@ -310,6 +322,7 @@ type ServiceIdentityDefaults struct {
 	RegistryAllowedClientIdentities      []string `toml:"registry_allowed_client_identities"`
 	QueueAllowedClientIdentities         []string `toml:"queue_allowed_client_identities"`
 	LogAllowedClientIdentities           []string `toml:"log_allowed_client_identities"`
+	ArtifactAllowedClientIdentities      []string `toml:"artifact_allowed_client_identities"`
 	WorkerControlAllowedClientIdentities []string `toml:"worker_control_allowed_client_identities"`
 	CellIngressAllowedProducerIdentities []string `toml:"cell_ingress_allowed_producer_identities"`
 }
@@ -663,6 +676,7 @@ func validateDefaults(d Defaults) {
 		"registry_allowed_client_identities":       d.ServiceID.RegistryAllowedClientIdentities,
 		"queue_allowed_client_identities":          d.ServiceID.QueueAllowedClientIdentities,
 		"log_allowed_client_identities":            d.ServiceID.LogAllowedClientIdentities,
+		"artifact_allowed_client_identities":       d.ServiceID.ArtifactAllowedClientIdentities,
 		"worker_control_allowed_client_identities": d.ServiceID.WorkerControlAllowedClientIdentities,
 		"cell_ingress_allowed_producer_identities": d.ServiceID.CellIngressAllowedProducerIdentities,
 	} {
@@ -996,6 +1010,18 @@ func LogGRPCPort() int {
 	return MustDefaults().Log.GRPC.Port
 }
 
+func ArtifactGRPCPort() int {
+	if p := viper.GetInt("grpc_port"); p > 0 {
+		return p
+	}
+
+	if p := viper.GetInt("artifact.grpc.port"); p > 0 {
+		return p
+	}
+
+	return MustDefaults().Artifact.GRPC.Port
+}
+
 func LogMetricsHost() string {
 	return metricsHost("metrics_host", "log.metrics_host", MustDefaults().Log.MetricsHost)
 }
@@ -1014,6 +1040,26 @@ func LogMetricsEffectiveListenPort() int {
 
 func LogMetricsListenAddr() string {
 	return metricsListenAddr(LogMetricsHost(), LogMetricsEffectiveListenPort())
+}
+
+func ArtifactMetricsHost() string {
+	return metricsHost("metrics_host", "artifact.metrics_host", MustDefaults().Artifact.MetricsHost)
+}
+
+func ArtifactMetricsPort() int {
+	return MustDefaults().Artifact.MetricsPort
+}
+
+func ArtifactMetricsEffectiveListenPort() int {
+	if p := viper.GetInt("metrics_port"); p > 0 {
+		return p
+	}
+
+	return ArtifactMetricsPort()
+}
+
+func ArtifactMetricsListenAddr() string {
+	return metricsListenAddr(ArtifactMetricsHost(), ArtifactMetricsEffectiveListenPort())
 }
 
 func LogForwarderMetricsHost() string {
@@ -1054,6 +1100,14 @@ func LogStorageReadOnlyMinFreeBytes() uint64 {
 	return MustDefaults().Log.StorageReadOnlyMinFreeBytes
 }
 
+func ArtifactStorageReadOnlyMinFreeBytes() uint64 {
+	if viper.IsSet("storage_read_only_min_free_bytes") {
+		return viper.GetUint64("storage_read_only_min_free_bytes")
+	}
+
+	return MustDefaults().Artifact.StorageReadOnlyMinFreeBytes
+}
+
 func APIListenAddr() string {
 	return net.JoinHostPort(APIHost(), strconv.Itoa(APIPort()))
 }
@@ -1068,6 +1122,10 @@ func RegistryListenAddr() string {
 
 func LogGRPCListenAddr() string {
 	return ":" + strconv.Itoa(LogGRPCPort())
+}
+
+func ArtifactGRPCListenAddr() string {
+	return ":" + strconv.Itoa(ArtifactGRPCPort())
 }
 
 func PublicAPIBaseURL() string {
@@ -1198,6 +1256,16 @@ func LogGRPCAdvertiseAddress() string {
 	)
 }
 
+func ArtifactGRPCAdvertiseAddress() string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("artifact.grpc.advertise_address"),
+		d.Artifact.GRPC.AdvertiseAddress,
+		viper.GetString("discovery.artifact.grpc.advertise.address"),
+		d.Discovery.ArtifactGRPCAdvertiseAddress,
+	)
+}
+
 func QueueRegistryPublishAddress(bindListenAddr string) string {
 	if a := QueueGRPCAdvertiseAddress(); a != "" {
 		return a
@@ -1208,6 +1276,14 @@ func QueueRegistryPublishAddress(bindListenAddr string) string {
 
 func LogGRPCRegistryPublishAddress(bindListenAddr string) string {
 	if a := LogGRPCAdvertiseAddress(); a != "" {
+		return a
+	}
+
+	return bindListenAddr
+}
+
+func ArtifactGRPCRegistryPublishAddress(bindListenAddr string) string {
+	if a := ArtifactGRPCAdvertiseAddress(); a != "" {
 		return a
 	}
 
@@ -1263,11 +1339,42 @@ func LogResolverAddress() string {
 	)
 }
 
+func ArtifactRegistryAddress() string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("artifact.registry.address"),
+		d.Artifact.RegistryAddress,
+		viper.GetString("discovery.registry.address"),
+		d.Discovery.RegistryAddress,
+	)
+}
+
+func ArtifactResolverAddress() string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("artifact.grpc.resolver.address"),
+		viper.GetString("artifact.resolver.address"),
+		d.Artifact.GRPC.ResolverAddress,
+		viper.GetString("discovery.artifact.grpc.resolver.address"),
+		d.Discovery.ArtifactGRPCResolverAddress,
+		viper.GetString("discovery.artifact.address"),
+		d.Discovery.ArtifactAddress,
+	)
+}
+
 func LogRegisterWithRegistry() bool {
 	if viper.IsSet("log.grpc.register_with_registry") {
 		return viper.GetBool("log.grpc.register_with_registry")
 	}
 	return MustDefaults().Log.GRPC.RegisterWithRegistry
+}
+
+func ArtifactRegisterWithRegistry() bool {
+	if viper.IsSet("artifact.grpc.register_with_registry") {
+		return viper.GetBool("artifact.grpc.register_with_registry")
+	}
+
+	return MustDefaults().Artifact.GRPC.RegisterWithRegistry
 }
 
 func WorkerRegistryAddress() string {
@@ -1677,6 +1784,10 @@ func LogRegistrationRegistryAddress() string {
 	return registryDialAddress(LogRegistryAddress)
 }
 
+func ArtifactRegistrationRegistryAddress() string {
+	return registryDialAddress(ArtifactRegistryAddress)
+}
+
 func WorkerRegistrationRegistryAddress() string {
 	return registryDialAddress(WorkerRegistryAddress)
 }
@@ -1742,6 +1853,10 @@ func RegistryEffectiveListenPort() int {
 	return effectiveListenPort(RegistryPort)
 }
 
+func ArtifactEffectiveListenPort() int {
+	return effectiveListenPort(ArtifactGRPCPort)
+}
+
 func PinnedQueueAddress() string {
 	return coalesceNonEmpty(
 		QueueResolverAddress(),
@@ -1755,6 +1870,10 @@ func PinnedLogAddress() string {
 		LogResolverAddress(),
 		WorkerLogAddress(),
 	)
+}
+
+func PinnedArtifactAddress() string {
+	return ArtifactResolverAddress()
 }
 
 func RateLimitAuthRefillRate() time.Duration {

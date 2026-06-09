@@ -229,6 +229,7 @@ func TestLocalServices_HAProfileBuildsMultiInstanceCell(t *testing.T) {
 		"vectis-registry":     3,
 		"vectis-queue":        2,
 		"vectis-log":          2,
+		"vectis-artifact":     2,
 		"vectis-api":          2,
 		"vectis-cell-ingress": 1,
 		"vectis-worker":       2,
@@ -249,6 +250,7 @@ func TestLocalServices_HAProfileBuildsMultiInstanceCell(t *testing.T) {
 	}
 
 	var foundQueue2 bool
+	var foundArtifact2 bool
 	var foundRegistryPeers bool
 	var workersUseRegistry bool
 	for _, svc := range services {
@@ -257,6 +259,12 @@ func TestLocalServices_HAProfileBuildsMultiInstanceCell(t *testing.T) {
 			hasEnv(svc.env, "VECTIS_QUEUE_PORT=8181") &&
 			hasEnv(svc.env, "VECTIS_QUEUE_INSTANCE_ID=queue-2") {
 			foundQueue2 = true
+		}
+
+		if svc.name == "artifact-2" &&
+			hasEnv(svc.env, "VECTIS_ARTIFACT_GRPC_PORT=8186") &&
+			hasEnv(svc.env, "VECTIS_ARTIFACT_INSTANCE_ID=artifact-2") {
+			foundArtifact2 = true
 		}
 
 		if svc.name == "registry-1" &&
@@ -272,6 +280,10 @@ func TestLocalServices_HAProfileBuildsMultiInstanceCell(t *testing.T) {
 
 	if !foundQueue2 {
 		t.Fatalf("queue-2 did not include expected HA env: %+v", services)
+	}
+
+	if !foundArtifact2 {
+		t.Fatalf("artifact-2 did not include expected HA env: %+v", services)
 	}
 
 	if !foundRegistryPeers {

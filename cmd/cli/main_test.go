@@ -614,6 +614,7 @@ func TestDeployPodmanRender_HAProfileAddsReplicaTopology(t *testing.T) {
 	assertEnv(t, findContainer(t, pod, "queue-2"), "VECTIS_QUEUE_INSTANCE_ID", "queue-2")
 	assertEnv(t, findContainer(t, pod, "queue-2"), "VECTIS_QUEUE_PERSISTENCE_DIR", "/data/vectis/queue/local-ha/queue-2")
 	assertEnv(t, findContainer(t, pod, "log-2"), "VECTIS_LOG_STORAGE_DIR", "/data/vectis/jobs/log-2")
+	assertEnv(t, findContainer(t, pod, "artifact-2"), "VECTIS_ARTIFACT_STORAGE_DIR", "/data/vectis/artifact/artifact-2")
 	assertEnv(t, findContainer(t, pod, "worker-2"), "VECTIS_WORKER_METRICS_PORT", "9182")
 	assertEnv(t, findContainer(t, pod, "cron-2"), "VECTIS_CRON_INSTANCE_ID", "cron-2")
 	assertEnv(t, findContainer(t, pod, "reconciler-2"), "VECTIS_RECONCILER_METRICS_PORT", "9185")
@@ -624,6 +625,7 @@ func TestDeployPodmanRender_HAProfileAddsReplicaTopology(t *testing.T) {
 	}
 
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-queue"), []string{"127.0.0.1:9081", "127.0.0.1:9181"})
+	assertStringSlice(t, prometheusTargets(t, docs, "vectis-artifact"), []string{"127.0.0.1:9089", "127.0.0.1:9189"})
 }
 
 func TestDeployPodmanRender_SimpleProfileKeepsSingleReplicaTopology(t *testing.T) {
@@ -650,13 +652,14 @@ func TestDeployPodmanRender_SimpleProfileKeepsSingleReplicaTopology(t *testing.T
 		t.Fatalf("simple manifest unexpectedly included discovery registry addresses")
 	}
 
-	for _, name := range []string{"registry-2", "api-2", "queue-2", "log-2", "worker-2"} {
+	for _, name := range []string{"registry-2", "api-2", "queue-2", "log-2", "artifact-2", "worker-2"} {
 		if findContainerOK(t, pod, name) {
 			t.Fatalf("simple manifest unexpectedly included container %s", name)
 		}
 	}
 
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-queue"), []string{"127.0.0.1:9081"})
+	assertStringSlice(t, prometheusTargets(t, docs, "vectis-artifact"), []string{"127.0.0.1:9089"})
 }
 
 func TestDeployPodmanRender_InvalidProfileFails(t *testing.T) {

@@ -73,6 +73,7 @@ Use these prefixes when building service-specific environment variable names.
 | `vectis-queue` | `VECTIS_QUEUE` | `--port`, `--metrics-host`, `--metrics-port`, `--pool`, `--instance-id`, `--persistence-dir`, `--persistence-snapshot-every` |
 | `vectis-registry` | `VECTIS_REGISTRY` | `--port`; cluster membership uses `VECTIS_REGISTRY_CLUSTER_*` |
 | `vectis-log` | `VECTIS_LOG` | `--instance-id`, `--storage-dir`, `--storage-read-only-min-free-bytes`, `--grpc-port`, `--metrics-host`, `--metrics-port`, `--max-run-buffers` |
+| `vectis-artifact` | `VECTIS_ARTIFACT` | `--instance-id`, `--storage-dir`, `--storage-read-only-min-free-bytes`, `--grpc-port`, `--metrics-host`, `--metrics-port` |
 | `vectis-worker` | `VECTIS_WORKER` | `--metrics-host`, `--metrics-port`, `--execution-backend`, `--workspace-root`, `--lima-instance`, `--lima-start` |
 | `vectis-cron` | `VECTIS_CRON` | `--instance-id`, `--claim-ttl` |
 | `vectis-reconciler` | `VECTIS_RECONCILER` | `--interval`, `--lease-ttl`, `--metrics-host`, `--metrics-port` |
@@ -131,10 +132,11 @@ Internal service identity allowlists are disabled by default. Configure them wit
 | `VECTIS_SERVICE_IDENTITY_REGISTRY_ALLOWED_CLIENT_IDENTITIES` / `service_identity.registry_allowed_client_identities` | `vectis-registry` gRPC |
 | `VECTIS_SERVICE_IDENTITY_QUEUE_ALLOWED_CLIENT_IDENTITIES` / `service_identity.queue_allowed_client_identities` | `vectis-queue` gRPC |
 | `VECTIS_SERVICE_IDENTITY_LOG_ALLOWED_CLIENT_IDENTITIES` / `service_identity.log_allowed_client_identities` | `vectis-log` gRPC |
+| `VECTIS_SERVICE_IDENTITY_ARTIFACT_ALLOWED_CLIENT_IDENTITIES` / `service_identity.artifact_allowed_client_identities` | `vectis-artifact` gRPC |
 | `VECTIS_SERVICE_IDENTITY_WORKER_CONTROL_ALLOWED_CLIENT_IDENTITIES` / `service_identity.worker_control_allowed_client_identities` | Worker-control gRPC |
 | `VECTIS_SERVICE_IDENTITY_CELL_INGRESS_ALLOWED_PRODUCER_IDENTITIES` / `service_identity.cell_ingress_allowed_producer_identities` | Cell ingress `POST /cell/v1/executions` |
 
-Short aliases such as `VECTIS_QUEUE_ALLOWED_CLIENT_IDENTITIES`, `VECTIS_REGISTRY_ALLOWED_CLIENT_IDENTITIES`, `VECTIS_LOG_ALLOWED_CLIENT_IDENTITIES`, `VECTIS_WORKER_CONTROL_ALLOWED_CLIENT_IDENTITIES`, and `VECTIS_CELL_INGRESS_ALLOWED_PRODUCER_IDENTITIES` are also accepted. Each configured identity must be a `spiffe://` URI with a trust domain and workload path. Any non-empty allowlist requires `VECTIS_GRPC_TLS_INSECURE=false` and `VECTIS_GRPC_TLS_CLIENT_CA_FILE` so the listener verifies client certificates before checking URI SANs.
+Short aliases such as `VECTIS_QUEUE_ALLOWED_CLIENT_IDENTITIES`, `VECTIS_REGISTRY_ALLOWED_CLIENT_IDENTITIES`, `VECTIS_LOG_ALLOWED_CLIENT_IDENTITIES`, `VECTIS_ARTIFACT_ALLOWED_CLIENT_IDENTITIES`, `VECTIS_WORKER_CONTROL_ALLOWED_CLIENT_IDENTITIES`, and `VECTIS_CELL_INGRESS_ALLOWED_PRODUCER_IDENTITIES` are also accepted. Each configured identity must be a `spiffe://` URI with a trust domain and workload path. Any non-empty allowlist requires `VECTIS_GRPC_TLS_INSECURE=false` and `VECTIS_GRPC_TLS_CLIENT_CA_FILE` so the listener verifies client certificates before checking URI SANs.
 
 Worker execution identity is disabled by default. Enable it when you want workers to derive an expected SPIFFE ID for each accepted execution before action code runs:
 
@@ -262,8 +264,8 @@ Standalone binaries default to plaintext gRPC. `vectis-local` normally bootstrap
 
 | Role | Binaries | Required material when TLS is enabled |
 | --- | --- | --- |
-| gRPC listeners | `vectis-registry`, `vectis-queue`, `vectis-log`, worker-control listener in `vectis-worker` | Certificate and key. Queue/log also need a CA when they register with the registry. |
-| gRPC clients | `vectis-api`, `vectis-cell-ingress`, `vectis-worker`, `vectis-cron`, `vectis-reconciler`, queue/log registration clients | CA bundle. Client cert/key only when servers require mTLS. |
+| gRPC listeners | `vectis-registry`, `vectis-queue`, `vectis-log`, `vectis-artifact`, worker-control listener in `vectis-worker` | Certificate and key. Queue/log/artifact also need a CA when they register with the registry. |
+| gRPC clients | `vectis-api`, `vectis-cell-ingress`, `vectis-worker`, `vectis-cron`, `vectis-reconciler`, queue/log/artifact registration clients | CA bundle. Client cert/key only when servers require mTLS. |
 
 For trust boundaries and what mTLS does or does not authorize today, see [Internal Service Trust](../concepts/internal-service-trust.md).
 
@@ -277,7 +279,7 @@ For trust boundaries and what mTLS does or does not authorize today, see [Intern
 | `VECTIS_METRICS_TLS_CERT_FILE` / `VECTIS_METRICS_TLS_KEY_FILE` | Server certificate and key for metrics listeners. |
 | `VECTIS_METRICS_TLS_RELOAD_INTERVAL` | Positive duration to poll PEM files and reload them without restart. `0` disables polling. |
 
-The dedicated metrics listeners are queue, worker, log, log-forwarder, reconciler, catalog, and cell ingress. They bind to `localhost` by default; set each service's `--metrics-host` / `VECTIS_<SERVICE>_METRICS_HOST` only for trusted scrape networks, and configure `VECTIS_METRICS_ALLOWED_HOSTS` or `VECTIS_<SERVICE>_METRICS_ALLOWED_HOSTS` for the expected scraper Host header. Keep dedicated metrics endpoints private; they are not authenticated. See [Security](../concepts/security.md).
+The dedicated metrics listeners are queue, worker, log, artifact, log-forwarder, reconciler, catalog, and cell ingress. They bind to `localhost` by default; set each service's `--metrics-host` / `VECTIS_<SERVICE>_METRICS_HOST` only for trusted scrape networks, and configure `VECTIS_METRICS_ALLOWED_HOSTS` or `VECTIS_<SERVICE>_METRICS_ALLOWED_HOSTS` for the expected scraper Host header. Keep dedicated metrics endpoints private; they are not authenticated. See [Security](../concepts/security.md).
 
 ## Discovery And Fixed Addresses {#service-discovery-vs-fixed-addresses}
 
@@ -285,8 +287,8 @@ Vectis can either discover services through `vectis-registry` or use fixed addre
 
 | Pattern | Use when |
 | --- | --- |
-| Registry discovery | You want queue/log/worker-control addresses published and resolved dynamically. |
-| Fixed addresses | You want fewer startup dependencies and already know the queue/log addresses. |
+| Registry discovery | You want queue/log/artifact/worker-control addresses published and resolved dynamically. |
+| Fixed addresses | You want fewer startup dependencies and already know the queue/log/artifact addresses. |
 
 Role-specific settings override shared discovery settings when both are set.
 
@@ -299,7 +301,8 @@ For local routing tests, `vectis-local --cell pdx-b` starts an additional queue,
 | Registry address | `DISCOVERY_REGISTRY_ADDRESS` | `API_REGISTRY_ADDRESS`, `WORKER_REGISTRY_ADDRESS`, `CRON_REGISTRY_ADDRESS`, `RECONCILER_REGISTRY_ADDRESS` |
 | Queue address | `DISCOVERY_QUEUE_ADDRESS` or `DISCOVERY_QUEUE_RESOLVER_ADDRESS` | `API_QUEUE_ADDRESS`, `CELL_INGRESS_QUEUE_ADDRESS`, `WORKER_QUEUE_ADDRESS`, `CRON_QUEUE_ADDRESS`, `RECONCILER_QUEUE_ADDRESS` |
 | Log gRPC address | `DISCOVERY_LOG_ADDRESS` or `DISCOVERY_LOG_GRPC_RESOLVER_ADDRESS` | `WORKER_LOG_ADDRESS` |
-| Queue/log advertise address | `DISCOVERY_QUEUE_ADVERTISE_ADDRESS`, `DISCOVERY_LOG_GRPC_ADVERTISE_ADDRESS` | `QUEUE_ADVERTISE_ADDRESS`, `LOG_GRPC_ADVERTISE_ADDRESS` |
+| Artifact gRPC address | `DISCOVERY_ARTIFACT_ADDRESS` or `DISCOVERY_ARTIFACT_GRPC_RESOLVER_ADDRESS` | `ARTIFACT_GRPC_RESOLVER_ADDRESS` |
+| Queue/log/artifact advertise address | `DISCOVERY_QUEUE_ADVERTISE_ADDRESS`, `DISCOVERY_LOG_GRPC_ADVERTISE_ADDRESS`, `DISCOVERY_ARTIFACT_GRPC_ADVERTISE_ADDRESS` | `QUEUE_ADVERTISE_ADDRESS`, `LOG_GRPC_ADVERTISE_ADDRESS`, `ARTIFACT_GRPC_ADVERTISE_ADDRESS` |
 
 Replace the prefix with the service prefix. For example:
 
@@ -318,9 +321,10 @@ Registration toggles:
 
 | Variable | Purpose |
 | --- | --- |
-| `VECTIS_QUEUE_QUEUE_REGISTER_WITH_REGISTRY` | Queue publishes its address to registry when enabled. |
-| `VECTIS_LOG_LOG_GRPC_REGISTER_WITH_REGISTRY` | Log service publishes its gRPC address to registry when enabled. |
-| `VECTIS_WORKER_WORKER_REGISTER_WITH_REGISTRY` | Worker publishes its worker-control address to registry when enabled. |
+| `VECTIS_QUEUE_REGISTER_WITH_REGISTRY` | Queue publishes its address to registry when enabled. |
+| `VECTIS_LOG_GRPC_REGISTER_WITH_REGISTRY` | Log service publishes its gRPC address to registry when enabled. |
+| `VECTIS_ARTIFACT_GRPC_REGISTER_WITH_REGISTRY` | Artifact service publishes its gRPC address to registry when enabled. |
+| `VECTIS_WORKER_REGISTER_WITH_REGISTRY` | Worker publishes its worker-control address to registry when enabled. |
 
 Envelope-backed worker deliveries complete through the task boundary, activate child task executions, and enqueue task continuations from the worker event path. Worker deliveries must include a `run_id` and execution envelope; missing or invalid run/envelope metadata is treated as malformed work rather than falling back to whole-run execution.
 
@@ -335,6 +339,10 @@ Queue instance IDs must be unique among active queue processes registered in the
 When registry discovery is used, multiple `vectis-log` instances may register as run shards. Each log shard needs one stable `VECTIS_LOG_INSTANCE_ID` / `--instance-id`; if it is omitted, `vectis-log` derives a stable ID from the system hostname and log gRPC port. DB-aware clients record the chosen shard in `job_runs.log_shard_id` and route future reads/writes for that run back to the assigned shard. When a worker sends logs through a local `vectis-log-forwarder`, it stamps the assigned shard into the socket/spool protocol so the DB-free forwarder preserves the same route. Unassigned runs fall back to deterministic `run_id` hashing. Keep instance IDs and storage directories stable across restarts. If two active log processes point at the same storage directory, the second log process refuses to start.
 
 `VECTIS_LOG_STORAGE_DIR` / `--storage-dir` stores durable run log files. If omitted, the log service uses `$XDG_DATA_HOME/vectis/log/<instance-id>`. `VECTIS_LOG_STORAGE_READ_ONLY_MIN_FREE_BYTES` / `--storage-read-only-min-free-bytes` defaults to `1073741824` (1 GiB). Below that threshold, the shard advertises `read_only` for new runs and refuses the first append for a run that does not already have a log file; stored logs remain readable, and existing assigned run files can continue to receive appends. Set the value to `0` to disable the threshold.
+
+When registry discovery is used, multiple `vectis-artifact` instances may register as independent content-addressed blob shards. Each artifact shard needs one stable `VECTIS_ARTIFACT_INSTANCE_ID` / `--instance-id`; if it is omitted, `vectis-artifact` derives a stable ID from the system hostname and artifact gRPC port. Keep instance IDs and storage directories stable across restarts. If two active artifact processes point at the same storage directory, the second artifact process refuses to start.
+
+`VECTIS_ARTIFACT_STORAGE_DIR` / `--storage-dir` stores durable content-addressed blobs. If omitted, the artifact service uses `$XDG_DATA_HOME/vectis/artifact/<instance-id>`. `VECTIS_ARTIFACT_STORAGE_READ_ONLY_MIN_FREE_BYTES` / `--storage-read-only-min-free-bytes` defaults to `1073741824` (1 GiB). Below that threshold, the shard advertises `read_only` for new blobs and rejects uploads for blobs it does not already have; existing stored blobs remain readable. Set the value to `0` to disable the threshold.
 
 Discovery timing defaults include resolver refresh `10s`, poll timeout `5s`, error refresh `2s`, and registration heartbeat `45s`.
 
@@ -427,6 +435,7 @@ Treat database files, queue persistence, log storage, deployment secrets, and TL
 | Registry gRPC | `8082` |
 | Log gRPC | `8083` |
 | Log HTTP/SSE | `8084` |
+| Artifact gRPC | `8086` |
 | Docs HTTP | `8088` |
 | Queue metrics | `9081` |
 | Worker metrics | `9082` |
@@ -436,6 +445,7 @@ Treat database files, queue persistence, log storage, deployment secrets, and TL
 | Catalog metrics | `9086` |
 | Cell ingress metrics | `9087` |
 | Log-forwarder metrics | `9088` |
+| Artifact metrics | `9089` |
 
 Each extra `vectis-local --cell` uses the default cell-local ports plus `100` per additional cell. For example, the first extra cell uses queue `8181`, cell ingress `8185`, queue metrics `9181`, worker metrics `9182`, and cell ingress metrics `9187`. Multi-cell local workers use ephemeral worker-control ports.
 

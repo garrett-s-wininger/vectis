@@ -86,7 +86,7 @@ When `catalog.inbox` warns in a multi-cell deployment, `evidence` includes sourc
 | Warning `warn` | Vectis is reachable, but the check found operational risk. | Follow the suggested action or linked repair runbook. |
 | `pass` | The check passed from the CLI's current vantage point. | Continue with workload-specific verification when needed. |
 
-The health check is a triage aid, not a full monitoring replacement. It does not replace host disk telemetry, database-native monitoring, queue/log capacity dashboards, or workload-specific alerts.
+The health check is a triage aid, not a full monitoring replacement. It does not replace host disk telemetry, database-native monitoring, queue/log/artifact capacity dashboards, or workload-specific alerts.
 
 ## Compatibility Notes
 

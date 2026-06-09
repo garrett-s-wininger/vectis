@@ -58,7 +58,7 @@ This page defines the words Vectis uses across the docs, API, and CLI. For the s
 
 ## P
 
-**Pinned address** — A queue, log, or registry address set explicitly in configuration. Pinned addresses let a component avoid relying on registry lookup for that dependency.
+**Pinned address** — A queue, log, artifact, or registry address set explicitly in configuration. Pinned addresses let a component avoid relying on registry lookup for that dependency.
 
 **Producer** — A component that submits work to the queue. Current producers are `vectis-api`, `vectis-cell-ingress`, `vectis-cron`, `vectis-reconciler`, and `vectis-worker` for task continuations.
 
@@ -72,7 +72,7 @@ This page defines the words Vectis uses across the docs, API, and CLI. For the s
 
 **Reconciler (`vectis-reconciler`)** — The repair process that looks for queued runs that need another queue handoff. It is what closes the gap when a run is recorded in the database but was not successfully submitted to the queue.
 
-**Registry (`vectis-registry`)** — Internal service discovery. Queue and log can register their addresses, and other components can resolve those addresses instead of using pinned configuration.
+**Registry (`vectis-registry`)** — Internal service discovery. Queue, log, and artifact can register their addresses, and other components can resolve those addresses instead of using pinned configuration.
 
 **Run** — One execution of a job. A stored job can have many runs over time; each run has its own run ID, status, timestamps, logs, and dispatch history.
 

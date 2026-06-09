@@ -33,8 +33,8 @@ The reference deployment gives you a working single-site topology:
 | --- | --- |
 | Database | Bundled Postgres with generated password and TLS inside the pod. |
 | Internal gRPC | Generated CA and server certificate, mounted into Vectis containers. |
-| Queue/log storage | Persistent volume claims for queue and log data. The HA profile gives each queue and log shard its own subdirectory on those volumes. |
-| Metrics | Prometheus scraping API, queue, worker, log, reconciler, catalog, and cell ingress metrics; log-forwarder metrics when deployed. |
+| Queue/log/artifact storage | Persistent volume claims for queue, log, and artifact data. The HA profile gives each queue, log, and artifact shard its own subdirectory on those volumes. |
+| Metrics | Prometheus scraping API, queue, worker, log, artifact, reconciler, catalog, and cell ingress metrics; log-forwarder metrics when deployed. |
 | Dashboards | Grafana with a provisioned Vectis overview dashboard. |
 | Traces | Jaeger collector/query backed by the bundled OpenSearch instance. |
 | Service logs | Structured Vectis logs tailed by Fluent Bit into OpenSearch. |
@@ -53,9 +53,9 @@ Before treating this topology as shared, staging-like, or production-like, decid
 | Network exposure | Restrict API, Postgres, metrics, gRPC, Grafana, Jaeger, OpenSearch, and Prometheus ports to trusted networks. |
 | Secrets | Move generated secrets into an operator-controlled secret store and define rotation. |
 | Database durability | Use a Postgres backup and restore process you have tested. |
-| Storage | Put queue persistence, log storage, and observability storage on volumes with known retention and backup behavior. |
+| Storage | Put queue persistence, log storage, artifact storage, and observability storage on volumes with known retention and backup behavior. |
 | Telemetry | Replace or harden bundled observability before relying on it for production alerting. |
-| Capacity | Set resource requests/limits and size Postgres, queue, log, and worker capacity for expected load. |
+| Capacity | Set resource requests/limits and size Postgres, queue, log, artifact, and worker capacity for expected load. |
 | Runbooks | Install alert rules and repair procedures in the telemetry system operators actually use. |
 
 For the broader security baseline, see [Security](../../concepts/security.md). For internal port boundaries, see [Internal Service Trust](../../concepts/internal-service-trust.md). For configuration details, see [Configuration](../configuration.md).

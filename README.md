@@ -46,6 +46,7 @@ That is the smallest useful loop: build, start, check health, run a job.
 | Queue | Holds work until a worker takes it. |
 | Worker | Executes jobs. |
 | Log service | Receives and serves run logs. |
+| Artifact service | Stores content-addressed artifact blobs. |
 | Registry | Lets services find each other locally. |
 | Cron | Evaluates schedules. |
 | Reconciler | Repairs queued runs that missed queue handoff. |
@@ -129,7 +130,7 @@ make proto
 
 For local development, use `vectis-local`.
 
-For a fuller reference deployment, Vectis includes a Podman-based stack with Postgres, persistent queue/log storage, bundled docs, Prometheus, Grafana, Jaeger, OpenSearch, and generated local secrets:
+For a fuller reference deployment, Vectis includes a Podman-based stack with Postgres, persistent queue/log/artifact storage, bundled docs, Prometheus, Grafana, Jaeger, OpenSearch, and generated local secrets:
 
 ```bash
 make images-components

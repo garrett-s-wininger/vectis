@@ -61,6 +61,7 @@ flowchart TB
     CING["vectis-cell-ingress"]
     Q["vectis-queue"]
     LOG["vectis-log"]
+    ART["vectis-artifact"]
   end
 
   subgraph execute [Execution]
@@ -103,12 +104,13 @@ flowchart TB
 | `vectis-queue` | Internal FIFO queue shard. Producers enqueue work; workers dequeue and acknowledge deliveries. Queue persistence can preserve backlog and in-flight delivery metadata per shard. |
 | `vectis-worker` | Executes one run at a time. Dequeues work, claims the run in the database, executes actions, streams logs, writes final status, and records cell catalog events. |
 | `vectis-log` | Receives log chunks from workers and stores run logs. The API reads from it when clients stream logs. |
-| `vectis-registry` | Internal service discovery for queue and log addresses when clients do not use pinned addresses. |
+| `vectis-artifact` | Internal content-addressed blob service. It stores blobs by digest; user-facing artifact APIs are not shipped yet. |
+| `vectis-registry` | Internal service discovery for queue, log, and artifact addresses when clients do not use pinned addresses. |
 | `vectis-cron` | Reads schedules from the database and enqueues due runs. |
 | `vectis-reconciler` | Finds queued runs that need another queue handoff and enqueues them again. |
 | `vectis-catalog` | Backfills missing status events from observed state, drains global catalog events, optionally fans in pending events from configured cell databases, and applies them to the global run catalog. |
 | `vectis-docs` | Serves the embedded docs site as static HTTP. |
-| `vectis-local` | Development supervisor that starts the local registry, queue, log, cell ingress, worker, cron, reconciler, catalog, API, and docs together. |
+| `vectis-local` | Development supervisor that starts the local registry, queue, log, artifact, cell ingress, worker, cron, reconciler, catalog, API, and docs together. |
 | `vectis-cli` | User and operator command-line client for the HTTP API. |
 
 ## Producers And Workers
@@ -155,17 +157,18 @@ For user-facing behavior and reconnect controls, see [Log Streaming](../using/lo
 | SQL database | Job definitions, ephemeral definitions, runs, run leases, dispatch events, cell execution acceptances, cell catalog events, cron schedules, users, tokens, namespaces, role bindings, audit rows, and idempotency keys. |
 | Queue persistence | Optional queue-host storage for queued and in-flight items. If disabled, queue contents are memory-only. |
 | Log storage | Run log files owned by `vectis-log`. Preserve this storage if run logs must survive restarts. |
+| Artifact storage | Content-addressed blobs owned by `vectis-artifact`. Preserve this storage when artifact data must survive restarts. |
 
 SQLite and PostgreSQL are supported. SQLite is the default for local development and simple single-node use. PostgreSQL is the production-oriented path for multi-service deployments. Configuration details are in [Configuration](../operating/configuration.md).
 
 ## Service Discovery
 
-Queue and log addresses can be found in two ways:
+Queue, log, and artifact addresses can be found in two ways:
 
 | Mode | How it works | When to use it |
 | --- | --- | --- |
-| Registry discovery | Queue and log register with `vectis-registry`; API, workers, cron, and reconciler resolve addresses through the registry. | Convenient local or simple deployments where registry availability is acceptable. |
-| Pinned addresses | Components are configured with explicit queue and log addresses. | Deployments that want fewer startup dependencies or already have external service discovery. |
+| Registry discovery | Queue, log, and artifact services register with `vectis-registry`; clients resolve addresses through the registry. | Convenient local or simple deployments where registry availability is acceptable. |
+| Pinned addresses | Components are configured with explicit queue, log, or artifact addresses. | Deployments that want fewer startup dependencies or already have external service discovery. |
 
 See [Configuration](../operating/configuration.md#service-discovery-vs-fixed-addresses) for the relevant settings.
 
@@ -174,7 +177,7 @@ See [Configuration](../operating/configuration.md#service-discovery-vs-fixed-add
 Vectis has two communication layers:
 
 - HTTP at the edge, used by `vectis-cli`, API clients, health checks, metrics scrapes, and SSE streams.
-- gRPC between Vectis services, used for queue operations, registry discovery, and log movement.
+- gRPC between Vectis services, used for queue operations, registry discovery, log movement, and artifact blob upload/read.
 
 The common local defaults are:
 
@@ -185,6 +188,7 @@ The common local defaults are:
 | Registry gRPC | `8082` | Service registration and resolution. |
 | Log gRPC | `8083` | Worker log ingest and API log reads. |
 | Cell ingress HTTP | `8085` | Private execution submission endpoint for a cell. |
+| Artifact gRPC | `8086` | Internal artifact blob upload, stat, and read. |
 | Log HTTP | `8084` | Log-service HTTP surface; user-facing log streaming goes through the API. |
 | Docs HTTP | `8088` | Static documentation site. |
 

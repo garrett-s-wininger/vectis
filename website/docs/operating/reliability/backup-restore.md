@@ -2,24 +2,25 @@
 
 Use this page when you are designing backups, running a restore drill, or recovering a Vectis deployment after data loss.
 
-The safest recovery point is a matching set of database, queue, log, secret, TLS, and deployment config backups from the same time window. If you can only restore part of that set, Vectis can repair some queue handoff gaps, but it cannot recreate lost job definitions, auth records, audit rows, secrets, or logs.
+The safest recovery point is a matching set of database, queue, log, artifact, secret, TLS, and deployment config backups from the same time window. If you can only restore part of that set, Vectis can repair some queue handoff gaps, but it cannot recreate lost job definitions, auth records, audit rows, secrets, logs, or artifact blobs.
 
 ## Backup Inventory
 
-Back up the SQL database first and most carefully. It is the source of truth for durable Vectis state. Queue and log state are still important, but they are easier to reason about as partial loss.
+Back up the SQL database first and most carefully. It is the source of truth for durable Vectis state. Queue, log, and artifact state are still important, but they are easier to reason about as partial loss.
 
 | State | Why it matters | Typical location |
 | --- | --- | --- |
 | SQL database | Source of truth for jobs, job definitions, runs, schedules, auth, RBAC, audit, idempotency, dispatch events, and setup state | SQLite file from `VECTIS_DATABASE_DSN`, role files from `VECTIS_GLOBAL_DATABASE_DSN` / `VECTIS_CELL_DATABASE_DSN`, or the configured Postgres database |
 | Queue persistence | Pending, in-flight, and DLQ delivery state when queue persistence is enabled | `VECTIS_QUEUE_PERSISTENCE_DIR`, `vectis-queue --persistence-dir`, or the default `$XDG_DATA_HOME/vectis/queue/<pool>/<instance-id>` |
 | Log storage | Durable run logs served by `vectis-log` | `VECTIS_LOG_STORAGE_DIR`, `vectis-log --storage-dir`, or the default `$XDG_DATA_HOME/vectis/log/<instance-id>` |
+| Artifact storage | Durable content-addressed blobs served by `vectis-artifact` | `VECTIS_ARTIFACT_STORAGE_DIR`, `vectis-artifact --storage-dir`, or the default `$XDG_DATA_HOME/vectis/artifact/<instance-id>` |
 | Log-forwarder spool | Worker-side batches not yet delivered to log service | Configured log-forwarder spool directory |
 | Deployment secrets | Postgres password, API bootstrap token, rendered local deploy secrets | `VECTIS_DEPLOY_CONFIG_DIR/podman` or the OS user config Vectis deploy directory |
 | TLS material | gRPC CA, server certs, client certs, Postgres TLS CA/certs, local dev TLS | Paths configured under `VECTIS_GRPC_TLS_*`, Podman TLS volumes, and `$XDG_DATA_HOME/vectis/local-tls` for `vectis-local` |
 | Config and manifests | The exact deployment shape needed to interpret restored paths and credentials | Environment, rendered kube YAML, Podman/systemd/unit manifests, ConfigMaps, dashboards |
 | Observability customizations | Dashboards, alert rules, and log shipping config used during incident review | Grafana/OpenSearch/Prometheus configuration outside the Vectis DB |
 
-Treat this inventory as sensitive data. Database backups, queue persistence, log storage, and rendered config can contain job definitions, token hashes, operational metadata, and secrets.
+Treat this inventory as sensitive data. Database backups, queue persistence, log storage, artifact storage, and rendered config can contain job definitions, token hashes, operational metadata, and secrets.
 
 ## Backup Timing
 
@@ -27,7 +28,7 @@ Prefer backups that capture these pieces close together:
 
 1. SQL database.
 2. Queue persistence directory.
-3. Log storage and log-forwarder spools.
+3. Log storage, artifact storage, and log-forwarder spools.
 4. Deployment secrets, TLS material, config, and manifests.
 5. Observability rules and dashboards.
 
@@ -39,13 +40,13 @@ For SQLite, stop Vectis or use a SQLite-safe backup process before copying the d
 
 Restore in dependency order, then start services in dependency order.
 
-1. Stop API, cron, reconciler, catalog, workers, queue, log, and log-forwarder processes so no restored state is modified while files are being replaced.
+1. Stop API, cron, reconciler, catalog, workers, queue, log, artifact, and log-forwarder processes so no restored state is modified while files are being replaced.
 2. Restore deployment config, secrets, and TLS material to the same paths or update environment variables before starting services.
 3. Restore the SQL database.
 4. Run `vectis-cli database migrate` for each restored SQL database using the same `VECTIS_DATABASE_DRIVER` and DSN settings that services will use.
-5. Restore queue persistence and log storage when available.
+5. Restore queue persistence, log storage, and artifact storage when available.
 6. Restore log-forwarder spools on worker hosts if they are part of the backup set.
-7. Start registry, queue, and log first; then API; then workers, cron, reconciler, and catalog.
+7. Start registry, queue, log, and artifact first; then API; then workers, cron, reconciler, and catalog.
 8. Run the restore smoke test below.
 
 Do not start cron or workers before the database has been restored and migrations have been checked. They can enqueue or execute work against an incomplete view of the world.
@@ -59,6 +60,7 @@ Use this table when a restore cannot use one clean backup point.
 | Database restored, queue persistence missing | Runs may be `queued` in the database but absent from the queue | Run `vectis-reconciler`; use manual run retry only after checking reconciler failures |
 | Queue restored, database older than queue | Queue entries may reference missing or stale runs | Prefer restoring database and queue from the same backup point; otherwise drain cautiously and inspect failed dequeues |
 | Database restored, log storage missing | Completed runs still exist but logs may be unavailable | Mark as data loss in the incident record; rerun jobs only when safe |
+| Database restored, artifact storage missing | Runs and manifests may reference blobs that are no longer available | Mark as data loss in the incident record; rerun producing jobs only when safe |
 | Log storage restored, database missing run rows | Logs may be orphaned and not discoverable through API run history | Keep logs for forensic review, but restore the database from a better backup if possible |
 | Secrets/TLS missing | Services may fail auth, database TLS, or gRPC TLS | Restore secrets from backup; rotating secrets may require coordinated config changes and client re-login |
 | Dashboard/config missing | Core Vectis may run, but operators lose visibility | Restore dashboards/alerts before declaring DR complete |
@@ -73,7 +75,7 @@ Check these before bringing the restored deployment back online:
 | --- | --- |
 | Database DSN points at the restored database | Prevents services from writing to the wrong database. |
 | Schema migration status is current | Prevents old schema errors during API, cron, worker, or reconciler startup. |
-| Queue and log paths match restored volumes | Prevents services from starting with empty replacement directories by accident. |
+| Queue, log, and artifact paths match restored volumes | Prevents services from starting with empty replacement directories by accident. |
 | TLS files and server names match config | Prevents internal gRPC and database TLS failures. |
 | Bootstrap token expectations are clear | A restored database that already completed setup does not need a standing bootstrap token. |
 | Retention cleanup is paused until verification | Prevents cleanup from deleting evidence before the restore is validated. |
@@ -84,7 +86,7 @@ Use this for `vectis-local`, local development, single-node SQLite deployments, 
 
 1. Stop `vectis-local` or every standalone `vectis-*` process.
 2. Copy the SQLite database file or files from backup to the configured `VECTIS_DATABASE_DSN` path, or to the role-specific `VECTIS_GLOBAL_DATABASE_DSN` and `VECTIS_CELL_DATABASE_DSN` paths when split.
-3. Restore `$XDG_DATA_HOME/vectis/queue`, `$XDG_DATA_HOME/vectis/log`, `$XDG_DATA_HOME/vectis/jobs`, and `$XDG_DATA_HOME/vectis/local-tls` when they are part of the backup. Queue shard directories are nested below `$XDG_DATA_HOME/vectis/queue/<pool>/<instance-id>` by default; log shard directories are nested below `$XDG_DATA_HOME/vectis/log/<instance-id>` by default.
+3. Restore `$XDG_DATA_HOME/vectis/queue`, `$XDG_DATA_HOME/vectis/log`, `$XDG_DATA_HOME/vectis/artifact`, `$XDG_DATA_HOME/vectis/jobs`, and `$XDG_DATA_HOME/vectis/local-tls` when they are part of the backup. Queue shard directories are nested below `$XDG_DATA_HOME/vectis/queue/<pool>/<instance-id>` by default; log shard directories are nested below `$XDG_DATA_HOME/vectis/log/<instance-id>` by default; artifact shard directories are nested below `$XDG_DATA_HOME/vectis/artifact/<instance-id>` by default.
 4. Restore CLI token and local deploy secrets only when you intentionally want the same local identity state.
 5. Run `vectis-cli database migrate` with the restored database settings, once per restored SQL database.
 6. Start `vectis-local` or the standalone services.
@@ -96,12 +98,12 @@ For a local-only restore where queue persistence was not backed up, start the re
 
 Use this for the reference Podman deployment and any production-like deployment backed by Postgres.
 
-1. Stop API, workers, cron, reconciler, catalog, queue, log, and log-forwarder containers/processes.
+1. Stop API, workers, cron, reconciler, catalog, queue, log, artifact, and log-forwarder containers/processes.
 2. Restore Postgres from the database backup using the database platform's restore process.
 3. Restore or recreate the Podman deploy secrets and TLS volumes. If secrets are recreated instead of restored, update all generated DSNs and client credentials consistently.
-4. Restore queue persistence, log storage, and log-forwarder spools from matching backups when available.
+4. Restore queue persistence, log storage, artifact storage, and log-forwarder spools from matching backups when available.
 5. Run `vectis-cli database migrate` against each restored Postgres DSN from the same host/network path used for deployment migrations.
-6. Start registry, queue, log, API, workers, cron, reconciler, and catalog in dependency order.
+6. Start registry, queue, log, artifact, API, workers, cron, reconciler, and catalog in dependency order.
 7. Run the restore smoke test and confirm dashboards/alerts are receiving fresh data.
 
 ## Restore Smoke Test

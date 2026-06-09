@@ -201,10 +201,12 @@ type podmanTemplateData struct {
 	PrometheusQueueTargets      []string
 	PrometheusWorkerTargets     []string
 	PrometheusLogTargets        []string
+	PrometheusArtifactTargets   []string
 	PrometheusReconcilerTargets []string
 	APIReplicas                 []podmanAPIReplica
 	CronReplicas                []podmanCronReplica
 	LogShards                   []podmanLogShard
+	ArtifactShards              []podmanArtifactShard
 	QueueShards                 []podmanQueueShard
 	ReconcilerReplicas          []podmanReconcilerReplica
 	RegistryReplicas            []podmanRegistryReplica
@@ -224,6 +226,17 @@ type podmanCronReplica struct {
 }
 
 type podmanLogShard struct {
+	Name              string
+	GRPCPort          int
+	MetricsPort       int
+	StorageDir        string
+	InstanceID        string
+	AdvertiseAddress  string
+	SetGRPCPortEnv    bool
+	SetMetricsPortEnv bool
+}
+
+type podmanArtifactShard struct {
 	Name              string
 	GRPCPort          int
 	MetricsPort       int
@@ -309,6 +322,7 @@ func podmanTemplateDataForProfile(profile string) podmanTemplateData {
 		PrometheusQueueTargets:      podmanTargets(9081),
 		PrometheusWorkerTargets:     podmanTargets(9082),
 		PrometheusLogTargets:        podmanTargets(9083),
+		PrometheusArtifactTargets:   podmanTargets(9089),
 		PrometheusReconcilerTargets: podmanTargets(9085),
 		APIReplicas: []podmanAPIReplica{
 			{Name: "api", Port: 8080, First: true},
@@ -318,6 +332,9 @@ func podmanTemplateDataForProfile(profile string) podmanTemplateData {
 		},
 		LogShards: []podmanLogShard{
 			{Name: "log", GRPCPort: 8083, MetricsPort: 9083, StorageDir: "/data/vectis/jobs"},
+		},
+		ArtifactShards: []podmanArtifactShard{
+			{Name: "artifact", GRPCPort: 8086, MetricsPort: 9089, StorageDir: "/data/vectis/artifact"},
 		},
 		QueueShards: []podmanQueueShard{
 			{Name: "queue", Port: 8081, MetricsPort: 9081, PersistenceDir: "/data/vectis/queue"},
@@ -348,6 +365,7 @@ func podmanTemplateDataForProfile(profile string) podmanTemplateData {
 	data.PrometheusQueueTargets = podmanTargets(9081, 9181)
 	data.PrometheusWorkerTargets = podmanTargets(9082, 9182)
 	data.PrometheusLogTargets = podmanTargets(9083, 9183)
+	data.PrometheusArtifactTargets = podmanTargets(9089, 9189)
 	data.PrometheusReconcilerTargets = podmanTargets(9085, 9185)
 	data.APIReplicas = []podmanAPIReplica{
 		{Name: "api", Port: 8080, First: true},
@@ -362,6 +380,11 @@ func podmanTemplateDataForProfile(profile string) podmanTemplateData {
 	data.LogShards = []podmanLogShard{
 		{Name: "log", GRPCPort: 8083, MetricsPort: 9083, StorageDir: "/data/vectis/jobs/log-1", InstanceID: "log-1", AdvertiseAddress: podmanAddr(8083)},
 		{Name: "log-2", GRPCPort: 8183, MetricsPort: 9183, StorageDir: "/data/vectis/jobs/log-2", InstanceID: "log-2", AdvertiseAddress: podmanAddr(8183), SetGRPCPortEnv: true, SetMetricsPortEnv: true},
+	}
+
+	data.ArtifactShards = []podmanArtifactShard{
+		{Name: "artifact", GRPCPort: 8086, MetricsPort: 9089, StorageDir: "/data/vectis/artifact/artifact-1", InstanceID: "artifact-1", AdvertiseAddress: podmanAddr(8086)},
+		{Name: "artifact-2", GRPCPort: 8186, MetricsPort: 9189, StorageDir: "/data/vectis/artifact/artifact-2", InstanceID: "artifact-2", AdvertiseAddress: podmanAddr(8186), SetGRPCPortEnv: true, SetMetricsPortEnv: true},
 	}
 
 	data.QueueShards = []podmanQueueShard{

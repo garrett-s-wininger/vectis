@@ -12,7 +12,7 @@ For the configuration reference, see [Configuration](./configuration.md). For ru
 | --- | --- | --- | --- |
 | Global control plane | `vectis-api`, `vectis-cron`, `vectis-reconciler`, `vectis-catalog` | Global DB | Store jobs and global run catalog, accept user/API triggers, repair missed dispatch, fan in cell events. |
 | Execution cell | `vectis-cell-ingress`, `vectis-queue`, `vectis-worker` | Cell DB | Accept routed executions, queue them locally, execute work, record local status events. |
-| Shared support | `vectis-registry`, `vectis-log`, `vectis-docs` | Depends on service | Discovery, log ingest/streaming, documentation. |
+| Shared support | `vectis-registry`, `vectis-log`, `vectis-artifact`, `vectis-docs` | Depends on service | Discovery, log ingest/streaming, artifact blob storage, documentation. |
 
 The single-cell deployment is the degenerate case: global and cell services can share one database and one queue. In multi-cell mode, prefer split global and cell databases so cell-local execution does not write through the global database on every status transition.
 

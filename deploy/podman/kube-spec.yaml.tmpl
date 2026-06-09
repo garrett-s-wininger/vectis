@@ -23,6 +23,17 @@ spec:
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
+  name: vectis-artifact-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
   name: vectis-log-data
 spec:
   accessModes:
@@ -70,6 +81,13 @@ data:
           ca_file: /run/vectis/grpc-tls/ca.pem
         static_configs:
           - targets: {{ quoteList .PrometheusLogTargets }}
+      - job_name: vectis-artifact
+        scheme: https
+        metrics_path: /metrics
+        tls_config:
+          ca_file: /run/vectis/grpc-tls/ca.pem
+        static_configs:
+          - targets: {{ quoteList .PrometheusArtifactTargets }}
       - job_name: vectis-reconciler
         scheme: https
         metrics_path: /metrics
@@ -289,6 +307,9 @@ spec:
     - name: log-data
       persistentVolumeClaim:
         claimName: vectis-log-data
+    - name: artifact-data
+      persistentVolumeClaim:
+        claimName: vectis-artifact-data
     - name: prometheus-config
       configMap:
         name: vectis-prometheus-config
@@ -504,6 +525,43 @@ spec:
           value: {{ .AdvertiseAddress }}
 {{ end }}
         - name: VECTIS_LOG_STORAGE_DIR
+          value: {{ .StorageDir }}
+      ports:
+        - containerPort: {{ .GRPCPort }}
+          protocol: TCP
+        - containerPort: {{ .MetricsPort }}
+          protocol: TCP
+{{ end }}
+{{ range .ArtifactShards }}
+    - name: {{ .Name }}
+      image: vectis-artifact:latest
+      imagePullPolicy: Never
+      envFrom: *vectisGrpcTlsEnvFrom
+      volumeMounts:
+        - <<: *grpcTlsMount
+        - <<: *componentLogsMount
+        - name: artifact-data
+          mountPath: /data
+      env:
+        - name: XDG_DATA_HOME
+          value: /data
+{{ if .SetGRPCPortEnv }}
+        - name: VECTIS_ARTIFACT_GRPC_PORT
+          value: "{{ .GRPCPort }}"
+{{ end }}
+{{ if .SetMetricsPortEnv }}
+        - name: VECTIS_ARTIFACT_METRICS_PORT
+          value: "{{ .MetricsPort }}"
+{{ end }}
+{{ if .InstanceID }}
+        - name: VECTIS_ARTIFACT_INSTANCE_ID
+          value: {{ .InstanceID }}
+{{ end }}
+{{ if .AdvertiseAddress }}
+        - name: VECTIS_ARTIFACT_GRPC_ADVERTISE_ADDRESS
+          value: {{ .AdvertiseAddress }}
+{{ end }}
+        - name: VECTIS_ARTIFACT_STORAGE_DIR
           value: {{ .StorageDir }}
       ports:
         - containerPort: {{ .GRPCPort }}

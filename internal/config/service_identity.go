@@ -15,6 +15,7 @@ const (
 	ServiceIdentityRoleRegistry
 	ServiceIdentityRoleQueue
 	ServiceIdentityRoleLog
+	ServiceIdentityRoleArtifact
 	ServiceIdentityRoleWorkerControl
 )
 
@@ -24,21 +25,31 @@ func init() {
 		"VECTIS_SERVICE_IDENTITY_REGISTRY_ALLOWED_CLIENT_IDENTITIES",
 		"VECTIS_REGISTRY_ALLOWED_CLIENT_IDENTITIES",
 	)
+
 	_ = viper.BindEnv(
 		"service_identity.queue_allowed_client_identities",
 		"VECTIS_SERVICE_IDENTITY_QUEUE_ALLOWED_CLIENT_IDENTITIES",
 		"VECTIS_QUEUE_ALLOWED_CLIENT_IDENTITIES",
 	)
+
 	_ = viper.BindEnv(
 		"service_identity.log_allowed_client_identities",
 		"VECTIS_SERVICE_IDENTITY_LOG_ALLOWED_CLIENT_IDENTITIES",
 		"VECTIS_LOG_ALLOWED_CLIENT_IDENTITIES",
 	)
+
+	_ = viper.BindEnv(
+		"service_identity.artifact_allowed_client_identities",
+		"VECTIS_SERVICE_IDENTITY_ARTIFACT_ALLOWED_CLIENT_IDENTITIES",
+		"VECTIS_ARTIFACT_ALLOWED_CLIENT_IDENTITIES",
+	)
+
 	_ = viper.BindEnv(
 		"service_identity.worker_control_allowed_client_identities",
 		"VECTIS_SERVICE_IDENTITY_WORKER_CONTROL_ALLOWED_CLIENT_IDENTITIES",
 		"VECTIS_WORKER_CONTROL_ALLOWED_CLIENT_IDENTITIES",
 	)
+
 	_ = viper.BindEnv(
 		"service_identity.cell_ingress_allowed_producer_identities",
 		"VECTIS_SERVICE_IDENTITY_CELL_INGRESS_ALLOWED_PRODUCER_IDENTITIES",
@@ -56,6 +67,8 @@ func (r ServiceIdentityRole) String() string {
 		return "queue"
 	case ServiceIdentityRoleLog:
 		return "log"
+	case ServiceIdentityRoleArtifact:
+		return "artifact"
 	case ServiceIdentityRoleWorkerControl:
 		return "worker_control"
 	default:
@@ -82,6 +95,11 @@ func ServiceIdentityAllowedClientIdentities(role ServiceIdentityRole) []string {
 		return serviceIdentityList(
 			"service_identity.log_allowed_client_identities",
 			d.LogAllowedClientIdentities,
+		)
+	case ServiceIdentityRoleArtifact:
+		return serviceIdentityList(
+			"service_identity.artifact_allowed_client_identities",
+			d.ArtifactAllowedClientIdentities,
 		)
 	case ServiceIdentityRoleWorkerControl:
 		return serviceIdentityList(

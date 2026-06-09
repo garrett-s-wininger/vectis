@@ -22,11 +22,12 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 - **Deployables / docs site** → `deploy/`, `website/docs/`
 - **Reconciler invariants** → `internal/reconciler/`; formal model → `formal/tla/`
 
-## Binaries (thirteen; `cmd/`)
+## Binaries (fourteen; `cmd/`)
 
 | Binary | Role | Long-running? | DB? |
 |--------|------|---------------|-----|
 | `vectis-api` | REST (jobs, runs, SSE), metrics | yes | yes |
+| `vectis-artifact` | Artifact blob storage (gRPC), metrics | yes | no |
 | `vectis-cell-ingress` | Private cell-local execution ingress | yes | yes |
 | `vectis-queue` | FIFO queue + metrics | yes | no |
 | `vectis-registry` | Service discovery | yes | no |

@@ -268,6 +268,7 @@ func TestMetricsListenAddressesDefaultToLocalhost(t *testing.T) {
 	}{
 		{name: "queue", host: d.Queue.MetricsHost, addr: QueueMetricsListenAddr()},
 		{name: "log", host: d.Log.MetricsHost, addr: LogMetricsListenAddr()},
+		{name: "artifact", host: d.Artifact.MetricsHost, addr: ArtifactMetricsListenAddr()},
 		{name: "worker", host: d.Worker.MetricsHost, addr: WorkerMetricsListenAddr()},
 	}
 
@@ -278,9 +279,10 @@ func TestMetricsListenAddressesDefaultToLocalhost(t *testing.T) {
 	}
 
 	wantAddr := map[string]string{
-		"queue":  "localhost:9081",
-		"log":    "localhost:9083",
-		"worker": "localhost:9082",
+		"queue":    "localhost:9081",
+		"log":      "localhost:9083",
+		"artifact": "localhost:9089",
+		"worker":   "localhost:9082",
 	}
 
 	for _, tc := range cases {
@@ -350,6 +352,82 @@ func TestLogStorageReadOnlyMinFreeBytes_DefaultAndOverride(t *testing.T) {
 	viper.Set("storage_read_only_min_free_bytes", uint64(0))
 	if got := LogStorageReadOnlyMinFreeBytes(); got != 0 {
 		t.Fatalf("LogStorageReadOnlyMinFreeBytes should allow disabling threshold: got %d", got)
+	}
+}
+
+func TestArtifactConfig_DefaultAndOverride(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	if got := ArtifactGRPCPort(); got != 8086 {
+		t.Fatalf("ArtifactGRPCPort default: got %d", got)
+	}
+
+	if got := ArtifactGRPCListenAddr(); got != ":8086" {
+		t.Fatalf("ArtifactGRPCListenAddr default: got %q", got)
+	}
+
+	if got := ArtifactMetricsHost(); got != "localhost" {
+		t.Fatalf("ArtifactMetricsHost default: got %q", got)
+	}
+
+	if got := ArtifactMetricsPort(); got != 9089 {
+		t.Fatalf("ArtifactMetricsPort default: got %d", got)
+	}
+
+	if got := ArtifactMetricsListenAddr(); got != "localhost:9089" {
+		t.Fatalf("ArtifactMetricsListenAddr default: got %q", got)
+	}
+
+	if got := ArtifactStorageReadOnlyMinFreeBytes(); got != 1<<30 {
+		t.Fatalf("ArtifactStorageReadOnlyMinFreeBytes default: got %d", got)
+	}
+
+	if !ArtifactRegisterWithRegistry() {
+		t.Fatal("ArtifactRegisterWithRegistry default: got false, want true")
+	}
+
+	viper.Set("grpc_port", 18086)
+	viper.Set("metrics_host", "127.0.0.1")
+	viper.Set("metrics_port", 19089)
+	viper.Set("storage_read_only_min_free_bytes", uint64(2048))
+	viper.Set("artifact.grpc.register_with_registry", false)
+	viper.Set("artifact.grpc.advertise_address", "artifact.local:8086")
+	viper.Set("artifact.registry.address", "registry.local:8082")
+	viper.Set("artifact.grpc.resolver.address", "artifact-pinned:8086")
+
+	if got := ArtifactGRPCPort(); got != 18086 {
+		t.Fatalf("ArtifactGRPCPort override: got %d", got)
+	}
+
+	if got := ArtifactMetricsListenAddr(); got != "127.0.0.1:19089" {
+		t.Fatalf("ArtifactMetricsListenAddr override: got %q", got)
+	}
+
+	if got := ArtifactStorageReadOnlyMinFreeBytes(); got != 2048 {
+		t.Fatalf("ArtifactStorageReadOnlyMinFreeBytes override: got %d", got)
+	}
+
+	if ArtifactRegisterWithRegistry() {
+		t.Fatal("ArtifactRegisterWithRegistry override: got true, want false")
+	}
+
+	if got := ArtifactGRPCAdvertiseAddress(); got != "artifact.local:8086" {
+		t.Fatalf("ArtifactGRPCAdvertiseAddress override: got %q", got)
+	}
+
+	if got := ArtifactRegistryAddress(); got != "registry.local:8082" {
+		t.Fatalf("ArtifactRegistryAddress override: got %q", got)
+	}
+
+	if got := PinnedArtifactAddress(); got != "artifact-pinned:8086" {
+		t.Fatalf("PinnedArtifactAddress override: got %q", got)
+	}
+
+	viper.Set("artifact.grpc.resolver.address", "")
+	viper.Set("discovery.artifact.address", "artifact-discovery:8086")
+	if got := PinnedArtifactAddress(); got != "artifact-discovery:8086" {
+		t.Fatalf("PinnedArtifactAddress discovery fallback: got %q", got)
 	}
 }
 

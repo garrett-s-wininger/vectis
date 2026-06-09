@@ -9,11 +9,11 @@ For outage behavior, see [Failure Domains](./failure-domains.md). For environmen
 | Surface | Current behavior | Operator baseline |
 | --- | --- | --- |
 | HTTP API | Authentication is off by default for local and development use. Local users, API tokens, RBAC, rate limits, audit logging, and direct HTTPS are available when configured. | Enable API auth outside throwaway local use, serve or terminate HTTPS, and restrict who can reach the API. |
-| Internal gRPC | Queue, registry, log, and worker-control traffic can use optional TLS/mTLS. Standalone binaries default to plaintext unless configured. | Keep internal ports private. Use TLS/mTLS and service identity allowlists on shared networks. |
+| Internal gRPC | Queue, registry, log, artifact, and worker-control traffic can use optional TLS/mTLS. Standalone binaries default to plaintext unless configured. | Keep internal ports private. Use TLS/mTLS and service identity allowlists on shared networks. |
 | Cell ingress HTTP | Cell ingress is an internal execution submission surface. It uses the internal TLS/mTLS material when exposed off-loopback and can require exact producer SPIFFE identities for execution submissions. It does not perform end-user authentication or RBAC; global producers authorize work before dispatch. | Keep cell ingress private, reachable only by approved global producers, and use mTLS plus producer identity allowlists for non-loopback ingress endpoints. |
-| Service authorization | Internal gRPC listeners can enforce role-level exact SPIFFE URI SAN allowlists when configured. This is listener authorization, not a full per-RPC policy language. | Configure expected service identities and still treat network reachability to queue, registry, log, and worker-control paths as sensitive. |
+| Service authorization | Internal gRPC listeners can enforce role-level exact SPIFFE URI SAN allowlists when configured. This is listener authorization, not a full per-RPC policy language. | Configure expected service identities and still treat network reachability to queue, registry, log, artifact, and worker-control paths as sensitive. |
 | Metrics | API metrics use the API route auth policy when API auth is enabled. Dedicated service metrics listeners are unauthenticated and bind to localhost by default. Some deployments enable TLS for dedicated metrics listeners. | Scrape metrics from a trusted network, require API auth for API metrics, and only set dedicated metrics `--metrics-host` values for trusted scrape networks. |
-| Database and files | SQL, SQLite files, queue persistence, logs, and backups may contain sensitive operational state. Vectis does not encrypt these at rest itself. | Use platform disk or volume encryption, filesystem permissions, and secret-store controls. |
+| Database and files | SQL, SQLite files, queue persistence, logs, artifact blobs, and backups may contain sensitive operational state. Vectis does not encrypt these at rest itself. | Use platform disk or volume encryption, filesystem permissions, and secret-store controls. |
 | Jobs and logs | Job definitions can cause workers to execute code. Workers currently provide per-run workspace separation, not a secure sandbox. Logs may contain credentials or personal data emitted by build steps. | Limit who can define or trigger jobs, isolate workers where needed, and restrict log access. |
 
 ## HTTP API Authentication
@@ -66,11 +66,12 @@ Vectis services communicate over gRPC:
 | `vectis-queue` | Accepts enqueues and dispatches work to workers. |
 | `vectis-registry` | Provides service discovery when discovery is enabled. |
 | `vectis-log` | Receives worker log chunks and serves stored log streams. |
+| `vectis-artifact` | Stores and serves content-addressed artifact blobs. |
 | API, worker, cron, reconciler | Dial queue, registry, or log depending on role and configuration. |
 
 Standalone binaries default to plaintext internal gRPC (`VECTIS_GRPC_TLS_INSECURE=true`) unless TLS is configured. `vectis-local` bootstraps development TLS by default and injects the relevant `VECTIS_GRPC_TLS_*` variables into child processes. The Podman reference deployment also generates and mounts internal gRPC TLS material.
 
-When `VECTIS_GRPC_TLS_INSECURE=false`, listeners need certificate and key files, and gRPC clients need a CA bundle. mTLS verifies peer certificates when a client CA is configured. Service identity allowlists can then require the client certificate leaf to contain an exact `spiffe://` URI SAN for each protected listener role: registry, queue, log, worker-control, and cell-ingress execution producers. Empty allowlists leave this role-level authorization layer disabled.
+When `VECTIS_GRPC_TLS_INSECURE=false`, listeners need certificate and key files, and gRPC clients need a CA bundle. mTLS verifies peer certificates when a client CA is configured. Service identity allowlists can then require the client certificate leaf to contain an exact `spiffe://` URI SAN for each protected listener role: registry, queue, log, artifact, worker-control, and cell-ingress execution producers. Empty allowlists leave this role-level authorization layer disabled.
 
 For the service identity matrix, private port guidance, and checklist for new internal RPCs, see [Internal Service Trust](./internal-service-trust.md).
 
@@ -153,12 +154,12 @@ Use this as the minimum checklist before treating a deployment as shared or prod
 1. Enable API auth.
 2. Complete setup and remove or rotate the bootstrap secret.
 3. Terminate HTTPS at an ingress, reverse proxy, or platform edge.
-4. Keep queue, registry, log, worker-control, and metrics ports off public networks.
+4. Keep queue, registry, log, artifact, worker-control, and metrics ports off public networks.
 5. Enable internal gRPC TLS or mTLS on shared networks.
 6. Configure service identity allowlists for expected internal SPIFFE IDs.
 7. Store database DSNs, API tokens, bootstrap tokens, and deploy TLS material in a secret manager.
 8. Restrict who can define jobs, trigger jobs, and read logs.
-9. Protect SQL, SQLite, queue, log, and backup storage like sensitive application data.
+9. Protect SQL, SQLite, queue, log, artifact, and backup storage like sensitive application data.
 10. Run less-trusted workloads on separately isolated worker hosts or external sandboxing until built-in container or VM providers are available and configured.
 11. Monitor audit drops, audit flush failures, auth failures, queue health, and service readiness.
 

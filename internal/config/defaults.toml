@@ -97,6 +97,16 @@ port = 8083
 register_with_registry = true
 advertise_address = ""
 
+[artifact]
+metrics_host = "localhost"
+metrics_port = 9089
+storage_read_only_min_free_bytes = 1073741824
+
+[artifact.grpc]
+port = 8086
+register_with_registry = true
+advertise_address = ""
+
 [log_forwarder]
 metrics_host = "localhost"
 metrics_port = 9088
@@ -139,6 +149,7 @@ queue.address = ""
 registry_allowed_client_identities = []
 queue_allowed_client_identities = []
 log_allowed_client_identities = []
+artifact_allowed_client_identities = []
 worker_control_allowed_client_identities = []
 cell_ingress_allowed_producer_identities = []
 

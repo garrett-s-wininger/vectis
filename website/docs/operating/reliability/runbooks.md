@@ -56,9 +56,9 @@ That command shows status and dispatch events without requiring direct database 
 | Logs | API-to-log-service gRPC reachability. |
 | Audit | Dropped audit events and flush failures. |
 | Database pool | API-visible `database/sql` pool pressure. |
-| Local files | TLS file readability and queue/log/spool filesystem checks where paths are locally visible. |
+| Local files | TLS file readability and queue/log/artifact/spool filesystem checks where paths are locally visible. |
 
-The health check is not a complete production monitoring system. It does not replace host disk telemetry, database monitoring, queue/log capacity dashboards, or workload-specific alerts.
+The health check is not a complete production monitoring system. It does not replace host disk telemetry, database monitoring, queue/log/artifact capacity dashboards, or workload-specific alerts.
 
 ## Starter Signals
 

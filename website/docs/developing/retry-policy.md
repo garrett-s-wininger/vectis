@@ -46,8 +46,8 @@ If none of these apply, do not add a blind retry loop. Return an explicit error 
 | --- | --- | --- | --- | --- | --- | --- |
 | Shared `backoff.Retryer` default | Internal helpers | 5 tries | 500ms exponential, uncapped unless caller supplies a cap | No | Yes when caller passes metrics | Returns last error. |
 | Generic gRPC client connect | Registry client and lower-level networking callers | 5 tries | 500ms exponential, uncapped | No | `component=networking` | Startup or dial path fails. |
-| Pinned queue/log resolver dial | API, worker, cron, reconciler, log-forwarder | 5 tries | 500ms exponential, uncapped | No | `component=resolver` | Startup or dependency dial fails. |
-| Registry registration | Queue and log when registration is enabled | 5 tries | 500ms exponential, uncapped | No | `component=registry` | Process startup fails when registration is required. |
+| Pinned queue/log/artifact resolver dial | API, worker, cron, reconciler, log-forwarder, artifact clients | 5 tries | 500ms exponential, uncapped | No | `component=resolver` | Startup or dependency dial fails. |
+| Registry registration | Queue, log, and artifact when registration is enabled | 5 tries | 500ms exponential, uncapped | No | `component=registry` | Process startup fails when registration is required. |
 | Queue enqueue | API async enqueue, cron, reconciler | 6 attempts | 80ms exponential capped at 2s | Full jitter | API emits `vectis_api_run_enqueue_total`; reconciler emits `vectis_reconciler_reenqueue_total`; traces include enqueue attempt events | Triggered run can remain queued until reconciler retries, or the cycle logs failure. |
 | Task continuation enqueue | Worker task fan-out dispatcher; reconciler repair loop for queued pending intents | One enqueue attempt per drain pass; failed intents remain pending after their retry cutoff | Retry cutoff is stored on the task dispatch intent | No | Per-run dispatch events with source `task_dispatch`; worker and reconciler emit `vectis_task_dispatch_drains_total` and `vectis_task_dispatch_intents_total`; API emits `vectis_task_dispatch_pending_intents` | The task intent remains pending for a later worker drain pass or reconciler repair cycle. |
 | Worker dequeue loop | Worker | Indefinite while process is running | 500ms exponential capped at 30s | No | Domain logs, no common counter today | Worker stops receiving new jobs until queue recovers. |
@@ -63,7 +63,7 @@ Most retry attempt counts and backoff constants are currently code defaults. Ope
 
 | Goal | Setting |
 | --- | --- |
-| Avoid registry dial/registration on dependent startup | Pin queue/log addresses with the role-specific discovery variables in [Configuration](../operating/configuration.md#service-discovery-vs-fixed-addresses). |
+| Avoid registry dial/registration on dependent startup | Pin queue/log/artifact addresses with the role-specific discovery variables in [Configuration](../operating/configuration.md#service-discovery-vs-fixed-addresses). |
 | Change resolver refresh after discovery errors | Override discovery timing settings: resolver refresh 10s, poll timeout 5s, error refresh 2s, registration heartbeat 45s by default. |
 | Control how often queued runs are redispatched | `VECTIS_RECONCILER_INTERVAL` / `--interval` on `vectis-reconciler`. |
 | Preserve queue backlog across queue restarts | Keep queue persistence enabled using the derived default path, or set `VECTIS_QUEUE_PERSISTENCE_DIR` / `--persistence-dir` explicitly. Empty disables queue persistence. |

@@ -13,7 +13,8 @@ The database and queue are the two services to protect first.
 | Database | Durable source of truth for jobs, runs, schedules, leases, users, tokens, namespaces, audit records, and idempotency keys. |
 | Queue | Handoff point between producers such as API, cron, and reconciler, and consumers such as workers. |
 | Log service | Required before a worker starts normal task delivery execution. Log shards own ingest and streaming for routed runs, not authoritative run state. |
-| Registry | Service discovery. It is avoidable for some paths when queue and log addresses are pinned in config. |
+| Artifact service | Internal content-addressed blob storage. Artifact shards own local blob availability, not authoritative run state. |
+| Registry | Service discovery. It is avoidable for some paths when queue, log, and artifact addresses are pinned in config. |
 | API | User and automation entry point. Running work does not depend on the API once workers have claimed it. |
 | Worker | Executes envelope-backed task deliveries for persisted runs. Capacity and failure handling are mostly worker-count and lease behavior questions. |
 | Cron | Turns schedules into queued work. Manual and API triggers can still work without it. |
@@ -35,6 +36,7 @@ Most Vectis outages reduce to one of these questions:
 | `vectis-queue` | Optional registry when it registers its address; per-instance persistence directory when queue persistence is enabled. Active queues must not share an instance ID or persistence directory. |
 | `vectis-registry` | Listen socket and optional TLS files. |
 | `vectis-log` | Per-shard storage directory; gRPC ingest listener; HTTP/SSE log listener; optional registry. |
+| `vectis-artifact` | Per-shard storage directory; gRPC upload/read listener; optional registry. |
 | `vectis-worker` | Database; queue; log service; registry unless queue and log addresses are pinned. |
 | `vectis-log-forwarder` | Log service and local spool directory. |
 | `vectis-cron` | Database and queue. |
@@ -42,7 +44,7 @@ Most Vectis outages reduce to one of these questions:
 | `vectis-local` | Child binaries, local ports, and local TLS bootstrap unless disabled. |
 | `vectis-cli` | API for normal commands; database DSN for `migrate`. |
 
-If queue and log addresses are pinned, callers can avoid registry lookups. Services that register themselves still need the registry during startup unless you choose a different deployment pattern.
+If queue, log, and artifact addresses are pinned, callers can avoid registry lookups. Services that register themselves still need the registry during startup unless you choose a different deployment pattern.
 
 ## Dependency Classes
 
@@ -125,9 +127,9 @@ The registry matters when services use discovery instead of fixed addresses.
 | --- | --- |
 | API, cron, reconciler | Usually cannot start if they need the registry to resolve the queue and all configured registry addresses are unavailable. |
 | Worker | Usually cannot start if it needs the registry to resolve queue or log addresses and all configured registry addresses are unavailable. |
-| Queue and log | Startup fails when they are configured to register and no configured registry address accepts the registration. |
+| Queue, log, and artifact | Startup fails when they are configured to register and no configured registry address accepts the registration. |
 
-When multiple registry addresses are configured, discovery clients fail over between them and registering services publish heartbeats to one active target at a time. Pin queue and log addresses when you want fewer startup dependencies. Keep the registry private when discovery is enabled.
+When multiple registry addresses are configured, discovery clients fail over between them and registering services publish heartbeats to one active target at a time. Pin queue, log, and artifact addresses when you want fewer startup dependencies. Keep the registry private when discovery is enabled.
 
 ## API Down {#vectis-api}
 

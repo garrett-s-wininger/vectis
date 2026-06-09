@@ -9,6 +9,7 @@ enum Component {
     COMPONENT_QUEUE = 1;
     COMPONENT_LOG = 2;
     COMPONENT_WORKER = 3;
+    COMPONENT_ARTIFACT = 4;
 }
 
 message Registration {
