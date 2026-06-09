@@ -105,11 +105,26 @@ type storedJobSourceResponse struct {
 	Source         sourceProvenanceResponse `json:"source"`
 }
 
+type storedJobSourceDefinitionResponse struct {
+	JobID          string                   `json:"job_id"`
+	Version        int                      `json:"version"`
+	DefinitionHash string                   `json:"definition_hash"`
+	Definition     json.RawMessage          `json:"definition"`
+	Source         sourceProvenanceResponse `json:"source"`
+}
+
 type resolvedSourceDefinitionResponse struct {
 	RepositoryID   string                   `json:"repository_id"`
 	DefinitionHash string                   `json:"definition_hash"`
 	Definition     json.RawMessage          `json:"definition"`
 	Source         sourceProvenanceResponse `json:"source"`
+}
+
+type storedJobDefinitionSource struct {
+	JobID          string
+	Version        int
+	DefinitionJSON string
+	Source         dal.JobDefinitionSourceRecord
 }
 
 func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Request) {
@@ -541,94 +556,83 @@ func (s *APIServer) GetJobSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	nsPath, err := s.getJobNamespacePath(ctx, jobID)
-	if err != nil {
-		if dal.IsNotFound(err) {
-			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-			return
-		}
-
-		if s.handleDBUnavailableError(w, err) {
-			return
-		}
-
-		s.logger.Error("Database error: %v", err)
-		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+	source, ok := s.getAuthorizedJobDefinitionSource(ctx, w, p, jobID, r.URL.Query().Get("version"))
+	if !ok {
 		return
 	}
-
-	if !s.checkNamespaceAuth(ctx, p, authz.ActionJobRead, nsPath) {
-		writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-		return
-	}
-
-	var definitionJSON string
-	var version int
-	if versionParam := strings.TrimSpace(r.URL.Query().Get("version")); versionParam != "" {
-		v, err := strconv.Atoi(versionParam)
-		if err != nil || v <= 0 {
-			writeAPIError(w, http.StatusBadRequest, "invalid_version", "invalid version parameter", nil)
-			return
-		}
-
-		definitionJSON, err = s.jobs.GetDefinitionVersion(ctx, jobID, v)
-		if err != nil {
-			if dal.IsNotFound(err) {
-				writeAPIError(w, http.StatusNotFound, "job_version_not_found", "job version not found", nil)
-				return
-			}
-
-			if s.handleDBUnavailableError(w, err) {
-				return
-			}
-
-			s.logger.Error("Database error: %v", err)
-			writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
-			return
-		}
-
-		version = v
-	} else {
-		definitionJSON, version, err = s.jobs.GetDefinition(ctx, jobID)
-		if err != nil {
-			if dal.IsNotFound(err) {
-				writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-				return
-			}
-
-			if s.handleDBUnavailableError(w, err) {
-				return
-			}
-
-			s.logger.Error("Database error: %v", err)
-			writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
-			return
-		}
-	}
-	s.markDBRecovered()
-
-	sourceRec, err := s.sources.GetDefinitionSource(ctx, jobID, version)
-	if err != nil {
-		if dal.IsNotFound(err) {
-			writeAPIError(w, http.StatusNotFound, "job_source_not_found", "job source not found", nil)
-			return
-		}
-
-		if s.handleDBUnavailableError(w, err) {
-			return
-		}
-
-		s.logger.Error("Database error getting job source: %v", err)
-		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
-		return
-	}
-	s.markDBRecovered()
 
 	writeJSON(w, http.StatusOK, storedJobSourceResponse{
-		JobID:          jobID,
-		Version:        version,
-		DefinitionHash: dal.DefinitionHash(definitionJSON),
-		Source:         sourceRecordToProvenance(sourceRec),
+		JobID:          source.JobID,
+		Version:        source.Version,
+		DefinitionHash: dal.DefinitionHash(source.DefinitionJSON),
+		Source:         sourceRecordToProvenance(source.Source),
+	})
+}
+
+func (s *APIServer) GetJobSourceDefinition(w http.ResponseWriter, r *http.Request) {
+	jobID := strings.TrimSpace(r.PathValue("id"))
+	if jobID == "" {
+		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
+		return
+	}
+
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireSources(w) {
+		return
+	}
+
+	source, ok := s.getAuthorizedJobDefinitionSource(ctx, w, p, jobID, r.URL.Query().Get("version"))
+	if !ok {
+		return
+	}
+
+	repoRec, err := s.sources.GetRepository(ctx, source.Source.RepositoryID)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "source_repository_not_found", "source repository not found", nil)
+			return
+		}
+
+		s.logger.Error("Database error getting source repository: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+	s.markDBRecovered()
+
+	repo, err := sourcepkg.NewRepositoryFromRecord(repoRec)
+	if err != nil {
+		s.writeSourceDefinitionError(w, err)
+		return
+	}
+
+	file, err := repo.ReadFile(ctx, sourcepkg.Revision{Commit: source.Source.ResolvedCommit}, source.Source.DefinitionPath)
+	if err != nil {
+		s.writeSourceDefinitionError(w, err)
+		return
+	}
+
+	if !json.Valid(file.Content) {
+		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "source definition is not valid JSON", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, storedJobSourceDefinitionResponse{
+		JobID:          source.JobID,
+		Version:        source.Version,
+		DefinitionHash: dal.DefinitionHash(source.DefinitionJSON),
+		Definition:     json.RawMessage(file.Content),
+		Source:         sourceRecordToProvenance(source.Source),
 	})
 }
 
@@ -911,6 +915,98 @@ func sourceRepositoryStatusFromRecord(ctx context.Context, rec dal.SourceReposit
 	}
 
 	return resp
+}
+
+func (s *APIServer) getAuthorizedJobDefinitionSource(ctx context.Context, w http.ResponseWriter, p *authn.Principal, jobID string, versionParam string) (storedJobDefinitionSource, bool) {
+	nsPath, err := s.getJobNamespacePath(ctx, jobID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
+			return storedJobDefinitionSource{}, false
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return storedJobDefinitionSource{}, false
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return storedJobDefinitionSource{}, false
+	}
+
+	if !s.checkNamespaceAuth(ctx, p, authz.ActionJobRead, nsPath) {
+		writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
+		return storedJobDefinitionSource{}, false
+	}
+
+	var definitionJSON string
+	var version int
+	if versionParam = strings.TrimSpace(versionParam); versionParam != "" {
+		v, err := strconv.Atoi(versionParam)
+		if err != nil || v <= 0 {
+			writeAPIError(w, http.StatusBadRequest, "invalid_version", "invalid version parameter", nil)
+			return storedJobDefinitionSource{}, false
+		}
+
+		definitionJSON, err = s.jobs.GetDefinitionVersion(ctx, jobID, v)
+		if err != nil {
+			if dal.IsNotFound(err) {
+				writeAPIError(w, http.StatusNotFound, "job_version_not_found", "job version not found", nil)
+				return storedJobDefinitionSource{}, false
+			}
+
+			if s.handleDBUnavailableError(w, err) {
+				return storedJobDefinitionSource{}, false
+			}
+
+			s.logger.Error("Database error: %v", err)
+			writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+			return storedJobDefinitionSource{}, false
+		}
+
+		version = v
+	} else {
+		definitionJSON, version, err = s.jobs.GetDefinition(ctx, jobID)
+		if err != nil {
+			if dal.IsNotFound(err) {
+				writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
+				return storedJobDefinitionSource{}, false
+			}
+
+			if s.handleDBUnavailableError(w, err) {
+				return storedJobDefinitionSource{}, false
+			}
+
+			s.logger.Error("Database error: %v", err)
+			writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+			return storedJobDefinitionSource{}, false
+		}
+	}
+	s.markDBRecovered()
+
+	sourceRec, err := s.sources.GetDefinitionSource(ctx, jobID, version)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "job_source_not_found", "job source not found", nil)
+			return storedJobDefinitionSource{}, false
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return storedJobDefinitionSource{}, false
+		}
+
+		s.logger.Error("Database error getting job source: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return storedJobDefinitionSource{}, false
+	}
+	s.markDBRecovered()
+
+	return storedJobDefinitionSource{
+		JobID:          jobID,
+		Version:        version,
+		DefinitionJSON: definitionJSON,
+		Source:         sourceRec,
+	}, true
 }
 
 func sourceRecordToProvenance(rec dal.JobDefinitionSourceRecord) sourceProvenanceResponse {

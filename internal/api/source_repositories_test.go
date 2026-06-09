@@ -209,6 +209,53 @@ func TestAPIServer_SourceBackedJobLifecycle(t *testing.T) {
 		t.Fatalf("historical job source response mismatch: %+v", getSourceResp)
 	}
 
+	getSourceDefinitionRec := httptest.NewRecorder()
+	getSourceDefinitionReq := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/build/source/definition?version=1", nil)
+	handler.ServeHTTP(getSourceDefinitionRec, getSourceDefinitionReq)
+	if getSourceDefinitionRec.Code != http.StatusOK {
+		t.Fatalf("get historical source definition: status=%d body=%s", getSourceDefinitionRec.Code, getSourceDefinitionRec.Body.String())
+	}
+
+	getSourceDefinitionResp := decodeSourceJobDefinitionResponse(t, getSourceDefinitionRec)
+	if getSourceDefinitionResp.JobID != "build" ||
+		getSourceDefinitionResp.Version != 1 ||
+		getSourceDefinitionResp.DefinitionHash != createResp.DefinitionHash ||
+		getSourceDefinitionResp.Source.ResolvedCommit != firstCommit ||
+		getSourceDefinitionResp.Source.BlobSHA != firstBlob {
+		t.Fatalf("historical source definition response mismatch: %+v", getSourceDefinitionResp)
+	}
+
+	if err := json.Unmarshal(getSourceDefinitionResp.Definition, &resolvedJob); err != nil {
+		t.Fatalf("historical source definition JSON: %v", err)
+	}
+
+	if resolvedJob.GetRoot().GetWith()["command"] != "true" {
+		t.Fatalf("historical source definition command: got %+v", resolvedJob.GetRoot().GetWith())
+	}
+
+	getSourceDefinitionRec = httptest.NewRecorder()
+	getSourceDefinitionReq = httptest.NewRequest(http.MethodGet, "/api/v1/jobs/build/source/definition", nil)
+	handler.ServeHTTP(getSourceDefinitionRec, getSourceDefinitionReq)
+	if getSourceDefinitionRec.Code != http.StatusOK {
+		t.Fatalf("get current source definition: status=%d body=%s", getSourceDefinitionRec.Code, getSourceDefinitionRec.Body.String())
+	}
+
+	getSourceDefinitionResp = decodeSourceJobDefinitionResponse(t, getSourceDefinitionRec)
+	if getSourceDefinitionResp.JobID != "build" ||
+		getSourceDefinitionResp.Version != 2 ||
+		getSourceDefinitionResp.DefinitionHash != updateResp.DefinitionHash ||
+		getSourceDefinitionResp.Source.ResolvedCommit != secondCommit {
+		t.Fatalf("current source definition response mismatch: %+v", getSourceDefinitionResp)
+	}
+
+	if err := json.Unmarshal(getSourceDefinitionResp.Definition, &resolvedJob); err != nil {
+		t.Fatalf("current source definition JSON: %v", err)
+	}
+
+	if resolvedJob.GetRoot().GetWith()["command"] != "false" {
+		t.Fatalf("current source definition command: got %+v", resolvedJob.GetRoot().GetWith())
+	}
+
 	triggerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/jobs/trigger/build", map[string]any{})
 	if triggerRec.Code != http.StatusAccepted {
 		t.Fatalf("trigger source-backed job: status=%d body=%s", triggerRec.Code, triggerRec.Body.String())
@@ -422,6 +469,55 @@ func TestAPIServer_GetSourceRepositoryStatus(t *testing.T) {
 	}
 }
 
+func TestAPIServer_GetJobSourceDefinitionReadsDisabledRepository(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+
+	server, _, _, _ := setupTestServer(t)
+	handler := server.Handler()
+	repoPath := initAPIGitRepo(t)
+	writeAPIJobDefinitionAndCommit(t, repoPath, "true", "definition")
+
+	registerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
+		"repository_id": "vectis-local",
+		"source_kind":   dal.SourceKindLocalCheckout,
+		"checkout_path": repoPath,
+		"default_ref":   "HEAD",
+	})
+
+	if registerRec.Code != http.StatusCreated {
+		t.Fatalf("register source repository: status=%d body=%s", registerRec.Code, registerRec.Body.String())
+	}
+
+	createRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/jobs/source/build", map[string]any{
+		"repository_id": "vectis-local",
+		"path":          ".vectis/jobs/build.json",
+	})
+
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("create source job: status=%d body=%s", createRec.Code, createRec.Body.String())
+	}
+
+	disableRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/vectis-local", map[string]any{
+		"enabled": false,
+	})
+
+	if disableRec.Code != http.StatusOK {
+		t.Fatalf("disable source repository: status=%d body=%s", disableRec.Code, disableRec.Body.String())
+	}
+
+	getRec := httptest.NewRecorder()
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/build/source/definition", nil)
+	handler.ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("get source definition from disabled repository: status=%d body=%s", getRec.Code, getRec.Body.String())
+	}
+
+	resp := decodeSourceJobDefinitionResponse(t, getRec)
+	if resp.JobID != "build" || resp.Version != 1 || resp.Source.RepositoryID != "vectis-local" {
+		t.Fatalf("source definition response mismatch: %+v", resp)
+	}
+}
+
 func TestAPIServer_UpdateSourceRepository(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 
@@ -568,6 +664,16 @@ func TestAPIServer_GetJobSourceReturnsNotFoundForPlainJob(t *testing.T) {
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/jobs/plain/source?version=99", nil)
 	handler.ServeHTTP(rec, req)
 	assertAPIError(t, rec, http.StatusNotFound, "job_version_not_found")
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/jobs/plain/source/definition", nil)
+	handler.ServeHTTP(rec, req)
+	assertAPIError(t, rec, http.StatusNotFound, "job_source_not_found")
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/jobs/plain/source/definition?version=99", nil)
+	handler.ServeHTTP(rec, req)
+	assertAPIError(t, rec, http.StatusNotFound, "job_version_not_found")
 }
 
 func decodeResolvedSourceDefinitionResponse(t *testing.T, rec *httptest.ResponseRecorder) struct {
@@ -645,6 +751,42 @@ func decodeSourceRepositoryStatusResponse(t *testing.T, rec *httptest.ResponseRe
 			Code    string `json:"code"`
 			Message string `json:"message"`
 		} `json:"error"`
+	}
+
+	if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+
+	return out
+}
+
+func decodeSourceJobDefinitionResponse(t *testing.T, rec *httptest.ResponseRecorder) struct {
+	JobID          string          `json:"job_id"`
+	Version        int             `json:"version"`
+	DefinitionHash string          `json:"definition_hash"`
+	Definition     json.RawMessage `json:"definition"`
+	Source         struct {
+		RepositoryID   string `json:"repository_id"`
+		RequestedRef   string `json:"requested_ref"`
+		ResolvedCommit string `json:"resolved_commit"`
+		Path           string `json:"path"`
+		BlobSHA        string `json:"blob_sha"`
+	} `json:"source"`
+} {
+	t.Helper()
+
+	var out struct {
+		JobID          string          `json:"job_id"`
+		Version        int             `json:"version"`
+		DefinitionHash string          `json:"definition_hash"`
+		Definition     json.RawMessage `json:"definition"`
+		Source         struct {
+			RepositoryID   string `json:"repository_id"`
+			RequestedRef   string `json:"requested_ref"`
+			ResolvedCommit string `json:"resolved_commit"`
+			Path           string `json:"path"`
+			BlobSHA        string `json:"blob_sha"`
+		} `json:"source"`
 	}
 
 	if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
