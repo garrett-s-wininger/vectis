@@ -1,0 +1,296 @@
+package artifact
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"io"
+	"strings"
+	"testing"
+
+	"vectis/internal/dal"
+	"vectis/internal/testutil/dbtest"
+)
+
+func TestPublisher_PublishUploadsBlobAndRecordsManifest(t *testing.T) {
+	store, err := NewLocalStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new local store: %v", err)
+	}
+	defer store.Close()
+
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
+	runID := createPublisherTestRun(t, context.Background(), repos, "job-publisher")
+	dispatch, err := repos.Runs().GetPendingExecution(context.Background(), runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	publisher, err := NewPublisher(PublisherOptions{
+		Client:           newArtifactServiceClient(t, store, ServerOptions{ReadBlobChunkBytes: 3}),
+		Manifests:        repos.Artifacts(),
+		ArtifactShardID:  "artifact-1",
+		UploadChunkBytes: 4,
+	})
+	if err != nil {
+		t.Fatalf("new publisher: %v", err)
+	}
+
+	content := []byte("hello artifact")
+	metadata := `{"kind":"coverage"}`
+	got, err := publisher.Publish(context.Background(), PublishRequest{
+		RunID:          runID,
+		TaskID:         dispatch.TaskID,
+		TaskAttemptID:  dispatch.TaskAttemptID,
+		ExecutionID:    dispatch.ExecutionID,
+		Name:           "coverage",
+		Path:           "coverage/out.txt",
+		ContentType:    "text/plain",
+		MetadataJSON:   &metadata,
+		Reader:         bytes.NewReader(content),
+		ExpectedSHA256: sha256BytesHex(content),
+		ExpectedSize:   int64(len(content)),
+		RequireSize:    true,
+	})
+
+	if err != nil {
+		t.Fatalf("publish artifact: %v", err)
+	}
+
+	assertBlobDescriptor(t, got.Blob, sha256BytesHex(content), int64(len(content)))
+
+	manifest := got.Manifest
+	if manifest.RunID != runID || manifest.Name != "coverage" || manifest.Path != "coverage/out.txt" {
+		t.Fatalf("unexpected manifest identity: %+v", manifest)
+	}
+
+	if manifest.CellID != "iad-a" {
+		t.Fatalf("manifest cell id = %q, want iad-a", manifest.CellID)
+	}
+
+	if manifest.TaskID == nil || *manifest.TaskID != dispatch.TaskID {
+		t.Fatalf("manifest task id = %+v, want %q", manifest.TaskID, dispatch.TaskID)
+	}
+
+	if manifest.TaskAttemptID == nil || *manifest.TaskAttemptID != dispatch.TaskAttemptID {
+		t.Fatalf("manifest task attempt id = %+v, want %q", manifest.TaskAttemptID, dispatch.TaskAttemptID)
+	}
+
+	if manifest.ExecutionID == nil || *manifest.ExecutionID != dispatch.ExecutionID {
+		t.Fatalf("manifest execution id = %+v, want %q", manifest.ExecutionID, dispatch.ExecutionID)
+	}
+
+	if manifest.ContentType != "text/plain" {
+		t.Fatalf("manifest content type = %q, want text/plain", manifest.ContentType)
+	}
+
+	if manifest.BlobKey != got.Blob.Key || manifest.BlobDigest != got.Blob.Digest || manifest.SizeBytes != got.Blob.Size {
+		t.Fatalf("manifest blob fields do not match descriptor: manifest=%+v blob=%+v", manifest, got.Blob)
+	}
+
+	if manifest.ArtifactShardID != "artifact-1" {
+		t.Fatalf("manifest artifact shard = %q, want artifact-1", manifest.ArtifactShardID)
+	}
+
+	if manifest.MetadataJSON == nil || *manifest.MetadataJSON != metadata {
+		t.Fatalf("manifest metadata = %+v, want %q", manifest.MetadataJSON, metadata)
+	}
+
+	_, rc, err := store.Open(context.Background(), got.Blob.Key)
+	if err != nil {
+		t.Fatalf("open stored blob: %v", err)
+	}
+	defer rc.Close()
+
+	stored, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("read stored blob: %v", err)
+	}
+
+	if !bytes.Equal(stored, content) {
+		t.Fatalf("stored blob = %q, want %q", stored, content)
+	}
+
+	fromRepo, err := repos.Artifacts().GetByRunAndName(context.Background(), runID, "coverage")
+	if err != nil {
+		t.Fatalf("get manifest: %v", err)
+	}
+
+	if fromRepo.ID != manifest.ID || fromRepo.BlobKey != manifest.BlobKey {
+		t.Fatalf("repo manifest = %+v, want %+v", fromRepo, manifest)
+	}
+}
+
+func TestPublisher_PublishRetryUpdatesManifest(t *testing.T) {
+	store, err := NewLocalStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new local store: %v", err)
+	}
+	defer store.Close()
+
+	repos := dal.NewSQLRepositories(dbtest.NewTestDB(t))
+	runID := createPublisherTestRun(t, context.Background(), repos, "job-publisher-retry")
+	publisher, err := NewPublisher(PublisherOptions{
+		Client:          newArtifactServiceClient(t, store, ServerOptions{}),
+		Manifests:       repos.Artifacts(),
+		ArtifactShardID: "artifact-1",
+	})
+
+	if err != nil {
+		t.Fatalf("new publisher: %v", err)
+	}
+
+	first, err := publisher.Publish(context.Background(), PublishRequest{
+		RunID:  runID,
+		Name:   "report",
+		Reader: strings.NewReader("first"),
+	})
+
+	if err != nil {
+		t.Fatalf("publish first artifact: %v", err)
+	}
+
+	second, err := publisher.Publish(context.Background(), PublishRequest{
+		RunID:  runID,
+		Name:   "report",
+		Reader: strings.NewReader("second"),
+	})
+
+	if err != nil {
+		t.Fatalf("publish second artifact: %v", err)
+	}
+
+	if second.Manifest.ID != first.Manifest.ID {
+		t.Fatalf("retry should update the existing manifest id: got %d want %d", second.Manifest.ID, first.Manifest.ID)
+	}
+
+	if second.Manifest.BlobKey == first.Manifest.BlobKey {
+		t.Fatalf("retry did not update blob key: first=%q second=%q", first.Manifest.BlobKey, second.Manifest.BlobKey)
+	}
+
+	if second.Manifest.Path != "report" {
+		t.Fatalf("empty path should default to artifact name, got %q", second.Manifest.Path)
+	}
+}
+
+func TestPublisher_UploadFailureDoesNotRecordManifest(t *testing.T) {
+	store, err := NewLocalStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new local store: %v", err)
+	}
+	defer store.Close()
+
+	repos := dal.NewSQLRepositories(dbtest.NewTestDB(t))
+	runID := createPublisherTestRun(t, context.Background(), repos, "job-publisher-failure")
+	publisher, err := NewPublisher(PublisherOptions{
+		Client:          newArtifactServiceClient(t, store, ServerOptions{}),
+		Manifests:       repos.Artifacts(),
+		ArtifactShardID: "artifact-1",
+	})
+
+	if err != nil {
+		t.Fatalf("new publisher: %v", err)
+	}
+
+	_, err = publisher.Publish(context.Background(), PublishRequest{
+		RunID:          runID,
+		Name:           "bad",
+		Reader:         strings.NewReader("payload"),
+		ExpectedSHA256: strings.Repeat("0", 64),
+	})
+
+	if err == nil {
+		t.Fatal("expected publish to fail")
+	}
+
+	if _, err := repos.Artifacts().GetByRunAndName(context.Background(), runID, "bad"); !dal.IsNotFound(err) {
+		t.Fatalf("expected no manifest after upload failure, got %v", err)
+	}
+}
+
+func TestPublisher_Validation(t *testing.T) {
+	if _, err := NewPublisher(PublisherOptions{}); err == nil {
+		t.Fatal("expected missing client to fail")
+	}
+
+	store, err := NewLocalStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new local store: %v", err)
+	}
+	defer store.Close()
+
+	client := newArtifactServiceClient(t, store, ServerOptions{})
+	manifests := dal.NewSQLRepositories(dbtest.NewTestDB(t)).Artifacts()
+
+	if _, err := NewPublisher(PublisherOptions{Client: client, ArtifactShardID: "artifact-1"}); err == nil {
+		t.Fatal("expected missing manifests to fail")
+	}
+
+	if _, err := NewPublisher(PublisherOptions{Client: client, Manifests: manifests}); err == nil {
+		t.Fatal("expected missing shard id to fail")
+	}
+
+	publisher, err := NewPublisher(PublisherOptions{
+		Client:          client,
+		Manifests:       manifests,
+		ArtifactShardID: "artifact-1",
+	})
+
+	if err != nil {
+		t.Fatalf("new publisher: %v", err)
+	}
+
+	if _, err := publisher.Publish(context.Background(), PublishRequest{Name: "missing-reader"}); err == nil {
+		t.Fatal("expected missing reader to fail")
+	}
+
+	digest := sha256BytesHex([]byte("payload"))
+	if _, err := publisher.Publish(context.Background(), PublishRequest{
+		Name:           "missing-run",
+		Reader:         strings.NewReader("payload"),
+		ExpectedSHA256: digest,
+	}); !dal.IsConflict(err) {
+		t.Fatalf("expected missing run to fail validation, got %v", err)
+	}
+
+	if _, err := store.Stat(context.Background(), BlobKeySHA256(digest)); !errors.Is(err, ErrBlobNotFound) {
+		t.Fatalf("validation failure should not upload blob, got %v", err)
+	}
+}
+
+func assertBlobDescriptor(t *testing.T, desc BlobDescriptor, digest string, size int64) {
+	t.Helper()
+
+	if desc.Key != BlobKeySHA256(digest) {
+		t.Fatalf("key = %q, want %q", desc.Key, BlobKeySHA256(digest))
+	}
+
+	if desc.Algorithm != HashSHA256 {
+		t.Fatalf("algorithm = %q, want %q", desc.Algorithm, HashSHA256)
+	}
+
+	if desc.Digest != digest {
+		t.Fatalf("digest = %q, want %q", desc.Digest, digest)
+	}
+
+	if desc.Size != size {
+		t.Fatalf("size = %d, want %d", desc.Size, size)
+	}
+}
+
+func createPublisherTestRun(t *testing.T, ctx context.Context, repos *dal.SQLRepositories, jobID string) string {
+	t.Helper()
+
+	def := `{"id":"` + jobID + `","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, 1); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	return runID
+}
