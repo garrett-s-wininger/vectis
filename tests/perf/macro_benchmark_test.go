@@ -1,7 +1,6 @@
 package perf_test
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -12,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -27,13 +27,20 @@ import (
 	"vectis/internal/observability"
 	"vectis/internal/queue"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "vectis/internal/dbdrivers"
 )
 
 const (
 	defaultMacroTriggerClients = 4
 	defaultMacroWorkers        = 4
+
+	envMacroDatabaseDriver       = "VECTIS_PERF_DATABASE_DRIVER"
+	envMacroDatabaseDSN          = "VECTIS_PERF_DATABASE_DSN"
+	envMacroDatabaseMaxOpenConns = "VECTIS_PERF_DATABASE_MAX_OPEN_CONNS"
+	envMacroDatabaseMaxIdleConns = "VECTIS_PERF_DATABASE_MAX_IDLE_CONNS"
 )
+
+var macroJobSequence atomic.Uint64
 
 type noopLogClient struct{}
 
@@ -116,9 +123,76 @@ func macroBenchmarkWorkers(b *testing.B) int {
 	return macroBenchmarkEnvInt(b, "VECTIS_PERF_WORKERS", defaultMacroWorkers)
 }
 
+type macroDatabaseConfig struct {
+	driver       string
+	dsn          string
+	maxOpenConns int
+	maxIdleConns int
+}
+
+func macroDatabaseConfigFromEnv(b *testing.B) macroDatabaseConfig {
+	b.Helper()
+
+	driver := os.Getenv(envMacroDatabaseDriver)
+	if driver == "" {
+		driver = "sqlite3"
+	}
+
+	switch driver {
+	case "sqlite3":
+		dsn := os.Getenv(envMacroDatabaseDSN)
+		if dsn == "" {
+			dsn = ":memory:"
+		}
+
+		maxOpen := macroBenchmarkOptionalEnvInt(b, envMacroDatabaseMaxOpenConns, 1)
+		maxIdle := macroBenchmarkOptionalEnvInt(b, envMacroDatabaseMaxIdleConns, 1)
+		return macroDatabaseConfig{
+			driver:       driver,
+			dsn:          dsn,
+			maxOpenConns: maxOpen,
+			maxIdleConns: min(maxIdle, maxOpen),
+		}
+	case "pgx":
+		dsn := os.Getenv(envMacroDatabaseDSN)
+		if dsn == "" {
+			b.Fatalf("%s is required when %s=pgx", envMacroDatabaseDSN, envMacroDatabaseDriver)
+		}
+
+		maxOpen := macroBenchmarkOptionalEnvInt(b, envMacroDatabaseMaxOpenConns, 32)
+		maxIdle := macroBenchmarkOptionalEnvInt(b, envMacroDatabaseMaxIdleConns, min(16, maxOpen))
+		return macroDatabaseConfig{
+			driver:       driver,
+			dsn:          dsn,
+			maxOpenConns: maxOpen,
+			maxIdleConns: min(maxIdle, maxOpen),
+		}
+	default:
+		b.Fatalf("%s must be sqlite3 or pgx, got %q", envMacroDatabaseDriver, driver)
+		return macroDatabaseConfig{}
+	}
+}
+
+func macroBenchmarkOptionalEnvInt(b *testing.B, name string, defaultValue int) int {
+	b.Helper()
+
+	raw := os.Getenv(name)
+	if raw == "" {
+		return defaultValue
+	}
+
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		b.Fatalf("%s must be a positive integer, got %q", name, raw)
+	}
+
+	return value
+}
+
 func BenchmarkMacro_APIQueueWorker_TriggerToTerminal(b *testing.B) {
 	ctx := context.Background()
-	env := newMacroBenchEnv(b, []storedMacroJob{noopMacroJob()})
+	macroJob := uniqueStoredMacroJob(noopMacroJob())
+	env := newMacroBenchEnv(b, []storedMacroJob{macroJob})
 
 	acceptedToQueueSamples := make([]int64, 0, b.N)
 	queueToDequeuedSamples := make([]int64, 0, b.N)
@@ -131,7 +205,7 @@ func BenchmarkMacro_APIQueueWorker_TriggerToTerminal(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		timings := runMacroTriggerToTerminal(b, ctx, env, noopMacroJob().id, noopLogClient{}, i)
+		timings := runMacroTriggerToTerminal(b, ctx, env, macroJob.id, noopLogClient{}, i)
 		acceptedToQueueSamples = append(acceptedToQueueSamples, timings.httpAcceptedToQueueAccepted)
 		queueToDequeuedSamples = append(queueToDequeuedSamples, timings.queueAcceptedToDequeued)
 		dequeuedToClaimedSamples = append(dequeuedToClaimedSamples, timings.dequeuedToClaimed)
@@ -165,7 +239,8 @@ func runMacroConcurrentNoopTriggerToTerminalBenchmark(b *testing.B) {
 	workerCount := macroBenchmarkWorkers(b)
 
 	ctx := context.Background()
-	env := newMacroBenchEnv(b, []storedMacroJob{noopMacroJob()})
+	macroJob := uniqueStoredMacroJob(noopMacroJob())
+	env := newMacroBenchEnv(b, []storedMacroJob{macroJob})
 	totalRuns := b.N
 
 	b.ReportAllocs()
@@ -181,7 +256,7 @@ func runMacroConcurrentNoopTriggerToTerminalBenchmark(b *testing.B) {
 	}()
 
 	workStart := time.Now()
-	_, triggerDuration := triggerMacroBurst(b, ctx, env.handler, noopMacroJob().id, triggerClients, totalRuns, triggerRegistry.add)
+	_, triggerDuration := triggerMacroBurst(b, ctx, env.handler, macroJob.id, triggerClients, totalRuns, triggerRegistry.add)
 	triggerDone := time.Now()
 	results := collectMacroWorkerResults(b, resultCh, totalRuns)
 	terminalDone := time.Now()
@@ -337,18 +412,24 @@ func logHeavyMacroJob(lines int) storedMacroJob {
 	}
 }
 
+func uniqueStoredMacroJob(job storedMacroJob) storedMacroJob {
+	job.id = fmt.Sprintf("%s-%d", job.id, macroJobSequence.Add(1))
+	return job
+}
+
 func newMacroBenchEnv(b *testing.B, jobs []storedMacroJob) macroBenchEnv {
 	b.Helper()
 
-	db, err := sql.Open("sqlite3", ":memory:")
+	dbConfig := macroDatabaseConfigFromEnv(b)
+	db, err := sql.Open(dbConfig.driver, dbConfig.dsn)
 	if err != nil {
 		b.Fatalf("open benchmark db: %v", err)
 	}
 
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
+	db.SetMaxOpenConns(dbConfig.maxOpenConns)
+	db.SetMaxIdleConns(dbConfig.maxIdleConns)
 
-	if err := migrations.Run(db, "sqlite3"); err != nil {
+	if err := migrations.Run(db, dbConfig.driver); err != nil {
 		_ = db.Close()
 		b.Fatalf("run migrations: %v", err)
 	}
@@ -358,10 +439,11 @@ func newMacroBenchEnv(b *testing.B, jobs []storedMacroJob) macroBenchEnv {
 	server := api.NewAPIServer(logger, db)
 	queueService := queue.NewQueueService(logger)
 	server.SetQueueClient(queueService)
+	repos := dal.NewSQLRepositories(db)
 
 	handler := server.Handler()
 	for _, j := range jobs {
-		createStoredMacroJob(b, handler, j)
+		seedStoredMacroJob(b, repos.Jobs(), j)
 	}
 
 	job.SetLogSpoolDirForTest(b.TempDir())
@@ -370,7 +452,7 @@ func newMacroBenchEnv(b *testing.B, jobs []storedMacroJob) macroBenchEnv {
 		handler:  handler,
 		queue:    queueService,
 		apiQueue: queueService,
-		runs:     dal.NewSQLRepositories(db).Runs(),
+		runs:     repos.Runs(),
 		log:      logger,
 	}
 }
@@ -379,7 +461,8 @@ func runMacroAPITriggerToQueuedBenchmark(b *testing.B) {
 	b.Helper()
 
 	ctx := context.Background()
-	env := newMacroBenchEnv(b, []storedMacroJob{noopMacroJob()})
+	macroJob := uniqueStoredMacroJob(noopMacroJob())
+	env := newMacroBenchEnv(b, []storedMacroJob{macroJob})
 
 	acceptedToQueueSamples := make([]int64, 0, b.N)
 	triggerToQueueSamples := make([]int64, 0, b.N)
@@ -390,7 +473,7 @@ func runMacroAPITriggerToQueuedBenchmark(b *testing.B) {
 	start := time.Now()
 
 	for i := 0; i < b.N; i++ {
-		info, err := triggerMacroJob(ctx, env.handler, noopMacroJob().id, fmt.Sprintf("%s-queued-%d", noopMacroJob().id, i))
+		info, err := triggerMacroJob(ctx, env.handler, macroJob.id, fmt.Sprintf("%s-queued-%d", macroJob.id, i))
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -435,8 +518,9 @@ func runMacroWorkerClaimAckBenchmarkWithWorkers(b *testing.B, workerCount int) {
 	b.Helper()
 
 	ctx := context.Background()
-	env := newMacroBenchEnv(b, []storedMacroJob{noopMacroJob()})
-	preseedMacroQueuedRuns(b, ctx, env, noopMacroJob(), b.N)
+	macroJob := uniqueStoredMacroJob(noopMacroJob())
+	env := newMacroBenchEnv(b, []storedMacroJob{macroJob})
+	preseedMacroQueuedRuns(b, ctx, env, macroJob, b.N)
 
 	resultCh := make(chan macroClaimAckResult, b.N)
 	workCtx, cancel := context.WithCancel(ctx)
@@ -486,6 +570,7 @@ func runMacroWorkerClaimAckCompleteBenchmarkWithWorkersAndJob(
 	b.Helper()
 
 	ctx := context.Background()
+	macroJob = uniqueStoredMacroJob(macroJob)
 	env := newMacroBenchEnv(b, []storedMacroJob{macroJob})
 	preseedMacroQueuedRuns(b, ctx, env, macroJob, b.N)
 
@@ -527,8 +612,9 @@ func runMacroWorkerClaimAckFinalizeBenchmarkWithWorkers(b *testing.B, workerCoun
 	b.Helper()
 
 	ctx := context.Background()
-	env := newMacroBenchEnv(b, []storedMacroJob{noopMacroJob()})
-	preseedMacroQueuedRuns(b, ctx, env, noopMacroJob(), b.N)
+	macroJob := uniqueStoredMacroJob(noopMacroJob())
+	env := newMacroBenchEnv(b, []storedMacroJob{macroJob})
+	preseedMacroQueuedRuns(b, ctx, env, macroJob, b.N)
 
 	resultCh := make(chan macroClaimAckFinalizeResult, b.N)
 	workCtx, cancel := context.WithCancel(ctx)
@@ -569,8 +655,16 @@ func preseedMacroQueuedRuns(b *testing.B, ctx context.Context, env macroBenchEnv
 		}
 
 		req := macroJobRequest(job, runID)
+		if _, err := cell.AttachPendingExecutionEnvelope(ctx, env.runs, req, runID, time.Now().UnixNano()); err != nil {
+			b.Fatalf("attach execution envelope for queued run %s: %v", runID, err)
+		}
+
 		if _, err := env.apiQueue.Enqueue(ctx, req); err != nil {
 			b.Fatalf("enqueue queued run %s: %v", runID, err)
+		}
+
+		if err := env.runs.TouchDispatched(ctx, runID); err != nil {
+			b.Fatalf("touch dispatched queued run %s: %v", runID, err)
 		}
 	}
 }
@@ -795,15 +889,23 @@ func finishDequeuedMacroClaimAck(
 		return macroClaimAckTimings{}, fmt.Errorf("dequeued job missing run_id")
 	}
 
-	queueAcceptedAt := macroQueueAcceptedAt(jobReq, dequeuedAt)
-	claimed, _, err := env.runs.TryClaim(ctx, runID, workerID, time.Now().Add(dal.DefaultLeaseTTL))
-	claimedAt := time.Now()
+	executionEnvelope, ok, err := cell.ExecutionEnvelopeFromRequest(jobReq)
 	if err != nil {
-		return macroClaimAckTimings{}, fmt.Errorf("try claim run %s: %w", runID, err)
+		return macroClaimAckTimings{}, fmt.Errorf("decode execution envelope: %w", err)
 	}
 
-	if !claimed {
-		return macroClaimAckTimings{}, fmt.Errorf("run %s was not claimed", runID)
+	if !ok {
+		return macroClaimAckTimings{}, fmt.Errorf("missing execution envelope")
+	}
+
+	queueAcceptedAt := macroQueueAcceptedAt(jobReq, dequeuedAt)
+	executionClaim, err := env.runs.TryClaimExecution(ctx, executionEnvelope.ExecutionID, workerID, time.Now().Add(dal.DefaultLeaseTTL))
+	claimedAt := time.Now()
+	if err != nil {
+		return macroClaimAckTimings{}, fmt.Errorf("try claim execution %s: %w", executionEnvelope.ExecutionID, err)
+	}
+	if !executionClaim.Claimed {
+		return macroClaimAckTimings{}, fmt.Errorf("execution %s was not claimed", executionEnvelope.ExecutionID)
 	}
 
 	deliveryID := queuedJob.GetDeliveryId()
@@ -838,14 +940,21 @@ func finishDequeuedMacroClaimAckFinalize(
 		return macroClaimAckFinalizeTimings{}, fmt.Errorf("dequeued job missing run_id")
 	}
 
-	claimed, claimToken, err := env.runs.TryClaim(ctx, runID, workerID, time.Now().Add(dal.DefaultLeaseTTL))
-	claimedAt := time.Now()
+	executionEnvelope, ok, err := cell.ExecutionEnvelopeFromRequest(jobReq)
 	if err != nil {
-		return macroClaimAckFinalizeTimings{}, fmt.Errorf("try claim run %s: %w", runID, err)
+		return macroClaimAckFinalizeTimings{}, fmt.Errorf("decode execution envelope: %w", err)
+	}
+	if !ok {
+		return macroClaimAckFinalizeTimings{}, fmt.Errorf("missing execution envelope")
 	}
 
-	if !claimed {
-		return macroClaimAckFinalizeTimings{}, fmt.Errorf("run %s was not claimed", runID)
+	executionClaim, err := env.runs.TryClaimExecution(ctx, executionEnvelope.ExecutionID, workerID, time.Now().Add(dal.DefaultLeaseTTL))
+	claimedAt := time.Now()
+	if err != nil {
+		return macroClaimAckFinalizeTimings{}, fmt.Errorf("try claim execution %s: %w", executionEnvelope.ExecutionID, err)
+	}
+	if !executionClaim.Claimed {
+		return macroClaimAckFinalizeTimings{}, fmt.Errorf("execution %s was not claimed", executionEnvelope.ExecutionID)
 	}
 
 	deliveryID := queuedJob.GetDeliveryId()
@@ -859,8 +968,12 @@ func finishDequeuedMacroClaimAckFinalize(
 
 	ackedAt := time.Now()
 
-	if err := env.runs.MarkRunSucceeded(ctx, runID, claimToken); err != nil {
-		return macroClaimAckFinalizeTimings{}, fmt.Errorf("mark run succeeded %s: %w", runID, err)
+	finalized, err := env.runs.CompleteExecutionAndFinalizeRunByClaim(ctx, executionEnvelope.ExecutionID, workerID, executionClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+	if err != nil {
+		return macroClaimAckFinalizeTimings{}, fmt.Errorf("finalize execution %s: %w", executionEnvelope.ExecutionID, err)
+	}
+	if finalized.Outcome != dal.ExecutionFinalizationOutcomeRunSucceeded {
+		return macroClaimAckFinalizeTimings{}, fmt.Errorf("finalize execution %s outcome %q", executionEnvelope.ExecutionID, finalized.Outcome)
 	}
 
 	finalizedAt := time.Now()
@@ -1022,13 +1135,12 @@ func macroQueueAcceptedAt(req *apipb.JobRequest, fallback time.Time) time.Time {
 func newMacroLogBenchEnv(b *testing.B, lines int) macroLogBenchEnv {
 	b.Helper()
 
-	env := newMacroBenchEnv(b, []storedMacroJob{logHeavyMacroJob(lines)})
+	macroJob := uniqueStoredMacroJob(logHeavyMacroJob(lines))
+	env := newMacroBenchEnv(b, []storedMacroJob{macroJob})
 	store, err := logserver.NewLocalRunLogStore(b.TempDir())
 	if err != nil {
 		b.Fatalf("create log store: %v", err)
 	}
-
-	macroJob := logHeavyMacroJob(lines)
 
 	return macroLogBenchEnv{
 		macroBenchEnv: env,
@@ -1038,9 +1150,20 @@ func newMacroLogBenchEnv(b *testing.B, lines int) macroLogBenchEnv {
 	}
 }
 
-func createStoredMacroJob(b *testing.B, handler http.Handler, job storedMacroJob) {
+func seedStoredMacroJob(b *testing.B, jobs dal.JobsRepository, job storedMacroJob) {
 	b.Helper()
 
+	definition, err := storedMacroJobDefinition(job)
+	if err != nil {
+		b.Fatalf("marshal benchmark job: %v", err)
+	}
+
+	if err := jobs.Create(context.Background(), job.id, definition, 1); err != nil {
+		b.Fatalf("create benchmark job %s: %v", job.id, err)
+	}
+}
+
+func storedMacroJobDefinition(job storedMacroJob) (string, error) {
 	uses := job.uses
 	if uses == "" {
 		uses = "builtins/shell"
@@ -1063,19 +1186,11 @@ func createStoredMacroJob(b *testing.B, handler http.Handler, job storedMacroJob
 			"with": with,
 		},
 	})
-
 	if err != nil {
-		b.Fatalf("marshal benchmark job: %v", err)
+		return "", err
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-
-	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusCreated {
-		b.Fatalf("create benchmark job %s: status=%d body=%s", job.id, rec.Code, rec.Body.String())
-	}
+	return string(body), nil
 }
 
 func triggerMacroBurst(

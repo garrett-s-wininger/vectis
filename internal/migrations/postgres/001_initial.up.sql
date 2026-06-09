@@ -241,7 +241,7 @@ CREATE INDEX idx_cell_execution_acceptances_cell ON cell_execution_acceptances(c
 CREATE INDEX idx_cell_execution_acceptances_run ON cell_execution_acceptances(run_id);
 
 CREATE TABLE cron_schedule_fires (
-    schedule_id BIGINT NOT NULL REFERENCES job_cron_schedules(id) ON DELETE CASCADE,
+    schedule_id BIGINT NOT NULL REFERENCES cron_trigger_specs(id) ON DELETE CASCADE,
     scheduled_for TEXT NOT NULL,
     run_id TEXT NOT NULL UNIQUE REFERENCES job_runs(run_id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,

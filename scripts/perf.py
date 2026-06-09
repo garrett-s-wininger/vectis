@@ -42,6 +42,15 @@ DEFAULT_JOB_BENCH = r"BenchmarkExecutor_"
 DEFAULT_MACRO_BENCH = r"BenchmarkMacro_"
 DEFAULT_ARTIFACT_DIR = "artifacts/perf"
 MIN_BENCHMARK_FIELDS = 2
+BENCHMARK_NAME_FIELD_COUNT = 2
+CONFIG_ERROR_STATUS = 2
+
+ENV_PERF_DATABASE_DSN = "VECTIS_PERF_DATABASE_DSN"
+ENV_PERF_DATABASE_DRIVER = "VECTIS_PERF_DATABASE_DRIVER"
+ENV_PERF_POSTGRES_DSN = "VECTIS_PERF_POSTGRES_DSN"
+ENV_PERF_SQLITE_DSN = "VECTIS_PERF_SQLITE_DSN"
+ENV_VECTIS_DATABASE_DSN = "VECTIS_DATABASE_DSN"
+ENV_VECTIS_DATABASE_DRIVER = "VECTIS_DATABASE_DRIVER"
 
 
 @dataclass(frozen=True)
@@ -206,31 +215,25 @@ def _add_go_benchmark_suite(
         help="benchstat binary to use when --baseline is provided.",
     )
 
+    if suite_config.name == "macro":
+        suite.add_argument(
+            "--databases",
+            default=os.getenv("VECTIS_PERF_MACRO_DATABASES", ""),
+            help=(
+                "Optional comma-separated macro DB matrix, such as sqlite3,pgx. "
+                "Use pgx_podman for a disposable Podman Postgres, or pgx with "
+                "VECTIS_PERF_POSTGRES_DSN / VECTIS_PERF_DATABASE_DSN."
+            ),
+        )
+
     suite.set_defaults(go_package=suite_config.package)
 
 
 def _run_go_benchmark_suite(args: argparse.Namespace) -> int:
-    command = [
-        args.go,
-        "test",
-        args.go_package,
-        "-run",
-        "^$",
-        "-bench",
-        args.bench,
-        "-benchtime",
-        args.benchtime,
-        "-count",
-        str(args.count),
-        "-benchmem",
-    ]
-
+    command = _go_benchmark_command(args)
     started = dt.datetime.now(dt.timezone.utc)
     started_monotonic = time.monotonic()
-    run_name = args.run_name or f"{started.strftime('%Y%m%dT%H%M%SZ')}-{args.suite}"
-    artifact_root = Path(args.artifact_dir)
-    run_dir = artifact_root / _sanitize_path_part(run_name)
-    run_dir.mkdir(parents=True, exist_ok=True)
+    run_dir = _go_benchmark_run_dir(args, started)
 
     _print_heading("Vectis performance harness")
     _emit(f"Suite              : {args.suite}")
@@ -238,20 +241,22 @@ def _run_go_benchmark_suite(args: argparse.Namespace) -> int:
     _emit(f"Benchmark duration : {args.benchtime}")
     _emit(f"Repetitions        : {args.count}")
     _emit(f"Benchmark pattern  : {args.bench}")
+    if database_matrix := _macro_database_matrix(args):
+        _emit(f"Database matrix    : {', '.join(database_matrix)}")
     _emit(f"Artifacts          : {run_dir}")
 
-    proc = subprocess.run(  # noqa: S603 - harness executes configured benchmark tools.
-        command,
-        cwd=_repo_root(),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        check=False,
-    )
+    try:
+        raw_output, status, metadata_command = _capture_go_benchmark_output(
+            args,
+            command,
+            database_matrix,
+        )
+    except ValueError as err:
+        _emit(str(err), stream=sys.stderr)
+        return CONFIG_ERROR_STATUS
 
     finished = dt.datetime.now(dt.timezone.utc)
     duration = time.monotonic() - started_monotonic
-    raw_output = proc.stdout
 
     raw_path = run_dir / "go-bench.txt"
     raw_path.write_text(raw_output, encoding="utf-8")
@@ -263,8 +268,8 @@ def _run_go_benchmark_suite(args: argparse.Namespace) -> int:
         started_at=started.isoformat(),
         finished_at=finished.isoformat(),
         duration_seconds=round(duration, 6),
-        command=command,
-        status=proc.returncode,
+        command=metadata_command,
+        status=status,
         git_commit=_git_output(["rev-parse", "--short=12", "HEAD"], "unknown"),
         git_dirty=_git_dirty(),
         go_version=_command_output([args.go, "version"], "unknown"),
@@ -294,11 +299,11 @@ def _run_go_benchmark_suite(args: argparse.Namespace) -> int:
     _print_heading("Environment")
     _print_environment(metadata)
 
-    if proc.returncode != 0:
+    if status != 0:
         _print_heading("Benchmark failed")
         _emit_raw(raw_output)
         _print_artifact_footer(run_dir)
-        return proc.returncode
+        return status
 
     _print_heading("Benchmark summary")
     _print_benchmark_summary(results)
@@ -318,6 +323,194 @@ def _run_go_benchmark_suite(args: argparse.Namespace) -> int:
     _print_next_checks(args.suite)
     _print_artifact_footer(run_dir)
     return compare_status
+
+
+def _go_benchmark_command(args: argparse.Namespace) -> list[str]:
+    return [
+        args.go,
+        "test",
+        args.go_package,
+        "-run",
+        "^$",
+        "-bench",
+        args.bench,
+        "-benchtime",
+        args.benchtime,
+        "-count",
+        str(args.count),
+        "-benchmem",
+    ]
+
+
+def _go_benchmark_run_dir(args: argparse.Namespace, started: dt.datetime) -> Path:
+    run_name = args.run_name or f"{started.strftime('%Y%m%dT%H%M%SZ')}-{args.suite}"
+    run_dir = Path(args.artifact_dir) / _sanitize_path_part(run_name)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    return run_dir
+
+
+def _capture_go_benchmark_output(
+    args: argparse.Namespace,
+    command: list[str],
+    database_matrix: list[str],
+) -> tuple[str, int, list[str]]:
+    if database_matrix:
+        return _run_macro_database_matrix(command, database_matrix)
+
+    env = _go_benchmark_env(args)
+    proc = subprocess.run(  # noqa: S603 - harness executes configured benchmark tools.
+        command,
+        cwd=_repo_root(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        check=False,
+        env=env,
+    )
+    return proc.stdout, proc.returncode, command
+
+
+def _macro_database_matrix(args: argparse.Namespace) -> list[str]:
+    raw = getattr(args, "databases", "")
+    if not raw:
+        return []
+
+    return [db.strip() for db in raw.split(",") if db.strip()]
+
+
+def _run_macro_database_matrix(
+    command: list[str], databases: list[str]
+) -> tuple[str, int, list[str]]:
+    outputs: list[str] = []
+    status = 0
+
+    for database in databases:
+        tag = "db_" + _sanitize_benchmark_part(_macro_database_tag(database))
+        env = _macro_database_env(database)
+        database_command = _macro_database_command(command, database)
+        proc = subprocess.run(  # noqa: S603 - harness executes configured benchmark tools.
+            database_command,
+            cwd=_repo_root(),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            check=False,
+            env=env,
+        )
+        status = status or proc.returncode
+        outputs.append(f"# database: {database}\n{_tag_go_benchmark_output(proc.stdout, tag)}")
+
+    metadata_command = ["database-matrix=" + ",".join(databases), *command]
+    return "\n".join(outputs), status, metadata_command
+
+
+def _macro_database_env(database: str) -> dict[str, str]:
+    env = os.environ.copy()
+    driver = _canonical_macro_database_driver(database)
+
+    if driver == "pgx_podman":
+        env.pop(ENV_PERF_DATABASE_DSN, None)
+        env.pop(ENV_VECTIS_DATABASE_DSN, None)
+        env[ENV_PERF_DATABASE_DRIVER] = "pgx"
+        env[ENV_VECTIS_DATABASE_DRIVER] = "pgx"
+        return env
+
+    env[ENV_PERF_DATABASE_DRIVER] = driver
+    env[ENV_VECTIS_DATABASE_DRIVER] = driver
+
+    if driver == "sqlite3":
+        sqlite_dsn = env.get(ENV_PERF_SQLITE_DSN, "")
+        if sqlite_dsn:
+            env[ENV_PERF_DATABASE_DSN] = sqlite_dsn
+            env[ENV_VECTIS_DATABASE_DSN] = sqlite_dsn
+        else:
+            env.pop(ENV_PERF_DATABASE_DSN, None)
+            env.pop(ENV_VECTIS_DATABASE_DSN, None)
+        return env
+
+    postgres_dsn = env.get(ENV_PERF_POSTGRES_DSN) or env.get(ENV_PERF_DATABASE_DSN)
+    if not postgres_dsn:
+        message = (
+            "pgx macro database matrix runs require "
+            f"{ENV_PERF_POSTGRES_DSN} or {ENV_PERF_DATABASE_DSN}"
+        )
+        raise ValueError(message)
+
+    env[ENV_PERF_DATABASE_DSN] = postgres_dsn
+    env[ENV_VECTIS_DATABASE_DSN] = postgres_dsn
+    return env
+
+
+def _go_benchmark_env(args: argparse.Namespace) -> dict[str, str] | None:
+    if getattr(args, "suite", "") != "macro":
+        return None
+
+    env = os.environ.copy()
+    driver = env.get(ENV_PERF_DATABASE_DRIVER, "sqlite3")
+    env[ENV_VECTIS_DATABASE_DRIVER] = driver
+
+    dsn = env.get(ENV_PERF_DATABASE_DSN, "")
+    if dsn:
+        env[ENV_VECTIS_DATABASE_DSN] = dsn
+    elif driver == "sqlite3":
+        env.pop(ENV_VECTIS_DATABASE_DSN, None)
+
+    return env
+
+
+def _macro_database_command(command: list[str], database: str) -> list[str]:
+    if _canonical_macro_database_driver(database) != "pgx_podman":
+        return command
+
+    return [command[0], "run", "./scripts/perf-postgres-podman", "--", *command]
+
+
+def _canonical_macro_database_driver(database: str) -> str:
+    value = database.strip().lower()
+    if value in {"sqlite", "sqlite3"}:
+        return "sqlite3"
+    if value in {"postgres", "postgresql", "pg", "pgx"}:
+        return "pgx"
+    if value in {"pgx_podman", "postgres_podman", "podman"}:
+        return "pgx_podman"
+    if value in {"pgx_container", "postgres_container", "testcontainers", "testcontainer"}:
+        return "pgx_podman"
+
+    message = (
+        f"unsupported macro database backend {database!r}; expected sqlite3, pgx, or pgx_podman"
+    )
+    raise ValueError(message)
+
+
+def _macro_database_tag(database: str) -> str:
+    return _canonical_macro_database_driver(database)
+
+
+def _tag_go_benchmark_output(output: str, tag: str) -> str:
+    lines = [_tag_go_benchmark_line(line, tag) for line in output.splitlines()]
+    tagged = "\n".join(lines)
+    if output.endswith("\n"):
+        tagged += "\n"
+    return tagged
+
+
+def _tag_go_benchmark_line(line: str, tag: str) -> str:
+    if not line.startswith("Benchmark"):
+        return line
+
+    fields = line.split(maxsplit=1)
+    if len(fields) != BENCHMARK_NAME_FIELD_COUNT:
+        return line
+
+    match = re.match(r"^(.*)(-\d+)$", fields[0])
+    if not match:
+        return line
+
+    return f"{match.group(1)}/{tag}{match.group(2)} {fields[1]}"
+
+
+def _sanitize_benchmark_part(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_]+", "_", value)
 
 
 def _repo_root() -> Path:
@@ -430,6 +623,17 @@ def _print_next_checks(suite: str) -> None:
             "move more than normal variance.",
         )
 
+        return
+
+    if suite == "job":
+        _emit("- Macro: pair executor-only changes with trigger-to-terminal or worker-scale rows.")
+        _emit(
+            "- Logs: compare noop and local-store log sinks before changing durable flush behavior."
+        )
+        _emit(
+            "- Actions: use the result action row to separate executor overhead "
+            "from subprocess overhead."
+        )
         return
 
     if suite == "macro":

@@ -93,7 +93,7 @@ Each log shard remains single-writer for its own local run log files. Log scale-
 
 Each artifact shard remains single-writer for its own local blob storage. Artifact scale-out comes from adding shards, not from starting multiple active processes on the same artifact storage path. `vectis-artifact` takes an advisory lock on the storage directory and refuses to start when another process already owns it. If a shard falls below `--storage-read-only-min-free-bytes`, it advertises read-only for new blobs and rejects uploads for blobs it does not already store while continuing to serve existing blobs.
 
-Cron scale-out is active/active within one shared database cell. Replicas race on `job_cron_schedules` claims; only the winner creates or reuses the scheduled run for that due tick. Set `--instance-id` / `VECTIS_CRON_INSTANCE_ID` to make claim ownership readable in the database and logs. Duplicate cron instance IDs do not weaken the database exclusion, but they make ownership harder to diagnose.
+Cron scale-out is active/active within one shared database cell. Replicas race on `cron_trigger_specs` claims; only the winner creates or reuses the scheduled run for that due tick. Set `--instance-id` / `VECTIS_CRON_INSTANCE_ID` to make claim ownership readable in the database and logs. Duplicate cron instance IDs do not weaken the database exclusion, but they make ownership harder to diagnose.
 
 ## Restart Behavior
 
