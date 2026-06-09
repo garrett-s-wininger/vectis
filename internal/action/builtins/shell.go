@@ -31,16 +31,20 @@ func NewShellAction(executor interfaces.ExecExecutor) *ShellAction {
 }
 
 func (s *ShellAction) ValidateWith(with map[string]string) []action.FieldError {
-	errs := action.ValidateWithSpec(with, []action.FieldSpec{
-		{Name: "command", Type: action.FieldString, Required: true},
-		{Name: ShellOutputsField, Type: action.FieldString},
-	})
+	errs := action.ValidateWithSpec(with, s.InputSchema())
 
 	if _, ok := with[ShellOutputsField]; ok && strings.TrimSpace(with[ShellOutputsField]) == "" {
 		errs = append(errs, action.FieldError{Field: ShellOutputsField, Message: "must not be empty"})
 	}
 
 	return errs
+}
+
+func (s *ShellAction) InputSchema() []action.FieldSpec {
+	return []action.FieldSpec{
+		{Name: "command", Type: action.FieldString, Required: true},
+		{Name: ShellOutputsField, Type: action.FieldString},
+	}
 }
 
 func (s *ShellAction) Type() string {

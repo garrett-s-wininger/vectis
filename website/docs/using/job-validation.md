@@ -56,6 +56,7 @@ Every job must have:
 | Node `id` | Required on every node and unique within the job. |
 | Node `uses` | Required and must name a known action. |
 | Node `with` | Must match the fields accepted by the selected action. |
+| Node `inputs` | Optional bound inputs from earlier node outputs. Input names must match fields accepted by the selected action. |
 | Tree size | Up to `256` nodes. |
 | Tree depth | Up to `32` levels. |
 
@@ -166,6 +167,27 @@ Shell actions can publish structured outputs by writing a JSON object inside the
 }
 ```
 
+Later nodes can bind accepted action inputs from earlier outputs without using an expression language:
+
+```json
+{
+  "id": "gate",
+  "uses": "builtins/test",
+  "inputs": {
+    "command": {
+      "from": {
+        "node": "make-command",
+        "output": "command"
+      }
+    }
+  }
+}
+```
+
+For now, a bound input must reference an earlier node ID. The worker resolves the value from outputs already produced in the current execution; if the output is unavailable, the node fails before the action starts.
+
+Do not set the same action field in both `with` and `inputs`. For example, `with.command` and `inputs.command` on the same node is invalid.
+
 `with.execution` is scheduling metadata accepted on any node and is not passed to the action implementation. It controls whether the node runs inside the current task or is materialized as a task boundary:
 
 | Value | Meaning |
@@ -201,6 +223,7 @@ Each entry in `details.fields` points to a field path in the job document:
 | `root.id` | The root node is missing its node ID. |
 | `root.uses` | The root node is missing or names an unknown action. |
 | `root.with.command` | The root action rejected its `command` input. |
+| `root.inputs.command.from.node` | A bound input references a node that cannot provide a value before this node runs. |
 | `root.steps[0].id` | The first child step has an ID problem. |
 | `root.ports.branches.nodes[0].id` | The first node attached to the `branches` port has an ID problem. |
 

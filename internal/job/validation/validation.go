@@ -3,6 +3,7 @@ package validation
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	api "vectis/api/gen/go"
@@ -155,11 +156,12 @@ func (v *validator) walk(node *api.Node, path string, depth int) {
 		v.add(path+".uses", fmt.Sprintf("unknown action %q", uses))
 	} else {
 		if fieldErrs := resolved.ValidateWith(taskgraph.ActionWith(node.GetWith())); len(fieldErrs) > 0 {
-			for _, fe := range fieldErrs {
+			for _, fe := range filterBoundRequiredFieldErrors(fieldErrs, node) {
 				v.add(path+".with."+fe.Field, fe.Message)
 			}
 		}
 
+		v.validateInputs(path, node, resolved)
 		v.validatePorts(path, node, resolved)
 		v.validateExecutionScope(path, node, resolved)
 	}
@@ -225,6 +227,72 @@ func (v *validator) validatePorts(path string, node *api.Node, resolved action.N
 	}
 }
 
+func (v *validator) validateInputs(path string, node *api.Node, resolved action.Node) {
+	inputs := node.GetInputs()
+	if len(inputs) == 0 {
+		return
+	}
+
+	specs := action.InputSchema(resolved)
+	if len(specs) == 0 {
+		v.add(path+".inputs", fmt.Sprintf("action %q does not accept bound inputs", resolved.Type()))
+		return
+	}
+
+	specByName := make(map[string]action.FieldSpec, len(specs))
+	for _, spec := range specs {
+		specByName[spec.Name] = spec
+	}
+
+	for _, inputName := range sortedInputNames(inputs) {
+		binding := inputs[inputName]
+		if _, ok := specByName[inputName]; !ok {
+			v.add(path+".inputs."+inputName, fmt.Sprintf("unknown input %q for action %q", inputName, resolved.Type()))
+			continue
+		}
+
+		if _, ok := node.GetWith()[inputName]; ok {
+			v.add(path+".inputs."+inputName, "cannot be set together with with."+inputName)
+		}
+
+		if binding == nil {
+			v.add(path+".inputs."+inputName, "is required")
+			continue
+		}
+
+		from := binding.GetFrom()
+		if from == nil {
+			v.add(path+".inputs."+inputName+".from", "is required")
+			continue
+		}
+
+		nodeID := strings.TrimSpace(from.GetNode())
+		outputName := strings.TrimSpace(from.GetOutput())
+		if nodeID == "" {
+			v.add(path+".inputs."+inputName+".from.node", "is required")
+		}
+
+		if outputName == "" {
+			v.add(path+".inputs."+inputName+".from.output", "is required")
+		}
+
+		if nodeID == "" || outputName == "" {
+			continue
+		}
+
+		if nodeID == strings.TrimSpace(node.GetId()) {
+			v.add(path+".inputs."+inputName+".from.node", "cannot reference the same node")
+			continue
+		}
+
+		if firstPath, ok := v.seen[nodeID]; !ok {
+			v.add(path+".inputs."+inputName+".from.node", fmt.Sprintf("must reference an earlier node id, got %q", nodeID))
+		} else if firstPath == path {
+			v.add(path+".inputs."+inputName+".from.node", "cannot reference the same node")
+		}
+	}
+}
+
 func (v *validator) validateExecutionScope(path string, node *api.Node, resolved action.Node) {
 	if !action.LocalOnly(resolved) {
 		return
@@ -255,6 +323,36 @@ func (v *validator) validatePortCardinality(path, portName string, count int, sp
 	if spec.Max >= 0 && count > spec.Max {
 		v.add(path+".ports."+portName, fmt.Sprintf("allows at most %d node(s)", spec.Max))
 	}
+}
+
+func filterBoundRequiredFieldErrors(errs []action.FieldError, node *api.Node) []action.FieldError {
+	if len(errs) == 0 || len(node.GetInputs()) == 0 {
+		return errs
+	}
+
+	out := make([]action.FieldError, 0, len(errs))
+	for _, err := range errs {
+		if err.Message == "is required" {
+			if _, hasStatic := node.GetWith()[err.Field]; !hasStatic {
+				if _, hasBinding := node.GetInputs()[err.Field]; hasBinding {
+					continue
+				}
+			}
+		}
+
+		out = append(out, err)
+	}
+
+	return out
+}
+
+func sortedInputNames(inputs map[string]*api.NodeInput) []string {
+	names := make([]string, 0, len(inputs))
+	for name := range inputs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func (v *validator) add(field, message string) {

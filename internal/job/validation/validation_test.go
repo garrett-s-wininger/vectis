@@ -31,6 +31,15 @@ func nodePort(nodes ...*api.Node) *api.NodePort {
 	return &api.NodePort{Nodes: nodes}
 }
 
+func inputRef(node, output string) *api.NodeInput {
+	return &api.NodeInput{
+		From: &api.NodeOutputRef{
+			Node:   strp(node),
+			Output: strp(output),
+		},
+	}
+}
+
 func TestValidateJob_Valid(t *testing.T) {
 	t.Parallel()
 
@@ -210,6 +219,121 @@ func TestValidateJob_ShellOutputsField(t *testing.T) {
 
 	if err := validation.ValidateJob(job, validation.Options{RequireJobID: true}); err != nil {
 		t.Fatalf("expected shell outputs field to validate: %v", err)
+	}
+}
+
+func TestValidateJob_BoundInputsSatisfyRequiredFields(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root.Steps = []*api.Node{
+		{
+			Id:   strp("make-command"),
+			Uses: strp("builtins/shell"),
+			With: map[string]string{
+				"command": "printf '{\"command\":\"test -f ready\"}' > outputs.json",
+				"outputs": "outputs.json",
+			},
+		},
+		{
+			Id:   strp("gate"),
+			Uses: strp("builtins/test"),
+			Inputs: map[string]*api.NodeInput{
+				"command": inputRef("make-command", "command"),
+			},
+		},
+	}
+
+	if err := validation.ValidateJob(job, validation.Options{RequireJobID: true}); err != nil {
+		t.Fatalf("expected bound command input to validate: %v", err)
+	}
+}
+
+func TestValidateJob_BoundInputsRejectUnknownField(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root.Steps = []*api.Node{
+		{
+			Id:   strp("make-command"),
+			Uses: strp("builtins/shell"),
+			With: map[string]string{"command": "echo hi"},
+		},
+		{
+			Id:   strp("gate"),
+			Uses: strp("builtins/test"),
+			Inputs: map[string]*api.NodeInput{
+				"commnad": inputRef("make-command", "command"),
+			},
+		},
+	}
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
+	if err == nil {
+		t.Fatal("expected validation error for unknown bound input")
+	}
+
+	if msg := err.Error(); !strings.Contains(msg, `root.steps[1].inputs.commnad: unknown input "commnad" for action "builtins/test"`) {
+		t.Fatalf("expected unknown input error, got %q", msg)
+	}
+}
+
+func TestValidateJob_BoundInputsRejectWithConflict(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root.Steps = []*api.Node{
+		{
+			Id:   strp("make-command"),
+			Uses: strp("builtins/shell"),
+			With: map[string]string{"command": "echo hi"},
+		},
+		{
+			Id:   strp("gate"),
+			Uses: strp("builtins/test"),
+			With: map[string]string{"command": "test -f ready"},
+			Inputs: map[string]*api.NodeInput{
+				"command": inputRef("make-command", "command"),
+			},
+		},
+	}
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
+	if err == nil {
+		t.Fatal("expected validation error for input conflict")
+	}
+
+	if msg := err.Error(); !strings.Contains(msg, `root.steps[1].inputs.command: cannot be set together with with.command`) {
+		t.Fatalf("expected input conflict error, got %q", msg)
+	}
+}
+
+func TestValidateJob_BoundInputsRejectForwardReference(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root.Steps = []*api.Node{
+		{
+			Id:   strp("gate"),
+			Uses: strp("builtins/test"),
+			Inputs: map[string]*api.NodeInput{
+				"command": inputRef("make-command", "command"),
+			},
+		},
+		{
+			Id:   strp("make-command"),
+			Uses: strp("builtins/shell"),
+			With: map[string]string{"command": "echo hi"},
+		},
+	}
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
+	if err == nil {
+		t.Fatal("expected validation error for forward reference")
+	}
+
+	if msg := err.Error(); !strings.Contains(msg, `root.steps[0].inputs.command.from.node: must reference an earlier node id, got "make-command"`) {
+		t.Fatalf("expected forward reference error, got %q", msg)
 	}
 }
 

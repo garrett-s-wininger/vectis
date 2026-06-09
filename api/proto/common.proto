@@ -26,10 +26,20 @@ message Node {
     map<string, string> with = 3;
     repeated Node steps = 4;
     map<string, NodePort> ports = 5;
+    map<string, NodeInput> inputs = 6;
 }
 
 message NodePort {
     repeated Node nodes = 1;
+}
+
+message NodeInput {
+    NodeOutputRef from = 1;
+}
+
+message NodeOutputRef {
+    string node = 1;
+    string output = 2;
 }
 
 enum RunOutcome {

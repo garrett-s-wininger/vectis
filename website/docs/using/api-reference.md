@@ -156,6 +156,8 @@ JSON routes expect `Content-Type: application/json`. Job create and run routes a
 
 Ephemeral runs do not require a top-level job `id`. Stored jobs do. Job definition rules are documented in [Job Definition Validation](./job-validation.md).
 
+Node inputs can also be bound from earlier node outputs with `inputs.<field>.from.node` and `inputs.<field>.from.output`; static `with.<field>` and bound `inputs.<field>` are mutually exclusive.
+
 ## Authentication
 
 When `api.auth.enabled=false`, API routes are accepted without bearer tokens. When auth is enabled, non-browser clients send:

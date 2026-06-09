@@ -233,10 +233,29 @@ func (e *Executor) executeNodeWithPorts(ctx context.Context, node *api.Node, sta
 
 	sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Executing node: %s", nodeImpl.Type()))
 
-	result := nodeImpl.Execute(nodeCtx, state, taskgraph.ActionInputs(node.GetWith()), action.Ports(ports))
+	inputs, err := action.ResolveNodeInputs(state, node, action.InputSchema(nodeImpl))
+	if err != nil {
+		wrapped := &action.ExecutionError{
+			NodeID:  node.GetId(),
+			Action:  node.GetUses(),
+			Message: "failed to resolve node inputs",
+			Cause:   err,
+		}
+
+		span.RecordError(wrapped)
+		span.SetStatus(otelcodes.Error, "resolve inputs")
+		return action.NewFailureResult(wrapped)
+	}
+
+	result := nodeImpl.Execute(nodeCtx, state, inputs, action.Ports(ports))
 	if result.Status == action.StatusFailure && result.Error != nil {
 		span.RecordError(result.Error)
 		span.SetStatus(otelcodes.Error, "action failed")
+		return result
+	}
+
+	if result.Status == action.StatusSuccess {
+		state.RecordOutputs(node.GetId(), result.Outputs)
 	}
 
 	return result

@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"vectis/internal/interfaces"
@@ -40,16 +41,18 @@ type Result struct {
 }
 
 type ExecutionState struct {
-	JobID        string
-	RunID        string
-	Workspace    string
-	ProcessEnv   []string
-	Logger       interfaces.Logger
-	LogClient    interfaces.LogClient
-	LogStream    interfaces.LogStream
-	Resolver     Resolver
-	Workload     *workloadidentity.Identity
-	nextSequence int64
+	JobID         string
+	RunID         string
+	Workspace     string
+	ProcessEnv    []string
+	Logger        interfaces.Logger
+	LogClient     interfaces.LogClient
+	LogStream     interfaces.LogStream
+	Resolver      Resolver
+	Workload      *workloadidentity.Identity
+	outputsMu     sync.RWMutex
+	outputsByNode map[string]map[string]any
+	nextSequence  int64
 }
 
 func (s *ExecutionState) NextSequence() int64 {
@@ -85,6 +88,10 @@ type PortSchemaProvider interface {
 	PortSchema() []PortSpec
 }
 
+type InputSchemaProvider interface {
+	InputSchema() []FieldSpec
+}
+
 type LocalOnlyProvider interface {
 	LocalOnly() bool
 }
@@ -97,6 +104,18 @@ func PortSchema(node Node) []PortSpec {
 
 	specs := provider.PortSchema()
 	out := make([]PortSpec, len(specs))
+	copy(out, specs)
+	return out
+}
+
+func InputSchema(node Node) []FieldSpec {
+	provider, ok := node.(InputSchemaProvider)
+	if !ok {
+		return nil
+	}
+
+	specs := provider.InputSchema()
+	out := make([]FieldSpec, len(specs))
 	copy(out, specs)
 	return out
 }

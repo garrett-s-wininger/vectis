@@ -15,12 +15,16 @@ type RetryNode struct{}
 
 func (r *RetryNode) ValidateWith(with map[string]string) []action.FieldError {
 	errs := validateExecutionMode(with)
-	errs = append(errs, action.ValidateWithSpec(with, []action.FieldSpec{
-		{Name: "attempts", Type: action.FieldNumber},
-	})...)
+	errs = append(errs, action.ValidateWithSpec(with, r.InputSchema())...)
 
 	errs = append(errs, validatePositiveIntField(with, "attempts")...)
 	return errs
+}
+
+func (r *RetryNode) InputSchema() []action.FieldSpec {
+	return []action.FieldSpec{
+		{Name: "attempts", Type: action.FieldNumber},
+	}
 }
 
 func (r *RetryNode) Type() string {

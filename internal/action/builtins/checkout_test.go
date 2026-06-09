@@ -125,7 +125,7 @@ func TestCheckoutAction_Execute_Success(t *testing.T) {
 	}
 }
 
-func TestCheckoutAction_Execute_RedactsCredentialedURLInLogs(t *testing.T) {
+func TestCheckoutAction_Execute_RejectsCredentialedURL(t *testing.T) {
 	mockExecutor := mocks.NewMockExecExecutor()
 	mockProcess := mocks.NewMockProcess()
 	mockProcess.SetStdout("")
@@ -139,20 +139,17 @@ func TestCheckoutAction_Execute_RedactsCredentialedURLInLogs(t *testing.T) {
 
 	secretURL := "https://user:token@github.com/example/repo.git"
 	result := checkoutAction.Execute(context.Background(), state, map[string]any{"url": secretURL}, nil)
-	if result.Status != action.StatusSuccess {
-		t.Fatalf("expected success, got %v with error: %v", result.Status, result.Error)
+	if result.Status != action.StatusFailure {
+		t.Fatalf("expected failure, got %v", result.Status)
 	}
 
 	args := mockExecutor.GetArgs()
-	if len(args) != 1 || len(args[0]) < 2 || args[0][1] != secretURL {
-		t.Fatalf("expected git clone to receive original URL, got %v", args)
+	if len(args) != 0 {
+		t.Fatalf("expected credentialed URL to be rejected before git clone, got args %v", args)
 	}
 
-	for _, chunk := range mockStream.GetChunks() {
-		data := string(chunk.GetData())
-		if strings.Contains(data, "token") {
-			t.Fatalf("expected token to be redacted from log chunk %q", data)
-		}
+	if result.Error == nil || !strings.Contains(result.Error.Error(), "without embedded credentials") {
+		t.Fatalf("expected credential error, got %v", result.Error)
 	}
 }
 

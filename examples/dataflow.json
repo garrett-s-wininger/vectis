@@ -1,0 +1,29 @@
+{
+  "id": "dataflow-job",
+  "root": {
+    "id": "root",
+    "uses": "builtins/sequence",
+    "steps": [
+      {
+        "id": "make-command",
+        "uses": "builtins/shell",
+        "with": {
+          "command": "printf '{\"command\":\"true\"}' > outputs.json",
+          "outputs": "outputs.json"
+        }
+      },
+      {
+        "id": "gate",
+        "uses": "builtins/test",
+        "inputs": {
+          "command": {
+            "from": {
+              "node": "make-command",
+              "output": "command"
+            }
+          }
+        }
+      }
+    ]
+  }
+}

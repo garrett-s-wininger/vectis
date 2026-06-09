@@ -31,9 +31,13 @@ func NewTestAction(executor interfaces.ExecExecutor) *TestAction {
 }
 
 func (t *TestAction) ValidateWith(with map[string]string) []action.FieldError {
-	return action.ValidateWithSpec(with, []action.FieldSpec{
+	return action.ValidateWithSpec(with, t.InputSchema())
+}
+
+func (t *TestAction) InputSchema() []action.FieldSpec {
+	return []action.FieldSpec{
 		{Name: "command", Type: action.FieldString, Required: true},
-	})
+	}
 }
 
 func (t *TestAction) Type() string {
@@ -49,7 +53,7 @@ func (t *TestAction) Execute(ctx context.Context, state *action.ExecutionState, 
 	state.Logger.Info("Executing test command: %s", commandStr)
 	sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("$ %s", commandStr))
 
-	process, err := t.executor.Start(ctx, "sh", []string{"-c", commandStr}, state.Workspace)
+	process, err := t.executor.Start(ctx, "sh", []string{"-c", commandStr}, state.Workspace, state.CommandEnv())
 	if err != nil {
 		return action.NewFailureResult(fmt.Errorf("failed to start test command: %w", err))
 	}

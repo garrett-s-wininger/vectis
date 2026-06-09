@@ -25,10 +25,7 @@ func NewCheckoutAction(executor interfaces.ExecExecutor) *CheckoutAction {
 }
 
 func (c *CheckoutAction) ValidateWith(with map[string]string) []action.FieldError {
-	errs := action.ValidateWithSpec(with, []action.FieldSpec{
-		{Name: "url", Type: action.FieldURL, Required: true},
-	})
-
+	errs := action.ValidateWithSpec(with, c.InputSchema())
 	if len(errs) > 0 {
 		return errs
 	}
@@ -41,6 +38,12 @@ func (c *CheckoutAction) ValidateWith(with map[string]string) []action.FieldErro
 	return errs
 }
 
+func (c *CheckoutAction) InputSchema() []action.FieldSpec {
+	return []action.FieldSpec{
+		{Name: "url", Type: action.FieldURL, Required: true},
+	}
+}
+
 func (c *CheckoutAction) Type() string {
 	return "builtins/checkout"
 }
@@ -49,6 +52,10 @@ func (c *CheckoutAction) Execute(ctx context.Context, state *action.ExecutionSta
 	url, ok := inputs["url"].(string)
 	if !ok || url == "" {
 		return action.NewFailureResult(fmt.Errorf("checkout action requires 'url' input"))
+	}
+
+	if hasCredentialedCloneURL(url) {
+		return action.NewFailureResult(fmt.Errorf("checkout action requires url without embedded credentials"))
 	}
 
 	displayURL := redactCloneURL(url)

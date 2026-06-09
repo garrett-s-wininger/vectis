@@ -115,6 +115,46 @@ The repository includes a working version of this pattern at `examples/sequenced
 }
 ```
 
+## Passing Outputs Between Nodes
+
+A shell step can publish structured outputs by writing a JSON object to a workspace-relative file and setting `with.outputs`.
+
+Later nodes can bind accepted inputs from earlier outputs with `inputs`:
+
+```json
+{
+  "id": "dataflow-job",
+  "root": {
+    "id": "root",
+    "uses": "builtins/sequence",
+    "steps": [
+      {
+        "id": "make-command",
+        "uses": "builtins/shell",
+        "with": {
+          "command": "printf '{\"command\":\"true\"}' > outputs.json",
+          "outputs": "outputs.json"
+        }
+      },
+      {
+        "id": "gate",
+        "uses": "builtins/test",
+        "inputs": {
+          "command": {
+            "from": {
+              "node": "make-command",
+              "output": "command"
+            }
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+Use either `with.command` or `inputs.command` on a node, not both.
+
 ## Checkout Then Build
 
 Use `builtins/checkout` to clone a Git repository into the run workspace. Shell steps after checkout run from that workspace.

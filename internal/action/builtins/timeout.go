@@ -14,12 +14,16 @@ type TimeoutNode struct{}
 
 func (t *TimeoutNode) ValidateWith(with map[string]string) []action.FieldError {
 	errs := validateExecutionMode(with)
-	errs = append(errs, action.ValidateWithSpec(with, []action.FieldSpec{
-		{Name: "duration", Type: action.FieldString, Required: true},
-	})...)
+	errs = append(errs, action.ValidateWithSpec(with, t.InputSchema())...)
 
 	errs = append(errs, validateDurationField(with, "duration")...)
 	return errs
+}
+
+func (t *TimeoutNode) InputSchema() []action.FieldSpec {
+	return []action.FieldSpec{
+		{Name: "duration", Type: action.FieldString, Required: true},
+	}
 }
 
 func (t *TimeoutNode) Type() string {

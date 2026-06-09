@@ -44,7 +44,7 @@ func (f *FallbackNode) Execute(ctx context.Context, state *action.ExecutionState
 		state.Logger.Info("Executing fallback choice %d/%d", idx+1, len(choices))
 		sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Executing fallback choice %d/%d", idx+1, len(choices)))
 
-		last = executeChildNode(ctx, child, state, taskgraph.ActionInputs(child.GetWith()))
+		last = executeChildNode(ctx, child, state)
 		if last.Status == action.StatusSuccess {
 			if idx > 0 {
 				sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Fallback choice %d/%d succeeded", idx+1, len(choices)))

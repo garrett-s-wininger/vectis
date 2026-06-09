@@ -41,7 +41,7 @@ func (i *IfNode) Execute(ctx context.Context, state *action.ExecutionState, _ ma
 
 	state.Logger.Info("Executing if condition")
 	sendLog(state, api.Stream_STREAM_STDOUT, "Executing if condition")
-	conditionResult := executeChildNode(ctx, conditions[0], state, taskgraph.ActionInputs(conditions[0].GetWith()))
+	conditionResult := executeChildNode(ctx, conditions[0], state)
 	if conditionResult.Status == action.StatusFailure {
 		state.Logger.Error("If condition failed: %v", conditionResult.Error)
 		sendLog(state, api.Stream_STREAM_STDERR, fmt.Sprintf("If condition failed: %v", conditionResult.Error))
@@ -76,7 +76,7 @@ func executeOrderedChildren(ctx context.Context, state *action.ExecutionState, b
 	var outputs map[string]any
 	for idx, child := range children {
 		sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Executing %s node %d/%d", branchName, idx+1, len(children)))
-		result := executeChildNode(ctx, child, state, taskgraph.ActionInputs(child.GetWith()))
+		result := executeChildNode(ctx, child, state)
 		if result.Status == action.StatusFailure {
 			state.Logger.Error("%s port failed at node %d: %v", branchName, idx+1, result.Error)
 			sendLog(state, api.Stream_STREAM_STDERR, fmt.Sprintf("%s node %d failed: %v", branchName, idx+1, result.Error))

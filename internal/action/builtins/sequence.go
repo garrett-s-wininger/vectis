@@ -42,23 +42,26 @@ func (s *SequenceNode) Execute(ctx context.Context, state *action.ExecutionState
 	state.Logger.Info("Executing sequence with %d children", len(children))
 	sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Executing sequence with %d children", len(children)))
 
+	var outputs map[string]any
 	for i, child := range children {
 		sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Executing step %d/%d", i+1, len(children)))
 
-		result := executeChildNode(ctx, child, state, taskgraph.ActionInputs(child.GetWith()))
+		result := executeChildNode(ctx, child, state)
 		if result.Status == action.StatusFailure {
 			state.Logger.Error("Sequence failed at child %d: %v", i+1, result.Error)
 			sendLog(state, api.Stream_STREAM_STDERR, fmt.Sprintf("Step %d failed: %v", i+1, result.Error))
 			return result
 		}
+
+		outputs = result.Outputs
 	}
 
 	state.Logger.Info("Sequence completed successfully")
 	sendLog(state, api.Stream_STREAM_STDOUT, "Sequence completed successfully")
-	return action.NewSuccessResult(nil)
+	return action.NewSuccessResult(outputs)
 }
 
-func executeChildNode(ctx context.Context, node *api.Node, state *action.ExecutionState, inputs map[string]any) action.Result {
+func executeChildNode(ctx context.Context, node *api.Node, state *action.ExecutionState) action.Result {
 	childCtx, span := observability.Tracer("vectis/job").Start(ctx, "run.action.execute", trace.WithSpanKind(trace.SpanKindInternal))
 	span.SetAttributes(observability.JobRunAttrs(state.JobID, state.RunID)...)
 	span.SetAttributes(
@@ -99,10 +102,29 @@ func executeChildNode(ctx context.Context, node *api.Node, state *action.Executi
 		)
 	}
 
+	inputs, err := action.ResolveNodeInputs(state, node, action.InputSchema(act))
+	if err != nil {
+		wrapped := &action.ExecutionError{
+			NodeID:  node.GetId(),
+			Action:  node.GetUses(),
+			Message: "failed to resolve node inputs",
+			Cause:   err,
+		}
+
+		span.RecordError(wrapped)
+		span.SetStatus(otelcodes.Error, "resolve inputs")
+		return action.NewFailureResult(wrapped)
+	}
+
 	result := act.Execute(childCtx, state, inputs, action.Ports(taskgraph.ChildPorts(node)))
 	if result.Status == action.StatusFailure && result.Error != nil {
 		span.RecordError(result.Error)
 		span.SetStatus(otelcodes.Error, "action failed")
+		return result
+	}
+
+	if result.Status == action.StatusSuccess {
+		state.RecordOutputs(node.GetId(), result.Outputs)
 	}
 
 	return result

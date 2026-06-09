@@ -50,7 +50,7 @@ func (p *ParallelNode) Execute(ctx context.Context, state *action.ExecutionState
 
 			sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Executing branch %d/%d", i+1, len(branches)))
 
-			result := executeChildNode(ctx, child, state, taskgraph.ActionInputs(child.GetWith()))
+			result := executeChildNode(ctx, child, state)
 			if result.Status != action.StatusFailure {
 				return
 			}
