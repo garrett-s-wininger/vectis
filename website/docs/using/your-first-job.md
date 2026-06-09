@@ -223,6 +223,36 @@ Do not put credentials in HTTP(S) checkout URLs. Vectis rejects URLs like `https
 
 Credential-free SSH-style URLs such as `git@github.com:org/repo.git` are accepted, but the worker host still needs the right SSH configuration outside Vectis.
 
+## Secret Files
+
+Jobs can declare secret references at the top level. The worker asks the cell-local `vectis-secrets` broker to resolve only the secrets for the current task, writes them under `.vectis/secrets` in the workspace, sets `VECTIS_SECRETS_DIR` for the action process, and removes the directory after the task finishes.
+
+With the first built-in provider, `encryptedfs://team/npm-token` maps to an encrypted envelope file below the broker's `--encryptedfs-root`, for example `<root>/team/npm-token`. The broker decrypts that envelope with `--encryptedfs-key-file` before handing the worker a task-scoped secret file:
+
+```json
+{
+  "id": "secret-example",
+  "secrets": [
+    {
+      "id": "npm-token",
+      "ref": "encryptedfs://team/npm-token",
+      "delivery": {
+        "type": "file",
+        "path": "npm/token"
+      },
+      "task_keys": ["publish"]
+    }
+  ],
+  "root": {
+    "id": "publish",
+    "uses": "builtins/shell",
+    "with": {
+      "command": "npm publish --//registry.npmjs.org/:_authToken=\"$(cat \"$VECTIS_SECRETS_DIR/npm/token\")\""
+    }
+  }
+}
+```
+
 ## Built-In Actions
 
 These are the built-ins available today:

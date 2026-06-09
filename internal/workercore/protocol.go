@@ -3,11 +3,13 @@ package workercore
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"strings"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
 	"vectis/internal/action/actionregistry"
+	"vectis/internal/secrets"
 	"vectis/internal/workloadidentity"
 	workersdk "vectis/sdk/workercore"
 
@@ -188,6 +190,7 @@ func TaskSessionProto(session TaskSession) (*api.WorkerCoreTaskSession, error) {
 		ActionLocks:      actionLocksProto(session.ActionLocks()),
 		LogsEnabled:      proto.Bool(session.LogClient() != nil),
 		ArtifactsEnabled: proto.Bool(session.ArtifactPublisher() != nil),
+		SecretFiles:      secretFilesProto(session.SecretFiles()),
 	}, nil
 }
 
@@ -271,6 +274,36 @@ func workloadIdentityFromProto(in *api.WorkerCoreWorkloadIdentity) *workloadiden
 		out.X509SVID = &workloadidentity.X509SVID{SPIFFEID: svidID}
 	}
 	return out
+}
+
+func secretFilesFromProto(in []*api.SecretFileMaterial) []secrets.FileMaterial {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]secrets.FileMaterial, 0, len(in))
+	for _, file := range in {
+		if file == nil {
+			continue
+		}
+
+		out = append(out, secrets.FileMaterial{
+			ID:   file.GetId(),
+			Path: file.GetPath(),
+			Data: append([]byte(nil), file.GetData()...),
+			Mode: secretsModeFromProto(file.GetMode()),
+		})
+	}
+
+	return out
+}
+
+func secretsModeFromProto(mode uint32) fs.FileMode {
+	if mode == 0 {
+		return secrets.DefaultFileMode
+	}
+
+	return fs.FileMode(mode)
 }
 
 func actionLocksFromProto(in []*api.WorkerCoreActionLock) []actionregistry.ActionLock {
@@ -444,6 +477,24 @@ func actionLocksProto(locks []actionregistry.ActionLock) []*api.WorkerCoreAction
 			NodePath:    proto.String(lock.NodePath),
 			Uses:        proto.String(lock.Uses),
 			Descriptor_: descriptorProto(lock.Descriptor),
+		})
+	}
+
+	return out
+}
+
+func secretFilesProto(files []secrets.FileMaterial) []*api.SecretFileMaterial {
+	if len(files) == 0 {
+		return nil
+	}
+
+	out := make([]*api.SecretFileMaterial, 0, len(files))
+	for _, file := range files {
+		out = append(out, &api.SecretFileMaterial{
+			Id:   proto.String(file.ID),
+			Path: proto.String(file.Path),
+			Data: append([]byte(nil), file.Data...),
+			Mode: proto.Uint32(uint32(file.Mode)),
 		})
 	}
 

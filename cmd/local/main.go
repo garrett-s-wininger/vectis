@@ -21,6 +21,7 @@ import (
 	"vectis/internal/interfaces"
 	"vectis/internal/localpki"
 	"vectis/internal/platform"
+	secretstore "vectis/internal/secrets"
 	"vectis/internal/supervisor"
 	"vectis/internal/utils"
 
@@ -53,11 +54,15 @@ type localCell struct {
 	Index                  int
 	QueuePort              int
 	QueueMetricsPort       int
+	SecretsPort            int
+	SecretsMetricsPort     int
 	CellIngressPort        int
 	CellIngressMetricsPort int
 	WorkerMetricsPort      int
 	CellDB                 string
 	QueueDir               string
+	SecretsDir             string
+	SecretsKeyFile         string
 }
 
 type localTopology struct {
@@ -203,7 +208,7 @@ func localServices(logger interfaces.Logger, topology localTopology) []serviceSt
 }
 
 func localSimpleProfileServices(logger interfaces.Logger, topology localTopology) []serviceStage {
-	services := make([]serviceStage, 0, len(orderedSingletonServices)+len(topology.Cells)*3)
+	services := make([]serviceStage, 0, len(orderedSingletonServices)+len(topology.Cells)*4)
 	for _, svc := range orderedSingletonServices {
 		if svc.binary == "vectis-docs" {
 			if !viper.GetBool("docs_enabled") {
@@ -229,6 +234,15 @@ func localSimpleProfileServices(logger interfaces.Logger, topology localTopology
 				portFn:      func() int { return cell.QueuePort },
 				healthName:  "queue",
 				env:         queueEnv(cell, topology.multiCell()),
+			},
+			serviceStage{
+				binary:      "vectis-secrets",
+				name:        fmt.Sprintf("vectis-secrets[%s]", cell.ID),
+				stage:       1,
+				checkHealth: true,
+				portFn:      func() int { return cell.SecretsPort },
+				healthName:  "secrets",
+				env:         secretsEnv(cell),
 			},
 			serviceStage{
 				binary: "vectis-cell-ingress",
@@ -378,6 +392,16 @@ func localHAProfileServices(logger interfaces.Logger, topology localTopology) []
 		stage:  1,
 	})
 
+	services = append(services, serviceStage{
+		binary:      "vectis-secrets",
+		name:        fmt.Sprintf("vectis-secrets[%s]", cell.ID),
+		stage:       1,
+		checkHealth: true,
+		portFn:      fixedPort(cell.SecretsPort),
+		healthName:  "secrets",
+		env:         secretsEnv(cell),
+	})
+
 	for i, port := range []int{8080, 8180} {
 		env := append([]string{}, registryEnv...)
 		env = append(env,
@@ -416,6 +440,7 @@ func localHAProfileServices(logger interfaces.Logger, topology localTopology) []
 			fmt.Sprintf("VECTIS_WORKER_METRICS_PORT=%d", cell.WorkerMetricsPort+(i*cellPortStride)),
 			fmt.Sprintf("VECTIS_WORKER_CONTROL_PORT=%d", config.WorkerControlPort()+(i*cellPortStride)),
 			"VECTIS_WORKER_CORE_SHELL_SOCKET="+localWorkerCoreShellSocket(fmt.Sprintf("worker-%d", i+1)),
+			"VECTIS_WORKER_SECRETS_ADDRESS="+localSecretsAddress(cell),
 		)
 
 		services = append(services, serviceStage{
@@ -612,6 +637,17 @@ func cellIngressEnv(cell localCell) []string {
 	}
 }
 
+func secretsEnv(cell localCell) []string {
+	return []string{
+		"VECTIS_CELL_ID=" + cell.ID,
+		database.EnvCellDatabaseDSN + "=" + cell.CellDB,
+		fmt.Sprintf("VECTIS_SECRETS_PORT=%d", cell.SecretsPort),
+		fmt.Sprintf("VECTIS_SECRETS_METRICS_PORT=%d", cell.SecretsMetricsPort),
+		"VECTIS_SECRETS_ENCRYPTEDFS_ROOT=" + cell.SecretsDir,
+		"VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE=" + cell.SecretsKeyFile,
+	}
+}
+
 func workerEnv(cell localCell, multiCell bool) []string {
 	env := []string{
 		"VECTIS_CELL_ID=" + cell.ID,
@@ -619,6 +655,7 @@ func workerEnv(cell localCell, multiCell bool) []string {
 		fmt.Sprintf("VECTIS_WORKER_METRICS_PORT=%d", cell.WorkerMetricsPort),
 		"VECTIS_WORKER_QUEUE_ADDRESS=" + localQueueAddress(cell),
 		"VECTIS_WORKER_CORE_SHELL_SOCKET=" + localWorkerCoreShellSocket(cell.ID),
+		"VECTIS_WORKER_SECRETS_ADDRESS=" + localSecretsAddress(cell),
 	}
 
 	if multiCell {
@@ -634,6 +671,10 @@ func localWorkerCoreShellSocket(name string) string {
 
 func localQueueAddress(cell localCell) string {
 	return net.JoinHostPort(localConnectHost(), fmt.Sprintf("%d", cell.QueuePort))
+}
+
+func localSecretsAddress(cell localCell) string {
+	return net.JoinHostPort(localConnectHost(), fmt.Sprintf("%d", cell.SecretsPort))
 }
 
 func localCellIngressEndpointSpecs(cells []localCell) []string {
@@ -725,6 +766,14 @@ func localManagedQueueDir(cellID string) string {
 	return filepath.Join(utils.DataHome(), "vectis", "cells", safePathPart(cellID), "queue")
 }
 
+func localManagedSecretsDir(cellID string) string {
+	return filepath.Join(utils.DataHome(), "vectis", "cells", safePathPart(cellID), "secrets")
+}
+
+func localManagedSecretsKeyFile(cellID string) string {
+	return filepath.Join(utils.DataHome(), "vectis", "cells", safePathPart(cellID), "secrets.key")
+}
+
 func localExtraCellIDs() []string {
 	values := viper.GetStringSlice("cells")
 	if len(values) == 0 {
@@ -780,6 +829,16 @@ func buildLocalTopology() (localTopology, error) {
 	return localTopology{GlobalDB: globalDB, Cells: cells}, nil
 }
 
+func ensureLocalSecretsKeys(topology localTopology) error {
+	for _, cell := range topology.Cells {
+		if _, err := secretstore.EnsureEncryptedFSKeyFile(cell.SecretsKeyFile); err != nil {
+			return fmt.Errorf("cell %s: %w", cell.ID, err)
+		}
+	}
+
+	return nil
+}
+
 func newLocalCell(cellID string, index int, cellDB string) localCell {
 	offset := index * cellPortStride
 	return localCell{
@@ -787,11 +846,15 @@ func newLocalCell(cellID string, index int, cellDB string) localCell {
 		Index:                  index,
 		QueuePort:              config.QueuePort() + offset,
 		QueueMetricsPort:       config.QueueMetricsPort() + offset,
+		SecretsPort:            config.SecretsPort() + offset,
+		SecretsMetricsPort:     config.SecretsMetricsPort() + offset,
 		CellIngressPort:        config.CellIngressPort() + offset,
 		CellIngressMetricsPort: config.CellIngressMetricsPort() + offset,
 		WorkerMetricsPort:      config.WorkerMetricsPort() + offset,
 		CellDB:                 cellDB,
 		QueueDir:               localManagedQueueDir(cellID),
+		SecretsDir:             localManagedSecretsDir(cellID),
+		SecretsKeyFile:         localManagedSecretsKeyFile(cellID),
 	}
 }
 
@@ -799,6 +862,8 @@ func validateLocalCellPorts(cell localCell) error {
 	for name, port := range map[string]int{
 		"queue":                cell.QueuePort,
 		"queue metrics":        cell.QueueMetricsPort,
+		"secrets":              cell.SecretsPort,
+		"secrets metrics":      cell.SecretsMetricsPort,
 		"cell ingress":         cell.CellIngressPort,
 		"cell ingress metrics": cell.CellIngressMetricsPort,
 		"worker metrics":       cell.WorkerMetricsPort,
@@ -957,8 +1022,13 @@ func runVectis(cmd *cobra.Command, args []string) {
 	if err != nil {
 		logger.Fatal("%v", err)
 	}
+
 	if profile == localProfileHA && topology.multiCell() {
 		logger.Fatal("profile %q currently supports the default local execution cell only; use profile %q with --cell for multi-cell routing tests", localProfileHA, localProfileSimple)
+	}
+
+	if err := ensureLocalSecretsKeys(topology); err != nil {
+		logger.Fatal("initialize local secrets keys: %v", err)
 	}
 
 	if database.EffectiveDBDriver() == "sqlite3" {
@@ -1226,8 +1296,9 @@ var rootCmd = &cobra.Command{
 	Short: "Run Vectis services locally for development",
 	Long: `Vectis Local runs all Vectis services locally for development and testing.
 
-It starts the registry, queue, log service, artifact service, cell ingress,
-worker, cron, reconciler, catalog, API server, and docs site as child processes.
+It starts the registry, queue, log service, artifact service, orchestrator,
+worker-core, secrets service, cell ingress, worker, cron, reconciler, catalog,
+API server, and docs site as child processes.
 
 By default it bootstraps a dev CA and TLS certificates (under the XDG data directory)
 and sets VECTIS_GRPC_TLS_* for child processes so internal gRPC and cell ingress
@@ -1249,11 +1320,11 @@ development.
 
 Use --cell repeatedly to add extra local execution cells over the default cell
 from VECTIS_CELL_ID. Extra cells are intended for local multi-cell routing tests
-and use per-cell SQLite databases, queues, ingress endpoints, and workers.
+and use per-cell SQLite databases, queues, secrets roots, ingress endpoints, and workers.
 
 Use --profile=ha to start a local multi-instance exercise cell with multiple
-registries, queue shards, log shards, artifact shards, API replicas, workers,
-cron instances, and reconcilers.`,
+registries, queue shards, log shards, artifact shards, API replicas, worker-core,
+a secrets service, workers, cron instances, and reconcilers.`,
 	Run: runVectis,
 }
 

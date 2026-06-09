@@ -44,6 +44,7 @@ const (
 	GRPCTLSDaemonWorker                                // server + dials registry/queue/log/artifact/orchestrator
 	GRPCTLSDaemonOrchestrator                          // server + dials registry
 	GRPCTLSDaemonClientOnly                            // vectis-api, cron, reconciler, log-forwarder (dial-only)
+	GRPCTLSDaemonSecrets                               // gRPC server only (vectis-secrets)
 )
 
 func GRPCTLSInsecure() bool {
@@ -103,6 +104,10 @@ func ValidateGRPCTLSForRole(role GRPCTLSDaemonRole) error {
 
 		if o.RootCA == "" {
 			return errors.New("grpc_tls: ca_file is required to dial the registry when grpc_tls.insecure is false")
+		}
+	case GRPCTLSDaemonSecrets:
+		if o.ServerCert == "" || o.ServerKey == "" {
+			return errors.New("grpc_tls: cert_file and key_file are required for vectis-secrets when grpc_tls.insecure is false")
 		}
 	case GRPCTLSDaemonClientOnly:
 		if o.RootCA == "" {
@@ -194,7 +199,7 @@ func grpcServiceIdentityAllowlist(role ServiceIdentityRole) ([]string, error) {
 	switch role {
 	case ServiceIdentityRoleNone:
 		return nil, nil
-	case ServiceIdentityRoleRegistry, ServiceIdentityRoleQueue, ServiceIdentityRoleLog, ServiceIdentityRoleArtifact, ServiceIdentityRoleWorkerControl:
+	case ServiceIdentityRoleRegistry, ServiceIdentityRoleQueue, ServiceIdentityRoleLog, ServiceIdentityRoleArtifact, ServiceIdentityRoleWorkerControl, ServiceIdentityRoleSecrets:
 	default:
 		return nil, fmt.Errorf("service_identity: unknown gRPC service identity role %d", role)
 	}
@@ -214,6 +219,8 @@ func serviceIdentityAllowlistLabel(role ServiceIdentityRole) string {
 		return "service_identity.artifact_allowed_client_identities"
 	case ServiceIdentityRoleWorkerControl:
 		return "service_identity.worker_control_allowed_client_identities"
+	case ServiceIdentityRoleSecrets:
+		return "service_identity.secrets_allowed_client_identities"
 	default:
 		return "service_identity"
 	}

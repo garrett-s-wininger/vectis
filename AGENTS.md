@@ -22,7 +22,7 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 - **Deployables / docs site** → `deploy/`, `website/docs/`
 - **Reconciler invariants** → `internal/reconciler/`; formal model → `formal/tla/`
 
-## Binaries (sixteen; `cmd/`)
+## Binaries (seventeen; `cmd/`)
 
 | Binary | Role | Long-running? | DB? |
 |--------|------|---------------|-----|
@@ -36,6 +36,7 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 | `vectis-worker` | Action tree + logs; worker-control gRPC | yes | yes |
 | `vectis-worker-core` | Worker execution core over UDS | yes | no |
 | `vectis-log-forwarder` | Sidecar: worker → log service | yes | no |
+| `vectis-secrets` | Cell-local secret resolution broker | yes | yes |
 | `vectis-cron` | Schedules → queue | yes | yes |
 | `vectis-catalog` | Cell catalog events → global catalog | yes | yes |
 | `vectis-docs` | Static docs site | yes | no |

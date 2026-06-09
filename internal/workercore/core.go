@@ -9,6 +9,7 @@ import (
 	"vectis/internal/action"
 	"vectis/internal/action/actionregistry"
 	"vectis/internal/interfaces"
+	"vectis/internal/secrets"
 	"vectis/internal/workloadidentity"
 	workersdk "vectis/sdk/workercore"
 )
@@ -107,6 +108,7 @@ type TaskSession interface {
 	WorkloadIdentity() *workloadidentity.Identity
 	ActionLocks() []actionregistry.ActionLock
 	ActionResolver() actionregistry.Resolver
+	SecretFiles() []secrets.FileMaterial
 }
 
 type TaskSessionOptions struct {
@@ -118,6 +120,7 @@ type TaskSessionOptions struct {
 	WorkloadIdentity  *workloadidentity.Identity
 	ActionLocks       []actionregistry.ActionLock
 	ActionResolver    actionregistry.Resolver
+	SecretFiles       []secrets.FileMaterial
 }
 
 func NewTaskSession(opts TaskSessionOptions) TaskSession {
@@ -130,6 +133,7 @@ func NewTaskSession(opts TaskSessionOptions) TaskSession {
 		workloadIdentity:  opts.WorkloadIdentity,
 		actionLocks:       actionregistry.CloneActionLocks(opts.ActionLocks),
 		actionResolver:    opts.ActionResolver,
+		secretFiles:       cloneSecretFiles(opts.SecretFiles),
 	}
 }
 
@@ -142,6 +146,7 @@ type taskSession struct {
 	workloadIdentity  *workloadidentity.Identity
 	actionLocks       []actionregistry.ActionLock
 	actionResolver    actionregistry.Resolver
+	secretFiles       []secrets.FileMaterial
 }
 
 func (s taskSession) SessionID() string {
@@ -174,4 +179,22 @@ func (s taskSession) ActionLocks() []actionregistry.ActionLock {
 
 func (s taskSession) ActionResolver() actionregistry.Resolver {
 	return s.actionResolver
+}
+
+func (s taskSession) SecretFiles() []secrets.FileMaterial {
+	return cloneSecretFiles(s.secretFiles)
+}
+
+func cloneSecretFiles(files []secrets.FileMaterial) []secrets.FileMaterial {
+	if len(files) == 0 {
+		return nil
+	}
+
+	out := make([]secrets.FileMaterial, len(files))
+	for i, file := range files {
+		out[i] = file
+		out[i].Data = append([]byte(nil), file.Data...)
+	}
+
+	return out
 }

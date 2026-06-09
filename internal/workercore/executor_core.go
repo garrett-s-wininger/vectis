@@ -52,6 +52,7 @@ func (c *ExecutorCore) ExecuteTask(ctx context.Context, req ExecuteTaskRequest) 
 		ArtifactPublisher: req.Session.ArtifactPublisher(),
 		ActionLocks:       req.Session.ActionLocks(),
 		ActionResolver:    req.Session.ActionResolver(),
+		SecretFiles:       req.Session.SecretFiles(),
 	})
 }
 

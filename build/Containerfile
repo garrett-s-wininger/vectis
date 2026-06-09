@@ -99,6 +99,12 @@ LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vec
 COPY --from=builder /app/bin/vectis-registry /usr/local/bin/vectis-registry
 ENTRYPOINT ["/usr/local/bin/vectis-registry"]
 
+FROM scratch AS secrets
+LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
+      org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
+COPY --from=builder /app/bin/vectis-secrets /usr/local/bin/vectis-secrets
+ENTRYPOINT ["/usr/local/bin/vectis-secrets"]
+
 FROM docker.io/library/alpine:3.23 AS worker
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
       org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
@@ -138,6 +144,7 @@ COPY --from=builder \
       /app/bin/vectis-queue \
       /app/bin/vectis-reconciler \
       /app/bin/vectis-registry \
+      /app/bin/vectis-secrets \
       /app/bin/vectis-worker-core \
       /app/bin/vectis-worker \
       /usr/local/bin/

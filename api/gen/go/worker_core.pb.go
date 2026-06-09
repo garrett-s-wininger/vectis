@@ -381,6 +381,7 @@ type WorkerCoreTaskSession struct {
 	ActionLocks      []*WorkerCoreActionLock     `protobuf:"bytes,4,rep,name=action_locks,json=actionLocks" json:"action_locks,omitempty"`
 	LogsEnabled      *bool                       `protobuf:"varint,5,opt,name=logs_enabled,json=logsEnabled" json:"logs_enabled,omitempty"`
 	ArtifactsEnabled *bool                       `protobuf:"varint,6,opt,name=artifacts_enabled,json=artifactsEnabled" json:"artifacts_enabled,omitempty"`
+	SecretFiles      []*SecretFileMaterial       `protobuf:"bytes,7,rep,name=secret_files,json=secretFiles" json:"secret_files,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -455,6 +456,13 @@ func (x *WorkerCoreTaskSession) GetArtifactsEnabled() bool {
 		return *x.ArtifactsEnabled
 	}
 	return false
+}
+
+func (x *WorkerCoreTaskSession) GetSecretFiles() []*SecretFileMaterial {
+	if x != nil {
+		return x.SecretFiles
+	}
+	return nil
 }
 
 type WorkerCoreWorkloadIdentity struct {
@@ -1269,7 +1277,7 @@ var File_worker_core_proto protoreflect.FileDescriptor
 
 const file_worker_core_proto_rawDesc = "" +
 	"\n" +
-	"\x11worker_core.proto\x1a\fcommon.proto\"\x1b\n" +
+	"\x11worker_core.proto\x1a\fcommon.proto\x1a\rsecrets.proto\"\x1b\n" +
 	"\x19DescribeWorkerCoreRequest\"\xb7\x02\n" +
 	"\x1aDescribeWorkerCoreResponse\x12)\n" +
 	"\x10protocol_version\x18\x01 \x01(\tR\x0fprotocolVersion\x129\n" +
@@ -1300,7 +1308,7 @@ const file_worker_core_proto_rawDesc = "" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x19\n" +
 	"\btask_key\x18\x03 \x01(\tR\ataskKey\x12\x16\n" +
-	"\x06reason\x18\x04 \x01(\tR\x06reason\"\xb1\x02\n" +
+	"\x06reason\x18\x04 \x01(\tR\x06reason\"\xf1\x02\n" +
 	"\x15WorkerCoreTaskSession\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12%\n" +
@@ -1308,7 +1316,8 @@ const file_worker_core_proto_rawDesc = "" +
 	"\x11workload_identity\x18\x03 \x01(\v2\x1b.WorkerCoreWorkloadIdentityR\x10workloadIdentity\x128\n" +
 	"\faction_locks\x18\x04 \x03(\v2\x15.WorkerCoreActionLockR\vactionLocks\x12!\n" +
 	"\flogs_enabled\x18\x05 \x01(\bR\vlogsEnabled\x12+\n" +
-	"\x11artifacts_enabled\x18\x06 \x01(\bR\x10artifactsEnabled\"\x9c\x02\n" +
+	"\x11artifacts_enabled\x18\x06 \x01(\bR\x10artifactsEnabled\x12>\n" +
+	"\fsecret_files\x18\a \x03(\v2\x1b.secrets.SecretFileMaterialR\vsecretFiles\"\x9c\x02\n" +
 	"\x1aWorkerCoreWorkloadIdentity\x12\x1b\n" +
 	"\tspiffe_id\x18\x01 \x01(\tR\bspiffeId\x12!\n" +
 	"\ftrust_domain\x18\x02 \x01(\tR\vtrustDomain\x12%\n" +
@@ -1433,8 +1442,9 @@ var file_worker_core_proto_goTypes = []any{
 	nil,                                   // 19: WorkerCoreActionDescriptor.RuntimeConfigEntry
 	(*Job)(nil),                           // 20: common.Job
 	(RunOutcome)(0),                       // 21: common.RunOutcome
-	(*LogChunk)(nil),                      // 22: common.LogChunk
-	(*Empty)(nil),                         // 23: common.Empty
+	(*SecretFileMaterial)(nil),            // 22: secrets.SecretFileMaterial
+	(*LogChunk)(nil),                      // 23: common.LogChunk
+	(*Empty)(nil),                         // 24: common.Empty
 }
 var file_worker_core_proto_depIdxs = []int32{
 	2,  // 0: DescribeWorkerCoreResponse.capabilities:type_name -> WorkerCoreCapability
@@ -1445,28 +1455,29 @@ var file_worker_core_proto_depIdxs = []int32{
 	21, // 5: ExecuteWorkerCoreTaskResponse.outcome:type_name -> common.RunOutcome
 	7,  // 6: WorkerCoreTaskSession.workload_identity:type_name -> WorkerCoreWorkloadIdentity
 	8,  // 7: WorkerCoreTaskSession.action_locks:type_name -> WorkerCoreActionLock
-	9,  // 8: WorkerCoreActionLock.descriptor:type_name -> WorkerCoreActionDescriptor
-	19, // 9: WorkerCoreActionDescriptor.runtime_config:type_name -> WorkerCoreActionDescriptor.RuntimeConfigEntry
-	10, // 10: WorkerCoreActionDescriptor.input_schema:type_name -> WorkerCoreInputSchema
-	12, // 11: WorkerCoreActionDescriptor.port_schema:type_name -> WorkerCorePortSpec
-	11, // 12: WorkerCoreInputSchema.fields:type_name -> WorkerCoreInputField
-	22, // 13: WorkerCoreLogChunk.chunk:type_name -> common.LogChunk
-	13, // 14: WorkerCoreArtifactChunk.metadata:type_name -> WorkerCoreArtifactMetadata
-	0,  // 15: WorkerCoreService.DescribeCore:input_type -> DescribeWorkerCoreRequest
-	3,  // 16: WorkerCoreService.ExecuteTask:input_type -> ExecuteWorkerCoreTaskRequest
-	5,  // 17: WorkerCoreService.CancelTask:input_type -> CancelWorkerCoreTaskRequest
-	14, // 18: WorkerCoreShellService.StreamLogs:input_type -> WorkerCoreLogChunk
-	15, // 19: WorkerCoreShellService.PublishArtifact:input_type -> WorkerCoreArtifactChunk
-	1,  // 20: WorkerCoreService.DescribeCore:output_type -> DescribeWorkerCoreResponse
-	4,  // 21: WorkerCoreService.ExecuteTask:output_type -> ExecuteWorkerCoreTaskResponse
-	23, // 22: WorkerCoreService.CancelTask:output_type -> common.Empty
-	23, // 23: WorkerCoreShellService.StreamLogs:output_type -> common.Empty
-	16, // 24: WorkerCoreShellService.PublishArtifact:output_type -> WorkerCoreArtifact
-	20, // [20:25] is the sub-list for method output_type
-	15, // [15:20] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	22, // 8: WorkerCoreTaskSession.secret_files:type_name -> secrets.SecretFileMaterial
+	9,  // 9: WorkerCoreActionLock.descriptor:type_name -> WorkerCoreActionDescriptor
+	19, // 10: WorkerCoreActionDescriptor.runtime_config:type_name -> WorkerCoreActionDescriptor.RuntimeConfigEntry
+	10, // 11: WorkerCoreActionDescriptor.input_schema:type_name -> WorkerCoreInputSchema
+	12, // 12: WorkerCoreActionDescriptor.port_schema:type_name -> WorkerCorePortSpec
+	11, // 13: WorkerCoreInputSchema.fields:type_name -> WorkerCoreInputField
+	23, // 14: WorkerCoreLogChunk.chunk:type_name -> common.LogChunk
+	13, // 15: WorkerCoreArtifactChunk.metadata:type_name -> WorkerCoreArtifactMetadata
+	0,  // 16: WorkerCoreService.DescribeCore:input_type -> DescribeWorkerCoreRequest
+	3,  // 17: WorkerCoreService.ExecuteTask:input_type -> ExecuteWorkerCoreTaskRequest
+	5,  // 18: WorkerCoreService.CancelTask:input_type -> CancelWorkerCoreTaskRequest
+	14, // 19: WorkerCoreShellService.StreamLogs:input_type -> WorkerCoreLogChunk
+	15, // 20: WorkerCoreShellService.PublishArtifact:input_type -> WorkerCoreArtifactChunk
+	1,  // 21: WorkerCoreService.DescribeCore:output_type -> DescribeWorkerCoreResponse
+	4,  // 22: WorkerCoreService.ExecuteTask:output_type -> ExecuteWorkerCoreTaskResponse
+	24, // 23: WorkerCoreService.CancelTask:output_type -> common.Empty
+	24, // 24: WorkerCoreShellService.StreamLogs:output_type -> common.Empty
+	16, // 25: WorkerCoreShellService.PublishArtifact:output_type -> WorkerCoreArtifact
+	21, // [21:26] is the sub-list for method output_type
+	16, // [16:21] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_worker_core_proto_init() }
@@ -1475,6 +1486,7 @@ func file_worker_core_proto_init() {
 		return
 	}
 	file_common_proto_init()
+	file_secrets_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

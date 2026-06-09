@@ -18,6 +18,7 @@ import (
 	"vectis/internal/dal"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/job"
+	"vectis/internal/secrets"
 	"vectis/internal/taskgraph"
 )
 
@@ -55,6 +56,26 @@ func executeTaskAndWait(t *testing.T, executor *job.Executor, testJob *api.Job, 
 	defer func() { executor.TestLogStreamHook = nil }()
 
 	err := executor.ExecuteTask(context.Background(), testJob, taskKey, mockLogClient, mockLogger)
+
+	select {
+	case stream := <-streamCh:
+		if waitErr := stream.WaitForDone(5 * time.Second); waitErr != nil {
+			t.Errorf("wait for log stream done: %v", waitErr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for log stream hook")
+	}
+
+	return err
+}
+
+func executeJobInWorkspaceWithOptionsAndWait(t *testing.T, executor *job.Executor, testJob *api.Job, mockLogClient *mocks.MockLogClient, mockLogger *mocks.MockLogger, workspace string, opts job.ExecuteOptions) error {
+	t.Helper()
+	streamCh := make(chan job.LogStreamWaiter, 1)
+	executor.TestLogStreamHook = streamCh
+	defer func() { executor.TestLogStreamHook = nil }()
+
+	err := executor.ExecuteJobInWorkspaceWithOptions(context.Background(), testJob, mockLogClient, mockLogger, workspace, opts)
 
 	select {
 	case stream := <-streamCh:
@@ -228,6 +249,47 @@ func TestExecutor_ExecuteJob_Success(t *testing.T) {
 	errorCalls := mockLogger.GetErrorCalls()
 	if len(errorCalls) > 0 {
 		t.Errorf("expected no error logs, got: %v", errorCalls)
+	}
+}
+
+func TestExecutor_ExecuteJob_MaterializesSecretFiles(t *testing.T) {
+	executor := job.NewExecutor()
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+	workspace := t.TempDir()
+
+	jobID := "test-job-secrets"
+	nodeID := "node-1"
+	uses := "builtins/shell"
+	runID := "test-run-secrets"
+	testJob := &api.Job{
+		Id:    &jobID,
+		RunId: &runID,
+		Root: &api.Node{
+			Id:   &nodeID,
+			Uses: &uses,
+			With: map[string]string{
+				"command": `test "$(cat "$VECTIS_SECRETS_DIR/npm/token")" = "secret-value"`,
+			},
+		},
+	}
+
+	err := executeJobInWorkspaceWithOptionsAndWait(t, executor, testJob, mockLogClient, mockLogger, workspace, job.ExecuteOptions{
+		SecretFiles: []secrets.FileMaterial{{
+			ID:   "npm-token",
+			Path: "npm/token",
+			Data: []byte("secret-value"),
+			Mode: secrets.DefaultFileMode,
+		}},
+	})
+
+	if err != nil {
+		t.Fatalf("ExecuteJobInWorkspaceWithOptions: %v", err)
+	}
+
+	materializedPath := filepath.Join(workspace, ".vectis", "secrets", "npm", "token")
+	if _, err := os.Stat(materializedPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("materialized secret file still exists after cleanup, stat err=%v", err)
 	}
 }
 

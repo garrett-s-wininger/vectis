@@ -2138,6 +2138,58 @@ func TestRunsRepository_EnsureExecutionStartDeadlineAdoptsMissingDeadline(t *tes
 	}
 }
 
+func TestRunsRepository_ValidateActiveExecutionClaim(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+
+	validator, ok := repos.Runs().(interface {
+		ValidateActiveExecutionClaim(context.Context, string, string, string) error
+	})
+	if !ok {
+		t.Fatalf("runs repository cannot validate active execution claims")
+	}
+
+	ns, err := repos.Namespaces().Create(ctx, "team-validate-execution-claims", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-validate-execution-claims"
+	def := `{"id":"job-validate-execution-claims","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	dispatch, claim := claimPendingRunExecution(t, ctx, repos.Runs(), runID, "worker-a", time.Now().Add(time.Minute))
+	if err := validator.ValidateActiveExecutionClaim(ctx, runID, dispatch.ExecutionID, claim.ClaimToken); err != nil {
+		t.Fatalf("validate active execution claim: %v", err)
+	}
+
+	if err := validator.ValidateActiveExecutionClaim(ctx, runID, dispatch.ExecutionID, "wrong-token"); !dal.IsConflict(err) {
+		t.Fatalf("expected conflict for wrong execution claim token, got %v", err)
+	}
+
+	if err := validator.ValidateActiveExecutionClaim(ctx, "missing-run", dispatch.ExecutionID, claim.ClaimToken); !dal.IsNotFound(err) {
+		t.Fatalf("expected not found for wrong run, got %v", err)
+	}
+
+	expiredRunID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create expired run: %v", err)
+	}
+
+	expiredDispatch, expiredClaim := claimPendingRunExecution(t, ctx, repos.Runs(), expiredRunID, "worker-b", time.Now().Add(-time.Minute))
+	if err := validator.ValidateActiveExecutionClaim(ctx, expiredRunID, expiredDispatch.ExecutionID, expiredClaim.ClaimToken); !dal.IsConflict(err) {
+		t.Fatalf("expected conflict for expired execution claim, got %v", err)
+	}
+}
+
 func TestRunsRepository_ExecutionClaimsAllowExpiredAcceptedReclaim(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)

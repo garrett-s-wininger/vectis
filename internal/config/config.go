@@ -46,6 +46,7 @@ type Defaults struct {
 	Log            LogDefaults             `toml:"log"`
 	Artifact       ArtifactDefaults        `toml:"artifact"`
 	LogForwarder   LogForwarderDefaults    `toml:"log_forwarder"`
+	Secrets        SecretsDefaults         `toml:"secrets"`
 	Discovery      DiscoveryDefaults       `toml:"discovery"`
 	Dispatch       DispatchDefaults        `toml:"dispatch"`
 	Database       DatabaseDefaults        `toml:"database"`
@@ -208,6 +209,14 @@ type LogForwarderDefaults struct {
 	MetricsPort int    `toml:"metrics_port"`
 }
 
+type SecretsDefaults struct {
+	Port            int    `toml:"port"`
+	MetricsHost     string `toml:"metrics_host"`
+	MetricsPort     int    `toml:"metrics_port"`
+	EncryptedFSRoot string `toml:"encryptedfs.root"`
+	EncryptedFSKey  string `toml:"encryptedfs.key_file"`
+}
+
 type GRPCDefaults struct {
 	Port                 int    `toml:"port"`
 	ResolverAddress      string `toml:"resolver.address"`
@@ -277,6 +286,7 @@ type WorkerDefaults struct {
 	QueueAddress         string                          `toml:"queue.address"`
 	LogAddress           string                          `toml:"log.address"`
 	OrchestratorAddress  string                          `toml:"orchestrator.address"`
+	SecretsAddress       string                          `toml:"secrets.address"`
 	MetricsHost          string                          `toml:"metrics_host"`
 	MetricsPort          int                             `toml:"metrics_port"`
 	ArtifactMaxBytes     int64                           `toml:"artifact_max_bytes"`
@@ -339,6 +349,7 @@ type ServiceIdentityDefaults struct {
 	LogAllowedClientIdentities           []string `toml:"log_allowed_client_identities"`
 	ArtifactAllowedClientIdentities      []string `toml:"artifact_allowed_client_identities"`
 	WorkerControlAllowedClientIdentities []string `toml:"worker_control_allowed_client_identities"`
+	SecretsAllowedClientIdentities       []string `toml:"secrets_allowed_client_identities"`
 	CellIngressAllowedProducerIdentities []string `toml:"cell_ingress_allowed_producer_identities"`
 }
 
@@ -497,6 +508,30 @@ func validateDefaults(d Defaults) {
 		panic("config defaults: log_forwarder.metrics_port must differ from queue/worker/log metrics ports and log gRPC port")
 	}
 
+	validatePort(d.Secrets.Port, "secrets.port")
+	if d.Secrets.Port == d.API.Port ||
+		d.Secrets.Port == d.Queue.Port ||
+		d.Secrets.Port == d.Registry.Port ||
+		d.Secrets.Port == d.Log.GRPC.Port ||
+		d.Secrets.Port == d.CellIngress.Port {
+		panic("config defaults: secrets.port must differ from api/queue/registry/log/cell_ingress ports")
+	}
+
+	validateHost(d.Secrets.MetricsHost, "secrets.metrics_host")
+	validatePort(d.Secrets.MetricsPort, "secrets.metrics_port")
+	if d.Secrets.MetricsPort == d.Secrets.Port ||
+		d.Secrets.MetricsPort == d.Queue.MetricsPort ||
+		d.Secrets.MetricsPort == d.Worker.MetricsPort ||
+		d.Secrets.MetricsPort == d.Log.MetricsPort ||
+		d.Secrets.MetricsPort == d.LogForwarder.MetricsPort ||
+		d.Secrets.MetricsPort == d.Reconciler.MetricsPort ||
+		d.Secrets.MetricsPort == d.Catalog.MetricsPort ||
+		d.Secrets.MetricsPort == d.CellIngress.MetricsPort ||
+		d.Secrets.MetricsPort == d.Worker.Control.Port ||
+		d.Secrets.MetricsPort == d.Log.GRPC.Port {
+		panic("config defaults: secrets.metrics_port must differ from secrets, queue/worker/log/log-forwarder/reconciler/catalog/cell_ingress metrics ports, worker control port, and log gRPC port")
+	}
+
 	if d.Log.Host == "" {
 		panic("config defaults: log.host must not be empty")
 	}
@@ -601,8 +636,9 @@ func validateDefaults(d Defaults) {
 		d.Reconciler.MetricsPort == d.Worker.MetricsPort ||
 		d.Reconciler.MetricsPort == d.Log.MetricsPort ||
 		d.Reconciler.MetricsPort == d.LogForwarder.MetricsPort ||
+		d.Reconciler.MetricsPort == d.Secrets.MetricsPort ||
 		d.Reconciler.MetricsPort == d.Worker.Control.Port {
-		panic("config defaults: reconciler.metrics_port must differ from queue/worker/log/log-forwarder metrics ports and worker control port")
+		panic("config defaults: reconciler.metrics_port must differ from queue/worker/log/log-forwarder/secrets metrics ports and worker control port")
 	}
 
 	if time.Duration(d.Catalog.Interval) <= 0 {
@@ -620,8 +656,9 @@ func validateDefaults(d Defaults) {
 		d.Catalog.MetricsPort == d.Log.MetricsPort ||
 		d.Catalog.MetricsPort == d.LogForwarder.MetricsPort ||
 		d.Catalog.MetricsPort == d.Reconciler.MetricsPort ||
+		d.Catalog.MetricsPort == d.Secrets.MetricsPort ||
 		d.Catalog.MetricsPort == d.Worker.Control.Port {
-		panic("config defaults: catalog.metrics_port must differ from queue/worker/log/log-forwarder/reconciler metrics ports and worker control port")
+		panic("config defaults: catalog.metrics_port must differ from queue/worker/log/log-forwarder/reconciler/secrets metrics ports and worker control port")
 	}
 
 	if strings.TrimSpace(d.CellIngress.Host) == "" {
@@ -631,8 +668,9 @@ func validateDefaults(d Defaults) {
 	if d.CellIngress.Port == d.API.Port ||
 		d.CellIngress.Port == d.Queue.Port ||
 		d.CellIngress.Port == d.Registry.Port ||
-		d.CellIngress.Port == d.Log.GRPC.Port {
-		panic("config defaults: cell_ingress.port must differ from api/queue/registry/log ports")
+		d.CellIngress.Port == d.Log.GRPC.Port ||
+		d.CellIngress.Port == d.Secrets.Port {
+		panic("config defaults: cell_ingress.port must differ from api/queue/registry/log/secrets ports")
 	}
 
 	validateHost(d.CellIngress.MetricsHost, "cell_ingress.metrics_host")
@@ -644,8 +682,9 @@ func validateDefaults(d Defaults) {
 		d.CellIngress.MetricsPort == d.LogForwarder.MetricsPort ||
 		d.CellIngress.MetricsPort == d.Reconciler.MetricsPort ||
 		d.CellIngress.MetricsPort == d.Catalog.MetricsPort ||
+		d.CellIngress.MetricsPort == d.Secrets.MetricsPort ||
 		d.CellIngress.MetricsPort == d.Worker.Control.Port {
-		panic("config defaults: cell_ingress.metrics_port must differ from cell ingress, queue/worker/log/log-forwarder/reconciler/catalog metrics ports and worker control port")
+		panic("config defaults: cell_ingress.metrics_port must differ from cell ingress, queue/worker/log/log-forwarder/reconciler/catalog/secrets metrics ports and worker control port")
 	}
 
 	if time.Duration(d.CellIngress.RepairInterval) <= 0 {
@@ -736,6 +775,7 @@ func validateDefaults(d Defaults) {
 		"log_allowed_client_identities":            d.ServiceID.LogAllowedClientIdentities,
 		"artifact_allowed_client_identities":       d.ServiceID.ArtifactAllowedClientIdentities,
 		"worker_control_allowed_client_identities": d.ServiceID.WorkerControlAllowedClientIdentities,
+		"secrets_allowed_client_identities":        d.ServiceID.SecretsAllowedClientIdentities,
 		"cell_ingress_allowed_producer_identities": d.ServiceID.CellIngressAllowedProducerIdentities,
 	} {
 		if _, err := validateServiceIdentityAllowlist("config defaults: service_identity."+name, identities); err != nil {
@@ -1192,6 +1232,58 @@ func LogForwarderMetricsListenAddr() string {
 	return metricsListenAddr(LogForwarderMetricsHost(), LogForwarderMetricsEffectiveListenPort())
 }
 
+func SecretsPort() int {
+	return MustDefaults().Secrets.Port
+}
+
+func SecretsEffectiveListenPort() int {
+	return effectiveListenPort(SecretsPort)
+}
+
+func SecretsListenAddr() string {
+	return ":" + strconv.Itoa(SecretsEffectiveListenPort())
+}
+
+func SecretsMetricsHost() string {
+	return metricsHost("metrics_host", "secrets.metrics_host", MustDefaults().Secrets.MetricsHost)
+}
+
+func SecretsMetricsPort() int {
+	return MustDefaults().Secrets.MetricsPort
+}
+
+func SecretsMetricsEffectiveListenPort() int {
+	if p := viper.GetInt("metrics_port"); p > 0 {
+		return p
+	}
+
+	if p := viper.GetInt("secrets.metrics_port"); p > 0 {
+		return p
+	}
+
+	return SecretsMetricsPort()
+}
+
+func SecretsMetricsListenAddr() string {
+	return metricsListenAddr(SecretsMetricsHost(), SecretsMetricsEffectiveListenPort())
+}
+
+func SecretsEncryptedFSRoot() string {
+	return coalesceNonEmpty(
+		viper.GetString("encryptedfs_root"),
+		viper.GetString("secrets.encryptedfs.root"),
+		MustDefaults().Secrets.EncryptedFSRoot,
+	)
+}
+
+func SecretsEncryptedFSKeyFile() string {
+	return coalesceNonEmpty(
+		viper.GetString("encryptedfs_key_file"),
+		viper.GetString("secrets.encryptedfs.key_file"),
+		MustDefaults().Secrets.EncryptedFSKey,
+	)
+}
+
 func LogMaxRunBuffers() int {
 	if viper.IsSet("max_run_buffers") {
 		if n := viper.GetInt("max_run_buffers"); n > 0 {
@@ -1562,6 +1654,14 @@ func WorkerOrchestratorAddress() string {
 		d.Worker.OrchestratorAddress,
 		viper.GetString("discovery.orchestrator.address"),
 		d.Discovery.OrchestratorAddress,
+	)
+}
+
+func WorkerSecretsAddress() string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("worker.secrets.address"),
+		d.Worker.SecretsAddress,
 	)
 }
 

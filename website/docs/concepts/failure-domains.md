@@ -39,7 +39,8 @@ Most Vectis outages reduce to one of these questions:
 | `vectis-log` | Per-shard storage directory; gRPC ingest listener; HTTP/SSE log listener; optional registry. |
 | `vectis-artifact` | Per-shard storage directory; gRPC upload/read listener; optional registry. |
 | `vectis-orchestrator` | gRPC listener, required TLS files, and optional registry when it registers its address. Current run graph state is in memory. |
-| `vectis-worker` | Database; queue; orchestrator; log service; registry unless queue, orchestrator, and log addresses are pinned. |
+| `vectis-secrets` | Cell database; gRPC listener; encryptedfs root and key file when configured; required TLS files. |
+| `vectis-worker` | Database; queue; orchestrator; log service; secrets service for jobs that declare secrets; registry unless queue, orchestrator, and log addresses are pinned. |
 | `vectis-log-forwarder` | Log service and local spool directory. |
 | `vectis-cron` | Database and queue. |
 | `vectis-reconciler` | Database and queue. |
@@ -66,7 +67,8 @@ If queue, orchestrator, log, and artifact addresses are pinned, callers can avoi
 | `vectis-registry` | gRPC listener and required TLS files. | In-memory discovery state. | Use gRPC health service `registry`. |
 | `vectis-log` | gRPC listener, HTTP log listener, per-shard storage directory, required TLS files, registry when registration is enabled. | Durable log storage and active stream buffers for runs routed to the shard. | Use gRPC health service `log` for ingest; check log HTTP separately for clients reading streams. |
 | `vectis-orchestrator` | gRPC listener, required TLS files, registry when registration is enabled. | In-memory run graph state, task claim fencing, lease renewal, and task completion choreography. | Use gRPC health service `orchestrator`; scrape metrics for claim and completion pressure. |
-| `vectis-worker` | Database, queue, orchestrator, log service, required TLS files. | Orchestrator claim/lease/finalization; queue dequeue/ack; log stream before execution; database status/catalog visibility. | Use supervisor state plus dependency gates. There is no worker HTTP readiness endpoint. |
+| `vectis-secrets` | Cell database, gRPC listener, required TLS files, encryptedfs root and key file when configured. | Execution-claim authorization and secret material reads. | Use gRPC health service `secrets`; scrape metrics for availability. |
+| `vectis-worker` | Database, queue, orchestrator, log service, required TLS files. | Orchestrator claim/lease/finalization; queue dequeue/ack; log stream before execution; database status/catalog visibility; secrets service only when a job declares secrets. | Use supervisor state plus dependency gates. There is no worker HTTP readiness endpoint. |
 | `vectis-log-forwarder` | Log service, required TLS files, local spool directory. | Log service for draining batches. | Use process supervision plus spool size and age. |
 | `vectis-cron` | Database, queue, required TLS files. | Database schedules and queue enqueue. | Gate scheduled traffic on database and queue reachability. |
 | `vectis-reconciler` | Database, queue, required TLS files. | Database queued-run scan and queue enqueue. | Gate reliance on redispatch on database and queue reachability. |

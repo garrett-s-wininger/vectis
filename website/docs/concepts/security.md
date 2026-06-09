@@ -86,7 +86,7 @@ For the multi-cell routing and fan-in shape, see [Multi-Cell Operation](../opera
 
 ## Metrics
 
-`vectis-api` serves `/metrics` on the same HTTP listener as the REST API. When API authentication is enabled, API metrics require the same authenticated admin posture as other operational API routes. `vectis-queue`, `vectis-orchestrator`, `vectis-worker`, `vectis-log`, `vectis-artifact`, `vectis-log-forwarder`, `vectis-reconciler`, `vectis-catalog`, and `vectis-cell-ingress` use dedicated metrics listeners by default.
+`vectis-api` serves `/metrics` on the same HTTP listener as the REST API. When API authentication is enabled, API metrics require the same authenticated admin posture as other operational API routes. `vectis-queue`, `vectis-orchestrator`, `vectis-worker`, `vectis-log`, `vectis-artifact`, `vectis-log-forwarder`, `vectis-secrets`, `vectis-reconciler`, `vectis-catalog`, and `vectis-cell-ingress` use dedicated metrics listeners by default.
 
 Dedicated service metrics endpoints are not authenticated and bind to `localhost` by default. Set a service's `--metrics-host` flag or `VECTIS_<SERVICE>_METRICS_HOST` only when a trusted scraper needs off-host access. The Podman reference deployment enables HTTPS on the dedicated queue, worker, and log metrics listeners through `VECTIS_METRICS_TLS_*`; standalone log-forwarders use the same metrics TLS settings when their metrics listener is enabled. API metrics remain on the API listener, so they use the same direct HTTPS settings as the REST API when API TLS is configured.
 

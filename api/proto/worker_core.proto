@@ -1,6 +1,7 @@
 edition = "2023";
 
 import "common.proto";
+import "secrets.proto";
 
 option go_package = "vectis/api/gen/go;api";
 
@@ -56,6 +57,7 @@ message WorkerCoreTaskSession {
     repeated WorkerCoreActionLock action_locks = 4;
     bool logs_enabled = 5;
     bool artifacts_enabled = 6;
+    repeated secrets.SecretFileMaterial secret_files = 7;
 }
 
 message WorkerCoreWorkloadIdentity {

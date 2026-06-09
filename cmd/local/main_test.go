@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -13,6 +14,7 @@ import (
 	"vectis/internal/database"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/localpki"
+	"vectis/internal/secrets"
 )
 
 func resetLocalTestConfig(t *testing.T) {
@@ -54,8 +56,38 @@ func TestBuildLocalTopology_DefaultCell(t *testing.T) {
 		t.Fatalf("cell DB: got %q", cell.CellDB)
 	}
 
-	if cell.QueuePort != config.QueuePort() || cell.CellIngressPort != config.CellIngressPort() {
-		t.Fatalf("default ports: queue=%d ingress=%d", cell.QueuePort, cell.CellIngressPort)
+	if cell.QueuePort != config.QueuePort() || cell.SecretsPort != config.SecretsPort() || cell.CellIngressPort != config.CellIngressPort() {
+		t.Fatalf("default ports: queue=%d secrets=%d ingress=%d", cell.QueuePort, cell.SecretsPort, cell.CellIngressPort)
+	}
+}
+
+func TestEnsureLocalSecretsKeys(t *testing.T) {
+	resetLocalTestConfig(t)
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	t.Setenv("VECTIS_CELL_ID", "iad-a")
+
+	topology, err := buildLocalTopology()
+	if err != nil {
+		t.Fatalf("buildLocalTopology: %v", err)
+	}
+
+	if err := ensureLocalSecretsKeys(topology); err != nil {
+		t.Fatalf("ensureLocalSecretsKeys: %v", err)
+	}
+
+	keyFile := topology.Cells[0].SecretsKeyFile
+	info, err := os.Stat(keyFile)
+	if err != nil {
+		t.Fatalf("stat key file: %v", err)
+	}
+
+	if info.Mode().Perm()&0o077 != 0 {
+		t.Fatalf("key file permissions = %o, want no group/other bits", info.Mode().Perm())
+	}
+
+	if _, err := secrets.LoadEncryptedFSKeyFile(keyFile); err != nil {
+		t.Fatalf("LoadEncryptedFSKeyFile: %v", err)
 	}
 }
 
@@ -79,6 +111,10 @@ func TestBuildLocalTopology_ExtraCells(t *testing.T) {
 
 	if topology.Cells[1].QueuePort != config.QueuePort()+cellPortStride {
 		t.Fatalf("second cell queue port: got %d", topology.Cells[1].QueuePort)
+	}
+
+	if topology.Cells[1].SecretsPort != config.SecretsPort()+cellPortStride {
+		t.Fatalf("second cell secrets port: got %d", topology.Cells[1].SecretsPort)
 	}
 
 	if topology.Cells[2].CellIngressPort != config.CellIngressPort()+2*cellPortStride {
@@ -231,6 +267,7 @@ func TestLocalServices_HAProfileBuildsMultiInstanceCell(t *testing.T) {
 		"vectis-queue":        2,
 		"vectis-log":          2,
 		"vectis-artifact":     2,
+		"vectis-secrets":      1,
 		"vectis-api":          2,
 		"vectis-cell-ingress": 1,
 		"vectis-worker-core":  1,
@@ -254,9 +291,11 @@ func TestLocalServices_HAProfileBuildsMultiInstanceCell(t *testing.T) {
 	var foundQueue2 bool
 	var foundArtifact2 bool
 	var foundRegistryPeers bool
+	var foundSecrets bool
 	var workersUseRegistry bool
 	var foundWorker1ShellSocket bool
 	var foundWorker2ShellSocket bool
+	var workersUseSecrets bool
 	for _, svc := range services {
 		if svc.name == "queue-2" &&
 			hasEnv(svc.env, "VECTIS_CELL_ID=iad-a") &&
@@ -277,6 +316,13 @@ func TestLocalServices_HAProfileBuildsMultiInstanceCell(t *testing.T) {
 			foundRegistryPeers = true
 		}
 
+		if svc.name == "vectis-secrets[iad-a]" &&
+			hasEnv(svc.env, "VECTIS_SECRETS_PORT=8090") &&
+			hasEnvPrefix(svc.env, "VECTIS_SECRETS_ENCRYPTEDFS_ROOT=") &&
+			hasEnvPrefix(svc.env, "VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE=") {
+			foundSecrets = true
+		}
+
 		if svc.name == "worker-1" && !hasEnvPrefix(svc.env, "VECTIS_WORKER_QUEUE_ADDRESS=") {
 			workersUseRegistry = true
 		}
@@ -289,6 +335,10 @@ func TestLocalServices_HAProfileBuildsMultiInstanceCell(t *testing.T) {
 		if svc.name == "worker-2" &&
 			hasEnv(svc.env, "VECTIS_WORKER_CORE_SHELL_SOCKET="+localWorkerCoreShellSocket("worker-2")) {
 			foundWorker2ShellSocket = true
+		}
+
+		if svc.name == "worker-1" && hasEnv(svc.env, "VECTIS_WORKER_SECRETS_ADDRESS=localhost:8090") {
+			workersUseSecrets = true
 		}
 	}
 
@@ -304,12 +354,20 @@ func TestLocalServices_HAProfileBuildsMultiInstanceCell(t *testing.T) {
 		t.Fatalf("registry-1 did not include expected peer env: %+v", services)
 	}
 
+	if !foundSecrets {
+		t.Fatalf("vectis-secrets did not include expected env: %+v", services)
+	}
+
 	if !workersUseRegistry {
 		t.Fatalf("worker-1 did not rely on registry queue discovery: %+v", services)
 	}
 
 	if !foundWorker1ShellSocket || !foundWorker2ShellSocket {
 		t.Fatalf("HA workers did not include distinct core shell sockets: %+v", services)
+	}
+
+	if !workersUseSecrets {
+		t.Fatalf("worker-1 did not include secrets address: %+v", services)
 	}
 }
 

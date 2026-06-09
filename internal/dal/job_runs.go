@@ -2976,6 +2976,47 @@ func (r *SQLRunsRepository) RenewExecutionLease(ctx context.Context, executionID
 	return nil
 }
 
+func (r *SQLRunsRepository) ValidateActiveExecutionClaim(ctx context.Context, runID, executionID, claimToken string) error {
+	runID = strings.TrimSpace(runID)
+	executionID = strings.TrimSpace(executionID)
+	claimToken = strings.TrimSpace(claimToken)
+	if runID == "" || executionID == "" || claimToken == "" {
+		return fmt.Errorf("%w: run_id, execution_id, and claim_token are required", ErrConflict)
+	}
+
+	var runStatus string
+	var executionStatus string
+	var storedClaimToken sql.NullString
+	var leaseUntil sql.NullInt64
+	if err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT jr.status, se.status, se.claim_token, se.lease_until
+		FROM segment_executions se
+		JOIN job_runs jr ON jr.run_id = se.run_id
+		WHERE se.run_id = ? AND se.execution_id = ?
+	`), runID, executionID).Scan(&runStatus, &executionStatus, &storedClaimToken, &leaseUntil); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("%w: execution %s in run %s", ErrNotFound, executionID, runID)
+		}
+
+		return normalizeSQLError(err)
+	}
+
+	if !statusIn(runStatus, []string{RunStatusRunning, RunStatusOrphaned}) {
+		return fmt.Errorf("%w: run %s status %s does not have active execution claims", ErrConflict, runID, runStatus)
+	}
+
+	if !statusIn(executionStatus, []string{ExecutionStatusAccepted, ExecutionStatusRunning}) {
+		return fmt.Errorf("%w: execution %s status %s does not have an active claim", ErrConflict, executionID, executionStatus)
+	}
+
+	nowUnix := time.Now().UTC().Unix()
+	if !storedClaimToken.Valid || storedClaimToken.String != claimToken || !leaseUntil.Valid || leaseUntil.Int64 < nowUnix {
+		return fmt.Errorf("%w: execution %s claim is not active", ErrConflict, executionID)
+	}
+
+	return nil
+}
+
 func (r *SQLRunsRepository) CompleteExecutionAndFinalizeRunByClaim(ctx context.Context, executionID, owner, claimToken, status, failureCode, reason string) (ExecutionFinalizationResult, error) {
 	executionID = strings.TrimSpace(executionID)
 	owner = strings.TrimSpace(owner)

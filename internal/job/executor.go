@@ -15,6 +15,7 @@ import (
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
 	"vectis/internal/observability"
+	"vectis/internal/secrets"
 	"vectis/internal/taskgraph"
 	"vectis/internal/workloadidentity"
 
@@ -49,6 +50,7 @@ type ExecuteOptions struct {
 	ActionLocks       []actionregistry.ActionLock
 	ActionResolver    actionregistry.Resolver
 	ProcessExecutor   interfaces.ExecExecutor
+	SecretFiles       []secrets.FileMaterial
 }
 
 // ExecutorOption configures a job executor.
@@ -150,11 +152,7 @@ func (e *Executor) ExecuteJobWithOptions(ctx context.Context, job *api.Job, logC
 }
 
 func (e *Executor) ExecuteJobInWorkspace(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger, workspace string) (err error) {
-	if workspace == "" {
-		return fmt.Errorf("workspace is required")
-	}
-
-	return e.execute(ctx, job, logClient, logger, workspace, "", false, ExecuteOptions{})
+	return e.ExecuteJobInWorkspaceWithOptions(ctx, job, logClient, logger, workspace, ExecuteOptions{})
 }
 
 func (e *Executor) ExecuteJobInWorkspaceWithOptions(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger, workspace string, opts ExecuteOptions) (err error) {
@@ -174,11 +172,15 @@ func (e *Executor) ExecuteTaskWithOptions(ctx context.Context, job *api.Job, tas
 }
 
 func (e *Executor) ExecuteTaskInWorkspace(ctx context.Context, job *api.Job, taskKey string, logClient interfaces.LogClient, logger interfaces.Logger, workspace string) (err error) {
+	return e.ExecuteTaskInWorkspaceWithOptions(ctx, job, taskKey, logClient, logger, workspace, ExecuteOptions{})
+}
+
+func (e *Executor) ExecuteTaskInWorkspaceWithOptions(ctx context.Context, job *api.Job, taskKey string, logClient interfaces.LogClient, logger interfaces.Logger, workspace string, opts ExecuteOptions) (err error) {
 	if workspace == "" {
 		return fmt.Errorf("workspace is required")
 	}
 
-	return e.execute(ctx, job, logClient, logger, workspace, taskKey, true, ExecuteOptions{})
+	return e.execute(ctx, job, logClient, logger, workspace, taskKey, true, opts)
 }
 
 func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger, workspace, taskKey string, taskScoped bool, opts ExecuteOptions) (err error) {
@@ -243,6 +245,30 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 		return fmt.Errorf("initialize action lock verifier: %w", err)
 	}
 
+	processEnv := action.SanitizedProcessEnv(
+		workspace,
+		os.Environ(),
+	)
+
+	if len(opts.SecretFiles) > 0 {
+		if err := secrets.CleanupMaterialized(workspace); err != nil {
+			return fmt.Errorf("failed to reset workspace secrets dir: %w", err)
+		}
+
+		materialized, err := secrets.MaterializeFiles(workspace, opts.SecretFiles)
+		if err != nil {
+			return fmt.Errorf("failed to materialize secrets: %w", err)
+		}
+
+		defer func() {
+			if err := secrets.CleanupMaterialized(workspace); err != nil {
+				logger.Warn("Failed to remove materialized secrets for run %s: %v", job.GetRunId(), err)
+			}
+		}()
+
+		processEnv = action.AppendEnv(processEnv, "VECTIS_SECRETS_DIR", materialized.Dir)
+	}
+
 	logger.Info("Created workspace: %s", workspace)
 
 	logStream, err := newDurableLogStream(logClient, logger, job.GetRunId())
@@ -284,14 +310,11 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 	}
 
 	state := &action.ExecutionState{
-		JobID:     job.GetId(),
-		RunID:     job.GetRunId(),
-		Workspace: workspace,
-		Artifacts: opts.ArtifactPublisher,
-		ProcessEnv: action.SanitizedProcessEnv(
-			workspace,
-			os.Environ(),
-		),
+		JobID:                   job.GetId(),
+		RunID:                   job.GetRunId(),
+		Workspace:               workspace,
+		Artifacts:               opts.ArtifactPublisher,
+		ProcessEnv:              processEnv,
 		Logger:                  logger,
 		LogClient:               logClient,
 		LogStream:               logStream,

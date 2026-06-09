@@ -41,6 +41,7 @@ import (
 	"vectis/internal/registry"
 	"vectis/internal/resolver"
 	"vectis/internal/runpolicy"
+	"vectis/internal/secrets"
 	"vectis/internal/spire"
 	"vectis/internal/taskfinalize"
 	"vectis/internal/taskreduce"
@@ -49,6 +50,7 @@ import (
 	"vectis/internal/workloadidentity"
 	workersdk "vectis/sdk/workercore"
 
+	"google.golang.org/grpc"
 	_ "vectis/internal/dbdrivers"
 )
 
@@ -224,6 +226,15 @@ func runWorker(cmd *cobra.Command, args []string) {
 	forwarderSocket := forwarderSocketPath()
 	logClient = interfaces.NewPreferForwarderLogClient(forwarderSocket, logClient)
 
+	secretResolver, cleanupSecrets, err := newSecretsResolver(logger)
+	if err != nil {
+		logger.Fatal("Failed to configure secrets service client: %v", err)
+	}
+
+	if cleanupSecrets != nil {
+		defer cleanupSecrets()
+	}
+
 	var spireSVIDSource spire.X509SVIDSource
 	if config.WorkerSPIREEnabled() {
 		src, err := spire.NewWorkloadAPISource(config.WorkerSPIREWorkloadAPIAddress())
@@ -260,6 +271,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 		artifactMaxCount:    config.WorkerArtifactMaxCount(),
 		retryMetrics:        retryMetrics,
 		choreographer:       newGRPCExecutionChoreographer(api.NewOrchestratorServiceClient(orchestratorConn)),
+		secretResolver:      secretResolver,
 		catalog:             cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
 		metrics:             workerMetrics,
 		taskFinalizeMetrics: taskFinalizeMetrics,
@@ -473,6 +485,7 @@ type worker struct {
 	artifactMaxCount    int64
 	retryMetrics        backoff.RetryMetrics
 	choreographer       executionChoreographer
+	secretResolver      secrets.Resolver
 	catalog             cell.CatalogEventPublisher
 	metrics             *observability.WorkerMetrics
 	taskFinalizeMetrics *observability.TaskFinalizeMetrics
@@ -485,6 +498,29 @@ type worker struct {
 	currentRunID        string
 	currentClaimToken   string
 	currentMu           sync.Mutex
+}
+
+func newSecretsResolver(logger interfaces.Logger) (secrets.Resolver, func(), error) {
+	addr := strings.TrimSpace(config.WorkerSecretsAddress())
+	if addr == "" {
+		return nil, nil, nil
+	}
+
+	dialOpts, err := config.GRPCClientDialOptions(addr)
+	if err != nil {
+		return nil, nil, fmt.Errorf("grpc tls: %w", err)
+	}
+
+	conn, err := grpc.NewClient(addr, dialOpts...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("dial %s: %w", addr, err)
+	}
+
+	if logger != nil {
+		logger.Info("Configured secrets service client for %s", addr)
+	}
+
+	return secrets.NewGRPCResolver(conn), func() { _ = conn.Close() }, nil
 }
 
 func (w *worker) now() time.Time {
@@ -2028,6 +2064,17 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID string, exec
 	}
 
 	if err == nil {
+		var secretFiles []secrets.FileMaterial
+		secretFiles, err = w.resolveExecutionSecrets(execCtx, runJob, env, executionClaim.get(), workloadIdentity)
+		if err != nil {
+			err = fmt.Errorf("resolve execution secrets: %w", err)
+		}
+		if err != nil {
+			close(stopRenew)
+			<-doneRenew
+			return err
+		}
+
 		artifactPublisher := w.newArtifactPublisher(env)
 		if artifactPublisher != nil {
 			defer artifactPublisher.Close()
@@ -2041,6 +2088,7 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID string, exec
 			WorkloadIdentity: workloadIdentity,
 			ActionResolver:   w.actionResolver,
 			ActionLocks:      env.ActionLocks,
+			SecretFiles:      secretFiles,
 		}
 		if artifactPublisher != nil {
 			execSessionOpts.ArtifactPublisher = action.ArtifactPublisher(artifactPublisher)
@@ -2089,6 +2137,35 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID string, exec
 	}
 
 	return err
+}
+
+func (w *worker) resolveExecutionSecrets(ctx context.Context, runJob *api.Job, env *cell.ExecutionEnvelope, executionClaimToken string, workloadIdentity *workloadidentity.Identity) ([]secrets.FileMaterial, error) {
+	if env == nil {
+		return nil, nil
+	}
+
+	refs := secrets.ReferencesForTask(runJob, env.TaskKey)
+	if len(refs) == 0 {
+		return nil, nil
+	}
+
+	if w == nil || w.secretResolver == nil {
+		return nil, fmt.Errorf("job declares secrets but worker secrets resolver is not configured")
+	}
+
+	bundle, err := w.secretResolver.Resolve(ctx, secrets.ResolveRequest{
+		RunID:               env.RunID,
+		ExecutionID:         env.ExecutionID,
+		ExecutionClaimToken: executionClaimToken,
+		Workload:            workloadIdentity,
+		Secrets:             refs,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return bundle.Files, nil
 }
 
 func (w *worker) cancelRequestLoop(
@@ -2226,6 +2303,7 @@ func init() {
 	cli.ConfigureVersion(rootCmd)
 	viper.SetDefault("metrics_host", config.WorkerMetricsHost())
 	viper.SetDefault("metrics_port", config.WorkerMetricsPort())
+	viper.SetDefault("worker.secrets.address", config.WorkerSecretsAddress())
 
 	rootCmd.PersistentFlags().String("metrics-host", config.WorkerMetricsHost(), "Host/IP for the Prometheus /metrics HTTP server to bind")
 	rootCmd.PersistentFlags().Int("metrics-port", config.WorkerMetricsPort(), "HTTP port for Prometheus /metrics")
@@ -2235,6 +2313,7 @@ func init() {
 	rootCmd.PersistentFlags().String("core-socket", workercore.DefaultCoreSocketPath(), "Unix socket for the remote worker core")
 	rootCmd.PersistentFlags().String("core-shell-socket", workercore.DefaultShellSocketPath(), "Unix socket exposed by the worker shell for core callbacks")
 	rootCmd.PersistentFlags().Duration("core-connect-timeout", 10*time.Second, "Timeout for connecting to the remote worker core")
+	rootCmd.PersistentFlags().String("secrets-address", config.WorkerSecretsAddress(), "gRPC address for the cell-local secrets service")
 
 	_ = viper.BindPFlag("metrics_host", rootCmd.PersistentFlags().Lookup("metrics-host"))
 	_ = viper.BindPFlag("metrics_port", rootCmd.PersistentFlags().Lookup("metrics-port"))
@@ -2244,6 +2323,7 @@ func init() {
 	_ = viper.BindPFlag("worker.core.socket", rootCmd.PersistentFlags().Lookup("core-socket"))
 	_ = viper.BindPFlag("worker.core.shell_socket", rootCmd.PersistentFlags().Lookup("core-shell-socket"))
 	_ = viper.BindPFlag("worker.core.connect_timeout", rootCmd.PersistentFlags().Lookup("core-connect-timeout"))
+	_ = viper.BindPFlag("worker.secrets.address", rootCmd.PersistentFlags().Lookup("secrets-address"))
 
 	_ = viper.BindEnv("worker.artifact_max_bytes", "VECTIS_WORKER_ARTIFACT_MAX_BYTES")
 	_ = viper.BindEnv("worker.artifact_max_run_bytes", "VECTIS_WORKER_ARTIFACT_MAX_RUN_BYTES")
@@ -2251,6 +2331,7 @@ func init() {
 	_ = viper.BindEnv("worker.queue.address", "VECTIS_WORKER_QUEUE_ADDRESS")
 	_ = viper.BindEnv("worker.log.address", "VECTIS_WORKER_LOG_ADDRESS")
 	_ = viper.BindEnv("worker.orchestrator.address", "VECTIS_WORKER_ORCHESTRATOR_ADDRESS")
+	_ = viper.BindEnv("worker.secrets.address", "VECTIS_WORKER_SECRETS_ADDRESS")
 	_ = viper.BindEnv("worker.registry.address", "VECTIS_WORKER_REGISTRY_ADDRESS")
 	_ = viper.BindEnv("worker.control.mode", "VECTIS_WORKER_CONTROL_MODE")
 	_ = viper.BindEnv("control_port", "VECTIS_WORKER_CONTROL_PORT")

@@ -1,7 +1,7 @@
 SKIP_WEB_BUILD ?= 0
 SKIP_DOCS_ASSETS ?= 0
 
-APPS := api artifact catalog cell-ingress cli cron local log log-forwarder orchestrator queue reconciler registry worker worker-core
+APPS := api artifact catalog cell-ingress cli cron local log log-forwarder orchestrator queue reconciler registry secrets worker worker-core
 
 ifeq ($(SKIP_WEB_BUILD),0)
 APPS += docs

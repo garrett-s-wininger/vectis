@@ -113,6 +113,7 @@ flowchart TB
 | `vectis-orchestrator` | Hot-state service for lease-fenced task execution claims and in-memory task choreography. Workers use it for the normal task execution path. |
 | `vectis-worker` | Executes one task delivery at a time. Dequeues work, claims and completes task executions through the orchestrator, owns leases, cancellation intent, log/artifact callbacks, finalization, child task continuations, and cell catalog events. It delegates the action execution step to `vectis-worker-core` over a local Unix-domain socket. |
 | `vectis-worker-core` | Worker execution core. It executes claimed tasks behind the worker shell/core boundary and reports task outcomes back to `vectis-worker`. The built-in core supports host execution and the configured local VM backend; external cores can provide other execution runtimes while preserving Vectis worker semantics. |
+| `vectis-secrets` | Cell-local secret broker. Authenticates internal callers with SPIFFE-bearing mTLS, validates active execution claims, and resolves configured secret references for workers. |
 | `vectis-log` | Receives log chunks from workers and stores run logs. The API reads from it when clients stream logs. |
 | `vectis-artifact` | Internal content-addressed blob service. It stores blobs by digest while the API exposes run-scoped artifact listing, metadata, and downloads. |
 | `vectis-registry` | Internal service discovery for queue, orchestrator, log, and worker-control addresses when clients do not use pinned addresses. |
@@ -120,7 +121,7 @@ flowchart TB
 | `vectis-reconciler` | Finds queued runs that need another queue handoff and enqueues them again. |
 | `vectis-catalog` | Backfills missing status events from observed state, drains global catalog events, optionally fans in pending events from configured cell databases, and applies them to the global run catalog. |
 | `vectis-docs` | Serves the embedded docs site as static HTTP. |
-| `vectis-local` | Development supervisor that starts the local registry, queue, orchestrator, log, artifact, cell ingress, worker, cron, reconciler, catalog, API, and docs together. |
+| `vectis-local` | Development supervisor that starts the local registry, queue, orchestrator, log, artifact, worker-core, secrets, cell ingress, worker, cron, reconciler, catalog, API, and docs together. |
 | `vectis-cli` | User and operator command-line client for the HTTP API. |
 
 ## Producers And Workers
@@ -204,8 +205,9 @@ The common local defaults are:
 | Orchestrator gRPC | `8087` | Worker claim, lease, and task choreography path. |
 | Log HTTP | `8084` | Log-service HTTP surface; user-facing log streaming goes through the API. |
 | Docs HTTP | `8088` | Static documentation site. |
+| Secrets gRPC | `8090` | Cell-local secret resolution for workers. |
 
-Prometheus metrics are exposed on `/metrics`. The API serves metrics on its main HTTP listener; queue, orchestrator, worker, log, artifact, log-forwarder, reconciler, catalog, and cell ingress use dedicated metrics listeners by default. Workers publish lifecycle gauges for drain, execution/finalization phase, and observed database unavailability.
+Prometheus metrics are exposed on `/metrics`. The API serves metrics on its main HTTP listener; queue, orchestrator, worker, log, artifact, log-forwarder, secrets, reconciler, catalog, and cell ingress use dedicated metrics listeners by default. Workers publish lifecycle gauges for drain, execution/finalization phase, and observed database unavailability.
 
 For exact ports, environment variables, TLS settings, and discovery settings, see [Configuration](../operating/configuration.md). For the REST route table, see [API Reference](../using/api-reference.md). gRPC contracts live under `api/proto/`.
 

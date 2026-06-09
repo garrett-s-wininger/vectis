@@ -152,6 +152,7 @@ func (s *Service) executeTaskRequest(ctx context.Context, req *api.ExecuteWorker
 		WorkloadIdentity:  workloadIdentityFromProto(session.GetWorkloadIdentity()),
 		ActionLocks:       actionLocks,
 		ActionResolver:    actionResolver,
+		SecretFiles:       secretFilesFromProto(session.GetSecretFiles()),
 	})
 
 	return ExecuteTaskRequest{

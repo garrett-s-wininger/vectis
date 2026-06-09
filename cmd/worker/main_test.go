@@ -20,6 +20,7 @@ import (
 	"vectis/internal/job"
 	"vectis/internal/observability"
 	"vectis/internal/orchestrator"
+	"vectis/internal/secrets"
 	"vectis/internal/spire"
 	"vectis/internal/taskfinalize"
 	"vectis/internal/testutil/dbtest"
@@ -36,6 +37,8 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 )
+
+func workerStrp(s string) *string { return &s }
 
 func attachPendingExecutionEnvelopeForTest(t *testing.T, runs dal.RunsRepository, j *api.Job, runID string) *cell.ExecutionEnvelope {
 	t.Helper()
@@ -69,6 +72,21 @@ func (c errorWorkerCore) ExecuteTask(context.Context, workercore.ExecuteTaskRequ
 	return c.err
 }
 
+type recordingSecretsResolver struct {
+	req    secrets.ResolveRequest
+	bundle secrets.Bundle
+	err    error
+}
+
+func (r *recordingSecretsResolver) Resolve(_ context.Context, req secrets.ResolveRequest) (secrets.Bundle, error) {
+	r.req = req
+	if r.err != nil {
+		return secrets.Bundle{}, r.err
+	}
+
+	return r.bundle, nil
+}
+
 func spanAttributeString(attrs []attribute.KeyValue, key string) string {
 	for _, attr := range attrs {
 		if string(attr.Key) == key {
@@ -77,6 +95,96 @@ func spanAttributeString(attrs []attribute.KeyValue, key string) string {
 	}
 
 	return ""
+}
+
+func TestWorkerResolveExecutionSecretsSendsTaskScopedRequest(t *testing.T) {
+	fileType := api.SecretDeliveryType_SECRET_DELIVERY_TYPE_FILE
+	resolver := &recordingSecretsResolver{
+		bundle: secrets.Bundle{Files: []secrets.FileMaterial{{
+			ID:   "npm-token",
+			Path: "npm/token",
+			Data: []byte("secret-value"),
+			Mode: secrets.DefaultFileMode,
+		}}},
+	}
+
+	w := &worker{secretResolver: resolver}
+	workload := &workloadidentity.Identity{SPIFFEID: "spiffe://vectis.local/execution/run-1"}
+
+	files, err := w.resolveExecutionSecrets(context.Background(), &api.Job{
+		Secrets: []*api.SecretReference{
+			{
+				Id:  workerStrp("global"),
+				Ref: workerStrp("encryptedfs://team/global"),
+				Delivery: &api.SecretDelivery{
+					Type: &fileType,
+					Path: workerStrp("global"),
+				},
+			},
+			{
+				Id:       workerStrp("npm-token"),
+				Ref:      workerStrp("encryptedfs://team/npm-token"),
+				TaskKeys: []string{"build"},
+				Delivery: &api.SecretDelivery{
+					Type: &fileType,
+					Path: workerStrp("npm/token"),
+				},
+			},
+			{
+				Id:       workerStrp("deploy-token"),
+				Ref:      workerStrp("encryptedfs://team/deploy-token"),
+				TaskKeys: []string{"deploy"},
+				Delivery: &api.SecretDelivery{
+					Type: &fileType,
+					Path: workerStrp("deploy/token"),
+				},
+			},
+		},
+	}, &cell.ExecutionEnvelope{
+		RunID:       "run-1",
+		TaskKey:     "build",
+		ExecutionID: "execution-1",
+	}, "claim-1", workload)
+
+	if err != nil {
+		t.Fatalf("resolveExecutionSecrets: %v", err)
+	}
+
+	if len(files) != 1 || files[0].ID != "npm-token" {
+		t.Fatalf("files = %+v", files)
+	}
+
+	if resolver.req.RunID != "run-1" || resolver.req.ExecutionID != "execution-1" || resolver.req.ExecutionClaimToken != "claim-1" {
+		t.Fatalf("request identity = %+v", resolver.req)
+	}
+
+	if resolver.req.Workload != workload {
+		t.Fatalf("request workload = %+v, want original workload", resolver.req.Workload)
+	}
+
+	if len(resolver.req.Secrets) != 2 || resolver.req.Secrets[0].ID != "global" || resolver.req.Secrets[1].ID != "npm-token" {
+		t.Fatalf("request secrets = %+v", resolver.req.Secrets)
+	}
+}
+
+func TestWorkerResolveExecutionSecretsRequiresResolverForDeclaredSecrets(t *testing.T) {
+	fileType := api.SecretDeliveryType_SECRET_DELIVERY_TYPE_FILE
+	w := &worker{}
+
+	_, err := w.resolveExecutionSecrets(context.Background(), &api.Job{
+		Secrets: []*api.SecretReference{{
+			Id:  workerStrp("npm-token"),
+			Ref: workerStrp("encryptedfs://team/npm-token"),
+			Delivery: &api.SecretDelivery{
+				Type: &fileType,
+				Path: workerStrp("npm/token"),
+			},
+		}},
+	}, &cell.ExecutionEnvelope{RunID: "run-1", TaskKey: "root", ExecutionID: "execution-1"}, "claim-1", nil)
+
+	if err == nil {
+		t.Fatalf("resolveExecutionSecrets succeeded without resolver")
+	}
 }
 
 func assertTaskFinalizeOutcome(t *testing.T, recorder *tracetest.SpanRecorder, want taskfinalize.Outcome) {
@@ -95,6 +203,7 @@ func assertTaskFinalizeOutcome(t *testing.T, recorder *tracetest.SpanRecorder, w
 		if got := spanAttributeString(event.Attributes, "vectis.task.finalize.outcome"); got != string(want) {
 			t.Fatalf("task finalize outcome: got %q, want %q", got, want)
 		}
+
 		return
 	}
 

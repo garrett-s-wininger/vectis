@@ -72,6 +72,31 @@ func ReferencesFromJob(job *api.Job) []Reference {
 	return out
 }
 
+func ReferencesForTask(job *api.Job, taskKey string) []Reference {
+	refs := ReferencesFromJob(job)
+	if len(refs) == 0 {
+		return nil
+	}
+
+	taskKey = strings.TrimSpace(taskKey)
+	out := make([]Reference, 0, len(refs))
+	for _, ref := range refs {
+		if len(ref.TaskKeys) == 0 {
+			out = append(out, ref)
+			continue
+		}
+
+		for _, key := range ref.TaskKeys {
+			if strings.TrimSpace(key) == taskKey {
+				out = append(out, ref)
+				break
+			}
+		}
+	}
+
+	return out
+}
+
 func ReferenceFromProto(ref *api.SecretReference) Reference {
 	if ref == nil {
 		return Reference{}

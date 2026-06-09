@@ -17,6 +17,7 @@ const (
 	ServiceIdentityRoleLog
 	ServiceIdentityRoleArtifact
 	ServiceIdentityRoleWorkerControl
+	ServiceIdentityRoleSecrets
 )
 
 func init() {
@@ -51,6 +52,12 @@ func init() {
 	)
 
 	_ = viper.BindEnv(
+		"service_identity.secrets_allowed_client_identities",
+		"VECTIS_SERVICE_IDENTITY_SECRETS_ALLOWED_CLIENT_IDENTITIES",
+		"VECTIS_SECRETS_ALLOWED_CLIENT_IDENTITIES",
+	)
+
+	_ = viper.BindEnv(
 		"service_identity.cell_ingress_allowed_producer_identities",
 		"VECTIS_SERVICE_IDENTITY_CELL_INGRESS_ALLOWED_PRODUCER_IDENTITIES",
 		"VECTIS_CELL_INGRESS_ALLOWED_PRODUCER_IDENTITIES",
@@ -71,6 +78,8 @@ func (r ServiceIdentityRole) String() string {
 		return "artifact"
 	case ServiceIdentityRoleWorkerControl:
 		return "worker_control"
+	case ServiceIdentityRoleSecrets:
+		return "secrets"
 	default:
 		return fmt.Sprintf("unknown_%d", r)
 	}
@@ -105,6 +114,11 @@ func ServiceIdentityAllowedClientIdentities(role ServiceIdentityRole) []string {
 		return serviceIdentityList(
 			"service_identity.worker_control_allowed_client_identities",
 			d.WorkerControlAllowedClientIdentities,
+		)
+	case ServiceIdentityRoleSecrets:
+		return serviceIdentityList(
+			"service_identity.secrets_allowed_client_identities",
+			d.SecretsAllowedClientIdentities,
 		)
 	default:
 		return nil

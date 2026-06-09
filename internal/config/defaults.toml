@@ -118,6 +118,13 @@ advertise_address = ""
 metrics_host = "localhost"
 metrics_port = 9088
 
+[secrets]
+port = 8090
+metrics_host = "localhost"
+metrics_port = 9091
+encryptedfs.root = ""
+encryptedfs.key_file = ""
+
 [discovery]
 registry_resolver_refresh = "10s"
 registry_resolver_poll_timeout = "5s"
@@ -159,6 +166,7 @@ queue_allowed_client_identities = []
 log_allowed_client_identities = []
 artifact_allowed_client_identities = []
 worker_control_allowed_client_identities = []
+secrets_allowed_client_identities = []
 cell_ingress_allowed_producer_identities = []
 
 [action_registry]
@@ -182,6 +190,7 @@ metrics_host = "localhost"
 metrics_port = 9082
 register_with_registry = true
 orchestrator.address = ""
+secrets.address = "localhost:8090"
 artifact_max_bytes = 1073741824
 artifact_max_run_bytes = 10737418240
 artifact_max_count = 1000
