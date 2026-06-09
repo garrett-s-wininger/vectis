@@ -81,6 +81,8 @@ type APIServer struct {
 	triggerEvents            dal.TriggerInvocationsRepository
 	catalogEvents            dal.CatalogEventsRepository
 	schedules                dal.SchedulesRepository
+	sources                  dal.SourcesRepository
+	sourceJobs               dal.SourceBackedJobsRepository
 	logger                   interfaces.Logger
 	actionResolver           action.Resolver
 	actionDescriptorResolver actionregistry.Resolver
@@ -155,6 +157,10 @@ func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
 	s.triggerEvents = repos.TriggerInvocations()
 	s.catalogEvents = repos.CatalogEvents()
 	s.schedules = repos.Schedules()
+	s.sources = repos.Sources()
+	if sourceJobs, ok := repos.Jobs().(dal.SourceBackedJobsRepository); ok {
+		s.sourceJobs = sourceJobs
+	}
 	s.artifacts = repos.Artifacts()
 	s.cacheService = cache.NewSQLService(db, database.EffectiveDBDriver())
 	return s
@@ -173,7 +179,7 @@ func NewAPIServerWithRepositories(
 		artifacts = repos.Artifacts()
 	}
 
-	return &APIServer{
+	s := &APIServer{
 		jobs:           jobs,
 		runs:           runs,
 		ephemeralRuns:  ephemeralRuns,
@@ -182,6 +188,10 @@ func NewAPIServerWithRepositories(
 		runBroadcaster: NewRunBroadcaster(logger),
 		auditPolicy:    audit.DefaultPolicy(),
 	}
+	if sourceJobs, ok := jobs.(dal.SourceBackedJobsRepository); ok {
+		s.sourceJobs = sourceJobs
+	}
+	return s
 }
 
 func (s *APIServer) markDBUnavailable(err error) {
@@ -352,6 +362,24 @@ func (s *APIServer) requireRoleBindings(w http.ResponseWriter) bool {
 		writeAPIErrorCode(w, http.StatusServiceUnavailable, apiErrRoleBindingsNotConfigured)
 		return false
 	}
+	return true
+}
+
+func (s *APIServer) requireSources(w http.ResponseWriter) bool {
+	if s.sources == nil {
+		writeAPIError(w, http.StatusServiceUnavailable, "source_repositories_not_configured", "source repositories not configured", nil)
+		return false
+	}
+
+	return true
+}
+
+func (s *APIServer) requireSourceJobs(w http.ResponseWriter) bool {
+	if s.sourceJobs == nil {
+		writeAPIError(w, http.StatusServiceUnavailable, "source_jobs_not_configured", "source-backed job persistence not configured", nil)
+		return false
+	}
+
 	return true
 }
 

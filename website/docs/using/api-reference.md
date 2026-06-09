@@ -283,6 +283,7 @@ The table below is the exact route inventory. Read it by family:
 | --- | --- |
 | Health and diagnostics | Process health plus authenticated schema state, queue pressure, log reachability, and Prometheus metrics. |
 | Jobs | Store, replace, delete, list, and trigger reusable job definitions. |
+| Source repositories | Register Git checkouts that can supply stored job definitions by ref and path. |
 | Ephemeral runs | Submit one-off job definitions without storing them first. |
 | Runs, logs, and artifacts | Inspect run status, list/download artifacts, stream logs, cancel active work, or repair orphaned runs. |
 | Setup and auth | First-admin setup, login, token lifecycle, password changes. |
@@ -299,6 +300,8 @@ Run submission routes can target a cell with `cell_id`/`target_cell_id`; stored-
 Run list/detail responses include audit metadata such as `definition_version`, `definition_hash`, `owning_cell`, trigger invocation fields, requested cells, and `execution_payload_hash`. Run detail also includes `dispatch_summary`, `dispatch_events`, and a compact `task_completion` summary when task records exist. The dispatch summary groups dispatch events by producer source so tooling can compare API, cron, and reconciler handoff attempts before reading the raw chronological event trail. Queued run detail may include `next_action` with `task_completion_pending` when task-level progress explains what the run is waiting on, or `task_continuation_pending` when a child task execution is waiting for redispatch; orphaned task-run detail may include `task_finalization_repair_pending` when the stored task summary can already reduce to a terminal state. Failed run detail may include `next_action=security_gate_failed` and `latest_failed_security_event` when the newest failed worker-controlled SVID or secret-resolution gate explains the failure. `GET /api/v1/runs/{id}/tasks` includes task-attempt execution identity, execution status, execution lease owner/expiry when an attempt is owned by a worker, and redacted `security_events` for worker-controlled SVID checks and secret resolution. Security events expose outcome, reason, provider kind, and counts only; claim tokens, secret refs, secret values, delivery paths, SVIDs, and private key material are not exposed. In multi-cell deployments, cell catalog fan-in copies these security events into the global run catalog with the same redacted shape. `GET /api/v1/runs/{id}/artifacts` lists artifact manifests recorded by the run and accepts optional `task_id`, `task_attempt_id`, and `execution_id` filters. `GET /api/v1/runs/{id}/artifacts/{name}/download` streams the exact blob bytes uploaded by the worker; Vectis does not transform, compress, or expand archives before serving them. The frozen execution payload itself is available only through the operator-scoped execution-payload route.
 
 `POST /api/v1/jobs/run`, `POST /api/v1/jobs/trigger/{id}`, and `POST /api/v1/runs/{id}/replay` accept `Idempotency-Key`. Use this header when a client might retry after a timeout or dropped connection. Keys must be 1-255 visible ASCII characters and cannot contain whitespace or commas. Other routes reject the header. Retry guidance for each route family is in [Idempotency And Retries](./idempotency-and-retries.md).
+
+Source repository routes currently register local Git checkouts with `source_kind: "local_checkout"` and a `checkout_path`. Create or update a stored job from source with `repository_id`, `ref` (optional when the repository has `default_ref`), and `path`; the response includes the resolved commit, path, blob SHA, stored definition version, and definition hash.
 
 Streaming routes return `text/event-stream`. Use `curl -N`, `EventSource`, or another SSE-capable client for `GET /api/v1/sse/jobs/{id}/runs` and `GET /api/v1/runs/{id}/logs`.
 
@@ -324,11 +327,16 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | GET | `/api/v1/catalog/status` | Cell catalog inbox summary, including per-source-cell counts when available | `admin:*` | none | `200` JSON catalog status |
 | GET | `/metrics` | Prometheus metrics | `admin:*` | none | `200` metrics text |
 | POST | `/api/v1/cells/{cell_id}/catalog-events` | Record a cell status event into the global catalog inbox | `run:operator` | general | `202` JSON event |
+| GET | `/api/v1/source-repositories` | List registered source repositories in a namespace | `job:read` | general | `200` JSON list |
+| POST | `/api/v1/source-repositories` | Register a source repository checkout | `job:write` | general | `201` JSON repository |
+| GET | `/api/v1/source-repositories/{id}` | Get one source repository registration | `job:read` | general | `200` JSON repository |
 | GET | `/api/v1/jobs` | List visible job definitions | `job:read` | general | `200` JSON list |
 | POST | `/api/v1/jobs` | Create a stored job definition | `job:write` | general | `201` JSON job |
 | GET | `/api/v1/jobs/{id}` | Get one job definition | `job:read` | general | `200` JSON job |
 | PUT | `/api/v1/jobs/{id}` | Replace a job definition | `job:write` | general | `200` JSON job |
 | DELETE | `/api/v1/jobs/{id}` | Delete a job definition | `job:write` | general | `204` empty |
+| POST | `/api/v1/jobs/source/{id}` | Create a stored job definition from a registered source repository | `job:write` | general | `201` JSON source job |
+| PUT | `/api/v1/jobs/source/{id}` | Replace a stored job definition from a registered source repository | `job:write` | general | `200` JSON source job |
 | POST | `/api/v1/jobs/run` | Start an ephemeral run from JSON body, optionally targeting `cell_id` | `run:trigger` | general | `202` JSON run |
 | POST | `/api/v1/jobs/trigger/{id}` | Start one or more runs from a stored job, optionally targeting `cell_id` or `cell_ids` | `run:trigger` | general | `202` JSON run |
 | GET | `/api/v1/jobs/{id}/runs` | List global catalog runs for one job, optionally filtering by `cell_id` | `run:read` | general | `200` JSON list |

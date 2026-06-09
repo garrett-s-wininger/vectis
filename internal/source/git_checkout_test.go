@@ -117,6 +117,8 @@ func initGitRepo(t *testing.T) string {
 	git(t, repo, "init")
 	git(t, repo, "config", "user.name", "Vectis Test")
 	git(t, repo, "config", "user.email", "vectis@example.invalid")
+	git(t, repo, "config", "commit.gpgsign", "false")
+
 	return repo
 }
 

@@ -51,6 +51,7 @@ var EventDefinitions = []EventDefinition{
 	{Type: EventJobCreated, DefaultDurability: DurabilityDurableBestEffort},
 	{Type: EventJobDeleted, DefaultDurability: DurabilityDurableBestEffort},
 	{Type: EventJobUpdated, DefaultDurability: DurabilityDurableBestEffort},
+	{Type: EventSourceRepositoryCreated, DefaultDurability: DurabilityDurableBestEffort},
 	{Type: EventRunRepairMarked, DefaultDurability: DurabilityDurableBestEffort},
 	{Type: EventRunForceFailed, DefaultDurability: DurabilityDurableBestEffort},
 	{Type: EventRunForceRequeued, DefaultDurability: DurabilityDurableBestEffort},

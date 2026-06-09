@@ -6,12 +6,13 @@ func TestPolicy_DurabilityFor_Defaults(t *testing.T) {
 	p := DefaultPolicy()
 
 	tests := map[string]Durability{
-		EventTokenCreated:     DurabilityFailClosed,
-		EventJobCreated:       DurabilityDurableBestEffort,
-		EventAuthSuccess:      DurabilityBestEffort,
-		"future.event":        DurabilityBestEffort,
-		EventSetupCompleted:   DurabilityFailClosed,
-		EventRunForceRequeued: DurabilityDurableBestEffort,
+		EventTokenCreated:            DurabilityFailClosed,
+		EventJobCreated:              DurabilityDurableBestEffort,
+		EventAuthSuccess:             DurabilityBestEffort,
+		"future.event":               DurabilityBestEffort,
+		EventSetupCompleted:          DurabilityFailClosed,
+		EventRunForceRequeued:        DurabilityDurableBestEffort,
+		EventSourceRepositoryCreated: DurabilityDurableBestEffort,
 	}
 
 	for eventType, want := range tests {
