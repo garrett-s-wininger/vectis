@@ -1,0 +1,43 @@
+{
+  "id": "parallel-job",
+  "root": {
+    "id": "root",
+    "uses": "builtins/sequence",
+    "steps": [
+      {
+        "id": "setup",
+        "uses": "builtins/shell",
+        "with": {
+          "command": "echo 'Preparing workspace'"
+        }
+      },
+      {
+        "id": "checks",
+        "uses": "builtins/parallel",
+        "steps": [
+          {
+            "id": "unit-tests",
+            "uses": "builtins/shell",
+            "with": {
+              "command": "echo 'Running unit tests'"
+            }
+          },
+          {
+            "id": "lint",
+            "uses": "builtins/shell",
+            "with": {
+              "command": "echo 'Running lint'"
+            }
+          }
+        ]
+      },
+      {
+        "id": "finish",
+        "uses": "builtins/shell",
+        "with": {
+          "command": "echo 'All checks complete'"
+        }
+      }
+    ]
+  }
+}

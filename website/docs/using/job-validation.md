@@ -69,7 +69,8 @@ These are the built-in actions that the validator knows today:
 | --- | --- | --- | --- |
 | `builtins/shell` | `command` | none | Runs the command with `sh -c`. Empty commands and unknown keys are rejected. |
 | `builtins/checkout` | `url` | none | Accepts HTTP(S) clone URLs without embedded credentials and SCP-style Git URLs. |
-| `builtins/sequence` | none | any key | Runs child `steps` in order. `with` is currently ignored for compatibility. |
+| `builtins/sequence` | none | any key | Runs child `steps` in order. Durable task runs activate one child subtree at a time. `with` is currently ignored for compatibility. |
+| `builtins/parallel` | none | any key | Runs child `steps` concurrently. Durable task runs activate all direct child tasks together. `with` is currently ignored for compatibility. |
 
 The action name can include the `builtins/` prefix. The built-in registry also accepts short names internally, but docs and examples use the full form so job files stay clear.
 
@@ -184,7 +185,7 @@ This fails because Vectis does not know `builtins/not-real`:
 }
 ```
 
-Use one of the supported actions, such as `builtins/shell`, `builtins/checkout`, or `builtins/sequence`.
+Use one of the supported actions, such as `builtins/shell`, `builtins/checkout`, `builtins/sequence`, or `builtins/parallel`.
 
 ### Invalid `with` Fields
 

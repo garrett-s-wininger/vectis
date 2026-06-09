@@ -8,6 +8,7 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
 	"vectis/internal/action/builtins"
+	"vectis/internal/dal"
 )
 
 const (
@@ -131,6 +132,8 @@ func (v *validator) walk(node *api.Node, path string, depth int) {
 	id := strings.TrimSpace(node.GetId())
 	if id == "" {
 		v.add(path+".id", "is required")
+	} else if id == dal.RootTaskKey && path != "root" {
+		v.add(path+".id", fmt.Sprintf("%q is reserved for the root task", dal.RootTaskKey))
 	} else if firstPath, ok := v.seen[id]; ok {
 		v.add(path+".id", fmt.Sprintf("duplicates node id %q first used at %s", id, firstPath+".id"))
 	} else {

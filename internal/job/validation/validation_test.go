@@ -252,6 +252,34 @@ func TestValidateJob_SequenceAnyWith(t *testing.T) {
 	}
 }
 
+func TestValidateJob_ParallelAnyWith(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root.Uses = strp("builtins/parallel")
+	job.Root.With = map[string]string{"some_key": "some_value"}
+
+	if err := validation.ValidateJob(job, validation.Options{RequireJobID: true}); err != nil {
+		t.Fatalf("expected valid parallel job: %v", err)
+	}
+}
+
+func TestValidateJob_RejectsReservedRootChildID(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root.Steps[0].Id = strp("root")
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
+	if err == nil {
+		t.Fatal("expected validation error for reserved child id")
+	}
+
+	if msg := err.Error(); !strings.Contains(msg, `root.steps[0].id: "root" is reserved for the root task`) {
+		t.Fatalf("expected reserved root task error, got %q", msg)
+	}
+}
+
 func TestValidateJob_UnknownActionStillReports(t *testing.T) {
 	t.Parallel()
 

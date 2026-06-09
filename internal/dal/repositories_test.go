@@ -6,9 +6,13 @@ import (
 	"testing"
 	"time"
 
+	api "vectis/api/gen/go"
 	"vectis/internal/dal"
+	jobexec "vectis/internal/job"
 	"vectis/internal/testutil/dbtest"
 	"vectis/internal/testutil/runfixture"
+
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 func claimExecutionAccepted(t testing.TB, ctx context.Context, runs dal.RunsRepository, executionID, owner string) dal.ExecutionClaimResult {
@@ -1498,6 +1502,90 @@ func TestRunsRepository_ActivatePlannedChildTaskExecutionsFansOutDirectChildren(
 	}
 }
 
+func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_SequenceActivatesOneReadySubtreeAtATime(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-task-sequence-activate", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-task-sequence-activate"
+	j := durableSequenceJob(jobID, "")
+	definitionJSON, err := protojson.Marshal(j)
+	if err != nil {
+		t.Fatalf("marshal definition payload: %v", err)
+	}
+
+	if err := repos.Jobs().Create(ctx, jobID, string(definitionJSON), ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	j = durableSequenceJob(jobID, runID)
+	if _, err := jobexec.EnsureJobTaskExecutions(ctx, repos.Runs(), j, "iad-a"); err != nil {
+		t.Fatalf("materialize job tasks: %v", err)
+	}
+
+	recordExecutionPayloadForJob(t, ctx, repos, runID, j)
+
+	tasks, _, err := repos.Runs().ListRunTasks(ctx, runID, 0, 20)
+	if err != nil {
+		t.Fatalf("list tasks: %v", err)
+	}
+
+	byKey := map[string]dal.TaskRecord{}
+	for _, task := range tasks {
+		byKey[task.TaskKey] = task
+	}
+
+	rootDispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get root pending execution: %v", err)
+	}
+
+	result := runfixture.FinalizeExecutionByClaim(t, ctx, repos, rootDispatch.ExecutionID, dal.ExecutionStatusSucceeded)
+	assertActivatedTaskKeys(t, result.Children, "setup")
+	assertTaskStatusByKey(t, db, byKey, "setup", dal.TaskStatusPending)
+	assertTaskStatusByKey(t, db, byKey, "build", dal.TaskStatusPlanned)
+	assertTaskStatusByKey(t, db, byKey, "compile", dal.TaskStatusPlanned)
+	assertTaskStatusByKey(t, db, byKey, "test", dal.TaskStatusPlanned)
+	assertTaskStatusByKey(t, db, byKey, "deploy", dal.TaskStatusPlanned)
+
+	result = runfixture.FinalizeExecutionByClaim(t, ctx, repos, taskExecutionIDForKey(t, byKey, "setup"), dal.ExecutionStatusSucceeded)
+	assertActivatedTaskKeys(t, result.Children, "build")
+	assertTaskStatusByKey(t, db, byKey, "build", dal.TaskStatusPending)
+	assertTaskStatusByKey(t, db, byKey, "compile", dal.TaskStatusPlanned)
+	assertTaskStatusByKey(t, db, byKey, "deploy", dal.TaskStatusPlanned)
+
+	result = runfixture.FinalizeExecutionByClaim(t, ctx, repos, taskExecutionIDForKey(t, byKey, "build"), dal.ExecutionStatusSucceeded)
+	assertActivatedTaskKeys(t, result.Children, "compile")
+	assertTaskStatusByKey(t, db, byKey, "compile", dal.TaskStatusPending)
+	assertTaskStatusByKey(t, db, byKey, "test", dal.TaskStatusPlanned)
+	assertTaskStatusByKey(t, db, byKey, "deploy", dal.TaskStatusPlanned)
+
+	result = runfixture.FinalizeExecutionByClaim(t, ctx, repos, taskExecutionIDForKey(t, byKey, "compile"), dal.ExecutionStatusSucceeded)
+	assertActivatedTaskKeys(t, result.Children, "test")
+	assertTaskStatusByKey(t, db, byKey, "test", dal.TaskStatusPending)
+	assertTaskStatusByKey(t, db, byKey, "deploy", dal.TaskStatusPlanned)
+
+	result = runfixture.FinalizeExecutionByClaim(t, ctx, repos, taskExecutionIDForKey(t, byKey, "test"), dal.ExecutionStatusSucceeded)
+	assertActivatedTaskKeys(t, result.Children, "deploy")
+	assertTaskStatusByKey(t, db, byKey, "deploy", dal.TaskStatusPending)
+
+	result = runfixture.FinalizeExecutionByClaim(t, ctx, repos, taskExecutionIDForKey(t, byKey, "deploy"), dal.ExecutionStatusSucceeded)
+	if result.Outcome != dal.ExecutionFinalizationOutcomeRunSucceeded {
+		t.Fatalf("final outcome: got %q, want %q; result=%+v", result.Outcome, dal.ExecutionFinalizationOutcomeRunSucceeded, result)
+	}
+	assertActivatedTaskKeys(t, result.Children)
+}
+
 func TestRunsRepository_GetRunTaskCompletion(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
@@ -2869,6 +2957,118 @@ func taskExecutionRecordsByKey(records []dal.TaskExecutionRecord) map[string]dal
 	}
 
 	return out
+}
+
+func durableSequenceJob(jobID, runID string) *api.Job {
+	rootID := "root"
+	rootUses := "builtins/sequence"
+	setupID := "setup"
+	buildID := "build"
+	compileID := "compile"
+	testID := "test"
+	deployID := "deploy"
+	shellUses := "builtins/shell"
+
+	return &api.Job{
+		Id:    stringPtr(jobID),
+		RunId: stringPtr(runID),
+		Root: &api.Node{
+			Id:   &rootID,
+			Uses: &rootUses,
+			Steps: []*api.Node{
+				{
+					Id:   &setupID,
+					Uses: &shellUses,
+					With: map[string]string{"command": "echo setup"},
+				},
+				{
+					Id:   &buildID,
+					Uses: &rootUses,
+					Steps: []*api.Node{
+						{
+							Id:   &compileID,
+							Uses: &shellUses,
+							With: map[string]string{"command": "echo compile"},
+						},
+						{
+							Id:   &testID,
+							Uses: &shellUses,
+							With: map[string]string{"command": "echo test"},
+						},
+					},
+				},
+				{
+					Id:   &deployID,
+					Uses: &shellUses,
+					With: map[string]string{"command": "echo deploy"},
+				},
+			},
+		},
+	}
+}
+
+func stringPtr(s string) *string {
+	return &s
+}
+
+func recordExecutionPayloadForJob(t *testing.T, ctx context.Context, repos *dal.SQLRepositories, runID string, j *api.Job) {
+	t.Helper()
+
+	payloadJSON, err := protojson.Marshal(&api.JobRequest{Job: j})
+	if err != nil {
+		t.Fatalf("marshal execution payload: %v", err)
+	}
+
+	if _, _, err := repos.Runs().RecordExecutionPayload(ctx, runID, string(payloadJSON), dal.DefinitionHash(string(payloadJSON))); err != nil {
+		t.Fatalf("record execution payload: %v", err)
+	}
+}
+
+func taskExecutionIDForKey(t *testing.T, tasks map[string]dal.TaskRecord, taskKey string) string {
+	t.Helper()
+
+	task, ok := tasks[taskKey]
+	if !ok {
+		t.Fatalf("task %q missing from %+v", taskKey, tasks)
+	}
+
+	if len(task.Attempts) == 0 || task.Attempts[0].ExecutionID == "" {
+		t.Fatalf("task %q has no execution: %+v", taskKey, task)
+	}
+
+	return task.Attempts[0].ExecutionID
+}
+
+func assertTaskStatusByKey(t *testing.T, db *sql.DB, tasks map[string]dal.TaskRecord, taskKey, want string) {
+	t.Helper()
+
+	task, ok := tasks[taskKey]
+	if !ok {
+		t.Fatalf("task %q missing from %+v", taskKey, tasks)
+	}
+
+	var got string
+	if err := db.QueryRow("SELECT status FROM run_tasks WHERE task_id = ?", task.TaskID).Scan(&got); err != nil {
+		t.Fatalf("query task %s status: %v", taskKey, err)
+	}
+
+	if got != want {
+		t.Fatalf("task %s status: got %q, want %q", taskKey, got, want)
+	}
+}
+
+func assertActivatedTaskKeys(t *testing.T, records []dal.TaskExecutionRecord, want ...string) {
+	t.Helper()
+
+	if len(records) != len(want) {
+		t.Fatalf("activated task count: got %d (%+v), want %d (%+v)", len(records), records, len(want), want)
+	}
+
+	for i, rec := range records {
+		if rec.TaskKey != want[i] {
+			t.Fatalf("activated task %d: got %q in %+v, want %q", i, rec.TaskKey, records, want[i])
+		}
+	}
 }
 
 func taskDispatchIntentsByExecutionID(intents []dal.TaskDispatchIntent) map[string]dal.TaskDispatchIntent {

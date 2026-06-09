@@ -1583,6 +1583,73 @@ func activatePlannedChildTaskExecutionsTx(ctx context.Context, tx *sql.Tx, paren
 	return records, activatedCount, nil
 }
 
+func activatePlannedContinuationsTx(ctx context.Context, tx *sql.Tx, runID, completedTaskID string) ([]TaskExecutionRecord, int, error) {
+	plan, ok, err := taskControlPlanForRunTx(ctx, tx, runID)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if !ok {
+		return activatePlannedChildTaskExecutionsTx(ctx, tx, completedTaskID)
+	}
+
+	snapshots, err := taskExecutionStatusSnapshotsByRunIDTx(ctx, tx, runID)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	statusByTaskKey := make(map[string]taskExecutionStatusSnapshot, len(snapshots))
+	for _, snapshot := range snapshots {
+		if _, known := plan.usesByTaskKey[snapshot.Record.TaskKey]; !known {
+			return activatePlannedChildTaskExecutionsTx(ctx, tx, completedTaskID)
+		}
+
+		if _, exists := statusByTaskKey[snapshot.Record.TaskKey]; !exists {
+			statusByTaskKey[snapshot.Record.TaskKey] = snapshot
+		}
+	}
+
+	records := make([]TaskExecutionRecord, 0)
+	activatedCount := 0
+	for _, snapshot := range snapshots {
+		switch {
+		case snapshot.hasStatuses(TaskStatusPlanned, SegmentStatusPlanned, ExecutionStatusPlanned):
+			if !plan.taskReady(statusByTaskKey, snapshot.Record.TaskKey) {
+				continue
+			}
+
+			activated, err := activatePlannedTaskExecutionSnapshotTx(ctx, tx, snapshot)
+			if err != nil {
+				return nil, 0, err
+			}
+
+			if activated {
+				activatedCount++
+			}
+
+			records = append(records, snapshot.Record)
+		case snapshot.hasStatuses(TaskStatusPending, SegmentStatusPending, ExecutionStatusPending):
+			if plan.taskReady(statusByTaskKey, snapshot.Record.TaskKey) {
+				records = append(records, snapshot.Record)
+			}
+		case snapshot.hasConsistentAdvancedStatus():
+			continue
+		default:
+			return nil, 0, fmt.Errorf(
+				"%w: task %s statuses task=%s attempt=%s segment=%s execution=%s cannot evaluate continuation",
+				ErrConflict,
+				snapshot.Record.TaskID,
+				snapshot.TaskStatus,
+				snapshot.AttemptStatus,
+				snapshot.SegmentStatus,
+				snapshot.ExecutionStatus,
+			)
+		}
+	}
+
+	return records, activatedCount, nil
+}
+
 func activatePlannedTaskExecutionSnapshotTx(ctx context.Context, tx *sql.Tx, snapshot taskExecutionStatusSnapshot) (bool, error) {
 	if !snapshot.hasStatuses(TaskStatusPlanned, SegmentStatusPlanned, ExecutionStatusPlanned) {
 		return false, fmt.Errorf(
@@ -1716,6 +1783,54 @@ func taskExecutionStatusSnapshotsByParentTaskIDTx(ctx context.Context, tx *sql.T
 	return out, nil
 }
 
+func taskExecutionStatusSnapshotsByRunIDTx(ctx context.Context, tx *sql.Tx, runID string) ([]taskExecutionStatusSnapshot, error) {
+	rows, err := tx.QueryContext(ctx, rebindQueryForPgx(`
+		SELECT
+			rt.run_id,
+			rt.task_id,
+			rt.parent_task_id,
+			rt.task_key,
+			rt.name,
+			ta.attempt_id,
+			rs.segment_id,
+			rs.name,
+			se.execution_id,
+			se.cell_id,
+			se.attempt,
+			rt.status,
+			ta.status,
+			rs.status,
+			se.status
+		FROM run_tasks rt
+		JOIN task_attempts ta ON ta.task_id = rt.task_id AND ta.run_id = rt.run_id
+		JOIN segment_executions se ON se.task_id = rt.task_id AND se.task_attempt_id = ta.attempt_id AND se.run_id = rt.run_id AND se.attempt = ta.attempt
+		JOIN run_segments rs ON rs.segment_id = se.segment_id AND rs.run_id = rt.run_id
+		WHERE rt.run_id = ?
+		ORDER BY rt.id ASC, ta.attempt ASC
+	`), runID)
+
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	var out []taskExecutionStatusSnapshot
+	for rows.Next() {
+		snapshot, err := scanTaskExecutionStatusSnapshot(rows)
+		if err != nil {
+			return nil, normalizeSQLError(err)
+		}
+
+		out = append(out, snapshot)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	return out, nil
+}
+
 type taskExecutionStatusScanner interface {
 	Scan(dest ...any) error
 }
@@ -1745,6 +1860,176 @@ func scanTaskExecutionStatusSnapshot(scanner taskExecutionStatusScanner) (taskEx
 
 	snapshot.Record.ParentTaskID = nullStringValue(parentTaskID)
 	return snapshot, nil
+}
+
+type taskControlPayload struct {
+	Job *taskControlJob `json:"job"`
+}
+
+type taskControlJob struct {
+	Root *taskControlNode `json:"root"`
+}
+
+type taskControlNode struct {
+	ID    string            `json:"id"`
+	Uses  string            `json:"uses"`
+	Steps []taskControlNode `json:"steps"`
+}
+
+type taskControlPlan struct {
+	usesByTaskKey map[string]string
+	parentByKey   map[string]string
+	childrenByKey map[string][]string
+}
+
+func taskControlPlanForRunTx(ctx context.Context, tx *sql.Tx, runID string) (taskControlPlan, bool, error) {
+	payloadJSON, found, err := executionPayloadJSONForRunTx(ctx, tx, runID)
+	if err != nil {
+		return taskControlPlan{}, false, err
+	}
+
+	if !found {
+		return taskControlPlan{}, false, nil
+	}
+
+	var payload taskControlPayload
+	if err := json.Unmarshal([]byte(payloadJSON), &payload); err != nil {
+		return taskControlPlan{}, false, fmt.Errorf("parse execution payload control plan: %w", err)
+	}
+
+	if payload.Job == nil || payload.Job.Root == nil {
+		return taskControlPlan{}, false, fmt.Errorf("%w: execution payload for run %s has no job root", ErrConflict, runID)
+	}
+
+	plan := taskControlPlan{
+		usesByTaskKey: map[string]string{
+			RootTaskKey: payload.Job.Root.Uses,
+		},
+		parentByKey:   map[string]string{},
+		childrenByKey: map[string][]string{},
+	}
+
+	if err := plan.walk(RootTaskKey, payload.Job.Root.Steps); err != nil {
+		return taskControlPlan{}, false, err
+	}
+
+	return plan, true, nil
+}
+
+func executionPayloadJSONForRunTx(ctx context.Context, tx *sql.Tx, runID string) (string, bool, error) {
+	var payloadHash string
+	var payloadJSON sql.NullString
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT jr.execution_payload_hash, ep.payload_json
+		FROM job_runs jr
+		LEFT JOIN execution_payloads ep ON ep.payload_hash = jr.execution_payload_hash
+		WHERE jr.run_id = ?
+	`), runID).Scan(&payloadHash, &payloadJSON); err != nil {
+		if err == sql.ErrNoRows {
+			return "", false, fmt.Errorf("%w: run %s", ErrNotFound, runID)
+		}
+
+		return "", false, normalizeSQLError(err)
+	}
+
+	if strings.TrimSpace(payloadHash) == "" {
+		return "", false, nil
+	}
+
+	if !payloadJSON.Valid {
+		return "", false, fmt.Errorf("%w: execution payload %s", ErrNotFound, payloadHash)
+	}
+
+	return payloadJSON.String, true, nil
+}
+
+func (p taskControlPlan) walk(parentKey string, children []taskControlNode) error {
+	for _, child := range children {
+		childKey := strings.TrimSpace(child.ID)
+		if childKey == "" {
+			return fmt.Errorf("%w: task control child under %s has empty id", ErrConflict, parentKey)
+		}
+
+		if childKey == RootTaskKey {
+			return fmt.Errorf("%w: task control child id %q is reserved", ErrConflict, RootTaskKey)
+		}
+
+		if _, exists := p.usesByTaskKey[childKey]; exists {
+			return fmt.Errorf("%w: task control child id %q is duplicated", ErrConflict, childKey)
+		}
+
+		p.usesByTaskKey[childKey] = child.Uses
+		p.parentByKey[childKey] = parentKey
+		p.childrenByKey[parentKey] = append(p.childrenByKey[parentKey], childKey)
+		if err := p.walk(childKey, child.Steps); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (p taskControlPlan) taskReady(statusByTaskKey map[string]taskExecutionStatusSnapshot, taskKey string) bool {
+	parentKey, ok := p.parentByKey[taskKey]
+	if !ok {
+		return false
+	}
+
+	parent, ok := statusByTaskKey[parentKey]
+	if !ok || !taskSucceeded(parent) {
+		return false
+	}
+
+	if !usesSequence(p.usesByTaskKey[parentKey]) {
+		return true
+	}
+
+	siblings := p.childrenByKey[parentKey]
+	for i, siblingKey := range siblings {
+		if siblingKey != taskKey {
+			continue
+		}
+
+		if i == 0 {
+			return true
+		}
+
+		return p.subtreeSucceeded(statusByTaskKey, siblings[i-1])
+	}
+
+	return false
+}
+
+func (p taskControlPlan) subtreeSucceeded(statusByTaskKey map[string]taskExecutionStatusSnapshot, taskKey string) bool {
+	snapshot, ok := statusByTaskKey[taskKey]
+	if !ok || !taskSucceeded(snapshot) {
+		return false
+	}
+
+	for _, childKey := range p.childrenByKey[taskKey] {
+		if !p.subtreeSucceeded(statusByTaskKey, childKey) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func taskSucceeded(snapshot taskExecutionStatusSnapshot) bool {
+	return snapshot.hasStatuses(TaskStatusSucceeded, SegmentStatusSucceeded, ExecutionStatusSucceeded)
+}
+
+func usesSequence(uses string) bool {
+	uses = strings.TrimSpace(uses)
+	if uses == "" {
+		return false
+	}
+
+	if !strings.Contains(uses, "/") {
+		uses = "builtins/" + uses
+	}
+
+	return uses == "builtins/sequence"
 }
 
 func ensureTaskExistsTx(ctx context.Context, tx *sql.Tx, taskID string) error {
@@ -2359,7 +2644,7 @@ func (r *SQLRunsRepository) CompleteExecutionAndFinalizeRunByClaim(ctx context.C
 			return ExecutionFinalizationResult{}, err
 		}
 
-		children, activated, err = activatePlannedChildTaskExecutionsTx(ctx, tx, taskID)
+		children, activated, err = activatePlannedContinuationsTx(ctx, tx, runID, taskID)
 		if err != nil {
 			return ExecutionFinalizationResult{}, err
 		}

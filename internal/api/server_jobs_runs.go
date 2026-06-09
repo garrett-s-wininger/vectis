@@ -19,6 +19,7 @@ import (
 	"vectis/internal/config"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
+	jobexec "vectis/internal/job"
 	jobvalidation "vectis/internal/job/validation"
 	"vectis/internal/observability"
 
@@ -1153,6 +1154,16 @@ func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID strin
 		s.logger.Error("Failed to attach execution envelope (run %s): %v", runID, err)
 	}
 
+	if err := s.materializeJobTasks(ctx, runID, job, targetCellID); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "materialize task executions")
+		span.End()
+		s.logger.Error("Failed to materialize task executions (run %s): %v", runID, err)
+		msg := err.Error()
+		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg)
+		return
+	}
+
 	s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindStored, observability.APIEnqueueOutcomeAttempt)
 	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventAttempt, targetCellID, nil)
 	dispatchReq, err := s.recordExecutionPayload(ctx, runID, req, definitionHash)
@@ -1731,6 +1742,16 @@ func (s *APIServer) finishRunJobEnqueue(ctx context.Context, jobID, runID string
 		s.logger.Error("Failed to attach execution envelope (run %s): %v", runID, err)
 	}
 
+	if err := s.materializeJobTasks(ctx, runID, job, targetCellID); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "materialize task executions")
+		span.End()
+		s.logger.Error("Failed to materialize task executions (run %s): %v", runID, err)
+		msg := err.Error()
+		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg)
+		return
+	}
+
 	s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindEphemeral, observability.APIEnqueueOutcomeAttempt)
 	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventAttempt, targetCellID, nil)
 	dispatchReq, err := s.recordExecutionPayload(ctx, runID, req, definitionHash)
@@ -1847,6 +1868,20 @@ func (s *APIServer) recordExecutionPayload(ctx context.Context, runID string, re
 	}
 
 	return &recordedReq, nil
+}
+
+func (s *APIServer) materializeJobTasks(ctx context.Context, runID string, job *api.Job, targetCellID string) error {
+	if job == nil {
+		return fmt.Errorf("job is required")
+	}
+
+	if strings.TrimSpace(job.GetRunId()) == "" {
+		job = proto.Clone(job).(*api.Job)
+		job.RunId = &runID
+	}
+
+	_, err := jobexec.EnsureJobTaskExecutions(ctx, s.runs, job, targetCellID)
+	return err
 }
 
 func (s *APIServer) attachExecutionEnvelope(ctx context.Context, req *api.JobRequest, runID string, createdAtUnixNano int64) (*cell.ExecutionEnvelope, error) {
