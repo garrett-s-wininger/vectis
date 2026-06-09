@@ -83,6 +83,10 @@ func ValidateJob(job *api.Job, opts Options) error {
 		v.add("id", "is required")
 	}
 
+	if isolation := strings.TrimSpace(job.GetDefaultIsolation()); isolation != "" && !action.IsSupportedIsolation(isolation) {
+		v.add("default_isolation", `must be one of "host" or "vm"`)
+	}
+
 	if job.GetRoot() == nil {
 		v.add("root", "is required")
 		return v.err()

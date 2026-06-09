@@ -34,7 +34,7 @@ The runner boundary should sit under the worker and above action implementation:
 - Workers still claim runs, renew leases, open durable log streams, observe cancellation, and finalize status.
 - A runner owns the per-run execution environment, command execution adapter, workspace lifecycle, environment policy, resource policy, and cleanup.
 - Built-in actions keep their stable semantics. `builtins/checkout` still means "clone into the workspace", and `builtins/shell` still means "run this command in the workspace"; the configured runner decides where that command actually runs.
-- Job nodes can request portable isolation levels rather than raw runtime-specific flags. `host` remains the compatibility level, while `vm` asks the worker for a configured VM provider. Nodes that omit an isolation level inherit the worker default or the nearest parent sequence's isolation.
+- Jobs and nodes can request portable isolation levels rather than raw runtime-specific flags. `host` remains the compatibility level, while `vm` asks the worker for a configured VM provider. Nodes that omit an isolation level inherit the nearest parent sequence's isolation, then the job default, then the worker default.
 - The current node-level boundary selects where action commands execute while preserving the shared run workspace semantics that make checkout-then-build flows work. Disposable per-step environments, artifact transfer, cache policy, and workspace copy semantics remain follow-up design.
 - Workers should advertise or be assigned the profiles they can satisfy. A job that needs `container` or `vm` containment should not silently fall back to `host`.
 

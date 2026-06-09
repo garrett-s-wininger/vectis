@@ -52,6 +52,7 @@ Every job must have:
 | Part | Rule |
 | --- | --- |
 | Job `id` | Required for stored jobs. Optional for ephemeral runs. |
+| Job `default_isolation` | Optional. If present, must be `host` or `vm`. |
 | `root` | Required. This is the first node Vectis executes. |
 | Node `id` | Required on every node and unique within the job. |
 | Node `uses` | Required and must name a known action. |
@@ -213,7 +214,7 @@ Nodes can request an isolation level with `isolation`:
 }
 ```
 
-Allowed values are `host` and `vm`. If a node omits `isolation`, it inherits the current worker default or the nearest parent sequence's isolation. A `builtins/sequence` node can set `isolation` for its child steps, and a child can override it.
+Allowed values are `host` and `vm`. A job can set `default_isolation` for every node in the action tree. If a node omits `isolation`, it inherits the nearest parent sequence's isolation, then the job default, then the worker backend default. A `builtins/sequence` node can set `isolation` for its child steps, and a child can override it.
 
 Validation only checks that the value is supported by the job format. The worker must still have a matching execution provider. For example, a node with `isolation: "vm"` fails at execution time on a worker that has no VM backend configured; it does not fall back to host execution.
 

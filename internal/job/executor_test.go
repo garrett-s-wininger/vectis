@@ -982,6 +982,144 @@ func TestExecutor_ExecuteJobInWorkspace_SelectsIsolationProcessExecutor(t *testi
 	}
 }
 
+func TestExecutor_ExecuteJobInWorkspace_JobDefaultIsolationOverridesWorkerDefault(t *testing.T) {
+	hostProcessExecutor := mocks.NewMockExecExecutor()
+	hostProcess := mocks.NewMockProcess()
+	hostProcess.SetWaitError(nil)
+	hostProcessExecutor.SetProcess(hostProcess)
+
+	vmProcessExecutor := mocks.NewMockExecExecutor()
+	vmProcess := mocks.NewMockProcess()
+	vmProcess.SetWaitError(nil)
+	vmProcessExecutor.SetProcess(vmProcess)
+
+	executor := job.NewExecutor(
+		job.WithProcessExecutor(hostProcessExecutor),
+		job.WithVMProcessExecutor(vmProcessExecutor),
+	)
+
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+
+	workspace := t.TempDir()
+	jobID := "test-job-default-isolation"
+	runID := "test-job-default-isolation-run"
+	rootID := "root"
+	rootUses := "builtins/sequence"
+	vmStepID := "vm-step"
+	hostStepID := "host-step"
+	shellUses := "builtins/shell"
+	vmIsolation := action.IsolationVM
+	hostIsolation := action.IsolationHost
+	testJob := &api.Job{
+		Id:               &jobID,
+		RunId:            &runID,
+		DefaultIsolation: &vmIsolation,
+		Root: &api.Node{
+			Id:   &rootID,
+			Uses: &rootUses,
+			Steps: []*api.Node{
+				{
+					Id:   &vmStepID,
+					Uses: &shellUses,
+					With: map[string]string{"command": "echo vm"},
+				},
+				{
+					Id:        &hostStepID,
+					Uses:      &shellUses,
+					Isolation: &hostIsolation,
+					With:      map[string]string{"command": "echo host"},
+				},
+			},
+		},
+	}
+
+	if err := executor.ExecuteJobInWorkspace(context.Background(), testJob, mockLogClient, mockLogger, workspace); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	hostArgs := hostProcessExecutor.GetArgs()
+	if len(hostArgs) != 1 || hostArgs[0][1] != "echo host" {
+		t.Fatalf("expected explicit host action on host executor, got %v", hostArgs)
+	}
+
+	vmArgs := vmProcessExecutor.GetArgs()
+	if len(vmArgs) != 1 || vmArgs[0][1] != "echo vm" {
+		t.Fatalf("expected inherited job-default VM action on VM executor, got %v", vmArgs)
+	}
+}
+
+func TestExecutor_ExecuteTaskInWorkspace_UsesJobDefaultIsolation(t *testing.T) {
+	hostProcessExecutor := mocks.NewMockExecExecutor()
+	hostProcess := mocks.NewMockProcess()
+	hostProcess.SetWaitError(nil)
+	hostProcessExecutor.SetProcess(hostProcess)
+
+	vmProcessExecutor := mocks.NewMockExecExecutor()
+	vmProcess := mocks.NewMockProcess()
+	vmProcess.SetWaitError(nil)
+	vmProcessExecutor.SetProcess(vmProcess)
+
+	executor := job.NewExecutor(
+		job.WithProcessExecutor(hostProcessExecutor),
+		job.WithVMProcessExecutor(vmProcessExecutor),
+	)
+
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+
+	workspace := t.TempDir()
+	jobID := "test-task-default-isolation"
+	runID := "test-task-default-isolation-run"
+	rootID := "root"
+	rootUses := "builtins/sequence"
+	vmStepID := "vm-step"
+	hostStepID := "host-step"
+	shellUses := "builtins/shell"
+	vmIsolation := action.IsolationVM
+	hostIsolation := action.IsolationHost
+	testJob := &api.Job{
+		Id:               &jobID,
+		RunId:            &runID,
+		DefaultIsolation: &vmIsolation,
+		Root: &api.Node{
+			Id:   &rootID,
+			Uses: &rootUses,
+			Steps: []*api.Node{
+				{
+					Id:   &vmStepID,
+					Uses: &shellUses,
+					With: map[string]string{"command": "echo vm task"},
+				},
+				{
+					Id:        &hostStepID,
+					Uses:      &shellUses,
+					Isolation: &hostIsolation,
+					With:      map[string]string{"command": "echo host task"},
+				},
+			},
+		},
+	}
+
+	if err := executor.ExecuteTaskInWorkspace(context.Background(), testJob, vmStepID, mockLogClient, mockLogger, workspace); err != nil {
+		t.Fatalf("expected VM-default task to run, got %v", err)
+	}
+
+	if err := executor.ExecuteTaskInWorkspace(context.Background(), testJob, hostStepID, mockLogClient, mockLogger, workspace); err != nil {
+		t.Fatalf("expected host override task to run, got %v", err)
+	}
+
+	hostArgs := hostProcessExecutor.GetArgs()
+	if len(hostArgs) != 1 || hostArgs[0][1] != "echo host task" {
+		t.Fatalf("expected explicit host task on host executor, got %v", hostArgs)
+	}
+
+	vmArgs := vmProcessExecutor.GetArgs()
+	if len(vmArgs) != 1 || vmArgs[0][1] != "echo vm task" {
+		t.Fatalf("expected job-default VM task on VM executor, got %v", vmArgs)
+	}
+}
+
 func TestExecutor_ExecuteJobInWorkspace_VMIsolationRequiresConfiguredExecutor(t *testing.T) {
 	executor := job.NewExecutor()
 	mockLogClient := mocks.NewMockLogClient()

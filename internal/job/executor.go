@@ -240,7 +240,12 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 		}
 	}()
 
-	processExecutor, isolation, err := e.ResolveProcessExecutor(e.defaultIsolation)
+	defaultIsolation := action.NormalizeIsolation(job.GetDefaultIsolation())
+	if defaultIsolation == "" {
+		defaultIsolation = e.defaultIsolation
+	}
+
+	processExecutor, isolation, err := e.ResolveProcessExecutor(defaultIsolation)
 	if err != nil {
 		return err
 	}

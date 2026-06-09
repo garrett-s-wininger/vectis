@@ -8,6 +8,8 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/job/validation"
 	"vectis/internal/taskgraph"
+
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 func strp(s string) *string { return &s }
@@ -407,13 +409,40 @@ func TestValidateJob_AllowsSupportedIsolationLevels(t *testing.T) {
 	t.Parallel()
 
 	job := validJob()
+	vmDefaultIsolation := "vm"
 	hostIsolation := "host"
 	vmIsolation := "vm"
+	job.DefaultIsolation = &vmDefaultIsolation
 	job.Root.Isolation = &vmIsolation
 	job.Root.Steps[0].Isolation = &hostIsolation
 
 	if err := validation.ValidateJob(job, validation.Options{RequireJobID: true}); err != nil {
 		t.Fatalf("expected valid isolation levels: %v", err)
+	}
+}
+
+func TestValidateJob_AllowsDefaultIsolationFromJSON(t *testing.T) {
+	t.Parallel()
+
+	var job api.Job
+	if err := protojson.Unmarshal([]byte(`{
+		"id": "job-json-isolation",
+		"default_isolation": "vm",
+		"root": {
+			"id": "root",
+			"uses": "builtins/shell",
+			"with": {"command": "echo hi"}
+		}
+	}`), &job); err != nil {
+		t.Fatalf("unmarshal job json: %v", err)
+	}
+
+	if job.GetDefaultIsolation() != "vm" {
+		t.Fatalf("default isolation: got %q want vm", job.GetDefaultIsolation())
+	}
+
+	if err := validation.ValidateJob(&job, validation.Options{RequireJobID: true}); err != nil {
+		t.Fatalf("expected valid default isolation from JSON: %v", err)
 	}
 }
 
@@ -432,6 +461,24 @@ func TestValidateJob_RejectsUnsupportedIsolationLevel(t *testing.T) {
 	msg := err.Error()
 	if !strings.Contains(msg, `root.steps[0].isolation: must be one of "host" or "vm"`) {
 		t.Fatalf("expected unsupported isolation error, got %q", msg)
+	}
+}
+
+func TestValidateJob_RejectsUnsupportedDefaultIsolationLevel(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	isolation := "container"
+	job.DefaultIsolation = &isolation
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
+	if err == nil {
+		t.Fatal("expected validation error for unsupported default isolation")
+	}
+
+	msg := err.Error()
+	if !strings.Contains(msg, `default_isolation: must be one of "host" or "vm"`) {
+		t.Fatalf("expected unsupported default isolation error, got %q", msg)
 	}
 }
 

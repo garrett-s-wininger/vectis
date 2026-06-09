@@ -160,13 +160,14 @@ func (*Empty) Descriptor() ([]byte, []int) {
 }
 
 type Job struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            *string                `protobuf:"bytes,1,opt,name=id" json:"id,omitempty"`
-	RunId         *string                `protobuf:"bytes,2,opt,name=run_id,json=runId" json:"run_id,omitempty"`
-	Root          *Node                  `protobuf:"bytes,3,opt,name=root" json:"root,omitempty"`
-	DeliveryId    *string                `protobuf:"bytes,4,opt,name=delivery_id,json=deliveryId" json:"delivery_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Id               *string                `protobuf:"bytes,1,opt,name=id" json:"id,omitempty"`
+	RunId            *string                `protobuf:"bytes,2,opt,name=run_id,json=runId" json:"run_id,omitempty"`
+	Root             *Node                  `protobuf:"bytes,3,opt,name=root" json:"root,omitempty"`
+	DeliveryId       *string                `protobuf:"bytes,4,opt,name=delivery_id,json=deliveryId" json:"delivery_id,omitempty"`
+	DefaultIsolation *string                `protobuf:"bytes,5,opt,name=default_isolation,json=defaultIsolation" json:"default_isolation,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *Job) Reset() {
@@ -223,6 +224,13 @@ func (x *Job) GetRoot() *Node {
 func (x *Job) GetDeliveryId() string {
 	if x != nil && x.DeliveryId != nil {
 		return *x.DeliveryId
+	}
+	return ""
+}
+
+func (x *Job) GetDefaultIsolation() string {
+	if x != nil && x.DefaultIsolation != nil {
+		return *x.DefaultIsolation
 	}
 	return ""
 }
@@ -608,13 +616,14 @@ var File_common_proto protoreflect.FileDescriptor
 const file_common_proto_rawDesc = "" +
 	"\n" +
 	"\fcommon.proto\x12\x06common\x1a\x1fgoogle/protobuf/timestamp.proto\"\a\n" +
-	"\x05Empty\"o\n" +
+	"\x05Empty\"\x9c\x01\n" +
 	"\x03Job\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12 \n" +
 	"\x04root\x18\x03 \x01(\v2\f.common.NodeR\x04root\x12\x1f\n" +
 	"\vdelivery_id\x18\x04 \x01(\tR\n" +
-	"deliveryId\"\xa6\x01\n" +
+	"deliveryId\x12+\n" +
+	"\x11default_isolation\x18\x05 \x01(\tR\x10defaultIsolation\"\xa6\x01\n" +
 	"\n" +
 	"JobRequest\x12\x1d\n" +
 	"\x03job\x18\x01 \x01(\v2\v.common.JobR\x03job\x12<\n" +

@@ -327,7 +327,7 @@ For failure behavior with and without registry, see [Failure Domains](../concept
 
 Workers default to the `host` execution backend. In that mode, built-in actions execute as child processes on the worker host inside the per-run workspace. This is compatible with existing deployments, but it is not a security sandbox.
 
-Job nodes can also declare `isolation: "host"` or `isolation: "vm"`. Nodes that omit `isolation` inherit the worker default or the nearest parent `builtins/sequence` isolation. A worker must have a matching provider for the requested isolation level; Vectis does not silently fall back from `vm` to `host`.
+Jobs can declare `default_isolation: "host"` or `default_isolation: "vm"` as the default for their action tree. Individual nodes can declare `isolation: "host"` or `isolation: "vm"` to override that default. Nodes that omit `isolation` inherit the nearest parent `builtins/sequence` isolation, then the job default, then the worker backend default. A worker must have a matching provider for the effective isolation level; Vectis does not silently fall back from `vm` to `host`.
 
 The first VM-oriented backend is `lima`, intended for macOS worker isolation experiments with a prepared [Lima](https://lima-vm.io/) instance:
 
@@ -351,7 +351,7 @@ Equivalent environment variables:
 | `VECTIS_WORKER_LIMA_START` / `worker.execution.lima.start` | Passes `--start` to `limactl shell` before each command. It starts an existing instance; it does not create or configure one. |
 | `VECTIS_WORKER_LIMA_PRESERVE_ENV` / `worker.execution.lima.preserve_env` | Passes `--preserve-env` to `limactl shell`. Off by default to avoid leaking host environment variables into the guest. |
 
-The Lima backend sets the worker's inherited action isolation to `vm` and registers Lima as the VM command provider. A node can still request `isolation: "host"` explicitly for a host-side action on that worker.
+The Lima backend sets the worker's inherited action isolation to `vm` and registers Lima as the VM command provider. A job can request `default_isolation: "host"` or a node can request `isolation: "host"` explicitly for host-side actions on that worker.
 
 The Lima backend does not silently fall back to host execution. Startup fails if `backend=lima` is selected without an instance name. Command execution fails if the Lima instance is unavailable. A host-default worker fails any node that requests `isolation: "vm"` because no VM provider is registered. If `VECTIS_WORKER_LIMA_GUEST_WORKSPACE_ROOT` is empty, the run workspace path must be visible and writable inside the guest; configure `VECTIS_WORKER_WORKSPACE_ROOT` and Lima mounts accordingly. If `VECTIS_WORKER_LIMA_GUEST_WORKSPACE_ROOT` is set, Vectis maps each run workspace to a same-named guest directory under that root and creates it before each command.
 

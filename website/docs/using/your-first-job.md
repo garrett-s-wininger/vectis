@@ -157,15 +157,15 @@ Use either `with.command` or `inputs.command` on a node, not both.
 
 ## Optional Action Isolation
 
-Each node can request where its command should run with `isolation`. The supported job-level values are `host` and `vm`:
+Each job can set a default command boundary with `default_isolation`, and each node can override it with `isolation`. The supported values are `host` and `vm`:
 
 ```json
 {
   "id": "vm-test-job",
+  "default_isolation": "vm",
   "root": {
     "id": "root",
     "uses": "builtins/sequence",
-    "isolation": "vm",
     "steps": [
       {
         "id": "test",
@@ -187,7 +187,7 @@ Each node can request where its command should run with `isolation`. The support
 }
 ```
 
-If `isolation` is omitted, the node inherits the worker default or the nearest parent sequence's isolation. A worker must have a matching backend configured for `vm`; otherwise the run fails instead of falling back to host execution.
+If `isolation` is omitted, the node inherits the nearest parent sequence's isolation, then the job default, then the worker backend default. A worker must have a matching backend configured for `vm`; otherwise the run fails instead of falling back to host execution.
 
 ## Checkout Then Build
 
