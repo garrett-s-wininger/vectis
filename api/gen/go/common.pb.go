@@ -287,6 +287,7 @@ type Node struct {
 	Steps         []*Node                `protobuf:"bytes,4,rep,name=steps" json:"steps,omitempty"`
 	Ports         map[string]*NodePort   `protobuf:"bytes,5,rep,name=ports" json:"ports,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	Inputs        map[string]*NodeInput  `protobuf:"bytes,6,rep,name=inputs" json:"inputs,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Isolation     *string                `protobuf:"bytes,7,opt,name=isolation" json:"isolation,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -361,6 +362,13 @@ func (x *Node) GetInputs() map[string]*NodeInput {
 		return x.Inputs
 	}
 	return nil
+}
+
+func (x *Node) GetIsolation() string {
+	if x != nil && x.Isolation != nil {
+		return *x.Isolation
+	}
+	return ""
 }
 
 type NodePort struct {
@@ -613,14 +621,15 @@ const file_common_proto_rawDesc = "" +
 	"\bmetadata\x18\x02 \x03(\v2 .common.JobRequest.MetadataEntryR\bmetadata\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xae\x03\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xcc\x03\n" +
 	"\x04Node\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04uses\x18\x02 \x01(\tR\x04uses\x12*\n" +
 	"\x04with\x18\x03 \x03(\v2\x16.common.Node.WithEntryR\x04with\x12\"\n" +
 	"\x05steps\x18\x04 \x03(\v2\f.common.NodeR\x05steps\x12-\n" +
 	"\x05ports\x18\x05 \x03(\v2\x17.common.Node.PortsEntryR\x05ports\x120\n" +
-	"\x06inputs\x18\x06 \x03(\v2\x18.common.Node.InputsEntryR\x06inputs\x1a7\n" +
+	"\x06inputs\x18\x06 \x03(\v2\x18.common.Node.InputsEntryR\x06inputs\x12\x1c\n" +
+	"\tisolation\x18\a \x01(\tR\tisolation\x1a7\n" +
 	"\tWithEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aJ\n" +

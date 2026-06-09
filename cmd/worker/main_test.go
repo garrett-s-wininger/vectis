@@ -13,6 +13,7 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/action"
 	"vectis/internal/cell"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
@@ -2868,6 +2869,44 @@ func TestConfiguredProcessExecutor_Lima(t *testing.T) {
 	}
 	if _, ok := executor.(*platform.LimaExecutor); !ok {
 		t.Fatalf("executor = %T, want *platform.LimaExecutor", executor)
+	}
+}
+
+func TestConfiguredJobExecutor_LimaRegistersVMIsolation(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("worker.execution.backend", "lima")
+	viper.Set("worker.execution.lima.instance", "vectis-worker")
+
+	executor, err := configuredJobExecutor(nil)
+	if err != nil {
+		t.Fatalf("configuredJobExecutor(lima): %v", err)
+	}
+
+	defaultExecutor, defaultIsolation, err := executor.ResolveProcessExecutor("")
+	if err != nil {
+		t.Fatalf("ResolveProcessExecutor(default): %v", err)
+	}
+
+	if defaultIsolation != action.IsolationVM {
+		t.Fatalf("default isolation = %q, want %q", defaultIsolation, action.IsolationVM)
+	}
+
+	if _, ok := defaultExecutor.(*platform.LimaExecutor); !ok {
+		t.Fatalf("default executor = %T, want *platform.LimaExecutor", defaultExecutor)
+	}
+
+	hostExecutor, hostIsolation, err := executor.ResolveProcessExecutor(action.IsolationHost)
+	if err != nil {
+		t.Fatalf("ResolveProcessExecutor(host): %v", err)
+	}
+
+	if hostIsolation != action.IsolationHost {
+		t.Fatalf("host isolation = %q, want %q", hostIsolation, action.IsolationHost)
+	}
+
+	if _, ok := hostExecutor.(*interfaces.DirectExecutor); !ok {
+		t.Fatalf("host executor = %T, want *interfaces.DirectExecutor", hostExecutor)
 	}
 }
 

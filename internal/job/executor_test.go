@@ -10,6 +10,7 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/action"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/job"
@@ -906,6 +907,106 @@ func TestExecutor_ExecuteJobInWorkspace_UsesConfiguredProcessExecutor(t *testing
 	}
 	if len(workDirs) != 1 || workDirs[0] != workspace {
 		t.Fatalf("expected configured workspace %q, got workDirs=%v", workspace, workDirs)
+	}
+}
+
+func TestExecutor_ExecuteJobInWorkspace_SelectsIsolationProcessExecutor(t *testing.T) {
+	hostProcessExecutor := mocks.NewMockExecExecutor()
+	hostProcess := mocks.NewMockProcess()
+	hostProcess.SetWaitError(nil)
+	hostProcessExecutor.SetProcess(hostProcess)
+
+	vmProcessExecutor := mocks.NewMockExecExecutor()
+	vmProcess := mocks.NewMockProcess()
+	vmProcess.SetWaitError(nil)
+	vmProcessExecutor.SetProcess(vmProcess)
+
+	executor := job.NewExecutor(
+		job.WithProcessExecutor(hostProcessExecutor),
+		job.WithVMProcessExecutor(vmProcessExecutor),
+		job.WithDefaultIsolation(action.IsolationVM),
+	)
+
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+
+	workspace := t.TempDir()
+	jobID := "test-job-action-isolation"
+	runID := "test-job-action-isolation-run"
+	rootID := "root"
+	rootUses := "builtins/sequence"
+	vmStepID := "vm-step"
+	hostStepID := "host-step"
+	inheritStepID := "inherit-step"
+	shellUses := "builtins/shell"
+	hostIsolation := action.IsolationHost
+	testJob := &api.Job{
+		Id:    &jobID,
+		RunId: &runID,
+		Root: &api.Node{
+			Id:   &rootID,
+			Uses: &rootUses,
+			Steps: []*api.Node{
+				{
+					Id:   &vmStepID,
+					Uses: &shellUses,
+					With: map[string]string{"command": "echo vm"},
+				},
+				{
+					Id:        &hostStepID,
+					Uses:      &shellUses,
+					Isolation: &hostIsolation,
+					With:      map[string]string{"command": "echo host"},
+				},
+				{
+					Id:   &inheritStepID,
+					Uses: &shellUses,
+					With: map[string]string{"command": "echo inherit"},
+				},
+			},
+		},
+	}
+
+	if err := executor.ExecuteJobInWorkspace(context.Background(), testJob, mockLogClient, mockLogger, workspace); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	hostArgs := hostProcessExecutor.GetArgs()
+	if len(hostArgs) != 1 || hostArgs[0][1] != "echo host" {
+		t.Fatalf("expected only explicit host action on host executor, got %v", hostArgs)
+	}
+
+	vmArgs := vmProcessExecutor.GetArgs()
+	if len(vmArgs) != 2 || vmArgs[0][1] != "echo vm" || vmArgs[1][1] != "echo inherit" {
+		t.Fatalf("expected inherited VM actions on VM executor, got %v", vmArgs)
+	}
+}
+
+func TestExecutor_ExecuteJobInWorkspace_VMIsolationRequiresConfiguredExecutor(t *testing.T) {
+	executor := job.NewExecutor()
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+
+	workspace := t.TempDir()
+	jobID := "test-job-missing-vm-isolation"
+	runID := "test-job-missing-vm-isolation-run"
+	nodeID := "node-1"
+	uses := "builtins/shell"
+	isolation := action.IsolationVM
+	testJob := &api.Job{
+		Id:    &jobID,
+		RunId: &runID,
+		Root: &api.Node{
+			Id:        &nodeID,
+			Uses:      &uses,
+			Isolation: &isolation,
+			With:      map[string]string{"command": "echo vm"},
+		},
+	}
+
+	err := executor.ExecuteJobInWorkspace(context.Background(), testJob, mockLogClient, mockLogger, workspace)
+	if err == nil || !strings.Contains(err.Error(), "vm isolation requested but no VM process executor is configured") {
+		t.Fatalf("expected missing VM executor error, got %v", err)
 	}
 }
 

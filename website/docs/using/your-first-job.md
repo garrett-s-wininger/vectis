@@ -155,6 +155,40 @@ Later nodes can bind accepted inputs from earlier outputs in the same local exec
 
 Use either `with.command` or `inputs.command` on a node, not both.
 
+## Optional Action Isolation
+
+Each node can request where its command should run with `isolation`. The supported job-level values are `host` and `vm`:
+
+```json
+{
+  "id": "vm-test-job",
+  "root": {
+    "id": "root",
+    "uses": "builtins/sequence",
+    "isolation": "vm",
+    "steps": [
+      {
+        "id": "test",
+        "uses": "builtins/shell",
+        "with": {
+          "command": "go test ./..."
+        }
+      },
+      {
+        "id": "host-summary",
+        "uses": "builtins/shell",
+        "isolation": "host",
+        "with": {
+          "command": "echo 'summary step on host'"
+        }
+      }
+    ]
+  }
+}
+```
+
+If `isolation` is omitted, the node inherits the worker default or the nearest parent sequence's isolation. A worker must have a matching backend configured for `vm`; otherwise the run fails instead of falling back to host execution.
+
 ## Checkout Then Build
 
 Use `builtins/checkout` to clone a Git repository into the run workspace. Shell steps after checkout run from that workspace.
@@ -218,6 +252,7 @@ Vectis validates jobs before storing them or starting a one-off run.
 | Node `id` is missing | Add an `id` to every node, including child steps. |
 | Duplicate node ID | Rename one of the duplicate node IDs. |
 | Unknown action | Check the `uses` value. Today it must be one of the built-ins above unless you add more actions in code. |
+| Unsupported `isolation` | Use `host` or `vm`. |
 | Missing `command` for `builtins/shell` | Add `with.command`. |
 | Missing `url` for `builtins/checkout` | Add `with.url`. |
 | Unknown key in `with` | Remove fields the selected action does not understand. |

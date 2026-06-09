@@ -57,6 +57,7 @@ Every job must have:
 | Node `uses` | Required and must name a known action. |
 | Node `with` | Must match the fields accepted by the selected action. |
 | Node `inputs` | Optional bound inputs from earlier node outputs. Input names must match fields accepted by the selected action. |
+| Node `isolation` | Optional. If present, must be `host` or `vm`. |
 | Tree size | Up to `256` nodes. |
 | Tree depth | Up to `32` levels. |
 
@@ -197,6 +198,25 @@ Do not set the same action field in both `with` and `inputs`. For example, `with
 
 When omitted, `builtins/parallel` defaults to `distributed`; other built-ins default to `local`.
 
+## Node Isolation
+
+Nodes can request an isolation level with `isolation`:
+
+```json
+{
+  "id": "test-in-vm",
+  "uses": "builtins/shell",
+  "isolation": "vm",
+  "with": {
+    "command": "go test ./..."
+  }
+}
+```
+
+Allowed values are `host` and `vm`. If a node omits `isolation`, it inherits the current worker default or the nearest parent sequence's isolation. A `builtins/sequence` node can set `isolation` for its child steps, and a child can override it.
+
+Validation only checks that the value is supported by the job format. The worker must still have a matching execution provider. For example, a node with `isolation: "vm"` fails at execution time on a worker that has no VM backend configured; it does not fall back to host execution.
+
 ## Reading Validation Errors
 
 API validation errors use this shape:
@@ -224,6 +244,7 @@ Each entry in `details.fields` points to a field path in the job document:
 | `root.uses` | The root node is missing or names an unknown action. |
 | `root.with.command` | The root action rejected its `command` input. |
 | `root.inputs.command.from.node` | A bound input references a node that cannot provide a value before this node runs. |
+| `root.isolation` | The root node requested an unsupported isolation level. |
 | `root.steps[0].id` | The first child step has an ID problem. |
 | `root.ports.branches.nodes[0].id` | The first node attached to the `branches` port has an ID problem. |
 

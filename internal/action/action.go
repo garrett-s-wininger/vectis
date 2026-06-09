@@ -41,19 +41,21 @@ type Result struct {
 }
 
 type ExecutionState struct {
-	JobID           string
-	RunID           string
-	Workspace       string
-	ProcessEnv      []string
-	Logger          interfaces.Logger
-	LogClient       interfaces.LogClient
-	LogStream       interfaces.LogStream
-	Resolver        Resolver
-	Workload        *workloadidentity.Identity
-	ProcessExecutor interfaces.ExecExecutor
-	outputsMu       sync.RWMutex
-	outputsByNode   map[string]map[string]any
-	nextSequence    int64
+	JobID                   string
+	RunID                   string
+	Workspace               string
+	ProcessEnv              []string
+	Logger                  interfaces.Logger
+	LogClient               interfaces.LogClient
+	LogStream               interfaces.LogStream
+	Resolver                Resolver
+	Workload                *workloadidentity.Identity
+	ProcessExecutor         interfaces.ExecExecutor
+	ProcessExecutorResolver ProcessExecutorResolver
+	Isolation               string
+	outputsMu               sync.RWMutex
+	outputsByNode           map[string]map[string]any
+	nextSequence            int64
 }
 
 func (s *ExecutionState) NextSequence() int64 {
@@ -124,6 +126,88 @@ func InputSchema(node Node) []FieldSpec {
 func LocalOnly(node Node) bool {
 	provider, ok := node.(LocalOnlyProvider)
 	return ok && provider.LocalOnly()
+}
+
+const (
+	IsolationHost = "host"
+	IsolationVM   = "vm"
+)
+
+// ProcessExecutorResolver maps an effective isolation level to the process
+// executor that should run action commands.
+type ProcessExecutorResolver interface {
+	ResolveProcessExecutor(isolation string) (interfaces.ExecExecutor, string, error)
+}
+
+func NormalizeIsolation(isolation string) string {
+	return strings.ToLower(strings.TrimSpace(isolation))
+}
+
+func IsSupportedIsolation(isolation string) bool {
+	switch NormalizeIsolation(isolation) {
+	case "", IsolationHost, IsolationVM:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *ExecutionState) ApplyNodeIsolation(node *api.Node) (func(), error) {
+	restore := func() {}
+	if s == nil {
+		return restore, nil
+	}
+
+	requested := ""
+	rawRequested := ""
+	if node != nil {
+		rawRequested = node.GetIsolation()
+		requested = NormalizeIsolation(rawRequested)
+	}
+
+	if !IsSupportedIsolation(requested) {
+		return nil, fmt.Errorf("unsupported isolation level %q", rawRequested)
+	}
+
+	effective := NormalizeIsolation(s.Isolation)
+	if effective == "" {
+		effective = IsolationHost
+	}
+
+	if requested != "" {
+		effective = requested
+	}
+
+	previousExecutor := s.ProcessExecutor
+	previousIsolation := s.Isolation
+
+	if s.ProcessExecutorResolver == nil {
+		if requested != "" && effective != IsolationHost {
+			return nil, fmt.Errorf("isolation level %q requested but no process executor resolver is configured", requested)
+		}
+
+		s.Isolation = effective
+		return func() {
+			s.ProcessExecutor = previousExecutor
+			s.Isolation = previousIsolation
+		}, nil
+	}
+
+	processExecutor, resolvedIsolation, err := s.ProcessExecutorResolver.ResolveProcessExecutor(effective)
+	if err != nil {
+		return nil, err
+	}
+
+	if resolvedIsolation == "" {
+		resolvedIsolation = effective
+	}
+
+	s.ProcessExecutor = processExecutor
+	s.Isolation = resolvedIsolation
+	return func() {
+		s.ProcessExecutor = previousExecutor
+		s.Isolation = previousIsolation
+	}, nil
 }
 
 type FieldError struct {

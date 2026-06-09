@@ -200,6 +200,7 @@ Jobs are trees of nodes. Each node has:
 - `uses`, the action to run
 - `with`, action inputs
 - `steps`, child nodes
+- `isolation`, an optional `host` or `vm` execution request
 
 Built-in actions currently include `builtins/shell`, `builtins/checkout`, and `builtins/sequence`. Job shape and validation are covered in [Your First Job](../using/your-first-job.md) and [Job Definition Validation](../using/job-validation.md). Contributor guidance for adding actions is in [Adding Actions](../developing/actions.md).
 
@@ -209,7 +210,7 @@ By default, a worker creates a per-run workspace directory and executes built-in
 
 That workspace is not a security sandbox. Host execution still shares the worker user's permissions, host kernel, process environment, network access, and mounted credentials. The accepted target design for stronger containment is [ADR 0009](../developing/architecture-decisions/0009-worker-execution-containment-providers.md): keep host execution as the default compatibility path, then add container and VM execution providers behind a worker runner boundary.
 
-`vectis-worker` can also be configured with the `lima` execution backend, which sends built-in action commands through `limactl shell` to an operator-managed Lima VM. This is the first VM-oriented command backend; full profile-aware placement, disposable VM lifecycle, and container providers remain future work.
+`vectis-worker` can also be configured with the `lima` execution backend, which registers an operator-managed Lima VM as the provider for nodes that inherit or request `isolation: "vm"`. This is the first VM-oriented command backend; full placement awareness, disposable VM lifecycle, and container providers remain future work.
 
 ## What Is Not In This Architecture
 
@@ -217,7 +218,7 @@ Vectis does not currently ship:
 
 - a projects API
 - an artifacts API
-- profile-aware container or disposable VM worker execution containment
+- profile-aware scheduling for mixed host, container, or disposable VM worker pools
 - shared-storage active/active queue or log clustering
 - multi-site federation
 - an OpenAPI artifact

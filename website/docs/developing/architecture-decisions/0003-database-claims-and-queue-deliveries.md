@@ -32,7 +32,7 @@ Workers require queue deliveries for persisted work to carry a `run_id` and exec
 - [Failure Domains](../../concepts/failure-domains.md)
 - [Dispatch Visibility](../../operating/reliability/dispatch-visibility.md)
 - [Scaling And Restarts](../../operating/deployment/scaling-and-restarts.md)
-- [ADR 0006](./0006-queue-pool-shards.md)
+- [ADR 0007](./0007-queue-pool-shards.md)
 - `cmd/worker/main.go` (`runTaskExecution`, `TryClaimExecution`, `ackDelivery`)
 - `internal/dal` (`DefaultLeaseTTL`, `DefaultRenewInterval`, execution claim/update run status)
 - `internal/queue/server.go` (delivery TTL, inflight/requeue behavior)

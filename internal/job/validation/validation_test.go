@@ -403,6 +403,38 @@ func TestValidateJob_BoundInputsRejectPostBoundaryScope(t *testing.T) {
 	}
 }
 
+func TestValidateJob_AllowsSupportedIsolationLevels(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	hostIsolation := "host"
+	vmIsolation := "vm"
+	job.Root.Isolation = &vmIsolation
+	job.Root.Steps[0].Isolation = &hostIsolation
+
+	if err := validation.ValidateJob(job, validation.Options{RequireJobID: true}); err != nil {
+		t.Fatalf("expected valid isolation levels: %v", err)
+	}
+}
+
+func TestValidateJob_RejectsUnsupportedIsolationLevel(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	isolation := "container"
+	job.Root.Steps[0].Isolation = &isolation
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
+	if err == nil {
+		t.Fatal("expected validation error for unsupported isolation")
+	}
+
+	msg := err.Error()
+	if !strings.Contains(msg, `root.steps[0].isolation: must be one of "host" or "vm"`) {
+		t.Fatalf("expected unsupported isolation error, got %q", msg)
+	}
+}
+
 func TestValidateJob_CheckoutMissingURL(t *testing.T) {
 	t.Parallel()
 

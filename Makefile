@@ -120,7 +120,7 @@ test-integration:
 
 .PHONY: test-lima
 test-lima:
-	go test ./internal/platform -run TestLimaExecutorIntegration -count=1 -v
+	go test ./internal/platform ./internal/job -run TestLimaExecutorIntegration -count=1 -v
 
 .PHONY: test-postgres-integration
 test-postgres-integration:

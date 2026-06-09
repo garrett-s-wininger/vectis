@@ -71,6 +71,22 @@ func executeChildNode(ctx context.Context, node *api.Node, state *action.Executi
 	)
 	defer span.End()
 
+	restoreIsolation, err := state.ApplyNodeIsolation(node)
+	if err != nil {
+		wrapped := &action.ExecutionError{
+			NodeID:  node.GetId(),
+			Action:  node.GetUses(),
+			Message: "failed to resolve isolation",
+			Cause:   err,
+		}
+
+		span.RecordError(wrapped)
+		span.SetStatus(otelcodes.Error, "resolve isolation")
+		return action.NewFailureResult(wrapped)
+	}
+	defer restoreIsolation()
+	span.SetAttributes(attribute.String("action.isolation", state.Isolation))
+
 	if state.Resolver == nil {
 		err := &action.ExecutionError{
 			NodeID:  node.GetId(),

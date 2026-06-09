@@ -30,9 +30,11 @@ type LogStreamWaiter interface {
 }
 
 type Executor struct {
-	registry        *builtins.Registry
-	processExecutor interfaces.ExecExecutor
-	workspaceRoot   string
+	registry            *builtins.Registry
+	hostProcessExecutor interfaces.ExecExecutor
+	vmProcessExecutor   interfaces.ExecExecutor
+	defaultIsolation    string
+	workspaceRoot       string
 
 	// TestLogStreamHook is a test-only channel that receives the LogStreamWaiter
 	// created during ExecuteJob. It allows tests to wait for background flush
@@ -48,11 +50,32 @@ type ExecuteOptions struct {
 type ExecutorOption func(*Executor)
 
 // WithProcessExecutor sets the command execution backend used by built-in
-// actions during a run. Nil preserves the default host process executor.
+// host-isolated actions during a run. Nil preserves the default host process
+// executor.
 func WithProcessExecutor(processExecutor interfaces.ExecExecutor) ExecutorOption {
 	return func(e *Executor) {
 		if processExecutor != nil {
-			e.processExecutor = processExecutor
+			e.hostProcessExecutor = processExecutor
+		}
+	}
+}
+
+// WithVMProcessExecutor sets the command execution backend used by VM-isolated
+// actions. Nil leaves VM isolation unavailable.
+func WithVMProcessExecutor(processExecutor interfaces.ExecExecutor) ExecutorOption {
+	return func(e *Executor) {
+		if processExecutor != nil {
+			e.vmProcessExecutor = processExecutor
+		}
+	}
+}
+
+// WithDefaultIsolation sets the isolation level inherited by nodes that do not
+// declare one explicitly. Empty preserves the existing default.
+func WithDefaultIsolation(isolation string) ExecutorOption {
+	return func(e *Executor) {
+		if normalized := action.NormalizeIsolation(isolation); normalized != "" {
+			e.defaultIsolation = normalized
 		}
 	}
 }
@@ -67,8 +90,9 @@ func WithWorkspaceRoot(root string) ExecutorOption {
 
 func NewExecutor(options ...ExecutorOption) *Executor {
 	e := &Executor{
-		registry:        builtins.NewRegistry(),
-		processExecutor: interfaces.NewDirectExecutor(),
+		registry:            builtins.NewRegistry(),
+		hostProcessExecutor: interfaces.NewDirectExecutor(),
+		defaultIsolation:    action.IsolationHost,
 	}
 
 	for _, option := range options {
@@ -78,6 +102,34 @@ func NewExecutor(options ...ExecutorOption) *Executor {
 	}
 
 	return e
+}
+
+func (e *Executor) ResolveProcessExecutor(isolation string) (interfaces.ExecExecutor, string, error) {
+	effective := action.NormalizeIsolation(isolation)
+	if effective == "" {
+		effective = action.NormalizeIsolation(e.defaultIsolation)
+	}
+
+	if effective == "" {
+		effective = action.IsolationHost
+	}
+
+	switch effective {
+	case action.IsolationHost:
+		if e.hostProcessExecutor == nil {
+			return nil, "", fmt.Errorf("host isolation requested but no host process executor is configured")
+		}
+
+		return e.hostProcessExecutor, action.IsolationHost, nil
+	case action.IsolationVM:
+		if e.vmProcessExecutor == nil {
+			return nil, "", fmt.Errorf("vm isolation requested but no VM process executor is configured")
+		}
+
+		return e.vmProcessExecutor, action.IsolationVM, nil
+	default:
+		return nil, "", fmt.Errorf("unsupported isolation level %q", isolation)
+	}
 }
 
 func sanitizeJobIDForPrefix(id string) string {
@@ -188,6 +240,11 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 		}
 	}()
 
+	processExecutor, isolation, err := e.ResolveProcessExecutor(e.defaultIsolation)
+	if err != nil {
+		return err
+	}
+
 	state := &action.ExecutionState{
 		JobID:     job.GetId(),
 		RunID:     job.GetRunId(),
@@ -196,12 +253,14 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 			workspace,
 			os.Environ(),
 		),
-		Logger:          logger,
-		LogClient:       logClient,
-		LogStream:       logStream,
-		Resolver:        e.registry,
-		Workload:        opts.WorkloadIdentity,
-		ProcessExecutor: e.processExecutor,
+		Logger:                  logger,
+		LogClient:               logClient,
+		LogStream:               logStream,
+		Resolver:                e.registry,
+		Workload:                opts.WorkloadIdentity,
+		ProcessExecutor:         processExecutor,
+		ProcessExecutorResolver: e,
+		Isolation:               isolation,
 	}
 
 	sendLog(state, api.Stream_STREAM_CONTROL, `{"event":"start"}`)
@@ -254,6 +313,22 @@ func (e *Executor) executeNodeWithPorts(ctx context.Context, node *api.Node, sta
 		span.SetAttributes(attribute.String("vectis.workload.spiffe_id", state.Workload.SPIFFEID))
 	}
 	defer span.End()
+
+	restoreIsolation, err := state.ApplyNodeIsolation(node)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(otelcodes.Error, "resolve isolation")
+		return action.NewFailureResult(
+			&action.ExecutionError{
+				NodeID:  node.GetId(),
+				Action:  node.GetUses(),
+				Message: "failed to resolve isolation",
+				Cause:   err,
+			},
+		)
+	}
+	defer restoreIsolation()
+	span.SetAttributes(attribute.String("action.isolation", state.Isolation))
 
 	nodeImpl, err := e.registry.Resolve(node.GetUses())
 	if err != nil {

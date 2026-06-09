@@ -26,16 +26,17 @@ The default provider remains `host`. It preserves current behavior: create a per
 
 Add stronger providers in layers:
 
-1. `container`: run the whole job or segment inside an OCI-style container where a supported runtime is available. The provider owns image selection, workspace mounts, environment filtering, resource limits, network mode, read-only root configuration, user mapping, and cleanup. Container providers improve filesystem, process, and resource isolation, but they still share a kernel with the container runtime's host or VM.
-2. `vm`: run the whole job or segment inside a VM created from a prepared image, snapshot, or operator-managed instance. The provider owns or integrates with boot, guest transport, workspace transfer or mount, network policy, resource limits, cancellation, log forwarding, and teardown. VM providers are the target for stronger untrusted-workload isolation, at higher startup and operational cost. The first implementation path is a Lima command backend for macOS worker experiments; disposable VM lifecycle remains a later milestone.
+1. `container`: run job commands inside an OCI-style container where a supported runtime is available. The provider owns image selection, workspace mounts, environment filtering, resource limits, network mode, read-only root configuration, user mapping, and cleanup. Container providers improve filesystem, process, and resource isolation, but they still share a kernel with the container runtime's host or VM.
+2. `vm`: run job commands inside a VM created from a prepared image, snapshot, or operator-managed instance. The provider owns or integrates with boot, guest transport, workspace transfer or mount, network policy, resource limits, cancellation, log forwarding, and teardown. VM providers are the target for stronger untrusted-workload isolation, at higher startup and operational cost. The first implementation path is a Lima command backend for macOS worker experiments; disposable VM lifecycle remains a later milestone.
 
 The runner boundary should sit under the worker and above action implementation:
 
 - Workers still claim runs, renew leases, open durable log streams, observe cancellation, and finalize status.
 - A runner owns the per-run execution environment, command execution adapter, workspace lifecycle, environment policy, resource policy, and cleanup.
 - Built-in actions keep their stable semantics. `builtins/checkout` still means "clone into the workspace", and `builtins/shell` still means "run this command in the workspace"; the configured runner decides where that command actually runs.
-- The default execution unit is a whole run or cell-local segment, not one isolated environment per node. That preserves the common checkout-then-build workspace flow. Per-step isolation can be considered later only with explicit artifact, cache, and workspace semantics.
-- Jobs should request portable execution profiles or capabilities rather than raw runtime-specific flags. Workers should advertise or be assigned the profiles they can satisfy. A job that needs `container` or `vm` containment should not silently fall back to `host`.
+- Job nodes can request portable isolation levels rather than raw runtime-specific flags. `host` remains the compatibility level, while `vm` asks the worker for a configured VM provider. Nodes that omit an isolation level inherit the worker default or the nearest parent sequence's isolation.
+- The current node-level boundary selects where action commands execute while preserving the shared run workspace semantics that make checkout-then-build flows work. Disposable per-step environments, artifact transfer, cache policy, and workspace copy semantics remain follow-up design.
+- Workers should advertise or be assigned the profiles they can satisfy. A job that needs `container` or `vm` containment should not silently fall back to `host`.
 
 Provider configuration must be operator-controlled. Job authors can select an allowed profile, but should not be able to directly request privileged containers, arbitrary host mounts, host networking, VM images, or device access unless policy explicitly permits it.
 
@@ -43,8 +44,8 @@ Provider configuration must be operator-controlled. Job authors can select an al
 
 - Vectis can offer a graduated isolation story without changing the job graph action model.
 - Existing deployments keep the no-extra-dependency host path.
-- Container support becomes the first practical improvement for many operators, especially Linux workers and Podman/Docker-based deployments, while docs remain clear that containers are not equivalent to VM isolation.
-- VM support gives a stronger target for hostile or regulated workloads, but requires image lifecycle, guest tooling, startup latency, artifact transfer, network policy, and cleanup design.
+- Container support remains the next practical improvement for many operators, especially Linux workers and Podman/Docker-based deployments, while docs remain clear that containers are not equivalent to VM isolation.
+- VM support gives a stronger target for hostile or regulated workloads, but disposable VM lifecycle still requires image lifecycle, guest tooling, startup latency, artifact transfer, network policy, and cleanup design.
 - Worker scheduling needs profile awareness before Vectis can safely mix host, container, and VM workers in the same cell.
 - Cancellation must become provider-aware: first signal the running command or guest, then enforce a bounded cleanup path for containers or VMs.
 - Observability must include the selected provider/profile and provider setup failures so operators can distinguish "job failed" from "runner could not prepare the environment."
@@ -54,10 +55,10 @@ Provider configuration must be operator-controlled. Job authors can select an al
 
 1. Introduce the runner boundary while keeping the current `host` behavior unchanged.
 2. Move direct process creation behind the runner-provided command executor so built-in actions do not instantiate host execution by default.
-3. Add worker execution profiles with validation, documentation, and no silent fallback across isolation levels.
-4. Implement a container provider with conservative defaults: non-privileged, minimal mounts, environment allowlist, configurable image, resource limits, cleanup on cancellation, and documented runtime requirements.
-5. Add placement and operational checks so workers only receive runs whose requested profile they can satisfy.
-6. Expand VM providers behind the same runner contract, starting from the Lima command backend before adding disposable VM lifecycle and additional provider-specific drivers.
+3. Add node-level isolation selection with validation, documentation, inherited defaults, and no silent fallback across isolation levels.
+4. Register a VM provider behind the same runner contract, starting from the Lima command backend before adding disposable VM lifecycle and additional provider-specific drivers.
+5. Implement a container provider with conservative defaults: non-privileged, minimal mounts, environment allowlist, configurable image, resource limits, cleanup on cancellation, and documented runtime requirements.
+6. Add placement and operational checks so workers only receive runs whose requested profile they can satisfy.
 7. Add run metadata, metrics, and log annotations for provider, profile, setup time, cleanup outcome, and policy denial.
 
 ## Non-Goals

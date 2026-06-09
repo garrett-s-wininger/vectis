@@ -152,6 +152,9 @@ func (v *validator) walk(node *api.Node, path string, depth int, scope string) {
 			fmt.Sprintf("must be %q or %q, got %q", taskgraph.ExecutionLocal, taskgraph.ExecutionDistributed, strings.TrimSpace(raw)),
 		)
 	}
+	if isolation := strings.TrimSpace(node.GetIsolation()); isolation != "" && !action.IsSupportedIsolation(isolation) {
+		v.add(path+".isolation", `must be one of "host" or "vm"`)
+	}
 
 	if uses == "" {
 		v.add(path+".uses", "is required")

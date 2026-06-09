@@ -21,6 +21,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/action"
 	"vectis/internal/backoff"
 	"vectis/internal/cell"
 	"vectis/internal/cli"
@@ -288,10 +289,12 @@ func configuredJobExecutor(logger interfaces.Logger) (*job.Executor, error) {
 	if workspaceRoot := config.WorkerExecutionWorkspaceRoot(); workspaceRoot != "" {
 		options = append(options, job.WithWorkspaceRoot(workspaceRoot))
 	}
-	if processExecutor == nil {
-		return job.NewExecutor(options...), nil
+	if processExecutor != nil {
+		options = append(options,
+			job.WithVMProcessExecutor(processExecutor),
+			job.WithDefaultIsolation(action.IsolationVM),
+		)
 	}
-	options = append(options, job.WithProcessExecutor(processExecutor))
 	return job.NewExecutor(options...), nil
 }
 

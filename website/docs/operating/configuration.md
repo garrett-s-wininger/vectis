@@ -324,6 +324,8 @@ For failure behavior with and without registry, see [Failure Domains](../concept
 
 Workers default to the `host` execution backend. In that mode, built-in actions execute as child processes on the worker host inside the per-run workspace. This is compatible with existing deployments, but it is not a security sandbox.
 
+Job nodes can also declare `isolation: "host"` or `isolation: "vm"`. Nodes that omit `isolation` inherit the worker default or the nearest parent `builtins/sequence` isolation. A worker must have a matching provider for the requested isolation level; Vectis does not silently fall back from `vm` to `host`.
+
 The first VM-oriented backend is `lima`, intended for macOS worker isolation experiments with a prepared [Lima](https://lima-vm.io/) instance:
 
 ```sh
@@ -346,7 +348,9 @@ Equivalent environment variables:
 | `VECTIS_WORKER_LIMA_START` / `worker.execution.lima.start` | Passes `--start` to `limactl shell` before each command. It starts an existing instance; it does not create or configure one. |
 | `VECTIS_WORKER_LIMA_PRESERVE_ENV` / `worker.execution.lima.preserve_env` | Passes `--preserve-env` to `limactl shell`. Off by default to avoid leaking host environment variables into the guest. |
 
-The Lima backend does not silently fall back to host execution. Startup fails if `backend=lima` is selected without an instance name. Command execution fails if the Lima instance is unavailable. If `VECTIS_WORKER_LIMA_GUEST_WORKSPACE_ROOT` is empty, the run workspace path must be visible and writable inside the guest; configure `VECTIS_WORKER_WORKSPACE_ROOT` and Lima mounts accordingly. If `VECTIS_WORKER_LIMA_GUEST_WORKSPACE_ROOT` is set, Vectis maps each run workspace to a same-named guest directory under that root and creates it before each command.
+The Lima backend sets the worker's inherited action isolation to `vm` and registers Lima as the VM command provider. A node can still request `isolation: "host"` explicitly for a host-side action on that worker.
+
+The Lima backend does not silently fall back to host execution. Startup fails if `backend=lima` is selected without an instance name. Command execution fails if the Lima instance is unavailable. A host-default worker fails any node that requests `isolation: "vm"` because no VM provider is registered. If `VECTIS_WORKER_LIMA_GUEST_WORKSPACE_ROOT` is empty, the run workspace path must be visible and writable inside the guest; configure `VECTIS_WORKER_WORKSPACE_ROOT` and Lima mounts accordingly. If `VECTIS_WORKER_LIMA_GUEST_WORKSPACE_ROOT` is set, Vectis maps each run workspace to a same-named guest directory under that root and creates it before each command.
 
 To smoke test the executor against a prepared instance from a development checkout:
 
@@ -354,9 +358,9 @@ To smoke test the executor against a prepared instance from a development checko
 VECTIS_TEST_LIMA_INSTANCE=vectis-worker make test-lima
 ```
 
-By default, that test creates a temporary workspace under the development checkout, so the checkout path must also be writable inside the Lima guest. Set `VECTIS_TEST_LIMA_WORKSPACE_ROOT=/path/mounted/in/guest` to test another host-mounted workspace root, or `VECTIS_TEST_LIMA_GUEST_WORKSPACE_ROOT=/tmp/vectis-workspaces` to test the guest-owned workspace mode.
+By default, that test creates a temporary workspace under the development checkout, so the checkout path must also be writable inside the Lima guest. Set `VECTIS_TEST_LIMA_WORKSPACE_ROOT=/path/mounted/in/guest` to test another host-mounted workspace root, or `VECTIS_TEST_LIMA_GUEST_WORKSPACE_ROOT=/tmp/vectis-workspaces` to test the guest-owned workspace mode. Set `VECTIS_TEST_LIMA_START=1` when the prepared instance may be stopped and the test should pass `--start` to `limactl shell`.
 
-This backend is a first command-execution boundary, not the full profile-aware isolation system described in [ADR 0009](../developing/architecture-decisions/0009-worker-execution-containment-providers.md). Worker placement, per-job profile selection, container backends, disposable VM lifecycle, and provider-specific security posture docs remain follow-up work.
+This backend is a first command-execution boundary, not the full profile-aware isolation system described in [ADR 0009](../developing/architecture-decisions/0009-worker-execution-containment-providers.md). Worker placement, richer policy checks, container backends, disposable VM lifecycle, and provider-specific security posture docs remain follow-up work.
 
 ## Logs And Tracing
 

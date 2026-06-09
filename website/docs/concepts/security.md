@@ -121,7 +121,7 @@ Workers can derive an expected per-execution SPIFFE ID from the execution envelo
 
 Vectis rejects checkout URLs that embed user info, such as `https://user:token@example.com/org/repo.git`, because those credentials can leak through persisted job definitions, logs, or process surfaces. Build steps can still print secrets themselves, so log access remains sensitive.
 
-The accepted target design is [ADR 0009: Worker execution containment providers](../developing/architecture-decisions/0009-worker-execution-containment-providers.md). Host execution remains the default. The opt-in Lima backend can route action commands through an operator-managed VM for macOS isolation experiments, but full profile-aware placement, disposable VM lifecycle, and container providers are still pending. Until a stronger backend is configured and validated for your threat model, treat Vectis workers as trusted-execution hosts.
+The accepted target design is [ADR 0009: Worker execution containment providers](../developing/architecture-decisions/0009-worker-execution-containment-providers.md). Host execution remains the default. Job nodes can request `isolation: "vm"`, and the opt-in Lima backend can satisfy those commands through an operator-managed VM for macOS isolation experiments, but full placement awareness, disposable VM lifecycle, and container providers are still pending. Until a stronger backend is configured and validated for your threat model, treat Vectis workers as trusted-execution hosts.
 
 ## Audit and Abuse Controls
 

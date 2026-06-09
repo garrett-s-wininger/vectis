@@ -27,6 +27,7 @@ message Node {
     repeated Node steps = 4;
     map<string, NodePort> ports = 5;
     map<string, NodeInput> inputs = 6;
+    string isolation = 7;
 }
 
 message NodePort {

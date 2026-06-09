@@ -32,7 +32,7 @@ Vectis is a self-hosted orchestrator for generic job graphs and CI/CD-style work
 | Triggers | Add webhook and optional VCS polling support. Decide whether future trigger types belong in one trigger service or separate binaries. |
 | Operational coverage | Extend `health check` into deploy-specific checks that cannot be inferred through the API, including TLS files and writable storage paths. |
 | Observability | Improve run correlation across API, queue, worker, log service, and database. Keep Prometheus metrics; add richer traces only where they help operators debug real failures. |
-| Worker safety | Continue the [worker execution containment provider](../architecture-decisions/0009-worker-execution-containment-providers.md) path: Lima command backend first, then profile-aware placement, container profiles, and disposable VM profiles for stronger isolation. |
+| Worker safety | Continue the [worker execution containment provider](../architecture-decisions/0009-worker-execution-containment-providers.md) path: action-level `host`/`vm` selection and Lima command backend first, then profile-aware placement, container profiles, and disposable VM profiles for stronger isolation. |
 | Secrets | Design a local secrets service with provider-neutral contracts, worker-side resolution, authorization, audit, and redaction hooks. |
 | Federation | Defer until single-cell behavior is boring. Future federation should use a gateway over distributed Vectis cells, not one shared global database. |
 
