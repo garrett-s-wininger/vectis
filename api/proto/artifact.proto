@@ -1,0 +1,33 @@
+edition = "2023";
+
+option go_package = "vectis/api/gen/go;api";
+
+message BlobDescriptor {
+    string key = 1;
+    string algorithm = 2;
+    string digest = 3;
+    int64 size = 4;
+}
+
+message UploadBlobRequest {
+    bytes data = 1;
+    string expected_sha256 = 2;
+    int64 expected_size = 3;
+    bool require_size = 4;
+    int64 max_bytes = 5;
+}
+
+message GetBlobRequest {
+    string key = 1;
+}
+
+message ReadBlobResponse {
+    BlobDescriptor blob = 1;
+    bytes data = 2;
+}
+
+service ArtifactService {
+    rpc UploadBlob(stream UploadBlobRequest) returns (BlobDescriptor);
+    rpc StatBlob(GetBlobRequest) returns (BlobDescriptor);
+    rpc ReadBlob(GetBlobRequest) returns (stream ReadBlobResponse);
+}

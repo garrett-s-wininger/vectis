@@ -24,6 +24,8 @@ var (
 	ErrBlobDigestMismatch = errors.New("artifact blob digest mismatch")
 	ErrBlobSizeMismatch   = errors.New("artifact blob size mismatch")
 	ErrBlobTooLarge       = errors.New("artifact blob exceeds size limit")
+	ErrInvalidBlobKey     = errors.New("invalid artifact blob key")
+	ErrInvalidDigest      = errors.New("invalid artifact digest")
 	ErrStoreReadOnly      = errors.New("artifact storage is read-only for new blobs")
 )
 
@@ -393,7 +395,7 @@ func descriptorForSHA256(digest string, size int64) BlobDescriptor {
 func parseSHA256BlobKey(key string) (string, error) {
 	prefix := HashSHA256 + ":"
 	if !strings.HasPrefix(key, prefix) {
-		return "", fmt.Errorf("artifact blob key must use %s prefix", prefix)
+		return "", fmt.Errorf("%w: must use %s prefix", ErrInvalidBlobKey, prefix)
 	}
 
 	return normalizeSHA256Digest(strings.TrimPrefix(key, prefix))
@@ -401,15 +403,15 @@ func parseSHA256BlobKey(key string) (string, error) {
 
 func normalizeSHA256Digest(digest string) (string, error) {
 	if len(digest) != sha256.Size*2 {
-		return "", fmt.Errorf("sha256 digest must be %d lowercase hex characters", sha256.Size*2)
+		return "", fmt.Errorf("%w: sha256 digest must be %d lowercase hex characters", ErrInvalidDigest, sha256.Size*2)
 	}
 
 	if strings.ToLower(digest) != digest {
-		return "", fmt.Errorf("sha256 digest must be lowercase hex")
+		return "", fmt.Errorf("%w: sha256 digest must be lowercase hex", ErrInvalidDigest)
 	}
 
 	if _, err := hex.DecodeString(digest); err != nil {
-		return "", fmt.Errorf("sha256 digest must be lowercase hex: %w", err)
+		return "", fmt.Errorf("%w: sha256 digest must be lowercase hex: %v", ErrInvalidDigest, err)
 	}
 
 	return digest, nil
