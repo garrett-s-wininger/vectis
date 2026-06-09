@@ -917,7 +917,7 @@ func executionWorkloadIdentity(env *cell.ExecutionEnvelope) (*workloadidentity.I
 }
 
 func (w *worker) acquireExecutionSVID(ctx context.Context, identity *workloadidentity.Identity) (*workloadidentity.Identity, error) {
-	if !config.WorkerSPIREEnabled() && !config.WorkerSPIRERequireExecutionSVID() {
+	if !config.WorkerSPIREEnabled() {
 		return identity, nil
 	}
 
@@ -959,11 +959,6 @@ func (w *worker) acquireExecutionSVID(ctx context.Context, identity *workloadide
 	}
 
 	return identity.WithX509SVID(workloadidentity.X509SVID{SPIFFEID: svid.SPIFFEID}), nil
-}
-
-func (w *worker) requireExecutionSVID(ctx context.Context, identity *workloadidentity.Identity) error {
-	_, err := w.acquireExecutionSVID(ctx, identity)
-	return err
 }
 
 func workerSPIRESVIDFailureReason(err error) string {

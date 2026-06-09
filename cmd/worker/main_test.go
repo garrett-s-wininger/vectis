@@ -3025,16 +3025,6 @@ func (s fakeWorkerSVIDSource) FetchX509SVIDs(ctx context.Context) ([]spire.X509S
 	return append([]spire.X509SVID(nil), s.svids...), nil
 }
 
-func TestRequireExecutionSVIDDisabled(t *testing.T) {
-	viper.Reset()
-	t.Cleanup(viper.Reset)
-
-	w := &worker{}
-	if err := w.requireExecutionSVID(context.Background(), workerTestWorkloadIdentity()); err != nil {
-		t.Fatalf("requireExecutionSVID disabled: %v", err)
-	}
-}
-
 func TestAcquireExecutionSVIDDisabledDoesNotFetch(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
@@ -3084,7 +3074,7 @@ func TestAcquireExecutionSVIDSPIREEnabledAttachesMatchedSVID(t *testing.T) {
 	}
 }
 
-func TestAcquireExecutionSVIDSPIREEnabledRejectsMissingSVIDWithoutRequireFlag(t *testing.T) {
+func TestAcquireExecutionSVIDSPIREEnabledRejectsMissingSVID(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 	viper.Set("worker.spire.enabled", true)
@@ -3095,79 +3085,79 @@ func TestAcquireExecutionSVIDSPIREEnabledRejectsMissingSVIDWithoutRequireFlag(t 
 
 	_, err := w.acquireExecutionSVID(context.Background(), workerTestWorkloadIdentity())
 	if err == nil || !strings.Contains(err.Error(), "no X.509-SVID") {
-		t.Fatalf("acquireExecutionSVID error = %v, want missing SVID even without require flag", err)
+		t.Fatalf("acquireExecutionSVID error = %v, want missing SVID", err)
 	}
 }
 
-func TestRequireExecutionSVIDRequiresIdentity(t *testing.T) {
+func TestAcquireExecutionSVIDSPIREEnabledRequiresIdentity(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
-	viper.Set("worker.spire.require_execution_svid", true)
+	viper.Set("worker.spire.enabled", true)
 
 	w := &worker{spireSVIDSource: fakeWorkerSVIDSource{}}
-	err := w.requireExecutionSVID(context.Background(), nil)
+	_, err := w.acquireExecutionSVID(context.Background(), nil)
 	if err == nil || !strings.Contains(err.Error(), "execution identity is missing") {
-		t.Fatalf("requireExecutionSVID error = %v, want missing identity", err)
+		t.Fatalf("acquireExecutionSVID error = %v, want missing identity", err)
 	}
 }
 
-func TestRequireExecutionSVIDRequiresSource(t *testing.T) {
+func TestAcquireExecutionSVIDSPIREEnabledRequiresSource(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
-	viper.Set("worker.spire.require_execution_svid", true)
+	viper.Set("worker.spire.enabled", true)
 
 	w := &worker{}
-	err := w.requireExecutionSVID(context.Background(), workerTestWorkloadIdentity())
+	_, err := w.acquireExecutionSVID(context.Background(), workerTestWorkloadIdentity())
 	if err == nil || !strings.Contains(err.Error(), "SPIRE source is not configured") {
-		t.Fatalf("requireExecutionSVID error = %v, want missing source", err)
+		t.Fatalf("acquireExecutionSVID error = %v, want missing source", err)
 	}
 }
 
-func TestRequireExecutionSVIDAcceptsMatchingSource(t *testing.T) {
+func TestAcquireExecutionSVIDSPIREEnabledAcceptsMatchingSource(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
-	viper.Set("worker.spire.require_execution_svid", true)
+	viper.Set("worker.spire.enabled", true)
 
 	w := &worker{spireSVIDSource: fakeWorkerSVIDSource{svids: []spire.X509SVID{
 		{SPIFFEID: workerTestWorkloadIdentity().SPIFFEID},
 	}}}
 
-	if err := w.requireExecutionSVID(context.Background(), workerTestWorkloadIdentity()); err != nil {
-		t.Fatalf("requireExecutionSVID: %v", err)
+	if _, err := w.acquireExecutionSVID(context.Background(), workerTestWorkloadIdentity()); err != nil {
+		t.Fatalf("acquireExecutionSVID: %v", err)
 	}
 }
 
-func TestRequireExecutionSVIDRejectsMissingSVID(t *testing.T) {
+func TestAcquireExecutionSVIDSPIREEnabledRejectsMissingSVIDFromSource(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
-	viper.Set("worker.spire.require_execution_svid", true)
+	viper.Set("worker.spire.enabled", true)
 
 	w := &worker{spireSVIDSource: fakeWorkerSVIDSource{svids: []spire.X509SVID{
 		{SPIFFEID: "spiffe://prod.example/cell/iad-a/namespace/team-a/job/job-1/run/run-1/execution/other"},
 	}}}
 
-	err := w.requireExecutionSVID(context.Background(), workerTestWorkloadIdentity())
+	_, err := w.acquireExecutionSVID(context.Background(), workerTestWorkloadIdentity())
 	if err == nil || !strings.Contains(err.Error(), "no X.509-SVID") {
-		t.Fatalf("requireExecutionSVID error = %v, want missing SVID", err)
+		t.Fatalf("acquireExecutionSVID error = %v, want missing SVID", err)
 	}
 }
 
-func TestRequireExecutionSVIDUsesFetchTimeout(t *testing.T) {
+func TestAcquireExecutionSVIDSPIREEnabledUsesFetchTimeout(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
-	viper.Set("worker.spire.require_execution_svid", true)
+	viper.Set("worker.spire.enabled", true)
 	viper.Set("worker.spire.fetch_timeout", time.Millisecond)
 
 	w := &worker{spireSVIDSource: fakeWorkerSVIDSource{wait: make(chan struct{})}}
 
 	started := time.Now()
-	err := w.requireExecutionSVID(context.Background(), workerTestWorkloadIdentity())
+	_, err := w.acquireExecutionSVID(context.Background(), workerTestWorkloadIdentity())
 	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("requireExecutionSVID error = %v, want context deadline exceeded", err)
+		t.Fatalf("acquireExecutionSVID error = %v, want context deadline exceeded", err)
 	}
 
 	if elapsed := time.Since(started); elapsed > time.Second {
-		t.Fatalf("requireExecutionSVID elapsed = %v, want bounded by fetch timeout", elapsed)
+		t.Fatalf("acquireExecutionSVID elapsed = %v, want bounded by fetch timeout", elapsed)
 	}
 }
 

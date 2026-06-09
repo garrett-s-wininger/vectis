@@ -16,10 +16,6 @@ func TestWorkerSPIREDefaultsDisabled(t *testing.T) {
 		t.Fatal("WorkerSPIREEnabled = true, want false")
 	}
 
-	if WorkerSPIRERequireExecutionSVID() {
-		t.Fatal("WorkerSPIRERequireExecutionSVID = true, want false")
-	}
-
 	if got := WorkerSPIREFetchTimeout(); got <= 0 {
 		t.Fatalf("WorkerSPIREFetchTimeout = %v, want > 0", got)
 	}
@@ -114,36 +110,5 @@ func TestValidateWorkerSPIREEnabledNeedsExecutionIdentity(t *testing.T) {
 	err := ValidateWorkerSPIREConfig()
 	if err == nil || !strings.Contains(err.Error(), "worker.execution_identity.enabled") {
 		t.Fatalf("ValidateWorkerSPIREConfig error = %v, want execution identity requirement", err)
-	}
-}
-
-func TestValidateWorkerSPIRERequireExecutionSVIDNeedsExecutionIdentity(t *testing.T) {
-	viper.Reset()
-	t.Cleanup(viper.Reset)
-	viper.Set("worker.spire.enabled", true)
-	viper.Set("worker.spire.workload_api_address", "unix:///tmp/spire-agent.sock")
-	viper.Set("worker.spire.require_execution_svid", true)
-
-	err := ValidateWorkerSPIREConfig()
-	if err == nil || !strings.Contains(err.Error(), "worker.execution_identity.enabled") {
-		t.Fatalf("ValidateWorkerSPIREConfig error = %v, want execution identity requirement", err)
-	}
-}
-
-func TestValidateWorkerSPIRERequireExecutionSVIDAcceptsExecutionIdentity(t *testing.T) {
-	viper.Reset()
-	t.Cleanup(viper.Reset)
-	viper.Set("worker.execution_identity.enabled", true)
-	viper.Set("worker.execution_identity.trust_domain", "prod.example")
-	viper.Set("worker.spire.enabled", true)
-	viper.Set("worker.spire.workload_api_address", "unix:///tmp/spire-agent.sock")
-	viper.Set("worker.spire.require_execution_svid", true)
-
-	if err := ValidateWorkerExecutionIdentityConfig(); err != nil {
-		t.Fatalf("ValidateWorkerExecutionIdentityConfig: %v", err)
-	}
-
-	if err := ValidateWorkerSPIREConfig(); err != nil {
-		t.Fatalf("ValidateWorkerSPIREConfig: %v", err)
 	}
 }

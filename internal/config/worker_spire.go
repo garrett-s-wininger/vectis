@@ -13,7 +13,6 @@ import (
 func init() {
 	_ = viper.BindEnv("worker.spire.enabled", "VECTIS_WORKER_SPIRE_ENABLED")
 	_ = viper.BindEnv("worker.spire.workload_api_address", "VECTIS_WORKER_SPIRE_WORKLOAD_API_ADDRESS")
-	_ = viper.BindEnv("worker.spire.require_execution_svid", "VECTIS_WORKER_SPIRE_REQUIRE_EXECUTION_SVID")
 	_ = viper.BindEnv("worker.spire.fetch_timeout", "VECTIS_WORKER_SPIRE_FETCH_TIMEOUT")
 }
 
@@ -33,14 +32,6 @@ func WorkerSPIREWorkloadAPIAddress() string {
 	return strings.TrimSpace(MustDefaults().Worker.SPIRE.WorkloadAPIAddress)
 }
 
-func WorkerSPIRERequireExecutionSVID() bool {
-	if viper.IsSet("worker.spire.require_execution_svid") {
-		return viper.GetBool("worker.spire.require_execution_svid")
-	}
-
-	return MustDefaults().Worker.SPIRE.RequireExecutionSVID
-}
-
 func WorkerSPIREFetchTimeout() time.Duration {
 	d, err := workerSPIREFetchTimeout()
 	if err != nil {
@@ -57,10 +48,6 @@ func ValidateWorkerSPIREConfig() error {
 	}
 
 	if !WorkerSPIREEnabled() {
-		if WorkerSPIRERequireExecutionSVID() {
-			return fmt.Errorf("worker.spire: require_execution_svid requires worker.spire.enabled")
-		}
-
 		if address != "" {
 			if err := spire.ValidateWorkloadAPIAddress(address); err != nil {
 				return fmt.Errorf("worker.spire: %w", err)
@@ -80,10 +67,6 @@ func ValidateWorkerSPIREConfig() error {
 
 	if !WorkerExecutionIdentityEnabled() {
 		return fmt.Errorf("worker.spire: enabled requires worker.execution_identity.enabled")
-	}
-
-	if WorkerSPIRERequireExecutionSVID() && !WorkerExecutionIdentityEnabled() {
-		return fmt.Errorf("worker.spire: require_execution_svid requires worker.execution_identity.enabled")
 	}
 
 	return nil

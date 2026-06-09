@@ -168,7 +168,6 @@ path_template = "/cell/{cell}/namespace/{namespace}/job/{job}/run/{run}/executio
 [worker.spire]
 enabled = false
 workload_api_address = ""
-require_execution_svid = false
 fetch_timeout = "5s"
 
 [grpc_tls]

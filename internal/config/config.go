@@ -241,10 +241,9 @@ type WorkerExecutionIdentityDefaults struct {
 }
 
 type WorkerSPIREDefaults struct {
-	Enabled              bool         `toml:"enabled"`
-	WorkloadAPIAddress   string       `toml:"workload_api_address"`
-	RequireExecutionSVID bool         `toml:"require_execution_svid"`
-	FetchTimeout         tomlDuration `toml:"fetch_timeout"`
+	Enabled            bool         `toml:"enabled"`
+	WorkloadAPIAddress string       `toml:"workload_api_address"`
+	FetchTimeout       tomlDuration `toml:"fetch_timeout"`
 }
 
 type CronDefaults struct {
@@ -461,14 +460,6 @@ func validateDefaults(d Defaults) {
 
 	if d.Worker.SPIRE.Enabled && !d.Worker.ExecutionIdentity.Enabled {
 		panic("config defaults: worker.spire.enabled requires worker.execution_identity.enabled")
-	}
-
-	if d.Worker.SPIRE.RequireExecutionSVID && !d.Worker.SPIRE.Enabled {
-		panic("config defaults: worker.spire.require_execution_svid requires worker.spire.enabled")
-	}
-
-	if d.Worker.SPIRE.RequireExecutionSVID && !d.Worker.ExecutionIdentity.Enabled {
-		panic("config defaults: worker.spire.require_execution_svid requires worker.execution_identity.enabled")
 	}
 
 	if d.Worker.SPIRE.FetchTimeout <= 0 {
