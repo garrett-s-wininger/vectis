@@ -22,6 +22,7 @@ type sourceRepositoryRequest struct {
 	Namespace     string `json:"namespace"`
 	SourceKind    string `json:"source_kind"`
 	CheckoutPath  string `json:"checkout_path"`
+	CheckoutMode  string `json:"checkout_mode"`
 	CanonicalURL  string `json:"canonical_url"`
 	DefaultRef    string `json:"default_ref"`
 	CredentialRef string `json:"credential_ref"`
@@ -31,6 +32,7 @@ type sourceRepositoryRequest struct {
 type sourceRepositoryUpdateRequest struct {
 	SourceKind    *string `json:"source_kind"`
 	CheckoutPath  *string `json:"checkout_path"`
+	CheckoutMode  *string `json:"checkout_mode"`
 	CanonicalURL  *string `json:"canonical_url"`
 	DefaultRef    *string `json:"default_ref"`
 	CredentialRef *string `json:"credential_ref"`
@@ -38,14 +40,25 @@ type sourceRepositoryUpdateRequest struct {
 }
 
 type sourceRepositoryResponse struct {
-	RepositoryID  string `json:"repository_id"`
-	Namespace     string `json:"namespace"`
-	SourceKind    string `json:"source_kind"`
-	CheckoutPath  string `json:"checkout_path,omitempty"`
-	CanonicalURL  string `json:"canonical_url,omitempty"`
-	DefaultRef    string `json:"default_ref,omitempty"`
-	CredentialRef string `json:"credential_ref,omitempty"`
-	Enabled       bool   `json:"enabled"`
+	RepositoryID  string                       `json:"repository_id"`
+	Namespace     string                       `json:"namespace"`
+	SourceKind    string                       `json:"source_kind"`
+	CheckoutPath  string                       `json:"checkout_path,omitempty"`
+	CheckoutMode  string                       `json:"checkout_mode"`
+	CanonicalURL  string                       `json:"canonical_url,omitempty"`
+	DefaultRef    string                       `json:"default_ref,omitempty"`
+	CredentialRef string                       `json:"credential_ref,omitempty"`
+	Enabled       bool                         `json:"enabled"`
+	Sync          sourceRepositorySyncResponse `json:"sync"`
+}
+
+type sourceRepositorySyncResponse struct {
+	Status             string `json:"status"`
+	LastStartedAtUnix  int64  `json:"last_started_at_unix,omitempty"`
+	LastFinishedAtUnix int64  `json:"last_finished_at_unix,omitempty"`
+	Ref                string `json:"ref,omitempty"`
+	Commit             string `json:"commit,omitempty"`
+	Error              string `json:"error,omitempty"`
 }
 
 type sourceRepositoryStatusResponse struct {
@@ -54,6 +67,7 @@ type sourceRepositoryStatusResponse struct {
 	SourceKind         string                       `json:"source_kind"`
 	Enabled            bool                         `json:"enabled"`
 	Status             string                       `json:"status"`
+	CheckoutMode       string                       `json:"checkout_mode"`
 	CheckoutPath       string                       `json:"checkout_path,omitempty"`
 	PathExists         bool                         `json:"path_exists"`
 	PathIsDirectory    bool                         `json:"path_is_directory"`
@@ -63,6 +77,7 @@ type sourceRepositoryStatusResponse struct {
 	DefaultRef         string                       `json:"default_ref,omitempty"`
 	DefaultRefResolved bool                         `json:"default_ref_resolved"`
 	ResolvedCommit     string                       `json:"resolved_commit,omitempty"`
+	Sync               sourceRepositorySyncResponse `json:"sync"`
 	Error              *sourceRepositoryStatusError `json:"error,omitempty"`
 }
 
@@ -149,12 +164,17 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 	req.Namespace = strings.TrimSpace(req.Namespace)
 	req.SourceKind = strings.TrimSpace(req.SourceKind)
 	req.CheckoutPath = strings.TrimSpace(req.CheckoutPath)
+	req.CheckoutMode = strings.TrimSpace(req.CheckoutMode)
 	req.CanonicalURL = strings.TrimSpace(req.CanonicalURL)
 	req.DefaultRef = strings.TrimSpace(req.DefaultRef)
 	req.CredentialRef = strings.TrimSpace(req.CredentialRef)
 
 	if req.SourceKind == "" {
 		req.SourceKind = dal.SourceKindLocalCheckout
+	}
+
+	if req.CheckoutMode == "" {
+		req.CheckoutMode = dal.SourceCheckoutModeExternal
 	}
 
 	if req.RepositoryID == "" {
@@ -164,6 +184,11 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 
 	if req.SourceKind != dal.SourceKindLocalCheckout {
 		writeAPIError(w, http.StatusBadRequest, "unsupported_source_kind", "source_kind is not supported", nil)
+		return
+	}
+
+	if !validSourceCheckoutMode(req.CheckoutMode) {
+		writeAPIError(w, http.StatusBadRequest, "unsupported_checkout_mode", "checkout_mode is not supported", nil)
 		return
 	}
 
@@ -219,6 +244,7 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 		NamespaceID:   ns.ID,
 		SourceKind:    req.SourceKind,
 		CheckoutPath:  req.CheckoutPath,
+		CheckoutMode:  req.CheckoutMode,
 		CanonicalURL:  req.CanonicalURL,
 		DefaultRef:    req.DefaultRef,
 		CredentialRef: req.CredentialRef,
@@ -399,6 +425,13 @@ func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Reques
 		updated.CheckoutPath = strings.TrimSpace(*req.CheckoutPath)
 	}
 
+	if req.CheckoutMode != nil {
+		updated.CheckoutMode = strings.TrimSpace(*req.CheckoutMode)
+		if updated.CheckoutMode == "" {
+			updated.CheckoutMode = dal.SourceCheckoutModeExternal
+		}
+	}
+
 	if req.CanonicalURL != nil {
 		updated.CanonicalURL = strings.TrimSpace(*req.CanonicalURL)
 	}
@@ -413,6 +446,11 @@ func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Reques
 
 	if req.Enabled != nil {
 		updated.Enabled = *req.Enabled
+	}
+
+	if !validSourceCheckoutMode(updated.CheckoutMode) {
+		writeAPIError(w, http.StatusBadRequest, "unsupported_checkout_mode", "checkout_mode is not supported", nil)
+		return
 	}
 
 	updated, err = s.sources.UpdateRepository(ctx, updated)
@@ -860,10 +898,12 @@ func sourceRepositoryRecordToResponse(rec dal.SourceRepositoryRecord, namespaceP
 		Namespace:     namespacePath,
 		SourceKind:    rec.SourceKind,
 		CheckoutPath:  rec.CheckoutPath,
+		CheckoutMode:  rec.CheckoutMode,
 		CanonicalURL:  rec.CanonicalURL,
 		DefaultRef:    rec.DefaultRef,
 		CredentialRef: rec.CredentialRef,
 		Enabled:       rec.Enabled,
+		Sync:          sourceRepositorySyncRecordToResponse(rec),
 	}
 }
 
@@ -874,6 +914,8 @@ func sourceRepositoryStatusFromRecord(ctx context.Context, rec dal.SourceReposit
 		SourceKind:   rec.SourceKind,
 		Enabled:      rec.Enabled,
 		Status:       "ok",
+		CheckoutMode: rec.CheckoutMode,
+		Sync:         sourceRepositorySyncRecordToResponse(rec),
 	}
 
 	if !rec.Enabled {
@@ -915,6 +957,31 @@ func sourceRepositoryStatusFromRecord(ctx context.Context, rec dal.SourceReposit
 	}
 
 	return resp
+}
+
+func sourceRepositorySyncRecordToResponse(rec dal.SourceRepositoryRecord) sourceRepositorySyncResponse {
+	status := strings.TrimSpace(rec.SyncStatus)
+	if status == "" {
+		status = dal.SourceSyncStatusNever
+	}
+
+	return sourceRepositorySyncResponse{
+		Status:             status,
+		LastStartedAtUnix:  rec.LastSyncStartedAtUnix,
+		LastFinishedAtUnix: rec.LastSyncFinishedAtUnix,
+		Ref:                rec.LastSyncRef,
+		Commit:             rec.LastSyncCommit,
+		Error:              rec.LastSyncError,
+	}
+}
+
+func validSourceCheckoutMode(mode string) bool {
+	switch strings.TrimSpace(mode) {
+	case dal.SourceCheckoutModeExternal, dal.SourceCheckoutModeManaged:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *APIServer) getAuthorizedJobDefinitionSource(ctx context.Context, w http.ResponseWriter, p *authn.Principal, jobID string, versionParam string) (storedJobDefinitionSource, bool) {

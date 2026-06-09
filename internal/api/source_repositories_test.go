@@ -45,14 +45,24 @@ func TestAPIServer_SourceBackedJobLifecycle(t *testing.T) {
 		Namespace    string `json:"namespace"`
 		SourceKind   string `json:"source_kind"`
 		CheckoutPath string `json:"checkout_path"`
+		CheckoutMode string `json:"checkout_mode"`
 		Enabled      bool   `json:"enabled"`
+		Sync         struct {
+			Status string `json:"status"`
+		} `json:"sync"`
 	}
 
 	if err := json.NewDecoder(registerRec.Body).Decode(&repoResp); err != nil {
 		t.Fatal(err)
 	}
 
-	if repoResp.RepositoryID != "vectis-local" || repoResp.Namespace != "/" || repoResp.SourceKind != dal.SourceKindLocalCheckout || repoResp.CheckoutPath != repoPath || !repoResp.Enabled {
+	if repoResp.RepositoryID != "vectis-local" ||
+		repoResp.Namespace != "/" ||
+		repoResp.SourceKind != dal.SourceKindLocalCheckout ||
+		repoResp.CheckoutPath != repoPath ||
+		repoResp.CheckoutMode != dal.SourceCheckoutModeExternal ||
+		repoResp.Sync.Status != dal.SourceSyncStatusNever ||
+		!repoResp.Enabled {
 		t.Fatalf("repository response mismatch: %+v", repoResp)
 	}
 
@@ -409,9 +419,11 @@ func TestAPIServer_GetSourceRepositoryStatus(t *testing.T) {
 	}
 
 	if statusResp.CheckoutPath != repoPath ||
+		statusResp.CheckoutMode != dal.SourceCheckoutModeExternal ||
 		!statusResp.PathExists ||
 		!statusResp.PathIsDirectory ||
 		!statusResp.GitRepository ||
+		statusResp.Sync.Status != dal.SourceSyncStatusNever ||
 		statusResp.DefaultRef != "HEAD" ||
 		!statusResp.DefaultRefResolved ||
 		statusResp.ResolvedCommit != commit ||
@@ -540,6 +552,7 @@ func TestAPIServer_UpdateSourceRepository(t *testing.T) {
 
 	commit := apiGitOutput(t, repoPath, "rev-parse", "HEAD")
 	updateBody := map[string]any{
+		"checkout_mode":  dal.SourceCheckoutModeManaged,
 		"default_ref":    commit,
 		"canonical_url":  "https://example.invalid/vectis.git",
 		"credential_ref": "secret://git/vectis",
@@ -554,10 +567,14 @@ func TestAPIServer_UpdateSourceRepository(t *testing.T) {
 	var updateResp struct {
 		RepositoryID  string `json:"repository_id"`
 		CheckoutPath  string `json:"checkout_path"`
+		CheckoutMode  string `json:"checkout_mode"`
 		CanonicalURL  string `json:"canonical_url"`
 		DefaultRef    string `json:"default_ref"`
 		CredentialRef string `json:"credential_ref"`
 		Enabled       bool   `json:"enabled"`
+		Sync          struct {
+			Status string `json:"status"`
+		} `json:"sync"`
 	}
 
 	if err := json.NewDecoder(updateRec.Body).Decode(&updateResp); err != nil {
@@ -566,9 +583,11 @@ func TestAPIServer_UpdateSourceRepository(t *testing.T) {
 
 	if updateResp.RepositoryID != "vectis-local" ||
 		updateResp.CheckoutPath != repoPath ||
+		updateResp.CheckoutMode != dal.SourceCheckoutModeManaged ||
 		updateResp.CanonicalURL != "https://example.invalid/vectis.git" ||
 		updateResp.DefaultRef != commit ||
 		updateResp.CredentialRef != "secret://git/vectis" ||
+		updateResp.Sync.Status != dal.SourceSyncStatusNever ||
 		updateResp.Enabled {
 		t.Fatalf("update response mismatch: %+v", updateResp)
 	}
@@ -604,6 +623,12 @@ func TestAPIServer_UpdateSourceRepository(t *testing.T) {
 	})
 
 	assertAPIError(t, missingRec, http.StatusNotFound, "source_repository_not_found")
+
+	invalidModeRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/vectis-local", map[string]any{
+		"checkout_mode": "magic",
+	})
+
+	assertAPIError(t, invalidModeRec, http.StatusBadRequest, "unsupported_checkout_mode")
 }
 
 func TestAPIServer_UpdateSourceRepositoryRejectsDuplicateCheckoutPath(t *testing.T) {
@@ -717,6 +742,7 @@ func decodeSourceRepositoryStatusResponse(t *testing.T, rec *httptest.ResponseRe
 	Enabled            bool   `json:"enabled"`
 	Status             string `json:"status"`
 	CheckoutPath       string `json:"checkout_path"`
+	CheckoutMode       string `json:"checkout_mode"`
 	PathExists         bool   `json:"path_exists"`
 	PathIsDirectory    bool   `json:"path_is_directory"`
 	GitRepository      bool   `json:"git_repository"`
@@ -725,7 +751,15 @@ func decodeSourceRepositoryStatusResponse(t *testing.T, rec *httptest.ResponseRe
 	DefaultRef         string `json:"default_ref"`
 	DefaultRefResolved bool   `json:"default_ref_resolved"`
 	ResolvedCommit     string `json:"resolved_commit"`
-	Error              *struct {
+	Sync               struct {
+		Status             string `json:"status"`
+		LastStartedAtUnix  int64  `json:"last_started_at_unix"`
+		LastFinishedAtUnix int64  `json:"last_finished_at_unix"`
+		Ref                string `json:"ref"`
+		Commit             string `json:"commit"`
+		Error              string `json:"error"`
+	} `json:"sync"`
+	Error *struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
 	} `json:"error"`
@@ -739,6 +773,7 @@ func decodeSourceRepositoryStatusResponse(t *testing.T, rec *httptest.ResponseRe
 		Enabled            bool   `json:"enabled"`
 		Status             string `json:"status"`
 		CheckoutPath       string `json:"checkout_path"`
+		CheckoutMode       string `json:"checkout_mode"`
 		PathExists         bool   `json:"path_exists"`
 		PathIsDirectory    bool   `json:"path_is_directory"`
 		GitRepository      bool   `json:"git_repository"`
@@ -747,7 +782,15 @@ func decodeSourceRepositoryStatusResponse(t *testing.T, rec *httptest.ResponseRe
 		DefaultRef         string `json:"default_ref"`
 		DefaultRefResolved bool   `json:"default_ref_resolved"`
 		ResolvedCommit     string `json:"resolved_commit"`
-		Error              *struct {
+		Sync               struct {
+			Status             string `json:"status"`
+			LastStartedAtUnix  int64  `json:"last_started_at_unix"`
+			LastFinishedAtUnix int64  `json:"last_finished_at_unix"`
+			Ref                string `json:"ref"`
+			Commit             string `json:"commit"`
+			Error              string `json:"error"`
+		} `json:"sync"`
+		Error *struct {
 			Code    string `json:"code"`
 			Message string `json:"message"`
 		} `json:"error"`

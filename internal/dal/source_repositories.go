@@ -26,12 +26,13 @@ func (r *SQLSourcesRepository) CreateRepository(ctx context.Context, rec SourceR
 			namespace_id,
 			source_kind,
 			checkout_path,
+			checkout_mode,
 			canonical_url,
 			default_ref,
 			credential_ref,
 			enabled
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id
 	`),
 		newGlobalID(),
@@ -39,6 +40,7 @@ func (r *SQLSourcesRepository) CreateRepository(ctx context.Context, rec SourceR
 		rec.NamespaceID,
 		rec.SourceKind,
 		rec.CheckoutPath,
+		rec.CheckoutMode,
 		rec.CanonicalURL,
 		rec.DefaultRef,
 		rec.CredentialRef,
@@ -61,6 +63,7 @@ func (r *SQLSourcesRepository) UpdateRepository(ctx context.Context, rec SourceR
 		SET
 			source_kind = ?,
 			checkout_path = ?,
+			checkout_mode = ?,
 			canonical_url = ?,
 			default_ref = ?,
 			credential_ref = ?,
@@ -70,10 +73,54 @@ func (r *SQLSourcesRepository) UpdateRepository(ctx context.Context, rec SourceR
 	`),
 		rec.SourceKind,
 		rec.CheckoutPath,
+		rec.CheckoutMode,
 		rec.CanonicalURL,
 		rec.DefaultRef,
 		rec.CredentialRef,
 		rec.Enabled,
+		rec.RepositoryID,
+	)
+
+	if err != nil {
+		return SourceRepositoryRecord{}, normalizeSQLError(err)
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return SourceRepositoryRecord{}, normalizeSQLError(err)
+	}
+
+	if rowsAffected == 0 {
+		return SourceRepositoryRecord{}, fmt.Errorf("%w: source repository %s", ErrNotFound, rec.RepositoryID)
+	}
+
+	return r.GetRepository(ctx, rec.RepositoryID)
+}
+
+func (r *SQLSourcesRepository) UpdateRepositorySync(ctx context.Context, rec SourceRepositorySyncRecord) (SourceRepositoryRecord, error) {
+	rec, err := normalizeSourceRepositorySyncRecord(rec)
+	if err != nil {
+		return SourceRepositoryRecord{}, err
+	}
+
+	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE source_repositories
+		SET
+			sync_status = ?,
+			last_sync_started_at_unix = ?,
+			last_sync_finished_at_unix = ?,
+			last_sync_ref = ?,
+			last_sync_commit = ?,
+			last_sync_error = ?,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE repository_id = ?
+	`),
+		rec.Status,
+		rec.StartedAtUnix,
+		rec.FinishedAtUnix,
+		rec.Ref,
+		rec.Commit,
+		rec.Error,
 		rec.RepositoryID,
 	)
 
@@ -107,10 +154,17 @@ func (r *SQLSourcesRepository) GetRepository(ctx context.Context, repositoryID s
 			namespace_id,
 			source_kind,
 			checkout_path,
+			COALESCE(checkout_mode, ''),
 			canonical_url,
 			default_ref,
 			credential_ref,
-			enabled
+			enabled,
+			COALESCE(sync_status, ''),
+			last_sync_started_at_unix,
+			last_sync_finished_at_unix,
+			last_sync_ref,
+			last_sync_commit,
+			last_sync_error
 		FROM source_repositories
 		WHERE repository_id = ?`
 
@@ -135,10 +189,17 @@ func (r *SQLSourcesRepository) ListRepositories(ctx context.Context, namespaceID
 			namespace_id,
 			source_kind,
 			checkout_path,
+			COALESCE(checkout_mode, ''),
 			canonical_url,
 			default_ref,
 			credential_ref,
-			enabled
+			enabled,
+			COALESCE(sync_status, ''),
+			last_sync_started_at_unix,
+			last_sync_finished_at_unix,
+			last_sync_ref,
+			last_sync_commit,
+			last_sync_error
 		FROM source_repositories
 		WHERE namespace_id = ?
 		ORDER BY repository_id
@@ -169,9 +230,14 @@ func normalizeSourceRepositoryRecord(rec SourceRepositoryRecord) (SourceReposito
 	rec.RepositoryID = strings.TrimSpace(rec.RepositoryID)
 	rec.SourceKind = strings.TrimSpace(rec.SourceKind)
 	rec.CheckoutPath = strings.TrimSpace(rec.CheckoutPath)
+	rec.CheckoutMode = strings.TrimSpace(rec.CheckoutMode)
 	rec.CanonicalURL = strings.TrimSpace(rec.CanonicalURL)
 	rec.DefaultRef = strings.TrimSpace(rec.DefaultRef)
 	rec.CredentialRef = strings.TrimSpace(rec.CredentialRef)
+	rec.SyncStatus = strings.TrimSpace(rec.SyncStatus)
+	rec.LastSyncRef = strings.TrimSpace(rec.LastSyncRef)
+	rec.LastSyncCommit = strings.TrimSpace(rec.LastSyncCommit)
+	rec.LastSyncError = strings.TrimSpace(rec.LastSyncError)
 
 	if rec.RepositoryID == "" {
 		return SourceRepositoryRecord{}, fmt.Errorf("%w: repository_id is required", ErrConflict)
@@ -185,8 +251,24 @@ func normalizeSourceRepositoryRecord(rec SourceRepositoryRecord) (SourceReposito
 		return SourceRepositoryRecord{}, fmt.Errorf("%w: unsupported source_kind %q", ErrConflict, rec.SourceKind)
 	}
 
+	if rec.CheckoutMode == "" {
+		rec.CheckoutMode = SourceCheckoutModeExternal
+	}
+
+	if !validSourceCheckoutMode(rec.CheckoutMode) {
+		return SourceRepositoryRecord{}, fmt.Errorf("%w: unsupported checkout_mode %q", ErrConflict, rec.CheckoutMode)
+	}
+
 	if rec.CheckoutPath == "" {
 		return SourceRepositoryRecord{}, fmt.Errorf("%w: checkout_path is required for %s", ErrConflict, SourceKindLocalCheckout)
+	}
+
+	if rec.SyncStatus == "" {
+		rec.SyncStatus = SourceSyncStatusNever
+	}
+
+	if !validSourceSyncStatus(rec.SyncStatus) {
+		return SourceRepositoryRecord{}, fmt.Errorf("%w: unsupported sync_status %q", ErrConflict, rec.SyncStatus)
 	}
 
 	if rec.NamespaceID <= 0 {
@@ -194,6 +276,54 @@ func normalizeSourceRepositoryRecord(rec SourceRepositoryRecord) (SourceReposito
 	}
 
 	return rec, nil
+}
+
+func normalizeSourceRepositorySyncRecord(rec SourceRepositorySyncRecord) (SourceRepositorySyncRecord, error) {
+	rec.RepositoryID = strings.TrimSpace(rec.RepositoryID)
+	rec.Status = strings.TrimSpace(rec.Status)
+	rec.Ref = strings.TrimSpace(rec.Ref)
+	rec.Commit = strings.TrimSpace(rec.Commit)
+	rec.Error = strings.TrimSpace(rec.Error)
+
+	if rec.RepositoryID == "" {
+		return SourceRepositorySyncRecord{}, fmt.Errorf("%w: repository_id is required", ErrConflict)
+	}
+
+	if rec.Status == "" {
+		rec.Status = SourceSyncStatusNever
+	}
+
+	if !validSourceSyncStatus(rec.Status) {
+		return SourceRepositorySyncRecord{}, fmt.Errorf("%w: unsupported sync_status %q", ErrConflict, rec.Status)
+	}
+
+	if rec.StartedAtUnix < 0 {
+		rec.StartedAtUnix = 0
+	}
+
+	if rec.FinishedAtUnix < 0 {
+		rec.FinishedAtUnix = 0
+	}
+
+	return rec, nil
+}
+
+func validSourceCheckoutMode(mode string) bool {
+	switch mode {
+	case SourceCheckoutModeExternal, SourceCheckoutModeManaged:
+		return true
+	default:
+		return false
+	}
+}
+
+func validSourceSyncStatus(status string) bool {
+	switch status {
+	case SourceSyncStatusNever, SourceSyncStatusRunning, SourceSyncStatusSucceeded, SourceSyncStatusFailed:
+		return true
+	default:
+		return false
+	}
 }
 
 func (r *SQLSourcesRepository) RecordDefinitionSource(ctx context.Context, rec JobDefinitionSourceRecord) error {
@@ -500,10 +630,17 @@ func (r *SQLSourcesRepository) scanRepositoryRow(row *sql.Row) (SourceRepository
 		&rec.NamespaceID,
 		&rec.SourceKind,
 		&rec.CheckoutPath,
+		&rec.CheckoutMode,
 		&rec.CanonicalURL,
 		&rec.DefaultRef,
 		&rec.CredentialRef,
 		&enabledRaw,
+		&rec.SyncStatus,
+		&rec.LastSyncStartedAtUnix,
+		&rec.LastSyncFinishedAtUnix,
+		&rec.LastSyncRef,
+		&rec.LastSyncCommit,
+		&rec.LastSyncError,
 	)
 
 	if err != nil {
@@ -516,6 +653,14 @@ func (r *SQLSourcesRepository) scanRepositoryRow(row *sql.Row) (SourceRepository
 	}
 
 	rec.Enabled = enabled
+	if rec.CheckoutMode == "" {
+		rec.CheckoutMode = SourceCheckoutModeExternal
+	}
+
+	if rec.SyncStatus == "" {
+		rec.SyncStatus = SourceSyncStatusNever
+	}
+
 	return rec, nil
 }
 
@@ -529,10 +674,17 @@ func (r *SQLSourcesRepository) scanRepositoryRows(rows *sql.Rows) (SourceReposit
 		&rec.NamespaceID,
 		&rec.SourceKind,
 		&rec.CheckoutPath,
+		&rec.CheckoutMode,
 		&rec.CanonicalURL,
 		&rec.DefaultRef,
 		&rec.CredentialRef,
 		&enabledRaw,
+		&rec.SyncStatus,
+		&rec.LastSyncStartedAtUnix,
+		&rec.LastSyncFinishedAtUnix,
+		&rec.LastSyncRef,
+		&rec.LastSyncCommit,
+		&rec.LastSyncError,
 	); err != nil {
 		return SourceRepositoryRecord{}, normalizeSQLError(err)
 	}
@@ -543,6 +695,14 @@ func (r *SQLSourcesRepository) scanRepositoryRows(rows *sql.Rows) (SourceReposit
 	}
 
 	rec.Enabled = enabled
+	if rec.CheckoutMode == "" {
+		rec.CheckoutMode = SourceCheckoutModeExternal
+	}
+
+	if rec.SyncStatus == "" {
+		rec.SyncStatus = SourceSyncStatusNever
+	}
+
 	return rec, nil
 }
 

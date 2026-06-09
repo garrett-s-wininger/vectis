@@ -53,6 +53,17 @@ func TestSQLiteMigrations_UpDownRoundTrip(t *testing.T) {
 	assertTableExists(t, db, "api_sessions")
 	assertTableExists(t, db, "source_repositories")
 	assertTableExists(t, db, "job_definition_sources")
+	for _, column := range []string{
+		"checkout_mode",
+		"sync_status",
+		"last_sync_started_at_unix",
+		"last_sync_finished_at_unix",
+		"last_sync_ref",
+		"last_sync_commit",
+		"last_sync_error",
+	} {
+		assertColumnExists(t, db, "source_repositories", column)
+	}
 	assertSQLiteIndexColumns(t, db, "idx_run_artifacts_task", []string{"run_id", "task_id", "id"})
 	assertSQLiteIndexColumns(t, db, "idx_run_artifacts_task_attempt", []string{"run_id", "task_attempt_id", "id"})
 	assertSQLiteIndexColumns(t, db, "idx_run_artifacts_execution", []string{"run_id", "execution_id", "id"})
@@ -279,4 +290,35 @@ func assertTableMissing(t *testing.T, db *sql.DB, table string) {
 	if err != sql.ErrNoRows {
 		t.Fatalf("query table %s: %v", table, err)
 	}
+}
+
+func assertColumnExists(t *testing.T, db *sql.DB, table, column string) {
+	t.Helper()
+
+	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		t.Fatalf("read columns for %s: %v", table, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var defaultValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			t.Fatalf("scan column for %s: %v", table, err)
+		}
+
+		if name == column {
+			return
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read columns for %s: %v", table, err)
+	}
+
+	t.Fatalf("expected table %s to have column %s", table, column)
 }

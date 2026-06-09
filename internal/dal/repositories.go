@@ -104,6 +104,14 @@ const (
 
 	SourceKindLocalCheckout = "local_checkout"
 
+	SourceCheckoutModeExternal = "external"
+	SourceCheckoutModeManaged  = "managed"
+
+	SourceSyncStatusNever     = "never"
+	SourceSyncStatusRunning   = "running"
+	SourceSyncStatusSucceeded = "succeeded"
+	SourceSyncStatusFailed    = "failed"
+
 	CatalogEventStatusPending = "pending"
 	CatalogEventStatusApplied = "applied"
 	CatalogEventStatusFailed  = "failed"
@@ -122,16 +130,33 @@ type JobRecord struct {
 }
 
 type SourceRepositoryRecord struct {
-	ID            int64
-	GlobalID      string
-	RepositoryID  string
-	NamespaceID   int64
-	SourceKind    string
-	CheckoutPath  string
-	CanonicalURL  string
-	DefaultRef    string
-	CredentialRef string
-	Enabled       bool
+	ID                     int64
+	GlobalID               string
+	RepositoryID           string
+	NamespaceID            int64
+	SourceKind             string
+	CheckoutPath           string
+	CheckoutMode           string
+	CanonicalURL           string
+	DefaultRef             string
+	CredentialRef          string
+	Enabled                bool
+	SyncStatus             string
+	LastSyncStartedAtUnix  int64
+	LastSyncFinishedAtUnix int64
+	LastSyncRef            string
+	LastSyncCommit         string
+	LastSyncError          string
+}
+
+type SourceRepositorySyncRecord struct {
+	RepositoryID   string
+	Status         string
+	StartedAtUnix  int64
+	FinishedAtUnix int64
+	Ref            string
+	Commit         string
+	Error          string
 }
 
 type JobDefinitionSourceRecord struct {
@@ -715,6 +740,7 @@ type SourceBackedJobsRepository interface {
 type SourcesRepository interface {
 	CreateRepository(ctx context.Context, rec SourceRepositoryRecord) (SourceRepositoryRecord, error)
 	UpdateRepository(ctx context.Context, rec SourceRepositoryRecord) (SourceRepositoryRecord, error)
+	UpdateRepositorySync(ctx context.Context, rec SourceRepositorySyncRecord) (SourceRepositoryRecord, error)
 	GetRepository(ctx context.Context, repositoryID string) (SourceRepositoryRecord, error)
 	ListRepositories(ctx context.Context, namespaceID int64) ([]SourceRepositoryRecord, error)
 	RecordDefinitionSource(ctx context.Context, rec JobDefinitionSourceRecord) error

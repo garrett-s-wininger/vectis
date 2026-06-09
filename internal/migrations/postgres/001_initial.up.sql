@@ -340,10 +340,17 @@ CREATE TABLE source_repositories (
     namespace_id BIGINT NOT NULL DEFAULT 1 REFERENCES namespaces(id),
     source_kind TEXT NOT NULL,
     checkout_path TEXT NOT NULL DEFAULT '',
+    checkout_mode TEXT NOT NULL DEFAULT 'external',
     canonical_url TEXT NOT NULL DEFAULT '',
     default_ref TEXT NOT NULL DEFAULT '',
     credential_ref TEXT NOT NULL DEFAULT '',
     enabled BOOLEAN NOT NULL DEFAULT true,
+    sync_status TEXT NOT NULL DEFAULT 'never',
+    last_sync_started_at_unix BIGINT NOT NULL DEFAULT 0,
+    last_sync_finished_at_unix BIGINT NOT NULL DEFAULT 0,
+    last_sync_ref TEXT NOT NULL DEFAULT '',
+    last_sync_commit TEXT NOT NULL DEFAULT '',
+    last_sync_error TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
