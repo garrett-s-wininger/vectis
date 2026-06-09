@@ -95,6 +95,7 @@ Commands are grouped around the thing you want to work with:
   runs       show run status, list tasks/artifacts or run history, cancel, fail, or retry runs
   cells      inspect execution cell routing and catalog state
   logs       stream run logs or follow future runs for a job
+  secrets    manage job secret stores
   auth       log in, log out, and manage API tokens`,
 	Example: `  vectis-cli jobs create build.json
   vectis-cli jobs trigger build-main --follow
@@ -102,6 +103,7 @@ Commands are grouped around the thing you want to work with:
   vectis-cli runs list build-main
   vectis-cli runs show run-123
   vectis-cli runs artifacts list run-123
+  vectis-cli secrets encryptedfs put encryptedfs://team/npm-token --root /var/lib/vectis/secrets --key-file /etc/vectis/secrets.key
   vectis-cli auth login
   vectis-cli health check --strict`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -156,6 +158,12 @@ func init() {
 	configureLogsJobFlags(logsJobCmd)
 	logsCmd.AddCommand(logsRunCmd, logsJobCmd)
 	rootCmd.AddCommand(logsCmd)
+
+	configureSecretEncryptedFSPutFlags(secretsEncryptedFSPutCmd)
+	secretsCmd.GroupID = cliGroupOperations
+	secretsCmd.AddCommand(secretsEncryptedFSCmd)
+	secretsEncryptedFSCmd.AddCommand(secretsEncryptedFSPutCmd)
+	rootCmd.AddCommand(secretsCmd)
 
 	configureLoginFlags(loginCmd)
 	authCmd.AddCommand(loginCmd, logoutCmd)

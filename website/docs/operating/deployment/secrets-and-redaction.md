@@ -15,7 +15,7 @@ For the broader security posture, see [Security](../../concepts/security.md). Fo
 | Bootstrap token | Used for initial setup when API auth is enabled. It remains a deploy/config secret until removed or rotated. |
 | Checkout URL validation | HTTP(S) checkout URLs with embedded user info are rejected. |
 | Log redaction | There is no general-purpose run-log redaction layer. Jobs can print secrets. |
-| Job secret backend | `vectis-secrets` can resolve top-level job secret references from an encrypted filesystem store and deliver task-scoped files under `.vectis/secrets`. The broker denies resolution unless an operator access-policy rule matches the execution scope and ref. Job definitions should not contain plaintext secrets. |
+| Job secret backend | `vectis-secrets` can resolve top-level job secret references from an encrypted filesystem store and deliver task-scoped files under `.vectis/secrets`. Operators create encrypted envelopes with `vectis-cli secrets encryptedfs put`; the broker denies resolution unless an operator access-policy rule matches the execution scope and ref. Job definitions should not contain plaintext secrets. |
 | Execution identity | Workers can derive an expected per-execution SPIFFE ID, and SPIRE-enabled workers require their Workload API source to return a matching X.509-SVID before action code runs. Secret resolution uses that SVID as the mTLS client certificate, and the broker requires it to match the active execution. |
 | Storage encryption | Vectis relies on platform disk, volume, database, and backup encryption. |
 

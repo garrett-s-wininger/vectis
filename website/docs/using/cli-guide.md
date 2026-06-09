@@ -390,6 +390,7 @@ These commands are useful, but they change durable state or deployment state. Us
 | Apply embedded database migrations | `./bin/vectis-cli database migrate` |
 | Preview retention cleanup | `./bin/vectis-cli retention cleanup --dry-run` |
 | Apply retention cleanup | `./bin/vectis-cli retention cleanup --yes` |
+| Write an encryptedfs job secret | `./bin/vectis-cli secrets encryptedfs put encryptedfs://team/npm-token --from-file npm-token.txt --root /var/lib/vectis/secrets --key-file /etc/vectis/secrets.key --create-key` |
 | Generate Podman deployment secrets | `./bin/vectis-cli deploy podman init` |
 | Render the Podman manifest | `./bin/vectis-cli deploy podman render` |
 | Render the Podman HA profile | `./bin/vectis-cli deploy podman --profile ha render` |

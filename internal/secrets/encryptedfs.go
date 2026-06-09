@@ -69,14 +69,9 @@ func WithMaxSecretBytes(limit int64) EncryptedFSOption {
 }
 
 func NewEncryptedFSProvider(root string, opts ...EncryptedFSOption) (*EncryptedFSProvider, error) {
-	root = strings.TrimSpace(root)
-	if root == "" {
-		return nil, fmt.Errorf("secrets: encryptedfs root is required")
-	}
-
-	abs, err := filepath.Abs(root)
+	abs, err := encryptedFSAbsoluteRoot(root)
 	if err != nil {
-		return nil, fmt.Errorf("secrets: resolve encryptedfs root: %w", err)
+		return nil, err
 	}
 
 	p := &EncryptedFSProvider{
@@ -99,6 +94,34 @@ func NewEncryptedFSProvider(root string, opts ...EncryptedFSOption) (*EncryptedF
 	}
 
 	return p, nil
+}
+
+func EncryptedFSSecretFilePath(root, rawRef string) (string, error) {
+	abs, err := encryptedFSAbsoluteRoot(root)
+	if err != nil {
+		return "", err
+	}
+
+	resolved, err := encryptedFSPathForRef(abs, rawRef)
+	if err != nil {
+		return "", err
+	}
+
+	return resolved.target, nil
+}
+
+func encryptedFSAbsoluteRoot(root string) (string, error) {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return "", fmt.Errorf("secrets: encryptedfs root is required")
+	}
+
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("secrets: resolve encryptedfs root: %w", err)
+	}
+
+	return abs, nil
 }
 
 func LoadEncryptedFSKeyFile(path string) ([]byte, error) {
@@ -225,13 +248,17 @@ type encryptedFSResolvedRef struct {
 }
 
 func (p *EncryptedFSProvider) pathForRef(raw string) (encryptedFSResolvedRef, error) {
+	return encryptedFSPathForRef(p.root, raw)
+}
+
+func encryptedFSPathForRef(root, raw string) (encryptedFSResolvedRef, error) {
 	rel, err := encryptedFSRelativePath(raw)
 	if err != nil {
 		return encryptedFSResolvedRef{}, err
 	}
 
-	target := filepath.Join(p.root, filepath.FromSlash(rel))
-	rootRel, err := filepath.Rel(p.root, target)
+	target := filepath.Join(root, filepath.FromSlash(rel))
+	rootRel, err := filepath.Rel(root, target)
 	if err != nil {
 		return encryptedFSResolvedRef{}, fmt.Errorf("%w: resolve encryptedfs ref path: %v", ErrNotFound, err)
 	}
@@ -429,6 +456,14 @@ func DecryptEncryptedFSSecret(envelopeBytes, key, aad []byte) ([]byte, error) {
 }
 
 func WriteEncryptedFSSecretFile(root, rawRef string, plaintext, key []byte) error {
+	return writeEncryptedFSSecretFile(root, rawRef, plaintext, key, false)
+}
+
+func WriteEncryptedFSSecretFileExclusive(root, rawRef string, plaintext, key []byte) error {
+	return writeEncryptedFSSecretFile(root, rawRef, plaintext, key, true)
+}
+
+func writeEncryptedFSSecretFile(root, rawRef string, plaintext, key []byte, exclusive bool) error {
 	provider, err := NewEncryptedFSProvider(root, WithEncryptedFSKey(key))
 	if err != nil {
 		return err
@@ -448,7 +483,32 @@ func WriteEncryptedFSSecretFile(root, rawRef string, plaintext, key []byte) erro
 		return fmt.Errorf("secrets: create encryptedfs secret directory: %w", err)
 	}
 
-	return os.WriteFile(resolved.target, envelope, 0o600)
+	flags := os.O_WRONLY | os.O_CREATE
+	if exclusive {
+		flags |= os.O_EXCL
+	} else {
+		flags |= os.O_TRUNC
+	}
+
+	f, err := os.OpenFile(resolved.target, flags, 0o600)
+	if err != nil {
+		return fmt.Errorf("secrets: create encryptedfs secret file: %w", err)
+	}
+
+	if _, err := f.Write(envelope); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("secrets: write encryptedfs secret file: %w", err)
+	}
+
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("secrets: close encryptedfs secret file: %w", err)
+	}
+
+	if err := os.Chmod(resolved.target, 0o600); err != nil {
+		return fmt.Errorf("secrets: chmod encryptedfs secret file: %w", err)
+	}
+
+	return nil
 }
 
 func encryptEncryptedFSSecretWithAAD(plaintext, key, aad []byte) ([]byte, error) {

@@ -81,7 +81,7 @@ Dedicated metrics listeners accept the service bind host plus loopback Host head
 | `vectis-log-forwarder` | `VECTIS_LOG_FORWARDER` | `[log_forwarder]` for metrics host/port plus flat viper keys — see flags in [`log-forwarder/main.go`](log-forwarder/main.go) |
 | `vectis-orchestrator` | `VECTIS_ORCHESTRATOR` | `[orchestrator]`; owns in-memory run state shards and exposes the task choreography gRPC service used by workers |
 | `vectis-local` | `VECTIS_LOCAL` | orchestrates stack; `VECTIS_LOCAL_PROFILE=ha` starts a local multi-instance HA exercise cell, `VECTIS_LOCAL_HOST` controls local API and docs bind host, `--http-tls` controls local API/docs HTTPS, `init` creates local TLS material, `install-cert` only installs the generated CA, and `--cell` / `VECTIS_LOCAL_CELLS` adds extra local execution cells in the simple profile |
-| `vectis-cli` | *(none)* | [`internal/config`](../internal/config/) + `os.Getenv` — see [`../internal/config/api_auth.go`](../internal/config/api_auth.go) |
+| `vectis-cli` | *(none)* | [`internal/config`](../internal/config/) + `os.Getenv` — see [`../internal/config/api_auth.go`](../internal/config/api_auth.go); operator helpers include `secrets encryptedfs put` for writing encrypted job-secret envelopes |
 
 Shared TOML sections: [`../internal/config/defaults.toml`](../internal/config/defaults.toml) (`[database]`, `[discovery]`, `[grpc_tls]`, `[service_identity]`, `[metrics_tls]`, …).
 

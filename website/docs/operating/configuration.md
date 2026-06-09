@@ -177,6 +177,16 @@ namespace=/teams/build;job=release;task=publish;ref=encryptedfs://teams/build/np
 
 `namespace`, `job`, and `task` default to `*` when omitted; `ref` is required. Values support exact match or a trailing `*` prefix wildcard, so `namespace=/teams/*;ref=encryptedfs://teams/*` allows matching refs only for executions in namespaces below `/teams/`. Every requested secret in a resolution call must match at least one allow rule.
 
+Create encryptedfs envelope files with `vectis-cli secrets encryptedfs put`. The command reads secret plaintext from stdin by default, refuses to overwrite existing envelope files unless `--force` is passed, and only creates a missing key file when `--create-key` is set:
+
+```sh
+./bin/vectis-cli secrets encryptedfs put encryptedfs://teams/build/npm-token \
+  --from-file npm-token.txt \
+  --root /var/lib/vectis/secrets \
+  --key-file /etc/vectis/secrets.key \
+  --create-key
+```
+
 SPIRE registration expectations:
 
 1. The X.509-SVID SPIFFE ID must exactly match the worker's derived execution identity. With the default template, that shape is `spiffe://<trust-domain>/cell/<cell>/namespace/<namespace>/job/<job>/run/<run>/execution/<execution>`.
