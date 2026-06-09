@@ -13,9 +13,11 @@ import (
 	"vectis/internal/api/audit"
 	"vectis/internal/api/authn"
 	"vectis/internal/api/authz"
+	"vectis/internal/config"
 	"vectis/internal/dal"
 	jobvalidation "vectis/internal/job/validation"
 	sourcepkg "vectis/internal/source"
+	"vectis/internal/utils"
 )
 
 type sourceRepositoryRequest struct {
@@ -194,8 +196,18 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 	}
 
 	if req.CheckoutPath == "" {
-		writeAPIError(w, http.StatusBadRequest, "missing_checkout_path", "checkout_path is required", nil)
-		return
+		if req.CheckoutMode != dal.SourceCheckoutModeManaged {
+			writeAPIError(w, http.StatusBadRequest, "missing_checkout_path", "checkout_path is required", nil)
+			return
+		}
+
+		checkoutPath, err := managedSourceCheckoutPath(req.RepositoryID)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_repository_id", "repository_id cannot be mapped to a managed checkout path", nil)
+			return
+		}
+
+		req.CheckoutPath = checkoutPath
 	}
 
 	ctx, cancel := s.handlerDBCtx(r)
@@ -545,6 +557,21 @@ func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Reques
 	if !validSourceCheckoutMode(updated.CheckoutMode) {
 		writeAPIError(w, http.StatusBadRequest, "unsupported_checkout_mode", "checkout_mode is not supported", nil)
 		return
+	}
+
+	if updated.CheckoutPath == "" {
+		if updated.CheckoutMode != dal.SourceCheckoutModeManaged {
+			writeAPIError(w, http.StatusBadRequest, "missing_checkout_path", "checkout_path is required", nil)
+			return
+		}
+
+		checkoutPath, err := managedSourceCheckoutPath(updated.RepositoryID)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_repository_id", "repository_id cannot be mapped to a managed checkout path", nil)
+			return
+		}
+
+		updated.CheckoutPath = checkoutPath
 	}
 
 	updated, err = s.sources.UpdateRepository(ctx, updated)
@@ -1088,6 +1115,15 @@ func sourceRepositoryStatusSyncError(status sourcepkg.GitCheckoutStatus) string 
 	}
 
 	return status.ErrorCode + ": " + status.ErrorMessage
+}
+
+func managedSourceCheckoutPath(repositoryID string) (string, error) {
+	store, err := sourcepkg.NewCheckoutStore(config.SourceCheckoutRoot(utils.DataHome()))
+	if err != nil {
+		return "", err
+	}
+
+	return store.Path(repositoryID)
 }
 
 func validSourceCheckoutMode(mode string) bool {

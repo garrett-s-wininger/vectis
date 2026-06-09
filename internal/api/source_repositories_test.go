@@ -14,6 +14,8 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/dal"
+
+	"github.com/spf13/viper"
 )
 
 func TestAPIServer_SourceBackedJobLifecycle(t *testing.T) {
@@ -478,6 +480,59 @@ func TestAPIServer_GetSourceRepositoryStatus(t *testing.T) {
 		statusResp.Error == nil ||
 		statusResp.Error.Code != "not_git_checkout" {
 		t.Fatalf("non-git status mismatch: %+v", statusResp)
+	}
+}
+
+func TestAPIServer_CreateManagedSourceRepositoryDerivesCheckoutPath(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	checkoutRoot := t.TempDir()
+	viper.Set("source.checkout_root", checkoutRoot)
+
+	server, _, _, db := setupTestServer(t)
+	handler := server.Handler()
+
+	rec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
+		"repository_id": "github.com/acme/Big Repo.git",
+		"source_kind":   dal.SourceKindLocalCheckout,
+		"checkout_mode": dal.SourceCheckoutModeManaged,
+		"default_ref":   "main",
+	})
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create managed source repository: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	resp := decodeSourceRepositoryResponse(t, rec)
+	if resp.RepositoryID != "github.com/acme/Big Repo.git" ||
+		resp.CheckoutMode != dal.SourceCheckoutModeManaged ||
+		resp.CheckoutPath == "" ||
+		resp.DefaultRef != "main" {
+		t.Fatalf("managed repository response mismatch: %+v", resp)
+	}
+
+	rel, err := filepath.Rel(checkoutRoot, resp.CheckoutPath)
+	if err != nil {
+		t.Fatalf("managed checkout path rel: %v", err)
+	}
+
+	if strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+		t.Fatalf("managed checkout path should be under configured root: root=%q path=%q rel=%q", checkoutRoot, resp.CheckoutPath, rel)
+	}
+
+	if base := filepath.Base(resp.CheckoutPath); !strings.HasPrefix(base, "github.com-acme-big-repo.git-") {
+		t.Fatalf("managed checkout path should include sanitized repository id, got %q", base)
+	}
+
+	stored, err := dal.NewSQLRepositories(db).Sources().GetRepository(context.Background(), "github.com/acme/Big Repo.git")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+
+	if stored.CheckoutPath != resp.CheckoutPath || stored.CheckoutMode != dal.SourceCheckoutModeManaged {
+		t.Fatalf("stored managed repository mismatch: %+v response=%+v", stored, resp)
 	}
 }
 

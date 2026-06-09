@@ -189,6 +189,9 @@ max_idle_conns = 10
 conn_max_lifetime = "1h"
 conn_max_idle_time = "15m"
 
+[source]
+checkout_root = "{{data_home}}/vectis/source-checkouts"
+
 [worker]
 metrics_host = "localhost"
 metrics_port = 9082

@@ -50,6 +50,7 @@ type Defaults struct {
 	Discovery      DiscoveryDefaults       `toml:"discovery"`
 	Dispatch       DispatchDefaults        `toml:"dispatch"`
 	Database       DatabaseDefaults        `toml:"database"`
+	Source         SourceDefaults          `toml:"source"`
 	Worker         WorkerDefaults          `toml:"worker"`
 	Cron           CronDefaults            `toml:"cron"`
 	Reconciler     ReconcilerDefaults      `toml:"reconciler"`
@@ -233,6 +234,10 @@ type DatabaseDefaults struct {
 	Driver  string          `toml:"driver"`
 	DSN     string          `toml:"dsn"`
 	PgxPool PgxPoolDefaults `toml:"pgx_pool"`
+}
+
+type SourceDefaults struct {
+	CheckoutRoot string `toml:"checkout_root"`
 }
 
 type PgxPoolDefaults struct {
@@ -561,6 +566,10 @@ func validateDefaults(d Defaults) {
 
 	if d.Database.DSN == "" {
 		panic("config defaults: database.dsn must not be empty")
+	}
+
+	if strings.TrimSpace(d.Source.CheckoutRoot) == "" {
+		panic("config defaults: source.checkout_root must not be empty")
 	}
 
 	validateHost(d.Worker.MetricsHost, "worker.metrics_host")

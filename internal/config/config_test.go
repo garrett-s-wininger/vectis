@@ -1,6 +1,7 @@
 package config
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -455,6 +456,26 @@ func TestArtifactConfig_DefaultAndOverride(t *testing.T) {
 	viper.Set("discovery.artifact.address", "artifact-discovery:8086")
 	if got := PinnedArtifactAddress(); got != "artifact-discovery:8086" {
 		t.Fatalf("PinnedArtifactAddress discovery fallback: got %q", got)
+	}
+}
+
+func TestSourceCheckoutRoot_DefaultAndOverride(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	dataHome := t.TempDir()
+	if got, want := SourceCheckoutRoot(dataHome), filepath.Join(dataHome, "vectis", "source-checkouts"); got != want {
+		t.Fatalf("SourceCheckoutRoot default: got %q, want %q", got, want)
+	}
+
+	viper.Set("source.checkout_root", "{{data_home}}/custom-source")
+	if got, want := SourceCheckoutRoot(dataHome), filepath.Join(dataHome, "custom-source"); got != want {
+		t.Fatalf("SourceCheckoutRoot viper override: got %q, want %q", got, want)
+	}
+
+	t.Setenv(envSourceCheckoutRoot, "{{data_home}}/env-source")
+	if got, want := SourceCheckoutRoot(dataHome), filepath.Join(dataHome, "env-source"); got != want {
+		t.Fatalf("SourceCheckoutRoot env override: got %q, want %q", got, want)
 	}
 }
 
