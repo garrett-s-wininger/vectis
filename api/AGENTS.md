@@ -20,6 +20,7 @@ This directory is for internal gRPC contracts and generated protobuf code. The p
 | [`orchestrator.proto`](proto/orchestrator.proto) | `OrchestratorService` | `internal/orchestrator/` |
 | [`registry.proto`](proto/registry.proto) | `RegistryService` | `internal/registry/` |
 | [`worker_control.proto`](proto/worker_control.proto) | `WorkerControlService` | `cmd/worker/` |
+| [`secrets.proto`](proto/secrets.proto) | `SecretsService` | `internal/secrets/` |
 
 ## Clients
 

@@ -3,6 +3,8 @@ package validation
 import (
 	"errors"
 	"fmt"
+	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -18,6 +20,8 @@ const (
 	DefaultMaxNodes = 256
 	DefaultMaxDepth = 32
 )
+
+var secretIDRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]*$`)
 
 type Options struct {
 	RequireJobID bool
@@ -94,6 +98,7 @@ func ValidateJob(job *api.Job, opts Options) error {
 	}
 
 	v.walk(job.GetRoot(), "root", 1, dal.RootTaskKey)
+	v.validateSecrets(job.GetSecrets())
 	return v.err()
 }
 
@@ -436,6 +441,109 @@ func boundaryScope(ref taskgraph.ChildRef) string {
 	}
 
 	return ref.Path
+}
+
+func (v *validator) validateSecrets(secrets []*api.SecretReference) {
+	if len(secrets) == 0 {
+		return
+	}
+
+	seen := make(map[string]string, len(secrets))
+	for i, secret := range secrets {
+		path := fmt.Sprintf("secrets[%d]", i)
+		if secret == nil {
+			v.add(path, "is required")
+			continue
+		}
+
+		id := strings.TrimSpace(secret.GetId())
+		if id == "" {
+			v.add(path+".id", "is required")
+		} else if !secretIDRe.MatchString(id) {
+			v.add(path+".id", "must start with a letter or underscore and contain only letters, numbers, underscores, dots, or dashes")
+		} else if firstPath, ok := seen[id]; ok {
+			v.add(path+".id", fmt.Sprintf("duplicates secret id %q first used at %s.id", id, firstPath))
+		} else {
+			seen[id] = path
+		}
+
+		if err := validateSecretRef(secret.GetRef()); err != nil {
+			v.add(path+".ref", err.Error())
+		}
+
+		v.validateSecretDelivery(path+".delivery", secret.GetDelivery())
+		v.validateSecretTaskKeys(path+".task_keys", secret.GetTaskKeys())
+	}
+}
+
+func validateSecretRef(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return fmt.Errorf("is required")
+	}
+
+	u, err := url.Parse(raw)
+	if err != nil || strings.TrimSpace(u.Scheme) == "" {
+		return fmt.Errorf("must be a provider URI with a scheme")
+	}
+
+	if u.User != nil {
+		return fmt.Errorf("must not include embedded credentials")
+	}
+
+	return nil
+}
+
+func (v *validator) validateSecretDelivery(path string, delivery *api.SecretDelivery) {
+	if delivery == nil {
+		v.add(path, "is required")
+		return
+	}
+
+	switch delivery.GetType() {
+	case api.SecretDeliveryType_SECRET_DELIVERY_TYPE_FILE:
+		if err := validateSecretFilePath(delivery.GetPath()); err != nil {
+			v.add(path+".path", err.Error())
+		}
+	case api.SecretDeliveryType_SECRET_DELIVERY_TYPE_UNSPECIFIED:
+		v.add(path+".type", "is required")
+	default:
+		v.add(path+".type", fmt.Sprintf("unsupported delivery type %q", delivery.GetType().String()))
+	}
+}
+
+func validateSecretFilePath(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return fmt.Errorf("is required")
+	}
+
+	if strings.HasPrefix(raw, "/") || strings.Contains(raw, `\`) {
+		return fmt.Errorf("must be a relative slash-separated path below the secrets directory")
+	}
+
+	for _, part := range strings.Split(raw, "/") {
+		if part == "" || part == "." || part == ".." {
+			return fmt.Errorf("must not contain empty, current-directory, or parent-directory path segments")
+		}
+	}
+
+	return nil
+}
+
+func (v *validator) validateSecretTaskKeys(path string, taskKeys []string) {
+	for i, taskKey := range taskKeys {
+		taskKey = strings.TrimSpace(taskKey)
+		field := fmt.Sprintf("%s[%d]", path, i)
+		if taskKey == "" {
+			v.add(field, "is required")
+			continue
+		}
+
+		if _, ok := v.seen[taskKey]; !ok {
+			v.add(field, fmt.Sprintf("does not match a job node id %q", taskKey))
+		}
+	}
 }
 
 func (v *validator) add(field, message string) {

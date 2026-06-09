@@ -14,6 +14,7 @@ message Job {
     Node root = 3;
     string delivery_id = 4;
     string default_isolation = 5;
+    repeated SecretReference secrets = 6;
 }
 
 message JobRequest {
@@ -42,6 +43,23 @@ message NodeInput {
 message NodeOutputRef {
     string node = 1;
     string output = 2;
+}
+
+enum SecretDeliveryType {
+    SECRET_DELIVERY_TYPE_UNSPECIFIED = 0;
+    SECRET_DELIVERY_TYPE_FILE        = 1;
+}
+
+message SecretDelivery {
+    SecretDeliveryType type = 1;
+    string path = 2;
+}
+
+message SecretReference {
+    string id = 1;
+    string ref = 2;
+    SecretDelivery delivery = 3;
+    repeated string task_keys = 4;
 }
 
 enum RunOutcome {

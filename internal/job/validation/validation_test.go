@@ -18,6 +18,8 @@ import (
 
 func strp(s string) *string { return &s }
 
+func secretDeliveryTypep(t api.SecretDeliveryType) *api.SecretDeliveryType { return &t }
+
 func validJob() *api.Job {
 	return &api.Job{
 		Id: strp("job-1"),
@@ -85,11 +87,87 @@ func deployDescriptor() actionregistry.Descriptor {
 	}
 }
 
+func validSecret() *api.SecretReference {
+	return &api.SecretReference{
+		Id:  strp("npm-token"),
+		Ref: strp("encryptedfs://team-a/npm-token"),
+		Delivery: &api.SecretDelivery{
+			Type: secretDeliveryTypep(api.SecretDeliveryType_SECRET_DELIVERY_TYPE_FILE),
+			Path: strp("npm/token"),
+		},
+		TaskKeys: []string{"shell"},
+	}
+}
+
 func TestValidateJob_Valid(t *testing.T) {
 	t.Parallel()
 
 	if err := validation.ValidateJob(validJob(), validation.Options{RequireJobID: true}); err != nil {
 		t.Fatalf("expected valid job: %v", err)
+	}
+}
+
+func TestValidateJob_ValidSecretReference(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Secrets = []*api.SecretReference{validSecret()}
+
+	if err := validation.ValidateJob(job, validation.Options{RequireJobID: true}); err != nil {
+		t.Fatalf("expected valid job with secret reference: %v", err)
+	}
+}
+
+func TestValidateJob_SecretReferenceValidation(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Secrets = []*api.SecretReference{
+		nil,
+		{
+			Id:  strp("bad id"),
+			Ref: strp("not-a-provider-ref"),
+			Delivery: &api.SecretDelivery{
+				Type: secretDeliveryTypep(api.SecretDeliveryType_SECRET_DELIVERY_TYPE_FILE),
+				Path: strp("../token"),
+			},
+			TaskKeys: []string{"missing-task"},
+		},
+		{
+			Id:  strp("npm-token"),
+			Ref: strp("encryptedfs://user:pass@team-a/npm-token"),
+			Delivery: &api.SecretDelivery{
+				Type: secretDeliveryTypep(api.SecretDeliveryType_SECRET_DELIVERY_TYPE_UNSPECIFIED),
+				Path: strp("npm/token"),
+			},
+		},
+		{
+			Id:       strp("npm-token"),
+			Ref:      strp("encryptedfs://team-a/other"),
+			Delivery: &api.SecretDelivery{},
+		},
+	}
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+
+	msg := err.Error()
+	for _, want := range []string{
+		`secrets[0]: is required`,
+		`secrets[1].id: must start with a letter or underscore`,
+		`secrets[1].ref: must be a provider URI with a scheme`,
+		`secrets[1].delivery.path: must not contain empty, current-directory, or parent-directory path segments`,
+		`secrets[1].task_keys[0]: does not match a job node id "missing-task"`,
+		`secrets[2].ref: must not include embedded credentials`,
+		`secrets[2].delivery.type: is required`,
+		`secrets[3].id: duplicates secret id "npm-token" first used at secrets[2].id`,
+		`secrets[3].delivery.type: is required`,
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("expected %q in %q", want, msg)
+		}
 	}
 }
 

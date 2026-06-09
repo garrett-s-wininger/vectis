@@ -23,6 +23,7 @@ New decisions add the next numbered file. Keep older decisions in place; when a 
 | [0009](./0009-worker-execution-containment-providers.md) | Accepted | Worker execution containment providers |
 | [0010](./0010-versioned-action-registry.md) | Accepted | Versioned action registry |
 | [0011](./0011-artifact-service-local-cas.md) | Accepted | Artifact service with local content-addressed storage |
+| [0012](./0012-spiffe-secret-broker.md) | Accepted | SPIFFE-authenticated secret broker |
 
 ## Writing Style
 
