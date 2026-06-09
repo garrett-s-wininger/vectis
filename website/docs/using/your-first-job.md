@@ -161,6 +161,9 @@ These are the built-ins available today:
 | `builtins/sequence` | none | Runs child `steps` in order. |
 | `builtins/parallel` | none | Runs child `branches` concurrently or fans them out across workers. |
 | `builtins/if` | none | Runs a `condition` node, then runs either the `then` or `else` port. |
+| `builtins/retry` | optional `attempts` | Retries a local `body` port until it succeeds or attempts are exhausted. |
+| `builtins/timeout` | `duration` | Runs a local `body` port with a deadline such as `30s` or `5m`. |
+| `builtins/finally` | none | Runs `body`, then always runs cleanup nodes from the `always` port. |
 
 Actions are intentionally small right now. Pipeline-as-code and richer action syntax are future work; today, JSON is the source format.
 

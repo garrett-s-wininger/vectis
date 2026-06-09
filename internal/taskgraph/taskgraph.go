@@ -17,6 +17,8 @@ const (
 	ConditionPort        = "condition"
 	ThenPort             = "then"
 	ElsePort             = "else"
+	BodyPort             = "body"
+	AlwaysPort           = "always"
 )
 
 type ChildRef struct {

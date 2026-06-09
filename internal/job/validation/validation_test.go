@@ -535,6 +535,125 @@ func TestValidateJob_IfRejectsDistributedExecution(t *testing.T) {
 	}
 }
 
+func TestValidateJob_RetryTimeoutFinallyPorts(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root = &api.Node{
+		Id:   strp("with-cleanup"),
+		Uses: strp("builtins/finally"),
+		Ports: map[string]*api.NodePort{
+			taskgraph.BodyPort: nodePort(&api.Node{
+				Id:   strp("retry-build"),
+				Uses: strp("builtins/retry"),
+				With: map[string]string{"attempts": "3"},
+				Ports: map[string]*api.NodePort{
+					taskgraph.BodyPort: nodePort(&api.Node{
+						Id:   strp("timed-build"),
+						Uses: strp("builtins/timeout"),
+						With: map[string]string{"duration": "5m"},
+						Ports: map[string]*api.NodePort{
+							taskgraph.BodyPort: nodePort(&api.Node{
+								Id:   strp("build"),
+								Uses: strp("builtins/shell"),
+								With: map[string]string{"command": "make build"},
+							}),
+						},
+					}),
+				},
+			}),
+			taskgraph.AlwaysPort: nodePort(&api.Node{
+				Id:   strp("cleanup"),
+				Uses: strp("builtins/shell"),
+				With: map[string]string{"command": "make clean"},
+			}),
+		},
+	}
+
+	if err := validation.ValidateJob(job, validation.Options{RequireJobID: true}); err != nil {
+		t.Fatalf("expected retry/timeout/finally job to validate: %v", err)
+	}
+}
+
+func TestValidateJob_RetryRejectsInvalidAttempts(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root = &api.Node{
+		Id:   strp("retry-build"),
+		Uses: strp("builtins/retry"),
+		With: map[string]string{"attempts": "0"},
+		Ports: map[string]*api.NodePort{
+			taskgraph.BodyPort: nodePort(&api.Node{
+				Id:   strp("build"),
+				Uses: strp("builtins/shell"),
+				With: map[string]string{"command": "make build"},
+			}),
+		},
+	}
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
+	if err == nil {
+		t.Fatal("expected validation error for retry attempts")
+	}
+
+	if msg := err.Error(); !strings.Contains(msg, `root.with.attempts: must be a positive integer`) {
+		t.Fatalf("expected retry attempts error, got %q", msg)
+	}
+}
+
+func TestValidateJob_TimeoutRequiresDuration(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root = &api.Node{
+		Id:   strp("timed-build"),
+		Uses: strp("builtins/timeout"),
+		Ports: map[string]*api.NodePort{
+			taskgraph.BodyPort: nodePort(&api.Node{
+				Id:   strp("build"),
+				Uses: strp("builtins/shell"),
+				With: map[string]string{"command": "make build"},
+			}),
+		},
+	}
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
+	if err == nil {
+		t.Fatal("expected validation error for timeout duration")
+	}
+
+	if msg := err.Error(); !strings.Contains(msg, `root.with.duration: is required`) {
+		t.Fatalf("expected timeout duration error, got %q", msg)
+	}
+}
+
+func TestValidateJob_FinallyRequiresAlwaysPort(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root = &api.Node{
+		Id:   strp("with-cleanup"),
+		Uses: strp("builtins/finally"),
+		Ports: map[string]*api.NodePort{
+			taskgraph.BodyPort: nodePort(&api.Node{
+				Id:   strp("build"),
+				Uses: strp("builtins/shell"),
+				With: map[string]string{"command": "make build"},
+			}),
+		},
+	}
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
+	if err == nil {
+		t.Fatal("expected validation error for missing always port")
+	}
+
+	if msg := err.Error(); !strings.Contains(msg, `root.ports.always: requires at least 1 node(s)`) {
+		t.Fatalf("expected always port error, got %q", msg)
+	}
+}
+
 func TestValidateJob_ControlExecutionModeMustBeKnown(t *testing.T) {
 	t.Parallel()
 

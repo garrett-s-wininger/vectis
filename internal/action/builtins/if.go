@@ -73,17 +73,20 @@ func (i *IfNode) Execute(ctx context.Context, state *action.ExecutionState, _ ma
 }
 
 func executeOrderedChildren(ctx context.Context, state *action.ExecutionState, branchName string, children []*api.Node) action.Result {
+	var outputs map[string]any
 	for idx, child := range children {
 		sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Executing %s node %d/%d", branchName, idx+1, len(children)))
 		result := executeChildNode(ctx, child, state, taskgraph.ActionInputs(child.GetWith()))
 		if result.Status == action.StatusFailure {
-			state.Logger.Error("If %s branch failed at node %d: %v", branchName, idx+1, result.Error)
-			sendLog(state, api.Stream_STREAM_STDERR, fmt.Sprintf("If %s branch node %d failed: %v", branchName, idx+1, result.Error))
+			state.Logger.Error("%s port failed at node %d: %v", branchName, idx+1, result.Error)
+			sendLog(state, api.Stream_STREAM_STDERR, fmt.Sprintf("%s node %d failed: %v", branchName, idx+1, result.Error))
 			return result
 		}
+
+		outputs = result.Outputs
 	}
 
-	return action.NewSuccessResult(nil)
+	return action.NewSuccessResult(outputs)
 }
 
 func boolOutput(outputs map[string]any, name string) (bool, error) {

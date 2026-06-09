@@ -22,6 +22,9 @@ func NewRegistry() *Registry {
 	r.Register(&SequenceNode{})
 	r.Register(&ParallelNode{})
 	r.Register(&IfNode{})
+	r.Register(&RetryNode{})
+	r.Register(&TimeoutNode{})
+	r.Register(&FinallyNode{})
 
 	return r
 }

@@ -73,6 +73,9 @@ These are the built-in actions that the validator knows today:
 | `builtins/sequence` | none | `steps` | Runs child nodes in order. Defaults to `execution: "local"`, so children run in the same worker workspace unless a distributed boundary is reached. Unknown optional `with` keys are tolerated for compatibility. |
 | `builtins/parallel` | none | `branches` | Runs branch nodes concurrently when local, or fans them out as task executions when distributed. Defaults to `execution: "distributed"`. Unknown optional `with` keys are tolerated for compatibility. |
 | `builtins/if` | none | `condition`, `then`, `else` | Runs exactly one `condition` node, reads its `outputs.result` boolean, then runs the ordered `then` or `else` port. Condition execution failures fail the `if`. Local-only until durable skipped-branch semantics exist. |
+| `builtins/retry` | optional `attempts` | `body` | Runs the ordered `body` port until it succeeds or attempts are exhausted. Defaults to `attempts: "3"`. Local-only until durable retry attempts are modeled. |
+| `builtins/timeout` | `duration` | `body` | Runs the ordered `body` port with a deadline such as `30s`, `5m`, or `1h`. Local-only until durable timeout recovery is modeled. |
+| `builtins/finally` | none | `body`, `always` | Runs `body`, then always runs `always`. Body failure remains the final failure unless cleanup is the only failure. Local-only until durable finalizer semantics are modeled. |
 
 The action name can include the `builtins/` prefix. The built-in registry also accepts short names internally, but docs and examples use the full form so job files stay clear.
 
@@ -115,6 +118,34 @@ Conditionals are modeled with nodes instead of an expression language:
     "else": {
       "nodes": [
         {"id": "skip-note", "uses": "builtins/shell", "with": {"command": "echo no deploy"}}
+      ]
+    }
+  }
+}
+```
+
+Execution policy nodes wrap local child subtrees:
+
+```json
+{
+  "id": "retry-build",
+  "uses": "builtins/retry",
+  "with": {"attempts": "3"},
+  "ports": {
+    "body": {
+      "nodes": [
+        {
+          "id": "timed-build",
+          "uses": "builtins/timeout",
+          "with": {"duration": "5m"},
+          "ports": {
+            "body": {
+              "nodes": [
+                {"id": "build", "uses": "builtins/shell", "with": {"command": "make build"}}
+              ]
+            }
+          }
+        }
       ]
     }
   }
