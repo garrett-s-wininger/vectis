@@ -312,6 +312,43 @@ type DispatchEvent struct {
 	CreatedAt int64
 }
 
+type ArtifactCreate struct {
+	RunID           string
+	TaskID          string
+	TaskAttemptID   string
+	ExecutionID     string
+	CellID          string
+	Name            string
+	Path            string
+	ContentType     string
+	BlobKey         string
+	BlobAlgorithm   string
+	BlobDigest      string
+	SizeBytes       int64
+	ArtifactShardID string
+	MetadataJSON    *string
+}
+
+type ArtifactRecord struct {
+	ID              int64
+	RunID           string
+	TaskID          *string
+	TaskAttemptID   *string
+	ExecutionID     *string
+	CellID          string
+	Name            string
+	Path            string
+	ContentType     string
+	BlobKey         string
+	BlobAlgorithm   string
+	BlobDigest      string
+	SizeBytes       int64
+	ArtifactShardID string
+	MetadataJSON    *string
+	CreatedAt       int64
+	UpdatedAt       int64
+}
+
 type TaskDispatchIntentCreate struct {
 	ExecutionID       string
 	RunID             string
@@ -439,6 +476,12 @@ type DispatchEventsRepository interface {
 	Record(ctx context.Context, runID, source, eventType string, message *string) error
 	ListByRun(ctx context.Context, runID string) ([]DispatchEvent, error)
 	LastReconcilerActivity(ctx context.Context) (*int64, error)
+}
+
+type ArtifactsRepository interface {
+	Record(ctx context.Context, create ArtifactCreate) (ArtifactRecord, error)
+	GetByRunAndName(ctx context.Context, runID, name string) (ArtifactRecord, error)
+	ListByRun(ctx context.Context, runID string, cursor int64, limit int) ([]ArtifactRecord, int64, error)
 }
 
 type TaskDispatchIntentsRepository interface {
@@ -615,6 +658,7 @@ type SQLRepositories struct {
 	roleBindings  *SQLRoleBindingsRepository
 	idempotency   *SQLIdempotencyRepository
 	dispatch      *SQLDispatchEventsRepository
+	artifacts     *SQLArtifactsRepository
 	taskDispatch  *SQLTaskDispatchIntentsRepository
 	triggers      *SQLTriggerInvocationsRepository
 	catalog       *SQLCatalogEventsRepository
@@ -640,6 +684,7 @@ func NewSQLRepositoriesWithCellID(db *sql.DB, cellID string) *SQLRepositories {
 		roleBindings:  NewSQLRoleBindingsRepository(db),
 		idempotency:   &SQLIdempotencyRepository{db: db},
 		dispatch:      &SQLDispatchEventsRepository{db: db},
+		artifacts:     &SQLArtifactsRepository{db: db, cellID: cellID},
 		taskDispatch:  &SQLTaskDispatchIntentsRepository{db: db, cellID: cellID},
 		triggers:      &SQLTriggerInvocationsRepository{db: db},
 		catalog:       &SQLCatalogEventsRepository{db: db},
@@ -889,6 +934,10 @@ func (r *SQLRepositories) Idempotency() IdempotencyRepository {
 
 func (r *SQLRepositories) DispatchEvents() DispatchEventsRepository {
 	return r.dispatch
+}
+
+func (r *SQLRepositories) Artifacts() ArtifactsRepository {
+	return r.artifacts
 }
 
 func (r *SQLRepositories) TaskDispatchIntents() TaskDispatchIntentsRepository {

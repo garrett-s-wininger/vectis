@@ -180,6 +180,32 @@ CREATE INDEX idx_segment_executions_cell_status ON segment_executions(cell_id, s
 CREATE INDEX idx_segment_executions_lease_until ON segment_executions(lease_until);
 CREATE INDEX idx_segment_executions_start_deadline ON segment_executions(start_deadline_unix_nano);
 
+CREATE TABLE run_artifacts (
+    id BIGSERIAL PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES job_runs(run_id) ON DELETE CASCADE,
+    task_id TEXT REFERENCES run_tasks(task_id) ON DELETE SET NULL,
+    task_attempt_id TEXT REFERENCES task_attempts(attempt_id) ON DELETE SET NULL,
+    execution_id TEXT REFERENCES segment_executions(execution_id) ON DELETE SET NULL,
+    cell_id TEXT NOT NULL DEFAULT 'local',
+    name TEXT NOT NULL,
+    path TEXT NOT NULL DEFAULT '',
+    content_type TEXT NOT NULL DEFAULT '',
+    blob_key TEXT NOT NULL,
+    blob_algorithm TEXT NOT NULL,
+    blob_digest TEXT NOT NULL,
+    size_bytes BIGINT NOT NULL CHECK(size_bytes >= 0),
+    artifact_shard_id TEXT NOT NULL,
+    metadata_json TEXT,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    UNIQUE(run_id, name)
+);
+
+CREATE INDEX idx_run_artifacts_run_id_id ON run_artifacts(run_id, id);
+CREATE INDEX idx_run_artifacts_blob_key ON run_artifacts(blob_key);
+CREATE INDEX idx_run_artifacts_artifact_shard ON run_artifacts(artifact_shard_id, id);
+CREATE INDEX idx_run_artifacts_task ON run_artifacts(task_id, id);
+
 CREATE TABLE execution_payloads (
     payload_hash TEXT PRIMARY KEY,
     payload_json TEXT NOT NULL,
