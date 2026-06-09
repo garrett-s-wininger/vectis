@@ -2172,6 +2172,211 @@ func TestRunsRepository_ExecutionClaims(t *testing.T) {
 	}
 }
 
+func TestRunsRepository_TryClaimExecutionExpiresPastStartDeadline(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-execution-deadline-claim", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-execution-deadline-claim"
+	if err := repos.Jobs().Create(ctx, jobID, `{"id":"job-execution-deadline-claim","root":{"uses":"builtins/shell"}}`, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	deadline := time.Now().Add(-time.Second).UnixNano()
+	created, err := repos.Runs().CreateRunsInCellsWithAudit(ctx, jobID, nil, 1, []string{dal.DefaultCellID}, dal.RunAuditMetadata{
+		StartDeadlineUnixNano: deadline,
+	})
+
+	if err != nil {
+		t.Fatalf("create run with deadline: %v", err)
+	}
+
+	runID := created[0].RunID
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	if dispatch.StartDeadlineUnixNano != deadline {
+		t.Fatalf("dispatch deadline: got %d want %d", dispatch.StartDeadlineUnixNano, deadline)
+	}
+
+	claim, err := repos.Runs().TryClaimExecution(ctx, dispatch.ExecutionID, "worker-a", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("claim expired execution: %v", err)
+	}
+
+	if !claim.Expired || claim.Claimed || claim.RunID != runID || claim.ExecutionID != dispatch.ExecutionID {
+		t.Fatalf("expected expired claim result, got %+v", claim)
+	}
+
+	assertDispatchExpired(t, db, runID, dispatch.ExecutionID, dispatch.SegmentID)
+}
+
+func TestRunsRepository_MarkExpiredQueuedExecutionsFailed(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-execution-deadline-sweep", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-execution-deadline-sweep"
+	if err := repos.Jobs().Create(ctx, jobID, `{"id":"job-execution-deadline-sweep","root":{"uses":"builtins/shell"}}`, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	now := time.Now()
+	expiredCreated, err := repos.Runs().CreateRunsInCellsWithAudit(ctx, jobID, nil, 1, []string{dal.DefaultCellID}, dal.RunAuditMetadata{
+		StartDeadlineUnixNano: now.Add(-time.Second).UnixNano(),
+	})
+
+	if err != nil {
+		t.Fatalf("create expired run: %v", err)
+	}
+
+	futureCreated, err := repos.Runs().CreateRunsInCellsWithAudit(ctx, jobID, nil, 1, []string{dal.DefaultCellID}, dal.RunAuditMetadata{
+		StartDeadlineUnixNano: now.Add(time.Hour).UnixNano(),
+	})
+
+	if err != nil {
+		t.Fatalf("create future run: %v", err)
+	}
+
+	runningCreated, err := repos.Runs().CreateRunsInCellsWithAudit(ctx, jobID, nil, 1, []string{dal.DefaultCellID}, dal.RunAuditMetadata{
+		StartDeadlineUnixNano: now.Add(time.Hour).UnixNano(),
+	})
+
+	if err != nil {
+		t.Fatalf("create running run: %v", err)
+	}
+
+	expiredDispatch, err := repos.Runs().GetPendingExecution(ctx, expiredCreated[0].RunID)
+	if err != nil {
+		t.Fatalf("get expired dispatch: %v", err)
+	}
+
+	futureDispatch, err := repos.Runs().GetPendingExecution(ctx, futureCreated[0].RunID)
+	if err != nil {
+		t.Fatalf("get future dispatch: %v", err)
+	}
+
+	runningDispatch, claim := claimPendingRunExecution(t, ctx, repos.Runs(), runningCreated[0].RunID, "worker-running", time.Now().Add(time.Minute))
+	if err := repos.Runs().MarkExecutionStarted(ctx, runningDispatch.ExecutionID); err != nil {
+		t.Fatalf("mark running execution started: %v", err)
+	}
+
+	if _, err := db.ExecContext(ctx, `
+		UPDATE segment_executions
+		SET start_deadline_unix_nano = ?, lease_until = ?
+		WHERE execution_id = ?
+	`, now.Add(-time.Second).UnixNano(), now.Add(-time.Minute).Unix(), runningDispatch.ExecutionID); err != nil {
+		t.Fatalf("force running execution expired deadline: %v", err)
+	}
+
+	expired, err := repos.Runs().MarkExpiredQueuedExecutionsFailed(ctx, now.UnixNano(), 10)
+	if err != nil {
+		t.Fatalf("mark expired queued executions failed: %v", err)
+	}
+
+	if len(expired) != 1 || expired[0].RunID != expiredCreated[0].RunID || expired[0].ExecutionID != expiredDispatch.ExecutionID {
+		t.Fatalf("expired executions: got %+v", expired)
+	}
+
+	assertDispatchExpired(t, db, expiredCreated[0].RunID, expiredDispatch.ExecutionID, expiredDispatch.SegmentID)
+
+	var futureRunStatus, futureExecutionStatus string
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, futureCreated[0].RunID).Scan(&futureRunStatus); err != nil {
+		t.Fatalf("scan future run status: %v", err)
+	}
+
+	if err := db.QueryRowContext(ctx, `SELECT status FROM segment_executions WHERE execution_id = ?`, futureDispatch.ExecutionID).Scan(&futureExecutionStatus); err != nil {
+		t.Fatalf("scan future execution status: %v", err)
+	}
+
+	if futureRunStatus != dal.RunStatusQueued || futureExecutionStatus != dal.ExecutionStatusPending {
+		t.Fatalf("future execution should remain queued/pending, run=%q execution=%q", futureRunStatus, futureExecutionStatus)
+	}
+
+	var runningRunStatus, runningExecutionStatus string
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runningCreated[0].RunID).Scan(&runningRunStatus); err != nil {
+		t.Fatalf("scan running run status: %v", err)
+	}
+
+	if err := db.QueryRowContext(ctx, `SELECT status FROM segment_executions WHERE execution_id = ?`, runningDispatch.ExecutionID).Scan(&runningExecutionStatus); err != nil {
+		t.Fatalf("scan running execution status: %v", err)
+	}
+
+	if runningRunStatus != dal.RunStatusRunning || runningExecutionStatus != dal.ExecutionStatusRunning {
+		t.Fatalf("running execution should not dispatch-expire after it starts, run=%q execution=%q claim=%+v", runningRunStatus, runningExecutionStatus, claim)
+	}
+}
+
+func TestRunsRepository_EnsureExecutionStartDeadlineAdoptsMissingDeadline(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-execution-deadline-adopt", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-execution-deadline-adopt"
+	if err := repos.Jobs().Create(ctx, jobID, `{"id":"job-execution-deadline-adopt","root":{"uses":"builtins/shell"}}`, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	if dispatch.StartDeadlineUnixNano != 0 {
+		t.Fatalf("new legacy-style run should not have deadline, got %d", dispatch.StartDeadlineUnixNano)
+	}
+
+	deadline := time.Now().Add(time.Hour).UnixNano()
+	got, err := repos.Runs().EnsureExecutionStartDeadline(ctx, dispatch.ExecutionID, deadline)
+	if err != nil {
+		t.Fatalf("ensure start deadline: %v", err)
+	}
+
+	if got != deadline {
+		t.Fatalf("ensured deadline: got %d want %d", got, deadline)
+	}
+
+	again, err := repos.Runs().EnsureExecutionStartDeadline(ctx, dispatch.ExecutionID, deadline+int64(time.Hour))
+	if err != nil {
+		t.Fatalf("ensure start deadline again: %v", err)
+	}
+
+	if again != deadline {
+		t.Fatalf("deadline should be stable after adoption: got %d want %d", again, deadline)
+	}
+
+	refetched, err := repos.Runs().GetExecutionDispatch(ctx, dispatch.ExecutionID)
+	if err != nil {
+		t.Fatalf("get execution dispatch: %v", err)
+	}
+
+	if refetched.StartDeadlineUnixNano != deadline {
+		t.Fatalf("refetched deadline: got %d want %d", refetched.StartDeadlineUnixNano, deadline)
+	}
+}
+
 func TestRunsRepository_ExecutionClaimsAllowExpiredAcceptedReclaim(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)
@@ -3179,6 +3384,52 @@ func assertExecutionAndSegmentStatus(t *testing.T, db *sql.DB, executionID, segm
 
 	if segmentStatus != wantSegmentStatus {
 		t.Fatalf("segment status: got %q, want %q", segmentStatus, wantSegmentStatus)
+	}
+}
+
+func assertDispatchExpired(t *testing.T, db *sql.DB, runID, executionID, segmentID string) {
+	t.Helper()
+
+	var runStatus, failureCode string
+	var failureReason sql.NullString
+	if err := db.QueryRow(`SELECT status, failure_code, failure_reason FROM job_runs WHERE run_id = ?`, runID).
+		Scan(&runStatus, &failureCode, &failureReason); err != nil {
+		t.Fatalf("query expired run status: %v", err)
+	}
+
+	if runStatus != dal.RunStatusFailed || failureCode != dal.FailureCodeDispatchExpired || !failureReason.Valid {
+		t.Fatalf("expired run status: status=%q failure_code=%q failure_reason=%v", runStatus, failureCode, failureReason)
+	}
+
+	var executionStatus string
+	var finishedAt sql.NullString
+	var leaseOwner sql.NullString
+	var leaseUntil sql.NullInt64
+	if err := db.QueryRow(`SELECT status, finished_at, lease_owner, lease_until FROM segment_executions WHERE execution_id = ?`, executionID).
+		Scan(&executionStatus, &finishedAt, &leaseOwner, &leaseUntil); err != nil {
+		t.Fatalf("query expired execution status: %v", err)
+	}
+
+	if executionStatus != dal.ExecutionStatusFailed || !finishedAt.Valid || leaseOwner.Valid || leaseUntil.Valid {
+		t.Fatalf("expired execution state: status=%q finished_at=%v lease_owner=%v lease_until=%v", executionStatus, finishedAt, leaseOwner, leaseUntil)
+	}
+
+	var segmentStatus string
+	if err := db.QueryRow(`SELECT status FROM run_segments WHERE segment_id = ?`, segmentID).Scan(&segmentStatus); err != nil {
+		t.Fatalf("query expired segment status: %v", err)
+	}
+
+	if segmentStatus != dal.SegmentStatusFailed {
+		t.Fatalf("expired segment status: got %q want %q", segmentStatus, dal.SegmentStatusFailed)
+	}
+
+	var taskStatus string
+	if err := db.QueryRow(`SELECT status FROM run_tasks WHERE task_id = ?`, runID+":"+dal.RootTaskKey).Scan(&taskStatus); err != nil {
+		t.Fatalf("query expired task status: %v", err)
+	}
+
+	if taskStatus != dal.TaskStatusFailed {
+		t.Fatalf("expired task status: got %q want %q", taskStatus, dal.TaskStatusFailed)
 	}
 }
 

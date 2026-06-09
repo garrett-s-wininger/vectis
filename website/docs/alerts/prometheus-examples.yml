@@ -19,6 +19,14 @@ groups:
           summary: Vectis queue DLQ contains deliveries
           runbook: docs/REPAIR_RUNBOOKS.md#queued-runs-or-backlog
 
+      - alert: VectisQueueExpiredDispatchDrops
+        expr: increase(vectis_queue_expired_dropped_total[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis queue dropped deliveries after dispatch start deadlines
+          runbook: docs/REPAIR_RUNBOOKS.md#queued-runs-or-backlog
+
       - alert: VectisReconcilerReenqueueFailures
         expr: increase(vectis_reconciler_reenqueue_total{outcome!="success"}[10m]) > 0
         labels:

@@ -18,6 +18,7 @@ import (
 	"vectis/internal/cell"
 	"vectis/internal/config"
 	"vectis/internal/dal"
+	"vectis/internal/dispatchmeta"
 	"vectis/internal/interfaces"
 	jobexec "vectis/internal/job"
 	jobvalidation "vectis/internal/job/validation"
@@ -34,6 +35,13 @@ import (
 )
 
 const defaultForceFailReason = "manually failed via API"
+
+func newRunAuditMetadata(triggerInvocationID string) dal.RunAuditMetadata {
+	return dal.RunAuditMetadata{
+		TriggerInvocationID:   triggerInvocationID,
+		StartDeadlineUnixNano: dispatchmeta.DeadlineUnixNano(time.Now(), config.DispatchStartTTL()),
+	}
+}
 
 type runTargetOptions struct {
 	CellID        string   `json:"cell_id"`
@@ -1064,7 +1072,7 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	createdRuns, err := s.runs.CreateRunsInCellsWithAudit(ctx, jobID, nil, definitionVersion, targetCellIDs, dal.RunAuditMetadata{TriggerInvocationID: invocationID})
+	createdRuns, err := s.runs.CreateRunsInCellsWithAudit(ctx, jobID, nil, definitionVersion, targetCellIDs, newRunAuditMetadata(invocationID))
 	if err != nil {
 		if idempotencyReserved {
 			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
@@ -1374,8 +1382,9 @@ func (s *APIServer) ReplayRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	createdRun, err := s.runs.CreateReplayRun(ctx, sourceRunID, targetCellID, dal.RunAuditMetadata{
-		TriggerInvocationID: invocationID,
-		ReplayOfRunID:       sourceRunID,
+		TriggerInvocationID:   invocationID,
+		ReplayOfRunID:         sourceRunID,
+		StartDeadlineUnixNano: dispatchmeta.DeadlineUnixNano(time.Now(), config.DispatchStartTTL()),
 	})
 
 	if err != nil {
@@ -1654,7 +1663,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 
 	var runID string
 	if starter, ok := s.ephemeralRuns.(dal.EphemeralRunStarterWithAudit); ok {
-		runID, _, err = starter.CreateDefinitionAndRunInCellWithAudit(ctx, ephemeralJobID, string(definitionJSON), &runIndexOne, targetCellID, dal.RunAuditMetadata{TriggerInvocationID: invocationID})
+		runID, _, err = starter.CreateDefinitionAndRunInCellWithAudit(ctx, ephemeralJobID, string(definitionJSON), &runIndexOne, targetCellID, newRunAuditMetadata(invocationID))
 	} else {
 		runID, _, err = s.ephemeralRuns.CreateDefinitionAndRunInCell(ctx, ephemeralJobID, string(definitionJSON), &runIndexOne, targetCellID)
 	}
@@ -1885,7 +1894,18 @@ func (s *APIServer) materializeJobTasks(ctx context.Context, runID string, job *
 }
 
 func (s *APIServer) attachExecutionEnvelope(ctx context.Context, req *api.JobRequest, runID string, createdAtUnixNano int64) (*cell.ExecutionEnvelope, error) {
-	return cell.AttachPendingExecutionEnvelope(ctx, s.runs, req, runID, createdAtUnixNano)
+	dispatch, err := s.runs.GetPendingExecution(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+
+	deadline, err := s.runs.EnsureExecutionStartDeadline(ctx, dispatch.ExecutionID, dispatchmeta.DeadlineUnixNano(time.Now(), config.DispatchStartTTL()))
+	if err != nil {
+		return nil, err
+	}
+
+	dispatch.StartDeadlineUnixNano = deadline
+	return cell.AttachExecutionEnvelope(req, dispatch, createdAtUnixNano)
 }
 
 func detachedTraceContextFromRequest(r *http.Request) context.Context {

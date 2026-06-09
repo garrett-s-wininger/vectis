@@ -7,7 +7,9 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/cell"
+	"vectis/internal/config"
 	"vectis/internal/dal"
+	"vectis/internal/dispatchmeta"
 	"vectis/internal/interfaces"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -181,6 +183,12 @@ func (d *Dispatcher) requestForIntent(ctx context.Context, intent dal.TaskDispat
 		return nil, fmt.Errorf("load execution dispatch record: %w", err)
 	}
 
+	deadline, err := d.runs.EnsureExecutionStartDeadline(ctx, dispatch.ExecutionID, dispatchmeta.DeadlineUnixNano(d.clock.Now(), config.DispatchStartTTL()))
+	if err != nil {
+		return nil, fmt.Errorf("ensure execution start deadline: %w", err)
+	}
+
+	dispatch.StartDeadlineUnixNano = deadline
 	payload, err := d.runs.GetExecutionPayloadForRun(ctx, dispatch.RunID)
 	if err != nil {
 		return nil, fmt.Errorf("load execution payload: %w", err)

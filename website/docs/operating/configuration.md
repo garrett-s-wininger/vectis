@@ -22,7 +22,9 @@ For service-scoped variables, take the service prefix, append the setting path w
 VECTIS_WORKER_DISCOVERY_REGISTRY_ADDRESS=localhost:8082
 ```
 
-Some settings are global and intentionally do not use a service prefix, such as `VECTIS_CELL_ID`, `VECTIS_DATABASE_*`, `VECTIS_GLOBAL_DATABASE_DSN`, `VECTIS_CELL_DATABASE_DSN`, `VECTIS_GRPC_TLS_*`, `VECTIS_METRICS_TLS_*`, and `VECTIS_API_AUTH_*`.
+Some settings are global and intentionally do not use a service prefix, such as `VECTIS_CELL_ID`, `VECTIS_DATABASE_*`, `VECTIS_GLOBAL_DATABASE_DSN`, `VECTIS_CELL_DATABASE_DSN`, `VECTIS_GRPC_TLS_*`, `VECTIS_METRICS_TLS_*`, `VECTIS_DISPATCH_START_TTL`, and `VECTIS_API_AUTH_*`.
+
+`VECTIS_DISPATCH_START_TTL` sets how long a root or task execution may remain dispatchable before Vectis refuses to start it. The default is `24h`. Producers stamp the deadline into the execution envelope, queues drop expired deliveries instead of redelivering them, the worker refuses a database claim after the deadline, and the reconciler marks expired queued executions failed with failure code `dispatch_expired`.
 
 ## Common Settings {#common-operator-settings}
 
@@ -48,6 +50,7 @@ Some settings are global and intentionally do not use a service prefix, such as 
 | Pin worker to a queue address | `VECTIS_WORKER_QUEUE_ADDRESS=host:8081` |
 | Run worker commands through a Lima VM | `VECTIS_WORKER_EXECUTION_BACKEND=lima`, `VECTIS_WORKER_LIMA_INSTANCE=vectis-worker`, and `VECTIS_WORKER_WORKSPACE_ROOT=/path/mounted/in/guest` |
 | Persist queue backlog to disk | `VECTIS_QUEUE_PERSISTENCE_DIR=/path/to/queue-shard` |
+| Expire queued work that never starts | `VECTIS_DISPATCH_START_TTL=24h` |
 | Expose a dedicated metrics listener off-host | Set the service `--metrics-host` flag or `VECTIS_<SERVICE>_METRICS_HOST=0.0.0.0` plus `VECTIS_METRICS_ALLOWED_HOSTS=<scrape-host>` |
 | Change reconciler interval | `VECTIS_RECONCILER_INTERVAL=30s` |
 | Change reconciler failover TTL | `VECTIS_RECONCILER_LEASE_TTL=2m` |

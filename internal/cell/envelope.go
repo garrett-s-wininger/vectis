@@ -9,6 +9,7 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/dal"
+	"vectis/internal/dispatchmeta"
 )
 
 const (
@@ -87,6 +88,8 @@ func AttachExecutionEnvelope(req *api.JobRequest, dispatch dal.ExecutionDispatch
 	if req == nil {
 		return nil, errors.New("job request is required")
 	}
+
+	dispatchmeta.StampStartDeadline(req, dispatch.StartDeadlineUnixNano)
 
 	env, err := NewExecutionEnvelope(dispatch, req.GetJob(), req.GetMetadata(), createdAtUnixNano)
 	if err != nil {

@@ -241,6 +241,8 @@ type MockRunsRepository struct {
 	MarkExecutionErr           error
 	ExecutionFinalizationErr   error
 	LogShardErr                error
+	EnsureExecutionDeadlineErr error
+	ExpireQueuedExecutionsErr  error
 
 	CountByStatusResult       int64
 	CountByStatusByCellResult []dal.RunCountByCell
@@ -251,6 +253,7 @@ type MockRunsRepository struct {
 
 	TryClaimExecutionResult          bool
 	TryClaimExecutionAlreadyAccepted bool
+	TryClaimExecutionExpired         bool
 	ExecutionClaimToken              string
 	RunStatus                        string
 	RunStatusFound                   bool
@@ -273,6 +276,7 @@ type MockRunsRepository struct {
 	QueuedRuns             []dal.QueuedRun
 	PendingExecution       dal.ExecutionDispatchRecord
 	ExecutionDispatches    map[string]dal.ExecutionDispatchRecord
+	ExpiredExecutions      []dal.ExpiredExecution
 
 	TouchedRunIDs        []string
 	ExecutionTransitions []string
@@ -297,6 +301,10 @@ type MockRunsRepository struct {
 	LastExecutionClaimID  string
 	LastExecutionOwner    string
 	LastExecutionRenewID  string
+	LastEnsuredExecution  string
+	LastEnsuredDeadline   int64
+	LastExpiryCutoff      int64
+	LastExpiryLimit       int
 	LastFinalizedExecID   string
 	LastFinalizedStatus   string
 	LastRunStatusUpdate   dal.RunStatusUpdate
@@ -420,6 +428,19 @@ func (m *MockRunsRepository) MarkExpiredRunningAsOrphaned(ctx context.Context, c
 	}
 
 	return append([]string(nil), m.OrphanedRunIDs...), nil
+}
+
+func (m *MockRunsRepository) MarkExpiredQueuedExecutionsFailed(ctx context.Context, cutoffUnixNano int64, limit int) ([]dal.ExpiredExecution, error) {
+	if m.ExpireQueuedExecutionsErr != nil {
+		return nil, m.ExpireQueuedExecutionsErr
+	}
+
+	m.mu.Lock()
+	m.LastExpiryCutoff = cutoffUnixNano
+	m.LastExpiryLimit = limit
+	m.mu.Unlock()
+
+	return append([]dal.ExpiredExecution(nil), m.ExpiredExecutions...), nil
 }
 
 func (m *MockRunsRepository) GetRunStatus(ctx context.Context, runID string) (status string, found bool, err error) {
@@ -852,6 +873,29 @@ func (m *MockRunsRepository) GetExecutionDispatch(ctx context.Context, execution
 	return rec, nil
 }
 
+func (m *MockRunsRepository) EnsureExecutionStartDeadline(ctx context.Context, executionID string, deadlineUnixNano int64) (int64, error) {
+	if m.EnsureExecutionDeadlineErr != nil {
+		return 0, m.EnsureExecutionDeadlineErr
+	}
+
+	m.mu.Lock()
+	m.LastEnsuredExecution = executionID
+	m.LastEnsuredDeadline = deadlineUnixNano
+	m.mu.Unlock()
+
+	if m.ExecutionDispatches != nil {
+		if rec, ok := m.ExecutionDispatches[executionID]; ok && rec.StartDeadlineUnixNano > 0 {
+			return rec.StartDeadlineUnixNano, nil
+		}
+	}
+
+	if m.PendingExecution.StartDeadlineUnixNano > 0 {
+		return m.PendingExecution.StartDeadlineUnixNano, nil
+	}
+
+	return deadlineUnixNano, nil
+}
+
 func (m *MockRunsRepository) TryClaimExecution(ctx context.Context, executionID, owner string, leaseUntil time.Time) (dal.ExecutionClaimResult, error) {
 	if m.TryClaimExecutionErr != nil {
 		return dal.ExecutionClaimResult{}, m.TryClaimExecutionErr
@@ -861,6 +905,19 @@ func (m *MockRunsRepository) TryClaimExecution(ctx context.Context, executionID,
 	m.LastExecutionClaimID = executionID
 	m.LastExecutionOwner = owner
 	m.mu.Unlock()
+
+	if m.TryClaimExecutionExpired {
+		runID := m.PendingExecution.RunID
+		if runID == "" {
+			runID = "mock-run-id"
+		}
+
+		return dal.ExecutionClaimResult{
+			Expired:     true,
+			RunID:       runID,
+			ExecutionID: executionID,
+		}, nil
+	}
 
 	if !m.TryClaimExecutionResult {
 		return dal.ExecutionClaimResult{}, nil

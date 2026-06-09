@@ -12,6 +12,7 @@ type QueueMetrics struct {
 	enqueued        metric.Int64Counter
 	dequeued        metric.Int64Counter
 	expiredRequeued metric.Int64Counter
+	expiredDropped  metric.Int64Counter
 	dlqMoved        metric.Int64Counter
 	dlqRequeued     metric.Int64Counter
 }
@@ -40,6 +41,13 @@ func NewQueueMetrics() (*QueueMetrics, error) {
 		return nil, fmt.Errorf("vectis_queue_expired_requeued_total: %w", err)
 	}
 
+	expiredDropped, err := m.Int64Counter("vectis_queue_expired_dropped_total",
+		metric.WithDescription("Total pending jobs or in-flight deliveries dropped after dispatch start deadline expiry"),
+		metric.WithUnit("{job}"))
+	if err != nil {
+		return nil, fmt.Errorf("vectis_queue_expired_dropped_total: %w", err)
+	}
+
 	dlqMoved, err := m.Int64Counter("vectis_queue_dlq_moved_total",
 		metric.WithDescription("Total deliveries moved to dead letter queue after max requeue attempts"),
 		metric.WithUnit("{delivery}"))
@@ -58,6 +66,7 @@ func NewQueueMetrics() (*QueueMetrics, error) {
 		enqueued:        enqueued,
 		dequeued:        dequeued,
 		expiredRequeued: expiredRequeued,
+		expiredDropped:  expiredDropped,
 		dlqMoved:        dlqMoved,
 		dlqRequeued:     dlqRequeued,
 	}, nil
@@ -82,6 +91,13 @@ func (qm *QueueMetrics) RecordExpiredRequeued(ctx context.Context) {
 		return
 	}
 	qm.expiredRequeued.Add(ctx, 1)
+}
+
+func (qm *QueueMetrics) RecordExpiredDropped(ctx context.Context) {
+	if qm == nil {
+		return
+	}
+	qm.expiredDropped.Add(ctx, 1)
 }
 
 func (qm *QueueMetrics) RecordDLQMoved(ctx context.Context) {

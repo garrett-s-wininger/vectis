@@ -58,6 +58,7 @@ Use the event source, timestamp, and message together:
 | `attempt` without a later `success` | A producer started handoff, then failed or stopped before success was recorded. | Read nearby logs for that source and wait for reconciler repair if the run is not urgent. |
 | `attempt` followed by `success` | The queue accepted the handoff. | If the run is still queued, focus on worker availability and queue backlog. |
 | `failure` | The producer could not enqueue the run or could not record the dispatch completion. | Read `message`, then check queue health, registry or pinned address config, gRPC TLS, and retry exhaustion. |
+| Run failed with `dispatch_expired` | The execution was not claimed before its dispatch start deadline. | Check worker capacity, queue backlog, cell routing, and `VECTIS_DISPATCH_START_TTL` before retrying. |
 | `reconciler` event | The reconciler tried to repair a queued run that missed or lost its original handoff. | Occasional repair is expected. Repeated repair points to producer, queue, or network instability. |
 | `task_dispatch` event | A task completion produced continuation work for the same run. | Repeated failures point to queue handoff, worker capacity, or task fan-out pressure. |
 | Multiple successful handoff events | A retry or reconciler submitted the same run more than once. | Worker database claims should prevent duplicate execution for the same run ID; inspect queue duplicate pressure. |
@@ -136,6 +137,12 @@ sum(rate(vectis_queue_jobs_pending[10m])) > 0 and vectis_queue_jobs_pending > 0
 ```
 
 Warn when queue backlog is not draining. Tune the threshold to your workload.
+
+```promql
+increase(vectis_queue_expired_dropped_total[10m]) > 0
+```
+
+Warn when queues drop deliveries whose dispatch start deadlines have already passed. Pair this with runs failed as `dispatch_expired` to distinguish real capacity pressure from ordinary redelivery retries.
 
 ```promql
 increase(vectis_retries_exhausted_total[10m]) > 0

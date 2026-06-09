@@ -559,7 +559,7 @@ func (r *SQLRunsRepository) CreateRunsInCellsWithAudit(ctx context.Context, jobI
 			return nil, normalizeSQLError(err)
 		}
 
-		if err := createInitialSegmentExecutionTx(ctx, tx, runID, targetCellID); err != nil {
+		if err := createInitialSegmentExecutionTx(ctx, tx, runID, targetCellID, audit.StartDeadlineUnixNano); err != nil {
 			return nil, err
 		}
 
@@ -711,7 +711,7 @@ func createRunTx(ctx context.Context, tx *sql.Tx, runID, jobID string, runIndex 
 		return 0, normalizeSQLError(err)
 	}
 
-	if err := createInitialSegmentExecutionTx(ctx, tx, runID, targetCellID); err != nil {
+	if err := createInitialSegmentExecutionTx(ctx, tx, runID, targetCellID, audit.StartDeadlineUnixNano); err != nil {
 		return 0, err
 	}
 
@@ -790,7 +790,7 @@ func (r *SQLRunsRepository) CreateReplayRun(ctx context.Context, sourceRunID str
 		return CreatedRun{}, normalizeSQLError(err)
 	}
 
-	if err := createInitialSegmentExecutionTx(ctx, tx, runID, targetCellID); err != nil {
+	if err := createInitialSegmentExecutionTx(ctx, tx, runID, targetCellID, audit.StartDeadlineUnixNano); err != nil {
 		return CreatedRun{}, err
 	}
 
@@ -2115,10 +2115,11 @@ func (r *SQLRunsRepository) ensureTaskExecution(ctx context.Context, create Task
 	}
 
 	result, err := tx.ExecContext(ctx, rebindQueryForPgx(`
-		INSERT INTO segment_executions (execution_id, segment_id, run_id, task_id, task_attempt_id, cell_id, status, attempt)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO segment_executions (execution_id, segment_id, run_id, task_id, task_attempt_id, cell_id, status, attempt, start_deadline_unix_nano)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(task_attempt_id) DO NOTHING
-	`), executionID, segmentID, normalized.RunID, taskID, attemptID, cellID, executionStatus, attempt)
+	`), executionID, segmentID, normalized.RunID, taskID, attemptID, cellID, executionStatus, attempt, nullableInt64(normalized.StartDeadlineUnixNano))
+
 	if err != nil {
 		return TaskExecutionRecord{}, false, normalizeSQLError(err)
 	}
@@ -2168,6 +2169,10 @@ func normalizeTaskExecutionCreate(create TaskExecutionCreate) (TaskExecutionCrea
 	create.Name = strings.TrimSpace(create.Name)
 	create.SpecHash = strings.TrimSpace(create.SpecHash)
 	create.TargetCellID = strings.TrimSpace(create.TargetCellID)
+
+	if create.StartDeadlineUnixNano < 0 {
+		create.StartDeadlineUnixNano = 0
+	}
 
 	if create.RunID == "" {
 		return TaskExecutionCreate{}, fmt.Errorf("%w: run_id is required", ErrNotFound)
@@ -2271,7 +2276,8 @@ func (r *SQLRunsRepository) GetPendingExecution(ctx context.Context, runID strin
 			se.attempt,
 			jr.definition_version,
 			jr.definition_hash,
-			jr.owning_cell
+			jr.owning_cell,
+			se.start_deadline_unix_nano
 		FROM job_runs jr
 		JOIN run_segments rs ON rs.run_id = jr.run_id
 		JOIN segment_executions se ON se.segment_id = rs.segment_id
@@ -2324,7 +2330,8 @@ func (r *SQLRunsRepository) GetExecutionDispatch(ctx context.Context, executionI
 			se.attempt,
 			jr.definition_version,
 			jr.definition_hash,
-			jr.owning_cell
+			jr.owning_cell,
+			se.start_deadline_unix_nano
 		FROM segment_executions se
 		JOIN job_runs jr ON jr.run_id = se.run_id
 		JOIN run_segments rs ON rs.segment_id = se.segment_id AND rs.run_id = jr.run_id
@@ -2357,6 +2364,7 @@ type executionDispatchRecordScanner interface {
 
 func scanExecutionDispatchRecord(scanner executionDispatchRecordScanner) (ExecutionDispatchRecord, error) {
 	var rec ExecutionDispatchRecord
+	var startDeadline sql.NullInt64
 	if err := scanner.Scan(
 		&rec.RunID,
 		&rec.JobID,
@@ -2376,11 +2384,204 @@ func scanExecutionDispatchRecord(scanner executionDispatchRecordScanner) (Execut
 		&rec.DefinitionVersion,
 		&rec.DefinitionHash,
 		&rec.OwningCell,
+		&startDeadline,
 	); err != nil {
 		return ExecutionDispatchRecord{}, err
 	}
 
+	if startDeadline.Valid {
+		rec.StartDeadlineUnixNano = startDeadline.Int64
+	}
+
 	return rec, nil
+}
+
+func (r *SQLRunsRepository) EnsureExecutionStartDeadline(ctx context.Context, executionID string, deadlineUnixNano int64) (int64, error) {
+	executionID = strings.TrimSpace(executionID)
+	if executionID == "" {
+		return 0, fmt.Errorf("%w: execution_id is required", ErrNotFound)
+	}
+
+	if deadlineUnixNano > 0 {
+		if _, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+			UPDATE segment_executions
+			SET start_deadline_unix_nano = ?,
+				updated_at = CURRENT_TIMESTAMP
+			WHERE execution_id = ?
+				AND start_deadline_unix_nano IS NULL
+		`), deadlineUnixNano, executionID); err != nil {
+			return 0, normalizeSQLError(err)
+		}
+	}
+
+	var stored sql.NullInt64
+	if err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT start_deadline_unix_nano
+		FROM segment_executions
+		WHERE execution_id = ?
+	`), executionID).Scan(&stored); err != nil {
+		if err == sql.ErrNoRows {
+			return 0, fmt.Errorf("%w: execution %s", ErrNotFound, executionID)
+		}
+
+		return 0, normalizeSQLError(err)
+	}
+
+	if stored.Valid {
+		return stored.Int64, nil
+	}
+
+	return 0, nil
+}
+
+func (r *SQLRunsRepository) MarkExpiredQueuedExecutionsFailed(ctx context.Context, cutoffUnixNano int64, limit int) ([]ExpiredExecution, error) {
+	if cutoffUnixNano <= 0 {
+		return nil, nil
+	}
+
+	if limit <= 0 {
+		limit = 100
+	}
+
+	cutoff := time.Unix(0, cutoffUnixNano).UTC()
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
+		SELECT se.execution_id
+		FROM segment_executions se
+		JOIN job_runs jr ON jr.run_id = se.run_id
+		WHERE se.start_deadline_unix_nano IS NOT NULL
+			AND se.start_deadline_unix_nano <= ?
+			AND se.status IN (?, ?)
+			AND jr.status IN (?, ?, ?)
+			AND (se.lease_until IS NULL OR se.lease_until < ?)
+		ORDER BY se.start_deadline_unix_nano ASC, se.id ASC
+		LIMIT ?
+	`), cutoffUnixNano, ExecutionStatusPending, ExecutionStatusAccepted, RunStatusQueued, RunStatusRunning, RunStatusOrphaned, cutoff.Unix(), limit)
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	var executionIDs []string
+	for rows.Next() {
+		var executionID string
+		if err := rows.Scan(&executionID); err != nil {
+			return nil, normalizeSQLError(err)
+		}
+
+		executionIDs = append(executionIDs, executionID)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	if len(executionIDs) == 0 {
+		return nil, nil
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	expired := make([]ExpiredExecution, 0, len(executionIDs))
+	for _, executionID := range executionIDs {
+		rec, didExpire, err := expireExecutionStartDeadlineTx(ctx, tx, executionID, cutoff)
+		if err != nil {
+			return nil, err
+		}
+
+		if didExpire {
+			expired = append(expired, rec)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	return expired, nil
+}
+
+func expireExecutionStartDeadlineTx(ctx context.Context, tx *sql.Tx, executionID string, now time.Time) (ExpiredExecution, bool, error) {
+	var runID string
+	var status string
+	var runStatus string
+	var leaseUntil sql.NullInt64
+	var deadline sql.NullInt64
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT se.run_id, se.status, jr.status, se.lease_until, se.start_deadline_unix_nano
+		FROM segment_executions se
+		JOIN job_runs jr ON jr.run_id = se.run_id
+		WHERE se.execution_id = ?
+	`), executionID).Scan(&runID, &status, &runStatus, &leaseUntil, &deadline); err != nil {
+		if err == sql.ErrNoRows {
+			return ExpiredExecution{}, false, nil
+		}
+
+		return ExpiredExecution{}, false, normalizeSQLError(err)
+	}
+
+	if !deadline.Valid || deadline.Int64 <= 0 || deadline.Int64 > now.UTC().UnixNano() {
+		return ExpiredExecution{}, false, nil
+	}
+
+	if !statusIn(status, []string{ExecutionStatusPending, ExecutionStatusAccepted}) {
+		return ExpiredExecution{}, false, nil
+	}
+
+	if !statusIn(runStatus, []string{RunStatusQueued, RunStatusRunning, RunStatusOrphaned}) {
+		return ExpiredExecution{}, false, nil
+	}
+
+	if leaseUntil.Valid && leaseUntil.Int64 >= now.UTC().Unix() {
+		return ExpiredExecution{}, false, nil
+	}
+
+	if _, err := transitionExecutionTx(ctx, tx, executionID, ExecutionStatusFailed, SegmentStatusFailed, []string{ExecutionStatusPending, ExecutionStatusAccepted}, false, false, true); err != nil {
+		return ExpiredExecution{}, false, err
+	}
+
+	reason := fmt.Sprintf("execution was not started before dispatch deadline %d", deadline.Int64)
+	if err := markRunFailedForExpiredDispatchTx(ctx, tx, runID, reason); err != nil {
+		return ExpiredExecution{}, false, err
+	}
+
+	return ExpiredExecution{RunID: runID, ExecutionID: executionID}, true, nil
+}
+
+func markRunFailedForExpiredDispatchTx(ctx context.Context, tx *sql.Tx, runID, reason string) error {
+	res, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE job_runs
+		SET status = ?,
+			finished_at = CURRENT_TIMESTAMP,
+			orphan_reason = '',
+			failure_code = ?,
+			failure_reason = ?,
+			lease_owner = NULL,
+			lease_until = NULL,
+			cancel_token = NULL,
+			cancel_requested_at = NULL,
+			cancel_reason = NULL
+		WHERE run_id = ?
+			AND status IN (?, ?, ?)
+	`), RunStatusFailed, FailureCodeDispatchExpired, nullableReason(reason), runID, RunStatusQueued, RunStatusRunning, RunStatusOrphaned)
+
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if n != 1 {
+		return fmt.Errorf("%w: run %s cannot be failed after dispatch expiry", ErrConflict, runID)
+	}
+
+	return nil
 }
 
 func (r *SQLRunsRepository) TryClaimExecution(ctx context.Context, executionID, owner string, leaseUntil time.Time) (ExecutionClaimResult, error) {
@@ -2404,12 +2605,13 @@ func (r *SQLRunsRepository) TryClaimExecution(ctx context.Context, executionID, 
 	var currentStatus string
 	var runStatus string
 	var currentLeaseUntil sql.NullInt64
+	var startDeadline sql.NullInt64
 	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
-		SELECT se.run_id, se.segment_id, se.task_id, se.task_attempt_id, se.attempt, se.status, se.lease_until, jr.status
+		SELECT se.run_id, se.segment_id, se.task_id, se.task_attempt_id, se.attempt, se.status, se.lease_until, se.start_deadline_unix_nano, jr.status
 		FROM segment_executions se
 		JOIN job_runs jr ON jr.run_id = se.run_id
 		WHERE se.execution_id = ?
-	`), executionID).Scan(&runID, &segmentID, &taskID, &taskAttemptID, &attempt, &currentStatus, &currentLeaseUntil, &runStatus); err != nil {
+	`), executionID).Scan(&runID, &segmentID, &taskID, &taskAttemptID, &attempt, &currentStatus, &currentLeaseUntil, &startDeadline, &runStatus); err != nil {
 		if err == sql.ErrNoRows {
 			return ExecutionClaimResult{}, nil
 		}
@@ -2428,6 +2630,26 @@ func (r *SQLRunsRepository) TryClaimExecution(ctx context.Context, executionID, 
 	now := time.Now().UTC()
 	nowUnix := now.Unix()
 	if currentLeaseUntil.Valid && currentLeaseUntil.Int64 >= nowUnix {
+		return ExecutionClaimResult{}, nil
+	}
+
+	if statusIn(currentStatus, []string{ExecutionStatusPending, ExecutionStatusAccepted}) && startDeadline.Valid && startDeadline.Int64 > 0 && startDeadline.Int64 <= now.UnixNano() {
+		expired, didExpire, err := expireExecutionStartDeadlineTx(ctx, tx, executionID, now)
+		if err != nil {
+			return ExecutionClaimResult{}, err
+		}
+		if didExpire {
+			if err := tx.Commit(); err != nil {
+				return ExecutionClaimResult{}, err
+			}
+
+			return ExecutionClaimResult{
+				Expired:     true,
+				RunID:       expired.RunID,
+				ExecutionID: expired.ExecutionID,
+			}, nil
+		}
+
 		return ExecutionClaimResult{}, nil
 	}
 

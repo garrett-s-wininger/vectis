@@ -146,6 +146,25 @@ func TestMustDefaults_Catalog(t *testing.T) {
 	}
 }
 
+func TestMustDefaults_Dispatch(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	d := MustDefaults()
+	if time.Duration(d.Dispatch.StartTTL) != 24*time.Hour {
+		t.Fatalf("expected dispatch.start_ttl 24h, got %v", time.Duration(d.Dispatch.StartTTL))
+	}
+
+	if got := DispatchStartTTL(); got != 24*time.Hour {
+		t.Fatalf("DispatchStartTTL() with empty viper: got %v", got)
+	}
+
+	viper.Set("dispatch.start_ttl", 2*time.Hour)
+	if got := DispatchStartTTL(); got != 2*time.Hour {
+		t.Fatalf("DispatchStartTTL() with viper override: got %v", got)
+	}
+}
+
 func TestMustDefaults_CellIngress(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)

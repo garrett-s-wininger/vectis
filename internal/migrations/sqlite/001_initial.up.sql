@@ -160,6 +160,7 @@ CREATE TABLE segment_executions (
     attempt INTEGER NOT NULL DEFAULT 1,
     lease_owner TEXT,
     lease_until INTEGER,
+    start_deadline_unix_nano INTEGER,
     claim_token TEXT,
     accepted_at TIMESTAMP,
     started_at TIMESTAMP,
@@ -177,6 +178,7 @@ CREATE INDEX idx_segment_executions_task_id ON segment_executions(task_id);
 CREATE UNIQUE INDEX idx_segment_executions_task_attempt_id ON segment_executions(task_attempt_id);
 CREATE INDEX idx_segment_executions_cell_status ON segment_executions(cell_id, status);
 CREATE INDEX idx_segment_executions_lease_until ON segment_executions(lease_until);
+CREATE INDEX idx_segment_executions_start_deadline ON segment_executions(start_deadline_unix_nano);
 
 CREATE TABLE execution_payloads (
     payload_hash TEXT PRIMARY KEY,

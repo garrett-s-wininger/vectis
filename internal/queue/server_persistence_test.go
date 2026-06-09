@@ -10,6 +10,7 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/dispatchmeta"
 	"vectis/internal/interfaces/mocks"
 )
 
@@ -208,6 +209,59 @@ func TestQueuePersistence_ExpiredRequeueSurvivesRestartBeforeSnapshot(t *testing
 
 	if second == nil || second.GetJob().GetId() != "job-2" {
 		t.Fatalf("expected second job-2, got %#v", second)
+	}
+}
+
+func TestQueuePersistence_ExpiredDeadlineDropSurvivesRestart(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+
+	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{
+		PersistenceDir: dir,
+		SnapshotEvery:  1000,
+		WALSegmentMax:  256,
+		WALRetainTail:  2,
+	}, nil)
+
+	if err != nil {
+		t.Fatalf("create persisted queue: %v", err)
+	}
+
+	jobID := "job-expired-deadline-drop"
+	req := &api.JobRequest{Job: &api.Job{Id: &jobID}}
+	dispatchmeta.StampStartDeadline(req, time.Now().Add(-time.Second).UnixNano())
+	if _, err := svc.Enqueue(ctx, req); err != nil {
+		t.Fatalf("enqueue expired job: %v", err)
+	}
+
+	got, err := svc.TryDequeue(ctx, &api.Empty{})
+	if err != nil {
+		t.Fatalf("trydequeue expired job: %v", err)
+	}
+
+	if got != nil {
+		t.Fatalf("expected expired job to drop, got %#v", got)
+	}
+
+	closeQueueService(t, svc)
+	restarted, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{
+		PersistenceDir: dir,
+		SnapshotEvery:  1000,
+		WALSegmentMax:  256,
+		WALRetainTail:  2,
+	}, nil)
+
+	if err != nil {
+		t.Fatalf("restart queue: %v", err)
+	}
+
+	got, err = restarted.TryDequeue(ctx, &api.Empty{})
+	if err != nil {
+		t.Fatalf("trydequeue after restart: %v", err)
+	}
+
+	if got != nil {
+		t.Fatalf("expected expired drop to survive restart, got %#v", got)
 	}
 }
 

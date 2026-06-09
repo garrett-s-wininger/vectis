@@ -108,6 +108,9 @@ registry_resolver_error_refresh = "2s"
 registry_registration_refresh = "45s"
 registry.addresses = []
 
+[dispatch]
+start_ttl = "24h"
+
 [cron]
 claim_ttl = "5m"
 

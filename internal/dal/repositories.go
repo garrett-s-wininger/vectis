@@ -48,40 +48,41 @@ const (
 	RunStatusAbandoned = "abandoned"
 	RunStatusAborted   = "aborted"
 
-	DefaultLeaseTTL          = 15 * time.Minute
-	DefaultRenewInterval     = 5 * time.Minute
-	OrphanReasonLeaseExpired = "lease_expired"
-	OrphanReasonAckUncertain = "ack_uncertain"
-	CancelReasonAPI          = "api_cancelled"
-	RepairReasonManual       = "manual_repair"
-	FailureCodeExecution     = "execution_error"
-	FailureCodeForceFailed   = "force_failed"
-	DefaultCellID            = "local"
-	SegmentStatusPlanned     = "planned"
-	SegmentStatusPending     = "pending"
-	SegmentStatusAccepted    = "accepted"
-	SegmentStatusRunning     = "running"
-	SegmentStatusSucceeded   = "succeeded"
-	SegmentStatusFailed      = "failed"
-	SegmentStatusCancelled   = "cancelled"
-	SegmentStatusAborted     = "aborted"
-	RootTaskKey              = "root"
-	TaskStatusPlanned        = "planned"
-	TaskStatusPending        = "pending"
-	TaskStatusAccepted       = "accepted"
-	TaskStatusRunning        = "running"
-	TaskStatusSucceeded      = "succeeded"
-	TaskStatusFailed         = "failed"
-	TaskStatusCancelled      = "cancelled"
-	TaskStatusAborted        = "aborted"
-	ExecutionStatusPlanned   = "planned"
-	ExecutionStatusPending   = "pending"
-	ExecutionStatusAccepted  = "accepted"
-	ExecutionStatusRunning   = "running"
-	ExecutionStatusSucceeded = "succeeded"
-	ExecutionStatusFailed    = "failed"
-	ExecutionStatusCancelled = "cancelled"
-	ExecutionStatusAborted   = "aborted"
+	DefaultLeaseTTL            = 15 * time.Minute
+	DefaultRenewInterval       = 5 * time.Minute
+	OrphanReasonLeaseExpired   = "lease_expired"
+	OrphanReasonAckUncertain   = "ack_uncertain"
+	CancelReasonAPI            = "api_cancelled"
+	RepairReasonManual         = "manual_repair"
+	FailureCodeExecution       = "execution_error"
+	FailureCodeForceFailed     = "force_failed"
+	FailureCodeDispatchExpired = "dispatch_expired"
+	DefaultCellID              = "local"
+	SegmentStatusPlanned       = "planned"
+	SegmentStatusPending       = "pending"
+	SegmentStatusAccepted      = "accepted"
+	SegmentStatusRunning       = "running"
+	SegmentStatusSucceeded     = "succeeded"
+	SegmentStatusFailed        = "failed"
+	SegmentStatusCancelled     = "cancelled"
+	SegmentStatusAborted       = "aborted"
+	RootTaskKey                = "root"
+	TaskStatusPlanned          = "planned"
+	TaskStatusPending          = "pending"
+	TaskStatusAccepted         = "accepted"
+	TaskStatusRunning          = "running"
+	TaskStatusSucceeded        = "succeeded"
+	TaskStatusFailed           = "failed"
+	TaskStatusCancelled        = "cancelled"
+	TaskStatusAborted          = "aborted"
+	ExecutionStatusPlanned     = "planned"
+	ExecutionStatusPending     = "pending"
+	ExecutionStatusAccepted    = "accepted"
+	ExecutionStatusRunning     = "running"
+	ExecutionStatusSucceeded   = "succeeded"
+	ExecutionStatusFailed      = "failed"
+	ExecutionStatusCancelled   = "cancelled"
+	ExecutionStatusAborted     = "aborted"
 
 	DispatchSourceAPI        = "api"
 	DispatchSourceCron       = "cron"
@@ -172,12 +173,13 @@ type TaskAttemptRecord struct {
 }
 
 type TaskExecutionCreate struct {
-	RunID        string
-	ParentTaskID string
-	TaskKey      string
-	Name         string
-	SpecHash     string
-	TargetCellID string
+	RunID                 string
+	ParentTaskID          string
+	TaskKey               string
+	Name                  string
+	SpecHash              string
+	TargetCellID          string
+	StartDeadlineUnixNano int64
 }
 
 type TaskExecutionRecord struct {
@@ -214,9 +216,10 @@ type CreatedRun struct {
 }
 
 type RunAuditMetadata struct {
-	TriggerInvocationID  string
-	ExecutionPayloadHash string
-	ReplayOfRunID        string
+	TriggerInvocationID   string
+	ExecutionPayloadHash  string
+	ReplayOfRunID         string
+	StartDeadlineUnixNano int64
 }
 
 type ExecutionPayloadRecord struct {
@@ -227,44 +230,51 @@ type ExecutionPayloadRecord struct {
 }
 
 type ExecutionDispatchRecord struct {
-	RunID             string
-	JobID             string
-	NamespacePath     string
-	RunIndex          int
-	TaskID            string
-	TaskKey           string
-	TaskName          string
-	TaskAttemptID     string
-	SegmentID         string
-	SegmentName       string
-	SegmentStatus     string
-	ExecutionID       string
-	ExecutionStatus   string
-	CellID            string
-	Attempt           int
-	DefinitionVersion int
-	DefinitionHash    string
-	OwningCell        string
+	RunID                 string
+	JobID                 string
+	NamespacePath         string
+	RunIndex              int
+	TaskID                string
+	TaskKey               string
+	TaskName              string
+	TaskAttemptID         string
+	SegmentID             string
+	SegmentName           string
+	SegmentStatus         string
+	ExecutionID           string
+	ExecutionStatus       string
+	CellID                string
+	Attempt               int
+	DefinitionVersion     int
+	DefinitionHash        string
+	OwningCell            string
+	StartDeadlineUnixNano int64
+}
+
+type ExpiredExecution struct {
+	RunID       string
+	ExecutionID string
 }
 
 type CellExecutionAcceptance struct {
-	ExecutionID        string
-	RunID              string
-	JobID              string
-	RunIndex           int
-	TaskID             string
-	TaskKey            string
-	TaskName           string
-	TaskAttemptID      string
-	SegmentID          string
-	SegmentName        string
-	CellID             string
-	Attempt            int
-	DefinitionVersion  int
-	DefinitionHash     string
-	DefinitionJSON     string
-	RequestJSON        string
-	AcceptedAtUnixNano int64
+	ExecutionID           string
+	RunID                 string
+	JobID                 string
+	RunIndex              int
+	TaskID                string
+	TaskKey               string
+	TaskName              string
+	TaskAttemptID         string
+	SegmentID             string
+	SegmentName           string
+	CellID                string
+	Attempt               int
+	DefinitionVersion     int
+	DefinitionHash        string
+	DefinitionJSON        string
+	RequestJSON           string
+	AcceptedAtUnixNano    int64
+	StartDeadlineUnixNano int64
 }
 
 type CellExecutionQueueHandoff struct {
@@ -496,6 +506,9 @@ type ExecutionClaimResult struct {
 	Claimed                bool
 	ClaimToken             string
 	TransitionedToAccepted bool
+	Expired                bool
+	RunID                  string
+	ExecutionID            string
 }
 
 type RunCatalogUpdater interface {
@@ -519,6 +532,7 @@ type RunsRepository interface {
 	RepairMarkRunAbandoned(ctx context.Context, runID, reason string) error
 	RequeueRunForRetry(ctx context.Context, runID string) error
 	MarkExpiredRunningAsOrphaned(ctx context.Context, cutoffUnix int64) ([]string, error)
+	MarkExpiredQueuedExecutionsFailed(ctx context.Context, cutoffUnixNano int64, limit int) ([]ExpiredExecution, error)
 	GetRunStatus(ctx context.Context, runID string) (status string, found bool, err error)
 	RequestRunCancel(ctx context.Context, runID, reason string) (RunForCancel, error)
 	RunCancelRequested(ctx context.Context, runID string) (bool, error)
@@ -547,6 +561,7 @@ type RunsRepository interface {
 	ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]QueuedRun, error)
 	GetPendingExecution(ctx context.Context, runID string) (ExecutionDispatchRecord, error)
 	GetExecutionDispatch(ctx context.Context, executionID string) (ExecutionDispatchRecord, error)
+	EnsureExecutionStartDeadline(ctx context.Context, executionID string, deadlineUnixNano int64) (int64, error)
 	TryClaimExecution(ctx context.Context, executionID, owner string, leaseUntil time.Time) (ExecutionClaimResult, error)
 	RenewExecutionLease(ctx context.Context, executionID, owner, claimToken string, leaseUntil time.Time) error
 	CompleteExecutionAndFinalizeRunByClaim(ctx context.Context, executionID, owner, claimToken, status, failureCode, reason string) (ExecutionFinalizationResult, error)
@@ -690,6 +705,14 @@ func taskExecutionID(taskAttemptID string) string {
 	return taskAttemptID + ":execution"
 }
 
+func nullableInt64(value int64) any {
+	if value <= 0 {
+		return nil
+	}
+
+	return value
+}
+
 func normalizeCellID(cellID string) string {
 	cellID = strings.TrimSpace(cellID)
 	if cellID == "" {
@@ -708,7 +731,7 @@ func normalizeTargetCellID(cellID, fallback string) string {
 	return cellID
 }
 
-func createInitialSegmentExecutionTx(ctx context.Context, tx *sql.Tx, runID, cellID string) error {
+func createInitialSegmentExecutionTx(ctx context.Context, tx *sql.Tx, runID, cellID string, startDeadlineUnixNano int64) error {
 	if err := createInitialRootTaskAttemptTx(ctx, tx, runID, cellID); err != nil {
 		return err
 	}
@@ -727,7 +750,7 @@ func createInitialSegmentExecutionTx(ctx context.Context, tx *sql.Tx, runID, cel
 	}
 
 	if _, err := tx.ExecContext(ctx,
-		rebindQueryForPgx("INSERT INTO segment_executions (execution_id, segment_id, run_id, task_id, task_attempt_id, cell_id, status, attempt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"),
+		rebindQueryForPgx("INSERT INTO segment_executions (execution_id, segment_id, run_id, task_id, task_attempt_id, cell_id, status, attempt, start_deadline_unix_nano) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"),
 		newExecutionID(),
 		segmentID,
 		runID,
@@ -736,6 +759,7 @@ func createInitialSegmentExecutionTx(ctx context.Context, tx *sql.Tx, runID, cel
 		normalizeCellID(cellID),
 		ExecutionStatusPending,
 		1,
+		nullableInt64(startDeadlineUnixNano),
 	); err != nil {
 		return normalizeSQLError(err)
 	}
@@ -824,7 +848,7 @@ func (r *SQLRepositories) CreateDefinitionAndRunInCellWithAudit(ctx context.Cont
 		return "", 0, normalizeSQLError(err)
 	}
 
-	if err := createInitialSegmentExecutionTx(ctx, tx, runID, targetCellID); err != nil {
+	if err := createInitialSegmentExecutionTx(ctx, tx, runID, targetCellID, audit.StartDeadlineUnixNano); err != nil {
 		return "", 0, err
 	}
 

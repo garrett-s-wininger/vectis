@@ -9,6 +9,7 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/dispatchmeta"
 	"vectis/internal/interfaces"
 	"vectis/internal/observability"
 	"vectis/internal/queueid"
@@ -145,7 +146,13 @@ func newQueueServer(logger interfaces.Logger, opts QueueOptions, metrics *observ
 func (s *queueServer) Enqueue(ctx context.Context, req *api.JobRequest) (*api.Empty, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.requeueExpiredLocked(time.Now().UTC()); err != nil {
+
+	now := time.Now().UTC()
+	if err := s.requeueExpiredLocked(now); err != nil {
+		return nil, err
+	}
+
+	if err := s.dropExpiredPendingLocked(now); err != nil {
 		return nil, err
 	}
 
@@ -189,8 +196,13 @@ func (s *queueServer) Dequeue(ctx context.Context, _ *api.Empty) (*api.JobReques
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	for s.size == 0 {
-		if err := s.requeueExpiredLocked(time.Now().UTC()); err != nil {
+	for {
+		now := time.Now().UTC()
+		if err := s.requeueExpiredLocked(now); err != nil {
+			return nil, err
+		}
+
+		if err := s.dropExpiredPendingLocked(now); err != nil {
 			return nil, err
 		}
 
@@ -246,7 +258,13 @@ func (s *queueServer) Dequeue(ctx context.Context, _ *api.Empty) (*api.JobReques
 func (s *queueServer) TryDequeue(ctx context.Context, _ *api.Empty) (*api.JobRequest, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.requeueExpiredLocked(time.Now().UTC()); err != nil {
+
+	now := time.Now().UTC()
+	if err := s.requeueExpiredLocked(now); err != nil {
+		return nil, err
+	}
+
+	if err := s.dropExpiredPendingLocked(now); err != nil {
 		return nil, err
 	}
 
@@ -316,6 +334,34 @@ func (s *queueServer) newDeliveryID() string {
 	return queueid.Encode(s.instanceID, s.deliveryPrefix+"-"+strconv.FormatUint(s.deliverySeq, 10))
 }
 
+func (s *queueServer) dropExpiredPendingLocked(now time.Time) error {
+	for s.size > 0 {
+		jobReq := s.jobs[s.head]
+		if !dispatchmeta.IsExpired(jobReq, now) {
+			return nil
+		}
+
+		jobID := jobReq.GetJob().GetId()
+		if s.persistence != nil {
+			if err := s.persistence.appendDropExpired("", jobReq, s.snapshotAfterPendingHeadDropLocked(jobReq)); err != nil {
+				return fmt.Errorf("persist expired pending drop for job %s: %w", jobID, err)
+			}
+		}
+
+		s.jobs[s.head] = nil
+		s.head = (s.head + 1) % len(s.jobs)
+		s.size--
+		delete(s.jobAttempts, jobID)
+
+		s.log.Warn("Pending job %s expired after dispatch start deadline; dropped", jobID)
+		if s.metrics != nil {
+			s.metrics.RecordExpiredDropped(context.Background())
+		}
+	}
+
+	return nil
+}
+
 func (s *queueServer) pendingJobsLocked() []*api.JobRequest {
 	out := make([]*api.JobRequest, 0, s.size)
 	for i := 0; i < s.size; i++ {
@@ -348,6 +394,22 @@ func (s *queueServer) snapshotAfterAckLocked(deliveryID string) snapshotState {
 	delete(inflight, deliveryID)
 
 	return snapshotState{pending: s.pendingJobsLocked(), inflight: inflight, deadLetter: s.copyDeadLetterLocked(), jobAttempts: s.copyJobAttemptsLocked()}
+}
+
+func (s *queueServer) snapshotAfterPendingHeadDropLocked(jobReq *api.JobRequest) snapshotState {
+	capHint := max(s.size-1, 0)
+
+	pending := make([]*api.JobRequest, 0, capHint)
+	for i := 1; i < s.size; i++ {
+		pending = append(pending, s.jobs[(s.head+i)%len(s.jobs)])
+	}
+
+	jobAttempts := s.copyJobAttemptsLocked()
+	if jobReq != nil && jobReq.GetJob() != nil {
+		delete(jobAttempts, jobReq.GetJob().GetId())
+	}
+
+	return snapshotState{pending: pending, inflight: s.copyInflightLocked(), deadLetter: s.copyDeadLetterLocked(), jobAttempts: jobAttempts}
 }
 
 func (s *queueServer) copyInflightLocked() map[string]inflightDelivery {
@@ -424,6 +486,18 @@ func (s *queueServer) snapshotAfterExpiredRequeueLocked(deliveryID string, item 
 	return snapshotState{pending: pending, inflight: inflight, deadLetter: s.copyDeadLetterLocked(), jobAttempts: s.copyJobAttemptsLocked()}
 }
 
+func (s *queueServer) snapshotAfterExpiredDropLocked(deliveryID string, item inflightDelivery) snapshotState {
+	inflight := s.copyInflightLocked()
+	delete(inflight, deliveryID)
+
+	jobAttempts := s.copyJobAttemptsLocked()
+	if item.JobRequest != nil && item.JobRequest.GetJob() != nil {
+		delete(jobAttempts, item.JobRequest.GetJob().GetId())
+	}
+
+	return snapshotState{pending: s.pendingJobsLocked(), inflight: inflight, deadLetter: s.copyDeadLetterLocked(), jobAttempts: jobAttempts}
+}
+
 func (s *queueServer) snapshotAfterDLQLocked(deliveryID string, item inflightDelivery) snapshotState {
 	pending := s.pendingJobsLocked()
 
@@ -453,6 +527,24 @@ func (s *queueServer) requeueExpiredLocked(now time.Time) error {
 		}
 
 		jobID := item.JobRequest.GetJob().GetId()
+		if dispatchmeta.IsExpired(item.JobRequest, now) {
+			if s.persistence != nil {
+				if err := s.persistence.appendDropExpired(deliveryID, item.JobRequest, s.snapshotAfterExpiredDropLocked(deliveryID, item)); err != nil {
+					return fmt.Errorf("persist expired delivery drop %s: %w", deliveryID, err)
+				}
+			}
+
+			delete(s.inflight, deliveryID)
+			delete(s.jobAttempts, jobID)
+
+			s.log.Warn("Delivery %s for job %s expired after dispatch start deadline; dropped", deliveryID, jobID)
+			if s.metrics != nil {
+				s.metrics.RecordExpiredDropped(context.Background())
+			}
+
+			continue
+		}
+
 		s.jobAttempts[jobID]++
 		attemptCount := s.jobAttempts[jobID]
 

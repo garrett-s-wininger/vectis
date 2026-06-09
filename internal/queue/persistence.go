@@ -30,12 +30,13 @@ const (
 type walRecordType string
 
 const (
-	walRecordEnqueue    walRecordType = "enqueue"
-	walRecordDeliver    walRecordType = "deliver"
-	walRecordAck        walRecordType = "ack"
-	walRecordRequeue    walRecordType = "requeue_expired"
-	walRecordDLQ        walRecordType = "dlq"
-	walRecordDLQRequeue walRecordType = "dlq_requeue"
+	walRecordEnqueue     walRecordType = "enqueue"
+	walRecordDeliver     walRecordType = "deliver"
+	walRecordAck         walRecordType = "ack"
+	walRecordRequeue     walRecordType = "requeue_expired"
+	walRecordDropExpired walRecordType = "drop_expired"
+	walRecordDLQ         walRecordType = "dlq"
+	walRecordDLQRequeue  walRecordType = "dlq_requeue"
 )
 
 type walRecord struct {
@@ -72,6 +73,20 @@ type inflightDelivery struct {
 	JobRequest   *api.JobRequest
 	LeaseUntil   time.Time
 	AttemptCount int
+}
+
+func sameJobRequestIdentity(a, b *api.JobRequest) bool {
+	if a == nil || b == nil {
+		return false
+	}
+
+	aj := a.GetJob()
+	bj := b.GetJob()
+	if aj == nil || bj == nil {
+		return false
+	}
+
+	return aj.GetId() == bj.GetId() && aj.GetRunId() == bj.GetRunId()
 }
 
 type persistenceStore struct {
@@ -342,6 +357,15 @@ func (p *persistenceStore) appendRequeueExpired(deliveryID string, req *api.JobR
 	}
 
 	return p.appendRecord(walRecord{Type: walRecordRequeue, DeliveryID: deliveryID, Job: payload}, state)
+}
+
+func (p *persistenceStore) appendDropExpired(deliveryID string, req *api.JobRequest, state snapshotState) error {
+	payload, err := proto.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal expired job: %w", err)
+	}
+
+	return p.appendRecord(walRecord{Type: walRecordDropExpired, DeliveryID: deliveryID, Job: payload}, state)
 }
 
 func (p *persistenceStore) appendRecord(rec walRecord, state snapshotState) error {
@@ -768,6 +792,32 @@ func applyRecord(state *queueState, rec walRecord) error {
 		}
 
 		state.jobAttempts[req.GetJob().GetId()]++
+		return nil
+	case walRecordDropExpired:
+		var req api.JobRequest
+		if err := proto.Unmarshal(rec.Job, &req); err != nil {
+			return fmt.Errorf("unmarshal expired drop payload: %w", err)
+		}
+
+		if rec.DeliveryID != "" {
+			delete(state.inflight, rec.DeliveryID)
+			if state.jobAttempts != nil {
+				delete(state.jobAttempts, req.GetJob().GetId())
+			}
+			return nil
+		}
+
+		for i, pending := range state.jobs {
+			if sameJobRequestIdentity(pending, &req) {
+				state.jobs = append(state.jobs[:i], state.jobs[i+1:]...)
+				break
+			}
+		}
+
+		if state.jobAttempts != nil {
+			delete(state.jobAttempts, req.GetJob().GetId())
+		}
+
 		return nil
 	case walRecordDLQ:
 		var req api.JobRequest

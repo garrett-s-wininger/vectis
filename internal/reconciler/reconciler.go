@@ -15,6 +15,7 @@ import (
 	"vectis/internal/config"
 	"vectis/internal/dal"
 	"vectis/internal/database"
+	"vectis/internal/dispatchmeta"
 	"vectis/internal/interfaces"
 	"vectis/internal/observability"
 	"vectis/internal/runpolicy"
@@ -33,6 +34,7 @@ const (
 	DefaultServiceLeaseTTL  = 2 * time.Minute
 	ServiceLeaseName        = "reconciler"
 	TaskFinalizeRepairLimit = 100
+	DispatchExpiryLimit     = 100
 )
 
 type Service struct {
@@ -178,6 +180,21 @@ func (s *Service) Process(ctx context.Context) error {
 	for _, runID := range orphaned {
 		decision := runpolicy.Decide(runpolicy.Input{Trigger: runpolicy.TriggerLeaseExpired})
 		s.logger.Warn("reconciler: run %s moved to orphaned (%s)", runID, decision.ReasonCode)
+	}
+
+	expired, err := s.runs.MarkExpiredQueuedExecutionsFailed(ctx, now.UnixNano(), DispatchExpiryLimit)
+	if err != nil {
+		if database.IsUnavailableError(err) {
+			s.noteDBUnavailable(err)
+			return nil
+		}
+
+		return fmt.Errorf("mark expired queued executions failed: %w", err)
+	}
+	s.noteDBRecovered()
+
+	for _, rec := range expired {
+		s.logger.Warn("reconciler: execution %s for run %s failed after dispatch start deadline expired", rec.ExecutionID, rec.RunID)
 	}
 
 	if err := s.repairTaskFinalization(ctx); err != nil {
@@ -505,9 +522,22 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 	job.RunId = &runID
 
 	req := &api.JobRequest{Job: &job}
-	if _, err := cell.AttachPendingExecutionEnvelope(ctx, s.runs, req, runID, s.clock.Now().UnixNano()); err != nil {
+	dispatch, err := s.runs.GetPendingExecution(ctx, runID)
+	if err != nil {
 		span.RecordError(err)
-		s.logger.Error("reconciler: failed to attach execution envelope for run %s: %v", runID, err)
+		s.logger.Error("reconciler: failed to load pending execution for run %s: %v", runID, err)
+	} else {
+		deadline, err := s.runs.EnsureExecutionStartDeadline(ctx, dispatch.ExecutionID, dispatchmeta.DeadlineUnixNano(s.clock.Now(), config.DispatchStartTTL()))
+		if err != nil {
+			span.RecordError(err)
+			return fmt.Errorf("ensure execution start deadline: %w", err)
+		}
+
+		dispatch.StartDeadlineUnixNano = deadline
+		if _, err := cell.AttachExecutionEnvelope(req, dispatch, s.clock.Now().UnixNano()); err != nil {
+			span.RecordError(err)
+			s.logger.Error("reconciler: failed to attach execution envelope for run %s: %v", runID, err)
+		}
 	}
 
 	s.recordDispatchEvent(ctx, runID, qr.OwningCell, dal.DispatchEventAttempt, nil)

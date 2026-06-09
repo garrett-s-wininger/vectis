@@ -13,6 +13,7 @@ import (
 	"vectis/internal/cell"
 	"vectis/internal/config"
 	"vectis/internal/dal"
+	"vectis/internal/dispatchmeta"
 	"vectis/internal/httpsecurity"
 	"vectis/internal/interfaces"
 
@@ -288,24 +289,26 @@ func executionAcceptance(submission cell.ExecutionSubmission) (dal.CellExecution
 	}
 
 	env := submission.Envelope
+	startDeadline, _ := dispatchmeta.StartDeadlineFromMetadata(submission.Request.GetMetadata())
 	return dal.CellExecutionAcceptance{
-		ExecutionID:        env.ExecutionID,
-		RunID:              env.RunID,
-		JobID:              env.Job.GetId(),
-		RunIndex:           env.RunIndex,
-		TaskID:             env.TaskID,
-		TaskKey:            env.TaskKey,
-		TaskName:           env.TaskName,
-		TaskAttemptID:      env.TaskAttemptID,
-		SegmentID:          env.SegmentID,
-		SegmentName:        "root",
-		CellID:             env.CellID,
-		Attempt:            env.TaskAttempt,
-		DefinitionVersion:  env.DefinitionVersion,
-		DefinitionHash:     env.DefinitionHash,
-		DefinitionJSON:     string(definitionJSON),
-		RequestJSON:        string(requestJSON),
-		AcceptedAtUnixNano: env.CreatedAtUnixNano,
+		ExecutionID:           env.ExecutionID,
+		RunID:                 env.RunID,
+		JobID:                 env.Job.GetId(),
+		RunIndex:              env.RunIndex,
+		TaskID:                env.TaskID,
+		TaskKey:               env.TaskKey,
+		TaskName:              env.TaskName,
+		TaskAttemptID:         env.TaskAttemptID,
+		SegmentID:             env.SegmentID,
+		SegmentName:           "root",
+		CellID:                env.CellID,
+		Attempt:               env.TaskAttempt,
+		DefinitionVersion:     env.DefinitionVersion,
+		DefinitionHash:        env.DefinitionHash,
+		DefinitionJSON:        string(definitionJSON),
+		RequestJSON:           string(requestJSON),
+		AcceptedAtUnixNano:    env.CreatedAtUnixNano,
+		StartDeadlineUnixNano: startDeadline,
 	}, nil
 }
 

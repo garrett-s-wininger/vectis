@@ -352,6 +352,10 @@ func normalizeCellExecutionAcceptance(a CellExecutionAcceptance, fallbackCellID 
 		a.AcceptedAtUnixNano = time.Now().UnixNano()
 	}
 
+	if a.StartDeadlineUnixNano < 0 {
+		a.StartDeadlineUnixNano = 0
+	}
+
 	return a, nil
 }
 
@@ -373,6 +377,7 @@ func cellExecutionAcceptanceHash(a CellExecutionAcceptance) string {
 		a.DefinitionHash,
 		a.DefinitionJSON,
 		ExecutionPayloadHash(a.RequestJSON),
+		fmt.Sprintf("%d", a.StartDeadlineUnixNano),
 	}, "\x00")))
 
 	return hex.EncodeToString(sum[:])
@@ -577,10 +582,10 @@ func ensureRunSegmentTx(ctx context.Context, tx *sql.Tx, a CellExecutionAcceptan
 func ensureSegmentExecutionTx(ctx context.Context, tx *sql.Tx, a CellExecutionAcceptance) error {
 	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
 		INSERT INTO segment_executions
-			(execution_id, segment_id, run_id, task_id, task_attempt_id, cell_id, status, attempt, accepted_at, last_observed_at, event_sequence)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, 1)
+			(execution_id, segment_id, run_id, task_id, task_attempt_id, cell_id, status, attempt, accepted_at, last_observed_at, event_sequence, start_deadline_unix_nano)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, 1, ?)
 		ON CONFLICT(execution_id) DO NOTHING
-	`), a.ExecutionID, a.SegmentID, a.RunID, a.TaskID, a.TaskAttemptID, a.CellID, ExecutionStatusAccepted, a.Attempt, a.AcceptedAtUnixNano); err != nil {
+	`), a.ExecutionID, a.SegmentID, a.RunID, a.TaskID, a.TaskAttemptID, a.CellID, ExecutionStatusAccepted, a.Attempt, a.AcceptedAtUnixNano, nullableInt64(a.StartDeadlineUnixNano)); err != nil {
 		return normalizeSQLError(err)
 	}
 

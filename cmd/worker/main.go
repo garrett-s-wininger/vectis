@@ -1349,6 +1349,14 @@ func (w *worker) tryClaimExecution(ctx context.Context, executionEnvelope *cell.
 	}
 
 	w.noteDBRecovered()
+	if claim.Expired {
+		w.logger.Warn("Execution %s expired before claim; stopping before task execution", executionEnvelope.ExecutionID)
+		w.recordExecutionCatalogEvent(ctx, executionEnvelope, dal.ExecutionStatusFailed)
+		w.recordRunCatalogEvent(dal.RunStatusUpdate{RunID: executionEnvelope.RunID, Status: dal.RunStatusFailed, FailureCode: dal.FailureCodeDispatchExpired, Reason: "execution was not started before dispatch deadline"})
+		span.AddEvent("execution.claim.expired")
+		return "", false, nil
+	}
+
 	if !claim.Claimed {
 		w.logger.Warn("Execution %s not claimed; stopping before task execution", executionEnvelope.ExecutionID)
 		span.AddEvent("execution.claim.skipped")

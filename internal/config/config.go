@@ -45,6 +45,7 @@ type Defaults struct {
 	Log          LogDefaults             `toml:"log"`
 	LogForwarder LogForwarderDefaults    `toml:"log_forwarder"`
 	Discovery    DiscoveryDefaults       `toml:"discovery"`
+	Dispatch     DispatchDefaults        `toml:"dispatch"`
 	Database     DatabaseDefaults        `toml:"database"`
 	Worker       WorkerDefaults          `toml:"worker"`
 	Cron         CronDefaults            `toml:"cron"`
@@ -215,6 +216,10 @@ type DiscoveryDefaults struct {
 	RegistryRegistrationRefresh  tomlDuration `toml:"registry_registration_refresh"`
 }
 
+type DispatchDefaults struct {
+	StartTTL tomlDuration `toml:"start_ttl"`
+}
+
 type WorkerControlDefaults struct {
 	Mode    string `toml:"mode"`
 	Port    int    `toml:"port"`
@@ -329,6 +334,7 @@ var (
 func init() {
 	_ = viper.BindEnv("discovery.registry.address", "VECTIS_DISCOVERY_REGISTRY_ADDRESS")
 	_ = viper.BindEnv("discovery.registry.addresses", "VECTIS_DISCOVERY_REGISTRY_ADDRESSES")
+	_ = viper.BindEnv("dispatch.start_ttl", "VECTIS_DISPATCH_START_TTL")
 }
 
 func MustDefaults() Defaults {
@@ -398,6 +404,10 @@ func validateDefaults(d Defaults) {
 
 	if time.Duration(rc.PeerDialTimeout) <= 0 {
 		panic("config defaults: registry.cluster.peer_dial_timeout must be > 0")
+	}
+
+	if time.Duration(d.Dispatch.StartTTL) <= 0 {
+		panic("config defaults: dispatch.start_ttl must be > 0")
 	}
 
 	validatePort(d.Log.GRPC.Port, "log.grpc.port")
@@ -857,6 +867,19 @@ func WorkerExecutionLimaPreserveEnv() bool {
 		return viper.GetBool("worker.execution.lima.preserve_env")
 	}
 	return MustDefaults().Worker.Execution.Lima.PreserveEnv
+}
+
+func DispatchStartTTL() time.Duration {
+	if d := viper.GetDuration("dispatch.start_ttl"); d > 0 {
+		return d
+	}
+
+	d := time.Duration(MustDefaults().Dispatch.StartTTL)
+	if d > 0 {
+		return d
+	}
+
+	return 24 * time.Hour
 }
 
 func RegistryPort() int {

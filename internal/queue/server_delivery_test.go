@@ -6,6 +6,7 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/dispatchmeta"
 	"vectis/internal/queueid"
 )
 
@@ -124,6 +125,88 @@ func TestQueueDelivery_UnackedLeaseExpiryRequeues(t *testing.T) {
 
 	if second.GetJob().GetDeliveryId() == firstDeliveryID {
 		t.Fatalf("expected new delivery id on redelivery")
+	}
+}
+
+func TestQueueDelivery_ExpiredPendingDeadlineDropsBeforeDelivery(t *testing.T) {
+	ctx := context.Background()
+	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{}, nil)
+	if err != nil {
+		t.Fatalf("new queue: %v", err)
+	}
+
+	expiredJobID := "job-expired-pending"
+	expiredReq := &api.JobRequest{Job: &api.Job{Id: &expiredJobID}}
+	dispatchmeta.StampStartDeadline(expiredReq, time.Now().Add(-time.Second).UnixNano())
+	if _, err := svc.Enqueue(ctx, expiredReq); err != nil {
+		t.Fatalf("enqueue expired job: %v", err)
+	}
+
+	nextJobID := "job-after-expired"
+	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &nextJobID}}); err != nil {
+		t.Fatalf("enqueue next job: %v", err)
+	}
+
+	got, err := svc.Dequeue(ctx, &api.Empty{})
+	if err != nil {
+		t.Fatalf("dequeue: %v", err)
+	}
+
+	if got == nil || got.GetJob().GetId() != nextJobID {
+		t.Fatalf("expected expired job to drop and next job to deliver, got %#v", got)
+	}
+
+	dlq, err := svc.ListDeadLetter(ctx, &api.Empty{})
+	if err != nil {
+		t.Fatalf("list dead letter: %v", err)
+	}
+
+	if len(dlq.Items) != 0 {
+		t.Fatalf("expired dispatch deadline should not enter DLQ, got %+v", dlq.Items)
+	}
+}
+
+func TestQueueDelivery_ExpiredInflightDeadlineDropsInsteadOfRequeue(t *testing.T) {
+	ctx := context.Background()
+	ttl := 20 * time.Millisecond
+	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{DeliveryTTL: ttl}, nil)
+	if err != nil {
+		t.Fatalf("new queue: %v", err)
+	}
+
+	jobID := "job-expired-inflight"
+	req := &api.JobRequest{Job: &api.Job{Id: &jobID}}
+	dispatchmeta.StampStartDeadline(req, time.Now().Add(10*time.Millisecond).UnixNano())
+	if _, err := svc.Enqueue(ctx, req); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	first, err := svc.TryDequeue(ctx, &api.Empty{})
+	if err != nil {
+		t.Fatalf("first trydequeue: %v", err)
+	}
+
+	if first == nil || first.GetJob().GetId() != jobID {
+		t.Fatalf("expected first delivery of %s, got %#v", jobID, first)
+	}
+
+	deliveryWait(ttl)
+	second, err := svc.TryDequeue(ctx, &api.Empty{})
+	if err != nil {
+		t.Fatalf("second trydequeue: %v", err)
+	}
+
+	if second != nil {
+		t.Fatalf("expected expired in-flight delivery to drop instead of requeue, got %#v", second)
+	}
+
+	dlq, err := svc.ListDeadLetter(ctx, &api.Empty{})
+	if err != nil {
+		t.Fatalf("list dead letter: %v", err)
+	}
+
+	if len(dlq.Items) != 0 {
+		t.Fatalf("expired in-flight dispatch should not enter DLQ, got %+v", dlq.Items)
 	}
 }
 

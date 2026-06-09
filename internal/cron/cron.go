@@ -20,6 +20,7 @@ import (
 	"vectis/internal/config"
 	"vectis/internal/dal"
 	"vectis/internal/database"
+	"vectis/internal/dispatchmeta"
 	"vectis/internal/interfaces"
 	"vectis/internal/queueclient"
 
@@ -286,11 +287,15 @@ func (s *CronService) triggerJob(ctx context.Context, jobID string, schedule *Cr
 	if err != nil {
 		return err
 	}
+	audit := dal.RunAuditMetadata{
+		TriggerInvocationID:   invocationID,
+		StartDeadlineUnixNano: dispatchmeta.DeadlineUnixNano(s.clock.Now(), config.DispatchStartTTL()),
+	}
 
 	var runID string
 	if schedule != nil {
 		var created bool
-		runID, _, created, err = s.runs.CreateScheduledRun(ctx, schedule.ID, schedule.NextRunAt, jobID, definitionVersion, dal.RunAuditMetadata{TriggerInvocationID: invocationID})
+		runID, _, created, err = s.runs.CreateScheduledRun(ctx, schedule.ID, schedule.NextRunAt, jobID, definitionVersion, audit)
 		if err != nil {
 			return err
 		}
@@ -299,7 +304,7 @@ func (s *CronService) triggerJob(ctx context.Context, jobID string, schedule *Cr
 			s.logger.Info("Reusing existing cron run %s for schedule %d at %v", runID, schedule.ID, schedule.NextRunAt)
 		}
 	} else {
-		created, err := s.runs.CreateRunsInCellsWithAudit(ctx, jobID, nil, definitionVersion, nil, dal.RunAuditMetadata{TriggerInvocationID: invocationID})
+		created, err := s.runs.CreateRunsInCellsWithAudit(ctx, jobID, nil, definitionVersion, nil, audit)
 		if err != nil {
 			return err
 		}
@@ -326,7 +331,7 @@ func (s *CronService) dispatchRun(ctx context.Context, job *api.Job, runID, defi
 	s.mu.Unlock()
 
 	req := &api.JobRequest{Job: job}
-	if _, err := cell.AttachPendingExecutionEnvelope(ctx, s.runs, req, runID, s.clock.Now().UnixNano()); err != nil {
+	if _, err := s.attachExecutionEnvelope(ctx, req, runID, s.clock.Now().UnixNano()); err != nil {
 		s.logger.Error("Failed to attach execution envelope for cron run %s: %v", runID, err)
 	}
 
@@ -379,6 +384,21 @@ func (s *CronService) dispatchRun(ctx context.Context, job *api.Job, runID, defi
 
 	s.recordDispatchEvent(ctx, runID, dal.DispatchEventSuccess, nil)
 	return nil
+}
+
+func (s *CronService) attachExecutionEnvelope(ctx context.Context, req *api.JobRequest, runID string, createdAtUnixNano int64) (*cell.ExecutionEnvelope, error) {
+	dispatch, err := s.runs.GetPendingExecution(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+
+	deadline, err := s.runs.EnsureExecutionStartDeadline(ctx, dispatch.ExecutionID, dispatchmeta.DeadlineUnixNano(s.clock.Now(), config.DispatchStartTTL()))
+	if err != nil {
+		return nil, err
+	}
+
+	dispatch.StartDeadlineUnixNano = deadline
+	return cell.AttachExecutionEnvelope(req, dispatch, createdAtUnixNano)
 }
 
 func (s *CronService) recordTriggerInvocation(ctx context.Context, jobID string, schedule *CronSchedule) (string, error) {
