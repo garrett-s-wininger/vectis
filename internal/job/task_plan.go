@@ -5,10 +5,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/dal"
+	"vectis/internal/taskgraph"
 )
 
 type TaskPlanEntry struct {
@@ -38,89 +38,31 @@ func PlanTaskExecutions(job *api.Job) ([]TaskPlanEntry, error) {
 		return nil, fmt.Errorf("job root is required")
 	}
 
-	planner := taskPlanner{
-		seen: map[string]string{},
+	boundaries, err := taskgraph.PlanTaskBoundaries(job, dal.RootTaskKey)
+	if err != nil {
+		return nil, err
 	}
 
-	if rootID := strings.TrimSpace(job.GetRoot().GetId()); rootID != "" {
-		planner.seen[rootID] = "root"
-	}
-
-	for i, child := range job.GetRoot().GetSteps() {
-		if err := planner.walk(child, fmt.Sprintf("root.steps[%d]", i), dal.RootTaskKey); err != nil {
+	entries := make([]TaskPlanEntry, 0, len(boundaries.Entries))
+	for _, boundary := range boundaries.Entries {
+		specHash, err := taskSpecHash(boundary.Node, boundary.TaskKey, boundary.Uses, boundary.ChildTaskKeys)
+		if err != nil {
 			return nil, err
 		}
+
+		entries = append(entries, TaskPlanEntry{
+			TaskKey:       boundary.TaskKey,
+			Name:          boundary.TaskKey,
+			ParentTaskKey: boundary.ParentTaskKey,
+			NodeID:        boundary.TaskKey,
+			NodePath:      boundary.NodePath,
+			Uses:          boundary.Uses,
+			ChildTaskKeys: append([]string(nil), boundary.ChildTaskKeys...),
+			SpecHash:      specHash,
+		})
 	}
 
-	return planner.entries, nil
-}
-
-type taskPlanner struct {
-	seen    map[string]string
-	entries []TaskPlanEntry
-}
-
-func (p *taskPlanner) walk(node *api.Node, path, parentTaskKey string) error {
-	if node == nil {
-		return fmt.Errorf("%s is required", path)
-	}
-
-	taskKey := strings.TrimSpace(node.GetId())
-	if taskKey == "" {
-		return fmt.Errorf("%s.id is required", path)
-	}
-
-	if taskKey == dal.RootTaskKey {
-		return fmt.Errorf("%s.id %q is reserved for the root task", path, dal.RootTaskKey)
-	}
-
-	if firstPath, ok := p.seen[taskKey]; ok {
-		return fmt.Errorf("%s.id duplicates task key %q first used at %s.id", path, taskKey, firstPath)
-	}
-	p.seen[taskKey] = path
-
-	uses := strings.TrimSpace(node.GetUses())
-	if uses == "" {
-		return fmt.Errorf("%s.uses is required", path)
-	}
-
-	childKeys := make([]string, 0, len(node.GetSteps()))
-	for i, child := range node.GetSteps() {
-		childPath := fmt.Sprintf("%s.steps[%d]", path, i)
-		if child == nil {
-			return fmt.Errorf("%s is required", childPath)
-		}
-
-		childKey := strings.TrimSpace(child.GetId())
-		if childKey == "" {
-			return fmt.Errorf("%s.id is required", childPath)
-		}
-		childKeys = append(childKeys, childKey)
-	}
-
-	specHash, err := taskSpecHash(node, taskKey, uses, childKeys)
-	if err != nil {
-		return err
-	}
-
-	p.entries = append(p.entries, TaskPlanEntry{
-		TaskKey:       taskKey,
-		Name:          taskKey,
-		ParentTaskKey: parentTaskKey,
-		NodeID:        taskKey,
-		NodePath:      path,
-		Uses:          uses,
-		ChildTaskKeys: childKeys,
-		SpecHash:      specHash,
-	})
-
-	for i, child := range node.GetSteps() {
-		if err := p.walk(child, fmt.Sprintf("%s.steps[%d]", path, i), taskKey); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return entries, nil
 }
 
 func taskSpecHash(node *api.Node, nodeID, uses string, childTaskKeys []string) (string, error) {

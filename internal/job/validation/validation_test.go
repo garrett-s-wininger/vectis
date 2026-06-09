@@ -264,6 +264,55 @@ func TestValidateJob_ParallelAnyWith(t *testing.T) {
 	}
 }
 
+func TestValidateJob_ControlExecutionModeMustBeKnown(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root.With = map[string]string{"execution": "remote"}
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
+	if err == nil {
+		t.Fatal("expected validation error for invalid execution mode")
+	}
+
+	if msg := err.Error(); !strings.Contains(msg, `root.with.execution: must be "local" or "distributed", got "remote"`) {
+		t.Fatalf("expected execution mode error, got %q", msg)
+	}
+}
+
+func TestValidateJob_ExecutionModeIsGlobalWithMetadata(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root.Steps[0].With = map[string]string{
+		"command":   "echo hi",
+		"execution": "distributed",
+	}
+
+	if err := validation.ValidateJob(job, validation.Options{RequireJobID: true}); err != nil {
+		t.Fatalf("expected shell execution metadata to validate: %v", err)
+	}
+}
+
+func TestValidateJob_LeafExecutionModeMustBeKnown(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root.Steps[0].With = map[string]string{
+		"command":   "echo hi",
+		"execution": "remote",
+	}
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
+	if err == nil {
+		t.Fatal("expected validation error for invalid execution mode")
+	}
+
+	if msg := err.Error(); !strings.Contains(msg, `root.steps[0].with.execution: must be "local" or "distributed", got "remote"`) {
+		t.Fatalf("expected execution mode error, got %q", msg)
+	}
+}
+
 func TestValidateJob_RejectsReservedRootChildID(t *testing.T) {
 	t.Parallel()
 

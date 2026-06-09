@@ -35,7 +35,7 @@ func TestEnsureJobTaskExecutionsMaterializesPlannedTasks(t *testing.T) {
 	}
 
 	jobID := "job-task-materialize"
-	def := `{"id":"job-task-materialize","root":{"id":"root","uses":"builtins/sequence","steps":[{"id":"setup","uses":"builtins/shell","with":{"command":"echo setup"}},{"id":"build","uses":"builtins/sequence","steps":[{"id":"compile","uses":"builtins/shell","with":{"command":"echo compile"}},{"id":"test","uses":"builtins/shell","with":{"command":"echo test"}}]}]}}`
+	def := `{"id":"job-task-materialize","root":{"id":"root","uses":"builtins/sequence","steps":[{"id":"setup","uses":"builtins/shell","with":{"command":"echo setup"}},{"id":"build","uses":"builtins/parallel","steps":[{"id":"compile","uses":"builtins/shell","with":{"command":"echo compile"}},{"id":"test","uses":"builtins/shell","with":{"command":"echo test"}}]}]}}`
 	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -54,12 +54,11 @@ func TestEnsureJobTaskExecutionsMaterializesPlannedTasks(t *testing.T) {
 		t.Fatalf("EnsureJobTaskExecutions: %v", err)
 	}
 
-	if result.Created != 4 || len(result.Tasks) != 4 {
+	if result.Created != 3 || len(result.Tasks) != 3 {
 		t.Fatalf("materialized: created=%d tasks=%+v", result.Created, result.Tasks)
 	}
 
 	wantCells := map[string]string{
-		"setup":   "pdx-b",
 		"build":   "pdx-b",
 		"compile": "pdx-b",
 		"test":    "pdx-b",
@@ -85,11 +84,10 @@ func TestEnsureJobTaskExecutionsMaterializesPlannedTasks(t *testing.T) {
 		byKey[task.TaskKey] = task
 	}
 
-	if len(byKey) != 5 {
-		t.Fatalf("task count: got %d, want root + 4: %+v", len(byKey), tasks)
+	if len(byKey) != 4 {
+		t.Fatalf("task count: got %d, want root + 3: %+v", len(byKey), tasks)
 	}
 
-	assertMaterializedTask(t, byKey, runID, "setup", dal.RootTaskKey)
 	assertMaterializedTask(t, byKey, runID, "build", dal.RootTaskKey)
 	assertMaterializedTask(t, byKey, runID, "compile", "build")
 	assertMaterializedTask(t, byKey, runID, "test", "build")
@@ -114,7 +112,7 @@ func TestEnsureJobTaskExecutionsMaterializesPlannedTasks(t *testing.T) {
 		t.Fatalf("EnsureJobTaskExecutions again: %v", err)
 	}
 
-	if again.Created != 0 || len(again.Tasks) != 4 {
+	if again.Created != 0 || len(again.Tasks) != 3 {
 		t.Fatalf("idempotent materialization: created=%d tasks=%+v", again.Created, again.Tasks)
 	}
 }

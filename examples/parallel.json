@@ -3,6 +3,9 @@
   "root": {
     "id": "root",
     "uses": "builtins/sequence",
+    "with": {
+      "execution": "local"
+    },
     "steps": [
       {
         "id": "setup",
@@ -14,6 +17,9 @@
       {
         "id": "checks",
         "uses": "builtins/parallel",
+        "with": {
+          "execution": "distributed"
+        },
         "steps": [
           {
             "id": "unit-tests",

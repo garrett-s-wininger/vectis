@@ -7,12 +7,13 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
+	"vectis/internal/taskgraph"
 )
 
 type ParallelNode struct{}
 
-func (p *ParallelNode) ValidateWith(_ map[string]string) []action.FieldError {
-	return nil
+func (p *ParallelNode) ValidateWith(with map[string]string) []action.FieldError {
+	return validateExecutionMode(with)
 }
 
 func (p *ParallelNode) Type() string {
@@ -39,12 +40,8 @@ func (p *ParallelNode) Execute(ctx context.Context, state *action.ExecutionState
 			defer wg.Done()
 
 			sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Executing branch %d/%d", i+1, len(children)))
-			childInputs := make(map[string]any)
-			for k, v := range child.GetWith() {
-				childInputs[k] = v
-			}
 
-			result := executeChildNode(ctx, child, state, childInputs)
+			result := executeChildNode(ctx, child, state, taskgraph.ActionInputs(child.GetWith()))
 			if result.Status != action.StatusFailure {
 				return
 			}

@@ -7,6 +7,7 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
 	"vectis/internal/observability"
+	"vectis/internal/taskgraph"
 
 	"go.opentelemetry.io/otel/attribute"
 	otelcodes "go.opentelemetry.io/otel/codes"
@@ -15,8 +16,8 @@ import (
 
 type SequenceNode struct{}
 
-func (s *SequenceNode) ValidateWith(_ map[string]string) []action.FieldError {
-	return nil
+func (s *SequenceNode) ValidateWith(with map[string]string) []action.FieldError {
+	return validateExecutionMode(with)
 }
 
 func (s *SequenceNode) Type() string {
@@ -34,12 +35,7 @@ func (s *SequenceNode) Execute(ctx context.Context, state *action.ExecutionState
 	for i, child := range children {
 		sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Executing step %d/%d", i+1, len(children)))
 
-		childInputs := make(map[string]any)
-		for k, v := range child.GetWith() {
-			childInputs[k] = v
-		}
-
-		result := executeChildNode(ctx, child, state, childInputs)
+		result := executeChildNode(ctx, child, state, taskgraph.ActionInputs(child.GetWith()))
 		if result.Status == action.StatusFailure {
 			state.Logger.Error("Sequence failed at child %d: %v", i+1, result.Error)
 			sendLog(state, api.Stream_STREAM_STDERR, fmt.Sprintf("Step %d failed: %v", i+1, result.Error))

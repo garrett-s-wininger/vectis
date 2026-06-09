@@ -11,7 +11,7 @@ import (
 
 func taskPlanStrp(s string) *string { return &s }
 
-func TestPlanTaskExecutionsBuildsStableFlattenedPlan(t *testing.T) {
+func TestPlanTaskExecutionsBuildsStableBoundaryPlan(t *testing.T) {
 	t.Parallel()
 
 	plan, err := job.PlanTaskExecutions(taskPlanJob("echo compile"))
@@ -19,14 +19,13 @@ func TestPlanTaskExecutionsBuildsStableFlattenedPlan(t *testing.T) {
 		t.Fatalf("PlanTaskExecutions: %v", err)
 	}
 
-	if len(plan) != 4 {
-		t.Fatalf("plan len: got %d, want 4: %+v", len(plan), plan)
+	if len(plan) != 3 {
+		t.Fatalf("plan len: got %d, want 3: %+v", len(plan), plan)
 	}
 
-	assertPlanEntry(t, plan[0], "setup", dal.RootTaskKey, "root.steps[0]", "builtins/shell", nil)
-	assertPlanEntry(t, plan[1], "build", dal.RootTaskKey, "root.steps[1]", "builtins/sequence", []string{"compile", "test"})
-	assertPlanEntry(t, plan[2], "compile", "build", "root.steps[1].steps[0]", "builtins/shell", nil)
-	assertPlanEntry(t, plan[3], "test", "build", "root.steps[1].steps[1]", "builtins/shell", nil)
+	assertPlanEntry(t, plan[0], "build", dal.RootTaskKey, "root.steps[1]", "builtins/parallel", []string{"compile", "test"})
+	assertPlanEntry(t, plan[1], "compile", "build", "root.steps[1].steps[0]", "builtins/shell", nil)
+	assertPlanEntry(t, plan[2], "test", "build", "root.steps[1].steps[1]", "builtins/shell", nil)
 
 	again, err := job.PlanTaskExecutions(taskPlanJob("echo compile"))
 	if err != nil {
@@ -44,12 +43,12 @@ func TestPlanTaskExecutionsBuildsStableFlattenedPlan(t *testing.T) {
 		t.Fatalf("PlanTaskExecutions changed: %v", err)
 	}
 
-	if plan[2].SpecHash == changed[2].SpecHash {
-		t.Fatalf("compile spec hash did not change after command changed: %q", plan[2].SpecHash)
+	if plan[1].SpecHash == changed[1].SpecHash {
+		t.Fatalf("compile spec hash did not change after command changed: %q", plan[1].SpecHash)
 	}
 
 	if plan[0].SpecHash != changed[0].SpecHash {
-		t.Fatalf("unrelated setup spec hash changed: got %q then %q", plan[0].SpecHash, changed[0].SpecHash)
+		t.Fatalf("unrelated build spec hash changed: got %q then %q", plan[0].SpecHash, changed[0].SpecHash)
 	}
 }
 
@@ -163,6 +162,7 @@ func taskPlanJob(compileCommand string) *api.Job {
 	buildID := "build"
 	compileID := "compile"
 	testID := "test"
+	buildUses := "builtins/parallel"
 	shellUses := "builtins/shell"
 
 	return &api.Job{
@@ -179,7 +179,7 @@ func taskPlanJob(compileCommand string) *api.Job {
 				},
 				{
 					Id:   &buildID,
-					Uses: &rootUses,
+					Uses: &buildUses,
 					Steps: []*api.Node{
 						{
 							Id:   &compileID,

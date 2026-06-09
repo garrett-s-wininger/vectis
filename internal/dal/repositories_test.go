@@ -1551,28 +1551,21 @@ func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_SequenceActivates
 	}
 
 	result := runfixture.FinalizeExecutionByClaim(t, ctx, repos, rootDispatch.ExecutionID, dal.ExecutionStatusSucceeded)
-	assertActivatedTaskKeys(t, result.Children, "setup")
-	assertTaskStatusByKey(t, db, byKey, "setup", dal.TaskStatusPending)
-	assertTaskStatusByKey(t, db, byKey, "build", dal.TaskStatusPlanned)
-	assertTaskStatusByKey(t, db, byKey, "compile", dal.TaskStatusPlanned)
-	assertTaskStatusByKey(t, db, byKey, "test", dal.TaskStatusPlanned)
-	assertTaskStatusByKey(t, db, byKey, "deploy", dal.TaskStatusPlanned)
-
-	result = runfixture.FinalizeExecutionByClaim(t, ctx, repos, taskExecutionIDForKey(t, byKey, "setup"), dal.ExecutionStatusSucceeded)
 	assertActivatedTaskKeys(t, result.Children, "build")
 	assertTaskStatusByKey(t, db, byKey, "build", dal.TaskStatusPending)
 	assertTaskStatusByKey(t, db, byKey, "compile", dal.TaskStatusPlanned)
+	assertTaskStatusByKey(t, db, byKey, "test", dal.TaskStatusPlanned)
 	assertTaskStatusByKey(t, db, byKey, "deploy", dal.TaskStatusPlanned)
 
 	result = runfixture.FinalizeExecutionByClaim(t, ctx, repos, taskExecutionIDForKey(t, byKey, "build"), dal.ExecutionStatusSucceeded)
-	assertActivatedTaskKeys(t, result.Children, "compile")
+	assertActivatedTaskKeys(t, result.Children, "compile", "test")
+	assertTaskStatusByKey(t, db, byKey, "build", dal.TaskStatusSucceeded)
 	assertTaskStatusByKey(t, db, byKey, "compile", dal.TaskStatusPending)
-	assertTaskStatusByKey(t, db, byKey, "test", dal.TaskStatusPlanned)
+	assertTaskStatusByKey(t, db, byKey, "test", dal.TaskStatusPending)
 	assertTaskStatusByKey(t, db, byKey, "deploy", dal.TaskStatusPlanned)
 
 	result = runfixture.FinalizeExecutionByClaim(t, ctx, repos, taskExecutionIDForKey(t, byKey, "compile"), dal.ExecutionStatusSucceeded)
 	assertActivatedTaskKeys(t, result.Children, "test")
-	assertTaskStatusByKey(t, db, byKey, "test", dal.TaskStatusPending)
 	assertTaskStatusByKey(t, db, byKey, "deploy", dal.TaskStatusPlanned)
 
 	result = runfixture.FinalizeExecutionByClaim(t, ctx, repos, taskExecutionIDForKey(t, byKey, "test"), dal.ExecutionStatusSucceeded)
@@ -2967,6 +2960,7 @@ func durableSequenceJob(jobID, runID string) *api.Job {
 	compileID := "compile"
 	testID := "test"
 	deployID := "deploy"
+	buildUses := "builtins/parallel"
 	shellUses := "builtins/shell"
 
 	return &api.Job{
@@ -2983,7 +2977,7 @@ func durableSequenceJob(jobID, runID string) *api.Job {
 				},
 				{
 					Id:   &buildID,
-					Uses: &rootUses,
+					Uses: &buildUses,
 					Steps: []*api.Node{
 						{
 							Id:   &compileID,

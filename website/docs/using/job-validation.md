@@ -67,12 +67,21 @@ These are the built-in actions that the validator knows today:
 
 | Action | Required `with` | Optional `with` | Notes |
 | --- | --- | --- | --- |
-| `builtins/shell` | `command` | none | Runs the command with `sh -c`. Empty commands and unknown keys are rejected. |
-| `builtins/checkout` | `url` | none | Accepts HTTP(S) clone URLs without embedded credentials and SCP-style Git URLs. |
-| `builtins/sequence` | none | any key | Runs child `steps` in order. Durable task runs activate one child subtree at a time. `with` is currently ignored for compatibility. |
-| `builtins/parallel` | none | any key | Runs child `steps` concurrently. Durable task runs activate all direct child tasks together. `with` is currently ignored for compatibility. |
+| `builtins/shell` | `command` | `execution` | Runs the command with `sh -c`. Empty commands and unknown action keys are rejected. |
+| `builtins/checkout` | `url` | `execution` | Accepts HTTP(S) clone URLs without embedded credentials and SCP-style Git URLs. Unknown action keys are rejected. |
+| `builtins/sequence` | none | `execution` | Runs child `steps` in order. Defaults to `execution: "local"`, so children run in the same worker workspace unless a distributed boundary is reached. Unknown optional keys are tolerated for compatibility. |
+| `builtins/parallel` | none | `execution` | Runs child `steps` concurrently when local, or fans them out as task executions when distributed. Defaults to `execution: "distributed"`. Unknown optional keys are tolerated for compatibility. |
 
 The action name can include the `builtins/` prefix. The built-in registry also accepts short names internally, but docs and examples use the full form so job files stay clear.
+
+`with.execution` is scheduling metadata accepted on any node and is not passed to the action implementation. It controls whether the node runs inside the current task or is materialized as a task boundary:
+
+| Value | Meaning |
+| --- | --- |
+| `local` | The node is eligible to run inside the current task execution and workspace. |
+| `distributed` | The node is inserted as a task execution and may run on another worker. It should not depend on a shared mutable workspace. |
+
+When omitted, `builtins/parallel` defaults to `distributed`; other built-ins default to `local`.
 
 ## Reading Validation Errors
 

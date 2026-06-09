@@ -9,6 +9,7 @@ import (
 	"vectis/internal/action"
 	"vectis/internal/action/builtins"
 	"vectis/internal/dal"
+	"vectis/internal/taskgraph"
 )
 
 const (
@@ -141,11 +142,18 @@ func (v *validator) walk(node *api.Node, path string, depth int) {
 	}
 
 	uses := strings.TrimSpace(node.GetUses())
+	if raw, ok := node.GetWith()[taskgraph.ExecutionField]; ok && !taskgraph.ValidExecutionMode(raw) {
+		v.add(
+			path+".with."+taskgraph.ExecutionField,
+			fmt.Sprintf("must be %q or %q, got %q", taskgraph.ExecutionLocal, taskgraph.ExecutionDistributed, strings.TrimSpace(raw)),
+		)
+	}
+
 	if uses == "" {
 		v.add(path+".uses", "is required")
 	} else if resolved, err := v.opts.Resolver.Resolve(uses); err != nil {
 		v.add(path+".uses", fmt.Sprintf("unknown action %q", uses))
-	} else if fieldErrs := resolved.ValidateWith(node.GetWith()); len(fieldErrs) > 0 {
+	} else if fieldErrs := resolved.ValidateWith(taskgraph.ActionWith(node.GetWith())); len(fieldErrs) > 0 {
 		for _, fe := range fieldErrs {
 			v.add(path+".with."+fe.Field, fe.Message)
 		}

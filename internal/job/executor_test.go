@@ -254,7 +254,7 @@ func TestExecutor_ExecuteTask_ExecutesSelectedNodeOnly(t *testing.T) {
 	assertLogNotContains(t, chunks, "task-first-marker")
 }
 
-func TestExecutor_ExecuteTask_DoesNotExecuteChildTasks(t *testing.T) {
+func TestExecutor_ExecuteTask_ExecutesLocalChildTasks(t *testing.T) {
 	executor := job.NewExecutor()
 	mockLogClient := mocks.NewMockLogClient()
 	mockLogger := mocks.NewMockLogger()
@@ -289,10 +289,10 @@ func TestExecutor_ExecuteTask_DoesNotExecuteChildTasks(t *testing.T) {
 	chunks := logChunkStrings(mockLogClient.GetChunks())
 	assertLogContains(t, chunks, "Starting task execution: test-job-task-parent task branch")
 	assertLogContains(t, chunks, "Executing node: builtins/sequence")
-	assertLogNotContains(t, chunks, "nested-child-marker")
+	assertLogContains(t, chunks, "nested-child-marker")
 }
 
-func TestExecutor_ExecuteTask_RootTaskSuppressesChildren(t *testing.T) {
+func TestExecutor_ExecuteTask_RootTaskExecutesLocalChildren(t *testing.T) {
 	executor := job.NewExecutor()
 	mockLogClient := mocks.NewMockLogClient()
 	mockLogger := mocks.NewMockLogger()
@@ -321,7 +321,55 @@ func TestExecutor_ExecuteTask_RootTaskSuppressesChildren(t *testing.T) {
 	chunks := logChunkStrings(mockLogClient.GetChunks())
 	assertLogContains(t, chunks, "Starting task execution: test-job-task-root task root")
 	assertLogContains(t, chunks, "Executing node: builtins/sequence")
-	assertLogNotContains(t, chunks, "root-child-marker")
+	assertLogContains(t, chunks, "root-child-marker")
+}
+
+func TestExecutor_ExecuteTask_StopsAtDistributedBoundary(t *testing.T) {
+	executor := job.NewExecutor()
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+
+	testJob := &api.Job{
+		Id:    executorStrp("test-job-task-boundary"),
+		RunId: executorStrp("test-run-task-boundary"),
+		Root: &api.Node{
+			Id:   executorStrp("root-node"),
+			Uses: executorStrp("builtins/sequence"),
+			Steps: []*api.Node{
+				{
+					Id:   executorStrp("setup"),
+					Uses: executorStrp("builtins/shell"),
+					With: map[string]string{"command": "echo local-setup-marker"},
+				},
+				{
+					Id:   executorStrp("fanout"),
+					Uses: executorStrp("builtins/parallel"),
+					Steps: []*api.Node{
+						{
+							Id:   executorStrp("distributed-child"),
+							Uses: executorStrp("builtins/shell"),
+							With: map[string]string{"command": "echo distributed-child-marker"},
+						},
+					},
+				},
+				{
+					Id:   executorStrp("after"),
+					Uses: executorStrp("builtins/shell"),
+					With: map[string]string{"command": "echo after-boundary-marker"},
+				},
+			},
+		},
+	}
+
+	err := executeTaskAndWait(t, executor, testJob, dal.RootTaskKey, mockLogClient, mockLogger)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	chunks := logChunkStrings(mockLogClient.GetChunks())
+	assertLogContains(t, chunks, "local-setup-marker")
+	assertLogNotContains(t, chunks, "distributed-child-marker")
+	assertLogNotContains(t, chunks, "after-boundary-marker")
 }
 
 func TestExecutor_ExecuteTask_MissingTask(t *testing.T) {

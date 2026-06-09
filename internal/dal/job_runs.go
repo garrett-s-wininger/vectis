@@ -9,7 +9,11 @@ import (
 	"strings"
 	"time"
 
+	api "vectis/api/gen/go"
+	"vectis/internal/taskgraph"
+
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 type SQLRunsRepository struct {
@@ -1600,7 +1604,7 @@ func activatePlannedContinuationsTx(ctx context.Context, tx *sql.Tx, runID, comp
 
 	statusByTaskKey := make(map[string]taskExecutionStatusSnapshot, len(snapshots))
 	for _, snapshot := range snapshots {
-		if _, known := plan.usesByTaskKey[snapshot.Record.TaskKey]; !known {
+		if _, known := plan.UsesByTaskKey[snapshot.Record.TaskKey]; !known {
 			return activatePlannedChildTaskExecutionsTx(ctx, tx, completedTaskID)
 		}
 
@@ -1614,7 +1618,7 @@ func activatePlannedContinuationsTx(ctx context.Context, tx *sql.Tx, runID, comp
 	for _, snapshot := range snapshots {
 		switch {
 		case snapshot.hasStatuses(TaskStatusPlanned, SegmentStatusPlanned, ExecutionStatusPlanned):
-			if !plan.taskReady(statusByTaskKey, snapshot.Record.TaskKey) {
+			if !taskReady(plan, statusByTaskKey, snapshot.Record.TaskKey) {
 				continue
 			}
 
@@ -1629,7 +1633,7 @@ func activatePlannedContinuationsTx(ctx context.Context, tx *sql.Tx, runID, comp
 
 			records = append(records, snapshot.Record)
 		case snapshot.hasStatuses(TaskStatusPending, SegmentStatusPending, ExecutionStatusPending):
-			if plan.taskReady(statusByTaskKey, snapshot.Record.TaskKey) {
+			if taskReady(plan, statusByTaskKey, snapshot.Record.TaskKey) {
 				records = append(records, snapshot.Record)
 			}
 		case snapshot.hasConsistentAdvancedStatus():
@@ -1862,55 +1866,24 @@ func scanTaskExecutionStatusSnapshot(scanner taskExecutionStatusScanner) (taskEx
 	return snapshot, nil
 }
 
-type taskControlPayload struct {
-	Job *taskControlJob `json:"job"`
-}
-
-type taskControlJob struct {
-	Root *taskControlNode `json:"root"`
-}
-
-type taskControlNode struct {
-	ID    string            `json:"id"`
-	Uses  string            `json:"uses"`
-	Steps []taskControlNode `json:"steps"`
-}
-
-type taskControlPlan struct {
-	usesByTaskKey map[string]string
-	parentByKey   map[string]string
-	childrenByKey map[string][]string
-}
-
-func taskControlPlanForRunTx(ctx context.Context, tx *sql.Tx, runID string) (taskControlPlan, bool, error) {
+func taskControlPlanForRunTx(ctx context.Context, tx *sql.Tx, runID string) (taskgraph.BoundaryPlan, bool, error) {
 	payloadJSON, found, err := executionPayloadJSONForRunTx(ctx, tx, runID)
 	if err != nil {
-		return taskControlPlan{}, false, err
+		return taskgraph.BoundaryPlan{}, false, err
 	}
 
 	if !found {
-		return taskControlPlan{}, false, nil
+		return taskgraph.BoundaryPlan{}, false, nil
 	}
 
-	var payload taskControlPayload
-	if err := json.Unmarshal([]byte(payloadJSON), &payload); err != nil {
-		return taskControlPlan{}, false, fmt.Errorf("parse execution payload control plan: %w", err)
+	var req api.JobRequest
+	if err := protojson.Unmarshal([]byte(payloadJSON), &req); err != nil {
+		return taskgraph.BoundaryPlan{}, false, fmt.Errorf("parse execution payload control plan: %w", err)
 	}
 
-	if payload.Job == nil || payload.Job.Root == nil {
-		return taskControlPlan{}, false, fmt.Errorf("%w: execution payload for run %s has no job root", ErrConflict, runID)
-	}
-
-	plan := taskControlPlan{
-		usesByTaskKey: map[string]string{
-			RootTaskKey: payload.Job.Root.Uses,
-		},
-		parentByKey:   map[string]string{},
-		childrenByKey: map[string][]string{},
-	}
-
-	if err := plan.walk(RootTaskKey, payload.Job.Root.Steps); err != nil {
-		return taskControlPlan{}, false, err
+	plan, err := taskgraph.PlanTaskBoundaries(req.GetJob(), RootTaskKey)
+	if err != nil {
+		return taskgraph.BoundaryPlan{}, false, err
 	}
 
 	return plan, true, nil
@@ -1943,34 +1916,8 @@ func executionPayloadJSONForRunTx(ctx context.Context, tx *sql.Tx, runID string)
 	return payloadJSON.String, true, nil
 }
 
-func (p taskControlPlan) walk(parentKey string, children []taskControlNode) error {
-	for _, child := range children {
-		childKey := strings.TrimSpace(child.ID)
-		if childKey == "" {
-			return fmt.Errorf("%w: task control child under %s has empty id", ErrConflict, parentKey)
-		}
-
-		if childKey == RootTaskKey {
-			return fmt.Errorf("%w: task control child id %q is reserved", ErrConflict, RootTaskKey)
-		}
-
-		if _, exists := p.usesByTaskKey[childKey]; exists {
-			return fmt.Errorf("%w: task control child id %q is duplicated", ErrConflict, childKey)
-		}
-
-		p.usesByTaskKey[childKey] = child.Uses
-		p.parentByKey[childKey] = parentKey
-		p.childrenByKey[parentKey] = append(p.childrenByKey[parentKey], childKey)
-		if err := p.walk(childKey, child.Steps); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (p taskControlPlan) taskReady(statusByTaskKey map[string]taskExecutionStatusSnapshot, taskKey string) bool {
-	parentKey, ok := p.parentByKey[taskKey]
+func taskReady(plan taskgraph.BoundaryPlan, statusByTaskKey map[string]taskExecutionStatusSnapshot, taskKey string) bool {
+	parentKey, ok := plan.ParentByKey[taskKey]
 	if !ok {
 		return false
 	}
@@ -1980,11 +1927,11 @@ func (p taskControlPlan) taskReady(statusByTaskKey map[string]taskExecutionStatu
 		return false
 	}
 
-	if !usesSequence(p.usesByTaskKey[parentKey]) {
+	if !usesSequence(plan.UsesByTaskKey[parentKey]) {
 		return true
 	}
 
-	siblings := p.childrenByKey[parentKey]
+	siblings := plan.ChildrenByKey[parentKey]
 	for i, siblingKey := range siblings {
 		if siblingKey != taskKey {
 			continue
@@ -1994,20 +1941,20 @@ func (p taskControlPlan) taskReady(statusByTaskKey map[string]taskExecutionStatu
 			return true
 		}
 
-		return p.subtreeSucceeded(statusByTaskKey, siblings[i-1])
+		return subtreeSucceeded(plan, statusByTaskKey, siblings[i-1])
 	}
 
 	return false
 }
 
-func (p taskControlPlan) subtreeSucceeded(statusByTaskKey map[string]taskExecutionStatusSnapshot, taskKey string) bool {
+func subtreeSucceeded(plan taskgraph.BoundaryPlan, statusByTaskKey map[string]taskExecutionStatusSnapshot, taskKey string) bool {
 	snapshot, ok := statusByTaskKey[taskKey]
 	if !ok || !taskSucceeded(snapshot) {
 		return false
 	}
 
-	for _, childKey := range p.childrenByKey[taskKey] {
-		if !p.subtreeSucceeded(statusByTaskKey, childKey) {
+	for _, childKey := range plan.ChildrenByKey[taskKey] {
+		if !subtreeSucceeded(plan, statusByTaskKey, childKey) {
 			return false
 		}
 	}
@@ -2025,11 +1972,7 @@ func usesSequence(uses string) bool {
 		return false
 	}
 
-	if !strings.Contains(uses, "/") {
-		uses = "builtins/" + uses
-	}
-
-	return uses == "builtins/sequence"
+	return taskgraph.NormalizeUses(uses) == "builtins/sequence"
 }
 
 func ensureTaskExistsTx(ctx context.Context, tx *sql.Tx, taskID string) error {

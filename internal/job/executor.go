@@ -14,6 +14,7 @@ import (
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
 	"vectis/internal/observability"
+	"vectis/internal/taskgraph"
 	"vectis/internal/workloadidentity"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -104,7 +105,7 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 			return err
 		}
 
-		children = nil
+		children = taskgraph.LocalChildrenForTask(node)
 	}
 
 	cleanupWorkspace := false
@@ -230,14 +231,9 @@ func (e *Executor) executeNodeWithChildren(ctx context.Context, node *api.Node, 
 		)
 	}
 
-	inputs := make(map[string]any)
-	for k, v := range node.GetWith() {
-		inputs[k] = v
-	}
-
 	sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Executing node: %s", nodeImpl.Type()))
 
-	result := nodeImpl.Execute(nodeCtx, state, inputs, children)
+	result := nodeImpl.Execute(nodeCtx, state, taskgraph.ActionInputs(node.GetWith()), children)
 	if result.Status == action.StatusFailure && result.Error != nil {
 		span.RecordError(result.Error)
 		span.SetStatus(otelcodes.Error, "action failed")
