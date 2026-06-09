@@ -106,6 +106,99 @@ func TestGitCheckoutReadFileHonorsMaxFileBytes(t *testing.T) {
 	}
 }
 
+func TestGitCheckoutStatusReportsHealthyCheckout(t *testing.T) {
+	repo := initGitRepo(t)
+	writeAndCommit(t, repo, "README.md", "hello\n", "readme")
+	commit := gitOutput(t, repo, "rev-parse", "HEAD")
+
+	checkout := NewGitCheckout(repo)
+	status := checkout.Status(context.Background(), "HEAD")
+
+	if status.ErrorCode != "" {
+		t.Fatalf("expected healthy status, got error %s: %s", status.ErrorCode, status.ErrorMessage)
+	}
+
+	if status.CheckoutPath != repo || !status.PathExists || !status.PathIsDirectory || !status.GitRepository {
+		t.Fatalf("checkout status mismatch: %+v", status)
+	}
+
+	gotWorkTree, err := filepath.EvalSymlinks(status.WorkTreePath)
+	if err != nil {
+		t.Fatalf("eval work tree path %q: %v", status.WorkTreePath, err)
+	}
+
+	wantWorkTree, err := filepath.EvalSymlinks(repo)
+	if err != nil {
+		t.Fatalf("eval repo path %q: %v", repo, err)
+	}
+
+	if gotWorkTree != wantWorkTree {
+		t.Fatalf("work tree path: got %q, want %q", status.WorkTreePath, repo)
+	}
+
+	if status.DefaultRef != "HEAD" || !status.DefaultRefResolved || status.ResolvedCommit != commit {
+		t.Fatalf("default ref status mismatch: %+v", status)
+	}
+}
+
+func TestGitCheckoutStatusAllowsMissingDefaultRef(t *testing.T) {
+	repo := initGitRepo(t)
+	writeAndCommit(t, repo, "README.md", "hello\n", "readme")
+
+	checkout := NewGitCheckout(repo)
+	status := checkout.Status(context.Background(), "")
+
+	if status.ErrorCode != "" {
+		t.Fatalf("expected missing default ref to be usable, got error %s: %s", status.ErrorCode, status.ErrorMessage)
+	}
+
+	if !status.GitRepository || status.DefaultRefResolved || status.ResolvedCommit != "" {
+		t.Fatalf("default ref status mismatch: %+v", status)
+	}
+}
+
+func TestGitCheckoutStatusReportsMissingPath(t *testing.T) {
+	checkout := NewGitCheckout(filepath.Join(t.TempDir(), "missing"))
+	status := checkout.Status(context.Background(), "HEAD")
+
+	if status.ErrorCode != "checkout_path_missing" {
+		t.Fatalf("error code: got %q, want checkout_path_missing; status=%+v", status.ErrorCode, status)
+	}
+
+	if status.PathExists || status.PathIsDirectory || status.GitRepository {
+		t.Fatalf("missing path should not look usable: %+v", status)
+	}
+}
+
+func TestGitCheckoutStatusReportsNonGitDirectory(t *testing.T) {
+	checkout := NewGitCheckout(t.TempDir())
+	status := checkout.Status(context.Background(), "HEAD")
+
+	if status.ErrorCode != "not_git_checkout" {
+		t.Fatalf("error code: got %q, want not_git_checkout; status=%+v", status.ErrorCode, status)
+	}
+
+	if !status.PathExists || !status.PathIsDirectory || status.GitRepository {
+		t.Fatalf("non-git directory status mismatch: %+v", status)
+	}
+}
+
+func TestGitCheckoutStatusReportsMissingDefaultRef(t *testing.T) {
+	repo := initGitRepo(t)
+	writeAndCommit(t, repo, "README.md", "hello\n", "readme")
+
+	checkout := NewGitCheckout(repo)
+	status := checkout.Status(context.Background(), "refs/heads/missing")
+
+	if status.ErrorCode != "default_ref_not_found" {
+		t.Fatalf("error code: got %q, want default_ref_not_found; status=%+v", status.ErrorCode, status)
+	}
+
+	if !status.GitRepository || status.DefaultRefResolved || status.ResolvedCommit != "" {
+		t.Fatalf("missing default ref status mismatch: %+v", status)
+	}
+}
+
 func initGitRepo(t *testing.T) string {
 	t.Helper()
 

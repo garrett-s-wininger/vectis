@@ -329,6 +329,99 @@ func TestAPIServer_CreateJobFromSourceRejectsDisabledRepository(t *testing.T) {
 	}
 }
 
+func TestAPIServer_GetSourceRepositoryStatus(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+
+	server, _, _, _ := setupTestServer(t)
+	handler := server.Handler()
+	repoPath := initAPIGitRepo(t)
+	writeAPIJobDefinitionAndCommit(t, repoPath, "true", "definition")
+	commit := apiGitOutput(t, repoPath, "rev-parse", "HEAD")
+
+	registerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
+		"repository_id": "vectis-local",
+		"source_kind":   dal.SourceKindLocalCheckout,
+		"checkout_path": repoPath,
+		"default_ref":   "HEAD",
+	})
+
+	if registerRec.Code != http.StatusCreated {
+		t.Fatalf("register source repository: status=%d body=%s", registerRec.Code, registerRec.Body.String())
+	}
+
+	statusRec := httptest.NewRecorder()
+	statusReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/vectis-local/status", nil)
+	handler.ServeHTTP(statusRec, statusReq)
+	if statusRec.Code != http.StatusOK {
+		t.Fatalf("get source repository status: status=%d body=%s", statusRec.Code, statusRec.Body.String())
+	}
+
+	statusResp := decodeSourceRepositoryStatusResponse(t, statusRec)
+	if statusResp.RepositoryID != "vectis-local" || statusResp.Namespace != "/" || !statusResp.Enabled || statusResp.Status != "ok" {
+		t.Fatalf("status response mismatch: %+v", statusResp)
+	}
+
+	if statusResp.CheckoutPath != repoPath ||
+		!statusResp.PathExists ||
+		!statusResp.PathIsDirectory ||
+		!statusResp.GitRepository ||
+		statusResp.DefaultRef != "HEAD" ||
+		!statusResp.DefaultRefResolved ||
+		statusResp.ResolvedCommit != commit ||
+		statusResp.Error != nil {
+		t.Fatalf("checkout status mismatch: %+v", statusResp)
+	}
+
+	disableRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/vectis-local", map[string]any{
+		"enabled": false,
+	})
+
+	if disableRec.Code != http.StatusOK {
+		t.Fatalf("disable source repository: status=%d body=%s", disableRec.Code, disableRec.Body.String())
+	}
+
+	statusRec = httptest.NewRecorder()
+	statusReq = httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/vectis-local/status", nil)
+	handler.ServeHTTP(statusRec, statusReq)
+	if statusRec.Code != http.StatusOK {
+		t.Fatalf("get disabled source repository status: status=%d body=%s", statusRec.Code, statusRec.Body.String())
+	}
+
+	statusResp = decodeSourceRepositoryStatusResponse(t, statusRec)
+	if statusResp.Enabled || statusResp.Status != "disabled" || statusResp.ResolvedCommit != commit || statusResp.Error != nil {
+		t.Fatalf("disabled status mismatch: %+v", statusResp)
+	}
+
+	nonGitPath := t.TempDir()
+	registerRec = doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
+		"repository_id": "not-git",
+		"source_kind":   dal.SourceKindLocalCheckout,
+		"checkout_path": nonGitPath,
+		"default_ref":   "HEAD",
+	})
+
+	if registerRec.Code != http.StatusCreated {
+		t.Fatalf("register non-git source repository: status=%d body=%s", registerRec.Code, registerRec.Body.String())
+	}
+
+	statusRec = httptest.NewRecorder()
+	statusReq = httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/not-git/status", nil)
+	handler.ServeHTTP(statusRec, statusReq)
+	if statusRec.Code != http.StatusOK {
+		t.Fatalf("get non-git source repository status: status=%d body=%s", statusRec.Code, statusRec.Body.String())
+	}
+
+	statusResp = decodeSourceRepositoryStatusResponse(t, statusRec)
+	if statusResp.Status != "unavailable" ||
+		!statusResp.PathExists ||
+		!statusResp.PathIsDirectory ||
+		statusResp.GitRepository ||
+		statusResp.Error == nil ||
+		statusResp.Error.Code != "not_git_checkout" {
+		t.Fatalf("non-git status mismatch: %+v", statusResp)
+	}
+}
+
 func TestAPIServer_UpdateSourceRepository(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 
@@ -502,6 +595,56 @@ func decodeResolvedSourceDefinitionResponse(t *testing.T, rec *httptest.Response
 			Path           string `json:"path"`
 			BlobSHA        string `json:"blob_sha"`
 		} `json:"source"`
+	}
+
+	if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+
+	return out
+}
+
+func decodeSourceRepositoryStatusResponse(t *testing.T, rec *httptest.ResponseRecorder) struct {
+	RepositoryID       string `json:"repository_id"`
+	Namespace          string `json:"namespace"`
+	SourceKind         string `json:"source_kind"`
+	Enabled            bool   `json:"enabled"`
+	Status             string `json:"status"`
+	CheckoutPath       string `json:"checkout_path"`
+	PathExists         bool   `json:"path_exists"`
+	PathIsDirectory    bool   `json:"path_is_directory"`
+	GitRepository      bool   `json:"git_repository"`
+	WorkTreePath       string `json:"work_tree_path"`
+	HeadRef            string `json:"head_ref"`
+	DefaultRef         string `json:"default_ref"`
+	DefaultRefResolved bool   `json:"default_ref_resolved"`
+	ResolvedCommit     string `json:"resolved_commit"`
+	Error              *struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	} `json:"error"`
+} {
+	t.Helper()
+
+	var out struct {
+		RepositoryID       string `json:"repository_id"`
+		Namespace          string `json:"namespace"`
+		SourceKind         string `json:"source_kind"`
+		Enabled            bool   `json:"enabled"`
+		Status             string `json:"status"`
+		CheckoutPath       string `json:"checkout_path"`
+		PathExists         bool   `json:"path_exists"`
+		PathIsDirectory    bool   `json:"path_is_directory"`
+		GitRepository      bool   `json:"git_repository"`
+		WorkTreePath       string `json:"work_tree_path"`
+		HeadRef            string `json:"head_ref"`
+		DefaultRef         string `json:"default_ref"`
+		DefaultRefResolved bool   `json:"default_ref_resolved"`
+		ResolvedCommit     string `json:"resolved_commit"`
+		Error              *struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
 	}
 
 	if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {

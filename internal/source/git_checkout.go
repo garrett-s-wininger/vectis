@@ -22,6 +22,20 @@ type GitCheckout struct {
 
 var _ Repository = (*GitCheckout)(nil)
 
+type GitCheckoutStatus struct {
+	CheckoutPath       string
+	PathExists         bool
+	PathIsDirectory    bool
+	GitRepository      bool
+	WorkTreePath       string
+	HeadRef            string
+	DefaultRef         string
+	DefaultRefResolved bool
+	ResolvedCommit     string
+	ErrorCode          string
+	ErrorMessage       string
+}
+
 func NewGitCheckout(checkoutPath string, opts ...GitCheckoutOption) *GitCheckout {
 	g := &GitCheckout{
 		checkoutPath: strings.TrimSpace(checkoutPath),
@@ -46,6 +60,78 @@ func WithMaxFileBytes(maxBytes int64) GitCheckoutOption {
 
 func (g *GitCheckout) Path() string {
 	return g.checkoutPath
+}
+
+func (g *GitCheckout) Status(ctx context.Context, defaultRef string) GitCheckoutStatus {
+	status := GitCheckoutStatus{
+		CheckoutPath: strings.TrimSpace(g.checkoutPath),
+		DefaultRef:   strings.TrimSpace(defaultRef),
+	}
+
+	if status.CheckoutPath == "" {
+		status.setError("missing_checkout_path", "checkout path is required")
+		return status
+	}
+
+	info, err := os.Stat(status.CheckoutPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			status.setError("checkout_path_missing", "checkout path does not exist")
+			return status
+		}
+
+		status.setError("checkout_path_unavailable", fmt.Sprintf("checkout path is unavailable: %v", err))
+		return status
+	}
+
+	status.PathExists = true
+	status.PathIsDirectory = info.IsDir()
+	if !status.PathIsDirectory {
+		status.setError("checkout_path_not_directory", "checkout path is not a directory")
+		return status
+	}
+
+	out, err := g.run(ctx, "rev-parse", "--is-inside-work-tree")
+	if err != nil || strings.TrimSpace(string(out)) != "true" {
+		status.setError("not_git_checkout", "checkout path is not inside a git work tree")
+		return status
+	}
+
+	status.GitRepository = true
+
+	if out, err := g.run(ctx, "rev-parse", "--show-toplevel"); err == nil {
+		status.WorkTreePath = strings.TrimSpace(string(out))
+	}
+
+	if out, err := g.run(ctx, "symbolic-ref", "--quiet", "--short", "HEAD"); err == nil {
+		status.HeadRef = strings.TrimSpace(string(out))
+	}
+
+	if status.DefaultRef == "" {
+		return status
+	}
+
+	ref, err := normalizeRef(status.DefaultRef)
+	if err != nil {
+		status.setError("default_ref_invalid", "default ref is not a safe git revision")
+		return status
+	}
+
+	out, err = g.run(ctx, "rev-parse", "--verify", ref+"^{commit}")
+	if err != nil {
+		status.setError("default_ref_not_found", "default ref does not resolve to a commit")
+		return status
+	}
+
+	commit := strings.TrimSpace(string(out))
+	if commit == "" {
+		status.setError("default_ref_invalid", "default ref resolved to an empty commit")
+		return status
+	}
+
+	status.DefaultRefResolved = true
+	status.ResolvedCommit = commit
+	return status
 }
 
 func (g *GitCheckout) ResolveRevision(ctx context.Context, ref string) (Revision, error) {
@@ -175,6 +261,13 @@ func (g *GitCheckout) run(ctx context.Context, args ...string) ([]byte, error) {
 	}
 
 	return runner.RunGit(ctx, g.checkoutPath, args...)
+}
+
+func (s *GitCheckoutStatus) setError(code, message string) {
+	if s.ErrorCode == "" {
+		s.ErrorCode = code
+		s.ErrorMessage = message
+	}
 }
 
 func normalizeRef(ref string) (string, error) {

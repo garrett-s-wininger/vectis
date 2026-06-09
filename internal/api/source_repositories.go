@@ -48,6 +48,29 @@ type sourceRepositoryResponse struct {
 	Enabled       bool   `json:"enabled"`
 }
 
+type sourceRepositoryStatusResponse struct {
+	RepositoryID       string                       `json:"repository_id"`
+	Namespace          string                       `json:"namespace"`
+	SourceKind         string                       `json:"source_kind"`
+	Enabled            bool                         `json:"enabled"`
+	Status             string                       `json:"status"`
+	CheckoutPath       string                       `json:"checkout_path,omitempty"`
+	PathExists         bool                         `json:"path_exists"`
+	PathIsDirectory    bool                         `json:"path_is_directory"`
+	GitRepository      bool                         `json:"git_repository"`
+	WorkTreePath       string                       `json:"work_tree_path,omitempty"`
+	HeadRef            string                       `json:"head_ref,omitempty"`
+	DefaultRef         string                       `json:"default_ref,omitempty"`
+	DefaultRefResolved bool                         `json:"default_ref_resolved"`
+	ResolvedCommit     string                       `json:"resolved_commit,omitempty"`
+	Error              *sourceRepositoryStatusError `json:"error,omitempty"`
+}
+
+type sourceRepositoryStatusError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
 type jobSourceRequest struct {
 	Namespace    string `json:"namespace"`
 	RepositoryID string `json:"repository_id"`
@@ -294,6 +317,27 @@ func (s *APIServer) GetSourceRepository(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, http.StatusOK, sourceRepositoryRecordToResponse(rec, nsPath))
+}
+
+func (s *APIServer) GetSourceRepositoryStatus(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireNamespaces(w) || !s.requireSources(w) {
+		return
+	}
+
+	rec, nsPath, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionJobRead, false)
+	if !ok {
+		return
+	}
+
+	writeJSON(w, http.StatusOK, sourceRepositoryStatusFromRecord(ctx, rec, nsPath))
 }
 
 func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Request) {
@@ -817,6 +861,56 @@ func sourceRepositoryRecordToResponse(rec dal.SourceRepositoryRecord, namespaceP
 		CredentialRef: rec.CredentialRef,
 		Enabled:       rec.Enabled,
 	}
+}
+
+func sourceRepositoryStatusFromRecord(ctx context.Context, rec dal.SourceRepositoryRecord, namespacePath string) sourceRepositoryStatusResponse {
+	resp := sourceRepositoryStatusResponse{
+		RepositoryID: rec.RepositoryID,
+		Namespace:    namespacePath,
+		SourceKind:   rec.SourceKind,
+		Enabled:      rec.Enabled,
+		Status:       "ok",
+	}
+
+	if !rec.Enabled {
+		resp.Status = "disabled"
+	}
+
+	switch strings.TrimSpace(rec.SourceKind) {
+	case dal.SourceKindLocalCheckout:
+		checkoutStatus := sourcepkg.NewGitCheckout(rec.CheckoutPath).Status(ctx, rec.DefaultRef)
+		resp.CheckoutPath = checkoutStatus.CheckoutPath
+		resp.PathExists = checkoutStatus.PathExists
+		resp.PathIsDirectory = checkoutStatus.PathIsDirectory
+		resp.GitRepository = checkoutStatus.GitRepository
+		resp.WorkTreePath = checkoutStatus.WorkTreePath
+		resp.HeadRef = checkoutStatus.HeadRef
+		resp.DefaultRef = checkoutStatus.DefaultRef
+		resp.DefaultRefResolved = checkoutStatus.DefaultRefResolved
+		resp.ResolvedCommit = checkoutStatus.ResolvedCommit
+
+		if checkoutStatus.ErrorCode != "" {
+			resp.Error = &sourceRepositoryStatusError{
+				Code:    checkoutStatus.ErrorCode,
+				Message: checkoutStatus.ErrorMessage,
+			}
+
+			if rec.Enabled {
+				resp.Status = "unavailable"
+			}
+		}
+	default:
+		resp.Error = &sourceRepositoryStatusError{
+			Code:    "unsupported_source_kind",
+			Message: "source kind is not supported",
+		}
+
+		if rec.Enabled {
+			resp.Status = "unavailable"
+		}
+	}
+
+	return resp
 }
 
 func sourceRecordToProvenance(rec dal.JobDefinitionSourceRecord) sourceProvenanceResponse {
