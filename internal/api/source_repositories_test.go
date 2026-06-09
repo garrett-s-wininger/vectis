@@ -56,6 +56,33 @@ func TestAPIServer_SourceBackedJobLifecycle(t *testing.T) {
 		t.Fatalf("repository response mismatch: %+v", repoResp)
 	}
 
+	resolveBody := map[string]any{
+		"path": ".vectis/jobs/build.json",
+	}
+
+	resolveRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/vectis-local/definitions/resolve", resolveBody)
+	if resolveRec.Code != http.StatusOK {
+		t.Fatalf("resolve source definition: status=%d body=%s", resolveRec.Code, resolveRec.Body.String())
+	}
+
+	resolveResp := decodeResolvedSourceDefinitionResponse(t, resolveRec)
+	if resolveResp.RepositoryID != "vectis-local" || resolveResp.Source.ResolvedCommit != firstCommit || resolveResp.Source.BlobSHA != firstBlob {
+		t.Fatalf("resolve response mismatch: %+v", resolveResp)
+	}
+
+	var resolvedJob api.Job
+	if err := json.Unmarshal(resolveResp.Definition, &resolvedJob); err != nil {
+		t.Fatalf("resolved definition JSON: %v", err)
+	}
+
+	if resolvedJob.GetRoot().GetWith()["command"] != "true" {
+		t.Fatalf("resolved definition command: got %+v", resolvedJob.GetRoot().GetWith())
+	}
+
+	if _, _, err := repos.Jobs().GetDefinition(context.Background(), "build"); !dal.IsNotFound(err) {
+		t.Fatalf("resolve should not create stored job, got err=%v", err)
+	}
+
 	createBody := map[string]any{
 		"repository_id": "vectis-local",
 		"path":          ".vectis/jobs/build.json",
@@ -105,6 +132,28 @@ func TestAPIServer_SourceBackedJobLifecycle(t *testing.T) {
 	writeAPIJobDefinitionAndCommit(t, repoPath, "false", "second definition")
 	secondCommit := apiGitOutput(t, repoPath, "rev-parse", "HEAD")
 
+	resolveOldRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/vectis-local/definitions/resolve", map[string]any{
+		"ref":  firstCommit,
+		"path": ".vectis/jobs/build.json",
+	})
+
+	if resolveOldRec.Code != http.StatusOK {
+		t.Fatalf("resolve old source definition: status=%d body=%s", resolveOldRec.Code, resolveOldRec.Body.String())
+	}
+
+	resolveOldResp := decodeResolvedSourceDefinitionResponse(t, resolveOldRec)
+	if resolveOldResp.Source.ResolvedCommit != firstCommit {
+		t.Fatalf("old resolve commit: got %q, want %q", resolveOldResp.Source.ResolvedCommit, firstCommit)
+	}
+
+	if err := json.Unmarshal(resolveOldResp.Definition, &resolvedJob); err != nil {
+		t.Fatalf("old resolved definition JSON: %v", err)
+	}
+
+	if resolvedJob.GetRoot().GetWith()["command"] != "true" {
+		t.Fatalf("old resolved definition command: got %+v", resolvedJob.GetRoot().GetWith())
+	}
+
 	updateRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/jobs/source/build", createBody)
 	if updateRec.Code != http.StatusOK {
 		t.Fatalf("update source job: status=%d body=%s", updateRec.Code, updateRec.Body.String())
@@ -153,12 +202,52 @@ func TestAPIServer_CreateJobFromSourceRejectsDisabledRepository(t *testing.T) {
 	rec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/jobs/source/build", body)
 	assertAPIError(t, rec, http.StatusConflict, "source_repository_disabled")
 
+	resolveRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/disabled-repo/definitions/resolve", map[string]any{
+		"path": ".vectis/jobs/build.json",
+	})
+
+	assertAPIError(t, resolveRec, http.StatusConflict, "source_repository_disabled")
+
 	getRec := httptest.NewRecorder()
 	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/disabled-repo", nil)
 	handler.ServeHTTP(getRec, getReq)
 	if getRec.Code != http.StatusOK {
 		t.Fatalf("get disabled source repository: status=%d body=%s", getRec.Code, getRec.Body.String())
 	}
+}
+
+func decodeResolvedSourceDefinitionResponse(t *testing.T, rec *httptest.ResponseRecorder) struct {
+	RepositoryID   string          `json:"repository_id"`
+	DefinitionHash string          `json:"definition_hash"`
+	Definition     json.RawMessage `json:"definition"`
+	Source         struct {
+		RepositoryID   string `json:"repository_id"`
+		RequestedRef   string `json:"requested_ref"`
+		ResolvedCommit string `json:"resolved_commit"`
+		Path           string `json:"path"`
+		BlobSHA        string `json:"blob_sha"`
+	} `json:"source"`
+} {
+	t.Helper()
+
+	var out struct {
+		RepositoryID   string          `json:"repository_id"`
+		DefinitionHash string          `json:"definition_hash"`
+		Definition     json.RawMessage `json:"definition"`
+		Source         struct {
+			RepositoryID   string `json:"repository_id"`
+			RequestedRef   string `json:"requested_ref"`
+			ResolvedCommit string `json:"resolved_commit"`
+			Path           string `json:"path"`
+			BlobSHA        string `json:"blob_sha"`
+		} `json:"source"`
+	}
+
+	if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+
+	return out
 }
 
 func decodeSourceJobResponse(t *testing.T, rec *httptest.ResponseRecorder) struct {

@@ -155,6 +155,13 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 			RateLimit: defaultLimits.General,
 		},
 		{
+			Pattern:   "POST /api/v1/source-repositories/{id}/definitions/resolve",
+			Handler:   http.HandlerFunc(s.ResolveSourceDefinition),
+			Auth:      routeAuthPolicy{Action: authz.ActionJobRead},
+			Body:      jsonDocumentBody,
+			RateLimit: defaultLimits.General,
+		},
+		{
 			Pattern:   "GET /api/v1/jobs",
 			Handler:   http.HandlerFunc(s.GetJobs),
 			Auth:      routeAuthPolicy{Action: authz.ActionJobRead},

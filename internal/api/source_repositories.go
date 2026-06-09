@@ -45,6 +45,11 @@ type jobSourceRequest struct {
 	Path         string `json:"path"`
 }
 
+type sourceDefinitionRequest struct {
+	Ref  string `json:"ref"`
+	Path string `json:"path"`
+}
+
 type sourceProvenanceResponse struct {
 	RepositoryID   string `json:"repository_id"`
 	RequestedRef   string `json:"requested_ref"`
@@ -57,6 +62,13 @@ type persistedSourceJobResponse struct {
 	JobID          string                   `json:"job_id"`
 	Version        int                      `json:"version"`
 	DefinitionHash string                   `json:"definition_hash"`
+	Source         sourceProvenanceResponse `json:"source"`
+}
+
+type resolvedSourceDefinitionResponse struct {
+	RepositoryID   string                   `json:"repository_id"`
+	DefinitionHash string                   `json:"definition_hash"`
+	Definition     json.RawMessage          `json:"definition"`
 	Source         sourceProvenanceResponse `json:"source"`
 }
 
@@ -267,6 +279,83 @@ func (s *APIServer) GetSourceRepository(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, sourceRepositoryRecordToResponse(rec, nsPath))
 }
 
+func (s *APIServer) ResolveSourceDefinition(w http.ResponseWriter, r *http.Request) {
+	if !requestContentTypeIsJSON(r) {
+		writeAPIErrorCode(w, http.StatusUnsupportedMediaType, apiErrUnsupportedMediaType)
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxJSONDocumentBodyBytes))
+	if err != nil {
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrRequestReadFailed)
+		return
+	}
+
+	var req sourceDefinitionRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidRequestBody)
+		return
+	}
+
+	req.Ref = strings.TrimSpace(req.Ref)
+	req.Path = strings.TrimSpace(req.Path)
+	if req.Path == "" {
+		writeAPIError(w, http.StatusBadRequest, "missing_path", "path is required", nil)
+		return
+	}
+
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireNamespaces(w) || !s.requireSources(w) {
+		return
+	}
+
+	rec, _, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionJobRead, true)
+	if !ok {
+		return
+	}
+
+	ref := req.Ref
+	if ref == "" {
+		ref = strings.TrimSpace(rec.DefaultRef)
+	}
+
+	repo, err := sourcepkg.NewRepositoryFromRecord(rec)
+	if err != nil {
+		s.writeSourceDefinitionError(w, err)
+		return
+	}
+
+	loaded, err := sourcepkg.LoadDefinition(ctx, repo, sourcepkg.DefinitionRequest{
+		Ref:  ref,
+		Path: req.Path,
+	})
+
+	if err != nil {
+		s.writeSourceDefinitionError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, resolvedSourceDefinitionResponse{
+		RepositoryID:   rec.RepositoryID,
+		DefinitionHash: dal.DefinitionHash(loaded.DefinitionJSON),
+		Definition:     json.RawMessage([]byte(loaded.DefinitionJSON)),
+		Source: sourceProvenanceResponse{
+			RepositoryID:   rec.RepositoryID,
+			RequestedRef:   loaded.Source.RequestedRef,
+			ResolvedCommit: loaded.Source.Commit,
+			Path:           loaded.Source.Path,
+			BlobSHA:        loaded.Source.BlobSHA,
+		},
+	})
+}
+
 func (s *APIServer) CreateJobFromSource(w http.ResponseWriter, r *http.Request) {
 	s.persistJobFromSource(w, r, false)
 }
@@ -399,7 +488,7 @@ func (s *APIServer) persistJobFromSource(w http.ResponseWriter, r *http.Request,
 	}
 
 	if err != nil {
-		s.writeSourcePersistError(w, err)
+		s.writeSourceDefinitionError(w, err)
 		return
 	}
 	s.markDBRecovered()
@@ -506,7 +595,7 @@ func sourceRepositoryRecordToResponse(rec dal.SourceRepositoryRecord, namespaceP
 	}
 }
 
-func (s *APIServer) writeSourcePersistError(w http.ResponseWriter, err error) {
+func (s *APIServer) writeSourceDefinitionError(w http.ResponseWriter, err error) {
 	if s.handleDBUnavailableError(w, err) {
 		return
 	}
@@ -525,7 +614,7 @@ func (s *APIServer) writeSourcePersistError(w http.ResponseWriter, err error) {
 	case errors.Is(err, sourcepkg.ErrNotFound):
 		writeAPIError(w, http.StatusNotFound, "source_not_found", "source not found", nil)
 	default:
-		s.logger.Error("Source-backed job persistence failed: %v", err)
+		s.logger.Error("Source definition operation failed: %v", err)
 		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 	}
 }
