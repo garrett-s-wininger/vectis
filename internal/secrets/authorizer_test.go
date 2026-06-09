@@ -20,20 +20,21 @@ func (v *fakeClaimValidator) ValidateActiveExecutionClaim(_ context.Context, run
 	return v.err
 }
 
-type fakeExpectedWorkloadResolver struct {
+type fakeExecutionScopeResolver struct {
 	runID       string
 	executionID string
-	spiffeID    string
+	scope       ExecutionScope
 	err         error
 }
 
-func (r *fakeExpectedWorkloadResolver) ExpectedWorkloadSPIFFEID(_ context.Context, runID, executionID string) (string, error) {
+func (r *fakeExecutionScopeResolver) ResolveExecutionScope(_ context.Context, runID, executionID string) (ExecutionScope, error) {
 	r.runID = runID
 	r.executionID = executionID
 	if r.err != nil {
-		return "", r.err
+		return ExecutionScope{}, r.err
 	}
-	return r.spiffeID, nil
+
+	return r.scope, nil
 }
 
 func TestClaimAuthorizerAllowsActiveExecutionClaim(t *testing.T) {
@@ -41,13 +42,14 @@ func TestClaimAuthorizerAllowsActiveExecutionClaim(t *testing.T) {
 
 	validator := &fakeClaimValidator{}
 	authorizer := NewClaimAuthorizer(validator)
-	err := authorizer.AuthorizeResolve(context.Background(), ResolveRequest{
+	req := ResolveRequest{
 		RunID:               "run-1",
 		ExecutionID:         "execution-1",
 		ExecutionClaimToken: "claim-1",
 		PeerSPIFFEID:        "spiffe://vectis.local/service/worker",
-	})
+	}
 
+	err := authorizer.AuthorizeResolve(context.Background(), &req)
 	if err != nil {
 		t.Fatalf("AuthorizeResolve: %v", err)
 	}
@@ -61,20 +63,30 @@ func TestClaimAuthorizerRequiresPeerToMatchExpectedWorkload(t *testing.T) {
 	t.Parallel()
 
 	validator := &fakeClaimValidator{}
-	expected := &fakeExpectedWorkloadResolver{
-		spiffeID: "spiffe://vectis.local/cell/local/job/job-1/run/run-1/execution/execution-1",
+	expected := &fakeExecutionScopeResolver{
+		scope: ExecutionScope{
+			SPIFFEID:      "spiffe://vectis.local/cell/local/job/job-1/run/run-1/execution/execution-1",
+			NamespacePath: "/team-a",
+			JobID:         "job-1",
+			TaskKey:       "publish",
+		},
 	}
 
-	authorizer := NewClaimAuthorizer(validator, WithExpectedWorkloadResolver(expected))
-	err := authorizer.AuthorizeResolve(context.Background(), ResolveRequest{
+	authorizer := NewClaimAuthorizer(validator, WithExecutionScopeResolver(expected))
+	req := ResolveRequest{
 		RunID:               "run-1",
 		ExecutionID:         "execution-1",
 		ExecutionClaimToken: "claim-1",
 		PeerSPIFFEID:        "spiffe://vectis.local/cell/local/job/job-1/run/run-1/execution/execution-1",
-	})
+	}
 
+	err := authorizer.AuthorizeResolve(context.Background(), &req)
 	if err != nil {
 		t.Fatalf("AuthorizeResolve: %v", err)
+	}
+
+	if req.Scope.NamespacePath != "/team-a" || req.Scope.JobID != "job-1" || req.Scope.TaskKey != "publish" {
+		t.Fatalf("request scope was not attached: %+v", req.Scope)
 	}
 
 	if expected.runID != "run-1" || expected.executionID != "execution-1" {
@@ -85,16 +97,20 @@ func TestClaimAuthorizerRequiresPeerToMatchExpectedWorkload(t *testing.T) {
 func TestClaimAuthorizerRejectsMismatchedExpectedWorkload(t *testing.T) {
 	t.Parallel()
 
-	authorizer := NewClaimAuthorizer(&fakeClaimValidator{}, WithExpectedWorkloadResolver(&fakeExpectedWorkloadResolver{
-		spiffeID: "spiffe://vectis.local/cell/local/job/job-1/run/run-1/execution/execution-1",
+	authorizer := NewClaimAuthorizer(&fakeClaimValidator{}, WithExecutionScopeResolver(&fakeExecutionScopeResolver{
+		scope: ExecutionScope{
+			SPIFFEID: "spiffe://vectis.local/cell/local/job/job-1/run/run-1/execution/execution-1",
+		},
 	}))
-	err := authorizer.AuthorizeResolve(context.Background(), ResolveRequest{
+
+	req := ResolveRequest{
 		RunID:               "run-1",
 		ExecutionID:         "execution-1",
 		ExecutionClaimToken: "claim-1",
 		PeerSPIFFEID:        "spiffe://vectis.local/cell/local/job/job-1/run/run-1/execution/other",
-	})
+	}
 
+	err := authorizer.AuthorizeResolve(context.Background(), &req)
 	if !errors.Is(err, ErrDenied) {
 		t.Fatalf("AuthorizeResolve error = %v, want ErrDenied", err)
 	}
@@ -147,7 +163,7 @@ func TestClaimAuthorizerRejectsMissingPeerOrClaimFields(t *testing.T) {
 			t.Parallel()
 
 			authorizer := NewClaimAuthorizer(&fakeClaimValidator{})
-			if err := authorizer.AuthorizeResolve(context.Background(), tt.req); !errors.Is(err, ErrDenied) {
+			if err := authorizer.AuthorizeResolve(context.Background(), &tt.req); !errors.Is(err, ErrDenied) {
 				t.Fatalf("AuthorizeResolve error = %v, want ErrDenied", err)
 			}
 		})
@@ -158,14 +174,60 @@ func TestClaimAuthorizerRejectsInactiveExecutionClaim(t *testing.T) {
 	t.Parallel()
 
 	authorizer := NewClaimAuthorizer(&fakeClaimValidator{err: errors.New("expired lease")})
-	err := authorizer.AuthorizeResolve(context.Background(), ResolveRequest{
+	req := ResolveRequest{
 		RunID:               "run-1",
 		ExecutionID:         "execution-1",
 		ExecutionClaimToken: "claim-1",
 		PeerSPIFFEID:        "spiffe://vectis.local/service/worker",
+	}
+
+	err := authorizer.AuthorizeResolve(context.Background(), &req)
+	if !errors.Is(err, ErrDenied) {
+		t.Fatalf("AuthorizeResolve error = %v, want ErrDenied", err)
+	}
+}
+
+func TestClaimAuthorizerAppliesAccessPolicyAfterScopeResolution(t *testing.T) {
+	t.Parallel()
+
+	policy, err := NewAccessPolicy([]string{
+		"namespace=/team-a;job=job-1;task=publish;ref=encryptedfs://team-a/npm-token",
 	})
 
-	if !errors.Is(err, ErrDenied) {
+	if err != nil {
+		t.Fatalf("NewAccessPolicy: %v", err)
+	}
+
+	authorizer := NewClaimAuthorizer(
+		&fakeClaimValidator{},
+		WithExecutionScopeResolver(&fakeExecutionScopeResolver{
+			scope: ExecutionScope{
+				SPIFFEID:      "spiffe://vectis.local/cell/local/job/job-1/run/run-1/execution/execution-1",
+				NamespacePath: "/team-a",
+				JobID:         "job-1",
+				TaskKey:       "publish",
+			},
+		}),
+		WithAccessPolicy(policy),
+	)
+
+	req := ResolveRequest{
+		RunID:               "run-1",
+		ExecutionID:         "execution-1",
+		ExecutionClaimToken: "claim-1",
+		PeerSPIFFEID:        "spiffe://vectis.local/cell/local/job/job-1/run/run-1/execution/execution-1",
+		Secrets: []Reference{{
+			ID:  "npm-token",
+			Ref: "encryptedfs://team-a/npm-token",
+		}},
+	}
+
+	if err := authorizer.AuthorizeResolve(context.Background(), &req); err != nil {
+		t.Fatalf("AuthorizeResolve: %v", err)
+	}
+
+	req.Secrets[0].Ref = "encryptedfs://team-a/deploy-token"
+	if err := authorizer.AuthorizeResolve(context.Background(), &req); !errors.Is(err, ErrDenied) {
 		t.Fatalf("AuthorizeResolve error = %v, want ErrDenied", err)
 	}
 }

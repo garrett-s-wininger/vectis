@@ -41,8 +41,10 @@ type fakeAuthorizer struct {
 	err error
 }
 
-func (a *fakeAuthorizer) AuthorizeResolve(_ context.Context, req ResolveRequest) error {
-	a.req = req
+func (a *fakeAuthorizer) AuthorizeResolve(_ context.Context, req *ResolveRequest) error {
+	if req != nil {
+		a.req = *req
+	}
 	return a.err
 }
 

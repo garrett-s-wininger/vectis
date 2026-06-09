@@ -645,6 +645,7 @@ func secretsEnv(cell localCell) []string {
 		fmt.Sprintf("VECTIS_SECRETS_METRICS_PORT=%d", cell.SecretsMetricsPort),
 		"VECTIS_SECRETS_ENCRYPTEDFS_ROOT=" + cell.SecretsDir,
 		"VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE=" + cell.SecretsKeyFile,
+		"VECTIS_SECRETS_POLICY_ALLOW=namespace=*;job=*;task=*;ref=encryptedfs://*",
 	}
 }
 

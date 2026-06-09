@@ -36,7 +36,25 @@ type ResolveRequest struct {
 	ExecutionClaimToken string
 	PeerSPIFFEID        string
 	Workload            *workloadidentity.Identity
+	Scope               ExecutionScope
 	Secrets             []Reference
+}
+
+type ExecutionScope struct {
+	SPIFFEID          string
+	TrustDomain       string
+	NamespacePath     string
+	CellID            string
+	JobID             string
+	RunID             string
+	RunIndex          int
+	TaskID            string
+	TaskKey           string
+	SegmentID         string
+	ExecutionID       string
+	Attempt           int
+	DefinitionVersion int
+	DefinitionHash    string
 }
 
 type FileMaterial struct {

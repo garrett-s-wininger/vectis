@@ -113,7 +113,7 @@ flowchart TB
 | `vectis-orchestrator` | Hot-state service for lease-fenced task execution claims and in-memory task choreography. Workers use it for the normal task execution path. |
 | `vectis-worker` | Executes one task delivery at a time. Dequeues work, claims and completes task executions through the orchestrator, owns leases, cancellation intent, log/artifact callbacks, finalization, child task continuations, and cell catalog events. It delegates the action execution step to `vectis-worker-core` over a local Unix-domain socket. |
 | `vectis-worker-core` | Worker execution core. It executes claimed tasks behind the worker shell/core boundary and reports task outcomes back to `vectis-worker`. The built-in core supports host execution and the configured local VM backend; external cores can provide other execution runtimes while preserving Vectis worker semantics. |
-| `vectis-secrets` | Cell-local secret broker. Authenticates internal callers with SPIFFE-bearing mTLS, validates active execution claims, and resolves configured secret references for workers. |
+| `vectis-secrets` | Cell-local secret broker. Authenticates execution callers with SPIFFE-bearing mTLS, validates active execution claims, enforces secret access policy, and resolves configured secret references for workers. |
 | `vectis-log` | Receives log chunks from workers and stores run logs. The API reads from it when clients stream logs. |
 | `vectis-artifact` | Internal content-addressed blob service. It stores blobs by digest while the API exposes run-scoped artifact listing, metadata, and downloads. |
 | `vectis-registry` | Internal service discovery for queue, orchestrator, log, and worker-control addresses when clients do not use pinned addresses. |

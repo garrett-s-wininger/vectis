@@ -125,6 +125,9 @@ metrics_port = 9091
 encryptedfs.root = ""
 encryptedfs.key_file = ""
 
+[secrets.policy]
+allow = []
+
 [discovery]
 registry_resolver_refresh = "10s"
 registry_resolver_poll_timeout = "5s"

@@ -84,6 +84,11 @@ func runVectisSecrets(cmd *cobra.Command, args []string) {
 		logger.Fatal("grpc tls: %v", err)
 	}
 
+	accessPolicy, err := secrets.NewAccessPolicy(config.SecretsPolicyAllowRules())
+	if err != nil {
+		logger.Fatal("Invalid secret access policy: %v", err)
+	}
+
 	provider := secrets.Provider(secrets.UnconfiguredProvider{})
 	if root := config.SecretsEncryptedFSRoot(); root != "" {
 		if !config.WorkerExecutionIdentityEnabled() {
@@ -113,7 +118,8 @@ func runVectisSecrets(cmd *cobra.Command, args []string) {
 	grpcServer := grpc.NewServer(srvOpts...)
 	authorizer := secrets.NewClaimAuthorizer(
 		claimValidator,
-		secrets.WithExpectedWorkloadResolver(executionWorkloadResolver{store: activeExecutions}),
+		secrets.WithExecutionScopeResolver(executionScopeResolver{store: activeExecutions}),
+		secrets.WithAccessPolicy(accessPolicy),
 	)
 
 	api.RegisterSecretsServiceServer(grpcServer, secrets.NewServer(provider, authorizer))
@@ -139,22 +145,22 @@ type activeExecutionDispatchStore interface {
 	GetActiveExecutionDispatch(ctx context.Context, runID, executionID string) (dal.ExecutionDispatchRecord, error)
 }
 
-type executionWorkloadResolver struct {
+type executionScopeResolver struct {
 	store activeExecutionDispatchStore
 }
 
-func (r executionWorkloadResolver) ExpectedWorkloadSPIFFEID(ctx context.Context, runID, executionID string) (string, error) {
+func (r executionScopeResolver) ResolveExecutionScope(ctx context.Context, runID, executionID string) (secrets.ExecutionScope, error) {
 	if r.store == nil {
-		return "", errors.New("active execution store is not configured")
+		return secrets.ExecutionScope{}, errors.New("active execution store is not configured")
 	}
 
 	if !config.WorkerExecutionIdentityEnabled() {
-		return "", errors.New("worker execution identity is disabled")
+		return secrets.ExecutionScope{}, errors.New("worker execution identity is disabled")
 	}
 
 	dispatch, err := r.store.GetActiveExecutionDispatch(ctx, runID, executionID)
 	if err != nil {
-		return "", err
+		return secrets.ExecutionScope{}, err
 	}
 
 	identity, err := workloadidentity.NewIdentity(
@@ -175,10 +181,25 @@ func (r executionWorkloadResolver) ExpectedWorkloadSPIFFEID(ctx context.Context,
 	)
 
 	if err != nil {
-		return "", err
+		return secrets.ExecutionScope{}, err
 	}
 
-	return identity.SPIFFEID, nil
+	return secrets.ExecutionScope{
+		SPIFFEID:          identity.SPIFFEID,
+		TrustDomain:       identity.TrustDomain,
+		NamespacePath:     identity.NamespacePath,
+		CellID:            identity.CellID,
+		JobID:             identity.JobID,
+		RunID:             identity.RunID,
+		RunIndex:          dispatch.RunIndex,
+		TaskID:            dispatch.TaskID,
+		TaskKey:           dispatch.TaskKey,
+		SegmentID:         dispatch.SegmentID,
+		ExecutionID:       identity.ExecutionID,
+		Attempt:           dispatch.Attempt,
+		DefinitionVersion: dispatch.DefinitionVersion,
+		DefinitionHash:    dispatch.DefinitionHash,
+	}, nil
 }
 
 var rootCmd = &cobra.Command{
@@ -194,20 +215,25 @@ func init() {
 	viper.SetDefault("metrics_port", config.SecretsMetricsPort())
 	viper.SetDefault("encryptedfs_root", "")
 	viper.SetDefault("encryptedfs_key_file", "")
+	viper.SetDefault("policy_allow", config.SecretsPolicyAllowRules())
 
 	rootCmd.PersistentFlags().Int("port", config.SecretsPort(), "Port for the secrets gRPC service")
 	rootCmd.PersistentFlags().String("metrics-host", config.SecretsMetricsHost(), "Host/IP for the Prometheus /metrics HTTP server to bind")
 	rootCmd.PersistentFlags().Int("metrics-port", config.SecretsMetricsPort(), "HTTP port for Prometheus /metrics")
 	rootCmd.PersistentFlags().String("encryptedfs-root", "", "Root directory for encryptedfs secret files")
 	rootCmd.PersistentFlags().String("encryptedfs-key-file", "", "32-byte, hex, or base64 key file for encryptedfs secret envelopes")
+	rootCmd.PersistentFlags().StringSlice("allow-secret", config.SecretsPolicyAllowRules(), "Secret access allow rule in namespace=...;job=...;task=...;ref=... form; may be repeated")
 
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
 	_ = viper.BindPFlag("metrics_host", rootCmd.PersistentFlags().Lookup("metrics-host"))
 	_ = viper.BindPFlag("metrics_port", rootCmd.PersistentFlags().Lookup("metrics-port"))
 	_ = viper.BindPFlag("encryptedfs_root", rootCmd.PersistentFlags().Lookup("encryptedfs-root"))
 	_ = viper.BindPFlag("encryptedfs_key_file", rootCmd.PersistentFlags().Lookup("encryptedfs-key-file"))
+	_ = viper.BindPFlag("policy_allow", rootCmd.PersistentFlags().Lookup("allow-secret"))
 	_ = viper.BindEnv("secrets.encryptedfs.root", "VECTIS_SECRETS_ENCRYPTEDFS_ROOT")
 	_ = viper.BindEnv("secrets.encryptedfs.key_file", "VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE")
+	_ = viper.BindEnv("policy_allow", "VECTIS_SECRETS_POLICY_ALLOW")
+	_ = viper.BindEnv("secrets.policy.allow", "VECTIS_SECRETS_POLICY_ALLOW")
 
 	viper.SetEnvPrefix("VECTIS_SECRETS")
 	viper.AutomaticEnv()

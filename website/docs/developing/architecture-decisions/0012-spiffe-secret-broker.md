@@ -54,7 +54,9 @@ values themselves in environment variables by default.
   must exactly match the SPIFFE ID the broker derives from the active execution
   record and configured identity template;
 - the execution ID and execution claim token proving the worker currently owns
-  that task attempt in the cell database.
+  that task attempt in the cell database;
+- an operator-owned secret access policy rule matching the execution namespace,
+  job, task, and requested secret reference.
 
 Job definitions store only secret references and delivery metadata. They never
 store plaintext values. Execution envelopes, queue payloads, dispatch records,

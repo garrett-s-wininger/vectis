@@ -210,11 +210,16 @@ type LogForwarderDefaults struct {
 }
 
 type SecretsDefaults struct {
-	Port            int    `toml:"port"`
-	MetricsHost     string `toml:"metrics_host"`
-	MetricsPort     int    `toml:"metrics_port"`
-	EncryptedFSRoot string `toml:"encryptedfs.root"`
-	EncryptedFSKey  string `toml:"encryptedfs.key_file"`
+	Port            int                   `toml:"port"`
+	MetricsHost     string                `toml:"metrics_host"`
+	MetricsPort     int                   `toml:"metrics_port"`
+	EncryptedFSRoot string                `toml:"encryptedfs.root"`
+	EncryptedFSKey  string                `toml:"encryptedfs.key_file"`
+	Policy          SecretsPolicyDefaults `toml:"policy"`
+}
+
+type SecretsPolicyDefaults struct {
+	Allow []string `toml:"allow"`
 }
 
 type GRPCDefaults struct {
@@ -1282,6 +1287,18 @@ func SecretsEncryptedFSKeyFile() string {
 		viper.GetString("secrets.encryptedfs.key_file"),
 		MustDefaults().Secrets.EncryptedFSKey,
 	)
+}
+
+func SecretsPolicyAllowRules() []string {
+	defaults := MustDefaults().Secrets.Policy.Allow
+	if viper.IsSet("policy_allow") || viper.IsSet("secrets.policy.allow") {
+		return coalesceStringSlices(
+			append(viper.GetStringSlice("policy_allow"), viper.GetString("policy_allow")),
+			append(viper.GetStringSlice("secrets.policy.allow"), viper.GetString("secrets.policy.allow")),
+		)
+	}
+
+	return cleanStringSlice(defaults)
 }
 
 func LogMaxRunBuffers() int {

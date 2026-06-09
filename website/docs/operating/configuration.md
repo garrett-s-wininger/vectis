@@ -76,7 +76,7 @@ Use these prefixes when building service-specific environment variable names.
 | `vectis-registry` | `VECTIS_REGISTRY` | `--port`; cluster membership uses `VECTIS_REGISTRY_CLUSTER_*` |
 | `vectis-log` | `VECTIS_LOG` | `--instance-id`, `--storage-dir`, `--storage-read-only-min-free-bytes`, `--grpc-port`, `--metrics-host`, `--metrics-port`, `--max-run-buffers` |
 | `vectis-artifact` | `VECTIS_ARTIFACT` | `--instance-id`, `--storage-dir`, `--storage-read-only-min-free-bytes`, `--grpc-port`, `--metrics-host`, `--metrics-port` |
-| `vectis-secrets` | `VECTIS_SECRETS` | `--port`, `--metrics-host`, `--metrics-port`, `--encryptedfs-root`, `--encryptedfs-key-file` |
+| `vectis-secrets` | `VECTIS_SECRETS` | `--port`, `--metrics-host`, `--metrics-port`, `--encryptedfs-root`, `--encryptedfs-key-file`, `--allow-secret` |
 | `vectis-worker` | `VECTIS_WORKER` | `--metrics-host`, `--metrics-port`, `--artifact-max-bytes`, `--artifact-max-run-bytes`, `--artifact-max-count`, `--core-socket`, `--core-shell-socket`, `--core-connect-timeout`, `--secrets-address`; use `VECTIS_WORKER_QUEUE_ADDRESS`, `VECTIS_WORKER_LOG_ADDRESS`, `VECTIS_WORKER_ORCHESTRATOR_ADDRESS`, and `VECTIS_WORKER_SECRETS_ADDRESS` to pin internal dependencies |
 | `vectis-worker-core` | `VECTIS_WORKER_CORE` | `--socket`, `--execution-backend`, `--workspace-root`, `--lima-instance`, `--lima-start` |
 | `vectis-cron` | `VECTIS_CRON` | `--instance-id`, `--claim-ttl` |
@@ -168,6 +168,14 @@ Worker SPIRE integration is disabled by default. Enable it only when a SPIRE age
 Execution SVID acquisition happens inside Vectis-controlled worker code. When a task declares secrets, the worker uses the matched X.509-SVID as the gRPC client certificate for the `vectis-secrets` resolution call. Vectis does not export the Workload API socket, SVID, private key, or derived SPIFFE ID to shell commands. This setting does not create SPIRE registration entries; operators still need a SPIRE registration workflow that grants the worker the expected execution identities. Workers emit `vectis_worker_spire_svid_checks_total` with fixed `outcome` and `reason` labels for this gate.
 
 Secret resolution requires internal gRPC TLS with server certificates, `grpc_tls.ca_file` for workers, and `grpc_tls.client_ca_file` for `vectis-secrets` so workload client certificates are requested and verified. `vectis-secrets` fails startup when gRPC TLS is enabled without `grpc_tls.client_ca_file`.
+
+Secret access policy is default-deny. Configure one or more allow rules with repeated `--allow-secret`, `VECTIS_SECRETS_POLICY_ALLOW`, or `secrets.policy.allow`. Each rule uses semicolon-separated `key=value` parts:
+
+```text
+namespace=/teams/build;job=release;task=publish;ref=encryptedfs://teams/build/npm-token
+```
+
+`namespace`, `job`, and `task` default to `*` when omitted; `ref` is required. Values support exact match or a trailing `*` prefix wildcard, so `namespace=/teams/*;ref=encryptedfs://teams/*` allows matching refs only for executions in namespaces below `/teams/`. Every requested secret in a resolution call must match at least one allow rule.
 
 SPIRE registration expectations:
 

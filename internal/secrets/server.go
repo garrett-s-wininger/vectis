@@ -20,7 +20,7 @@ var (
 )
 
 type Authorizer interface {
-	AuthorizeResolve(ctx context.Context, req ResolveRequest) error
+	AuthorizeResolve(ctx context.Context, req *ResolveRequest) error
 }
 
 type Server struct {
@@ -49,7 +49,7 @@ func (s *Server) ResolveSecrets(ctx context.Context, req *api.ResolveSecretsRequ
 	domainReq := resolveRequestFromProto(req)
 	domainReq.PeerSPIFFEID = peerSPIFFEID(ctx)
 
-	if err := s.authorizer.AuthorizeResolve(ctx, domainReq); err != nil {
+	if err := s.authorizer.AuthorizeResolve(ctx, &domainReq); err != nil {
 		return nil, status.Error(codes.PermissionDenied, "secret resolution is not authorized")
 	}
 

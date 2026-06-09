@@ -104,6 +104,33 @@ func TestMustDefaults_ReconcilerInterval(t *testing.T) {
 	}
 }
 
+func TestSecretsPolicyAllowRules(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	if got := SecretsPolicyAllowRules(); len(got) != 0 {
+		t.Fatalf("SecretsPolicyAllowRules defaults = %v, want empty", got)
+	}
+
+	viper.Set("policy_allow", []string{
+		"namespace=/team-a;job=job-1;task=publish;ref=encryptedfs://team-a/npm-token",
+		"namespace=/team-a;job=job-1;task=publish;ref=encryptedfs://team-a/npm-token",
+	})
+
+	got := SecretsPolicyAllowRules()
+	if len(got) != 1 || got[0] != "namespace=/team-a;job=job-1;task=publish;ref=encryptedfs://team-a/npm-token" {
+		t.Fatalf("SecretsPolicyAllowRules flat override = %v", got)
+	}
+
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("secrets.policy.allow", "namespace=*;job=*;task=*;ref=encryptedfs://*")
+	got = SecretsPolicyAllowRules()
+	if len(got) != 1 || got[0] != "namespace=*;job=*;task=*;ref=encryptedfs://*" {
+		t.Fatalf("SecretsPolicyAllowRules namespaced override = %v", got)
+	}
+}
+
 func TestMustDefaults_Catalog(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)

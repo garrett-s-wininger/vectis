@@ -16,6 +16,7 @@
 | `log/` | `vectis-log` | daemon (gRPC) |
 | `log-forwarder/` | `vectis-log-forwarder` | daemon (sidecar) |
 | `orchestrator/` | `vectis-orchestrator` | daemon (hot run state and task choreography) |
+| `secrets/` | `vectis-secrets` | daemon (secret resolution broker) |
 | `worker/` | `vectis-worker` | daemon (action exec) |
 | `worker-core/` | `vectis-worker-core` | daemon (worker execution core over UDS) |
 | `cron/` | `vectis-cron` | daemon (scheduler) |
@@ -54,7 +55,7 @@ func main() {
 
 ## Which binaries need the database import
 
-Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-sixteen-cmd): `api`, `cell-ingress`, `worker`, `cron`, `reconciler`, `catalog`, `local`, and `cli` need the `dbdrivers` import. `artifact`, `queue`, `registry`, `log`, `orchestrator`, `log-forwarder`, `worker-core`, and `docs` do not.
+Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-seventeen-cmd): `api`, `cell-ingress`, `worker`, `secrets`, `cron`, `reconciler`, `catalog`, `local`, and `cli` need the `dbdrivers` import. `artifact`, `queue`, `registry`, `log`, `orchestrator`, `log-forwarder`, `worker-core`, and `docs` do not.
 
 ## Env prefix mapping
 
@@ -70,7 +71,7 @@ Dedicated metrics listeners accept the service bind host plus loopback Host head
 | `vectis-queue` | `VECTIS_QUEUE` | `[queue]`; default instance ID is `hostname-port`, default persistence is `queue/<pool>/<instance-id>`; metrics host defaults to localhost; keep active shards unique; gRPC listener uses `config.GRPCServerOptionsForRole(config.ServiceIdentityRoleQueue)` |
 | `vectis-registry` | `VECTIS_REGISTRY` | `[registry]`; HA gossip membership uses `VECTIS_REGISTRY_CLUSTER_*`; gRPC listener uses `config.GRPCServerOptionsForRole(config.ServiceIdentityRoleRegistry)` |
 | `vectis-log` | `VECTIS_LOG` | `[log]`; default instance ID is `hostname-port`, default storage is `log/<instance-id>`, `--grpc-port` changes the ingest/read listener, `--metrics-host` controls the localhost-default metrics bind host, `--storage-read-only-min-free-bytes` protects new run files under disk pressure, and the gRPC listener uses `config.GRPCServerOptionsForRole(config.ServiceIdentityRoleLog)` |
-| `vectis-secrets` | `VECTIS_SECRETS` | `[secrets]`; cell-local gRPC service for resolving job secrets, validates active execution claims against the cell DB, `--encryptedfs-root` plus `--encryptedfs-key-file` enable the encryptedfs provider, metrics host defaults to localhost, and the gRPC listener uses `config.GRPCServerOptionsForRole(config.ServiceIdentityRoleSecrets)` |
+| `vectis-secrets` | `VECTIS_SECRETS` | `[secrets]`; cell-local gRPC service for resolving job secrets, validates active execution claims against the cell DB, `--encryptedfs-root` plus `--encryptedfs-key-file` enable the encryptedfs provider, `--allow-secret` / `VECTIS_SECRETS_POLICY_ALLOW` configure default-deny access policy, metrics host defaults to localhost, and the gRPC listener uses `config.GRPCServerOptionsForRole(config.ServiceIdentityRoleSecrets)` |
 | `vectis-worker` | `VECTIS_WORKER` | `[worker]`; `--metrics-host` defaults to localhost; `--artifact-max-bytes`, `--artifact-max-run-bytes`, and `--artifact-max-count` cap worker artifact uploads; `--core-socket` dials required `vectis-worker-core`; `--core-connect-timeout` bounds startup dial/describe; `--core-shell-socket` exposes shell callbacks; `--secrets-address` points at the cell-local secrets service; `worker.execution_identity.*` derives expected per-execution SPIFFE IDs for Vectis-owned action state; `worker.spire.*` requires an exact SPIRE Workload API X.509-SVID before action code runs when enabled; worker-control gRPC uses `config.GRPCServerOptionsForRole(config.ServiceIdentityRoleWorkerControl)` |
 | `vectis-worker-core` | `VECTIS_WORKER_CORE` | socket-local execution core; `--socket` serves the WorkerCore gRPC API over UDS; `--execution-backend host|lima`; `host` is the default, while `lima` registers a VM provider and makes unspecified action isolation inherit `vm`; use `--workspace-root` for VM-visible host workspaces or `--lima-guest-workspace-root` for guest-owned Lima workspaces |
 | `vectis-cron` | `VECTIS_CRON` | `[cron]`; `--instance-id` labels schedule claims, `--claim-ttl` bounds claim failover |

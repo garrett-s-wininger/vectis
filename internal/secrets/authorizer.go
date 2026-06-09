@@ -12,20 +12,27 @@ type ExecutionClaimValidator interface {
 	ValidateActiveExecutionClaim(ctx context.Context, runID, executionID, claimToken string) error
 }
 
-type ExpectedWorkloadResolver interface {
-	ExpectedWorkloadSPIFFEID(ctx context.Context, runID, executionID string) (string, error)
+type ExecutionScopeResolver interface {
+	ResolveExecutionScope(ctx context.Context, runID, executionID string) (ExecutionScope, error)
 }
 
 type ClaimAuthorizer struct {
-	claims            ExecutionClaimValidator
-	expectedWorkloads ExpectedWorkloadResolver
+	claims          ExecutionClaimValidator
+	executionScopes ExecutionScopeResolver
+	policy          AccessPolicy
 }
 
 type ClaimAuthorizerOption func(*ClaimAuthorizer)
 
-func WithExpectedWorkloadResolver(resolver ExpectedWorkloadResolver) ClaimAuthorizerOption {
+func WithExecutionScopeResolver(resolver ExecutionScopeResolver) ClaimAuthorizerOption {
 	return func(a *ClaimAuthorizer) {
-		a.expectedWorkloads = resolver
+		a.executionScopes = resolver
+	}
+}
+
+func WithAccessPolicy(policy AccessPolicy) ClaimAuthorizerOption {
+	return func(a *ClaimAuthorizer) {
+		a.policy = policy
 	}
 }
 
@@ -39,9 +46,13 @@ func NewClaimAuthorizer(claims ExecutionClaimValidator, opts ...ClaimAuthorizerO
 	return a
 }
 
-func (a *ClaimAuthorizer) AuthorizeResolve(ctx context.Context, req ResolveRequest) error {
+func (a *ClaimAuthorizer) AuthorizeResolve(ctx context.Context, req *ResolveRequest) error {
 	if a == nil || a.claims == nil {
 		return fmt.Errorf("%w: execution claim validator is not configured", ErrDenied)
+	}
+
+	if req == nil {
+		return fmt.Errorf("%w: resolve request is required", ErrDenied)
 	}
 
 	peerSPIFFEID, err := normalizePeerSPIFFEID(req.PeerSPIFFEID)
@@ -60,19 +71,29 @@ func (a *ClaimAuthorizer) AuthorizeResolve(ctx context.Context, req ResolveReque
 		return fmt.Errorf("%w: execution claim is not active: %v", ErrDenied, err)
 	}
 
-	if a.expectedWorkloads != nil {
-		expected, err := a.expectedWorkloads.ExpectedWorkloadSPIFFEID(ctx, runID, executionID)
+	if a.executionScopes != nil {
+		scope, err := a.executionScopes.ResolveExecutionScope(ctx, runID, executionID)
 		if err != nil {
-			return fmt.Errorf("%w: expected workload identity is unavailable: %v", ErrDenied, err)
+			return fmt.Errorf("%w: execution scope is unavailable: %v", ErrDenied, err)
 		}
 
-		expected, err = normalizePeerSPIFFEID(expected)
+		expected, err := normalizePeerSPIFFEID(scope.SPIFFEID)
 		if err != nil {
-			return fmt.Errorf("%w: expected workload SPIFFE ID is invalid: %v", ErrDenied, err)
+			return fmt.Errorf("%w: execution scope SPIFFE ID is invalid: %v", ErrDenied, err)
 		}
 
 		if peerSPIFFEID != expected {
 			return fmt.Errorf("%w: peer SPIFFE ID does not match execution workload identity", ErrDenied)
+		}
+
+		scope.SPIFFEID = expected
+		req.PeerSPIFFEID = peerSPIFFEID
+		req.Scope = scope
+	}
+
+	if a.policy != nil {
+		if err := a.policy.AuthorizeResolve(ctx, *req); err != nil {
+			return err
 		}
 	}
 
