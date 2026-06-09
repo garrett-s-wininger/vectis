@@ -145,35 +145,9 @@ func (r *SQLSourcesRepository) ListRepositories(ctx context.Context, namespaceID
 }
 
 func (r *SQLSourcesRepository) RecordDefinitionSource(ctx context.Context, rec JobDefinitionSourceRecord) error {
-	rec.JobID = strings.TrimSpace(rec.JobID)
-	rec.RepositoryID = strings.TrimSpace(rec.RepositoryID)
-	rec.RequestedRef = strings.TrimSpace(rec.RequestedRef)
-	rec.ResolvedCommit = strings.TrimSpace(rec.ResolvedCommit)
-	rec.DefinitionPath = strings.TrimSpace(rec.DefinitionPath)
-	rec.BlobSHA = strings.TrimSpace(rec.BlobSHA)
-
-	if rec.JobID == "" {
-		return fmt.Errorf("%w: job_id is required", ErrConflict)
-	}
-
-	if rec.Version <= 0 {
-		return fmt.Errorf("%w: version must be positive", ErrConflict)
-	}
-
-	if rec.RepositoryID == "" {
-		return fmt.Errorf("%w: repository_id is required", ErrConflict)
-	}
-
-	if rec.RequestedRef == "" {
-		return fmt.Errorf("%w: requested_ref is required", ErrConflict)
-	}
-
-	if rec.ResolvedCommit == "" {
-		return fmt.Errorf("%w: resolved_commit is required", ErrConflict)
-	}
-
-	if rec.DefinitionPath == "" {
-		return fmt.Errorf("%w: definition_path is required", ErrConflict)
+	rec, err := normalizeDefinitionSourceRecord(rec)
+	if err != nil {
+		return err
 	}
 
 	if exists, err := r.sourceRepositoryExists(ctx, rec.RepositoryID); err != nil {
@@ -188,7 +162,7 @@ func (r *SQLSourcesRepository) RecordDefinitionSource(ctx context.Context, rec J
 		return fmt.Errorf("%w: job %s version %d", ErrConflict, rec.JobID, rec.Version)
 	}
 
-	_, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+	_, err = r.db.ExecContext(ctx, rebindQueryForPgx(`
 		INSERT INTO job_definition_sources (
 			job_id,
 			version,
@@ -212,6 +186,41 @@ func (r *SQLSourcesRepository) RecordDefinitionSource(ctx context.Context, rec J
 	return normalizeSQLError(err)
 }
 
+func normalizeDefinitionSourceRecord(rec JobDefinitionSourceRecord) (JobDefinitionSourceRecord, error) {
+	rec.JobID = strings.TrimSpace(rec.JobID)
+	rec.RepositoryID = strings.TrimSpace(rec.RepositoryID)
+	rec.RequestedRef = strings.TrimSpace(rec.RequestedRef)
+	rec.ResolvedCommit = strings.TrimSpace(rec.ResolvedCommit)
+	rec.DefinitionPath = strings.TrimSpace(rec.DefinitionPath)
+	rec.BlobSHA = strings.TrimSpace(rec.BlobSHA)
+
+	if rec.JobID == "" {
+		return JobDefinitionSourceRecord{}, fmt.Errorf("%w: job_id is required", ErrConflict)
+	}
+
+	if rec.Version <= 0 {
+		return JobDefinitionSourceRecord{}, fmt.Errorf("%w: version must be positive", ErrConflict)
+	}
+
+	if rec.RepositoryID == "" {
+		return JobDefinitionSourceRecord{}, fmt.Errorf("%w: repository_id is required", ErrConflict)
+	}
+
+	if rec.RequestedRef == "" {
+		return JobDefinitionSourceRecord{}, fmt.Errorf("%w: requested_ref is required", ErrConflict)
+	}
+
+	if rec.ResolvedCommit == "" {
+		return JobDefinitionSourceRecord{}, fmt.Errorf("%w: resolved_commit is required", ErrConflict)
+	}
+
+	if rec.DefinitionPath == "" {
+		return JobDefinitionSourceRecord{}, fmt.Errorf("%w: definition_path is required", ErrConflict)
+	}
+
+	return rec, nil
+}
+
 func (r *SQLSourcesRepository) sourceRepositoryExists(ctx context.Context, repositoryID string) (bool, error) {
 	var exists int
 	if err := r.db.QueryRowContext(ctx,
@@ -231,6 +240,81 @@ func (r *SQLSourcesRepository) sourceRepositoryExists(ctx context.Context, repos
 func (r *SQLSourcesRepository) jobDefinitionExists(ctx context.Context, jobID string, version int) (bool, error) {
 	var exists int
 	if err := r.db.QueryRowContext(ctx,
+		rebindQueryForPgx("SELECT 1 FROM job_definitions WHERE job_id = ? AND version = ?"),
+		jobID,
+		version,
+	).Scan(&exists); err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+
+		return false, normalizeSQLError(err)
+	}
+
+	return true, nil
+}
+
+func insertDefinitionSourceTx(ctx context.Context, tx *sql.Tx, rec JobDefinitionSourceRecord) error {
+	rec, err := normalizeDefinitionSourceRecord(rec)
+	if err != nil {
+		return err
+	}
+
+	if exists, err := sourceRepositoryExistsTx(ctx, tx, rec.RepositoryID); err != nil {
+		return err
+	} else if !exists {
+		return fmt.Errorf("%w: source repository %s", ErrConflict, rec.RepositoryID)
+	}
+
+	if exists, err := jobDefinitionExistsTx(ctx, tx, rec.JobID, rec.Version); err != nil {
+		return err
+	} else if !exists {
+		return fmt.Errorf("%w: job %s version %d", ErrConflict, rec.JobID, rec.Version)
+	}
+
+	_, err = tx.ExecContext(ctx, rebindQueryForPgx(`
+		INSERT INTO job_definition_sources (
+			job_id,
+			version,
+			repository_id,
+			requested_ref,
+			resolved_commit,
+			definition_path,
+			blob_sha
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`),
+		rec.JobID,
+		rec.Version,
+		rec.RepositoryID,
+		rec.RequestedRef,
+		rec.ResolvedCommit,
+		rec.DefinitionPath,
+		rec.BlobSHA,
+	)
+
+	return normalizeSQLError(err)
+}
+
+func sourceRepositoryExistsTx(ctx context.Context, tx *sql.Tx, repositoryID string) (bool, error) {
+	var exists int
+	if err := tx.QueryRowContext(ctx,
+		rebindQueryForPgx("SELECT 1 FROM source_repositories WHERE repository_id = ?"),
+		repositoryID,
+	).Scan(&exists); err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+
+		return false, normalizeSQLError(err)
+	}
+
+	return true, nil
+}
+
+func jobDefinitionExistsTx(ctx context.Context, tx *sql.Tx, jobID string, version int) (bool, error) {
+	var exists int
+	if err := tx.QueryRowContext(ctx,
 		rebindQueryForPgx("SELECT 1 FROM job_definitions WHERE job_id = ? AND version = ?"),
 		jobID,
 		version,

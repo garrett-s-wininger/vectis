@@ -706,6 +706,11 @@ type JobsRepository interface {
 	UpdateDefinition(ctx context.Context, jobID, definitionJSON string) (newVersion int, err error)
 }
 
+type SourceBackedJobsRepository interface {
+	CreateWithSource(ctx context.Context, jobID, definitionJSON string, namespaceID int64, source JobDefinitionSourceRecord) (version int, err error)
+	UpdateDefinitionWithSource(ctx context.Context, jobID, definitionJSON string, source JobDefinitionSourceRecord) (newVersion int, err error)
+}
+
 type SourcesRepository interface {
 	CreateRepository(ctx context.Context, rec SourceRepositoryRecord) (SourceRepositoryRecord, error)
 	GetRepository(ctx context.Context, repositoryID string) (SourceRepositoryRecord, error)

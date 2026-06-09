@@ -157,3 +157,121 @@ func TestSourcesRepository_RecordDefinitionSourceRequiresExistingRows(t *testing
 		t.Fatalf("expected conflict for missing foreign keys, got %v", err)
 	}
 }
+
+func TestJobsRepository_CreateWithSourceRecordsProvenance(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	sources := repos.Sources()
+	sourceJobs := repos.Jobs().(dal.SourceBackedJobsRepository)
+	ctx := context.Background()
+
+	if _, err := sources.CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "vectis-local",
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/vectis",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("CreateRepository: %v", err)
+	}
+
+	source := dal.JobDefinitionSourceRecord{
+		RepositoryID:   "vectis-local",
+		RequestedRef:   "main",
+		ResolvedCommit: "0123456789abcdef0123456789abcdef01234567",
+		DefinitionPath: ".vectis/jobs/build.json",
+		BlobSHA:        "abcdef0123456789abcdef0123456789abcdef01",
+	}
+
+	version, err := sourceJobs.CreateWithSource(ctx, "build", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`, 1, source)
+	if err != nil {
+		t.Fatalf("CreateWithSource: %v", err)
+	}
+
+	if version != 1 {
+		t.Fatalf("version: got %d, want 1", version)
+	}
+
+	got, err := sources.GetDefinitionSource(ctx, "build", 1)
+	if err != nil {
+		t.Fatalf("GetDefinitionSource: %v", err)
+	}
+
+	source.JobID = "build"
+	source.Version = 1
+	if got != source {
+		t.Fatalf("definition source mismatch: got %+v want %+v", got, source)
+	}
+}
+
+func TestJobsRepository_UpdateDefinitionWithSourceRecordsNextVersion(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	sources := repos.Sources()
+	sourceJobs := repos.Jobs().(dal.SourceBackedJobsRepository)
+	ctx := context.Background()
+
+	if _, err := sources.CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "vectis-local",
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/vectis",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("CreateRepository: %v", err)
+	}
+
+	if err := repos.Jobs().Create(ctx, "build", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`, 1); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	source := dal.JobDefinitionSourceRecord{
+		RepositoryID:   "vectis-local",
+		RequestedRef:   "main",
+		ResolvedCommit: "fedcba9876543210fedcba9876543210fedcba98",
+		DefinitionPath: ".vectis/jobs/build.json",
+		BlobSHA:        "abcdef0123456789abcdef0123456789abcdef01",
+	}
+
+	version, err := sourceJobs.UpdateDefinitionWithSource(ctx, "build", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"echo updated"}}}`, source)
+	if err != nil {
+		t.Fatalf("UpdateDefinitionWithSource: %v", err)
+	}
+
+	if version != 2 {
+		t.Fatalf("version: got %d, want 2", version)
+	}
+
+	got, err := sources.GetDefinitionSource(ctx, "build", 2)
+	if err != nil {
+		t.Fatalf("GetDefinitionSource: %v", err)
+	}
+
+	source.JobID = "build"
+	source.Version = 2
+	if got != source {
+		t.Fatalf("definition source mismatch: got %+v want %+v", got, source)
+	}
+}
+
+func TestJobsRepository_CreateWithSourceRollsBackOnMissingRepository(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	sourceJobs := repos.Jobs().(dal.SourceBackedJobsRepository)
+	ctx := context.Background()
+
+	_, err := sourceJobs.CreateWithSource(ctx, "build", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`, 1, dal.JobDefinitionSourceRecord{
+		RepositoryID:   "missing",
+		RequestedRef:   "main",
+		ResolvedCommit: "0123456789abcdef0123456789abcdef01234567",
+		DefinitionPath: ".vectis/jobs/build.json",
+	})
+
+	if !dal.IsConflict(err) {
+		t.Fatalf("expected conflict, got %v", err)
+	}
+
+	if _, _, err := repos.Jobs().GetDefinition(ctx, "build"); !dal.IsNotFound(err) {
+		t.Fatalf("expected job creation to roll back, got %v", err)
+	}
+}

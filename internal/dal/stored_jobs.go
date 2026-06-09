@@ -56,6 +56,57 @@ func (r *SQLJobsRepository) Create(ctx context.Context, jobID, definitionJSON st
 	return tx.Commit()
 }
 
+func (r *SQLJobsRepository) CreateWithSource(ctx context.Context, jobID, definitionJSON string, namespaceID int64, source JobDefinitionSourceRecord) (int, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var initialVersion int
+	if err := tx.QueryRowContext(ctx,
+		rebindQueryForPgx("SELECT COALESCE(MAX(version), 0) + 1 FROM job_definitions WHERE job_id = ?"),
+		jobID,
+	).Scan(&initialVersion); err != nil {
+		return 0, normalizeSQLError(err)
+	}
+
+	definitionHash := DefinitionHash(definitionJSON)
+	if _, err := tx.ExecContext(ctx,
+		rebindQueryForPgx("INSERT INTO stored_jobs (global_id, job_id, namespace_id, current_version, home_cell) VALUES (?, ?, ?, ?, ?)"),
+		newGlobalID(),
+		jobID,
+		namespaceID,
+		initialVersion,
+		r.currentCellID(),
+	); err != nil {
+		return 0, normalizeSQLError(err)
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		rebindQueryForPgx("INSERT INTO job_definitions (global_id, job_id, version, definition_json, definition_hash) VALUES (?, ?, ?, ?, ?)"),
+		newGlobalID(),
+		jobID,
+		initialVersion,
+		definitionJSON,
+		definitionHash,
+	); err != nil {
+		return 0, normalizeSQLError(err)
+	}
+
+	source.JobID = jobID
+	source.Version = initialVersion
+	if err := insertDefinitionSourceTx(ctx, tx, source); err != nil {
+		return 0, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+
+	return initialVersion, nil
+}
+
 func (r *SQLJobsRepository) Delete(ctx context.Context, jobID string) error {
 	res, err := r.db.ExecContext(ctx, rebindQueryForPgx("DELETE FROM stored_jobs WHERE job_id = ?"), jobID)
 	if err != nil {
@@ -254,6 +305,73 @@ func (r *SQLJobsRepository) UpdateDefinition(ctx context.Context, jobID, definit
 	return newVersion, nil
 }
 
+func (r *SQLJobsRepository) UpdateDefinitionWithSource(ctx context.Context, jobID, definitionJSON string, source JobDefinitionSourceRecord) (int, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var currentVersion int
+	if err := tx.QueryRowContext(ctx,
+		rebindQueryForPgx(`
+			SELECT sj.current_version
+			FROM stored_jobs sj
+			JOIN job_definitions jd ON jd.job_id = sj.job_id AND jd.version = sj.current_version
+			WHERE sj.job_id = ?
+		`),
+		jobID,
+	).Scan(&currentVersion); err != nil {
+		return 0, normalizeSQLError(err)
+	}
+
+	definitionHash := DefinitionHash(definitionJSON)
+	newVersion := currentVersion + 1
+
+	if _, err := tx.ExecContext(ctx,
+		rebindQueryForPgx("INSERT INTO job_definitions (global_id, job_id, version, definition_json, definition_hash) VALUES (?, ?, ?, ?, ?)"),
+		newGlobalID(),
+		jobID,
+		newVersion,
+		definitionJSON,
+		definitionHash,
+	); err != nil {
+		return 0, normalizeSQLError(err)
+	}
+
+	source.JobID = jobID
+	source.Version = newVersion
+	if err := insertDefinitionSourceTx(ctx, tx, source); err != nil {
+		return 0, err
+	}
+
+	result, err := tx.ExecContext(ctx,
+		rebindQueryForPgx("UPDATE stored_jobs SET current_version = ?, updated_at = CURRENT_TIMESTAMP WHERE job_id = ? AND current_version = ?"),
+		newVersion,
+		jobID,
+		currentVersion,
+	)
+
+	if err != nil {
+		return 0, normalizeSQLError(err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return 0, normalizeSQLError(err)
+	}
+
+	if rows == 0 {
+		return 0, fmt.Errorf("%w: job %s was updated concurrently", ErrConflict, jobID)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+
+	return newVersion, nil
+}
+
 func (r *SQLJobsRepository) GetDefinitionVersion(ctx context.Context, jobID string, version int) (string, error) {
 	var definitionJSON string
 	if err := r.db.QueryRowContext(ctx,
@@ -270,3 +388,5 @@ func (r *SQLJobsRepository) GetDefinitionVersion(ctx context.Context, jobID stri
 
 	return definitionJSON, nil
 }
+
+var _ SourceBackedJobsRepository = (*SQLJobsRepository)(nil)
