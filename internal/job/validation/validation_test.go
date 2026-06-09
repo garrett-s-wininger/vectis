@@ -337,6 +337,72 @@ func TestValidateJob_BoundInputsRejectForwardReference(t *testing.T) {
 	}
 }
 
+func TestValidateJob_BoundInputsRejectDistributedConsumerScope(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root.Steps = []*api.Node{
+		{
+			Id:   strp("make-command"),
+			Uses: strp("builtins/shell"),
+			With: map[string]string{
+				"command": "printf '{\"command\":\"true\"}' > outputs.json",
+				"outputs": "outputs.json",
+			},
+		},
+		{
+			Id:   strp("gate"),
+			Uses: strp("builtins/test"),
+			With: map[string]string{"execution": "distributed"},
+			Inputs: map[string]*api.NodeInput{
+				"command": inputRef("make-command", "command"),
+			},
+		},
+	}
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
+	if err == nil {
+		t.Fatal("expected validation error for cross-scope binding")
+	}
+
+	if msg := err.Error(); !strings.Contains(msg, `root.steps[1].inputs.command.from.node: must reference an earlier node in the same local execution scope`) {
+		t.Fatalf("expected same-scope binding error, got %q", msg)
+	}
+}
+
+func TestValidateJob_BoundInputsRejectPostBoundaryScope(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root.Steps = []*api.Node{
+		{
+			Id:   strp("make-command"),
+			Uses: strp("builtins/shell"),
+			With: map[string]string{
+				"command":   "printf '{\"command\":\"true\"}' > outputs.json",
+				"outputs":   "outputs.json",
+				"execution": "distributed",
+			},
+		},
+		{
+			Id:   strp("gate"),
+			Uses: strp("builtins/test"),
+			Inputs: map[string]*api.NodeInput{
+				"command": inputRef("make-command", "command"),
+			},
+		},
+	}
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
+	if err == nil {
+		t.Fatal("expected validation error for post-boundary binding")
+	}
+
+	if msg := err.Error(); !strings.Contains(msg, `root.steps[1].inputs.command.from.node: must reference an earlier node in the same local execution scope`) {
+		t.Fatalf("expected same-scope binding error, got %q", msg)
+	}
+}
+
 func TestValidateJob_CheckoutMissingURL(t *testing.T) {
 	t.Parallel()
 

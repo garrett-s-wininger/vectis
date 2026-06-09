@@ -119,7 +119,7 @@ The repository includes a working version of this pattern at `examples/sequenced
 
 A shell step can publish structured outputs by writing a JSON object to a workspace-relative file and setting `with.outputs`.
 
-Later nodes can bind accepted inputs from earlier outputs with `inputs`:
+Later nodes can bind accepted inputs from earlier outputs in the same local execution scope with `inputs`:
 
 ```json
 {

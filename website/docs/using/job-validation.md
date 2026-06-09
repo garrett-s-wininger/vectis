@@ -184,7 +184,7 @@ Later nodes can bind accepted action inputs from earlier outputs without using a
 }
 ```
 
-For now, a bound input must reference an earlier node ID. The worker resolves the value from outputs already produced in the current execution; if the output is unavailable, the node fails before the action starts.
+For now, a bound input must reference an earlier node ID in the same local execution scope. Bindings cannot cross distributed task boundaries until durable outputs exist. The worker resolves the value from outputs already produced in the current execution; if the output is unavailable, the node fails before the action starts.
 
 Do not set the same action field in both `with` and `inputs`. For example, `with.command` and `inputs.command` on the same node is invalid.
 

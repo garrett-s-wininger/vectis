@@ -69,8 +69,9 @@ func ErrorDetails(err error) map[string]any {
 func ValidateJob(job *api.Job, opts Options) error {
 	opts = normalizeOptions(opts)
 	v := validator{
-		opts: opts,
-		seen: make(map[string]string),
+		opts:      opts,
+		seen:      make(map[string]string),
+		scopeByID: make(map[string]string),
 	}
 
 	if job == nil {
@@ -87,15 +88,16 @@ func ValidateJob(job *api.Job, opts Options) error {
 		return v.err()
 	}
 
-	v.walk(job.GetRoot(), "root", 1)
+	v.walk(job.GetRoot(), "root", 1, dal.RootTaskKey)
 	return v.err()
 }
 
 type validator struct {
-	opts  Options
-	seen  map[string]string
-	count int
-	errs  []FieldError
+	opts      Options
+	seen      map[string]string
+	scopeByID map[string]string
+	count     int
+	errs      []FieldError
 }
 
 func normalizeOptions(opts Options) Options {
@@ -114,7 +116,7 @@ func normalizeOptions(opts Options) Options {
 	return opts
 }
 
-func (v *validator) walk(node *api.Node, path string, depth int) {
+func (v *validator) walk(node *api.Node, path string, depth int, scope string) {
 	if node == nil {
 		v.add(path, "is required")
 		return
@@ -140,6 +142,7 @@ func (v *validator) walk(node *api.Node, path string, depth int) {
 		v.add(path+".id", fmt.Sprintf("duplicates node id %q first used at %s", id, firstPath+".id"))
 	} else {
 		v.seen[id] = path
+		v.scopeByID[id] = scope
 	}
 
 	uses := strings.TrimSpace(node.GetUses())
@@ -161,13 +164,13 @@ func (v *validator) walk(node *api.Node, path string, depth int) {
 			}
 		}
 
-		v.validateInputs(path, node, resolved)
+		v.validateInputs(path, node, resolved, scope)
 		v.validatePorts(path, node, resolved)
 		v.validateExecutionScope(path, node, resolved)
 	}
 
-	for _, ref := range taskgraph.ChildRefs(node, path) {
-		v.walk(ref.Node, ref.Path, depth+1)
+	for _, ref := range scopedChildRefs(node, path, scope) {
+		v.walk(ref.Node, ref.Path, depth+1, ref.Scope)
 	}
 }
 
@@ -227,7 +230,7 @@ func (v *validator) validatePorts(path string, node *api.Node, resolved action.N
 	}
 }
 
-func (v *validator) validateInputs(path string, node *api.Node, resolved action.Node) {
+func (v *validator) validateInputs(path string, node *api.Node, resolved action.Node, scope string) {
 	inputs := node.GetInputs()
 	if len(inputs) == 0 {
 		return
@@ -289,6 +292,11 @@ func (v *validator) validateInputs(path string, node *api.Node, resolved action.
 			v.add(path+".inputs."+inputName+".from.node", fmt.Sprintf("must reference an earlier node id, got %q", nodeID))
 		} else if firstPath == path {
 			v.add(path+".inputs."+inputName+".from.node", "cannot reference the same node")
+		} else if sourceScope := v.scopeByID[nodeID]; sourceScope != "" && sourceScope != scope {
+			v.add(
+				path+".inputs."+inputName+".from.node",
+				fmt.Sprintf("must reference an earlier node in the same local execution scope; %q is in scope %q, current scope is %q", nodeID, sourceScope, scope),
+			)
 		}
 	}
 }
@@ -353,6 +361,64 @@ func sortedInputNames(inputs map[string]*api.NodeInput) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+type scopedChildRef struct {
+	taskgraph.ChildRef
+	Scope string
+}
+
+func scopedChildRefs(node *api.Node, path, scope string) []scopedChildRef {
+	refs := taskgraph.ChildRefs(node, path)
+	out := make([]scopedChildRef, 0, len(refs))
+
+	if taskgraph.ExecutionMode(node) == taskgraph.ExecutionDistributed {
+		for _, ref := range refs {
+			out = append(out, scopedChildRef{ChildRef: ref, Scope: boundaryScope(ref)})
+		}
+		return out
+	}
+
+	if taskgraph.IsSequence(node) {
+		blocked := false
+		primary := taskgraph.PrimaryPortName(node)
+		for _, ref := range refs {
+			childScope := scope
+			if ref.PortName != primary {
+				if taskgraph.ContainsDistributedBoundary(ref.Node) {
+					childScope = boundaryScope(ref)
+				}
+			} else if blocked || taskgraph.ContainsDistributedBoundary(ref.Node) {
+				childScope = boundaryScope(ref)
+				blocked = true
+			}
+
+			out = append(out, scopedChildRef{ChildRef: ref, Scope: childScope})
+		}
+
+		return out
+	}
+
+	for _, ref := range refs {
+		childScope := scope
+		if taskgraph.ContainsDistributedBoundary(ref.Node) {
+			childScope = boundaryScope(ref)
+		}
+
+		out = append(out, scopedChildRef{ChildRef: ref, Scope: childScope})
+	}
+
+	return out
+}
+
+func boundaryScope(ref taskgraph.ChildRef) string {
+	if ref.Node != nil {
+		if id := strings.TrimSpace(ref.Node.GetId()); id != "" {
+			return id
+		}
+	}
+
+	return ref.Path
 }
 
 func (v *validator) add(field, message string) {
