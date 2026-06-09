@@ -301,7 +301,7 @@ Run list/detail responses include audit metadata such as `definition_version`, `
 
 `POST /api/v1/jobs/run`, `POST /api/v1/jobs/trigger/{id}`, and `POST /api/v1/runs/{id}/replay` accept `Idempotency-Key`. Use this header when a client might retry after a timeout or dropped connection. Keys must be 1-255 visible ASCII characters and cannot contain whitespace or commas. Other routes reject the header. Retry guidance for each route family is in [Idempotency And Retries](./idempotency-and-retries.md).
 
-Source repository routes currently register local Git checkouts with `source_kind: "local_checkout"` and a `checkout_path`. Resolve a definition from source with `ref` (optional when the repository has `default_ref`) and `path` to preview the canonical JSON plus resolved commit and blob SHA. Create or update a stored job from source with `repository_id`, `ref`, and `path`; the response includes the resolved commit, path, blob SHA, stored definition version, and definition hash.
+Source repository routes currently register local Git checkouts with `source_kind: "local_checkout"` and a `checkout_path`. Resolve a definition from source with `ref` (optional when the repository has `default_ref`) and `path` to preview the canonical JSON plus resolved commit and blob SHA. Create or update a stored job from source with `repository_id`, `ref`, and `path`; the response includes the resolved commit, path, blob SHA, stored definition version, and definition hash. Query stored source provenance with `GET /api/v1/jobs/{id}/source` and optional `version`.
 
 Streaming routes return `text/event-stream`. Use `curl -N`, `EventSource`, or another SSE-capable client for `GET /api/v1/sse/jobs/{id}/runs` and `GET /api/v1/runs/{id}/logs`.
 
@@ -336,6 +336,7 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | GET | `/api/v1/jobs/{id}` | Get one job definition | `job:read` | general | `200` JSON job |
 | PUT | `/api/v1/jobs/{id}` | Replace a job definition | `job:write` | general | `200` JSON job |
 | DELETE | `/api/v1/jobs/{id}` | Delete a job definition | `job:write` | general | `204` empty |
+| GET | `/api/v1/jobs/{id}/source` | Get source provenance for a stored job definition version | `job:read` | general | `200` JSON source |
 | POST | `/api/v1/jobs/source/{id}` | Create a stored job definition from a registered source repository | `job:write` | general | `201` JSON source job |
 | PUT | `/api/v1/jobs/source/{id}` | Replace a stored job definition from a registered source repository | `job:write` | general | `200` JSON source job |
 | POST | `/api/v1/jobs/run` | Start an ephemeral run from JSON body, optionally targeting `cell_id` | `run:trigger` | general | `202` JSON run |

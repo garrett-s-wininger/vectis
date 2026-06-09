@@ -129,6 +129,18 @@ func TestAPIServer_SourceBackedJobLifecycle(t *testing.T) {
 		t.Fatalf("stored source provenance mismatch: %+v", sourceRec)
 	}
 
+	getSourceRec := httptest.NewRecorder()
+	getSourceReq := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/build/source", nil)
+	handler.ServeHTTP(getSourceRec, getSourceReq)
+	if getSourceRec.Code != http.StatusOK {
+		t.Fatalf("get current job source: status=%d body=%s", getSourceRec.Code, getSourceRec.Body.String())
+	}
+
+	getSourceResp := decodeSourceJobResponse(t, getSourceRec)
+	if getSourceResp.JobID != "build" || getSourceResp.Version != 1 || getSourceResp.Source.ResolvedCommit != firstCommit || getSourceResp.Source.BlobSHA != firstBlob {
+		t.Fatalf("current job source response mismatch: %+v", getSourceResp)
+	}
+
 	writeAPIJobDefinitionAndCommit(t, repoPath, "false", "second definition")
 	secondCommit := apiGitOutput(t, repoPath, "rev-parse", "HEAD")
 
@@ -172,6 +184,30 @@ func TestAPIServer_SourceBackedJobLifecycle(t *testing.T) {
 	if sourceRec.ResolvedCommit != secondCommit {
 		t.Fatalf("v2 commit: got %q, want %q", sourceRec.ResolvedCommit, secondCommit)
 	}
+
+	getSourceRec = httptest.NewRecorder()
+	getSourceReq = httptest.NewRequest(http.MethodGet, "/api/v1/jobs/build/source", nil)
+	handler.ServeHTTP(getSourceRec, getSourceReq)
+	if getSourceRec.Code != http.StatusOK {
+		t.Fatalf("get updated job source: status=%d body=%s", getSourceRec.Code, getSourceRec.Body.String())
+	}
+
+	getSourceResp = decodeSourceJobResponse(t, getSourceRec)
+	if getSourceResp.JobID != "build" || getSourceResp.Version != 2 || getSourceResp.Source.ResolvedCommit != secondCommit {
+		t.Fatalf("updated job source response mismatch: %+v", getSourceResp)
+	}
+
+	getSourceRec = httptest.NewRecorder()
+	getSourceReq = httptest.NewRequest(http.MethodGet, "/api/v1/jobs/build/source?version=1", nil)
+	handler.ServeHTTP(getSourceRec, getSourceReq)
+	if getSourceRec.Code != http.StatusOK {
+		t.Fatalf("get historical job source: status=%d body=%s", getSourceRec.Code, getSourceRec.Body.String())
+	}
+
+	getSourceResp = decodeSourceJobResponse(t, getSourceRec)
+	if getSourceResp.JobID != "build" || getSourceResp.Version != 1 || getSourceResp.Source.ResolvedCommit != firstCommit {
+		t.Fatalf("historical job source response mismatch: %+v", getSourceResp)
+	}
 }
 
 func TestAPIServer_CreateJobFromSourceRejectsDisabledRepository(t *testing.T) {
@@ -214,6 +250,24 @@ func TestAPIServer_CreateJobFromSourceRejectsDisabledRepository(t *testing.T) {
 	if getRec.Code != http.StatusOK {
 		t.Fatalf("get disabled source repository: status=%d body=%s", getRec.Code, getRec.Body.String())
 	}
+}
+
+func TestAPIServer_GetJobSourceReturnsNotFoundForPlainJob(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+
+	server, _, _, db := setupTestServer(t)
+	handler := server.Handler()
+	insertStoredJobForTest(t, db, "plain", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/plain/source", nil)
+	handler.ServeHTTP(rec, req)
+	assertAPIError(t, rec, http.StatusNotFound, "job_source_not_found")
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/jobs/plain/source?version=99", nil)
+	handler.ServeHTTP(rec, req)
+	assertAPIError(t, rec, http.StatusNotFound, "job_version_not_found")
 }
 
 func decodeResolvedSourceDefinitionResponse(t *testing.T, rec *httptest.ResponseRecorder) struct {

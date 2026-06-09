@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"vectis/internal/api/audit"
@@ -59,6 +60,13 @@ type sourceProvenanceResponse struct {
 }
 
 type persistedSourceJobResponse struct {
+	JobID          string                   `json:"job_id"`
+	Version        int                      `json:"version"`
+	DefinitionHash string                   `json:"definition_hash"`
+	Source         sourceProvenanceResponse `json:"source"`
+}
+
+type storedJobSourceResponse struct {
 	JobID          string                   `json:"job_id"`
 	Version        int                      `json:"version"`
 	DefinitionHash string                   `json:"definition_hash"`
@@ -364,6 +372,116 @@ func (s *APIServer) UpdateJobFromSource(w http.ResponseWriter, r *http.Request) 
 	s.persistJobFromSource(w, r, true)
 }
 
+func (s *APIServer) GetJobSource(w http.ResponseWriter, r *http.Request) {
+	jobID := strings.TrimSpace(r.PathValue("id"))
+	if jobID == "" {
+		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
+		return
+	}
+
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireSources(w) {
+		return
+	}
+
+	nsPath, err := s.getJobNamespacePath(ctx, jobID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+
+	if !s.checkNamespaceAuth(ctx, p, authz.ActionJobRead, nsPath) {
+		writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
+		return
+	}
+
+	var definitionJSON string
+	var version int
+	if versionParam := strings.TrimSpace(r.URL.Query().Get("version")); versionParam != "" {
+		v, err := strconv.Atoi(versionParam)
+		if err != nil || v <= 0 {
+			writeAPIError(w, http.StatusBadRequest, "invalid_version", "invalid version parameter", nil)
+			return
+		}
+
+		definitionJSON, err = s.jobs.GetDefinitionVersion(ctx, jobID, v)
+		if err != nil {
+			if dal.IsNotFound(err) {
+				writeAPIError(w, http.StatusNotFound, "job_version_not_found", "job version not found", nil)
+				return
+			}
+
+			if s.handleDBUnavailableError(w, err) {
+				return
+			}
+
+			s.logger.Error("Database error: %v", err)
+			writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+			return
+		}
+
+		version = v
+	} else {
+		definitionJSON, version, err = s.jobs.GetDefinition(ctx, jobID)
+		if err != nil {
+			if dal.IsNotFound(err) {
+				writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
+				return
+			}
+
+			if s.handleDBUnavailableError(w, err) {
+				return
+			}
+
+			s.logger.Error("Database error: %v", err)
+			writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+			return
+		}
+	}
+	s.markDBRecovered()
+
+	sourceRec, err := s.sources.GetDefinitionSource(ctx, jobID, version)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "job_source_not_found", "job source not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error getting job source: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+	s.markDBRecovered()
+
+	writeJSON(w, http.StatusOK, storedJobSourceResponse{
+		JobID:          jobID,
+		Version:        version,
+		DefinitionHash: dal.DefinitionHash(definitionJSON),
+		Source:         sourceRecordToProvenance(sourceRec),
+	})
+}
+
 func (s *APIServer) persistJobFromSource(w http.ResponseWriter, r *http.Request, update bool) {
 	jobID := strings.TrimSpace(r.PathValue("id"))
 	if jobID == "" {
@@ -592,6 +710,16 @@ func sourceRepositoryRecordToResponse(rec dal.SourceRepositoryRecord, namespaceP
 		DefaultRef:    rec.DefaultRef,
 		CredentialRef: rec.CredentialRef,
 		Enabled:       rec.Enabled,
+	}
+}
+
+func sourceRecordToProvenance(rec dal.JobDefinitionSourceRecord) sourceProvenanceResponse {
+	return sourceProvenanceResponse{
+		RepositoryID:   rec.RepositoryID,
+		RequestedRef:   rec.RequestedRef,
+		ResolvedCommit: rec.ResolvedCommit,
+		Path:           rec.DefinitionPath,
+		BlobSHA:        rec.BlobSHA,
 	}
 }
 
