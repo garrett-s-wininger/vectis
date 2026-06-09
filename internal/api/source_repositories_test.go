@@ -481,6 +481,89 @@ func TestAPIServer_GetSourceRepositoryStatus(t *testing.T) {
 	}
 }
 
+func TestAPIServer_SyncSourceRepository(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+
+	server, _, _, _ := setupTestServer(t)
+	handler := server.Handler()
+	repoPath := initAPIGitRepo(t)
+	writeAPIJobDefinitionAndCommit(t, repoPath, "true", "definition")
+	commit := apiGitOutput(t, repoPath, "rev-parse", "HEAD")
+
+	registerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
+		"repository_id": "vectis-local",
+		"source_kind":   dal.SourceKindLocalCheckout,
+		"checkout_path": repoPath,
+		"default_ref":   "HEAD",
+	})
+
+	if registerRec.Code != http.StatusCreated {
+		t.Fatalf("register source repository: status=%d body=%s", registerRec.Code, registerRec.Body.String())
+	}
+
+	syncRec := httptest.NewRecorder()
+	syncReq := httptest.NewRequest(http.MethodPost, "/api/v1/source-repositories/vectis-local/sync", nil)
+	handler.ServeHTTP(syncRec, syncReq)
+	if syncRec.Code != http.StatusOK {
+		t.Fatalf("sync source repository: status=%d body=%s", syncRec.Code, syncRec.Body.String())
+	}
+
+	syncResp := decodeSourceRepositoryResponse(t, syncRec)
+	if syncResp.RepositoryID != "vectis-local" ||
+		syncResp.Sync.Status != dal.SourceSyncStatusSucceeded ||
+		syncResp.Sync.Ref != "HEAD" ||
+		syncResp.Sync.Commit != commit ||
+		syncResp.Sync.Error != "" ||
+		syncResp.Sync.LastStartedAtUnix <= 0 ||
+		syncResp.Sync.LastFinishedAtUnix < syncResp.Sync.LastStartedAtUnix {
+		t.Fatalf("sync response mismatch: %+v", syncResp)
+	}
+
+	statusRec := httptest.NewRecorder()
+	statusReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/vectis-local/status", nil)
+	handler.ServeHTTP(statusRec, statusReq)
+	if statusRec.Code != http.StatusOK {
+		t.Fatalf("get synced source repository status: status=%d body=%s", statusRec.Code, statusRec.Body.String())
+	}
+
+	statusResp := decodeSourceRepositoryStatusResponse(t, statusRec)
+	if statusResp.Sync.Status != dal.SourceSyncStatusSucceeded ||
+		statusResp.Sync.Ref != "HEAD" ||
+		statusResp.Sync.Commit != commit {
+		t.Fatalf("status sync response mismatch: %+v", statusResp)
+	}
+
+	nonGitPath := t.TempDir()
+	registerRec = doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
+		"repository_id": "not-git",
+		"source_kind":   dal.SourceKindLocalCheckout,
+		"checkout_path": nonGitPath,
+		"default_ref":   "HEAD",
+	})
+
+	if registerRec.Code != http.StatusCreated {
+		t.Fatalf("register non-git source repository: status=%d body=%s", registerRec.Code, registerRec.Body.String())
+	}
+
+	syncRec = httptest.NewRecorder()
+	syncReq = httptest.NewRequest(http.MethodPost, "/api/v1/source-repositories/not-git/sync", nil)
+	handler.ServeHTTP(syncRec, syncReq)
+	if syncRec.Code != http.StatusOK {
+		t.Fatalf("sync non-git source repository: status=%d body=%s", syncRec.Code, syncRec.Body.String())
+	}
+
+	syncResp = decodeSourceRepositoryResponse(t, syncRec)
+	if syncResp.RepositoryID != "not-git" ||
+		syncResp.Sync.Status != dal.SourceSyncStatusFailed ||
+		syncResp.Sync.Ref != "HEAD" ||
+		syncResp.Sync.Commit != "" ||
+		!strings.Contains(syncResp.Sync.Error, "not_git_checkout") ||
+		syncResp.Sync.LastStartedAtUnix <= 0 ||
+		syncResp.Sync.LastFinishedAtUnix < syncResp.Sync.LastStartedAtUnix {
+		t.Fatalf("failed sync response mismatch: %+v", syncResp)
+	}
+}
+
 func TestAPIServer_GetJobSourceDefinitionReadsDisabledRepository(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 
@@ -726,6 +809,54 @@ func decodeResolvedSourceDefinitionResponse(t *testing.T, rec *httptest.Response
 			Path           string `json:"path"`
 			BlobSHA        string `json:"blob_sha"`
 		} `json:"source"`
+	}
+
+	if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+
+	return out
+}
+
+func decodeSourceRepositoryResponse(t *testing.T, rec *httptest.ResponseRecorder) struct {
+	RepositoryID  string `json:"repository_id"`
+	Namespace     string `json:"namespace"`
+	SourceKind    string `json:"source_kind"`
+	CheckoutPath  string `json:"checkout_path"`
+	CheckoutMode  string `json:"checkout_mode"`
+	CanonicalURL  string `json:"canonical_url"`
+	DefaultRef    string `json:"default_ref"`
+	CredentialRef string `json:"credential_ref"`
+	Enabled       bool   `json:"enabled"`
+	Sync          struct {
+		Status             string `json:"status"`
+		LastStartedAtUnix  int64  `json:"last_started_at_unix"`
+		LastFinishedAtUnix int64  `json:"last_finished_at_unix"`
+		Ref                string `json:"ref"`
+		Commit             string `json:"commit"`
+		Error              string `json:"error"`
+	} `json:"sync"`
+} {
+	t.Helper()
+
+	var out struct {
+		RepositoryID  string `json:"repository_id"`
+		Namespace     string `json:"namespace"`
+		SourceKind    string `json:"source_kind"`
+		CheckoutPath  string `json:"checkout_path"`
+		CheckoutMode  string `json:"checkout_mode"`
+		CanonicalURL  string `json:"canonical_url"`
+		DefaultRef    string `json:"default_ref"`
+		CredentialRef string `json:"credential_ref"`
+		Enabled       bool   `json:"enabled"`
+		Sync          struct {
+			Status             string `json:"status"`
+			LastStartedAtUnix  int64  `json:"last_started_at_unix"`
+			LastFinishedAtUnix int64  `json:"last_finished_at_unix"`
+			Ref                string `json:"ref"`
+			Commit             string `json:"commit"`
+			Error              string `json:"error"`
+		} `json:"sync"`
 	}
 
 	if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"vectis/internal/api/audit"
 	"vectis/internal/api/authn"
@@ -379,6 +380,99 @@ func (s *APIServer) GetSourceRepositoryStatus(w http.ResponseWriter, r *http.Req
 	}
 
 	writeJSON(w, http.StatusOK, sourceRepositoryStatusFromRecord(ctx, rec, nsPath))
+}
+
+func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireNamespaces(w) || !s.requireSources(w) {
+		return
+	}
+
+	rec, nsPath, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionJobWrite, false)
+	if !ok {
+		return
+	}
+
+	syncRef := sourceRepositorySyncRef(rec)
+	startedAt := time.Now().Unix()
+	if _, err := s.sources.UpdateRepositorySync(ctx, dal.SourceRepositorySyncRecord{
+		RepositoryID:  rec.RepositoryID,
+		Status:        dal.SourceSyncStatusRunning,
+		StartedAtUnix: startedAt,
+		Ref:           syncRef,
+	}); err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "source_repository_not_found", "source repository not found", nil)
+			return
+		}
+
+		if dal.IsConflict(err) {
+			writeAPIError(w, http.StatusConflict, "source_repository_conflict", "source repository conflict", nil)
+			return
+		}
+
+		s.logger.Error("Database error updating source repository sync status: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+	s.markDBRecovered()
+
+	syncRecord := dal.SourceRepositorySyncRecord{
+		RepositoryID:   rec.RepositoryID,
+		StartedAtUnix:  startedAt,
+		FinishedAtUnix: time.Now().Unix(),
+		Ref:            syncRef,
+	}
+
+	switch strings.TrimSpace(rec.SourceKind) {
+	case dal.SourceKindLocalCheckout:
+		checkoutStatus := sourcepkg.NewGitCheckout(rec.CheckoutPath).Status(ctx, syncRef)
+		if checkoutStatus.ErrorCode != "" {
+			syncRecord.Status = dal.SourceSyncStatusFailed
+			syncRecord.Error = sourceRepositoryStatusSyncError(checkoutStatus)
+		} else {
+			syncRecord.Status = dal.SourceSyncStatusSucceeded
+			syncRecord.Commit = checkoutStatus.ResolvedCommit
+		}
+	default:
+		syncRecord.Status = dal.SourceSyncStatusFailed
+		syncRecord.Error = "unsupported_source_kind: source kind is not supported"
+	}
+
+	updated, err := s.sources.UpdateRepositorySync(ctx, syncRecord)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "source_repository_not_found", "source repository not found", nil)
+			return
+		}
+
+		if dal.IsConflict(err) {
+			writeAPIError(w, http.StatusConflict, "source_repository_conflict", "source repository conflict", nil)
+			return
+		}
+
+		s.logger.Error("Database error updating source repository sync result: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+	s.markDBRecovered()
+
+	writeJSON(w, http.StatusOK, sourceRepositoryRecordToResponse(updated, nsPath))
 }
 
 func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Request) {
@@ -973,6 +1067,27 @@ func sourceRepositorySyncRecordToResponse(rec dal.SourceRepositoryRecord) source
 		Commit:             rec.LastSyncCommit,
 		Error:              rec.LastSyncError,
 	}
+}
+
+func sourceRepositorySyncRef(rec dal.SourceRepositoryRecord) string {
+	ref := strings.TrimSpace(rec.DefaultRef)
+	if ref == "" {
+		return "HEAD"
+	}
+
+	return ref
+}
+
+func sourceRepositoryStatusSyncError(status sourcepkg.GitCheckoutStatus) string {
+	if status.ErrorCode == "" {
+		return ""
+	}
+
+	if status.ErrorMessage == "" {
+		return status.ErrorCode
+	}
+
+	return status.ErrorCode + ": " + status.ErrorMessage
 }
 
 func validSourceCheckoutMode(mode string) bool {
