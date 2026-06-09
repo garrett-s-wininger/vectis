@@ -226,6 +226,8 @@ func runWorker(cmd *cobra.Command, args []string) {
 		executor:            executor,
 		actionResolver:      actionResolver,
 		store:               runsRepo,
+		artifactManifests:   repos.Artifacts(),
+		retryMetrics:        retryMetrics,
 		catalog:             cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
 		metrics:             workerMetrics,
 		taskDispatchService: taskDispatchService,
@@ -415,6 +417,8 @@ type worker struct {
 	executor            *job.Executor
 	actionResolver      actionregistry.Resolver
 	store               dal.RunsRepository
+	artifactManifests   dal.ArtifactsRepository
+	retryMetrics        backoff.RetryMetrics
 	catalog             cell.CatalogEventPublisher
 	metrics             *observability.WorkerMetrics
 	taskDispatchService *taskdispatch.Service
@@ -1453,12 +1457,22 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, executionCl
 	}
 
 	if err == nil {
+		artifactPublisher := w.newArtifactPublisher(env)
+		if artifactPublisher != nil {
+			defer artifactPublisher.Close()
+		}
+
 		w.markExecutionStarted(ctx, env)
-		err = w.executor.ExecuteTaskWithOptions(execCtx, runJob, env.TaskKey, w.logClient, w.logger, job.ExecuteOptions{
+		execOpts := job.ExecuteOptions{
 			WorkloadIdentity: workloadIdentity,
 			ActionResolver:   w.actionResolver,
 			ActionLocks:      env.ActionLocks,
-		})
+		}
+		if artifactPublisher != nil {
+			execOpts.ArtifactPublisher = action.ArtifactPublisher(artifactPublisher)
+		}
+
+		err = w.executor.ExecuteTaskWithOptions(execCtx, runJob, env.TaskKey, w.logClient, w.logger, execOpts)
 	}
 
 	close(stopRenew)

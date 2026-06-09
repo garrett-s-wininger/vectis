@@ -3,6 +3,7 @@ package action
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -48,6 +49,7 @@ type ExecutionState struct {
 	Logger                  interfaces.Logger
 	LogClient               interfaces.LogClient
 	LogStream               interfaces.LogStream
+	Artifacts               ArtifactPublisher
 	Resolver                Resolver
 	Verifier                ActionVerifier
 	NodePaths               map[*api.Node]string
@@ -226,6 +228,30 @@ func (s *ExecutionState) ApplyNodeIsolation(node *api.Node) (func(), error) {
 		s.ProcessExecutor = previousExecutor
 		s.Isolation = previousIsolation
 	}, nil
+}
+
+type ArtifactPublisher interface {
+	PublishArtifact(ctx context.Context, req ArtifactPublishRequest) (ArtifactPublishResult, error)
+}
+
+type ArtifactPublishRequest struct {
+	Name         string
+	Path         string
+	ContentType  string
+	MetadataJSON *string
+	Reader       io.Reader
+	MaxBytes     int64
+}
+
+type ArtifactPublishResult struct {
+	Name            string
+	Path            string
+	ContentType     string
+	BlobKey         string
+	BlobAlgorithm   string
+	BlobDigest      string
+	SizeBytes       int64
+	ArtifactShardID string
 }
 
 type FieldError struct {

@@ -44,10 +44,11 @@ type Executor struct {
 }
 
 type ExecuteOptions struct {
-	WorkloadIdentity *workloadidentity.Identity
-	ActionLocks      []actionregistry.ActionLock
-	ActionResolver   actionregistry.Resolver
-	ProcessExecutor  interfaces.ExecExecutor
+	WorkloadIdentity  *workloadidentity.Identity
+	ArtifactPublisher action.ArtifactPublisher
+	ActionLocks       []actionregistry.ActionLock
+	ActionResolver    actionregistry.Resolver
+	ProcessExecutor   interfaces.ExecExecutor
 }
 
 // ExecutorOption configures a job executor.
@@ -278,6 +279,7 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 		JobID:     job.GetId(),
 		RunID:     job.GetRunId(),
 		Workspace: workspace,
+		Artifacts: opts.ArtifactPublisher,
 		ProcessEnv: action.SanitizedProcessEnv(
 			workspace,
 			os.Environ(),
