@@ -2867,8 +2867,8 @@ func TestConfiguredProcessExecutor_Lima(t *testing.T) {
 	if backend != "lima" {
 		t.Fatalf("backend = %q, want lima", backend)
 	}
-	if _, ok := executor.(*platform.LimaExecutor); !ok {
-		t.Fatalf("executor = %T, want *platform.LimaExecutor", executor)
+	if _, ok := executor.(*platform.VirtualMachineCommandExecutor); !ok {
+		t.Fatalf("executor = %T, want *platform.VirtualMachineCommandExecutor", executor)
 	}
 }
 
@@ -2892,8 +2892,8 @@ func TestConfiguredJobExecutor_LimaRegistersVMIsolation(t *testing.T) {
 		t.Fatalf("default isolation = %q, want %q", defaultIsolation, action.IsolationVM)
 	}
 
-	if _, ok := defaultExecutor.(*platform.LimaExecutor); !ok {
-		t.Fatalf("default executor = %T, want *platform.LimaExecutor", defaultExecutor)
+	if _, ok := defaultExecutor.(*platform.VirtualMachineCommandExecutor); !ok {
+		t.Fatalf("default executor = %T, want *platform.VirtualMachineCommandExecutor", defaultExecutor)
 	}
 
 	hostExecutor, hostIsolation, err := executor.ResolveProcessExecutor(action.IsolationHost)

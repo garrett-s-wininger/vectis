@@ -303,9 +303,10 @@ func configuredProcessExecutor() (interfaces.ExecExecutor, string, error) {
 	case "", "host":
 		return nil, "host", nil
 	case "lima":
-		executor, err := platform.NewLimaExecutor(platform.LimaExecutorOptions{
+		executor, err := platform.NewVirtualMachineCommandExecutor(platform.VirtualMachineConfig{
+			Provider:           platform.VirtualMachineProviderLima,
 			Instance:           config.WorkerExecutionLimaInstance(),
-			LimactlPath:        config.WorkerExecutionLimaPath(),
+			ProviderPath:       config.WorkerExecutionLimaPath(),
 			GuestWorkspaceRoot: config.WorkerExecutionLimaGuestWorkspaceRoot(),
 			Start:              config.WorkerExecutionLimaStart(),
 			PreserveEnv:        config.WorkerExecutionLimaPreserveEnv(),

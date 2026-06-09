@@ -19,17 +19,7 @@ mkdir -p "$workspace"
 cd "$workspace"
 exec "$@"`
 
-// LimaExecutorOptions configures command execution through a Lima VM.
-type LimaExecutorOptions struct {
-	Instance           string
-	LimactlPath        string
-	GuestWorkspaceRoot string
-	Start              bool
-	PreserveEnv        bool
-}
-
-// LimaExecutor runs action commands through limactl shell.
-type LimaExecutor struct {
+type limaVirtualMachineConfig struct {
 	instance           string
 	limactlPath        string
 	guestWorkspaceRoot string
@@ -37,41 +27,48 @@ type LimaExecutor struct {
 	preserveEnv        bool
 }
 
-// NewLimaExecutor creates a Lima-backed process executor.
-func NewLimaExecutor(options LimaExecutorOptions) (*LimaExecutor, error) {
-	instance := strings.TrimSpace(options.Instance)
+type limaVirtualMachine struct {
+	instance           string
+	limactlPath        string
+	guestWorkspaceRoot string
+	start              bool
+	preserveEnv        bool
+}
+
+func newLimaVirtualMachine(options limaVirtualMachineConfig) (*limaVirtualMachine, error) {
+	instance := strings.TrimSpace(options.instance)
 	if instance == "" {
 		return nil, fmt.Errorf("lima instance is required")
 	}
 
-	limactlPath := strings.TrimSpace(options.LimactlPath)
+	limactlPath := strings.TrimSpace(options.limactlPath)
 	if limactlPath == "" {
 		limactlPath = defaultLimaPath
 	}
 
-	return &LimaExecutor{
+	return &limaVirtualMachine{
 		instance:           instance,
 		limactlPath:        limactlPath,
-		guestWorkspaceRoot: strings.TrimSpace(options.GuestWorkspaceRoot),
-		start:              options.Start,
-		preserveEnv:        options.PreserveEnv,
+		guestWorkspaceRoot: strings.TrimSpace(options.guestWorkspaceRoot),
+		start:              options.start,
+		preserveEnv:        options.preserveEnv,
 	}, nil
 }
 
-func (e *LimaExecutor) Start(ctx context.Context, commandPath string, args []string, workDir string, env []string) (interfaces.Process, error) {
-	if strings.TrimSpace(commandPath) == "" {
+func (e *limaVirtualMachine) StartCommand(ctx context.Context, command VirtualMachineCommand) (interfaces.Process, error) {
+	if strings.TrimSpace(command.Path) == "" {
 		return nil, fmt.Errorf("lima command path is required")
 	}
 
-	cmd := exec.CommandContext(ctx, e.limactlPath, e.commandArgsWithEnv(commandPath, args, workDir, env)...)
+	cmd := exec.CommandContext(ctx, e.limactlPath, e.commandArgsWithEnv(command.Path, command.Args, command.WorkDir, command.Env)...)
 	return interfaces.StartProcess(cmd)
 }
 
-func (e *LimaExecutor) commandArgs(commandPath string, args []string, workDir string) []string {
+func (e *limaVirtualMachine) commandArgs(commandPath string, args []string, workDir string) []string {
 	return e.commandArgsWithEnv(commandPath, args, workDir, nil)
 }
 
-func (e *LimaExecutor) commandArgsWithEnv(commandPath string, args []string, workDir string, env []string) []string {
+func (e *limaVirtualMachine) commandArgsWithEnv(commandPath string, args []string, workDir string, env []string) []string {
 	guestCommand := guestCommandWithEnv(commandPath, args, env, e.preserveEnv)
 
 	limactlArgs := []string{"--tty=false", "shell"}
@@ -109,12 +106,13 @@ func guestCommandWithEnv(commandPath string, args []string, env []string, preser
 	if !preserveEnv {
 		out = append(out, "-i")
 	}
+
 	out = append(out, env...)
 	out = append(out, command...)
 	return out
 }
 
-func (e *LimaExecutor) guestWorkDir(workDir string) string {
+func (e *limaVirtualMachine) guestWorkDir(workDir string) string {
 	if e.guestWorkspaceRoot == "" || strings.TrimSpace(workDir) == "" {
 		return ""
 	}

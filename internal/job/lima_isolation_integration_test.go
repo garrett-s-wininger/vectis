@@ -15,10 +15,10 @@ import (
 	"vectis/internal/platform"
 )
 
-func TestLimaExecutorIntegration_ActionIsolation(t *testing.T) {
+func TestVirtualMachineIntegration_ActionIsolation(t *testing.T) {
 	instance := strings.TrimSpace(os.Getenv("VECTIS_TEST_LIMA_INSTANCE"))
 	if instance == "" {
-		t.Skip("set VECTIS_TEST_LIMA_INSTANCE to run Lima executor integration test")
+		t.Skip("set VECTIS_TEST_LIMA_INSTANCE to run VM isolation integration test")
 	}
 
 	workspaceRoot := strings.TrimSpace(os.Getenv("VECTIS_TEST_LIMA_WORKSPACE_ROOT"))
@@ -37,18 +37,20 @@ func TestLimaExecutorIntegration_ActionIsolation(t *testing.T) {
 		t.Fatalf("resolve workspace: %v", err)
 	}
 
-	limaExecutor, err := platform.NewLimaExecutor(platform.LimaExecutorOptions{
+	vmExecutor, err := platform.NewVirtualMachineCommandExecutor(platform.VirtualMachineConfig{
+		Provider:           platform.VirtualMachineProviderLima,
 		Instance:           instance,
-		LimactlPath:        os.Getenv("VECTIS_TEST_LIMA_PATH"),
+		ProviderPath:       os.Getenv("VECTIS_TEST_LIMA_PATH"),
 		GuestWorkspaceRoot: os.Getenv("VECTIS_TEST_LIMA_GUEST_WORKSPACE_ROOT"),
 		Start:              os.Getenv("VECTIS_TEST_LIMA_START") == "1",
 	})
+
 	if err != nil {
-		t.Fatalf("new lima executor: %v", err)
+		t.Fatalf("new VM executor: %v", err)
 	}
 
 	executor := job.NewExecutor(
-		job.WithVMProcessExecutor(limaExecutor),
+		job.WithVMProcessExecutor(vmExecutor),
 		job.WithDefaultIsolation(action.IsolationVM),
 	)
 

@@ -352,7 +352,7 @@ The Lima backend sets the worker's inherited action isolation to `vm` and regist
 
 The Lima backend does not silently fall back to host execution. Startup fails if `backend=lima` is selected without an instance name. Command execution fails if the Lima instance is unavailable. A host-default worker fails any node that requests `isolation: "vm"` because no VM provider is registered. If `VECTIS_WORKER_LIMA_GUEST_WORKSPACE_ROOT` is empty, the run workspace path must be visible and writable inside the guest; configure `VECTIS_WORKER_WORKSPACE_ROOT` and Lima mounts accordingly. If `VECTIS_WORKER_LIMA_GUEST_WORKSPACE_ROOT` is set, Vectis maps each run workspace to a same-named guest directory under that root and creates it before each command.
 
-To smoke test the executor against a prepared instance from a development checkout:
+To smoke test the VM provider against a prepared instance from a development checkout:
 
 ```sh
 VECTIS_TEST_LIMA_INSTANCE=vectis-worker make test-lima

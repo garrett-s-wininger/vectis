@@ -10,10 +10,10 @@ import (
 	"time"
 )
 
-func TestLimaExecutorIntegration(t *testing.T) {
+func TestVirtualMachineIntegration_LimaProvider(t *testing.T) {
 	instance := strings.TrimSpace(os.Getenv("VECTIS_TEST_LIMA_INSTANCE"))
 	if instance == "" {
-		t.Skip("set VECTIS_TEST_LIMA_INSTANCE to run Lima executor integration test")
+		t.Skip("set VECTIS_TEST_LIMA_INSTANCE to run Lima VM provider integration test")
 	}
 
 	workspaceRoot := strings.TrimSpace(os.Getenv("VECTIS_TEST_LIMA_WORKSPACE_ROOT"))
@@ -32,15 +32,16 @@ func TestLimaExecutorIntegration(t *testing.T) {
 		t.Fatalf("resolve workspace: %v", err)
 	}
 
-	executor, err := NewLimaExecutor(LimaExecutorOptions{
+	executor, err := NewVirtualMachineCommandExecutor(VirtualMachineConfig{
+		Provider:           VirtualMachineProviderLima,
 		Instance:           instance,
-		LimactlPath:        os.Getenv("VECTIS_TEST_LIMA_PATH"),
+		ProviderPath:       os.Getenv("VECTIS_TEST_LIMA_PATH"),
 		GuestWorkspaceRoot: os.Getenv("VECTIS_TEST_LIMA_GUEST_WORKSPACE_ROOT"),
 		Start:              os.Getenv("VECTIS_TEST_LIMA_START") == "1",
 	})
 
 	if err != nil {
-		t.Fatalf("new lima executor: %v", err)
+		t.Fatalf("new VM executor: %v", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
