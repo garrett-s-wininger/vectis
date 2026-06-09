@@ -1,0 +1,11 @@
+{
+  "id": "outputs-job",
+  "root": {
+    "id": "publish-outputs",
+    "uses": "builtins/shell",
+    "with": {
+      "command": "printf '{\"image\":\"app:dev\",\"ok\":true}' > outputs.json",
+      "outputs": "outputs.json"
+    }
+  }
+}

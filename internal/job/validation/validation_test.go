@@ -199,6 +199,20 @@ func TestValidateJob_ShellValidCommand(t *testing.T) {
 	}
 }
 
+func TestValidateJob_ShellOutputsField(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root.Steps[0].With = map[string]string{
+		"command": "printf '{\"image\":\"app:dev\"}' > outputs.json",
+		"outputs": "outputs.json",
+	}
+
+	if err := validation.ValidateJob(job, validation.Options{RequireJobID: true}); err != nil {
+		t.Fatalf("expected shell outputs field to validate: %v", err)
+	}
+}
+
 func TestValidateJob_CheckoutMissingURL(t *testing.T) {
 	t.Parallel()
 
@@ -572,6 +586,53 @@ func TestValidateJob_RetryTimeoutFinallyPorts(t *testing.T) {
 
 	if err := validation.ValidateJob(job, validation.Options{RequireJobID: true}); err != nil {
 		t.Fatalf("expected retry/timeout/finally job to validate: %v", err)
+	}
+}
+
+func TestValidateJob_FallbackPorts(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root = &api.Node{
+		Id:   strp("fallback-build"),
+		Uses: strp("builtins/fallback"),
+		Ports: map[string]*api.NodePort{
+			taskgraph.ChoicesPort: nodePort(
+				&api.Node{
+					Id:   strp("primary-build"),
+					Uses: strp("builtins/shell"),
+					With: map[string]string{"command": "make build"},
+				},
+				&api.Node{
+					Id:   strp("backup-build"),
+					Uses: strp("builtins/shell"),
+					With: map[string]string{"command": "make build-fast"},
+				},
+			),
+		},
+	}
+
+	if err := validation.ValidateJob(job, validation.Options{RequireJobID: true}); err != nil {
+		t.Fatalf("expected fallback job to validate: %v", err)
+	}
+}
+
+func TestValidateJob_FallbackRequiresChoicesPort(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root = &api.Node{
+		Id:   strp("fallback-build"),
+		Uses: strp("builtins/fallback"),
+	}
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
+	if err == nil {
+		t.Fatal("expected validation error for missing choices port")
+	}
+
+	if msg := err.Error(); !strings.Contains(msg, `root.ports.choices: requires at least 1 node(s)`) {
+		t.Fatalf("expected choices port error, got %q", msg)
 	}
 }
 

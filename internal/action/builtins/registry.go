@@ -25,6 +25,7 @@ func NewRegistry() *Registry {
 	r.Register(&RetryNode{})
 	r.Register(&TimeoutNode{})
 	r.Register(&FinallyNode{})
+	r.Register(&FallbackNode{})
 
 	return r
 }

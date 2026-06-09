@@ -155,7 +155,7 @@ These are the built-ins available today:
 
 | Action | Required `with` fields | What it does |
 | --- | --- | --- |
-| `builtins/shell` | `command` | Runs `sh -c <command>` in the run workspace. |
+| `builtins/shell` | `command` | Runs `sh -c <command>` in the run workspace. Optional `outputs` reads a workspace-relative JSON output file after success. |
 | `builtins/test` | `command` | Runs a predicate command and returns a boolean `result` output. |
 | `builtins/checkout` | `url` | Runs `git clone <url> .` in the run workspace. |
 | `builtins/sequence` | none | Runs child `steps` in order. |
@@ -164,6 +164,7 @@ These are the built-ins available today:
 | `builtins/retry` | optional `attempts` | Retries a local `body` port until it succeeds or attempts are exhausted. |
 | `builtins/timeout` | `duration` | Runs a local `body` port with a deadline such as `30s` or `5m`. |
 | `builtins/finally` | none | Runs `body`, then always runs cleanup nodes from the `always` port. |
+| `builtins/fallback` | none | Runs local `choices` in order and returns the first success. |
 
 Actions are intentionally small right now. Pipeline-as-code and richer action syntax are future work; today, JSON is the source format.
 

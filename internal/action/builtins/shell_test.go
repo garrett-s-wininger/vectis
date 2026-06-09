@@ -3,6 +3,8 @@ package builtins
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -273,6 +275,71 @@ func TestShellAction_Execute_StartError(t *testing.T) {
 
 	if !strings.Contains(result.Error.Error(), "failed to start") {
 		t.Errorf("expected 'failed to start' error, got: %v", result.Error)
+	}
+}
+
+func TestShellAction_Execute_ReadsOutputsFile(t *testing.T) {
+	mockExecutor := mocks.NewMockExecExecutor()
+	mockProcess := mocks.NewMockProcess()
+	mockProcess.SetStdout("")
+	mockProcess.SetStderr("")
+	mockProcess.SetWaitError(nil)
+	mockExecutor.SetProcess(mockProcess)
+
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "outputs.json"), []byte(`{"image":"vectis","attempts":2,"ok":true}`), 0o600); err != nil {
+		t.Fatalf("write outputs: %v", err)
+	}
+
+	shellAction := NewShellAction(mockExecutor)
+	state := createTestState(&mockLogStream{})
+	state.Workspace = workspace
+
+	result := shellAction.Execute(context.Background(), state, map[string]any{
+		"command": "make build",
+		"outputs": "outputs.json",
+	}, nil)
+
+	if result.Status != action.StatusSuccess {
+		t.Fatalf("expected success, got %v with error: %v", result.Status, result.Error)
+	}
+
+	if got := result.Outputs["image"]; got != "vectis" {
+		t.Fatalf("image output: got %v, want vectis", got)
+	}
+
+	if got := result.Outputs["attempts"]; got != float64(2) {
+		t.Fatalf("attempts output: got %v, want 2", got)
+	}
+
+	if got := result.Outputs["ok"]; got != true {
+		t.Fatalf("ok output: got %v, want true", got)
+	}
+}
+
+func TestShellAction_Execute_RejectsOutputsOutsideWorkspace(t *testing.T) {
+	mockExecutor := mocks.NewMockExecExecutor()
+	mockProcess := mocks.NewMockProcess()
+	mockProcess.SetStdout("")
+	mockProcess.SetStderr("")
+	mockProcess.SetWaitError(nil)
+	mockExecutor.SetProcess(mockProcess)
+
+	shellAction := NewShellAction(mockExecutor)
+	state := createTestState(&mockLogStream{})
+	state.Workspace = t.TempDir()
+
+	result := shellAction.Execute(context.Background(), state, map[string]any{
+		"command": "make build",
+		"outputs": "../outputs.json",
+	}, nil)
+
+	if result.Status != action.StatusFailure {
+		t.Fatalf("expected failure, got %v", result.Status)
+	}
+
+	if result.Error == nil || !strings.Contains(result.Error.Error(), "must stay inside the workspace") {
+		t.Fatalf("expected workspace path error, got %v", result.Error)
 	}
 }
 

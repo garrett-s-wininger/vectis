@@ -174,6 +174,68 @@ func TestFinallyNodeExecuteReturnsAlwaysFailureAfterBodySuccess(t *testing.T) {
 	}
 }
 
+func TestFallbackNodeExecuteReturnsFirstSuccess(t *testing.T) {
+	firstCount := &atomic.Int32{}
+	secondCount := &atomic.Int32{}
+	thirdCount := &atomic.Int32{}
+	state := policyTestState(testResolver{
+		"test/first":  &countedNode{count: firstCount, result: action.NewFailureResult(errors.New("primary unavailable"))},
+		"test/second": &countedNode{count: secondCount, result: action.NewSuccessResult(map[string]any{"value": "backup"})},
+		"test/third":  &countedNode{count: thirdCount, result: action.NewSuccessResult(map[string]any{"value": "last"})},
+	})
+
+	result := (&FallbackNode{}).Execute(context.Background(), state, nil, action.Ports{
+		taskgraph.ChoicesPort: {
+			ifTestNode("first", "test/first"),
+			ifTestNode("second", "test/second"),
+			ifTestNode("third", "test/third"),
+		},
+	})
+
+	if result.Status != action.StatusSuccess {
+		t.Fatalf("status: got %s err=%v, want success", result.Status, result.Error)
+	}
+
+	if got := result.Outputs["value"]; got != "backup" {
+		t.Fatalf("outputs: got %+v, want value=backup", result.Outputs)
+	}
+
+	if got := firstCount.Load(); got != 1 {
+		t.Fatalf("first executions: got %d, want 1", got)
+	}
+
+	if got := secondCount.Load(); got != 1 {
+		t.Fatalf("second executions: got %d, want 1", got)
+	}
+
+	if got := thirdCount.Load(); got != 0 {
+		t.Fatalf("third executions: got %d, want 0", got)
+	}
+}
+
+func TestFallbackNodeExecuteFailsAfterChoices(t *testing.T) {
+	wantErr := errors.New("backup failed")
+	state := policyTestState(testResolver{
+		"test/first":  &countedNode{count: &atomic.Int32{}, result: action.NewFailureResult(errors.New("primary failed"))},
+		"test/second": &countedNode{count: &atomic.Int32{}, result: action.NewFailureResult(wantErr)},
+	})
+
+	result := (&FallbackNode{}).Execute(context.Background(), state, nil, action.Ports{
+		taskgraph.ChoicesPort: {
+			ifTestNode("first", "test/first"),
+			ifTestNode("second", "test/second"),
+		},
+	})
+
+	if result.Status != action.StatusFailure {
+		t.Fatalf("status: got %s, want failure", result.Status)
+	}
+
+	if result.Error == nil || !strings.Contains(result.Error.Error(), wantErr.Error()) {
+		t.Fatalf("error: got %v, want last failure", result.Error)
+	}
+}
+
 func policyTestState(resolver action.Resolver) *action.ExecutionState {
 	return &action.ExecutionState{
 		JobID:    "policy-test",

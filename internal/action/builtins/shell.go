@@ -2,14 +2,20 @@ package builtins
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
 	"vectis/internal/interfaces"
 )
+
+const ShellOutputsField = "outputs"
 
 type ShellAction struct {
 	executor interfaces.ExecExecutor
@@ -25,9 +31,16 @@ func NewShellAction(executor interfaces.ExecExecutor) *ShellAction {
 }
 
 func (s *ShellAction) ValidateWith(with map[string]string) []action.FieldError {
-	return action.ValidateWithSpec(with, []action.FieldSpec{
+	errs := action.ValidateWithSpec(with, []action.FieldSpec{
 		{Name: "command", Type: action.FieldString, Required: true},
+		{Name: ShellOutputsField, Type: action.FieldString},
 	})
+
+	if _, ok := with[ShellOutputsField]; ok && strings.TrimSpace(with[ShellOutputsField]) == "" {
+		errs = append(errs, action.FieldError{Field: ShellOutputsField, Message: "must not be empty"})
+	}
+
+	return errs
 }
 
 func (s *ShellAction) Type() string {
@@ -78,7 +91,85 @@ func (s *ShellAction) Execute(ctx context.Context, state *action.ExecutionState,
 
 	state.Logger.Info("Command completed successfully")
 	sendLog(state, api.Stream_STREAM_STDOUT, "Command completed successfully")
-	return action.NewSuccessResult(nil)
+
+	outputs, err := readShellOutputsFile(state.Workspace, inputs)
+	if err != nil {
+		state.Logger.Error("Failed to read shell outputs: %v", err)
+		sendLog(state, api.Stream_STREAM_STDERR, fmt.Sprintf("Failed to read shell outputs: %v", err))
+		return action.NewFailureResult(err)
+	}
+
+	return action.NewSuccessResult(outputs)
+}
+
+func readShellOutputsFile(workspace string, inputs map[string]any) (map[string]any, error) {
+	raw, exists := inputs[ShellOutputsField]
+	if !exists {
+		return nil, nil
+	}
+
+	outputPath, ok := raw.(string)
+	if !ok {
+		return nil, fmt.Errorf("shell outputs must be a path string")
+	}
+
+	fullPath, err := workspaceRelativePath(workspace, outputPath)
+	if err != nil {
+		return nil, fmt.Errorf("shell outputs path: %w", err)
+	}
+
+	data, err := os.ReadFile(fullPath)
+	if err != nil {
+		return nil, fmt.Errorf("read shell outputs file %q: %w", outputPath, err)
+	}
+
+	var outputs map[string]any
+	if err := json.Unmarshal(data, &outputs); err != nil {
+		return nil, fmt.Errorf("parse shell outputs file %q: %w", outputPath, err)
+	}
+
+	if outputs == nil {
+		return nil, fmt.Errorf("shell outputs file %q must contain a JSON object", outputPath)
+	}
+
+	return outputs, nil
+}
+
+func workspaceRelativePath(workspace, rawPath string) (string, error) {
+	rawPath = strings.TrimSpace(rawPath)
+	if rawPath == "" {
+		return "", fmt.Errorf("is required")
+	}
+
+	if filepath.IsAbs(rawPath) {
+		return "", fmt.Errorf("must be relative to the workspace")
+	}
+
+	workspace = strings.TrimSpace(workspace)
+	if workspace == "" {
+		return "", fmt.Errorf("workspace is required")
+	}
+
+	root, err := filepath.Abs(workspace)
+	if err != nil {
+		return "", fmt.Errorf("resolve workspace: %w", err)
+	}
+
+	fullPath, err := filepath.Abs(filepath.Join(root, filepath.Clean(rawPath)))
+	if err != nil {
+		return "", fmt.Errorf("resolve path: %w", err)
+	}
+
+	rel, err := filepath.Rel(root, fullPath)
+	if err != nil {
+		return "", fmt.Errorf("resolve path relative to workspace: %w", err)
+	}
+
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("must stay inside the workspace")
+	}
+
+	return fullPath, nil
 }
 
 func streamOutput(reader io.Reader, state *action.ExecutionState, streamType api.Stream) {

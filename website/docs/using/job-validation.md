@@ -67,7 +67,7 @@ These are the built-in actions that the validator knows today:
 
 | Action | Required `with` | Ports | Notes |
 | --- | --- | --- | --- |
-| `builtins/shell` | `command` | none | Runs the command with `sh -c`. Empty commands and unknown action keys are rejected. |
+| `builtins/shell` | `command` | none | Runs the command with `sh -c`. Optional `outputs` reads a workspace-relative JSON object file after success and returns it as node outputs. Empty commands and unknown action keys are rejected. |
 | `builtins/test` | `command` | none | Runs the command as a predicate. Exit `0` returns `outputs.result=true`, exit `1` returns `outputs.result=false`, and other execution errors fail the action. |
 | `builtins/checkout` | `url` | none | Accepts HTTP(S) clone URLs without embedded credentials and SCP-style Git URLs. Unknown action keys are rejected. |
 | `builtins/sequence` | none | `steps` | Runs child nodes in order. Defaults to `execution: "local"`, so children run in the same worker workspace unless a distributed boundary is reached. Unknown optional `with` keys are tolerated for compatibility. |
@@ -76,6 +76,7 @@ These are the built-in actions that the validator knows today:
 | `builtins/retry` | optional `attempts` | `body` | Runs the ordered `body` port until it succeeds or attempts are exhausted. Defaults to `attempts: "3"`. Local-only until durable retry attempts are modeled. |
 | `builtins/timeout` | `duration` | `body` | Runs the ordered `body` port with a deadline such as `30s`, `5m`, or `1h`. Local-only until durable timeout recovery is modeled. |
 | `builtins/finally` | none | `body`, `always` | Runs `body`, then always runs `always`. Body failure remains the final failure unless cleanup is the only failure. Local-only until durable finalizer semantics are modeled. |
+| `builtins/fallback` | none | `choices` | Runs choice nodes in order and returns the first success. If every choice fails, the final result is the last failure. Local-only until durable fallback attempts are modeled. |
 
 The action name can include the `builtins/` prefix. The built-in registry also accepts short names internally, but docs and examples use the full form so job files stay clear.
 
@@ -148,6 +149,19 @@ Execution policy nodes wrap local child subtrees:
         }
       ]
     }
+  }
+}
+```
+
+Shell actions can publish structured outputs by writing a JSON object inside the workspace and naming it in `with.outputs`:
+
+```json
+{
+  "id": "publish-image",
+  "uses": "builtins/shell",
+  "with": {
+    "command": "printf '{\"image\":\"app:dev\"}' > outputs.json",
+    "outputs": "outputs.json"
   }
 }
 ```

@@ -19,6 +19,7 @@ const (
 	ElsePort             = "else"
 	BodyPort             = "body"
 	AlwaysPort           = "always"
+	ChoicesPort          = "choices"
 )
 
 type ChildRef struct {

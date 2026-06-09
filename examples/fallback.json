@@ -1,0 +1,27 @@
+{
+  "id": "fallback-job",
+  "root": {
+    "id": "build-choice",
+    "uses": "builtins/fallback",
+    "ports": {
+      "choices": {
+        "nodes": [
+          {
+            "id": "preferred-build",
+            "uses": "builtins/shell",
+            "with": {
+              "command": "test -x ./preferred-build.sh && ./preferred-build.sh"
+            }
+          },
+          {
+            "id": "portable-build",
+            "uses": "builtins/shell",
+            "with": {
+              "command": "echo running portable fallback build"
+            }
+          }
+        ]
+      }
+    }
+  }
+}
