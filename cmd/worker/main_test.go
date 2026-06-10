@@ -589,7 +589,7 @@ func TestLeaseRenewalLoop_RenewsExecutionLease(t *testing.T) {
 	stopRenew := make(chan struct{})
 	doneRenew := make(chan struct{})
 	env := &cell.ExecutionEnvelope{ExecutionID: dispatch.ExecutionID}
-	go w.leaseRenewalLoop(execCtx, runID, nil, env, newExecutionClaimState(claim.ClaimToken), stopRenew, doneRenew)
+	go w.leaseRenewalLoop(execCtx, runID, nil, env, newExecutionClaimState(claim.ClaimToken), nil, stopRenew, doneRenew)
 
 	time.Sleep(30 * time.Millisecond)
 	close(stopRenew)
@@ -1007,6 +1007,7 @@ func TestWorkerRunClaimedJob_SPIREEnabledRejectsMissingSVIDBeforeAction(t *testi
 	workerID := "worker-test-spire-gate"
 	queue := mocks.NewMockQueueClient()
 	logClient := mocks.NewMockLogClient()
+	registrar := &recordingSPIRERegistrar{}
 	w := &worker{
 		ctx:           context.Background(),
 		runCtx:        context.Background(),
@@ -1023,6 +1024,11 @@ func TestWorkerRunClaimedJob_SPIREEnabledRejectsMissingSVIDBeforeAction(t *testi
 		spireSVIDSource: fakeWorkerSVIDSource{svids: []spire.X509SVID{
 			{SPIFFEID: "spiffe://prod.example/cell/other/namespace/other/job/other/run/other/execution/other"},
 		}},
+		spireRegistrar:            registrar,
+		spireRegistrationParentID: "spiffe://prod.example/spire/agent/worker-test-spire-gate",
+		spireRegistrationSelectors: []spire.Selector{
+			{Type: "unix", Value: "uid:1000"},
+		},
 	}
 
 	deliveryID := "delivery-spire-gate"
@@ -1051,6 +1057,13 @@ func TestWorkerRunClaimedJob_SPIREEnabledRejectsMissingSVIDBeforeAction(t *testi
 
 	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("action marker stat error = %v, want file not created", err)
+	}
+
+	if intents := registrar.Intents(); len(intents) != 1 {
+		t.Fatalf("SPIRE registration intents = %d, want 1", len(intents))
+	}
+	if releases := registrar.Releases(); len(releases) != 1 {
+		t.Fatalf("SPIRE registration releases = %d, want 1", len(releases))
 	}
 
 	var runStatus string
@@ -3670,6 +3683,352 @@ func (s fakeWorkerSVIDSource) FetchX509SVIDs(ctx context.Context) ([]spire.X509S
 	}
 
 	return append([]spire.X509SVID(nil), s.svids...), nil
+}
+
+type recordingSPIRERegistrar struct {
+	mu         sync.Mutex
+	intents    []spire.RegistrationIntent
+	releases   []spire.RegistrationHandle
+	ensureErr  error
+	releaseErr error
+}
+
+func (r *recordingSPIRERegistrar) EnsureRegistration(_ context.Context, intent spire.RegistrationIntent) (spire.RegistrationResult, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.ensureErr != nil {
+		return spire.RegistrationResult{}, r.ensureErr
+	}
+
+	intent.Selectors = append([]spire.Selector(nil), intent.Selectors...)
+	r.intents = append(r.intents, intent)
+
+	return spire.RegistrationResult{
+		Handle: spire.RegistrationHandle{
+			EntryID:   fmt.Sprintf("entry-%d", len(r.intents)),
+			Key:       intent.Key,
+			SPIFFEID:  intent.SPIFFEID,
+			ExpiresAt: intent.ExpiresAt,
+		},
+		Created: len(r.intents) == 1,
+	}, nil
+}
+
+func (r *recordingSPIRERegistrar) ReleaseRegistration(_ context.Context, handle spire.RegistrationHandle) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.releaseErr != nil {
+		return r.releaseErr
+	}
+
+	r.releases = append(r.releases, handle)
+	return nil
+}
+
+func (r *recordingSPIRERegistrar) Intents() []spire.RegistrationIntent {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	out := make([]spire.RegistrationIntent, 0, len(r.intents))
+	for _, intent := range r.intents {
+		intent.Selectors = append([]spire.Selector(nil), intent.Selectors...)
+		out = append(out, intent)
+	}
+
+	return out
+}
+
+func (r *recordingSPIRERegistrar) Releases() []spire.RegistrationHandle {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return append([]spire.RegistrationHandle(nil), r.releases...)
+}
+
+func TestEnsureExecutionSPIRERegistrationBuildsIntent(t *testing.T) {
+	clock := mocks.NewMockClock()
+	now := time.Date(2026, 6, 9, 10, 0, 0, 0, time.UTC)
+	clock.SetNow(now)
+
+	env := workerTestExecutionEnvelope()
+	identity, err := workloadidentity.NewIdentity("prod.example", "", executionFromEnvelope(env))
+	if err != nil {
+		t.Fatalf("NewIdentity: %v", err)
+	}
+
+	registrar := &recordingSPIRERegistrar{}
+	w := &worker{
+		clock:                     clock,
+		spireRegistrar:            registrar,
+		spireRegistrationParentID: "spiffe://prod.example/spire/agent/worker-node",
+		spireRegistrationSelectors: []spire.Selector{
+			{Type: "unix", Value: "uid:1000"},
+			{Type: "k8s", Value: "sa:vectis:worker"},
+		},
+		spireRegistrationMinTTL: time.Minute,
+		spireRegistrationMaxTTL: 10 * time.Minute,
+	}
+
+	expiresAt := now.Add(5 * time.Minute)
+	handle, registered, err := w.ensureExecutionSPIRERegistration(context.Background(), identity, env, expiresAt)
+	if err != nil {
+		t.Fatalf("ensureExecutionSPIRERegistration: %v", err)
+	}
+
+	if !registered {
+		t.Fatal("ensureExecutionSPIRERegistration registered = false, want true")
+	}
+
+	intents := registrar.Intents()
+	if len(intents) != 1 {
+		t.Fatalf("registrar intents = %d, want 1", len(intents))
+	}
+
+	intent := intents[0]
+
+	if intent.SPIFFEID != identity.SPIFFEID {
+		t.Fatalf("intent SPIFFEID = %q, want %q", intent.SPIFFEID, identity.SPIFFEID)
+	}
+
+	if intent.ParentSPIFFEID != "spiffe://prod.example/spire/agent/worker-node" {
+		t.Fatalf("intent ParentSPIFFEID = %q", intent.ParentSPIFFEID)
+	}
+
+	if !intent.ExpiresAt.Equal(expiresAt) {
+		t.Fatalf("intent ExpiresAt = %s, want %s", intent.ExpiresAt, expiresAt)
+	}
+
+	if handle.Key != intent.Key || handle.SPIFFEID != intent.SPIFFEID || handle.EntryID == "" {
+		t.Fatalf("handle = %+v, intent key=%q spiffe=%q", handle, intent.Key, intent.SPIFFEID)
+	}
+
+	wantSelectors := []spire.Selector{
+		{Type: "k8s", Value: "sa:vectis:worker"},
+		{Type: "unix", Value: "uid:1000"},
+	}
+
+	if fmt.Sprint(intent.Selectors) != fmt.Sprint(wantSelectors) {
+		t.Fatalf("intent selectors = %+v, want %+v", intent.Selectors, wantSelectors)
+	}
+
+	if intent.Metadata.CellID != env.CellID ||
+		intent.Metadata.NamespacePath != env.NamespacePath ||
+		intent.Metadata.JobID != env.Job.GetId() ||
+		intent.Metadata.RunID != env.RunID ||
+		intent.Metadata.ExecutionID != env.ExecutionID ||
+		intent.Metadata.Attempt != env.Attempt {
+		t.Fatalf("intent metadata = %+v, env = %+v", intent.Metadata, env)
+	}
+}
+
+func TestEnsureExecutionSPIRERegistrationRequiresTrustedInputs(t *testing.T) {
+	env := workerTestExecutionEnvelope()
+	identity, err := workloadidentity.NewIdentity("prod.example", "", executionFromEnvelope(env))
+	if err != nil {
+		t.Fatalf("NewIdentity: %v", err)
+	}
+
+	baseWorker := worker{
+		spireRegistrar:            &recordingSPIRERegistrar{},
+		spireRegistrationParentID: "spiffe://prod.example/spire/agent/worker-node",
+		spireRegistrationSelectors: []spire.Selector{
+			{Type: "unix", Value: "uid:1000"},
+		},
+	}
+
+	expiresAt := time.Now().Add(5 * time.Minute)
+	tests := []struct {
+		name     string
+		worker   worker
+		identity *workloadidentity.Identity
+		env      *cell.ExecutionEnvelope
+		wantErr  string
+	}{
+		{
+			name:     "nil registrar is no-op",
+			worker:   worker{},
+			identity: identity,
+			env:      env,
+			wantErr:  "",
+		},
+		{
+			name:     "missing identity",
+			worker:   baseWorker,
+			identity: nil,
+			env:      env,
+			wantErr:  "execution identity",
+		},
+		{
+			name:     "missing envelope",
+			worker:   baseWorker,
+			identity: identity,
+			env:      nil,
+			wantErr:  "execution envelope",
+		},
+		{
+			name: "missing parent",
+			worker: func() worker {
+				w := baseWorker
+				w.spireRegistrationParentID = ""
+				return w
+			}(),
+			identity: identity,
+			env:      env,
+			wantErr:  "parent SPIFFE ID",
+		},
+		{
+			name: "missing selectors",
+			worker: func() worker {
+				w := baseWorker
+				w.spireRegistrationSelectors = nil
+				return w
+			}(),
+			identity: identity,
+			env:      env,
+			wantErr:  "selector",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, registered, err := tt.worker.ensureExecutionSPIRERegistration(context.Background(), tt.identity, tt.env, expiresAt)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("ensureExecutionSPIRERegistration error = %v, want nil", err)
+				}
+
+				if registered {
+					t.Fatal("ensureExecutionSPIRERegistration registered = true, want false")
+				}
+
+				return
+			}
+
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("ensureExecutionSPIRERegistration error = %v, want %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestLeaseRenewalLoopRenewsSPIRERegistration(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositories(db)
+	runs := repos.Runs()
+
+	ns, err := repos.Namespaces().Create(ctx, "worker-spire-renew", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-worker-spire-renew"
+	def := `{"id":"job-worker-spire-renew","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo renew"}}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := runs.CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	dispatch, err := runs.GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	workerID := "worker-spire-renew"
+	claim, err := runs.TryClaimExecution(ctx, dispatch.ExecutionID, workerID, time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("claim execution: %v", err)
+	}
+
+	if !claim.Claimed || claim.ClaimToken == "" {
+		t.Fatalf("expected execution claim, got %+v", claim)
+	}
+
+	action := "builtins/shell"
+	rootID := "root"
+	j := &api.Job{
+		Id:    &jobID,
+		RunId: &runID,
+		Root: &api.Node{
+			Id:   &rootID,
+			Uses: &action,
+			With: map[string]string{"command": "echo renew"},
+		},
+	}
+
+	env, err := cell.AttachExecutionEnvelope(&api.JobRequest{Job: j}, dispatch, time.Now().UnixNano())
+	if err != nil {
+		t.Fatalf("attach execution envelope: %v", err)
+	}
+
+	identity, err := workloadidentity.NewIdentity("prod.example", "", executionFromEnvelope(env))
+	if err != nil {
+		t.Fatalf("NewIdentity: %v", err)
+	}
+
+	registrar := &recordingSPIRERegistrar{}
+	w := &worker{
+		runCtx:        context.Background(),
+		logger:        interfaces.NewLogger("worker-test"),
+		workerID:      workerID,
+		store:         runs,
+		renewInterval: 5 * time.Millisecond,
+
+		spireRegistrar:            registrar,
+		spireRegistrationParentID: "spiffe://prod.example/spire/agent/worker-spire-renew",
+		spireRegistrationSelectors: []spire.Selector{
+			{Type: "unix", Value: "uid:1000"},
+		},
+	}
+
+	initialHandle, registered, err := w.ensureExecutionSPIRERegistration(ctx, identity, env, time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("initial ensureExecutionSPIRERegistration: %v", err)
+	}
+
+	if !registered {
+		t.Fatal("initial ensureExecutionSPIRERegistration registered = false, want true")
+	}
+
+	registration := &executionSPIRERegistration{
+		identity: identity,
+		env:      env,
+		handle:   initialHandle,
+	}
+
+	execCtx := t.Context()
+	stopRenew := make(chan struct{})
+	doneRenew := make(chan struct{})
+	go w.leaseRenewalLoop(execCtx, runID, nil, env, newExecutionClaimState(claim.ClaimToken), registration, stopRenew, doneRenew)
+
+	time.Sleep(30 * time.Millisecond)
+	close(stopRenew)
+	<-doneRenew
+
+	intents := registrar.Intents()
+	if len(intents) < 2 {
+		t.Fatalf("SPIRE registration intents = %d, want initial plus renewal", len(intents))
+	}
+
+	first := intents[0]
+	last := intents[len(intents)-1]
+	if last.Key != first.Key {
+		t.Fatalf("renewed registration key = %q, want %q", last.Key, first.Key)
+	}
+
+	if !last.ExpiresAt.After(first.ExpiresAt) {
+		t.Fatalf("renewed expiry = %s, want after initial %s", last.ExpiresAt, first.ExpiresAt)
+	}
+
+	if registration.handle.Key != first.Key {
+		t.Fatalf("registration handle key = %q, want %q", registration.handle.Key, first.Key)
+	}
 }
 
 func TestAcquireExecutionSVIDDisabledDoesNotFetch(t *testing.T) {

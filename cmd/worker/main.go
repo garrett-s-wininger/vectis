@@ -460,44 +460,55 @@ func controlPublishAddress(addr string) string {
 }
 
 type worker struct {
-	ctx                       context.Context // canceled on SIGINT/SIGTERM; dequeue and between-job backoff only
-	runCtx                    context.Context // Background; execution, lease renew, ack, finalize survive SIGTERM until dequeue stops
-	logger                    interfaces.Logger
-	workerID                  string
-	cellID                    string
-	clock                     interfaces.Clock
-	renewInterval             time.Duration
-	cancelPollInterval        time.Duration
-	queue                     interfaces.QueueClient
-	logClient                 interfaces.LogClient
-	core                      workercore.Core
-	coreShell                 *workercore.ShellServer
-	coreShellEndpoint         string
-	actionResolver            actionregistry.Resolver
-	store                     dal.RunsRepository
-	artifactManifests         dal.ArtifactsRepository
-	artifactMaxBytes          int64
-	artifactMaxRunBytes       int64
-	artifactMaxCount          int64
-	retryMetrics              backoff.RetryMetrics
-	choreographer             executionChoreographer
-	secretResolver            secrets.Resolver
-	secretResolverForWorkload secretResolverFactory
-	catalog                   cell.CatalogEventPublisher
-	metrics                   *observability.WorkerMetrics
-	taskFinalizeMetrics       *observability.TaskFinalizeMetrics
-	spireSVIDSource           spire.X509SVIDSource
-	dequeueFailAttempt        int
-	dbUnavailable             bool
-	dbFailAttempt             int
-	dbMu                      sync.Mutex
-	cancelCh                  chan string
-	currentRunID              string
-	currentClaimToken         string
-	currentMu                 sync.Mutex
+	ctx                        context.Context // canceled on SIGINT/SIGTERM; dequeue and between-job backoff only
+	runCtx                     context.Context // Background; execution, lease renew, ack, finalize survive SIGTERM until dequeue stops
+	logger                     interfaces.Logger
+	workerID                   string
+	cellID                     string
+	clock                      interfaces.Clock
+	renewInterval              time.Duration
+	cancelPollInterval         time.Duration
+	queue                      interfaces.QueueClient
+	logClient                  interfaces.LogClient
+	core                       workercore.Core
+	coreShell                  *workercore.ShellServer
+	coreShellEndpoint          string
+	actionResolver             actionregistry.Resolver
+	store                      dal.RunsRepository
+	artifactManifests          dal.ArtifactsRepository
+	artifactMaxBytes           int64
+	artifactMaxRunBytes        int64
+	artifactMaxCount           int64
+	retryMetrics               backoff.RetryMetrics
+	choreographer              executionChoreographer
+	secretResolver             secrets.Resolver
+	secretResolverForWorkload  secretResolverFactory
+	catalog                    cell.CatalogEventPublisher
+	metrics                    *observability.WorkerMetrics
+	taskFinalizeMetrics        *observability.TaskFinalizeMetrics
+	spireSVIDSource            spire.X509SVIDSource
+	spireRegistrar             spire.Registrar
+	spireRegistrationParentID  string
+	spireRegistrationSelectors []spire.Selector
+	spireRegistrationMinTTL    time.Duration
+	spireRegistrationMaxTTL    time.Duration
+	dequeueFailAttempt         int
+	dbUnavailable              bool
+	dbFailAttempt              int
+	dbMu                       sync.Mutex
+	cancelCh                   chan string
+	currentRunID               string
+	currentClaimToken          string
+	currentMu                  sync.Mutex
 }
 
 type secretResolverFactory func(*workloadidentity.Identity) (secrets.Resolver, func(), error)
+
+type executionSPIRERegistration struct {
+	identity *workloadidentity.Identity
+	env      *cell.ExecutionEnvelope
+	handle   spire.RegistrationHandle
+}
 
 func newSecretsResolverFactory(logger interfaces.Logger) (secretResolverFactory, error) {
 	addr := strings.TrimSpace(config.WorkerSecretsAddress())
@@ -1346,6 +1357,25 @@ func executionEnvelopeAttrs(env *cell.ExecutionEnvelope) []attribute.KeyValue {
 	}
 }
 
+func executionFromEnvelope(env *cell.ExecutionEnvelope) workloadidentity.Execution {
+	if env == nil {
+		return workloadidentity.Execution{}
+	}
+
+	return workloadidentity.Execution{
+		CellID:            env.CellID,
+		NamespacePath:     env.NamespacePath,
+		JobID:             env.Job.GetId(),
+		RunID:             env.RunID,
+		RunIndex:          env.RunIndex,
+		SegmentID:         env.SegmentID,
+		ExecutionID:       env.ExecutionID,
+		Attempt:           env.Attempt,
+		DefinitionVersion: env.DefinitionVersion,
+		DefinitionHash:    env.DefinitionHash,
+	}
+}
+
 func executionWorkloadIdentity(env *cell.ExecutionEnvelope) (*workloadidentity.Identity, error) {
 	if !config.WorkerExecutionIdentityEnabled() {
 		return nil, nil
@@ -1358,19 +1388,88 @@ func executionWorkloadIdentity(env *cell.ExecutionEnvelope) (*workloadidentity.I
 	return workloadidentity.NewIdentity(
 		config.WorkerExecutionIdentityTrustDomain(),
 		config.WorkerExecutionIdentityPathTemplate(),
-		workloadidentity.Execution{
-			CellID:            env.CellID,
-			NamespacePath:     env.NamespacePath,
-			JobID:             env.Job.GetId(),
-			RunID:             env.RunID,
-			RunIndex:          env.RunIndex,
-			SegmentID:         env.SegmentID,
-			ExecutionID:       env.ExecutionID,
-			Attempt:           env.Attempt,
-			DefinitionVersion: env.DefinitionVersion,
-			DefinitionHash:    env.DefinitionHash,
-		},
+		executionFromEnvelope(env),
 	)
+}
+
+func (w *worker) ensureExecutionSPIRERegistration(ctx context.Context, identity *workloadidentity.Identity, env *cell.ExecutionEnvelope, expiresAt time.Time) (spire.RegistrationHandle, bool, error) {
+	if w == nil || w.spireRegistrar == nil {
+		return spire.RegistrationHandle{}, false, nil
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	if identity == nil {
+		return spire.RegistrationHandle{}, false, fmt.Errorf("worker SPIRE registration requires execution identity")
+	}
+
+	if env == nil {
+		return spire.RegistrationHandle{}, false, fmt.Errorf("worker SPIRE registration requires execution envelope")
+	}
+
+	if expiresAt.IsZero() {
+		expiresAt = w.leaseDeadline()
+	}
+
+	intent, err := spire.NewExecutionRegistrationIntent(identity.SPIFFEID, executionFromEnvelope(env), spire.ExecutionRegistrationOptions{
+		ParentSPIFFEID: w.spireRegistrationParentID,
+		Selectors:      w.spireRegistrationSelectors,
+		ExpiresAt:      expiresAt,
+		Now:            w.now().UTC(),
+		MinTTL:         w.spireRegistrationMinTTL,
+		MaxTTL:         w.spireRegistrationMaxTTL,
+	})
+
+	if err != nil {
+		return spire.RegistrationHandle{}, false, err
+	}
+
+	result, err := w.spireRegistrar.EnsureRegistration(ctx, intent)
+	if err != nil {
+		return spire.RegistrationHandle{}, false, err
+	}
+
+	handle := result.Handle
+	if handle.Key == "" {
+		handle.Key = intent.Key
+	}
+
+	if handle.SPIFFEID == "" {
+		handle.SPIFFEID = intent.SPIFFEID
+	}
+
+	if handle.ExpiresAt.IsZero() {
+		handle.ExpiresAt = intent.ExpiresAt
+	}
+
+	return handle, true, nil
+}
+
+func (w *worker) releaseExecutionSPIRERegistration(registration *executionSPIRERegistration) {
+	if w == nil || w.spireRegistrar == nil || registration == nil {
+		return
+	}
+
+	handle := registration.handle
+	if handle.EntryID == "" && handle.Key == "" && handle.SPIFFEID == "" {
+		return
+	}
+
+	ctx := w.runCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	if err := w.spireRegistrar.ReleaseRegistration(ctx, handle); err != nil && w.logger != nil {
+		executionID := ""
+		if registration.env != nil {
+			executionID = registration.env.ExecutionID
+		}
+
+		w.logger.Warn("Failed to release SPIRE registration for execution %s: %v", executionID, err)
+	}
 }
 
 func (w *worker) acquireExecutionSVID(ctx context.Context, identity *workloadidentity.Identity) (*workloadidentity.Identity, error) {
@@ -2039,11 +2138,6 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID string, exec
 		})
 	}
 
-	stopRenew := make(chan struct{})
-	doneRenew := make(chan struct{})
-
-	go w.leaseRenewalLoop(execCtx, runID, runJob, env, executionClaim, stopRenew, doneRenew)
-
 	// Listen for remote cancel requests.
 	// Drain any stale cancel from a previous job so the buffer is free for this run.
 	select {
@@ -2073,19 +2167,53 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID string, exec
 	}
 
 	workloadIdentity, err := executionWorkloadIdentity(env)
+	var spireRegistration *executionSPIRERegistration
+	if err == nil {
+		handle, registered, registerErr := w.ensureExecutionSPIRERegistration(execCtx, workloadIdentity, env, w.leaseDeadline())
+		if registerErr != nil {
+			err = fmt.Errorf("ensure SPIRE execution registration: %w", registerErr)
+		} else if registered {
+			spireRegistration = &executionSPIRERegistration{
+				identity: workloadIdentity,
+				env:      env,
+				handle:   handle,
+			}
+			defer w.releaseExecutionSPIRERegistration(spireRegistration)
+		}
+	}
+
 	if err == nil {
 		workloadIdentity, err = w.acquireExecutionSVID(execCtx, workloadIdentity)
 	}
 
+	stopRenew := make(chan struct{})
+	doneRenew := make(chan struct{})
+	renewStarted := false
+	startRenewal := func() {
+		if renewStarted {
+			return
+		}
+		renewStarted = true
+		go w.leaseRenewalLoop(execCtx, runID, runJob, env, executionClaim, spireRegistration, stopRenew, doneRenew)
+	}
+	stopRenewal := func() {
+		if !renewStarted {
+			return
+		}
+		close(stopRenew)
+		<-doneRenew
+	}
+
 	if err == nil {
+		startRenewal()
+
 		var secretFiles []secrets.FileMaterial
 		secretFiles, err = w.resolveExecutionSecrets(execCtx, runJob, env, executionClaim.get(), workloadIdentity)
 		if err != nil {
 			err = fmt.Errorf("resolve execution secrets: %w", err)
 		}
 		if err != nil {
-			close(stopRenew)
-			<-doneRenew
+			stopRenewal()
 			return err
 		}
 
@@ -2137,8 +2265,7 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID string, exec
 		}
 	}
 
-	close(stopRenew)
-	<-doneRenew
+	stopRenewal()
 
 	select {
 	case <-cancelled:
@@ -2268,6 +2395,7 @@ func (w *worker) leaseRenewalLoop(
 	j *api.Job,
 	executionEnvelope *cell.ExecutionEnvelope,
 	executionClaim *executionClaimState,
+	spireRegistration *executionSPIRERegistration,
 	stopRenew <-chan struct{},
 	doneRenew chan<- struct{},
 ) {
@@ -2306,6 +2434,15 @@ func (w *worker) leaseRenewalLoop(
 					}
 					w.logger.Warn("Execution %s: lease renew failed (will retry): %v", executionEnvelope.ExecutionID, err)
 					continue
+				}
+			}
+
+			if spireRegistration != nil {
+				handle, registered, err := w.ensureExecutionSPIRERegistration(w.runCtx, spireRegistration.identity, spireRegistration.env, next)
+				if err != nil {
+					w.logger.Warn("Execution %s: SPIRE registration renew failed (will retry): %v", executionEnvelope.ExecutionID, err)
+				} else if registered {
+					spireRegistration.handle = handle
 				}
 			}
 
