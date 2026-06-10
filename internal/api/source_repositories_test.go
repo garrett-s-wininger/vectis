@@ -1299,9 +1299,25 @@ func TestAPIServer_TriggerManagedSourceRepositoryJobCreatesRunSnapshot(t *testin
 		t.Fatalf("GetDefinition stored build: %v", err)
 	}
 
-	if _, _, err := repos.Runs().CreateRun(context.Background(), "build", nil, storedVersion); err != nil {
+	storedRunID, _, err := repos.Runs().CreateRun(context.Background(), "build", nil, storedVersion)
+	if err != nil {
 		t.Fatalf("CreateRun stored build: %v", err)
 	}
+
+	storedLogsRec := httptest.NewRecorder()
+	storedLogsReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/managed-repo/jobs/build/runs/"+storedRunID+"/logs", nil)
+	handler.ServeHTTP(storedLogsRec, storedLogsReq)
+	assertAPIError(t, storedLogsRec, http.StatusNotFound, "run_not_found")
+
+	wrongJobLogsRec := httptest.NewRecorder()
+	wrongJobLogsReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/managed-repo/jobs/deploy/runs/"+triggerResp.RunID+"/logs", nil)
+	handler.ServeHTTP(wrongJobLogsRec, wrongJobLogsReq)
+	assertAPIError(t, wrongJobLogsRec, http.StatusNotFound, "run_not_found")
+
+	sourceLogsRec := httptest.NewRecorder()
+	sourceLogsReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/managed-repo/jobs/build/runs/"+triggerResp.RunID+"/logs", nil)
+	handler.ServeHTTP(sourceLogsRec, sourceLogsReq)
+	assertAPIError(t, sourceLogsRec, http.StatusServiceUnavailable, "log_service_unavailable")
 
 	listRunsRec := httptest.NewRecorder()
 	listRunsReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/managed-repo/jobs/build/runs", nil)

@@ -1208,6 +1208,87 @@ func (s *APIServer) GetSourceRepositoryJobRuns(w http.ResponseWriter, r *http.Re
 	s.writeJobRunsResponse(w, ctx, jobID, runRows, nextCursor)
 }
 
+func (s *APIServer) GetSourceRepositoryJobRunLogs(w http.ResponseWriter, r *http.Request) {
+	jobID := strings.TrimSpace(r.PathValue("job_id"))
+	if jobID == "" {
+		writeAPIError(w, http.StatusBadRequest, "missing_job_id", "job_id is required", nil)
+		return
+	}
+
+	runID := strings.TrimSpace(r.PathValue("run_id"))
+	if runID == "" {
+		writeAPIError(w, http.StatusBadRequest, "missing_run_id", "run_id is required", nil)
+		return
+	}
+
+	replay, ok := parseLogReplayRequest(w, r)
+	if !ok {
+		return
+	}
+
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireNamespaces(w) || !s.requireSources(w) {
+		return
+	}
+
+	rec, _, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionRunRead, false)
+	if !ok {
+		return
+	}
+
+	runRec, err := s.runs.GetRun(ctx, runID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error getting source repository job run: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+
+	if runRec.JobID != jobID {
+		writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+		return
+	}
+
+	source, err := s.sources.GetDefinitionSource(ctx, runRec.JobID, runRec.DefinitionVersion)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error getting source repository job run source: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+
+	if source.RepositoryID != rec.RepositoryID {
+		writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+		return
+	}
+	s.markDBRecovered()
+
+	s.streamRunLogs(w, r, runID, replay)
+}
+
 func (s *APIServer) HandleSSESourceRepositoryJobRuns(w http.ResponseWriter, r *http.Request) {
 	jobID := strings.TrimSpace(r.PathValue("job_id"))
 	if jobID == "" {

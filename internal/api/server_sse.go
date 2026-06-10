@@ -159,6 +159,10 @@ func (s *APIServer) GetRunLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.streamRunLogs(w, r, runID, replay)
+}
+
+func (s *APIServer) streamRunLogs(w http.ResponseWriter, r *http.Request, runID string, replay logReplayRequest) {
 	holder := s.logClient.Load()
 	if holder == nil || holder.client == nil {
 		writeAPIError(w, http.StatusServiceUnavailable, "log_service_unavailable", "log service not connected", nil)
