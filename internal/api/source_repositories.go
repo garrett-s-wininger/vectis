@@ -55,6 +55,7 @@ type sourceRepositoryResponse struct {
 	CheckoutPath  string                       `json:"checkout_path,omitempty"`
 	CheckoutMode  string                       `json:"checkout_mode"`
 	AuthoringMode string                       `json:"authoring_mode"`
+	Authoring     sourceRepositoryAuthoring    `json:"authoring"`
 	CanonicalURL  string                       `json:"canonical_url,omitempty"`
 	DefaultRef    string                       `json:"default_ref,omitempty"`
 	CredentialRef string                       `json:"credential_ref,omitempty"`
@@ -79,6 +80,7 @@ type sourceRepositoryStatusResponse struct {
 	Status             string                       `json:"status"`
 	CheckoutMode       string                       `json:"checkout_mode"`
 	AuthoringMode      string                       `json:"authoring_mode"`
+	Authoring          sourceRepositoryAuthoring    `json:"authoring"`
 	CheckoutPath       string                       `json:"checkout_path,omitempty"`
 	PathExists         bool                         `json:"path_exists"`
 	PathIsDirectory    bool                         `json:"path_is_directory"`
@@ -95,6 +97,14 @@ type sourceRepositoryStatusResponse struct {
 type sourceRepositoryStatusError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+}
+
+type sourceRepositoryAuthoring struct {
+	Mode                   string `json:"mode"`
+	WriteDefinitions       bool   `json:"write_definitions"`
+	LocalCommits           bool   `json:"local_commits"`
+	ExternalChangeRequests bool   `json:"external_change_requests"`
+	Reason                 string `json:"reason,omitempty"`
 }
 
 type sourceRepositoryBranchResponse struct {
@@ -2151,6 +2161,7 @@ func sourceRepositoryRecordToResponse(rec dal.SourceRepositoryRecord, namespaceP
 		CheckoutPath:  rec.CheckoutPath,
 		CheckoutMode:  rec.CheckoutMode,
 		AuthoringMode: rec.AuthoringMode,
+		Authoring:     sourceRepositoryAuthoringFromRecord(rec),
 		CanonicalURL:  rec.CanonicalURL,
 		DefaultRef:    rec.DefaultRef,
 		CredentialRef: rec.CredentialRef,
@@ -2168,6 +2179,7 @@ func sourceRepositoryStatusFromRecord(ctx context.Context, rec dal.SourceReposit
 		Status:        "ok",
 		CheckoutMode:  rec.CheckoutMode,
 		AuthoringMode: rec.AuthoringMode,
+		Authoring:     sourceRepositoryAuthoringFromRecord(rec),
 		Sync:          sourceRepositorySyncRecordToResponse(rec),
 	}
 
@@ -2210,6 +2222,38 @@ func sourceRepositoryStatusFromRecord(ctx context.Context, rec dal.SourceReposit
 	}
 
 	return resp
+}
+
+func sourceRepositoryAuthoringFromRecord(rec dal.SourceRepositoryRecord) sourceRepositoryAuthoring {
+	mode := strings.TrimSpace(rec.AuthoringMode)
+	if mode == "" {
+		mode = dal.SourceAuthoringModeReadOnly
+	}
+
+	out := sourceRepositoryAuthoring{Mode: mode}
+	if !rec.Enabled {
+		out.Reason = "source_repository_disabled"
+		return out
+	}
+
+	switch mode {
+	case dal.SourceAuthoringModeReadOnly:
+		out.Reason = "read_only"
+	case dal.SourceAuthoringModeLocalCommit:
+		if strings.TrimSpace(rec.CheckoutMode) != dal.SourceCheckoutModeManaged {
+			out.Reason = "local_commit_requires_managed_checkout"
+			return out
+		}
+
+		out.WriteDefinitions = true
+		out.LocalCommits = true
+	case dal.SourceAuthoringModeExternalChangeRequest:
+		out.Reason = "external_change_request_not_configured"
+	default:
+		out.Reason = "unsupported_authoring_mode"
+	}
+
+	return out
 }
 
 func sourceRepositorySyncRecordToResponse(rec dal.SourceRepositoryRecord) sourceRepositorySyncResponse {

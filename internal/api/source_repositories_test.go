@@ -51,8 +51,14 @@ func TestAPIServer_SourceBackedJobLifecycle(t *testing.T) {
 		CheckoutPath  string `json:"checkout_path"`
 		CheckoutMode  string `json:"checkout_mode"`
 		AuthoringMode string `json:"authoring_mode"`
-		Enabled       bool   `json:"enabled"`
-		Sync          struct {
+		Authoring     struct {
+			Mode             string `json:"mode"`
+			WriteDefinitions bool   `json:"write_definitions"`
+			LocalCommits     bool   `json:"local_commits"`
+			Reason           string `json:"reason"`
+		} `json:"authoring"`
+		Enabled bool `json:"enabled"`
+		Sync    struct {
 			Status string `json:"status"`
 		} `json:"sync"`
 	}
@@ -67,6 +73,10 @@ func TestAPIServer_SourceBackedJobLifecycle(t *testing.T) {
 		repoResp.CheckoutPath != repoPath ||
 		repoResp.CheckoutMode != dal.SourceCheckoutModeExternal ||
 		repoResp.AuthoringMode != dal.SourceAuthoringModeReadOnly ||
+		repoResp.Authoring.Mode != dal.SourceAuthoringModeReadOnly ||
+		repoResp.Authoring.WriteDefinitions ||
+		repoResp.Authoring.LocalCommits ||
+		repoResp.Authoring.Reason != "read_only" ||
 		repoResp.Sync.Status != dal.SourceSyncStatusNever ||
 		!repoResp.Enabled {
 		t.Fatalf("repository response mismatch: %+v", repoResp)
@@ -1201,7 +1211,12 @@ func TestAPIServer_PutManagedSourceRepositoryJobDefinitionCommitsDefinition(t *t
 	}
 
 	enableAuthoringResp := decodeSourceRepositoryResponse(t, enableAuthoringRec)
-	if enableAuthoringResp.AuthoringMode != dal.SourceAuthoringModeLocalCommit {
+	if enableAuthoringResp.AuthoringMode != dal.SourceAuthoringModeLocalCommit ||
+		enableAuthoringResp.Authoring.Mode != dal.SourceAuthoringModeLocalCommit ||
+		!enableAuthoringResp.Authoring.WriteDefinitions ||
+		!enableAuthoringResp.Authoring.LocalCommits ||
+		enableAuthoringResp.Authoring.ExternalChangeRequests ||
+		enableAuthoringResp.Authoring.Reason != "" {
 		t.Fatalf("enable local authoring response mismatch: %+v", enableAuthoringResp)
 	}
 
@@ -1762,6 +1777,13 @@ func TestAPIServer_UpdateSourceRepository(t *testing.T) {
 		CheckoutPath  string `json:"checkout_path"`
 		CheckoutMode  string `json:"checkout_mode"`
 		AuthoringMode string `json:"authoring_mode"`
+		Authoring     struct {
+			Mode                   string `json:"mode"`
+			WriteDefinitions       bool   `json:"write_definitions"`
+			LocalCommits           bool   `json:"local_commits"`
+			ExternalChangeRequests bool   `json:"external_change_requests"`
+			Reason                 string `json:"reason"`
+		} `json:"authoring"`
 		CanonicalURL  string `json:"canonical_url"`
 		DefaultRef    string `json:"default_ref"`
 		CredentialRef string `json:"credential_ref"`
@@ -1779,6 +1801,11 @@ func TestAPIServer_UpdateSourceRepository(t *testing.T) {
 		updateResp.CheckoutPath != repoPath ||
 		updateResp.CheckoutMode != dal.SourceCheckoutModeManaged ||
 		updateResp.AuthoringMode != dal.SourceAuthoringModeExternalChangeRequest ||
+		updateResp.Authoring.Mode != dal.SourceAuthoringModeExternalChangeRequest ||
+		updateResp.Authoring.WriteDefinitions ||
+		updateResp.Authoring.LocalCommits ||
+		updateResp.Authoring.ExternalChangeRequests ||
+		updateResp.Authoring.Reason != "source_repository_disabled" ||
 		updateResp.CanonicalURL != "https://example.invalid/vectis.git" ||
 		updateResp.DefaultRef != commit ||
 		updateResp.CredentialRef != "secret://git/vectis" ||
@@ -2064,6 +2091,13 @@ func decodeSourceRepositoryResponse(t *testing.T, rec *httptest.ResponseRecorder
 	CheckoutPath  string `json:"checkout_path"`
 	CheckoutMode  string `json:"checkout_mode"`
 	AuthoringMode string `json:"authoring_mode"`
+	Authoring     struct {
+		Mode                   string `json:"mode"`
+		WriteDefinitions       bool   `json:"write_definitions"`
+		LocalCommits           bool   `json:"local_commits"`
+		ExternalChangeRequests bool   `json:"external_change_requests"`
+		Reason                 string `json:"reason"`
+	} `json:"authoring"`
 	CanonicalURL  string `json:"canonical_url"`
 	DefaultRef    string `json:"default_ref"`
 	CredentialRef string `json:"credential_ref"`
@@ -2086,6 +2120,13 @@ func decodeSourceRepositoryResponse(t *testing.T, rec *httptest.ResponseRecorder
 		CheckoutPath  string `json:"checkout_path"`
 		CheckoutMode  string `json:"checkout_mode"`
 		AuthoringMode string `json:"authoring_mode"`
+		Authoring     struct {
+			Mode                   string `json:"mode"`
+			WriteDefinitions       bool   `json:"write_definitions"`
+			LocalCommits           bool   `json:"local_commits"`
+			ExternalChangeRequests bool   `json:"external_change_requests"`
+			Reason                 string `json:"reason"`
+		} `json:"authoring"`
 		CanonicalURL  string `json:"canonical_url"`
 		DefaultRef    string `json:"default_ref"`
 		CredentialRef string `json:"credential_ref"`
@@ -2204,14 +2245,21 @@ func decodeSourceRepositoryJobDefinitionResponse(t *testing.T, rec *httptest.Res
 }
 
 func decodeSourceRepositoryStatusResponse(t *testing.T, rec *httptest.ResponseRecorder) struct {
-	RepositoryID       string `json:"repository_id"`
-	Namespace          string `json:"namespace"`
-	SourceKind         string `json:"source_kind"`
-	Enabled            bool   `json:"enabled"`
-	Status             string `json:"status"`
-	CheckoutPath       string `json:"checkout_path"`
-	CheckoutMode       string `json:"checkout_mode"`
-	AuthoringMode      string `json:"authoring_mode"`
+	RepositoryID  string `json:"repository_id"`
+	Namespace     string `json:"namespace"`
+	SourceKind    string `json:"source_kind"`
+	Enabled       bool   `json:"enabled"`
+	Status        string `json:"status"`
+	CheckoutPath  string `json:"checkout_path"`
+	CheckoutMode  string `json:"checkout_mode"`
+	AuthoringMode string `json:"authoring_mode"`
+	Authoring     struct {
+		Mode                   string `json:"mode"`
+		WriteDefinitions       bool   `json:"write_definitions"`
+		LocalCommits           bool   `json:"local_commits"`
+		ExternalChangeRequests bool   `json:"external_change_requests"`
+		Reason                 string `json:"reason"`
+	} `json:"authoring"`
 	PathExists         bool   `json:"path_exists"`
 	PathIsDirectory    bool   `json:"path_is_directory"`
 	GitRepository      bool   `json:"git_repository"`
@@ -2236,14 +2284,21 @@ func decodeSourceRepositoryStatusResponse(t *testing.T, rec *httptest.ResponseRe
 	t.Helper()
 
 	var out struct {
-		RepositoryID       string `json:"repository_id"`
-		Namespace          string `json:"namespace"`
-		SourceKind         string `json:"source_kind"`
-		Enabled            bool   `json:"enabled"`
-		Status             string `json:"status"`
-		CheckoutPath       string `json:"checkout_path"`
-		CheckoutMode       string `json:"checkout_mode"`
-		AuthoringMode      string `json:"authoring_mode"`
+		RepositoryID  string `json:"repository_id"`
+		Namespace     string `json:"namespace"`
+		SourceKind    string `json:"source_kind"`
+		Enabled       bool   `json:"enabled"`
+		Status        string `json:"status"`
+		CheckoutPath  string `json:"checkout_path"`
+		CheckoutMode  string `json:"checkout_mode"`
+		AuthoringMode string `json:"authoring_mode"`
+		Authoring     struct {
+			Mode                   string `json:"mode"`
+			WriteDefinitions       bool   `json:"write_definitions"`
+			LocalCommits           bool   `json:"local_commits"`
+			ExternalChangeRequests bool   `json:"external_change_requests"`
+			Reason                 string `json:"reason"`
+		} `json:"authoring"`
 		PathExists         bool   `json:"path_exists"`
 		PathIsDirectory    bool   `json:"path_is_directory"`
 		GitRepository      bool   `json:"git_repository"`
