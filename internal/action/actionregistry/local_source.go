@@ -31,6 +31,8 @@ type LocalManifest struct {
 	PortSchema    []PortSpec        `json:"port_schema,omitempty"`
 	LocalOnly     bool              `json:"local_only,omitempty"`
 	Capabilities  []Capability      `json:"capabilities,omitempty"`
+	Status        DescriptorStatus  `json:"status,omitempty"`
+	StatusReason  string            `json:"status_reason,omitempty"`
 }
 
 func NewLocalManifestSource(root string) (*LocalManifestSource, error) {
@@ -242,6 +244,11 @@ func (m LocalManifest) Descriptor(ref Reference) (Descriptor, error) {
 		return Descriptor{}, err
 	}
 
+	status := NormalizeDescriptorStatus(m.Status)
+	if strings.TrimSpace(string(m.Status)) == "" {
+		status = ""
+	}
+
 	descriptor := Descriptor{
 		CanonicalName: strings.TrimSpace(m.Name),
 		DisplayName:   strings.TrimSpace(m.DisplayName),
@@ -254,6 +261,8 @@ func (m LocalManifest) Descriptor(ref Reference) (Descriptor, error) {
 		PortSchema:    append([]PortSpec(nil), m.PortSchema...),
 		LocalOnly:     m.LocalOnly,
 		Capabilities:  append([]Capability(nil), m.Capabilities...),
+		Status:        status,
+		StatusReason:  strings.TrimSpace(m.StatusReason),
 	}
 
 	if descriptor.Digest == "" {
@@ -292,6 +301,10 @@ func (m LocalManifest) validate(ref Reference) error {
 
 	if digest := strings.TrimSpace(m.Digest); digest != "" && !sha256DigestRe.MatchString(digest) {
 		return fmt.Errorf("local action manifest digest %q is invalid", digest)
+	}
+
+	if err := ValidateDescriptorStatus(m.Status); err != nil {
+		return fmt.Errorf("local action manifest status: %w", err)
 	}
 
 	if err := validateLocalRuntime(m.Runtime); err != nil {

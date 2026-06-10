@@ -71,6 +71,17 @@ The API, CLI, cron service, and reconciler use the configured descriptor resolve
 
 Operators can restrict custom actions by namespace, source, and digest pinning policy. For example, `VECTIS_ACTION_REGISTRY_ALLOWED_NAMESPACES=examples` allows `examples/greet@v1`, while `VECTIS_ACTION_REGISTRY_REQUIRE_DIGEST_PINS=true` requires a digest-pinned reference such as `examples/greet@sha256:<64-hex-digest>`.
 
+Descriptors may also carry lifecycle status:
+
+| Status | Behavior |
+| --- | --- |
+| `active` or omitted | Available for validation, new runs, retries, and replays. |
+| `yanked` | Hidden from default discovery and rejected for version-selector references. Digest-pinned historical execution can still proceed. |
+| `revoked` | Blocked for new runs and historical execution. Use for known security or correctness issues. |
+| `purged` | Blocked for new runs and historical execution because the implementation is intentionally unavailable. |
+
+When removing an action because of a vulnerability, keep a tombstone manifest with the old `name`, `version`, `digest`, `runtime`, and `status: "revoked"` or `status: "purged"`. Historical execution envelopes keep frozen action locks for auditability. If the live manifest disappears entirely, workers can still explain and may execute from the frozen descriptor; a tombstone is what deliberately blocks a vulnerable digest.
+
 Use the CLI to inspect configured actions:
 
 ```sh
@@ -88,6 +99,8 @@ If digest pins are already required, use `--ignore-policy` while preparing the p
 ```sh
 ./bin/vectis-cli actions resolve examples/greet@v1 --ignore-policy
 ```
+
+`--ignore-policy` also shows yanked, revoked, and purged tombstones so operators can inspect why an action was removed.
 
 For `runtime: "process"`, set `runtime_config.command` to the command the worker should run. If a worker resolves the descriptor from a local manifest, relative commands run from that manifest's directory. The process receives a sanitized environment plus action metadata and inputs:
 

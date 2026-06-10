@@ -117,6 +117,36 @@ func TestResolveActionIgnorePolicyFindsDigest(t *testing.T) {
 	}
 }
 
+func TestResolveActionReportsRevokedStatus(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	root := t.TempDir()
+	writeCLIRevokedActionManifest(t, root)
+	viper.Set("action_registry.local_roots", []string{root})
+
+	var buf bytes.Buffer
+	err := resolveAction(&buf, "examples/greet@v1", false)
+	if err == nil || !strings.Contains(err.Error(), `action "examples/greet@v1" is revoked: CVE-2026-0001`) {
+		t.Fatalf("resolveAction revoked error = %v, want status error", err)
+	}
+
+	buf.Reset()
+	if err := resolveAction(&buf, "examples/greet@v1", true); err != nil {
+		t.Fatalf("resolveAction ignore policy: %v", err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{
+		"Status:         revoked",
+		"Status reason:  CVE-2026-0001",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestListActionsText(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
@@ -216,6 +246,36 @@ func TestListActionsIgnorePolicyIncludesFilteredActions(t *testing.T) {
 	}
 }
 
+func TestListActionsFiltersRevokedActionsByDefault(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	root := t.TempDir()
+	writeCLIRevokedActionManifest(t, root)
+	viper.Set("action_registry.local_roots", []string{root})
+
+	var buf bytes.Buffer
+	if err := listActions(&buf, false); err != nil {
+		t.Fatalf("listActions: %v", err)
+	}
+
+	if out := buf.String(); strings.Contains(out, "examples/greet") {
+		t.Fatalf("policy-filtered list included revoked action:\n%s", out)
+	}
+
+	buf.Reset()
+	if err := listActions(&buf, true); err != nil {
+		t.Fatalf("listActions ignore policy: %v", err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"examples/greet", "revoked", "CVE-2026-0001"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ignore-policy output missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func writeCLIGreetActionManifest(t *testing.T, root string) {
 	t.Helper()
 
@@ -234,6 +294,30 @@ func writeCLIGreetActionManifest(t *testing.T, root string) {
 			]
 		},
 		"capabilities": ["process_launch"]
+	}`)
+}
+
+func writeCLIRevokedActionManifest(t *testing.T, root string) {
+	t.Helper()
+
+	writeCLIActionManifest(t, root, "examples/greet", `{
+		"schema_version": 1,
+		"name": "examples/greet",
+		"display_name": "Greet",
+		"version": "v1",
+		"digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+		"runtime": "process",
+		"runtime_config": {
+			"command": "echo \"Hello, ${VECTIS_INPUT_NAME}\""
+		},
+		"input_schema": {
+			"fields": [
+				{"name": "name", "type": "string", "required": true}
+			]
+		},
+		"capabilities": ["process_launch"],
+		"status": "revoked",
+		"status_reason": "CVE-2026-0001"
 	}`)
 }
 

@@ -111,6 +111,32 @@ func TestLocalManifestSourceUsesExplicitDigest(t *testing.T) {
 	}
 }
 
+func TestLocalManifestSourceLoadsTombstoneStatus(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	explicitDigest := "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	manifest := localCacheManifest("1.2.3", "")
+	manifest.Digest = explicitDigest
+	manifest.Status = DescriptorStatusRevoked
+	manifest.StatusReason = "CVE-2026-0001"
+	writeLocalManifest(t, root, "acme", "cache", "", manifest)
+
+	source := newLocalManifestSourceForTest(t, root)
+	descriptor, err := source.ResolveDescriptor("acme/cache@" + explicitDigest)
+	if err != nil {
+		t.Fatalf("ResolveDescriptor: %v", err)
+	}
+
+	if descriptor.Digest != explicitDigest {
+		t.Fatalf("descriptor digest: got %q want %q", descriptor.Digest, explicitDigest)
+	}
+
+	if descriptor.LifecycleStatus() != DescriptorStatusRevoked || descriptor.StatusReason != "CVE-2026-0001" {
+		t.Fatalf("descriptor status mismatch: %+v", descriptor)
+	}
+}
+
 func TestLocalManifestSourceListDescriptors(t *testing.T) {
 	t.Parallel()
 
@@ -175,6 +201,7 @@ func TestLocalManifestSourceRejectsInvalidManifest(t *testing.T) {
 		{name: "schema version", manifest: LocalManifest{Name: "acme/cache", Version: "1.2.3", Runtime: RuntimeProcess}, want: "schema_version"},
 		{name: "name mismatch", manifest: LocalManifest{SchemaVersion: 1, Name: "acme/other", Version: "1.2.3", Runtime: RuntimeProcess}, want: "does not match reference"},
 		{name: "builtin runtime", manifest: LocalManifest{SchemaVersion: 1, Name: "acme/cache", Version: "1.2.3", Runtime: RuntimeBuiltin}, want: "reserved for builtins"},
+		{name: "unknown status", manifest: LocalManifest{SchemaVersion: 1, Name: "acme/cache", Version: "1.2.3", Runtime: RuntimeProcess, Status: "retired"}, want: "status"},
 		{
 			name: "duplicate field",
 			manifest: LocalManifest{

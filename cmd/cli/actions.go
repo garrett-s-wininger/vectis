@@ -103,6 +103,11 @@ func writeActionResolveText(w io.Writer, result actionResolveResult) error {
 	fmt.Fprintf(tw, "Digest:\t%s\n", result.Descriptor.Digest)
 	fmt.Fprintf(tw, "Source:\t%s\n", result.Descriptor.Source)
 	fmt.Fprintf(tw, "Runtime:\t%s\n", result.Descriptor.Runtime)
+	fmt.Fprintf(tw, "Status:\t%s\n", result.Descriptor.LifecycleStatus())
+	if result.Descriptor.StatusReason != "" {
+		fmt.Fprintf(tw, "Status reason:\t%s\n", result.Descriptor.StatusReason)
+	}
+
 	if len(result.Descriptor.Capabilities) > 0 {
 		fmt.Fprintf(tw, "Capabilities:\t%s\n", joinCapabilities(result.Descriptor.Capabilities))
 	}
@@ -117,22 +122,29 @@ func writeActionListText(w io.Writer, result actionListResult) error {
 	}
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tVERSION\tSOURCE\tRUNTIME\tDIGEST\tDISPLAY NAME")
+	fmt.Fprintln(tw, "NAME\tVERSION\tSOURCE\tRUNTIME\tSTATUS\tDIGEST\tDISPLAY NAME\tSTATUS REASON")
 	for _, descriptor := range result.Actions {
 		displayName := descriptor.DisplayName
 		if displayName == "" {
 			displayName = "-"
 		}
 
+		statusReason := descriptor.StatusReason
+		if statusReason == "" {
+			statusReason = "-"
+		}
+
 		fmt.Fprintf(
 			tw,
-			"%s\t%s\t%s\t%s\t%s\t%s\n",
+			"%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			descriptor.CanonicalName,
 			descriptor.Version,
 			descriptor.Source,
 			descriptor.Runtime,
+			descriptor.LifecycleStatus(),
 			descriptor.Digest,
 			displayName,
+			statusReason,
 		)
 	}
 

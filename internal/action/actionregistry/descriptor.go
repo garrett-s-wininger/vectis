@@ -28,6 +28,15 @@ const (
 	RuntimeGRPC      RuntimeType = "grpc"
 )
 
+type DescriptorStatus string
+
+const (
+	DescriptorStatusActive  DescriptorStatus = "active"
+	DescriptorStatusYanked  DescriptorStatus = "yanked"
+	DescriptorStatusRevoked DescriptorStatus = "revoked"
+	DescriptorStatusPurged  DescriptorStatus = "purged"
+)
+
 type Capability string
 
 const (
@@ -51,6 +60,8 @@ type Descriptor struct {
 	PortSchema    []PortSpec        `json:"port_schema,omitempty"`
 	LocalOnly     bool              `json:"local_only,omitempty"`
 	Capabilities  []Capability      `json:"capabilities,omitempty"`
+	Status        DescriptorStatus  `json:"status,omitempty"`
+	StatusReason  string            `json:"status_reason,omitempty"`
 }
 
 type InputSchema struct {
@@ -79,6 +90,10 @@ func (d Descriptor) ResolvedReference() string {
 	}
 
 	return d.CanonicalName + "@" + d.Digest
+}
+
+func (d Descriptor) LifecycleStatus() DescriptorStatus {
+	return NormalizeDescriptorStatus(d.Status)
 }
 
 func (d Descriptor) MatchReference(ref Reference) error {

@@ -121,6 +121,8 @@ If action policy already requires digest pins or hides a namespace/source while 
 ./bin/vectis-cli actions resolve examples/greet@v1 --ignore-policy
 ```
 
+`actions list` shows descriptor lifecycle status. Default policy hides yanked, revoked, and purged custom actions. Use `--ignore-policy` to inspect tombstones and status reasons when an action was removed.
+
 Run the repository's hello-world custom action example with:
 
 ```sh

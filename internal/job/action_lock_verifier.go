@@ -1,6 +1,7 @@
 package job
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -76,7 +77,12 @@ func (v *actionLockVerifier) VerifyAction(node *api.Node, path string) error {
 
 	descriptor, err := v.resolver.ResolveDescriptor(uses)
 	if err != nil {
-		return fmt.Errorf("resolve frozen action %q for node %q: %w", uses, nodePath, err)
+		var statusErr *actionregistry.DescriptorStatusError
+		if !errors.As(err, &statusErr) {
+			return nil
+		}
+
+		descriptor = statusErr.Descriptor
 	}
 
 	frozen := lock.Descriptor
@@ -98,6 +104,10 @@ func (v *actionLockVerifier) VerifyAction(node *api.Node, path string) error {
 
 	if descriptor.Digest != frozen.Digest {
 		return fmt.Errorf("node %q resolved action digest changed: got %q, frozen %q", nodePath, descriptor.Digest, frozen.Digest)
+	}
+
+	if err := actionregistry.ValidateFrozenDescriptorExecution(uses, descriptor); err != nil {
+		return fmt.Errorf("node %q frozen action unavailable: %w", nodePath, err)
 	}
 
 	return nil

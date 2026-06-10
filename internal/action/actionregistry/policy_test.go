@@ -57,6 +57,39 @@ func TestPolicyRequiresDigestPinsForCustomActions(t *testing.T) {
 	}
 }
 
+func TestPolicyRejectsYankedVersionSelector(t *testing.T) {
+	t.Parallel()
+
+	descriptor := policyDescriptor("examples/cache")
+	descriptor.Status = DescriptorStatusYanked
+	descriptor.StatusReason = "superseded by v2"
+
+	policy := Policy{}
+	err := policy.Validate(parsePolicyRef(t, "examples/cache@v1"), descriptor)
+	if err == nil || !strings.Contains(err.Error(), `action "examples/cache@v1" is yanked`) {
+		t.Fatalf("Validate yanked version error = %v, want yanked status error", err)
+	}
+
+	ref := parsePolicyRef(t, "examples/cache@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	if err := policy.Validate(ref, descriptor); err != nil {
+		t.Fatalf("Validate yanked digest selector: %v", err)
+	}
+}
+
+func TestPolicyRejectsRevokedActions(t *testing.T) {
+	t.Parallel()
+
+	descriptor := policyDescriptor("examples/cache")
+	descriptor.Status = DescriptorStatusRevoked
+	descriptor.StatusReason = "CVE-2026-0001"
+
+	policy := Policy{}
+	err := policy.Validate(parsePolicyRef(t, "examples/cache@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), descriptor)
+	if err == nil || !strings.Contains(err.Error(), `action "examples/cache@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" is revoked: CVE-2026-0001`) {
+		t.Fatalf("Validate revoked error = %v, want revoked status error", err)
+	}
+}
+
 func TestPolicyResolverAppliesPolicyAfterResolution(t *testing.T) {
 	t.Parallel()
 
@@ -95,6 +128,36 @@ func TestPolicyResolverListDescriptorsFiltersPolicy(t *testing.T) {
 	}
 
 	want := []string{"builtins/shell", "examples/cache"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("listed descriptors = %v, want %v", got, want)
+	}
+}
+
+func TestPolicyResolverListDescriptorsFiltersRemovedActions(t *testing.T) {
+	t.Parallel()
+
+	yanked := policyDescriptor("examples/old")
+	yanked.Status = DescriptorStatusYanked
+	revoked := policyDescriptor("examples/revoked")
+	revoked.Status = DescriptorStatusRevoked
+
+	resolver := NewPolicyResolver(policyMapResolver{
+		"examples/cache@v1":   policyDescriptor("examples/cache"),
+		"examples/old@v1":     yanked,
+		"examples/revoked@v1": revoked,
+	}, Policy{})
+
+	descriptors, err := resolver.ListDescriptors()
+	if err != nil {
+		t.Fatalf("ListDescriptors: %v", err)
+	}
+
+	got := make([]string, 0, len(descriptors))
+	for _, descriptor := range descriptors {
+		got = append(got, descriptor.CanonicalName)
+	}
+
+	want := []string{"examples/cache"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("listed descriptors = %v, want %v", got, want)
 	}

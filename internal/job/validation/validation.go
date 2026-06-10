@@ -8,6 +8,7 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
+	"vectis/internal/action/actionregistry"
 	"vectis/internal/action/builtins"
 	"vectis/internal/dal"
 	"vectis/internal/taskgraph"
@@ -163,7 +164,7 @@ func (v *validator) walk(node *api.Node, path string, depth int, scope string) {
 	if uses == "" {
 		v.add(path+".uses", "is required")
 	} else if resolved, err := v.opts.Resolver.Resolve(uses); err != nil {
-		v.add(path+".uses", fmt.Sprintf("unknown action %q", uses))
+		v.add(path+".uses", resolveActionErrorMessage(uses, err))
 	} else {
 		if fieldErrs := resolved.ValidateWith(taskgraph.ActionWith(node.GetWith())); len(fieldErrs) > 0 {
 			for _, fe := range filterBoundRequiredFieldErrors(fieldErrs, node) {
@@ -179,6 +180,15 @@ func (v *validator) walk(node *api.Node, path string, depth int, scope string) {
 	for _, ref := range scopedChildRefs(node, path, scope) {
 		v.walk(ref.Node, ref.Path, depth+1, ref.Scope)
 	}
+}
+
+func resolveActionErrorMessage(uses string, err error) string {
+	var statusErr *actionregistry.DescriptorStatusError
+	if errors.As(err, &statusErr) {
+		return statusErr.Error()
+	}
+
+	return fmt.Sprintf("unknown action %q", uses)
 }
 
 func (v *validator) validatePorts(path string, node *api.Node, resolved action.Node) {

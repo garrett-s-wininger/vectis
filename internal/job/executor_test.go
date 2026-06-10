@@ -725,6 +725,122 @@ func TestExecutor_ExecuteJob_CustomProcessAction(t *testing.T) {
 	}
 }
 
+func TestExecutor_ExecuteJob_FrozenCustomActionSurvivesRemovedLiveDescriptor(t *testing.T) {
+	executor := job.NewExecutor()
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+	processExecutor := mocks.NewMockExecExecutor()
+	process := mocks.NewMockProcess()
+	process.SetStdout("historical run\n")
+	processExecutor.SetProcess(process)
+
+	lockedDescriptor := actionregistry.Descriptor{
+		CanonicalName: "acme/deploy",
+		Version:       "v1",
+		Digest:        "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+		Source:        actionregistry.SourceLocalFilesystem,
+		Runtime:       actionregistry.RuntimeProcess,
+		RuntimeConfig: map[string]string{"command": "echo historical run"},
+		InputSchema: actionregistry.InputSchema{
+			Fields: []actionregistry.InputField{{
+				Name:     "environment",
+				Type:     action.FieldString,
+				Required: true,
+			}},
+		},
+	}
+
+	testJob := &api.Job{
+		Id:    executorStrp("test-job-removed-action"),
+		RunId: executorStrp("test-run-removed-action"),
+		Root: &api.Node{
+			Id:   executorStrp("root"),
+			Uses: executorStrp("acme/deploy@v1"),
+			With: map[string]string{"environment": "staging"},
+		},
+	}
+
+	locks := []actionregistry.ActionLock{{
+		NodeID:     "root",
+		NodePath:   "root",
+		Uses:       "acme/deploy@v1",
+		Descriptor: lockedDescriptor,
+	}}
+
+	err := executeAndWaitWithOptions(t, executor, testJob, mockLogClient, mockLogger, job.ExecuteOptions{
+		ActionLocks:     locks,
+		ActionResolver:  executorDescriptorResolver{},
+		ProcessExecutor: processExecutor,
+	})
+
+	if err != nil {
+		t.Fatalf("expected frozen descriptor to execute after live removal, got %v", err)
+	}
+
+	chunks := logChunkStrings(mockLogClient.GetChunks())
+	assertLogContains(t, chunks, "Executing node: acme/deploy")
+	assertLogContains(t, chunks, "historical run")
+}
+
+func TestExecutor_ExecuteJob_RevokedFrozenCustomActionIsBlocked(t *testing.T) {
+	executor := job.NewExecutor()
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+	processExecutor := mocks.NewMockExecExecutor()
+	processExecutor.SetProcess(mocks.NewMockProcess())
+
+	lockedDescriptor := actionregistry.Descriptor{
+		CanonicalName: "acme/deploy",
+		Version:       "v1",
+		Digest:        "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+		Source:        actionregistry.SourceLocalFilesystem,
+		Runtime:       actionregistry.RuntimeProcess,
+		RuntimeConfig: map[string]string{"command": "echo should-not-run"},
+		InputSchema: actionregistry.InputSchema{
+			Fields: []actionregistry.InputField{{
+				Name:     "environment",
+				Type:     action.FieldString,
+				Required: true,
+			}},
+		},
+	}
+
+	revokedDescriptor := lockedDescriptor
+	revokedDescriptor.Status = actionregistry.DescriptorStatusRevoked
+	revokedDescriptor.StatusReason = "CVE-2026-0001"
+
+	testJob := &api.Job{
+		Id:    executorStrp("test-job-revoked-action"),
+		RunId: executorStrp("test-run-revoked-action"),
+		Root: &api.Node{
+			Id:   executorStrp("root"),
+			Uses: executorStrp("acme/deploy@v1"),
+			With: map[string]string{"environment": "staging"},
+		},
+	}
+
+	locks := []actionregistry.ActionLock{{
+		NodeID:     "root",
+		NodePath:   "root",
+		Uses:       "acme/deploy@v1",
+		Descriptor: lockedDescriptor,
+	}}
+
+	err := executeAndWaitWithOptions(t, executor, testJob, mockLogClient, mockLogger, job.ExecuteOptions{
+		ActionLocks:     locks,
+		ActionResolver:  executorDescriptorResolver{"acme/deploy@v1": revokedDescriptor},
+		ProcessExecutor: processExecutor,
+	})
+
+	if err == nil || !strings.Contains(err.Error(), "revoked: CVE-2026-0001") {
+		t.Fatalf("expected revoked action error, got %v", err)
+	}
+
+	if got := processExecutor.GetPaths(); len(got) != 0 {
+		t.Fatalf("revoked action started process paths = %v, want none", got)
+	}
+}
+
 func TestExecutor_ExecuteJob_CustomGreetExample(t *testing.T) {
 	executor := job.NewExecutor()
 	mockLogClient := mocks.NewMockLogClient()

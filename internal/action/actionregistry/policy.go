@@ -79,6 +79,10 @@ func (r *PolicyResolver) ListDescriptors() ([]Descriptor, error) {
 
 func (p Policy) Validate(ref Reference, descriptor Descriptor) error {
 	p = normalizePolicy(p)
+	if err := ValidateDescriptorUseForReference(ref, descriptor); err != nil {
+		return err
+	}
+
 	if descriptor.Source == SourceBuiltin || ref.Namespace == "builtins" {
 		return nil
 	}
@@ -105,6 +109,14 @@ func (p Policy) Validate(ref Reference, descriptor Descriptor) error {
 
 func (p Policy) allowsListedDescriptor(descriptor Descriptor) (bool, error) {
 	p = normalizePolicy(p)
+	if err := ValidateDescriptorStatus(descriptor.Status); err != nil {
+		return false, err
+	}
+
+	if descriptor.LifecycleStatus() != DescriptorStatusActive {
+		return false, nil
+	}
+
 	if descriptor.Source == SourceBuiltin {
 		return true, nil
 	}

@@ -56,6 +56,8 @@ The registry returns a descriptor with:
 | `port_schema` | Declarative child-port contract for control-flow actions. |
 | `local_only` | Whether the action can contain only local child execution. |
 | `capabilities` | Declared needs such as process launch, network, workspace read/write, or future secrets access. |
+| `status` | Lifecycle state: active, yanked, revoked, or purged. |
+| `status_reason` | Operator-facing explanation for non-active descriptors. |
 
 Builtin actions are the first registry source. A local filesystem manifest source is the first custom source. Local manifests live under:
 
@@ -68,6 +70,8 @@ The first custom runtime is `process`, which executes out of process through the
 
 The API, CLI, cron service, and reconciler use the configured descriptor resolver. Workers also use it to execute custom actions from frozen action locks. The execution envelope records action locks, and task spec hashes include resolved action digests so task-level retries and repair decisions see implementation changes.
 
+Removing an action is represented as lifecycle metadata, not only as absence. A `yanked` descriptor is hidden from default discovery and rejected for version-selector references, but digest-pinned historical execution may continue. `revoked` and `purged` descriptors block new runs and historical execution. Operators should keep tombstone descriptors with the original digest for vulnerable or intentionally unavailable implementations so old runs remain explainable and blocked by policy. If the live descriptor is absent, frozen action locks remain the audit source for historical runs, but absence alone is not a security revocation.
+
 Resolution policy is configurable by namespace, source, and digest pin requirements. Builtins bypass custom-action namespace/source pinning for compatibility.
 
 ## Consequences
@@ -78,6 +82,7 @@ Resolution policy is configurable by namespace, source, and digest pin requireme
 - Runs, retries, and replays have a stronger audit trail because execution payloads record resolved implementation descriptors.
 - Action descriptor digests become part of the task materialization contract.
 - Operators gain policy controls for custom namespaces, sources, and digest pinning.
+- Removed actions have an explicit tombstone path, so security revocations can block historical execution while preserving audit metadata.
 - Digest verification does not prove publisher identity. Signatures and attestations can layer on the descriptor/package digest later.
 
 ## Open Questions

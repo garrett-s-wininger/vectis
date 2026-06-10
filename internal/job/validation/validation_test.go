@@ -301,6 +301,28 @@ func TestValidateJob_CustomActionResolverValidatesInputSchema(t *testing.T) {
 	}
 }
 
+func TestValidateJob_CustomActionResolverReportsRevokedAction(t *testing.T) {
+	t.Parallel()
+
+	descriptor := deployDescriptor()
+	descriptor.Status = actionregistry.DescriptorStatusRevoked
+	descriptor.StatusReason = "CVE-2026-0001"
+	resolver := validationActionResolver(t, descriptorResolver{"acme/deploy@v1": descriptor})
+	job := &api.Job{
+		Id: strp("job-1"),
+		Root: &api.Node{
+			Id:   strp("root"),
+			Uses: strp("acme/deploy@v1"),
+			With: map[string]string{"environment": "staging"},
+		},
+	}
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true, Resolver: resolver})
+	if err == nil || !strings.Contains(err.Error(), `root.uses: action "acme/deploy@v1" is revoked: CVE-2026-0001`) {
+		t.Fatalf("expected revoked action validation error, got %v", err)
+	}
+}
+
 func TestValidateJob_ShellOutputsField(t *testing.T) {
 	t.Parallel()
 

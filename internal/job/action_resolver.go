@@ -71,8 +71,16 @@ func (r *executableActionResolver) Resolve(uses string) (action.Node, error) {
 		return node, nil
 	}
 
-	descriptor, err := r.descriptorForUses(uses)
+	descriptor, frozen, err := r.descriptorForUses(uses)
 	if err != nil {
+		return nil, err
+	}
+
+	if frozen {
+		if err := actionregistry.ValidateFrozenDescriptorExecution(uses, descriptor); err != nil {
+			return nil, err
+		}
+	} else if err := actionregistry.ValidateDescriptorUse(uses, descriptor); err != nil {
 		return nil, err
 	}
 
@@ -86,21 +94,22 @@ func (r *executableActionResolver) Resolve(uses string) (action.Node, error) {
 	}
 }
 
-func (r *executableActionResolver) descriptorForUses(uses string) (actionregistry.Descriptor, error) {
+func (r *executableActionResolver) descriptorForUses(uses string) (actionregistry.Descriptor, bool, error) {
 	uses = strings.TrimSpace(uses)
 	if _, ok := r.ambiguousFrozen[uses]; ok {
-		return actionregistry.Descriptor{}, fmt.Errorf("multiple frozen descriptors for action reference %q", uses)
+		return actionregistry.Descriptor{}, false, fmt.Errorf("multiple frozen descriptors for action reference %q", uses)
 	}
 
 	if frozen, ok := r.frozenByUses[uses]; ok {
-		return r.enrichFrozenDescriptor(uses, frozen), nil
+		return r.enrichFrozenDescriptor(uses, frozen), true, nil
 	}
 
 	if r.descriptors == nil {
-		return actionregistry.Descriptor{}, fmt.Errorf("no action descriptor resolver configured")
+		return actionregistry.Descriptor{}, false, fmt.Errorf("no action descriptor resolver configured")
 	}
 
-	return r.descriptors.ResolveDescriptor(uses)
+	descriptor, err := r.descriptors.ResolveDescriptor(uses)
+	return descriptor, false, err
 }
 
 func (r *executableActionResolver) enrichFrozenDescriptor(uses string, frozen actionregistry.Descriptor) actionregistry.Descriptor {
