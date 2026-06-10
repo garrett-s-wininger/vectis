@@ -2,10 +2,14 @@ package validation_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/action"
+	"vectis/internal/action/actionregistry"
+	"vectis/internal/job"
 	"vectis/internal/job/validation"
 	"vectis/internal/taskgraph"
 
@@ -38,6 +42,45 @@ func inputRef(node, output string) *api.NodeInput {
 		From: &api.NodeOutputRef{
 			Node:   strp(node),
 			Output: strp(output),
+		},
+	}
+}
+
+type descriptorResolver map[string]actionregistry.Descriptor
+
+func (r descriptorResolver) ResolveDescriptor(uses string) (actionregistry.Descriptor, error) {
+	descriptor, ok := r[uses]
+	if !ok {
+		return actionregistry.Descriptor{}, fmt.Errorf("unknown action: %s", uses)
+	}
+
+	return descriptor, nil
+}
+
+func validationActionResolver(t *testing.T, descriptors descriptorResolver) action.Resolver {
+	t.Helper()
+
+	resolver, err := job.NewActionResolver(descriptors, nil)
+	if err != nil {
+		t.Fatalf("NewActionResolver: %v", err)
+	}
+
+	return resolver
+}
+
+func deployDescriptor() actionregistry.Descriptor {
+	return actionregistry.Descriptor{
+		CanonicalName: "acme/deploy",
+		Version:       "v1",
+		Digest:        "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+		Source:        actionregistry.SourceLocalFilesystem,
+		Runtime:       actionregistry.RuntimeProcess,
+		InputSchema: actionregistry.InputSchema{
+			Fields: []actionregistry.InputField{{
+				Name:     "environment",
+				Type:     action.FieldString,
+				Required: true,
+			}},
 		},
 	}
 }
@@ -207,6 +250,54 @@ func TestValidateJob_ShellValidCommand(t *testing.T) {
 
 	if err := validation.ValidateJob(job, validation.Options{RequireJobID: true}); err != nil {
 		t.Fatalf("expected valid shell job: %v", err)
+	}
+}
+
+func TestValidateJob_BuiltinVersionSelector(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root.Steps[0].Uses = strp("builtins/shell@v1")
+	job.Root.Steps[0].With = map[string]string{"command": "go test ./..."}
+
+	if err := validation.ValidateJob(job, validation.Options{RequireJobID: true}); err != nil {
+		t.Fatalf("expected version-pinned builtin job: %v", err)
+	}
+}
+
+func TestValidateJob_CustomActionResolver(t *testing.T) {
+	t.Parallel()
+
+	resolver := validationActionResolver(t, descriptorResolver{"acme/deploy@v1": deployDescriptor()})
+	job := &api.Job{
+		Id: strp("job-1"),
+		Root: &api.Node{
+			Id:   strp("root"),
+			Uses: strp("acme/deploy@v1"),
+			With: map[string]string{"environment": "staging"},
+		},
+	}
+
+	if err := validation.ValidateJob(job, validation.Options{RequireJobID: true, Resolver: resolver}); err != nil {
+		t.Fatalf("expected descriptor-backed action to validate: %v", err)
+	}
+}
+
+func TestValidateJob_CustomActionResolverValidatesInputSchema(t *testing.T) {
+	t.Parallel()
+
+	resolver := validationActionResolver(t, descriptorResolver{"acme/deploy@v1": deployDescriptor()})
+	job := &api.Job{
+		Id: strp("job-1"),
+		Root: &api.Node{
+			Id:   strp("root"),
+			Uses: strp("acme/deploy@v1"),
+		},
+	}
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true, Resolver: resolver})
+	if err == nil || !strings.Contains(err.Error(), "root.with.environment: is required") {
+		t.Fatalf("expected custom descriptor schema error, got %v", err)
 	}
 }
 
