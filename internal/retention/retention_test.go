@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,6 +36,10 @@ func TestSQLCleanerPreviewDoesNotMutate(t *testing.T) {
 		t.Fatalf("dispatch event candidates: got %d want 3", report.Counts.RunDispatchEvents)
 	}
 
+	if report.Counts.RunArtifacts != 3 {
+		t.Fatalf("artifact manifest candidates: got %d want 3", report.Counts.RunArtifacts)
+	}
+
 	if report.Counts.RunTasks != 3 || report.Counts.TaskAttempts != 3 || report.Counts.RunSegments != 3 || report.Counts.SegmentExecutions != 3 || report.Counts.TaskDispatchIntents != 3 {
 		t.Fatalf("task cascade candidates: %+v", report.Counts)
 	}
@@ -52,6 +57,7 @@ func TestSQLCleanerPreviewDoesNotMutate(t *testing.T) {
 	}
 
 	assertCount(t, db, `SELECT COUNT(*) FROM job_runs`, 6)
+	assertCount(t, db, `SELECT COUNT(*) FROM run_artifacts`, 4)
 	assertCount(t, db, `SELECT COUNT(*) FROM run_tasks`, 4)
 	assertCount(t, db, `SELECT COUNT(*) FROM task_attempts`, 4)
 	assertCount(t, db, `SELECT COUNT(*) FROM run_segments`, 4)
@@ -87,6 +93,10 @@ func TestSQLCleanerApplyDeletesOnlyEligibleState(t *testing.T) {
 		t.Fatalf("deleted job definitions: got %d want 4", report.Counts.JobDefinitions)
 	}
 
+	if report.Counts.RunArtifacts != 3 {
+		t.Fatalf("deleted artifact manifests: got %d want 3", report.Counts.RunArtifacts)
+	}
+
 	if report.Counts.RunTasks != 3 || report.Counts.TaskAttempts != 3 || report.Counts.RunSegments != 3 || report.Counts.SegmentExecutions != 3 || report.Counts.TaskDispatchIntents != 3 {
 		t.Fatalf("deleted task cascade counts mismatch: %+v", report.Counts)
 	}
@@ -95,6 +105,8 @@ func TestSQLCleanerApplyDeletesOnlyEligibleState(t *testing.T) {
 	assertCount(t, db, `SELECT COUNT(*) FROM job_runs WHERE run_id IN ('queued-old', 'running-old', 'new-success')`, 3)
 	assertCount(t, db, `SELECT COUNT(*) FROM run_dispatch_events WHERE run_id IN ('old-success', 'old-failed', 'old-aborted')`, 0)
 	assertCount(t, db, `SELECT COUNT(*) FROM run_dispatch_events WHERE run_id = 'queued-old'`, 1)
+	assertCount(t, db, `SELECT COUNT(*) FROM run_artifacts WHERE run_id IN ('old-success', 'old-failed', 'old-aborted')`, 0)
+	assertCount(t, db, `SELECT COUNT(*) FROM run_artifacts WHERE run_id = 'queued-old'`, 1)
 	assertCount(t, db, `SELECT COUNT(*) FROM run_tasks WHERE run_id IN ('old-success', 'old-failed', 'old-aborted')`, 0)
 	assertCount(t, db, `SELECT COUNT(*) FROM task_attempts WHERE run_id IN ('old-success', 'old-failed', 'old-aborted')`, 0)
 	assertCount(t, db, `SELECT COUNT(*) FROM run_segments WHERE run_id IN ('old-success', 'old-failed', 'old-aborted')`, 0)
@@ -112,6 +124,30 @@ func TestSQLCleanerApplyDeletesOnlyEligibleState(t *testing.T) {
 	assertCount(t, db, `SELECT COUNT(*) FROM audit_log WHERE event_type = 'old.event'`, 0)
 	assertCount(t, db, `SELECT COUNT(*) FROM audit_log WHERE event_type = 'new.event'`, 1)
 	assertCount(t, db, `SELECT COUNT(*) FROM audit_log WHERE event_type = 'retention.cleanup'`, 1)
+}
+
+func TestSQLCleanerReferencedArtifactBlobKeys(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	now := fixedNow()
+	seedRetentionRows(t, db, now)
+
+	cleaner := NewSQLCleaner(db)
+	all, err := cleaner.ReferencedArtifactBlobKeys(ctx)
+	if err != nil {
+		t.Fatalf("referenced keys: %v", err)
+	}
+	if len(all) != 4 || !all["sha256:"+strings.Repeat("a", 64)] || !all["sha256:"+strings.Repeat("d", 64)] {
+		t.Fatalf("unexpected referenced keys: %+v", all)
+	}
+
+	afterTerminalCleanup, err := cleaner.ReferencedArtifactBlobKeysExcludingTerminalRuns(ctx, testPolicy().TerminalRuns, now)
+	if err != nil {
+		t.Fatalf("referenced keys excluding terminal candidates: %v", err)
+	}
+	if len(afterTerminalCleanup) != 1 || !afterTerminalCleanup["sha256:"+strings.Repeat("d", 64)] {
+		t.Fatalf("unexpected post-cleanup referenced keys: %+v", afterTerminalCleanup)
+	}
 }
 
 func TestLocalRunLogCleanerPreviewAndDelete(t *testing.T) {
@@ -152,6 +188,81 @@ func TestLocalRunLogCleanerPreviewAndDelete(t *testing.T) {
 	}
 }
 
+func TestLocalArtifactBlobCleanerPreviewAndDelete(t *testing.T) {
+	dir := t.TempDir()
+	oldUnreferencedDigest := strings.Repeat("a", 64)
+	oldReferencedDigest := strings.Repeat("b", 64)
+	newUnreferencedDigest := strings.Repeat("c", 64)
+	unrelatedDigest := strings.Repeat("d", 64)
+
+	oldUnreferenced := writeArtifactBlobFile(t, dir, oldUnreferencedDigest, []byte("delete-me"), fixedNow().Add(-40*24*time.Hour))
+	oldReferenced := writeArtifactBlobFile(t, dir, oldReferencedDigest, []byte("keep-ref"), fixedNow().Add(-40*24*time.Hour))
+	newUnreferenced := writeArtifactBlobFile(t, dir, newUnreferencedDigest, []byte("keep-new"), fixedNow().Add(-12*time.Hour))
+	unrelated := filepath.Join(dir, "blobs", artifactHashAlgorithm, unrelatedDigest+".blob")
+	if err := os.MkdirAll(filepath.Dir(unrelated), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(unrelated, []byte("wrong-layout"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cutoff := fixedNow().Add(-24 * time.Hour)
+	cleaner := LocalArtifactBlobCleaner{
+		Dir:    dir,
+		Cutoff: &cutoff,
+		ReferencedBlobKeys: map[string]bool{
+			artifactBlobKeyPrefix + oldReferencedDigest: true,
+		},
+	}
+
+	report, err := cleaner.Preview()
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	if report.ArtifactBlobFiles != 1 || report.ArtifactBlobBytes != int64(len("delete-me")) {
+		t.Fatalf("preview report = %+v, want 1 file / %d bytes", report, len("delete-me"))
+	}
+	for _, path := range []string{oldUnreferenced, oldReferenced, newUnreferenced, unrelated} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("preview should keep %s: %v", path, err)
+		}
+	}
+
+	report, err = cleaner.Delete()
+	if err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if report.ArtifactBlobFiles != 1 || report.ArtifactBlobBytes != int64(len("delete-me")) {
+		t.Fatalf("delete report = %+v, want 1 file / %d bytes", report, len("delete-me"))
+	}
+	if _, err := os.Stat(oldUnreferenced); !os.IsNotExist(err) {
+		t.Fatalf("expected unreferenced old blob to be removed, stat err=%v", err)
+	}
+	for _, path := range []string{oldReferenced, newUnreferenced, unrelated} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected %s to remain: %v", path, err)
+		}
+	}
+}
+
+func TestLocalArtifactBlobCleanerDeleteRequiresUnlockedStorage(t *testing.T) {
+	dir := t.TempDir()
+	digest := strings.Repeat("a", 64)
+	writeArtifactBlobFile(t, dir, digest, []byte("delete-me"), fixedNow().Add(-40*24*time.Hour))
+
+	unlock, err := lockArtifactStorageForCleanup(dir)
+	if err != nil {
+		t.Fatalf("lock storage: %v", err)
+	}
+	defer unlock()
+
+	cutoff := fixedNow().Add(-24 * time.Hour)
+	_, err = LocalArtifactBlobCleaner{Dir: dir, Cutoff: &cutoff}.Delete()
+	if err == nil || !strings.Contains(err.Error(), "in use") {
+		t.Fatalf("expected in-use storage error, got %v", err)
+	}
+}
+
 func seedRetentionRows(t *testing.T, db *sql.DB, now time.Time) {
 	t.Helper()
 
@@ -174,6 +285,7 @@ func seedRetentionRows(t *testing.T, db *sql.DB, now time.Time) {
 			t.Fatalf("insert dispatch event %s: %v", runID, err)
 		}
 
+		insertRunArtifact(t, db, runID)
 		insertTaskCascadeRows(t, db, runID)
 	}
 
@@ -198,6 +310,29 @@ func seedRetentionRows(t *testing.T, db *sql.DB, now time.Time) {
 		VALUES ('old.event', '{}', ?), ('new.event', '{}', ?)
 	`, old, recent); err != nil {
 		t.Fatalf("insert audit rows: %v", err)
+	}
+}
+
+func insertRunArtifact(t *testing.T, db *sql.DB, runID string) {
+	t.Helper()
+
+	var digest string
+	switch runID {
+	case "old-success":
+		digest = strings.Repeat("a", 64)
+	case "old-failed":
+		digest = strings.Repeat("b", 64)
+	case "old-aborted":
+		digest = strings.Repeat("c", 64)
+	default:
+		digest = strings.Repeat("d", 64)
+	}
+
+	if _, err := db.Exec(`
+		INSERT INTO run_artifacts (run_id, cell_id, name, path, blob_key, blob_algorithm, blob_digest, size_bytes, artifact_shard_id, created_at, updated_at)
+		VALUES (?, 'local', ?, ?, ?, 'sha256', ?, 4, 'artifact-1', ?, ?)
+	`, runID, "artifact-"+runID, "artifact-"+runID+".txt", "sha256:"+digest, digest, fixedNow().UnixNano(), fixedNow().UnixNano()); err != nil {
+		t.Fatalf("insert run artifact %s: %v", runID, err)
 	}
 }
 
@@ -243,6 +378,22 @@ func insertTaskCascadeRows(t *testing.T, db *sql.DB, runID string) {
 	`, executionID, runID, taskID, attemptID, fixedNow().UnixNano(), fixedNow().UnixNano()); err != nil {
 		t.Fatalf("insert task dispatch intent %s: %v", runID, err)
 	}
+}
+
+func writeArtifactBlobFile(t *testing.T, dir, digest string, data []byte, modTime time.Time) string {
+	t.Helper()
+
+	path := filepath.Join(dir, "blobs", artifactHashAlgorithm, digest[:2], digest[2:4], digest+artifactBlobSuffix)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, modTime, modTime); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func insertRun(t *testing.T, db *sql.DB, runID, jobID, status, finishedAt string) {

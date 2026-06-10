@@ -2,14 +2,18 @@ package retention
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"vectis/internal/database"
@@ -20,8 +24,13 @@ const (
 	DefaultJobDefinitionRetention = 30 * 24 * time.Hour
 	DefaultIdempotencyRetention   = 24 * time.Hour
 	DefaultAuditLogRetention      = 365 * 24 * time.Hour
+	DefaultArtifactBlobRetention  = 30 * 24 * time.Hour
 
 	auditEventRetentionCleanup = "retention.cleanup"
+	artifactBlobKeyPrefix      = "sha256:"
+	artifactBlobSuffix         = ".blob"
+	artifactHashAlgorithm      = "sha256"
+	artifactStorageLockFile    = "artifact.lock"
 	sqlTimeLayout              = "2006-01-02 15:04:05"
 )
 
@@ -32,6 +41,7 @@ type Policy struct {
 	JobDefinitions  time.Duration
 	IdempotencyKeys time.Duration
 	AuditLog        time.Duration
+	ArtifactBlobs   time.Duration
 }
 
 type Cutoffs struct {
@@ -39,11 +49,13 @@ type Cutoffs struct {
 	JobDefinitions  *time.Time
 	IdempotencyKeys *time.Time
 	AuditLog        *time.Time
+	ArtifactBlobs   *time.Time
 }
 
 type Counts struct {
 	TerminalRuns        int64
 	RunDispatchEvents   int64
+	RunArtifacts        int64
 	RunTasks            int64
 	TaskAttempts        int64
 	RunSegments         int64
@@ -62,8 +74,10 @@ type Report struct {
 }
 
 type FileReport struct {
-	RunLogFiles int64
-	RunLogBytes int64
+	RunLogFiles       int64
+	RunLogBytes       int64
+	ArtifactBlobFiles int64
+	ArtifactBlobBytes int64
 }
 
 type SQLCleaner struct {
@@ -76,6 +90,7 @@ func DefaultPolicy() Policy {
 		JobDefinitions:  DefaultJobDefinitionRetention,
 		IdempotencyKeys: DefaultIdempotencyRetention,
 		AuditLog:        DefaultAuditLogRetention,
+		ArtifactBlobs:   DefaultArtifactBlobRetention,
 	}
 }
 
@@ -125,6 +140,7 @@ func (c *SQLCleaner) Apply(ctx context.Context, policy Policy, now time.Time) (R
 			table string
 			label string
 		}{
+			{table: "run_artifacts", label: "run artifacts"},
 			{table: "task_dispatch_intents", label: "task dispatch intents"},
 			{table: "segment_executions", label: "segment executions"},
 			{table: "run_segments", label: "run segments"},
@@ -235,6 +251,59 @@ func (c *SQLCleaner) TerminalRunIDs(ctx context.Context, retention time.Duration
 	return out, nil
 }
 
+func (c *SQLCleaner) ReferencedArtifactBlobKeys(ctx context.Context) (map[string]bool, error) {
+	return c.referencedArtifactBlobKeys(ctx, 0, time.Time{})
+}
+
+func (c *SQLCleaner) ReferencedArtifactBlobKeysExcludingTerminalRuns(ctx context.Context, retention time.Duration, now time.Time) (map[string]bool, error) {
+	return c.referencedArtifactBlobKeys(ctx, retention, now)
+}
+
+func (c *SQLCleaner) referencedArtifactBlobKeys(ctx context.Context, retention time.Duration, now time.Time) (map[string]bool, error) {
+	query := `
+		SELECT DISTINCT blob_key
+		FROM run_artifacts
+		WHERE blob_key <> ''
+	`
+	args := []any{}
+	if retention > 0 {
+		cutoff := now.UTC().Add(-retention)
+		query += `
+			AND run_id NOT IN (
+				SELECT run_id
+				FROM job_runs
+				WHERE status IN ('succeeded', 'failed', 'aborted', 'cancelled', 'abandoned')
+					AND finished_at IS NOT NULL
+					AND finished_at < ?
+			)
+		`
+		args = append(args, sqlTimeParam(cutoff))
+	}
+
+	rows, err := c.db.QueryContext(ctx, rebind(query), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[string]bool)
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, err
+		}
+		key = strings.TrimSpace(key)
+		if key != "" {
+			out[key] = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return out, nil
+}
+
 func (c *SQLCleaner) counts(ctx context.Context, tx *sql.Tx, cutoffs Cutoffs) (Counts, error) {
 	var out Counts
 	var err error
@@ -265,6 +334,11 @@ func (c *SQLCleaner) counts(ctx context.Context, tx *sql.Tx, cutoffs Cutoffs) (C
 		`, sqlTimeParam(*cutoffs.TerminalRuns))
 		if err != nil {
 			return Counts{}, fmt.Errorf("count run dispatch events: %w", err)
+		}
+
+		out.RunArtifacts, err = c.countTerminalRunChildren(ctx, tx, "run_artifacts", *cutoffs.TerminalRuns)
+		if err != nil {
+			return Counts{}, fmt.Errorf("count run artifacts: %w", err)
 		}
 
 		out.RunTasks, err = c.countTerminalRunChildren(ctx, tx, "run_tasks", *cutoffs.TerminalRuns)
@@ -430,6 +504,153 @@ func (c LocalRunLogCleaner) walk(runIDs []string, remove bool) (FileReport, erro
 	return report, nil
 }
 
+type LocalArtifactBlobCleaner struct {
+	Dir                string
+	Cutoff             *time.Time
+	ReferencedBlobKeys map[string]bool
+}
+
+func (c LocalArtifactBlobCleaner) Preview() (FileReport, error) {
+	return c.walk(false)
+}
+
+func (c LocalArtifactBlobCleaner) Delete() (FileReport, error) {
+	return c.walk(true)
+}
+
+func (c LocalArtifactBlobCleaner) walk(remove bool) (FileReport, error) {
+	if c.Dir == "" || c.Cutoff == nil {
+		return FileReport{}, nil
+	}
+
+	root := filepath.Join(c.Dir, "blobs", artifactHashAlgorithm)
+	if _, err := os.Stat(root); err != nil {
+		if os.IsNotExist(err) {
+			return FileReport{}, nil
+		}
+		return FileReport{}, fmt.Errorf("inspect artifact blob storage dir: %w", err)
+	}
+
+	if remove {
+		unlock, err := lockArtifactStorageForCleanup(c.Dir)
+		if err != nil {
+			return FileReport{}, err
+		}
+		defer unlock()
+	}
+
+	var report FileReport
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return fmt.Errorf("walk artifact blob path %s: %w", path, err)
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+
+		key, ok := artifactBlobKeyFromPath(root, path)
+		if !ok || c.ReferencedBlobKeys[key] {
+			return nil
+		}
+
+		info, err := d.Info()
+		if err != nil {
+			return fmt.Errorf("inspect artifact blob %s: %w", path, err)
+		}
+		if !info.ModTime().Before(*c.Cutoff) {
+			return nil
+		}
+
+		report.ArtifactBlobFiles++
+		report.ArtifactBlobBytes += info.Size()
+		if remove {
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("remove artifact blob %s: %w", path, err)
+			}
+			removeEmptyArtifactBlobDirs(root, filepath.Dir(path))
+		}
+
+		return nil
+	})
+	if err != nil {
+		return FileReport{}, err
+	}
+
+	return report, nil
+}
+
+func artifactBlobKeyFromPath(root, path string) (string, bool) {
+	name := filepath.Base(path)
+	if !strings.HasSuffix(name, artifactBlobSuffix) {
+		return "", false
+	}
+
+	digest := strings.TrimSuffix(name, artifactBlobSuffix)
+	if !validArtifactDigest(digest) {
+		return "", false
+	}
+
+	if filepath.Base(filepath.Dir(path)) != digest[2:4] {
+		return "", false
+	}
+	if filepath.Base(filepath.Dir(filepath.Dir(path))) != digest[:2] {
+		return "", false
+	}
+
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", false
+	}
+
+	return artifactBlobKeyPrefix + digest, true
+}
+
+func validArtifactDigest(digest string) bool {
+	if len(digest) != sha256.Size*2 || strings.ToLower(digest) != digest {
+		return false
+	}
+	_, err := hex.DecodeString(digest)
+	return err == nil
+}
+
+func removeEmptyArtifactBlobDirs(root, dir string) {
+	for dir != root && pathWithin(root, dir) {
+		if err := os.Remove(dir); err != nil {
+			return
+		}
+		dir = filepath.Dir(dir)
+	}
+}
+
+func lockArtifactStorageForCleanup(dir string) (func(), error) {
+	path := filepath.Join(dir, artifactStorageLockFile)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("open artifact storage lock %s: %w", path, err)
+	}
+
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = f.Close()
+		if err == syscall.EWOULDBLOCK || err == syscall.EAGAIN {
+			return nil, fmt.Errorf("artifact storage directory %s is in use; stop vectis-artifact or run cleanup during a maintenance window before pruning blobs: %w", dir, err)
+		}
+		return nil, fmt.Errorf("lock artifact storage directory %s: %w", dir, err)
+	}
+
+	return func() {
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		_ = f.Close()
+	}, nil
+}
+
+func pathWithin(root, path string) bool {
+	rel, err := filepath.Rel(root, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
+}
+
 func policyCutoffs(policy Policy, now time.Time) Cutoffs {
 	now = now.UTC()
 	cutoff := func(d time.Duration) *time.Time {
@@ -445,6 +666,7 @@ func policyCutoffs(policy Policy, now time.Time) Cutoffs {
 		JobDefinitions:  cutoff(policy.JobDefinitions),
 		IdempotencyKeys: cutoff(policy.IdempotencyKeys),
 		AuditLog:        cutoff(policy.AuditLog),
+		ArtifactBlobs:   cutoff(policy.ArtifactBlobs),
 	}
 }
 
@@ -481,6 +703,7 @@ func insertCleanupAuditEvent(ctx context.Context, tx *sql.Tx, report Report) err
 		"counts": map[string]int64{
 			"terminal_runs":         report.Counts.TerminalRuns,
 			"run_dispatch_events":   report.Counts.RunDispatchEvents,
+			"run_artifacts":         report.Counts.RunArtifacts,
 			"run_tasks":             report.Counts.RunTasks,
 			"task_attempts":         report.Counts.TaskAttempts,
 			"run_segments":          report.Counts.RunSegments,
@@ -495,6 +718,7 @@ func insertCleanupAuditEvent(ctx context.Context, tx *sql.Tx, report Report) err
 			"job_definitions":  formatCutoff(report.Cutoffs.JobDefinitions),
 			"idempotency_keys": formatCutoff(report.Cutoffs.IdempotencyKeys),
 			"audit_log":        formatCutoff(report.Cutoffs.AuditLog),
+			"artifact_blobs":   formatCutoff(report.Cutoffs.ArtifactBlobs),
 		},
 	})
 	if err != nil {

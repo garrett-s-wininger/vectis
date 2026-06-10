@@ -104,38 +104,43 @@ func TestPrintRetentionReport_includesTaskCascadeCounts(t *testing.T) {
 			JobDefinitions:  &cutoff,
 			IdempotencyKeys: &cutoff,
 			AuditLog:        &cutoff,
+			ArtifactBlobs:   &cutoff,
 		},
 		Counts: retention.Counts{
 			TerminalRuns:        3,
 			RunDispatchEvents:   4,
-			RunTasks:            5,
-			TaskAttempts:        6,
-			RunSegments:         7,
-			SegmentExecutions:   8,
-			TaskDispatchIntents: 9,
-			JobDefinitions:      10,
-			IdempotencyKeys:     11,
-			AuditLog:            12,
+			RunArtifacts:        5,
+			RunTasks:            6,
+			TaskAttempts:        7,
+			RunSegments:         8,
+			SegmentExecutions:   9,
+			TaskDispatchIntents: 10,
+			JobDefinitions:      11,
+			IdempotencyKeys:     12,
+			AuditLog:            13,
 		},
 	}
 
 	var buf bytes.Buffer
-	printRetentionReport(&buf, report, retention.FileReport{RunLogFiles: 13, RunLogBytes: 14})
+	printRetentionReport(&buf, report, retention.FileReport{RunLogFiles: 14, RunLogBytes: 15, ArtifactBlobFiles: 16, ArtifactBlobBytes: 17})
 
 	out := buf.String()
 	for _, want := range []string{
 		"would_delete.terminal_runs=3",
 		"would_delete.run_dispatch_events=4",
-		"would_delete.run_tasks=5",
-		"would_delete.task_attempts=6",
-		"would_delete.run_segments=7",
-		"would_delete.segment_executions=8",
-		"would_delete.task_dispatch_intents=9",
-		"would_delete.job_definitions=10",
-		"would_delete.idempotency_keys=11",
-		"would_delete.audit_log=12",
-		"would_delete.run_log_files=13",
-		"would_delete.run_log_bytes=14",
+		"would_delete.run_artifacts=5",
+		"would_delete.run_tasks=6",
+		"would_delete.task_attempts=7",
+		"would_delete.run_segments=8",
+		"would_delete.segment_executions=9",
+		"would_delete.task_dispatch_intents=10",
+		"would_delete.job_definitions=11",
+		"would_delete.idempotency_keys=12",
+		"would_delete.audit_log=13",
+		"would_delete.run_log_files=14",
+		"would_delete.run_log_bytes=15",
+		"would_delete.artifact_blob_files=16",
+		"would_delete.artifact_blob_bytes=17",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)

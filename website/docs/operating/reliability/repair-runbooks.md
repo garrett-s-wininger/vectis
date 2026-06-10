@@ -164,15 +164,16 @@ vectis-cli retention cleanup --dry-run
 ```
 
 3. Include `--log-storage-dir` only when pruning local durable run log files for the same deployment.
-4. Review delete counts, cutoffs, and backup status before applying.
-5. Apply during a maintenance window:
+4. Include `--artifact-storage-dir` only when pruning local artifact CAS blobs for the same deployment. Apply-time artifact blob pruning requires the artifact storage directory lock, so stop that shard or use a maintenance window.
+5. Review delete counts, cutoffs, and backup status before applying.
+6. Apply during a maintenance window:
 
 ```sh
 vectis-cli retention cleanup --yes
 ```
 
-6. Run `vectis-cli health check --strict`.
-7. Check storage pressure metrics after cleanup.
+7. Run `vectis-cli health check --strict`.
+8. Check storage pressure metrics after cleanup.
 
 ## Manual Run Intervention
 

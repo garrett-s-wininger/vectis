@@ -48,35 +48,37 @@ func showCommandHelp(cmd *cobra.Command, args []string) {
 }
 
 var (
-	podmanNetwork      string
-	podmanProfile      string
-	podmanKubeSpec     string
-	podmanGrafanaSpec  string
-	podmanRenderOut    string
-	resetYes           bool
-	resetDryRun        bool
-	retentionYes       bool
-	retentionDryRun    bool
-	retentionRunAge    time.Duration
-	retentionDefAge    time.Duration
-	retentionIdemAge   time.Duration
-	retentionAuditAge  time.Duration
-	retentionLogDir    string
-	runListJobID       string
-	runListLimit       int
-	runListCursor      int
-	runListCellID      string
-	runTasksLimit      int
-	runTasksCursor     int
-	runArtifactsLimit  int
-	runArtifactsCursor int
-	runArtifactOutput  string
-	runReplayCellID    string
-	runReplayIdemKey   string
-	triggerIdemKey     string
-	triggerCellIDs     []string
-	runIdemKey         string
-	runCellID          string
+	podmanNetwork        string
+	podmanProfile        string
+	podmanKubeSpec       string
+	podmanGrafanaSpec    string
+	podmanRenderOut      string
+	resetYes             bool
+	resetDryRun          bool
+	retentionYes         bool
+	retentionDryRun      bool
+	retentionRunAge      time.Duration
+	retentionDefAge      time.Duration
+	retentionIdemAge     time.Duration
+	retentionAuditAge    time.Duration
+	retentionLogDir      string
+	retentionArtifactAge time.Duration
+	retentionArtifactDir string
+	runListJobID         string
+	runListLimit         int
+	runListCursor        int
+	runListCellID        string
+	runTasksLimit        int
+	runTasksCursor       int
+	runArtifactsLimit    int
+	runArtifactsCursor   int
+	runArtifactOutput    string
+	runReplayCellID      string
+	runReplayIdemKey     string
+	triggerIdemKey       string
+	triggerCellIDs       []string
+	runIdemKey           string
+	runCellID            string
 )
 
 var rootCmd = &cobra.Command{
@@ -214,6 +216,8 @@ func init() {
 	retentionCleanupCmd.Flags().DurationVar(&retentionIdemAge, "idempotency-age", defaultRetention.IdempotencyKeys, "Delete idempotency keys older than this duration (0 disables)")
 	retentionCleanupCmd.Flags().DurationVar(&retentionAuditAge, "audit-age", defaultRetention.AuditLog, "Delete audit log rows older than this duration (0 disables)")
 	retentionCleanupCmd.Flags().StringVar(&retentionLogDir, "log-storage-dir", "", "Optional durable run log directory to prune for deleted terminal runs")
+	retentionCleanupCmd.Flags().DurationVar(&retentionArtifactAge, "artifact-blob-age", defaultRetention.ArtifactBlobs, "Delete unreferenced artifact blobs older than this duration when --artifact-storage-dir is set (0 disables)")
+	retentionCleanupCmd.Flags().StringVar(&retentionArtifactDir, "artifact-storage-dir", "", "Optional durable artifact storage directory to prune unreferenced blobs")
 	retentionCmd.AddCommand(retentionCleanupCmd)
 	rootCmd.AddCommand(retentionCmd)
 }
