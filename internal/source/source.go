@@ -9,6 +9,7 @@ import (
 var (
 	ErrInvalidReference  = errors.New("invalid source reference")
 	ErrInvalidDefinition = errors.New("invalid source definition")
+	ErrConflict          = errors.New("source conflict")
 	ErrNotFound          = errors.New("source not found")
 	ErrTooLarge          = errors.New("source file too large")
 )
@@ -100,4 +101,20 @@ type File struct {
 	Revision Revision
 	BlobSHA  string
 	Content  []byte
+}
+
+type CommitFileOptions struct {
+	Ref          string
+	Path         string
+	Content      []byte
+	Message      string
+	ExpectedHead string
+}
+
+type FileCommit struct {
+	RequestedRef string
+	Commit       string
+	ParentCommit string
+	Path         string
+	BlobSHA      string
 }

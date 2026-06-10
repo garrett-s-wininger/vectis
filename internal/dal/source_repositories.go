@@ -27,12 +27,13 @@ func (r *SQLSourcesRepository) CreateRepository(ctx context.Context, rec SourceR
 			source_kind,
 			checkout_path,
 			checkout_mode,
+			authoring_mode,
 			canonical_url,
 			default_ref,
 			credential_ref,
 			enabled
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id
 	`),
 		newGlobalID(),
@@ -41,6 +42,7 @@ func (r *SQLSourcesRepository) CreateRepository(ctx context.Context, rec SourceR
 		rec.SourceKind,
 		rec.CheckoutPath,
 		rec.CheckoutMode,
+		rec.AuthoringMode,
 		rec.CanonicalURL,
 		rec.DefaultRef,
 		rec.CredentialRef,
@@ -64,6 +66,7 @@ func (r *SQLSourcesRepository) UpdateRepository(ctx context.Context, rec SourceR
 			source_kind = ?,
 			checkout_path = ?,
 			checkout_mode = ?,
+			authoring_mode = ?,
 			canonical_url = ?,
 			default_ref = ?,
 			credential_ref = ?,
@@ -74,6 +77,7 @@ func (r *SQLSourcesRepository) UpdateRepository(ctx context.Context, rec SourceR
 		rec.SourceKind,
 		rec.CheckoutPath,
 		rec.CheckoutMode,
+		rec.AuthoringMode,
 		rec.CanonicalURL,
 		rec.DefaultRef,
 		rec.CredentialRef,
@@ -217,6 +221,7 @@ func (r *SQLSourcesRepository) GetRepository(ctx context.Context, repositoryID s
 			source_kind,
 			checkout_path,
 			COALESCE(checkout_mode, ''),
+			COALESCE(authoring_mode, ''),
 			canonical_url,
 			default_ref,
 			credential_ref,
@@ -252,6 +257,7 @@ func (r *SQLSourcesRepository) ListRepositories(ctx context.Context, namespaceID
 			source_kind,
 			checkout_path,
 			COALESCE(checkout_mode, ''),
+			COALESCE(authoring_mode, ''),
 			canonical_url,
 			default_ref,
 			credential_ref,
@@ -293,6 +299,7 @@ func normalizeSourceRepositoryRecord(rec SourceRepositoryRecord) (SourceReposito
 	rec.SourceKind = strings.TrimSpace(rec.SourceKind)
 	rec.CheckoutPath = strings.TrimSpace(rec.CheckoutPath)
 	rec.CheckoutMode = strings.TrimSpace(rec.CheckoutMode)
+	rec.AuthoringMode = strings.TrimSpace(rec.AuthoringMode)
 	rec.CanonicalURL = strings.TrimSpace(rec.CanonicalURL)
 	rec.DefaultRef = strings.TrimSpace(rec.DefaultRef)
 	rec.CredentialRef = strings.TrimSpace(rec.CredentialRef)
@@ -319,6 +326,18 @@ func normalizeSourceRepositoryRecord(rec SourceRepositoryRecord) (SourceReposito
 
 	if !validSourceCheckoutMode(rec.CheckoutMode) {
 		return SourceRepositoryRecord{}, fmt.Errorf("%w: unsupported checkout_mode %q", ErrConflict, rec.CheckoutMode)
+	}
+
+	if rec.AuthoringMode == "" {
+		rec.AuthoringMode = SourceAuthoringModeReadOnly
+	}
+
+	if !validSourceAuthoringMode(rec.AuthoringMode) {
+		return SourceRepositoryRecord{}, fmt.Errorf("%w: unsupported authoring_mode %q", ErrConflict, rec.AuthoringMode)
+	}
+
+	if rec.AuthoringMode == SourceAuthoringModeLocalCommit && rec.CheckoutMode != SourceCheckoutModeManaged {
+		return SourceRepositoryRecord{}, fmt.Errorf("%w: authoring_mode %q requires checkout_mode %q", ErrConflict, rec.AuthoringMode, SourceCheckoutModeManaged)
 	}
 
 	if rec.CheckoutPath == "" {
@@ -377,6 +396,15 @@ func normalizeSourceRepositorySyncRecord(rec SourceRepositorySyncRecord) (Source
 func validSourceCheckoutMode(mode string) bool {
 	switch mode {
 	case SourceCheckoutModeExternal, SourceCheckoutModeManaged:
+		return true
+	default:
+		return false
+	}
+}
+
+func validSourceAuthoringMode(mode string) bool {
+	switch mode {
+	case SourceAuthoringModeReadOnly, SourceAuthoringModeLocalCommit, SourceAuthoringModeExternalChangeRequest:
 		return true
 	default:
 		return false
@@ -697,6 +725,7 @@ func (r *SQLSourcesRepository) scanRepositoryRow(row *sql.Row) (SourceRepository
 		&rec.SourceKind,
 		&rec.CheckoutPath,
 		&rec.CheckoutMode,
+		&rec.AuthoringMode,
 		&rec.CanonicalURL,
 		&rec.DefaultRef,
 		&rec.CredentialRef,
@@ -722,6 +751,9 @@ func (r *SQLSourcesRepository) scanRepositoryRow(row *sql.Row) (SourceRepository
 	if rec.CheckoutMode == "" {
 		rec.CheckoutMode = SourceCheckoutModeExternal
 	}
+	if rec.AuthoringMode == "" {
+		rec.AuthoringMode = SourceAuthoringModeReadOnly
+	}
 
 	if rec.SyncStatus == "" {
 		rec.SyncStatus = SourceSyncStatusNever
@@ -741,6 +773,7 @@ func (r *SQLSourcesRepository) scanRepositoryRows(rows *sql.Rows) (SourceReposit
 		&rec.SourceKind,
 		&rec.CheckoutPath,
 		&rec.CheckoutMode,
+		&rec.AuthoringMode,
 		&rec.CanonicalURL,
 		&rec.DefaultRef,
 		&rec.CredentialRef,
@@ -763,6 +796,9 @@ func (r *SQLSourcesRepository) scanRepositoryRows(rows *sql.Rows) (SourceReposit
 	rec.Enabled = enabled
 	if rec.CheckoutMode == "" {
 		rec.CheckoutMode = SourceCheckoutModeExternal
+	}
+	if rec.AuthoringMode == "" {
+		rec.AuthoringMode = SourceAuthoringModeReadOnly
 	}
 
 	if rec.SyncStatus == "" {

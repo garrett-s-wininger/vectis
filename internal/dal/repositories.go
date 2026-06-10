@@ -108,6 +108,10 @@ const (
 	SourceCheckoutModeExternal = "external"
 	SourceCheckoutModeManaged  = "managed"
 
+	SourceAuthoringModeReadOnly              = "read_only"
+	SourceAuthoringModeLocalCommit           = "local_commit"
+	SourceAuthoringModeExternalChangeRequest = "external_change_request"
+
 	SourceSyncStatusNever     = "never"
 	SourceSyncStatusRunning   = "running"
 	SourceSyncStatusSucceeded = "succeeded"
@@ -138,6 +142,7 @@ type SourceRepositoryRecord struct {
 	SourceKind             string
 	CheckoutPath           string
 	CheckoutMode           string
+	AuthoringMode          string
 	CanonicalURL           string
 	DefaultRef             string
 	CredentialRef          string

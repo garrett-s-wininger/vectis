@@ -45,13 +45,14 @@ func TestAPIServer_SourceBackedJobLifecycle(t *testing.T) {
 	}
 
 	var repoResp struct {
-		RepositoryID string `json:"repository_id"`
-		Namespace    string `json:"namespace"`
-		SourceKind   string `json:"source_kind"`
-		CheckoutPath string `json:"checkout_path"`
-		CheckoutMode string `json:"checkout_mode"`
-		Enabled      bool   `json:"enabled"`
-		Sync         struct {
+		RepositoryID  string `json:"repository_id"`
+		Namespace     string `json:"namespace"`
+		SourceKind    string `json:"source_kind"`
+		CheckoutPath  string `json:"checkout_path"`
+		CheckoutMode  string `json:"checkout_mode"`
+		AuthoringMode string `json:"authoring_mode"`
+		Enabled       bool   `json:"enabled"`
+		Sync          struct {
 			Status string `json:"status"`
 		} `json:"sync"`
 	}
@@ -65,6 +66,7 @@ func TestAPIServer_SourceBackedJobLifecycle(t *testing.T) {
 		repoResp.SourceKind != dal.SourceKindLocalCheckout ||
 		repoResp.CheckoutPath != repoPath ||
 		repoResp.CheckoutMode != dal.SourceCheckoutModeExternal ||
+		repoResp.AuthoringMode != dal.SourceAuthoringModeReadOnly ||
 		repoResp.Sync.Status != dal.SourceSyncStatusNever ||
 		!repoResp.Enabled {
 		t.Fatalf("repository response mismatch: %+v", repoResp)
@@ -1144,6 +1146,150 @@ func TestAPIServer_SyncManagedSourceRepositoryClonesAndFetches(t *testing.T) {
 	}
 }
 
+func TestAPIServer_PutManagedSourceRepositoryJobDefinitionCommitsDefinition(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	checkoutRoot := t.TempDir()
+	viper.Set("source.checkout_root", checkoutRoot)
+
+	server, _, _, db := setupTestServer(t)
+	repos := dal.NewSQLRepositories(db)
+	handler := server.Handler()
+	remotePath := initAPIGitRepo(t)
+	writeAPIFileAndCommit(t, remotePath, "README.md", "managed source\n", "readme")
+
+	registerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
+		"repository_id": "managed-repo",
+		"source_kind":   dal.SourceKindLocalCheckout,
+		"checkout_mode": dal.SourceCheckoutModeManaged,
+		"canonical_url": remotePath,
+		"default_ref":   "HEAD",
+	})
+
+	if registerRec.Code != http.StatusCreated {
+		t.Fatalf("register managed source repository: status=%d body=%s", registerRec.Code, registerRec.Body.String())
+	}
+
+	registerResp := decodeSourceRepositoryResponse(t, registerRec)
+
+	syncRec := httptest.NewRecorder()
+	syncReq := httptest.NewRequest(http.MethodPost, "/api/v1/source-repositories/managed-repo/sync", nil)
+	handler.ServeHTTP(syncRec, syncReq)
+	if syncRec.Code != http.StatusOK {
+		t.Fatalf("sync managed source repository: status=%d body=%s", syncRec.Code, syncRec.Body.String())
+	}
+
+	readOnlyRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/managed-repo/jobs/build/definition", map[string]any{
+		"definition": map[string]any{
+			"root": map[string]any{
+				"id":   "root",
+				"uses": "builtins/shell",
+				"with": map[string]any{"command": "blocked"},
+			},
+		},
+	})
+
+	assertAPIError(t, readOnlyRec, http.StatusConflict, "source_authoring_unavailable")
+	enableAuthoringRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/managed-repo", map[string]any{
+		"authoring_mode": dal.SourceAuthoringModeLocalCommit,
+	})
+
+	if enableAuthoringRec.Code != http.StatusOK {
+		t.Fatalf("enable local source authoring: status=%d body=%s", enableAuthoringRec.Code, enableAuthoringRec.Body.String())
+	}
+
+	enableAuthoringResp := decodeSourceRepositoryResponse(t, enableAuthoringRec)
+	if enableAuthoringResp.AuthoringMode != dal.SourceAuthoringModeLocalCommit {
+		t.Fatalf("enable local authoring response mismatch: %+v", enableAuthoringResp)
+	}
+
+	parent := apiGitOutput(t, registerResp.CheckoutPath, "rev-parse", "HEAD")
+	writeRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/managed-repo/jobs/build/definition", map[string]any{
+		"expected_head": parent,
+		"message":       "add build definition",
+		"definition": map[string]any{
+			"root": map[string]any{
+				"id":   "root",
+				"uses": "builtins/shell",
+				"with": map[string]any{"command": "authored"},
+			},
+		},
+	})
+
+	if writeRec.Code != http.StatusOK {
+		t.Fatalf("put managed source job definition: status=%d body=%s", writeRec.Code, writeRec.Body.String())
+	}
+
+	writeResp := decodeSourceRepositoryJobDefinitionResponse(t, writeRec)
+	if writeResp.JobID != "build" ||
+		writeResp.DefinitionHash == "" ||
+		writeResp.Source.RepositoryID != "managed-repo" ||
+		writeResp.Source.RequestedRef != "HEAD" ||
+		writeResp.Source.ResolvedCommit == "" ||
+		writeResp.Source.ResolvedCommit == parent ||
+		writeResp.Source.Path != ".vectis/jobs/build.json" ||
+		writeResp.Source.BlobSHA == "" {
+		t.Fatalf("put managed source job definition response mismatch: %+v parent=%s", writeResp, parent)
+	}
+
+	if head := apiGitOutput(t, registerResp.CheckoutPath, "rev-parse", "HEAD"); head != writeResp.Source.ResolvedCommit {
+		t.Fatalf("managed checkout HEAD: got %q, want %q", head, writeResp.Source.ResolvedCommit)
+	}
+
+	if _, err := repos.Jobs().GetNamespaceID(context.Background(), "build"); !dal.IsNotFound(err) {
+		t.Fatalf("source definition authoring should not create stored job row, got err=%v", err)
+	}
+
+	readRec := httptest.NewRecorder()
+	readReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/managed-repo/jobs/build/definition?ref="+writeResp.Source.ResolvedCommit, nil)
+	handler.ServeHTTP(readRec, readReq)
+	if readRec.Code != http.StatusOK {
+		t.Fatalf("read authored source definition: status=%d body=%s", readRec.Code, readRec.Body.String())
+	}
+
+	readResp := decodeSourceRepositoryJobDefinitionResponse(t, readRec)
+	if readResp.DefinitionHash != writeResp.DefinitionHash || readResp.Source.ResolvedCommit != writeResp.Source.ResolvedCommit {
+		t.Fatalf("read authored source definition mismatch: write=%+v read=%+v", writeResp, readResp)
+	}
+
+	var job api.Job
+	if err := json.Unmarshal(readResp.Definition, &job); err != nil {
+		t.Fatalf("read authored definition JSON: %v", err)
+	}
+
+	if job.GetRoot().GetWith()["command"] != "authored" {
+		t.Fatalf("authored definition command: got %+v", job.GetRoot().GetWith())
+	}
+
+	triggerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/managed-repo/jobs/build/trigger", map[string]any{
+		"ref": writeResp.Source.ResolvedCommit,
+	})
+
+	if triggerRec.Code != http.StatusAccepted {
+		t.Fatalf("trigger authored source definition: status=%d body=%s", triggerRec.Code, triggerRec.Body.String())
+	}
+
+	triggerResp := decodeSourceJobTriggerResponse(t, triggerRec)
+	if triggerResp.Source.ResolvedCommit != writeResp.Source.ResolvedCommit || triggerResp.Source.BlobSHA != writeResp.Source.BlobSHA {
+		t.Fatalf("trigger authored source definition provenance mismatch: %+v write=%+v", triggerResp, writeResp)
+	}
+
+	staleRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/managed-repo/jobs/build/definition", map[string]any{
+		"expected_head": parent,
+		"definition": map[string]any{
+			"root": map[string]any{
+				"id":   "root",
+				"uses": "builtins/shell",
+				"with": map[string]any{"command": "stale"},
+			},
+		},
+	})
+
+	assertAPIError(t, staleRec, http.StatusConflict, "source_conflict")
+}
+
 func TestAPIServer_TriggerManagedSourceRepositoryJobCreatesRunSnapshot(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 	viper.Reset()
@@ -1599,6 +1745,7 @@ func TestAPIServer_UpdateSourceRepository(t *testing.T) {
 	commit := apiGitOutput(t, repoPath, "rev-parse", "HEAD")
 	updateBody := map[string]any{
 		"checkout_mode":  dal.SourceCheckoutModeManaged,
+		"authoring_mode": dal.SourceAuthoringModeExternalChangeRequest,
 		"default_ref":    commit,
 		"canonical_url":  "https://example.invalid/vectis.git",
 		"credential_ref": "secret://git/vectis",
@@ -1614,6 +1761,7 @@ func TestAPIServer_UpdateSourceRepository(t *testing.T) {
 		RepositoryID  string `json:"repository_id"`
 		CheckoutPath  string `json:"checkout_path"`
 		CheckoutMode  string `json:"checkout_mode"`
+		AuthoringMode string `json:"authoring_mode"`
 		CanonicalURL  string `json:"canonical_url"`
 		DefaultRef    string `json:"default_ref"`
 		CredentialRef string `json:"credential_ref"`
@@ -1630,6 +1778,7 @@ func TestAPIServer_UpdateSourceRepository(t *testing.T) {
 	if updateResp.RepositoryID != "vectis-local" ||
 		updateResp.CheckoutPath != repoPath ||
 		updateResp.CheckoutMode != dal.SourceCheckoutModeManaged ||
+		updateResp.AuthoringMode != dal.SourceAuthoringModeExternalChangeRequest ||
 		updateResp.CanonicalURL != "https://example.invalid/vectis.git" ||
 		updateResp.DefaultRef != commit ||
 		updateResp.CredentialRef != "secret://git/vectis" ||
@@ -1675,6 +1824,19 @@ func TestAPIServer_UpdateSourceRepository(t *testing.T) {
 	})
 
 	assertAPIError(t, invalidModeRec, http.StatusBadRequest, "unsupported_checkout_mode")
+
+	invalidAuthoringModeRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/vectis-local", map[string]any{
+		"authoring_mode": "magic",
+	})
+
+	assertAPIError(t, invalidAuthoringModeRec, http.StatusBadRequest, "unsupported_authoring_mode")
+
+	incompatibleAuthoringModeRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/vectis-local", map[string]any{
+		"checkout_mode":  dal.SourceCheckoutModeExternal,
+		"authoring_mode": dal.SourceAuthoringModeLocalCommit,
+	})
+
+	assertAPIError(t, incompatibleAuthoringModeRec, http.StatusBadRequest, "incompatible_authoring_mode")
 }
 
 func TestAPIServer_UpdateSourceRepositoryRejectsDuplicateCheckoutPath(t *testing.T) {
@@ -1901,6 +2063,7 @@ func decodeSourceRepositoryResponse(t *testing.T, rec *httptest.ResponseRecorder
 	SourceKind    string `json:"source_kind"`
 	CheckoutPath  string `json:"checkout_path"`
 	CheckoutMode  string `json:"checkout_mode"`
+	AuthoringMode string `json:"authoring_mode"`
 	CanonicalURL  string `json:"canonical_url"`
 	DefaultRef    string `json:"default_ref"`
 	CredentialRef string `json:"credential_ref"`
@@ -1922,6 +2085,7 @@ func decodeSourceRepositoryResponse(t *testing.T, rec *httptest.ResponseRecorder
 		SourceKind    string `json:"source_kind"`
 		CheckoutPath  string `json:"checkout_path"`
 		CheckoutMode  string `json:"checkout_mode"`
+		AuthoringMode string `json:"authoring_mode"`
 		CanonicalURL  string `json:"canonical_url"`
 		DefaultRef    string `json:"default_ref"`
 		CredentialRef string `json:"credential_ref"`
@@ -2047,6 +2211,7 @@ func decodeSourceRepositoryStatusResponse(t *testing.T, rec *httptest.ResponseRe
 	Status             string `json:"status"`
 	CheckoutPath       string `json:"checkout_path"`
 	CheckoutMode       string `json:"checkout_mode"`
+	AuthoringMode      string `json:"authoring_mode"`
 	PathExists         bool   `json:"path_exists"`
 	PathIsDirectory    bool   `json:"path_is_directory"`
 	GitRepository      bool   `json:"git_repository"`
@@ -2078,6 +2243,7 @@ func decodeSourceRepositoryStatusResponse(t *testing.T, rec *httptest.ResponseRe
 		Status             string `json:"status"`
 		CheckoutPath       string `json:"checkout_path"`
 		CheckoutMode       string `json:"checkout_mode"`
+		AuthoringMode      string `json:"authoring_mode"`
 		PathExists         bool   `json:"path_exists"`
 		PathIsDirectory    bool   `json:"path_is_directory"`
 		GitRepository      bool   `json:"git_repository"`

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	api "vectis/api/gen/go"
 	"vectis/internal/api/audit"
 	"vectis/internal/api/authn"
 	"vectis/internal/api/authz"
@@ -29,6 +30,7 @@ type sourceRepositoryRequest struct {
 	SourceKind    string `json:"source_kind"`
 	CheckoutPath  string `json:"checkout_path"`
 	CheckoutMode  string `json:"checkout_mode"`
+	AuthoringMode string `json:"authoring_mode"`
 	CanonicalURL  string `json:"canonical_url"`
 	DefaultRef    string `json:"default_ref"`
 	CredentialRef string `json:"credential_ref"`
@@ -39,6 +41,7 @@ type sourceRepositoryUpdateRequest struct {
 	SourceKind    *string `json:"source_kind"`
 	CheckoutPath  *string `json:"checkout_path"`
 	CheckoutMode  *string `json:"checkout_mode"`
+	AuthoringMode *string `json:"authoring_mode"`
 	CanonicalURL  *string `json:"canonical_url"`
 	DefaultRef    *string `json:"default_ref"`
 	CredentialRef *string `json:"credential_ref"`
@@ -51,6 +54,7 @@ type sourceRepositoryResponse struct {
 	SourceKind    string                       `json:"source_kind"`
 	CheckoutPath  string                       `json:"checkout_path,omitempty"`
 	CheckoutMode  string                       `json:"checkout_mode"`
+	AuthoringMode string                       `json:"authoring_mode"`
 	CanonicalURL  string                       `json:"canonical_url,omitempty"`
 	DefaultRef    string                       `json:"default_ref,omitempty"`
 	CredentialRef string                       `json:"credential_ref,omitempty"`
@@ -74,6 +78,7 @@ type sourceRepositoryStatusResponse struct {
 	Enabled            bool                         `json:"enabled"`
 	Status             string                       `json:"status"`
 	CheckoutMode       string                       `json:"checkout_mode"`
+	AuthoringMode      string                       `json:"authoring_mode"`
 	CheckoutPath       string                       `json:"checkout_path,omitempty"`
 	PathExists         bool                         `json:"path_exists"`
 	PathIsDirectory    bool                         `json:"path_is_directory"`
@@ -185,6 +190,15 @@ type jobSourceRequest struct {
 type sourceDefinitionRequest struct {
 	Ref  string `json:"ref"`
 	Path string `json:"path"`
+}
+
+type sourceRepositoryJobDefinitionWriteRequest struct {
+	Ref          string          `json:"ref"`
+	Branch       string          `json:"branch"`
+	Path         string          `json:"path"`
+	Message      string          `json:"message"`
+	ExpectedHead string          `json:"expected_head"`
+	Definition   json.RawMessage `json:"definition"`
 }
 
 type sourceDefinitionsImportRequest struct {
@@ -310,6 +324,7 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 	req.SourceKind = strings.TrimSpace(req.SourceKind)
 	req.CheckoutPath = strings.TrimSpace(req.CheckoutPath)
 	req.CheckoutMode = strings.TrimSpace(req.CheckoutMode)
+	req.AuthoringMode = strings.TrimSpace(req.AuthoringMode)
 	req.CanonicalURL = strings.TrimSpace(req.CanonicalURL)
 	req.DefaultRef = strings.TrimSpace(req.DefaultRef)
 	req.CredentialRef = strings.TrimSpace(req.CredentialRef)
@@ -320,6 +335,10 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 
 	if req.CheckoutMode == "" {
 		req.CheckoutMode = dal.SourceCheckoutModeExternal
+	}
+
+	if req.AuthoringMode == "" {
+		req.AuthoringMode = dal.SourceAuthoringModeReadOnly
 	}
 
 	if req.RepositoryID == "" {
@@ -334,6 +353,16 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 
 	if !validSourceCheckoutMode(req.CheckoutMode) {
 		writeAPIError(w, http.StatusBadRequest, "unsupported_checkout_mode", "checkout_mode is not supported", nil)
+		return
+	}
+
+	if !validSourceAuthoringMode(req.AuthoringMode) {
+		writeAPIError(w, http.StatusBadRequest, "unsupported_authoring_mode", "authoring_mode is not supported", nil)
+		return
+	}
+
+	if !sourceAuthoringModeCompatible(req.AuthoringMode, req.CheckoutMode) {
+		writeAPIError(w, http.StatusBadRequest, "incompatible_authoring_mode", "authoring_mode is not compatible with checkout_mode", nil)
 		return
 	}
 
@@ -400,6 +429,7 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 		SourceKind:    req.SourceKind,
 		CheckoutPath:  req.CheckoutPath,
 		CheckoutMode:  req.CheckoutMode,
+		AuthoringMode: req.AuthoringMode,
 		CanonicalURL:  req.CanonicalURL,
 		DefaultRef:    req.DefaultRef,
 		CredentialRef: req.CredentialRef,
@@ -870,6 +900,137 @@ func (s *APIServer) GetSourceRepositoryJobDefinition(w http.ResponseWriter, r *h
 			ResolvedCommit: loaded.Source.Commit,
 			Path:           loaded.Source.Path,
 			BlobSHA:        loaded.Source.BlobSHA,
+		},
+	})
+}
+
+func (s *APIServer) PutSourceRepositoryJobDefinition(w http.ResponseWriter, r *http.Request) {
+	jobID := strings.TrimSpace(r.PathValue("job_id"))
+	if jobID == "" {
+		writeAPIError(w, http.StatusBadRequest, "missing_job_id", "job_id is required", nil)
+		return
+	}
+
+	if !requestContentTypeIsJSON(r) {
+		writeAPIErrorCode(w, http.StatusUnsupportedMediaType, apiErrUnsupportedMediaType)
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxJobDefinitionBodyBytes))
+	if err != nil {
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrRequestReadFailed)
+		return
+	}
+
+	var req sourceRepositoryJobDefinitionWriteRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidRequestBody)
+		return
+	}
+	if req.Definition == nil {
+		req.Definition = bytes.TrimSpace(body)
+	}
+
+	var job api.Job
+	if err := json.Unmarshal(req.Definition, &job); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", nil)
+		return
+	}
+
+	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{}); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", jobvalidation.ErrorDetails(err))
+		return
+	}
+
+	definitionJSON, err := json.Marshal(&job)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", nil)
+		return
+	}
+
+	definitionPath := strings.TrimSpace(req.Path)
+	if definitionPath == "" {
+		definitionPath, err = sourceTriggerDefinitionPath(jobID)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_job_id", "job_id cannot be mapped to a source definition path", nil)
+			return
+		}
+	}
+
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireNamespaces(w) || !s.requireSources(w) {
+		return
+	}
+
+	rec, nsPath, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionJobWrite, true)
+	if !ok {
+		return
+	}
+
+	if strings.TrimSpace(rec.AuthoringMode) != dal.SourceAuthoringModeLocalCommit {
+		writeAPIError(w, http.StatusConflict, "source_authoring_unavailable", "source repository does not support local definition authoring", nil)
+		return
+	}
+
+	if strings.TrimSpace(rec.CheckoutMode) != dal.SourceCheckoutModeManaged {
+		writeAPIError(w, http.StatusConflict, "source_repository_not_managed", "source repository checkout is not managed by Vectis", nil)
+		return
+	}
+
+	targetRef := strings.TrimSpace(req.Branch)
+	if targetRef == "" {
+		targetRef = strings.TrimSpace(req.Ref)
+	}
+	if targetRef == "" {
+		targetRef = strings.TrimSpace(rec.DefaultRef)
+	}
+	if targetRef == "" {
+		targetRef = "HEAD"
+	}
+
+	commit, err := sourcepkg.NewManagedGitCheckout(rec.CheckoutPath).CommitFile(ctx, sourcepkg.CommitFileOptions{
+		Ref:          targetRef,
+		Path:         definitionPath,
+		Content:      definitionJSON,
+		Message:      req.Message,
+		ExpectedHead: req.ExpectedHead,
+	})
+	if err != nil {
+		s.writeSourceDefinitionError(w, err)
+		return
+	}
+
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	s.auditLog(ctx, audit.EventJobUpdated, actorID, 0, map[string]any{
+		"job_id":        jobID,
+		"namespace":     nsPath,
+		"repository_id": rec.RepositoryID,
+		"source_ref":    commit.RequestedRef,
+		"source_path":   commit.Path,
+		"source_commit": commit.Commit,
+	})
+
+	writeJSON(w, http.StatusOK, sourceRepositoryJobDefinitionResponse{
+		JobID:          jobID,
+		DefinitionHash: dal.DefinitionHash(string(definitionJSON)),
+		Definition:     json.RawMessage(definitionJSON),
+		Source: sourceProvenanceResponse{
+			RepositoryID:   rec.RepositoryID,
+			RequestedRef:   commit.RequestedRef,
+			ResolvedCommit: commit.Commit,
+			Path:           commit.Path,
+			BlobSHA:        commit.BlobSHA,
 		},
 	})
 }
@@ -1490,6 +1651,13 @@ func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
+	if req.AuthoringMode != nil {
+		updated.AuthoringMode = strings.TrimSpace(*req.AuthoringMode)
+		if updated.AuthoringMode == "" {
+			updated.AuthoringMode = dal.SourceAuthoringModeReadOnly
+		}
+	}
+
 	if req.CanonicalURL != nil {
 		updated.CanonicalURL = strings.TrimSpace(*req.CanonicalURL)
 	}
@@ -1508,6 +1676,16 @@ func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Reques
 
 	if !validSourceCheckoutMode(updated.CheckoutMode) {
 		writeAPIError(w, http.StatusBadRequest, "unsupported_checkout_mode", "checkout_mode is not supported", nil)
+		return
+	}
+
+	if !validSourceAuthoringMode(updated.AuthoringMode) {
+		writeAPIError(w, http.StatusBadRequest, "unsupported_authoring_mode", "authoring_mode is not supported", nil)
+		return
+	}
+
+	if !sourceAuthoringModeCompatible(updated.AuthoringMode, updated.CheckoutMode) {
+		writeAPIError(w, http.StatusBadRequest, "incompatible_authoring_mode", "authoring_mode is not compatible with checkout_mode", nil)
 		return
 	}
 
@@ -1972,6 +2150,7 @@ func sourceRepositoryRecordToResponse(rec dal.SourceRepositoryRecord, namespaceP
 		SourceKind:    rec.SourceKind,
 		CheckoutPath:  rec.CheckoutPath,
 		CheckoutMode:  rec.CheckoutMode,
+		AuthoringMode: rec.AuthoringMode,
 		CanonicalURL:  rec.CanonicalURL,
 		DefaultRef:    rec.DefaultRef,
 		CredentialRef: rec.CredentialRef,
@@ -1982,13 +2161,14 @@ func sourceRepositoryRecordToResponse(rec dal.SourceRepositoryRecord, namespaceP
 
 func sourceRepositoryStatusFromRecord(ctx context.Context, rec dal.SourceRepositoryRecord, namespacePath string) sourceRepositoryStatusResponse {
 	resp := sourceRepositoryStatusResponse{
-		RepositoryID: rec.RepositoryID,
-		Namespace:    namespacePath,
-		SourceKind:   rec.SourceKind,
-		Enabled:      rec.Enabled,
-		Status:       "ok",
-		CheckoutMode: rec.CheckoutMode,
-		Sync:         sourceRepositorySyncRecordToResponse(rec),
+		RepositoryID:  rec.RepositoryID,
+		Namespace:     namespacePath,
+		SourceKind:    rec.SourceKind,
+		Enabled:       rec.Enabled,
+		Status:        "ok",
+		CheckoutMode:  rec.CheckoutMode,
+		AuthoringMode: rec.AuthoringMode,
+		Sync:          sourceRepositorySyncRecordToResponse(rec),
 	}
 
 	if !rec.Enabled {
@@ -2444,6 +2624,23 @@ func validSourceCheckoutMode(mode string) bool {
 	}
 }
 
+func validSourceAuthoringMode(mode string) bool {
+	switch strings.TrimSpace(mode) {
+	case dal.SourceAuthoringModeReadOnly, dal.SourceAuthoringModeLocalCommit, dal.SourceAuthoringModeExternalChangeRequest:
+		return true
+	default:
+		return false
+	}
+}
+
+func sourceAuthoringModeCompatible(authoringMode, checkoutMode string) bool {
+	if strings.TrimSpace(authoringMode) != dal.SourceAuthoringModeLocalCommit {
+		return true
+	}
+
+	return strings.TrimSpace(checkoutMode) == dal.SourceCheckoutModeManaged
+}
+
 func (s *APIServer) getAuthorizedJobDefinitionSource(ctx context.Context, w http.ResponseWriter, p *authn.Principal, jobID string, versionParam string) (storedJobDefinitionSource, bool) {
 	nsPath, err := s.getJobNamespacePath(ctx, jobID)
 	if err != nil {
@@ -2586,6 +2783,8 @@ func (s *APIServer) writeSourceDefinitionError(w http.ResponseWriter, err error)
 	switch {
 	case dal.IsConflict(err):
 		writeAPIError(w, http.StatusConflict, "source_job_conflict", "source job conflict", nil)
+	case errors.Is(err, sourcepkg.ErrConflict):
+		writeAPIError(w, http.StatusConflict, "source_conflict", "source conflict", nil)
 	case dal.IsNotFound(err):
 		writeAPIError(w, http.StatusNotFound, "source_repository_not_found", "source repository not found", nil)
 	case errors.Is(err, sourcepkg.ErrInvalidDefinition):

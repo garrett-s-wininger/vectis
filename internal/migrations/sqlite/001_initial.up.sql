@@ -341,6 +341,7 @@ CREATE TABLE source_repositories (
     source_kind TEXT NOT NULL,
     checkout_path TEXT NOT NULL DEFAULT '',
     checkout_mode TEXT NOT NULL DEFAULT 'external',
+    authoring_mode TEXT NOT NULL DEFAULT 'read_only',
     canonical_url TEXT NOT NULL DEFAULT '',
     default_ref TEXT NOT NULL DEFAULT '',
     credential_ref TEXT NOT NULL DEFAULT '',

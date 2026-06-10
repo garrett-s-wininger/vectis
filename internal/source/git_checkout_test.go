@@ -106,6 +106,61 @@ func TestGitCheckoutReadFileHonorsMaxFileBytes(t *testing.T) {
 	}
 }
 
+func TestGitCheckoutCommitFileUpdatesBranchWithoutCheckout(t *testing.T) {
+	repo := initGitRepo(t)
+	writeAndCommit(t, repo, "README.md", "hello\n", "readme")
+	branch := gitOutput(t, repo, "branch", "--show-current")
+	parent := gitOutput(t, repo, "rev-parse", "HEAD")
+
+	checkout := NewGitCheckout(repo)
+	content := `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`
+	commit, err := checkout.CommitFile(context.Background(), CommitFileOptions{
+		Ref:          branch,
+		Path:         ".vectis/jobs/build.json",
+		Content:      []byte(content),
+		Message:      "add build definition",
+		ExpectedHead: parent,
+	})
+	if err != nil {
+		t.Fatalf("CommitFile: %v", err)
+	}
+
+	if commit.RequestedRef != branch || commit.ParentCommit != parent || commit.Commit == "" || commit.Commit == parent || commit.Path != ".vectis/jobs/build.json" || commit.BlobSHA == "" {
+		t.Fatalf("commit response mismatch: %+v parent=%s", commit, parent)
+	}
+
+	if got := gitOutput(t, repo, "rev-parse", "HEAD"); got != commit.Commit {
+		t.Fatalf("branch head: got %q, want %q", got, commit.Commit)
+	}
+
+	if got := gitOutput(t, repo, "show", commit.Commit+":.vectis/jobs/build.json"); got != content {
+		t.Fatalf("committed file content: got %q, want %q", got, content)
+	}
+
+	unchanged, err := checkout.CommitFile(context.Background(), CommitFileOptions{
+		Ref:          branch,
+		Path:         ".vectis/jobs/build.json",
+		Content:      []byte(content),
+		ExpectedHead: commit.Commit,
+	})
+	if err != nil {
+		t.Fatalf("CommitFile unchanged: %v", err)
+	}
+	if unchanged.Commit != commit.Commit || unchanged.ParentCommit != commit.Commit {
+		t.Fatalf("unchanged commit should return current head: %+v want %s", unchanged, commit.Commit)
+	}
+
+	_, err = checkout.CommitFile(context.Background(), CommitFileOptions{
+		Ref:          branch,
+		Path:         ".vectis/jobs/build.json",
+		Content:      []byte(`{"root":{"id":"root","uses":"builtins/shell","with":{"command":"false"}}}`),
+		ExpectedHead: parent,
+	})
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected stale expected head conflict, got %v", err)
+	}
+}
+
 func TestGitCheckoutListBranches(t *testing.T) {
 	repo := initGitRepo(t)
 	writeAndCommit(t, repo, "README.md", "main\n", "main")

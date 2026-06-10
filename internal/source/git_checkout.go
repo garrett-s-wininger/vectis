@@ -210,6 +210,121 @@ func (g *GitCheckout) ReadFile(ctx context.Context, revision Revision, filePath 
 	}, nil
 }
 
+func (g *GitCheckout) CommitFile(ctx context.Context, opts CommitFileOptions) (FileCommit, error) {
+	if err := g.validateCheckout(); err != nil {
+		return FileCommit{}, err
+	}
+
+	requestedRef, branch, err := g.normalizeWriteRef(ctx, opts.Ref)
+	if err != nil {
+		return FileCommit{}, err
+	}
+
+	cleanPath, err := normalizeTreePath(opts.Path)
+	if err != nil {
+		return FileCommit{}, err
+	}
+
+	if g.maxFileBytes > 0 && int64(len(opts.Content)) > g.maxFileBytes {
+		return FileCommit{}, fmt.Errorf("%w: %s has %d bytes (limit %d)", ErrTooLarge, cleanPath, len(opts.Content), g.maxFileBytes)
+	}
+
+	parent, err := g.resolveCommit(ctx, "refs/heads/"+branch)
+	if err != nil {
+		return FileCommit{}, fmt.Errorf("%w: branch %q", ErrNotFound, branch)
+	}
+
+	if expected := strings.TrimSpace(opts.ExpectedHead); expected != "" {
+		expectedCommit, err := normalizeCommit(expected)
+		if err != nil {
+			return FileCommit{}, err
+		}
+		if !strings.EqualFold(expectedCommit, parent) {
+			return FileCommit{}, fmt.Errorf("%w: branch %s moved from %s to %s", ErrConflict, branch, expectedCommit, parent)
+		}
+	}
+
+	message := strings.TrimSpace(opts.Message)
+	if message == "" {
+		message = "Update " + cleanPath
+	}
+
+	blobOut, err := g.runWithInputEnv(ctx, opts.Content, nil, "hash-object", "-w", "--stdin")
+	if err != nil {
+		return FileCommit{}, fmt.Errorf("%w: write blob for %s: %v", ErrInvalidReference, cleanPath, err)
+	}
+	blobSHA := strings.TrimSpace(string(blobOut))
+	if blobSHA == "" {
+		return FileCommit{}, fmt.Errorf("%w: write blob for %s returned an empty object id", ErrInvalidReference, cleanPath)
+	}
+
+	indexFile, err := tempGitIndexFile()
+	if err != nil {
+		return FileCommit{}, err
+	}
+	defer os.Remove(indexFile)
+
+	indexEnv := []string{"GIT_INDEX_FILE=" + indexFile}
+	if _, err := g.runWithEnv(ctx, indexEnv, "read-tree", parent); err != nil {
+		return FileCommit{}, fmt.Errorf("%w: prepare index for %s: %v", ErrInvalidReference, parent, err)
+	}
+
+	if _, err := g.runWithEnv(ctx, indexEnv, "update-index", "--add", "--cacheinfo", "100644", blobSHA, cleanPath); err != nil {
+		return FileCommit{}, fmt.Errorf("%w: update index for %s: %v", ErrInvalidReference, cleanPath, err)
+	}
+
+	treeOut, err := g.runWithEnv(ctx, indexEnv, "write-tree")
+	if err != nil {
+		return FileCommit{}, fmt.Errorf("%w: write tree for %s: %v", ErrInvalidReference, cleanPath, err)
+	}
+	treeSHA := strings.TrimSpace(string(treeOut))
+	if treeSHA == "" {
+		return FileCommit{}, fmt.Errorf("%w: write tree returned an empty object id", ErrInvalidReference)
+	}
+
+	parentTreeOut, err := g.run(ctx, "rev-parse", parent+"^{tree}")
+	if err != nil {
+		return FileCommit{}, fmt.Errorf("%w: resolve parent tree for %s: %v", ErrInvalidReference, parent, err)
+	}
+	if strings.TrimSpace(string(parentTreeOut)) == treeSHA {
+		return FileCommit{
+			RequestedRef: requestedRef,
+			Commit:       parent,
+			ParentCommit: parent,
+			Path:         cleanPath,
+			BlobSHA:      blobSHA,
+		}, nil
+	}
+
+	commitEnv := append([]string{}, indexEnv...)
+	commitEnv = append(commitEnv,
+		"GIT_AUTHOR_NAME=Vectis",
+		"GIT_AUTHOR_EMAIL=vectis@example.invalid",
+		"GIT_COMMITTER_NAME=Vectis",
+		"GIT_COMMITTER_EMAIL=vectis@example.invalid",
+	)
+	commitOut, err := g.runWithEnv(ctx, commitEnv, "commit-tree", treeSHA, "-p", parent, "-m", message)
+	if err != nil {
+		return FileCommit{}, fmt.Errorf("%w: commit %s: %v", ErrInvalidReference, cleanPath, err)
+	}
+	commitSHA := strings.TrimSpace(string(commitOut))
+	if commitSHA == "" {
+		return FileCommit{}, fmt.Errorf("%w: commit-tree returned an empty commit id", ErrInvalidReference)
+	}
+
+	if _, err := g.run(ctx, "update-ref", "refs/heads/"+branch, commitSHA, parent); err != nil {
+		return FileCommit{}, fmt.Errorf("%w: branch %s moved while committing %s: %v", ErrConflict, branch, cleanPath, err)
+	}
+
+	return FileCommit{
+		RequestedRef: requestedRef,
+		Commit:       commitSHA,
+		ParentCommit: parent,
+		Path:         cleanPath,
+		BlobSHA:      blobSHA,
+	}, nil
+}
+
 func (g *GitCheckout) ListBranches(ctx context.Context, opts ListBranchesOptions) ([]BranchRef, error) {
 	if err := g.validateCheckout(); err != nil {
 		return nil, err
@@ -550,6 +665,41 @@ func (g *GitCheckout) refCandidates(ref string) []string {
 	return candidates
 }
 
+func (g *GitCheckout) normalizeWriteRef(ctx context.Context, ref string) (string, string, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		ref = "HEAD"
+	}
+
+	requestedRef, err := normalizeRef(ref)
+	if err != nil {
+		return "", "", err
+	}
+
+	var branch string
+	if requestedRef == "HEAD" {
+		out, err := g.run(ctx, "symbolic-ref", "--quiet", "--short", "HEAD")
+		if err != nil {
+			return "", "", fmt.Errorf("%w: write ref HEAD does not point to a branch", ErrInvalidReference)
+		}
+		branch = strings.TrimSpace(string(out))
+	} else if b, ok := managedLocalBranchName(requestedRef); ok {
+		branch = b
+	} else {
+		return "", "", fmt.Errorf("%w: write ref must be a local branch or HEAD", ErrInvalidReference)
+	}
+
+	if branch == "" || strings.HasPrefix(branch, "-") {
+		return "", "", fmt.Errorf("%w: write branch is required", ErrInvalidReference)
+	}
+
+	if _, err := g.run(ctx, "check-ref-format", "--branch", branch); err != nil {
+		return "", "", fmt.Errorf("%w: unsafe write branch %q", ErrInvalidReference, branch)
+	}
+
+	return requestedRef, branch, nil
+}
+
 func (g *GitCheckout) blobSize(ctx context.Context, blobSHA string) (int64, error) {
 	out, err := g.run(ctx, "cat-file", "-s", blobSHA)
 	if err != nil {
@@ -571,6 +721,19 @@ func (g *GitCheckout) run(ctx context.Context, args ...string) ([]byte, error) {
 	}
 
 	return runner.RunGit(ctx, g.checkoutPath, args...)
+}
+
+func (g *GitCheckout) runWithEnv(ctx context.Context, env []string, args ...string) ([]byte, error) {
+	return g.runWithInputEnv(ctx, nil, env, args...)
+}
+
+func (g *GitCheckout) runWithInputEnv(ctx context.Context, input []byte, env []string, args ...string) ([]byte, error) {
+	runner := g.runner
+	if runner == nil {
+		runner = execGitRunner{}
+	}
+
+	return runner.RunGitWithInputEnv(ctx, g.checkoutPath, input, env, args...)
 }
 
 func (g *GitCheckout) streamGitRecords(ctx context.Context, args []string, handle func([]byte) error) error {
@@ -735,14 +898,26 @@ func parseTreeEntryRecord(record []byte, treePath string) (TreeEntry, bool, erro
 
 type gitRunner interface {
 	RunGit(ctx context.Context, checkoutPath string, args ...string) ([]byte, error)
+	RunGitWithInputEnv(ctx context.Context, checkoutPath string, input []byte, env []string, args ...string) ([]byte, error)
 	StreamGitRecords(ctx context.Context, checkoutPath string, args []string, handle func([]byte) error) error
 }
 
 type execGitRunner struct{}
 
 func (execGitRunner) RunGit(ctx context.Context, checkoutPath string, args ...string) ([]byte, error) {
+	return (execGitRunner{}).RunGitWithInputEnv(ctx, checkoutPath, nil, nil, args...)
+}
+
+func (execGitRunner) RunGitWithInputEnv(ctx context.Context, checkoutPath string, input []byte, env []string, args ...string) ([]byte, error) {
 	gitArgs := append([]string{"-C", checkoutPath}, args...)
 	cmd := exec.CommandContext(ctx, "git", gitArgs...)
+
+	if len(input) > 0 {
+		cmd.Stdin = bytes.NewReader(input)
+	}
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -758,6 +933,24 @@ func (execGitRunner) RunGit(ctx context.Context, checkoutPath string, args ...st
 	}
 
 	return out, nil
+}
+
+func tempGitIndexFile() (string, error) {
+	f, err := os.CreateTemp("", "vectis-source-index-*")
+	if err != nil {
+		return "", fmt.Errorf("%w: create temporary git index: %v", ErrInvalidReference, err)
+	}
+
+	name := f.Name()
+	if err := f.Close(); err != nil {
+		_ = os.Remove(name)
+		return "", fmt.Errorf("%w: close temporary git index: %v", ErrInvalidReference, err)
+	}
+	if err := os.Remove(name); err != nil {
+		return "", fmt.Errorf("%w: prepare temporary git index: %v", ErrInvalidReference, err)
+	}
+
+	return name, nil
 }
 
 var errStopGitStream = errors.New("stop git stream")

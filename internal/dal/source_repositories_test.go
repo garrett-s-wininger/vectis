@@ -34,6 +34,7 @@ func TestSourcesRepository_CreateGetAndListRepository(t *testing.T) {
 	if created.RepositoryID != "vectis-local" ||
 		created.CheckoutPath != "/work/vectis" ||
 		created.CheckoutMode != dal.SourceCheckoutModeExternal ||
+		created.AuthoringMode != dal.SourceAuthoringModeReadOnly ||
 		created.SyncStatus != dal.SourceSyncStatusNever ||
 		!created.Enabled {
 		t.Fatalf("created repository mismatch: %+v", created)
@@ -126,6 +127,7 @@ func TestSourcesRepository_UpdateRepository(t *testing.T) {
 		SourceKind:    dal.SourceKindLocalCheckout,
 		CheckoutPath:  "/work/vectis-next",
 		CheckoutMode:  dal.SourceCheckoutModeManaged,
+		AuthoringMode: dal.SourceAuthoringModeLocalCommit,
 		CanonicalURL:  "https://example.invalid/vectis.git",
 		DefaultRef:    "release",
 		CredentialRef: "secret://git/vectis",
@@ -138,6 +140,7 @@ func TestSourcesRepository_UpdateRepository(t *testing.T) {
 
 	if updated.CheckoutPath != "/work/vectis-next" ||
 		updated.CheckoutMode != dal.SourceCheckoutModeManaged ||
+		updated.AuthoringMode != dal.SourceAuthoringModeLocalCommit ||
 		updated.CanonicalURL != "https://example.invalid/vectis.git" ||
 		updated.DefaultRef != "release" ||
 		updated.CredentialRef != "secret://git/vectis" ||
@@ -152,6 +155,7 @@ func TestSourcesRepository_UpdateRepository(t *testing.T) {
 
 	if got.CheckoutPath != updated.CheckoutPath ||
 		got.CheckoutMode != updated.CheckoutMode ||
+		got.AuthoringMode != updated.AuthoringMode ||
 		got.DefaultRef != updated.DefaultRef ||
 		got.Enabled != updated.Enabled {
 		t.Fatalf("persisted update mismatch: got %+v want %+v", got, updated)
@@ -218,6 +222,27 @@ func TestSourcesRepository_UpdateRepositoryConflicts(t *testing.T) {
 		Enabled:      true,
 	}); !dal.IsConflict(err) {
 		t.Fatalf("expected unsupported checkout mode conflict, got %v", err)
+	}
+
+	if _, err := sources.UpdateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID:  "other",
+		SourceKind:    dal.SourceKindLocalCheckout,
+		CheckoutPath:  "/work/other",
+		AuthoringMode: "magic",
+		Enabled:       true,
+	}); !dal.IsConflict(err) {
+		t.Fatalf("expected unsupported authoring mode conflict, got %v", err)
+	}
+
+	if _, err := sources.UpdateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID:  "other",
+		SourceKind:    dal.SourceKindLocalCheckout,
+		CheckoutPath:  "/work/other",
+		CheckoutMode:  dal.SourceCheckoutModeExternal,
+		AuthoringMode: dal.SourceAuthoringModeLocalCommit,
+		Enabled:       true,
+	}); !dal.IsConflict(err) {
+		t.Fatalf("expected incompatible authoring mode conflict, got %v", err)
 	}
 }
 
