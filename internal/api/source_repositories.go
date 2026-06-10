@@ -984,33 +984,19 @@ func (s *APIServer) PutSourceRepositoryJobDefinition(w http.ResponseWriter, r *h
 		return
 	}
 
-	if strings.TrimSpace(rec.AuthoringMode) != dal.SourceAuthoringModeLocalCommit {
-		writeAPIError(w, http.StatusConflict, "source_authoring_unavailable", "source repository does not support local definition authoring", nil)
+	author, err := sourcepkg.NewDefinitionAuthorFromRecord(rec)
+	if err != nil {
+		s.writeSourceDefinitionError(w, err)
 		return
 	}
 
-	if strings.TrimSpace(rec.CheckoutMode) != dal.SourceCheckoutModeManaged {
-		writeAPIError(w, http.StatusConflict, "source_repository_not_managed", "source repository checkout is not managed by Vectis", nil)
-		return
-	}
-
-	targetRef := strings.TrimSpace(req.Branch)
-	if targetRef == "" {
-		targetRef = strings.TrimSpace(req.Ref)
-	}
-	if targetRef == "" {
-		targetRef = strings.TrimSpace(rec.DefaultRef)
-	}
-	if targetRef == "" {
-		targetRef = "HEAD"
-	}
-
-	commit, err := sourcepkg.NewManagedGitCheckout(rec.CheckoutPath).CommitFile(ctx, sourcepkg.CommitFileOptions{
-		Ref:          targetRef,
-		Path:         definitionPath,
-		Content:      definitionJSON,
-		Message:      req.Message,
-		ExpectedHead: req.ExpectedHead,
+	written, err := author.WriteDefinition(ctx, sourcepkg.WriteDefinitionRequest{
+		Ref:            req.Ref,
+		Branch:         req.Branch,
+		Path:           definitionPath,
+		DefinitionJSON: string(definitionJSON),
+		Message:        req.Message,
+		ExpectedHead:   req.ExpectedHead,
 	})
 	if err != nil {
 		s.writeSourceDefinitionError(w, err)
@@ -1026,9 +1012,9 @@ func (s *APIServer) PutSourceRepositoryJobDefinition(w http.ResponseWriter, r *h
 		"job_id":        jobID,
 		"namespace":     nsPath,
 		"repository_id": rec.RepositoryID,
-		"source_ref":    commit.RequestedRef,
-		"source_path":   commit.Path,
-		"source_commit": commit.Commit,
+		"source_ref":    written.RequestedRef,
+		"source_path":   written.Path,
+		"source_commit": written.Commit,
 	})
 
 	writeJSON(w, http.StatusOK, sourceRepositoryJobDefinitionResponse{
@@ -1037,10 +1023,10 @@ func (s *APIServer) PutSourceRepositoryJobDefinition(w http.ResponseWriter, r *h
 		Definition:     json.RawMessage(definitionJSON),
 		Source: sourceProvenanceResponse{
 			RepositoryID:   rec.RepositoryID,
-			RequestedRef:   commit.RequestedRef,
-			ResolvedCommit: commit.Commit,
-			Path:           commit.Path,
-			BlobSHA:        commit.BlobSHA,
+			RequestedRef:   written.RequestedRef,
+			ResolvedCommit: written.Commit,
+			Path:           written.Path,
+			BlobSHA:        written.BlobSHA,
 		},
 	})
 }
@@ -2827,6 +2813,8 @@ func (s *APIServer) writeSourceDefinitionError(w http.ResponseWriter, err error)
 	switch {
 	case dal.IsConflict(err):
 		writeAPIError(w, http.StatusConflict, "source_job_conflict", "source job conflict", nil)
+	case errors.Is(err, sourcepkg.ErrAuthoringUnavailable):
+		writeAPIError(w, http.StatusConflict, "source_authoring_unavailable", "source repository does not support local definition authoring", nil)
 	case errors.Is(err, sourcepkg.ErrConflict):
 		writeAPIError(w, http.StatusConflict, "source_conflict", "source conflict", nil)
 	case dal.IsNotFound(err):
