@@ -234,6 +234,15 @@ For a Vectis-managed checkout, omit the checkout path and provide the canonical 
 ./bin/vectis-cli sources register vectis-local --checkout-mode managed --canonical-url https://git.example.com/acme/vectis.git --default-ref main
 ```
 
+Inspect or update the repository registration:
+
+```sh
+./bin/vectis-cli sources get vectis-local
+./bin/vectis-cli sources update vectis-local --default-ref main --authoring-mode local_commit
+./bin/vectis-cli sources update vectis-local --disable
+./bin/vectis-cli sources update vectis-local --enable
+```
+
 Sync the repository, then list triggerable jobs discovered under `.vectis/jobs`:
 
 ```sh

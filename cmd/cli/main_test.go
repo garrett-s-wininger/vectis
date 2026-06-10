@@ -393,6 +393,151 @@ func TestListSourceJobs_sendsQueryAndPrintsJobs(t *testing.T) {
 	}
 }
 
+func TestGetSource_sendsRequestAndPrintsRepository(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/source-repositories/vectis" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"repository_id":  "vectis",
+			"namespace":      "/team-a",
+			"source_kind":    "local_checkout",
+			"checkout_path":  "/srv/vectis/source",
+			"checkout_mode":  "managed",
+			"authoring_mode": "local_commit",
+			"authoring":      map[string]any{"mode": "local_commit", "write_definitions": true, "local_commits": true},
+			"canonical_url":  "https://git.example.com/acme/vectis.git",
+			"default_ref":    "main",
+			"credential_ref": "git-creds",
+			"enabled":        true,
+			"sync":           map[string]any{"status": "succeeded", "ref": "main", "commit": "0123456789abcdef"},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := getSourceWithOutput(&buf, "vectis"); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"repository_id=vectis", "namespace=/team-a", "checkout_mode=managed", "authoring_mode=local_commit", "write_definitions=true", "canonical_url=https://git.example.com/acme/vectis.git", "default_ref=main", "credential_ref=git-creds", "sync_status=succeeded"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestUpdateSource_sendsOnlyChangedFieldsAndPrintsRepository(t *testing.T) {
+	oldSourceKind := sourceUpdateSourceKind
+	oldCheckoutPath := sourceUpdateCheckoutPath
+	oldCheckoutMode := sourceUpdateCheckoutMode
+	oldAuthoringMode := sourceUpdateAuthoringMode
+	oldCanonicalURL := sourceUpdateCanonicalURL
+	oldDefaultRef := sourceUpdateDefaultRef
+	oldCredentialRef := sourceUpdateCredentialRef
+	oldEnable := sourceUpdateEnable
+	oldDisable := sourceUpdateDisable
+	t.Cleanup(func() {
+		sourceUpdateSourceKind = oldSourceKind
+		sourceUpdateCheckoutPath = oldCheckoutPath
+		sourceUpdateCheckoutMode = oldCheckoutMode
+		sourceUpdateAuthoringMode = oldAuthoringMode
+		sourceUpdateCanonicalURL = oldCanonicalURL
+		sourceUpdateDefaultRef = oldDefaultRef
+		sourceUpdateCredentialRef = oldCredentialRef
+		sourceUpdateEnable = oldEnable
+		sourceUpdateDisable = oldDisable
+	})
+
+	cmd := &cobra.Command{}
+	configureSourcesUpdateFlags(cmd)
+	for name, value := range map[string]string{
+		"checkout-mode":  "managed",
+		"authoring-mode": "local_commit",
+		"canonical-url":  "https://git.example.com/acme/vectis.git",
+		"default-ref":    "main",
+		"credential-ref": "git-creds",
+		"disable":        "true",
+	} {
+		if err := cmd.Flags().Set(name, value); err != nil {
+			t.Fatalf("set %s: %v", name, err)
+		}
+	}
+
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/source-repositories/vectis" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		if got := r.Header.Get("Content-Type"); got != "application/json" {
+			t.Errorf("Content-Type=%q", got)
+		}
+
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+
+		want := map[string]any{
+			"checkout_mode":  "managed",
+			"authoring_mode": "local_commit",
+			"canonical_url":  "https://git.example.com/acme/vectis.git",
+			"default_ref":    "main",
+			"credential_ref": "git-creds",
+			"enabled":        false,
+		}
+
+		if len(body) != len(want) {
+			t.Errorf("body len=%d, want %d (%v)", len(body), len(want), body)
+		}
+
+		for key, value := range want {
+			if got := body[key]; got != value {
+				t.Errorf("%s=%v, want %v", key, got, value)
+			}
+		}
+
+		if _, ok := body["checkout_path"]; ok {
+			t.Errorf("checkout_path should not be sent when flag was omitted")
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"repository_id":  "vectis",
+			"namespace":      "/",
+			"source_kind":    "local_checkout",
+			"checkout_mode":  "managed",
+			"authoring_mode": "local_commit",
+			"authoring":      map[string]any{"mode": "local_commit", "write_definitions": true, "local_commits": true},
+			"canonical_url":  "https://git.example.com/acme/vectis.git",
+			"default_ref":    "main",
+			"credential_ref": "git-creds",
+			"enabled":        false,
+			"sync":           map[string]any{"status": "never"},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := updateSourceWithOutput(cmd, &buf, "vectis"); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"repository_id=vectis", "checkout_mode=managed", "authoring_mode=local_commit", "enabled=false", "sync_status=never"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
 func TestShowSourceStatus_sendsRequestAndPrintsStatus(t *testing.T) {
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

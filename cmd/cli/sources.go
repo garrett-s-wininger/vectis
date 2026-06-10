@@ -323,6 +323,163 @@ func registerSourceWithOutput(out io.Writer, args []string) error {
 	}
 }
 
+func getSource(cmd *cobra.Command, args []string) {
+	runCLIError(getSourceWithOutput(os.Stdout, args[0]))
+}
+
+func getSourceWithOutput(out io.Writer, repositoryID string) error {
+	req, err := newAPIRequest(http.MethodGet, "/api/v1/source-repositories/"+url.PathEscape(repositoryID), nil)
+	if err != nil {
+		return fmt.Errorf("failed to create source repository get request: %w", err)
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to get source repository: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var repo sourceRepositorySummary
+		if err := json.NewDecoder(resp.Body).Decode(&repo); err != nil {
+			return fmt.Errorf("failed to parse source repository response: %w", err)
+		}
+		return writeSourceRepositoryDetailResult(out, repo)
+	case http.StatusNotFound:
+		return fmt.Errorf("source repository %q not found", repositoryID)
+	default:
+		return fmt.Errorf("unexpected status getting source repository: %s", resp.Status)
+	}
+}
+
+func updateSource(cmd *cobra.Command, args []string) {
+	runCLIError(updateSourceWithOutput(cmd, os.Stdout, args[0]))
+}
+
+func updateSourceWithOutput(cmd *cobra.Command, out io.Writer, repositoryID string) error {
+	payload := map[string]any{}
+	flags := cmd.Flags()
+
+	if flags.Changed("source-kind") {
+		payload["source_kind"] = strings.TrimSpace(sourceUpdateSourceKind)
+	}
+	if flags.Changed("checkout-path") {
+		payload["checkout_path"] = strings.TrimSpace(sourceUpdateCheckoutPath)
+	}
+	if flags.Changed("checkout-mode") {
+		payload["checkout_mode"] = strings.TrimSpace(sourceUpdateCheckoutMode)
+	}
+	if flags.Changed("authoring-mode") {
+		payload["authoring_mode"] = strings.TrimSpace(sourceUpdateAuthoringMode)
+	}
+	if flags.Changed("canonical-url") {
+		payload["canonical_url"] = strings.TrimSpace(sourceUpdateCanonicalURL)
+	}
+	if flags.Changed("default-ref") {
+		payload["default_ref"] = strings.TrimSpace(sourceUpdateDefaultRef)
+	}
+	if flags.Changed("credential-ref") {
+		payload["credential_ref"] = strings.TrimSpace(sourceUpdateCredentialRef)
+	}
+
+	enableChanged := flags.Changed("enable")
+	disableChanged := flags.Changed("disable")
+	if enableChanged && disableChanged {
+		return fmt.Errorf("--enable and --disable cannot be used together")
+	}
+	if enableChanged {
+		payload["enabled"] = true
+	}
+	if disableChanged {
+		payload["enabled"] = false
+	}
+	if len(payload) == 0 {
+		return fmt.Errorf("at least one source repository update flag is required")
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to encode source repository update: %w", err)
+	}
+
+	req, err := newAPIRequest(http.MethodPut, "/api/v1/source-repositories/"+url.PathEscape(repositoryID), bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create source repository update request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to update source repository: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var repo sourceRepositorySummary
+		if err := json.NewDecoder(resp.Body).Decode(&repo); err != nil {
+			return fmt.Errorf("failed to parse source repository update response: %w", err)
+		}
+		return writeSourceRepositoryDetailResult(out, repo)
+	case http.StatusBadRequest:
+		return fmt.Errorf("invalid source repository update")
+	case http.StatusConflict:
+		return fmt.Errorf("source repository %q conflicts with an existing checkout or update", repositoryID)
+	case http.StatusNotFound:
+		return fmt.Errorf("source repository %q not found", repositoryID)
+	case http.StatusUnsupportedMediaType:
+		return fmt.Errorf("content type must be application/json")
+	default:
+		return fmt.Errorf("unexpected status updating source repository: %s", resp.Status)
+	}
+}
+
+func writeSourceRepositoryDetailResult(out io.Writer, repo sourceRepositorySummary) error {
+	if outputIsJSON() {
+		return writeJSON(out, repo)
+	}
+
+	fmt.Fprintf(out, "repository_id=%s\n", repo.RepositoryID)
+	fmt.Fprintf(out, "namespace=%s\n", emptyAsDash(repo.Namespace))
+	fmt.Fprintf(out, "source_kind=%s\n", emptyAsDash(repo.SourceKind))
+	fmt.Fprintf(out, "checkout_mode=%s\n", emptyAsDash(repo.CheckoutMode))
+	fmt.Fprintf(out, "authoring_mode=%s\n", emptyAsDash(repo.AuthoringMode))
+	fmt.Fprintf(out, "write_definitions=%t\n", repo.Authoring.WriteDefinitions)
+	fmt.Fprintf(out, "local_commits=%t\n", repo.Authoring.LocalCommits)
+	fmt.Fprintf(out, "external_change_requests=%t\n", repo.Authoring.ExternalChangeRequests)
+	if strings.TrimSpace(repo.Authoring.Reason) != "" {
+		fmt.Fprintf(out, "authoring_reason=%s\n", repo.Authoring.Reason)
+	}
+	if strings.TrimSpace(repo.CheckoutPath) != "" {
+		fmt.Fprintf(out, "checkout_path=%s\n", repo.CheckoutPath)
+	}
+	if strings.TrimSpace(repo.CanonicalURL) != "" {
+		fmt.Fprintf(out, "canonical_url=%s\n", repo.CanonicalURL)
+	}
+	if strings.TrimSpace(repo.DefaultRef) != "" {
+		fmt.Fprintf(out, "default_ref=%s\n", repo.DefaultRef)
+	}
+	if strings.TrimSpace(repo.CredentialRef) != "" {
+		fmt.Fprintf(out, "credential_ref=%s\n", repo.CredentialRef)
+	}
+	fmt.Fprintf(out, "enabled=%t\n", repo.Enabled)
+	if strings.TrimSpace(repo.Sync.Status) != "" {
+		fmt.Fprintf(out, "sync_status=%s\n", repo.Sync.Status)
+	}
+	if strings.TrimSpace(repo.Sync.Ref) != "" {
+		fmt.Fprintf(out, "sync_ref=%s\n", repo.Sync.Ref)
+	}
+	if strings.TrimSpace(repo.Sync.Commit) != "" {
+		fmt.Fprintf(out, "sync_commit=%s\n", repo.Sync.Commit)
+	}
+	if strings.TrimSpace(repo.Sync.Error) != "" {
+		fmt.Fprintf(out, "sync_error=%s\n", repo.Sync.Error)
+	}
+
+	return nil
+}
+
 func syncSource(cmd *cobra.Command, args []string) {
 	runCLIError(syncSourceWithOutput(os.Stdout, args[0]))
 }
@@ -1042,6 +1199,22 @@ var sourcesRegisterCmd = &cobra.Command{
 	Run:   registerSource,
 }
 
+var sourcesGetCmd = &cobra.Command{
+	Use:   "get [repository-id]",
+	Short: "Show a source repository registration",
+	Long:  `Fetch one source repository registration and print its checkout, authoring, enabled, and sync metadata.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   getSource,
+}
+
+var sourcesUpdateCmd = &cobra.Command{
+	Use:   "update [repository-id]",
+	Short: "Update a source repository registration",
+	Long:  `Update mutable source repository registration fields such as checkout path, checkout mode, authoring mode, canonical URL, default ref, credential ref, and enabled state.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   updateSource,
+}
+
 var sourcesSyncCmd = &cobra.Command{
 	Use:   "sync [repository-id]",
 	Short: "Sync a source repository",
@@ -1143,6 +1316,18 @@ func configureSourcesRegisterFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&sourceRegisterDefaultRef, "default-ref", "", "Default git ref for source operations")
 	cmd.Flags().StringVar(&sourceRegisterCredentialRef, "credential-ref", "", "Credential reference for future source integrations")
 	cmd.Flags().BoolVar(&sourceRegisterDisabled, "disabled", false, "Register the repository disabled")
+}
+
+func configureSourcesUpdateFlags(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&sourceUpdateSourceKind, "source-kind", "", "Source kind, currently local_checkout")
+	cmd.Flags().StringVar(&sourceUpdateCheckoutPath, "checkout-path", "", "Checkout path for external repositories")
+	cmd.Flags().StringVar(&sourceUpdateCheckoutMode, "checkout-mode", "", "Checkout mode: external or managed")
+	cmd.Flags().StringVar(&sourceUpdateAuthoringMode, "authoring-mode", "", "Authoring mode: read_only, local_commit, or external_change_request")
+	cmd.Flags().StringVar(&sourceUpdateCanonicalURL, "canonical-url", "", "Canonical clone/fetch URL for managed checkouts")
+	cmd.Flags().StringVar(&sourceUpdateDefaultRef, "default-ref", "", "Default git ref for source operations")
+	cmd.Flags().StringVar(&sourceUpdateCredentialRef, "credential-ref", "", "Credential reference for future source integrations")
+	cmd.Flags().BoolVar(&sourceUpdateEnable, "enable", false, "Enable the source repository")
+	cmd.Flags().BoolVar(&sourceUpdateDisable, "disable", false, "Disable the source repository")
 }
 
 func configureSourcesBranchesFlags(cmd *cobra.Command) {
