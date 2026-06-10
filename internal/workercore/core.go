@@ -27,6 +27,8 @@ type ExecuteTaskRequest struct {
 // claimed task. Keeping shell capabilities behind this handle gives a future
 // out-of-process core one narrow surface to map onto UDS/RPC calls.
 type TaskSession interface {
+	SessionID() string
+	ShellEndpoint() string
 	Logger() interfaces.Logger
 	LogClient() interfaces.LogClient
 	ArtifactPublisher() action.ArtifactPublisher
@@ -36,6 +38,8 @@ type TaskSession interface {
 }
 
 type TaskSessionOptions struct {
+	SessionID         string
+	ShellEndpoint     string
 	Logger            interfaces.Logger
 	LogClient         interfaces.LogClient
 	ArtifactPublisher action.ArtifactPublisher
@@ -46,6 +50,8 @@ type TaskSessionOptions struct {
 
 func NewTaskSession(opts TaskSessionOptions) TaskSession {
 	return taskSession{
+		sessionID:         opts.SessionID,
+		shellEndpoint:     opts.ShellEndpoint,
 		logger:            opts.Logger,
 		logClient:         opts.LogClient,
 		artifactPublisher: opts.ArtifactPublisher,
@@ -56,12 +62,22 @@ func NewTaskSession(opts TaskSessionOptions) TaskSession {
 }
 
 type taskSession struct {
+	sessionID         string
+	shellEndpoint     string
 	logger            interfaces.Logger
 	logClient         interfaces.LogClient
 	artifactPublisher action.ArtifactPublisher
 	workloadIdentity  *workloadidentity.Identity
 	actionLocks       []actionregistry.ActionLock
 	actionResolver    actionregistry.Resolver
+}
+
+func (s taskSession) SessionID() string {
+	return s.sessionID
+}
+
+func (s taskSession) ShellEndpoint() string {
+	return s.shellEndpoint
 }
 
 func (s taskSession) Logger() interfaces.Logger {

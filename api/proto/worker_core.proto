@@ -1,0 +1,131 @@
+edition = "2023";
+
+import "common.proto";
+
+option go_package = "vectis/api/gen/go;api";
+
+service WorkerCoreService {
+    rpc DescribeCore(DescribeWorkerCoreRequest) returns (DescribeWorkerCoreResponse);
+    rpc ExecuteTask(ExecuteWorkerCoreTaskRequest) returns (ExecuteWorkerCoreTaskResponse);
+}
+
+service WorkerCoreShellService {
+    rpc StreamLogs(stream common.LogChunk) returns (common.Empty);
+    rpc PublishArtifact(stream WorkerCoreArtifactChunk) returns (WorkerCoreArtifact);
+}
+
+message DescribeWorkerCoreRequest {}
+
+message DescribeWorkerCoreResponse {
+    string protocol_version = 1;
+    repeated WorkerCoreCapability capabilities = 2;
+    repeated string supported_isolation = 3;
+    map<string, string> metadata = 4;
+}
+
+message WorkerCoreCapability {
+    string name = 1;
+    string version = 2;
+    map<string, string> metadata = 3;
+}
+
+message ExecuteWorkerCoreTaskRequest {
+    common.Job job = 1;
+    string task_key = 2;
+    WorkerCoreTaskSession session = 3;
+}
+
+message ExecuteWorkerCoreTaskResponse {
+    common.RunOutcome outcome = 1;
+    string message = 2;
+}
+
+message WorkerCoreTaskSession {
+    string session_id = 1;
+    string shell_endpoint = 2;
+    WorkerCoreWorkloadIdentity workload_identity = 3;
+    repeated WorkerCoreActionLock action_locks = 4;
+    bool logs_enabled = 5;
+    bool artifacts_enabled = 6;
+}
+
+message WorkerCoreWorkloadIdentity {
+    string spiffe_id = 1;
+    string trust_domain = 2;
+    string namespace_path = 3;
+    string cell_id = 4;
+    string job_id = 5;
+    string run_id = 6;
+    string execution_id = 7;
+    string x509_svid_spiffe_id = 8;
+}
+
+message WorkerCoreActionLock {
+    string node_id = 1;
+    string node_path = 2;
+    string uses = 3;
+    WorkerCoreActionDescriptor descriptor = 4;
+}
+
+message WorkerCoreActionDescriptor {
+    string canonical_name = 1;
+    string display_name = 2;
+    string version = 3;
+    string digest = 4;
+    string source = 5;
+    string runtime = 6;
+    map<string, string> runtime_config = 7;
+    WorkerCoreInputSchema input_schema = 8;
+    repeated WorkerCorePortSpec port_schema = 9;
+    bool local_only = 10;
+    repeated string capabilities = 11;
+    string status = 12;
+    string status_reason = 13;
+}
+
+message WorkerCoreInputSchema {
+    repeated WorkerCoreInputField fields = 1;
+    bool allow_unknown = 2;
+}
+
+message WorkerCoreInputField {
+    string name = 1;
+    string type = 2;
+    bool required = 3;
+}
+
+message WorkerCorePortSpec {
+    string name = 1;
+    int32 min = 2;
+    int32 max = 3;
+    bool primary = 4;
+    bool ordered = 5;
+    bool required = 6;
+}
+
+message WorkerCoreArtifactMetadata {
+    string session_id = 1;
+    string name = 2;
+    string path = 3;
+    string content_type = 4;
+    string metadata_json = 5;
+    int64 expected_size = 6;
+    bool require_size = 7;
+    int64 max_bytes = 8;
+}
+
+message WorkerCoreArtifactChunk {
+    WorkerCoreArtifactMetadata metadata = 1;
+    bytes data = 2;
+}
+
+message WorkerCoreArtifact {
+    string name = 1;
+    string path = 2;
+    string content_type = 3;
+    string blob_key = 4;
+    string blob_algorithm = 5;
+    string blob_digest = 6;
+    int64 size_bytes = 7;
+    string artifact_shard_id = 8;
+}
