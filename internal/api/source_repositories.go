@@ -413,6 +413,22 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 	}
 
 	syncRef := sourceRepositorySyncRef(rec)
+	releaseSync, syncStarted := s.tryBeginSourceRepositorySync(rec.RepositoryID)
+	if !syncStarted {
+		running := rec
+		running.SyncStatus = dal.SourceSyncStatusRunning
+		running.LastSyncRef = syncRef
+		if running.LastSyncStartedAtUnix == 0 {
+			running.LastSyncStartedAtUnix = time.Now().Unix()
+		}
+
+		w.Header().Set("Retry-After", "1")
+		writeJSON(w, http.StatusAccepted, sourceRepositoryRecordToResponse(running, nsPath))
+
+		return
+	}
+	defer releaseSync()
+
 	startedAt := time.Now().Unix()
 	if _, err := s.sources.UpdateRepositorySync(ctx, dal.SourceRepositorySyncRecord{
 		RepositoryID:  rec.RepositoryID,
@@ -448,7 +464,7 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 
 	switch strings.TrimSpace(rec.SourceKind) {
 	case dal.SourceKindLocalCheckout:
-		checkoutStatus := sourceRepositorySyncCheckoutStatus(ctx, rec, syncRef)
+		checkoutStatus := s.sourceRepositorySyncCheckoutStatus(ctx, rec, syncRef)
 		if checkoutStatus.ErrorCode != "" {
 			syncRecord.Status = dal.SourceSyncStatusFailed
 			syncRecord.Error = sourceRepositoryStatusSyncError(checkoutStatus)
@@ -1117,7 +1133,36 @@ func sourceRepositoryStatusSyncError(status sourcepkg.GitCheckoutStatus) string 
 	return status.ErrorCode + ": " + status.ErrorMessage
 }
 
-func sourceRepositorySyncCheckoutStatus(ctx context.Context, rec dal.SourceRepositoryRecord, syncRef string) sourcepkg.GitCheckoutStatus {
+func (s *APIServer) tryBeginSourceRepositorySync(repositoryID string) (func(), bool) {
+	repositoryID = strings.TrimSpace(repositoryID)
+	if repositoryID == "" {
+		return func() {}, true
+	}
+
+	s.sourceSyncMu.Lock()
+	defer s.sourceSyncMu.Unlock()
+
+	if s.sourceSyncRunning == nil {
+		s.sourceSyncRunning = make(map[string]struct{})
+	}
+
+	if _, ok := s.sourceSyncRunning[repositoryID]; ok {
+		return nil, false
+	}
+
+	s.sourceSyncRunning[repositoryID] = struct{}{}
+	return func() {
+		s.sourceSyncMu.Lock()
+		defer s.sourceSyncMu.Unlock()
+		delete(s.sourceSyncRunning, repositoryID)
+	}, true
+}
+
+func (s *APIServer) sourceRepositorySyncCheckoutStatus(ctx context.Context, rec dal.SourceRepositoryRecord, syncRef string) sourcepkg.GitCheckoutStatus {
+	if s.sourceSyncCheckoutStatus != nil {
+		return s.sourceSyncCheckoutStatus(ctx, rec, syncRef)
+	}
+
 	if strings.TrimSpace(rec.CheckoutMode) == dal.SourceCheckoutModeManaged {
 		return sourcepkg.SyncManagedGitCheckout(ctx, sourcepkg.ManagedGitCheckoutRequest{
 			CheckoutPath: rec.CheckoutPath,

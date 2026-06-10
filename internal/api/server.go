@@ -33,6 +33,7 @@ import (
 	"vectis/internal/logclient"
 	"vectis/internal/observability"
 	"vectis/internal/queueclient"
+	sourcepkg "vectis/internal/source"
 	"vectis/internal/version"
 
 	"google.golang.org/grpc"
@@ -124,9 +125,12 @@ type APIServer struct {
 	// ResolveWorkerAddress, when set, resolves a worker_id to a control address via the registry.
 	ResolveWorkerAddress func(ctx context.Context, workerID string) (string, error)
 
-	mu               sync.RWMutex
-	executionIngress cell.ExecutionIngress
-	srvCtx           atomic.Pointer[ctxHolder]
+	mu                       sync.RWMutex
+	executionIngress         cell.ExecutionIngress
+	sourceSyncMu             sync.Mutex
+	sourceSyncRunning        map[string]struct{}
+	sourceSyncCheckoutStatus func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus
+	srvCtx                   atomic.Pointer[ctxHolder]
 }
 
 type routeSpec struct {
