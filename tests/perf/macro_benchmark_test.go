@@ -109,7 +109,6 @@ type macroDBTimings struct {
 	tryClaimExecution    int64
 	markExecutionStarted int64
 	finalizeExecution    int64
-	getRunStatus         int64
 }
 
 type macroTriggerInfo struct {
@@ -1795,17 +1794,6 @@ func finishDequeuedMacroJob(
 		return macroRunTimings{}, fmt.Errorf("finalize execution %s outcome %q", executionEnvelope.ExecutionID, finalized.Outcome)
 	}
 
-	statusStarted := time.Now()
-	status, found, err := env.runs.GetRunStatus(ctx, info.runID)
-	dbTimings.getRunStatus = time.Since(statusStarted).Nanoseconds()
-	if err != nil {
-		return macroRunTimings{}, fmt.Errorf("get run status %s: %w", info.runID, err)
-	}
-
-	if !found || status != dal.RunStatusSucceeded {
-		return macroRunTimings{}, fmt.Errorf("run %s status found=%v status=%q", info.runID, found, status)
-	}
-
 	flushStarted := time.Now()
 	if err := waitForLogFlushErr(logDone); err != nil {
 		return macroRunTimings{}, err
@@ -2018,10 +2006,6 @@ func reportMacroDBTimingMetrics(b *testing.B, values []macroDBTimings) {
 		return v.finalizeExecution
 	})
 
-	reportMacroDBTimingMetric(b, "db_get_run_status", values, func(v macroDBTimings) int64 {
-		return v.getRunStatus
-	})
-
 	reportMacroDBTimingMetric(b, "db_total", values, macroDBTimingTotal)
 }
 
@@ -2049,8 +2033,7 @@ func macroDBTimingTotal(value macroDBTimings) int64 {
 		value.touchDispatched +
 		value.tryClaimExecution +
 		value.markExecutionStarted +
-		value.finalizeExecution +
-		value.getRunStatus
+		value.finalizeExecution
 }
 
 func reportMacroDBPoolMetrics(b *testing.B, before, after sql.DBStats, totalRuns int) {
