@@ -15,6 +15,8 @@ import (
 	"vectis/internal/interfaces/mocks"
 	sourcepkg "vectis/internal/source"
 	"vectis/internal/testutil/dbtest"
+
+	"github.com/spf13/viper"
 )
 
 func TestAPIServer_SyncSourceRepositoryReturnsRunningForDuplicate(t *testing.T) {
@@ -127,9 +129,10 @@ func TestAPIServer_SyncSourceRepositoryReturnsRunningForDatabaseReservation(t *t
 		t.Fatalf("CreateRepository: %v", err)
 	}
 
+	startedAt := time.Now().Unix()
 	if _, began, err := sources.BeginRepositorySync(ctx, dal.SourceRepositorySyncRecord{
 		RepositoryID:  "db-locked-repo",
-		StartedAtUnix: 123,
+		StartedAtUnix: startedAt,
 		Ref:           "HEAD",
 	}); err != nil {
 		t.Fatalf("BeginRepositorySync: %v", err)
@@ -158,11 +161,83 @@ func TestAPIServer_SyncSourceRepositoryReturnsRunningForDatabaseReservation(t *t
 	if resp.RepositoryID != "db-locked-repo" ||
 		resp.Sync.Status != dal.SourceSyncStatusRunning ||
 		resp.Sync.Ref != "HEAD" ||
-		resp.Sync.LastStartedAtUnix != 123 {
+		resp.Sync.LastStartedAtUnix != startedAt {
 		t.Fatalf("running response mismatch: %+v", resp)
 	}
 
 	if got := calls.Load(); got != 0 {
 		t.Fatalf("database-reserved sync should not run checkout work, got %d calls", got)
+	}
+}
+
+func TestAPIServer_SyncSourceRepositoryReclaimsStaleDatabaseReservation(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	t.Setenv("VECTIS_SOURCE_SYNC_RUNNING_TIMEOUT", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_SYNC_RUNNING_TIMEOUT", "")
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("source.sync_running_timeout", time.Second)
+
+	db := dbtest.NewTestDB(t)
+	server := NewAPIServer(mocks.NewMockLogger(), db)
+	handler := server.Handler()
+	ctx := context.Background()
+	sources := dal.NewSQLRepositories(db).Sources()
+
+	if _, err := sources.CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "stale-db-locked-repo",
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: filepath.Join(t.TempDir(), "repo"),
+		DefaultRef:   "HEAD",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("CreateRepository: %v", err)
+	}
+
+	if _, began, err := sources.BeginRepositorySync(ctx, dal.SourceRepositorySyncRecord{
+		RepositoryID:  "stale-db-locked-repo",
+		StartedAtUnix: time.Now().Add(-2 * time.Second).Unix(),
+		Ref:           "HEAD",
+	}); err != nil {
+		t.Fatalf("BeginRepositorySync: %v", err)
+	} else if !began {
+		t.Fatal("initial sync reservation was unexpectedly blocked")
+	}
+
+	var calls atomic.Int32
+	server.sourceSyncCheckoutStatus = func(_ context.Context, rec dal.SourceRepositoryRecord, syncRef string) sourcepkg.GitCheckoutStatus {
+		calls.Add(1)
+		return sourcepkg.GitCheckoutStatus{
+			CheckoutPath:       rec.CheckoutPath,
+			PathExists:         true,
+			PathIsDirectory:    true,
+			GitRepository:      true,
+			DefaultRef:         syncRef,
+			DefaultRefResolved: true,
+			ResolvedCommit:     "0123456789abcdef0123456789abcdef01234567",
+		}
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/source-repositories/stale-db-locked-repo/sync", nil)
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("sync status: got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp sourceRepositoryResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if resp.RepositoryID != "stale-db-locked-repo" ||
+		resp.Sync.Status != dal.SourceSyncStatusSucceeded ||
+		resp.Sync.Commit != "0123456789abcdef0123456789abcdef01234567" {
+		t.Fatalf("stale recovery response mismatch: %+v", resp)
+	}
+
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("expected stale reservation to run sync once, got %d calls", got)
 	}
 }

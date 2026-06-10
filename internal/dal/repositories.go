@@ -150,13 +150,14 @@ type SourceRepositoryRecord struct {
 }
 
 type SourceRepositorySyncRecord struct {
-	RepositoryID   string
-	Status         string
-	StartedAtUnix  int64
-	FinishedAtUnix int64
-	Ref            string
-	Commit         string
-	Error          string
+	RepositoryID           string
+	Status                 string
+	StartedAtUnix          int64
+	FinishedAtUnix         int64
+	Ref                    string
+	Commit                 string
+	Error                  string
+	RunningStaleBeforeUnix int64
 }
 
 type JobDefinitionSourceRecord struct {

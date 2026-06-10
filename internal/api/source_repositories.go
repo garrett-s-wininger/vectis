@@ -422,9 +422,10 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 
 	startedAt := time.Now().Unix()
 	running, began, err := s.sources.BeginRepositorySync(ctx, dal.SourceRepositorySyncRecord{
-		RepositoryID:  rec.RepositoryID,
-		StartedAtUnix: startedAt,
-		Ref:           syncRef,
+		RepositoryID:           rec.RepositoryID,
+		StartedAtUnix:          startedAt,
+		Ref:                    syncRef,
+		RunningStaleBeforeUnix: sourceSyncStaleBeforeUnix(startedAt),
 	})
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
@@ -1142,6 +1143,15 @@ func writeRunningSourceRepositorySync(w http.ResponseWriter, rec dal.SourceRepos
 
 	w.Header().Set("Retry-After", "1")
 	writeJSON(w, http.StatusAccepted, sourceRepositoryRecordToResponse(running, namespacePath))
+}
+
+func sourceSyncStaleBeforeUnix(nowUnix int64) int64 {
+	timeout := config.SourceSyncRunningTimeout()
+	if timeout <= 0 {
+		return 0
+	}
+
+	return time.Unix(nowUnix, 0).Add(-timeout).Unix()
 }
 
 func (s *APIServer) tryBeginSourceRepositorySync(repositoryID string) (func(), bool) {

@@ -237,7 +237,8 @@ type DatabaseDefaults struct {
 }
 
 type SourceDefaults struct {
-	CheckoutRoot string `toml:"checkout_root"`
+	CheckoutRoot       string       `toml:"checkout_root"`
+	SyncRunningTimeout tomlDuration `toml:"sync_running_timeout"`
 }
 
 type PgxPoolDefaults struct {
@@ -570,6 +571,10 @@ func validateDefaults(d Defaults) {
 
 	if strings.TrimSpace(d.Source.CheckoutRoot) == "" {
 		panic("config defaults: source.checkout_root must not be empty")
+	}
+
+	if time.Duration(d.Source.SyncRunningTimeout) <= 0 {
+		panic("config defaults: source.sync_running_timeout must be > 0")
 	}
 
 	validateHost(d.Worker.MetricsHost, "worker.metrics_host")

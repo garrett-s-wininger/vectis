@@ -341,12 +341,33 @@ func TestSourcesRepository_BeginRepositorySync(t *testing.T) {
 		t.Fatalf("already running mismatch: began=%v record=%+v", began, blocked)
 	}
 
+	reclaimed, began, err := sources.BeginRepositorySync(ctx, dal.SourceRepositorySyncRecord{
+		RepositoryID:           "vectis-local",
+		StartedAtUnix:          250,
+		Ref:                    "refs/heads/main",
+		RunningStaleBeforeUnix: 150,
+	})
+
+	if err != nil {
+		t.Fatalf("BeginRepositorySync stale running: %v", err)
+	}
+
+	if !began ||
+		reclaimed.SyncStatus != dal.SourceSyncStatusRunning ||
+		reclaimed.LastSyncStartedAtUnix != 250 ||
+		reclaimed.LastSyncFinishedAtUnix != 0 ||
+		reclaimed.LastSyncRef != "refs/heads/main" ||
+		reclaimed.LastSyncCommit != "" ||
+		reclaimed.LastSyncError != "" {
+		t.Fatalf("stale running sync mismatch: began=%v record=%+v", began, reclaimed)
+	}
+
 	if _, err := sources.UpdateRepositorySync(ctx, dal.SourceRepositorySyncRecord{
 		RepositoryID:   "vectis-local",
 		Status:         dal.SourceSyncStatusSucceeded,
-		StartedAtUnix:  100,
-		FinishedAtUnix: 105,
-		Ref:            "HEAD",
+		StartedAtUnix:  250,
+		FinishedAtUnix: 255,
+		Ref:            "refs/heads/main",
 		Commit:         "0123456789abcdef0123456789abcdef01234567",
 	}); err != nil {
 		t.Fatalf("UpdateRepositorySync: %v", err)

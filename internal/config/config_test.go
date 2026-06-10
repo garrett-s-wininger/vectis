@@ -479,6 +479,27 @@ func TestSourceCheckoutRoot_DefaultAndOverride(t *testing.T) {
 	}
 }
 
+func TestSourceSyncRunningTimeout_DefaultAndOverride(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv(envSourceSyncRunningTimeout, "")
+	t.Setenv(envAPIServerSourceSyncRunningTimeout, "")
+
+	if got := SourceSyncRunningTimeout(); got != 15*time.Minute {
+		t.Fatalf("SourceSyncRunningTimeout default: got %v", got)
+	}
+
+	viper.Set("source.sync_running_timeout", 2*time.Minute)
+	if got := SourceSyncRunningTimeout(); got != 2*time.Minute {
+		t.Fatalf("SourceSyncRunningTimeout viper override: got %v", got)
+	}
+
+	t.Setenv(envSourceSyncRunningTimeout, "30s")
+	if got := SourceSyncRunningTimeout(); got != 30*time.Second {
+		t.Fatalf("SourceSyncRunningTimeout env override: got %v", got)
+	}
+}
+
 func TestAPIHostAndListenAddr_DefaultAndOverride(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)

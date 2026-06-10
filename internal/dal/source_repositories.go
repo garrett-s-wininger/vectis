@@ -119,13 +119,18 @@ func (r *SQLSourcesRepository) BeginRepositorySync(ctx context.Context, rec Sour
 			last_sync_error = '',
 			updated_at = CURRENT_TIMESTAMP
 		WHERE repository_id = ?
-			AND COALESCE(sync_status, '') <> ?
+			AND (
+				COALESCE(sync_status, '') <> ?
+				OR (? > 0 AND last_sync_started_at_unix <= ?)
+			)
 	`),
 		rec.Status,
 		rec.StartedAtUnix,
 		rec.Ref,
 		rec.RepositoryID,
 		SourceSyncStatusRunning,
+		rec.RunningStaleBeforeUnix,
+		rec.RunningStaleBeforeUnix,
 	)
 
 	if err != nil {
@@ -360,6 +365,10 @@ func normalizeSourceRepositorySyncRecord(rec SourceRepositorySyncRecord) (Source
 
 	if rec.FinishedAtUnix < 0 {
 		rec.FinishedAtUnix = 0
+	}
+
+	if rec.RunningStaleBeforeUnix < 0 {
+		rec.RunningStaleBeforeUnix = 0
 	}
 
 	return rec, nil
