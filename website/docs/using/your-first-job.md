@@ -265,6 +265,8 @@ The broker decrypts that envelope with `--encryptedfs-key-file` before handing t
 }
 ```
 
+The repository includes a smoke-test version of this pattern at `examples/secrets.json`.
+
 ## Built-In Actions
 
 These are the built-ins available today:

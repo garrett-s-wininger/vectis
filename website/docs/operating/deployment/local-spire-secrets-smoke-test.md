@@ -109,34 +109,10 @@ printf '%s' 'local-spiffe-secret' > "$VECTIS_SMOKE_HOME/token.txt"
 
 ## Run A Secret Job
 
-Create a job that reads the file delivered by the broker:
+Run the checked-in example job, which reads the file delivered by the broker without printing the secret value:
 
 ```sh
-cat > "$VECTIS_SMOKE_HOME/secret-job.json" <<'JSON'
-{
-  "id": "secret-example",
-  "secrets": [
-    {
-      "id": "smoke-token",
-      "ref": "encryptedfs://team/smoke-token",
-      "delivery": {
-        "type": "file",
-        "path": "smoke/token"
-      },
-      "task_keys": ["verify-secret"]
-    }
-  ],
-  "root": {
-    "id": "verify-secret",
-    "uses": "builtins/shell",
-    "with": {
-      "command": "test \"$(cat \"$VECTIS_SECRETS_DIR/smoke/token\")\" = local-spiffe-secret"
-    }
-  }
-}
-JSON
-
-./bin/vectis-cli jobs run "$VECTIS_SMOKE_HOME/secret-job.json" --follow
+./bin/vectis-cli jobs run examples/secrets.json --follow
 ```
 
 The run should succeed. If you want time to inspect the transient registration while the action is running, temporarily change the command to read the secret and then `sleep 30`.

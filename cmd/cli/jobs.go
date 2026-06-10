@@ -16,6 +16,7 @@ import (
 	"text/tabwriter"
 	"vectis/api/gen/go"
 	"vectis/internal/action/actionconfig"
+	jobdef "vectis/internal/job"
 	jobvalidation "vectis/internal/job/validation"
 )
 
@@ -191,7 +192,7 @@ func runJob(cmd *cobra.Command, args []string) {
 	}
 
 	var job api.Job
-	if err := json.Unmarshal(body, &job); err != nil {
+	if err := jobdef.DecodeDefinitionJSON(body, &job); err != nil {
 		runCLIError(fmt.Errorf("invalid job JSON: %w", err))
 	}
 
@@ -405,7 +406,7 @@ func editJob(cmd *cobra.Command, args []string) {
 	}
 
 	var job api.Job
-	if err := json.Unmarshal(edited, &job); err != nil {
+	if err := jobdef.DecodeDefinitionJSON(edited, &job); err != nil {
 		runCLIError(fmt.Errorf("invalid job JSON after edit: %w", err))
 	}
 
@@ -503,7 +504,7 @@ func createJob(cmd *cobra.Command, args []string) {
 	}
 
 	var job api.Job
-	if err := json.Unmarshal(body, &job); err != nil {
+	if err := jobdef.DecodeDefinitionJSON(body, &job); err != nil {
 		runCLIError(fmt.Errorf("invalid job JSON: %w", err))
 	}
 

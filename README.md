@@ -106,6 +106,12 @@ Store a job and trigger it later:
 ./bin/vectis-cli jobs trigger sequenced-job --follow
 ```
 
+Try the secrets-backed example after running the local SPIFFE secrets smoke-test setup:
+
+```bash
+./bin/vectis-cli jobs run examples/secrets.json --follow
+```
+
 Inspect run history:
 
 ```bash

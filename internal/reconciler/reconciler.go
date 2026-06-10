@@ -3,7 +3,6 @@ package reconciler
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -18,6 +17,7 @@ import (
 	"vectis/internal/database"
 	"vectis/internal/dispatchmeta"
 	"vectis/internal/interfaces"
+	jobdef "vectis/internal/job"
 	"vectis/internal/observability"
 	"vectis/internal/runpolicy"
 	"vectis/internal/taskfinalize"
@@ -456,7 +456,7 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 	}
 
 	var job api.Job
-	if err := json.Unmarshal([]byte(defJSON), &job); err != nil {
+	if err := jobdef.DecodeDefinitionJSON([]byte(defJSON), &job); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "parse job json")
 		if s.metrics != nil {

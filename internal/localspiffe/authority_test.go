@@ -18,9 +18,11 @@ import (
 	"vectis/internal/spire"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 )
 
@@ -186,6 +188,120 @@ func TestAuthoritySVIDResolvesEncryptedFSSecretOverGRPC(t *testing.T) {
 	}
 }
 
+func TestAuthoritySVIDRejectsUnauthorizedSecretResolveOverGRPC(t *testing.T) {
+	cfg := testConfig(t)
+	authority, err := Start(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(authority.Stop)
+
+	spiffeID := "spiffe://" + cfg.TrustDomain + "/cell/local/namespace/root/job/demo/run/run-1/execution/execution-1"
+	svid := fetchRegisteredTestSVID(t, cfg, spiffeID)
+	wrongSVID := fetchRegisteredTestSVID(t, cfg, "spiffe://"+cfg.TrustDomain+"/cell/local/namespace/root/job/demo/run/run-1/execution/other")
+
+	root := t.TempDir()
+	key := []byte("0123456789abcdef0123456789abcdef")
+	if err := secretstore.WriteEncryptedFSSecretFile(root, "encryptedfs://team/token", []byte("secret-value"), key); err != nil {
+		t.Fatalf("WriteEncryptedFSSecretFile: %v", err)
+	}
+
+	provider, err := secretstore.NewEncryptedFSProvider(root, secretstore.WithEncryptedFSKey(key))
+	if err != nil {
+		t.Fatalf("NewEncryptedFSProvider: %v", err)
+	}
+
+	policy, err := secretstore.NewAccessPolicy([]string{"namespace=root;job=demo;task=verify;ref=encryptedfs://team/token"})
+	if err != nil {
+		t.Fatalf("NewAccessPolicy: %v", err)
+	}
+
+	authorizer := secretstore.NewClaimAuthorizer(
+		staticExecutionClaimValidator{},
+		secretstore.WithExecutionScopeResolver(staticExecutionScopeResolver{scope: secretstore.ExecutionScope{
+			SPIFFEID:      spiffeID,
+			TrustDomain:   cfg.TrustDomain,
+			NamespacePath: "root",
+			CellID:        "local",
+			JobID:         "demo",
+			RunID:         "run-1",
+			TaskKey:       "verify",
+			ExecutionID:   "execution-1",
+		}}),
+		secretstore.WithAccessPolicy(policy),
+	)
+
+	server := secretstore.NewServer(provider, authorizer)
+	tlsMaterial, err := localpki.Ensure(t.TempDir())
+	if err != nil {
+		t.Fatalf("localpki.Ensure: %v", err)
+	}
+
+	listener := startTestSecretsService(t, tlsMaterial, cfg.BundleFile, server)
+	tests := []struct {
+		name      string
+		conn      func(*testing.T) *grpc.ClientConn
+		req       secretstore.ResolveRequest
+		wantCodes []codes.Code
+	}{
+		{
+			name: "wrong claim token",
+			conn: func(t *testing.T) *grpc.ClientConn {
+				return dialTestSecretsService(t, tlsMaterial.CAFile, listener, svid)
+			},
+			req:       testResolveRequest("bad-claim", "encryptedfs://team/token"),
+			wantCodes: []codes.Code{codes.PermissionDenied},
+		},
+		{
+			name: "mismatched svid",
+			conn: func(t *testing.T) *grpc.ClientConn {
+				return dialTestSecretsService(t, tlsMaterial.CAFile, listener, wrongSVID)
+			},
+			req:       testResolveRequest("claim-token", "encryptedfs://team/token"),
+			wantCodes: []codes.Code{codes.PermissionDenied},
+		},
+		{
+			name: "policy denied",
+			conn: func(t *testing.T) *grpc.ClientConn {
+				return dialTestSecretsService(t, tlsMaterial.CAFile, listener, svid)
+			},
+			req:       testResolveRequest("claim-token", "encryptedfs://team/other"),
+			wantCodes: []codes.Code{codes.PermissionDenied},
+		},
+		{
+			name: "missing client certificate",
+			conn: func(t *testing.T) *grpc.ClientConn {
+				return dialTestSecretsServiceWithoutClientCert(t, tlsMaterial.CAFile, listener)
+			},
+			req:       testResolveRequest("claim-token", "encryptedfs://team/token"),
+			wantCodes: []codes.Code{codes.Unavailable},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conn := tt.conn(t)
+			defer conn.Close()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+
+			_, err := secretstore.NewGRPCResolver(conn).Resolve(ctx, tt.req)
+			if err == nil {
+				t.Fatal("Resolve succeeded, want denial")
+			}
+
+			got := status.Code(err)
+			for _, want := range tt.wantCodes {
+				if got == want {
+					return
+				}
+			}
+			t.Fatalf("Resolve code = %v, want one of %v (err=%v)", got, tt.wantCodes, err)
+		})
+	}
+}
+
 func fetchRegisteredTestSVID(t *testing.T, cfg Config, spiffeID string) spire.X509SVID {
 	t.Helper()
 
@@ -306,6 +422,54 @@ func dialTestSecretsService(t *testing.T, caFile string, listener *bufconn.Liste
 	}
 
 	return conn
+}
+
+func dialTestSecretsServiceWithoutClientCert(t *testing.T, caFile string, listener *bufconn.Listener) *grpc.ClientConn {
+	t.Helper()
+
+	caPEM, err := os.ReadFile(caFile)
+	if err != nil {
+		t.Fatalf("read server CA: %v", err)
+	}
+
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(caPEM) {
+		t.Fatal("server CA did not contain a PEM certificate")
+	}
+
+	conn, err := grpc.NewClient(
+		"passthrough:///bufnet",
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+			return listener.Dial()
+		}),
+		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
+			MinVersion: tls.VersionTLS12,
+			ServerName: "localhost",
+			RootCAs:    roots,
+		})),
+	)
+
+	if err != nil {
+		t.Fatalf("grpc.NewClient: %v", err)
+	}
+
+	return conn
+}
+
+func testResolveRequest(claimToken, ref string) secretstore.ResolveRequest {
+	return secretstore.ResolveRequest{
+		RunID:               "run-1",
+		ExecutionID:         "execution-1",
+		ExecutionClaimToken: claimToken,
+		Secrets: []secretstore.Reference{{
+			ID:  "token",
+			Ref: ref,
+			Delivery: secretstore.Delivery{
+				Type: secretstore.DeliveryTypeFile,
+				Path: "secrets/token",
+			},
+		}},
+	}
 }
 
 type staticExecutionClaimValidator struct{}

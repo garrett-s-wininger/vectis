@@ -23,6 +23,7 @@ import (
 	"vectis/internal/database"
 	"vectis/internal/dispatchmeta"
 	"vectis/internal/interfaces"
+	jobdef "vectis/internal/job"
 	"vectis/internal/queueclient"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -270,7 +271,7 @@ func (s *CronService) getJobDefinitionWithVersion(ctx context.Context, jobID str
 	}
 
 	var job api.Job
-	if err := json.Unmarshal([]byte(definitionJSON), &job); err != nil {
+	if err := jobdef.DecodeDefinitionJSON([]byte(definitionJSON), &job); err != nil {
 		return nil, 0, "", fmt.Errorf("failed to parse job definition: %w", err)
 	}
 
