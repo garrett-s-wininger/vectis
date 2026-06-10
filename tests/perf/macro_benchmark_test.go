@@ -99,6 +99,17 @@ type macroRunTimings struct {
 	acceptedToTerminal          int64
 	triggerToTerminal           int64
 	logFlush                    int64
+	db                          macroDBTimings
+}
+
+type macroDBTimings struct {
+	createRun            int64
+	attachEnvelope       int64
+	touchDispatched      int64
+	tryClaimExecution    int64
+	markExecutionStarted int64
+	finalizeExecution    int64
+	getRunStatus         int64
 }
 
 type macroTriggerInfo struct {
@@ -330,6 +341,7 @@ func BenchmarkMacro_APIQueueWorker_TriggerToTerminal(b *testing.B) {
 	macroJob := uniqueStoredMacroJob(noopMacroJob())
 	env := newMacroBenchEnv(b, []storedMacroJob{macroJob})
 	statsEnabled := resetMacroDBStats(b, env)
+	dbStatsStart := env.db.Stats()
 
 	acceptedToQueueSamples := make([]int64, 0, b.N)
 	queueToDequeuedSamples := make([]int64, 0, b.N)
@@ -337,6 +349,7 @@ func BenchmarkMacro_APIQueueWorker_TriggerToTerminal(b *testing.B) {
 	claimedToTerminalSamples := make([]int64, 0, b.N)
 	acceptedToTerminalSamples := make([]int64, 0, b.N)
 	triggerToTerminalSamples := make([]int64, 0, b.N)
+	dbTimingSamples := make([]macroDBTimings, 0, b.N)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -349,10 +362,12 @@ func BenchmarkMacro_APIQueueWorker_TriggerToTerminal(b *testing.B) {
 		claimedToTerminalSamples = append(claimedToTerminalSamples, timings.claimedToTerminal)
 		acceptedToTerminalSamples = append(acceptedToTerminalSamples, timings.acceptedToTerminal)
 		triggerToTerminalSamples = append(triggerToTerminalSamples, timings.triggerToTerminal)
+		dbTimingSamples = append(dbTimingSamples, timings.db)
 	}
 
 	b.StopTimer()
 	reportMacroDBStats(b, env, statsEnabled)
+	reportMacroDBPoolMetrics(b, dbStatsStart, env.db.Stats(), b.N)
 
 	reportLatencyMetrics(b, "accepted_to_queue", acceptedToQueueSamples)
 	reportLatencyMetrics(b, "queue_to_dequeued", queueToDequeuedSamples)
@@ -360,6 +375,7 @@ func BenchmarkMacro_APIQueueWorker_TriggerToTerminal(b *testing.B) {
 	reportLatencyMetrics(b, "claimed_to_terminal", claimedToTerminalSamples)
 	reportLatencyMetrics(b, "accepted_to_terminal", acceptedToTerminalSamples)
 	reportLatencyMetrics(b, "trigger_to_terminal", triggerToTerminalSamples)
+	reportMacroDBTimingMetrics(b, dbTimingSamples)
 
 	if total := sumNanoseconds(triggerToTerminalSamples); total > 0 {
 		b.ReportMetric(float64(b.N)/(float64(total)/float64(time.Second)), "terminal_runs/s")
@@ -381,6 +397,7 @@ func runMacroConcurrentNoopTriggerToTerminalBenchmark(b *testing.B) {
 	env := newMacroBenchEnv(b, []storedMacroJob{macroJob})
 	totalRuns := b.N
 	statsEnabled := resetMacroDBStats(b, env)
+	dbStatsStart := env.db.Stats()
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -404,6 +421,7 @@ func runMacroConcurrentNoopTriggerToTerminalBenchmark(b *testing.B) {
 	cancel()
 	waitWorkers()
 	reportMacroDBStats(b, env, statsEnabled)
+	reportMacroDBPoolMetrics(b, dbStatsStart, env.db.Stats(), totalRuns)
 
 	acceptedToQueueSamples := make([]int64, 0, len(results))
 	queueToDequeuedSamples := make([]int64, 0, len(results))
@@ -412,6 +430,7 @@ func runMacroConcurrentNoopTriggerToTerminalBenchmark(b *testing.B) {
 	acceptedToTerminalSamples := make([]int64, 0, len(results))
 	triggerToTerminalSamples := make([]int64, 0, len(results))
 	logFlushSamples := make([]int64, 0, len(results))
+	dbTimingSamples := make([]macroDBTimings, 0, len(results))
 
 	for _, timings := range results {
 		acceptedToQueueSamples = append(acceptedToQueueSamples, timings.httpAcceptedToQueueAccepted)
@@ -421,6 +440,7 @@ func runMacroConcurrentNoopTriggerToTerminalBenchmark(b *testing.B) {
 		acceptedToTerminalSamples = append(acceptedToTerminalSamples, timings.acceptedToTerminal)
 		triggerToTerminalSamples = append(triggerToTerminalSamples, timings.triggerToTerminal)
 		logFlushSamples = append(logFlushSamples, timings.logFlush)
+		dbTimingSamples = append(dbTimingSamples, timings.db)
 	}
 
 	reportLatencyMetrics(b, "accepted_to_queue", acceptedToQueueSamples)
@@ -430,6 +450,7 @@ func runMacroConcurrentNoopTriggerToTerminalBenchmark(b *testing.B) {
 	reportLatencyMetrics(b, "accepted_to_terminal", acceptedToTerminalSamples)
 	reportLatencyMetrics(b, "trigger_to_terminal", triggerToTerminalSamples)
 	reportLatencyMetrics(b, "log_flush", logFlushSamples)
+	reportMacroDBTimingMetrics(b, dbTimingSamples)
 
 	if triggerDuration > 0 {
 		b.ReportMetric(float64(totalRuns)/triggerDuration.Seconds(), "accepted_requests/s")
@@ -448,6 +469,36 @@ func runMacroConcurrentNoopTriggerToTerminalBenchmark(b *testing.B) {
 
 func BenchmarkMacro_APITriggerToQueued(b *testing.B) {
 	runMacroAPITriggerToQueuedBenchmark(b)
+}
+
+func BenchmarkMacro_DB_CreateAttachTouchQueuedRun(b *testing.B) {
+	ctx := context.Background()
+	macroJob := uniqueStoredMacroJob(noopMacroJob())
+	env := newMacroBenchEnv(b, []storedMacroJob{macroJob})
+	statsEnabled := resetMacroDBStats(b, env)
+	dbStatsStart := env.db.Stats()
+
+	dbTimingSamples := make([]macroDBTimings, 0, b.N)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	start := time.Now()
+
+	for i := 0; i < b.N; i++ {
+		dbTimingSamples = append(dbTimingSamples, preseedMacroQueuedRunMeasured(b, ctx, env, macroJob, i+1))
+	}
+
+	elapsed := time.Since(start)
+	b.StopTimer()
+	reportMacroDBStats(b, env, statsEnabled)
+	reportMacroDBPoolMetrics(b, dbStatsStart, env.db.Stats(), b.N)
+
+	reportMacroDBTimingMetrics(b, dbTimingSamples)
+	if elapsed > 0 {
+		b.ReportMetric(float64(b.N)/elapsed.Seconds(), "queued_runs/s")
+	}
+
+	b.ReportMetric(float64(b.N), "total_runs")
 }
 
 func BenchmarkMacro_WorkerClaimAck(b *testing.B) {
@@ -486,6 +537,7 @@ func BenchmarkMacro_LogHeavy_TriggerToTerminalReplay(b *testing.B) {
 	ctx := context.Background()
 	env := newMacroLogBenchEnv(b, 200)
 	statsEnabled := resetMacroDBStats(b, env.macroBenchEnv)
+	dbStatsStart := env.db.Stats()
 
 	acceptedToQueueSamples := make([]int64, 0, b.N)
 	queueToDequeuedSamples := make([]int64, 0, b.N)
@@ -496,6 +548,7 @@ func BenchmarkMacro_LogHeavy_TriggerToTerminalReplay(b *testing.B) {
 	logFlushSamples := make([]int64, 0, b.N)
 	logReplaySamples := make([]int64, 0, b.N)
 	logChunkSamples := make([]int64, 0, b.N)
+	dbTimingSamples := make([]macroDBTimings, 0, b.N)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -511,10 +564,12 @@ func BenchmarkMacro_LogHeavy_TriggerToTerminalReplay(b *testing.B) {
 		logFlushSamples = append(logFlushSamples, logTimings.flush)
 		logReplaySamples = append(logReplaySamples, logTimings.replay)
 		logChunkSamples = append(logChunkSamples, int64(logTimings.chunks))
+		dbTimingSamples = append(dbTimingSamples, timings.db)
 	}
 
 	b.StopTimer()
 	reportMacroDBStats(b, env.macroBenchEnv, statsEnabled)
+	reportMacroDBPoolMetrics(b, dbStatsStart, env.db.Stats(), b.N)
 
 	reportLatencyMetrics(b, "accepted_to_queue", acceptedToQueueSamples)
 	reportLatencyMetrics(b, "queue_to_dequeued", queueToDequeuedSamples)
@@ -525,6 +580,7 @@ func BenchmarkMacro_LogHeavy_TriggerToTerminalReplay(b *testing.B) {
 	reportLatencyMetrics(b, "log_flush", logFlushSamples)
 	reportLatencyMetrics(b, "log_replay", logReplaySamples)
 	reportCountMetrics(b, "log_chunks", logChunkSamples)
+	reportMacroDBTimingMetrics(b, dbTimingSamples)
 
 	if total := sumNanoseconds(triggerToTerminalSamples); total > 0 {
 		b.ReportMetric(float64(b.N)/(float64(total)/float64(time.Second)), "terminal_runs/s")
@@ -610,10 +666,12 @@ func runMacroAPITriggerToQueuedBenchmark(b *testing.B) {
 	macroJob := uniqueStoredMacroJob(noopMacroJob())
 	env := newMacroBenchEnv(b, []storedMacroJob{macroJob})
 	statsEnabled := resetMacroDBStats(b, env)
+	dbStatsStart := env.db.Stats()
 
 	acceptedToQueueSamples := make([]int64, 0, b.N)
 	triggerToQueueSamples := make([]int64, 0, b.N)
 	queueToDequeuedSamples := make([]int64, 0, b.N)
+	triggerRequestSamples := make([]int64, 0, b.N)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -640,12 +698,15 @@ func runMacroAPITriggerToQueuedBenchmark(b *testing.B) {
 		acceptedToQueueSamples = append(acceptedToQueueSamples, max(queueAcceptedAt.Sub(info.httpAcceptedAt).Nanoseconds(), 0))
 		triggerToQueueSamples = append(triggerToQueueSamples, max(queueAcceptedAt.Sub(info.triggerStart).Nanoseconds(), 0))
 		queueToDequeuedSamples = append(queueToDequeuedSamples, max(dequeuedAt.Sub(queueAcceptedAt).Nanoseconds(), 0))
+		triggerRequestSamples = append(triggerRequestSamples, max(info.httpAcceptedAt.Sub(info.triggerStart).Nanoseconds(), 0))
 	}
 
 	elapsed := time.Since(start)
 	b.StopTimer()
 	reportMacroDBStats(b, env, statsEnabled)
+	reportMacroDBPoolMetrics(b, dbStatsStart, env.db.Stats(), b.N)
 
+	reportLatencyMetrics(b, "trigger_request", triggerRequestSamples)
 	reportLatencyMetrics(b, "accepted_to_queue", acceptedToQueueSamples)
 	reportLatencyMetrics(b, "trigger_to_queue", triggerToQueueSamples)
 	reportLatencyMetrics(b, "queue_to_dequeued", queueToDequeuedSamples)
@@ -670,6 +731,7 @@ func runMacroWorkerClaimAckBenchmarkWithWorkers(b *testing.B, workerCount int) {
 	env := newMacroBenchEnv(b, []storedMacroJob{macroJob})
 	preseedMacroQueuedRuns(b, ctx, env, macroJob, b.N)
 	statsEnabled := resetMacroDBStats(b, env)
+	dbStatsStart := env.db.Stats()
 
 	resultCh := make(chan macroClaimAckResult, b.N)
 	workCtx, cancel := context.WithCancel(ctx)
@@ -690,6 +752,7 @@ func runMacroWorkerClaimAckBenchmarkWithWorkers(b *testing.B, workerCount int) {
 	cancel()
 	waitWorkers()
 	reportMacroDBStats(b, env, statsEnabled)
+	reportMacroDBPoolMetrics(b, dbStatsStart, env.db.Stats(), b.N)
 
 	reportMacroClaimAckMetrics(b, results)
 	if elapsed > 0 {
@@ -724,6 +787,7 @@ func runMacroWorkerClaimAckCompleteBenchmarkWithWorkersAndJob(
 	env := newMacroBenchEnv(b, []storedMacroJob{macroJob})
 	preseedMacroQueuedRuns(b, ctx, env, macroJob, b.N)
 	statsEnabled := resetMacroDBStats(b, env)
+	dbStatsStart := env.db.Stats()
 
 	resultCh := make(chan macroWorkerResult, b.N)
 	workCtx, cancel := context.WithCancel(ctx)
@@ -744,6 +808,7 @@ func runMacroWorkerClaimAckCompleteBenchmarkWithWorkersAndJob(
 	cancel()
 	waitWorkers()
 	reportMacroDBStats(b, env, statsEnabled)
+	reportMacroDBPoolMetrics(b, dbStatsStart, env.db.Stats(), b.N)
 
 	reportMacroRunTimingMetrics(b, results)
 	if elapsed > 0 {
@@ -768,6 +833,7 @@ func runMacroWorkerClaimAckFinalizeBenchmarkWithWorkers(b *testing.B, workerCoun
 	env := newMacroBenchEnv(b, []storedMacroJob{macroJob})
 	preseedMacroQueuedRuns(b, ctx, env, macroJob, b.N)
 	statsEnabled := resetMacroDBStats(b, env)
+	dbStatsStart := env.db.Stats()
 
 	resultCh := make(chan macroClaimAckFinalizeResult, b.N)
 	workCtx, cancel := context.WithCancel(ctx)
@@ -788,6 +854,7 @@ func runMacroWorkerClaimAckFinalizeBenchmarkWithWorkers(b *testing.B, workerCoun
 	cancel()
 	waitWorkers()
 	reportMacroDBStats(b, env, statsEnabled)
+	reportMacroDBPoolMetrics(b, dbStatsStart, env.db.Stats(), b.N)
 
 	reportMacroClaimAckFinalizeMetrics(b, results)
 	if elapsed > 0 {
@@ -802,25 +869,46 @@ func preseedMacroQueuedRuns(b *testing.B, ctx context.Context, env macroBenchEnv
 	b.Helper()
 
 	for i := 0; i < total; i++ {
-		runIndex := i + 1
-		runID, _, err := env.runs.CreateRun(ctx, job.id, &runIndex, 1)
-		if err != nil {
-			b.Fatalf("create queued run %d: %v", i, err)
-		}
-
-		req := macroJobRequest(job, runID)
-		if _, err := cell.AttachPendingExecutionEnvelope(ctx, env.runs, req, runID, time.Now().UnixNano()); err != nil {
-			b.Fatalf("attach execution envelope for queued run %s: %v", runID, err)
-		}
-
-		if _, err := env.apiQueue.Enqueue(ctx, req); err != nil {
-			b.Fatalf("enqueue queued run %s: %v", runID, err)
-		}
-
-		if err := env.runs.TouchDispatched(ctx, runID); err != nil {
-			b.Fatalf("touch dispatched queued run %s: %v", runID, err)
-		}
+		preseedMacroQueuedRunMeasured(b, ctx, env, job, i+1)
 	}
+}
+
+func preseedMacroQueuedRunMeasured(
+	b *testing.B,
+	ctx context.Context,
+	env macroBenchEnv,
+	job storedMacroJob,
+	runIndex int,
+) macroDBTimings {
+	b.Helper()
+
+	var dbTimings macroDBTimings
+
+	createStarted := time.Now()
+	runID, _, err := env.runs.CreateRun(ctx, job.id, &runIndex, 1)
+	dbTimings.createRun = time.Since(createStarted).Nanoseconds()
+	if err != nil {
+		b.Fatalf("create queued run %d: %v", runIndex, err)
+	}
+
+	req := macroJobRequest(job, runID)
+	attachStarted := time.Now()
+	if _, err := cell.AttachPendingExecutionEnvelope(ctx, env.runs, req, runID, time.Now().UnixNano()); err != nil {
+		b.Fatalf("attach execution envelope for queued run %s: %v", runID, err)
+	}
+
+	dbTimings.attachEnvelope = time.Since(attachStarted).Nanoseconds()
+	if _, err := env.apiQueue.Enqueue(ctx, req); err != nil {
+		b.Fatalf("enqueue queued run %s: %v", runID, err)
+	}
+
+	touchStarted := time.Now()
+	if err := env.runs.TouchDispatched(ctx, runID); err != nil {
+		b.Fatalf("touch dispatched queued run %s: %v", runID, err)
+	}
+
+	dbTimings.touchDispatched = time.Since(touchStarted).Nanoseconds()
+	return dbTimings
 }
 
 func macroJobRequest(job storedMacroJob, runID string) *apipb.JobRequest {
@@ -857,6 +945,7 @@ type macroClaimAckTimings struct {
 	dequeuedToClaimed       int64
 	claimedToAcked          int64
 	dequeuedToAcked         int64
+	db                      macroDBTimings
 }
 
 type macroClaimAckResult struct {
@@ -870,6 +959,7 @@ type macroClaimAckFinalizeTimings struct {
 	ackedToFinalized    int64
 	claimedToFinalized  int64
 	dequeuedToFinalized int64
+	db                  macroDBTimings
 }
 
 type macroClaimAckFinalizeResult struct {
@@ -1037,6 +1127,7 @@ func finishDequeuedMacroClaimAck(
 	dequeuedAt time.Time,
 	workerID string,
 ) (macroClaimAckTimings, error) {
+	var dbTimings macroDBTimings
 	queuedJob := jobReq.GetJob()
 	runID := queuedJob.GetRunId()
 	if runID == "" {
@@ -1053,8 +1144,10 @@ func finishDequeuedMacroClaimAck(
 	}
 
 	queueAcceptedAt := macroQueueAcceptedAt(jobReq, dequeuedAt)
+	claimStarted := time.Now()
 	executionClaim, err := env.runs.TryClaimExecution(ctx, executionEnvelope.ExecutionID, workerID, time.Now().Add(dal.DefaultLeaseTTL))
 	claimedAt := time.Now()
+	dbTimings.tryClaimExecution = claimedAt.Sub(claimStarted).Nanoseconds()
 	if err != nil {
 		return macroClaimAckTimings{}, fmt.Errorf("try claim execution %s: %w", executionEnvelope.ExecutionID, err)
 	}
@@ -1078,6 +1171,7 @@ func finishDequeuedMacroClaimAck(
 		dequeuedToClaimed:       max(claimedAt.Sub(dequeuedAt).Nanoseconds(), 0),
 		claimedToAcked:          max(ackedAt.Sub(claimedAt).Nanoseconds(), 0),
 		dequeuedToAcked:         max(ackedAt.Sub(dequeuedAt).Nanoseconds(), 0),
+		db:                      dbTimings,
 	}, nil
 }
 
@@ -1088,6 +1182,7 @@ func finishDequeuedMacroClaimAckFinalize(
 	dequeuedAt time.Time,
 	workerID string,
 ) (macroClaimAckFinalizeTimings, error) {
+	var dbTimings macroDBTimings
 	queuedJob := jobReq.GetJob()
 	runID := queuedJob.GetRunId()
 	if runID == "" {
@@ -1102,8 +1197,10 @@ func finishDequeuedMacroClaimAckFinalize(
 		return macroClaimAckFinalizeTimings{}, fmt.Errorf("missing execution envelope")
 	}
 
+	claimStarted := time.Now()
 	executionClaim, err := env.runs.TryClaimExecution(ctx, executionEnvelope.ExecutionID, workerID, time.Now().Add(dal.DefaultLeaseTTL))
 	claimedAt := time.Now()
+	dbTimings.tryClaimExecution = claimedAt.Sub(claimStarted).Nanoseconds()
 	if err != nil {
 		return macroClaimAckFinalizeTimings{}, fmt.Errorf("try claim execution %s: %w", executionEnvelope.ExecutionID, err)
 	}
@@ -1122,7 +1219,10 @@ func finishDequeuedMacroClaimAckFinalize(
 
 	ackedAt := time.Now()
 
+	finalizeStarted := time.Now()
 	finalized, err := env.runs.CompleteExecutionAndFinalizeRunByClaim(ctx, executionEnvelope.ExecutionID, workerID, executionClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+	finalizedAt := time.Now()
+	dbTimings.finalizeExecution = finalizedAt.Sub(finalizeStarted).Nanoseconds()
 	if err != nil {
 		return macroClaimAckFinalizeTimings{}, fmt.Errorf("finalize execution %s: %w", executionEnvelope.ExecutionID, err)
 	}
@@ -1130,14 +1230,13 @@ func finishDequeuedMacroClaimAckFinalize(
 		return macroClaimAckFinalizeTimings{}, fmt.Errorf("finalize execution %s outcome %q", executionEnvelope.ExecutionID, finalized.Outcome)
 	}
 
-	finalizedAt := time.Now()
-
 	return macroClaimAckFinalizeTimings{
 		dequeuedToClaimed:   max(claimedAt.Sub(dequeuedAt).Nanoseconds(), 0),
 		claimedToAcked:      max(ackedAt.Sub(claimedAt).Nanoseconds(), 0),
 		ackedToFinalized:    max(finalizedAt.Sub(ackedAt).Nanoseconds(), 0),
 		claimedToFinalized:  max(finalizedAt.Sub(claimedAt).Nanoseconds(), 0),
 		dequeuedToFinalized: max(finalizedAt.Sub(dequeuedAt).Nanoseconds(), 0),
+		db:                  dbTimings,
 	}, nil
 }
 
@@ -1213,16 +1312,19 @@ func reportMacroClaimAckMetrics(b *testing.B, results []macroClaimAckTimings) {
 	dequeuedToClaimedSamples := make([]int64, 0, len(results))
 	claimedToAckedSamples := make([]int64, 0, len(results))
 	dequeuedToAckedSamples := make([]int64, 0, len(results))
+	dbTimingSamples := make([]macroDBTimings, 0, len(results))
 
 	for _, timings := range results {
 		dequeuedToClaimedSamples = append(dequeuedToClaimedSamples, timings.dequeuedToClaimed)
 		claimedToAckedSamples = append(claimedToAckedSamples, timings.claimedToAcked)
 		dequeuedToAckedSamples = append(dequeuedToAckedSamples, timings.dequeuedToAcked)
+		dbTimingSamples = append(dbTimingSamples, timings.db)
 	}
 
 	reportLatencyMetrics(b, "dequeued_to_claimed", dequeuedToClaimedSamples)
 	reportLatencyMetrics(b, "claimed_to_acked", claimedToAckedSamples)
 	reportLatencyMetrics(b, "dequeued_to_acked", dequeuedToAckedSamples)
+	reportMacroDBTimingMetrics(b, dbTimingSamples)
 }
 
 func reportMacroClaimAckFinalizeMetrics(b *testing.B, results []macroClaimAckFinalizeTimings) {
@@ -1233,6 +1335,7 @@ func reportMacroClaimAckFinalizeMetrics(b *testing.B, results []macroClaimAckFin
 	ackedToFinalizedSamples := make([]int64, 0, len(results))
 	claimedToFinalizedSamples := make([]int64, 0, len(results))
 	dequeuedToFinalizedSamples := make([]int64, 0, len(results))
+	dbTimingSamples := make([]macroDBTimings, 0, len(results))
 
 	for _, timings := range results {
 		dequeuedToClaimedSamples = append(dequeuedToClaimedSamples, timings.dequeuedToClaimed)
@@ -1240,6 +1343,7 @@ func reportMacroClaimAckFinalizeMetrics(b *testing.B, results []macroClaimAckFin
 		ackedToFinalizedSamples = append(ackedToFinalizedSamples, timings.ackedToFinalized)
 		claimedToFinalizedSamples = append(claimedToFinalizedSamples, timings.claimedToFinalized)
 		dequeuedToFinalizedSamples = append(dequeuedToFinalizedSamples, timings.dequeuedToFinalized)
+		dbTimingSamples = append(dbTimingSamples, timings.db)
 	}
 
 	reportLatencyMetrics(b, "dequeued_to_claimed", dequeuedToClaimedSamples)
@@ -1247,6 +1351,7 @@ func reportMacroClaimAckFinalizeMetrics(b *testing.B, results []macroClaimAckFin
 	reportLatencyMetrics(b, "acked_to_finalized", ackedToFinalizedSamples)
 	reportLatencyMetrics(b, "claimed_to_finalized", claimedToFinalizedSamples)
 	reportLatencyMetrics(b, "dequeued_to_finalized", dequeuedToFinalizedSamples)
+	reportMacroDBTimingMetrics(b, dbTimingSamples)
 }
 
 func reportMacroRunTimingMetrics(b *testing.B, results []macroRunTimings) {
@@ -1256,18 +1361,21 @@ func reportMacroRunTimingMetrics(b *testing.B, results []macroRunTimings) {
 	claimedToTerminalSamples := make([]int64, 0, len(results))
 	dequeuedToTerminalSamples := make([]int64, 0, len(results))
 	logFlushSamples := make([]int64, 0, len(results))
+	dbTimingSamples := make([]macroDBTimings, 0, len(results))
 
 	for _, timings := range results {
 		dequeuedToClaimedSamples = append(dequeuedToClaimedSamples, timings.dequeuedToClaimed)
 		claimedToTerminalSamples = append(claimedToTerminalSamples, timings.claimedToTerminal)
 		dequeuedToTerminalSamples = append(dequeuedToTerminalSamples, timings.dequeuedToClaimed+timings.claimedToTerminal)
 		logFlushSamples = append(logFlushSamples, timings.logFlush)
+		dbTimingSamples = append(dbTimingSamples, timings.db)
 	}
 
 	reportLatencyMetrics(b, "dequeued_to_claimed", dequeuedToClaimedSamples)
 	reportLatencyMetrics(b, "claimed_to_terminal", claimedToTerminalSamples)
 	reportLatencyMetrics(b, "dequeued_to_terminal", dequeuedToTerminalSamples)
 	reportLatencyMetrics(b, "log_flush", logFlushSamples)
+	reportMacroDBTimingMetrics(b, dbTimingSamples)
 }
 
 func macroQueueAcceptedAt(req *apipb.JobRequest, fallback time.Time) time.Time {
@@ -1622,6 +1730,7 @@ func finishDequeuedMacroJob(
 	workerID string,
 	logSink interfaces.LogClient,
 ) (macroRunTimings, error) {
+	var dbTimings macroDBTimings
 	queuedJob := jobReq.GetJob()
 	if queuedJob.GetRunId() != info.runID {
 		return macroRunTimings{}, fmt.Errorf("dequeued run_id=%q, want %q", queuedJob.GetRunId(), info.runID)
@@ -1648,8 +1757,10 @@ func finishDequeuedMacroJob(
 		return macroRunTimings{}, fmt.Errorf("ack delivery %s: %w", deliveryID, err)
 	}
 
+	claimStarted := time.Now()
 	executionClaim, err := env.runs.TryClaimExecution(ctx, executionEnvelope.ExecutionID, workerID, time.Now().Add(dal.DefaultLeaseTTL))
 	claimedAt := time.Now()
+	dbTimings.tryClaimExecution = claimedAt.Sub(claimStarted).Nanoseconds()
 	if err != nil {
 		return macroRunTimings{}, fmt.Errorf("try claim execution %s: %w", executionEnvelope.ExecutionID, err)
 	}
@@ -1661,25 +1772,32 @@ func finishDequeuedMacroJob(
 	logDone := make(chan job.LogStreamWaiter, 1)
 	exec := job.NewExecutor()
 	exec.TestLogStreamHook = logDone
+	markStartedAt := time.Now()
 	if err := env.runs.MarkExecutionStarted(ctx, executionEnvelope.ExecutionID); err != nil {
 		return macroRunTimings{}, fmt.Errorf("mark execution started %s: %w", executionEnvelope.ExecutionID, err)
 	}
 
+	dbTimings.markExecutionStarted = time.Since(markStartedAt).Nanoseconds()
 	if err := exec.ExecuteTask(ctx, queuedJob, executionEnvelope.TaskKey, logSink, env.log); err != nil {
 		_, _ = env.runs.CompleteExecutionAndFinalizeRunByClaim(ctx, executionEnvelope.ExecutionID, workerID, executionClaim.ClaimToken, dal.ExecutionStatusFailed, dal.FailureCodeExecution, err.Error())
 		return macroRunTimings{}, fmt.Errorf("execute task %s: %w", queuedJob.GetId(), err)
 	}
 
+	finalizeStarted := time.Now()
 	finalized, err := env.runs.CompleteExecutionAndFinalizeRunByClaim(ctx, executionEnvelope.ExecutionID, workerID, executionClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+	terminalAt := time.Now()
+	dbTimings.finalizeExecution = terminalAt.Sub(finalizeStarted).Nanoseconds()
 	if err != nil {
 		return macroRunTimings{}, fmt.Errorf("finalize execution %s: %w", executionEnvelope.ExecutionID, err)
 	}
+
 	if finalized.Outcome != dal.ExecutionFinalizationOutcomeRunSucceeded {
 		return macroRunTimings{}, fmt.Errorf("finalize execution %s outcome %q", executionEnvelope.ExecutionID, finalized.Outcome)
 	}
 
-	terminalAt := time.Now()
+	statusStarted := time.Now()
 	status, found, err := env.runs.GetRunStatus(ctx, info.runID)
+	dbTimings.getRunStatus = time.Since(statusStarted).Nanoseconds()
 	if err != nil {
 		return macroRunTimings{}, fmt.Errorf("get run status %s: %w", info.runID, err)
 	}
@@ -1704,6 +1822,7 @@ func finishDequeuedMacroJob(
 		acceptedToTerminal:          max(terminalAt.Sub(info.httpAcceptedAt).Nanoseconds(), 0),
 		triggerToTerminal:           max(terminalAt.Sub(info.triggerStart).Nanoseconds(), 0),
 		logFlush:                    max(logFlush, 0),
+		db:                          dbTimings,
 	}, nil
 }
 
@@ -1867,6 +1986,93 @@ func reportLatencyMetrics(b *testing.B, prefix string, values []int64) {
 	b.ReportMetric(float64(quantile(values, 0.50))/float64(time.Millisecond), prefix+"_p50_ms")
 	b.ReportMetric(float64(quantile(values, 0.95))/float64(time.Millisecond), prefix+"_p95_ms")
 	b.ReportMetric(float64(quantile(values, 0.99))/float64(time.Millisecond), prefix+"_p99_ms")
+}
+
+func reportMacroDBTimingMetrics(b *testing.B, values []macroDBTimings) {
+	b.Helper()
+	if len(values) == 0 {
+		return
+	}
+
+	reportMacroDBTimingMetric(b, "db_create_run", values, func(v macroDBTimings) int64 {
+		return v.createRun
+	})
+
+	reportMacroDBTimingMetric(b, "db_attach_envelope", values, func(v macroDBTimings) int64 {
+		return v.attachEnvelope
+	})
+
+	reportMacroDBTimingMetric(b, "db_touch_dispatched", values, func(v macroDBTimings) int64 {
+		return v.touchDispatched
+	})
+
+	reportMacroDBTimingMetric(b, "db_try_claim_execution", values, func(v macroDBTimings) int64 {
+		return v.tryClaimExecution
+	})
+
+	reportMacroDBTimingMetric(b, "db_mark_execution_started", values, func(v macroDBTimings) int64 {
+		return v.markExecutionStarted
+	})
+
+	reportMacroDBTimingMetric(b, "db_finalize_execution", values, func(v macroDBTimings) int64 {
+		return v.finalizeExecution
+	})
+
+	reportMacroDBTimingMetric(b, "db_get_run_status", values, func(v macroDBTimings) int64 {
+		return v.getRunStatus
+	})
+
+	reportMacroDBTimingMetric(b, "db_total", values, macroDBTimingTotal)
+}
+
+func reportMacroDBTimingMetric(
+	b *testing.B,
+	prefix string,
+	values []macroDBTimings,
+	extract func(macroDBTimings) int64,
+) {
+	b.Helper()
+
+	samples := make([]int64, 0, len(values))
+	for _, value := range values {
+		if sample := extract(value); sample > 0 {
+			samples = append(samples, sample)
+		}
+	}
+
+	reportLatencyMetrics(b, prefix, samples)
+}
+
+func macroDBTimingTotal(value macroDBTimings) int64 {
+	return value.createRun +
+		value.attachEnvelope +
+		value.touchDispatched +
+		value.tryClaimExecution +
+		value.markExecutionStarted +
+		value.finalizeExecution +
+		value.getRunStatus
+}
+
+func reportMacroDBPoolMetrics(b *testing.B, before, after sql.DBStats, totalRuns int) {
+	b.Helper()
+
+	waitCount := after.WaitCount - before.WaitCount
+	if waitCount < 0 {
+		waitCount = 0
+	}
+
+	waitDuration := after.WaitDuration - before.WaitDuration
+	if waitDuration < 0 {
+		waitDuration = 0
+	}
+
+	b.ReportMetric(float64(after.MaxOpenConnections), "db_pool_max_open_conns")
+	b.ReportMetric(float64(waitCount), "db_pool_wait_count")
+	b.ReportMetric(float64(waitDuration)/float64(time.Millisecond), "db_pool_wait_ms")
+
+	if totalRuns > 0 {
+		b.ReportMetric(float64(waitCount)/float64(totalRuns), "db_pool_waits/run")
+	}
 }
 
 func reportCountMetrics(b *testing.B, prefix string, values []int64) {
