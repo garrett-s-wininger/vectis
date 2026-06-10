@@ -273,6 +273,61 @@ func TestLocalStore_ReadOnlyThresholdRejectsNewBlob(t *testing.T) {
 	}
 }
 
+func TestLocalStore_StorageStatsCountsCASBlobs(t *testing.T) {
+	dir := t.TempDir()
+	fsStats := filesystemStats{freeBytes: 2048, freeInodes: 3}
+	store, err := NewLocalStoreWithOptions(dir, LocalStoreOptions{
+		NewBlobMinFreeBytes: 1024,
+		statFS: func(string) (filesystemStats, error) {
+			return fsStats, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("new local store: %v", err)
+	}
+	defer store.Close()
+
+	if _, err := store.Put(context.Background(), strings.NewReader("alpha"), PutOptions{}); err != nil {
+		t.Fatalf("put alpha: %v", err)
+	}
+
+	if _, err := store.Put(context.Background(), strings.NewReader("beta"), PutOptions{}); err != nil {
+		t.Fatalf("put beta: %v", err)
+	}
+
+	if _, err := store.Put(context.Background(), strings.NewReader("alpha"), PutOptions{}); err != nil {
+		t.Fatalf("put duplicate alpha: %v", err)
+	}
+
+	invalidPath := filepath.Join(dir, "blobs", HashSHA256, "not-a-digest.blob")
+	if err := os.WriteFile(invalidPath, []byte("ignored"), 0o600); err != nil {
+		t.Fatalf("write invalid blob path: %v", err)
+	}
+
+	stats, err := store.StorageStats(context.Background())
+	if err != nil {
+		t.Fatalf("storage stats: %v", err)
+	}
+
+	if stats.BlobFiles != 2 || stats.BlobBytes != int64(len("alpha")+len("beta")) {
+		t.Fatalf("stats counted blobs = %+v, want 2 files / %d bytes", stats, len("alpha")+len("beta"))
+	}
+
+	if stats.FreeBytes != 2048 || stats.FreeInodes != 3 || !stats.NewBlobWritable {
+		t.Fatalf("unexpected filesystem stats: %+v", stats)
+	}
+
+	fsStats = filesystemStats{freeBytes: 512, freeInodes: 3}
+	stats, err = store.StorageStats(context.Background())
+	if err != nil {
+		t.Fatalf("storage stats below threshold: %v", err)
+	}
+
+	if stats.NewBlobWritable {
+		t.Fatalf("expected new blob writable=false below threshold, got %+v", stats)
+	}
+}
+
 func TestLocalStore_StatMissingBlob(t *testing.T) {
 	store, err := NewLocalStore(t.TempDir())
 	if err != nil {

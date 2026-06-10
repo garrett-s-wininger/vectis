@@ -64,6 +64,10 @@ func runArtifact(cmd *cobra.Command, args []string) {
 	}
 	defer cli.DeferShutdown(logger, "Metrics", shutdownMetrics)()
 
+	if err := observability.RegisterArtifactStorageMetrics(store); err != nil {
+		logger.Fatal("Failed to register artifact storage metrics: %v", err)
+	}
+
 	metricsAddr := config.ArtifactMetricsListenAddr()
 	metricsSrv, err := cli.StartMetricsHTTPServer(metricsHandler, metricsAddr, "Artifact", logger)
 	if err != nil {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,7 @@ import (
 
 const (
 	HashSHA256              = "sha256"
+	artifactBlobFileSuffix  = ".blob"
 	artifactStorageLockFile = "artifact.lock"
 )
 
@@ -34,6 +36,14 @@ type BlobDescriptor struct {
 	Algorithm string
 	Digest    string
 	Size      int64
+}
+
+type StorageStats struct {
+	BlobFiles       int64
+	BlobBytes       int64
+	FreeBytes       uint64
+	FreeInodes      uint64
+	NewBlobWritable bool
 }
 
 type PutOptions struct {
@@ -292,7 +302,71 @@ func (s *LocalStore) Open(ctx context.Context, key string) (BlobDescriptor, io.R
 }
 
 func (s *LocalStore) NewBlobWritable() bool {
-	return s.ensureCanCreateBlob() == nil
+	if s == nil {
+		return false
+	}
+
+	if s.newBlobMinFreeBytes == 0 {
+		return true
+	}
+
+	stats, err := s.statFS(s.baseDir)
+	if err != nil {
+		return false
+	}
+
+	return s.newBlobWritableForStats(stats)
+}
+
+func (s *LocalStore) StorageStats(ctx context.Context) (StorageStats, error) {
+	if s == nil {
+		return StorageStats{}, fmt.Errorf("artifact local store is nil")
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	var out StorageStats
+	root := filepath.Join(s.baseDir, "blobs", HashSHA256)
+	if err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return fmt.Errorf("walk artifact storage path %s: %w", path, err)
+		}
+
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		if d.IsDir() || !d.Type().IsRegular() {
+			return nil
+		}
+
+		if !validSHA256BlobPath(root, path) {
+			return nil
+		}
+
+		info, err := d.Info()
+		if err != nil {
+			return fmt.Errorf("inspect artifact blob %s: %w", path, err)
+		}
+
+		out.BlobFiles++
+		out.BlobBytes += info.Size()
+		return nil
+	}); err != nil {
+		return StorageStats{}, err
+	}
+
+	fsStats, err := s.statFS(s.baseDir)
+	if err != nil {
+		return StorageStats{}, fmt.Errorf("inspect artifact storage filesystem: %w", err)
+	}
+
+	out.FreeBytes = fsStats.freeBytes
+	out.FreeInodes = fsStats.freeInodes
+	out.NewBlobWritable = s.newBlobWritableForStats(fsStats)
+	return out, nil
 }
 
 func (s *LocalStore) ensureCanCreateBlob() error {
@@ -314,6 +388,14 @@ func (s *LocalStore) ensureCanCreateBlob() error {
 	}
 
 	return nil
+}
+
+func (s *LocalStore) newBlobWritableForStats(stats filesystemStats) bool {
+	if s.newBlobMinFreeBytes == 0 {
+		return true
+	}
+
+	return stats.freeInodes > 0 && stats.freeBytes >= s.newBlobMinFreeBytes
 }
 
 func (s *LocalStore) statSHA256Digest(ctx context.Context, digest string) (BlobDescriptor, error) {
@@ -369,7 +451,7 @@ func (s *LocalStore) verifySHA256Digest(ctx context.Context, digest string) (Blo
 }
 
 func (s *LocalStore) sha256Path(digest string) string {
-	return filepath.Join(s.baseDir, "blobs", HashSHA256, digest[:2], digest[2:4], digest+".blob")
+	return filepath.Join(s.baseDir, "blobs", HashSHA256, digest[:2], digest[2:4], digest+artifactBlobFileSuffix)
 }
 
 func blobPublishSyncDirs(finalPath string) []string {
@@ -399,6 +481,29 @@ func parseSHA256BlobKey(key string) (string, error) {
 	}
 
 	return normalizeSHA256Digest(strings.TrimPrefix(key, prefix))
+}
+
+func validSHA256BlobPath(root, path string) bool {
+	name := filepath.Base(path)
+	if !strings.HasSuffix(name, artifactBlobFileSuffix) {
+		return false
+	}
+
+	digest := strings.TrimSuffix(name, artifactBlobFileSuffix)
+	if _, err := normalizeSHA256Digest(digest); err != nil {
+		return false
+	}
+
+	if filepath.Base(filepath.Dir(path)) != digest[2:4] {
+		return false
+	}
+
+	if filepath.Base(filepath.Dir(filepath.Dir(path))) != digest[:2] {
+		return false
+	}
+
+	rel, err := filepath.Rel(root, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }
 
 func normalizeSHA256Digest(digest string) (string, error) {

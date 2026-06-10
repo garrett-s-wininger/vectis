@@ -344,6 +344,8 @@ When registry discovery is used, multiple `vectis-artifact` instances may regist
 
 `VECTIS_ARTIFACT_STORAGE_DIR` / `--storage-dir` stores durable content-addressed blobs. If omitted, the artifact service uses `$XDG_DATA_HOME/vectis/artifact/<instance-id>`. `VECTIS_ARTIFACT_STORAGE_READ_ONLY_MIN_FREE_BYTES` / `--storage-read-only-min-free-bytes` defaults to `1073741824` (1 GiB). Below that threshold, the shard advertises `read_only` for new blobs and rejects uploads for blobs it does not already have; existing stored blobs remain readable. Set the value to `0` to disable the threshold.
 
+Artifact service metrics include local CAS pressure gauges: `vectis_artifact_storage_blobs`, `vectis_artifact_storage_bytes`, `vectis_artifact_storage_free_bytes`, `vectis_artifact_storage_free_inodes`, and `vectis_artifact_storage_new_blob_writable`.
+
 Discovery timing defaults include resolver refresh `10s`, poll timeout `5s`, error refresh `2s`, and registration heartbeat `45s`.
 
 For failure behavior with and without registry, see [Failure Domains](../concepts/failure-domains.md#registry-down).
