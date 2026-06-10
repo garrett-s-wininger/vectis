@@ -65,7 +65,7 @@ Use this when `VectisAPISecurityRejectionsSustained` or `VectisAPISecurityReject
 Use this when `VectisWorkerSPIRESVIDCheckFailures` fires or when `vectis_worker_spire_svid_checks_total{outcome="failed"}` increases.
 
 1. Start with the `reason` label. It is intentionally low-cardinality: `mismatch`, `source_error`, `source_timeout`, `canceled`, `missing_identity`, `missing_source`, or `invalid_expected_id`.
-2. For `mismatch`, compare the worker's configured `worker.execution_identity.*` template and trust domain with the SPIRE registration entries that apply to that worker. The worker requires an exact X.509-SVID SPIFFE ID match for the execution.
+2. For `mismatch`, compare the worker's configured `worker.execution_identity.*` template and trust domain with the SPIRE registration entries that apply to that worker. The worker requires an exact X.509-SVID SPIFFE ID match for the execution, and registration intents should use the same execution SPIFFE ID, parent SPIFFE ID, trusted selectors, and bounded expiry that the registrar applies to SPIRE.
 3. For `source_timeout`, check SPIRE agent responsiveness, socket filesystem health, and whether `worker.spire.fetch_timeout` is too low for the deployment.
 4. For `source_error`, check the SPIRE agent process, Workload API socket path, filesystem permissions, and whether the worker can connect to `worker.spire.workload_api_address`.
 5. For `canceled`, check whether the run was canceled by API/operator request or worker shutdown while the pre-action check was in progress; the starter alert excludes this reason.

@@ -195,9 +195,10 @@ SPIRE registration expectations:
 
 1. The X.509-SVID SPIFFE ID must exactly match the worker's derived execution identity. With the default template, that shape is `spiffe://<trust-domain>/cell/<cell>/namespace/<namespace>/job/<job>/run/<run>/execution/<execution>`.
 2. Namespace `/` renders as `namespace/root`. Non-root namespace paths are trimmed, split on `/`, and URL-escaped segment by segment, so registration tooling should use the same template rules as Vectis.
-3. Registration selectors should identify the trusted worker workload or worker runtime boundary, such as a service account, systemd unit, UID, binary path, pod identity, or node-attested worker placement. They should not depend on job-controlled files, command arguments, or environment variables.
-4. Registration lifecycle should be as narrow as the deployment can support: create or make available the execution identity before the worker starts the task, and expire or remove it after the execution reaches a terminal state. Avoid long-lived registrations that let a worker fetch broad sets of historical or unrelated execution IDs.
-5. The registration workflow should live outside arbitrary job actions. Do not give shell steps the SPIRE Workload API socket, the SVID private key, or registration authority credentials; secret brokering consumes the worker-owned acquired SVID instead.
+3. Vectis models each planned SPIRE entry as a registration intent: exact execution SPIFFE ID, parent SPIFFE ID, trusted selectors, expiry, and safe execution metadata. The intent key is a deterministic `sha256:` value derived from the execution SPIFFE ID, parent ID, and normalized selectors so a registrar can make creation idempotent while renewing expiry independently.
+4. Registration selectors should identify the trusted worker workload or worker runtime boundary, such as a service account, systemd unit, UID, binary path, pod identity, or node-attested worker placement. They should not depend on job-controlled files, command arguments, or environment variables.
+5. Registration lifecycle should be as narrow as the deployment can support: create or make available the execution identity before the worker starts the task, and expire or remove it after the execution reaches a terminal state. Avoid long-lived registrations that let a worker fetch broad sets of historical or unrelated execution IDs.
+6. The registration workflow should live outside arbitrary job actions. Do not give shell steps the SPIRE Workload API socket, the SVID private key, or registration authority credentials; secret brokering consumes the worker-owned acquired SVID instead.
 
 ## Action Registry
 

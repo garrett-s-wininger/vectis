@@ -95,4 +95,5 @@ without changing the worker/action materialization path.
 - [Multi-Cell Operation](../../operating/multi-cell.md)
 - `internal/workloadidentity/identity.go` — per-execution SPIFFE ID construction
 - `internal/spire/workloadapi.go` — current SPIRE Workload API adapter
+- `internal/spire/registration.go` — provider-neutral SPIRE registration intent and registrar interface
 - `cmd/worker/main.go` — execution claim and pre-action SVID acquisition
