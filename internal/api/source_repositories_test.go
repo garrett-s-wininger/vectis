@@ -775,6 +775,53 @@ func TestAPIServer_SyncManagedSourceRepositoryClonesAndFetches(t *testing.T) {
 		branch.Remote != "origin" {
 		t.Fatalf("managed branch mismatch: %+v", branch)
 	}
+
+	treeRec := httptest.NewRecorder()
+	treeReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/managed-repo/tree?ref=feature/source-ref&path=.vectis/jobs&limit=10", nil)
+	handler.ServeHTTP(treeRec, treeReq)
+	if treeRec.Code != http.StatusOK {
+		t.Fatalf("list managed source tree: status=%d body=%s", treeRec.Code, treeRec.Body.String())
+	}
+
+	var treeResp struct {
+		RepositoryID   string `json:"repository_id"`
+		RequestedRef   string `json:"requested_ref"`
+		ResolvedCommit string `json:"resolved_commit"`
+		Path           string `json:"path"`
+		Recursive      bool   `json:"recursive"`
+		Limit          int    `json:"limit"`
+		Entries        []struct {
+			Path      string `json:"path"`
+			Name      string `json:"name"`
+			Type      string `json:"type"`
+			Mode      string `json:"mode"`
+			ObjectSHA string `json:"object_sha"`
+			SizeBytes int64  `json:"size_bytes"`
+		} `json:"entries"`
+	}
+	if err := json.NewDecoder(treeRec.Body).Decode(&treeResp); err != nil {
+		t.Fatalf("decode managed tree: %v", err)
+	}
+
+	if treeResp.RepositoryID != "managed-repo" ||
+		treeResp.RequestedRef != "feature/source-ref" ||
+		treeResp.ResolvedCommit != featureCommit ||
+		treeResp.Path != ".vectis/jobs" ||
+		treeResp.Recursive ||
+		treeResp.Limit != 10 ||
+		len(treeResp.Entries) != 1 {
+		t.Fatalf("managed tree response mismatch: %+v", treeResp)
+	}
+
+	entry := treeResp.Entries[0]
+	if entry.Path != ".vectis/jobs/build.json" ||
+		entry.Name != "build.json" ||
+		entry.Type != "blob" ||
+		entry.Mode != "100644" ||
+		entry.ObjectSHA == "" ||
+		entry.SizeBytes == 0 {
+		t.Fatalf("managed tree entry mismatch: %+v", entry)
+	}
 }
 
 func TestAPIServer_GetJobSourceDefinitionReadsDisabledRepository(t *testing.T) {

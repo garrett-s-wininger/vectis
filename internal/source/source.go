@@ -15,7 +15,10 @@ var (
 
 const DefaultMaxFileBytes int64 = 1024 * 1024
 
-const DefaultBranchListLimit = 50
+const (
+	DefaultBranchListLimit = 50
+	DefaultTreeListLimit   = 100
+)
 
 // Repository reads immutable source content from a repository-like backing store.
 type Repository interface {
@@ -33,6 +36,30 @@ type BranchRef struct {
 	Ref    string
 	Commit string
 	Remote string
+}
+
+type ListTreeOptions struct {
+	Ref       string
+	Path      string
+	Recursive bool
+	Limit     int
+}
+
+type TreeListing struct {
+	RequestedRef string
+	Revision     Revision
+	Path         string
+	Recursive    bool
+	Entries      []TreeEntry
+}
+
+type TreeEntry struct {
+	Path      string
+	Name      string
+	Type      string
+	Mode      string
+	ObjectSHA string
+	SizeBytes int64
 }
 
 type Revision struct {

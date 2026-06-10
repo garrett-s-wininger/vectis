@@ -103,6 +103,25 @@ type sourceRepositoryBranchesResponse struct {
 	Branches     []sourceRepositoryBranchResponse `json:"branches"`
 }
 
+type sourceRepositoryTreeEntryResponse struct {
+	Path      string `json:"path"`
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	Mode      string `json:"mode"`
+	ObjectSHA string `json:"object_sha"`
+	SizeBytes int64  `json:"size_bytes,omitempty"`
+}
+
+type sourceRepositoryTreeResponse struct {
+	RepositoryID   string                              `json:"repository_id"`
+	RequestedRef   string                              `json:"requested_ref"`
+	ResolvedCommit string                              `json:"resolved_commit"`
+	Path           string                              `json:"path,omitempty"`
+	Recursive      bool                                `json:"recursive"`
+	Limit          int                                 `json:"limit"`
+	Entries        []sourceRepositoryTreeEntryResponse `json:"entries"`
+}
+
 type jobSourceRequest struct {
 	Namespace    string `json:"namespace"`
 	RepositoryID string `json:"repository_id"`
@@ -453,6 +472,73 @@ func (s *APIServer) ListSourceRepositoryBranches(w http.ResponseWriter, r *http.
 		Prefix:       prefix,
 		Limit:        limit,
 		Branches:     respBranches,
+	})
+}
+
+func (s *APIServer) ListSourceRepositoryTree(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireNamespaces(w) || !s.requireSources(w) {
+		return
+	}
+
+	rec, _, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionJobRead, true)
+	if !ok {
+		return
+	}
+
+	recursive, ok := sourceRepositoryTreeRecursive(w, r)
+	if !ok {
+		return
+	}
+
+	ref := strings.TrimSpace(r.URL.Query().Get("ref"))
+	if ref == "" {
+		ref = strings.TrimSpace(rec.DefaultRef)
+	}
+	if ref == "" {
+		ref = "HEAD"
+	}
+
+	limit := sourceRepositoryTreeListLimit(r)
+	checkout := newGitCheckoutForSourceRepository(rec)
+	listing, err := checkout.ListTree(ctx, sourcepkg.ListTreeOptions{
+		Ref:       ref,
+		Path:      r.URL.Query().Get("path"),
+		Recursive: recursive,
+		Limit:     limit,
+	})
+	if err != nil {
+		s.writeSourceDefinitionError(w, err)
+		return
+	}
+
+	respEntries := make([]sourceRepositoryTreeEntryResponse, 0, len(listing.Entries))
+	for _, entry := range listing.Entries {
+		respEntries = append(respEntries, sourceRepositoryTreeEntryResponse{
+			Path:      entry.Path,
+			Name:      entry.Name,
+			Type:      entry.Type,
+			Mode:      entry.Mode,
+			ObjectSHA: entry.ObjectSHA,
+			SizeBytes: entry.SizeBytes,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, sourceRepositoryTreeResponse{
+		RepositoryID:   rec.RepositoryID,
+		RequestedRef:   listing.RequestedRef,
+		ResolvedCommit: listing.Revision.Commit,
+		Path:           listing.Path,
+		Recursive:      listing.Recursive,
+		Limit:          limit,
+		Entries:        respEntries,
 	})
 }
 
@@ -1225,6 +1311,32 @@ func sourceRepositoryBranchListLimit(r *http.Request) int {
 	}
 
 	return limit
+}
+
+func sourceRepositoryTreeListLimit(r *http.Request) int {
+	limit := sourcepkg.DefaultTreeListLimit
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+			limit = min(parsed, maxPageLimit)
+		}
+	}
+
+	return limit
+}
+
+func sourceRepositoryTreeRecursive(w http.ResponseWriter, r *http.Request) (bool, bool) {
+	raw := strings.TrimSpace(r.URL.Query().Get("recursive"))
+	if raw == "" {
+		return false, true
+	}
+
+	recursive, err := strconv.ParseBool(raw)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_recursive", "recursive must be a boolean", nil)
+		return false, false
+	}
+
+	return recursive, true
 }
 
 func (s *APIServer) tryBeginSourceRepositorySync(repositoryID string) (func(), bool) {

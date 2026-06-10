@@ -1,9 +1,12 @@
 package source
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path"
@@ -258,6 +261,45 @@ func (g *GitCheckout) ListBranches(ctx context.Context, opts ListBranchesOptions
 	return branches, nil
 }
 
+func (g *GitCheckout) ListTree(ctx context.Context, opts ListTreeOptions) (TreeListing, error) {
+	if err := g.validateCheckout(); err != nil {
+		return TreeListing{}, err
+	}
+
+	ref := strings.TrimSpace(opts.Ref)
+	if ref == "" {
+		ref = "HEAD"
+	}
+
+	revision, err := g.ResolveRevision(ctx, ref)
+	if err != nil {
+		return TreeListing{}, err
+	}
+
+	cleanPath, err := normalizeTreeListPath(opts.Path)
+	if err != nil {
+		return TreeListing{}, err
+	}
+
+	limit := opts.Limit
+	if limit <= 0 {
+		limit = DefaultTreeListLimit
+	}
+
+	entries, err := g.listTreeEntries(ctx, revision.Commit, cleanPath, opts.Recursive, limit)
+	if err != nil {
+		return TreeListing{}, err
+	}
+
+	return TreeListing{
+		RequestedRef: ref,
+		Revision:     revision,
+		Path:         cleanPath,
+		Recursive:    opts.Recursive,
+		Entries:      entries,
+	}, nil
+}
+
 func (g *GitCheckout) validateCheckout() error {
 	checkoutPath := strings.TrimSpace(g.checkoutPath)
 	if checkoutPath == "" {
@@ -324,6 +366,52 @@ func (g *GitCheckout) listBranchScope(ctx context.Context, scope branchRefScope,
 	}
 
 	return branches, nil
+}
+
+func (g *GitCheckout) listTreeEntries(ctx context.Context, commit, treePath string, recursive bool, limit int) ([]TreeEntry, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+
+	treeish := commit
+	if treePath != "" {
+		treeish += ":" + treePath
+	}
+
+	args := []string{"ls-tree", "-z", "--long"}
+	if recursive {
+		args = append(args, "-r")
+	}
+
+	args = append(args, treeish)
+	entries := make([]TreeEntry, 0, min(limit, DefaultTreeListLimit))
+	err := g.streamGitRecords(ctx, args, func(record []byte) error {
+		entry, ok, err := parseTreeEntryRecord(record, treePath)
+		if err != nil {
+			return err
+		}
+
+		if !ok {
+			return nil
+		}
+
+		entries = append(entries, entry)
+		if len(entries) >= limit {
+			return errStopGitStream
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		if treePath == "" {
+			return nil, fmt.Errorf("%w: list tree at %s: %v", ErrNotFound, commit, err)
+		}
+
+		return nil, fmt.Errorf("%w: list tree %s at %s: %v", ErrNotFound, treePath, commit, err)
+	}
+
+	return entries, nil
 }
 
 func (g *GitCheckout) resolveBlob(ctx context.Context, commit, filePath string) (string, error) {
@@ -399,6 +487,15 @@ func (g *GitCheckout) run(ctx context.Context, args ...string) ([]byte, error) {
 	return runner.RunGit(ctx, g.checkoutPath, args...)
 }
 
+func (g *GitCheckout) streamGitRecords(ctx context.Context, args []string, handle func([]byte) error) error {
+	runner := g.runner
+	if runner == nil {
+		runner = execGitRunner{}
+	}
+
+	return runner.StreamGitRecords(ctx, g.checkoutPath, args, handle)
+}
+
 func (s *GitCheckoutStatus) setError(code, message string) {
 	if s.ErrorCode == "" {
 		s.ErrorCode = code
@@ -465,6 +562,28 @@ func normalizeBranchPrefix(prefix, remote string) (string, error) {
 	return prefix, nil
 }
 
+func normalizeTreeListPath(filePath string) (string, error) {
+	filePath = strings.TrimSpace(filepath.ToSlash(filePath))
+	if filePath == "" || filePath == "." {
+		return "", nil
+	}
+
+	if strings.ContainsAny(filePath, "\x00\n\r") || path.IsAbs(filePath) {
+		return "", fmt.Errorf("%w: unsafe tree path %q", ErrInvalidReference, filePath)
+	}
+
+	cleanPath := path.Clean(filePath)
+	if cleanPath == "." {
+		return "", nil
+	}
+
+	if cleanPath == ".." || strings.HasPrefix(cleanPath, "../") {
+		return "", fmt.Errorf("%w: unsafe tree path %q", ErrInvalidReference, filePath)
+	}
+
+	return cleanPath, nil
+}
+
 func normalizeTreePath(filePath string) (string, error) {
 	filePath = strings.TrimSpace(filepath.ToSlash(filePath))
 	if filePath == "" {
@@ -483,8 +602,54 @@ func normalizeTreePath(filePath string) (string, error) {
 	return cleanPath, nil
 }
 
+func parseTreeEntryRecord(record []byte, treePath string) (TreeEntry, bool, error) {
+	record = bytes.Trim(record, "\x00\n\r ")
+	if len(record) == 0 {
+		return TreeEntry{}, false, nil
+	}
+
+	meta, nameBytes, ok := bytes.Cut(record, []byte{'\t'})
+	if !ok {
+		return TreeEntry{}, false, fmt.Errorf("%w: malformed tree entry", ErrInvalidReference)
+	}
+
+	fields := strings.Fields(string(meta))
+	if len(fields) < 4 {
+		return TreeEntry{}, false, fmt.Errorf("%w: malformed tree entry", ErrInvalidReference)
+	}
+
+	entryPath := strings.TrimSpace(string(nameBytes))
+	if entryPath == "" {
+		return TreeEntry{}, false, nil
+	}
+
+	if treePath != "" {
+		entryPath = path.Join(treePath, entryPath)
+	}
+
+	sizeBytes := int64(0)
+	if fields[3] != "-" {
+		size, err := strconv.ParseInt(fields[3], 10, 64)
+		if err != nil {
+			return TreeEntry{}, false, fmt.Errorf("%w: malformed tree entry size %q", ErrInvalidReference, fields[3])
+		}
+
+		sizeBytes = size
+	}
+
+	return TreeEntry{
+		Path:      entryPath,
+		Name:      path.Base(entryPath),
+		Type:      fields[1],
+		Mode:      fields[0],
+		ObjectSHA: fields[2],
+		SizeBytes: sizeBytes,
+	}, true, nil
+}
+
 type gitRunner interface {
 	RunGit(ctx context.Context, checkoutPath string, args ...string) ([]byte, error)
+	StreamGitRecords(ctx context.Context, checkoutPath string, args []string, handle func([]byte) error) error
 }
 
 type execGitRunner struct{}
@@ -507,4 +672,78 @@ func (execGitRunner) RunGit(ctx context.Context, checkoutPath string, args ...st
 	}
 
 	return out, nil
+}
+
+var errStopGitStream = errors.New("stop git stream")
+
+func (execGitRunner) StreamGitRecords(ctx context.Context, checkoutPath string, args []string, handle func([]byte) error) error {
+	gitArgs := append([]string{"-C", checkoutPath}, args...)
+	cmd := exec.CommandContext(ctx, "git", gitArgs...)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	stopped := false
+	reader := bufio.NewReader(stdout)
+	for {
+		record, readErr := reader.ReadBytes(0)
+		if len(record) > 0 {
+			record = bytes.TrimSuffix(record, []byte{0})
+			if err := handle(record); err != nil {
+				if errors.Is(err, errStopGitStream) {
+					stopped = true
+					if cmd.Process != nil {
+						_ = cmd.Process.Kill()
+					}
+
+					break
+				}
+
+				if cmd.Process != nil {
+					_ = cmd.Process.Kill()
+				}
+
+				_ = cmd.Wait()
+				return err
+			}
+		}
+
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				break
+			}
+
+			if cmd.Process != nil {
+				_ = cmd.Process.Kill()
+			}
+
+			_ = cmd.Wait()
+			return readErr
+		}
+	}
+
+	err = cmd.Wait()
+	if stopped {
+		return nil
+	}
+
+	if err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg != "" {
+			return fmt.Errorf("%w: %s", err, msg)
+		}
+
+		return err
+	}
+
+	return nil
 }

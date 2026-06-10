@@ -155,6 +155,82 @@ func TestGitCheckoutListBranches(t *testing.T) {
 	}
 }
 
+func TestGitCheckoutListTree(t *testing.T) {
+	repo := initGitRepo(t)
+	writeAndCommit(t, repo, ".vectis/jobs/build.json", `{"name":"build"}`+"\n", "build")
+	writeAndCommit(t, repo, ".vectis/jobs/deploy.json", `{"name":"deploy"}`+"\n", "deploy")
+	writeAndCommit(t, repo, "README.md", "hello\n", "readme")
+	commit := gitOutput(t, repo, "rev-parse", "HEAD")
+
+	checkout := NewGitCheckout(repo)
+	listing, err := checkout.ListTree(context.Background(), ListTreeOptions{
+		Ref:   "HEAD",
+		Path:  ".vectis",
+		Limit: 10,
+	})
+
+	if err != nil {
+		t.Fatalf("ListTree .vectis: %v", err)
+	}
+
+	if listing.RequestedRef != "HEAD" ||
+		listing.Revision.Commit != commit ||
+		listing.Path != ".vectis" ||
+		listing.Recursive ||
+		len(listing.Entries) != 1 {
+		t.Fatalf(".vectis listing mismatch: %+v", listing)
+	}
+
+	if got := listing.Entries[0]; got.Path != ".vectis/jobs" || got.Name != "jobs" || got.Type != "tree" || got.Mode != "040000" || got.ObjectSHA == "" {
+		t.Fatalf(".vectis tree entry mismatch: %+v", got)
+	}
+
+	listing, err = checkout.ListTree(context.Background(), ListTreeOptions{
+		Ref:   "HEAD",
+		Path:  ".vectis/jobs",
+		Limit: 10,
+	})
+
+	if err != nil {
+		t.Fatalf("ListTree .vectis/jobs: %v", err)
+	}
+
+	entries := map[string]TreeEntry{}
+	for _, entry := range listing.Entries {
+		entries[entry.Path] = entry
+	}
+
+	if build := entries[".vectis/jobs/build.json"]; build.Name != "build.json" || build.Type != "blob" || build.Mode != "100644" || build.ObjectSHA == "" || build.SizeBytes == 0 {
+		t.Fatalf("build entry mismatch: %+v", build)
+	}
+
+	if deploy := entries[".vectis/jobs/deploy.json"]; deploy.Name != "deploy.json" || deploy.Type != "blob" || deploy.Mode != "100644" || deploy.ObjectSHA == "" || deploy.SizeBytes == 0 {
+		t.Fatalf("deploy entry mismatch: %+v", deploy)
+	}
+
+	listing, err = checkout.ListTree(context.Background(), ListTreeOptions{
+		Ref:       "HEAD",
+		Recursive: true,
+		Limit:     2,
+	})
+
+	if err != nil {
+		t.Fatalf("ListTree recursive limit: %v", err)
+	}
+
+	if !listing.Recursive || len(listing.Entries) != 2 {
+		t.Fatalf("recursive limited listing mismatch: %+v", listing)
+	}
+
+	if _, err := checkout.ListTree(context.Background(), ListTreeOptions{Ref: "HEAD", Path: "../secret"}); !errors.Is(err, ErrInvalidReference) {
+		t.Fatalf("expected invalid tree path, got %v", err)
+	}
+
+	if _, err := checkout.ListTree(context.Background(), ListTreeOptions{Ref: "HEAD", Path: "missing"}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected missing tree path, got %v", err)
+	}
+}
+
 func TestGitCheckoutStatusReportsHealthyCheckout(t *testing.T) {
 	repo := initGitRepo(t)
 	writeAndCommit(t, repo, "README.md", "hello\n", "readme")
