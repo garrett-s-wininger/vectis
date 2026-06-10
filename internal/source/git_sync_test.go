@@ -53,6 +53,62 @@ func TestSyncManagedGitCheckoutClonesAndFetches(t *testing.T) {
 	}
 }
 
+func TestManagedGitCheckoutResolvesFetchedRemoteBranchByPlainName(t *testing.T) {
+	remote := initGitRepo(t)
+	writeAndCommit(t, remote, "README.md", "main\n", "main")
+	defaultBranch := gitOutput(t, remote, "branch", "--show-current")
+
+	checkoutPath := filepath.Join(t.TempDir(), "managed")
+	status := SyncManagedGitCheckout(context.Background(), ManagedGitCheckoutRequest{
+		CheckoutPath: checkoutPath,
+		RemoteURL:    remote,
+		DefaultRef:   defaultBranch,
+	})
+	if status.ErrorCode != "" {
+		t.Fatalf("initial sync failed: %+v", status)
+	}
+
+	git(t, remote, "checkout", "-b", "feature/ref-fallback")
+	writeAndCommit(t, remote, "README.md", "feature\n", "feature")
+	featureCommit := gitOutput(t, remote, "rev-parse", "HEAD")
+	git(t, remote, "checkout", defaultBranch)
+
+	status = SyncManagedGitCheckout(context.Background(), ManagedGitCheckoutRequest{
+		CheckoutPath: checkoutPath,
+		RemoteURL:    remote,
+		DefaultRef:   defaultBranch,
+	})
+	if status.ErrorCode != "" {
+		t.Fatalf("fetch feature branch failed: %+v", status)
+	}
+
+	if _, err := NewGitCheckout(checkoutPath).ResolveRevision(context.Background(), "feature/ref-fallback"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("plain GitCheckout should not resolve remote-only branch by plain name, got %v", err)
+	}
+
+	managed := NewManagedGitCheckout(checkoutPath)
+	rev, err := managed.ResolveRevision(context.Background(), "feature/ref-fallback")
+	if err != nil {
+		t.Fatalf("managed ResolveRevision plain branch: %v", err)
+	}
+	if rev.Commit != featureCommit {
+		t.Fatalf("managed plain branch commit: got %q, want %q", rev.Commit, featureCommit)
+	}
+
+	status = managed.Status(context.Background(), "refs/heads/feature/ref-fallback")
+	if status.ErrorCode != "" || !status.DefaultRefResolved || status.ResolvedCommit != featureCommit {
+		t.Fatalf("managed refs/heads fallback status mismatch: %+v", status)
+	}
+
+	file, err := managed.ReadFile(context.Background(), rev, "README.md")
+	if err != nil {
+		t.Fatalf("managed ReadFile feature branch: %v", err)
+	}
+	if got, want := string(file.Content), "feature\n"; got != want {
+		t.Fatalf("feature branch content: got %q, want %q", got, want)
+	}
+}
+
 func TestSyncManagedGitCheckoutRequiresRemoteURLToClone(t *testing.T) {
 	status := SyncManagedGitCheckout(context.Background(), ManagedGitCheckoutRequest{
 		CheckoutPath: filepath.Join(t.TempDir(), "managed"),

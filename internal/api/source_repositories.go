@@ -1058,7 +1058,7 @@ func sourceRepositoryStatusFromRecord(ctx context.Context, rec dal.SourceReposit
 
 	switch strings.TrimSpace(rec.SourceKind) {
 	case dal.SourceKindLocalCheckout:
-		checkoutStatus := sourcepkg.NewGitCheckout(rec.CheckoutPath).Status(ctx, rec.DefaultRef)
+		checkoutStatus := newGitCheckoutForSourceRepository(rec).Status(ctx, rec.DefaultRef)
 		resp.CheckoutPath = checkoutStatus.CheckoutPath
 		resp.PathExists = checkoutStatus.PathExists
 		resp.PathIsDirectory = checkoutStatus.PathIsDirectory
@@ -1202,6 +1202,14 @@ func managedSourceCheckoutPath(repositoryID string) (string, error) {
 	}
 
 	return store.Path(repositoryID)
+}
+
+func newGitCheckoutForSourceRepository(rec dal.SourceRepositoryRecord) *sourcepkg.GitCheckout {
+	if strings.TrimSpace(rec.CheckoutMode) == dal.SourceCheckoutModeManaged {
+		return sourcepkg.NewManagedGitCheckout(rec.CheckoutPath)
+	}
+
+	return sourcepkg.NewGitCheckout(rec.CheckoutPath)
 }
 
 func validSourceCheckoutMode(mode string) bool {

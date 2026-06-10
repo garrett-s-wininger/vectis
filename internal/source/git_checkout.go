@@ -15,9 +15,10 @@ import (
 type GitCheckoutOption func(*GitCheckout)
 
 type GitCheckout struct {
-	checkoutPath string
-	maxFileBytes int64
-	runner       gitRunner
+	checkoutPath   string
+	maxFileBytes   int64
+	remoteFallback string
+	runner         gitRunner
 }
 
 var _ Repository = (*GitCheckout)(nil)
@@ -54,6 +55,15 @@ func WithMaxFileBytes(maxBytes int64) GitCheckoutOption {
 	return func(g *GitCheckout) {
 		if maxBytes > 0 {
 			g.maxFileBytes = maxBytes
+		}
+	}
+}
+
+func WithRemoteFallback(remote string) GitCheckoutOption {
+	return func(g *GitCheckout) {
+		remote = strings.TrimSpace(remote)
+		if remote != "" && !strings.HasPrefix(remote, "-") && !strings.ContainsAny(remote, "\x00\n\r/") {
+			g.remoteFallback = remote
 		}
 	}
 }
@@ -117,13 +127,12 @@ func (g *GitCheckout) Status(ctx context.Context, defaultRef string) GitCheckout
 		return status
 	}
 
-	out, err = g.run(ctx, "rev-parse", "--verify", ref+"^{commit}")
+	commit, err := g.resolveCommit(ctx, ref)
 	if err != nil {
 		status.setError("default_ref_not_found", "default ref does not resolve to a commit")
 		return status
 	}
 
-	commit := strings.TrimSpace(string(out))
 	if commit == "" {
 		status.setError("default_ref_invalid", "default ref resolved to an empty commit")
 		return status
@@ -144,12 +153,11 @@ func (g *GitCheckout) ResolveRevision(ctx context.Context, ref string) (Revision
 		return Revision{}, err
 	}
 
-	out, err := g.run(ctx, "rev-parse", "--verify", ref+"^{commit}")
+	commit, err := g.resolveCommit(ctx, ref)
 	if err != nil {
 		return Revision{}, fmt.Errorf("%w: revision %q", ErrNotFound, ref)
 	}
 
-	commit := strings.TrimSpace(string(out))
 	if commit == "" {
 		return Revision{}, fmt.Errorf("%w: revision %q resolved to an empty commit", ErrInvalidReference, ref)
 	}
@@ -238,6 +246,33 @@ func (g *GitCheckout) resolveBlob(ctx context.Context, commit, filePath string) 
 	}
 
 	return blobSHA, nil
+}
+
+func (g *GitCheckout) resolveCommit(ctx context.Context, ref string) (string, error) {
+	for _, candidate := range g.refCandidates(ref) {
+		out, err := g.run(ctx, "rev-parse", "--verify", candidate+"^{commit}")
+		if err != nil {
+			continue
+		}
+
+		commit := strings.TrimSpace(string(out))
+		if commit != "" {
+			return commit, nil
+		}
+	}
+
+	return "", fmt.Errorf("%w: revision %q", ErrNotFound, ref)
+}
+
+func (g *GitCheckout) refCandidates(ref string) []string {
+	candidates := []string{ref}
+	branch, ok := remoteFallbackBranchName(ref)
+	if !ok || g.remoteFallback == "" {
+		return candidates
+	}
+
+	candidates = append(candidates, "refs/remotes/"+g.remoteFallback+"/"+branch)
+	return candidates
 }
 
 func (g *GitCheckout) blobSize(ctx context.Context, blobSHA string) (int64, error) {

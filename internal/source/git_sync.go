@@ -75,7 +75,11 @@ func SyncManagedGitCheckout(ctx context.Context, req ManagedGitCheckoutRequest) 
 		return status
 	}
 
-	return NewGitCheckout(checkoutPath).Status(ctx, defaultRef)
+	return NewManagedGitCheckout(checkoutPath).Status(ctx, defaultRef)
+}
+
+func NewManagedGitCheckout(checkoutPath string, opts ...GitCheckoutOption) *GitCheckout {
+	return NewGitCheckout(checkoutPath, append([]GitCheckoutOption{WithRemoteFallback("origin")}, opts...)...)
 }
 
 func cloneManagedGitCheckout(ctx context.Context, checkoutPath, remoteURL string) error {
@@ -158,6 +162,24 @@ func managedLocalBranchName(ref string) (string, bool) {
 	}
 
 	if strings.HasPrefix(ref, "refs/") || strings.HasPrefix(ref, "origin/") || looksLikeFullObjectID(ref) {
+		return "", false
+	}
+
+	return ref, true
+}
+
+func remoteFallbackBranchName(ref string) (string, bool) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" || ref == "HEAD" || looksLikeFullObjectID(ref) {
+		return "", false
+	}
+
+	if strings.HasPrefix(ref, "refs/heads/") {
+		branch := strings.TrimPrefix(ref, "refs/heads/")
+		return branch, branch != ""
+	}
+
+	if strings.HasPrefix(ref, "refs/") || strings.HasPrefix(ref, "origin/") {
 		return "", false
 	}
 

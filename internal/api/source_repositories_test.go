@@ -705,6 +705,41 @@ func TestAPIServer_SyncManagedSourceRepositoryClonesAndFetches(t *testing.T) {
 	if job.GetRoot().GetWith()["command"] != "false" {
 		t.Fatalf("managed resolved definition command: got %+v", job.GetRoot().GetWith())
 	}
+
+	defaultBranch := apiGitOutput(t, remotePath, "branch", "--show-current")
+	apiGit(t, remotePath, "checkout", "-b", "feature/source-ref")
+	writeAPIJobDefinitionAndCommit(t, remotePath, "feature", "feature definition")
+	featureCommit := apiGitOutput(t, remotePath, "rev-parse", "HEAD")
+	apiGit(t, remotePath, "checkout", defaultBranch)
+
+	syncRec = httptest.NewRecorder()
+	syncReq = httptest.NewRequest(http.MethodPost, "/api/v1/source-repositories/managed-repo/sync", nil)
+	handler.ServeHTTP(syncRec, syncReq)
+	if syncRec.Code != http.StatusOK {
+		t.Fatalf("sync managed feature branch: status=%d body=%s", syncRec.Code, syncRec.Body.String())
+	}
+
+	resolveRec = doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/managed-repo/definitions/resolve", map[string]any{
+		"ref":  "feature/source-ref",
+		"path": ".vectis/jobs/build.json",
+	})
+
+	if resolveRec.Code != http.StatusOK {
+		t.Fatalf("resolve managed feature branch: status=%d body=%s", resolveRec.Code, resolveRec.Body.String())
+	}
+
+	resolveResp = decodeResolvedSourceDefinitionResponse(t, resolveRec)
+	if resolveResp.Source.RequestedRef != "feature/source-ref" || resolveResp.Source.ResolvedCommit != featureCommit {
+		t.Fatalf("managed feature resolve mismatch: %+v", resolveResp)
+	}
+
+	if err := json.Unmarshal(resolveResp.Definition, &job); err != nil {
+		t.Fatalf("managed feature definition JSON: %v", err)
+	}
+
+	if job.GetRoot().GetWith()["command"] != "feature" {
+		t.Fatalf("managed feature definition command: got %+v", job.GetRoot().GetWith())
+	}
 }
 
 func TestAPIServer_GetJobSourceDefinitionReadsDisabledRepository(t *testing.T) {

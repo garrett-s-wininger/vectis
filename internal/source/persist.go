@@ -158,6 +158,10 @@ func NewRepositoryFromRecord(rec dal.SourceRepositoryRecord) (Repository, error)
 			return nil, fmt.Errorf("%w: checkout_path is required for %s", ErrInvalidReference, dal.SourceKindLocalCheckout)
 		}
 
+		if strings.TrimSpace(rec.CheckoutMode) == dal.SourceCheckoutModeManaged {
+			return NewManagedGitCheckout(checkoutPath), nil
+		}
+
 		return NewGitCheckout(checkoutPath), nil
 	default:
 		return nil, fmt.Errorf("%w: unsupported source_kind %q", ErrInvalidReference, rec.SourceKind)
