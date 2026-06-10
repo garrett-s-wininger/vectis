@@ -164,8 +164,10 @@ func init() {
 	configureSourcesJobsFlags(sourcesJobsCmd)
 	configureSourcesShowFlags(sourcesShowCmd)
 	configureSourcesRunsFlags(sourcesRunsCmd)
+	configureLogFilterFlags(sourcesLogsCmd)
+	configureSourcesLogsFlags(sourcesLogsCmd)
 	configureSourcesTriggerFlags(sourcesTriggerCmd)
-	sourcesCmd.AddCommand(sourcesListCmd, sourcesRegisterCmd, sourcesSyncCmd, sourcesJobsCmd, sourcesShowCmd, sourcesRunsCmd, sourcesTriggerCmd)
+	sourcesCmd.AddCommand(sourcesListCmd, sourcesRegisterCmd, sourcesSyncCmd, sourcesJobsCmd, sourcesShowCmd, sourcesRunsCmd, sourcesLogsCmd, sourcesTriggerCmd)
 	rootCmd.AddCommand(sourcesCmd)
 
 	configureRunListFlags(runListCmd)

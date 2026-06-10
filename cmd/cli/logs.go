@@ -30,7 +30,20 @@ type jobRunEvent struct {
 }
 
 func runLogStream(runID string, filterStdout, filterStderr bool) error {
-	req, err := newAPIRequest(http.MethodGet, fmt.Sprintf("/api/v1/runs/%s/logs", runID), nil)
+	return runLogStreamPath(fmt.Sprintf("/api/v1/runs/%s/logs", url.PathEscape(runID)), runID, filterStdout, filterStderr)
+}
+
+func runSourceLogStream(repositoryID, jobID, runID string, filterStdout, filterStderr bool) error {
+	path := fmt.Sprintf("/api/v1/source-repositories/%s/jobs/%s/runs/%s/logs",
+		url.PathEscape(repositoryID),
+		url.PathEscape(jobID),
+		url.PathEscape(runID),
+	)
+	return runLogStreamPath(path, runID, filterStdout, filterStderr)
+}
+
+func runLogStreamPath(path, runID string, filterStdout, filterStderr bool) error {
+	req, err := newAPIRequest(http.MethodGet, path, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create log stream request: %w", err)
 	}
@@ -210,9 +223,31 @@ func runLogStream(runID string, filterStdout, filterStderr bool) error {
 }
 
 func runContinuousLogs(jobID string, filterStdout, filterStderr bool) error {
+	return runContinuousLogsPath(
+		"job "+jobID,
+		fmt.Sprintf("/api/v1/sse/jobs/%s/runs", url.PathEscape(jobID)),
+		fmt.Sprintf("/api/v1/jobs/%s/runs", url.PathEscape(jobID)),
+		func(ev jobRunEvent) error {
+			return runLogStream(ev.RunID, filterStdout, filterStderr)
+		},
+	)
+}
+
+func runContinuousSourceLogs(repositoryID, jobID string, filterStdout, filterStderr bool) error {
+	return runContinuousLogsPath(
+		"source job "+repositoryID+"/"+jobID,
+		fmt.Sprintf("/api/v1/sse/source-repositories/%s/jobs/%s/runs", url.PathEscape(repositoryID), url.PathEscape(jobID)),
+		fmt.Sprintf("/api/v1/source-repositories/%s/jobs/%s/runs", url.PathEscape(repositoryID), url.PathEscape(jobID)),
+		func(ev jobRunEvent) error {
+			return runSourceLogStream(repositoryID, jobID, ev.RunID, filterStdout, filterStderr)
+		},
+	)
+}
+
+func runContinuousLogsPath(label, ssePath, runsPath string, streamRun func(jobRunEvent) error) error {
 	lastIndex := 0
 	if !outputIsJSON() {
-		fmt.Printf("Streaming logs for job %s (Ctrl+C to stop)\n", jobID)
+		fmt.Printf("Streaming logs for %s (Ctrl+C to stop)\n", label)
 	}
 
 	interrupt := make(chan os.Signal, 1)
@@ -226,7 +261,7 @@ outer:
 		runChan := make(chan jobRunEvent, 32)
 		go func() {
 			defer close(runChan)
-			req, err := newAPIRequest(http.MethodGet, fmt.Sprintf("/api/v1/sse/jobs/%s/runs", jobID), nil)
+			req, err := newAPIRequest(http.MethodGet, ssePath, nil)
 			if err != nil {
 				return
 			}
@@ -296,7 +331,9 @@ outer:
 			}
 		}()
 
-		req, err := newAPIRequest(http.MethodGet, fmt.Sprintf("/api/v1/jobs/%s/runs?after_index=%d", jobID, lastIndex), nil)
+		params := url.Values{}
+		params.Set("after_index", strconv.Itoa(lastIndex))
+		req, err := newAPIRequest(http.MethodGet, appendQueryParams(runsPath, params), nil)
 		if err != nil {
 			attemptCancel()
 			return fmt.Errorf("creating runs request: %w", err)
@@ -306,6 +343,12 @@ outer:
 		if err != nil {
 			attemptCancel()
 			return fmt.Errorf("fetching runs: %w", err)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			_ = resp.Body.Close()
+			attemptCancel()
+			return fmt.Errorf("listing runs failed: %s", resp.Status)
 		}
 
 		runs, err := decodeJobRuns(resp.Body)
@@ -342,7 +385,7 @@ outer:
 					lastIndex = ev.RunIndex
 				}
 
-				if err := runLogStream(ev.RunID, filterStdout, filterStderr); err != nil {
+				if err := streamRun(ev); err != nil {
 					if err.Error() == "interrupted" {
 						attemptCancel()
 						return err
@@ -368,6 +411,14 @@ func decodeJobRuns(r io.Reader) ([]jobRunEvent, error) {
 }
 
 func latestRunForJob(jobID string) (jobRunEvent, bool, error) {
+	return latestRunForJobPath(fmt.Sprintf("/api/v1/jobs/%s/runs", url.PathEscape(jobID)))
+}
+
+func latestRunForSourceJob(repositoryID, jobID string) (jobRunEvent, bool, error) {
+	return latestRunForJobPath(fmt.Sprintf("/api/v1/source-repositories/%s/jobs/%s/runs", url.PathEscape(repositoryID), url.PathEscape(jobID)))
+}
+
+func latestRunForJobPath(path string) (jobRunEvent, bool, error) {
 	var latest jobRunEvent
 	cursor := int64(0)
 
@@ -378,7 +429,7 @@ func latestRunForJob(jobID string) (jobRunEvent, bool, error) {
 			params.Set("cursor", strconv.FormatInt(cursor, 10))
 		}
 
-		req, err := newAPIRequest(http.MethodGet, fmt.Sprintf("/api/v1/jobs/%s/runs?%s", jobID, params.Encode()), nil)
+		req, err := newAPIRequest(http.MethodGet, appendQueryParams(path, params), nil)
 		if err != nil {
 			return jobRunEvent{}, false, err
 		}
@@ -418,6 +469,19 @@ func latestRunForJob(jobID string) (jobRunEvent, bool, error) {
 	}
 
 	return latest, latest.RunID != "", nil
+}
+
+func appendQueryParams(path string, params url.Values) string {
+	encoded := params.Encode()
+	if encoded == "" {
+		return path
+	}
+
+	if strings.Contains(path, "?") {
+		return path + "&" + encoded
+	}
+
+	return path + "?" + encoded
 }
 
 func resolveLogIDArg(arg string) (string, error) {

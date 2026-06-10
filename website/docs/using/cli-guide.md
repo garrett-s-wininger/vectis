@@ -259,6 +259,13 @@ List runs recorded for a source-defined job:
 ./bin/vectis-cli sources runs vectis-local build
 ```
 
+Stream logs for the latest source-defined run, or for a specific source run:
+
+```sh
+./bin/vectis-cli sources logs vectis-local build
+./bin/vectis-cli sources logs vectis-local build <run-id>
+```
+
 Use `sources trigger` with `source.stored_jobs_enabled=false` when the instance should run only repository-defined jobs.
 
 ## Inspect Runs
@@ -365,6 +372,12 @@ Filter to one stream when needed:
 ```sh
 ./bin/vectis-cli logs run <run-id> --stdout
 ./bin/vectis-cli logs run <run-id> --stderr
+```
+
+For source-only jobs, use the source-scoped log route so runs are matched by repository provenance:
+
+```sh
+./bin/vectis-cli sources logs vectis-local build --follow
 ```
 
 ## Manage Users, Tokens, And Roles

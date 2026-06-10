@@ -397,6 +397,55 @@ func listSourceRunsWithOutput(out io.Writer, repositoryID, jobID string, limit, 
 	return listRunsPath(path, limit, cursor, since, cellID, out)
 }
 
+func runSourceLogs(cmd *cobra.Command, args []string) {
+	repositoryID := args[0]
+	jobID := args[1]
+	filterStdout, _ := cmd.Flags().GetBool("stdout")
+	filterStderr, _ := cmd.Flags().GetBool("stderr")
+	follow, _ := cmd.Flags().GetBool("follow")
+
+	if follow {
+		if len(args) > 2 {
+			runCLIError(fmt.Errorf("--follow waits for future runs and cannot be combined with a run-id"))
+		}
+
+		if err := runContinuousSourceLogs(repositoryID, jobID, filterStdout, filterStderr); err != nil {
+			if err.Error() == "interrupted" {
+				return
+			}
+
+			runCLIError(err)
+		}
+
+		return
+	}
+
+	if len(args) > 2 {
+		runID, err := resolveLogIDArg(args[2])
+		if err != nil {
+			runCLIError(err)
+		}
+
+		runCLIError(runSourceLogStream(repositoryID, jobID, runID, filterStdout, filterStderr))
+		return
+	}
+
+	run, ok, err := latestRunForSourceJob(repositoryID, jobID)
+	if err != nil {
+		runCLIError(err)
+	}
+
+	if !ok {
+		runCLIError(fmt.Errorf("no runs found for source job %q/%q; use --follow to wait for future runs", repositoryID, jobID))
+	}
+
+	if !outputIsJSON() {
+		fmt.Printf("Streaming latest run for source job %s/%s: %s\n", repositoryID, jobID, run.RunID)
+	}
+
+	runCLIError(runSourceLogStream(repositoryID, jobID, run.RunID, filterStdout, filterStderr))
+}
+
 func triggerSourceJob(cmd *cobra.Command, args []string) {
 	runCLIError(triggerSourceJobWithOutput(cmd, os.Stdout, args[0], args[1]))
 }
@@ -528,6 +577,14 @@ var sourcesRunsCmd = &cobra.Command{
 	Run:   listSourceRuns,
 }
 
+var sourcesLogsCmd = &cobra.Command{
+	Use:   "logs [repository-id] [job-id] [run-id]",
+	Short: "Stream logs for a source job run",
+	Long:  `Stream logs for a source repository job run using source provenance to disambiguate runs from stored jobs with the same job ID. Omit run-id to stream the latest source run, or add --follow to wait for future source runs.`,
+	Args:  cobra.RangeArgs(2, 3),
+	Run:   runSourceLogs,
+}
+
 var sourcesTriggerCmd = &cobra.Command{
 	Use:   "trigger [repository-id] [job-id]",
 	Short: "Trigger a job directly from source",
@@ -569,6 +626,10 @@ func configureSourcesRunsFlags(cmd *cobra.Command) {
 	cmd.Flags().IntVar(&sourceRunsCursor, "cursor", 0, "Continue listing after this result cursor")
 	cmd.Flags().String("since", "", "Only include runs since RFC3339 timestamp or YYYY-MM-DD")
 	cmd.Flags().StringVar(&sourceRunsCellID, "cell", "", "Filter by owning execution cell")
+}
+
+func configureSourcesLogsFlags(cmd *cobra.Command) {
+	cmd.Flags().BoolP("follow", "f", false, "Wait for and stream future source job runs")
 }
 
 func configureSourcesTriggerFlags(cmd *cobra.Command) {

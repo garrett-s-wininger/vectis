@@ -497,6 +497,80 @@ func TestListSourceRuns_sendsQueryAndPrintsRuns(t *testing.T) {
 	}
 }
 
+func TestLatestRunForSourceJob_paginatesToNewestRun(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/source-repositories/vectis/jobs/build/runs" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		if got := r.URL.Query().Get("limit"); got != "200" {
+			t.Errorf("limit=%q, want 200", got)
+		}
+
+		switch r.URL.Query().Get("cursor") {
+		case "":
+			next := int64(10)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data":        []map[string]any{{"run_id": "run-source-1", "run_index": 1}},
+				"next_cursor": next,
+			})
+		case "10":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data": []map[string]any{{"run_id": "run-source-2", "run_index": 2}},
+			})
+		default:
+			t.Errorf("unexpected cursor=%q", r.URL.Query().Get("cursor"))
+			w.WriteHeader(http.StatusBadRequest)
+		}
+	})
+
+	run, ok, err := latestRunForSourceJob("vectis", "build")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !ok {
+		t.Fatal("expected latest run")
+	}
+
+	if run.RunID != "run-source-2" || run.RunIndex != 2 {
+		t.Fatalf("unexpected latest run: %+v", run)
+	}
+}
+
+func TestRunSourceLogStream_usesSourceScopedPath(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/source-repositories/vectis/jobs/build/runs/run-source/logs" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		if got := r.Header.Get("Accept"); got != "text/event-stream" {
+			t.Errorf("Accept=%q, want text/event-stream", got)
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		entry := LogEntry{
+			Stream: int(api.Stream_STREAM_CONTROL.Number()),
+			Data:   `{"event":"completed","status":"success"}`,
+		}
+
+		b, err := json.Marshal(entry)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		fmt.Fprintf(w, "data: %s\n\n", b)
+	})
+
+	if err := runSourceLogStream("vectis", "build", "run-source", false, false); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCellsStatus_tableOutput(t *testing.T) {
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
