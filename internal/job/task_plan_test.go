@@ -1,10 +1,12 @@
 package job_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/action/actionregistry"
 	"vectis/internal/dal"
 	"vectis/internal/job"
 )
@@ -75,6 +77,38 @@ func TestPlanTaskExecutionsAllowsRootOnlyJob(t *testing.T) {
 
 	if len(plan) != 0 {
 		t.Fatalf("root-only plan: got %+v, want empty", plan)
+	}
+}
+
+func TestPlanTaskExecutionsIncludesActionDigestsInSpecHash(t *testing.T) {
+	t.Parallel()
+
+	first, err := job.PlanTaskExecutionsWithActions(taskPlanJob("echo compile"), taskPlanResolver(
+		"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+	))
+
+	if err != nil {
+		t.Fatalf("PlanTaskExecutionsWithActions first: %v", err)
+	}
+
+	second, err := job.PlanTaskExecutionsWithActions(taskPlanJob("echo compile"), taskPlanResolver(
+		"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+		"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+	))
+
+	if err != nil {
+		t.Fatalf("PlanTaskExecutionsWithActions second: %v", err)
+	}
+
+	if len(first) == 0 || len(first) != len(second) {
+		t.Fatalf("unexpected plan lengths: first=%d second=%d", len(first), len(second))
+	}
+
+	for i := range first {
+		if first[i].SpecHash == second[i].SpecHash {
+			t.Fatalf("task %q spec hash did not change after resolved shell digest changed: %q", first[i].TaskKey, first[i].SpecHash)
+		}
 	}
 }
 
@@ -193,6 +227,47 @@ func taskPlanJob(compileCommand string) *api.Job {
 						},
 					},
 				},
+			},
+		},
+	}
+}
+
+type fakeTaskPlanResolver struct {
+	descriptors map[string]actionregistry.Descriptor
+}
+
+func (r fakeTaskPlanResolver) ResolveDescriptor(uses string) (actionregistry.Descriptor, error) {
+	descriptor, ok := r.descriptors[uses]
+	if !ok {
+		return actionregistry.Descriptor{}, fmt.Errorf("unknown action: %s", uses)
+	}
+
+	return descriptor, nil
+}
+
+func taskPlanResolver(shellDigest, parallelDigest string) fakeTaskPlanResolver {
+	return fakeTaskPlanResolver{
+		descriptors: map[string]actionregistry.Descriptor{
+			"builtins/shell": {
+				CanonicalName: "builtins/shell",
+				Version:       "v1",
+				Digest:        shellDigest,
+				Source:        actionregistry.SourceBuiltin,
+				Runtime:       actionregistry.RuntimeBuiltin,
+			},
+			"builtins/parallel": {
+				CanonicalName: "builtins/parallel",
+				Version:       "v1",
+				Digest:        parallelDigest,
+				Source:        actionregistry.SourceBuiltin,
+				Runtime:       actionregistry.RuntimeBuiltin,
+			},
+			"builtins/sequence": {
+				CanonicalName: "builtins/sequence",
+				Version:       "v1",
+				Digest:        "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+				Source:        actionregistry.SourceBuiltin,
+				Runtime:       actionregistry.RuntimeBuiltin,
 			},
 		},
 	}

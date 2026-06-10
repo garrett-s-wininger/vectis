@@ -102,6 +102,21 @@ func executeChildNode(ctx context.Context, node *api.Node, state *action.Executi
 		)
 	}
 
+	if state.Verifier != nil {
+		if err := state.Verifier.VerifyAction(node, state.NodePath(node)); err != nil {
+			wrapped := &action.ExecutionError{
+				NodeID:  node.GetId(),
+				Action:  node.GetUses(),
+				Message: "failed to verify action lock",
+				Cause:   err,
+			}
+
+			span.RecordError(wrapped)
+			span.SetStatus(otelcodes.Error, "verify action lock")
+			return action.NewFailureResult(wrapped)
+		}
+	}
+
 	act, err := state.Resolver.Resolve(node.GetUses())
 	if err != nil {
 		wrapped := &action.ExecutionError{

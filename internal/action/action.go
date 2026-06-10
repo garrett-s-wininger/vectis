@@ -49,6 +49,8 @@ type ExecutionState struct {
 	LogClient               interfaces.LogClient
 	LogStream               interfaces.LogStream
 	Resolver                Resolver
+	Verifier                ActionVerifier
+	NodePaths               map[*api.Node]string
 	Workload                *workloadidentity.Identity
 	ProcessExecutor         interfaces.ExecExecutor
 	ProcessExecutorResolver ProcessExecutorResolver
@@ -64,6 +66,22 @@ func (s *ExecutionState) NextSequence() int64 {
 
 type Resolver interface {
 	Resolve(uses string) (Node, error)
+}
+
+type ActionVerifier interface {
+	VerifyAction(node *api.Node, path string) error
+}
+
+func (s *ExecutionState) NodePath(node *api.Node) string {
+	if s == nil || node == nil {
+		return ""
+	}
+
+	if path := strings.TrimSpace(s.NodePaths[node]); path != "" {
+		return path
+	}
+
+	return strings.TrimSpace(node.GetId())
 }
 
 const PortUnlimited = -1

@@ -15,6 +15,7 @@ import (
 	"github.com/robfig/cron/v3"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/action/actionregistry"
 	"vectis/internal/backoff"
 	"vectis/internal/cell"
 	"vectis/internal/config"
@@ -36,22 +37,23 @@ type CronSchedule struct {
 }
 
 type CronService struct {
-	jobs         dal.JobsRepository
-	runs         dal.RunsRepository
-	schedules    dal.SchedulesRepository
-	dispatch     dal.DispatchEventsRepository
-	triggers     dal.TriggerInvocationsRepository
-	logger       interfaces.Logger
-	queueClient  interfaces.QueueService
-	queueClose   func()
-	ingress      cell.ExecutionIngress
-	parser       cron.Parser
-	clock        interfaces.Clock
-	retryMetrics backoff.RetryMetrics
-	instanceID   string
-	claimTTL     time.Duration
-	claimSeq     atomic.Uint64
-	mu           sync.Mutex
+	jobs           dal.JobsRepository
+	runs           dal.RunsRepository
+	schedules      dal.SchedulesRepository
+	dispatch       dal.DispatchEventsRepository
+	triggers       dal.TriggerInvocationsRepository
+	logger         interfaces.Logger
+	queueClient    interfaces.QueueService
+	queueClose     func()
+	ingress        cell.ExecutionIngress
+	parser         cron.Parser
+	clock          interfaces.Clock
+	retryMetrics   backoff.RetryMetrics
+	actionResolver actionregistry.Resolver
+	instanceID     string
+	claimTTL       time.Duration
+	claimSeq       atomic.Uint64
+	mu             sync.Mutex
 }
 
 func NewCronService(logger interfaces.Logger, db *sql.DB) *CronService {
@@ -103,6 +105,10 @@ func (s *CronService) SetClock(clock interfaces.Clock) {
 
 func (s *CronService) SetRetryMetrics(m backoff.RetryMetrics) {
 	s.retryMetrics = m
+}
+
+func (s *CronService) SetActionDescriptorResolver(resolver actionregistry.Resolver) {
+	s.actionResolver = resolver
 }
 
 func (s *CronService) SetTriggerInvocations(triggers dal.TriggerInvocationsRepository) {
@@ -398,7 +404,7 @@ func (s *CronService) attachExecutionEnvelope(ctx context.Context, req *api.JobR
 	}
 
 	dispatch.StartDeadlineUnixNano = deadline
-	return cell.AttachExecutionEnvelope(req, dispatch, createdAtUnixNano)
+	return cell.AttachExecutionEnvelopeWithActions(req, dispatch, createdAtUnixNano, s.actionResolver)
 }
 
 func (s *CronService) recordTriggerInvocation(ctx context.Context, jobID string, schedule *CronSchedule) (string, error) {

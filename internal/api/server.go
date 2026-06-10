@@ -16,6 +16,8 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/action"
+	"vectis/internal/action/actionregistry"
 	"vectis/internal/api/audit"
 	"vectis/internal/api/authn"
 	"vectis/internal/api/authz"
@@ -67,26 +69,28 @@ type ctxHolder struct {
 }
 
 type APIServer struct {
-	jobs           dal.JobsRepository
-	runs           dal.RunsRepository
-	ephemeralRuns  dal.EphemeralRunStarter
-	authRepo       dal.AuthRepository
-	namespaces     dal.NamespacesRepository
-	roleBindings   dal.RoleBindingsRepository
-	idempotency    dal.IdempotencyRepository
-	dispatchEvents dal.DispatchEventsRepository
-	taskDispatch   dal.TaskDispatchIntentsRepository
-	triggerEvents  dal.TriggerInvocationsRepository
-	catalogEvents  dal.CatalogEventsRepository
-	schedules      dal.SchedulesRepository
-	logger         interfaces.Logger
-	queueClient    atomic.Pointer[queueClientHolder]
-	logClient      atomic.Pointer[logClientHolder]
-	runBroadcaster *RunBroadcaster
-	dbUnavailable  atomic.Bool
-	draining       atomic.Bool
-	healthDB       *sql.DB
-	MetricsHandler http.Handler
+	jobs                     dal.JobsRepository
+	runs                     dal.RunsRepository
+	ephemeralRuns            dal.EphemeralRunStarter
+	authRepo                 dal.AuthRepository
+	namespaces               dal.NamespacesRepository
+	roleBindings             dal.RoleBindingsRepository
+	idempotency              dal.IdempotencyRepository
+	dispatchEvents           dal.DispatchEventsRepository
+	taskDispatch             dal.TaskDispatchIntentsRepository
+	triggerEvents            dal.TriggerInvocationsRepository
+	catalogEvents            dal.CatalogEventsRepository
+	schedules                dal.SchedulesRepository
+	logger                   interfaces.Logger
+	actionResolver           action.Resolver
+	actionDescriptorResolver actionregistry.Resolver
+	queueClient              atomic.Pointer[queueClientHolder]
+	logClient                atomic.Pointer[logClientHolder]
+	runBroadcaster           *RunBroadcaster
+	dbUnavailable            atomic.Bool
+	draining                 atomic.Bool
+	healthDB                 *sql.DB
+	MetricsHandler           http.Handler
 
 	// AccessLogger, when set, writes one structured slog record per HTTP request
 	// (typically JSON on stderr). Health probes are excluded.
@@ -496,6 +500,14 @@ func (s *APIServer) SetCacheService(cacheService cache.Service) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.cacheService = cacheService
+}
+
+func (s *APIServer) SetActionResolver(resolver action.Resolver) {
+	s.actionResolver = resolver
+}
+
+func (s *APIServer) SetActionDescriptorResolver(resolver actionregistry.Resolver) {
+	s.actionDescriptorResolver = resolver
 }
 
 func (s *APIServer) SetAuditor(auditor audit.Auditor) {

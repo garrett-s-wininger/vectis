@@ -8,6 +8,7 @@ For task walkthroughs, use the [CLI Guide](../../using/cli-guide.md). For repair
 
 | Area | Operator use | Commands |
 | --- | --- | --- |
+| Actions | Inspect configured action descriptors and resolve friendly names to digests for pinning. | `vectis-cli actions list`, `actions resolve`, `--ignore-policy` |
 | Jobs | Manage stored jobs and run one-off job files. | `vectis-cli jobs list`, `show`, `create`, `edit`, `delete`, `trigger`, `trigger --cell`, `run`, `run --cell` |
 | Runs | Inspect, cancel, retry, or manually repair run state. | `vectis-cli runs list`, `runs list --cell`, `show`, `tasks`, `cancel`, `retry`, `fail`, `repair mark-succeeded`, `mark-failed`, `mark-cancelled`, `mark-abandoned`, `mark-queued` |
 | Cells | Inspect execution cell routing, queued pressure, root and task dispatch repair pressure, and catalog fan-in counts. | `vectis-cli cells status` |
@@ -29,6 +30,7 @@ For task walkthroughs, use the [CLI Guide](../../using/cli-guide.md). For repair
 | --- | --- |
 | Check whether the system is healthy | `vectis-cli health check --strict` |
 | Get machine-readable health evidence | `vectis-cli health check --json` |
+| Discover an action digest to pin | `vectis-cli actions resolve <uses>` |
 | Inspect multi-cell routing, task dispatch pressure, and fan-in state | `vectis-cli cells status` |
 | Inspect a stuck run | `vectis-cli runs show <run-id>` |
 | Inspect task and attempt state for a run | `vectis-cli runs tasks <run-id>` |

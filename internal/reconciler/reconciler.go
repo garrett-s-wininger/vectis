@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/action/actionregistry"
 	"vectis/internal/cell"
 	"vectis/internal/config"
 	"vectis/internal/dal"
@@ -51,6 +52,7 @@ type Service struct {
 	dbDown          bool
 	dbMu            sync.Mutex
 	metrics         *observability.ReconcilerMetrics
+	actionResolver  actionregistry.Resolver
 	dispatchMetrics dispatchMetrics
 	taskMetrics     taskdispatch.Metrics
 	leaseName       string
@@ -105,6 +107,10 @@ func (s *Service) SetMinDispatchGap(d time.Duration) {
 
 func (s *Service) SetExecutionIngress(ingress cell.ExecutionIngress) {
 	s.ingress = ingress
+}
+
+func (s *Service) SetActionDescriptorResolver(resolver actionregistry.Resolver) {
+	s.actionResolver = resolver
 }
 
 func (s *Service) SetServiceLeases(repo dal.ServiceLeasesRepository) {
@@ -534,7 +540,7 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 		}
 
 		dispatch.StartDeadlineUnixNano = deadline
-		if _, err := cell.AttachExecutionEnvelope(req, dispatch, s.clock.Now().UnixNano()); err != nil {
+		if _, err := cell.AttachExecutionEnvelopeWithActions(req, dispatch, s.clock.Now().UnixNano(), s.actionResolver); err != nil {
 			span.RecordError(err)
 			s.logger.Error("reconciler: failed to attach execution envelope for run %s: %v", runID, err)
 		}

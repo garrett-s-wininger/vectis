@@ -10,6 +10,7 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
+	"vectis/internal/action/actionregistry"
 	"vectis/internal/action/builtins"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
@@ -44,6 +45,9 @@ type Executor struct {
 
 type ExecuteOptions struct {
 	WorkloadIdentity *workloadidentity.Identity
+	ActionLocks      []actionregistry.ActionLock
+	ActionResolver   actionregistry.Resolver
+	ProcessExecutor  interfaces.ExecExecutor
 }
 
 // ExecutorOption configures a job executor.
@@ -220,6 +224,16 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 		return fmt.Errorf("failed to create workspace temp dir: %w", err)
 	}
 
+	descriptorResolver := opts.ActionResolver
+	if descriptorResolver == nil {
+		descriptorResolver = e.registry
+	}
+
+	actionVerifier, err := newActionLockVerifier(descriptorResolver, opts.ActionLocks)
+	if err != nil {
+		return fmt.Errorf("initialize action lock verifier: %w", err)
+	}
+
 	logger.Info("Created workspace: %s", workspace)
 
 	logStream, err := newDurableLogStream(logClient, logger, job.GetRunId())
@@ -250,6 +264,16 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 		return err
 	}
 
+	actionProcessExecutor := opts.ProcessExecutor
+	if actionProcessExecutor == nil {
+		actionProcessExecutor = processExecutor
+	}
+
+	actionResolver, err := newExecutableActionResolver(e.registry, descriptorResolver, opts.ActionLocks, actionProcessExecutor)
+	if err != nil {
+		return fmt.Errorf("initialize action resolver: %w", err)
+	}
+
 	state := &action.ExecutionState{
 		JobID:     job.GetId(),
 		RunID:     job.GetRunId(),
@@ -261,7 +285,9 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 		Logger:                  logger,
 		LogClient:               logClient,
 		LogStream:               logStream,
-		Resolver:                e.registry,
+		Resolver:                actionResolver,
+		Verifier:                actionVerifier,
+		NodePaths:               executionNodePaths(job.GetRoot()),
 		Workload:                opts.WorkloadIdentity,
 		ProcessExecutor:         processExecutor,
 		ProcessExecutorResolver: e,
@@ -335,7 +361,25 @@ func (e *Executor) executeNodeWithPorts(ctx context.Context, node *api.Node, sta
 	defer restoreIsolation()
 	span.SetAttributes(attribute.String("action.isolation", state.Isolation))
 
-	nodeImpl, err := e.registry.Resolve(node.GetUses())
+	if state.Verifier != nil {
+		if err := state.Verifier.VerifyAction(node, state.NodePath(node)); err != nil {
+			span.RecordError(err)
+			span.SetStatus(otelcodes.Error, "verify action lock")
+			return action.NewFailureResult(&action.ExecutionError{
+				NodeID:  node.GetId(),
+				Action:  node.GetUses(),
+				Message: "failed to verify action lock",
+				Cause:   err,
+			})
+		}
+	}
+
+	resolver := state.Resolver
+	if resolver == nil {
+		resolver = e.registry
+	}
+
+	nodeImpl, err := resolver.Resolve(node.GetUses())
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(otelcodes.Error, "resolve action")
@@ -377,6 +421,23 @@ func (e *Executor) executeNodeWithPorts(ctx context.Context, node *api.Node, sta
 	}
 
 	return result
+}
+
+func executionNodePaths(root *api.Node) map[*api.Node]string {
+	paths := map[*api.Node]string{}
+	collectExecutionNodePaths(paths, root, "root")
+	return paths
+}
+
+func collectExecutionNodePaths(paths map[*api.Node]string, node *api.Node, path string) {
+	if node == nil {
+		return
+	}
+
+	paths[node] = path
+	for _, ref := range taskgraph.ChildRefs(node, path) {
+		collectExecutionNodePaths(paths, ref.Node, ref.Path)
+	}
 }
 
 func findTaskNode(job *api.Job, taskKey string) (*api.Node, error) {

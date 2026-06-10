@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/viper"
 
 	apigen "vectis/api/gen/go"
+	"vectis/internal/action/actionconfig"
 	"vectis/internal/api"
 	"vectis/internal/api/audit"
 	"vectis/internal/api/ratelimit"
@@ -213,7 +214,23 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 
 	defer cli.DeferShutdown(logger, "Metrics", shutdownMetrics)()
 
+	actionDescriptorResolver, err := actionconfig.DescriptorResolver()
+	if err != nil {
+		logger.Error("Invalid action registry config: %v", err)
+		exitCode = 1
+		return
+	}
+
+	actionResolver, err := actionconfig.Resolver()
+	if err != nil {
+		logger.Error("Invalid action registry config: %v", err)
+		exitCode = 1
+		return
+	}
+
 	server := api.NewAPIServer(logger, db)
+	server.SetActionDescriptorResolver(actionDescriptorResolver)
+	server.SetActionResolver(actionResolver)
 	server.MetricsHandler = metricsHandler
 	var cacheService cache.Service
 	switch config.APICacheBackend() {

@@ -22,6 +22,8 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
+	"vectis/internal/action/actionconfig"
+	"vectis/internal/action/actionregistry"
 	"vectis/internal/backoff"
 	"vectis/internal/cell"
 	"vectis/internal/cli"
@@ -206,6 +208,11 @@ func runWorker(cmd *cobra.Command, args []string) {
 		logger.Fatal("Invalid worker execution backend: %v", err)
 	}
 
+	actionResolver, err := actionconfig.DescriptorResolver()
+	if err != nil {
+		logger.Fatal("Invalid action registry config: %v", err)
+	}
+
 	w := &worker{
 		ctx:                 shutdownCtx,
 		runCtx:              runCtx,
@@ -217,6 +224,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 		queue:               clients,
 		logClient:           logClient,
 		executor:            executor,
+		actionResolver:      actionResolver,
 		store:               runsRepo,
 		catalog:             cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
 		metrics:             workerMetrics,
@@ -405,6 +413,7 @@ type worker struct {
 	queue               interfaces.QueueClient
 	logClient           interfaces.LogClient
 	executor            *job.Executor
+	actionResolver      actionregistry.Resolver
 	store               dal.RunsRepository
 	catalog             cell.CatalogEventPublisher
 	metrics             *observability.WorkerMetrics
@@ -1447,6 +1456,8 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, executionCl
 		w.markExecutionStarted(ctx, env)
 		err = w.executor.ExecuteTaskWithOptions(execCtx, runJob, env.TaskKey, w.logClient, w.logger, job.ExecuteOptions{
 			WorkloadIdentity: workloadIdentity,
+			ActionResolver:   w.actionResolver,
+			ActionLocks:      env.ActionLocks,
 		})
 	}
 

@@ -38,23 +38,24 @@ func (d *tomlDuration) UnmarshalText(text []byte) error {
 }
 
 type Defaults struct {
-	Cell         CellDefaults            `toml:"cell"`
-	API          APIDefaults             `toml:"api"`
-	Queue        QueueDefaults           `toml:"queue"`
-	Registry     RegistryDefaults        `toml:"registry"`
-	Log          LogDefaults             `toml:"log"`
-	LogForwarder LogForwarderDefaults    `toml:"log_forwarder"`
-	Discovery    DiscoveryDefaults       `toml:"discovery"`
-	Dispatch     DispatchDefaults        `toml:"dispatch"`
-	Database     DatabaseDefaults        `toml:"database"`
-	Worker       WorkerDefaults          `toml:"worker"`
-	Cron         CronDefaults            `toml:"cron"`
-	Reconciler   ReconcilerDefaults      `toml:"reconciler"`
-	Catalog      CatalogDefaults         `toml:"catalog"`
-	CellIngress  CellIngressDefaults     `toml:"cell_ingress"`
-	ServiceID    ServiceIdentityDefaults `toml:"service_identity"`
-	GRPCTLS      GRPCTLSDefaults         `toml:"grpc_tls"`
-	MetricsTLS   MetricsTLSDefaults      `toml:"metrics_tls"`
+	Cell           CellDefaults            `toml:"cell"`
+	API            APIDefaults             `toml:"api"`
+	Queue          QueueDefaults           `toml:"queue"`
+	Registry       RegistryDefaults        `toml:"registry"`
+	Log            LogDefaults             `toml:"log"`
+	LogForwarder   LogForwarderDefaults    `toml:"log_forwarder"`
+	Discovery      DiscoveryDefaults       `toml:"discovery"`
+	Dispatch       DispatchDefaults        `toml:"dispatch"`
+	Database       DatabaseDefaults        `toml:"database"`
+	Worker         WorkerDefaults          `toml:"worker"`
+	Cron           CronDefaults            `toml:"cron"`
+	Reconciler     ReconcilerDefaults      `toml:"reconciler"`
+	Catalog        CatalogDefaults         `toml:"catalog"`
+	CellIngress    CellIngressDefaults     `toml:"cell_ingress"`
+	ServiceID      ServiceIdentityDefaults `toml:"service_identity"`
+	GRPCTLS        GRPCTLSDefaults         `toml:"grpc_tls"`
+	MetricsTLS     MetricsTLSDefaults      `toml:"metrics_tls"`
+	ActionRegistry ActionRegistryDefaults  `toml:"action_registry"`
 }
 
 type CellDefaults struct {
@@ -164,6 +165,13 @@ type RegistryClusterDefaults struct {
 	LeaseTTL            tomlDuration `toml:"lease_ttl"`
 	TombstoneTTL        tomlDuration `toml:"tombstone_ttl"`
 	PeerDialTimeout     tomlDuration `toml:"peer_dial_timeout"`
+}
+
+type ActionRegistryDefaults struct {
+	LocalRoots        []string `toml:"local_roots"`
+	AllowedNamespaces []string `toml:"allowed_namespaces"`
+	AllowedSources    []string `toml:"allowed_sources"`
+	RequireDigestPins bool     `toml:"require_digest_pins"`
 }
 
 type LogDefaults struct {

@@ -22,7 +22,7 @@ For service-scoped variables, take the service prefix, append the setting path w
 VECTIS_WORKER_DISCOVERY_REGISTRY_ADDRESS=localhost:8082
 ```
 
-Some settings are global and intentionally do not use a service prefix, such as `VECTIS_CELL_ID`, `VECTIS_DATABASE_*`, `VECTIS_GLOBAL_DATABASE_DSN`, `VECTIS_CELL_DATABASE_DSN`, `VECTIS_GRPC_TLS_*`, `VECTIS_METRICS_TLS_*`, `VECTIS_DISPATCH_START_TTL`, and `VECTIS_API_AUTH_*`.
+Some settings are global and intentionally do not use a service prefix, such as `VECTIS_CELL_ID`, `VECTIS_DATABASE_*`, `VECTIS_GLOBAL_DATABASE_DSN`, `VECTIS_CELL_DATABASE_DSN`, `VECTIS_GRPC_TLS_*`, `VECTIS_METRICS_TLS_*`, `VECTIS_DISPATCH_START_TTL`, `VECTIS_API_AUTH_*`, and `VECTIS_ACTION_REGISTRY_*`.
 
 `VECTIS_DISPATCH_START_TTL` sets how long a root or task execution may remain dispatchable before Vectis refuses to start it. The default is `24h`. Producers stamp the deadline into the execution envelope, queues drop expired deliveries instead of redelivering them, the worker refuses a database claim after the deadline, and the reconciler marks expired queued executions failed with failure code `dispatch_expired`.
 
@@ -41,6 +41,8 @@ Some settings are global and intentionally do not use a service prefix, such as 
 | Route API dispatch to a remote cell | `vectis-api --cell-ingress-endpoint iad-a=https://iad.example:8085` |
 | Enable API authentication | `VECTIS_API_AUTH_ENABLED=true` and, for a new database, `VECTIS_API_AUTH_BOOTSTRAP_TOKEN` |
 | Select authorization engine | `VECTIS_API_AUTHZ_ENGINE=hierarchical_rbac` or `authenticated_full` |
+| Enable local custom actions | `VECTIS_ACTION_REGISTRY_LOCAL_ROOTS=/path/to/actions`; use `vectis-cli actions list` to inspect |
+| Require custom action digest pins | `VECTIS_ACTION_REGISTRY_REQUIRE_DIGEST_PINS=true` |
 | Set PostgreSQL | `VECTIS_DATABASE_DRIVER=pgx` and `VECTIS_DATABASE_DSN=postgres://...`, or role-specific `VECTIS_GLOBAL_DATABASE_DSN` / `VECTIS_CELL_DATABASE_DSN` |
 | Tune PostgreSQL pool | `VECTIS_DATABASE_PGX_*` |
 | Use structured service logs | `VECTIS_LOG_FORMAT=json` |
@@ -161,6 +163,19 @@ SPIRE registration expectations:
 3. Registration selectors should identify the trusted worker workload or worker runtime boundary, such as a service account, systemd unit, UID, binary path, pod identity, or node-attested worker placement. They should not depend on job-controlled files, command arguments, or environment variables.
 4. Registration lifecycle should be as narrow as the deployment can support: create or make available the execution identity before the worker starts the task, and expire or remove it after the execution reaches a terminal state. Avoid long-lived registrations that let a worker fetch broad sets of historical or unrelated execution IDs.
 5. The registration workflow should live outside arbitrary job actions. Do not give shell steps the SPIRE Workload API socket, the SVID private key, or registration authority credentials; future secret brokering should consume the worker-owned acquired SVID marker instead.
+
+## Action Registry
+
+Built-in actions are always available. Local custom actions are enabled by pointing the action registry at one or more manifest roots. The same global action registry settings are read by API validation, the CLI, cron, reconciler, and workers.
+
+| Variable / key | Purpose |
+| --- | --- |
+| `VECTIS_ACTION_REGISTRY_LOCAL_ROOTS` / `action_registry.local_roots` | Comma-separated local filesystem roots containing `<namespace>/<name>/action.json` manifests. |
+| `VECTIS_ACTION_REGISTRY_ALLOWED_NAMESPACES` / `action_registry.allowed_namespaces` | Optional comma-separated namespace allowlist for custom actions. Builtins are still allowed. |
+| `VECTIS_ACTION_REGISTRY_ALLOWED_SOURCES` / `action_registry.allowed_sources` | Optional comma-separated source allowlist, such as `local_filesystem` or `oci`. |
+| `VECTIS_ACTION_REGISTRY_REQUIRE_DIGEST_PINS` / `action_registry.require_digest_pins` | When `true`, custom action references must use `@sha256:<digest>` instead of version selectors. |
+
+Use `vectis-cli actions resolve <uses>` to see the descriptor and digest for a friendly action reference. See [Adding Actions](../developing/actions.md) for the local manifest shape and [CLI Guide](../using/cli-guide.md#resolve-an-action) for the discovery workflow.
 
 API sessions and rate-limit buckets use the API cache backend. The default is `api.cache.backend = "database"`, which stores shared state in the configured SQL database so multiple API replicas see the same sessions and enforce one rate-limit budget. Set `api.cache.backend = "memory"` or `VECTIS_API_CACHE_BACKEND=memory` only when per-process sessions and limits are acceptable; memory mode cleans expired entries but still logs a warning when API auth is enabled because sessions and limits are not shared across replicas. Login sessions have an absolute expiry from `api.session.ttl` / `VECTIS_API_SESSION_TTL` and an idle expiry from `api.session.idle_ttl` / `VECTIS_API_SESSION_IDLE_TTL`; the defaults are `168h` and `24h`. Browser session cookies use only host-only `Secure` `__Host-vectis_session` and `__Host-vectis_csrf` names with `Path=/`; the session cookie is HttpOnly, both cookies are SameSite=Lax, and Vectis does not issue or accept unprefixed fallback names. Browser cookie auth requires HTTPS or local TLS. When API auth is enabled behind an HTTPS ingress, edge proxy, or load balancer, set `api.session.cookie_secure = true` / `VECTIS_API_SESSION_COOKIE_SECURE=true` explicitly as the deployment's browser-facing HTTPS assertion; trusted proxy CIDRs still let Vectis trust `X-Forwarded-Proto` / `Forwarded: proto=https` for request-aware behavior, but they do not satisfy startup secure-cookie validation. Use `api.session.allow_insecure_cookies = true` / `VECTIS_API_SESSION_ALLOW_INSECURE_COOKIES=true` only for local HTTP workflows that use bearer API tokens or login `return_token`; it does not make Vectis issue insecure browser cookies. Duplicate or malformed `Origin`, CORS preflight, `Sec-Fetch-*`, `X-Forwarded-*`, `X-Real-IP`, and `Forwarded` headers are rejected before browser request checks. Browser Fetch Metadata must describe API-style requests, not document navigations or subresource loads. Browser-marked cross-site requests without `Origin` are rejected before route handling; cross-site requests with `Origin` must pass CORS. Cookie-authenticated requests with `Sec-Fetch-Site: cross-site` are rejected, including safe reads; unsafe cookie-authenticated requests also require `X-CSRF-Token` and an `Origin` or `Referer` matching the browser-facing scheme, host, and port.
 

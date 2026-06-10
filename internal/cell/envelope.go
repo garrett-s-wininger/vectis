@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/action/actionregistry"
 	"vectis/internal/dal"
 	"vectis/internal/dispatchmeta"
 )
@@ -19,29 +20,44 @@ const (
 )
 
 type ExecutionEnvelope struct {
-	EnvelopeVersion   int               `json:"envelope_version"`
-	RunID             string            `json:"run_id"`
-	RunIndex          int               `json:"run_index,omitempty"`
-	TaskID            string            `json:"task_id"`
-	TaskKey           string            `json:"task_key"`
-	TaskName          string            `json:"task_name,omitempty"`
-	TaskAttemptID     string            `json:"task_attempt_id"`
-	TaskAttempt       int               `json:"task_attempt"`
-	NamespacePath     string            `json:"namespace_path,omitempty"`
-	SegmentID         string            `json:"segment_id"`
-	ExecutionID       string            `json:"execution_id"`
-	CellID            string            `json:"cell_id"`
-	Attempt           int               `json:"attempt,omitempty"`
-	DefinitionVersion int               `json:"definition_version"`
-	DefinitionHash    string            `json:"definition_hash"`
-	Job               *api.Job          `json:"job"`
-	Metadata          map[string]string `json:"metadata,omitempty"`
-	CreatedAtUnixNano int64             `json:"created_at_unix_nano,omitempty"`
+	EnvelopeVersion   int                         `json:"envelope_version"`
+	RunID             string                      `json:"run_id"`
+	RunIndex          int                         `json:"run_index,omitempty"`
+	TaskID            string                      `json:"task_id"`
+	TaskKey           string                      `json:"task_key"`
+	TaskName          string                      `json:"task_name,omitempty"`
+	TaskAttemptID     string                      `json:"task_attempt_id"`
+	TaskAttempt       int                         `json:"task_attempt"`
+	NamespacePath     string                      `json:"namespace_path,omitempty"`
+	SegmentID         string                      `json:"segment_id"`
+	ExecutionID       string                      `json:"execution_id"`
+	CellID            string                      `json:"cell_id"`
+	Attempt           int                         `json:"attempt,omitempty"`
+	DefinitionVersion int                         `json:"definition_version"`
+	DefinitionHash    string                      `json:"definition_hash"`
+	Job               *api.Job                    `json:"job"`
+	ActionLocks       []actionregistry.ActionLock `json:"action_locks,omitempty"`
+	Metadata          map[string]string           `json:"metadata,omitempty"`
+	CreatedAtUnixNano int64                       `json:"created_at_unix_nano,omitempty"`
 }
 
 func NewExecutionEnvelope(dispatch dal.ExecutionDispatchRecord, job *api.Job, metadata map[string]string, createdAtUnixNano int64) (*ExecutionEnvelope, error) {
+	return NewExecutionEnvelopeWithActions(dispatch, job, metadata, createdAtUnixNano, nil)
+}
+
+func NewExecutionEnvelopeWithActions(dispatch dal.ExecutionDispatchRecord, job *api.Job, metadata map[string]string, createdAtUnixNano int64, resolver actionregistry.Resolver) (*ExecutionEnvelope, error) {
 	if job != nil && strings.TrimSpace(dispatch.JobID) != "" && job.GetId() != dispatch.JobID {
 		return nil, fmt.Errorf("execution envelope job_id %q does not match job.id %q", dispatch.JobID, job.GetId())
+	}
+
+	actionLocks := preservedActionLocks(metadata)
+	if len(actionLocks) == 0 && resolver != nil && job != nil {
+		locks, err := actionregistry.ResolveJobActions(job, resolver)
+		if err != nil {
+			return nil, err
+		}
+
+		actionLocks = locks
 	}
 
 	env := &ExecutionEnvelope{
@@ -61,6 +77,7 @@ func NewExecutionEnvelope(dispatch dal.ExecutionDispatchRecord, job *api.Job, me
 		DefinitionVersion: dispatch.DefinitionVersion,
 		DefinitionHash:    dispatch.DefinitionHash,
 		Job:               job,
+		ActionLocks:       actionLocks,
 		Metadata:          cloneMetadata(metadata),
 		CreatedAtUnixNano: createdAtUnixNano,
 	}
@@ -73,6 +90,10 @@ func NewExecutionEnvelope(dispatch dal.ExecutionDispatchRecord, job *api.Job, me
 }
 
 func AttachPendingExecutionEnvelope(ctx context.Context, runs dal.RunsRepository, req *api.JobRequest, runID string, createdAtUnixNano int64) (*ExecutionEnvelope, error) {
+	return AttachPendingExecutionEnvelopeWithActions(ctx, runs, req, runID, createdAtUnixNano, nil)
+}
+
+func AttachPendingExecutionEnvelopeWithActions(ctx context.Context, runs dal.RunsRepository, req *api.JobRequest, runID string, createdAtUnixNano int64, resolver actionregistry.Resolver) (*ExecutionEnvelope, error) {
 	if runs == nil {
 		return nil, errors.New("runs repository is required")
 	}
@@ -82,17 +103,21 @@ func AttachPendingExecutionEnvelope(ctx context.Context, runs dal.RunsRepository
 		return nil, err
 	}
 
-	return AttachExecutionEnvelope(req, dispatch, createdAtUnixNano)
+	return AttachExecutionEnvelopeWithActions(req, dispatch, createdAtUnixNano, resolver)
 }
 
 func AttachExecutionEnvelope(req *api.JobRequest, dispatch dal.ExecutionDispatchRecord, createdAtUnixNano int64) (*ExecutionEnvelope, error) {
+	return AttachExecutionEnvelopeWithActions(req, dispatch, createdAtUnixNano, nil)
+}
+
+func AttachExecutionEnvelopeWithActions(req *api.JobRequest, dispatch dal.ExecutionDispatchRecord, createdAtUnixNano int64, resolver actionregistry.Resolver) (*ExecutionEnvelope, error) {
 	if req == nil {
 		return nil, errors.New("job request is required")
 	}
 
 	dispatchmeta.StampStartDeadline(req, dispatch.StartDeadlineUnixNano)
 
-	env, err := NewExecutionEnvelope(dispatch, req.GetJob(), req.GetMetadata(), createdAtUnixNano)
+	env, err := NewExecutionEnvelopeWithActions(dispatch, req.GetJob(), req.GetMetadata(), createdAtUnixNano, resolver)
 	if err != nil {
 		return nil, err
 	}
@@ -237,6 +262,10 @@ func (e *ExecutionEnvelope) Validate() error {
 		return errors.New("execution envelope job.root is required")
 	}
 
+	if err := actionregistry.ValidateActionLocks(e.ActionLocks); err != nil {
+		return fmt.Errorf("execution envelope action locks: %w", err)
+	}
+
 	return nil
 }
 
@@ -315,4 +344,18 @@ func cloneMetadata(metadata map[string]string) map[string]string {
 	}
 
 	return out
+}
+
+func preservedActionLocks(metadata map[string]string) []actionregistry.ActionLock {
+	payload := metadata[ExecutionEnvelopeMetadataKey]
+	if payload == "" {
+		return nil
+	}
+
+	env, err := DecodeExecutionEnvelope([]byte(payload))
+	if err != nil {
+		return nil
+	}
+
+	return actionregistry.CloneActionLocks(env.ActionLocks)
 }

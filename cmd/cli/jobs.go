@@ -15,6 +15,7 @@ import (
 	"strings"
 	"text/tabwriter"
 	"vectis/api/gen/go"
+	"vectis/internal/action/actionconfig"
 	jobvalidation "vectis/internal/job/validation"
 )
 
@@ -510,7 +511,12 @@ func createJob(cmd *cobra.Command, args []string) {
 		runCLIError(fmt.Errorf("job definition must include an id field"))
 	}
 
-	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{RequireJobID: true}); err != nil {
+	actionResolver, err := actionconfig.Resolver()
+	if err != nil {
+		runCLIError(fmt.Errorf("invalid action registry config: %w", err))
+	}
+
+	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{RequireJobID: true, Resolver: actionResolver}); err != nil {
 		runCLIError(fmt.Errorf("invalid job definition: %w", err))
 	}
 

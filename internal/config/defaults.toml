@@ -142,6 +142,12 @@ log_allowed_client_identities = []
 worker_control_allowed_client_identities = []
 cell_ingress_allowed_producer_identities = []
 
+[action_registry]
+local_roots = []
+allowed_namespaces = []
+allowed_sources = []
+require_digest_pins = false
+
 [database]
 driver = "sqlite3"
 dsn = "{{data_home}}/vectis/db.sqlite3"

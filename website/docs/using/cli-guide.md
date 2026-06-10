@@ -88,6 +88,45 @@ For automation, use the global output format flag:
 ./bin/vectis-cli cells status --format json
 ```
 
+## Resolve An Action
+
+Configure local examples when you want to try custom actions from this repository:
+
+```sh
+export VECTIS_ACTION_REGISTRY_LOCAL_ROOTS=examples/actions
+```
+
+Use `actions list` to inspect builtins and configured local custom actions:
+
+```sh
+./bin/vectis-cli actions list
+```
+
+Use `actions resolve` to check how a custom action reference resolves and to find the immutable digest for pinning:
+
+```sh
+./bin/vectis-cli actions resolve examples/greet@v1
+```
+
+For automation, emit JSON:
+
+```sh
+./bin/vectis-cli actions resolve examples/greet@v1 --format json
+```
+
+If action policy already requires digest pins or hides a namespace/source while you are preparing configuration, use `--ignore-policy`:
+
+```sh
+./bin/vectis-cli actions list --ignore-policy
+./bin/vectis-cli actions resolve examples/greet@v1 --ignore-policy
+```
+
+Run the repository's hello-world custom action example with:
+
+```sh
+./bin/vectis-cli jobs run examples/custom-greet.json --follow
+```
+
 ## Run A Job Once
 
 Use `jobs run` for experimentation or one-off work:

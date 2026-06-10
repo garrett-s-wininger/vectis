@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/action/actionregistry"
 	"vectis/internal/dal"
 	"vectis/internal/taskgraph"
 )
@@ -27,9 +28,14 @@ type canonicalTaskSpec struct {
 	Uses          string            `json:"uses"`
 	With          map[string]string `json:"with,omitempty"`
 	ChildTaskKeys []string          `json:"child_task_keys,omitempty"`
+	ActionDigests map[string]string `json:"action_digests,omitempty"`
 }
 
 func PlanTaskExecutions(job *api.Job) ([]TaskPlanEntry, error) {
+	return PlanTaskExecutionsWithActions(job, nil)
+}
+
+func PlanTaskExecutionsWithActions(job *api.Job, resolver actionregistry.Resolver) ([]TaskPlanEntry, error) {
 	if job == nil {
 		return nil, fmt.Errorf("job is required")
 	}
@@ -43,9 +49,14 @@ func PlanTaskExecutions(job *api.Job) ([]TaskPlanEntry, error) {
 		return nil, err
 	}
 
+	actionDigests, err := taskActionDigests(job, resolver)
+	if err != nil {
+		return nil, err
+	}
+
 	entries := make([]TaskPlanEntry, 0, len(boundaries.Entries))
 	for _, boundary := range boundaries.Entries {
-		specHash, err := taskSpecHash(boundary.Node, boundary.TaskKey, boundary.Uses, boundary.ChildTaskKeys)
+		specHash, err := taskSpecHash(boundary.Node, boundary.TaskKey, boundary.Uses, boundary.ChildTaskKeys, actionDigests)
 		if err != nil {
 			return nil, err
 		}
@@ -65,12 +76,13 @@ func PlanTaskExecutions(job *api.Job) ([]TaskPlanEntry, error) {
 	return entries, nil
 }
 
-func taskSpecHash(node *api.Node, nodeID, uses string, childTaskKeys []string) (string, error) {
+func taskSpecHash(node *api.Node, nodeID, uses string, childTaskKeys []string, actionDigests map[string]string) (string, error) {
 	spec := canonicalTaskSpec{
 		NodeID:        nodeID,
 		Uses:          uses,
 		With:          cloneStringMap(node.GetWith()),
 		ChildTaskKeys: append([]string(nil), childTaskKeys...),
+		ActionDigests: cloneStringMap(actionDigests),
 	}
 
 	payload, err := json.Marshal(spec)
@@ -80,6 +92,28 @@ func taskSpecHash(node *api.Node, nodeID, uses string, childTaskKeys []string) (
 
 	sum := sha256.Sum256(payload)
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+func taskActionDigests(job *api.Job, resolver actionregistry.Resolver) (map[string]string, error) {
+	if resolver == nil {
+		return nil, nil
+	}
+
+	locks, err := actionregistry.ResolveJobActions(job, resolver)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(locks) == 0 {
+		return nil, nil
+	}
+
+	out := make(map[string]string, len(locks))
+	for _, lock := range locks {
+		out[lock.NodePath] = lock.Descriptor.Digest
+	}
+
+	return out, nil
 }
 
 func cloneStringMap(in map[string]string) map[string]string {

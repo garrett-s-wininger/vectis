@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"vectis/internal/action/actionconfig"
 	"vectis/internal/cli"
 	"vectis/internal/config"
 	"vectis/internal/database"
@@ -85,6 +86,12 @@ func runReconciler(cmd *cobra.Command, args []string) {
 	leaseOwner := uuid.NewString()
 	svc.SetLeaseOwner(leaseOwner)
 	svc.SetLeaseTTL(config.ReconcilerLeaseTTL())
+	actionResolver, err := actionconfig.DescriptorResolver()
+	if err != nil {
+		logger.Fatal("Invalid action registry config: %v", err)
+	}
+
+	svc.SetActionDescriptorResolver(actionResolver)
 	logger.Info("Reconciler instance ID: %s", leaseOwner)
 
 	reconcilerMetrics, err := observability.NewReconcilerMetrics()

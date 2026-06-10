@@ -1,10 +1,12 @@
 package cell
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/action/actionregistry"
 	"vectis/internal/dal"
 )
 
@@ -315,6 +317,112 @@ func TestAttachExecutionEnvelopeBuildsFromDispatchRecord(t *testing.T) {
 	}
 }
 
+func TestAttachExecutionEnvelopeWithActionsResolvesLocks(t *testing.T) {
+	runID := "run-1"
+	jobID := "job-1"
+	uses := "builtins/shell"
+	req := &api.JobRequest{
+		Job: validExecutionEnvelope().Job,
+	}
+
+	req.Job.Id = &jobID
+	req.Job.RunId = &runID
+	req.Job.Root.Uses = &uses
+
+	env, err := AttachExecutionEnvelopeWithActions(req, dal.ExecutionDispatchRecord{
+		RunID:             runID,
+		JobID:             jobID,
+		TaskID:            "run-1:root",
+		TaskKey:           dal.RootTaskKey,
+		TaskAttemptID:     "run-1:root:attempt:1",
+		SegmentID:         "segment-1",
+		ExecutionID:       "execution-1",
+		CellID:            "iad-a",
+		Attempt:           1,
+		DefinitionVersion: 7,
+		DefinitionHash:    "sha256:def456",
+	}, 99, envelopeResolver{
+		"builtins/shell": {
+			CanonicalName: "builtins/shell",
+			Version:       "v1",
+			Digest:        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			Source:        actionregistry.SourceBuiltin,
+			Runtime:       actionregistry.RuntimeBuiltin,
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("AttachExecutionEnvelopeWithActions: %v", err)
+	}
+
+	if len(env.ActionLocks) != 1 {
+		t.Fatalf("action locks: got %d, want 1: %+v", len(env.ActionLocks), env.ActionLocks)
+	}
+
+	lock := env.ActionLocks[0]
+	if lock.NodePath != "root" || lock.Uses != "builtins/shell" || lock.Descriptor.Digest == "" {
+		t.Fatalf("unexpected action lock: %+v", lock)
+	}
+}
+
+func TestAttachExecutionEnvelopePreservesExistingActionLocks(t *testing.T) {
+	base := validExecutionEnvelope()
+	base.ActionLocks = []actionregistry.ActionLock{{
+		NodeID:   "root",
+		NodePath: "root",
+		Uses:     "builtins/shell",
+		Descriptor: actionregistry.Descriptor{
+			CanonicalName: "builtins/shell",
+			Version:       "v1",
+			Digest:        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			Source:        actionregistry.SourceBuiltin,
+			Runtime:       actionregistry.RuntimeBuiltin,
+		},
+	}}
+
+	payload, err := EncodeExecutionEnvelope(base)
+	if err != nil {
+		t.Fatalf("EncodeExecutionEnvelope: %v", err)
+	}
+
+	req := &api.JobRequest{
+		Job: base.Job,
+		Metadata: map[string]string{
+			ExecutionEnvelopeMetadataKey: string(payload),
+		},
+	}
+
+	env, err := AttachExecutionEnvelopeWithActions(req, dal.ExecutionDispatchRecord{
+		RunID:             base.RunID,
+		JobID:             base.Job.GetId(),
+		TaskID:            base.TaskID,
+		TaskKey:           base.TaskKey,
+		TaskAttemptID:     base.TaskAttemptID,
+		SegmentID:         base.SegmentID,
+		ExecutionID:       base.ExecutionID,
+		CellID:            base.CellID,
+		Attempt:           base.TaskAttempt,
+		DefinitionVersion: base.DefinitionVersion,
+		DefinitionHash:    base.DefinitionHash,
+	}, 99, envelopeResolver{
+		"builtins/shell": {
+			CanonicalName: "builtins/shell",
+			Version:       "v1",
+			Digest:        "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			Source:        actionregistry.SourceBuiltin,
+			Runtime:       actionregistry.RuntimeBuiltin,
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("AttachExecutionEnvelopeWithActions: %v", err)
+	}
+
+	if len(env.ActionLocks) != 1 || env.ActionLocks[0].Descriptor.Digest != base.ActionLocks[0].Descriptor.Digest {
+		t.Fatalf("action locks were not preserved: got %+v want %+v", env.ActionLocks, base.ActionLocks)
+	}
+}
+
 func TestNewExecutionEnvelopeRejectsJobIDMismatch(t *testing.T) {
 	env := validExecutionEnvelope()
 	if _, err := NewExecutionEnvelope(dal.ExecutionDispatchRecord{
@@ -401,7 +509,7 @@ func validExecutionEnvelope() *ExecutionEnvelope {
 	jobID := "job-1"
 	runID := "run-1"
 	rootID := "root"
-	uses := "builtin/shell"
+	uses := "builtins/shell"
 
 	return &ExecutionEnvelope{
 		EnvelopeVersion:   ExecutionEnvelopeVersion,
@@ -426,7 +534,7 @@ func validExecutionEnvelope() *ExecutionEnvelope {
 				Id:   &rootID,
 				Uses: &uses,
 				With: map[string]string{
-					"script": "echo hello",
+					"command": "echo hello",
 				},
 			},
 		},
@@ -439,4 +547,15 @@ func validExecutionEnvelope() *ExecutionEnvelope {
 
 func stringPtr(s string) *string {
 	return &s
+}
+
+type envelopeResolver map[string]actionregistry.Descriptor
+
+func (r envelopeResolver) ResolveDescriptor(uses string) (actionregistry.Descriptor, error) {
+	descriptor, ok := r[uses]
+	if !ok {
+		return actionregistry.Descriptor{}, fmt.Errorf("unknown action: %s", uses)
+	}
+
+	return descriptor, nil
 }

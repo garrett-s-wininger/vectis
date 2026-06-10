@@ -2,7 +2,9 @@ package job_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +13,8 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
+	"vectis/internal/action/actionregistry"
+	"vectis/internal/action/builtins"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/job"
@@ -21,11 +25,16 @@ func executorStrp(s string) *string { return &s }
 
 func executeAndWait(t *testing.T, executor *job.Executor, testJob *api.Job, mockLogClient *mocks.MockLogClient, mockLogger *mocks.MockLogger) error {
 	t.Helper()
+	return executeAndWaitWithOptions(t, executor, testJob, mockLogClient, mockLogger, job.ExecuteOptions{})
+}
+
+func executeAndWaitWithOptions(t *testing.T, executor *job.Executor, testJob *api.Job, mockLogClient *mocks.MockLogClient, mockLogger *mocks.MockLogger, opts job.ExecuteOptions) error {
+	t.Helper()
 	streamCh := make(chan job.LogStreamWaiter, 1)
 	executor.TestLogStreamHook = streamCh
 	defer func() { executor.TestLogStreamHook = nil }()
 
-	err := executor.ExecuteJob(context.Background(), testJob, mockLogClient, mockLogger)
+	err := executor.ExecuteJobWithOptions(context.Background(), testJob, mockLogClient, mockLogger, opts)
 
 	select {
 	case stream := <-streamCh:
@@ -88,6 +97,42 @@ func assertLogNotContains(t *testing.T, chunks []string, unexpected string) {
 			t.Fatalf("unexpected log chunk containing %q found. Got chunks: %v", unexpected, chunks)
 		}
 	}
+}
+
+func repoPath(t *testing.T, elem ...string) string {
+	t.Helper()
+
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+
+	for {
+		candidate := filepath.Join(append([]string{wd}, elem...)...)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		} else if !os.IsNotExist(err) {
+			t.Fatalf("Stat %s: %v", candidate, err)
+		}
+
+		parent := filepath.Dir(wd)
+		if parent == wd {
+			t.Fatalf("could not find repo path %s", filepath.Join(elem...))
+		}
+
+		wd = parent
+	}
+}
+
+type executorDescriptorResolver map[string]actionregistry.Descriptor
+
+func (r executorDescriptorResolver) ResolveDescriptor(uses string) (actionregistry.Descriptor, error) {
+	descriptor, ok := r[uses]
+	if !ok {
+		return actionregistry.Descriptor{}, fmt.Errorf("unknown action: %s", uses)
+	}
+
+	return descriptor, nil
 }
 
 func TestExecutor_ExecuteJob_Success(t *testing.T) {
@@ -606,6 +651,119 @@ func TestExecutor_ExecuteJob_UnknownAction(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for unknown action")
 	}
+}
+
+func TestExecutor_ExecuteJob_CustomProcessAction(t *testing.T) {
+	executor := job.NewExecutor()
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+	processExecutor := mocks.NewMockExecExecutor()
+	process := mocks.NewMockProcess()
+	process.SetStdout("custom-staging\n")
+	processExecutor.SetProcess(process)
+
+	lockedDescriptor := actionregistry.Descriptor{
+		CanonicalName: "acme/deploy",
+		Version:       "v1",
+		Digest:        "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+		Source:        actionregistry.SourceLocalFilesystem,
+		Runtime:       actionregistry.RuntimeProcess,
+		RuntimeConfig: map[string]string{"command": "./deploy.sh"},
+		InputSchema: actionregistry.InputSchema{
+			Fields: []actionregistry.InputField{{
+				Name:     "environment",
+				Type:     action.FieldString,
+				Required: true,
+			}},
+		},
+	}
+
+	liveDescriptor := lockedDescriptor
+	liveDescriptor.SourcePath = "/opt/vectis/actions/acme/deploy"
+
+	testJob := &api.Job{
+		Id:    executorStrp("test-job-custom-process"),
+		RunId: executorStrp("test-run-custom-process"),
+		Root: &api.Node{
+			Id:   executorStrp("root"),
+			Uses: executorStrp("acme/deploy@v1"),
+			With: map[string]string{"environment": "staging"},
+		},
+	}
+
+	locks := []actionregistry.ActionLock{{
+		NodeID:     "root",
+		NodePath:   "root",
+		Uses:       "acme/deploy@v1",
+		Descriptor: lockedDescriptor,
+	}}
+
+	err := executeAndWaitWithOptions(t, executor, testJob, mockLogClient, mockLogger, job.ExecuteOptions{
+		ActionLocks:     locks,
+		ActionResolver:  executorDescriptorResolver{"acme/deploy@v1": liveDescriptor},
+		ProcessExecutor: processExecutor,
+	})
+	if err != nil {
+		t.Fatalf("expected custom process action to execute, got %v", err)
+	}
+
+	chunks := logChunkStrings(mockLogClient.GetChunks())
+	assertLogContains(t, chunks, "Executing node: acme/deploy")
+	assertLogContains(t, chunks, "custom-staging")
+
+	if got := processExecutor.GetPaths(); len(got) != 1 || got[0] != "sh" {
+		t.Fatalf("process paths = %v, want [sh]", got)
+	}
+
+	if got := processExecutor.GetWorkDirs(); len(got) != 1 || got[0] != "/opt/vectis/actions/acme/deploy" {
+		t.Fatalf("process workdirs = %v, want live descriptor source path", got)
+	}
+
+	env := strings.Join(processExecutor.GetEnvs()[0], "\n")
+	if !strings.Contains(env, "VECTIS_INPUT_ENVIRONMENT=staging") {
+		t.Fatalf("custom process env missing input: %s", env)
+	}
+}
+
+func TestExecutor_ExecuteJob_CustomGreetExample(t *testing.T) {
+	executor := job.NewExecutor()
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+
+	var testJob api.Job
+	payload, err := os.ReadFile(repoPath(t, "examples", "custom-greet.json"))
+	if err != nil {
+		t.Fatalf("ReadFile custom-greet example: %v", err)
+	}
+
+	if err := json.Unmarshal(payload, &testJob); err != nil {
+		t.Fatalf("Unmarshal custom-greet example: %v", err)
+	}
+
+	testJob.RunId = executorStrp("test-run-custom-greet-example")
+	localSource, err := actionregistry.NewLocalManifestSource(repoPath(t, "examples", "actions"))
+	if err != nil {
+		t.Fatalf("NewLocalManifestSource: %v", err)
+	}
+
+	descriptorResolver := actionregistry.NewCompositeResolver(builtins.NewRegistry(), localSource)
+	locks, err := actionregistry.ResolveJobActions(&testJob, descriptorResolver)
+	if err != nil {
+		t.Fatalf("ResolveJobActions: %v", err)
+	}
+
+	if err := executeAndWaitWithOptions(t, executor, &testJob, mockLogClient, mockLogger, job.ExecuteOptions{
+		ActionLocks:    locks,
+		ActionResolver: descriptorResolver,
+	}); err != nil {
+		t.Fatalf("ExecuteJobWithOptions: %v", err)
+	}
+
+	chunks := logChunkStrings(mockLogClient.GetChunks())
+	assertLogContains(t, chunks, "Executing node: examples/greet")
+	assertLogContains(t, chunks, "$ echo \"Hello, ${VECTIS_INPUT_NAME}\"")
+	assertLogContains(t, chunks, "Hello, Vectis")
+	assertLogContains(t, chunks, "Custom action completed successfully")
 }
 
 func TestExecutor_ExecuteJob_MissingCommand(t *testing.T) {

@@ -251,7 +251,7 @@ Vectis validates jobs before storing them or starting a one-off run.
 | `root` is missing | Add a `root` object to the job. |
 | Node `id` is missing | Add an `id` to every node, including child steps. |
 | Duplicate node ID | Rename one of the duplicate node IDs. |
-| Unknown action | Check the `uses` value. Today it must be one of the built-ins above unless you add more actions in code. |
+| Unknown action | Check the `uses` value and any configured action registry roots. Builtins work without configuration; local custom actions require `VECTIS_ACTION_REGISTRY_LOCAL_ROOTS`. |
 | Unsupported `isolation` | Use `host` or `vm`. |
 | Missing `command` for `builtins/shell` | Add `with.command`. |
 | Missing `url` for `builtins/checkout` | Add `with.url`. |

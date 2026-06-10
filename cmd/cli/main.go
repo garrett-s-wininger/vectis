@@ -82,6 +82,7 @@ var rootCmd = &cobra.Command{
 	Long: `Vectis CLI provides a single entry point for jobs, runs, and user management.
 
 Commands are grouped around the thing you want to work with:
+  actions    resolve and inspect action descriptors
   jobs       create, show, trigger, run, edit, and delete job definitions
   runs       show run status, list task attempts or run history, cancel, fail, or retry runs
   cells      inspect execution cell routing and catalog state
@@ -117,6 +118,11 @@ func init() {
 	configureJobListFlags(listCmd)
 	jobsCmd.AddCommand(listCmd, getCmd, createCmd, editCmd, deleteCmd, triggerCmd, runCmd)
 	rootCmd.AddCommand(jobsCmd)
+
+	configureActionListFlags(actionsListCmd)
+	configureActionResolveFlags(actionsResolveCmd)
+	actionsCmd.AddCommand(actionsListCmd, actionsResolveCmd)
+	rootCmd.AddCommand(actionsCmd)
 
 	configureRunListFlags(runListCmd)
 	configureRunTasksFlags(runTasksCmd)

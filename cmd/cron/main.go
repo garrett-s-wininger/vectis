@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"vectis/internal/action/actionconfig"
 	"vectis/internal/cli"
 	"vectis/internal/config"
 	"vectis/internal/cron"
@@ -42,6 +43,12 @@ func runVectisCron(cmd *cobra.Command, args []string) {
 	defer service.CloseQueueDial()
 	service.SetInstanceID(viper.GetString("instance_id"))
 	service.SetClaimTTL(config.CronClaimTTL())
+	actionResolver, err := actionconfig.DescriptorResolver()
+	if err != nil {
+		logger.Fatal("Invalid action registry config: %v", err)
+	}
+
+	service.SetActionDescriptorResolver(actionResolver)
 	logger.Info("Cron instance ID: %s; schedule claim ttl %v", service.InstanceID(), config.CronClaimTTL())
 
 	retryMetrics, err := observability.NewRetryMetrics()

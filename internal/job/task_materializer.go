@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/action/actionregistry"
 	"vectis/internal/dal"
 )
 
@@ -15,6 +16,10 @@ type TaskMaterializationResult struct {
 }
 
 func EnsureJobTaskExecutions(ctx context.Context, runs dal.RunsRepository, job *api.Job, targetCellID string) (TaskMaterializationResult, error) {
+	return EnsureJobTaskExecutionsWithActions(ctx, runs, job, targetCellID, nil)
+}
+
+func EnsureJobTaskExecutionsWithActions(ctx context.Context, runs dal.RunsRepository, job *api.Job, targetCellID string, resolver actionregistry.Resolver) (TaskMaterializationResult, error) {
 	if runs == nil {
 		return TaskMaterializationResult{}, fmt.Errorf("runs repository is required")
 	}
@@ -28,7 +33,7 @@ func EnsureJobTaskExecutions(ctx context.Context, runs dal.RunsRepository, job *
 		return TaskMaterializationResult{}, fmt.Errorf("job run_id is required")
 	}
 
-	plan, err := PlanTaskExecutions(job)
+	plan, err := PlanTaskExecutionsWithActions(job, resolver)
 	if err != nil {
 		return TaskMaterializationResult{}, err
 	}

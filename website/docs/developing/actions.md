@@ -16,6 +16,89 @@ The built-in registry resolves the `uses` value from a job node to one of these 
 
 Actions that need to execute commands should use the worker-provided execution path instead of creating host child processes directly. The current host runner preserves existing behavior, but [ADR 0009](./architecture-decisions/0009-worker-execution-containment-providers.md) makes the runner boundary the path for future container and VM providers.
 
+Custom user actions should not be added as new builtins unless they are meant to ship with Vectis itself. The extension point for user-owned actions is the action registry: it resolves friendly names such as `examples/greet@v1` to versioned descriptors with immutable digests before worker execution.
+
+## Local Descriptor Registry
+
+Vectis can resolve descriptor-only custom actions from local filesystem roots. Configure roots with `action_registry.local_roots` or the comma-separated `VECTIS_ACTION_REGISTRY_LOCAL_ROOTS` environment variable. Builtins remain available automatically.
+
+The local source looks for manifests at:
+
+```text
+<root>/<namespace>/<name>/action.json
+<root>/<namespace>/<name>/<version>/action.json
+```
+
+A minimal manifest looks like:
+
+```json
+{
+  "schema_version": 1,
+  "name": "examples/greet",
+  "display_name": "Greet",
+  "version": "v1",
+  "runtime": "process",
+  "runtime_config": {
+    "command": "echo \"Hello, ${VECTIS_INPUT_NAME}\""
+  },
+  "input_schema": {
+    "fields": [
+      {"name": "name", "type": "string", "required": true}
+    ]
+  },
+  "capabilities": ["process_launch"]
+}
+```
+
+The repository includes this example at `examples/actions/examples/greet/action.json`. Use `examples/actions` as the local registry root. Job authors call the action by setting its input, not by writing a shell command:
+
+```json
+{
+  "id": "custom-greet-job",
+  "root": {
+    "id": "say-hello",
+    "uses": "examples/greet@v1",
+    "with": {
+      "name": "Vectis"
+    }
+  }
+}
+```
+
+The matching example job is `examples/custom-greet.json`.
+
+The API, CLI, cron service, and reconciler use the configured descriptor resolver during validation and run-envelope creation. Workers use the configured resolver to execute local `process` actions from frozen action locks. Container, WASM, and gRPC custom runtimes are still follow-up implementation steps.
+
+Operators can restrict custom actions by namespace, source, and digest pinning policy. For example, `VECTIS_ACTION_REGISTRY_ALLOWED_NAMESPACES=examples` allows `examples/greet@v1`, while `VECTIS_ACTION_REGISTRY_REQUIRE_DIGEST_PINS=true` requires a digest-pinned reference such as `examples/greet@sha256:<64-hex-digest>`.
+
+Use the CLI to inspect configured actions:
+
+```sh
+./bin/vectis-cli actions list
+```
+
+Resolve a friendly reference to discover the digest to pin:
+
+```sh
+./bin/vectis-cli actions resolve examples/greet@v1
+```
+
+If digest pins are already required, use `--ignore-policy` while preparing the pinned reference:
+
+```sh
+./bin/vectis-cli actions resolve examples/greet@v1 --ignore-policy
+```
+
+For `runtime: "process"`, set `runtime_config.command` to the command the worker should run. If a worker resolves the descriptor from a local manifest, relative commands run from that manifest's directory. The process receives a sanitized environment plus action metadata and inputs:
+
+```text
+VECTIS_ACTION_NAME
+VECTIS_ACTION_VERSION
+VECTIS_ACTION_DIGEST
+VECTIS_WORKSPACE
+VECTIS_INPUT_<FIELD_NAME>
+```
+
 ## Validation Contract
 
 Every built-in action should validate its `with` map before execution. Good validation catches user mistakes while the job is being created or submitted, instead of waiting for a worker to fail later.

@@ -669,7 +669,7 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{RequireJobID: true}); err != nil {
+	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{RequireJobID: true, Resolver: s.actionResolver}); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", jobvalidation.ErrorDetails(err))
 		return
 	}
@@ -1480,7 +1480,7 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{RequireJobID: true}); err != nil {
+	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{RequireJobID: true, Resolver: s.actionResolver}); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", jobvalidation.ErrorDetails(err))
 		return
 	}
@@ -1577,7 +1577,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{}); err != nil {
+	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{Resolver: s.actionResolver}); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", jobvalidation.ErrorDetails(err))
 		return
 	}
@@ -1889,7 +1889,7 @@ func (s *APIServer) materializeJobTasks(ctx context.Context, runID string, job *
 		job.RunId = &runID
 	}
 
-	_, err := jobexec.EnsureJobTaskExecutions(ctx, s.runs, job, targetCellID)
+	_, err := jobexec.EnsureJobTaskExecutionsWithActions(ctx, s.runs, job, targetCellID, s.actionDescriptorResolver)
 	return err
 }
 
@@ -1905,7 +1905,7 @@ func (s *APIServer) attachExecutionEnvelope(ctx context.Context, req *api.JobReq
 	}
 
 	dispatch.StartDeadlineUnixNano = deadline
-	return cell.AttachExecutionEnvelope(req, dispatch, createdAtUnixNano)
+	return cell.AttachExecutionEnvelopeWithActions(req, dispatch, createdAtUnixNano, s.actionDescriptorResolver)
 }
 
 func detachedTraceContextFromRequest(r *http.Request) context.Context {
