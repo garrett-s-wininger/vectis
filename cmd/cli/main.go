@@ -48,37 +48,40 @@ func showCommandHelp(cmd *cobra.Command, args []string) {
 }
 
 var (
-	podmanNetwork        string
-	podmanProfile        string
-	podmanKubeSpec       string
-	podmanGrafanaSpec    string
-	podmanRenderOut      string
-	resetYes             bool
-	resetDryRun          bool
-	retentionYes         bool
-	retentionDryRun      bool
-	retentionRunAge      time.Duration
-	retentionDefAge      time.Duration
-	retentionIdemAge     time.Duration
-	retentionAuditAge    time.Duration
-	retentionLogDir      string
-	retentionArtifactAge time.Duration
-	retentionArtifactDir string
-	runListJobID         string
-	runListLimit         int
-	runListCursor        int
-	runListCellID        string
-	runTasksLimit        int
-	runTasksCursor       int
-	runArtifactsLimit    int
-	runArtifactsCursor   int
-	runArtifactOutput    string
-	runReplayCellID      string
-	runReplayIdemKey     string
-	triggerIdemKey       string
-	triggerCellIDs       []string
-	runIdemKey           string
-	runCellID            string
+	podmanNetwork         string
+	podmanProfile         string
+	podmanKubeSpec        string
+	podmanGrafanaSpec     string
+	podmanRenderOut       string
+	resetYes              bool
+	resetDryRun           bool
+	retentionYes          bool
+	retentionDryRun       bool
+	retentionRunAge       time.Duration
+	retentionDefAge       time.Duration
+	retentionIdemAge      time.Duration
+	retentionAuditAge     time.Duration
+	retentionLogDir       string
+	retentionArtifactAge  time.Duration
+	retentionArtifactDir  string
+	runListJobID          string
+	runListLimit          int
+	runListCursor         int
+	runListCellID         string
+	runTasksLimit         int
+	runTasksCursor        int
+	runArtifactsLimit     int
+	runArtifactsCursor    int
+	runArtifactsTaskID    string
+	runArtifactsAttemptID string
+	runArtifactsExecID    string
+	runArtifactOutput     string
+	runReplayCellID       string
+	runReplayIdemKey      string
+	triggerIdemKey        string
+	triggerCellIDs        []string
+	runIdemKey            string
+	runCellID             string
 )
 
 var rootCmd = &cobra.Command{

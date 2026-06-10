@@ -133,10 +133,10 @@ The first implementation slice is complete:
 - [x] Add retention cleanup for artifact metadata and unreferenced blobs.
 - [x] Add explicit worker-side uploads through `builtins/upload-artifact`.
 - [x] Add worker-side per-upload and per-run artifact quotas.
+- [x] Add run artifact list selectors for task, task attempt, and execution attribution.
 
 ## Open Questions
 
-- Metadata records support task, attempt, and execution attribution; which of those should become first-class user filters or selectors?
 - What are the initial defaults for retention?
 - Should worker artifact collection expand beyond explicit builtins to action output declarations or a job-level artifact stanza?
 - Do we need compression or archive normalization before storing blobs, or should the first version preserve bytes exactly?

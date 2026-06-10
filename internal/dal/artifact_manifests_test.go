@@ -77,6 +77,30 @@ func TestArtifactsRepository_RecordGetListAndUpdate(t *testing.T) {
 		t.Fatalf("record second artifact: %v", err)
 	}
 
+	filtered, next, err := repos.Artifacts().ListByRunFiltered(ctx, runID, 0, 10, dal.ArtifactListFilter{
+		TaskID:        " " + dispatch.TaskID + " ",
+		TaskAttemptID: dispatch.TaskAttemptID,
+		ExecutionID:   dispatch.ExecutionID,
+	})
+	if err != nil {
+		t.Fatalf("list filtered artifacts: %v", err)
+	}
+
+	if len(filtered) != 1 || filtered[0].Name != "coverage" || next != 0 {
+		t.Fatalf("unexpected filtered artifacts: artifacts=%+v next=%d", filtered, next)
+	}
+
+	filtered, next, err = repos.Artifacts().ListByRunFiltered(ctx, runID, 0, 10, dal.ArtifactListFilter{
+		ExecutionID: "missing-execution",
+	})
+	if err != nil {
+		t.Fatalf("list artifacts with missing execution: %v", err)
+	}
+
+	if len(filtered) != 0 || next != 0 {
+		t.Fatalf("expected no artifacts for missing execution, got artifacts=%+v next=%d", filtered, next)
+	}
+
 	firstPage, next, err := repos.Artifacts().ListByRun(ctx, runID, 0, 1)
 	if err != nil {
 		t.Fatalf("list first page: %v", err)

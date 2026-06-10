@@ -53,7 +53,7 @@ func (s *APIServer) ListRunArtifacts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	records, nextCursor, err := s.artifacts.ListByRun(ctx, runID, params.Cursor, params.Limit)
+	records, nextCursor, err := s.artifacts.ListByRunFiltered(ctx, runID, params.Cursor, params.Limit, artifactListFilterFromQuery(r))
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
@@ -71,6 +71,15 @@ func (s *APIServer) ListRunArtifacts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, buildPaginatedResponse(rows, nextCursor))
+}
+
+func artifactListFilterFromQuery(r *http.Request) dal.ArtifactListFilter {
+	query := r.URL.Query()
+	return dal.ArtifactListFilter{
+		TaskID:        query.Get("task_id"),
+		TaskAttemptID: query.Get("task_attempt_id"),
+		ExecutionID:   query.Get("execution_id"),
+	}
 }
 
 func (s *APIServer) GetRunArtifact(w http.ResponseWriter, r *http.Request) {

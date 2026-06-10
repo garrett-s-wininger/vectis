@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -103,6 +104,81 @@ func TestAPIServer_RunArtifacts_ListAndGet(t *testing.T) {
 
 	if getResp.ID != rec.ID || getResp.Name != "coverage" {
 		t.Fatalf("unexpected get response: %+v", getResp)
+	}
+}
+
+func TestAPIServer_RunArtifacts_ListFiltersByAttribution(t *testing.T) {
+	server, repos, runID := setupArtifactAPITest(t)
+	ctx := context.Background()
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	for _, create := range []dal.ArtifactCreate{
+		{
+			RunID:           runID,
+			TaskID:          dispatch.TaskID,
+			TaskAttemptID:   dispatch.TaskAttemptID,
+			ExecutionID:     dispatch.ExecutionID,
+			Name:            "coverage",
+			Path:            "coverage/out.json",
+			BlobKey:         "sha256:aaaaaaaa",
+			BlobAlgorithm:   "sha256",
+			BlobDigest:      "aaaaaaaa",
+			SizeBytes:       12,
+			ArtifactShardID: "artifact-1",
+		},
+		{
+			RunID:           runID,
+			Name:            "logs",
+			Path:            "logs/raw.txt",
+			BlobKey:         "sha256:bbbbbbbb",
+			BlobAlgorithm:   "sha256",
+			BlobDigest:      "bbbbbbbb",
+			SizeBytes:       4,
+			ArtifactShardID: "artifact-1",
+		},
+	} {
+		if _, err := repos.Artifacts().Record(ctx, create); err != nil {
+			t.Fatalf("record artifact %q: %v", create.Name, err)
+		}
+	}
+
+	query := url.Values{
+		"task_id":         {dispatch.TaskID},
+		"task_attempt_id": {dispatch.TaskAttemptID},
+		"execution_id":    {dispatch.ExecutionID},
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+runID+"/artifacts?"+query.Encode(), nil)
+	listReq.SetPathValue("id", runID)
+	listRec := httptest.NewRecorder()
+	server.ListRunArtifacts(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("ListRunArtifacts status = %d, want %d: %s", listRec.Code, http.StatusOK, listRec.Body.String())
+	}
+
+	var listResp struct {
+		Data []struct {
+			Name          string  `json:"name"`
+			TaskID        *string `json:"task_id,omitempty"`
+			TaskAttemptID *string `json:"task_attempt_id,omitempty"`
+			ExecutionID   *string `json:"execution_id,omitempty"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(listRec.Body).Decode(&listResp); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+
+	if len(listResp.Data) != 1 {
+		t.Fatalf("expected one filtered artifact, got %+v", listResp.Data)
+	}
+
+	row := listResp.Data[0]
+	if row.Name != "coverage" || row.TaskID == nil || *row.TaskID != dispatch.TaskID || row.TaskAttemptID == nil || *row.TaskAttemptID != dispatch.TaskAttemptID || row.ExecutionID == nil || *row.ExecutionID != dispatch.ExecutionID {
+		t.Fatalf("unexpected filtered artifact row: %+v", row)
 	}
 }
 

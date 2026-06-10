@@ -279,7 +279,7 @@ func TestAPIRouteInventory_queryPolicies(t *testing.T) {
 		"GET /api/v1/jobs/{id}":                             routeQueryParams("version"),
 		"GET /api/v1/jobs/{id}/runs":                        routeQueryParams("after_index", "cell_id", "cursor", "limit", "owning_cell", "since"),
 		"GET /api/v1/runs/{id}/tasks":                       routeQueryParams("cursor", "limit"),
-		"GET /api/v1/runs/{id}/artifacts":                   routeQueryParams("cursor", "limit"),
+		"GET /api/v1/runs/{id}/artifacts":                   routeQueryParams("cursor", "execution_id", "limit", "task_attempt_id", "task_id"),
 		"GET /api/v1/runs/{id}/logs":                        routeQueryParams("replay_limit", "since_sequence", "tail"),
 		"GET /api/v1/tokens":                                routeQueryParams("user_id"),
 		"DELETE /api/v1/namespaces/{id}/bindings/{user_id}": routeQueryParams("role"),

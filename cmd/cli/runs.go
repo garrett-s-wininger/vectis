@@ -113,6 +113,14 @@ type runArtifactsResult struct {
 	NextCursor *int64           `json:"next_cursor,omitempty"`
 }
 
+type runArtifactsListOptions struct {
+	Limit         int
+	Cursor        int
+	TaskID        string
+	TaskAttemptID string
+	ExecutionID   string
+}
+
 type runArtifactRow struct {
 	ID              int64           `json:"id"`
 	RunID           string          `json:"run_id"`
@@ -210,7 +218,13 @@ func runGetRunTasks(cmd *cobra.Command, args []string) {
 }
 
 func runListRunArtifacts(cmd *cobra.Command, args []string) {
-	runCLIError(getRunArtifacts(args[0], runArtifactsLimit, runArtifactsCursor, os.Stdout))
+	runCLIError(getRunArtifacts(args[0], runArtifactsListOptions{
+		Limit:         runArtifactsLimit,
+		Cursor:        runArtifactsCursor,
+		TaskID:        runArtifactsTaskID,
+		TaskAttemptID: runArtifactsAttemptID,
+		ExecutionID:   runArtifactsExecID,
+	}, os.Stdout))
 }
 
 func runDownloadRunArtifact(cmd *cobra.Command, args []string) {
@@ -588,17 +602,20 @@ func writeRunTaskAttempt(w io.Writer, attempt runTaskAttemptRow) {
 	fmt.Fprintln(w)
 }
 
-func getRunArtifacts(runID string, limit, cursor int, w io.Writer) error {
+func getRunArtifacts(runID string, opts runArtifactsListOptions, w io.Writer) error {
 	path := fmt.Sprintf("/api/v1/runs/%s/artifacts", url.PathEscape(runID))
 	params := url.Values{}
-	if limit > 0 {
-		params.Set("limit", fmt.Sprintf("%d", limit))
+	if opts.Limit > 0 {
+		params.Set("limit", fmt.Sprintf("%d", opts.Limit))
 	}
 
-	if cursor > 0 {
-		params.Set("cursor", fmt.Sprintf("%d", cursor))
+	if opts.Cursor > 0 {
+		params.Set("cursor", fmt.Sprintf("%d", opts.Cursor))
 	}
 
+	setTrimmedQueryParam(params, "task_id", opts.TaskID)
+	setTrimmedQueryParam(params, "task_attempt_id", opts.TaskAttemptID)
+	setTrimmedQueryParam(params, "execution_id", opts.ExecutionID)
 	if encoded := params.Encode(); encoded != "" {
 		path += "?" + encoded
 	}
@@ -631,10 +648,13 @@ func getRunArtifacts(runID string, limit, cursor int, w io.Writer) error {
 		}
 
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "NAME\tPATH\tCONTENT TYPE\tSIZE\tSHARD\tDIGEST")
+		fmt.Fprintln(tw, "NAME\tTASK\tATTEMPT\tEXECUTION\tPATH\tCONTENT TYPE\tSIZE\tSHARD\tDIGEST")
 		for _, artifact := range result.Data {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\t%s\n",
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\n",
 				textOrDash(artifact.Name),
+				textPtrOrDash(artifact.TaskID),
+				textPtrOrDash(artifact.TaskAttemptID),
+				textPtrOrDash(artifact.ExecutionID),
 				textOrDash(artifact.Path),
 				textOrDash(artifact.ContentType),
 				artifact.SizeBytes,
@@ -660,6 +680,13 @@ func getRunArtifacts(runID string, limit, cursor int, w io.Writer) error {
 		return fmt.Errorf("artifact repository is not configured")
 	default:
 		return fmt.Errorf("unexpected status: %s", resp.Status)
+	}
+}
+
+func setTrimmedQueryParam(params url.Values, key, value string) {
+	value = strings.TrimSpace(value)
+	if value != "" {
+		params.Set(key, value)
 	}
 }
 
@@ -757,6 +784,14 @@ func textOrDash(value string) string {
 	}
 
 	return value
+}
+
+func textPtrOrDash(value *string) string {
+	if value == nil {
+		return "-"
+	}
+
+	return textOrDash(*value)
 }
 
 func replayRun(sourceRunID, cellID, idempotencyKey string, w io.Writer) error {
@@ -1204,7 +1239,7 @@ var runArtifactsCmd = &cobra.Command{
 var runArtifactsListCmd = &cobra.Command{
 	Use:   "list [run-id]",
 	Short: "List artifact manifests for a run",
-	Long:  `List artifact manifests recorded for one run, including blob digest, size, content type, and storage shard.`,
+	Long:  `List artifact manifests recorded for one run, including producer task identity, blob digest, size, content type, and storage shard.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   runListRunArtifacts,
 }
@@ -1262,6 +1297,9 @@ func configureRunTasksFlags(cmd *cobra.Command) {
 func configureRunArtifactsListFlags(cmd *cobra.Command) {
 	cmd.Flags().IntVar(&runArtifactsLimit, "limit", 0, "Max artifacts to return (default 50)")
 	cmd.Flags().IntVar(&runArtifactsCursor, "cursor", 0, "Continue listing after this result cursor")
+	cmd.Flags().StringVar(&runArtifactsTaskID, "task-id", "", "Only list artifacts produced by this task")
+	cmd.Flags().StringVar(&runArtifactsAttemptID, "task-attempt-id", "", "Only list artifacts produced by this task attempt")
+	cmd.Flags().StringVar(&runArtifactsExecID, "execution-id", "", "Only list artifacts produced by this execution")
 }
 
 func configureRunArtifactsDownloadFlags(cmd *cobra.Command) {

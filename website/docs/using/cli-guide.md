@@ -242,6 +242,9 @@ List artifact manifests recorded for one run:
 
 ```sh
 ./bin/vectis-cli runs artifacts list <run-id>
+./bin/vectis-cli runs artifacts list <run-id> --task-id <task-id>
+./bin/vectis-cli runs artifacts list <run-id> --task-attempt-id <task-attempt-id>
+./bin/vectis-cli runs artifacts list <run-id> --execution-id <execution-id>
 ```
 
 Download an artifact by name:

@@ -349,6 +349,12 @@ type ArtifactRecord struct {
 	UpdatedAt       int64
 }
 
+type ArtifactListFilter struct {
+	TaskID        string
+	TaskAttemptID string
+	ExecutionID   string
+}
+
 type ArtifactRunUsage struct {
 	Count     int64
 	SizeBytes int64
@@ -487,6 +493,7 @@ type ArtifactsRepository interface {
 	Record(ctx context.Context, create ArtifactCreate) (ArtifactRecord, error)
 	GetByRunAndName(ctx context.Context, runID, name string) (ArtifactRecord, error)
 	ListByRun(ctx context.Context, runID string, cursor int64, limit int) ([]ArtifactRecord, int64, error)
+	ListByRunFiltered(ctx context.Context, runID string, cursor int64, limit int, filter ArtifactListFilter) ([]ArtifactRecord, int64, error)
 	GetRunUsageExcludingName(ctx context.Context, runID, name string) (ArtifactRunUsage, error)
 }
 

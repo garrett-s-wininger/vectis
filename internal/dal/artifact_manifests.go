@@ -115,6 +115,10 @@ func (r *SQLArtifactsRepository) GetByRunAndName(ctx context.Context, runID, nam
 }
 
 func (r *SQLArtifactsRepository) ListByRun(ctx context.Context, runID string, cursor int64, limit int) ([]ArtifactRecord, int64, error) {
+	return r.ListByRunFiltered(ctx, runID, cursor, limit, ArtifactListFilter{})
+}
+
+func (r *SQLArtifactsRepository) ListByRunFiltered(ctx context.Context, runID string, cursor int64, limit int, filter ArtifactListFilter) ([]ArtifactRecord, int64, error) {
 	runID = strings.TrimSpace(runID)
 	if runID == "" {
 		return nil, 0, fmt.Errorf("%w: run_id is required", ErrConflict)
@@ -124,13 +128,34 @@ func (r *SQLArtifactsRepository) ListByRun(ctx context.Context, runID string, cu
 		limit = 100
 	}
 
-	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
+	filter = normalizeArtifactListFilter(filter)
+	where := []string{"run_id = ?", "id > ?"}
+	args := []any{runID, cursor}
+	if filter.TaskID != "" {
+		where = append(where, "task_id = ?")
+		args = append(args, filter.TaskID)
+	}
+
+	if filter.TaskAttemptID != "" {
+		where = append(where, "task_attempt_id = ?")
+		args = append(args, filter.TaskAttemptID)
+	}
+
+	if filter.ExecutionID != "" {
+		where = append(where, "execution_id = ?")
+		args = append(args, filter.ExecutionID)
+	}
+
+	args = append(args, limit+1)
+	query := `
 		SELECT id, run_id, task_id, task_attempt_id, execution_id, cell_id, name, path, content_type, blob_key, blob_algorithm, blob_digest, size_bytes, artifact_shard_id, metadata_json, created_at, updated_at
 		FROM run_artifacts
-		WHERE run_id = ? AND id > ?
+		WHERE ` + strings.Join(where, " AND ") + `
 		ORDER BY id ASC
 		LIMIT ?
-	`), runID, cursor, limit+1)
+	`
+
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(query), args...)
 	if err != nil {
 		return nil, 0, normalizeSQLError(err)
 	}
@@ -157,6 +182,13 @@ func (r *SQLArtifactsRepository) ListByRun(ctx context.Context, runID string, cu
 	}
 
 	return out, nextCursor, nil
+}
+
+func normalizeArtifactListFilter(filter ArtifactListFilter) ArtifactListFilter {
+	filter.TaskID = strings.TrimSpace(filter.TaskID)
+	filter.TaskAttemptID = strings.TrimSpace(filter.TaskAttemptID)
+	filter.ExecutionID = strings.TrimSpace(filter.ExecutionID)
+	return filter
 }
 
 func (r *SQLArtifactsRepository) GetRunUsageExcludingName(ctx context.Context, runID, name string) (ArtifactRunUsage, error) {

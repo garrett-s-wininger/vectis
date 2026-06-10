@@ -1696,11 +1696,26 @@ func TestGetRunArtifacts_success(t *testing.T) {
 			t.Errorf("cursor=%q, want 9", got)
 		}
 
+		if got := r.URL.Query().Get("task_id"); got != "task-a" {
+			t.Errorf("task_id=%q, want task-a", got)
+		}
+
+		if got := r.URL.Query().Get("task_attempt_id"); got != "attempt-a" {
+			t.Errorf("task_attempt_id=%q, want attempt-a", got)
+		}
+
+		if got := r.URL.Query().Get("execution_id"); got != "execution-a" {
+			t.Errorf("execution_id=%q, want execution-a", got)
+		}
+
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"data": []map[string]any{
 				{
 					"id":                10,
 					"run_id":            "run-1",
+					"task_id":           "task-a",
+					"task_attempt_id":   "attempt-a",
+					"execution_id":      "execution-a",
 					"name":              "coverage",
 					"path":              "coverage/out.json",
 					"content_type":      "application/json",
@@ -1717,14 +1732,26 @@ func TestGetRunArtifacts_success(t *testing.T) {
 	})
 
 	var buf bytes.Buffer
-	if err := getRunArtifacts("run-1", 2, 9, &buf); err != nil {
+	if err := getRunArtifacts("run-1", runArtifactsListOptions{
+		Limit:         2,
+		Cursor:        9,
+		TaskID:        " task-a ",
+		TaskAttemptID: "attempt-a",
+		ExecutionID:   "execution-a",
+	}, &buf); err != nil {
 		t.Fatal(err)
 	}
 
 	out := buf.String()
 	for _, want := range []string{
 		"NAME",
+		"TASK",
+		"ATTEMPT",
+		"EXECUTION",
 		"coverage",
+		"task-a",
+		"attempt-a",
+		"execution-a",
 		"coverage/out.json",
 		"application/json",
 		"artifact-1",
@@ -1758,7 +1785,7 @@ func TestGetRunArtifacts_jsonOutput(t *testing.T) {
 	})
 
 	var buf bytes.Buffer
-	if err := getRunArtifacts("run-1", 0, 0, &buf); err != nil {
+	if err := getRunArtifacts("run-1", runArtifactsListOptions{}, &buf); err != nil {
 		t.Fatal(err)
 	}
 
