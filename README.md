@@ -136,7 +136,7 @@ make proto
 
 For local development, use `vectis-local`.
 
-For a fuller reference deployment, Vectis includes a Podman-based stack with Postgres, persistent queue/log/artifact storage, bundled docs, Prometheus, Grafana, Jaeger, OpenSearch, and generated local secrets:
+For a fuller reference deployment, Vectis includes a Podman-based stack with Postgres, persistent queue/log/artifact/secrets storage, the Vectis SPIFFE authority, bundled docs, Prometheus, Grafana, Jaeger, OpenSearch, and generated local secrets:
 
 ```bash
 make images-components

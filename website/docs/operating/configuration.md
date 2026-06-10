@@ -78,6 +78,7 @@ Use these prefixes when building service-specific environment variable names.
 | `vectis-log` | `VECTIS_LOG` | `--instance-id`, `--storage-dir`, `--storage-read-only-min-free-bytes`, `--grpc-port`, `--metrics-host`, `--metrics-port`, `--max-run-buffers` |
 | `vectis-artifact` | `VECTIS_ARTIFACT` | `--instance-id`, `--storage-dir`, `--storage-read-only-min-free-bytes`, `--grpc-port`, `--metrics-host`, `--metrics-port` |
 | `vectis-secrets` | `VECTIS_SECRETS` | `--port`, `--metrics-host`, `--metrics-port`, `--encryptedfs-root`, `--encryptedfs-key-file`, `--allow-secret` |
+| `vectis-spiffe` | `VECTIS_SPIFFE` | `--trust-domain`, `--data-dir`, `--runtime-dir`, `--workload-socket`, `--registration-socket`, `--bundle-file`, `--selector`, `--x509-svid-ttl`, `--init-only` |
 | `vectis-worker` | `VECTIS_WORKER` | `--metrics-host`, `--metrics-port`, `--artifact-max-bytes`, `--artifact-max-run-bytes`, `--artifact-max-count`, `--core-socket`, `--core-shell-socket`, `--core-connect-timeout`, `--secrets-address`; use `VECTIS_WORKER_QUEUE_ADDRESS`, `VECTIS_WORKER_LOG_ADDRESS`, `VECTIS_WORKER_ORCHESTRATOR_ADDRESS`, and `VECTIS_WORKER_SECRETS_ADDRESS` to pin internal dependencies |
 | `vectis-worker-core` | `VECTIS_WORKER_CORE` | `--socket`, `--execution-backend`, `--workspace-root`, `--lima-instance`, `--lima-start` |
 | `vectis-cron` | `VECTIS_CRON` | `--instance-id`, `--claim-ttl` |
@@ -510,6 +511,7 @@ The Podman reference deployment:
 - enables internal gRPC TLS for Vectis containers;
 - enables TLS from Vectis containers to the bundled Postgres instance;
 - enables HTTPS for queue, worker, and log metrics scrapes;
+- starts `vectis-spiffe` and wires workers plus `vectis-secrets` for per-execution SVID-authenticated encryptedfs secret resolution;
 - runs Prometheus, Grafana, Jaeger, OpenSearch, and Fluent Bit as a reference observability stack.
 
 Treat the reference deployment as a helpful starting point, not a production security boundary by itself. Rotate generated secrets into your platform's secret store for shared environments. See [Reference Deployment Posture](./deployment/reference-deployment-posture.md).

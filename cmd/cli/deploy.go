@@ -30,6 +30,7 @@ const (
 type podmanSecrets struct {
 	PostgresPassword string `json:"postgres_password"`
 	BootstrapToken   string `json:"bootstrap_token"`
+	EncryptedFSKey   string `json:"encryptedfs_key"`
 	PodDSN           string `json:"pod_database_dsn"`
 	HostDSN          string `json:"host_database_dsn"`
 }
@@ -101,6 +102,17 @@ func loadOrCreatePodmanSecrets(rotate bool) (podmanSecrets, bool, error) {
 				return podmanSecrets{}, false, fmt.Errorf("parse podman secrets %s: %w", path, err)
 			}
 
+			updated, err := ensurePodmanSecretFields(&secrets)
+			if err != nil {
+				return podmanSecrets{}, false, err
+			}
+
+			if updated {
+				if err := writePodmanSecrets(path, secrets); err != nil {
+					return podmanSecrets{}, false, err
+				}
+			}
+
 			return secrets, false, nil
 		}
 
@@ -126,20 +138,50 @@ func loadOrCreatePodmanSecrets(rotate bool) (podmanSecrets, bool, error) {
 		HostDSN:          fmt.Sprintf("postgres://vectis:%s@127.0.0.1:15432/vectis?sslmode=require", postgresPassword),
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	if _, err := ensurePodmanSecretFields(&secrets); err != nil {
 		return podmanSecrets{}, false, err
 	}
 
-	b, err := json.MarshalIndent(secrets, "", "  ")
-	if err != nil {
-		return podmanSecrets{}, false, err
-	}
-
-	if err := os.WriteFile(path, append(b, '\n'), 0o600); err != nil {
+	if err := writePodmanSecrets(path, secrets); err != nil {
 		return podmanSecrets{}, false, err
 	}
 
 	return secrets, true, os.Chmod(path, 0o600)
+}
+
+func ensurePodmanSecretFields(secrets *podmanSecrets) (bool, error) {
+	if secrets == nil {
+		return false, fmt.Errorf("podman secrets are required")
+	}
+
+	if strings.TrimSpace(secrets.EncryptedFSKey) != "" {
+		return false, nil
+	}
+
+	key, err := randomSecret(32)
+	if err != nil {
+		return false, fmt.Errorf("generate encryptedfs key: %w", err)
+	}
+
+	secrets.EncryptedFSKey = key
+	return true, nil
+}
+
+func writePodmanSecrets(path string, secrets podmanSecrets) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+
+	b, err := json.MarshalIndent(secrets, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	if err := os.WriteFile(path, append(b, '\n'), 0o600); err != nil {
+		return err
+	}
+
+	return os.Chmod(path, 0o600)
 }
 
 func yamlString(s string) string {
@@ -160,8 +202,9 @@ stringData:
   POSTGRES_PASSWORD: %s
   VECTIS_DATABASE_DSN: %s
   VECTIS_API_AUTH_BOOTSTRAP_TOKEN: %s
+  encryptedfs.key: %s
 ---
-`, podmanSecretName, yamlString(secrets.PostgresPassword), yamlString(secrets.PodDSN), yamlString(secrets.BootstrapToken))
+`, podmanSecretName, yamlString(secrets.PostgresPassword), yamlString(secrets.PodDSN), yamlString(secrets.BootstrapToken), yamlString(secrets.EncryptedFSKey))
 }
 
 func readDeployFile(path string) ([]byte, error) {
@@ -203,6 +246,7 @@ type podmanTemplateData struct {
 	PrometheusWorkerTargets       []string
 	PrometheusLogTargets          []string
 	PrometheusArtifactTargets     []string
+	PrometheusSecretsTargets      []string
 	PrometheusReconcilerTargets   []string
 	APIReplicas                   []podmanAPIReplica
 	CronReplicas                  []podmanCronReplica
@@ -335,6 +379,7 @@ func podmanTemplateDataForProfile(profile string) podmanTemplateData {
 		PrometheusWorkerTargets:       podmanTargets(9082),
 		PrometheusLogTargets:          podmanTargets(9083),
 		PrometheusArtifactTargets:     podmanTargets(9089),
+		PrometheusSecretsTargets:      podmanTargets(9091),
 		PrometheusReconcilerTargets:   podmanTargets(9085),
 		APIReplicas: []podmanAPIReplica{
 			{Name: "api", Port: 8080, First: true},
@@ -382,6 +427,7 @@ func podmanTemplateDataForProfile(profile string) podmanTemplateData {
 	data.PrometheusWorkerTargets = podmanTargets(9082, 9182)
 	data.PrometheusLogTargets = podmanTargets(9083, 9183)
 	data.PrometheusArtifactTargets = podmanTargets(9089, 9189)
+	data.PrometheusSecretsTargets = podmanTargets(9091)
 	data.PrometheusReconcilerTargets = podmanTargets(9085, 9185)
 	data.APIReplicas = []podmanAPIReplica{
 		{Name: "api", Port: 8080, First: true},

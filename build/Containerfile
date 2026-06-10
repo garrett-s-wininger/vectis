@@ -81,6 +81,12 @@ LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vec
 COPY --from=builder /app/bin/vectis-orchestrator /usr/local/bin/vectis-orchestrator
 ENTRYPOINT ["/usr/local/bin/vectis-orchestrator"]
 
+FROM scratch AS spiffe
+LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
+      org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
+COPY --from=builder /app/bin/vectis-spiffe /usr/local/bin/vectis-spiffe
+ENTRYPOINT ["/usr/local/bin/vectis-spiffe"]
+
 FROM scratch AS queue
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
       org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
@@ -138,6 +144,7 @@ COPY --from=builder \
       /app/bin/vectis-cron \
       /app/bin/vectis-docs \
       /app/bin/vectis-local \
+      /app/bin/vectis-spiffe \
       /app/bin/vectis-log \
       /app/bin/vectis-log-forwarder \
       /app/bin/vectis-orchestrator \

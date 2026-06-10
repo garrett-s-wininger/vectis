@@ -22,7 +22,7 @@ Every binary wires Cobra version output through the shared CLI helper. Use `vect
 
 For a release, publish matching artifacts for:
 
-- Binaries: `vectis-api`, `vectis-catalog`, `vectis-cell-ingress`, `vectis-cli`, `vectis-cron`, `vectis-docs`, `vectis-local`, `vectis-log`, `vectis-log-forwarder`, `vectis-orchestrator`, `vectis-queue`, `vectis-reconciler`, `vectis-registry`, `vectis-secrets`, `vectis-worker`, `vectis-worker-core`.
+- Binaries: `vectis-api`, `vectis-artifact`, `vectis-catalog`, `vectis-cell-ingress`, `vectis-cli`, `vectis-cron`, `vectis-docs`, `vectis-local`, `vectis-log`, `vectis-log-forwarder`, `vectis-orchestrator`, `vectis-queue`, `vectis-reconciler`, `vectis-registry`, `vectis-secrets`, `vectis-spiffe`, `vectis-worker`, `vectis-worker-core`.
 - Container images for the deployable components.
 - Generated protobuf Go code already committed in `api/gen/go/`.
 - Release notes and upgrade notes.

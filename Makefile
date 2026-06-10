@@ -1,7 +1,7 @@
 SKIP_WEB_BUILD ?= 0
 SKIP_DOCS_ASSETS ?= 0
 
-APPS := api artifact catalog cell-ingress cli cron local log log-forwarder orchestrator queue reconciler registry secrets worker worker-core
+APPS := api artifact catalog cell-ingress cli cron local log log-forwarder orchestrator queue reconciler registry secrets spiffe worker worker-core
 
 ifeq ($(SKIP_WEB_BUILD),0)
 APPS += docs
@@ -206,11 +206,13 @@ image-cell-ingress: image-internal-cell-ingress
 image-cli: image-internal-cli
 image-cron: image-internal-cron
 image-docs: image-internal-docs
+image-spiffe: image-internal-spiffe
 image-queue: image-internal-queue
 image-log: image-internal-log
 image-log-forwarder: image-internal-log-forwarder
 image-reconciler: image-internal-reconciler
 image-registry: image-internal-registry
+image-secrets: image-internal-secrets
 image-worker: image-internal-worker
 image-worker-core: image-internal-worker-core
 

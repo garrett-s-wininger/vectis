@@ -543,6 +543,10 @@ func TestDeployPodmanInit_jsonOutput(t *testing.T) {
 	if result.Status != "initialized" || result.SecretsPath != path || !result.BootstrapToken {
 		t.Fatalf("unexpected result: %+v", result)
 	}
+
+	if strings.TrimSpace(secrets.EncryptedFSKey) == "" {
+		t.Fatalf("encryptedfs key was not generated")
+	}
 }
 
 func TestDeployPodmanRender_jsonMetadataForFileOutput(t *testing.T) {
@@ -621,6 +625,7 @@ func TestDeployPodmanRender_HAProfileAddsReplicaTopology(t *testing.T) {
 	assertEnv(t, findContainer(t, pod, "worker"), "VECTIS_WORKER_CORE_SOCKET", "/run/vectis/worker-core/worker-core.sock")
 	assertEnv(t, findContainer(t, pod, "worker"), "VECTIS_WORKER_CORE_SHELL_SOCKET", "/run/vectis/worker-core/worker-shell.sock")
 	assertEnv(t, findContainer(t, pod, "worker-2"), "VECTIS_WORKER_CORE_SHELL_SOCKET", "/run/vectis/worker-core/worker-2-shell.sock")
+	assertEnv(t, findContainer(t, pod, "worker-2"), "VECTIS_WORKER_SECRETS_ADDRESS", "127.0.0.1:8090")
 	assertEnv(t, findContainer(t, pod, "cron-2"), "VECTIS_CRON_INSTANCE_ID", "cron-2")
 	assertEnv(t, findContainer(t, pod, "reconciler-2"), "VECTIS_RECONCILER_METRICS_PORT", "9185")
 	findContainer(t, pod, "registry-3")
@@ -632,6 +637,7 @@ func TestDeployPodmanRender_HAProfileAddsReplicaTopology(t *testing.T) {
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-queue"), []string{"127.0.0.1:9081", "127.0.0.1:9181"})
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-artifact"), []string{"127.0.0.1:9089", "127.0.0.1:9189"})
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-orchestrator"), []string{"127.0.0.1:9090"})
+	assertStringSlice(t, prometheusTargets(t, docs, "vectis-secrets"), []string{"127.0.0.1:9091"})
 }
 
 func TestDeployPodmanRender_SimpleProfileKeepsSingleReplicaTopology(t *testing.T) {
@@ -667,9 +673,19 @@ func TestDeployPodmanRender_SimpleProfileKeepsSingleReplicaTopology(t *testing.T
 	assertEnv(t, findContainer(t, pod, "orchestrator"), "VECTIS_ORCHESTRATOR_ADVERTISE_ADDRESS", "127.0.0.1:8087")
 	assertEnv(t, findContainer(t, pod, "worker-core"), "VECTIS_WORKER_CORE_SOCKET", "/run/vectis/worker-core/worker-core.sock")
 	assertEnv(t, findContainer(t, pod, "worker"), "VECTIS_WORKER_CORE_SHELL_SOCKET", "/run/vectis/worker-core/worker-shell.sock")
+	findInitContainer(t, pod, "vectis-spiffe-init")
+	findInitContainer(t, pod, "vectis-client-ca-bundle-init")
+	findContainer(t, pod, "spiffe")
+	assertEnv(t, findContainer(t, pod, "secrets"), "VECTIS_GRPC_TLS_CLIENT_CA_FILE", "/run/vectis/grpc-tls/client-ca-bundle.pem")
+	assertEnv(t, findContainer(t, pod, "secrets"), "VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE", "/run/vectis/secrets/encryptedfs.key")
+	assertEnv(t, findContainer(t, pod, "worker"), "VECTIS_WORKER_SPIRE_ENABLED", "true")
+	assertEnv(t, findContainer(t, pod, "worker"), "VECTIS_WORKER_SPIRE_WORKLOAD_API_ADDRESS", "unix:///run/vectis/spiffe/workload.sock")
+	assertEnv(t, findContainer(t, pod, "worker"), "VECTIS_WORKER_SPIRE_REGISTRATION_SERVER_ADDRESS", "unix:///run/vectis/spiffe/registration.sock")
+	assertEnv(t, findContainer(t, pod, "worker"), "VECTIS_WORKER_SECRETS_ADDRESS", "127.0.0.1:8090")
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-queue"), []string{"127.0.0.1:9081"})
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-artifact"), []string{"127.0.0.1:9089"})
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-orchestrator"), []string{"127.0.0.1:9090"})
+	assertStringSlice(t, prometheusTargets(t, docs, "vectis-secrets"), []string{"127.0.0.1:9091"})
 }
 
 func TestDeployPodmanRender_InvalidProfileFails(t *testing.T) {
@@ -748,6 +764,17 @@ func findContainer(t *testing.T, pod map[string]any, name string) map[string]any
 	return nil
 }
 
+func findInitContainer(t *testing.T, pod map[string]any, name string) map[string]any {
+	t.Helper()
+
+	if container, ok := lookupPodContainer(pod, "initContainers", name); ok {
+		return container
+	}
+
+	t.Fatalf("init container %s not found", name)
+	return nil
+}
+
 func findContainerOK(t *testing.T, pod map[string]any, name string) bool {
 	t.Helper()
 
@@ -756,12 +783,16 @@ func findContainerOK(t *testing.T, pod map[string]any, name string) bool {
 }
 
 func lookupContainer(pod map[string]any, name string) (map[string]any, bool) {
+	return lookupPodContainer(pod, "containers", name)
+}
+
+func lookupPodContainer(pod map[string]any, field, name string) (map[string]any, bool) {
 	spec, ok := pod["spec"].(map[string]any)
 	if !ok {
 		return nil, false
 	}
 
-	containers, ok := spec["containers"].([]any)
+	containers, ok := spec[field].([]any)
 	if !ok {
 		return nil, false
 	}

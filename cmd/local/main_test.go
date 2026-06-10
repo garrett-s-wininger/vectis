@@ -337,11 +337,11 @@ func TestEmbeddedLocalSPIFFEConfigDefaults(t *testing.T) {
 		t.Fatalf("selectors = %v, want %q", cfg.Selectors, wantSelector)
 	}
 
-	if cfg.DataDir != filepath.Join(dataHome, "vectis", "local-spiffe") {
+	if cfg.DataDir != filepath.Join(dataHome, "vectis", "spiffe") {
 		t.Fatalf("data dir = %q", cfg.DataDir)
 	}
 
-	if cfg.RuntimeDir != filepath.Join(runtimeHome, "vectis", "local-spiffe") {
+	if cfg.RuntimeDir != filepath.Join(runtimeHome, "vectis", "spiffe") {
 		t.Fatalf("runtime dir = %q", cfg.RuntimeDir)
 	}
 
@@ -380,7 +380,7 @@ func TestEmbeddedLocalSPIFFEConfigSkipsPlaintextGRPC(t *testing.T) {
 
 func TestStartEmbeddedLocalSPIFFEStartsAuthority(t *testing.T) {
 	resetLocalTestConfig(t)
-	dir, err := os.MkdirTemp("/tmp", "vectis-local-spiffe-*")
+	dir, err := os.MkdirTemp("/tmp", "vectis-spiffe-*")
 	if err != nil {
 		t.Fatalf("create short temp dir: %v", err)
 	}

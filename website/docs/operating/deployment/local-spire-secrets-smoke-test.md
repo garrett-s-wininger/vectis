@@ -24,7 +24,7 @@ For SPIRE background, see the SPIRE Workload API and Server Entry API model in t
 
 ## Embedded Local Authority
 
-The embedded authority is the default local identity path. It creates local SPIFFE state under `$XDG_DATA_HOME/vectis/local-spiffe` and sockets under `$XDG_RUNTIME_DIR/vectis/local-spiffe` or the Vectis temp runtime fallback.
+The embedded authority is the default local identity path. It creates local SPIFFE state under `$XDG_DATA_HOME/vectis/spiffe` and sockets under `$XDG_RUNTIME_DIR/vectis/spiffe` or the Vectis temp runtime fallback.
 
 Use a dedicated `XDG_DATA_HOME` so the encryptedfs root, generated local TLS, and local SPIFFE state are easy to find:
 
@@ -44,8 +44,8 @@ Leave `vectis-local` running. It should log the embedded local SPIFFE registrati
 | Item | Managed default |
 | --- | --- |
 | Trust domain | `vectis.internal` unless `--spire-trust-domain` is set |
-| Registration API socket | `$XDG_RUNTIME_DIR/vectis/local-spiffe/registration.sock` or temp runtime fallback |
-| Workload API socket | `$XDG_RUNTIME_DIR/vectis/local-spiffe/workload.sock` or temp runtime fallback |
+| Registration API socket | `$XDG_RUNTIME_DIR/vectis/spiffe/registration.sock` or temp runtime fallback |
+| Workload API socket | `$XDG_RUNTIME_DIR/vectis/spiffe/workload.sock` or temp runtime fallback |
 | Worker parent ID | `spiffe://<trust-domain>/spire/agent/local` unless `--spire-parent-id` is set |
 | Worker selector | `unix:uid:<current uid>` unless one or more `--spire-selector` flags are set |
 
@@ -96,7 +96,7 @@ In another terminal, keep the same `XDG_DATA_HOME`:
 export VECTIS_SMOKE_HOME="$PWD/.vectis-spiffe-smoke"
 export XDG_DATA_HOME="$VECTIS_SMOKE_HOME/data"
 
-printf '%s' 'local-spiffe-secret' > "$VECTIS_SMOKE_HOME/token.txt"
+printf '%s' 'spiffe-secret' > "$VECTIS_SMOKE_HOME/token.txt"
 
 ./bin/vectis-cli secrets encryptedfs put encryptedfs://team/smoke-token \
   --from-file "$VECTIS_SMOKE_HOME/token.txt" \

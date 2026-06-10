@@ -17,6 +17,7 @@
 | `log-forwarder/` | `vectis-log-forwarder` | daemon (sidecar) |
 | `orchestrator/` | `vectis-orchestrator` | daemon (hot run state and task choreography) |
 | `secrets/` | `vectis-secrets` | daemon (secret resolution broker) |
+| `spiffe/` | `vectis-spiffe` | daemon (reference SPIFFE authority) |
 | `worker/` | `vectis-worker` | daemon (action exec) |
 | `worker-core/` | `vectis-worker-core` | daemon (worker execution core over UDS) |
 | `cron/` | `vectis-cron` | daemon (scheduler) |
@@ -55,7 +56,7 @@ func main() {
 
 ## Which binaries need the database import
 
-Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-seventeen-cmd): `api`, `cell-ingress`, `worker`, `secrets`, `cron`, `reconciler`, `catalog`, `local`, and `cli` need the `dbdrivers` import. `artifact`, `queue`, `registry`, `log`, `orchestrator`, `log-forwarder`, `worker-core`, and `docs` do not.
+Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-eighteen-cmd): `api`, `cell-ingress`, `worker`, `secrets`, `cron`, `reconciler`, `catalog`, `local`, and `cli` need the `dbdrivers` import. `artifact`, `queue`, `registry`, `log`, `orchestrator`, `log-forwarder`, `spiffe`, `worker-core`, and `docs` do not.
 
 ## Env prefix mapping
 
@@ -74,6 +75,7 @@ Dedicated metrics listeners accept the service bind host plus loopback Host head
 | `vectis-secrets` | `VECTIS_SECRETS` | `[secrets]`; cell-local gRPC service for resolving job secrets, validates active execution claims against the cell DB, `--encryptedfs-root` plus `--encryptedfs-key-file` enable the encryptedfs provider, `--allow-secret` / `VECTIS_SECRETS_POLICY_ALLOW` configure default-deny access policy, metrics host defaults to localhost, and the gRPC listener uses `config.GRPCServerOptionsForRole(config.ServiceIdentityRoleSecrets)` |
 | `vectis-worker` | `VECTIS_WORKER` | `[worker]`; `--metrics-host` defaults to localhost; `--artifact-max-bytes`, `--artifact-max-run-bytes`, and `--artifact-max-count` cap worker artifact uploads; `--core-socket` dials required `vectis-worker-core`; `--core-connect-timeout` bounds startup dial/describe; `--core-shell-socket` exposes shell callbacks; `--secrets-address` points at the cell-local secrets service; `worker.execution_identity.*` derives expected per-execution SPIFFE IDs for Vectis-owned action state; `worker.spire.*` requires an exact SPIRE Workload API X.509-SVID before action code runs when enabled, and `worker.spire.registration.*` can create/renew/release SPIRE Server Entry API registrations through a protected local Unix socket; worker-control gRPC uses `config.GRPCServerOptionsForRole(config.ServiceIdentityRoleWorkerControl)` |
 | `vectis-worker-core` | `VECTIS_WORKER_CORE` | socket-local execution core; `--socket` serves the WorkerCore gRPC API over UDS; `--execution-backend host|lima`; `host` is the default, while `lima` registers a VM provider and makes unspecified action isolation inherit `vm`; use `--workspace-root` for VM-visible host workspaces or `--lima-guest-workspace-root` for guest-owned Lima workspaces |
+| `vectis-spiffe` | `VECTIS_SPIFFE` | development/reference SPIFFE authority; serves Workload API and Entry API over Unix sockets, persists a CA and bundle, defaults to trust domain `vectis.internal`, and supports `--init-only` for deployment init containers that need bundle material before daemons start |
 | `vectis-cron` | `VECTIS_CRON` | `[cron]`; `--instance-id` labels schedule claims, `--claim-ttl` bounds claim failover |
 | `vectis-catalog` | `VECTIS_CATALOG` | `[catalog]`; `--cell-database-dsn cell=dsn` / `VECTIS_CATALOG_CELL_DATABASE_DSNS` configures catalog fan-in from cell-local DBs; metrics host defaults to localhost |
 | `vectis-docs` | `VECTIS_DOCS` | static docs server; default host `localhost`, default port `8088`, serves embedded docs unless `VECTIS_DOCS_DIR` overrides; `--allowed-host` / `VECTIS_DOCS_ALLOWED_HOSTS` configure accepted Host headers; `--tls-cert-file` / `--tls-key-file` enable HTTPS |

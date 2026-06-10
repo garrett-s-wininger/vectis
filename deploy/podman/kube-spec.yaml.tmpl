@@ -43,6 +43,28 @@ spec:
       storage: 1Gi
 ---
 apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vectis-secrets-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vectis-spiffe-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
 kind: ConfigMap
 metadata:
   name: vectis-prometheus-config
@@ -95,6 +117,13 @@ data:
           ca_file: /run/vectis/grpc-tls/ca.pem
         static_configs:
           - targets: {{ quoteList .PrometheusArtifactTargets }}
+      - job_name: vectis-secrets
+        scheme: https
+        metrics_path: /metrics
+        tls_config:
+          ca_file: /run/vectis/grpc-tls/ca.pem
+        static_configs:
+          - targets: {{ quoteList .PrometheusSecretsTargets }}
       - job_name: vectis-reconciler
         scheme: https
         metrics_path: /metrics
@@ -317,6 +346,17 @@ spec:
     - name: artifact-data
       persistentVolumeClaim:
         claimName: vectis-artifact-data
+    - name: secrets-data
+      persistentVolumeClaim:
+        claimName: vectis-secrets-data
+    - name: spiffe-data
+      persistentVolumeClaim:
+        claimName: vectis-spiffe-data
+    - name: spiffe-run
+      emptyDir: {}
+    - name: podman-secrets
+      secret:
+        secretName: vectis-podman-secrets
     - name: prometheus-config
       configMap:
         name: vectis-prometheus-config
@@ -387,6 +427,34 @@ spec:
           mountPath: /grpc-out
         - name: vectis-postgres-tls
           mountPath: /pg-tls-out
+    - name: vectis-spiffe-init
+      image: vectis-spiffe:latest
+      imagePullPolicy: Never
+      args:
+        - --init-only
+        - --trust-domain=vectis.internal
+        - --data-dir=/data/vectis/spiffe
+        - --runtime-dir=/run/vectis/spiffe
+        - --selector=unix:uid:0
+      volumeMounts:
+        - name: spiffe-data
+          mountPath: /data
+        - name: spiffe-run
+          mountPath: /run/vectis/spiffe
+    - name: vectis-client-ca-bundle-init
+      image: docker.io/library/alpine:3.21
+      command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          cat /grpc-in/ca.pem /spiffe-data/vectis/spiffe/bundle.pem > /grpc-in/client-ca-bundle.pem
+          chmod 644 /grpc-in/client-ca-bundle.pem
+      volumeMounts:
+        - name: vectis-grpc-tls
+          mountPath: /grpc-in
+        - name: spiffe-data
+          mountPath: /spiffe-data
   containers:
     - name: postgres
       image: docker.io/library/postgres:18-alpine
@@ -419,6 +487,24 @@ spec:
         - containerPort: 5432
           hostPort: 15432
           protocol: TCP
+    - name: spiffe
+      image: vectis-spiffe:latest
+      imagePullPolicy: Never
+      args:
+        - --trust-domain=vectis.internal
+        - --data-dir=/data/vectis/spiffe
+        - --runtime-dir=/run/vectis/spiffe
+        - --selector=unix:uid:0
+      envFrom:
+        - configMapRef:
+            name: vectis-logging-env
+      volumeMounts:
+        - name: spiffe-data
+          mountPath: /data
+        - name: spiffe-run
+          mountPath: /run/vectis/spiffe
+        - name: component-logs
+          mountPath: /var/log/vectis/components
 {{ range .APIReplicas }}
     - name: {{ .Name }}
       image: vectis-api:latest
@@ -647,6 +733,51 @@ spec:
         - name: queue-data
           mountPath: /data
 {{ end }}
+    - name: secrets
+      image: vectis-secrets:latest
+      imagePullPolicy: Never
+      ports:
+        - containerPort: 8090
+          protocol: TCP
+        - containerPort: 9091
+          protocol: TCP
+      envFrom: *vectisGrpcTlsEnvFrom
+      volumeMounts:
+        - <<: *grpcTlsMount
+        - <<: *postgresCaMount
+        - <<: *componentLogsMount
+        - name: secrets-data
+          mountPath: /data
+        - name: podman-secrets
+          mountPath: /run/vectis/secrets/encryptedfs.key
+          subPath: encryptedfs.key
+          readOnly: true
+      env:
+        - name: VECTIS_CELL_ID
+          value: default
+        - name: VECTIS_SECRETS_PORT
+          value: "8090"
+        - name: VECTIS_SECRETS_METRICS_PORT
+          value: "9091"
+        - name: VECTIS_DATABASE_DRIVER
+          value: pgx
+        - name: VECTIS_DATABASE_DSN
+          valueFrom:
+            secretKeyRef:
+              name: vectis-podman-secrets
+              key: VECTIS_DATABASE_DSN
+        - name: VECTIS_GRPC_TLS_CLIENT_CA_FILE
+          value: /run/vectis/grpc-tls/client-ca-bundle.pem
+        - name: VECTIS_WORKER_EXECUTION_IDENTITY_ENABLED
+          value: "true"
+        - name: VECTIS_WORKER_EXECUTION_IDENTITY_TRUST_DOMAIN
+          value: vectis.internal
+        - name: VECTIS_SECRETS_ENCRYPTEDFS_ROOT
+          value: /data/vectis/secrets/encryptedfs
+        - name: VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE
+          value: /run/vectis/secrets/encryptedfs.key
+        - name: VECTIS_SECRETS_POLICY_ALLOW
+          value: namespace=*;job=*;task=*;ref=encryptedfs://*
 {{ range .ReconcilerReplicas }}
     - name: {{ .Name }}
       image: vectis-reconciler:latest
@@ -727,6 +858,14 @@ spec:
     - name: {{ .Name }}
       image: vectis-worker:latest
       imagePullPolicy: Never
+      command:
+        - /bin/sh
+        - -c
+        - |
+          until [ -S /run/vectis/spiffe/workload.sock ] && [ -S /run/vectis/spiffe/registration.sock ]; do
+            sleep 0.1
+          done
+          exec /usr/local/bin/vectis-worker
       ports:
         - containerPort: {{ .MetricsPort }}
           protocol: TCP
@@ -736,6 +875,8 @@ spec:
         - <<: *postgresCaMount
         - <<: *componentLogsMount
         - <<: *workerCoreSocketsMount
+        - name: spiffe-run
+          mountPath: /run/vectis/spiffe
       env:
         - name: VECTIS_DATABASE_DRIVER
           value: pgx
@@ -748,6 +889,24 @@ spec:
           value: /run/vectis/worker-core/worker-core.sock
         - name: VECTIS_WORKER_CORE_SHELL_SOCKET
           value: /run/vectis/worker-core/{{ .Name }}-shell.sock
+        - name: VECTIS_WORKER_SECRETS_ADDRESS
+          value: 127.0.0.1:8090
+        - name: VECTIS_WORKER_EXECUTION_IDENTITY_ENABLED
+          value: "true"
+        - name: VECTIS_WORKER_EXECUTION_IDENTITY_TRUST_DOMAIN
+          value: vectis.internal
+        - name: VECTIS_WORKER_SPIRE_ENABLED
+          value: "true"
+        - name: VECTIS_WORKER_SPIRE_WORKLOAD_API_ADDRESS
+          value: unix:///run/vectis/spiffe/workload.sock
+        - name: VECTIS_WORKER_SPIRE_REGISTRATION_ENABLED
+          value: "true"
+        - name: VECTIS_WORKER_SPIRE_REGISTRATION_SERVER_ADDRESS
+          value: unix:///run/vectis/spiffe/registration.sock
+        - name: VECTIS_WORKER_SPIRE_REGISTRATION_PARENT_ID
+          value: spiffe://vectis.internal/spire/agent/local
+        - name: VECTIS_WORKER_SPIRE_REGISTRATION_SELECTORS
+          value: unix:uid:0
 {{ if .SetMetricsPortEnv }}
         - name: VECTIS_WORKER_METRICS_PORT
           value: "{{ .MetricsPort }}"

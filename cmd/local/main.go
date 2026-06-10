@@ -662,12 +662,12 @@ func embeddedLocalSPIFFEConfig() (localEmbeddedSPIFFEConfig, error) {
 
 	dataDir := strings.TrimSpace(viper.GetString("spire_dir"))
 	if dataDir == "" {
-		dataDir = filepath.Join(utils.DataHome(), "vectis", "local-spiffe")
+		dataDir = filepath.Join(utils.DataHome(), "vectis", "spiffe")
 	}
 
 	runtimeDir := strings.TrimSpace(viper.GetString("spire_runtime_dir"))
 	if runtimeDir == "" {
-		runtimeDir = filepath.Join(utils.RuntimeDir(), "local-spiffe")
+		runtimeDir = filepath.Join(utils.RuntimeDir(), "spiffe")
 	}
 
 	selectors := localSPIRERegistrationSelectors()

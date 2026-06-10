@@ -14,13 +14,12 @@ import (
 	"vectis/internal/action/actionregistry"
 	"vectis/internal/cell"
 	"vectis/internal/dal"
-	"vectis/internal/interfaces"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/job"
 	"vectis/internal/logserver"
-	"vectis/internal/observability"
 	"vectis/internal/testutil/dbtest"
 	"vectis/internal/testutil/grpcservices"
+	"vectis/internal/testutil/workertest"
 )
 
 func TestIntegrationWorker_DequeueClaimExecuteFinalize(t *testing.T) {
@@ -73,31 +72,20 @@ func TestIntegrationWorker_DequeueClaimExecuteFinalize(t *testing.T) {
 
 	// Create and run worker.
 	logger := mocks.NewMockLogger()
-	workerMetrics, _ := observability.NewWorkerMetrics()
-	w := &worker{
-		ctx:           ctx,
-		runCtx:        context.Background(),
-		logger:        logger,
-		workerID:      "test-worker-1",
-		clock:         interfaces.SystemClock{},
-		renewInterval: dal.DefaultRenewInterval,
-		queue:         queueClient,
-		logClient:     logClient,
-		executor:      job.NewExecutor(),
-		store:         repos.Runs(),
-		metrics:       workerMetrics,
+	w := &workertest.Runner{
+		Logger:    logger,
+		WorkerID:  "test-worker-1",
+		Queue:     queueClient,
+		LogClient: logClient,
+		Executor:  job.NewExecutor(),
+		Store:     repos.Runs(),
 	}
 
-	workerDone := make(chan struct{})
-	go func() {
-		defer close(workerDone)
-		req, keepGoing := w.dequeueNext()
-		if !keepGoing || req == nil {
-			return
-		}
-
-		w.handleJob(req)
-	}()
+	runCtx, cancelRun := context.WithTimeout(ctx, 10*time.Second)
+	defer cancelRun()
+	if _, err := w.RunOne(runCtx); err != nil {
+		t.Fatalf("worker run: %v", err)
+	}
 
 	// Wait for run to complete.
 	deadline := time.Now().Add(10 * time.Second)
@@ -115,9 +103,6 @@ func TestIntegrationWorker_DequeueClaimExecuteFinalize(t *testing.T) {
 
 		time.Sleep(50 * time.Millisecond)
 	}
-
-	cancel()
-	<-workerDone
 
 	if finalStatus != "succeeded" {
 		t.Fatalf("expected run status succeeded, got %q", finalStatus)
@@ -195,32 +180,21 @@ func TestIntegrationWorker_ExecutesCustomActionFromEnvelopeLocks(t *testing.T) {
 	}
 
 	logger := mocks.NewMockLogger()
-	workerMetrics, _ := observability.NewWorkerMetrics()
-	w := &worker{
-		ctx:            ctx,
-		runCtx:         context.Background(),
-		logger:         logger,
-		workerID:       "test-worker-custom-action",
-		clock:          interfaces.SystemClock{},
-		renewInterval:  dal.DefaultRenewInterval,
-		queue:          queueClient,
-		logClient:      logClient,
-		executor:       job.NewExecutor(),
-		store:          repos.Runs(),
-		metrics:        workerMetrics,
-		actionResolver: resolver,
+	w := &workertest.Runner{
+		Logger:         logger,
+		WorkerID:       "test-worker-custom-action",
+		Queue:          queueClient,
+		LogClient:      logClient,
+		Executor:       job.NewExecutor(),
+		Store:          repos.Runs(),
+		ActionResolver: resolver,
 	}
 
-	workerDone := make(chan struct{})
-	go func() {
-		defer close(workerDone)
-		req, keepGoing := w.dequeueNext()
-		if !keepGoing || req == nil {
-			return
-		}
-
-		w.handleJob(req)
-	}()
+	runCtx, cancelRun := context.WithTimeout(ctx, 10*time.Second)
+	defer cancelRun()
+	if _, err := w.RunOne(runCtx); err != nil {
+		t.Fatalf("worker run: %v", err)
+	}
 
 	deadline := time.Now().Add(10 * time.Second)
 	var finalStatus string
@@ -238,9 +212,6 @@ func TestIntegrationWorker_ExecutesCustomActionFromEnvelopeLocks(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	cancel()
-	<-workerDone
-
 	if finalStatus != "succeeded" {
 		t.Fatalf("expected run status succeeded, got %q", finalStatus)
 	}
@@ -252,107 +223,6 @@ func TestIntegrationWorker_ExecutesCustomActionFromEnvelopeLocks(t *testing.T) {
 	if !logEntriesContain(entries, "Hello, Vectis") {
 		t.Fatalf("expected custom action log output, got %+v", entries)
 	}
-}
-
-// Minimal worker struct mirroring cmd/worker for test control.
-type worker struct {
-	ctx            context.Context
-	runCtx         context.Context
-	logger         interfaces.Logger
-	workerID       string
-	clock          interfaces.Clock
-	renewInterval  time.Duration
-	queue          interfaces.QueueClient
-	logClient      interfaces.LogClient
-	executor       *job.Executor
-	store          dal.RunsRepository
-	metrics        *observability.WorkerMetrics
-	actionResolver actionregistry.Resolver
-}
-
-func (w *worker) dequeueNext() (*api.JobRequest, bool) {
-	pollCtx, cancel := context.WithTimeout(w.ctx, 5*time.Second)
-	defer cancel()
-
-	req, err := w.queue.Dequeue(pollCtx)
-	if err != nil {
-		if err == context.Canceled || err == context.DeadlineExceeded {
-			return nil, false
-		}
-
-		w.logger.Error("dequeue error: %v", err)
-		return nil, true
-	}
-
-	if req == nil || req.GetJob() == nil {
-		return nil, true
-	}
-
-	return req, true
-}
-
-func (w *worker) handleJob(req *api.JobRequest) {
-	work := req.GetJob()
-	jobID := work.GetId()
-	runID := work.GetRunId()
-	deliveryID := work.GetDeliveryId()
-	w.logger.Info("Dequeued job: %s (run %s)", jobID, runID)
-
-	if runID == "" {
-		w.logger.Error("Job has no run_id")
-		_ = w.queue.Ack(w.runCtx, deliveryID)
-		return
-	}
-
-	env, ok, err := cell.ExecutionEnvelopeFromRequest(req)
-	if err != nil || !ok {
-		w.logger.Error("Invalid execution envelope for run %s: %v", runID, err)
-		_ = w.queue.Ack(w.runCtx, deliveryID)
-		_ = w.store.MarkRunFailed(w.runCtx, runID, dal.FailureCodeInvalidEnvelope, "missing or invalid execution envelope for persisted run")
-		return
-	}
-
-	if err := w.queue.Ack(w.runCtx, deliveryID); err != nil {
-		w.logger.Error("Ack failed: %v", err)
-		return
-	}
-
-	executionClaim, err := w.store.TryClaimExecution(w.runCtx, env.ExecutionID, w.workerID, time.Now().Add(dal.DefaultLeaseTTL))
-	if err != nil {
-		w.logger.Error("TryClaimExecution %s: %v", env.ExecutionID, err)
-		_ = w.store.MarkRunOrphaned(w.runCtx, runID, "ack_uncertain")
-		return
-	}
-
-	if !executionClaim.Claimed {
-		w.logger.Error("Execution %s not claimed", env.ExecutionID)
-		return
-	}
-
-	_ = w.store.MarkExecutionStarted(w.runCtx, env.ExecutionID)
-
-	execErr := w.executor.ExecuteTaskWithOptions(w.runCtx, work, env.TaskKey, w.logClient, w.logger, job.ExecuteOptions{
-		ActionResolver: w.actionResolver,
-		ActionLocks:    env.ActionLocks,
-	})
-	if execErr != nil {
-		w.logger.Error("Job %s failed: %v", jobID, execErr)
-		_, _ = w.store.CompleteExecutionAndFinalizeRunByClaim(w.runCtx, env.ExecutionID, w.workerID, executionClaim.ClaimToken, dal.ExecutionStatusFailed, dal.FailureCodeExecution, execErr.Error())
-		return
-	}
-
-	finalized, err := w.store.CompleteExecutionAndFinalizeRunByClaim(w.runCtx, env.ExecutionID, w.workerID, executionClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
-	if err != nil {
-		w.logger.Error("CompleteExecutionAndFinalizeRunByClaim failed: %v", err)
-		return
-	}
-
-	if finalized.Outcome != dal.ExecutionFinalizationOutcomeRunSucceeded {
-		w.logger.Error("CompleteExecutionAndFinalizeRunByClaim outcome %q", finalized.Outcome)
-		return
-	}
-
-	w.logger.Info("Job completed successfully: %s", jobID)
 }
 
 type descriptorResolver map[string]actionregistry.Descriptor

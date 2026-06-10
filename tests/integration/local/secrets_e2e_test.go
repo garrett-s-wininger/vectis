@@ -36,11 +36,12 @@ import (
 	"vectis/internal/spire"
 	"vectis/internal/testutil/dbtest"
 	"vectis/internal/testutil/grpcservices"
+	"vectis/internal/testutil/workertest"
 	"vectis/internal/workloadidentity"
 )
 
 const (
-	secretPlaintext = "local-spiffe-secret"
+	secretPlaintext = "spiffe-secret"
 	trustDomain     = "vectis.internal"
 )
 
@@ -116,22 +117,24 @@ func TestIntegrationLocalSPIFFESecretsExample(t *testing.T) {
 		t.Fatalf("enqueue job: %v", err)
 	}
 
-	worker := &e2eWorker{
-		logger:                    logger,
-		workerID:                  "integration-local-secrets-worker",
-		trustDomain:               spiffeCfg.TrustDomain,
-		parentSPIFFEID:            "spiffe://" + spiffeCfg.TrustDomain + "/spire/agent/local",
-		selector:                  spire.Selector{Type: "unix", Value: "uid:" + strconv.Itoa(os.Getuid())},
-		queue:                     queueClient,
-		logClient:                 logClient,
-		executor:                  job.NewExecutor(),
-		store:                     runs,
-		registrar:                 registrar,
-		svidSource:                svidSource,
-		secretResolverForWorkload: resolverForWorkload,
+	worker := &workertest.Runner{
+		Logger:                    logger,
+		WorkerID:                  "integration-local-secrets-worker",
+		TrustDomain:               spiffeCfg.TrustDomain,
+		ParentSPIFFEID:            "spiffe://" + spiffeCfg.TrustDomain + "/spire/agent/local",
+		Selectors:                 []spire.Selector{{Type: "unix", Value: "uid:" + strconv.Itoa(os.Getuid())}},
+		Queue:                     queueClient,
+		LogClient:                 logClient,
+		Executor:                  job.NewExecutor(),
+		Store:                     runs,
+		Registrar:                 registrar,
+		SVIDSource:                svidSource,
+		RegistrationMinTTL:        time.Second,
+		RegistrationMaxTTL:        5 * time.Minute,
+		SecretResolverForWorkload: resolverForWorkload,
 	}
 
-	if err := worker.runOne(ctx); err != nil {
+	if _, err := worker.RunOne(ctx); err != nil {
 		t.Fatalf("worker run: %v", err)
 	}
 
@@ -275,159 +278,6 @@ func newBufconnSecretsResolver(listener *bufconn.Listener, caFile string, worklo
 	return secretstore.NewGRPCResolver(conn), func() { _ = conn.Close() }, nil
 }
 
-type e2eWorker struct {
-	logger                    interfaces.Logger
-	workerID                  string
-	trustDomain               string
-	parentSPIFFEID            string
-	selector                  spire.Selector
-	queue                     interfaces.QueueClient
-	logClient                 interfaces.LogClient
-	executor                  *job.Executor
-	store                     dal.RunsRepository
-	registrar                 spire.Registrar
-	svidSource                spire.X509SVIDSource
-	secretResolverForWorkload func(*workloadidentity.Identity) (secretstore.Resolver, func(), error)
-}
-
-func (w *e2eWorker) runOne(ctx context.Context) error {
-	dequeueCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	req, err := w.queue.Dequeue(dequeueCtx)
-	cancel()
-
-	if err != nil {
-		return fmt.Errorf("dequeue: %w", err)
-	}
-
-	if req == nil || req.GetJob() == nil {
-		return fmt.Errorf("dequeue returned empty job")
-	}
-
-	env, ok, err := cell.ExecutionEnvelopeFromRequest(req)
-	if err != nil {
-		return fmt.Errorf("execution envelope: %w", err)
-	}
-
-	if !ok {
-		return fmt.Errorf("execution envelope is missing")
-	}
-
-	if err := w.queue.Ack(ctx, req.GetJob().GetDeliveryId()); err != nil {
-		return fmt.Errorf("ack delivery: %w", err)
-	}
-
-	claim, err := w.store.TryClaimExecution(ctx, env.ExecutionID, w.workerID, time.Now().Add(time.Minute))
-	if err != nil {
-		return fmt.Errorf("claim execution: %w", err)
-	}
-
-	if !claim.Claimed {
-		return fmt.Errorf("execution %s was not claimed", env.ExecutionID)
-	}
-
-	workload, handle, err := w.prepareWorkload(ctx, env)
-	if err != nil {
-		return err
-	}
-
-	defer func() {
-		if handle.Managed {
-			_ = w.registrar.ReleaseRegistration(context.Background(), handle)
-		}
-	}()
-
-	secretFiles, err := w.resolveSecrets(ctx, req.GetJob(), env, claim.ClaimToken, workload)
-	if err != nil {
-		return fmt.Errorf("resolve secrets: %w", err)
-	}
-
-	if err := w.store.MarkExecutionStarted(ctx, env.ExecutionID); err != nil {
-		return fmt.Errorf("mark execution started: %w", err)
-	}
-
-	execErr := w.executor.ExecuteTaskWithOptions(ctx, req.GetJob(), env.TaskKey, w.logClient, w.logger, job.ExecuteOptions{
-		WorkloadIdentity: workload,
-		SecretFiles:      secretFiles,
-	})
-
-	if execErr != nil {
-		_, _ = w.store.CompleteExecutionAndFinalizeRunByClaim(ctx, env.ExecutionID, w.workerID, claim.ClaimToken, dal.ExecutionStatusFailed, dal.FailureCodeExecution, execErr.Error())
-		return execErr
-	}
-
-	if _, err := w.store.CompleteExecutionAndFinalizeRunByClaim(ctx, env.ExecutionID, w.workerID, claim.ClaimToken, dal.ExecutionStatusSucceeded, "", ""); err != nil {
-		return fmt.Errorf("complete execution: %w", err)
-	}
-
-	return nil
-}
-
-func (w *e2eWorker) prepareWorkload(ctx context.Context, env *cell.ExecutionEnvelope) (*workloadidentity.Identity, spire.RegistrationHandle, error) {
-	workload, err := workloadidentity.NewIdentity(w.trustDomain, workloadidentity.DefaultSPIFFEPathTemplate, executionFromEnvelope(env))
-	if err != nil {
-		return nil, spire.RegistrationHandle{}, fmt.Errorf("execution workload identity: %w", err)
-	}
-
-	intent, err := spire.NewExecutionRegistrationIntent(workload.SPIFFEID, executionFromEnvelope(env), spire.ExecutionRegistrationOptions{
-		ParentSPIFFEID: w.parentSPIFFEID,
-		Selectors:      []spire.Selector{w.selector},
-		ExpiresAt:      time.Now().Add(time.Minute).UTC(),
-		Now:            time.Now().UTC(),
-		MinTTL:         time.Second,
-		MaxTTL:         5 * time.Minute,
-	})
-
-	if err != nil {
-		return nil, spire.RegistrationHandle{}, fmt.Errorf("execution SPIFFE registration intent: %w", err)
-	}
-
-	result, err := w.registrar.EnsureRegistration(ctx, intent)
-	if err != nil {
-		return nil, spire.RegistrationHandle{}, fmt.Errorf("ensure execution SPIFFE registration: %w", err)
-	}
-
-	svid, err := spire.FetchX509SVID(ctx, w.svidSource, workload.SPIFFEID)
-	if err != nil {
-		return nil, result.Handle, fmt.Errorf("fetch execution X.509-SVID: %w", err)
-	}
-
-	return workload.WithX509SVID(workloadidentity.X509SVID{
-		SPIFFEID:     svid.SPIFFEID,
-		Certificates: svid.Certificates,
-		PrivateKey:   svid.PrivateKey,
-	}), result.Handle, nil
-}
-
-func (w *e2eWorker) resolveSecrets(ctx context.Context, runJob *api.Job, env *cell.ExecutionEnvelope, claimToken string, workload *workloadidentity.Identity) ([]secretstore.FileMaterial, error) {
-	refs := secretstore.ReferencesForTask(runJob, env.TaskKey)
-	if len(refs) == 0 {
-		return nil, fmt.Errorf("job declared no secrets for task key %q", env.TaskKey)
-	}
-
-	resolver, cleanup, err := w.secretResolverForWorkload(workload)
-	if err != nil {
-		return nil, err
-	}
-
-	if cleanup != nil {
-		defer cleanup()
-	}
-
-	bundle, err := resolver.Resolve(ctx, secretstore.ResolveRequest{
-		RunID:               env.RunID,
-		ExecutionID:         env.ExecutionID,
-		ExecutionClaimToken: claimToken,
-		Workload:            workload,
-		Secrets:             refs,
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	return bundle.Files, nil
-}
-
 type e2eExecutionScopeResolver struct {
 	store interface {
 		GetActiveExecutionDispatch(context.Context, string, string) (dal.ExecutionDispatchRecord, error)
@@ -480,21 +330,6 @@ func (r e2eExecutionScopeResolver) ResolveExecutionScope(ctx context.Context, ru
 	}, nil
 }
 
-func executionFromEnvelope(env *cell.ExecutionEnvelope) workloadidentity.Execution {
-	return workloadidentity.Execution{
-		CellID:            env.CellID,
-		NamespacePath:     env.NamespacePath,
-		JobID:             env.Job.GetId(),
-		RunID:             env.RunID,
-		RunIndex:          env.RunIndex,
-		SegmentID:         env.SegmentID,
-		ExecutionID:       env.ExecutionID,
-		Attempt:           env.Attempt,
-		DefinitionVersion: env.DefinitionVersion,
-		DefinitionHash:    env.DefinitionHash,
-	}
-}
-
 func assertRunSucceeded(t *testing.T, ctx context.Context, runs dal.RunsRepository, runID string) {
 	t.Helper()
 
@@ -511,13 +346,9 @@ func assertRunSucceeded(t *testing.T, ctx context.Context, runs dal.RunsReposito
 func assertSecretDidNotLeak(t *testing.T, logger *mocks.MockLogger, logStore *logserver.LocalRunLogStore, runID string) {
 	t.Helper()
 
-	joinedLogs := allEntriesJoined(t, logStore, runID)
+	joinedLogs := waitForRunLogContains(t, logStore, runID, "Command completed successfully", 3*time.Second)
 	if strings.Contains(joinedLogs, secretPlaintext) {
 		t.Fatalf("secret plaintext leaked to run logs:\n%s", joinedLogs)
-	}
-
-	if !strings.Contains(joinedLogs, "Command completed successfully") {
-		t.Fatalf("run logs did not contain successful command completion:\n%s", joinedLogs)
 	}
 
 	for _, call := range logger.GetCalls() {
@@ -525,6 +356,24 @@ func assertSecretDidNotLeak(t *testing.T, logger *mocks.MockLogger, logStore *lo
 			t.Fatalf("secret plaintext leaked to service logs: %+v", call)
 		}
 	}
+}
+
+func waitForRunLogContains(t *testing.T, store *logserver.LocalRunLogStore, runID, want string, timeout time.Duration) string {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	var joined string
+	for time.Now().Before(deadline) {
+		joined = allEntriesJoined(t, store, runID)
+		if strings.Contains(joined, want) {
+			return joined
+		}
+
+		time.Sleep(25 * time.Millisecond)
+	}
+
+	t.Fatalf("run logs did not contain %q:\n%s", want, joined)
+	return ""
 }
 
 func allEntriesJoined(t *testing.T, store *logserver.LocalRunLogStore, runID string) string {

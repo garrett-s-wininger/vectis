@@ -55,10 +55,12 @@ func TestAuthorityRegistersAndFetchesX509SVID(t *testing.T) {
 		Selectors:      []spire.Selector{selector},
 		ExpiresAt:      time.Now().Add(time.Minute).UTC(),
 	}
+
 	result, err := registrar.EnsureRegistration(context.Background(), intent)
 	if err != nil {
 		t.Fatalf("EnsureRegistration create: %v", err)
 	}
+
 	if !result.Created || result.Handle.EntryID == "" {
 		t.Fatalf("create result = %+v, want created handle", result)
 	}
@@ -67,6 +69,7 @@ func TestAuthorityRegistersAndFetchesX509SVID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureRegistration existing/update: %v", err)
 	}
+
 	if result.Created {
 		t.Fatalf("second EnsureRegistration Created = true, want update of managed existing entry")
 	}
@@ -75,13 +78,16 @@ func TestAuthorityRegistersAndFetchesX509SVID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWorkloadAPISource: %v", err)
 	}
+
 	svid, err := spire.FetchX509SVID(context.Background(), source, spiffeID)
 	if err != nil {
 		t.Fatalf("FetchX509SVID: %v", err)
 	}
+
 	if svid.SPIFFEID != spiffeID {
 		t.Fatalf("SVID SPIFFE ID = %q, want %q", svid.SPIFFEID, spiffeID)
 	}
+
 	if len(svid.Certificates) != 1 || svid.PrivateKey == nil {
 		t.Fatalf("SVID material = certs:%d key:%v", len(svid.Certificates), svid.PrivateKey != nil)
 	}
@@ -90,10 +96,12 @@ func TestAuthorityRegistersAndFetchesX509SVID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read bundle: %v", err)
 	}
+
 	roots := x509.NewCertPool()
 	if !roots.AppendCertsFromPEM(bundlePEM) {
 		t.Fatal("bundle did not contain a PEM certificate")
 	}
+
 	if _, err := svid.Certificates[0].Verify(x509.VerifyOptions{
 		Roots:     roots,
 		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
@@ -104,6 +112,7 @@ func TestAuthorityRegistersAndFetchesX509SVID(t *testing.T) {
 	if err := registrar.ReleaseRegistration(context.Background(), result.Handle); err != nil {
 		t.Fatalf("ReleaseRegistration: %v", err)
 	}
+
 	if _, err := spire.FetchX509SVID(context.Background(), source, spiffeID); err == nil || !strings.Contains(err.Error(), "no SVIDs") {
 		t.Fatalf("FetchX509SVID after release error = %v, want no SVIDs", err)
 	}
@@ -175,6 +184,7 @@ func TestAuthoritySVIDResolvesEncryptedFSSecretOverGRPC(t *testing.T) {
 			},
 		}},
 	})
+
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -182,6 +192,7 @@ func TestAuthoritySVIDResolvesEncryptedFSSecretOverGRPC(t *testing.T) {
 	if len(bundle.Files) != 1 {
 		t.Fatalf("files = %+v, want one", bundle.Files)
 	}
+
 	file := bundle.Files[0]
 	if file.ID != "token" || file.Path != "secrets/token" || string(file.Data) != "secret-value" || file.Mode != secretstore.DefaultFileMode {
 		t.Fatalf("file = %+v", file)
@@ -355,6 +366,7 @@ func startTestSecretsService(t *testing.T, tlsMaterial *localpki.Material, clien
 	if err != nil {
 		t.Fatalf("read client CA: %v", err)
 	}
+
 	clientCAs := x509.NewCertPool()
 	if !clientCAs.AppendCertsFromPEM(clientCAPEM) {
 		t.Fatal("client CA bundle did not contain a PEM certificate")
@@ -367,6 +379,7 @@ func startTestSecretsService(t *testing.T, tlsMaterial *localpki.Material, clien
 		ClientAuth:   tls.RequireAndVerifyClientCert,
 		ClientCAs:    clientCAs,
 	})))
+
 	api.RegisterSecretsServiceServer(grpcServer, server)
 	healthServer := health.NewServer()
 	healthServer.SetServingStatus("secrets", healthpb.HealthCheckResponse_SERVING)
@@ -377,6 +390,7 @@ func startTestSecretsService(t *testing.T, tlsMaterial *localpki.Material, clien
 			t.Logf("test secrets service stopped: %v", err)
 		}
 	}()
+
 	t.Cleanup(func() {
 		grpcServer.Stop()
 		_ = listener.Close()
@@ -392,6 +406,7 @@ func dialTestSecretsService(t *testing.T, caFile string, listener *bufconn.Liste
 	if err != nil {
 		t.Fatalf("read server CA: %v", err)
 	}
+
 	roots := x509.NewCertPool()
 	if !roots.AppendCertsFromPEM(caPEM) {
 		t.Fatal("server CA did not contain a PEM certificate")
@@ -401,6 +416,7 @@ func dialTestSecretsService(t *testing.T, caFile string, listener *bufconn.Liste
 		PrivateKey: svid.PrivateKey,
 		Leaf:       svid.Certificates[0],
 	}
+
 	for _, cert := range svid.Certificates {
 		clientCert.Certificate = append(clientCert.Certificate, cert.Raw)
 	}
@@ -417,6 +433,7 @@ func dialTestSecretsService(t *testing.T, caFile string, listener *bufconn.Liste
 			Certificates: []tls.Certificate{clientCert},
 		})),
 	)
+
 	if err != nil {
 		t.Fatalf("grpc.NewClient: %v", err)
 	}
@@ -493,7 +510,7 @@ func (r staticExecutionScopeResolver) ResolveExecutionScope(context.Context, str
 func testConfig(t *testing.T) Config {
 	t.Helper()
 
-	dir, err := os.MkdirTemp("/tmp", "vectis-local-spiffe-*")
+	dir, err := os.MkdirTemp("/tmp", "vectis-spiffe-*")
 	if err != nil {
 		t.Fatalf("create short temp dir: %v", err)
 	}
