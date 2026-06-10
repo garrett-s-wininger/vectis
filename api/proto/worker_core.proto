@@ -10,7 +10,7 @@ service WorkerCoreService {
 }
 
 service WorkerCoreShellService {
-    rpc StreamLogs(stream common.LogChunk) returns (common.Empty);
+    rpc StreamLogs(stream WorkerCoreLogChunk) returns (common.Empty);
     rpc PublishArtifact(stream WorkerCoreArtifactChunk) returns (WorkerCoreArtifact);
 }
 
@@ -112,6 +112,11 @@ message WorkerCoreArtifactMetadata {
     int64 expected_size = 6;
     bool require_size = 7;
     int64 max_bytes = 8;
+}
+
+message WorkerCoreLogChunk {
+    string session_id = 1;
+    common.LogChunk chunk = 2;
 }
 
 message WorkerCoreArtifactChunk {

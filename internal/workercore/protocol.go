@@ -189,6 +189,121 @@ func ArtifactResultProto(in action.ArtifactPublishResult) *api.WorkerCoreArtifac
 	}
 }
 
+func workloadIdentityFromProto(in *api.WorkerCoreWorkloadIdentity) *workloadidentity.Identity {
+	if in == nil {
+		return nil
+	}
+
+	out := &workloadidentity.Identity{
+		SPIFFEID:      in.GetSpiffeId(),
+		TrustDomain:   in.GetTrustDomain(),
+		NamespacePath: in.GetNamespacePath(),
+		CellID:        in.GetCellId(),
+		JobID:         in.GetJobId(),
+		RunID:         in.GetRunId(),
+		ExecutionID:   in.GetExecutionId(),
+	}
+	if svidID := strings.TrimSpace(in.GetX509SvidSpiffeId()); svidID != "" {
+		out.X509SVID = &workloadidentity.X509SVID{SPIFFEID: svidID}
+	}
+	return out
+}
+
+func actionLocksFromProto(in []*api.WorkerCoreActionLock) []actionregistry.ActionLock {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]actionregistry.ActionLock, 0, len(in))
+	for _, lock := range in {
+		if lock == nil {
+			continue
+		}
+		out = append(out, actionregistry.ActionLock{
+			NodeID:     lock.GetNodeId(),
+			NodePath:   lock.GetNodePath(),
+			Uses:       lock.GetUses(),
+			Descriptor: descriptorFromProto(lock.GetDescriptor_()),
+		})
+	}
+	return out
+}
+
+func descriptorFromProto(in *api.WorkerCoreActionDescriptor) actionregistry.Descriptor {
+	if in == nil {
+		return actionregistry.Descriptor{}
+	}
+
+	return actionregistry.Descriptor{
+		CanonicalName: in.GetCanonicalName(),
+		DisplayName:   in.GetDisplayName(),
+		Version:       in.GetVersion(),
+		Digest:        in.GetDigest(),
+		Source:        actionregistry.SourceType(in.GetSource()),
+		Runtime:       actionregistry.RuntimeType(in.GetRuntime()),
+		RuntimeConfig: cloneStringMap(in.GetRuntimeConfig()),
+		InputSchema:   inputSchemaFromProto(in.GetInputSchema()),
+		PortSchema:    portSchemaFromProto(in.GetPortSchema()),
+		LocalOnly:     in.GetLocalOnly(),
+		Capabilities:  capabilitiesFromProto(in.GetCapabilities()),
+		Status:        actionregistry.DescriptorStatus(in.GetStatus()),
+		StatusReason:  in.GetStatusReason(),
+	}
+}
+
+func inputSchemaFromProto(in *api.WorkerCoreInputSchema) actionregistry.InputSchema {
+	if in == nil {
+		return actionregistry.InputSchema{}
+	}
+
+	out := actionregistry.InputSchema{AllowUnknown: in.GetAllowUnknown()}
+	for _, field := range in.GetFields() {
+		if field == nil {
+			continue
+		}
+		out.Fields = append(out.Fields, actionregistry.InputField{
+			Name:     field.GetName(),
+			Type:     action.FieldType(field.GetType()),
+			Required: field.GetRequired(),
+		})
+	}
+	return out
+}
+
+func portSchemaFromProto(in []*api.WorkerCorePortSpec) []actionregistry.PortSpec {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]actionregistry.PortSpec, 0, len(in))
+	for _, port := range in {
+		if port == nil {
+			continue
+		}
+		out = append(out, actionregistry.PortSpec{
+			Name:     port.GetName(),
+			Min:      int(port.GetMin()),
+			Max:      int(port.GetMax()),
+			Primary:  port.GetPrimary(),
+			Ordered:  port.GetOrdered(),
+			Required: port.GetRequired(),
+		})
+	}
+	return out
+}
+
+func capabilitiesFromProto(in []string) []actionregistry.Capability {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]actionregistry.Capability, 0, len(in))
+	for _, capability := range in {
+		out = append(out, actionregistry.Capability(capability))
+	}
+	return out
+}
+
 func coreDescriptionFromProto(in *api.DescribeWorkerCoreResponse) CoreDescription {
 	if in == nil {
 		return CoreDescription{}

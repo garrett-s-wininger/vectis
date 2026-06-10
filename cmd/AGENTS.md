@@ -17,6 +17,7 @@
 | `log-forwarder/` | `vectis-log-forwarder` | daemon (sidecar) |
 | `orchestrator/` | `vectis-orchestrator` | daemon (hot run state and task choreography) |
 | `worker/` | `vectis-worker` | daemon (action exec) |
+| `worker-core/` | `vectis-worker-core` | daemon (worker execution core over UDS) |
 | `cron/` | `vectis-cron` | daemon (scheduler) |
 | `catalog/` | `vectis-catalog` | daemon (cell catalog applier) |
 | `docs/` | `vectis-docs` | daemon (static docs HTTP) |
@@ -53,8 +54,7 @@ func main() {
 
 ## Which binaries need the database import
 
-Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-fourteen-cmd): `api`, `cell-ingress`, `worker`, `cron`, `reconciler`, `catalog`, `local`, and `cli` need the `dbdrivers` import. `artifact`, `queue`, `registry`, `log`, `log-forwarder`, and `docs` do not.
-Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-fifteen-cmd): `api`, `cell-ingress`, `worker`, `cron`, `reconciler`, `catalog`, `local`, and `cli` need the `dbdrivers` import. `artifact`, `queue`, `registry`, `log`, `orchestrator`, `log-forwarder`, and `docs` do not.
+Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-sixteen-cmd): `api`, `cell-ingress`, `worker`, `cron`, `reconciler`, `catalog`, `local`, and `cli` need the `dbdrivers` import. `artifact`, `queue`, `registry`, `log`, `orchestrator`, `log-forwarder`, `worker-core`, and `docs` do not.
 
 ## Env prefix mapping
 
@@ -70,7 +70,8 @@ Dedicated metrics listeners accept the service bind host plus loopback Host head
 | `vectis-queue` | `VECTIS_QUEUE` | `[queue]`; default instance ID is `hostname-port`, default persistence is `queue/<pool>/<instance-id>`; metrics host defaults to localhost; keep active shards unique; gRPC listener uses `config.GRPCServerOptionsForRole(config.ServiceIdentityRoleQueue)` |
 | `vectis-registry` | `VECTIS_REGISTRY` | `[registry]`; HA gossip membership uses `VECTIS_REGISTRY_CLUSTER_*`; gRPC listener uses `config.GRPCServerOptionsForRole(config.ServiceIdentityRoleRegistry)` |
 | `vectis-log` | `VECTIS_LOG` | `[log]`; default instance ID is `hostname-port`, default storage is `log/<instance-id>`, `--grpc-port` changes the ingest/read listener, `--metrics-host` controls the localhost-default metrics bind host, `--storage-read-only-min-free-bytes` protects new run files under disk pressure, and the gRPC listener uses `config.GRPCServerOptionsForRole(config.ServiceIdentityRoleLog)` |
-| `vectis-worker` | `VECTIS_WORKER` | `[worker]`; `--metrics-host` defaults to localhost; `--artifact-max-bytes`, `--artifact-max-run-bytes`, and `--artifact-max-count` cap worker artifact uploads; `--execution-backend host|lima`; `host` is the default, while `lima` registers a VM provider and makes unspecified action isolation inherit `vm`; use `--workspace-root` for VM-visible host workspaces or `--lima-guest-workspace-root` for guest-owned Lima workspaces; `worker.execution_identity.*` derives expected per-execution SPIFFE IDs for Vectis-owned action state; `worker.spire.*` requires an exact SPIRE Workload API X.509-SVID before action code runs when enabled; worker-control gRPC uses `config.GRPCServerOptionsForRole(config.ServiceIdentityRoleWorkerControl)` |
+| `vectis-worker` | `VECTIS_WORKER` | `[worker]`; `--metrics-host` defaults to localhost; `--artifact-max-bytes`, `--artifact-max-run-bytes`, and `--artifact-max-count` cap worker artifact uploads; `--core-mode remote|in-process` defaults to `remote`; `--core-socket` dials `vectis-worker-core`; `--core-connect-timeout` bounds startup dial/describe; `--core-shell-socket` exposes shell callbacks; `worker.execution_identity.*` derives expected per-execution SPIFFE IDs for Vectis-owned action state; `worker.spire.*` requires an exact SPIRE Workload API X.509-SVID before action code runs when enabled; worker-control gRPC uses `config.GRPCServerOptionsForRole(config.ServiceIdentityRoleWorkerControl)` |
+| `vectis-worker-core` | `VECTIS_WORKER_CORE` | socket-local execution core; `--socket` serves the WorkerCore gRPC API over UDS; `--execution-backend host|lima`; `host` is the default, while `lima` registers a VM provider and makes unspecified action isolation inherit `vm`; use `--workspace-root` for VM-visible host workspaces or `--lima-guest-workspace-root` for guest-owned Lima workspaces |
 | `vectis-cron` | `VECTIS_CRON` | `[cron]`; `--instance-id` labels schedule claims, `--claim-ttl` bounds claim failover |
 | `vectis-catalog` | `VECTIS_CATALOG` | `[catalog]`; `--cell-database-dsn cell=dsn` / `VECTIS_CATALOG_CELL_DATABASE_DSNS` configures catalog fan-in from cell-local DBs; metrics host defaults to localhost |
 | `vectis-docs` | `VECTIS_DOCS` | static docs server; default host `localhost`, default port `8088`, serves embedded docs unless `VECTIS_DOCS_DIR` overrides; `--allowed-host` / `VECTIS_DOCS_ALLOWED_HOSTS` configure accepted Host headers; `--tls-cert-file` / `--tls-key-file` enable HTTPS |

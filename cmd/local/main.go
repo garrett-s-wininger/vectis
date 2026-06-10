@@ -71,6 +71,7 @@ var (
 		{binary: "vectis-log", stage: 1, checkHealth: true, portFn: config.LogGRPCPort, healthName: "log"},
 		{binary: "vectis-artifact", stage: 1, checkHealth: true, portFn: config.ArtifactGRPCPort, healthName: "artifact"},
 		{binary: "vectis-orchestrator", stage: 1, checkHealth: true, portFn: config.OrchestratorEffectiveListenPort, healthName: "orchestrator"},
+		{binary: "vectis-worker-core", stage: 1, checkHealth: false},
 		{binary: "vectis-cron", stage: 2, checkHealth: false},
 		{binary: "vectis-reconciler", stage: 2, checkHealth: false},
 		{binary: "vectis-catalog", stage: 2, checkHealth: false},
@@ -371,6 +372,12 @@ func localHAProfileServices(logger interfaces.Logger, topology localTopology) []
 		env:         orchestratorEnv,
 	})
 
+	services = append(services, serviceStage{
+		binary: "vectis-worker-core",
+		name:   "worker-core",
+		stage:  1,
+	})
+
 	for i, port := range []int{8080, 8180} {
 		env := append([]string{}, registryEnv...)
 		env = append(env,
@@ -408,6 +415,7 @@ func localHAProfileServices(logger interfaces.Logger, topology localTopology) []
 			database.EnvCellDatabaseDSN+"="+cell.CellDB,
 			fmt.Sprintf("VECTIS_WORKER_METRICS_PORT=%d", cell.WorkerMetricsPort+(i*cellPortStride)),
 			fmt.Sprintf("VECTIS_WORKER_CONTROL_PORT=%d", config.WorkerControlPort()+(i*cellPortStride)),
+			"VECTIS_WORKER_CORE_SHELL_SOCKET="+localWorkerCoreShellSocket(fmt.Sprintf("worker-%d", i+1)),
 		)
 
 		services = append(services, serviceStage{
@@ -610,6 +618,7 @@ func workerEnv(cell localCell, multiCell bool) []string {
 		database.EnvCellDatabaseDSN + "=" + cell.CellDB,
 		fmt.Sprintf("VECTIS_WORKER_METRICS_PORT=%d", cell.WorkerMetricsPort),
 		"VECTIS_WORKER_QUEUE_ADDRESS=" + localQueueAddress(cell),
+		"VECTIS_WORKER_CORE_SHELL_SOCKET=" + localWorkerCoreShellSocket(cell.ID),
 	}
 
 	if multiCell {
@@ -617,6 +626,10 @@ func workerEnv(cell localCell, multiCell bool) []string {
 	}
 
 	return env
+}
+
+func localWorkerCoreShellSocket(name string) string {
+	return filepath.Join(utils.RuntimeDir(), "worker-core-shell-"+safePathPart(name)+".sock")
 }
 
 func localQueueAddress(cell localCell) string {

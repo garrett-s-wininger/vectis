@@ -214,6 +214,7 @@ func TestValidLocalHTTPSTLSMode(t *testing.T) {
 func TestLocalServices_HAProfileBuildsMultiInstanceCell(t *testing.T) {
 	resetLocalTestConfig(t)
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	t.Setenv("VECTIS_CELL_ID", "iad-a")
 	viper.Set("profile", localProfileHA)
 	viper.Set("docs_enabled", false)
@@ -232,6 +233,7 @@ func TestLocalServices_HAProfileBuildsMultiInstanceCell(t *testing.T) {
 		"vectis-artifact":     2,
 		"vectis-api":          2,
 		"vectis-cell-ingress": 1,
+		"vectis-worker-core":  1,
 		"vectis-worker":       2,
 		"vectis-cron":         2,
 		"vectis-reconciler":   2,
@@ -253,6 +255,8 @@ func TestLocalServices_HAProfileBuildsMultiInstanceCell(t *testing.T) {
 	var foundArtifact2 bool
 	var foundRegistryPeers bool
 	var workersUseRegistry bool
+	var foundWorker1ShellSocket bool
+	var foundWorker2ShellSocket bool
 	for _, svc := range services {
 		if svc.name == "queue-2" &&
 			hasEnv(svc.env, "VECTIS_CELL_ID=iad-a") &&
@@ -276,6 +280,16 @@ func TestLocalServices_HAProfileBuildsMultiInstanceCell(t *testing.T) {
 		if svc.name == "worker-1" && !hasEnvPrefix(svc.env, "VECTIS_WORKER_QUEUE_ADDRESS=") {
 			workersUseRegistry = true
 		}
+
+		if svc.name == "worker-1" &&
+			hasEnv(svc.env, "VECTIS_WORKER_CORE_SHELL_SOCKET="+localWorkerCoreShellSocket("worker-1")) {
+			foundWorker1ShellSocket = true
+		}
+
+		if svc.name == "worker-2" &&
+			hasEnv(svc.env, "VECTIS_WORKER_CORE_SHELL_SOCKET="+localWorkerCoreShellSocket("worker-2")) {
+			foundWorker2ShellSocket = true
+		}
 	}
 
 	if !foundQueue2 {
@@ -292,6 +306,10 @@ func TestLocalServices_HAProfileBuildsMultiInstanceCell(t *testing.T) {
 
 	if !workersUseRegistry {
 		t.Fatalf("worker-1 did not rely on registry queue discovery: %+v", services)
+	}
+
+	if !foundWorker1ShellSocket || !foundWorker2ShellSocket {
+		t.Fatalf("HA workers did not include distinct core shell sockets: %+v", services)
 	}
 }
 

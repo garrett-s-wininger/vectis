@@ -1,0 +1,133 @@
+package main
+
+import (
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+
+	"vectis/internal/action/actionconfig"
+	"vectis/internal/cli"
+	"vectis/internal/interfaces"
+	"vectis/internal/platform"
+	"vectis/internal/registry"
+	"vectis/internal/workercore"
+)
+
+func runWorkerCore(cmd *cobra.Command, args []string) {
+	ctx := cmd.Context()
+	logger := interfaces.NewAsyncLogger("worker-core")
+	defer logger.Close()
+
+	cli.SetLogLevel(logger)
+
+	socketPath := strings.TrimSpace(viper.GetString("socket"))
+	if socketPath == "" {
+		socketPath = workercore.DefaultCoreSocketPath()
+	}
+
+	socketPath, err := workercore.SocketPathFromEndpoint(socketPath)
+	if err != nil {
+		logger.Fatal("Invalid worker core socket: %v", err)
+	}
+
+	executorConfig := workerCoreExecutorConfig()
+	executor, backend, err := workercore.NewJobExecutor(executorConfig)
+	if err != nil {
+		logger.Fatal("Invalid worker core execution backend: %v", err)
+	}
+
+	actionResolver, err := actionconfig.DescriptorResolver()
+	if err != nil {
+		logger.Fatal("Invalid action registry config: %v", err)
+	}
+
+	backend, defaultIsolation, supportedIsolation := workercore.ExecutionCapabilitiesForBackend(backend)
+	service := workercore.NewService(workercore.NewInProcessCore(executor), workercore.ServiceOptions{
+		Logger:         logger,
+		ActionResolver: actionResolver,
+		Description: workercore.CoreDescription{
+			ProtocolVersion:    workercore.ProtocolVersion,
+			SupportedIsolation: supportedIsolation,
+			Metadata: map[string]string{
+				registry.MetadataWorkerExecutionBackend: backend,
+				registry.MetadataWorkerDefaultIsolation: defaultIsolation,
+				"worker_core.mode":                      "remote",
+			},
+		},
+	})
+
+	grpcServer, listener, err := workercore.NewUnixCoreServer(socketPath, service)
+	if err != nil {
+		logger.Fatal("Failed to create worker core server: %v", err)
+	}
+
+	go func() {
+		<-ctx.Done()
+		grpcServer.GracefulStop()
+		_ = os.Remove(socketPath)
+	}()
+
+	logger.Info("Worker core listening on %s", socketPath)
+	logger.Info("Worker core execution backend: %s", backend)
+
+	if err := grpcServer.Serve(listener); err != nil && ctx.Err() == nil {
+		logger.Fatal("Worker core server failed: %v", err)
+	}
+}
+
+func workerCoreExecutorConfig() workercore.ExecutorConfig {
+	return workercore.ExecutorConfig{
+		Backend:       viper.GetString("execution_backend"),
+		WorkspaceRoot: viper.GetString("workspace_root"),
+		Lima: platform.VirtualMachineConfig{
+			Provider:           platform.VirtualMachineProviderLima,
+			Instance:           viper.GetString("lima_instance"),
+			ProviderPath:       viper.GetString("lima_path"),
+			GuestWorkspaceRoot: viper.GetString("lima_guest_workspace_root"),
+			Start:              viper.GetBool("lima_start"),
+			PreserveEnv:        viper.GetBool("lima_preserve_env"),
+		},
+	}
+}
+
+var rootCmd = &cobra.Command{
+	Use:   "vectis-worker-core",
+	Short: "Vectis Worker Core",
+	Long:  `The Vectis Worker Core executes claimed worker tasks behind the worker shell/core UDS boundary.`,
+	Run:   runWorkerCore,
+}
+
+func init() {
+	cli.ConfigureVersion(rootCmd)
+
+	rootCmd.PersistentFlags().String("socket", workercore.DefaultCoreSocketPath(), "Unix socket served by the worker core")
+	rootCmd.PersistentFlags().String("execution-backend", workercore.ExecutionBackendHost, "Command execution backend: host or lima")
+	rootCmd.PersistentFlags().String("workspace-root", "", "Parent directory for automatically-created run workspaces")
+	rootCmd.PersistentFlags().String("lima-path", "", "Path to limactl when --execution-backend=lima")
+	rootCmd.PersistentFlags().String("lima-instance", "", "Lima instance name when --execution-backend=lima")
+	rootCmd.PersistentFlags().String("lima-guest-workspace-root", "", "Guest-side parent directory for Lima workspaces")
+	rootCmd.PersistentFlags().Bool("lima-start", false, "Start the Lima instance before each command when --execution-backend=lima")
+	rootCmd.PersistentFlags().Bool("lima-preserve-env", false, "Preserve host environment variables in Lima shell commands")
+
+	_ = viper.BindPFlag("socket", rootCmd.PersistentFlags().Lookup("socket"))
+	_ = viper.BindPFlag("execution_backend", rootCmd.PersistentFlags().Lookup("execution-backend"))
+	_ = viper.BindPFlag("workspace_root", rootCmd.PersistentFlags().Lookup("workspace-root"))
+	_ = viper.BindPFlag("lima_path", rootCmd.PersistentFlags().Lookup("lima-path"))
+	_ = viper.BindPFlag("lima_instance", rootCmd.PersistentFlags().Lookup("lima-instance"))
+	_ = viper.BindPFlag("lima_guest_workspace_root", rootCmd.PersistentFlags().Lookup("lima-guest-workspace-root"))
+	_ = viper.BindPFlag("lima_start", rootCmd.PersistentFlags().Lookup("lima-start"))
+	_ = viper.BindPFlag("lima_preserve_env", rootCmd.PersistentFlags().Lookup("lima-preserve-env"))
+
+	viper.SetEnvPrefix("VECTIS_WORKER_CORE")
+	viper.AutomaticEnv()
+}
+
+func main() {
+	if err := cli.ExecuteWithShutdownSignals(rootCmd); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}

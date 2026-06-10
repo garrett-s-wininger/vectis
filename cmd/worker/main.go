@@ -145,6 +145,18 @@ func runWorker(cmd *cobra.Command, args []string) {
 		logger.Fatal("Failed to initialize task finalize metrics: %v", err)
 	}
 
+	executionCore, coreDescription, coreCleanup, err := configuredWorkerCore(shutdownCtx, logger)
+	if err != nil {
+		logger.Fatal("Failed to configure worker core: %v", err)
+	}
+	defer coreCleanup()
+
+	coreShell, coreShellEndpoint, coreShellCleanup, err := startWorkerCoreShell(shutdownCtx, logger)
+	if err != nil {
+		logger.Fatal("Failed to start worker core shell: %v", err)
+	}
+	defer coreShellCleanup()
+
 	defer cli.DeferShutdown(logger, "Metrics", shutdownMetrics)()
 
 	metricsAddr := config.WorkerMetricsListenAddr()
@@ -156,7 +168,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 
 	repos := dal.NewSQLRepositoriesWithCellID(db, config.CellID())
 	runsRepo := repos.Runs()
-	_, _, dequeueSupportedIsolation := workerExecutionCapabilitiesForBackend(config.WorkerExecutionBackend())
+	dequeueSupportedIsolation := coreDescription.SupportedIsolation
 	dialOptions := multidial.DialOptions{QueueDequeueSupportedIsolation: dequeueSupportedIsolation}
 	dial := func(ctx context.Context) (interfaces.QueueClient, interfaces.LogClient, func(), error) {
 		q, l, cleanup, err := multidial.DialQueueAndLogWithOptions(ctx, logger, retryMetrics, runsRepo, logRoutingMetrics, dialOptions)
@@ -204,12 +216,6 @@ func runWorker(cmd *cobra.Command, args []string) {
 		spireSVIDSource = src
 	}
 
-	executor, err := configuredJobExecutor(logger)
-	if err != nil {
-		logger.Fatal("Invalid worker execution backend: %v", err)
-	}
-	executionCore := workercore.NewInProcessCore(executor)
-
 	actionResolver, err := actionconfig.DescriptorResolver()
 	if err != nil {
 		logger.Fatal("Invalid action registry config: %v", err)
@@ -226,6 +232,8 @@ func runWorker(cmd *cobra.Command, args []string) {
 		queue:               clients,
 		logClient:           logClient,
 		core:                executionCore,
+		coreShell:           coreShell,
+		coreShellEndpoint:   coreShellEndpoint,
 		actionResolver:      actionResolver,
 		store:               runsRepo,
 		artifactManifests:   repos.Artifacts(),
@@ -259,7 +267,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 				Component:       api.Component_COMPONENT_WORKER,
 				InstanceID:      workerID,
 				PublishAddress:  controlAddr,
-				Metadata:        workerRegistryMetadata(),
+				Metadata:        workerRegistryMetadata(coreDescription),
 				RefreshInterval: config.RegistryRegistrationRefresh(),
 				Logger:          logger,
 				Metrics:         retryMetrics,
@@ -292,6 +300,100 @@ func forwarderSocketPath() string {
 	return filepath.Join(utils.RuntimeDir(), "log-forwarder.sock")
 }
 
+func configuredWorkerCore(ctx context.Context, logger interfaces.Logger) (workercore.Core, workercore.CoreDescription, func(), error) {
+	mode := strings.TrimSpace(viper.GetString("worker.core.mode"))
+	if mode == "" {
+		mode = "remote"
+	}
+
+	switch mode {
+	case "remote":
+		socketPath := strings.TrimSpace(viper.GetString("worker.core.socket"))
+		if socketPath == "" {
+			socketPath = workercore.DefaultCoreSocketPath()
+		}
+
+		connectTimeout := viper.GetDuration("worker.core.connect_timeout")
+		if connectTimeout <= 0 {
+			connectTimeout = 10 * time.Second
+		}
+		dialCtx, cancel := context.WithTimeout(ctx, connectTimeout)
+		defer cancel()
+
+		core, cleanup, err := workercore.DialUnixCore(dialCtx, socketPath)
+		if err != nil {
+			return nil, workercore.CoreDescription{}, nil, err
+		}
+
+		desc, err := core.Describe(dialCtx)
+		if err != nil {
+			cleanup()
+			return nil, workercore.CoreDescription{}, nil, err
+		}
+
+		if logger != nil {
+			logger.Info("Worker core: remote socket=%s protocol=%s", socketPath, desc.ProtocolVersion)
+		}
+
+		return core, desc, cleanup, nil
+	case "in-process":
+		executor, err := configuredJobExecutor(logger)
+		if err != nil {
+			return nil, workercore.CoreDescription{}, nil, err
+		}
+
+		backend, defaultIsolation, supportedIsolation := workerExecutionCapabilitiesForBackend(config.WorkerExecutionBackend())
+		desc := workercore.CoreDescription{
+			ProtocolVersion:    workercore.ProtocolVersion,
+			SupportedIsolation: supportedIsolation,
+			Metadata: map[string]string{
+				registry.MetadataWorkerExecutionBackend: backend,
+				registry.MetadataWorkerDefaultIsolation: defaultIsolation,
+				"worker_core.mode":                      "in-process",
+			},
+		}
+
+		return workercore.NewInProcessCore(executor), desc, func() {}, nil
+	default:
+		return nil, workercore.CoreDescription{}, nil, fmt.Errorf("unknown worker core mode %q", mode)
+	}
+}
+
+func startWorkerCoreShell(ctx context.Context, logger interfaces.Logger) (*workercore.ShellServer, string, func(), error) {
+	socketPath := strings.TrimSpace(viper.GetString("worker.core.shell_socket"))
+	if socketPath == "" {
+		socketPath = workercore.DefaultShellSocketPath()
+	}
+
+	socketPath, err := workercore.SocketPathFromEndpoint(socketPath)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	shell := workercore.NewShellServer()
+	grpcServer, listener, err := workercore.NewUnixShellServer(socketPath, shell)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	go func() {
+		if err := grpcServer.Serve(listener); err != nil && ctx.Err() == nil {
+			logger.Warn("Worker core shell server stopped: %v", err)
+		}
+	}()
+
+	cleanup := func() {
+		grpcServer.Stop()
+		_ = os.Remove(socketPath)
+	}
+
+	if logger != nil {
+		logger.Info("Worker core shell listening on %s", socketPath)
+	}
+
+	return shell, workercore.UnixEndpoint(socketPath), cleanup, nil
+}
+
 func configuredJobExecutor(logger interfaces.Logger) (*job.Executor, error) {
 	executor, backend, err := workercore.NewJobExecutor(workerCoreExecutorConfig())
 	if err != nil {
@@ -305,8 +407,14 @@ func configuredJobExecutor(logger interfaces.Logger) (*job.Executor, error) {
 	return executor, nil
 }
 
-func workerRegistryMetadata() map[string]string {
-	backend, defaultIsolation, supportedIsolation := workerExecutionCapabilitiesForBackend(config.WorkerExecutionBackend())
+func workerRegistryMetadata(desc workercore.CoreDescription) map[string]string {
+	backend := desc.Metadata[registry.MetadataWorkerExecutionBackend]
+	defaultIsolation := desc.Metadata[registry.MetadataWorkerDefaultIsolation]
+	supportedIsolation := desc.SupportedIsolation
+	if backend == "" && defaultIsolation == "" && len(supportedIsolation) == 0 {
+		backend, defaultIsolation, supportedIsolation = workerExecutionCapabilitiesForBackend(config.WorkerExecutionBackend())
+	}
+
 	return registry.WorkerExecutionMetadataForCell(config.CellID(), backend, defaultIsolation, supportedIsolation)
 }
 
@@ -400,6 +508,8 @@ type worker struct {
 	queue               interfaces.QueueClient
 	logClient           interfaces.LogClient
 	core                workercore.Core
+	coreShell           *workercore.ShellServer
+	coreShellEndpoint   string
 	actionResolver      actionregistry.Resolver
 	store               dal.RunsRepository
 	artifactManifests   dal.ArtifactsRepository
@@ -1871,6 +1981,7 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID string, exec
 
 		execSessionOpts := workercore.TaskSessionOptions{
 			SessionID:        env.ExecutionID,
+			ShellEndpoint:    w.coreShellEndpoint,
 			LogClient:        w.logClient,
 			Logger:           w.logger,
 			WorkloadIdentity: workloadIdentity,
@@ -1881,14 +1992,29 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID string, exec
 			execSessionOpts.ArtifactPublisher = action.ArtifactPublisher(artifactPublisher)
 		}
 
-		w.markExecutionStarted(ctx, env)
+		execSession := workercore.NewTaskSession(execSessionOpts)
+		if w.coreShell != nil {
+			unregister, sessionErr := w.coreShell.RegisterSession(execSession)
+			if sessionErr != nil {
+				err = sessionErr
+			} else {
+				defer unregister()
+			}
+		}
+
+		if err == nil {
+			w.markExecutionStarted(ctx, env)
+		}
+
 		execReq := workercore.ExecuteTaskRequest{
 			Job:     runJob,
 			TaskKey: env.TaskKey,
-			Session: workercore.NewTaskSession(execSessionOpts),
+			Session: execSession,
 		}
 
-		if w.core == nil {
+		if err != nil {
+			// Keep the shell-owned setup error as the execution result.
+		} else if w.core == nil {
 			err = fmt.Errorf("worker execution core is not configured")
 		} else {
 			err = w.core.ExecuteTask(execCtx, execReq)
@@ -2040,6 +2166,11 @@ func init() {
 	rootCmd.PersistentFlags().String("lima-guest-workspace-root", config.WorkerExecutionLimaGuestWorkspaceRoot(), "Guest-side parent directory for Lima workspaces")
 	rootCmd.PersistentFlags().Bool("lima-start", config.WorkerExecutionLimaStart(), "Start the Lima instance before each command when --execution-backend=lima")
 	rootCmd.PersistentFlags().Bool("lima-preserve-env", config.WorkerExecutionLimaPreserveEnv(), "Preserve host environment variables in Lima shell commands")
+	rootCmd.PersistentFlags().String("core-mode", "remote", "Worker core mode: remote or in-process")
+	rootCmd.PersistentFlags().String("core-socket", workercore.DefaultCoreSocketPath(), "Unix socket for the remote worker core")
+	rootCmd.PersistentFlags().String("core-shell-socket", workercore.DefaultShellSocketPath(), "Unix socket exposed by the worker shell for core callbacks")
+	rootCmd.PersistentFlags().Duration("core-connect-timeout", 10*time.Second, "Timeout for connecting to the remote worker core")
+
 	_ = viper.BindPFlag("metrics_host", rootCmd.PersistentFlags().Lookup("metrics-host"))
 	_ = viper.BindPFlag("metrics_port", rootCmd.PersistentFlags().Lookup("metrics-port"))
 	_ = viper.BindPFlag("worker.artifact_max_bytes", rootCmd.PersistentFlags().Lookup("artifact-max-bytes"))
@@ -2052,6 +2183,11 @@ func init() {
 	_ = viper.BindPFlag("worker.execution.lima.guest_workspace_root", rootCmd.PersistentFlags().Lookup("lima-guest-workspace-root"))
 	_ = viper.BindPFlag("worker.execution.lima.start", rootCmd.PersistentFlags().Lookup("lima-start"))
 	_ = viper.BindPFlag("worker.execution.lima.preserve_env", rootCmd.PersistentFlags().Lookup("lima-preserve-env"))
+	_ = viper.BindPFlag("worker.core.mode", rootCmd.PersistentFlags().Lookup("core-mode"))
+	_ = viper.BindPFlag("worker.core.socket", rootCmd.PersistentFlags().Lookup("core-socket"))
+	_ = viper.BindPFlag("worker.core.shell_socket", rootCmd.PersistentFlags().Lookup("core-shell-socket"))
+	_ = viper.BindPFlag("worker.core.connect_timeout", rootCmd.PersistentFlags().Lookup("core-connect-timeout"))
+
 	_ = viper.BindEnv("worker.artifact_max_bytes", "VECTIS_WORKER_ARTIFACT_MAX_BYTES")
 	_ = viper.BindEnv("worker.artifact_max_run_bytes", "VECTIS_WORKER_ARTIFACT_MAX_RUN_BYTES")
 	_ = viper.BindEnv("worker.artifact_max_count", "VECTIS_WORKER_ARTIFACT_MAX_COUNT")
@@ -2070,6 +2206,10 @@ func init() {
 	_ = viper.BindEnv("worker.execution.lima.guest_workspace_root", "VECTIS_WORKER_LIMA_GUEST_WORKSPACE_ROOT")
 	_ = viper.BindEnv("worker.execution.lima.start", "VECTIS_WORKER_LIMA_START")
 	_ = viper.BindEnv("worker.execution.lima.preserve_env", "VECTIS_WORKER_LIMA_PRESERVE_ENV")
+	_ = viper.BindEnv("worker.core.mode", "VECTIS_WORKER_CORE_MODE")
+	_ = viper.BindEnv("worker.core.socket", "VECTIS_WORKER_CORE_SOCKET")
+	_ = viper.BindEnv("worker.core.shell_socket", "VECTIS_WORKER_CORE_SHELL_SOCKET")
+	_ = viper.BindEnv("worker.core.connect_timeout", "VECTIS_WORKER_CORE_CONNECT_TIMEOUT")
 
 	viper.SetEnvPrefix("VECTIS_WORKER")
 	viper.AutomaticEnv()

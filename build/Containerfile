@@ -106,6 +106,13 @@ RUN apk add --no-cache ca-certificates
 COPY --from=builder /app/bin/vectis-worker /usr/local/bin/vectis-worker
 ENTRYPOINT ["/usr/local/bin/vectis-worker"]
 
+FROM docker.io/library/alpine:3.23 AS worker-core
+LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
+      org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
+RUN apk add --no-cache ca-certificates
+COPY --from=builder /app/bin/vectis-worker-core /usr/local/bin/vectis-worker-core
+ENTRYPOINT ["/usr/local/bin/vectis-worker-core"]
+
 FROM scratch AS docs
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
       org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
@@ -131,6 +138,7 @@ COPY --from=builder \
       /app/bin/vectis-queue \
       /app/bin/vectis-reconciler \
       /app/bin/vectis-registry \
+      /app/bin/vectis-worker-core \
       /app/bin/vectis-worker \
       /usr/local/bin/
 ENTRYPOINT ["/usr/local/bin/vectis-local"]

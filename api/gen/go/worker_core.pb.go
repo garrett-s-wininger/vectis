@@ -985,6 +985,58 @@ func (x *WorkerCoreArtifactMetadata) GetMaxBytes() int64 {
 	return 0
 }
 
+type WorkerCoreLogChunk struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     *string                `protobuf:"bytes,1,opt,name=session_id,json=sessionId" json:"session_id,omitempty"`
+	Chunk         *LogChunk              `protobuf:"bytes,2,opt,name=chunk" json:"chunk,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WorkerCoreLogChunk) Reset() {
+	*x = WorkerCoreLogChunk{}
+	mi := &file_worker_core_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WorkerCoreLogChunk) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WorkerCoreLogChunk) ProtoMessage() {}
+
+func (x *WorkerCoreLogChunk) ProtoReflect() protoreflect.Message {
+	mi := &file_worker_core_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WorkerCoreLogChunk.ProtoReflect.Descriptor instead.
+func (*WorkerCoreLogChunk) Descriptor() ([]byte, []int) {
+	return file_worker_core_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *WorkerCoreLogChunk) GetSessionId() string {
+	if x != nil && x.SessionId != nil {
+		return *x.SessionId
+	}
+	return ""
+}
+
+func (x *WorkerCoreLogChunk) GetChunk() *LogChunk {
+	if x != nil {
+		return x.Chunk
+	}
+	return nil
+}
+
 type WorkerCoreArtifactChunk struct {
 	state         protoimpl.MessageState      `protogen:"open.v1"`
 	Metadata      *WorkerCoreArtifactMetadata `protobuf:"bytes,1,opt,name=metadata" json:"metadata,omitempty"`
@@ -995,7 +1047,7 @@ type WorkerCoreArtifactChunk struct {
 
 func (x *WorkerCoreArtifactChunk) Reset() {
 	*x = WorkerCoreArtifactChunk{}
-	mi := &file_worker_core_proto_msgTypes[13]
+	mi := &file_worker_core_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1007,7 +1059,7 @@ func (x *WorkerCoreArtifactChunk) String() string {
 func (*WorkerCoreArtifactChunk) ProtoMessage() {}
 
 func (x *WorkerCoreArtifactChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_core_proto_msgTypes[13]
+	mi := &file_worker_core_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1020,7 +1072,7 @@ func (x *WorkerCoreArtifactChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkerCoreArtifactChunk.ProtoReflect.Descriptor instead.
 func (*WorkerCoreArtifactChunk) Descriptor() ([]byte, []int) {
-	return file_worker_core_proto_rawDescGZIP(), []int{13}
+	return file_worker_core_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *WorkerCoreArtifactChunk) GetMetadata() *WorkerCoreArtifactMetadata {
@@ -1053,7 +1105,7 @@ type WorkerCoreArtifact struct {
 
 func (x *WorkerCoreArtifact) Reset() {
 	*x = WorkerCoreArtifact{}
-	mi := &file_worker_core_proto_msgTypes[14]
+	mi := &file_worker_core_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1065,7 +1117,7 @@ func (x *WorkerCoreArtifact) String() string {
 func (*WorkerCoreArtifact) ProtoMessage() {}
 
 func (x *WorkerCoreArtifact) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_core_proto_msgTypes[14]
+	mi := &file_worker_core_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1078,7 +1130,7 @@ func (x *WorkerCoreArtifact) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkerCoreArtifact.ProtoReflect.Descriptor instead.
 func (*WorkerCoreArtifact) Descriptor() ([]byte, []int) {
-	return file_worker_core_proto_rawDescGZIP(), []int{14}
+	return file_worker_core_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *WorkerCoreArtifact) GetName() string {
@@ -1232,7 +1284,11 @@ const file_worker_core_proto_rawDesc = "" +
 	"\rmetadata_json\x18\x05 \x01(\tR\fmetadataJson\x12#\n" +
 	"\rexpected_size\x18\x06 \x01(\x03R\fexpectedSize\x12!\n" +
 	"\frequire_size\x18\a \x01(\bR\vrequireSize\x12\x1b\n" +
-	"\tmax_bytes\x18\b \x01(\x03R\bmaxBytes\"f\n" +
+	"\tmax_bytes\x18\b \x01(\x03R\bmaxBytes\"[\n" +
+	"\x12WorkerCoreLogChunk\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12&\n" +
+	"\x05chunk\x18\x02 \x01(\v2\x10.common.LogChunkR\x05chunk\"f\n" +
 	"\x17WorkerCoreArtifactChunk\x127\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1b.WorkerCoreArtifactMetadataR\bmetadata\x12\x12\n" +
 	"\x04data\x18\x02 \x01(\fR\x04data\"\x8d\x02\n" +
@@ -1249,10 +1305,10 @@ const file_worker_core_proto_rawDesc = "" +
 	"\x11artifact_shard_id\x18\b \x01(\tR\x0fartifactShardId2\xaa\x01\n" +
 	"\x11WorkerCoreService\x12G\n" +
 	"\fDescribeCore\x12\x1a.DescribeWorkerCoreRequest\x1a\x1b.DescribeWorkerCoreResponse\x12L\n" +
-	"\vExecuteTask\x12\x1d.ExecuteWorkerCoreTaskRequest\x1a\x1e.ExecuteWorkerCoreTaskResponse2\x8d\x01\n" +
-	"\x16WorkerCoreShellService\x12/\n" +
+	"\vExecuteTask\x12\x1d.ExecuteWorkerCoreTaskRequest\x1a\x1e.ExecuteWorkerCoreTaskResponse2\x90\x01\n" +
+	"\x16WorkerCoreShellService\x122\n" +
 	"\n" +
-	"StreamLogs\x12\x10.common.LogChunk\x1a\r.common.Empty(\x01\x12B\n" +
+	"StreamLogs\x12\x13.WorkerCoreLogChunk\x1a\r.common.Empty(\x01\x12B\n" +
 	"\x0fPublishArtifact\x12\x18.WorkerCoreArtifactChunk\x1a\x13.WorkerCoreArtifact(\x01B\x17Z\x15vectis/api/gen/go;apib\beditionsp\xe8\a"
 
 var (
@@ -1267,7 +1323,7 @@ func file_worker_core_proto_rawDescGZIP() []byte {
 	return file_worker_core_proto_rawDescData
 }
 
-var file_worker_core_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_worker_core_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_worker_core_proto_goTypes = []any{
 	(*DescribeWorkerCoreRequest)(nil),     // 0: DescribeWorkerCoreRequest
 	(*DescribeWorkerCoreResponse)(nil),    // 1: DescribeWorkerCoreResponse
@@ -1282,44 +1338,46 @@ var file_worker_core_proto_goTypes = []any{
 	(*WorkerCoreInputField)(nil),          // 10: WorkerCoreInputField
 	(*WorkerCorePortSpec)(nil),            // 11: WorkerCorePortSpec
 	(*WorkerCoreArtifactMetadata)(nil),    // 12: WorkerCoreArtifactMetadata
-	(*WorkerCoreArtifactChunk)(nil),       // 13: WorkerCoreArtifactChunk
-	(*WorkerCoreArtifact)(nil),            // 14: WorkerCoreArtifact
-	nil,                                   // 15: DescribeWorkerCoreResponse.MetadataEntry
-	nil,                                   // 16: WorkerCoreCapability.MetadataEntry
-	nil,                                   // 17: WorkerCoreActionDescriptor.RuntimeConfigEntry
-	(*Job)(nil),                           // 18: common.Job
-	(RunOutcome)(0),                       // 19: common.RunOutcome
-	(*LogChunk)(nil),                      // 20: common.LogChunk
-	(*Empty)(nil),                         // 21: common.Empty
+	(*WorkerCoreLogChunk)(nil),            // 13: WorkerCoreLogChunk
+	(*WorkerCoreArtifactChunk)(nil),       // 14: WorkerCoreArtifactChunk
+	(*WorkerCoreArtifact)(nil),            // 15: WorkerCoreArtifact
+	nil,                                   // 16: DescribeWorkerCoreResponse.MetadataEntry
+	nil,                                   // 17: WorkerCoreCapability.MetadataEntry
+	nil,                                   // 18: WorkerCoreActionDescriptor.RuntimeConfigEntry
+	(*Job)(nil),                           // 19: common.Job
+	(RunOutcome)(0),                       // 20: common.RunOutcome
+	(*LogChunk)(nil),                      // 21: common.LogChunk
+	(*Empty)(nil),                         // 22: common.Empty
 }
 var file_worker_core_proto_depIdxs = []int32{
 	2,  // 0: DescribeWorkerCoreResponse.capabilities:type_name -> WorkerCoreCapability
-	15, // 1: DescribeWorkerCoreResponse.metadata:type_name -> DescribeWorkerCoreResponse.MetadataEntry
-	16, // 2: WorkerCoreCapability.metadata:type_name -> WorkerCoreCapability.MetadataEntry
-	18, // 3: ExecuteWorkerCoreTaskRequest.job:type_name -> common.Job
+	16, // 1: DescribeWorkerCoreResponse.metadata:type_name -> DescribeWorkerCoreResponse.MetadataEntry
+	17, // 2: WorkerCoreCapability.metadata:type_name -> WorkerCoreCapability.MetadataEntry
+	19, // 3: ExecuteWorkerCoreTaskRequest.job:type_name -> common.Job
 	5,  // 4: ExecuteWorkerCoreTaskRequest.session:type_name -> WorkerCoreTaskSession
-	19, // 5: ExecuteWorkerCoreTaskResponse.outcome:type_name -> common.RunOutcome
+	20, // 5: ExecuteWorkerCoreTaskResponse.outcome:type_name -> common.RunOutcome
 	6,  // 6: WorkerCoreTaskSession.workload_identity:type_name -> WorkerCoreWorkloadIdentity
 	7,  // 7: WorkerCoreTaskSession.action_locks:type_name -> WorkerCoreActionLock
 	8,  // 8: WorkerCoreActionLock.descriptor:type_name -> WorkerCoreActionDescriptor
-	17, // 9: WorkerCoreActionDescriptor.runtime_config:type_name -> WorkerCoreActionDescriptor.RuntimeConfigEntry
+	18, // 9: WorkerCoreActionDescriptor.runtime_config:type_name -> WorkerCoreActionDescriptor.RuntimeConfigEntry
 	9,  // 10: WorkerCoreActionDescriptor.input_schema:type_name -> WorkerCoreInputSchema
 	11, // 11: WorkerCoreActionDescriptor.port_schema:type_name -> WorkerCorePortSpec
 	10, // 12: WorkerCoreInputSchema.fields:type_name -> WorkerCoreInputField
-	12, // 13: WorkerCoreArtifactChunk.metadata:type_name -> WorkerCoreArtifactMetadata
-	0,  // 14: WorkerCoreService.DescribeCore:input_type -> DescribeWorkerCoreRequest
-	3,  // 15: WorkerCoreService.ExecuteTask:input_type -> ExecuteWorkerCoreTaskRequest
-	20, // 16: WorkerCoreShellService.StreamLogs:input_type -> common.LogChunk
-	13, // 17: WorkerCoreShellService.PublishArtifact:input_type -> WorkerCoreArtifactChunk
-	1,  // 18: WorkerCoreService.DescribeCore:output_type -> DescribeWorkerCoreResponse
-	4,  // 19: WorkerCoreService.ExecuteTask:output_type -> ExecuteWorkerCoreTaskResponse
-	21, // 20: WorkerCoreShellService.StreamLogs:output_type -> common.Empty
-	14, // 21: WorkerCoreShellService.PublishArtifact:output_type -> WorkerCoreArtifact
-	18, // [18:22] is the sub-list for method output_type
-	14, // [14:18] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	21, // 13: WorkerCoreLogChunk.chunk:type_name -> common.LogChunk
+	12, // 14: WorkerCoreArtifactChunk.metadata:type_name -> WorkerCoreArtifactMetadata
+	0,  // 15: WorkerCoreService.DescribeCore:input_type -> DescribeWorkerCoreRequest
+	3,  // 16: WorkerCoreService.ExecuteTask:input_type -> ExecuteWorkerCoreTaskRequest
+	13, // 17: WorkerCoreShellService.StreamLogs:input_type -> WorkerCoreLogChunk
+	14, // 18: WorkerCoreShellService.PublishArtifact:input_type -> WorkerCoreArtifactChunk
+	1,  // 19: WorkerCoreService.DescribeCore:output_type -> DescribeWorkerCoreResponse
+	4,  // 20: WorkerCoreService.ExecuteTask:output_type -> ExecuteWorkerCoreTaskResponse
+	22, // 21: WorkerCoreShellService.StreamLogs:output_type -> common.Empty
+	15, // 22: WorkerCoreShellService.PublishArtifact:output_type -> WorkerCoreArtifact
+	19, // [19:23] is the sub-list for method output_type
+	15, // [15:19] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_worker_core_proto_init() }
@@ -1334,7 +1392,7 @@ func file_worker_core_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_worker_core_proto_rawDesc), len(file_worker_core_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   18,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

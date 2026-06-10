@@ -349,6 +349,8 @@ spec:
       emptyDir: {}
     - name: component-logs
       emptyDir: {}
+    - name: vectis-worker-core-sockets
+      emptyDir: {}
     - name: fluent-bit-config
       configMap:
         name: vectis-fluent-bit-config
@@ -709,6 +711,18 @@ spec:
         - containerPort: {{ .Port }}
           protocol: TCP
 {{ end }}
+    - name: worker-core
+      image: vectis-worker-core:latest
+      imagePullPolicy: Never
+      envFrom: *vectisGrpcTlsEnvFrom
+      volumeMounts:
+        - <<: *componentLogsMount
+        - &workerCoreSocketsMount
+          name: vectis-worker-core-sockets
+          mountPath: /run/vectis/worker-core
+      env:
+        - name: VECTIS_WORKER_CORE_SOCKET
+          value: /run/vectis/worker-core/worker-core.sock
 {{ range .WorkerReplicas }}
     - name: {{ .Name }}
       image: vectis-worker:latest
@@ -717,7 +731,11 @@ spec:
         - containerPort: {{ .MetricsPort }}
           protocol: TCP
       envFrom: *vectisGrpcTlsEnvFrom
-      volumeMounts: *vectisGrpcAndPostgresCaVolumeMounts
+      volumeMounts:
+        - <<: *grpcTlsMount
+        - <<: *postgresCaMount
+        - <<: *componentLogsMount
+        - <<: *workerCoreSocketsMount
       env:
         - name: VECTIS_DATABASE_DRIVER
           value: pgx
@@ -726,6 +744,10 @@ spec:
             secretKeyRef:
               name: vectis-podman-secrets
               key: VECTIS_DATABASE_DSN
+        - name: VECTIS_WORKER_CORE_SOCKET
+          value: /run/vectis/worker-core/worker-core.sock
+        - name: VECTIS_WORKER_CORE_SHELL_SOCKET
+          value: /run/vectis/worker-core/{{ .Name }}-shell.sock
 {{ if .SetMetricsPortEnv }}
         - name: VECTIS_WORKER_METRICS_PORT
           value: "{{ .MetricsPort }}"

@@ -76,7 +76,8 @@ Use these prefixes when building service-specific environment variable names.
 | `vectis-registry` | `VECTIS_REGISTRY` | `--port`; cluster membership uses `VECTIS_REGISTRY_CLUSTER_*` |
 | `vectis-log` | `VECTIS_LOG` | `--instance-id`, `--storage-dir`, `--storage-read-only-min-free-bytes`, `--grpc-port`, `--metrics-host`, `--metrics-port`, `--max-run-buffers` |
 | `vectis-artifact` | `VECTIS_ARTIFACT` | `--instance-id`, `--storage-dir`, `--storage-read-only-min-free-bytes`, `--grpc-port`, `--metrics-host`, `--metrics-port` |
-| `vectis-worker` | `VECTIS_WORKER` | `--metrics-host`, `--metrics-port`, `--artifact-max-bytes`, `--artifact-max-run-bytes`, `--artifact-max-count`, `--execution-backend`, `--workspace-root`, `--lima-instance`, `--lima-start`; use `VECTIS_WORKER_QUEUE_ADDRESS`, `VECTIS_WORKER_LOG_ADDRESS`, and `VECTIS_WORKER_ORCHESTRATOR_ADDRESS` to pin internal dependencies |
+| `vectis-worker` | `VECTIS_WORKER` | `--metrics-host`, `--metrics-port`, `--artifact-max-bytes`, `--artifact-max-run-bytes`, `--artifact-max-count`, `--core-mode`, `--core-socket`, `--core-shell-socket`, `--core-connect-timeout`; use `VECTIS_WORKER_QUEUE_ADDRESS`, `VECTIS_WORKER_LOG_ADDRESS`, and `VECTIS_WORKER_ORCHESTRATOR_ADDRESS` to pin internal dependencies |
+| `vectis-worker-core` | `VECTIS_WORKER_CORE` | `--socket`, `--execution-backend`, `--workspace-root`, `--lima-instance`, `--lima-start` |
 | `vectis-cron` | `VECTIS_CRON` | `--instance-id`, `--claim-ttl` |
 | `vectis-reconciler` | `VECTIS_RECONCILER` | `--interval`, `--lease-ttl`, `--metrics-host`, `--metrics-port` |
 | `vectis-catalog` | `VECTIS_CATALOG` | `--interval`, `--batch-size`, `--metrics-host`, `--metrics-port`, `--cell-database-dsn` |
@@ -359,14 +360,14 @@ For failure behavior with and without registry, see [Failure Domains](../concept
 
 ## Worker Execution Backend
 
-Workers default to the `host` execution backend. In that mode, built-in actions execute as child processes on the worker host inside the per-run workspace. This is compatible with existing deployments, but it is not a security sandbox.
+`vectis-worker` owns queue claims, leases, cancellation, finalization, logs, artifacts, and policy gates. By default it delegates action execution to `vectis-worker-core` over a Unix domain socket. `vectis-worker-core` defaults to the `host` execution backend. In that mode, built-in actions execute as child processes on the worker-core host inside the per-run workspace. This is compatible with existing deployments, but it is not a security sandbox.
 
 Jobs can declare `default_isolation: "host"` or `default_isolation: "vm"` as the default for their action tree. Individual nodes can declare `isolation: "host"` or `isolation: "vm"` to override that default. Nodes that omit `isolation` inherit the nearest parent `builtins/sequence` isolation, then the job default, then the worker backend default. A worker must have a matching provider for the effective isolation level; Vectis does not silently fall back from `vm` to `host`.
 
 The first VM-oriented backend is `lima`, intended for macOS worker isolation experiments with a prepared [Lima](https://lima-vm.io/) instance:
 
 ```sh
-vectis-worker \
+vectis-worker-core \
   --execution-backend lima \
   --workspace-root /Users/ci/vectis-workspaces \
   --lima-instance vectis-worker \
@@ -377,19 +378,19 @@ Equivalent environment variables:
 
 | Variable / key | Purpose |
 | --- | --- |
-| `VECTIS_WORKER_EXECUTION_BACKEND` / `worker.execution.backend` | `host` by default, or `lima` to run action commands through `limactl shell`. |
-| `VECTIS_WORKER_WORKSPACE_ROOT` / `worker.execution.workspace_root` | Parent directory for automatically-created run workspaces. For Lima, set this to a path that exists and is writable inside the guest. Empty uses the host OS temp directory. |
-| `VECTIS_WORKER_LIMA_INSTANCE` / `worker.execution.lima.instance` | Required Lima instance name for the `lima` backend. |
-| `VECTIS_WORKER_LIMA_PATH` / `worker.execution.lima.path` | Path to `limactl`; defaults to `limactl` from `PATH`. |
-| `VECTIS_WORKER_LIMA_GUEST_WORKSPACE_ROOT` / `worker.execution.lima.guest_workspace_root` | Optional guest-side parent directory for Lima workspaces, such as `/tmp/vectis-workspaces`. When set, commands for the same run use the same guest workspace even if the host workspace mount is read-only. |
-| `VECTIS_WORKER_LIMA_START` / `worker.execution.lima.start` | Passes `--start` to `limactl shell` before each command. It starts an existing instance; it does not create or configure one. |
-| `VECTIS_WORKER_LIMA_PRESERVE_ENV` / `worker.execution.lima.preserve_env` | Passes `--preserve-env` to `limactl shell`. Off by default to avoid leaking host environment variables into the guest. |
+| `VECTIS_WORKER_CORE_EXECUTION_BACKEND` | `host` by default, or `lima` to run action commands through `limactl shell`. |
+| `VECTIS_WORKER_CORE_WORKSPACE_ROOT` | Parent directory for automatically-created run workspaces. For Lima, set this to a path that exists and is writable inside the guest. Empty uses the host OS temp directory. |
+| `VECTIS_WORKER_CORE_LIMA_INSTANCE` | Required Lima instance name for the `lima` backend. |
+| `VECTIS_WORKER_CORE_LIMA_PATH` | Path to `limactl`; defaults to `limactl` from `PATH`. |
+| `VECTIS_WORKER_CORE_LIMA_GUEST_WORKSPACE_ROOT` | Optional guest-side parent directory for Lima workspaces, such as `/tmp/vectis-workspaces`. When set, commands for the same run use the same guest workspace even if the host workspace mount is read-only. |
+| `VECTIS_WORKER_CORE_LIMA_START` | Passes `--start` to `limactl shell` before each command. It starts an existing instance; it does not create or configure one. |
+| `VECTIS_WORKER_CORE_LIMA_PRESERVE_ENV` | Passes `--preserve-env` to `limactl shell`. Off by default to avoid leaking host environment variables into the guest. |
 
-The Lima backend sets the worker's inherited action isolation to `vm` and registers Lima as the VM command provider. A job can request `default_isolation: "host"` or a node can request `isolation: "host"` explicitly for host-side actions on that worker.
+The Lima backend sets the worker-core inherited action isolation to `vm` and registers Lima as the VM command provider. A job can request `default_isolation: "host"` or a node can request `isolation: "host"` explicitly for host-side actions on that core.
 
-Workers that register with the registry publish execution metadata for routing and operator inspection: `worker.execution.backend`, `worker.execution.default_isolation`, and comma-separated `worker.execution.supported_isolation`. Host workers advertise `host` with supported isolation `host`; Lima workers advertise backend `lima`, default isolation `vm`, and supported isolation `host,vm`. Workers also send the same supported-isolation list when polling the queue, so a host-only worker skips queued VM work instead of dequeuing and failing it.
+Workers describe their configured core and publish execution metadata for routing and operator inspection: `worker.execution.backend`, `worker.execution.default_isolation`, and comma-separated `worker.execution.supported_isolation`. Host cores advertise `host` with supported isolation `host`; Lima cores advertise backend `lima`, default isolation `vm`, and supported isolation `host,vm`. Workers also send the same supported-isolation list when polling the queue, so a host-only worker skips queued VM work instead of dequeuing and failing it.
 
-The Lima backend does not silently fall back to host execution. Startup fails if `backend=lima` is selected without an instance name. Command execution fails if the Lima instance is unavailable. A host-default worker fails any node that requests `isolation: "vm"` because no VM provider is registered. If `VECTIS_WORKER_LIMA_GUEST_WORKSPACE_ROOT` is empty, the run workspace path must be visible and writable inside the guest; configure `VECTIS_WORKER_WORKSPACE_ROOT` and Lima mounts accordingly. If `VECTIS_WORKER_LIMA_GUEST_WORKSPACE_ROOT` is set, Vectis maps each run workspace to a same-named guest directory under that root and creates it before each command.
+The Lima backend does not silently fall back to host execution. Startup fails if `backend=lima` is selected without an instance name. Command execution fails if the Lima instance is unavailable. A host-default core fails any node that requests `isolation: "vm"` because no VM provider is registered. If `VECTIS_WORKER_CORE_LIMA_GUEST_WORKSPACE_ROOT` is empty, the run workspace path must be visible and writable inside the guest; configure `VECTIS_WORKER_CORE_WORKSPACE_ROOT` and Lima mounts accordingly. If `VECTIS_WORKER_CORE_LIMA_GUEST_WORKSPACE_ROOT` is set, Vectis maps each run workspace to a same-named guest directory under that root and creates it before each command.
 
 To smoke test the VM provider against a prepared instance from a development checkout:
 

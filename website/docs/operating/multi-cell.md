@@ -40,7 +40,7 @@ VECTIS_CELL_INGRESS_QUEUE_ADDRESS=iad-queue:9090
 VECTIS_WORKER_QUEUE_ADDRESS=iad-queue:9090
 ```
 
-Start `vectis-api`, `vectis-cron`, `vectis-reconciler`, and `vectis-catalog` against the global database. Start `vectis-cell-ingress`, `vectis-queue`, and `vectis-worker` in each cell against that cell's database and queue. If a deployment keeps the default `local` cell, give it the same treatment as every other cell once global and cell databases are split.
+Start `vectis-api`, `vectis-cron`, `vectis-reconciler`, and `vectis-catalog` against the global database. Start `vectis-cell-ingress`, `vectis-queue`, `vectis-worker`, and `vectis-worker-core` in each cell against that cell's database and queue. If a deployment keeps the default `local` cell, give it the same treatment as every other cell once global and cell databases are split.
 
 ## Request Flow
 

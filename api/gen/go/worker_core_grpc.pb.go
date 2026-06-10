@@ -167,7 +167,7 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type WorkerCoreShellServiceClient interface {
-	StreamLogs(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[LogChunk, Empty], error)
+	StreamLogs(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[WorkerCoreLogChunk, Empty], error)
 	PublishArtifact(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[WorkerCoreArtifactChunk, WorkerCoreArtifact], error)
 }
 
@@ -179,18 +179,18 @@ func NewWorkerCoreShellServiceClient(cc grpc.ClientConnInterface) WorkerCoreShel
 	return &workerCoreShellServiceClient{cc}
 }
 
-func (c *workerCoreShellServiceClient) StreamLogs(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[LogChunk, Empty], error) {
+func (c *workerCoreShellServiceClient) StreamLogs(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[WorkerCoreLogChunk, Empty], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &WorkerCoreShellService_ServiceDesc.Streams[0], WorkerCoreShellService_StreamLogs_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[LogChunk, Empty]{ClientStream: stream}
+	x := &grpc.GenericClientStream[WorkerCoreLogChunk, Empty]{ClientStream: stream}
 	return x, nil
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type WorkerCoreShellService_StreamLogsClient = grpc.ClientStreamingClient[LogChunk, Empty]
+type WorkerCoreShellService_StreamLogsClient = grpc.ClientStreamingClient[WorkerCoreLogChunk, Empty]
 
 func (c *workerCoreShellServiceClient) PublishArtifact(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[WorkerCoreArtifactChunk, WorkerCoreArtifact], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -209,7 +209,7 @@ type WorkerCoreShellService_PublishArtifactClient = grpc.ClientStreamingClient[W
 // All implementations must embed UnimplementedWorkerCoreShellServiceServer
 // for forward compatibility.
 type WorkerCoreShellServiceServer interface {
-	StreamLogs(grpc.ClientStreamingServer[LogChunk, Empty]) error
+	StreamLogs(grpc.ClientStreamingServer[WorkerCoreLogChunk, Empty]) error
 	PublishArtifact(grpc.ClientStreamingServer[WorkerCoreArtifactChunk, WorkerCoreArtifact]) error
 	mustEmbedUnimplementedWorkerCoreShellServiceServer()
 }
@@ -221,7 +221,7 @@ type WorkerCoreShellServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedWorkerCoreShellServiceServer struct{}
 
-func (UnimplementedWorkerCoreShellServiceServer) StreamLogs(grpc.ClientStreamingServer[LogChunk, Empty]) error {
+func (UnimplementedWorkerCoreShellServiceServer) StreamLogs(grpc.ClientStreamingServer[WorkerCoreLogChunk, Empty]) error {
 	return status.Error(codes.Unimplemented, "method StreamLogs not implemented")
 }
 func (UnimplementedWorkerCoreShellServiceServer) PublishArtifact(grpc.ClientStreamingServer[WorkerCoreArtifactChunk, WorkerCoreArtifact]) error {
@@ -250,11 +250,11 @@ func RegisterWorkerCoreShellServiceServer(s grpc.ServiceRegistrar, srv WorkerCor
 }
 
 func _WorkerCoreShellService_StreamLogs_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(WorkerCoreShellServiceServer).StreamLogs(&grpc.GenericServerStream[LogChunk, Empty]{ServerStream: stream})
+	return srv.(WorkerCoreShellServiceServer).StreamLogs(&grpc.GenericServerStream[WorkerCoreLogChunk, Empty]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type WorkerCoreShellService_StreamLogsServer = grpc.ClientStreamingServer[LogChunk, Empty]
+type WorkerCoreShellService_StreamLogsServer = grpc.ClientStreamingServer[WorkerCoreLogChunk, Empty]
 
 func _WorkerCoreShellService_PublishArtifact_Handler(srv interface{}, stream grpc.ServerStream) error {
 	return srv.(WorkerCoreShellServiceServer).PublishArtifact(&grpc.GenericServerStream[WorkerCoreArtifactChunk, WorkerCoreArtifact]{ServerStream: stream})
