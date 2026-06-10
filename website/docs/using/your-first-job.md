@@ -239,6 +239,7 @@ These are the built-ins available today:
 | `builtins/timeout` | `duration` | Runs a local `body` port with a deadline such as `30s` or `5m`. |
 | `builtins/finally` | none | Runs `body`, then always runs cleanup nodes from the `always` port. |
 | `builtins/fallback` | none | Runs local `choices` in order and returns the first success. |
+| `builtins/upload-artifact` | `name`, `path` | Publishes a workspace-relative file as a run artifact. |
 
 Actions are intentionally small right now. Pipeline-as-code and richer action syntax are future work; today, JSON is the source format.
 

@@ -2,17 +2,17 @@
 
 ## Status
 
-Proposed
+Accepted; first implementation slice completed.
 
 ## Context
 
-Vectis records run state, queue handoffs, and logs, but it does not yet have a first-class artifact surface. Build and CI workloads need durable outputs such as binaries, test reports, coverage files, SBOMs, diagnostics, and cross-segment handoff files. The multi-cell design also names artifacts as one of the explicit objects that can cross segment boundaries.
+Vectis records run state, queue handoffs, and logs. Build and CI workloads also need durable outputs such as binaries, test reports, coverage files, SBOMs, diagnostics, and cross-segment handoff files. The multi-cell design names artifacts as one of the explicit objects that can cross segment boundaries.
 
 The first version should keep the deployment model self-hosted and inspectable. It should not require S3, object-storage credentials, or a separate storage operator just to make local development and small production deployments useful.
 
 ## Decision
 
-Add a dedicated `vectis-artifact` service. The API remains the user-facing HTTP boundary for listing, authorization, upload admission, and downloads. Workers and the API move artifact bytes through the artifact service over gRPC.
+Add a dedicated `vectis-artifact` service. The API remains the user-facing HTTP boundary for listing, authorization, downloads, and any future upload admission. Workers and the API move artifact bytes through the artifact service over gRPC.
 
 The initial storage backend is a local content-addressed store on disk. Blob identity is:
 
@@ -59,12 +59,12 @@ If step 3 fails after the blob is stored, the blob is an orphan and is safe for 
 
 ## Service Boundaries
 
-`vectis-api` exposes the public artifact API. The first REST surface should be run-scoped:
+`vectis-api` exposes the public artifact API. The first REST surface is run-scoped:
 
 - list artifacts for a run
 - fetch artifact metadata
 - download artifact bytes
-- optionally admit API-originated uploads when the caller has write permission
+- optionally admit API-originated uploads in a later slice when the caller has write permission
 
 `vectis-worker` uploads produced artifacts after action execution or at explicit artifact collection points. The worker should not write directly into the artifact storage directory.
 
@@ -72,7 +72,7 @@ If step 3 fails after the blob is stored, the blob is an orphan and is safe for 
 
 ## Discovery And Locality
 
-Add `COMPONENT_ARTIFACT` to the registry component enum when the service is implemented. Artifact services register with `cell.id` metadata and a write-state metadata key similar to log storage:
+`COMPONENT_ARTIFACT` is part of the registry component enum. Artifact services register with `cell.id` metadata and a write-state metadata key similar to log storage:
 
 - `artifact.write_state = writable`
 - `artifact.write_state = read_only`
@@ -121,20 +121,23 @@ The first implementation should reject oversized artifacts, record producer iden
 
 ## First Implementation Slice
 
-1. Add `api/proto/artifact.proto` for streaming upload, stat, and read.
-2. Add `vectis-artifact` and `internal/artifact` with a tested local CAS backend.
-3. Add registry component and config defaults for artifact gRPC, metrics, storage path, and read-only threshold.
-4. Add SQL migrations and DAL methods for run-scoped artifact metadata.
-5. Expose list, metadata, and download routes in `vectis-api`.
-6. Add CLI commands for listing and downloading run artifacts.
-7. Add retention cleanup for artifact metadata and unreferenced blobs.
+The first implementation slice is complete:
+
+- [x] Add `api/proto/artifact.proto` for streaming upload, stat, and read.
+- [x] Add `vectis-artifact` and `internal/artifact` with a tested local CAS backend.
+- [x] Add registry component and config defaults for artifact gRPC, metrics, storage path, and read-only threshold.
+- [x] Add SQL migrations and DAL methods for run-scoped artifact metadata.
+- [x] Expose list, metadata, and download routes in `vectis-api`.
+- [x] Add CLI commands for listing and downloading run artifacts.
+- [x] Add retention cleanup for artifact metadata and unreferenced blobs.
+- [x] Add explicit worker-side uploads through `builtins/upload-artifact`.
 
 ## Open Questions
 
-- Should artifact uploads be public API writes, worker-only writes, or both in the first release?
-- Are artifacts attached only to runs at first, or do we require task/node/segment attachment from day one?
+- Should API-originated uploads be added, or should the first release keep uploads worker-only?
+- Metadata records support task, attempt, and execution attribution; which of those should become first-class user filters or selectors?
 - What are the initial defaults for max artifact size, per-run quota, and retention?
-- Should the worker collect artifacts through action output declarations, explicit builtins, or a job-level artifact stanza?
+- Should worker artifact collection expand beyond explicit builtins to action output declarations or a job-level artifact stanza?
 - Do we need compression or archive normalization before storing blobs, or should the first version preserve bytes exactly?
 
 ## References

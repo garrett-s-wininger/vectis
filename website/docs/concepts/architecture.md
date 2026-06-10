@@ -104,7 +104,7 @@ flowchart TB
 | `vectis-queue` | Internal FIFO queue shard. Producers enqueue work; workers dequeue and acknowledge deliveries. Queue persistence can preserve backlog and in-flight delivery metadata per shard. |
 | `vectis-worker` | Executes one run at a time. Dequeues work, claims the run in the database, executes actions, streams logs, writes final status, and records cell catalog events. |
 | `vectis-log` | Receives log chunks from workers and stores run logs. The API reads from it when clients stream logs. |
-| `vectis-artifact` | Internal content-addressed blob service. It stores blobs by digest; user-facing artifact APIs are not shipped yet. |
+| `vectis-artifact` | Internal content-addressed blob service. It stores blobs by digest while the API exposes run-scoped artifact listing, metadata, and downloads. |
 | `vectis-registry` | Internal service discovery for queue, log, and artifact addresses when clients do not use pinned addresses. |
 | `vectis-cron` | Reads schedules from the database and enqueues due runs. |
 | `vectis-reconciler` | Finds queued runs that need another queue handoff and enqueues them again. |

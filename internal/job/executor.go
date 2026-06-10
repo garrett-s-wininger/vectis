@@ -157,6 +157,14 @@ func (e *Executor) ExecuteJobInWorkspace(ctx context.Context, job *api.Job, logC
 	return e.execute(ctx, job, logClient, logger, workspace, "", false, ExecuteOptions{})
 }
 
+func (e *Executor) ExecuteJobInWorkspaceWithOptions(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger, workspace string, opts ExecuteOptions) (err error) {
+	if workspace == "" {
+		return fmt.Errorf("workspace is required")
+	}
+
+	return e.execute(ctx, job, logClient, logger, workspace, "", false, opts)
+}
+
 func (e *Executor) ExecuteTask(ctx context.Context, job *api.Job, taskKey string, logClient interfaces.LogClient, logger interfaces.Logger) (err error) {
 	return e.ExecuteTaskWithOptions(ctx, job, taskKey, logClient, logger, ExecuteOptions{})
 }
