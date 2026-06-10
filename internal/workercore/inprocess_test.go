@@ -1,0 +1,127 @@
+package workercore
+
+import (
+	"context"
+	"strings"
+	"testing"
+	"time"
+
+	api "vectis/api/gen/go"
+	"vectis/internal/dal"
+	"vectis/internal/interfaces/mocks"
+	"vectis/internal/job"
+)
+
+func TestInProcessCoreExecutesTaskThroughJobExecutor(t *testing.T) {
+	processExecutor := mocks.NewMockExecExecutor()
+	process := mocks.NewMockProcess()
+	process.SetStdout("hello from core\n")
+	processExecutor.SetProcess(process)
+
+	executor := job.NewExecutor(job.WithProcessExecutor(processExecutor))
+	logDone := make(chan job.LogStreamWaiter, 1)
+	executor.TestLogStreamHook = logDone
+	defer func() { executor.TestLogStreamHook = nil }()
+
+	jobID := "job-worker-core"
+	runID := "run-worker-core"
+	nodeID := "root"
+	uses := "builtins/shell"
+	core := NewInProcessCore(executor)
+	err := core.ExecuteTask(context.Background(), ExecuteTaskRequest{
+		Job: &api.Job{
+			Id:    &jobID,
+			RunId: &runID,
+			Root: &api.Node{
+				Id:   &nodeID,
+				Uses: &uses,
+				With: map[string]string{"command": "echo hello"},
+			},
+		},
+		TaskKey:   dal.RootTaskKey,
+		LogClient: mocks.NewMockLogClient(),
+		Logger:    mocks.NewMockLogger(),
+	})
+
+	if err != nil {
+		t.Fatalf("ExecuteTask: %v", err)
+	}
+
+	select {
+	case waiter := <-logDone:
+		if err := waiter.WaitForDone(2 * time.Second); err != nil {
+			t.Fatalf("wait for log flush: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for log stream hook")
+	}
+
+	paths := processExecutor.GetPaths()
+	if len(paths) != 1 || paths[0] != "sh" {
+		t.Fatalf("process paths = %v, want [sh]", paths)
+	}
+
+	args := processExecutor.GetArgs()
+	if len(args) != 1 || strings.Join(args[0], " ") != "-c echo hello" {
+		t.Fatalf("process args = %v, want [-c echo hello]", args)
+	}
+
+	if !process.WaitCalled() {
+		t.Fatal("expected process Wait to be called")
+	}
+}
+
+func TestInProcessCoreValidatesShellBoundaryInputs(t *testing.T) {
+	tests := []struct {
+		name string
+		req  ExecuteTaskRequest
+		want string
+	}{
+		{
+			name: "missing job",
+			req: ExecuteTaskRequest{
+				TaskKey:   dal.RootTaskKey,
+				LogClient: mocks.NewMockLogClient(),
+				Logger:    mocks.NewMockLogger(),
+			},
+			want: "requires a job",
+		},
+		{
+			name: "missing task key",
+			req: ExecuteTaskRequest{
+				Job:       &api.Job{},
+				LogClient: mocks.NewMockLogClient(),
+				Logger:    mocks.NewMockLogger(),
+			},
+			want: "requires a task key",
+		},
+		{
+			name: "missing log client",
+			req: ExecuteTaskRequest{
+				Job:     &api.Job{},
+				TaskKey: dal.RootTaskKey,
+				Logger:  mocks.NewMockLogger(),
+			},
+			want: "requires a log client",
+		},
+		{
+			name: "missing logger",
+			req: ExecuteTaskRequest{
+				Job:       &api.Job{},
+				TaskKey:   dal.RootTaskKey,
+				LogClient: mocks.NewMockLogClient(),
+			},
+			want: "requires a logger",
+		},
+	}
+
+	core := NewInProcessCore(job.NewExecutor())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := core.ExecuteTask(context.Background(), tt.req)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("ExecuteTask error = %v, want containing %q", err, tt.want)
+			}
+		})
+	}
+}

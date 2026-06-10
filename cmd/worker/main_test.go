@@ -26,6 +26,7 @@ import (
 	"vectis/internal/taskfinalize"
 	"vectis/internal/testutil/dbtest"
 	"vectis/internal/testutil/runfixture"
+	"vectis/internal/workercore"
 	"vectis/internal/workloadidentity"
 
 	"github.com/spf13/viper"
@@ -55,6 +56,10 @@ func attachPendingExecutionEnvelopeForTest(t *testing.T, runs dal.RunsRepository
 	}
 
 	return env
+}
+
+func testWorkerCore(executor *job.Executor) workercore.Core {
+	return workercore.NewInProcessCore(executor)
 }
 
 func spanAttributeString(attrs []attribute.KeyValue, key string) string {
@@ -495,7 +500,7 @@ func TestWorkerRunTaskExecution_CompletesWhileOrphaned_MarksSucceeded(t *testing
 		renewInterval: time.Hour,
 		queue:         queue,
 		logClient:     logClient,
-		executor:      job.NewExecutor(),
+		core:          testWorkerCore(job.NewExecutor()),
 		store:         runs,
 		choreographer: sqlExecutionChoreographer{runs: runs},
 		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
@@ -617,7 +622,7 @@ func TestWorkerRunTaskExecution_WithExecutionEnvelope_TransitionsExecution(t *te
 		renewInterval: time.Hour,
 		queue:         queue,
 		logClient:     logClient,
-		executor:      job.NewExecutor(),
+		core:          testWorkerCore(job.NewExecutor()),
 		store:         runs,
 		choreographer: sqlExecutionChoreographer{runs: runs},
 		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
@@ -833,7 +838,7 @@ func TestWorkerRunClaimedJob_SPIREEnabledRejectsMissingSVIDBeforeAction(t *testi
 		renewInterval: time.Hour,
 		queue:         queue,
 		logClient:     logClient,
-		executor:      job.NewExecutor(),
+		core:          testWorkerCore(job.NewExecutor()),
 		store:         runs,
 		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
 		spireSVIDSource: fakeWorkerSVIDSource{svids: []spire.X509SVID{
@@ -953,7 +958,7 @@ func TestWorkerRunTaskExecution_TaskFanoutQueuesContinuation(t *testing.T) {
 		renewInterval: time.Hour,
 		queue:         queue,
 		logClient:     mocks.NewMockLogClient(),
-		executor:      job.NewExecutor(),
+		core:          testWorkerCore(job.NewExecutor()),
 		store:         runs,
 		choreographer: newLocalOrchestratorChoreographer(t),
 		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
@@ -1066,7 +1071,7 @@ func TestWorkerRunTaskExecution_TaskFanoutWaitingQueuesContinuation(t *testing.T
 		renewInterval: time.Hour,
 		queue:         queue,
 		logClient:     mocks.NewMockLogClient(),
-		executor:      job.NewExecutor(),
+		core:          testWorkerCore(job.NewExecutor()),
 		store:         runs,
 		choreographer: newLocalOrchestratorChoreographer(t),
 		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
@@ -1152,7 +1157,7 @@ func TestWorkerRunTaskExecution_TaskFanoutFailureFinalizesExecutionAndRun(t *tes
 		renewInterval: time.Hour,
 		queue:         mocks.NewMockQueueClient(),
 		logClient:     mocks.NewMockLogClient(),
-		executor:      job.NewExecutor(),
+		core:          testWorkerCore(job.NewExecutor()),
 		store:         runs,
 		choreographer: sqlExecutionChoreographer{runs: runs},
 		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
@@ -1249,7 +1254,7 @@ func TestWorkerRunTaskExecution_TaskFanoutCancelFinalizesExecutionAndRun(t *test
 		renewInterval: time.Hour,
 		queue:         mocks.NewMockQueueClient(),
 		logClient:     mocks.NewMockLogClient(),
-		executor:      job.NewExecutor(),
+		core:          testWorkerCore(job.NewExecutor()),
 		store:         runs,
 		choreographer: sqlExecutionChoreographer{runs: runs},
 		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
@@ -1407,7 +1412,7 @@ func TestWorkerRunTaskExecution_TaskFanoutExecutesEnvelopeTaskOnly(t *testing.T)
 		renewInterval: time.Hour,
 		queue:         queue,
 		logClient:     logClient,
-		executor:      executor,
+		core:          testWorkerCore(executor),
 		store:         runs,
 		choreographer: sqlExecutionChoreographer{runs: runs},
 		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
@@ -1706,7 +1711,7 @@ func TestWorkerHandleJob_RunlessDeliveryIsMalformed(t *testing.T) {
 		renewInterval: time.Hour,
 		queue:         queue,
 		logClient:     logClient,
-		executor:      job.NewExecutor(),
+		core:          testWorkerCore(job.NewExecutor()),
 		metrics:       workerMetrics,
 	}
 
@@ -1762,7 +1767,7 @@ func TestWorkerRunTaskExecution_MissingExecutionEnvelopeFailsRun(t *testing.T) {
 		renewInterval: time.Hour,
 		queue:         queue,
 		logClient:     logClient,
-		executor:      job.NewExecutor(),
+		core:          testWorkerCore(job.NewExecutor()),
 		store:         runs,
 		choreographer: sqlExecutionChoreographer{runs: runs},
 	}
@@ -1870,7 +1875,7 @@ func TestWorkerRunTaskExecution_ExecutionClaimRequiredBeforeExecute(t *testing.T
 		renewInterval: time.Hour,
 		queue:         queue,
 		logClient:     logClient,
-		executor:      job.NewExecutor(),
+		core:          testWorkerCore(job.NewExecutor()),
 		store:         runs,
 		choreographer: sqlExecutionChoreographer{runs: runs},
 		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
@@ -1964,7 +1969,7 @@ func TestWorkerRunTaskExecution_AckTransientThenSuccess_Completes(t *testing.T) 
 		renewInterval: time.Hour,
 		queue:         queue,
 		logClient:     logClient,
-		executor:      job.NewExecutor(),
+		core:          testWorkerCore(job.NewExecutor()),
 		store:         runs,
 		choreographer: sqlExecutionChoreographer{runs: runs},
 	}
@@ -2041,7 +2046,7 @@ func TestWorkerRunTaskExecution_AckPersistentFailure_OrphansRunWithoutExecution(
 		renewInterval: time.Hour,
 		queue:         queue,
 		logClient:     logClient,
-		executor:      job.NewExecutor(),
+		core:          testWorkerCore(job.NewExecutor()),
 		store:         runs,
 		choreographer: sqlExecutionChoreographer{runs: runs},
 	}
@@ -2125,7 +2130,7 @@ func TestWorkerRunTaskExecution_FinalizeSucceededRetriesOnTransientStoreFailure(
 		renewInterval: time.Hour,
 		queue:         queue,
 		logClient:     logClient,
-		executor:      job.NewExecutor(),
+		core:          testWorkerCore(job.NewExecutor()),
 		store:         store,
 		choreographer: sqlExecutionChoreographer{runs: store},
 	}
@@ -2270,7 +2275,7 @@ func TestWorkerRunTaskExecution_LifecyclePhaseShowsFinalizing(t *testing.T) {
 		renewInterval: time.Hour,
 		queue:         mocks.NewMockQueueClient(),
 		logClient:     mocks.NewMockLogClient(),
-		executor:      job.NewExecutor(),
+		core:          testWorkerCore(job.NewExecutor()),
 		store:         store,
 		choreographer: sqlExecutionChoreographer{runs: store},
 		metrics:       workerMetrics,
@@ -2355,7 +2360,7 @@ func TestWorkerRunTaskExecution_RenewExecutionLeaseTransientStoreFailure_StillSu
 		renewInterval: 10 * time.Millisecond,
 		queue:         queue,
 		logClient:     logClient,
-		executor:      job.NewExecutor(),
+		core:          testWorkerCore(job.NewExecutor()),
 		store:         recordingStore,
 		choreographer: sqlExecutionChoreographer{runs: recordingStore},
 	}
@@ -2462,7 +2467,7 @@ func TestWorkerRestartMidRun_LeaseExpiryThenRequeue_AllowsRecovery(t *testing.T)
 		renewInterval: time.Hour,
 		queue:         mocks.NewMockQueueClient(),
 		logClient:     mocks.NewMockLogClient(),
-		executor:      job.NewExecutor(),
+		core:          testWorkerCore(job.NewExecutor()),
 		store:         runs,
 		choreographer: sqlExecutionChoreographer{runs: runs},
 	}
@@ -2509,7 +2514,7 @@ func TestWorkerRunTaskExecution_FinalizeSucceededExhausted_LeavesRunningForOrpha
 		renewInterval: time.Hour,
 		queue:         queue,
 		logClient:     logClient,
-		executor:      job.NewExecutor(),
+		core:          testWorkerCore(job.NewExecutor()),
 		store:         store,
 		choreographer: sqlExecutionChoreographer{runs: store},
 	}
@@ -2643,7 +2648,7 @@ func TestWorkerDrain_ShutdownDuringRun_StillFinalizesRun(t *testing.T) {
 		renewInterval: time.Hour,
 		queue:         queue,
 		logClient:     mocks.NewMockLogClient(),
-		executor:      job.NewExecutor(),
+		core:          testWorkerCore(job.NewExecutor()),
 		store:         runs,
 		choreographer: sqlExecutionChoreographer{runs: runs},
 		metrics:       workerMetrics,
@@ -2719,7 +2724,7 @@ func TestWorkerRunTaskExecution_RemoteCancel_MarksRunAborted(t *testing.T) {
 		renewInterval: time.Hour,
 		queue:         mocks.NewMockQueueClient(),
 		logClient:     mocks.NewMockLogClient(),
-		executor:      job.NewExecutor(),
+		core:          testWorkerCore(job.NewExecutor()),
 		store:         runs,
 		choreographer: sqlExecutionChoreographer{runs: runs},
 		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
@@ -2864,7 +2869,7 @@ func TestWorkerRunTaskExecution_DurableCancel_MarksRunAborted(t *testing.T) {
 		cancelPollInterval: 10 * time.Millisecond,
 		queue:              mocks.NewMockQueueClient(),
 		logClient:          mocks.NewMockLogClient(),
-		executor:           job.NewExecutor(),
+		core:               testWorkerCore(job.NewExecutor()),
 		store:              runs,
 		choreographer:      sqlExecutionChoreographer{runs: runs},
 		cancelCh:           make(chan string, 1),
@@ -3390,7 +3395,7 @@ func TestHandleJobExecutionIdentityEnabledRejectsJobWithoutRunContext(t *testing
 		logger:    logger,
 		queue:     mocks.NewMockQueueClient(),
 		logClient: mocks.NewMockLogClient(),
-		executor:  job.NewExecutor(),
+		core:      testWorkerCore(job.NewExecutor()),
 	}
 
 	jobID := "job-without-run-context"

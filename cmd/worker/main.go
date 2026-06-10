@@ -46,6 +46,7 @@ import (
 	"vectis/internal/taskfinalize"
 	"vectis/internal/taskreduce"
 	"vectis/internal/utils"
+	"vectis/internal/workercore"
 	"vectis/internal/workloadidentity"
 
 	_ "vectis/internal/dbdrivers"
@@ -207,6 +208,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 	if err != nil {
 		logger.Fatal("Invalid worker execution backend: %v", err)
 	}
+	executionCore := workercore.NewInProcessCore(executor)
 
 	actionResolver, err := actionconfig.DescriptorResolver()
 	if err != nil {
@@ -223,7 +225,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 		renewInterval:       dal.DefaultRenewInterval,
 		queue:               clients,
 		logClient:           logClient,
-		executor:            executor,
+		core:                executionCore,
 		actionResolver:      actionResolver,
 		store:               runsRepo,
 		artifactManifests:   repos.Artifacts(),
@@ -417,7 +419,7 @@ type worker struct {
 	cancelPollInterval  time.Duration
 	queue               interfaces.QueueClient
 	logClient           interfaces.LogClient
-	executor            *job.Executor
+	core                workercore.Core
 	actionResolver      actionregistry.Resolver
 	store               dal.RunsRepository
 	artifactManifests   dal.ArtifactsRepository
@@ -1888,16 +1890,25 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID string, exec
 		}
 
 		w.markExecutionStarted(ctx, env)
-		execOpts := job.ExecuteOptions{
+		execReq := workercore.ExecuteTaskRequest{
+			Job:              runJob,
+			TaskKey:          env.TaskKey,
+			LogClient:        w.logClient,
+			Logger:           w.logger,
 			WorkloadIdentity: workloadIdentity,
 			ActionResolver:   w.actionResolver,
 			ActionLocks:      env.ActionLocks,
 		}
+
 		if artifactPublisher != nil {
-			execOpts.ArtifactPublisher = action.ArtifactPublisher(artifactPublisher)
+			execReq.ArtifactPublisher = action.ArtifactPublisher(artifactPublisher)
 		}
 
-		err = w.executor.ExecuteTaskWithOptions(execCtx, runJob, env.TaskKey, w.logClient, w.logger, execOpts)
+		if w.core == nil {
+			err = fmt.Errorf("worker execution core is not configured")
+		} else {
+			err = w.core.ExecuteTask(execCtx, execReq)
+		}
 	}
 
 	close(stopRenew)
