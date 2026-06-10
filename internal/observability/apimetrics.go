@@ -142,6 +142,7 @@ func RegisterRetentionStorageMetrics(db *sql.DB) error {
 		{"active_runs", `SELECT COUNT(*) FROM job_runs WHERE status NOT IN ('succeeded', 'failed')`},
 		{"terminal_runs", `SELECT COUNT(*) FROM job_runs WHERE status IN ('succeeded', 'failed', 'aborted', 'cancelled', 'abandoned')`},
 		{"run_dispatch_events", `SELECT COUNT(*) FROM run_dispatch_events`},
+		{"run_artifacts", `SELECT COUNT(*) FROM run_artifacts`},
 		{"run_tasks", `SELECT COUNT(*) FROM run_tasks`},
 		{"task_attempts", `SELECT COUNT(*) FROM task_attempts`},
 		{"run_segments", `SELECT COUNT(*) FROM run_segments`},

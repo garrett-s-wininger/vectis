@@ -92,6 +92,7 @@ func doctor(w io.Writer) error {
 		doctorFilesystemPressure("queue.persistence.filesystem", "Queue persistence filesystem", "queue persistence", envOrDefaultAllowEmpty("VECTIS_QUEUE_PERSISTENCE_DIR", defaultDoctorQueuePersistenceDir())),
 		doctorFilesystemPressure("log.storage.filesystem", "Log storage filesystem", "log storage", envOrDefault("VECTIS_LOG_STORAGE_DIR", defaultDoctorLogStorageDir())),
 		doctorFilesystemPressure("log.forwarder.spool.filesystem", "Log forwarder spool filesystem", "log-forwarder spool", envOrDefault("VECTIS_LOG_FORWARDER_SPOOL_DIR", defaultDoctorForwarderSpoolDir())),
+		doctorFilesystemPressure("artifact.storage.filesystem", "Artifact storage filesystem", "artifact storage", envOrDefault("VECTIS_ARTIFACT_STORAGE_DIR", defaultDoctorArtifactStorageDir())),
 	}
 
 	if doctorJSON {
@@ -172,6 +173,9 @@ var doctorTextGroups = []doctorTextGroup{
 		{ID: "log.reachable", Label: "Log service"},
 		{ID: "log.storage.filesystem", Label: "Log storage"},
 		{ID: "log.forwarder.spool.filesystem", Label: "Forwarder spool"},
+	}},
+	{Name: "Artifacts", Items: []doctorTextItem{
+		{ID: "artifact.storage.filesystem", Label: "Artifact storage"},
 	}},
 	{Name: "Audit", Items: []doctorTextItem{
 		{ID: "audit.drops.recent", Label: "Recent drops"},
@@ -1285,6 +1289,10 @@ func defaultDoctorForwarderSpoolDir() string {
 
 func defaultDoctorLogStorageDir() string {
 	return filepath.Join(utils.DataHome(), "vectis", "log")
+}
+
+func defaultDoctorArtifactStorageDir() string {
+	return filepath.Join(utils.DataHome(), "vectis", "artifact")
 }
 
 func defaultDoctorQueuePersistenceDir() string {
