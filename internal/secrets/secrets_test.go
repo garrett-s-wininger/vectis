@@ -50,3 +50,30 @@ func TestReferencesForTaskFiltersTaskScopedSecrets(t *testing.T) {
 		t.Fatalf("refs = %+v", refs)
 	}
 }
+
+func TestReferencesForTaskMatchesRootNodeIDForRootExecution(t *testing.T) {
+	t.Parallel()
+
+	fileType := api.SecretDeliveryType_SECRET_DELIVERY_TYPE_FILE
+	job := &api.Job{
+		Root: &api.Node{
+			Id: strp("verify-secret"),
+		},
+		Secrets: []*api.SecretReference{
+			{
+				Id:       strp("smoke-token"),
+				Ref:      strp("encryptedfs://team/smoke-token"),
+				TaskKeys: []string{"verify-secret"},
+				Delivery: &api.SecretDelivery{
+					Type: &fileType,
+					Path: strp("smoke/token"),
+				},
+			},
+		},
+	}
+
+	refs := ReferencesForTask(job, "root")
+	if len(refs) != 1 || refs[0].ID != "smoke-token" {
+		t.Fatalf("refs = %+v, want root-node scoped secret", refs)
+	}
+}

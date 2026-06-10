@@ -14,6 +14,7 @@ const (
 	DeliveryTypeFile DeliveryType = "file"
 
 	DefaultFileMode fs.FileMode = 0o400
+	rootTaskKey     string      = "root"
 )
 
 type DeliveryType string
@@ -96,7 +97,7 @@ func ReferencesForTask(job *api.Job, taskKey string) []Reference {
 		return nil
 	}
 
-	taskKey = strings.TrimSpace(taskKey)
+	taskKeys := taskKeyAliases(job, taskKey)
 	out := make([]Reference, 0, len(refs))
 	for _, ref := range refs {
 		if len(ref.TaskKeys) == 0 {
@@ -105,7 +106,7 @@ func ReferencesForTask(job *api.Job, taskKey string) []Reference {
 		}
 
 		for _, key := range ref.TaskKeys {
-			if strings.TrimSpace(key) == taskKey {
+			if _, ok := taskKeys[strings.TrimSpace(key)]; ok {
 				out = append(out, ref)
 				break
 			}
@@ -113,6 +114,22 @@ func ReferencesForTask(job *api.Job, taskKey string) []Reference {
 	}
 
 	return out
+}
+
+func taskKeyAliases(job *api.Job, taskKey string) map[string]struct{} {
+	aliases := map[string]struct{}{}
+	taskKey = strings.TrimSpace(taskKey)
+	if taskKey != "" {
+		aliases[taskKey] = struct{}{}
+	}
+
+	if taskKey == rootTaskKey && job != nil && job.GetRoot() != nil {
+		if rootID := strings.TrimSpace(job.GetRoot().GetId()); rootID != "" {
+			aliases[rootID] = struct{}{}
+		}
+	}
+
+	return aliases
 }
 
 func ReferenceFromProto(ref *api.SecretReference) Reference {

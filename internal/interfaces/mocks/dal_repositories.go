@@ -240,6 +240,7 @@ type MockRunsRepository struct {
 	PendingExecutionErr        error
 	MarkExecutionErr           error
 	ExecutionFinalizationErr   error
+	ValidateExecutionClaimErr  error
 	LogShardErr                error
 	EnsureExecutionDeadlineErr error
 	ExpireQueuedExecutionsErr  error
@@ -896,6 +897,19 @@ func (m *MockRunsRepository) EnsureExecutionStartDeadline(ctx context.Context, e
 	return deadlineUnixNano, nil
 }
 
+func (m *MockRunsRepository) GetActiveExecutionDispatch(ctx context.Context, runID, executionID string) (dal.ExecutionDispatchRecord, error) {
+	rec, err := m.GetExecutionDispatch(ctx, executionID)
+	if err != nil {
+		return dal.ExecutionDispatchRecord{}, err
+	}
+
+	if rec.RunID == "" {
+		rec.RunID = runID
+	}
+
+	return rec, nil
+}
+
 func (m *MockRunsRepository) TryClaimExecution(ctx context.Context, executionID, owner string, leaseUntil time.Time) (dal.ExecutionClaimResult, error) {
 	if m.TryClaimExecutionErr != nil {
 		return dal.ExecutionClaimResult{}, m.TryClaimExecutionErr
@@ -944,6 +958,14 @@ func (m *MockRunsRepository) RenewExecutionLease(ctx context.Context, executionI
 	m.LastExecutionRenewID = executionID
 	m.LastExecutionOwner = owner
 	m.mu.Unlock()
+
+	return nil
+}
+
+func (m *MockRunsRepository) ValidateActiveExecutionClaim(ctx context.Context, runID, executionID, claimToken string) error {
+	if m.ValidateExecutionClaimErr != nil {
+		return m.ValidateExecutionClaimErr
+	}
 
 	return nil
 }

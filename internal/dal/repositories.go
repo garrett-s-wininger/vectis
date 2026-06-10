@@ -573,8 +573,10 @@ type RunsRepository interface {
 	GetPendingExecution(ctx context.Context, runID string) (ExecutionDispatchRecord, error)
 	GetExecutionDispatch(ctx context.Context, executionID string) (ExecutionDispatchRecord, error)
 	EnsureExecutionStartDeadline(ctx context.Context, executionID string, deadlineUnixNano int64) (int64, error)
+	GetActiveExecutionDispatch(ctx context.Context, runID, executionID string) (ExecutionDispatchRecord, error)
 	TryClaimExecution(ctx context.Context, executionID, owner string, leaseUntil time.Time) (ExecutionClaimResult, error)
 	RenewExecutionLease(ctx context.Context, executionID, owner, claimToken string, leaseUntil time.Time) error
+	ValidateActiveExecutionClaim(ctx context.Context, runID, executionID, claimToken string) error
 	CompleteExecutionAndFinalizeRunByClaim(ctx context.Context, executionID, owner, claimToken, status, failureCode, reason string) (ExecutionFinalizationResult, error)
 	MarkExecutionStarted(ctx context.Context, executionID string) error
 	CountByStatus(ctx context.Context, status string) (int64, error)

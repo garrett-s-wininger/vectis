@@ -2581,10 +2581,11 @@ func (r *SQLRunsRepository) GetActiveExecutionDispatch(ctx context.Context, runI
 			se.execution_id,
 			se.status,
 			se.cell_id,
-			se.attempt,
-			jr.definition_version,
-			jr.definition_hash,
-			jr.owning_cell
+				se.attempt,
+				jr.definition_version,
+				jr.definition_hash,
+				jr.owning_cell,
+				se.start_deadline_unix_nano
 		FROM segment_executions se
 		JOIN job_runs jr ON jr.run_id = se.run_id
 		JOIN run_segments rs ON rs.segment_id = se.segment_id AND rs.run_id = jr.run_id
