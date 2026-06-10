@@ -238,8 +238,14 @@ Sync the repository, then list triggerable jobs discovered under `.vectis/jobs`:
 
 ```sh
 ./bin/vectis-cli sources sync vectis-local
+./bin/vectis-cli sources status vectis-local
+./bin/vectis-cli sources branches vectis-local --prefix feature/
+./bin/vectis-cli sources tree vectis-local --ref main --path .vectis --recursive
+./bin/vectis-cli sources definitions vectis-local --ref main
 ./bin/vectis-cli sources jobs vectis-local --ref main
 ```
+
+Use `sources definitions` to inspect candidate JSON files without reading file contents, and `sources jobs` to see the triggerable job IDs derived from those paths.
 
 Inspect a source-defined job definition at a specific ref:
 

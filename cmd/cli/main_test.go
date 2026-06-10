@@ -393,6 +393,216 @@ func TestListSourceJobs_sendsQueryAndPrintsJobs(t *testing.T) {
 	}
 }
 
+func TestShowSourceStatus_sendsRequestAndPrintsStatus(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/source-repositories/vectis/status" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"repository_id":        "vectis",
+			"namespace":            "/",
+			"source_kind":          "local_checkout",
+			"enabled":              true,
+			"status":               "ready",
+			"checkout_mode":        "managed",
+			"authoring_mode":       "local_commit",
+			"authoring":            map[string]any{"mode": "local_commit", "write_definitions": true, "local_commits": true},
+			"checkout_path":        "/srv/vectis/source",
+			"path_exists":          true,
+			"path_is_directory":    true,
+			"git_repository":       true,
+			"work_tree_path":       "/srv/vectis/source",
+			"head_ref":             "main",
+			"default_ref":          "main",
+			"default_ref_resolved": true,
+			"resolved_commit":      "0123456789abcdef",
+			"sync":                 map[string]any{"status": "succeeded", "ref": "main", "commit": "0123456789abcdef"},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := showSourceStatusWithOutput(&buf, "vectis"); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"repository_id=vectis", "status=ready", "checkout_mode=managed", "write_definitions=true", "default_ref=main", "resolved_commit=0123456789abcdef", "sync_status=succeeded"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestListSourceBranches_sendsQueryAndPrintsBranches(t *testing.T) {
+	oldPrefix := sourceBranchesPrefix
+	oldLimit := sourceBranchesLimit
+	oldQuiet := sourceBranchesQuiet
+	sourceBranchesPrefix = "feature/"
+	sourceBranchesLimit = 3
+	sourceBranchesQuiet = false
+	t.Cleanup(func() {
+		sourceBranchesPrefix = oldPrefix
+		sourceBranchesLimit = oldLimit
+		sourceBranchesQuiet = oldQuiet
+	})
+
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/source-repositories/vectis/refs/branches" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		q := r.URL.Query()
+		if q.Get("prefix") != "feature/" || q.Get("limit") != "3" {
+			t.Errorf("query=%s", r.URL.RawQuery)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"repository_id": "vectis",
+			"prefix":        "feature/",
+			"limit":         3,
+			"branches": []map[string]any{
+				{"name": "feature/source", "ref": "refs/remotes/origin/feature/source", "commit": "0123456789abcdef", "remote": "origin"},
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := listSourceBranchesWithOutput(&buf, "vectis"); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"NAME", "feature/source", "refs/remotes/origin/feature/source", "0123456789ab", "origin"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestListSourceTree_sendsQueryAndPrintsEntries(t *testing.T) {
+	oldRef := sourceTreeRef
+	oldPath := sourceTreePath
+	oldLimit := sourceTreeLimit
+	oldRecursive := sourceTreeRecursive
+	oldQuiet := sourceTreeQuiet
+	sourceTreeRef = "main"
+	sourceTreePath = ".vectis"
+	sourceTreeLimit = 10
+	sourceTreeRecursive = true
+	sourceTreeQuiet = false
+	t.Cleanup(func() {
+		sourceTreeRef = oldRef
+		sourceTreePath = oldPath
+		sourceTreeLimit = oldLimit
+		sourceTreeRecursive = oldRecursive
+		sourceTreeQuiet = oldQuiet
+	})
+
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/source-repositories/vectis/tree" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		q := r.URL.Query()
+		if q.Get("ref") != "main" || q.Get("path") != ".vectis" || q.Get("limit") != "10" || q.Get("recursive") != "true" {
+			t.Errorf("query=%s", r.URL.RawQuery)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"repository_id":   "vectis",
+			"requested_ref":   "main",
+			"resolved_commit": "0123456789abcdef",
+			"path":            ".vectis",
+			"recursive":       true,
+			"limit":           10,
+			"entries": []map[string]any{
+				{"path": ".vectis/jobs", "name": "jobs", "type": "tree", "mode": "040000", "object_sha": "abcdef0123456789"},
+				{"path": ".vectis/jobs/build.json", "name": "build.json", "type": "blob", "mode": "100644", "object_sha": "fedcba9876543210", "size_bytes": 120},
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := listSourceTreeWithOutput(&buf, "vectis"); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"PATH", ".vectis/jobs", "tree", "abcdef012345", ".vectis/jobs/build.json", "120"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestListSourceDefinitions_sendsQueryAndPrintsDefinitions(t *testing.T) {
+	oldRef := sourceDefinitionsRef
+	oldPath := sourceDefinitionsPath
+	oldLimit := sourceDefinitionsLimit
+	oldQuiet := sourceDefinitionsQuiet
+	sourceDefinitionsRef = "main"
+	sourceDefinitionsPath = ".vectis/jobs"
+	sourceDefinitionsLimit = 7
+	sourceDefinitionsQuiet = false
+	t.Cleanup(func() {
+		sourceDefinitionsRef = oldRef
+		sourceDefinitionsPath = oldPath
+		sourceDefinitionsLimit = oldLimit
+		sourceDefinitionsQuiet = oldQuiet
+	})
+
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/source-repositories/vectis/definitions" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		q := r.URL.Query()
+		if q.Get("ref") != "main" || q.Get("path") != ".vectis/jobs" || q.Get("limit") != "7" {
+			t.Errorf("query=%s", r.URL.RawQuery)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"repository_id":   "vectis",
+			"requested_ref":   "main",
+			"resolved_commit": "0123456789abcdef",
+			"path":            ".vectis/jobs",
+			"limit":           7,
+			"definitions": []map[string]any{
+				{"path": ".vectis/jobs/build.json", "name": "build.json", "blob_sha": "abcdef0123456789", "size_bytes": 98},
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := listSourceDefinitionsWithOutput(&buf, "vectis"); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"PATH", ".vectis/jobs/build.json", "abcdef012345", "98"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
 func TestShowSourceJob_sendsQueryAndPrintsDefinition(t *testing.T) {
 	oldRef := sourceShowRef
 	oldPath := sourceShowPath

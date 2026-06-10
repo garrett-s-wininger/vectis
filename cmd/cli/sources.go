@@ -47,6 +47,82 @@ type sourceRepositorySyncInfo struct {
 	Error              string `json:"error,omitempty"`
 }
 
+type sourceRepositoryStatusResult struct {
+	RepositoryID       string                     `json:"repository_id"`
+	Namespace          string                     `json:"namespace"`
+	SourceKind         string                     `json:"source_kind"`
+	Enabled            bool                       `json:"enabled"`
+	Status             string                     `json:"status"`
+	CheckoutMode       string                     `json:"checkout_mode"`
+	AuthoringMode      string                     `json:"authoring_mode"`
+	Authoring          sourceAuthoringSummary     `json:"authoring"`
+	CheckoutPath       string                     `json:"checkout_path,omitempty"`
+	PathExists         bool                       `json:"path_exists"`
+	PathIsDirectory    bool                       `json:"path_is_directory"`
+	GitRepository      bool                       `json:"git_repository"`
+	WorkTreePath       string                     `json:"work_tree_path,omitempty"`
+	HeadRef            string                     `json:"head_ref,omitempty"`
+	DefaultRef         string                     `json:"default_ref,omitempty"`
+	DefaultRefResolved bool                       `json:"default_ref_resolved"`
+	ResolvedCommit     string                     `json:"resolved_commit,omitempty"`
+	Sync               sourceRepositorySyncInfo   `json:"sync"`
+	Error              *sourceRepositoryErrorInfo `json:"error,omitempty"`
+}
+
+type sourceRepositoryErrorInfo struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+type sourceRepositoryBranchSummary struct {
+	Name   string `json:"name"`
+	Ref    string `json:"ref"`
+	Commit string `json:"commit"`
+	Remote string `json:"remote,omitempty"`
+}
+
+type sourceRepositoryBranchesResult struct {
+	RepositoryID string                          `json:"repository_id"`
+	Prefix       string                          `json:"prefix,omitempty"`
+	Limit        int                             `json:"limit"`
+	Branches     []sourceRepositoryBranchSummary `json:"branches"`
+}
+
+type sourceRepositoryTreeEntry struct {
+	Path      string `json:"path"`
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	Mode      string `json:"mode"`
+	ObjectSHA string `json:"object_sha"`
+	SizeBytes int64  `json:"size_bytes,omitempty"`
+}
+
+type sourceRepositoryTreeResult struct {
+	RepositoryID   string                      `json:"repository_id"`
+	RequestedRef   string                      `json:"requested_ref"`
+	ResolvedCommit string                      `json:"resolved_commit"`
+	Path           string                      `json:"path,omitempty"`
+	Recursive      bool                        `json:"recursive"`
+	Limit          int                         `json:"limit"`
+	Entries        []sourceRepositoryTreeEntry `json:"entries"`
+}
+
+type sourceRepositoryDefinitionFile struct {
+	Path      string `json:"path"`
+	Name      string `json:"name"`
+	BlobSHA   string `json:"blob_sha"`
+	SizeBytes int64  `json:"size_bytes,omitempty"`
+}
+
+type sourceRepositoryDefinitionsResult struct {
+	RepositoryID   string                           `json:"repository_id"`
+	RequestedRef   string                           `json:"requested_ref"`
+	ResolvedCommit string                           `json:"resolved_commit"`
+	Path           string                           `json:"path"`
+	Limit          int                              `json:"limit"`
+	Definitions    []sourceRepositoryDefinitionFile `json:"definitions"`
+}
+
 type sourceRepositoryJobSummary struct {
 	JobID     string           `json:"job_id"`
 	Path      string           `json:"path"`
@@ -270,6 +346,312 @@ func syncSourceWithOutput(out io.Writer, repositoryID string) error {
 	default:
 		return fmt.Errorf("unexpected status syncing source repository: %s", resp.Status)
 	}
+}
+
+func showSourceStatus(cmd *cobra.Command, args []string) {
+	runCLIError(showSourceStatusWithOutput(os.Stdout, args[0]))
+}
+
+func showSourceStatusWithOutput(out io.Writer, repositoryID string) error {
+	req, err := newAPIRequest(http.MethodGet, "/api/v1/source-repositories/"+url.PathEscape(repositoryID)+"/status", nil)
+	if err != nil {
+		return fmt.Errorf("failed to create source repository status request: %w", err)
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to fetch source repository status: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var result sourceRepositoryStatusResult
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to parse source repository status response: %w", err)
+		}
+		return writeSourceStatusResult(out, result)
+	case http.StatusNotFound:
+		return fmt.Errorf("source repository %q not found", repositoryID)
+	default:
+		return fmt.Errorf("unexpected status fetching source repository status: %s", resp.Status)
+	}
+}
+
+func writeSourceStatusResult(out io.Writer, result sourceRepositoryStatusResult) error {
+	if outputIsJSON() {
+		return writeJSON(out, result)
+	}
+
+	fmt.Fprintf(out, "repository_id=%s\n", result.RepositoryID)
+	fmt.Fprintf(out, "namespace=%s\n", emptyAsDash(result.Namespace))
+	fmt.Fprintf(out, "status=%s\n", emptyAsDash(result.Status))
+	fmt.Fprintf(out, "enabled=%t\n", result.Enabled)
+	fmt.Fprintf(out, "checkout_mode=%s\n", emptyAsDash(result.CheckoutMode))
+	fmt.Fprintf(out, "authoring_mode=%s\n", emptyAsDash(result.AuthoringMode))
+	fmt.Fprintf(out, "write_definitions=%t\n", result.Authoring.WriteDefinitions)
+	if strings.TrimSpace(result.Authoring.Reason) != "" {
+		fmt.Fprintf(out, "authoring_reason=%s\n", result.Authoring.Reason)
+	}
+	if strings.TrimSpace(result.CheckoutPath) != "" {
+		fmt.Fprintf(out, "checkout_path=%s\n", result.CheckoutPath)
+	}
+	fmt.Fprintf(out, "path_exists=%t\n", result.PathExists)
+	fmt.Fprintf(out, "path_is_directory=%t\n", result.PathIsDirectory)
+	fmt.Fprintf(out, "git_repository=%t\n", result.GitRepository)
+	if strings.TrimSpace(result.WorkTreePath) != "" {
+		fmt.Fprintf(out, "work_tree_path=%s\n", result.WorkTreePath)
+	}
+	if strings.TrimSpace(result.HeadRef) != "" {
+		fmt.Fprintf(out, "head_ref=%s\n", result.HeadRef)
+	}
+	if strings.TrimSpace(result.DefaultRef) != "" {
+		fmt.Fprintf(out, "default_ref=%s\n", result.DefaultRef)
+		fmt.Fprintf(out, "default_ref_resolved=%t\n", result.DefaultRefResolved)
+	}
+	if strings.TrimSpace(result.ResolvedCommit) != "" {
+		fmt.Fprintf(out, "resolved_commit=%s\n", result.ResolvedCommit)
+	}
+	if strings.TrimSpace(result.Sync.Status) != "" {
+		fmt.Fprintf(out, "sync_status=%s\n", result.Sync.Status)
+	}
+	if strings.TrimSpace(result.Sync.Ref) != "" {
+		fmt.Fprintf(out, "sync_ref=%s\n", result.Sync.Ref)
+	}
+	if strings.TrimSpace(result.Sync.Commit) != "" {
+		fmt.Fprintf(out, "sync_commit=%s\n", result.Sync.Commit)
+	}
+	if strings.TrimSpace(result.Sync.Error) != "" {
+		fmt.Fprintf(out, "sync_error=%s\n", result.Sync.Error)
+	}
+	if result.Error != nil {
+		fmt.Fprintf(out, "error_code=%s\n", result.Error.Code)
+		fmt.Fprintf(out, "error_message=%s\n", result.Error.Message)
+	}
+
+	return nil
+}
+
+func listSourceBranches(cmd *cobra.Command, args []string) {
+	runCLIError(listSourceBranchesWithOutput(os.Stdout, args[0]))
+}
+
+func listSourceBranchesWithOutput(out io.Writer, repositoryID string) error {
+	path := "/api/v1/source-repositories/" + url.PathEscape(repositoryID) + "/refs/branches"
+	params := url.Values{}
+	if v := strings.TrimSpace(sourceBranchesPrefix); v != "" {
+		params.Set("prefix", v)
+	}
+	if sourceBranchesLimit > 0 {
+		params.Set("limit", strconv.Itoa(sourceBranchesLimit))
+	}
+	path = appendQueryParams(path, params)
+
+	req, err := newAPIRequest(http.MethodGet, path, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create source branches request: %w", err)
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to list source branches: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var result sourceRepositoryBranchesResult
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to parse source branches response: %w", err)
+		}
+		return writeSourceBranchesResult(out, result)
+	case http.StatusNotFound:
+		return fmt.Errorf("source repository %q not found", repositoryID)
+	default:
+		return fmt.Errorf("unexpected status listing source branches: %s", resp.Status)
+	}
+}
+
+func writeSourceBranchesResult(out io.Writer, result sourceRepositoryBranchesResult) error {
+	if outputIsJSON() {
+		return writeJSON(out, result)
+	}
+
+	if len(result.Branches) == 0 {
+		fmt.Fprintln(out, "No source branches found")
+		return nil
+	}
+
+	if sourceBranchesQuiet {
+		for _, branch := range result.Branches {
+			fmt.Fprintln(out, branch.Name)
+		}
+		return nil
+	}
+
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "NAME\tREF\tCOMMIT\tREMOTE")
+	for _, branch := range result.Branches {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n",
+			branch.Name,
+			branch.Ref,
+			shortSHA(branch.Commit),
+			emptyAsDash(branch.Remote),
+		)
+	}
+	return tw.Flush()
+}
+
+func listSourceTree(cmd *cobra.Command, args []string) {
+	runCLIError(listSourceTreeWithOutput(os.Stdout, args[0]))
+}
+
+func listSourceTreeWithOutput(out io.Writer, repositoryID string) error {
+	path := "/api/v1/source-repositories/" + url.PathEscape(repositoryID) + "/tree"
+	params := url.Values{}
+	if v := strings.TrimSpace(sourceTreeRef); v != "" {
+		params.Set("ref", v)
+	}
+	if v := strings.TrimSpace(sourceTreePath); v != "" {
+		params.Set("path", v)
+	}
+	if sourceTreeLimit > 0 {
+		params.Set("limit", strconv.Itoa(sourceTreeLimit))
+	}
+	if sourceTreeRecursive {
+		params.Set("recursive", "true")
+	}
+	path = appendQueryParams(path, params)
+
+	req, err := newAPIRequest(http.MethodGet, path, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create source tree request: %w", err)
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to list source tree: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var result sourceRepositoryTreeResult
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to parse source tree response: %w", err)
+		}
+		return writeSourceTreeResult(out, result)
+	case http.StatusNotFound:
+		return fmt.Errorf("source repository %q or tree path not found", repositoryID)
+	case http.StatusBadRequest:
+		return fmt.Errorf("invalid source tree request")
+	default:
+		return fmt.Errorf("unexpected status listing source tree: %s", resp.Status)
+	}
+}
+
+func writeSourceTreeResult(out io.Writer, result sourceRepositoryTreeResult) error {
+	if outputIsJSON() {
+		return writeJSON(out, result)
+	}
+
+	if len(result.Entries) == 0 {
+		fmt.Fprintln(out, "No source tree entries found")
+		return nil
+	}
+
+	if sourceTreeQuiet {
+		for _, entry := range result.Entries {
+			fmt.Fprintln(out, entry.Path)
+		}
+		return nil
+	}
+
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "PATH\tTYPE\tOBJECT\tSIZE")
+	for _, entry := range result.Entries {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n",
+			entry.Path,
+			entry.Type,
+			shortSHA(entry.ObjectSHA),
+			sizeAsDash(entry.SizeBytes),
+		)
+	}
+	return tw.Flush()
+}
+
+func listSourceDefinitions(cmd *cobra.Command, args []string) {
+	runCLIError(listSourceDefinitionsWithOutput(os.Stdout, args[0]))
+}
+
+func listSourceDefinitionsWithOutput(out io.Writer, repositoryID string) error {
+	path := "/api/v1/source-repositories/" + url.PathEscape(repositoryID) + "/definitions"
+	params := url.Values{}
+	if v := strings.TrimSpace(sourceDefinitionsRef); v != "" {
+		params.Set("ref", v)
+	}
+	if v := strings.TrimSpace(sourceDefinitionsPath); v != "" {
+		params.Set("path", v)
+	}
+	if sourceDefinitionsLimit > 0 {
+		params.Set("limit", strconv.Itoa(sourceDefinitionsLimit))
+	}
+	path = appendQueryParams(path, params)
+
+	req, err := newAPIRequest(http.MethodGet, path, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create source definitions request: %w", err)
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to list source definitions: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var result sourceRepositoryDefinitionsResult
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to parse source definitions response: %w", err)
+		}
+		return writeSourceDefinitionsResult(out, result)
+	case http.StatusNotFound:
+		return fmt.Errorf("source repository %q or definitions path not found", repositoryID)
+	case http.StatusBadRequest:
+		return fmt.Errorf("invalid source definitions request")
+	default:
+		return fmt.Errorf("unexpected status listing source definitions: %s", resp.Status)
+	}
+}
+
+func writeSourceDefinitionsResult(out io.Writer, result sourceRepositoryDefinitionsResult) error {
+	if outputIsJSON() {
+		return writeJSON(out, result)
+	}
+
+	if len(result.Definitions) == 0 {
+		fmt.Fprintln(out, "No source definitions found")
+		return nil
+	}
+
+	if sourceDefinitionsQuiet {
+		for _, definition := range result.Definitions {
+			fmt.Fprintln(out, definition.Path)
+		}
+		return nil
+	}
+
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "PATH\tBLOB\tSIZE")
+	for _, definition := range result.Definitions {
+		fmt.Fprintf(tw, "%s\t%s\t%s\n",
+			definition.Path,
+			shortSHA(definition.BlobSHA),
+			sizeAsDash(definition.SizeBytes),
+		)
+	}
+	return tw.Flush()
 }
 
 func listSourceJobs(cmd *cobra.Command, args []string) {
@@ -521,6 +903,13 @@ func shortSHA(s string) string {
 	return s[:12]
 }
 
+func sizeAsDash(size int64) string {
+	if size <= 0 {
+		return "-"
+	}
+	return strconv.FormatInt(size, 10)
+}
+
 var sourcesCmd = &cobra.Command{
 	Use:     "sources",
 	Short:   "Work with source repositories",
@@ -551,6 +940,38 @@ var sourcesSyncCmd = &cobra.Command{
 	Long:  `Probe or refresh a source repository checkout and persist its latest sync status.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   syncSource,
+}
+
+var sourcesStatusCmd = &cobra.Command{
+	Use:   "status [repository-id]",
+	Short: "Show source repository checkout status",
+	Long:  `Check whether a source repository checkout is usable, whether its default ref resolves, and what authoring capabilities are available.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   showSourceStatus,
+}
+
+var sourcesBranchesCmd = &cobra.Command{
+	Use:   "branches [repository-id]",
+	Short: "List source repository branches",
+	Long:  `List branch refs available from a source repository checkout for ref pickers and manual source operations.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   listSourceBranches,
+}
+
+var sourcesTreeCmd = &cobra.Command{
+	Use:   "tree [repository-id]",
+	Short: "List source repository tree entries",
+	Long:  `List tree entries at a source repository ref and path without reading file contents.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   listSourceTree,
+}
+
+var sourcesDefinitionsCmd = &cobra.Command{
+	Use:   "definitions [repository-id]",
+	Short: "List source definition files",
+	Long:  `Discover candidate JSON job definition files in a source repository without loading file contents.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   listSourceDefinitions,
 }
 
 var sourcesJobsCmd = &cobra.Command{
@@ -606,6 +1027,27 @@ func configureSourcesRegisterFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&sourceRegisterDefaultRef, "default-ref", "", "Default git ref for source operations")
 	cmd.Flags().StringVar(&sourceRegisterCredentialRef, "credential-ref", "", "Credential reference for future source integrations")
 	cmd.Flags().BoolVar(&sourceRegisterDisabled, "disabled", false, "Register the repository disabled")
+}
+
+func configureSourcesBranchesFlags(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&sourceBranchesPrefix, "prefix", "", "Branch name prefix to filter")
+	cmd.Flags().IntVar(&sourceBranchesLimit, "limit", 0, "Max branches to return")
+	cmd.Flags().BoolVarP(&sourceBranchesQuiet, "quiet", "q", false, "Print only branch names")
+}
+
+func configureSourcesTreeFlags(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&sourceTreeRef, "ref", "", "Git ref to inspect (default: repository default_ref or HEAD)")
+	cmd.Flags().StringVar(&sourceTreePath, "path", "", "Tree path to list")
+	cmd.Flags().IntVar(&sourceTreeLimit, "limit", 0, "Max tree entries to return")
+	cmd.Flags().BoolVarP(&sourceTreeRecursive, "recursive", "r", false, "List tree entries recursively")
+	cmd.Flags().BoolVarP(&sourceTreeQuiet, "quiet", "q", false, "Print only paths")
+}
+
+func configureSourcesDefinitionsFlags(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&sourceDefinitionsRef, "ref", "", "Git ref to inspect (default: repository default_ref or HEAD)")
+	cmd.Flags().StringVar(&sourceDefinitionsPath, "path", "", "Definition directory path (default: .vectis/jobs)")
+	cmd.Flags().IntVar(&sourceDefinitionsLimit, "limit", 0, "Max definition files to return")
+	cmd.Flags().BoolVarP(&sourceDefinitionsQuiet, "quiet", "q", false, "Print only definition paths")
 }
 
 func configureSourcesJobsFlags(cmd *cobra.Command) {

@@ -91,6 +91,18 @@ var (
 	sourceRegisterDefaultRef    string
 	sourceRegisterCredentialRef string
 	sourceRegisterDisabled      bool
+	sourceBranchesPrefix        string
+	sourceBranchesLimit         int
+	sourceBranchesQuiet         bool
+	sourceTreeRef               string
+	sourceTreePath              string
+	sourceTreeLimit             int
+	sourceTreeRecursive         bool
+	sourceTreeQuiet             bool
+	sourceDefinitionsRef        string
+	sourceDefinitionsPath       string
+	sourceDefinitionsLimit      int
+	sourceDefinitionsQuiet      bool
 	sourceJobsRef               string
 	sourceJobsPath              string
 	sourceJobsLimit             int
@@ -161,13 +173,16 @@ func init() {
 
 	configureSourcesListFlags(sourcesListCmd)
 	configureSourcesRegisterFlags(sourcesRegisterCmd)
+	configureSourcesBranchesFlags(sourcesBranchesCmd)
+	configureSourcesTreeFlags(sourcesTreeCmd)
+	configureSourcesDefinitionsFlags(sourcesDefinitionsCmd)
 	configureSourcesJobsFlags(sourcesJobsCmd)
 	configureSourcesShowFlags(sourcesShowCmd)
 	configureSourcesRunsFlags(sourcesRunsCmd)
 	configureLogFilterFlags(sourcesLogsCmd)
 	configureSourcesLogsFlags(sourcesLogsCmd)
 	configureSourcesTriggerFlags(sourcesTriggerCmd)
-	sourcesCmd.AddCommand(sourcesListCmd, sourcesRegisterCmd, sourcesSyncCmd, sourcesJobsCmd, sourcesShowCmd, sourcesRunsCmd, sourcesLogsCmd, sourcesTriggerCmd)
+	sourcesCmd.AddCommand(sourcesListCmd, sourcesRegisterCmd, sourcesSyncCmd, sourcesStatusCmd, sourcesBranchesCmd, sourcesTreeCmd, sourcesDefinitionsCmd, sourcesJobsCmd, sourcesShowCmd, sourcesRunsCmd, sourcesLogsCmd, sourcesTriggerCmd)
 	rootCmd.AddCommand(sourcesCmd)
 
 	configureRunListFlags(runListCmd)
