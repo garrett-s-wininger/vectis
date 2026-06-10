@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/dal"
@@ -1383,6 +1385,96 @@ func TestAPIServer_TriggerManagedSourceRepositoryJobCreatesRunSnapshot(t *testin
 	handler.ServeHTTP(listDisabledRunsRec, listDisabledRunsReq)
 	if listDisabledRunsRec.Code != http.StatusOK {
 		t.Fatalf("list disabled source repository job runs: status=%d body=%s", listDisabledRunsRec.Code, listDisabledRunsRec.Body.String())
+	}
+}
+
+func TestAPIServer_SSESourceRepositoryJobRunsReceivesSourceTrigger(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+
+	server, _, _, _ := setupTestServer(t)
+	handler := server.Handler()
+	repoPath := initAPIGitRepo(t)
+	writeAPIJobDefinitionAndCommit(t, repoPath, "source-sse", "source sse definition")
+
+	registerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
+		"repository_id": "vectis-local",
+		"source_kind":   dal.SourceKindLocalCheckout,
+		"checkout_path": repoPath,
+		"default_ref":   "HEAD",
+	})
+
+	if registerRec.Code != http.StatusCreated {
+		t.Fatalf("register source repository: status=%d body=%s", registerRec.Code, registerRec.Body.String())
+	}
+
+	httpServer := httptest.NewServer(handler)
+	defer httpServer.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, httpServer.URL+"/api/v1/sse/source-repositories/vectis-local/jobs/build/runs", nil)
+	if err != nil {
+		t.Fatalf("create source sse request: %v", err)
+	}
+
+	req.Header.Set("Accept", "text/event-stream")
+	sseResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("connect source sse: %v", err)
+	}
+	defer sseResp.Body.Close()
+
+	triggerBody := strings.NewReader(`{"ref":"HEAD"}`)
+	triggerResp, err := http.Post(httpServer.URL+"/api/v1/source-repositories/vectis-local/jobs/build/trigger", "application/json", triggerBody)
+	if err != nil {
+		t.Fatalf("trigger source job: %v", err)
+	}
+
+	triggerResp.Body.Close()
+	if triggerResp.StatusCode != http.StatusAccepted {
+		t.Fatalf("trigger source job: expected 202, got %d", triggerResp.StatusCode)
+	}
+
+	reader := bufio.NewReader(sseResp.Body)
+	var dataBuf strings.Builder
+	var ev struct {
+		RunID    string `json:"run_id"`
+		RunIndex int    `json:"run_index"`
+	}
+
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			t.Fatalf("read source sse line: %v", err)
+		}
+
+		line = strings.TrimRight(line, "\r\n")
+		if line == "" {
+			if dataBuf.Len() == 0 {
+				continue
+			}
+			message := []byte(dataBuf.String())
+			dataBuf.Reset()
+
+			if err := json.Unmarshal(message, &ev); err != nil {
+				t.Fatalf("unmarshal source run event: %v", err)
+			}
+			break
+		}
+
+		if after, ok := strings.CutPrefix(line, "data:"); ok {
+			data := strings.TrimSpace(after)
+			dataBuf.WriteString(data)
+		}
+	}
+
+	if ev.RunID == "" {
+		t.Error("expected non-empty run_id")
+	}
+
+	if ev.RunIndex != 1 {
+		t.Errorf("expected run_index 1, got %d", ev.RunIndex)
 	}
 }
 

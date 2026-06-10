@@ -1130,6 +1130,7 @@ func (s *APIServer) TriggerSourceRepositoryJob(w http.ResponseWriter, r *http.Re
 		"invocation":         invocationID,
 	})
 
+	s.runBroadcaster.Broadcast(sourceRepositoryRunBroadcastKey(rec.RepositoryID, jobID), runID, runIndex)
 	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventAccepted, targetCellID, nil)
 	s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindSource, observability.APIEnqueueOutcomeAccepted)
 
@@ -1205,6 +1206,34 @@ func (s *APIServer) GetSourceRepositoryJobRuns(w http.ResponseWriter, r *http.Re
 	s.markDBRecovered()
 
 	s.writeJobRunsResponse(w, ctx, jobID, runRows, nextCursor)
+}
+
+func (s *APIServer) HandleSSESourceRepositoryJobRuns(w http.ResponseWriter, r *http.Request) {
+	jobID := strings.TrimSpace(r.PathValue("job_id"))
+	if jobID == "" {
+		writeAPIError(w, http.StatusBadRequest, "missing_job_id", "job_id is required", nil)
+		return
+	}
+
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireNamespaces(w) || !s.requireSources(w) {
+		return
+	}
+
+	rec, _, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionRunRead, false)
+	if !ok {
+		return
+	}
+
+	subscriptionKey := sourceRepositoryRunBroadcastKey(rec.RepositoryID, jobID)
+	s.streamRunEvents(w, r, subscriptionKey, "source repository "+rec.RepositoryID+" job "+jobID)
 }
 
 func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request) {

@@ -63,6 +63,10 @@ func (s *APIServer) HandleSSEJobRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.streamRunEvents(w, r, jobID, "job: "+jobID)
+}
+
+func (s *APIServer) streamRunEvents(w http.ResponseWriter, r *http.Request, subscriptionKey, logSubject string) {
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -78,10 +82,10 @@ func (s *APIServer) HandleSSEJobRuns(w http.ResponseWriter, r *http.Request) {
 
 	clearResponseWriteDeadline(w)
 
-	ch := s.runBroadcaster.Subscribe(jobID)
-	defer s.runBroadcaster.Unsubscribe(jobID, ch)
+	ch := s.runBroadcaster.Subscribe(subscriptionKey)
+	defer s.runBroadcaster.Unsubscribe(subscriptionKey, ch)
 
-	s.logger.Info("SSE client subscribed to runs for job: %s", jobID)
+	s.logger.Info("SSE client subscribed to runs for %s", logSubject)
 
 	_, _ = w.Write([]byte(": connected\n\n"))
 	flusher.Flush()
