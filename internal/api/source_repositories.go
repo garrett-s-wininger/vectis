@@ -415,27 +415,18 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 	syncRef := sourceRepositorySyncRef(rec)
 	releaseSync, syncStarted := s.tryBeginSourceRepositorySync(rec.RepositoryID)
 	if !syncStarted {
-		running := rec
-		running.SyncStatus = dal.SourceSyncStatusRunning
-		running.LastSyncRef = syncRef
-		if running.LastSyncStartedAtUnix == 0 {
-			running.LastSyncStartedAtUnix = time.Now().Unix()
-		}
-
-		w.Header().Set("Retry-After", "1")
-		writeJSON(w, http.StatusAccepted, sourceRepositoryRecordToResponse(running, nsPath))
-
+		writeRunningSourceRepositorySync(w, rec, nsPath, syncRef)
 		return
 	}
 	defer releaseSync()
 
 	startedAt := time.Now().Unix()
-	if _, err := s.sources.UpdateRepositorySync(ctx, dal.SourceRepositorySyncRecord{
+	running, began, err := s.sources.BeginRepositorySync(ctx, dal.SourceRepositorySyncRecord{
 		RepositoryID:  rec.RepositoryID,
-		Status:        dal.SourceSyncStatusRunning,
 		StartedAtUnix: startedAt,
 		Ref:           syncRef,
-	}); err != nil {
+	})
+	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
 		}
@@ -455,6 +446,11 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	s.markDBRecovered()
+
+	if !began {
+		writeRunningSourceRepositorySync(w, running, nsPath, syncRef)
+		return
+	}
 
 	syncRecord := dal.SourceRepositorySyncRecord{
 		RepositoryID:  rec.RepositoryID,
@@ -1131,6 +1127,21 @@ func sourceRepositoryStatusSyncError(status sourcepkg.GitCheckoutStatus) string 
 	}
 
 	return status.ErrorCode + ": " + status.ErrorMessage
+}
+
+func writeRunningSourceRepositorySync(w http.ResponseWriter, rec dal.SourceRepositoryRecord, namespacePath, syncRef string) {
+	running := rec
+	running.SyncStatus = dal.SourceSyncStatusRunning
+	if strings.TrimSpace(running.LastSyncRef) == "" {
+		running.LastSyncRef = syncRef
+	}
+
+	if running.LastSyncStartedAtUnix == 0 {
+		running.LastSyncStartedAtUnix = time.Now().Unix()
+	}
+
+	w.Header().Set("Retry-After", "1")
+	writeJSON(w, http.StatusAccepted, sourceRepositoryRecordToResponse(running, namespacePath))
 }
 
 func (s *APIServer) tryBeginSourceRepositorySync(repositoryID string) (func(), bool) {

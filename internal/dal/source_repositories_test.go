@@ -292,6 +292,93 @@ func TestSourcesRepository_UpdateRepositorySync(t *testing.T) {
 	}
 }
 
+func TestSourcesRepository_BeginRepositorySync(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	sources := dal.NewSQLRepositories(db).Sources()
+	ctx := context.Background()
+
+	if _, err := sources.CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "vectis-local",
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/vectis",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("CreateRepository: %v", err)
+	}
+
+	running, began, err := sources.BeginRepositorySync(ctx, dal.SourceRepositorySyncRecord{
+		RepositoryID:  "vectis-local",
+		StartedAtUnix: 100,
+		Ref:           "HEAD",
+	})
+
+	if err != nil {
+		t.Fatalf("BeginRepositorySync: %v", err)
+	}
+
+	if !began ||
+		running.SyncStatus != dal.SourceSyncStatusRunning ||
+		running.LastSyncStartedAtUnix != 100 ||
+		running.LastSyncFinishedAtUnix != 0 ||
+		running.LastSyncRef != "HEAD" ||
+		running.LastSyncCommit != "" ||
+		running.LastSyncError != "" {
+		t.Fatalf("running sync mismatch: began=%v record=%+v", began, running)
+	}
+
+	blocked, began, err := sources.BeginRepositorySync(ctx, dal.SourceRepositorySyncRecord{
+		RepositoryID:  "vectis-local",
+		StartedAtUnix: 200,
+		Ref:           "refs/heads/main",
+	})
+
+	if err != nil {
+		t.Fatalf("BeginRepositorySync already running: %v", err)
+	}
+
+	if began || blocked.SyncStatus != dal.SourceSyncStatusRunning || blocked.LastSyncStartedAtUnix != 100 || blocked.LastSyncRef != "HEAD" {
+		t.Fatalf("already running mismatch: began=%v record=%+v", began, blocked)
+	}
+
+	if _, err := sources.UpdateRepositorySync(ctx, dal.SourceRepositorySyncRecord{
+		RepositoryID:   "vectis-local",
+		Status:         dal.SourceSyncStatusSucceeded,
+		StartedAtUnix:  100,
+		FinishedAtUnix: 105,
+		Ref:            "HEAD",
+		Commit:         "0123456789abcdef0123456789abcdef01234567",
+	}); err != nil {
+		t.Fatalf("UpdateRepositorySync: %v", err)
+	}
+
+	running, began, err = sources.BeginRepositorySync(ctx, dal.SourceRepositorySyncRecord{
+		RepositoryID:  "vectis-local",
+		StartedAtUnix: 300,
+		Ref:           "refs/heads/main",
+	})
+
+	if err != nil {
+		t.Fatalf("BeginRepositorySync after completion: %v", err)
+	}
+
+	if !began ||
+		running.SyncStatus != dal.SourceSyncStatusRunning ||
+		running.LastSyncStartedAtUnix != 300 ||
+		running.LastSyncFinishedAtUnix != 0 ||
+		running.LastSyncRef != "refs/heads/main" ||
+		running.LastSyncCommit != "" ||
+		running.LastSyncError != "" {
+		t.Fatalf("rerun sync mismatch: began=%v record=%+v", began, running)
+	}
+
+	if _, _, err := sources.BeginRepositorySync(ctx, dal.SourceRepositorySyncRecord{
+		RepositoryID: "missing",
+	}); !dal.IsNotFound(err) {
+		t.Fatalf("expected not found for missing repository, got %v", err)
+	}
+}
+
 func TestSourcesRepository_RecordAndGetDefinitionSource(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)

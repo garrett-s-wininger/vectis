@@ -97,6 +97,63 @@ func (r *SQLSourcesRepository) UpdateRepository(ctx context.Context, rec SourceR
 	return r.GetRepository(ctx, rec.RepositoryID)
 }
 
+func (r *SQLSourcesRepository) BeginRepositorySync(ctx context.Context, rec SourceRepositorySyncRecord) (SourceRepositoryRecord, bool, error) {
+	rec.Status = SourceSyncStatusRunning
+	rec.FinishedAtUnix = 0
+	rec.Commit = ""
+	rec.Error = ""
+
+	rec, err := normalizeSourceRepositorySyncRecord(rec)
+	if err != nil {
+		return SourceRepositoryRecord{}, false, err
+	}
+
+	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE source_repositories
+		SET
+			sync_status = ?,
+			last_sync_started_at_unix = ?,
+			last_sync_finished_at_unix = 0,
+			last_sync_ref = ?,
+			last_sync_commit = '',
+			last_sync_error = '',
+			updated_at = CURRENT_TIMESTAMP
+		WHERE repository_id = ?
+			AND COALESCE(sync_status, '') <> ?
+	`),
+		rec.Status,
+		rec.StartedAtUnix,
+		rec.Ref,
+		rec.RepositoryID,
+		SourceSyncStatusRunning,
+	)
+
+	if err != nil {
+		return SourceRepositoryRecord{}, false, normalizeSQLError(err)
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return SourceRepositoryRecord{}, false, normalizeSQLError(err)
+	}
+
+	if rowsAffected == 0 {
+		current, err := r.GetRepository(ctx, rec.RepositoryID)
+		if err != nil {
+			return SourceRepositoryRecord{}, false, err
+		}
+
+		return current, false, nil
+	}
+
+	current, err := r.GetRepository(ctx, rec.RepositoryID)
+	if err != nil {
+		return SourceRepositoryRecord{}, false, err
+	}
+
+	return current, true, nil
+}
+
 func (r *SQLSourcesRepository) UpdateRepositorySync(ctx context.Context, rec SourceRepositorySyncRecord) (SourceRepositoryRecord, error) {
 	rec, err := normalizeSourceRepositorySyncRecord(rec)
 	if err != nil {

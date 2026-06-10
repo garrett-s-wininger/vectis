@@ -740,6 +740,7 @@ type SourceBackedJobsRepository interface {
 type SourcesRepository interface {
 	CreateRepository(ctx context.Context, rec SourceRepositoryRecord) (SourceRepositoryRecord, error)
 	UpdateRepository(ctx context.Context, rec SourceRepositoryRecord) (SourceRepositoryRecord, error)
+	BeginRepositorySync(ctx context.Context, rec SourceRepositorySyncRecord) (SourceRepositoryRecord, bool, error)
 	UpdateRepositorySync(ctx context.Context, rec SourceRepositorySyncRecord) (SourceRepositoryRecord, error)
 	GetRepository(ctx context.Context, repositoryID string) (SourceRepositoryRecord, error)
 	ListRepositories(ctx context.Context, namespaceID int64) ([]SourceRepositoryRecord, error)
