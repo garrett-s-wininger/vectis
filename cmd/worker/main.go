@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
@@ -37,9 +38,9 @@ import (
 	"vectis/internal/platform"
 	"vectis/internal/queueclient"
 	"vectis/internal/registry"
+	"vectis/internal/resolver"
 	"vectis/internal/runpolicy"
 	"vectis/internal/spire"
-	"vectis/internal/taskdispatch"
 	"vectis/internal/taskfinalize"
 	"vectis/internal/taskreduce"
 	"vectis/internal/utils"
@@ -136,16 +137,6 @@ func runWorker(cmd *cobra.Command, args []string) {
 		logger.Fatal("Failed to initialize log routing metrics: %v", err)
 	}
 
-	dispatchMetrics, err := observability.NewDispatchMetrics()
-	if err != nil {
-		logger.Fatal("Failed to initialize dispatch metrics: %v", err)
-	}
-
-	taskDispatchMetrics, err := observability.NewTaskDispatchMetrics()
-	if err != nil {
-		logger.Fatal("Failed to initialize task dispatch metrics: %v", err)
-	}
-
 	taskFinalizeMetrics, err := observability.NewTaskFinalizeMetrics()
 	if err != nil {
 		logger.Fatal("Failed to initialize task finalize metrics: %v", err)
@@ -180,6 +171,17 @@ func runWorker(cmd *cobra.Command, args []string) {
 	}
 	defer func() { _ = clients.Close() }()
 
+	orchestratorConn, stopOrchestrator, err := resolver.DialOrchestrator(shutdownCtx, logger, config.PinnedOrchestratorAddress(), config.WorkerRegistryDialAddress(), retryMetrics)
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			logger.Info("Worker graceful shutdown before connecting to orchestrator service")
+			return
+		}
+
+		logger.Fatal("Failed to connect to orchestrator service: %v", err)
+	}
+	defer stopOrchestrator()
+
 	logClient := interfaces.LogClient(clients)
 
 	// Prefer the local log-forwarder Unix socket when available.
@@ -189,10 +191,6 @@ func runWorker(cmd *cobra.Command, args []string) {
 	forwarderSocket := forwarderSocketPath()
 	logClient = interfaces.NewPreferForwarderLogClient(forwarderSocket, logClient)
 
-	taskDispatcher := taskdispatch.New(runsRepo, repos.TaskDispatchIntents(), repos.DispatchEvents(), cell.NewQueueExecutionIngress(queueClientServiceAdapter{queue: clients}, logger), interfaces.SystemClock{})
-	taskDispatcher.SetDispatchMetrics(dispatchMetrics)
-	taskDispatchService := taskdispatch.NewService(logger, taskDispatcher)
-	taskDispatchService.SetMetrics(taskDispatchMetrics)
 	var spireSVIDSource spire.X509SVIDSource
 	if config.WorkerSPIREEnabled() {
 		src, err := spire.NewWorkloadAPISource(config.WorkerSPIREWorkloadAPIAddress())
@@ -231,9 +229,9 @@ func runWorker(cmd *cobra.Command, args []string) {
 		artifactMaxRunBytes: config.WorkerArtifactMaxRunBytes(),
 		artifactMaxCount:    config.WorkerArtifactMaxCount(),
 		retryMetrics:        retryMetrics,
+		choreographer:       newGRPCExecutionChoreographer(api.NewOrchestratorServiceClient(orchestratorConn)),
 		catalog:             cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
 		metrics:             workerMetrics,
-		taskDispatchService: taskDispatchService,
 		taskFinalizeMetrics: taskFinalizeMetrics,
 		spireSVIDSource:     spireSVIDSource,
 		cancelCh:            make(chan string, 1),
@@ -425,9 +423,9 @@ type worker struct {
 	artifactMaxRunBytes int64
 	artifactMaxCount    int64
 	retryMetrics        backoff.RetryMetrics
+	choreographer       executionChoreographer
 	catalog             cell.CatalogEventPublisher
 	metrics             *observability.WorkerMetrics
-	taskDispatchService *taskdispatch.Service
 	taskFinalizeMetrics *observability.TaskFinalizeMetrics
 	spireSVIDSource     spire.X509SVIDSource
 	dequeueFailAttempt  int
@@ -438,22 +436,6 @@ type worker struct {
 	currentRunID        string
 	currentClaimToken   string
 	currentMu           sync.Mutex
-}
-
-type queueClientServiceAdapter struct {
-	queue interfaces.QueueClient
-}
-
-func (a queueClientServiceAdapter) Enqueue(ctx context.Context, req *api.JobRequest) (*api.Empty, error) {
-	if a.queue == nil {
-		return nil, errors.New("queue client is required")
-	}
-
-	if err := a.queue.Enqueue(ctx, req); err != nil {
-		return nil, err
-	}
-
-	return &api.Empty{}, nil
 }
 
 func (w *worker) now() time.Time {
@@ -472,6 +454,32 @@ func (w *worker) leaseDeadline() time.Time {
 	}
 
 	return now.Add(dal.DefaultLeaseTTL)
+}
+
+func (w *worker) executionChoreographer() executionChoreographer {
+	if w.choreographer != nil {
+		return w.choreographer
+	}
+
+	return missingExecutionChoreographer{}
+}
+
+type missingExecutionChoreographer struct{}
+
+func (missingExecutionChoreographer) LoadRun(context.Context, *api.Job, *cell.ExecutionEnvelope) error {
+	return errors.New("execution choreographer is not configured")
+}
+
+func (missingExecutionChoreographer) ClaimAndStartExecution(context.Context, *cell.ExecutionEnvelope, string, time.Time) (dal.ExecutionClaimResult, error) {
+	return dal.ExecutionClaimResult{}, errors.New("execution choreographer is not configured")
+}
+
+func (missingExecutionChoreographer) RenewExecutionLease(context.Context, *cell.ExecutionEnvelope, string, string, time.Time) error {
+	return errors.New("execution choreographer is not configured")
+}
+
+func (missingExecutionChoreographer) CompleteExecution(context.Context, *cell.ExecutionEnvelope, string, string, string, string, string) (dal.ExecutionFinalizationResult, error) {
+	return dal.ExecutionFinalizationResult{}, errors.New("execution choreographer is not configured")
 }
 
 func (w *worker) run() {
@@ -813,7 +821,21 @@ func (w *worker) runTaskExecution(ctx context.Context, job *api.Job, jobID, runI
 		return observability.WorkerOutcomeFailed
 	}
 
-	executionClaimToken, executionClaimed, executionClaimErr := w.tryClaimExecution(ctx, executionEnvelope, leaseUntil)
+	if err := w.prepareRunForExecution(ctx, job, executionEnvelope); err != nil {
+		span.SetStatus(otelcodes.Error, "prepare run")
+		span.RecordError(err)
+		w.logger.Error("Failed to prepare run %s for orchestrator execution: %v", runID, err)
+		w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
+		if markErr := w.markRunOrphanedWithRetry(runID, dal.OrphanReasonAckUncertain); markErr != nil {
+			w.logger.Error("Failed to mark run %s orphaned after orchestrator prepare failure: %v", runID, markErr)
+			span.RecordError(markErr)
+		}
+
+		span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeFailed))
+		return observability.WorkerOutcomeFailed
+	}
+
+	executionClaimToken, executionClaimed, executionStarted, executionClaimErr := w.tryClaimExecution(ctx, executionEnvelope, leaseUntil)
 	if executionClaimErr != nil {
 		span.SetStatus(otelcodes.Error, "claim execution")
 		w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
@@ -831,6 +853,11 @@ func (w *worker) runTaskExecution(ctx context.Context, job *api.Job, jobID, runI
 	}
 
 	w.recordRunCatalogEvent(dal.RunStatusUpdate{RunID: runID, Status: dal.RunStatusRunning})
+	if executionStarted {
+		w.recordExecutionStarted(ctx, executionEnvelope)
+	} else {
+		w.markExecutionStarted(ctx, executionEnvelope)
+	}
 	w.setLifecyclePhase(observability.WorkerPhaseExecuting)
 	execErr := w.executeWithLeaseRenewal(ctx, runID, executionClaimToken, job, executionEnvelope)
 	if execErr != nil {
@@ -852,7 +879,33 @@ func (w *worker) runTaskExecution(ctx context.Context, job *api.Job, jobID, runI
 	}
 
 	w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
-	return w.finalizeSucceededTaskRunByExecutionClaim(ctx, jobID, runID, executionClaimToken, executionEnvelope)
+	return w.finalizeSucceededTaskRunByExecutionClaim(ctx, job, jobID, runID, executionClaimToken, executionEnvelope)
+}
+
+func (w *worker) prepareRunForExecution(ctx context.Context, j *api.Job, env *cell.ExecutionEnvelope) error {
+	if j == nil || env == nil {
+		return nil
+	}
+
+	plan, err := job.PlanTaskExecutions(j)
+	if err != nil {
+		return err
+	}
+
+	if len(plan) > 0 && w.store != nil && env.TaskKey == dal.RootTaskKey {
+		if _, err := job.EnsurePlannedTaskExecutions(w.runCtx, w.store, env.RunID, plan, env.CellID); err != nil {
+			w.noteDBError(err)
+			return fmt.Errorf("materialize planned task executions: %w", err)
+		}
+		w.noteDBRecovered()
+	}
+
+	if err := w.executionChoreographer().LoadRun(w.runCtx, j, env); err != nil {
+		return fmt.Errorf("load orchestrator run: %w", err)
+	}
+
+	trace.SpanFromContext(ctx).AddEvent("orchestrator.run.loaded")
+	return nil
 }
 
 func (w *worker) finalizeFailedTaskRunByExecutionClaim(ctx context.Context, executionClaimToken, failureCode, reason string, executionEnvelope *cell.ExecutionEnvelope) string {
@@ -900,7 +953,7 @@ func (w *worker) finalizeAbortedTaskRunByExecutionClaim(ctx context.Context, exe
 	return observability.WorkerOutcomeAborted
 }
 
-func (w *worker) finalizeSucceededTaskRunByExecutionClaim(ctx context.Context, jobID, runID, executionClaimToken string, executionEnvelope *cell.ExecutionEnvelope) string {
+func (w *worker) finalizeSucceededTaskRunByExecutionClaim(ctx context.Context, j *api.Job, jobID, runID, executionClaimToken string, executionEnvelope *cell.ExecutionEnvelope) string {
 	span := trace.SpanFromContext(ctx)
 
 	result, ok := w.completeExecutionAndFinalizeRunByClaim(ctx, executionEnvelope, executionClaimToken, dal.ExecutionStatusSucceeded, "", "")
@@ -926,7 +979,7 @@ func (w *worker) finalizeSucceededTaskRunByExecutionClaim(ctx context.Context, j
 		return observability.WorkerOutcomeFailed
 	case dal.ExecutionFinalizationOutcomeContinued, dal.ExecutionFinalizationOutcomeWaiting:
 		knownPending := result.Outcome == dal.ExecutionFinalizationOutcomeContinued
-		continued, err := w.drainQueuedTaskRunContinuation(ctx, runID, knownPending)
+		continued, err := w.dispatchOrchestratorContinuation(ctx, j, executionEnvelope, result, knownPending)
 		if err != nil {
 			w.logger.Error("Failed to continue task run %s: %v", runID, err)
 			span.RecordError(err)
@@ -944,6 +997,103 @@ func (w *worker) finalizeSucceededTaskRunByExecutionClaim(ctx context.Context, j
 		span.SetStatus(otelcodes.Error, "unsupported execution finalization outcome")
 		return observability.WorkerOutcomeFailed
 	}
+}
+
+func (w *worker) dispatchOrchestratorContinuation(ctx context.Context, j *api.Job, source *cell.ExecutionEnvelope, result dal.ExecutionFinalizationResult, knownPending bool) (bool, error) {
+	if len(result.Children) == 0 {
+		return false, nil
+	}
+
+	if j == nil || source == nil {
+		return false, fmt.Errorf("job and source execution envelope are required")
+	}
+
+	if w.queue == nil {
+		return false, fmt.Errorf("queue client is required")
+	}
+
+	enqueued := 0
+	for _, child := range result.Children {
+		if child.ExecutionID == "" {
+			continue
+		}
+
+		req := &api.JobRequest{
+			Job:      cloneJobForWorker(j),
+			Metadata: cloneMetadataForWorker(source.Metadata),
+		}
+
+		dispatch := executionDispatchRecordFromTaskExecution(j, source, child)
+		if _, err := cell.AttachExecutionEnvelope(req, dispatch, w.now().UnixNano()); err != nil {
+			return enqueued > 0, fmt.Errorf("attach child execution envelope %s: %w", child.ExecutionID, err)
+		}
+
+		if err := w.queue.Enqueue(w.runCtx, req); err != nil {
+			return enqueued > 0, fmt.Errorf("enqueue child execution %s: %w", child.ExecutionID, err)
+		}
+
+		enqueued++
+	}
+
+	trace.SpanFromContext(ctx).AddEvent("task.dispatch.direct", trace.WithAttributes(
+		attribute.Int("vectis.task.dispatch.enqueued", enqueued),
+		attribute.Int("vectis.task.children.dispatchable", len(result.Children)),
+		attribute.Bool("vectis.task.dispatch.known_pending", knownPending),
+	))
+
+	if enqueued == 0 && knownPending {
+		return false, fmt.Errorf("orchestrator returned continuation without dispatchable children")
+	}
+
+	return enqueued > 0, nil
+}
+
+func cloneMetadataForWorker(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+
+	return out
+}
+
+func executionDispatchRecordFromTaskExecution(j *api.Job, source *cell.ExecutionEnvelope, rec dal.TaskExecutionRecord) dal.ExecutionDispatchRecord {
+	return dal.ExecutionDispatchRecord{
+		RunID:             rec.RunID,
+		JobID:             j.GetId(),
+		RunIndex:          source.RunIndex,
+		TaskID:            rec.TaskID,
+		TaskKey:           rec.TaskKey,
+		TaskName:          rec.Name,
+		TaskAttemptID:     rec.TaskAttemptID,
+		SegmentID:         rec.SegmentID,
+		SegmentName:       rec.SegmentName,
+		SegmentStatus:     dal.SegmentStatusPending,
+		ExecutionID:       rec.ExecutionID,
+		ExecutionStatus:   dal.ExecutionStatusPending,
+		CellID:            rec.CellID,
+		Attempt:           rec.Attempt,
+		DefinitionVersion: source.DefinitionVersion,
+		DefinitionHash:    source.DefinitionHash,
+		OwningCell:        source.CellID,
+	}
+}
+
+func cloneJobForWorker(j *api.Job) *api.Job {
+	if j == nil {
+		return nil
+	}
+
+	cloned, ok := proto.Clone(j).(*api.Job)
+	if !ok {
+		return j
+	}
+
+	return cloned
 }
 
 func (w *worker) recordTaskReduceDecision(ctx context.Context, decision taskreduce.Decision, err error) {
@@ -1080,6 +1230,14 @@ func (w *worker) markExecutionStarted(ctx context.Context, env *cell.ExecutionEn
 	}
 
 	w.noteDBRecovered()
+	w.recordExecutionStarted(ctx, env)
+}
+
+func (w *worker) recordExecutionStarted(ctx context.Context, env *cell.ExecutionEnvelope) {
+	if env == nil {
+		return
+	}
+
 	w.recordExecutionCatalogEvent(ctx, env, dal.ExecutionStatusRunning)
 	trace.SpanFromContext(ctx).AddEvent("execution.started", trace.WithAttributes(executionEnvelopeAttrs(env)...))
 }
@@ -1090,7 +1248,7 @@ func (w *worker) completeExecutionAndFinalizeRunByClaim(ctx context.Context, env
 	}
 
 	completionCtx := trace.ContextWithSpan(w.runCtx, trace.SpanFromContext(ctx))
-	result, err := w.completeExecutionAndFinalizeRunByClaimWithRetry(completionCtx, env.ExecutionID, executionClaimToken, status, failureCode, reason)
+	result, err := w.completeExecutionEnvelopeWithRetry(completionCtx, env, executionClaimToken, status, failureCode, reason)
 	if err != nil {
 		w.logger.Warn("CompleteExecutionAndFinalizeRunByClaim execution %s status %s failed: %v", env.ExecutionID, status, err)
 		trace.SpanFromContext(ctx).RecordError(err)
@@ -1123,20 +1281,15 @@ func (w *worker) completeExecutionAndFinalizeRunByClaim(ctx context.Context, env
 	return result, true
 }
 
-func (w *worker) completeExecutionAndFinalizeRunByClaimWithRetry(ctx context.Context, executionID, executionClaimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
+func (w *worker) completeExecutionEnvelopeWithRetry(ctx context.Context, env *cell.ExecutionEnvelope, executionClaimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
 	var lastErr error
 	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
-		result, err := w.store.CompleteExecutionAndFinalizeRunByClaim(ctx, executionID, w.workerID, executionClaimToken, status, failureCode, reason)
+		result, err := w.executionChoreographer().CompleteExecution(ctx, env, w.workerID, executionClaimToken, status, failureCode, reason)
 		if err == nil {
-			w.noteDBRecovered()
 			return result, nil
 		}
-		w.noteDBError(err)
 
 		lastErr = err
-		if !database.IsUnavailableError(err) {
-			break
-		}
 
 		if attempt == finalizeMaxAttempts {
 			break
@@ -1144,7 +1297,7 @@ func (w *worker) completeExecutionAndFinalizeRunByClaimWithRetry(ctx context.Con
 
 		delay := backoff.ExponentialDelay(finalizeBackoffBase, attempt-1, finalizeBackoffMax)
 		w.logger.Warn("CompleteExecutionAndFinalizeRunByClaim execution %s status %s failed (attempt %d/%d): %v; retrying in %v",
-			executionID, status, attempt, finalizeMaxAttempts, err, delay)
+			env.ExecutionID, status, attempt, finalizeMaxAttempts, err, delay)
 
 		if sleepErr := w.clock.Sleep(w.runCtx, delay); sleepErr != nil {
 			return dal.ExecutionFinalizationResult{}, sleepErr
@@ -1250,41 +1403,6 @@ func (w *worker) ackDeliveryWithRetry(ctx context.Context, deliveryID string) *a
 	return &ackDeliveryFailure{err: status.Error(codes.Unavailable, "ack retries exhausted"), attempt: ackMaxAttempts, decision: decision}
 }
 
-func (w *worker) drainQueuedTaskRunContinuation(ctx context.Context, runID string, knownPending bool) (bool, error) {
-	if w.taskDispatchService == nil {
-		return false, nil
-	}
-
-	opts := taskdispatch.DrainOptions{CellID: w.cellID, RunID: runID, Limit: 1}
-	if !knownPending {
-		pending, err := w.taskDispatchService.HasPending(w.runCtx, opts)
-		if err != nil {
-			return false, err
-		}
-
-		if !pending {
-			return false, nil
-		}
-	}
-
-	result, err := w.taskDispatchService.Process(w.runCtx, opts)
-	if err != nil {
-		return true, err
-	}
-
-	trace.SpanFromContext(ctx).AddEvent("task.dispatch.drain", trace.WithAttributes(
-		attribute.Int("vectis.task.dispatch.listed", result.Listed),
-		attribute.Int("vectis.task.dispatch.enqueued", result.Enqueued),
-		attribute.Int("vectis.task.dispatch.failed", result.Failed),
-	))
-
-	if result.Enqueued == 0 {
-		w.logger.Warn("Task run %s queued for continuation, but no task dispatch intent was enqueued (listed=%d failed=%d)", runID, result.Listed, result.Failed)
-	}
-
-	return true, nil
-}
-
 func (w *worker) markRunFailedWithRetry(runID, failureCode, reason string) error {
 	var lastErr error
 	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
@@ -1369,35 +1487,25 @@ func (w *worker) getCurrentRunInfo() (string, string) {
 	return w.currentRunID, w.currentClaimToken
 }
 
-func (w *worker) tryClaimExecution(ctx context.Context, executionEnvelope *cell.ExecutionEnvelope, leaseUntil time.Time) (string, bool, error) {
-	if executionEnvelope == nil || w.store == nil {
-		return "", false, nil
+func (w *worker) tryClaimExecution(ctx context.Context, executionEnvelope *cell.ExecutionEnvelope, leaseUntil time.Time) (string, bool, bool, error) {
+	if executionEnvelope == nil {
+		return "", false, false, nil
 	}
 
 	span := trace.SpanFromContext(ctx)
 	span.AddEvent("execution.claim.attempt", trace.WithAttributes(executionEnvelopeAttrs(executionEnvelope)...))
-	claim, err := w.store.TryClaimExecution(w.runCtx, executionEnvelope.ExecutionID, w.workerID, leaseUntil)
+	claim, err := w.executionChoreographer().ClaimAndStartExecution(w.runCtx, executionEnvelope, w.workerID, leaseUntil)
 	if err != nil {
-		w.noteDBError(err)
-		w.logger.Warn("TryClaimExecution %s failed; stopping before task execution: %v", executionEnvelope.ExecutionID, err)
+		w.logger.Warn("ClaimAndStartExecution %s failed; stopping before task execution: %v", executionEnvelope.ExecutionID, err)
 		span.RecordError(err)
 		span.AddEvent("execution.claim.error", trace.WithAttributes(attribute.String("error", err.Error())))
-		return "", false, err
-	}
-
-	w.noteDBRecovered()
-	if claim.Expired {
-		w.logger.Warn("Execution %s expired before claim; stopping before task execution", executionEnvelope.ExecutionID)
-		w.recordExecutionCatalogEvent(ctx, executionEnvelope, dal.ExecutionStatusFailed)
-		w.recordRunCatalogEvent(dal.RunStatusUpdate{RunID: executionEnvelope.RunID, Status: dal.RunStatusFailed, FailureCode: dal.FailureCodeDispatchExpired, Reason: "execution was not started before dispatch deadline"})
-		span.AddEvent("execution.claim.expired")
-		return "", false, nil
+		return "", false, false, err
 	}
 
 	if !claim.Claimed {
 		w.logger.Warn("Execution %s not claimed; stopping before task execution", executionEnvelope.ExecutionID)
 		span.AddEvent("execution.claim.skipped")
-		return "", false, nil
+		return "", false, false, nil
 	}
 
 	span.AddEvent("execution.claim.success")
@@ -1406,7 +1514,7 @@ func (w *worker) tryClaimExecution(ctx context.Context, executionEnvelope *cell.
 		span.AddEvent("execution.accepted", trace.WithAttributes(executionEnvelopeAttrs(executionEnvelope)...))
 	}
 
-	return claim.ClaimToken, true, nil
+	return claim.ClaimToken, true, claim.ExecutionStarted, nil
 }
 
 func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, executionClaimToken string, runJob *api.Job, env *cell.ExecutionEnvelope) error {
@@ -1566,13 +1674,11 @@ func (w *worker) leaseRenewalLoop(
 		case <-ticker.C:
 			next := w.leaseDeadline()
 			if executionEnvelope != nil && executionClaimToken != "" {
-				if err := w.store.RenewExecutionLease(w.runCtx, executionEnvelope.ExecutionID, w.workerID, executionClaimToken, next); err != nil {
-					w.noteDBError(err)
+				if err := w.executionChoreographer().RenewExecutionLease(w.runCtx, executionEnvelope, w.workerID, executionClaimToken, next); err != nil {
 					renewFailed = true
 					w.logger.Warn("Execution %s: lease renew failed (will retry): %v", executionEnvelope.ExecutionID, err)
 					continue
 				}
-				w.noteDBRecovered()
 			}
 
 			if renewFailed {
@@ -1632,6 +1738,7 @@ func init() {
 	_ = viper.BindEnv("worker.artifact_max_count", "VECTIS_WORKER_ARTIFACT_MAX_COUNT")
 	_ = viper.BindEnv("worker.queue.address", "VECTIS_WORKER_QUEUE_ADDRESS")
 	_ = viper.BindEnv("worker.log.address", "VECTIS_WORKER_LOG_ADDRESS")
+	_ = viper.BindEnv("worker.orchestrator.address", "VECTIS_WORKER_ORCHESTRATOR_ADDRESS")
 	_ = viper.BindEnv("worker.registry.address", "VECTIS_WORKER_REGISTRY_ADDRESS")
 	_ = viper.BindEnv("worker.control.mode", "VECTIS_WORKER_CONTROL_MODE")
 	_ = viper.BindEnv("control_port", "VECTIS_WORKER_CONTROL_PORT")

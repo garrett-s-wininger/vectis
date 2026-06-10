@@ -107,17 +107,16 @@ func TestPrintRetentionReport_includesTaskCascadeCounts(t *testing.T) {
 			ArtifactBlobs:   &cutoff,
 		},
 		Counts: retention.Counts{
-			TerminalRuns:        3,
-			RunDispatchEvents:   4,
-			RunArtifacts:        5,
-			RunTasks:            6,
-			TaskAttempts:        7,
-			RunSegments:         8,
-			SegmentExecutions:   9,
-			TaskDispatchIntents: 10,
-			JobDefinitions:      11,
-			IdempotencyKeys:     12,
-			AuditLog:            13,
+			TerminalRuns:      3,
+			RunDispatchEvents: 4,
+			RunArtifacts:      5,
+			RunTasks:          6,
+			TaskAttempts:      7,
+			RunSegments:       8,
+			SegmentExecutions: 9,
+			JobDefinitions:    10,
+			IdempotencyKeys:   11,
+			AuditLog:          12,
 		},
 	}
 
@@ -133,10 +132,9 @@ func TestPrintRetentionReport_includesTaskCascadeCounts(t *testing.T) {
 		"would_delete.task_attempts=7",
 		"would_delete.run_segments=8",
 		"would_delete.segment_executions=9",
-		"would_delete.task_dispatch_intents=10",
-		"would_delete.job_definitions=11",
-		"would_delete.idempotency_keys=12",
-		"would_delete.audit_log=13",
+		"would_delete.job_definitions=10",
+		"would_delete.idempotency_keys=11",
+		"would_delete.audit_log=12",
 		"would_delete.run_log_files=14",
 		"would_delete.run_log_bytes=15",
 		"would_delete.artifact_blob_files=16",
@@ -279,31 +277,29 @@ func TestCellsStatus_tableOutput(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"cells": []map[string]any{
 				{
-					"cell_id":               "pdx-b",
-					"ingress_required":      true,
-					"ingress_configured":    false,
-					"ingress_reachable":     false,
-					"status":                "missing_route",
-					"queued":                3,
-					"stuck":                 2,
-					"task_dispatch_pending": 6,
-					"catalog_pending":       4,
-					"catalog_failed":        1,
-					"catalog_total":         9,
-					"error":                 "cell ingress endpoint is not configured",
+					"cell_id":            "pdx-b",
+					"ingress_required":   true,
+					"ingress_configured": false,
+					"ingress_reachable":  false,
+					"status":             "missing_route",
+					"queued":             3,
+					"stuck":              2,
+					"catalog_pending":    4,
+					"catalog_failed":     1,
+					"catalog_total":      9,
+					"error":              "cell ingress endpoint is not configured",
 				},
 				{
-					"cell_id":               "iad-a",
-					"ingress_required":      true,
-					"ingress_configured":    true,
-					"ingress_reachable":     true,
-					"status":                "ready",
-					"queued":                1,
-					"stuck":                 0,
-					"task_dispatch_pending": 0,
-					"catalog_pending":       0,
-					"catalog_failed":        0,
-					"catalog_total":         5,
+					"cell_id":            "iad-a",
+					"ingress_required":   true,
+					"ingress_configured": true,
+					"ingress_reachable":  true,
+					"status":             "ready",
+					"queued":             1,
+					"stuck":              0,
+					"catalog_pending":    0,
+					"catalog_failed":     0,
+					"catalog_total":      5,
 				},
 			},
 		})
@@ -315,7 +311,7 @@ func TestCellsStatus_tableOutput(t *testing.T) {
 	}
 
 	out := buf.String()
-	for _, want := range []string{"CELL", "STATUS", "TASK PENDING", "CATALOG P/F/T", "iad-a", "ready", "0/0/5", "pdx-b", "missing_route", "6", "4/1/9"} {
+	for _, want := range []string{"CELL", "STATUS", "CATALOG P/F/T", "iad-a", "ready", "0/0/5", "pdx-b", "missing_route", "4/1/9"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
 		}
@@ -332,15 +328,14 @@ func TestCellsStatus_jsonOutput(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"cells": []map[string]any{
 				{
-					"cell_id":               "iad-a",
-					"ingress_required":      true,
-					"ingress_configured":    true,
-					"ingress_reachable":     true,
-					"status":                "ready",
-					"queued":                1,
-					"stuck":                 0,
-					"task_dispatch_pending": 7,
-					"catalog_total":         5,
+					"cell_id":            "iad-a",
+					"ingress_required":   true,
+					"ingress_configured": true,
+					"ingress_reachable":  true,
+					"status":             "ready",
+					"queued":             1,
+					"stuck":              0,
+					"catalog_total":      5,
 				},
 			},
 		})
@@ -356,7 +351,7 @@ func TestCellsStatus_jsonOutput(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if len(result.Cells) != 1 || result.Cells[0].CellID != "iad-a" || result.Cells[0].TaskDispatchPending != 7 || result.Cells[0].CatalogTotal != 5 {
+	if len(result.Cells) != 1 || result.Cells[0].CellID != "iad-a" || result.Cells[0].CatalogTotal != 5 {
 		t.Fatalf("unexpected cells status JSON: %+v", result)
 	}
 }
@@ -620,6 +615,7 @@ func TestDeployPodmanRender_HAProfileAddsReplicaTopology(t *testing.T) {
 	assertEnv(t, findContainer(t, pod, "queue-2"), "VECTIS_QUEUE_PERSISTENCE_DIR", "/data/vectis/queue/local-ha/queue-2")
 	assertEnv(t, findContainer(t, pod, "log-2"), "VECTIS_LOG_STORAGE_DIR", "/data/vectis/jobs/log-2")
 	assertEnv(t, findContainer(t, pod, "artifact-2"), "VECTIS_ARTIFACT_STORAGE_DIR", "/data/vectis/artifact/artifact-2")
+	assertEnv(t, findContainer(t, pod, "orchestrator"), "VECTIS_ORCHESTRATOR_ADVERTISE_ADDRESS", "127.0.0.1:8087")
 	assertEnv(t, findContainer(t, pod, "worker-2"), "VECTIS_WORKER_METRICS_PORT", "9182")
 	assertEnv(t, findContainer(t, pod, "cron-2"), "VECTIS_CRON_INSTANCE_ID", "cron-2")
 	assertEnv(t, findContainer(t, pod, "reconciler-2"), "VECTIS_RECONCILER_METRICS_PORT", "9185")
@@ -631,6 +627,7 @@ func TestDeployPodmanRender_HAProfileAddsReplicaTopology(t *testing.T) {
 
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-queue"), []string{"127.0.0.1:9081", "127.0.0.1:9181"})
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-artifact"), []string{"127.0.0.1:9089", "127.0.0.1:9189"})
+	assertStringSlice(t, prometheusTargets(t, docs, "vectis-orchestrator"), []string{"127.0.0.1:9090"})
 }
 
 func TestDeployPodmanRender_SimpleProfileKeepsSingleReplicaTopology(t *testing.T) {
@@ -657,14 +654,16 @@ func TestDeployPodmanRender_SimpleProfileKeepsSingleReplicaTopology(t *testing.T
 		t.Fatalf("simple manifest unexpectedly included discovery registry addresses")
 	}
 
-	for _, name := range []string{"registry-2", "api-2", "queue-2", "log-2", "artifact-2", "worker-2"} {
+	for _, name := range []string{"registry-2", "api-2", "queue-2", "log-2", "artifact-2", "orchestrator-2", "worker-2"} {
 		if findContainerOK(t, pod, name) {
 			t.Fatalf("simple manifest unexpectedly included container %s", name)
 		}
 	}
 
+	assertEnv(t, findContainer(t, pod, "orchestrator"), "VECTIS_ORCHESTRATOR_ADVERTISE_ADDRESS", "127.0.0.1:8087")
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-queue"), []string{"127.0.0.1:9081"})
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-artifact"), []string{"127.0.0.1:9089"})
+	assertStringSlice(t, prometheusTargets(t, docs, "vectis-orchestrator"), []string{"127.0.0.1:9090"})
 }
 
 func TestDeployPodmanRender_InvalidProfileFails(t *testing.T) {
@@ -1348,9 +1347,7 @@ func TestGetRun_successIncludesAuditFields(t *testing.T) {
 	}
 }
 
-func TestGetRun_successIncludesTaskDispatch(t *testing.T) {
-	lastAttempt := int64(1_000_000_000)
-	errMsg := "queue unavailable"
+func TestGetRun_successIncludesTaskCompletion(t *testing.T) {
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/runs/run-1" {
 			t.Errorf("path=%s", r.URL.Path)
@@ -1360,35 +1357,13 @@ func TestGetRun_successIncludesTaskDispatch(t *testing.T) {
 			"run_id":      "run-1",
 			"run_index":   3,
 			"status":      "queued",
-			"next_action": "task_dispatch_pending",
+			"next_action": "task_completion_pending",
 			"owning_cell": "pdx-b",
 			"task_completion": map[string]any{
 				"total":           3,
 				"succeeded":       1,
 				"terminal_failed": 1,
 				"incomplete":      1,
-			},
-			"task_dispatch": map[string]any{
-				"total":     2,
-				"pending":   1,
-				"failed":    1,
-				"enqueued":  0,
-				"truncated": true,
-				"limit":     1,
-				"intents": []map[string]any{
-					{
-						"execution_id":            "exec-1",
-						"task_id":                 "task-1",
-						"task_attempt_id":         "attempt-1",
-						"cell_id":                 "iad-a",
-						"state":                   "failed_pending",
-						"enqueue_attempts":        2,
-						"last_enqueue_attempt_at": lastAttempt,
-						"last_enqueue_error":      errMsg,
-						"created_at":              lastAttempt,
-						"updated_at":              lastAttempt,
-					},
-				},
 			},
 		})
 	})
@@ -1400,10 +1375,8 @@ func TestGetRun_successIncludesTaskDispatch(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"next_action=task_dispatch_pending",
+		"next_action=task_completion_pending",
 		"task_completion: total=3 succeeded=1 terminal_failed=1 incomplete=1",
-		"task_dispatch: total=2 pending=1 failed=1 enqueued=0 truncated=true limit=1",
-		`failed_pending execution=exec-1 task=task-1 attempt=attempt-1 cell=iad-a enqueue_attempts=2 last_attempt=1970-01-01T00:00:01Z error="queue unavailable"`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
@@ -2884,14 +2857,10 @@ func TestDoctor_reconcilerNoRecoveryActivityIsHealthy(t *testing.T) {
 
 func TestDoctor_queueBacklogEvidenceIncludesCells(t *testing.T) {
 	check := doctorCheckQueueBacklogResponse(t, map[string]any{
-		"queued":                101,
-		"task_dispatch_pending": 4,
+		"queued": 101,
 		"cells": []map[string]any{
 			{"cell_id": "iad-a", "queued": 75},
 			{"cell_id": "pdx-b", "queued": 26},
-		},
-		"task_dispatch_cells": []map[string]any{
-			{"cell_id": "iad-a", "pending": 4},
 		},
 	})
 
@@ -2899,7 +2868,7 @@ func TestDoctor_queueBacklogEvidenceIncludesCells(t *testing.T) {
 		t.Fatalf("expected queue backlog to warn, got %#v", check)
 	}
 
-	for _, want := range []string{"queued=101", "iad-a:75", "pdx-b:26", "task_dispatch_pending=4", "task_cells=iad-a:4"} {
+	for _, want := range []string{"queued=101", "iad-a:75", "pdx-b:26"} {
 		if !strings.Contains(check.Evidence, want) {
 			t.Fatalf("expected evidence to contain %q, got %q", want, check.Evidence)
 		}
@@ -2939,30 +2908,6 @@ func TestDoctor_stuckRunsEvidenceIncludesCells(t *testing.T) {
 	}
 
 	for _, want := range []string{"stuck=3", "iad-a:2", "pdx-b:1"} {
-		if !strings.Contains(check.Evidence, want) {
-			t.Fatalf("expected evidence to contain %q, got %q", want, check.Evidence)
-		}
-	}
-}
-
-func TestDoctor_stuckRunsWarnsForPendingTaskDispatch(t *testing.T) {
-	check := doctorCheckStuckRunsResponse(t, map[string]any{
-		"stuck":                 0,
-		"task_dispatch_pending": 2,
-		"task_dispatch_cells": []map[string]any{
-			{"cell_id": "iad-a", "pending": 2},
-		},
-	})
-
-	if check.Status != doctorWarn {
-		t.Fatalf("expected pending task dispatch to warn, got %#v", check)
-	}
-
-	if !strings.Contains(check.Summary, "2 pending task continuations detected") {
-		t.Fatalf("unexpected summary: %q", check.Summary)
-	}
-
-	for _, want := range []string{"stuck=0", "task_dispatch_pending=2", "task_cells=iad-a:2"} {
 		if !strings.Contains(check.Evidence, want) {
 			t.Fatalf("expected evidence to contain %q, got %q", want, check.Evidence)
 		}

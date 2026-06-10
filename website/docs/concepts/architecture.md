@@ -24,10 +24,10 @@ A typical stored-job trigger looks like this:
 3. The API returns `202 Accepted` once the run is recorded.
 4. The API submits the run to `vectis-queue`.
 5. A worker dequeues the run.
-6. The worker claims the run in the database.
-7. The worker executes the job tree and streams logs to `vectis-log`.
-8. The worker updates the final run status in the database.
-9. The worker records a catalog event for status changes.
+6. The worker loads the run into `vectis-orchestrator` and claims the task execution through the orchestrator.
+7. The worker executes the selected task and streams logs to `vectis-log`.
+8. The worker completes the task through `vectis-orchestrator`.
+9. The worker records catalog events for run and task status visibility.
 10. `vectis-catalog` applies catalog events to the global run catalog.
 11. Clients inspect run status through the API and stream logs through the API.
 
@@ -62,6 +62,7 @@ flowchart TB
     Q["vectis-queue"]
     LOG["vectis-log"]
     ART["vectis-artifact"]
+    ORCH["vectis-orchestrator"]
   end
 
   subgraph execute [Execution]
@@ -86,13 +87,18 @@ flowchart TB
   REC --> Q
   Q --> W
 
+  W --> ORCH
   W --> LOG
+  W --> ART
   API --> LOG
+  API --> ART
 
   API -. resolves .-> REG
   CRON -. resolves .-> REG
   REC -. resolves .-> REG
   W -. resolves .-> REG
+  ORCH -. registers .-> REG
+  ART -. registers .-> REG
 ```
 
 ## Components
@@ -102,15 +108,16 @@ flowchart TB
 | `vectis-api` | User-facing HTTP API. Stores jobs and runs, accepts triggers, exposes health, authenticated operational surfaces, run status, run events, and log streams. |
 | `vectis-cell-ingress` | Private cell-local HTTP endpoint that durably accepts execution envelopes for this cell, enqueues them to the local queue, and repairs missed local queue handoffs. The global API can route non-local target cells to configured ingress endpoints. |
 | `vectis-queue` | Internal FIFO queue shard. Producers enqueue work; workers dequeue and acknowledge deliveries. Queue persistence can preserve backlog and in-flight delivery metadata per shard. |
-| `vectis-worker` | Executes one run at a time. Dequeues work, claims the run in the database, executes actions, streams logs, writes final status, and records cell catalog events. |
+| `vectis-orchestrator` | Hot-state service for lease-fenced task execution claims and in-memory task choreography. Workers use it for the normal task execution path. |
+| `vectis-worker` | Executes one task delivery at a time. Dequeues work, claims and completes task executions through the orchestrator, streams logs, enqueues child task continuations, and records cell catalog events. |
 | `vectis-log` | Receives log chunks from workers and stores run logs. The API reads from it when clients stream logs. |
 | `vectis-artifact` | Internal content-addressed blob service. It stores blobs by digest while the API exposes run-scoped artifact listing, metadata, and downloads. |
-| `vectis-registry` | Internal service discovery for queue, log, and artifact addresses when clients do not use pinned addresses. |
+| `vectis-registry` | Internal service discovery for queue, orchestrator, log, and worker-control addresses when clients do not use pinned addresses. |
 | `vectis-cron` | Reads schedules from the database and enqueues due runs. |
 | `vectis-reconciler` | Finds queued runs that need another queue handoff and enqueues them again. |
 | `vectis-catalog` | Backfills missing status events from observed state, drains global catalog events, optionally fans in pending events from configured cell databases, and applies them to the global run catalog. |
 | `vectis-docs` | Serves the embedded docs site as static HTTP. |
-| `vectis-local` | Development supervisor that starts the local registry, queue, log, artifact, cell ingress, worker, cron, reconciler, catalog, API, and docs together. |
+| `vectis-local` | Development supervisor that starts the local registry, queue, orchestrator, log, artifact, cell ingress, worker, cron, reconciler, catalog, API, and docs together. |
 | `vectis-cli` | User and operator command-line client for the HTTP API. |
 
 ## Producers And Workers
@@ -123,21 +130,21 @@ Five components can produce work:
 - `vectis-reconciler`, when a recorded run still needs queue handoff
 - `vectis-worker`, when task fan-out produces a continuation execution
 
-Workers are the execution side. Each `vectis-worker` process handles one run at a time. Run claims and leases live in the database, so the database is what prevents two workers from owning the same persisted run at the same time.
+Workers are the execution side. Each `vectis-worker` process handles one task delivery at a time. Task execution claims and leases live in `vectis-orchestrator`, so the orchestrator fences duplicate queue deliveries while the database remains the durable catalog and repair surface.
 
 ### Task-Mode Choreography
 
-Task-mode execution is still worker-choreographed. A separate orchestrator does not normally materialize child tasks, reduce task state, or decide fan-in outcomes.
+Task-mode execution is orchestrator-choreographed by default. The worker loads the run graph into `vectis-orchestrator`, claims one execution, and asks the orchestrator to complete that execution after the action finishes.
 
 The worker that completes a task owns the event-path decisions for that completion:
 
-1. It marks the task execution terminal through the task completion boundary.
-2. Successful task completion may activate planned child task executions and create task dispatch intents.
-3. The task dispatch service drains pending intents for that run and enqueues continuation work to the local queue.
+1. It completes the task execution through the orchestrator.
+2. Successful task completion may activate planned child task executions in the orchestrator.
+3. The worker directly enqueues activated child executions to the local queue with execution envelopes.
 4. If there is no immediate continuation, the task reduce service summarizes task state. Terminal failure dominates incomplete siblings; all-succeeded reduces to run success; incomplete work leaves the run available for later continuation.
-5. The task finalization boundary records the finalization outcome before the worker writes a terminal or continuation run state.
+5. The task finalization boundary records the finalization outcome before the worker records status catalog events.
 
-The reconciler remains a repair loop. It repairs missed queue handoffs for queued work, including queued task dispatch intents left pending after a failed continuation handoff; it is not the normal event path for task fan-out or fan-in.
+The reconciler remains a repair loop for durable queued work. It is not the normal event path for task fan-out or fan-in.
 
 ## Logs
 
@@ -163,12 +170,12 @@ SQLite and PostgreSQL are supported. SQLite is the default for local development
 
 ## Service Discovery
 
-Queue, log, and artifact addresses can be found in two ways:
+Queue, orchestrator, log, and artifact addresses can be found in two ways:
 
 | Mode | How it works | When to use it |
 | --- | --- | --- |
-| Registry discovery | Queue, log, and artifact services register with `vectis-registry`; clients resolve addresses through the registry. | Convenient local or simple deployments where registry availability is acceptable. |
-| Pinned addresses | Components are configured with explicit queue, log, or artifact addresses. | Deployments that want fewer startup dependencies or already have external service discovery. |
+| Registry discovery | Queue, orchestrator, log, and artifact services register with `vectis-registry`; clients resolve addresses through the registry as needed. | Convenient local or simple deployments where registry availability is acceptable. |
+| Pinned addresses | Components are configured with explicit queue, orchestrator, log, or artifact addresses. | Deployments that want fewer startup dependencies or already have external service discovery. |
 
 See [Configuration](../operating/configuration.md#service-discovery-vs-fixed-addresses) for the relevant settings.
 
@@ -177,7 +184,7 @@ See [Configuration](../operating/configuration.md#service-discovery-vs-fixed-add
 Vectis has two communication layers:
 
 - HTTP at the edge, used by `vectis-cli`, API clients, health checks, metrics scrapes, and SSE streams.
-- gRPC between Vectis services, used for queue operations, registry discovery, log movement, and artifact blob upload/read.
+- gRPC between Vectis services, used for queue operations, registry discovery, orchestrator choreography, log movement, and artifact blob upload/read.
 
 The common local defaults are:
 
@@ -189,10 +196,11 @@ The common local defaults are:
 | Log gRPC | `8083` | Worker log ingest and API log reads. |
 | Cell ingress HTTP | `8085` | Private execution submission endpoint for a cell. |
 | Artifact gRPC | `8086` | Internal artifact blob upload, stat, and read. |
+| Orchestrator gRPC | `8087` | Worker claim, lease, and task choreography path. |
 | Log HTTP | `8084` | Log-service HTTP surface; user-facing log streaming goes through the API. |
 | Docs HTTP | `8088` | Static documentation site. |
 
-Prometheus metrics are exposed on `/metrics`. The API serves metrics on its main HTTP listener; queue, worker, log, log-forwarder, reconciler, catalog, and cell ingress use dedicated metrics listeners by default. Workers publish lifecycle gauges for drain, execution/finalization phase, and observed database unavailability.
+Prometheus metrics are exposed on `/metrics`. The API serves metrics on its main HTTP listener; queue, orchestrator, worker, log, artifact, log-forwarder, reconciler, catalog, and cell ingress use dedicated metrics listeners by default. Workers publish lifecycle gauges for drain, execution/finalization phase, and observed database unavailability.
 
 For exact ports, environment variables, TLS settings, and discovery settings, see [Configuration](../operating/configuration.md). For the REST route table, see [API Reference](../using/api-reference.md). gRPC contracts live under `api/proto/`.
 

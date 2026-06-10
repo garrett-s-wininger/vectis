@@ -101,7 +101,7 @@ For production-like deployments:
 - keep the cell queue and cell database reachable only by services in that cell
 - scrape cell ingress health and metrics from a trusted monitoring network only
 
-The global API never returns private ingress URLs from `GET /api/v1/cells/status`; it reports readiness, queued/root-dispatch counts, pending task continuation counts, and catalog counts only.
+The global API never returns private ingress URLs from `GET /api/v1/cells/status`; it reports readiness, queued/root-dispatch counts, and catalog counts only.
 
 ## Required Catalog Configuration
 

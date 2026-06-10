@@ -22,7 +22,6 @@ import (
 	"vectis/internal/observability"
 	"vectis/internal/platform"
 	"vectis/internal/spire"
-	"vectis/internal/taskdispatch"
 	"vectis/internal/taskfinalize"
 	"vectis/internal/testutil/dbtest"
 	"vectis/internal/testutil/runfixture"
@@ -313,6 +312,7 @@ func TestLeaseRenewalLoop_RenewsExecutionLease(t *testing.T) {
 		logger:        interfaces.NewLogger("worker-test"),
 		workerID:      workerID,
 		store:         runs,
+		choreographer: sqlExecutionChoreographer{runs: runs},
 		renewInterval: 5 * time.Millisecond,
 	}
 
@@ -412,6 +412,7 @@ func TestWorkerRunTaskExecution_CompletesWhileOrphaned_MarksSucceeded(t *testing
 		logClient:     logClient,
 		executor:      job.NewExecutor(),
 		store:         runs,
+		choreographer: sqlExecutionChoreographer{runs: runs},
 		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
 	}
 
@@ -533,6 +534,7 @@ func TestWorkerRunTaskExecution_WithExecutionEnvelope_TransitionsExecution(t *te
 		logClient:     logClient,
 		executor:      job.NewExecutor(),
 		store:         runs,
+		choreographer: sqlExecutionChoreographer{runs: runs},
 		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
 	}
 
@@ -663,27 +665,30 @@ func TestWorkerTryClaimExecution_RecordsAcceptedOnlyOnInitialClaim(t *testing.T)
 
 	catalogEvents := &recordingCatalogEventsRepository{}
 	w := &worker{
-		ctx:      context.Background(),
-		runCtx:   context.Background(),
-		logger:   interfaces.NewLogger("worker-test"),
-		workerID: "worker-execution-reclaim-catalog",
-		cellID:   "local",
-		store:    runs,
-		catalog:  cell.NewCatalogEventPublisher("local", catalogEvents),
+		ctx:           context.Background(),
+		runCtx:        context.Background(),
+		logger:        interfaces.NewLogger("worker-test"),
+		workerID:      "worker-execution-reclaim-catalog",
+		cellID:        "local",
+		store:         runs,
+		choreographer: sqlExecutionChoreographer{runs: runs},
+		catalog:       cell.NewCatalogEventPublisher("local", catalogEvents),
 	}
 
-	firstToken, claimed, err := w.tryClaimExecution(ctx, env, time.Now().Add(-time.Minute))
+	firstToken, claimed, _, err := w.tryClaimExecution(ctx, env, time.Now().Add(-time.Minute))
 	if err != nil {
 		t.Fatalf("first claim execution: %v", err)
 	}
+
 	if !claimed || firstToken == "" {
 		t.Fatalf("expected first execution claim, claimed=%v token=%q", claimed, firstToken)
 	}
 
-	secondToken, claimed, err := w.tryClaimExecution(ctx, env, time.Now().Add(time.Minute))
+	secondToken, claimed, _, err := w.tryClaimExecution(ctx, env, time.Now().Add(time.Minute))
 	if err != nil {
 		t.Fatalf("second claim execution: %v", err)
 	}
+
 	if !claimed || secondToken == "" || secondToken == firstToken {
 		t.Fatalf("expected expired execution reclaim, claimed=%v first=%q second=%q", claimed, firstToken, secondToken)
 	}
@@ -851,39 +856,27 @@ func TestWorkerRunTaskExecution_TaskFanoutQueuesContinuation(t *testing.T) {
 		t.Fatalf("get root dispatch: %v", err)
 	}
 
-	child, _, err := runs.EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
-		RunID:        runID,
-		ParentTaskID: rootDispatch.TaskID,
-		TaskKey:      "child",
-		Name:         "child",
-		SpecHash:     "sha256:child",
-		TargetCellID: "local",
-	})
-	if err != nil {
-		t.Fatalf("ensure child task: %v", err)
-	}
-
 	queue := mocks.NewMockQueueClient()
 	clock := mocks.NewMockClock()
-	taskDispatcher := taskdispatch.New(runs, repos.TaskDispatchIntents(), repos.DispatchEvents(), cell.NewQueueExecutionIngress(queueClientServiceAdapter{queue: queue}, interfaces.NewLogger("worker-test")), clock)
 	w := &worker{
-		ctx:                 context.Background(),
-		runCtx:              context.Background(),
-		logger:              interfaces.NewLogger("worker-test"),
-		workerID:            "worker-task-fanout",
-		cellID:              "local",
-		clock:               clock,
-		renewInterval:       time.Hour,
-		queue:               queue,
-		logClient:           mocks.NewMockLogClient(),
-		executor:            job.NewExecutor(),
-		store:               runs,
-		catalog:             cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
-		taskDispatchService: taskdispatch.NewService(interfaces.NewLogger("worker-test"), taskDispatcher),
+		ctx:           context.Background(),
+		runCtx:        context.Background(),
+		logger:        interfaces.NewLogger("worker-test"),
+		workerID:      "worker-task-fanout",
+		cellID:        "local",
+		clock:         clock,
+		renewInterval: time.Hour,
+		queue:         queue,
+		logClient:     mocks.NewMockLogClient(),
+		executor:      job.NewExecutor(),
+		store:         runs,
+		choreographer: newLocalOrchestratorChoreographer(t),
+		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
 	}
 
 	deliveryID := "delivery-task-fanout"
 	rootID := "root"
+	childID := "child"
 	action := "builtins/shell"
 	j := &api.Job{
 		Id:         &jobID,
@@ -893,6 +886,11 @@ func TestWorkerRunTaskExecution_TaskFanoutQueuesContinuation(t *testing.T) {
 			Id:   &rootID,
 			Uses: &action,
 			With: map[string]string{"command": "echo root"},
+			Steps: []*api.Node{{
+				Id:   &childID,
+				Uses: &action,
+				With: map[string]string{"command": "echo child"},
+			}},
 		},
 	}
 
@@ -921,15 +919,6 @@ func TestWorkerRunTaskExecution_TaskFanoutQueuesContinuation(t *testing.T) {
 		t.Fatalf("run status: got %q, want %q", runStatus, dal.RunStatusQueued)
 	}
 
-	var rootExecutionStatus string
-	if err := db.QueryRowContext(ctx, `SELECT status FROM segment_executions WHERE execution_id = ?`, rootDispatch.ExecutionID).Scan(&rootExecutionStatus); err != nil {
-		t.Fatalf("query root execution status: %v", err)
-	}
-
-	if rootExecutionStatus != dal.ExecutionStatusSucceeded {
-		t.Fatalf("root execution status: got %q, want %q", rootExecutionStatus, dal.ExecutionStatusSucceeded)
-	}
-
 	reqs := queue.GetJobRequests()
 	if len(reqs) != 1 {
 		t.Fatalf("queued continuation requests: got %d, want 1", len(reqs))
@@ -944,25 +933,17 @@ func TestWorkerRunTaskExecution_TaskFanoutQueuesContinuation(t *testing.T) {
 		t.Fatal("queued continuation missing execution envelope")
 	}
 
-	if env.ExecutionID != child.ExecutionID || env.TaskID != child.TaskID || env.TaskKey != child.TaskKey {
-		t.Fatalf("queued child envelope mismatch: got %+v want child %+v", env, child)
+	if env.ExecutionID == "" || env.TaskID == "" || env.TaskKey != "child" {
+		t.Fatalf("queued child envelope mismatch: got %+v", env)
 	}
 
 	if env.Metadata["traceparent"] != "trace-a" {
 		t.Fatalf("queued child trace metadata: got %q, want trace-a", env.Metadata["traceparent"])
 	}
 
-	pending, err := repos.TaskDispatchIntents().ListPending(ctx, "local", clock.Now().UnixNano(), 10)
-	if err != nil {
-		t.Fatalf("list pending intents after continuation: %v", err)
-	}
-
-	if len(pending) != 0 {
-		t.Fatalf("dispatched child intent should not remain pending: %+v", pending)
-	}
 }
 
-func TestWorkerRunTaskExecution_TaskFanoutWaitingReductionRequeuesRun(t *testing.T) {
+func TestWorkerRunTaskExecution_TaskFanoutWaitingQueuesContinuation(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
@@ -989,17 +970,6 @@ func TestWorkerRunTaskExecution_TaskFanoutWaitingReductionRequeuesRun(t *testing
 		t.Fatalf("get root dispatch: %v", err)
 	}
 
-	if _, _, err := runs.EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
-		RunID:        runID,
-		ParentTaskID: rootDispatch.TaskID,
-		TaskKey:      "child",
-		Name:         "child",
-		SpecHash:     "sha256:child",
-		TargetCellID: "local",
-	}); err != nil {
-		t.Fatalf("ensure child task: %v", err)
-	}
-
 	queue := mocks.NewMockQueueClient()
 	w := &worker{
 		ctx:           context.Background(),
@@ -1013,11 +983,13 @@ func TestWorkerRunTaskExecution_TaskFanoutWaitingReductionRequeuesRun(t *testing
 		logClient:     mocks.NewMockLogClient(),
 		executor:      job.NewExecutor(),
 		store:         runs,
+		choreographer: newLocalOrchestratorChoreographer(t),
 		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
 	}
 
 	deliveryID := "delivery-task-reduce-waiting"
 	rootID := "root"
+	childID := "child"
 	action := "builtins/shell"
 	j := &api.Job{
 		Id:         &jobID,
@@ -1027,6 +999,11 @@ func TestWorkerRunTaskExecution_TaskFanoutWaitingReductionRequeuesRun(t *testing
 			Id:   &rootID,
 			Uses: &action,
 			With: map[string]string{"command": "echo root"},
+			Steps: []*api.Node{{
+				Id:   &childID,
+				Uses: &action,
+				With: map[string]string{"command": "echo child"},
+			}},
 		},
 	}
 
@@ -1046,14 +1023,11 @@ func TestWorkerRunTaskExecution_TaskFanoutWaitingReductionRequeuesRun(t *testing
 		t.Fatalf("run status after waiting reduction: got %q, want %q", runStatus, dal.RunStatusQueued)
 	}
 
-	pending, err := repos.TaskDispatchIntents().ListPending(ctx, "local", w.clock.Now().UnixNano(), 10)
-	if err != nil {
-		t.Fatalf("list pending intents: %v", err)
+	reqs := queue.GetJobRequests()
+	if len(reqs) != 1 {
+		t.Fatalf("queued continuation requests: got %d, want 1", len(reqs))
 	}
 
-	if len(pending) != 1 {
-		t.Fatalf("pending child intent: got %d, want 1: %+v", len(pending), pending)
-	}
 }
 
 func TestWorkerRunTaskExecution_TaskFanoutFailureFinalizesExecutionAndRun(t *testing.T) {
@@ -1095,6 +1069,7 @@ func TestWorkerRunTaskExecution_TaskFanoutFailureFinalizesExecutionAndRun(t *tes
 		logClient:     mocks.NewMockLogClient(),
 		executor:      job.NewExecutor(),
 		store:         runs,
+		choreographer: sqlExecutionChoreographer{runs: runs},
 		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
 	}
 
@@ -1191,6 +1166,7 @@ func TestWorkerRunTaskExecution_TaskFanoutCancelFinalizesExecutionAndRun(t *test
 		logClient:     mocks.NewMockLogClient(),
 		executor:      job.NewExecutor(),
 		store:         runs,
+		choreographer: sqlExecutionChoreographer{runs: runs},
 		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
 		cancelCh:      make(chan string, 1),
 	}
@@ -1348,6 +1324,7 @@ func TestWorkerRunTaskExecution_TaskFanoutExecutesEnvelopeTaskOnly(t *testing.T)
 		logClient:     logClient,
 		executor:      executor,
 		store:         runs,
+		choreographer: sqlExecutionChoreographer{runs: runs},
 		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
 	}
 
@@ -1460,11 +1437,12 @@ func TestWorkerFinalizeAbortedTaskRunByExecutionClaim_CancelsRun(t *testing.T) {
 	}
 
 	w := &worker{
-		runCtx:   context.Background(),
-		logger:   interfaces.NewLogger("worker-test"),
-		workerID: "worker-a",
-		store:    runs,
-		catalog:  cell.NewCatalogEventPublisher("local", nil),
+		runCtx:        context.Background(),
+		logger:        interfaces.NewLogger("worker-test"),
+		workerID:      "worker-a",
+		store:         runs,
+		choreographer: sqlExecutionChoreographer{runs: runs},
+		catalog:       cell.NewCatalogEventPublisher("local", nil),
 	}
 
 	env := &cell.ExecutionEnvelope{ExecutionID: "execution-root"}
@@ -1584,6 +1562,7 @@ func TestWorkerRunTaskExecution_MissingExecutionEnvelopeFailsRun(t *testing.T) {
 		logClient:     logClient,
 		executor:      job.NewExecutor(),
 		store:         runs,
+		choreographer: sqlExecutionChoreographer{runs: runs},
 	}
 
 	jobID := "job-worker-missing-envelope"
@@ -1691,6 +1670,7 @@ func TestWorkerRunTaskExecution_ExecutionClaimRequiredBeforeExecute(t *testing.T
 		logClient:     logClient,
 		executor:      job.NewExecutor(),
 		store:         runs,
+		choreographer: sqlExecutionChoreographer{runs: runs},
 		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
 	}
 
@@ -1784,6 +1764,7 @@ func TestWorkerRunTaskExecution_AckTransientThenSuccess_Completes(t *testing.T) 
 		logClient:     logClient,
 		executor:      job.NewExecutor(),
 		store:         runs,
+		choreographer: sqlExecutionChoreographer{runs: runs},
 	}
 
 	jobID := "job-worker-ack-retry"
@@ -1860,6 +1841,7 @@ func TestWorkerRunTaskExecution_AckPersistentFailure_OrphansRunWithoutExecution(
 		logClient:     logClient,
 		executor:      job.NewExecutor(),
 		store:         runs,
+		choreographer: sqlExecutionChoreographer{runs: runs},
 	}
 
 	jobID := "job-worker-ack-persistent"
@@ -1943,6 +1925,7 @@ func TestWorkerRunTaskExecution_FinalizeSucceededRetriesOnTransientStoreFailure(
 		logClient:     logClient,
 		executor:      job.NewExecutor(),
 		store:         store,
+		choreographer: sqlExecutionChoreographer{runs: store},
 	}
 
 	jobID := "job-worker-finalize-retry"
@@ -2014,6 +1997,7 @@ func TestWorkerRunTaskExecution_LifecyclePhaseShowsFinalizing(t *testing.T) {
 		logClient:     mocks.NewMockLogClient(),
 		executor:      job.NewExecutor(),
 		store:         store,
+		choreographer: sqlExecutionChoreographer{runs: store},
 		metrics:       workerMetrics,
 	}
 
@@ -2098,6 +2082,7 @@ func TestWorkerRunTaskExecution_RenewExecutionLeaseTransientStoreFailure_StillSu
 		logClient:     logClient,
 		executor:      job.NewExecutor(),
 		store:         recordingStore,
+		choreographer: sqlExecutionChoreographer{runs: recordingStore},
 	}
 
 	jobID := "job-worker-renew-retry"
@@ -2204,6 +2189,7 @@ func TestWorkerRestartMidRun_LeaseExpiryThenRequeue_AllowsRecovery(t *testing.T)
 		logClient:     mocks.NewMockLogClient(),
 		executor:      job.NewExecutor(),
 		store:         runs,
+		choreographer: sqlExecutionChoreographer{runs: runs},
 	}
 
 	w.runTaskExecution(context.Background(), j, jobID, runID, deliveryID, env)
@@ -2250,6 +2236,7 @@ func TestWorkerRunTaskExecution_FinalizeSucceededExhausted_LeavesRunningForOrpha
 		logClient:     logClient,
 		executor:      job.NewExecutor(),
 		store:         store,
+		choreographer: sqlExecutionChoreographer{runs: store},
 	}
 
 	jobID := "job-worker-finalize-exhausted"
@@ -2383,6 +2370,7 @@ func TestWorkerDrain_ShutdownDuringRun_StillFinalizesRun(t *testing.T) {
 		logClient:     mocks.NewMockLogClient(),
 		executor:      job.NewExecutor(),
 		store:         runs,
+		choreographer: sqlExecutionChoreographer{runs: runs},
 		metrics:       workerMetrics,
 	}
 
@@ -2458,6 +2446,7 @@ func TestWorkerRunTaskExecution_RemoteCancel_MarksRunAborted(t *testing.T) {
 		logClient:     mocks.NewMockLogClient(),
 		executor:      job.NewExecutor(),
 		store:         runs,
+		choreographer: sqlExecutionChoreographer{runs: runs},
 		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
 		cancelCh:      make(chan string, 1),
 	}
@@ -2602,6 +2591,7 @@ func TestWorkerRunTaskExecution_DurableCancel_MarksRunAborted(t *testing.T) {
 		logClient:          mocks.NewMockLogClient(),
 		executor:           job.NewExecutor(),
 		store:              runs,
+		choreographer:      sqlExecutionChoreographer{runs: runs},
 		cancelCh:           make(chan string, 1),
 	}
 

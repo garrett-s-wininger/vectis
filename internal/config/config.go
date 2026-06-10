@@ -41,6 +41,7 @@ type Defaults struct {
 	Cell           CellDefaults            `toml:"cell"`
 	API            APIDefaults             `toml:"api"`
 	Queue          QueueDefaults           `toml:"queue"`
+	Orchestrator   OrchestratorDefaults    `toml:"orchestrator"`
 	Registry       RegistryDefaults        `toml:"registry"`
 	Log            LogDefaults             `toml:"log"`
 	Artifact       ArtifactDefaults        `toml:"artifact"`
@@ -152,6 +153,15 @@ type QueueDefaults struct {
 	RegisterWithRegistry bool   `toml:"register_with_registry"`
 }
 
+type OrchestratorDefaults struct {
+	Port                 int    `toml:"port"`
+	MetricsPort          int    `toml:"metrics_port"`
+	Shards               int    `toml:"shards"`
+	RegistryAddress      string `toml:"registry.address"`
+	AdvertiseAddress     string `toml:"advertise_address"`
+	RegisterWithRegistry bool   `toml:"register_with_registry"`
+}
+
 type RegistryDefaults struct {
 	Port    int                     `toml:"port"`
 	Cluster RegistryClusterDefaults `toml:"cluster"`
@@ -227,6 +237,7 @@ type DiscoveryDefaults struct {
 	QueueAddress                 string       `toml:"queue.address"`
 	LogAddress                   string       `toml:"log.address"`
 	ArtifactAddress              string       `toml:"artifact.address"`
+	OrchestratorAddress          string       `toml:"orchestrator.address"`
 	QueueAdvertiseAddress        string       `toml:"queue.advertise.address"`
 	LogGRPCAdvertiseAddress      string       `toml:"log.grpc.advertise.address"`
 	ArtifactGRPCAdvertiseAddress string       `toml:"artifact.grpc.advertise.address"`
@@ -265,6 +276,7 @@ type WorkerDefaults struct {
 	RegistryAddress      string                          `toml:"registry.address"`
 	QueueAddress         string                          `toml:"queue.address"`
 	LogAddress           string                          `toml:"log.address"`
+	OrchestratorAddress  string                          `toml:"orchestrator.address"`
 	MetricsHost          string                          `toml:"metrics_host"`
 	MetricsPort          int                             `toml:"metrics_port"`
 	ArtifactMaxBytes     int64                           `toml:"artifact_max_bytes"`
@@ -406,6 +418,37 @@ func validateDefaults(d Defaults) {
 	validatePort(d.Queue.MetricsPort, "queue.metrics_port")
 	if d.Queue.MetricsPort == d.Queue.Port {
 		panic("config defaults: queue.metrics_port must differ from queue.port")
+	}
+
+	validatePort(d.Orchestrator.Port, "orchestrator.port")
+	validatePort(d.Orchestrator.MetricsPort, "orchestrator.metrics_port")
+	if d.Orchestrator.MetricsPort == d.Orchestrator.Port {
+		panic("config defaults: orchestrator.metrics_port must differ from orchestrator.port")
+	}
+
+	if d.Orchestrator.Port == d.API.Port ||
+		d.Orchestrator.Port == d.Queue.Port ||
+		d.Orchestrator.Port == d.Registry.Port ||
+		d.Orchestrator.Port == d.Log.GRPC.Port ||
+		d.Orchestrator.Port == d.Artifact.GRPC.Port ||
+		d.Orchestrator.Port == d.CellIngress.Port {
+		panic("config defaults: orchestrator.port must differ from api/queue/registry/log/artifact/cell ingress ports")
+	}
+
+	if d.Orchestrator.MetricsPort == d.Queue.MetricsPort ||
+		d.Orchestrator.MetricsPort == d.Worker.MetricsPort ||
+		d.Orchestrator.MetricsPort == d.Log.MetricsPort ||
+		d.Orchestrator.MetricsPort == d.Artifact.MetricsPort ||
+		d.Orchestrator.MetricsPort == d.LogForwarder.MetricsPort ||
+		d.Orchestrator.MetricsPort == d.Reconciler.MetricsPort ||
+		d.Orchestrator.MetricsPort == d.Catalog.MetricsPort ||
+		d.Orchestrator.MetricsPort == d.CellIngress.MetricsPort ||
+		d.Orchestrator.MetricsPort == d.Worker.Control.Port {
+		panic("config defaults: orchestrator.metrics_port must differ from queue/worker/log/artifact/log-forwarder/reconciler/catalog/cell-ingress metrics ports and worker control port")
+	}
+
+	if d.Orchestrator.Shards < 0 {
+		panic("config defaults: orchestrator.shards must be >= 0")
 	}
 
 	validatePort(d.Registry.Port, "registry.port")
@@ -798,6 +841,10 @@ func QueueMetricsHost() string {
 	return metricsHost("metrics_host", "queue.metrics_host", MustDefaults().Queue.MetricsHost)
 }
 
+func OrchestratorPort() int {
+	return MustDefaults().Orchestrator.Port
+}
+
 func QueueMetricsPort() int {
 	return MustDefaults().Queue.MetricsPort
 }
@@ -808,6 +855,22 @@ func QueueMetricsListenAddr() string {
 
 func WorkerMetricsHost() string {
 	return metricsHost("metrics_host", "worker.metrics_host", MustDefaults().Worker.MetricsHost)
+}
+
+func OrchestratorMetricsPort() int {
+	return MustDefaults().Orchestrator.MetricsPort
+}
+
+func OrchestratorShards() int {
+	if viper.IsSet("shards") {
+		return viper.GetInt("shards")
+	}
+
+	if viper.IsSet("orchestrator.shards") {
+		return viper.GetInt("orchestrator.shards")
+	}
+
+	return MustDefaults().Orchestrator.Shards
 }
 
 func WorkerMetricsPort() int {
@@ -1293,6 +1356,14 @@ func QueueGRPCAdvertiseAddress() string {
 	)
 }
 
+func OrchestratorGRPCAdvertiseAddress() string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("orchestrator.advertise_address"),
+		d.Orchestrator.AdvertiseAddress,
+	)
+}
+
 func LogGRPCAdvertiseAddress() string {
 	d := MustDefaults()
 	return coalesceNonEmpty(
@@ -1315,6 +1386,14 @@ func ArtifactGRPCAdvertiseAddress() string {
 
 func QueueRegistryPublishAddress(bindListenAddr string) string {
 	if a := QueueGRPCAdvertiseAddress(); a != "" {
+		return a
+	}
+
+	return bindListenAddr
+}
+
+func OrchestratorRegistryPublishAddress(bindListenAddr string) string {
+	if a := OrchestratorGRPCAdvertiseAddress(); a != "" {
 		return a
 	}
 
@@ -1347,6 +1426,16 @@ func QueueRegistryAddress() string {
 	)
 }
 
+func OrchestratorRegistryAddress() string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("orchestrator.registry.address"),
+		d.Orchestrator.RegistryAddress,
+		viper.GetString("discovery.registry.address"),
+		d.Discovery.RegistryAddress,
+	)
+}
+
 func QueueResolverAddress() string {
 	d := MustDefaults()
 	return coalesceNonEmpty(
@@ -1363,6 +1452,14 @@ func QueueRegisterWithRegistry() bool {
 	}
 
 	return MustDefaults().Queue.RegisterWithRegistry
+}
+
+func OrchestratorRegisterWithRegistry() bool {
+	if viper.IsSet("orchestrator.register_with_registry") {
+		return viper.GetBool("orchestrator.register_with_registry")
+	}
+
+	return MustDefaults().Orchestrator.RegisterWithRegistry
 }
 
 func LogRegistryAddress() string {
@@ -1455,6 +1552,16 @@ func WorkerLogAddress() string {
 		d.Worker.LogAddress,
 		viper.GetString("discovery.log.address"),
 		d.Discovery.LogAddress,
+	)
+}
+
+func WorkerOrchestratorAddress() string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("worker.orchestrator.address"),
+		d.Worker.OrchestratorAddress,
+		viper.GetString("discovery.orchestrator.address"),
+		d.Discovery.OrchestratorAddress,
 	)
 }
 
@@ -1827,6 +1934,10 @@ func QueueRegistrationRegistryAddress() string {
 	return registryDialAddress(QueueRegistryAddress)
 }
 
+func OrchestratorRegistrationRegistryAddress() string {
+	return registryDialAddress(OrchestratorRegistryAddress)
+}
+
 func LogRegistrationRegistryAddress() string {
 	return registryDialAddress(LogRegistryAddress)
 }
@@ -1880,12 +1991,23 @@ func QueueEffectiveListenPort() int {
 	return effectiveListenPort(QueuePort)
 }
 
+func OrchestratorEffectiveListenPort() int {
+	return effectiveListenPort(OrchestratorPort)
+}
+
 // QueueMetricsEffectiveListenPort returns the HTTP /metrics listen port for vectis-queue.
 func QueueMetricsEffectiveListenPort() int {
 	if p := viper.GetInt("metrics_port"); p > 0 {
 		return p
 	}
 	return QueueMetricsPort()
+}
+
+func OrchestratorMetricsEffectiveListenPort() int {
+	if p := viper.GetInt("metrics_port"); p > 0 {
+		return p
+	}
+	return OrchestratorMetricsPort()
 }
 
 // WorkerMetricsEffectiveListenPort returns the HTTP /metrics listen port for vectis-worker.
@@ -1921,6 +2043,10 @@ func PinnedLogAddress() string {
 
 func PinnedArtifactAddress() string {
 	return ArtifactResolverAddress()
+}
+
+func PinnedOrchestratorAddress() string {
+	return WorkerOrchestratorAddress()
 }
 
 func RateLimitAuthRefillRate() time.Duration {

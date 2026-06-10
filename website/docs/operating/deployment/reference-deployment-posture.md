@@ -1,6 +1,6 @@
 # Reference Deployment Posture
 
-`vectis-cli deploy podman up` starts a full Vectis stack for demos, local staging, and integration testing. It is useful because it shows the pieces working together: API, queue, registry, log service, worker, cron, reconciler, catalog, docs, Postgres, metrics, traces, logs, and dashboards.
+`vectis-cli deploy podman up` starts a full Vectis stack for demos, local staging, and integration testing. It is useful because it shows the pieces working together: API, queue, orchestrator, registry, log service, worker, cron, reconciler, catalog, docs, Postgres, metrics, traces, logs, and dashboards.
 
 It is not a turnkey production architecture.
 
@@ -21,7 +21,7 @@ The Podman reference deployment has two profiles:
 | Profile | Command | Shape |
 | --- | --- | --- |
 | `simple` | `vectis-cli deploy podman --profile simple up` | Default single-replica cell for local demos and smoke tests. |
-| `ha` | `vectis-cli deploy podman --profile ha up` | Local HA exercise profile with three registries, two API replicas, two queue shards, two log shards, two workers, two cron instances, and two reconciler instances. |
+| `ha` | `vectis-cli deploy podman --profile ha up` | Local HA exercise profile with three registries, two API replicas, one orchestrator, two queue shards, two log shards, two workers, two cron instances, and two reconciler instances. |
 
 Both profiles keep one Postgres database and the bundled observability stack. The HA profile is for validating the single-cell scale-out contract on one Podman host; it is not a production HA architecture by itself.
 
@@ -34,7 +34,7 @@ The reference deployment gives you a working single-site topology:
 | Database | Bundled Postgres with generated password and TLS inside the pod. |
 | Internal gRPC | Generated CA and server certificate, mounted into Vectis containers. |
 | Queue/log/artifact storage | Persistent volume claims for queue, log, and artifact data. The HA profile gives each queue, log, and artifact shard its own subdirectory on those volumes. |
-| Metrics | Prometheus scraping API, queue, worker, log, artifact, reconciler, catalog, and cell ingress metrics; log-forwarder metrics when deployed. |
+| Metrics | Prometheus scraping API, queue, orchestrator, worker, log, artifact, reconciler, catalog, and cell ingress metrics; log-forwarder metrics when deployed. |
 | Dashboards | Grafana with a provisioned Vectis overview dashboard. |
 | Traces | Jaeger collector/query backed by the bundled OpenSearch instance. |
 | Service logs | Structured Vectis logs tailed by Fluent Bit into OpenSearch. |
@@ -55,7 +55,7 @@ Before treating this topology as shared, staging-like, or production-like, decid
 | Database durability | Use a Postgres backup and restore process you have tested. |
 | Storage | Put queue persistence, log storage, artifact storage, and observability storage on volumes with known retention and backup behavior. |
 | Telemetry | Replace or harden bundled observability before relying on it for production alerting. |
-| Capacity | Set resource requests/limits and size Postgres, queue, log, artifact, and worker capacity for expected load. |
+| Capacity | Set resource requests/limits and size Postgres, queue, orchestrator, log, artifact, and worker capacity for expected load. |
 | Runbooks | Install alert rules and repair procedures in the telemetry system operators actually use. |
 
 For the broader security baseline, see [Security](../../concepts/security.md). For internal port boundaries, see [Internal Service Trust](../../concepts/internal-service-trust.md). For configuration details, see [Configuration](../configuration.md).

@@ -8,13 +8,11 @@ import (
 )
 
 type stuckRunsResponse struct {
-	Stuck                   int64                             `json:"stuck"`
-	DispatchGapSecs         int64                             `json:"dispatch_gap_secs"`
-	Cells                   []stuckRunsCellResponse           `json:"cells,omitempty"`
-	TaskDispatchPending     int64                             `json:"task_dispatch_pending"`
-	TaskDispatchCells       []taskDispatchPendingCellResponse `json:"task_dispatch_cells,omitempty"`
-	TaskFinalizationPending int64                             `json:"task_finalization_pending"`
-	TaskFinalizationCells   []taskDispatchPendingCellResponse `json:"task_finalization_cells,omitempty"`
+	Stuck                   int64                      `json:"stuck"`
+	DispatchGapSecs         int64                      `json:"dispatch_gap_secs"`
+	Cells                   []stuckRunsCellResponse    `json:"cells,omitempty"`
+	TaskFinalizationPending int64                      `json:"task_finalization_pending"`
+	TaskFinalizationCells   []pendingCellCountResponse `json:"task_finalization_cells,omitempty"`
 }
 
 type stuckRunsCellResponse struct {
@@ -22,7 +20,7 @@ type stuckRunsCellResponse struct {
 	Stuck  int64  `json:"stuck"`
 }
 
-type taskDispatchPendingCellResponse struct {
+type pendingCellCountResponse struct {
 	CellID  string `json:"cell_id"`
 	Pending int64  `json:"pending"`
 }
@@ -63,41 +61,6 @@ func (s *APIServer) GetStuckRuns(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	var taskDispatchPending int64
-	var taskDispatchCells []taskDispatchPendingCellResponse
-	if s.taskDispatch != nil {
-		taskDispatchCutoff := now.UnixNano()
-		taskDispatchPending, err = s.taskDispatch.CountPending(ctx, taskDispatchCutoff)
-		if err != nil {
-			if s.handleDBUnavailableError(w, err) {
-				return
-			}
-
-			s.logger.Error("pending task dispatch query failed: %v", err)
-			writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-			return
-		}
-
-		taskDispatchCounts, err := s.taskDispatch.CountPendingByCell(ctx, taskDispatchCutoff)
-		if err != nil {
-			if s.handleDBUnavailableError(w, err) {
-				return
-			}
-
-			s.logger.Error("pending task dispatch by cell query failed: %v", err)
-			writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-			return
-		}
-
-		taskDispatchCells = make([]taskDispatchPendingCellResponse, 0, len(taskDispatchCounts))
-		for _, count := range taskDispatchCounts {
-			taskDispatchCells = append(taskDispatchCells, taskDispatchPendingCellResponse{
-				CellID:  count.CellID,
-				Pending: count.Count,
-			})
-		}
-	}
-
 	taskFinalizationPending, err := s.runs.CountOrphanedTaskFinalizationCandidates(ctx)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
@@ -120,9 +83,9 @@ func (s *APIServer) GetStuckRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	taskFinalizationCells := make([]taskDispatchPendingCellResponse, 0, len(taskFinalizationCounts))
+	taskFinalizationCells := make([]pendingCellCountResponse, 0, len(taskFinalizationCounts))
 	for _, count := range taskFinalizationCounts {
-		taskFinalizationCells = append(taskFinalizationCells, taskDispatchPendingCellResponse{
+		taskFinalizationCells = append(taskFinalizationCells, pendingCellCountResponse{
 			CellID:  count.CellID,
 			Pending: count.Count,
 		})
@@ -132,8 +95,6 @@ func (s *APIServer) GetStuckRuns(w http.ResponseWriter, r *http.Request) {
 		Stuck:                   n,
 		DispatchGapSecs:         int64(reconciler.MinDispatchGap.Seconds()),
 		Cells:                   cells,
-		TaskDispatchPending:     taskDispatchPending,
-		TaskDispatchCells:       taskDispatchCells,
 		TaskFinalizationPending: taskFinalizationPending,
 		TaskFinalizationCells:   taskFinalizationCells,
 	})

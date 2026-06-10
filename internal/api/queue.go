@@ -5,10 +5,8 @@ import (
 )
 
 type queueBacklogResponse struct {
-	Queued              int64                             `json:"queued"`
-	Cells               []queueBacklogCellResponse        `json:"cells,omitempty"`
-	TaskDispatchPending int64                             `json:"task_dispatch_pending"`
-	TaskDispatchCells   []taskDispatchPendingCellResponse `json:"task_dispatch_cells,omitempty"`
+	Queued int64                      `json:"queued"`
+	Cells  []queueBacklogCellResponse `json:"cells,omitempty"`
 }
 
 type queueBacklogCellResponse struct {
@@ -49,44 +47,8 @@ func (s *APIServer) GetQueueBacklog(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	var taskDispatchPending int64
-	var taskDispatchCells []taskDispatchPendingCellResponse
-	if s.taskDispatch != nil {
-		taskDispatchPending, err = s.taskDispatch.CountPending(ctx, 0)
-		if err != nil {
-			if s.handleDBUnavailableError(w, err) {
-				return
-			}
-
-			s.logger.Error("queue backlog task dispatch query failed: %v", err)
-			writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-			return
-		}
-
-		taskDispatchCounts, err := s.taskDispatch.CountPendingByCell(ctx, 0)
-		if err != nil {
-			if s.handleDBUnavailableError(w, err) {
-				return
-			}
-
-			s.logger.Error("queue backlog task dispatch by cell query failed: %v", err)
-			writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-			return
-		}
-
-		taskDispatchCells = make([]taskDispatchPendingCellResponse, 0, len(taskDispatchCounts))
-		for _, count := range taskDispatchCounts {
-			taskDispatchCells = append(taskDispatchCells, taskDispatchPendingCellResponse{
-				CellID:  count.CellID,
-				Pending: count.Count,
-			})
-		}
-	}
-
 	writeJSON(w, http.StatusOK, queueBacklogResponse{
-		Queued:              n,
-		Cells:               cells,
-		TaskDispatchPending: taskDispatchPending,
-		TaskDispatchCells:   taskDispatchCells,
+		Queued: n,
+		Cells:  cells,
 	})
 }

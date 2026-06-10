@@ -834,6 +834,7 @@ func printNextChecks(suite string) {
 		emit("- End-to-end context: compare executor rows with macro result-action rows when isolating scheduler and DB overhead.")
 	case "macro":
 		emit("- DB matrix: include sqlite3, pgx_podman, and pgx_podman_unsafe before attributing macro losses to network or durability.")
+		emit("- Choreography split: compare SQL, Orchestrator, and OrchestratorGRPC macro rows before claiming hot-state offload wins.")
 		emit("- Mixed traffic: add API reads, SSE/log replay clients, and repair/list traffic while trigger-to-terminal load is running.")
 		emit("- Topology: add multi-worker deployed, HA, and multi-cell rows before turning local macro throughput into a capacity envelope.")
 		emit("- Log pressure: vary log volume and concurrent replay clients beyond the current log-heavy row before changing observability claims.")

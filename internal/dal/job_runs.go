@@ -2425,12 +2425,6 @@ func (r *SQLRunsRepository) ListQueuedBeforeDispatchCutoff(ctx context.Context, 
 		FROM job_runs
 		WHERE status = 'queued'
 			AND (last_dispatched_at IS NULL OR last_dispatched_at < ?)
-			AND NOT EXISTS (
-				SELECT 1
-				FROM task_dispatch_intents tdi
-				WHERE tdi.run_id = job_runs.run_id
-					AND tdi.enqueued_at IS NULL
-			)
 		ORDER BY id ASC
 	`), cutoffUnix)
 
@@ -3014,18 +3008,6 @@ func (r *SQLRunsRepository) CompleteExecutionAndFinalizeRunByClaim(ctx context.C
 			return ExecutionFinalizationResult{}, err
 		}
 
-		for _, child := range children {
-			if _, err := ensureTaskDispatchIntentTx(ctx, tx, TaskDispatchIntentCreate{
-				ExecutionID:       child.ExecutionID,
-				RunID:             child.RunID,
-				TaskID:            child.TaskID,
-				TaskAttemptID:     child.TaskAttemptID,
-				SourceExecutionID: executionID,
-				CellID:            child.CellID,
-			}); err != nil {
-				return ExecutionFinalizationResult{}, err
-			}
-		}
 	} else {
 		if _, err := transitionExecutionTx(ctx, tx, executionID, status, status, []string{ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}, true, false, true); err != nil {
 			return ExecutionFinalizationResult{}, err
@@ -3469,12 +3451,6 @@ func (r *SQLRunsRepository) CountStuckBeforeDispatchCutoff(ctx context.Context, 
 		FROM job_runs
 		WHERE status = 'queued'
 			AND (last_dispatched_at IS NULL OR last_dispatched_at < ?)
-			AND NOT EXISTS (
-				SELECT 1
-				FROM task_dispatch_intents tdi
-				WHERE tdi.run_id = job_runs.run_id
-					AND tdi.enqueued_at IS NULL
-			)
 	`), cutoffUnix).Scan(&count)
 
 	if err != nil {
@@ -3490,12 +3466,6 @@ func (r *SQLRunsRepository) CountStuckBeforeDispatchCutoffByCell(ctx context.Con
 		FROM job_runs
 		WHERE status = 'queued'
 			AND (last_dispatched_at IS NULL OR last_dispatched_at < ?)
-			AND NOT EXISTS (
-				SELECT 1
-				FROM task_dispatch_intents tdi
-				WHERE tdi.run_id = job_runs.run_id
-					AND tdi.enqueued_at IS NULL
-			)
 		GROUP BY owning_cell
 		ORDER BY owning_cell ASC
 	`), cutoffUnix)

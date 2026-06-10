@@ -87,7 +87,6 @@ const (
 	DispatchSourceAPI        = "api"
 	DispatchSourceCron       = "cron"
 	DispatchSourceReconciler = "reconciler"
-	DispatchSourceTask       = "task_dispatch"
 
 	DispatchEventAccepted = "accepted"
 	DispatchEventAttempt  = "attempt"
@@ -360,40 +359,6 @@ type ArtifactRunUsage struct {
 	SizeBytes int64
 }
 
-type TaskDispatchIntentCreate struct {
-	ExecutionID       string
-	RunID             string
-	TaskID            string
-	TaskAttemptID     string
-	SourceExecutionID string
-	CellID            string
-}
-
-type TaskDispatchIntent struct {
-	ID                   int64
-	ExecutionID          string
-	RunID                string
-	TaskID               string
-	TaskAttemptID        string
-	SourceExecutionID    string
-	CellID               string
-	EnqueuedAt           *int64
-	LastEnqueueAttemptAt *int64
-	EnqueueAttempts      int
-	LastEnqueueError     *string
-	CreatedAt            int64
-	UpdatedAt            int64
-}
-
-type TaskDispatchSummary struct {
-	RunID        string
-	Total        int
-	Pending      int
-	Failed       int
-	Enqueued     int
-	UnknownState int
-}
-
 type RunTaskCompletion struct {
 	RunID          string
 	Total          int
@@ -497,18 +462,6 @@ type ArtifactsRepository interface {
 	GetRunUsageExcludingName(ctx context.Context, runID, name string) (ArtifactRunUsage, error)
 }
 
-type TaskDispatchIntentsRepository interface {
-	Ensure(ctx context.Context, create TaskDispatchIntentCreate) (TaskDispatchIntent, bool, error)
-	GetRunSummary(ctx context.Context, runID string) (TaskDispatchSummary, error)
-	ListByRun(ctx context.Context, runID string, limit int) ([]TaskDispatchIntent, error)
-	CountPending(ctx context.Context, cutoffUnixNano int64) (int64, error)
-	CountPendingByCell(ctx context.Context, cutoffUnixNano int64) ([]RunCountByCell, error)
-	ListPending(ctx context.Context, cellID string, cutoffUnixNano int64, limit int) ([]TaskDispatchIntent, error)
-	ListPendingForRun(ctx context.Context, runID, cellID string, cutoffUnixNano int64, limit int) ([]TaskDispatchIntent, error)
-	MarkEnqueued(ctx context.Context, executionID string, enqueuedAtUnixNano int64) error
-	MarkEnqueueFailed(ctx context.Context, executionID string, attemptedAtUnixNano int64, message string) error
-}
-
 type CatalogEventsRepository interface {
 	Record(ctx context.Context, sourceCell, eventKey, eventType string, payload []byte) (CatalogEventRecord, bool, error)
 	ListPending(ctx context.Context, limit int) ([]CatalogEventRecord, error)
@@ -562,9 +515,7 @@ type ExecutionClaimResult struct {
 	Claimed                bool
 	ClaimToken             string
 	TransitionedToAccepted bool
-	Expired                bool
-	RunID                  string
-	ExecutionID            string
+	ExecutionStarted       bool
 }
 
 type RunCatalogUpdater interface {
@@ -672,7 +623,6 @@ type SQLRepositories struct {
 	idempotency   *SQLIdempotencyRepository
 	dispatch      *SQLDispatchEventsRepository
 	artifacts     *SQLArtifactsRepository
-	taskDispatch  *SQLTaskDispatchIntentsRepository
 	triggers      *SQLTriggerInvocationsRepository
 	catalog       *SQLCatalogEventsRepository
 	catalogState  *SQLCatalogStatusBackfillRepository
@@ -698,7 +648,6 @@ func NewSQLRepositoriesWithCellID(db *sql.DB, cellID string) *SQLRepositories {
 		idempotency:   &SQLIdempotencyRepository{db: db},
 		dispatch:      &SQLDispatchEventsRepository{db: db},
 		artifacts:     &SQLArtifactsRepository{db: db, cellID: cellID},
-		taskDispatch:  &SQLTaskDispatchIntentsRepository{db: db, cellID: cellID},
 		triggers:      &SQLTriggerInvocationsRepository{db: db},
 		catalog:       &SQLCatalogEventsRepository{db: db},
 		catalogState:  &SQLCatalogStatusBackfillRepository{db: db},
@@ -951,10 +900,6 @@ func (r *SQLRepositories) DispatchEvents() DispatchEventsRepository {
 
 func (r *SQLRepositories) Artifacts() ArtifactsRepository {
 	return r.artifacts
-}
-
-func (r *SQLRepositories) TaskDispatchIntents() TaskDispatchIntentsRepository {
-	return r.taskDispatch
 }
 
 func (r *SQLRepositories) TriggerInvocations() TriggerInvocationsRepository {

@@ -2154,17 +2154,6 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	taskDispatch, err := s.getRunTaskDispatch(ctx, runID)
-	if err != nil {
-		if s.handleDBUnavailableError(w, err) {
-			return
-		}
-
-		s.logger.Error("Database error: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-
 	taskCompletionSummary, err := s.runs.GetRunTaskCompletion(ctx, runID)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
@@ -2214,7 +2203,6 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		NextAction           *string            `json:"next_action,omitempty"`
 		DispatchEvents       []dispatchEventRow `json:"dispatch_events"`
 		TaskCompletion       *taskCompletionRow `json:"task_completion,omitempty"`
-		TaskDispatch         *taskDispatchRow   `json:"task_dispatch,omitempty"`
 	}
 
 	resp := runRow{
@@ -2237,9 +2225,8 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		TriggerPayloadHash:   rec.TriggerPayloadHash,
 		RequestedCells:       rec.RequestedCells,
 		ExecutionPayloadHash: rec.ExecutionPayloadHash,
-		NextAction:           runNextAction(rec.Status, taskCompletionSummary, taskDispatch),
+		NextAction:           runNextAction(rec.Status, taskCompletionSummary),
 		DispatchEvents:       []dispatchEventRow{},
-		TaskDispatch:         taskDispatch,
 	}
 
 	if taskCompletionSummary.Total > 0 {
@@ -2272,104 +2259,12 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(buf.Bytes())
 }
 
-const runTaskDispatchIntentLimit = 50
-
 const (
-	runNextActionTaskDispatchPending           = "task_dispatch_pending"
-	runNextActionTaskDispatchRetryPending      = "task_dispatch_retry_pending"
 	runNextActionTaskCompletionPending         = "task_completion_pending"
 	runNextActionTaskFinalizationRepairPending = "task_finalization_repair_pending"
 )
 
-type taskDispatchRow struct {
-	Total        int                     `json:"total"`
-	Pending      int                     `json:"pending"`
-	Failed       int                     `json:"failed"`
-	Enqueued     int                     `json:"enqueued"`
-	UnknownState int                     `json:"unknown_state,omitempty"`
-	Truncated    bool                    `json:"truncated"`
-	Limit        int                     `json:"limit"`
-	Intents      []taskDispatchIntentRow `json:"intents"`
-}
-
-type taskDispatchIntentRow struct {
-	ExecutionID          string  `json:"execution_id"`
-	TaskID               string  `json:"task_id"`
-	TaskAttemptID        string  `json:"task_attempt_id"`
-	SourceExecutionID    string  `json:"source_execution_id,omitempty"`
-	CellID               string  `json:"cell_id"`
-	State                string  `json:"state"`
-	EnqueueAttempts      int     `json:"enqueue_attempts"`
-	LastEnqueueError     *string `json:"last_enqueue_error,omitempty"`
-	EnqueuedAt           *int64  `json:"enqueued_at,omitempty"`
-	LastEnqueueAttemptAt *int64  `json:"last_enqueue_attempt_at,omitempty"`
-	CreatedAt            int64   `json:"created_at"`
-	UpdatedAt            int64   `json:"updated_at"`
-}
-
-func (s *APIServer) getRunTaskDispatch(ctx context.Context, runID string) (*taskDispatchRow, error) {
-	if s.taskDispatch == nil {
-		return nil, nil
-	}
-
-	summary, err := s.taskDispatch.GetRunSummary(ctx, runID)
-	if err != nil {
-		return nil, err
-	}
-
-	if summary.Total == 0 {
-		return nil, nil
-	}
-
-	intents, err := s.taskDispatch.ListByRun(ctx, runID, runTaskDispatchIntentLimit)
-	if err != nil {
-		return nil, err
-	}
-
-	row := &taskDispatchRow{
-		Total:        summary.Total,
-		Pending:      summary.Pending,
-		Failed:       summary.Failed,
-		Enqueued:     summary.Enqueued,
-		UnknownState: summary.UnknownState,
-		Truncated:    summary.Total > len(intents),
-		Limit:        runTaskDispatchIntentLimit,
-		Intents:      make([]taskDispatchIntentRow, 0, len(intents)),
-	}
-
-	for _, intent := range intents {
-		row.Intents = append(row.Intents, taskDispatchIntentRow{
-			ExecutionID:          intent.ExecutionID,
-			TaskID:               intent.TaskID,
-			TaskAttemptID:        intent.TaskAttemptID,
-			SourceExecutionID:    intent.SourceExecutionID,
-			CellID:               intent.CellID,
-			State:                taskDispatchIntentState(intent),
-			EnqueueAttempts:      intent.EnqueueAttempts,
-			LastEnqueueError:     intent.LastEnqueueError,
-			EnqueuedAt:           intent.EnqueuedAt,
-			LastEnqueueAttemptAt: intent.LastEnqueueAttemptAt,
-			CreatedAt:            intent.CreatedAt,
-			UpdatedAt:            intent.UpdatedAt,
-		})
-	}
-
-	return row, nil
-}
-
-func taskDispatchIntentState(intent dal.TaskDispatchIntent) string {
-	if intent.EnqueuedAt != nil {
-		return "enqueued"
-	}
-
-	if intent.LastEnqueueError != nil {
-		return "failed_pending"
-	}
-
-	return "pending"
-}
-
-func runNextAction(status string, taskCompletion dal.RunTaskCompletion, taskDispatch *taskDispatchRow) *string {
+func runNextAction(status string, taskCompletion dal.RunTaskCompletion) *string {
 	if status == dal.RunStatusOrphaned && taskCompletion.Total > 0 && (taskCompletion.TerminalFailed > 0 || taskCompletion.AllSucceeded()) {
 		action := runNextActionTaskFinalizationRepairPending
 		return &action
@@ -2377,23 +2272,6 @@ func runNextAction(status string, taskCompletion dal.RunTaskCompletion, taskDisp
 
 	if status != dal.RunStatusQueued {
 		return nil
-	}
-
-	if taskDispatch != nil {
-		if taskDispatch.Pending > 0 {
-			action := runNextActionTaskDispatchPending
-			return &action
-		}
-
-		if taskDispatch.Failed > 0 {
-			action := runNextActionTaskDispatchRetryPending
-			return &action
-		}
-
-		if taskDispatch.Enqueued > 0 && taskCompletion.Incomplete > 0 {
-			action := runNextActionTaskCompletionPending
-			return &action
-		}
 	}
 
 	if taskCompletion.Total > 0 && taskCompletion.Incomplete > 0 {

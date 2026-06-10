@@ -43,23 +43,6 @@ groups:
           summary: Vectis reconciler failed to repair orphaned task finalization
           runbook: docs/REPAIR_RUNBOOKS.md#reconciler-repair
 
-      - alert: VectisTaskDispatchFailures
-        expr: increase(vectis_task_dispatch_intents_total{outcome="failed"}[10m]) > 0
-        labels:
-          severity: warning
-        annotations:
-          summary: Vectis task dispatch failed to enqueue continuation work
-          runbook: docs/REPAIR_RUNBOOKS.md#queued-runs-or-backlog
-
-      - alert: VectisTaskDispatchPendingIntents
-        expr: sum(vectis_task_dispatch_pending_intents) > 0
-        for: 15m
-        labels:
-          severity: warning
-        annotations:
-          summary: Vectis task dispatch has pending continuation work
-          runbook: docs/REPAIR_RUNBOOKS.md#queued-runs-or-backlog
-
       - alert: VectisTaskReduceErrors
         expr: increase(vectis_task_reduce_decisions_total{outcome="error"}[10m]) > 0
         labels:
@@ -69,7 +52,7 @@ groups:
           runbook: docs/REPAIR_RUNBOOKS.md#manual-run-intervention
 
       - alert: VectisTaskGraphRowsHigh
-        expr: sum(vectis_storage_records{surface=~"run_tasks|task_attempts|run_segments|segment_executions|task_dispatch_intents"}) > 1000000
+        expr: sum(vectis_storage_records{surface=~"run_tasks|task_attempts|run_segments|segment_executions"}) > 1000000
         for: 30m
         labels:
           severity: warning

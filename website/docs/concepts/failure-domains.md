@@ -14,7 +14,8 @@ The database and queue are the two services to protect first.
 | Queue | Handoff point between producers such as API, cron, and reconciler, and consumers such as workers. |
 | Log service | Required before a worker starts normal task delivery execution. Log shards own ingest and streaming for routed runs, not authoritative run state. |
 | Artifact service | Internal content-addressed blob storage. Artifact shards own local blob availability, not authoritative run state. |
-| Registry | Service discovery. It is avoidable for some paths when queue, log, and artifact addresses are pinned in config. |
+| Orchestrator | Required hot-path task claim, lease, and choreography service for workers. |
+| Registry | Service discovery. It is avoidable for some paths when queue, orchestrator, log, and artifact addresses are pinned in config. |
 | API | User and automation entry point. Running work does not depend on the API once workers have claimed it. |
 | Worker | Executes envelope-backed task deliveries for persisted runs. Capacity and failure handling are mostly worker-count and lease behavior questions. |
 | Cron | Turns schedules into queued work. Manual and API triggers can still work without it. |
@@ -37,14 +38,15 @@ Most Vectis outages reduce to one of these questions:
 | `vectis-registry` | Listen socket and optional TLS files. |
 | `vectis-log` | Per-shard storage directory; gRPC ingest listener; HTTP/SSE log listener; optional registry. |
 | `vectis-artifact` | Per-shard storage directory; gRPC upload/read listener; optional registry. |
-| `vectis-worker` | Database; queue; log service; registry unless queue and log addresses are pinned. |
+| `vectis-orchestrator` | gRPC listener, required TLS files, and optional registry when it registers its address. Current run graph state is in memory. |
+| `vectis-worker` | Database; queue; orchestrator; log service; registry unless queue, orchestrator, and log addresses are pinned. |
 | `vectis-log-forwarder` | Log service and local spool directory. |
 | `vectis-cron` | Database and queue. |
 | `vectis-reconciler` | Database and queue. |
 | `vectis-local` | Child binaries, local ports, and local TLS bootstrap unless disabled. |
 | `vectis-cli` | API for normal commands; database DSN for `migrate`. |
 
-If queue, log, and artifact addresses are pinned, callers can avoid registry lookups. Services that register themselves still need the registry during startup unless you choose a different deployment pattern.
+If queue, orchestrator, log, and artifact addresses are pinned, callers can avoid registry lookups. Services that register themselves still need the registry during startup unless you choose a different deployment pattern.
 
 ## Dependency Classes
 
@@ -63,7 +65,8 @@ If queue, log, and artifact addresses are pinned, callers can avoid registry loo
 | `vectis-queue` | gRPC listener, persistence directory when enabled, required TLS files, registry when registration is enabled. | Queue storage and delivery scanner. | Use gRPC health service `queue`; scrape metrics for depth and delivery health. |
 | `vectis-registry` | gRPC listener and required TLS files. | In-memory discovery state. | Use gRPC health service `registry`. |
 | `vectis-log` | gRPC listener, HTTP log listener, per-shard storage directory, required TLS files, registry when registration is enabled. | Durable log storage and active stream buffers for runs routed to the shard. | Use gRPC health service `log` for ingest; check log HTTP separately for clients reading streams. |
-| `vectis-worker` | Database, queue, log service, required TLS files. | Database leases/finalization; queue dequeue/ack; log stream before execution. | Use supervisor state plus dependency gates. There is no worker HTTP readiness endpoint. |
+| `vectis-orchestrator` | gRPC listener, required TLS files, registry when registration is enabled. | In-memory run graph state, task claim fencing, lease renewal, and task completion choreography. | Use gRPC health service `orchestrator`; scrape metrics for claim and completion pressure. |
+| `vectis-worker` | Database, queue, orchestrator, log service, required TLS files. | Orchestrator claim/lease/finalization; queue dequeue/ack; log stream before execution; database status/catalog visibility. | Use supervisor state plus dependency gates. There is no worker HTTP readiness endpoint. |
 | `vectis-log-forwarder` | Log service, required TLS files, local spool directory. | Log service for draining batches. | Use process supervision plus spool size and age. |
 | `vectis-cron` | Database, queue, required TLS files. | Database schedules and queue enqueue. | Gate scheduled traffic on database and queue reachability. |
 | `vectis-reconciler` | Database, queue, required TLS files. | Database queued-run scan and queue enqueue. | Gate reliance on redispatch on database and queue reachability. |
@@ -79,7 +82,7 @@ The database is the durable source of truth. If it is unavailable, Vectis can lo
 | Component | Behavior |
 | --- | --- |
 | API | Startup can fail. After startup, many routes return `503 Service Unavailable` for classified transient database errors, while preserving `404` behavior for true missing resources. Creating jobs, updating jobs, triggering runs, listing runs, auth setup, and audit persistence are affected. |
-| Worker | Cannot claim work, renew leases, or reliably mark runs succeeded, failed, or orphaned. |
+| Worker | Cannot start normally. During an outage after startup, task claims and leases already live in the orchestrator, but workers may fail to materialize planned task rows, record catalog events, observe durable cancel requests, or mark runs failed/orphaned for repair. |
 | Cron | Cannot read schedules or record activity. Startup normally fails if the database is unreachable. |
 | Reconciler | Cannot find queued runs that need redispatch. Startup normally fails if the database is unreachable. |
 
@@ -107,6 +110,17 @@ Queue instance IDs are part of delivery routing. A duplicate active instance ID 
 
 Run the reconciler and alert on persistent queued-run age if queue handoff matters for your deployment.
 
+## Orchestrator Down
+
+The orchestrator owns hot task claims, leases, and continuation choreography for workers.
+
+| Component | Behavior |
+| --- | --- |
+| Worker | Startup fails if the worker cannot dial the orchestrator. If the orchestrator becomes unavailable during execution, claim, renew, or completion calls fail; the worker retries bounded completion attempts and then leaves recovery to queue delivery, database catalog state, and operator/reconciler repair. |
+| API, cron, reconciler | They do not call the orchestrator directly today, but new work can accumulate in the queue if workers cannot use it. |
+
+The current orchestrator state is in memory. Restarting an orchestrator clears loaded run graphs and active claim tokens; duplicate deliveries can reload a run graph, but an execution that was mid-flight may need queue or operator recovery after leases and deliveries settle.
+
 ## Log Service Down
 
 The log service collects worker log chunks and serves log streams to clients. Multiple log services can run as run shards: DB-aware clients record a run's shard assignment in the database, and that shard's local storage is the durable source for those run logs. Workers preserve that assignment when they send through a local log-forwarder by including the shard hint in the socket protocol. Log shards do not own authoritative run status.
@@ -126,10 +140,11 @@ The registry matters when services use discovery instead of fixed addresses.
 | Component | Behavior |
 | --- | --- |
 | API, cron, reconciler | Usually cannot start if they need the registry to resolve the queue and all configured registry addresses are unavailable. |
-| Worker | Usually cannot start if it needs the registry to resolve queue or log addresses and all configured registry addresses are unavailable. |
+| Worker | Usually cannot start if it needs the registry to resolve queue, orchestrator, or log addresses and all configured registry addresses are unavailable. |
 | Queue, log, and artifact | Startup fails when they are configured to register and no configured registry address accepts the registration. |
+| Orchestrator | Startup fails when it is configured to register and no configured registry address accepts the registration. |
 
-When multiple registry addresses are configured, discovery clients fail over between them and registering services publish heartbeats to one active target at a time. Pin queue, log, and artifact addresses when you want fewer startup dependencies. Keep the registry private when discovery is enabled.
+When multiple registry addresses are configured, discovery clients fail over between them and registering services publish heartbeats to one active target at a time. Pin queue, orchestrator, log, and artifact addresses when you want fewer startup dependencies. Keep the registry private when discovery is enabled.
 
 ## API Down {#vectis-api}
 
@@ -147,7 +162,7 @@ Background enqueue after an HTTP `202` uses the reconciler as a backstop if the 
 
 ## Workers Down or Interrupted
 
-Workers execute envelope-backed task deliveries for persisted runs and coordinate ownership through database leases.
+Workers execute envelope-backed task deliveries for persisted runs and coordinate task ownership through the orchestrator.
 
 | Event | Behavior |
 | --- | --- |
@@ -155,7 +170,7 @@ Workers execute envelope-backed task deliveries for persisted runs and coordinat
 | Worker overloaded | Queue depth and queued-run age grow. Add workers or reduce incoming work. |
 | `SIGINT` or `SIGTERM` | Worker marks itself draining, stops dequeuing new work, and tries to let the current task delivery finish and finalize state. Watch `vectis_worker_draining` and `vectis_worker_lifecycle_state` to tell whether it is still executing or finalizing. |
 | `SIGKILL` or crash | No graceful drain. Leases, queue delivery timeouts, and reconciler behavior determine whether work is retried or stuck. |
-| Database loss mid-run | Lease renewal and final status updates can fail. Workers expose `vectis_worker_db_unavailable` after observing DB-backed transition failures. A long outage can strand or fail runs until recovery or operator action. |
+| Database loss mid-run | Orchestrator lease renewal can continue, but planned task materialization, catalog status events, durable cancel polling, and orphan/failure repair writes can fail. Workers expose `vectis_worker_db_unavailable` after observing DB-backed transition failures. A long outage can strand visibility or repair state until recovery or operator action. |
 | Remote cancel | `POST /api/v1/runs/{id}/cancel` and `vectis-cli runs cancel <run-id>` record durable cancellation intent on the running run. If worker control is reachable, the API also sends the run's cancel token over gRPC as a fast path; otherwise the worker observes the stored intent while polling during execution. |
 
 Scale workers by running more worker processes. Cancellation is durable once the API commits the request to the database, while worker-control reachability determines only how quickly the assigned worker hears about it. It is best-effort at the action boundary: actions that honor context cancellation should stop promptly, while external child processes or blocking operations may need their own cleanup behavior.
@@ -190,6 +205,7 @@ Multiple reconcilers can run in one execution cell. They coordinate through a da
 | Registry gRPC | Standard gRPC health `registry` | Same check; discovery clients should wait for `SERVING`. |
 | Queue gRPC | Standard gRPC health `queue` | Same check; producers and workers should wait for `SERVING`. |
 | Log gRPC | Standard gRPC health `log` | Same check for log ingest. Check log HTTP separately for users reading streams. |
+| Orchestrator gRPC | Standard gRPC health `orchestrator` | Same check for the worker hot-path state service. |
 | Metrics-only listeners | `/metrics` confirms exporter/process visibility. | Do not use metrics as workflow readiness by itself. |
 | Cron, reconciler, worker, log-forwarder | Supervisor process state. | Gate externally on hard dependencies or deployment-specific wrapper probes. |
 

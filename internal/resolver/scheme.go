@@ -10,6 +10,8 @@ func grpcResolverScheme(comp api.Component) string {
 		return "vectis-log"
 	case api.Component_COMPONENT_ARTIFACT:
 		return "vectis-artifact"
+	case api.Component_COMPONENT_ORCHESTRATOR:
+		return "vectis-orchestrator"
 	default:
 		return "vectis-unknown"
 	}

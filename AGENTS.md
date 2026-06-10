@@ -18,7 +18,7 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 - **HTTP API, auth, RBAC** → `internal/api/`
 - **SQL schema / queries** → `internal/dal/`, `internal/migrations/`
 - **gRPC contracts** → `api/proto/` then `make proto` (generated code in `api/gen/go/` is read-only)
-- **Queue / worker / logs / registry servers** → `internal/queue/`, `internal/job/` (execute), `cmd/worker/`, `internal/logserver/`, `internal/registry/`
+- **Queue / orchestration / worker / logs / registry servers** → `internal/queue/`, `internal/orchestrator/`, `internal/job/` (execute), `cmd/worker/`, `internal/logserver/`, `internal/registry/`
 - **Deployables / docs site** → `deploy/`, `website/docs/`
 - **Reconciler invariants** → `internal/reconciler/`; formal model → `formal/tla/`
 
@@ -32,6 +32,7 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 | `vectis-queue` | FIFO queue + metrics | yes | no |
 | `vectis-registry` | Service discovery | yes | no |
 | `vectis-log` | Log ingest (gRPC), SSE, metrics | yes | no |
+| `vectis-orchestrator` | Hot run state + task choreography | yes | no |
 | `vectis-worker` | Action tree + logs; worker-control gRPC | yes | yes |
 | `vectis-log-forwarder` | Sidecar: worker → log service | yes | no |
 | `vectis-cron` | Schedules → queue | yes | yes |
@@ -71,7 +72,7 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 | `internal/dal/`, `internal/migrations/` | SQL access + migrations |
 | `internal/api/` | REST, auth, authz, rate limits |
 | `internal/config/`, `internal/database/`, `internal/dbdrivers/` | Defaults, open DB, `_` driver import |
-| `internal/queue/`, `internal/queueclient/`, `internal/registry/`, `internal/resolver/`, `internal/tlsconfig/` | Queue, discovery, dial, TLS reload |
+| `internal/queue/`, `internal/queueclient/`, `internal/orchestrator/`, `internal/registry/`, `internal/resolver/`, `internal/tlsconfig/` | Queue, hot run orchestration, discovery, dial, TLS reload |
 | `internal/logserver/`, `internal/logforwarder/`, `internal/job/`, `internal/action/` | Execution + logging |
 | `internal/cron/`, `internal/catalog/`, `internal/cellingress/`, `internal/reconciler/` | Schedules, catalog application, cell ingress, recovery |
 | `internal/interfaces/`, `internal/observability/`, `internal/cli/`, `internal/testutil/` | Logger, metrics/tracing, signals, tests |

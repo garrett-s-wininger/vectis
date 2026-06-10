@@ -24,7 +24,6 @@ The producer may be:
 | `api` | A user or API client created or retried a run. |
 | `cron` | `vectis-cron` created a run from a schedule. |
 | `reconciler` | `vectis-reconciler` found a queued run that still needed queue handoff. |
-| `task_dispatch` | Task dispatch handed off newly dispatchable task work inside the same run, normally from worker completion and later from reconciler repair when an intent remained pending. |
 
 In multi-cell deployments, dispatch events still live on the global run. A failure message can describe a missing cell route, an unavailable private cell ingress endpoint, or a local queue handoff failure inside the target cell. See [Multi-Cell Operation](../multi-cell.md) for the routing and repair shape.
 
@@ -39,9 +38,9 @@ The event type may be:
 
 ## Where To Look
 
-- `vectis-cli runs show <run-id>` prints `next_action`, dispatch events, task completion, and task dispatch summary with the rest of the run detail.
+- `vectis-cli runs show <run-id>` prints `next_action`, dispatch events, and task completion with the rest of the run detail.
 - `vectis-cli runs tasks <run-id>` lists task graph nodes and task attempts for the run, including execution status and worker lease ownership when present.
-- `GET /api/v1/runs/{id}` includes `next_action`, `dispatch_events`, and, when present, `task_dispatch` for API-based tooling.
+- `GET /api/v1/runs/{id}` includes `next_action`, `dispatch_events`, and task completion for API-based tooling.
 - `GET /api/v1/runs/{id}/tasks` returns task graph nodes and attempts for API-based tooling, including execution status and worker lease ownership when present.
 - Reconciler metrics and logs explain whether stuck queued runs are being scanned and redispatched.
 
@@ -60,10 +59,9 @@ Use the event source, timestamp, and message together:
 | `failure` | The producer could not enqueue the run or could not record the dispatch completion. | Read `message`, then check queue health, registry or pinned address config, gRPC TLS, and retry exhaustion. |
 | Run failed with `dispatch_expired` | The execution was not claimed before its dispatch start deadline. | Check worker capacity, queue backlog, cell routing, and `VECTIS_DISPATCH_START_TTL` before retrying. |
 | `reconciler` event | The reconciler tried to repair a queued run that missed or lost its original handoff. | Occasional repair is expected. Repeated repair points to producer, queue, or network instability. |
-| `task_dispatch` event | A task completion produced continuation work for the same run. | Repeated failures point to queue handoff, worker capacity, or task fan-out pressure. |
 | Multiple successful handoff events | A retry or reconciler submitted the same run more than once. | Worker database claims should prevent duplicate execution for the same run ID; inspect queue duplicate pressure. |
 
-Task fan-in is reduction based: any terminal task failure reduces the run to failed, even when sibling branches are still incomplete; all tasks must succeed before the run reduces to succeeded; otherwise the run is queued for continuation. Workers own normal reduce/finalize. If a worker expires after task completion but before finalizing the run, the reconciler can repair an orphaned task run whose stored task summary already reduces to succeeded or failed. Worker spans emit `task.reduce` and `task.finalize` events, and worker metrics emit `vectis_task_reduce_decisions_total` and `vectis_task_finalize_decisions_total`.
+Task fan-out is orchestrator-backed: a worker completes one task through `vectis-orchestrator`, receives any activated child executions, and enqueues those child deliveries directly. Task fan-in is reduction based: any terminal task failure reduces the run to failed, all tasks must succeed before the run reduces to succeeded, and otherwise the run remains active while child task work drains. If a worker expires after task completion but before finalizing the run, the reconciler can repair an orphaned task run whose stored task summary already reduces to succeeded or failed. Worker spans emit `task.dispatch.direct`, `task.reduce`, and `task.finalize` events, and worker metrics emit `vectis_task_reduce_decisions_total` and `vectis_task_finalize_decisions_total`.
 
 ## Runbook: Queued With No Dispatch {#runbook-queued-with-no-dispatch}
 
@@ -78,7 +76,7 @@ Task fan-in is reduction based: any terminal task failure reduces the run to fai
 ## Runbook: Dispatch Failure {#runbook-dispatch-failure}
 
 1. Read the dispatch failure message from the run detail.
-2. Check whether the failure came from API, cron, task dispatch, or reconciler.
+2. Check whether the failure came from API, cron, or reconciler.
 3. Verify queue address resolution: pinned address, registry availability, and advertised queue address.
 4. Verify gRPC TLS settings, especially CA file and server name/SAN matching.
 5. Check `vectis_retries_exhausted_total` when retry metrics are available for the path.
@@ -100,19 +98,7 @@ Use emitted metrics first. The example rules live in [`prometheus-examples.yml`]
 increase(vectis_run_dispatch_events_total{event_type="failure"}[10m]) > 0
 ```
 
-Warn when API, cron, task dispatch, or reconciler handoff is failing. In multi-cell deployments, group by `target_cell` to find the affected cell.
-
-```promql
-increase(vectis_task_dispatch_intents_total{outcome="failed"}[10m]) > 0
-```
-
-Warn when worker-owned task continuation handoff is failing. Pair this with `vectis_task_dispatch_drains_total` to see whether the failure is isolated or part of sustained fan-out pressure.
-
-```promql
-sum(vectis_task_dispatch_pending_intents) > 0
-```
-
-Warn when retry-eligible task continuation work remains pending. The API emits this SQL-backed gauge with `cell_id` labels, so group by `cell_id` to find the affected target cell.
+Warn when API, cron, or reconciler handoff is failing. In multi-cell deployments, group by `target_cell` to find the affected cell.
 
 ```promql
 increase(vectis_task_reduce_decisions_total{outcome="error"}[10m]) > 0

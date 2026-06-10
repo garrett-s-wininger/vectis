@@ -37,12 +37,13 @@ func init() {
 type GRPCTLSDaemonRole int
 
 const (
-	GRPCTLSDaemonRegistry   GRPCTLSDaemonRole = iota // gRPC server only (vectis-registry)
-	GRPCTLSDaemonQueue                               // server + dials registry
-	GRPCTLSDaemonLog                                 // server + dials registry
-	GRPCTLSDaemonArtifact                            // server + dials registry
-	GRPCTLSDaemonWorker                              // server + dials registry/queue/log
-	GRPCTLSDaemonClientOnly                          // vectis-api, cron, reconciler, log-forwarder (dial-only)
+	GRPCTLSDaemonRegistry     GRPCTLSDaemonRole = iota // gRPC server only (vectis-registry)
+	GRPCTLSDaemonQueue                                 // server + dials registry
+	GRPCTLSDaemonLog                                   // server + dials registry
+	GRPCTLSDaemonArtifact                              // server + dials registry
+	GRPCTLSDaemonWorker                                // server + dials registry/queue/log/artifact/orchestrator
+	GRPCTLSDaemonOrchestrator                          // server + dials registry
+	GRPCTLSDaemonClientOnly                            // vectis-api, cron, reconciler, log-forwarder (dial-only)
 )
 
 func GRPCTLSInsecure() bool {
@@ -95,7 +96,7 @@ func ValidateGRPCTLSForRole(role GRPCTLSDaemonRole) error {
 		if o.ServerCert == "" || o.ServerKey == "" {
 			return errors.New("grpc_tls: cert_file and key_file are required for vectis-registry when grpc_tls.insecure is false")
 		}
-	case GRPCTLSDaemonQueue, GRPCTLSDaemonLog, GRPCTLSDaemonArtifact, GRPCTLSDaemonWorker:
+	case GRPCTLSDaemonQueue, GRPCTLSDaemonLog, GRPCTLSDaemonArtifact, GRPCTLSDaemonWorker, GRPCTLSDaemonOrchestrator:
 		if o.ServerCert == "" || o.ServerKey == "" {
 			return errors.New("grpc_tls: cert_file and key_file are required when grpc_tls.insecure is false")
 		}

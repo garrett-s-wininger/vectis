@@ -40,7 +40,7 @@ func TestSQLCleanerPreviewDoesNotMutate(t *testing.T) {
 		t.Fatalf("artifact manifest candidates: got %d want 3", report.Counts.RunArtifacts)
 	}
 
-	if report.Counts.RunTasks != 3 || report.Counts.TaskAttempts != 3 || report.Counts.RunSegments != 3 || report.Counts.SegmentExecutions != 3 || report.Counts.TaskDispatchIntents != 3 {
+	if report.Counts.RunTasks != 3 || report.Counts.TaskAttempts != 3 || report.Counts.RunSegments != 3 || report.Counts.SegmentExecutions != 3 {
 		t.Fatalf("task cascade candidates: %+v", report.Counts)
 	}
 
@@ -62,7 +62,6 @@ func TestSQLCleanerPreviewDoesNotMutate(t *testing.T) {
 	assertCount(t, db, `SELECT COUNT(*) FROM task_attempts`, 4)
 	assertCount(t, db, `SELECT COUNT(*) FROM run_segments`, 4)
 	assertCount(t, db, `SELECT COUNT(*) FROM segment_executions`, 4)
-	assertCount(t, db, `SELECT COUNT(*) FROM task_dispatch_intents`, 4)
 	assertCount(t, db, `SELECT COUNT(*) FROM audit_log WHERE event_type = 'retention.cleanup'`, 0)
 }
 
@@ -97,7 +96,7 @@ func TestSQLCleanerApplyDeletesOnlyEligibleState(t *testing.T) {
 		t.Fatalf("deleted artifact manifests: got %d want 3", report.Counts.RunArtifacts)
 	}
 
-	if report.Counts.RunTasks != 3 || report.Counts.TaskAttempts != 3 || report.Counts.RunSegments != 3 || report.Counts.SegmentExecutions != 3 || report.Counts.TaskDispatchIntents != 3 {
+	if report.Counts.RunTasks != 3 || report.Counts.TaskAttempts != 3 || report.Counts.RunSegments != 3 || report.Counts.SegmentExecutions != 3 {
 		t.Fatalf("deleted task cascade counts mismatch: %+v", report.Counts)
 	}
 
@@ -111,12 +110,10 @@ func TestSQLCleanerApplyDeletesOnlyEligibleState(t *testing.T) {
 	assertCount(t, db, `SELECT COUNT(*) FROM task_attempts WHERE run_id IN ('old-success', 'old-failed', 'old-aborted')`, 0)
 	assertCount(t, db, `SELECT COUNT(*) FROM run_segments WHERE run_id IN ('old-success', 'old-failed', 'old-aborted')`, 0)
 	assertCount(t, db, `SELECT COUNT(*) FROM segment_executions WHERE run_id IN ('old-success', 'old-failed', 'old-aborted')`, 0)
-	assertCount(t, db, `SELECT COUNT(*) FROM task_dispatch_intents WHERE run_id IN ('old-success', 'old-failed', 'old-aborted')`, 0)
 	assertCount(t, db, `SELECT COUNT(*) FROM run_tasks WHERE run_id = 'queued-old'`, 1)
 	assertCount(t, db, `SELECT COUNT(*) FROM task_attempts WHERE run_id = 'queued-old'`, 1)
 	assertCount(t, db, `SELECT COUNT(*) FROM run_segments WHERE run_id = 'queued-old'`, 1)
 	assertCount(t, db, `SELECT COUNT(*) FROM segment_executions WHERE run_id = 'queued-old'`, 1)
-	assertCount(t, db, `SELECT COUNT(*) FROM task_dispatch_intents WHERE run_id = 'queued-old'`, 1)
 	assertCount(t, db, `SELECT COUNT(*) FROM job_definitions WHERE job_id IN ('old-success-job', 'old-failed-job', 'old-aborted-job', 'orphan-job')`, 0)
 	assertCount(t, db, `SELECT COUNT(*) FROM job_definitions WHERE job_id = 'queued-job'`, 1)
 	assertCount(t, db, `SELECT COUNT(*) FROM idempotency_keys WHERE key = 'old-key'`, 0)
@@ -372,12 +369,6 @@ func insertTaskCascadeRows(t *testing.T, db *sql.DB, runID string) {
 		t.Fatalf("insert segment execution %s: %v", runID, err)
 	}
 
-	if _, err := db.Exec(`
-		INSERT INTO task_dispatch_intents (execution_id, run_id, task_id, task_attempt_id, cell_id, created_at, updated_at)
-		VALUES (?, ?, ?, ?, 'local', ?, ?)
-	`, executionID, runID, taskID, attemptID, fixedNow().UnixNano(), fixedNow().UnixNano()); err != nil {
-		t.Fatalf("insert task dispatch intent %s: %v", runID, err)
-	}
 }
 
 func writeArtifactBlobFile(t *testing.T, dir, digest string, data []byte, modTime time.Time) string {

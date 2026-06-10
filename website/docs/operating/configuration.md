@@ -51,6 +51,7 @@ Some settings are global and intentionally do not use a service prefix, such as 
 | Serve docs behind an external hostname | `VECTIS_DOCS_ALLOWED_HOSTS=docs.example.com` or `vectis-docs --allowed-host docs.example.com` |
 | Pin worker to a queue address | `VECTIS_WORKER_QUEUE_ADDRESS=host:8081` |
 | Run worker commands through a Lima VM | `VECTIS_WORKER_EXECUTION_BACKEND=lima`, `VECTIS_WORKER_LIMA_INSTANCE=vectis-worker`, and `VECTIS_WORKER_WORKSPACE_ROOT=/path/mounted/in/guest` |
+| Pin worker to an orchestrator address | `VECTIS_WORKER_ORCHESTRATOR_ADDRESS=host:8087` |
 | Persist queue backlog to disk | `VECTIS_QUEUE_PERSISTENCE_DIR=/path/to/queue-shard` |
 | Expire queued work that never starts | `VECTIS_DISPATCH_START_TTL=24h` |
 | Expose a dedicated metrics listener off-host | Set the service `--metrics-host` flag or `VECTIS_<SERVICE>_METRICS_HOST=0.0.0.0` plus `VECTIS_METRICS_ALLOWED_HOSTS=<scrape-host>` |
@@ -71,10 +72,11 @@ Use these prefixes when building service-specific environment variable names.
 | `vectis-api` | `VECTIS_API_SERVER` | `--host`, `--port`, `--cell-ingress-endpoint`, `--tls-cert-file`, `--tls-key-file` |
 | `vectis-cell-ingress` | `VECTIS_CELL_INGRESS` | `--host`, `--port`, `--allowed-host`, `--metrics-host`, `--metrics-port`, `--repair-interval`, `--queue-address`, `--registry-address` |
 | `vectis-queue` | `VECTIS_QUEUE` | `--port`, `--metrics-host`, `--metrics-port`, `--pool`, `--instance-id`, `--persistence-dir`, `--persistence-snapshot-every` |
+| `vectis-orchestrator` | `VECTIS_ORCHESTRATOR` | `--port`, `--metrics-port`, `--shards` |
 | `vectis-registry` | `VECTIS_REGISTRY` | `--port`; cluster membership uses `VECTIS_REGISTRY_CLUSTER_*` |
 | `vectis-log` | `VECTIS_LOG` | `--instance-id`, `--storage-dir`, `--storage-read-only-min-free-bytes`, `--grpc-port`, `--metrics-host`, `--metrics-port`, `--max-run-buffers` |
 | `vectis-artifact` | `VECTIS_ARTIFACT` | `--instance-id`, `--storage-dir`, `--storage-read-only-min-free-bytes`, `--grpc-port`, `--metrics-host`, `--metrics-port` |
-| `vectis-worker` | `VECTIS_WORKER` | `--metrics-host`, `--metrics-port`, `--artifact-max-bytes`, `--artifact-max-run-bytes`, `--artifact-max-count`, `--execution-backend`, `--workspace-root`, `--lima-instance`, `--lima-start` |
+| `vectis-worker` | `VECTIS_WORKER` | `--metrics-host`, `--metrics-port`, `--artifact-max-bytes`, `--artifact-max-run-bytes`, `--artifact-max-count`, `--execution-backend`, `--workspace-root`, `--lima-instance`, `--lima-start`; use `VECTIS_WORKER_QUEUE_ADDRESS`, `VECTIS_WORKER_LOG_ADDRESS`, and `VECTIS_WORKER_ORCHESTRATOR_ADDRESS` to pin internal dependencies |
 | `vectis-cron` | `VECTIS_CRON` | `--instance-id`, `--claim-ttl` |
 | `vectis-reconciler` | `VECTIS_RECONCILER` | `--interval`, `--lease-ttl`, `--metrics-host`, `--metrics-port` |
 | `vectis-catalog` | `VECTIS_CATALOG` | `--interval`, `--batch-size`, `--metrics-host`, `--metrics-port`, `--cell-database-dsn` |
@@ -266,8 +268,8 @@ Standalone binaries default to plaintext gRPC. `vectis-local` normally bootstrap
 
 | Role | Binaries | Required material when TLS is enabled |
 | --- | --- | --- |
-| gRPC listeners | `vectis-registry`, `vectis-queue`, `vectis-log`, `vectis-artifact`, worker-control listener in `vectis-worker` | Certificate and key. Queue/log/artifact also need a CA when they register with the registry. |
-| gRPC clients | `vectis-api`, `vectis-cell-ingress`, `vectis-worker`, `vectis-cron`, `vectis-reconciler`, queue/log/artifact registration clients | CA bundle. Client cert/key only when servers require mTLS. |
+| gRPC listeners | `vectis-registry`, `vectis-queue`, `vectis-log`, `vectis-artifact`, `vectis-orchestrator`, worker-control listener in `vectis-worker` | Certificate and key. Queue/log/artifact/orchestrator also need a CA when they register with the registry. |
+| gRPC clients | `vectis-api`, `vectis-cell-ingress`, `vectis-worker`, `vectis-cron`, `vectis-reconciler`, queue/log/artifact/orchestrator registration clients | CA bundle. Client cert/key only when servers require mTLS. |
 
 For trust boundaries and what mTLS does or does not authorize today, see [Internal Service Trust](../concepts/internal-service-trust.md).
 
@@ -281,7 +283,7 @@ For trust boundaries and what mTLS does or does not authorize today, see [Intern
 | `VECTIS_METRICS_TLS_CERT_FILE` / `VECTIS_METRICS_TLS_KEY_FILE` | Server certificate and key for metrics listeners. |
 | `VECTIS_METRICS_TLS_RELOAD_INTERVAL` | Positive duration to poll PEM files and reload them without restart. `0` disables polling. |
 
-The dedicated metrics listeners are queue, worker, log, artifact, log-forwarder, reconciler, catalog, and cell ingress. They bind to `localhost` by default; set each service's `--metrics-host` / `VECTIS_<SERVICE>_METRICS_HOST` only for trusted scrape networks, and configure `VECTIS_METRICS_ALLOWED_HOSTS` or `VECTIS_<SERVICE>_METRICS_ALLOWED_HOSTS` for the expected scraper Host header. Keep dedicated metrics endpoints private; they are not authenticated. See [Security](../concepts/security.md).
+The dedicated metrics listeners are queue, orchestrator, worker, log, artifact, log-forwarder, reconciler, catalog, and cell ingress. They bind to `localhost` by default; set each service's `--metrics-host` / `VECTIS_<SERVICE>_METRICS_HOST` only for trusted scrape networks, and configure `VECTIS_METRICS_ALLOWED_HOSTS` or `VECTIS_<SERVICE>_METRICS_ALLOWED_HOSTS` for the expected scraper Host header. Keep dedicated metrics endpoints private; they are not authenticated. See [Security](../concepts/security.md).
 
 ## Discovery And Fixed Addresses {#service-discovery-vs-fixed-addresses}
 
@@ -289,8 +291,8 @@ Vectis can either discover services through `vectis-registry` or use fixed addre
 
 | Pattern | Use when |
 | --- | --- |
-| Registry discovery | You want queue/log/artifact/worker-control addresses published and resolved dynamically. |
-| Fixed addresses | You want fewer startup dependencies and already know the queue/log/artifact addresses. |
+| Registry discovery | You want queue, orchestrator, log, artifact, and worker-control addresses published and resolved dynamically. |
+| Fixed addresses | You want fewer startup dependencies and already know the queue/orchestrator/log/artifact addresses. |
 
 Role-specific settings override shared discovery settings when both are set.
 
@@ -304,13 +306,15 @@ For local routing tests, `vectis-local --cell pdx-b` starts an additional queue,
 | Queue address | `DISCOVERY_QUEUE_ADDRESS` or `DISCOVERY_QUEUE_RESOLVER_ADDRESS` | `API_QUEUE_ADDRESS`, `CELL_INGRESS_QUEUE_ADDRESS`, `WORKER_QUEUE_ADDRESS`, `CRON_QUEUE_ADDRESS`, `RECONCILER_QUEUE_ADDRESS` |
 | Log gRPC address | `DISCOVERY_LOG_ADDRESS` or `DISCOVERY_LOG_GRPC_RESOLVER_ADDRESS` | `WORKER_LOG_ADDRESS` |
 | Artifact gRPC address | `DISCOVERY_ARTIFACT_ADDRESS` or `DISCOVERY_ARTIFACT_GRPC_RESOLVER_ADDRESS` | `ARTIFACT_GRPC_RESOLVER_ADDRESS` |
+| Orchestrator address | `DISCOVERY_ORCHESTRATOR_ADDRESS` | `WORKER_ORCHESTRATOR_ADDRESS` |
 | Queue/log/artifact advertise address | `DISCOVERY_QUEUE_ADVERTISE_ADDRESS`, `DISCOVERY_LOG_GRPC_ADVERTISE_ADDRESS`, `DISCOVERY_ARTIFACT_GRPC_ADVERTISE_ADDRESS` | `QUEUE_ADVERTISE_ADDRESS`, `LOG_GRPC_ADVERTISE_ADDRESS`, `ARTIFACT_GRPC_ADVERTISE_ADDRESS` |
 
 Replace the prefix with the service prefix. For example:
 
 ```sh
 VECTIS_WORKER_DISCOVERY_REGISTRY_ADDRESS=localhost:8082
-VECTIS_WORKER_WORKER_QUEUE_ADDRESS=localhost:8081
+VECTIS_WORKER_QUEUE_ADDRESS=localhost:8081
+VECTIS_WORKER_ORCHESTRATOR_ADDRESS=localhost:8087
 ```
 
 For a multi-registry cell, set the unscoped registry list on every service that uses discovery:
@@ -326,9 +330,10 @@ Registration toggles:
 | `VECTIS_QUEUE_REGISTER_WITH_REGISTRY` | Queue publishes its address to registry when enabled. |
 | `VECTIS_LOG_GRPC_REGISTER_WITH_REGISTRY` | Log service publishes its gRPC address to registry when enabled. |
 | `VECTIS_ARTIFACT_GRPC_REGISTER_WITH_REGISTRY` | Artifact service publishes its gRPC address to registry when enabled. |
+| `VECTIS_ORCHESTRATOR_REGISTER_WITH_REGISTRY` | Orchestrator publishes its address to registry when enabled. |
 | `VECTIS_WORKER_REGISTER_WITH_REGISTRY` | Worker publishes its worker-control address to registry when enabled. |
 
-Envelope-backed worker deliveries complete through the task boundary, activate child task executions, and enqueue task continuations from the worker event path. Worker deliveries must include a `run_id` and execution envelope; missing or invalid run/envelope metadata is treated as malformed work rather than falling back to whole-run execution.
+Envelope-backed worker deliveries complete through the orchestrator task boundary, activate child task executions, and enqueue task continuations from the worker event path. Worker deliveries must include a `run_id` and execution envelope; missing or invalid run/envelope metadata is treated as malformed work rather than falling back to whole-run execution.
 
 Registry address settings may contain multiple comma-separated or space-separated registry addresses. Discovery clients fail over between configured targets. Registering services prefer a stable sponsor from that address set and fail over to another target on errors; they do not write every heartbeat to every registry node. For multi-node registry HA, the registry nodes still need deliberate static cluster membership and gossip configuration; otherwise they are independent registries with failover from the client's point of view but no converged shared state.
 
@@ -440,6 +445,7 @@ Treat database files, queue persistence, log storage, deployment secrets, and TL
 | Log gRPC | `8083` |
 | Log HTTP/SSE | `8084` |
 | Artifact gRPC | `8086` |
+| Orchestrator gRPC | `8087` |
 | Docs HTTP | `8088` |
 | Queue metrics | `9081` |
 | Worker metrics | `9082` |
@@ -450,6 +456,7 @@ Treat database files, queue persistence, log storage, deployment secrets, and TL
 | Cell ingress metrics | `9087` |
 | Log-forwarder metrics | `9088` |
 | Artifact metrics | `9089` |
+| Orchestrator metrics | `9090` |
 
 Each extra `vectis-local --cell` uses the default cell-local ports plus `100` per additional cell. For example, the first extra cell uses queue `8181`, cell ingress `8185`, queue metrics `9181`, worker metrics `9182`, and cell ingress metrics `9187`. Multi-cell local workers use ephemeral worker-control ports.
 

@@ -510,10 +510,8 @@ func doctorQueueBacklog() doctorCheck {
 	}
 
 	var result struct {
-		Queued              int64                    `json:"queued"`
-		Cells               []doctorQueueBacklogCell `json:"cells"`
-		TaskDispatchPending int64                    `json:"task_dispatch_pending"`
-		TaskDispatchCells   []doctorTaskDispatchCell `json:"task_dispatch_cells"`
+		Queued int64                    `json:"queued"`
+		Cells  []doctorQueueBacklogCell `json:"cells"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -521,10 +519,10 @@ func doctorQueueBacklog() doctorCheck {
 	}
 
 	if result.Queued > 100 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("backlog high: %d queued", result.Queued), Evidence: formatDoctorQueueBacklogEvidence(result.Queued, result.Cells, result.TaskDispatchPending, result.TaskDispatchCells), SuggestedAction: "Check queue service health and worker count", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("backlog high: %d queued", result.Queued), Evidence: formatDoctorQueueBacklogEvidence(result.Queued, result.Cells), SuggestedAction: "Check queue service health and worker count", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("backlog ok: %d queued", result.Queued), Evidence: formatDoctorQueueBacklogEvidence(result.Queued, result.Cells, result.TaskDispatchPending, result.TaskDispatchCells), DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("backlog ok: %d queued", result.Queued), Evidence: formatDoctorQueueBacklogEvidence(result.Queued, result.Cells), DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 }
 
 type doctorQueueBacklogCell struct {
@@ -532,8 +530,8 @@ type doctorQueueBacklogCell struct {
 	Queued int64  `json:"queued"`
 }
 
-func formatDoctorQueueBacklogEvidence(queued int64, cells []doctorQueueBacklogCell, taskDispatchPending int64, taskDispatchCells []doctorTaskDispatchCell) string {
-	if len(cells) == 0 && taskDispatchPending == 0 && len(taskDispatchCells) == 0 {
+func formatDoctorQueueBacklogEvidence(queued int64, cells []doctorQueueBacklogCell) string {
+	if len(cells) == 0 {
 		return fmt.Sprintf("%d", queued)
 	}
 
@@ -549,22 +547,6 @@ func formatDoctorQueueBacklogEvidence(queued int64, cells []doctorQueueBacklogCe
 
 	if len(cellParts) > 0 {
 		parts = append(parts, "cells="+strings.Join(cellParts, ","))
-	}
-
-	if taskDispatchPending > 0 || len(taskDispatchCells) > 0 {
-		parts = append(parts, fmt.Sprintf("task_dispatch_pending=%d", taskDispatchPending))
-		taskCellParts := make([]string, 0, len(taskDispatchCells))
-		for _, cell := range taskDispatchCells {
-			if cell.Pending <= 0 {
-				continue
-			}
-
-			taskCellParts = append(taskCellParts, fmt.Sprintf("%s:%d", cell.CellID, cell.Pending))
-		}
-
-		if len(taskCellParts) > 0 {
-			parts = append(parts, "task_cells="+strings.Join(taskCellParts, ","))
-		}
 	}
 
 	return strings.Join(parts, " ")
@@ -591,18 +573,16 @@ func doctorStuckRuns() doctorCheck {
 	var result struct {
 		Stuck                   int64                    `json:"stuck"`
 		Cells                   []doctorStuckRunCell     `json:"cells"`
-		TaskDispatchPending     int64                    `json:"task_dispatch_pending"`
-		TaskDispatchCells       []doctorTaskDispatchCell `json:"task_dispatch_cells"`
 		TaskFinalizationPending int64                    `json:"task_finalization_pending"`
-		TaskFinalizationCells   []doctorTaskDispatchCell `json:"task_finalization_cells"`
+		TaskFinalizationCells   []doctorPendingCellCount `json:"task_finalization_cells"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
-	if result.Stuck > 0 || result.TaskDispatchPending > 0 || result.TaskFinalizationPending > 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: formatDoctorStuckRunsSummary(result.Stuck, result.TaskDispatchPending, result.TaskFinalizationPending), Evidence: formatDoctorStuckRunsEvidence(result.Stuck, result.Cells, result.TaskDispatchPending, result.TaskDispatchCells, result.TaskFinalizationPending, result.TaskFinalizationCells), SuggestedAction: "Check reconciler; check root, task dispatch, and task finalization paths", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	if result.Stuck > 0 || result.TaskFinalizationPending > 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: formatDoctorStuckRunsSummary(result.Stuck, result.TaskFinalizationPending), Evidence: formatDoctorStuckRunsEvidence(result.Stuck, result.Cells, result.TaskFinalizationPending, result.TaskFinalizationCells), SuggestedAction: "Check reconciler; check root dispatch and task finalization paths", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 	}
 
 	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no stuck runs or pending task continuations", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
@@ -613,19 +593,15 @@ type doctorStuckRunCell struct {
 	Stuck  int64  `json:"stuck"`
 }
 
-type doctorTaskDispatchCell struct {
+type doctorPendingCellCount struct {
 	CellID  string `json:"cell_id"`
 	Pending int64  `json:"pending"`
 }
 
-func formatDoctorStuckRunsSummary(stuck, taskDispatchPending, taskFinalizationPending int64) string {
+func formatDoctorStuckRunsSummary(stuck, taskFinalizationPending int64) string {
 	parts := []string{}
 	if stuck > 0 {
 		parts = append(parts, fmt.Sprintf("%d stuck runs", stuck))
-	}
-
-	if taskDispatchPending > 0 {
-		parts = append(parts, fmt.Sprintf("%d pending task continuations", taskDispatchPending))
 	}
 
 	if taskFinalizationPending > 0 {
@@ -635,10 +611,10 @@ func formatDoctorStuckRunsSummary(stuck, taskDispatchPending, taskFinalizationPe
 	return strings.Join(parts, " and ") + " detected"
 }
 
-func formatDoctorStuckRunsEvidence(stuck int64, cells []doctorStuckRunCell, taskDispatchPending int64, taskDispatchCells []doctorTaskDispatchCell, taskFinalizationPending int64, taskFinalizationCells []doctorTaskDispatchCell) string {
+func formatDoctorStuckRunsEvidence(stuck int64, cells []doctorStuckRunCell, taskFinalizationPending int64, taskFinalizationCells []doctorPendingCellCount) string {
 	parts := []string{fmt.Sprintf("stuck=%d", stuck)}
 	if len(cells) == 0 {
-		if stuck > 0 && taskDispatchPending == 0 && len(taskDispatchCells) == 0 && taskFinalizationPending == 0 && len(taskFinalizationCells) == 0 {
+		if stuck > 0 && taskFinalizationPending == 0 && len(taskFinalizationCells) == 0 {
 			return fmt.Sprintf("%d", stuck)
 		}
 	} else {
@@ -653,22 +629,6 @@ func formatDoctorStuckRunsEvidence(stuck int64, cells []doctorStuckRunCell, task
 
 		if len(cellParts) > 0 {
 			parts = append(parts, "cells="+strings.Join(cellParts, ","))
-		}
-	}
-
-	if taskDispatchPending > 0 || len(taskDispatchCells) > 0 {
-		parts = append(parts, fmt.Sprintf("task_dispatch_pending=%d", taskDispatchPending))
-		taskCellParts := make([]string, 0, len(taskDispatchCells))
-		for _, cell := range taskDispatchCells {
-			if cell.Pending <= 0 {
-				continue
-			}
-
-			taskCellParts = append(taskCellParts, fmt.Sprintf("%s:%d", cell.CellID, cell.Pending))
-		}
-
-		if len(taskCellParts) > 0 {
-			parts = append(parts, "task_cells="+strings.Join(taskCellParts, ","))
 		}
 	}
 

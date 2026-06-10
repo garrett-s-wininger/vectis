@@ -106,12 +106,6 @@ func runReconciler(cmd *cobra.Command, args []string) {
 	}
 	svc.SetDispatchMetrics(dispatchMetrics)
 
-	taskDispatchMetrics, err := observability.NewTaskDispatchMetrics()
-	if err != nil {
-		logger.Fatal("Failed to initialize task dispatch metrics: %v", err)
-	}
-	svc.SetTaskDispatchMetrics(taskDispatchMetrics)
-
 	metricsAddr := config.ReconcilerMetricsListenAddr()
 	metricsSrv, err := cli.StartMetricsHTTPServer(metricsHandler, metricsAddr, "Reconciler", logger)
 	if err != nil {
@@ -144,7 +138,7 @@ func runReconciler(cmd *cobra.Command, args []string) {
 
 var rootCmd = &cobra.Command{
 	Use:   "vectis-reconciler",
-	Short: "Repair queued run and task continuation dispatch",
+	Short: "Repair queued runs and orphaned task finalization",
 	Run:   runReconciler,
 }
 

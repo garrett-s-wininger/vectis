@@ -936,29 +936,13 @@ func TestRunsRepository_CountStuckBeforeDispatchCutoffByCell(t *testing.T) {
 		t.Fatalf("touch recently dispatched run: %v", err)
 	}
 
-	dispatch, err := repos.Runs().GetPendingExecution(ctx, created[0].RunID)
-	if err != nil {
-		t.Fatalf("get pending execution for task dispatch run: %v", err)
-	}
-
-	if _, _, err := repos.TaskDispatchIntents().Ensure(ctx, dal.TaskDispatchIntentCreate{
-		ExecutionID:       dispatch.ExecutionID,
-		RunID:             dispatch.RunID,
-		TaskID:            dispatch.TaskID,
-		TaskAttemptID:     dispatch.TaskAttemptID,
-		SourceExecutionID: "source-execution",
-		CellID:            dispatch.CellID,
-	}); err != nil {
-		t.Fatalf("ensure task dispatch intent: %v", err)
-	}
-
 	cutoff := time.Now().Add(-1 * time.Minute).Unix()
 	total, err := repos.Runs().CountStuckBeforeDispatchCutoff(ctx, cutoff)
 	if err != nil {
 		t.Fatalf("CountStuckBeforeDispatchCutoff: %v", err)
 	}
-	if total != 2 {
-		t.Fatalf("stuck total: got %d, want 2", total)
+	if total != 3 {
+		t.Fatalf("stuck total: got %d, want 3", total)
 	}
 
 	counts, err := repos.Runs().CountStuckBeforeDispatchCutoffByCell(ctx, cutoff)
@@ -967,7 +951,7 @@ func TestRunsRepository_CountStuckBeforeDispatchCutoffByCell(t *testing.T) {
 	}
 
 	want := []dal.RunCountByCell{
-		{CellID: "iad-a", Count: 1},
+		{CellID: "iad-a", Count: 2},
 		{CellID: "pdx-b", Count: 1},
 	}
 
@@ -1649,325 +1633,6 @@ func TestRunsRepository_GetRunTaskCompletion(t *testing.T) {
 
 	if _, err := repos.Runs().GetRunTaskCompletion(ctx, "missing-run"); !dal.IsNotFound(err) {
 		t.Fatalf("missing run should return not found, got %v", err)
-	}
-}
-
-func TestTaskDispatchIntentsRepository_Lifecycle(t *testing.T) {
-	db := dbtest.NewTestDB(t)
-	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
-	ctx := context.Background()
-
-	ns, err := repos.Namespaces().Create(ctx, "team-task-dispatch-intents", nil)
-	if err != nil {
-		t.Fatalf("create namespace: %v", err)
-	}
-
-	jobID := "job-task-dispatch-intents"
-	def := `{"id":"job-task-dispatch-intents","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
-		t.Fatalf("create job: %v", err)
-	}
-
-	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
-	if err != nil {
-		t.Fatalf("create run: %v", err)
-	}
-
-	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
-	if err != nil {
-		t.Fatalf("get pending execution: %v", err)
-	}
-
-	intents := repos.TaskDispatchIntents()
-	intent, created, err := intents.Ensure(ctx, dal.TaskDispatchIntentCreate{
-		ExecutionID:       dispatch.ExecutionID,
-		RunID:             dispatch.RunID,
-		TaskID:            dispatch.TaskID,
-		TaskAttemptID:     dispatch.TaskAttemptID,
-		SourceExecutionID: "source-execution",
-		CellID:            dispatch.CellID,
-	})
-	if err != nil {
-		t.Fatalf("ensure dispatch intent: %v", err)
-	}
-	if !created {
-		t.Fatal("first ensure should create dispatch intent")
-	}
-	if intent.ExecutionID != dispatch.ExecutionID || intent.RunID != runID || intent.TaskID != dispatch.TaskID || intent.TaskAttemptID != dispatch.TaskAttemptID || intent.SourceExecutionID != "source-execution" || intent.CellID != "iad-a" {
-		t.Fatalf("dispatch intent mismatch: %+v", intent)
-	}
-
-	pending, err := intents.ListPending(ctx, "iad-a", 0, 10)
-	if err != nil {
-		t.Fatalf("list pending dispatch intents: %v", err)
-	}
-	if len(pending) != 1 || pending[0].ExecutionID != dispatch.ExecutionID {
-		t.Fatalf("pending dispatch intents: %+v", pending)
-	}
-
-	pendingCount, err := intents.CountPending(ctx, 0)
-	if err != nil {
-		t.Fatalf("count pending dispatch intents: %v", err)
-	}
-	if pendingCount != 1 {
-		t.Fatalf("pending dispatch intent count: got %d, want 1", pendingCount)
-	}
-
-	pendingByCell, err := intents.CountPendingByCell(ctx, 0)
-	if err != nil {
-		t.Fatalf("count pending dispatch intents by cell: %v", err)
-	}
-	if len(pendingByCell) != 1 || pendingByCell[0].CellID != "iad-a" || pendingByCell[0].Count != 1 {
-		t.Fatalf("pending dispatch intent counts by cell: %+v", pendingByCell)
-	}
-
-	queued, err := repos.Runs().ListQueuedBeforeDispatchCutoff(ctx, time.Now().Unix()+60)
-	if err != nil {
-		t.Fatalf("list queued before dispatch cutoff: %v", err)
-	}
-	if len(queued) != 0 {
-		t.Fatalf("queued run with pending task dispatch intent should not be a root dispatch candidate: %+v", queued)
-	}
-
-	if err := intents.MarkEnqueueFailed(ctx, dispatch.ExecutionID, 1000, "queue unavailable"); err != nil {
-		t.Fatalf("mark enqueue failed: %v", err)
-	}
-
-	pending, err = intents.ListPending(ctx, "iad-a", 999, 10)
-	if err != nil {
-		t.Fatalf("list pending before retry cutoff: %v", err)
-	}
-	if len(pending) != 0 {
-		t.Fatalf("intent should wait for retry cutoff, got %+v", pending)
-	}
-
-	pendingCount, err = intents.CountPending(ctx, 999)
-	if err != nil {
-		t.Fatalf("count pending before retry cutoff: %v", err)
-	}
-
-	if pendingCount != 0 {
-		t.Fatalf("intent count should wait for retry cutoff, got %d", pendingCount)
-	}
-
-	pending, err = intents.ListPending(ctx, "iad-a", 1000, 10)
-	if err != nil {
-		t.Fatalf("list pending at retry cutoff: %v", err)
-	}
-	if len(pending) != 1 || pending[0].EnqueueAttempts != 1 || pending[0].LastEnqueueAttemptAt == nil || *pending[0].LastEnqueueAttemptAt != 1000 || pending[0].LastEnqueueError == nil {
-		t.Fatalf("pending dispatch intent after failure mismatch: %+v", pending)
-	}
-
-	pendingCount, err = intents.CountPending(ctx, 1000)
-	if err != nil {
-		t.Fatalf("count pending at retry cutoff: %v", err)
-	}
-	if pendingCount != 1 {
-		t.Fatalf("intent count at retry cutoff: got %d, want 1", pendingCount)
-	}
-
-	summary, err := intents.GetRunSummary(ctx, runID)
-	if err != nil {
-		t.Fatalf("get dispatch summary after failure: %v", err)
-	}
-	if summary.Total != 1 || summary.Pending != 0 || summary.Failed != 1 || summary.Enqueued != 0 || summary.UnknownState != 0 {
-		t.Fatalf("dispatch summary after failure mismatch: %+v", summary)
-	}
-
-	byRun, err := intents.ListByRun(ctx, runID, 10)
-	if err != nil {
-		t.Fatalf("list dispatch intents by run: %v", err)
-	}
-	if len(byRun) != 1 || byRun[0].ExecutionID != dispatch.ExecutionID || byRun[0].LastEnqueueError == nil {
-		t.Fatalf("dispatch intents by run mismatch: %+v", byRun)
-	}
-
-	again, created, err := intents.Ensure(ctx, dal.TaskDispatchIntentCreate{
-		ExecutionID:       dispatch.ExecutionID,
-		RunID:             dispatch.RunID,
-		TaskID:            dispatch.TaskID,
-		TaskAttemptID:     dispatch.TaskAttemptID,
-		SourceExecutionID: "source-execution",
-		CellID:            dispatch.CellID,
-	})
-	if err != nil {
-		t.Fatalf("idempotent ensure dispatch intent: %v", err)
-	}
-	if created || again.ID != intent.ID || again.EnqueueAttempts != 1 {
-		t.Fatalf("idempotent ensure mismatch: created=%v again=%+v first=%+v", created, again, intent)
-	}
-
-	if err := intents.MarkEnqueued(ctx, dispatch.ExecutionID, 2000); err != nil {
-		t.Fatalf("mark enqueued: %v", err)
-	}
-
-	pending, err = intents.ListPending(ctx, "iad-a", 3000, 10)
-	if err != nil {
-		t.Fatalf("list pending after enqueue: %v", err)
-	}
-
-	if len(pending) != 0 {
-		t.Fatalf("enqueued intent should not remain pending: %+v", pending)
-	}
-
-	pendingCount, err = intents.CountPending(ctx, 3000)
-	if err != nil {
-		t.Fatalf("count pending after enqueue: %v", err)
-	}
-	if pendingCount != 0 {
-		t.Fatalf("enqueued intent should not remain pending in count, got %d", pendingCount)
-	}
-
-	summary, err = intents.GetRunSummary(ctx, runID)
-	if err != nil {
-		t.Fatalf("get dispatch summary after enqueue: %v", err)
-	}
-
-	if summary.Total != 1 || summary.Pending != 0 || summary.Failed != 0 || summary.Enqueued != 1 || summary.UnknownState != 0 {
-		t.Fatalf("dispatch summary after enqueue mismatch: %+v", summary)
-	}
-
-	if err := intents.MarkEnqueued(ctx, "missing-execution", 0); !dal.IsNotFound(err) {
-		t.Fatalf("mark missing enqueued should return not found, got %v", err)
-	}
-}
-
-func TestTaskDispatchIntentsRepository_ListPendingForRunScopesResults(t *testing.T) {
-	db := dbtest.NewTestDB(t)
-	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
-	ctx := context.Background()
-
-	ns, err := repos.Namespaces().Create(ctx, "team-task-dispatch-intents-run-scope", nil)
-	if err != nil {
-		t.Fatalf("create namespace: %v", err)
-	}
-
-	jobID := "job-task-dispatch-intents-run-scope"
-	def := `{"id":"job-task-dispatch-intents-run-scope","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
-		t.Fatalf("create job: %v", err)
-	}
-
-	intents := repos.TaskDispatchIntents()
-	var runs []dal.ExecutionDispatchRecord
-	for i := 0; i < 2; i++ {
-		runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
-		if err != nil {
-			t.Fatalf("create run %d: %v", i, err)
-		}
-
-		dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
-		if err != nil {
-			t.Fatalf("get pending execution %d: %v", i, err)
-		}
-
-		if _, _, err := intents.Ensure(ctx, dal.TaskDispatchIntentCreate{
-			ExecutionID:       dispatch.ExecutionID,
-			RunID:             dispatch.RunID,
-			TaskID:            dispatch.TaskID,
-			TaskAttemptID:     dispatch.TaskAttemptID,
-			SourceExecutionID: "source-execution",
-			CellID:            dispatch.CellID,
-		}); err != nil {
-			t.Fatalf("ensure dispatch intent %d: %v", i, err)
-		}
-
-		runs = append(runs, dispatch)
-	}
-
-	all, err := intents.ListPending(ctx, "iad-a", 0, 10)
-	if err != nil {
-		t.Fatalf("list all pending dispatch intents: %v", err)
-	}
-
-	if len(all) != 2 {
-		t.Fatalf("all pending intents: got %d, want 2: %+v", len(all), all)
-	}
-
-	scoped, err := intents.ListPendingForRun(ctx, runs[1].RunID, "iad-a", 0, 10)
-	if err != nil {
-		t.Fatalf("list pending dispatch intents for run: %v", err)
-	}
-
-	if len(scoped) != 1 || scoped[0].ExecutionID != runs[1].ExecutionID {
-		t.Fatalf("scoped pending intents: %+v, want execution %s", scoped, runs[1].ExecutionID)
-	}
-
-	if _, err := intents.ListPendingForRun(ctx, "", "iad-a", 0, 10); !dal.IsConflict(err) {
-		t.Fatalf("missing run id should return conflict, got %v", err)
-	}
-}
-
-func TestTaskDispatchIntentsRepository_ListPendingRequiresQueuedPendingExecution(t *testing.T) {
-	db := dbtest.NewTestDB(t)
-	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
-	ctx := context.Background()
-
-	ns, err := repos.Namespaces().Create(ctx, "team-task-dispatch-intents-run-status", nil)
-	if err != nil {
-		t.Fatalf("create namespace: %v", err)
-	}
-
-	jobID := "job-task-dispatch-intents-run-status"
-	def := `{"id":"job-task-dispatch-intents-run-status","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
-		t.Fatalf("create job: %v", err)
-	}
-
-	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
-	if err != nil {
-		t.Fatalf("create run: %v", err)
-	}
-
-	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
-	if err != nil {
-		t.Fatalf("get pending execution: %v", err)
-	}
-
-	if _, _, err := repos.TaskDispatchIntents().Ensure(ctx, dal.TaskDispatchIntentCreate{
-		ExecutionID:       dispatch.ExecutionID,
-		RunID:             dispatch.RunID,
-		TaskID:            dispatch.TaskID,
-		TaskAttemptID:     dispatch.TaskAttemptID,
-		SourceExecutionID: "source-execution",
-		CellID:            dispatch.CellID,
-	}); err != nil {
-		t.Fatalf("ensure dispatch intent: %v", err)
-	}
-
-	claim, err := repos.Runs().TryClaimExecution(ctx, dispatch.ExecutionID, "worker-a", time.Now().Add(time.Minute))
-	if err != nil {
-		t.Fatalf("claim execution: %v", err)
-	}
-
-	if !claim.Claimed || claim.ClaimToken == "" {
-		t.Fatalf("expected to claim queued run execution, claim=%+v", claim)
-	}
-
-	pending, err := repos.TaskDispatchIntents().ListPending(ctx, "iad-a", time.Now().UnixNano(), 10)
-	if err != nil {
-		t.Fatalf("list pending while running: %v", err)
-	}
-
-	if len(pending) != 0 {
-		t.Fatalf("running run should not expose pending task dispatch intents: %+v", pending)
-	}
-
-	if err := repos.Runs().MarkRunOrphaned(ctx, runID, dal.OrphanReasonLeaseExpired); err != nil {
-		t.Fatalf("mark orphaned before requeue: %v", err)
-	}
-
-	if err := repos.Runs().RequeueRunForRetry(ctx, runID); err != nil {
-		t.Fatalf("requeue run for retry: %v", err)
-	}
-
-	pending, err = repos.TaskDispatchIntents().ListPending(ctx, "iad-a", time.Now().UnixNano(), 10)
-	if err != nil {
-		t.Fatalf("list pending after queued: %v", err)
-	}
-
-	if len(pending) != 0 {
-		t.Fatalf("queued run with accepted execution should not expose pending task dispatch intent: %+v", pending)
 	}
 }
 
@@ -2765,15 +2430,6 @@ func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_ActivatesChildren
 	}
 
 	assertTaskExecutionStatuses(t, db, child, dal.TaskStatusPending, dal.SegmentStatusPending, dal.ExecutionStatusPending, 0)
-
-	intents, err := repos.TaskDispatchIntents().ListByRun(ctx, setup.RunID, 100)
-	if err != nil {
-		t.Fatalf("list dispatch intents: %v", err)
-	}
-
-	if len(intents) != 1 || intents[0].ExecutionID != child.ExecutionID || intents[0].SourceExecutionID != setup.Dispatch.ExecutionID {
-		t.Fatalf("dispatch intent mismatch: %+v", intents)
-	}
 }
 
 func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_RejectsStaleClaim(t *testing.T) {
@@ -3364,15 +3020,6 @@ func assertActivatedTaskKeys(t *testing.T, records []dal.TaskExecutionRecord, wa
 			t.Fatalf("activated task %d: got %q in %+v, want %q", i, rec.TaskKey, records, want[i])
 		}
 	}
-}
-
-func taskDispatchIntentsByExecutionID(intents []dal.TaskDispatchIntent) map[string]dal.TaskDispatchIntent {
-	out := make(map[string]dal.TaskDispatchIntent, len(intents))
-	for _, intent := range intents {
-		out[intent.ExecutionID] = intent
-	}
-
-	return out
 }
 
 func assertTaskExecutionStatuses(t *testing.T, db *sql.DB, rec dal.TaskExecutionRecord, wantTaskStatus, wantSegmentStatus, wantExecutionStatus string, wantEventSequence int64) {

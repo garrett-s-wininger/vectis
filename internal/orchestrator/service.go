@@ -1,0 +1,751 @@
+package orchestrator
+
+import (
+	"context"
+	"fmt"
+	"hash/fnv"
+	"runtime"
+	"strings"
+	"sync"
+	"time"
+
+	"vectis/internal/dal"
+	"vectis/internal/interfaces"
+	"vectis/internal/job"
+
+	"github.com/google/uuid"
+)
+
+const defaultShardBuffer = 1024
+
+type Option func(*Service)
+
+func WithClock(clock interfaces.Clock) Option {
+	return func(s *Service) {
+		if clock != nil {
+			s.clock = clock
+		}
+	}
+}
+
+type Service struct {
+	shards    []*shard
+	clock     interfaces.Clock
+	closeOnce sync.Once
+	wg        sync.WaitGroup
+}
+
+type RunSpec struct {
+	RunID  string
+	Root   dal.TaskExecutionRecord
+	CellID string
+	Tasks  []TaskSpec
+}
+
+type TaskSpec struct {
+	TaskKey       string
+	ParentTaskKey string
+	Name          string
+	CellID        string
+	ChildTaskKeys []string
+}
+
+type LoadResult struct {
+	RunID   string
+	Root    dal.TaskExecutionRecord
+	Pending []dal.TaskExecutionRecord
+	Summary dal.RunTaskCompletion
+}
+
+type shard struct {
+	commands chan command
+}
+
+type command struct {
+	apply func(*shardState) (any, error)
+	resp  chan commandResult
+}
+
+type commandResult struct {
+	value any
+	err   error
+}
+
+type shardState struct {
+	runs map[string]*runState
+}
+
+type runState struct {
+	runID      string
+	status     string
+	tasks      map[string]*taskState
+	executions map[string]*taskState
+	order      []string
+	summary    dal.RunTaskCompletion
+}
+
+type taskState struct {
+	record        dal.TaskExecutionRecord
+	status        string
+	parentTaskKey string
+	childTaskKeys []string
+	leaseOwner    string
+	claimToken    string
+	leaseUntil    time.Time
+}
+
+func New(shardCount int, opts ...Option) *Service {
+	if shardCount <= 0 {
+		shardCount = runtime.GOMAXPROCS(0)
+	}
+
+	s := &Service{
+		shards: make([]*shard, shardCount),
+		clock:  interfaces.SystemClock{},
+	}
+
+	for _, opt := range opts {
+		opt(s)
+	}
+
+	for i := range s.shards {
+		sh := &shard{commands: make(chan command, defaultShardBuffer)}
+		s.shards[i] = sh
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			sh.run()
+		}()
+	}
+
+	return s
+}
+
+func RunSpecFromTaskPlan(runID string, plan []job.TaskPlanEntry, cellID string) RunSpec {
+	tasks := make([]TaskSpec, 0, len(plan))
+	for _, entry := range plan {
+		parentTaskKey := strings.TrimSpace(entry.ParentTaskKey)
+		if parentTaskKey == "" {
+			parentTaskKey = dal.RootTaskKey
+		}
+
+		tasks = append(tasks, TaskSpec{
+			TaskKey:       entry.TaskKey,
+			ParentTaskKey: parentTaskKey,
+			Name:          entry.Name,
+			CellID:        cellID,
+			ChildTaskKeys: append([]string(nil), entry.ChildTaskKeys...),
+		})
+	}
+
+	return RunSpec{RunID: runID, CellID: cellID, Tasks: tasks}
+}
+
+func (s *Service) Close() {
+	if s == nil {
+		return
+	}
+
+	s.closeOnce.Do(func() {
+		for _, sh := range s.shards {
+			close(sh.commands)
+		}
+		s.wg.Wait()
+	})
+}
+
+func (s *Service) LoadRun(ctx context.Context, spec RunSpec) (LoadResult, error) {
+	spec.RunID = strings.TrimSpace(spec.RunID)
+	if spec.RunID == "" {
+		return LoadResult{}, fmt.Errorf("%w: run_id is required", dal.ErrNotFound)
+	}
+
+	value, err := s.call(ctx, spec.RunID, func(state *shardState) (any, error) {
+		if run, ok := state.runs[spec.RunID]; ok {
+			return run.loadResult(s.clock.Now()), nil
+		}
+
+		run, err := buildRunState(spec)
+		if err != nil {
+			return LoadResult{}, err
+		}
+
+		state.runs[spec.RunID] = run
+		return run.loadResult(s.clock.Now()), nil
+	})
+
+	if err != nil {
+		return LoadResult{}, err
+	}
+
+	return value.(LoadResult), nil
+}
+
+func (s *Service) ListPending(ctx context.Context, runID string, limit int) ([]dal.TaskExecutionRecord, error) {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return nil, fmt.Errorf("%w: run_id is required", dal.ErrNotFound)
+	}
+
+	now := s.clock.Now()
+	value, err := s.call(ctx, runID, func(state *shardState) (any, error) {
+		run, err := state.getRun(runID)
+		if err != nil {
+			return nil, err
+		}
+
+		return run.pendingRecords(now, limit), nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return value.([]dal.TaskExecutionRecord), nil
+}
+
+func (s *Service) ClaimExecution(ctx context.Context, runID, executionID, owner string, leaseUntil time.Time) (dal.ExecutionClaimResult, error) {
+	runID = strings.TrimSpace(runID)
+	executionID = strings.TrimSpace(executionID)
+	owner = strings.TrimSpace(owner)
+	if runID == "" || executionID == "" || owner == "" {
+		return dal.ExecutionClaimResult{}, fmt.Errorf("%w: run_id, execution_id, and owner are required", dal.ErrConflict)
+	}
+
+	now := s.clock.Now()
+	value, err := s.call(ctx, runID, func(state *shardState) (any, error) {
+		run, err := state.getRun(runID)
+		if err != nil {
+			return dal.ExecutionClaimResult{}, err
+		}
+
+		task, err := run.getExecution(executionID)
+		if err != nil {
+			return dal.ExecutionClaimResult{}, err
+		}
+
+		switch task.status {
+		case dal.ExecutionStatusPending:
+			token := uuid.NewString()
+			task.status = dal.ExecutionStatusRunning
+			task.leaseOwner = owner
+			task.claimToken = token
+			task.leaseUntil = leaseUntil
+			run.status = dal.RunStatusRunning
+			return dal.ExecutionClaimResult{
+				Claimed:                true,
+				ClaimToken:             token,
+				TransitionedToAccepted: true,
+				ExecutionStarted:       true,
+			}, nil
+		case dal.ExecutionStatusRunning:
+			if task.leaseUntil.After(now) {
+				return dal.ExecutionClaimResult{}, nil
+			}
+
+			token := uuid.NewString()
+			task.leaseOwner = owner
+			task.claimToken = token
+			task.leaseUntil = leaseUntil
+			return dal.ExecutionClaimResult{
+				Claimed:          true,
+				ClaimToken:       token,
+				ExecutionStarted: false,
+			}, nil
+		default:
+			return dal.ExecutionClaimResult{}, nil
+		}
+	})
+
+	if err != nil {
+		return dal.ExecutionClaimResult{}, err
+	}
+
+	return value.(dal.ExecutionClaimResult), nil
+}
+
+func (s *Service) RenewExecutionLease(ctx context.Context, runID, executionID, owner, claimToken string, leaseUntil time.Time) error {
+	runID = strings.TrimSpace(runID)
+	executionID = strings.TrimSpace(executionID)
+	owner = strings.TrimSpace(owner)
+	claimToken = strings.TrimSpace(claimToken)
+	if runID == "" || executionID == "" || owner == "" || claimToken == "" {
+		return fmt.Errorf("%w: run_id, execution_id, owner, and claim_token are required", dal.ErrConflict)
+	}
+
+	_, err := s.call(ctx, runID, func(state *shardState) (any, error) {
+		run, err := state.getRun(runID)
+		if err != nil {
+			return nil, err
+		}
+
+		task, err := run.getExecution(executionID)
+		if err != nil {
+			return nil, err
+		}
+
+		if !task.hasActiveClaim(owner, claimToken, s.clock.Now()) {
+			return nil, fmt.Errorf("%w: execution %s claim is not active for owner %q", dal.ErrConflict, executionID, owner)
+		}
+
+		task.leaseUntil = leaseUntil
+		return nil, nil
+	})
+
+	return err
+}
+
+func (s *Service) CompleteExecutionByClaim(ctx context.Context, runID, executionID, owner, claimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
+	runID = strings.TrimSpace(runID)
+	executionID = strings.TrimSpace(executionID)
+	owner = strings.TrimSpace(owner)
+	claimToken = strings.TrimSpace(claimToken)
+	status = strings.TrimSpace(status)
+
+	if runID == "" || executionID == "" || owner == "" || claimToken == "" {
+		return dal.ExecutionFinalizationResult{}, fmt.Errorf("%w: run_id, execution_id, owner, and claim_token are required", dal.ErrConflict)
+	}
+
+	if !isTerminalExecutionStatus(status) {
+		return dal.ExecutionFinalizationResult{}, fmt.Errorf("%w: unsupported terminal execution status %s", dal.ErrConflict, status)
+	}
+
+	now := s.clock.Now()
+	value, err := s.call(ctx, runID, func(state *shardState) (any, error) {
+		run, err := state.getRun(runID)
+		if err != nil {
+			return dal.ExecutionFinalizationResult{}, err
+		}
+
+		task, err := run.getExecution(executionID)
+		if err != nil {
+			return dal.ExecutionFinalizationResult{}, err
+		}
+
+		if task.status != dal.ExecutionStatusRunning || !task.hasActiveClaim(owner, claimToken, now) {
+			return dal.ExecutionFinalizationResult{}, fmt.Errorf("%w: execution %s claim is not active for owner %q", dal.ErrConflict, executionID, owner)
+		}
+
+		task.status = status
+		task.leaseOwner = ""
+		task.claimToken = ""
+		task.leaseUntil = time.Time{}
+		run.applyCompletion(status)
+
+		var children []dal.TaskExecutionRecord
+		activated := 0
+		if status == dal.ExecutionStatusSucceeded {
+			children, activated, err = run.activateChildren(task)
+			if err != nil {
+				return dal.ExecutionFinalizationResult{}, err
+			}
+		}
+
+		result := dal.ExecutionFinalizationResult{
+			ExecutionID: executionID,
+			RunID:       runID,
+			Outcome:     run.finalizationOutcome(status, activated),
+			Summary:     run.summary,
+			Children:    children,
+			Activated:   activated,
+		}
+		run.applyRunStatus(result.Outcome)
+		return result, nil
+	})
+
+	if err != nil {
+		return dal.ExecutionFinalizationResult{}, err
+	}
+
+	return value.(dal.ExecutionFinalizationResult), nil
+}
+
+func (s *Service) GetRunTaskCompletion(ctx context.Context, runID string) (dal.RunTaskCompletion, error) {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return dal.RunTaskCompletion{}, fmt.Errorf("%w: run_id is required", dal.ErrNotFound)
+	}
+
+	value, err := s.call(ctx, runID, func(state *shardState) (any, error) {
+		run, err := state.getRun(runID)
+		if err != nil {
+			return dal.RunTaskCompletion{}, err
+		}
+
+		return run.summary, nil
+	})
+
+	if err != nil {
+		return dal.RunTaskCompletion{}, err
+	}
+
+	return value.(dal.RunTaskCompletion), nil
+}
+
+func (s *Service) call(ctx context.Context, runID string, apply func(*shardState) (any, error)) (any, error) {
+	if s == nil {
+		return nil, fmt.Errorf("orchestrator service is required")
+	}
+
+	if len(s.shards) == 0 {
+		return nil, fmt.Errorf("orchestrator service has no shards")
+	}
+
+	resp := make(chan commandResult, 1)
+	cmd := command{apply: apply, resp: resp}
+	select {
+	case s.shardFor(runID).commands <- cmd:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	select {
+	case result := <-resp:
+		return result.value, result.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (s *Service) shardFor(runID string) *shard {
+	hash := fnv.New32a()
+	_, _ = hash.Write([]byte(runID))
+	return s.shards[int(hash.Sum32())%len(s.shards)]
+}
+
+func (s *shard) run() {
+	state := &shardState{runs: map[string]*runState{}}
+	for cmd := range s.commands {
+		value, err := cmd.apply(state)
+		cmd.resp <- commandResult{value: value, err: err}
+	}
+}
+
+func (s *shardState) getRun(runID string) (*runState, error) {
+	run, ok := s.runs[runID]
+	if !ok {
+		return nil, fmt.Errorf("%w: run %s", dal.ErrNotFound, runID)
+	}
+
+	return run, nil
+}
+
+func (r *runState) getExecution(executionID string) (*taskState, error) {
+	task, ok := r.executions[executionID]
+	if !ok {
+		return nil, fmt.Errorf("%w: execution %s", dal.ErrNotFound, executionID)
+	}
+
+	return task, nil
+}
+
+func (t *taskState) hasActiveClaim(owner, claimToken string, now time.Time) bool {
+	return t.leaseOwner == owner && t.claimToken == claimToken && !t.leaseUntil.Before(now)
+}
+
+func buildRunState(spec RunSpec) (*runState, error) {
+	runID := strings.TrimSpace(spec.RunID)
+	cellID := normalizeCellID(spec.CellID)
+	if runID == "" {
+		return nil, fmt.Errorf("%w: run_id is required", dal.ErrNotFound)
+	}
+
+	normalized := make([]TaskSpec, 0, len(spec.Tasks))
+	seen := map[string]struct{}{dal.RootTaskKey: {}}
+	childrenByParent := map[string][]string{}
+	for _, task := range spec.Tasks {
+		task.TaskKey = strings.TrimSpace(task.TaskKey)
+		task.ParentTaskKey = strings.TrimSpace(task.ParentTaskKey)
+		task.Name = strings.TrimSpace(task.Name)
+		task.CellID = normalizeTargetCellID(task.CellID, cellID)
+		if task.TaskKey == "" {
+			return nil, fmt.Errorf("%w: task_key is required", dal.ErrConflict)
+		}
+
+		if task.TaskKey == dal.RootTaskKey {
+			return nil, fmt.Errorf("%w: task_key %q is reserved", dal.ErrConflict, dal.RootTaskKey)
+		}
+
+		if _, ok := seen[task.TaskKey]; ok {
+			return nil, fmt.Errorf("%w: duplicate task %s", dal.ErrConflict, task.TaskKey)
+		}
+
+		seen[task.TaskKey] = struct{}{}
+		if task.ParentTaskKey == "" {
+			task.ParentTaskKey = dal.RootTaskKey
+		}
+
+		if task.Name == "" {
+			task.Name = task.TaskKey
+		}
+
+		childrenByParent[task.ParentTaskKey] = append(childrenByParent[task.ParentTaskKey], task.TaskKey)
+		normalized = append(normalized, task)
+	}
+
+	for _, task := range normalized {
+		if _, ok := seen[task.ParentTaskKey]; !ok {
+			return nil, fmt.Errorf("%w: parent task %s", dal.ErrNotFound, task.ParentTaskKey)
+		}
+	}
+
+	run := &runState{
+		runID:      runID,
+		status:     dal.RunStatusQueued,
+		tasks:      map[string]*taskState{},
+		executions: map[string]*taskState{},
+		order:      make([]string, 0, len(normalized)+1),
+		summary: dal.RunTaskCompletion{
+			RunID:      runID,
+			Total:      len(normalized) + 1,
+			Incomplete: len(normalized) + 1,
+		},
+	}
+
+	rootRecord, err := rootTaskExecutionRecord(runID, cellID, spec.Root)
+	if err != nil {
+		return nil, err
+	}
+
+	root := &taskState{
+		record:        rootRecord,
+		status:        dal.ExecutionStatusPending,
+		childTaskKeys: append([]string(nil), childrenByParent[dal.RootTaskKey]...),
+	}
+
+	run.addTask(dal.RootTaskKey, root)
+	for _, task := range normalized {
+		taskState := &taskState{
+			record:        taskExecutionRecord(runID, task.TaskKey, task.ParentTaskKey, task.Name, task.CellID),
+			status:        dal.ExecutionStatusPlanned,
+			parentTaskKey: task.ParentTaskKey,
+			childTaskKeys: append([]string(nil), childrenByParent[task.TaskKey]...),
+		}
+		run.addTask(task.TaskKey, taskState)
+	}
+
+	return run, nil
+}
+
+func (r *runState) addTask(taskKey string, task *taskState) {
+	r.tasks[taskKey] = task
+	r.executions[task.record.ExecutionID] = task
+	r.order = append(r.order, taskKey)
+}
+
+func (r *runState) loadResult(now time.Time) LoadResult {
+	var root dal.TaskExecutionRecord
+	if task := r.tasks[dal.RootTaskKey]; task != nil {
+		root = task.record
+	}
+
+	return LoadResult{
+		RunID:   r.runID,
+		Root:    root,
+		Pending: r.pendingRecords(now, 0),
+		Summary: r.summary,
+	}
+}
+
+func (r *runState) pendingRecords(now time.Time, limit int) []dal.TaskExecutionRecord {
+	out := make([]dal.TaskExecutionRecord, 0)
+	for _, taskKey := range r.order {
+		task := r.tasks[taskKey]
+		switch task.status {
+		case dal.ExecutionStatusPending:
+			if task.claimToken != "" && task.hasActiveClaim(task.leaseOwner, task.claimToken, now) {
+				continue
+			}
+		case dal.ExecutionStatusRunning:
+			if task.claimToken != "" && task.hasActiveClaim(task.leaseOwner, task.claimToken, now) {
+				continue
+			}
+		default:
+			continue
+		}
+
+		out = append(out, task.record)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+
+	return out
+}
+
+func (r *runState) applyCompletion(status string) {
+	if r.summary.Incomplete > 0 {
+		r.summary.Incomplete--
+	}
+
+	if status == dal.ExecutionStatusSucceeded {
+		r.summary.Succeeded++
+	} else {
+		r.summary.TerminalFailed++
+	}
+}
+
+func (r *runState) activateChildren(parent *taskState) ([]dal.TaskExecutionRecord, int, error) {
+	children := make([]dal.TaskExecutionRecord, 0, len(parent.childTaskKeys))
+	activated := 0
+	for _, childKey := range parent.childTaskKeys {
+		child, ok := r.tasks[childKey]
+		if !ok {
+			return nil, 0, fmt.Errorf("%w: child task %s", dal.ErrNotFound, childKey)
+		}
+
+		switch child.status {
+		case dal.ExecutionStatusPlanned:
+			child.status = dal.ExecutionStatusPending
+			children = append(children, child.record)
+			activated++
+		case dal.ExecutionStatusPending:
+			children = append(children, child.record)
+		case dal.ExecutionStatusRunning, dal.ExecutionStatusSucceeded, dal.ExecutionStatusFailed, dal.ExecutionStatusCancelled, dal.ExecutionStatusAborted:
+			continue
+		default:
+			return nil, 0, fmt.Errorf("%w: child task %s status %s cannot activate", dal.ErrConflict, childKey, child.status)
+		}
+	}
+
+	return children, activated, nil
+}
+
+func (r *runState) finalizationOutcome(status string, activated int) dal.ExecutionFinalizationOutcome {
+	if r.summary.TerminalFailed > 0 {
+		if status == dal.ExecutionStatusCancelled || status == dal.ExecutionStatusAborted {
+			return dal.ExecutionFinalizationOutcomeRunCancelled
+		}
+
+		return dal.ExecutionFinalizationOutcomeRunFailed
+	}
+
+	if r.summary.AllSucceeded() {
+		return dal.ExecutionFinalizationOutcomeRunSucceeded
+	}
+
+	if activated > 0 {
+		return dal.ExecutionFinalizationOutcomeContinued
+	}
+
+	return dal.ExecutionFinalizationOutcomeWaiting
+}
+
+func (r *runState) applyRunStatus(outcome dal.ExecutionFinalizationOutcome) {
+	switch outcome {
+	case dal.ExecutionFinalizationOutcomeContinued:
+		r.status = dal.RunStatusQueued
+	case dal.ExecutionFinalizationOutcomeRunSucceeded:
+		r.status = dal.RunStatusSucceeded
+	case dal.ExecutionFinalizationOutcomeRunFailed:
+		r.status = dal.RunStatusFailed
+	case dal.ExecutionFinalizationOutcomeRunCancelled:
+		r.status = dal.RunStatusCancelled
+	default:
+		r.status = dal.RunStatusRunning
+	}
+}
+
+func taskExecutionRecord(runID, taskKey, parentTaskKey, name, cellID string) dal.TaskExecutionRecord {
+	taskID := runID + ":" + taskKey
+	attempt := 1
+	attemptID := taskID + ":attempt:1"
+	parentTaskID := ""
+	if parentTaskKey != "" {
+		parentTaskID = runID + ":" + parentTaskKey
+	}
+
+	return dal.TaskExecutionRecord{
+		RunID:         runID,
+		TaskID:        taskID,
+		ParentTaskID:  parentTaskID,
+		TaskKey:       taskKey,
+		Name:          name,
+		TaskAttemptID: attemptID,
+		SegmentID:     taskID + ":segment",
+		SegmentName:   name,
+		ExecutionID:   attemptID + ":execution",
+		CellID:        normalizeCellID(cellID),
+		Attempt:       attempt,
+	}
+}
+
+func rootTaskExecutionRecord(runID, cellID string, in dal.TaskExecutionRecord) (dal.TaskExecutionRecord, error) {
+	defaultRecord := taskExecutionRecord(runID, dal.RootTaskKey, "", dal.RootTaskKey, cellID)
+	if strings.TrimSpace(in.ExecutionID) == "" {
+		return defaultRecord, nil
+	}
+
+	if in.RunID == "" {
+		in.RunID = runID
+	} else if in.RunID != runID {
+		return dal.TaskExecutionRecord{}, fmt.Errorf("%w: root run_id %q does not match run %q", dal.ErrConflict, in.RunID, runID)
+	}
+
+	if in.TaskID == "" {
+		in.TaskID = defaultRecord.TaskID
+	}
+
+	if in.ParentTaskID == "" {
+		in.ParentTaskID = defaultRecord.ParentTaskID
+	}
+
+	if in.TaskKey == "" {
+		in.TaskKey = dal.RootTaskKey
+	} else if in.TaskKey != dal.RootTaskKey {
+		return dal.TaskExecutionRecord{}, fmt.Errorf("%w: root task_key must be %q", dal.ErrConflict, dal.RootTaskKey)
+	}
+
+	if in.Name == "" {
+		in.Name = dal.RootTaskKey
+	}
+
+	if in.TaskAttemptID == "" {
+		in.TaskAttemptID = defaultRecord.TaskAttemptID
+	}
+
+	if in.SegmentID == "" {
+		in.SegmentID = defaultRecord.SegmentID
+	}
+
+	if in.SegmentName == "" {
+		in.SegmentName = in.Name
+	}
+
+	if in.CellID == "" {
+		in.CellID = normalizeCellID(cellID)
+	}
+
+	if in.Attempt <= 0 {
+		in.Attempt = 1
+	}
+
+	return in, nil
+}
+
+func isTerminalExecutionStatus(status string) bool {
+	switch status {
+	case dal.ExecutionStatusSucceeded, dal.ExecutionStatusFailed, dal.ExecutionStatusCancelled, dal.ExecutionStatusAborted:
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeCellID(cellID string) string {
+	cellID = strings.TrimSpace(cellID)
+	if cellID == "" {
+		return dal.DefaultCellID
+	}
+
+	return cellID
+}
+
+func normalizeTargetCellID(cellID, fallback string) string {
+	cellID = strings.TrimSpace(cellID)
+	if cellID == "" {
+		return normalizeCellID(fallback)
+	}
+
+	return cellID
+}

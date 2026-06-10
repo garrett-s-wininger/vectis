@@ -22,7 +22,7 @@ Every binary wires Cobra version output through the shared CLI helper. Use `vect
 
 For a release, publish matching artifacts for:
 
-- Binaries: `vectis-api`, `vectis-catalog`, `vectis-cell-ingress`, `vectis-cli`, `vectis-cron`, `vectis-docs`, `vectis-local`, `vectis-log`, `vectis-log-forwarder`, `vectis-queue`, `vectis-reconciler`, `vectis-registry`, `vectis-worker`.
+- Binaries: `vectis-api`, `vectis-catalog`, `vectis-cell-ingress`, `vectis-cli`, `vectis-cron`, `vectis-docs`, `vectis-local`, `vectis-log`, `vectis-log-forwarder`, `vectis-orchestrator`, `vectis-queue`, `vectis-reconciler`, `vectis-registry`, `vectis-worker`.
 - Container images for the deployable components.
 - Generated protobuf Go code already committed in `api/gen/go/`.
 - Release notes and upgrade notes.
@@ -52,10 +52,10 @@ Use the highest matching class when writing release notes:
 
 | Class | Examples | Release note requirement |
 | --- | --- | --- |
-| Patch-safe | Bug fix with no schema, API, config, queue, worker, log, or auth behavior change. | Standard upgrade notes and smoke test. |
+| Patch-safe | Bug fix with no schema, API, config, queue, orchestrator, worker, log, or auth behavior change. | Standard upgrade notes and smoke test. |
 | Operator-visible | Config default, metric, health check, log format, dashboard, port, TLS, auth, RBAC, or runbook behavior changed. | Call out the changed surface and required operator action. |
 | Compatibility-sensitive | SQL migration, REST/gRPC shape, queue payload, run state, idempotency, retry, dispatch, or worker behavior changed. | State version-skew support, migration order, and rollback path. |
-| Capacity-sensitive | API hot path, queue, worker, log streaming, cron, reconciler, catalog, or database query path changed. | Include performance evidence or explain why no check was needed. |
+| Capacity-sensitive | API hot path, queue, orchestrator, worker, log streaming, cron, reconciler, catalog, or database query path changed. | Include performance evidence or explain why no check was needed. |
 
 ## Release Notes Template
 
@@ -110,7 +110,7 @@ Rollback usually means restoring the pre-upgrade backup and previous artifacts u
 2. Read release notes for required downtime, allowed skew, and migration rollback path.
 3. Stop cron and workers first if the release does not allow mixed execution.
 4. Run `vectis-cli database migrate` against the Postgres DSN.
-5. Roll registry, queue, log, API, workers, cron, reconciler, and catalog according to the release notes.
+5. Roll registry, queue, orchestrator, log, API, workers, cron, reconciler, and catalog according to the release notes.
 6. Run the upgrade smoke test.
 7. Watch retry exhaustion, queued-run age, worker failures, and API readiness for at least one reconciler interval.
 

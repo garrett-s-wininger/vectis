@@ -17,7 +17,7 @@ Use two coordinated layers:
 1. Queue: buffers `Job` payloads, assigns delivery identifiers, and supports ack after a worker accepts responsibility for the message. In a queue pool, the delivery identifier includes the queue shard so workers ack the right instance. Undelivered or unacked deliveries can expire and be requeued. The default delivery TTL is on the order of minutes in `internal/queue`.
 2. Database: for deliveries that include a `run_id` and execution envelope, the worker acks the queue delivery and then calls `TryClaimExecution` before executing. Only one worker claims the execution lease; that claim also promotes the aggregate run to running and records the worker/cancel token on the run. If the execution claim fails because another worker won or the run/execution is not eligible, the worker stops before executing.
 
-The queue provides buffering and fan-out. The database provides authoritative concurrency control and durable run state. Re-enqueue from the API async path, task dispatch, or reconciler can produce duplicate messages; `TryClaimExecution` prevents double execution of the same task execution.
+The queue provides buffering and fan-out. The database provides authoritative concurrency control and durable run state. Re-enqueue from the API async path, orchestrator fan-out, or reconciler can produce duplicate messages; `TryClaimExecution` prevents double execution of the same task execution.
 
 Workers require queue deliveries for persisted work to carry a `run_id` and execution envelope. A delivery without `run_id` is malformed at the worker boundary: the worker acks it to avoid poison-message loops and does not execute it.
 

@@ -120,21 +120,20 @@ func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy,
 				"artifact_blobs":   retentionCutoff(report.Cutoffs.ArtifactBlobs),
 			},
 			"counts": map[string]int64{
-				"terminal_runs":         report.Counts.TerminalRuns,
-				"run_dispatch_events":   report.Counts.RunDispatchEvents,
-				"run_artifacts":         report.Counts.RunArtifacts,
-				"run_tasks":             report.Counts.RunTasks,
-				"task_attempts":         report.Counts.TaskAttempts,
-				"run_segments":          report.Counts.RunSegments,
-				"segment_executions":    report.Counts.SegmentExecutions,
-				"task_dispatch_intents": report.Counts.TaskDispatchIntents,
-				"job_definitions":       report.Counts.JobDefinitions,
-				"idempotency_keys":      report.Counts.IdempotencyKeys,
-				"audit_log":             report.Counts.AuditLog,
-				"run_log_files":         fileReport.RunLogFiles,
-				"run_log_bytes":         fileReport.RunLogBytes,
-				"artifact_blob_files":   fileReport.ArtifactBlobFiles,
-				"artifact_blob_bytes":   fileReport.ArtifactBlobBytes,
+				"terminal_runs":       report.Counts.TerminalRuns,
+				"run_dispatch_events": report.Counts.RunDispatchEvents,
+				"run_artifacts":       report.Counts.RunArtifacts,
+				"run_tasks":           report.Counts.RunTasks,
+				"task_attempts":       report.Counts.TaskAttempts,
+				"run_segments":        report.Counts.RunSegments,
+				"segment_executions":  report.Counts.SegmentExecutions,
+				"job_definitions":     report.Counts.JobDefinitions,
+				"idempotency_keys":    report.Counts.IdempotencyKeys,
+				"audit_log":           report.Counts.AuditLog,
+				"run_log_files":       fileReport.RunLogFiles,
+				"run_log_bytes":       fileReport.RunLogBytes,
+				"artifact_blob_files": fileReport.ArtifactBlobFiles,
+				"artifact_blob_bytes": fileReport.ArtifactBlobBytes,
 			},
 			"audit": map[string]bool{"event_inserted": report.AuditEventInserted},
 		})
@@ -169,7 +168,6 @@ func printRetentionReport(w io.Writer, report retention.Report, fileReport reten
 	fmt.Fprintf(w, "%s.task_attempts=%d\n", prefix, report.Counts.TaskAttempts)
 	fmt.Fprintf(w, "%s.run_segments=%d\n", prefix, report.Counts.RunSegments)
 	fmt.Fprintf(w, "%s.segment_executions=%d\n", prefix, report.Counts.SegmentExecutions)
-	fmt.Fprintf(w, "%s.task_dispatch_intents=%d\n", prefix, report.Counts.TaskDispatchIntents)
 	fmt.Fprintf(w, "%s.job_definitions=%d\n", prefix, report.Counts.JobDefinitions)
 	fmt.Fprintf(w, "%s.idempotency_keys=%d\n", prefix, report.Counts.IdempotencyKeys)
 	fmt.Fprintf(w, "%s.audit_log=%d\n", prefix, report.Counts.AuditLog)

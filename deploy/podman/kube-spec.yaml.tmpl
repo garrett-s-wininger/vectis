@@ -67,6 +67,13 @@ data:
           ca_file: /run/vectis/grpc-tls/ca.pem
         static_configs:
           - targets: {{ quoteList .PrometheusQueueTargets }}
+      - job_name: vectis-orchestrator
+        scheme: https
+        metrics_path: /metrics
+        tls_config:
+          ca_file: /run/vectis/grpc-tls/ca.pem
+        static_configs:
+          - targets: {{ quoteList .PrometheusOrchestratorTargets }}
       - job_name: vectis-worker
         scheme: https
         metrics_path: /metrics
@@ -568,6 +575,33 @@ spec:
           protocol: TCP
         - containerPort: {{ .MetricsPort }}
           protocol: TCP
+{{ end }}
+{{ range .OrchestratorReplicas }}
+    - name: {{ .Name }}
+      image: vectis-orchestrator:latest
+      imagePullPolicy: Never
+      envFrom: *vectisGrpcTlsEnvFrom
+      volumeMounts:
+        - <<: *grpcTlsMount
+        - <<: *componentLogsMount
+      ports:
+        - containerPort: {{ .Port }}
+          protocol: TCP
+        - containerPort: {{ .MetricsPort }}
+          protocol: TCP
+      env:
+{{ if .SetPortEnv }}
+        - name: VECTIS_ORCHESTRATOR_PORT
+          value: "{{ .Port }}"
+{{ end }}
+{{ if .SetMetricsPortEnv }}
+        - name: VECTIS_ORCHESTRATOR_METRICS_PORT
+          value: "{{ .MetricsPort }}"
+{{ end }}
+{{ if .AdvertiseAddress }}
+        - name: VECTIS_ORCHESTRATOR_ADVERTISE_ADDRESS
+          value: {{ .AdvertiseAddress }}
+{{ end }}
 {{ end }}
 {{ range .QueueShards }}
     - name: {{ .Name }}

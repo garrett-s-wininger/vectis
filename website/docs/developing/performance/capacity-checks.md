@@ -8,7 +8,7 @@ This is a developer and release-validation page. It is not a production operator
 
 Run these checks before:
 
-- changing queue, worker, log streaming, cron, reconciler, catalog, or API hot paths;
+- changing queue, orchestrator, worker, log streaming, cron, reconciler, catalog, or API hot paths;
 - changing database schema or query patterns that affect run creation, claiming, finalization, or log lookup;
 - changing retry, idempotency, dispatch, or repair behavior;
 - publishing a release that claims a new capacity envelope.
@@ -49,7 +49,7 @@ Capture this for every meaningful performance check:
 | --- | --- |
 | Date and owner | Who ran the check and when. |
 | Code and build | Git commit, release version, build flags, and container image tags. |
-| Deployment shape | API, queue, log, cron, reconciler, catalog, and worker counts. |
+| Deployment shape | API, queue, orchestrator, log, cron, reconciler, catalog, and worker counts. |
 | Database | Driver, DSN class, pool settings, host size, and storage class. |
 | Queue, logs, and artifacts | Queue persistence path, log storage medium, artifact storage path, spool location, and free space. |
 | Workload | Exact command, script, job definition, client count, trigger rate, and duration. |
@@ -190,7 +190,7 @@ This is a fast macro regression check, not a deployment capacity claim. Follow i
 
 ## Deployed Stack Check
 
-Use this check when the question involves a real API, database, queue, worker fleet, log service, or dashboard.
+Use this check when the question involves a real API, database, queue, orchestrator, worker fleet, log service, or dashboard.
 
 1. Start a reference or staging stack with Postgres and durable log storage.
 2. Run `vectis-cli health check --strict`.

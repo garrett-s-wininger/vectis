@@ -15,6 +15,7 @@
 | `registry/` | `vectis-registry` | daemon (service discovery) |
 | `log/` | `vectis-log` | daemon (gRPC) |
 | `log-forwarder/` | `vectis-log-forwarder` | daemon (sidecar) |
+| `orchestrator/` | `vectis-orchestrator` | daemon (hot run state and task choreography) |
 | `worker/` | `vectis-worker` | daemon (action exec) |
 | `cron/` | `vectis-cron` | daemon (scheduler) |
 | `catalog/` | `vectis-catalog` | daemon (cell catalog applier) |
@@ -53,6 +54,7 @@ func main() {
 ## Which binaries need the database import
 
 Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-fourteen-cmd): `api`, `cell-ingress`, `worker`, `cron`, `reconciler`, `catalog`, `local`, and `cli` need the `dbdrivers` import. `artifact`, `queue`, `registry`, `log`, `log-forwarder`, and `docs` do not.
+Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-fifteen-cmd): `api`, `cell-ingress`, `worker`, `cron`, `reconciler`, `catalog`, `local`, and `cli` need the `dbdrivers` import. `artifact`, `queue`, `registry`, `log`, `orchestrator`, `log-forwarder`, and `docs` do not.
 
 ## Env prefix mapping
 
@@ -74,6 +76,7 @@ Dedicated metrics listeners accept the service bind host plus loopback Host head
 | `vectis-docs` | `VECTIS_DOCS` | static docs server; default host `localhost`, default port `8088`, serves embedded docs unless `VECTIS_DOCS_DIR` overrides; `--allowed-host` / `VECTIS_DOCS_ALLOWED_HOSTS` configure accepted Host headers; `--tls-cert-file` / `--tls-key-file` enable HTTPS |
 | `vectis-reconciler` | `VECTIS_RECONCILER` | `[reconciler]`; metrics host defaults to localhost |
 | `vectis-log-forwarder` | `VECTIS_LOG_FORWARDER` | `[log_forwarder]` for metrics host/port plus flat viper keys — see flags in [`log-forwarder/main.go`](log-forwarder/main.go) |
+| `vectis-orchestrator` | `VECTIS_ORCHESTRATOR` | `[orchestrator]`; owns in-memory run state shards and exposes the task choreography gRPC service used by workers |
 | `vectis-local` | `VECTIS_LOCAL` | orchestrates stack; `VECTIS_LOCAL_PROFILE=ha` starts a local multi-instance HA exercise cell, `VECTIS_LOCAL_HOST` controls local API and docs bind host, `--http-tls` controls local API/docs HTTPS, `init` creates local TLS material, `install-cert` only installs the generated CA, and `--cell` / `VECTIS_LOCAL_CELLS` adds extra local execution cells in the simple profile |
 | `vectis-cli` | *(none)* | [`internal/config`](../internal/config/) + `os.Getenv` — see [`../internal/config/api_auth.go`](../internal/config/api_auth.go) |
 

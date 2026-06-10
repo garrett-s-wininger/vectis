@@ -9,9 +9,9 @@ For outage behavior, see [Failure Domains](./failure-domains.md). For environmen
 | Surface | Current behavior | Operator baseline |
 | --- | --- | --- |
 | HTTP API | Authentication is off by default for local and development use. Local users, API tokens, RBAC, rate limits, audit logging, and direct HTTPS are available when configured. | Enable API auth outside throwaway local use, serve or terminate HTTPS, and restrict who can reach the API. |
-| Internal gRPC | Queue, registry, log, artifact, and worker-control traffic can use optional TLS/mTLS. Standalone binaries default to plaintext unless configured. | Keep internal ports private. Use TLS/mTLS and service identity allowlists on shared networks. |
+| Internal gRPC | Queue, registry, orchestrator, log, artifact, and worker-control traffic can use optional TLS/mTLS. Standalone binaries default to plaintext unless configured. | Keep internal ports private. Use TLS/mTLS and service identity allowlists where available on shared networks. |
 | Cell ingress HTTP | Cell ingress is an internal execution submission surface. It uses the internal TLS/mTLS material when exposed off-loopback and can require exact producer SPIFFE identities for execution submissions. It does not perform end-user authentication or RBAC; global producers authorize work before dispatch. | Keep cell ingress private, reachable only by approved global producers, and use mTLS plus producer identity allowlists for non-loopback ingress endpoints. |
-| Service authorization | Internal gRPC listeners can enforce role-level exact SPIFFE URI SAN allowlists when configured. This is listener authorization, not a full per-RPC policy language. | Configure expected service identities and still treat network reachability to queue, registry, log, artifact, and worker-control paths as sensitive. |
+| Service authorization | Internal gRPC listeners can enforce role-level exact SPIFFE URI SAN allowlists when configured for implemented roles. This is listener authorization, not a full per-RPC policy language. | Configure expected service identities and still treat network reachability to queue, registry, orchestrator, log, artifact, and worker-control paths as sensitive. |
 | Metrics | API metrics use the API route auth policy when API auth is enabled. Dedicated service metrics listeners are unauthenticated and bind to localhost by default. Some deployments enable TLS for dedicated metrics listeners. | Scrape metrics from a trusted network, require API auth for API metrics, and only set dedicated metrics `--metrics-host` values for trusted scrape networks. |
 | Database and files | SQL, SQLite files, queue persistence, logs, artifact blobs, and backups may contain sensitive operational state. Vectis does not encrypt these at rest itself. | Use platform disk or volume encryption, filesystem permissions, and secret-store controls. |
 | Jobs and logs | Job definitions can cause workers to execute code. Workers currently provide per-run workspace separation, not a secure sandbox. Logs may contain credentials or personal data emitted by build steps. | Limit who can define or trigger jobs, isolate workers where needed, and restrict log access. |
@@ -64,10 +64,11 @@ Vectis services communicate over gRPC:
 | Service | Role |
 | --- | --- |
 | `vectis-queue` | Accepts enqueues and dispatches work to workers. |
+| `vectis-orchestrator` | Owns lease-fenced task claims and hot task choreography for workers. |
 | `vectis-registry` | Provides service discovery when discovery is enabled. |
 | `vectis-log` | Receives worker log chunks and serves stored log streams. |
 | `vectis-artifact` | Stores and serves content-addressed artifact blobs. |
-| API, worker, cron, reconciler | Dial queue, registry, or log depending on role and configuration. |
+| API, worker, cron, reconciler | Dial queue, registry, orchestrator, or log depending on role and configuration. |
 
 Standalone binaries default to plaintext internal gRPC (`VECTIS_GRPC_TLS_INSECURE=true`) unless TLS is configured. `vectis-local` bootstraps development TLS by default and injects the relevant `VECTIS_GRPC_TLS_*` variables into child processes. The Podman reference deployment also generates and mounts internal gRPC TLS material.
 
@@ -85,7 +86,7 @@ For the multi-cell routing and fan-in shape, see [Multi-Cell Operation](../opera
 
 ## Metrics
 
-`vectis-api` serves `/metrics` on the same HTTP listener as the REST API. When API authentication is enabled, API metrics require the same authenticated admin posture as other operational API routes. `vectis-queue`, `vectis-worker`, `vectis-log`, `vectis-log-forwarder`, `vectis-reconciler`, `vectis-catalog`, and `vectis-cell-ingress` use dedicated metrics listeners by default.
+`vectis-api` serves `/metrics` on the same HTTP listener as the REST API. When API authentication is enabled, API metrics require the same authenticated admin posture as other operational API routes. `vectis-queue`, `vectis-orchestrator`, `vectis-worker`, `vectis-log`, `vectis-artifact`, `vectis-log-forwarder`, `vectis-reconciler`, `vectis-catalog`, and `vectis-cell-ingress` use dedicated metrics listeners by default.
 
 Dedicated service metrics endpoints are not authenticated and bind to `localhost` by default. Set a service's `--metrics-host` flag or `VECTIS_<SERVICE>_METRICS_HOST` only when a trusted scraper needs off-host access. The Podman reference deployment enables HTTPS on the dedicated queue, worker, and log metrics listeners through `VECTIS_METRICS_TLS_*`; standalone log-forwarders use the same metrics TLS settings when their metrics listener is enabled. API metrics remain on the API listener, so they use the same direct HTTPS settings as the REST API when API TLS is configured.
 
@@ -154,7 +155,7 @@ Use this as the minimum checklist before treating a deployment as shared or prod
 1. Enable API auth.
 2. Complete setup and remove or rotate the bootstrap secret.
 3. Terminate HTTPS at an ingress, reverse proxy, or platform edge.
-4. Keep queue, registry, log, artifact, worker-control, and metrics ports off public networks.
+4. Keep queue, registry, orchestrator, log, artifact, worker-control, and metrics ports off public networks.
 5. Enable internal gRPC TLS or mTLS on shared networks.
 6. Configure service identity allowlists for expected internal SPIFFE IDs.
 7. Store database DSNs, API tokens, bootstrap tokens, and deploy TLS material in a secret manager.

@@ -17,19 +17,18 @@ type cellsStatusResult struct {
 }
 
 type cellStatusResult struct {
-	CellID              string `json:"cell_id"`
-	IngressRequired     bool   `json:"ingress_required"`
-	IngressConfigured   bool   `json:"ingress_configured"`
-	IngressReachable    bool   `json:"ingress_reachable"`
-	Status              string `json:"status"`
-	HTTPStatus          int    `json:"http_status,omitempty"`
-	Error               string `json:"error,omitempty"`
-	Queued              int64  `json:"queued"`
-	Stuck               int64  `json:"stuck"`
-	TaskDispatchPending int64  `json:"task_dispatch_pending"`
-	CatalogPending      int64  `json:"catalog_pending"`
-	CatalogFailed       int64  `json:"catalog_failed"`
-	CatalogTotal        int64  `json:"catalog_total"`
+	CellID            string `json:"cell_id"`
+	IngressRequired   bool   `json:"ingress_required"`
+	IngressConfigured bool   `json:"ingress_configured"`
+	IngressReachable  bool   `json:"ingress_reachable"`
+	Status            string `json:"status"`
+	HTTPStatus        int    `json:"http_status,omitempty"`
+	Error             string `json:"error,omitempty"`
+	Queued            int64  `json:"queued"`
+	Stuck             int64  `json:"stuck"`
+	CatalogPending    int64  `json:"catalog_pending"`
+	CatalogFailed     int64  `json:"catalog_failed"`
+	CatalogTotal      int64  `json:"catalog_total"`
 }
 
 func runCellsStatus(cmd *cobra.Command, args []string) {
@@ -75,7 +74,7 @@ func writeCellsStatusText(w io.Writer, result cellsStatusResult) error {
 	})
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "CELL\tSTATUS\tQUEUED\tSTUCK\tTASK PENDING\tCATALOG P/F/T\tERROR")
+	fmt.Fprintln(tw, "CELL\tSTATUS\tQUEUED\tSTUCK\tCATALOG P/F/T\tERROR")
 	for _, cell := range result.Cells {
 		status := strings.TrimSpace(cell.Status)
 		if status == "" {
@@ -87,12 +86,11 @@ func writeCellsStatusText(w io.Writer, result cellsStatusResult) error {
 			errText = "-"
 		}
 
-		fmt.Fprintf(tw, "%s\t%s\t%d\t%d\t%d\t%d/%d/%d\t%s\n",
+		fmt.Fprintf(tw, "%s\t%s\t%d\t%d\t%d/%d/%d\t%s\n",
 			cell.CellID,
 			status,
 			cell.Queued,
 			cell.Stuck,
-			cell.TaskDispatchPending,
 			cell.CatalogPending,
 			cell.CatalogFailed,
 			cell.CatalogTotal,

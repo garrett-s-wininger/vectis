@@ -17,6 +17,7 @@ This directory is for internal gRPC contracts and generated protobuf code. The p
 | [`queue.proto`](proto/queue.proto) | `QueueService` | `internal/queue/` |
 | [`log.proto`](proto/log.proto) | `LogService` | `internal/logserver/` |
 | [`artifact.proto`](proto/artifact.proto) | `ArtifactService` | `internal/artifact/` |
+| [`orchestrator.proto`](proto/orchestrator.proto) | `OrchestratorService` | `internal/orchestrator/` |
 | [`registry.proto`](proto/registry.proto) | `RegistryService` | `internal/registry/` |
 | [`worker_control.proto`](proto/worker_control.proto) | `WorkerControlService` | `cmd/worker/` |
 

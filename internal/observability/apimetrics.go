@@ -6,11 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"strconv"
-	"strings"
 	"time"
 
-	"vectis/internal/database"
 	"vectis/internal/version"
 
 	promclient "github.com/prometheus/client_golang/prometheus"
@@ -147,7 +144,6 @@ func RegisterRetentionStorageMetrics(db *sql.DB) error {
 		{"task_attempts", `SELECT COUNT(*) FROM task_attempts`},
 		{"run_segments", `SELECT COUNT(*) FROM run_segments`},
 		{"segment_executions", `SELECT COUNT(*) FROM segment_executions`},
-		{"task_dispatch_intents", `SELECT COUNT(*) FROM task_dispatch_intents`},
 		{"job_definitions", `SELECT COUNT(*) FROM job_definitions`},
 		{"idempotency_keys", `SELECT COUNT(*) FROM idempotency_keys`},
 		{"audit_log", `SELECT COUNT(*) FROM audit_log`},
@@ -196,38 +192,6 @@ func RegisterRetentionStorageMetrics(db *sql.DB) error {
 	return nil
 }
 
-func RegisterTaskDispatchBacklogMetrics(db *sql.DB) error {
-	if db == nil {
-		return fmt.Errorf("RegisterTaskDispatchBacklogMetrics: db is nil")
-	}
-
-	m := otel.Meter("vectis/task-dispatch")
-	pendingG, err := m.Int64ObservableGauge("vectis_task_dispatch_pending_intents",
-		metric.WithDescription("Pending task dispatch intents eligible for queue handoff by target cell"),
-		metric.WithUnit("{intent}"))
-	if err != nil {
-		return fmt.Errorf("vectis_task_dispatch_pending_intents: %w", err)
-	}
-
-	_, err = m.RegisterCallback(func(ctx context.Context, o metric.Observer) error {
-		counts, err := queryTaskDispatchPendingByCell(ctx, db, time.Now().UnixNano())
-		if err != nil {
-			return err
-		}
-
-		for _, count := range counts {
-			o.ObserveInt64(pendingG, count.Count, metric.WithAttributes(attribute.String("cell_id", count.CellID)))
-		}
-
-		return nil
-	}, pendingG)
-	if err != nil {
-		return fmt.Errorf("register task dispatch backlog callback: %w", err)
-	}
-
-	return nil
-}
-
 func queryInt64(ctx context.Context, db *sql.DB, query string) (int64, error) {
 	var n int64
 	if err := db.QueryRowContext(ctx, query).Scan(&n); err != nil {
@@ -235,75 +199,6 @@ func queryInt64(ctx context.Context, db *sql.DB, query string) (int64, error) {
 	}
 
 	return n, nil
-}
-
-type metricCountByCell struct {
-	CellID string
-	Count  int64
-}
-
-func queryTaskDispatchPendingByCell(ctx context.Context, db *sql.DB, cutoffUnixNano int64) ([]metricCountByCell, error) {
-	rows, err := db.QueryContext(ctx, rebindMetricQueryForPgx(`
-		SELECT tdi.cell_id, COUNT(*)
-		FROM task_dispatch_intents tdi
-		JOIN job_runs jr ON jr.run_id = tdi.run_id
-		JOIN segment_executions se ON se.execution_id = tdi.execution_id
-		JOIN run_segments rs ON rs.segment_id = se.segment_id AND rs.run_id = tdi.run_id
-		JOIN run_tasks rt ON rt.task_id = tdi.task_id AND rt.run_id = tdi.run_id
-		JOIN task_attempts ta ON ta.attempt_id = tdi.task_attempt_id AND ta.task_id = rt.task_id AND ta.run_id = tdi.run_id
-		WHERE tdi.enqueued_at IS NULL
-			AND rs.status = 'pending'
-			AND se.status = 'pending'
-			AND rt.status = 'pending'
-			AND ta.status = 'pending'
-			AND jr.status = 'queued'
-			AND (tdi.last_enqueue_attempt_at IS NULL OR tdi.last_enqueue_attempt_at <= ?)
-		GROUP BY tdi.cell_id
-		ORDER BY tdi.cell_id ASC
-	`), cutoffUnixNano)
-
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var out []metricCountByCell
-	for rows.Next() {
-		var count metricCountByCell
-		if err := rows.Scan(&count.CellID, &count.Count); err != nil {
-			return nil, err
-		}
-
-		out = append(out, count)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return out, nil
-}
-
-func rebindMetricQueryForPgx(query string) string {
-	if os.Getenv(database.EnvDatabaseDriver) != "pgx" {
-		return query
-	}
-
-	var b strings.Builder
-	b.Grow(len(query) + 8)
-	argNum := 1
-	for i := 0; i < len(query); i++ {
-		if query[i] == '?' {
-			b.WriteByte('$')
-			b.WriteString(strconv.Itoa(argNum))
-			argNum++
-			continue
-		}
-
-		b.WriteByte(query[i])
-	}
-
-	return b.String()
 }
 
 func queryTime(ctx context.Context, db *sql.DB, query string) (time.Time, bool, error) {

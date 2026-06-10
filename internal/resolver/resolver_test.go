@@ -46,6 +46,7 @@ func TestGRPCResolverScheme_IsURLSafe(t *testing.T) {
 		api.Component_COMPONENT_QUEUE,
 		api.Component_COMPONENT_LOG,
 		api.Component_COMPONENT_ARTIFACT,
+		api.Component_COMPONENT_ORCHESTRATOR,
 	} {
 		s := grpcResolverScheme(comp)
 		for _, r := range s {
@@ -62,17 +63,26 @@ func TestGRPCResolverScheme_IsURLSafe(t *testing.T) {
 	if grpcResolverScheme(api.Component_COMPONENT_ARTIFACT) != "vectis-artifact" {
 		t.Fatalf("artifact scheme: %s", grpcResolverScheme(api.Component_COMPONENT_ARTIFACT))
 	}
+
+	if grpcResolverScheme(api.Component_COMPONENT_ORCHESTRATOR) != "vectis-orchestrator" {
+		t.Fatalf("orchestrator scheme: %s", grpcResolverScheme(api.Component_COMPONENT_ORCHESTRATOR))
+	}
 }
 
 func TestGRPCHealthServiceName_MatchesServers(t *testing.T) {
 	if grpcHealthServiceName(api.Component_COMPONENT_QUEUE) != "queue" {
 		t.Fatal("queue health name must match internal/queue RegisterQueueService")
 	}
+
 	if grpcHealthServiceName(api.Component_COMPONENT_LOG) != "log" {
 		t.Fatal("log health name must match internal/logserver RunGRPC")
 	}
 	if grpcHealthServiceName(api.Component_COMPONENT_ARTIFACT) != "artifact" {
 		t.Fatal("artifact health name must match internal/artifact RunGRPC")
+	}
+
+	if grpcHealthServiceName(api.Component_COMPONENT_ORCHESTRATOR) != "orchestrator" {
+		t.Fatal("orchestrator health name must match internal/orchestrator RegisterOrchestratorService")
 	}
 }
 

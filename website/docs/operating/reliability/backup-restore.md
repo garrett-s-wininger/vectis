@@ -40,7 +40,7 @@ For SQLite, stop Vectis or use a SQLite-safe backup process before copying the d
 
 Restore in dependency order, then start services in dependency order.
 
-1. Stop API, cron, reconciler, catalog, workers, queue, log, artifact, and log-forwarder processes so no restored state is modified while files are being replaced.
+1. Stop API, cron, reconciler, catalog, workers, orchestrator, queue, log, artifact, and log-forwarder processes so no restored state is modified while files are being replaced.
 2. Restore deployment config, secrets, and TLS material to the same paths or update environment variables before starting services.
 3. Restore the SQL database.
 4. Run `vectis-cli database migrate` for each restored SQL database using the same `VECTIS_DATABASE_DRIVER` and DSN settings that services will use.
@@ -98,12 +98,12 @@ For a local-only restore where queue persistence was not backed up, start the re
 
 Use this for the reference Podman deployment and any production-like deployment backed by Postgres.
 
-1. Stop API, workers, cron, reconciler, catalog, queue, log, artifact, and log-forwarder containers/processes.
+1. Stop API, workers, cron, reconciler, catalog, orchestrator, queue, log, artifact, and log-forwarder containers/processes.
 2. Restore Postgres from the database backup using the database platform's restore process.
 3. Restore or recreate the Podman deploy secrets and TLS volumes. If secrets are recreated instead of restored, update all generated DSNs and client credentials consistently.
 4. Restore queue persistence, log storage, artifact storage, and log-forwarder spools from matching backups when available.
 5. Run `vectis-cli database migrate` against each restored Postgres DSN from the same host/network path used for deployment migrations.
-6. Start registry, queue, log, artifact, API, workers, cron, reconciler, and catalog in dependency order.
+6. Start registry, queue, orchestrator, log, artifact, API, workers, cron, reconciler, and catalog in dependency order.
 7. Run the restore smoke test and confirm dashboards/alerts are receiving fresh data.
 
 ## Restore Smoke Test

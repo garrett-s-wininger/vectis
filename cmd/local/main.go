@@ -70,6 +70,7 @@ var (
 		{binary: "vectis-registry", stage: 0, checkHealth: true, portFn: config.RegistryEffectiveListenPort, healthName: "registry"},
 		{binary: "vectis-log", stage: 1, checkHealth: true, portFn: config.LogGRPCPort, healthName: "log"},
 		{binary: "vectis-artifact", stage: 1, checkHealth: true, portFn: config.ArtifactGRPCPort, healthName: "artifact"},
+		{binary: "vectis-orchestrator", stage: 1, checkHealth: true, portFn: config.OrchestratorEffectiveListenPort, healthName: "orchestrator"},
 		{binary: "vectis-cron", stage: 2, checkHealth: false},
 		{binary: "vectis-reconciler", stage: 2, checkHealth: false},
 		{binary: "vectis-catalog", stage: 2, checkHealth: false},
@@ -352,6 +353,23 @@ func localHAProfileServices(logger interfaces.Logger, topology localTopology) []
 			env:         env,
 		})
 	}
+
+	orchestratorEnv := append([]string{}, registryEnv...)
+	orchestratorEnv = append(orchestratorEnv,
+		fmt.Sprintf("VECTIS_ORCHESTRATOR_PORT=%d", config.OrchestratorPort()),
+		fmt.Sprintf("VECTIS_ORCHESTRATOR_METRICS_PORT=%d", config.OrchestratorMetricsPort()),
+		"VECTIS_ORCHESTRATOR_ADVERTISE_ADDRESS="+netJoinLocal(config.OrchestratorPort()),
+	)
+
+	services = append(services, serviceStage{
+		binary:      "vectis-orchestrator",
+		name:        "orchestrator",
+		stage:       1,
+		checkHealth: true,
+		portFn:      fixedPort(config.OrchestratorPort()),
+		healthName:  "orchestrator",
+		env:         orchestratorEnv,
+	})
 
 	for i, port := range []int{8080, 8180} {
 		env := append([]string{}, registryEnv...)

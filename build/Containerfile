@@ -75,6 +75,12 @@ LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vec
 COPY --from=builder /app/bin/vectis-log-forwarder /usr/local/bin/vectis-log-forwarder
 ENTRYPOINT ["/usr/local/bin/vectis-log-forwarder"]
 
+FROM scratch AS orchestrator
+LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
+      org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
+COPY --from=builder /app/bin/vectis-orchestrator /usr/local/bin/vectis-orchestrator
+ENTRYPOINT ["/usr/local/bin/vectis-orchestrator"]
+
 FROM scratch AS queue
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
       org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
@@ -121,6 +127,7 @@ COPY --from=builder \
       /app/bin/vectis-local \
       /app/bin/vectis-log \
       /app/bin/vectis-log-forwarder \
+      /app/bin/vectis-orchestrator \
       /app/bin/vectis-queue \
       /app/bin/vectis-reconciler \
       /app/bin/vectis-registry \

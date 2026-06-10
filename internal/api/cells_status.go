@@ -22,19 +22,18 @@ type cellsStatusResponse struct {
 }
 
 type cellStatusResponse struct {
-	CellID              string `json:"cell_id"`
-	IngressRequired     bool   `json:"ingress_required"`
-	IngressConfigured   bool   `json:"ingress_configured"`
-	IngressReachable    bool   `json:"ingress_reachable"`
-	Status              string `json:"status"`
-	HTTPStatus          int    `json:"http_status,omitempty"`
-	Error               string `json:"error,omitempty"`
-	Queued              int64  `json:"queued"`
-	Stuck               int64  `json:"stuck"`
-	TaskDispatchPending int64  `json:"task_dispatch_pending"`
-	CatalogPending      int64  `json:"catalog_pending"`
-	CatalogFailed       int64  `json:"catalog_failed"`
-	CatalogTotal        int64  `json:"catalog_total"`
+	CellID            string `json:"cell_id"`
+	IngressRequired   bool   `json:"ingress_required"`
+	IngressConfigured bool   `json:"ingress_configured"`
+	IngressReachable  bool   `json:"ingress_reachable"`
+	Status            string `json:"status"`
+	HTTPStatus        int    `json:"http_status,omitempty"`
+	Error             string `json:"error,omitempty"`
+	Queued            int64  `json:"queued"`
+	Stuck             int64  `json:"stuck"`
+	CatalogPending    int64  `json:"catalog_pending"`
+	CatalogFailed     int64  `json:"catalog_failed"`
+	CatalogTotal      int64  `json:"catalog_total"`
 }
 
 func (s *APIServer) GetCellsStatus(w http.ResponseWriter, r *http.Request) {
@@ -59,7 +58,7 @@ func (s *APIServer) GetCellsStatus(w http.ResponseWriter, r *http.Request) {
 		known[cellID] = &status
 	}
 
-	if s.runs != nil || s.taskDispatch != nil || s.catalogEvents != nil {
+	if s.runs != nil || s.catalogEvents != nil {
 		ctx, cancel := s.handlerDBCtx(r)
 		defer cancel()
 
@@ -70,18 +69,6 @@ func (s *APIServer) GetCellsStatus(w http.ResponseWriter, r *http.Request) {
 				}
 
 				s.logger.Error("cell run status query failed: %v", err)
-				writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-				return
-			}
-		}
-
-		if s.taskDispatch != nil {
-			if err := s.addTaskDispatchCellStatus(ctx, known, localCellID, splitDatabases); err != nil {
-				if s.handleDBUnavailableError(w, err) {
-					return
-				}
-
-				s.logger.Error("cell task dispatch status query failed: %v", err)
 				writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 				return
 			}
@@ -189,20 +176,6 @@ func (s *APIServer) addRunCellStatus(ctx context.Context, cells map[string]*cell
 	for _, count := range stuck {
 		cell := ensureCellStatus(cells, count.CellID, localCellID, splitDatabases)
 		cell.Stuck = count.Count
-	}
-
-	return nil
-}
-
-func (s *APIServer) addTaskDispatchCellStatus(ctx context.Context, cells map[string]*cellStatusResponse, localCellID string, splitDatabases bool) error {
-	counts, err := s.taskDispatch.CountPendingByCell(ctx, time.Now().UTC().UnixNano())
-	if err != nil {
-		return err
-	}
-
-	for _, count := range counts {
-		cell := ensureCellStatus(cells, count.CellID, localCellID, splitDatabases)
-		cell.TaskDispatchPending = count.Count
 	}
 
 	return nil

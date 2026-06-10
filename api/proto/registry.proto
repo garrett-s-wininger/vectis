@@ -10,6 +10,7 @@ enum Component {
     COMPONENT_LOG = 2;
     COMPONENT_WORKER = 3;
     COMPONENT_ARTIFACT = 4;
+    COMPONENT_ORCHESTRATOR = 5;
 }
 
 message Registration {

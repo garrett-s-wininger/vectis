@@ -20,7 +20,6 @@ import (
 	"vectis/internal/interfaces"
 	"vectis/internal/observability"
 	"vectis/internal/runpolicy"
-	"vectis/internal/taskdispatch"
 	"vectis/internal/taskfinalize"
 	"vectis/internal/taskreduce"
 
@@ -42,7 +41,6 @@ type Service struct {
 	jobs            dal.JobsRepository
 	runs            dal.RunsRepository
 	dispatch        dal.DispatchEventsRepository
-	taskDispatch    dal.TaskDispatchIntentsRepository
 	leases          dal.ServiceLeasesRepository
 	logger          interfaces.Logger
 	queueClient     interfaces.QueueService
@@ -54,7 +52,6 @@ type Service struct {
 	metrics         *observability.ReconcilerMetrics
 	actionResolver  actionregistry.Resolver
 	dispatchMetrics dispatchMetrics
-	taskMetrics     taskdispatch.Metrics
 	leaseName       string
 	leaseOwner      string
 	leaseTTL        time.Duration
@@ -70,7 +67,6 @@ func NewService(logger interfaces.Logger, db *sql.DB, queue interfaces.QueueServ
 	repos := dal.NewSQLRepositories(db)
 	s := NewServiceWithRepositories(logger, repos.Jobs(), repos.Runs(), queue, clock)
 	s.dispatch = repos.DispatchEvents()
-	s.taskDispatch = repos.TaskDispatchIntents()
 	s.leases = repos.ServiceLeases()
 	return s
 }
@@ -117,10 +113,6 @@ func (s *Service) SetServiceLeases(repo dal.ServiceLeasesRepository) {
 	s.leases = repo
 }
 
-func (s *Service) SetTaskDispatchIntents(repo dal.TaskDispatchIntentsRepository) {
-	s.taskDispatch = repo
-}
-
 func (s *Service) SetLeaseOwner(owner string) {
 	if owner != "" {
 		s.leaseOwner = owner
@@ -151,10 +143,6 @@ func (s *Service) SetMetrics(metrics *observability.ReconcilerMetrics) {
 
 func (s *Service) SetDispatchMetrics(metrics dispatchMetrics) {
 	s.dispatchMetrics = metrics
-}
-
-func (s *Service) SetTaskDispatchMetrics(metrics taskdispatch.Metrics) {
-	s.taskMetrics = metrics
 }
 
 func (s *Service) Process(ctx context.Context) error {
@@ -210,15 +198,6 @@ func (s *Service) Process(ctx context.Context) error {
 		}
 
 		return fmt.Errorf("repair task finalization: %w", err)
-	}
-
-	if err := s.repairTaskDispatch(ctx); err != nil {
-		if database.IsUnavailableError(err) {
-			s.noteDBUnavailable(err)
-			return nil
-		}
-
-		return fmt.Errorf("repair task dispatch: %w", err)
 	}
 
 	cutoff := now.Add(-s.minGap).Unix()
@@ -324,43 +303,6 @@ func (s *Service) recordTaskFinalizationRepair(ctx context.Context, outcome, red
 	}
 
 	s.metrics.RecordTaskFinalizationRepair(ctx, outcome, reduceOutcome)
-}
-
-func (s *Service) repairTaskDispatch(ctx context.Context) error {
-	if s.taskDispatch == nil {
-		return nil
-	}
-
-	pending, err := s.taskDispatch.ListPending(ctx, config.CellID(), s.clock.Now().UnixNano(), 1)
-	if err != nil {
-		return err
-	}
-
-	if len(pending) == 0 {
-		return nil
-	}
-
-	ingress, err := s.executionIngress()
-	if err != nil {
-		return err
-	}
-
-	dispatcher := taskdispatch.New(s.runs, s.taskDispatch, s.dispatch, ingress, s.clock)
-	dispatcher.SetDispatchMetrics(s.dispatchMetrics)
-
-	service := taskdispatch.NewService(s.logger, dispatcher)
-	service.SetMetrics(s.taskMetrics)
-
-	result, err := service.Process(ctx, taskdispatch.DrainOptions{CellID: config.CellID()})
-	if err != nil {
-		return err
-	}
-
-	if result.Listed > 0 || result.Enqueued > 0 || result.Failed > 0 {
-		s.logger.Info("reconciler: repaired task dispatch intents listed=%d enqueued=%d failed=%d", result.Listed, result.Enqueued, result.Failed)
-	}
-
-	return nil
 }
 
 func (s *Service) effectiveLeaseTTL() time.Duration {

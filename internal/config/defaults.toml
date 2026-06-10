@@ -72,6 +72,13 @@ metrics_port = 9081
 register_with_registry = true
 advertise_address = ""
 
+[orchestrator]
+port = 8087
+metrics_port = 9090
+shards = 0
+register_with_registry = true
+advertise_address = ""
+
 [registry]
 port = 8082
 
@@ -117,6 +124,7 @@ registry_resolver_poll_timeout = "5s"
 registry_resolver_error_refresh = "2s"
 registry_registration_refresh = "45s"
 registry.addresses = []
+orchestrator.address = ""
 
 [dispatch]
 start_ttl = "24h"
@@ -173,6 +181,7 @@ conn_max_idle_time = "15m"
 metrics_host = "localhost"
 metrics_port = 9082
 register_with_registry = true
+orchestrator.address = ""
 artifact_max_bytes = 1073741824
 artifact_max_run_bytes = 10737418240
 artifact_max_count = 1000

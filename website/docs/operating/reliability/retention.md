@@ -25,7 +25,7 @@ By default, cleanup uses these windows:
 | Terminal runs | 30 days | Deletes terminal runs older than the cutoff: `succeeded`, `failed`, `aborted`, `cancelled`, and `abandoned`. |
 | Run dispatch events | follows terminal runs | Deletes dispatch events for runs being deleted. |
 | Artifact manifests | follows terminal runs | Deletes `run_artifacts` rows for runs being deleted. |
-| Task graph rows | follows terminal runs | Deletes task nodes, task attempts, run segments, segment executions, and task dispatch intents for runs being deleted. |
+| Task graph rows | follows terminal runs | Deletes task nodes, task attempts, run segments, and segment executions for runs being deleted. |
 | Ephemeral job definitions | 30 days | Deletes unreferenced `job_definitions` rows older than the cutoff. Stored-job definitions are preserved. |
 | Idempotency keys | 24 hours | Deletes old idempotency records; retry deduplication is no longer guaranteed after the window. |
 | Audit log | 365 days | Deletes old audit rows and inserts a fresh `retention.cleanup` audit event when cleanup is applied. |
@@ -127,7 +127,6 @@ would_delete.run_tasks=84
 would_delete.task_attempts=84
 would_delete.run_segments=42
 would_delete.segment_executions=84
-would_delete.task_dispatch_intents=40
 would_delete.run_log_files=42
 would_delete.run_log_bytes=1048576
 would_delete.artifact_blob_files=12
@@ -146,7 +145,6 @@ deleted.run_tasks=84
 deleted.task_attempts=84
 deleted.run_segments=42
 deleted.segment_executions=84
-deleted.task_dispatch_intents=40
 deleted.run_log_files=42
 deleted.run_log_bytes=1048576
 deleted.artifact_blob_files=12
@@ -163,7 +161,7 @@ The API registers SQL storage pressure gauges on `/metrics`:
 
 | Metric | Labels | Meaning |
 | --- | --- | --- |
-| `vectis_storage_records` | `surface` | Current row counts for active runs, terminal runs, dispatch events, artifact manifests, task graph tables, task dispatch intents, job definitions, idempotency keys, and audit log. |
+| `vectis_storage_records` | `surface` | Current row counts for active runs, terminal runs, dispatch events, artifact manifests, task graph tables, job definitions, idempotency keys, and audit log. |
 | `vectis_storage_oldest_record_age_seconds` | `surface` | Age of the oldest record for retention-managed SQL surfaces. |
 
 Use these with disk/database capacity signals to decide whether cleanup cadence or retention windows need adjustment.

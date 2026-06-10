@@ -7,15 +7,12 @@ import (
 	"testing"
 	"time"
 
-	api "vectis/api/gen/go"
 	"vectis/internal/cell"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/testutil/dbtest"
 	"vectis/internal/testutil/runfixture"
-
-	"google.golang.org/protobuf/encoding/protojson"
 )
 
 func TestService_Process_ReenqueuesQueuedRun(t *testing.T) {
@@ -76,122 +73,6 @@ func TestService_Process_ReenqueuesQueuedRun(t *testing.T) {
 	}
 	if !last.Valid || last.Int64 == 0 {
 		t.Errorf("expected last_dispatched_at set, got %v", last)
-	}
-}
-
-func TestService_Process_RepairsTaskDispatchIntent(t *testing.T) {
-	db := dbtest.NewTestDB(t)
-	ctx := context.Background()
-
-	jobID := "job-task-dispatch-repair"
-	jobDef := `{"id":"job-task-dispatch-repair","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo root"}}}`
-	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
-	if err := repos.Jobs().Create(ctx, jobID, jobDef, 1); err != nil {
-		t.Fatalf("insert stored job: %v", err)
-	}
-
-	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
-	if err != nil {
-		t.Fatalf("CreateRun: %v", err)
-	}
-
-	rootDispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
-	if err != nil {
-		t.Fatalf("get root execution: %v", err)
-	}
-
-	rootID := "root"
-	uses := "builtins/shell"
-	req := &api.JobRequest{
-		Job: &api.Job{
-			Id:    &jobID,
-			RunId: &runID,
-			Root: &api.Node{
-				Id:   &rootID,
-				Uses: &uses,
-				With: map[string]string{"command": "echo root"},
-			},
-		},
-		Metadata: map[string]string{"traceparent": "trace-root"},
-	}
-
-	if _, err := cell.AttachExecutionEnvelope(req, rootDispatch, 1000); err != nil {
-		t.Fatalf("attach root envelope: %v", err)
-	}
-
-	payloadJSON, err := protojson.Marshal(req)
-	if err != nil {
-		t.Fatalf("marshal payload: %v", err)
-	}
-
-	if _, _, err := repos.Runs().RecordExecutionPayload(ctx, runID, string(payloadJSON), dal.DefinitionHash(jobDef)); err != nil {
-		t.Fatalf("record execution payload: %v", err)
-	}
-
-	child, _, err := repos.Runs().EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
-		RunID:        runID,
-		ParentTaskID: rootDispatch.TaskID,
-		TaskKey:      "child",
-		Name:         "child",
-		SpecHash:     "sha256:child",
-		TargetCellID: "local",
-	})
-	if err != nil {
-		t.Fatalf("ensure child execution: %v", err)
-	}
-
-	result := runfixture.FinalizeExecutionByClaim(t, ctx, repos, rootDispatch.ExecutionID, dal.ExecutionStatusSucceeded)
-	if result.Activated != 1 || len(result.Children) != 1 || result.Children[0].ExecutionID != child.ExecutionID {
-		t.Fatalf("activated child mismatch: count=%d children=%+v want %+v", result.Activated, result.Children, child)
-	}
-
-	q := mocks.NewMockQueueService()
-	svc := NewService(interfaces.NewLogger("test"), db, q, interfaces.SystemClock{})
-	svc.SetMinDispatchGap(1 * time.Millisecond)
-
-	if err := svc.Process(ctx); err != nil {
-		t.Fatalf("Process: %v", err)
-	}
-
-	reqs := q.GetJobRequests()
-	if len(reqs) != 1 {
-		t.Fatalf("expected only task continuation enqueue, got %d request(s)", len(reqs))
-	}
-
-	env, ok, err := cell.ExecutionEnvelopeFromRequest(reqs[0])
-	if err != nil {
-		t.Fatalf("queued envelope: %v", err)
-	}
-	if !ok {
-		t.Fatal("queued request missing execution envelope")
-	}
-
-	if env.ExecutionID != child.ExecutionID || env.TaskID != child.TaskID || env.TaskAttemptID != child.TaskAttemptID {
-		t.Fatalf("queued wrong execution: got %+v want child %+v", env, child)
-	}
-
-	summary, err := repos.TaskDispatchIntents().GetRunSummary(ctx, runID)
-	if err != nil {
-		t.Fatalf("task dispatch summary: %v", err)
-	}
-	if summary.Total != 1 || summary.Enqueued != 1 || summary.Pending != 0 || summary.Failed != 0 {
-		t.Fatalf("task dispatch summary mismatch: %+v", summary)
-	}
-
-	queued, err := repos.Runs().ListQueuedBeforeDispatchCutoff(ctx, time.Now().Unix()-1)
-	if err != nil {
-		t.Fatalf("list queued after repair: %v", err)
-	}
-	if len(queued) != 0 {
-		t.Fatalf("task dispatch repair should touch dispatched and suppress root repair: %+v", queued)
-	}
-
-	events, err := repos.DispatchEvents().ListByRun(ctx, runID)
-	if err != nil {
-		t.Fatalf("list dispatch events: %v", err)
-	}
-	if len(events) != 2 || events[0].Source != dal.DispatchSourceTask || events[0].EventType != dal.DispatchEventAttempt || events[1].Source != dal.DispatchSourceTask || events[1].EventType != dal.DispatchEventSuccess {
-		t.Fatalf("task dispatch events mismatch: %+v", events)
 	}
 }
 

@@ -24,11 +24,12 @@ const (
 type Component int32
 
 const (
-	Component_COMPONENT_UNKNOWN  Component = 0
-	Component_COMPONENT_QUEUE    Component = 1
-	Component_COMPONENT_LOG      Component = 2
-	Component_COMPONENT_WORKER   Component = 3
-	Component_COMPONENT_ARTIFACT Component = 4
+	Component_COMPONENT_UNKNOWN      Component = 0
+	Component_COMPONENT_QUEUE        Component = 1
+	Component_COMPONENT_LOG          Component = 2
+	Component_COMPONENT_WORKER       Component = 3
+	Component_COMPONENT_ARTIFACT     Component = 4
+	Component_COMPONENT_ORCHESTRATOR Component = 5
 )
 
 // Enum value maps for Component.
@@ -39,13 +40,15 @@ var (
 		2: "COMPONENT_LOG",
 		3: "COMPONENT_WORKER",
 		4: "COMPONENT_ARTIFACT",
+		5: "COMPONENT_ORCHESTRATOR",
 	}
 	Component_value = map[string]int32{
-		"COMPONENT_UNKNOWN":  0,
-		"COMPONENT_QUEUE":    1,
-		"COMPONENT_LOG":      2,
-		"COMPONENT_WORKER":   3,
-		"COMPONENT_ARTIFACT": 4,
+		"COMPONENT_UNKNOWN":      0,
+		"COMPONENT_QUEUE":        1,
+		"COMPONENT_LOG":          2,
+		"COMPONENT_WORKER":       3,
+		"COMPONENT_ARTIFACT":     4,
+		"COMPONENT_ORCHESTRATOR": 5,
 	}
 )
 
@@ -821,13 +824,14 @@ const file_registry_proto_rawDesc = "" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12)\n" +
 	"\adigests\x18\x02 \x03(\v2\x0f.RegistryDigestR\adigests\"D\n" +
 	"\x18RegistrySnapshotResponse\x12(\n" +
-	"\aentries\x18\x01 \x03(\v2\x0e.RegistryEntryR\aentries*x\n" +
+	"\aentries\x18\x01 \x03(\v2\x0e.RegistryEntryR\aentries*\x94\x01\n" +
 	"\tComponent\x12\x15\n" +
 	"\x11COMPONENT_UNKNOWN\x10\x00\x12\x13\n" +
 	"\x0fCOMPONENT_QUEUE\x10\x01\x12\x11\n" +
 	"\rCOMPONENT_LOG\x10\x02\x12\x14\n" +
 	"\x10COMPONENT_WORKER\x10\x03\x12\x16\n" +
-	"\x12COMPONENT_ARTIFACT\x10\x042\xa7\x02\n" +
+	"\x12COMPONENT_ARTIFACT\x10\x04\x12\x1a\n" +
+	"\x16COMPONENT_ORCHESTRATOR\x10\x052\xa7\x02\n" +
 	"\x0fRegistryService\x12(\n" +
 	"\bRegister\x12\r.Registration\x1a\r.common.Empty\x12/\n" +
 	"\n" +
