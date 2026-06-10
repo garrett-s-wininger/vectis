@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -150,6 +151,14 @@ type sourceDefinitionRequest struct {
 	Path string `json:"path"`
 }
 
+type sourceDefinitionsImportRequest struct {
+	Ref            string `json:"ref"`
+	Path           string `json:"path"`
+	Limit          int    `json:"limit"`
+	DryRun         bool   `json:"dry_run"`
+	UpdateExisting bool   `json:"update_existing"`
+}
+
 type sourceProvenanceResponse struct {
 	RepositoryID   string `json:"repository_id"`
 	RequestedRef   string `json:"requested_ref"`
@@ -163,6 +172,38 @@ type persistedSourceJobResponse struct {
 	Version        int                      `json:"version"`
 	DefinitionHash string                   `json:"definition_hash"`
 	Source         sourceProvenanceResponse `json:"source"`
+}
+
+type importedSourceDefinitionResponse struct {
+	JobID          string                    `json:"job_id,omitempty"`
+	Status         string                    `json:"status"`
+	Version        int                       `json:"version,omitempty"`
+	DefinitionHash string                    `json:"definition_hash,omitempty"`
+	Error          string                    `json:"error,omitempty"`
+	Source         *sourceProvenanceResponse `json:"source,omitempty"`
+}
+
+type importedSourceDefinitionsSummary struct {
+	Total       int `json:"total"`
+	Created     int `json:"created"`
+	Updated     int `json:"updated"`
+	Unchanged   int `json:"unchanged"`
+	WouldCreate int `json:"would_create"`
+	WouldUpdate int `json:"would_update"`
+	Conflicted  int `json:"conflicted"`
+	Invalid     int `json:"invalid"`
+}
+
+type importedSourceDefinitionsResponse struct {
+	RepositoryID   string                             `json:"repository_id"`
+	RequestedRef   string                             `json:"requested_ref"`
+	ResolvedCommit string                             `json:"resolved_commit"`
+	Path           string                             `json:"path"`
+	Limit          int                                `json:"limit"`
+	DryRun         bool                               `json:"dry_run"`
+	UpdateExisting bool                               `json:"update_existing"`
+	Summary        importedSourceDefinitionsSummary   `json:"summary"`
+	Results        []importedSourceDefinitionResponse `json:"results"`
 }
 
 type storedJobSourceResponse struct {
@@ -613,6 +654,105 @@ func (s *APIServer) ListSourceRepositoryDefinitions(w http.ResponseWriter, r *ht
 		Path:           listing.Path,
 		Limit:          limit,
 		Definitions:    respFiles,
+	})
+}
+
+func (s *APIServer) ImportSourceRepositoryDefinitions(w http.ResponseWriter, r *http.Request) {
+	if !requestContentTypeIsJSON(r) {
+		writeAPIErrorCode(w, http.StatusUnsupportedMediaType, apiErrUnsupportedMediaType)
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxJSONDocumentBodyBytes))
+	if err != nil {
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrRequestReadFailed)
+		return
+	}
+
+	var req sourceDefinitionsImportRequest
+	if len(strings.TrimSpace(string(body))) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidRequestBody)
+			return
+		}
+	}
+
+	req.Ref = strings.TrimSpace(req.Ref)
+	req.Path = strings.TrimSpace(req.Path)
+
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireNamespaces(w) || !s.requireSources(w) || !s.requireSourceJobs(w) {
+		return
+	}
+
+	rec, nsPath, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionJobWrite, true)
+	if !ok {
+		return
+	}
+
+	ref := req.Ref
+	if ref == "" {
+		ref = strings.TrimSpace(rec.DefaultRef)
+	}
+
+	if ref == "" {
+		ref = "HEAD"
+	}
+
+	limit := sourceRepositoryImportDefinitionsLimit(req.Limit)
+	checkout := newGitCheckoutForSourceRepository(rec)
+	listing, err := checkout.ListDefinitionFiles(ctx, sourcepkg.ListDefinitionFilesOptions{
+		Ref:   ref,
+		Path:  req.Path,
+		Limit: limit,
+	})
+
+	if err != nil {
+		s.writeSourceDefinitionError(w, err)
+		return
+	}
+
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	seenJobIDs := make(map[string]string, len(listing.Files))
+	results := make([]importedSourceDefinitionResponse, 0, len(listing.Files))
+	summary := importedSourceDefinitionsSummary{Total: len(listing.Files)}
+	for _, file := range listing.Files {
+		result, err := s.importSourceDefinitionFile(ctx, rec, nsPath, checkout, listing, file, req, seenJobIDs, actorID)
+		if err != nil {
+			if s.handleDBUnavailableError(w, err) {
+				return
+			}
+
+			s.logger.Error("Source definition import failed: %v", err)
+			writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+			return
+		}
+
+		incrementSourceImportSummary(&summary, result.Status)
+		results = append(results, result)
+	}
+
+	writeJSON(w, http.StatusOK, importedSourceDefinitionsResponse{
+		RepositoryID:   rec.RepositoryID,
+		RequestedRef:   listing.RequestedRef,
+		ResolvedCommit: listing.Revision.Commit,
+		Path:           listing.Path,
+		Limit:          limit,
+		DryRun:         req.DryRun,
+		UpdateExisting: req.UpdateExisting,
+		Summary:        summary,
+		Results:        results,
 	})
 }
 
@@ -1411,6 +1551,237 @@ func sourceRepositoryTreeRecursive(w http.ResponseWriter, r *http.Request) (bool
 	}
 
 	return recursive, true
+}
+
+func sourceRepositoryImportDefinitionsLimit(limit int) int {
+	if limit <= 0 {
+		return sourcepkg.DefaultTreeListLimit
+	}
+
+	return min(limit, maxPageLimit)
+}
+
+func (s *APIServer) importSourceDefinitionFile(
+	ctx context.Context,
+	rec dal.SourceRepositoryRecord,
+	namespacePath string,
+	checkout *sourcepkg.GitCheckout,
+	listing sourcepkg.DefinitionFileListing,
+	file sourcepkg.DefinitionFile,
+	req sourceDefinitionsImportRequest,
+	seenJobIDs map[string]string,
+	actorID int64,
+) (importedSourceDefinitionResponse, error) {
+	result := importedSourceDefinitionResponse{
+		Source: &sourceProvenanceResponse{
+			RepositoryID:   rec.RepositoryID,
+			RequestedRef:   listing.RequestedRef,
+			ResolvedCommit: listing.Revision.Commit,
+			Path:           file.Path,
+			BlobSHA:        file.BlobSHA,
+		},
+	}
+
+	jobID, err := sourceImportJobIDFromPath(listing.Path, file.Path)
+	if err != nil {
+		result.Status = "invalid"
+		result.Error = err.Error()
+		return result, nil
+	}
+	result.JobID = jobID
+
+	if previous, ok := seenJobIDs[jobID]; ok {
+		result.Status = "invalid"
+		result.Error = "duplicate derived job_id " + jobID + " from " + previous
+		return result, nil
+	}
+	seenJobIDs[jobID] = file.Path
+
+	loaded, err := sourcepkg.LoadDefinition(ctx, checkout, sourcepkg.DefinitionRequest{
+		Ref:  listing.Revision.Commit,
+		Path: file.Path,
+	})
+	if err != nil {
+		result.Status = "invalid"
+		result.Error = err.Error()
+		return result, nil
+	}
+
+	definitionHash := dal.DefinitionHash(loaded.DefinitionJSON)
+	result.DefinitionHash = definitionHash
+	result.Source.BlobSHA = loaded.Source.BlobSHA
+
+	sourceRec := dal.JobDefinitionSourceRecord{
+		JobID:          jobID,
+		RepositoryID:   rec.RepositoryID,
+		RequestedRef:   listing.RequestedRef,
+		ResolvedCommit: listing.Revision.Commit,
+		DefinitionPath: loaded.Source.Path,
+		BlobSHA:        loaded.Source.BlobSHA,
+	}
+
+	currentJSON, currentVersion, err := s.jobs.GetDefinition(ctx, jobID)
+	switch {
+	case err == nil:
+		s.markDBRecovered()
+		namespaceID, err := s.jobs.GetNamespaceID(ctx, jobID)
+		if err != nil {
+			return result, err
+		}
+		s.markDBRecovered()
+
+		if namespaceID != rec.NamespaceID {
+			result.Status = "conflict"
+			result.Version = currentVersion
+			result.Error = "job already exists in another namespace"
+			return result, nil
+		}
+
+		result.Version = currentVersion
+		if dal.DefinitionHash(currentJSON) == definitionHash {
+			result.Status = "unchanged"
+			return result, nil
+		}
+
+		if !req.UpdateExisting {
+			result.Status = "conflict"
+			result.Error = "job already exists; set update_existing to update it"
+			return result, nil
+		}
+
+		if req.DryRun {
+			result.Status = "would_update"
+			result.Version = currentVersion + 1
+			return result, nil
+		}
+
+		version, err := s.sourceJobs.UpdateDefinitionWithSource(ctx, jobID, loaded.DefinitionJSON, sourceRec)
+		if err != nil {
+			if dal.IsConflict(err) {
+				result.Status = "conflict"
+				result.Error = err.Error()
+				return result, nil
+			}
+			return result, err
+		}
+		s.markDBRecovered()
+		result.Status = "updated"
+		result.Version = version
+		s.auditLog(ctx, audit.EventJobUpdated, actorID, 0, map[string]any{
+			"job_id":        jobID,
+			"namespace":     namespacePath,
+			"repository_id": rec.RepositoryID,
+			"source_ref":    listing.RequestedRef,
+			"source_path":   file.Path,
+		})
+		return result, nil
+	case dal.IsNotFound(err):
+		if req.DryRun {
+			result.Status = "would_create"
+			result.Version = 1
+			return result, nil
+		}
+
+		version, err := s.sourceJobs.CreateWithSource(ctx, jobID, loaded.DefinitionJSON, rec.NamespaceID, sourceRec)
+		if err != nil {
+			if dal.IsConflict(err) {
+				result.Status = "conflict"
+				result.Error = err.Error()
+				return result, nil
+			}
+			return result, err
+		}
+		s.markDBRecovered()
+		result.Status = "created"
+		result.Version = version
+		s.auditLog(ctx, audit.EventJobCreated, actorID, 0, map[string]any{
+			"job_id":        jobID,
+			"namespace":     namespacePath,
+			"repository_id": rec.RepositoryID,
+			"source_ref":    listing.RequestedRef,
+			"source_path":   file.Path,
+		})
+		return result, nil
+	default:
+		return result, err
+	}
+}
+
+func sourceImportJobIDFromPath(rootPath, filePath string) (string, error) {
+	rootPath = strings.Trim(path.Clean(strings.TrimSpace(rootPath)), "/")
+	filePath = strings.Trim(path.Clean(strings.TrimSpace(filePath)), "/")
+	if rootPath == "" || filePath == "" || filePath == "." {
+		return "", errors.New("definition path cannot derive a job_id")
+	}
+
+	prefix := rootPath + "/"
+	if !strings.HasPrefix(filePath, prefix) {
+		return "", errors.New("definition path is outside import root")
+	}
+
+	rel := strings.TrimPrefix(filePath, prefix)
+	if !strings.HasSuffix(rel, ".json") {
+		return "", errors.New("definition path must end in .json")
+	}
+
+	rel = strings.TrimSuffix(rel, ".json")
+	if rel == "" || rel == "." {
+		return "", errors.New("definition path cannot derive a job_id")
+	}
+
+	parts := strings.Split(rel, "/")
+	for _, part := range parts {
+		if !validSourceImportJobIDPart(part) {
+			return "", errors.New("definition path contains an unsupported job_id segment")
+		}
+	}
+
+	jobID := strings.Join(parts, ".")
+	if jobID == "" || strings.Contains(jobID, "..") {
+		return "", errors.New("definition path cannot derive a safe job_id")
+	}
+
+	return jobID, nil
+}
+
+func validSourceImportJobIDPart(part string) bool {
+	if part == "" || part == "." || part == ".." {
+		return false
+	}
+
+	for _, r := range part {
+		if (r >= 'a' && r <= 'z') ||
+			(r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') ||
+			r == '-' ||
+			r == '_' ||
+			r == '.' {
+			continue
+		}
+
+		return false
+	}
+
+	return true
+}
+
+func incrementSourceImportSummary(summary *importedSourceDefinitionsSummary, status string) {
+	switch status {
+	case "created":
+		summary.Created++
+	case "updated":
+		summary.Updated++
+	case "unchanged":
+		summary.Unchanged++
+	case "would_create":
+		summary.WouldCreate++
+	case "would_update":
+		summary.WouldUpdate++
+	case "conflict":
+		summary.Conflicted++
+	case "invalid":
+		summary.Invalid++
+	}
 }
 
 func (s *APIServer) tryBeginSourceRepositorySync(repositoryID string) (func(), bool) {

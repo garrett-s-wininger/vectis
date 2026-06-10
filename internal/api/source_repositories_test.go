@@ -627,7 +627,8 @@ func TestAPIServer_SyncManagedSourceRepositoryClonesAndFetches(t *testing.T) {
 	checkoutRoot := t.TempDir()
 	viper.Set("source.checkout_root", checkoutRoot)
 
-	server, _, _, _ := setupTestServer(t)
+	server, _, _, db := setupTestServer(t)
+	repos := dal.NewSQLRepositories(db)
 	handler := server.Handler()
 	remotePath := initAPIGitRepo(t)
 	writeAPIJobDefinitionAndCommit(t, remotePath, "true", "first definition")
@@ -880,6 +881,104 @@ func TestAPIServer_SyncManagedSourceRepositoryClonesAndFetches(t *testing.T) {
 		definition.SizeBytes == 0 {
 		t.Fatalf("managed definition file mismatch: %+v", definition)
 	}
+
+	dryRunImportRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/managed-repo/definitions/import", map[string]any{
+		"ref":     "feature/source-ref",
+		"path":    ".vectis/jobs",
+		"limit":   5,
+		"dry_run": true,
+	})
+
+	if dryRunImportRec.Code != http.StatusOK {
+		t.Fatalf("dry-run managed source import: status=%d body=%s", dryRunImportRec.Code, dryRunImportRec.Body.String())
+	}
+
+	importResp := decodeSourceDefinitionsImportResponse(t, dryRunImportRec)
+	if importResp.RepositoryID != "managed-repo" ||
+		importResp.RequestedRef != "feature/source-ref" ||
+		importResp.ResolvedCommit != featureCommit ||
+		importResp.Path != ".vectis/jobs" ||
+		!importResp.DryRun ||
+		importResp.Limit != 5 ||
+		importResp.Summary.Total != 1 ||
+		importResp.Summary.WouldCreate != 1 ||
+		len(importResp.Results) != 1 {
+		t.Fatalf("dry-run import response mismatch: %+v", importResp)
+	}
+
+	if got := importResp.Results[0]; got.JobID != "build" || got.Status != "would_create" || got.Version != 1 || got.DefinitionHash == "" || got.Source.Path != ".vectis/jobs/build.json" || got.Source.BlobSHA != featureBlob {
+		t.Fatalf("dry-run import result mismatch: %+v", got)
+	}
+
+	if _, _, err := repos.Jobs().GetDefinition(context.Background(), "build"); !dal.IsNotFound(err) {
+		t.Fatalf("dry-run import should not create job, got err=%v", err)
+	}
+
+	applyImportRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/managed-repo/definitions/import", map[string]any{
+		"ref":   "feature/source-ref",
+		"path":  ".vectis/jobs",
+		"limit": 5,
+	})
+
+	if applyImportRec.Code != http.StatusOK {
+		t.Fatalf("apply managed source import: status=%d body=%s", applyImportRec.Code, applyImportRec.Body.String())
+	}
+
+	importResp = decodeSourceDefinitionsImportResponse(t, applyImportRec)
+	if importResp.DryRun ||
+		importResp.Summary.Total != 1 ||
+		importResp.Summary.Created != 1 ||
+		len(importResp.Results) != 1 ||
+		importResp.Results[0].JobID != "build" ||
+		importResp.Results[0].Status != "created" ||
+		importResp.Results[0].Version != 1 {
+		t.Fatalf("apply import response mismatch: %+v", importResp)
+	}
+
+	definitionJSON, version, err := repos.Jobs().GetDefinition(context.Background(), "build")
+	if err != nil {
+		t.Fatalf("GetDefinition imported build: %v", err)
+	}
+
+	if version != 1 {
+		t.Fatalf("imported build version: got %d, want 1", version)
+	}
+
+	if err := json.Unmarshal([]byte(definitionJSON), &job); err != nil {
+		t.Fatalf("imported build definition JSON: %v", err)
+	}
+
+	if job.GetRoot().GetWith()["command"] != "feature" {
+		t.Fatalf("imported build command: got %+v", job.GetRoot().GetWith())
+	}
+
+	importedSource, err := repos.Sources().GetDefinitionSource(context.Background(), "build", 1)
+	if err != nil {
+		t.Fatalf("GetDefinitionSource imported build: %v", err)
+	}
+
+	if importedSource.RepositoryID != "managed-repo" ||
+		importedSource.RequestedRef != "feature/source-ref" ||
+		importedSource.ResolvedCommit != featureCommit ||
+		importedSource.DefinitionPath != ".vectis/jobs/build.json" ||
+		importedSource.BlobSHA != featureBlob {
+		t.Fatalf("imported source provenance mismatch: %+v", importedSource)
+	}
+
+	unchangedImportRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/managed-repo/definitions/import", map[string]any{
+		"ref":   "feature/source-ref",
+		"path":  ".vectis/jobs",
+		"limit": 5,
+	})
+
+	if unchangedImportRec.Code != http.StatusOK {
+		t.Fatalf("unchanged managed source import: status=%d body=%s", unchangedImportRec.Code, unchangedImportRec.Body.String())
+	}
+
+	importResp = decodeSourceDefinitionsImportResponse(t, unchangedImportRec)
+	if importResp.Summary.Unchanged != 1 || len(importResp.Results) != 1 || importResp.Results[0].Status != "unchanged" || importResp.Results[0].Version != 1 {
+		t.Fatalf("unchanged import response mismatch: %+v", importResp)
+	}
 }
 
 func TestAPIServer_GetJobSourceDefinitionReadsDisabledRepository(t *testing.T) {
@@ -1127,6 +1226,82 @@ func decodeResolvedSourceDefinitionResponse(t *testing.T, rec *httptest.Response
 			Path           string `json:"path"`
 			BlobSHA        string `json:"blob_sha"`
 		} `json:"source"`
+	}
+
+	if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+
+	return out
+}
+
+func decodeSourceDefinitionsImportResponse(t *testing.T, rec *httptest.ResponseRecorder) struct {
+	RepositoryID   string `json:"repository_id"`
+	RequestedRef   string `json:"requested_ref"`
+	ResolvedCommit string `json:"resolved_commit"`
+	Path           string `json:"path"`
+	Limit          int    `json:"limit"`
+	DryRun         bool   `json:"dry_run"`
+	UpdateExisting bool   `json:"update_existing"`
+	Summary        struct {
+		Total       int `json:"total"`
+		Created     int `json:"created"`
+		Updated     int `json:"updated"`
+		Unchanged   int `json:"unchanged"`
+		WouldCreate int `json:"would_create"`
+		WouldUpdate int `json:"would_update"`
+		Conflicted  int `json:"conflicted"`
+		Invalid     int `json:"invalid"`
+	} `json:"summary"`
+	Results []struct {
+		JobID          string `json:"job_id"`
+		Status         string `json:"status"`
+		Version        int    `json:"version"`
+		DefinitionHash string `json:"definition_hash"`
+		Error          string `json:"error"`
+		Source         struct {
+			RepositoryID   string `json:"repository_id"`
+			RequestedRef   string `json:"requested_ref"`
+			ResolvedCommit string `json:"resolved_commit"`
+			Path           string `json:"path"`
+			BlobSHA        string `json:"blob_sha"`
+		} `json:"source"`
+	} `json:"results"`
+} {
+	t.Helper()
+
+	var out struct {
+		RepositoryID   string `json:"repository_id"`
+		RequestedRef   string `json:"requested_ref"`
+		ResolvedCommit string `json:"resolved_commit"`
+		Path           string `json:"path"`
+		Limit          int    `json:"limit"`
+		DryRun         bool   `json:"dry_run"`
+		UpdateExisting bool   `json:"update_existing"`
+		Summary        struct {
+			Total       int `json:"total"`
+			Created     int `json:"created"`
+			Updated     int `json:"updated"`
+			Unchanged   int `json:"unchanged"`
+			WouldCreate int `json:"would_create"`
+			WouldUpdate int `json:"would_update"`
+			Conflicted  int `json:"conflicted"`
+			Invalid     int `json:"invalid"`
+		} `json:"summary"`
+		Results []struct {
+			JobID          string `json:"job_id"`
+			Status         string `json:"status"`
+			Version        int    `json:"version"`
+			DefinitionHash string `json:"definition_hash"`
+			Error          string `json:"error"`
+			Source         struct {
+				RepositoryID   string `json:"repository_id"`
+				RequestedRef   string `json:"requested_ref"`
+				ResolvedCommit string `json:"resolved_commit"`
+				Path           string `json:"path"`
+				BlobSHA        string `json:"blob_sha"`
+			} `json:"source"`
+		} `json:"results"`
 	}
 
 	if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
