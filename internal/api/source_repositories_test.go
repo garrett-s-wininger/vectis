@@ -740,6 +740,41 @@ func TestAPIServer_SyncManagedSourceRepositoryClonesAndFetches(t *testing.T) {
 	if job.GetRoot().GetWith()["command"] != "feature" {
 		t.Fatalf("managed feature definition command: got %+v", job.GetRoot().GetWith())
 	}
+
+	branchesRec := httptest.NewRecorder()
+	branchesReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/managed-repo/refs/branches?prefix=feature/&limit=5", nil)
+	handler.ServeHTTP(branchesRec, branchesReq)
+	if branchesRec.Code != http.StatusOK {
+		t.Fatalf("list managed feature branches: status=%d body=%s", branchesRec.Code, branchesRec.Body.String())
+	}
+
+	var branchesResp struct {
+		RepositoryID string `json:"repository_id"`
+		Prefix       string `json:"prefix"`
+		Limit        int    `json:"limit"`
+		Branches     []struct {
+			Name   string `json:"name"`
+			Ref    string `json:"ref"`
+			Commit string `json:"commit"`
+			Remote string `json:"remote"`
+		} `json:"branches"`
+	}
+
+	if err := json.NewDecoder(branchesRec.Body).Decode(&branchesResp); err != nil {
+		t.Fatalf("decode managed branches: %v", err)
+	}
+
+	if branchesResp.RepositoryID != "managed-repo" || branchesResp.Prefix != "feature/" || branchesResp.Limit != 5 || len(branchesResp.Branches) != 1 {
+		t.Fatalf("managed branches response mismatch: %+v", branchesResp)
+	}
+
+	branch := branchesResp.Branches[0]
+	if branch.Name != "feature/source-ref" ||
+		branch.Ref != "refs/remotes/origin/feature/source-ref" ||
+		branch.Commit != featureCommit ||
+		branch.Remote != "origin" {
+		t.Fatalf("managed branch mismatch: %+v", branch)
+	}
 }
 
 func TestAPIServer_GetJobSourceDefinitionReadsDisabledRepository(t *testing.T) {

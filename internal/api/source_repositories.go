@@ -89,6 +89,20 @@ type sourceRepositoryStatusError struct {
 	Message string `json:"message"`
 }
 
+type sourceRepositoryBranchResponse struct {
+	Name   string `json:"name"`
+	Ref    string `json:"ref"`
+	Commit string `json:"commit"`
+	Remote string `json:"remote,omitempty"`
+}
+
+type sourceRepositoryBranchesResponse struct {
+	RepositoryID string                           `json:"repository_id"`
+	Prefix       string                           `json:"prefix,omitempty"`
+	Limit        int                              `json:"limit"`
+	Branches     []sourceRepositoryBranchResponse `json:"branches"`
+}
+
 type jobSourceRequest struct {
 	Namespace    string `json:"namespace"`
 	RepositoryID string `json:"repository_id"`
@@ -392,6 +406,54 @@ func (s *APIServer) GetSourceRepositoryStatus(w http.ResponseWriter, r *http.Req
 	}
 
 	writeJSON(w, http.StatusOK, sourceRepositoryStatusFromRecord(ctx, rec, nsPath))
+}
+
+func (s *APIServer) ListSourceRepositoryBranches(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireNamespaces(w) || !s.requireSources(w) {
+		return
+	}
+
+	rec, _, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionJobRead, true)
+	if !ok {
+		return
+	}
+
+	limit := sourceRepositoryBranchListLimit(r)
+	prefix := strings.TrimSpace(r.URL.Query().Get("prefix"))
+	checkout := newGitCheckoutForSourceRepository(rec)
+	branches, err := checkout.ListBranches(ctx, sourcepkg.ListBranchesOptions{
+		Prefix: prefix,
+		Limit:  limit,
+	})
+	if err != nil {
+		s.writeSourceDefinitionError(w, err)
+		return
+	}
+
+	respBranches := make([]sourceRepositoryBranchResponse, 0, len(branches))
+	for _, branch := range branches {
+		respBranches = append(respBranches, sourceRepositoryBranchResponse{
+			Name:   branch.Name,
+			Ref:    branch.Ref,
+			Commit: branch.Commit,
+			Remote: branch.Remote,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, sourceRepositoryBranchesResponse{
+		RepositoryID: rec.RepositoryID,
+		Prefix:       prefix,
+		Limit:        limit,
+		Branches:     respBranches,
+	})
 }
 
 func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request) {
@@ -1152,6 +1214,17 @@ func sourceSyncStaleBeforeUnix(nowUnix int64) int64 {
 	}
 
 	return time.Unix(nowUnix, 0).Add(-timeout).Unix()
+}
+
+func sourceRepositoryBranchListLimit(r *http.Request) int {
+	limit := sourcepkg.DefaultBranchListLimit
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+			limit = min(parsed, maxPageLimit)
+		}
+	}
+
+	return limit
 }
 
 func (s *APIServer) tryBeginSourceRepositorySync(repositoryID string) (func(), bool) {

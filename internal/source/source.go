@@ -15,10 +15,24 @@ var (
 
 const DefaultMaxFileBytes int64 = 1024 * 1024
 
+const DefaultBranchListLimit = 50
+
 // Repository reads immutable source content from a repository-like backing store.
 type Repository interface {
 	ResolveRevision(ctx context.Context, ref string) (Revision, error)
 	ReadFile(ctx context.Context, revision Revision, filePath string) (File, error)
+}
+
+type ListBranchesOptions struct {
+	Prefix string
+	Limit  int
+}
+
+type BranchRef struct {
+	Name   string
+	Ref    string
+	Commit string
+	Remote string
 }
 
 type Revision struct {

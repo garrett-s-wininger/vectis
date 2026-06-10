@@ -106,6 +106,55 @@ func TestGitCheckoutReadFileHonorsMaxFileBytes(t *testing.T) {
 	}
 }
 
+func TestGitCheckoutListBranches(t *testing.T) {
+	repo := initGitRepo(t)
+	writeAndCommit(t, repo, "README.md", "main\n", "main")
+	defaultBranch := gitOutput(t, repo, "branch", "--show-current")
+
+	git(t, repo, "checkout", "-b", "feature/list-branches")
+	writeAndCommit(t, repo, "README.md", "feature\n", "feature")
+	featureCommit := gitOutput(t, repo, "rev-parse", "HEAD")
+	git(t, repo, "checkout", defaultBranch)
+
+	git(t, repo, "checkout", "-b", "release/list-branches")
+	writeAndCommit(t, repo, "README.md", "release\n", "release")
+	git(t, repo, "checkout", defaultBranch)
+
+	checkout := NewGitCheckout(repo)
+	branches, err := checkout.ListBranches(context.Background(), ListBranchesOptions{
+		Prefix: "feature/",
+		Limit:  10,
+	})
+
+	if err != nil {
+		t.Fatalf("ListBranches: %v", err)
+	}
+
+	if len(branches) != 1 {
+		t.Fatalf("branches with feature prefix: got %+v", branches)
+	}
+
+	if branches[0].Name != "feature/list-branches" ||
+		branches[0].Ref != "refs/heads/feature/list-branches" ||
+		branches[0].Commit != featureCommit ||
+		branches[0].Remote != "" {
+		t.Fatalf("branch response mismatch: %+v", branches[0])
+	}
+
+	branches, err = checkout.ListBranches(context.Background(), ListBranchesOptions{Limit: 1})
+	if err != nil {
+		t.Fatalf("ListBranches limit: %v", err)
+	}
+
+	if len(branches) != 1 {
+		t.Fatalf("limited branches: got %+v", branches)
+	}
+
+	if _, err := checkout.ListBranches(context.Background(), ListBranchesOptions{Prefix: "feature/*"}); !errors.Is(err, ErrInvalidReference) {
+		t.Fatalf("expected invalid prefix, got %v", err)
+	}
+}
+
 func TestGitCheckoutStatusReportsHealthyCheckout(t *testing.T) {
 	repo := initGitRepo(t)
 	writeAndCommit(t, repo, "README.md", "hello\n", "readme")

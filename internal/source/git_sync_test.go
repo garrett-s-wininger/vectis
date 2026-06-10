@@ -95,6 +95,23 @@ func TestManagedGitCheckoutResolvesFetchedRemoteBranchByPlainName(t *testing.T) 
 		t.Fatalf("managed plain branch commit: got %q, want %q", rev.Commit, featureCommit)
 	}
 
+	branches, err := managed.ListBranches(context.Background(), ListBranchesOptions{
+		Prefix: "feature/",
+		Limit:  10,
+	})
+
+	if err != nil {
+		t.Fatalf("managed ListBranches: %v", err)
+	}
+
+	if len(branches) != 1 ||
+		branches[0].Name != "feature/ref-fallback" ||
+		branches[0].Ref != "refs/remotes/origin/feature/ref-fallback" ||
+		branches[0].Commit != featureCommit ||
+		branches[0].Remote != "origin" {
+		t.Fatalf("managed branch list mismatch: %+v", branches)
+	}
+
 	status = managed.Status(context.Background(), "refs/heads/feature/ref-fallback")
 	if status.ErrorCode != "" || !status.DefaultRefResolved || status.ResolvedCommit != featureCommit {
 		t.Fatalf("managed refs/heads fallback status mismatch: %+v", status)

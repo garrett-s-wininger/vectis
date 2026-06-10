@@ -207,6 +207,57 @@ func (g *GitCheckout) ReadFile(ctx context.Context, revision Revision, filePath 
 	}, nil
 }
 
+func (g *GitCheckout) ListBranches(ctx context.Context, opts ListBranchesOptions) ([]BranchRef, error) {
+	if err := g.validateCheckout(); err != nil {
+		return nil, err
+	}
+
+	prefix, err := normalizeBranchPrefix(opts.Prefix, g.remoteFallback)
+	if err != nil {
+		return nil, err
+	}
+
+	limit := opts.Limit
+	if limit <= 0 {
+		limit = DefaultBranchListLimit
+	}
+
+	scopes := []branchRefScope{{baseRef: "refs/heads"}}
+	if g.remoteFallback != "" {
+		scopes = []branchRefScope{
+			{baseRef: "refs/remotes/" + g.remoteFallback, remote: g.remoteFallback},
+			{baseRef: "refs/heads"},
+		}
+	}
+
+	branches := make([]BranchRef, 0, min(limit, DefaultBranchListLimit))
+	seen := make(map[string]struct{})
+	for _, scope := range scopes {
+		if len(branches) >= limit {
+			break
+		}
+
+		found, err := g.listBranchScope(ctx, scope, prefix, limit-len(branches))
+		if err != nil {
+			return nil, err
+		}
+
+		for _, branch := range found {
+			if _, ok := seen[branch.Name]; ok {
+				continue
+			}
+
+			seen[branch.Name] = struct{}{}
+			branches = append(branches, branch)
+			if len(branches) >= limit {
+				break
+			}
+		}
+	}
+
+	return branches, nil
+}
+
 func (g *GitCheckout) validateCheckout() error {
 	checkoutPath := strings.TrimSpace(g.checkoutPath)
 	if checkoutPath == "" {
@@ -223,6 +274,56 @@ func (g *GitCheckout) validateCheckout() error {
 	}
 
 	return nil
+}
+
+type branchRefScope struct {
+	baseRef string
+	remote  string
+}
+
+func (g *GitCheckout) listBranchScope(ctx context.Context, scope branchRefScope, prefix string, limit int) ([]BranchRef, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+
+	pattern := scope.baseRef
+	if prefix != "" {
+		pattern += "/" + prefix + "*"
+	}
+
+	out, err := g.run(ctx, "for-each-ref", "--format=%(refname)%00%(objectname)", "--count="+strconv.Itoa(limit), pattern)
+	if err != nil {
+		return nil, fmt.Errorf("%w: list branches: %v", ErrInvalidReference, err)
+	}
+
+	lines := bytes.Split(out, []byte{'\n'})
+	branches := make([]BranchRef, 0, len(lines))
+	for _, line := range lines {
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+
+		parts := bytes.SplitN(line, []byte{0}, 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		fullRef := strings.TrimSpace(string(parts[0]))
+		commit := strings.TrimSpace(string(parts[1]))
+		name := strings.TrimPrefix(fullRef, scope.baseRef+"/")
+		if name == "" || name == "HEAD" || !strings.HasPrefix(name, prefix) || commit == "" {
+			continue
+		}
+
+		branches = append(branches, BranchRef{
+			Name:   name,
+			Ref:    fullRef,
+			Commit: commit,
+			Remote: scope.remote,
+		})
+	}
+
+	return branches, nil
 }
 
 func (g *GitCheckout) resolveBlob(ctx context.Context, commit, filePath string) (string, error) {
@@ -335,6 +436,33 @@ func normalizeCommit(commit string) (string, error) {
 	}
 
 	return commit, nil
+}
+
+func normalizeBranchPrefix(prefix, remote string) (string, error) {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return "", nil
+	}
+
+	prefix = strings.TrimPrefix(prefix, "refs/heads/")
+	if remote = strings.TrimSpace(remote); remote != "" {
+		prefix = strings.TrimPrefix(prefix, "refs/remotes/"+remote+"/")
+		prefix = strings.TrimPrefix(prefix, remote+"/")
+	}
+
+	if prefix == "" {
+		return "", nil
+	}
+
+	if strings.HasPrefix(prefix, "-") ||
+		strings.HasPrefix(prefix, "/") ||
+		strings.Contains(prefix, "//") ||
+		strings.Contains(prefix, "..") ||
+		strings.ContainsAny(prefix, "\x00\n\r~^:?*[\\") {
+		return "", fmt.Errorf("%w: unsafe branch prefix %q", ErrInvalidReference, prefix)
+	}
+
+	return prefix, nil
 }
 
 func normalizeTreePath(filePath string) (string, error) {
