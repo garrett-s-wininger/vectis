@@ -95,6 +95,11 @@ var (
 	sourceJobsPath              string
 	sourceJobsLimit             int
 	sourceJobsQuiet             bool
+	sourceShowRef               string
+	sourceShowPath              string
+	sourceRunsLimit             int
+	sourceRunsCursor            int
+	sourceRunsCellID            string
 	sourceTriggerRef            string
 	sourceTriggerPath           string
 	sourceTriggerCellID         string
@@ -157,8 +162,10 @@ func init() {
 	configureSourcesListFlags(sourcesListCmd)
 	configureSourcesRegisterFlags(sourcesRegisterCmd)
 	configureSourcesJobsFlags(sourcesJobsCmd)
+	configureSourcesShowFlags(sourcesShowCmd)
+	configureSourcesRunsFlags(sourcesRunsCmd)
 	configureSourcesTriggerFlags(sourcesTriggerCmd)
-	sourcesCmd.AddCommand(sourcesListCmd, sourcesRegisterCmd, sourcesSyncCmd, sourcesJobsCmd, sourcesTriggerCmd)
+	sourcesCmd.AddCommand(sourcesListCmd, sourcesRegisterCmd, sourcesSyncCmd, sourcesJobsCmd, sourcesShowCmd, sourcesRunsCmd, sourcesTriggerCmd)
 	rootCmd.AddCommand(sourcesCmd)
 
 	configureRunListFlags(runListCmd)

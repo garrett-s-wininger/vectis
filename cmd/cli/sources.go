@@ -65,6 +65,13 @@ type sourceRepositoryJobsResult struct {
 	Jobs           []sourceRepositoryJobSummary `json:"jobs"`
 }
 
+type sourceRepositoryJobDefinitionResult struct {
+	JobID          string           `json:"job_id"`
+	DefinitionHash string           `json:"definition_hash"`
+	Definition     json.RawMessage  `json:"definition"`
+	Source         sourceProvenance `json:"source"`
+}
+
 type sourceProvenance struct {
 	RepositoryID   string `json:"repository_id"`
 	RequestedRef   string `json:"requested_ref"`
@@ -333,6 +340,63 @@ func listSourceJobsWithOutput(out io.Writer, repositoryID string) error {
 	}
 }
 
+func showSourceJob(cmd *cobra.Command, args []string) {
+	runCLIError(showSourceJobWithOutput(cmd, os.Stdout, args[0], args[1]))
+}
+
+func showSourceJobWithOutput(cmd *cobra.Command, out io.Writer, repositoryID, jobID string) error {
+	path := "/api/v1/source-repositories/" + url.PathEscape(repositoryID) + "/jobs/" + url.PathEscape(jobID) + "/definition"
+	params := url.Values{}
+	if v := strings.TrimSpace(sourceShowRef); v != "" {
+		params.Set("ref", v)
+	}
+	if v := strings.TrimSpace(sourceShowPath); v != "" {
+		params.Set("path", v)
+	}
+	if encoded := params.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+
+	req, err := newAPIRequest(http.MethodGet, path, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create source job definition request: %w", err)
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to fetch source job definition: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var result sourceRepositoryJobDefinitionResult
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to parse source job definition response: %w", err)
+		}
+		if outputIsJSON() {
+			return writeJSON(out, result)
+		}
+		raw, _ := cmd.Flags().GetBool("raw")
+		_, err := out.Write(formatJobDefinitionBody(result.Definition, !raw))
+		return err
+	case http.StatusNotFound:
+		return fmt.Errorf("source repository %q or job %q not found", repositoryID, jobID)
+	default:
+		return fmt.Errorf("unexpected status fetching source job definition: %s", resp.Status)
+	}
+}
+
+func listSourceRuns(cmd *cobra.Command, args []string) {
+	since, _ := cmd.Flags().GetString("since")
+	runCLIError(listSourceRunsWithOutput(os.Stdout, args[0], args[1], sourceRunsLimit, sourceRunsCursor, since, sourceRunsCellID))
+}
+
+func listSourceRunsWithOutput(out io.Writer, repositoryID, jobID string, limit, cursor int, since, cellID string) error {
+	path := "/api/v1/source-repositories/" + url.PathEscape(repositoryID) + "/jobs/" + url.PathEscape(jobID) + "/runs"
+	return listRunsPath(path, limit, cursor, since, cellID, out)
+}
+
 func triggerSourceJob(cmd *cobra.Command, args []string) {
 	runCLIError(triggerSourceJobWithOutput(cmd, os.Stdout, args[0], args[1]))
 }
@@ -448,6 +512,22 @@ var sourcesJobsCmd = &cobra.Command{
 	Run:   listSourceJobs,
 }
 
+var sourcesShowCmd = &cobra.Command{
+	Use:   "show [repository-id] [job-id]",
+	Short: "Show a source job definition",
+	Long:  `Resolve a source repository job definition at a ref and print the canonical JSON without importing it as a stored job.`,
+	Args:  cobra.ExactArgs(2),
+	Run:   showSourceJob,
+}
+
+var sourcesRunsCmd = &cobra.Command{
+	Use:   "runs [repository-id] [job-id]",
+	Short: "List runs for a source job",
+	Long:  `List run history scoped to a source repository job's recorded source provenance.`,
+	Args:  cobra.ExactArgs(2),
+	Run:   listSourceRuns,
+}
+
 var sourcesTriggerCmd = &cobra.Command{
 	Use:   "trigger [repository-id] [job-id]",
 	Short: "Trigger a job directly from source",
@@ -476,6 +556,19 @@ func configureSourcesJobsFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&sourceJobsPath, "path", "", "Definition directory path (default: .vectis/jobs)")
 	cmd.Flags().IntVar(&sourceJobsLimit, "limit", 0, "Max source jobs to return")
 	cmd.Flags().BoolVarP(&sourceJobsQuiet, "quiet", "q", false, "Print only job IDs")
+}
+
+func configureSourcesShowFlags(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&sourceShowRef, "ref", "", "Git ref to resolve (default: repository default_ref or HEAD)")
+	cmd.Flags().StringVar(&sourceShowPath, "path", "", "Definition file path override")
+	cmd.Flags().Bool("raw", false, "Print definition JSON without reformatting")
+}
+
+func configureSourcesRunsFlags(cmd *cobra.Command) {
+	cmd.Flags().IntVar(&sourceRunsLimit, "limit", 0, "Max runs to return")
+	cmd.Flags().IntVar(&sourceRunsCursor, "cursor", 0, "Continue listing after this result cursor")
+	cmd.Flags().String("since", "", "Only include runs since RFC3339 timestamp or YYYY-MM-DD")
+	cmd.Flags().StringVar(&sourceRunsCellID, "cell", "", "Filter by owning execution cell")
 }
 
 func configureSourcesTriggerFlags(cmd *cobra.Command) {

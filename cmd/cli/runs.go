@@ -1008,6 +1008,10 @@ func runListRuns(cmd *cobra.Command, args []string) {
 
 func listRuns(jobID string, limit, cursor int, since string, cellID string, w io.Writer) error {
 	path := fmt.Sprintf("/api/v1/jobs/%s/runs", jobID)
+	return listRunsPath(path, limit, cursor, since, cellID, w)
+}
+
+func listRunsPath(path string, limit, cursor int, since string, cellID string, w io.Writer) error {
 	params := url.Values{}
 	if limit > 0 {
 		params.Set("limit", fmt.Sprintf("%d", limit))
@@ -1050,6 +1054,10 @@ func listRuns(jobID string, limit, cursor int, since string, cellID string, w io
 		return fmt.Errorf("failed to parse response: %w", err)
 	}
 
+	return writeRunListResult(w, result)
+}
+
+func writeRunListResult(w io.Writer, result runListResult) error {
 	if outputIsJSON() {
 		return writeJSON(w, result)
 	}

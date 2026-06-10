@@ -241,10 +241,22 @@ Sync the repository, then list triggerable jobs discovered under `.vectis/jobs`:
 ./bin/vectis-cli sources jobs vectis-local --ref main
 ```
 
+Inspect a source-defined job definition at a specific ref:
+
+```sh
+./bin/vectis-cli sources show vectis-local build --ref main
+```
+
 Trigger a source-defined job without creating a stored job row:
 
 ```sh
 ./bin/vectis-cli sources trigger vectis-local build --ref main --follow
+```
+
+List runs recorded for a source-defined job:
+
+```sh
+./bin/vectis-cli sources runs vectis-local build
 ```
 
 Use `sources trigger` with `source.stored_jobs_enabled=false` when the instance should run only repository-defined jobs.

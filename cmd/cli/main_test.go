@@ -393,6 +393,110 @@ func TestListSourceJobs_sendsQueryAndPrintsJobs(t *testing.T) {
 	}
 }
 
+func TestShowSourceJob_sendsQueryAndPrintsDefinition(t *testing.T) {
+	oldRef := sourceShowRef
+	oldPath := sourceShowPath
+	sourceShowRef = "main"
+	sourceShowPath = ".vectis/jobs/custom.json"
+	t.Cleanup(func() {
+		sourceShowRef = oldRef
+		sourceShowPath = oldPath
+	})
+
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/source-repositories/vectis/jobs/build/definition" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		q := r.URL.Query()
+		if q.Get("ref") != "main" || q.Get("path") != ".vectis/jobs/custom.json" {
+			t.Errorf("query=%s", r.URL.RawQuery)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"job_id":          "build",
+			"definition_hash": "hash",
+			"definition": map[string]any{
+				"root": map[string]any{
+					"id":   "root",
+					"uses": "builtins/shell",
+					"with": map[string]any{"command": "true"},
+				},
+			},
+			"source": map[string]any{
+				"repository_id":   "vectis",
+				"requested_ref":   "main",
+				"resolved_commit": "0123456789abcdef",
+				"path":            ".vectis/jobs/custom.json",
+				"blob_sha":        "abcdef",
+			},
+		})
+	})
+
+	cmd := &cobra.Command{}
+	cmd.Flags().Bool("raw", false, "")
+	var buf bytes.Buffer
+	if err := showSourceJobWithOutput(cmd, &buf, "vectis", "build"); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{`"root"`, `"builtins/shell"`} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestListSourceRuns_sendsQueryAndPrintsRuns(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/source-repositories/vectis/jobs/build/runs" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		q := r.URL.Query()
+		if q.Get("limit") != "5" || q.Get("cursor") != "12" || q.Get("since") != "2026-01-01" || q.Get("cell_id") != "pdx-b" {
+			t.Errorf("query=%s", r.URL.RawQuery)
+		}
+
+		next := int64(99)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{
+				{
+					"run_id":             "run-source",
+					"run_index":          3,
+					"status":             "success",
+					"owning_cell":        "pdx-b",
+					"created_at":         "2026-01-01T00:00:00Z",
+					"definition_version": 1,
+					"definition_hash":    "hash",
+				},
+			},
+			"next_cursor": next,
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := listSourceRunsWithOutput(&buf, "vectis", "build", 5, 12, "2026-01-01", "pdx-b"); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"run-source", "success", "pdx-b", "More runs", "99"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
 func TestCellsStatus_tableOutput(t *testing.T) {
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
