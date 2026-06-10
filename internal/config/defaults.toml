@@ -173,6 +173,7 @@ conn_max_idle_time = "15m"
 metrics_host = "localhost"
 metrics_port = 9082
 register_with_registry = true
+artifact_max_bytes = 1073741824
 
 [worker.execution]
 backend = "host"

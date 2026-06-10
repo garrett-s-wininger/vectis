@@ -703,6 +703,30 @@ func TestWorkerExecutionDefaultsAndOverrides(t *testing.T) {
 	}
 }
 
+func TestWorkerArtifactMaxBytes_DefaultAndOverride(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	if got := WorkerArtifactMaxBytes(); got != 1<<30 {
+		t.Fatalf("WorkerArtifactMaxBytes default: got %d", got)
+	}
+
+	viper.Set("worker.artifact_max_bytes", int64(4096))
+	if got := WorkerArtifactMaxBytes(); got != 4096 {
+		t.Fatalf("WorkerArtifactMaxBytes namespaced override: got %d", got)
+	}
+
+	viper.Set("worker.artifact_max_bytes", int64(0))
+	if got := WorkerArtifactMaxBytes(); got != 0 {
+		t.Fatalf("WorkerArtifactMaxBytes should allow disabling limit: got %d", got)
+	}
+
+	viper.Set("worker.artifact_max_bytes", int64(-1))
+	if got := WorkerArtifactMaxBytes(); got != 0 {
+		t.Fatalf("WorkerArtifactMaxBytes negative override should disable limit: got %d", got)
+	}
+}
+
 func TestDiscovery_RegistryFallback(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)

@@ -136,7 +136,7 @@ The first implementation slice is complete:
 
 - Should API-originated uploads be added, or should the first release keep uploads worker-only?
 - Metadata records support task, attempt, and execution attribution; which of those should become first-class user filters or selectors?
-- What are the initial defaults for max artifact size, per-run quota, and retention?
+- What are the initial defaults for per-run quota and retention?
 - Should worker artifact collection expand beyond explicit builtins to action output declarations or a job-level artifact stanza?
 - Do we need compression or archive normalization before storing blobs, or should the first version preserve bytes exactly?
 

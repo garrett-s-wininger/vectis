@@ -267,6 +267,7 @@ type WorkerDefaults struct {
 	LogAddress           string                          `toml:"log.address"`
 	MetricsHost          string                          `toml:"metrics_host"`
 	MetricsPort          int                             `toml:"metrics_port"`
+	ArtifactMaxBytes     int64                           `toml:"artifact_max_bytes"`
 	Control              WorkerControlDefaults           `toml:"control"`
 	Execution            WorkerExecutionDefaults         `toml:"execution"`
 	ExecutionIdentity    WorkerExecutionIdentityDefaults `toml:"execution_identity"`
@@ -465,6 +466,10 @@ func validateDefaults(d Defaults) {
 
 	validateHost(d.Worker.MetricsHost, "worker.metrics_host")
 	validatePort(d.Worker.MetricsPort, "worker.metrics_port")
+	if d.Worker.ArtifactMaxBytes < 0 {
+		panic("config defaults: worker.artifact_max_bytes must be >= 0")
+	}
+
 	if d.Worker.MetricsPort == d.Queue.MetricsPort {
 		panic("config defaults: worker.metrics_port must differ from queue.metrics_port")
 	}
@@ -803,6 +808,14 @@ func WorkerMetricsListenAddr() string {
 	return metricsListenAddr(WorkerMetricsHost(), WorkerMetricsEffectiveListenPort())
 }
 
+func WorkerArtifactMaxBytes() int64 {
+	if viper.IsSet("worker.artifact_max_bytes") {
+		return nonNegativeInt64(viper.GetInt64("worker.artifact_max_bytes"))
+	}
+
+	return MustDefaults().Worker.ArtifactMaxBytes
+}
+
 func WorkerControlMode() string {
 	mode := viper.GetString("worker.control.mode")
 	if mode != "" {
@@ -902,6 +915,14 @@ func DispatchStartTTL() time.Duration {
 	}
 
 	return 24 * time.Hour
+}
+
+func nonNegativeInt64(v int64) int64 {
+	if v < 0 {
+		return 0
+	}
+
+	return v
 }
 
 func RegistryPort() int {

@@ -24,6 +24,7 @@ type workerArtifactPublisher struct {
 	taskAttemptID string
 	executionID   string
 	cellID        string
+	maxBytes      int64
 
 	mu        sync.Mutex
 	publisher *artifact.RoutedPublisher
@@ -43,6 +44,7 @@ func (w *worker) newArtifactPublisher(env *cell.ExecutionEnvelope) *workerArtifa
 		taskAttemptID: env.TaskAttemptID,
 		executionID:   env.ExecutionID,
 		cellID:        env.CellID,
+		maxBytes:      w.artifactMaxBytes,
 	}
 }
 
@@ -56,6 +58,11 @@ func (p *workerArtifactPublisher) PublishArtifact(ctx context.Context, req actio
 		return action.ArtifactPublishResult{}, err
 	}
 
+	maxBytes := req.MaxBytes
+	if p.maxBytes > 0 && (maxBytes <= 0 || maxBytes > p.maxBytes) {
+		maxBytes = p.maxBytes
+	}
+
 	published, err := publisher.Publish(ctx, artifact.PublishRequest{
 		RunID:         p.runID,
 		TaskID:        p.taskID,
@@ -67,7 +74,7 @@ func (p *workerArtifactPublisher) PublishArtifact(ctx context.Context, req actio
 		ContentType:   req.ContentType,
 		MetadataJSON:  req.MetadataJSON,
 		Reader:        req.Reader,
-		MaxBytes:      req.MaxBytes,
+		MaxBytes:      maxBytes,
 	})
 	if err != nil {
 		return action.ArtifactPublishResult{}, err

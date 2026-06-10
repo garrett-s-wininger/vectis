@@ -227,6 +227,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 		actionResolver:      actionResolver,
 		store:               runsRepo,
 		artifactManifests:   repos.Artifacts(),
+		artifactMaxBytes:    config.WorkerArtifactMaxBytes(),
 		retryMetrics:        retryMetrics,
 		catalog:             cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
 		metrics:             workerMetrics,
@@ -418,6 +419,7 @@ type worker struct {
 	actionResolver      actionregistry.Resolver
 	store               dal.RunsRepository
 	artifactManifests   dal.ArtifactsRepository
+	artifactMaxBytes    int64
 	retryMetrics        backoff.RetryMetrics
 	catalog             cell.CatalogEventPublisher
 	metrics             *observability.WorkerMetrics
@@ -1599,6 +1601,7 @@ func init() {
 
 	rootCmd.PersistentFlags().String("metrics-host", config.WorkerMetricsHost(), "Host/IP for the Prometheus /metrics HTTP server to bind")
 	rootCmd.PersistentFlags().Int("metrics-port", config.WorkerMetricsPort(), "HTTP port for Prometheus /metrics")
+	rootCmd.PersistentFlags().Int64("artifact-max-bytes", config.WorkerArtifactMaxBytes(), "Maximum bytes for a worker artifact upload (0 disables)")
 	rootCmd.PersistentFlags().String("execution-backend", config.WorkerExecutionBackend(), "Command execution backend: host or lima")
 	rootCmd.PersistentFlags().String("workspace-root", config.WorkerExecutionWorkspaceRoot(), "Parent directory for automatically-created run workspaces")
 	rootCmd.PersistentFlags().String("lima-path", config.WorkerExecutionLimaPath(), "Path to limactl when --execution-backend=lima")
@@ -1608,6 +1611,7 @@ func init() {
 	rootCmd.PersistentFlags().Bool("lima-preserve-env", config.WorkerExecutionLimaPreserveEnv(), "Preserve host environment variables in Lima shell commands")
 	_ = viper.BindPFlag("metrics_host", rootCmd.PersistentFlags().Lookup("metrics-host"))
 	_ = viper.BindPFlag("metrics_port", rootCmd.PersistentFlags().Lookup("metrics-port"))
+	_ = viper.BindPFlag("worker.artifact_max_bytes", rootCmd.PersistentFlags().Lookup("artifact-max-bytes"))
 	_ = viper.BindPFlag("worker.execution.backend", rootCmd.PersistentFlags().Lookup("execution-backend"))
 	_ = viper.BindPFlag("worker.execution.workspace_root", rootCmd.PersistentFlags().Lookup("workspace-root"))
 	_ = viper.BindPFlag("worker.execution.lima.path", rootCmd.PersistentFlags().Lookup("lima-path"))
@@ -1615,6 +1619,7 @@ func init() {
 	_ = viper.BindPFlag("worker.execution.lima.guest_workspace_root", rootCmd.PersistentFlags().Lookup("lima-guest-workspace-root"))
 	_ = viper.BindPFlag("worker.execution.lima.start", rootCmd.PersistentFlags().Lookup("lima-start"))
 	_ = viper.BindPFlag("worker.execution.lima.preserve_env", rootCmd.PersistentFlags().Lookup("lima-preserve-env"))
+	_ = viper.BindEnv("worker.artifact_max_bytes", "VECTIS_WORKER_ARTIFACT_MAX_BYTES")
 	_ = viper.BindEnv("worker.queue.address", "VECTIS_WORKER_QUEUE_ADDRESS")
 	_ = viper.BindEnv("worker.log.address", "VECTIS_WORKER_LOG_ADDRESS")
 	_ = viper.BindEnv("worker.registry.address", "VECTIS_WORKER_REGISTRY_ADDRESS")
