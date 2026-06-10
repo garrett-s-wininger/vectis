@@ -981,6 +981,153 @@ func TestAPIServer_SyncManagedSourceRepositoryClonesAndFetches(t *testing.T) {
 	}
 }
 
+func TestAPIServer_TriggerManagedSourceRepositoryJobCreatesRunSnapshot(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	checkoutRoot := t.TempDir()
+	viper.Set("source.checkout_root", checkoutRoot)
+
+	server, _, _, db := setupTestServer(t)
+	repos := dal.NewSQLRepositories(db)
+	handler := server.Handler()
+	remotePath := initAPIGitRepo(t)
+	writeAPIJobDefinitionAndCommit(t, remotePath, "source-trigger", "source trigger definition")
+	commit := apiGitOutput(t, remotePath, "rev-parse", "HEAD")
+	blob := apiGitOutput(t, remotePath, "rev-parse", "HEAD:.vectis/jobs/build.json")
+
+	registerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
+		"repository_id": "managed-repo",
+		"source_kind":   dal.SourceKindLocalCheckout,
+		"checkout_mode": dal.SourceCheckoutModeManaged,
+		"canonical_url": remotePath,
+		"default_ref":   "HEAD",
+	})
+
+	if registerRec.Code != http.StatusCreated {
+		t.Fatalf("register managed source repository: status=%d body=%s", registerRec.Code, registerRec.Body.String())
+	}
+
+	syncRec := httptest.NewRecorder()
+	syncReq := httptest.NewRequest(http.MethodPost, "/api/v1/source-repositories/managed-repo/sync", nil)
+	handler.ServeHTTP(syncRec, syncReq)
+	if syncRec.Code != http.StatusOK {
+		t.Fatalf("sync managed source repository: status=%d body=%s", syncRec.Code, syncRec.Body.String())
+	}
+
+	triggerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/managed-repo/jobs/build/trigger", map[string]any{
+		"ref": "HEAD",
+	})
+
+	if triggerRec.Code != http.StatusAccepted {
+		t.Fatalf("trigger source repository job: status=%d body=%s", triggerRec.Code, triggerRec.Body.String())
+	}
+
+	triggerResp := decodeSourceJobTriggerResponse(t, triggerRec)
+	if triggerResp.JobID != "build" ||
+		triggerResp.RunID == "" ||
+		triggerResp.RunIndex != 1 ||
+		triggerResp.DefinitionVersion != 1 ||
+		triggerResp.DefinitionHash == "" ||
+		triggerResp.Source.RepositoryID != "managed-repo" ||
+		triggerResp.Source.RequestedRef != "HEAD" ||
+		triggerResp.Source.ResolvedCommit != commit ||
+		triggerResp.Source.Path != ".vectis/jobs/build.json" ||
+		triggerResp.Source.BlobSHA != blob {
+		t.Fatalf("source trigger response mismatch: %+v", triggerResp)
+	}
+
+	if _, err := repos.Jobs().GetNamespaceID(context.Background(), "build"); !dal.IsNotFound(err) {
+		t.Fatalf("source trigger should not create stored job row, got err=%v", err)
+	}
+
+	definitionJSON, err := repos.Jobs().GetDefinitionVersion(context.Background(), "build", 1)
+	if err != nil {
+		t.Fatalf("GetDefinitionVersion source snapshot: %v", err)
+	}
+
+	var job api.Job
+	if err := json.Unmarshal([]byte(definitionJSON), &job); err != nil {
+		t.Fatalf("source snapshot definition JSON: %v", err)
+	}
+
+	if job.GetRoot().GetWith()["command"] != "source-trigger" {
+		t.Fatalf("source snapshot command: got %+v", job.GetRoot().GetWith())
+	}
+
+	sourceRec, err := repos.Sources().GetDefinitionSource(context.Background(), "build", 1)
+	if err != nil {
+		t.Fatalf("GetDefinitionSource source snapshot: %v", err)
+	}
+
+	if sourceRec.RepositoryID != "managed-repo" ||
+		sourceRec.RequestedRef != "HEAD" ||
+		sourceRec.ResolvedCommit != commit ||
+		sourceRec.DefinitionPath != ".vectis/jobs/build.json" ||
+		sourceRec.BlobSHA != blob {
+		t.Fatalf("source snapshot provenance mismatch: %+v", sourceRec)
+	}
+
+	runRec, err := repos.Runs().GetRun(context.Background(), triggerResp.RunID)
+	if err != nil {
+		t.Fatalf("GetRun source snapshot: %v", err)
+	}
+
+	if runRec.JobID != "build" ||
+		runRec.RunIndex != 1 ||
+		runRec.Status != dal.RunStatusQueued ||
+		runRec.DefinitionVersion != 1 ||
+		runRec.DefinitionHash != triggerResp.DefinitionHash {
+		t.Fatalf("source snapshot run mismatch: %+v", runRec)
+	}
+
+	getRunRec := httptest.NewRecorder()
+	getRunReq := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+triggerResp.RunID, nil)
+	handler.ServeHTTP(getRunRec, getRunReq)
+	if getRunRec.Code != http.StatusOK {
+		t.Fatalf("get source repository run: status=%d body=%s", getRunRec.Code, getRunRec.Body.String())
+	}
+
+	var runResp struct {
+		RunID             string `json:"run_id"`
+		DefinitionVersion int    `json:"definition_version"`
+		Source            *struct {
+			RepositoryID   string `json:"repository_id"`
+			RequestedRef   string `json:"requested_ref"`
+			ResolvedCommit string `json:"resolved_commit"`
+			Path           string `json:"path"`
+			BlobSHA        string `json:"blob_sha"`
+		} `json:"source,omitempty"`
+	}
+
+	if err := json.NewDecoder(getRunRec.Body).Decode(&runResp); err != nil {
+		t.Fatal(err)
+	}
+
+	if runResp.RunID != triggerResp.RunID ||
+		runResp.DefinitionVersion != 1 ||
+		runResp.Source == nil ||
+		runResp.Source.RepositoryID != "managed-repo" ||
+		runResp.Source.ResolvedCommit != commit ||
+		runResp.Source.BlobSHA != blob {
+		t.Fatalf("source repository run response mismatch: %+v", runResp)
+	}
+
+	secondTriggerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/managed-repo/jobs/build/trigger", map[string]any{
+		"ref": "HEAD",
+	})
+
+	if secondTriggerRec.Code != http.StatusAccepted {
+		t.Fatalf("trigger source repository job again: status=%d body=%s", secondTriggerRec.Code, secondTriggerRec.Body.String())
+	}
+
+	secondTriggerResp := decodeSourceJobTriggerResponse(t, secondTriggerRec)
+	if secondTriggerResp.RunIndex != 2 || secondTriggerResp.DefinitionVersion != 2 {
+		t.Fatalf("second source trigger response mismatch: %+v", secondTriggerResp)
+	}
+}
+
 func TestAPIServer_GetJobSourceDefinitionReadsDisabledRepository(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 
@@ -1220,6 +1367,44 @@ func decodeResolvedSourceDefinitionResponse(t *testing.T, rec *httptest.Response
 		DefinitionHash string          `json:"definition_hash"`
 		Definition     json.RawMessage `json:"definition"`
 		Source         struct {
+			RepositoryID   string `json:"repository_id"`
+			RequestedRef   string `json:"requested_ref"`
+			ResolvedCommit string `json:"resolved_commit"`
+			Path           string `json:"path"`
+			BlobSHA        string `json:"blob_sha"`
+		} `json:"source"`
+	}
+
+	if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+
+	return out
+}
+
+func decodeSourceJobTriggerResponse(t *testing.T, rec *httptest.ResponseRecorder) struct {
+	JobID             string `json:"job_id"`
+	RunID             string `json:"run_id"`
+	RunIndex          int    `json:"run_index"`
+	DefinitionVersion int    `json:"definition_version"`
+	DefinitionHash    string `json:"definition_hash"`
+	Source            struct {
+		RepositoryID   string `json:"repository_id"`
+		RequestedRef   string `json:"requested_ref"`
+		ResolvedCommit string `json:"resolved_commit"`
+		Path           string `json:"path"`
+		BlobSHA        string `json:"blob_sha"`
+	} `json:"source"`
+} {
+	t.Helper()
+
+	var out struct {
+		JobID             string `json:"job_id"`
+		RunID             string `json:"run_id"`
+		RunIndex          int    `json:"run_index"`
+		DefinitionVersion int    `json:"definition_version"`
+		DefinitionHash    string `json:"definition_hash"`
+		Source            struct {
 			RepositoryID   string `json:"repository_id"`
 			RequestedRef   string `json:"requested_ref"`
 			ResolvedCommit string `json:"resolved_commit"`

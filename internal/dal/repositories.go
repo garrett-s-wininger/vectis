@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -755,6 +756,10 @@ type EphemeralRunStarterWithAudit interface {
 	CreateDefinitionAndRunInCellWithAudit(ctx context.Context, jobID, definitionJSON string, runIndex *int, targetCellID string, audit RunAuditMetadata) (runID string, runIndexOut int, err error)
 }
 
+type SourceDefinitionRunStarter interface {
+	CreateSourceDefinitionAndRunInCellWithAudit(ctx context.Context, jobID, definitionJSON string, source JobDefinitionSourceRecord, targetCellID string, audit RunAuditMetadata) (runID string, runIndexOut int, definitionVersion int, err error)
+}
+
 type SQLRepositories struct {
 	db            *sql.DB
 	cellID        string
@@ -804,6 +809,7 @@ func NewSQLRepositoriesWithCellID(db *sql.DB, cellID string) *SQLRepositories {
 
 var _ EphemeralRunStarter = (*SQLRepositories)(nil)
 var _ EphemeralRunStarterWithAudit = (*SQLRepositories)(nil)
+var _ SourceDefinitionRunStarter = (*SQLRepositories)(nil)
 
 func DefinitionHash(definitionJSON string) string {
 	return PayloadHash(definitionJSON)
@@ -1010,6 +1016,76 @@ func (r *SQLRepositories) CreateDefinitionAndRunInCellWithAudit(ctx context.Cont
 	}
 
 	return runID, idx, nil
+}
+
+func (r *SQLRepositories) CreateSourceDefinitionAndRunInCellWithAudit(ctx context.Context, jobID, definitionJSON string, source JobDefinitionSourceRecord, targetCellID string, audit RunAuditMetadata) (runID string, runIndexOut int, definitionVersion int, err error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", 0, 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	jobID = strings.TrimSpace(jobID)
+	if jobID == "" {
+		return "", 0, 0, fmt.Errorf("%w: job_id is required", ErrConflict)
+	}
+
+	var nextVersion int
+	if err := tx.QueryRowContext(ctx,
+		rebindQueryForPgx("SELECT COALESCE(MAX(version), 0) + 1 FROM job_definitions WHERE job_id = ?"),
+		jobID,
+	).Scan(&nextVersion); err != nil {
+		return "", 0, 0, normalizeSQLError(err)
+	}
+
+	definitionHash := DefinitionHash(definitionJSON)
+	if _, err := tx.ExecContext(ctx,
+		rebindQueryForPgx(`INSERT INTO job_definitions (global_id, job_id, version, definition_json, definition_hash) VALUES (?, ?, ?, ?, ?)`),
+		newGlobalID(), jobID, nextVersion, definitionJSON, definitionHash,
+	); err != nil {
+		return "", 0, 0, normalizeSQLError(err)
+	}
+
+	source.JobID = jobID
+	source.Version = nextVersion
+	if err := insertDefinitionSourceTx(ctx, tx, source); err != nil {
+		return "", 0, 0, err
+	}
+
+	runID = uuid.New().String()
+	if err := tx.QueryRowContext(ctx,
+		rebindQueryForPgx("SELECT COALESCE(MAX(run_index), 0) + 1 FROM job_runs WHERE job_id = ?"),
+		jobID,
+	).Scan(&runIndexOut); err != nil {
+		return "", 0, 0, normalizeSQLError(err)
+	}
+
+	targetCellID = normalizeTargetCellID(targetCellID, r.cellID)
+	if _, err := tx.ExecContext(ctx,
+		rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?, ?, ?)`),
+		runID,
+		jobID,
+		runIndexOut,
+		RunStatusQueued,
+		nextVersion,
+		definitionHash,
+		targetCellID,
+		nullableString(audit.ReplayOfRunID),
+		nullableString(audit.TriggerInvocationID),
+		strings.TrimSpace(audit.ExecutionPayloadHash),
+	); err != nil {
+		return "", 0, 0, normalizeSQLError(err)
+	}
+
+	if err := createInitialSegmentExecutionTx(ctx, tx, runID, targetCellID); err != nil {
+		return "", 0, 0, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", 0, 0, err
+	}
+
+	return runID, runIndexOut, nextVersion, nil
 }
 
 func (r *SQLRepositories) Jobs() JobsRepository {

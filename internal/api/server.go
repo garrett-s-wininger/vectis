@@ -473,6 +473,15 @@ func (s *APIServer) getRunJobNamespacePath(ctx context.Context, runID string) (s
 	nsPath, err := s.getJobNamespacePath(ctx, jobID)
 	if err != nil {
 		if dal.IsNotFound(err) {
+			nsPath, err := s.getSourceRunNamespacePath(ctx, runID, jobID)
+			if err != nil {
+				return "", err
+			}
+
+			if nsPath != "" {
+				return nsPath, nil
+			}
+
 			// Ephemeral runs don't have stored_jobs entries;
 			// they run in the default namespace.
 			return "/", nil
@@ -481,6 +490,50 @@ func (s *APIServer) getRunJobNamespacePath(ctx context.Context, runID string) (s
 	}
 
 	return nsPath, nil
+}
+
+func (s *APIServer) getSourceRunNamespacePath(ctx context.Context, runID, jobID string) (string, error) {
+	if s.sources == nil || s.namespaces == nil {
+		return "", nil
+	}
+
+	rec, err := s.runs.GetRun(ctx, runID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			return "", nil
+		}
+
+		return "", err
+	}
+
+	source, err := s.sources.GetDefinitionSource(ctx, jobID, rec.DefinitionVersion)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			return "", nil
+		}
+
+		return "", err
+	}
+
+	repo, err := s.sources.GetRepository(ctx, source.RepositoryID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			return "", nil
+		}
+
+		return "", err
+	}
+
+	ns, err := s.namespaces.GetByID(ctx, repo.NamespaceID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			return "", nil
+		}
+
+		return "", err
+	}
+
+	return ns.Path, nil
 }
 
 func writeVersionHeaders(w http.ResponseWriter) {

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -17,6 +18,7 @@ import (
 	"vectis/internal/config"
 	"vectis/internal/dal"
 	jobvalidation "vectis/internal/job/validation"
+	"vectis/internal/observability"
 	sourcepkg "vectis/internal/source"
 	"vectis/internal/utils"
 )
@@ -159,6 +161,13 @@ type sourceDefinitionsImportRequest struct {
 	UpdateExisting bool   `json:"update_existing"`
 }
 
+type sourceJobTriggerRequest struct {
+	Ref          string `json:"ref"`
+	Path         string `json:"path"`
+	CellID       string `json:"cell_id"`
+	TargetCellID string `json:"target_cell_id"`
+}
+
 type sourceProvenanceResponse struct {
 	RepositoryID   string `json:"repository_id"`
 	RequestedRef   string `json:"requested_ref"`
@@ -204,6 +213,15 @@ type importedSourceDefinitionsResponse struct {
 	UpdateExisting bool                               `json:"update_existing"`
 	Summary        importedSourceDefinitionsSummary   `json:"summary"`
 	Results        []importedSourceDefinitionResponse `json:"results"`
+}
+
+type sourceJobTriggerResponse struct {
+	JobID             string                   `json:"job_id"`
+	RunID             string                   `json:"run_id"`
+	RunIndex          int                      `json:"run_index"`
+	DefinitionVersion int                      `json:"definition_version"`
+	DefinitionHash    string                   `json:"definition_hash"`
+	Source            sourceProvenanceResponse `json:"source"`
 }
 
 type storedJobSourceResponse struct {
@@ -754,6 +772,190 @@ func (s *APIServer) ImportSourceRepositoryDefinitions(w http.ResponseWriter, r *
 		Summary:        summary,
 		Results:        results,
 	})
+}
+
+func (s *APIServer) TriggerSourceRepositoryJob(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxJobDefinitionBodyBytes))
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "request_read_failed", "failed to read request body", nil)
+		return
+	}
+
+	if len(bytes.TrimSpace(body)) > 0 && !requestContentTypeIsJSON(r) {
+		writeAPIError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "content type must be application/json", nil)
+		return
+	}
+
+	var req sourceJobTriggerRequest
+	if len(bytes.TrimSpace(body)) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body", nil)
+			return
+		}
+	}
+
+	jobID := strings.TrimSpace(r.PathValue("job_id"))
+	if jobID == "" {
+		writeAPIError(w, http.StatusBadRequest, "missing_job_id", "job_id is required", nil)
+		return
+	}
+
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireNamespaces(w) || !s.requireSources(w) {
+		return
+	}
+
+	sourceRunStarter, ok := s.ephemeralRuns.(dal.SourceDefinitionRunStarter)
+	if !ok {
+		writeAPIError(w, http.StatusServiceUnavailable, "source_run_starter_not_configured", "source-backed run persistence not configured", nil)
+		return
+	}
+
+	rec, nsPath, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionRunTrigger, true)
+	if !ok {
+		return
+	}
+
+	ref := strings.TrimSpace(req.Ref)
+	if ref == "" {
+		ref = strings.TrimSpace(rec.DefaultRef)
+	}
+	if ref == "" {
+		ref = "HEAD"
+	}
+
+	definitionPath := strings.TrimSpace(req.Path)
+	if definitionPath == "" {
+		definitionPath, err = sourceTriggerDefinitionPath(jobID)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_job_id", "job_id cannot be mapped to a source definition path", nil)
+			return
+		}
+	}
+
+	idempotencyKey := idempotencyKeyFromRequest(r)
+	idempotencyScope := principalIdempotencyScope("source-trigger:"+rec.RepositoryID+":"+jobID, p)
+	idempotencyHash := hashIdempotencyRequest(http.MethodPost, "/api/v1/source-repositories/"+rec.RepositoryID+"/jobs/"+jobID+"/trigger", string(bytes.TrimSpace(body)))
+	idempotencyRecord, idempotencyReserved, ok := s.reserveIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyHash)
+	if !ok {
+		return
+	}
+
+	if idempotencyRecord.ResponseJSON != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = io.WriteString(w, *idempotencyRecord.ResponseJSON)
+		return
+	}
+
+	checkout := newGitCheckoutForSourceRepository(rec)
+	loaded, err := sourcepkg.LoadDefinition(ctx, checkout, sourcepkg.DefinitionRequest{
+		Ref:  ref,
+		Path: definitionPath,
+	})
+	if err != nil {
+		if idempotencyReserved {
+			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
+		}
+		s.writeSourceDefinitionError(w, err)
+		return
+	}
+
+	targetCellID := runTargetOptions{CellID: req.CellID, TargetCellID: req.TargetCellID}.targetCellID()
+	definitionHash := dal.DefinitionHash(loaded.DefinitionJSON)
+	triggerPayload := string(bytes.TrimSpace(body))
+	invocationID, err := s.recordTriggerInvocation(ctx, jobID, dal.TriggerTypeManual, triggerPayload, []string{targetCellID})
+	if err != nil {
+		if idempotencyReserved {
+			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error recording source trigger invocation: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+
+	sourceRec := dal.JobDefinitionSourceRecord{
+		JobID:          jobID,
+		RepositoryID:   rec.RepositoryID,
+		RequestedRef:   loaded.Source.RequestedRef,
+		ResolvedCommit: loaded.Source.Commit,
+		DefinitionPath: loaded.Source.Path,
+		BlobSHA:        loaded.Source.BlobSHA,
+	}
+
+	runID, runIndex, definitionVersion, err := sourceRunStarter.CreateSourceDefinitionAndRunInCellWithAudit(ctx, jobID, loaded.DefinitionJSON, sourceRec, targetCellID, dal.RunAuditMetadata{TriggerInvocationID: invocationID})
+	if err != nil {
+		if idempotencyReserved {
+			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error creating source-backed run: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+	s.markDBRecovered()
+
+	loaded.Job.Id = &jobID
+	loaded.Job.RunId = &runID
+
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	s.auditLog(ctx, audit.EventRunTriggered, actorID, 0, map[string]any{
+		"job_id":             jobID,
+		"run_id":             runID,
+		"run_index":          runIndex,
+		"namespace":          nsPath,
+		"repository_id":      rec.RepositoryID,
+		"source_ref":         loaded.Source.RequestedRef,
+		"source_path":        loaded.Source.Path,
+		"definition_version": definitionVersion,
+		"invocation":         invocationID,
+	})
+
+	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventAccepted, targetCellID, nil)
+	s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindSource, observability.APIEnqueueOutcomeAccepted)
+
+	resp := sourceJobTriggerResponse{
+		JobID:             jobID,
+		RunID:             runID,
+		RunIndex:          runIndex,
+		DefinitionVersion: definitionVersion,
+		DefinitionHash:    definitionHash,
+		Source:            sourceRecordToProvenance(sourceRec),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(resp); err != nil {
+		s.logger.Error("Failed to encode source trigger response: %v", err)
+		return
+	}
+
+	_, _ = w.Write(buf.Bytes())
+	s.completeIdempotency(ctx, idempotencyScope, idempotencyKey, buf.Bytes())
+
+	bgCtx := detachedTraceContextFromRequest(r)
+	go s.finishRunJobEnqueueWithKind(bgCtx, observability.APIEnqueueRunKindSource, jobID, runID, loaded.Job, definitionHash)
 }
 
 func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request) {
@@ -1742,6 +1944,22 @@ func sourceImportJobIDFromPath(rootPath, filePath string) (string, error) {
 	}
 
 	return jobID, nil
+}
+
+func sourceTriggerDefinitionPath(jobID string) (string, error) {
+	jobID = strings.TrimSpace(jobID)
+	if jobID == "" || strings.Contains(jobID, "/") || strings.Contains(jobID, "\\") {
+		return "", errors.New("job_id cannot derive a source path")
+	}
+
+	parts := strings.Split(jobID, ".")
+	for _, part := range parts {
+		if !validSourceImportJobIDPart(part) {
+			return "", errors.New("job_id cannot derive a source path")
+		}
+	}
+
+	return path.Join(sourcepkg.DefaultDefinitionPath, path.Join(parts...)+".json"), nil
 }
 
 func validSourceImportJobIDPart(part string) bool {

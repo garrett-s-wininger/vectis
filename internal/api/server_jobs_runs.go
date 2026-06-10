@@ -1871,9 +1871,18 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) finishRunJobEnqueue(ctx context.Context, jobID, runID string, job *api.Job, definitionHash string) {
-	ctx, span := observability.Tracer("vectis/api").Start(ctx, "run.enqueue.ephemeral.async", trace.WithSpanKind(trace.SpanKindInternal))
+	s.finishRunJobEnqueueWithKind(ctx, observability.APIEnqueueRunKindEphemeral, jobID, runID, job, definitionHash)
+}
+
+func (s *APIServer) finishRunJobEnqueueWithKind(ctx context.Context, runKind, jobID, runID string, job *api.Job, definitionHash string) {
+	if runKind == "" {
+		runKind = observability.APIEnqueueRunKindEphemeral
+	}
+
+	ctx, span := observability.Tracer("vectis/api").Start(ctx, "run.enqueue."+runKind+".async", trace.WithSpanKind(trace.SpanKindInternal))
 	span.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
-	span.SetAttributes(attribute.Bool("vectis.run.ephemeral", true))
+	span.SetAttributes(attribute.String("vectis.run.kind", runKind))
+	span.SetAttributes(attribute.Bool("vectis.run.ephemeral", runKind == observability.APIEnqueueRunKindEphemeral))
 	span.SetAttributes(attribute.String("run.phase", "enqueue"))
 
 	holder := s.queueClient.Load()
@@ -1919,7 +1928,7 @@ func (s *APIServer) finishRunJobEnqueue(ctx context.Context, jobID, runID string
 		return
 	}
 
-	s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindEphemeral, observability.APIEnqueueOutcomeAttempt)
+	s.recordAPIEnqueueMetric(ctx, runKind, observability.APIEnqueueOutcomeAttempt)
 	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventAttempt, targetCellID, nil)
 	dispatchReq, err := s.recordExecutionPayload(ctx, runID, req, definitionHash)
 	if err != nil {
@@ -1943,7 +1952,7 @@ func (s *APIServer) finishRunJobEnqueue(ctx context.Context, jobID, runID string
 		span.End()
 		s.logger.Error("Failed to enqueue job (run %s): %v", runID, err)
 		msg := err.Error()
-		s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindEphemeral, observability.APIEnqueueOutcomeFailedEnqueue)
+		s.recordAPIEnqueueMetric(ctx, runKind, observability.APIEnqueueOutcomeFailedEnqueue)
 		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg)
 		return
 	}
@@ -1958,18 +1967,18 @@ func (s *APIServer) finishRunJobEnqueue(ctx context.Context, jobID, runID string
 		tdSpan.End()
 		s.logger.Error("TouchDispatched after enqueue (run %s): %v", runID, err)
 		msg := "touch dispatched: " + err.Error()
-		s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindEphemeral, observability.APIEnqueueOutcomeFailedTouchDispatch)
+		s.recordAPIEnqueueMetric(ctx, runKind, observability.APIEnqueueOutcomeFailedTouchDispatch)
 		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg)
 		return
 	}
-	s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindEphemeral, observability.APIEnqueueOutcomeSuccess)
+	s.recordAPIEnqueueMetric(ctx, runKind, observability.APIEnqueueOutcomeSuccess)
 	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventSuccess, targetCellID, nil)
 
 	_, tdSpan := observability.Tracer("vectis/api").Start(ctx, "run.touch_dispatched", trace.WithSpanKind(trace.SpanKindInternal))
 	tdSpan.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
 	tdSpan.End()
 
-	s.logger.Info("Enqueued ephemeral job: %s (run %s)", jobID, runID)
+	s.logger.Info("Enqueued %s job: %s (run %s)", runKind, jobID, runID)
 }
 
 func (s *APIServer) recordTriggerInvocation(ctx context.Context, jobID, triggerType, triggerPayload string, targetCellIDs []string) (string, error) {

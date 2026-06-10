@@ -12,6 +12,7 @@ import (
 const (
 	APIEnqueueRunKindStored    = "stored"
 	APIEnqueueRunKindEphemeral = "ephemeral"
+	APIEnqueueRunKindSource    = "source"
 
 	APIEnqueueOutcomeAccepted            = "accepted"
 	APIEnqueueOutcomeAttempt             = "attempt"
