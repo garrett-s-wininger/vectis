@@ -169,6 +169,8 @@ Execution SVID acquisition happens inside Vectis-controlled worker code. When a 
 
 Secret resolution requires internal gRPC TLS with server certificates, `grpc_tls.ca_file` for workers, and `grpc_tls.client_ca_file` for `vectis-secrets` so workload client certificates are requested and verified. `vectis-secrets` fails startup when gRPC TLS is enabled without `grpc_tls.client_ca_file`.
 
+`vectis-secrets` routes secret refs by URI scheme. `encryptedfs://...` is the first built-in provider scheme; future external providers such as Vault or Knox can register their own schemes behind the same authorization and delivery path.
+
 Secret access policy is default-deny. Configure one or more allow rules with repeated `--allow-secret`, `VECTIS_SECRETS_POLICY_ALLOW`, or `secrets.policy.allow`. Each rule uses semicolon-separated `key=value` parts:
 
 ```text

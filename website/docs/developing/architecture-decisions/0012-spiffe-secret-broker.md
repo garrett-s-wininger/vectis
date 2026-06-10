@@ -43,6 +43,11 @@ encrypted at rest with operator-supplied key material kept outside the payload
 directory. The provider owns the on-disk envelope format so later key rotation
 and metadata changes do not affect job definitions.
 
+The broker routes secret references by URI scheme before calling a provider.
+That keeps job definitions provider-neutral while allowing providers such as
+`encryptedfs://`, `vault://`, or `knox://` to share the same authorization,
+policy, observability, and worker materialization path.
+
 Secret values are delivered to actions as files under the run workspace, rooted
 at `.vectis/secrets`. File delivery is the default and only required v1 delivery
 mode. The worker may expose `VECTIS_SECRETS_DIR`, but it must not place secret

@@ -94,7 +94,8 @@ func runVectisSecrets(cmd *cobra.Command, args []string) {
 		logger.Fatal("Invalid secret access policy: %v", err)
 	}
 
-	provider := secrets.Provider(secrets.UnconfiguredProvider{})
+	providerSet := secrets.NewProviderSet()
+	providerConfigured := false
 	if root := config.SecretsEncryptedFSRoot(); root != "" {
 		if !config.WorkerExecutionIdentityEnabled() {
 			logger.Fatal("encryptedfs secret provider requires worker.execution_identity.enabled=true so workload callers can be authorized")
@@ -114,10 +115,19 @@ func runVectisSecrets(cmd *cobra.Command, args []string) {
 			logger.Fatal("Failed to configure encryptedfs secret provider: %v", err)
 		}
 
-		provider = fsProvider
+		if err := providerSet.Register(secrets.EncryptedFSScheme, fsProvider); err != nil {
+			logger.Fatal("Failed to register encryptedfs secret provider: %v", err)
+		}
+
+		providerConfigured = true
 		logger.Info("Using encryptedfs secret provider rooted at %s with key file %s", root, keyFile)
 	} else {
 		logger.Info("Secret provider is not configured; set --encryptedfs-root or VECTIS_SECRETS_ENCRYPTEDFS_ROOT to enable encryptedfs resolution")
+	}
+
+	provider := secrets.Provider(secrets.UnconfiguredProvider{})
+	if providerConfigured {
+		provider = providerSet
 	}
 
 	grpcServer := grpc.NewServer(srvOpts...)

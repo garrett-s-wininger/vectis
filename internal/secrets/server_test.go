@@ -204,6 +204,58 @@ func TestServerResolveSecretsRecordsAuthorizationDenial(t *testing.T) {
 	}
 }
 
+func TestServerResolveSecretsRecordsProviderSetLabel(t *testing.T) {
+	t.Parallel()
+
+	set := NewProviderSet()
+	if err := set.Register("encryptedfs", &recordingProvider{kind: "encryptedfs"}); err != nil {
+		t.Fatalf("register encryptedfs: %v", err)
+	}
+
+	if err := set.Register("vault", &recordingProvider{kind: "vault"}); err != nil {
+		t.Fatalf("register vault: %v", err)
+	}
+
+	metrics := &recordingResolveMetrics{}
+	server := NewServer(set, &fakeAuthorizer{}, WithMetrics(metrics))
+
+	_, err := server.ResolveSecrets(context.Background(), &api.ResolveSecretsRequest{
+		RunId:               strp("run-1"),
+		ExecutionId:         strp("execution-1"),
+		ExecutionClaimToken: strp("claim-1"),
+		Secrets: []*api.SecretReference{
+			{
+				Id:  strp("npm-token"),
+				Ref: strp("encryptedfs://team/npm-token"),
+				Delivery: &api.SecretDelivery{
+					Type: secretDeliveryTypep(api.SecretDeliveryType_SECRET_DELIVERY_TYPE_FILE),
+					Path: strp("npm/token"),
+				},
+			},
+			{
+				Id:  strp("deploy-token"),
+				Ref: strp("vault://kv/team/deploy-token"),
+				Delivery: &api.SecretDelivery{
+					Type: secretDeliveryTypep(api.SecretDeliveryType_SECRET_DELIVERY_TYPE_FILE),
+					Path: strp("deploy/token"),
+				},
+			},
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("ResolveSecrets: %v", err)
+	}
+
+	if len(metrics.records) != 1 {
+		t.Fatalf("metrics records = %+v, want one", metrics.records)
+	}
+
+	if record := metrics.records[0]; record.provider != "mixed" {
+		t.Fatalf("provider label = %q, want mixed", record.provider)
+	}
+}
+
 func TestServerResolveSecretsMapsProviderErrors(t *testing.T) {
 	t.Parallel()
 

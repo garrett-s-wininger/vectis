@@ -99,7 +99,7 @@ func (s *Server) ResolveSecrets(ctx context.Context, req *api.ResolveSecretsRequ
 		return nil, status.Error(codes.FailedPrecondition, "secret provider is not configured")
 	}
 
-	provider := providerKind(s.provider)
+	provider := providerKindForRequest(s.provider, nil)
 	if s.authorizer == nil {
 		s.observeResolve(ctx, resolveRequestFromProto(req), resolveObservation{
 			outcome:  resolveOutcomeFailed,
@@ -113,6 +113,7 @@ func (s *Server) ResolveSecrets(ctx context.Context, req *api.ResolveSecretsRequ
 
 	domainReq := resolveRequestFromProto(req)
 	domainReq.PeerSPIFFEID = peerSPIFFEID(ctx)
+	provider = providerKindForRequest(s.provider, domainReq.Secrets)
 
 	if err := s.authorizer.AuthorizeResolve(ctx, &domainReq); err != nil {
 		s.observeResolve(ctx, domainReq, resolveObservation{
@@ -327,6 +328,20 @@ type kindedProvider interface {
 	ProviderKind() string
 }
 
+type requestKindedProvider interface {
+	ProviderKindForRefs(refs []Reference) string
+}
+
+func providerKindForRequest(provider Provider, refs []Reference) string {
+	if requestKinded, ok := provider.(requestKindedProvider); ok {
+		if kind := requestKinded.ProviderKindForRefs(refs); kind != "" {
+			return kind
+		}
+	}
+
+	return providerKind(provider)
+}
+
 func providerKind(provider Provider) string {
 	if provider == nil {
 		return "none"
@@ -338,7 +353,7 @@ func providerKind(provider Provider) string {
 		}
 	}
 
-	return "unknown"
+	return providerKindUnknown
 }
 
 func (r ResolveRequest) String() string {
