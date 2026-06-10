@@ -141,6 +141,33 @@ type sourceRepositoryDefinitionsResponse struct {
 	Definitions    []sourceRepositoryDefinitionFileResponse `json:"definitions"`
 }
 
+type sourceRepositoryJobResponse struct {
+	JobID     string                   `json:"job_id"`
+	Path      string                   `json:"path"`
+	Name      string                   `json:"name"`
+	BlobSHA   string                   `json:"blob_sha"`
+	SizeBytes int64                    `json:"size_bytes,omitempty"`
+	Source    sourceProvenanceResponse `json:"source"`
+}
+
+type invalidSourceRepositoryJobResponse struct {
+	Path      string `json:"path"`
+	Name      string `json:"name"`
+	BlobSHA   string `json:"blob_sha"`
+	SizeBytes int64  `json:"size_bytes,omitempty"`
+	Error     string `json:"error"`
+}
+
+type sourceRepositoryJobsResponse struct {
+	RepositoryID   string                               `json:"repository_id"`
+	RequestedRef   string                               `json:"requested_ref"`
+	ResolvedCommit string                               `json:"resolved_commit"`
+	Path           string                               `json:"path"`
+	Limit          int                                  `json:"limit"`
+	Jobs           []sourceRepositoryJobResponse        `json:"jobs"`
+	Invalid        []invalidSourceRepositoryJobResponse `json:"invalid,omitempty"`
+}
+
 type jobSourceRequest struct {
 	Namespace    string `json:"namespace"`
 	RepositoryID string `json:"repository_id"`
@@ -672,6 +699,100 @@ func (s *APIServer) ListSourceRepositoryDefinitions(w http.ResponseWriter, r *ht
 		Path:           listing.Path,
 		Limit:          limit,
 		Definitions:    respFiles,
+	})
+}
+
+func (s *APIServer) ListSourceRepositoryJobs(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireNamespaces(w) || !s.requireSources(w) {
+		return
+	}
+
+	rec, _, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionJobRead, true)
+	if !ok {
+		return
+	}
+
+	ref := strings.TrimSpace(r.URL.Query().Get("ref"))
+	if ref == "" {
+		ref = strings.TrimSpace(rec.DefaultRef)
+	}
+	if ref == "" {
+		ref = "HEAD"
+	}
+
+	limit := sourceRepositoryTreeListLimit(r)
+	checkout := newGitCheckoutForSourceRepository(rec)
+	listing, err := checkout.ListDefinitionFiles(ctx, sourcepkg.ListDefinitionFilesOptions{
+		Ref:   ref,
+		Path:  r.URL.Query().Get("path"),
+		Limit: limit,
+	})
+	if err != nil {
+		s.writeSourceDefinitionError(w, err)
+		return
+	}
+
+	jobs := make([]sourceRepositoryJobResponse, 0, len(listing.Files))
+	invalid := make([]invalidSourceRepositoryJobResponse, 0)
+	seenJobIDs := make(map[string]string, len(listing.Files))
+	for _, file := range listing.Files {
+		jobID, err := sourceImportJobIDFromPath(listing.Path, file.Path)
+		if err != nil {
+			invalid = append(invalid, invalidSourceRepositoryJobResponse{
+				Path:      file.Path,
+				Name:      file.Name,
+				BlobSHA:   file.BlobSHA,
+				SizeBytes: file.SizeBytes,
+				Error:     err.Error(),
+			})
+			continue
+		}
+
+		if previous, ok := seenJobIDs[jobID]; ok {
+			invalid = append(invalid, invalidSourceRepositoryJobResponse{
+				Path:      file.Path,
+				Name:      file.Name,
+				BlobSHA:   file.BlobSHA,
+				SizeBytes: file.SizeBytes,
+				Error:     "duplicate derived job_id " + jobID + " from " + previous,
+			})
+			continue
+		}
+		seenJobIDs[jobID] = file.Path
+
+		source := sourceProvenanceResponse{
+			RepositoryID:   rec.RepositoryID,
+			RequestedRef:   listing.RequestedRef,
+			ResolvedCommit: listing.Revision.Commit,
+			Path:           file.Path,
+			BlobSHA:        file.BlobSHA,
+		}
+		jobs = append(jobs, sourceRepositoryJobResponse{
+			JobID:     jobID,
+			Path:      file.Path,
+			Name:      file.Name,
+			BlobSHA:   file.BlobSHA,
+			SizeBytes: file.SizeBytes,
+			Source:    source,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, sourceRepositoryJobsResponse{
+		RepositoryID:   rec.RepositoryID,
+		RequestedRef:   listing.RequestedRef,
+		ResolvedCommit: listing.Revision.Commit,
+		Path:           listing.Path,
+		Limit:          limit,
+		Jobs:           jobs,
+		Invalid:        invalid,
 	})
 }
 

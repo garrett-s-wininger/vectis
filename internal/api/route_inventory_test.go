@@ -41,6 +41,7 @@ func TestAPIRouteInventory(t *testing.T) {
 		{"GET /api/v1/source-repositories/{id}/refs/branches", string(authz.ActionJobRead)},
 		{"GET /api/v1/source-repositories/{id}/tree", string(authz.ActionJobRead)},
 		{"GET /api/v1/source-repositories/{id}/definitions", string(authz.ActionJobRead)},
+		{"GET /api/v1/source-repositories/{id}/jobs", string(authz.ActionJobRead)},
 		{"POST /api/v1/source-repositories/{id}/definitions/import", string(authz.ActionJobWrite)},
 		{"POST /api/v1/source-repositories/{id}/definitions/resolve", string(authz.ActionJobRead)},
 		{"POST /api/v1/source-repositories/{id}/jobs/{job_id}/trigger", string(authz.ActionRunTrigger)},

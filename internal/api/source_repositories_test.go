@@ -483,6 +483,103 @@ func TestAPIServer_GetSourceRepositoryStatus(t *testing.T) {
 	}
 }
 
+func TestAPIServer_ListSourceRepositoryJobsDerivesTriggerableJobs(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+
+	server, _, _, _ := setupTestServer(t)
+	handler := server.Handler()
+	repoPath := initAPIGitRepo(t)
+	writeAPIJobDefinitionAndCommit(t, repoPath, "build", "build definition")
+	writeAPIFileAndCommit(t, repoPath, ".vectis/jobs/team/deploy.json", `{
+		"root": {"id": "root", "uses": "builtins/shell", "with": {"command": "deploy"}}
+	}`+"\n", "nested definition")
+
+	writeAPIFileAndCommit(t, repoPath, ".vectis/jobs/bad name.json", `{
+		"root": {"id": "root", "uses": "builtins/shell", "with": {"command": "bad"}}
+	}`+"\n", "invalid source job name")
+
+	writeAPIFileAndCommit(t, repoPath, ".vectis/jobs/team.deploy.json", `{
+		"root": {"id": "root", "uses": "builtins/shell", "with": {"command": "duplicate"}}
+	}`+"\n", "duplicate derived job id")
+
+	commit := apiGitOutput(t, repoPath, "rev-parse", "HEAD")
+	buildBlob := apiGitOutput(t, repoPath, "rev-parse", "HEAD:.vectis/jobs/build.json")
+
+	registerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
+		"repository_id": "vectis-local",
+		"source_kind":   dal.SourceKindLocalCheckout,
+		"checkout_path": repoPath,
+		"default_ref":   "HEAD",
+	})
+
+	if registerRec.Code != http.StatusCreated {
+		t.Fatalf("register source repository: status=%d body=%s", registerRec.Code, registerRec.Body.String())
+	}
+
+	listRec := httptest.NewRecorder()
+	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/vectis-local/jobs?limit=10", nil)
+	handler.ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("list source repository jobs: status=%d body=%s", listRec.Code, listRec.Body.String())
+	}
+
+	resp := decodeSourceRepositoryJobsResponse(t, listRec)
+	if resp.RepositoryID != "vectis-local" ||
+		resp.RequestedRef != "HEAD" ||
+		resp.ResolvedCommit != commit ||
+		resp.Path != ".vectis/jobs" ||
+		resp.Limit != 10 {
+		t.Fatalf("source jobs response mismatch: %+v", resp)
+	}
+
+	jobsByID := map[string]struct {
+		JobID   string `json:"job_id"`
+		Path    string `json:"path"`
+		Name    string `json:"name"`
+		BlobSHA string `json:"blob_sha"`
+		Source  struct {
+			RepositoryID   string `json:"repository_id"`
+			RequestedRef   string `json:"requested_ref"`
+			ResolvedCommit string `json:"resolved_commit"`
+			Path           string `json:"path"`
+			BlobSHA        string `json:"blob_sha"`
+		} `json:"source"`
+	}{}
+	for _, job := range resp.Jobs {
+		jobsByID[job.JobID] = job
+	}
+
+	build := jobsByID["build"]
+	if build.Path != ".vectis/jobs/build.json" ||
+		build.Name != "build.json" ||
+		build.BlobSHA != buildBlob ||
+		build.Source.RepositoryID != "vectis-local" ||
+		build.Source.RequestedRef != "HEAD" ||
+		build.Source.ResolvedCommit != commit ||
+		build.Source.Path != ".vectis/jobs/build.json" ||
+		build.Source.BlobSHA != buildBlob {
+		t.Fatalf("build source job mismatch: %+v", build)
+	}
+
+	if _, ok := jobsByID["team.deploy"]; !ok {
+		t.Fatalf("expected derived nested source job team.deploy, got %+v", resp.Jobs)
+	}
+
+	var sawInvalidName, sawDuplicate bool
+	for _, invalid := range resp.Invalid {
+		if invalid.Path == ".vectis/jobs/bad name.json" && strings.Contains(invalid.Error, "unsupported job_id segment") {
+			sawInvalidName = true
+		}
+		if strings.Contains(invalid.Error, "duplicate derived job_id team.deploy") {
+			sawDuplicate = true
+		}
+	}
+
+	if !sawInvalidName || !sawDuplicate {
+		t.Fatalf("expected invalid filename and duplicate derived job id, got %+v", resp.Invalid)
+	}
+}
+
 func TestAPIServer_CreateManagedSourceRepositoryDerivesCheckoutPath(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 	viper.Reset()
@@ -1535,6 +1632,68 @@ func decodeSourceRepositoryResponse(t *testing.T, rec *httptest.ResponseRecorder
 			Commit             string `json:"commit"`
 			Error              string `json:"error"`
 		} `json:"sync"`
+	}
+
+	if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+
+	return out
+}
+
+func decodeSourceRepositoryJobsResponse(t *testing.T, rec *httptest.ResponseRecorder) struct {
+	RepositoryID   string `json:"repository_id"`
+	RequestedRef   string `json:"requested_ref"`
+	ResolvedCommit string `json:"resolved_commit"`
+	Path           string `json:"path"`
+	Limit          int    `json:"limit"`
+	Jobs           []struct {
+		JobID   string `json:"job_id"`
+		Path    string `json:"path"`
+		Name    string `json:"name"`
+		BlobSHA string `json:"blob_sha"`
+		Source  struct {
+			RepositoryID   string `json:"repository_id"`
+			RequestedRef   string `json:"requested_ref"`
+			ResolvedCommit string `json:"resolved_commit"`
+			Path           string `json:"path"`
+			BlobSHA        string `json:"blob_sha"`
+		} `json:"source"`
+	} `json:"jobs"`
+	Invalid []struct {
+		Path    string `json:"path"`
+		Name    string `json:"name"`
+		BlobSHA string `json:"blob_sha"`
+		Error   string `json:"error"`
+	} `json:"invalid"`
+} {
+	t.Helper()
+
+	var out struct {
+		RepositoryID   string `json:"repository_id"`
+		RequestedRef   string `json:"requested_ref"`
+		ResolvedCommit string `json:"resolved_commit"`
+		Path           string `json:"path"`
+		Limit          int    `json:"limit"`
+		Jobs           []struct {
+			JobID   string `json:"job_id"`
+			Path    string `json:"path"`
+			Name    string `json:"name"`
+			BlobSHA string `json:"blob_sha"`
+			Source  struct {
+				RepositoryID   string `json:"repository_id"`
+				RequestedRef   string `json:"requested_ref"`
+				ResolvedCommit string `json:"resolved_commit"`
+				Path           string `json:"path"`
+				BlobSHA        string `json:"blob_sha"`
+			} `json:"source"`
+		} `json:"jobs"`
+		Invalid []struct {
+			Path    string `json:"path"`
+			Name    string `json:"name"`
+			BlobSHA string `json:"blob_sha"`
+			Error   string `json:"error"`
+		} `json:"invalid"`
 	}
 
 	if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
