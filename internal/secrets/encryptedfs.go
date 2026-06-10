@@ -96,6 +96,8 @@ func NewEncryptedFSProvider(root string, opts ...EncryptedFSOption) (*EncryptedF
 	return p, nil
 }
 
+func (*EncryptedFSProvider) ProviderKind() string { return EncryptedFSScheme }
+
 func EncryptedFSSecretFilePath(root, rawRef string) (string, error) {
 	abs, err := encryptedFSAbsoluteRoot(root)
 	if err != nil {

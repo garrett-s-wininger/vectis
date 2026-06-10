@@ -92,6 +92,8 @@ Dedicated service metrics endpoints are not authenticated and bind to `localhost
 
 Keep metrics scrape paths on trusted networks. Metrics are operational data, but they can still reveal deployment shape, service health, traffic patterns, error rates, and names of internal components.
 
+Secret resolution metrics intentionally use low-cardinality `outcome`, `reason`, and `provider` labels. They do not include secret values, requested refs, run IDs, execution IDs, or SPIFFE IDs. Use `vectis_secrets_resolve_requests_total` and `vectis_secrets_resolve_duration_seconds` for broker-level allow/deny/provider visibility, and service logs for run-specific context.
+
 ## Secrets, Storage, and Logs
 
 Protect these as sensitive:

@@ -7,6 +7,8 @@ import (
 
 type UnconfiguredProvider struct{}
 
+func (UnconfiguredProvider) ProviderKind() string { return "unconfigured" }
+
 func (UnconfiguredProvider) ValidateRef(context.Context, Reference) error {
 	return fmt.Errorf("%w: provider is not configured", ErrNotFound)
 }

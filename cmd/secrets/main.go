@@ -55,6 +55,11 @@ func runVectisSecrets(cmd *cobra.Command, args []string) {
 	}
 	defer cli.DeferShutdown(logger, "Metrics", shutdownMetrics)()
 
+	secretMetrics, err := observability.NewSecretsMetrics()
+	if err != nil {
+		logger.Fatal("Failed to initialize secrets metrics: %v", err)
+	}
+
 	db, _, err := database.OpenReadyDBForRole(logger, database.RoleCell)
 	if err != nil {
 		logger.Fatal("Failed to initialize database: %v", err)
@@ -122,7 +127,13 @@ func runVectisSecrets(cmd *cobra.Command, args []string) {
 		secrets.WithAccessPolicy(accessPolicy),
 	)
 
-	api.RegisterSecretsServiceServer(grpcServer, secrets.NewServer(provider, authorizer))
+	api.RegisterSecretsServiceServer(grpcServer, secrets.NewServer(
+		provider,
+		authorizer,
+		secrets.WithLogger(logger),
+		secrets.WithMetrics(secretMetrics),
+	))
+
 	hs := health.NewServer()
 	healthpb.RegisterHealthServer(grpcServer, hs)
 	hs.SetServingStatus("secrets", healthpb.HealthCheckResponse_SERVING)

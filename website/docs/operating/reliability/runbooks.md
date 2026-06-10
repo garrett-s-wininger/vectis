@@ -40,6 +40,7 @@ That command shows status and dispatch events without requiring direct database 
 | Retry exhaustion | Component label, dependency health, TLS mismatch, network policy. | [Repair Runbooks](./repair-runbooks.md#quick-map) |
 | DB pool saturation | Postgres availability, pool sizing, replica count, slow queries. | [Database Pool Pressure](./repair-runbooks.md#database-pool-pressure) |
 | API security rejection spike | `reason`, `route`, `status`, edge proxy logs, recent client or ingress changes. | [API Security Rejections](./repair-runbooks.md#api-security-rejections) |
+| Secret resolution failures | Secret broker logs, `outcome`, `reason`, `provider`, SPIRE SVID checks, policy rules, encryptedfs root/key. | [Secret Resolution](./repair-runbooks.md#secret-resolution) |
 | Old retained records or SQL growth | Retention policy, dry-run cleanup counts, backup status. | [Retention Cleanup](./repair-runbooks.md#retention-cleanup) |
 | A run needs manual action | Run status, dispatch events, worker ownership, automatic repair state. | [Manual Run Intervention](./repair-runbooks.md#manual-run-intervention) |
 
@@ -69,6 +70,7 @@ Use these as starter operating signals, not contractual product SLOs. Production
 | Trigger acceptance | API request success and low 5xx rate on trigger/run routes. | Dependency failures should be visible quickly. |
 | Queue handoff | Queue pending/in-flight gauges and reconciler reenqueue outcomes. | Queued work should drain within one reconciler interval under normal load. |
 | Worker execution | `vectis_worker_jobs_received_total`, `vectis_worker_job_duration_seconds`, and `vectis_worker_spire_svid_checks_total` when SPIRE execution SVID acquisition is enabled. | Workers should keep receiving jobs; terminal outcomes should match workload expectations, and SPIRE SVID acquisition failures should be investigated. |
+| Secret resolution | `vectis_secrets_resolve_requests_total` and `vectis_secrets_resolve_duration_seconds` by `outcome`, `reason`, and `provider`. | Failed resolves should match known policy/config changes and be investigated when unexpected. |
 | Log availability | `vectis_log_storage_append_failures_total`, `vectis_log_shard_route_failures_total`, log drops, and gRPC chunk rate. | Log append and shard routing failures should be zero. |
 | Log-forwarder backlog | `vectis_log_forwarder_spool_files`, `vectis_log_forwarder_spool_oldest_age_seconds`, and `vectis_log_forwarder_batches_total`. | Spool backlog should drain quickly after log service recovery. |
 | Audit durability | `vectis_audit_events_dropped_total` and `vectis_audit_flush_failures_total`. | Audit drops should be zero. |
@@ -84,6 +86,7 @@ Prometheus examples live in [prometheus-examples.yml](../../alerts/prometheus-ex
 - queue backlog and DLQ growth;
 - reconciler reenqueue failures;
 - worker job failure ratio;
+- secret resolution failures;
 - log append failures, shard routing failures, subscriber drops, and log-forwarder spool backlog;
 - audit drops and flush failures;
 - retry exhaustion;

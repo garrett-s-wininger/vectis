@@ -187,6 +187,8 @@ Create encryptedfs envelope files with `vectis-cli secrets encryptedfs put`. The
   --create-key
 ```
 
+`vectis-secrets` emits structured resolve logs with run, execution, namespace, job, task, provider, outcome, reason, and secret count metadata. It does not log claim tokens, secret plaintext, delivery paths, or requested refs. Prometheus exposes `vectis_secrets_resolve_requests_total` and `vectis_secrets_resolve_duration_seconds` with low-cardinality `outcome`, `reason`, and `provider` labels.
+
 SPIRE registration expectations:
 
 1. The X.509-SVID SPIFFE ID must exactly match the worker's derived execution identity. With the default template, that shape is `spiffe://<trust-domain>/cell/<cell>/namespace/<namespace>/job/<job>/run/<run>/execution/<execution>`.

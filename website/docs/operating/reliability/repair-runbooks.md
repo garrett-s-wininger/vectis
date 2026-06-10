@@ -28,6 +28,7 @@ That command shows run status and dispatch events without direct database access
 | `db.schema.current`, API readiness schema error | [Schema Or Migration Repair](#schema-or-migration-repair) |
 | API security rejection alert | [API Security Rejections](#api-security-rejections) |
 | SPIRE execution SVID check alert | [SPIRE Execution SVID Checks](#spire-execution-svid-checks) |
+| Secret resolution alert | [Secret Resolution](#secret-resolution) |
 | Old retained records or SQL storage pressure | [Retention Cleanup](#retention-cleanup) |
 | One run needs operator action | [Manual Run Intervention](#manual-run-intervention) |
 
@@ -73,6 +74,19 @@ Use this when `VectisWorkerSPIRESVIDCheckFailures` fires or when `vectis_worker_
 8. For `invalid_expected_id`, validate `worker.execution_identity.trust_domain` and `worker.execution_identity.path_template` against the allowed SPIFFE URI shape.
 9. Do not fix these alerts by exposing the SPIRE Workload API socket, SVID, private key, or derived identity to shell actions. Repair the worker-controlled SPIRE registration or configuration path.
 10. After repair, retry only the failed runs that are safe to re-run and confirm the failed-check counter no longer increases.
+
+## Secret Resolution
+
+Use this when `VectisSecretsResolveFailures` fires or when `vectis_secrets_resolve_requests_total{outcome!="success"}` increases unexpectedly.
+
+1. Start with the alert labels: `outcome`, `reason`, and `provider`. They are intentionally low-cardinality and do not include secret values, requested refs, run IDs, execution IDs, or SPIFFE IDs.
+2. Check `vectis-secrets` logs around the alert window. Resolve logs include run, execution, namespace, job, task, provider, outcome, reason, and secret count metadata.
+3. For `authorization_denied`, check worker SPIRE SVID failures first with `vectis_worker_spire_svid_checks_total`, then compare `worker.execution_identity.*` settings on workers and `vectis-secrets`, and then inspect `--allow-secret` / `VECTIS_SECRETS_POLICY_ALLOW` rules for the run namespace, job, task, and requested refs.
+4. For `provider_not_found`, confirm the broker has the intended provider configured and that the encryptedfs envelope exists below `--encryptedfs-root`.
+5. For `provider_denied`, inspect encryptedfs safety checks: unsafe refs, symlink escapes, invalid envelopes, decrypt failures from a wrong key, and oversized secret material.
+6. For `provider_error`, check broker logs and process configuration for encryptedfs root readability, key-file readability, database reachability, TLS, and filesystem availability.
+7. Confirm `vectis-secrets` gRPC health is serving and the metrics listener is scrapeable from the trusted monitoring network.
+8. After repair, retry only runs that are safe to re-run and confirm the failed resolve counter no longer increases.
 
 ## Queued Runs Or Backlog
 

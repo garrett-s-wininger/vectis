@@ -82,6 +82,15 @@ groups:
           description: "reason={{ $labels.reason }}"
           runbook: docs/REPAIR_RUNBOOKS.md#spire-execution-svid-checks
 
+      - alert: VectisSecretsResolveFailures
+        expr: increase(vectis_secrets_resolve_requests_total{outcome!="success"}[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis secret resolution failed
+          description: "outcome={{ $labels.outcome }} reason={{ $labels.reason }} provider={{ $labels.provider }}"
+          runbook: docs/REPAIR_RUNBOOKS.md#secret-resolution
+
       - alert: VectisLogAppendFailures
         expr: increase(vectis_log_storage_append_failures_total[10m]) > 0
         labels:
