@@ -34,7 +34,7 @@ The local layout is:
           <64-hex-digest>.blob
 ```
 
-The service writes uploads to `tmp/`, hashes while streaming, verifies the final digest and byte count, fsyncs the file and parent directory, then atomically publishes the blob into `blobs/` without replacing an existing blob. If the blob already exists, the service verifies the existing size and digest, discards the temporary upload, and treats the upload as idempotent.
+The service writes uploads to `tmp/`, hashes while streaming, verifies the final digest and byte count, fsyncs the file and parent directory, then atomically publishes the blob into `blobs/` without replacing an existing blob. If the blob already exists, the service verifies the existing size and digest, discards the temporary upload, and treats the upload as idempotent. The first version preserves uploaded bytes exactly. It does not compress, normalize, unpack, or index archives before storage.
 
 Artifact metadata belongs in SQL, not in the CAS directory. Metadata records should describe the logical artifact:
 
@@ -67,7 +67,7 @@ If step 3 fails after the blob is stored, the blob is an orphan and is safe for 
 
 The API does not admit direct artifact uploads in the first release.
 
-`vectis-worker` uploads produced artifacts after action execution or at explicit artifact collection points. The worker should not write directly into the artifact storage directory.
+`vectis-worker` uploads produced artifacts at explicit artifact collection points. The first user-facing collection mechanism is `builtins/upload-artifact`, which publishes a workspace-relative file after prior steps have produced it. The first version does not add top-level job artifact declarations, action output declarations, implicit workspace scans, or automatic archive collection. The worker should not write directly into the artifact storage directory.
 
 `vectis-artifact` exposes internal gRPC methods for streaming uploads, stat/read by blob key, and storage health. The first blob service should not require SQL access. The gRPC service does not make user authorization decisions; callers must be trusted Vectis services.
 
@@ -89,6 +89,8 @@ Run retention deletes logical artifact metadata first. Blob deletion is a separa
 1. Mark artifact metadata deleted or expired.
 2. After a grace period, scan for blob keys with no live references.
 3. Remove unreferenced blobs from the local CAS.
+
+Initial defaults match the retention CLI policy: terminal runs and their artifact manifests are eligible after 30 days, and local artifact blob garbage collection is disabled unless the operator passes an artifact storage directory. When blob pruning is enabled, unreferenced CAS blobs use a 30 day grace period based on file mtime. A duration of `0` disables the corresponding cleanup surface.
 
 This lets multiple logical artifacts share one blob and avoids deleting bytes that are still referenced by another run. The cleanup path should be operator-visible and safe to retry.
 
@@ -117,6 +119,8 @@ The first implementation should reject oversized artifacts, record producer iden
 - Signed direct download URLs
 - Resumable multipart upload
 - Artifact cache semantics for dependencies
+- Job-level artifact declarations and action output auto-collection
+- Compression or archive normalization before storage
 - Archive indexing and selective file browsing inside archives
 - Active/active shared artifact storage
 
@@ -134,12 +138,12 @@ The first implementation slice is complete:
 - [x] Add explicit worker-side uploads through `builtins/upload-artifact`.
 - [x] Add worker-side per-upload and per-run artifact quotas.
 - [x] Add run artifact list selectors for task, task attempt, and execution attribution.
+- [x] Add run-scoped indexes for task, task attempt, and execution artifact selectors.
+- [x] Decide first-version retention defaults, explicit collection semantics, and byte-preservation policy.
 
 ## Open Questions
 
-- What are the initial defaults for retention?
-- Should worker artifact collection expand beyond explicit builtins to action output declarations or a job-level artifact stanza?
-- Do we need compression or archive normalization before storing blobs, or should the first version preserve bytes exactly?
+None for the first implementation slice.
 
 ## References
 

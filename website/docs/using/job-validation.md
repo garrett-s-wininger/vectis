@@ -219,6 +219,8 @@ Allowed values are `host` and `vm`. A job can set `default_isolation` for every 
 
 Validation only checks that the value is supported by the job format. Workers advertise their supported isolation levels to the queue, and a worker skips queued jobs that require an unsupported level. The worker executor still enforces the boundary before action code runs; a node with `isolation: "vm"` does not fall back to host execution.
 
+Artifacts are explicit in the first version. Add a `builtins/upload-artifact` node after the step that creates the file you want to keep; Vectis does not yet support a top-level `artifacts` stanza, action output declarations, or automatic workspace scanning. Uploaded bytes are preserved exactly, including archives.
+
 ## Reading Validation Errors
 
 API validation errors use this shape:

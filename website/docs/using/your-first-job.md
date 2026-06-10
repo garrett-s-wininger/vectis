@@ -243,6 +243,8 @@ These are the built-ins available today:
 
 Actions are intentionally small right now. Pipeline-as-code and richer action syntax are future work; today, JSON is the source format.
 
+Artifacts are produced with explicit `builtins/upload-artifact` steps. Vectis does not automatically collect files from the workspace or read a top-level artifact declaration yet. Uploaded bytes are stored and downloaded unchanged, so create archives yourself when you want multiple files in one artifact.
+
 ## Common Validation Errors
 
 Vectis validates jobs before storing them or starting a one-off run.

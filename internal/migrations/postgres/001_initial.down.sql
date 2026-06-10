@@ -26,6 +26,8 @@ DROP INDEX IF EXISTS idx_task_attempts_task_id;
 DROP INDEX IF EXISTS idx_run_tasks_parent;
 DROP INDEX IF EXISTS idx_run_tasks_status;
 DROP INDEX IF EXISTS idx_run_tasks_run_id;
+DROP INDEX IF EXISTS idx_run_artifacts_execution;
+DROP INDEX IF EXISTS idx_run_artifacts_task_attempt;
 DROP INDEX IF EXISTS idx_run_artifacts_task;
 DROP INDEX IF EXISTS idx_run_artifacts_artifact_shard;
 DROP INDEX IF EXISTS idx_run_artifacts_blob_key;

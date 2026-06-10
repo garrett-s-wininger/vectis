@@ -32,7 +32,7 @@ By default, cleanup uses these windows:
 | Durable run log files | disabled by default | Pass `--log-storage-dir` to prune local run log files for the terminal runs being deleted. |
 | Durable artifact blobs | 30 days when enabled | Pass `--artifact-storage-dir` to prune local CAS blobs with no remaining SQL references and a file mtime older than the cutoff. |
 
-Durations can be overridden per run. Use `0` to disable a surface.
+Durations can be overridden per run. Use `0` to disable a surface. Artifact manifest cleanup is SQL cleanup and follows `--terminal-run-age`; artifact blob cleanup is local filesystem cleanup and only runs when `--artifact-storage-dir` is provided.
 
 ## Choose A Policy
 

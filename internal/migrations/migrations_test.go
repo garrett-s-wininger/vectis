@@ -50,6 +50,9 @@ func TestSQLiteMigrations_UpDownRoundTrip(t *testing.T) {
 	assertTableExists(t, db, "service_leases")
 	assertTableExists(t, db, "api_rate_limit_buckets")
 	assertTableExists(t, db, "api_sessions")
+	assertSQLiteIndexColumns(t, db, "idx_run_artifacts_task", []string{"run_id", "task_id", "id"})
+	assertSQLiteIndexColumns(t, db, "idx_run_artifacts_task_attempt", []string{"run_id", "task_attempt_id", "id"})
+	assertSQLiteIndexColumns(t, db, "idx_run_artifacts_execution", []string{"run_id", "execution_id", "id"})
 
 	if err := migrations.Down(db, "sqlite3"); err != nil {
 		t.Fatalf("run down migrations: %v", err)
@@ -154,6 +157,34 @@ func sortedMigrationVersions(versions map[string]map[string]string) []string {
 
 	sort.Strings(out)
 	return out
+}
+
+func assertSQLiteIndexColumns(t *testing.T, db *sql.DB, indexName string, want []string) {
+	t.Helper()
+
+	rows, err := db.Query("PRAGMA index_info(" + indexName + ")")
+	if err != nil {
+		t.Fatalf("query index %s columns: %v", indexName, err)
+	}
+	defer rows.Close()
+
+	var got []string
+	for rows.Next() {
+		var seqno, cid int
+		var name string
+		if err := rows.Scan(&seqno, &cid, &name); err != nil {
+			t.Fatalf("scan index %s column: %v", indexName, err)
+		}
+		got = append(got, name)
+	}
+
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate index %s columns: %v", indexName, err)
+	}
+
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("index %s columns = %v, want %v", indexName, got, want)
+	}
 }
 
 func assertTableExists(t *testing.T, db *sql.DB, table string) {

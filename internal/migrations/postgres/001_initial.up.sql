@@ -204,7 +204,9 @@ CREATE TABLE run_artifacts (
 CREATE INDEX idx_run_artifacts_run_id_id ON run_artifacts(run_id, id);
 CREATE INDEX idx_run_artifacts_blob_key ON run_artifacts(blob_key);
 CREATE INDEX idx_run_artifacts_artifact_shard ON run_artifacts(artifact_shard_id, id);
-CREATE INDEX idx_run_artifacts_task ON run_artifacts(task_id, id);
+CREATE INDEX idx_run_artifacts_task ON run_artifacts(run_id, task_id, id);
+CREATE INDEX idx_run_artifacts_task_attempt ON run_artifacts(run_id, task_attempt_id, id);
+CREATE INDEX idx_run_artifacts_execution ON run_artifacts(run_id, execution_id, id);
 
 CREATE TABLE execution_payloads (
     payload_hash TEXT PRIMARY KEY,
