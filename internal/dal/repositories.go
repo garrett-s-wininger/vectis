@@ -349,6 +349,11 @@ type ArtifactRecord struct {
 	UpdatedAt       int64
 }
 
+type ArtifactRunUsage struct {
+	Count     int64
+	SizeBytes int64
+}
+
 type TaskDispatchIntentCreate struct {
 	ExecutionID       string
 	RunID             string
@@ -482,6 +487,7 @@ type ArtifactsRepository interface {
 	Record(ctx context.Context, create ArtifactCreate) (ArtifactRecord, error)
 	GetByRunAndName(ctx context.Context, runID, name string) (ArtifactRecord, error)
 	ListByRun(ctx context.Context, runID string, cursor int64, limit int) ([]ArtifactRecord, int64, error)
+	GetRunUsageExcludingName(ctx context.Context, runID, name string) (ArtifactRunUsage, error)
 }
 
 type TaskDispatchIntentsRepository interface {

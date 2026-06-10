@@ -28,6 +28,8 @@ type RoutedPublisherOptions struct {
 	RetryMetrics       backoff.RetryMetrics
 	UploadChunkBytes   int
 	DefaultMaxBytes    int64
+	MaxRunBytes        int64
+	MaxRunArtifacts    int64
 	DefaultContentType string
 }
 
@@ -61,6 +63,8 @@ func NewPublisherForRun(ctx context.Context, runID string, opts RoutedPublisherO
 		ArtifactShardID:    endpoint.ID,
 		UploadChunkBytes:   opts.UploadChunkBytes,
 		DefaultMaxBytes:    opts.DefaultMaxBytes,
+		MaxRunBytes:        opts.MaxRunBytes,
+		MaxRunArtifacts:    opts.MaxRunArtifacts,
 		DefaultContentType: opts.DefaultContentType,
 	})
 

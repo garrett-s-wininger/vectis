@@ -89,6 +89,8 @@ func (a *UploadArtifactAction) Execute(ctx context.Context, state *action.Execut
 		ContentType:  stringInput(inputs, "content_type"),
 		MetadataJSON: metadataJSON,
 		Reader:       file,
+		ExpectedSize: info.Size(),
+		RequireSize:  true,
 		MaxBytes:     maxBytes,
 	})
 

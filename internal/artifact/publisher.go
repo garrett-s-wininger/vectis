@@ -3,6 +3,7 @@ package artifact
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -13,12 +14,16 @@ import (
 
 const defaultUploadBlobChunkBytes = 128 * 1024
 
+var ErrRunArtifactQuotaExceeded = errors.New("artifact run quota exceeded")
+
 type PublisherOptions struct {
 	Client             api.ArtifactServiceClient
 	Manifests          dal.ArtifactsRepository
 	ArtifactShardID    string
 	UploadChunkBytes   int
 	DefaultMaxBytes    int64
+	MaxRunBytes        int64
+	MaxRunArtifacts    int64
 	DefaultContentType string
 }
 
@@ -28,6 +33,8 @@ type Publisher struct {
 	artifactShardID    string
 	uploadChunkBytes   int
 	defaultMaxBytes    int64
+	maxRunBytes        int64
+	maxRunArtifacts    int64
 	defaultContentType string
 }
 
@@ -78,6 +85,8 @@ func NewPublisher(opts PublisherOptions) (*Publisher, error) {
 		artifactShardID:    opts.ArtifactShardID,
 		uploadChunkBytes:   chunkBytes,
 		defaultMaxBytes:    opts.DefaultMaxBytes,
+		maxRunBytes:        nonNegativeInt64(opts.MaxRunBytes),
+		maxRunArtifacts:    nonNegativeInt64(opts.MaxRunArtifacts),
 		defaultContentType: strings.TrimSpace(opts.DefaultContentType),
 	}, nil
 }
@@ -87,9 +96,20 @@ func (p *Publisher) Publish(ctx context.Context, req PublishRequest) (PublishedA
 		return PublishedArtifact{}, err
 	}
 
+	knownSize := req.RequireSize || req.ExpectedSize > 0
+	if err := p.enforceRunQuota(ctx, req, req.ExpectedSize, knownSize); err != nil {
+		return PublishedArtifact{}, err
+	}
+
 	desc, err := p.uploadBlob(ctx, req)
 	if err != nil {
 		return PublishedArtifact{}, err
+	}
+
+	if !knownSize {
+		if err := p.enforceRunQuota(ctx, req, desc.Size, true); err != nil {
+			return PublishedArtifact{}, err
+		}
 	}
 
 	contentType := strings.TrimSpace(req.ContentType)
@@ -119,6 +139,31 @@ func (p *Publisher) Publish(ctx context.Context, req PublishRequest) (PublishedA
 	}
 
 	return PublishedArtifact{Manifest: rec, Blob: desc}, nil
+}
+
+func (p *Publisher) enforceRunQuota(ctx context.Context, req PublishRequest, projectedSize int64, haveSize bool) error {
+	if p.maxRunArtifacts <= 0 && (p.maxRunBytes <= 0 || !haveSize) {
+		return nil
+	}
+
+	usage, err := p.manifests.GetRunUsageExcludingName(ctx, req.RunID, req.Name)
+	if err != nil {
+		return err
+	}
+
+	projectedCount := usage.Count + 1
+	if p.maxRunArtifacts > 0 && projectedCount > p.maxRunArtifacts {
+		return fmt.Errorf("%w: run %s would have %d artifacts, max %d", ErrRunArtifactQuotaExceeded, req.RunID, projectedCount, p.maxRunArtifacts)
+	}
+
+	if p.maxRunBytes > 0 && haveSize {
+		projectedBytes := usage.SizeBytes + projectedSize
+		if projectedBytes > p.maxRunBytes {
+			return fmt.Errorf("%w: run %s would have %d artifact bytes, max %d", ErrRunArtifactQuotaExceeded, req.RunID, projectedBytes, p.maxRunBytes)
+		}
+	}
+
+	return nil
 }
 
 func (p *Publisher) uploadBlob(ctx context.Context, req PublishRequest) (BlobDescriptor, error) {
@@ -188,6 +233,10 @@ func validatePublishRequest(req PublishRequest) error {
 
 	if strings.TrimSpace(req.Name) == "" {
 		return fmt.Errorf("%w: artifact name is required", dal.ErrConflict)
+	}
+
+	if req.ExpectedSize < 0 {
+		return fmt.Errorf("%w: artifact expected_size must be >= 0", dal.ErrConflict)
 	}
 
 	if req.MetadataJSON != nil {
@@ -263,4 +312,12 @@ func int64Pointer(v int64) *int64 {
 
 func boolPointer(v bool) *bool {
 	return &v
+}
+
+func nonNegativeInt64(v int64) int64 {
+	if v < 0 {
+		return 0
+	}
+
+	return v
 }

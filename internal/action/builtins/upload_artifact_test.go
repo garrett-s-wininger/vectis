@@ -93,6 +93,10 @@ func TestUploadArtifactAction_ExecutePublishesWorkspaceFile(t *testing.T) {
 		t.Fatalf("max bytes = %d, want 1024", publisher.req.MaxBytes)
 	}
 
+	if publisher.req.ExpectedSize != int64(len(content)) || !publisher.req.RequireSize {
+		t.Fatalf("size expectation = (%d, %v), want (%d, true)", publisher.req.ExpectedSize, publisher.req.RequireSize, len(content))
+	}
+
 	if !bytes.Equal(publisher.data, content) {
 		t.Fatalf("published data = %q, want %q", publisher.data, content)
 	}

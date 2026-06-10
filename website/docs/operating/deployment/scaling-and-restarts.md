@@ -148,7 +148,7 @@ For repair steps, see [Repair Runbooks](../reliability/repair-runbooks.md).
 | API rate limits | Shared through the configured SQL database by default; `memory` remains available for per-process buckets. |
 | Queue | Queue pool within one cell through registry discovery. Each shard has local persistence; no shared multi-writer queue storage. |
 | Logs | Run-sharded local storage within one cell with DB-backed shard assignments for DB-aware clients. There is no shared multi-writer log storage or S3-backed archive yet. The standalone log-forwarder remains DB-free: it uses worker-provided shard hints when present and deterministic routing from discovered shards otherwise. Disk-pressure read-only mode rejects new run log files on a pressured shard. |
-| Artifacts | Run-scoped artifact list, metadata, and download APIs backed by content-addressed local storage shards. There is no replication, external object-storage backend, or public API upload path yet. Disk-pressure read-only mode rejects uploads for new blobs on a pressured shard. |
+| Artifacts | Run-scoped artifact list, metadata, and download APIs backed by worker-originated uploads to content-addressed local storage shards. There is no replication, external object-storage backend, or public API upload path. Disk-pressure read-only mode rejects uploads for new blobs on a pressured shard. |
 | Cron | DB-coordinated within one shared database cell; no built-in schedule partitioning across cells. |
 | Reconciler | Active/passive within one database cell through `service_leases`; not a sharded repair pool yet. |
 | Workers | Scale is bounded by DB pool sizing, queue throughput, log capacity, and workload resource isolation. |

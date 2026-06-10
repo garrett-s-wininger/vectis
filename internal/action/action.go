@@ -240,6 +240,8 @@ type ArtifactPublishRequest struct {
 	ContentType  string
 	MetadataJSON *string
 	Reader       io.Reader
+	ExpectedSize int64
+	RequireSize  bool
 	MaxBytes     int64
 }
 

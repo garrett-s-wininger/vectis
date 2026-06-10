@@ -3,6 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -188,6 +191,81 @@ func TestWorkerArtifactPublisherAppliesUploadLimit(t *testing.T) {
 	}
 }
 
+func TestWorkerArtifactPublisherAppliesRunQuota(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	ctx := context.Background()
+	store, err := artifact.NewLocalStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new local artifact store: %v", err)
+	}
+	defer store.Close()
+
+	artifactServer := grpctest.StartServer(t, func(srv *grpc.Server) {
+		api.RegisterArtifactServiceServer(srv, artifact.NewServer(store))
+	})
+
+	viper.Set("discovery.artifact.address", artifactServer.Addr())
+
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
+	jobID := "job-worker-artifact-run-quota"
+	def := `{"id":"` + jobID + `","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, 1); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	uses := "builtins/shell"
+	job := &api.Job{
+		Id:    &jobID,
+		RunId: &runID,
+		Root: &api.Node{
+			Id:   strPtr("root"),
+			Uses: &uses,
+		},
+	}
+
+	env := attachPendingExecutionEnvelopeForTest(t, repos.Runs(), job, runID)
+	w := &worker{
+		logger:              mocks.NewMockLogger(),
+		artifactManifests:   repos.Artifacts(),
+		artifactMaxRunBytes: 3,
+	}
+
+	publisher := w.newArtifactPublisher(env)
+	if publisher == nil {
+		t.Fatal("expected artifact publisher")
+	}
+	defer publisher.Close()
+
+	content := []byte("too large")
+	_, err = publisher.PublishArtifact(ctx, action.ArtifactPublishRequest{
+		Name:         "coverage",
+		Path:         "coverage/out.txt",
+		Reader:       bytes.NewReader(content),
+		ExpectedSize: int64(len(content)),
+		RequireSize:  true,
+	})
+
+	if !errors.Is(err, artifact.ErrRunArtifactQuotaExceeded) {
+		t.Fatalf("expected run quota error, got %v", err)
+	}
+
+	if _, err := repos.Artifacts().GetByRunAndName(ctx, runID, "coverage"); !dal.IsNotFound(err) {
+		t.Fatalf("expected no artifact manifest after run quota failure, got %v", err)
+	}
+
+	if _, err := store.Stat(ctx, artifact.BlobKeySHA256(artifactTestSHA256(content))); !errors.Is(err, artifact.ErrBlobNotFound) {
+		t.Fatalf("run quota failure should not upload blob, got %v", err)
+	}
+}
+
 func TestWorkerUploadArtifactActionPublishesDownloadableBlob(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
@@ -364,4 +442,9 @@ func executeJobInWorkspaceWithOptionsAndWait(t *testing.T, ctx context.Context, 
 	}
 
 	return err
+}
+
+func artifactTestSHA256(content []byte) string {
+	sum := sha256.Sum256(content)
+	return hex.EncodeToString(sum[:])
 }

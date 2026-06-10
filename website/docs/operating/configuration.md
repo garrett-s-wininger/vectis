@@ -74,7 +74,7 @@ Use these prefixes when building service-specific environment variable names.
 | `vectis-registry` | `VECTIS_REGISTRY` | `--port`; cluster membership uses `VECTIS_REGISTRY_CLUSTER_*` |
 | `vectis-log` | `VECTIS_LOG` | `--instance-id`, `--storage-dir`, `--storage-read-only-min-free-bytes`, `--grpc-port`, `--metrics-host`, `--metrics-port`, `--max-run-buffers` |
 | `vectis-artifact` | `VECTIS_ARTIFACT` | `--instance-id`, `--storage-dir`, `--storage-read-only-min-free-bytes`, `--grpc-port`, `--metrics-host`, `--metrics-port` |
-| `vectis-worker` | `VECTIS_WORKER` | `--metrics-host`, `--metrics-port`, `--artifact-max-bytes`, `--execution-backend`, `--workspace-root`, `--lima-instance`, `--lima-start` |
+| `vectis-worker` | `VECTIS_WORKER` | `--metrics-host`, `--metrics-port`, `--artifact-max-bytes`, `--artifact-max-run-bytes`, `--artifact-max-count`, `--execution-backend`, `--workspace-root`, `--lima-instance`, `--lima-start` |
 | `vectis-cron` | `VECTIS_CRON` | `--instance-id`, `--claim-ttl` |
 | `vectis-reconciler` | `VECTIS_RECONCILER` | `--interval`, `--lease-ttl`, `--metrics-host`, `--metrics-port` |
 | `vectis-catalog` | `VECTIS_CATALOG` | `--interval`, `--batch-size`, `--metrics-host`, `--metrics-port`, `--cell-database-dsn` |
@@ -138,7 +138,7 @@ Internal service identity allowlists are disabled by default. Configure them wit
 
 Short aliases such as `VECTIS_QUEUE_ALLOWED_CLIENT_IDENTITIES`, `VECTIS_REGISTRY_ALLOWED_CLIENT_IDENTITIES`, `VECTIS_LOG_ALLOWED_CLIENT_IDENTITIES`, `VECTIS_ARTIFACT_ALLOWED_CLIENT_IDENTITIES`, `VECTIS_WORKER_CONTROL_ALLOWED_CLIENT_IDENTITIES`, and `VECTIS_CELL_INGRESS_ALLOWED_PRODUCER_IDENTITIES` are also accepted. Each configured identity must be a `spiffe://` URI with a trust domain and workload path. Any non-empty allowlist requires `VECTIS_GRPC_TLS_INSECURE=false` and `VECTIS_GRPC_TLS_CLIENT_CA_FILE` so the listener verifies client certificates before checking URI SANs.
 
-Worker artifact uploads are capped by `VECTIS_WORKER_ARTIFACT_MAX_BYTES` / `worker.artifact_max_bytes` / `--artifact-max-bytes`. The default is `1073741824` bytes (1 GiB), and `0` disables the worker-level cap. `builtins/upload-artifact` can set `max_bytes` to use a lower per-node limit, but it cannot raise an upload above the worker cap.
+Worker artifact uploads are capped by `VECTIS_WORKER_ARTIFACT_MAX_BYTES` / `worker.artifact_max_bytes` / `--artifact-max-bytes`. The default is `1073741824` bytes (1 GiB), and `0` disables the worker-level cap. `builtins/upload-artifact` can set `max_bytes` to use a lower per-node limit, but it cannot raise an upload above the worker cap. Runs are also capped by `VECTIS_WORKER_ARTIFACT_MAX_RUN_BYTES` / `worker.artifact_max_run_bytes` / `--artifact-max-run-bytes`, default `10737418240` bytes (10 GiB), and `VECTIS_WORKER_ARTIFACT_MAX_COUNT` / `worker.artifact_max_count` / `--artifact-max-count`, default `1000`; set either to `0` to disable that per-run quota.
 
 Worker execution identity is disabled by default. Enable it when you want workers to derive an expected SPIFFE ID for each accepted execution before action code runs:
 
@@ -344,7 +344,7 @@ When registry discovery is used, multiple `vectis-log` instances may register as
 
 When registry discovery is used, multiple `vectis-artifact` instances may register as independent content-addressed blob shards. Each artifact shard needs one stable `VECTIS_ARTIFACT_INSTANCE_ID` / `--instance-id`; if it is omitted, `vectis-artifact` derives a stable ID from the system hostname and artifact gRPC port. Keep instance IDs and storage directories stable across restarts. If two active artifact processes point at the same storage directory, the second artifact process refuses to start.
 
-`VECTIS_ARTIFACT_STORAGE_DIR` / `--storage-dir` stores durable content-addressed blobs. If omitted, the artifact service uses `$XDG_DATA_HOME/vectis/artifact/<instance-id>`. `VECTIS_ARTIFACT_STORAGE_READ_ONLY_MIN_FREE_BYTES` / `--storage-read-only-min-free-bytes` defaults to `1073741824` (1 GiB). Below that threshold, the shard advertises `read_only` for new blobs and rejects uploads for blobs it does not already have; existing stored blobs remain readable. Set the value to `0` to disable the threshold. Worker-originated upload size is controlled separately with `VECTIS_WORKER_ARTIFACT_MAX_BYTES`.
+`VECTIS_ARTIFACT_STORAGE_DIR` / `--storage-dir` stores durable content-addressed blobs. If omitted, the artifact service uses `$XDG_DATA_HOME/vectis/artifact/<instance-id>`. `VECTIS_ARTIFACT_STORAGE_READ_ONLY_MIN_FREE_BYTES` / `--storage-read-only-min-free-bytes` defaults to `1073741824` (1 GiB). Below that threshold, the shard advertises `read_only` for new blobs and rejects uploads for blobs it does not already have; existing stored blobs remain readable. Set the value to `0` to disable the threshold. Worker-originated upload and run quotas are controlled separately with `VECTIS_WORKER_ARTIFACT_MAX_*`.
 
 Artifact service metrics include local CAS pressure gauges: `vectis_artifact_storage_blobs`, `vectis_artifact_storage_bytes`, `vectis_artifact_storage_free_bytes`, `vectis_artifact_storage_free_inodes`, and `vectis_artifact_storage_new_blob_writable`.
 

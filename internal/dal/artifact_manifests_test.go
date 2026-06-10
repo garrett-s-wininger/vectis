@@ -124,6 +124,24 @@ func TestArtifactsRepository_RecordGetListAndUpdate(t *testing.T) {
 	if updated.MetadataJSON != nil {
 		t.Fatalf("expected metadata to clear on update, got %q", *updated.MetadataJSON)
 	}
+
+	usage, err := repos.Artifacts().GetRunUsageExcludingName(ctx, runID, "")
+	if err != nil {
+		t.Fatalf("get artifact usage: %v", err)
+	}
+
+	if usage.Count != 2 || usage.SizeBytes != 28 {
+		t.Fatalf("usage = %+v, want count=2 bytes=28", usage)
+	}
+
+	usage, err = repos.Artifacts().GetRunUsageExcludingName(ctx, runID, "coverage")
+	if err != nil {
+		t.Fatalf("get artifact usage excluding coverage: %v", err)
+	}
+
+	if usage.Count != 1 || usage.SizeBytes != 4 {
+		t.Fatalf("usage excluding coverage = %+v, want count=1 bytes=4", usage)
+	}
 }
 
 func TestArtifactsRepository_Validation(t *testing.T) {

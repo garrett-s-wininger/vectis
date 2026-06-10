@@ -711,9 +711,27 @@ func TestWorkerArtifactMaxBytes_DefaultAndOverride(t *testing.T) {
 		t.Fatalf("WorkerArtifactMaxBytes default: got %d", got)
 	}
 
+	if got := WorkerArtifactMaxRunBytes(); got != 10<<30 {
+		t.Fatalf("WorkerArtifactMaxRunBytes default: got %d", got)
+	}
+
+	if got := WorkerArtifactMaxCount(); got != 1000 {
+		t.Fatalf("WorkerArtifactMaxCount default: got %d", got)
+	}
+
 	viper.Set("worker.artifact_max_bytes", int64(4096))
 	if got := WorkerArtifactMaxBytes(); got != 4096 {
 		t.Fatalf("WorkerArtifactMaxBytes namespaced override: got %d", got)
+	}
+
+	viper.Set("worker.artifact_max_run_bytes", int64(8192))
+	if got := WorkerArtifactMaxRunBytes(); got != 8192 {
+		t.Fatalf("WorkerArtifactMaxRunBytes namespaced override: got %d", got)
+	}
+
+	viper.Set("worker.artifact_max_count", int64(12))
+	if got := WorkerArtifactMaxCount(); got != 12 {
+		t.Fatalf("WorkerArtifactMaxCount namespaced override: got %d", got)
 	}
 
 	viper.Set("worker.artifact_max_bytes", int64(0))
@@ -721,9 +739,29 @@ func TestWorkerArtifactMaxBytes_DefaultAndOverride(t *testing.T) {
 		t.Fatalf("WorkerArtifactMaxBytes should allow disabling limit: got %d", got)
 	}
 
+	viper.Set("worker.artifact_max_run_bytes", int64(0))
+	if got := WorkerArtifactMaxRunBytes(); got != 0 {
+		t.Fatalf("WorkerArtifactMaxRunBytes should allow disabling limit: got %d", got)
+	}
+
+	viper.Set("worker.artifact_max_count", int64(0))
+	if got := WorkerArtifactMaxCount(); got != 0 {
+		t.Fatalf("WorkerArtifactMaxCount should allow disabling limit: got %d", got)
+	}
+
 	viper.Set("worker.artifact_max_bytes", int64(-1))
 	if got := WorkerArtifactMaxBytes(); got != 0 {
 		t.Fatalf("WorkerArtifactMaxBytes negative override should disable limit: got %d", got)
+	}
+
+	viper.Set("worker.artifact_max_run_bytes", int64(-1))
+	if got := WorkerArtifactMaxRunBytes(); got != 0 {
+		t.Fatalf("WorkerArtifactMaxRunBytes negative override should disable limit: got %d", got)
+	}
+
+	viper.Set("worker.artifact_max_count", int64(-1))
+	if got := WorkerArtifactMaxCount(); got != 0 {
+		t.Fatalf("WorkerArtifactMaxCount negative override should disable limit: got %d", got)
 	}
 }
 

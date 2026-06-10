@@ -159,6 +159,36 @@ func (r *SQLArtifactsRepository) ListByRun(ctx context.Context, runID string, cu
 	return out, nextCursor, nil
 }
 
+func (r *SQLArtifactsRepository) GetRunUsageExcludingName(ctx context.Context, runID, name string) (ArtifactRunUsage, error) {
+	runID = strings.TrimSpace(runID)
+	name = strings.TrimSpace(name)
+	if runID == "" {
+		return ArtifactRunUsage{}, fmt.Errorf("%w: run_id is required", ErrConflict)
+	}
+
+	var usage ArtifactRunUsage
+	var err error
+	if name == "" {
+		err = r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+			SELECT COUNT(*), CAST(COALESCE(SUM(size_bytes), 0) AS BIGINT)
+			FROM run_artifacts
+			WHERE run_id = ?
+		`), runID).Scan(&usage.Count, &usage.SizeBytes)
+	} else {
+		err = r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+			SELECT COUNT(*), CAST(COALESCE(SUM(size_bytes), 0) AS BIGINT)
+			FROM run_artifacts
+			WHERE run_id = ? AND name <> ?
+		`), runID, name).Scan(&usage.Count, &usage.SizeBytes)
+	}
+
+	if err != nil {
+		return ArtifactRunUsage{}, normalizeSQLError(err)
+	}
+
+	return usage, nil
+}
+
 func getArtifactByRunAndNameTx(ctx context.Context, tx *sql.Tx, runID, name string) (ArtifactRecord, error) {
 	return scanArtifact(tx.QueryRowContext(ctx, rebindQueryForPgx(`
 		SELECT id, run_id, task_id, task_attempt_id, execution_id, cell_id, name, path, content_type, blob_key, blob_algorithm, blob_digest, size_bytes, artifact_shard_id, metadata_json, created_at, updated_at

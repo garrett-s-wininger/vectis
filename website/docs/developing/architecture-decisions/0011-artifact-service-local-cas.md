@@ -12,7 +12,7 @@ The first version should keep the deployment model self-hosted and inspectable. 
 
 ## Decision
 
-Add a dedicated `vectis-artifact` service. The API remains the user-facing HTTP boundary for listing, authorization, downloads, and any future upload admission. Workers and the API move artifact bytes through the artifact service over gRPC.
+Add a dedicated `vectis-artifact` service. The API remains the user-facing HTTP boundary for listing, authorization, and downloads. Artifact writes are worker-originated execution outputs; user-provided data should live in source, cache, package, or object systems that the workload can read directly.
 
 The initial storage backend is a local content-addressed store on disk. Blob identity is:
 
@@ -59,12 +59,13 @@ If step 3 fails after the blob is stored, the blob is an orphan and is safe for 
 
 ## Service Boundaries
 
-`vectis-api` exposes the public artifact API. The first REST surface is run-scoped:
+`vectis-api` exposes the public artifact API. The REST surface is run-scoped:
 
 - list artifacts for a run
 - fetch artifact metadata
 - download artifact bytes
-- optionally admit API-originated uploads in a later slice when the caller has write permission
+
+The API does not admit direct artifact uploads in the first release.
 
 `vectis-worker` uploads produced artifacts after action execution or at explicit artifact collection points. The worker should not write directly into the artifact storage directory.
 
@@ -131,12 +132,12 @@ The first implementation slice is complete:
 - [x] Add CLI commands for listing and downloading run artifacts.
 - [x] Add retention cleanup for artifact metadata and unreferenced blobs.
 - [x] Add explicit worker-side uploads through `builtins/upload-artifact`.
+- [x] Add worker-side per-upload and per-run artifact quotas.
 
 ## Open Questions
 
-- Should API-originated uploads be added, or should the first release keep uploads worker-only?
 - Metadata records support task, attempt, and execution attribution; which of those should become first-class user filters or selectors?
-- What are the initial defaults for per-run quota and retention?
+- What are the initial defaults for retention?
 - Should worker artifact collection expand beyond explicit builtins to action output declarations or a job-level artifact stanza?
 - Do we need compression or archive normalization before storing blobs, or should the first version preserve bytes exactly?
 

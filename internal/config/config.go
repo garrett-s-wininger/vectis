@@ -268,6 +268,8 @@ type WorkerDefaults struct {
 	MetricsHost          string                          `toml:"metrics_host"`
 	MetricsPort          int                             `toml:"metrics_port"`
 	ArtifactMaxBytes     int64                           `toml:"artifact_max_bytes"`
+	ArtifactMaxRunBytes  int64                           `toml:"artifact_max_run_bytes"`
+	ArtifactMaxCount     int64                           `toml:"artifact_max_count"`
 	Control              WorkerControlDefaults           `toml:"control"`
 	Execution            WorkerExecutionDefaults         `toml:"execution"`
 	ExecutionIdentity    WorkerExecutionIdentityDefaults `toml:"execution_identity"`
@@ -468,6 +470,14 @@ func validateDefaults(d Defaults) {
 	validatePort(d.Worker.MetricsPort, "worker.metrics_port")
 	if d.Worker.ArtifactMaxBytes < 0 {
 		panic("config defaults: worker.artifact_max_bytes must be >= 0")
+	}
+
+	if d.Worker.ArtifactMaxRunBytes < 0 {
+		panic("config defaults: worker.artifact_max_run_bytes must be >= 0")
+	}
+
+	if d.Worker.ArtifactMaxCount < 0 {
+		panic("config defaults: worker.artifact_max_count must be >= 0")
 	}
 
 	if d.Worker.MetricsPort == d.Queue.MetricsPort {
@@ -814,6 +824,22 @@ func WorkerArtifactMaxBytes() int64 {
 	}
 
 	return MustDefaults().Worker.ArtifactMaxBytes
+}
+
+func WorkerArtifactMaxRunBytes() int64 {
+	if viper.IsSet("worker.artifact_max_run_bytes") {
+		return nonNegativeInt64(viper.GetInt64("worker.artifact_max_run_bytes"))
+	}
+
+	return MustDefaults().Worker.ArtifactMaxRunBytes
+}
+
+func WorkerArtifactMaxCount() int64 {
+	if viper.IsSet("worker.artifact_max_count") {
+		return nonNegativeInt64(viper.GetInt64("worker.artifact_max_count"))
+	}
+
+	return MustDefaults().Worker.ArtifactMaxCount
 }
 
 func WorkerControlMode() string {

@@ -209,6 +209,93 @@ func TestPublisher_UploadFailureDoesNotRecordManifest(t *testing.T) {
 	}
 }
 
+func TestPublisher_RunQuotaRejectsBeforeUpload(t *testing.T) {
+	store, err := NewLocalStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new local store: %v", err)
+	}
+	defer store.Close()
+
+	repos := dal.NewSQLRepositories(dbtest.NewTestDB(t))
+	runID := createPublisherTestRun(t, context.Background(), repos, "job-publisher-quota")
+	publisher, err := NewPublisher(PublisherOptions{
+		Client:          newArtifactServiceClient(t, store, ServerOptions{}),
+		Manifests:       repos.Artifacts(),
+		ArtifactShardID: "artifact-1",
+		MaxRunBytes:     8,
+		MaxRunArtifacts: 2,
+	})
+
+	if err != nil {
+		t.Fatalf("new publisher: %v", err)
+	}
+
+	first := []byte("12345")
+	if _, err := publisher.Publish(context.Background(), PublishRequest{
+		RunID:        runID,
+		Name:         "first",
+		Reader:       bytes.NewReader(first),
+		ExpectedSize: int64(len(first)),
+		RequireSize:  true,
+	}); err != nil {
+		t.Fatalf("publish first artifact: %v", err)
+	}
+
+	second := []byte("6789")
+	_, err = publisher.Publish(context.Background(), PublishRequest{
+		RunID:        runID,
+		Name:         "second",
+		Reader:       bytes.NewReader(second),
+		ExpectedSize: int64(len(second)),
+		RequireSize:  true,
+	})
+
+	if !errors.Is(err, ErrRunArtifactQuotaExceeded) {
+		t.Fatalf("expected byte quota error, got %v", err)
+	}
+
+	if _, err := repos.Artifacts().GetByRunAndName(context.Background(), runID, "second"); !dal.IsNotFound(err) {
+		t.Fatalf("expected no manifest after quota failure, got %v", err)
+	}
+
+	if _, err := store.Stat(context.Background(), BlobKeySHA256(sha256BytesHex(second))); !errors.Is(err, ErrBlobNotFound) {
+		t.Fatalf("quota failure should not upload blob, got %v", err)
+	}
+
+	replacement := []byte("12")
+	if _, err := publisher.Publish(context.Background(), PublishRequest{
+		RunID:        runID,
+		Name:         "first",
+		Reader:       bytes.NewReader(replacement),
+		ExpectedSize: int64(len(replacement)),
+		RequireSize:  true,
+	}); err != nil {
+		t.Fatalf("replacement within quota should succeed: %v", err)
+	}
+
+	if _, err := publisher.Publish(context.Background(), PublishRequest{
+		RunID:        runID,
+		Name:         "second",
+		Reader:       bytes.NewReader([]byte("34")),
+		ExpectedSize: 2,
+		RequireSize:  true,
+	}); err != nil {
+		t.Fatalf("second artifact should fit after replacement: %v", err)
+	}
+
+	_, err = publisher.Publish(context.Background(), PublishRequest{
+		RunID:        runID,
+		Name:         "third",
+		Reader:       bytes.NewReader([]byte("5")),
+		ExpectedSize: 1,
+		RequireSize:  true,
+	})
+
+	if !errors.Is(err, ErrRunArtifactQuotaExceeded) {
+		t.Fatalf("expected count quota error, got %v", err)
+	}
+}
+
 func TestPublisher_Validation(t *testing.T) {
 	if _, err := NewPublisher(PublisherOptions{}); err == nil {
 		t.Fatal("expected missing client to fail")
