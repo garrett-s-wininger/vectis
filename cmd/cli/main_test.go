@@ -662,6 +662,96 @@ func TestShowSourceJob_sendsQueryAndPrintsDefinition(t *testing.T) {
 	}
 }
 
+func TestWriteSourceJob_sendsOptionsAndPrintsProvenance(t *testing.T) {
+	oldRef := sourceWriteRef
+	oldBranch := sourceWriteBranch
+	oldPath := sourceWritePath
+	oldMessage := sourceWriteMessage
+	oldExpectedHead := sourceWriteExpectedHead
+	oldQuiet := sourceWriteQuiet
+	sourceWriteRef = "main"
+	sourceWriteBranch = "feature/source-authoring"
+	sourceWritePath = ".vectis/jobs/custom.json"
+	sourceWriteMessage = "update build"
+	sourceWriteExpectedHead = "fedcba9876543210"
+	sourceWriteQuiet = false
+	t.Cleanup(func() {
+		sourceWriteRef = oldRef
+		sourceWriteBranch = oldBranch
+		sourceWritePath = oldPath
+		sourceWriteMessage = oldMessage
+		sourceWriteExpectedHead = oldExpectedHead
+		sourceWriteQuiet = oldQuiet
+	})
+
+	definitionPath := filepath.Join(t.TempDir(), "build.json")
+	if err := os.WriteFile(definitionPath, []byte(`{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`), 0o600); err != nil {
+		t.Fatalf("write definition fixture: %v", err)
+	}
+
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/source-repositories/vectis/jobs/build/definition" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		if got := r.Header.Get("Content-Type"); got != "application/json" {
+			t.Errorf("Content-Type=%q", got)
+		}
+
+		var body sourceRepositoryJobDefinitionWriteRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+
+		if body.Ref != "main" ||
+			body.Branch != "feature/source-authoring" ||
+			body.Path != ".vectis/jobs/custom.json" ||
+			body.Message != "update build" ||
+			body.ExpectedHead != "fedcba9876543210" {
+			t.Errorf("write body mismatch: %+v", body)
+		}
+
+		if !strings.Contains(string(body.Definition), `"builtins/shell"`) {
+			t.Errorf("definition body=%s", string(body.Definition))
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"job_id":          "build",
+			"definition_hash": "hash",
+			"definition": map[string]any{
+				"root": map[string]any{
+					"id":   "root",
+					"uses": "builtins/shell",
+					"with": map[string]any{"command": "true"},
+				},
+			},
+			"source": map[string]any{
+				"repository_id":   "vectis",
+				"requested_ref":   "feature/source-authoring",
+				"resolved_commit": "0123456789abcdef",
+				"path":            ".vectis/jobs/custom.json",
+				"blob_sha":        "abcdef0123456789",
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := writeSourceJobWithOutput(&buf, "vectis", "build", definitionPath); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"job_id=build", "commit=0123456789abcdef", "path=.vectis/jobs/custom.json", "blob_sha=abcdef0123456789", "definition_hash=hash", "requested_ref=feature/source-authoring"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
 func TestListSourceRuns_sendsQueryAndPrintsRuns(t *testing.T) {
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

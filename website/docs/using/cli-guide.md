@@ -253,6 +253,13 @@ Inspect a source-defined job definition at a specific ref:
 ./bin/vectis-cli sources show vectis-local build --ref main
 ```
 
+For a managed repository with `authoring_mode=local_commit`, write a definition back into source without creating a stored job row:
+
+```sh
+./bin/vectis-cli sources write vectis-local build ./build.json --branch main --message "Update build job"
+./bin/vectis-cli sources write vectis-local build ./build.json --branch main --expected-head <commit>
+```
+
 Trigger a source-defined job without creating a stored job row:
 
 ```sh

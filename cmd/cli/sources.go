@@ -148,6 +148,15 @@ type sourceRepositoryJobDefinitionResult struct {
 	Source         sourceProvenance `json:"source"`
 }
 
+type sourceRepositoryJobDefinitionWriteRequest struct {
+	Ref          string          `json:"ref,omitempty"`
+	Branch       string          `json:"branch,omitempty"`
+	Path         string          `json:"path,omitempty"`
+	Message      string          `json:"message,omitempty"`
+	ExpectedHead string          `json:"expected_head,omitempty"`
+	Definition   json.RawMessage `json:"definition"`
+}
+
 type sourceProvenance struct {
 	RepositoryID   string `json:"repository_id"`
 	RequestedRef   string `json:"requested_ref"`
@@ -769,6 +778,105 @@ func showSourceJobWithOutput(cmd *cobra.Command, out io.Writer, repositoryID, jo
 	}
 }
 
+func writeSourceJob(cmd *cobra.Command, args []string) {
+	runCLIError(writeSourceJobWithOutput(os.Stdout, args[0], args[1], args[2]))
+}
+
+func writeSourceJobWithOutput(out io.Writer, repositoryID, jobID, source string) error {
+	definition, err := readSourceDefinitionBody(source)
+	if err != nil {
+		return err
+	}
+
+	payload, err := json.Marshal(sourceRepositoryJobDefinitionWriteRequest{
+		Ref:          strings.TrimSpace(sourceWriteRef),
+		Branch:       strings.TrimSpace(sourceWriteBranch),
+		Path:         strings.TrimSpace(sourceWritePath),
+		Message:      strings.TrimSpace(sourceWriteMessage),
+		ExpectedHead: strings.TrimSpace(sourceWriteExpectedHead),
+		Definition:   json.RawMessage(definition),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to encode source job definition write request: %w", err)
+	}
+
+	req, err := newAPIRequest(http.MethodPut, "/api/v1/source-repositories/"+url.PathEscape(repositoryID)+"/jobs/"+url.PathEscape(jobID)+"/definition", bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("failed to create source job definition write request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to write source job definition: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var result sourceRepositoryJobDefinitionResult
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to parse source job definition write response: %w", err)
+		}
+		return writeSourceJobDefinitionWriteResult(out, result)
+	case http.StatusBadRequest:
+		return fmt.Errorf("invalid source job definition")
+	case http.StatusConflict:
+		return fmt.Errorf("source job definition write conflicted or source authoring is unavailable")
+	case http.StatusNotFound:
+		return fmt.Errorf("source repository %q not found", repositoryID)
+	case http.StatusRequestEntityTooLarge:
+		return fmt.Errorf("source job definition is too large")
+	case http.StatusUnsupportedMediaType:
+		return fmt.Errorf("content type must be application/json")
+	default:
+		return fmt.Errorf("unexpected status writing source job definition: %s", resp.Status)
+	}
+}
+
+func readSourceDefinitionBody(source string) ([]byte, error) {
+	var body []byte
+	var err error
+	if source == "-" {
+		body, err = io.ReadAll(os.Stdin)
+	} else {
+		body, err = os.ReadFile(source)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to read source job definition: %w", err)
+	}
+
+	body = bytes.TrimSpace(body)
+	if !json.Valid(body) {
+		return nil, fmt.Errorf("invalid job JSON")
+	}
+
+	return body, nil
+}
+
+func writeSourceJobDefinitionWriteResult(out io.Writer, result sourceRepositoryJobDefinitionResult) error {
+	if outputIsJSON() {
+		return writeJSON(out, result)
+	}
+
+	if sourceWriteQuiet {
+		_, err := fmt.Fprintln(out, result.Source.ResolvedCommit)
+		return err
+	}
+
+	fmt.Fprintf(out, "job_id=%s\n", result.JobID)
+	fmt.Fprintf(out, "commit=%s\n", result.Source.ResolvedCommit)
+	fmt.Fprintf(out, "path=%s\n", result.Source.Path)
+	fmt.Fprintf(out, "blob_sha=%s\n", result.Source.BlobSHA)
+	fmt.Fprintf(out, "definition_hash=%s\n", result.DefinitionHash)
+	if strings.TrimSpace(result.Source.RequestedRef) != "" {
+		fmt.Fprintf(out, "requested_ref=%s\n", result.Source.RequestedRef)
+	}
+
+	return nil
+}
+
 func listSourceRuns(cmd *cobra.Command, args []string) {
 	since, _ := cmd.Flags().GetString("since")
 	runCLIError(listSourceRunsWithOutput(os.Stdout, args[0], args[1], sourceRunsLimit, sourceRunsCursor, since, sourceRunsCellID))
@@ -990,6 +1098,14 @@ var sourcesShowCmd = &cobra.Command{
 	Run:   showSourceJob,
 }
 
+var sourcesWriteCmd = &cobra.Command{
+	Use:   "write [repository-id] [job-id] [definition-file]",
+	Short: "Write a source job definition",
+	Long:  `Write a JSON job definition into a source repository checkout without creating a stored job row. Use "-" as definition-file to read from stdin.`,
+	Args:  cobra.ExactArgs(3),
+	Run:   writeSourceJob,
+}
+
 var sourcesRunsCmd = &cobra.Command{
 	Use:   "runs [repository-id] [job-id]",
 	Short: "List runs for a source job",
@@ -1061,6 +1177,15 @@ func configureSourcesShowFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&sourceShowRef, "ref", "", "Git ref to resolve (default: repository default_ref or HEAD)")
 	cmd.Flags().StringVar(&sourceShowPath, "path", "", "Definition file path override")
 	cmd.Flags().Bool("raw", false, "Print definition JSON without reformatting")
+}
+
+func configureSourcesWriteFlags(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&sourceWriteRef, "ref", "", "Git ref to use as the write base (default: repository default_ref or HEAD)")
+	cmd.Flags().StringVar(&sourceWriteBranch, "branch", "", "Local branch to update instead of --ref/default")
+	cmd.Flags().StringVar(&sourceWritePath, "path", "", "Definition file path override")
+	cmd.Flags().StringVar(&sourceWriteMessage, "message", "", "Commit message for local source authoring")
+	cmd.Flags().StringVar(&sourceWriteExpectedHead, "expected-head", "", "Require the target branch to still point at this commit")
+	cmd.Flags().BoolVarP(&sourceWriteQuiet, "quiet", "q", false, "Print only the resulting commit")
 }
 
 func configureSourcesRunsFlags(cmd *cobra.Command) {

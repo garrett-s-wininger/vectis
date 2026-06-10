@@ -109,6 +109,12 @@ var (
 	sourceJobsQuiet             bool
 	sourceShowRef               string
 	sourceShowPath              string
+	sourceWriteRef              string
+	sourceWriteBranch           string
+	sourceWritePath             string
+	sourceWriteMessage          string
+	sourceWriteExpectedHead     string
+	sourceWriteQuiet            bool
 	sourceRunsLimit             int
 	sourceRunsCursor            int
 	sourceRunsCellID            string
@@ -178,11 +184,12 @@ func init() {
 	configureSourcesDefinitionsFlags(sourcesDefinitionsCmd)
 	configureSourcesJobsFlags(sourcesJobsCmd)
 	configureSourcesShowFlags(sourcesShowCmd)
+	configureSourcesWriteFlags(sourcesWriteCmd)
 	configureSourcesRunsFlags(sourcesRunsCmd)
 	configureLogFilterFlags(sourcesLogsCmd)
 	configureSourcesLogsFlags(sourcesLogsCmd)
 	configureSourcesTriggerFlags(sourcesTriggerCmd)
-	sourcesCmd.AddCommand(sourcesListCmd, sourcesRegisterCmd, sourcesSyncCmd, sourcesStatusCmd, sourcesBranchesCmd, sourcesTreeCmd, sourcesDefinitionsCmd, sourcesJobsCmd, sourcesShowCmd, sourcesRunsCmd, sourcesLogsCmd, sourcesTriggerCmd)
+	sourcesCmd.AddCommand(sourcesListCmd, sourcesRegisterCmd, sourcesSyncCmd, sourcesStatusCmd, sourcesBranchesCmd, sourcesTreeCmd, sourcesDefinitionsCmd, sourcesJobsCmd, sourcesShowCmd, sourcesWriteCmd, sourcesRunsCmd, sourcesLogsCmd, sourcesTriggerCmd)
 	rootCmd.AddCommand(sourcesCmd)
 
 	configureRunListFlags(runListCmd)
