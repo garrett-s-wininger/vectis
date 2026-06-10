@@ -220,6 +220,35 @@ Delete a stored job:
 
 Deleting a job removes the stored definition and prevents future triggers. It does not erase historical runs.
 
+## Trigger Jobs From Source
+
+Register a source repository checkout:
+
+```sh
+./bin/vectis-cli sources register vectis-local /srv/vectis-repo --default-ref main
+```
+
+For a Vectis-managed checkout, omit the checkout path and provide the canonical clone URL:
+
+```sh
+./bin/vectis-cli sources register vectis-local --checkout-mode managed --canonical-url https://git.example.com/acme/vectis.git --default-ref main
+```
+
+Sync the repository, then list triggerable jobs discovered under `.vectis/jobs`:
+
+```sh
+./bin/vectis-cli sources sync vectis-local
+./bin/vectis-cli sources jobs vectis-local --ref main
+```
+
+Trigger a source-defined job without creating a stored job row:
+
+```sh
+./bin/vectis-cli sources trigger vectis-local build --ref main --follow
+```
+
+Use `sources trigger` with `source.stored_jobs_enabled=false` when the instance should run only repository-defined jobs.
+
 ## Inspect Runs
 
 Show one run:

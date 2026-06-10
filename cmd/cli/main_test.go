@@ -265,6 +265,134 @@ func TestTriggerJobRequestBody_rejectsEmptyCell(t *testing.T) {
 	}
 }
 
+func TestTriggerSourceJob_sendsOptionsAndIdempotencyKey(t *testing.T) {
+	oldRef := sourceTriggerRef
+	oldPath := sourceTriggerPath
+	oldCell := sourceTriggerCellID
+	oldKey := sourceTriggerIdemKey
+	sourceTriggerRef = "feature/source"
+	sourceTriggerPath = ".vectis/jobs/custom.json"
+	sourceTriggerCellID = "pdx-b"
+	sourceTriggerIdemKey = "source-trigger-key"
+	t.Cleanup(func() {
+		sourceTriggerRef = oldRef
+		sourceTriggerPath = oldPath
+		sourceTriggerCellID = oldCell
+		sourceTriggerIdemKey = oldKey
+	})
+
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/source-repositories/vectis/jobs/build/trigger" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		if got := r.Header.Get("Idempotency-Key"); got != "source-trigger-key" {
+			t.Errorf("Idempotency-Key=%q", got)
+		}
+
+		var body sourceTriggerRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+
+		if body.Ref != "feature/source" || body.Path != ".vectis/jobs/custom.json" || body.CellID != "pdx-b" {
+			t.Errorf("trigger body mismatch: %+v", body)
+		}
+
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"job_id":             "build",
+			"run_id":             "run-source",
+			"run_index":          7,
+			"definition_version": 1,
+			"definition_hash":    "hash",
+			"source":             map[string]any{"repository_id": "vectis", "requested_ref": "feature/source", "resolved_commit": "0123456789abcdef", "path": ".vectis/jobs/custom.json"},
+		})
+	})
+
+	cmd := &cobra.Command{}
+	cmd.Flags().Bool("follow", false, "")
+	var buf bytes.Buffer
+	if err := triggerSourceJobWithOutput(cmd, &buf, "vectis", "build"); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := strings.TrimSpace(buf.String()); got != "run-source" {
+		t.Fatalf("output=%q, want run-source", got)
+	}
+}
+
+func TestListSourceJobs_sendsQueryAndPrintsJobs(t *testing.T) {
+	oldRef := sourceJobsRef
+	oldPath := sourceJobsPath
+	oldLimit := sourceJobsLimit
+	oldQuiet := sourceJobsQuiet
+	sourceJobsRef = "main"
+	sourceJobsPath = ".vectis/jobs"
+	sourceJobsLimit = 5
+	sourceJobsQuiet = false
+	t.Cleanup(func() {
+		sourceJobsRef = oldRef
+		sourceJobsPath = oldPath
+		sourceJobsLimit = oldLimit
+		sourceJobsQuiet = oldQuiet
+	})
+
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/source-repositories/vectis/jobs" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		q := r.URL.Query()
+		if q.Get("ref") != "main" || q.Get("path") != ".vectis/jobs" || q.Get("limit") != "5" {
+			t.Errorf("query=%s", r.URL.RawQuery)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"repository_id":   "vectis",
+			"requested_ref":   "main",
+			"resolved_commit": "0123456789abcdef0123456789abcdef01234567",
+			"path":            ".vectis/jobs",
+			"limit":           5,
+			"jobs": []map[string]any{
+				{
+					"job_id":   "build",
+					"path":     ".vectis/jobs/build.json",
+					"name":     "build.json",
+					"blob_sha": "abcdef0123456789abcdef0123456789abcdef01",
+					"source": map[string]any{
+						"repository_id":   "vectis",
+						"requested_ref":   "main",
+						"resolved_commit": "0123456789abcdef0123456789abcdef01234567",
+						"path":            ".vectis/jobs/build.json",
+						"blob_sha":        "abcdef0123456789abcdef0123456789abcdef01",
+					},
+				},
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := listSourceJobsWithOutput(&buf, "vectis"); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"JOB ID", "build", ".vectis/jobs/build.json", "0123456789ab", "abcdef012345"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
 func TestCellsStatus_tableOutput(t *testing.T) {
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

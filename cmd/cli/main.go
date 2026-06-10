@@ -48,40 +48,57 @@ func showCommandHelp(cmd *cobra.Command, args []string) {
 }
 
 var (
-	podmanNetwork         string
-	podmanProfile         string
-	podmanKubeSpec        string
-	podmanGrafanaSpec     string
-	podmanRenderOut       string
-	resetYes              bool
-	resetDryRun           bool
-	retentionYes          bool
-	retentionDryRun       bool
-	retentionRunAge       time.Duration
-	retentionDefAge       time.Duration
-	retentionIdemAge      time.Duration
-	retentionAuditAge     time.Duration
-	retentionLogDir       string
-	retentionArtifactAge  time.Duration
-	retentionArtifactDir  string
-	runListJobID          string
-	runListLimit          int
-	runListCursor         int
-	runListCellID         string
-	runTasksLimit         int
-	runTasksCursor        int
-	runArtifactsLimit     int
-	runArtifactsCursor    int
-	runArtifactsTaskID    string
-	runArtifactsAttemptID string
-	runArtifactsExecID    string
-	runArtifactOutput     string
-	runReplayCellID       string
-	runReplayIdemKey      string
-	triggerIdemKey        string
-	triggerCellIDs        []string
-	runIdemKey            string
-	runCellID             string
+	podmanNetwork               string
+	podmanProfile               string
+	podmanKubeSpec              string
+	podmanGrafanaSpec           string
+	podmanRenderOut             string
+	resetYes                    bool
+	resetDryRun                 bool
+	retentionYes                bool
+	retentionDryRun             bool
+	retentionRunAge             time.Duration
+	retentionDefAge             time.Duration
+	retentionIdemAge            time.Duration
+	retentionAuditAge           time.Duration
+	retentionLogDir             string
+	retentionArtifactAge        time.Duration
+	retentionArtifactDir        string
+	runListJobID                string
+	runListLimit                int
+	runListCursor               int
+	runListCellID               string
+	runTasksLimit               int
+	runTasksCursor              int
+	runArtifactsLimit           int
+	runArtifactsCursor          int
+	runArtifactsTaskID          string
+	runArtifactsAttemptID       string
+	runArtifactsExecID          string
+	runArtifactOutput           string
+	runReplayCellID             string
+	runReplayIdemKey            string
+	triggerIdemKey              string
+	triggerCellIDs              []string
+	runIdemKey                  string
+	runCellID                   string
+	sourceListNamespace         string
+	sourceListQuiet             bool
+	sourceRegisterNamespace     string
+	sourceRegisterCheckoutMode  string
+	sourceRegisterAuthoringMode string
+	sourceRegisterCanonicalURL  string
+	sourceRegisterDefaultRef    string
+	sourceRegisterCredentialRef string
+	sourceRegisterDisabled      bool
+	sourceJobsRef               string
+	sourceJobsPath              string
+	sourceJobsLimit             int
+	sourceJobsQuiet             bool
+	sourceTriggerRef            string
+	sourceTriggerPath           string
+	sourceTriggerCellID         string
+	sourceTriggerIdemKey        string
 )
 
 var rootCmd = &cobra.Command{
@@ -92,6 +109,7 @@ var rootCmd = &cobra.Command{
 Commands are grouped around the thing you want to work with:
   actions    resolve and inspect action descriptors
   jobs       create, show, trigger, run, edit, and delete job definitions
+  sources    register source repositories and trigger source-defined jobs
   runs       show run status, list tasks/artifacts or run history, cancel, fail, or retry runs
   cells      inspect execution cell routing and catalog state
   logs       stream run logs or follow future runs for a job
@@ -99,6 +117,7 @@ Commands are grouped around the thing you want to work with:
   auth       log in, log out, and manage API tokens`,
 	Example: `  vectis-cli jobs create build.json
   vectis-cli jobs trigger build-main --follow
+  vectis-cli sources trigger vectis build-main --ref main --follow
   vectis-cli jobs list --format json
   vectis-cli runs list build-main
   vectis-cli runs show run-123
@@ -134,6 +153,13 @@ func init() {
 	configureActionResolveFlags(actionsResolveCmd)
 	actionsCmd.AddCommand(actionsListCmd, actionsResolveCmd)
 	rootCmd.AddCommand(actionsCmd)
+
+	configureSourcesListFlags(sourcesListCmd)
+	configureSourcesRegisterFlags(sourcesRegisterCmd)
+	configureSourcesJobsFlags(sourcesJobsCmd)
+	configureSourcesTriggerFlags(sourcesTriggerCmd)
+	sourcesCmd.AddCommand(sourcesListCmd, sourcesRegisterCmd, sourcesSyncCmd, sourcesJobsCmd, sourcesTriggerCmd)
+	rootCmd.AddCommand(sourcesCmd)
 
 	configureRunListFlags(runListCmd)
 	configureRunTasksFlags(runTasksCmd)
