@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"maps"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/action"
+	"vectis/internal/cell"
 	"vectis/internal/dispatchmeta"
 	"vectis/internal/interfaces"
 	"vectis/internal/observability"
@@ -192,10 +195,19 @@ func (s *queueServer) Enqueue(ctx context.Context, req *api.JobRequest) (*api.Em
 	return &api.Empty{}, nil
 }
 
-func (s *queueServer) Dequeue(ctx context.Context, _ *api.Empty) (*api.JobRequest, error) {
+func (s *queueServer) Dequeue(ctx context.Context, req *api.DequeueRequest) (*api.JobRequest, error) {
+	return s.dequeueWithRequest(ctx, req, true, "dequeue")
+}
+
+func (s *queueServer) TryDequeue(ctx context.Context, req *api.DequeueRequest) (*api.JobRequest, error) {
+	return s.dequeueWithRequest(ctx, req, false, "trydequeue")
+}
+
+func (s *queueServer) dequeueWithRequest(ctx context.Context, req *api.DequeueRequest, wait bool, persistOp string) (*api.JobRequest, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	supportedIsolation := supportedIsolationSet(req)
 	for {
 		now := time.Now().UTC()
 		if err := s.requeueExpiredLocked(now); err != nil {
@@ -206,12 +218,18 @@ func (s *queueServer) Dequeue(ctx context.Context, _ *api.Empty) (*api.JobReques
 			return nil, err
 		}
 
-		if s.size > 0 {
-			break
+		if wait {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 		}
 
-		if err := ctx.Err(); err != nil {
-			return nil, err
+		if offset := s.firstEligiblePendingOffsetLocked(supportedIsolation); offset >= 0 {
+			return s.deliverPendingOffsetLocked(ctx, offset, persistOp)
+		}
+
+		if !wait {
+			return nil, nil
 		}
 
 		s.mu.Unlock()
@@ -223,75 +241,31 @@ func (s *queueServer) Dequeue(ctx context.Context, _ *api.Empty) (*api.JobReques
 		}
 		s.mu.Lock()
 	}
-
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-
-	jobReq := s.jobs[s.head]
-	job := jobReq.GetJob()
-	deliveryID := s.newDeliveryID()
-	leaseUntil := time.Now().UTC().Add(s.deliveryTTL)
-	attemptCount := s.jobAttempts[job.GetId()]
-
-	if s.persistence != nil {
-		if err := s.persistence.appendDeliver(deliveryID, leaseUntil, attemptCount, s.snapshotAfterDeliverLocked(deliveryID, jobReq, leaseUntil, attemptCount)); err != nil {
-			return nil, fmt.Errorf("persist dequeue delivery: %w", err)
-		}
-	}
-
-	s.jobs[s.head] = nil
-	s.head = (s.head + 1) % len(s.jobs)
-	s.size--
-	s.inflight[deliveryID] = inflightDelivery{JobRequest: jobReq, LeaseUntil: leaseUntil, AttemptCount: attemptCount}
-
-	job.DeliveryId = &deliveryID
-	s.annotateDequeueHandoff(jobReq, job.GetId(), job.GetRunId(), deliveryID, attemptCount, s.size, s.deliveryTTL)
-	s.log.Info("Dequeued job: %s (delivery %s)", job.GetId(), deliveryID)
-	if s.metrics != nil {
-		s.metrics.RecordDequeued(ctx)
-	}
-
-	return jobReq, nil
 }
 
-func (s *queueServer) TryDequeue(ctx context.Context, _ *api.Empty) (*api.JobRequest, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	now := time.Now().UTC()
-	if err := s.requeueExpiredLocked(now); err != nil {
-		return nil, err
-	}
-
-	if err := s.dropExpiredPendingLocked(now); err != nil {
-		return nil, err
-	}
-
-	if s.size == 0 {
-		return nil, nil
-	}
-
-	jobReq := s.jobs[s.head]
+func (s *queueServer) deliverPendingOffsetLocked(ctx context.Context, offset int, persistOp string) (*api.JobRequest, error) {
+	jobReq := s.jobs[(s.head+offset)%len(s.jobs)]
 	job := jobReq.GetJob()
 	deliveryID := s.newDeliveryID()
 	leaseUntil := time.Now().UTC().Add(s.deliveryTTL)
 	attemptCount := s.jobAttempts[job.GetId()]
 
 	if s.persistence != nil {
-		if err := s.persistence.appendDeliver(deliveryID, leaseUntil, attemptCount, s.snapshotAfterDeliverLocked(deliveryID, jobReq, leaseUntil, attemptCount)); err != nil {
-			return nil, fmt.Errorf("persist trydequeue delivery: %w", err)
+		if err := s.persistence.appendDeliver(deliveryID, leaseUntil, attemptCount, s.snapshotAfterDeliverLocked(deliveryID, offset, jobReq, leaseUntil, attemptCount)); err != nil {
+			return nil, fmt.Errorf("persist %s delivery: %w", persistOp, err)
 		}
 	}
 
-	s.jobs[s.head] = nil
-	s.head = (s.head + 1) % len(s.jobs)
-	s.size--
+	s.removePendingOffsetLocked(offset)
 	s.inflight[deliveryID] = inflightDelivery{JobRequest: jobReq, LeaseUntil: leaseUntil, AttemptCount: attemptCount}
 
 	job.DeliveryId = &deliveryID
 	s.annotateDequeueHandoff(jobReq, job.GetId(), job.GetRunId(), deliveryID, attemptCount, s.size, s.deliveryTTL)
-	s.log.Info("TryDequeue returned job: %s (delivery %s)", job.GetId(), deliveryID)
+	if persistOp == "trydequeue" {
+		s.log.Info("TryDequeue returned job: %s (delivery %s)", job.GetId(), deliveryID)
+	} else {
+		s.log.Info("Dequeued job: %s (delivery %s)", job.GetId(), deliveryID)
+	}
 	if s.metrics != nil {
 		s.metrics.RecordDequeued(ctx)
 	}
@@ -370,17 +344,55 @@ func (s *queueServer) pendingJobsLocked() []*api.JobRequest {
 	return out
 }
 
+func (s *queueServer) firstEligiblePendingOffsetLocked(supportedIsolation map[string]struct{}) int {
+	if s.size == 0 {
+		return -1
+	}
+
+	if len(supportedIsolation) == 0 {
+		return 0
+	}
+
+	for i := 0; i < s.size; i++ {
+		if jobRequestMatchesSupportedIsolation(s.jobs[(s.head+i)%len(s.jobs)], supportedIsolation) {
+			return i
+		}
+	}
+
+	return -1
+}
+
+func (s *queueServer) removePendingOffsetLocked(offset int) {
+	for i := offset; i < s.size-1; i++ {
+		current := (s.head + i) % len(s.jobs)
+		next := (s.head + i + 1) % len(s.jobs)
+		s.jobs[current] = s.jobs[next]
+	}
+
+	tail := (s.head + s.size - 1) % len(s.jobs)
+	s.jobs[tail] = nil
+	s.size--
+
+	if s.size == 0 {
+		s.head = 0
+	}
+}
+
 func (s *queueServer) snapshotAfterEnqueueLocked(jobReq *api.JobRequest) snapshotState {
 	pending := s.pendingJobsLocked()
 	pending = append(pending, jobReq)
 	return snapshotState{pending: pending, inflight: s.copyInflightLocked(), deadLetter: s.copyDeadLetterLocked(), jobAttempts: s.copyJobAttemptsLocked()}
 }
 
-func (s *queueServer) snapshotAfterDeliverLocked(deliveryID string, jobReq *api.JobRequest, leaseUntil time.Time, attemptCount int) snapshotState {
+func (s *queueServer) snapshotAfterDeliverLocked(deliveryID string, deliveredOffset int, jobReq *api.JobRequest, leaseUntil time.Time, attemptCount int) snapshotState {
 	capHint := max(s.size-1, 0)
 
 	pending := make([]*api.JobRequest, 0, capHint)
-	for i := 1; i < s.size; i++ {
+	for i := 0; i < s.size; i++ {
+		if i == deliveredOffset {
+			continue
+		}
+
 		pending = append(pending, s.jobs[(s.head+i)%len(s.jobs)])
 	}
 
@@ -417,6 +429,126 @@ func (s *queueServer) copyInflightLocked() map[string]inflightDelivery {
 	maps.Copy(out, s.inflight)
 
 	return out
+}
+
+func supportedIsolationSet(req *api.DequeueRequest) map[string]struct{} {
+	if req == nil {
+		return nil
+	}
+
+	levels := req.GetSupportedIsolation()
+	if len(levels) == 0 {
+		return nil
+	}
+
+	supported := make(map[string]struct{}, len(levels))
+	for _, level := range levels {
+		level = action.NormalizeIsolation(level)
+		if level == "" || !action.IsSupportedIsolation(level) {
+			continue
+		}
+
+		supported[level] = struct{}{}
+	}
+
+	if len(supported) == 0 {
+		return nil
+	}
+
+	return supported
+}
+
+func jobRequestMatchesSupportedIsolation(req *api.JobRequest, supported map[string]struct{}) bool {
+	if len(supported) == 0 {
+		return true
+	}
+
+	job := req.GetJob()
+	if job == nil {
+		return true
+	}
+
+	defaultIsolation := action.NormalizeIsolation(job.GetDefaultIsolation())
+	if taskNode, ok := taskNodeFromRequest(req, job); ok {
+		return nodeSelfMatchesSupportedIsolation(taskNode, defaultIsolation, supported)
+	}
+
+	return nodeTreeMatchesSupportedIsolation(job.GetRoot(), defaultIsolation, supported)
+}
+
+func taskNodeFromRequest(req *api.JobRequest, job *api.Job) (*api.Node, bool) {
+	taskKey := strings.TrimSpace(req.GetMetadata()[cell.ExecutionTaskKeyMetadataKey])
+	if taskKey == "" {
+		return nil, false
+	}
+
+	if taskKey == "root" {
+		return job.GetRoot(), true
+	}
+
+	if node := findNodeByID(job.GetRoot(), taskKey); node != nil {
+		return node, true
+	}
+
+	return nil, false
+}
+
+func findNodeByID(node *api.Node, id string) *api.Node {
+	if node == nil {
+		return nil
+	}
+
+	if strings.TrimSpace(node.GetId()) == id {
+		return node
+	}
+
+	for _, child := range node.GetSteps() {
+		if found := findNodeByID(child, id); found != nil {
+			return found
+		}
+	}
+
+	return nil
+}
+
+func nodeTreeMatchesSupportedIsolation(node *api.Node, inherited string, supported map[string]struct{}) bool {
+	if node == nil {
+		return true
+	}
+
+	effective, ok := nodeEffectiveIsolationSupported(node, inherited, supported)
+	if !ok {
+		return false
+	}
+
+	for _, child := range node.GetSteps() {
+		if !nodeTreeMatchesSupportedIsolation(child, effective, supported) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func nodeSelfMatchesSupportedIsolation(node *api.Node, inherited string, supported map[string]struct{}) bool {
+	_, ok := nodeEffectiveIsolationSupported(node, inherited, supported)
+	return ok
+}
+
+func nodeEffectiveIsolationSupported(node *api.Node, inherited string, supported map[string]struct{}) (string, bool) {
+	effective := inherited
+	if node != nil {
+		if requested := action.NormalizeIsolation(node.GetIsolation()); requested != "" {
+			effective = requested
+		}
+	}
+
+	if effective == "" {
+		return effective, true
+	}
+
+	_, ok := supported[effective]
+	return effective, ok
 }
 
 func (s *queueServer) annotateDequeueHandoff(

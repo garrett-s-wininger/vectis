@@ -81,7 +81,7 @@ func TestEnvelopeTrace_QueueRoundTrip_ToWorkerContext(t *testing.T) {
 
 	deqCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	deqReq, err := client.Dequeue(deqCtx, &api.Empty{})
+	deqReq, err := client.Dequeue(deqCtx, &api.DequeueRequest{})
 	if err != nil {
 		t.Fatalf("dequeue: %v", err)
 	}

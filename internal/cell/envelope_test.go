@@ -297,6 +297,10 @@ func TestAttachExecutionEnvelopeBuildsFromDispatchRecord(t *testing.T) {
 		t.Fatal("expected execution envelope metadata")
 	}
 
+	if got := req.GetMetadata()[ExecutionTaskKeyMetadataKey]; got != dal.RootTaskKey {
+		t.Fatalf("execution task key metadata: got %q, want %q", got, dal.RootTaskKey)
+	}
+
 	got, err := DecodeExecutionEnvelope([]byte(payload))
 	if err != nil {
 		t.Fatalf("DecodeExecutionEnvelope: %v", err)

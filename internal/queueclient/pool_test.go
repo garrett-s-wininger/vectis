@@ -3,6 +3,7 @@ package queueclient
 import (
 	"context"
 	"sort"
+	"strings"
 	"testing"
 
 	api "vectis/api/gen/go"
@@ -15,11 +16,12 @@ import (
 )
 
 type fakeQueueServiceClient struct {
-	enqueues    int
-	enqueueErrs []error
-	acks        []string
-	tryErrs     []error
-	tryJobs     []*api.JobRequest
+	enqueues           int
+	enqueueErrs        []error
+	acks               []string
+	tryErrs            []error
+	tryJobs            []*api.JobRequest
+	tryDequeueRequests []*api.DequeueRequest
 }
 
 func (f *fakeQueueServiceClient) Enqueue(context.Context, *api.JobRequest, ...grpc.CallOption) (*api.Empty, error) {
@@ -35,7 +37,7 @@ func (f *fakeQueueServiceClient) Enqueue(context.Context, *api.JobRequest, ...gr
 	return &api.Empty{}, nil
 }
 
-func (f *fakeQueueServiceClient) Dequeue(context.Context, *api.Empty, ...grpc.CallOption) (*api.JobRequest, error) {
+func (f *fakeQueueServiceClient) Dequeue(context.Context, *api.DequeueRequest, ...grpc.CallOption) (*api.JobRequest, error) {
 	if len(f.tryJobs) == 0 {
 		return nil, nil
 	}
@@ -45,7 +47,12 @@ func (f *fakeQueueServiceClient) Dequeue(context.Context, *api.Empty, ...grpc.Ca
 	return job, nil
 }
 
-func (f *fakeQueueServiceClient) TryDequeue(context.Context, *api.Empty, ...grpc.CallOption) (*api.JobRequest, error) {
+func (f *fakeQueueServiceClient) TryDequeue(_ context.Context, req *api.DequeueRequest, _ ...grpc.CallOption) (*api.JobRequest, error) {
+	f.tryDequeueRequests = append(f.tryDequeueRequests, req)
+	return f.tryDequeue()
+}
+
+func (f *fakeQueueServiceClient) tryDequeue() (*api.JobRequest, error) {
 	if len(f.tryErrs) > 0 {
 		err := f.tryErrs[0]
 		f.tryErrs = f.tryErrs[1:]
@@ -172,6 +179,33 @@ func TestQueuePoolTryDequeueScansPastTransientShard(t *testing.T) {
 	}
 }
 
+func TestQueuePoolTryDequeueSendsSupportedIsolation(t *testing.T) {
+	jobID := "job-filtered-dequeue"
+	a := &fakeQueueServiceClient{
+		tryJobs: []*api.JobRequest{{Job: &api.Job{Id: &jobID}}},
+	}
+
+	p := newFakeQueuePool(map[string]*fakeQueueServiceClient{"a": a})
+	p.setDequeueSupportedIsolation([]string{" host ", "vm", "host"})
+
+	got, err := p.tryDequeue(context.Background())
+	if err != nil {
+		t.Fatalf("try dequeue: %v", err)
+	}
+
+	if got.GetJob().GetId() != jobID {
+		t.Fatalf("expected job %s, got %+v", jobID, got.GetJob())
+	}
+
+	if len(a.tryDequeueRequests) != 1 {
+		t.Fatalf("expected one dequeue request, got %d", len(a.tryDequeueRequests))
+	}
+
+	if got := a.tryDequeueRequests[0].GetSupportedIsolation(); strings.Join(got, ",") != "host,vm" {
+		t.Fatalf("supported isolation request = %v, want host,vm", got)
+	}
+}
+
 func TestQueuePoolTryDequeueReturnsErrorWhenAllShardsUnavailable(t *testing.T) {
 	a := &fakeQueueServiceClient{
 		tryErrs: []error{status.Error(codes.Unavailable, "queue shard a unavailable")},
@@ -241,6 +275,7 @@ func newFakeQueuePool(clients map[string]*fakeQueueServiceClient) *queuePool {
 		logger:    mocks.NopLogger{},
 		endpoints: make(map[string]*queuePoolEndpoint, len(clients)),
 	}
+	p.setDequeueSupportedIsolation(nil)
 
 	ids := make([]string, 0, len(clients))
 	for id := range clients {

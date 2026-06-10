@@ -51,7 +51,7 @@ func TestIntegrationQueue_EnqueueDequeueRoundTrip(t *testing.T) {
 		t.Fatalf("enqueue failed: %v", err)
 	}
 
-	got, err := client.Dequeue(ctx, &api.Empty{})
+	got, err := client.Dequeue(ctx, &api.DequeueRequest{})
 	if err != nil {
 		t.Fatalf("dequeue failed: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestIntegrationQueue_DequeueBlocksUntilJobAvailable(t *testing.T) {
 
 	dequeueDone := make(chan *api.JobRequest, 1)
 	go func() {
-		job, err := client.Dequeue(ctx, &api.Empty{})
+		job, err := client.Dequeue(ctx, &api.DequeueRequest{})
 		if err != nil {
 			t.Errorf("dequeue failed: %v", err)
 			return
@@ -102,7 +102,7 @@ func TestIntegrationQueue_DequeueContextCancellation(t *testing.T) {
 
 	errChan := make(chan error, 1)
 	go func() {
-		_, err := client.Dequeue(ctx, &api.Empty{})
+		_, err := client.Dequeue(ctx, &api.DequeueRequest{})
 		errChan <- err
 	}()
 
@@ -149,7 +149,7 @@ func TestIntegrationQueue_ConcurrentEnqueueDequeue(t *testing.T) {
 		dequeueWg.Go(func() {
 			for {
 				ctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
-				job, err := client.Dequeue(ctx, &api.Empty{})
+				job, err := client.Dequeue(ctx, &api.DequeueRequest{})
 				cancel()
 
 				if err != nil {
@@ -188,7 +188,7 @@ func TestIntegrationQueue_MultipleDequeueWaiters(t *testing.T) {
 			timeoutCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			defer cancel()
 
-			_, err := client.Dequeue(timeoutCtx, &api.Empty{})
+			_, err := client.Dequeue(timeoutCtx, &api.DequeueRequest{})
 			results <- result{id: id, success: err == nil}
 		}(i)
 	}
@@ -225,7 +225,7 @@ func TestIntegrationQueue_DequeueEmptyQueue(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	_, err := client.Dequeue(ctx, &api.Empty{})
+	_, err := client.Dequeue(ctx, &api.DequeueRequest{})
 	if err == nil {
 		t.Error("expected error when dequeuing from empty queue with timeout")
 	}
@@ -247,7 +247,7 @@ func TestIntegrationQueue_EnqueueMultipleDequeueOrder(t *testing.T) {
 	}
 
 	for i := 1; i <= 3; i++ {
-		job, err := client.Dequeue(ctx, &api.Empty{})
+		job, err := client.Dequeue(ctx, &api.DequeueRequest{})
 		if err != nil {
 			t.Fatalf("dequeue %d failed: %v", i, err)
 		}

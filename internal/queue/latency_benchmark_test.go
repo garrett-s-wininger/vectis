@@ -144,7 +144,7 @@ func runLatencyScenario(b *testing.B, sc latencyScenario) {
 					}
 
 					start := time.Now()
-					got, err := svc.TryDequeue(ctx, &api.Empty{})
+					got, err := svc.TryDequeue(ctx, &api.DequeueRequest{})
 					lat := time.Since(start)
 					if err != nil {
 						dequeueCh <- samples

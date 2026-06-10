@@ -11,14 +11,23 @@ import (
 	"vectis/internal/queueclient"
 )
 
+type DialOptions struct {
+	QueueDequeueSupportedIsolation []string
+}
+
 func DialQueueAndLog(ctx context.Context, logger interfaces.Logger, retryMetrics backoff.RetryMetrics, assignmentStore logclient.AssignmentStore, routingMetrics logclient.RoutingMetrics) (interfaces.QueueClient, interfaces.LogClient, func(), error) {
+	return DialQueueAndLogWithOptions(ctx, logger, retryMetrics, assignmentStore, routingMetrics, DialOptions{})
+}
+
+func DialQueueAndLogWithOptions(ctx context.Context, logger interfaces.Logger, retryMetrics backoff.RetryMetrics, assignmentStore logclient.AssignmentStore, routingMetrics logclient.RoutingMetrics, opts DialOptions) (interfaces.QueueClient, interfaces.LogClient, func(), error) {
 	qPin := config.PinnedQueueAddress()
 	lPin := config.PinnedLogAddress()
 
 	queuePool, err := queueclient.NewManagingQueuePoolClient(ctx, logger, queueclient.QueuePoolOptions{
-		PinnedAddress:   qPin,
-		RegistryAddress: config.WorkerRegistryDialAddress(),
-		RetryMetrics:    retryMetrics,
+		PinnedAddress:             qPin,
+		RegistryAddress:           config.WorkerRegistryDialAddress(),
+		RetryMetrics:              retryMetrics,
+		DequeueSupportedIsolation: opts.QueueDequeueSupportedIsolation,
 	})
 
 	if err != nil {

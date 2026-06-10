@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,10 +25,11 @@ import (
 const poolDequeuePollInterval = 250 * time.Millisecond
 
 type QueuePoolOptions struct {
-	PinnedAddress   string
-	RegistryAddress string
-	RetryMetrics    backoff.RetryMetrics
-	RefreshInterval time.Duration
+	PinnedAddress             string
+	RegistryAddress           string
+	RetryMetrics              backoff.RetryMetrics
+	RefreshInterval           time.Duration
+	DequeueSupportedIsolation []string
 }
 
 type ManagingQueuePoolService struct {
@@ -102,6 +104,7 @@ type queuePool struct {
 
 	enqueueCounter atomic.Uint64
 	dequeueCounter atomic.Uint64
+	dequeueRequest *api.DequeueRequest
 	cancelFn       context.CancelFunc
 }
 
@@ -140,6 +143,8 @@ func newQueuePool(ctx context.Context, logger interfaces.Logger, opts QueuePoolO
 		opts:      opts,
 		endpoints: make(map[string]*queuePoolEndpoint),
 	}
+
+	p.setDequeueSupportedIsolation(opts.DequeueSupportedIsolation)
 	p.dial = p.dialEndpoint
 
 	if opts.PinnedAddress == "" {
@@ -500,7 +505,7 @@ func (p *queuePool) tryDequeue(ctx context.Context) (*api.JobRequest, error) {
 
 	for offset := range endpoints {
 		ep := endpoints[(start+offset)%len(endpoints)]
-		req, err := ep.client.TryDequeue(ctx, &api.Empty{})
+		req, err := p.tryDequeueEndpoint(ctx, ep)
 		if err == nil {
 			sawReachable = true
 			if req != nil && req.GetJob() != nil {
@@ -525,6 +530,10 @@ func (p *queuePool) tryDequeue(ctx context.Context) (*api.JobRequest, error) {
 	}
 
 	return nil, nil
+}
+
+func (p *queuePool) tryDequeueEndpoint(ctx context.Context, ep *queuePoolEndpoint) (*api.JobRequest, error) {
+	return ep.client.TryDequeue(ctx, p.dequeueRequest)
 }
 
 func (p *queuePool) ack(ctx context.Context, deliveryID string) error {
@@ -673,6 +682,43 @@ func (e *queuePoolEndpoint) close() {
 
 	if e.conn != nil {
 		_ = e.conn.Close()
+	}
+}
+
+func normalizeDequeueSupportedIsolation(levels []string) []string {
+	if len(levels) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(levels))
+	out := make([]string, 0, len(levels))
+	for _, level := range levels {
+		level = strings.ToLower(strings.TrimSpace(level))
+		if level == "" {
+			continue
+		}
+
+		if _, ok := seen[level]; ok {
+			continue
+		}
+
+		seen[level] = struct{}{}
+		out = append(out, level)
+	}
+
+	return out
+}
+
+func (p *queuePool) setDequeueSupportedIsolation(levels []string) {
+	normalized := normalizeDequeueSupportedIsolation(levels)
+	p.opts.DequeueSupportedIsolation = normalized
+	if len(normalized) == 0 {
+		p.dequeueRequest = &api.DequeueRequest{}
+		return
+	}
+
+	p.dequeueRequest = &api.DequeueRequest{
+		SupportedIsolation: append([]string(nil), normalized...),
 	}
 }
 

@@ -216,7 +216,7 @@ Nodes can request an isolation level with `isolation`:
 
 Allowed values are `host` and `vm`. A job can set `default_isolation` for every node in the action tree. If a node omits `isolation`, it inherits the nearest parent sequence's isolation, then the job default, then the worker backend default. A `builtins/sequence` node can set `isolation` for its child steps, and a child can override it.
 
-Validation only checks that the value is supported by the job format. The worker must still have a matching execution provider. For example, a node with `isolation: "vm"` fails at execution time on a worker that has no VM backend configured; it does not fall back to host execution.
+Validation only checks that the value is supported by the job format. Workers advertise their supported isolation levels to the queue, and a worker skips queued jobs that require an unsupported level. The worker executor still enforces the boundary before action code runs; a node with `isolation: "vm"` does not fall back to host execution.
 
 ## Reading Validation Errors
 

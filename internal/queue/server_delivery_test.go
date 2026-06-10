@@ -6,6 +6,8 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/action"
+	"vectis/internal/cell"
 	"vectis/internal/dispatchmeta"
 	"vectis/internal/queueid"
 )
@@ -14,6 +16,17 @@ import (
 // It uses a 3x multiplier to avoid flakes on slow CI runners.
 func deliveryWait(ttl time.Duration) {
 	time.Sleep(ttl * 3)
+}
+
+func queueTestString(value string) *string {
+	return &value
+}
+
+func queueTestNode(id, uses string) *api.Node {
+	return &api.Node{
+		Id:   queueTestString(id),
+		Uses: queueTestString(uses),
+	}
 }
 
 func TestQueueDelivery_AckPreventsRedelivery(t *testing.T) {
@@ -29,7 +42,7 @@ func TestQueueDelivery_AckPreventsRedelivery(t *testing.T) {
 		t.Fatalf("enqueue: %v", err)
 	}
 
-	job, err := svc.Dequeue(ctx, &api.Empty{})
+	job, err := svc.Dequeue(ctx, &api.DequeueRequest{})
 	if err != nil {
 		t.Fatalf("dequeue: %v", err)
 	}
@@ -44,7 +57,7 @@ func TestQueueDelivery_AckPreventsRedelivery(t *testing.T) {
 	}
 
 	deliveryWait(ttl)
-	got, err := svc.TryDequeue(ctx, &api.Empty{})
+	got, err := svc.TryDequeue(ctx, &api.DequeueRequest{})
 	if err != nil {
 		t.Fatalf("trydequeue: %v", err)
 	}
@@ -66,7 +79,7 @@ func TestQueueDelivery_IncludesInstanceID(t *testing.T) {
 		t.Fatalf("enqueue: %v", err)
 	}
 
-	got, err := svc.Dequeue(ctx, &api.Empty{})
+	got, err := svc.Dequeue(ctx, &api.DequeueRequest{})
 	if err != nil {
 		t.Fatalf("dequeue: %v", err)
 	}
@@ -78,6 +91,131 @@ func TestQueueDelivery_IncludesInstanceID(t *testing.T) {
 
 	if instanceID != "queue-a" {
 		t.Fatalf("expected instance queue-a, got %q", instanceID)
+	}
+}
+
+func TestQueueDelivery_TryDequeueSkipsUnsupportedIsolation(t *testing.T) {
+	ctx := context.Background()
+	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{}, nil)
+	if err != nil {
+		t.Fatalf("new queue: %v", err)
+	}
+
+	vmJobID := "job-vm-first"
+	hostJobID := "job-host-second"
+	vmDefault := action.IsolationVM
+	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{
+		Id:               &vmJobID,
+		DefaultIsolation: &vmDefault,
+		Root:             queueTestNode("root-vm", "builtins/shell"),
+	}}); err != nil {
+		t.Fatalf("enqueue vm job: %v", err)
+	}
+
+	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{
+		Id:   &hostJobID,
+		Root: queueTestNode("root-host", "builtins/shell"),
+	}}); err != nil {
+		t.Fatalf("enqueue host job: %v", err)
+	}
+
+	hostOnly, err := svc.TryDequeue(ctx, &api.DequeueRequest{SupportedIsolation: []string{action.IsolationHost}})
+	if err != nil {
+		t.Fatalf("host trydequeue filtered: %v", err)
+	}
+
+	if hostOnly == nil || hostOnly.GetJob().GetId() != hostJobID {
+		t.Fatalf("expected host worker to skip VM job and receive %s, got %#v", hostJobID, hostOnly)
+	}
+
+	vmCapable, err := svc.TryDequeue(ctx, &api.DequeueRequest{SupportedIsolation: []string{action.IsolationHost, action.IsolationVM}})
+	if err != nil {
+		t.Fatalf("vm trydequeue filtered: %v", err)
+	}
+
+	if vmCapable == nil || vmCapable.GetJob().GetId() != vmJobID {
+		t.Fatalf("expected VM-capable worker to receive skipped job %s, got %#v", vmJobID, vmCapable)
+	}
+}
+
+func TestQueueDelivery_TryDequeueChecksInheritedNodeIsolation(t *testing.T) {
+	ctx := context.Background()
+	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{}, nil)
+	if err != nil {
+		t.Fatalf("new queue: %v", err)
+	}
+
+	jobID := "job-child-vm"
+	vmIsolation := action.IsolationVM
+	root := queueTestNode("root", "builtins/sequence")
+	root.Steps = []*api.Node{{
+		Id:        queueTestString("child"),
+		Uses:      queueTestString("builtins/shell"),
+		Isolation: &vmIsolation,
+	}}
+
+	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID, Root: root}}); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	hostOnly, err := svc.TryDequeue(ctx, &api.DequeueRequest{SupportedIsolation: []string{action.IsolationHost}})
+	if err != nil {
+		t.Fatalf("host trydequeue filtered: %v", err)
+	}
+
+	if hostOnly != nil {
+		t.Fatalf("expected host-only worker not to receive VM child job, got %#v", hostOnly)
+	}
+
+	vmCapable, err := svc.TryDequeue(ctx, &api.DequeueRequest{SupportedIsolation: []string{action.IsolationHost, action.IsolationVM}})
+	if err != nil {
+		t.Fatalf("vm trydequeue filtered: %v", err)
+	}
+
+	if vmCapable == nil || vmCapable.GetJob().GetId() != jobID {
+		t.Fatalf("expected VM-capable worker to receive %s, got %#v", jobID, vmCapable)
+	}
+}
+
+func TestQueueDelivery_TryDequeueUsesExecutionTaskKey(t *testing.T) {
+	ctx := context.Background()
+	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{}, nil)
+	if err != nil {
+		t.Fatalf("new queue: %v", err)
+	}
+
+	jobID := "job-task-host-override"
+	vmDefault := action.IsolationVM
+	hostIsolation := action.IsolationHost
+	root := queueTestNode("root", "builtins/sequence")
+	root.Steps = []*api.Node{{
+		Id:        queueTestString("host-child"),
+		Uses:      queueTestString("builtins/shell"),
+		Isolation: &hostIsolation,
+	}}
+
+	req := &api.JobRequest{
+		Job: &api.Job{
+			Id:               &jobID,
+			DefaultIsolation: &vmDefault,
+			Root:             root,
+		},
+		Metadata: map[string]string{
+			cell.ExecutionTaskKeyMetadataKey: "host-child",
+		},
+	}
+
+	if _, err := svc.Enqueue(ctx, req); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	hostOnly, err := svc.TryDequeue(ctx, &api.DequeueRequest{SupportedIsolation: []string{action.IsolationHost}})
+	if err != nil {
+		t.Fatalf("host trydequeue filtered: %v", err)
+	}
+
+	if hostOnly == nil || hostOnly.GetJob().GetId() != jobID {
+		t.Fatalf("expected host-only worker to receive host task override %s, got %#v", jobID, hostOnly)
 	}
 }
 
@@ -94,7 +232,7 @@ func TestQueueDelivery_UnackedLeaseExpiryRequeues(t *testing.T) {
 		t.Fatalf("enqueue: %v", err)
 	}
 
-	first, err := svc.Dequeue(ctx, &api.Empty{})
+	first, err := svc.Dequeue(ctx, &api.DequeueRequest{})
 	if err != nil {
 		t.Fatalf("first dequeue: %v", err)
 	}
@@ -106,7 +244,7 @@ func TestQueueDelivery_UnackedLeaseExpiryRequeues(t *testing.T) {
 	firstDeliveryID := first.GetJob().GetDeliveryId()
 
 	deliveryWait(ttl)
-	second, err := svc.TryDequeue(ctx, &api.Empty{})
+	second, err := svc.TryDequeue(ctx, &api.DequeueRequest{})
 	if err != nil {
 		t.Fatalf("second dequeue: %v", err)
 	}
@@ -147,7 +285,7 @@ func TestQueueDelivery_ExpiredPendingDeadlineDropsBeforeDelivery(t *testing.T) {
 		t.Fatalf("enqueue next job: %v", err)
 	}
 
-	got, err := svc.Dequeue(ctx, &api.Empty{})
+	got, err := svc.Dequeue(ctx, &api.DequeueRequest{})
 	if err != nil {
 		t.Fatalf("dequeue: %v", err)
 	}
@@ -181,7 +319,7 @@ func TestQueueDelivery_ExpiredInflightDeadlineDropsInsteadOfRequeue(t *testing.T
 		t.Fatalf("enqueue: %v", err)
 	}
 
-	first, err := svc.TryDequeue(ctx, &api.Empty{})
+	first, err := svc.TryDequeue(ctx, &api.DequeueRequest{})
 	if err != nil {
 		t.Fatalf("first trydequeue: %v", err)
 	}
@@ -191,7 +329,7 @@ func TestQueueDelivery_ExpiredInflightDeadlineDropsInsteadOfRequeue(t *testing.T
 	}
 
 	deliveryWait(ttl)
-	second, err := svc.TryDequeue(ctx, &api.Empty{})
+	second, err := svc.TryDequeue(ctx, &api.DequeueRequest{})
 	if err != nil {
 		t.Fatalf("second trydequeue: %v", err)
 	}
@@ -228,7 +366,7 @@ func TestQueueDelivery_DLQAfterMaxAttempts(t *testing.T) {
 
 	// Dequeue and let expire 3 times.
 	for i := range 3 {
-		job, err := svc.Dequeue(ctx, &api.Empty{})
+		job, err := svc.Dequeue(ctx, &api.DequeueRequest{})
 		if err != nil {
 			t.Fatalf("dequeue %d: %v", i+1, err)
 		}
@@ -241,7 +379,7 @@ func TestQueueDelivery_DLQAfterMaxAttempts(t *testing.T) {
 	}
 
 	// One more TryDequeue to trigger requeueExpiredLocked, which should move to DLQ.
-	_, err = svc.TryDequeue(ctx, &api.Empty{})
+	_, err = svc.TryDequeue(ctx, &api.DequeueRequest{})
 	if err != nil {
 		t.Fatalf("final trydequeue: %v", err)
 	}
@@ -265,7 +403,7 @@ func TestQueueDelivery_DLQAfterMaxAttempts(t *testing.T) {
 	}
 
 	// Queue should be empty.
-	got, err := svc.TryDequeue(ctx, &api.Empty{})
+	got, err := svc.TryDequeue(ctx, &api.DequeueRequest{})
 	if err != nil {
 		t.Fatalf("trydequeue after dlq: %v", err)
 	}
@@ -298,7 +436,7 @@ func TestQueueDelivery_DLQSurvivesRestart(t *testing.T) {
 
 	// Dequeue and let expire twice.
 	for i := range 2 {
-		job, err := svc.Dequeue(ctx, &api.Empty{})
+		job, err := svc.Dequeue(ctx, &api.DequeueRequest{})
 		if err != nil {
 			t.Fatalf("dequeue %d: %v", i+1, err)
 		}
@@ -311,7 +449,7 @@ func TestQueueDelivery_DLQSurvivesRestart(t *testing.T) {
 	}
 
 	// Final TryDequeue triggers DLQ move.
-	_, err = svc.TryDequeue(ctx, &api.Empty{})
+	_, err = svc.TryDequeue(ctx, &api.DequeueRequest{})
 	if err != nil {
 		t.Fatalf("final trydequeue: %v", err)
 	}

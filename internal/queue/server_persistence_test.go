@@ -50,7 +50,7 @@ func TestQueuePersistence_RestorePendingOrder(t *testing.T) {
 		}
 	}
 
-	if _, err := svc.Dequeue(ctx, &api.Empty{}); err != nil {
+	if _, err := svc.Dequeue(ctx, &api.DequeueRequest{}); err != nil {
 		t.Fatalf("dequeue: %v", err)
 	}
 
@@ -70,7 +70,7 @@ func TestQueuePersistence_RestorePendingOrder(t *testing.T) {
 	}
 
 	for _, want := range []string{"job-2", "job-3", "job-4"} {
-		got, err := restarted.TryDequeue(ctx, &api.Empty{})
+		got, err := restarted.TryDequeue(ctx, &api.DequeueRequest{})
 		if err != nil {
 			t.Fatalf("trydequeue %s: %v", want, err)
 		}
@@ -101,7 +101,7 @@ func TestQueuePersistence_RestoreFromSnapshot(t *testing.T) {
 		}
 	}
 
-	_, _ = svc.Dequeue(ctx, &api.Empty{})
+	_, _ = svc.Dequeue(ctx, &api.DequeueRequest{})
 
 	closeQueueService(t, svc)
 	restarted, err := NewQueueServiceWithOptions(mocks.NopLogger{}, QueueOptions{
@@ -113,7 +113,7 @@ func TestQueuePersistence_RestoreFromSnapshot(t *testing.T) {
 		t.Fatalf("restart queue: %v", err)
 	}
 
-	got, err := restarted.TryDequeue(ctx, &api.Empty{})
+	got, err := restarted.TryDequeue(ctx, &api.DequeueRequest{})
 	if err != nil {
 		t.Fatalf("trydequeue: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestQueuePersistence_ExpiredRequeueSurvivesRestartBeforeSnapshot(t *testing
 		t.Fatalf("enqueue job-1: %v", err)
 	}
 
-	if _, err := svc.Dequeue(ctx, &api.Empty{}); err != nil {
+	if _, err := svc.Dequeue(ctx, &api.DequeueRequest{}); err != nil {
 		t.Fatalf("dequeue job-1: %v", err)
 	}
 
@@ -193,7 +193,7 @@ func TestQueuePersistence_ExpiredRequeueSurvivesRestartBeforeSnapshot(t *testing
 		t.Fatalf("restart queue: %v", err)
 	}
 
-	first, err := restarted.TryDequeue(ctx, &api.Empty{})
+	first, err := restarted.TryDequeue(ctx, &api.DequeueRequest{})
 	if err != nil {
 		t.Fatalf("first dequeue after restart: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestQueuePersistence_ExpiredRequeueSurvivesRestartBeforeSnapshot(t *testing
 		t.Fatalf("expected first replayed job-1, got %#v", first)
 	}
 
-	second, err := restarted.TryDequeue(ctx, &api.Empty{})
+	second, err := restarted.TryDequeue(ctx, &api.DequeueRequest{})
 	if err != nil {
 		t.Fatalf("second dequeue after restart: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestQueuePersistence_ExpiredDeadlineDropSurvivesRestart(t *testing.T) {
 		t.Fatalf("enqueue expired job: %v", err)
 	}
 
-	got, err := svc.TryDequeue(ctx, &api.Empty{})
+	got, err := svc.TryDequeue(ctx, &api.DequeueRequest{})
 	if err != nil {
 		t.Fatalf("trydequeue expired job: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestQueuePersistence_ExpiredDeadlineDropSurvivesRestart(t *testing.T) {
 		t.Fatalf("restart queue: %v", err)
 	}
 
-	got, err = restarted.TryDequeue(ctx, &api.Empty{})
+	got, err = restarted.TryDequeue(ctx, &api.DequeueRequest{})
 	if err != nil {
 		t.Fatalf("trydequeue after restart: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestQueuePersistence_JobAttemptsSurviveSnapshot(t *testing.T) {
 	}
 
 	// Dequeue job-1 (attemptCount=0).
-	if _, err := svc.Dequeue(ctx, &api.Empty{}); err != nil {
+	if _, err := svc.Dequeue(ctx, &api.DequeueRequest{}); err != nil {
 		t.Fatalf("dequeue job-1: %v", err)
 	}
 
@@ -299,7 +299,7 @@ func TestQueuePersistence_JobAttemptsSurviveSnapshot(t *testing.T) {
 		t.Fatalf("enqueue job-2: %v", err)
 	}
 
-	if _, err := svc.Dequeue(ctx, &api.Empty{}); err != nil {
+	if _, err := svc.Dequeue(ctx, &api.DequeueRequest{}); err != nil {
 		t.Fatalf("dequeue job-2: %v", err)
 	}
 
@@ -312,7 +312,7 @@ func TestQueuePersistence_JobAttemptsSurviveSnapshot(t *testing.T) {
 		t.Fatalf("enqueue job-3: %v", err)
 	}
 
-	if _, err := svc.Dequeue(ctx, &api.Empty{}); err != nil {
+	if _, err := svc.Dequeue(ctx, &api.DequeueRequest{}); err != nil {
 		t.Fatalf("dequeue job-3: %v", err)
 	}
 
@@ -323,7 +323,7 @@ func TestQueuePersistence_JobAttemptsSurviveSnapshot(t *testing.T) {
 		t.Fatalf("enqueue job-4: %v", err)
 	}
 
-	if _, err := svc.Dequeue(ctx, &api.Empty{}); err != nil {
+	if _, err := svc.Dequeue(ctx, &api.DequeueRequest{}); err != nil {
 		t.Fatalf("dequeue job-4: %v", err)
 	}
 
@@ -345,7 +345,7 @@ func TestQueuePersistence_JobAttemptsSurviveSnapshot(t *testing.T) {
 	// Dequeue all pending jobs. job-1 should come out with attemptCount=2.
 	// If jobAttempts was lost, it would come out with attemptCount=0.
 	for {
-		job, err := restarted.TryDequeue(ctx, &api.Empty{})
+		job, err := restarted.TryDequeue(ctx, &api.DequeueRequest{})
 		if err != nil {
 			t.Fatalf("trydequeue after restart: %v", err)
 		}
@@ -389,7 +389,7 @@ func TestQueuePersistence_DLQRequeueRemovesDeadLetterAfterRestart(t *testing.T) 
 
 	// Dequeue twice and let both leases expire so the second expiry moves it to DLQ.
 	for i := range 2 {
-		job, err := svc.Dequeue(ctx, &api.Empty{})
+		job, err := svc.Dequeue(ctx, &api.DequeueRequest{})
 		if err != nil {
 			t.Fatalf("dequeue %d: %v", i+1, err)
 		}
@@ -400,7 +400,7 @@ func TestQueuePersistence_DLQRequeueRemovesDeadLetterAfterRestart(t *testing.T) 
 	}
 
 	// Trigger expiry processing and DLQ move.
-	if _, err := svc.TryDequeue(ctx, &api.Empty{}); err != nil {
+	if _, err := svc.TryDequeue(ctx, &api.DequeueRequest{}); err != nil {
 		t.Fatalf("trigger dlq move: %v", err)
 	}
 

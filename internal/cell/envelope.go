@@ -15,6 +15,7 @@ import (
 const (
 	ExecutionEnvelopeVersion     = 1
 	ExecutionEnvelopeMetadataKey = "vectis.execution_envelope"
+	ExecutionTaskKeyMetadataKey  = "vectis.execution_task_key"
 )
 
 type ExecutionEnvelope struct {
@@ -104,7 +105,9 @@ func AttachExecutionEnvelope(req *api.JobRequest, dispatch dal.ExecutionDispatch
 	if req.Metadata == nil {
 		req.Metadata = map[string]string{}
 	}
+
 	req.Metadata[ExecutionEnvelopeMetadataKey] = string(payload)
+	req.Metadata[ExecutionTaskKeyMetadataKey] = env.TaskKey
 
 	return env, nil
 }

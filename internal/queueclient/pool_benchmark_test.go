@@ -67,11 +67,15 @@ func (b *benchmarkQueueServiceClient) Enqueue(context.Context, *api.JobRequest, 
 	return &api.Empty{}, nil
 }
 
-func (b *benchmarkQueueServiceClient) Dequeue(context.Context, *api.Empty, ...grpc.CallOption) (*api.JobRequest, error) {
-	return b.TryDequeue(context.Background(), &api.Empty{})
+func (b *benchmarkQueueServiceClient) Dequeue(context.Context, *api.DequeueRequest, ...grpc.CallOption) (*api.JobRequest, error) {
+	return b.tryDequeue()
 }
 
-func (b *benchmarkQueueServiceClient) TryDequeue(context.Context, *api.Empty, ...grpc.CallOption) (*api.JobRequest, error) {
+func (b *benchmarkQueueServiceClient) TryDequeue(context.Context, *api.DequeueRequest, ...grpc.CallOption) (*api.JobRequest, error) {
+	return b.tryDequeue()
+}
+
+func (b *benchmarkQueueServiceClient) tryDequeue() (*api.JobRequest, error) {
 	if b.state != nil {
 		calls := b.state.stats.tryDequeue.Add(1)
 		if threshold := b.state.unavailableAfterTryDequeue.Load(); threshold > 0 && calls > threshold {
@@ -126,6 +130,20 @@ func BenchmarkQueuePool_ShardedDequeueBurst(b *testing.B) {
 	for _, shards := range []int{1, 2, 4} {
 		b.Run(fmt.Sprintf("shards_%d", shards), func(b *testing.B) {
 			runQueuePoolDequeueBurst(b, shards)
+		})
+	}
+}
+
+func BenchmarkQueuePool_ShardedDequeueFilteredBurst(b *testing.B) {
+	for _, shards := range []int{1, 2, 4} {
+		b.Run(fmt.Sprintf("shards_%d", shards), func(b *testing.B) {
+			runQueuePoolDequeueScenario(b, queuePoolDequeueScenario{
+				shards:             shards,
+				workers:            benchmarkWorkerCount(),
+				totalJobs:          queuePoolDequeueBurstJobs * b.N,
+				prefill:            prefillBenchmarkQueuePoolEvenly,
+				supportedIsolation: []string{"host"},
+			})
 		})
 	}
 }
@@ -227,17 +245,19 @@ func runQueuePoolDequeueBurst(b *testing.B, shards int) {
 }
 
 type queuePoolDequeueScenario struct {
-	shards      int
-	workers     int
-	totalJobs   int
-	prefill     func(*testing.B, []localBenchmarkQueueShard, int)
-	configure   func([]localBenchmarkQueueShard)
-	globalDrain bool
+	shards             int
+	workers            int
+	totalJobs          int
+	prefill            func(*testing.B, []localBenchmarkQueueShard, int)
+	configure          func([]localBenchmarkQueueShard)
+	supportedIsolation []string
+	globalDrain        bool
 }
 
 func runQueuePoolDequeueScenario(b *testing.B, opts queuePoolDequeueScenario) {
 	pool, services := newLocalBenchmarkQueuePool(b, opts.shards)
 	defer closeLocalBenchmarkQueuePool(b, pool, services)
+	pool.setDequeueSupportedIsolation(opts.supportedIsolation)
 
 	ctx := context.Background()
 	if opts.workers < 1 {

@@ -10,12 +10,35 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/action"
+	"vectis/internal/cell"
 	"vectis/internal/interfaces/mocks"
 )
 
 func benchmarkJob() *api.Job {
 	id := "bench-job"
 	return &api.Job{Id: &id}
+}
+
+func benchmarkIsolationJob(id, isolation string) *api.Job {
+	job := &api.Job{
+		Id:   queueTestString(id),
+		Root: queueTestNode(id+"-root", "builtins/shell"),
+	}
+	if isolation != "" {
+		job.DefaultIsolation = queueTestString(isolation)
+	}
+
+	return job
+}
+
+func benchmarkQueueWorkerCount() int {
+	workers := runtime.GOMAXPROCS(0)
+	if workers < 1 {
+		return 1
+	}
+
+	return workers
 }
 
 func BenchmarkQueue_Enqueue(b *testing.B) {
@@ -63,7 +86,7 @@ func BenchmarkQueue_EnqueueDequeue_RoundTrip(b *testing.B) {
 			b.Fatalf("enqueue failed: %v", err)
 		}
 
-		got, err := svc.Dequeue(ctx, &api.Empty{})
+		got, err := svc.Dequeue(ctx, &api.DequeueRequest{})
 		if err != nil {
 			b.Fatalf("dequeue failed: %v", err)
 		}
@@ -71,6 +94,414 @@ func BenchmarkQueue_EnqueueDequeue_RoundTrip(b *testing.B) {
 		if got == nil {
 			b.Fatal("expected dequeued job, got nil")
 		}
+	}
+}
+
+func BenchmarkQueue_TryDequeue_RoundTrip(b *testing.B) {
+	ctx := context.Background()
+	hostID := "bench-host-job"
+	vmID := "bench-vm-job"
+	vmDefault := action.IsolationVM
+	hostJob := &api.Job{
+		Id:   &hostID,
+		Root: queueTestNode("host-root", "builtins/shell"),
+	}
+
+	vmJob := &api.Job{
+		Id:               &vmID,
+		DefaultIsolation: &vmDefault,
+		Root:             queueTestNode("vm-root", "builtins/shell"),
+	}
+
+	hostOnly := &api.DequeueRequest{SupportedIsolation: []string{action.IsolationHost}}
+	anyIsolation := &api.DequeueRequest{SupportedIsolation: []string{action.IsolationHost, action.IsolationVM}}
+
+	cases := []struct {
+		name  string
+		first *api.Job
+		next  *api.Job
+	}{
+		{name: "eligible_head", first: hostJob, next: vmJob},
+		{name: "skip_one", first: vmJob, next: hostJob},
+	}
+
+	for _, tc := range cases {
+		b.Run(tc.name, func(b *testing.B) {
+			svc := NewQueueService(mocks.NopLogger{})
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				tc.first.DeliveryId = nil
+				tc.next.DeliveryId = nil
+				if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: tc.first}); err != nil {
+					b.Fatalf("enqueue first: %v", err)
+				}
+				if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: tc.next}); err != nil {
+					b.Fatalf("enqueue next: %v", err)
+				}
+
+				got, err := svc.TryDequeue(ctx, hostOnly)
+				if err != nil {
+					b.Fatalf("trydequeue filtered: %v", err)
+				}
+				if got == nil || got.GetJob().GetId() != hostID {
+					b.Fatalf("expected host job, got %#v", got)
+				}
+				if _, err := svc.Ack(ctx, &api.AckRequest{DeliveryId: got.GetJob().DeliveryId}); err != nil {
+					b.Fatalf("ack host: %v", err)
+				}
+
+				cleanup, err := svc.TryDequeue(ctx, anyIsolation)
+				if err != nil {
+					b.Fatalf("cleanup trydequeue: %v", err)
+				}
+				if cleanup == nil || cleanup.GetJob().GetId() != vmID {
+					b.Fatalf("expected vm cleanup job, got %#v", cleanup)
+				}
+				if _, err := svc.Ack(ctx, &api.AckRequest{DeliveryId: cleanup.GetJob().DeliveryId}); err != nil {
+					b.Fatalf("ack cleanup: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkQueue_IsolationSkipDepth(b *testing.B) {
+	ctx := context.Background()
+	hostOnly := &api.DequeueRequest{SupportedIsolation: []string{action.IsolationHost}}
+
+	for _, skipDepth := range []int{0, 1, 10, 100, 1000} {
+		b.Run(fmt.Sprintf("skip_%d", skipDepth), func(b *testing.B) {
+			svc := NewQueueService(mocks.NopLogger{})
+			for i := 0; i < skipDepth; i++ {
+				job := benchmarkIsolationJob(fmt.Sprintf("skip-vm-%d", i), action.IsolationVM)
+				if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: job}); err != nil {
+					b.Fatalf("enqueue ineligible job: %v", err)
+				}
+			}
+
+			hostJob := benchmarkIsolationJob("skip-host", action.IsolationHost)
+			b.ReportAllocs()
+			b.ReportMetric(float64(skipDepth), "skip_depth")
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				hostJob.DeliveryId = nil
+				if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: hostJob}); err != nil {
+					b.Fatalf("enqueue eligible job: %v", err)
+				}
+
+				got, err := svc.TryDequeue(ctx, hostOnly)
+				if err != nil {
+					b.Fatalf("trydequeue filtered: %v", err)
+				}
+				if got == nil || got.GetJob().GetId() != hostJob.GetId() {
+					b.Fatalf("expected eligible host job, got %#v", got)
+				}
+
+				deliveryID := got.GetJob().GetDeliveryId()
+				if _, err := svc.Ack(ctx, &api.AckRequest{DeliveryId: &deliveryID}); err != nil {
+					b.Fatalf("ack eligible job: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkQueue_IsolationMixedDistribution(b *testing.B) {
+	workers := benchmarkQueueWorkerCount()
+	hostWorkers := max(1, workers*3/4)
+	vmWorkers := max(1, workers-hostWorkers)
+
+	for _, hostPercent := range []int{90, 50, 10} {
+		b.Run(fmt.Sprintf("host_%d_vm_%d_workers_%dh_%dvm", hostPercent, 100-hostPercent, hostWorkers, vmWorkers), func(b *testing.B) {
+			runMixedIsolationDistributionBenchmark(b, mixedIsolationDistributionConfig{
+				hostPercent: hostPercent,
+				hostWorkers: hostWorkers,
+				vmWorkers:   vmWorkers,
+			})
+		})
+	}
+}
+
+type mixedIsolationDistributionConfig struct {
+	hostPercent int
+	hostWorkers int
+	vmWorkers   int
+}
+
+func runMixedIsolationDistributionBenchmark(b *testing.B, cfg mixedIsolationDistributionConfig) {
+	const jobsPerIteration = 4096
+
+	if cfg.hostWorkers < 0 || cfg.vmWorkers < 1 {
+		b.Fatal("mixed isolation benchmark requires at least one VM-capable worker")
+	}
+	if cfg.hostPercent < 0 || cfg.hostPercent > 100 {
+		b.Fatalf("invalid host percent %d", cfg.hostPercent)
+	}
+
+	ctx := context.Background()
+	svc := NewQueueService(mocks.NopLogger{})
+	totalJobs := jobsPerIteration * b.N
+	if totalJobs < 1 {
+		totalJobs = 1
+	}
+
+	for i := 0; i < totalJobs; i++ {
+		isolation := action.IsolationVM
+		if i%100 < cfg.hostPercent {
+			isolation = action.IsolationHost
+		}
+
+		job := benchmarkIsolationJob(fmt.Sprintf("mixed-%d", i), isolation)
+		if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: job}); err != nil {
+			b.Fatalf("prefill enqueue: %v", err)
+		}
+	}
+
+	hostOnly := &api.DequeueRequest{SupportedIsolation: []string{action.IsolationHost}}
+	anyIsolation := &api.DequeueRequest{SupportedIsolation: []string{action.IsolationHost, action.IsolationVM}}
+	workCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	var remaining atomic.Int64
+	var delivered atomic.Int64
+	var acked atomic.Int64
+	var hostEmptyPolls atomic.Int64
+	var vmEmptyPolls atomic.Int64
+	var firstErr atomic.Value
+	remaining.Store(int64(totalJobs))
+
+	setErr := func(err error) {
+		if err == nil || firstErr.Load() != nil {
+			return
+		}
+
+		firstErr.Store(err)
+	}
+
+	worker := func(req *api.DequeueRequest, emptyPolls *atomic.Int64) {
+		for remaining.Load() > 0 {
+			select {
+			case <-workCtx.Done():
+				setErr(workCtx.Err())
+				return
+			default:
+			}
+
+			got, err := svc.TryDequeue(workCtx, req)
+			if err != nil {
+				setErr(fmt.Errorf("trydequeue: %w", err))
+				return
+			}
+
+			if got == nil {
+				emptyPolls.Add(1)
+				runtime.Gosched()
+				continue
+			}
+
+			deliveryID := got.GetJob().GetDeliveryId()
+			if _, err := svc.Ack(workCtx, &api.AckRequest{DeliveryId: &deliveryID}); err != nil {
+				setErr(fmt.Errorf("ack: %w", err))
+				return
+			}
+
+			acked.Add(1)
+			delivered.Add(1)
+			remaining.Add(-1)
+		}
+	}
+
+	var wg sync.WaitGroup
+	b.ReportAllocs()
+	b.ReportMetric(float64(cfg.hostPercent), "host_job_pct")
+	b.ReportMetric(float64(cfg.hostWorkers), "host_workers")
+	b.ReportMetric(float64(cfg.vmWorkers), "vm_workers")
+	b.ReportMetric(float64(totalJobs), "jobs")
+	b.ResetTimer()
+	start := time.Now()
+
+	for i := 0; i < cfg.hostWorkers; i++ {
+		wg.Go(func() { worker(hostOnly, &hostEmptyPolls) })
+	}
+	for i := 0; i < cfg.vmWorkers; i++ {
+		wg.Go(func() { worker(anyIsolation, &vmEmptyPolls) })
+	}
+
+	wg.Wait()
+	elapsed := time.Since(start)
+	b.StopTimer()
+
+	if v := firstErr.Load(); v != nil {
+		b.Fatal(v.(error))
+	}
+	if delivered.Load() != int64(totalJobs) {
+		b.Fatalf("delivered %d jobs, want %d", delivered.Load(), totalJobs)
+	}
+	if elapsed <= 0 {
+		b.Fatal("invalid elapsed duration")
+	}
+
+	b.ReportMetric(float64(delivered.Load())/elapsed.Seconds(), "dequeue_ops/s")
+	b.ReportMetric(float64(acked.Load())/elapsed.Seconds(), "ack_ops/s")
+	b.ReportMetric(float64(hostEmptyPolls.Load()), "host_empty_polls")
+	b.ReportMetric(float64(vmEmptyPolls.Load()), "vm_empty_polls")
+	b.ReportMetric(float64(hostEmptyPolls.Load())/float64(totalJobs), "host_empty_polls_per_job")
+	b.ReportMetric(float64(vmEmptyPolls.Load())/float64(totalJobs), "vm_empty_polls_per_job")
+}
+
+func BenchmarkQueue_IsolationLargeActionTreeMatching(b *testing.B) {
+	ctx := context.Background()
+	hostOnly := &api.DequeueRequest{SupportedIsolation: []string{action.IsolationHost}}
+
+	for _, nodes := range []int{32, 256, 1024} {
+		b.Run(fmt.Sprintf("whole_tree_vm_leaf_miss_nodes_%d", nodes), func(b *testing.B) {
+			root, _ := benchmarkNestedIsolationTree(nodes, action.IsolationVM)
+			jobID := fmt.Sprintf("large-tree-%d", nodes)
+			svc := NewQueueService(mocks.NopLogger{})
+			if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{
+				Id:               &jobID,
+				DefaultIsolation: queueTestString(action.IsolationHost),
+				Root:             root,
+			}}); err != nil {
+				b.Fatalf("enqueue large tree job: %v", err)
+			}
+
+			b.ReportAllocs()
+			b.ReportMetric(float64(nodes), "action_nodes")
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				got, err := svc.TryDequeue(ctx, hostOnly)
+				if err != nil {
+					b.Fatalf("trydequeue large tree: %v", err)
+				}
+				if got != nil {
+					b.Fatalf("expected unsupported VM leaf to miss, got %#v", got)
+				}
+			}
+		})
+
+		b.Run(fmt.Sprintf("task_key_far_leaf_miss_nodes_%d", nodes), func(b *testing.B) {
+			root, targetID := benchmarkNestedIsolationTree(nodes, action.IsolationVM)
+			jobID := fmt.Sprintf("large-tree-task-%d", nodes)
+			svc := NewQueueService(mocks.NopLogger{})
+			if _, err := svc.Enqueue(ctx, &api.JobRequest{
+				Job: &api.Job{
+					Id:               &jobID,
+					DefaultIsolation: queueTestString(action.IsolationHost),
+					Root:             root,
+				},
+				Metadata: map[string]string{
+					cell.ExecutionTaskKeyMetadataKey: targetID,
+				},
+			}); err != nil {
+				b.Fatalf("enqueue large tree task job: %v", err)
+			}
+
+			b.ReportAllocs()
+			b.ReportMetric(float64(nodes), "action_nodes")
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				got, err := svc.TryDequeue(ctx, hostOnly)
+				if err != nil {
+					b.Fatalf("trydequeue large tree task: %v", err)
+				}
+				if got != nil {
+					b.Fatalf("expected unsupported VM task to miss, got %#v", got)
+				}
+			}
+		})
+	}
+}
+
+func benchmarkNestedIsolationTree(nodes int, leafIsolation string) (*api.Node, string) {
+	if nodes < 1 {
+		nodes = 1
+	}
+
+	root := queueTestNode("node-0", "builtins/sequence")
+	current := root
+	for i := 1; i < nodes; i++ {
+		id := fmt.Sprintf("node-%d", i)
+		child := queueTestNode(id, "builtins/sequence")
+		current.Steps = []*api.Node{child}
+		current = child
+	}
+
+	current.Uses = queueTestString("builtins/shell")
+	if leafIsolation != "" {
+		current.Isolation = queueTestString(leafIsolation)
+	}
+
+	return root, current.GetId()
+}
+
+func BenchmarkQueue_FilteredBlockingDequeueLatency(b *testing.B) {
+	ctx := context.Background()
+	hostOnly := &api.DequeueRequest{SupportedIsolation: []string{action.IsolationHost}}
+
+	for _, skipDepth := range []int{1, 100} {
+		b.Run(fmt.Sprintf("skip_%d", skipDepth), func(b *testing.B) {
+			svc := NewQueueService(mocks.NopLogger{})
+			for i := 0; i < skipDepth; i++ {
+				job := benchmarkIsolationJob(fmt.Sprintf("blocking-vm-%d", i), action.IsolationVM)
+				if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: job}); err != nil {
+					b.Fatalf("enqueue blocking ineligible job: %v", err)
+				}
+			}
+
+			type dequeueResult struct {
+				req *api.JobRequest
+				err error
+			}
+
+			results := make(chan dequeueResult)
+			go func() {
+				for i := 0; i < b.N; i++ {
+					got, err := svc.Dequeue(ctx, hostOnly)
+					results <- dequeueResult{req: got, err: err}
+				}
+			}()
+
+			hostJob := benchmarkIsolationJob("blocking-host", action.IsolationHost)
+			var totalLatency time.Duration
+
+			b.ReportAllocs()
+			b.ReportMetric(float64(skipDepth), "skip_depth")
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				hostJob.DeliveryId = nil
+				start := time.Now()
+				if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: hostJob}); err != nil {
+					b.Fatalf("enqueue blocking eligible job: %v", err)
+				}
+
+				result := <-results
+				totalLatency += time.Since(start)
+				if result.err != nil {
+					b.Fatalf("blocking dequeue: %v", result.err)
+				}
+				if result.req == nil || result.req.GetJob().GetId() != hostJob.GetId() {
+					b.Fatalf("expected blocking host job, got %#v", result.req)
+				}
+
+				deliveryID := result.req.GetJob().GetDeliveryId()
+				if _, err := svc.Ack(ctx, &api.AckRequest{DeliveryId: &deliveryID}); err != nil {
+					b.Fatalf("ack blocking host job: %v", err)
+				}
+				runtime.Gosched()
+			}
+
+			b.StopTimer()
+			if b.N > 0 {
+				b.ReportMetric(float64(totalLatency.Nanoseconds())/float64(b.N), "avg_enqueue_to_delivery_ns")
+			}
+		})
 	}
 }
 
@@ -89,7 +520,7 @@ func BenchmarkQueue_ConcurrentEnqueueDequeue(b *testing.B) {
 				b.Fatalf("enqueue failed: %v", err)
 			}
 
-			got, err := svc.TryDequeue(ctx, &api.Empty{})
+			got, err := svc.TryDequeue(ctx, &api.DequeueRequest{})
 			if err != nil {
 				b.Fatalf("trydequeue failed: %v", err)
 			}
@@ -206,7 +637,7 @@ func runSustainedLoadScenario(b *testing.B, cfg sustainedLoadConfig) {
 				default:
 				}
 
-				got, err := svc.TryDequeue(ctx, &api.Empty{})
+				got, err := svc.TryDequeue(ctx, &api.DequeueRequest{})
 				if err != nil {
 					setErr(fmt.Errorf("consumer dequeue: %w", err))
 					return

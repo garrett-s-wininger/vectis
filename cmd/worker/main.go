@@ -160,8 +160,10 @@ func runWorker(cmd *cobra.Command, args []string) {
 
 	repos := dal.NewSQLRepositoriesWithCellID(db, config.CellID())
 	runsRepo := repos.Runs()
+	_, _, dequeueSupportedIsolation := workerExecutionCapabilitiesForBackend(config.WorkerExecutionBackend())
+	dialOptions := multidial.DialOptions{QueueDequeueSupportedIsolation: dequeueSupportedIsolation}
 	dial := func(ctx context.Context) (interfaces.QueueClient, interfaces.LogClient, func(), error) {
-		q, l, cleanup, err := multidial.DialQueueAndLog(ctx, logger, retryMetrics, runsRepo, logRoutingMetrics)
+		q, l, cleanup, err := multidial.DialQueueAndLogWithOptions(ctx, logger, retryMetrics, runsRepo, logRoutingMetrics, dialOptions)
 		return q, l, cleanup, err
 	}
 

@@ -504,7 +504,7 @@ func startMacroWorkers(
 				default:
 				}
 
-				jobReq, err := env.queue.TryDequeue(ctx, &apipb.Empty{})
+				jobReq, err := env.queue.TryDequeue(ctx, &apipb.DequeueRequest{})
 				if err != nil {
 					sendMacroWorkerResult(ctx, resultCh, macroWorkerResult{err: fmt.Errorf("try dequeue: %w", err)})
 					return
@@ -802,7 +802,7 @@ func waitForDequeuedJob(b *testing.B, ctx context.Context, queueService apipb.Qu
 
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		jobReq, err := queueService.TryDequeue(ctx, &apipb.Empty{})
+		jobReq, err := queueService.TryDequeue(ctx, &apipb.DequeueRequest{})
 		if err != nil {
 			b.Fatalf("try dequeue: %v", err)
 		}
