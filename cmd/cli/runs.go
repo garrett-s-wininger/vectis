@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"text/tabwriter"
 	"time"
 )
 
@@ -107,6 +108,31 @@ type runTasksResult struct {
 	NextCursor *int64       `json:"next_cursor,omitempty"`
 }
 
+type runArtifactsResult struct {
+	Data       []runArtifactRow `json:"data"`
+	NextCursor *int64           `json:"next_cursor,omitempty"`
+}
+
+type runArtifactRow struct {
+	ID              int64           `json:"id"`
+	RunID           string          `json:"run_id"`
+	TaskID          *string         `json:"task_id,omitempty"`
+	TaskAttemptID   *string         `json:"task_attempt_id,omitempty"`
+	ExecutionID     *string         `json:"execution_id,omitempty"`
+	CellID          string          `json:"cell_id"`
+	Name            string          `json:"name"`
+	Path            string          `json:"path"`
+	ContentType     string          `json:"content_type,omitempty"`
+	BlobKey         string          `json:"blob_key"`
+	BlobAlgorithm   string          `json:"blob_algorithm"`
+	BlobDigest      string          `json:"blob_digest"`
+	SizeBytes       int64           `json:"size_bytes"`
+	ArtifactShardID string          `json:"artifact_shard_id"`
+	Metadata        json.RawMessage `json:"metadata,omitempty"`
+	CreatedAt       int64           `json:"created_at"`
+	UpdatedAt       int64           `json:"updated_at"`
+}
+
 type runTaskRow struct {
 	TaskID       string              `json:"task_id"`
 	RunID        string              `json:"run_id"`
@@ -162,6 +188,15 @@ type runRepairResult struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+type runArtifactDownloadResult struct {
+	Status      string `json:"status"`
+	RunID       string `json:"run_id"`
+	Name        string `json:"name"`
+	OutputPath  string `json:"output_path"`
+	ContentType string `json:"content_type,omitempty"`
+	Bytes       int64  `json:"bytes"`
+}
+
 func runGetRun(cmd *cobra.Command, args []string) {
 	runCLIError(getRun(args[0], os.Stdout))
 }
@@ -172,6 +207,14 @@ func runGetRunPayload(cmd *cobra.Command, args []string) {
 
 func runGetRunTasks(cmd *cobra.Command, args []string) {
 	runCLIError(getRunTasks(args[0], runTasksLimit, runTasksCursor, os.Stdout))
+}
+
+func runListRunArtifacts(cmd *cobra.Command, args []string) {
+	runCLIError(getRunArtifacts(args[0], runArtifactsLimit, runArtifactsCursor, os.Stdout))
+}
+
+func runDownloadRunArtifact(cmd *cobra.Command, args []string) {
+	runCLIError(downloadRunArtifact(args[0], args[1], runArtifactOutput, os.Stdout))
 }
 
 func runReplayRun(cmd *cobra.Command, args []string) {
@@ -545,6 +588,177 @@ func writeRunTaskAttempt(w io.Writer, attempt runTaskAttemptRow) {
 	fmt.Fprintln(w)
 }
 
+func getRunArtifacts(runID string, limit, cursor int, w io.Writer) error {
+	path := fmt.Sprintf("/api/v1/runs/%s/artifacts", url.PathEscape(runID))
+	params := url.Values{}
+	if limit > 0 {
+		params.Set("limit", fmt.Sprintf("%d", limit))
+	}
+
+	if cursor > 0 {
+		params.Set("cursor", fmt.Sprintf("%d", cursor))
+	}
+
+	if encoded := params.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+
+	req, err := newAPIRequest(http.MethodGet, path, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var result runArtifactsResult
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to parse response: %w", err)
+		}
+
+		if outputIsJSON() {
+			return writeJSON(w, result)
+		}
+
+		if len(result.Data) == 0 {
+			fmt.Fprintln(w, "No artifacts found")
+			return nil
+		}
+
+		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "NAME\tPATH\tCONTENT TYPE\tSIZE\tSHARD\tDIGEST")
+		for _, artifact := range result.Data {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\t%s\n",
+				textOrDash(artifact.Name),
+				textOrDash(artifact.Path),
+				textOrDash(artifact.ContentType),
+				artifact.SizeBytes,
+				textOrDash(artifact.ArtifactShardID),
+				textOrDash(artifact.BlobDigest),
+			)
+		}
+
+		if err := tw.Flush(); err != nil {
+			return err
+		}
+
+		if result.NextCursor != nil {
+			fmt.Fprintf(w, "\nMore artifacts available. Continue with --cursor %d.\n", *result.NextCursor)
+		}
+
+		return nil
+	case http.StatusNotFound:
+		return fmt.Errorf("run %q not found", runID)
+	case http.StatusForbidden:
+		return fmt.Errorf("not authorized to read artifacts for run %q", runID)
+	case http.StatusServiceUnavailable:
+		return fmt.Errorf("artifact repository is not configured")
+	default:
+		return fmt.Errorf("unexpected status: %s", resp.Status)
+	}
+}
+
+func downloadRunArtifact(runID, name, outputPath string, w io.Writer) error {
+	outputPath = strings.TrimSpace(outputPath)
+	if outputPath == "" {
+		return fmt.Errorf("--output is required (use --output - to write artifact bytes to stdout)")
+	}
+
+	if outputPath == "-" && outputIsJSON() {
+		return fmt.Errorf("--format json cannot be used with --output -")
+	}
+
+	req, err := newAPIRequest(
+		http.MethodGet,
+		fmt.Sprintf("/api/v1/runs/%s/artifacts/%s/download", url.PathEscape(runID), url.PathEscape(name)),
+		nil,
+	)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "*/*")
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		contentType := resp.Header.Get("Content-Type")
+		written, err := copyArtifactDownload(resp.Body, outputPath, w)
+		if err != nil {
+			return err
+		}
+
+		if outputPath == "-" {
+			return nil
+		}
+
+		result := runArtifactDownloadResult{
+			Status:      "downloaded",
+			RunID:       runID,
+			Name:        name,
+			OutputPath:  outputPath,
+			ContentType: contentType,
+			Bytes:       written,
+		}
+
+		if outputIsJSON() {
+			return writeJSON(w, result)
+		}
+
+		fmt.Fprintf(w, "Downloaded artifact %s to %s (%d bytes).\n", name, outputPath, written)
+		return nil
+	case http.StatusNotFound:
+		return fmt.Errorf("artifact %q for run %q not found", name, runID)
+	case http.StatusBadGateway:
+		return fmt.Errorf("artifact blob unavailable")
+	case http.StatusServiceUnavailable:
+		return fmt.Errorf("artifact repository is not configured")
+	default:
+		return fmt.Errorf("unexpected status: %s", resp.Status)
+	}
+}
+
+func copyArtifactDownload(r io.Reader, outputPath string, stdout io.Writer) (int64, error) {
+	if outputPath == "-" {
+		return io.Copy(stdout, r)
+	}
+
+	file, err := os.Create(outputPath)
+	if err != nil {
+		return 0, fmt.Errorf("create output file: %w", err)
+	}
+
+	written, copyErr := io.Copy(file, r)
+	closeErr := file.Close()
+	if copyErr != nil {
+		return written, fmt.Errorf("write artifact file: %w", copyErr)
+	}
+
+	if closeErr != nil {
+		return written, fmt.Errorf("close artifact file: %w", closeErr)
+	}
+
+	return written, nil
+}
+
+func textOrDash(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "-"
+	}
+
+	return value
+}
+
 func replayRun(sourceRunID, cellID, idempotencyKey string, w io.Writer) error {
 	var body io.Reader
 	if strings.TrimSpace(cellID) != "" {
@@ -879,6 +1093,8 @@ var runsCmd = &cobra.Command{
 Common flows:
   vectis-cli runs show run-123
   vectis-cli runs tasks run-123
+  vectis-cli runs artifacts list run-123
+  vectis-cli runs artifacts download run-123 coverage --output coverage.txt
   vectis-cli runs list build-main
   vectis-cli runs repair mark-queued run-123`,
 	GroupID: cliGroupWorkflows,
@@ -978,6 +1194,29 @@ var runTasksCmd = &cobra.Command{
 	Run:   runGetRunTasks,
 }
 
+var runArtifactsCmd = &cobra.Command{
+	Use:   "artifacts",
+	Short: "List and download run artifacts",
+	Long:  `List artifact manifests recorded for a run, or download one artifact by name.`,
+	Run:   showCommandHelp,
+}
+
+var runArtifactsListCmd = &cobra.Command{
+	Use:   "list [run-id]",
+	Short: "List artifact manifests for a run",
+	Long:  `List artifact manifests recorded for one run, including blob digest, size, content type, and storage shard.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   runListRunArtifacts,
+}
+
+var runArtifactsDownloadCmd = &cobra.Command{
+	Use:   "download [run-id] [artifact-name]",
+	Short: "Download a run artifact",
+	Long:  `Download one artifact blob by run id and artifact name. Pass --output - only when raw artifact bytes should be written to stdout.`,
+	Args:  cobra.ExactArgs(2),
+	Run:   runDownloadRunArtifact,
+}
+
 var runReplayCmd = &cobra.Command{
 	Use:   "replay [run-id]",
 	Short: "Create a new run from a previous run's captured definition",
@@ -1018,6 +1257,15 @@ func configureRunListFlags(cmd *cobra.Command) {
 func configureRunTasksFlags(cmd *cobra.Command) {
 	cmd.Flags().IntVar(&runTasksLimit, "limit", 0, "Max tasks to return (default 100)")
 	cmd.Flags().IntVar(&runTasksCursor, "cursor", 0, "Continue listing after this result cursor")
+}
+
+func configureRunArtifactsListFlags(cmd *cobra.Command) {
+	cmd.Flags().IntVar(&runArtifactsLimit, "limit", 0, "Max artifacts to return (default 50)")
+	cmd.Flags().IntVar(&runArtifactsCursor, "cursor", 0, "Continue listing after this result cursor")
+}
+
+func configureRunArtifactsDownloadFlags(cmd *cobra.Command) {
+	cmd.Flags().StringVarP(&runArtifactOutput, "output", "o", "", "Output file path, or '-' to write raw bytes to stdout")
 }
 
 func configureRunReplayFlags(cmd *cobra.Command) {

@@ -48,32 +48,35 @@ func showCommandHelp(cmd *cobra.Command, args []string) {
 }
 
 var (
-	podmanNetwork     string
-	podmanProfile     string
-	podmanKubeSpec    string
-	podmanGrafanaSpec string
-	podmanRenderOut   string
-	resetYes          bool
-	resetDryRun       bool
-	retentionYes      bool
-	retentionDryRun   bool
-	retentionRunAge   time.Duration
-	retentionDefAge   time.Duration
-	retentionIdemAge  time.Duration
-	retentionAuditAge time.Duration
-	retentionLogDir   string
-	runListJobID      string
-	runListLimit      int
-	runListCursor     int
-	runListCellID     string
-	runTasksLimit     int
-	runTasksCursor    int
-	runReplayCellID   string
-	runReplayIdemKey  string
-	triggerIdemKey    string
-	triggerCellIDs    []string
-	runIdemKey        string
-	runCellID         string
+	podmanNetwork      string
+	podmanProfile      string
+	podmanKubeSpec     string
+	podmanGrafanaSpec  string
+	podmanRenderOut    string
+	resetYes           bool
+	resetDryRun        bool
+	retentionYes       bool
+	retentionDryRun    bool
+	retentionRunAge    time.Duration
+	retentionDefAge    time.Duration
+	retentionIdemAge   time.Duration
+	retentionAuditAge  time.Duration
+	retentionLogDir    string
+	runListJobID       string
+	runListLimit       int
+	runListCursor      int
+	runListCellID      string
+	runTasksLimit      int
+	runTasksCursor     int
+	runArtifactsLimit  int
+	runArtifactsCursor int
+	runArtifactOutput  string
+	runReplayCellID    string
+	runReplayIdemKey   string
+	triggerIdemKey     string
+	triggerCellIDs     []string
+	runIdemKey         string
+	runCellID          string
 )
 
 var rootCmd = &cobra.Command{
@@ -84,7 +87,7 @@ var rootCmd = &cobra.Command{
 Commands are grouped around the thing you want to work with:
   actions    resolve and inspect action descriptors
   jobs       create, show, trigger, run, edit, and delete job definitions
-  runs       show run status, list task attempts or run history, cancel, fail, or retry runs
+  runs       show run status, list tasks/artifacts or run history, cancel, fail, or retry runs
   cells      inspect execution cell routing and catalog state
   logs       stream run logs or follow future runs for a job
   auth       log in, log out, and manage API tokens`,
@@ -93,6 +96,7 @@ Commands are grouped around the thing you want to work with:
   vectis-cli jobs list --format json
   vectis-cli runs list build-main
   vectis-cli runs show run-123
+  vectis-cli runs artifacts list run-123
   vectis-cli auth login
   vectis-cli health check --strict`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -126,6 +130,8 @@ func init() {
 
 	configureRunListFlags(runListCmd)
 	configureRunTasksFlags(runTasksCmd)
+	configureRunArtifactsListFlags(runArtifactsListCmd)
+	configureRunArtifactsDownloadFlags(runArtifactsDownloadCmd)
 	configureRunReplayFlags(runReplayCmd)
 	configureForceFailFlags(forceFailCmd)
 	configureRepairMarkFlags(repairMarkSucceededCmd)
@@ -133,7 +139,8 @@ func init() {
 	configureRepairMarkFlags(repairMarkCancelledCmd)
 	configureRepairMarkFlags(repairMarkAbandonedCmd)
 	runRepairCmd.AddCommand(repairMarkSucceededCmd, repairMarkFailedCmd, repairMarkCancelledCmd, repairMarkAbandonedCmd, repairMarkQueuedCmd)
-	runsCmd.AddCommand(runListCmd, runGetCmd, runTasksCmd, runPayloadCmd, runReplayCmd, runCancelCmd, runRepairCmd, forceFailCmd, forceRequeueCmd)
+	runArtifactsCmd.AddCommand(runArtifactsListCmd, runArtifactsDownloadCmd)
+	runsCmd.AddCommand(runListCmd, runGetCmd, runTasksCmd, runArtifactsCmd, runPayloadCmd, runReplayCmd, runCancelCmd, runRepairCmd, forceFailCmd, forceRequeueCmd)
 	rootCmd.AddCommand(runsCmd)
 
 	cellsCmd.AddCommand(cellsStatusCmd)

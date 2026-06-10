@@ -238,6 +238,20 @@ List the task graph nodes and task attempts recorded for one run:
 
 Attempt rows include execution ID/status and worker lease owner/expiry when the execution is actively owned.
 
+List artifact manifests recorded for one run:
+
+```sh
+./bin/vectis-cli runs artifacts list <run-id>
+```
+
+Download an artifact by name:
+
+```sh
+./bin/vectis-cli runs artifacts download <run-id> coverage --output coverage.txt
+```
+
+Use `--output -` only when you want raw artifact bytes on stdout, for example in a pipeline.
+
 Show the frozen execution payload captured for a run:
 
 ```sh

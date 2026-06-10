@@ -1672,6 +1672,160 @@ func TestGetRunTasks_notFound(t *testing.T) {
 	}
 }
 
+func TestGetRunArtifacts_success(t *testing.T) {
+	next := int64(27)
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/runs/run-1/artifacts" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		if got := r.URL.Query().Get("limit"); got != "2" {
+			t.Errorf("limit=%q, want 2", got)
+		}
+
+		if got := r.URL.Query().Get("cursor"); got != "9" {
+			t.Errorf("cursor=%q, want 9", got)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{
+				{
+					"id":                10,
+					"run_id":            "run-1",
+					"name":              "coverage",
+					"path":              "coverage/out.json",
+					"content_type":      "application/json",
+					"blob_key":          "sha256:aaaaaaaa",
+					"blob_algorithm":    "sha256",
+					"blob_digest":       "aaaaaaaa",
+					"size_bytes":        123,
+					"artifact_shard_id": "artifact-1",
+					"metadata":          map[string]string{"kind": "coverage"},
+				},
+			},
+			"next_cursor": next,
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := getRunArtifacts("run-1", 2, 9, &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{
+		"NAME",
+		"coverage",
+		"coverage/out.json",
+		"application/json",
+		"artifact-1",
+		"More artifacts available. Continue with --cursor 27.",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestGetRunArtifacts_jsonOutput(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{
+				{
+					"id":                10,
+					"run_id":            "run-1",
+					"name":              "coverage",
+					"path":              "coverage/out.json",
+					"blob_key":          "sha256:aaaaaaaa",
+					"blob_algorithm":    "sha256",
+					"blob_digest":       "aaaaaaaa",
+					"size_bytes":        123,
+					"artifact_shard_id": "artifact-1",
+					"metadata":          map[string]string{"kind": "coverage"},
+				},
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := getRunArtifacts("run-1", 0, 0, &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	var result runArtifactsResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
+	}
+
+	if len(result.Data) != 1 || result.Data[0].Name != "coverage" || !strings.Contains(string(result.Data[0].Metadata), "coverage") {
+		t.Fatalf("unexpected artifacts JSON: %+v", result)
+	}
+}
+
+func TestDownloadRunArtifact_file(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/runs/run-1/artifacts/coverage/download" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		if got := r.Header.Get("Accept"); got != "*/*" {
+			t.Errorf("Accept=%q, want */*", got)
+		}
+
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte("artifact bytes"))
+	})
+
+	outputPath := filepath.Join(t.TempDir(), "coverage.txt")
+	var buf bytes.Buffer
+	if err := downloadRunArtifact("run-1", "coverage", outputPath, &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("read downloaded file: %v", err)
+	}
+
+	if string(got) != "artifact bytes" {
+		t.Fatalf("downloaded file = %q", got)
+	}
+
+	if out := buf.String(); !strings.Contains(out, "Downloaded artifact coverage") || !strings.Contains(out, "14 bytes") {
+		t.Fatalf("unexpected download output:\n%s", out)
+	}
+}
+
+func TestDownloadRunArtifact_stdout(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("raw bytes"))
+	})
+
+	var buf bytes.Buffer
+	if err := downloadRunArtifact("run-1", "coverage", "-", &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	if buf.String() != "raw bytes" {
+		t.Fatalf("stdout download = %q", buf.String())
+	}
+}
+
+func TestDownloadRunArtifact_requiresOutput(t *testing.T) {
+	if err := downloadRunArtifact("run-1", "coverage", "", io.Discard); err == nil {
+		t.Fatal("expected missing output error")
+	}
+}
+
 func TestReplayRun_success(t *testing.T) {
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
