@@ -1236,6 +1236,22 @@ func (s *APIServer) HandleSSESourceRepositoryJobRuns(w http.ResponseWriter, r *h
 	s.streamRunEvents(w, r, subscriptionKey, "source repository "+rec.RepositoryID+" job "+jobID)
 }
 
+func (s *APIServer) broadcastSourceRepositoryRunEvent(ctx context.Context, jobID string, definitionVersion int, runID string, runIndex int) {
+	if s.sources == nil {
+		return
+	}
+
+	source, err := s.sources.GetDefinitionSource(ctx, jobID, definitionVersion)
+	if err != nil {
+		if !dal.IsNotFound(err) {
+			s.logger.Error("Failed to resolve source repository run broadcast target for job %s version %d: %v", jobID, definitionVersion, err)
+		}
+		return
+	}
+
+	s.runBroadcaster.Broadcast(sourceRepositoryRunBroadcastKey(source.RepositoryID, jobID), runID, runIndex)
+}
+
 func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := s.handlerDBCtx(r)
 	defer cancel()

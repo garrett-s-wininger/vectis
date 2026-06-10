@@ -1391,8 +1391,9 @@ func TestAPIServer_TriggerManagedSourceRepositoryJobCreatesRunSnapshot(t *testin
 func TestAPIServer_SSESourceRepositoryJobRunsReceivesSourceTrigger(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 
-	server, _, _, _ := setupTestServer(t)
+	server, _, _, db := setupTestServer(t)
 	handler := server.Handler()
+	repos := dal.NewSQLRepositories(db)
 	repoPath := initAPIGitRepo(t)
 	writeAPIJobDefinitionAndCommit(t, repoPath, "source-sse", "source sse definition")
 
@@ -1425,6 +1426,48 @@ func TestAPIServer_SSESourceRepositoryJobRunsReceivesSourceTrigger(t *testing.T)
 	}
 	defer sseResp.Body.Close()
 
+	reader := bufio.NewReader(sseResp.Body)
+	var dataBuf strings.Builder
+	readEvent := func(label string) struct {
+		RunID    string `json:"run_id"`
+		RunIndex int    `json:"run_index"`
+	} {
+		t.Helper()
+
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				t.Fatalf("read %s source sse line: %v", label, err)
+			}
+
+			line = strings.TrimRight(line, "\r\n")
+			if line == "" {
+				if dataBuf.Len() == 0 {
+					continue
+				}
+
+				message := []byte(dataBuf.String())
+				dataBuf.Reset()
+
+				var ev struct {
+					RunID    string `json:"run_id"`
+					RunIndex int    `json:"run_index"`
+				}
+
+				if err := json.Unmarshal(message, &ev); err != nil {
+					t.Fatalf("unmarshal %s source run event: %v", label, err)
+				}
+
+				return ev
+			}
+
+			if after, ok := strings.CutPrefix(line, "data:"); ok {
+				data := strings.TrimSpace(after)
+				dataBuf.WriteString(data)
+			}
+		}
+	}
+
 	triggerBody := strings.NewReader(`{"ref":"HEAD"}`)
 	triggerResp, err := http.Post(httpServer.URL+"/api/v1/source-repositories/vectis-local/jobs/build/trigger", "application/json", triggerBody)
 	if err != nil {
@@ -1436,45 +1479,35 @@ func TestAPIServer_SSESourceRepositoryJobRunsReceivesSourceTrigger(t *testing.T)
 		t.Fatalf("trigger source job: expected 202, got %d", triggerResp.StatusCode)
 	}
 
-	reader := bufio.NewReader(sseResp.Body)
-	var dataBuf strings.Builder
-	var ev struct {
-		RunID    string `json:"run_id"`
-		RunIndex int    `json:"run_index"`
-	}
-
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			t.Fatalf("read source sse line: %v", err)
-		}
-
-		line = strings.TrimRight(line, "\r\n")
-		if line == "" {
-			if dataBuf.Len() == 0 {
-				continue
-			}
-			message := []byte(dataBuf.String())
-			dataBuf.Reset()
-
-			if err := json.Unmarshal(message, &ev); err != nil {
-				t.Fatalf("unmarshal source run event: %v", err)
-			}
-			break
-		}
-
-		if after, ok := strings.CutPrefix(line, "data:"); ok {
-			data := strings.TrimSpace(after)
-			dataBuf.WriteString(data)
-		}
-	}
-
+	ev := readEvent("trigger")
 	if ev.RunID == "" {
 		t.Error("expected non-empty run_id")
 	}
 
 	if ev.RunIndex != 1 {
 		t.Errorf("expected run_index 1, got %d", ev.RunIndex)
+	}
+
+	if err := repos.Runs().MarkRunSucceeded(context.Background(), ev.RunID, ""); err != nil {
+		t.Fatalf("mark source run succeeded: %v", err)
+	}
+
+	replayResp, err := http.Post(httpServer.URL+"/api/v1/runs/"+ev.RunID+"/replay", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatalf("replay source run: %v", err)
+	}
+	replayResp.Body.Close()
+	if replayResp.StatusCode != http.StatusAccepted {
+		t.Fatalf("replay source run: expected 202, got %d", replayResp.StatusCode)
+	}
+
+	replayEvent := readEvent("replay")
+	if replayEvent.RunID == "" || replayEvent.RunID == ev.RunID {
+		t.Fatalf("expected distinct replay run_id, got trigger=%q replay=%q", ev.RunID, replayEvent.RunID)
+	}
+
+	if replayEvent.RunIndex != 2 {
+		t.Errorf("expected replay run_index 2, got %d", replayEvent.RunIndex)
 	}
 }
 

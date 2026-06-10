@@ -1539,6 +1539,7 @@ func (s *APIServer) ReplayRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.runBroadcaster.Broadcast(jobID, createdRun.RunID, createdRun.RunIndex)
+	s.broadcastSourceRepositoryRunEvent(ctx, jobID, sourceRun.DefinitionVersion, createdRun.RunID, createdRun.RunIndex)
 	s.auditLog(ctx, audit.EventRunTriggered, actorID, 0, map[string]any{
 		"job_id":           jobID,
 		"run_id":           createdRun.RunID,
