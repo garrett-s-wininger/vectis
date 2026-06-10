@@ -1223,6 +1223,103 @@ func TestAPIServer_TriggerManagedSourceRepositoryJobCreatesRunSnapshot(t *testin
 	if secondTriggerResp.RunIndex != 2 || secondTriggerResp.DefinitionVersion != 2 {
 		t.Fatalf("second source trigger response mismatch: %+v", secondTriggerResp)
 	}
+
+	if err := repos.Jobs().Create(context.Background(), "build", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"stored"}}}`, 1); err != nil {
+		t.Fatalf("Create stored job with same id: %v", err)
+	}
+
+	_, storedVersion, err := repos.Jobs().GetDefinition(context.Background(), "build")
+	if err != nil {
+		t.Fatalf("GetDefinition stored build: %v", err)
+	}
+
+	if _, _, err := repos.Runs().CreateRun(context.Background(), "build", nil, storedVersion); err != nil {
+		t.Fatalf("CreateRun stored build: %v", err)
+	}
+
+	listRunsRec := httptest.NewRecorder()
+	listRunsReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/managed-repo/jobs/build/runs", nil)
+	handler.ServeHTTP(listRunsRec, listRunsReq)
+	if listRunsRec.Code != http.StatusOK {
+		t.Fatalf("list source repository job runs: status=%d body=%s", listRunsRec.Code, listRunsRec.Body.String())
+	}
+
+	var sourceRunsResp struct {
+		Data []struct {
+			RunID             string `json:"run_id"`
+			RunIndex          int    `json:"run_index"`
+			DefinitionVersion int    `json:"definition_version"`
+			Source            *struct {
+				RepositoryID   string `json:"repository_id"`
+				RequestedRef   string `json:"requested_ref"`
+				ResolvedCommit string `json:"resolved_commit"`
+				Path           string `json:"path"`
+				BlobSHA        string `json:"blob_sha"`
+			} `json:"source,omitempty"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(listRunsRec.Body).Decode(&sourceRunsResp); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(sourceRunsResp.Data) != 2 {
+		t.Fatalf("expected two source run rows, got %+v", sourceRunsResp.Data)
+	}
+
+	if sourceRunsResp.Data[0].RunID != triggerResp.RunID ||
+		sourceRunsResp.Data[0].RunIndex != 1 ||
+		sourceRunsResp.Data[0].DefinitionVersion != 1 ||
+		sourceRunsResp.Data[0].Source == nil ||
+		sourceRunsResp.Data[0].Source.RepositoryID != "managed-repo" ||
+		sourceRunsResp.Data[0].Source.ResolvedCommit != commit ||
+		sourceRunsResp.Data[0].Source.BlobSHA != blob {
+		t.Fatalf("first source run history row mismatch: %+v", sourceRunsResp.Data[0])
+	}
+
+	if sourceRunsResp.Data[1].RunID != secondTriggerResp.RunID ||
+		sourceRunsResp.Data[1].RunIndex != 2 ||
+		sourceRunsResp.Data[1].DefinitionVersion != 2 ||
+		sourceRunsResp.Data[1].Source == nil ||
+		sourceRunsResp.Data[1].Source.RepositoryID != "managed-repo" {
+		t.Fatalf("second source run history row mismatch: %+v", sourceRunsResp.Data[1])
+	}
+
+	listRunsAfterRec := httptest.NewRecorder()
+	listRunsAfterReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/managed-repo/jobs/build/runs?after_index=1", nil)
+	handler.ServeHTTP(listRunsAfterRec, listRunsAfterReq)
+	if listRunsAfterRec.Code != http.StatusOK {
+		t.Fatalf("list source repository job runs after index: status=%d body=%s", listRunsAfterRec.Code, listRunsAfterRec.Body.String())
+	}
+
+	var sourceRunsAfterResp struct {
+		Data []struct {
+			RunID    string `json:"run_id"`
+			RunIndex int    `json:"run_index"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(listRunsAfterRec.Body).Decode(&sourceRunsAfterResp); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(sourceRunsAfterResp.Data) != 1 || sourceRunsAfterResp.Data[0].RunID != secondTriggerResp.RunID || sourceRunsAfterResp.Data[0].RunIndex != 2 {
+		t.Fatalf("after_index source run history mismatch: %+v", sourceRunsAfterResp.Data)
+	}
+
+	disableRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/managed-repo", map[string]any{
+		"enabled": false,
+	})
+	if disableRec.Code != http.StatusOK {
+		t.Fatalf("disable source repository: status=%d body=%s", disableRec.Code, disableRec.Body.String())
+	}
+
+	listDisabledRunsRec := httptest.NewRecorder()
+	listDisabledRunsReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/managed-repo/jobs/build/runs", nil)
+	handler.ServeHTTP(listDisabledRunsRec, listDisabledRunsReq)
+	if listDisabledRunsRec.Code != http.StatusOK {
+		t.Fatalf("list disabled source repository job runs: status=%d body=%s", listDisabledRunsRec.Code, listDisabledRunsRec.Body.String())
+	}
 }
 
 func TestAPIServer_GetJobSourceDefinitionReadsDisabledRepository(t *testing.T) {

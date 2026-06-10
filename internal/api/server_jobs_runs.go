@@ -2078,36 +2078,10 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sinceStr := r.URL.Query().Get("since")
-	var since *time.Time
-	if sinceStr != "" {
-		parsedSince, err := parseRunSince(sinceStr)
-		if err != nil {
-			writeAPIError(w, http.StatusBadRequest, "invalid_since", "since must be an RFC3339 timestamp or YYYY-MM-DD date", nil)
-			return
-		}
-
-		since = &parsedSince
-	}
-
-	afterIndexStr := r.URL.Query().Get("after_index")
-	var afterIndex *int
-	if afterIndexStr != "" {
-		parsedAfterIndex, err := strconv.Atoi(afterIndexStr)
-		if err != nil || parsedAfterIndex < 0 {
-			writeAPIError(w, http.StatusBadRequest, "invalid_after_index", "after_index must be a non-negative integer", nil)
-			return
-		}
-
-		afterIndex = &parsedAfterIndex
-	}
-
-	owningCell, ok := parseRunOwningCellFilter(w, r)
+	opts, ok := parseRunListRequestOptions(w, r)
 	if !ok {
 		return
 	}
-
-	params := parsePageParams(r)
 
 	ctx, cancel := s.handlerDBCtx(r)
 	defer cancel()
@@ -2138,7 +2112,7 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	runRows, nextCursor, err := s.runs.ListByJob(ctx, jobID, afterIndex, since, owningCell, params.Cursor, params.Limit)
+	runRows, nextCursor, err := s.runs.ListByJob(ctx, jobID, opts.afterIndex, opts.since, opts.owningCell, opts.cursor, opts.limit)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
@@ -2150,6 +2124,56 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 	}
 	s.markDBRecovered()
 
+	s.writeJobRunsResponse(w, ctx, jobID, runRows, nextCursor)
+}
+
+type runListRequestOptions struct {
+	since      *time.Time
+	afterIndex *int
+	owningCell string
+	cursor     int64
+	limit      int
+}
+
+func parseRunListRequestOptions(w http.ResponseWriter, r *http.Request) (runListRequestOptions, bool) {
+	var opts runListRequestOptions
+
+	sinceStr := r.URL.Query().Get("since")
+	if sinceStr != "" {
+		parsedSince, err := parseRunSince(sinceStr)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_since", "since must be an RFC3339 timestamp or YYYY-MM-DD date", nil)
+			return opts, false
+		}
+
+		opts.since = &parsedSince
+	}
+
+	afterIndexStr := r.URL.Query().Get("after_index")
+	if afterIndexStr != "" {
+		parsedAfterIndex, err := strconv.Atoi(afterIndexStr)
+		if err != nil || parsedAfterIndex < 0 {
+			writeAPIError(w, http.StatusBadRequest, "invalid_after_index", "after_index must be a non-negative integer", nil)
+			return opts, false
+		}
+
+		opts.afterIndex = &parsedAfterIndex
+	}
+
+	owningCell, ok := parseRunOwningCellFilter(w, r)
+	if !ok {
+		return opts, false
+	}
+
+	opts.owningCell = owningCell
+	params := parsePageParams(r)
+	opts.cursor = params.Cursor
+	opts.limit = params.Limit
+
+	return opts, true
+}
+
+func (s *APIServer) writeJobRunsResponse(w http.ResponseWriter, ctx context.Context, jobID string, runRows []dal.RunRecord, nextCursor int64) {
 	versions := make([]int, 0, len(runRows))
 	for _, rec := range runRows {
 		versions = append(versions, rec.DefinitionVersion)

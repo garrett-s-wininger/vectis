@@ -709,6 +709,10 @@ type RunsRepository interface {
 	GetRun(ctx context.Context, runID string) (RunRecord, error)
 }
 
+type SourceRepositoryRunLister interface {
+	ListBySourceRepositoryJob(ctx context.Context, repositoryID, jobID string, afterIndex *int, since *time.Time, owningCell string, cursor int64, limit int) ([]RunRecord, int64, error)
+}
+
 type SchedulesRepository interface {
 	GetReady(ctx context.Context, at time.Time) ([]CronSchedule, error)
 	ClaimDue(ctx context.Context, scheduleID int64, observedNextRun time.Time, claimToken string, claimedUntil, now time.Time) (bool, error)

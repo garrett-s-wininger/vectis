@@ -1455,6 +1455,125 @@ func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, afterIn
 	return out, nextCursor, nil
 }
 
+func (r *SQLRunsRepository) ListBySourceRepositoryJob(ctx context.Context, repositoryID, jobID string, afterIndex *int, since *time.Time, owningCell string, cursor int64, limit int) ([]RunRecord, int64, error) {
+	query := `
+		SELECT
+			jr.id,
+			jr.run_id,
+			jr.run_index,
+			jr.status,
+			jr.orphan_reason,
+			jr.failure_code,
+			CAST(jr.created_at AS TEXT),
+			CAST(jr.started_at AS TEXT),
+			CAST(jr.finished_at AS TEXT),
+			jr.failure_reason,
+			jr.definition_version,
+			jr.definition_hash,
+			jr.owning_cell,
+			jr.replay_of_run_id,
+			jr.trigger_invocation_id,
+			jr.execution_payload_hash,
+			ti.trigger_id,
+			ti.trigger_type,
+			ti.trigger_payload_hash,
+			ti.requested_cells
+		FROM job_runs jr
+		JOIN job_definition_sources jds
+			ON jds.job_id = jr.job_id
+			AND jds.version = jr.definition_version
+			AND jds.repository_id = ?
+		LEFT JOIN trigger_invocations ti ON ti.invocation_id = jr.trigger_invocation_id
+		WHERE jr.job_id = ?`
+	args := []any{strings.TrimSpace(repositoryID), jobID}
+
+	if afterIndex != nil {
+		query += " AND jr.run_index > ?"
+		args = append(args, *afterIndex)
+	}
+
+	if since != nil {
+		query += " AND jr.created_at >= ?"
+		args = append(args, since.UTC().Format("2006-01-02 15:04:05"))
+	}
+
+	if owningCell = strings.TrimSpace(owningCell); owningCell != "" {
+		query += " AND jr.owning_cell = ?"
+		args = append(args, owningCell)
+	}
+
+	if cursor > 0 {
+		query += " AND jr.id > ?"
+		args = append(args, cursor)
+	}
+
+	query += " ORDER BY jr.id ASC LIMIT ?"
+	args = append(args, limit+1)
+
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(query), args...)
+	if err != nil {
+		return nil, 0, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	var out []RunRecord
+	var lastID int64
+	for rows.Next() {
+		var rec RunRecord
+		var id int64
+		var orphanReason, failureCode, createdAt, startedAt, finishedAt, failureReason sql.NullString
+		var replayOfRunID, triggerInvocationID, triggerType, triggerPayloadHash, requestedCells sql.NullString
+		var triggerID sql.NullInt64
+		rec.JobID = jobID
+		if err := rows.Scan(&id, &rec.RunID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &createdAt, &startedAt, &finishedAt, &failureReason, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell, &replayOfRunID, &triggerInvocationID, &rec.ExecutionPayloadHash, &triggerID, &triggerType, &triggerPayloadHash, &requestedCells); err != nil {
+			return nil, 0, normalizeSQLError(err)
+		}
+
+		if err := applyRunAuditFields(&rec, replayOfRunID, triggerInvocationID, triggerID, triggerType, triggerPayloadHash, requestedCells); err != nil {
+			return nil, 0, err
+		}
+
+		lastID = id
+		if orphanReason.Valid && orphanReason.String != "" {
+			rec.OrphanReason = &orphanReason.String
+		}
+
+		if createdAt.Valid {
+			rec.CreatedAt = &createdAt.String
+		}
+
+		if startedAt.Valid {
+			rec.StartedAt = &startedAt.String
+		}
+
+		if finishedAt.Valid {
+			rec.FinishedAt = &finishedAt.String
+		}
+
+		if failureCode.Valid && failureCode.String != "" {
+			rec.FailureCode = &failureCode.String
+		}
+
+		if failureReason.Valid {
+			rec.FailureReason = &failureReason.String
+		}
+
+		out = append(out, rec)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, 0, normalizeSQLError(err)
+	}
+
+	var nextCursor int64
+	if len(out) > limit {
+		out = out[:limit]
+		nextCursor = lastID
+	}
+
+	return out, nextCursor, nil
+}
+
 func (r *SQLRunsRepository) ListRunTasks(ctx context.Context, runID string, cursor int64, limit int) ([]TaskRecord, int64, error) {
 	runID = strings.TrimSpace(runID)
 	if runID == "" {

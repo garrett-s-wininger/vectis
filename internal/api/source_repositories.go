@@ -1079,6 +1079,56 @@ func (s *APIServer) TriggerSourceRepositoryJob(w http.ResponseWriter, r *http.Re
 	go s.finishRunJobEnqueueWithKind(bgCtx, observability.APIEnqueueRunKindSource, jobID, runID, loaded.Job, definitionHash)
 }
 
+func (s *APIServer) GetSourceRepositoryJobRuns(w http.ResponseWriter, r *http.Request) {
+	jobID := strings.TrimSpace(r.PathValue("job_id"))
+	if jobID == "" {
+		writeAPIError(w, http.StatusBadRequest, "missing_job_id", "job_id is required", nil)
+		return
+	}
+
+	opts, ok := parseRunListRequestOptions(w, r)
+	if !ok {
+		return
+	}
+
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireNamespaces(w) || !s.requireSources(w) {
+		return
+	}
+
+	runLister, ok := s.runs.(dal.SourceRepositoryRunLister)
+	if !ok {
+		writeAPIError(w, http.StatusServiceUnavailable, "source_run_lister_not_configured", "source-backed run listing not configured", nil)
+		return
+	}
+
+	rec, _, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionRunRead, false)
+	if !ok {
+		return
+	}
+
+	runRows, nextCursor, err := runLister.ListBySourceRepositoryJob(ctx, rec.RepositoryID, jobID, opts.afterIndex, opts.since, opts.owningCell, opts.cursor, opts.limit)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error listing source repository job runs: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+	s.markDBRecovered()
+
+	s.writeJobRunsResponse(w, ctx, jobID, runRows, nextCursor)
+}
+
 func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := s.handlerDBCtx(r)
 	defer cancel()
