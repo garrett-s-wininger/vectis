@@ -10,17 +10,17 @@ import (
 
 func TestNormalizeSPIFFEAllowlist(t *testing.T) {
 	got, err := NormalizeSPIFFEAllowlist([]string{
-		" spiffe://vectis.local/service/api ",
-		"spiffe://vectis.local/service/api",
-		"spiffe://vectis.local/service/queue",
+		" spiffe://vectis.internal/service/api ",
+		"spiffe://vectis.internal/service/api",
+		"spiffe://vectis.internal/service/queue",
 	})
 	if err != nil {
 		t.Fatalf("NormalizeSPIFFEAllowlist: %v", err)
 	}
 
 	want := []string{
-		"spiffe://vectis.local/service/api",
-		"spiffe://vectis.local/service/queue",
+		"spiffe://vectis.internal/service/api",
+		"spiffe://vectis.internal/service/queue",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("NormalizeSPIFFEAllowlist = %v, want %v", got, want)
@@ -28,38 +28,38 @@ func TestNormalizeSPIFFEAllowlist(t *testing.T) {
 }
 
 func TestNormalizeSPIFFEAllowlistRejectsNonSPIFFE(t *testing.T) {
-	if _, err := NormalizeSPIFFEAllowlist([]string{"https://vectis.local/service/api"}); err == nil {
+	if _, err := NormalizeSPIFFEAllowlist([]string{"https://vectis.internal/service/api"}); err == nil {
 		t.Fatal("NormalizeSPIFFEAllowlist accepted non-SPIFFE URI")
 	}
 }
 
 func TestNormalizeSPIFFEAllowlistRejectsSPIFFEWithoutWorkloadPath(t *testing.T) {
-	if _, err := NormalizeSPIFFEAllowlist([]string{"spiffe://vectis.local"}); err == nil {
+	if _, err := NormalizeSPIFFEAllowlist([]string{"spiffe://vectis.internal"}); err == nil {
 		t.Fatal("NormalizeSPIFFEAllowlist accepted SPIFFE ID without workload path")
 	}
 }
 
 func TestAuthorizePeerCertificateAllowsExactLeafURISAN(t *testing.T) {
-	cert := certificateWithURIs(t, "spiffe://vectis.local/service/api")
+	cert := certificateWithURIs(t, "spiffe://vectis.internal/service/api")
 
 	identity, err := AuthorizePeerCertificate([]*x509.Certificate{cert}, []string{
-		"spiffe://vectis.local/service/api",
+		"spiffe://vectis.internal/service/api",
 	})
 	if err != nil {
 		t.Fatalf("AuthorizePeerCertificate: %v", err)
 	}
 
-	if identity != "spiffe://vectis.local/service/api" {
+	if identity != "spiffe://vectis.internal/service/api" {
 		t.Fatalf("identity = %q, want api SPIFFE ID", identity)
 	}
 }
 
 func TestAuthorizePeerCertificateIgnoresIntermediateURISANs(t *testing.T) {
 	leaf := &x509.Certificate{}
-	intermediate := certificateWithURIs(t, "spiffe://vectis.local/service/api")
+	intermediate := certificateWithURIs(t, "spiffe://vectis.internal/service/api")
 
 	_, err := AuthorizePeerCertificate([]*x509.Certificate{leaf, intermediate}, []string{
-		"spiffe://vectis.local/service/api",
+		"spiffe://vectis.internal/service/api",
 	})
 	if !errors.Is(err, ErrNoPeerIdentity) {
 		t.Fatalf("AuthorizePeerCertificate error = %v, want ErrNoPeerIdentity", err)
@@ -67,24 +67,24 @@ func TestAuthorizePeerCertificateIgnoresIntermediateURISANs(t *testing.T) {
 }
 
 func TestAuthorizePeerCertificateDeniesMissingCertificate(t *testing.T) {
-	_, err := AuthorizePeerCertificate(nil, []string{"spiffe://vectis.local/service/api"})
+	_, err := AuthorizePeerCertificate(nil, []string{"spiffe://vectis.internal/service/api"})
 	if !errors.Is(err, ErrNoPeerCertificate) {
 		t.Fatalf("AuthorizePeerCertificate error = %v, want ErrNoPeerCertificate", err)
 	}
 }
 
 func TestAuthorizePeerCertificateDeniesMissingURISAN(t *testing.T) {
-	_, err := AuthorizePeerCertificate([]*x509.Certificate{{}}, []string{"spiffe://vectis.local/service/api"})
+	_, err := AuthorizePeerCertificate([]*x509.Certificate{{}}, []string{"spiffe://vectis.internal/service/api"})
 	if !errors.Is(err, ErrNoPeerIdentity) {
 		t.Fatalf("AuthorizePeerCertificate error = %v, want ErrNoPeerIdentity", err)
 	}
 }
 
 func TestAuthorizePeerCertificateDeniesWrongIdentity(t *testing.T) {
-	cert := certificateWithURIs(t, "spiffe://vectis.local/service/worker")
+	cert := certificateWithURIs(t, "spiffe://vectis.internal/service/worker")
 
 	_, err := AuthorizePeerCertificate([]*x509.Certificate{cert}, []string{
-		"spiffe://vectis.local/service/api",
+		"spiffe://vectis.internal/service/api",
 	})
 	if !errors.Is(err, ErrIdentityDenied) {
 		t.Fatalf("AuthorizePeerCertificate error = %v, want ErrIdentityDenied", err)

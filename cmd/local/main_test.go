@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -235,6 +236,211 @@ func TestLocalBrowserTLSOffUsesHTTP(t *testing.T) {
 	}
 }
 
+func TestLocalSPIREBuildsEnvAndCombinedClientCA(t *testing.T) {
+	resetLocalTestConfig(t)
+	tlsDir := t.TempDir()
+	m, err := localpki.Ensure(tlsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	spireMaterial, err := localpki.Ensure(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	viper.Set("spire_enabled", true)
+	viper.Set("spire_trust_domain", "vectis.internal")
+	viper.Set("spire_workload_api_address", "unix:///tmp/spire-agent.sock")
+	viper.Set("spire_registration_server_address", "unix:///tmp/spire-server.sock")
+	viper.Set("spire_registration_parent_id", "spiffe://vectis.internal/spire/agent/local")
+	viper.Set("spire_registration_selectors", []string{"unix:uid:501", "unix:gid:20,unix:path:/usr/local/bin/vectis-worker"})
+	viper.Set("spire_bundle_file", spireMaterial.CAFile)
+	viper.Set("spire_fetch_timeout", "2s")
+	viper.Set("spire_registration_x509_svid_ttl", "5m")
+
+	cfg, err := localSPIRE(tlsDir, m)
+	if err != nil {
+		t.Fatalf("localSPIRE: %v", err)
+	}
+
+	if !cfg.Enabled {
+		t.Fatal("local SPIRE config was not enabled")
+	}
+
+	if cfg.ClientCABundleFile != filepath.Join(tlsDir, "client-ca-bundle.pem") {
+		t.Fatalf("client CA bundle path = %q", cfg.ClientCABundleFile)
+	}
+
+	b, err := os.ReadFile(cfg.ClientCABundleFile)
+	if err != nil {
+		t.Fatalf("read client CA bundle: %v", err)
+	}
+
+	count, err := countPEMCertificates(b)
+	if err != nil {
+		t.Fatalf("countPEMCertificates: %v", err)
+	}
+
+	if count != 2 {
+		t.Fatalf("combined client CA certificate count = %d, want 2", count)
+	}
+
+	for _, want := range []string{
+		"VECTIS_GRPC_TLS_CLIENT_CA_FILE=" + cfg.ClientCABundleFile,
+		"VECTIS_WORKER_EXECUTION_IDENTITY_ENABLED=true",
+		"VECTIS_WORKER_EXECUTION_IDENTITY_TRUST_DOMAIN=vectis.internal",
+		"VECTIS_WORKER_SPIRE_ENABLED=true",
+		"VECTIS_WORKER_SPIRE_WORKLOAD_API_ADDRESS=unix:///tmp/spire-agent.sock",
+		"VECTIS_WORKER_SPIRE_REGISTRATION_ENABLED=true",
+		"VECTIS_WORKER_SPIRE_REGISTRATION_SERVER_ADDRESS=unix:///tmp/spire-server.sock",
+		"VECTIS_WORKER_SPIRE_REGISTRATION_PARENT_ID=spiffe://vectis.internal/spire/agent/local",
+		"VECTIS_WORKER_SPIRE_FETCH_TIMEOUT=2s",
+		"VECTIS_WORKER_SPIRE_REGISTRATION_X509_SVID_TTL=5m",
+	} {
+		if !hasEnv(cfg.Env, want) {
+			t.Fatalf("local SPIRE env missing %q: %v", want, cfg.Env)
+		}
+	}
+
+	if !hasEnv(cfg.Env, "VECTIS_WORKER_SPIRE_REGISTRATION_SELECTORS=unix:uid:501,unix:gid:20,unix:path:/usr/local/bin/vectis-worker") {
+		t.Fatalf("registration selectors env mismatch: %v", cfg.Env)
+	}
+}
+
+func TestEmbeddedLocalSPIFFEConfigDefaults(t *testing.T) {
+	resetLocalTestConfig(t)
+	dataHome := t.TempDir()
+	runtimeHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	t.Setenv("XDG_RUNTIME_DIR", runtimeHome)
+
+	cfg, err := embeddedLocalSPIFFEConfig()
+	if err != nil {
+		t.Fatalf("embeddedLocalSPIFFEConfig: %v", err)
+	}
+
+	if !cfg.Enabled {
+		t.Fatal("embedded local SPIFFE config was not enabled")
+	}
+
+	if cfg.TrustDomain != localSPIRETrustDomainDefault {
+		t.Fatalf("trust domain = %q, want %q", cfg.TrustDomain, localSPIRETrustDomainDefault)
+	}
+
+	if cfg.ParentID != "spiffe://vectis.internal/spire/agent/local" {
+		t.Fatalf("parent ID = %q", cfg.ParentID)
+	}
+
+	wantSelector := "unix:uid:" + strconv.Itoa(os.Getuid())
+	if len(cfg.Selectors) != 1 || cfg.Selectors[0] != wantSelector {
+		t.Fatalf("selectors = %v, want %q", cfg.Selectors, wantSelector)
+	}
+
+	if cfg.DataDir != filepath.Join(dataHome, "vectis", "local-spiffe") {
+		t.Fatalf("data dir = %q", cfg.DataDir)
+	}
+
+	if cfg.RuntimeDir != filepath.Join(runtimeHome, "vectis", "local-spiffe") {
+		t.Fatalf("runtime dir = %q", cfg.RuntimeDir)
+	}
+
+	if cfg.ServerSocket != filepath.Join(cfg.RuntimeDir, "registration.sock") || cfg.AgentSocket != filepath.Join(cfg.RuntimeDir, "workload.sock") {
+		t.Fatalf("sockets = %q %q", cfg.ServerSocket, cfg.AgentSocket)
+	}
+}
+
+func TestEmbeddedLocalSPIFFEConfigSkipsExternalSPIREMode(t *testing.T) {
+	resetLocalTestConfig(t)
+	viper.Set("spire_enabled", true)
+
+	cfg, err := embeddedLocalSPIFFEConfig()
+	if err != nil {
+		t.Fatalf("embeddedLocalSPIFFEConfig: %v", err)
+	}
+
+	if cfg.Enabled {
+		t.Fatal("embedded local SPIFFE config enabled while external --spire mode is set")
+	}
+}
+
+func TestEmbeddedLocalSPIFFEConfigSkipsPlaintextGRPC(t *testing.T) {
+	resetLocalTestConfig(t)
+	viper.Set("grpc_insecure", true)
+
+	cfg, err := embeddedLocalSPIFFEConfig()
+	if err != nil {
+		t.Fatalf("embeddedLocalSPIFFEConfig: %v", err)
+	}
+
+	if cfg.Enabled {
+		t.Fatal("embedded local SPIFFE config enabled while plaintext gRPC is set")
+	}
+}
+
+func TestStartEmbeddedLocalSPIFFEStartsAuthority(t *testing.T) {
+	resetLocalTestConfig(t)
+	dir, err := os.MkdirTemp("/tmp", "vectis-local-spiffe-*")
+	if err != nil {
+		t.Fatalf("create short temp dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	viper.Set("spire_dir", filepath.Join(dir, "data"))
+	viper.Set("spire_runtime_dir", filepath.Join(dir, "run"))
+
+	cfg, err := startEmbeddedLocalSPIFFE(nil)
+	if err != nil {
+		t.Fatalf("startEmbeddedLocalSPIFFE: %v", err)
+	}
+	t.Cleanup(cfg.Authority.Stop)
+
+	if cfg.Authority == nil {
+		t.Fatal("embedded local SPIFFE did not start authority")
+	}
+
+	if !viper.GetBool("spire_enabled") {
+		t.Fatal("embedded local SPIFFE did not enable local identity mode")
+	}
+
+	for _, path := range []string{cfg.ServerSocket, cfg.AgentSocket, cfg.BundleFile} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected embedded local SPIFFE file %s: %v", path, err)
+		}
+	}
+
+	if got := viper.GetString("spire_workload_api_address"); got != "unix://"+cfg.AgentSocket {
+		t.Fatalf("workload API address = %q", got)
+	}
+
+	if got := viper.GetString("spire_registration_server_address"); got != "unix://"+cfg.ServerSocket {
+		t.Fatalf("registration API address = %q", got)
+	}
+}
+
+func TestLocalSPIRERejectsPlaintextGRPC(t *testing.T) {
+	resetLocalTestConfig(t)
+	m, err := localpki.Ensure(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	viper.Set("spire_enabled", true)
+	viper.Set("grpc_insecure", true)
+
+	_, err = localSPIRE(t.TempDir(), m)
+	if err == nil || !strings.Contains(err.Error(), "requires gRPC TLS") {
+		t.Fatalf("localSPIRE error = %v, want gRPC TLS requirement", err)
+	}
+}
+
+func TestCleanCommaSeparatedDeduplicatesValues(t *testing.T) {
+	got := cleanCommaSeparated([]string{" unix:uid:501,unix:gid:20 ", "unix:uid:501", "", "unix:path:/bin/worker"})
+	want := []string{"unix:uid:501", "unix:gid:20", "unix:path:/bin/worker"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("cleanCommaSeparated = %v, want %v", got, want)
+	}
+}
+
 func TestValidLocalHTTPSTLSMode(t *testing.T) {
 	for _, mode := range []string{localHTTPSTLSAuto, localHTTPSTLSOn, localHTTPSTLSOff} {
 		if !validLocalHTTPSTLSMode(mode) {
@@ -369,6 +575,43 @@ func TestLocalServices_HAProfileBuildsMultiInstanceCell(t *testing.T) {
 
 	if !workersUseSecrets {
 		t.Fatalf("worker-1 did not include secrets address: %+v", services)
+	}
+}
+
+func TestLocalServicesPlaintextGRPCSkipsSecrets(t *testing.T) {
+	for _, profile := range []string{localProfileSimple, localProfileHA} {
+		t.Run(profile, func(t *testing.T) {
+			resetLocalTestConfig(t)
+			t.Setenv("XDG_DATA_HOME", t.TempDir())
+			t.Setenv("VECTIS_CELL_ID", "iad-a")
+			viper.Set("profile", profile)
+			viper.Set("grpc_insecure", true)
+			viper.Set("docs_enabled", false)
+
+			topology, err := buildLocalTopology()
+			if err != nil {
+				t.Fatalf("buildLocalTopology: %v", err)
+			}
+
+			services := localServices(mocks.NopLogger{}, topology)
+			workers := 0
+			for _, svc := range services {
+				if svc.binary == "vectis-secrets" {
+					t.Fatalf("plaintext local services included vectis-secrets: %v", serviceNames(services))
+				}
+
+				if svc.binary == "vectis-worker" {
+					workers++
+					if !hasEnv(svc.env, "VECTIS_WORKER_SECRETS_ADDRESS=disabled") {
+						t.Fatalf("plaintext worker did not disable secrets address: %+v", svc.env)
+					}
+				}
+			}
+
+			if workers == 0 {
+				t.Fatalf("plaintext local services did not include a worker: %v", serviceNames(services))
+			}
+		})
 	}
 }
 

@@ -136,6 +136,8 @@ After `vectis-cli deploy podman up`:
 10. Open the bundled docs at `http://localhost:8088`.
 11. Check Jaeger and OpenSearch only as reference observability unless you have hardened them.
 
+The Podman reference profile does not provision SPIRE. To exercise worker-managed registration, per-execution SVID acquisition, and encryptedfs secret resolution on a workstation, use the [Local SPIFFE Secrets Smoke Test](./local-spire-secrets-smoke-test.md) with `vectis-local`.
+
 ## Related Documentation
 
 | Topic | Document |
@@ -143,6 +145,7 @@ After `vectis-cli deploy podman up`:
 | Configuration and ports | [Configuration](../configuration.md) |
 | Security posture | [Security](../../concepts/security.md) |
 | Internal service trust | [Internal Service Trust](../../concepts/internal-service-trust.md) |
+| Local SPIFFE secret smoke test | [Local SPIFFE Secrets Smoke Test](./local-spire-secrets-smoke-test.md) |
 | Scaling and restarts | [Scaling And Restarts](./scaling-and-restarts.md) |
 | Backup and restore | [Backup And Restore](../reliability/backup-restore.md) |
 | Runbooks and alerts | [Runbooks](../reliability/runbooks.md) |

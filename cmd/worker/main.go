@@ -543,7 +543,7 @@ type executionSPIRERegistration struct {
 
 func newSecretsResolverFactory(logger interfaces.Logger) (secretResolverFactory, error) {
 	addr := strings.TrimSpace(config.WorkerSecretsAddress())
-	if addr == "" {
+	if secretsAddressDisabled(addr) {
 		return nil, nil
 	}
 
@@ -575,6 +575,14 @@ func newSecretsResolverFactory(logger interfaces.Logger) (secretResolverFactory,
 	}, nil
 }
 
+func secretsAddressDisabled(addr string) bool {
+	switch strings.ToLower(strings.TrimSpace(addr)) {
+	case "", "disabled", "none", "off", "-":
+		return true
+	default:
+		return false
+	}
+}
 func (w *worker) now() time.Time {
 	if w.clock != nil {
 		return w.clock.Now()

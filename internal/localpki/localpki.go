@@ -28,7 +28,7 @@ const (
 	caRenewBefore      = 90 * 24 * time.Hour
 )
 
-const LocalServiceIdentity = "spiffe://vectis.local/service/vectis-local"
+const LocalServiceIdentity = "spiffe://vectis.internal/service/vectis-local"
 
 type Material struct {
 	CAFile     string

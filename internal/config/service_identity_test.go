@@ -25,14 +25,14 @@ func TestServiceIdentityAllowedClientIdentitiesFromViper(t *testing.T) {
 	t.Cleanup(viper.Reset)
 
 	viper.Set("service_identity.queue_allowed_client_identities", []string{
-		"spiffe://vectis.local/service/api, spiffe://vectis.local/service/cron",
-		"spiffe://vectis.local/service/api",
+		"spiffe://vectis.internal/service/api, spiffe://vectis.internal/service/cron",
+		"spiffe://vectis.internal/service/api",
 	})
 
 	got := ServiceIdentityAllowedClientIdentities(ServiceIdentityRoleQueue)
 	want := []string{
-		"spiffe://vectis.local/service/api",
-		"spiffe://vectis.local/service/cron",
+		"spiffe://vectis.internal/service/api",
+		"spiffe://vectis.internal/service/cron",
 	}
 
 	if !reflect.DeepEqual(got, want) {
@@ -63,7 +63,7 @@ func TestGRPCServerOptionsForRoleRejectsInvalidServiceIdentity(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 
-	viper.Set("service_identity.queue_allowed_client_identities", []string{"https://vectis.local/service/api"})
+	viper.Set("service_identity.queue_allowed_client_identities", []string{"https://vectis.internal/service/api"})
 
 	_, err := GRPCServerOptionsForRole(ServiceIdentityRoleQueue)
 	if err == nil || !strings.Contains(err.Error(), "spiffe://") {
@@ -76,7 +76,7 @@ func TestGRPCServerOptionsForRoleRejectsServiceIdentityWithInsecureTLS(t *testin
 	t.Cleanup(viper.Reset)
 
 	viper.Set("grpc_tls.insecure", true)
-	viper.Set("service_identity.queue_allowed_client_identities", []string{"spiffe://vectis.local/service/api"})
+	viper.Set("service_identity.queue_allowed_client_identities", []string{"spiffe://vectis.internal/service/api"})
 
 	_, err := GRPCServerOptionsForRole(ServiceIdentityRoleQueue)
 	if err == nil || !strings.Contains(err.Error(), "grpc_tls.insecure=false") {
@@ -89,7 +89,7 @@ func TestGRPCServerOptionsForRoleRejectsServiceIdentityWithoutClientCA(t *testin
 	t.Cleanup(viper.Reset)
 
 	viper.Set("grpc_tls.insecure", false)
-	viper.Set("service_identity.queue_allowed_client_identities", []string{"spiffe://vectis.local/service/api"})
+	viper.Set("service_identity.queue_allowed_client_identities", []string{"spiffe://vectis.internal/service/api"})
 
 	_, err := GRPCServerOptionsForRole(ServiceIdentityRoleQueue)
 	if err == nil || !strings.Contains(err.Error(), "grpc_tls.client_ca_file") {
@@ -121,10 +121,10 @@ func TestGRPCServerOptionsForRoleAllowsLocalServiceIdentity(t *testing.T) {
 }
 
 func TestAuthorizeGRPCPeerIdentity(t *testing.T) {
-	allowed := []string{"spiffe://vectis.local/service/api"}
+	allowed := []string{"spiffe://vectis.internal/service/api"}
 
 	t.Run("allows matching identity", func(t *testing.T) {
-		ctx := grpcPeerContextWithURI(t, "spiffe://vectis.local/service/api")
+		ctx := grpcPeerContextWithURI(t, "spiffe://vectis.internal/service/api")
 		if err := authorizeGRPCPeerIdentity(ctx, ServiceIdentityRoleQueue, allowed); err != nil {
 			t.Fatalf("authorizeGRPCPeerIdentity: %v", err)
 		}
@@ -151,7 +151,7 @@ func TestAuthorizeGRPCPeerIdentity(t *testing.T) {
 	})
 
 	t.Run("rejects wrong identity", func(t *testing.T) {
-		ctx := grpcPeerContextWithURI(t, "spiffe://vectis.local/service/worker")
+		ctx := grpcPeerContextWithURI(t, "spiffe://vectis.internal/service/worker")
 		err := authorizeGRPCPeerIdentity(ctx, ServiceIdentityRoleQueue, allowed)
 		if status.Code(err) != codes.PermissionDenied {
 			t.Fatalf("authorizeGRPCPeerIdentity status = %v, want %v; err=%v", status.Code(err), codes.PermissionDenied, err)

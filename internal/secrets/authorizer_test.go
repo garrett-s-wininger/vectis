@@ -46,7 +46,7 @@ func TestClaimAuthorizerAllowsActiveExecutionClaim(t *testing.T) {
 		RunID:               "run-1",
 		ExecutionID:         "execution-1",
 		ExecutionClaimToken: "claim-1",
-		PeerSPIFFEID:        "spiffe://vectis.local/service/worker",
+		PeerSPIFFEID:        "spiffe://vectis.internal/service/worker",
 	}
 
 	err := authorizer.AuthorizeResolve(context.Background(), &req)
@@ -65,7 +65,7 @@ func TestClaimAuthorizerRequiresPeerToMatchExpectedWorkload(t *testing.T) {
 	validator := &fakeClaimValidator{}
 	expected := &fakeExecutionScopeResolver{
 		scope: ExecutionScope{
-			SPIFFEID:      "spiffe://vectis.local/cell/local/job/job-1/run/run-1/execution/execution-1",
+			SPIFFEID:      "spiffe://vectis.internal/cell/local/job/job-1/run/run-1/execution/execution-1",
 			NamespacePath: "/team-a",
 			JobID:         "job-1",
 			TaskKey:       "publish",
@@ -77,7 +77,7 @@ func TestClaimAuthorizerRequiresPeerToMatchExpectedWorkload(t *testing.T) {
 		RunID:               "run-1",
 		ExecutionID:         "execution-1",
 		ExecutionClaimToken: "claim-1",
-		PeerSPIFFEID:        "spiffe://vectis.local/cell/local/job/job-1/run/run-1/execution/execution-1",
+		PeerSPIFFEID:        "spiffe://vectis.internal/cell/local/job/job-1/run/run-1/execution/execution-1",
 	}
 
 	err := authorizer.AuthorizeResolve(context.Background(), &req)
@@ -99,7 +99,7 @@ func TestClaimAuthorizerRejectsMismatchedExpectedWorkload(t *testing.T) {
 
 	authorizer := NewClaimAuthorizer(&fakeClaimValidator{}, WithExecutionScopeResolver(&fakeExecutionScopeResolver{
 		scope: ExecutionScope{
-			SPIFFEID: "spiffe://vectis.local/cell/local/job/job-1/run/run-1/execution/execution-1",
+			SPIFFEID: "spiffe://vectis.internal/cell/local/job/job-1/run/run-1/execution/execution-1",
 		},
 	}))
 
@@ -107,7 +107,7 @@ func TestClaimAuthorizerRejectsMismatchedExpectedWorkload(t *testing.T) {
 		RunID:               "run-1",
 		ExecutionID:         "execution-1",
 		ExecutionClaimToken: "claim-1",
-		PeerSPIFFEID:        "spiffe://vectis.local/cell/local/job/job-1/run/run-1/execution/other",
+		PeerSPIFFEID:        "spiffe://vectis.internal/cell/local/job/job-1/run/run-1/execution/other",
 	}
 
 	err := authorizer.AuthorizeResolve(context.Background(), &req)
@@ -136,7 +136,7 @@ func TestClaimAuthorizerRejectsMissingPeerOrClaimFields(t *testing.T) {
 			req: ResolveRequest{
 				ExecutionID:         "execution-1",
 				ExecutionClaimToken: "claim-1",
-				PeerSPIFFEID:        "spiffe://vectis.local/service/worker",
+				PeerSPIFFEID:        "spiffe://vectis.internal/service/worker",
 			},
 		},
 		{
@@ -144,7 +144,7 @@ func TestClaimAuthorizerRejectsMissingPeerOrClaimFields(t *testing.T) {
 			req: ResolveRequest{
 				RunID:               "run-1",
 				ExecutionClaimToken: "claim-1",
-				PeerSPIFFEID:        "spiffe://vectis.local/service/worker",
+				PeerSPIFFEID:        "spiffe://vectis.internal/service/worker",
 			},
 		},
 		{
@@ -152,7 +152,7 @@ func TestClaimAuthorizerRejectsMissingPeerOrClaimFields(t *testing.T) {
 			req: ResolveRequest{
 				RunID:        "run-1",
 				ExecutionID:  "execution-1",
-				PeerSPIFFEID: "spiffe://vectis.local/service/worker",
+				PeerSPIFFEID: "spiffe://vectis.internal/service/worker",
 			},
 		},
 	}
@@ -178,7 +178,7 @@ func TestClaimAuthorizerRejectsInactiveExecutionClaim(t *testing.T) {
 		RunID:               "run-1",
 		ExecutionID:         "execution-1",
 		ExecutionClaimToken: "claim-1",
-		PeerSPIFFEID:        "spiffe://vectis.local/service/worker",
+		PeerSPIFFEID:        "spiffe://vectis.internal/service/worker",
 	}
 
 	err := authorizer.AuthorizeResolve(context.Background(), &req)
@@ -202,7 +202,7 @@ func TestClaimAuthorizerAppliesAccessPolicyAfterScopeResolution(t *testing.T) {
 		&fakeClaimValidator{},
 		WithExecutionScopeResolver(&fakeExecutionScopeResolver{
 			scope: ExecutionScope{
-				SPIFFEID:      "spiffe://vectis.local/cell/local/job/job-1/run/run-1/execution/execution-1",
+				SPIFFEID:      "spiffe://vectis.internal/cell/local/job/job-1/run/run-1/execution/execution-1",
 				NamespacePath: "/team-a",
 				JobID:         "job-1",
 				TaskKey:       "publish",
@@ -215,7 +215,7 @@ func TestClaimAuthorizerAppliesAccessPolicyAfterScopeResolution(t *testing.T) {
 		RunID:               "run-1",
 		ExecutionID:         "execution-1",
 		ExecutionClaimToken: "claim-1",
-		PeerSPIFFEID:        "spiffe://vectis.local/cell/local/job/job-1/run/run-1/execution/execution-1",
+		PeerSPIFFEID:        "spiffe://vectis.internal/cell/local/job/job-1/run/run-1/execution/execution-1",
 		Secrets: []Reference{{
 			ID:  "npm-token",
 			Ref: "encryptedfs://team-a/npm-token",

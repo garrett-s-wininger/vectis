@@ -35,6 +35,7 @@ Some settings are global and intentionally do not use a service prefix, such as 
 | Expose local API and docs from a dev host | `VECTIS_DOCS_ALLOWED_HOSTS=<dev-host> vectis-local --host 0.0.0.0` |
 | Add local execution cells for routing tests | `vectis-local --cell pdx-b --cell sjc-c` |
 | Run a local multi-instance HA exercise cell | `vectis-local --profile ha` or `VECTIS_LOCAL_PROFILE=ha` |
+| Run a local SPIFFE secret-resolution smoke test | `vectis-local --spire-trust-domain vectis.internal` |
 | Run the Podman HA reference profile | `vectis-cli deploy podman --profile ha up` |
 | Set the execution cell identity | `VECTIS_CELL_ID=local` |
 | Bind private cell ingress to another interface | `VECTIS_CELL_INGRESS_HOST=0.0.0.0`, internal mTLS via `VECTIS_GRPC_TLS_*`, plus a matching static endpoint or `VECTIS_CELL_INGRESS_ALLOWED_HOSTS=<ingress-host>` |
@@ -61,7 +62,7 @@ Some settings are global and intentionally do not use a service prefix, such as 
 | Name a cron replica in claim records | `VECTIS_CRON_INSTANCE_ID=cron-a` or `vectis-cron --instance-id cron-a` |
 | Change catalog event drain interval | `VECTIS_CATALOG_INTERVAL=1s` |
 | Fan in cell-local catalog events | `vectis-catalog --cell-database-dsn pdx-b=/path/to/pdx.db` |
-| Run `vectis-local` with plaintext internal gRPC | `vectis-local --grpc-insecure` or `VECTIS_LOCAL_GRPC_INSECURE=true` |
+| Run `vectis-local` with plaintext internal gRPC | `vectis-local --grpc-insecure` or `VECTIS_LOCAL_GRPC_INSECURE=true`; local secrets are disabled in this mode |
 
 ## Service Prefixes
 
@@ -84,7 +85,7 @@ Use these prefixes when building service-specific environment variable names.
 | `vectis-catalog` | `VECTIS_CATALOG` | `--interval`, `--batch-size`, `--metrics-host`, `--metrics-port`, `--cell-database-dsn` |
 | `vectis-log-forwarder` | `VECTIS_LOG_FORWARDER` | `--socket`, `--lockfile`, `--spool-dir`, `--metrics-host`, `--metrics-port` |
 | `vectis-docs` | `VECTIS_DOCS` | `--host`, `--port`, `--dir`, `--allowed-host`, `--tls-cert-file`, `--tls-key-file` |
-| `vectis-local` | `VECTIS_LOCAL` | `--profile`, `--host`, `--cell`, `--docs-port`, `--docs-dir`, `--log-level`, `--grpc-insecure`, `--http-tls`, `--tls-dir`; subcommands: `init`, `install-cert` |
+| `vectis-local` | `VECTIS_LOCAL` | `--profile`, `--host`, `--cell`, `--docs-port`, `--docs-dir`, `--log-level`, `--grpc-insecure`, `--http-tls`, `--tls-dir`; local SPIFFE/SPIRE smoke-test flags: `--spire`, `--spire-trust-domain`, `--spire-workload-api-address`, `--spire-server-api-address`, `--spire-parent-id`, `--spire-selector`, `--spire-bundle-file`; subcommands: `init`, `install-cert` |
 | `vectis-cli` | none for normal API commands | `VECTIS_API_TOKEN` for auth; `VECTIS_DATABASE_*` for `database migrate` |
 
 The API client IP trust setting is an intentionally separate API-wide variable: `VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS`.
@@ -175,6 +176,8 @@ Worker SPIRE integration is disabled by default. Enable it only when a SPIRE age
 Execution SVID acquisition happens inside Vectis-controlled worker code. When a task declares secrets, the worker uses the matched X.509-SVID as the gRPC client certificate for the `vectis-secrets` resolution call. Vectis does not export the Workload API socket, SVID, private key, derived SPIFFE ID, SPIRE Server API socket, or registration authority credentials to shell commands. When `worker.spire.registration.enabled=true`, the worker creates or renews a SPIRE entry before fetching the execution SVID and releases only entries it created or previously tagged with Vectis' deterministic registration hint. Pre-existing operator-managed entries can satisfy SVID acquisition but are not updated or deleted by Vectis. Workers emit `vectis_worker_spire_svid_checks_total` with fixed `outcome` and `reason` labels for the SVID gate.
 
 Secret resolution requires internal gRPC TLS with server certificates, `grpc_tls.ca_file` for workers, and `grpc_tls.client_ca_file` for `vectis-secrets` so workload client certificates are requested and verified. `vectis-secrets` fails startup when gRPC TLS is enabled without `grpc_tls.client_ca_file`.
+
+For local end-to-end testing, `vectis-local` starts an embedded development-only SPIFFE authority when local gRPC TLS is enabled, exports its trust bundle, passes worker execution identity and SPIRE-compatible registration settings to child processes, starts `vectis-secrets` with encryptedfs enabled, and writes a combined client-CA bundle containing the generated local Vectis CA plus the local SPIFFE bundle. Use `vectis-local --spire` instead when you already run SPIRE yourself and want to provide explicit socket, bundle, parent ID, and selector settings. Both modes let ordinary local service mTLS and dynamic per-execution SVID client certificates work in the same process group. `vectis-local --grpc-insecure` skips the embedded authority and secrets service because plaintext gRPC cannot authenticate execution SVID client certificates. See [Local SPIFFE Secrets Smoke Test](./deployment/local-spire-secrets-smoke-test.md).
 
 `vectis-secrets` routes secret refs by URI scheme. `encryptedfs://...` is the first built-in provider scheme; future external providers such as Vault or Knox can register their own schemes behind the same authorization and delivery path.
 
@@ -302,7 +305,7 @@ Internal gRPC TLS settings are global across Vectis binaries.
 | `VECTIS_GRPC_TLS_SERVER_NAME` | Optional server-name override for outbound TLS verification. Useful when discovery returns an IP but the certificate is issued for a DNS name. |
 | `VECTIS_GRPC_TLS_RELOAD_INTERVAL` | Positive duration to poll PEM files and reload them without restart. `0` disables polling. |
 
-Standalone binaries default to plaintext gRPC. `vectis-local` normally bootstraps a local development CA and sets `VECTIS_GRPC_TLS_*` for child processes unless you pass `--grpc-insecure`. The same generated server certificate can also be used for local API/docs HTTPS. Run `vectis-local init` as your normal user to create or renew the files, then run `vectis-local install-cert` with elevated privileges if your OS requires that to trust the generated CA. The `install-cert` command only installs the CA certificate; it does not create files, migrate databases, or start services. In normal runs, `--http-tls=auto` uses HTTPS when the generated certificate verifies against the system trust store, `--http-tls=on` forces HTTPS with the generated cert, and `--http-tls=off` keeps API/docs on HTTP. The Podman reference deployment also generates internal gRPC TLS material and mounts it into the Vectis containers.
+Standalone binaries default to plaintext gRPC. `vectis-local` normally bootstraps a local development CA and sets `VECTIS_GRPC_TLS_*` for child processes unless you pass `--grpc-insecure`; plaintext local mode also skips `vectis-secrets`. The same generated server certificate can also be used for local API/docs HTTPS. Run `vectis-local init` as your normal user to create or renew the files, then run `vectis-local install-cert` with elevated privileges if your OS requires that to trust the generated CA. The `install-cert` command only installs the CA certificate; it does not create files, migrate databases, or start services. In normal runs, `--http-tls=auto` uses HTTPS when the generated certificate verifies against the system trust store, `--http-tls=on` forces HTTPS with the generated cert, and `--http-tls=off` keeps API/docs on HTTP. The Podman reference deployment also generates internal gRPC TLS material and mounts it into the Vectis containers.
 
 | Role | Binaries | Required material when TLS is enabled |
 | --- | --- | --- |

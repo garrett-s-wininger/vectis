@@ -97,6 +97,20 @@ func spanAttributeString(attrs []attribute.KeyValue, key string) string {
 	return ""
 }
 
+func TestNewSecretsResolverFactoryDisabledAddress(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("worker.secrets.address", "disabled")
+
+	factory, err := newSecretsResolverFactory(mocks.NopLogger{})
+	if err != nil {
+		t.Fatalf("newSecretsResolverFactory: %v", err)
+	}
+	if factory != nil {
+		t.Fatal("newSecretsResolverFactory returned resolver for disabled address")
+	}
+}
+
 func TestWorkerResolveExecutionSecretsSendsTaskScopedRequest(t *testing.T) {
 	fileType := api.SecretDeliveryType_SECRET_DELIVERY_TYPE_FILE
 	resolver := &recordingSecretsResolver{
@@ -109,7 +123,7 @@ func TestWorkerResolveExecutionSecretsSendsTaskScopedRequest(t *testing.T) {
 	}
 
 	w := &worker{secretResolver: resolver}
-	workload := &workloadidentity.Identity{SPIFFEID: "spiffe://vectis.local/execution/run-1"}
+	workload := &workloadidentity.Identity{SPIFFEID: "spiffe://vectis.internal/execution/run-1"}
 
 	files, err := w.resolveExecutionSecrets(context.Background(), &api.Job{
 		Secrets: []*api.SecretReference{
@@ -178,7 +192,7 @@ func TestWorkerResolveExecutionSecretsUsesWorkloadResolverFactory(t *testing.T) 
 		}}},
 	}
 
-	workload := &workloadidentity.Identity{SPIFFEID: "spiffe://vectis.local/execution/run-1"}
+	workload := &workloadidentity.Identity{SPIFFEID: "spiffe://vectis.internal/execution/run-1"}
 	cleanupCalled := false
 	factoryCalled := false
 	w := &worker{

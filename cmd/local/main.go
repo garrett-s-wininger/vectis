@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"net"
 	"os"
@@ -20,8 +23,11 @@ import (
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
 	"vectis/internal/localpki"
+	"vectis/internal/localspiffe"
 	"vectis/internal/platform"
 	secretstore "vectis/internal/secrets"
+	"vectis/internal/serviceidentity"
+	"vectis/internal/spire"
 	"vectis/internal/supervisor"
 	"vectis/internal/utils"
 
@@ -93,14 +99,16 @@ var (
 )
 
 const (
-	healthCheckInterval = 50 * time.Millisecond
-	healthCheckTimeout  = 10 * time.Second
-	cellPortStride      = 100
-	localProfileSimple  = "simple"
-	localProfileHA      = "ha"
-	localHTTPSTLSAuto   = "auto"
-	localHTTPSTLSOn     = "on"
-	localHTTPSTLSOff    = "off"
+	healthCheckInterval          = 50 * time.Millisecond
+	healthCheckTimeout           = 10 * time.Second
+	cellPortStride               = 100
+	localSecretsDisabledAddress  = "disabled"
+	localProfileSimple           = "simple"
+	localProfileHA               = "ha"
+	localHTTPSTLSAuto            = "auto"
+	localHTTPSTLSOn              = "on"
+	localHTTPSTLSOff             = "off"
+	localSPIRETrustDomainDefault = "vectis.internal"
 )
 
 func waitForHealthy(port int, serviceName string, timeout time.Duration) error {
@@ -234,16 +242,22 @@ func localSimpleProfileServices(logger interfaces.Logger, topology localTopology
 				portFn:      func() int { return cell.QueuePort },
 				healthName:  "queue",
 				env:         queueEnv(cell, topology.multiCell()),
-			},
-			serviceStage{
-				binary:      "vectis-secrets",
-				name:        fmt.Sprintf("vectis-secrets[%s]", cell.ID),
-				stage:       1,
-				checkHealth: true,
-				portFn:      func() int { return cell.SecretsPort },
-				healthName:  "secrets",
-				env:         secretsEnv(cell),
-			},
+			})
+
+		if localSecretsEnabled() {
+			services = append(services,
+				serviceStage{
+					binary:      "vectis-secrets",
+					name:        fmt.Sprintf("vectis-secrets[%s]", cell.ID),
+					stage:       1,
+					checkHealth: true,
+					portFn:      func() int { return cell.SecretsPort },
+					healthName:  "secrets",
+					env:         secretsEnv(cell),
+				})
+		}
+
+		services = append(services,
 			serviceStage{
 				binary: "vectis-cell-ingress",
 				name:   fmt.Sprintf("vectis-cell-ingress[%s]", cell.ID),
@@ -392,15 +406,17 @@ func localHAProfileServices(logger interfaces.Logger, topology localTopology) []
 		stage:  1,
 	})
 
-	services = append(services, serviceStage{
-		binary:      "vectis-secrets",
-		name:        fmt.Sprintf("vectis-secrets[%s]", cell.ID),
-		stage:       1,
-		checkHealth: true,
-		portFn:      fixedPort(cell.SecretsPort),
-		healthName:  "secrets",
-		env:         secretsEnv(cell),
-	})
+	if localSecretsEnabled() {
+		services = append(services, serviceStage{
+			binary:      "vectis-secrets",
+			name:        fmt.Sprintf("vectis-secrets[%s]", cell.ID),
+			stage:       1,
+			checkHealth: true,
+			portFn:      fixedPort(cell.SecretsPort),
+			healthName:  "secrets",
+			env:         secretsEnv(cell),
+		})
+	}
 
 	for i, port := range []int{8080, 8180} {
 		env := append([]string{}, registryEnv...)
@@ -440,7 +456,7 @@ func localHAProfileServices(logger interfaces.Logger, topology localTopology) []
 			fmt.Sprintf("VECTIS_WORKER_METRICS_PORT=%d", cell.WorkerMetricsPort+(i*cellPortStride)),
 			fmt.Sprintf("VECTIS_WORKER_CONTROL_PORT=%d", config.WorkerControlPort()+(i*cellPortStride)),
 			"VECTIS_WORKER_CORE_SHELL_SOCKET="+localWorkerCoreShellSocket(fmt.Sprintf("worker-%d", i+1)),
-			"VECTIS_WORKER_SECRETS_ADDRESS="+localSecretsAddress(cell),
+			localWorkerSecretsEnv(cell),
 		)
 
 		services = append(services, serviceStage{
@@ -587,6 +603,297 @@ func localBrowserTLS(material *localpki.Material, mode string, logger interfaces
 	return cfg
 }
 
+type localSPIREConfig struct {
+	Enabled            bool
+	ClientCABundleFile string
+	Env                []string
+}
+
+type localEmbeddedSPIFFEConfig struct {
+	Enabled      bool
+	TrustDomain  string
+	DataDir      string
+	RuntimeDir   string
+	ServerSocket string
+	AgentSocket  string
+	BundleFile   string
+	ParentID     string
+	Selectors    []string
+	Authority    *localspiffe.Authority
+}
+
+func startEmbeddedLocalSPIFFE(logger interfaces.Logger) (cfg localEmbeddedSPIFFEConfig, err error) {
+	cfg, err = embeddedLocalSPIFFEConfig()
+	if err != nil || !cfg.Enabled {
+		return cfg, err
+	}
+
+	authority, err := localspiffe.Start(context.Background(), localspiffe.Config{
+		TrustDomain:            cfg.TrustDomain,
+		DataDir:                cfg.DataDir,
+		RuntimeDir:             cfg.RuntimeDir,
+		WorkloadSocketPath:     cfg.AgentSocket,
+		RegistrationSocketPath: cfg.ServerSocket,
+		BundleFile:             cfg.BundleFile,
+		Selectors:              cfg.Selectors,
+	})
+	if err != nil {
+		return cfg, fmt.Errorf("start embedded local SPIFFE authority: %w", err)
+	}
+
+	if logger != nil {
+		logger.Info("Started embedded local SPIFFE authority for trust domain %s", cfg.TrustDomain)
+	}
+
+	cfg.Authority = authority
+	applyEmbeddedLocalSPIFFEConfig(cfg)
+	return cfg, nil
+}
+
+func embeddedLocalSPIFFEConfig() (localEmbeddedSPIFFEConfig, error) {
+	if viper.GetBool("spire_enabled") || viper.GetBool("grpc_insecure") {
+		return localEmbeddedSPIFFEConfig{}, nil
+	}
+
+	trustDomain := strings.TrimSpace(viper.GetString("spire_trust_domain"))
+	if trustDomain == "" {
+		trustDomain = localSPIRETrustDomainDefault
+	}
+
+	dataDir := strings.TrimSpace(viper.GetString("spire_dir"))
+	if dataDir == "" {
+		dataDir = filepath.Join(utils.DataHome(), "vectis", "local-spiffe")
+	}
+
+	runtimeDir := strings.TrimSpace(viper.GetString("spire_runtime_dir"))
+	if runtimeDir == "" {
+		runtimeDir = filepath.Join(utils.RuntimeDir(), "local-spiffe")
+	}
+
+	selectors := localSPIRERegistrationSelectors()
+	if len(selectors) == 0 {
+		selectors = []string{fmt.Sprintf("unix:uid:%d", os.Getuid())}
+	}
+
+	parentID := strings.TrimSpace(viper.GetString("spire_registration_parent_id"))
+	if parentID == "" {
+		parentID = "spiffe://" + trustDomain + "/spire/agent/local"
+	}
+
+	serverSocket := filepath.Join(runtimeDir, "registration.sock")
+	agentSocket := filepath.Join(runtimeDir, "workload.sock")
+
+	return localEmbeddedSPIFFEConfig{
+		Enabled:      true,
+		TrustDomain:  trustDomain,
+		DataDir:      dataDir,
+		RuntimeDir:   runtimeDir,
+		ServerSocket: serverSocket,
+		AgentSocket:  agentSocket,
+		BundleFile:   filepath.Join(dataDir, "bundle.pem"),
+		ParentID:     parentID,
+		Selectors:    selectors,
+	}, nil
+}
+
+func applyEmbeddedLocalSPIFFEConfig(cfg localEmbeddedSPIFFEConfig) {
+	viper.Set("spire_enabled", true)
+	viper.Set("spire_trust_domain", cfg.TrustDomain)
+	viper.Set("spire_workload_api_address", "unix://"+cfg.AgentSocket)
+	viper.Set("spire_registration_server_address", "unix://"+cfg.ServerSocket)
+	viper.Set("spire_registration_parent_id", cfg.ParentID)
+	viper.Set("spire_registration_selectors", cfg.Selectors)
+	viper.Set("spire_bundle_file", cfg.BundleFile)
+}
+
+func localSPIRE(tlsDir string, material *localpki.Material) (localSPIREConfig, error) {
+	if !viper.GetBool("spire_enabled") {
+		return localSPIREConfig{}, nil
+	}
+
+	if viper.GetBool("grpc_insecure") {
+		return localSPIREConfig{}, fmt.Errorf("local SPIFFE identity mode requires gRPC TLS; remove --grpc-insecure")
+	}
+
+	if material == nil {
+		return localSPIREConfig{}, fmt.Errorf("local SPIFFE identity mode requires local TLS material")
+	}
+
+	trustDomain := strings.TrimSpace(viper.GetString("spire_trust_domain"))
+	if trustDomain == "" {
+		return localSPIREConfig{}, fmt.Errorf("local SPIFFE identity mode requires --spire-trust-domain")
+	}
+
+	workloadAPIAddress := strings.TrimSpace(viper.GetString("spire_workload_api_address"))
+	if err := spire.ValidateWorkloadAPIAddress(workloadAPIAddress); err != nil {
+		return localSPIREConfig{}, fmt.Errorf("local SPIFFE workload API: %w", err)
+	}
+
+	serverAPIAddress := strings.TrimSpace(viper.GetString("spire_registration_server_address"))
+	if err := spire.ValidateServerAPIAddress(serverAPIAddress); err != nil {
+		return localSPIREConfig{}, fmt.Errorf("local SPIFFE registration API: %w", err)
+	}
+
+	parentID := strings.TrimSpace(viper.GetString("spire_registration_parent_id"))
+	if parentID == "" {
+		return localSPIREConfig{}, fmt.Errorf("local SPIFFE identity mode requires --spire-registration-parent-id")
+	}
+
+	if _, err := serviceidentity.NormalizeSPIFFEAllowlist([]string{parentID}); err != nil {
+		return localSPIREConfig{}, fmt.Errorf("local SPIFFE registration parent ID: %w", err)
+	}
+
+	selectors := localSPIRERegistrationSelectors()
+	if len(selectors) == 0 {
+		return localSPIREConfig{}, fmt.Errorf("local SPIFFE identity mode requires at least one --spire-registration-selector")
+	}
+
+	for _, selector := range selectors {
+		if _, err := spire.ParseSelector(selector); err != nil {
+			return localSPIREConfig{}, fmt.Errorf("local SPIFFE registration selector %q: %w", selector, err)
+		}
+	}
+
+	spireBundle := strings.TrimSpace(viper.GetString("spire_bundle_file"))
+	if spireBundle == "" {
+		return localSPIREConfig{}, fmt.Errorf("local SPIFFE identity mode requires --spire-bundle-file")
+	}
+
+	clientCABundle, err := writeLocalSPIREClientCABundle(tlsDir, material.CAFile, spireBundle)
+	if err != nil {
+		return localSPIREConfig{}, err
+	}
+
+	env := []string{
+		"VECTIS_GRPC_TLS_CLIENT_CA_FILE=" + clientCABundle,
+		"VECTIS_WORKER_EXECUTION_IDENTITY_ENABLED=true",
+		"VECTIS_WORKER_EXECUTION_IDENTITY_TRUST_DOMAIN=" + trustDomain,
+		"VECTIS_WORKER_SPIRE_ENABLED=true",
+		"VECTIS_WORKER_SPIRE_WORKLOAD_API_ADDRESS=" + workloadAPIAddress,
+		"VECTIS_WORKER_SPIRE_REGISTRATION_ENABLED=true",
+		"VECTIS_WORKER_SPIRE_REGISTRATION_SERVER_ADDRESS=" + serverAPIAddress,
+		"VECTIS_WORKER_SPIRE_REGISTRATION_PARENT_ID=" + parentID,
+		"VECTIS_WORKER_SPIRE_REGISTRATION_SELECTORS=" + strings.Join(selectors, ","),
+	}
+
+	if pathTemplate := strings.TrimSpace(viper.GetString("spire_path_template")); pathTemplate != "" {
+		env = append(env, "VECTIS_WORKER_EXECUTION_IDENTITY_PATH_TEMPLATE="+pathTemplate)
+	}
+
+	for _, durationEnv := range []struct {
+		key string
+		env string
+	}{
+		{key: "spire_fetch_timeout", env: "VECTIS_WORKER_SPIRE_FETCH_TIMEOUT"},
+		{key: "spire_registration_x509_svid_ttl", env: "VECTIS_WORKER_SPIRE_REGISTRATION_X509_SVID_TTL"},
+		{key: "spire_registration_min_ttl", env: "VECTIS_WORKER_SPIRE_REGISTRATION_MIN_TTL"},
+		{key: "spire_registration_max_ttl", env: "VECTIS_WORKER_SPIRE_REGISTRATION_MAX_TTL"},
+	} {
+		if value := strings.TrimSpace(viper.GetString(durationEnv.key)); value != "" {
+			env = append(env, durationEnv.env+"="+value)
+		}
+	}
+
+	return localSPIREConfig{
+		Enabled:            true,
+		ClientCABundleFile: clientCABundle,
+		Env:                env,
+	}, nil
+}
+
+func localSPIRERegistrationSelectors() []string {
+	values := append([]string{}, viper.GetStringSlice("spire_registration_selectors")...)
+	if raw := strings.TrimSpace(viper.GetString("spire_registration_selectors")); raw != "" {
+		values = append(values, raw)
+	}
+
+	return cleanCommaSeparated(values)
+}
+
+func cleanCommaSeparated(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := map[string]bool{}
+	for _, value := range values {
+		for part := range strings.SplitSeq(value, ",") {
+			part = strings.TrimSpace(part)
+			if part == "" || seen[part] {
+				continue
+			}
+
+			seen[part] = true
+			out = append(out, part)
+		}
+	}
+
+	return out
+}
+
+func writeLocalSPIREClientCABundle(tlsDir, localCAFile, spireBundleFile string) (string, error) {
+	localCA, err := readCertificateBundle(localCAFile, "local gRPC CA")
+	if err != nil {
+		return "", err
+	}
+
+	spireBundle, err := readCertificateBundle(spireBundleFile, "SPIRE bundle")
+	if err != nil {
+		return "", err
+	}
+
+	if err := os.MkdirAll(tlsDir, 0o700); err != nil {
+		return "", fmt.Errorf("create local TLS directory: %w", err)
+	}
+
+	path := filepath.Join(tlsDir, "client-ca-bundle.pem")
+	var out bytes.Buffer
+	out.Write(bytes.TrimSpace(localCA))
+	out.WriteByte('\n')
+	out.Write(bytes.TrimSpace(spireBundle))
+	out.WriteByte('\n')
+
+	if err := os.WriteFile(path, out.Bytes(), 0o644); err != nil {
+		return "", fmt.Errorf("write combined local SPIRE client CA bundle: %w", err)
+	}
+
+	return path, nil
+}
+
+func readCertificateBundle(path, label string) ([]byte, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s %s: %w", label, path, err)
+	}
+
+	if count, err := countPEMCertificates(b); err != nil {
+		return nil, fmt.Errorf("%s %s: %w", label, path, err)
+	} else if count == 0 {
+		return nil, fmt.Errorf("%s %s: no PEM certificates found", label, path)
+	}
+
+	return b, nil
+}
+
+func countPEMCertificates(b []byte) (int, error) {
+	count := 0
+	rest := bytes.TrimSpace(b)
+	for len(rest) > 0 {
+		block, remaining := pem.Decode(rest)
+		if block == nil {
+			return 0, fmt.Errorf("invalid PEM data")
+		}
+
+		if block.Type == "CERTIFICATE" {
+			if _, err := x509.ParseCertificate(block.Bytes); err != nil {
+				return 0, fmt.Errorf("parse certificate PEM: %w", err)
+			}
+			count++
+		}
+
+		rest = bytes.TrimSpace(remaining)
+	}
+
+	return count, nil
+}
+
 func docsEnv() []string {
 	if !viper.GetBool("docs_enabled") {
 		return nil
@@ -656,7 +963,7 @@ func workerEnv(cell localCell, multiCell bool) []string {
 		fmt.Sprintf("VECTIS_WORKER_METRICS_PORT=%d", cell.WorkerMetricsPort),
 		"VECTIS_WORKER_QUEUE_ADDRESS=" + localQueueAddress(cell),
 		"VECTIS_WORKER_CORE_SHELL_SOCKET=" + localWorkerCoreShellSocket(cell.ID),
-		"VECTIS_WORKER_SECRETS_ADDRESS=" + localSecretsAddress(cell),
+		localWorkerSecretsEnv(cell),
 	}
 
 	if multiCell {
@@ -668,6 +975,18 @@ func workerEnv(cell localCell, multiCell bool) []string {
 
 func localWorkerCoreShellSocket(name string) string {
 	return filepath.Join(utils.RuntimeDir(), "worker-core-shell-"+safePathPart(name)+".sock")
+}
+
+func localSecretsEnabled() bool {
+	return !viper.GetBool("grpc_insecure")
+}
+
+func localWorkerSecretsEnv(cell localCell) string {
+	if !localSecretsEnabled() {
+		return "VECTIS_WORKER_SECRETS_ADDRESS=" + localSecretsDisabledAddress
+	}
+
+	return "VECTIS_WORKER_SECRETS_ADDRESS=" + localSecretsAddress(cell)
 }
 
 func localQueueAddress(cell localCell) string {
@@ -1019,6 +1338,32 @@ func runVectis(cmd *cobra.Command, args []string) {
 	browserTLS := localBrowserTLS(material, httpTLSMode, logger)
 	tlsEnv = append(tlsEnv, browserTLS.Env...)
 
+	localSPIFFE, err := startEmbeddedLocalSPIFFE(logger)
+	if err != nil {
+		logger.Fatal("%v", err)
+	}
+
+	if localSPIFFE.Authority != nil {
+		defer localSPIFFE.Authority.Stop()
+	}
+
+	if localSPIFFE.Enabled {
+		logger.Info("Embedded local SPIFFE authority is running (registration socket %s, workload socket %s)", localSPIFFE.ServerSocket, localSPIFFE.AgentSocket)
+	} else if viper.GetBool("grpc_insecure") {
+		logger.Warn("Skipping embedded local SPIFFE authority because --grpc-insecure is enabled")
+	}
+
+	spireCfg, err := localSPIRE(tlsDir, material)
+	if err != nil {
+		logger.Fatal("%v", err)
+	}
+
+	if spireCfg.Enabled {
+		tlsEnv = append(tlsEnv, spireCfg.Env...)
+		viper.Set("grpc_tls.client_ca_file", spireCfg.ClientCABundleFile)
+		logger.Info("Enabled local SPIFFE execution identity using combined client CA bundle %s", spireCfg.ClientCABundleFile)
+	}
+
 	topology, err := buildLocalTopology()
 	if err != nil {
 		logger.Fatal("%v", err)
@@ -1028,8 +1373,12 @@ func runVectis(cmd *cobra.Command, args []string) {
 		logger.Fatal("profile %q currently supports the default local execution cell only; use profile %q with --cell for multi-cell routing tests", localProfileHA, localProfileSimple)
 	}
 
-	if err := ensureLocalSecretsKeys(topology); err != nil {
-		logger.Fatal("initialize local secrets keys: %v", err)
+	if localSecretsEnabled() {
+		if err := ensureLocalSecretsKeys(topology); err != nil {
+			logger.Fatal("initialize local secrets keys: %v", err)
+		}
+	} else {
+		logger.Warn("Skipping local secrets service because --grpc-insecure disables execution SVID client certificates")
 	}
 
 	if database.EffectiveDBDriver() == "sqlite3" {
@@ -1306,7 +1655,17 @@ and sets VECTIS_GRPC_TLS_* for child processes so internal gRPC and cell ingress
 HTTP use TLS/mTLS. It also uses HTTPS for the local API and docs when the
 generated CA is trusted by the system store, or when --http-tls=on is set. Use
 --grpc-insecure or VECTIS_LOCAL_GRPC_INSECURE=true for plaintext internal gRPC
-and loopback cell ingress HTTP.
+and loopback cell ingress HTTP; plaintext mode skips vectis-secrets because
+execution secret resolution requires a verified SVID client certificate.
+
+For local end-to-end secret resolution with SPIFFE identities, vectis-local
+starts its embedded development authority for the current process user whenever
+local gRPC TLS is enabled, and starts vectis-secrets with encryptedfs enabled.
+You can also start your own SPIRE-compatible Workload API and Entry API
+endpoints and pass --spire with the socket, bundle, parent ID, and workload
+selector flags. Both modes keep identity material behind Unix sockets while
+combining the local Vectis CA and SPIFFE bundle for client certificate
+verification.
 
 Use "vectis-local init" to create or renew the local TLS material without
 privileges. Use "vectis-local install-cert" with elevated privileges only when
@@ -1364,6 +1723,21 @@ func init() {
 	rootCmd.PersistentFlags().Int("docs-port", 8088, "HTTP port for the local docs site")
 	rootCmd.PersistentFlags().String("docs-dir", "", "Directory containing a docs build to serve instead of embedded docs")
 	rootCmd.PersistentFlags().StringArray("cell", nil, "Additional local execution cell ID to start; may be repeated")
+	rootCmd.PersistentFlags().Bool("spire", false, "Use externally supplied SPIRE-compatible Workload API and Entry API endpoints")
+	rootCmd.PersistentFlags().String("spire-dir", "", "Directory for embedded local SPIFFE authority data")
+	rootCmd.PersistentFlags().String("spire-runtime-dir", "", "Directory for embedded local SPIFFE authority Unix sockets")
+	rootCmd.PersistentFlags().String("spire-trust-domain", "", "SPIFFE trust domain for local execution IDs; embedded local mode defaults to vectis.internal")
+	rootCmd.PersistentFlags().String("spire-path-template", "", "Optional execution SPIFFE path template for local identity mode")
+	rootCmd.PersistentFlags().String("spire-workload-api-address", "", "SPIRE Workload API address for local workers, such as unix:///run/spire/sockets/agent.sock")
+	rootCmd.PersistentFlags().String("spire-server-api-address", "", "SPIRE-compatible Entry API address for worker registration, such as unix:///run/spire/sockets/server.sock")
+	rootCmd.PersistentFlags().String("spire-parent-id", "", "Parent SPIFFE ID for worker-created execution registration entries")
+	rootCmd.PersistentFlags().StringArray("spire-selector", nil, "Workload selector for worker-created execution registrations; may be repeated")
+	rootCmd.PersistentFlags().String("spire-bundle-file", "", "PEM trust bundle for the local SPIRE trust domain")
+	rootCmd.PersistentFlags().String("spire-fetch-timeout", "", "Optional worker SPIRE Workload API fetch timeout")
+	rootCmd.PersistentFlags().String("spire-x509-svid-ttl", "", "Optional X.509-SVID TTL for worker-created SPIRE registration entries")
+	rootCmd.PersistentFlags().String("spire-registration-min-ttl", "", "Optional minimum lifetime for worker-created SPIRE registration entries")
+	rootCmd.PersistentFlags().String("spire-registration-max-ttl", "", "Optional maximum lifetime for worker-created SPIRE registration entries")
+
 	_ = viper.BindPFlag("log_level", rootCmd.PersistentFlags().Lookup("log-level"))
 	_ = viper.BindPFlag("profile", rootCmd.PersistentFlags().Lookup("profile"))
 	_ = viper.BindPFlag("grpc_insecure", rootCmd.PersistentFlags().Lookup("grpc-insecure"))
@@ -1374,6 +1748,20 @@ func init() {
 	_ = viper.BindPFlag("docs_port", rootCmd.PersistentFlags().Lookup("docs-port"))
 	_ = viper.BindPFlag("docs_dir", rootCmd.PersistentFlags().Lookup("docs-dir"))
 	_ = viper.BindPFlag("cells", rootCmd.PersistentFlags().Lookup("cell"))
+	_ = viper.BindPFlag("spire_enabled", rootCmd.PersistentFlags().Lookup("spire"))
+	_ = viper.BindPFlag("spire_dir", rootCmd.PersistentFlags().Lookup("spire-dir"))
+	_ = viper.BindPFlag("spire_runtime_dir", rootCmd.PersistentFlags().Lookup("spire-runtime-dir"))
+	_ = viper.BindPFlag("spire_trust_domain", rootCmd.PersistentFlags().Lookup("spire-trust-domain"))
+	_ = viper.BindPFlag("spire_path_template", rootCmd.PersistentFlags().Lookup("spire-path-template"))
+	_ = viper.BindPFlag("spire_workload_api_address", rootCmd.PersistentFlags().Lookup("spire-workload-api-address"))
+	_ = viper.BindPFlag("spire_registration_server_address", rootCmd.PersistentFlags().Lookup("spire-server-api-address"))
+	_ = viper.BindPFlag("spire_registration_parent_id", rootCmd.PersistentFlags().Lookup("spire-parent-id"))
+	_ = viper.BindPFlag("spire_registration_selectors", rootCmd.PersistentFlags().Lookup("spire-selector"))
+	_ = viper.BindPFlag("spire_bundle_file", rootCmd.PersistentFlags().Lookup("spire-bundle-file"))
+	_ = viper.BindPFlag("spire_fetch_timeout", rootCmd.PersistentFlags().Lookup("spire-fetch-timeout"))
+	_ = viper.BindPFlag("spire_registration_x509_svid_ttl", rootCmd.PersistentFlags().Lookup("spire-x509-svid-ttl"))
+	_ = viper.BindPFlag("spire_registration_min_ttl", rootCmd.PersistentFlags().Lookup("spire-registration-min-ttl"))
+	_ = viper.BindPFlag("spire_registration_max_ttl", rootCmd.PersistentFlags().Lookup("spire-registration-max-ttl"))
 	_ = viper.BindEnv("grpc_insecure", "VECTIS_LOCAL_GRPC_INSECURE")
 	_ = viper.BindEnv("http_tls", "VECTIS_LOCAL_HTTP_TLS")
 	_ = viper.BindEnv("tls_dir", "VECTIS_LOCAL_TLS_DIR")
@@ -1383,6 +1771,21 @@ func init() {
 	_ = viper.BindEnv("docs_port", "VECTIS_LOCAL_DOCS_PORT")
 	_ = viper.BindEnv("docs_dir", "VECTIS_LOCAL_DOCS_DIR")
 	_ = viper.BindEnv("cells", "VECTIS_LOCAL_CELLS")
+	_ = viper.BindEnv("spire_enabled", "VECTIS_LOCAL_SPIRE_ENABLED")
+	_ = viper.BindEnv("spire_dir", "VECTIS_LOCAL_SPIRE_DIR")
+	_ = viper.BindEnv("spire_runtime_dir", "VECTIS_LOCAL_SPIRE_RUNTIME_DIR")
+	_ = viper.BindEnv("spire_trust_domain", "VECTIS_LOCAL_SPIRE_TRUST_DOMAIN")
+	_ = viper.BindEnv("spire_path_template", "VECTIS_LOCAL_SPIRE_PATH_TEMPLATE")
+	_ = viper.BindEnv("spire_workload_api_address", "VECTIS_LOCAL_SPIRE_WORKLOAD_API_ADDRESS")
+	_ = viper.BindEnv("spire_registration_server_address", "VECTIS_LOCAL_SPIRE_SERVER_API_ADDRESS")
+	_ = viper.BindEnv("spire_registration_parent_id", "VECTIS_LOCAL_SPIRE_PARENT_ID")
+	_ = viper.BindEnv("spire_registration_selectors", "VECTIS_LOCAL_SPIRE_SELECTORS")
+	_ = viper.BindEnv("spire_bundle_file", "VECTIS_LOCAL_SPIRE_BUNDLE_FILE")
+	_ = viper.BindEnv("spire_fetch_timeout", "VECTIS_LOCAL_SPIRE_FETCH_TIMEOUT")
+	_ = viper.BindEnv("spire_registration_x509_svid_ttl", "VECTIS_LOCAL_SPIRE_X509_SVID_TTL")
+	_ = viper.BindEnv("spire_registration_min_ttl", "VECTIS_LOCAL_SPIRE_REGISTRATION_MIN_TTL")
+	_ = viper.BindEnv("spire_registration_max_ttl", "VECTIS_LOCAL_SPIRE_REGISTRATION_MAX_TTL")
+
 	viper.SetEnvPrefix("VECTIS_LOCAL")
 	viper.AutomaticEnv()
 	rootCmd.AddCommand(initCmd, installCertCmd)

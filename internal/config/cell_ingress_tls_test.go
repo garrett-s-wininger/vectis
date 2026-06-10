@@ -31,7 +31,7 @@ func TestValidateCellIngressHTTPMTLSConfig(t *testing.T) {
 			setupTLS: func(t *testing.T) {
 				t.Helper()
 				viper.Set("grpc_tls.insecure", true)
-				viper.Set("service_identity.cell_ingress_allowed_producer_identities", []string{"spiffe://vectis.local/service/api"})
+				viper.Set("service_identity.cell_ingress_allowed_producer_identities", []string{"spiffe://vectis.internal/service/api"})
 			},
 			wantErr: "cell_ingress_allowed_producer_identities",
 		},
@@ -41,7 +41,7 @@ func TestValidateCellIngressHTTPMTLSConfig(t *testing.T) {
 			setupTLS: func(t *testing.T) {
 				t.Helper()
 				viper.Set("grpc_tls.insecure", true)
-				viper.Set("service_identity.cell_ingress_allowed_producer_identities", []string{"https://vectis.local/service/api"})
+				viper.Set("service_identity.cell_ingress_allowed_producer_identities", []string{"https://vectis.internal/service/api"})
 			},
 			wantErr: "spiffe://",
 		},

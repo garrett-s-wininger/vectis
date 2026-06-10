@@ -165,13 +165,13 @@ func TestSubmitExecutionRequiresAllowedProducerIdentityWhenConfigured(t *testing
 		},
 		{
 			name:       "wrong producer identity",
-			tlsState:   tlsStateWithURI(t, "spiffe://vectis.local/service/worker"),
+			tlsState:   tlsStateWithURI(t, "spiffe://vectis.internal/service/worker"),
 			wantStatus: http.StatusForbidden,
 			wantCode:   "authorization_denied",
 		},
 		{
 			name:       "allowed producer identity",
-			tlsState:   tlsStateWithURI(t, "spiffe://vectis.local/service/api"),
+			tlsState:   tlsStateWithURI(t, "spiffe://vectis.internal/service/api"),
 			wantStatus: http.StatusAccepted,
 			wantQueued: 1,
 		},
@@ -181,7 +181,7 @@ func TestSubmitExecutionRequiresAllowedProducerIdentityWhenConfigured(t *testing
 		t.Run(tt.name, func(t *testing.T) {
 			viper.Reset()
 			t.Cleanup(viper.Reset)
-			viper.Set("service_identity.cell_ingress_allowed_producer_identities", []string{"spiffe://vectis.local/service/api"})
+			viper.Set("service_identity.cell_ingress_allowed_producer_identities", []string{"spiffe://vectis.internal/service/api"})
 
 			queue := mocks.NewMockQueueService()
 			srv := NewQueueServer("iad-a", queue, mocks.NewMockLogger())
@@ -207,7 +207,7 @@ func TestSubmitExecutionRequiresAllowedProducerIdentityWhenConfigured(t *testing
 func TestProducerIdentityPolicyDoesNotBlockCellIngressHealth(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
-	viper.Set("service_identity.cell_ingress_allowed_producer_identities", []string{"spiffe://vectis.local/service/api"})
+	viper.Set("service_identity.cell_ingress_allowed_producer_identities", []string{"spiffe://vectis.internal/service/api"})
 
 	srv := NewQueueServer("iad-a", mocks.NewMockQueueService(), mocks.NewMockLogger())
 	req := newCellIngressRequest(http.MethodGet, "/health/live", nil)
