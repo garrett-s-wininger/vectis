@@ -578,6 +578,70 @@ func TestAPIServer_ListSourceRepositoryJobsDerivesTriggerableJobs(t *testing.T) 
 	if !sawInvalidName || !sawDuplicate {
 		t.Fatalf("expected invalid filename and duplicate derived job id, got %+v", resp.Invalid)
 	}
+
+	definitionRec := httptest.NewRecorder()
+	definitionReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/vectis-local/jobs/build/definition?ref=HEAD", nil)
+	handler.ServeHTTP(definitionRec, definitionReq)
+	if definitionRec.Code != http.StatusOK {
+		t.Fatalf("get source repository job definition: status=%d body=%s", definitionRec.Code, definitionRec.Body.String())
+	}
+
+	definitionResp := decodeSourceRepositoryJobDefinitionResponse(t, definitionRec)
+	if definitionResp.JobID != "build" ||
+		definitionResp.DefinitionHash == "" ||
+		definitionResp.Source.RepositoryID != "vectis-local" ||
+		definitionResp.Source.RequestedRef != "HEAD" ||
+		definitionResp.Source.ResolvedCommit != commit ||
+		definitionResp.Source.Path != ".vectis/jobs/build.json" ||
+		definitionResp.Source.BlobSHA != buildBlob {
+		t.Fatalf("source job definition response mismatch: %+v", definitionResp)
+	}
+
+	var resolvedJob api.Job
+	if err := json.Unmarshal(definitionResp.Definition, &resolvedJob); err != nil {
+		t.Fatalf("source job definition JSON: %v", err)
+	}
+	if resolvedJob.GetRoot().GetWith()["command"] != "build" {
+		t.Fatalf("source job definition command: got %+v", resolvedJob.GetRoot().GetWith())
+	}
+
+	nestedDefinitionRec := httptest.NewRecorder()
+	nestedDefinitionReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/vectis-local/jobs/team.deploy/definition?ref=HEAD", nil)
+	handler.ServeHTTP(nestedDefinitionRec, nestedDefinitionReq)
+	if nestedDefinitionRec.Code != http.StatusOK {
+		t.Fatalf("get nested source repository job definition: status=%d body=%s", nestedDefinitionRec.Code, nestedDefinitionRec.Body.String())
+	}
+
+	nestedDefinitionResp := decodeSourceRepositoryJobDefinitionResponse(t, nestedDefinitionRec)
+	if nestedDefinitionResp.JobID != "team.deploy" || nestedDefinitionResp.Source.Path != ".vectis/jobs/team/deploy.json" {
+		t.Fatalf("nested source job definition response mismatch: %+v", nestedDefinitionResp)
+	}
+
+	if err := json.Unmarshal(nestedDefinitionResp.Definition, &resolvedJob); err != nil {
+		t.Fatalf("nested source job definition JSON: %v", err)
+	}
+	if resolvedJob.GetRoot().GetWith()["command"] != "deploy" {
+		t.Fatalf("nested source job definition command: got %+v", resolvedJob.GetRoot().GetWith())
+	}
+
+	overrideDefinitionRec := httptest.NewRecorder()
+	overrideDefinitionReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/vectis-local/jobs/team.deploy/definition?ref=HEAD&path=.vectis/jobs/team.deploy.json", nil)
+	handler.ServeHTTP(overrideDefinitionRec, overrideDefinitionReq)
+	if overrideDefinitionRec.Code != http.StatusOK {
+		t.Fatalf("get override source repository job definition: status=%d body=%s", overrideDefinitionRec.Code, overrideDefinitionRec.Body.String())
+	}
+
+	overrideDefinitionResp := decodeSourceRepositoryJobDefinitionResponse(t, overrideDefinitionRec)
+	if overrideDefinitionResp.JobID != "team.deploy" || overrideDefinitionResp.Source.Path != ".vectis/jobs/team.deploy.json" {
+		t.Fatalf("override source job definition response mismatch: %+v", overrideDefinitionResp)
+	}
+
+	if err := json.Unmarshal(overrideDefinitionResp.Definition, &resolvedJob); err != nil {
+		t.Fatalf("override source job definition JSON: %v", err)
+	}
+	if resolvedJob.GetRoot().GetWith()["command"] != "duplicate" {
+		t.Fatalf("override source job definition command: got %+v", resolvedJob.GetRoot().GetWith())
+	}
 }
 
 func TestAPIServer_CreateManagedSourceRepositoryDerivesCheckoutPath(t *testing.T) {
@@ -1791,6 +1855,40 @@ func decodeSourceRepositoryJobsResponse(t *testing.T, rec *httptest.ResponseReco
 			BlobSHA string `json:"blob_sha"`
 			Error   string `json:"error"`
 		} `json:"invalid"`
+	}
+
+	if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+
+	return out
+}
+
+func decodeSourceRepositoryJobDefinitionResponse(t *testing.T, rec *httptest.ResponseRecorder) struct {
+	JobID          string          `json:"job_id"`
+	DefinitionHash string          `json:"definition_hash"`
+	Definition     json.RawMessage `json:"definition"`
+	Source         struct {
+		RepositoryID   string `json:"repository_id"`
+		RequestedRef   string `json:"requested_ref"`
+		ResolvedCommit string `json:"resolved_commit"`
+		Path           string `json:"path"`
+		BlobSHA        string `json:"blob_sha"`
+	} `json:"source"`
+} {
+	t.Helper()
+
+	var out struct {
+		JobID          string          `json:"job_id"`
+		DefinitionHash string          `json:"definition_hash"`
+		Definition     json.RawMessage `json:"definition"`
+		Source         struct {
+			RepositoryID   string `json:"repository_id"`
+			RequestedRef   string `json:"requested_ref"`
+			ResolvedCommit string `json:"resolved_commit"`
+			Path           string `json:"path"`
+			BlobSHA        string `json:"blob_sha"`
+		} `json:"source"`
 	}
 
 	if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {

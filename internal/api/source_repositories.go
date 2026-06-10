@@ -168,6 +168,13 @@ type sourceRepositoryJobsResponse struct {
 	Invalid        []invalidSourceRepositoryJobResponse `json:"invalid,omitempty"`
 }
 
+type sourceRepositoryJobDefinitionResponse struct {
+	JobID          string                   `json:"job_id"`
+	DefinitionHash string                   `json:"definition_hash"`
+	Definition     json.RawMessage          `json:"definition"`
+	Source         sourceProvenanceResponse `json:"source"`
+}
+
 type jobSourceRequest struct {
 	Namespace    string `json:"namespace"`
 	RepositoryID string `json:"repository_id"`
@@ -793,6 +800,77 @@ func (s *APIServer) ListSourceRepositoryJobs(w http.ResponseWriter, r *http.Requ
 		Limit:          limit,
 		Jobs:           jobs,
 		Invalid:        invalid,
+	})
+}
+
+func (s *APIServer) GetSourceRepositoryJobDefinition(w http.ResponseWriter, r *http.Request) {
+	jobID := strings.TrimSpace(r.PathValue("job_id"))
+	if jobID == "" {
+		writeAPIError(w, http.StatusBadRequest, "missing_job_id", "job_id is required", nil)
+		return
+	}
+
+	definitionPath := strings.TrimSpace(r.URL.Query().Get("path"))
+	if definitionPath == "" {
+		var err error
+		definitionPath, err = sourceTriggerDefinitionPath(jobID)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_job_id", "job_id cannot be mapped to a source definition path", nil)
+			return
+		}
+	}
+
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireNamespaces(w) || !s.requireSources(w) {
+		return
+	}
+
+	rec, _, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionJobRead, true)
+	if !ok {
+		return
+	}
+
+	ref := strings.TrimSpace(r.URL.Query().Get("ref"))
+	if ref == "" {
+		ref = strings.TrimSpace(rec.DefaultRef)
+	}
+	if ref == "" {
+		ref = "HEAD"
+	}
+
+	repo, err := sourcepkg.NewRepositoryFromRecord(rec)
+	if err != nil {
+		s.writeSourceDefinitionError(w, err)
+		return
+	}
+
+	loaded, err := sourcepkg.LoadDefinition(ctx, repo, sourcepkg.DefinitionRequest{
+		Ref:  ref,
+		Path: definitionPath,
+	})
+	if err != nil {
+		s.writeSourceDefinitionError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, sourceRepositoryJobDefinitionResponse{
+		JobID:          jobID,
+		DefinitionHash: dal.DefinitionHash(loaded.DefinitionJSON),
+		Definition:     json.RawMessage([]byte(loaded.DefinitionJSON)),
+		Source: sourceProvenanceResponse{
+			RepositoryID:   rec.RepositoryID,
+			RequestedRef:   loaded.Source.RequestedRef,
+			ResolvedCommit: loaded.Source.Commit,
+			Path:           loaded.Source.Path,
+			BlobSHA:        loaded.Source.BlobSHA,
+		},
 	})
 }
 
