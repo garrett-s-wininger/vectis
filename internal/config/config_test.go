@@ -500,6 +500,33 @@ func TestSourceSyncRunningTimeout_DefaultAndOverride(t *testing.T) {
 	}
 }
 
+func TestSourceStoredJobsEnabled_DefaultAndOverride(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv(envSourceStoredJobsEnabled, "")
+	t.Setenv(envAPIServerSourceStoredJobsEnabled, "")
+
+	if !SourceStoredJobsEnabled() {
+		t.Fatal("SourceStoredJobsEnabled default: got false, want true")
+	}
+
+	viper.Set("source.stored_jobs_enabled", false)
+	if SourceStoredJobsEnabled() {
+		t.Fatal("SourceStoredJobsEnabled viper override: got true, want false")
+	}
+
+	t.Setenv(envSourceStoredJobsEnabled, "true")
+	if !SourceStoredJobsEnabled() {
+		t.Fatal("SourceStoredJobsEnabled env override: got false, want true")
+	}
+
+	t.Setenv(envSourceStoredJobsEnabled, "")
+	t.Setenv(envAPIServerSourceStoredJobsEnabled, "false")
+	if SourceStoredJobsEnabled() {
+		t.Fatal("SourceStoredJobsEnabled API env override: got true, want false")
+	}
+}
+
 func TestAPIHostAndListenAddr_DefaultAndOverride(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)

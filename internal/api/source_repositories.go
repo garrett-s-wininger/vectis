@@ -1032,6 +1032,10 @@ func (s *APIServer) PutSourceRepositoryJobDefinition(w http.ResponseWriter, r *h
 }
 
 func (s *APIServer) ImportSourceRepositoryDefinitions(w http.ResponseWriter, r *http.Request) {
+	if !s.requireStoredJobs(w) {
+		return
+	}
+
 	if !requestContentTypeIsJSON(r) {
 		writeAPIErrorCode(w, http.StatusUnsupportedMediaType, apiErrUnsupportedMediaType)
 		return
@@ -1823,6 +1827,10 @@ func (s *APIServer) UpdateJobFromSource(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *APIServer) GetJobSource(w http.ResponseWriter, r *http.Request) {
+	if !s.requireStoredJobs(w) {
+		return
+	}
+
 	jobID := strings.TrimSpace(r.PathValue("id"))
 	if jobID == "" {
 		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
@@ -1855,6 +1863,10 @@ func (s *APIServer) GetJobSource(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) GetJobSourceDefinition(w http.ResponseWriter, r *http.Request) {
+	if !s.requireStoredJobs(w) {
+		return
+	}
+
 	jobID := strings.TrimSpace(r.PathValue("id"))
 	if jobID == "" {
 		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
@@ -1922,6 +1934,10 @@ func (s *APIServer) GetJobSourceDefinition(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *APIServer) persistJobFromSource(w http.ResponseWriter, r *http.Request, update bool) {
+	if !s.requireStoredJobs(w) {
+		return
+	}
+
 	jobID := strings.TrimSpace(r.PathValue("id"))
 	if jobID == "" {
 		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)

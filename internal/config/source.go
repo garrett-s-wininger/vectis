@@ -11,9 +11,12 @@ import (
 const (
 	envSourceCheckoutRoot                = "VECTIS_SOURCE_CHECKOUT_ROOT"
 	envAPIServerSourceCheckoutRoot       = "VECTIS_API_SERVER_SOURCE_CHECKOUT_ROOT"
+	envSourceStoredJobsEnabled           = "VECTIS_SOURCE_STORED_JOBS_ENABLED"
+	envAPIServerSourceStoredJobsEnabled  = "VECTIS_API_SERVER_SOURCE_STORED_JOBS_ENABLED"
 	envSourceSyncRunningTimeout          = "VECTIS_SOURCE_SYNC_RUNNING_TIMEOUT"
 	envAPIServerSourceSyncRunningTimeout = "VECTIS_API_SERVER_SOURCE_SYNC_RUNNING_TIMEOUT"
 	defaultSourceSyncRunningTimeout      = 15 * time.Minute
+	sourceStoredJobsEnabledConfigKey     = "source.stored_jobs_enabled"
 	sourceSyncRunningTimeoutConfigKey    = "source.sync_running_timeout"
 )
 
@@ -35,6 +38,21 @@ func SourceCheckoutRoot(dataHome string) string {
 	return strings.NewReplacer(
 		"{{data_home}}", dataHome,
 	).Replace(root)
+}
+
+// SourceStoredJobsEnabled reports whether stored job definition APIs are enabled.
+func SourceStoredJobsEnabled() bool {
+	for _, envName := range []string{envSourceStoredJobsEnabled, envAPIServerSourceStoredJobsEnabled} {
+		if v := strings.TrimSpace(os.Getenv(envName)); v != "" {
+			return parseTruthy(v)
+		}
+	}
+
+	if viper.IsSet(sourceStoredJobsEnabledConfigKey) {
+		return viper.GetBool(sourceStoredJobsEnabledConfigKey)
+	}
+
+	return MustDefaults().Source.StoredJobsEnabled
 }
 
 // SourceSyncRunningTimeout returns how long a running source sync reservation may live

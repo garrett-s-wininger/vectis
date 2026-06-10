@@ -410,6 +410,15 @@ func (s *APIServer) requireSourceJobs(w http.ResponseWriter) bool {
 	return true
 }
 
+func (s *APIServer) requireStoredJobs(w http.ResponseWriter) bool {
+	if !config.SourceStoredJobsEnabled() {
+		writeAPIError(w, http.StatusConflict, "stored_jobs_disabled", "stored job APIs are disabled", nil)
+		return false
+	}
+
+	return true
+}
+
 func (s *APIServer) requireAuthRepo(w http.ResponseWriter) bool {
 	if s.authRepo == nil {
 		writeAPIErrorCode(w, http.StatusServiceUnavailable, apiErrAuthNotConfigured)

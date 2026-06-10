@@ -28,6 +28,10 @@ const (
 )
 
 func (s *APIServer) HandleSSEJobRuns(w http.ResponseWriter, r *http.Request) {
+	if !s.requireStoredJobs(w) {
+		return
+	}
+
 	jobID := r.PathValue("id")
 	if jobID == "" {
 		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)

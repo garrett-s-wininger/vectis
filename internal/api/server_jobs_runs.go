@@ -689,6 +689,10 @@ func (s *APIServer) sendCancelToWorker(ctx context.Context, workerAddr, runID, c
 }
 
 func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
+	if !s.requireStoredJobs(w) {
+		return
+	}
+
 	body, ok := readRequestBody(w, r, maxJobDefinitionBodyBytes)
 	if !ok {
 		return
@@ -791,6 +795,10 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) DeleteJob(w http.ResponseWriter, r *http.Request) {
+	if !s.requireStoredJobs(w) {
+		return
+	}
+
 	jobID := r.PathValue("id")
 	if jobID == "" {
 		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
@@ -853,6 +861,10 @@ func (s *APIServer) DeleteJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) GetJobs(w http.ResponseWriter, r *http.Request) {
+	if !s.requireStoredJobs(w) {
+		return
+	}
+
 	ctx, cancel := s.handlerDBCtx(r)
 	defer cancel()
 
@@ -925,6 +937,10 @@ func (s *APIServer) GetJobs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) GetJob(w http.ResponseWriter, r *http.Request) {
+	if !s.requireStoredJobs(w) {
+		return
+	}
+
 	jobID := r.PathValue("id")
 	if jobID == "" {
 		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
@@ -1015,6 +1031,10 @@ func (s *APIServer) GetJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
+	if !s.requireStoredJobs(w) {
+		return
+	}
+
 	jobID := r.PathValue("id")
 	if jobID == "" {
 		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
@@ -1577,6 +1597,10 @@ func (s *APIServer) ReplayRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) {
+	if !s.requireStoredJobs(w) {
+		return
+	}
+
 	jobID := r.PathValue("id")
 	if jobID == "" {
 		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
@@ -2073,6 +2097,10 @@ func detachedTraceContextFromRequest(r *http.Request) context.Context {
 }
 
 func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
+	if !s.requireStoredJobs(w) {
+		return
+	}
+
 	jobID := r.PathValue("id")
 	if jobID == "" {
 		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)

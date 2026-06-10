@@ -191,6 +191,7 @@ conn_max_idle_time = "15m"
 
 [source]
 checkout_root = "{{data_home}}/vectis/source-checkouts"
+stored_jobs_enabled = true
 sync_running_timeout = "15m"
 
 [worker]

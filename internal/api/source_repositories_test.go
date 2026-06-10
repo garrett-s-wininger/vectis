@@ -360,6 +360,84 @@ func TestAPIServer_SourceBackedJobLifecycle(t *testing.T) {
 	}
 }
 
+func TestAPIServer_SourceStoredJobsDisabled(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	t.Setenv("VECTIS_SOURCE_STORED_JOBS_ENABLED", "false")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_STORED_JOBS_ENABLED", "")
+
+	server, _, queueService, db := setupTestServer(t)
+	repos := dal.NewSQLRepositories(db)
+	handler := server.Handler()
+
+	jobBody := map[string]any{
+		"id": "stored-build",
+		"root": map[string]any{
+			"id":   "root",
+			"uses": "builtins/shell",
+			"with": map[string]any{"command": "stored"},
+		},
+	}
+
+	for _, tc := range []struct {
+		name   string
+		method string
+		path   string
+		body   any
+	}{
+		{name: "list stored jobs", method: http.MethodGet, path: "/api/v1/jobs", body: map[string]any{}},
+		{name: "create stored job", method: http.MethodPost, path: "/api/v1/jobs", body: jobBody},
+		{name: "create stored job from source", method: http.MethodPost, path: "/api/v1/jobs/source/build", body: map[string]any{
+			"repository_id": "vectis-local",
+			"path":          ".vectis/jobs/build.json",
+		}},
+		{name: "import source definitions into stored jobs", method: http.MethodPost, path: "/api/v1/source-repositories/vectis-local/definitions/import", body: map[string]any{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doJSONRequest(t, handler, tc.method, tc.path, tc.body)
+			assertAPIError(t, rec, http.StatusConflict, "stored_jobs_disabled")
+		})
+	}
+
+	runRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/jobs/run", map[string]any{
+		"root": map[string]any{
+			"id":   "root",
+			"uses": "builtins/shell",
+			"with": map[string]any{"command": "one-off"},
+		},
+	})
+
+	if runRec.Code != http.StatusAccepted {
+		t.Fatalf("one-off run with stored jobs disabled: status=%d body=%s", runRec.Code, runRec.Body.String())
+	}
+
+	repoPath := initAPIGitRepo(t)
+	writeAPIJobDefinitionAndCommit(t, repoPath, "source", "source definition")
+	registerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
+		"repository_id": "vectis-local",
+		"source_kind":   dal.SourceKindLocalCheckout,
+		"checkout_path": repoPath,
+		"default_ref":   "HEAD",
+	})
+
+	if registerRec.Code != http.StatusCreated {
+		t.Fatalf("register source repository with stored jobs disabled: status=%d body=%s", registerRec.Code, registerRec.Body.String())
+	}
+
+	sourceTriggerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/vectis-local/jobs/build/trigger", map[string]any{
+		"ref": "HEAD",
+	})
+
+	if sourceTriggerRec.Code != http.StatusAccepted {
+		t.Fatalf("source trigger with stored jobs disabled: status=%d body=%s", sourceTriggerRec.Code, sourceTriggerRec.Body.String())
+	}
+
+	if _, _, err := repos.Jobs().GetDefinition(context.Background(), "build"); !dal.IsNotFound(err) {
+		t.Fatalf("source trigger should not create stored job, got err=%v", err)
+	}
+
+	waitForNEnqueuedJobs(t, queueService, 2)
+}
+
 func TestAPIServer_CreateJobFromSourceRejectsDisabledRepository(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 
