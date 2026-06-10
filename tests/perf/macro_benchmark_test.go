@@ -238,6 +238,7 @@ func reportMacroDBStats(b *testing.B, env macroBenchEnv, enabled bool) {
 		ORDER BY total_exec_time DESC
 		LIMIT $1
 	`, macroPGStatStatementsTopLimit)
+
 	if err != nil {
 		emitMacroPGStatLine(b, "# pg_stat_statements benchmark=%s iterations=%d unavailable query=%q", b.Name(), b.N, err)
 		return

@@ -62,7 +62,9 @@ Keep the raw output. Summaries are helpful, but raw output is what lets the next
 
 Use this check when queue behavior, run handoff, or release confidence is the main question. It currently exercises queue benchmarks under `internal/queue`; it does not prove full API, database, worker, or log-service capacity by itself.
 
-The performance harness writes raw benchmark output, a JSON summary, and a Markdown summary under `artifacts/perf/`. Keep raw outputs when you need an honest before/after comparison.
+The performance harness builds `bin/vectis-perf` and writes raw benchmark output, a JSON summary, a Markdown summary, and an offline HTML report under `artifacts/perf/`. Keep raw outputs when you need an honest before/after comparison; use `report.html` when you want to scan metrics and query hot spots visually.
+
+By default, the harness only writes artifacts and prints console output. To host the generated files after a run, opt in with `PERF_ARGS='--serve'`; the harness prints the `report.html` URL and waits until Ctrl-C.
 
 1. Set benchmark duration and repetition count:
 
@@ -110,8 +112,10 @@ Useful knobs:
 | `VECTIS_PERF_ARTIFACT_DIR` | `artifacts/perf` | Directory where harness artifacts are written. |
 | `VECTIS_PERF_RUN_NAME` | timestamp and suite | Optional artifact run directory name. |
 | `VECTIS_PERF_BASELINE` | unset | Optional baseline Go benchmark output for `benchstat` comparison during a queue run. |
-| `GO` | `go` | Go binary used by the benchmark script. |
-| `PYTHON` | `python3` | Python binary used by the harness. |
+| `VECTIS_PERF_SERVE` | `false` | Set to `true` or pass `--serve` to host the run directory after benchmark output. |
+| `VECTIS_PERF_SERVE_HOST` | `127.0.0.1` | Host used by the opt-in artifact server. |
+| `VECTIS_PERF_SERVE_PORT` | `0` | Port used by the opt-in artifact server. `0` auto-selects a free port. |
+| `GO` | `go` | Go binary used to build the perf harness and run Go benchmarks. |
 | `BENCHSTAT` | `benchstat` | `benchstat` binary used for benchmark comparisons. |
 
 ## Local DAL Benchmark Check
@@ -157,7 +161,7 @@ The matrix tags parsed benchmark rows with `db_sqlite3`, `db_pgx_podman`, or `db
 
 The `pgx_podman_unsafe` entry disables Postgres durability settings with `fsync=off`, `synchronous_commit=off`, and `full_page_writes=off`. Use it only for disposable local measurement. It approximates a lower bound for client/server, query, lock, and index overhead; it is not a deployable configuration.
 
-The harness mirrors macro database settings into `VECTIS_DATABASE_DRIVER` for the benchmark child process so DAL SQL placeholder rebinding follows the selected backend. For Postgres macro benchmarks, the harness also writes `pg-stat-statements*.txt` sidecar artifacts and appends their `# pg_stat_statements` lines to the raw output after the Go benchmark rows. Those lines show the top statements after setup has been reset out of the sample; when Go runs calibration passes, use the largest `iterations=` value for the representative sample.
+The harness mirrors macro database settings into `VECTIS_DATABASE_DRIVER` for the benchmark child process so DAL SQL placeholder rebinding follows the selected backend. For Postgres macro benchmarks, the harness also writes `pg-stat-statements*.txt` sidecar artifacts, appends their `# pg_stat_statements` lines to the raw output after the Go benchmark rows, and includes the parsed final-iteration hot list in `summary.json` and `report.html`. Those lines show the top statements after setup has been reset out of the sample; when Go runs calibration passes, use the largest `iterations=` value for the representative sample.
 
 To use an existing disposable Postgres database instead, pass a DSN and use `pgx`:
 

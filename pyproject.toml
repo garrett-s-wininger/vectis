@@ -13,13 +13,3 @@ ignore = [
     "D213",   # Conflicts with D212.
     "ISC001", # Conflicts with Ruff format.
 ]
-
-[tool.mypy]
-files = [
-    "scripts/perf.py",
-]
-python_version = "3.10"
-pretty = true
-show_error_codes = true
-strict = true
-warn_unreachable = true

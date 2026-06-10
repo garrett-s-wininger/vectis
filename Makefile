@@ -43,9 +43,11 @@ FORMAL_MODELS := execution reconciliation
 JAVA ?= java
 TLA_TOOLS_JAR ?= /opt/tla+/tla2tools.jar
 
-PYTHON ?= python3
+GO ?= go
 SUITE ?= queue
 PERF_ARGS ?=
+PERF_BIN ?= $(OUT_DIR)/vectis-perf
+PERF_SOURCES := $(shell find scripts/perf -name '*.go' 2>/dev/null)
 
 .PHONY: all
 all: build
@@ -160,12 +162,15 @@ vulncheck:
 	GOTOOLCHAIN=go$(GO_MOD_GO_VERSION) go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
 .PHONY: perf
-perf:
-	${PYTHON} scripts/perf.py $(SUITE) $(PERF_ARGS)
+perf: $(PERF_BIN)
+	$(PERF_BIN) $(SUITE) $(PERF_ARGS)
 
 .PHONY: perf-compare
-perf-compare:
-	${PYTHON} scripts/perf.py compare --baseline "$(BASELINE)" --current "$(CURRENT)"
+perf-compare: $(PERF_BIN)
+	$(PERF_BIN) compare --baseline "$(BASELINE)" --current "$(CURRENT)"
+
+$(PERF_BIN): $(PERF_SOURCES) | $(OUT_DIR)
+	CGO_ENABLED=${CGO_ENABLED} $(GO) build ${BUILD_OPTS} -o ${@} ./scripts/perf
 
 FUZZTIME ?= 30s
 
