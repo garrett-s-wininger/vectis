@@ -353,6 +353,8 @@ Equivalent environment variables:
 
 The Lima backend sets the worker's inherited action isolation to `vm` and registers Lima as the VM command provider. A job can request `default_isolation: "host"` or a node can request `isolation: "host"` explicitly for host-side actions on that worker.
 
+Workers that register with the registry publish execution metadata for future routing and operator inspection: `worker.execution.backend`, `worker.execution.default_isolation`, and comma-separated `worker.execution.supported_isolation`. Host workers advertise `host` with supported isolation `host`; Lima workers advertise backend `lima`, default isolation `vm`, and supported isolation `host,vm`.
+
 The Lima backend does not silently fall back to host execution. Startup fails if `backend=lima` is selected without an instance name. Command execution fails if the Lima instance is unavailable. A host-default worker fails any node that requests `isolation: "vm"` because no VM provider is registered. If `VECTIS_WORKER_LIMA_GUEST_WORKSPACE_ROOT` is empty, the run workspace path must be visible and writable inside the guest; configure `VECTIS_WORKER_WORKSPACE_ROOT` and Lima mounts accordingly. If `VECTIS_WORKER_LIMA_GUEST_WORKSPACE_ROOT` is set, Vectis maps each run workspace to a same-named guest directory under that root and creates it before each command.
 
 To smoke test the VM provider against a prepared instance from a development checkout:

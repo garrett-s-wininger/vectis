@@ -209,6 +209,14 @@ func TestServiceMetadataForCell(t *testing.T) {
 		t.Fatalf("queue metadata: got %+v", queue)
 	}
 
+	worker := WorkerExecutionMetadataForCell("sjc-c", "lima", "vm", []string{"host", "vm", "host", " "})
+	if worker[MetadataCellID] != "sjc-c" ||
+		worker[MetadataWorkerExecutionBackend] != "lima" ||
+		worker[MetadataWorkerDefaultIsolation] != "vm" ||
+		worker[MetadataWorkerSupportedIsolation] != "host,vm" {
+		t.Fatalf("worker execution metadata: got %+v", worker)
+	}
+
 	if got := DefaultServiceMetadataForCell(" ")[MetadataCellID]; got != DefaultCellID {
 		t.Fatalf("blank cell should fall back to %q, got %q", DefaultCellID, got)
 	}

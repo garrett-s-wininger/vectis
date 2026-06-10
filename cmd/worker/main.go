@@ -242,7 +242,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 				Component:       api.Component_COMPONENT_WORKER,
 				InstanceID:      workerID,
 				PublishAddress:  controlAddr,
-				Metadata:        registry.DefaultServiceMetadataForCell(config.CellID()),
+				Metadata:        workerRegistryMetadata(),
 				RefreshInterval: config.RegistryRegistrationRefresh(),
 				Logger:          logger,
 				Metrics:         retryMetrics,
@@ -296,6 +296,22 @@ func configuredJobExecutor(logger interfaces.Logger) (*job.Executor, error) {
 		)
 	}
 	return job.NewExecutor(options...), nil
+}
+
+func workerRegistryMetadata() map[string]string {
+	backend, defaultIsolation, supportedIsolation := workerExecutionCapabilitiesForBackend(config.WorkerExecutionBackend())
+	return registry.WorkerExecutionMetadataForCell(config.CellID(), backend, defaultIsolation, supportedIsolation)
+}
+
+func workerExecutionCapabilitiesForBackend(backend string) (string, string, []string) {
+	switch backend {
+	case "", "host":
+		return "host", action.IsolationHost, []string{action.IsolationHost}
+	case "lima":
+		return "lima", action.IsolationVM, []string{action.IsolationHost, action.IsolationVM}
+	default:
+		return backend, "", nil
+	}
 }
 
 func configuredProcessExecutor() (interfaces.ExecExecutor, string, error) {

@@ -3,9 +3,12 @@ package registry
 import "strings"
 
 const (
-	MetadataCellID        = "cell.id"
-	MetadataQueueRole     = "queue.role"
-	MetadataLogWriteState = "log.write_state"
+	MetadataCellID                   = "cell.id"
+	MetadataQueueRole                = "queue.role"
+	MetadataLogWriteState            = "log.write_state"
+	MetadataWorkerExecutionBackend   = "worker.execution.backend"
+	MetadataWorkerDefaultIsolation   = "worker.execution.default_isolation"
+	MetadataWorkerSupportedIsolation = "worker.execution.supported_isolation"
 
 	DefaultCellID         = "local"
 	QueueRoleIngress      = "ingress"
@@ -34,6 +37,21 @@ func QueueIngressMetadata() map[string]string {
 	return QueueIngressMetadataForCell(DefaultCellID)
 }
 
+func WorkerExecutionMetadataForCell(cellID, backend, defaultIsolation string, supportedIsolation []string) map[string]string {
+	metadata := DefaultServiceMetadataForCell(cellID)
+	if backend = strings.TrimSpace(backend); backend != "" {
+		metadata[MetadataWorkerExecutionBackend] = backend
+	}
+	if defaultIsolation = strings.TrimSpace(defaultIsolation); defaultIsolation != "" {
+		metadata[MetadataWorkerDefaultIsolation] = defaultIsolation
+	}
+	if supported := normalizeSupportedIsolation(supportedIsolation); supported != "" {
+		metadata[MetadataWorkerSupportedIsolation] = supported
+	}
+
+	return metadata
+}
+
 func normalizeMetadataCellID(cellID string) string {
 	cellID = strings.TrimSpace(cellID)
 	if cellID == "" {
@@ -41,4 +59,23 @@ func normalizeMetadataCellID(cellID string) string {
 	}
 
 	return cellID
+}
+
+func normalizeSupportedIsolation(levels []string) string {
+	seen := make(map[string]struct{}, len(levels))
+	normalized := make([]string, 0, len(levels))
+	for _, level := range levels {
+		level = strings.TrimSpace(level)
+		if level == "" {
+			continue
+		}
+		if _, ok := seen[level]; ok {
+			continue
+		}
+
+		seen[level] = struct{}{}
+		normalized = append(normalized, level)
+	}
+
+	return strings.Join(normalized, ",")
 }

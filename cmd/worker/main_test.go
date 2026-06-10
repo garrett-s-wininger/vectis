@@ -2854,6 +2854,60 @@ func TestConfiguredProcessExecutor_DefaultHost(t *testing.T) {
 	}
 }
 
+func TestWorkerExecutionCapabilitiesForBackend(t *testing.T) {
+	tests := []struct {
+		name                 string
+		backend              string
+		wantBackend          string
+		wantDefaultIsolation string
+		wantSupported        []string
+	}{
+		{
+			name:                 "default host",
+			backend:              "",
+			wantBackend:          "host",
+			wantDefaultIsolation: action.IsolationHost,
+			wantSupported:        []string{action.IsolationHost},
+		},
+		{
+			name:                 "explicit host",
+			backend:              "host",
+			wantBackend:          "host",
+			wantDefaultIsolation: action.IsolationHost,
+			wantSupported:        []string{action.IsolationHost},
+		},
+		{
+			name:                 "lima",
+			backend:              "lima",
+			wantBackend:          "lima",
+			wantDefaultIsolation: action.IsolationVM,
+			wantSupported:        []string{action.IsolationHost, action.IsolationVM},
+		},
+		{
+			name:        "unknown",
+			backend:     "wat",
+			wantBackend: "wat",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotBackend, gotDefaultIsolation, gotSupported := workerExecutionCapabilitiesForBackend(tt.backend)
+			if gotBackend != tt.wantBackend {
+				t.Fatalf("backend = %q, want %q", gotBackend, tt.wantBackend)
+			}
+
+			if gotDefaultIsolation != tt.wantDefaultIsolation {
+				t.Fatalf("default isolation = %q, want %q", gotDefaultIsolation, tt.wantDefaultIsolation)
+			}
+
+			if strings.Join(gotSupported, ",") != strings.Join(tt.wantSupported, ",") {
+				t.Fatalf("supported isolation = %v, want %v", gotSupported, tt.wantSupported)
+			}
+		})
+	}
+}
+
 func TestConfiguredProcessExecutor_Lima(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
