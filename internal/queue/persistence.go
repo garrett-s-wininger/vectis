@@ -324,8 +324,13 @@ func (p *persistenceStore) appendEnqueue(req *api.JobRequest, state snapshotStat
 	return p.appendRecord(walRecord{Type: walRecordEnqueue, Job: payload}, state)
 }
 
-func (p *persistenceStore) appendDeliver(deliveryID string, leaseUntil time.Time, attemptCount int, state snapshotState) error {
-	return p.appendRecord(walRecord{Type: walRecordDeliver, DeliveryID: deliveryID, LeaseUntilUTC: leaseUntil.UTC().Unix(), AttemptCount: attemptCount}, state)
+func (p *persistenceStore) appendDeliver(deliveryID string, req *api.JobRequest, leaseUntil time.Time, attemptCount int, state snapshotState) error {
+	payload, err := proto.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal deliver job: %w", err)
+	}
+
+	return p.appendRecord(walRecord{Type: walRecordDeliver, DeliveryID: deliveryID, Job: payload, LeaseUntilUTC: leaseUntil.UTC().Unix(), AttemptCount: attemptCount}, state)
 }
 
 func (p *persistenceStore) appendDLQ(deliveryID string, req *api.JobRequest, attemptCount int, state snapshotState) error {
@@ -759,7 +764,29 @@ func applyRecord(state *queueState, rec walRecord) error {
 		}
 
 		req := state.jobs[0]
-		state.jobs = state.jobs[1:]
+		if len(rec.Job) > 0 {
+			var delivered api.JobRequest
+			if err := proto.Unmarshal(rec.Job, &delivered); err != nil {
+				return fmt.Errorf("unmarshal deliver payload: %w", err)
+			}
+
+			found := false
+			for i, pending := range state.jobs {
+				if sameJobRequestIdentity(pending, &delivered) {
+					req = pending
+					state.jobs = append(state.jobs[:i], state.jobs[i+1:]...)
+					found = true
+					break
+				}
+			}
+
+			if !found {
+				return fmt.Errorf("replay deliver %s references a job not present in pending queue", rec.DeliveryID)
+			}
+		} else {
+			state.jobs = state.jobs[1:]
+		}
+
 		state.inflight[rec.DeliveryID] = inflightDelivery{
 			JobRequest:   req,
 			LeaseUntil:   time.Unix(rec.LeaseUntilUTC, 0).UTC(),

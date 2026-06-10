@@ -37,22 +37,27 @@ type QueueOptions struct {
 
 type queueServer struct {
 	api.UnimplementedQueueServiceServer
-	jobs               []*api.JobRequest
-	head               int
-	size               int
-	inflight           map[string]inflightDelivery
-	deadLetter         []deadLetterItem
-	jobAttempts        map[string]int // keyed by job ID, tracks delivery attempts across requeues
-	deliveryTTL        time.Duration
-	maxRequeueAttempts int
-	instanceID         string
-	deliveryPrefix     string
-	deliverySeq        uint64
-	mu                 sync.Mutex
-	notify             chan struct{}
-	log                interfaces.Logger
-	persistence        *persistenceStore
-	metrics            *observability.QueueMetrics
+	jobs                      []*api.JobRequest
+	pendingSeqs               []uint64
+	head                      int
+	size                      int
+	nextPendingSeq            uint64
+	pendingSlots              map[uint64]int
+	pendingRequirementBySeq   map[uint64]uint64
+	pendingRequirementBuckets map[uint64][]uint64
+	inflight                  map[string]inflightDelivery
+	deadLetter                []deadLetterItem
+	jobAttempts               map[string]int // keyed by job ID, tracks delivery attempts across requeues
+	deliveryTTL               time.Duration
+	maxRequeueAttempts        int
+	instanceID                string
+	deliveryPrefix            string
+	deliverySeq               uint64
+	mu                        sync.Mutex
+	notify                    chan struct{}
+	log                       interfaces.Logger
+	persistence               *persistenceStore
+	metrics                   *observability.QueueMetrics
 }
 
 type deadLetterItem struct {
@@ -64,6 +69,12 @@ type deadLetterItem struct {
 const (
 	initialQueueCapacity = 1024
 	defaultDeliveryTTL   = 2 * time.Minute
+)
+
+const (
+	isolationRequirementHost uint64 = 1 << iota
+	isolationRequirementVM
+	isolationRequirementUnsupported
 )
 
 func NewQueueService(logger interfaces.Logger) api.QueueServiceServer {
@@ -103,19 +114,24 @@ func newQueueServer(logger interfaces.Logger, opts QueueOptions, metrics *observ
 	}
 
 	s := &queueServer{
-		jobs:               make([]*api.JobRequest, initialQueueCapacity),
-		head:               0,
-		size:               0,
-		inflight:           make(map[string]inflightDelivery),
-		deadLetter:         make([]deadLetterItem, 0),
-		jobAttempts:        make(map[string]int),
-		deliveryTTL:        ttl,
-		maxRequeueAttempts: maxAttempts,
-		instanceID:         opts.InstanceID,
-		deliveryPrefix:     uuid.NewString(),
-		notify:             make(chan struct{}, 1),
-		log:                logger,
-		metrics:            metrics,
+		jobs:                      make([]*api.JobRequest, initialQueueCapacity),
+		pendingSeqs:               make([]uint64, initialQueueCapacity),
+		head:                      0,
+		size:                      0,
+		nextPendingSeq:            1,
+		pendingSlots:              make(map[uint64]int),
+		pendingRequirementBySeq:   make(map[uint64]uint64),
+		pendingRequirementBuckets: make(map[uint64][]uint64),
+		inflight:                  make(map[string]inflightDelivery),
+		deadLetter:                make([]deadLetterItem, 0),
+		jobAttempts:               make(map[string]int),
+		deliveryTTL:               ttl,
+		maxRequeueAttempts:        maxAttempts,
+		instanceID:                opts.InstanceID,
+		deliveryPrefix:            uuid.NewString(),
+		notify:                    make(chan struct{}, 1),
+		log:                       logger,
+		metrics:                   metrics,
 	}
 
 	store, state, err := newPersistenceStore(opts.PersistenceDir, opts.SnapshotEvery, opts.WALSegmentMax, opts.WALRetainTail, logger)
@@ -165,13 +181,7 @@ func (s *queueServer) Enqueue(ctx context.Context, req *api.JobRequest) (*api.Em
 		}
 	}
 
-	if s.size == len(s.jobs) {
-		s.grow()
-	}
-
-	tail := (s.head + s.size) % len(s.jobs)
-	s.jobs[tail] = req
-	s.size++
+	s.appendPendingLocked(req)
 	s.log.Info("Enqueued job: %s", req.GetJob().GetId())
 	if s.metrics != nil {
 		s.metrics.RecordEnqueued(ctx)
@@ -207,7 +217,7 @@ func (s *queueServer) dequeueWithRequest(ctx context.Context, req *api.DequeueRe
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	supportedIsolation := supportedIsolationSet(req)
+	supportedMask, filtered := supportedIsolationRequestMask(req)
 	for {
 		now := time.Now().UTC()
 		if err := s.requeueExpiredLocked(now); err != nil {
@@ -224,7 +234,7 @@ func (s *queueServer) dequeueWithRequest(ctx context.Context, req *api.DequeueRe
 			}
 		}
 
-		if offset := s.firstEligiblePendingOffsetLocked(supportedIsolation); offset >= 0 {
+		if offset := s.firstEligiblePendingOffsetLocked(supportedMask, filtered); offset >= 0 {
 			return s.deliverPendingOffsetLocked(ctx, offset, persistOp)
 		}
 
@@ -251,7 +261,7 @@ func (s *queueServer) deliverPendingOffsetLocked(ctx context.Context, offset int
 	attemptCount := s.jobAttempts[job.GetId()]
 
 	if s.persistence != nil {
-		if err := s.persistence.appendDeliver(deliveryID, leaseUntil, attemptCount, s.snapshotAfterDeliverLocked(deliveryID, offset, jobReq, leaseUntil, attemptCount)); err != nil {
+		if err := s.persistence.appendDeliver(deliveryID, jobReq, leaseUntil, attemptCount, s.snapshotAfterDeliverLocked(deliveryID, offset, jobReq, leaseUntil, attemptCount)); err != nil {
 			return nil, fmt.Errorf("persist %s delivery: %w", persistOp, err)
 		}
 	}
@@ -322,9 +332,7 @@ func (s *queueServer) dropExpiredPendingLocked(now time.Time) error {
 			}
 		}
 
-		s.jobs[s.head] = nil
-		s.head = (s.head + 1) % len(s.jobs)
-		s.size--
+		s.removePendingHeadLocked()
 		delete(s.jobAttempts, jobID)
 
 		s.log.Warn("Pending job %s expired after dispatch start deadline; dropped", jobID)
@@ -344,33 +352,64 @@ func (s *queueServer) pendingJobsLocked() []*api.JobRequest {
 	return out
 }
 
-func (s *queueServer) firstEligiblePendingOffsetLocked(supportedIsolation map[string]struct{}) int {
+func (s *queueServer) firstEligiblePendingOffsetLocked(supportedMask uint64, filtered bool) int {
 	if s.size == 0 {
 		return -1
 	}
 
-	if len(supportedIsolation) == 0 {
+	if !filtered {
 		return 0
 	}
 
-	for i := 0; i < s.size; i++ {
-		if jobRequestMatchesSupportedIsolation(s.jobs[(s.head+i)%len(s.jobs)], supportedIsolation) {
-			return i
+	var bestSeq uint64
+	bestSlot := -1
+
+	for requiredMask := range s.pendingRequirementBuckets {
+		if requiredMask&^supportedMask != 0 {
+			continue
 		}
+
+		seq, ok := s.firstActivePendingSeqForRequirementLocked(requiredMask)
+		if !ok {
+			continue
+		}
+
+		if bestSeq == 0 || seq < bestSeq {
+			bestSeq = seq
+			bestSlot = s.pendingSlots[seq]
+		}
+	}
+
+	if bestSlot >= 0 {
+		return s.pendingOffsetForSlotLocked(bestSlot)
 	}
 
 	return -1
 }
 
 func (s *queueServer) removePendingOffsetLocked(offset int) {
+	if offset == 0 {
+		s.removePendingHeadLocked()
+		return
+	}
+
+	slot := (s.head + offset) % len(s.jobs)
+	seq := s.pendingSeqs[slot]
+	s.unindexPendingSeqLocked(seq)
+
 	for i := offset; i < s.size-1; i++ {
 		current := (s.head + i) % len(s.jobs)
 		next := (s.head + i + 1) % len(s.jobs)
 		s.jobs[current] = s.jobs[next]
+		s.pendingSeqs[current] = s.pendingSeqs[next]
+		if shiftedSeq := s.pendingSeqs[current]; shiftedSeq != 0 {
+			s.pendingSlots[shiftedSeq] = current
+		}
 	}
 
 	tail := (s.head + s.size - 1) % len(s.jobs)
 	s.jobs[tail] = nil
+	s.pendingSeqs[tail] = 0
 	s.size--
 
 	if s.size == 0 {
@@ -431,49 +470,41 @@ func (s *queueServer) copyInflightLocked() map[string]inflightDelivery {
 	return out
 }
 
-func supportedIsolationSet(req *api.DequeueRequest) map[string]struct{} {
+func supportedIsolationRequestMask(req *api.DequeueRequest) (uint64, bool) {
 	if req == nil {
-		return nil
+		return 0, false
 	}
 
 	levels := req.GetSupportedIsolation()
 	if len(levels) == 0 {
-		return nil
+		return 0, false
 	}
 
-	supported := make(map[string]struct{}, len(levels))
+	var mask uint64
 	for _, level := range levels {
 		level = action.NormalizeIsolation(level)
 		if level == "" || !action.IsSupportedIsolation(level) {
 			continue
 		}
 
-		supported[level] = struct{}{}
+		mask |= isolationRequirementMask(level)
 	}
 
-	if len(supported) == 0 {
-		return nil
-	}
-
-	return supported
+	return mask, mask != 0
 }
 
-func jobRequestMatchesSupportedIsolation(req *api.JobRequest, supported map[string]struct{}) bool {
-	if len(supported) == 0 {
-		return true
-	}
-
+func jobRequestIsolationRequirementMask(req *api.JobRequest) uint64 {
 	job := req.GetJob()
 	if job == nil {
-		return true
+		return 0
 	}
 
 	defaultIsolation := action.NormalizeIsolation(job.GetDefaultIsolation())
 	if taskNode, ok := taskNodeFromRequest(req, job); ok {
-		return nodeSelfMatchesSupportedIsolation(taskNode, defaultIsolation, supported)
+		return nodeSelfIsolationRequirementMask(taskNode, defaultIsolation)
 	}
 
-	return nodeTreeMatchesSupportedIsolation(job.GetRoot(), defaultIsolation, supported)
+	return nodeTreeIsolationRequirementMask(job.GetRoot(), defaultIsolation)
 }
 
 func taskNodeFromRequest(req *api.JobRequest, job *api.Job) (*api.Node, bool) {
@@ -511,31 +542,25 @@ func findNodeByID(node *api.Node, id string) *api.Node {
 	return nil
 }
 
-func nodeTreeMatchesSupportedIsolation(node *api.Node, inherited string, supported map[string]struct{}) bool {
+func nodeTreeIsolationRequirementMask(node *api.Node, inherited string) uint64 {
 	if node == nil {
-		return true
+		return 0
 	}
 
-	effective, ok := nodeEffectiveIsolationSupported(node, inherited, supported)
-	if !ok {
-		return false
-	}
-
+	effective := effectiveNodeIsolation(node, inherited)
+	mask := isolationRequirementMask(effective)
 	for _, child := range node.GetSteps() {
-		if !nodeTreeMatchesSupportedIsolation(child, effective, supported) {
-			return false
-		}
+		mask |= nodeTreeIsolationRequirementMask(child, effective)
 	}
 
-	return true
+	return mask
 }
 
-func nodeSelfMatchesSupportedIsolation(node *api.Node, inherited string, supported map[string]struct{}) bool {
-	_, ok := nodeEffectiveIsolationSupported(node, inherited, supported)
-	return ok
+func nodeSelfIsolationRequirementMask(node *api.Node, inherited string) uint64 {
+	return isolationRequirementMask(effectiveNodeIsolation(node, inherited))
 }
 
-func nodeEffectiveIsolationSupported(node *api.Node, inherited string, supported map[string]struct{}) (string, bool) {
+func effectiveNodeIsolation(node *api.Node, inherited string) string {
 	effective := inherited
 	if node != nil {
 		if requested := action.NormalizeIsolation(node.GetIsolation()); requested != "" {
@@ -543,12 +568,20 @@ func nodeEffectiveIsolationSupported(node *api.Node, inherited string, supported
 		}
 	}
 
-	if effective == "" {
-		return effective, true
-	}
+	return effective
+}
 
-	_, ok := supported[effective]
-	return effective, ok
+func isolationRequirementMask(isolation string) uint64 {
+	switch action.NormalizeIsolation(isolation) {
+	case "":
+		return 0
+	case action.IsolationHost:
+		return isolationRequirementHost
+	case action.IsolationVM:
+		return isolationRequirementVM
+	default:
+		return isolationRequirementUnsupported
+	}
 }
 
 func (s *queueServer) annotateDequeueHandoff(
@@ -711,13 +744,7 @@ func (s *queueServer) requeueExpiredLocked(now time.Time) error {
 			}
 		}
 
-		if s.size == len(s.jobs) {
-			s.grow()
-		}
-
-		tail := (s.head + s.size) % len(s.jobs)
-		s.jobs[tail] = item.JobRequest
-		s.size++
+		s.appendPendingLocked(item.JobRequest)
 		delete(s.inflight, deliveryID)
 		s.log.Warn("Re-queued expired delivery %s for job %s (attempt %d)", deliveryID, jobID, attemptCount)
 		if s.metrics != nil {
@@ -744,14 +771,110 @@ func (s *queueServer) loadPending(jobs []*api.JobRequest) {
 	}
 
 	s.jobs = make([]*api.JobRequest, capHint)
+	s.pendingSeqs = make([]uint64, capHint)
 	s.head = 0
-	s.size = len(jobs)
-	copy(s.jobs, jobs)
+	s.size = 0
+	s.pendingSlots = make(map[uint64]int, len(jobs))
+	s.pendingRequirementBySeq = make(map[uint64]uint64, len(jobs))
+	s.pendingRequirementBuckets = make(map[uint64][]uint64)
+	for _, jobReq := range jobs {
+		s.appendPendingLocked(jobReq)
+	}
 
 	select {
 	case s.notify <- struct{}{}:
 	default:
 	}
+}
+
+func (s *queueServer) appendPendingLocked(req *api.JobRequest) {
+	if s.size == len(s.jobs) {
+		s.grow()
+	}
+
+	tail := (s.head + s.size) % len(s.jobs)
+	seq := s.nextPendingSeq
+	s.nextPendingSeq++
+
+	s.jobs[tail] = req
+	s.pendingSeqs[tail] = seq
+	s.pendingSlots[seq] = tail
+
+	requirementMask := jobRequestIsolationRequirementMask(req)
+	s.pendingRequirementBySeq[seq] = requirementMask
+	s.pendingRequirementBuckets[requirementMask] = append(s.pendingRequirementBuckets[requirementMask], seq)
+	s.size++
+}
+
+func (s *queueServer) removePendingHeadLocked() {
+	if s.size == 0 {
+		return
+	}
+
+	seq := s.pendingSeqs[s.head]
+	s.unindexPendingSeqLocked(seq)
+	s.jobs[s.head] = nil
+	s.pendingSeqs[s.head] = 0
+	s.head = (s.head + 1) % len(s.jobs)
+	s.size--
+	if s.size == 0 {
+		s.head = 0
+	}
+}
+
+func (s *queueServer) unindexPendingSeqLocked(seq uint64) {
+	if seq == 0 {
+		return
+	}
+
+	delete(s.pendingSlots, seq)
+	requirementMask, ok := s.pendingRequirementBySeq[seq]
+	if !ok {
+		return
+	}
+
+	delete(s.pendingRequirementBySeq, seq)
+	s.dropInactiveRequirementBucketHeadLocked(requirementMask)
+}
+
+func (s *queueServer) firstActivePendingSeqForRequirementLocked(requirementMask uint64) (uint64, bool) {
+	s.dropInactiveRequirementBucketHeadLocked(requirementMask)
+	seqs := s.pendingRequirementBuckets[requirementMask]
+	if len(seqs) == 0 {
+		return 0, false
+	}
+
+	return seqs[0], true
+}
+
+func (s *queueServer) dropInactiveRequirementBucketHeadLocked(requirementMask uint64) {
+	seqs := s.pendingRequirementBuckets[requirementMask]
+	for len(seqs) > 0 {
+		if _, ok := s.pendingSlots[seqs[0]]; ok {
+			break
+		}
+
+		seqs = seqs[1:]
+	}
+
+	if len(seqs) == 0 {
+		delete(s.pendingRequirementBuckets, requirementMask)
+		return
+	}
+
+	s.pendingRequirementBuckets[requirementMask] = seqs
+}
+
+func (s *queueServer) pendingOffsetForSlotLocked(slot int) int {
+	if slot < 0 || len(s.jobs) == 0 {
+		return -1
+	}
+
+	if slot >= s.head {
+		return slot - s.head
+	}
+
+	return len(s.jobs) - s.head + slot
 }
 
 func (s *queueServer) grow() {
@@ -761,11 +884,18 @@ func (s *queueServer) grow() {
 	}
 
 	next := make([]*api.JobRequest, newCap)
+	nextSeqs := make([]uint64, newCap)
 	for i := 0; i < s.size; i++ {
-		next[i] = s.jobs[(s.head+i)%len(s.jobs)]
+		slot := (s.head + i) % len(s.jobs)
+		next[i] = s.jobs[slot]
+		nextSeqs[i] = s.pendingSeqs[slot]
+		if nextSeqs[i] != 0 {
+			s.pendingSlots[nextSeqs[i]] = i
+		}
 	}
 
 	s.jobs = next
+	s.pendingSeqs = nextSeqs
 	s.head = 0
 }
 
@@ -793,23 +923,17 @@ func (s *queueServer) RequeueDeadLetter(ctx context.Context, req *api.RequeueDea
 	deliveryID := req.GetDeliveryId()
 	for i, item := range s.deadLetter {
 		if item.deliveryID == deliveryID {
-			if s.size == len(s.jobs) {
-				s.grow()
-			}
-
-			tail := (s.head + s.size) % len(s.jobs)
-			s.jobs[tail] = item.jobRequest
-			s.size++
-			s.deadLetter = append(s.deadLetter[:i], s.deadLetter[i+1:]...)
-
-			delete(s.jobAttempts, item.jobRequest.GetJob().GetId())
-			s.log.Info("Requeued dead letter delivery %s for job %s", deliveryID, item.jobRequest.GetJob().GetId())
-
 			if s.persistence != nil {
 				if err := s.persistence.appendDLQRequeue(deliveryID, item.jobRequest, s.snapshotAfterDLQRequeueLocked(deliveryID, item)); err != nil {
 					return nil, fmt.Errorf("persist dlq requeue %s: %w", deliveryID, err)
 				}
 			}
+
+			s.appendPendingLocked(item.jobRequest)
+			s.deadLetter = append(s.deadLetter[:i], s.deadLetter[i+1:]...)
+
+			delete(s.jobAttempts, item.jobRequest.GetJob().GetId())
+			s.log.Info("Requeued dead letter delivery %s for job %s", deliveryID, item.jobRequest.GetJob().GetId())
 
 			if s.metrics != nil {
 				s.metrics.RecordDLQRequeued(ctx)
