@@ -72,6 +72,7 @@ type APIServer struct {
 	jobs                     dal.JobsRepository
 	runs                     dal.RunsRepository
 	ephemeralRuns            dal.EphemeralRunStarter
+	artifacts                dal.ArtifactsRepository
 	authRepo                 dal.AuthRepository
 	namespaces               dal.NamespacesRepository
 	roleBindings             dal.RoleBindingsRepository
@@ -156,6 +157,7 @@ func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
 	s.triggerEvents = repos.TriggerInvocations()
 	s.catalogEvents = repos.CatalogEvents()
 	s.schedules = repos.Schedules()
+	s.artifacts = repos.Artifacts()
 	s.cacheService = cache.NewSQLService(db, database.EffectiveDBDriver())
 	return s
 }
@@ -166,10 +168,18 @@ func NewAPIServerWithRepositories(
 	runs dal.RunsRepository,
 	ephemeralRuns dal.EphemeralRunStarter,
 ) *APIServer {
+	var artifacts dal.ArtifactsRepository
+	if repos, ok := ephemeralRuns.(interface {
+		Artifacts() dal.ArtifactsRepository
+	}); ok {
+		artifacts = repos.Artifacts()
+	}
+
 	return &APIServer{
 		jobs:           jobs,
 		runs:           runs,
 		ephemeralRuns:  ephemeralRuns,
+		artifacts:      artifacts,
 		logger:         logger,
 		runBroadcaster: NewRunBroadcaster(logger),
 		auditPolicy:    audit.DefaultPolicy(),

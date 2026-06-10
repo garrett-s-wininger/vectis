@@ -221,6 +221,26 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 			RateLimit: defaultLimits.General,
 		},
 		{
+			Pattern:   "GET /api/v1/runs/{id}/artifacts",
+			Handler:   http.HandlerFunc(s.ListRunArtifacts),
+			Auth:      routeAuthPolicy{Action: authz.ActionRunRead},
+			Query:     routeQueryParams("cursor", "limit"),
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "GET /api/v1/runs/{id}/artifacts/{name}",
+			Handler:   http.HandlerFunc(s.GetRunArtifact),
+			Auth:      routeAuthPolicy{Action: authz.ActionRunRead},
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "GET /api/v1/runs/{id}/artifacts/{name}/download",
+			Handler:   http.HandlerFunc(s.DownloadRunArtifact),
+			Auth:      routeAuthPolicy{Action: authz.ActionRunRead},
+			Accept:    routeAcceptAnyPolicy(),
+			RateLimit: defaultLimits.General,
+		},
+		{
 			Pattern:   "GET /api/v1/runs/{id}/execution-payload",
 			Handler:   http.HandlerFunc(s.GetRunExecutionPayload),
 			Auth:      routeAuthPolicy{Action: authz.ActionRunOperator},

@@ -43,6 +43,9 @@ func TestAPIRouteInventory(t *testing.T) {
 		{"GET /api/v1/sse/jobs/{id}/runs", string(authz.ActionRunRead)},
 		{"GET /api/v1/runs/{id}", string(authz.ActionRunRead)},
 		{"GET /api/v1/runs/{id}/tasks", string(authz.ActionRunRead)},
+		{"GET /api/v1/runs/{id}/artifacts", string(authz.ActionRunRead)},
+		{"GET /api/v1/runs/{id}/artifacts/{name}", string(authz.ActionRunRead)},
+		{"GET /api/v1/runs/{id}/artifacts/{name}/download", string(authz.ActionRunRead)},
 		{"GET /api/v1/runs/{id}/execution-payload", string(authz.ActionRunOperator)},
 		{"POST /api/v1/runs/{id}/replay", string(authz.ActionRunOperator)},
 		{"POST /api/v1/runs/{id}/cancel", string(authz.ActionRunOperator)},
@@ -233,11 +236,12 @@ func TestProtectedRoutesDefaultNoStorePolicy(t *testing.T) {
 func TestAPIRouteInventory_acceptPolicies(t *testing.T) {
 	s := &APIServer{MetricsHandler: http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})}
 	want := map[string]routeAcceptPolicy{
-		"GET /health/live":               routeAcceptAnyPolicy(),
-		"GET /health/ready":              routeAcceptAnyPolicy(),
-		"GET /metrics":                   routeAcceptMetricsPolicy(),
-		"GET /api/v1/sse/jobs/{id}/runs": routeAcceptSSEPolicy(),
-		"GET /api/v1/runs/{id}/logs":     routeAcceptSSEPolicy(),
+		"GET /health/live":                                routeAcceptAnyPolicy(),
+		"GET /health/ready":                               routeAcceptAnyPolicy(),
+		"GET /metrics":                                    routeAcceptMetricsPolicy(),
+		"GET /api/v1/sse/jobs/{id}/runs":                  routeAcceptSSEPolicy(),
+		"GET /api/v1/runs/{id}/artifacts/{name}/download": routeAcceptAnyPolicy(),
+		"GET /api/v1/runs/{id}/logs":                      routeAcceptSSEPolicy(),
 	}
 
 	seen := make(map[string]bool, len(want))
@@ -275,6 +279,7 @@ func TestAPIRouteInventory_queryPolicies(t *testing.T) {
 		"GET /api/v1/jobs/{id}":                             routeQueryParams("version"),
 		"GET /api/v1/jobs/{id}/runs":                        routeQueryParams("after_index", "cell_id", "cursor", "limit", "owning_cell", "since"),
 		"GET /api/v1/runs/{id}/tasks":                       routeQueryParams("cursor", "limit"),
+		"GET /api/v1/runs/{id}/artifacts":                   routeQueryParams("cursor", "limit"),
 		"GET /api/v1/runs/{id}/logs":                        routeQueryParams("replay_limit", "since_sequence", "tail"),
 		"GET /api/v1/tokens":                                routeQueryParams("user_id"),
 		"DELETE /api/v1/namespaces/{id}/bindings/{user_id}": routeQueryParams("role"),
