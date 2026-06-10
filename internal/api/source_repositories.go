@@ -441,15 +441,14 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 	s.markDBRecovered()
 
 	syncRecord := dal.SourceRepositorySyncRecord{
-		RepositoryID:   rec.RepositoryID,
-		StartedAtUnix:  startedAt,
-		FinishedAtUnix: time.Now().Unix(),
-		Ref:            syncRef,
+		RepositoryID:  rec.RepositoryID,
+		StartedAtUnix: startedAt,
+		Ref:           syncRef,
 	}
 
 	switch strings.TrimSpace(rec.SourceKind) {
 	case dal.SourceKindLocalCheckout:
-		checkoutStatus := sourcepkg.NewGitCheckout(rec.CheckoutPath).Status(ctx, syncRef)
+		checkoutStatus := sourceRepositorySyncCheckoutStatus(ctx, rec, syncRef)
 		if checkoutStatus.ErrorCode != "" {
 			syncRecord.Status = dal.SourceSyncStatusFailed
 			syncRecord.Error = sourceRepositoryStatusSyncError(checkoutStatus)
@@ -462,6 +461,7 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 		syncRecord.Error = "unsupported_source_kind: source kind is not supported"
 	}
 
+	syncRecord.FinishedAtUnix = time.Now().Unix()
 	updated, err := s.sources.UpdateRepositorySync(ctx, syncRecord)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
@@ -1115,6 +1115,18 @@ func sourceRepositoryStatusSyncError(status sourcepkg.GitCheckoutStatus) string 
 	}
 
 	return status.ErrorCode + ": " + status.ErrorMessage
+}
+
+func sourceRepositorySyncCheckoutStatus(ctx context.Context, rec dal.SourceRepositoryRecord, syncRef string) sourcepkg.GitCheckoutStatus {
+	if strings.TrimSpace(rec.CheckoutMode) == dal.SourceCheckoutModeManaged {
+		return sourcepkg.SyncManagedGitCheckout(ctx, sourcepkg.ManagedGitCheckoutRequest{
+			CheckoutPath: rec.CheckoutPath,
+			RemoteURL:    rec.CanonicalURL,
+			DefaultRef:   syncRef,
+		})
+	}
+
+	return sourcepkg.NewGitCheckout(rec.CheckoutPath).Status(ctx, syncRef)
 }
 
 func managedSourceCheckoutPath(repositoryID string) (string, error) {

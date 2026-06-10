@@ -619,6 +619,94 @@ func TestAPIServer_SyncSourceRepository(t *testing.T) {
 	}
 }
 
+func TestAPIServer_SyncManagedSourceRepositoryClonesAndFetches(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	checkoutRoot := t.TempDir()
+	viper.Set("source.checkout_root", checkoutRoot)
+
+	server, _, _, _ := setupTestServer(t)
+	handler := server.Handler()
+	remotePath := initAPIGitRepo(t)
+	writeAPIJobDefinitionAndCommit(t, remotePath, "true", "first definition")
+	firstCommit := apiGitOutput(t, remotePath, "rev-parse", "HEAD")
+
+	registerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
+		"repository_id": "managed-repo",
+		"source_kind":   dal.SourceKindLocalCheckout,
+		"checkout_mode": dal.SourceCheckoutModeManaged,
+		"canonical_url": remotePath,
+		"default_ref":   "HEAD",
+	})
+
+	if registerRec.Code != http.StatusCreated {
+		t.Fatalf("register managed source repository: status=%d body=%s", registerRec.Code, registerRec.Body.String())
+	}
+
+	registerResp := decodeSourceRepositoryResponse(t, registerRec)
+	if _, err := os.Stat(registerResp.CheckoutPath); !os.IsNotExist(err) {
+		t.Fatalf("managed checkout should not exist before sync, path=%q err=%v", registerResp.CheckoutPath, err)
+	}
+
+	syncRec := httptest.NewRecorder()
+	syncReq := httptest.NewRequest(http.MethodPost, "/api/v1/source-repositories/managed-repo/sync", nil)
+	handler.ServeHTTP(syncRec, syncReq)
+	if syncRec.Code != http.StatusOK {
+		t.Fatalf("sync managed source repository: status=%d body=%s", syncRec.Code, syncRec.Body.String())
+	}
+
+	syncResp := decodeSourceRepositoryResponse(t, syncRec)
+	if syncResp.Sync.Status != dal.SourceSyncStatusSucceeded ||
+		syncResp.Sync.Ref != "HEAD" ||
+		syncResp.Sync.Commit != firstCommit ||
+		syncResp.Sync.Error != "" {
+		t.Fatalf("managed sync response mismatch: %+v", syncResp)
+	}
+
+	if _, err := os.Stat(syncResp.CheckoutPath); err != nil {
+		t.Fatalf("managed checkout should exist after sync: %v", err)
+	}
+
+	writeAPIJobDefinitionAndCommit(t, remotePath, "false", "second definition")
+	secondCommit := apiGitOutput(t, remotePath, "rev-parse", "HEAD")
+
+	syncRec = httptest.NewRecorder()
+	syncReq = httptest.NewRequest(http.MethodPost, "/api/v1/source-repositories/managed-repo/sync", nil)
+	handler.ServeHTTP(syncRec, syncReq)
+	if syncRec.Code != http.StatusOK {
+		t.Fatalf("resync managed source repository: status=%d body=%s", syncRec.Code, syncRec.Body.String())
+	}
+
+	syncResp = decodeSourceRepositoryResponse(t, syncRec)
+	if syncResp.Sync.Status != dal.SourceSyncStatusSucceeded || syncResp.Sync.Commit != secondCommit {
+		t.Fatalf("managed resync response mismatch: %+v", syncResp)
+	}
+
+	resolveRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/managed-repo/definitions/resolve", map[string]any{
+		"path": ".vectis/jobs/build.json",
+	})
+
+	if resolveRec.Code != http.StatusOK {
+		t.Fatalf("resolve from managed checkout: status=%d body=%s", resolveRec.Code, resolveRec.Body.String())
+	}
+
+	resolveResp := decodeResolvedSourceDefinitionResponse(t, resolveRec)
+	if resolveResp.Source.ResolvedCommit != secondCommit {
+		t.Fatalf("managed resolve commit mismatch: %+v", resolveResp)
+	}
+
+	var job api.Job
+	if err := json.Unmarshal(resolveResp.Definition, &job); err != nil {
+		t.Fatalf("managed resolved definition JSON: %v", err)
+	}
+
+	if job.GetRoot().GetWith()["command"] != "false" {
+		t.Fatalf("managed resolved definition command: got %+v", job.GetRoot().GetWith())
+	}
+}
+
 func TestAPIServer_GetJobSourceDefinitionReadsDisabledRepository(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 
