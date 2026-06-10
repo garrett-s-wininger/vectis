@@ -29,6 +29,14 @@ type WrittenDefinition struct {
 	BlobSHA      string
 }
 
+type AuthoringCapability struct {
+	Mode                   string
+	WriteDefinitions       bool
+	LocalCommits           bool
+	ExternalChangeRequests bool
+	Reason                 string
+}
+
 type LocalCommitDefinitionAuthor struct {
 	Checkout   *GitCheckout
 	DefaultRef string
@@ -57,6 +65,38 @@ func NewDefinitionAuthorFromRecord(rec dal.SourceRepositoryRecord) (DefinitionAu
 	default:
 		return nil, fmt.Errorf("%w: unsupported authoring_mode %q", ErrInvalidReference, rec.AuthoringMode)
 	}
+}
+
+func AuthoringCapabilityFromRecord(rec dal.SourceRepositoryRecord) AuthoringCapability {
+	mode := strings.TrimSpace(rec.AuthoringMode)
+	if mode == "" {
+		mode = dal.SourceAuthoringModeReadOnly
+	}
+
+	out := AuthoringCapability{Mode: mode}
+	if !rec.Enabled {
+		out.Reason = "source_repository_disabled"
+		return out
+	}
+
+	switch mode {
+	case dal.SourceAuthoringModeReadOnly:
+		out.Reason = "read_only"
+	case dal.SourceAuthoringModeLocalCommit:
+		if strings.TrimSpace(rec.CheckoutMode) != dal.SourceCheckoutModeManaged {
+			out.Reason = "local_commit_requires_managed_checkout"
+			return out
+		}
+
+		out.WriteDefinitions = true
+		out.LocalCommits = true
+	case dal.SourceAuthoringModeExternalChangeRequest:
+		out.Reason = "external_change_request_not_configured"
+	default:
+		out.Reason = "unsupported_authoring_mode"
+	}
+
+	return out
 }
 
 func (a LocalCommitDefinitionAuthor) WriteDefinition(ctx context.Context, req WriteDefinitionRequest) (WrittenDefinition, error) {

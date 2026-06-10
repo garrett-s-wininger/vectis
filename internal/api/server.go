@@ -130,8 +130,14 @@ type APIServer struct {
 	sourceSyncMu             sync.Mutex
 	sourceSyncRunning        map[string]struct{}
 	sourceSyncCheckoutStatus func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus
+	sourceDefinitionAuthor   SourceDefinitionAuthorFactory
+	sourceAuthoring          SourceAuthoringCapabilityResolver
 	srvCtx                   atomic.Pointer[ctxHolder]
 }
+
+type SourceDefinitionAuthorFactory func(dal.SourceRepositoryRecord) (sourcepkg.DefinitionAuthor, error)
+
+type SourceAuthoringCapabilityResolver func(dal.SourceRepositoryRecord) sourcepkg.AuthoringCapability
 
 type routeSpec struct {
 	Pattern   string
@@ -184,18 +190,35 @@ func NewAPIServerWithRepositories(
 	}
 
 	s := &APIServer{
-		jobs:           jobs,
-		runs:           runs,
-		ephemeralRuns:  ephemeralRuns,
-		artifacts:      artifacts,
-		logger:         logger,
-		runBroadcaster: NewRunBroadcaster(logger),
-		auditPolicy:    audit.DefaultPolicy(),
+		jobs:                   jobs,
+		runs:                   runs,
+		ephemeralRuns:          ephemeralRuns,
+		artifacts:              artifacts,
+		logger:                 logger,
+		runBroadcaster:         NewRunBroadcaster(logger),
+		auditPolicy:            audit.DefaultPolicy(),
+		sourceDefinitionAuthor: sourcepkg.NewDefinitionAuthorFromRecord,
+		sourceAuthoring:        sourcepkg.AuthoringCapabilityFromRecord,
 	}
+
 	if sourceJobs, ok := jobs.(dal.SourceBackedJobsRepository); ok {
 		s.sourceJobs = sourceJobs
 	}
+
 	return s
+}
+
+func (s *APIServer) SetSourceDefinitionAuthoring(factory SourceDefinitionAuthorFactory, capabilities SourceAuthoringCapabilityResolver) {
+	if factory == nil {
+		factory = sourcepkg.NewDefinitionAuthorFromRecord
+	}
+
+	if capabilities == nil {
+		capabilities = sourcepkg.AuthoringCapabilityFromRecord
+	}
+
+	s.sourceDefinitionAuthor = factory
+	s.sourceAuthoring = capabilities
 }
 
 func (s *APIServer) markDBUnavailable(err error) {

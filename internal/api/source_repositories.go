@@ -473,7 +473,7 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 		"source_kind":   rec.SourceKind,
 	})
 
-	writeJSON(w, http.StatusCreated, sourceRepositoryRecordToResponse(rec, ns.Path))
+	writeJSON(w, http.StatusCreated, s.sourceRepositoryRecordToResponse(rec, ns.Path))
 }
 
 func (s *APIServer) ListSourceRepositories(w http.ResponseWriter, r *http.Request) {
@@ -528,7 +528,7 @@ func (s *APIServer) ListSourceRepositories(w http.ResponseWriter, r *http.Reques
 
 	resp := make([]sourceRepositoryResponse, 0, len(recs))
 	for _, rec := range recs {
-		resp = append(resp, sourceRepositoryRecordToResponse(rec, ns.Path))
+		resp = append(resp, s.sourceRepositoryRecordToResponse(rec, ns.Path))
 	}
 
 	writeJSON(w, http.StatusOK, resp)
@@ -552,7 +552,7 @@ func (s *APIServer) GetSourceRepository(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	writeJSON(w, http.StatusOK, sourceRepositoryRecordToResponse(rec, nsPath))
+	writeJSON(w, http.StatusOK, s.sourceRepositoryRecordToResponse(rec, nsPath))
 }
 
 func (s *APIServer) GetSourceRepositoryStatus(w http.ResponseWriter, r *http.Request) {
@@ -573,7 +573,7 @@ func (s *APIServer) GetSourceRepositoryStatus(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	writeJSON(w, http.StatusOK, sourceRepositoryStatusFromRecord(ctx, rec, nsPath))
+	writeJSON(w, http.StatusOK, s.sourceRepositoryStatusFromRecord(ctx, rec, nsPath))
 }
 
 func (s *APIServer) ListSourceRepositoryBranches(w http.ResponseWriter, r *http.Request) {
@@ -984,7 +984,7 @@ func (s *APIServer) PutSourceRepositoryJobDefinition(w http.ResponseWriter, r *h
 		return
 	}
 
-	author, err := sourcepkg.NewDefinitionAuthorFromRecord(rec)
+	author, err := s.newSourceDefinitionAuthor(rec)
 	if err != nil {
 		s.writeSourceDefinitionError(w, err)
 		return
@@ -1511,7 +1511,7 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 	syncRef := sourceRepositorySyncRef(rec)
 	releaseSync, syncStarted := s.tryBeginSourceRepositorySync(rec.RepositoryID)
 	if !syncStarted {
-		writeRunningSourceRepositorySync(w, rec, nsPath, syncRef)
+		s.writeRunningSourceRepositorySync(w, rec, nsPath, syncRef)
 		return
 	}
 	defer releaseSync()
@@ -1545,7 +1545,7 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 	s.markDBRecovered()
 
 	if !began {
-		writeRunningSourceRepositorySync(w, running, nsPath, syncRef)
+		s.writeRunningSourceRepositorySync(w, running, nsPath, syncRef)
 		return
 	}
 
@@ -1593,7 +1593,7 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 	}
 	s.markDBRecovered()
 
-	writeJSON(w, http.StatusOK, sourceRepositoryRecordToResponse(updated, nsPath))
+	writeJSON(w, http.StatusOK, s.sourceRepositoryRecordToResponse(updated, nsPath))
 }
 
 func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Request) {
@@ -1734,7 +1734,7 @@ func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Reques
 		"enabled":       updated.Enabled,
 	})
 
-	writeJSON(w, http.StatusOK, sourceRepositoryRecordToResponse(updated, nsPath))
+	writeJSON(w, http.StatusOK, s.sourceRepositoryRecordToResponse(updated, nsPath))
 }
 
 func (s *APIServer) ResolveSourceDefinition(w http.ResponseWriter, r *http.Request) {
@@ -2139,7 +2139,7 @@ func (s *APIServer) getAuthorizedSourceRepository(ctx context.Context, w http.Re
 	return rec, ns.Path, true
 }
 
-func sourceRepositoryRecordToResponse(rec dal.SourceRepositoryRecord, namespacePath string) sourceRepositoryResponse {
+func (s *APIServer) sourceRepositoryRecordToResponse(rec dal.SourceRepositoryRecord, namespacePath string) sourceRepositoryResponse {
 	return sourceRepositoryResponse{
 		RepositoryID:  rec.RepositoryID,
 		Namespace:     namespacePath,
@@ -2147,7 +2147,7 @@ func sourceRepositoryRecordToResponse(rec dal.SourceRepositoryRecord, namespaceP
 		CheckoutPath:  rec.CheckoutPath,
 		CheckoutMode:  rec.CheckoutMode,
 		AuthoringMode: rec.AuthoringMode,
-		Authoring:     sourceRepositoryAuthoringFromRecord(rec),
+		Authoring:     s.sourceRepositoryAuthoringFromRecord(rec),
 		CanonicalURL:  rec.CanonicalURL,
 		DefaultRef:    rec.DefaultRef,
 		CredentialRef: rec.CredentialRef,
@@ -2156,7 +2156,7 @@ func sourceRepositoryRecordToResponse(rec dal.SourceRepositoryRecord, namespaceP
 	}
 }
 
-func sourceRepositoryStatusFromRecord(ctx context.Context, rec dal.SourceRepositoryRecord, namespacePath string) sourceRepositoryStatusResponse {
+func (s *APIServer) sourceRepositoryStatusFromRecord(ctx context.Context, rec dal.SourceRepositoryRecord, namespacePath string) sourceRepositoryStatusResponse {
 	resp := sourceRepositoryStatusResponse{
 		RepositoryID:  rec.RepositoryID,
 		Namespace:     namespacePath,
@@ -2165,7 +2165,7 @@ func sourceRepositoryStatusFromRecord(ctx context.Context, rec dal.SourceReposit
 		Status:        "ok",
 		CheckoutMode:  rec.CheckoutMode,
 		AuthoringMode: rec.AuthoringMode,
-		Authoring:     sourceRepositoryAuthoringFromRecord(rec),
+		Authoring:     s.sourceRepositoryAuthoringFromRecord(rec),
 		Sync:          sourceRepositorySyncRecordToResponse(rec),
 	}
 
@@ -2210,36 +2210,25 @@ func sourceRepositoryStatusFromRecord(ctx context.Context, rec dal.SourceReposit
 	return resp
 }
 
-func sourceRepositoryAuthoringFromRecord(rec dal.SourceRepositoryRecord) sourceRepositoryAuthoring {
-	mode := strings.TrimSpace(rec.AuthoringMode)
+func (s *APIServer) sourceRepositoryAuthoringFromRecord(rec dal.SourceRepositoryRecord) sourceRepositoryAuthoring {
+	resolve := s.sourceAuthoring
+	if resolve == nil {
+		resolve = sourcepkg.AuthoringCapabilityFromRecord
+	}
+
+	capability := resolve(rec)
+	mode := strings.TrimSpace(capability.Mode)
 	if mode == "" {
 		mode = dal.SourceAuthoringModeReadOnly
 	}
 
-	out := sourceRepositoryAuthoring{Mode: mode}
-	if !rec.Enabled {
-		out.Reason = "source_repository_disabled"
-		return out
+	return sourceRepositoryAuthoring{
+		Mode:                   mode,
+		WriteDefinitions:       capability.WriteDefinitions,
+		LocalCommits:           capability.LocalCommits,
+		ExternalChangeRequests: capability.ExternalChangeRequests,
+		Reason:                 capability.Reason,
 	}
-
-	switch mode {
-	case dal.SourceAuthoringModeReadOnly:
-		out.Reason = "read_only"
-	case dal.SourceAuthoringModeLocalCommit:
-		if strings.TrimSpace(rec.CheckoutMode) != dal.SourceCheckoutModeManaged {
-			out.Reason = "local_commit_requires_managed_checkout"
-			return out
-		}
-
-		out.WriteDefinitions = true
-		out.LocalCommits = true
-	case dal.SourceAuthoringModeExternalChangeRequest:
-		out.Reason = "external_change_request_not_configured"
-	default:
-		out.Reason = "unsupported_authoring_mode"
-	}
-
-	return out
 }
 
 func sourceRepositorySyncRecordToResponse(rec dal.SourceRepositoryRecord) sourceRepositorySyncResponse {
@@ -2279,7 +2268,7 @@ func sourceRepositoryStatusSyncError(status sourcepkg.GitCheckoutStatus) string 
 	return status.ErrorCode + ": " + status.ErrorMessage
 }
 
-func writeRunningSourceRepositorySync(w http.ResponseWriter, rec dal.SourceRepositoryRecord, namespacePath, syncRef string) {
+func (s *APIServer) writeRunningSourceRepositorySync(w http.ResponseWriter, rec dal.SourceRepositoryRecord, namespacePath, syncRef string) {
 	running := rec
 	running.SyncStatus = dal.SourceSyncStatusRunning
 	if strings.TrimSpace(running.LastSyncRef) == "" {
@@ -2291,7 +2280,7 @@ func writeRunningSourceRepositorySync(w http.ResponseWriter, rec dal.SourceRepos
 	}
 
 	w.Header().Set("Retry-After", "1")
-	writeJSON(w, http.StatusAccepted, sourceRepositoryRecordToResponse(running, namespacePath))
+	writeJSON(w, http.StatusAccepted, s.sourceRepositoryRecordToResponse(running, namespacePath))
 }
 
 func sourceSyncStaleBeforeUnix(nowUnix int64) int64 {
@@ -2626,6 +2615,15 @@ func (s *APIServer) sourceRepositorySyncCheckoutStatus(ctx context.Context, rec 
 	}
 
 	return sourcepkg.NewGitCheckout(rec.CheckoutPath).Status(ctx, syncRef)
+}
+
+func (s *APIServer) newSourceDefinitionAuthor(rec dal.SourceRepositoryRecord) (sourcepkg.DefinitionAuthor, error) {
+	factory := s.sourceDefinitionAuthor
+	if factory == nil {
+		factory = sourcepkg.NewDefinitionAuthorFromRecord
+	}
+
+	return factory(rec)
 }
 
 func managedSourceCheckoutPath(repositoryID string) (string, error) {

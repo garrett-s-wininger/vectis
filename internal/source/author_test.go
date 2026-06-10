@@ -76,6 +76,69 @@ func TestNewDefinitionAuthorFromRecordModes(t *testing.T) {
 	}
 }
 
+func TestAuthoringCapabilityFromRecord(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		rec  dal.SourceRepositoryRecord
+		want AuthoringCapability
+	}{
+		{
+			name: "default read only",
+			rec:  dal.SourceRepositoryRecord{Enabled: true},
+			want: AuthoringCapability{
+				Mode:   dal.SourceAuthoringModeReadOnly,
+				Reason: "read_only",
+			},
+		},
+		{
+			name: "disabled",
+			rec: dal.SourceRepositoryRecord{
+				AuthoringMode: dal.SourceAuthoringModeLocalCommit,
+				CheckoutMode:  dal.SourceCheckoutModeManaged,
+			},
+			want: AuthoringCapability{
+				Mode:   dal.SourceAuthoringModeLocalCommit,
+				Reason: "source_repository_disabled",
+			},
+		},
+		{
+			name: "local commit",
+			rec: dal.SourceRepositoryRecord{
+				AuthoringMode: dal.SourceAuthoringModeLocalCommit,
+				CheckoutMode:  dal.SourceCheckoutModeManaged,
+				Enabled:       true,
+			},
+			want: AuthoringCapability{
+				Mode:             dal.SourceAuthoringModeLocalCommit,
+				WriteDefinitions: true,
+				LocalCommits:     true,
+			},
+		},
+		{
+			name: "external change request not configured",
+			rec: dal.SourceRepositoryRecord{
+				AuthoringMode: dal.SourceAuthoringModeExternalChangeRequest,
+				CheckoutMode:  dal.SourceCheckoutModeExternal,
+				Enabled:       true,
+			},
+			want: AuthoringCapability{
+				Mode:   dal.SourceAuthoringModeExternalChangeRequest,
+				Reason: "external_change_request_not_configured",
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := AuthoringCapabilityFromRecord(tc.rec); got != tc.want {
+				t.Fatalf("AuthoringCapabilityFromRecord() = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestLocalCommitDefinitionAuthorUsesDefaultRef(t *testing.T) {
 	repo := initGitRepo(t)
 	writeAndCommit(t, repo, "README.md", "hello\n", "readme")
