@@ -293,7 +293,7 @@ func forwarderSocketPath() string {
 }
 
 func configuredJobExecutor(logger interfaces.Logger) (*job.Executor, error) {
-	processExecutor, backend, err := configuredProcessExecutor()
+	executor, backend, err := workercore.NewJobExecutor(workerCoreExecutorConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -302,17 +302,7 @@ func configuredJobExecutor(logger interfaces.Logger) (*job.Executor, error) {
 		logger.Info("Worker execution backend: %s", backend)
 	}
 
-	options := []job.ExecutorOption{}
-	if workspaceRoot := config.WorkerExecutionWorkspaceRoot(); workspaceRoot != "" {
-		options = append(options, job.WithWorkspaceRoot(workspaceRoot))
-	}
-	if processExecutor != nil {
-		options = append(options,
-			job.WithVMProcessExecutor(processExecutor),
-			job.WithDefaultIsolation(action.IsolationVM),
-		)
-	}
-	return job.NewExecutor(options...), nil
+	return executor, nil
 }
 
 func workerRegistryMetadata() map[string]string {
@@ -321,35 +311,25 @@ func workerRegistryMetadata() map[string]string {
 }
 
 func workerExecutionCapabilitiesForBackend(backend string) (string, string, []string) {
-	switch backend {
-	case "", "host":
-		return "host", action.IsolationHost, []string{action.IsolationHost}
-	case "lima":
-		return "lima", action.IsolationVM, []string{action.IsolationHost, action.IsolationVM}
-	default:
-		return backend, "", nil
-	}
+	return workercore.ExecutionCapabilitiesForBackend(backend)
 }
 
 func configuredProcessExecutor() (interfaces.ExecExecutor, string, error) {
-	switch backend := config.WorkerExecutionBackend(); backend {
-	case "", "host":
-		return nil, "host", nil
-	case "lima":
-		executor, err := platform.NewVirtualMachineCommandExecutor(platform.VirtualMachineConfig{
+	return workercore.NewProcessExecutor(workerCoreExecutorConfig())
+}
+
+func workerCoreExecutorConfig() workercore.ExecutorConfig {
+	return workercore.ExecutorConfig{
+		Backend:       config.WorkerExecutionBackend(),
+		WorkspaceRoot: config.WorkerExecutionWorkspaceRoot(),
+		Lima: platform.VirtualMachineConfig{
 			Provider:           platform.VirtualMachineProviderLima,
 			Instance:           config.WorkerExecutionLimaInstance(),
 			ProviderPath:       config.WorkerExecutionLimaPath(),
 			GuestWorkspaceRoot: config.WorkerExecutionLimaGuestWorkspaceRoot(),
 			Start:              config.WorkerExecutionLimaStart(),
 			PreserveEnv:        config.WorkerExecutionLimaPreserveEnv(),
-		})
-		if err != nil {
-			return nil, "", err
-		}
-		return executor, "lima", nil
-	default:
-		return nil, "", fmt.Errorf("unknown execution backend %q", backend)
+		},
 	}
 }
 
@@ -1889,19 +1869,22 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID string, exec
 			defer artifactPublisher.Close()
 		}
 
-		w.markExecutionStarted(ctx, env)
-		execReq := workercore.ExecuteTaskRequest{
-			Job:              runJob,
-			TaskKey:          env.TaskKey,
+		execSessionOpts := workercore.TaskSessionOptions{
 			LogClient:        w.logClient,
 			Logger:           w.logger,
 			WorkloadIdentity: workloadIdentity,
 			ActionResolver:   w.actionResolver,
 			ActionLocks:      env.ActionLocks,
 		}
-
 		if artifactPublisher != nil {
-			execReq.ArtifactPublisher = action.ArtifactPublisher(artifactPublisher)
+			execSessionOpts.ArtifactPublisher = action.ArtifactPublisher(artifactPublisher)
+		}
+
+		w.markExecutionStarted(ctx, env)
+		execReq := workercore.ExecuteTaskRequest{
+			Job:     runJob,
+			TaskKey: env.TaskKey,
+			Session: workercore.NewTaskSession(execSessionOpts),
 		}
 
 		if w.core == nil {

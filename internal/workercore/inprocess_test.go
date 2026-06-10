@@ -7,6 +7,7 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/action/actionregistry"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/job"
@@ -38,9 +39,11 @@ func TestInProcessCoreExecutesTaskThroughJobExecutor(t *testing.T) {
 				With: map[string]string{"command": "echo hello"},
 			},
 		},
-		TaskKey:   dal.RootTaskKey,
-		LogClient: mocks.NewMockLogClient(),
-		Logger:    mocks.NewMockLogger(),
+		TaskKey: dal.RootTaskKey,
+		Session: NewTaskSession(TaskSessionOptions{
+			LogClient: mocks.NewMockLogClient(),
+			Logger:    mocks.NewMockLogger(),
+		}),
 	})
 
 	if err != nil {
@@ -80,36 +83,52 @@ func TestInProcessCoreValidatesShellBoundaryInputs(t *testing.T) {
 		{
 			name: "missing job",
 			req: ExecuteTaskRequest{
-				TaskKey:   dal.RootTaskKey,
-				LogClient: mocks.NewMockLogClient(),
-				Logger:    mocks.NewMockLogger(),
+				TaskKey: dal.RootTaskKey,
+				Session: NewTaskSession(TaskSessionOptions{
+					LogClient: mocks.NewMockLogClient(),
+					Logger:    mocks.NewMockLogger(),
+				}),
 			},
 			want: "requires a job",
 		},
 		{
 			name: "missing task key",
 			req: ExecuteTaskRequest{
-				Job:       &api.Job{},
-				LogClient: mocks.NewMockLogClient(),
-				Logger:    mocks.NewMockLogger(),
+				Job: &api.Job{},
+				Session: NewTaskSession(TaskSessionOptions{
+					LogClient: mocks.NewMockLogClient(),
+					Logger:    mocks.NewMockLogger(),
+				}),
 			},
 			want: "requires a task key",
+		},
+		{
+			name: "missing task session",
+			req: ExecuteTaskRequest{
+				Job:     &api.Job{},
+				TaskKey: dal.RootTaskKey,
+			},
+			want: "requires a task session",
 		},
 		{
 			name: "missing log client",
 			req: ExecuteTaskRequest{
 				Job:     &api.Job{},
 				TaskKey: dal.RootTaskKey,
-				Logger:  mocks.NewMockLogger(),
+				Session: NewTaskSession(TaskSessionOptions{
+					Logger: mocks.NewMockLogger(),
+				}),
 			},
 			want: "requires a log client",
 		},
 		{
 			name: "missing logger",
 			req: ExecuteTaskRequest{
-				Job:       &api.Job{},
-				TaskKey:   dal.RootTaskKey,
-				LogClient: mocks.NewMockLogClient(),
+				Job:     &api.Job{},
+				TaskKey: dal.RootTaskKey,
+				Session: NewTaskSession(TaskSessionOptions{
+					LogClient: mocks.NewMockLogClient(),
+				}),
 			},
 			want: "requires a logger",
 		},
@@ -123,5 +142,31 @@ func TestInProcessCoreValidatesShellBoundaryInputs(t *testing.T) {
 				t.Fatalf("ExecuteTask error = %v, want containing %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestTaskSessionClonesActionLocks(t *testing.T) {
+	locks := []actionregistry.ActionLock{
+		{
+			NodePath: "root",
+			Uses:     "actions/example",
+			Descriptor: actionregistry.Descriptor{
+				CanonicalName: "actions/example",
+				Version:       "v1",
+				Digest:        "sha256:one",
+				RuntimeConfig: map[string]string{"entrypoint": "first"},
+			},
+		},
+	}
+
+	session := NewTaskSession(TaskSessionOptions{ActionLocks: locks})
+	locks[0].Descriptor.RuntimeConfig["entrypoint"] = "mutated"
+
+	got := session.ActionLocks()
+	got[0].Descriptor.RuntimeConfig["entrypoint"] = "changed again"
+
+	again := session.ActionLocks()
+	if again[0].Descriptor.RuntimeConfig["entrypoint"] != "first" {
+		t.Fatalf("session action locks were not cloned defensively: %#v", again[0].Descriptor.RuntimeConfig)
 	}
 }

@@ -33,19 +33,25 @@ func (c *InProcessCore) ExecuteTask(ctx context.Context, req ExecuteTaskRequest)
 		return fmt.Errorf("worker execution core requires a task key")
 	}
 
-	if req.LogClient == nil {
+	if req.Session == nil {
+		return fmt.Errorf("worker execution core requires a task session")
+	}
+
+	logClient := req.Session.LogClient()
+	if logClient == nil {
 		return fmt.Errorf("worker execution core requires a log client")
 	}
 
-	if req.Logger == nil {
+	logger := req.Session.Logger()
+	if logger == nil {
 		return fmt.Errorf("worker execution core requires a logger")
 	}
 
-	return c.executor.ExecuteTaskWithOptions(ctx, req.Job, req.TaskKey, req.LogClient, req.Logger, job.ExecuteOptions{
-		WorkloadIdentity:  req.WorkloadIdentity,
-		ArtifactPublisher: req.ArtifactPublisher,
-		ActionLocks:       req.ActionLocks,
-		ActionResolver:    req.ActionResolver,
+	return c.executor.ExecuteTaskWithOptions(ctx, req.Job, req.TaskKey, logClient, logger, job.ExecuteOptions{
+		WorkloadIdentity:  req.Session.WorkloadIdentity(),
+		ArtifactPublisher: req.Session.ArtifactPublisher(),
+		ActionLocks:       req.Session.ActionLocks(),
+		ActionResolver:    req.Session.ActionResolver(),
 	})
 }
 
