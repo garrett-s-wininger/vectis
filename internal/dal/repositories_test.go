@@ -2319,6 +2319,102 @@ func TestRunsRepository_MarkExpiredQueuedExecutionsFailed(t *testing.T) {
 	}
 }
 
+func TestRunsRepository_RequeueRunForRetry_RestoresDispatchExpiredExecution(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-retry-dispatch-expired", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-retry-dispatch-expired"
+	if err := repos.Jobs().Create(ctx, jobID, `{"id":"job-retry-dispatch-expired","root":{"uses":"builtins/shell"}}`, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	now := time.Now()
+	created, err := repos.Runs().CreateRunsInCellsWithAudit(ctx, jobID, nil, 1, []string{dal.DefaultCellID}, dal.RunAuditMetadata{
+		StartDeadlineUnixNano: now.Add(-time.Second).UnixNano(),
+	})
+
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	runID := created[0].RunID
+	expiredDispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get expired dispatch: %v", err)
+	}
+
+	expired, err := repos.Runs().MarkExpiredQueuedExecutionsFailed(ctx, now.UnixNano(), 10)
+	if err != nil {
+		t.Fatalf("mark expired queued executions failed: %v", err)
+	}
+
+	if len(expired) != 1 || expired[0].RunID != runID || expired[0].ExecutionID != expiredDispatch.ExecutionID {
+		t.Fatalf("expired executions: got %+v", expired)
+	}
+
+	if _, err := repos.Runs().GetPendingExecution(ctx, runID); !dal.IsNotFound(err) {
+		t.Fatalf("expected expired run to have no pending execution before retry, got %v", err)
+	}
+
+	if err := repos.Runs().RequeueRunForRetry(ctx, runID); err != nil {
+		t.Fatalf("requeue run for retry: %v", err)
+	}
+
+	retryDispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get retry dispatch: %v", err)
+	}
+
+	if retryDispatch.ExecutionID == expiredDispatch.ExecutionID {
+		t.Fatalf("expected retry to create a fresh execution attempt, got original execution %s", retryDispatch.ExecutionID)
+	}
+
+	if retryDispatch.Attempt != 2 {
+		t.Fatalf("expected retry attempt 2, got %d", retryDispatch.Attempt)
+	}
+
+	if retryDispatch.StartDeadlineUnixNano != 0 {
+		t.Fatalf("expected retry dispatch to start without stale deadline, got %d", retryDispatch.StartDeadlineUnixNano)
+	}
+
+	newDeadline := now.Add(time.Minute).UnixNano()
+	gotDeadline, err := repos.Runs().EnsureExecutionStartDeadline(ctx, retryDispatch.ExecutionID, newDeadline)
+	if err != nil {
+		t.Fatalf("ensure retry deadline: %v", err)
+	}
+
+	if gotDeadline != newDeadline {
+		t.Fatalf("retry deadline: got %d want %d", gotDeadline, newDeadline)
+	}
+
+	var runStatus, failureCode string
+	var failureReason sql.NullString
+	if err := db.QueryRowContext(ctx, `SELECT status, failure_code, failure_reason FROM job_runs WHERE run_id = ?`, runID).
+		Scan(&runStatus, &failureCode, &failureReason); err != nil {
+		t.Fatalf("query requeued run: %v", err)
+	}
+
+	if runStatus != dal.RunStatusQueued || failureCode != "" || failureReason.Valid {
+		t.Fatalf("expected requeued run to clear failure state, status=%q failure_code=%q failure_reason=%v", runStatus, failureCode, failureReason)
+	}
+
+	var oldExecutionStatus string
+	if err := db.QueryRowContext(ctx, `SELECT status FROM segment_executions WHERE execution_id = ?`, expiredDispatch.ExecutionID).
+		Scan(&oldExecutionStatus); err != nil {
+		t.Fatalf("query old execution: %v", err)
+	}
+
+	if oldExecutionStatus != dal.ExecutionStatusFailed {
+		t.Fatalf("expected old execution to remain failed, got %q", oldExecutionStatus)
+	}
+}
+
 func TestRunsRepository_EnsureExecutionStartDeadlineAdoptsMissingDeadline(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)
@@ -4227,7 +4323,7 @@ func TestRunsRepository_RequeueRunForRetry_ClearsRuntimeFields(t *testing.T) {
 		t.Fatalf("create run: %v", err)
 	}
 
-	claimPendingRunExecution(t, ctx, runs, runID, "worker-a", time.Now().Add(time.Minute))
+	claimedDispatch, _ := claimPendingRunExecution(t, ctx, runs, runID, "worker-a", time.Now().Add(time.Minute))
 
 	if err := runs.MarkRunFailed(ctx, runID, dal.FailureCodeExecution, "test failure"); err != nil {
 		t.Fatalf("mark run failed: %v", err)
@@ -4257,6 +4353,20 @@ func TestRunsRepository_RequeueRunForRetry_ClearsRuntimeFields(t *testing.T) {
 	if failureCode != "" || failure.Valid || leaseOwner.Valid || leaseUntil.Valid || lastDispatched.Valid {
 		t.Fatalf("expected queue retry to clear runtime fields; got failure_code=%q failure=%v owner=%v lease_until=%v dispatched=%v",
 			failureCode, failure, leaseOwner, leaseUntil, lastDispatched)
+	}
+
+	retryDispatch, err := runs.GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("expected retry to restore a pending execution: %v", err)
+	}
+	if retryDispatch.ExecutionID == claimedDispatch.ExecutionID {
+		t.Fatalf("expected retry to create a fresh execution attempt, got original execution %s", retryDispatch.ExecutionID)
+	}
+	if retryDispatch.Attempt != 2 {
+		t.Fatalf("expected retry attempt 2, got %d", retryDispatch.Attempt)
+	}
+	if retryDispatch.StartDeadlineUnixNano != 0 {
+		t.Fatalf("expected retry dispatch to clear stale start deadline, got %d", retryDispatch.StartDeadlineUnixNano)
 	}
 }
 

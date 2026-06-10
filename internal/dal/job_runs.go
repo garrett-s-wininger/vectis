@@ -234,7 +234,36 @@ func classifyOrphanReason(reason string) string {
 }
 
 func (r *SQLRunsRepository) RequeueRunForRetry(ctx context.Context, runID string) error {
-	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return fmt.Errorf("%w: run_id is required", ErrNotFound)
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var status string
+	var owningCell string
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT status, owning_cell
+		FROM job_runs
+		WHERE run_id = ?
+	`), runID).Scan(&status, &owningCell); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("%w: run %s", ErrNotFound, runID)
+		}
+
+		return normalizeSQLError(err)
+	}
+
+	if !statusIn(status, []string{RunStatusQueued, RunStatusFailed, RunStatusOrphaned, RunStatusAborted, RunStatusCancelled, RunStatusAbandoned}) {
+		return fmt.Errorf("%w: run %s in status %s cannot be requeued", ErrConflict, runID, status)
+	}
+
+	res, err := tx.ExecContext(ctx, rebindQueryForPgx(`
 		UPDATE job_runs
 		SET status = 'queued',
 			orphan_reason = '',
@@ -250,6 +279,120 @@ func (r *SQLRunsRepository) RequeueRunForRetry(ctx context.Context, runID string
 		WHERE run_id = ?
 			AND status IN ('queued', 'failed', 'orphaned', 'aborted', 'cancelled', 'abandoned')
 	`), runID)
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if n != 1 {
+		return fmt.Errorf("%w: run %s in status %s cannot be requeued", ErrConflict, runID, status)
+	}
+
+	if err := ensureRetryPendingExecutionTx(ctx, tx, runID, owningCell); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func ensureRetryPendingExecutionTx(ctx context.Context, tx *sql.Tx, runID, cellID string) error {
+	cellID = normalizeCellID(cellID)
+	taskID := rootTaskID(runID)
+	if err := ensureRetryRootTaskTx(ctx, tx, runID, taskID); err != nil {
+		return err
+	}
+
+	segmentID, err := ensureRetryRootSegmentTx(ctx, tx, runID)
+	if err != nil {
+		return err
+	}
+
+	var pendingExecutionID string
+	var pendingTaskAttemptID string
+	err = tx.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT se.execution_id, se.task_attempt_id
+		FROM segment_executions se
+		JOIN task_attempts ta ON ta.attempt_id = se.task_attempt_id
+		WHERE se.run_id = ?
+			AND se.segment_id = ?
+			AND se.status = ?
+			AND ta.status = ?
+		ORDER BY se.attempt ASC, se.id ASC
+		LIMIT 1
+	`), runID, segmentID, ExecutionStatusPending, TaskStatusPending).Scan(&pendingExecutionID, &pendingTaskAttemptID)
+
+	if err == nil {
+		if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+			UPDATE segment_executions
+			SET lease_owner = NULL,
+				lease_until = NULL,
+				claim_token = NULL,
+				accepted_at = NULL,
+				started_at = NULL,
+				finished_at = NULL,
+				start_deadline_unix_nano = NULL,
+				updated_at = CURRENT_TIMESTAMP
+			WHERE execution_id = ?
+		`), pendingExecutionID); err != nil {
+			return normalizeSQLError(err)
+		}
+
+		if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+			UPDATE task_attempts
+			SET accepted_at = NULL,
+				started_at = NULL,
+				finished_at = NULL,
+				updated_at = CURRENT_TIMESTAMP
+			WHERE attempt_id = ?
+		`), pendingTaskAttemptID); err != nil {
+			return normalizeSQLError(err)
+		}
+
+		return nil
+	}
+
+	if err != sql.ErrNoRows {
+		return normalizeSQLError(err)
+	}
+
+	nextAttempt, err := nextRootRetryAttemptTx(ctx, tx, taskID, segmentID)
+	if err != nil {
+		return err
+	}
+
+	taskAttemptID := rootTaskAttemptID(runID, nextAttempt)
+	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		INSERT INTO task_attempts (attempt_id, task_id, run_id, cell_id, status, attempt)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`), taskAttemptID, taskID, runID, cellID, TaskStatusPending, nextAttempt); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		INSERT INTO segment_executions (execution_id, segment_id, run_id, task_id, task_attempt_id, cell_id, status, attempt, start_deadline_unix_nano)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+	`), newExecutionID(), segmentID, runID, taskID, taskAttemptID, cellID, ExecutionStatusPending, nextAttempt); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	return nil
+}
+
+func ensureRetryRootTaskTx(ctx context.Context, tx *sql.Tx, runID, taskID string) error {
+	res, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE run_tasks
+		SET status = ?,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE task_id = ?
+	`), TaskStatusPending, taskID)
 
 	if err != nil {
 		return normalizeSQLError(err)
@@ -260,20 +403,77 @@ func (r *SQLRunsRepository) RequeueRunForRetry(ctx context.Context, runID string
 		return err
 	}
 
-	if n == 1 {
+	if n > 0 {
 		return nil
 	}
 
-	var status string
-	if err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`SELECT status FROM job_runs WHERE run_id = ?`), runID).Scan(&status); err != nil {
-		if err == sql.ErrNoRows {
-			return fmt.Errorf("%w: run %s", ErrNotFound, runID)
-		}
-
+	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		INSERT INTO run_tasks (task_id, run_id, task_key, name, status)
+		VALUES (?, ?, ?, ?, ?)
+	`), taskID, runID, RootTaskKey, RootTaskKey, TaskStatusPending); err != nil {
 		return normalizeSQLError(err)
 	}
 
-	return fmt.Errorf("%w: run %s in status %s cannot be requeued", ErrConflict, runID, status)
+	return nil
+}
+
+func ensureRetryRootSegmentTx(ctx context.Context, tx *sql.Tx, runID string) (string, error) {
+	var segmentID string
+	err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT segment_id
+		FROM run_segments
+		WHERE run_id = ?
+			AND name = ?
+		ORDER BY id ASC
+		LIMIT 1
+	`), runID, RootTaskKey).Scan(&segmentID)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			segmentID = newSegmentID()
+			if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+				INSERT INTO run_segments (segment_id, run_id, name, status)
+				VALUES (?, ?, ?, ?)
+			`), segmentID, runID, RootTaskKey, SegmentStatusPending); err != nil {
+				return "", normalizeSQLError(err)
+			}
+
+			return segmentID, nil
+		}
+
+		return "", normalizeSQLError(err)
+	}
+
+	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE run_segments
+		SET status = ?,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE segment_id = ?
+	`), SegmentStatusPending, segmentID); err != nil {
+		return "", normalizeSQLError(err)
+	}
+
+	return segmentID, nil
+}
+
+func nextRootRetryAttemptTx(ctx context.Context, tx *sql.Tx, taskID, segmentID string) (int, error) {
+	var maxAttempt int
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT COALESCE(MAX(attempt), 0)
+		FROM (
+			SELECT attempt
+			FROM task_attempts
+			WHERE task_id = ?
+			UNION ALL
+			SELECT attempt
+			FROM segment_executions
+			WHERE segment_id = ?
+		) attempts
+	`), taskID, segmentID).Scan(&maxAttempt); err != nil {
+		return 0, normalizeSQLError(err)
+	}
+
+	return maxAttempt + 1, nil
 }
 
 func (r *SQLRunsRepository) MarkExpiredRunningAsOrphaned(ctx context.Context, cutoffUnix int64) ([]string, error) {
