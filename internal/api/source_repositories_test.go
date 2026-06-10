@@ -709,7 +709,9 @@ func TestAPIServer_SyncManagedSourceRepositoryClonesAndFetches(t *testing.T) {
 	defaultBranch := apiGitOutput(t, remotePath, "branch", "--show-current")
 	apiGit(t, remotePath, "checkout", "-b", "feature/source-ref")
 	writeAPIJobDefinitionAndCommit(t, remotePath, "feature", "feature definition")
+	writeAPIFileAndCommit(t, remotePath, ".vectis/jobs/README.md", "not a job definition\n", "feature note")
 	featureCommit := apiGitOutput(t, remotePath, "rev-parse", "HEAD")
+	featureBlob := apiGitOutput(t, remotePath, "rev-parse", "HEAD:.vectis/jobs/build.json")
 	apiGit(t, remotePath, "checkout", defaultBranch)
 
 	syncRec = httptest.NewRecorder()
@@ -799,6 +801,7 @@ func TestAPIServer_SyncManagedSourceRepositoryClonesAndFetches(t *testing.T) {
 			SizeBytes int64  `json:"size_bytes"`
 		} `json:"entries"`
 	}
+
 	if err := json.NewDecoder(treeRec.Body).Decode(&treeResp); err != nil {
 		t.Fatalf("decode managed tree: %v", err)
 	}
@@ -809,18 +812,73 @@ func TestAPIServer_SyncManagedSourceRepositoryClonesAndFetches(t *testing.T) {
 		treeResp.Path != ".vectis/jobs" ||
 		treeResp.Recursive ||
 		treeResp.Limit != 10 ||
-		len(treeResp.Entries) != 1 {
+		len(treeResp.Entries) != 2 {
 		t.Fatalf("managed tree response mismatch: %+v", treeResp)
 	}
 
-	entry := treeResp.Entries[0]
+	treeEntries := map[string]struct {
+		Path      string `json:"path"`
+		Name      string `json:"name"`
+		Type      string `json:"type"`
+		Mode      string `json:"mode"`
+		ObjectSHA string `json:"object_sha"`
+		SizeBytes int64  `json:"size_bytes"`
+	}{}
+
+	for _, entry := range treeResp.Entries {
+		treeEntries[entry.Path] = entry
+	}
+
+	entry := treeEntries[".vectis/jobs/build.json"]
 	if entry.Path != ".vectis/jobs/build.json" ||
 		entry.Name != "build.json" ||
 		entry.Type != "blob" ||
 		entry.Mode != "100644" ||
-		entry.ObjectSHA == "" ||
+		entry.ObjectSHA != featureBlob ||
 		entry.SizeBytes == 0 {
 		t.Fatalf("managed tree entry mismatch: %+v", entry)
+	}
+
+	definitionsRec := httptest.NewRecorder()
+	definitionsReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/managed-repo/definitions?ref=feature/source-ref&path=.vectis/jobs&limit=5", nil)
+	handler.ServeHTTP(definitionsRec, definitionsReq)
+	if definitionsRec.Code != http.StatusOK {
+		t.Fatalf("list managed source definitions: status=%d body=%s", definitionsRec.Code, definitionsRec.Body.String())
+	}
+
+	var definitionsResp struct {
+		RepositoryID   string `json:"repository_id"`
+		RequestedRef   string `json:"requested_ref"`
+		ResolvedCommit string `json:"resolved_commit"`
+		Path           string `json:"path"`
+		Limit          int    `json:"limit"`
+		Definitions    []struct {
+			Path      string `json:"path"`
+			Name      string `json:"name"`
+			BlobSHA   string `json:"blob_sha"`
+			SizeBytes int64  `json:"size_bytes"`
+		} `json:"definitions"`
+	}
+
+	if err := json.NewDecoder(definitionsRec.Body).Decode(&definitionsResp); err != nil {
+		t.Fatalf("decode managed definitions: %v", err)
+	}
+
+	if definitionsResp.RepositoryID != "managed-repo" ||
+		definitionsResp.RequestedRef != "feature/source-ref" ||
+		definitionsResp.ResolvedCommit != featureCommit ||
+		definitionsResp.Path != ".vectis/jobs" ||
+		definitionsResp.Limit != 5 ||
+		len(definitionsResp.Definitions) != 1 {
+		t.Fatalf("managed definitions response mismatch: %+v", definitionsResp)
+	}
+
+	definition := definitionsResp.Definitions[0]
+	if definition.Path != ".vectis/jobs/build.json" ||
+		definition.Name != "build.json" ||
+		definition.BlobSHA != featureBlob ||
+		definition.SizeBytes == 0 {
+		t.Fatalf("managed definition file mismatch: %+v", definition)
 	}
 }
 

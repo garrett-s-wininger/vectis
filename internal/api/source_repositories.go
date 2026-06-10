@@ -122,6 +122,22 @@ type sourceRepositoryTreeResponse struct {
 	Entries        []sourceRepositoryTreeEntryResponse `json:"entries"`
 }
 
+type sourceRepositoryDefinitionFileResponse struct {
+	Path      string `json:"path"`
+	Name      string `json:"name"`
+	BlobSHA   string `json:"blob_sha"`
+	SizeBytes int64  `json:"size_bytes,omitempty"`
+}
+
+type sourceRepositoryDefinitionsResponse struct {
+	RepositoryID   string                                   `json:"repository_id"`
+	RequestedRef   string                                   `json:"requested_ref"`
+	ResolvedCommit string                                   `json:"resolved_commit"`
+	Path           string                                   `json:"path"`
+	Limit          int                                      `json:"limit"`
+	Definitions    []sourceRepositoryDefinitionFileResponse `json:"definitions"`
+}
+
 type jobSourceRequest struct {
 	Namespace    string `json:"namespace"`
 	RepositoryID string `json:"repository_id"`
@@ -539,6 +555,64 @@ func (s *APIServer) ListSourceRepositoryTree(w http.ResponseWriter, r *http.Requ
 		Recursive:      listing.Recursive,
 		Limit:          limit,
 		Entries:        respEntries,
+	})
+}
+
+func (s *APIServer) ListSourceRepositoryDefinitions(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireNamespaces(w) || !s.requireSources(w) {
+		return
+	}
+
+	rec, _, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionJobRead, true)
+	if !ok {
+		return
+	}
+
+	ref := strings.TrimSpace(r.URL.Query().Get("ref"))
+	if ref == "" {
+		ref = strings.TrimSpace(rec.DefaultRef)
+	}
+	if ref == "" {
+		ref = "HEAD"
+	}
+
+	limit := sourceRepositoryTreeListLimit(r)
+	checkout := newGitCheckoutForSourceRepository(rec)
+	listing, err := checkout.ListDefinitionFiles(ctx, sourcepkg.ListDefinitionFilesOptions{
+		Ref:   ref,
+		Path:  r.URL.Query().Get("path"),
+		Limit: limit,
+	})
+	if err != nil {
+		s.writeSourceDefinitionError(w, err)
+		return
+	}
+
+	respFiles := make([]sourceRepositoryDefinitionFileResponse, 0, len(listing.Files))
+	for _, file := range listing.Files {
+		respFiles = append(respFiles, sourceRepositoryDefinitionFileResponse{
+			Path:      file.Path,
+			Name:      file.Name,
+			BlobSHA:   file.BlobSHA,
+			SizeBytes: file.SizeBytes,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, sourceRepositoryDefinitionsResponse{
+		RepositoryID:   rec.RepositoryID,
+		RequestedRef:   listing.RequestedRef,
+		ResolvedCommit: listing.Revision.Commit,
+		Path:           listing.Path,
+		Limit:          limit,
+		Definitions:    respFiles,
 	})
 }
 

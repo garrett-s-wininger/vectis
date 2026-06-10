@@ -231,6 +231,61 @@ func TestGitCheckoutListTree(t *testing.T) {
 	}
 }
 
+func TestGitCheckoutListDefinitionFiles(t *testing.T) {
+	repo := initGitRepo(t)
+	writeAndCommit(t, repo, ".vectis/jobs/00-note.txt", "not a definition\n", "note")
+	writeAndCommit(t, repo, ".vectis/jobs/build.json", `{"name":"build"}`+"\n", "build")
+	buildBlob := gitOutput(t, repo, "rev-parse", "HEAD:.vectis/jobs/build.json")
+	writeAndCommit(t, repo, ".vectis/jobs/nested/deploy.json", `{"name":"deploy"}`+"\n", "deploy")
+	writeAndCommit(t, repo, ".vectis/jobs/nested/readme.md", "not json\n", "nested readme")
+	commit := gitOutput(t, repo, "rev-parse", "HEAD")
+
+	checkout := NewGitCheckout(repo)
+	listing, err := checkout.ListDefinitionFiles(context.Background(), ListDefinitionFilesOptions{
+		Ref:   "HEAD",
+		Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("ListDefinitionFiles: %v", err)
+	}
+
+	if listing.RequestedRef != "HEAD" ||
+		listing.Revision.Commit != commit ||
+		listing.Path != DefaultDefinitionPath ||
+		len(listing.Files) != 2 {
+		t.Fatalf("definition file listing mismatch: %+v", listing)
+	}
+
+	files := map[string]DefinitionFile{}
+	for _, file := range listing.Files {
+		files[file.Path] = file
+	}
+
+	if build := files[".vectis/jobs/build.json"]; build.Name != "build.json" || build.BlobSHA != buildBlob || build.SizeBytes == 0 {
+		t.Fatalf("build definition file mismatch: %+v", build)
+	}
+
+	if deploy := files[".vectis/jobs/nested/deploy.json"]; deploy.Name != "deploy.json" || deploy.BlobSHA == "" || deploy.SizeBytes == 0 {
+		t.Fatalf("deploy definition file mismatch: %+v", deploy)
+	}
+
+	listing, err = checkout.ListDefinitionFiles(context.Background(), ListDefinitionFilesOptions{
+		Ref:   "HEAD",
+		Path:  ".vectis/jobs",
+		Limit: 1,
+	})
+	if err != nil {
+		t.Fatalf("ListDefinitionFiles limit: %v", err)
+	}
+	if len(listing.Files) != 1 || listing.Files[0].Path != ".vectis/jobs/build.json" {
+		t.Fatalf("limited definition files mismatch: %+v", listing)
+	}
+
+	if _, err := checkout.ListDefinitionFiles(context.Background(), ListDefinitionFilesOptions{Ref: "HEAD", Path: "../secret"}); !errors.Is(err, ErrInvalidReference) {
+		t.Fatalf("expected invalid definition path, got %v", err)
+	}
+}
+
 func TestGitCheckoutStatusReportsHealthyCheckout(t *testing.T) {
 	repo := initGitRepo(t)
 	writeAndCommit(t, repo, "README.md", "hello\n", "readme")

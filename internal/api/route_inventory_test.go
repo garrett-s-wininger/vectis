@@ -40,6 +40,7 @@ func TestAPIRouteInventory(t *testing.T) {
 		{"GET /api/v1/source-repositories/{id}/status", string(authz.ActionJobRead)},
 		{"GET /api/v1/source-repositories/{id}/refs/branches", string(authz.ActionJobRead)},
 		{"GET /api/v1/source-repositories/{id}/tree", string(authz.ActionJobRead)},
+		{"GET /api/v1/source-repositories/{id}/definitions", string(authz.ActionJobRead)},
 		{"POST /api/v1/source-repositories/{id}/definitions/resolve", string(authz.ActionJobRead)},
 		{"GET /api/v1/jobs", string(authz.ActionJobRead)},
 		{"GET /api/v1/jobs/{id}", string(authz.ActionJobRead)},

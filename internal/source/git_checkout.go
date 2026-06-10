@@ -300,6 +300,49 @@ func (g *GitCheckout) ListTree(ctx context.Context, opts ListTreeOptions) (TreeL
 	}, nil
 }
 
+func (g *GitCheckout) ListDefinitionFiles(ctx context.Context, opts ListDefinitionFilesOptions) (DefinitionFileListing, error) {
+	if err := g.validateCheckout(); err != nil {
+		return DefinitionFileListing{}, err
+	}
+
+	ref := strings.TrimSpace(opts.Ref)
+	if ref == "" {
+		ref = "HEAD"
+	}
+
+	revision, err := g.ResolveRevision(ctx, ref)
+	if err != nil {
+		return DefinitionFileListing{}, err
+	}
+
+	treePath := strings.TrimSpace(opts.Path)
+	if treePath == "" {
+		treePath = DefaultDefinitionPath
+	}
+
+	cleanPath, err := normalizeTreeListPath(treePath)
+	if err != nil {
+		return DefinitionFileListing{}, err
+	}
+
+	limit := opts.Limit
+	if limit <= 0 {
+		limit = DefaultTreeListLimit
+	}
+
+	files, err := g.listDefinitionFileEntries(ctx, revision.Commit, cleanPath, limit)
+	if err != nil {
+		return DefinitionFileListing{}, err
+	}
+
+	return DefinitionFileListing{
+		RequestedRef: ref,
+		Revision:     revision,
+		Path:         cleanPath,
+		Files:        files,
+	}, nil
+}
+
 func (g *GitCheckout) validateCheckout() error {
 	checkoutPath := strings.TrimSpace(g.checkoutPath)
 	if checkoutPath == "" {
@@ -412,6 +455,49 @@ func (g *GitCheckout) listTreeEntries(ctx context.Context, commit, treePath stri
 	}
 
 	return entries, nil
+}
+
+func (g *GitCheckout) listDefinitionFileEntries(ctx context.Context, commit, treePath string, limit int) ([]DefinitionFile, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+
+	treeish := commit
+	if treePath != "" {
+		treeish += ":" + treePath
+	}
+
+	files := make([]DefinitionFile, 0, min(limit, DefaultTreeListLimit))
+	err := g.streamGitRecords(ctx, []string{"ls-tree", "-z", "--long", "-r", treeish}, func(record []byte) error {
+		entry, ok, err := parseTreeEntryRecord(record, treePath)
+		if err != nil {
+			return err
+		}
+		if !ok || entry.Type != "blob" || !strings.HasSuffix(entry.Name, ".json") {
+			return nil
+		}
+
+		files = append(files, DefinitionFile{
+			Path:      entry.Path,
+			Name:      entry.Name,
+			BlobSHA:   entry.ObjectSHA,
+			SizeBytes: entry.SizeBytes,
+		})
+		if len(files) >= limit {
+			return errStopGitStream
+		}
+
+		return nil
+	})
+	if err != nil {
+		if treePath == "" {
+			return nil, fmt.Errorf("%w: list definition files at %s: %v", ErrNotFound, commit, err)
+		}
+
+		return nil, fmt.Errorf("%w: list definition files %s at %s: %v", ErrNotFound, treePath, commit, err)
+	}
+
+	return files, nil
 }
 
 func (g *GitCheckout) resolveBlob(ctx context.Context, commit, filePath string) (string, error) {

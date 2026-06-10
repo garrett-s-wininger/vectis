@@ -18,6 +18,7 @@ const DefaultMaxFileBytes int64 = 1024 * 1024
 const (
 	DefaultBranchListLimit = 50
 	DefaultTreeListLimit   = 100
+	DefaultDefinitionPath  = ".vectis/jobs"
 )
 
 // Repository reads immutable source content from a repository-like backing store.
@@ -59,6 +60,26 @@ type TreeEntry struct {
 	Type      string
 	Mode      string
 	ObjectSHA string
+	SizeBytes int64
+}
+
+type ListDefinitionFilesOptions struct {
+	Ref   string
+	Path  string
+	Limit int
+}
+
+type DefinitionFileListing struct {
+	RequestedRef string
+	Revision     Revision
+	Path         string
+	Files        []DefinitionFile
+}
+
+type DefinitionFile struct {
+	Path      string
+	Name      string
+	BlobSHA   string
 	SizeBytes int64
 }
 
