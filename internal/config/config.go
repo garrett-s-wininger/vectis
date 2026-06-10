@@ -311,9 +311,20 @@ type WorkerExecutionIdentityDefaults struct {
 }
 
 type WorkerSPIREDefaults struct {
-	Enabled            bool         `toml:"enabled"`
-	WorkloadAPIAddress string       `toml:"workload_api_address"`
-	FetchTimeout       tomlDuration `toml:"fetch_timeout"`
+	Enabled            bool                            `toml:"enabled"`
+	WorkloadAPIAddress string                          `toml:"workload_api_address"`
+	FetchTimeout       tomlDuration                    `toml:"fetch_timeout"`
+	Registration       WorkerSPIRERegistrationDefaults `toml:"registration"`
+}
+
+type WorkerSPIRERegistrationDefaults struct {
+	Enabled       bool         `toml:"enabled"`
+	ServerAddress string       `toml:"server_address"`
+	ParentID      string       `toml:"parent_id"`
+	Selectors     []string     `toml:"selectors"`
+	X509SVIDTTL   tomlDuration `toml:"x509_svid_ttl"`
+	MinTTL        tomlDuration `toml:"min_ttl"`
+	MaxTTL        tomlDuration `toml:"max_ttl"`
 }
 
 type CronDefaults struct {

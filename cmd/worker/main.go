@@ -246,33 +246,64 @@ func runWorker(cmd *cobra.Command, args []string) {
 		logger.Fatal("Invalid action registry config: %v", err)
 	}
 
+	var spireRegistrar spire.Registrar
+	var spireRegistrarCleanup func()
+	var spireRegistrationSelectors []spire.Selector
+	if config.WorkerSPIRERegistrationEnabled() {
+		selectors, err := config.WorkerSPIRERegistrationSelectors()
+		if err != nil {
+			logger.Fatal("Failed to configure SPIRE registration selectors: %v", err)
+		}
+
+		registrar, cleanup, err := spire.DialSPIREServerRegistrar(
+			config.WorkerSPIRERegistrationServerAddress(),
+			spire.WithSPIREServerX509SVIDTTL(config.WorkerSPIRERegistrationX509SVIDTTL()),
+		)
+		if err != nil {
+			logger.Fatal("Failed to configure SPIRE registration server client: %v", err)
+		}
+
+		spireRegistrar = registrar
+		spireRegistrarCleanup = cleanup
+		spireRegistrationSelectors = selectors
+		logger.Info("Configured SPIRE registration via server API at %s", config.WorkerSPIRERegistrationServerAddress())
+	}
+	if spireRegistrarCleanup != nil {
+		defer spireRegistrarCleanup()
+	}
+
 	w := &worker{
-		ctx:                       shutdownCtx,
-		runCtx:                    runCtx,
-		logger:                    logger,
-		workerID:                  workerID,
-		cellID:                    config.CellID(),
-		clock:                     interfaces.SystemClock{},
-		renewInterval:             dal.DefaultRenewInterval,
-		queue:                     clients,
-		logClient:                 logClient,
-		core:                      executionCore,
-		coreShell:                 coreShell,
-		coreShellEndpoint:         coreShellEndpoint,
-		actionResolver:            actionResolver,
-		store:                     runsRepo,
-		artifactManifests:         repos.Artifacts(),
-		artifactMaxBytes:          config.WorkerArtifactMaxBytes(),
-		artifactMaxRunBytes:       config.WorkerArtifactMaxRunBytes(),
-		artifactMaxCount:          config.WorkerArtifactMaxCount(),
-		retryMetrics:              retryMetrics,
-		choreographer:             newGRPCExecutionChoreographer(api.NewOrchestratorServiceClient(orchestratorConn)),
-		secretResolverForWorkload: secretResolverForWorkload,
-		catalog:                   cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
-		metrics:                   workerMetrics,
-		taskFinalizeMetrics:       taskFinalizeMetrics,
-		spireSVIDSource:           spireSVIDSource,
-		cancelCh:                  make(chan string, 1),
+		ctx:                        shutdownCtx,
+		runCtx:                     runCtx,
+		logger:                     logger,
+		workerID:                   workerID,
+		cellID:                     config.CellID(),
+		clock:                      interfaces.SystemClock{},
+		renewInterval:              dal.DefaultRenewInterval,
+		queue:                      clients,
+		logClient:                  logClient,
+		core:                       executionCore,
+		coreShell:                  coreShell,
+		coreShellEndpoint:          coreShellEndpoint,
+		actionResolver:             actionResolver,
+		store:                      runsRepo,
+		artifactManifests:          repos.Artifacts(),
+		artifactMaxBytes:           config.WorkerArtifactMaxBytes(),
+		artifactMaxRunBytes:        config.WorkerArtifactMaxRunBytes(),
+		artifactMaxCount:           config.WorkerArtifactMaxCount(),
+		retryMetrics:               retryMetrics,
+		choreographer:              newGRPCExecutionChoreographer(api.NewOrchestratorServiceClient(orchestratorConn)),
+		secretResolverForWorkload:  secretResolverForWorkload,
+		catalog:                    cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
+		metrics:                    workerMetrics,
+		taskFinalizeMetrics:        taskFinalizeMetrics,
+		spireSVIDSource:            spireSVIDSource,
+		spireRegistrar:             spireRegistrar,
+		spireRegistrationParentID:  config.WorkerSPIRERegistrationParentID(),
+		spireRegistrationSelectors: spireRegistrationSelectors,
+		spireRegistrationMinTTL:    config.WorkerSPIRERegistrationMinTTL(),
+		spireRegistrationMaxTTL:    config.WorkerSPIRERegistrationMaxTTL(),
+		cancelCh:                   make(chan string, 1),
 	}
 
 	// Start worker control server for remote cancellation.
@@ -1442,6 +1473,9 @@ func (w *worker) ensureExecutionSPIRERegistration(ctx context.Context, identity 
 
 	if handle.ExpiresAt.IsZero() {
 		handle.ExpiresAt = intent.ExpiresAt
+	}
+	if result.Created {
+		handle.Managed = true
 	}
 
 	return handle, true, nil

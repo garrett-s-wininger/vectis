@@ -225,6 +225,15 @@ enabled = false
 workload_api_address = ""
 fetch_timeout = "5s"
 
+[worker.spire.registration]
+enabled = false
+server_address = ""
+parent_id = ""
+selectors = []
+x509_svid_ttl = "0s"
+min_ttl = "0s"
+max_ttl = "0s"
+
 [grpc_tls]
 insecure = true
 ca_file = ""

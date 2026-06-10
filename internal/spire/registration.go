@@ -62,6 +62,7 @@ type RegistrationHandle struct {
 	Key       string
 	SPIFFEID  string
 	ExpiresAt time.Time
+	Managed   bool
 }
 
 type RegistrationResult struct {

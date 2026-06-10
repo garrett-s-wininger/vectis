@@ -96,4 +96,5 @@ without changing the worker/action materialization path.
 - `internal/workloadidentity/identity.go` — per-execution SPIFFE ID construction
 - `internal/spire/workloadapi.go` — current SPIRE Workload API adapter
 - `internal/spire/registration.go` — provider-neutral SPIRE registration intent and registrar interface
+- `internal/spire/server_registrar.go` — SPIRE Server Entry API registrar implementation
 - `cmd/worker/main.go` — execution claim and pre-action SVID acquisition
