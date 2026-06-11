@@ -116,10 +116,10 @@ The orchestrator owns hot task claims, leases, and continuation choreography for
 
 | Component | Behavior |
 | --- | --- |
-| Worker | Startup fails if the worker cannot dial the orchestrator. If the orchestrator becomes unavailable during execution, claim, renew, or completion calls fail; the worker retries bounded completion attempts and then leaves recovery to queue delivery, database catalog state, and operator/reconciler repair. |
+| Worker | Startup fails if the worker cannot dial the orchestrator. If a running orchestrator becomes unavailable, claim, renew, or completion calls fail until it returns. If the orchestrator returns without hot state for the run, workers reload durable task snapshots, reclaim their execution, and continue. |
 | API, cron, reconciler | They do not call the orchestrator directly today, but new work can accumulate in the queue if workers cannot use it. |
 
-The current orchestrator state is in memory. Restarting an orchestrator clears loaded run graphs and active claim tokens; duplicate deliveries can reload a run graph, but an execution that was mid-flight may need queue or operator recovery after leases and deliveries settle.
+The current orchestrator state is in memory and the orchestrator remains a singleton. Restarting it clears loaded run graphs and active claim tokens, but workers can hydrate missing state from the durable task catalog when they observe missing hot state during claim, lease renewal, or completion. Watch `vectis_worker_orchestrator_recoveries_total` after restarts; persistent growth means the orchestrator is unstable or workers are being routed to inconsistent orchestrator state.
 
 ## Log Service Down
 

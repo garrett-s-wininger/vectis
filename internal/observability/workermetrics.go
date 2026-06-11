@@ -49,17 +49,18 @@ var workerPhases = []string{
 }
 
 type WorkerMetrics struct {
-	received        metric.Int64Counter
-	duration        metric.Float64Histogram
-	spireSVIDChecks metric.Int64Counter
-	phaseGauge      metric.Int64ObservableGauge
-	drainingGauge   metric.Int64ObservableGauge
-	dbGauge         metric.Int64ObservableGauge
-	callback        metric.Registration
-	mu              sync.RWMutex
-	phase           string
-	draining        bool
-	dbUnavailable   bool
+	received              metric.Int64Counter
+	orchestratorRecovered metric.Int64Counter
+	spireSVIDChecks       metric.Int64Counter
+	duration              metric.Float64Histogram
+	phaseGauge            metric.Int64ObservableGauge
+	drainingGauge         metric.Int64ObservableGauge
+	dbGauge               metric.Int64ObservableGauge
+	callback              metric.Registration
+	mu                    sync.RWMutex
+	phase                 string
+	draining              bool
+	dbUnavailable         bool
 }
 
 func NewWorkerMetrics() (*WorkerMetrics, error) {
@@ -71,6 +72,13 @@ func NewWorkerMetrics() (*WorkerMetrics, error) {
 
 	if err != nil {
 		return nil, fmt.Errorf("vectis_worker_jobs_received_total: %w", err)
+	}
+
+	orchestratorRecovered, err := m.Int64Counter("vectis_worker_orchestrator_recoveries_total",
+		metric.WithDescription("Worker task claims recovered after missing orchestrator hot state"),
+		metric.WithUnit("{recovery}"))
+	if err != nil {
+		return nil, fmt.Errorf("vectis_worker_orchestrator_recoveries_total: %w", err)
 	}
 
 	duration, err := m.Float64Histogram("vectis_worker_job_duration_seconds",
@@ -112,13 +120,14 @@ func NewWorkerMetrics() (*WorkerMetrics, error) {
 	}
 
 	wm := &WorkerMetrics{
-		received:        received,
-		duration:        duration,
-		spireSVIDChecks: spireSVIDChecks,
-		phaseGauge:      phaseGauge,
-		drainingGauge:   drainingGauge,
-		dbGauge:         dbGauge,
-		phase:           WorkerPhaseIdle,
+		received:              received,
+		orchestratorRecovered: orchestratorRecovered,
+		spireSVIDChecks:       spireSVIDChecks,
+		duration:              duration,
+		phaseGauge:            phaseGauge,
+		drainingGauge:         drainingGauge,
+		dbGauge:               dbGauge,
+		phase:                 WorkerPhaseIdle,
 	}
 
 	callback, err := m.RegisterCallback(func(_ context.Context, o metric.Observer) error {
@@ -179,6 +188,14 @@ func (wm *WorkerMetrics) RecordSPIRESVIDCheck(ctx context.Context, outcome, reas
 		attribute.String("outcome", outcome),
 		attribute.String("reason", reason),
 	))
+}
+
+func (wm *WorkerMetrics) RecordOrchestratorRecovery(ctx context.Context, stage string) {
+	if wm == nil || stage == "" {
+		return
+	}
+
+	wm.orchestratorRecovered.Add(ctx, 1, metric.WithAttributes(attribute.String("stage", stage)))
 }
 
 func (wm *WorkerMetrics) SetLifecyclePhase(phase string) {

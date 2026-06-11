@@ -852,7 +852,7 @@ func (w *worker) runTaskExecution(ctx context.Context, job *api.Job, jobID, runI
 
 	if !executionClaimed && executionEnvelope.TaskKey != dal.RootTaskKey {
 		recoveredClaim := newExecutionClaimState("")
-		recovered, recoverErr := w.recoverOrchestratorExecutionClaim(ctx, job, executionEnvelope, recoveredClaim, leaseUntil)
+		recovered, recoverErr := w.recoverOrchestratorExecutionClaim(ctx, job, executionEnvelope, recoveredClaim, leaseUntil, "claim")
 		if recoverErr != nil && !errors.Is(recoverErr, dal.ErrConflict) {
 			span.SetStatus(otelcodes.Error, "recover execution claim")
 			span.RecordError(recoverErr)
@@ -1320,7 +1320,7 @@ func (w *worker) completeExecutionEnvelopeWithRetry(ctx context.Context, j *api.
 		lastErr = err
 		if isOrchestratorNotFound(err) && recoveries < finalizeMaxAttempts {
 			recoveries++
-			recovered, recoverErr := w.recoverOrchestratorExecutionClaim(ctx, j, env, executionClaim, w.leaseDeadline())
+			recovered, recoverErr := w.recoverOrchestratorExecutionClaim(ctx, j, env, executionClaim, w.leaseDeadline(), "complete")
 			if recoverErr != nil {
 				lastErr = fmt.Errorf("recover orchestrator execution claim: %w", recoverErr)
 			} else if recovered {
@@ -1586,7 +1586,7 @@ func (w *worker) tryClaimExecution(ctx context.Context, executionEnvelope *cell.
 	return claim.ClaimToken, true, claim.ExecutionStarted, nil
 }
 
-func (w *worker) recoverOrchestratorExecutionClaim(ctx context.Context, j *api.Job, env *cell.ExecutionEnvelope, executionClaim *executionClaimState, leaseUntil time.Time) (bool, error) {
+func (w *worker) recoverOrchestratorExecutionClaim(ctx context.Context, j *api.Job, env *cell.ExecutionEnvelope, executionClaim *executionClaimState, leaseUntil time.Time, stage string) (bool, error) {
 	if j == nil || env == nil {
 		return false, fmt.Errorf("job and execution envelope are required")
 	}
@@ -1612,6 +1612,8 @@ func (w *worker) recoverOrchestratorExecutionClaim(ctx context.Context, j *api.J
 	executionClaim.set(claim.ClaimToken)
 	w.setCurrentRun(env.RunID, claim.ClaimToken)
 	trace.SpanFromContext(ctx).AddEvent("orchestrator.execution.claim_recovered", trace.WithAttributes(executionEnvelopeAttrs(env)...))
+	w.metrics.RecordOrchestratorRecovery(ctx, stage)
+
 	return true, nil
 }
 
@@ -1989,7 +1991,7 @@ func (w *worker) leaseRenewalLoop(
 				if err := w.executionChoreographer().RenewExecutionLease(w.runCtx, executionEnvelope, w.workerID, claimToken, next); err != nil {
 					renewFailed = true
 					if isOrchestratorNotFound(err) {
-						recovered, recoverErr := w.recoverOrchestratorExecutionClaim(execCtx, j, executionEnvelope, executionClaim, next)
+						recovered, recoverErr := w.recoverOrchestratorExecutionClaim(execCtx, j, executionEnvelope, executionClaim, next, "renew")
 						if recoverErr == nil && recovered {
 							w.logger.Info("Execution %s: recovered orchestrator claim after missing lease state", executionEnvelope.ExecutionID)
 							continue

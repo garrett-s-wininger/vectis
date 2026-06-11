@@ -136,6 +136,8 @@ Workers are the execution side. Each `vectis-worker` process handles one task de
 
 Task-mode execution is orchestrator-choreographed by default. The worker loads the run graph into `vectis-orchestrator`, claims one execution, and asks the orchestrator to complete that execution after the action finishes.
 
+The orchestrator keeps the hot run graph in memory for the normal path. Durable task rows remain the recovery source: when a worker finds that the orchestrator is missing a run after restart, it reloads the graph with task status snapshots and reclaims the active execution before continuing.
+
 The worker that completes a task owns the event-path decisions for that completion:
 
 1. It completes the task execution through the orchestrator.

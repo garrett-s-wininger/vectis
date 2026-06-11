@@ -30,6 +30,7 @@ func TestNewWorkerMetrics_appearsOnScrape(t *testing.T) {
 	wm.RecordJobFinished(ctx, WorkerOutcomeSuccess, 50*time.Millisecond)
 	wm.RecordSPIRESVIDCheck(ctx, WorkerSPIRESVIDOutcomeSuccess, WorkerSPIRESVIDReasonMatched)
 	wm.RecordSPIRESVIDCheck(ctx, WorkerSPIRESVIDOutcomeFailed, WorkerSPIRESVIDReasonMismatch)
+	wm.RecordOrchestratorRecovery(ctx, "complete")
 	wm.SetLifecyclePhase(WorkerPhaseExecuting)
 	wm.SetDraining(true)
 	wm.SetDBUnavailable(true)
@@ -49,6 +50,7 @@ func TestNewWorkerMetrics_appearsOnScrape(t *testing.T) {
 
 	for _, want := range []string{
 		"vectis_worker_jobs_received_total",
+		"vectis_worker_orchestrator_recoveries_total",
 		"vectis_worker_job_duration_seconds",
 		"vectis_worker_spire_svid_checks_total",
 		"vectis_worker_lifecycle_state",
@@ -81,5 +83,9 @@ func TestNewWorkerMetrics_appearsOnScrape(t *testing.T) {
 		"reason":  WorkerSPIRESVIDReasonMismatch,
 	}) {
 		t.Fatalf("SPIRE SVID metric missing failure labels: %v", families["vectis_worker_spire_svid_checks_total"])
+	}
+
+	if !metricFamilyHasLabels(families["vectis_worker_orchestrator_recoveries_total"], map[string]string{"stage": "complete"}) {
+		t.Fatalf("orchestrator recovery metric missing stage label: %v", families["vectis_worker_orchestrator_recoveries_total"])
 	}
 }
