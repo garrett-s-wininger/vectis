@@ -54,6 +54,28 @@ func (s *Service) ExecuteTask(ctx context.Context, req *api.ExecuteWorkerCoreTas
 	return resultProto(result), nil
 }
 
+func (s *Service) CancelTask(ctx context.Context, req *api.CancelWorkerCoreTaskRequest) (*api.Empty, error) {
+	if s == nil || s.core == nil {
+		return nil, status.Error(codes.FailedPrecondition, "worker core is not configured")
+	}
+
+	sessionID := strings.TrimSpace(req.GetSessionId())
+	if sessionID == "" {
+		return nil, status.Error(codes.InvalidArgument, "task session id is required")
+	}
+
+	if err := s.core.CancelTask(ctx, CancelRequest{
+		SessionID: sessionID,
+		RunID:     req.GetRunId(),
+		TaskKey:   req.GetTaskKey(),
+		Reason:    req.GetReason(),
+	}); err != nil {
+		return nil, status.Errorf(codes.Internal, "cancel worker core task: %v", err)
+	}
+
+	return &api.Empty{}, nil
+}
+
 func taskFromProto(req *api.ExecuteWorkerCoreTaskRequest) (Task, error) {
 	if req == nil {
 		return Task{}, fmt.Errorf("execute task request is required")

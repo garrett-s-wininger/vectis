@@ -63,6 +63,7 @@ const (
 	finalizeBackoffBase = 150 * time.Millisecond
 	finalizeBackoffMax  = 2 * time.Second
 	cancelPollInterval  = 5 * time.Second
+	coreCancelTimeout   = 5 * time.Second
 )
 
 var errRunCancelled = errors.New("run cancelled")
@@ -1862,6 +1863,7 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID string, exec
 		cancelOnce.Do(func() {
 			w.logger.Info("Cancelling run %s via %s", runID, source)
 			close(cancelled)
+			go w.cancelCoreTask(runID, env, source)
 			execCancel()
 		})
 	}
@@ -2007,6 +2009,25 @@ func (w *worker) cancelRequestLoop(
 		case <-ticker.C:
 			check()
 		}
+	}
+}
+
+func (w *worker) cancelCoreTask(runID string, env *cell.ExecutionEnvelope, reason string) {
+	cancellable, ok := w.core.(workercore.CancellableCore)
+	if !ok || cancellable == nil || env == nil || strings.TrimSpace(env.ExecutionID) == "" {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(w.runCtx, coreCancelTimeout)
+	defer cancel()
+
+	if err := cancellable.CancelTask(ctx, workercore.CancelTaskRequest{
+		SessionID: env.ExecutionID,
+		RunID:     runID,
+		TaskKey:   env.TaskKey,
+		Reason:    reason,
+	}); err != nil {
+		w.logger.Warn("Cancel worker core task for run %s execution %s failed: %v", runID, env.ExecutionID, err)
 	}
 }
 

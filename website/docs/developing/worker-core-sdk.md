@@ -12,10 +12,11 @@ Implement `workercore.Core`:
 type Core interface {
     Describe(context.Context) (workercore.Description, error)
     ExecuteTask(context.Context, workercore.Task) (workercore.Result, error)
+    CancelTask(context.Context, workercore.CancelRequest) error
 }
 ```
 
-`Describe` reports protocol version, capabilities, metadata, and supported isolation levels. `ExecuteTask` receives the Vectis job, task key, and shell-owned session.
+`Describe` reports protocol version, capabilities, metadata, and supported isolation levels. `ExecuteTask` receives the Vectis job, task key, and shell-owned session. `CancelTask` is called when Vectis observes a remote or durable cancellation request for the active execution.
 
 The result/error split is intentional:
 
@@ -26,7 +27,20 @@ The result/error split is intentional:
 | `workercore.Unknown("message"), nil` | The provider cannot prove success or failure, usually due to cancellation or lost external state. |
 | `Result{}, err` | The worker-core implementation or transport failed before it could produce a task outcome. |
 
-Adapters should observe the provided context. When it is canceled, stop launching new external work, request cancellation in the external system when possible, and return `Unknown(...)` if the final external outcome is not known.
+Adapters should observe the provided context and implement `CancelTask`. When cancellation is requested, stop launching new external work, request cancellation in the external system when possible, and return `Unknown(...)` if the final external outcome is not known. `CancelTask` should be best-effort and idempotent: if the session is already complete or unknown, return nil unless the provider itself is unhealthy.
+
+## Capabilities
+
+Use the SDK constants when reporting standard behavior:
+
+| Capability | Meaning |
+| --- | --- |
+| `workercore.CapabilityExecute` | The core can execute tasks. |
+| `workercore.CapabilityCancelTask` | The core accepts explicit task cancellation requests. |
+| `workercore.CapabilityShellLogCallback` | The core can stream logs through the worker shell callback socket. |
+| `workercore.CapabilityShellArtifactPush` | The core can publish artifacts through the worker shell callback socket. |
+
+Providers can add their own namespaced capabilities for provider-specific behavior, such as a Jenkins or Kubernetes integration feature flag.
 
 ## Shell Callbacks
 
@@ -66,7 +80,7 @@ conformance.RunCoreSuite(t, func(t *testing.T) workercore.Core {
 })
 ```
 
-The suite checks description shape, a simple Vectis task execution, and optional shell callback behavior. Keep provider-specific tests for external-system behavior, retry policy, cleanup, and credential handling alongside the conformance suite.
+The suite checks description shape, standard capabilities, a simple Vectis task execution, explicit cancellation, and optional shell callback behavior. Keep provider-specific tests for external-system behavior, retry policy, cleanup, and credential handling alongside the conformance suite.
 
 ## Non-Goals
 

@@ -17,10 +17,21 @@ type Core interface {
 	ExecuteTask(ctx context.Context, req ExecuteTaskRequest) error
 }
 
+type CancellableCore interface {
+	CancelTask(ctx context.Context, req CancelTaskRequest) error
+}
+
 type ExecuteTaskRequest struct {
 	Job     *api.Job
 	TaskKey string
 	Session TaskSession
+}
+
+type CancelTaskRequest struct {
+	SessionID string
+	RunID     string
+	TaskKey   string
+	Reason    string
 }
 
 // TaskSession is the shell-owned execution handle passed to a core for one

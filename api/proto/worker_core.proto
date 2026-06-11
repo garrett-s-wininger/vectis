@@ -7,6 +7,7 @@ option go_package = "vectis/api/gen/go;api";
 service WorkerCoreService {
     rpc DescribeCore(DescribeWorkerCoreRequest) returns (DescribeWorkerCoreResponse);
     rpc ExecuteTask(ExecuteWorkerCoreTaskRequest) returns (ExecuteWorkerCoreTaskResponse);
+    rpc CancelTask(CancelWorkerCoreTaskRequest) returns (common.Empty);
 }
 
 service WorkerCoreShellService {
@@ -38,6 +39,13 @@ message ExecuteWorkerCoreTaskRequest {
 message ExecuteWorkerCoreTaskResponse {
     common.RunOutcome outcome = 1;
     string message = 2;
+}
+
+message CancelWorkerCoreTaskRequest {
+    string session_id = 1;
+    string run_id = 2;
+    string task_key = 3;
+    string reason = 4;
 }
 
 message WorkerCoreTaskSession {

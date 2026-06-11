@@ -52,6 +52,22 @@ func RunCoreSuite(t *testing.T, factory CoreFactory, opts Options) {
 		if len(desc.SupportedIsolation) == 0 {
 			t.Fatal("SupportedIsolation is empty")
 		}
+
+		if !sdk.HasCapability(desc, sdk.CapabilityExecute) {
+			t.Fatalf("missing required capability %q", sdk.CapabilityExecute)
+		}
+
+		if !sdk.HasCapability(desc, sdk.CapabilityCancelTask) {
+			t.Fatalf("missing required capability %q", sdk.CapabilityCancelTask)
+		}
+
+		if opts.RequireLogCallback && !sdk.HasCapability(desc, sdk.CapabilityShellLogCallback) {
+			t.Fatalf("missing required capability %q", sdk.CapabilityShellLogCallback)
+		}
+
+		if opts.RequireArtifactCallback && !sdk.HasCapability(desc, sdk.CapabilityShellArtifactPush) {
+			t.Fatalf("missing required capability %q", sdk.CapabilityShellArtifactPush)
+		}
 	})
 
 	t.Run("execute_success", func(t *testing.T) {
@@ -126,6 +142,20 @@ func RunCoreSuite(t *testing.T, factory CoreFactory, opts Options) {
 
 		if opts.RequireArtifactCallback && len(shell.artifactBytes()) == 0 {
 			t.Fatal("core did not publish an artifact through the shell callback")
+		}
+	})
+
+	t.Run("cancel_task", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+
+		if err := factory(t).CancelTask(ctx, sdk.CancelRequest{
+			SessionID: "conformance-session",
+			RunID:     "conformance-run",
+			TaskKey:   "root",
+			Reason:    "conformance",
+		}); err != nil {
+			t.Fatalf("CancelTask: %v", err)
 		}
 	})
 }

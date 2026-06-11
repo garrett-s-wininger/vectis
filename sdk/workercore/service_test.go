@@ -96,6 +96,30 @@ func TestSDKServiceExecutesTaskWithShellCallbacks(t *testing.T) {
 	}
 }
 
+func TestSDKServiceCancelTaskForwardsToCore(t *testing.T) {
+	core := &recordingCore{}
+	service := NewService(core, ServiceOptions{})
+
+	resp, err := service.CancelTask(context.Background(), &api.CancelWorkerCoreTaskRequest{
+		SessionId: proto.String("execution-1"),
+		RunId:     proto.String("run-1"),
+		TaskKey:   proto.String("root"),
+		Reason:    proto.String("remote request"),
+	})
+
+	if err != nil {
+		t.Fatalf("CancelTask: %v", err)
+	}
+
+	if resp == nil {
+		t.Fatal("CancelTask response is nil")
+	}
+
+	if core.cancel.SessionID != "execution-1" || core.cancel.RunID != "run-1" || core.cancel.Reason != "remote request" {
+		t.Fatalf("cancel request = %#v", core.cancel)
+	}
+}
+
 type callbackCore struct{}
 
 func (callbackCore) Describe(context.Context) (Description, error) {
@@ -139,6 +163,30 @@ func (callbackCore) ExecuteTask(ctx context.Context, task Task) (Result, error) 
 	}
 
 	return Success(), nil
+}
+
+func (callbackCore) CancelTask(context.Context, CancelRequest) error {
+	return nil
+}
+
+type recordingCore struct {
+	cancel CancelRequest
+}
+
+func (c *recordingCore) Describe(context.Context) (Description, error) {
+	return Description{
+		SupportedIsolation: []string{"host"},
+		Capabilities:       []Capability{{Name: CapabilityExecute, Version: "v1"}, {Name: CapabilityCancelTask, Version: "v1"}},
+	}, nil
+}
+
+func (c *recordingCore) ExecuteTask(context.Context, Task) (Result, error) {
+	return Success(), nil
+}
+
+func (c *recordingCore) CancelTask(_ context.Context, req CancelRequest) error {
+	c.cancel = req
+	return nil
 }
 
 type recordingShellServer struct {

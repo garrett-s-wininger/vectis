@@ -126,10 +126,47 @@ func TestServiceExecuteTaskUsesShellCallbacks(t *testing.T) {
 	}
 }
 
+func TestServiceCancelTaskForwardsToCore(t *testing.T) {
+	core := &recordingCancellableCore{}
+	service := NewService(core, ServiceOptions{Logger: mocks.NewMockLogger()})
+
+	resp, err := service.CancelTask(context.Background(), &api.CancelWorkerCoreTaskRequest{
+		SessionId: proto.String("execution-1"),
+		RunId:     proto.String("run-1"),
+		TaskKey:   proto.String("root"),
+		Reason:    proto.String("durable request"),
+	})
+
+	if err != nil {
+		t.Fatalf("CancelTask: %v", err)
+	}
+
+	if resp == nil {
+		t.Fatal("CancelTask response is nil")
+	}
+
+	if core.cancel.SessionID != "execution-1" || core.cancel.RunID != "run-1" || core.cancel.Reason != "durable request" {
+		t.Fatalf("cancel request = %#v", core.cancel)
+	}
+}
+
 type fakeCoreFunc func(context.Context, ExecuteTaskRequest) error
 
 func (f fakeCoreFunc) ExecuteTask(ctx context.Context, req ExecuteTaskRequest) error {
 	return f(ctx, req)
+}
+
+type recordingCancellableCore struct {
+	cancel CancelTaskRequest
+}
+
+func (c *recordingCancellableCore) ExecuteTask(context.Context, ExecuteTaskRequest) error {
+	return nil
+}
+
+func (c *recordingCancellableCore) CancelTask(_ context.Context, req CancelTaskRequest) error {
+	c.cancel = req
+	return nil
 }
 
 type recordingShellArtifactPublisher struct {

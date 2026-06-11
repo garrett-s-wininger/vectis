@@ -28,6 +28,12 @@ func (fixtureCore) Describe(context.Context) (sdk.Description, error) {
 	return sdk.Description{
 		ProtocolVersion:    sdk.ProtocolVersion,
 		SupportedIsolation: []string{"host"},
+		Capabilities: []sdk.Capability{
+			{Name: sdk.CapabilityExecute, Version: "v1"},
+			{Name: sdk.CapabilityCancelTask, Version: "v1"},
+			{Name: sdk.CapabilityShellLogCallback, Version: "v1"},
+			{Name: sdk.CapabilityShellArtifactPush, Version: "v1"},
+		},
 	}, nil
 }
 
@@ -59,4 +65,8 @@ func (fixtureCore) ExecuteTask(ctx context.Context, task sdk.Task) (sdk.Result, 
 	}
 
 	return sdk.Success(), nil
+}
+
+func (fixtureCore) CancelTask(context.Context, sdk.CancelRequest) error {
+	return nil
 }

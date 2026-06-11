@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -21,7 +22,7 @@ func main() {
 	socketPath := flag.String("socket", "/tmp/vectis-worker-core-example.sock", "Unix socket served by the example worker core")
 	flag.Parse()
 
-	core := sampleCore{}
+	core := newSampleCore()
 	server, listener, err := sdk.NewUnixCoreServer(*socketPath, core, sdk.ServiceOptions{})
 	if err != nil {
 		log.Fatalf("create worker core server: %v", err)
@@ -42,13 +43,24 @@ func main() {
 	}
 }
 
-type sampleCore struct{}
+type sampleCore struct {
+	mu        sync.Mutex
+	cancelled map[string]string
+}
+
+func newSampleCore() *sampleCore {
+	return &sampleCore{cancelled: map[string]string{}}
+}
 
 func (sampleCore) Describe(context.Context) (sdk.Description, error) {
 	return sdk.Description{
 		ProtocolVersion:    sdk.ProtocolVersion,
 		SupportedIsolation: []string{"host"},
 		Capabilities: []sdk.Capability{
+			{Name: sdk.CapabilityExecute, Version: "v1"},
+			{Name: sdk.CapabilityCancelTask, Version: "v1"},
+			{Name: sdk.CapabilityShellLogCallback, Version: "v1"},
+			{Name: sdk.CapabilityShellArtifactPush, Version: "v1"},
 			{Name: "example.external-runner", Version: "v1"},
 		},
 		Metadata: map[string]string{
@@ -57,7 +69,7 @@ func (sampleCore) Describe(context.Context) (sdk.Description, error) {
 	}, nil
 }
 
-func (sampleCore) ExecuteTask(ctx context.Context, task sdk.Task) (sdk.Result, error) {
+func (c *sampleCore) ExecuteTask(ctx context.Context, task sdk.Task) (sdk.Result, error) {
 	if err := sendLog(ctx, task, fmt.Sprintf("example external core accepted task %q\n", task.TaskKey)); err != nil {
 		return sdk.Result{}, err
 	}
@@ -68,6 +80,10 @@ func (sampleCore) ExecuteTask(ctx context.Context, task sdk.Task) (sdk.Result, e
 	case <-ctx.Done():
 		return sdk.Unknown(ctx.Err().Error()), nil
 	case <-timer.C:
+	}
+
+	if reason, ok := c.cancelReason(task.Session.ID()); ok {
+		return sdk.Unknown("cancelled: " + reason), nil
 	}
 
 	if task.Session.ArtifactsEnabled() {
@@ -86,6 +102,22 @@ func (sampleCore) ExecuteTask(ctx context.Context, task sdk.Task) (sdk.Result, e
 	}
 
 	return sdk.Success(), nil
+}
+
+func (c *sampleCore) CancelTask(_ context.Context, req sdk.CancelRequest) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.cancelled[req.SessionID] = req.Reason
+	return nil
+}
+
+func (c *sampleCore) cancelReason(sessionID string) (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	reason, ok := c.cancelled[sessionID]
+	return reason, ok
 }
 
 func sendLog(ctx context.Context, task sdk.Task, message string) error {

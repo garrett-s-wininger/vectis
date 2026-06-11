@@ -249,6 +249,31 @@ func TestRemoteCoreExecuteTaskWrapsClientError(t *testing.T) {
 	}
 }
 
+func TestRemoteCoreCancelTask(t *testing.T) {
+	var captured *api.CancelWorkerCoreTaskRequest
+	core := NewRemoteCore(fakeWorkerCoreClient{
+		cancel: func(_ context.Context, req *api.CancelWorkerCoreTaskRequest) (*api.Empty, error) {
+			captured = req
+			return &api.Empty{}, nil
+		},
+	})
+
+	err := core.CancelTask(context.Background(), CancelTaskRequest{
+		SessionID: "execution-1",
+		RunID:     "run-1",
+		TaskKey:   "root",
+		Reason:    "remote request",
+	})
+
+	if err != nil {
+		t.Fatalf("CancelTask: %v", err)
+	}
+
+	if captured.GetSessionId() != "execution-1" || captured.GetRunId() != "run-1" || captured.GetReason() != "remote request" {
+		t.Fatalf("cancel request = %#v", captured)
+	}
+}
+
 func TestArtifactProtocolConversions(t *testing.T) {
 	metadataJSON := `{"source":"test"}`
 	metadata := ArtifactMetadataProto("session-1", action.ArtifactPublishRequest{
@@ -285,6 +310,7 @@ func TestArtifactProtocolConversions(t *testing.T) {
 type fakeWorkerCoreClient struct {
 	describe func(context.Context, *api.DescribeWorkerCoreRequest) (*api.DescribeWorkerCoreResponse, error)
 	execute  func(context.Context, *api.ExecuteWorkerCoreTaskRequest) (*api.ExecuteWorkerCoreTaskResponse, error)
+	cancel   func(context.Context, *api.CancelWorkerCoreTaskRequest) (*api.Empty, error)
 }
 
 func (f fakeWorkerCoreClient) DescribeCore(ctx context.Context, req *api.DescribeWorkerCoreRequest, _ ...grpc.CallOption) (*api.DescribeWorkerCoreResponse, error) {
@@ -301,6 +327,14 @@ func (f fakeWorkerCoreClient) ExecuteTask(ctx context.Context, req *api.ExecuteW
 	}
 
 	return &api.ExecuteWorkerCoreTaskResponse{}, nil
+}
+
+func (f fakeWorkerCoreClient) CancelTask(ctx context.Context, req *api.CancelWorkerCoreTaskRequest, _ ...grpc.CallOption) (*api.Empty, error) {
+	if f.cancel != nil {
+		return f.cancel(ctx, req)
+	}
+
+	return &api.Empty{}, nil
 }
 
 type fakeArtifactPublisher struct {

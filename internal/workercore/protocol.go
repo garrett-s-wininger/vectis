@@ -90,7 +90,29 @@ func (c *RemoteCore) ExecuteTask(ctx context.Context, req ExecuteTaskRequest) er
 	}
 }
 
+func (c *RemoteCore) CancelTask(ctx context.Context, req CancelTaskRequest) error {
+	if c == nil || c.client == nil {
+		return fmt.Errorf("remote worker core is not configured")
+	}
+
+	if strings.TrimSpace(req.SessionID) == "" {
+		return fmt.Errorf("remote worker core cancel requires a task session id")
+	}
+
+	if _, err := c.client.CancelTask(ctx, &api.CancelWorkerCoreTaskRequest{
+		SessionId: proto.String(req.SessionID),
+		RunId:     proto.String(req.RunID),
+		TaskKey:   proto.String(req.TaskKey),
+		Reason:    proto.String(req.Reason),
+	}); err != nil {
+		return fmt.Errorf("remote worker core cancel task: %w", err)
+	}
+
+	return nil
+}
+
 var _ Core = (*RemoteCore)(nil)
+var _ CancellableCore = (*RemoteCore)(nil)
 
 func ExecuteTaskRequestProto(req ExecuteTaskRequest) (*api.ExecuteWorkerCoreTaskRequest, error) {
 	if req.Job == nil {

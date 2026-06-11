@@ -55,4 +55,9 @@ func (c *ExecutorCore) ExecuteTask(ctx context.Context, req ExecuteTaskRequest) 
 	})
 }
 
+func (c *ExecutorCore) CancelTask(context.Context, CancelTaskRequest) error {
+	return nil
+}
+
 var _ Core = (*ExecutorCore)(nil)
+var _ CancellableCore = (*ExecutorCore)(nil)

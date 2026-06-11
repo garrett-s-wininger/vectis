@@ -14,6 +14,7 @@ import (
 	"vectis/internal/platform"
 	"vectis/internal/registry"
 	"vectis/internal/workercore"
+	workersdk "vectis/sdk/workercore"
 )
 
 func runWorkerCore(cmd *cobra.Command, args []string) {
@@ -50,6 +51,7 @@ func runWorkerCore(cmd *cobra.Command, args []string) {
 		ActionResolver: actionResolver,
 		Description: workercore.CoreDescription{
 			ProtocolVersion:    workercore.ProtocolVersion,
+			Capabilities:       workerCoreCapabilities(),
 			SupportedIsolation: supportedIsolation,
 			Metadata: map[string]string{
 				registry.MetadataWorkerExecutionBackend: backend,
@@ -74,6 +76,15 @@ func runWorkerCore(cmd *cobra.Command, args []string) {
 
 	if err := grpcServer.Serve(listener); err != nil && ctx.Err() == nil {
 		logger.Fatal("Worker core server failed: %v", err)
+	}
+}
+
+func workerCoreCapabilities() []workercore.CoreCapability {
+	return []workercore.CoreCapability{
+		{Name: workersdk.CapabilityExecute, Version: "v1"},
+		{Name: workersdk.CapabilityCancelTask, Version: "v1"},
+		{Name: workersdk.CapabilityShellLogCallback, Version: "v1"},
+		{Name: workersdk.CapabilityShellArtifactPush, Version: "v1"},
 	}
 }
 

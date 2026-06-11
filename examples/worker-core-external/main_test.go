@@ -10,7 +10,7 @@ import (
 func TestSampleCoreConformance(t *testing.T) {
 	conformance.RunCoreSuite(t, func(t *testing.T) sdk.Core {
 		t.Helper()
-		return sampleCore{}
+		return newSampleCore()
 	}, conformance.Options{
 		RequireLogCallback:      true,
 		RequireArtifactCallback: true,

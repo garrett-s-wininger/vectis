@@ -12,6 +12,13 @@ import (
 
 const ProtocolVersion = "workercore.v1alpha1"
 
+const (
+	CapabilityExecute           = "worker-core.execute"
+	CapabilityCancelTask        = "worker-core.cancel_task"
+	CapabilityShellLogCallback  = "worker-core.shell.logs"
+	CapabilityShellArtifactPush = "worker-core.shell.artifacts"
+)
+
 type Description struct {
 	ProtocolVersion    string
 	Capabilities       []Capability
@@ -25,6 +32,16 @@ type Capability struct {
 	Metadata map[string]string
 }
 
+func HasCapability(desc Description, name string) bool {
+	for _, capability := range desc.Capabilities {
+		if capability.Name == name {
+			return true
+		}
+	}
+
+	return false
+}
+
 type Task struct {
 	Job     *api.Job
 	TaskKey string
@@ -34,6 +51,14 @@ type Task struct {
 type Core interface {
 	Describe(context.Context) (Description, error)
 	ExecuteTask(context.Context, Task) (Result, error)
+	CancelTask(context.Context, CancelRequest) error
+}
+
+type CancelRequest struct {
+	SessionID string
+	RunID     string
+	TaskKey   string
+	Reason    string
 }
 
 type Result struct {

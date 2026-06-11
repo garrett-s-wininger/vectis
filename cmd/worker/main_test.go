@@ -2846,6 +2846,42 @@ func TestWorkerRunTaskExecution_RemoteCancel_MarksRunAborted(t *testing.T) {
 	}
 }
 
+func TestWorkerCancelCoreTaskSendsExecutionIdentity(t *testing.T) {
+	core := &recordingWorkerCore{cancelled: make(chan workercore.CancelTaskRequest, 1)}
+	w := &worker{
+		runCtx: context.Background(),
+		logger: interfaces.NewLogger("worker-test"),
+		core:   core,
+	}
+
+	w.cancelCoreTask("run-1", &cell.ExecutionEnvelope{
+		ExecutionID: "execution-1",
+		TaskKey:     "root",
+	}, "remote request")
+
+	select {
+	case req := <-core.cancelled:
+		if req.SessionID != "execution-1" || req.RunID != "run-1" || req.TaskKey != "root" || req.Reason != "remote request" {
+			t.Fatalf("cancel request = %#v", req)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for core cancel request")
+	}
+}
+
+type recordingWorkerCore struct {
+	cancelled chan workercore.CancelTaskRequest
+}
+
+func (c *recordingWorkerCore) ExecuteTask(context.Context, workercore.ExecuteTaskRequest) error {
+	return nil
+}
+
+func (c *recordingWorkerCore) CancelTask(_ context.Context, req workercore.CancelTaskRequest) error {
+	c.cancelled <- req
+	return nil
+}
+
 func TestWorkerRunTaskExecution_DurableCancel_MarksRunAborted(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
