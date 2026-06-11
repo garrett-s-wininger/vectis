@@ -2,6 +2,8 @@ package conformance_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -9,6 +11,7 @@ import (
 	sdk "vectis/sdk/workercore"
 	"vectis/sdk/workercore/conformance"
 
+	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -16,6 +19,30 @@ func TestRunCoreSuite(t *testing.T) {
 	conformance.RunCoreSuite(t, func(t *testing.T) sdk.Core {
 		t.Helper()
 		return fixtureCore{}
+	}, conformance.Options{
+		RequireLogCallback:      true,
+		RequireArtifactCallback: true,
+	})
+}
+
+func TestRunCoreServerSuite(t *testing.T) {
+	conformance.RunCoreServerSuite(t, func(t *testing.T) string {
+		t.Helper()
+
+		socketPath := shortSocketPath(t, "worker-core.sock")
+		server, listener, err := sdk.NewUnixCoreServer(socketPath, fixtureCore{}, sdk.ServiceOptions{})
+		if err != nil {
+			t.Fatalf("NewUnixCoreServer: %v", err)
+		}
+		t.Cleanup(server.Stop)
+
+		go func() {
+			if err := server.Serve(listener); err != nil && err != grpc.ErrServerStopped {
+				t.Errorf("worker core server: %v", err)
+			}
+		}()
+
+		return socketPath
 	}, conformance.Options{
 		RequireLogCallback:      true,
 		RequireArtifactCallback: true,
@@ -69,4 +96,16 @@ func (fixtureCore) ExecuteTask(ctx context.Context, task sdk.Task) (sdk.Result, 
 
 func (fixtureCore) CancelTask(context.Context, sdk.CancelRequest) error {
 	return nil
+}
+
+func shortSocketPath(t *testing.T, name string) string {
+	t.Helper()
+
+	dir, err := os.MkdirTemp("/tmp", "vectis-core-conf-test-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+
+	return filepath.Join(dir, name)
 }

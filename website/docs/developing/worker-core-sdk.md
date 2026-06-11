@@ -89,7 +89,18 @@ conformance.RunCoreSuite(t, func(t *testing.T) workercore.Core {
 })
 ```
 
-The suite checks description shape, standard capabilities, a simple Vectis task execution, explicit cancellation, and optional shell callback behavior. Keep provider-specific tests for external-system behavior, retry policy, cleanup, and credential handling alongside the conformance suite.
+If the provider is served as a standalone Unix-socket process, also test the worker-facing protocol directly:
+
+```go
+conformance.RunCoreServerSuite(t, func(t *testing.T) string {
+    return startProviderAndReturnSocket(t)
+}, conformance.Options{
+    RequireLogCallback:      true,
+    RequireArtifactCallback: true,
+})
+```
+
+The suites check description shape, required capabilities, a simple Vectis task execution, explicit cancellation, and optional shell callback behavior. Keep provider-specific tests for external-system behavior, retry policy, cleanup, and credential handling alongside the conformance suite.
 
 ## Non-Goals
 
