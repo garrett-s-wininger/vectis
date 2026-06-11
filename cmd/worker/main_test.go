@@ -13,7 +13,6 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
-	"vectis/internal/action"
 	"vectis/internal/cell"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
@@ -21,7 +20,6 @@ import (
 	"vectis/internal/job"
 	"vectis/internal/observability"
 	"vectis/internal/orchestrator"
-	"vectis/internal/platform"
 	"vectis/internal/spire"
 	"vectis/internal/taskfinalize"
 	"vectis/internal/testutil/dbtest"
@@ -59,7 +57,7 @@ func attachPendingExecutionEnvelopeForTest(t *testing.T, runs dal.RunsRepository
 }
 
 func testWorkerCore(executor *job.Executor) workercore.Core {
-	return workercore.NewInProcessCore(executor)
+	return workercore.NewExecutorCore(executor)
 }
 
 func spanAttributeString(attrs []attribute.KeyValue, key string) string {
@@ -3105,154 +3103,6 @@ func TestStartControlListener_StaticUsesConfiguredPort(t *testing.T) {
 
 	if addr != "127.0.0.1:19084" {
 		t.Fatalf("addr = %q, want %q", addr, "127.0.0.1:19084")
-	}
-}
-
-func TestConfiguredProcessExecutor_DefaultHost(t *testing.T) {
-	viper.Reset()
-	t.Cleanup(viper.Reset)
-
-	executor, backend, err := configuredProcessExecutor()
-	if err != nil {
-		t.Fatalf("configuredProcessExecutor: %v", err)
-	}
-	if backend != "host" {
-		t.Fatalf("backend = %q, want host", backend)
-	}
-	if executor != nil {
-		t.Fatalf("host backend returned executor %#v, want nil", executor)
-	}
-}
-
-func TestWorkerExecutionCapabilitiesForBackend(t *testing.T) {
-	tests := []struct {
-		name                 string
-		backend              string
-		wantBackend          string
-		wantDefaultIsolation string
-		wantSupported        []string
-	}{
-		{
-			name:                 "default host",
-			backend:              "",
-			wantBackend:          "host",
-			wantDefaultIsolation: action.IsolationHost,
-			wantSupported:        []string{action.IsolationHost},
-		},
-		{
-			name:                 "explicit host",
-			backend:              "host",
-			wantBackend:          "host",
-			wantDefaultIsolation: action.IsolationHost,
-			wantSupported:        []string{action.IsolationHost},
-		},
-		{
-			name:                 "lima",
-			backend:              "lima",
-			wantBackend:          "lima",
-			wantDefaultIsolation: action.IsolationVM,
-			wantSupported:        []string{action.IsolationHost, action.IsolationVM},
-		},
-		{
-			name:        "unknown",
-			backend:     "wat",
-			wantBackend: "wat",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			gotBackend, gotDefaultIsolation, gotSupported := workerExecutionCapabilitiesForBackend(tt.backend)
-			if gotBackend != tt.wantBackend {
-				t.Fatalf("backend = %q, want %q", gotBackend, tt.wantBackend)
-			}
-
-			if gotDefaultIsolation != tt.wantDefaultIsolation {
-				t.Fatalf("default isolation = %q, want %q", gotDefaultIsolation, tt.wantDefaultIsolation)
-			}
-
-			if strings.Join(gotSupported, ",") != strings.Join(tt.wantSupported, ",") {
-				t.Fatalf("supported isolation = %v, want %v", gotSupported, tt.wantSupported)
-			}
-		})
-	}
-}
-
-func TestConfiguredProcessExecutor_Lima(t *testing.T) {
-	viper.Reset()
-	t.Cleanup(viper.Reset)
-	viper.Set("worker.execution.backend", "lima")
-	viper.Set("worker.execution.lima.instance", "vectis-worker")
-
-	executor, backend, err := configuredProcessExecutor()
-	if err != nil {
-		t.Fatalf("configuredProcessExecutor(lima): %v", err)
-	}
-	if backend != "lima" {
-		t.Fatalf("backend = %q, want lima", backend)
-	}
-	if _, ok := executor.(*platform.VirtualMachineCommandExecutor); !ok {
-		t.Fatalf("executor = %T, want *platform.VirtualMachineCommandExecutor", executor)
-	}
-}
-
-func TestConfiguredJobExecutor_LimaRegistersVMIsolation(t *testing.T) {
-	viper.Reset()
-	t.Cleanup(viper.Reset)
-	viper.Set("worker.execution.backend", "lima")
-	viper.Set("worker.execution.lima.instance", "vectis-worker")
-
-	executor, err := configuredJobExecutor(nil)
-	if err != nil {
-		t.Fatalf("configuredJobExecutor(lima): %v", err)
-	}
-
-	defaultExecutor, defaultIsolation, err := executor.ResolveProcessExecutor("")
-	if err != nil {
-		t.Fatalf("ResolveProcessExecutor(default): %v", err)
-	}
-
-	if defaultIsolation != action.IsolationVM {
-		t.Fatalf("default isolation = %q, want %q", defaultIsolation, action.IsolationVM)
-	}
-
-	if _, ok := defaultExecutor.(*platform.VirtualMachineCommandExecutor); !ok {
-		t.Fatalf("default executor = %T, want *platform.VirtualMachineCommandExecutor", defaultExecutor)
-	}
-
-	hostExecutor, hostIsolation, err := executor.ResolveProcessExecutor(action.IsolationHost)
-	if err != nil {
-		t.Fatalf("ResolveProcessExecutor(host): %v", err)
-	}
-
-	if hostIsolation != action.IsolationHost {
-		t.Fatalf("host isolation = %q, want %q", hostIsolation, action.IsolationHost)
-	}
-
-	if _, ok := hostExecutor.(*interfaces.DirectExecutor); !ok {
-		t.Fatalf("host executor = %T, want *interfaces.DirectExecutor", hostExecutor)
-	}
-}
-
-func TestConfiguredProcessExecutor_LimaRequiresInstance(t *testing.T) {
-	viper.Reset()
-	t.Cleanup(viper.Reset)
-	viper.Set("worker.execution.backend", "lima")
-
-	_, _, err := configuredProcessExecutor()
-	if err == nil || !strings.Contains(err.Error(), "lima instance is required") {
-		t.Fatalf("expected missing lima instance error, got %v", err)
-	}
-}
-
-func TestConfiguredProcessExecutor_UnknownBackend(t *testing.T) {
-	viper.Reset()
-	t.Cleanup(viper.Reset)
-	viper.Set("worker.execution.backend", "wat")
-
-	_, _, err := configuredProcessExecutor()
-	if err == nil || !strings.Contains(err.Error(), "unknown execution backend") {
-		t.Fatalf("expected unknown backend error, got %v", err)
 	}
 }
 

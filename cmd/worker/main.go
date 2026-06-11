@@ -37,7 +37,6 @@ import (
 	"vectis/internal/multidial"
 	"vectis/internal/observability"
 	"vectis/internal/orchestrator"
-	"vectis/internal/platform"
 	"vectis/internal/queueclient"
 	"vectis/internal/registry"
 	"vectis/internal/resolver"
@@ -301,62 +300,41 @@ func forwarderSocketPath() string {
 }
 
 func configuredWorkerCore(ctx context.Context, logger interfaces.Logger) (workercore.Core, workercore.CoreDescription, func(), error) {
-	mode := strings.TrimSpace(viper.GetString("worker.core.mode"))
-	if mode == "" {
-		mode = "remote"
+	socketPath := strings.TrimSpace(viper.GetString("worker.core.socket"))
+	if socketPath == "" {
+		socketPath = workercore.DefaultCoreSocketPath()
 	}
 
-	switch mode {
-	case "remote":
-		socketPath := strings.TrimSpace(viper.GetString("worker.core.socket"))
-		if socketPath == "" {
-			socketPath = workercore.DefaultCoreSocketPath()
-		}
-
-		connectTimeout := viper.GetDuration("worker.core.connect_timeout")
-		if connectTimeout <= 0 {
-			connectTimeout = 10 * time.Second
-		}
-		dialCtx, cancel := context.WithTimeout(ctx, connectTimeout)
-		defer cancel()
-
-		core, cleanup, err := workercore.DialUnixCore(dialCtx, socketPath)
-		if err != nil {
-			return nil, workercore.CoreDescription{}, nil, err
-		}
-
-		desc, err := core.Describe(dialCtx)
-		if err != nil {
-			cleanup()
-			return nil, workercore.CoreDescription{}, nil, err
-		}
-
-		if logger != nil {
-			logger.Info("Worker core: remote socket=%s protocol=%s", socketPath, desc.ProtocolVersion)
-		}
-
-		return core, desc, cleanup, nil
-	case "in-process":
-		executor, err := configuredJobExecutor(logger)
-		if err != nil {
-			return nil, workercore.CoreDescription{}, nil, err
-		}
-
-		backend, defaultIsolation, supportedIsolation := workerExecutionCapabilitiesForBackend(config.WorkerExecutionBackend())
-		desc := workercore.CoreDescription{
-			ProtocolVersion:    workercore.ProtocolVersion,
-			SupportedIsolation: supportedIsolation,
-			Metadata: map[string]string{
-				registry.MetadataWorkerExecutionBackend: backend,
-				registry.MetadataWorkerDefaultIsolation: defaultIsolation,
-				"worker_core.mode":                      "in-process",
-			},
-		}
-
-		return workercore.NewInProcessCore(executor), desc, func() {}, nil
-	default:
-		return nil, workercore.CoreDescription{}, nil, fmt.Errorf("unknown worker core mode %q", mode)
+	connectTimeout := viper.GetDuration("worker.core.connect_timeout")
+	if connectTimeout <= 0 {
+		connectTimeout = 10 * time.Second
 	}
+
+	dialCtx, cancel := context.WithTimeout(ctx, connectTimeout)
+	defer cancel()
+
+	core, cleanup, err := workercore.DialUnixCore(dialCtx, socketPath)
+	if err != nil {
+		return nil, workercore.CoreDescription{}, nil, err
+	}
+
+	desc, err := core.Describe(dialCtx)
+	if err != nil {
+		cleanup()
+		return nil, workercore.CoreDescription{}, nil, err
+	}
+
+	if logger != nil {
+		logger.Info("Worker core: socket=%s protocol=%s", socketPath, desc.ProtocolVersion)
+	}
+
+	return core, desc, cleanup, nil
+}
+
+func workerRegistryMetadata(desc workercore.CoreDescription) map[string]string {
+	backend := desc.Metadata[registry.MetadataWorkerExecutionBackend]
+	defaultIsolation := desc.Metadata[registry.MetadataWorkerDefaultIsolation]
+	return registry.WorkerExecutionMetadataForCell(config.CellID(), backend, defaultIsolation, desc.SupportedIsolation)
 }
 
 func startWorkerCoreShell(ctx context.Context, logger interfaces.Logger) (*workercore.ShellServer, string, func(), error) {
@@ -392,53 +370,6 @@ func startWorkerCoreShell(ctx context.Context, logger interfaces.Logger) (*worke
 	}
 
 	return shell, workercore.UnixEndpoint(socketPath), cleanup, nil
-}
-
-func configuredJobExecutor(logger interfaces.Logger) (*job.Executor, error) {
-	executor, backend, err := workercore.NewJobExecutor(workerCoreExecutorConfig())
-	if err != nil {
-		return nil, err
-	}
-
-	if logger != nil {
-		logger.Info("Worker execution backend: %s", backend)
-	}
-
-	return executor, nil
-}
-
-func workerRegistryMetadata(desc workercore.CoreDescription) map[string]string {
-	backend := desc.Metadata[registry.MetadataWorkerExecutionBackend]
-	defaultIsolation := desc.Metadata[registry.MetadataWorkerDefaultIsolation]
-	supportedIsolation := desc.SupportedIsolation
-	if backend == "" && defaultIsolation == "" && len(supportedIsolation) == 0 {
-		backend, defaultIsolation, supportedIsolation = workerExecutionCapabilitiesForBackend(config.WorkerExecutionBackend())
-	}
-
-	return registry.WorkerExecutionMetadataForCell(config.CellID(), backend, defaultIsolation, supportedIsolation)
-}
-
-func workerExecutionCapabilitiesForBackend(backend string) (string, string, []string) {
-	return workercore.ExecutionCapabilitiesForBackend(backend)
-}
-
-func configuredProcessExecutor() (interfaces.ExecExecutor, string, error) {
-	return workercore.NewProcessExecutor(workerCoreExecutorConfig())
-}
-
-func workerCoreExecutorConfig() workercore.ExecutorConfig {
-	return workercore.ExecutorConfig{
-		Backend:       config.WorkerExecutionBackend(),
-		WorkspaceRoot: config.WorkerExecutionWorkspaceRoot(),
-		Lima: platform.VirtualMachineConfig{
-			Provider:           platform.VirtualMachineProviderLima,
-			Instance:           config.WorkerExecutionLimaInstance(),
-			ProviderPath:       config.WorkerExecutionLimaPath(),
-			GuestWorkspaceRoot: config.WorkerExecutionLimaGuestWorkspaceRoot(),
-			Start:              config.WorkerExecutionLimaStart(),
-			PreserveEnv:        config.WorkerExecutionLimaPreserveEnv(),
-		},
-	}
 }
 
 func startControlListener() (net.Listener, string, error) {
@@ -2159,14 +2090,6 @@ func init() {
 	rootCmd.PersistentFlags().Int64("artifact-max-bytes", config.WorkerArtifactMaxBytes(), "Maximum bytes for a worker artifact upload (0 disables)")
 	rootCmd.PersistentFlags().Int64("artifact-max-run-bytes", config.WorkerArtifactMaxRunBytes(), "Maximum total artifact bytes recorded for one run (0 disables)")
 	rootCmd.PersistentFlags().Int64("artifact-max-count", config.WorkerArtifactMaxCount(), "Maximum artifact manifests recorded for one run (0 disables)")
-	rootCmd.PersistentFlags().String("execution-backend", config.WorkerExecutionBackend(), "Command execution backend: host or lima")
-	rootCmd.PersistentFlags().String("workspace-root", config.WorkerExecutionWorkspaceRoot(), "Parent directory for automatically-created run workspaces")
-	rootCmd.PersistentFlags().String("lima-path", config.WorkerExecutionLimaPath(), "Path to limactl when --execution-backend=lima")
-	rootCmd.PersistentFlags().String("lima-instance", config.WorkerExecutionLimaInstance(), "Lima instance name when --execution-backend=lima")
-	rootCmd.PersistentFlags().String("lima-guest-workspace-root", config.WorkerExecutionLimaGuestWorkspaceRoot(), "Guest-side parent directory for Lima workspaces")
-	rootCmd.PersistentFlags().Bool("lima-start", config.WorkerExecutionLimaStart(), "Start the Lima instance before each command when --execution-backend=lima")
-	rootCmd.PersistentFlags().Bool("lima-preserve-env", config.WorkerExecutionLimaPreserveEnv(), "Preserve host environment variables in Lima shell commands")
-	rootCmd.PersistentFlags().String("core-mode", "remote", "Worker core mode: remote or in-process")
 	rootCmd.PersistentFlags().String("core-socket", workercore.DefaultCoreSocketPath(), "Unix socket for the remote worker core")
 	rootCmd.PersistentFlags().String("core-shell-socket", workercore.DefaultShellSocketPath(), "Unix socket exposed by the worker shell for core callbacks")
 	rootCmd.PersistentFlags().Duration("core-connect-timeout", 10*time.Second, "Timeout for connecting to the remote worker core")
@@ -2176,14 +2099,6 @@ func init() {
 	_ = viper.BindPFlag("worker.artifact_max_bytes", rootCmd.PersistentFlags().Lookup("artifact-max-bytes"))
 	_ = viper.BindPFlag("worker.artifact_max_run_bytes", rootCmd.PersistentFlags().Lookup("artifact-max-run-bytes"))
 	_ = viper.BindPFlag("worker.artifact_max_count", rootCmd.PersistentFlags().Lookup("artifact-max-count"))
-	_ = viper.BindPFlag("worker.execution.backend", rootCmd.PersistentFlags().Lookup("execution-backend"))
-	_ = viper.BindPFlag("worker.execution.workspace_root", rootCmd.PersistentFlags().Lookup("workspace-root"))
-	_ = viper.BindPFlag("worker.execution.lima.path", rootCmd.PersistentFlags().Lookup("lima-path"))
-	_ = viper.BindPFlag("worker.execution.lima.instance", rootCmd.PersistentFlags().Lookup("lima-instance"))
-	_ = viper.BindPFlag("worker.execution.lima.guest_workspace_root", rootCmd.PersistentFlags().Lookup("lima-guest-workspace-root"))
-	_ = viper.BindPFlag("worker.execution.lima.start", rootCmd.PersistentFlags().Lookup("lima-start"))
-	_ = viper.BindPFlag("worker.execution.lima.preserve_env", rootCmd.PersistentFlags().Lookup("lima-preserve-env"))
-	_ = viper.BindPFlag("worker.core.mode", rootCmd.PersistentFlags().Lookup("core-mode"))
 	_ = viper.BindPFlag("worker.core.socket", rootCmd.PersistentFlags().Lookup("core-socket"))
 	_ = viper.BindPFlag("worker.core.shell_socket", rootCmd.PersistentFlags().Lookup("core-shell-socket"))
 	_ = viper.BindPFlag("worker.core.connect_timeout", rootCmd.PersistentFlags().Lookup("core-connect-timeout"))
@@ -2199,14 +2114,6 @@ func init() {
 	_ = viper.BindEnv("control_port", "VECTIS_WORKER_CONTROL_PORT")
 	_ = viper.BindEnv("control_port_min", "VECTIS_WORKER_CONTROL_PORT_MIN")
 	_ = viper.BindEnv("control_port_max", "VECTIS_WORKER_CONTROL_PORT_MAX")
-	_ = viper.BindEnv("worker.execution.backend", "VECTIS_WORKER_EXECUTION_BACKEND")
-	_ = viper.BindEnv("worker.execution.workspace_root", "VECTIS_WORKER_WORKSPACE_ROOT")
-	_ = viper.BindEnv("worker.execution.lima.path", "VECTIS_WORKER_LIMA_PATH")
-	_ = viper.BindEnv("worker.execution.lima.instance", "VECTIS_WORKER_LIMA_INSTANCE")
-	_ = viper.BindEnv("worker.execution.lima.guest_workspace_root", "VECTIS_WORKER_LIMA_GUEST_WORKSPACE_ROOT")
-	_ = viper.BindEnv("worker.execution.lima.start", "VECTIS_WORKER_LIMA_START")
-	_ = viper.BindEnv("worker.execution.lima.preserve_env", "VECTIS_WORKER_LIMA_PRESERVE_ENV")
-	_ = viper.BindEnv("worker.core.mode", "VECTIS_WORKER_CORE_MODE")
 	_ = viper.BindEnv("worker.core.socket", "VECTIS_WORKER_CORE_SOCKET")
 	_ = viper.BindEnv("worker.core.shell_socket", "VECTIS_WORKER_CORE_SHELL_SOCKET")
 	_ = viper.BindEnv("worker.core.connect_timeout", "VECTIS_WORKER_CORE_CONNECT_TIMEOUT")

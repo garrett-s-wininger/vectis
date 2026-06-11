@@ -45,7 +45,7 @@ func runWorkerCore(cmd *cobra.Command, args []string) {
 	}
 
 	backend, defaultIsolation, supportedIsolation := workercore.ExecutionCapabilitiesForBackend(backend)
-	service := workercore.NewService(workercore.NewInProcessCore(executor), workercore.ServiceOptions{
+	service := workercore.NewService(workercore.NewExecutorCore(executor), workercore.ServiceOptions{
 		Logger:         logger,
 		ActionResolver: actionResolver,
 		Description: workercore.CoreDescription{
@@ -54,7 +54,6 @@ func runWorkerCore(cmd *cobra.Command, args []string) {
 			Metadata: map[string]string{
 				registry.MetadataWorkerExecutionBackend: backend,
 				registry.MetadataWorkerDefaultIsolation: defaultIsolation,
-				"worker_core.mode":                      "remote",
 			},
 		},
 	})

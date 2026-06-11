@@ -8,19 +8,19 @@ import (
 	"vectis/internal/job"
 )
 
-type InProcessCore struct {
+type ExecutorCore struct {
 	executor *job.Executor
 }
 
-func NewInProcessCore(executor *job.Executor) *InProcessCore {
+func NewExecutorCore(executor *job.Executor) *ExecutorCore {
 	if executor == nil {
 		executor = job.NewExecutor()
 	}
 
-	return &InProcessCore{executor: executor}
+	return &ExecutorCore{executor: executor}
 }
 
-func (c *InProcessCore) ExecuteTask(ctx context.Context, req ExecuteTaskRequest) error {
+func (c *ExecutorCore) ExecuteTask(ctx context.Context, req ExecuteTaskRequest) error {
 	if c == nil || c.executor == nil {
 		return fmt.Errorf("worker execution core is not configured")
 	}
@@ -55,4 +55,4 @@ func (c *InProcessCore) ExecuteTask(ctx context.Context, req ExecuteTaskRequest)
 	})
 }
 
-var _ Core = (*InProcessCore)(nil)
+var _ Core = (*ExecutorCore)(nil)

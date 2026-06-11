@@ -13,7 +13,7 @@ import (
 	"vectis/internal/job"
 )
 
-func TestInProcessCoreExecutesTaskThroughJobExecutor(t *testing.T) {
+func TestExecutorCoreExecutesTaskThroughJobExecutor(t *testing.T) {
 	processExecutor := mocks.NewMockExecExecutor()
 	process := mocks.NewMockProcess()
 	process.SetStdout("hello from core\n")
@@ -28,7 +28,7 @@ func TestInProcessCoreExecutesTaskThroughJobExecutor(t *testing.T) {
 	runID := "run-worker-core"
 	nodeID := "root"
 	uses := "builtins/shell"
-	core := NewInProcessCore(executor)
+	core := NewExecutorCore(executor)
 	err := core.ExecuteTask(context.Background(), ExecuteTaskRequest{
 		Job: &api.Job{
 			Id:    &jobID,
@@ -74,7 +74,7 @@ func TestInProcessCoreExecutesTaskThroughJobExecutor(t *testing.T) {
 	}
 }
 
-func TestInProcessCoreValidatesShellBoundaryInputs(t *testing.T) {
+func TestExecutorCoreValidatesShellBoundaryInputs(t *testing.T) {
 	tests := []struct {
 		name string
 		req  ExecuteTaskRequest
@@ -134,7 +134,7 @@ func TestInProcessCoreValidatesShellBoundaryInputs(t *testing.T) {
 		},
 	}
 
-	core := NewInProcessCore(job.NewExecutor())
+	core := NewExecutorCore(job.NewExecutor())
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := core.ExecuteTask(context.Background(), tt.req)

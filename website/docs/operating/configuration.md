@@ -76,7 +76,7 @@ Use these prefixes when building service-specific environment variable names.
 | `vectis-registry` | `VECTIS_REGISTRY` | `--port`; cluster membership uses `VECTIS_REGISTRY_CLUSTER_*` |
 | `vectis-log` | `VECTIS_LOG` | `--instance-id`, `--storage-dir`, `--storage-read-only-min-free-bytes`, `--grpc-port`, `--metrics-host`, `--metrics-port`, `--max-run-buffers` |
 | `vectis-artifact` | `VECTIS_ARTIFACT` | `--instance-id`, `--storage-dir`, `--storage-read-only-min-free-bytes`, `--grpc-port`, `--metrics-host`, `--metrics-port` |
-| `vectis-worker` | `VECTIS_WORKER` | `--metrics-host`, `--metrics-port`, `--artifact-max-bytes`, `--artifact-max-run-bytes`, `--artifact-max-count`, `--core-mode`, `--core-socket`, `--core-shell-socket`, `--core-connect-timeout`; use `VECTIS_WORKER_QUEUE_ADDRESS`, `VECTIS_WORKER_LOG_ADDRESS`, and `VECTIS_WORKER_ORCHESTRATOR_ADDRESS` to pin internal dependencies |
+| `vectis-worker` | `VECTIS_WORKER` | `--metrics-host`, `--metrics-port`, `--artifact-max-bytes`, `--artifact-max-run-bytes`, `--artifact-max-count`, `--core-socket`, `--core-shell-socket`, `--core-connect-timeout`; use `VECTIS_WORKER_QUEUE_ADDRESS`, `VECTIS_WORKER_LOG_ADDRESS`, and `VECTIS_WORKER_ORCHESTRATOR_ADDRESS` to pin internal dependencies |
 | `vectis-worker-core` | `VECTIS_WORKER_CORE` | `--socket`, `--execution-backend`, `--workspace-root`, `--lima-instance`, `--lima-start` |
 | `vectis-cron` | `VECTIS_CRON` | `--instance-id`, `--claim-ttl` |
 | `vectis-reconciler` | `VECTIS_RECONCILER` | `--interval`, `--lease-ttl`, `--metrics-host`, `--metrics-port` |
