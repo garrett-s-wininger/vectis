@@ -228,7 +228,13 @@ func classifyOrphanReason(reason string) string {
 	switch reason {
 	case OrphanReasonLeaseExpired, OrphanReasonAckUncertain:
 		return reason
+	case OrphanReasonWorkerCoreUnknown:
+		return OrphanReasonWorkerCoreUnknown
 	default:
+		if strings.HasPrefix(reason, OrphanReasonWorkerCoreUnknown+":") {
+			return OrphanReasonWorkerCoreUnknown
+		}
+
 		return "unknown"
 	}
 }

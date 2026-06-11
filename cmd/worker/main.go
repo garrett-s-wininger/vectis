@@ -47,6 +47,7 @@ import (
 	"vectis/internal/utils"
 	"vectis/internal/workercore"
 	"vectis/internal/workloadidentity"
+	workersdk "vectis/sdk/workercore"
 
 	_ "vectis/internal/dbdrivers"
 )
@@ -67,6 +68,23 @@ const (
 )
 
 var errRunCancelled = errors.New("run cancelled")
+
+type executionErrorDisposition string
+
+const (
+	executionErrorFailed    executionErrorDisposition = "failed"
+	executionErrorCancelled executionErrorDisposition = "cancelled"
+	executionErrorOrphaned  executionErrorDisposition = "orphaned"
+)
+
+type executionErrorDecision struct {
+	disposition         executionErrorDisposition
+	failureCode         string
+	reason              string
+	workerCoreOutcome   string
+	workerCoreReason    string
+	workerCoreResultErr *workercore.TaskResultError
+}
 
 func runWorker(cmd *cobra.Command, args []string) {
 	shutdownCtx := cmd.Context()
@@ -919,14 +937,40 @@ func (w *worker) runTaskExecution(ctx context.Context, job *api.Job, jobID, runI
 			return w.finalizeAbortedTaskRunByExecutionClaim(ctx, job, executionClaim, dal.CancelReasonAPI, executionEnvelope)
 		}
 
+		execDecision := decideExecutionError(execErr)
+		if execDecision.workerCoreResultErr != nil {
+			span.SetAttributes(
+				attribute.String("worker_core.outcome", execDecision.workerCoreOutcome),
+				attribute.String("worker_core.reason_code", execDecision.workerCoreReason),
+			)
+		}
+
+		switch execDecision.disposition {
+		case executionErrorCancelled:
+			span.AddEvent("worker_core.cancelled")
+			span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeAborted))
+			w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
+			return w.finalizeAbortedTaskRunByExecutionClaim(ctx, job, executionClaim, execDecision.reason, executionEnvelope)
+		case executionErrorOrphaned:
+			w.logger.Warn("Job %s worker core outcome is unknown: %v", jobID, execErr)
+			span.RecordError(execErr)
+			span.SetStatus(otelcodes.Error, "worker core outcome unknown")
+			w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
+			if err := w.markRunOrphanedWithRetry(runID, execDecision.reason); err != nil {
+				w.logger.Error("Failed to mark run %s orphaned after worker core unknown outcome: %v", runID, err)
+				span.RecordError(err)
+			}
+
+			span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeFailed))
+			return observability.WorkerOutcomeFailed
+		}
+
 		w.logger.Error("Job %s failed: %v", jobID, execErr)
 		span.RecordError(execErr)
 		span.SetStatus(otelcodes.Error, "execute with lease renewal")
-		decision := runpolicy.Decide(runpolicy.Input{Trigger: runpolicy.TriggerExecutionResult})
-		reason := truncateFailureReason(execErr.Error())
 		w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
 
-		return w.finalizeFailedTaskRunByExecutionClaim(ctx, job, executionClaim, decision.FailureCode, reason, executionEnvelope)
+		return w.finalizeFailedTaskRunByExecutionClaim(ctx, job, executionClaim, execDecision.failureCode, execDecision.reason, executionEnvelope)
 	}
 
 	w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
@@ -981,6 +1025,78 @@ func (w *worker) finalizeFailedTaskRunByExecutionClaim(ctx context.Context, j *a
 
 	span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeFailed))
 	return observability.WorkerOutcomeFailed
+}
+
+func decideExecutionError(err error) executionErrorDecision {
+	decision := runpolicy.Decide(runpolicy.Input{Trigger: runpolicy.TriggerExecutionResult})
+	out := executionErrorDecision{
+		disposition: executionErrorFailed,
+		failureCode: decision.FailureCode,
+		reason:      truncateFailureReason(err.Error()),
+	}
+
+	var resultErr *workercore.TaskResultError
+	if !errors.As(err, &resultErr) {
+		return out
+	}
+
+	out.workerCoreResultErr = resultErr
+	out.workerCoreOutcome = resultErr.Outcome.String()
+	out.workerCoreReason = strings.TrimSpace(resultErr.ReasonCode)
+
+	switch resultErr.Outcome {
+	case api.RunOutcome_RUN_OUTCOME_UNKNOWN:
+		out.failureCode = ""
+		if out.workerCoreReason == workersdk.ReasonCancelled {
+			out.disposition = executionErrorCancelled
+			out.reason = truncateFailureReason(workerCoreResultReason(resultErr, err))
+			return out
+		}
+
+		out.disposition = executionErrorOrphaned
+		out.reason = truncateFailureReason(workerCoreUnknownOrphanReason(resultErr, err))
+	case api.RunOutcome_RUN_OUTCOME_FAILURE:
+		out.reason = truncateFailureReason(workerCoreResultReason(resultErr, err))
+	}
+
+	return out
+}
+
+func workerCoreUnknownOrphanReason(resultErr *workercore.TaskResultError, fallback error) string {
+	detail := workerCoreResultReason(resultErr, fallback)
+	if detail == "" {
+		return dal.OrphanReasonWorkerCoreUnknown
+	}
+
+	return dal.OrphanReasonWorkerCoreUnknown + ": " + detail
+}
+
+func workerCoreResultReason(resultErr *workercore.TaskResultError, fallback error) string {
+	if resultErr == nil {
+		if fallback == nil {
+			return ""
+		}
+
+		return fallback.Error()
+	}
+
+	reasonCode := strings.TrimSpace(resultErr.ReasonCode)
+	message := strings.TrimSpace(resultErr.Message)
+
+	switch {
+	case reasonCode != "" && message != "":
+		return reasonCode + ": " + message
+	case reasonCode != "":
+		return reasonCode
+	case message != "":
+		return message
+	default:
+		if fallback == nil {
+			return ""
+		}
+
+		return fallback.Error()
+	}
 }
 
 func (w *worker) finalizeAbortedTaskRunByExecutionClaim(ctx context.Context, j *api.Job, executionClaim *executionClaimState, reason string, executionEnvelope *cell.ExecutionEnvelope) string {

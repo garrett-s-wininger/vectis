@@ -34,6 +34,8 @@ Adapters should observe the provided context and implement `CancelTask`. When ca
 
 Reason codes are stable strings carried over the worker-core protocol so the worker can preserve provider intent separately from human-readable messages. Use the SDK constants for common cases and namespaced provider strings for provider-specific states, such as `jenkins.queue_timeout` or `kubernetes.pod_unschedulable`.
 
+Vectis maps worker-core results into run state conservatively. `Failure(...)` and `FailureWithReason(...)` fail the task execution. `Cancelled(...)` finalizes the execution as cancelled. `Unknown(...)`, `UnknownWithReason(...)`, and `ExternalUnavailable(...)` mark the run orphaned with `worker_core_unknown` so an operator or reconciler path can repair the run once the external outcome is known.
+
 ## Capabilities
 
 Use the SDK constants when reporting standard behavior:

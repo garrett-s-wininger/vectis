@@ -26,6 +26,7 @@ import (
 	"vectis/internal/testutil/runfixture"
 	"vectis/internal/workercore"
 	"vectis/internal/workloadidentity"
+	workersdk "vectis/sdk/workercore"
 
 	"github.com/spf13/viper"
 	"go.opentelemetry.io/otel/attribute"
@@ -58,6 +59,14 @@ func attachPendingExecutionEnvelopeForTest(t *testing.T, runs dal.RunsRepository
 
 func testWorkerCore(executor *job.Executor) workercore.Core {
 	return workercore.NewExecutorCore(executor)
+}
+
+type errorWorkerCore struct {
+	err error
+}
+
+func (c errorWorkerCore) ExecuteTask(context.Context, workercore.ExecuteTaskRequest) error {
+	return c.err
 }
 
 func spanAttributeString(attrs []attribute.KeyValue, key string) string {
@@ -2880,6 +2889,165 @@ func (c *recordingWorkerCore) ExecuteTask(context.Context, workercore.ExecuteTas
 func (c *recordingWorkerCore) CancelTask(_ context.Context, req workercore.CancelTaskRequest) error {
 	c.cancelled <- req
 	return nil
+}
+
+func TestWorkerRunTaskExecution_WorkerCoreCancelledResultCancelsRun(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositories(db)
+	runs := repos.Runs()
+
+	runID, _, err := runs.CreateRun(ctx, "job-worker-core-cancelled", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	w := &worker{
+		ctx:           context.Background(),
+		runCtx:        context.Background(),
+		logger:        interfaces.NewLogger("worker-test"),
+		workerID:      "worker-core-cancelled",
+		clock:         interfaces.SystemClock{},
+		renewInterval: time.Hour,
+		queue:         mocks.NewMockQueueClient(),
+		logClient:     mocks.NewMockLogClient(),
+		core: errorWorkerCore{
+			err: workercore.NewTaskResultError(api.RunOutcome_RUN_OUTCOME_UNKNOWN, workersdk.ReasonCancelled, "cancelled in external runner"),
+		},
+		store: runs,
+	}
+
+	jobID := "job-worker-core-cancelled"
+	deliveryID := "delivery-worker-core-cancelled"
+	commandNodeID := "node-1"
+	action := "builtins/shell"
+	j := &api.Job{
+		Id:         &jobID,
+		RunId:      &runID,
+		DeliveryId: &deliveryID,
+		Root: &api.Node{
+			Id:   &commandNodeID,
+			Uses: &action,
+		},
+	}
+
+	env := attachPendingExecutionEnvelopeForTest(t, runs, j, runID)
+	outcome := w.runTaskExecution(context.Background(), j, jobID, runID, deliveryID, env)
+	if outcome != observability.WorkerOutcomeAborted {
+		t.Fatalf("outcome: got %q, want %q", outcome, observability.WorkerOutcomeAborted)
+	}
+
+	var runStatus string
+	var failureCode string
+	var failureReason sql.NullString
+	if err := db.QueryRowContext(ctx, `
+		SELECT status, failure_code, failure_reason
+		FROM job_runs
+		WHERE run_id = ?
+	`, runID).Scan(&runStatus, &failureCode, &failureReason); err != nil {
+		t.Fatalf("query run status: %v", err)
+	}
+
+	if runStatus != dal.RunStatusCancelled {
+		t.Fatalf("run status: got %q, want %q", runStatus, dal.RunStatusCancelled)
+	}
+
+	if failureCode != "" {
+		t.Fatalf("failure code: got %q, want empty", failureCode)
+	}
+
+	if !failureReason.Valid || !strings.Contains(failureReason.String, workersdk.ReasonCancelled) || !strings.Contains(failureReason.String, "cancelled in external runner") {
+		t.Fatalf("failure reason = %v, want worker core cancellation detail", failureReason)
+	}
+
+	var executionStatus string
+	if err := db.QueryRowContext(ctx, `
+		SELECT status
+		FROM segment_executions
+		WHERE execution_id = ?
+	`, env.ExecutionID).Scan(&executionStatus); err != nil {
+		t.Fatalf("query execution status: %v", err)
+	}
+
+	if executionStatus != dal.ExecutionStatusAborted {
+		t.Fatalf("execution status: got %q, want %q", executionStatus, dal.ExecutionStatusAborted)
+	}
+}
+
+func TestWorkerRunTaskExecution_WorkerCoreUnknownResultOrphansRun(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositories(db)
+	runs := repos.Runs()
+
+	runID, _, err := runs.CreateRun(ctx, "job-worker-core-unknown", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	w := &worker{
+		ctx:           context.Background(),
+		runCtx:        context.Background(),
+		logger:        interfaces.NewLogger("worker-test"),
+		workerID:      "worker-core-unknown",
+		clock:         interfaces.SystemClock{},
+		renewInterval: time.Hour,
+		queue:         mocks.NewMockQueueClient(),
+		logClient:     mocks.NewMockLogClient(),
+		core: errorWorkerCore{
+			err: workercore.NewTaskResultError(api.RunOutcome_RUN_OUTCOME_UNKNOWN, workersdk.ReasonExternalUnavailable, "jenkins unavailable"),
+		},
+		store:   runs,
+		catalog: cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
+	}
+
+	jobID := "job-worker-core-unknown"
+	deliveryID := "delivery-worker-core-unknown"
+	commandNodeID := "node-1"
+	action := "builtins/shell"
+	j := &api.Job{
+		Id:         &jobID,
+		RunId:      &runID,
+		DeliveryId: &deliveryID,
+		Root: &api.Node{
+			Id:   &commandNodeID,
+			Uses: &action,
+		},
+	}
+
+	env := attachPendingExecutionEnvelopeForTest(t, runs, j, runID)
+	outcome := w.runTaskExecution(context.Background(), j, jobID, runID, deliveryID, env)
+	if outcome != observability.WorkerOutcomeFailed {
+		t.Fatalf("outcome: got %q, want %q", outcome, observability.WorkerOutcomeFailed)
+	}
+
+	var runStatus string
+	var failureCode string
+	var failureReason sql.NullString
+	var orphanReason sql.NullString
+	if err := db.QueryRowContext(ctx, `
+		SELECT status, failure_code, failure_reason, orphan_reason
+		FROM job_runs
+		WHERE run_id = ?
+	`, runID).Scan(&runStatus, &failureCode, &failureReason, &orphanReason); err != nil {
+		t.Fatalf("query run status: %v", err)
+	}
+
+	if runStatus != dal.RunStatusOrphaned {
+		t.Fatalf("run status: got %q, want %q", runStatus, dal.RunStatusOrphaned)
+	}
+
+	if failureCode != "" {
+		t.Fatalf("failure code: got %q, want empty", failureCode)
+	}
+
+	if !orphanReason.Valid || orphanReason.String != dal.OrphanReasonWorkerCoreUnknown {
+		t.Fatalf("orphan reason = %v, want %q", orphanReason, dal.OrphanReasonWorkerCoreUnknown)
+	}
+
+	if !failureReason.Valid || !strings.Contains(failureReason.String, workersdk.ReasonExternalUnavailable) || !strings.Contains(failureReason.String, "jenkins unavailable") {
+		t.Fatalf("failure reason = %v, want worker core unknown detail", failureReason)
+	}
 }
 
 func TestWorkerRunTaskExecution_DurableCancel_MarksRunAborted(t *testing.T) {
