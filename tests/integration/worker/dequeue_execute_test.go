@@ -70,7 +70,7 @@ func TestIntegrationWorker_DequeueClaimExecuteFinalize(t *testing.T) {
 		t.Fatalf("enqueue: %v", err)
 	}
 
-	// Create and run worker.
+	// Run one worker iteration.
 	logger := mocks.NewMockLogger()
 	w := &workertest.Runner{
 		Logger:    logger,

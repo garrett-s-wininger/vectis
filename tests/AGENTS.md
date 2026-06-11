@@ -7,6 +7,7 @@
 | `test` | All packages | No timeout, no race |
 | `test-quick` | `internal/...` `cmd/...` `api/...` | `-count=1 -timeout=60s` — fast feedback |
 | `test-integration` | Packages with `//go:build integration` | Requires Postgres (see `VECTIS_DATABASE_DSN`) |
+| `test-e2e` | Packages with `//go:build e2e` | Starts live binaries/stacks such as the Podman reference deployment |
 | `test-postgres-integration` | `tests/integration/postgres` | Starts `postgres:18-alpine` with testcontainers |
 | `test-race` | All packages | `-race` flag |
 | `fuzz-api-auth` | API auth fuzz targets | `FUZZTIME` (default 30s) |
@@ -26,6 +27,36 @@ Integration packages need `//go:build integration` at the top of every file and 
 Uses [`../internal/testutil/grpctest/`](../internal/testutil/grpctest/) for gRPC server setup. Example: [`integration/queue/server_test.go`](integration/queue/server_test.go). The `grpctest.SetupGRPCServer` function handles listening on an ephemeral port and returning a `*grpc.ClientConn`.
 
 **Postgres lane:** `tests/integration/postgres` uses [`internal/testutil/pgtest`](../internal/testutil/pgtest/) to start `postgres:18-alpine` with testcontainers, apply embedded migrations, and skip cleanly when no local container runtime is available. Set `VECTIS_REQUIRE_POSTGRES_TESTS=true` to fail instead of skip. Keep the image pre-pulled on dogfood hosts when runs must avoid network access.
+
+## E2E tests
+
+E2E packages need `//go:build e2e` at the top of every file and live under [`e2e/`](e2e/). They exercise live binaries or full local stacks and are intentionally outside the normal integration lane.
+
+The Podman e2e lane expects the host `bin/vectis-cli` binary and local Podman images to already exist. A typical prep loop is:
+
+```sh
+make build
+make images-components
+podman pull docker.io/library/alpine:3.21
+podman pull docker.io/library/postgres:18-alpine
+podman pull docker.io/prom/prometheus:v3.11.0-distroless
+podman pull docker.io/opensearchproject/opensearch:2.19.1
+podman pull docker.io/fluent/fluent-bit:5.0.4
+podman pull cr.jaegertracing.io/jaegertracing/jaeger:2.17.0
+podman pull docker.io/opensearchproject/opensearch-dashboards:2.19.1
+podman pull docker.io/grafana/grafana:13.0.0-23943897787
+VECTIS_E2E_PODMAN_RESET=true make test-e2e
+```
+
+Useful e2e controls:
+
+| Variable | Meaning |
+|---|---|
+| `VECTIS_E2E_CLI` | Override the host CLI binary path; defaults to `bin/vectis-cli`. |
+| `VECTIS_E2E_REQUIRE=true` | Fail instead of skip when prerequisites are missing. |
+| `VECTIS_E2E_PODMAN_RESET=true` | Allow the Podman e2e to remove and recreate the fixed `vectis` pod/volumes. |
+| `VECTIS_E2E_KEEP_PODMAN=true` | Leave the Podman stack up after the test for debugging. |
+| `VECTIS_E2E_ALLOW_IMAGE_PULL=true` | Skip local image preflight and let Podman pull missing `IfNotPresent` images. |
 
 ## Mocks
 

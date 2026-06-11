@@ -47,7 +47,7 @@ const (
 
 func TestIntegrationLocalSPIFFESecretsExample(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping local secrets E2E in short mode")
+		t.Skip("skipping local secrets integration test in short mode")
 	}
 
 	ctx := context.Background()
@@ -185,7 +185,7 @@ func startSecretsBroker(t *testing.T, logger interfaces.Logger, runs dal.RunsRep
 		provider,
 		secretstore.NewClaimAuthorizer(
 			runs,
-			secretstore.WithExecutionScopeResolver(e2eExecutionScopeResolver{store: runs, trustDomain: trustDomain}),
+			secretstore.WithExecutionScopeResolver(integrationExecutionScopeResolver{store: runs, trustDomain: trustDomain}),
 			secretstore.WithAccessPolicy(policy),
 		),
 		secretstore.WithLogger(logger),
@@ -278,14 +278,14 @@ func newBufconnSecretsResolver(listener *bufconn.Listener, caFile string, worklo
 	return secretstore.NewGRPCResolver(conn), func() { _ = conn.Close() }, nil
 }
 
-type e2eExecutionScopeResolver struct {
+type integrationExecutionScopeResolver struct {
 	store interface {
 		GetActiveExecutionDispatch(context.Context, string, string) (dal.ExecutionDispatchRecord, error)
 	}
 	trustDomain string
 }
 
-func (r e2eExecutionScopeResolver) ResolveExecutionScope(ctx context.Context, runID, executionID string) (secretstore.ExecutionScope, error) {
+func (r integrationExecutionScopeResolver) ResolveExecutionScope(ctx context.Context, runID, executionID string) (secretstore.ExecutionScope, error) {
 	if r.store == nil {
 		return secretstore.ExecutionScope{}, errors.New("active execution store is not configured")
 	}
@@ -406,7 +406,7 @@ func repoRoot(t *testing.T) string {
 func testSPIFFEConfig(t *testing.T) localspiffe.Config {
 	t.Helper()
 
-	dir, err := os.MkdirTemp("/tmp", "vectis-secrets-e2e-*")
+	dir, err := os.MkdirTemp("/tmp", "vectis-secrets-integration-*")
 	if err != nil {
 		t.Fatalf("create short temp dir: %v", err)
 	}

@@ -124,6 +124,10 @@ test-integration:
 test-lima:
 	go test ./internal/platform ./internal/job -run TestVirtualMachineIntegration -count=1 -v
 
+.PHONY: test-e2e
+test-e2e:
+	go test -tags=e2e ./tests/e2e/...
+
 .PHONY: test-postgres-integration
 test-postgres-integration:
 	go test -tags=integration ./tests/integration/postgres
