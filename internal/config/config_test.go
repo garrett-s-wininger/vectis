@@ -527,6 +527,76 @@ func TestSourceStoredJobsEnabled_DefaultAndOverride(t *testing.T) {
 	}
 }
 
+func TestSourceRepositoryDeclarations_Viper(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv(envSourceRepositories, "")
+	t.Setenv(envAPIServerSourceRepositories, "")
+
+	viper.Set("source.repositories", []map[string]any{
+		{
+			"repository_id":  " vectis-local ",
+			"namespace":      "/team-a",
+			"source_kind":    "local_checkout",
+			"checkout_path":  " /work/vectis ",
+			"checkout_mode":  "external",
+			"authoring_mode": "read_only",
+			"default_ref":    "main",
+			"enabled":        false,
+		},
+	})
+
+	repos, err := SourceRepositoryDeclarations()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(repos) != 1 {
+		t.Fatalf("len=%d, want 1", len(repos))
+	}
+
+	if repos[0].RepositoryID != "vectis-local" ||
+		repos[0].CheckoutPath != "/work/vectis" ||
+		repos[0].Namespace != "/team-a" ||
+		repos[0].DefaultRef != "main" ||
+		repos[0].Enabled == nil ||
+		*repos[0].Enabled {
+		t.Fatalf("repository declaration mismatch: %+v", repos[0])
+	}
+}
+
+func TestSourceRepositoryDeclarations_EnvJSON(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv(envAPIServerSourceRepositories, "")
+	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis","checkout_mode":"managed","canonical_url":"https://example.invalid/vectis.git","enabled":true}]`)
+
+	repos, err := SourceRepositoryDeclarations()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(repos) != 1 || repos[0].RepositoryID != "vectis" || repos[0].CheckoutMode != "managed" || repos[0].Enabled == nil || !*repos[0].Enabled {
+		t.Fatalf("repository declarations mismatch: %+v", repos)
+	}
+}
+
+func TestSourceRepositoryDeclarations_RejectsInvalid(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis"},{"repository_id":"vectis"}]`)
+	t.Setenv(envAPIServerSourceRepositories, "")
+
+	if _, err := SourceRepositoryDeclarations(); err == nil {
+		t.Fatal("expected duplicate repository error")
+	}
+
+	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis","unexpected":true}]`)
+	if _, err := SourceRepositoryDeclarations(); err == nil {
+		t.Fatal("expected unknown JSON field error")
+	}
+}
+
 func TestAPIHostAndListenAddr_DefaultAndOverride(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)

@@ -64,6 +64,35 @@ Some settings are global and intentionally do not use a service prefix, such as 
 | Fan in cell-local catalog events | `vectis-catalog --cell-database-dsn pdx-b=/path/to/pdx.db` |
 | Run `vectis-local` with plaintext internal gRPC | `vectis-local --grpc-insecure` or `VECTIS_LOCAL_GRPC_INSECURE=true`; local secrets are disabled in this mode |
 
+## Source Repositories
+
+`vectis-api` can reconcile source repository registrations at startup. This is the declarative path for configure-as-code instances: declare the repository list, start the API, then trigger jobs directly from source or import/update stored jobs as needed.
+
+Use `VECTIS_SOURCE_REPOSITORIES` or `VECTIS_API_SERVER_SOURCE_REPOSITORIES` with a JSON array:
+
+```sh
+export VECTIS_SOURCE_REPOSITORIES='[
+  {
+    "repository_id": "vectis-local",
+    "checkout_mode": "managed",
+    "canonical_url": "https://git.example.com/acme/vectis.git",
+    "default_ref": "main",
+    "authoring_mode": "read_only",
+    "enabled": true
+  }
+]'
+```
+
+Each entry accepts `repository_id`, `namespace`, `source_kind`, `checkout_path`, `checkout_mode`, `authoring_mode`, `canonical_url`, `default_ref`, `credential_ref`, and `enabled`. `namespace` defaults to `/`, `source_kind` defaults to `local_checkout`, `checkout_mode` defaults to `external`, `authoring_mode` defaults to `read_only`, and `enabled` defaults to `true`. For `checkout_mode=managed`, omit `checkout_path`; Vectis derives a stable path under `source.checkout_root` / `VECTIS_SOURCE_CHECKOUT_ROOT`.
+
+Startup reconciliation creates missing repository registrations and updates changed checkout, authoring, default ref, credential, and enabled fields. It does not delete repositories omitted from config. If a configured repository already exists in a different namespace, startup fails so operators can make an explicit move plan.
+
+For source-only deployments, combine declared repositories with:
+
+```sh
+export VECTIS_SOURCE_STORED_JOBS_ENABLED=false
+```
+
 ## Service Prefixes
 
 Use these prefixes when building service-specific environment variable names.

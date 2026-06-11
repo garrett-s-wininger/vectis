@@ -237,9 +237,10 @@ type DatabaseDefaults struct {
 }
 
 type SourceDefaults struct {
-	CheckoutRoot       string       `toml:"checkout_root"`
-	StoredJobsEnabled  bool         `toml:"stored_jobs_enabled"`
-	SyncRunningTimeout tomlDuration `toml:"sync_running_timeout"`
+	CheckoutRoot       string                        `toml:"checkout_root"`
+	StoredJobsEnabled  bool                          `toml:"stored_jobs_enabled"`
+	SyncRunningTimeout tomlDuration                  `toml:"sync_running_timeout"`
+	Repositories       []SourceRepositoryDeclaration `toml:"repositories"`
 }
 
 type PgxPoolDefaults struct {

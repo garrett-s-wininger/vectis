@@ -137,6 +137,14 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		return
 	}
 
+	sourceCtx, sourceCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer sourceCancel()
+	if err := reconcileConfiguredSourceRepositories(sourceCtx, dal.NewSQLRepositories(db), logger); err != nil {
+		logger.Error("Failed to reconcile configured source repositories: %v", err)
+		exitCode = 1
+		return
+	}
+
 	shutdownTracer, err := observability.InitTracer(cmd.Context(), "vectis-api")
 	if err != nil {
 		logger.Error("Failed to initialize tracer: %v", err)
