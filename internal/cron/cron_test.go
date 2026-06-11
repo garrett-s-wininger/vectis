@@ -4,6 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -54,6 +57,39 @@ func insertCronTestSchedule(t *testing.T, db *sql.DB, jobID, cronSpec string, ne
 	specID, err := result.LastInsertId()
 	if err != nil {
 		t.Fatalf("cron trigger spec id: %v", err)
+	}
+
+	return specID
+}
+
+func insertCronTestSourceSchedule(t *testing.T, db *sql.DB, jobID, repositoryID, ref, path, cronSpec string, nextRun time.Time) int64 {
+	t.Helper()
+
+	result, err := db.Exec(
+		"INSERT INTO job_triggers (job_id, trigger_type, source_repository_id, source_ref, source_path) VALUES (?, ?, ?, ?, ?)",
+		jobID,
+		"cron",
+		repositoryID,
+		ref,
+		path,
+	)
+	if err != nil {
+		t.Fatalf("insert source cron trigger: %v", err)
+	}
+
+	triggerID, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("source cron trigger id: %v", err)
+	}
+
+	result, err = db.Exec("INSERT INTO cron_trigger_specs (trigger_id, cron_spec, next_run_at) VALUES (?, ?, ?)", triggerID, cronSpec, nextRun.Format(time.RFC3339))
+	if err != nil {
+		t.Fatalf("insert source cron trigger spec: %v", err)
+	}
+
+	specID, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("source cron trigger spec id: %v", err)
 	}
 
 	return specID
@@ -367,6 +403,74 @@ func TestCronService_ProcessSchedules_TriggerAndUpdate(t *testing.T) {
 	}
 	if !hasSuccessMsg {
 		t.Errorf("expected success log, got: %v", infoCalls)
+	}
+}
+
+func TestCronService_ProcessSchedules_TriggersSourceRepositorySchedule(t *testing.T) {
+	repoPath := initCronGitRepo(t)
+	writeCronJobDefinitionAndCommit(t, repoPath, "source-cron", "source cron definition")
+	commit := cronGitOutput(t, repoPath, "rev-parse", "HEAD")
+	blob := cronGitOutput(t, repoPath, "rev-parse", "HEAD:.vectis/jobs/build.json")
+
+	service, _, queueService, db := setupTestCronService(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositories(db)
+	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "source-repo",
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: repoPath,
+		DefaultRef:   "HEAD",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("create source repository: %v", err)
+	}
+
+	pastTime := time.Now().Add(-24 * time.Hour)
+	insertCronTestSourceSchedule(t, db, "build", "source-repo", "", "", "* * * * *", pastTime)
+
+	if err := service.ProcessSchedules(ctx); err != nil {
+		t.Fatalf("process source schedule: %v", err)
+	}
+
+	jobs := queueService.GetJobs()
+	if len(jobs) != 1 {
+		t.Fatalf("expected 1 source job enqueued, got %d", len(jobs))
+	}
+
+	if jobs[0].GetId() != "build" ||
+		jobs[0].GetRoot().GetWith()["command"] != "source-cron" ||
+		jobs[0].GetRunId() == "" {
+		t.Fatalf("source cron job mismatch: %+v", jobs[0])
+	}
+
+	var storedCount int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM stored_jobs WHERE job_id = ?", "build").Scan(&storedCount); err != nil {
+		t.Fatalf("count stored jobs: %v", err)
+	}
+	if storedCount != 0 {
+		t.Fatalf("expected no stored job row for source cron schedule, got %d", storedCount)
+	}
+
+	sourceRec, err := repos.Sources().GetDefinitionSource(ctx, "build", 1)
+	if err != nil {
+		t.Fatalf("get source cron provenance: %v", err)
+	}
+
+	if sourceRec.RepositoryID != "source-repo" ||
+		sourceRec.RequestedRef != "HEAD" ||
+		sourceRec.ResolvedCommit != commit ||
+		sourceRec.DefinitionPath != ".vectis/jobs/build.json" ||
+		sourceRec.BlobSHA != blob {
+		t.Fatalf("source cron provenance mismatch: %+v", sourceRec)
+	}
+
+	nextRunStr := queryCronTestNextRun(t, db, "build")
+	nextRun, err := time.Parse(time.RFC3339, nextRunStr)
+	if err != nil {
+		t.Fatalf("parse source cron next_run_at: %v", err)
+	}
+	if !nextRun.After(pastTime) {
+		t.Fatalf("expected source cron next_run_at to advance, got %v", nextRun)
 	}
 }
 
@@ -853,4 +957,57 @@ func TestCronService_WaitTimeToNextMinute_AtSecond59(t *testing.T) {
 	if wait != expected {
 		t.Errorf("expected wait time %v, got %v", expected, wait)
 	}
+}
+
+func initCronGitRepo(t *testing.T) string {
+	t.Helper()
+
+	repo := t.TempDir()
+	cronGit(t, repo, "init")
+	cronGit(t, repo, "config", "user.name", "Vectis Test")
+	cronGit(t, repo, "config", "user.email", "vectis@example.invalid")
+	cronGit(t, repo, "config", "commit.gpgsign", "false")
+
+	return repo
+}
+
+func writeCronJobDefinitionAndCommit(t *testing.T, repo, command, message string) {
+	t.Helper()
+
+	writeCronFileAndCommit(t, repo, ".vectis/jobs/build.json", `{
+		"root": {"id": "root", "uses": "builtins/shell", "with": {"command": "`+command+`"}}
+	}`+"\n", message)
+}
+
+func writeCronFileAndCommit(t *testing.T, repo, name, content, message string) {
+	t.Helper()
+
+	path := filepath.Join(repo, filepath.FromSlash(name))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
+	}
+
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+
+	cronGit(t, repo, "add", name)
+	cronGit(t, repo, "commit", "-m", message)
+}
+
+func cronGitOutput(t *testing.T, repo string, args ...string) string {
+	t.Helper()
+
+	cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+
+	return strings.TrimSpace(string(out))
+}
+
+func cronGit(t *testing.T, repo string, args ...string) {
+	t.Helper()
+	_ = cronGitOutput(t, repo, args...)
 }

@@ -24,8 +24,11 @@ CREATE TABLE stored_jobs (
 
 CREATE TABLE job_triggers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    job_id TEXT NOT NULL REFERENCES stored_jobs(job_id),
+    job_id TEXT NOT NULL,
     trigger_type TEXT NOT NULL,
+    source_repository_id TEXT NOT NULL DEFAULT '',
+    source_ref TEXT NOT NULL DEFAULT '',
+    source_path TEXT NOT NULL DEFAULT '',
     enabled INTEGER NOT NULL DEFAULT 1,
     home_cell TEXT NOT NULL DEFAULT 'local',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -33,6 +36,7 @@ CREATE TABLE job_triggers (
 );
 
 CREATE INDEX idx_job_triggers_job_type ON job_triggers(job_id, trigger_type);
+CREATE INDEX idx_job_triggers_source_job ON job_triggers(source_repository_id, job_id);
 
 CREATE TABLE cron_trigger_specs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -300,6 +300,7 @@ type MockRunsRepository struct {
 	ExecutionPayloads      map[string]dal.ExecutionPayloadRecord
 	LastScheduleID         int64
 	LastScheduledFor       time.Time
+	LastSourceRecord       dal.JobDefinitionSourceRecord
 	LastListJobID          string
 	LastListAfterIndex     *int
 	LastListSince          *time.Time
@@ -711,6 +712,31 @@ func (m *MockRunsRepository) CreateScheduledRun(ctx context.Context, scheduleID 
 	m.LastScheduledFor = scheduledFor
 	m.mu.Unlock()
 	return m.CreateRunID, m.CreateRunIndex, m.CreateRunCreated, nil
+}
+
+func (m *MockRunsRepository) CreateScheduledSourceDefinitionRun(ctx context.Context, scheduleID int64, scheduledFor time.Time, jobID, definitionJSON string, source dal.JobDefinitionSourceRecord, audit dal.RunAuditMetadata) (string, int, int, bool, error) {
+	if m.CreateRunErr != nil {
+		return "", 0, 0, false, m.CreateRunErr
+	}
+
+	definitionVersion := source.Version
+	if definitionVersion <= 0 {
+		definitionVersion = m.LastDefinitionVersion
+	}
+	if definitionVersion <= 0 {
+		definitionVersion = 1
+	}
+
+	m.mu.Lock()
+	m.LastCreateJobID = jobID
+	m.LastDefinitionVersion = definitionVersion
+	m.LastRunAudit = audit
+	m.LastScheduleID = scheduleID
+	m.LastScheduledFor = scheduledFor
+	m.LastSourceRecord = source
+	m.mu.Unlock()
+
+	return m.CreateRunID, m.CreateRunIndex, definitionVersion, m.CreateRunCreated, nil
 }
 
 func (m *MockRunsRepository) ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, owningCell string, cursor int64, limit int) ([]dal.RunRecord, int64, error) {

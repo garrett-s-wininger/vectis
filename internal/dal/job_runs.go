@@ -883,8 +883,8 @@ func (r *SQLRunsRepository) CreateScheduledRun(ctx context.Context, scheduleID i
 
 	scheduledForKey := scheduledFor.UTC().Format(time.RFC3339)
 
-	for range 3 {
-		runID, runIndexOut, found, err := r.findScheduledRun(ctx, scheduleID, scheduledForKey)
+	for attempt := 0; attempt < 3; attempt++ {
+		runID, runIndexOut, _, found, err := r.findScheduledRun(ctx, scheduleID, scheduledForKey)
 		if err != nil {
 			return "", 0, false, err
 		}
@@ -902,7 +902,7 @@ func (r *SQLRunsRepository) CreateScheduledRun(ctx context.Context, scheduleID i
 		}
 	}
 
-	runID, runIndexOut, found, err := r.findScheduledRun(ctx, scheduleID, scheduledForKey)
+	runID, runIndexOut, _, found, err := r.findScheduledRun(ctx, scheduleID, scheduledForKey)
 	if err != nil {
 		return "", 0, false, err
 	}
@@ -914,23 +914,61 @@ func (r *SQLRunsRepository) CreateScheduledRun(ctx context.Context, scheduleID i
 	return "", 0, false, fmt.Errorf("%w: scheduled run for schedule %d at %s was not created", ErrConflict, scheduleID, scheduledForKey)
 }
 
-func (r *SQLRunsRepository) findScheduledRun(ctx context.Context, scheduleID int64, scheduledForKey string) (runID string, runIndexOut int, found bool, err error) {
+func (r *SQLRunsRepository) CreateScheduledSourceDefinitionRun(ctx context.Context, scheduleID int64, scheduledFor time.Time, jobID, definitionJSON string, source JobDefinitionSourceRecord, audit RunAuditMetadata) (runID string, runIndexOut int, definitionVersion int, created bool, err error) {
+	if scheduleID <= 0 {
+		return "", 0, 0, false, fmt.Errorf("schedule id is required")
+	}
+
+	scheduledForKey := scheduledFor.UTC().Format(time.RFC3339)
+
+	for attempt := 0; attempt < 3; attempt++ {
+		runID, runIndexOut, definitionVersion, found, err := r.findScheduledRun(ctx, scheduleID, scheduledForKey)
+		if err != nil {
+			return "", 0, 0, false, err
+		}
+		if found {
+			return runID, runIndexOut, definitionVersion, false, nil
+		}
+
+		runID, runIndexOut, definitionVersion, created, err := r.tryCreateScheduledSourceDefinitionRun(ctx, scheduleID, scheduledForKey, jobID, definitionJSON, source, audit)
+		if err != nil {
+			return "", 0, 0, false, err
+		}
+
+		if created {
+			return runID, runIndexOut, definitionVersion, true, nil
+		}
+	}
+
+	runID, runIndexOut, definitionVersion, found, err := r.findScheduledRun(ctx, scheduleID, scheduledForKey)
+	if err != nil {
+		return "", 0, 0, false, err
+	}
+
+	if found {
+		return runID, runIndexOut, definitionVersion, false, nil
+	}
+
+	return "", 0, 0, false, fmt.Errorf("%w: scheduled source run for schedule %d at %s was not created", ErrConflict, scheduleID, scheduledForKey)
+}
+
+func (r *SQLRunsRepository) findScheduledRun(ctx context.Context, scheduleID int64, scheduledForKey string) (runID string, runIndexOut int, definitionVersion int, found bool, err error) {
 	err = r.db.QueryRowContext(ctx, rebindQueryForPgx(`
-		SELECT f.run_id, r.run_index
+		SELECT f.run_id, r.run_index, r.definition_version
 		FROM cron_schedule_fires f
 		JOIN job_runs r ON r.run_id = f.run_id
 		WHERE f.schedule_id = ? AND f.scheduled_for = ?
-	`), scheduleID, scheduledForKey).Scan(&runID, &runIndexOut)
+	`), scheduleID, scheduledForKey).Scan(&runID, &runIndexOut, &definitionVersion)
 
 	if err == nil {
-		return runID, runIndexOut, true, nil
+		return runID, runIndexOut, definitionVersion, true, nil
 	}
 
 	if err != sql.ErrNoRows {
-		return "", 0, false, normalizeSQLError(err)
+		return "", 0, 0, false, normalizeSQLError(err)
 	}
 
-	return "", 0, false, nil
+	return "", 0, 0, false, nil
 }
 
 func (r *SQLRunsRepository) tryCreateScheduledRun(ctx context.Context, scheduleID int64, scheduledForKey, jobID string, definitionVersion int, audit RunAuditMetadata) (runID string, runIndexOut int, created bool, err error) {
@@ -970,6 +1008,71 @@ func (r *SQLRunsRepository) tryCreateScheduledRun(ctx context.Context, scheduleI
 	}
 
 	return runID, runIndexOut, true, nil
+}
+
+func (r *SQLRunsRepository) tryCreateScheduledSourceDefinitionRun(ctx context.Context, scheduleID int64, scheduledForKey, jobID, definitionJSON string, source JobDefinitionSourceRecord, audit RunAuditMetadata) (runID string, runIndexOut int, definitionVersion int, created bool, err error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", 0, 0, false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	jobID = strings.TrimSpace(jobID)
+	if jobID == "" {
+		return "", 0, 0, false, fmt.Errorf("%w: job_id is required", ErrConflict)
+	}
+
+	if err := tx.QueryRowContext(ctx,
+		rebindQueryForPgx("SELECT COALESCE(MAX(version), 0) + 1 FROM job_definitions WHERE job_id = ?"),
+		jobID,
+	).Scan(&definitionVersion); err != nil {
+		return "", 0, 0, false, normalizeSQLError(err)
+	}
+
+	definitionHash := DefinitionHash(definitionJSON)
+	if _, err := tx.ExecContext(ctx,
+		rebindQueryForPgx(`INSERT INTO job_definitions (global_id, job_id, version, definition_json, definition_hash) VALUES (?, ?, ?, ?, ?)`),
+		newGlobalID(), jobID, definitionVersion, definitionJSON, definitionHash,
+	); err != nil {
+		return "", 0, 0, false, normalizeSQLError(err)
+	}
+
+	source.JobID = jobID
+	source.Version = definitionVersion
+	if err := insertDefinitionSourceTx(ctx, tx, source); err != nil {
+		return "", 0, 0, false, err
+	}
+
+	runID = uuid.New().String()
+	runIndexOut, err = createRunTx(ctx, tx, runID, jobID, nil, definitionVersion, r.currentCellID(), audit)
+	if err != nil {
+		return "", 0, 0, false, err
+	}
+
+	res, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		INSERT INTO cron_schedule_fires (schedule_id, scheduled_for, run_id)
+		VALUES (?, ?, ?)
+		ON CONFLICT(schedule_id, scheduled_for) DO NOTHING
+	`), scheduleID, scheduledForKey, runID)
+
+	if err != nil {
+		return "", 0, 0, false, normalizeSQLError(err)
+	}
+
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return "", 0, 0, false, err
+	}
+
+	if rows == 0 {
+		return "", 0, 0, false, nil
+	}
+
+	if err = tx.Commit(); err != nil {
+		return "", 0, 0, false, err
+	}
+
+	return runID, runIndexOut, definitionVersion, true, nil
 }
 
 func createRunTx(ctx context.Context, tx *sql.Tx, runID, jobID string, runIndex *int, definitionVersion int, targetCellID string, audit RunAuditMetadata) (int, error) {

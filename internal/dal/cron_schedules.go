@@ -59,7 +59,15 @@ func (r *SQLSchedulesRepository) CronScheduleSummary(ctx context.Context, at tim
 
 func (r *SQLSchedulesRepository) GetReady(ctx context.Context, at time.Time) ([]CronSchedule, error) {
 	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
-		SELECT cts.id, cts.trigger_id, jt.job_id, cts.cron_spec, cts.next_run_at
+		SELECT
+			cts.id,
+			cts.trigger_id,
+			jt.job_id,
+			cts.cron_spec,
+			cts.next_run_at,
+			COALESCE(jt.source_repository_id, ''),
+			COALESCE(jt.source_ref, ''),
+			COALESCE(jt.source_path, '')
 		FROM cron_trigger_specs cts
 		JOIN job_triggers jt ON jt.id = cts.trigger_id
 		WHERE cts.next_run_at <= ?
@@ -76,7 +84,16 @@ func (r *SQLSchedulesRepository) GetReady(ctx context.Context, at time.Time) ([]
 	for rows.Next() {
 		var sched CronSchedule
 		var nextRunAt string
-		if err := rows.Scan(&sched.ID, &sched.TriggerID, &sched.JobID, &sched.CronSpec, &nextRunAt); err != nil {
+		if err := rows.Scan(
+			&sched.ID,
+			&sched.TriggerID,
+			&sched.JobID,
+			&sched.CronSpec,
+			&nextRunAt,
+			&sched.SourceRepositoryID,
+			&sched.SourceRef,
+			&sched.SourcePath,
+		); err != nil {
 			return nil, normalizeSQLError(err)
 		}
 

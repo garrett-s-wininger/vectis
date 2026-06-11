@@ -2590,19 +2590,7 @@ func sourceImportJobIDFromPath(rootPath, filePath string) (string, error) {
 }
 
 func sourceTriggerDefinitionPath(jobID string) (string, error) {
-	jobID = strings.TrimSpace(jobID)
-	if jobID == "" || strings.Contains(jobID, "/") || strings.Contains(jobID, "\\") {
-		return "", errors.New("job_id cannot derive a source path")
-	}
-
-	parts := strings.Split(jobID, ".")
-	for _, part := range parts {
-		if !validSourceImportJobIDPart(part) {
-			return "", errors.New("job_id cannot derive a source path")
-		}
-	}
-
-	return path.Join(sourcepkg.DefaultDefinitionPath, path.Join(parts...)+".json"), nil
+	return sourcepkg.DefinitionPathForJobID(jobID)
 }
 
 func validSourceImportJobIDPart(part string) bool {

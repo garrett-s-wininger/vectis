@@ -593,11 +593,14 @@ type CatalogStatusBackfillRepository interface {
 }
 
 type CronSchedule struct {
-	ID        int64
-	TriggerID int64
-	JobID     string
-	CronSpec  string
-	NextRunAt time.Time
+	ID                 int64
+	TriggerID          int64
+	JobID              string
+	CronSpec           string
+	NextRunAt          time.Time
+	SourceRepositoryID string
+	SourceRef          string
+	SourcePath         string
 }
 
 type CronScheduleSummary struct {
@@ -673,6 +676,7 @@ type RunsRepository interface {
 	CreateRunsInCells(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellIDs []string) ([]CreatedRun, error)
 	CreateRunsInCellsWithAudit(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellIDs []string, audit RunAuditMetadata) ([]CreatedRun, error)
 	CreateScheduledRun(ctx context.Context, scheduleID int64, scheduledFor time.Time, jobID string, definitionVersion int, audit RunAuditMetadata) (runID string, runIndexOut int, created bool, err error)
+	CreateScheduledSourceDefinitionRun(ctx context.Context, scheduleID int64, scheduledFor time.Time, jobID, definitionJSON string, source JobDefinitionSourceRecord, audit RunAuditMetadata) (runID string, runIndexOut int, definitionVersion int, created bool, err error)
 	CreateReplayRun(ctx context.Context, sourceRunID string, targetCellID string, audit RunAuditMetadata) (CreatedRun, error)
 	ListCreatedByTriggerInvocation(ctx context.Context, invocationID string) ([]CreatedRun, error)
 	RecordExecutionPayload(ctx context.Context, runID, payloadJSON, definitionHash string) (payloadHash string, recordedPayloadJSON string, err error)

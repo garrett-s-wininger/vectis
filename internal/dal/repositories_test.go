@@ -3780,6 +3780,43 @@ func insertCronTriggerSpec(t *testing.T, ctx context.Context, db *sql.DB, jobID,
 	return specID
 }
 
+func insertSourceCronTriggerSpec(t *testing.T, ctx context.Context, db *sql.DB, jobID, repositoryID, cronSpec string, nextRun time.Time) int64 {
+	t.Helper()
+
+	result, err := db.ExecContext(ctx,
+		"INSERT INTO job_triggers (job_id, trigger_type, source_repository_id) VALUES (?, ?, ?)",
+		jobID,
+		"cron",
+		repositoryID,
+	)
+
+	if err != nil {
+		t.Fatalf("insert source cron trigger: %v", err)
+	}
+
+	triggerID, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("source cron trigger id: %v", err)
+	}
+
+	result, err = db.ExecContext(ctx,
+		"INSERT INTO cron_trigger_specs (trigger_id, cron_spec, next_run_at) VALUES (?, ?, ?)",
+		triggerID,
+		cronSpec,
+		nextRun.Format(time.RFC3339),
+	)
+	if err != nil {
+		t.Fatalf("insert source cron trigger spec: %v", err)
+	}
+
+	specID, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("source cron trigger spec id: %v", err)
+	}
+
+	return specID
+}
+
 func TestRunsRepository_CreateRunAndListSinceOrdered(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	runs := dal.NewSQLRepositories(db).Runs()
@@ -3908,6 +3945,90 @@ func TestRunsRepository_CreateScheduledRunIdempotentByScheduleTick(t *testing.T)
 	var fireCount int
 	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM cron_schedule_fires WHERE schedule_id = ?", scheduleID).Scan(&fireCount); err != nil {
 		t.Fatalf("count schedule fires: %v", err)
+	}
+
+	if fireCount != 2 {
+		t.Fatalf("expected two cron_schedule_fires rows, got %d", fireCount)
+	}
+}
+
+func TestRunsRepository_CreateScheduledSourceDefinitionRunIdempotentByScheduleTick(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	runs := repos.Runs()
+	ctx := context.Background()
+
+	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "source-repo",
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/tmp/source-repo",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("create source repository: %v", err)
+	}
+
+	jobID := "source-cron"
+	scheduledFor := time.Date(2026, 3, 21, 12, 10, 0, 0, time.UTC)
+	scheduleID := insertSourceCronTriggerSpec(t, ctx, db, jobID, "source-repo", "* * * * *", scheduledFor)
+	sourceRec := dal.JobDefinitionSourceRecord{
+		RepositoryID:   "source-repo",
+		RequestedRef:   "main",
+		ResolvedCommit: "abc123",
+		DefinitionPath: ".vectis/jobs/source-cron.json",
+		BlobSHA:        "blob-1",
+	}
+
+	runID1, idx1, version1, created, err := runs.CreateScheduledSourceDefinitionRun(ctx, scheduleID, scheduledFor, jobID, `{"id":"source-cron"}`, sourceRec, dal.RunAuditMetadata{})
+	if err != nil {
+		t.Fatalf("create scheduled source run: %v", err)
+	}
+
+	if !created || version1 != 1 || idx1 != 1 {
+		t.Fatalf("first scheduled source run mismatch: run=%s idx=%d version=%d created=%t", runID1, idx1, version1, created)
+	}
+
+	runID2, idx2, version2, created, err := runs.CreateScheduledSourceDefinitionRun(ctx, scheduleID, scheduledFor, jobID, `{"id":"source-cron","version":2}`, sourceRec, dal.RunAuditMetadata{})
+	if err != nil {
+		t.Fatalf("create duplicate scheduled source run: %v", err)
+	}
+
+	if created || runID2 != runID1 || idx2 != idx1 || version2 != version1 {
+		t.Fatalf("duplicate scheduled source run mismatch: run=%s idx=%d version=%d created=%t", runID2, idx2, version2, created)
+	}
+
+	nextScheduledFor := scheduledFor.Add(time.Minute)
+	sourceRec.ResolvedCommit = "def456"
+	sourceRec.BlobSHA = "blob-2"
+	runID3, idx3, version3, created, err := runs.CreateScheduledSourceDefinitionRun(ctx, scheduleID, nextScheduledFor, jobID, `{"id":"source-cron","version":2}`, sourceRec, dal.RunAuditMetadata{})
+	if err != nil {
+		t.Fatalf("create next scheduled source run: %v", err)
+	}
+
+	if !created || runID3 == runID1 || idx3 != 2 || version3 != 2 {
+		t.Fatalf("next scheduled source run mismatch: run=%s idx=%d version=%d created=%t", runID3, idx3, version3, created)
+	}
+
+	var sourceCount int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM job_definition_sources WHERE job_id = ?", jobID).Scan(&sourceCount); err != nil {
+		t.Fatalf("count job definition sources: %v", err)
+	}
+
+	if sourceCount != 2 {
+		t.Fatalf("expected two source provenance rows, got %d", sourceCount)
+	}
+
+	gotSource, err := repos.Sources().GetDefinitionSource(ctx, jobID, 2)
+	if err != nil {
+		t.Fatalf("get second definition source: %v", err)
+	}
+
+	if gotSource.RepositoryID != "source-repo" || gotSource.ResolvedCommit != "def456" || gotSource.BlobSHA != "blob-2" {
+		t.Fatalf("second definition source mismatch: %+v", gotSource)
+	}
+
+	var fireCount int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM cron_schedule_fires WHERE schedule_id = ?", scheduleID).Scan(&fireCount); err != nil {
+		t.Fatalf("count source schedule fires: %v", err)
 	}
 
 	if fireCount != 2 {

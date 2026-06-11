@@ -25,20 +25,27 @@ import (
 	"vectis/internal/interfaces"
 	jobdef "vectis/internal/job"
 	"vectis/internal/queueclient"
+	sourcepkg "vectis/internal/source"
+
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 type CronSchedule struct {
-	ID        int64
-	TriggerID int64
-	JobID     string
-	CronSpec  string
-	NextRunAt time.Time
+	ID                 int64
+	TriggerID          int64
+	JobID              string
+	CronSpec           string
+	NextRunAt          time.Time
+	SourceRepositoryID string
+	SourceRef          string
+	SourcePath         string
 }
 
 type CronService struct {
 	jobs           dal.JobsRepository
 	runs           dal.RunsRepository
 	schedules      dal.SchedulesRepository
+	sources        dal.SourcesRepository
 	dispatch       dal.DispatchEventsRepository
 	triggers       dal.TriggerInvocationsRepository
 	logger         interfaces.Logger
@@ -58,6 +65,7 @@ type CronService struct {
 func NewCronService(logger interfaces.Logger, db *sql.DB) *CronService {
 	repos := dal.NewSQLRepositoriesWithCellID(db, config.CellID())
 	s := NewCronServiceWithRepositories(logger, repos.Jobs(), repos.Runs(), repos.Schedules())
+	s.sources = repos.Sources()
 	s.dispatch = repos.DispatchEvents()
 	s.triggers = repos.TriggerInvocations()
 	return s
@@ -112,6 +120,10 @@ func (s *CronService) SetActionDescriptorResolver(resolver actionregistry.Resolv
 
 func (s *CronService) SetTriggerInvocations(triggers dal.TriggerInvocationsRepository) {
 	s.triggers = triggers
+}
+
+func (s *CronService) SetSources(sources dal.SourcesRepository) {
+	s.sources = sources
 }
 
 func (s *CronService) SetInstanceID(id string) {
@@ -219,11 +231,14 @@ func (s *CronService) GetReadySchedules(ctx context.Context) ([]CronSchedule, er
 	schedules := make([]CronSchedule, 0, len(ready))
 	for _, sched := range ready {
 		schedules = append(schedules, CronSchedule{
-			ID:        sched.ID,
-			TriggerID: sched.TriggerID,
-			JobID:     sched.JobID,
-			CronSpec:  sched.CronSpec,
-			NextRunAt: sched.NextRunAt,
+			ID:                 sched.ID,
+			TriggerID:          sched.TriggerID,
+			JobID:              sched.JobID,
+			CronSpec:           sched.CronSpec,
+			NextRunAt:          sched.NextRunAt,
+			SourceRepositoryID: sched.SourceRepositoryID,
+			SourceRef:          sched.SourceRef,
+			SourcePath:         sched.SourcePath,
 		})
 	}
 
@@ -281,6 +296,10 @@ func (s *CronService) TriggerJob(ctx context.Context, jobID string) error {
 }
 
 func (s *CronService) triggerJob(ctx context.Context, jobID string, schedule *CronSchedule) error {
+	if schedule != nil && strings.TrimSpace(schedule.SourceRepositoryID) != "" {
+		return s.triggerSourceJob(ctx, jobID, schedule)
+	}
+
 	job, definitionVersion, definitionHash, err := s.getJobDefinitionWithVersion(ctx, jobID)
 	if err != nil {
 		return err
@@ -322,6 +341,112 @@ func (s *CronService) triggerJob(ctx context.Context, jobID string, schedule *Cr
 	}
 
 	return s.dispatchRun(ctx, job, runID, definitionHash)
+}
+
+func (s *CronService) triggerSourceJob(ctx context.Context, jobID string, schedule *CronSchedule) error {
+	loaded, sourceRec, err := s.loadSourceScheduleDefinition(ctx, jobID, schedule)
+	if err != nil {
+		return err
+	}
+
+	invocationID, err := s.recordTriggerInvocation(ctx, jobID, schedule)
+	if err != nil {
+		return err
+	}
+
+	audit := dal.RunAuditMetadata{
+		TriggerInvocationID:   invocationID,
+		StartDeadlineUnixNano: dispatchmeta.DeadlineUnixNano(s.clock.Now(), config.DispatchStartTTL()),
+	}
+	runID, _, definitionVersion, created, err := s.runs.CreateScheduledSourceDefinitionRun(ctx, schedule.ID, schedule.NextRunAt, jobID, loaded.DefinitionJSON, sourceRec, audit)
+	if err != nil {
+		return err
+	}
+
+	definitionJSON := loaded.DefinitionJSON
+	job := loaded.Job
+	if !created {
+		s.logger.Info("Reusing existing source cron run %s for schedule %d at %v", runID, schedule.ID, schedule.NextRunAt)
+		definitionJSON, job, err = s.getJobDefinitionVersion(ctx, jobID, definitionVersion)
+		if err != nil {
+			return err
+		}
+	}
+
+	job.Id = &jobID
+	job.RunId = &runID
+
+	return s.dispatchRun(ctx, job, runID, dal.DefinitionHash(definitionJSON))
+}
+
+func (s *CronService) getJobDefinitionVersion(ctx context.Context, jobID string, version int) (string, *api.Job, error) {
+	definitionJSON, err := s.jobs.GetDefinitionVersion(ctx, jobID, version)
+	if err != nil {
+		return "", nil, err
+	}
+
+	var job api.Job
+	if err := json.Unmarshal([]byte(definitionJSON), &job); err != nil {
+		return "", nil, fmt.Errorf("failed to parse job definition version %d: %w", version, err)
+	}
+
+	return definitionJSON, &job, nil
+}
+
+func (s *CronService) loadSourceScheduleDefinition(ctx context.Context, jobID string, schedule *CronSchedule) (sourcepkg.Definition, dal.JobDefinitionSourceRecord, error) {
+	if s.sources == nil {
+		return sourcepkg.Definition{}, dal.JobDefinitionSourceRecord{}, fmt.Errorf("source repository schedules are not configured")
+	}
+
+	repositoryID := strings.TrimSpace(schedule.SourceRepositoryID)
+	repoRec, err := s.sources.GetRepository(ctx, repositoryID)
+	if err != nil {
+		return sourcepkg.Definition{}, dal.JobDefinitionSourceRecord{}, err
+	}
+
+	if !repoRec.Enabled {
+		return sourcepkg.Definition{}, dal.JobDefinitionSourceRecord{}, fmt.Errorf("%w: source repository %s is disabled", sourcepkg.ErrInvalidReference, repoRec.RepositoryID)
+	}
+
+	ref := strings.TrimSpace(schedule.SourceRef)
+	if ref == "" {
+		ref = strings.TrimSpace(repoRec.DefaultRef)
+	}
+	if ref == "" {
+		ref = "HEAD"
+	}
+
+	definitionPath := strings.TrimSpace(schedule.SourcePath)
+	if definitionPath == "" {
+		definitionPath, err = sourcepkg.DefinitionPathForJobID(jobID)
+		if err != nil {
+			return sourcepkg.Definition{}, dal.JobDefinitionSourceRecord{}, err
+		}
+	}
+
+	repo, err := sourcepkg.NewRepositoryFromRecord(repoRec)
+	if err != nil {
+		return sourcepkg.Definition{}, dal.JobDefinitionSourceRecord{}, err
+	}
+
+	loaded, err := sourcepkg.LoadDefinition(ctx, repo, sourcepkg.DefinitionRequest{
+		Ref:  ref,
+		Path: definitionPath,
+	})
+	if err != nil {
+		return sourcepkg.Definition{}, dal.JobDefinitionSourceRecord{}, err
+	}
+
+	sourceRec := dal.JobDefinitionSourceRecord{
+		JobID:          jobID,
+		RepositoryID:   repoRec.RepositoryID,
+		RequestedRef:   loaded.Source.RequestedRef,
+		ResolvedCommit: loaded.Source.Commit,
+		DefinitionPath: loaded.Source.Path,
+		BlobSHA:        loaded.Source.BlobSHA,
+	}
+
+	return loaded, sourceRec, nil
 }
 
 func (s *CronService) TriggerSchedule(ctx context.Context, sched CronSchedule) error {
@@ -426,6 +551,11 @@ func (s *CronService) recordTriggerInvocation(ctx context.Context, jobID string,
 		payload["schedule_id"] = strconv.FormatInt(schedule.ID, 10)
 		payload["cron_spec"] = schedule.CronSpec
 		payload["next_run_at"] = schedule.NextRunAt.UTC().Format(time.RFC3339Nano)
+		if schedule.SourceRepositoryID != "" {
+			payload["source_repository_id"] = schedule.SourceRepositoryID
+			payload["source_ref"] = schedule.SourceRef
+			payload["source_path"] = schedule.SourcePath
+		}
 	}
 
 	payloadJSON, err := json.Marshal(payload)
