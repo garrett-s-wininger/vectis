@@ -265,6 +265,202 @@ func TestTriggerJobRequestBody_rejectsEmptyCell(t *testing.T) {
 	}
 }
 
+func TestPersistJobFromSource_sendsCreateRequestAndPrintsProvenance(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/jobs/source/build" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		if got := r.Header.Get("Content-Type"); got != "application/json" {
+			t.Errorf("Content-Type=%q", got)
+		}
+
+		var body jobSourceRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+
+		if body.Namespace != "/team-a" ||
+			body.RepositoryID != "vectis" ||
+			body.Ref != "main" ||
+			body.Path != ".vectis/jobs/build.json" {
+			t.Errorf("create source body mismatch: %+v", body)
+		}
+
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"job_id":          "build",
+			"version":         3,
+			"definition_hash": "hash",
+			"source": map[string]any{
+				"repository_id":   "vectis",
+				"requested_ref":   "main",
+				"resolved_commit": "0123456789abcdef",
+				"path":            ".vectis/jobs/build.json",
+				"blob_sha":        "abcdef0123456789",
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	err := persistJobFromSourceWithOutput(&buf, http.MethodPost, "build", "vectis", ".vectis/jobs/build.json", "/team-a", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"job_id=build", "version=3", "definition_hash=hash", "repository_id=vectis", "requested_ref=main", "resolved_commit=0123456789abcdef", "path=.vectis/jobs/build.json", "blob_sha=abcdef0123456789"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestPersistJobFromSource_sendsUpdateRequest(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/jobs/source/build" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		var body jobSourceRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+
+		if body.Namespace != "" ||
+			body.RepositoryID != "vectis" ||
+			body.Ref != "release/1" ||
+			body.Path != ".vectis/jobs/build.json" {
+			t.Errorf("update source body mismatch: %+v", body)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"job_id":          "build",
+			"version":         4,
+			"definition_hash": "hash-2",
+			"source": map[string]any{
+				"repository_id":   "vectis",
+				"requested_ref":   "release/1",
+				"resolved_commit": "fedcba9876543210",
+				"path":            ".vectis/jobs/build.json",
+				"blob_sha":        "abcdef0123456789",
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	err := persistJobFromSourceWithOutput(&buf, http.MethodPut, "build", "vectis", ".vectis/jobs/build.json", "", "release/1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"job_id=build", "version=4", "definition_hash=hash-2", "requested_ref=release/1", "resolved_commit=fedcba9876543210"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestShowStoredJobSource_sendsVersionAndPrintsProvenance(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/jobs/build/source" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		if got := r.URL.Query().Get("version"); got != "2" {
+			t.Errorf("version=%q", got)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"job_id":          "build",
+			"version":         2,
+			"definition_hash": "hash",
+			"source": map[string]any{
+				"repository_id":   "vectis",
+				"requested_ref":   "main",
+				"resolved_commit": "0123456789abcdef",
+				"path":            ".vectis/jobs/build.json",
+				"blob_sha":        "abcdef0123456789",
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := showStoredJobSourceWithOutput(&buf, "build", 2); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"job_id=build", "version=2", "repository_id=vectis", "requested_ref=main", "resolved_commit=0123456789abcdef", "path=.vectis/jobs/build.json"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestShowStoredJobSourceDefinition_sendsVersionAndPrintsDefinition(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/jobs/build/source/definition" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		if got := r.URL.Query().Get("version"); got != "2" {
+			t.Errorf("version=%q", got)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"job_id":          "build",
+			"version":         2,
+			"definition_hash": "hash",
+			"definition": map[string]any{
+				"root": map[string]any{
+					"id":   "root",
+					"uses": "builtins/shell",
+					"with": map[string]any{"command": "true"},
+				},
+			},
+			"source": map[string]any{
+				"repository_id":   "vectis",
+				"requested_ref":   "main",
+				"resolved_commit": "0123456789abcdef",
+				"path":            ".vectis/jobs/build.json",
+				"blob_sha":        "abcdef0123456789",
+			},
+		})
+	})
+
+	cmd := &cobra.Command{}
+	cmd.Flags().Bool("raw", false, "")
+	var buf bytes.Buffer
+	if err := showStoredJobSourceDefinitionWithOutput(cmd, &buf, "build", 2); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{`"root"`, `"builtins/shell"`} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
 func TestTriggerSourceJob_sendsOptionsAndIdempotencyKey(t *testing.T) {
 	oldRef := sourceTriggerRef
 	oldPath := sourceTriggerPath

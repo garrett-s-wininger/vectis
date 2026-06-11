@@ -82,6 +82,11 @@ var (
 	triggerCellIDs              []string
 	runIdemKey                  string
 	runCellID                   string
+	jobSourceCreateNamespace    string
+	jobSourceCreateRef          string
+	jobSourceUpdateRef          string
+	jobSourceShowVersion        int
+	jobSourceDefinitionVersion  int
 	sourceListNamespace         string
 	sourceListQuiet             bool
 	sourceRegisterNamespace     string
@@ -184,7 +189,12 @@ func init() {
 	configureJobCreateFlags(createCmd)
 	configureJobDeleteFlags(deleteCmd)
 	configureJobListFlags(listCmd)
-	jobsCmd.AddCommand(listCmd, getCmd, createCmd, editCmd, deleteCmd, triggerCmd, runCmd)
+	configureJobSourceCreateFlags(jobSourceCreateCmd)
+	configureJobSourceUpdateFlags(jobSourceUpdateCmd)
+	configureJobSourceShowFlags(jobSourceShowCmd)
+	configureJobSourceDefinitionFlags(jobSourceDefinitionCmd)
+	jobSourceCmd.AddCommand(jobSourceCreateCmd, jobSourceUpdateCmd, jobSourceShowCmd, jobSourceDefinitionCmd)
+	jobsCmd.AddCommand(listCmd, getCmd, createCmd, editCmd, deleteCmd, jobSourceCmd, triggerCmd, runCmd)
 	rootCmd.AddCommand(jobsCmd)
 
 	configureActionListFlags(actionsListCmd)

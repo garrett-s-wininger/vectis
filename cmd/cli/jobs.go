@@ -34,6 +34,35 @@ type jobRunCellResult struct {
 	CellID   string `json:"cell_id,omitempty"`
 }
 
+type jobSourceRequest struct {
+	Namespace    string `json:"namespace,omitempty"`
+	RepositoryID string `json:"repository_id"`
+	Ref          string `json:"ref,omitempty"`
+	Path         string `json:"path"`
+}
+
+type persistedSourceJobResult struct {
+	JobID          string           `json:"job_id"`
+	Version        int              `json:"version"`
+	DefinitionHash string           `json:"definition_hash"`
+	Source         sourceProvenance `json:"source"`
+}
+
+type storedJobSourceResult struct {
+	JobID          string           `json:"job_id"`
+	Version        int              `json:"version"`
+	DefinitionHash string           `json:"definition_hash"`
+	Source         sourceProvenance `json:"source"`
+}
+
+type storedJobSourceDefinitionResult struct {
+	JobID          string           `json:"job_id"`
+	Version        int              `json:"version"`
+	DefinitionHash string           `json:"definition_hash"`
+	Definition     json.RawMessage  `json:"definition"`
+	Source         sourceProvenance `json:"source"`
+}
+
 func setIdempotencyHeader(req *http.Request, key string) {
 	if key = strings.TrimSpace(key); key != "" {
 		req.Header.Set("Idempotency-Key", key)
@@ -515,6 +544,188 @@ func getJobDefinition(cmd *cobra.Command, args []string) {
 	fmt.Print(string(out))
 }
 
+func createJobFromSource(cmd *cobra.Command, args []string) {
+	runCLIError(persistJobFromSourceWithOutput(os.Stdout, http.MethodPost, args[0], args[1], args[2], jobSourceCreateNamespace, jobSourceCreateRef))
+}
+
+func updateJobFromSource(cmd *cobra.Command, args []string) {
+	runCLIError(persistJobFromSourceWithOutput(os.Stdout, http.MethodPut, args[0], args[1], args[2], "", jobSourceUpdateRef))
+}
+
+func persistJobFromSourceWithOutput(out io.Writer, method, jobID, repositoryID, definitionPath, namespace, ref string) error {
+	body, err := json.Marshal(jobSourceRequest{
+		Namespace:    strings.TrimSpace(namespace),
+		RepositoryID: strings.TrimSpace(repositoryID),
+		Ref:          strings.TrimSpace(ref),
+		Path:         strings.TrimSpace(definitionPath),
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to encode job source request: %w", err)
+	}
+
+	req, err := newAPIRequest(method, "/api/v1/jobs/source/"+url.PathEscape(jobID), bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create job source request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to persist job from source: %w", err)
+	}
+	defer resp.Body.Close()
+
+	expectedStatus := http.StatusCreated
+	operation := "creating"
+	if method == http.MethodPut {
+		expectedStatus = http.StatusOK
+		operation = "updating"
+	}
+
+	switch resp.StatusCode {
+	case expectedStatus:
+		var result persistedSourceJobResult
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to parse job source response: %w", err)
+		}
+
+		return writePersistedSourceJobResult(out, result)
+	case http.StatusBadRequest:
+		return fmt.Errorf("invalid job source request")
+	case http.StatusConflict:
+		return fmt.Errorf("job source operation conflicted or source repository is unavailable")
+	case http.StatusNotFound:
+		return fmt.Errorf("job %q, source repository %q, or definition path %q not found", jobID, repositoryID, definitionPath)
+	case http.StatusRequestEntityTooLarge:
+		return fmt.Errorf("source definition is too large")
+	case http.StatusUnsupportedMediaType:
+		return fmt.Errorf("content type must be application/json")
+	default:
+		return fmt.Errorf("unexpected status %s job from source: %s", operation, resp.Status)
+	}
+}
+
+func writePersistedSourceJobResult(out io.Writer, result persistedSourceJobResult) error {
+	if outputIsJSON() {
+		return writeJSON(out, result)
+	}
+
+	fmt.Fprintf(out, "job_id=%s\n", emptyAsDash(result.JobID))
+	fmt.Fprintf(out, "version=%s\n", versionAsDash(result.Version))
+	fmt.Fprintf(out, "definition_hash=%s\n", emptyAsDash(result.DefinitionHash))
+
+	return writeJobSourceProvenance(out, result.Source)
+}
+
+func showStoredJobSource(cmd *cobra.Command, args []string) {
+	runCLIError(showStoredJobSourceWithOutput(os.Stdout, args[0], jobSourceShowVersion))
+}
+
+func showStoredJobSourceWithOutput(out io.Writer, jobID string, version int) error {
+	path := jobSourcePath(jobID, "/source", version)
+	req, err := newAPIRequest(http.MethodGet, path, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create job source provenance request: %w", err)
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to fetch job source provenance: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var result storedJobSourceResult
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to parse job source provenance response: %w", err)
+		}
+
+		return writeStoredJobSourceResult(out, result)
+	case http.StatusNotFound:
+		return fmt.Errorf("job %q source provenance not found", jobID)
+	default:
+		return fmt.Errorf("unexpected status fetching job source provenance: %s", resp.Status)
+	}
+}
+
+func writeStoredJobSourceResult(out io.Writer, result storedJobSourceResult) error {
+	if outputIsJSON() {
+		return writeJSON(out, result)
+	}
+
+	fmt.Fprintf(out, "job_id=%s\n", emptyAsDash(result.JobID))
+	fmt.Fprintf(out, "version=%s\n", versionAsDash(result.Version))
+	fmt.Fprintf(out, "definition_hash=%s\n", emptyAsDash(result.DefinitionHash))
+
+	return writeJobSourceProvenance(out, result.Source)
+}
+
+func showStoredJobSourceDefinition(cmd *cobra.Command, args []string) {
+	runCLIError(showStoredJobSourceDefinitionWithOutput(cmd, os.Stdout, args[0], jobSourceDefinitionVersion))
+}
+
+func showStoredJobSourceDefinitionWithOutput(cmd *cobra.Command, out io.Writer, jobID string, version int) error {
+	path := jobSourcePath(jobID, "/source/definition", version)
+	req, err := newAPIRequest(http.MethodGet, path, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create job source definition request: %w", err)
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to fetch job source definition: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var result storedJobSourceDefinitionResult
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to parse job source definition response: %w", err)
+		}
+
+		if outputIsJSON() {
+			return writeJSON(out, result)
+		}
+
+		raw, _ := cmd.Flags().GetBool("raw")
+		_, err := out.Write(formatJobDefinitionBody(result.Definition, !raw))
+
+		return err
+	case http.StatusBadRequest:
+		return fmt.Errorf("invalid job source definition")
+	case http.StatusNotFound:
+		return fmt.Errorf("job %q source definition not found", jobID)
+	case http.StatusRequestEntityTooLarge:
+		return fmt.Errorf("source definition is too large")
+	default:
+		return fmt.Errorf("unexpected status fetching job source definition: %s", resp.Status)
+	}
+}
+
+func jobSourcePath(jobID, suffix string, version int) string {
+	path := "/api/v1/jobs/" + url.PathEscape(jobID) + suffix
+	if version > 0 {
+		params := url.Values{}
+		params.Set("version", strconv.Itoa(version))
+		path += "?" + params.Encode()
+	}
+
+	return path
+}
+
+func writeJobSourceProvenance(out io.Writer, source sourceProvenance) error {
+	fmt.Fprintf(out, "repository_id=%s\n", emptyAsDash(source.RepositoryID))
+	fmt.Fprintf(out, "requested_ref=%s\n", emptyAsDash(source.RequestedRef))
+	fmt.Fprintf(out, "resolved_commit=%s\n", emptyAsDash(source.ResolvedCommit))
+	fmt.Fprintf(out, "path=%s\n", emptyAsDash(source.Path))
+	fmt.Fprintf(out, "blob_sha=%s\n", emptyAsDash(source.BlobSHA))
+
+	return nil
+}
+
 func listJobs(cmd *cobra.Command, args []string) {
 	quiet, _ := cmd.Flags().GetBool("quiet")
 	cursor, _ := cmd.Flags().GetInt64("cursor")
@@ -803,6 +1014,46 @@ var listCmd = &cobra.Command{
 	Run:   listJobs,
 }
 
+var jobSourceCmd = &cobra.Command{
+	Use:   "source",
+	Short: "Create and inspect stored jobs from source",
+	Long:  `Create, update, and inspect stored jobs whose definitions are backed by registered source repositories.`,
+	Args:  cobra.NoArgs,
+	Run:   showCommandHelp,
+}
+
+var jobSourceCreateCmd = &cobra.Command{
+	Use:   "create [job-id] [repository-id] [definition-path]",
+	Short: "Create a stored job from source",
+	Long:  `Create a stored job definition from a registered source repository path and record the resolved source provenance.`,
+	Args:  cobra.ExactArgs(3),
+	Run:   createJobFromSource,
+}
+
+var jobSourceUpdateCmd = &cobra.Command{
+	Use:   "update [job-id] [repository-id] [definition-path]",
+	Short: "Update a stored job from source",
+	Long:  `Replace a stored job definition from a registered source repository path and record the resolved source provenance.`,
+	Args:  cobra.ExactArgs(3),
+	Run:   updateJobFromSource,
+}
+
+var jobSourceShowCmd = &cobra.Command{
+	Use:   "show [job-id]",
+	Short: "Show stored job source provenance",
+	Long:  `Show the source repository, commit, path, blob SHA, and definition hash recorded for a stored job definition version.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   showStoredJobSource,
+}
+
+var jobSourceDefinitionCmd = &cobra.Command{
+	Use:   "definition [job-id]",
+	Short: "Show stored job source definition",
+	Long:  `Read the source JSON for a stored job definition from its recorded commit and path.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   showStoredJobSourceDefinition,
+}
+
 func configureJobTriggerFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolP("follow", "f", false, "After triggering, stream logs (same as logs run <run-id>)")
 	cmd.Flags().StringArrayVar(&triggerCellIDs, "cell", nil, "Target execution cell; may be repeated")
@@ -831,4 +1082,22 @@ func configureJobListFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolP("quiet", "q", false, "Print only job IDs")
 	cmd.Flags().Int64("cursor", 0, "Continue listing after this result cursor")
 	cmd.Flags().Int("limit", 0, "Max jobs to return")
+}
+
+func configureJobSourceCreateFlags(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&jobSourceCreateNamespace, "namespace", "", "Namespace to store the job in (default: /)")
+	cmd.Flags().StringVar(&jobSourceCreateRef, "ref", "", "Git ref to resolve (default: repository default_ref or HEAD)")
+}
+
+func configureJobSourceUpdateFlags(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&jobSourceUpdateRef, "ref", "", "Git ref to resolve (default: repository default_ref or HEAD)")
+}
+
+func configureJobSourceShowFlags(cmd *cobra.Command) {
+	cmd.Flags().IntVar(&jobSourceShowVersion, "version", 0, "Stored definition version to inspect (default: latest)")
+}
+
+func configureJobSourceDefinitionFlags(cmd *cobra.Command) {
+	cmd.Flags().IntVar(&jobSourceDefinitionVersion, "version", 0, "Stored definition version to inspect (default: latest)")
+	cmd.Flags().Bool("raw", false, "Print definition JSON without reformatting")
 }
