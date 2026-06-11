@@ -401,6 +401,15 @@ func (s *APIServer) requireSources(w http.ResponseWriter) bool {
 	return true
 }
 
+func (s *APIServer) requireSchedules(w http.ResponseWriter) bool {
+	if s.schedules == nil {
+		writeAPIError(w, http.StatusServiceUnavailable, "schedules_not_configured", "schedules not configured", nil)
+		return false
+	}
+
+	return true
+}
+
 func (s *APIServer) requireSourceJobs(w http.ResponseWriter) bool {
 	if s.sourceJobs == nil {
 		writeAPIError(w, http.StatusServiceUnavailable, "source_jobs_not_configured", "source-backed job persistence not configured", nil)

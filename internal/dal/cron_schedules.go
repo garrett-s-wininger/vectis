@@ -177,6 +177,56 @@ func (r *SQLSchedulesRepository) GetCronScheduleByScheduleID(ctx context.Context
 	return rec, nil
 }
 
+func (r *SQLSchedulesRepository) ListSourceCronSchedules(ctx context.Context, namespaceID int64, repositoryID string) ([]CronScheduleRecord, error) {
+	repositoryID = strings.TrimSpace(repositoryID)
+
+	query := `
+		SELECT
+			cts.id,
+			cts.trigger_id,
+			COALESCE(cts.schedule_id, ''),
+			jt.job_id,
+			cts.cron_spec,
+			cts.next_run_at,
+			COALESCE(jt.source_repository_id, ''),
+			COALESCE(jt.source_ref, ''),
+			COALESCE(jt.source_path, ''),
+			jt.enabled
+		FROM cron_trigger_specs cts
+		JOIN job_triggers jt ON jt.id = cts.trigger_id
+		JOIN source_repositories sr ON sr.repository_id = jt.source_repository_id
+		WHERE sr.namespace_id = ?`
+	args := []any{namespaceID}
+	if repositoryID != "" {
+		query += ` AND jt.source_repository_id = ?`
+		args = append(args, repositoryID)
+	}
+	query += `
+		ORDER BY jt.source_repository_id ASC, cts.schedule_id ASC, jt.job_id ASC, cts.id ASC`
+
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(query), args...)
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	var out []CronScheduleRecord
+	for rows.Next() {
+		rec, err := scanCronScheduleRecord(rows)
+		if err != nil {
+			return nil, normalizeSQLError(err)
+		}
+
+		out = append(out, rec)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	return out, nil
+}
+
 func (r *SQLSchedulesRepository) CountCronSchedules(ctx context.Context) (int64, error) {
 	var count int64
 	err := r.db.QueryRowContext(ctx, `
@@ -348,9 +398,17 @@ func (r *SQLSchedulesRepository) ReleaseClaim(ctx context.Context, scheduleID in
 }
 
 func (r *SQLSchedulesRepository) scanCronScheduleRecordRow(row *sql.Row) (CronScheduleRecord, error) {
+	return scanCronScheduleRecord(row)
+}
+
+type cronScheduleRecordScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanCronScheduleRecord(scanner cronScheduleRecordScanner) (CronScheduleRecord, error) {
 	var rec CronScheduleRecord
 	var nextRunAt string
-	if err := row.Scan(
+	if err := scanner.Scan(
 		&rec.ID,
 		&rec.TriggerID,
 		&rec.ScheduleID,

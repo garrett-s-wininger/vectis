@@ -104,7 +104,7 @@ export VECTIS_SOURCE_SCHEDULES='[
 ]'
 ```
 
-Each schedule entry accepts `schedule_id`, `repository_id`, `job_id`, `cron_spec`, `ref`, `path`, and `enabled`. `schedule_id` is the stable reconcile key. `enabled` defaults to `true`. If `path` is omitted, Vectis derives the definition path from the job ID using the default `.vectis/jobs/...` layout. Startup reconciliation creates missing schedules and updates changed repository, job, cron, ref, path, and enabled fields; it does not delete schedules omitted from config. Enabled schedules must reference an enabled configured repository.
+Each schedule entry accepts `schedule_id`, `repository_id`, `job_id`, `cron_spec`, `ref`, `path`, and `enabled`. `schedule_id` is the stable reconcile key. `enabled` defaults to `true`. If `path` is omitted, Vectis derives the definition path from the job ID using the default `.vectis/jobs/...` layout. Startup reconciliation creates missing schedules and updates changed repository, job, cron, ref, path, and enabled fields; it does not delete schedules omitted from config. Enabled schedules must reference an enabled configured repository. Use `GET /api/v1/source-schedules` or `GET /api/v1/source-repositories/{id}/schedules` to inspect reconciled schedules and their effective paths.
 
 For source-only deployments, combine declared repositories with:
 

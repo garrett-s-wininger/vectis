@@ -5060,6 +5060,110 @@ func claimCronTriggerSpec(t *testing.T, ctx context.Context, db *sql.DB, specID 
 	}
 }
 
+func TestSchedulesRepository_ListSourceCronSchedules(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+
+	childNS, err := repos.Namespaces().Create(ctx, "team-a", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "repo-a",
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/repo-a",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("create repo-a: %v", err)
+	}
+	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "repo-b",
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/repo-b",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("create repo-b: %v", err)
+	}
+	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "repo-c",
+		NamespaceID:  childNS.ID,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/repo-c",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("create repo-c: %v", err)
+	}
+
+	nextRun := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
+	if _, err := repos.Schedules().CreateCronSchedule(ctx, dal.CronScheduleRecord{
+		ScheduleID:         "nightly-a",
+		JobID:              "build",
+		CronSpec:           "0 * * * *",
+		NextRunAt:          nextRun,
+		SourceRepositoryID: "repo-a",
+		SourceRef:          "main",
+		Enabled:            true,
+	}); err != nil {
+		t.Fatalf("create source schedule repo-a: %v", err)
+	}
+	if _, err := repos.Schedules().CreateCronSchedule(ctx, dal.CronScheduleRecord{
+		ScheduleID:         "nightly-b",
+		JobID:              "deploy",
+		CronSpec:           "30 * * * *",
+		NextRunAt:          nextRun,
+		SourceRepositoryID: "repo-b",
+		SourcePath:         ".vectis/jobs/deploy.json",
+		Enabled:            false,
+	}); err != nil {
+		t.Fatalf("create source schedule repo-b: %v", err)
+	}
+	if _, err := repos.Schedules().CreateCronSchedule(ctx, dal.CronScheduleRecord{
+		ScheduleID:         "nightly-c",
+		JobID:              "test",
+		CronSpec:           "15 * * * *",
+		NextRunAt:          nextRun,
+		SourceRepositoryID: "repo-c",
+		Enabled:            true,
+	}); err != nil {
+		t.Fatalf("create source schedule repo-c: %v", err)
+	}
+	insertCronTriggerSpec(t, ctx, db, "stored-only", "* * * * *", nextRun)
+
+	rootSchedules, err := repos.Schedules().ListSourceCronSchedules(ctx, 1, "")
+	if err != nil {
+		t.Fatalf("list root source schedules: %v", err)
+	}
+	if len(rootSchedules) != 2 {
+		t.Fatalf("root source schedules len=%d, want 2: %+v", len(rootSchedules), rootSchedules)
+	}
+	if rootSchedules[0].ScheduleID != "nightly-a" || rootSchedules[1].ScheduleID != "nightly-b" {
+		t.Fatalf("root schedules order/content mismatch: %+v", rootSchedules)
+	}
+	if rootSchedules[1].Enabled {
+		t.Fatalf("expected disabled schedule to be listed with enabled=false: %+v", rootSchedules[1])
+	}
+
+	repoSchedules, err := repos.Schedules().ListSourceCronSchedules(ctx, 1, "repo-a")
+	if err != nil {
+		t.Fatalf("list repo-a source schedules: %v", err)
+	}
+	if len(repoSchedules) != 1 || repoSchedules[0].SourceRepositoryID != "repo-a" {
+		t.Fatalf("repo-a schedules mismatch: %+v", repoSchedules)
+	}
+
+	childSchedules, err := repos.Schedules().ListSourceCronSchedules(ctx, childNS.ID, "")
+	if err != nil {
+		t.Fatalf("list child source schedules: %v", err)
+	}
+	if len(childSchedules) != 1 || childSchedules[0].SourceRepositoryID != "repo-c" {
+		t.Fatalf("child schedules mismatch: %+v", childSchedules)
+	}
+}
+
 func TestSchedulesRepository_ClaimDueCompleteAndRelease(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)

@@ -183,6 +183,25 @@ type sourceRepositoryJobsResponse struct {
 	Invalid        []invalidSourceRepositoryJobResponse `json:"invalid,omitempty"`
 }
 
+type sourceCronScheduleResponse struct {
+	ScheduleID   string `json:"schedule_id"`
+	RepositoryID string `json:"repository_id"`
+	Namespace    string `json:"namespace"`
+	JobID        string `json:"job_id"`
+	CronSpec     string `json:"cron_spec"`
+	NextRunAt    string `json:"next_run_at"`
+	Ref          string `json:"ref,omitempty"`
+	Path         string `json:"path,omitempty"`
+	PathDerived  bool   `json:"path_derived"`
+	Enabled      bool   `json:"enabled"`
+}
+
+type sourceCronSchedulesResponse struct {
+	Namespace    string                       `json:"namespace"`
+	RepositoryID string                       `json:"repository_id,omitempty"`
+	Schedules    []sourceCronScheduleResponse `json:"schedules"`
+}
+
 type sourceRepositoryJobDefinitionResponse struct {
 	JobID          string                   `json:"job_id"`
 	DefinitionHash string                   `json:"definition_hash"`
@@ -553,6 +572,99 @@ func (s *APIServer) GetSourceRepository(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, http.StatusOK, s.sourceRepositoryRecordToResponse(rec, nsPath))
+}
+
+func (s *APIServer) ListSourceSchedules(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireNamespaces(w) || !s.requireSchedules(w) {
+		return
+	}
+
+	namespacePath := strings.TrimSpace(r.URL.Query().Get("namespace"))
+	if namespacePath == "" {
+		namespacePath = "/"
+	}
+
+	ns, err := s.namespaces.GetByPath(ctx, namespacePath)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "namespace_not_found", "namespace not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error getting namespace for source schedules: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+
+	if !s.authorizeNamespace(ctx, w, p, authz.ActionJobRead, ns.Path) {
+		return
+	}
+
+	recs, err := s.schedules.ListSourceCronSchedules(ctx, ns.ID, "")
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error listing source schedules: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+	s.markDBRecovered()
+
+	writeJSON(w, http.StatusOK, sourceCronSchedulesResponse{
+		Namespace: ns.Path,
+		Schedules: sourceCronScheduleRecordsToResponse(recs, ns.Path),
+	})
+}
+
+func (s *APIServer) ListSourceRepositorySchedules(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireNamespaces(w) || !s.requireSources(w) || !s.requireSchedules(w) {
+		return
+	}
+
+	rec, nsPath, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionJobRead, false)
+	if !ok {
+		return
+	}
+
+	recs, err := s.schedules.ListSourceCronSchedules(ctx, rec.NamespaceID, rec.RepositoryID)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error listing source repository schedules: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+	s.markDBRecovered()
+
+	writeJSON(w, http.StatusOK, sourceCronSchedulesResponse{
+		Namespace:    nsPath,
+		RepositoryID: rec.RepositoryID,
+		Schedules:    sourceCronScheduleRecordsToResponse(recs, nsPath),
+	})
 }
 
 func (s *APIServer) DeleteSourceRepository(w http.ResponseWriter, r *http.Request) {
@@ -2222,6 +2334,39 @@ func (s *APIServer) sourceRepositoryRecordToResponse(rec dal.SourceRepositoryRec
 		CredentialRef: rec.CredentialRef,
 		Enabled:       rec.Enabled,
 		Sync:          sourceRepositorySyncRecordToResponse(rec),
+	}
+}
+
+func sourceCronScheduleRecordsToResponse(recs []dal.CronScheduleRecord, namespacePath string) []sourceCronScheduleResponse {
+	resp := make([]sourceCronScheduleResponse, 0, len(recs))
+	for _, rec := range recs {
+		resp = append(resp, sourceCronScheduleRecordToResponse(rec, namespacePath))
+	}
+
+	return resp
+}
+
+func sourceCronScheduleRecordToResponse(rec dal.CronScheduleRecord, namespacePath string) sourceCronScheduleResponse {
+	definitionPath := strings.TrimSpace(rec.SourcePath)
+	pathDerived := false
+	if definitionPath == "" {
+		if path, err := sourcepkg.DefinitionPathForJobID(rec.JobID); err == nil {
+			definitionPath = path
+			pathDerived = true
+		}
+	}
+
+	return sourceCronScheduleResponse{
+		ScheduleID:   rec.ScheduleID,
+		RepositoryID: rec.SourceRepositoryID,
+		Namespace:    namespacePath,
+		JobID:        rec.JobID,
+		CronSpec:     rec.CronSpec,
+		NextRunAt:    rec.NextRunAt.UTC().Format(time.RFC3339),
+		Ref:          rec.SourceRef,
+		Path:         definitionPath,
+		PathDerived:  pathDerived,
+		Enabled:      rec.Enabled,
 	}
 }
 

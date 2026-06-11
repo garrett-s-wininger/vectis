@@ -740,6 +740,7 @@ type SchedulesRepository interface {
 	CreateCronSchedule(ctx context.Context, rec CronScheduleRecord) (CronScheduleRecord, error)
 	UpdateCronSchedule(ctx context.Context, rec CronScheduleRecord) (CronScheduleRecord, error)
 	GetCronScheduleByScheduleID(ctx context.Context, scheduleID string) (CronScheduleRecord, error)
+	ListSourceCronSchedules(ctx context.Context, namespaceID int64, repositoryID string) ([]CronScheduleRecord, error)
 	GetReady(ctx context.Context, at time.Time) ([]CronSchedule, error)
 	ClaimDue(ctx context.Context, scheduleID int64, observedNextRun time.Time, claimToken string, claimedUntil, now time.Time) (bool, error)
 	CompleteClaim(ctx context.Context, scheduleID int64, claimToken string, nextRun time.Time) (bool, error)

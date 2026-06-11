@@ -1353,19 +1353,20 @@ type MockSchedulesRepository struct {
 	Ready         []dal.CronSchedule
 	CronSchedules map[string]dal.CronScheduleRecord
 
-	GetReadyErr               error
-	CreateCronScheduleErr     error
-	UpdateCronScheduleErr     error
-	GetCronScheduleErr        error
-	ClaimDueErr               error
-	ClaimDueOK                bool
-	CompleteClaimErr          error
-	CompleteClaimOK           bool
-	ReleaseClaimErr           error
-	CountCronSchedulesErr     error
-	CountCronSchedulesResult  int64
-	CronScheduleSummaryErr    error
-	CronScheduleSummaryResult dal.CronScheduleSummary
+	GetReadyErr                error
+	CreateCronScheduleErr      error
+	UpdateCronScheduleErr      error
+	GetCronScheduleErr         error
+	ListSourceCronSchedulesErr error
+	ClaimDueErr                error
+	ClaimDueOK                 bool
+	CompleteClaimErr           error
+	CompleteClaimOK            bool
+	ReleaseClaimErr            error
+	CountCronSchedulesErr      error
+	CountCronSchedulesResult   int64
+	CronScheduleSummaryErr     error
+	CronScheduleSummaryResult  dal.CronScheduleSummary
 
 	GetReadyCalled     int
 	ClaimDueCalls      []ClaimDueCall
@@ -1440,6 +1441,25 @@ func (m *MockSchedulesRepository) GetCronScheduleByScheduleID(ctx context.Contex
 	}
 
 	return dal.CronScheduleRecord{}, fmt.Errorf("%w: cron schedule %s", dal.ErrNotFound, scheduleID)
+}
+
+func (m *MockSchedulesRepository) ListSourceCronSchedules(ctx context.Context, namespaceID int64, repositoryID string) ([]dal.CronScheduleRecord, error) {
+	if m.ListSourceCronSchedulesErr != nil {
+		return nil, m.ListSourceCronSchedulesErr
+	}
+
+	var out []dal.CronScheduleRecord
+	for _, rec := range m.CronSchedules {
+		if rec.SourceRepositoryID == "" {
+			continue
+		}
+		if repositoryID != "" && rec.SourceRepositoryID != repositoryID {
+			continue
+		}
+		out = append(out, rec)
+	}
+
+	return out, nil
 }
 
 func (m *MockSchedulesRepository) GetReady(ctx context.Context, at time.Time) ([]dal.CronSchedule, error) {

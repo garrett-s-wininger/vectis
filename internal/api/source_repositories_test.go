@@ -360,6 +360,139 @@ func TestAPIServer_SourceBackedJobLifecycle(t *testing.T) {
 	}
 }
 
+func TestAPIServer_ListSourceSchedules(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+
+	server, _, _, db := setupTestServer(t)
+	repos := dal.NewSQLRepositories(db)
+	handler := server.Handler()
+	ctx := context.Background()
+
+	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "vectis-local",
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/vectis",
+		DefaultRef:   "main",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("create source repository: %v", err)
+	}
+
+	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "other",
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/other",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("create second source repository: %v", err)
+	}
+
+	nextRun := time.Date(2026, 5, 1, 8, 30, 0, 0, time.UTC)
+	if _, err := repos.Schedules().CreateCronSchedule(ctx, dal.CronScheduleRecord{
+		ScheduleID:         "nightly-build",
+		JobID:              "build",
+		CronSpec:           "30 8 * * *",
+		NextRunAt:          nextRun,
+		SourceRepositoryID: "vectis-local",
+		SourceRef:          "main",
+		Enabled:            true,
+	}); err != nil {
+		t.Fatalf("create source schedule: %v", err)
+	}
+
+	if _, err := repos.Schedules().CreateCronSchedule(ctx, dal.CronScheduleRecord{
+		ScheduleID:         "other-build",
+		JobID:              "other",
+		CronSpec:           "0 9 * * *",
+		NextRunAt:          nextRun,
+		SourceRepositoryID: "other",
+		SourcePath:         ".vectis/jobs/other.json",
+		Enabled:            false,
+	}); err != nil {
+		t.Fatalf("create second source schedule: %v", err)
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-schedules", nil)
+	listRec := httptest.NewRecorder()
+	handler.ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("list source schedules: status=%d body=%s", listRec.Code, listRec.Body.String())
+	}
+
+	var listResp struct {
+		Namespace string `json:"namespace"`
+		Schedules []struct {
+			ScheduleID   string `json:"schedule_id"`
+			RepositoryID string `json:"repository_id"`
+			Namespace    string `json:"namespace"`
+			JobID        string `json:"job_id"`
+			CronSpec     string `json:"cron_spec"`
+			NextRunAt    string `json:"next_run_at"`
+			Ref          string `json:"ref"`
+			Path         string `json:"path"`
+			PathDerived  bool   `json:"path_derived"`
+			Enabled      bool   `json:"enabled"`
+		} `json:"schedules"`
+	}
+
+	if err := json.NewDecoder(listRec.Body).Decode(&listResp); err != nil {
+		t.Fatalf("decode list source schedules: %v", err)
+	}
+
+	if listResp.Namespace != "/" || len(listResp.Schedules) != 2 {
+		t.Fatalf("list source schedules mismatch: %+v", listResp)
+	}
+
+	if listResp.Schedules[0].ScheduleID != "other-build" ||
+		listResp.Schedules[0].RepositoryID != "other" ||
+		listResp.Schedules[0].Path != ".vectis/jobs/other.json" ||
+		listResp.Schedules[0].PathDerived ||
+		listResp.Schedules[0].Enabled {
+		t.Fatalf("first source schedule mismatch: %+v", listResp.Schedules[0])
+	}
+
+	if listResp.Schedules[1].ScheduleID != "nightly-build" ||
+		listResp.Schedules[1].RepositoryID != "vectis-local" ||
+		listResp.Schedules[1].Namespace != "/" ||
+		listResp.Schedules[1].JobID != "build" ||
+		listResp.Schedules[1].CronSpec != "30 8 * * *" ||
+		listResp.Schedules[1].NextRunAt != nextRun.Format(time.RFC3339) ||
+		listResp.Schedules[1].Ref != "main" ||
+		listResp.Schedules[1].Path != ".vectis/jobs/build.json" ||
+		!listResp.Schedules[1].PathDerived ||
+		!listResp.Schedules[1].Enabled {
+		t.Fatalf("second source schedule mismatch: %+v", listResp.Schedules[1])
+	}
+
+	repoReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/vectis-local/schedules", nil)
+	repoRec := httptest.NewRecorder()
+	handler.ServeHTTP(repoRec, repoReq)
+	if repoRec.Code != http.StatusOK {
+		t.Fatalf("list repository source schedules: status=%d body=%s", repoRec.Code, repoRec.Body.String())
+	}
+
+	var repoResp struct {
+		Namespace    string `json:"namespace"`
+		RepositoryID string `json:"repository_id"`
+		Schedules    []struct {
+			ScheduleID string `json:"schedule_id"`
+		} `json:"schedules"`
+	}
+
+	if err := json.NewDecoder(repoRec.Body).Decode(&repoResp); err != nil {
+		t.Fatalf("decode repository source schedules: %v", err)
+	}
+
+	if repoResp.Namespace != "/" ||
+		repoResp.RepositoryID != "vectis-local" ||
+		len(repoResp.Schedules) != 1 ||
+		repoResp.Schedules[0].ScheduleID != "nightly-build" {
+		t.Fatalf("repository source schedules mismatch: %+v", repoResp)
+	}
+}
+
 func TestAPIServer_SourceStoredJobsDisabled(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 	t.Setenv("VECTIS_SOURCE_STORED_JOBS_ENABLED", "false")
