@@ -748,6 +748,151 @@ func TestListSourceDefinitions_sendsQueryAndPrintsDefinitions(t *testing.T) {
 	}
 }
 
+func TestResolveSourceDefinition_sendsBodyAndPrintsDefinition(t *testing.T) {
+	oldRef := sourceResolveRef
+	sourceResolveRef = "main"
+	t.Cleanup(func() { sourceResolveRef = oldRef })
+
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/source-repositories/vectis/definitions/resolve" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		if got := r.Header.Get("Content-Type"); got != "application/json" {
+			t.Errorf("Content-Type=%q", got)
+		}
+
+		var body sourceDefinitionRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		if body.Ref != "main" || body.Path != ".vectis/jobs/build.json" {
+			t.Errorf("resolve body mismatch: %+v", body)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"repository_id":   "vectis",
+			"definition_hash": "hash",
+			"definition": map[string]any{
+				"root": map[string]any{
+					"id":   "root",
+					"uses": "builtins/shell",
+					"with": map[string]any{"command": "true"},
+				},
+			},
+			"source": map[string]any{
+				"repository_id":   "vectis",
+				"requested_ref":   "main",
+				"resolved_commit": "0123456789abcdef",
+				"path":            ".vectis/jobs/build.json",
+				"blob_sha":        "abcdef",
+			},
+		})
+	})
+
+	cmd := &cobra.Command{}
+	cmd.Flags().Bool("raw", false, "")
+	var buf bytes.Buffer
+	if err := resolveSourceDefinitionWithOutput(cmd, &buf, "vectis", ".vectis/jobs/build.json"); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{`"root"`, `"builtins/shell"`} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestImportSourceDefinitions_sendsBodyAndPrintsSummary(t *testing.T) {
+	oldRef := sourceImportRef
+	oldPath := sourceImportPath
+	oldLimit := sourceImportLimit
+	oldDryRun := sourceImportDryRun
+	oldUpdateExisting := sourceImportUpdateExisting
+	sourceImportRef = "main"
+	sourceImportPath = ".vectis/jobs"
+	sourceImportLimit = 5
+	sourceImportDryRun = true
+	sourceImportUpdateExisting = true
+	t.Cleanup(func() {
+		sourceImportRef = oldRef
+		sourceImportPath = oldPath
+		sourceImportLimit = oldLimit
+		sourceImportDryRun = oldDryRun
+		sourceImportUpdateExisting = oldUpdateExisting
+	})
+
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/source-repositories/vectis/definitions/import" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		if got := r.Header.Get("Content-Type"); got != "application/json" {
+			t.Errorf("Content-Type=%q", got)
+		}
+
+		var body sourceDefinitionsImportRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		if body.Ref != "main" ||
+			body.Path != ".vectis/jobs" ||
+			body.Limit != 5 ||
+			!body.DryRun ||
+			!body.UpdateExisting {
+			t.Errorf("import body mismatch: %+v", body)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"repository_id":   "vectis",
+			"requested_ref":   "main",
+			"resolved_commit": "0123456789abcdef",
+			"path":            ".vectis/jobs",
+			"limit":           5,
+			"dry_run":         true,
+			"update_existing": true,
+			"summary":         map[string]any{"total": 1, "would_create": 1},
+			"results": []map[string]any{
+				{
+					"job_id":          "build",
+					"status":          "would_create",
+					"version":         1,
+					"definition_hash": "hash",
+					"source": map[string]any{
+						"repository_id":   "vectis",
+						"requested_ref":   "main",
+						"resolved_commit": "0123456789abcdef",
+						"path":            ".vectis/jobs/build.json",
+						"blob_sha":        "abcdef",
+					},
+				},
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := importSourceDefinitionsWithOutput(&buf, "vectis"); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"repository_id=vectis", "dry_run=true", "update_existing=true", "would_create=1", "JOB ID", "build", "would_create", ".vectis/jobs/build.json"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
 func TestShowSourceJob_sendsQueryAndPrintsDefinition(t *testing.T) {
 	oldRef := sourceShowRef
 	oldPath := sourceShowPath

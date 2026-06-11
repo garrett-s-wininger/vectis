@@ -112,6 +112,12 @@ var (
 	sourceDefinitionsPath       string
 	sourceDefinitionsLimit      int
 	sourceDefinitionsQuiet      bool
+	sourceResolveRef            string
+	sourceImportRef             string
+	sourceImportPath            string
+	sourceImportLimit           int
+	sourceImportDryRun          bool
+	sourceImportUpdateExisting  bool
 	sourceJobsRef               string
 	sourceJobsPath              string
 	sourceJobsLimit             int
@@ -192,6 +198,8 @@ func init() {
 	configureSourcesBranchesFlags(sourcesBranchesCmd)
 	configureSourcesTreeFlags(sourcesTreeCmd)
 	configureSourcesDefinitionsFlags(sourcesDefinitionsCmd)
+	configureSourcesResolveFlags(sourcesResolveCmd)
+	configureSourcesImportFlags(sourcesImportCmd)
 	configureSourcesJobsFlags(sourcesJobsCmd)
 	configureSourcesShowFlags(sourcesShowCmd)
 	configureSourcesWriteFlags(sourcesWriteCmd)
@@ -199,7 +207,7 @@ func init() {
 	configureLogFilterFlags(sourcesLogsCmd)
 	configureSourcesLogsFlags(sourcesLogsCmd)
 	configureSourcesTriggerFlags(sourcesTriggerCmd)
-	sourcesCmd.AddCommand(sourcesListCmd, sourcesRegisterCmd, sourcesGetCmd, sourcesUpdateCmd, sourcesSyncCmd, sourcesStatusCmd, sourcesBranchesCmd, sourcesTreeCmd, sourcesDefinitionsCmd, sourcesJobsCmd, sourcesShowCmd, sourcesWriteCmd, sourcesRunsCmd, sourcesLogsCmd, sourcesTriggerCmd)
+	sourcesCmd.AddCommand(sourcesListCmd, sourcesRegisterCmd, sourcesGetCmd, sourcesUpdateCmd, sourcesSyncCmd, sourcesStatusCmd, sourcesBranchesCmd, sourcesTreeCmd, sourcesDefinitionsCmd, sourcesResolveCmd, sourcesImportCmd, sourcesJobsCmd, sourcesShowCmd, sourcesWriteCmd, sourcesRunsCmd, sourcesLogsCmd, sourcesTriggerCmd)
 	rootCmd.AddCommand(sourcesCmd)
 
 	configureRunListFlags(runListCmd)

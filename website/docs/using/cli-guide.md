@@ -256,6 +256,14 @@ Sync the repository, then list triggerable jobs discovered under `.vectis/jobs`:
 
 Use `sources definitions` to inspect candidate JSON files without reading file contents, and `sources jobs` to see the triggerable job IDs derived from those paths.
 
+For hybrid or migration deployments that still use stored jobs, preview and import source definitions:
+
+```sh
+./bin/vectis-cli sources resolve vectis-local .vectis/jobs/build.json --ref main
+./bin/vectis-cli sources import vectis-local --ref main --dry-run
+./bin/vectis-cli sources import vectis-local --ref main --update-existing
+```
+
 Inspect a source-defined job definition at a specific ref:
 
 ```sh

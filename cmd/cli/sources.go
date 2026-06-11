@@ -123,6 +123,58 @@ type sourceRepositoryDefinitionsResult struct {
 	Definitions    []sourceRepositoryDefinitionFile `json:"definitions"`
 }
 
+type sourceDefinitionRequest struct {
+	Ref  string `json:"ref,omitempty"`
+	Path string `json:"path"`
+}
+
+type resolvedSourceDefinitionResult struct {
+	RepositoryID   string           `json:"repository_id"`
+	DefinitionHash string           `json:"definition_hash"`
+	Definition     json.RawMessage  `json:"definition"`
+	Source         sourceProvenance `json:"source"`
+}
+
+type sourceDefinitionsImportRequest struct {
+	Ref            string `json:"ref,omitempty"`
+	Path           string `json:"path,omitempty"`
+	Limit          int    `json:"limit,omitempty"`
+	DryRun         bool   `json:"dry_run,omitempty"`
+	UpdateExisting bool   `json:"update_existing,omitempty"`
+}
+
+type importedSourceDefinitionsSummary struct {
+	Total       int `json:"total"`
+	Created     int `json:"created"`
+	Updated     int `json:"updated"`
+	Unchanged   int `json:"unchanged"`
+	WouldCreate int `json:"would_create"`
+	WouldUpdate int `json:"would_update"`
+	Conflicted  int `json:"conflicted"`
+	Invalid     int `json:"invalid"`
+}
+
+type importedSourceDefinitionResult struct {
+	JobID          string            `json:"job_id,omitempty"`
+	Status         string            `json:"status"`
+	Version        int               `json:"version,omitempty"`
+	DefinitionHash string            `json:"definition_hash,omitempty"`
+	Error          string            `json:"error,omitempty"`
+	Source         *sourceProvenance `json:"source,omitempty"`
+}
+
+type importedSourceDefinitionsResult struct {
+	RepositoryID   string                           `json:"repository_id"`
+	RequestedRef   string                           `json:"requested_ref"`
+	ResolvedCommit string                           `json:"resolved_commit"`
+	Path           string                           `json:"path"`
+	Limit          int                              `json:"limit"`
+	DryRun         bool                             `json:"dry_run"`
+	UpdateExisting bool                             `json:"update_existing"`
+	Summary        importedSourceDefinitionsSummary `json:"summary"`
+	Results        []importedSourceDefinitionResult `json:"results"`
+}
+
 type sourceRepositoryJobSummary struct {
 	JobID     string           `json:"job_id"`
 	Path      string           `json:"path"`
@@ -820,6 +872,148 @@ func writeSourceDefinitionsResult(out io.Writer, result sourceRepositoryDefiniti
 	return tw.Flush()
 }
 
+func resolveSourceDefinition(cmd *cobra.Command, args []string) {
+	runCLIError(resolveSourceDefinitionWithOutput(cmd, os.Stdout, args[0], args[1]))
+}
+
+func resolveSourceDefinitionWithOutput(cmd *cobra.Command, out io.Writer, repositoryID, definitionPath string) error {
+	body, err := json.Marshal(sourceDefinitionRequest{
+		Ref:  strings.TrimSpace(sourceResolveRef),
+		Path: strings.TrimSpace(definitionPath),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to encode source definition resolve request: %w", err)
+	}
+
+	req, err := newAPIRequest(http.MethodPost, "/api/v1/source-repositories/"+url.PathEscape(repositoryID)+"/definitions/resolve", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create source definition resolve request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to resolve source definition: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var result resolvedSourceDefinitionResult
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to parse source definition resolve response: %w", err)
+		}
+		if outputIsJSON() {
+			return writeJSON(out, result)
+		}
+		raw, _ := cmd.Flags().GetBool("raw")
+		_, err := out.Write(formatJobDefinitionBody(result.Definition, !raw))
+		return err
+	case http.StatusBadRequest:
+		return fmt.Errorf("invalid source definition resolve request")
+	case http.StatusNotFound:
+		return fmt.Errorf("source repository %q or definition path %q not found", repositoryID, definitionPath)
+	case http.StatusRequestEntityTooLarge:
+		return fmt.Errorf("source definition is too large")
+	case http.StatusUnsupportedMediaType:
+		return fmt.Errorf("content type must be application/json")
+	default:
+		return fmt.Errorf("unexpected status resolving source definition: %s", resp.Status)
+	}
+}
+
+func importSourceDefinitions(cmd *cobra.Command, args []string) {
+	runCLIError(importSourceDefinitionsWithOutput(os.Stdout, args[0]))
+}
+
+func importSourceDefinitionsWithOutput(out io.Writer, repositoryID string) error {
+	body, err := json.Marshal(sourceDefinitionsImportRequest{
+		Ref:            strings.TrimSpace(sourceImportRef),
+		Path:           strings.TrimSpace(sourceImportPath),
+		Limit:          sourceImportLimit,
+		DryRun:         sourceImportDryRun,
+		UpdateExisting: sourceImportUpdateExisting,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to encode source definitions import request: %w", err)
+	}
+
+	req, err := newAPIRequest(http.MethodPost, "/api/v1/source-repositories/"+url.PathEscape(repositoryID)+"/definitions/import", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create source definitions import request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to import source definitions: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var result importedSourceDefinitionsResult
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to parse source definitions import response: %w", err)
+		}
+		return writeSourceDefinitionsImportResult(out, result)
+	case http.StatusBadRequest:
+		return fmt.Errorf("invalid source definitions import request")
+	case http.StatusConflict:
+		return fmt.Errorf("source definitions import is unavailable or conflicted")
+	case http.StatusNotFound:
+		return fmt.Errorf("source repository %q or definitions path not found", repositoryID)
+	case http.StatusUnsupportedMediaType:
+		return fmt.Errorf("content type must be application/json")
+	default:
+		return fmt.Errorf("unexpected status importing source definitions: %s", resp.Status)
+	}
+}
+
+func writeSourceDefinitionsImportResult(out io.Writer, result importedSourceDefinitionsResult) error {
+	if outputIsJSON() {
+		return writeJSON(out, result)
+	}
+
+	fmt.Fprintf(out, "repository_id=%s\n", result.RepositoryID)
+	fmt.Fprintf(out, "requested_ref=%s\n", emptyAsDash(result.RequestedRef))
+	fmt.Fprintf(out, "resolved_commit=%s\n", emptyAsDash(result.ResolvedCommit))
+	fmt.Fprintf(out, "path=%s\n", emptyAsDash(result.Path))
+	fmt.Fprintf(out, "dry_run=%t\n", result.DryRun)
+	fmt.Fprintf(out, "update_existing=%t\n", result.UpdateExisting)
+	fmt.Fprintf(out, "summary total=%d created=%d updated=%d unchanged=%d would_create=%d would_update=%d conflicted=%d invalid=%d\n",
+		result.Summary.Total,
+		result.Summary.Created,
+		result.Summary.Updated,
+		result.Summary.Unchanged,
+		result.Summary.WouldCreate,
+		result.Summary.WouldUpdate,
+		result.Summary.Conflicted,
+		result.Summary.Invalid,
+	)
+
+	if len(result.Results) == 0 {
+		return nil
+	}
+
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "\nJOB ID\tSTATUS\tVERSION\tPATH\tERROR")
+	for _, item := range result.Results {
+		sourcePath := "-"
+		if item.Source != nil {
+			sourcePath = emptyAsDash(item.Source.Path)
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
+			emptyAsDash(item.JobID),
+			emptyAsDash(item.Status),
+			versionAsDash(item.Version),
+			sourcePath,
+			emptyAsDash(item.Error),
+		)
+	}
+	return tw.Flush()
+}
+
 func listSourceJobs(cmd *cobra.Command, args []string) {
 	runCLIError(listSourceJobsWithOutput(os.Stdout, args[0]))
 }
@@ -1175,6 +1369,13 @@ func sizeAsDash(size int64) string {
 	return strconv.FormatInt(size, 10)
 }
 
+func versionAsDash(version int) string {
+	if version <= 0 {
+		return "-"
+	}
+	return strconv.Itoa(version)
+}
+
 var sourcesCmd = &cobra.Command{
 	Use:     "sources",
 	Short:   "Work with source repositories",
@@ -1253,6 +1454,22 @@ var sourcesDefinitionsCmd = &cobra.Command{
 	Long:  `Discover candidate JSON job definition files in a source repository without loading file contents.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   listSourceDefinitions,
+}
+
+var sourcesResolveCmd = &cobra.Command{
+	Use:   "resolve [repository-id] [definition-path]",
+	Short: "Resolve a source definition file",
+	Long:  `Resolve and validate a source definition file at a ref and print the canonical JSON without storing it.`,
+	Args:  cobra.ExactArgs(2),
+	Run:   resolveSourceDefinition,
+}
+
+var sourcesImportCmd = &cobra.Command{
+	Use:   "import [repository-id]",
+	Short: "Import source definitions as stored jobs",
+	Long:  `Import discovered source definition files into stored jobs. Use --dry-run to preview the created, updated, conflicted, or invalid jobs first.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   importSourceDefinitions,
 }
 
 var sourcesJobsCmd = &cobra.Command{
@@ -1349,6 +1566,19 @@ func configureSourcesDefinitionsFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&sourceDefinitionsPath, "path", "", "Definition directory path (default: .vectis/jobs)")
 	cmd.Flags().IntVar(&sourceDefinitionsLimit, "limit", 0, "Max definition files to return")
 	cmd.Flags().BoolVarP(&sourceDefinitionsQuiet, "quiet", "q", false, "Print only definition paths")
+}
+
+func configureSourcesResolveFlags(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&sourceResolveRef, "ref", "", "Git ref to resolve (default: repository default_ref or HEAD)")
+	cmd.Flags().Bool("raw", false, "Print definition JSON without reformatting")
+}
+
+func configureSourcesImportFlags(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&sourceImportRef, "ref", "", "Git ref to import (default: repository default_ref or HEAD)")
+	cmd.Flags().StringVar(&sourceImportPath, "path", "", "Definition directory path (default: .vectis/jobs)")
+	cmd.Flags().IntVar(&sourceImportLimit, "limit", 0, "Max definition files to import")
+	cmd.Flags().BoolVar(&sourceImportDryRun, "dry-run", false, "Preview import results without writing stored jobs")
+	cmd.Flags().BoolVar(&sourceImportUpdateExisting, "update-existing", false, "Update existing stored jobs when source definitions changed")
 }
 
 func configureSourcesJobsFlags(cmd *cobra.Command) {
