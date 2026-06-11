@@ -11,18 +11,21 @@ import (
 )
 
 const (
-	envSourceCheckoutRoot                = "VECTIS_SOURCE_CHECKOUT_ROOT"
-	envAPIServerSourceCheckoutRoot       = "VECTIS_API_SERVER_SOURCE_CHECKOUT_ROOT"
-	envSourceStoredJobsEnabled           = "VECTIS_SOURCE_STORED_JOBS_ENABLED"
-	envAPIServerSourceStoredJobsEnabled  = "VECTIS_API_SERVER_SOURCE_STORED_JOBS_ENABLED"
-	envSourceSyncRunningTimeout          = "VECTIS_SOURCE_SYNC_RUNNING_TIMEOUT"
-	envAPIServerSourceSyncRunningTimeout = "VECTIS_API_SERVER_SOURCE_SYNC_RUNNING_TIMEOUT"
-	envSourceRepositories                = "VECTIS_SOURCE_REPOSITORIES"
-	envAPIServerSourceRepositories       = "VECTIS_API_SERVER_SOURCE_REPOSITORIES"
-	defaultSourceSyncRunningTimeout      = 15 * time.Minute
-	sourceStoredJobsEnabledConfigKey     = "source.stored_jobs_enabled"
-	sourceSyncRunningTimeoutConfigKey    = "source.sync_running_timeout"
-	sourceRepositoriesConfigKey          = "source.repositories"
+	envSourceCheckoutRoot                                 = "VECTIS_SOURCE_CHECKOUT_ROOT"
+	envAPIServerSourceCheckoutRoot                        = "VECTIS_API_SERVER_SOURCE_CHECKOUT_ROOT"
+	envSourceStoredJobsEnabled                            = "VECTIS_SOURCE_STORED_JOBS_ENABLED"
+	envAPIServerSourceStoredJobsEnabled                   = "VECTIS_API_SERVER_SOURCE_STORED_JOBS_ENABLED"
+	envSourceSyncConfiguredRepositoriesOnStartup          = "VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_ON_STARTUP"
+	envAPIServerSourceSyncConfiguredRepositoriesOnStartup = "VECTIS_API_SERVER_SOURCE_SYNC_CONFIGURED_REPOSITORIES_ON_STARTUP"
+	envSourceSyncRunningTimeout                           = "VECTIS_SOURCE_SYNC_RUNNING_TIMEOUT"
+	envAPIServerSourceSyncRunningTimeout                  = "VECTIS_API_SERVER_SOURCE_SYNC_RUNNING_TIMEOUT"
+	envSourceRepositories                                 = "VECTIS_SOURCE_REPOSITORIES"
+	envAPIServerSourceRepositories                        = "VECTIS_API_SERVER_SOURCE_REPOSITORIES"
+	defaultSourceSyncRunningTimeout                       = 15 * time.Minute
+	sourceStoredJobsEnabledConfigKey                      = "source.stored_jobs_enabled"
+	sourceSyncConfiguredRepositoriesOnStartupConfigKey    = "source.sync_configured_repositories_on_startup"
+	sourceSyncRunningTimeoutConfigKey                     = "source.sync_running_timeout"
+	sourceRepositoriesConfigKey                           = "source.repositories"
 )
 
 type SourceRepositoryDeclaration struct {
@@ -71,6 +74,22 @@ func SourceStoredJobsEnabled() bool {
 	}
 
 	return MustDefaults().Source.StoredJobsEnabled
+}
+
+// SourceSyncConfiguredRepositoriesOnStartup reports whether vectis-api should
+// sync configured source repositories during startup.
+func SourceSyncConfiguredRepositoriesOnStartup() bool {
+	for _, envName := range []string{envSourceSyncConfiguredRepositoriesOnStartup, envAPIServerSourceSyncConfiguredRepositoriesOnStartup} {
+		if v := strings.TrimSpace(os.Getenv(envName)); v != "" {
+			return parseTruthy(v)
+		}
+	}
+
+	if viper.IsSet(sourceSyncConfiguredRepositoriesOnStartupConfigKey) {
+		return viper.GetBool(sourceSyncConfiguredRepositoriesOnStartupConfigKey)
+	}
+
+	return MustDefaults().Source.SyncConfiguredRepositoriesOnStartup
 }
 
 // SourceSyncRunningTimeout returns how long a running source sync reservation may live

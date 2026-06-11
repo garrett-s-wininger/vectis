@@ -139,8 +139,26 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 
 	sourceCtx, sourceCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer sourceCancel()
-	if err := reconcileConfiguredSourceRepositories(sourceCtx, dal.NewSQLRepositories(db), logger); err != nil {
+	sourceRepos := dal.NewSQLRepositories(db)
+	if err := reconcileConfiguredSourceRepositories(sourceCtx, sourceRepos, logger); err != nil {
 		logger.Error("Failed to reconcile configured source repositories: %v", err)
+		exitCode = 1
+		return
+	}
+
+	sourceSyncCtx := sourceCtx
+	sourceSyncCancel := func() {}
+	if config.SourceSyncConfiguredRepositoriesOnStartup() {
+		if timeout := config.SourceSyncRunningTimeout(); timeout > 0 {
+			sourceSyncCtx, sourceSyncCancel = context.WithTimeout(context.Background(), timeout)
+		} else {
+			sourceSyncCtx, sourceSyncCancel = context.WithCancel(context.Background())
+		}
+	}
+	defer sourceSyncCancel()
+
+	if err := syncConfiguredSourceRepositories(sourceSyncCtx, sourceRepos, logger); err != nil {
+		logger.Error("Failed to sync configured source repositories: %v", err)
 		exitCode = 1
 		return
 	}

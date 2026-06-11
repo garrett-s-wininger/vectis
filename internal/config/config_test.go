@@ -527,6 +527,33 @@ func TestSourceStoredJobsEnabled_DefaultAndOverride(t *testing.T) {
 	}
 }
 
+func TestSourceSyncConfiguredRepositoriesOnStartup_DefaultAndOverride(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv(envSourceSyncConfiguredRepositoriesOnStartup, "")
+	t.Setenv(envAPIServerSourceSyncConfiguredRepositoriesOnStartup, "")
+
+	if SourceSyncConfiguredRepositoriesOnStartup() {
+		t.Fatal("SourceSyncConfiguredRepositoriesOnStartup default: got true, want false")
+	}
+
+	viper.Set("source.sync_configured_repositories_on_startup", true)
+	if !SourceSyncConfiguredRepositoriesOnStartup() {
+		t.Fatal("SourceSyncConfiguredRepositoriesOnStartup viper override: got false, want true")
+	}
+
+	t.Setenv(envSourceSyncConfiguredRepositoriesOnStartup, "false")
+	if SourceSyncConfiguredRepositoriesOnStartup() {
+		t.Fatal("SourceSyncConfiguredRepositoriesOnStartup env override: got true, want false")
+	}
+
+	t.Setenv(envSourceSyncConfiguredRepositoriesOnStartup, "")
+	t.Setenv(envAPIServerSourceSyncConfiguredRepositoriesOnStartup, "true")
+	if !SourceSyncConfiguredRepositoriesOnStartup() {
+		t.Fatal("SourceSyncConfiguredRepositoriesOnStartup API env override: got false, want true")
+	}
+}
+
 func TestSourceRepositoryDeclarations_Viper(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)

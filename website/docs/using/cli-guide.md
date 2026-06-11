@@ -228,7 +228,7 @@ Register a source repository checkout:
 ./bin/vectis-cli sources register vectis-local /srv/vectis-repo --default-ref main
 ```
 
-Operators can also declare repositories with `VECTIS_SOURCE_REPOSITORIES` so `vectis-api` reconciles them on startup.
+Operators can also declare repositories with `VECTIS_SOURCE_REPOSITORIES` so `vectis-api` reconciles them on startup. Set `VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_ON_STARTUP=true` when those configured repositories should also be cloned, fetched, or probed before the API starts serving.
 
 For a Vectis-managed checkout, omit the checkout path and provide the canonical clone URL:
 

@@ -87,6 +87,8 @@ Each entry accepts `repository_id`, `namespace`, `source_kind`, `checkout_path`,
 
 Startup reconciliation creates missing repository registrations and updates changed checkout, authoring, default ref, credential, and enabled fields. It does not delete repositories omitted from config. If a configured repository already exists in a different namespace, startup fails so operators can make an explicit move plan.
 
+Set `VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_ON_STARTUP=true` to also sync enabled configured repositories during `vectis-api` startup. This is off by default so large repositories do not surprise-block deployments. When enabled, external checkouts are probed and managed checkouts are cloned or fetched; sync status, ref, commit, timestamps, and errors are persisted on the repository record. A failed startup sync fails API startup, and the sync operation uses `source.sync_running_timeout` / `VECTIS_SOURCE_SYNC_RUNNING_TIMEOUT` as its timeout window.
+
 For source-only deployments, combine declared repositories with:
 
 ```sh
