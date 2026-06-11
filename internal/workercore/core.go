@@ -2,12 +2,15 @@ package workercore
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
 	"vectis/internal/action/actionregistry"
 	"vectis/internal/interfaces"
 	"vectis/internal/workloadidentity"
+	workersdk "vectis/sdk/workercore"
 )
 
 // Core is the worker-side execution core boundary. The worker shell owns queue,
@@ -32,6 +35,64 @@ type CancelTaskRequest struct {
 	RunID     string
 	TaskKey   string
 	Reason    string
+}
+
+type TaskResultError struct {
+	Outcome    api.RunOutcome
+	ReasonCode string
+	Message    string
+}
+
+func (e *TaskResultError) Error() string {
+	if e == nil {
+		return ""
+	}
+
+	outcome := strings.TrimPrefix(e.Outcome.String(), "RUN_OUTCOME_")
+	if outcome == "" || outcome == api.RunOutcome_RUN_OUTCOME_UNSPECIFIED.String() {
+		outcome = "UNKNOWN"
+	}
+
+	reason := strings.TrimSpace(e.ReasonCode)
+	message := strings.TrimSpace(e.Message)
+	switch {
+	case reason != "" && message != "":
+		return fmt.Sprintf("remote worker core task %s (%s): %s", strings.ToLower(outcome), reason, message)
+	case reason != "":
+		return fmt.Sprintf("remote worker core task %s (%s)", strings.ToLower(outcome), reason)
+	case message != "":
+		return fmt.Sprintf("remote worker core task %s: %s", strings.ToLower(outcome), message)
+	default:
+		return fmt.Sprintf("remote worker core task %s", strings.ToLower(outcome))
+	}
+}
+
+func NewTaskResultError(outcome api.RunOutcome, reasonCode, message string) *TaskResultError {
+	if outcome == api.RunOutcome_RUN_OUTCOME_UNSPECIFIED {
+		outcome = api.RunOutcome_RUN_OUTCOME_UNKNOWN
+	}
+
+	return &TaskResultError{
+		Outcome:    outcome,
+		ReasonCode: normalizeTaskResultReason(reasonCode, outcome),
+		Message:    strings.TrimSpace(message),
+	}
+}
+
+func normalizeTaskResultReason(reasonCode string, outcome api.RunOutcome) string {
+	reasonCode = strings.TrimSpace(reasonCode)
+	if reasonCode != "" {
+		return reasonCode
+	}
+
+	switch outcome {
+	case api.RunOutcome_RUN_OUTCOME_FAILURE:
+		return workersdk.ReasonExecutionFailed
+	case api.RunOutcome_RUN_OUTCOME_UNKNOWN:
+		return workersdk.ReasonUnknown
+	default:
+		return ""
+	}
 }
 
 // TaskSession is the shell-owned execution handle passed to a core for one

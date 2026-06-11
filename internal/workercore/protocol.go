@@ -76,15 +76,9 @@ func (c *RemoteCore) ExecuteTask(ctx context.Context, req ExecuteTaskRequest) er
 
 	switch resp.GetOutcome() {
 	case api.RunOutcome_RUN_OUTCOME_FAILURE:
-		if msg := strings.TrimSpace(resp.GetMessage()); msg != "" {
-			return fmt.Errorf("remote worker core task failed: %s", msg)
-		}
-		return fmt.Errorf("remote worker core task failed")
+		return NewTaskResultError(resp.GetOutcome(), resp.GetReasonCode(), resp.GetMessage())
 	case api.RunOutcome_RUN_OUTCOME_UNKNOWN:
-		if msg := strings.TrimSpace(resp.GetMessage()); msg != "" {
-			return fmt.Errorf("remote worker core task outcome unknown: %s", msg)
-		}
-		return fmt.Errorf("remote worker core task outcome unknown")
+		return NewTaskResultError(resp.GetOutcome(), resp.GetReasonCode(), resp.GetMessage())
 	default:
 		return nil
 	}

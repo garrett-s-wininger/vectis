@@ -23,11 +23,16 @@ The result/error split is intentional:
 | Return | Meaning |
 | --- | --- |
 | `workercore.Success(), nil` | The task completed successfully. |
-| `workercore.Failure("message"), nil` | The external execution completed and the task failed. |
-| `workercore.Unknown("message"), nil` | The provider cannot prove success or failure, usually due to cancellation or lost external state. |
+| `workercore.Failure("message"), nil` | The external execution completed and the task failed. Uses `worker-core.execution_failed`. |
+| `workercore.FailureWithReason("provider.reason", "message"), nil` | The external execution completed and the task failed with a provider-specific reason code. |
+| `workercore.Unknown("message"), nil` | The provider cannot prove success or failure, usually due to lost external state. Uses `worker-core.unknown`. |
+| `workercore.Cancelled("message"), nil` | The provider stopped because Vectis or the external system cancelled the task. Uses `worker-core.cancelled`. |
+| `workercore.ExternalUnavailable("message"), nil` | The provider cannot determine the task outcome because the external system is unavailable. Uses `worker-core.external_unavailable`. |
 | `Result{}, err` | The worker-core implementation or transport failed before it could produce a task outcome. |
 
-Adapters should observe the provided context and implement `CancelTask`. When cancellation is requested, stop launching new external work, request cancellation in the external system when possible, and return `Unknown(...)` if the final external outcome is not known. `CancelTask` should be best-effort and idempotent: if the session is already complete or unknown, return nil unless the provider itself is unhealthy.
+Adapters should observe the provided context and implement `CancelTask`. When cancellation is requested, stop launching new external work, request cancellation in the external system when possible, and return `Cancelled(...)` if the final external outcome is not known. `CancelTask` should be best-effort and idempotent: if the session is already complete or unknown, return nil unless the provider itself is unhealthy.
+
+Reason codes are stable strings carried over the worker-core protocol so the worker can preserve provider intent separately from human-readable messages. Use the SDK constants for common cases and namespaced provider strings for provider-specific states, such as `jenkins.queue_timeout` or `kubernetes.pod_unschedulable`.
 
 ## Capabilities
 

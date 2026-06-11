@@ -39,6 +39,7 @@ message ExecuteWorkerCoreTaskRequest {
 message ExecuteWorkerCoreTaskResponse {
     common.RunOutcome outcome = 1;
     string message = 2;
+    string reason_code = 3;
 }
 
 message CancelWorkerCoreTaskRequest {

@@ -2,6 +2,7 @@ package workercore
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"vectis/internal/dal"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/testutil/socktest"
+	workersdk "vectis/sdk/workercore"
 
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
@@ -147,6 +149,36 @@ func TestServiceCancelTaskForwardsToCore(t *testing.T) {
 
 	if core.cancel.SessionID != "execution-1" || core.cancel.RunID != "run-1" || core.cancel.Reason != "durable request" {
 		t.Fatalf("cancel request = %#v", core.cancel)
+	}
+}
+
+func TestServiceExecuteTaskMapsCoreFailureReasonCode(t *testing.T) {
+	service := NewService(fakeCoreFunc(func(context.Context, ExecuteTaskRequest) error {
+		return errors.New("provider rejected task")
+	}), ServiceOptions{Logger: mocks.NewMockLogger()})
+
+	resp, err := service.ExecuteTask(context.Background(), &api.ExecuteWorkerCoreTaskRequest{
+		Job:     &api.Job{},
+		TaskKey: proto.String(dal.RootTaskKey),
+		Session: &api.WorkerCoreTaskSession{
+			SessionId: proto.String("session-1"),
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("ExecuteTask: %v", err)
+	}
+
+	if resp.GetOutcome() != api.RunOutcome_RUN_OUTCOME_FAILURE {
+		t.Fatalf("outcome = %s, want failure", resp.GetOutcome())
+	}
+
+	if resp.GetReasonCode() != workersdk.ReasonExecutionFailed {
+		t.Fatalf("reason code = %q, want %q", resp.GetReasonCode(), workersdk.ReasonExecutionFailed)
+	}
+
+	if !strings.Contains(resp.GetMessage(), "provider rejected task") {
+		t.Fatalf("message = %q, want provider error", resp.GetMessage())
 	}
 }
 

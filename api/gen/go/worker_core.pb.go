@@ -249,6 +249,7 @@ type ExecuteWorkerCoreTaskResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Outcome       *RunOutcome            `protobuf:"varint,1,opt,name=outcome,enum=common.RunOutcome" json:"outcome,omitempty"`
 	Message       *string                `protobuf:"bytes,2,opt,name=message" json:"message,omitempty"`
+	ReasonCode    *string                `protobuf:"bytes,3,opt,name=reason_code,json=reasonCode" json:"reason_code,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -293,6 +294,13 @@ func (x *ExecuteWorkerCoreTaskResponse) GetOutcome() RunOutcome {
 func (x *ExecuteWorkerCoreTaskResponse) GetMessage() string {
 	if x != nil && x.Message != nil {
 		return *x.Message
+	}
+	return ""
+}
+
+func (x *ExecuteWorkerCoreTaskResponse) GetReasonCode() string {
+	if x != nil && x.ReasonCode != nil {
+		return *x.ReasonCode
 	}
 	return ""
 }
@@ -1281,10 +1289,12 @@ const file_worker_core_proto_rawDesc = "" +
 	"\x1cExecuteWorkerCoreTaskRequest\x12\x1d\n" +
 	"\x03job\x18\x01 \x01(\v2\v.common.JobR\x03job\x12\x19\n" +
 	"\btask_key\x18\x02 \x01(\tR\ataskKey\x120\n" +
-	"\asession\x18\x03 \x01(\v2\x16.WorkerCoreTaskSessionR\asession\"g\n" +
+	"\asession\x18\x03 \x01(\v2\x16.WorkerCoreTaskSessionR\asession\"\x88\x01\n" +
 	"\x1dExecuteWorkerCoreTaskResponse\x12,\n" +
 	"\aoutcome\x18\x01 \x01(\x0e2\x12.common.RunOutcomeR\aoutcome\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"\x86\x01\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\x12\x1f\n" +
+	"\vreason_code\x18\x03 \x01(\tR\n" +
+	"reasonCode\"\x86\x01\n" +
 	"\x1bCancelWorkerCoreTaskRequest\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x15\n" +

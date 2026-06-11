@@ -19,6 +19,13 @@ const (
 	CapabilityShellArtifactPush = "worker-core.shell.artifacts"
 )
 
+const (
+	ReasonExecutionFailed     = "worker-core.execution_failed"
+	ReasonCancelled           = "worker-core.cancelled"
+	ReasonExternalUnavailable = "worker-core.external_unavailable"
+	ReasonUnknown             = "worker-core.unknown"
+)
+
 type Description struct {
 	ProtocolVersion    string
 	Capabilities       []Capability
@@ -62,8 +69,9 @@ type CancelRequest struct {
 }
 
 type Result struct {
-	Outcome api.RunOutcome
-	Message string
+	Outcome    api.RunOutcome
+	Message    string
+	ReasonCode string
 }
 
 func Success() Result {
@@ -71,9 +79,14 @@ func Success() Result {
 }
 
 func Failure(message string) Result {
+	return FailureWithReason(ReasonExecutionFailed, message)
+}
+
+func FailureWithReason(reasonCode, message string) Result {
 	return Result{
-		Outcome: api.RunOutcome_RUN_OUTCOME_FAILURE,
-		Message: strings.TrimSpace(message),
+		Outcome:    api.RunOutcome_RUN_OUTCOME_FAILURE,
+		Message:    strings.TrimSpace(message),
+		ReasonCode: normalizeReasonCode(reasonCode, api.RunOutcome_RUN_OUTCOME_FAILURE),
 	}
 }
 
@@ -82,14 +95,27 @@ func Failuref(format string, args ...any) Result {
 }
 
 func Unknown(message string) Result {
+	return UnknownWithReason(ReasonUnknown, message)
+}
+
+func UnknownWithReason(reasonCode, message string) Result {
 	return Result{
-		Outcome: api.RunOutcome_RUN_OUTCOME_UNKNOWN,
-		Message: strings.TrimSpace(message),
+		Outcome:    api.RunOutcome_RUN_OUTCOME_UNKNOWN,
+		Message:    strings.TrimSpace(message),
+		ReasonCode: normalizeReasonCode(reasonCode, api.RunOutcome_RUN_OUTCOME_UNKNOWN),
 	}
 }
 
 func Unknownf(format string, args ...any) Result {
 	return Unknown(fmt.Sprintf(format, args...))
+}
+
+func Cancelled(message string) Result {
+	return UnknownWithReason(ReasonCancelled, message)
+}
+
+func ExternalUnavailable(message string) Result {
+	return UnknownWithReason(ReasonExternalUnavailable, message)
 }
 
 func descriptionProto(desc Description) *api.DescribeWorkerCoreResponse {
@@ -130,8 +156,25 @@ func resultProto(result Result) *api.ExecuteWorkerCoreTaskResponse {
 	}
 
 	return &api.ExecuteWorkerCoreTaskResponse{
-		Outcome: outcome.Enum(),
-		Message: proto.String(strings.TrimSpace(result.Message)),
+		Outcome:    outcome.Enum(),
+		Message:    proto.String(strings.TrimSpace(result.Message)),
+		ReasonCode: proto.String(normalizeReasonCode(result.ReasonCode, outcome)),
+	}
+}
+
+func normalizeReasonCode(reasonCode string, outcome api.RunOutcome) string {
+	reasonCode = strings.TrimSpace(reasonCode)
+	if reasonCode != "" {
+		return reasonCode
+	}
+
+	switch outcome {
+	case api.RunOutcome_RUN_OUTCOME_FAILURE:
+		return ReasonExecutionFailed
+	case api.RunOutcome_RUN_OUTCOME_UNKNOWN:
+		return ReasonUnknown
+	default:
+		return ""
 	}
 }
 

@@ -120,6 +120,58 @@ func TestSDKServiceCancelTaskForwardsToCore(t *testing.T) {
 	}
 }
 
+func TestSDKServiceExecuteTaskReturnsReasonCode(t *testing.T) {
+	service := NewService(resultCore{
+		result: ExternalUnavailable("jenkins unavailable"),
+	}, ServiceOptions{})
+
+	resp, err := service.ExecuteTask(context.Background(), &api.ExecuteWorkerCoreTaskRequest{
+		Job:     &api.Job{},
+		TaskKey: proto.String("root"),
+		Session: &api.WorkerCoreTaskSession{
+			SessionId: proto.String("session-1"),
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("ExecuteTask: %v", err)
+	}
+
+	if resp.GetOutcome() != api.RunOutcome_RUN_OUTCOME_UNKNOWN {
+		t.Fatalf("outcome = %s, want unknown", resp.GetOutcome())
+	}
+
+	if resp.GetReasonCode() != ReasonExternalUnavailable {
+		t.Fatalf("reason code = %q, want %q", resp.GetReasonCode(), ReasonExternalUnavailable)
+	}
+
+	if resp.GetMessage() != "jenkins unavailable" {
+		t.Fatalf("message = %q, want provider message", resp.GetMessage())
+	}
+}
+
+func TestResultHelpersNormalizeReasonCodes(t *testing.T) {
+	tests := []struct {
+		name   string
+		result Result
+		want   string
+	}{
+		{name: "failure", result: Failure("failed"), want: ReasonExecutionFailed},
+		{name: "unknown", result: Unknown("lost"), want: ReasonUnknown},
+		{name: "cancelled", result: Cancelled("stop"), want: ReasonCancelled},
+		{name: "custom", result: FailureWithReason("jenkins.stage_failed", "failed"), want: "jenkins.stage_failed"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := resultProto(tt.result)
+			if resp.GetReasonCode() != tt.want {
+				t.Fatalf("reason code = %q, want %q", resp.GetReasonCode(), tt.want)
+			}
+		})
+	}
+}
+
 type callbackCore struct{}
 
 func (callbackCore) Describe(context.Context) (Description, error) {
@@ -186,6 +238,26 @@ func (c *recordingCore) ExecuteTask(context.Context, Task) (Result, error) {
 
 func (c *recordingCore) CancelTask(_ context.Context, req CancelRequest) error {
 	c.cancel = req
+	return nil
+}
+
+type resultCore struct {
+	result Result
+	err    error
+}
+
+func (c resultCore) Describe(context.Context) (Description, error) {
+	return Description{
+		SupportedIsolation: []string{"host"},
+		Capabilities:       []Capability{{Name: CapabilityExecute, Version: "v1"}, {Name: CapabilityCancelTask, Version: "v1"}},
+	}, nil
+}
+
+func (c resultCore) ExecuteTask(context.Context, Task) (Result, error) {
+	return c.result, c.err
+}
+
+func (c resultCore) CancelTask(context.Context, CancelRequest) error {
 	return nil
 }
 

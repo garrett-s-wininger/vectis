@@ -78,12 +78,12 @@ func (c *sampleCore) ExecuteTask(ctx context.Context, task sdk.Task) (sdk.Result
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
-		return sdk.Unknown(ctx.Err().Error()), nil
+		return sdk.Cancelled(ctx.Err().Error()), nil
 	case <-timer.C:
 	}
 
 	if reason, ok := c.cancelReason(task.Session.ID()); ok {
-		return sdk.Unknown("cancelled: " + reason), nil
+		return sdk.Cancelled("cancelled: " + reason), nil
 	}
 
 	if task.Session.ArtifactsEnabled() {

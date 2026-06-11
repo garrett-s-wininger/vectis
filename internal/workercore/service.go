@@ -10,6 +10,7 @@ import (
 	"vectis/internal/action"
 	"vectis/internal/action/actionregistry"
 	"vectis/internal/interfaces"
+	workersdk "vectis/sdk/workercore"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -61,13 +62,16 @@ func (s *Service) ExecuteTask(ctx context.Context, req *api.ExecuteWorkerCoreTas
 
 	if err := s.core.ExecuteTask(ctx, execReq); err != nil {
 		outcome := api.RunOutcome_RUN_OUTCOME_FAILURE
+		reasonCode := workersdk.ReasonExecutionFailed
 		if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			outcome = api.RunOutcome_RUN_OUTCOME_UNKNOWN
+			reasonCode = workersdk.ReasonCancelled
 		}
 
 		return &api.ExecuteWorkerCoreTaskResponse{
-			Outcome: outcome.Enum(),
-			Message: proto.String(err.Error()),
+			Outcome:    outcome.Enum(),
+			Message:    proto.String(err.Error()),
+			ReasonCode: proto.String(reasonCode),
 		}, nil
 	}
 

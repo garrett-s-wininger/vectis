@@ -12,6 +12,7 @@ import (
 	"vectis/internal/dal"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/workloadidentity"
+	workersdk "vectis/sdk/workercore"
 
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
@@ -183,8 +184,9 @@ func TestRemoteCoreExecuteTaskFailureOutcome(t *testing.T) {
 	core := NewRemoteCore(fakeWorkerCoreClient{
 		execute: func(context.Context, *api.ExecuteWorkerCoreTaskRequest) (*api.ExecuteWorkerCoreTaskResponse, error) {
 			return &api.ExecuteWorkerCoreTaskResponse{
-				Outcome: api.RunOutcome_RUN_OUTCOME_FAILURE.Enum(),
-				Message: proto.String("jenkins failed"),
+				Outcome:    api.RunOutcome_RUN_OUTCOME_FAILURE.Enum(),
+				Message:    proto.String("jenkins failed"),
+				ReasonCode: proto.String("jenkins.stage_failed"),
 			}, nil
 		},
 	})
@@ -200,6 +202,47 @@ func TestRemoteCoreExecuteTaskFailureOutcome(t *testing.T) {
 
 	if err == nil || !strings.Contains(err.Error(), "jenkins failed") {
 		t.Fatalf("ExecuteTask error = %v, want failure message", err)
+	}
+
+	var resultErr *TaskResultError
+	if !errors.As(err, &resultErr) {
+		t.Fatalf("ExecuteTask error type = %T, want *TaskResultError", err)
+	}
+
+	if resultErr.Outcome != api.RunOutcome_RUN_OUTCOME_FAILURE {
+		t.Fatalf("outcome = %s, want failure", resultErr.Outcome)
+	}
+
+	if resultErr.ReasonCode != "jenkins.stage_failed" {
+		t.Fatalf("reason code = %q, want provider reason", resultErr.ReasonCode)
+	}
+}
+
+func TestRemoteCoreExecuteTaskDefaultReasonCode(t *testing.T) {
+	core := NewRemoteCore(fakeWorkerCoreClient{
+		execute: func(context.Context, *api.ExecuteWorkerCoreTaskRequest) (*api.ExecuteWorkerCoreTaskResponse, error) {
+			return &api.ExecuteWorkerCoreTaskResponse{
+				Outcome: api.RunOutcome_RUN_OUTCOME_UNKNOWN.Enum(),
+			}, nil
+		},
+	})
+
+	err := core.ExecuteTask(context.Background(), ExecuteTaskRequest{
+		Job:     &api.Job{},
+		TaskKey: dal.RootTaskKey,
+		Session: NewTaskSession(TaskSessionOptions{
+			SessionID: "session-1",
+			Logger:    mocks.NewMockLogger(),
+		}),
+	})
+
+	var resultErr *TaskResultError
+	if !errors.As(err, &resultErr) {
+		t.Fatalf("ExecuteTask error type = %T, want *TaskResultError", err)
+	}
+
+	if resultErr.ReasonCode != workersdk.ReasonUnknown {
+		t.Fatalf("reason code = %q, want %q", resultErr.ReasonCode, workersdk.ReasonUnknown)
 	}
 }
 
