@@ -904,7 +904,7 @@ spec:
         - name: VECTIS_WORKER_SPIRE_REGISTRATION_SERVER_ADDRESS
           value: unix:///run/vectis/spiffe/registration.sock
         - name: VECTIS_WORKER_SPIRE_REGISTRATION_PARENT_ID
-          value: spiffe://vectis.internal/spire/agent/local
+          value: spiffe://vectis.internal/vectis-spiffe/agent/local
         - name: VECTIS_WORKER_SPIRE_REGISTRATION_SELECTORS
           value: unix:uid:0
 {{ if .SetMetricsPortEnv }}

@@ -35,7 +35,7 @@ Some settings are global and intentionally do not use a service prefix, such as 
 | Expose local API and docs from a dev host | `VECTIS_DOCS_ALLOWED_HOSTS=<dev-host> vectis-local --host 0.0.0.0` |
 | Add local execution cells for routing tests | `vectis-local --cell pdx-b --cell sjc-c` |
 | Run a local multi-instance HA exercise cell | `vectis-local --profile ha` or `VECTIS_LOCAL_PROFILE=ha` |
-| Run a local SPIFFE secret-resolution smoke test | `vectis-local --spire-trust-domain vectis.internal` |
+| Run a local SPIFFE secret-resolution smoke test | `vectis-local --spiffe-trust-domain vectis.internal` |
 | Run the Podman HA reference profile | `vectis-cli deploy podman --profile ha up` |
 | Set the execution cell identity | `VECTIS_CELL_ID=local` |
 | Bind private cell ingress to another interface | `VECTIS_CELL_INGRESS_HOST=0.0.0.0`, internal mTLS via `VECTIS_GRPC_TLS_*`, plus a matching static endpoint or `VECTIS_CELL_INGRESS_ALLOWED_HOSTS=<ingress-host>` |
@@ -86,7 +86,7 @@ Use these prefixes when building service-specific environment variable names.
 | `vectis-catalog` | `VECTIS_CATALOG` | `--interval`, `--batch-size`, `--metrics-host`, `--metrics-port`, `--cell-database-dsn` |
 | `vectis-log-forwarder` | `VECTIS_LOG_FORWARDER` | `--socket`, `--lockfile`, `--spool-dir`, `--metrics-host`, `--metrics-port` |
 | `vectis-docs` | `VECTIS_DOCS` | `--host`, `--port`, `--dir`, `--allowed-host`, `--tls-cert-file`, `--tls-key-file` |
-| `vectis-local` | `VECTIS_LOCAL` | `--profile`, `--host`, `--cell`, `--docs-port`, `--docs-dir`, `--log-level`, `--grpc-insecure`, `--http-tls`, `--tls-dir`; local SPIFFE/SPIRE smoke-test flags: `--spire`, `--spire-trust-domain`, `--spire-workload-api-address`, `--spire-server-api-address`, `--spire-parent-id`, `--spire-selector`, `--spire-bundle-file`; subcommands: `init`, `install-cert` |
+| `vectis-local` | `VECTIS_LOCAL` | `--profile`, `--host`, `--cell`, `--docs-port`, `--docs-dir`, `--log-level`, `--grpc-insecure`, `--http-tls`, `--tls-dir`; local SPIFFE smoke-test flags: `--spiffe-trust-domain`, `--spiffe-dir`, `--spiffe-runtime-dir`, `--spiffe-parent-id`, `--spiffe-selector`; subcommands: `init`, `install-cert` |
 | `vectis-cli` | none for normal API commands | `VECTIS_API_TOKEN` for auth; `VECTIS_DATABASE_*` for `database migrate` |
 
 The API client IP trust setting is an intentionally separate API-wide variable: `VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS`.
@@ -178,7 +178,7 @@ Execution SVID acquisition happens inside Vectis-controlled worker code. When a 
 
 Secret resolution requires internal gRPC TLS with server certificates, `grpc_tls.ca_file` for workers, and `grpc_tls.client_ca_file` for `vectis-secrets` so workload client certificates are requested and verified. `vectis-secrets` fails startup when gRPC TLS is enabled without `grpc_tls.client_ca_file`.
 
-For local end-to-end testing, `vectis-local` starts an embedded development-only SPIFFE authority when local gRPC TLS is enabled, exports its trust bundle, passes worker execution identity and SPIRE-compatible registration settings to child processes, starts `vectis-secrets` with encryptedfs enabled, and writes a combined client-CA bundle containing the generated local Vectis CA plus the local SPIFFE bundle. Use `vectis-local --spire` instead when you already run SPIRE yourself and want to provide explicit socket, bundle, parent ID, and selector settings. Both modes let ordinary local service mTLS and dynamic per-execution SVID client certificates work in the same process group. `vectis-local --grpc-insecure` skips the embedded authority and secrets service because plaintext gRPC cannot authenticate execution SVID client certificates. See [Local SPIFFE Secrets Smoke Test](./deployment/local-spire-secrets-smoke-test.md).
+For local end-to-end testing, `vectis-local` starts an embedded development-only `vectis-spiffe` authority when local gRPC TLS is enabled, exports its trust bundle, passes worker execution identity and SPIRE-compatible registration settings to child processes, starts `vectis-secrets` with encryptedfs enabled, and writes a combined client-CA bundle containing the generated local Vectis CA plus the local SPIFFE bundle. This lets ordinary local service mTLS and dynamic per-execution SVID client certificates work in the same process group without external identity binaries. `vectis-local --grpc-insecure` skips the embedded authority and secrets service because plaintext gRPC cannot authenticate execution SVID client certificates. See [Local SPIFFE Secrets Smoke Test](./deployment/local-spiffe-secrets-smoke-test.md).
 
 `vectis-secrets` routes secret refs by URI scheme. `encryptedfs://...` is the first built-in provider scheme; future external providers such as Vault or Knox can register their own schemes behind the same authorization and delivery path.
 

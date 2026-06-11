@@ -121,7 +121,7 @@ func TestIntegrationLocalSPIFFESecretsExample(t *testing.T) {
 		Logger:                    logger,
 		WorkerID:                  "integration-local-secrets-worker",
 		TrustDomain:               spiffeCfg.TrustDomain,
-		ParentSPIFFEID:            "spiffe://" + spiffeCfg.TrustDomain + "/spire/agent/local",
+		ParentSPIFFEID:            "spiffe://" + spiffeCfg.TrustDomain + "/vectis-spiffe/agent/local",
 		Selectors:                 []spire.Selector{{Type: "unix", Value: "uid:" + strconv.Itoa(os.Getuid())}},
 		Queue:                     queueClient,
 		LogClient:                 logClient,

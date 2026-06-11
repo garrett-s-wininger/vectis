@@ -99,16 +99,16 @@ var (
 )
 
 const (
-	healthCheckInterval          = 50 * time.Millisecond
-	healthCheckTimeout           = 10 * time.Second
-	cellPortStride               = 100
-	localSecretsDisabledAddress  = "disabled"
-	localProfileSimple           = "simple"
-	localProfileHA               = "ha"
-	localHTTPSTLSAuto            = "auto"
-	localHTTPSTLSOn              = "on"
-	localHTTPSTLSOff             = "off"
-	localSPIRETrustDomainDefault = "vectis.internal"
+	healthCheckInterval           = 50 * time.Millisecond
+	healthCheckTimeout            = 10 * time.Second
+	cellPortStride                = 100
+	localSecretsDisabledAddress   = "disabled"
+	localProfileSimple            = "simple"
+	localProfileHA                = "ha"
+	localHTTPSTLSAuto             = "auto"
+	localHTTPSTLSOn               = "on"
+	localHTTPSTLSOff              = "off"
+	localSPIFFETrustDomainDefault = "vectis.internal"
 )
 
 func waitForHealthy(port int, serviceName string, timeout time.Duration) error {
@@ -603,7 +603,7 @@ func localBrowserTLS(material *localpki.Material, mode string, logger interfaces
 	return cfg
 }
 
-type localSPIREConfig struct {
+type localSPIFFEConfig struct {
 	Enabled            bool
 	ClientCABundleFile string
 	Env                []string
@@ -651,33 +651,33 @@ func startEmbeddedLocalSPIFFE(logger interfaces.Logger) (cfg localEmbeddedSPIFFE
 }
 
 func embeddedLocalSPIFFEConfig() (localEmbeddedSPIFFEConfig, error) {
-	if viper.GetBool("spire_enabled") || viper.GetBool("grpc_insecure") {
+	if viper.GetBool("grpc_insecure") {
 		return localEmbeddedSPIFFEConfig{}, nil
 	}
 
-	trustDomain := strings.TrimSpace(viper.GetString("spire_trust_domain"))
+	trustDomain := strings.TrimSpace(viper.GetString("spiffe_trust_domain"))
 	if trustDomain == "" {
-		trustDomain = localSPIRETrustDomainDefault
+		trustDomain = localSPIFFETrustDomainDefault
 	}
 
-	dataDir := strings.TrimSpace(viper.GetString("spire_dir"))
+	dataDir := strings.TrimSpace(viper.GetString("spiffe_dir"))
 	if dataDir == "" {
 		dataDir = filepath.Join(utils.DataHome(), "vectis", "spiffe")
 	}
 
-	runtimeDir := strings.TrimSpace(viper.GetString("spire_runtime_dir"))
+	runtimeDir := strings.TrimSpace(viper.GetString("spiffe_runtime_dir"))
 	if runtimeDir == "" {
 		runtimeDir = filepath.Join(utils.RuntimeDir(), "spiffe")
 	}
 
-	selectors := localSPIRERegistrationSelectors()
+	selectors := localSPIFFERegistrationSelectors()
 	if len(selectors) == 0 {
 		selectors = []string{fmt.Sprintf("unix:uid:%d", os.Getuid())}
 	}
 
-	parentID := strings.TrimSpace(viper.GetString("spire_registration_parent_id"))
+	parentID := strings.TrimSpace(viper.GetString("spiffe_parent_id"))
 	if parentID == "" {
-		parentID = "spiffe://" + trustDomain + "/spire/agent/local"
+		parentID = "spiffe://" + trustDomain + "/vectis-spiffe/agent/local"
 	}
 
 	serverSocket := filepath.Join(runtimeDir, "registration.sock")
@@ -697,71 +697,71 @@ func embeddedLocalSPIFFEConfig() (localEmbeddedSPIFFEConfig, error) {
 }
 
 func applyEmbeddedLocalSPIFFEConfig(cfg localEmbeddedSPIFFEConfig) {
-	viper.Set("spire_enabled", true)
-	viper.Set("spire_trust_domain", cfg.TrustDomain)
-	viper.Set("spire_workload_api_address", "unix://"+cfg.AgentSocket)
-	viper.Set("spire_registration_server_address", "unix://"+cfg.ServerSocket)
-	viper.Set("spire_registration_parent_id", cfg.ParentID)
-	viper.Set("spire_registration_selectors", cfg.Selectors)
-	viper.Set("spire_bundle_file", cfg.BundleFile)
+	viper.Set("spiffe_enabled", true)
+	viper.Set("spiffe_trust_domain", cfg.TrustDomain)
+	viper.Set("spiffe_workload_api_address", "unix://"+cfg.AgentSocket)
+	viper.Set("spiffe_registration_server_address", "unix://"+cfg.ServerSocket)
+	viper.Set("spiffe_parent_id", cfg.ParentID)
+	viper.Set("spiffe_selectors", cfg.Selectors)
+	viper.Set("spiffe_bundle_file", cfg.BundleFile)
 }
 
-func localSPIRE(tlsDir string, material *localpki.Material) (localSPIREConfig, error) {
-	if !viper.GetBool("spire_enabled") {
-		return localSPIREConfig{}, nil
+func localSPIFFE(tlsDir string, material *localpki.Material) (localSPIFFEConfig, error) {
+	if !viper.GetBool("spiffe_enabled") {
+		return localSPIFFEConfig{}, nil
 	}
 
 	if viper.GetBool("grpc_insecure") {
-		return localSPIREConfig{}, fmt.Errorf("local SPIFFE identity mode requires gRPC TLS; remove --grpc-insecure")
+		return localSPIFFEConfig{}, fmt.Errorf("local SPIFFE identity mode requires gRPC TLS; remove --grpc-insecure")
 	}
 
 	if material == nil {
-		return localSPIREConfig{}, fmt.Errorf("local SPIFFE identity mode requires local TLS material")
+		return localSPIFFEConfig{}, fmt.Errorf("local SPIFFE identity mode requires local TLS material")
 	}
 
-	trustDomain := strings.TrimSpace(viper.GetString("spire_trust_domain"))
+	trustDomain := strings.TrimSpace(viper.GetString("spiffe_trust_domain"))
 	if trustDomain == "" {
-		return localSPIREConfig{}, fmt.Errorf("local SPIFFE identity mode requires --spire-trust-domain")
+		return localSPIFFEConfig{}, fmt.Errorf("local SPIFFE identity mode requires --spiffe-trust-domain")
 	}
 
-	workloadAPIAddress := strings.TrimSpace(viper.GetString("spire_workload_api_address"))
+	workloadAPIAddress := strings.TrimSpace(viper.GetString("spiffe_workload_api_address"))
 	if err := spire.ValidateWorkloadAPIAddress(workloadAPIAddress); err != nil {
-		return localSPIREConfig{}, fmt.Errorf("local SPIFFE workload API: %w", err)
+		return localSPIFFEConfig{}, fmt.Errorf("local SPIFFE workload API: %w", err)
 	}
 
-	serverAPIAddress := strings.TrimSpace(viper.GetString("spire_registration_server_address"))
+	serverAPIAddress := strings.TrimSpace(viper.GetString("spiffe_registration_server_address"))
 	if err := spire.ValidateServerAPIAddress(serverAPIAddress); err != nil {
-		return localSPIREConfig{}, fmt.Errorf("local SPIFFE registration API: %w", err)
+		return localSPIFFEConfig{}, fmt.Errorf("local SPIFFE registration API: %w", err)
 	}
 
-	parentID := strings.TrimSpace(viper.GetString("spire_registration_parent_id"))
+	parentID := strings.TrimSpace(viper.GetString("spiffe_parent_id"))
 	if parentID == "" {
-		return localSPIREConfig{}, fmt.Errorf("local SPIFFE identity mode requires --spire-registration-parent-id")
+		return localSPIFFEConfig{}, fmt.Errorf("local SPIFFE identity mode requires --spiffe-parent-id")
 	}
 
 	if _, err := serviceidentity.NormalizeSPIFFEAllowlist([]string{parentID}); err != nil {
-		return localSPIREConfig{}, fmt.Errorf("local SPIFFE registration parent ID: %w", err)
+		return localSPIFFEConfig{}, fmt.Errorf("local SPIFFE registration parent ID: %w", err)
 	}
 
-	selectors := localSPIRERegistrationSelectors()
+	selectors := localSPIFFERegistrationSelectors()
 	if len(selectors) == 0 {
-		return localSPIREConfig{}, fmt.Errorf("local SPIFFE identity mode requires at least one --spire-registration-selector")
+		return localSPIFFEConfig{}, fmt.Errorf("local SPIFFE identity mode requires at least one --spiffe-selector")
 	}
 
 	for _, selector := range selectors {
 		if _, err := spire.ParseSelector(selector); err != nil {
-			return localSPIREConfig{}, fmt.Errorf("local SPIFFE registration selector %q: %w", selector, err)
+			return localSPIFFEConfig{}, fmt.Errorf("local SPIFFE registration selector %q: %w", selector, err)
 		}
 	}
 
-	spireBundle := strings.TrimSpace(viper.GetString("spire_bundle_file"))
-	if spireBundle == "" {
-		return localSPIREConfig{}, fmt.Errorf("local SPIFFE identity mode requires --spire-bundle-file")
+	spiffeBundle := strings.TrimSpace(viper.GetString("spiffe_bundle_file"))
+	if spiffeBundle == "" {
+		return localSPIFFEConfig{}, fmt.Errorf("local SPIFFE identity mode requires a SPIFFE bundle file")
 	}
 
-	clientCABundle, err := writeLocalSPIREClientCABundle(tlsDir, material.CAFile, spireBundle)
+	clientCABundle, err := writeLocalSPIFFEClientCABundle(tlsDir, material.CAFile, spiffeBundle)
 	if err != nil {
-		return localSPIREConfig{}, err
+		return localSPIFFEConfig{}, err
 	}
 
 	env := []string{
@@ -776,7 +776,7 @@ func localSPIRE(tlsDir string, material *localpki.Material) (localSPIREConfig, e
 		"VECTIS_WORKER_SPIRE_REGISTRATION_SELECTORS=" + strings.Join(selectors, ","),
 	}
 
-	if pathTemplate := strings.TrimSpace(viper.GetString("spire_path_template")); pathTemplate != "" {
+	if pathTemplate := strings.TrimSpace(viper.GetString("spiffe_path_template")); pathTemplate != "" {
 		env = append(env, "VECTIS_WORKER_EXECUTION_IDENTITY_PATH_TEMPLATE="+pathTemplate)
 	}
 
@@ -784,30 +784,30 @@ func localSPIRE(tlsDir string, material *localpki.Material) (localSPIREConfig, e
 		key string
 		env string
 	}{
-		{key: "spire_fetch_timeout", env: "VECTIS_WORKER_SPIRE_FETCH_TIMEOUT"},
-		{key: "spire_registration_x509_svid_ttl", env: "VECTIS_WORKER_SPIRE_REGISTRATION_X509_SVID_TTL"},
-		{key: "spire_registration_min_ttl", env: "VECTIS_WORKER_SPIRE_REGISTRATION_MIN_TTL"},
-		{key: "spire_registration_max_ttl", env: "VECTIS_WORKER_SPIRE_REGISTRATION_MAX_TTL"},
+		{key: "spiffe_fetch_timeout", env: "VECTIS_WORKER_SPIRE_FETCH_TIMEOUT"},
+		{key: "spiffe_x509_svid_ttl", env: "VECTIS_WORKER_SPIRE_REGISTRATION_X509_SVID_TTL"},
+		{key: "spiffe_registration_min_ttl", env: "VECTIS_WORKER_SPIRE_REGISTRATION_MIN_TTL"},
+		{key: "spiffe_registration_max_ttl", env: "VECTIS_WORKER_SPIRE_REGISTRATION_MAX_TTL"},
 	} {
 		if value := strings.TrimSpace(viper.GetString(durationEnv.key)); value != "" {
 			env = append(env, durationEnv.env+"="+value)
 		}
 	}
 
-	return localSPIREConfig{
+	return localSPIFFEConfig{
 		Enabled:            true,
 		ClientCABundleFile: clientCABundle,
 		Env:                env,
 	}, nil
 }
 
-func localSPIRERegistrationSelectors() []string {
-	values := append([]string{}, viper.GetStringSlice("spire_registration_selectors")...)
-	if raw := strings.TrimSpace(viper.GetString("spire_registration_selectors")); raw != "" {
-		values = append(values, raw)
+func localSPIFFERegistrationSelectors() []string {
+	selectors := append([]string{}, viper.GetStringSlice("spiffe_selectors")...)
+	if raw := strings.TrimSpace(viper.GetString("spiffe_selectors")); raw != "" {
+		selectors = append(selectors, raw)
 	}
 
-	return cleanCommaSeparated(values)
+	return cleanCommaSeparated(selectors)
 }
 
 func cleanCommaSeparated(values []string) []string {
@@ -828,13 +828,13 @@ func cleanCommaSeparated(values []string) []string {
 	return out
 }
 
-func writeLocalSPIREClientCABundle(tlsDir, localCAFile, spireBundleFile string) (string, error) {
+func writeLocalSPIFFEClientCABundle(tlsDir, localCAFile, spiffeBundleFile string) (string, error) {
 	localCA, err := readCertificateBundle(localCAFile, "local gRPC CA")
 	if err != nil {
 		return "", err
 	}
 
-	spireBundle, err := readCertificateBundle(spireBundleFile, "SPIRE bundle")
+	spiffeBundle, err := readCertificateBundle(spiffeBundleFile, "SPIFFE bundle")
 	if err != nil {
 		return "", err
 	}
@@ -847,11 +847,11 @@ func writeLocalSPIREClientCABundle(tlsDir, localCAFile, spireBundleFile string) 
 	var out bytes.Buffer
 	out.Write(bytes.TrimSpace(localCA))
 	out.WriteByte('\n')
-	out.Write(bytes.TrimSpace(spireBundle))
+	out.Write(bytes.TrimSpace(spiffeBundle))
 	out.WriteByte('\n')
 
 	if err := os.WriteFile(path, out.Bytes(), 0o644); err != nil {
-		return "", fmt.Errorf("write combined local SPIRE client CA bundle: %w", err)
+		return "", fmt.Errorf("write combined local SPIFFE client CA bundle: %w", err)
 	}
 
 	return path, nil
@@ -1290,6 +1290,7 @@ func killAllStartedAndWait(logger interfaces.Logger) {
 
 func runVectis(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewLogger("cli")
+
 	logLevel := viper.GetString("log_level")
 	if !isValidLogLevel(logLevel) {
 		logger.Fatal("invalid log level: %s (must be debug, info, warn, or error)", logLevel)
@@ -1338,30 +1339,30 @@ func runVectis(cmd *cobra.Command, args []string) {
 	browserTLS := localBrowserTLS(material, httpTLSMode, logger)
 	tlsEnv = append(tlsEnv, browserTLS.Env...)
 
-	localSPIFFE, err := startEmbeddedLocalSPIFFE(logger)
+	embeddedSPIFFE, err := startEmbeddedLocalSPIFFE(logger)
 	if err != nil {
 		logger.Fatal("%v", err)
 	}
 
-	if localSPIFFE.Authority != nil {
-		defer localSPIFFE.Authority.Stop()
+	if embeddedSPIFFE.Authority != nil {
+		defer embeddedSPIFFE.Authority.Stop()
 	}
 
-	if localSPIFFE.Enabled {
-		logger.Info("Embedded local SPIFFE authority is running (registration socket %s, workload socket %s)", localSPIFFE.ServerSocket, localSPIFFE.AgentSocket)
+	if embeddedSPIFFE.Enabled {
+		logger.Info("Embedded local SPIFFE authority is running (registration socket %s, workload socket %s)", embeddedSPIFFE.ServerSocket, embeddedSPIFFE.AgentSocket)
 	} else if viper.GetBool("grpc_insecure") {
 		logger.Warn("Skipping embedded local SPIFFE authority because --grpc-insecure is enabled")
 	}
 
-	spireCfg, err := localSPIRE(tlsDir, material)
+	spiffeCfg, err := localSPIFFE(tlsDir, material)
 	if err != nil {
 		logger.Fatal("%v", err)
 	}
 
-	if spireCfg.Enabled {
-		tlsEnv = append(tlsEnv, spireCfg.Env...)
-		viper.Set("grpc_tls.client_ca_file", spireCfg.ClientCABundleFile)
-		logger.Info("Enabled local SPIFFE execution identity using combined client CA bundle %s", spireCfg.ClientCABundleFile)
+	if spiffeCfg.Enabled {
+		tlsEnv = append(tlsEnv, spiffeCfg.Env...)
+		viper.Set("grpc_tls.client_ca_file", spiffeCfg.ClientCABundleFile)
+		logger.Info("Enabled local SPIFFE execution identity using combined client CA bundle %s", spiffeCfg.ClientCABundleFile)
 	}
 
 	topology, err := buildLocalTopology()
@@ -1661,11 +1662,11 @@ execution secret resolution requires a verified SVID client certificate.
 For local end-to-end secret resolution with SPIFFE identities, vectis-local
 starts its embedded development authority for the current process user whenever
 local gRPC TLS is enabled, and starts vectis-secrets with encryptedfs enabled.
-You can also start your own SPIRE-compatible Workload API and Entry API
-endpoints and pass --spire with the socket, bundle, parent ID, and workload
-selector flags. Both modes keep identity material behind Unix sockets while
-combining the local Vectis CA and SPIFFE bundle for client certificate
-verification.
+This uses the same SPIRE-compatible Workload API and Entry API contracts as the
+worker, but runs through the bundled vectis-spiffe authority so the local demo
+does not require external identity binaries. Identity material stays behind Unix
+sockets while vectis-local combines the local Vectis CA and SPIFFE bundle for
+client certificate verification.
 
 Use "vectis-local init" to create or renew the local TLS material without
 privileges. Use "vectis-local install-cert" with elevated privileges only when
@@ -1723,20 +1724,16 @@ func init() {
 	rootCmd.PersistentFlags().Int("docs-port", 8088, "HTTP port for the local docs site")
 	rootCmd.PersistentFlags().String("docs-dir", "", "Directory containing a docs build to serve instead of embedded docs")
 	rootCmd.PersistentFlags().StringArray("cell", nil, "Additional local execution cell ID to start; may be repeated")
-	rootCmd.PersistentFlags().Bool("spire", false, "Use externally supplied SPIRE-compatible Workload API and Entry API endpoints")
-	rootCmd.PersistentFlags().String("spire-dir", "", "Directory for embedded local SPIFFE authority data")
-	rootCmd.PersistentFlags().String("spire-runtime-dir", "", "Directory for embedded local SPIFFE authority Unix sockets")
-	rootCmd.PersistentFlags().String("spire-trust-domain", "", "SPIFFE trust domain for local execution IDs; embedded local mode defaults to vectis.internal")
-	rootCmd.PersistentFlags().String("spire-path-template", "", "Optional execution SPIFFE path template for local identity mode")
-	rootCmd.PersistentFlags().String("spire-workload-api-address", "", "SPIRE Workload API address for local workers, such as unix:///run/spire/sockets/agent.sock")
-	rootCmd.PersistentFlags().String("spire-server-api-address", "", "SPIRE-compatible Entry API address for worker registration, such as unix:///run/spire/sockets/server.sock")
-	rootCmd.PersistentFlags().String("spire-parent-id", "", "Parent SPIFFE ID for worker-created execution registration entries")
-	rootCmd.PersistentFlags().StringArray("spire-selector", nil, "Workload selector for worker-created execution registrations; may be repeated")
-	rootCmd.PersistentFlags().String("spire-bundle-file", "", "PEM trust bundle for the local SPIRE trust domain")
-	rootCmd.PersistentFlags().String("spire-fetch-timeout", "", "Optional worker SPIRE Workload API fetch timeout")
-	rootCmd.PersistentFlags().String("spire-x509-svid-ttl", "", "Optional X.509-SVID TTL for worker-created SPIRE registration entries")
-	rootCmd.PersistentFlags().String("spire-registration-min-ttl", "", "Optional minimum lifetime for worker-created SPIRE registration entries")
-	rootCmd.PersistentFlags().String("spire-registration-max-ttl", "", "Optional maximum lifetime for worker-created SPIRE registration entries")
+	rootCmd.PersistentFlags().String("spiffe-dir", "", "Directory for local vectis-spiffe authority data")
+	rootCmd.PersistentFlags().String("spiffe-runtime-dir", "", "Directory for local vectis-spiffe authority Unix sockets")
+	rootCmd.PersistentFlags().String("spiffe-trust-domain", "", "SPIFFE trust domain for local execution IDs; defaults to vectis.internal")
+	rootCmd.PersistentFlags().String("spiffe-path-template", "", "Optional execution SPIFFE path template for local identity mode")
+	rootCmd.PersistentFlags().String("spiffe-parent-id", "", "Parent SPIFFE ID for worker-created execution registration entries")
+	rootCmd.PersistentFlags().StringArray("spiffe-selector", nil, "Workload selector for worker-created execution registrations; may be repeated")
+	rootCmd.PersistentFlags().String("spiffe-fetch-timeout", "", "Optional worker Workload API fetch timeout")
+	rootCmd.PersistentFlags().String("spiffe-x509-svid-ttl", "", "Optional X.509-SVID TTL for worker-created registration entries")
+	rootCmd.PersistentFlags().String("spiffe-registration-min-ttl", "", "Optional minimum lifetime for worker-created registration entries")
+	rootCmd.PersistentFlags().String("spiffe-registration-max-ttl", "", "Optional maximum lifetime for worker-created registration entries")
 
 	_ = viper.BindPFlag("log_level", rootCmd.PersistentFlags().Lookup("log-level"))
 	_ = viper.BindPFlag("profile", rootCmd.PersistentFlags().Lookup("profile"))
@@ -1748,20 +1745,16 @@ func init() {
 	_ = viper.BindPFlag("docs_port", rootCmd.PersistentFlags().Lookup("docs-port"))
 	_ = viper.BindPFlag("docs_dir", rootCmd.PersistentFlags().Lookup("docs-dir"))
 	_ = viper.BindPFlag("cells", rootCmd.PersistentFlags().Lookup("cell"))
-	_ = viper.BindPFlag("spire_enabled", rootCmd.PersistentFlags().Lookup("spire"))
-	_ = viper.BindPFlag("spire_dir", rootCmd.PersistentFlags().Lookup("spire-dir"))
-	_ = viper.BindPFlag("spire_runtime_dir", rootCmd.PersistentFlags().Lookup("spire-runtime-dir"))
-	_ = viper.BindPFlag("spire_trust_domain", rootCmd.PersistentFlags().Lookup("spire-trust-domain"))
-	_ = viper.BindPFlag("spire_path_template", rootCmd.PersistentFlags().Lookup("spire-path-template"))
-	_ = viper.BindPFlag("spire_workload_api_address", rootCmd.PersistentFlags().Lookup("spire-workload-api-address"))
-	_ = viper.BindPFlag("spire_registration_server_address", rootCmd.PersistentFlags().Lookup("spire-server-api-address"))
-	_ = viper.BindPFlag("spire_registration_parent_id", rootCmd.PersistentFlags().Lookup("spire-parent-id"))
-	_ = viper.BindPFlag("spire_registration_selectors", rootCmd.PersistentFlags().Lookup("spire-selector"))
-	_ = viper.BindPFlag("spire_bundle_file", rootCmd.PersistentFlags().Lookup("spire-bundle-file"))
-	_ = viper.BindPFlag("spire_fetch_timeout", rootCmd.PersistentFlags().Lookup("spire-fetch-timeout"))
-	_ = viper.BindPFlag("spire_registration_x509_svid_ttl", rootCmd.PersistentFlags().Lookup("spire-x509-svid-ttl"))
-	_ = viper.BindPFlag("spire_registration_min_ttl", rootCmd.PersistentFlags().Lookup("spire-registration-min-ttl"))
-	_ = viper.BindPFlag("spire_registration_max_ttl", rootCmd.PersistentFlags().Lookup("spire-registration-max-ttl"))
+	_ = viper.BindPFlag("spiffe_dir", rootCmd.PersistentFlags().Lookup("spiffe-dir"))
+	_ = viper.BindPFlag("spiffe_runtime_dir", rootCmd.PersistentFlags().Lookup("spiffe-runtime-dir"))
+	_ = viper.BindPFlag("spiffe_trust_domain", rootCmd.PersistentFlags().Lookup("spiffe-trust-domain"))
+	_ = viper.BindPFlag("spiffe_path_template", rootCmd.PersistentFlags().Lookup("spiffe-path-template"))
+	_ = viper.BindPFlag("spiffe_parent_id", rootCmd.PersistentFlags().Lookup("spiffe-parent-id"))
+	_ = viper.BindPFlag("spiffe_selectors", rootCmd.PersistentFlags().Lookup("spiffe-selector"))
+	_ = viper.BindPFlag("spiffe_fetch_timeout", rootCmd.PersistentFlags().Lookup("spiffe-fetch-timeout"))
+	_ = viper.BindPFlag("spiffe_x509_svid_ttl", rootCmd.PersistentFlags().Lookup("spiffe-x509-svid-ttl"))
+	_ = viper.BindPFlag("spiffe_registration_min_ttl", rootCmd.PersistentFlags().Lookup("spiffe-registration-min-ttl"))
+	_ = viper.BindPFlag("spiffe_registration_max_ttl", rootCmd.PersistentFlags().Lookup("spiffe-registration-max-ttl"))
 	_ = viper.BindEnv("grpc_insecure", "VECTIS_LOCAL_GRPC_INSECURE")
 	_ = viper.BindEnv("http_tls", "VECTIS_LOCAL_HTTP_TLS")
 	_ = viper.BindEnv("tls_dir", "VECTIS_LOCAL_TLS_DIR")
@@ -1771,20 +1764,16 @@ func init() {
 	_ = viper.BindEnv("docs_port", "VECTIS_LOCAL_DOCS_PORT")
 	_ = viper.BindEnv("docs_dir", "VECTIS_LOCAL_DOCS_DIR")
 	_ = viper.BindEnv("cells", "VECTIS_LOCAL_CELLS")
-	_ = viper.BindEnv("spire_enabled", "VECTIS_LOCAL_SPIRE_ENABLED")
-	_ = viper.BindEnv("spire_dir", "VECTIS_LOCAL_SPIRE_DIR")
-	_ = viper.BindEnv("spire_runtime_dir", "VECTIS_LOCAL_SPIRE_RUNTIME_DIR")
-	_ = viper.BindEnv("spire_trust_domain", "VECTIS_LOCAL_SPIRE_TRUST_DOMAIN")
-	_ = viper.BindEnv("spire_path_template", "VECTIS_LOCAL_SPIRE_PATH_TEMPLATE")
-	_ = viper.BindEnv("spire_workload_api_address", "VECTIS_LOCAL_SPIRE_WORKLOAD_API_ADDRESS")
-	_ = viper.BindEnv("spire_registration_server_address", "VECTIS_LOCAL_SPIRE_SERVER_API_ADDRESS")
-	_ = viper.BindEnv("spire_registration_parent_id", "VECTIS_LOCAL_SPIRE_PARENT_ID")
-	_ = viper.BindEnv("spire_registration_selectors", "VECTIS_LOCAL_SPIRE_SELECTORS")
-	_ = viper.BindEnv("spire_bundle_file", "VECTIS_LOCAL_SPIRE_BUNDLE_FILE")
-	_ = viper.BindEnv("spire_fetch_timeout", "VECTIS_LOCAL_SPIRE_FETCH_TIMEOUT")
-	_ = viper.BindEnv("spire_registration_x509_svid_ttl", "VECTIS_LOCAL_SPIRE_X509_SVID_TTL")
-	_ = viper.BindEnv("spire_registration_min_ttl", "VECTIS_LOCAL_SPIRE_REGISTRATION_MIN_TTL")
-	_ = viper.BindEnv("spire_registration_max_ttl", "VECTIS_LOCAL_SPIRE_REGISTRATION_MAX_TTL")
+	_ = viper.BindEnv("spiffe_dir", "VECTIS_LOCAL_SPIFFE_DIR")
+	_ = viper.BindEnv("spiffe_runtime_dir", "VECTIS_LOCAL_SPIFFE_RUNTIME_DIR")
+	_ = viper.BindEnv("spiffe_trust_domain", "VECTIS_LOCAL_SPIFFE_TRUST_DOMAIN")
+	_ = viper.BindEnv("spiffe_path_template", "VECTIS_LOCAL_SPIFFE_PATH_TEMPLATE")
+	_ = viper.BindEnv("spiffe_parent_id", "VECTIS_LOCAL_SPIFFE_PARENT_ID")
+	_ = viper.BindEnv("spiffe_selectors", "VECTIS_LOCAL_SPIFFE_SELECTORS")
+	_ = viper.BindEnv("spiffe_fetch_timeout", "VECTIS_LOCAL_SPIFFE_FETCH_TIMEOUT")
+	_ = viper.BindEnv("spiffe_x509_svid_ttl", "VECTIS_LOCAL_SPIFFE_X509_SVID_TTL")
+	_ = viper.BindEnv("spiffe_registration_min_ttl", "VECTIS_LOCAL_SPIFFE_REGISTRATION_MIN_TTL")
+	_ = viper.BindEnv("spiffe_registration_max_ttl", "VECTIS_LOCAL_SPIFFE_REGISTRATION_MAX_TTL")
 
 	viper.SetEnvPrefix("VECTIS_LOCAL")
 	viper.AutomaticEnv()

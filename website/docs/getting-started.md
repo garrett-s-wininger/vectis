@@ -191,6 +191,6 @@ Only run reset when you are comfortable deleting local Vectis state.
 | Use the HTTP API directly | [API Reference](./using/api-reference.md) |
 | Configure ports, databases, TLS, and discovery | [Configuration](./operating/configuration.md) |
 | Try multi-cell routing locally | [Multi-Cell Operation](./operating/multi-cell.md) |
-| Exercise SPIFFE-backed local secret resolution | [Local SPIFFE Secrets Smoke Test](./operating/deployment/local-spire-secrets-smoke-test.md) |
+| Exercise SPIFFE-backed local secret resolution | [Local SPIFFE Secrets Smoke Test](./operating/deployment/local-spiffe-secrets-smoke-test.md) |
 | Run a Podman reference deployment | [Reference Deployment Posture](./operating/deployment/reference-deployment-posture.md) |
 | Troubleshoot stuck runs or service health | [Repair Runbooks](./operating/reliability/repair-runbooks.md) |

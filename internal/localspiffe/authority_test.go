@@ -36,7 +36,7 @@ func TestAuthorityRegistersAndFetchesX509SVID(t *testing.T) {
 
 	selector := spire.Selector{Type: "unix", Value: "uid:" + strconv.Itoa(os.Getuid())}
 	spiffeID := "spiffe://" + cfg.TrustDomain + "/cell/local/namespace/root/job/demo/run/1/execution/1"
-	parentID := "spiffe://" + cfg.TrustDomain + "/spire/agent/local"
+	parentID := "spiffe://" + cfg.TrustDomain + "/vectis-spiffe/agent/local"
 	key, err := spire.RegistrationKey(spiffeID, parentID, []spire.Selector{selector})
 	if err != nil {
 		t.Fatalf("RegistrationKey: %v", err)
@@ -317,7 +317,7 @@ func fetchRegisteredTestSVID(t *testing.T, cfg Config, spiffeID string) spire.X5
 	t.Helper()
 
 	selector := spire.Selector{Type: "unix", Value: "uid:" + strconv.Itoa(os.Getuid())}
-	parentID := "spiffe://" + cfg.TrustDomain + "/spire/agent/local"
+	parentID := "spiffe://" + cfg.TrustDomain + "/vectis-spiffe/agent/local"
 	key, err := spire.RegistrationKey(spiffeID, parentID, []spire.Selector{selector})
 	if err != nil {
 		t.Fatalf("RegistrationKey: %v", err)

@@ -3,14 +3,14 @@
 This runbook exercises the first end-to-end Vectis secret path on one development machine:
 
 1. `vectis-local` starts the Vectis stack, including `vectis-secrets` with encryptedfs enabled.
-2. A local SPIFFE authority provides per-execution X.509-SVIDs through SPIRE-compatible APIs.
+2. The bundled `vectis-spiffe` authority provides per-execution X.509-SVIDs through SPIRE-compatible APIs.
 3. The worker creates a bounded registration entry before fetching the execution SVID.
 4. The worker uses that SVID as its client certificate when resolving a declared job secret.
 5. The job receives the secret as a task-scoped file under `.vectis/secrets`.
 
-By default, `vectis-local` starts an embedded development-only SPIFFE authority for the current user when local gRPC TLS is enabled. It persists a local CA, serves a Workload API socket and a registration API socket, exports the trust bundle, and wires those sockets into Vectis. If you already have SPIRE running, use `vectis-local --spire` with explicit socket, bundle, parent ID, and selector flags instead.
+By default, `vectis-local` starts an embedded development-only `vectis-spiffe` authority for the current user when local gRPC TLS is enabled. It persists a local CA, serves a Workload API socket and a registration API socket, exports the trust bundle, and wires those sockets into Vectis.
 
-For SPIRE background, see the SPIRE Workload API and Server Entry API model in the [SPIRE Agent Configuration Reference](https://spiffe.io/docs/latest/deploying/spire_agent/) and SPIRE's [Registering workloads](https://spiffe.io/docs/latest/deploying/registering/) guide.
+`vectis-spiffe` implements the SPIRE-compatible Workload API and Entry API contracts that Vectis workers use for this local path. For the underlying model, see the SPIRE Workload API and Server Entry API background in the [SPIRE Agent Configuration Reference](https://spiffe.io/docs/latest/deploying/spire_agent/) and SPIRE's [Registering workloads](https://spiffe.io/docs/latest/deploying/registering/) guide.
 
 ## What This Proves
 
@@ -22,9 +22,9 @@ For SPIRE background, see the SPIRE Workload API and Server Entry API model in t
 | Secret policy | The broker applies the encryptedfs provider and access policy before returning material. |
 | File delivery | The action sees only a task-scoped file under `VECTIS_SECRETS_DIR`; Vectis does not place the secret value in the job definition or environment. |
 
-## Embedded Local Authority
+## Local Authority
 
-The embedded authority is the default local identity path. It creates local SPIFFE state under `$XDG_DATA_HOME/vectis/spiffe` and sockets under `$XDG_RUNTIME_DIR/vectis/spiffe` or the Vectis temp runtime fallback.
+The bundled authority is the default local identity path. It creates local SPIFFE state under `$XDG_DATA_HOME/vectis/spiffe` and sockets under `$XDG_RUNTIME_DIR/vectis/spiffe` or the Vectis temp runtime fallback.
 
 Use a dedicated `XDG_DATA_HOME` so the encryptedfs root, generated local TLS, and local SPIFFE state are easy to find:
 
@@ -33,60 +33,23 @@ export VECTIS_SMOKE_HOME="$PWD/.vectis-spiffe-smoke"
 export XDG_DATA_HOME="$VECTIS_SMOKE_HOME/data"
 
 ./bin/vectis-local \
-  --spire-trust-domain vectis.internal \
-  --spire-fetch-timeout 5s \
-  --spire-x509-svid-ttl 5m \
-  --spire-registration-max-ttl 10m
+  --spiffe-trust-domain vectis.internal \
+  --spiffe-fetch-timeout 5s \
+  --spiffe-x509-svid-ttl 5m \
+  --spiffe-registration-max-ttl 10m
 ```
 
-Leave `vectis-local` running. It should log the embedded local SPIFFE registration and workload sockets, then log that local SPIFFE execution identity is enabled. Embedded mode defaults to:
+Leave `vectis-local` running. It should log the local SPIFFE registration and workload sockets, then log that local SPIFFE execution identity is enabled. The local authority defaults to:
 
 | Item | Managed default |
 | --- | --- |
-| Trust domain | `vectis.internal` unless `--spire-trust-domain` is set |
+| Trust domain | `vectis.internal` unless `--spiffe-trust-domain` is set |
 | Registration API socket | `$XDG_RUNTIME_DIR/vectis/spiffe/registration.sock` or temp runtime fallback |
 | Workload API socket | `$XDG_RUNTIME_DIR/vectis/spiffe/workload.sock` or temp runtime fallback |
-| Worker parent ID | `spiffe://<trust-domain>/spire/agent/local` unless `--spire-parent-id` is set |
-| Worker selector | `unix:uid:<current uid>` unless one or more `--spire-selector` flags are set |
+| Worker parent ID | `spiffe://<trust-domain>/vectis-spiffe/agent/local` unless `--spiffe-parent-id` is set |
+| Worker selector | `unix:uid:<current uid>` unless one or more `--spiffe-selector` flags are set |
 
 Do not use `--grpc-insecure` for this smoke test. Secret resolution needs gRPC TLS so `vectis-secrets` can request and verify the execution SVID client certificate; `vectis-local` skips the embedded authority and secrets service in plaintext mode.
-
-## Bring Your Own SPIRE
-
-Use explicit mode when you already run SPIRE yourself.
-
-Use a reserved demo trust domain such as `vectis.internal`; for home-lab DNS examples, a name below `home.arpa` is also reserved for that purpose. Avoid `.local`, which is reserved for mDNS.
-
-| SPIRE item | Example |
-| --- | --- |
-| Server API socket | `unix:///tmp/vectis-spire/server.sock` |
-| Agent Workload API socket | `unix:///tmp/vectis-spire/agent.sock` |
-| PEM trust bundle | `/tmp/vectis-spire/bundle.pem` |
-| Worker parent ID | `spiffe://vectis.internal/spire/agent/local` |
-| Worker workload selector | `unix:uid:$(id -u)` for a single-user local worker |
-
-The worker selector should match the `vectis-worker` process that `vectis-local` starts, not the job process. With the Unix workload attestor, a UID selector is enough for a single-user development smoke test; a stricter selector such as a systemd unit, binary path, container label, Kubernetes service account, or pod identity is better for shared environments.
-
-Then start Vectis with explicit SPIRE settings:
-
-```sh
-export VECTIS_SMOKE_HOME="$PWD/.vectis-spiffe-smoke"
-export XDG_DATA_HOME="$VECTIS_SMOKE_HOME/data"
-
-./bin/vectis-local \
-  --spire \
-  --spire-trust-domain vectis.internal \
-  --spire-workload-api-address unix:///tmp/vectis-spire/agent.sock \
-  --spire-server-api-address unix:///tmp/vectis-spire/server.sock \
-  --spire-parent-id spiffe://vectis.internal/spire/agent/local \
-  --spire-selector "unix:uid:$(id -u)" \
-  --spire-bundle-file /tmp/vectis-spire/bundle.pem \
-  --spire-fetch-timeout 5s \
-  --spire-x509-svid-ttl 5m \
-  --spire-registration-max-ttl 10m
-```
-
-Leave `vectis-local` running. It should log that local SPIFFE execution identity is enabled and show the generated combined client-CA bundle path under the local TLS directory.
 
 ## Add A Secret
 
@@ -138,7 +101,7 @@ spiffe://vectis.internal/cell/local/namespace/root/job/secret-example/run/<run-i
 
 | Symptom | Likely cause |
 | --- | --- |
-| `vectis-local` exits with a SPIFFE/SPIRE flag error | One of the required local identity settings is missing or malformed. |
+| `vectis-local` exits with a SPIFFE flag error | One of the required local identity settings is missing or malformed. |
 | Worker SVID check `source_error` | The worker cannot open the Workload API socket, the authority is down, or socket permissions are wrong. |
 | Worker SVID check `mismatch` | The registration entry does not match the derived execution SPIFFE ID, parent ID, or selectors the authority sees for the worker. |
 | Worker registration errors | The registration API socket is unavailable or the worker process is not allowed to create entries. |
@@ -149,7 +112,7 @@ For incident-style repair steps, see [Repair Runbooks](../reliability/repair-run
 
 ## Cleanup
 
-Stop `vectis-local`. If you used explicit mode with your own SPIRE deployment, stop that SPIRE server and agent separately. Vectis releases entries it created and tagged as managed; entry TTLs provide a second cleanup path if the worker exits abruptly.
+Stop `vectis-local`. Vectis releases entries it created and tagged as managed; entry TTLs provide a second cleanup path if the worker exits abruptly.
 
 To remove the local Vectis data from this smoke test:
 
