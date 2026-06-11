@@ -9,11 +9,12 @@ import (
 	"vectis/internal/action"
 	"vectis/internal/action/actionregistry"
 	"vectis/internal/workloadidentity"
+	workersdk "vectis/sdk/workercore"
 
 	"google.golang.org/protobuf/proto"
 )
 
-const ProtocolVersion = "workercore.v1alpha1"
+const ProtocolVersion = workersdk.ProtocolVersion
 
 type CoreDescription struct {
 	ProtocolVersion    string

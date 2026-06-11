@@ -134,7 +134,7 @@ test-race:
 
 .PHONY: test-quick
 test-quick:
-	go test -count=1 -timeout=60s ./internal/... ./cmd/... ./api/... ./tools/...
+	go test -count=1 -timeout=60s ./internal/... ./cmd/... ./api/... ./sdk/... ./examples/... ./tools/...
 
 .PHONY: website-a11y
 website-a11y:

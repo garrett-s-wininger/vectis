@@ -75,6 +75,7 @@ const sidebars = {
       items: [
         'developing/contexts',
         'developing/actions',
+        'developing/worker-core-sdk',
         'developing/migrations',
         'developing/retry-policy',
         'developing/releases',
