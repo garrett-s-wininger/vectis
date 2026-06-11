@@ -2,6 +2,7 @@ package migrations_test
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -52,6 +53,7 @@ func TestSQLiteMigrations_UpDownRoundTrip(t *testing.T) {
 	assertSQLiteIndexColumns(t, db, "idx_run_artifacts_task", []string{"run_id", "task_id", "id"})
 	assertSQLiteIndexColumns(t, db, "idx_run_artifacts_task_attempt", []string{"run_id", "task_attempt_id", "id"})
 	assertSQLiteIndexColumns(t, db, "idx_run_artifacts_execution", []string{"run_id", "execution_id", "id"})
+	assertSQLiteForeignKeyTargetsExist(t, db)
 
 	if err := migrations.Down(db, "sqlite3"); err != nil {
 		t.Fatalf("run down migrations: %v", err)
@@ -145,6 +147,70 @@ func assertSameMigrationVersions(t *testing.T, leftName string, left map[string]
 			t.Fatalf("%s has migration version %s, but %s does not", rightName, version, leftName)
 		}
 	}
+}
+
+func assertSQLiteForeignKeyTargetsExist(t *testing.T, db *sql.DB) {
+	t.Helper()
+
+	rows, err := db.Query(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`)
+	if err != nil {
+		t.Fatalf("list sqlite tables: %v", err)
+	}
+	defer rows.Close()
+
+	var tables []string
+	existing := map[string]struct{}{}
+	for rows.Next() {
+		var table string
+		if err := rows.Scan(&table); err != nil {
+			t.Fatalf("scan sqlite table: %v", err)
+		}
+
+		tables = append(tables, table)
+		existing[table] = struct{}{}
+	}
+
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate sqlite tables: %v", err)
+	}
+
+	for _, table := range tables {
+		fkRows, err := db.Query(fmt.Sprintf("PRAGMA foreign_key_list(%s)", sqliteIdentifier(table)))
+		if err != nil {
+			t.Fatalf("list foreign keys for %s: %v", table, err)
+		}
+
+		for fkRows.Next() {
+			var (
+				id       int
+				seq      int
+				target   string
+				from     string
+				to       sql.NullString
+				onUpdate string
+				onDelete string
+				match    string
+			)
+
+			if err := fkRows.Scan(&id, &seq, &target, &from, &to, &onUpdate, &onDelete, &match); err != nil {
+				_ = fkRows.Close()
+				t.Fatalf("scan foreign key for %s: %v", table, err)
+			}
+
+			if _, ok := existing[target]; !ok {
+				_ = fkRows.Close()
+				t.Fatalf("table %s foreign key %d.%d references missing table %s", table, id, seq, target)
+			}
+		}
+
+		if err := fkRows.Close(); err != nil {
+			t.Fatalf("close foreign keys for %s: %v", table, err)
+		}
+	}
+}
+
+func sqliteIdentifier(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
 
 func sortedMigrationVersions(versions map[string]map[string]string) []string {

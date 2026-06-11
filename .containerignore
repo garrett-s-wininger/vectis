@@ -14,7 +14,7 @@ deploy/*
 !deploy/podman/
 deploy/podman/*
 !deploy/podman/assets.go
-!deploy/podman/kube-spec.yaml
+!deploy/podman/kube-spec.yaml.tmpl
 !deploy/podman/grafana-configmaps.gen.yaml
 docs/
 LICENSE

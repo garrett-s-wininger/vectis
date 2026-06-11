@@ -220,8 +220,7 @@ func WaitForMigrations(db *sql.DB, log interfaces.Logger) error {
 	var hadFailure bool
 
 	for time.Now().Before(deadline) {
-		var one int
-		err := db.QueryRow("SELECT 1 FROM schema_migrations LIMIT 1").Scan(&one)
+		err := schemaMigrationsReady(db)
 		if err == nil {
 			if hadFailure && log != nil {
 				log.Info("Database schema is ready")
@@ -250,4 +249,17 @@ func WaitForMigrations(db *sql.DB, log interfaces.Logger) error {
 	}
 
 	return fmt.Errorf("timed out waiting for database readiness; check connectivity and apply migrations with vectis-cli database migrate (same VECTIS_DATABASE_DRIVER / VECTIS_DATABASE_DSN)")
+}
+
+func schemaMigrationsReady(db *sql.DB) error {
+	var dirty bool
+	if err := db.QueryRow("SELECT dirty FROM schema_migrations ORDER BY version DESC LIMIT 1").Scan(&dirty); err != nil {
+		return err
+	}
+
+	if dirty {
+		return fmt.Errorf("database migration version is dirty")
+	}
+
+	return nil
 }
