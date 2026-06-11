@@ -28,6 +28,7 @@ type runDetail struct {
 	FailureReason  *string         `json:"failure_reason,omitempty"`
 	DispatchEvents []dispatchEvent `json:"dispatch_events,omitempty"`
 	TaskCompletion *taskCompletion `json:"task_completion,omitempty"`
+	TaskDispatch   *taskDispatch   `json:"task_dispatch,omitempty"`
 	RunAuditFields
 }
 
@@ -56,6 +57,32 @@ type taskCompletion struct {
 	Succeeded      int `json:"succeeded"`
 	TerminalFailed int `json:"terminal_failed"`
 	Incomplete     int `json:"incomplete"`
+}
+
+type taskDispatch struct {
+	Total        int                  `json:"total"`
+	Pending      int                  `json:"pending"`
+	Failed       int                  `json:"failed"`
+	Enqueued     int                  `json:"enqueued"`
+	UnknownState int                  `json:"unknown_state,omitempty"`
+	Truncated    bool                 `json:"truncated"`
+	Limit        int                  `json:"limit"`
+	Intents      []taskDispatchIntent `json:"intents,omitempty"`
+}
+
+type taskDispatchIntent struct {
+	ExecutionID          string  `json:"execution_id"`
+	TaskID               string  `json:"task_id"`
+	TaskAttemptID        string  `json:"task_attempt_id"`
+	SourceExecutionID    string  `json:"source_execution_id,omitempty"`
+	CellID               string  `json:"cell_id"`
+	State                string  `json:"state"`
+	EnqueueAttempts      int     `json:"enqueue_attempts"`
+	LastEnqueueError     *string `json:"last_enqueue_error,omitempty"`
+	EnqueuedAt           *int64  `json:"enqueued_at,omitempty"`
+	LastEnqueueAttemptAt *int64  `json:"last_enqueue_attempt_at,omitempty"`
+	CreatedAt            int64   `json:"created_at"`
+	UpdatedAt            int64   `json:"updated_at"`
 }
 
 type runListResult struct {
@@ -209,14 +236,80 @@ func runReplayRun(cmd *cobra.Command, args []string) {
 }
 
 func getRun(runID string, w io.Writer) error {
-	req, err := newAPIRequest(http.MethodGet, fmt.Sprintf("/api/v1/runs/%s", runID), nil)
+	run, err := fetchRunDetail(runID)
 	if err != nil {
 		return err
 	}
 
+	if outputIsJSON() {
+		return writeJSON(w, run)
+	}
+
+	fmt.Fprintf(w, "run_id=%s\n", run.RunID)
+	fmt.Fprintf(w, "run_index=%d\n", run.RunIndex)
+	fmt.Fprintf(w, "status=%s\n", run.Status)
+
+	if strings.TrimSpace(run.NextAction) != "" {
+		fmt.Fprintf(w, "next_action=%s\n", run.NextAction)
+	}
+
+	if strings.TrimSpace(run.OwningCell) != "" {
+		fmt.Fprintf(w, "owning_cell=%s\n", run.OwningCell)
+	}
+
+	writeRunAuditFields(w, run.RunAuditFields)
+	writeTaskCompletion(w, run.TaskCompletion)
+
+	if run.CreatedAt != nil {
+		fmt.Fprintf(w, "created_at=%s\n", *run.CreatedAt)
+	}
+
+	if run.StartedAt != nil {
+		fmt.Fprintf(w, "started_at=%s\n", *run.StartedAt)
+	}
+
+	if run.FinishedAt != nil {
+		fmt.Fprintf(w, "finished_at=%s\n", *run.FinishedAt)
+	}
+
+	if run.FailureCode != nil {
+		fmt.Fprintf(w, "failure_code=%s\n", *run.FailureCode)
+	}
+
+	if run.FailureReason != nil {
+		fmt.Fprintf(w, "failure_reason=%s\n", *run.FailureReason)
+	}
+
+	if run.OrphanReason != nil {
+		fmt.Fprintf(w, "orphan_reason=%s\n", *run.OrphanReason)
+	}
+
+	writeTaskDispatch(w, run.TaskDispatch)
+
+	if len(run.DispatchEvents) > 0 {
+		fmt.Fprintln(w, "dispatch_events:")
+		for _, ev := range run.DispatchEvents {
+			ts := time.Unix(ev.CreatedAt, 0).UTC().Format(time.RFC3339)
+			if ev.Message != nil {
+				fmt.Fprintf(w, "  [%s] %s/%s: %s\n", ts, ev.Source, ev.EventType, *ev.Message)
+			} else {
+				fmt.Fprintf(w, "  [%s] %s/%s\n", ts, ev.Source, ev.EventType)
+			}
+		}
+	}
+
+	return nil
+}
+
+func fetchRunDetail(runID string) (runDetail, error) {
+	req, err := newAPIRequest(http.MethodGet, fmt.Sprintf("/api/v1/runs/%s", runID), nil)
+	if err != nil {
+		return runDetail{}, err
+	}
+
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
+		return runDetail{}, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -225,69 +318,14 @@ func getRun(runID string, w io.Writer) error {
 		var run runDetail
 
 		if err := json.NewDecoder(resp.Body).Decode(&run); err != nil {
-			return fmt.Errorf("failed to parse response: %w", err)
+			return runDetail{}, fmt.Errorf("failed to parse response: %w", err)
 		}
 
-		if outputIsJSON() {
-			return writeJSON(w, run)
-		}
-
-		fmt.Fprintf(w, "run_id=%s\n", run.RunID)
-		fmt.Fprintf(w, "run_index=%d\n", run.RunIndex)
-		fmt.Fprintf(w, "status=%s\n", run.Status)
-
-		if strings.TrimSpace(run.NextAction) != "" {
-			fmt.Fprintf(w, "next_action=%s\n", run.NextAction)
-		}
-
-		if strings.TrimSpace(run.OwningCell) != "" {
-			fmt.Fprintf(w, "owning_cell=%s\n", run.OwningCell)
-		}
-
-		writeRunAuditFields(w, run.RunAuditFields)
-		writeTaskCompletion(w, run.TaskCompletion)
-
-		if run.CreatedAt != nil {
-			fmt.Fprintf(w, "created_at=%s\n", *run.CreatedAt)
-		}
-
-		if run.StartedAt != nil {
-			fmt.Fprintf(w, "started_at=%s\n", *run.StartedAt)
-		}
-
-		if run.FinishedAt != nil {
-			fmt.Fprintf(w, "finished_at=%s\n", *run.FinishedAt)
-		}
-
-		if run.FailureCode != nil {
-			fmt.Fprintf(w, "failure_code=%s\n", *run.FailureCode)
-		}
-
-		if run.FailureReason != nil {
-			fmt.Fprintf(w, "failure_reason=%s\n", *run.FailureReason)
-		}
-
-		if run.OrphanReason != nil {
-			fmt.Fprintf(w, "orphan_reason=%s\n", *run.OrphanReason)
-		}
-
-		if len(run.DispatchEvents) > 0 {
-			fmt.Fprintln(w, "dispatch_events:")
-			for _, ev := range run.DispatchEvents {
-				ts := time.Unix(ev.CreatedAt, 0).UTC().Format(time.RFC3339)
-				if ev.Message != nil {
-					fmt.Fprintf(w, "  [%s] %s/%s: %s\n", ts, ev.Source, ev.EventType, *ev.Message)
-				} else {
-					fmt.Fprintf(w, "  [%s] %s/%s\n", ts, ev.Source, ev.EventType)
-				}
-			}
-		}
-
-		return nil
+		return run, nil
 	case http.StatusNotFound:
-		return fmt.Errorf("run %q not found", runID)
+		return runDetail{}, fmt.Errorf("run %q not found", runID)
 	default:
-		return fmt.Errorf("unexpected status: %s", resp.Status)
+		return runDetail{}, fmt.Errorf("unexpected status: %s", resp.Status)
 	}
 }
 
@@ -298,6 +336,42 @@ func writeTaskCompletion(w io.Writer, tc *taskCompletion) {
 
 	fmt.Fprintf(w, "task_completion: total=%d succeeded=%d terminal_failed=%d incomplete=%d\n",
 		tc.Total, tc.Succeeded, tc.TerminalFailed, tc.Incomplete)
+}
+
+func writeTaskDispatch(w io.Writer, td *taskDispatch) {
+	if td == nil || td.Total == 0 {
+		return
+	}
+
+	fmt.Fprintf(w, "task_dispatch: total=%d pending=%d failed=%d enqueued=%d", td.Total, td.Pending, td.Failed, td.Enqueued)
+	if td.UnknownState > 0 {
+		fmt.Fprintf(w, " unknown=%d", td.UnknownState)
+	}
+
+	if td.Truncated {
+		fmt.Fprintf(w, " truncated=true limit=%d", td.Limit)
+	}
+
+	fmt.Fprintln(w)
+
+	for _, intent := range td.Intents {
+		fmt.Fprintf(w, "  %s execution=%s task=%s attempt=%s cell=%s enqueue_attempts=%d",
+			intent.State, intent.ExecutionID, intent.TaskID, intent.TaskAttemptID, intent.CellID, intent.EnqueueAttempts)
+
+		if intent.LastEnqueueAttemptAt != nil {
+			fmt.Fprintf(w, " last_attempt=%s", formatUnixNano(*intent.LastEnqueueAttemptAt))
+		}
+
+		if intent.EnqueuedAt != nil {
+			fmt.Fprintf(w, " enqueued_at=%s", formatUnixNano(*intent.EnqueuedAt))
+		}
+
+		if intent.LastEnqueueError != nil {
+			fmt.Fprintf(w, " error=%q", *intent.LastEnqueueError)
+		}
+
+		fmt.Fprintln(w)
+	}
 }
 
 func formatUnixNano(value int64) string {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -587,6 +588,258 @@ func TestDeployPodmanRender_jsonMetadataForFileOutput(t *testing.T) {
 
 	if result.Status != "rendered" || result.ManifestPath != out {
 		t.Fatalf("unexpected result: %+v", result)
+	}
+}
+
+const (
+	testPodmanSmokeSecretRef       = "encryptedfs://team/smoke-token"
+	testPodmanSmokeSecretPlaintext = "spiffe-secret"
+	testPodmanSmokeSecretRoot      = "/data/vectis/secrets/encryptedfs"
+	testPodmanSmokeSecretKeyFile   = "/secrets/encryptedfs.key"
+	testPodmanSmokePollInterval    = 10 * time.Millisecond
+)
+
+type testCommandRunner func(context.Context, string, []string, string) (string, string, error)
+
+type podmanSmokeTestResult struct {
+	SecretRef string
+	JobID     string
+	RunID     string
+	RunIndex  int
+	RunStatus string
+}
+
+func runPodmanSecretsSmokeTestStep(ctx context.Context, jobBody []byte, timeout time.Duration, runner testCommandRunner) (podmanSmokeTestResult, error) {
+	if timeout <= 0 {
+		return podmanSmokeTestResult{}, fmt.Errorf("timeout must be positive")
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	if _, stderr, err := testSeedPodmanExampleSecret(ctx, runner); err != nil {
+		if strings.TrimSpace(stderr) != "" {
+			return podmanSmokeTestResult{}, fmt.Errorf("seed podman smoke secret: %w: %s", err, strings.TrimSpace(stderr))
+		}
+
+		return podmanSmokeTestResult{}, fmt.Errorf("seed podman smoke secret: %w", err)
+	}
+
+	submitted, err := submitJobDefinitionBody(jobBody, "", "")
+	if err != nil {
+		return podmanSmokeTestResult{}, fmt.Errorf("submit podman secrets smoke job: %w", err)
+	}
+
+	run, err := waitForTestRunTerminal(ctx, submitted.RunID, testPodmanSmokePollInterval)
+	if err != nil {
+		return podmanSmokeTestResult{}, err
+	}
+
+	if !testRunStatusSucceeded(run.Status) {
+		return podmanSmokeTestResult{}, fmt.Errorf("podman secrets smoke run %s finished with status %s", submitted.RunID, run.Status)
+	}
+
+	return podmanSmokeTestResult{
+		SecretRef: testPodmanSmokeSecretRef,
+		JobID:     submitted.JobID,
+		RunID:     submitted.RunID,
+		RunIndex:  submitted.RunIndex,
+		RunStatus: run.Status,
+	}, nil
+}
+
+func testSeedPodmanExampleSecret(ctx context.Context, runner testCommandRunner) (string, string, error) {
+	args := []string{
+		"run",
+		"--rm",
+		"-i",
+		"--pod",
+		"vectis",
+		"-v",
+		"vectis-secrets-data:/data",
+		"-v",
+		"vectis-podman-secrets:/secrets:ro",
+		"vectis-cli:latest",
+		"secrets",
+		"encryptedfs",
+		"put",
+		testPodmanSmokeSecretRef,
+		"--root",
+		testPodmanSmokeSecretRoot,
+		"--key-file",
+		testPodmanSmokeSecretKeyFile,
+		"--force",
+	}
+
+	return runner(ctx, "podman", args, testPodmanSmokeSecretPlaintext)
+}
+
+func waitForTestRunTerminal(ctx context.Context, runID string, interval time.Duration) (runDetail, error) {
+	for {
+		run, err := fetchRunDetail(runID)
+		if err != nil {
+			return runDetail{}, fmt.Errorf("fetch smoke run status: %w", err)
+		}
+
+		if testRunStatusTerminal(run.Status) {
+			return run, nil
+		}
+
+		timer := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return runDetail{}, fmt.Errorf("timed out waiting for podman secrets smoke run %s: %w", runID, ctx.Err())
+		case <-timer.C:
+		}
+	}
+}
+
+func testRunStatusSucceeded(status string) bool {
+	return strings.TrimSpace(strings.ToLower(status)) == "succeeded"
+}
+
+func testRunStatusTerminal(status string) bool {
+	switch strings.TrimSpace(strings.ToLower(status)) {
+	case "succeeded", "failed", "orphaned", "cancelled", "abandoned", "aborted":
+		return true
+	default:
+		return false
+	}
+}
+
+func TestSeedPodmanExampleSecretUsesPodVolumesAndPlaintext(t *testing.T) {
+	var gotName, gotStdin string
+	var gotArgs []string
+
+	stdout, stderr, err := testSeedPodmanExampleSecret(context.Background(), func(ctx context.Context, name string, args []string, stdin string) (string, string, error) {
+		gotName = name
+		gotArgs = append([]string(nil), args...)
+		gotStdin = stdin
+		return "seeded\n", "", nil
+	})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if stdout != "seeded\n" || stderr != "" {
+		t.Fatalf("unexpected command output: stdout=%q stderr=%q", stdout, stderr)
+	}
+
+	wantArgs := []string{
+		"run",
+		"--rm",
+		"-i",
+		"--pod",
+		"vectis",
+		"-v",
+		"vectis-secrets-data:/data",
+		"-v",
+		"vectis-podman-secrets:/secrets:ro",
+		"vectis-cli:latest",
+		"secrets",
+		"encryptedfs",
+		"put",
+		testPodmanSmokeSecretRef,
+		"--root",
+		testPodmanSmokeSecretRoot,
+		"--key-file",
+		testPodmanSmokeSecretKeyFile,
+		"--force",
+	}
+
+	if gotName != "podman" {
+		t.Fatalf("command name = %q, want podman", gotName)
+	}
+
+	if strings.Join(gotArgs, "\x00") != strings.Join(wantArgs, "\x00") {
+		t.Fatalf("args mismatch\ngot:  %#v\nwant: %#v", gotArgs, wantArgs)
+	}
+
+	if gotStdin != testPodmanSmokeSecretPlaintext {
+		t.Fatalf("stdin = %q, want smoke plaintext", gotStdin)
+	}
+}
+
+func loadPodmanSecretsSmokeExample(t *testing.T) []byte {
+	t.Helper()
+
+	example, err := os.ReadFile(filepath.Join("..", "..", "examples", "secrets.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return example
+}
+
+func TestRunPodmanSmokeSecretsSeedsSubmitsAndWaits(t *testing.T) {
+	var requestedPaths []string
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		requestedPaths = append(requestedPaths, r.Method+" "+r.URL.Path)
+
+		switch r.URL.Path {
+		case "/api/v1/jobs/run":
+			if r.Method != http.MethodPost {
+				t.Errorf("method=%s", r.Method)
+			}
+
+			var job map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&job); err != nil {
+				t.Errorf("decode job body: %v", err)
+			}
+
+			if _, ok := job["root"].(map[string]any); !ok {
+				t.Errorf("expected raw job definition body, got root=nil")
+			}
+
+			if job["id"] != "secret-example" {
+				t.Errorf("job id=%v, want secret-example", job["id"])
+			}
+
+			w.WriteHeader(http.StatusAccepted)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":        "job-ephemeral",
+				"run_id":    "run-1",
+				"run_index": 7,
+			})
+		case "/api/v1/runs/run-1":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"run_id":    "run-1",
+				"run_index": 7,
+				"status":    "succeeded",
+			})
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	var commandRan bool
+	result, err := runPodmanSecretsSmokeTestStep(context.Background(), loadPodmanSecretsSmokeExample(t), time.Second, func(ctx context.Context, name string, args []string, stdin string) (string, string, error) {
+		commandRan = true
+		if name != "podman" {
+			t.Errorf("command name=%q", name)
+		}
+		if stdin != testPodmanSmokeSecretPlaintext {
+			t.Errorf("stdin=%q", stdin)
+		}
+		return "", "", nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !commandRan {
+		t.Fatal("expected podman seed command to run")
+	}
+
+	if strings.Join(requestedPaths, ",") != "POST /api/v1/jobs/run,GET /api/v1/runs/run-1" {
+		t.Fatalf("unexpected API requests: %v", requestedPaths)
+	}
+
+	if result.SecretRef != testPodmanSmokeSecretRef || result.RunID != "run-1" || result.RunIndex != 7 || result.RunStatus != "succeeded" {
+		t.Fatalf("unexpected smoke result: %+v", result)
 	}
 }
 

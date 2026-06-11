@@ -178,44 +178,91 @@ func runJob(cmd *cobra.Command, args []string) {
 		runCLIError(fmt.Errorf("path or - is required"))
 	}
 
-	source := args[0]
+	result, err := submitJobDefinitionSource(args[0], runCellID, runIdemKey, os.Stdin)
+	runCLIError(err)
+
+	if result.RunID == "" {
+		runCLIError(fmt.Errorf("response missing run_id"))
+	}
+
+	follow, _ := cmd.Flags().GetBool("follow")
+	if follow {
+		runCLIError(runLogStream(result.RunID, false, false))
+	} else if outputIsJSON() {
+		runCLIError(writeJSON(os.Stdout, result))
+	} else {
+		fmt.Println(result.RunID)
+	}
+}
+
+func readJobDefinitionSource(source string, stdin io.Reader) ([]byte, error) {
+	source = strings.TrimSpace(source)
+	if source == "" {
+		return nil, fmt.Errorf("path or - is required")
+	}
+
 	var body []byte
 	var err error
 	if source == "-" {
-		body, err = io.ReadAll(os.Stdin)
+		if stdin == nil {
+			return nil, fmt.Errorf("stdin is not available for job definition")
+		}
+
+		body, err = io.ReadAll(stdin)
 	} else {
 		body, err = os.ReadFile(source)
 	}
 
 	if err != nil {
-		runCLIError(fmt.Errorf("failed to read job definition: %w", err))
+		return nil, fmt.Errorf("failed to read job definition: %w", err)
 	}
 
+	return body, nil
+}
+
+func validateRunnableJobDefinition(body []byte) error {
 	var job api.Job
 	if err := jobdef.DecodeDefinitionJSON(body, &job); err != nil {
-		runCLIError(fmt.Errorf("invalid job JSON: %w", err))
+		return fmt.Errorf("invalid job JSON: %w", err)
 	}
 
 	if job.GetRoot() == nil {
-		runCLIError(fmt.Errorf("job must have a root node"))
+		return fmt.Errorf("job must have a root node")
 	}
 
-	requestBody, err := runJobRequestBody(body, runCellID)
+	return nil
+}
+
+func submitJobDefinitionSource(source, cellID, idempotencyKey string, stdin io.Reader) (jobRunResult, error) {
+	body, err := readJobDefinitionSource(source, stdin)
 	if err != nil {
-		runCLIError(err)
+		return jobRunResult{}, err
+	}
+
+	return submitJobDefinitionBody(body, cellID, idempotencyKey)
+}
+
+func submitJobDefinitionBody(body []byte, cellID, idempotencyKey string) (jobRunResult, error) {
+	if err := validateRunnableJobDefinition(body); err != nil {
+		return jobRunResult{}, err
+	}
+
+	requestBody, err := runJobRequestBody(body, cellID)
+	if err != nil {
+		return jobRunResult{}, err
 	}
 
 	req, err := newAPIRequest(http.MethodPost, "/api/v1/jobs/run", requestBody)
 	if err != nil {
-		runCLIError(err)
+		return jobRunResult{}, err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	setIdempotencyHeader(req, runIdemKey)
+	setIdempotencyHeader(req, idempotencyKey)
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
-		runCLIError(fmt.Errorf("failed to submit job: %w", err))
+		return jobRunResult{}, fmt.Errorf("failed to submit job: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -224,31 +271,22 @@ func runJob(cmd *cobra.Command, args []string) {
 		var result jobRunResult
 
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-			runCLIError(fmt.Errorf("failed to parse response: %w", err))
+			return jobRunResult{}, fmt.Errorf("failed to parse response: %w", err)
 		}
 
 		if result.RunID == "" {
-			runCLIError(fmt.Errorf("response missing run_id"))
+			return jobRunResult{}, fmt.Errorf("response missing run_id")
 		}
 
-		follow, _ := cmd.Flags().GetBool("follow")
-		if follow {
-			if err := runLogStream(result.RunID, false, false); err != nil {
-				runCLIError(err)
-			}
-		} else if outputIsJSON() {
-			runCLIError(writeJSON(os.Stdout, result))
-		} else {
-			fmt.Println(result.RunID)
-		}
+		return result, nil
 	case http.StatusUnsupportedMediaType:
-		runCLIError(fmt.Errorf("content type must be application/json"))
+		return jobRunResult{}, fmt.Errorf("content type must be application/json")
 	case http.StatusBadRequest:
-		runCLIError(fmt.Errorf("invalid job definition"))
+		return jobRunResult{}, fmt.Errorf("invalid job definition")
 	case http.StatusServiceUnavailable:
-		runCLIError(fmt.Errorf("queue service unavailable"))
+		return jobRunResult{}, fmt.Errorf("queue service unavailable")
 	default:
-		runCLIError(fmt.Errorf("unexpected status: %s", resp.Status))
+		return jobRunResult{}, fmt.Errorf("unexpected status: %s", resp.Status)
 	}
 }
 
