@@ -122,16 +122,17 @@ func TestGRPCExecutionChoreographerLoadRunHydratesSnapshots(t *testing.T) {
 	runID := "run-grpc-hydrate"
 	rootID := "root-node"
 	childID := "build"
-	action := "builtins/shell"
+	rootAction := "builtins/parallel"
+	childAction := "builtins/shell"
 	j := &api.Job{
 		Id:    stringPtr("job-grpc-hydrate"),
 		RunId: stringPtr(runID),
 		Root: &api.Node{
 			Id:   &rootID,
-			Uses: &action,
+			Uses: &rootAction,
 			Steps: []*api.Node{{
 				Id:   &childID,
-				Uses: &action,
+				Uses: &childAction,
 				With: map[string]string{"command": "echo build"},
 			}},
 		},

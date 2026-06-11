@@ -847,6 +847,7 @@ func TestWorkerRunClaimedJob_SPIREEnabledRejectsMissingSVIDBeforeAction(t *testi
 		logClient:     logClient,
 		core:          testWorkerCore(job.NewExecutor()),
 		store:         runs,
+		choreographer: sqlExecutionChoreographer{runs: runs},
 		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
 		spireSVIDSource: fakeWorkerSVIDSource{svids: []spire.X509SVID{
 			{SPIFFEID: "spiffe://prod.example/cell/other/namespace/other/job/other/run/other/execution/other"},
@@ -916,13 +917,13 @@ func TestWorkerRunClaimedJob_SPIREEnabledRejectsMissingSVIDBeforeAction(t *testi
 		t.Fatalf("segment status: got %q, want %q", segmentStatus, dal.SegmentStatusFailed)
 	}
 
-	if !acceptedAt.Valid || startedAt.Valid || !finishedAt.Valid {
-		t.Fatalf("expected accepted and finished timestamps without started; got accepted=%v started=%v finished=%v",
+	if !acceptedAt.Valid || !startedAt.Valid || !finishedAt.Valid {
+		t.Fatalf("expected accepted, started, and finished timestamps; got accepted=%v started=%v finished=%v",
 			acceptedAt, startedAt, finishedAt)
 	}
 
-	if eventSequence != 2 {
-		t.Fatalf("event sequence: got %d, want 2", eventSequence)
+	if eventSequence != 3 {
+		t.Fatalf("event sequence: got %d, want 3", eventSequence)
 	}
 }
 
@@ -938,7 +939,7 @@ func TestWorkerRunTaskExecution_TaskFanoutQueuesContinuation(t *testing.T) {
 	}
 
 	jobID := "job-worker-task-fanout"
-	def := `{"id":"job-worker-task-fanout","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo root"}}}`
+	def := `{"id":"job-worker-task-fanout","root":{"id":"root","uses":"builtins/parallel","steps":[{"id":"child","uses":"builtins/shell","with":{"command":"echo child"}}]}}`
 	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -974,18 +975,18 @@ func TestWorkerRunTaskExecution_TaskFanoutQueuesContinuation(t *testing.T) {
 	deliveryID := "delivery-task-fanout"
 	rootID := "root"
 	childID := "child"
-	action := "builtins/shell"
+	rootAction := "builtins/parallel"
+	childAction := "builtins/shell"
 	j := &api.Job{
 		Id:         &jobID,
 		RunId:      &runID,
 		DeliveryId: &deliveryID,
 		Root: &api.Node{
 			Id:   &rootID,
-			Uses: &action,
-			With: map[string]string{"command": "echo root"},
+			Uses: &rootAction,
 			Steps: []*api.Node{{
 				Id:   &childID,
-				Uses: &action,
+				Uses: &childAction,
 				With: map[string]string{"command": "echo child"},
 			}},
 		},
@@ -1052,7 +1053,7 @@ func TestWorkerRunTaskExecution_TaskFanoutWaitingQueuesContinuation(t *testing.T
 	}
 
 	jobID := "job-worker-task-reduce-waiting"
-	def := `{"id":"job-worker-task-reduce-waiting","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo root"}}}`
+	def := `{"id":"job-worker-task-reduce-waiting","root":{"id":"root","uses":"builtins/parallel","steps":[{"id":"child","uses":"builtins/shell","with":{"command":"echo child"}}]}}`
 	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -1087,18 +1088,18 @@ func TestWorkerRunTaskExecution_TaskFanoutWaitingQueuesContinuation(t *testing.T
 	deliveryID := "delivery-task-reduce-waiting"
 	rootID := "root"
 	childID := "child"
-	action := "builtins/shell"
+	rootAction := "builtins/parallel"
+	childAction := "builtins/shell"
 	j := &api.Job{
 		Id:         &jobID,
 		RunId:      &runID,
 		DeliveryId: &deliveryID,
 		Root: &api.Node{
 			Id:   &rootID,
-			Uses: &action,
-			With: map[string]string{"command": "echo root"},
+			Uses: &rootAction,
 			Steps: []*api.Node{{
 				Id:   &childID,
-				Uses: &action,
+				Uses: &childAction,
 				With: map[string]string{"command": "echo child"},
 			}},
 		},
@@ -1538,7 +1539,7 @@ func TestWorkerRunTaskExecution_ChildDeliveryHydratesAfterOrchestratorRestart(t 
 	deliveryID := "delivery-child-hydrate"
 	rootID := "root-node"
 	childID := "child"
-	sequenceAction := "builtins/sequence"
+	parallelAction := "builtins/parallel"
 	shellAction := "builtins/shell"
 	j := &api.Job{
 		Id:         &jobID,
@@ -1546,8 +1547,7 @@ func TestWorkerRunTaskExecution_ChildDeliveryHydratesAfterOrchestratorRestart(t 
 		DeliveryId: &deliveryID,
 		Root: &api.Node{
 			Id:   &rootID,
-			Uses: &sequenceAction,
-			With: map[string]string{"command": "echo root-should-not-run"},
+			Uses: &parallelAction,
 			Steps: []*api.Node{{
 				Id:   &childID,
 				Uses: &shellAction,
@@ -1603,7 +1603,7 @@ func TestWorkerRunTaskExecution_ChildDeliveryHydratesAfterOrchestratorRestart(t 
 		renewInterval: time.Hour,
 		queue:         mocks.NewMockQueueClient(),
 		logClient:     logClient,
-		executor:      job.NewExecutor(),
+		core:          testWorkerCore(job.NewExecutor()),
 		store:         runs,
 		choreographer: newLocalOrchestratorChoreographer(t),
 		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
@@ -2200,7 +2200,7 @@ func TestWorkerRunTaskExecution_RecoversOrchestratorRestartDuringFinalize(t *tes
 		renewInterval: time.Hour,
 		queue:         mocks.NewMockQueueClient(),
 		logClient:     mocks.NewMockLogClient(),
-		executor:      job.NewExecutor(),
+		core:          testWorkerCore(job.NewExecutor()),
 		store:         runs,
 		choreographer: choreographer,
 	}
@@ -2914,7 +2914,8 @@ func TestWorkerRunTaskExecution_WorkerCoreCancelledResultCancelsRun(t *testing.T
 		core: errorWorkerCore{
 			err: workercore.NewTaskResultError(api.RunOutcome_RUN_OUTCOME_UNKNOWN, workersdk.ReasonCancelled, "cancelled in external runner"),
 		},
-		store: runs,
+		store:         runs,
+		choreographer: sqlExecutionChoreographer{runs: runs},
 	}
 
 	jobID := "job-worker-core-cancelled"
@@ -2997,8 +2998,9 @@ func TestWorkerRunTaskExecution_WorkerCoreUnknownResultOrphansRun(t *testing.T) 
 		core: errorWorkerCore{
 			err: workercore.NewTaskResultError(api.RunOutcome_RUN_OUTCOME_UNKNOWN, workersdk.ReasonExternalUnavailable, "jenkins unavailable"),
 		},
-		store:   runs,
-		catalog: cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
+		store:         runs,
+		choreographer: newLocalOrchestratorChoreographer(t),
+		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
 	}
 
 	jobID := "job-worker-core-unknown"

@@ -67,6 +67,7 @@ flowchart TB
 
   subgraph execute [Execution]
     W["vectis-worker"]
+    WC["vectis-worker-core"]
   end
 
   DB[("SQL database")]
@@ -86,6 +87,7 @@ flowchart TB
   CRON --> Q
   REC --> Q
   Q --> W
+  W -- "UDS shell/core contract" --> WC
 
   W --> ORCH
   W --> LOG
@@ -109,7 +111,8 @@ flowchart TB
 | `vectis-cell-ingress` | Private cell-local HTTP endpoint that durably accepts execution envelopes for this cell, enqueues them to the local queue, and repairs missed local queue handoffs. The global API can route non-local target cells to configured ingress endpoints. |
 | `vectis-queue` | Internal FIFO queue shard. Producers enqueue work; workers dequeue and acknowledge deliveries. Queue persistence can preserve backlog and in-flight delivery metadata per shard. |
 | `vectis-orchestrator` | Hot-state service for lease-fenced task execution claims and in-memory task choreography. Workers use it for the normal task execution path. |
-| `vectis-worker` | Executes one task delivery at a time. Dequeues work, claims and completes task executions through the orchestrator, streams logs, enqueues child task continuations, and records cell catalog events. |
+| `vectis-worker` | Executes one task delivery at a time. Dequeues work, claims and completes task executions through the orchestrator, owns leases, cancellation intent, log/artifact callbacks, finalization, child task continuations, and cell catalog events. It delegates the action execution step to `vectis-worker-core` over a local Unix-domain socket. |
+| `vectis-worker-core` | Worker execution core. It executes claimed tasks behind the worker shell/core boundary and reports task outcomes back to `vectis-worker`. The built-in core supports host execution and the configured local VM backend; external cores can provide other execution runtimes while preserving Vectis worker semantics. |
 | `vectis-log` | Receives log chunks from workers and stores run logs. The API reads from it when clients stream logs. |
 | `vectis-artifact` | Internal content-addressed blob service. It stores blobs by digest while the API exposes run-scoped artifact listing, metadata, and downloads. |
 | `vectis-registry` | Internal service discovery for queue, orchestrator, log, and worker-control addresses when clients do not use pinned addresses. |
@@ -220,7 +223,9 @@ Built-in actions currently include `builtins/shell`, `builtins/checkout`, `built
 
 ## Worker Execution Environment
 
-By default, a worker creates a per-run workspace directory and executes built-in actions as child processes on the worker host. The workspace is useful operational isolation: checkout and shell steps share a predictable directory, and the executor can clean it up when the run finishes.
+By default, the worker and worker core are deployed together on the same host or in the same pod. The worker creates shell-owned task sessions and the core executes the claimed task through the local Unix-domain socket contract. Logs and artifacts flow back through worker-owned shell callbacks, so the worker remains responsible for durable log/artifact routing and final run state.
+
+The built-in worker core creates a per-run workspace directory and executes built-in actions as child processes on the core host. The workspace is useful operational isolation: checkout and shell steps share a predictable directory, and the executor can clean it up when the run finishes.
 
 That workspace is not a security sandbox. Host execution still shares the worker user's permissions, host kernel, process environment, network access, and mounted credentials. The accepted target design for stronger containment is [ADR 0009](../developing/architecture-decisions/0009-worker-execution-containment-providers.md): keep host execution as the default compatibility path, then add container and VM execution providers behind a worker runner boundary.
 

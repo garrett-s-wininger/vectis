@@ -15,6 +15,7 @@ This page answers "is this component topology supported, and what happens when i
 | API | Can be replicated for stateless HTTP traffic with caveats. Keep the reconciler healthy. |
 | Workers | Primary safe scale-out unit. Add workers to increase job throughput. |
 | Orchestrator | Keep one active orchestrator for now; it owns in-memory run graphs and task claim fencing. Workers can recover missing hot state after restart from durable task rows, but active/active orchestrators are not supported. |
+| Worker cores | Pair cores with workers by default. Sharing one core across multiple active workers is only for deliberately tested local/provider topologies. |
 | Queue | Run one or more independent queue shards through registry discovery. Each shard owns one stable instance ID and one persistence directory. |
 | Registry | Run one registry by default, configure gossip clustering deliberately, and list multiple registry addresses on clients when using HA registry nodes. |
 | Log service | Run one or more log shards through registry discovery. DB-aware clients persist the run's shard assignment; each shard owns one stable instance ID and one storage directory. |
@@ -43,6 +44,7 @@ The default profile remains `simple` for both tools. HA profiles are intended fo
 | `vectis-api` | 1 | Conditional | Multiple API replicas can serve HTTP against the same database and queue. The default rate-limit backend is in-process per replica, SSE clients must reconnect through load balancers, and accepted-but-not-enqueued runs rely on the reconciler if an API exits after `202`. |
 | `vectis-worker` | N | Yes | Each worker executes one task delivery at a time. Orchestrator claims and leases guard task executions against duplicate execution even if queue handoff is duplicated. Size orchestrator capacity, DB pools, queue delivery timeouts, and log capacity for the fleet. |
 | `vectis-orchestrator` | 1 | Not yet | The orchestrator owns in-memory run graphs, claim tokens, and task continuation state. Workers can hydrate and reclaim missing state after a singleton restart, but run one active instance until per-run sticky routing or replicated state exists. |
+| `vectis-worker-core` | Paired with workers | Yes | The core speaks to workers over a Unix-domain socket. Run it as a sidecar, sibling process, or supervisor child with a shared runtime directory. Do not point multiple active workers at one mutable core socket unless the core is deliberately designed and tested for that multiplexing model. |
 | `vectis-queue` | 1+ | Yes, as independent shards | Producers discover queue registrations and pick a shard. Workers dequeue across the pool and ack the shard encoded in the delivery ID. Do not duplicate active instance IDs or share one persistence directory across active queue processes. |
 | `vectis-registry` | 1 | Conditional | Single registry is the safe default. Clients can list multiple registry addresses and service registrations fail over between them, but gossip-based HA registry still requires every registry node to be configured with static cluster membership. Pin queue/orchestrator/log/artifact addresses if registry availability is a concern. |
 | `vectis-log` | 1+ | Yes, as independent run shards | Clients discover log registrations and route a given `run_id` to one shard. DB-aware clients persist `job_runs.log_shard_id`; unassigned runs fall back to deterministic hashing. Each shard owns local durable log files and active stream buffers. Keep shard instance IDs stable; a second active process on the same storage directory refuses to start. |
@@ -72,6 +74,20 @@ When adding workers, check:
 Each worker runs one job at a time today. To increase parallel job throughput, add workers rather than expecting one worker to run multiple jobs concurrently.
 
 During rolling restarts, wait for draining workers to report lifecycle state `idle` before forcing termination. A worker in `executing` or `finalizing` is still protecting an active task execution from unnecessary lease expiry and repair.
+
+### Worker Core Topology
+
+`vectis-worker` and `vectis-worker-core` should normally be scheduled as one failure domain:
+
+| Shape | Fit |
+| --- | --- |
+| Same pod sidecar | Preferred for Kubernetes-style deployments. Share an `emptyDir` or equivalent runtime directory for `worker-core.sock` and `worker-core-shell.sock`; terminate the core with the worker. |
+| Same host supervisor group | Good for systemd, Nomad, or process-supervisor deployments. Put both sockets in a private runtime directory owned by the worker service account. |
+| Remote network service | Not the default contract. The current worker/core transport is a local Unix-domain socket boundary and assumes worker-owned shell callbacks are reachable only by the paired core. |
+
+The worker validates the core's `Describe` response at startup. A core that does not advertise the current protocol version plus execute, cancel, log callback, and artifact callback capabilities is rejected before the worker connects to the queue.
+
+Restart the pair carefully. If the core exits while a worker is executing, the worker records an execution result according to the returned or observed failure. Unknown external outcomes are marked orphaned with `worker_core_unknown` so operators can repair the run after checking the provider. If the worker exits first, normal run leases and queue redelivery decide repair.
 
 ## API Replicas
 
@@ -111,6 +127,7 @@ Cron scale-out is active/active within one shared database cell. Replicas race o
 | `vectis-log` | Ingest and log streams for runs routed to that shard are interrupted. Durable log files remain if storage is preserved; stream buffers are process-local. | Keep each shard on a stable `--instance-id` and durable, separate `--storage-dir`; when omitted, defaults are derived from `hostname-port`. Workers need the owning log shard available before executing runs routed there. |
 | `vectis-artifact` | Uploads and reads routed to that shard are interrupted. Durable blobs remain if storage is preserved. | Keep each shard on a stable `--instance-id` and durable, separate `--storage-dir`; when omitted, defaults are derived from `hostname-port`. |
 | `vectis-worker` | On `SIGINT` or `SIGTERM`, stops dequeuing and lets the current task delivery continue toward finalization. Abrupt death relies on leases, queue delivery timeout, and repair. | Roll workers gradually. Use graceful termination windows long enough for normal task deliveries, or expect long deliveries to rely on lease/reconciler behavior after hard stops. |
+| `vectis-worker-core` | Stops accepting worker-core RPCs. Active execution behavior depends on the core and execution backend. | Restart with its paired worker when possible. If the core is replaced independently, expect the worker to fail, cancel, or orphan active work based on the last provable core outcome. |
 | `vectis-log-forwarder` | Local spool preserves unsent batches when configured and writable. | Preserve spool storage and watch age/size. |
 | `vectis-cron` | Schedule scans pause if all cron instances are down. A crash after recording a scheduled run but before advancing the schedule can cause another instance to retry queue handoff for the same run. Missed evaluations are not replayed from a separate HA log. | Run one or more cron instances against the same database and queue. Gate them on database and queue reachability. |
 | `vectis-reconciler` | The active lease holder stops scanning. Queued runs remain in the database. | With standby instances, repair resumes after lease expiry plus the next poll; without standbys, repair pauses until the process returns. |
@@ -126,6 +143,7 @@ Readiness should answer "should this receive new work?" Liveness should answer "
 | API | `GET /health/live` | `GET /health/ready`, which checks database ping and managed queue connectivity. |
 | Queue, registry, orchestrator, log, artifact gRPC | Standard gRPC health service | Standard gRPC health service returning `SERVING`. |
 | Worker | Supervisor process state | Gate externally on database, queue, orchestrator, and log availability; there is no worker HTTP readiness endpoint. |
+| Worker core | Supervisor process state plus worker startup validation | The worker refuses to start queue consumption unless the configured core socket is reachable and advertises the required protocol/capabilities. |
 | Cron | Supervisor process state | Gate on database and queue reachability before relying on schedules. |
 | Reconciler | Supervisor process state | Gate on database and queue reachability before relying on repair; with replicas, ensure only one instance holds the service lease. |
 | Log-forwarder | Supervisor process state | Gate on log service reachability and local spool health. |
@@ -158,6 +176,7 @@ For repair steps, see [Repair Runbooks](../reliability/repair-runbooks.md).
 | Cron | DB-coordinated within one shared database cell; no built-in schedule partitioning across cells. |
 | Reconciler | Active/passive within one database cell through `service_leases`; not a sharded repair pool yet. |
 | Workers | Scale is bounded by DB pool sizing, queue throughput, log capacity, and workload resource isolation. |
+| Worker cores | One core serves one worker today. Shared runtime-provider pools, resource sub-allocation, and remote provider autoscaling are future work. |
 
 ## Related Documentation
 

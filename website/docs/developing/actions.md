@@ -4,6 +4,14 @@ Actions are the executable nodes in a Vectis job tree. User-facing jobs refer to
 
 This page is for contributors adding or changing actions in Vectis itself. If you are writing job files, start with [Your First Job](../using/your-first-job.md) and [Job Definition Validation](../using/job-validation.md).
 
+## Actions Versus Worker Cores
+
+Use an action when the action is the source of truth for the side effect the job author asked for. Examples include triggering an existing Jenkins job, creating a GitHub issue, deploying through Argo CD, calling a scanner, or uploading to a provider API. The external system owns that domain operation, and Vectis observes the result as one workflow step.
+
+Use a worker core when Vectis is the source of truth for the task and an external runtime is only where that task executes. A Jenkins worker core, for example, would run normal Vectis actions on Jenkins-provided execution capacity; it would not expose "run Jenkins job X" as a job node. That keeps the job graph, action locks, cancellation intent, logs, artifacts, and finalization semantics owned by Vectis.
+
+The short version: actions extend the workflow vocabulary; worker cores extend the execution substrate.
+
 ## Where Actions Live
 
 Built-in actions live under `internal/action/builtins/`. Each action provides:
