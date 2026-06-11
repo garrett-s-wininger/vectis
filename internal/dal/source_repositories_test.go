@@ -106,6 +106,75 @@ func TestSourcesRepository_CreateRepositoryConflicts(t *testing.T) {
 	}
 }
 
+func TestSourcesRepository_DeleteRepository(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	sources := dal.NewSQLRepositories(db).Sources()
+	ctx := context.Background()
+
+	if _, err := sources.CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "vectis-local",
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/vectis",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("CreateRepository: %v", err)
+	}
+
+	if err := sources.DeleteRepository(ctx, "vectis-local"); err != nil {
+		t.Fatalf("DeleteRepository: %v", err)
+	}
+
+	if _, err := sources.GetRepository(ctx, "vectis-local"); !dal.IsNotFound(err) {
+		t.Fatalf("expected deleted repository to be missing, got %v", err)
+	}
+
+	if err := sources.DeleteRepository(ctx, "vectis-local"); !dal.IsNotFound(err) {
+		t.Fatalf("expected not found deleting missing repository, got %v", err)
+	}
+}
+
+func TestSourcesRepository_DeleteRepositoryConflictsWhenReferenced(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	sources := repos.Sources()
+	ctx := context.Background()
+
+	if _, err := sources.CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "vectis-local",
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/vectis",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("CreateRepository: %v", err)
+	}
+
+	if err := repos.Jobs().Create(ctx, "build", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`, 1); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	if err := sources.RecordDefinitionSource(ctx, dal.JobDefinitionSourceRecord{
+		JobID:          "build",
+		Version:        1,
+		RepositoryID:   "vectis-local",
+		RequestedRef:   "main",
+		ResolvedCommit: "0123456789abcdef0123456789abcdef01234567",
+		DefinitionPath: ".vectis/jobs/build.json",
+		BlobSHA:        "abcdef0123456789abcdef0123456789abcdef01",
+	}); err != nil {
+		t.Fatalf("RecordDefinitionSource: %v", err)
+	}
+
+	if err := sources.DeleteRepository(ctx, "vectis-local"); !dal.IsConflict(err) {
+		t.Fatalf("expected conflict deleting referenced repository, got %v", err)
+	}
+
+	if _, err := sources.GetRepository(ctx, "vectis-local"); err != nil {
+		t.Fatalf("referenced repository should remain: %v", err)
+	}
+}
+
 func TestSourcesRepository_UpdateRepository(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	sources := dal.NewSQLRepositories(db).Sources()

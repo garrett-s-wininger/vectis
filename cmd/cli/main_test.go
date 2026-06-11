@@ -734,6 +734,39 @@ func TestUpdateSource_sendsOnlyChangedFieldsAndPrintsRepository(t *testing.T) {
 	}
 }
 
+func TestDeleteSource_requiresConfirmation(t *testing.T) {
+	var buf bytes.Buffer
+	if err := deleteSourceWithOutput(&buf, "vectis", false); err == nil {
+		t.Fatal("expected confirmation error")
+	}
+}
+
+func TestDeleteSource_sendsRequestAndPrintsResult(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/source-repositories/vectis" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	var buf bytes.Buffer
+	if err := deleteSourceWithOutput(&buf, "vectis", true); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"Source repository", "vectis", "deleted"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
 func TestShowSourceStatus_sendsRequestAndPrintsStatus(t *testing.T) {
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

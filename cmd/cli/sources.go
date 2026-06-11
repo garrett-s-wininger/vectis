@@ -487,6 +487,42 @@ func updateSourceWithOutput(cmd *cobra.Command, out io.Writer, repositoryID stri
 	}
 }
 
+func deleteSource(cmd *cobra.Command, args []string) {
+	runCLIError(deleteSourceWithOutput(os.Stdout, args[0], sourceDeleteYes))
+}
+
+func deleteSourceWithOutput(out io.Writer, repositoryID string, confirmed bool) error {
+	if !confirmed {
+		return fmt.Errorf("delete source repository %q requires --yes; this removes the registration but preserves checkout files", repositoryID)
+	}
+
+	req, err := newAPIRequest(http.MethodDelete, "/api/v1/source-repositories/"+url.PathEscape(repositoryID), nil)
+	if err != nil {
+		return fmt.Errorf("failed to create source repository delete request: %w", err)
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to delete source repository: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusNoContent:
+		if outputIsJSON() {
+			return writeJSON(out, map[string]string{"status": "deleted", "repository_id": repositoryID})
+		}
+		_, err := fmt.Fprintf(out, "Source repository %q deleted.\n", repositoryID)
+		return err
+	case http.StatusConflict:
+		return fmt.Errorf("source repository %q has recorded source provenance; disable it instead or remove dependent history first", repositoryID)
+	case http.StatusNotFound:
+		return fmt.Errorf("source repository %q not found", repositoryID)
+	default:
+		return fmt.Errorf("unexpected status deleting source repository: %s", resp.Status)
+	}
+}
+
 func writeSourceRepositoryDetailResult(out io.Writer, repo sourceRepositorySummary) error {
 	if outputIsJSON() {
 		return writeJSON(out, repo)
@@ -1416,6 +1452,14 @@ var sourcesUpdateCmd = &cobra.Command{
 	Run:   updateSource,
 }
 
+var sourcesDeleteCmd = &cobra.Command{
+	Use:   "delete [repository-id]",
+	Short: "Delete a source repository registration",
+	Long:  `Delete a source repository registration. Checkout files are left untouched, and repositories with recorded source provenance must be disabled instead of deleted.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   deleteSource,
+}
+
 var sourcesSyncCmd = &cobra.Command{
 	Use:   "sync [repository-id]",
 	Short: "Sync a source repository",
@@ -1545,6 +1589,10 @@ func configureSourcesUpdateFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&sourceUpdateCredentialRef, "credential-ref", "", "Credential reference for future source integrations")
 	cmd.Flags().BoolVar(&sourceUpdateEnable, "enable", false, "Enable the source repository")
 	cmd.Flags().BoolVar(&sourceUpdateDisable, "disable", false, "Disable the source repository")
+}
+
+func configureSourcesDeleteFlags(cmd *cobra.Command) {
+	cmd.Flags().BoolVar(&sourceDeleteYes, "yes", false, "Skip confirmation prompt")
 }
 
 func configureSourcesBranchesFlags(cmd *cobra.Command) {

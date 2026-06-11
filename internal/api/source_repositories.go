@@ -555,6 +555,59 @@ func (s *APIServer) GetSourceRepository(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, s.sourceRepositoryRecordToResponse(rec, nsPath))
 }
 
+func (s *APIServer) DeleteSourceRepository(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireNamespaces(w) || !s.requireSources(w) {
+		return
+	}
+
+	rec, nsPath, ok := s.getAuthorizedSourceRepository(ctx, w, p, r.PathValue("id"), authz.ActionJobWrite, false)
+	if !ok {
+		return
+	}
+
+	if err := s.sources.DeleteRepository(ctx, rec.RepositoryID); err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "source_repository_not_found", "source repository not found", nil)
+			return
+		}
+
+		if dal.IsConflict(err) {
+			writeAPIError(w, http.StatusConflict, "source_repository_in_use", "source repository has recorded definition provenance", nil)
+			return
+		}
+
+		s.logger.Error("Database error deleting source repository: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+	s.markDBRecovered()
+
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	s.auditLog(ctx, audit.EventSourceRepositoryDeleted, actorID, 0, map[string]any{
+		"repository_id": rec.RepositoryID,
+		"namespace":     nsPath,
+		"source_kind":   rec.SourceKind,
+	})
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *APIServer) GetSourceRepositoryStatus(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := s.handlerDBCtx(r)
 	defer cancel()

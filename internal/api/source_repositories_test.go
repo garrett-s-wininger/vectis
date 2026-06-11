@@ -438,6 +438,86 @@ func TestAPIServer_SourceStoredJobsDisabled(t *testing.T) {
 	waitForNEnqueuedJobs(t, queueService, 2)
 }
 
+func TestAPIServer_DeleteSourceRepository(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+
+	server, _, _, db := setupTestServer(t)
+	repos := dal.NewSQLRepositories(db)
+	handler := server.Handler()
+
+	if _, err := repos.Sources().CreateRepository(context.Background(), dal.SourceRepositoryRecord{
+		RepositoryID: "vectis-local",
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/vectis",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("CreateRepository: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/source-repositories/vectis-local", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete source repository: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	if _, err := repos.Sources().GetRepository(context.Background(), "vectis-local"); !dal.IsNotFound(err) {
+		t.Fatalf("expected deleted source repository to be missing, got %v", err)
+	}
+
+	missingReq := httptest.NewRequest(http.MethodDelete, "/api/v1/source-repositories/vectis-local", nil)
+	missingRec := httptest.NewRecorder()
+	handler.ServeHTTP(missingRec, missingReq)
+	assertAPIError(t, missingRec, http.StatusNotFound, "source_repository_not_found")
+}
+
+func TestAPIServer_DeleteSourceRepositoryConflictsWhenReferenced(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+
+	server, _, _, db := setupTestServer(t)
+	repos := dal.NewSQLRepositories(db)
+	handler := server.Handler()
+	ctx := context.Background()
+
+	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "vectis-local",
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/vectis",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("CreateRepository: %v", err)
+	}
+
+	if err := repos.Jobs().Create(ctx, "build", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`, 1); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	if err := repos.Sources().RecordDefinitionSource(ctx, dal.JobDefinitionSourceRecord{
+		JobID:          "build",
+		Version:        1,
+		RepositoryID:   "vectis-local",
+		RequestedRef:   "main",
+		ResolvedCommit: "0123456789abcdef0123456789abcdef01234567",
+		DefinitionPath: ".vectis/jobs/build.json",
+		BlobSHA:        "abcdef0123456789abcdef0123456789abcdef01",
+	}); err != nil {
+		t.Fatalf("RecordDefinitionSource: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/source-repositories/vectis-local", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assertAPIError(t, rec, http.StatusConflict, "source_repository_in_use")
+
+	if _, err := repos.Sources().GetRepository(ctx, "vectis-local"); err != nil {
+		t.Fatalf("referenced repository should remain: %v", err)
+	}
+}
+
 func TestAPIServer_CreateJobFromSourceRejectsDisabledRepository(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 

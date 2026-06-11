@@ -105,6 +105,7 @@ var (
 	sourceUpdateCredentialRef   string
 	sourceUpdateEnable          bool
 	sourceUpdateDisable         bool
+	sourceDeleteYes             bool
 	sourceBranchesPrefix        string
 	sourceBranchesLimit         int
 	sourceBranchesQuiet         bool
@@ -205,6 +206,7 @@ func init() {
 	configureSourcesListFlags(sourcesListCmd)
 	configureSourcesRegisterFlags(sourcesRegisterCmd)
 	configureSourcesUpdateFlags(sourcesUpdateCmd)
+	configureSourcesDeleteFlags(sourcesDeleteCmd)
 	configureSourcesBranchesFlags(sourcesBranchesCmd)
 	configureSourcesTreeFlags(sourcesTreeCmd)
 	configureSourcesDefinitionsFlags(sourcesDefinitionsCmd)
@@ -217,7 +219,7 @@ func init() {
 	configureLogFilterFlags(sourcesLogsCmd)
 	configureSourcesLogsFlags(sourcesLogsCmd)
 	configureSourcesTriggerFlags(sourcesTriggerCmd)
-	sourcesCmd.AddCommand(sourcesListCmd, sourcesRegisterCmd, sourcesGetCmd, sourcesUpdateCmd, sourcesSyncCmd, sourcesStatusCmd, sourcesBranchesCmd, sourcesTreeCmd, sourcesDefinitionsCmd, sourcesResolveCmd, sourcesImportCmd, sourcesJobsCmd, sourcesShowCmd, sourcesWriteCmd, sourcesRunsCmd, sourcesLogsCmd, sourcesTriggerCmd)
+	sourcesCmd.AddCommand(sourcesListCmd, sourcesRegisterCmd, sourcesGetCmd, sourcesUpdateCmd, sourcesDeleteCmd, sourcesSyncCmd, sourcesStatusCmd, sourcesBranchesCmd, sourcesTreeCmd, sourcesDefinitionsCmd, sourcesResolveCmd, sourcesImportCmd, sourcesJobsCmd, sourcesShowCmd, sourcesWriteCmd, sourcesRunsCmd, sourcesLogsCmd, sourcesTriggerCmd)
 	rootCmd.AddCommand(sourcesCmd)
 
 	configureRunListFlags(runListCmd)

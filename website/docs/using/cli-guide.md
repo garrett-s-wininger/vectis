@@ -243,6 +243,14 @@ Inspect or update the repository registration:
 ./bin/vectis-cli sources update vectis-local --enable
 ```
 
+Delete an unused repository registration without touching checkout files:
+
+```sh
+./bin/vectis-cli sources delete vectis-local --yes
+```
+
+Repositories with recorded source provenance cannot be deleted; disable them instead so historical runs and stored definition versions can still resolve their repository metadata.
+
 Sync the repository, then list triggerable jobs discovered under `.vectis/jobs`:
 
 ```sh

@@ -101,6 +101,40 @@ func (r *SQLSourcesRepository) UpdateRepository(ctx context.Context, rec SourceR
 	return r.GetRepository(ctx, rec.RepositoryID)
 }
 
+func (r *SQLSourcesRepository) DeleteRepository(ctx context.Context, repositoryID string) error {
+	repositoryID = strings.TrimSpace(repositoryID)
+	if repositoryID == "" {
+		return fmt.Errorf("%w: repository_id is required", ErrNotFound)
+	}
+
+	referenced, err := r.sourceRepositoryHasDefinitionSources(ctx, repositoryID)
+	if err != nil {
+		return err
+	}
+	if referenced {
+		return fmt.Errorf("%w: source repository %s has recorded definition sources", ErrConflict, repositoryID)
+	}
+
+	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+		DELETE FROM source_repositories
+		WHERE repository_id = ?
+	`), repositoryID)
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("%w: source repository %s", ErrNotFound, repositoryID)
+	}
+
+	return nil
+}
+
 func (r *SQLSourcesRepository) BeginRepositorySync(ctx context.Context, rec SourceRepositorySyncRecord) (SourceRepositoryRecord, bool, error) {
 	rec.Status = SourceSyncStatusRunning
 	rec.FinishedAtUnix = 0
@@ -501,6 +535,22 @@ func (r *SQLSourcesRepository) sourceRepositoryExists(ctx context.Context, repos
 	var exists int
 	if err := r.db.QueryRowContext(ctx,
 		rebindQueryForPgx("SELECT 1 FROM source_repositories WHERE repository_id = ?"),
+		repositoryID,
+	).Scan(&exists); err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+
+		return false, normalizeSQLError(err)
+	}
+
+	return true, nil
+}
+
+func (r *SQLSourcesRepository) sourceRepositoryHasDefinitionSources(ctx context.Context, repositoryID string) (bool, error) {
+	var exists int
+	if err := r.db.QueryRowContext(ctx,
+		rebindQueryForPgx("SELECT 1 FROM job_definition_sources WHERE repository_id = ? LIMIT 1"),
 		repositoryID,
 	).Scan(&exists); err != nil {
 		if err == sql.ErrNoRows {
