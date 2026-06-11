@@ -114,7 +114,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 		logger.Fatal("%v", err)
 	}
 
-	if err := config.ValidateWorkerSPIREConfig(); err != nil {
+	if err := config.ValidateWorkerSPIFFEConfig(); err != nil {
 		logger.Fatal("%v", err)
 	}
 
@@ -231,14 +231,14 @@ func runWorker(cmd *cobra.Command, args []string) {
 		logger.Fatal("Failed to configure secrets service client: %v", err)
 	}
 
-	var spireSVIDSource spire.X509SVIDSource
-	if config.WorkerSPIREEnabled() {
-		src, err := spire.NewWorkloadAPISource(config.WorkerSPIREWorkloadAPIAddress())
+	var spiffeSVIDSource spire.X509SVIDSource
+	if config.WorkerSPIFFEEnabled() {
+		src, err := spire.NewWorkloadAPISource(config.WorkerSPIFFEWorkloadAPIAddress())
 		if err != nil {
-			logger.Fatal("Failed to configure SPIRE Workload API source: %v", err)
+			logger.Fatal("Failed to configure SPIFFE Workload API source: %v", err)
 		}
 
-		spireSVIDSource = src
+		spiffeSVIDSource = src
 	}
 
 	actionResolver, err := actionconfig.DescriptorResolver()
@@ -246,64 +246,66 @@ func runWorker(cmd *cobra.Command, args []string) {
 		logger.Fatal("Invalid action registry config: %v", err)
 	}
 
-	var spireRegistrar spire.Registrar
-	var spireRegistrarCleanup func()
-	var spireRegistrationSelectors []spire.Selector
-	if config.WorkerSPIRERegistrationEnabled() {
-		selectors, err := config.WorkerSPIRERegistrationSelectors()
+	var spiffeRegistrar spire.Registrar
+	var spiffeRegistrarCleanup func()
+	var spiffeRegistrationSelectors []spire.Selector
+	if config.WorkerSPIFFERegistrationEnabled() {
+		selectors, err := config.WorkerSPIFFERegistrationSelectors()
 		if err != nil {
-			logger.Fatal("Failed to configure SPIRE registration selectors: %v", err)
+			logger.Fatal("Failed to configure SPIFFE registration selectors: %v", err)
 		}
 
 		registrar, cleanup, err := spire.DialSPIREServerRegistrar(
-			config.WorkerSPIRERegistrationServerAddress(),
-			spire.WithSPIREServerX509SVIDTTL(config.WorkerSPIRERegistrationX509SVIDTTL()),
+			config.WorkerSPIFFERegistrationServerAddress(),
+			spire.WithSPIREServerX509SVIDTTL(config.WorkerSPIFFERegistrationX509SVIDTTL()),
 		)
+
 		if err != nil {
-			logger.Fatal("Failed to configure SPIRE registration server client: %v", err)
+			logger.Fatal("Failed to configure SPIFFE registration server client: %v", err)
 		}
 
-		spireRegistrar = registrar
-		spireRegistrarCleanup = cleanup
-		spireRegistrationSelectors = selectors
-		logger.Info("Configured SPIRE registration via server API at %s", config.WorkerSPIRERegistrationServerAddress())
+		spiffeRegistrar = registrar
+		spiffeRegistrarCleanup = cleanup
+		spiffeRegistrationSelectors = selectors
+		logger.Info("Configured SPIFFE registration via Entry API at %s", config.WorkerSPIFFERegistrationServerAddress())
 	}
-	if spireRegistrarCleanup != nil {
-		defer spireRegistrarCleanup()
+
+	if spiffeRegistrarCleanup != nil {
+		defer spiffeRegistrarCleanup()
 	}
 
 	w := &worker{
-		ctx:                        shutdownCtx,
-		runCtx:                     runCtx,
-		logger:                     logger,
-		workerID:                   workerID,
-		cellID:                     config.CellID(),
-		clock:                      interfaces.SystemClock{},
-		renewInterval:              dal.DefaultRenewInterval,
-		queue:                      clients,
-		logClient:                  logClient,
-		core:                       executionCore,
-		coreShell:                  coreShell,
-		coreShellEndpoint:          coreShellEndpoint,
-		actionResolver:             actionResolver,
-		store:                      runsRepo,
-		artifactManifests:          repos.Artifacts(),
-		artifactMaxBytes:           config.WorkerArtifactMaxBytes(),
-		artifactMaxRunBytes:        config.WorkerArtifactMaxRunBytes(),
-		artifactMaxCount:           config.WorkerArtifactMaxCount(),
-		retryMetrics:               retryMetrics,
-		choreographer:              newGRPCExecutionChoreographer(api.NewOrchestratorServiceClient(orchestratorConn)),
-		secretResolverForWorkload:  secretResolverForWorkload,
-		catalog:                    cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
-		metrics:                    workerMetrics,
-		taskFinalizeMetrics:        taskFinalizeMetrics,
-		spireSVIDSource:            spireSVIDSource,
-		spireRegistrar:             spireRegistrar,
-		spireRegistrationParentID:  config.WorkerSPIRERegistrationParentID(),
-		spireRegistrationSelectors: spireRegistrationSelectors,
-		spireRegistrationMinTTL:    config.WorkerSPIRERegistrationMinTTL(),
-		spireRegistrationMaxTTL:    config.WorkerSPIRERegistrationMaxTTL(),
-		cancelCh:                   make(chan string, 1),
+		ctx:                         shutdownCtx,
+		runCtx:                      runCtx,
+		logger:                      logger,
+		workerID:                    workerID,
+		cellID:                      config.CellID(),
+		clock:                       interfaces.SystemClock{},
+		renewInterval:               dal.DefaultRenewInterval,
+		queue:                       clients,
+		logClient:                   logClient,
+		core:                        executionCore,
+		coreShell:                   coreShell,
+		coreShellEndpoint:           coreShellEndpoint,
+		actionResolver:              actionResolver,
+		store:                       runsRepo,
+		artifactManifests:           repos.Artifacts(),
+		artifactMaxBytes:            config.WorkerArtifactMaxBytes(),
+		artifactMaxRunBytes:         config.WorkerArtifactMaxRunBytes(),
+		artifactMaxCount:            config.WorkerArtifactMaxCount(),
+		retryMetrics:                retryMetrics,
+		choreographer:               newGRPCExecutionChoreographer(api.NewOrchestratorServiceClient(orchestratorConn)),
+		secretResolverForWorkload:   secretResolverForWorkload,
+		catalog:                     cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
+		metrics:                     workerMetrics,
+		taskFinalizeMetrics:         taskFinalizeMetrics,
+		spiffeSVIDSource:            spiffeSVIDSource,
+		spiffeRegistrar:             spiffeRegistrar,
+		spiffeRegistrationParentID:  config.WorkerSPIFFERegistrationParentID(),
+		spiffeRegistrationSelectors: spiffeRegistrationSelectors,
+		spiffeRegistrationMinTTL:    config.WorkerSPIFFERegistrationMinTTL(),
+		spiffeRegistrationMaxTTL:    config.WorkerSPIFFERegistrationMaxTTL(),
+		cancelCh:                    make(chan string, 1),
 	}
 
 	// Start worker control server for remote cancellation.
@@ -491,51 +493,51 @@ func controlPublishAddress(addr string) string {
 }
 
 type worker struct {
-	ctx                        context.Context // canceled on SIGINT/SIGTERM; dequeue and between-job backoff only
-	runCtx                     context.Context // Background; execution, lease renew, ack, finalize survive SIGTERM until dequeue stops
-	logger                     interfaces.Logger
-	workerID                   string
-	cellID                     string
-	clock                      interfaces.Clock
-	renewInterval              time.Duration
-	cancelPollInterval         time.Duration
-	queue                      interfaces.QueueClient
-	logClient                  interfaces.LogClient
-	core                       workercore.Core
-	coreShell                  *workercore.ShellServer
-	coreShellEndpoint          string
-	actionResolver             actionregistry.Resolver
-	store                      dal.RunsRepository
-	artifactManifests          dal.ArtifactsRepository
-	artifactMaxBytes           int64
-	artifactMaxRunBytes        int64
-	artifactMaxCount           int64
-	retryMetrics               backoff.RetryMetrics
-	choreographer              executionChoreographer
-	secretResolver             secrets.Resolver
-	secretResolverForWorkload  secretResolverFactory
-	catalog                    cell.CatalogEventPublisher
-	metrics                    *observability.WorkerMetrics
-	taskFinalizeMetrics        *observability.TaskFinalizeMetrics
-	spireSVIDSource            spire.X509SVIDSource
-	spireRegistrar             spire.Registrar
-	spireRegistrationParentID  string
-	spireRegistrationSelectors []spire.Selector
-	spireRegistrationMinTTL    time.Duration
-	spireRegistrationMaxTTL    time.Duration
-	dequeueFailAttempt         int
-	dbUnavailable              bool
-	dbFailAttempt              int
-	dbMu                       sync.Mutex
-	cancelCh                   chan string
-	currentRunID               string
-	currentClaimToken          string
-	currentMu                  sync.Mutex
+	ctx                         context.Context // canceled on SIGINT/SIGTERM; dequeue and between-job backoff only
+	runCtx                      context.Context // Background; execution, lease renew, ack, finalize survive SIGTERM until dequeue stops
+	logger                      interfaces.Logger
+	workerID                    string
+	cellID                      string
+	clock                       interfaces.Clock
+	renewInterval               time.Duration
+	cancelPollInterval          time.Duration
+	queue                       interfaces.QueueClient
+	logClient                   interfaces.LogClient
+	core                        workercore.Core
+	coreShell                   *workercore.ShellServer
+	coreShellEndpoint           string
+	actionResolver              actionregistry.Resolver
+	store                       dal.RunsRepository
+	artifactManifests           dal.ArtifactsRepository
+	artifactMaxBytes            int64
+	artifactMaxRunBytes         int64
+	artifactMaxCount            int64
+	retryMetrics                backoff.RetryMetrics
+	choreographer               executionChoreographer
+	secretResolver              secrets.Resolver
+	secretResolverForWorkload   secretResolverFactory
+	catalog                     cell.CatalogEventPublisher
+	metrics                     *observability.WorkerMetrics
+	taskFinalizeMetrics         *observability.TaskFinalizeMetrics
+	spiffeSVIDSource            spire.X509SVIDSource
+	spiffeRegistrar             spire.Registrar
+	spiffeRegistrationParentID  string
+	spiffeRegistrationSelectors []spire.Selector
+	spiffeRegistrationMinTTL    time.Duration
+	spiffeRegistrationMaxTTL    time.Duration
+	dequeueFailAttempt          int
+	dbUnavailable               bool
+	dbFailAttempt               int
+	dbMu                        sync.Mutex
+	cancelCh                    chan string
+	currentRunID                string
+	currentClaimToken           string
+	currentMu                   sync.Mutex
 }
 
 type secretResolverFactory func(*workloadidentity.Identity) (secrets.Resolver, func(), error)
 
-type executionSPIRERegistration struct {
+type executionSPIFFERegistration struct {
 	identity *workloadidentity.Identity
 	env      *cell.ExecutionEnvelope
 	handle   spire.RegistrationHandle
@@ -1431,8 +1433,8 @@ func executionWorkloadIdentity(env *cell.ExecutionEnvelope) (*workloadidentity.I
 	)
 }
 
-func (w *worker) ensureExecutionSPIRERegistration(ctx context.Context, identity *workloadidentity.Identity, env *cell.ExecutionEnvelope, expiresAt time.Time) (spire.RegistrationHandle, bool, error) {
-	if w == nil || w.spireRegistrar == nil {
+func (w *worker) ensureExecutionSPIFFERegistration(ctx context.Context, identity *workloadidentity.Identity, env *cell.ExecutionEnvelope, expiresAt time.Time) (spire.RegistrationHandle, bool, error) {
+	if w == nil || w.spiffeRegistrar == nil {
 		return spire.RegistrationHandle{}, false, nil
 	}
 
@@ -1441,11 +1443,11 @@ func (w *worker) ensureExecutionSPIRERegistration(ctx context.Context, identity 
 	}
 
 	if identity == nil {
-		return spire.RegistrationHandle{}, false, fmt.Errorf("worker SPIRE registration requires execution identity")
+		return spire.RegistrationHandle{}, false, fmt.Errorf("worker SPIFFE registration requires execution identity")
 	}
 
 	if env == nil {
-		return spire.RegistrationHandle{}, false, fmt.Errorf("worker SPIRE registration requires execution envelope")
+		return spire.RegistrationHandle{}, false, fmt.Errorf("worker SPIFFE registration requires execution envelope")
 	}
 
 	if expiresAt.IsZero() {
@@ -1453,19 +1455,19 @@ func (w *worker) ensureExecutionSPIRERegistration(ctx context.Context, identity 
 	}
 
 	intent, err := spire.NewExecutionRegistrationIntent(identity.SPIFFEID, executionFromEnvelope(env), spire.ExecutionRegistrationOptions{
-		ParentSPIFFEID: w.spireRegistrationParentID,
-		Selectors:      w.spireRegistrationSelectors,
+		ParentSPIFFEID: w.spiffeRegistrationParentID,
+		Selectors:      w.spiffeRegistrationSelectors,
 		ExpiresAt:      expiresAt,
 		Now:            w.now().UTC(),
-		MinTTL:         w.spireRegistrationMinTTL,
-		MaxTTL:         w.spireRegistrationMaxTTL,
+		MinTTL:         w.spiffeRegistrationMinTTL,
+		MaxTTL:         w.spiffeRegistrationMaxTTL,
 	})
 
 	if err != nil {
 		return spire.RegistrationHandle{}, false, err
 	}
 
-	result, err := w.spireRegistrar.EnsureRegistration(ctx, intent)
+	result, err := w.spiffeRegistrar.EnsureRegistration(ctx, intent)
 	if err != nil {
 		return spire.RegistrationHandle{}, false, err
 	}
@@ -1489,8 +1491,8 @@ func (w *worker) ensureExecutionSPIRERegistration(ctx context.Context, identity 
 	return handle, true, nil
 }
 
-func (w *worker) releaseExecutionSPIRERegistration(registration *executionSPIRERegistration) {
-	if w == nil || w.spireRegistrar == nil || registration == nil {
+func (w *worker) releaseExecutionSPIFFERegistration(registration *executionSPIFFERegistration) {
+	if w == nil || w.spiffeRegistrar == nil || registration == nil {
 		return
 	}
 
@@ -1504,41 +1506,41 @@ func (w *worker) releaseExecutionSPIRERegistration(registration *executionSPIRER
 		ctx = context.Background()
 	}
 
-	if err := w.spireRegistrar.ReleaseRegistration(ctx, handle); err != nil && w.logger != nil {
+	if err := w.spiffeRegistrar.ReleaseRegistration(ctx, handle); err != nil && w.logger != nil {
 		executionID := ""
 		if registration.env != nil {
 			executionID = registration.env.ExecutionID
 		}
 
-		w.logger.Warn("Failed to release SPIRE registration for execution %s: %v", executionID, err)
+		w.logger.Warn("Failed to release SPIFFE registration for execution %s: %v", executionID, err)
 	}
 }
 
 func (w *worker) acquireExecutionSVID(ctx context.Context, identity *workloadidentity.Identity) (*workloadidentity.Identity, error) {
-	if !config.WorkerSPIREEnabled() {
+	if !config.WorkerSPIFFEEnabled() {
 		return identity, nil
 	}
 
 	if identity == nil {
 		if w.metrics != nil {
-			w.metrics.RecordSPIRESVIDCheck(ctx, observability.WorkerSPIRESVIDOutcomeFailed, observability.WorkerSPIRESVIDReasonMissingIdentity)
+			w.metrics.RecordSPIFFESVIDCheck(ctx, observability.WorkerSPIFFESVIDOutcomeFailed, observability.WorkerSPIFFESVIDReasonMissingIdentity)
 		}
 
-		return identity, fmt.Errorf("worker SPIRE execution SVID is required but execution identity is missing")
+		return identity, fmt.Errorf("worker SPIFFE execution SVID is required but execution identity is missing")
 	}
 
-	source := w.spireSVIDSource
+	source := w.spiffeSVIDSource
 	if source == nil {
 		if w.metrics != nil {
-			w.metrics.RecordSPIRESVIDCheck(ctx, observability.WorkerSPIRESVIDOutcomeFailed, observability.WorkerSPIRESVIDReasonMissingSource)
+			w.metrics.RecordSPIFFESVIDCheck(ctx, observability.WorkerSPIFFESVIDOutcomeFailed, observability.WorkerSPIFFESVIDReasonMissingSource)
 		}
 
-		return identity, fmt.Errorf("worker SPIRE execution SVID is required but SPIRE source is not configured")
+		return identity, fmt.Errorf("worker SPIFFE execution SVID is required but SPIFFE source is not configured")
 	}
 
 	checkCtx := ctx
 	cancel := func() {}
-	if timeout := config.WorkerSPIREFetchTimeout(); timeout > 0 {
+	if timeout := config.WorkerSPIFFEFetchTimeout(); timeout > 0 {
 		checkCtx, cancel = context.WithTimeout(ctx, timeout)
 	}
 	defer cancel()
@@ -1546,14 +1548,14 @@ func (w *worker) acquireExecutionSVID(ctx context.Context, identity *workloadide
 	svid, err := spire.FetchX509SVID(checkCtx, source, identity.SPIFFEID)
 	if err != nil {
 		if w.metrics != nil {
-			w.metrics.RecordSPIRESVIDCheck(ctx, observability.WorkerSPIRESVIDOutcomeFailed, workerSPIRESVIDFailureReason(err))
+			w.metrics.RecordSPIFFESVIDCheck(ctx, observability.WorkerSPIFFESVIDOutcomeFailed, workerSPIFFESVIDFailureReason(err))
 		}
 
-		return identity, fmt.Errorf("worker SPIRE execution SVID: %w", err)
+		return identity, fmt.Errorf("worker SPIFFE execution SVID: %w", err)
 	}
 
 	if w.metrics != nil {
-		w.metrics.RecordSPIRESVIDCheck(ctx, observability.WorkerSPIRESVIDOutcomeSuccess, observability.WorkerSPIRESVIDReasonMatched)
+		w.metrics.RecordSPIFFESVIDCheck(ctx, observability.WorkerSPIFFESVIDOutcomeSuccess, observability.WorkerSPIFFESVIDReasonMatched)
 	}
 
 	return identity.WithX509SVID(workloadidentity.X509SVID{
@@ -1563,20 +1565,20 @@ func (w *worker) acquireExecutionSVID(ctx context.Context, identity *workloadide
 	}), nil
 }
 
-func workerSPIRESVIDFailureReason(err error) string {
+func workerSPIFFESVIDFailureReason(err error) string {
 	switch {
 	case errors.Is(err, spire.ErrExpectedSPIFFEIDInvalid):
-		return observability.WorkerSPIRESVIDReasonInvalidExpectedID
+		return observability.WorkerSPIFFESVIDReasonInvalidExpectedID
 	case errors.Is(err, spire.ErrNoMatchingX509SVID):
-		return observability.WorkerSPIRESVIDReasonMismatch
+		return observability.WorkerSPIFFESVIDReasonMismatch
 	case errors.Is(err, spire.ErrX509SVIDSourceRequired):
-		return observability.WorkerSPIRESVIDReasonMissingSource
+		return observability.WorkerSPIFFESVIDReasonMissingSource
 	case errors.Is(err, context.DeadlineExceeded):
-		return observability.WorkerSPIRESVIDReasonSourceTimeout
+		return observability.WorkerSPIFFESVIDReasonSourceTimeout
 	case errors.Is(err, context.Canceled):
-		return observability.WorkerSPIRESVIDReasonCanceled
+		return observability.WorkerSPIFFESVIDReasonCanceled
 	default:
-		return observability.WorkerSPIRESVIDReasonSourceError
+		return observability.WorkerSPIFFESVIDReasonSourceError
 	}
 }
 
@@ -2209,18 +2211,18 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID string, exec
 	}
 
 	workloadIdentity, err := executionWorkloadIdentity(env)
-	var spireRegistration *executionSPIRERegistration
+	var spiffeRegistration *executionSPIFFERegistration
 	if err == nil {
-		handle, registered, registerErr := w.ensureExecutionSPIRERegistration(execCtx, workloadIdentity, env, w.leaseDeadline())
+		handle, registered, registerErr := w.ensureExecutionSPIFFERegistration(execCtx, workloadIdentity, env, w.leaseDeadline())
 		if registerErr != nil {
-			err = fmt.Errorf("ensure SPIRE execution registration: %w", registerErr)
+			err = fmt.Errorf("ensure SPIFFE execution registration: %w", registerErr)
 		} else if registered {
-			spireRegistration = &executionSPIRERegistration{
+			spiffeRegistration = &executionSPIFFERegistration{
 				identity: workloadIdentity,
 				env:      env,
 				handle:   handle,
 			}
-			defer w.releaseExecutionSPIRERegistration(spireRegistration)
+			defer w.releaseExecutionSPIFFERegistration(spiffeRegistration)
 		}
 	}
 
@@ -2236,7 +2238,7 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID string, exec
 			return
 		}
 		renewStarted = true
-		go w.leaseRenewalLoop(execCtx, runID, runJob, env, executionClaim, spireRegistration, stopRenew, doneRenew)
+		go w.leaseRenewalLoop(execCtx, runID, runJob, env, executionClaim, spiffeRegistration, stopRenew, doneRenew)
 	}
 	stopRenewal := func() {
 		if !renewStarted {
@@ -2437,7 +2439,7 @@ func (w *worker) leaseRenewalLoop(
 	j *api.Job,
 	executionEnvelope *cell.ExecutionEnvelope,
 	executionClaim *executionClaimState,
-	spireRegistration *executionSPIRERegistration,
+	spiffeRegistration *executionSPIFFERegistration,
 	stopRenew <-chan struct{},
 	doneRenew chan<- struct{},
 ) {
@@ -2479,12 +2481,12 @@ func (w *worker) leaseRenewalLoop(
 				}
 			}
 
-			if spireRegistration != nil {
-				handle, registered, err := w.ensureExecutionSPIRERegistration(w.runCtx, spireRegistration.identity, spireRegistration.env, next)
+			if spiffeRegistration != nil {
+				handle, registered, err := w.ensureExecutionSPIFFERegistration(w.runCtx, spiffeRegistration.identity, spiffeRegistration.env, next)
 				if err != nil {
-					w.logger.Warn("Execution %s: SPIRE registration renew failed (will retry): %v", executionEnvelope.ExecutionID, err)
+					w.logger.Warn("Execution %s: SPIFFE registration renew failed (will retry): %v", executionEnvelope.ExecutionID, err)
 				} else if registered {
-					spireRegistration.handle = handle
+					spiffeRegistration.handle = handle
 				}
 			}
 

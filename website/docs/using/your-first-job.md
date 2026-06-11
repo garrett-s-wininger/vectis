@@ -227,7 +227,7 @@ Credential-free SSH-style URLs such as `git@github.com:org/repo.git` are accepte
 
 Jobs can declare secret references at the top level. The worker asks the cell-local `vectis-secrets` broker to resolve only the secrets for the current task, writes them under `.vectis/secrets` in the workspace, sets `VECTIS_SECRETS_DIR` for the action process, and removes the directory after the task finishes.
 
-Secret resolution requires per-execution SPIFFE identity: enable worker execution identity and SPIRE SVID acquisition, configure `vectis-secrets` with the same `worker.execution_identity.*` values, run internal gRPC with client certificate verification so the broker can authenticate the execution SVID, and add a matching `--allow-secret` policy rule such as `namespace=*;job=secret-example;task=publish;ref=encryptedfs://team/npm-token`.
+Secret resolution requires per-execution SPIFFE identity: enable worker execution identity and SPIFFE SVID acquisition, configure `vectis-secrets` with the same `worker.execution_identity.*` values, run internal gRPC with client certificate verification so the broker can authenticate the execution SVID, and add a matching `--allow-secret` policy rule such as `namespace=*;job=secret-example;task=publish;ref=encryptedfs://team/npm-token`.
 
 The broker routes secret refs by URI scheme. With the first built-in provider, `encryptedfs://team/npm-token` maps to an encrypted envelope file below the broker's `--encryptedfs-root`, for example `<root>/team/npm-token`. Operators can create that envelope with the CLI:
 

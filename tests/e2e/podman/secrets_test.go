@@ -86,8 +86,6 @@ func TestE2EPodmanSecretsExample(t *testing.T) {
 
 	deployConfigDir := t.TempDir()
 	env := commandEnv(map[string]string{
-		"HOME":                     t.TempDir(),
-		"XDG_CONFIG_HOME":          filepath.Join(t.TempDir(), "config"),
 		"VECTIS_API_TOKEN":         "",
 		"VECTIS_DEPLOY_CONFIG_DIR": deployConfigDir,
 	})

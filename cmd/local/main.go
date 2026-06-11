@@ -768,12 +768,12 @@ func localSPIFFE(tlsDir string, material *localpki.Material) (localSPIFFEConfig,
 		"VECTIS_GRPC_TLS_CLIENT_CA_FILE=" + clientCABundle,
 		"VECTIS_WORKER_EXECUTION_IDENTITY_ENABLED=true",
 		"VECTIS_WORKER_EXECUTION_IDENTITY_TRUST_DOMAIN=" + trustDomain,
-		"VECTIS_WORKER_SPIRE_ENABLED=true",
-		"VECTIS_WORKER_SPIRE_WORKLOAD_API_ADDRESS=" + workloadAPIAddress,
-		"VECTIS_WORKER_SPIRE_REGISTRATION_ENABLED=true",
-		"VECTIS_WORKER_SPIRE_REGISTRATION_SERVER_ADDRESS=" + serverAPIAddress,
-		"VECTIS_WORKER_SPIRE_REGISTRATION_PARENT_ID=" + parentID,
-		"VECTIS_WORKER_SPIRE_REGISTRATION_SELECTORS=" + strings.Join(selectors, ","),
+		"VECTIS_WORKER_SPIFFE_ENABLED=true",
+		"VECTIS_WORKER_SPIFFE_WORKLOAD_API_ADDRESS=" + workloadAPIAddress,
+		"VECTIS_WORKER_SPIFFE_REGISTRATION_ENABLED=true",
+		"VECTIS_WORKER_SPIFFE_REGISTRATION_SERVER_ADDRESS=" + serverAPIAddress,
+		"VECTIS_WORKER_SPIFFE_REGISTRATION_PARENT_ID=" + parentID,
+		"VECTIS_WORKER_SPIFFE_REGISTRATION_SELECTORS=" + strings.Join(selectors, ","),
 	}
 
 	if pathTemplate := strings.TrimSpace(viper.GetString("spiffe_path_template")); pathTemplate != "" {
@@ -784,10 +784,10 @@ func localSPIFFE(tlsDir string, material *localpki.Material) (localSPIFFEConfig,
 		key string
 		env string
 	}{
-		{key: "spiffe_fetch_timeout", env: "VECTIS_WORKER_SPIRE_FETCH_TIMEOUT"},
-		{key: "spiffe_x509_svid_ttl", env: "VECTIS_WORKER_SPIRE_REGISTRATION_X509_SVID_TTL"},
-		{key: "spiffe_registration_min_ttl", env: "VECTIS_WORKER_SPIRE_REGISTRATION_MIN_TTL"},
-		{key: "spiffe_registration_max_ttl", env: "VECTIS_WORKER_SPIRE_REGISTRATION_MAX_TTL"},
+		{key: "spiffe_fetch_timeout", env: "VECTIS_WORKER_SPIFFE_FETCH_TIMEOUT"},
+		{key: "spiffe_x509_svid_ttl", env: "VECTIS_WORKER_SPIFFE_REGISTRATION_X509_SVID_TTL"},
+		{key: "spiffe_registration_min_ttl", env: "VECTIS_WORKER_SPIFFE_REGISTRATION_MIN_TTL"},
+		{key: "spiffe_registration_max_ttl", env: "VECTIS_WORKER_SPIFFE_REGISTRATION_MAX_TTL"},
 	} {
 		if value := strings.TrimSpace(viper.GetString(durationEnv.key)); value != "" {
 			env = append(env, durationEnv.env+"="+value)
@@ -1662,7 +1662,7 @@ execution secret resolution requires a verified SVID client certificate.
 For local end-to-end secret resolution with SPIFFE identities, vectis-local
 starts its embedded development authority for the current process user whenever
 local gRPC TLS is enabled, and starts vectis-secrets with encryptedfs enabled.
-This uses the same SPIRE-compatible Workload API and Entry API contracts as the
+This uses the same SPIFFE Workload API and Entry API contracts as the
 worker, but runs through the bundled vectis-spiffe authority so the local demo
 does not require external identity binaries. Identity material stays behind Unix
 sockets while vectis-local combines the local Vectis CA and SPIFFE bundle for

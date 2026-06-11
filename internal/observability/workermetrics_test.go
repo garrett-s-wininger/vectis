@@ -28,8 +28,8 @@ func TestNewWorkerMetrics_appearsOnScrape(t *testing.T) {
 
 	wm.RecordJobReceived(ctx)
 	wm.RecordJobFinished(ctx, WorkerOutcomeSuccess, 50*time.Millisecond)
-	wm.RecordSPIRESVIDCheck(ctx, WorkerSPIRESVIDOutcomeSuccess, WorkerSPIRESVIDReasonMatched)
-	wm.RecordSPIRESVIDCheck(ctx, WorkerSPIRESVIDOutcomeFailed, WorkerSPIRESVIDReasonMismatch)
+	wm.RecordSPIFFESVIDCheck(ctx, WorkerSPIFFESVIDOutcomeSuccess, WorkerSPIFFESVIDReasonMatched)
+	wm.RecordSPIFFESVIDCheck(ctx, WorkerSPIFFESVIDOutcomeFailed, WorkerSPIFFESVIDReasonMismatch)
 	wm.RecordOrchestratorRecovery(ctx, "complete")
 	wm.SetLifecyclePhase(WorkerPhaseExecuting)
 	wm.SetDraining(true)
@@ -52,7 +52,7 @@ func TestNewWorkerMetrics_appearsOnScrape(t *testing.T) {
 		"vectis_worker_jobs_received_total",
 		"vectis_worker_orchestrator_recoveries_total",
 		"vectis_worker_job_duration_seconds",
-		"vectis_worker_spire_svid_checks_total",
+		"vectis_worker_spiffe_svid_checks_total",
 		"vectis_worker_lifecycle_state",
 		"vectis_worker_draining",
 		"vectis_worker_db_unavailable",
@@ -71,18 +71,18 @@ func TestNewWorkerMetrics_appearsOnScrape(t *testing.T) {
 		t.Fatalf("lifecycle metric missing executing state: %v", families["vectis_worker_lifecycle_state"])
 	}
 
-	if !metricFamilyHasLabels(families["vectis_worker_spire_svid_checks_total"], map[string]string{
-		"outcome": WorkerSPIRESVIDOutcomeSuccess,
-		"reason":  WorkerSPIRESVIDReasonMatched,
+	if !metricFamilyHasLabels(families["vectis_worker_spiffe_svid_checks_total"], map[string]string{
+		"outcome": WorkerSPIFFESVIDOutcomeSuccess,
+		"reason":  WorkerSPIFFESVIDReasonMatched,
 	}) {
-		t.Fatalf("SPIRE SVID metric missing success labels: %v", families["vectis_worker_spire_svid_checks_total"])
+		t.Fatalf("SPIFFE SVID metric missing success labels: %v", families["vectis_worker_spiffe_svid_checks_total"])
 	}
 
-	if !metricFamilyHasLabels(families["vectis_worker_spire_svid_checks_total"], map[string]string{
-		"outcome": WorkerSPIRESVIDOutcomeFailed,
-		"reason":  WorkerSPIRESVIDReasonMismatch,
+	if !metricFamilyHasLabels(families["vectis_worker_spiffe_svid_checks_total"], map[string]string{
+		"outcome": WorkerSPIFFESVIDOutcomeFailed,
+		"reason":  WorkerSPIFFESVIDReasonMismatch,
 	}) {
-		t.Fatalf("SPIRE SVID metric missing failure labels: %v", families["vectis_worker_spire_svid_checks_total"])
+		t.Fatalf("SPIFFE SVID metric missing failure labels: %v", families["vectis_worker_spiffe_svid_checks_total"])
 	}
 
 	if !metricFamilyHasLabels(families["vectis_worker_orchestrator_recoveries_total"], map[string]string{"stage": "complete"}) {

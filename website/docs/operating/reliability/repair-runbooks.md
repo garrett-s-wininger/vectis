@@ -27,7 +27,7 @@ That command shows run status and dispatch events without direct database access
 | `db.connection.pool`, DB pool alert | [Database Pool Pressure](#database-pool-pressure) |
 | `db.schema.current`, API readiness schema error | [Schema Or Migration Repair](#schema-or-migration-repair) |
 | API security rejection alert | [API Security Rejections](#api-security-rejections) |
-| SPIRE execution SVID check alert | [SPIRE Execution SVID Checks](#spire-execution-svid-checks) |
+| SPIFFE execution SVID check alert | [SPIFFE Execution SVID Checks](#spiffe-execution-svid-checks) |
 | Secret resolution alert | [Secret Resolution](#secret-resolution) |
 | Old retained records or SQL storage pressure | [Retention Cleanup](#retention-cleanup) |
 | One run needs operator action | [Manual Run Intervention](#manual-run-intervention) |
@@ -60,19 +60,19 @@ Use this when `VectisAPISecurityRejectionsSustained` or `VectisAPISecurityReject
 9. If the traffic is hostile or unknown, block or challenge it at the edge. If it is legitimate, fix the caller or edge configuration before loosening Vectis security policy.
 10. After repair, confirm the alert expression returns to baseline and keep API access logs enabled long enough to validate the affected clients.
 
-## SPIRE Execution SVID Checks
+## SPIFFE Execution SVID Checks
 
-Use this when `VectisWorkerSPIRESVIDCheckFailures` fires or when `vectis_worker_spire_svid_checks_total{outcome="failed"}` increases.
+Use this when `VectisWorkerSPIFFESVIDCheckFailures` fires or when `vectis_worker_spiffe_svid_checks_total{outcome="failed"}` increases.
 
 1. Start with the `reason` label. It is intentionally low-cardinality: `mismatch`, `source_error`, `source_timeout`, `canceled`, `missing_identity`, `missing_source`, or `invalid_expected_id`.
-2. For `mismatch`, compare the worker's configured `worker.execution_identity.*` template and trust domain with the SPIRE registration entries that apply to that worker. The worker requires an exact X.509-SVID SPIFFE ID match for the execution, and registration intents should use the same execution SPIFFE ID, parent SPIFFE ID, trusted selectors, and bounded expiry that the registrar applies to SPIRE.
-3. For `source_timeout`, check SPIRE agent responsiveness, socket filesystem health, and whether `worker.spire.fetch_timeout` is too low for the deployment.
-4. For `source_error`, check the SPIRE agent process, Workload API socket path, filesystem permissions, and whether the worker can connect to `worker.spire.workload_api_address`.
+2. For `mismatch`, compare the worker's configured `worker.execution_identity.*` template and trust domain with the SPIFFE registration entries that apply to that worker. The worker requires an exact X.509-SVID SPIFFE ID match for the execution, and registration intents should use the same execution SPIFFE ID, parent SPIFFE ID, trusted selectors, and bounded expiry that the registrar applies.
+3. For `source_timeout`, check SPIFFE Workload API responsiveness, socket filesystem health, and whether `worker.spiffe.fetch_timeout` is too low for the deployment.
+4. For `source_error`, check the `vectis-spiffe` process, Workload API socket path, filesystem permissions, and whether the worker can connect to `worker.spiffe.workload_api_address`.
 5. For `canceled`, check whether the run was canceled by API/operator request or worker shutdown while the pre-action check was in progress; the starter alert excludes this reason.
 6. For `missing_identity`, confirm the run reached the worker through cell execution dispatch with an execution envelope and that `worker.execution_identity.enabled=true` is configured consistently.
-7. For `missing_source`, confirm `worker.spire.enabled=true` and `worker.spire.workload_api_address` are set on the worker process.
+7. For `missing_source`, confirm `worker.spiffe.enabled=true` and `worker.spiffe.workload_api_address` are set on the worker process.
 8. For `invalid_expected_id`, validate `worker.execution_identity.trust_domain` and `worker.execution_identity.path_template` against the allowed SPIFFE URI shape.
-9. Do not fix these alerts by exposing the SPIRE Workload API socket, SVID, private key, or derived identity to shell actions. Repair the worker-controlled SPIRE registration or configuration path.
+9. Do not fix these alerts by exposing the SPIFFE Workload API socket, SVID, private key, or derived identity to shell actions. Repair the worker-controlled SPIFFE registration or configuration path.
 10. After repair, retry only the failed runs that are safe to re-run and confirm the failed-check counter no longer increases.
 
 ## Secret Resolution
@@ -81,7 +81,7 @@ Use this when `VectisSecretsResolveFailures` fires or when `vectis_secrets_resol
 
 1. Start with the alert labels: `outcome`, `reason`, and `provider`. They are intentionally low-cardinality and do not include secret values, requested refs, run IDs, execution IDs, or SPIFFE IDs.
 2. Check `vectis-secrets` logs around the alert window. Resolve logs include run, execution, namespace, job, task, provider, outcome, reason, and secret count metadata.
-3. For `authorization_denied`, check worker SPIRE SVID failures first with `vectis_worker_spire_svid_checks_total`, then compare `worker.execution_identity.*` settings on workers and `vectis-secrets`, and then inspect `--allow-secret` / `VECTIS_SECRETS_POLICY_ALLOW` rules for the run namespace, job, task, and requested refs.
+3. For `authorization_denied`, check worker SPIFFE SVID failures first with `vectis_worker_spiffe_svid_checks_total`, then compare `worker.execution_identity.*` settings on workers and `vectis-secrets`, and then inspect `--allow-secret` / `VECTIS_SECRETS_POLICY_ALLOW` rules for the run namespace, job, task, and requested refs.
 4. For `provider_not_found`, confirm the requested ref scheme has a provider registered on the broker. For `encryptedfs://` refs, also confirm the envelope exists below `--encryptedfs-root`.
 5. For `provider_denied`, inspect encryptedfs safety checks: unsafe refs, symlink escapes, invalid envelopes, decrypt failures from a wrong key, and oversized secret material.
 6. For `provider_error`, check broker logs and process configuration for encryptedfs root readability, key-file readability, database reachability, TLS, and filesystem availability.

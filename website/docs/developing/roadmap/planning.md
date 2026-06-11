@@ -33,7 +33,7 @@ Vectis is a self-hosted orchestrator for generic job graphs and CI/CD-style work
 | Operational coverage | Extend `health check` into deploy-specific checks that cannot be inferred through the API, including TLS files and writable storage paths. |
 | Observability | Improve run correlation across API, queue, worker, log service, and database. Keep Prometheus metrics; add richer traces only where they help operators debug real failures. |
 | Worker safety | Continue the [worker execution containment provider](../architecture-decisions/0009-worker-execution-containment-providers.md) path: job and action-level `host`/`vm` selection with the Lima command backend first, then profile-aware placement, container profiles, and disposable VM profiles for stronger isolation. |
-| Secrets | Design a local secrets service with provider-neutral contracts, worker-side resolution, authorization, audit, and redaction hooks. |
+| Secrets | Harden the shipped SPIFFE-authenticated encryptedfs broker, secret mounts, worker-side resolution, authorization, audit, and redaction hooks before adding external providers. |
 | Federation | Defer until single-cell behavior is boring. Future federation should use a gateway over distributed Vectis cells, not one shared global database. |
 
 ## Open Foundation Decisions
@@ -45,7 +45,7 @@ These areas are intentionally not active implementation plans yet. They should b
 | Multi-replica semantics | Deferred | Long-term API rate-limit behavior, queue/log/artifact HA posture, cron leader election or partitioning, reconciler duplicate-handoff bounds, pool-aware worker scale-out, and rolling-restart tests. |
 | Retention and storage pressure | Deferred | Production defaults, cleanup cadence, queue persistence, log-forwarder spools, backup/restore interaction, and deploy-specific disk pressure checks. |
 | Worker execution containment | Accepted design; implementation pending | Runner boundary, execution profiles, container provider, VM provider, resource limits, action policy, environment filtering, workspace controls, placement, and cleanup behavior. |
-| Local secrets service | Deferred | Provider-neutral service contract, encrypted local backend, runtime identity and authorization, worker-side resolution, audit events, and redaction hooks. |
+| External secret providers | Deferred | Vault, Knox, Kubernetes, or cloud-provider integrations once the local encryptedfs broker, workload identity, policy, audit, and mount semantics are stable. |
 
 ## Federation Direction
 

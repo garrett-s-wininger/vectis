@@ -165,4 +165,4 @@ Pipeline-as-code should eventually layer more validation before storage:
 
 The current JSON/proto job validator should remain reusable as the action-input validation layer after pipeline syntax lands.
 
-Process-launching actions must use the `ExecutionState` command environment rather than `os.Environ()`. The default child environment is intentionally small so worker deployment secrets and future SPIRE Workload API sockets are not inherited by arbitrary job commands.
+Process-launching actions must use the `ExecutionState` command environment rather than `os.Environ()`. The default child environment is intentionally small so worker deployment secrets and future SPIFFE Workload API sockets are not inherited by arbitrary job commands.

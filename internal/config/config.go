@@ -300,7 +300,7 @@ type WorkerDefaults struct {
 	Control              WorkerControlDefaults           `toml:"control"`
 	Execution            WorkerExecutionDefaults         `toml:"execution"`
 	ExecutionIdentity    WorkerExecutionIdentityDefaults `toml:"execution_identity"`
-	SPIRE                WorkerSPIREDefaults             `toml:"spire"`
+	SPIFFE               WorkerSPIFFEDefaults            `toml:"spiffe"`
 	RegisterWithRegistry bool                            `toml:"register_with_registry"`
 }
 
@@ -310,14 +310,14 @@ type WorkerExecutionIdentityDefaults struct {
 	PathTemplate string `toml:"path_template"`
 }
 
-type WorkerSPIREDefaults struct {
-	Enabled            bool                            `toml:"enabled"`
-	WorkloadAPIAddress string                          `toml:"workload_api_address"`
-	FetchTimeout       tomlDuration                    `toml:"fetch_timeout"`
-	Registration       WorkerSPIRERegistrationDefaults `toml:"registration"`
+type WorkerSPIFFEDefaults struct {
+	Enabled            bool                             `toml:"enabled"`
+	WorkloadAPIAddress string                           `toml:"workload_api_address"`
+	FetchTimeout       tomlDuration                     `toml:"fetch_timeout"`
+	Registration       WorkerSPIFFERegistrationDefaults `toml:"registration"`
 }
 
-type WorkerSPIRERegistrationDefaults struct {
+type WorkerSPIFFERegistrationDefaults struct {
 	Enabled       bool         `toml:"enabled"`
 	ServerAddress string       `toml:"server_address"`
 	ParentID      string       `toml:"parent_id"`
@@ -609,16 +609,16 @@ func validateDefaults(d Defaults) {
 		panic("config defaults: worker.execution_identity: " + err.Error())
 	}
 
-	if d.Worker.SPIRE.Enabled && strings.TrimSpace(d.Worker.SPIRE.WorkloadAPIAddress) == "" {
-		panic("config defaults: worker.spire.workload_api_address must not be empty when enabled")
+	if d.Worker.SPIFFE.Enabled && strings.TrimSpace(d.Worker.SPIFFE.WorkloadAPIAddress) == "" {
+		panic("config defaults: worker.spiffe.workload_api_address must not be empty when enabled")
 	}
 
-	if d.Worker.SPIRE.Enabled && !d.Worker.ExecutionIdentity.Enabled {
-		panic("config defaults: worker.spire.enabled requires worker.execution_identity.enabled")
+	if d.Worker.SPIFFE.Enabled && !d.Worker.ExecutionIdentity.Enabled {
+		panic("config defaults: worker.spiffe.enabled requires worker.execution_identity.enabled")
 	}
 
-	if d.Worker.SPIRE.FetchTimeout <= 0 {
-		panic("config defaults: worker.spire.fetch_timeout must be > 0")
+	if d.Worker.SPIFFE.FetchTimeout <= 0 {
+		panic("config defaults: worker.spiffe.fetch_timeout must be > 0")
 	}
 
 	p := d.Database.PgxPool

@@ -73,14 +73,14 @@ groups:
           summary: Vectis worker failure ratio is high
           runbook: docs/REPAIR_RUNBOOKS.md#manual-run-intervention
 
-      - alert: VectisWorkerSPIRESVIDCheckFailures
-        expr: increase(vectis_worker_spire_svid_checks_total{outcome="failed",reason!="canceled"}[10m]) > 0
+      - alert: VectisWorkerSPIFFESVIDCheckFailures
+        expr: increase(vectis_worker_spiffe_svid_checks_total{outcome="failed",reason!="canceled"}[10m]) > 0
         labels:
           severity: warning
         annotations:
-          summary: Vectis worker SPIRE execution SVID checks failed
+          summary: Vectis worker SPIFFE execution SVID checks failed
           description: "reason={{ $labels.reason }}"
-          runbook: docs/REPAIR_RUNBOOKS.md#spire-execution-svid-checks
+          runbook: docs/REPAIR_RUNBOOKS.md#spiffe-execution-svid-checks
 
       - alert: VectisSecretsResolveFailures
         expr: increase(vectis_secrets_resolve_requests_total{outcome!="success"}[10m]) > 0

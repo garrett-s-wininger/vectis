@@ -25,18 +25,18 @@ const (
 	WorkerPhaseExecuting  = "executing"
 	WorkerPhaseFinalizing = "finalizing"
 
-	WorkerSPIRESVIDOutcomeSuccess = "success"
-	WorkerSPIRESVIDOutcomeFailed  = "failed"
+	WorkerSPIFFESVIDOutcomeSuccess = "success"
+	WorkerSPIFFESVIDOutcomeFailed  = "failed"
 
-	WorkerSPIRESVIDReasonMatched           = "matched"
-	WorkerSPIRESVIDReasonMissingIdentity   = "missing_identity"
-	WorkerSPIRESVIDReasonMissingSource     = "missing_source"
-	WorkerSPIRESVIDReasonInvalidExpectedID = "invalid_expected_id"
-	WorkerSPIRESVIDReasonMismatch          = "mismatch"
-	WorkerSPIRESVIDReasonSourceError       = "source_error"
-	WorkerSPIRESVIDReasonSourceTimeout     = "source_timeout"
-	WorkerSPIRESVIDReasonCanceled          = "canceled"
-	WorkerSPIRESVIDReasonUnknown           = "unknown"
+	WorkerSPIFFESVIDReasonMatched           = "matched"
+	WorkerSPIFFESVIDReasonMissingIdentity   = "missing_identity"
+	WorkerSPIFFESVIDReasonMissingSource     = "missing_source"
+	WorkerSPIFFESVIDReasonInvalidExpectedID = "invalid_expected_id"
+	WorkerSPIFFESVIDReasonMismatch          = "mismatch"
+	WorkerSPIFFESVIDReasonSourceError       = "source_error"
+	WorkerSPIFFESVIDReasonSourceTimeout     = "source_timeout"
+	WorkerSPIFFESVIDReasonCanceled          = "canceled"
+	WorkerSPIFFESVIDReasonUnknown           = "unknown"
 )
 
 var workerPhases = []string{
@@ -51,8 +51,8 @@ var workerPhases = []string{
 type WorkerMetrics struct {
 	received              metric.Int64Counter
 	orchestratorRecovered metric.Int64Counter
-	spireSVIDChecks       metric.Int64Counter
 	duration              metric.Float64Histogram
+	spiffeSVIDChecks      metric.Int64Counter
 	phaseGauge            metric.Int64ObservableGauge
 	drainingGauge         metric.Int64ObservableGauge
 	dbGauge               metric.Int64ObservableGauge
@@ -90,12 +90,12 @@ func NewWorkerMetrics() (*WorkerMetrics, error) {
 		return nil, fmt.Errorf("vectis_worker_job_duration_seconds: %w", err)
 	}
 
-	spireSVIDChecks, err := m.Int64Counter("vectis_worker_spire_svid_checks_total",
-		metric.WithDescription("Worker SPIRE execution X.509-SVID checks by outcome and reason"),
+	spiffeSVIDChecks, err := m.Int64Counter("vectis_worker_spiffe_svid_checks_total",
+		metric.WithDescription("Worker SPIFFE execution X.509-SVID checks by outcome and reason"),
 		metric.WithUnit("{check}"))
 
 	if err != nil {
-		return nil, fmt.Errorf("vectis_worker_spire_svid_checks_total: %w", err)
+		return nil, fmt.Errorf("vectis_worker_spiffe_svid_checks_total: %w", err)
 	}
 
 	phaseGauge, err := m.Int64ObservableGauge("vectis_worker_lifecycle_state",
@@ -122,8 +122,8 @@ func NewWorkerMetrics() (*WorkerMetrics, error) {
 	wm := &WorkerMetrics{
 		received:              received,
 		orchestratorRecovered: orchestratorRecovered,
-		spireSVIDChecks:       spireSVIDChecks,
 		duration:              duration,
+		spiffeSVIDChecks:      spiffeSVIDChecks,
 		phaseGauge:            phaseGauge,
 		drainingGauge:         drainingGauge,
 		dbGauge:               dbGauge,
@@ -171,20 +171,20 @@ func (wm *WorkerMetrics) RecordJobFinished(ctx context.Context, outcome string, 
 	wm.duration.Record(ctx, d.Seconds(), attrs)
 }
 
-func (wm *WorkerMetrics) RecordSPIRESVIDCheck(ctx context.Context, outcome, reason string) {
+func (wm *WorkerMetrics) RecordSPIFFESVIDCheck(ctx context.Context, outcome, reason string) {
 	if wm == nil {
 		return
 	}
 
 	if outcome == "" {
-		outcome = WorkerSPIRESVIDOutcomeFailed
+		outcome = WorkerSPIFFESVIDOutcomeFailed
 	}
 
 	if reason == "" {
-		reason = WorkerSPIRESVIDReasonUnknown
+		reason = WorkerSPIFFESVIDReasonUnknown
 	}
 
-	wm.spireSVIDChecks.Add(ctx, 1, metric.WithAttributes(
+	wm.spiffeSVIDChecks.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("outcome", outcome),
 		attribute.String("reason", reason),
 	))

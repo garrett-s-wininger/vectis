@@ -402,7 +402,7 @@ Use a URL without inline credentials:
 }
 ```
 
-Secret values should come through top-level `secrets` references and the cell-local secrets broker, not inline in the job definition. Shell and checkout actions do not inherit the worker service environment; they run with a minimal Vectis-built environment so deployment secrets such as database DSNs, TLS settings, bootstrap material, and SPIRE endpoint sockets are not passed as ambient child-process variables.
+Secret values should come through top-level `secrets` references and the cell-local secrets broker, not inline in the job definition. Shell and checkout actions do not inherit the worker service environment; they run with a minimal Vectis-built environment so deployment secrets such as database DSNs, TLS settings, bootstrap material, and SPIFFE endpoint sockets are not passed as ambient child-process variables.
 
 ## Validation Boundaries
 

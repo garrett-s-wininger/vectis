@@ -895,17 +895,17 @@ spec:
           value: "true"
         - name: VECTIS_WORKER_EXECUTION_IDENTITY_TRUST_DOMAIN
           value: vectis.internal
-        - name: VECTIS_WORKER_SPIRE_ENABLED
+        - name: VECTIS_WORKER_SPIFFE_ENABLED
           value: "true"
-        - name: VECTIS_WORKER_SPIRE_WORKLOAD_API_ADDRESS
+        - name: VECTIS_WORKER_SPIFFE_WORKLOAD_API_ADDRESS
           value: unix:///run/vectis/spiffe/workload.sock
-        - name: VECTIS_WORKER_SPIRE_REGISTRATION_ENABLED
+        - name: VECTIS_WORKER_SPIFFE_REGISTRATION_ENABLED
           value: "true"
-        - name: VECTIS_WORKER_SPIRE_REGISTRATION_SERVER_ADDRESS
+        - name: VECTIS_WORKER_SPIFFE_REGISTRATION_SERVER_ADDRESS
           value: unix:///run/vectis/spiffe/registration.sock
-        - name: VECTIS_WORKER_SPIRE_REGISTRATION_PARENT_ID
+        - name: VECTIS_WORKER_SPIFFE_REGISTRATION_PARENT_ID
           value: spiffe://vectis.internal/vectis-spiffe/agent/local
-        - name: VECTIS_WORKER_SPIRE_REGISTRATION_SELECTORS
+        - name: VECTIS_WORKER_SPIFFE_REGISTRATION_SELECTORS
           value: unix:uid:0
 {{ if .SetMetricsPortEnv }}
         - name: VECTIS_WORKER_METRICS_PORT

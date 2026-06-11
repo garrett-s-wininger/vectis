@@ -290,20 +290,20 @@ func TestLocalSPIFFEBuildsEnvAndCombinedClientCA(t *testing.T) {
 		"VECTIS_GRPC_TLS_CLIENT_CA_FILE=" + cfg.ClientCABundleFile,
 		"VECTIS_WORKER_EXECUTION_IDENTITY_ENABLED=true",
 		"VECTIS_WORKER_EXECUTION_IDENTITY_TRUST_DOMAIN=vectis.internal",
-		"VECTIS_WORKER_SPIRE_ENABLED=true",
-		"VECTIS_WORKER_SPIRE_WORKLOAD_API_ADDRESS=unix:///tmp/spiffe-workload.sock",
-		"VECTIS_WORKER_SPIRE_REGISTRATION_ENABLED=true",
-		"VECTIS_WORKER_SPIRE_REGISTRATION_SERVER_ADDRESS=unix:///tmp/spiffe-registration.sock",
-		"VECTIS_WORKER_SPIRE_REGISTRATION_PARENT_ID=spiffe://vectis.internal/vectis-spiffe/agent/local",
-		"VECTIS_WORKER_SPIRE_FETCH_TIMEOUT=2s",
-		"VECTIS_WORKER_SPIRE_REGISTRATION_X509_SVID_TTL=5m",
+		"VECTIS_WORKER_SPIFFE_ENABLED=true",
+		"VECTIS_WORKER_SPIFFE_WORKLOAD_API_ADDRESS=unix:///tmp/spiffe-workload.sock",
+		"VECTIS_WORKER_SPIFFE_REGISTRATION_ENABLED=true",
+		"VECTIS_WORKER_SPIFFE_REGISTRATION_SERVER_ADDRESS=unix:///tmp/spiffe-registration.sock",
+		"VECTIS_WORKER_SPIFFE_REGISTRATION_PARENT_ID=spiffe://vectis.internal/vectis-spiffe/agent/local",
+		"VECTIS_WORKER_SPIFFE_FETCH_TIMEOUT=2s",
+		"VECTIS_WORKER_SPIFFE_REGISTRATION_X509_SVID_TTL=5m",
 	} {
 		if !hasEnv(cfg.Env, want) {
 			t.Fatalf("local SPIFFE env missing %q: %v", want, cfg.Env)
 		}
 	}
 
-	if !hasEnv(cfg.Env, "VECTIS_WORKER_SPIRE_REGISTRATION_SELECTORS=unix:uid:501,unix:gid:20,unix:path:/usr/local/bin/vectis-worker") {
+	if !hasEnv(cfg.Env, "VECTIS_WORKER_SPIFFE_REGISTRATION_SELECTORS=unix:uid:501,unix:gid:20,unix:path:/usr/local/bin/vectis-worker") {
 		t.Fatalf("registration selectors env mismatch: %v", cfg.Env)
 	}
 }

@@ -3,14 +3,14 @@
 This runbook exercises the first end-to-end Vectis secret path on one development machine:
 
 1. `vectis-local` starts the Vectis stack, including `vectis-secrets` with encryptedfs enabled.
-2. The bundled `vectis-spiffe` authority provides per-execution X.509-SVIDs through SPIRE-compatible APIs.
+2. The bundled `vectis-spiffe` authority provides per-execution X.509-SVIDs through SPIFFE-compatible APIs.
 3. The worker creates a bounded registration entry before fetching the execution SVID.
 4. The worker uses that SVID as its client certificate when resolving a declared job secret.
 5. The job receives the secret as a task-scoped file under `.vectis/secrets`.
 
 By default, `vectis-local` starts an embedded development-only `vectis-spiffe` authority for the current user when local gRPC TLS is enabled. It persists a local CA, serves a Workload API socket and a registration API socket, exports the trust bundle, and wires those sockets into Vectis.
 
-`vectis-spiffe` implements the SPIRE-compatible Workload API and Entry API contracts that Vectis workers use for this local path. For the underlying model, see the SPIRE Workload API and Server Entry API background in the [SPIRE Agent Configuration Reference](https://spiffe.io/docs/latest/deploying/spire_agent/) and SPIRE's [Registering workloads](https://spiffe.io/docs/latest/deploying/registering/) guide.
+`vectis-spiffe` implements the SPIFFE Workload API and Entry API contracts that Vectis workers use for this local path. For the underlying model, see the Workload API and workload-registration background in the [SPIFFE documentation](https://spiffe.io/docs/latest/deploying/registering/).
 
 ## What This Proves
 
@@ -86,8 +86,8 @@ Check these signals:
 
 | Signal | What to look for |
 | --- | --- |
-| Worker logs | `Configured SPIRE registration via server API`, then successful run completion. |
-| Worker metrics | `vectis_worker_spire_svid_checks_total{outcome="success",reason="matched"}` increases. |
+| Worker logs | `Configured SPIFFE registration via Entry API`, then successful run completion. |
+| Worker metrics | `vectis_worker_spiffe_svid_checks_total{outcome="success",reason="matched"}` increases. |
 | Secret metrics | `vectis_secrets_resolve_requests_total{outcome="success",provider="encryptedfs"}` increases. |
 | Run logs | The job succeeds without printing the secret value. |
 
@@ -108,7 +108,7 @@ spiffe://vectis.internal/cell/local/namespace/root/job/secret-example/run/<run-i
 | Secret resolution `authorization_denied` | The broker rejected the mTLS peer identity, the active execution claim, or the secret access policy. Check that `worker.execution_identity.*` reaches both worker and `vectis-secrets`. |
 | Secret resolution `provider_denied` | The encryptedfs envelope is invalid, the key is wrong, the path escaped the provider root, or the secret exceeds provider limits. |
 
-For incident-style repair steps, see [Repair Runbooks](../reliability/repair-runbooks.md#spire-execution-svid-checks) and [Secret Resolution](../reliability/repair-runbooks.md#secret-resolution).
+For incident-style repair steps, see [Repair Runbooks](../reliability/repair-runbooks.md#spiffe-execution-svid-checks) and [Secret Resolution](../reliability/repair-runbooks.md#secret-resolution).
 
 ## Cleanup
 

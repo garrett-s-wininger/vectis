@@ -13,7 +13,7 @@ self-hosted deployments and later integrate with external secret systems such as
 Vault or Knox.
 
 Recent worker identity work gives Vectis a per-execution SPIFFE identity and a
-bounded SPIRE SVID check before action code runs. Task-based execution also means
+bounded SPIFFE SVID check before action code runs. Task-based execution also means
 workers claim a specific execution attempt before running user code. Those two
 facts give the secrets design a natural authorization boundary: the caller must
 be a known workload identity and must prove it currently owns the execution that
@@ -94,7 +94,7 @@ without changing the worker/action materialization path.
 - [Secrets And Redaction](../../operating/deployment/secrets-and-redaction.md)
 - [Multi-Cell Operation](../../operating/multi-cell.md)
 - `internal/workloadidentity/identity.go` — per-execution SPIFFE ID construction
-- `internal/spire/workloadapi.go` — current SPIRE Workload API adapter
-- `internal/spire/registration.go` — provider-neutral SPIRE registration intent and registrar interface
-- `internal/spire/server_registrar.go` — SPIRE Server Entry API registrar implementation
+- `internal/spire/workloadapi.go` — current SPIFFE Workload API adapter
+- `internal/spire/registration.go` — provider-neutral SPIFFE registration intent and registrar interface
+- `internal/spire/server_registrar.go` — SPIFFE Entry API registrar implementation
 - `cmd/worker/main.go` — execution claim and pre-action SVID acquisition
