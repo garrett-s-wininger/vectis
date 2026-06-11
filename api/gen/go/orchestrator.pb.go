@@ -110,6 +110,7 @@ type OrchestratorTaskExecution struct {
 	ExecutionId   *string                `protobuf:"bytes,9,opt,name=execution_id,json=executionId" json:"execution_id,omitempty"`
 	CellId        *string                `protobuf:"bytes,10,opt,name=cell_id,json=cellId" json:"cell_id,omitempty"`
 	Attempt       *int32                 `protobuf:"varint,11,opt,name=attempt" json:"attempt,omitempty"`
+	Status        *string                `protobuf:"bytes,12,opt,name=status" json:"status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -221,6 +222,13 @@ func (x *OrchestratorTaskExecution) GetAttempt() int32 {
 	return 0
 }
 
+func (x *OrchestratorTaskExecution) GetStatus() string {
+	if x != nil && x.Status != nil {
+		return *x.Status
+	}
+	return ""
+}
+
 type OrchestratorRunTaskCompletion struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	RunId          *string                `protobuf:"bytes,1,opt,name=run_id,json=runId" json:"run_id,omitempty"`
@@ -298,11 +306,12 @@ func (x *OrchestratorRunTaskCompletion) GetIncomplete() int32 {
 }
 
 type LoadRunRequest struct {
-	state         protoimpl.MessageState     `protogen:"open.v1"`
-	RunId         *string                    `protobuf:"bytes,1,opt,name=run_id,json=runId" json:"run_id,omitempty"`
-	CellId        *string                    `protobuf:"bytes,2,opt,name=cell_id,json=cellId" json:"cell_id,omitempty"`
-	Tasks         []*OrchestratorTaskSpec    `protobuf:"bytes,3,rep,name=tasks" json:"tasks,omitempty"`
-	Root          *OrchestratorTaskExecution `protobuf:"bytes,4,opt,name=root" json:"root,omitempty"`
+	state         protoimpl.MessageState       `protogen:"open.v1"`
+	RunId         *string                      `protobuf:"bytes,1,opt,name=run_id,json=runId" json:"run_id,omitempty"`
+	CellId        *string                      `protobuf:"bytes,2,opt,name=cell_id,json=cellId" json:"cell_id,omitempty"`
+	Tasks         []*OrchestratorTaskSpec      `protobuf:"bytes,3,rep,name=tasks" json:"tasks,omitempty"`
+	Root          *OrchestratorTaskExecution   `protobuf:"bytes,4,opt,name=root" json:"root,omitempty"`
+	Executions    []*OrchestratorTaskExecution `protobuf:"bytes,5,rep,name=executions" json:"executions,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -361,6 +370,13 @@ func (x *LoadRunRequest) GetTasks() []*OrchestratorTaskSpec {
 func (x *LoadRunRequest) GetRoot() *OrchestratorTaskExecution {
 	if x != nil {
 		return x.Root
+	}
+	return nil
+}
+
+func (x *LoadRunRequest) GetExecutions() []*OrchestratorTaskExecution {
+	if x != nil {
+		return x.Executions
 	}
 	return nil
 }
@@ -971,7 +987,7 @@ const file_orchestrator_proto_rawDesc = "" +
 	"\x0fparent_task_key\x18\x02 \x01(\tR\rparentTaskKey\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12\x17\n" +
 	"\acell_id\x18\x04 \x01(\tR\x06cellId\x12&\n" +
-	"\x0fchild_task_keys\x18\x05 \x03(\tR\rchildTaskKeys\"\xe0\x02\n" +
+	"\x0fchild_task_keys\x18\x05 \x03(\tR\rchildTaskKeys\"\xf8\x02\n" +
 	"\x19OrchestratorTaskExecution\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x17\n" +
 	"\atask_id\x18\x02 \x01(\tR\x06taskId\x12$\n" +
@@ -985,7 +1001,8 @@ const file_orchestrator_proto_rawDesc = "" +
 	"\fexecution_id\x18\t \x01(\tR\vexecutionId\x12\x17\n" +
 	"\acell_id\x18\n" +
 	" \x01(\tR\x06cellId\x12\x18\n" +
-	"\aattempt\x18\v \x01(\x05R\aattempt\"\xb3\x01\n" +
+	"\aattempt\x18\v \x01(\x05R\aattempt\x12\x16\n" +
+	"\x06status\x18\f \x01(\tR\x06status\"\xb3\x01\n" +
 	"\x1dOrchestratorRunTaskCompletion\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x14\n" +
 	"\x05total\x18\x02 \x01(\x05R\x05total\x12\x1c\n" +
@@ -993,12 +1010,15 @@ const file_orchestrator_proto_rawDesc = "" +
 	"\x0fterminal_failed\x18\x04 \x01(\x05R\x0eterminalFailed\x12\x1e\n" +
 	"\n" +
 	"incomplete\x18\x05 \x01(\x05R\n" +
-	"incomplete\"\x9d\x01\n" +
+	"incomplete\"\xd9\x01\n" +
 	"\x0eLoadRunRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x17\n" +
 	"\acell_id\x18\x02 \x01(\tR\x06cellId\x12+\n" +
 	"\x05tasks\x18\x03 \x03(\v2\x15.OrchestratorTaskSpecR\x05tasks\x12.\n" +
-	"\x04root\x18\x04 \x01(\v2\x1a.OrchestratorTaskExecutionR\x04root\"\xc8\x01\n" +
+	"\x04root\x18\x04 \x01(\v2\x1a.OrchestratorTaskExecutionR\x04root\x12:\n" +
+	"\n" +
+	"executions\x18\x05 \x03(\v2\x1a.OrchestratorTaskExecutionR\n" +
+	"executions\"\xc8\x01\n" +
 	"\x0fLoadRunResponse\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12.\n" +
 	"\x04root\x18\x02 \x01(\v2\x1a.OrchestratorTaskExecutionR\x04root\x124\n" +
@@ -1087,29 +1107,30 @@ var file_orchestrator_proto_goTypes = []any{
 var file_orchestrator_proto_depIdxs = []int32{
 	0,  // 0: LoadRunRequest.tasks:type_name -> OrchestratorTaskSpec
 	1,  // 1: LoadRunRequest.root:type_name -> OrchestratorTaskExecution
-	1,  // 2: LoadRunResponse.root:type_name -> OrchestratorTaskExecution
-	1,  // 3: LoadRunResponse.pending:type_name -> OrchestratorTaskExecution
-	2,  // 4: LoadRunResponse.summary:type_name -> OrchestratorRunTaskCompletion
-	1,  // 5: ListPendingResponse.executions:type_name -> OrchestratorTaskExecution
-	2,  // 6: CompleteExecutionResponse.summary:type_name -> OrchestratorRunTaskCompletion
-	1,  // 7: CompleteExecutionResponse.children:type_name -> OrchestratorTaskExecution
-	3,  // 8: OrchestratorService.LoadRun:input_type -> LoadRunRequest
-	5,  // 9: OrchestratorService.ListPending:input_type -> ListPendingRequest
-	7,  // 10: OrchestratorService.ClaimExecution:input_type -> ClaimExecutionRequest
-	9,  // 11: OrchestratorService.RenewExecutionLease:input_type -> RenewExecutionLeaseRequest
-	10, // 12: OrchestratorService.CompleteExecution:input_type -> CompleteExecutionRequest
-	12, // 13: OrchestratorService.GetRunTaskCompletion:input_type -> GetRunTaskCompletionRequest
-	4,  // 14: OrchestratorService.LoadRun:output_type -> LoadRunResponse
-	6,  // 15: OrchestratorService.ListPending:output_type -> ListPendingResponse
-	8,  // 16: OrchestratorService.ClaimExecution:output_type -> ClaimExecutionResponse
-	13, // 17: OrchestratorService.RenewExecutionLease:output_type -> common.Empty
-	11, // 18: OrchestratorService.CompleteExecution:output_type -> CompleteExecutionResponse
-	2,  // 19: OrchestratorService.GetRunTaskCompletion:output_type -> OrchestratorRunTaskCompletion
-	14, // [14:20] is the sub-list for method output_type
-	8,  // [8:14] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	1,  // 2: LoadRunRequest.executions:type_name -> OrchestratorTaskExecution
+	1,  // 3: LoadRunResponse.root:type_name -> OrchestratorTaskExecution
+	1,  // 4: LoadRunResponse.pending:type_name -> OrchestratorTaskExecution
+	2,  // 5: LoadRunResponse.summary:type_name -> OrchestratorRunTaskCompletion
+	1,  // 6: ListPendingResponse.executions:type_name -> OrchestratorTaskExecution
+	2,  // 7: CompleteExecutionResponse.summary:type_name -> OrchestratorRunTaskCompletion
+	1,  // 8: CompleteExecutionResponse.children:type_name -> OrchestratorTaskExecution
+	3,  // 9: OrchestratorService.LoadRun:input_type -> LoadRunRequest
+	5,  // 10: OrchestratorService.ListPending:input_type -> ListPendingRequest
+	7,  // 11: OrchestratorService.ClaimExecution:input_type -> ClaimExecutionRequest
+	9,  // 12: OrchestratorService.RenewExecutionLease:input_type -> RenewExecutionLeaseRequest
+	10, // 13: OrchestratorService.CompleteExecution:input_type -> CompleteExecutionRequest
+	12, // 14: OrchestratorService.GetRunTaskCompletion:input_type -> GetRunTaskCompletionRequest
+	4,  // 15: OrchestratorService.LoadRun:output_type -> LoadRunResponse
+	6,  // 16: OrchestratorService.ListPending:output_type -> ListPendingResponse
+	8,  // 17: OrchestratorService.ClaimExecution:output_type -> ClaimExecutionResponse
+	13, // 18: OrchestratorService.RenewExecutionLease:output_type -> common.Empty
+	11, // 19: OrchestratorService.CompleteExecution:output_type -> CompleteExecutionResponse
+	2,  // 20: OrchestratorService.GetRunTaskCompletion:output_type -> OrchestratorRunTaskCompletion
+	15, // [15:21] is the sub-list for method output_type
+	9,  // [9:15] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_orchestrator_proto_init() }

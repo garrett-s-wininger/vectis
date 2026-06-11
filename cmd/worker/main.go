@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,6 +36,7 @@ import (
 	"vectis/internal/job"
 	"vectis/internal/multidial"
 	"vectis/internal/observability"
+	"vectis/internal/orchestrator"
 	"vectis/internal/platform"
 	"vectis/internal/queueclient"
 	"vectis/internal/registry"
@@ -466,7 +468,7 @@ func (w *worker) executionChoreographer() executionChoreographer {
 
 type missingExecutionChoreographer struct{}
 
-func (missingExecutionChoreographer) LoadRun(context.Context, *api.Job, *cell.ExecutionEnvelope) error {
+func (missingExecutionChoreographer) LoadRun(context.Context, *api.Job, *cell.ExecutionEnvelope, []orchestrator.TaskExecutionSnapshot) error {
 	return errors.New("execution choreographer is not configured")
 }
 
@@ -847,6 +849,30 @@ func (w *worker) runTaskExecution(ctx context.Context, job *api.Job, jobID, runI
 		span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeFailed))
 		return observability.WorkerOutcomeFailed
 	}
+
+	if !executionClaimed && executionEnvelope.TaskKey != dal.RootTaskKey {
+		recoveredClaim := newExecutionClaimState("")
+		recovered, recoverErr := w.recoverOrchestratorExecutionClaim(ctx, job, executionEnvelope, recoveredClaim, leaseUntil)
+		if recoverErr != nil && !errors.Is(recoverErr, dal.ErrConflict) {
+			span.SetStatus(otelcodes.Error, "recover execution claim")
+			span.RecordError(recoverErr)
+			w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
+			if err := w.markRunOrphanedWithRetry(runID, dal.OrphanReasonAckUncertain); err != nil {
+				w.logger.Error("Failed to mark run %s orphaned after orchestrator claim recovery failure: %v", runID, err)
+				span.RecordError(err)
+			}
+
+			span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeFailed))
+			return observability.WorkerOutcomeFailed
+		}
+
+		if recovered {
+			executionClaimToken = recoveredClaim.get()
+			executionClaimed = true
+			executionStarted = false
+		}
+	}
+
 	if !executionClaimed {
 		span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeSkippedUnclaimed))
 		return observability.WorkerOutcomeSkippedUnclaimed
@@ -858,14 +884,15 @@ func (w *worker) runTaskExecution(ctx context.Context, job *api.Job, jobID, runI
 	} else {
 		w.markExecutionStarted(ctx, executionEnvelope)
 	}
+	executionClaim := newExecutionClaimState(executionClaimToken)
 	w.setLifecyclePhase(observability.WorkerPhaseExecuting)
-	execErr := w.executeWithLeaseRenewal(ctx, runID, executionClaimToken, job, executionEnvelope)
+	execErr := w.executeWithLeaseRenewal(ctx, runID, executionClaim, job, executionEnvelope)
 	if execErr != nil {
 		if errors.Is(execErr, errRunCancelled) {
 			span.AddEvent("run.cancelled")
 			span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeAborted))
 			w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
-			return w.finalizeAbortedTaskRunByExecutionClaim(ctx, executionClaimToken, dal.CancelReasonAPI, executionEnvelope)
+			return w.finalizeAbortedTaskRunByExecutionClaim(ctx, job, executionClaim, dal.CancelReasonAPI, executionEnvelope)
 		}
 
 		w.logger.Error("Job %s failed: %v", jobID, execErr)
@@ -875,11 +902,11 @@ func (w *worker) runTaskExecution(ctx context.Context, job *api.Job, jobID, runI
 		reason := truncateFailureReason(execErr.Error())
 		w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
 
-		return w.finalizeFailedTaskRunByExecutionClaim(ctx, executionClaimToken, decision.FailureCode, reason, executionEnvelope)
+		return w.finalizeFailedTaskRunByExecutionClaim(ctx, job, executionClaim, decision.FailureCode, reason, executionEnvelope)
 	}
 
 	w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
-	return w.finalizeSucceededTaskRunByExecutionClaim(ctx, job, jobID, runID, executionClaimToken, executionEnvelope)
+	return w.finalizeSucceededTaskRunByExecutionClaim(ctx, job, jobID, runID, executionClaim, executionEnvelope)
 }
 
 func (w *worker) prepareRunForExecution(ctx context.Context, j *api.Job, env *cell.ExecutionEnvelope) error {
@@ -900,7 +927,7 @@ func (w *worker) prepareRunForExecution(ctx context.Context, j *api.Job, env *ce
 		w.noteDBRecovered()
 	}
 
-	if err := w.executionChoreographer().LoadRun(w.runCtx, j, env); err != nil {
+	if err := w.executionChoreographer().LoadRun(w.runCtx, j, env, nil); err != nil {
 		return fmt.Errorf("load orchestrator run: %w", err)
 	}
 
@@ -908,10 +935,10 @@ func (w *worker) prepareRunForExecution(ctx context.Context, j *api.Job, env *ce
 	return nil
 }
 
-func (w *worker) finalizeFailedTaskRunByExecutionClaim(ctx context.Context, executionClaimToken, failureCode, reason string, executionEnvelope *cell.ExecutionEnvelope) string {
+func (w *worker) finalizeFailedTaskRunByExecutionClaim(ctx context.Context, j *api.Job, executionClaim *executionClaimState, failureCode, reason string, executionEnvelope *cell.ExecutionEnvelope) string {
 	span := trace.SpanFromContext(ctx)
 
-	result, ok := w.completeExecutionAndFinalizeRunByClaim(ctx, executionEnvelope, executionClaimToken, dal.ExecutionStatusFailed, failureCode, reason)
+	result, ok := w.completeExecutionAndFinalizeRunByClaim(ctx, j, executionEnvelope, executionClaim, dal.ExecutionStatusFailed, failureCode, reason)
 	if !ok {
 		span.SetStatus(otelcodes.Error, "complete failed task execution by claim")
 		return observability.WorkerOutcomeFailed
@@ -932,10 +959,10 @@ func (w *worker) finalizeFailedTaskRunByExecutionClaim(ctx context.Context, exec
 	return observability.WorkerOutcomeFailed
 }
 
-func (w *worker) finalizeAbortedTaskRunByExecutionClaim(ctx context.Context, executionClaimToken, reason string, executionEnvelope *cell.ExecutionEnvelope) string {
+func (w *worker) finalizeAbortedTaskRunByExecutionClaim(ctx context.Context, j *api.Job, executionClaim *executionClaimState, reason string, executionEnvelope *cell.ExecutionEnvelope) string {
 	span := trace.SpanFromContext(ctx)
 
-	result, ok := w.completeExecutionAndFinalizeRunByClaim(ctx, executionEnvelope, executionClaimToken, dal.ExecutionStatusAborted, "", reason)
+	result, ok := w.completeExecutionAndFinalizeRunByClaim(ctx, j, executionEnvelope, executionClaim, dal.ExecutionStatusAborted, "", reason)
 	if !ok {
 		span.SetStatus(otelcodes.Error, "complete aborted task execution by claim")
 		return observability.WorkerOutcomeFailed
@@ -953,10 +980,10 @@ func (w *worker) finalizeAbortedTaskRunByExecutionClaim(ctx context.Context, exe
 	return observability.WorkerOutcomeAborted
 }
 
-func (w *worker) finalizeSucceededTaskRunByExecutionClaim(ctx context.Context, j *api.Job, jobID, runID, executionClaimToken string, executionEnvelope *cell.ExecutionEnvelope) string {
+func (w *worker) finalizeSucceededTaskRunByExecutionClaim(ctx context.Context, j *api.Job, jobID, runID string, executionClaim *executionClaimState, executionEnvelope *cell.ExecutionEnvelope) string {
 	span := trace.SpanFromContext(ctx)
 
-	result, ok := w.completeExecutionAndFinalizeRunByClaim(ctx, executionEnvelope, executionClaimToken, dal.ExecutionStatusSucceeded, "", "")
+	result, ok := w.completeExecutionAndFinalizeRunByClaim(ctx, j, executionEnvelope, executionClaim, dal.ExecutionStatusSucceeded, "", "")
 	if !ok {
 		span.SetStatus(otelcodes.Error, "complete succeeded task execution by claim")
 		return observability.WorkerOutcomeFailed
@@ -1242,13 +1269,13 @@ func (w *worker) recordExecutionStarted(ctx context.Context, env *cell.Execution
 	trace.SpanFromContext(ctx).AddEvent("execution.started", trace.WithAttributes(executionEnvelopeAttrs(env)...))
 }
 
-func (w *worker) completeExecutionAndFinalizeRunByClaim(ctx context.Context, env *cell.ExecutionEnvelope, executionClaimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, bool) {
+func (w *worker) completeExecutionAndFinalizeRunByClaim(ctx context.Context, j *api.Job, env *cell.ExecutionEnvelope, executionClaim *executionClaimState, status, failureCode, reason string) (dal.ExecutionFinalizationResult, bool) {
 	if env == nil {
 		return dal.ExecutionFinalizationResult{}, true
 	}
 
 	completionCtx := trace.ContextWithSpan(w.runCtx, trace.SpanFromContext(ctx))
-	result, err := w.completeExecutionEnvelopeWithRetry(completionCtx, env, executionClaimToken, status, failureCode, reason)
+	result, err := w.completeExecutionEnvelopeWithRetry(completionCtx, j, env, executionClaim, status, failureCode, reason)
 	if err != nil {
 		w.logger.Warn("CompleteExecutionAndFinalizeRunByClaim execution %s status %s failed: %v", env.ExecutionID, status, err)
 		trace.SpanFromContext(ctx).RecordError(err)
@@ -1281,15 +1308,26 @@ func (w *worker) completeExecutionAndFinalizeRunByClaim(ctx context.Context, env
 	return result, true
 }
 
-func (w *worker) completeExecutionEnvelopeWithRetry(ctx context.Context, env *cell.ExecutionEnvelope, executionClaimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
+func (w *worker) completeExecutionEnvelopeWithRetry(ctx context.Context, j *api.Job, env *cell.ExecutionEnvelope, executionClaim *executionClaimState, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
 	var lastErr error
-	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
-		result, err := w.executionChoreographer().CompleteExecution(ctx, env, w.workerID, executionClaimToken, status, failureCode, reason)
+	recoveries := 0
+	for attempt := 1; attempt <= finalizeMaxAttempts; {
+		result, err := w.executionChoreographer().CompleteExecution(ctx, env, w.workerID, executionClaim.get(), status, failureCode, reason)
 		if err == nil {
 			return result, nil
 		}
 
 		lastErr = err
+		if isOrchestratorNotFound(err) && recoveries < finalizeMaxAttempts {
+			recoveries++
+			recovered, recoverErr := w.recoverOrchestratorExecutionClaim(ctx, j, env, executionClaim, w.leaseDeadline())
+			if recoverErr != nil {
+				lastErr = fmt.Errorf("recover orchestrator execution claim: %w", recoverErr)
+			} else if recovered {
+				w.logger.Info("Execution %s: recovered orchestrator claim after missing completion state", env.ExecutionID)
+				continue
+			}
+		}
 
 		if attempt == finalizeMaxAttempts {
 			break
@@ -1302,6 +1340,7 @@ func (w *worker) completeExecutionEnvelopeWithRetry(ctx context.Context, env *ce
 		if sleepErr := w.clock.Sleep(w.runCtx, delay); sleepErr != nil {
 			return dal.ExecutionFinalizationResult{}, sleepErr
 		}
+		attempt++
 	}
 
 	return dal.ExecutionFinalizationResult{}, lastErr
@@ -1487,6 +1526,36 @@ func (w *worker) getCurrentRunInfo() (string, string) {
 	return w.currentRunID, w.currentClaimToken
 }
 
+type executionClaimState struct {
+	mu    sync.Mutex
+	token string
+}
+
+func newExecutionClaimState(token string) *executionClaimState {
+	return &executionClaimState{token: token}
+}
+
+func (s *executionClaimState) get() string {
+	if s == nil {
+		return ""
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.token
+}
+
+func (s *executionClaimState) set(token string) {
+	if s == nil {
+		return
+	}
+
+	s.mu.Lock()
+	s.token = token
+	s.mu.Unlock()
+}
+
 func (w *worker) tryClaimExecution(ctx context.Context, executionEnvelope *cell.ExecutionEnvelope, leaseUntil time.Time) (string, bool, bool, error) {
 	if executionEnvelope == nil {
 		return "", false, false, nil
@@ -1517,14 +1586,253 @@ func (w *worker) tryClaimExecution(ctx context.Context, executionEnvelope *cell.
 	return claim.ClaimToken, true, claim.ExecutionStarted, nil
 }
 
-func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, executionClaimToken string, runJob *api.Job, env *cell.ExecutionEnvelope) error {
-	w.setCurrentRun(runID, executionClaimToken)
+func (w *worker) recoverOrchestratorExecutionClaim(ctx context.Context, j *api.Job, env *cell.ExecutionEnvelope, executionClaim *executionClaimState, leaseUntil time.Time) (bool, error) {
+	if j == nil || env == nil {
+		return false, fmt.Errorf("job and execution envelope are required")
+	}
+
+	snapshots, err := w.orchestratorRecoverySnapshots(ctx, j, env)
+	if err != nil {
+		return false, err
+	}
+
+	if err := w.executionChoreographer().LoadRun(w.runCtx, j, env, snapshots); err != nil {
+		return false, fmt.Errorf("load orchestrator run: %w", err)
+	}
+
+	claim, err := w.executionChoreographer().ClaimAndStartExecution(w.runCtx, env, w.workerID, leaseUntil)
+	if err != nil {
+		return false, fmt.Errorf("claim execution: %w", err)
+	}
+
+	if !claim.Claimed {
+		return false, fmt.Errorf("%w: execution %s was not claimable after orchestrator recovery", dal.ErrConflict, env.ExecutionID)
+	}
+
+	executionClaim.set(claim.ClaimToken)
+	w.setCurrentRun(env.RunID, claim.ClaimToken)
+	trace.SpanFromContext(ctx).AddEvent("orchestrator.execution.claim_recovered", trace.WithAttributes(executionEnvelopeAttrs(env)...))
+	return true, nil
+}
+
+func (w *worker) orchestratorRecoverySnapshots(ctx context.Context, j *api.Job, env *cell.ExecutionEnvelope) ([]orchestrator.TaskExecutionSnapshot, error) {
+	if env == nil {
+		return nil, nil
+	}
+
+	snapshots := make([]orchestrator.TaskExecutionSnapshot, 0)
+	byTaskKey := map[string]orchestrator.TaskExecutionSnapshot{}
+
+	if w.store != nil {
+		storeSnapshots, err := w.orchestratorSnapshotsFromStore(ctx, env.RunID)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, snapshot := range storeSnapshots {
+			snapshots = append(snapshots, snapshot)
+			if snapshot.Record.TaskKey != "" {
+				byTaskKey[snapshot.Record.TaskKey] = snapshot
+			}
+		}
+	}
+
+	ancestorSnapshots, err := inferredAncestorSnapshots(j, env, byTaskKey)
+	if err != nil {
+		return nil, err
+	}
+
+	snapshots = append(snapshots, ancestorSnapshots...)
+	snapshots = append(snapshots, orchestrator.TaskExecutionSnapshot{
+		Record: orchestrator.TaskExecutionRecordFromEnvelope(env),
+		Status: dal.ExecutionStatusRunning,
+	})
+
+	return snapshots, nil
+}
+
+func (w *worker) orchestratorSnapshotsFromStore(ctx context.Context, runID string) ([]orchestrator.TaskExecutionSnapshot, error) {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return nil, nil
+	}
+
+	const pageLimit = 500
+	cursor := int64(0)
+	snapshots := make([]orchestrator.TaskExecutionSnapshot, 0)
+	for {
+		tasks, nextCursor, err := w.store.ListRunTasks(w.runCtx, runID, cursor, pageLimit)
+		if err != nil {
+			w.noteDBError(err)
+			trace.SpanFromContext(ctx).RecordError(err)
+			return nil, fmt.Errorf("list run tasks: %w", err)
+		}
+		w.noteDBRecovered()
+
+		for _, task := range tasks {
+			snapshot, ok := orchestratorSnapshotFromTaskRecord(task)
+			if ok {
+				snapshots = append(snapshots, snapshot)
+			}
+		}
+
+		if nextCursor == 0 {
+			break
+		}
+
+		cursor = nextCursor
+	}
+
+	return snapshots, nil
+}
+
+func orchestratorSnapshotFromTaskRecord(task dal.TaskRecord) (orchestrator.TaskExecutionSnapshot, bool) {
+	record := dal.TaskExecutionRecord{
+		RunID:        task.RunID,
+		TaskID:       task.TaskID,
+		TaskKey:      task.TaskKey,
+		Name:         task.Name,
+		ParentTaskID: stringPtrValue(task.ParentTaskID),
+	}
+
+	status := task.Status
+	if attempt, ok := latestTaskAttempt(task.Attempts); ok {
+		record.TaskAttemptID = attempt.AttemptID
+		record.ExecutionID = attempt.ExecutionID
+		record.CellID = attempt.CellID
+		record.Attempt = attempt.Attempt
+		status = attempt.ExecutionStatus
+	}
+
+	if record.TaskKey == "" || status == "" {
+		return orchestrator.TaskExecutionSnapshot{}, false
+	}
+
+	return orchestrator.TaskExecutionSnapshot{
+		Record: record,
+		Status: status,
+	}, true
+}
+
+func latestTaskAttempt(attempts []dal.TaskAttemptRecord) (dal.TaskAttemptRecord, bool) {
+	if len(attempts) == 0 {
+		return dal.TaskAttemptRecord{}, false
+	}
+
+	latest := attempts[0]
+	for _, attempt := range attempts[1:] {
+		if attempt.Attempt > latest.Attempt {
+			latest = attempt
+		}
+	}
+
+	return latest, true
+}
+
+func inferredAncestorSnapshots(j *api.Job, env *cell.ExecutionEnvelope, byTaskKey map[string]orchestrator.TaskExecutionSnapshot) ([]orchestrator.TaskExecutionSnapshot, error) {
+	if j == nil || env == nil || env.TaskKey == dal.RootTaskKey {
+		return nil, nil
+	}
+
+	plan, err := job.PlanTaskExecutions(j)
+	if err != nil {
+		return nil, err
+	}
+
+	parents := map[string]string{}
+	for _, entry := range plan {
+		parent := strings.TrimSpace(entry.ParentTaskKey)
+		if parent == "" {
+			parent = dal.RootTaskKey
+		}
+
+		parents[entry.TaskKey] = parent
+	}
+
+	var snapshots []orchestrator.TaskExecutionSnapshot
+	seen := map[string]struct{}{}
+	for taskKey := env.TaskKey; ; {
+		parent, ok := parents[taskKey]
+		if !ok || parent == "" {
+			break
+		}
+
+		if _, ok := seen[parent]; ok {
+			break
+		}
+
+		seen[parent] = struct{}{}
+		snapshot, ok := byTaskKey[parent]
+		if !ok {
+			snapshot = orchestrator.TaskExecutionSnapshot{
+				Record: defaultTaskExecutionRecord(env.RunID, parent, parents[parent], parent, env.CellID),
+			}
+		}
+
+		snapshot.Status = dal.ExecutionStatusSucceeded
+		snapshots = append(snapshots, snapshot)
+
+		if parent == dal.RootTaskKey {
+			break
+		}
+
+		taskKey = parent
+	}
+
+	return snapshots, nil
+}
+
+func defaultTaskExecutionRecord(runID, taskKey, parentTaskKey, name, cellID string) dal.TaskExecutionRecord {
+	if taskKey == "" {
+		taskKey = dal.RootTaskKey
+	}
+
+	if name == "" {
+		name = taskKey
+	}
+
+	taskID := runID + ":" + taskKey
+	parentTaskID := ""
+	if parentTaskKey != "" {
+		parentTaskID = runID + ":" + parentTaskKey
+	}
+
+	return dal.TaskExecutionRecord{
+		RunID:         runID,
+		TaskID:        taskID,
+		ParentTaskID:  parentTaskID,
+		TaskKey:       taskKey,
+		Name:          name,
+		TaskAttemptID: taskID + ":attempt:1",
+		SegmentID:     taskID + ":segment",
+		SegmentName:   name,
+		ExecutionID:   taskID + ":attempt:1:execution",
+		CellID:        cellID,
+		Attempt:       1,
+	}
+}
+
+func stringPtrValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+
+	return *value
+}
+
+func isOrchestratorNotFound(err error) bool {
+	return errors.Is(err, dal.ErrNotFound) || status.Code(err) == codes.NotFound
+}
+
+func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID string, executionClaim *executionClaimState, runJob *api.Job, env *cell.ExecutionEnvelope) error {
+	w.setCurrentRun(runID, executionClaim.get())
 	defer w.clearCurrentRun()
 
 	execCtx, execCancel := context.WithCancel(ctx)
 	defer execCancel()
 	cancelled := make(chan struct{})
 	var cancelOnce sync.Once
+
 	cancelRun := func(source string) {
 		cancelOnce.Do(func() {
 			w.logger.Info("Cancelling run %s via %s", runID, source)
@@ -1536,7 +1844,7 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, executionCl
 	stopRenew := make(chan struct{})
 	doneRenew := make(chan struct{})
 
-	go w.leaseRenewalLoop(execCtx, runID, env, executionClaimToken, stopRenew, doneRenew)
+	go w.leaseRenewalLoop(execCtx, runID, runJob, env, executionClaim, stopRenew, doneRenew)
 
 	// Listen for remote cancel requests.
 	// Drain any stale cancel from a previous job so the buffer is free for this run.
@@ -1544,6 +1852,7 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, executionCl
 	case <-w.cancelCh:
 	default:
 	}
+
 	stopCancel := make(chan struct{})
 	defer close(stopCancel)
 	go func() {
@@ -1597,6 +1906,7 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID, executionCl
 		if err != nil {
 			return fmt.Errorf("%w: %v", errRunCancelled, err)
 		}
+
 		return errRunCancelled
 	default:
 	}
@@ -1649,8 +1959,9 @@ func (w *worker) cancelRequestLoop(
 func (w *worker) leaseRenewalLoop(
 	execCtx context.Context,
 	runID string,
+	j *api.Job,
 	executionEnvelope *cell.ExecutionEnvelope,
-	executionClaimToken string,
+	executionClaim *executionClaimState,
 	stopRenew <-chan struct{},
 	doneRenew chan<- struct{},
 ) {
@@ -1673,9 +1984,20 @@ func (w *worker) leaseRenewalLoop(
 			return
 		case <-ticker.C:
 			next := w.leaseDeadline()
-			if executionEnvelope != nil && executionClaimToken != "" {
-				if err := w.executionChoreographer().RenewExecutionLease(w.runCtx, executionEnvelope, w.workerID, executionClaimToken, next); err != nil {
+			claimToken := executionClaim.get()
+			if executionEnvelope != nil && claimToken != "" {
+				if err := w.executionChoreographer().RenewExecutionLease(w.runCtx, executionEnvelope, w.workerID, claimToken, next); err != nil {
 					renewFailed = true
+					if isOrchestratorNotFound(err) {
+						recovered, recoverErr := w.recoverOrchestratorExecutionClaim(execCtx, j, executionEnvelope, executionClaim, next)
+						if recoverErr == nil && recovered {
+							w.logger.Info("Execution %s: recovered orchestrator claim after missing lease state", executionEnvelope.ExecutionID)
+							continue
+						}
+						if recoverErr != nil {
+							err = fmt.Errorf("%w; recovery failed: %v", err, recoverErr)
+						}
+					}
 					w.logger.Warn("Execution %s: lease renew failed (will retry): %v", executionEnvelope.ExecutionID, err)
 					continue
 				}

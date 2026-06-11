@@ -36,10 +36,11 @@ type Service struct {
 }
 
 type RunSpec struct {
-	RunID  string
-	Root   dal.TaskExecutionRecord
-	CellID string
-	Tasks  []TaskSpec
+	RunID      string
+	Root       dal.TaskExecutionRecord
+	CellID     string
+	Tasks      []TaskSpec
+	Executions []TaskExecutionSnapshot
 }
 
 type TaskSpec struct {
@@ -48,6 +49,11 @@ type TaskSpec struct {
 	Name          string
 	CellID        string
 	ChildTaskKeys []string
+}
+
+type TaskExecutionSnapshot struct {
+	Record dal.TaskExecutionRecord
+	Status string
 }
 
 type LoadResult struct {
@@ -162,6 +168,11 @@ func (s *Service) LoadRun(ctx context.Context, spec RunSpec) (LoadResult, error)
 
 	value, err := s.call(ctx, spec.RunID, func(state *shardState) (any, error) {
 		if run, ok := state.runs[spec.RunID]; ok {
+			if len(spec.Executions) > 0 {
+				if err := run.applySnapshots(spec.Executions, s.clock.Now()); err != nil {
+					return LoadResult{}, err
+				}
+			}
 			return run.loadResult(s.clock.Now()), nil
 		}
 
@@ -225,8 +236,9 @@ func (s *Service) ClaimExecution(ctx context.Context, runID, executionID, owner 
 		}
 
 		switch task.status {
-		case dal.ExecutionStatusPending:
+		case dal.ExecutionStatusPending, dal.ExecutionStatusAccepted:
 			token := uuid.NewString()
+			transitionedToAccepted := task.status == dal.ExecutionStatusPending
 			task.status = dal.ExecutionStatusRunning
 			task.leaseOwner = owner
 			task.claimToken = token
@@ -235,7 +247,7 @@ func (s *Service) ClaimExecution(ctx context.Context, runID, executionID, owner 
 			return dal.ExecutionClaimResult{
 				Claimed:                true,
 				ClaimToken:             token,
-				TransitionedToAccepted: true,
+				TransitionedToAccepted: transitionedToAccepted,
 				ExecutionStarted:       true,
 			}, nil
 		case dal.ExecutionStatusRunning:
@@ -524,6 +536,10 @@ func buildRunState(spec RunSpec) (*runState, error) {
 		run.addTask(task.TaskKey, taskState)
 	}
 
+	if err := run.applySnapshots(spec.Executions, time.Time{}); err != nil {
+		return nil, err
+	}
+
 	return run, nil
 }
 
@@ -531,6 +547,171 @@ func (r *runState) addTask(taskKey string, task *taskState) {
 	r.tasks[taskKey] = task
 	r.executions[task.record.ExecutionID] = task
 	r.order = append(r.order, taskKey)
+}
+
+func (r *runState) applySnapshots(snapshots []TaskExecutionSnapshot, now time.Time) error {
+	for _, snapshot := range snapshots {
+		status := normalizeSnapshotStatus(snapshot.Status)
+		if status == "" {
+			continue
+		}
+
+		task, err := r.taskForSnapshot(snapshot)
+		if err != nil {
+			return err
+		}
+
+		if shouldApplySnapshotStatus(task, status, now) {
+			task.status = status
+			if status != dal.ExecutionStatusRunning {
+				task.leaseOwner = ""
+				task.claimToken = ""
+				task.leaseUntil = time.Time{}
+			}
+		}
+
+		r.applySnapshotRecord(task, snapshot.Record)
+	}
+
+	r.recomputeSummary()
+	return nil
+}
+
+func (r *runState) taskForSnapshot(snapshot TaskExecutionSnapshot) (*taskState, error) {
+	taskKey := strings.TrimSpace(snapshot.Record.TaskKey)
+	if taskKey != "" {
+		if task, ok := r.tasks[taskKey]; ok {
+			return task, nil
+		}
+	}
+
+	executionID := strings.TrimSpace(snapshot.Record.ExecutionID)
+	if executionID != "" {
+		if task, ok := r.executions[executionID]; ok {
+			return task, nil
+		}
+	}
+
+	if taskKey != "" {
+		return nil, fmt.Errorf("%w: task %s", dal.ErrNotFound, taskKey)
+	}
+	return nil, fmt.Errorf("%w: execution %s", dal.ErrNotFound, executionID)
+}
+
+func (r *runState) applySnapshotRecord(task *taskState, record dal.TaskExecutionRecord) {
+	oldExecutionID := task.record.ExecutionID
+
+	if record.RunID != "" {
+		task.record.RunID = record.RunID
+	}
+	if record.TaskID != "" {
+		task.record.TaskID = record.TaskID
+	}
+	if record.ParentTaskID != "" {
+		task.record.ParentTaskID = record.ParentTaskID
+	}
+	if record.TaskKey != "" {
+		task.record.TaskKey = record.TaskKey
+	}
+	if record.Name != "" {
+		task.record.Name = record.Name
+	}
+	if record.TaskAttemptID != "" {
+		task.record.TaskAttemptID = record.TaskAttemptID
+	}
+	if record.SegmentID != "" {
+		task.record.SegmentID = record.SegmentID
+	}
+	if record.SegmentName != "" {
+		task.record.SegmentName = record.SegmentName
+	}
+	if record.ExecutionID != "" {
+		task.record.ExecutionID = record.ExecutionID
+	}
+	if record.CellID != "" {
+		task.record.CellID = record.CellID
+	}
+	if record.Attempt > 0 {
+		task.record.Attempt = record.Attempt
+	}
+
+	if task.record.ExecutionID != "" && task.record.ExecutionID != oldExecutionID {
+		delete(r.executions, oldExecutionID)
+		r.executions[task.record.ExecutionID] = task
+	}
+}
+
+func shouldApplySnapshotStatus(task *taskState, status string, now time.Time) bool {
+	if task == nil {
+		return false
+	}
+
+	if task.claimToken != "" && task.hasActiveClaim(task.leaseOwner, task.claimToken, now) {
+		return false
+	}
+
+	return executionStatusRank(status) >= executionStatusRank(task.status)
+}
+
+func (r *runState) recomputeSummary() {
+	summary := dal.RunTaskCompletion{
+		RunID: r.runID,
+		Total: len(r.tasks),
+	}
+
+	for _, taskKey := range r.order {
+		task := r.tasks[taskKey]
+		switch task.status {
+		case dal.ExecutionStatusSucceeded:
+			summary.Succeeded++
+		case dal.ExecutionStatusFailed, dal.ExecutionStatusCancelled, dal.ExecutionStatusAborted:
+			summary.TerminalFailed++
+		default:
+			summary.Incomplete++
+		}
+	}
+
+	r.summary = summary
+}
+
+func normalizeSnapshotStatus(status string) string {
+	switch strings.TrimSpace(status) {
+	case dal.ExecutionStatusPlanned:
+		return dal.ExecutionStatusPlanned
+	case dal.ExecutionStatusPending:
+		return dal.ExecutionStatusPending
+	case dal.ExecutionStatusAccepted:
+		return dal.ExecutionStatusAccepted
+	case dal.ExecutionStatusRunning:
+		return dal.ExecutionStatusRunning
+	case dal.ExecutionStatusSucceeded:
+		return dal.ExecutionStatusSucceeded
+	case dal.ExecutionStatusFailed:
+		return dal.ExecutionStatusFailed
+	case dal.ExecutionStatusCancelled:
+		return dal.ExecutionStatusCancelled
+	case dal.ExecutionStatusAborted:
+		return dal.ExecutionStatusAborted
+	default:
+		return ""
+	}
+}
+
+func executionStatusRank(status string) int {
+	switch status {
+	case dal.ExecutionStatusPlanned:
+		return 0
+	case dal.ExecutionStatusPending:
+		return 1
+	case dal.ExecutionStatusAccepted:
+		return 2
+	case dal.ExecutionStatusRunning:
+		return 3
+	case dal.ExecutionStatusSucceeded, dal.ExecutionStatusFailed, dal.ExecutionStatusCancelled, dal.ExecutionStatusAborted:
+		return 4
+	default:
+		return -1
+	}
 }
 
 func (r *runState) loadResult(now time.Time) LoadResult {
@@ -552,7 +733,7 @@ func (r *runState) pendingRecords(now time.Time, limit int) []dal.TaskExecutionR
 	for _, taskKey := range r.order {
 		task := r.tasks[taskKey]
 		switch task.status {
-		case dal.ExecutionStatusPending:
+		case dal.ExecutionStatusPending, dal.ExecutionStatusAccepted:
 			if task.claimToken != "" && task.hasActiveClaim(task.leaseOwner, task.claimToken, now) {
 				continue
 			}

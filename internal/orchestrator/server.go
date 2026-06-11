@@ -39,10 +39,11 @@ func (s *grpcServer) LoadRun(ctx context.Context, req *api.LoadRunRequest) (*api
 	}
 
 	result, err := s.service.LoadRun(ctx, RunSpec{
-		RunID:  req.GetRunId(),
-		Root:   taskExecutionFromProto(req.GetRoot()),
-		CellID: req.GetCellId(),
-		Tasks:  taskSpecsFromProto(req.GetTasks()),
+		RunID:      req.GetRunId(),
+		Root:       taskExecutionFromProto(req.GetRoot()),
+		CellID:     req.GetCellId(),
+		Tasks:      taskSpecsFromProto(req.GetTasks()),
+		Executions: taskExecutionSnapshotsFromProto(req.GetExecutions()),
 	})
 	if err != nil {
 		return nil, grpcError(err)
@@ -192,6 +193,22 @@ func taskExecutionsToProto(in []dal.TaskExecutionRecord) []*api.OrchestratorTask
 	out := make([]*api.OrchestratorTaskExecution, 0, len(in))
 	for _, record := range in {
 		out = append(out, taskExecutionToProto(record))
+	}
+
+	return out
+}
+
+func taskExecutionSnapshotsFromProto(in []*api.OrchestratorTaskExecution) []TaskExecutionSnapshot {
+	out := make([]TaskExecutionSnapshot, 0, len(in))
+	for _, execution := range in {
+		if execution == nil {
+			continue
+		}
+
+		out = append(out, TaskExecutionSnapshot{
+			Record: taskExecutionFromProto(execution),
+			Status: execution.GetStatus(),
+		})
 	}
 
 	return out

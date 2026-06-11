@@ -11,7 +11,7 @@ import (
 )
 
 type executionChoreographer interface {
-	LoadRun(ctx context.Context, job *api.Job, env *cell.ExecutionEnvelope) error
+	LoadRun(ctx context.Context, job *api.Job, env *cell.ExecutionEnvelope, snapshots []orchestrator.TaskExecutionSnapshot) error
 	ClaimAndStartExecution(ctx context.Context, env *cell.ExecutionEnvelope, owner string, leaseUntil time.Time) (dal.ExecutionClaimResult, error)
 	RenewExecutionLease(ctx context.Context, env *cell.ExecutionEnvelope, owner, claimToken string, leaseUntil time.Time) error
 	CompleteExecution(ctx context.Context, env *cell.ExecutionEnvelope, owner, claimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error)
@@ -25,7 +25,7 @@ func newGRPCExecutionChoreographer(client api.OrchestratorServiceClient) grpcExe
 	return grpcExecutionChoreographer{client: client}
 }
 
-func (c grpcExecutionChoreographer) LoadRun(ctx context.Context, job *api.Job, env *cell.ExecutionEnvelope) error {
+func (c grpcExecutionChoreographer) LoadRun(ctx context.Context, job *api.Job, env *cell.ExecutionEnvelope, snapshots []orchestrator.TaskExecutionSnapshot) error {
 	spec, err := orchestrator.RunSpecFromJobAndEnvelope(job, env)
 	if err != nil {
 		return err
@@ -43,10 +43,11 @@ func (c grpcExecutionChoreographer) LoadRun(ctx context.Context, job *api.Job, e
 	}
 
 	_, err = c.client.LoadRun(ctx, &api.LoadRunRequest{
-		RunId:  stringPtr(spec.RunID),
-		Root:   taskExecutionToProto(spec.Root),
-		CellId: stringPtr(spec.CellID),
-		Tasks:  tasks,
+		RunId:      stringPtr(spec.RunID),
+		Root:       taskExecutionToProto(spec.Root),
+		CellId:     stringPtr(spec.CellID),
+		Tasks:      tasks,
+		Executions: taskExecutionSnapshotsToProto(snapshots),
 	})
 
 	return err
@@ -127,6 +128,20 @@ func taskExecutionToProto(in dal.TaskExecutionRecord) *api.OrchestratorTaskExecu
 		CellId:        stringPtr(in.CellID),
 		Attempt:       int32Ptr(int32(in.Attempt)),
 	}
+}
+
+func taskExecutionSnapshotsToProto(in []orchestrator.TaskExecutionSnapshot) []*api.OrchestratorTaskExecution {
+	out := make([]*api.OrchestratorTaskExecution, 0, len(in))
+	for _, snapshot := range in {
+		execution := taskExecutionToProto(snapshot.Record)
+		if execution == nil {
+			continue
+		}
+		execution.Status = stringPtr(snapshot.Status)
+		out = append(out, execution)
+	}
+
+	return out
 }
 
 func taskExecutionsFromProto(in []*api.OrchestratorTaskExecution) []dal.TaskExecutionRecord {

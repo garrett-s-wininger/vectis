@@ -24,6 +24,7 @@ message OrchestratorTaskExecution {
     string execution_id = 9;
     string cell_id = 10;
     int32 attempt = 11;
+    string status = 12;
 }
 
 message OrchestratorRunTaskCompletion {
@@ -39,6 +40,7 @@ message LoadRunRequest {
     string cell_id = 2;
     repeated OrchestratorTaskSpec tasks = 3;
     OrchestratorTaskExecution root = 4;
+    repeated OrchestratorTaskExecution executions = 5;
 }
 
 message LoadRunResponse {

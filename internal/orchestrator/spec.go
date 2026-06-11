@@ -41,7 +41,9 @@ func RunSpecFromJobAndEnvelope(j *api.Job, env *cell.ExecutionEnvelope) (RunSpec
 	}
 
 	spec := RunSpecFromTaskPlan(env.RunID, plan, env.CellID)
-	spec.Root = TaskExecutionRecordFromEnvelope(env)
+	if env.TaskKey == dal.RootTaskKey {
+		spec.Root = TaskExecutionRecordFromEnvelope(env)
+	}
 	return spec, nil
 }
 

@@ -14,7 +14,7 @@ type sqlExecutionChoreographer struct {
 	runs dal.RunsRepository
 }
 
-func (c sqlExecutionChoreographer) LoadRun(context.Context, *api.Job, *cell.ExecutionEnvelope) error {
+func (c sqlExecutionChoreographer) LoadRun(context.Context, *api.Job, *cell.ExecutionEnvelope, []orchestrator.TaskExecutionSnapshot) error {
 	return nil
 }
 
@@ -59,12 +59,13 @@ type cleanupTestingT interface {
 	Cleanup(func())
 }
 
-func (c *localOrchestratorChoreographer) LoadRun(ctx context.Context, j *api.Job, env *cell.ExecutionEnvelope) error {
+func (c *localOrchestratorChoreographer) LoadRun(ctx context.Context, j *api.Job, env *cell.ExecutionEnvelope, snapshots []orchestrator.TaskExecutionSnapshot) error {
 	spec, err := orchestrator.RunSpecFromJobAndEnvelope(j, env)
 	if err != nil {
 		return err
 	}
 
+	spec.Executions = append([]orchestrator.TaskExecutionSnapshot(nil), snapshots...)
 	_, err = c.service.LoadRun(ctx, spec)
 	return err
 }

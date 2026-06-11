@@ -20,6 +20,7 @@ import (
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/job"
 	"vectis/internal/observability"
+	"vectis/internal/orchestrator"
 	"vectis/internal/platform"
 	"vectis/internal/spire"
 	"vectis/internal/taskfinalize"
@@ -280,6 +281,90 @@ func (s *blockingSuccessStore) CompleteExecutionAndFinalizeRunByClaim(ctx contex
 	return s.RunsRepository.CompleteExecutionAndFinalizeRunByClaim(ctx, executionID, owner, claimToken, status, failureCode, reason)
 }
 
+type restartOnCompleteChoreographer struct {
+	mu                 sync.Mutex
+	service            *orchestrator.Service
+	restarted          bool
+	completeTokens     []string
+	loadSnapshotCounts []int
+}
+
+func newRestartOnCompleteChoreographer(t cleanupTestingT) *restartOnCompleteChoreographer {
+	t.Helper()
+
+	c := &restartOnCompleteChoreographer{service: orchestrator.New(1)}
+	t.Cleanup(func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.service.Close()
+	})
+
+	return c
+}
+
+func (c *restartOnCompleteChoreographer) LoadRun(ctx context.Context, j *api.Job, env *cell.ExecutionEnvelope, snapshots []orchestrator.TaskExecutionSnapshot) error {
+	spec, err := orchestrator.RunSpecFromJobAndEnvelope(j, env)
+	if err != nil {
+		return err
+	}
+
+	spec.Executions = append([]orchestrator.TaskExecutionSnapshot(nil), snapshots...)
+
+	c.mu.Lock()
+	c.loadSnapshotCounts = append(c.loadSnapshotCounts, len(snapshots))
+	service := c.service
+	c.mu.Unlock()
+
+	_, err = service.LoadRun(ctx, spec)
+	return err
+}
+
+func (c *restartOnCompleteChoreographer) ClaimAndStartExecution(ctx context.Context, env *cell.ExecutionEnvelope, owner string, leaseUntil time.Time) (dal.ExecutionClaimResult, error) {
+	c.mu.Lock()
+	service := c.service
+	c.mu.Unlock()
+	return service.ClaimExecution(ctx, env.RunID, env.ExecutionID, owner, leaseUntil)
+}
+
+func (c *restartOnCompleteChoreographer) RenewExecutionLease(ctx context.Context, env *cell.ExecutionEnvelope, owner, claimToken string, leaseUntil time.Time) error {
+	c.mu.Lock()
+	service := c.service
+	c.mu.Unlock()
+	return service.RenewExecutionLease(ctx, env.RunID, env.ExecutionID, owner, claimToken, leaseUntil)
+}
+
+func (c *restartOnCompleteChoreographer) CompleteExecution(ctx context.Context, env *cell.ExecutionEnvelope, owner, claimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
+	c.mu.Lock()
+	c.completeTokens = append(c.completeTokens, claimToken)
+	if !c.restarted {
+		c.service.Close()
+		c.service = orchestrator.New(1)
+		c.restarted = true
+		c.mu.Unlock()
+		return dal.ExecutionFinalizationResult{}, statusErrorNotFound("orchestrator restarted")
+	}
+	service := c.service
+	c.mu.Unlock()
+
+	return service.CompleteExecutionByClaim(ctx, env.RunID, env.ExecutionID, owner, claimToken, status, failureCode, reason)
+}
+
+func (c *restartOnCompleteChoreographer) completeClaimTokens() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.completeTokens...)
+}
+
+func (c *restartOnCompleteChoreographer) snapshotLoadCounts() []int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]int(nil), c.loadSnapshotCounts...)
+}
+
+func statusErrorNotFound(message string) error {
+	return status.Error(codes.NotFound, message)
+}
+
 func TestLeaseRenewalLoop_RenewsExecutionLease(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
@@ -321,7 +406,7 @@ func TestLeaseRenewalLoop_RenewsExecutionLease(t *testing.T) {
 	stopRenew := make(chan struct{})
 	doneRenew := make(chan struct{})
 	env := &cell.ExecutionEnvelope{ExecutionID: dispatch.ExecutionID}
-	go w.leaseRenewalLoop(execCtx, runID, env, claim.ClaimToken, stopRenew, doneRenew)
+	go w.leaseRenewalLoop(execCtx, runID, nil, env, newExecutionClaimState(claim.ClaimToken), stopRenew, doneRenew)
 
 	time.Sleep(30 * time.Millisecond)
 	close(stopRenew)
@@ -1420,6 +1505,123 @@ func TestWorkerRunTaskExecution_TaskFanoutExecutesEnvelopeTaskOnly(t *testing.T)
 	}
 }
 
+func TestWorkerRunTaskExecution_ChildDeliveryHydratesAfterOrchestratorRestart(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
+	runs := repos.Runs()
+
+	jobID := "job-worker-child-hydrate"
+	runID, runIndex, err := runs.CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	rootDispatch, err := runs.GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get root dispatch: %v", err)
+	}
+
+	rootDispatch.DefinitionHash = "test-definition-hash"
+	deliveryID := "delivery-child-hydrate"
+	rootID := "root-node"
+	childID := "child"
+	sequenceAction := "builtins/sequence"
+	shellAction := "builtins/shell"
+	j := &api.Job{
+		Id:         &jobID,
+		RunId:      &runID,
+		DeliveryId: &deliveryID,
+		Root: &api.Node{
+			Id:   &rootID,
+			Uses: &sequenceAction,
+			With: map[string]string{"command": "echo root-should-not-run"},
+			Steps: []*api.Node{{
+				Id:   &childID,
+				Uses: &shellAction,
+				With: map[string]string{"command": "echo child-ran"},
+			}},
+		},
+	}
+
+	plan, err := job.PlanTaskExecutions(j)
+	if err != nil {
+		t.Fatalf("plan task executions: %v", err)
+	}
+
+	materialized, err := job.EnsurePlannedTaskExecutions(ctx, runs, runID, plan, "local")
+	if err != nil {
+		t.Fatalf("materialize planned tasks: %v", err)
+	}
+
+	var child dal.TaskExecutionRecord
+	for _, rec := range materialized.Tasks {
+		if rec.TaskKey == childID {
+			child = rec
+			break
+		}
+	}
+
+	if child.ExecutionID == "" {
+		t.Fatal("expected materialized child execution")
+	}
+
+	rootReq := &api.JobRequest{Job: j}
+	rootEnv, err := cell.AttachExecutionEnvelope(rootReq, rootDispatch, 1)
+	if err != nil {
+		t.Fatalf("attach root execution envelope: %v", err)
+	}
+
+	childReq := &api.JobRequest{Job: j}
+	childDispatch := executionDispatchRecordFromTaskExecution(j, rootEnv, child)
+	childDispatch.RunIndex = runIndex
+	childEnv, err := cell.AttachExecutionEnvelope(childReq, childDispatch, 2)
+	if err != nil {
+		t.Fatalf("attach child execution envelope: %v", err)
+	}
+
+	logClient := mocks.NewMockLogClient()
+	w := &worker{
+		ctx:           context.Background(),
+		runCtx:        context.Background(),
+		logger:        interfaces.NewLogger("worker-test"),
+		workerID:      "worker-child-hydrate",
+		cellID:        "local",
+		clock:         mocks.NewMockClock(),
+		renewInterval: time.Hour,
+		queue:         mocks.NewMockQueueClient(),
+		logClient:     logClient,
+		executor:      job.NewExecutor(),
+		store:         runs,
+		choreographer: newLocalOrchestratorChoreographer(t),
+		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
+	}
+
+	outcome := w.runTaskExecution(context.Background(), j, jobID, runID, deliveryID, childEnv)
+	if outcome != observability.WorkerOutcomeSuccess {
+		t.Fatalf("worker outcome: got %q, want %q", outcome, observability.WorkerOutcomeSuccess)
+	}
+
+	chunks := logClient.GetChunks()
+	if len(chunks) == 0 {
+		t.Fatal("expected child log chunks")
+	}
+
+	var sawChild bool
+	for _, chunk := range chunks {
+		data := string(chunk.GetData())
+		if strings.Contains(data, "root-should-not-run") {
+			t.Fatalf("worker replayed root task; chunks=%v", chunks)
+		}
+		if strings.Contains(data, "child-ran") {
+			sawChild = true
+		}
+	}
+	if !sawChild {
+		t.Fatalf("expected child task marker in chunks=%v", chunks)
+	}
+}
+
 func TestWorkerFinalizeAbortedTaskRunByExecutionClaim_CancelsRun(t *testing.T) {
 	t.Parallel()
 
@@ -1446,7 +1648,7 @@ func TestWorkerFinalizeAbortedTaskRunByExecutionClaim_CancelsRun(t *testing.T) {
 	}
 
 	env := &cell.ExecutionEnvelope{ExecutionID: "execution-root"}
-	outcome := w.finalizeAbortedTaskRunByExecutionClaim(ctx, "execution-claim-token", dal.CancelReasonAPI, env)
+	outcome := w.finalizeAbortedTaskRunByExecutionClaim(ctx, nil, newExecutionClaimState("execution-claim-token"), dal.CancelReasonAPI, env)
 	span.End()
 	if outcome != observability.WorkerOutcomeAborted {
 		t.Fatalf("outcome: got %q, want %q", outcome, observability.WorkerOutcomeAborted)
@@ -1961,6 +2163,79 @@ func TestWorkerRunTaskExecution_FinalizeSucceededRetriesOnTransientStoreFailure(
 	sleeps := clock.GetSleeps()
 	if len(sleeps) != 2 {
 		t.Fatalf("expected 2 finalize-retry sleeps, got %d", len(sleeps))
+	}
+}
+
+func TestWorkerRunTaskExecution_RecoversOrchestratorRestartDuringFinalize(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositories(db)
+	runs := repos.Runs()
+
+	runID, _, err := runs.CreateRun(ctx, "job-worker-orchestrator-restart-finalize", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	workerID := "worker-test-orchestrator-restart-finalize"
+	choreographer := newRestartOnCompleteChoreographer(t)
+	w := &worker{
+		ctx:           context.Background(),
+		runCtx:        context.Background(),
+		logger:        interfaces.NewLogger("worker-test"),
+		workerID:      workerID,
+		clock:         mocks.NewMockClock(),
+		renewInterval: time.Hour,
+		queue:         mocks.NewMockQueueClient(),
+		logClient:     mocks.NewMockLogClient(),
+		executor:      job.NewExecutor(),
+		store:         runs,
+		choreographer: choreographer,
+	}
+
+	jobID := "job-worker-orchestrator-restart-finalize"
+	deliveryID := "delivery-orchestrator-restart-finalize"
+	commandNodeID := "node-1"
+	command := "echo orchestrator-restart-finalize"
+	action := "builtins/shell"
+	root := &api.Node{
+		Id:   &commandNodeID,
+		Uses: &action,
+		With: map[string]string{"command": command},
+	}
+
+	j := &api.Job{
+		Id:         &jobID,
+		RunId:      &runID,
+		DeliveryId: &deliveryID,
+		Root:       root,
+	}
+
+	env := attachPendingExecutionEnvelopeForTest(t, runs, j, runID)
+	outcome := w.runTaskExecution(context.Background(), j, jobID, runID, deliveryID, env)
+	if outcome != observability.WorkerOutcomeSuccess {
+		t.Fatalf("worker outcome: got %q, want %q", outcome, observability.WorkerOutcomeSuccess)
+	}
+
+	tokens := choreographer.completeClaimTokens()
+	if len(tokens) != 2 {
+		t.Fatalf("complete calls: got %d tokens %+v, want 2", len(tokens), tokens)
+	}
+
+	if tokens[0] == "" || tokens[1] == "" || tokens[0] == tokens[1] {
+		t.Fatalf("expected completion retry with fresh claim token, got %+v", tokens)
+	}
+
+	sawHydratedLoad := false
+	for _, count := range choreographer.snapshotLoadCounts() {
+		if count > 0 {
+			sawHydratedLoad = true
+			break
+		}
+	}
+
+	if !sawHydratedLoad {
+		t.Fatalf("expected recovery LoadRun with snapshots, got counts %+v", choreographer.snapshotLoadCounts())
 	}
 }
 

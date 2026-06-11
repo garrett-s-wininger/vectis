@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	api "vectis/api/gen/go"
 	"vectis/internal/action"
 )
 
@@ -32,7 +31,7 @@ func (r *ResultAction) Type() string {
 	return "builtins/result"
 }
 
-func (r *ResultAction) Execute(_ context.Context, _ *action.ExecutionState, inputs map[string]any, _ []*api.Node) action.Result {
+func (r *ResultAction) Execute(_ context.Context, _ *action.ExecutionState, inputs map[string]any, _ action.Ports) action.Result {
 	raw, ok := inputs["success"].(string)
 	if !ok {
 		return action.NewFailureResult(fmt.Errorf("result action requires 'success' input"))

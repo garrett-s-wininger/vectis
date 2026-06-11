@@ -516,6 +516,9 @@ type ExecutionClaimResult struct {
 	ClaimToken             string
 	TransitionedToAccepted bool
 	ExecutionStarted       bool
+	Expired                bool
+	RunID                  string
+	ExecutionID            string
 }
 
 type RunCatalogUpdater interface {

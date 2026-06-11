@@ -272,6 +272,54 @@ func TestServiceLoadRunIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestServiceLoadRunHydratesExecutionSnapshots(t *testing.T) {
+	ctx := context.Background()
+	clock := newManualClock()
+	svc := orchestrator.New(2, orchestrator.WithClock(clock))
+	t.Cleanup(svc.Close)
+
+	runID := "run-hydrated-snapshots"
+	root := orchestratorTestRecord(runID, dal.RootTaskKey, "", dal.RootTaskKey, "iad-a")
+	child := orchestratorTestRecord(runID, "build", dal.RootTaskKey, "build", "iad-a")
+
+	loaded, err := svc.LoadRun(ctx, orchestrator.RunSpec{
+		RunID: runID,
+		Tasks: []orchestrator.TaskSpec{{
+			TaskKey:       "build",
+			ParentTaskKey: dal.RootTaskKey,
+			Name:          "build",
+			CellID:        "iad-a",
+		}},
+		Executions: []orchestrator.TaskExecutionSnapshot{
+			{Record: root, Status: dal.ExecutionStatusSucceeded},
+			{Record: child, Status: dal.ExecutionStatusRunning},
+		},
+	})
+	if err != nil {
+		t.Fatalf("load hydrated run: %v", err)
+	}
+
+	if loaded.Summary.Total != 2 || loaded.Summary.Succeeded != 1 || loaded.Summary.Incomplete != 1 {
+		t.Fatalf("hydrated summary: %+v", loaded.Summary)
+	}
+
+	claim, err := svc.ClaimExecution(ctx, loaded.RunID, child.ExecutionID, "worker-child", clock.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("claim hydrated child: %v", err)
+	}
+	if !claim.Claimed || claim.ClaimToken == "" {
+		t.Fatalf("expected hydrated child claim: %+v", claim)
+	}
+
+	result, err := svc.CompleteExecutionByClaim(ctx, loaded.RunID, child.ExecutionID, "worker-child", claim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+	if err != nil {
+		t.Fatalf("complete hydrated child: %v", err)
+	}
+	if result.Outcome != dal.ExecutionFinalizationOutcomeRunSucceeded {
+		t.Fatalf("hydrated finalization outcome: %+v", result)
+	}
+}
+
 func TestServiceCompleteExecutionActivatesChildrenInMemory(t *testing.T) {
 	ctx := context.Background()
 	clock := newManualClock()
@@ -327,5 +375,27 @@ func TestServiceCompleteExecutionActivatesChildrenInMemory(t *testing.T) {
 
 	if childResult.Summary.Total != 2 || childResult.Summary.Succeeded != 2 || childResult.Summary.Incomplete != 0 {
 		t.Fatalf("child summary: %+v", childResult.Summary)
+	}
+}
+
+func orchestratorTestRecord(runID, taskKey, parentTaskKey, name, cellID string) dal.TaskExecutionRecord {
+	taskID := runID + ":" + taskKey
+	parentTaskID := ""
+	if parentTaskKey != "" {
+		parentTaskID = runID + ":" + parentTaskKey
+	}
+
+	return dal.TaskExecutionRecord{
+		RunID:         runID,
+		TaskID:        taskID,
+		ParentTaskID:  parentTaskID,
+		TaskKey:       taskKey,
+		Name:          name,
+		TaskAttemptID: taskID + ":attempt:1",
+		SegmentID:     taskID + ":segment",
+		SegmentName:   name,
+		ExecutionID:   taskID + ":attempt:1:execution",
+		CellID:        cellID,
+		Attempt:       1,
 	}
 }
