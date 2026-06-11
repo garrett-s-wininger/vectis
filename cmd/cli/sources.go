@@ -193,6 +193,25 @@ type sourceRepositoryJobsResult struct {
 	Jobs           []sourceRepositoryJobSummary `json:"jobs"`
 }
 
+type sourceScheduleSummary struct {
+	ScheduleID   string `json:"schedule_id"`
+	RepositoryID string `json:"repository_id"`
+	Namespace    string `json:"namespace"`
+	JobID        string `json:"job_id"`
+	CronSpec     string `json:"cron_spec"`
+	NextRunAt    string `json:"next_run_at"`
+	Ref          string `json:"ref,omitempty"`
+	Path         string `json:"path,omitempty"`
+	PathDerived  bool   `json:"path_derived"`
+	Enabled      bool   `json:"enabled"`
+}
+
+type sourceSchedulesResult struct {
+	Namespace    string                  `json:"namespace"`
+	RepositoryID string                  `json:"repository_id,omitempty"`
+	Schedules    []sourceScheduleSummary `json:"schedules"`
+}
+
 type sourceRepositoryJobDefinitionResult struct {
 	JobID          string           `json:"job_id"`
 	DefinitionHash string           `json:"definition_hash"`
@@ -684,6 +703,104 @@ func writeSourceStatusResult(out io.Writer, result sourceRepositoryStatusResult)
 	}
 
 	return nil
+}
+
+func listSourceSchedules(cmd *cobra.Command, args []string) {
+	repositoryID := ""
+	if len(args) > 0 {
+		repositoryID = args[0]
+	}
+
+	runCLIError(listSourceSchedulesWithOutput(os.Stdout, repositoryID))
+}
+
+func listSourceSchedulesWithOutput(out io.Writer, repositoryID string) error {
+	path := "/api/v1/source-schedules"
+	if strings.TrimSpace(repositoryID) != "" {
+		path = "/api/v1/source-repositories/" + url.PathEscape(repositoryID) + "/schedules"
+	}
+
+	params := url.Values{}
+	if strings.TrimSpace(repositoryID) == "" {
+		if v := strings.TrimSpace(sourceSchedulesNamespace); v != "" {
+			params.Set("namespace", v)
+		}
+	}
+	path = appendQueryParams(path, params)
+
+	req, err := newAPIRequest(http.MethodGet, path, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create source schedules request: %w", err)
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to list source schedules: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var result sourceSchedulesResult
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to parse source schedules response: %w", err)
+		}
+		return writeSourceSchedulesResult(out, result)
+	case http.StatusNotFound:
+		if strings.TrimSpace(repositoryID) != "" {
+			return fmt.Errorf("source repository %q not found", repositoryID)
+		}
+		return fmt.Errorf("source schedules namespace not found")
+	default:
+		return fmt.Errorf("unexpected status listing source schedules: %s", resp.Status)
+	}
+}
+
+func writeSourceSchedulesResult(out io.Writer, result sourceSchedulesResult) error {
+	if outputIsJSON() {
+		return writeJSON(out, result)
+	}
+
+	if len(result.Schedules) == 0 {
+		if strings.TrimSpace(result.RepositoryID) != "" {
+			fmt.Fprintf(out, "No source schedules found for repository %s\n", result.RepositoryID)
+		} else {
+			fmt.Fprintln(out, "No source schedules found")
+		}
+		return nil
+	}
+
+	if sourceSchedulesQuiet {
+		for _, schedule := range result.Schedules {
+			fmt.Fprintln(out, schedule.ScheduleID)
+		}
+		return nil
+	}
+
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "SCHEDULE\tREPOSITORY\tJOB\tCRON\tNEXT RUN\tREF\tPATH\tENABLED")
+	for _, schedule := range result.Schedules {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%t\n",
+			emptyAsDash(schedule.ScheduleID),
+			emptyAsDash(schedule.RepositoryID),
+			emptyAsDash(schedule.JobID),
+			emptyAsDash(schedule.CronSpec),
+			emptyAsDash(schedule.NextRunAt),
+			emptyAsDash(schedule.Ref),
+			sourceSchedulePathForDisplay(schedule),
+			schedule.Enabled,
+		)
+	}
+	return tw.Flush()
+}
+
+func sourceSchedulePathForDisplay(schedule sourceScheduleSummary) string {
+	path := emptyAsDash(schedule.Path)
+	if schedule.PathDerived && path != "-" {
+		return path + " (derived)"
+	}
+
+	return path
 }
 
 func listSourceBranches(cmd *cobra.Command, args []string) {
@@ -1476,6 +1593,14 @@ var sourcesStatusCmd = &cobra.Command{
 	Run:   showSourceStatus,
 }
 
+var sourcesSchedulesCmd = &cobra.Command{
+	Use:   "schedules [repository-id]",
+	Short: "List source-backed cron schedules",
+	Long:  `List source-backed cron schedules reconciled from configuration. Pass a repository ID to show schedules for that repository only.`,
+	Args:  cobra.RangeArgs(0, 1),
+	Run:   listSourceSchedules,
+}
+
 var sourcesBranchesCmd = &cobra.Command{
 	Use:   "branches [repository-id]",
 	Short: "List source repository branches",
@@ -1567,6 +1692,11 @@ var sourcesTriggerCmd = &cobra.Command{
 func configureSourcesListFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&sourceListNamespace, "namespace", "", "Namespace to list source repositories from (default: /)")
 	cmd.Flags().BoolVarP(&sourceListQuiet, "quiet", "q", false, "Print only repository IDs")
+}
+
+func configureSourcesSchedulesFlags(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&sourceSchedulesNamespace, "namespace", "", "Namespace to list source schedules from when no repository is specified (default: /)")
+	cmd.Flags().BoolVarP(&sourceSchedulesQuiet, "quiet", "q", false, "Print only schedule IDs")
 }
 
 func configureSourcesRegisterFlags(cmd *cobra.Command) {
