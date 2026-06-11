@@ -29,6 +29,53 @@ type CoreCapability struct {
 	Metadata map[string]string
 }
 
+func RequiredWorkerCoreCapabilities() []string {
+	return []string{
+		workersdk.CapabilityExecute,
+		workersdk.CapabilityCancelTask,
+		workersdk.CapabilityShellLogCallback,
+		workersdk.CapabilityShellArtifactPush,
+	}
+}
+
+func ValidateCoreDescription(desc CoreDescription, requiredCapabilities []string) error {
+	protocolVersion := strings.TrimSpace(desc.ProtocolVersion)
+	if protocolVersion != ProtocolVersion {
+		return fmt.Errorf("worker core protocol version %q is not supported; want %q", protocolVersion, ProtocolVersion)
+	}
+
+	missing := make([]string, 0, len(requiredCapabilities))
+	for _, required := range requiredCapabilities {
+		required = strings.TrimSpace(required)
+		if required == "" || HasCoreCapability(desc, required) {
+			continue
+		}
+
+		missing = append(missing, required)
+	}
+
+	if len(missing) > 0 {
+		return fmt.Errorf("worker core missing required capabilities: %s", strings.Join(missing, ", "))
+	}
+
+	return nil
+}
+
+func HasCoreCapability(desc CoreDescription, name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false
+	}
+
+	for _, capability := range desc.Capabilities {
+		if capability.Name == name {
+			return true
+		}
+	}
+
+	return false
+}
+
 type RemoteCore struct {
 	client api.WorkerCoreServiceClient
 }

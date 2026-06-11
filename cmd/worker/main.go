@@ -343,6 +343,11 @@ func configuredWorkerCore(ctx context.Context, logger interfaces.Logger) (worker
 		return nil, workercore.CoreDescription{}, nil, err
 	}
 
+	if err := workercore.ValidateCoreDescription(desc, workercore.RequiredWorkerCoreCapabilities()); err != nil {
+		cleanup()
+		return nil, workercore.CoreDescription{}, nil, err
+	}
+
 	if logger != nil {
 		logger.Info("Worker core: socket=%s protocol=%s", socketPath, desc.ProtocolVersion)
 	}

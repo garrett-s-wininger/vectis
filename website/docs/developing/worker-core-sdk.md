@@ -49,6 +49,8 @@ Use the SDK constants when reporting standard behavior:
 
 Providers can add their own namespaced capabilities for provider-specific behavior, such as a Jenkins or Kubernetes integration feature flag.
 
+The worker validates `Describe` during startup. A core used by `vectis-worker` must report the current protocol version and all four standard capabilities above, because the worker shell always relies on execute, cancellation, log callback, and artifact callback semantics when handing out task sessions.
+
 ## Shell Callbacks
 
 The worker shell registers a per-execution callback socket and includes it in the task session. A core can use:

@@ -271,6 +271,35 @@ func TestRemoteCoreDescribe(t *testing.T) {
 	}
 }
 
+func TestValidateCoreDescription(t *testing.T) {
+	valid := CoreDescription{
+		ProtocolVersion: ProtocolVersion,
+		Capabilities: []CoreCapability{
+			{Name: workersdk.CapabilityExecute, Version: "v1"},
+			{Name: workersdk.CapabilityCancelTask, Version: "v1"},
+			{Name: workersdk.CapabilityShellLogCallback, Version: "v1"},
+			{Name: workersdk.CapabilityShellArtifactPush, Version: "v1"},
+		},
+	}
+
+	if err := ValidateCoreDescription(valid, RequiredWorkerCoreCapabilities()); err != nil {
+		t.Fatalf("ValidateCoreDescription valid: %v", err)
+	}
+
+	badProtocol := valid
+	badProtocol.ProtocolVersion = "workercore.v0"
+	if err := ValidateCoreDescription(badProtocol, RequiredWorkerCoreCapabilities()); err == nil || !strings.Contains(err.Error(), "protocol version") {
+		t.Fatalf("ValidateCoreDescription protocol error = %v, want protocol version error", err)
+	}
+
+	missingCapability := valid
+	missingCapability.Capabilities = missingCapability.Capabilities[:2]
+	err := ValidateCoreDescription(missingCapability, RequiredWorkerCoreCapabilities())
+	if err == nil || !strings.Contains(err.Error(), workersdk.CapabilityShellLogCallback) || !strings.Contains(err.Error(), workersdk.CapabilityShellArtifactPush) {
+		t.Fatalf("ValidateCoreDescription missing capability error = %v", err)
+	}
+}
+
 func TestRemoteCoreExecuteTaskWrapsClientError(t *testing.T) {
 	core := NewRemoteCore(fakeWorkerCoreClient{
 		execute: func(context.Context, *api.ExecuteWorkerCoreTaskRequest) (*api.ExecuteWorkerCoreTaskResponse, error) {
