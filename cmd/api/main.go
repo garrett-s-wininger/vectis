@@ -146,6 +146,12 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		return
 	}
 
+	if err := reconcileConfiguredSourceSchedules(sourceCtx, sourceRepos, logger); err != nil {
+		logger.Error("Failed to reconcile configured source schedules: %v", err)
+		exitCode = 1
+		return
+	}
+
 	sourceSyncCtx := sourceCtx
 	sourceSyncCancel := func() {}
 	if config.SourceSyncConfiguredRepositoriesOnStartup() {

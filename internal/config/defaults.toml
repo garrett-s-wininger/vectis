@@ -195,6 +195,7 @@ stored_jobs_enabled = true
 sync_configured_repositories_on_startup = false
 sync_running_timeout = "15m"
 repositories = []
+schedules = []
 
 [worker]
 metrics_host = "localhost"

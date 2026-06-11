@@ -21,11 +21,14 @@ const (
 	envAPIServerSourceSyncRunningTimeout                  = "VECTIS_API_SERVER_SOURCE_SYNC_RUNNING_TIMEOUT"
 	envSourceRepositories                                 = "VECTIS_SOURCE_REPOSITORIES"
 	envAPIServerSourceRepositories                        = "VECTIS_API_SERVER_SOURCE_REPOSITORIES"
+	envSourceSchedules                                    = "VECTIS_SOURCE_SCHEDULES"
+	envAPIServerSourceSchedules                           = "VECTIS_API_SERVER_SOURCE_SCHEDULES"
 	defaultSourceSyncRunningTimeout                       = 15 * time.Minute
 	sourceStoredJobsEnabledConfigKey                      = "source.stored_jobs_enabled"
 	sourceSyncConfiguredRepositoriesOnStartupConfigKey    = "source.sync_configured_repositories_on_startup"
 	sourceSyncRunningTimeoutConfigKey                     = "source.sync_running_timeout"
 	sourceRepositoriesConfigKey                           = "source.repositories"
+	sourceSchedulesConfigKey                              = "source.schedules"
 )
 
 type SourceRepositoryDeclaration struct {
@@ -39,6 +42,16 @@ type SourceRepositoryDeclaration struct {
 	DefaultRef    string `json:"default_ref" mapstructure:"default_ref" toml:"default_ref"`
 	CredentialRef string `json:"credential_ref" mapstructure:"credential_ref" toml:"credential_ref"`
 	Enabled       *bool  `json:"enabled" mapstructure:"enabled" toml:"enabled"`
+}
+
+type SourceScheduleDeclaration struct {
+	ScheduleID   string `json:"schedule_id" mapstructure:"schedule_id" toml:"schedule_id"`
+	RepositoryID string `json:"repository_id" mapstructure:"repository_id" toml:"repository_id"`
+	JobID        string `json:"job_id" mapstructure:"job_id" toml:"job_id"`
+	CronSpec     string `json:"cron_spec" mapstructure:"cron_spec" toml:"cron_spec"`
+	Ref          string `json:"ref" mapstructure:"ref" toml:"ref"`
+	Path         string `json:"path" mapstructure:"path" toml:"path"`
+	Enabled      *bool  `json:"enabled" mapstructure:"enabled" toml:"enabled"`
 }
 
 // SourceCheckoutRoot returns the root directory for Vectis-managed source checkouts.
@@ -145,6 +158,35 @@ func SourceRepositoryDeclarations() ([]SourceRepositoryDeclaration, error) {
 	return normalizeSourceRepositoryDeclarations(MustDefaults().Source.Repositories)
 }
 
+func SourceScheduleDeclarations() ([]SourceScheduleDeclaration, error) {
+	for _, envName := range []string{envSourceSchedules, envAPIServerSourceSchedules} {
+		raw := strings.TrimSpace(os.Getenv(envName))
+		if raw == "" {
+			continue
+		}
+
+		var schedules []SourceScheduleDeclaration
+		dec := json.NewDecoder(strings.NewReader(raw))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&schedules); err != nil {
+			return nil, fmt.Errorf("%s: parse source schedules JSON: %w", envName, err)
+		}
+
+		return normalizeSourceScheduleDeclarations(schedules)
+	}
+
+	if viper.IsSet(sourceSchedulesConfigKey) {
+		var schedules []SourceScheduleDeclaration
+		if err := viper.UnmarshalKey(sourceSchedulesConfigKey, &schedules); err != nil {
+			return nil, fmt.Errorf("%s: parse source schedules: %w", sourceSchedulesConfigKey, err)
+		}
+
+		return normalizeSourceScheduleDeclarations(schedules)
+	}
+
+	return normalizeSourceScheduleDeclarations(MustDefaults().Source.Schedules)
+}
+
 func normalizeSourceRepositoryDeclarations(in []SourceRepositoryDeclaration) ([]SourceRepositoryDeclaration, error) {
 	if len(in) == 0 {
 		return nil, nil
@@ -173,6 +215,48 @@ func normalizeSourceRepositoryDeclarations(in []SourceRepositoryDeclaration) ([]
 
 		seen[repo.RepositoryID] = struct{}{}
 		out = append(out, repo)
+	}
+
+	return out, nil
+}
+
+func normalizeSourceScheduleDeclarations(in []SourceScheduleDeclaration) ([]SourceScheduleDeclaration, error) {
+	if len(in) == 0 {
+		return nil, nil
+	}
+
+	out := make([]SourceScheduleDeclaration, 0, len(in))
+	seen := make(map[string]struct{}, len(in))
+	for i, sched := range in {
+		sched.ScheduleID = strings.TrimSpace(sched.ScheduleID)
+		sched.RepositoryID = strings.TrimSpace(sched.RepositoryID)
+		sched.JobID = strings.TrimSpace(sched.JobID)
+		sched.CronSpec = strings.TrimSpace(sched.CronSpec)
+		sched.Ref = strings.TrimSpace(sched.Ref)
+		sched.Path = strings.TrimSpace(sched.Path)
+
+		if sched.ScheduleID == "" {
+			return nil, fmt.Errorf("source.schedules[%d].schedule_id is required", i)
+		}
+
+		if sched.RepositoryID == "" {
+			return nil, fmt.Errorf("source.schedules[%d].repository_id is required", i)
+		}
+
+		if sched.JobID == "" {
+			return nil, fmt.Errorf("source.schedules[%d].job_id is required", i)
+		}
+
+		if sched.CronSpec == "" {
+			return nil, fmt.Errorf("source.schedules[%d].cron_spec is required", i)
+		}
+
+		if _, ok := seen[sched.ScheduleID]; ok {
+			return nil, fmt.Errorf("source.schedules[%d].schedule_id %q is duplicated", i, sched.ScheduleID)
+		}
+
+		seen[sched.ScheduleID] = struct{}{}
+		out = append(out, sched)
 	}
 
 	return out, nil

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/robfig/cron/v3"
+
 	"vectis/internal/config"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
@@ -68,6 +70,58 @@ func reconcileConfiguredSourceRepositories(ctx context.Context, repos *dal.SQLRe
 
 func syncConfiguredSourceRepositories(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger) error {
 	return syncConfiguredSourceRepositoriesWithStatus(ctx, repos, logger, configuredSourceRepositorySyncCheckoutStatus)
+}
+
+func reconcileConfiguredSourceSchedules(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger) error {
+	decls, err := config.SourceScheduleDeclarations()
+	if err != nil {
+		return err
+	}
+
+	if len(decls) == 0 {
+		return nil
+	}
+
+	now := time.Now().UTC()
+	for _, decl := range decls {
+		rec, err := configuredSourceScheduleRecord(ctx, repos, decl, now)
+		if err != nil {
+			return err
+		}
+
+		existing, err := repos.Schedules().GetCronScheduleByScheduleID(ctx, rec.ScheduleID)
+		if err != nil {
+			if !dal.IsNotFound(err) {
+				return fmt.Errorf("get configured source schedule %q: %w", rec.ScheduleID, err)
+			}
+
+			created, err := repos.Schedules().CreateCronSchedule(ctx, rec)
+			if err != nil {
+				return fmt.Errorf("create configured source schedule %q: %w", rec.ScheduleID, err)
+			}
+
+			logConfiguredSourceSchedule(logger, "created", created)
+			continue
+		}
+
+		if configuredSourceScheduleEqual(existing, rec) {
+			logConfiguredSourceSchedule(logger, "unchanged", existing)
+			continue
+		}
+
+		if existing.CronSpec == rec.CronSpec && (existing.Enabled || !rec.Enabled) {
+			rec.NextRunAt = time.Time{}
+		}
+
+		updated, err := repos.Schedules().UpdateCronSchedule(ctx, rec)
+		if err != nil {
+			return fmt.Errorf("update configured source schedule %q: %w", rec.ScheduleID, err)
+		}
+
+		logConfiguredSourceSchedule(logger, "updated", updated)
+	}
+
+	return nil
 }
 
 func syncConfiguredSourceRepositoriesWithStatus(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger, statusFn sourceRepositorySyncStatusFunc) error {
@@ -162,6 +216,78 @@ func syncConfiguredSourceRepository(ctx context.Context, repos *dal.SQLRepositor
 
 	logConfiguredSourceRepository(logger, "synced", updated, "")
 	return nil
+}
+
+func configuredSourceScheduleRecord(ctx context.Context, repos *dal.SQLRepositories, decl config.SourceScheduleDeclaration, now time.Time) (dal.CronScheduleRecord, error) {
+	enabled := true
+	if decl.Enabled != nil {
+		enabled = *decl.Enabled
+	}
+
+	repo, err := repos.Sources().GetRepository(ctx, decl.RepositoryID)
+	if err != nil {
+		return dal.CronScheduleRecord{}, fmt.Errorf("configured source schedule %q repository %q: %w", decl.ScheduleID, decl.RepositoryID, err)
+	}
+
+	if enabled && !repo.Enabled {
+		return dal.CronScheduleRecord{}, fmt.Errorf("configured source schedule %q references disabled repository %q", decl.ScheduleID, decl.RepositoryID)
+	}
+
+	if strings.TrimSpace(decl.Path) == "" {
+		if _, err := sourcepkg.DefinitionPathForJobID(decl.JobID); err != nil {
+			return dal.CronScheduleRecord{}, fmt.Errorf("configured source schedule %q job_id: %w", decl.ScheduleID, err)
+		}
+	}
+
+	nextRunAt, err := configuredSourceScheduleNextRun(decl.CronSpec, now)
+	if err != nil {
+		return dal.CronScheduleRecord{}, fmt.Errorf("configured source schedule %q cron_spec: %w", decl.ScheduleID, err)
+	}
+
+	return dal.CronScheduleRecord{
+		ScheduleID:         strings.TrimSpace(decl.ScheduleID),
+		JobID:              strings.TrimSpace(decl.JobID),
+		CronSpec:           strings.TrimSpace(decl.CronSpec),
+		NextRunAt:          nextRunAt,
+		SourceRepositoryID: strings.TrimSpace(decl.RepositoryID),
+		SourceRef:          strings.TrimSpace(decl.Ref),
+		SourcePath:         strings.TrimSpace(decl.Path),
+		Enabled:            enabled,
+	}, nil
+}
+
+func configuredSourceScheduleNextRun(cronSpec string, from time.Time) (time.Time, error) {
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	schedule, err := parser.Parse(strings.TrimSpace(cronSpec))
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	return schedule.Next(from.UTC()), nil
+}
+
+func configuredSourceScheduleEqual(existing, desired dal.CronScheduleRecord) bool {
+	return existing.JobID == desired.JobID &&
+		existing.CronSpec == desired.CronSpec &&
+		existing.SourceRepositoryID == desired.SourceRepositoryID &&
+		existing.SourceRef == desired.SourceRef &&
+		existing.SourcePath == desired.SourcePath &&
+		existing.Enabled == desired.Enabled
+}
+
+func logConfiguredSourceSchedule(logger interfaces.Logger, action string, rec dal.CronScheduleRecord) {
+	if logger == nil {
+		return
+	}
+
+	logger.Info("Configured source schedule %s: schedule_id=%s repository_id=%s job_id=%s cron_spec=%q enabled=%t",
+		action,
+		rec.ScheduleID,
+		rec.SourceRepositoryID,
+		rec.JobID,
+		rec.CronSpec,
+		rec.Enabled,
+	)
 }
 
 func configuredSourceRepositoryRecord(ctx context.Context, repos *dal.SQLRepositories, decl config.SourceRepositoryDeclaration) (dal.SourceRepositoryRecord, string, error) {

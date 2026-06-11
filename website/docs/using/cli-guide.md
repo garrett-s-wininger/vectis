@@ -228,7 +228,7 @@ Register a source repository checkout:
 ./bin/vectis-cli sources register vectis-local /srv/vectis-repo --default-ref main
 ```
 
-Operators can also declare repositories with `VECTIS_SOURCE_REPOSITORIES` so `vectis-api` reconciles them on startup. Set `VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_ON_STARTUP=true` when those configured repositories should also be cloned, fetched, or probed before the API starts serving.
+Operators can also declare repositories with `VECTIS_SOURCE_REPOSITORIES` so `vectis-api` reconciles them on startup. Set `VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_ON_STARTUP=true` when those configured repositories should also be cloned, fetched, or probed before the API starts serving. Source cron schedules can be declared with `VECTIS_SOURCE_SCHEDULES`; they reference a configured repository, stable `schedule_id`, `job_id`, cron expression, and optional `ref` or path override.
 
 For a Vectis-managed checkout, omit the checkout path and provide the canonical clone URL:
 

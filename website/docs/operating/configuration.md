@@ -89,6 +89,23 @@ Startup reconciliation creates missing repository registrations and updates chan
 
 Set `VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_ON_STARTUP=true` to also sync enabled configured repositories during `vectis-api` startup. This is off by default so large repositories do not surprise-block deployments. When enabled, external checkouts are probed and managed checkouts are cloned or fetched; sync status, ref, commit, timestamps, and errors are persisted on the repository record. A failed startup sync fails API startup, and the sync operation uses `source.sync_running_timeout` / `VECTIS_SOURCE_SYNC_RUNNING_TIMEOUT` as its timeout window.
 
+Declare source-backed cron schedules with `VECTIS_SOURCE_SCHEDULES` or `VECTIS_API_SERVER_SOURCE_SCHEDULES`:
+
+```sh
+export VECTIS_SOURCE_SCHEDULES='[
+  {
+    "schedule_id": "nightly-build",
+    "repository_id": "vectis-local",
+    "job_id": "build.nightly",
+    "cron_spec": "0 2 * * *",
+    "ref": "main",
+    "enabled": true
+  }
+]'
+```
+
+Each schedule entry accepts `schedule_id`, `repository_id`, `job_id`, `cron_spec`, `ref`, `path`, and `enabled`. `schedule_id` is the stable reconcile key. `enabled` defaults to `true`. If `path` is omitted, Vectis derives the definition path from the job ID using the default `.vectis/jobs/...` layout. Startup reconciliation creates missing schedules and updates changed repository, job, cron, ref, path, and enabled fields; it does not delete schedules omitted from config. Enabled schedules must reference an enabled configured repository.
+
 For source-only deployments, combine declared repositories with:
 
 ```sh

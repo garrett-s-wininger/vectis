@@ -624,6 +624,87 @@ func TestSourceRepositoryDeclarations_RejectsInvalid(t *testing.T) {
 	}
 }
 
+func TestSourceScheduleDeclarations_Viper(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv(envSourceSchedules, "")
+	t.Setenv(envAPIServerSourceSchedules, "")
+
+	viper.Set("source.schedules", []map[string]any{
+		{
+			"schedule_id":   " nightly-build ",
+			"repository_id": " vectis ",
+			"job_id":        " build ",
+			"cron_spec":     " 0 * * * * ",
+			"ref":           " main ",
+			"path":          " .vectis/jobs/build.json ",
+			"enabled":       false,
+		},
+	})
+
+	schedules, err := SourceScheduleDeclarations()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(schedules) != 1 {
+		t.Fatalf("len=%d, want 1", len(schedules))
+	}
+
+	if schedules[0].ScheduleID != "nightly-build" ||
+		schedules[0].RepositoryID != "vectis" ||
+		schedules[0].JobID != "build" ||
+		schedules[0].CronSpec != "0 * * * *" ||
+		schedules[0].Ref != "main" ||
+		schedules[0].Path != ".vectis/jobs/build.json" ||
+		schedules[0].Enabled == nil ||
+		*schedules[0].Enabled {
+		t.Fatalf("schedule declaration mismatch: %+v", schedules[0])
+	}
+}
+
+func TestSourceScheduleDeclarations_EnvJSON(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv(envAPIServerSourceSchedules, "")
+	t.Setenv(envSourceSchedules, `[{"schedule_id":"nightly","repository_id":"vectis","job_id":"build","cron_spec":"0 * * * *","enabled":true}]`)
+
+	schedules, err := SourceScheduleDeclarations()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(schedules) != 1 ||
+		schedules[0].ScheduleID != "nightly" ||
+		schedules[0].RepositoryID != "vectis" ||
+		schedules[0].JobID != "build" ||
+		schedules[0].Enabled == nil ||
+		!*schedules[0].Enabled {
+		t.Fatalf("source schedule declarations mismatch: %+v", schedules)
+	}
+}
+
+func TestSourceScheduleDeclarations_RejectsInvalid(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv(envSourceSchedules, `[{"schedule_id":"nightly","repository_id":"vectis","job_id":"build","cron_spec":"0 * * * *"},{"schedule_id":"nightly","repository_id":"vectis","job_id":"deploy","cron_spec":"0 * * * *"}]`)
+	t.Setenv(envAPIServerSourceSchedules, "")
+
+	if _, err := SourceScheduleDeclarations(); err == nil {
+		t.Fatal("expected duplicate source schedule error")
+	}
+
+	t.Setenv(envSourceSchedules, `[{"schedule_id":"nightly","repository_id":"vectis","job_id":"build","cron_spec":"0 * * * *","unexpected":true}]`)
+	if _, err := SourceScheduleDeclarations(); err == nil {
+		t.Fatal("expected unknown JSON field error")
+	}
+
+	t.Setenv(envSourceSchedules, `[{"schedule_id":"nightly","repository_id":"vectis","job_id":"build"}]`)
+	if _, err := SourceScheduleDeclarations(); err == nil {
+		t.Fatal("expected missing cron_spec error")
+	}
+}
+
 func TestAPIHostAndListenAddr_DefaultAndOverride(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
@@ -631,6 +712,7 @@ func TestAPIHostAndListenAddr_DefaultAndOverride(t *testing.T) {
 	if got := APIHost(); got != "localhost" {
 		t.Fatalf("APIHost default: got %q", got)
 	}
+
 	if got := APIListenAddr(); got != "localhost:8080" {
 		t.Fatalf("APIListenAddr default: got %q", got)
 	}
@@ -639,6 +721,7 @@ func TestAPIHostAndListenAddr_DefaultAndOverride(t *testing.T) {
 	if got := APIHost(); got != "0.0.0.0" {
 		t.Fatalf("APIHost override: got %q", got)
 	}
+
 	if got := APIListenAddr(); got != "0.0.0.0:8080" {
 		t.Fatalf("APIListenAddr override: got %q", got)
 	}

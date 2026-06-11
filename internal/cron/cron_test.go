@@ -3,10 +3,12 @@ package cron_test
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -643,6 +645,9 @@ func TestCronService_TriggerJob_Success(t *testing.T) {
 func TestCronService_TriggerSchedule_ReusesRunForDuplicateTick(t *testing.T) {
 	service, _, queueService, db := setupTestCronService(t)
 	ctx := context.Background()
+	clock := mocks.NewMockClock()
+	clock.SetNow(time.Date(2026, 3, 21, 12, 9, 30, 0, time.UTC))
+	service.SetClock(clock)
 
 	jobDef := `{"id": "scheduled-idempotent", "root": {"uses": "builtins/shell"}}`
 	insertCronTestJob(t, db, "scheduled-idempotent", jobDef)
@@ -651,10 +656,11 @@ func TestCronService_TriggerSchedule_ReusesRunForDuplicateTick(t *testing.T) {
 	scheduleID := insertCronTestSchedule(t, db, "scheduled-idempotent", "* * * * *", scheduledFor)
 
 	sched := cron.CronSchedule{
-		ID:        scheduleID,
-		JobID:     "scheduled-idempotent",
-		CronSpec:  "* * * * *",
-		NextRunAt: scheduledFor,
+		ID:         scheduleID,
+		ScheduleID: "nightly-build",
+		JobID:      "scheduled-idempotent",
+		CronSpec:   "* * * * *",
+		NextRunAt:  scheduledFor,
 	}
 
 	if err := service.TriggerSchedule(ctx, sched); err != nil {
@@ -686,6 +692,30 @@ func TestCronService_TriggerSchedule_ReusesRunForDuplicateTick(t *testing.T) {
 
 	if runCount != 1 {
 		t.Fatalf("expected one job_runs row for duplicate scheduled tick, got %d", runCount)
+	}
+
+	runRec, err := dal.NewSQLRepositories(db).Runs().GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("get scheduled run: %v", err)
+	}
+
+	triggerPayload := map[string]string{
+		"configured_schedule_id": "nightly-build",
+		"cron_spec":              "* * * * *",
+		"job_id":                 "scheduled-idempotent",
+		"next_run_at":            scheduledFor.Format(time.RFC3339Nano),
+		"schedule_id":            strconv.FormatInt(scheduleID, 10),
+		"triggered":              clock.Now().UTC().Format(time.RFC3339Nano),
+	}
+
+	triggerPayloadJSON, err := json.Marshal(triggerPayload)
+	if err != nil {
+		t.Fatalf("marshal expected trigger payload: %v", err)
+	}
+
+	wantTriggerPayloadHash := dal.PayloadHash(string(triggerPayloadJSON))
+	if runRec.TriggerPayloadHash == nil || *runRec.TriggerPayloadHash != wantTriggerPayloadHash {
+		t.Fatalf("trigger payload hash: got %+v want %q", runRec.TriggerPayloadHash, wantTriggerPayloadHash)
 	}
 
 	var fireCount int

@@ -41,6 +41,7 @@ CREATE INDEX idx_job_triggers_source_job ON job_triggers(source_repository_id, j
 CREATE TABLE cron_trigger_specs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     trigger_id INTEGER NOT NULL REFERENCES job_triggers(id) ON DELETE CASCADE,
+    schedule_id TEXT NOT NULL DEFAULT '',
     cron_spec TEXT NOT NULL,
     next_run_at TIMESTAMP NOT NULL,
     claim_token TEXT,
@@ -53,6 +54,7 @@ CREATE TABLE cron_trigger_specs (
 
 CREATE INDEX idx_cron_next_run ON cron_trigger_specs(next_run_at);
 CREATE INDEX idx_cron_claimed_until ON cron_trigger_specs(claimed_until);
+CREATE UNIQUE INDEX uidx_cron_schedule_id ON cron_trigger_specs(schedule_id) WHERE schedule_id <> '';
 
 CREATE TABLE trigger_invocations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -33,6 +33,7 @@ import (
 type CronSchedule struct {
 	ID                 int64
 	TriggerID          int64
+	ScheduleID         string
 	JobID              string
 	CronSpec           string
 	NextRunAt          time.Time
@@ -233,6 +234,7 @@ func (s *CronService) GetReadySchedules(ctx context.Context) ([]CronSchedule, er
 		schedules = append(schedules, CronSchedule{
 			ID:                 sched.ID,
 			TriggerID:          sched.TriggerID,
+			ScheduleID:         sched.ScheduleID,
 			JobID:              sched.JobID,
 			CronSpec:           sched.CronSpec,
 			NextRunAt:          sched.NextRunAt,
@@ -549,6 +551,10 @@ func (s *CronService) recordTriggerInvocation(ctx context.Context, jobID string,
 		}
 
 		payload["schedule_id"] = strconv.FormatInt(schedule.ID, 10)
+		if schedule.ScheduleID != "" {
+			payload["configured_schedule_id"] = schedule.ScheduleID
+		}
+
 		payload["cron_spec"] = schedule.CronSpec
 		payload["next_run_at"] = schedule.NextRunAt.UTC().Format(time.RFC3339Nano)
 		if schedule.SourceRepositoryID != "" {

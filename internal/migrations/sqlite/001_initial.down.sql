@@ -18,6 +18,7 @@ DROP INDEX IF EXISTS idx_cron_schedule_fires_run_id;
 DROP INDEX IF EXISTS idx_run_dispatch_events_type;
 DROP INDEX IF EXISTS idx_run_dispatch_events_run_id_created_at;
 DROP INDEX IF EXISTS idx_trigger_invocations_job_created;
+DROP INDEX IF EXISTS uidx_cron_schedule_id;
 DROP INDEX IF EXISTS idx_cron_claimed_until;
 DROP INDEX IF EXISTS idx_cron_next_run;
 DROP INDEX IF EXISTS idx_job_triggers_source_job;

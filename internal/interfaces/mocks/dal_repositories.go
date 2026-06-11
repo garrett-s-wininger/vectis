@@ -1350,9 +1350,13 @@ type ReleaseClaimCall struct {
 }
 
 type MockSchedulesRepository struct {
-	Ready []dal.CronSchedule
+	Ready         []dal.CronSchedule
+	CronSchedules map[string]dal.CronScheduleRecord
 
 	GetReadyErr               error
+	CreateCronScheduleErr     error
+	UpdateCronScheduleErr     error
+	GetCronScheduleErr        error
 	ClaimDueErr               error
 	ClaimDueOK                bool
 	CompleteClaimErr          error
@@ -1370,7 +1374,72 @@ type MockSchedulesRepository struct {
 }
 
 func NewMockSchedulesRepository() *MockSchedulesRepository {
-	return &MockSchedulesRepository{ClaimDueOK: true, CompleteClaimOK: true}
+	return &MockSchedulesRepository{
+		ClaimDueOK:      true,
+		CompleteClaimOK: true,
+		CronSchedules:   map[string]dal.CronScheduleRecord{},
+	}
+}
+
+func (m *MockSchedulesRepository) CreateCronSchedule(ctx context.Context, rec dal.CronScheduleRecord) (dal.CronScheduleRecord, error) {
+	if m.CreateCronScheduleErr != nil {
+		return dal.CronScheduleRecord{}, m.CreateCronScheduleErr
+	}
+
+	if m.CronSchedules == nil {
+		m.CronSchedules = map[string]dal.CronScheduleRecord{}
+	}
+
+	if rec.ID == 0 {
+		rec.ID = int64(len(m.CronSchedules) + 1)
+	}
+
+	if rec.TriggerID == 0 {
+		rec.TriggerID = rec.ID
+	}
+
+	m.CronSchedules[rec.ScheduleID] = rec
+	return rec, nil
+}
+
+func (m *MockSchedulesRepository) UpdateCronSchedule(ctx context.Context, rec dal.CronScheduleRecord) (dal.CronScheduleRecord, error) {
+	if m.UpdateCronScheduleErr != nil {
+		return dal.CronScheduleRecord{}, m.UpdateCronScheduleErr
+	}
+
+	existing, err := m.GetCronScheduleByScheduleID(ctx, rec.ScheduleID)
+	if err != nil {
+		return dal.CronScheduleRecord{}, err
+	}
+
+	if rec.ID == 0 {
+		rec.ID = existing.ID
+	}
+
+	if rec.TriggerID == 0 {
+		rec.TriggerID = existing.TriggerID
+	}
+
+	if rec.NextRunAt.IsZero() {
+		rec.NextRunAt = existing.NextRunAt
+	}
+
+	m.CronSchedules[rec.ScheduleID] = rec
+	return rec, nil
+}
+
+func (m *MockSchedulesRepository) GetCronScheduleByScheduleID(ctx context.Context, scheduleID string) (dal.CronScheduleRecord, error) {
+	if m.GetCronScheduleErr != nil {
+		return dal.CronScheduleRecord{}, m.GetCronScheduleErr
+	}
+
+	if m.CronSchedules != nil {
+		if rec, ok := m.CronSchedules[scheduleID]; ok {
+			return rec, nil
+		}
+	}
+
+	return dal.CronScheduleRecord{}, fmt.Errorf("%w: cron schedule %s", dal.ErrNotFound, scheduleID)
 }
 
 func (m *MockSchedulesRepository) GetReady(ctx context.Context, at time.Time) ([]dal.CronSchedule, error) {

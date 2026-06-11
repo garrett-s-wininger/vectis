@@ -595,6 +595,7 @@ type CatalogStatusBackfillRepository interface {
 type CronSchedule struct {
 	ID                 int64
 	TriggerID          int64
+	ScheduleID         string
 	JobID              string
 	CronSpec           string
 	NextRunAt          time.Time
@@ -608,6 +609,19 @@ type CronScheduleSummary struct {
 	DueCount      int64
 	ClaimedCount  int64
 	OldestDueAt   *time.Time
+}
+
+type CronScheduleRecord struct {
+	ID                 int64
+	TriggerID          int64
+	ScheduleID         string
+	JobID              string
+	CronSpec           string
+	NextRunAt          time.Time
+	SourceRepositoryID string
+	SourceRef          string
+	SourcePath         string
+	Enabled            bool
 }
 
 type RunForCancel struct {
@@ -723,6 +737,9 @@ type SourceRepositoryRunLister interface {
 }
 
 type SchedulesRepository interface {
+	CreateCronSchedule(ctx context.Context, rec CronScheduleRecord) (CronScheduleRecord, error)
+	UpdateCronSchedule(ctx context.Context, rec CronScheduleRecord) (CronScheduleRecord, error)
+	GetCronScheduleByScheduleID(ctx context.Context, scheduleID string) (CronScheduleRecord, error)
 	GetReady(ctx context.Context, at time.Time) ([]CronSchedule, error)
 	ClaimDue(ctx context.Context, scheduleID int64, observedNextRun time.Time, claimToken string, claimedUntil, now time.Time) (bool, error)
 	CompleteClaim(ctx context.Context, scheduleID int64, claimToken string, nextRun time.Time) (bool, error)

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 
@@ -208,6 +209,188 @@ func TestReconcileConfiguredSourceRepositories_RejectsNamespaceMove(t *testing.T
 
 	if err := reconcileConfiguredSourceRepositories(ctx, repos, nil); err == nil {
 		t.Fatal("expected namespace move error")
+	}
+}
+
+func TestReconcileConfiguredSourceSchedules_CreatesAndUpdates(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_SOURCE_SCHEDULES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_SCHEDULES", "")
+
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+
+	viper.Set("source.repositories", []map[string]any{
+		{
+			"repository_id": "vectis",
+			"checkout_path": "/work/vectis",
+			"default_ref":   "main",
+			"enabled":       true,
+		},
+	})
+
+	if err := reconcileConfiguredSourceRepositories(ctx, repos, nil); err != nil {
+		t.Fatalf("reconcile repositories: %v", err)
+	}
+
+	viper.Set("source.schedules", []map[string]any{
+		{
+			"schedule_id":   "nightly-build",
+			"repository_id": "vectis",
+			"job_id":        "build",
+			"cron_spec":     "0 * * * *",
+			"ref":           "main",
+			"path":          ".vectis/jobs/build.json",
+			"enabled":       true,
+		},
+	})
+
+	if err := reconcileConfiguredSourceSchedules(ctx, repos, nil); err != nil {
+		t.Fatalf("reconcile schedule create: %v", err)
+	}
+
+	got, err := repos.Schedules().GetCronScheduleByScheduleID(ctx, "nightly-build")
+	if err != nil {
+		t.Fatalf("GetCronScheduleByScheduleID: %v", err)
+	}
+
+	if got.JobID != "build" ||
+		got.SourceRepositoryID != "vectis" ||
+		got.SourceRef != "main" ||
+		got.SourcePath != ".vectis/jobs/build.json" ||
+		got.CronSpec != "0 * * * *" ||
+		!got.Enabled ||
+		got.NextRunAt.IsZero() {
+		t.Fatalf("created schedule mismatch: %+v", got)
+	}
+
+	viper.Set("source.schedules", []map[string]any{
+		{
+			"schedule_id":   "nightly-build",
+			"repository_id": "vectis",
+			"job_id":        "deploy",
+			"cron_spec":     "30 * * * *",
+			"ref":           "release",
+			"path":          ".vectis/jobs/deploy.json",
+			"enabled":       false,
+		},
+	})
+
+	if err := reconcileConfiguredSourceSchedules(ctx, repos, nil); err != nil {
+		t.Fatalf("reconcile schedule update: %v", err)
+	}
+
+	got, err = repos.Schedules().GetCronScheduleByScheduleID(ctx, "nightly-build")
+	if err != nil {
+		t.Fatalf("GetCronScheduleByScheduleID after update: %v", err)
+	}
+
+	if got.JobID != "deploy" ||
+		got.SourceRepositoryID != "vectis" ||
+		got.SourceRef != "release" ||
+		got.SourcePath != ".vectis/jobs/deploy.json" ||
+		got.CronSpec != "30 * * * *" ||
+		got.Enabled {
+		t.Fatalf("updated schedule mismatch: %+v", got)
+	}
+
+	oldNextRun := time.Date(2026, 1, 1, 0, 30, 0, 0, time.UTC)
+	if _, err := db.ExecContext(ctx, "UPDATE cron_trigger_specs SET next_run_at = ? WHERE id = ?", oldNextRun.Format(time.RFC3339), got.ID); err != nil {
+		t.Fatalf("force disabled next_run_at: %v", err)
+	}
+
+	viper.Set("source.schedules", []map[string]any{
+		{
+			"schedule_id":   "nightly-build",
+			"repository_id": "vectis",
+			"job_id":        "deploy",
+			"cron_spec":     "30 * * * *",
+			"ref":           "release",
+			"path":          ".vectis/jobs/deploy.json",
+			"enabled":       true,
+		},
+	})
+
+	if err := reconcileConfiguredSourceSchedules(ctx, repos, nil); err != nil {
+		t.Fatalf("reconcile schedule enable: %v", err)
+	}
+
+	got, err = repos.Schedules().GetCronScheduleByScheduleID(ctx, "nightly-build")
+	if err != nil {
+		t.Fatalf("GetCronScheduleByScheduleID after enable: %v", err)
+	}
+
+	if !got.Enabled {
+		t.Fatalf("expected enabled schedule after reconcile: %+v", got)
+	}
+
+	if !got.NextRunAt.After(oldNextRun) {
+		t.Fatalf("expected re-enabled schedule to compute a fresh next_run_at after %v, got %v", oldNextRun, got.NextRunAt)
+	}
+}
+
+func TestReconcileConfiguredSourceSchedules_RejectsInvalid(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_SOURCE_SCHEDULES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_SCHEDULES", "")
+
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+
+	viper.Set("source.schedules", []map[string]any{
+		{
+			"schedule_id":   "missing-repo",
+			"repository_id": "missing",
+			"job_id":        "build",
+			"cron_spec":     "0 * * * *",
+		},
+	})
+
+	if err := reconcileConfiguredSourceSchedules(ctx, repos, nil); err == nil {
+		t.Fatal("expected missing repository error")
+	}
+
+	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "vectis",
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/vectis",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("CreateRepository: %v", err)
+	}
+
+	viper.Set("source.schedules", []map[string]any{
+		{
+			"schedule_id":   "bad-cron",
+			"repository_id": "vectis",
+			"job_id":        "build",
+			"cron_spec":     "not a cron spec",
+		},
+	})
+
+	if err := reconcileConfiguredSourceSchedules(ctx, repos, nil); err == nil {
+		t.Fatal("expected invalid cron spec error")
+	}
+
+	viper.Set("source.schedules", []map[string]any{
+		{
+			"schedule_id":   "bad-job-id",
+			"repository_id": "vectis",
+			"job_id":        "bad/id",
+			"cron_spec":     "0 * * * *",
+		},
+	})
+
+	if err := reconcileConfiguredSourceSchedules(ctx, repos, nil); err == nil {
+		t.Fatal("expected invalid derived source path error")
 	}
 }
 

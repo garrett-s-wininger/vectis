@@ -242,6 +242,7 @@ type SourceDefaults struct {
 	SyncConfiguredRepositoriesOnStartup bool                          `toml:"sync_configured_repositories_on_startup"`
 	SyncRunningTimeout                  tomlDuration                  `toml:"sync_running_timeout"`
 	Repositories                        []SourceRepositoryDeclaration `toml:"repositories"`
+	Schedules                           []SourceScheduleDeclaration   `toml:"schedules"`
 }
 
 type PgxPoolDefaults struct {
