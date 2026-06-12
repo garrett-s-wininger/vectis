@@ -576,7 +576,7 @@ func deleteSourceWithOutput(out io.Writer, repositoryID string, confirmed bool) 
 		_, err := fmt.Fprintf(out, "Source repository %q deleted.\n", repositoryID)
 		return err
 	case http.StatusConflict:
-		return fmt.Errorf("source repository %q has source schedules or recorded source provenance; disable it instead or remove dependent references first", repositoryID)
+		return fmt.Errorf("source repository %q is still declared, has source schedules, or has recorded source provenance; remove it from current config, disable it, or remove dependent references first", repositoryID)
 	case http.StatusNotFound:
 		return fmt.Errorf("source repository %q not found", repositoryID)
 	default:
@@ -1850,7 +1850,7 @@ var sourcesCmd = &cobra.Command{
 var sourcesListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List source repositories",
-	Long:  `Fetch registered source repositories and print their checkout, authoring, and sync state.`,
+	Long:  `Fetch registered source repositories and print their checkout, authoring, declared, enabled, and sync state. Use --stale to show rows missing from current API config.`,
 	Args:  cobra.NoArgs,
 	Run:   listSources,
 }
@@ -1866,7 +1866,7 @@ var sourcesRegisterCmd = &cobra.Command{
 var sourcesGetCmd = &cobra.Command{
 	Use:   "get [repository-id]",
 	Short: "Show a source repository registration",
-	Long:  `Fetch one source repository registration and print its checkout, authoring, enabled, and sync metadata.`,
+	Long:  `Fetch one source repository registration and print its checkout, authoring, declared, enabled, and sync metadata.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   getSource,
 }
@@ -1882,7 +1882,7 @@ var sourcesUpdateCmd = &cobra.Command{
 var sourcesDeleteCmd = &cobra.Command{
 	Use:   "delete [repository-id]",
 	Short: "Delete a source repository registration",
-	Long:  `Delete a source repository registration. Checkout files are left untouched, and repositories with source schedules or recorded source provenance must be disabled instead of deleted.`,
+	Long:  `Delete a source repository registration. Checkout files are left untouched, and repositories still declared in config or referenced by source schedules or recorded source provenance must be disabled instead of deleted.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   deleteSource,
 }

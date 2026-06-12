@@ -1342,7 +1342,7 @@ func TestDeleteSource_reportsReferenceConflicts(t *testing.T) {
 	}
 
 	msg := err.Error()
-	for _, want := range []string{"source schedules", "recorded source provenance"} {
+	for _, want := range []string{"still declared", "source schedules", "recorded source provenance"} {
 		if !strings.Contains(msg, want) {
 			t.Fatalf("expected error to contain %q, got %q", want, msg)
 		}
