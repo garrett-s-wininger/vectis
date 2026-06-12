@@ -184,16 +184,32 @@ type sourceRepositoryJobsResponse struct {
 }
 
 type sourceCronScheduleResponse struct {
-	ScheduleID   string `json:"schedule_id"`
-	RepositoryID string `json:"repository_id"`
-	Namespace    string `json:"namespace"`
-	JobID        string `json:"job_id"`
-	CronSpec     string `json:"cron_spec"`
-	NextRunAt    string `json:"next_run_at"`
-	Ref          string `json:"ref,omitempty"`
-	Path         string `json:"path,omitempty"`
-	PathDerived  bool   `json:"path_derived"`
-	Enabled      bool   `json:"enabled"`
+	ScheduleID     string                              `json:"schedule_id"`
+	RepositoryID   string                              `json:"repository_id"`
+	Namespace      string                              `json:"namespace"`
+	JobID          string                              `json:"job_id"`
+	CronSpec       string                              `json:"cron_spec"`
+	NextRunAt      string                              `json:"next_run_at"`
+	Ref            string                              `json:"ref,omitempty"`
+	Path           string                              `json:"path,omitempty"`
+	PathDerived    bool                                `json:"path_derived"`
+	ConfiguredRef  string                              `json:"configured_ref"`
+	ConfiguredPath string                              `json:"configured_path"`
+	Override       *sourceCronScheduleOverrideResponse `json:"override,omitempty"`
+	Enabled        bool                                `json:"enabled"`
+}
+
+type sourceCronScheduleOverrideRequest struct {
+	Ref    string `json:"ref"`
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
+}
+
+type sourceCronScheduleOverrideResponse struct {
+	Ref           string `json:"ref,omitempty"`
+	Path          string `json:"path,omitempty"`
+	Reason        string `json:"reason,omitempty"`
+	CreatedAtUnix int64  `json:"created_at_unix,omitempty"`
 }
 
 type sourceCronSchedulesResponse struct {
@@ -665,6 +681,115 @@ func (s *APIServer) ListSourceRepositorySchedules(w http.ResponseWriter, r *http
 		RepositoryID: rec.RepositoryID,
 		Schedules:    sourceCronScheduleRecordsToResponse(recs, nsPath),
 	})
+}
+
+func (s *APIServer) PutSourceScheduleOverride(w http.ResponseWriter, r *http.Request) {
+	if !requestContentTypeIsJSON(r) {
+		writeAPIErrorCode(w, http.StatusUnsupportedMediaType, apiErrUnsupportedMediaType)
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxJSONDocumentBodyBytes))
+	if err != nil {
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrRequestReadFailed)
+		return
+	}
+
+	var req sourceCronScheduleOverrideRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidRequestBody)
+		return
+	}
+
+	req.Ref = strings.TrimSpace(req.Ref)
+	req.Path = strings.TrimSpace(req.Path)
+	req.Reason = strings.TrimSpace(req.Reason)
+	if req.Ref == "" && req.Path == "" {
+		writeAPIError(w, http.StatusBadRequest, "missing_source_schedule_override", "ref or path is required", nil)
+		return
+	}
+
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireNamespaces(w) || !s.requireSources(w) || !s.requireSchedules(w) {
+		return
+	}
+
+	scheduleID := r.PathValue("schedule_id")
+	_, namespacePath, ok := s.getAuthorizedSourceSchedule(ctx, w, p, scheduleID, authz.ActionJobWrite)
+	if !ok {
+		return
+	}
+
+	rec, err := s.schedules.SetSourceCronScheduleOverride(ctx, scheduleID, dal.SourceScheduleOverride{
+		Ref:    req.Ref,
+		Path:   req.Path,
+		Reason: req.Reason,
+	})
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "source_schedule_not_found", "source schedule not found", nil)
+			return
+		}
+		if dal.IsConflict(err) {
+			writeAPIError(w, http.StatusBadRequest, "invalid_source_schedule_override", "invalid source schedule override", nil)
+			return
+		}
+
+		s.logger.Error("Database error setting source schedule override: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+	s.markDBRecovered()
+
+	writeJSON(w, http.StatusOK, sourceCronScheduleRecordToResponse(rec, namespacePath))
+}
+
+func (s *APIServer) DeleteSourceScheduleOverride(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireNamespaces(w) || !s.requireSources(w) || !s.requireSchedules(w) {
+		return
+	}
+
+	scheduleID := r.PathValue("schedule_id")
+	_, namespacePath, ok := s.getAuthorizedSourceSchedule(ctx, w, p, scheduleID, authz.ActionJobWrite)
+	if !ok {
+		return
+	}
+
+	rec, err := s.schedules.ClearSourceCronScheduleOverride(ctx, scheduleID)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "source_schedule_not_found", "source schedule not found", nil)
+			return
+		}
+
+		s.logger.Error("Database error clearing source schedule override: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+	s.markDBRecovered()
+
+	writeJSON(w, http.StatusOK, sourceCronScheduleRecordToResponse(rec, namespacePath))
 }
 
 func (s *APIServer) DeleteSourceRepository(w http.ResponseWriter, r *http.Request) {
@@ -2320,6 +2445,74 @@ func (s *APIServer) getAuthorizedSourceRepository(ctx context.Context, w http.Re
 	return rec, ns.Path, true
 }
 
+func (s *APIServer) getAuthorizedSourceSchedule(ctx context.Context, w http.ResponseWriter, p *authn.Principal, scheduleID string, action authz.Action) (dal.CronScheduleRecord, string, bool) {
+	scheduleID = strings.TrimSpace(scheduleID)
+	if scheduleID == "" {
+		writeAPIError(w, http.StatusBadRequest, "missing_schedule_id", "schedule_id is required", nil)
+		return dal.CronScheduleRecord{}, "", false
+	}
+
+	rec, err := s.schedules.GetCronScheduleByScheduleID(ctx, scheduleID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "source_schedule_not_found", "source schedule not found", nil)
+			return dal.CronScheduleRecord{}, "", false
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return dal.CronScheduleRecord{}, "", false
+		}
+
+		s.logger.Error("Database error getting source schedule: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return dal.CronScheduleRecord{}, "", false
+	}
+	s.markDBRecovered()
+
+	if strings.TrimSpace(rec.SourceRepositoryID) == "" {
+		writeAPIError(w, http.StatusNotFound, "source_schedule_not_found", "source schedule not found", nil)
+		return dal.CronScheduleRecord{}, "", false
+	}
+
+	repo, err := s.sources.GetRepository(ctx, rec.SourceRepositoryID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "source_repository_not_found", "source repository not found", nil)
+			return dal.CronScheduleRecord{}, "", false
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return dal.CronScheduleRecord{}, "", false
+		}
+
+		s.logger.Error("Database error getting source schedule repository: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return dal.CronScheduleRecord{}, "", false
+	}
+
+	ns, err := s.namespaces.GetByID(ctx, repo.NamespaceID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "source_repository_not_found", "source repository namespace not found", nil)
+			return dal.CronScheduleRecord{}, "", false
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return dal.CronScheduleRecord{}, "", false
+		}
+
+		s.logger.Error("Database error getting source schedule namespace: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return dal.CronScheduleRecord{}, "", false
+	}
+
+	if !s.authorizeNamespace(ctx, w, p, action, ns.Path) {
+		return dal.CronScheduleRecord{}, "", false
+	}
+
+	return rec, ns.Path, true
+}
+
 func (s *APIServer) sourceRepositoryRecordToResponse(rec dal.SourceRepositoryRecord, namespacePath string) sourceRepositoryResponse {
 	return sourceRepositoryResponse{
 		RepositoryID:  rec.RepositoryID,
@@ -2347,7 +2540,16 @@ func sourceCronScheduleRecordsToResponse(recs []dal.CronScheduleRecord, namespac
 }
 
 func sourceCronScheduleRecordToResponse(rec dal.CronScheduleRecord, namespacePath string) sourceCronScheduleResponse {
+	effectiveRef := strings.TrimSpace(rec.SourceRef)
+	if ref := strings.TrimSpace(rec.SourceOverrideRef); ref != "" {
+		effectiveRef = ref
+	}
+
 	definitionPath := strings.TrimSpace(rec.SourcePath)
+	if path := strings.TrimSpace(rec.SourceOverridePath); path != "" {
+		definitionPath = path
+	}
+
 	pathDerived := false
 	if definitionPath == "" {
 		if path, err := sourcepkg.DefinitionPathForJobID(rec.JobID); err == nil {
@@ -2356,18 +2558,31 @@ func sourceCronScheduleRecordToResponse(rec dal.CronScheduleRecord, namespacePat
 		}
 	}
 
-	return sourceCronScheduleResponse{
-		ScheduleID:   rec.ScheduleID,
-		RepositoryID: rec.SourceRepositoryID,
-		Namespace:    namespacePath,
-		JobID:        rec.JobID,
-		CronSpec:     rec.CronSpec,
-		NextRunAt:    rec.NextRunAt.UTC().Format(time.RFC3339),
-		Ref:          rec.SourceRef,
-		Path:         definitionPath,
-		PathDerived:  pathDerived,
-		Enabled:      rec.Enabled,
+	resp := sourceCronScheduleResponse{
+		ScheduleID:     rec.ScheduleID,
+		RepositoryID:   rec.SourceRepositoryID,
+		Namespace:      namespacePath,
+		JobID:          rec.JobID,
+		CronSpec:       rec.CronSpec,
+		NextRunAt:      rec.NextRunAt.UTC().Format(time.RFC3339),
+		Ref:            effectiveRef,
+		Path:           definitionPath,
+		PathDerived:    pathDerived,
+		ConfiguredRef:  rec.SourceRef,
+		ConfiguredPath: rec.SourcePath,
+		Enabled:        rec.Enabled,
 	}
+
+	if rec.SourceOverrideRef != "" || rec.SourceOverridePath != "" {
+		resp.Override = &sourceCronScheduleOverrideResponse{
+			Ref:           rec.SourceOverrideRef,
+			Path:          rec.SourceOverridePath,
+			Reason:        rec.SourceOverrideReason,
+			CreatedAtUnix: rec.SourceOverrideCreatedAtUnix,
+		}
+	}
+
+	return resp
 }
 
 func (s *APIServer) sourceRepositoryStatusFromRecord(ctx context.Context, rec dal.SourceRepositoryRecord, namespacePath string) sourceRepositoryStatusResponse {

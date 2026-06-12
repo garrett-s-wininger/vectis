@@ -593,15 +593,19 @@ type CatalogStatusBackfillRepository interface {
 }
 
 type CronSchedule struct {
-	ID                 int64
-	TriggerID          int64
-	ScheduleID         string
-	JobID              string
-	CronSpec           string
-	NextRunAt          time.Time
-	SourceRepositoryID string
-	SourceRef          string
-	SourcePath         string
+	ID                          int64
+	TriggerID                   int64
+	ScheduleID                  string
+	JobID                       string
+	CronSpec                    string
+	NextRunAt                   time.Time
+	SourceRepositoryID          string
+	SourceRef                   string
+	SourcePath                  string
+	SourceOverrideRef           string
+	SourceOverridePath          string
+	SourceOverrideReason        string
+	SourceOverrideCreatedAtUnix int64
 }
 
 type CronScheduleSummary struct {
@@ -612,16 +616,27 @@ type CronScheduleSummary struct {
 }
 
 type CronScheduleRecord struct {
-	ID                 int64
-	TriggerID          int64
-	ScheduleID         string
-	JobID              string
-	CronSpec           string
-	NextRunAt          time.Time
-	SourceRepositoryID string
-	SourceRef          string
-	SourcePath         string
-	Enabled            bool
+	ID                          int64
+	TriggerID                   int64
+	ScheduleID                  string
+	JobID                       string
+	CronSpec                    string
+	NextRunAt                   time.Time
+	SourceRepositoryID          string
+	SourceRef                   string
+	SourcePath                  string
+	SourceOverrideRef           string
+	SourceOverridePath          string
+	SourceOverrideReason        string
+	SourceOverrideCreatedAtUnix int64
+	Enabled                     bool
+}
+
+type SourceScheduleOverride struct {
+	Ref           string
+	Path          string
+	Reason        string
+	CreatedAtUnix int64
 }
 
 type RunForCancel struct {
@@ -741,6 +756,8 @@ type SchedulesRepository interface {
 	UpdateCronSchedule(ctx context.Context, rec CronScheduleRecord) (CronScheduleRecord, error)
 	GetCronScheduleByScheduleID(ctx context.Context, scheduleID string) (CronScheduleRecord, error)
 	ListSourceCronSchedules(ctx context.Context, namespaceID int64, repositoryID string) ([]CronScheduleRecord, error)
+	SetSourceCronScheduleOverride(ctx context.Context, scheduleID string, override SourceScheduleOverride) (CronScheduleRecord, error)
+	ClearSourceCronScheduleOverride(ctx context.Context, scheduleID string) (CronScheduleRecord, error)
 	GetReady(ctx context.Context, at time.Time) ([]CronSchedule, error)
 	ClaimDue(ctx context.Context, scheduleID int64, observedNextRun time.Time, claimToken string, claimedUntil, now time.Time) (bool, error)
 	CompleteClaim(ctx context.Context, scheduleID int64, claimToken string, nextRun time.Time) (bool, error)

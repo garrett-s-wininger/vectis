@@ -237,6 +237,13 @@ List reconciled source schedules:
 ./bin/vectis-cli sources schedules vectis-local
 ```
 
+Temporarily point a source schedule at a hotfix ref or definition path, then clear the override after the fix lands in the configured location:
+
+```sh
+./bin/vectis-cli sources override nightly-build --ref hotfix/build --path .vectis/jobs/build-hotfix.json --reason "production hotfix"
+./bin/vectis-cli sources clear-override nightly-build
+```
+
 For a Vectis-managed checkout, omit the checkout path and provide the canonical clone URL:
 
 ```sh

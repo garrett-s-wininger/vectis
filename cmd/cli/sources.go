@@ -194,22 +194,38 @@ type sourceRepositoryJobsResult struct {
 }
 
 type sourceScheduleSummary struct {
-	ScheduleID   string `json:"schedule_id"`
-	RepositoryID string `json:"repository_id"`
-	Namespace    string `json:"namespace"`
-	JobID        string `json:"job_id"`
-	CronSpec     string `json:"cron_spec"`
-	NextRunAt    string `json:"next_run_at"`
-	Ref          string `json:"ref,omitempty"`
-	Path         string `json:"path,omitempty"`
-	PathDerived  bool   `json:"path_derived"`
-	Enabled      bool   `json:"enabled"`
+	ScheduleID     string                  `json:"schedule_id"`
+	RepositoryID   string                  `json:"repository_id"`
+	Namespace      string                  `json:"namespace"`
+	JobID          string                  `json:"job_id"`
+	CronSpec       string                  `json:"cron_spec"`
+	NextRunAt      string                  `json:"next_run_at"`
+	Ref            string                  `json:"ref,omitempty"`
+	Path           string                  `json:"path,omitempty"`
+	PathDerived    bool                    `json:"path_derived"`
+	ConfiguredRef  string                  `json:"configured_ref"`
+	ConfiguredPath string                  `json:"configured_path"`
+	Override       *sourceScheduleOverride `json:"override,omitempty"`
+	Enabled        bool                    `json:"enabled"`
+}
+
+type sourceScheduleOverride struct {
+	Ref           string `json:"ref,omitempty"`
+	Path          string `json:"path,omitempty"`
+	Reason        string `json:"reason,omitempty"`
+	CreatedAtUnix int64  `json:"created_at_unix,omitempty"`
 }
 
 type sourceSchedulesResult struct {
 	Namespace    string                  `json:"namespace"`
 	RepositoryID string                  `json:"repository_id,omitempty"`
 	Schedules    []sourceScheduleSummary `json:"schedules"`
+}
+
+type sourceScheduleOverrideRequest struct {
+	Ref    string `json:"ref,omitempty"`
+	Path   string `json:"path,omitempty"`
+	Reason string `json:"reason,omitempty"`
 }
 
 type sourceRepositoryJobDefinitionResult struct {
@@ -801,6 +817,108 @@ func sourceSchedulePathForDisplay(schedule sourceScheduleSummary) string {
 	}
 
 	return path
+}
+
+func setSourceScheduleOverride(cmd *cobra.Command, args []string) {
+	runCLIError(setSourceScheduleOverrideWithOutput(os.Stdout, args[0]))
+}
+
+func setSourceScheduleOverrideWithOutput(out io.Writer, scheduleID string) error {
+	payload := sourceScheduleOverrideRequest{
+		Ref:    strings.TrimSpace(sourceOverrideRef),
+		Path:   strings.TrimSpace(sourceOverridePath),
+		Reason: strings.TrimSpace(sourceOverrideReason),
+	}
+	if payload.Ref == "" && payload.Path == "" {
+		return fmt.Errorf("--ref or --path is required")
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to encode source schedule override: %w", err)
+	}
+
+	req, err := newAPIRequest(http.MethodPut, "/api/v1/source-schedules/"+url.PathEscape(scheduleID)+"/override", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create source schedule override request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to set source schedule override: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var schedule sourceScheduleSummary
+		if err := json.NewDecoder(resp.Body).Decode(&schedule); err != nil {
+			return fmt.Errorf("failed to parse source schedule override response: %w", err)
+		}
+		return writeSourceScheduleOverrideSetResult(out, schedule)
+	case http.StatusBadRequest:
+		return fmt.Errorf("invalid source schedule override")
+	case http.StatusNotFound:
+		return fmt.Errorf("source schedule %q not found", scheduleID)
+	case http.StatusUnsupportedMediaType:
+		return fmt.Errorf("content type must be application/json")
+	default:
+		return fmt.Errorf("unexpected status setting source schedule override: %s", resp.Status)
+	}
+}
+
+func clearSourceScheduleOverride(cmd *cobra.Command, args []string) {
+	runCLIError(clearSourceScheduleOverrideWithOutput(os.Stdout, args[0]))
+}
+
+func clearSourceScheduleOverrideWithOutput(out io.Writer, scheduleID string) error {
+	req, err := newAPIRequest(http.MethodDelete, "/api/v1/source-schedules/"+url.PathEscape(scheduleID)+"/override", nil)
+	if err != nil {
+		return fmt.Errorf("failed to create source schedule override clear request: %w", err)
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to clear source schedule override: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var schedule sourceScheduleSummary
+		if err := json.NewDecoder(resp.Body).Decode(&schedule); err != nil {
+			return fmt.Errorf("failed to parse source schedule override clear response: %w", err)
+		}
+		return writeSourceScheduleOverrideClearResult(out, schedule)
+	case http.StatusNotFound:
+		return fmt.Errorf("source schedule %q not found", scheduleID)
+	default:
+		return fmt.Errorf("unexpected status clearing source schedule override: %s", resp.Status)
+	}
+}
+
+func writeSourceScheduleOverrideSetResult(out io.Writer, schedule sourceScheduleSummary) error {
+	if outputIsJSON() {
+		return writeJSON(out, schedule)
+	}
+
+	fmt.Fprintf(out, "Source schedule %q override set.\n", schedule.ScheduleID)
+	fmt.Fprintf(out, "ref=%s\n", emptyAsDash(schedule.Ref))
+	fmt.Fprintf(out, "path=%s\n", emptyAsDash(schedule.Path))
+	if schedule.Override != nil && strings.TrimSpace(schedule.Override.Reason) != "" {
+		fmt.Fprintf(out, "reason=%s\n", schedule.Override.Reason)
+	}
+	return nil
+}
+
+func writeSourceScheduleOverrideClearResult(out io.Writer, schedule sourceScheduleSummary) error {
+	if outputIsJSON() {
+		return writeJSON(out, schedule)
+	}
+
+	_, err := fmt.Fprintf(out, "Source schedule %q override cleared.\n", schedule.ScheduleID)
+	return err
 }
 
 func listSourceBranches(cmd *cobra.Command, args []string) {
@@ -1601,6 +1719,22 @@ var sourcesSchedulesCmd = &cobra.Command{
 	Run:   listSourceSchedules,
 }
 
+var sourcesOverrideCmd = &cobra.Command{
+	Use:   "override [schedule-id]",
+	Short: "Set a source schedule hotfix override",
+	Long:  `Set a temporary source ref or path override for a source-backed cron schedule. Clear it once the fix lands in the configured repository path.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   setSourceScheduleOverride,
+}
+
+var sourcesClearOverrideCmd = &cobra.Command{
+	Use:   "clear-override [schedule-id]",
+	Short: "Clear a source schedule hotfix override",
+	Long:  `Clear a source-backed cron schedule override so future runs return to the configured ref and path.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   clearSourceScheduleOverride,
+}
+
 var sourcesBranchesCmd = &cobra.Command{
 	Use:   "branches [repository-id]",
 	Short: "List source repository branches",
@@ -1697,6 +1831,12 @@ func configureSourcesListFlags(cmd *cobra.Command) {
 func configureSourcesSchedulesFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&sourceSchedulesNamespace, "namespace", "", "Namespace to list source schedules from when no repository is specified (default: /)")
 	cmd.Flags().BoolVarP(&sourceSchedulesQuiet, "quiet", "q", false, "Print only schedule IDs")
+}
+
+func configureSourcesOverrideFlags(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&sourceOverrideRef, "ref", "", "Override git ref")
+	cmd.Flags().StringVar(&sourceOverridePath, "path", "", "Override definition file path")
+	cmd.Flags().StringVar(&sourceOverrideReason, "reason", "", "Reason for the temporary override")
 }
 
 func configureSourcesRegisterFlags(cmd *cobra.Command) {

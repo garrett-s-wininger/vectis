@@ -476,6 +476,77 @@ func TestCronService_ProcessSchedules_TriggersSourceRepositorySchedule(t *testin
 	}
 }
 
+func TestCronService_ProcessSchedules_UsesSourceScheduleOverride(t *testing.T) {
+	repoPath := initCronGitRepo(t)
+	writeCronJobDefinitionAndCommit(t, repoPath, "base-cron", "base definition")
+	cronGit(t, repoPath, "checkout", "-b", "hotfix/build")
+	writeCronFileAndCommit(t, repoPath, ".vectis/jobs/build-hotfix.json", `{
+		"root": {"id": "root", "uses": "builtins/shell", "with": {"command": "hotfix-cron"}}
+	}`+"\n", "hotfix definition")
+
+	hotfixCommit := cronGitOutput(t, repoPath, "rev-parse", "hotfix/build")
+	hotfixBlob := cronGitOutput(t, repoPath, "rev-parse", "hotfix/build:.vectis/jobs/build-hotfix.json")
+
+	service, _, queueService, db := setupTestCronService(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositories(db)
+
+	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "source-repo",
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: repoPath,
+		DefaultRef:   "HEAD",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("create source repository: %v", err)
+	}
+
+	pastTime := time.Now().Add(-24 * time.Hour)
+	if _, err := repos.Schedules().CreateCronSchedule(ctx, dal.CronScheduleRecord{
+		ScheduleID:         "nightly-build",
+		JobID:              "build",
+		CronSpec:           "* * * * *",
+		NextRunAt:          pastTime,
+		SourceRepositoryID: "source-repo",
+		Enabled:            true,
+	}); err != nil {
+		t.Fatalf("create source schedule: %v", err)
+	}
+
+	if _, err := repos.Schedules().SetSourceCronScheduleOverride(ctx, "nightly-build", dal.SourceScheduleOverride{
+		Ref:    "hotfix/build",
+		Path:   ".vectis/jobs/build-hotfix.json",
+		Reason: "production hotfix",
+	}); err != nil {
+		t.Fatalf("set source schedule override: %v", err)
+	}
+
+	if err := service.ProcessSchedules(ctx); err != nil {
+		t.Fatalf("process source schedule override: %v", err)
+	}
+
+	jobs := queueService.GetJobs()
+	if len(jobs) != 1 {
+		t.Fatalf("expected 1 source job enqueued, got %d", len(jobs))
+	}
+
+	if jobs[0].GetRoot().GetWith()["command"] != "hotfix-cron" {
+		t.Fatalf("expected hotfix source cron command, got %+v", jobs[0])
+	}
+
+	sourceRec, err := repos.Sources().GetDefinitionSource(ctx, "build", 1)
+	if err != nil {
+		t.Fatalf("get source cron override provenance: %v", err)
+	}
+
+	if sourceRec.RequestedRef != "hotfix/build" ||
+		sourceRec.ResolvedCommit != hotfixCommit ||
+		sourceRec.DefinitionPath != ".vectis/jobs/build-hotfix.json" ||
+		sourceRec.BlobSHA != hotfixBlob {
+		t.Fatalf("source cron override provenance mismatch: %+v", sourceRec)
+	}
+}
+
 func TestCronService_ProcessSchedules_InvalidCronSpec(t *testing.T) {
 	service, logger, queueService, db := setupTestCronService(t)
 

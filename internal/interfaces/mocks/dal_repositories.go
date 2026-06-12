@@ -1353,20 +1353,22 @@ type MockSchedulesRepository struct {
 	Ready         []dal.CronSchedule
 	CronSchedules map[string]dal.CronScheduleRecord
 
-	GetReadyErr                error
-	CreateCronScheduleErr      error
-	UpdateCronScheduleErr      error
-	GetCronScheduleErr         error
-	ListSourceCronSchedulesErr error
-	ClaimDueErr                error
-	ClaimDueOK                 bool
-	CompleteClaimErr           error
-	CompleteClaimOK            bool
-	ReleaseClaimErr            error
-	CountCronSchedulesErr      error
-	CountCronSchedulesResult   int64
-	CronScheduleSummaryErr     error
-	CronScheduleSummaryResult  dal.CronScheduleSummary
+	GetReadyErr                        error
+	CreateCronScheduleErr              error
+	UpdateCronScheduleErr              error
+	GetCronScheduleErr                 error
+	ListSourceCronSchedulesErr         error
+	SetSourceCronScheduleOverrideErr   error
+	ClearSourceCronScheduleOverrideErr error
+	ClaimDueErr                        error
+	ClaimDueOK                         bool
+	CompleteClaimErr                   error
+	CompleteClaimOK                    bool
+	ReleaseClaimErr                    error
+	CountCronSchedulesErr              error
+	CountCronSchedulesResult           int64
+	CronScheduleSummaryErr             error
+	CronScheduleSummaryResult          dal.CronScheduleSummary
 
 	GetReadyCalled     int
 	ClaimDueCalls      []ClaimDueCall
@@ -1425,6 +1427,11 @@ func (m *MockSchedulesRepository) UpdateCronSchedule(ctx context.Context, rec da
 		rec.NextRunAt = existing.NextRunAt
 	}
 
+	rec.SourceOverrideRef = existing.SourceOverrideRef
+	rec.SourceOverridePath = existing.SourceOverridePath
+	rec.SourceOverrideReason = existing.SourceOverrideReason
+	rec.SourceOverrideCreatedAtUnix = existing.SourceOverrideCreatedAtUnix
+
 	m.CronSchedules[rec.ScheduleID] = rec
 	return rec, nil
 }
@@ -1460,6 +1467,55 @@ func (m *MockSchedulesRepository) ListSourceCronSchedules(ctx context.Context, n
 	}
 
 	return out, nil
+}
+
+func (m *MockSchedulesRepository) SetSourceCronScheduleOverride(ctx context.Context, scheduleID string, override dal.SourceScheduleOverride) (dal.CronScheduleRecord, error) {
+	if m.SetSourceCronScheduleOverrideErr != nil {
+		return dal.CronScheduleRecord{}, m.SetSourceCronScheduleOverrideErr
+	}
+
+	rec, err := m.GetCronScheduleByScheduleID(ctx, scheduleID)
+	if err != nil {
+		return dal.CronScheduleRecord{}, err
+	}
+
+	if rec.SourceRepositoryID == "" {
+		return dal.CronScheduleRecord{}, fmt.Errorf("%w: source cron schedule %s", dal.ErrNotFound, scheduleID)
+	}
+
+	rec.SourceOverrideRef = strings.TrimSpace(override.Ref)
+	rec.SourceOverridePath = strings.TrimSpace(override.Path)
+	rec.SourceOverrideReason = strings.TrimSpace(override.Reason)
+	rec.SourceOverrideCreatedAtUnix = override.CreatedAtUnix
+	if rec.SourceOverrideCreatedAtUnix == 0 {
+		rec.SourceOverrideCreatedAtUnix = time.Now().UTC().Unix()
+	}
+
+	m.CronSchedules[scheduleID] = rec
+	return rec, nil
+}
+
+func (m *MockSchedulesRepository) ClearSourceCronScheduleOverride(ctx context.Context, scheduleID string) (dal.CronScheduleRecord, error) {
+	if m.ClearSourceCronScheduleOverrideErr != nil {
+		return dal.CronScheduleRecord{}, m.ClearSourceCronScheduleOverrideErr
+	}
+
+	rec, err := m.GetCronScheduleByScheduleID(ctx, scheduleID)
+	if err != nil {
+		return dal.CronScheduleRecord{}, err
+	}
+
+	if rec.SourceRepositoryID == "" {
+		return dal.CronScheduleRecord{}, fmt.Errorf("%w: source cron schedule %s", dal.ErrNotFound, scheduleID)
+	}
+
+	rec.SourceOverrideRef = ""
+	rec.SourceOverridePath = ""
+	rec.SourceOverrideReason = ""
+	rec.SourceOverrideCreatedAtUnix = 0
+	m.CronSchedules[scheduleID] = rec
+
+	return rec, nil
 }
 
 func (m *MockSchedulesRepository) GetReady(ctx context.Context, at time.Time) ([]dal.CronSchedule, error) {

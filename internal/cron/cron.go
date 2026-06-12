@@ -31,15 +31,35 @@ import (
 )
 
 type CronSchedule struct {
-	ID                 int64
-	TriggerID          int64
-	ScheduleID         string
-	JobID              string
-	CronSpec           string
-	NextRunAt          time.Time
-	SourceRepositoryID string
-	SourceRef          string
-	SourcePath         string
+	ID                          int64
+	TriggerID                   int64
+	ScheduleID                  string
+	JobID                       string
+	CronSpec                    string
+	NextRunAt                   time.Time
+	SourceRepositoryID          string
+	SourceRef                   string
+	SourcePath                  string
+	SourceOverrideRef           string
+	SourceOverridePath          string
+	SourceOverrideReason        string
+	SourceOverrideCreatedAtUnix int64
+}
+
+func (s CronSchedule) effectiveSourceRef() string {
+	if ref := strings.TrimSpace(s.SourceOverrideRef); ref != "" {
+		return ref
+	}
+
+	return strings.TrimSpace(s.SourceRef)
+}
+
+func (s CronSchedule) effectiveSourcePath() string {
+	if path := strings.TrimSpace(s.SourceOverridePath); path != "" {
+		return path
+	}
+
+	return strings.TrimSpace(s.SourcePath)
 }
 
 type CronService struct {
@@ -232,15 +252,19 @@ func (s *CronService) GetReadySchedules(ctx context.Context) ([]CronSchedule, er
 	schedules := make([]CronSchedule, 0, len(ready))
 	for _, sched := range ready {
 		schedules = append(schedules, CronSchedule{
-			ID:                 sched.ID,
-			TriggerID:          sched.TriggerID,
-			ScheduleID:         sched.ScheduleID,
-			JobID:              sched.JobID,
-			CronSpec:           sched.CronSpec,
-			NextRunAt:          sched.NextRunAt,
-			SourceRepositoryID: sched.SourceRepositoryID,
-			SourceRef:          sched.SourceRef,
-			SourcePath:         sched.SourcePath,
+			ID:                          sched.ID,
+			TriggerID:                   sched.TriggerID,
+			ScheduleID:                  sched.ScheduleID,
+			JobID:                       sched.JobID,
+			CronSpec:                    sched.CronSpec,
+			NextRunAt:                   sched.NextRunAt,
+			SourceRepositoryID:          sched.SourceRepositoryID,
+			SourceRef:                   sched.SourceRef,
+			SourcePath:                  sched.SourcePath,
+			SourceOverrideRef:           sched.SourceOverrideRef,
+			SourceOverridePath:          sched.SourceOverridePath,
+			SourceOverrideReason:        sched.SourceOverrideReason,
+			SourceOverrideCreatedAtUnix: sched.SourceOverrideCreatedAtUnix,
 		})
 	}
 
@@ -410,7 +434,7 @@ func (s *CronService) loadSourceScheduleDefinition(ctx context.Context, jobID st
 		return sourcepkg.Definition{}, dal.JobDefinitionSourceRecord{}, fmt.Errorf("%w: source repository %s is disabled", sourcepkg.ErrInvalidReference, repoRec.RepositoryID)
 	}
 
-	ref := strings.TrimSpace(schedule.SourceRef)
+	ref := schedule.effectiveSourceRef()
 	if ref == "" {
 		ref = strings.TrimSpace(repoRec.DefaultRef)
 	}
@@ -418,7 +442,7 @@ func (s *CronService) loadSourceScheduleDefinition(ctx context.Context, jobID st
 		ref = "HEAD"
 	}
 
-	definitionPath := strings.TrimSpace(schedule.SourcePath)
+	definitionPath := schedule.effectiveSourcePath()
 	if definitionPath == "" {
 		definitionPath, err = sourcepkg.DefinitionPathForJobID(jobID)
 		if err != nil {
@@ -559,8 +583,19 @@ func (s *CronService) recordTriggerInvocation(ctx context.Context, jobID string,
 		payload["next_run_at"] = schedule.NextRunAt.UTC().Format(time.RFC3339Nano)
 		if schedule.SourceRepositoryID != "" {
 			payload["source_repository_id"] = schedule.SourceRepositoryID
-			payload["source_ref"] = schedule.SourceRef
-			payload["source_path"] = schedule.SourcePath
+			payload["source_ref"] = schedule.effectiveSourceRef()
+			payload["source_path"] = schedule.effectiveSourcePath()
+			if schedule.SourceOverrideRef != "" {
+				payload["source_override_ref"] = schedule.SourceOverrideRef
+			}
+
+			if schedule.SourceOverridePath != "" {
+				payload["source_override_path"] = schedule.SourceOverridePath
+			}
+
+			if schedule.SourceOverrideReason != "" {
+				payload["source_override_reason"] = schedule.SourceOverrideReason
+			}
 		}
 	}
 

@@ -33,6 +33,8 @@ func TestAPIRouteInventory(t *testing.T) {
 		{"GET /api/v1/cells/status", string(authz.ActionAdmin)},
 		{"POST /api/v1/cells/{cell_id}/catalog-events", string(authz.ActionRunOperator)},
 		{"GET /api/v1/source-schedules", string(authz.ActionJobRead)},
+		{"PUT /api/v1/source-schedules/{schedule_id}/override", string(authz.ActionJobWrite)},
+		{"DELETE /api/v1/source-schedules/{schedule_id}/override", string(authz.ActionJobWrite)},
 		{"GET /api/v1/source-repositories", string(authz.ActionJobRead)},
 		{"POST /api/v1/source-repositories", string(authz.ActionJobWrite)},
 		{"GET /api/v1/source-repositories/{id}", string(authz.ActionJobRead)},

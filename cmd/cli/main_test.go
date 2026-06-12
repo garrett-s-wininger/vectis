@@ -726,6 +726,123 @@ func TestListSourceSchedules_sendsRepositoryPathAndQuietOutput(t *testing.T) {
 	}
 }
 
+func TestSetSourceScheduleOverride_sendsBodyAndPrintsResult(t *testing.T) {
+	oldRef := sourceOverrideRef
+	oldPath := sourceOverridePath
+	oldReason := sourceOverrideReason
+	sourceOverrideRef = "hotfix/build"
+	sourceOverridePath = ".vectis/jobs/build-hotfix.json"
+	sourceOverrideReason = "production hotfix"
+	t.Cleanup(func() {
+		sourceOverrideRef = oldRef
+		sourceOverridePath = oldPath
+		sourceOverrideReason = oldReason
+	})
+
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/source-schedules/nightly-build/override" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		if got := r.Header.Get("Content-Type"); got != "application/json" {
+			t.Errorf("content-type=%q", got)
+		}
+
+		var body sourceScheduleOverrideRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+
+		if body.Ref != "hotfix/build" || body.Path != ".vectis/jobs/build-hotfix.json" || body.Reason != "production hotfix" {
+			t.Fatalf("override body mismatch: %+v", body)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"schedule_id":   "nightly-build",
+			"repository_id": "vectis",
+			"job_id":        "build",
+			"cron_spec":     "30 8 * * *",
+			"next_run_at":   "2026-05-01T08:30:00Z",
+			"ref":           "hotfix/build",
+			"path":          ".vectis/jobs/build-hotfix.json",
+			"enabled":       true,
+			"override": map[string]any{
+				"ref":             "hotfix/build",
+				"path":            ".vectis/jobs/build-hotfix.json",
+				"reason":          "production hotfix",
+				"created_at_unix": 1770000000,
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := setSourceScheduleOverrideWithOutput(&buf, "nightly-build"); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"override set", "hotfix/build", ".vectis/jobs/build-hotfix.json", "production hotfix"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestSetSourceScheduleOverride_requiresRefOrPath(t *testing.T) {
+	oldRef := sourceOverrideRef
+	oldPath := sourceOverridePath
+	oldReason := sourceOverrideReason
+	sourceOverrideRef = ""
+	sourceOverridePath = ""
+	sourceOverrideReason = ""
+	t.Cleanup(func() {
+		sourceOverrideRef = oldRef
+		sourceOverridePath = oldPath
+		sourceOverrideReason = oldReason
+	})
+
+	var buf bytes.Buffer
+	if err := setSourceScheduleOverrideWithOutput(&buf, "nightly-build"); err == nil {
+		t.Fatal("expected missing ref/path error")
+	}
+}
+
+func TestClearSourceScheduleOverride_sendsDeleteAndPrintsResult(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/source-schedules/nightly-build/override" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"schedule_id":   "nightly-build",
+			"repository_id": "vectis",
+			"job_id":        "build",
+			"cron_spec":     "30 8 * * *",
+			"next_run_at":   "2026-05-01T08:30:00Z",
+			"ref":           "main",
+			"path":          ".vectis/jobs/build.json",
+			"enabled":       true,
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := clearSourceScheduleOverrideWithOutput(&buf, "nightly-build"); err != nil {
+		t.Fatal(err)
+	}
+
+	if out := buf.String(); !strings.Contains(out, "override cleared") || !strings.Contains(out, "nightly-build") {
+		t.Fatalf("unexpected clear output:\n%s", out)
+	}
+}
+
 func TestUpdateSource_sendsOnlyChangedFieldsAndPrintsRepository(t *testing.T) {
 	oldSourceKind := sourceUpdateSourceKind
 	oldCheckoutPath := sourceUpdateCheckoutPath

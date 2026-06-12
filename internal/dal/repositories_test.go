@@ -5147,6 +5147,53 @@ func TestSchedulesRepository_ListSourceCronSchedules(t *testing.T) {
 		t.Fatalf("expected disabled schedule to be listed with enabled=false: %+v", rootSchedules[1])
 	}
 
+	overridden, err := repos.Schedules().SetSourceCronScheduleOverride(ctx, "nightly-a", dal.SourceScheduleOverride{
+		Ref:           "hotfix/build",
+		Path:          ".vectis/jobs/build-hotfix.json",
+		Reason:        "verify hotfix",
+		CreatedAtUnix: 1770000000,
+	})
+
+	if err != nil {
+		t.Fatalf("set source schedule override: %v", err)
+	}
+
+	if overridden.SourceOverrideRef != "hotfix/build" ||
+		overridden.SourceOverridePath != ".vectis/jobs/build-hotfix.json" ||
+		overridden.SourceOverrideReason != "verify hotfix" ||
+		overridden.SourceOverrideCreatedAtUnix != 1770000000 {
+		t.Fatalf("override mismatch: %+v", overridden)
+	}
+
+	updated, err := repos.Schedules().UpdateCronSchedule(ctx, dal.CronScheduleRecord{
+		ScheduleID:         "nightly-a",
+		JobID:              "build",
+		CronSpec:           "15 * * * *",
+		SourceRepositoryID: "repo-a",
+		SourceRef:          "main",
+		Enabled:            true,
+	})
+
+	if err != nil {
+		t.Fatalf("update source schedule with active override: %v", err)
+	}
+
+	if updated.SourceOverrideRef != "hotfix/build" || updated.SourceOverridePath != ".vectis/jobs/build-hotfix.json" {
+		t.Fatalf("expected update to preserve source schedule override: %+v", updated)
+	}
+
+	cleared, err := repos.Schedules().ClearSourceCronScheduleOverride(ctx, "nightly-a")
+	if err != nil {
+		t.Fatalf("clear source schedule override: %v", err)
+	}
+
+	if cleared.SourceOverrideRef != "" ||
+		cleared.SourceOverridePath != "" ||
+		cleared.SourceOverrideReason != "" ||
+		cleared.SourceOverrideCreatedAtUnix != 0 {
+		t.Fatalf("expected override to be cleared: %+v", cleared)
+	}
+
 	repoSchedules, err := repos.Schedules().ListSourceCronSchedules(ctx, 1, "repo-a")
 	if err != nil {
 		t.Fatalf("list repo-a source schedules: %v", err)

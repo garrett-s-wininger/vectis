@@ -160,6 +160,10 @@ func (r *SQLSchedulesRepository) GetCronScheduleByScheduleID(ctx context.Context
 			COALESCE(jt.source_repository_id, ''),
 			COALESCE(jt.source_ref, ''),
 			COALESCE(jt.source_path, ''),
+			COALESCE(jt.source_override_ref, ''),
+			COALESCE(jt.source_override_path, ''),
+			COALESCE(jt.source_override_reason, ''),
+			COALESCE(jt.source_override_created_at_unix, 0),
 			jt.enabled
 		FROM cron_trigger_specs cts
 		JOIN job_triggers jt ON jt.id = cts.trigger_id
@@ -191,6 +195,10 @@ func (r *SQLSchedulesRepository) ListSourceCronSchedules(ctx context.Context, na
 			COALESCE(jt.source_repository_id, ''),
 			COALESCE(jt.source_ref, ''),
 			COALESCE(jt.source_path, ''),
+			COALESCE(jt.source_override_ref, ''),
+			COALESCE(jt.source_override_path, ''),
+			COALESCE(jt.source_override_reason, ''),
+			COALESCE(jt.source_override_created_at_unix, 0),
 			jt.enabled
 		FROM cron_trigger_specs cts
 		JOIN job_triggers jt ON jt.id = cts.trigger_id
@@ -225,6 +233,97 @@ func (r *SQLSchedulesRepository) ListSourceCronSchedules(ctx context.Context, na
 	}
 
 	return out, nil
+}
+
+func (r *SQLSchedulesRepository) SetSourceCronScheduleOverride(ctx context.Context, scheduleID string, override SourceScheduleOverride) (CronScheduleRecord, error) {
+	scheduleID = strings.TrimSpace(scheduleID)
+	override = normalizeSourceScheduleOverride(override)
+	if scheduleID == "" {
+		return CronScheduleRecord{}, fmt.Errorf("%w: schedule_id is required", ErrNotFound)
+	}
+
+	if override.Ref == "" && override.Path == "" {
+		return CronScheduleRecord{}, fmt.Errorf("%w: override ref or path is required", ErrConflict)
+	}
+
+	if override.CreatedAtUnix == 0 {
+		override.CreatedAtUnix = time.Now().UTC().Unix()
+	}
+
+	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE job_triggers
+		SET
+			source_override_ref = ?,
+			source_override_path = ?,
+			source_override_reason = ?,
+			source_override_created_at_unix = ?,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE id = (
+			SELECT cts.trigger_id
+			FROM cron_trigger_specs cts
+			JOIN job_triggers jt ON jt.id = cts.trigger_id
+			WHERE cts.schedule_id = ? AND COALESCE(jt.source_repository_id, '') <> ''
+		)
+	`),
+		override.Ref,
+		override.Path,
+		override.Reason,
+		override.CreatedAtUnix,
+		scheduleID,
+	)
+
+	if err != nil {
+		return CronScheduleRecord{}, normalizeSQLError(err)
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return CronScheduleRecord{}, normalizeSQLError(err)
+	}
+
+	if rowsAffected == 0 {
+		return CronScheduleRecord{}, fmt.Errorf("%w: source cron schedule %s", ErrNotFound, scheduleID)
+	}
+
+	return r.GetCronScheduleByScheduleID(ctx, scheduleID)
+}
+
+func (r *SQLSchedulesRepository) ClearSourceCronScheduleOverride(ctx context.Context, scheduleID string) (CronScheduleRecord, error) {
+	scheduleID = strings.TrimSpace(scheduleID)
+	if scheduleID == "" {
+		return CronScheduleRecord{}, fmt.Errorf("%w: schedule_id is required", ErrNotFound)
+	}
+
+	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE job_triggers
+		SET
+			source_override_ref = '',
+			source_override_path = '',
+			source_override_reason = '',
+			source_override_created_at_unix = 0,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE id = (
+			SELECT cts.trigger_id
+			FROM cron_trigger_specs cts
+			JOIN job_triggers jt ON jt.id = cts.trigger_id
+			WHERE cts.schedule_id = ? AND COALESCE(jt.source_repository_id, '') <> ''
+		)
+	`), scheduleID)
+
+	if err != nil {
+		return CronScheduleRecord{}, normalizeSQLError(err)
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return CronScheduleRecord{}, normalizeSQLError(err)
+	}
+
+	if rowsAffected == 0 {
+		return CronScheduleRecord{}, fmt.Errorf("%w: source cron schedule %s", ErrNotFound, scheduleID)
+	}
+
+	return r.GetCronScheduleByScheduleID(ctx, scheduleID)
 }
 
 func (r *SQLSchedulesRepository) CountCronSchedules(ctx context.Context) (int64, error) {
@@ -284,7 +383,11 @@ func (r *SQLSchedulesRepository) GetReady(ctx context.Context, at time.Time) ([]
 			cts.next_run_at,
 			COALESCE(jt.source_repository_id, ''),
 			COALESCE(jt.source_ref, ''),
-			COALESCE(jt.source_path, '')
+			COALESCE(jt.source_path, ''),
+			COALESCE(jt.source_override_ref, ''),
+			COALESCE(jt.source_override_path, ''),
+			COALESCE(jt.source_override_reason, ''),
+			COALESCE(jt.source_override_created_at_unix, 0)
 		FROM cron_trigger_specs cts
 		JOIN job_triggers jt ON jt.id = cts.trigger_id
 		WHERE cts.next_run_at <= ?
@@ -311,6 +414,10 @@ func (r *SQLSchedulesRepository) GetReady(ctx context.Context, at time.Time) ([]
 			&sched.SourceRepositoryID,
 			&sched.SourceRef,
 			&sched.SourcePath,
+			&sched.SourceOverrideRef,
+			&sched.SourceOverridePath,
+			&sched.SourceOverrideReason,
+			&sched.SourceOverrideCreatedAtUnix,
 		); err != nil {
 			return nil, normalizeSQLError(err)
 		}
@@ -418,6 +525,10 @@ func scanCronScheduleRecord(scanner cronScheduleRecordScanner) (CronScheduleReco
 		&rec.SourceRepositoryID,
 		&rec.SourceRef,
 		&rec.SourcePath,
+		&rec.SourceOverrideRef,
+		&rec.SourceOverridePath,
+		&rec.SourceOverrideReason,
+		&rec.SourceOverrideCreatedAtUnix,
 		&rec.Enabled,
 	); err != nil {
 		return CronScheduleRecord{}, err
@@ -439,6 +550,9 @@ func normalizeCronScheduleRecord(rec CronScheduleRecord) (CronScheduleRecord, er
 	rec.SourceRepositoryID = strings.TrimSpace(rec.SourceRepositoryID)
 	rec.SourceRef = strings.TrimSpace(rec.SourceRef)
 	rec.SourcePath = strings.TrimSpace(rec.SourcePath)
+	rec.SourceOverrideRef = strings.TrimSpace(rec.SourceOverrideRef)
+	rec.SourceOverridePath = strings.TrimSpace(rec.SourceOverridePath)
+	rec.SourceOverrideReason = strings.TrimSpace(rec.SourceOverrideReason)
 
 	if rec.ScheduleID == "" {
 		return CronScheduleRecord{}, fmt.Errorf("%w: schedule_id is required", ErrConflict)
@@ -453,4 +567,11 @@ func normalizeCronScheduleRecord(rec CronScheduleRecord) (CronScheduleRecord, er
 	}
 
 	return rec, nil
+}
+
+func normalizeSourceScheduleOverride(override SourceScheduleOverride) SourceScheduleOverride {
+	override.Ref = strings.TrimSpace(override.Ref)
+	override.Path = strings.TrimSpace(override.Path)
+	override.Reason = strings.TrimSpace(override.Reason)
+	return override
 }

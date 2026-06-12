@@ -104,7 +104,9 @@ export VECTIS_SOURCE_SCHEDULES='[
 ]'
 ```
 
-Each schedule entry accepts `schedule_id`, `repository_id`, `job_id`, `cron_spec`, `ref`, `path`, and `enabled`. `schedule_id` is the stable reconcile key. `enabled` defaults to `true`. If `path` is omitted, Vectis derives the definition path from the job ID using the default `.vectis/jobs/...` layout. Startup reconciliation creates missing schedules and updates changed repository, job, cron, ref, path, and enabled fields; it does not delete schedules omitted from config. Enabled schedules must reference an enabled configured repository. Use `GET /api/v1/source-schedules` or `GET /api/v1/source-repositories/{id}/schedules` to inspect reconciled schedules and their effective paths.
+Each schedule entry accepts `schedule_id`, `repository_id`, `job_id`, `cron_spec`, `ref`, `path`, and `enabled`. `schedule_id` is the stable reconcile key. `enabled` defaults to `true`. If `path` is omitted, Vectis derives the definition path from the job ID using the default `.vectis/jobs/...` layout. Startup reconciliation creates missing schedules and updates changed repository, job, cron, ref, path, and enabled fields; it does not delete schedules omitted from config. Enabled schedules must reference an enabled configured repository. Use `GET /api/v1/source-schedules` or `GET /api/v1/source-repositories/{id}/schedules` to inspect reconciled schedules, configured ref/path, active override, next run time, and effective ref/path.
+
+For production hotfixes, operators can set a temporary source schedule override with `PUT /api/v1/source-schedules/{schedule_id}/override` or `vectis-cli sources override`. Overrides can replace the configured ref, path, or both until the fix lands in the declared repository location. Config reconciliation preserves the active override; clear it explicitly with `DELETE /api/v1/source-schedules/{schedule_id}/override` or `vectis-cli sources clear-override` to return future runs to the configured ref/path.
 
 For source-only deployments, combine declared repositories with:
 

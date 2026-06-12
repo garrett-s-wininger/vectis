@@ -91,6 +91,9 @@ var (
 	sourceListQuiet             bool
 	sourceSchedulesNamespace    string
 	sourceSchedulesQuiet        bool
+	sourceOverrideRef           string
+	sourceOverridePath          string
+	sourceOverrideReason        string
 	sourceRegisterNamespace     string
 	sourceRegisterCheckoutMode  string
 	sourceRegisterAuthoringMode string
@@ -207,6 +210,7 @@ func init() {
 
 	configureSourcesListFlags(sourcesListCmd)
 	configureSourcesSchedulesFlags(sourcesSchedulesCmd)
+	configureSourcesOverrideFlags(sourcesOverrideCmd)
 	configureSourcesRegisterFlags(sourcesRegisterCmd)
 	configureSourcesUpdateFlags(sourcesUpdateCmd)
 	configureSourcesDeleteFlags(sourcesDeleteCmd)
@@ -222,7 +226,7 @@ func init() {
 	configureLogFilterFlags(sourcesLogsCmd)
 	configureSourcesLogsFlags(sourcesLogsCmd)
 	configureSourcesTriggerFlags(sourcesTriggerCmd)
-	sourcesCmd.AddCommand(sourcesListCmd, sourcesSchedulesCmd, sourcesRegisterCmd, sourcesGetCmd, sourcesUpdateCmd, sourcesDeleteCmd, sourcesSyncCmd, sourcesStatusCmd, sourcesBranchesCmd, sourcesTreeCmd, sourcesDefinitionsCmd, sourcesResolveCmd, sourcesImportCmd, sourcesJobsCmd, sourcesShowCmd, sourcesWriteCmd, sourcesRunsCmd, sourcesLogsCmd, sourcesTriggerCmd)
+	sourcesCmd.AddCommand(sourcesListCmd, sourcesSchedulesCmd, sourcesOverrideCmd, sourcesClearOverrideCmd, sourcesRegisterCmd, sourcesGetCmd, sourcesUpdateCmd, sourcesDeleteCmd, sourcesSyncCmd, sourcesStatusCmd, sourcesBranchesCmd, sourcesTreeCmd, sourcesDefinitionsCmd, sourcesResolveCmd, sourcesImportCmd, sourcesJobsCmd, sourcesShowCmd, sourcesWriteCmd, sourcesRunsCmd, sourcesLogsCmd, sourcesTriggerCmd)
 	rootCmd.AddCommand(sourcesCmd)
 
 	configureRunListFlags(runListCmd)

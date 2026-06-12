@@ -424,16 +424,18 @@ func TestAPIServer_ListSourceSchedules(t *testing.T) {
 	var listResp struct {
 		Namespace string `json:"namespace"`
 		Schedules []struct {
-			ScheduleID   string `json:"schedule_id"`
-			RepositoryID string `json:"repository_id"`
-			Namespace    string `json:"namespace"`
-			JobID        string `json:"job_id"`
-			CronSpec     string `json:"cron_spec"`
-			NextRunAt    string `json:"next_run_at"`
-			Ref          string `json:"ref"`
-			Path         string `json:"path"`
-			PathDerived  bool   `json:"path_derived"`
-			Enabled      bool   `json:"enabled"`
+			ScheduleID     string `json:"schedule_id"`
+			RepositoryID   string `json:"repository_id"`
+			Namespace      string `json:"namespace"`
+			JobID          string `json:"job_id"`
+			CronSpec       string `json:"cron_spec"`
+			NextRunAt      string `json:"next_run_at"`
+			Ref            string `json:"ref"`
+			Path           string `json:"path"`
+			PathDerived    bool   `json:"path_derived"`
+			ConfiguredRef  string `json:"configured_ref"`
+			ConfiguredPath string `json:"configured_path"`
+			Enabled        bool   `json:"enabled"`
 		} `json:"schedules"`
 	}
 
@@ -462,6 +464,8 @@ func TestAPIServer_ListSourceSchedules(t *testing.T) {
 		listResp.Schedules[1].Ref != "main" ||
 		listResp.Schedules[1].Path != ".vectis/jobs/build.json" ||
 		!listResp.Schedules[1].PathDerived ||
+		listResp.Schedules[1].ConfiguredRef != "main" ||
+		listResp.Schedules[1].ConfiguredPath != "" ||
 		!listResp.Schedules[1].Enabled {
 		t.Fatalf("second source schedule mismatch: %+v", listResp.Schedules[1])
 	}
@@ -490,6 +494,80 @@ func TestAPIServer_ListSourceSchedules(t *testing.T) {
 		len(repoResp.Schedules) != 1 ||
 		repoResp.Schedules[0].ScheduleID != "nightly-build" {
 		t.Fatalf("repository source schedules mismatch: %+v", repoResp)
+	}
+
+	overrideRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-schedules/nightly-build/override", map[string]any{
+		"ref":    "hotfix/build",
+		"path":   ".vectis/jobs/build-hotfix.json",
+		"reason": "production hotfix",
+	})
+
+	if overrideRec.Code != http.StatusOK {
+		t.Fatalf("set source schedule override: status=%d body=%s", overrideRec.Code, overrideRec.Body.String())
+	}
+
+	var overrideResp struct {
+		ScheduleID     string `json:"schedule_id"`
+		Ref            string `json:"ref"`
+		Path           string `json:"path"`
+		PathDerived    bool   `json:"path_derived"`
+		ConfiguredRef  string `json:"configured_ref"`
+		ConfiguredPath string `json:"configured_path"`
+		Override       *struct {
+			Ref           string `json:"ref"`
+			Path          string `json:"path"`
+			Reason        string `json:"reason"`
+			CreatedAtUnix int64  `json:"created_at_unix"`
+		} `json:"override"`
+	}
+
+	if err := json.NewDecoder(overrideRec.Body).Decode(&overrideResp); err != nil {
+		t.Fatalf("decode override response: %v", err)
+	}
+
+	if overrideResp.ScheduleID != "nightly-build" ||
+		overrideResp.Ref != "hotfix/build" ||
+		overrideResp.Path != ".vectis/jobs/build-hotfix.json" ||
+		overrideResp.PathDerived ||
+		overrideResp.ConfiguredRef != "main" ||
+		overrideResp.ConfiguredPath != "" ||
+		overrideResp.Override == nil ||
+		overrideResp.Override.Ref != "hotfix/build" ||
+		overrideResp.Override.Path != ".vectis/jobs/build-hotfix.json" ||
+		overrideResp.Override.Reason != "production hotfix" ||
+		overrideResp.Override.CreatedAtUnix == 0 {
+		t.Fatalf("override response mismatch: %+v", overrideResp)
+	}
+
+	clearReq := httptest.NewRequest(http.MethodDelete, "/api/v1/source-schedules/nightly-build/override", nil)
+	clearRec := httptest.NewRecorder()
+	handler.ServeHTTP(clearRec, clearReq)
+	if clearRec.Code != http.StatusOK {
+		t.Fatalf("clear source schedule override: status=%d body=%s", clearRec.Code, clearRec.Body.String())
+	}
+
+	var clearResp struct {
+		ScheduleID     string `json:"schedule_id"`
+		Ref            string `json:"ref"`
+		Path           string `json:"path"`
+		ConfiguredRef  string `json:"configured_ref"`
+		ConfiguredPath string `json:"configured_path"`
+		Override       *struct {
+			Ref string `json:"ref"`
+		} `json:"override"`
+	}
+
+	if err := json.NewDecoder(clearRec.Body).Decode(&clearResp); err != nil {
+		t.Fatalf("decode clear response: %v", err)
+	}
+
+	if clearResp.ScheduleID != "nightly-build" ||
+		clearResp.Ref != "main" ||
+		clearResp.Path != ".vectis/jobs/build.json" ||
+		clearResp.ConfiguredRef != "main" ||
+		clearResp.ConfiguredPath != "" ||
+		clearResp.Override != nil {
+		t.Fatalf("clear response mismatch: %+v", clearResp)
 	}
 }
 
