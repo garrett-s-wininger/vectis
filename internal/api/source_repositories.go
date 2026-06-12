@@ -986,7 +986,7 @@ func (s *APIServer) DeleteSourceRepository(w http.ResponseWriter, r *http.Reques
 		}
 
 		if dal.IsConflict(err) {
-			writeAPIError(w, http.StatusConflict, "source_repository_in_use", "source repository has recorded definition provenance", nil)
+			writeAPIError(w, http.StatusConflict, "source_repository_in_use", "source repository has recorded source references", nil)
 			return
 		}
 

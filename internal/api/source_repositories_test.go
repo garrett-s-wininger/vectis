@@ -849,6 +849,47 @@ func TestAPIServer_DeleteSourceRepositoryConflictsWhenReferenced(t *testing.T) {
 	}
 }
 
+func TestAPIServer_DeleteSourceRepositoryConflictsWhenScheduled(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+
+	server, _, _, db := setupTestServer(t)
+	repos := dal.NewSQLRepositories(db)
+	handler := server.Handler()
+	ctx := context.Background()
+
+	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "vectis-local",
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/vectis",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("CreateRepository: %v", err)
+	}
+
+	if _, err := repos.Schedules().CreateCronSchedule(ctx, dal.CronScheduleRecord{
+		ScheduleID:         "nightly-build",
+		JobID:              "build",
+		CronSpec:           "30 8 * * *",
+		NextRunAt:          time.Date(2026, 5, 1, 8, 30, 0, 0, time.UTC),
+		SourceRepositoryID: "vectis-local",
+		SourceRef:          "main",
+		Enabled:            true,
+	}); err != nil {
+		t.Fatalf("create source schedule: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/source-repositories/vectis-local", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assertAPIError(t, rec, http.StatusConflict, "source_repository_in_use")
+
+	if _, err := repos.Sources().GetRepository(ctx, "vectis-local"); err != nil {
+		t.Fatalf("scheduled repository should remain: %v", err)
+	}
+}
+
 func TestAPIServer_CreateJobFromSourceRejectsDisabledRepository(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 

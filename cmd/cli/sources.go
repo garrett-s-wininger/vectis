@@ -555,7 +555,7 @@ func deleteSourceWithOutput(out io.Writer, repositoryID string, confirmed bool) 
 		_, err := fmt.Fprintf(out, "Source repository %q deleted.\n", repositoryID)
 		return err
 	case http.StatusConflict:
-		return fmt.Errorf("source repository %q has recorded source provenance; disable it instead or remove dependent history first", repositoryID)
+		return fmt.Errorf("source repository %q has source schedules or recorded source provenance; disable it instead or remove dependent references first", repositoryID)
 	case http.StatusNotFound:
 		return fmt.Errorf("source repository %q not found", repositoryID)
 	default:
@@ -1859,7 +1859,7 @@ var sourcesUpdateCmd = &cobra.Command{
 var sourcesDeleteCmd = &cobra.Command{
 	Use:   "delete [repository-id]",
 	Short: "Delete a source repository registration",
-	Long:  `Delete a source repository registration. Checkout files are left untouched, and repositories with recorded source provenance must be disabled instead of deleted.`,
+	Long:  `Delete a source repository registration. Checkout files are left untouched, and repositories with source schedules or recorded source provenance must be disabled instead of deleted.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   deleteSource,
 }

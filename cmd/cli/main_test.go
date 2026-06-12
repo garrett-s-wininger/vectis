@@ -1253,6 +1253,33 @@ func TestDeleteSource_sendsRequestAndPrintsResult(t *testing.T) {
 	}
 }
 
+func TestDeleteSource_reportsReferenceConflicts(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/source-repositories/vectis" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		w.WriteHeader(http.StatusConflict)
+	})
+
+	var buf bytes.Buffer
+	err := deleteSourceWithOutput(&buf, "vectis", true)
+	if err == nil {
+		t.Fatal("expected conflict error")
+	}
+
+	msg := err.Error()
+	for _, want := range []string{"source schedules", "recorded source provenance"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("expected error to contain %q, got %q", want, msg)
+		}
+	}
+}
+
 func TestShowSourceStatus_sendsRequestAndPrintsStatus(t *testing.T) {
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

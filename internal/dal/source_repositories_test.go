@@ -3,6 +3,7 @@ package dal_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"vectis/internal/dal"
 	"vectis/internal/testutil/dbtest"
@@ -172,6 +173,43 @@ func TestSourcesRepository_DeleteRepositoryConflictsWhenReferenced(t *testing.T)
 
 	if _, err := sources.GetRepository(ctx, "vectis-local"); err != nil {
 		t.Fatalf("referenced repository should remain: %v", err)
+	}
+}
+
+func TestSourcesRepository_DeleteRepositoryConflictsWhenScheduleReferencesRepository(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	sources := repos.Sources()
+	ctx := context.Background()
+
+	if _, err := sources.CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "vectis-local",
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/vectis",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("CreateRepository: %v", err)
+	}
+
+	if _, err := repos.Schedules().CreateCronSchedule(ctx, dal.CronScheduleRecord{
+		ScheduleID:         "nightly-build",
+		JobID:              "build",
+		CronSpec:           "30 8 * * *",
+		NextRunAt:          time.Date(2026, 5, 1, 8, 30, 0, 0, time.UTC),
+		SourceRepositoryID: "vectis-local",
+		SourceRef:          "main",
+		Enabled:            true,
+	}); err != nil {
+		t.Fatalf("create source schedule: %v", err)
+	}
+
+	if err := sources.DeleteRepository(ctx, "vectis-local"); !dal.IsConflict(err) {
+		t.Fatalf("expected conflict deleting repository referenced by schedule, got %v", err)
+	}
+
+	if _, err := sources.GetRepository(ctx, "vectis-local"); err != nil {
+		t.Fatalf("scheduled repository should remain: %v", err)
 	}
 }
 

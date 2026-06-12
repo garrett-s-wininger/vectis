@@ -107,12 +107,12 @@ func (r *SQLSourcesRepository) DeleteRepository(ctx context.Context, repositoryI
 		return fmt.Errorf("%w: repository_id is required", ErrNotFound)
 	}
 
-	referenced, err := r.sourceRepositoryHasDefinitionSources(ctx, repositoryID)
+	referenced, err := r.sourceRepositoryHasReferences(ctx, repositoryID)
 	if err != nil {
 		return err
 	}
 	if referenced {
-		return fmt.Errorf("%w: source repository %s has recorded definition sources", ErrConflict, repositoryID)
+		return fmt.Errorf("%w: source repository %s has recorded source references", ErrConflict, repositoryID)
 	}
 
 	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
@@ -547,10 +547,20 @@ func (r *SQLSourcesRepository) sourceRepositoryExists(ctx context.Context, repos
 	return true, nil
 }
 
-func (r *SQLSourcesRepository) sourceRepositoryHasDefinitionSources(ctx context.Context, repositoryID string) (bool, error) {
+func (r *SQLSourcesRepository) sourceRepositoryHasReferences(ctx context.Context, repositoryID string) (bool, error) {
 	var exists int
 	if err := r.db.QueryRowContext(ctx,
-		rebindQueryForPgx("SELECT 1 FROM job_definition_sources WHERE repository_id = ? LIMIT 1"),
+		rebindQueryForPgx(`
+			SELECT 1
+			FROM job_definition_sources
+			WHERE repository_id = ?
+			UNION ALL
+			SELECT 1
+			FROM job_triggers
+			WHERE source_repository_id = ?
+			LIMIT 1
+		`),
+		repositoryID,
 		repositoryID,
 	).Scan(&exists); err != nil {
 		if err == sql.ErrNoRows {
