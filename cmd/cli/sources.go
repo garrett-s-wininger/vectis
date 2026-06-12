@@ -761,6 +761,9 @@ func listSourceSchedulesWithOutput(out io.Writer, repositoryID string) error {
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 			return fmt.Errorf("failed to parse source schedules response: %w", err)
 		}
+		if sourceSchedulesOverrideOnly {
+			result.Schedules = sourceSchedulesWithOverrides(result.Schedules)
+		}
 		return writeSourceSchedulesResult(out, result)
 	case http.StatusNotFound:
 		if strings.TrimSpace(repositoryID) != "" {
@@ -779,9 +782,17 @@ func writeSourceSchedulesResult(out io.Writer, result sourceSchedulesResult) err
 
 	if len(result.Schedules) == 0 {
 		if strings.TrimSpace(result.RepositoryID) != "" {
-			fmt.Fprintf(out, "No source schedules found for repository %s\n", result.RepositoryID)
+			if sourceSchedulesOverrideOnly {
+				fmt.Fprintf(out, "No source schedule overrides found for repository %s\n", result.RepositoryID)
+			} else {
+				fmt.Fprintf(out, "No source schedules found for repository %s\n", result.RepositoryID)
+			}
 		} else {
-			fmt.Fprintln(out, "No source schedules found")
+			if sourceSchedulesOverrideOnly {
+				fmt.Fprintln(out, "No source schedule overrides found")
+			} else {
+				fmt.Fprintln(out, "No source schedules found")
+			}
 		}
 		return nil
 	}
@@ -794,9 +805,9 @@ func writeSourceSchedulesResult(out io.Writer, result sourceSchedulesResult) err
 	}
 
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "SCHEDULE\tREPOSITORY\tJOB\tCRON\tNEXT RUN\tREF\tPATH\tENABLED")
+	fmt.Fprintln(tw, "SCHEDULE\tREPOSITORY\tJOB\tCRON\tNEXT RUN\tREF\tPATH\tOVERRIDE\tENABLED")
 	for _, schedule := range result.Schedules {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%t\n",
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%t\n",
 			emptyAsDash(schedule.ScheduleID),
 			emptyAsDash(schedule.RepositoryID),
 			emptyAsDash(schedule.JobID),
@@ -804,10 +815,25 @@ func writeSourceSchedulesResult(out io.Writer, result sourceSchedulesResult) err
 			emptyAsDash(schedule.NextRunAt),
 			emptyAsDash(schedule.Ref),
 			sourceSchedulePathForDisplay(schedule),
+			sourceScheduleOverrideForDisplay(schedule),
 			schedule.Enabled,
 		)
 	}
 	return tw.Flush()
+}
+
+func sourceSchedulesWithOverrides(schedules []sourceScheduleSummary) []sourceScheduleSummary {
+	if len(schedules) == 0 {
+		return nil
+	}
+
+	out := make([]sourceScheduleSummary, 0, len(schedules))
+	for _, schedule := range schedules {
+		if schedule.Override != nil {
+			out = append(out, schedule)
+		}
+	}
+	return out
 }
 
 func sourceSchedulePathForDisplay(schedule sourceScheduleSummary) string {
@@ -817,6 +843,28 @@ func sourceSchedulePathForDisplay(schedule sourceScheduleSummary) string {
 	}
 
 	return path
+}
+
+func sourceScheduleOverrideForDisplay(schedule sourceScheduleSummary) string {
+	if schedule.Override == nil {
+		return "-"
+	}
+
+	parts := make([]string, 0, 3)
+	if ref := strings.TrimSpace(schedule.Override.Ref); ref != "" {
+		parts = append(parts, "ref="+ref)
+	}
+	if path := strings.TrimSpace(schedule.Override.Path); path != "" {
+		parts = append(parts, "path="+path)
+	}
+	if reason := strings.TrimSpace(schedule.Override.Reason); reason != "" {
+		parts = append(parts, "reason="+reason)
+	}
+	if len(parts) == 0 {
+		return "active"
+	}
+
+	return strings.Join(parts, " ")
 }
 
 func setSourceScheduleOverride(cmd *cobra.Command, args []string) {
@@ -1831,6 +1879,7 @@ func configureSourcesListFlags(cmd *cobra.Command) {
 func configureSourcesSchedulesFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&sourceSchedulesNamespace, "namespace", "", "Namespace to list source schedules from when no repository is specified (default: /)")
 	cmd.Flags().BoolVarP(&sourceSchedulesQuiet, "quiet", "q", false, "Print only schedule IDs")
+	cmd.Flags().BoolVar(&sourceSchedulesOverrideOnly, "overrides", false, "Show only schedules with active source overrides")
 }
 
 func configureSourcesOverrideFlags(cmd *cobra.Command) {
