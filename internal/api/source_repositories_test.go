@@ -503,6 +503,42 @@ func TestAPIServer_ListSourceSchedules(t *testing.T) {
 		t.Fatalf("repository source schedules mismatch: %+v", repoResp)
 	}
 
+	disableRec := doJSONRequest(t, handler, http.MethodPatch, "/api/v1/source-schedules/nightly-build", map[string]any{
+		"enabled": false,
+	})
+	if disableRec.Code != http.StatusOK {
+		t.Fatalf("disable source schedule: status=%d body=%s", disableRec.Code, disableRec.Body.String())
+	}
+	var disableResp struct {
+		ScheduleID string `json:"schedule_id"`
+		Declared   bool   `json:"declared"`
+		Enabled    bool   `json:"enabled"`
+	}
+	if err := json.NewDecoder(disableRec.Body).Decode(&disableResp); err != nil {
+		t.Fatalf("decode disable response: %v", err)
+	}
+	if disableResp.ScheduleID != "nightly-build" || !disableResp.Declared || disableResp.Enabled {
+		t.Fatalf("disable source schedule response mismatch: %+v", disableResp)
+	}
+
+	enableRec := doJSONRequest(t, handler, http.MethodPatch, "/api/v1/source-schedules/nightly-build", map[string]any{
+		"enabled": true,
+	})
+	if enableRec.Code != http.StatusOK {
+		t.Fatalf("enable source schedule: status=%d body=%s", enableRec.Code, enableRec.Body.String())
+	}
+	var enableResp struct {
+		ScheduleID string `json:"schedule_id"`
+		Declared   bool   `json:"declared"`
+		Enabled    bool   `json:"enabled"`
+	}
+	if err := json.NewDecoder(enableRec.Body).Decode(&enableResp); err != nil {
+		t.Fatalf("decode enable response: %v", err)
+	}
+	if enableResp.ScheduleID != "nightly-build" || !enableResp.Declared || !enableResp.Enabled {
+		t.Fatalf("enable source schedule response mismatch: %+v", enableResp)
+	}
+
 	overrideRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-schedules/nightly-build/override", map[string]any{
 		"ref":    "hotfix/build",
 		"path":   ".vectis/jobs/build-hotfix.json",

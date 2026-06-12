@@ -206,6 +206,10 @@ type sourceCronScheduleOverrideRequest struct {
 	Reason string `json:"reason"`
 }
 
+type sourceCronScheduleUpdateRequest struct {
+	Enabled *bool `json:"enabled"`
+}
+
 type sourceCronScheduleOverrideResponse struct {
 	Ref           string `json:"ref,omitempty"`
 	Path          string `json:"path,omitempty"`
@@ -696,6 +700,78 @@ func (s *APIServer) ListSourceRepositorySchedules(w http.ResponseWriter, r *http
 		RepositoryID: rec.RepositoryID,
 		Schedules:    sourceCronScheduleRecordsToResponse(recs, nsPath, declared),
 	})
+}
+
+func (s *APIServer) PatchSourceSchedule(w http.ResponseWriter, r *http.Request) {
+	if !requestContentTypeIsJSON(r) {
+		writeAPIErrorCode(w, http.StatusUnsupportedMediaType, apiErrUnsupportedMediaType)
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxJSONDocumentBodyBytes))
+	if err != nil {
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrRequestReadFailed)
+		return
+	}
+
+	var req sourceCronScheduleUpdateRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidRequestBody)
+		return
+	}
+	if req.Enabled == nil {
+		writeAPIError(w, http.StatusBadRequest, "missing_source_schedule_enabled", "enabled is required", nil)
+		return
+	}
+
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireNamespaces(w) || !s.requireSources(w) || !s.requireSchedules(w) {
+		return
+	}
+
+	scheduleID := r.PathValue("schedule_id")
+	rec, namespacePath, ok := s.getAuthorizedSourceSchedule(ctx, w, p, scheduleID, authz.ActionJobWrite)
+	if !ok {
+		return
+	}
+
+	declared, err := sourceCronScheduleDeclarationIDs()
+	if err != nil {
+		s.logger.Error("Configuration error updating source schedule: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+
+	rec.Enabled = *req.Enabled
+	rec.NextRunAt = time.Time{}
+	updated, err := s.schedules.UpdateCronSchedule(ctx, rec)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "source_schedule_not_found", "source schedule not found", nil)
+			return
+		}
+		if dal.IsConflict(err) {
+			writeAPIError(w, http.StatusBadRequest, "invalid_source_schedule_update", "invalid source schedule update", nil)
+			return
+		}
+
+		s.logger.Error("Database error updating source schedule: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+	s.markDBRecovered()
+
+	writeJSON(w, http.StatusOK, sourceCronScheduleRecordToResponse(updated, namespacePath, declared))
 }
 
 func (s *APIServer) PutSourceScheduleOverride(w http.ResponseWriter, r *http.Request) {

@@ -1021,6 +1021,66 @@ func TestClearSourceScheduleOverride_sendsDeleteAndPrintsResult(t *testing.T) {
 	}
 }
 
+func TestSetSourceScheduleEnabled_sendsPatchAndPrintsResult(t *testing.T) {
+	tests := []struct {
+		name      string
+		enabled   bool
+		wantText  string
+		wantState string
+	}{
+		{name: "enable", enabled: true, wantText: "enabled", wantState: "enabled"},
+		{name: "disable", enabled: false, wantText: "disabled", wantState: "disabled"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPatch {
+					t.Errorf("method=%s", r.Method)
+				}
+
+				if r.URL.Path != "/api/v1/source-schedules/nightly-build" {
+					t.Errorf("path=%s", r.URL.Path)
+				}
+
+				if got := r.Header.Get("Content-Type"); got != "application/json" {
+					t.Errorf("content-type=%q", got)
+				}
+
+				var body sourceScheduleUpdateRequest
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Fatalf("decode body: %v", err)
+				}
+				if body.Enabled != tt.enabled {
+					t.Fatalf("enabled body=%t, want %t", body.Enabled, tt.enabled)
+				}
+
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"schedule_id":   "nightly-build",
+					"repository_id": "vectis",
+					"job_id":        "build",
+					"cron_spec":     "30 8 * * *",
+					"next_run_at":   "2026-05-01T08:30:00Z",
+					"ref":           "main",
+					"path":          ".vectis/jobs/build.json",
+					"declared":      true,
+					"enabled":       tt.enabled,
+				})
+			})
+
+			var buf bytes.Buffer
+			if err := setSourceScheduleEnabledWithOutput(&buf, "nightly-build", tt.enabled); err != nil {
+				t.Fatal(err)
+			}
+
+			out := buf.String()
+			if !strings.Contains(out, "nightly-build") || !strings.Contains(out, tt.wantText) {
+				t.Fatalf("unexpected %s output:\n%s", tt.wantState, out)
+			}
+		})
+	}
+}
+
 func TestUpdateSource_sendsOnlyChangedFieldsAndPrintsRepository(t *testing.T) {
 	oldSourceKind := sourceUpdateSourceKind
 	oldCheckoutPath := sourceUpdateCheckoutPath

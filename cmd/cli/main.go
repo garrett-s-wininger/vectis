@@ -228,7 +228,7 @@ func init() {
 	configureLogFilterFlags(sourcesLogsCmd)
 	configureSourcesLogsFlags(sourcesLogsCmd)
 	configureSourcesTriggerFlags(sourcesTriggerCmd)
-	sourcesCmd.AddCommand(sourcesListCmd, sourcesSchedulesCmd, sourcesOverrideCmd, sourcesClearOverrideCmd, sourcesRegisterCmd, sourcesGetCmd, sourcesUpdateCmd, sourcesDeleteCmd, sourcesSyncCmd, sourcesStatusCmd, sourcesBranchesCmd, sourcesTreeCmd, sourcesDefinitionsCmd, sourcesResolveCmd, sourcesImportCmd, sourcesJobsCmd, sourcesShowCmd, sourcesWriteCmd, sourcesRunsCmd, sourcesLogsCmd, sourcesTriggerCmd)
+	sourcesCmd.AddCommand(sourcesListCmd, sourcesSchedulesCmd, sourcesOverrideCmd, sourcesClearOverrideCmd, sourcesEnableScheduleCmd, sourcesDisableScheduleCmd, sourcesRegisterCmd, sourcesGetCmd, sourcesUpdateCmd, sourcesDeleteCmd, sourcesSyncCmd, sourcesStatusCmd, sourcesBranchesCmd, sourcesTreeCmd, sourcesDefinitionsCmd, sourcesResolveCmd, sourcesImportCmd, sourcesJobsCmd, sourcesShowCmd, sourcesWriteCmd, sourcesRunsCmd, sourcesLogsCmd, sourcesTriggerCmd)
 	rootCmd.AddCommand(sourcesCmd)
 
 	configureRunListFlags(runListCmd)

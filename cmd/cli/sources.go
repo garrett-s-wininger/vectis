@@ -229,6 +229,10 @@ type sourceScheduleOverrideRequest struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+type sourceScheduleUpdateRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
 type sourceRepositoryJobDefinitionResult struct {
 	JobID          string           `json:"job_id"`
 	DefinitionHash string           `json:"definition_hash"`
@@ -989,6 +993,64 @@ func writeSourceScheduleOverrideClearResult(out io.Writer, schedule sourceSchedu
 	}
 
 	_, err := fmt.Fprintf(out, "Source schedule %q override cleared.\n", schedule.ScheduleID)
+	return err
+}
+
+func enableSourceSchedule(cmd *cobra.Command, args []string) {
+	runCLIError(setSourceScheduleEnabledWithOutput(os.Stdout, args[0], true))
+}
+
+func disableSourceSchedule(cmd *cobra.Command, args []string) {
+	runCLIError(setSourceScheduleEnabledWithOutput(os.Stdout, args[0], false))
+}
+
+func setSourceScheduleEnabledWithOutput(out io.Writer, scheduleID string, enabled bool) error {
+	body, err := json.Marshal(sourceScheduleUpdateRequest{Enabled: enabled})
+	if err != nil {
+		return fmt.Errorf("failed to encode source schedule update: %w", err)
+	}
+
+	req, err := newAPIRequest(http.MethodPatch, "/api/v1/source-schedules/"+url.PathEscape(scheduleID), bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create source schedule update request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to update source schedule: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var schedule sourceScheduleSummary
+		if err := json.NewDecoder(resp.Body).Decode(&schedule); err != nil {
+			return fmt.Errorf("failed to parse source schedule update response: %w", err)
+		}
+		return writeSourceScheduleEnabledResult(out, schedule, enabled)
+	case http.StatusBadRequest:
+		return fmt.Errorf("invalid source schedule update")
+	case http.StatusNotFound:
+		return fmt.Errorf("source schedule %q not found", scheduleID)
+	case http.StatusUnsupportedMediaType:
+		return fmt.Errorf("content type must be application/json")
+	default:
+		return fmt.Errorf("unexpected status updating source schedule: %s", resp.Status)
+	}
+}
+
+func writeSourceScheduleEnabledResult(out io.Writer, schedule sourceScheduleSummary, enabled bool) error {
+	if outputIsJSON() {
+		return writeJSON(out, schedule)
+	}
+
+	state := "disabled"
+	if enabled {
+		state = "enabled"
+	}
+
+	_, err := fmt.Fprintf(out, "Source schedule %q %s.\n", schedule.ScheduleID, state)
 	return err
 }
 
@@ -1804,6 +1866,22 @@ var sourcesClearOverrideCmd = &cobra.Command{
 	Long:  `Clear a source-backed cron schedule override so future runs return to the configured ref and path.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   clearSourceScheduleOverride,
+}
+
+var sourcesEnableScheduleCmd = &cobra.Command{
+	Use:   "enable-schedule [schedule-id]",
+	Short: "Enable a source-backed cron schedule",
+	Long:  `Enable a source-backed cron schedule row. Config reconciliation may update this again when the schedule is declared in source schedule config.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   enableSourceSchedule,
+}
+
+var sourcesDisableScheduleCmd = &cobra.Command{
+	Use:   "disable-schedule [schedule-id]",
+	Short: "Disable a source-backed cron schedule",
+	Long:  `Disable a source-backed cron schedule row without deleting it. This is useful when a stale schedule has been removed from source schedule config and should stop firing.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   disableSourceSchedule,
 }
 
 var sourcesBranchesCmd = &cobra.Command{
