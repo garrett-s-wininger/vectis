@@ -32,6 +32,8 @@ Uses [`../internal/testutil/grpctest/`](../internal/testutil/grpctest/) for gRPC
 
 E2E packages need `//go:build e2e` at the top of every file and live under [`e2e/`](e2e/). They exercise live binaries or full local stacks and are intentionally outside the normal integration lane.
 
+The local e2e lane expects the host `bin/vectis-local` and `bin/vectis-cli` binaries to already exist. It starts `vectis-local --grpc-insecure --http-tls=off --docs=false`, creates a stored smoke job, triggers it, waits for the run to report `running` and then `succeeded`, and verifies task completion plus run logs. Stop any existing local Vectis stack first; the smoke uses the default local service ports.
+
 The Podman e2e lane expects the host `bin/vectis-cli` binary and local Podman images to already exist. A typical prep loop is:
 
 ```sh
@@ -53,7 +55,9 @@ Useful e2e controls:
 | Variable | Meaning |
 |---|---|
 | `VECTIS_E2E_CLI` | Override the host CLI binary path; defaults to `bin/vectis-cli`. |
+| `VECTIS_E2E_LOCAL` | Override the host local supervisor binary path; defaults to `bin/vectis-local`. |
 | `VECTIS_E2E_REQUIRE=true` | Fail instead of skip when prerequisites are missing. |
+| `VECTIS_E2E_KEEP_LOCAL=true` | Leave `vectis-local` running after the local e2e for debugging. |
 | `VECTIS_E2E_PODMAN_RESET=true` | Allow the Podman e2e to remove and recreate the fixed `vectis` pod/volumes. |
 | `VECTIS_E2E_KEEP_PODMAN=true` | Leave the Podman stack up after the test for debugging. |
 | `VECTIS_E2E_ALLOW_IMAGE_PULL=true` | Skip local image preflight and let Podman pull missing `IfNotPresent` images. |

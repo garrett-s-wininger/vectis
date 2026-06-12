@@ -541,8 +541,16 @@ func (p *queuePool) ack(ctx context.Context, deliveryID string) error {
 	if ok {
 		ep := p.endpointByID(instanceID)
 		if ep == nil {
+			ep = p.singlePinnedEndpoint()
+		}
+
+		if ep == nil {
 			_ = p.refresh(ctx)
 			ep = p.endpointByID(instanceID)
+		}
+
+		if ep == nil {
+			ep = p.singlePinnedEndpoint()
 		}
 
 		if ep == nil {
@@ -565,6 +573,19 @@ func (p *queuePool) ack(ctx context.Context, deliveryID string) error {
 	}
 
 	return lastErr
+}
+
+func (p *queuePool) singlePinnedEndpoint() *queuePoolEndpoint {
+	if strings.TrimSpace(p.opts.PinnedAddress) == "" {
+		return nil
+	}
+
+	endpoints := p.snapshotActiveEndpoints()
+	if len(endpoints) != 1 {
+		return nil
+	}
+
+	return endpoints[0]
 }
 
 func (p *queuePool) ackEndpoint(ctx context.Context, ep *queuePoolEndpoint, deliveryID string) error {

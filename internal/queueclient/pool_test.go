@@ -250,6 +250,26 @@ func TestQueuePoolAckRoutesToDeliveryShard(t *testing.T) {
 	}
 }
 
+func TestQueuePoolAckUsesPinnedEndpointForShardedDeliveryID(t *testing.T) {
+	pinned := &fakeQueueServiceClient{}
+	p := &queuePool{
+		opts: QueuePoolOptions{PinnedAddress: "localhost:8081"},
+		endpoints: map[string]*queuePoolEndpoint{
+			"pinned": {id: "pinned", address: "localhost:8081", client: pinned},
+		},
+		activeIDs: []string{"pinned"},
+	}
+
+	deliveryID := queueid.Encode("queue-1", "delivery-1")
+	if err := p.ack(context.Background(), deliveryID); err != nil {
+		t.Fatalf("ack: %v", err)
+	}
+
+	if len(pinned.acks) != 1 || pinned.acks[0] != deliveryID {
+		t.Fatalf("expected ack on pinned endpoint, got %+v", pinned.acks)
+	}
+}
+
 func TestQueuePoolLegacyAckBroadcasts(t *testing.T) {
 	a := &fakeQueueServiceClient{}
 	b := &fakeQueueServiceClient{}

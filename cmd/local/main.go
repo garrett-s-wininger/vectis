@@ -1250,11 +1250,7 @@ func killAllStartedAndWait(logger interfaces.Logger) {
 	copy(procs, allStarted)
 	allStartedMu.Unlock()
 
-	for _, proc := range procs {
-		if proc.Process != nil {
-			_ = syscall.Kill(-proc.Process.Pid, syscall.SIGTERM)
-		}
-	}
+	signalProcessGroups(procs, syscall.SIGTERM)
 
 	waitCh := make(chan struct{}, len(procs))
 	for _, proc := range procs {
@@ -1264,7 +1260,28 @@ func killAllStartedAndWait(logger interfaces.Logger) {
 		}(proc)
 	}
 
-	timer := time.NewTimer(5 * time.Second)
+	waitForProcessesOrKill(procs, waitCh, 5*time.Second)
+}
+
+func signalAllStarted(sig syscall.Signal) {
+	allStartedMu.Lock()
+	procs := make([]*exec.Cmd, len(allStarted))
+	copy(procs, allStarted)
+	allStartedMu.Unlock()
+
+	signalProcessGroups(procs, sig)
+}
+
+func signalProcessGroups(procs []*exec.Cmd, sig syscall.Signal) {
+	for _, proc := range procs {
+		if proc.Process != nil {
+			_ = syscall.Kill(-proc.Process.Pid, sig)
+		}
+	}
+}
+
+func waitForProcessesOrKill(procs []*exec.Cmd, waitCh <-chan struct{}, grace time.Duration) {
+	timer := time.NewTimer(grace)
 	defer timer.Stop()
 
 	killed := false
@@ -1544,6 +1561,9 @@ func runVectis(cmd *cobra.Command, args []string) {
 			return
 		}
 
+		signalAllStarted(syscall.SIGTERM)
+		time.Sleep(2 * time.Second)
+		signalAllStarted(syscall.SIGKILL)
 		logger.Fatal("%s exited: %v", ex.name, ex.err)
 	}
 }

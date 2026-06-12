@@ -395,6 +395,8 @@ var (
 )
 
 func init() {
+	_ = viper.BindEnv("api.host", "VECTIS_API_SERVER_HOST")
+	_ = viper.BindEnv("api.port", "VECTIS_API_SERVER_PORT")
 	_ = viper.BindEnv("discovery.registry.address", "VECTIS_DISCOVERY_REGISTRY_ADDRESS")
 	_ = viper.BindEnv("discovery.registry.addresses", "VECTIS_DISCOVERY_REGISTRY_ADDRESSES")
 	_ = viper.BindEnv("dispatch.start_ttl", "VECTIS_DISPATCH_START_TTL")
@@ -855,13 +857,23 @@ func stringSliceFromViper(key string) []string {
 }
 
 func PublicHost() string {
-	return MustDefaults().API.Host
+	host := APIHost()
+	if isUnspecifiedAPIHost(host) {
+		return MustDefaults().API.Host
+	}
+
+	return host
 }
 
 func APIHost() string {
 	if host := strings.TrimSpace(viper.GetString("host")); host != "" {
 		return host
 	}
+
+	if host := strings.TrimSpace(viper.GetString("api.host")); host != "" {
+		return host
+	}
+
 	return MustDefaults().API.Host
 }
 
@@ -1359,7 +1371,7 @@ func ArtifactGRPCListenAddr() string {
 }
 
 func PublicAPIBaseURL() string {
-	return fmt.Sprintf("http://%s:%d", PublicHost(), APIPort())
+	return fmt.Sprintf("http://%s:%d", PublicHost(), APIEffectiveListenPort())
 }
 
 func DBDriver() string {
@@ -2098,7 +2110,15 @@ func effectiveListenPort(defaultPort func() int) int {
 }
 
 func APIEffectiveListenPort() int {
-	return effectiveListenPort(APIPort)
+	if p := effectiveListenPort(APIPort); p > 0 && p != APIPort() {
+		return p
+	}
+
+	if p := viper.GetInt("api.port"); p > 0 {
+		return p
+	}
+
+	return APIPort()
 }
 
 func APILogFormat() string {

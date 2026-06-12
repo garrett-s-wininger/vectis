@@ -478,6 +478,31 @@ func TestAPIHostAndListenAddr_DefaultAndOverride(t *testing.T) {
 	}
 }
 
+func TestPublicAPIBaseURLUsesEffectiveAPIAddress(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	if got := PublicAPIBaseURL(); got != "http://localhost:8080" {
+		t.Fatalf("PublicAPIBaseURL default: got %q", got)
+	}
+
+	viper.Set("api.host", "127.0.0.1")
+	viper.Set("api.port", 18080)
+	if got := PublicAPIBaseURL(); got != "http://127.0.0.1:18080" {
+		t.Fatalf("PublicAPIBaseURL api override: got %q", got)
+	}
+
+	viper.Set("host", "0.0.0.0")
+	if got := PublicAPIBaseURL(); got != "http://localhost:18080" {
+		t.Fatalf("PublicAPIBaseURL unspecified bind host: got %q", got)
+	}
+
+	viper.Set("port", 19080)
+	if got := PublicAPIBaseURL(); got != "http://localhost:19080" {
+		t.Fatalf("PublicAPIBaseURL flat port override: got %q", got)
+	}
+}
+
 func TestAPICellIngressEndpoints_DefaultAndOverride(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
