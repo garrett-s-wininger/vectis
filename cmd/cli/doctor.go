@@ -9,8 +9,10 @@ import (
 	"github.com/spf13/cobra"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -87,6 +89,9 @@ func doctor(w io.Writer) error {
 		doctorStuckRuns(),
 		doctorCellIngressRoutes(),
 		doctorCatalogInbox(),
+	}
+	checks = append(checks, doctorSourceControlChecks()...)
+	checks = append(checks,
 		doctorLogReachable(),
 		doctorAuditFlushFailures(),
 		doctorTLSFiles(),
@@ -94,7 +99,7 @@ func doctor(w io.Writer) error {
 		doctorFilesystemPressure("log.storage.filesystem", "Log storage filesystem", "log storage", envOrDefault("VECTIS_LOG_STORAGE_DIR", defaultDoctorLogStorageDir())),
 		doctorFilesystemPressure("log.forwarder.spool.filesystem", "Log forwarder spool filesystem", "log-forwarder spool", envOrDefault("VECTIS_LOG_FORWARDER_SPOOL_DIR", defaultDoctorForwarderSpoolDir())),
 		doctorFilesystemPressure("artifact.storage.filesystem", "Artifact storage filesystem", "artifact storage", envOrDefault("VECTIS_ARTIFACT_STORAGE_DIR", defaultDoctorArtifactStorageDir())),
-	}
+	)
 
 	if doctorJSON {
 		return writeDoctorJSON(w, checks)
@@ -172,6 +177,11 @@ var doctorTextGroups = []doctorTextGroup{
 	}},
 	{Name: "Catalog", Items: []doctorTextItem{
 		{ID: "catalog.inbox", Label: "Cell event inbox"},
+	}},
+	{Name: "Source Control", Items: []doctorTextItem{
+		{ID: "source.repositories.sync", Label: "Repository sync"},
+		{ID: "source.schedules.declared", Label: "Schedule declarations"},
+		{ID: "source.schedules.overrides", Label: "Schedule overrides"},
 	}},
 	{Name: "Logging", Items: []doctorTextItem{
 		{ID: "log.reachable", Label: "Log service"},
@@ -897,6 +907,360 @@ func formatDoctorCatalogInboxEvidence(status doctorCatalogStatus) string {
 	}
 
 	return fmt.Sprintf("%s sources=%s", base, strings.Join(parts, ","))
+}
+
+func doctorSourceControlChecks() []doctorCheck {
+	repositories, repositoryLoadError := doctorLoadSourceRepositories()
+	var schedules []sourceScheduleSummary
+	scheduleLoadError := ""
+	if repositoryLoadError != "" {
+		scheduleLoadError = "source repository inventory unavailable: " + repositoryLoadError
+	} else {
+		schedules, scheduleLoadError = doctorLoadSourceSchedules(repositories)
+	}
+
+	return []doctorCheck{
+		doctorSourceRepositorySync(repositories, repositoryLoadError),
+		doctorSourceScheduleDeclarations(schedules, scheduleLoadError),
+		doctorSourceScheduleOverrides(schedules, scheduleLoadError),
+	}
+}
+
+func doctorLoadSourceRepositories() ([]sourceRepositorySummary, string) {
+	namespaces, loadError := doctorLoadSourceNamespaces()
+	if loadError != "" {
+		return nil, loadError
+	}
+
+	repositories := make([]sourceRepositorySummary, 0)
+	for _, namespace := range namespaces {
+		namespacePath := strings.TrimSpace(namespace.Path)
+		if namespacePath == "" {
+			continue
+		}
+
+		params := url.Values{}
+		params.Set("namespace", namespacePath)
+		path := appendQueryParams("/api/v1/source-repositories", params)
+
+		namespaceRepositories, loadError := doctorLoadSourceRepositoriesPath(path)
+		if loadError != "" {
+			return nil, loadError
+		}
+		repositories = append(repositories, namespaceRepositories...)
+	}
+
+	return repositories, ""
+}
+
+func doctorLoadSourceNamespaces() ([]namespaceCLIResponse, string) {
+	req, err := newAPIRequest(http.MethodGet, "/api/v1/namespaces", nil)
+	if err != nil {
+		return nil, err.Error()
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return nil, fmt.Sprintf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Sprintf("unexpected status: %s", resp.Status)
+	}
+
+	var namespaces []namespaceCLIResponse
+	if err := json.NewDecoder(resp.Body).Decode(&namespaces); err != nil {
+		return nil, fmt.Sprintf("failed to parse response: %v", err)
+	}
+
+	sort.Slice(namespaces, func(i, j int) bool {
+		return namespaces[i].Path < namespaces[j].Path
+	})
+
+	return namespaces, ""
+}
+
+func doctorLoadSourceRepositoriesPath(path string) ([]sourceRepositorySummary, string) {
+	req, err := newAPIRequest(http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err.Error()
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return nil, fmt.Sprintf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Sprintf("unexpected status: %s", resp.Status)
+	}
+
+	var repositories []sourceRepositorySummary
+	if err := json.NewDecoder(resp.Body).Decode(&repositories); err != nil {
+		return nil, fmt.Sprintf("failed to parse response: %v", err)
+	}
+
+	return repositories, ""
+}
+
+func doctorLoadSourceSchedules(repositories []sourceRepositorySummary) ([]sourceScheduleSummary, string) {
+	schedules := make([]sourceScheduleSummary, 0)
+	for _, repo := range repositories {
+		repoID := strings.TrimSpace(repo.RepositoryID)
+		if repoID == "" {
+			continue
+		}
+
+		repoSchedules, loadError := doctorLoadSourceSchedulesPath("/api/v1/source-repositories/" + url.PathEscape(repoID) + "/schedules")
+		if loadError != "" {
+			return nil, loadError
+		}
+
+		schedules = append(schedules, repoSchedules...)
+	}
+
+	return schedules, ""
+}
+
+func doctorLoadSourceSchedulesPath(path string) ([]sourceScheduleSummary, string) {
+	req, err := newAPIRequest(http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err.Error()
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return nil, fmt.Sprintf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Sprintf("unexpected status: %s", resp.Status)
+	}
+
+	var result sourceSchedulesResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Sprintf("failed to parse response: %v", err)
+	}
+
+	return result.Schedules, ""
+}
+
+func doctorSourceRepositorySync(repositories []sourceRepositorySummary, loadError string) doctorCheck {
+	const id = "source.repositories.sync"
+	title := "Source repository sync healthy"
+	doc := "website/docs/operating/reference/health-check-catalog.md"
+
+	if loadError != "" {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: loadError, SuggestedAction: "Check source repository API reachability", DocLink: doc}
+	}
+
+	if len(repositories) == 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no source repositories configured", DocLink: doc}
+	}
+
+	var enabled, disabled, succeeded, failed, running, never, unknown int
+	failedRepositories := make([]string, 0)
+	staleRunningRepositories := make([]string, 0)
+	unknownStatusRepositories := make([]string, 0)
+	staleBeforeUnix := time.Now().Add(-config.SourceSyncRunningTimeout()).Unix()
+
+	for _, repo := range repositories {
+		if !repo.Enabled {
+			disabled++
+			continue
+		}
+
+		enabled++
+		status := strings.TrimSpace(repo.Sync.Status)
+		if status == "" {
+			status = "never"
+		}
+
+		switch status {
+		case "succeeded":
+			succeeded++
+		case "failed":
+			failed++
+			failedRepositories = append(failedRepositories, repo.RepositoryID)
+		case "running":
+			running++
+			if repo.Sync.LastStartedAtUnix > 0 && repo.Sync.LastStartedAtUnix <= staleBeforeUnix {
+				staleRunningRepositories = append(staleRunningRepositories, repo.RepositoryID)
+			}
+		case "never":
+			never++
+		default:
+			unknown++
+			unknownStatusRepositories = append(unknownStatusRepositories, fmt.Sprintf("%s:%s", repo.RepositoryID, status))
+		}
+	}
+
+	evidence := formatDoctorSourceRepositorySyncEvidence(len(repositories), enabled, disabled, succeeded, failed, running, never, unknown, failedRepositories, staleRunningRepositories, unknownStatusRepositories)
+	if len(failedRepositories) > 0 || len(staleRunningRepositories) > 0 || len(unknownStatusRepositories) > 0 {
+		problems := make([]string, 0, 3)
+		if len(failedRepositories) > 0 {
+			problems = append(problems, fmt.Sprintf("%d failed", len(failedRepositories)))
+		}
+
+		if len(staleRunningRepositories) > 0 {
+			problems = append(problems, fmt.Sprintf("%d running past timeout", len(staleRunningRepositories)))
+		}
+
+		if len(unknownStatusRepositories) > 0 {
+			problems = append(problems, fmt.Sprintf("%d unknown status", len(unknownStatusRepositories)))
+		}
+
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "source repository sync needs attention: " + strings.Join(problems, ", "), Evidence: evidence, SuggestedAction: "Run vectis-cli sources status <repository-id> or retry vectis-cli sources sync <repository-id>", DocLink: doc}
+	}
+
+	if enabled == 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("no enabled source repositories (%d disabled)", disabled), Evidence: evidence, DocLink: doc}
+	}
+
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("source repository sync ok: %d enabled", enabled), Evidence: evidence, DocLink: doc}
+}
+
+func formatDoctorSourceRepositorySyncEvidence(total, enabled, disabled, succeeded, failed, running, never, unknown int, failedRepositories, staleRunningRepositories, unknownStatusRepositories []string) string {
+	parts := []string{
+		fmt.Sprintf("repositories=%d", total),
+		fmt.Sprintf("enabled=%d", enabled),
+		fmt.Sprintf("disabled=%d", disabled),
+		fmt.Sprintf("succeeded=%d", succeeded),
+		fmt.Sprintf("failed=%d", failed),
+		fmt.Sprintf("running=%d", running),
+		fmt.Sprintf("never=%d", never),
+		fmt.Sprintf("unknown=%d", unknown),
+	}
+
+	appendRepositoryList := func(label string, values []string) {
+		if len(values) == 0 {
+			return
+		}
+
+		sort.Strings(values)
+		parts = append(parts, fmt.Sprintf("%s=%s", label, strings.Join(values, ",")))
+	}
+
+	appendRepositoryList("failed_repositories", failedRepositories)
+	appendRepositoryList("stale_running_repositories", staleRunningRepositories)
+	appendRepositoryList("unknown_status_repositories", unknownStatusRepositories)
+
+	return strings.Join(parts, " ")
+}
+
+func doctorSourceScheduleDeclarations(schedules []sourceScheduleSummary, loadError string) doctorCheck {
+	const id = "source.schedules.declared"
+	title := "Source schedules declared"
+	doc := "website/docs/operating/reference/health-check-catalog.md"
+
+	if loadError != "" {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: loadError, SuggestedAction: "Check source schedule API reachability", DocLink: doc}
+	}
+
+	if len(schedules) == 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no source schedules configured", DocLink: doc}
+	}
+
+	var enabled, disabled, declared, staleEnabled, staleDisabled int
+	staleEnabledIDs := make([]string, 0)
+	staleDisabledIDs := make([]string, 0)
+	for _, schedule := range schedules {
+		if schedule.Enabled {
+			enabled++
+		} else {
+			disabled++
+		}
+
+		if schedule.Declared {
+			declared++
+			continue
+		}
+
+		if schedule.Enabled {
+			staleEnabled++
+			staleEnabledIDs = append(staleEnabledIDs, schedule.ScheduleID)
+		} else {
+			staleDisabled++
+			staleDisabledIDs = append(staleDisabledIDs, schedule.ScheduleID)
+		}
+	}
+
+	evidence := formatDoctorSourceScheduleDeclarationEvidence(len(schedules), enabled, disabled, declared, staleEnabled, staleDisabled, staleEnabledIDs, staleDisabledIDs)
+	if staleEnabled > 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d enabled stale source schedules", staleEnabled), Evidence: evidence, SuggestedAction: "Disable stale source schedules or restore their source schedule declarations", DocLink: doc}
+	}
+
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("source schedules aligned: %d schedules", len(schedules)), Evidence: evidence, DocLink: doc}
+}
+
+func formatDoctorSourceScheduleDeclarationEvidence(total, enabled, disabled, declared, staleEnabled, staleDisabled int, staleEnabledIDs, staleDisabledIDs []string) string {
+	parts := []string{
+		fmt.Sprintf("schedules=%d", total),
+		fmt.Sprintf("enabled=%d", enabled),
+		fmt.Sprintf("disabled=%d", disabled),
+		fmt.Sprintf("declared=%d", declared),
+		fmt.Sprintf("stale_enabled=%d", staleEnabled),
+		fmt.Sprintf("stale_disabled=%d", staleDisabled),
+	}
+
+	appendScheduleList := func(label string, values []string) {
+		if len(values) == 0 {
+			return
+		}
+
+		sort.Strings(values)
+		parts = append(parts, fmt.Sprintf("%s=%s", label, strings.Join(values, ",")))
+	}
+
+	appendScheduleList("stale_enabled_ids", staleEnabledIDs)
+	appendScheduleList("stale_disabled_ids", staleDisabledIDs)
+
+	return strings.Join(parts, " ")
+}
+
+func doctorSourceScheduleOverrides(schedules []sourceScheduleSummary, loadError string) doctorCheck {
+	const id = "source.schedules.overrides"
+	title := "Source schedule overrides clear"
+	doc := "website/docs/operating/reference/health-check-catalog.md"
+
+	if loadError != "" {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: loadError, SuggestedAction: "Check source schedule API reachability", DocLink: doc}
+	}
+
+	if len(schedules) == 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no source schedules configured", DocLink: doc}
+	}
+
+	overrideIDs := make([]string, 0)
+	for _, schedule := range schedules {
+		if schedule.Override != nil {
+			overrideIDs = append(overrideIDs, schedule.ScheduleID)
+		}
+	}
+
+	evidence := formatDoctorSourceScheduleOverrideEvidence(len(schedules), overrideIDs)
+	if len(overrideIDs) > 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d active source schedule overrides", len(overrideIDs)), Evidence: evidence, SuggestedAction: "Clear source schedule overrides after hotfixes land back in source", DocLink: doc}
+	}
+
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no active source schedule overrides", Evidence: evidence, DocLink: doc}
+}
+
+func formatDoctorSourceScheduleOverrideEvidence(total int, overrideIDs []string) string {
+	parts := []string{
+		fmt.Sprintf("schedules=%d", total),
+		fmt.Sprintf("overrides=%d", len(overrideIDs)),
+	}
+
+	if len(overrideIDs) > 0 {
+		sort.Strings(overrideIDs)
+		parts = append(parts, fmt.Sprintf("override_ids=%s", strings.Join(overrideIDs, ",")))
+	}
+
+	return strings.Join(parts, " ")
 }
 
 func doctorLogReachable() doctorCheck {

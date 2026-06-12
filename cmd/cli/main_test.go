@@ -4328,6 +4328,34 @@ func TestDoLogout_emptyToken(t *testing.T) {
 	}
 }
 
+func writeHealthyDoctorSourceResponse(w http.ResponseWriter, r *http.Request) {
+	switch r.URL.Path {
+	case "/api/v1/namespaces":
+		_ = json.NewEncoder(w).Encode([]map[string]any{
+			{"id": 1, "name": "/", "path": "/"},
+		})
+	case "/api/v1/source-repositories":
+		_ = json.NewEncoder(w).Encode([]map[string]any{
+			{
+				"repository_id": "vectis",
+				"namespace":     "/",
+				"enabled":       true,
+				"sync":          map[string]any{"status": "succeeded", "last_started_at_unix": 1715000000, "last_finished_at_unix": 1715000001},
+			},
+		})
+	case "/api/v1/source-repositories/vectis/schedules":
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"namespace":     "/",
+			"repository_id": "vectis",
+			"schedules": []map[string]any{
+				{"schedule_id": "nightly-build", "repository_id": "vectis", "job_id": "build", "declared": true, "enabled": true},
+			},
+		})
+	default:
+		w.WriteHeader(http.StatusNotFound)
+	}
+}
+
 func TestDoctor_success(t *testing.T) {
 	seen := map[string]int{}
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
@@ -4359,6 +4387,16 @@ func TestDoctor_success(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"flush_failures": 0})
 		case "/api/v1/catalog/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"pending": 0, "applied": 4, "failed": 0, "total": 4})
+		case "/api/v1/namespaces":
+			writeHealthyDoctorSourceResponse(w, r)
+		case "/api/v1/source-repositories":
+			if got := r.URL.Query().Get("namespace"); got != "/" {
+				t.Errorf("source repository namespace query=%q, want /", got)
+			}
+
+			writeHealthyDoctorSourceResponse(w, r)
+		case "/api/v1/source-repositories/vectis/schedules":
+			writeHealthyDoctorSourceResponse(w, r)
 		default:
 			t.Errorf("unexpected path=%s", r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
@@ -4375,7 +4413,7 @@ func TestDoctor_success(t *testing.T) {
 	out := buf.String()
 	for _, want := range []string{
 		"Vectis health check",
-		"Overall: PASS  20 passed, 0 warnings, 0 failed",
+		"Overall: PASS  22 passed, 0 warnings, 0 failed",
 		"Core",
 		"OK    API liveness",
 		"OK    API readiness",
@@ -4399,6 +4437,13 @@ func TestDoctor_success(t *testing.T) {
 		"Catalog",
 		"OK    Cell event inbox",
 		"catalog inbox ok: 0 pending",
+		"Source Control",
+		"OK    Repository sync",
+		"source repository sync ok: 1 enabled",
+		"OK    Schedule declarations",
+		"source schedules aligned: 1 schedules",
+		"OK    Schedule overrides",
+		"no active source schedule overrides",
 		"Logging",
 		"OK    Log service",
 		"OK    Log storage",
@@ -4416,7 +4461,7 @@ func TestDoctor_success(t *testing.T) {
 		}
 	}
 
-	for _, path := range []string{"/health/live", "/health/ready", "/api/v1/setup/status", "/api/v1/schema/status", "/api/v1/reconciler/heartbeat", "/api/v1/audit/drops", "/api/v1/db/pool-stats", "/api/v1/queue/backlog", "/api/v1/reconciler/stuck-runs", "/api/v1/cron/status", "/api/v1/cells/status", "/api/v1/log/reachable", "/api/v1/audit/flush-failures", "/api/v1/catalog/status"} {
+	for _, path := range []string{"/health/live", "/health/ready", "/api/v1/setup/status", "/api/v1/schema/status", "/api/v1/reconciler/heartbeat", "/api/v1/audit/drops", "/api/v1/db/pool-stats", "/api/v1/queue/backlog", "/api/v1/reconciler/stuck-runs", "/api/v1/cron/status", "/api/v1/cells/status", "/api/v1/log/reachable", "/api/v1/audit/flush-failures", "/api/v1/catalog/status", "/api/v1/namespaces", "/api/v1/source-repositories", "/api/v1/source-repositories/vectis/schedules"} {
 		if seen[path] != 1 {
 			t.Fatalf("expected one request to %s, got %d", path, seen[path])
 		}
@@ -4452,6 +4497,8 @@ func TestDoctor_warnsForIncompleteSetupAndMissingToken(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"flush_failures": 0})
 		case "/api/v1/catalog/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"pending": 0, "applied": 4, "failed": 0, "total": 4})
+		case "/api/v1/namespaces", "/api/v1/source-repositories", "/api/v1/source-repositories/vectis/schedules":
+			writeHealthyDoctorSourceResponse(w, r)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -4469,7 +4516,7 @@ func TestDoctor_warnsForIncompleteSetupAndMissingToken(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"Overall: WARN  18 passed, 2 warnings, 0 failed",
+		"Overall: WARN  20 passed, 2 warnings, 0 failed",
 		"WARN  Initial setup",
 		"initial setup is not complete",
 		"WARN  CLI token",
@@ -4510,6 +4557,8 @@ func TestDoctor_setupAndTokenPassWhenAuthDisabled(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"flush_failures": 0})
 		case "/api/v1/catalog/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"pending": 0, "applied": 4, "failed": 0, "total": 4})
+		case "/api/v1/namespaces", "/api/v1/source-repositories", "/api/v1/source-repositories/vectis/schedules":
+			writeHealthyDoctorSourceResponse(w, r)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -4527,7 +4576,7 @@ func TestDoctor_setupAndTokenPassWhenAuthDisabled(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"Overall: PASS  20 passed, 0 warnings, 0 failed",
+		"Overall: PASS  22 passed, 0 warnings, 0 failed",
 		"initial setup not required; API auth is disabled",
 		"CLI API token not required; API auth is disabled",
 	} {
@@ -4568,6 +4617,8 @@ func TestDoctor_failsWhenRequiredCheckFails(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"flush_failures": 0})
 		case "/api/v1/catalog/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"pending": 0, "applied": 4, "failed": 0, "total": 4})
+		case "/api/v1/namespaces", "/api/v1/source-repositories", "/api/v1/source-repositories/vectis/schedules":
+			writeHealthyDoctorSourceResponse(w, r)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -4582,7 +4633,7 @@ func TestDoctor_failsWhenRequiredCheckFails(t *testing.T) {
 	}
 
 	out := buf.String()
-	if !strings.Contains(out, "Overall: FAIL  19 passed, 0 warnings, 1 failed") ||
+	if !strings.Contains(out, "Overall: FAIL  21 passed, 0 warnings, 1 failed") ||
 		!strings.Contains(out, "FAIL  API readiness") ||
 		!strings.Contains(out, "unexpected status: 503 Service Unavailable") {
 		t.Fatalf("missing readiness failure in output:\n%s", out)
@@ -4618,6 +4669,8 @@ func TestDoctor_jsonOutput(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"flush_failures": 0})
 		case "/api/v1/catalog/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"pending": 0, "applied": 4, "failed": 0, "total": 4})
+		case "/api/v1/namespaces", "/api/v1/source-repositories", "/api/v1/source-repositories/vectis/schedules":
+			writeHealthyDoctorSourceResponse(w, r)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -4637,12 +4690,12 @@ func TestDoctor_jsonOutput(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if report.Status != doctorOK || report.Passed != 20 || report.Warnings != 0 || report.Failed != 0 {
+	if report.Status != doctorOK || report.Passed != 22 || report.Warnings != 0 || report.Failed != 0 {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 
-	if len(report.Checks) != 20 {
-		t.Fatalf("expected 20 checks, got %d", len(report.Checks))
+	if len(report.Checks) != 22 {
+		t.Fatalf("expected 22 checks, got %d", len(report.Checks))
 	}
 
 	// Verify structure of first check
@@ -4695,6 +4748,8 @@ func TestDoctor_jsonOutputStillFailsOnFailedCheck(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"flush_failures": 0})
 		case "/api/v1/catalog/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"pending": 0, "applied": 4, "failed": 0, "total": 4})
+		case "/api/v1/namespaces", "/api/v1/source-repositories", "/api/v1/source-repositories/vectis/schedules":
+			writeHealthyDoctorSourceResponse(w, r)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -4719,8 +4774,8 @@ func TestDoctor_jsonOutputStillFailsOnFailedCheck(t *testing.T) {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 
-	if len(report.Checks) != 20 {
-		t.Fatalf("expected 20 checks, got %d", len(report.Checks))
+	if len(report.Checks) != 22 {
+		t.Fatalf("expected 22 checks, got %d", len(report.Checks))
 	}
 }
 
@@ -4850,6 +4905,8 @@ func TestDoctor_strictWarnsExitNonzero(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"flush_failures": 0})
 		case "/api/v1/catalog/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"pending": 0, "applied": 4, "failed": 0, "total": 4})
+		case "/api/v1/namespaces", "/api/v1/source-repositories", "/api/v1/source-repositories/vectis/schedules":
+			writeHealthyDoctorSourceResponse(w, r)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -4868,6 +4925,153 @@ func TestDoctor_strictWarnsExitNonzero(t *testing.T) {
 	out := buf.String()
 	if !strings.Contains(out, "WARN  Initial setup") {
 		t.Fatalf("expected warning in output:\n%s", out)
+	}
+}
+
+func TestDoctor_sourceRepositorySyncWarnsForFailedAndStaleRunning(t *testing.T) {
+	t.Setenv("VECTIS_SOURCE_SYNC_RUNNING_TIMEOUT", "1m")
+
+	check := doctorSourceRepositorySync([]sourceRepositorySummary{
+		{
+			RepositoryID: "failed-repo",
+			Enabled:      true,
+			Sync:         sourceRepositorySyncInfo{Status: "failed", Error: "credential detail should stay out of evidence"},
+		},
+		{
+			RepositoryID: "stale-repo",
+			Enabled:      true,
+			Sync:         sourceRepositorySyncInfo{Status: "running", LastStartedAtUnix: time.Now().Add(-2 * time.Minute).Unix()},
+		},
+		{
+			RepositoryID: "never-repo",
+			Enabled:      true,
+			Sync:         sourceRepositorySyncInfo{Status: "never"},
+		},
+		{
+			RepositoryID: "disabled-repo",
+			Enabled:      false,
+			Sync:         sourceRepositorySyncInfo{Status: "failed"},
+		},
+	}, "")
+
+	if check.Status != doctorWarn {
+		t.Fatalf("expected source repository sync warning, got %#v", check)
+	}
+
+	for _, want := range []string{"1 failed", "1 running past timeout", "failed_repositories=failed-repo", "stale_running_repositories=stale-repo", "disabled=1"} {
+		if !strings.Contains(check.Summary+" "+check.Evidence, want) {
+			t.Fatalf("expected source repository sync check to contain %q, got %#v", want, check)
+		}
+	}
+
+	if strings.Contains(check.Evidence, "credential detail") {
+		t.Fatalf("expected sync error details to stay out of health evidence, got %q", check.Evidence)
+	}
+}
+
+func TestDoctor_loadsSourceRepositoriesAcrossNamespaces(t *testing.T) {
+	seenNamespaces := make([]string, 0, 2)
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/namespaces":
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{"id": 2, "name": "team-a", "path": "/team-a"},
+				{"id": 1, "name": "/", "path": "/"},
+			})
+		case "/api/v1/source-repositories":
+			namespace := r.URL.Query().Get("namespace")
+			seenNamespaces = append(seenNamespaces, namespace)
+			repositoryID := "root-repo"
+
+			if namespace == "/team-a" {
+				repositoryID = "team-repo"
+			}
+
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{"repository_id": repositoryID, "namespace": namespace, "enabled": true, "sync": map[string]any{"status": "succeeded"}},
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	repositories, loadError := doctorLoadSourceRepositories()
+	if loadError != "" {
+		t.Fatalf("unexpected source repository load error: %s", loadError)
+	}
+
+	if len(repositories) != 2 || repositories[0].RepositoryID != "root-repo" || repositories[1].RepositoryID != "team-repo" {
+		t.Fatalf("unexpected repositories: %+v", repositories)
+	}
+
+	if strings.Join(seenNamespaces, ",") != "/,/team-a" {
+		t.Fatalf("unexpected namespace query order: %v", seenNamespaces)
+	}
+}
+
+func TestDoctor_loadsSourceSchedulesPerRepository(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/source-repositories/root-repo/schedules":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"repository_id": "root-repo",
+				"schedules": []map[string]any{
+					{"schedule_id": "root-nightly", "repository_id": "root-repo", "declared": true, "enabled": true},
+				},
+			})
+		case "/api/v1/source-repositories/team-repo/schedules":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"repository_id": "team-repo",
+				"schedules": []map[string]any{
+					{"schedule_id": "team-nightly", "repository_id": "team-repo", "declared": true, "enabled": true},
+				},
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	schedules, loadError := doctorLoadSourceSchedules([]sourceRepositorySummary{
+		{RepositoryID: "root-repo"},
+		{RepositoryID: "team-repo"},
+	})
+	if loadError != "" {
+		t.Fatalf("unexpected source schedule load error: %s", loadError)
+	}
+
+	if len(schedules) != 2 || schedules[0].ScheduleID != "root-nightly" || schedules[1].ScheduleID != "team-nightly" {
+		t.Fatalf("unexpected schedules: %+v", schedules)
+	}
+}
+
+func TestDoctor_sourceSchedulesWarnForStaleEnabledScheduleAndOverrides(t *testing.T) {
+	schedules := []sourceScheduleSummary{
+		{ScheduleID: "active-stale", RepositoryID: "vectis", Declared: false, Enabled: true},
+		{ScheduleID: "disabled-stale", RepositoryID: "vectis", Declared: false, Enabled: false},
+		{ScheduleID: "declared", RepositoryID: "vectis", Declared: true, Enabled: true},
+		{ScheduleID: "hotfix", RepositoryID: "vectis", Declared: true, Enabled: true, Override: &sourceScheduleOverride{Ref: "hotfix/build"}},
+	}
+
+	declarationCheck := doctorSourceScheduleDeclarations(schedules, "")
+	if declarationCheck.Status != doctorWarn {
+		t.Fatalf("expected stale schedule warning, got %#v", declarationCheck)
+	}
+
+	for _, want := range []string{"1 enabled stale source schedules", "stale_enabled_ids=active-stale", "stale_disabled_ids=disabled-stale"} {
+		if !strings.Contains(declarationCheck.Summary+" "+declarationCheck.Evidence, want) {
+			t.Fatalf("expected source schedule declaration check to contain %q, got %#v", want, declarationCheck)
+		}
+	}
+
+	overrideCheck := doctorSourceScheduleOverrides(schedules, "")
+	if overrideCheck.Status != doctorWarn {
+		t.Fatalf("expected override warning, got %#v", overrideCheck)
+	}
+
+	for _, want := range []string{"1 active source schedule overrides", "override_ids=hotfix"} {
+		if !strings.Contains(overrideCheck.Summary+" "+overrideCheck.Evidence, want) {
+			t.Fatalf("expected source schedule override check to contain %q, got %#v", want, overrideCheck)
+		}
 	}
 }
 
