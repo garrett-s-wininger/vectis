@@ -362,6 +362,8 @@ func TestAPIServer_SourceBackedJobLifecycle(t *testing.T) {
 
 func TestAPIServer_ListSourceSchedules(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	t.Setenv("VECTIS_SOURCE_SCHEDULES", `[{"schedule_id":"nightly-build","repository_id":"vectis-local","job_id":"build","cron_spec":"30 8 * * *","ref":"main","enabled":true}]`)
+	t.Setenv("VECTIS_API_SERVER_SOURCE_SCHEDULES", "")
 
 	server, _, _, db := setupTestServer(t)
 	repos := dal.NewSQLRepositories(db)
@@ -435,6 +437,7 @@ func TestAPIServer_ListSourceSchedules(t *testing.T) {
 			PathDerived    bool   `json:"path_derived"`
 			ConfiguredRef  string `json:"configured_ref"`
 			ConfiguredPath string `json:"configured_path"`
+			Declared       bool   `json:"declared"`
 			Enabled        bool   `json:"enabled"`
 		} `json:"schedules"`
 	}
@@ -451,6 +454,7 @@ func TestAPIServer_ListSourceSchedules(t *testing.T) {
 		listResp.Schedules[0].RepositoryID != "other" ||
 		listResp.Schedules[0].Path != ".vectis/jobs/other.json" ||
 		listResp.Schedules[0].PathDerived ||
+		listResp.Schedules[0].Declared ||
 		listResp.Schedules[0].Enabled {
 		t.Fatalf("first source schedule mismatch: %+v", listResp.Schedules[0])
 	}
@@ -466,6 +470,7 @@ func TestAPIServer_ListSourceSchedules(t *testing.T) {
 		!listResp.Schedules[1].PathDerived ||
 		listResp.Schedules[1].ConfiguredRef != "main" ||
 		listResp.Schedules[1].ConfiguredPath != "" ||
+		!listResp.Schedules[1].Declared ||
 		!listResp.Schedules[1].Enabled {
 		t.Fatalf("second source schedule mismatch: %+v", listResp.Schedules[1])
 	}
@@ -482,6 +487,7 @@ func TestAPIServer_ListSourceSchedules(t *testing.T) {
 		RepositoryID string `json:"repository_id"`
 		Schedules    []struct {
 			ScheduleID string `json:"schedule_id"`
+			Declared   bool   `json:"declared"`
 		} `json:"schedules"`
 	}
 
@@ -492,7 +498,8 @@ func TestAPIServer_ListSourceSchedules(t *testing.T) {
 	if repoResp.Namespace != "/" ||
 		repoResp.RepositoryID != "vectis-local" ||
 		len(repoResp.Schedules) != 1 ||
-		repoResp.Schedules[0].ScheduleID != "nightly-build" {
+		repoResp.Schedules[0].ScheduleID != "nightly-build" ||
+		!repoResp.Schedules[0].Declared {
 		t.Fatalf("repository source schedules mismatch: %+v", repoResp)
 	}
 
@@ -513,6 +520,7 @@ func TestAPIServer_ListSourceSchedules(t *testing.T) {
 		PathDerived    bool   `json:"path_derived"`
 		ConfiguredRef  string `json:"configured_ref"`
 		ConfiguredPath string `json:"configured_path"`
+		Declared       bool   `json:"declared"`
 		Override       *struct {
 			Ref           string `json:"ref"`
 			Path          string `json:"path"`
@@ -531,6 +539,7 @@ func TestAPIServer_ListSourceSchedules(t *testing.T) {
 		overrideResp.PathDerived ||
 		overrideResp.ConfiguredRef != "main" ||
 		overrideResp.ConfiguredPath != "" ||
+		!overrideResp.Declared ||
 		overrideResp.Override == nil ||
 		overrideResp.Override.Ref != "hotfix/build" ||
 		overrideResp.Override.Path != ".vectis/jobs/build-hotfix.json" ||
@@ -552,6 +561,7 @@ func TestAPIServer_ListSourceSchedules(t *testing.T) {
 		Path           string `json:"path"`
 		ConfiguredRef  string `json:"configured_ref"`
 		ConfiguredPath string `json:"configured_path"`
+		Declared       bool   `json:"declared"`
 		Override       *struct {
 			Ref string `json:"ref"`
 		} `json:"override"`
@@ -566,6 +576,7 @@ func TestAPIServer_ListSourceSchedules(t *testing.T) {
 		clearResp.Path != ".vectis/jobs/build.json" ||
 		clearResp.ConfiguredRef != "main" ||
 		clearResp.ConfiguredPath != "" ||
+		!clearResp.Declared ||
 		clearResp.Override != nil {
 		t.Fatalf("clear response mismatch: %+v", clearResp)
 	}

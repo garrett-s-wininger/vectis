@@ -236,6 +236,7 @@ List reconciled source schedules:
 ./bin/vectis-cli sources schedules
 ./bin/vectis-cli sources schedules vectis-local
 ./bin/vectis-cli sources schedules --overrides
+./bin/vectis-cli sources schedules --stale
 ```
 
 Temporarily point a source schedule at a hotfix ref or definition path, then clear the override after the fix lands in the configured location:

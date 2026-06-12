@@ -92,6 +92,7 @@ var (
 	sourceSchedulesNamespace    string
 	sourceSchedulesQuiet        bool
 	sourceSchedulesOverrideOnly bool
+	sourceSchedulesStaleOnly    bool
 	sourceOverrideRef           string
 	sourceOverridePath          string
 	sourceOverrideReason        string

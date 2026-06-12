@@ -632,13 +632,16 @@ func TestListSourceSchedules_sendsNamespaceQueryAndPrintsSchedules(t *testing.T)
 	oldNamespace := sourceSchedulesNamespace
 	oldQuiet := sourceSchedulesQuiet
 	oldOverridesOnly := sourceSchedulesOverrideOnly
+	oldStaleOnly := sourceSchedulesStaleOnly
 	sourceSchedulesNamespace = "/team-a"
 	sourceSchedulesQuiet = false
 	sourceSchedulesOverrideOnly = false
+	sourceSchedulesStaleOnly = false
 	t.Cleanup(func() {
 		sourceSchedulesNamespace = oldNamespace
 		sourceSchedulesQuiet = oldQuiet
 		sourceSchedulesOverrideOnly = oldOverridesOnly
+		sourceSchedulesStaleOnly = oldStaleOnly
 	})
 
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
@@ -669,6 +672,7 @@ func TestListSourceSchedules_sendsNamespaceQueryAndPrintsSchedules(t *testing.T)
 					"path_derived":    true,
 					"configured_ref":  "main",
 					"configured_path": "",
+					"declared":        true,
 					"override": map[string]any{
 						"ref":             "hotfix/build",
 						"path":            ".vectis/jobs/build-hotfix.json",
@@ -687,7 +691,7 @@ func TestListSourceSchedules_sendsNamespaceQueryAndPrintsSchedules(t *testing.T)
 	}
 
 	out := buf.String()
-	for _, want := range []string{"SCHEDULE", "OVERRIDE", "nightly-build", "vectis", "build", "30 8 * * *", "2026-05-01T08:30:00Z", ".vectis/jobs/build.json (derived)", "ref=hotfix/build", "path=.vectis/jobs/build-hotfix.json", "reason=production hotfix", "true"} {
+	for _, want := range []string{"SCHEDULE", "DECLARED", "OVERRIDE", "nightly-build", "vectis", "build", "30 8 * * *", "2026-05-01T08:30:00Z", ".vectis/jobs/build.json (derived)", "ref=hotfix/build", "path=.vectis/jobs/build-hotfix.json", "reason=production hotfix", "true"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
 		}
@@ -698,13 +702,16 @@ func TestListSourceSchedules_filtersOverrides(t *testing.T) {
 	oldNamespace := sourceSchedulesNamespace
 	oldQuiet := sourceSchedulesQuiet
 	oldOverridesOnly := sourceSchedulesOverrideOnly
+	oldStaleOnly := sourceSchedulesStaleOnly
 	sourceSchedulesNamespace = "/team-a"
 	sourceSchedulesQuiet = false
 	sourceSchedulesOverrideOnly = true
+	sourceSchedulesStaleOnly = false
 	t.Cleanup(func() {
 		sourceSchedulesNamespace = oldNamespace
 		sourceSchedulesQuiet = oldQuiet
 		sourceSchedulesOverrideOnly = oldOverridesOnly
+		sourceSchedulesStaleOnly = oldStaleOnly
 	})
 
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
@@ -730,6 +737,7 @@ func TestListSourceSchedules_filtersOverrides(t *testing.T) {
 					"path":            ".vectis/jobs/build-hotfix.json",
 					"configured_ref":  "main",
 					"configured_path": "",
+					"declared":        true,
 					"override": map[string]any{
 						"ref":             "hotfix/build",
 						"path":            ".vectis/jobs/build-hotfix.json",
@@ -749,6 +757,7 @@ func TestListSourceSchedules_filtersOverrides(t *testing.T) {
 					"path":            ".vectis/jobs/test.json",
 					"configured_ref":  "main",
 					"configured_path": "",
+					"declared":        true,
 					"enabled":         true,
 				},
 			},
@@ -771,17 +780,95 @@ func TestListSourceSchedules_filtersOverrides(t *testing.T) {
 	}
 }
 
-func TestListSourceSchedules_sendsRepositoryPathAndQuietOutput(t *testing.T) {
+func TestListSourceSchedules_filtersStale(t *testing.T) {
 	oldNamespace := sourceSchedulesNamespace
 	oldQuiet := sourceSchedulesQuiet
 	oldOverridesOnly := sourceSchedulesOverrideOnly
-	sourceSchedulesNamespace = "/ignored"
-	sourceSchedulesQuiet = true
+	oldStaleOnly := sourceSchedulesStaleOnly
+	sourceSchedulesNamespace = "/team-a"
+	sourceSchedulesQuiet = false
 	sourceSchedulesOverrideOnly = false
+	sourceSchedulesStaleOnly = true
 	t.Cleanup(func() {
 		sourceSchedulesNamespace = oldNamespace
 		sourceSchedulesQuiet = oldQuiet
 		sourceSchedulesOverrideOnly = oldOverridesOnly
+		sourceSchedulesStaleOnly = oldStaleOnly
+	})
+
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/source-schedules" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"namespace": "/team-a",
+			"schedules": []map[string]any{
+				{
+					"schedule_id":     "nightly-build",
+					"repository_id":   "vectis",
+					"namespace":       "/team-a",
+					"job_id":          "build",
+					"cron_spec":       "30 8 * * *",
+					"next_run_at":     "2026-05-01T08:30:00Z",
+					"ref":             "main",
+					"path":            ".vectis/jobs/build.json",
+					"configured_ref":  "main",
+					"configured_path": "",
+					"declared":        true,
+					"enabled":         true,
+				},
+				{
+					"schedule_id":     "old-nightly",
+					"repository_id":   "vectis",
+					"namespace":       "/team-a",
+					"job_id":          "old",
+					"cron_spec":       "0 3 * * *",
+					"next_run_at":     "2026-05-01T03:00:00Z",
+					"ref":             "main",
+					"path":            ".vectis/jobs/old.json",
+					"configured_ref":  "main",
+					"configured_path": "",
+					"declared":        false,
+					"enabled":         false,
+				},
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := listSourceSchedulesWithOutput(&buf, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "old-nightly") || !strings.Contains(out, "false") {
+		t.Fatalf("expected stale schedule in output, got:\n%s", out)
+	}
+
+	if strings.Contains(out, "nightly-build") {
+		t.Fatalf("expected stale filter to hide declared schedule, got:\n%s", out)
+	}
+}
+
+func TestListSourceSchedules_sendsRepositoryPathAndQuietOutput(t *testing.T) {
+	oldNamespace := sourceSchedulesNamespace
+	oldQuiet := sourceSchedulesQuiet
+	oldOverridesOnly := sourceSchedulesOverrideOnly
+	oldStaleOnly := sourceSchedulesStaleOnly
+	sourceSchedulesNamespace = "/ignored"
+	sourceSchedulesQuiet = true
+	sourceSchedulesOverrideOnly = false
+	sourceSchedulesStaleOnly = false
+	t.Cleanup(func() {
+		sourceSchedulesNamespace = oldNamespace
+		sourceSchedulesQuiet = oldQuiet
+		sourceSchedulesOverrideOnly = oldOverridesOnly
+		sourceSchedulesStaleOnly = oldStaleOnly
 	})
 
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {

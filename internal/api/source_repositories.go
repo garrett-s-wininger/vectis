@@ -196,6 +196,7 @@ type sourceCronScheduleResponse struct {
 	ConfiguredRef  string                              `json:"configured_ref"`
 	ConfiguredPath string                              `json:"configured_path"`
 	Override       *sourceCronScheduleOverrideResponse `json:"override,omitempty"`
+	Declared       bool                                `json:"declared"`
 	Enabled        bool                                `json:"enabled"`
 }
 
@@ -640,9 +641,16 @@ func (s *APIServer) ListSourceSchedules(w http.ResponseWriter, r *http.Request) 
 	}
 	s.markDBRecovered()
 
+	declared, err := sourceCronScheduleDeclarationIDs()
+	if err != nil {
+		s.logger.Error("Configuration error listing source schedules: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+
 	writeJSON(w, http.StatusOK, sourceCronSchedulesResponse{
 		Namespace: ns.Path,
-		Schedules: sourceCronScheduleRecordsToResponse(recs, ns.Path),
+		Schedules: sourceCronScheduleRecordsToResponse(recs, ns.Path, declared),
 	})
 }
 
@@ -676,10 +684,17 @@ func (s *APIServer) ListSourceRepositorySchedules(w http.ResponseWriter, r *http
 	}
 	s.markDBRecovered()
 
+	declared, err := sourceCronScheduleDeclarationIDs()
+	if err != nil {
+		s.logger.Error("Configuration error listing source repository schedules: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+
 	writeJSON(w, http.StatusOK, sourceCronSchedulesResponse{
 		Namespace:    nsPath,
 		RepositoryID: rec.RepositoryID,
-		Schedules:    sourceCronScheduleRecordsToResponse(recs, nsPath),
+		Schedules:    sourceCronScheduleRecordsToResponse(recs, nsPath, declared),
 	})
 }
 
@@ -727,6 +742,13 @@ func (s *APIServer) PutSourceScheduleOverride(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	declared, err := sourceCronScheduleDeclarationIDs()
+	if err != nil {
+		s.logger.Error("Configuration error setting source schedule override: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+
 	rec, err := s.schedules.SetSourceCronScheduleOverride(ctx, scheduleID, dal.SourceScheduleOverride{
 		Ref:    req.Ref,
 		Path:   req.Path,
@@ -751,7 +773,7 @@ func (s *APIServer) PutSourceScheduleOverride(w http.ResponseWriter, r *http.Req
 	}
 	s.markDBRecovered()
 
-	writeJSON(w, http.StatusOK, sourceCronScheduleRecordToResponse(rec, namespacePath))
+	writeJSON(w, http.StatusOK, sourceCronScheduleRecordToResponse(rec, namespacePath, declared))
 }
 
 func (s *APIServer) DeleteSourceScheduleOverride(w http.ResponseWriter, r *http.Request) {
@@ -773,6 +795,13 @@ func (s *APIServer) DeleteSourceScheduleOverride(w http.ResponseWriter, r *http.
 		return
 	}
 
+	declared, err := sourceCronScheduleDeclarationIDs()
+	if err != nil {
+		s.logger.Error("Configuration error clearing source schedule override: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+
 	rec, err := s.schedules.ClearSourceCronScheduleOverride(ctx, scheduleID)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
@@ -789,7 +818,7 @@ func (s *APIServer) DeleteSourceScheduleOverride(w http.ResponseWriter, r *http.
 	}
 	s.markDBRecovered()
 
-	writeJSON(w, http.StatusOK, sourceCronScheduleRecordToResponse(rec, namespacePath))
+	writeJSON(w, http.StatusOK, sourceCronScheduleRecordToResponse(rec, namespacePath, declared))
 }
 
 func (s *APIServer) DeleteSourceRepository(w http.ResponseWriter, r *http.Request) {
@@ -2530,16 +2559,16 @@ func (s *APIServer) sourceRepositoryRecordToResponse(rec dal.SourceRepositoryRec
 	}
 }
 
-func sourceCronScheduleRecordsToResponse(recs []dal.CronScheduleRecord, namespacePath string) []sourceCronScheduleResponse {
+func sourceCronScheduleRecordsToResponse(recs []dal.CronScheduleRecord, namespacePath string, declared map[string]struct{}) []sourceCronScheduleResponse {
 	resp := make([]sourceCronScheduleResponse, 0, len(recs))
 	for _, rec := range recs {
-		resp = append(resp, sourceCronScheduleRecordToResponse(rec, namespacePath))
+		resp = append(resp, sourceCronScheduleRecordToResponse(rec, namespacePath, declared))
 	}
 
 	return resp
 }
 
-func sourceCronScheduleRecordToResponse(rec dal.CronScheduleRecord, namespacePath string) sourceCronScheduleResponse {
+func sourceCronScheduleRecordToResponse(rec dal.CronScheduleRecord, namespacePath string, declared map[string]struct{}) sourceCronScheduleResponse {
 	effectiveRef := strings.TrimSpace(rec.SourceRef)
 	if ref := strings.TrimSpace(rec.SourceOverrideRef); ref != "" {
 		effectiveRef = ref
@@ -2570,6 +2599,7 @@ func sourceCronScheduleRecordToResponse(rec dal.CronScheduleRecord, namespacePat
 		PathDerived:    pathDerived,
 		ConfiguredRef:  rec.SourceRef,
 		ConfiguredPath: rec.SourcePath,
+		Declared:       sourceCronScheduleIsDeclared(rec.ScheduleID, declared),
 		Enabled:        rec.Enabled,
 	}
 
@@ -2583,6 +2613,32 @@ func sourceCronScheduleRecordToResponse(rec dal.CronScheduleRecord, namespacePat
 	}
 
 	return resp
+}
+
+func sourceCronScheduleDeclarationIDs() (map[string]struct{}, error) {
+	decls, err := config.SourceScheduleDeclarations()
+	if err != nil {
+		return nil, err
+	}
+
+	declared := make(map[string]struct{}, len(decls))
+	for _, decl := range decls {
+		scheduleID := strings.TrimSpace(decl.ScheduleID)
+		if scheduleID != "" {
+			declared[scheduleID] = struct{}{}
+		}
+	}
+
+	return declared, nil
+}
+
+func sourceCronScheduleIsDeclared(scheduleID string, declared map[string]struct{}) bool {
+	if len(declared) == 0 {
+		return false
+	}
+
+	_, ok := declared[strings.TrimSpace(scheduleID)]
+	return ok
 }
 
 func (s *APIServer) sourceRepositoryStatusFromRecord(ctx context.Context, rec dal.SourceRepositoryRecord, namespacePath string) sourceRepositoryStatusResponse {
