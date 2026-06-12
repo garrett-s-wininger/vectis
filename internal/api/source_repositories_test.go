@@ -778,7 +778,61 @@ func TestAPIServer_SourceStatus(t *testing.T) {
 	t.Setenv("VECTIS_SOURCE_SCHEDULES", `[{"schedule_id":"nightly","repository_id":"vectis-local","job_id":"build","cron_spec":"0 2 * * *"}]`)
 	t.Setenv("VECTIS_API_SERVER_SOURCE_SCHEDULES", "")
 
-	server, _, _, _ := setupTestServer(t)
+	server, _, _, db := setupTestServer(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "vectis-local",
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/vectis",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("create declared source repository: %v", err)
+	}
+	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "old-repo",
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/old",
+		Enabled:      false,
+	}); err != nil {
+		t.Fatalf("create stale source repository: %v", err)
+	}
+
+	nextRun := time.Date(2026, 5, 1, 8, 30, 0, 0, time.UTC)
+	if _, err := repos.Schedules().CreateCronSchedule(ctx, dal.CronScheduleRecord{
+		ScheduleID:         "nightly",
+		JobID:              "build",
+		CronSpec:           "0 2 * * *",
+		NextRunAt:          nextRun,
+		SourceRepositoryID: "vectis-local",
+		SourceRef:          "main",
+		Enabled:            true,
+	}); err != nil {
+		t.Fatalf("create declared source schedule: %v", err)
+	}
+
+	if _, err := repos.Schedules().SetSourceCronScheduleOverride(ctx, "nightly", dal.SourceScheduleOverride{
+		Ref:           "hotfix/build",
+		Reason:        "verify status count",
+		CreatedAtUnix: 1770000000,
+	}); err != nil {
+		t.Fatalf("set source schedule override: %v", err)
+	}
+
+	if _, err := repos.Schedules().CreateCronSchedule(ctx, dal.CronScheduleRecord{
+		ScheduleID:         "old-nightly",
+		JobID:              "old",
+		CronSpec:           "30 3 * * *",
+		NextRunAt:          nextRun,
+		SourceRepositoryID: "old-repo",
+		SourceRef:          "main",
+		Enabled:            false,
+	}); err != nil {
+		t.Fatalf("create stale source schedule: %v", err)
+	}
+
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/source/status", nil)
 	rec := httptest.NewRecorder()
 	server.Handler().ServeHTTP(rec, req)
@@ -793,6 +847,20 @@ func TestAPIServer_SourceStatus(t *testing.T) {
 		SchedulesConfigured    bool `json:"schedules_configured"`
 		DeclaredRepositories   int  `json:"declared_repositories"`
 		DeclaredSchedules      int  `json:"declared_schedules"`
+		Repositories           struct {
+			Total         int `json:"total"`
+			Enabled       int `json:"enabled"`
+			Declared      int `json:"declared"`
+			StaleDisabled int `json:"stale_disabled"`
+			SyncNever     int `json:"sync_never"`
+		} `json:"repositories"`
+		Schedules struct {
+			Total           int `json:"total"`
+			Enabled         int `json:"enabled"`
+			Declared        int `json:"declared"`
+			StaleDisabled   int `json:"stale_disabled"`
+			ActiveOverrides int `json:"active_overrides"`
+		} `json:"schedules"`
 	}
 
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
@@ -804,7 +872,17 @@ func TestAPIServer_SourceStatus(t *testing.T) {
 		!resp.SourceJobsConfigured ||
 		!resp.SchedulesConfigured ||
 		resp.DeclaredRepositories != 2 ||
-		resp.DeclaredSchedules != 1 {
+		resp.DeclaredSchedules != 1 ||
+		resp.Repositories.Total != 2 ||
+		resp.Repositories.Enabled != 1 ||
+		resp.Repositories.Declared != 1 ||
+		resp.Repositories.StaleDisabled != 1 ||
+		resp.Repositories.SyncNever != 2 ||
+		resp.Schedules.Total != 2 ||
+		resp.Schedules.Enabled != 1 ||
+		resp.Schedules.Declared != 1 ||
+		resp.Schedules.StaleDisabled != 1 ||
+		resp.Schedules.ActiveOverrides != 1 {
 		t.Fatalf("unexpected source status: %+v", resp)
 	}
 }
