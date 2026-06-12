@@ -40,6 +40,7 @@ For task walkthroughs, use the [CLI Guide](../../using/cli-guide.md). For repair
 | Retry a failed or repaired run | `vectis-cli runs retry <run-id>` |
 | Stream logs for a run | `vectis-cli logs run <run-id>` |
 | Inspect source repository health | `vectis-cli sources status <repository-id>` |
+| Check source-only readiness | `vectis-cli health check --strict` |
 | List stale source schedules | `vectis-cli sources schedules --stale` |
 | Trigger a source-defined job | `vectis-cli sources trigger <repository-id> <job-id>` |
 | Preview retention cleanup | `vectis-cli retention cleanup --dry-run` |

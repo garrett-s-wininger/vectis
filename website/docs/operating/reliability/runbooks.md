@@ -54,7 +54,7 @@ That command shows status, dispatch events, and the latest failed worker-control
 | Auth setup | Setup status and local CLI token visibility when API auth is enabled. |
 | Schema | Database schema status through the API. |
 | Queue, cron, and reconciler | Queue backlog, due cron schedules, stuck queued runs, reconciler recovery visibility. |
-| Source control | Source repository sync status, stale enabled source repositories and schedules, and active schedule overrides. |
+| Source control | Source-only readiness, source repository sync status, stale enabled source repositories and schedules, and active schedule overrides. |
 | Logs | API-to-log-service gRPC reachability. |
 | Audit | Dropped audit events and flush failures. |
 | Database pool | API-visible `database/sql` pool pressure. |

@@ -769,6 +769,46 @@ func TestAPIServer_SourceStoredJobsDisabled(t *testing.T) {
 	waitForNEnqueuedJobs(t, queueService, 2)
 }
 
+func TestAPIServer_SourceStatus(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	t.Setenv("VECTIS_SOURCE_STORED_JOBS_ENABLED", "false")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_STORED_JOBS_ENABLED", "")
+	t.Setenv("VECTIS_SOURCE_REPOSITORIES", `[{"repository_id":"vectis-local"},{"repository_id":"infra"}]`)
+	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_SOURCE_SCHEDULES", `[{"schedule_id":"nightly","repository_id":"vectis-local","job_id":"build","cron_spec":"0 2 * * *"}]`)
+	t.Setenv("VECTIS_API_SERVER_SOURCE_SCHEDULES", "")
+
+	server, _, _, _ := setupTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/source/status", nil)
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("source status: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		StoredJobsEnabled      bool `json:"stored_jobs_enabled"`
+		RepositoriesConfigured bool `json:"repositories_configured"`
+		SourceJobsConfigured   bool `json:"source_jobs_configured"`
+		SchedulesConfigured    bool `json:"schedules_configured"`
+		DeclaredRepositories   int  `json:"declared_repositories"`
+		DeclaredSchedules      int  `json:"declared_schedules"`
+	}
+
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode source status: %v", err)
+	}
+
+	if resp.StoredJobsEnabled ||
+		!resp.RepositoriesConfigured ||
+		!resp.SourceJobsConfigured ||
+		!resp.SchedulesConfigured ||
+		resp.DeclaredRepositories != 2 ||
+		resp.DeclaredSchedules != 1 {
+		t.Fatalf("unexpected source status: %+v", resp)
+	}
+}
+
 func TestAPIServer_DeleteSourceRepository(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 

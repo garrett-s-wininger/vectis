@@ -179,6 +179,7 @@ var doctorTextGroups = []doctorTextGroup{
 		{ID: "catalog.inbox", Label: "Cell event inbox"},
 	}},
 	{Name: "Source Control", Items: []doctorTextItem{
+		{ID: "source.mode", Label: "Source mode"},
 		{ID: "source.repositories.sync", Label: "Repository sync"},
 		{ID: "source.repositories.declared", Label: "Repository declarations"},
 		{ID: "source.schedules.declared", Label: "Schedule declarations"},
@@ -911,6 +912,7 @@ func formatDoctorCatalogInboxEvidence(status doctorCatalogStatus) string {
 }
 
 func doctorSourceControlChecks() []doctorCheck {
+	status, statusLoadError := doctorLoadSourceStatus()
 	repositories, repositoryLoadError := doctorLoadSourceRepositories()
 	var schedules []sourceScheduleSummary
 	scheduleLoadError := ""
@@ -921,11 +923,45 @@ func doctorSourceControlChecks() []doctorCheck {
 	}
 
 	return []doctorCheck{
+		doctorSourceMode(status, statusLoadError, repositories, repositoryLoadError),
 		doctorSourceRepositorySync(repositories, repositoryLoadError),
 		doctorSourceRepositoryDeclarations(repositories, repositoryLoadError),
 		doctorSourceScheduleDeclarations(schedules, scheduleLoadError),
 		doctorSourceScheduleOverrides(schedules, scheduleLoadError),
 	}
+}
+
+type doctorSourceStatus struct {
+	StoredJobsEnabled      bool `json:"stored_jobs_enabled"`
+	RepositoriesConfigured bool `json:"repositories_configured"`
+	SourceJobsConfigured   bool `json:"source_jobs_configured"`
+	SchedulesConfigured    bool `json:"schedules_configured"`
+	DeclaredRepositories   int  `json:"declared_repositories"`
+	DeclaredSchedules      int  `json:"declared_schedules"`
+}
+
+func doctorLoadSourceStatus() (doctorSourceStatus, string) {
+	req, err := newAPIRequest(http.MethodGet, "/api/v1/source/status", nil)
+	if err != nil {
+		return doctorSourceStatus{}, err.Error()
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return doctorSourceStatus{}, fmt.Sprintf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return doctorSourceStatus{}, fmt.Sprintf("unexpected status: %s", resp.Status)
+	}
+
+	var status doctorSourceStatus
+	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
+		return doctorSourceStatus{}, fmt.Sprintf("failed to parse response: %v", err)
+	}
+
+	return status, ""
 }
 
 func doctorLoadSourceRepositories() ([]sourceRepositorySummary, string) {
@@ -1048,6 +1084,60 @@ func doctorLoadSourceSchedulesPath(path string) ([]sourceScheduleSummary, string
 	}
 
 	return result.Schedules, ""
+}
+
+func doctorSourceMode(status doctorSourceStatus, statusLoadError string, repositories []sourceRepositorySummary, repositoryLoadError string) doctorCheck {
+	const id = "source.mode"
+	title := "Source mode healthy"
+	doc := "website/docs/operating/reference/health-check-catalog.md"
+
+	if statusLoadError != "" {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: statusLoadError, SuggestedAction: "Check source status API reachability", DocLink: doc}
+	}
+
+	evidence := formatDoctorSourceModeEvidence(status, repositories)
+	if status.StoredJobsEnabled {
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "stored job APIs enabled", Evidence: evidence, DocLink: doc}
+	}
+
+	if !status.RepositoriesConfigured || !status.SourceJobsConfigured {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "source-only mode is missing source repository persistence", Evidence: evidence, SuggestedAction: "Check API database wiring or re-enable stored job APIs", DocLink: doc}
+	}
+
+	if repositoryLoadError != "" {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "source-only repository inventory unavailable: " + repositoryLoadError, Evidence: evidence, SuggestedAction: "Check source repository API reachability or re-enable stored job APIs", DocLink: doc}
+	}
+
+	enabled := doctorEnabledSourceRepositoryCount(repositories)
+	if enabled == 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "source-only mode has no enabled source repositories", Evidence: evidence, SuggestedAction: "Declare or enable a source repository, or re-enable stored job APIs", DocLink: doc}
+	}
+
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("source-only mode ready: %d enabled source repositories", enabled), Evidence: evidence, DocLink: doc}
+}
+
+func doctorEnabledSourceRepositoryCount(repositories []sourceRepositorySummary) int {
+	enabled := 0
+	for _, repo := range repositories {
+		if repo.Enabled {
+			enabled++
+		}
+	}
+
+	return enabled
+}
+
+func formatDoctorSourceModeEvidence(status doctorSourceStatus, repositories []sourceRepositorySummary) string {
+	return strings.Join([]string{
+		fmt.Sprintf("stored_jobs_enabled=%t", status.StoredJobsEnabled),
+		fmt.Sprintf("repositories_configured=%t", status.RepositoriesConfigured),
+		fmt.Sprintf("source_jobs_configured=%t", status.SourceJobsConfigured),
+		fmt.Sprintf("schedules_configured=%t", status.SchedulesConfigured),
+		fmt.Sprintf("declared_repositories=%d", status.DeclaredRepositories),
+		fmt.Sprintf("declared_schedules=%d", status.DeclaredSchedules),
+		fmt.Sprintf("repositories=%d", len(repositories)),
+		fmt.Sprintf("enabled_repositories=%d", doctorEnabledSourceRepositoryCount(repositories)),
+	}, " ")
 }
 
 func doctorSourceRepositorySync(repositories []sourceRepositorySummary, loadError string) doctorCheck {

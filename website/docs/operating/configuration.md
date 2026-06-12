@@ -118,6 +118,8 @@ For source-only deployments, combine declared repositories with:
 export VECTIS_SOURCE_STORED_JOBS_ENABLED=false
 ```
 
+Use `GET /api/v1/source/status` or `vectis-cli health check` to verify that the API reports stored job APIs disabled, source repository persistence configured, and at least one enabled source repository available for direct source triggers and source schedules.
+
 ## Service Prefixes
 
 Use these prefixes when building service-specific environment variable names.
