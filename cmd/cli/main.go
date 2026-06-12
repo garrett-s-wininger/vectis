@@ -89,6 +89,7 @@ var (
 	jobSourceDefinitionVersion  int
 	sourceListNamespace         string
 	sourceListQuiet             bool
+	sourceListStaleOnly         bool
 	sourceSchedulesNamespace    string
 	sourceSchedulesQuiet        bool
 	sourceSchedulesOverrideOnly bool

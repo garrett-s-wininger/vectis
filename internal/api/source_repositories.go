@@ -59,6 +59,7 @@ type sourceRepositoryResponse struct {
 	CanonicalURL  string                       `json:"canonical_url,omitempty"`
 	DefaultRef    string                       `json:"default_ref,omitempty"`
 	CredentialRef string                       `json:"credential_ref,omitempty"`
+	Declared      bool                         `json:"declared"`
 	Enabled       bool                         `json:"enabled"`
 	Sync          sourceRepositorySyncResponse `json:"sync"`
 }
@@ -76,6 +77,7 @@ type sourceRepositoryStatusResponse struct {
 	RepositoryID       string                       `json:"repository_id"`
 	Namespace          string                       `json:"namespace"`
 	SourceKind         string                       `json:"source_kind"`
+	Declared           bool                         `json:"declared"`
 	Enabled            bool                         `json:"enabled"`
 	Status             string                       `json:"status"`
 	CheckoutMode       string                       `json:"checkout_mode"`
@@ -473,6 +475,11 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 		enabled = *req.Enabled
 	}
 
+	declared, ok := s.sourceRepositoryDeclarationIDsForResponse(w, "creating")
+	if !ok {
+		return
+	}
+
 	rec, err := s.sources.CreateRepository(ctx, dal.SourceRepositoryRecord{
 		RepositoryID:  req.RepositoryID,
 		NamespaceID:   ns.ID,
@@ -513,7 +520,7 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 		"source_kind":   rec.SourceKind,
 	})
 
-	writeJSON(w, http.StatusCreated, s.sourceRepositoryRecordToResponse(rec, ns.Path))
+	writeJSON(w, http.StatusCreated, s.sourceRepositoryRecordToResponse(rec, ns.Path, declared))
 }
 
 func (s *APIServer) ListSourceRepositories(w http.ResponseWriter, r *http.Request) {
@@ -566,9 +573,14 @@ func (s *APIServer) ListSourceRepositories(w http.ResponseWriter, r *http.Reques
 	}
 	s.markDBRecovered()
 
+	declared, ok := s.sourceRepositoryDeclarationIDsForResponse(w, "listing")
+	if !ok {
+		return
+	}
+
 	resp := make([]sourceRepositoryResponse, 0, len(recs))
 	for _, rec := range recs {
-		resp = append(resp, s.sourceRepositoryRecordToResponse(rec, ns.Path))
+		resp = append(resp, s.sourceRepositoryRecordToResponse(rec, ns.Path, declared))
 	}
 
 	writeJSON(w, http.StatusOK, resp)
@@ -592,7 +604,12 @@ func (s *APIServer) GetSourceRepository(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	writeJSON(w, http.StatusOK, s.sourceRepositoryRecordToResponse(rec, nsPath))
+	declared, ok := s.sourceRepositoryDeclarationIDsForResponse(w, "getting")
+	if !ok {
+		return
+	}
+
+	writeJSON(w, http.StatusOK, s.sourceRepositoryRecordToResponse(rec, nsPath, declared))
 }
 
 func (s *APIServer) ListSourceSchedules(w http.ResponseWriter, r *http.Request) {
@@ -975,6 +992,16 @@ func (s *APIServer) DeleteSourceRepository(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	declared, ok := s.sourceRepositoryDeclarationIDsForResponse(w, "deleting")
+	if !ok {
+		return
+	}
+
+	if sourceRepositoryIsDeclared(rec.RepositoryID, declared) {
+		writeAPIError(w, http.StatusConflict, "source_repository_declared", "source repository is still declared in current config", nil)
+		return
+	}
+
 	if err := s.sources.DeleteRepository(ctx, rec.RepositoryID); err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
@@ -1028,7 +1055,12 @@ func (s *APIServer) GetSourceRepositoryStatus(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	writeJSON(w, http.StatusOK, s.sourceRepositoryStatusFromRecord(ctx, rec, nsPath))
+	declared, ok := s.sourceRepositoryDeclarationIDsForResponse(w, "getting status for")
+	if !ok {
+		return
+	}
+
+	writeJSON(w, http.StatusOK, s.sourceRepositoryStatusFromRecord(ctx, rec, nsPath, declared))
 }
 
 func (s *APIServer) ListSourceRepositoryBranches(w http.ResponseWriter, r *http.Request) {
@@ -1967,10 +1999,15 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	declared, ok := s.sourceRepositoryDeclarationIDsForResponse(w, "syncing")
+	if !ok {
+		return
+	}
+
 	syncRef := sourceRepositorySyncRef(rec)
 	releaseSync, syncStarted := s.tryBeginSourceRepositorySync(rec.RepositoryID)
 	if !syncStarted {
-		s.writeRunningSourceRepositorySync(w, rec, nsPath, syncRef)
+		s.writeRunningSourceRepositorySync(w, rec, nsPath, syncRef, declared)
 		return
 	}
 	defer releaseSync()
@@ -2004,7 +2041,7 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 	s.markDBRecovered()
 
 	if !began {
-		s.writeRunningSourceRepositorySync(w, running, nsPath, syncRef)
+		s.writeRunningSourceRepositorySync(w, running, nsPath, syncRef, declared)
 		return
 	}
 
@@ -2052,7 +2089,7 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 	}
 	s.markDBRecovered()
 
-	writeJSON(w, http.StatusOK, s.sourceRepositoryRecordToResponse(updated, nsPath))
+	writeJSON(w, http.StatusOK, s.sourceRepositoryRecordToResponse(updated, nsPath, declared))
 }
 
 func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Request) {
@@ -2159,6 +2196,11 @@ func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Reques
 		updated.CheckoutPath = checkoutPath
 	}
 
+	declared, ok := s.sourceRepositoryDeclarationIDsForResponse(w, "updating")
+	if !ok {
+		return
+	}
+
 	updated, err = s.sources.UpdateRepository(ctx, updated)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
@@ -2193,7 +2235,7 @@ func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Reques
 		"enabled":       updated.Enabled,
 	})
 
-	writeJSON(w, http.StatusOK, s.sourceRepositoryRecordToResponse(updated, nsPath))
+	writeJSON(w, http.StatusOK, s.sourceRepositoryRecordToResponse(updated, nsPath, declared))
 }
 
 func (s *APIServer) ResolveSourceDefinition(w http.ResponseWriter, r *http.Request) {
@@ -2678,7 +2720,18 @@ func (s *APIServer) getAuthorizedSourceSchedule(ctx context.Context, w http.Resp
 	return rec, ns.Path, true
 }
 
-func (s *APIServer) sourceRepositoryRecordToResponse(rec dal.SourceRepositoryRecord, namespacePath string) sourceRepositoryResponse {
+func (s *APIServer) sourceRepositoryDeclarationIDsForResponse(w http.ResponseWriter, operation string) (map[string]struct{}, bool) {
+	declared, err := sourceRepositoryDeclarationIDs()
+	if err != nil {
+		s.logger.Error("Configuration error %s source repository: %v", operation, err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return nil, false
+	}
+
+	return declared, true
+}
+
+func (s *APIServer) sourceRepositoryRecordToResponse(rec dal.SourceRepositoryRecord, namespacePath string, declared map[string]struct{}) sourceRepositoryResponse {
 	return sourceRepositoryResponse{
 		RepositoryID:  rec.RepositoryID,
 		Namespace:     namespacePath,
@@ -2690,9 +2743,36 @@ func (s *APIServer) sourceRepositoryRecordToResponse(rec dal.SourceRepositoryRec
 		CanonicalURL:  rec.CanonicalURL,
 		DefaultRef:    rec.DefaultRef,
 		CredentialRef: rec.CredentialRef,
+		Declared:      sourceRepositoryIsDeclared(rec.RepositoryID, declared),
 		Enabled:       rec.Enabled,
 		Sync:          sourceRepositorySyncRecordToResponse(rec),
 	}
+}
+
+func sourceRepositoryDeclarationIDs() (map[string]struct{}, error) {
+	decls, err := config.SourceRepositoryDeclarations()
+	if err != nil {
+		return nil, err
+	}
+
+	declared := make(map[string]struct{}, len(decls))
+	for _, decl := range decls {
+		repositoryID := strings.TrimSpace(decl.RepositoryID)
+		if repositoryID != "" {
+			declared[repositoryID] = struct{}{}
+		}
+	}
+
+	return declared, nil
+}
+
+func sourceRepositoryIsDeclared(repositoryID string, declared map[string]struct{}) bool {
+	if len(declared) == 0 {
+		return false
+	}
+
+	_, ok := declared[strings.TrimSpace(repositoryID)]
+	return ok
 }
 
 func sourceCronScheduleRecordsToResponse(recs []dal.CronScheduleRecord, namespacePath string, declared map[string]struct{}) []sourceCronScheduleResponse {
@@ -2781,11 +2861,12 @@ func sourceCronScheduleHasOverride(rec dal.CronScheduleRecord) bool {
 	return strings.TrimSpace(rec.SourceOverrideRef) != "" || strings.TrimSpace(rec.SourceOverridePath) != ""
 }
 
-func (s *APIServer) sourceRepositoryStatusFromRecord(ctx context.Context, rec dal.SourceRepositoryRecord, namespacePath string) sourceRepositoryStatusResponse {
+func (s *APIServer) sourceRepositoryStatusFromRecord(ctx context.Context, rec dal.SourceRepositoryRecord, namespacePath string, declared map[string]struct{}) sourceRepositoryStatusResponse {
 	resp := sourceRepositoryStatusResponse{
 		RepositoryID:  rec.RepositoryID,
 		Namespace:     namespacePath,
 		SourceKind:    rec.SourceKind,
+		Declared:      sourceRepositoryIsDeclared(rec.RepositoryID, declared),
 		Enabled:       rec.Enabled,
 		Status:        "ok",
 		CheckoutMode:  rec.CheckoutMode,
@@ -2893,7 +2974,7 @@ func sourceRepositoryStatusSyncError(status sourcepkg.GitCheckoutStatus) string 
 	return status.ErrorCode + ": " + status.ErrorMessage
 }
 
-func (s *APIServer) writeRunningSourceRepositorySync(w http.ResponseWriter, rec dal.SourceRepositoryRecord, namespacePath, syncRef string) {
+func (s *APIServer) writeRunningSourceRepositorySync(w http.ResponseWriter, rec dal.SourceRepositoryRecord, namespacePath, syncRef string, declared map[string]struct{}) {
 	running := rec
 	running.SyncStatus = dal.SourceSyncStatusRunning
 	if strings.TrimSpace(running.LastSyncRef) == "" {
@@ -2905,7 +2986,7 @@ func (s *APIServer) writeRunningSourceRepositorySync(w http.ResponseWriter, rec 
 	}
 
 	w.Header().Set("Retry-After", "1")
-	writeJSON(w, http.StatusAccepted, s.sourceRepositoryRecordToResponse(running, namespacePath))
+	writeJSON(w, http.StatusAccepted, s.sourceRepositoryRecordToResponse(running, namespacePath, declared))
 }
 
 func sourceSyncStaleBeforeUnix(nowUnix int64) int64 {

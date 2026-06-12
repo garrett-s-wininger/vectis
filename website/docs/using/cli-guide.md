@@ -230,6 +230,13 @@ Register a source repository checkout:
 
 Operators can also declare repositories with `VECTIS_SOURCE_REPOSITORIES` so `vectis-api` reconciles them on startup. Set `VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_ON_STARTUP=true` when those configured repositories should also be cloned, fetched, or probed before the API starts serving. Set `VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_INTERVAL` to periodically refresh enabled configured repositories in the background; use the matching max-concurrency and failure-backoff settings to control large-repository pressure. Source cron schedules can be declared with `VECTIS_SOURCE_SCHEDULES`; they reference a configured repository, stable `schedule_id`, `job_id`, cron expression, and optional `ref` or path override.
 
+List repositories and find stale rows omitted from current config:
+
+```sh
+./bin/vectis-cli sources list
+./bin/vectis-cli sources list --stale
+```
+
 List reconciled source schedules:
 
 ```sh
@@ -270,7 +277,7 @@ Delete an unused repository registration without touching checkout files:
 ./bin/vectis-cli sources delete vectis-local --yes
 ```
 
-Repositories with source schedules or recorded source provenance cannot be deleted; disable them instead so scheduled references, historical runs, and stored definition versions can still resolve their repository metadata.
+Declared repositories, repositories with source schedules, and repositories with recorded source provenance cannot be deleted; remove the declaration or disable them instead so scheduled references, historical runs, and stored definition versions can still resolve their repository metadata.
 
 Sync the repository, then list triggerable jobs discovered under `.vectis/jobs`:
 

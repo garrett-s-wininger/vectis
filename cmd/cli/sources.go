@@ -26,6 +26,7 @@ type sourceRepositorySummary struct {
 	CanonicalURL  string                   `json:"canonical_url,omitempty"`
 	DefaultRef    string                   `json:"default_ref,omitempty"`
 	CredentialRef string                   `json:"credential_ref,omitempty"`
+	Declared      bool                     `json:"declared"`
 	Enabled       bool                     `json:"enabled"`
 	Sync          sourceRepositorySyncInfo `json:"sync"`
 }
@@ -51,6 +52,7 @@ type sourceRepositoryStatusResult struct {
 	RepositoryID       string                     `json:"repository_id"`
 	Namespace          string                     `json:"namespace"`
 	SourceKind         string                     `json:"source_kind"`
+	Declared           bool                       `json:"declared"`
 	Enabled            bool                       `json:"enabled"`
 	Status             string                     `json:"status"`
 	CheckoutMode       string                     `json:"checkout_mode"`
@@ -300,12 +302,20 @@ func listSourcesWithOutput(out io.Writer) error {
 		return fmt.Errorf("failed to parse source repositories response: %w", err)
 	}
 
+	if sourceListStaleOnly {
+		repositories = sourceRepositoriesWithoutDeclaration(repositories)
+	}
+
 	if outputIsJSON() {
 		return writeJSON(out, repositories)
 	}
 
 	if len(repositories) == 0 {
-		fmt.Fprintln(out, "No source repositories found")
+		if sourceListStaleOnly {
+			fmt.Fprintln(out, "No stale source repositories found")
+		} else {
+			fmt.Fprintln(out, "No source repositories found")
+		}
 		return nil
 	}
 
@@ -317,23 +327,34 @@ func listSourcesWithOutput(out io.Writer) error {
 	}
 
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "REPOSITORY\tNAMESPACE\tCHECKOUT\tAUTHORING\tENABLED\tSYNC\tDEFAULT REF")
+	fmt.Fprintln(tw, "REPOSITORY\tNAMESPACE\tCHECKOUT\tAUTHORING\tDECLARED\tENABLED\tSYNC\tDEFAULT REF")
 	for _, repo := range repositories {
 		defaultRef := repo.DefaultRef
 		if defaultRef == "" {
 			defaultRef = "-"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%t\t%s\t%s\n",
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%t\t%t\t%s\t%s\n",
 			repo.RepositoryID,
 			emptyAsDash(repo.Namespace),
 			emptyAsDash(repo.CheckoutMode),
 			emptyAsDash(repo.AuthoringMode),
+			repo.Declared,
 			repo.Enabled,
 			emptyAsDash(repo.Sync.Status),
 			defaultRef,
 		)
 	}
 	return tw.Flush()
+}
+
+func sourceRepositoriesWithoutDeclaration(repositories []sourceRepositorySummary) []sourceRepositorySummary {
+	filtered := repositories[:0]
+	for _, repo := range repositories {
+		if !repo.Declared {
+			filtered = append(filtered, repo)
+		}
+	}
+	return filtered
 }
 
 func registerSource(cmd *cobra.Command, args []string) {
@@ -573,6 +594,7 @@ func writeSourceRepositoryDetailResult(out io.Writer, repo sourceRepositorySumma
 	fmt.Fprintf(out, "source_kind=%s\n", emptyAsDash(repo.SourceKind))
 	fmt.Fprintf(out, "checkout_mode=%s\n", emptyAsDash(repo.CheckoutMode))
 	fmt.Fprintf(out, "authoring_mode=%s\n", emptyAsDash(repo.AuthoringMode))
+	fmt.Fprintf(out, "declared=%t\n", repo.Declared)
 	fmt.Fprintf(out, "write_definitions=%t\n", repo.Authoring.WriteDefinitions)
 	fmt.Fprintf(out, "local_commits=%t\n", repo.Authoring.LocalCommits)
 	fmt.Fprintf(out, "external_change_requests=%t\n", repo.Authoring.ExternalChangeRequests)
@@ -680,6 +702,7 @@ func writeSourceStatusResult(out io.Writer, result sourceRepositoryStatusResult)
 	fmt.Fprintf(out, "repository_id=%s\n", result.RepositoryID)
 	fmt.Fprintf(out, "namespace=%s\n", emptyAsDash(result.Namespace))
 	fmt.Fprintf(out, "status=%s\n", emptyAsDash(result.Status))
+	fmt.Fprintf(out, "declared=%t\n", result.Declared)
 	fmt.Fprintf(out, "enabled=%t\n", result.Enabled)
 	fmt.Fprintf(out, "checkout_mode=%s\n", emptyAsDash(result.CheckoutMode))
 	fmt.Fprintf(out, "authoring_mode=%s\n", emptyAsDash(result.AuthoringMode))
@@ -2019,6 +2042,7 @@ var sourcesTriggerCmd = &cobra.Command{
 func configureSourcesListFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&sourceListNamespace, "namespace", "", "Namespace to list source repositories from (default: /)")
 	cmd.Flags().BoolVarP(&sourceListQuiet, "quiet", "q", false, "Print only repository IDs")
+	cmd.Flags().BoolVar(&sourceListStaleOnly, "stale", false, "Show only source repositories missing from current API config")
 }
 
 func configureSourcesSchedulesFlags(cmd *cobra.Command) {

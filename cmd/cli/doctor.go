@@ -180,6 +180,7 @@ var doctorTextGroups = []doctorTextGroup{
 	}},
 	{Name: "Source Control", Items: []doctorTextItem{
 		{ID: "source.repositories.sync", Label: "Repository sync"},
+		{ID: "source.repositories.declared", Label: "Repository declarations"},
 		{ID: "source.schedules.declared", Label: "Schedule declarations"},
 		{ID: "source.schedules.overrides", Label: "Schedule overrides"},
 	}},
@@ -921,6 +922,7 @@ func doctorSourceControlChecks() []doctorCheck {
 
 	return []doctorCheck{
 		doctorSourceRepositorySync(repositories, repositoryLoadError),
+		doctorSourceRepositoryDeclarations(repositories, repositoryLoadError),
 		doctorSourceScheduleDeclarations(schedules, scheduleLoadError),
 		doctorSourceScheduleOverrides(schedules, scheduleLoadError),
 	}
@@ -1147,6 +1149,76 @@ func formatDoctorSourceRepositorySyncEvidence(total, enabled, disabled, succeede
 	appendRepositoryList("failed_repositories", failedRepositories)
 	appendRepositoryList("stale_running_repositories", staleRunningRepositories)
 	appendRepositoryList("unknown_status_repositories", unknownStatusRepositories)
+
+	return strings.Join(parts, " ")
+}
+
+func doctorSourceRepositoryDeclarations(repositories []sourceRepositorySummary, loadError string) doctorCheck {
+	const id = "source.repositories.declared"
+	title := "Source repositories declared"
+	doc := "website/docs/operating/reference/health-check-catalog.md"
+
+	if loadError != "" {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: loadError, SuggestedAction: "Check source repository API reachability", DocLink: doc}
+	}
+
+	if len(repositories) == 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no source repositories configured", DocLink: doc}
+	}
+
+	var enabled, disabled, declared, staleEnabled, staleDisabled int
+	staleEnabledIDs := make([]string, 0)
+	staleDisabledIDs := make([]string, 0)
+	for _, repo := range repositories {
+		if repo.Enabled {
+			enabled++
+		} else {
+			disabled++
+		}
+
+		if repo.Declared {
+			declared++
+			continue
+		}
+
+		if repo.Enabled {
+			staleEnabled++
+			staleEnabledIDs = append(staleEnabledIDs, repo.RepositoryID)
+		} else {
+			staleDisabled++
+			staleDisabledIDs = append(staleDisabledIDs, repo.RepositoryID)
+		}
+	}
+
+	evidence := formatDoctorSourceRepositoryDeclarationEvidence(len(repositories), enabled, disabled, declared, staleEnabled, staleDisabled, staleEnabledIDs, staleDisabledIDs)
+	if staleEnabled > 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d enabled stale source repositories", staleEnabled), Evidence: evidence, SuggestedAction: "Disable stale source repositories or restore their source repository declarations", DocLink: doc}
+	}
+
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("source repositories aligned: %d repositories", len(repositories)), Evidence: evidence, DocLink: doc}
+}
+
+func formatDoctorSourceRepositoryDeclarationEvidence(total, enabled, disabled, declared, staleEnabled, staleDisabled int, staleEnabledIDs, staleDisabledIDs []string) string {
+	parts := []string{
+		fmt.Sprintf("repositories=%d", total),
+		fmt.Sprintf("enabled=%d", enabled),
+		fmt.Sprintf("disabled=%d", disabled),
+		fmt.Sprintf("declared=%d", declared),
+		fmt.Sprintf("stale_enabled=%d", staleEnabled),
+		fmt.Sprintf("stale_disabled=%d", staleDisabled),
+	}
+
+	appendRepositoryList := func(label string, values []string) {
+		if len(values) == 0 {
+			return
+		}
+
+		sort.Strings(values)
+		parts = append(parts, fmt.Sprintf("%s=%s", label, strings.Join(values, ",")))
+	}
+
+	appendRepositoryList("stale_enabled_ids", staleEnabledIDs)
+	appendRepositoryList("stale_disabled_ids", staleDisabledIDs)
 
 	return strings.Join(parts, " ")
 }

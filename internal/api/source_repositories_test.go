@@ -804,6 +804,78 @@ func TestAPIServer_DeleteSourceRepository(t *testing.T) {
 	assertAPIError(t, missingRec, http.StatusNotFound, "source_repository_not_found")
 }
 
+func TestAPIServer_SourceRepositoryDeclarationState(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	t.Setenv("VECTIS_SOURCE_REPOSITORIES", `[{"repository_id":"declared-repo","source_kind":"local_checkout","checkout_path":"/work/declared","default_ref":"main","enabled":true}]`)
+	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
+
+	server, _, _, db := setupTestServer(t)
+	repos := dal.NewSQLRepositories(db)
+	handler := server.Handler()
+	ctx := context.Background()
+
+	for _, rec := range []dal.SourceRepositoryRecord{
+		{RepositoryID: "declared-repo", NamespaceID: 1, SourceKind: dal.SourceKindLocalCheckout, CheckoutPath: "/work/declared", DefaultRef: "main", Enabled: true},
+		{RepositoryID: "stale-repo", NamespaceID: 1, SourceKind: dal.SourceKindLocalCheckout, CheckoutPath: "/work/stale", DefaultRef: "main", Enabled: true},
+	} {
+		if _, err := repos.Sources().CreateRepository(ctx, rec); err != nil {
+			t.Fatalf("CreateRepository %s: %v", rec.RepositoryID, err)
+		}
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories", nil)
+	listRec := httptest.NewRecorder()
+	handler.ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("list source repositories: status=%d body=%s", listRec.Code, listRec.Body.String())
+	}
+
+	var listResp []struct {
+		RepositoryID string `json:"repository_id"`
+		Declared     bool   `json:"declared"`
+	}
+	if err := json.NewDecoder(listRec.Body).Decode(&listResp); err != nil {
+		t.Fatalf("decode list source repositories: %v", err)
+	}
+
+	declaredByID := map[string]bool{}
+	for _, repo := range listResp {
+		declaredByID[repo.RepositoryID] = repo.Declared
+	}
+	if !declaredByID["declared-repo"] || declaredByID["stale-repo"] {
+		t.Fatalf("repository declared state mismatch: %+v", declaredByID)
+	}
+
+	statusReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/declared-repo/status", nil)
+	statusRec := httptest.NewRecorder()
+	handler.ServeHTTP(statusRec, statusReq)
+	if statusRec.Code != http.StatusOK {
+		t.Fatalf("get source repository status: status=%d body=%s", statusRec.Code, statusRec.Body.String())
+	}
+	var statusResp struct {
+		RepositoryID string `json:"repository_id"`
+		Declared     bool   `json:"declared"`
+	}
+	if err := json.NewDecoder(statusRec.Body).Decode(&statusResp); err != nil {
+		t.Fatalf("decode source repository status: %v", err)
+	}
+	if statusResp.RepositoryID != "declared-repo" || !statusResp.Declared {
+		t.Fatalf("status declared state mismatch: %+v", statusResp)
+	}
+
+	deleteDeclaredReq := httptest.NewRequest(http.MethodDelete, "/api/v1/source-repositories/declared-repo", nil)
+	deleteDeclaredRec := httptest.NewRecorder()
+	handler.ServeHTTP(deleteDeclaredRec, deleteDeclaredReq)
+	assertAPIError(t, deleteDeclaredRec, http.StatusConflict, "source_repository_declared")
+
+	deleteStaleReq := httptest.NewRequest(http.MethodDelete, "/api/v1/source-repositories/stale-repo", nil)
+	deleteStaleRec := httptest.NewRecorder()
+	handler.ServeHTTP(deleteStaleRec, deleteStaleReq)
+	if deleteStaleRec.Code != http.StatusNoContent {
+		t.Fatalf("delete stale source repository: status=%d body=%s", deleteStaleRec.Code, deleteStaleRec.Body.String())
+	}
+}
+
 func TestAPIServer_DeleteSourceRepositoryConflictsWhenReferenced(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 

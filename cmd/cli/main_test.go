@@ -589,6 +589,74 @@ func TestListSourceJobs_sendsQueryAndPrintsJobs(t *testing.T) {
 	}
 }
 
+func TestListSources_filtersStale(t *testing.T) {
+	oldNamespace := sourceListNamespace
+	oldQuiet := sourceListQuiet
+	oldStaleOnly := sourceListStaleOnly
+	sourceListNamespace = "/team-a"
+	sourceListQuiet = false
+	sourceListStaleOnly = true
+	t.Cleanup(func() {
+		sourceListNamespace = oldNamespace
+		sourceListQuiet = oldQuiet
+		sourceListStaleOnly = oldStaleOnly
+	})
+
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/source-repositories" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		if got := r.URL.Query().Get("namespace"); got != "/team-a" {
+			t.Errorf("namespace query=%q", got)
+		}
+
+		_ = json.NewEncoder(w).Encode([]map[string]any{
+			{
+				"repository_id":  "declared-repo",
+				"namespace":      "/team-a",
+				"source_kind":    "local_checkout",
+				"checkout_mode":  "external",
+				"authoring_mode": "read_only",
+				"authoring":      map[string]any{"mode": "read_only"},
+				"declared":       true,
+				"enabled":        true,
+				"sync":           map[string]any{"status": "succeeded"},
+			},
+			{
+				"repository_id":  "stale-repo",
+				"namespace":      "/team-a",
+				"source_kind":    "local_checkout",
+				"checkout_mode":  "external",
+				"authoring_mode": "read_only",
+				"authoring":      map[string]any{"mode": "read_only"},
+				"declared":       false,
+				"enabled":        false,
+				"sync":           map[string]any{"status": "never"},
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := listSourcesWithOutput(&buf); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"REPOSITORY", "DECLARED", "stale-repo", "false"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "declared-repo") {
+		t.Fatalf("expected stale filter to hide declared repository, got:\n%s", out)
+	}
+}
+
 func TestGetSource_sendsRequestAndPrintsRepository(t *testing.T) {
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -610,6 +678,7 @@ func TestGetSource_sendsRequestAndPrintsRepository(t *testing.T) {
 			"canonical_url":  "https://git.example.com/acme/vectis.git",
 			"default_ref":    "main",
 			"credential_ref": "git-creds",
+			"declared":       true,
 			"enabled":        true,
 			"sync":           map[string]any{"status": "succeeded", "ref": "main", "commit": "0123456789abcdef"},
 		})
@@ -621,7 +690,7 @@ func TestGetSource_sendsRequestAndPrintsRepository(t *testing.T) {
 	}
 
 	out := buf.String()
-	for _, want := range []string{"repository_id=vectis", "namespace=/team-a", "checkout_mode=managed", "authoring_mode=local_commit", "write_definitions=true", "canonical_url=https://git.example.com/acme/vectis.git", "default_ref=main", "credential_ref=git-creds", "sync_status=succeeded"} {
+	for _, want := range []string{"repository_id=vectis", "namespace=/team-a", "checkout_mode=managed", "authoring_mode=local_commit", "declared=true", "write_definitions=true", "canonical_url=https://git.example.com/acme/vectis.git", "default_ref=main", "credential_ref=git-creds", "sync_status=succeeded"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
 		}
@@ -1294,6 +1363,7 @@ func TestShowSourceStatus_sendsRequestAndPrintsStatus(t *testing.T) {
 			"repository_id":        "vectis",
 			"namespace":            "/",
 			"source_kind":          "local_checkout",
+			"declared":             true,
 			"enabled":              true,
 			"status":               "ready",
 			"checkout_mode":        "managed",
@@ -1318,7 +1388,7 @@ func TestShowSourceStatus_sendsRequestAndPrintsStatus(t *testing.T) {
 	}
 
 	out := buf.String()
-	for _, want := range []string{"repository_id=vectis", "status=ready", "checkout_mode=managed", "write_definitions=true", "default_ref=main", "resolved_commit=0123456789abcdef", "sync_status=succeeded"} {
+	for _, want := range []string{"repository_id=vectis", "status=ready", "declared=true", "checkout_mode=managed", "write_definitions=true", "default_ref=main", "resolved_commit=0123456789abcdef", "sync_status=succeeded"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
 		}
@@ -4399,6 +4469,7 @@ func writeHealthyDoctorSourceResponse(w http.ResponseWriter, r *http.Request) {
 			{
 				"repository_id": "vectis",
 				"namespace":     "/",
+				"declared":      true,
 				"enabled":       true,
 				"sync":          map[string]any{"status": "succeeded", "last_started_at_unix": 1715000000, "last_finished_at_unix": 1715000001},
 			},
@@ -4500,6 +4571,8 @@ func TestDoctor_success(t *testing.T) {
 		"Source Control",
 		"OK    Repository sync",
 		"source repository sync ok: 1 enabled",
+		"OK    Repository declarations",
+		"source repositories aligned: 1 repositories",
 		"OK    Schedule declarations",
 		"source schedules aligned: 1 schedules",
 		"OK    Schedule overrides",
@@ -5026,6 +5099,25 @@ func TestDoctor_sourceRepositorySyncWarnsForFailedAndStaleRunning(t *testing.T) 
 
 	if strings.Contains(check.Evidence, "credential detail") {
 		t.Fatalf("expected sync error details to stay out of health evidence, got %q", check.Evidence)
+	}
+}
+
+func TestDoctor_sourceRepositoriesWarnForStaleEnabledRepository(t *testing.T) {
+	repositories := []sourceRepositorySummary{
+		{RepositoryID: "active-stale", Declared: false, Enabled: true},
+		{RepositoryID: "disabled-stale", Declared: false, Enabled: false},
+		{RepositoryID: "declared", Declared: true, Enabled: true},
+	}
+
+	check := doctorSourceRepositoryDeclarations(repositories, "")
+	if check.Status != doctorWarn {
+		t.Fatalf("expected stale repository warning, got %#v", check)
+	}
+
+	for _, want := range []string{"1 enabled stale source repositories", "stale_enabled_ids=active-stale", "stale_disabled_ids=disabled-stale"} {
+		if !strings.Contains(check.Summary+" "+check.Evidence, want) {
+			t.Fatalf("expected source repository declaration check to contain %q, got %#v", want, check)
+		}
 	}
 }
 
