@@ -237,12 +237,15 @@ type DatabaseDefaults struct {
 }
 
 type SourceDefaults struct {
-	CheckoutRoot                        string                        `toml:"checkout_root"`
-	StoredJobsEnabled                   bool                          `toml:"stored_jobs_enabled"`
-	SyncConfiguredRepositoriesOnStartup bool                          `toml:"sync_configured_repositories_on_startup"`
-	SyncRunningTimeout                  tomlDuration                  `toml:"sync_running_timeout"`
-	Repositories                        []SourceRepositoryDeclaration `toml:"repositories"`
-	Schedules                           []SourceScheduleDeclaration   `toml:"schedules"`
+	CheckoutRoot                             string                        `toml:"checkout_root"`
+	StoredJobsEnabled                        bool                          `toml:"stored_jobs_enabled"`
+	SyncConfiguredRepositoriesOnStartup      bool                          `toml:"sync_configured_repositories_on_startup"`
+	SyncConfiguredRepositoriesInterval       tomlDuration                  `toml:"sync_configured_repositories_interval"`
+	SyncConfiguredRepositoriesMaxConcurrency int                           `toml:"sync_configured_repositories_max_concurrency"`
+	SyncConfiguredRepositoriesFailureBackoff tomlDuration                  `toml:"sync_configured_repositories_failure_backoff"`
+	SyncRunningTimeout                       tomlDuration                  `toml:"sync_running_timeout"`
+	Repositories                             []SourceRepositoryDeclaration `toml:"repositories"`
+	Schedules                                []SourceScheduleDeclaration   `toml:"schedules"`
 }
 
 type PgxPoolDefaults struct {
@@ -579,6 +582,18 @@ func validateDefaults(d Defaults) {
 
 	if time.Duration(d.Source.SyncRunningTimeout) <= 0 {
 		panic("config defaults: source.sync_running_timeout must be > 0")
+	}
+
+	if time.Duration(d.Source.SyncConfiguredRepositoriesInterval) < 0 {
+		panic("config defaults: source.sync_configured_repositories_interval must be >= 0")
+	}
+
+	if d.Source.SyncConfiguredRepositoriesMaxConcurrency <= 0 {
+		panic("config defaults: source.sync_configured_repositories_max_concurrency must be > 0")
+	}
+
+	if time.Duration(d.Source.SyncConfiguredRepositoriesFailureBackoff) < 0 {
+		panic("config defaults: source.sync_configured_repositories_failure_backoff must be >= 0")
 	}
 
 	validateHost(d.Worker.MetricsHost, "worker.metrics_host")

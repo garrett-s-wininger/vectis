@@ -89,6 +89,8 @@ Startup reconciliation creates missing repository registrations and updates chan
 
 Set `VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_ON_STARTUP=true` to also sync enabled configured repositories during `vectis-api` startup. This is off by default so large repositories do not surprise-block deployments. When enabled, external checkouts are probed and managed checkouts are cloned or fetched; sync status, ref, commit, timestamps, and errors are persisted on the repository record. A failed startup sync fails API startup, and the sync operation uses `source.sync_running_timeout` / `VECTIS_SOURCE_SYNC_RUNNING_TIMEOUT` as its timeout window.
 
+Set `source.sync_configured_repositories_interval` / `VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_INTERVAL` to a positive duration to refresh enabled configured repositories in the background while `vectis-api` is running. The default is `0s`, which disables periodic sync. Use `source.sync_configured_repositories_max_concurrency` / `VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_MAX_CONCURRENCY` to limit concurrent checkout probes or fetches, and `source.sync_configured_repositories_failure_backoff` / `VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_FAILURE_BACKOFF` to skip repositories with recent failed syncs before retrying them. Periodic sync records failures on repository status and logs them, but it does not stop the API process or block startup.
+
 Declare source-backed cron schedules with `VECTIS_SOURCE_SCHEDULES` or `VECTIS_API_SERVER_SOURCE_SCHEDULES`:
 
 ```sh

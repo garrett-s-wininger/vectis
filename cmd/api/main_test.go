@@ -5,6 +5,7 @@ import (
 	"context"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -591,5 +592,190 @@ func TestSyncConfiguredSourceRepositories_SkipsDisabledRepositories(t *testing.T
 		got.LastSyncStartedAtUnix != 0 ||
 		got.LastSyncFinishedAtUnix != 0 {
 		t.Fatalf("disabled repository sync result mismatch: %+v", got)
+	}
+}
+
+func TestSyncConfiguredSourceRepositoriesPeriodicCycle_ContinuesAfterFailure(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_MAX_CONCURRENCY", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_SYNC_CONFIGURED_REPOSITORIES_MAX_CONCURRENCY", "")
+	t.Setenv("VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_FAILURE_BACKOFF", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_SYNC_CONFIGURED_REPOSITORIES_FAILURE_BACKOFF", "")
+
+	viper.Set("source.sync_configured_repositories_max_concurrency", 1)
+	viper.Set("source.sync_configured_repositories_failure_backoff", 0)
+	viper.Set("source.repositories", []map[string]any{
+		{
+			"repository_id": "bad-repo",
+			"checkout_path": "/work/bad",
+		},
+		{
+			"repository_id": "good-repo",
+			"checkout_path": "/work/good",
+		},
+	})
+
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+	if err := reconcileConfiguredSourceRepositories(ctx, repos, nil); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	calls := make([]string, 0, 2)
+	err := syncConfiguredSourceRepositoriesPeriodicCycle(ctx, repos, nil, func(_ context.Context, rec dal.SourceRepositoryRecord, _ string) sourcepkg.GitCheckoutStatus {
+		calls = append(calls, rec.RepositoryID)
+		if rec.RepositoryID == "bad-repo" {
+			return sourcepkg.GitCheckoutStatus{ErrorCode: "git_fetch_failed", ErrorMessage: "remote unavailable"}
+		}
+
+		return sourcepkg.GitCheckoutStatus{ResolvedCommit: "good123"}
+	})
+
+	if err == nil {
+		t.Fatal("expected periodic sync cycle to report failed repository")
+	}
+
+	if strings.Join(calls, ",") != "bad-repo,good-repo" {
+		t.Fatalf("sync calls=%v, want bad-repo,good-repo", calls)
+	}
+
+	bad, err := repos.Sources().GetRepository(ctx, "bad-repo")
+	if err != nil {
+		t.Fatalf("GetRepository bad: %v", err)
+	}
+
+	good, err := repos.Sources().GetRepository(ctx, "good-repo")
+	if err != nil {
+		t.Fatalf("GetRepository good: %v", err)
+	}
+
+	if bad.SyncStatus != dal.SourceSyncStatusFailed || bad.LastSyncError != "git_fetch_failed: remote unavailable" {
+		t.Fatalf("bad repository sync mismatch: %+v", bad)
+	}
+
+	if good.SyncStatus != dal.SourceSyncStatusSucceeded || good.LastSyncCommit != "good123" {
+		t.Fatalf("good repository sync mismatch: %+v", good)
+	}
+}
+
+func TestSyncConfiguredSourceRepositoriesPeriodicCycle_SkipsRecentFailures(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_FAILURE_BACKOFF", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_SYNC_CONFIGURED_REPOSITORIES_FAILURE_BACKOFF", "")
+
+	viper.Set("source.sync_configured_repositories_failure_backoff", time.Hour)
+	viper.Set("source.repositories", []map[string]any{
+		{
+			"repository_id": "recent-failure",
+			"checkout_path": "/work/recent",
+		},
+		{
+			"repository_id": "eligible",
+			"checkout_path": "/work/eligible",
+		},
+	})
+
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+	if err := reconcileConfiguredSourceRepositories(ctx, repos, nil); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	nowUnix := time.Now().Unix()
+	if _, err := repos.Sources().UpdateRepositorySync(ctx, dal.SourceRepositorySyncRecord{
+		RepositoryID:   "recent-failure",
+		Status:         dal.SourceSyncStatusFailed,
+		StartedAtUnix:  nowUnix - 10,
+		FinishedAtUnix: nowUnix,
+		Ref:            "HEAD",
+		Error:          "git_fetch_failed: remote unavailable",
+	}); err != nil {
+		t.Fatalf("mark recent failure: %v", err)
+	}
+
+	calls := make([]string, 0, 1)
+	if err := syncConfiguredSourceRepositoriesPeriodicCycle(ctx, repos, nil, func(_ context.Context, rec dal.SourceRepositoryRecord, _ string) sourcepkg.GitCheckoutStatus {
+		calls = append(calls, rec.RepositoryID)
+		return sourcepkg.GitCheckoutStatus{ResolvedCommit: "ok123"}
+	}); err != nil {
+		t.Fatalf("periodic sync cycle: %v", err)
+	}
+
+	if strings.Join(calls, ",") != "eligible" {
+		t.Fatalf("sync calls=%v, want only eligible", calls)
+	}
+
+	recent, err := repos.Sources().GetRepository(ctx, "recent-failure")
+	if err != nil {
+		t.Fatalf("GetRepository recent-failure: %v", err)
+	}
+
+	if recent.SyncStatus != dal.SourceSyncStatusFailed || recent.LastSyncFinishedAtUnix != nowUnix {
+		t.Fatalf("recent failure should remain unchanged during backoff: %+v", recent)
+	}
+}
+
+func TestSyncConfiguredSourceRepositoryRecords_RespectsMaxConcurrency(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
+
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+
+	records := make([]dal.SourceRepositoryRecord, 0, 4)
+	for _, id := range []string{"repo-a", "repo-b", "repo-c", "repo-d"} {
+		rec, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+			RepositoryID: id,
+			SourceKind:   dal.SourceKindLocalCheckout,
+			CheckoutPath: "/work/" + id,
+			Enabled:      true,
+		})
+
+		if err != nil {
+			t.Fatalf("CreateRepository %s: %v", id, err)
+		}
+
+		records = append(records, rec)
+	}
+
+	var mu sync.Mutex
+	active := 0
+	maxActive := 0
+	if err := syncConfiguredSourceRepositoryRecords(ctx, repos, nil, records, 2, func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus {
+		mu.Lock()
+		active++
+		if active > maxActive {
+			maxActive = active
+		}
+		mu.Unlock()
+
+		time.Sleep(20 * time.Millisecond)
+
+		mu.Lock()
+		active--
+		mu.Unlock()
+
+		return sourcepkg.GitCheckoutStatus{ResolvedCommit: "ok123"}
+	}); err != nil {
+		t.Fatalf("periodic sync records: %v", err)
+	}
+
+	if maxActive > 2 {
+		t.Fatalf("max active syncs=%d, want <=2", maxActive)
+	}
+
+	if maxActive < 2 {
+		t.Fatalf("expected syncs to run concurrently up to the limit, max active=%d", maxActive)
 	}
 }

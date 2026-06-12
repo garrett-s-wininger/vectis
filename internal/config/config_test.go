@@ -554,6 +554,87 @@ func TestSourceSyncConfiguredRepositoriesOnStartup_DefaultAndOverride(t *testing
 	}
 }
 
+func TestSourceSyncConfiguredRepositoriesInterval_DefaultAndOverride(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv(envSourceSyncConfiguredRepositoriesInterval, "")
+	t.Setenv(envAPIServerSourceSyncConfiguredRepositoriesInterval, "")
+
+	if got := SourceSyncConfiguredRepositoriesInterval(); got != 0 {
+		t.Fatalf("SourceSyncConfiguredRepositoriesInterval default: got %v, want 0", got)
+	}
+
+	viper.Set("source.sync_configured_repositories_interval", 2*time.Minute)
+	if got := SourceSyncConfiguredRepositoriesInterval(); got != 2*time.Minute {
+		t.Fatalf("SourceSyncConfiguredRepositoriesInterval viper override: got %v", got)
+	}
+
+	t.Setenv(envSourceSyncConfiguredRepositoriesInterval, "30s")
+	if got := SourceSyncConfiguredRepositoriesInterval(); got != 30*time.Second {
+		t.Fatalf("SourceSyncConfiguredRepositoriesInterval env override: got %v", got)
+	}
+
+	t.Setenv(envSourceSyncConfiguredRepositoriesInterval, "")
+	t.Setenv(envAPIServerSourceSyncConfiguredRepositoriesInterval, "45s")
+	if got := SourceSyncConfiguredRepositoriesInterval(); got != 45*time.Second {
+		t.Fatalf("SourceSyncConfiguredRepositoriesInterval API env override: got %v", got)
+	}
+}
+
+func TestSourceSyncConfiguredRepositoriesMaxConcurrency_DefaultAndOverride(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv(envSourceSyncConfiguredRepositoriesMaxConcurrency, "")
+	t.Setenv(envAPIServerSourceSyncConfiguredRepositoriesMaxConcurrency, "")
+
+	if got := SourceSyncConfiguredRepositoriesMaxConcurrency(); got != 1 {
+		t.Fatalf("SourceSyncConfiguredRepositoriesMaxConcurrency default: got %d, want 1", got)
+	}
+
+	viper.Set("source.sync_configured_repositories_max_concurrency", 3)
+	if got := SourceSyncConfiguredRepositoriesMaxConcurrency(); got != 3 {
+		t.Fatalf("SourceSyncConfiguredRepositoriesMaxConcurrency viper override: got %d", got)
+	}
+
+	t.Setenv(envSourceSyncConfiguredRepositoriesMaxConcurrency, "4")
+	if got := SourceSyncConfiguredRepositoriesMaxConcurrency(); got != 4 {
+		t.Fatalf("SourceSyncConfiguredRepositoriesMaxConcurrency env override: got %d", got)
+	}
+
+	t.Setenv(envSourceSyncConfiguredRepositoriesMaxConcurrency, "")
+	t.Setenv(envAPIServerSourceSyncConfiguredRepositoriesMaxConcurrency, "5")
+	if got := SourceSyncConfiguredRepositoriesMaxConcurrency(); got != 5 {
+		t.Fatalf("SourceSyncConfiguredRepositoriesMaxConcurrency API env override: got %d", got)
+	}
+}
+
+func TestSourceSyncConfiguredRepositoriesFailureBackoff_DefaultAndOverride(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv(envSourceSyncConfiguredRepositoriesFailureBackoff, "")
+	t.Setenv(envAPIServerSourceSyncConfiguredRepositoriesFailureBackoff, "")
+
+	if got := SourceSyncConfiguredRepositoriesFailureBackoff(); got != 5*time.Minute {
+		t.Fatalf("SourceSyncConfiguredRepositoriesFailureBackoff default: got %v, want 5m", got)
+	}
+
+	viper.Set("source.sync_configured_repositories_failure_backoff", 2*time.Minute)
+	if got := SourceSyncConfiguredRepositoriesFailureBackoff(); got != 2*time.Minute {
+		t.Fatalf("SourceSyncConfiguredRepositoriesFailureBackoff viper override: got %v", got)
+	}
+
+	t.Setenv(envSourceSyncConfiguredRepositoriesFailureBackoff, "30s")
+	if got := SourceSyncConfiguredRepositoriesFailureBackoff(); got != 30*time.Second {
+		t.Fatalf("SourceSyncConfiguredRepositoriesFailureBackoff env override: got %v", got)
+	}
+
+	t.Setenv(envSourceSyncConfiguredRepositoriesFailureBackoff, "")
+	t.Setenv(envAPIServerSourceSyncConfiguredRepositoriesFailureBackoff, "45s")
+	if got := SourceSyncConfiguredRepositoriesFailureBackoff(); got != 45*time.Second {
+		t.Fatalf("SourceSyncConfiguredRepositoriesFailureBackoff API env override: got %v", got)
+	}
+}
+
 func TestSourceRepositoryDeclarations_Viper(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)

@@ -169,6 +169,10 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		return
 	}
 
+	sourcePeriodicSyncCtx, sourcePeriodicSyncCancel := context.WithCancel(cmd.Context())
+	defer sourcePeriodicSyncCancel()
+	startConfiguredSourceRepositoryPeriodicSync(sourcePeriodicSyncCtx, sourceRepos, logger)
+
 	shutdownTracer, err := observability.InitTracer(cmd.Context(), "vectis-api")
 	if err != nil {
 		logger.Error("Failed to initialize tracer: %v", err)

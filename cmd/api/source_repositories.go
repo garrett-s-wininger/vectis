@@ -72,6 +72,48 @@ func syncConfiguredSourceRepositories(ctx context.Context, repos *dal.SQLReposit
 	return syncConfiguredSourceRepositoriesWithStatus(ctx, repos, logger, configuredSourceRepositorySyncCheckoutStatus)
 }
 
+func startConfiguredSourceRepositoryPeriodicSync(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger) {
+	interval := config.SourceSyncConfiguredRepositoriesInterval()
+	if interval <= 0 {
+		return
+	}
+
+	if repos == nil {
+		if logger != nil {
+			logger.Warn("Configured source repository periodic sync disabled: repositories are not configured")
+		}
+		return
+	}
+
+	if logger != nil {
+		logger.Info("Configured source repository periodic sync enabled: interval=%s max_concurrency=%d failure_backoff=%s",
+			interval,
+			config.SourceSyncConfiguredRepositoriesMaxConcurrency(),
+			config.SourceSyncConfiguredRepositoriesFailureBackoff(),
+		)
+	}
+
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				if logger != nil {
+					logger.Info("Configured source repository periodic sync stopped")
+				}
+
+				return
+			case <-ticker.C:
+				if err := syncConfiguredSourceRepositoriesPeriodicCycle(ctx, repos, logger, configuredSourceRepositorySyncCheckoutStatus); err != nil && logger != nil {
+					logger.Warn("Configured source repository periodic sync cycle completed with errors: %v", err)
+				}
+			}
+		}
+	}()
+}
+
 func reconcileConfiguredSourceSchedules(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger) error {
 	decls, err := config.SourceScheduleDeclarations()
 	if err != nil {
@@ -122,6 +164,123 @@ func reconcileConfiguredSourceSchedules(ctx context.Context, repos *dal.SQLRepos
 	}
 
 	return nil
+}
+
+func syncConfiguredSourceRepositoriesPeriodicCycle(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger, statusFn sourceRepositorySyncStatusFunc) error {
+	if statusFn == nil {
+		statusFn = configuredSourceRepositorySyncCheckoutStatus
+	}
+
+	decls, err := config.SourceRepositoryDeclarations()
+	if err != nil {
+		return err
+	}
+
+	if len(decls) == 0 {
+		return nil
+	}
+
+	eligible := make([]dal.SourceRepositoryRecord, 0, len(decls))
+	nowUnix := time.Now().Unix()
+	backoff := config.SourceSyncConfiguredRepositoriesFailureBackoff()
+	for _, decl := range decls {
+		rec, err := repos.Sources().GetRepository(ctx, decl.RepositoryID)
+		if err != nil {
+			return fmt.Errorf("get configured source repository %q for periodic sync: %w", decl.RepositoryID, err)
+		}
+
+		if !rec.Enabled {
+			logConfiguredSourceRepository(logger, "periodic sync skipped disabled", rec, "")
+			continue
+		}
+
+		if configuredSourceRepositorySyncBackoffActive(rec, nowUnix, backoff) {
+			logConfiguredSourceRepository(logger, "periodic sync skipped backoff", rec, "")
+			continue
+		}
+
+		eligible = append(eligible, rec)
+	}
+
+	return syncConfiguredSourceRepositoryRecords(ctx, repos, logger, eligible, config.SourceSyncConfiguredRepositoriesMaxConcurrency(), statusFn)
+}
+
+func syncConfiguredSourceRepositoryRecords(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger, records []dal.SourceRepositoryRecord, maxConcurrency int, statusFn sourceRepositorySyncStatusFunc) error {
+	if len(records) == 0 {
+		return nil
+	}
+
+	if statusFn == nil {
+		statusFn = configuredSourceRepositorySyncCheckoutStatus
+	}
+
+	if maxConcurrency <= 0 {
+		maxConcurrency = 1
+	}
+
+	sem := make(chan struct{}, maxConcurrency)
+	errCh := make(chan error, len(records))
+	started := 0
+
+	for _, rec := range records {
+		select {
+		case <-ctx.Done():
+			if started == 0 {
+				return ctx.Err()
+			}
+
+			return collectConfiguredSourceRepositorySyncErrors(errCh, started, ctx.Err())
+		case sem <- struct{}{}:
+		}
+
+		started++
+		go func(rec dal.SourceRepositoryRecord) {
+			defer func() { <-sem }()
+
+			syncCtx := ctx
+			syncCancel := func() {}
+			if timeout := config.SourceSyncRunningTimeout(); timeout > 0 {
+				syncCtx, syncCancel = context.WithTimeout(ctx, timeout)
+			}
+			defer syncCancel()
+
+			err := syncConfiguredSourceRepository(syncCtx, repos, logger, rec, statusFn)
+			if err != nil && logger != nil {
+				logger.Warn("Configured source repository periodic sync failed: %v", err)
+			}
+
+			errCh <- err
+		}(rec)
+	}
+
+	return collectConfiguredSourceRepositorySyncErrors(errCh, started, nil)
+}
+
+func collectConfiguredSourceRepositorySyncErrors(errCh <-chan error, count int, seed error) error {
+	errs := make([]string, 0)
+	if seed != nil {
+		errs = append(errs, seed.Error())
+	}
+
+	for i := 0; i < count; i++ {
+		if err := <-errCh; err != nil {
+			errs = append(errs, err.Error())
+		}
+	}
+
+	if len(errs) == 0 {
+		return nil
+	}
+
+	return fmt.Errorf("%d configured source repository syncs failed: %s", len(errs), strings.Join(errs, "; "))
+}
+
+func configuredSourceRepositorySyncBackoffActive(rec dal.SourceRepositoryRecord, nowUnix int64, backoff time.Duration) bool {
+	if backoff <= 0 || strings.TrimSpace(rec.SyncStatus) != dal.SourceSyncStatusFailed || rec.LastSyncFinishedAtUnix <= 0 {
+		return false
+	}
+
+	return time.Unix(rec.LastSyncFinishedAtUnix, 0).Add(backoff).After(time.Unix(nowUnix, 0))
 }
 
 func syncConfiguredSourceRepositoriesWithStatus(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger, statusFn sourceRepositorySyncStatusFunc) error {

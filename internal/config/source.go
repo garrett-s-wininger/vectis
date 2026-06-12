@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,24 +12,34 @@ import (
 )
 
 const (
-	envSourceCheckoutRoot                                 = "VECTIS_SOURCE_CHECKOUT_ROOT"
-	envAPIServerSourceCheckoutRoot                        = "VECTIS_API_SERVER_SOURCE_CHECKOUT_ROOT"
-	envSourceStoredJobsEnabled                            = "VECTIS_SOURCE_STORED_JOBS_ENABLED"
-	envAPIServerSourceStoredJobsEnabled                   = "VECTIS_API_SERVER_SOURCE_STORED_JOBS_ENABLED"
-	envSourceSyncConfiguredRepositoriesOnStartup          = "VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_ON_STARTUP"
-	envAPIServerSourceSyncConfiguredRepositoriesOnStartup = "VECTIS_API_SERVER_SOURCE_SYNC_CONFIGURED_REPOSITORIES_ON_STARTUP"
-	envSourceSyncRunningTimeout                           = "VECTIS_SOURCE_SYNC_RUNNING_TIMEOUT"
-	envAPIServerSourceSyncRunningTimeout                  = "VECTIS_API_SERVER_SOURCE_SYNC_RUNNING_TIMEOUT"
-	envSourceRepositories                                 = "VECTIS_SOURCE_REPOSITORIES"
-	envAPIServerSourceRepositories                        = "VECTIS_API_SERVER_SOURCE_REPOSITORIES"
-	envSourceSchedules                                    = "VECTIS_SOURCE_SCHEDULES"
-	envAPIServerSourceSchedules                           = "VECTIS_API_SERVER_SOURCE_SCHEDULES"
-	defaultSourceSyncRunningTimeout                       = 15 * time.Minute
-	sourceStoredJobsEnabledConfigKey                      = "source.stored_jobs_enabled"
-	sourceSyncConfiguredRepositoriesOnStartupConfigKey    = "source.sync_configured_repositories_on_startup"
-	sourceSyncRunningTimeoutConfigKey                     = "source.sync_running_timeout"
-	sourceRepositoriesConfigKey                           = "source.repositories"
-	sourceSchedulesConfigKey                              = "source.schedules"
+	envSourceCheckoutRoot                                      = "VECTIS_SOURCE_CHECKOUT_ROOT"
+	envAPIServerSourceCheckoutRoot                             = "VECTIS_API_SERVER_SOURCE_CHECKOUT_ROOT"
+	envSourceStoredJobsEnabled                                 = "VECTIS_SOURCE_STORED_JOBS_ENABLED"
+	envAPIServerSourceStoredJobsEnabled                        = "VECTIS_API_SERVER_SOURCE_STORED_JOBS_ENABLED"
+	envSourceSyncConfiguredRepositoriesOnStartup               = "VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_ON_STARTUP"
+	envAPIServerSourceSyncConfiguredRepositoriesOnStartup      = "VECTIS_API_SERVER_SOURCE_SYNC_CONFIGURED_REPOSITORIES_ON_STARTUP"
+	envSourceSyncConfiguredRepositoriesInterval                = "VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_INTERVAL"
+	envAPIServerSourceSyncConfiguredRepositoriesInterval       = "VECTIS_API_SERVER_SOURCE_SYNC_CONFIGURED_REPOSITORIES_INTERVAL"
+	envSourceSyncConfiguredRepositoriesMaxConcurrency          = "VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_MAX_CONCURRENCY"
+	envAPIServerSourceSyncConfiguredRepositoriesMaxConcurrency = "VECTIS_API_SERVER_SOURCE_SYNC_CONFIGURED_REPOSITORIES_MAX_CONCURRENCY"
+	envSourceSyncConfiguredRepositoriesFailureBackoff          = "VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_FAILURE_BACKOFF"
+	envAPIServerSourceSyncConfiguredRepositoriesFailureBackoff = "VECTIS_API_SERVER_SOURCE_SYNC_CONFIGURED_REPOSITORIES_FAILURE_BACKOFF"
+	envSourceSyncRunningTimeout                                = "VECTIS_SOURCE_SYNC_RUNNING_TIMEOUT"
+	envAPIServerSourceSyncRunningTimeout                       = "VECTIS_API_SERVER_SOURCE_SYNC_RUNNING_TIMEOUT"
+	envSourceRepositories                                      = "VECTIS_SOURCE_REPOSITORIES"
+	envAPIServerSourceRepositories                             = "VECTIS_API_SERVER_SOURCE_REPOSITORIES"
+	envSourceSchedules                                         = "VECTIS_SOURCE_SCHEDULES"
+	envAPIServerSourceSchedules                                = "VECTIS_API_SERVER_SOURCE_SCHEDULES"
+	defaultSourceSyncConfiguredRepositoriesMaxConcurrency      = 1
+	defaultSourceSyncRunningTimeout                            = 15 * time.Minute
+	sourceStoredJobsEnabledConfigKey                           = "source.stored_jobs_enabled"
+	sourceSyncConfiguredRepositoriesOnStartupConfigKey         = "source.sync_configured_repositories_on_startup"
+	sourceSyncConfiguredRepositoriesIntervalConfigKey          = "source.sync_configured_repositories_interval"
+	sourceSyncConfiguredRepositoriesMaxConcurrencyConfigKey    = "source.sync_configured_repositories_max_concurrency"
+	sourceSyncConfiguredRepositoriesFailureBackoffConfigKey    = "source.sync_configured_repositories_failure_backoff"
+	sourceSyncRunningTimeoutConfigKey                          = "source.sync_running_timeout"
+	sourceRepositoriesConfigKey                                = "source.repositories"
+	sourceSchedulesConfigKey                                   = "source.schedules"
 )
 
 type SourceRepositoryDeclaration struct {
@@ -103,6 +114,72 @@ func SourceSyncConfiguredRepositoriesOnStartup() bool {
 	}
 
 	return MustDefaults().Source.SyncConfiguredRepositoriesOnStartup
+}
+
+// SourceSyncConfiguredRepositoriesInterval returns how often vectis-api should
+// refresh configured source repositories in the background. A zero duration
+// disables periodic sync.
+func SourceSyncConfiguredRepositoriesInterval() time.Duration {
+	for _, envName := range []string{envSourceSyncConfiguredRepositoriesInterval, envAPIServerSourceSyncConfiguredRepositoriesInterval} {
+		if v := strings.TrimSpace(os.Getenv(envName)); v != "" {
+			if d, err := time.ParseDuration(v); err == nil && d >= 0 {
+				return d
+			}
+		}
+	}
+
+	if viper.IsSet(sourceSyncConfiguredRepositoriesIntervalConfigKey) {
+		if d := viper.GetDuration(sourceSyncConfiguredRepositoriesIntervalConfigKey); d >= 0 {
+			return d
+		}
+	}
+
+	return time.Duration(MustDefaults().Source.SyncConfiguredRepositoriesInterval)
+}
+
+// SourceSyncConfiguredRepositoriesMaxConcurrency returns the maximum number of
+// configured source repositories vectis-api may refresh at once.
+func SourceSyncConfiguredRepositoriesMaxConcurrency() int {
+	for _, envName := range []string{envSourceSyncConfiguredRepositoriesMaxConcurrency, envAPIServerSourceSyncConfiguredRepositoriesMaxConcurrency} {
+		if v := strings.TrimSpace(os.Getenv(envName)); v != "" {
+			if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
+				return parsed
+			}
+		}
+	}
+
+	if viper.IsSet(sourceSyncConfiguredRepositoriesMaxConcurrencyConfigKey) {
+		if v := viper.GetInt(sourceSyncConfiguredRepositoriesMaxConcurrencyConfigKey); v > 0 {
+			return v
+		}
+	}
+
+	if v := MustDefaults().Source.SyncConfiguredRepositoriesMaxConcurrency; v > 0 {
+		return v
+	}
+
+	return defaultSourceSyncConfiguredRepositoriesMaxConcurrency
+}
+
+// SourceSyncConfiguredRepositoriesFailureBackoff returns how long a repository
+// with a recent failed sync should be skipped by periodic background sync. A
+// zero duration disables failure backoff.
+func SourceSyncConfiguredRepositoriesFailureBackoff() time.Duration {
+	for _, envName := range []string{envSourceSyncConfiguredRepositoriesFailureBackoff, envAPIServerSourceSyncConfiguredRepositoriesFailureBackoff} {
+		if v := strings.TrimSpace(os.Getenv(envName)); v != "" {
+			if d, err := time.ParseDuration(v); err == nil && d >= 0 {
+				return d
+			}
+		}
+	}
+
+	if viper.IsSet(sourceSyncConfiguredRepositoriesFailureBackoffConfigKey) {
+		if d := viper.GetDuration(sourceSyncConfiguredRepositoriesFailureBackoffConfigKey); d >= 0 {
+			return d
+		}
+	}
+
+	return time.Duration(MustDefaults().Source.SyncConfiguredRepositoriesFailureBackoff)
 }
 
 // SourceSyncRunningTimeout returns how long a running source sync reservation may live
