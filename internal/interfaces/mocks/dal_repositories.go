@@ -1360,6 +1360,7 @@ type MockSchedulesRepository struct {
 	ListSourceCronSchedulesErr         error
 	SetSourceCronScheduleOverrideErr   error
 	ClearSourceCronScheduleOverrideErr error
+	DeleteSourceCronScheduleErr        error
 	ClaimDueErr                        error
 	ClaimDueOK                         bool
 	CompleteClaimErr                   error
@@ -1516,6 +1517,24 @@ func (m *MockSchedulesRepository) ClearSourceCronScheduleOverride(ctx context.Co
 	m.CronSchedules[scheduleID] = rec
 
 	return rec, nil
+}
+
+func (m *MockSchedulesRepository) DeleteSourceCronSchedule(ctx context.Context, scheduleID string) error {
+	if m.DeleteSourceCronScheduleErr != nil {
+		return m.DeleteSourceCronScheduleErr
+	}
+
+	rec, err := m.GetCronScheduleByScheduleID(ctx, scheduleID)
+	if err != nil {
+		return err
+	}
+
+	if rec.SourceRepositoryID == "" {
+		return fmt.Errorf("%w: source cron schedule %s", dal.ErrNotFound, scheduleID)
+	}
+
+	delete(m.CronSchedules, scheduleID)
+	return nil
 }
 
 func (m *MockSchedulesRepository) GetReady(ctx context.Context, at time.Time) ([]dal.CronSchedule, error) {

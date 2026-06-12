@@ -326,6 +326,71 @@ func (r *SQLSchedulesRepository) ClearSourceCronScheduleOverride(ctx context.Con
 	return r.GetCronScheduleByScheduleID(ctx, scheduleID)
 }
 
+func (r *SQLSchedulesRepository) DeleteSourceCronSchedule(ctx context.Context, scheduleID string) error {
+	scheduleID = strings.TrimSpace(scheduleID)
+	if scheduleID == "" {
+		return fmt.Errorf("%w: schedule_id is required", ErrNotFound)
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var specID, triggerID int64
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT cts.id, jt.id
+		FROM cron_trigger_specs cts
+		JOIN job_triggers jt ON jt.id = cts.trigger_id
+		WHERE cts.schedule_id = ? AND COALESCE(jt.source_repository_id, '') <> ''
+	`), scheduleID).Scan(&specID, &triggerID); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("%w: source cron schedule %s", ErrNotFound, scheduleID)
+		}
+
+		return normalizeSQLError(err)
+	}
+
+	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		DELETE FROM cron_schedule_fires
+		WHERE schedule_id = ?
+	`), specID); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		DELETE FROM cron_trigger_specs
+		WHERE id = ? AND schedule_id = ? AND trigger_id = ?
+	`), specID, scheduleID, triggerID); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	res, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		DELETE FROM job_triggers
+		WHERE id = ? AND COALESCE(source_repository_id, '') <> ''
+	`), triggerID)
+
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("%w: source cron schedule %s", ErrNotFound, scheduleID)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	return nil
+}
+
 func (r *SQLSchedulesRepository) CountCronSchedules(ctx context.Context) (int64, error) {
 	var count int64
 	err := r.db.QueryRowContext(ctx, `

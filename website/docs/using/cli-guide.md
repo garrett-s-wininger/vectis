@@ -239,6 +239,7 @@ List reconciled source schedules:
 ./bin/vectis-cli sources schedules --stale
 ./bin/vectis-cli sources disable-schedule old-nightly
 ./bin/vectis-cli sources enable-schedule old-nightly
+./bin/vectis-cli sources delete-schedule old-nightly --yes
 ```
 
 Temporarily point a source schedule at a hotfix ref or definition path, then clear the override after the fix lands in the configured location:

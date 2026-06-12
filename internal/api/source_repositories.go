@@ -774,6 +774,66 @@ func (s *APIServer) PatchSourceSchedule(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, sourceCronScheduleRecordToResponse(updated, namespacePath, declared))
 }
 
+func (s *APIServer) DeleteSourceSchedule(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireNamespaces(w) || !s.requireSources(w) || !s.requireSchedules(w) {
+		return
+	}
+
+	scheduleID := r.PathValue("schedule_id")
+	rec, _, ok := s.getAuthorizedSourceSchedule(ctx, w, p, scheduleID, authz.ActionJobWrite)
+	if !ok {
+		return
+	}
+
+	declared, err := sourceCronScheduleDeclarationIDs()
+	if err != nil {
+		s.logger.Error("Configuration error deleting source schedule: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+
+	if sourceCronScheduleIsDeclared(rec.ScheduleID, declared) {
+		writeAPIError(w, http.StatusConflict, "source_schedule_declared", "source schedule is still declared in current config", nil)
+		return
+	}
+
+	if rec.Enabled {
+		writeAPIError(w, http.StatusConflict, "source_schedule_enabled", "source schedule must be disabled before deletion", nil)
+		return
+	}
+
+	if sourceCronScheduleHasOverride(rec) {
+		writeAPIError(w, http.StatusConflict, "source_schedule_override_active", "source schedule override must be cleared before deletion", nil)
+		return
+	}
+
+	if err := s.schedules.DeleteSourceCronSchedule(ctx, scheduleID); err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "source_schedule_not_found", "source schedule not found", nil)
+			return
+		}
+
+		s.logger.Error("Database error deleting source schedule: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+	s.markDBRecovered()
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *APIServer) PutSourceScheduleOverride(w http.ResponseWriter, r *http.Request) {
 	if !requestContentTypeIsJSON(r) {
 		writeAPIErrorCode(w, http.StatusUnsupportedMediaType, apiErrUnsupportedMediaType)
@@ -2715,6 +2775,10 @@ func sourceCronScheduleIsDeclared(scheduleID string, declared map[string]struct{
 
 	_, ok := declared[strings.TrimSpace(scheduleID)]
 	return ok
+}
+
+func sourceCronScheduleHasOverride(rec dal.CronScheduleRecord) bool {
+	return strings.TrimSpace(rec.SourceOverrideRef) != "" || strings.TrimSpace(rec.SourceOverridePath) != ""
 }
 
 func (s *APIServer) sourceRepositoryStatusFromRecord(ctx context.Context, rec dal.SourceRepositoryRecord, namespacePath string) sourceRepositoryStatusResponse {

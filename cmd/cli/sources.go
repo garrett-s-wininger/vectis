@@ -1004,6 +1004,10 @@ func disableSourceSchedule(cmd *cobra.Command, args []string) {
 	runCLIError(setSourceScheduleEnabledWithOutput(os.Stdout, args[0], false))
 }
 
+func deleteSourceSchedule(cmd *cobra.Command, args []string) {
+	runCLIError(deleteSourceScheduleWithOutput(os.Stdout, args[0], sourceDeleteScheduleYes))
+}
+
 func setSourceScheduleEnabledWithOutput(out io.Writer, scheduleID string, enabled bool) error {
 	body, err := json.Marshal(sourceScheduleUpdateRequest{Enabled: enabled})
 	if err != nil {
@@ -1052,6 +1056,38 @@ func writeSourceScheduleEnabledResult(out io.Writer, schedule sourceScheduleSumm
 
 	_, err := fmt.Fprintf(out, "Source schedule %q %s.\n", schedule.ScheduleID, state)
 	return err
+}
+
+func deleteSourceScheduleWithOutput(out io.Writer, scheduleID string, confirmed bool) error {
+	if !confirmed {
+		return fmt.Errorf("delete source schedule %q requires --yes; only stale disabled schedules without overrides can be deleted", scheduleID)
+	}
+
+	req, err := newAPIRequest(http.MethodDelete, "/api/v1/source-schedules/"+url.PathEscape(scheduleID), nil)
+	if err != nil {
+		return fmt.Errorf("failed to create source schedule delete request: %w", err)
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to delete source schedule: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusNoContent:
+		if outputIsJSON() {
+			return writeJSON(out, map[string]string{"status": "deleted", "schedule_id": scheduleID})
+		}
+		_, err := fmt.Fprintf(out, "Source schedule %q deleted.\n", scheduleID)
+		return err
+	case http.StatusConflict:
+		return fmt.Errorf("source schedule %q must be stale, disabled, and clear of overrides before deletion", scheduleID)
+	case http.StatusNotFound:
+		return fmt.Errorf("source schedule %q not found", scheduleID)
+	default:
+		return fmt.Errorf("unexpected status deleting source schedule: %s", resp.Status)
+	}
 }
 
 func listSourceBranches(cmd *cobra.Command, args []string) {
@@ -1884,6 +1920,14 @@ var sourcesDisableScheduleCmd = &cobra.Command{
 	Run:   disableSourceSchedule,
 }
 
+var sourcesDeleteScheduleCmd = &cobra.Command{
+	Use:   "delete-schedule [schedule-id]",
+	Short: "Delete a stale source-backed cron schedule",
+	Long:  `Delete a stale source-backed cron schedule row after it has been removed from source schedule config, disabled, and cleared of overrides.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   deleteSourceSchedule,
+}
+
 var sourcesBranchesCmd = &cobra.Command{
 	Use:   "branches [repository-id]",
 	Short: "List source repository branches",
@@ -2014,6 +2058,10 @@ func configureSourcesUpdateFlags(cmd *cobra.Command) {
 
 func configureSourcesDeleteFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&sourceDeleteYes, "yes", false, "Skip confirmation prompt")
+}
+
+func configureSourcesDeleteScheduleFlags(cmd *cobra.Command) {
+	cmd.Flags().BoolVar(&sourceDeleteScheduleYes, "yes", false, "Skip confirmation prompt")
 }
 
 func configureSourcesBranchesFlags(cmd *cobra.Command) {

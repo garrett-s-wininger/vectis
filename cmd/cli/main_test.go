@@ -1081,6 +1081,39 @@ func TestSetSourceScheduleEnabled_sendsPatchAndPrintsResult(t *testing.T) {
 	}
 }
 
+func TestDeleteSourceSchedule_requiresConfirmation(t *testing.T) {
+	var buf bytes.Buffer
+	if err := deleteSourceScheduleWithOutput(&buf, "nightly-build", false); err == nil {
+		t.Fatal("expected confirmation error")
+	}
+}
+
+func TestDeleteSourceSchedule_sendsRequestAndPrintsResult(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/source-schedules/nightly-build" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	var buf bytes.Buffer
+	if err := deleteSourceScheduleWithOutput(&buf, "nightly-build", true); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"Source schedule", "nightly-build", "deleted"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
 func TestUpdateSource_sendsOnlyChangedFieldsAndPrintsRepository(t *testing.T) {
 	oldSourceKind := sourceUpdateSourceKind
 	oldCheckoutPath := sourceUpdateCheckoutPath

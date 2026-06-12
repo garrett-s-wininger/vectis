@@ -758,6 +758,7 @@ type SchedulesRepository interface {
 	ListSourceCronSchedules(ctx context.Context, namespaceID int64, repositoryID string) ([]CronScheduleRecord, error)
 	SetSourceCronScheduleOverride(ctx context.Context, scheduleID string, override SourceScheduleOverride) (CronScheduleRecord, error)
 	ClearSourceCronScheduleOverride(ctx context.Context, scheduleID string) (CronScheduleRecord, error)
+	DeleteSourceCronSchedule(ctx context.Context, scheduleID string) error
 	GetReady(ctx context.Context, at time.Time) ([]CronSchedule, error)
 	ClaimDue(ctx context.Context, scheduleID int64, observedNextRun time.Time, claimToken string, claimedUntil, now time.Time) (bool, error)
 	CompleteClaim(ctx context.Context, scheduleID int64, claimToken string, nextRun time.Time) (bool, error)

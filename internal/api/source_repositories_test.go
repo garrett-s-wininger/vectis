@@ -618,6 +618,79 @@ func TestAPIServer_ListSourceSchedules(t *testing.T) {
 	}
 }
 
+func TestAPIServer_DeleteSourceScheduleGuards(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	t.Setenv("VECTIS_SOURCE_SCHEDULES", `[{"schedule_id":"declared-disabled","repository_id":"vectis-local","job_id":"build","cron_spec":"30 8 * * *","ref":"main","enabled":false}]`)
+	t.Setenv("VECTIS_API_SERVER_SOURCE_SCHEDULES", "")
+
+	server, _, _, db := setupTestServer(t)
+	repos := dal.NewSQLRepositories(db)
+	handler := server.Handler()
+	ctx := context.Background()
+
+	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "vectis-local",
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/vectis",
+		DefaultRef:   "main",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("create source repository: %v", err)
+	}
+
+	nextRun := time.Date(2026, 5, 1, 8, 30, 0, 0, time.UTC)
+	for _, rec := range []dal.CronScheduleRecord{
+		{ScheduleID: "declared-disabled", JobID: "build", CronSpec: "30 8 * * *", NextRunAt: nextRun, SourceRepositoryID: "vectis-local", SourceRef: "main", Enabled: false},
+		{ScheduleID: "stale-enabled", JobID: "build", CronSpec: "0 9 * * *", NextRunAt: nextRun, SourceRepositoryID: "vectis-local", SourceRef: "main", Enabled: true},
+		{ScheduleID: "stale-override", JobID: "build", CronSpec: "15 9 * * *", NextRunAt: nextRun, SourceRepositoryID: "vectis-local", SourceRef: "main", Enabled: false},
+		{ScheduleID: "stale-disabled", JobID: "build", CronSpec: "45 9 * * *", NextRunAt: nextRun, SourceRepositoryID: "vectis-local", SourceRef: "main", Enabled: false},
+	} {
+		if _, err := repos.Schedules().CreateCronSchedule(ctx, rec); err != nil {
+			t.Fatalf("create source schedule %s: %v", rec.ScheduleID, err)
+		}
+	}
+
+	if _, err := repos.Schedules().SetSourceCronScheduleOverride(ctx, "stale-override", dal.SourceScheduleOverride{
+		Ref:           "hotfix/build",
+		Reason:        "verify hotfix",
+		CreatedAtUnix: 1770000000,
+	}); err != nil {
+		t.Fatalf("set source schedule override: %v", err)
+	}
+
+	for _, tc := range []struct {
+		scheduleID string
+		status     int
+		code       string
+	}{
+		{scheduleID: "declared-disabled", status: http.StatusConflict, code: "source_schedule_declared"},
+		{scheduleID: "stale-enabled", status: http.StatusConflict, code: "source_schedule_enabled"},
+		{scheduleID: "stale-override", status: http.StatusConflict, code: "source_schedule_override_active"},
+	} {
+		req := httptest.NewRequest(http.MethodDelete, "/api/v1/source-schedules/"+tc.scheduleID, nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		assertAPIError(t, rec, tc.status, tc.code)
+	}
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/api/v1/source-schedules/stale-disabled", nil)
+	deleteRec := httptest.NewRecorder()
+	handler.ServeHTTP(deleteRec, deleteReq)
+	if deleteRec.Code != http.StatusNoContent {
+		t.Fatalf("delete stale source schedule: status=%d body=%s", deleteRec.Code, deleteRec.Body.String())
+	}
+
+	if _, err := repos.Schedules().GetCronScheduleByScheduleID(ctx, "stale-disabled"); !dal.IsNotFound(err) {
+		t.Fatalf("expected stale-disabled to be deleted, got %v", err)
+	}
+
+	missingReq := httptest.NewRequest(http.MethodDelete, "/api/v1/source-schedules/stale-disabled", nil)
+	missingRec := httptest.NewRecorder()
+	handler.ServeHTTP(missingRec, missingReq)
+	assertAPIError(t, missingRec, http.StatusNotFound, "source_schedule_not_found")
+}
+
 func TestAPIServer_SourceStoredJobsDisabled(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 	t.Setenv("VECTIS_SOURCE_STORED_JOBS_ENABLED", "false")

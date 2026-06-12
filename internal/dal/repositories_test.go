@@ -5211,6 +5211,66 @@ func TestSchedulesRepository_ListSourceCronSchedules(t *testing.T) {
 	}
 }
 
+func TestSchedulesRepository_DeleteSourceCronSchedule(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+
+	nextRun := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
+	sourceRec, err := repos.Schedules().CreateCronSchedule(ctx, dal.CronScheduleRecord{
+		ScheduleID:         "stale-source",
+		JobID:              "build",
+		CronSpec:           "0 * * * *",
+		NextRunAt:          nextRun,
+		SourceRepositoryID: "repo-a",
+		SourceRef:          "main",
+		Enabled:            false,
+	})
+
+	if err != nil {
+		t.Fatalf("create source schedule: %v", err)
+	}
+
+	if _, err := repos.Schedules().CreateCronSchedule(ctx, dal.CronScheduleRecord{
+		ScheduleID: "stored-only",
+		JobID:      "stored",
+		CronSpec:   "30 * * * *",
+		NextRunAt:  nextRun,
+		Enabled:    true,
+	}); err != nil {
+		t.Fatalf("create stored schedule: %v", err)
+	}
+
+	if err := repos.Schedules().DeleteSourceCronSchedule(ctx, "stale-source"); err != nil {
+		t.Fatalf("delete source schedule: %v", err)
+	}
+
+	if _, err := repos.Schedules().GetCronScheduleByScheduleID(ctx, "stale-source"); !dal.IsNotFound(err) {
+		t.Fatalf("deleted source schedule lookup should be not found, got %v", err)
+	}
+
+	var triggerRows int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM job_triggers WHERE id = ?", sourceRec.TriggerID).Scan(&triggerRows); err != nil {
+		t.Fatalf("count source trigger rows: %v", err)
+	}
+
+	if triggerRows != 0 {
+		t.Fatalf("source trigger rows=%d, want 0", triggerRows)
+	}
+
+	if _, err := repos.Schedules().GetCronScheduleByScheduleID(ctx, "stored-only"); err != nil {
+		t.Fatalf("stored schedule should remain: %v", err)
+	}
+
+	if err := repos.Schedules().DeleteSourceCronSchedule(ctx, "stored-only"); !dal.IsNotFound(err) {
+		t.Fatalf("deleting stored schedule through source delete should be not found, got %v", err)
+	}
+
+	if err := repos.Schedules().DeleteSourceCronSchedule(ctx, "missing"); !dal.IsNotFound(err) {
+		t.Fatalf("deleting missing source schedule should be not found, got %v", err)
+	}
+}
+
 func TestSchedulesRepository_ClaimDueCompleteAndRelease(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)
