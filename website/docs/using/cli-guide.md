@@ -279,6 +279,12 @@ Delete an unused repository registration without touching checkout files:
 
 Declared repositories, repositories with source schedules, and repositories with recorded source provenance cannot be deleted; remove the declaration or disable them instead so scheduled references, historical runs, and stored definition versions can still resolve their repository metadata.
 
+Inspect source-control readiness, declaration counts, stale rows, sync summaries, and active schedule overrides:
+
+```sh
+./bin/vectis-cli sources overview
+```
+
 Sync the repository, then list triggerable jobs discovered under `.vectis/jobs`:
 
 ```sh

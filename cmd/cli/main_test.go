@@ -589,6 +589,72 @@ func TestListSourceJobs_sendsQueryAndPrintsJobs(t *testing.T) {
 	}
 }
 
+func TestSourceOverview_sendsRequestAndPrintsStatus(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/source/status" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"stored_jobs_enabled":     false,
+			"repositories_configured": true,
+			"source_jobs_configured":  true,
+			"schedules_configured":    true,
+			"declared_repositories":   2,
+			"declared_schedules":      3,
+			"repositories": map[string]any{
+				"total":          4,
+				"enabled":        3,
+				"disabled":       1,
+				"declared":       2,
+				"stale_enabled":  1,
+				"stale_disabled": 1,
+				"sync_succeeded": 2,
+				"sync_failed":    1,
+				"sync_running":   1,
+				"sync_never":     0,
+			},
+			"schedules": map[string]any{
+				"total":            5,
+				"enabled":          4,
+				"disabled":         1,
+				"declared":         3,
+				"stale_enabled":    1,
+				"stale_disabled":   1,
+				"active_overrides": 2,
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := sourceOverviewWithOutput(&buf); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{
+		"stored_jobs_enabled=false",
+		"repositories_configured=true",
+		"source_jobs_configured=true",
+		"schedules_configured=true",
+		"declared_repositories=2",
+		"declared_schedules=3",
+		"repositories_total=4",
+		"repositories_stale_enabled=1",
+		"repositories_sync_failed=1",
+		"schedules_total=5",
+		"schedules_active_overrides=2",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
 func TestListSources_filtersStale(t *testing.T) {
 	oldNamespace := sourceListNamespace
 	oldQuiet := sourceListQuiet

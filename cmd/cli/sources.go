@@ -48,6 +48,40 @@ type sourceRepositorySyncInfo struct {
 	Error              string `json:"error,omitempty"`
 }
 
+type sourceOverviewResult struct {
+	StoredJobsEnabled      bool                         `json:"stored_jobs_enabled"`
+	RepositoriesConfigured bool                         `json:"repositories_configured"`
+	SourceJobsConfigured   bool                         `json:"source_jobs_configured"`
+	SchedulesConfigured    bool                         `json:"schedules_configured"`
+	DeclaredRepositories   int                          `json:"declared_repositories"`
+	DeclaredSchedules      int                          `json:"declared_schedules"`
+	Repositories           sourceOverviewRepositoryInfo `json:"repositories"`
+	Schedules              sourceOverviewScheduleInfo   `json:"schedules"`
+}
+
+type sourceOverviewRepositoryInfo struct {
+	Total         int `json:"total"`
+	Enabled       int `json:"enabled"`
+	Disabled      int `json:"disabled"`
+	Declared      int `json:"declared"`
+	StaleEnabled  int `json:"stale_enabled"`
+	StaleDisabled int `json:"stale_disabled"`
+	SyncSucceeded int `json:"sync_succeeded"`
+	SyncFailed    int `json:"sync_failed"`
+	SyncRunning   int `json:"sync_running"`
+	SyncNever     int `json:"sync_never"`
+}
+
+type sourceOverviewScheduleInfo struct {
+	Total           int `json:"total"`
+	Enabled         int `json:"enabled"`
+	Disabled        int `json:"disabled"`
+	Declared        int `json:"declared"`
+	StaleEnabled    int `json:"stale_enabled"`
+	StaleDisabled   int `json:"stale_disabled"`
+	ActiveOverrides int `json:"active_overrides"`
+}
+
 type sourceRepositoryStatusResult struct {
 	RepositoryID       string                     `json:"repository_id"`
 	Namespace          string                     `json:"namespace"`
@@ -266,6 +300,65 @@ type sourceTriggerResult struct {
 	DefinitionVersion int              `json:"definition_version"`
 	DefinitionHash    string           `json:"definition_hash"`
 	Source            sourceProvenance `json:"source"`
+}
+
+func sourceOverview(cmd *cobra.Command, args []string) {
+	runCLIError(sourceOverviewWithOutput(os.Stdout))
+}
+
+func sourceOverviewWithOutput(out io.Writer) error {
+	req, err := newAPIRequest(http.MethodGet, "/api/v1/source/status", nil)
+	if err != nil {
+		return fmt.Errorf("failed to create source overview request: %w", err)
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to get source overview: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status getting source overview: %s", resp.Status)
+	}
+
+	var result sourceOverviewResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return fmt.Errorf("failed to parse source overview response: %w", err)
+	}
+
+	return writeSourceOverviewResult(out, result)
+}
+
+func writeSourceOverviewResult(out io.Writer, result sourceOverviewResult) error {
+	if outputIsJSON() {
+		return writeJSON(out, result)
+	}
+
+	fmt.Fprintf(out, "stored_jobs_enabled=%t\n", result.StoredJobsEnabled)
+	fmt.Fprintf(out, "repositories_configured=%t\n", result.RepositoriesConfigured)
+	fmt.Fprintf(out, "source_jobs_configured=%t\n", result.SourceJobsConfigured)
+	fmt.Fprintf(out, "schedules_configured=%t\n", result.SchedulesConfigured)
+	fmt.Fprintf(out, "declared_repositories=%d\n", result.DeclaredRepositories)
+	fmt.Fprintf(out, "declared_schedules=%d\n", result.DeclaredSchedules)
+	fmt.Fprintf(out, "repositories_total=%d\n", result.Repositories.Total)
+	fmt.Fprintf(out, "repositories_enabled=%d\n", result.Repositories.Enabled)
+	fmt.Fprintf(out, "repositories_disabled=%d\n", result.Repositories.Disabled)
+	fmt.Fprintf(out, "repositories_declared=%d\n", result.Repositories.Declared)
+	fmt.Fprintf(out, "repositories_stale_enabled=%d\n", result.Repositories.StaleEnabled)
+	fmt.Fprintf(out, "repositories_stale_disabled=%d\n", result.Repositories.StaleDisabled)
+	fmt.Fprintf(out, "repositories_sync_succeeded=%d\n", result.Repositories.SyncSucceeded)
+	fmt.Fprintf(out, "repositories_sync_failed=%d\n", result.Repositories.SyncFailed)
+	fmt.Fprintf(out, "repositories_sync_running=%d\n", result.Repositories.SyncRunning)
+	fmt.Fprintf(out, "repositories_sync_never=%d\n", result.Repositories.SyncNever)
+	fmt.Fprintf(out, "schedules_total=%d\n", result.Schedules.Total)
+	fmt.Fprintf(out, "schedules_enabled=%d\n", result.Schedules.Enabled)
+	fmt.Fprintf(out, "schedules_disabled=%d\n", result.Schedules.Disabled)
+	fmt.Fprintf(out, "schedules_declared=%d\n", result.Schedules.Declared)
+	fmt.Fprintf(out, "schedules_stale_enabled=%d\n", result.Schedules.StaleEnabled)
+	fmt.Fprintf(out, "schedules_stale_disabled=%d\n", result.Schedules.StaleDisabled)
+	fmt.Fprintf(out, "schedules_active_overrides=%d\n", result.Schedules.ActiveOverrides)
+	return nil
 }
 
 func listSources(cmd *cobra.Command, args []string) {
@@ -1845,6 +1938,14 @@ var sourcesCmd = &cobra.Command{
 	Long:    `Register source repositories, inspect source-defined jobs, and trigger jobs directly from source.`,
 	GroupID: cliGroupWorkflows,
 	Run:     showCommandHelp,
+}
+
+var sourcesOverviewCmd = &cobra.Command{
+	Use:   "overview",
+	Short: "Show source-control readiness",
+	Long:  `Show source mode, persistence wiring, declaration counts, and persisted repository and schedule summaries.`,
+	Args:  cobra.NoArgs,
+	Run:   sourceOverview,
 }
 
 var sourcesListCmd = &cobra.Command{

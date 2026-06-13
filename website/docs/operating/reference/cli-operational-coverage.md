@@ -18,7 +18,7 @@ For task walkthroughs, use the [CLI Guide](../../using/cli-guide.md). For repair
 | Namespaces | Manage namespace hierarchy. | `vectis-cli namespaces list`, `show`, `create`, `delete` |
 | Users | Manage user accounts. | `vectis-cli users list`, `show`, `create`, `enable`, `disable`, `delete`, `change-password` |
 | Role bindings | Grant or revoke namespace roles. | `vectis-cli role-bindings list`, `grant`, `revoke` |
-| Source control | Register, sync, inspect, author, trigger, and clean up source-backed jobs and schedules. | `vectis-cli sources list`, `register`, `sync`, `status`, `schedules`, `override`, `clear-override`, `delete-schedule`, `jobs`, `show`, `write`, `trigger`, `runs`, `logs` |
+| Source control | Register, sync, inspect, author, trigger, and clean up source-backed jobs and schedules. | `vectis-cli sources overview`, `list`, `register`, `sync`, `status`, `schedules`, `override`, `clear-override`, `delete-schedule`, `jobs`, `show`, `write`, `trigger`, `runs`, `logs` |
 | Health checks | Run operator checks against API and local deployment paths. | `vectis-cli health check`, `--json`, `--strict` |
 | Database migrations | Apply embedded SQL migrations during deploy, upgrade, or restore. | `vectis-cli database migrate` |
 | Retention | Preview or apply cleanup for old durable records. | `vectis-cli retention cleanup --dry-run`, `--yes` |
@@ -39,6 +39,7 @@ For task walkthroughs, use the [CLI Guide](../../using/cli-guide.md). For repair
 | Cancel a running run | `vectis-cli runs cancel <run-id>` |
 | Retry a failed or repaired run | `vectis-cli runs retry <run-id>` |
 | Stream logs for a run | `vectis-cli logs run <run-id>` |
+| Inspect source-control readiness | `vectis-cli sources overview` |
 | Inspect source repository health | `vectis-cli sources status <repository-id>` |
 | Check source-only readiness | `vectis-cli health check --strict` |
 | List stale source repositories | `vectis-cli sources list --stale` |
