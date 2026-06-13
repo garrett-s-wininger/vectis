@@ -9,6 +9,7 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/cell"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
 	"vectis/internal/interfaces/mocks"
@@ -192,6 +193,100 @@ func TestService_Process_AfterQueueRecovery_ReenqueuesAndTouchesDispatched(t *te
 	}
 }
 
+func TestService_Process_TouchDispatchedFailureRetriesFrozenPayload(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	jobID := "job-touch-dispatched-chaos"
+	runID := seedStoredJobAndRun(t, db, jobID)
+
+	q := newFaultInjectQueue()
+	clock := mocks.NewMockClock()
+	now := time.Now().UTC()
+	clock.SetNow(now)
+
+	repos := dal.NewSQLRepositories(db)
+	touchErr := errors.New("database unavailable after enqueue")
+	runs := &failOnceTouchRunsRepository{
+		RunsRepository: repos.Runs(),
+		err:            touchErr,
+	}
+
+	svc := NewServiceWithRepositories(interfaces.NewLogger("test"), repos.Jobs(), runs, q, clock)
+	svc.SetServiceLeases(nil)
+	svc.SetMinDispatchGap(1 * time.Second)
+
+	if err := svc.Process(ctx); err != nil {
+		t.Fatalf("Process with injected touch failure: %v", err)
+	}
+
+	jobs := q.Jobs()
+	if len(jobs) != 1 {
+		t.Fatalf("expected first pass to enqueue once before touch failure, got %d", len(jobs))
+	}
+
+	if jobs[0].GetRunId() != runID {
+		t.Fatalf("first enqueued run_id = %q, want %q", jobs[0].GetRunId(), runID)
+	}
+
+	_, lastBefore := fetchRunState(t, ctx, db, runID)
+	if lastBefore.Valid {
+		t.Fatalf("failed touch should leave last_dispatched_at unset, got %v", lastBefore)
+	}
+
+	firstReqs := q.Requests()
+	firstEnvelope := firstReqs[0].GetMetadata()[cell.ExecutionEnvelopeMetadataKey]
+	if firstEnvelope == "" {
+		t.Fatal("expected first dispatch envelope")
+	}
+
+	clock.SetNow(now.Add(2 * time.Second))
+	if err := svc.Process(ctx); err != nil {
+		t.Fatalf("Process after touch recovery: %v", err)
+	}
+
+	secondReqs := q.Requests()
+	if len(secondReqs) != 2 {
+		t.Fatalf("expected retry to enqueue a duplicate handoff, got %d", len(secondReqs))
+	}
+
+	if secondReqs[1].GetJob().GetRunId() != runID {
+		t.Fatalf("retry enqueued run_id = %q, want %q", secondReqs[1].GetJob().GetRunId(), runID)
+	}
+
+	secondEnvelope := secondReqs[1].GetMetadata()[cell.ExecutionEnvelopeMetadataKey]
+	if secondEnvelope != firstEnvelope {
+		t.Fatalf("redispatch envelope changed after touch failure:\nfirst:  %s\nsecond: %s", firstEnvelope, secondEnvelope)
+	}
+
+	_, lastAfter := fetchRunState(t, ctx, db, runID)
+	if !lastAfter.Valid || lastAfter.Int64 == 0 {
+		t.Fatalf("expected retry to touch last_dispatched_at, got %v", lastAfter)
+	}
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	claim1, err := repos.Runs().TryClaimExecution(ctx, dispatch.ExecutionID, "worker-a", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("first claim after duplicate handoff: %v", err)
+	}
+
+	if !claim1.Claimed || claim1.ClaimToken == "" {
+		t.Fatalf("expected first duplicate handoff claim to win, claim=%+v", claim1)
+	}
+
+	claim2, err := repos.Runs().TryClaimExecution(ctx, dispatch.ExecutionID, "worker-b", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("second claim after duplicate handoff: %v", err)
+	}
+
+	if claim2.Claimed || claim2.ClaimToken != "" {
+		t.Fatalf("expected second duplicate handoff claim to lose, claim=%+v", claim2)
+	}
+}
+
 func TestService_Process_MinGapPreventsImmediateRedispatch(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
@@ -219,6 +314,28 @@ func TestService_Process_MinGapPreventsImmediateRedispatch(t *testing.T) {
 	if got := len(q.Jobs()); got != 1 {
 		t.Fatalf("expected no immediate redispatch within min gap; got %d jobs", got)
 	}
+}
+
+func (q *faultInjectQueue) Requests() []*api.JobRequest {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	return append([]*api.JobRequest(nil), q.jobs...)
+}
+
+type failOnceTouchRunsRepository struct {
+	dal.RunsRepository
+	err    error
+	failed bool
+}
+
+func (r *failOnceTouchRunsRepository) TouchDispatched(ctx context.Context, runID string) error {
+	if !r.failed {
+		r.failed = true
+		return r.err
+	}
+
+	return r.RunsRepository.TouchDispatched(ctx, runID)
 }
 
 func TestService_Process_DuplicateDelivery_AllowsSingleClaimedExecution(t *testing.T) {

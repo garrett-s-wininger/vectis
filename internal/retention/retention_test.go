@@ -147,6 +147,68 @@ func TestSQLCleanerReferencedArtifactBlobKeys(t *testing.T) {
 	}
 }
 
+func TestRetentionChaos_SharedArtifactBlobSurvivesTerminalRunCleanup(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	now := fixedNow()
+	artifactDir := t.TempDir()
+	sharedDigest := strings.Repeat("e", 64)
+	sharedBlob := writeArtifactBlobFile(t, artifactDir, sharedDigest, []byte("shared-cas"), now.Add(-40*24*time.Hour))
+
+	old := sqlStamp(now.Add(-40 * 24 * time.Hour))
+	insertRun(t, db, "old-shared", "old-shared-job", "succeeded", old)
+	insertRun(t, db, "queued-shared", "queued-shared-job", "queued", "")
+	insertRunArtifactWithDigest(t, db, "old-shared", sharedDigest)
+	insertRunArtifactWithDigest(t, db, "queued-shared", sharedDigest)
+
+	policy := Policy{
+		TerminalRuns:  30 * 24 * time.Hour,
+		ArtifactBlobs: 30 * 24 * time.Hour,
+	}
+
+	cleaner := NewSQLCleaner(db)
+	report, err := cleaner.Apply(ctx, policy, now)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	if report.Counts.TerminalRuns != 1 || report.Counts.RunArtifacts != 1 {
+		t.Fatalf("cleanup counts = %+v, want one terminal run and artifact manifest", report.Counts)
+	}
+
+	refs, err := cleaner.ReferencedArtifactBlobKeys(ctx)
+	if err != nil {
+		t.Fatalf("referenced blob keys: %v", err)
+	}
+
+	if !refs[artifactBlobKeyPrefix+sharedDigest] {
+		t.Fatalf("shared blob key missing from live references: %+v", refs)
+	}
+
+	fileReport, err := LocalArtifactBlobCleaner{
+		Dir:                artifactDir,
+		Cutoff:             report.Cutoffs.ArtifactBlobs,
+		ReferencedBlobKeys: refs,
+	}.Delete()
+
+	if err != nil {
+		t.Fatalf("delete artifact blobs: %v", err)
+	}
+
+	if fileReport.ArtifactBlobFiles != 0 || fileReport.ArtifactBlobBytes != 0 {
+		t.Fatalf("artifact cleanup report = %+v, want shared blob retained", fileReport)
+	}
+
+	if _, err := os.Stat(sharedBlob); err != nil {
+		t.Fatalf("shared blob should remain: %v", err)
+	}
+
+	assertCount(t, db, `SELECT COUNT(*) FROM job_runs WHERE run_id = 'old-shared'`, 0)
+	assertCount(t, db, `SELECT COUNT(*) FROM run_artifacts WHERE run_id = 'old-shared'`, 0)
+	assertCount(t, db, `SELECT COUNT(*) FROM job_runs WHERE run_id = 'queued-shared'`, 1)
+	assertCount(t, db, `SELECT COUNT(*) FROM run_artifacts WHERE run_id = 'queued-shared'`, 1)
+}
+
 func TestLocalRunLogCleanerPreviewAndDelete(t *testing.T) {
 	dir := t.TempDir()
 	runID := "run-with-log"
@@ -324,6 +386,12 @@ func insertRunArtifact(t *testing.T, db *sql.DB, runID string) {
 	default:
 		digest = strings.Repeat("d", 64)
 	}
+
+	insertRunArtifactWithDigest(t, db, runID, digest)
+}
+
+func insertRunArtifactWithDigest(t *testing.T, db *sql.DB, runID, digest string) {
+	t.Helper()
 
 	if _, err := db.Exec(`
 		INSERT INTO run_artifacts (run_id, cell_id, name, path, blob_key, blob_algorithm, blob_digest, size_bytes, artifact_shard_id, created_at, updated_at)
