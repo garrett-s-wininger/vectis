@@ -278,18 +278,20 @@ func TestCellsStatus_tableOutput(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"cells": []map[string]any{
 				{
-					"cell_id":            "pdx-b",
-					"ready":              false,
-					"ingress_required":   true,
-					"ingress_configured": false,
-					"ingress_reachable":  false,
-					"status":             "missing_route",
-					"queued":             3,
-					"stuck":              2,
-					"catalog_pending":    4,
-					"catalog_failed":     1,
-					"catalog_total":      9,
-					"error":              "cell ingress endpoint is not configured",
+					"cell_id":                   "pdx-b",
+					"ready":                     false,
+					"ingress_required":          true,
+					"ingress_configured":        false,
+					"ingress_reachable":         false,
+					"status":                    "missing_route",
+					"queued":                    3,
+					"stuck":                     2,
+					"task_continuation_pending": 5,
+					"task_finalization_pending": 2,
+					"catalog_pending":           4,
+					"catalog_failed":            1,
+					"catalog_total":             9,
+					"error":                     "cell ingress endpoint is not configured",
 					"checks": []map[string]string{
 						{"id": "ingress", "status": "fail"},
 						{"id": "dispatch", "status": "warn"},
@@ -297,17 +299,19 @@ func TestCellsStatus_tableOutput(t *testing.T) {
 					},
 				},
 				{
-					"cell_id":            "iad-a",
-					"ready":              true,
-					"ingress_required":   true,
-					"ingress_configured": true,
-					"ingress_reachable":  true,
-					"status":             "ready",
-					"queued":             1,
-					"stuck":              0,
-					"catalog_pending":    0,
-					"catalog_failed":     0,
-					"catalog_total":      5,
+					"cell_id":                   "iad-a",
+					"ready":                     true,
+					"ingress_required":          true,
+					"ingress_configured":        true,
+					"ingress_reachable":         true,
+					"status":                    "ready",
+					"queued":                    1,
+					"stuck":                     0,
+					"task_continuation_pending": 0,
+					"task_finalization_pending": 0,
+					"catalog_pending":           0,
+					"catalog_failed":            0,
+					"catalog_total":             5,
 				},
 			},
 		})
@@ -319,7 +323,7 @@ func TestCellsStatus_tableOutput(t *testing.T) {
 	}
 
 	out := buf.String()
-	for _, want := range []string{"CELL", "READY", "ROUTE", "CATALOG P/F/T", "CHECKS", "iad-a", "yes", "ready", "0/0/5", "pdx-b", "no", "missing_route", "4/1/9", "ingress:fail,dispatch:warn,catalog:fail"} {
+	for _, want := range []string{"CELL", "READY", "ROUTE", "TASK REPAIR C/F", "CATALOG P/F/T", "CHECKS", "iad-a", "yes", "ready", "0/0", "0/0/5", "pdx-b", "no", "missing_route", "5/2", "4/1/9", "ingress:fail,dispatch:warn,catalog:fail"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
 		}
@@ -336,15 +340,17 @@ func TestCellsStatus_jsonOutput(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"cells": []map[string]any{
 				{
-					"cell_id":            "iad-a",
-					"ready":              true,
-					"ingress_required":   true,
-					"ingress_configured": true,
-					"ingress_reachable":  true,
-					"status":             "ready",
-					"queued":             1,
-					"stuck":              0,
-					"catalog_total":      5,
+					"cell_id":                   "iad-a",
+					"ready":                     true,
+					"ingress_required":          true,
+					"ingress_configured":        true,
+					"ingress_reachable":         true,
+					"status":                    "ready",
+					"queued":                    1,
+					"stuck":                     0,
+					"task_continuation_pending": 2,
+					"task_finalization_pending": 1,
+					"catalog_total":             5,
 					"checks": []map[string]string{
 						{"id": "ingress", "status": "pass"},
 					},
@@ -363,7 +369,7 @@ func TestCellsStatus_jsonOutput(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if len(result.Cells) != 1 || result.Cells[0].CellID != "iad-a" || !result.Cells[0].Ready || result.Cells[0].CatalogTotal != 5 || len(result.Cells[0].Checks) != 1 {
+	if len(result.Cells) != 1 || result.Cells[0].CellID != "iad-a" || !result.Cells[0].Ready || result.Cells[0].TaskContinuationPending != 2 || result.Cells[0].TaskFinalizationPending != 1 || result.Cells[0].CatalogTotal != 5 || len(result.Cells[0].Checks) != 1 {
 		t.Fatalf("unexpected cells status JSON: %+v", result)
 	}
 }
@@ -3233,6 +3239,30 @@ func TestDoctor_stuckRunsWarnsForPendingTaskFinalization(t *testing.T) {
 	}
 
 	for _, want := range []string{"stuck=0", "task_finalization_pending=2", "task_finalization_cells=pdx-b:2"} {
+		if !strings.Contains(check.Evidence, want) {
+			t.Fatalf("expected evidence to contain %q, got %q", want, check.Evidence)
+		}
+	}
+}
+
+func TestDoctor_stuckRunsWarnsForPendingTaskContinuation(t *testing.T) {
+	check := doctorCheckStuckRunsResponse(t, map[string]any{
+		"stuck":                     1,
+		"task_continuation_pending": 2,
+		"task_continuation_cells": []map[string]any{
+			{"cell_id": "pdx-b", "pending": 2},
+		},
+	})
+
+	if check.Status != doctorWarn {
+		t.Fatalf("expected pending task continuation to warn, got %#v", check)
+	}
+
+	if !strings.Contains(check.Summary, "2 pending task continuations") {
+		t.Fatalf("unexpected summary: %q", check.Summary)
+	}
+
+	for _, want := range []string{"stuck=1", "task_continuation_pending=2", "task_continuation_cells=pdx-b:2"} {
 		if !strings.Contains(check.Evidence, want) {
 			t.Fatalf("expected evidence to contain %q, got %q", want, check.Evidence)
 		}

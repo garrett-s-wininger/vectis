@@ -22,20 +22,22 @@ type cellsStatusResponse struct {
 }
 
 type cellStatusResponse struct {
-	CellID            string                    `json:"cell_id"`
-	Ready             bool                      `json:"ready"`
-	IngressRequired   bool                      `json:"ingress_required"`
-	IngressConfigured bool                      `json:"ingress_configured"`
-	IngressReachable  bool                      `json:"ingress_reachable"`
-	Status            string                    `json:"status"`
-	HTTPStatus        int                       `json:"http_status,omitempty"`
-	Error             string                    `json:"error,omitempty"`
-	Queued            int64                     `json:"queued"`
-	Stuck             int64                     `json:"stuck"`
-	CatalogPending    int64                     `json:"catalog_pending"`
-	CatalogFailed     int64                     `json:"catalog_failed"`
-	CatalogTotal      int64                     `json:"catalog_total"`
-	Checks            []cellStatusCheckResponse `json:"checks"`
+	CellID                  string                    `json:"cell_id"`
+	Ready                   bool                      `json:"ready"`
+	IngressRequired         bool                      `json:"ingress_required"`
+	IngressConfigured       bool                      `json:"ingress_configured"`
+	IngressReachable        bool                      `json:"ingress_reachable"`
+	Status                  string                    `json:"status"`
+	HTTPStatus              int                       `json:"http_status,omitempty"`
+	Error                   string                    `json:"error,omitempty"`
+	Queued                  int64                     `json:"queued"`
+	Stuck                   int64                     `json:"stuck"`
+	TaskContinuationPending int64                     `json:"task_continuation_pending"`
+	TaskFinalizationPending int64                     `json:"task_finalization_pending"`
+	CatalogPending          int64                     `json:"catalog_pending"`
+	CatalogFailed           int64                     `json:"catalog_failed"`
+	CatalogTotal            int64                     `json:"catalog_total"`
+	Checks                  []cellStatusCheckResponse `json:"checks"`
 }
 
 type cellStatusCheckResponse struct {
@@ -188,6 +190,26 @@ func (s *APIServer) addRunCellStatus(ctx context.Context, cells map[string]*cell
 		cell.Stuck = count.Count
 	}
 
+	taskContinuations, err := s.runs.CountPendingTaskContinuationsByCell(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, count := range taskContinuations {
+		cell := ensureCellStatus(cells, count.CellID, localCellID, splitDatabases)
+		cell.TaskContinuationPending = count.Count
+	}
+
+	taskFinalizations, err := s.runs.CountOrphanedTaskFinalizationCandidatesByCell(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, count := range taskFinalizations {
+		cell := ensureCellStatus(cells, count.CellID, localCellID, splitDatabases)
+		cell.TaskFinalizationPending = count.Count
+	}
+
 	return nil
 }
 
@@ -281,9 +303,9 @@ func cellIngressReadinessCheck(cell cellStatusResponse) cellStatusCheckResponse 
 
 func cellDispatchReadinessCheck(cell cellStatusResponse) cellStatusCheckResponse {
 	check := cellStatusCheckResponse{ID: "dispatch", Status: "pass"}
-	if cell.Stuck > 0 {
+	if cell.Stuck > 0 || cell.TaskContinuationPending > 0 || cell.TaskFinalizationPending > 0 {
 		check.Status = "warn"
-		check.Summary = fmt.Sprintf("%d queued runs are past the dispatch repair gap", cell.Stuck)
+		check.Summary = formatCellDispatchRepairSummary(cell)
 		return check
 	}
 
@@ -294,6 +316,35 @@ func cellDispatchReadinessCheck(cell cellStatusResponse) cellStatusCheckResponse
 
 	check.Summary = "no queued dispatch pressure"
 	return check
+}
+
+func formatCellDispatchRepairSummary(cell cellStatusResponse) string {
+	parts := []string{}
+	if cell.Stuck > 0 {
+		if cell.Stuck == 1 {
+			parts = append(parts, "1 queued run is past the dispatch repair gap")
+		} else {
+			parts = append(parts, fmt.Sprintf("%d queued runs are past the dispatch repair gap", cell.Stuck))
+		}
+	}
+
+	if cell.TaskContinuationPending > 0 {
+		if cell.TaskContinuationPending == 1 {
+			parts = append(parts, "1 task continuation is awaiting redispatch")
+		} else {
+			parts = append(parts, fmt.Sprintf("%d task continuations are awaiting redispatch", cell.TaskContinuationPending))
+		}
+	}
+
+	if cell.TaskFinalizationPending > 0 {
+		if cell.TaskFinalizationPending == 1 {
+			parts = append(parts, "1 orphaned task finalization is repairable")
+		} else {
+			parts = append(parts, fmt.Sprintf("%d orphaned task finalizations are repairable", cell.TaskFinalizationPending))
+		}
+	}
+
+	return strings.Join(parts, "; ")
 }
 
 func cellCatalogReadinessCheck(cell cellStatusResponse) cellStatusCheckResponse {

@@ -87,7 +87,7 @@ type macroBenchEnv struct {
 }
 
 type macroWorkerQueue interface {
-	TryDequeue(context.Context, *apipb.Empty) (*apipb.JobRequest, error)
+	TryDequeue(context.Context, *apipb.DequeueRequest) (*apipb.JobRequest, error)
 	Ack(context.Context, *apipb.AckRequest) (*apipb.Empty, error)
 }
 
@@ -1355,7 +1355,7 @@ func startMacroClaimAckWorkers(
 				default:
 				}
 
-				jobReq, err := env.queue.TryDequeue(ctx, &apipb.Empty{})
+				jobReq, err := env.queue.TryDequeue(ctx, &apipb.DequeueRequest{})
 				if err != nil {
 					sendMacroClaimAckResult(ctx, resultCh, macroClaimAckResult{err: fmt.Errorf("try dequeue: %w", err)})
 					return
@@ -1403,7 +1403,7 @@ func startMacroClaimAckFinalizeWorkers(
 				default:
 				}
 
-				jobReq, err := env.queue.TryDequeue(ctx, &apipb.Empty{})
+				jobReq, err := env.queue.TryDequeue(ctx, &apipb.DequeueRequest{})
 				if err != nil {
 					sendMacroClaimAckFinalizeResult(ctx, resultCh, macroClaimAckFinalizeResult{err: fmt.Errorf("try dequeue: %w", err)})
 					return
@@ -1452,7 +1452,7 @@ func startMacroCompleteWorkers(
 				default:
 				}
 
-				jobReq, err := env.queue.TryDequeue(ctx, &apipb.Empty{})
+				jobReq, err := env.queue.TryDequeue(ctx, &apipb.DequeueRequest{})
 				if err != nil {
 					sendMacroWorkerResult(ctx, resultCh, macroWorkerResult{err: fmt.Errorf("try dequeue: %w", err)})
 					return

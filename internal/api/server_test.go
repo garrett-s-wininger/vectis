@@ -368,6 +368,8 @@ func TestAPIServer_GetCellsStatusChecksConfiguredIngress(t *testing.T) {
 	runs := mocks.NewMockRunsRepository()
 	runs.CountByStatusByCellResult = []dal.RunCountByCell{{CellID: "sjc-c", Count: 4}}
 	runs.CountStuckByCell = []dal.RunCountByCell{{CellID: "sjc-c", Count: 2}}
+	runs.CountTaskContinuationByCell = []dal.RunCountByCell{{CellID: "sjc-c", Count: 3}}
+	runs.CountTaskFinalizeByCell = []dal.RunCountByCell{{CellID: "sjc-c", Count: 1}}
 
 	server := api.NewAPIServerWithRepositories(mocks.NewMockLogger(), mocks.NewMockJobsRepository(), runs, mocks.StubEphemeralRunStarter{})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/cells/status", nil)
@@ -380,19 +382,22 @@ func TestAPIServer_GetCellsStatusChecksConfiguredIngress(t *testing.T) {
 
 	var body struct {
 		Cells []struct {
-			CellID            string `json:"cell_id"`
-			Ready             bool   `json:"ready"`
-			IngressRequired   bool   `json:"ingress_required"`
-			IngressConfigured bool   `json:"ingress_configured"`
-			IngressReachable  bool   `json:"ingress_reachable"`
-			Status            string `json:"status"`
-			HTTPStatus        int    `json:"http_status"`
-			Error             string `json:"error"`
-			Queued            int64  `json:"queued"`
-			Stuck             int64  `json:"stuck"`
-			Checks            []struct {
-				ID     string `json:"id"`
-				Status string `json:"status"`
+			CellID                  string `json:"cell_id"`
+			Ready                   bool   `json:"ready"`
+			IngressRequired         bool   `json:"ingress_required"`
+			IngressConfigured       bool   `json:"ingress_configured"`
+			IngressReachable        bool   `json:"ingress_reachable"`
+			Status                  string `json:"status"`
+			HTTPStatus              int    `json:"http_status"`
+			Error                   string `json:"error"`
+			Queued                  int64  `json:"queued"`
+			Stuck                   int64  `json:"stuck"`
+			TaskContinuationPending int64  `json:"task_continuation_pending"`
+			TaskFinalizationPending int64  `json:"task_finalization_pending"`
+			Checks                  []struct {
+				ID      string `json:"id"`
+				Status  string `json:"status"`
+				Summary string `json:"summary"`
 			} `json:"checks"`
 		} `json:"cells"`
 	}
@@ -421,12 +426,18 @@ func TestAPIServer_GetCellsStatusChecksConfiguredIngress(t *testing.T) {
 		t.Fatalf("unhealthy cell checks: got %+v", body.Cells[1].Checks)
 	}
 
-	if body.Cells[2].CellID != "sjc-c" || body.Cells[2].Ready || !body.Cells[2].IngressRequired || body.Cells[2].IngressConfigured || body.Cells[2].IngressReachable || body.Cells[2].Status != "missing_route" || body.Cells[2].Queued != 4 || body.Cells[2].Stuck != 2 {
+	if body.Cells[2].CellID != "sjc-c" || body.Cells[2].Ready || !body.Cells[2].IngressRequired || body.Cells[2].IngressConfigured || body.Cells[2].IngressReachable || body.Cells[2].Status != "missing_route" || body.Cells[2].Queued != 4 || body.Cells[2].Stuck != 2 || body.Cells[2].TaskContinuationPending != 3 || body.Cells[2].TaskFinalizationPending != 1 {
 		t.Fatalf("missing route cell: got %+v", body.Cells[2])
 	}
 
 	if len(body.Cells[2].Checks) != 3 || body.Cells[2].Checks[0].Status != "fail" || body.Cells[2].Checks[1].Status != "warn" {
 		t.Fatalf("missing route cell checks: got %+v", body.Cells[2].Checks)
+	}
+
+	for _, want := range []string{"2 queued runs", "3 task continuations", "1 orphaned task finalization"} {
+		if !strings.Contains(body.Cells[2].Checks[1].Summary, want) {
+			t.Fatalf("missing route dispatch summary: got %q, want %q", body.Cells[2].Checks[1].Summary, want)
+		}
 	}
 }
 
@@ -598,6 +609,77 @@ func TestAPIServer_GetStuckRunsIncludesTaskFinalizationPending(t *testing.T) {
 
 	if len(body.TaskFinalizationCells) != 1 || body.TaskFinalizationCells[0].CellID != "pdx-b" || body.TaskFinalizationCells[0].Pending != 1 {
 		t.Fatalf("task finalization cells: %+v", body.TaskFinalizationCells)
+	}
+}
+
+func TestAPIServer_GetStuckRunsIncludesTaskContinuationPending(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-stuck-task-continuation", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-stuck-task-continuation"
+	def := `{"id":"job-stuck-task-continuation","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRunInCell(ctx, jobID, nil, 1, "pdx-b")
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	if _, _, err := repos.Runs().EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:        runID,
+		ParentTaskID: dispatch.TaskID,
+		TaskKey:      "child",
+		Name:         "child",
+		SpecHash:     "sha256:child",
+		TargetCellID: "pdx-b",
+	}); err != nil {
+		t.Fatalf("ensure child task: %v", err)
+	}
+
+	result := runfixture.FinalizeExecutionByClaim(t, ctx, repos, dispatch.ExecutionID, dal.ExecutionStatusSucceeded)
+	if result.Outcome != dal.ExecutionFinalizationOutcomeContinued {
+		t.Fatalf("expected continuation outcome, got %+v", result)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/reconciler/stuck-runs", nil)
+	rec := httptest.NewRecorder()
+	server.GetStuckRuns(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var body struct {
+		TaskContinuationPending int64 `json:"task_continuation_pending"`
+		TaskContinuationCells   []struct {
+			CellID  string `json:"cell_id"`
+			Pending int64  `json:"pending"`
+		} `json:"task_continuation_cells"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v; body=%s", err, rec.Body.String())
+	}
+
+	if body.TaskContinuationPending != 1 {
+		t.Fatalf("task continuation pending: got %d, want 1", body.TaskContinuationPending)
+	}
+
+	if len(body.TaskContinuationCells) != 1 || body.TaskContinuationCells[0].CellID != "pdx-b" || body.TaskContinuationCells[0].Pending != 1 {
+		t.Fatalf("task continuation cells: %+v", body.TaskContinuationCells)
 	}
 }
 
@@ -2217,6 +2299,83 @@ func TestAPIServer_GetRun_IncludesTaskFinalizationRepairNextAction(t *testing.T)
 	}
 
 	if got.TaskCompletion.Total != 1 || got.TaskCompletion.Succeeded != 1 || got.TaskCompletion.TerminalFailed != 0 || got.TaskCompletion.Incomplete != 0 {
+		t.Fatalf("task completion summary mismatch: %+v", got.TaskCompletion)
+	}
+}
+
+func TestAPIServer_GetRun_IncludesTaskContinuationNextAction(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
+	ctx := context.Background()
+
+	insertStoredJobForTest(t, db, "job-task-continuation-detail", `{"id":"job-task-continuation-detail","root":{"uses":"builtins/shell"}}`)
+	runID, _, err := repos.Runs().CreateRun(ctx, "job-task-continuation-detail", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	if _, _, err := repos.Runs().EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:        runID,
+		ParentTaskID: dispatch.TaskID,
+		TaskKey:      "child",
+		Name:         "child",
+		SpecHash:     "sha256:child",
+		TargetCellID: "local",
+	}); err != nil {
+		t.Fatalf("ensure child task: %v", err)
+	}
+
+	result := runfixture.FinalizeExecutionByClaim(t, ctx, repos, dispatch.ExecutionID, dal.ExecutionStatusSucceeded)
+	if result.Outcome != dal.ExecutionFinalizationOutcomeContinued {
+		t.Fatalf("expected continuation outcome, got %+v", result)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+runID, nil)
+	req.SetPathValue("id", runID)
+	rec := httptest.NewRecorder()
+	server.GetRun(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GetRun: expected status %d, got %d: %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var got struct {
+		RunID          string  `json:"run_id"`
+		Status         string  `json:"status"`
+		NextAction     *string `json:"next_action"`
+		TaskCompletion *struct {
+			Total          int `json:"total"`
+			Succeeded      int `json:"succeeded"`
+			TerminalFailed int `json:"terminal_failed"`
+			Incomplete     int `json:"incomplete"`
+		} `json:"task_completion"`
+	}
+
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode run detail: %v", err)
+	}
+
+	if got.RunID != runID {
+		t.Fatalf("run_id: got %q, want %q", got.RunID, runID)
+	}
+
+	if got.Status != dal.RunStatusQueued {
+		t.Fatalf("status: got %q, want %q", got.Status, dal.RunStatusQueued)
+	}
+
+	if got.NextAction == nil || *got.NextAction != "task_continuation_pending" {
+		t.Fatalf("next_action: got %+v, want task_continuation_pending", got.NextAction)
+	}
+
+	if got.TaskCompletion == nil {
+		t.Fatal("missing task_completion in response")
+	}
+
+	if got.TaskCompletion.Total != 2 || got.TaskCompletion.Succeeded != 1 || got.TaskCompletion.TerminalFailed != 0 || got.TaskCompletion.Incomplete != 1 {
 		t.Fatalf("task completion summary mismatch: %+v", got.TaskCompletion)
 	}
 }

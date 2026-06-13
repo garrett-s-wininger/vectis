@@ -209,50 +209,54 @@ type MockRunsRepository struct {
 	CreateRunIndex   int
 	CreateRunCreated bool
 
-	CreateRunErr               error
-	TouchDispatchedErr         error
-	ListByJobErr               error
-	ListRunTasksErr            error
-	EnsureTaskExecutionErr     error
-	ActivateTaskErr            error
-	MarkQueuedContinuationErr  error
-	TaskCompletionErr          error
-	QueuedListErr              error
-	TryClaimExecutionErr       error
-	MirrorExecutionClaimErr    error
-	RenewExecutionLeaseErr     error
-	RequestCancelErr           error
-	CancelRequestedErr         error
-	MarkRunRunningErr          error
-	MarkRunSuccessErr          error
-	MarkRunFailedErr           error
-	MarkRunCancelledErr        error
-	MarkRunAbortedErr          error
-	MarkRunOrphanedErr         error
-	RepairMarkErr              error
-	RequeueRunErr              error
-	MarkOrphanedErr            error
-	GetRunStatusErr            error
-	CountByStatusErr           error
-	CountByStatusByCellErr     error
-	CountStuckErr              error
-	CountStuckByCellErr        error
-	CountTaskFinalizeErr       error
-	CountTaskFinalizeByCellErr error
-	PendingExecutionErr        error
-	MarkExecutionErr           error
-	ExecutionFinalizationErr   error
-	ValidateExecutionClaimErr  error
-	LogShardErr                error
-	EnsureExecutionDeadlineErr error
-	ExpireQueuedExecutionsErr  error
+	CreateRunErr                  error
+	TouchDispatchedErr            error
+	ListByJobErr                  error
+	ListRunTasksErr               error
+	EnsureTaskExecutionErr        error
+	ActivateTaskErr               error
+	MarkQueuedContinuationErr     error
+	TaskCompletionErr             error
+	QueuedListErr                 error
+	TryClaimExecutionErr          error
+	MirrorExecutionClaimErr       error
+	RenewExecutionLeaseErr        error
+	RequestCancelErr              error
+	CancelRequestedErr            error
+	MarkRunRunningErr             error
+	MarkRunSuccessErr             error
+	MarkRunFailedErr              error
+	MarkRunCancelledErr           error
+	MarkRunAbortedErr             error
+	MarkRunOrphanedErr            error
+	RepairMarkErr                 error
+	RequeueRunErr                 error
+	MarkOrphanedErr               error
+	GetRunStatusErr               error
+	CountByStatusErr              error
+	CountByStatusByCellErr        error
+	CountStuckErr                 error
+	CountStuckByCellErr           error
+	CountTaskFinalizeErr          error
+	CountTaskFinalizeByCellErr    error
+	CountTaskContinuationErr      error
+	CountTaskContinuationCellsErr error
+	PendingExecutionErr           error
+	MarkExecutionErr              error
+	ExecutionFinalizationErr      error
+	ValidateExecutionClaimErr     error
+	LogShardErr                   error
+	EnsureExecutionDeadlineErr    error
+	ExpireQueuedExecutionsErr     error
 
-	CountByStatusResult       int64
-	CountByStatusByCellResult []dal.RunCountByCell
-	CountStuckResult          int64
-	CountStuckByCell          []dal.RunCountByCell
-	CountTaskFinalizeResult   int64
-	CountTaskFinalizeByCell   []dal.RunCountByCell
+	CountByStatusResult         int64
+	CountByStatusByCellResult   []dal.RunCountByCell
+	CountStuckResult            int64
+	CountStuckByCell            []dal.RunCountByCell
+	CountTaskFinalizeResult     int64
+	CountTaskFinalizeByCell     []dal.RunCountByCell
+	CountTaskContinuationResult int64
+	CountTaskContinuationByCell []dal.RunCountByCell
 
 	TryClaimExecutionResult          bool
 	TryClaimExecutionAlreadyAccepted bool
@@ -1158,6 +1162,22 @@ func (m *MockRunsRepository) CountOrphanedTaskFinalizationCandidatesByCell(ctx c
 	}
 
 	return append([]dal.RunCountByCell(nil), m.CountTaskFinalizeByCell...), nil
+}
+
+func (m *MockRunsRepository) CountPendingTaskContinuations(ctx context.Context) (int64, error) {
+	if m.CountTaskContinuationErr != nil {
+		return 0, m.CountTaskContinuationErr
+	}
+
+	return m.CountTaskContinuationResult, nil
+}
+
+func (m *MockRunsRepository) CountPendingTaskContinuationsByCell(ctx context.Context) ([]dal.RunCountByCell, error) {
+	if m.CountTaskContinuationCellsErr != nil {
+		return nil, m.CountTaskContinuationCellsErr
+	}
+
+	return append([]dal.RunCountByCell(nil), m.CountTaskContinuationByCell...), nil
 }
 
 func (m *MockRunsRepository) GetRunJobID(ctx context.Context, runID string) (string, error) {

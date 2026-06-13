@@ -101,7 +101,7 @@ For production-like deployments:
 - keep the cell queue and cell database reachable only by services in that cell
 - scrape cell ingress health and metrics from a trusted monitoring network only
 
-The global API never returns private ingress URLs from `GET /api/v1/cells/status`; it reports a per-cell `ready` summary, ingress/dispatch/catalog checks, queued/root-dispatch counts, and catalog counts only.
+The global API never returns private ingress URLs from `GET /api/v1/cells/status`; it reports a per-cell `ready` summary, ingress/dispatch/catalog checks, queued/stuck dispatch counts, task repair counts, and catalog counts only.
 
 ## Required Catalog Configuration
 
@@ -155,7 +155,7 @@ The global API also exposes a cell readiness view:
 ./bin/vectis-cli cells status
 ```
 
-This reports cell IDs, a `ready` summary, ingress route readiness, dispatch repair pressure, queued/stuck run counts, and catalog inbox counts without returning the private ingress URLs. JSON output includes `checks` entries for `ingress`, `dispatch`, and `catalog`, with `pass`, `warn`, or `fail` status values. Cells are included when they have a configured ingress route or when the global run/catalog state already references them. `vectis-cli doctor` uses the same endpoint for the `cells.ingress` check, so work targeting a cell with no route shows up as `missing_route`.
+This reports cell IDs, a `ready` summary, ingress route readiness, dispatch repair pressure, queued/stuck run counts, pending task continuation/finalization repair counts, and catalog inbox counts without returning the private ingress URLs. JSON output includes `checks` entries for `ingress`, `dispatch`, and `catalog`, with `pass`, `warn`, or `fail` status values. Cells are included when they have a configured ingress route or when the global run/catalog state already references them. `vectis-cli doctor` uses the same endpoint for the `cells.ingress` check, so work targeting a cell with no route shows up as `missing_route`.
 
 ## Running Locally
 
@@ -214,7 +214,7 @@ Before enabling multi-cell routing outside local development:
 | Cell ingress mTLS is configured for all producers and cells | API, cron, reconciler, and cell ingress agree on the CA and client/server certificate material used for execution submissions. |
 | Cell ingress can reach its local queue | Ingress durably accepts before local queue handoff, then repairs missed local queue handoff. |
 | `vectis-catalog` can read every cell DB | Global run status depends on fan-in from cell-local event inboxes. |
-| `vectis-cli doctor` is clean | The doctor checks catalog backlog, stuck runs, queue backlog, and core API reachability. |
+| `vectis-cli doctor` is clean | The doctor checks catalog backlog, stuck dispatch and task repair backlog, queue backlog, and core API reachability. |
 | Cell ingress endpoints are private | Cell ingress is an internal execution submission surface. |
 
 ## Fan-In Metrics

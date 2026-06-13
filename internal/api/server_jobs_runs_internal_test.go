@@ -11,6 +11,7 @@ func TestRunNextAction(t *testing.T) {
 		name           string
 		status         string
 		taskCompletion dal.RunTaskCompletion
+		continuation   bool
 		want           *string
 	}{
 		{
@@ -55,11 +56,22 @@ func TestRunNextAction(t *testing.T) {
 			},
 			want: stringPtr(runNextActionTaskCompletionPending),
 		},
+		{
+			name:   "waiting for task continuation redispatch",
+			status: dal.RunStatusQueued,
+			taskCompletion: dal.RunTaskCompletion{
+				Total:      2,
+				Succeeded:  1,
+				Incomplete: 1,
+			},
+			continuation: true,
+			want:         stringPtr(runNextActionTaskContinuationPending),
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := runNextAction(tt.status, tt.taskCompletion)
+			got := runNextAction(tt.status, tt.taskCompletion, tt.continuation)
 			if got == nil && tt.want == nil {
 				return
 			}

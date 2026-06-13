@@ -1783,6 +1783,69 @@ func (r *SQLRunsRepository) CountOrphanedTaskFinalizationCandidatesByCell(ctx co
 	return counts, nil
 }
 
+func (r *SQLRunsRepository) CountPendingTaskContinuations(ctx context.Context) (int64, error) {
+	var count int64
+	err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT COUNT(*)
+		FROM job_runs jr
+		JOIN run_segments rs ON rs.run_id = jr.run_id
+		JOIN segment_executions se ON se.segment_id = rs.segment_id
+		JOIN run_tasks rt ON rt.task_id = se.task_id AND rt.run_id = jr.run_id
+		JOIN task_attempts ta ON ta.attempt_id = se.task_attempt_id AND ta.task_id = rt.task_id AND ta.run_id = jr.run_id AND ta.attempt = se.attempt
+		WHERE jr.status = ?
+			AND rt.task_key <> ?
+			AND rs.status = ?
+			AND se.status = ?
+			AND rt.status = ?
+			AND ta.status = ?
+	`), RunStatusQueued, RootTaskKey, SegmentStatusPending, ExecutionStatusPending, TaskStatusPending, TaskStatusPending).Scan(&count)
+	if err != nil {
+		return 0, normalizeSQLError(err)
+	}
+
+	return count, nil
+}
+
+func (r *SQLRunsRepository) CountPendingTaskContinuationsByCell(ctx context.Context) ([]RunCountByCell, error) {
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
+		SELECT se.cell_id, COUNT(*)
+		FROM job_runs jr
+		JOIN run_segments rs ON rs.run_id = jr.run_id
+		JOIN segment_executions se ON se.segment_id = rs.segment_id
+		JOIN run_tasks rt ON rt.task_id = se.task_id AND rt.run_id = jr.run_id
+		JOIN task_attempts ta ON ta.attempt_id = se.task_attempt_id AND ta.task_id = rt.task_id AND ta.run_id = jr.run_id AND ta.attempt = se.attempt
+		WHERE jr.status = ?
+			AND rt.task_key <> ?
+			AND rs.status = ?
+			AND se.status = ?
+			AND rt.status = ?
+			AND ta.status = ?
+		GROUP BY se.cell_id
+		ORDER BY se.cell_id ASC
+	`), RunStatusQueued, RootTaskKey, SegmentStatusPending, ExecutionStatusPending, TaskStatusPending, TaskStatusPending)
+
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	var counts []RunCountByCell
+	for rows.Next() {
+		var count RunCountByCell
+		if err := rows.Scan(&count.CellID, &count.Count); err != nil {
+			return nil, normalizeSQLError(err)
+		}
+
+		counts = append(counts, count)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	return counts, nil
+}
+
 func activatePlannedChildTaskExecutionsTx(ctx context.Context, tx *sql.Tx, parentTaskID string) ([]TaskExecutionRecord, int, error) {
 	if err := ensureTaskExistsTx(ctx, tx, parentTaskID); err != nil {
 		return nil, 0, err

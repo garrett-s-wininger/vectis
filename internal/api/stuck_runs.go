@@ -13,6 +13,8 @@ type stuckRunsResponse struct {
 	Cells                   []stuckRunsCellResponse    `json:"cells,omitempty"`
 	TaskFinalizationPending int64                      `json:"task_finalization_pending"`
 	TaskFinalizationCells   []pendingCellCountResponse `json:"task_finalization_cells,omitempty"`
+	TaskContinuationPending int64                      `json:"task_continuation_pending"`
+	TaskContinuationCells   []pendingCellCountResponse `json:"task_continuation_cells,omitempty"`
 }
 
 type stuckRunsCellResponse struct {
@@ -91,11 +93,43 @@ func (s *APIServer) GetStuckRuns(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	taskContinuationPending, err := s.runs.CountPendingTaskContinuations(ctx)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("pending task continuation query failed: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	taskContinuationCounts, err := s.runs.CountPendingTaskContinuationsByCell(ctx)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("pending task continuation by cell query failed: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	taskContinuationCells := make([]pendingCellCountResponse, 0, len(taskContinuationCounts))
+	for _, count := range taskContinuationCounts {
+		taskContinuationCells = append(taskContinuationCells, pendingCellCountResponse{
+			CellID:  count.CellID,
+			Pending: count.Count,
+		})
+	}
+
 	writeJSON(w, http.StatusOK, stuckRunsResponse{
 		Stuck:                   n,
 		DispatchGapSecs:         int64(reconciler.MinDispatchGap.Seconds()),
 		Cells:                   cells,
 		TaskFinalizationPending: taskFinalizationPending,
 		TaskFinalizationCells:   taskFinalizationCells,
+		TaskContinuationPending: taskContinuationPending,
+		TaskContinuationCells:   taskContinuationCells,
 	})
 }

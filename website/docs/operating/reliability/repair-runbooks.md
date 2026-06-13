@@ -93,7 +93,7 @@ Use this when `VectisSecretsResolveFailures` fires or when `vectis_secrets_resol
 Use this when `health check` warns on `queue.backlog.ratio`, queued runs are not draining, or `VectisQueueBacklogGrowing` fires.
 
 1. Run `vectis-cli health check --strict` and note failures for `api.ready`, `queue.backlog.ratio`, and `reconciler.stuck.runs`.
-2. For a specific run, run `vectis-cli runs show <run-id>` and inspect `status` plus `dispatch_events`.
+2. For a specific run, run `vectis-cli runs show <run-id>` and inspect `status`, `next_action`, and `dispatch_events`.
 3. If there is no dispatch event, follow [Queued With No Dispatch](./dispatch-visibility.md#runbook-queued-with-no-dispatch).
 4. If dispatch failed, follow [Dispatch Failure](./dispatch-visibility.md#runbook-dispatch-failure).
 5. Confirm workers are running and receiving jobs with worker process health and `vectis_worker_jobs_received_total`.
@@ -111,7 +111,7 @@ Use this when `health check` warns on `reconciler.stuck.runs`, cannot read recon
 4. Verify the reconciler is using the same global database as the API and cron: shared `VECTIS_DATABASE_DSN`, or `VECTIS_GLOBAL_DATABASE_DSN` when global/cell databases are split.
 5. Verify queue resolution through the pinned queue address or registry path configured for the reconciler.
 6. Inspect `vectis_reconciler_reenqueue_total`, `vectis_reconciler_task_finalization_repairs_total`, and `vectis_retries_exhausted_total`.
-7. For impacted runs, use `vectis-cli runs show <run-id>` and `vectis-cli runs tasks <run-id>` to confirm whether root dispatch or orphaned task finalization is stuck.
+7. For impacted runs, use `vectis-cli runs show <run-id>` and `vectis-cli runs tasks <run-id>` to confirm whether queued dispatch, task continuation redispatch, or orphaned task finalization is stuck.
 8. If the reconciler is healthy but one urgent run remains queued, use `vectis-cli runs retry <run-id>` after confirming no worker currently owns it.
 
 ## Log Service Repair

@@ -17,20 +17,22 @@ type cellsStatusResult struct {
 }
 
 type cellStatusResult struct {
-	CellID            string                  `json:"cell_id"`
-	Ready             bool                    `json:"ready"`
-	IngressRequired   bool                    `json:"ingress_required"`
-	IngressConfigured bool                    `json:"ingress_configured"`
-	IngressReachable  bool                    `json:"ingress_reachable"`
-	Status            string                  `json:"status"`
-	HTTPStatus        int                     `json:"http_status,omitempty"`
-	Error             string                  `json:"error,omitempty"`
-	Queued            int64                   `json:"queued"`
-	Stuck             int64                   `json:"stuck"`
-	CatalogPending    int64                   `json:"catalog_pending"`
-	CatalogFailed     int64                   `json:"catalog_failed"`
-	CatalogTotal      int64                   `json:"catalog_total"`
-	Checks            []cellStatusCheckResult `json:"checks"`
+	CellID                  string                  `json:"cell_id"`
+	Ready                   bool                    `json:"ready"`
+	IngressRequired         bool                    `json:"ingress_required"`
+	IngressConfigured       bool                    `json:"ingress_configured"`
+	IngressReachable        bool                    `json:"ingress_reachable"`
+	Status                  string                  `json:"status"`
+	HTTPStatus              int                     `json:"http_status,omitempty"`
+	Error                   string                  `json:"error,omitempty"`
+	Queued                  int64                   `json:"queued"`
+	Stuck                   int64                   `json:"stuck"`
+	TaskContinuationPending int64                   `json:"task_continuation_pending"`
+	TaskFinalizationPending int64                   `json:"task_finalization_pending"`
+	CatalogPending          int64                   `json:"catalog_pending"`
+	CatalogFailed           int64                   `json:"catalog_failed"`
+	CatalogTotal            int64                   `json:"catalog_total"`
+	Checks                  []cellStatusCheckResult `json:"checks"`
 }
 
 type cellStatusCheckResult struct {
@@ -82,7 +84,7 @@ func writeCellsStatusText(w io.Writer, result cellsStatusResult) error {
 	})
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "CELL\tREADY\tROUTE\tQUEUED\tSTUCK\tCATALOG P/F/T\tCHECKS\tERROR")
+	fmt.Fprintln(tw, "CELL\tREADY\tROUTE\tQUEUED\tSTUCK\tTASK REPAIR C/F\tCATALOG P/F/T\tCHECKS\tERROR")
 	for _, cell := range result.Cells {
 		status := strings.TrimSpace(cell.Status)
 		if status == "" {
@@ -94,12 +96,14 @@ func writeCellsStatusText(w io.Writer, result cellsStatusResult) error {
 			errText = "-"
 		}
 
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\t%d/%d/%d\t%s\t%s\n",
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\t%d/%d\t%d/%d/%d\t%s\t%s\n",
 			cell.CellID,
 			readyText(cell.Ready),
 			status,
 			cell.Queued,
 			cell.Stuck,
+			cell.TaskContinuationPending,
+			cell.TaskFinalizationPending,
 			cell.CatalogPending,
 			cell.CatalogFailed,
 			cell.CatalogTotal,
@@ -144,7 +148,7 @@ func formatCellChecks(checks []cellStatusCheckResult) string {
 var cellsCmd = &cobra.Command{
 	Use:     "cells",
 	Short:   "Inspect execution cells",
-	Long:    `Inspect execution cell routing, queued run pressure, dispatch repair pressure, and catalog fan-in state.`,
+	Long:    `Inspect execution cell routing, queued run pressure, task repair pressure, and catalog fan-in state.`,
 	GroupID: cliGroupOperations,
 	Run:     showCommandHelp,
 }
@@ -152,7 +156,7 @@ var cellsCmd = &cobra.Command{
 var cellsStatusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show cell routing and catalog status",
-	Long:  `Show cell ingress route readiness, queued run counts, dispatch repair pressure, and catalog inbox counts by cell.`,
+	Long:  `Show cell ingress route readiness, queued run counts, dispatch and task repair pressure, and catalog inbox counts by cell.`,
 	Args:  cobra.NoArgs,
 	Run:   runCellsStatus,
 }

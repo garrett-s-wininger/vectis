@@ -2166,6 +2166,20 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	pendingTaskContinuation := false
+	if rec.Status == dal.RunStatusQueued && taskCompletionSummary.Total > 0 && taskCompletionSummary.Incomplete > 0 {
+		pendingTaskContinuation, err = s.runHasPendingTaskContinuation(ctx, runID)
+		if err != nil {
+			if s.handleDBUnavailableError(w, err) {
+				return
+			}
+
+			s.logger.Error("Database error: %v", err)
+			writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+			return
+		}
+	}
+
 	type dispatchEventRow struct {
 		ID        int64   `json:"id"`
 		Source    string  `json:"source"`
@@ -2226,7 +2240,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		TriggerPayloadHash:   rec.TriggerPayloadHash,
 		RequestedCells:       rec.RequestedCells,
 		ExecutionPayloadHash: rec.ExecutionPayloadHash,
-		NextAction:           runNextAction(rec.Status, taskCompletionSummary),
+		NextAction:           runNextAction(rec.Status, taskCompletionSummary, pendingTaskContinuation),
 		DispatchEvents:       []dispatchEventRow{},
 	}
 
@@ -2262,10 +2276,11 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 
 const (
 	runNextActionTaskCompletionPending         = "task_completion_pending"
+	runNextActionTaskContinuationPending       = "task_continuation_pending"
 	runNextActionTaskFinalizationRepairPending = "task_finalization_repair_pending"
 )
 
-func runNextAction(status string, taskCompletion dal.RunTaskCompletion) *string {
+func runNextAction(status string, taskCompletion dal.RunTaskCompletion, pendingTaskContinuation bool) *string {
 	if status == dal.RunStatusOrphaned && taskCompletion.Total > 0 && (taskCompletion.TerminalFailed > 0 || taskCompletion.AllSucceeded()) {
 		action := runNextActionTaskFinalizationRepairPending
 		return &action
@@ -2275,12 +2290,32 @@ func runNextAction(status string, taskCompletion dal.RunTaskCompletion) *string 
 		return nil
 	}
 
+	if pendingTaskContinuation {
+		action := runNextActionTaskContinuationPending
+		return &action
+	}
+
 	if taskCompletion.Total > 0 && taskCompletion.Incomplete > 0 {
 		action := runNextActionTaskCompletionPending
 		return &action
 	}
 
 	return nil
+}
+
+func (s *APIServer) runHasPendingTaskContinuation(ctx context.Context, runID string) (bool, error) {
+	executions, err := s.runs.ListPendingExecutions(ctx, runID)
+	if err != nil {
+		return false, err
+	}
+
+	for _, execution := range executions {
+		if strings.TrimSpace(execution.TaskKey) != "" && execution.TaskKey != dal.RootTaskKey {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 func (s *APIServer) GetRunTasks(w http.ResponseWriter, r *http.Request) {
