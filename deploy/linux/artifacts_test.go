@@ -13,11 +13,10 @@ import (
 )
 
 const (
-	commonEnvFile    = "-/etc/vectis/vectis.env"
-	migrationUnit    = "vectis-db-migrate.service"
-	networkUnit      = "network-online.target"
-	targetUnit       = "vectis.target"
-	localServiceUnit = "vectis-local.service"
+	commonEnvFile = "-/etc/vectis/vectis.env"
+	migrationUnit = "vectis-db-migrate.service"
+	networkUnit   = "network-online.target"
+	targetUnit    = "vectis.target"
 )
 
 var expectedStandaloneExecs = map[string]string{
@@ -74,15 +73,9 @@ func TestVectisTargetMembership(t *testing.T) {
 		t.Fatalf("vectis.target Wants mismatch\ngot:  %v\nwant: %v", wants, required)
 	}
 
-	if contains(wants, localServiceUnit) {
-		t.Fatalf("%s must not pull in %s; local is an alternate one-box stack", targetUnit, localServiceUnit)
-	}
-
 	after := words(values(unit, "Unit", "After")...)
-	for _, requiredAfter := range []string{networkUnit, migrationUnit} {
-		if !contains(after, requiredAfter) {
-			t.Fatalf("%s After missing %s: %v", targetUnit, requiredAfter, after)
-		}
+	if !reflect.DeepEqual(after, []string{networkUnit}) {
+		t.Fatalf("%s After = %v, want only %s", targetUnit, after, networkUnit)
 	}
 }
 
@@ -138,29 +131,6 @@ func TestMigrationUnitContract(t *testing.T) {
 	}
 }
 
-func TestLocalUnitIsStandaloneAlternative(t *testing.T) {
-	files := renderTestFiles(t)
-	unit := parseUnit(t, "systemd/"+localServiceUnit, files["systemd/"+localServiceUnit])
-
-	requireSections(t, unit, localServiceUnit, "Unit", "Service", "Install")
-	requireValue(t, unit, "Service", "Type", "simple")
-	requireValue(t, unit, "Service", "ExecStart", "/usr/bin/vectis-local")
-	requireBaseServiceContract(t, unit)
-	requireValue(t, unit, "Service", "Restart", "on-failure")
-	requireValue(t, unit, "Service", "CacheDirectory", "vectis")
-	requireValue(t, unit, "Install", "WantedBy", "multi-user.target")
-	requireEnvFiles(t, unit, localServiceUnit, false)
-	requireNoInlineEnvironment(t, unit, localServiceUnit)
-
-	if values(unit, "Unit", "PartOf") != nil {
-		t.Fatalf("%s should not be PartOf %s", localServiceUnit, targetUnit)
-	}
-
-	if contains(words(values(unit, "Unit", "Requires")...), migrationUnit) {
-		t.Fatalf("%s should let vectis-local manage its own migrations", localServiceUnit)
-	}
-}
-
 func TestEnvExamples(t *testing.T) {
 	files := renderTestFiles(t)
 	common := parseEnvExample(t, "env/vectis.env.example", files["env/vectis.env.example"])
@@ -184,11 +154,6 @@ func TestEnvExamples(t *testing.T) {
 
 	if common["VECTIS_DATABASE_DRIVER"] != "pgx" {
 		t.Fatalf("common env should be Postgres-first, got driver %q", common["VECTIS_DATABASE_DRIVER"])
-	}
-
-	local := parseEnvExample(t, "env/vectis-local.env.example", files["env/vectis-local.env.example"])
-	if local["VECTIS_LOCAL_PROFILE"] == "" {
-		t.Fatalf("local env example must set VECTIS_LOCAL_PROFILE")
 	}
 
 	for path, content := range files {

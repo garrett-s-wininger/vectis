@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 )
 
@@ -26,7 +25,7 @@ func TestRunVMSmokeVerifyUsesStructuredGuestCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if result.Status != "verified" || result.Provider != "recording" || result.Profile != VMSmokeProfileUnits || result.GuestCleaned {
+	if result.Status != "verified" || result.Provider != "recording" || result.GuestCleaned {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 
@@ -39,7 +38,7 @@ func TestRunVMSmokeVerifyUsesStructuredGuestCommands(t *testing.T) {
 	}
 
 	if _, err := os.Stat(filepath.Join(out, filepath.FromSlash(vmSmokeBinDir), "vectis-cli")); err != nil {
-		t.Fatalf("expected local smoke stub: %v", err)
+		t.Fatalf("expected smoke stub: %v", err)
 	}
 
 	for _, command := range manager.shellCommands {
@@ -74,7 +73,6 @@ func TestRunVMSmokeVerifyUsesStructuredGuestCommands(t *testing.T) {
 		"/etc/systemd/system/vectis-cron.service",
 		"/etc/systemd/system/vectis-db-migrate.service",
 		"/etc/systemd/system/vectis-docs.service",
-		"/etc/systemd/system/vectis-local.service",
 		"/etc/systemd/system/vectis-log-forwarder.service",
 		"/etc/systemd/system/vectis-log.service",
 		"/etc/systemd/system/vectis-queue.service",
@@ -83,101 +81,13 @@ func TestRunVMSmokeVerifyUsesStructuredGuestCommands(t *testing.T) {
 		"/etc/systemd/system/vectis-worker.service",
 		"/etc/systemd/system/vectis.target",
 	})
-}
 
-func TestPrepareVMSmokeGuestArtifactsLocalProfileRequiresBinaryDir(t *testing.T) {
-	_, err := prepareVMSmokeGuestArtifacts(VMSmokeOptions{
-		Profile:     VMSmokeProfileLocal,
-		ArtifactDir: t.TempDir(),
-	}, []string{"vectis-local"})
-	if err == nil {
-		t.Fatal("expected missing binary directory error")
-	}
-
-	if !strings.Contains(err.Error(), "--binary-dir") {
-		t.Fatalf("error = %v, want --binary-dir guidance", err)
-	}
-}
-
-func TestRunVMSmokeVerifyLocalProfileInstallsRealBinaryWrappers(t *testing.T) {
-	manager := &recordingVMManager{exists: true}
-	out := t.TempDir()
-	binaryDir := t.TempDir()
-
-	for _, binary := range vmSmokeLocalRequiredBinaries() {
-		writeFakeVMSmokeBinary(t, binaryDir, binary)
-	}
-
-	result, err := RunVMSmokeVerify(context.Background(), VMSmokeOptions{
-		Manager:       manager,
-		Instance:      "smoke-vm",
-		Profile:       VMSmokeProfileLocal,
-		BinaryDir:     binaryDir,
-		ArtifactDir:   out,
-		KeepArtifacts: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if result.Status != "verified" || result.Profile != VMSmokeProfileLocal || result.GuestCleaned {
-		t.Fatalf("unexpected result: %+v", result)
-	}
-
-	wrapper, err := os.ReadFile(filepath.Join(out, filepath.FromSlash(vmSmokeBinDir), "vectis-local"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if !strings.Contains(string(wrapper), vmSmokeMarker) || !strings.Contains(string(wrapper), vmSmokeGuestRealBinDir+"/vectis-local") {
-		t.Fatalf("local wrapper did not point at real smoke binary:\n%s", wrapper)
-	}
-
-	realBinary, err := os.ReadFile(filepath.Join(out, filepath.FromSlash(vmSmokeRealBinDir), "vectis-local"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if !strings.Contains(string(realBinary), "fake vectis-local") {
-		t.Fatalf("real binary copy = %q", realBinary)
-	}
-
-	stub, err := os.ReadFile(filepath.Join(out, filepath.FromSlash(vmSmokeBinDir), "vectis-cli"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if !strings.Contains(string(stub), vmSmokeMarker) || !strings.Contains(string(stub), "exit 0") {
-		t.Fatalf("manifest-only binary should remain a smoke stub:\n%s", stub)
-	}
-
-	requireRecordedCommand(t, manager, []string{
-		"sudo", "install", "-D", "-m", "0755", "-o", "root", "-g", "root",
-		vmSmokeRemoteArtifactDir + "/smoke/real-bin/vectis-local",
-		vmSmokeGuestRealBinDir + "/vectis-local",
-	})
-
-	requireRecordedCommand(t, manager, []string{
-		"sudo", "install", "-D", "-m", "0755", "-o", "root", "-g", "root",
-		vmSmokeRemoteArtifactDir + "/smoke/bin/vectis-local",
-		"/usr/bin/vectis-local",
-	})
-
-	requireRecordedCommand(t, manager, []string{
-		"sudo", "install", "-D", "-m", "0640", "-o", "root", "-g", "vectis",
-		vmSmokeRemoteArtifactDir + "/env/vectis-local.env.example",
-		"/etc/vectis/vectis-local.env",
-	})
-
-	requireRecordedCommand(t, manager, []string{"curl", "--version"})
-	requireRecordedCommand(t, manager, []string{"sudo", "systemctl", "start", "vectis-local.service"})
-	requireRecordedCommand(t, manager, []string{"sudo", "systemctl", "is-active", "--quiet", "vectis-local.service"})
-	requireRecordedCommand(t, manager, []string{"curl", "-fsS", vmSmokeLocalHealthURL})
-	requireNoRecordedCommand(t, manager, []string{"sudo", "systemctl", "start", "vectis-db-migrate.service"})
+	requireRecordedCommand(t, manager, []string{"sudo", "systemctl", "start", "vectis.target"})
+	requireRecordedCommand(t, manager, []string{"sudo", "systemctl", "is-active", "--quiet", "vectis.target"})
 }
 
 func TestRunVMSmokeVerifyCleansGuestAfterFailure(t *testing.T) {
-	failCommand := []string{"sudo", "systemctl", "start", "vectis-db-migrate.service"}
+	failCommand := []string{"sudo", "systemctl", "start", "vectis.target"}
 	manager := &recordingVMManager{exists: true, failCommand: failCommand}
 
 	_, err := RunVMSmokeVerify(context.Background(), VMSmokeOptions{
@@ -196,15 +106,6 @@ func TestRunVMSmokeVerifyCleansGuestAfterFailure(t *testing.T) {
 		"/etc/systemd/system/vectis-api.service",
 		"/etc/vectis/vectis.env",
 	)
-}
-
-func writeFakeVMSmokeBinary(t *testing.T, dir, name string) {
-	t.Helper()
-	path := filepath.Join(dir, name)
-	content := []byte("#!/bin/sh\necho fake " + name + "\n")
-	if err := os.WriteFile(path, content, 0o755); err != nil {
-		t.Fatal(err)
-	}
 }
 
 type recordingVMManager struct {
@@ -275,15 +176,6 @@ func requireRecordedCommand(t *testing.T, manager *recordingVMManager, want []st
 	}
 
 	t.Fatalf("missing guest command %v", want)
-}
-
-func requireNoRecordedCommand(t *testing.T, manager *recordingVMManager, want []string) {
-	t.Helper()
-	for _, got := range manager.shellCommands {
-		if reflect.DeepEqual(got, want) {
-			t.Fatalf("unexpected guest command %v", want)
-		}
-	}
 }
 
 func requireRecordedCommandContaining(t *testing.T, manager *recordingVMManager, prefix []string, requiredArgs ...string) {

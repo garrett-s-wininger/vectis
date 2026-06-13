@@ -319,10 +319,6 @@ func (m Manifest) renderTarget() string {
 		}
 	}
 
-	if m.Defaults.MigrationUnit != "" {
-		after = append(after, m.Defaults.MigrationUnit)
-	}
-
 	return renderSections([]section{
 		{
 			Name: "Unit",

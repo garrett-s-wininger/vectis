@@ -9,8 +9,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -20,25 +18,8 @@ import (
 
 const (
 	defaultDeployLinuxProvider = "auto"
-	defaultDeployLinuxProfile  = linuxdeploy.VMSmokeProfileUnits
 	defaultDeployLinuxTimeout  = 10 * time.Minute
 )
-
-var deployLinuxLocalRequiredBinaries = []string{
-	"vectis-api",
-	"vectis-artifact",
-	"vectis-catalog",
-	"vectis-cell-ingress",
-	"vectis-cron",
-	"vectis-local",
-	"vectis-log",
-	"vectis-orchestrator",
-	"vectis-queue",
-	"vectis-reconciler",
-	"vectis-registry",
-	"vectis-worker",
-	"vectis-worker-core",
-}
 
 type commandResult struct {
 	stdout string
@@ -51,14 +32,9 @@ func TestE2ELinuxDeploySmoke(t *testing.T) {
 	providerPath := strings.TrimSpace(os.Getenv("VECTIS_E2E_DEPLOY_LINUX_PROVIDER_PATH"))
 	instance := strings.TrimSpace(os.Getenv("VECTIS_E2E_DEPLOY_LINUX_INSTANCE"))
 	template := strings.TrimSpace(os.Getenv("VECTIS_E2E_DEPLOY_LINUX_TEMPLATE"))
-	profile := strings.ToLower(envOrDefault("VECTIS_E2E_DEPLOY_LINUX_PROFILE", defaultDeployLinuxProfile))
-	binaryDir := strings.TrimSpace(os.Getenv("VECTIS_E2E_DEPLOY_LINUX_BINARY_DIR"))
 	timeout := deployLinuxTimeout(t)
 
 	requireDeployLinuxProvider(t, ctx, provider, providerPath)
-	if profile == linuxdeploy.VMSmokeProfileLocal {
-		requireDeployLinuxBinaryDir(t, binaryDir)
-	}
 
 	var stdout, stderr bytes.Buffer
 	opts := linuxdeploy.VMSmokeOptions{
@@ -66,8 +42,6 @@ func TestE2ELinuxDeploySmoke(t *testing.T) {
 		ProviderPath:  providerPath,
 		Instance:      instance,
 		Template:      template,
-		Profile:       profile,
-		BinaryDir:     binaryDir,
 		KeepArtifacts: truthyEnv("VECTIS_E2E_KEEP_DEPLOY_LINUX"),
 		Stdout:        &stdout,
 		Stderr:        &stderr,
@@ -96,9 +70,6 @@ func TestE2ELinuxDeploySmoke(t *testing.T) {
 
 	if result.Status != "verified" {
 		t.Fatalf("deploy linux status = %q, want verified\nstdout:\n%s\nstderr:\n%s", result.Status, stdout.String(), stderr.String())
-	}
-	if result.Profile != profile {
-		t.Fatalf("deploy linux profile = %q, want %q", result.Profile, profile)
 	}
 	if strings.TrimSpace(result.Provider) == "" {
 		t.Fatalf("deploy linux output missing provider: %+v", result)
@@ -132,18 +103,6 @@ func requireDeployLinuxProvider(t *testing.T, ctx context.Context, provider, pro
 	}
 }
 
-func requireDeployLinuxBinaryDir(t *testing.T, binaryDir string) {
-	t.Helper()
-
-	if binaryDir == "" {
-		skipOrFatal(t, "VECTIS_E2E_DEPLOY_LINUX_PROFILE=local requires VECTIS_E2E_DEPLOY_LINUX_BINARY_DIR")
-	}
-
-	for _, binary := range deployLinuxLocalRequiredBinaries {
-		requireExecutable(t, filepath.Join(binaryDir, binary), binary)
-	}
-}
-
 func deployLinuxTimeout(t *testing.T) time.Duration {
 	t.Helper()
 
@@ -158,23 +117,6 @@ func deployLinuxTimeout(t *testing.T) time.Duration {
 	}
 
 	return timeout
-}
-
-func requireExecutable(t *testing.T, path, label string) {
-	t.Helper()
-
-	info, err := os.Stat(path)
-	if err != nil {
-		skipOrFatal(t, "%s executable %s is not available", label, path)
-	}
-
-	if info.IsDir() {
-		skipOrFatal(t, "%s path %s is a directory", label, path)
-	}
-
-	if runtime.GOOS != "windows" && info.Mode()&0o111 == 0 {
-		skipOrFatal(t, "%s binary %s is not executable", label, path)
-	}
 }
 
 func requireCommand(t *testing.T, name string) {

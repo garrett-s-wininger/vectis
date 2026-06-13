@@ -262,25 +262,3 @@ common_env = true
 VECTIS_DOCS_HOST = "0.0.0.0"
 VECTIS_DOCS_PORT = "8088"
 VECTIS_DOCS_LOG_LEVEL = "info"
-
-[[unit]]
-id = "local"
-description = "Vectis local one-box service stack"
-target_member = false
-common_env = false
-install_wanted_by = "multi-user.target"
-timeout_stop_sec = "90s"
-cache_directory = "vectis"
-
-[unit.env_example]
-XDG_DATA_HOME = "/var/lib"
-XDG_CACHE_HOME = "/var/cache"
-XDG_CONFIG_HOME = "/etc"
-XDG_RUNTIME_DIR = "/run"
-VECTIS_LOCAL_HOST = "0.0.0.0"
-VECTIS_LOCAL_PROFILE = "simple"
-VECTIS_LOCAL_DOCS_ENABLED = "true"
-VECTIS_LOCAL_DOCS_PORT = "8088"
-VECTIS_LOCAL_GRPC_INSECURE = "false"
-VECTIS_LOG_FORMAT = "json"
-VECTIS_LOG_DIR = "/var/log/vectis/components"

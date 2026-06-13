@@ -24,8 +24,9 @@ artifact kind.
 The standalone units are Postgres-first. Set `VECTIS_DATABASE_DRIVER=pgx` and a
 real PostgreSQL DSN after copying the rendered `env/vectis.env.example` to
 `/etc/vectis/vectis.env`.
-`vectis-local.service` is the one-box path; it runs `vectis-local`, which manages
-its local SQLite databases and child services itself.
+The rendered artifact contract describes the standalone multi-service stack.
+Packaging may later add a `vectis-local` convenience unit, but that belongs to
+DEB/RPM packaging rather than this TOML-driven service inventory.
 
 ## Ownership Boundary
 
@@ -42,8 +43,7 @@ settings.
 Config management owns host-specific reality: installing packages or binaries,
 writing `/etc/vectis/*.env`, placing secrets and TLS material, choosing Postgres
 DSNs, assigning cells, configuring registry/queue/log addresses, opening
-firewalls, enabling units, and deciding whether a host runs the standalone stack
-or the one-box `vectis-local.service`.
+firewalls, enabling units, and deciding which standalone services run on a host.
 
 The rendered `env/*.example` files are examples, not production configuration.
 They are generated so Ansible, future packages, and manual installs share the
@@ -87,28 +87,12 @@ temporary Vectis stub binaries, and runs `systemd-analyze verify`,
 `systemd-sysusers`, `systemd-tmpfiles`, and `systemctl daemon-reload`. The file
 installation step is driven by the rendered `install/manifest.tsv`.
 
-On success, the e2e harness removes the smoke artifacts from the guest and
+The harness installs marker-bearing stubs under `/usr/bin`, so cleanup can
+remove smoke files without claiming ownership of existing host binaries. It
+starts `vectis.target`, letting individual units enforce their own
+`Wants`/`After`/`Requires` ordering while the target aggregates the standalone
+stack. On success, the e2e harness removes the smoke artifacts from the guest and
 deletes the temporary local render directory.
-
-The default `units` profile verifies that the generated files are accepted by a
-real Linux systemd host without needing Linux-built Vectis binaries.
-
-The `local` profile starts `vectis-local.service` with real Linux binaries and a
-smoke-owned local configuration: simple profile, docs disabled, plaintext
-internal gRPC, HTTP API, and SQLite under the guest's Vectis data directory.
-Provide a directory containing Linux `vectis-*` binaries:
-
-```sh
-VECTIS_E2E_DEPLOY_LINUX_PROFILE=local VECTIS_E2E_DEPLOY_LINUX_BINARY_DIR=/path/to/linux/bin make test-e2e-deploy-linux
-```
-
-The harness installs marker-bearing wrappers under `/usr/bin` and stores the
-real binaries under `/opt/vectis-smoke/bin`, so cleanup can remove smoke files
-without claiming ownership of existing host binaries. The local profile requires
-the binaries that `vectis-local` supervises; generated standalone units that are
-not part of the local runtime may still use smoke stubs for
-`systemd-analyze verify`. The guest must have `curl` available for the API
-liveness check.
 
 The e2e target stops the deploy VM after the test unless
 `VECTIS_E2E_KEEP_DEPLOY_LINUX=true` is set.
@@ -128,8 +112,4 @@ Package scripts or config management should eventually own this, but the intende
 5. Copy rendered `env/*.example` to `/etc/vectis/*.env` and adjust secrets, DSNs, TLS,
    ports, and auth settings.
 6. Run `systemctl daemon-reload`.
-7. Start the standalone stack with `systemctl start vectis.target`, or start the
-   one-box stack with `systemctl start vectis-local.service`.
-
-Do not enable both `vectis.target` and `vectis-local.service` on the same host
-unless you have deliberately changed ports and paths to avoid overlap.
+7. Start the standalone stack with `systemctl start vectis.target`.
