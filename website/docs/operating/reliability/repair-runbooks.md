@@ -124,7 +124,7 @@ Use this when `health check` warns on `reconciler.stuck.runs`, cannot read recon
 
 Use this when `health check` warns on `log.reachable`, log append failures increase, or log streaming fails.
 
-1. Run `vectis-cli health check --json` and inspect the `log.reachable` evidence.
+1. Run `vectis-cli health check --format json` and inspect the `log.reachable` evidence.
 2. Confirm `vectis-log` gRPC health is serving.
 3. Confirm the log storage directory is mounted, writable, and has free space.
 4. Verify API and worker log client resolution: pinned log address or registry registration.
@@ -148,7 +148,7 @@ Use this when `health check` warns on `audit.drops.recent` or `audit.flush.failu
 
 Use this when `health check` warns on `db.connection.pool` or the DB pool alert fires.
 
-1. Run `vectis-cli health check --json` and record `db.connection.pool` evidence.
+1. Run `vectis-cli health check --format json` and record `db.connection.pool` evidence.
 2. Check whether API, cron, reconciler, workers, or other DB-using processes recently scaled up.
 3. Check database availability, slow queries, locks, and server-side connection limits.
 4. Review Vectis pool settings; see [Configuration](../configuration.md#postgresql-connection-pool-pgx-only).

@@ -155,7 +155,7 @@ The global API also exposes a cell readiness view:
 ./bin/vectis-cli cells status
 ```
 
-This reports cell IDs, a `ready` summary, ingress route readiness, dispatch repair pressure, queued/stuck run counts, pending task continuation/finalization repair counts, and catalog inbox counts without returning the private ingress URLs. JSON output includes `checks` entries for `ingress`, `dispatch`, and `catalog`, with `pass`, `warn`, or `fail` status values. Cells are included when they have a configured ingress route or when the global run/catalog state already references them. `vectis-cli doctor` uses the same endpoint for the `cells.ingress` check, so work targeting a cell with no route shows up as `missing_route`.
+This reports cell IDs, a `ready` summary, ingress route readiness, dispatch repair pressure, queued/stuck run counts, pending task continuation/finalization repair counts, and catalog inbox counts without returning the private ingress URLs. Use `--format json` when automation needs the raw response. JSON output includes `checks` entries for `ingress`, `dispatch`, and `catalog`, with `pass`, `warn`, or `fail` status values. Cells are included when they have a configured ingress route or when the global run/catalog state already references them. `vectis-cli health check` uses the same endpoint for the `cells.ingress` check, so work targeting a cell with no route shows up as `missing_route`.
 
 ## Running Locally
 
@@ -214,7 +214,7 @@ Before enabling multi-cell routing outside local development:
 | Cell ingress mTLS is configured for all producers and cells | API, cron, reconciler, and cell ingress agree on the CA and client/server certificate material used for execution submissions. |
 | Cell ingress can reach its local queue | Ingress durably accepts before local queue handoff, then repairs missed local queue handoff. |
 | `vectis-catalog` can read every cell DB | Global run status depends on fan-in from cell-local event inboxes. |
-| `vectis-cli doctor` is clean | The doctor checks catalog backlog, stuck dispatch and task repair backlog, cron schedule backlog, queue backlog, and core API reachability. |
+| `vectis-cli health check` is clean | The health check covers catalog backlog, stuck dispatch and task repair backlog, cron schedule backlog, queue backlog, and core API reachability. |
 | Cell ingress endpoints are private | Cell ingress is an internal execution submission surface. |
 
 ## Fan-In Metrics
@@ -229,7 +229,7 @@ Scrape `vectis-catalog` metrics to see which cell sources are contributing event
 
 Persistent reads without applied global catalog progress point to the global inbox processor. Persistent backfill for one cell points to missed catalog event writes or local cell DB pressure. Repeated zero activity for a cell that should be running work usually means `vectis-catalog` cannot see that cell database or the cell has not emitted events.
 
-`GET /api/v1/catalog/status` and `vectis-cli doctor` include per-source-cell inbox counts when the global inbox contains events. Use those counts to find the cell responsible for pending or failed catalog events before digging into `vectis-catalog` logs or cell-local DB pressure.
+`GET /api/v1/catalog/status` and `vectis-cli health check` include per-source-cell inbox counts when the global inbox contains events. Use those counts to find the cell responsible for pending or failed catalog events before digging into `vectis-catalog` logs or cell-local DB pressure.
 
 ## Current Limits
 

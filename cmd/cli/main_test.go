@@ -4948,6 +4948,60 @@ func TestDoctor_jsonOutput(t *testing.T) {
 	}
 }
 
+func TestDoctor_jsonOutputFromGlobalFormat(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health/live", "/health/ready":
+			w.WriteHeader(http.StatusOK)
+		case "/api/v1/setup/status":
+			_ = json.NewEncoder(w).Encode(map[string]bool{"setup_complete": true, "auth_enabled": true})
+		case "/api/v1/schema/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"current_version": 5, "has_schema": true})
+		case "/api/v1/reconciler/heartbeat":
+			_ = json.NewEncoder(w).Encode(map[string]any{"active": true, "last_activity_unix": 1715000000})
+		case "/api/v1/audit/drops":
+			_ = json.NewEncoder(w).Encode(map[string]any{"dropped": 0})
+		case "/api/v1/db/pool-stats":
+			_ = json.NewEncoder(w).Encode(map[string]any{"open_connections": 3, "in_use": 1, "wait_count": 0})
+		case "/api/v1/queue/backlog":
+			_ = json.NewEncoder(w).Encode(map[string]any{"queued": 0})
+		case "/api/v1/reconciler/stuck-runs":
+			_ = json.NewEncoder(w).Encode(map[string]any{"stuck": 0})
+		case "/api/v1/cells/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"cells": []map[string]any{}})
+		case "/api/v1/log/reachable":
+			_ = json.NewEncoder(w).Encode(map[string]any{"reachable": true, "state": "READY"})
+		case "/api/v1/audit/flush-failures":
+			_ = json.NewEncoder(w).Encode(map[string]any{"flush_failures": 0})
+		case "/api/v1/catalog/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"pending": 0, "applied": 4, "failed": 0, "total": 4})
+		case "/api/v1/source/status", "/api/v1/namespaces", "/api/v1/source-repositories", "/api/v1/source-repositories/vectis/schedules":
+			writeHealthyDoctorSourceResponse(w, r)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	t.Setenv("VECTIS_API_TOKEN", "test-token")
+	withOutputFormat(t, outputJSON)
+	doctorJSON = false
+	t.Cleanup(func() { doctorJSON = false })
+
+	var buf bytes.Buffer
+	if err := doctor(&buf); err != nil {
+		t.Fatal(err)
+	}
+
+	var report doctorReport
+	if err := json.Unmarshal(buf.Bytes(), &report); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
+	}
+
+	if report.Status != doctorOK || report.Passed != 23 || len(report.Checks) != 23 {
+		t.Fatalf("unexpected report summary: %+v", report)
+	}
+}
+
 func TestDoctor_jsonOutputStillFailsOnFailedCheck(t *testing.T) {
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

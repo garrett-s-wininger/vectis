@@ -12,7 +12,7 @@ For upgrade procedure, see [Releases And Upgrades](../developing/releases.md). F
 | --- | --- | --- |
 | REST API v1 | Method, path, auth action, success status, response meaning, and documented error `code` meanings stay stable unless release notes say otherwise. | New routes, new response fields, and more specific error codes. |
 | Idempotency | Documented `Idempotency-Key` routes keep their retry and conflict behavior. | More mutating routes may gain idempotency support. |
-| CLI automation | Exit code semantics and `--json` field compatibility are stronger contracts than human-readable tables. | New commands, new flags, new JSON fields, and improved human-readable output. |
+| CLI automation | Exit code semantics and JSON output field compatibility are stronger contracts than human-readable tables. | New commands, new flags, new JSON fields, and improved human-readable output. |
 | Configuration | Documented env vars, flags, config keys, service env prefixes, and default meanings do not disappear silently. | New optional settings and new deploy examples. |
 | Protobuf/gRPC | Existing field tag meanings, RPC names, and request/response semantics remain compatible. | New fields, enum values, services, and RPCs when old callers remain compatible. |
 | Database schema | Release notes explain upgrade order, rollback options, and version skew when schema changes matter. | Expand/contract schema changes, new tables, columns, indexes, and metadata. |
@@ -65,10 +65,10 @@ Machine-readable output is a stronger contract:
 | --- | --- |
 | Exit code `0` | The requested operation completed successfully. |
 | Non-zero exit | The requested operation did not complete successfully. |
-| `--json` fields | Existing field names and compatible field types should remain stable. |
+| JSON fields | Existing field names and compatible field types should remain stable. |
 | New JSON fields | Compatible; scripts should ignore fields they do not need. |
 
-Scripts should prefer `--json` where available and avoid parsing human-readable tables.
+Scripts should prefer `--format json` where available and avoid parsing human-readable tables. Command-specific legacy flags such as `--json` remain compatibility aliases when documented.
 
 ## Configuration
 
@@ -141,7 +141,7 @@ Treat these as breaking unless release notes explicitly say the surface was expe
 - Removing an existing JSON field or changing its type.
 - Changing a stable error `code` meaning.
 - Removing idempotency support or changing replay semantics for a documented idempotent route.
-- Removing a CLI `--json` field or changing its type.
+- Removing a CLI JSON output field or changing its type.
 - Renaming an env var, flag, config key, or service env prefix.
 - Changing defaults in a way that can alter production behavior.
 - Requiring a coordinated service stop where rolling upgrade was previously safe.

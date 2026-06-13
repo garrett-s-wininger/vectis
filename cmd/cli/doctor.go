@@ -67,7 +67,6 @@ const (
 
 func runDoctor(cmd *cobra.Command, args []string) {
 	doctorJSON, _ = cmd.Flags().GetBool("json")
-	doctorJSON = doctorJSON || outputIsJSON()
 	doctorStrict, _ = cmd.Flags().GetBool("strict")
 
 	runCLIError(doctor(os.Stdout))
@@ -101,7 +100,7 @@ func doctor(w io.Writer) error {
 		doctorFilesystemPressure("artifact.storage.filesystem", "Artifact storage filesystem", "artifact storage", envOrDefault("VECTIS_ARTIFACT_STORAGE_DIR", defaultDoctorArtifactStorageDir())),
 	)
 
-	if doctorJSON {
+	if doctorJSON || outputIsJSON() {
 		return writeDoctorJSON(w, checks)
 	}
 
@@ -1859,7 +1858,7 @@ func validateTLSKeyPair(label, certFile, keyFile string) error {
 func doctorFilesystemPressure(id, title, label, path string) doctorCheck {
 	doc := "website/docs/operating/reference/health-check-catalog.md"
 	if path == "" {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%s path is not configured", label), SuggestedAction: "Configure the deploy path or run doctor on the host that owns it", DocLink: doc}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%s path is not configured", label), SuggestedAction: "Configure the deploy path or run vectis-cli health check on the host that owns it", DocLink: doc}
 	}
 
 	statPath, exists, err := existingPathForStat(path)
@@ -1875,7 +1874,7 @@ func doctorFilesystemPressure(id, title, label, path string) doctorCheck {
 
 	stats, err := filesystemStats(statPath)
 	if err != nil {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("cannot inspect filesystem for %s: %v", label, err), Evidence: statPath, SuggestedAction: "Run doctor on the host that owns the path", DocLink: doc}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("cannot inspect filesystem for %s: %v", label, err), Evidence: statPath, SuggestedAction: "Run vectis-cli health check on the host that owns the path", DocLink: doc}
 	}
 
 	evidence := fmt.Sprintf("path=%s stat_path=%s free_bytes=%d free_percent=%d free_inodes=%d", path, statPath, stats.freeBytes, stats.freePercent, stats.freeInodes)
@@ -1953,7 +1952,7 @@ func directoryUsable(path string) error {
 		return fmt.Errorf("not a directory")
 	}
 
-	probe, err := os.CreateTemp(path, ".vectis-doctor-*")
+	probe, err := os.CreateTemp(path, ".vectis-health-check-*")
 	if err != nil {
 		return err
 	}

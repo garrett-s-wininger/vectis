@@ -217,7 +217,7 @@ Do not treat a larger worker count as a win unless queue depth drains, DB pool p
 | Reconciler | Re-enqueue attempts, failures, and repeated repair for the same runs. |
 | Users | CLI/API responsiveness and whether operators can still inspect runs and logs during load. |
 
-Use `vectis-cli health check --json` when you want to capture health evidence alongside Prometheus or dashboard snapshots.
+Use `vectis-cli health check --format json` when you want to capture health evidence alongside Prometheus or dashboard snapshots.
 
 ## Stop Conditions
 

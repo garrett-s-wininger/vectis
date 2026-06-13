@@ -15,7 +15,7 @@ vectis-cli health check --strict
 Use JSON when you need evidence, documentation links, or automation-friendly output:
 
 ```sh
-vectis-cli health check --json
+vectis-cli health check --format json
 ```
 
 For a specific run, start with:

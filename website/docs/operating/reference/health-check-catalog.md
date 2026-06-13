@@ -4,7 +4,7 @@
 
 Use the default text output for humans during triage. It prints an overall result, groups checks by subsystem, and shows each check as `OK`, `WARN`, or `FAIL`.
 
-Use `--json` for automation. JSON includes the stable check ID, title, status, severity, summary, evidence when available, suggested action when available, and documentation link when available.
+Use `--format json` for automation. JSON includes summary counts and the full list of checks. Each check includes the stable check ID, title, status, severity, summary, evidence when available, suggested action when available, and documentation link when available. The legacy `--json` flag emits the same shape for compatibility.
 
 Failed checks always exit non-zero. With `--strict`, warnings also exit non-zero.
 
@@ -29,19 +29,25 @@ Core
   OK    API readiness                  API readiness probe passed
 ```
 
-JSON output is an array of check objects:
+JSON output is a report object with summary counts and a `checks` array:
 
 ```json
-[
-  {
-    "id": "api.live",
-    "title": "API liveness",
-    "status": "pass",
-    "severity": "critical",
-    "summary": "API liveness probe passed",
-    "doc": "website/docs/operating/reliability/runbooks.md"
-  }
-]
+{
+  "status": "pass",
+  "passed": 23,
+  "warnings": 0,
+  "failed": 0,
+  "checks": [
+    {
+      "id": "api.live",
+      "title": "API liveness",
+      "status": "pass",
+      "severity": "critical",
+      "summary": "API liveness probe passed",
+      "doc": "website/docs/operating/reliability/runbooks.md"
+    }
+  ]
+}
 ```
 
 Treat `id`, `status`, and `severity` as the fields most suitable for automation. Treat `summary`, `evidence`, `action`, and `doc` as operator-facing context.
