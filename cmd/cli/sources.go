@@ -121,6 +121,7 @@ type sourceRepositoryBranchesResult struct {
 	RepositoryID string                          `json:"repository_id"`
 	Prefix       string                          `json:"prefix,omitempty"`
 	Limit        int                             `json:"limit"`
+	Truncated    bool                            `json:"truncated"`
 	Branches     []sourceRepositoryBranchSummary `json:"branches"`
 }
 
@@ -140,6 +141,7 @@ type sourceRepositoryTreeResult struct {
 	Path           string                      `json:"path,omitempty"`
 	Recursive      bool                        `json:"recursive"`
 	Limit          int                         `json:"limit"`
+	Truncated      bool                        `json:"truncated"`
 	Entries        []sourceRepositoryTreeEntry `json:"entries"`
 }
 
@@ -156,6 +158,7 @@ type sourceRepositoryDefinitionsResult struct {
 	ResolvedCommit string                           `json:"resolved_commit"`
 	Path           string                           `json:"path"`
 	Limit          int                              `json:"limit"`
+	Truncated      bool                             `json:"truncated"`
 	Definitions    []sourceRepositoryDefinitionFile `json:"definitions"`
 }
 
@@ -205,6 +208,7 @@ type importedSourceDefinitionsResult struct {
 	ResolvedCommit string                           `json:"resolved_commit"`
 	Path           string                           `json:"path"`
 	Limit          int                              `json:"limit"`
+	Truncated      bool                             `json:"truncated"`
 	DryRun         bool                             `json:"dry_run"`
 	UpdateExisting bool                             `json:"update_existing"`
 	Summary        importedSourceDefinitionsSummary `json:"summary"`
@@ -226,6 +230,7 @@ type sourceRepositoryJobsResult struct {
 	ResolvedCommit string                       `json:"resolved_commit"`
 	Path           string                       `json:"path"`
 	Limit          int                          `json:"limit"`
+	Truncated      bool                         `json:"truncated"`
 	Jobs           []sourceRepositoryJobSummary `json:"jobs"`
 }
 
@@ -1273,7 +1278,11 @@ func writeSourceBranchesResult(out io.Writer, result sourceRepositoryBranchesRes
 			emptyAsDash(branch.Remote),
 		)
 	}
-	return tw.Flush()
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+
+	return writeSourceTruncatedNotice(out, result.Truncated, result.Limit)
 }
 
 func listSourceTree(cmd *cobra.Command, args []string) {
@@ -1351,7 +1360,11 @@ func writeSourceTreeResult(out io.Writer, result sourceRepositoryTreeResult) err
 			sizeAsDash(entry.SizeBytes),
 		)
 	}
-	return tw.Flush()
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+
+	return writeSourceTruncatedNotice(out, result.Truncated, result.Limit)
 }
 
 func listSourceDefinitions(cmd *cobra.Command, args []string) {
@@ -1425,7 +1438,11 @@ func writeSourceDefinitionsResult(out io.Writer, result sourceRepositoryDefiniti
 			sizeAsDash(definition.SizeBytes),
 		)
 	}
-	return tw.Flush()
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+
+	return writeSourceTruncatedNotice(out, result.Truncated, result.Limit)
 }
 
 func resolveSourceDefinition(cmd *cobra.Command, args []string) {
@@ -1535,6 +1552,8 @@ func writeSourceDefinitionsImportResult(out io.Writer, result importedSourceDefi
 	fmt.Fprintf(out, "requested_ref=%s\n", emptyAsDash(result.RequestedRef))
 	fmt.Fprintf(out, "resolved_commit=%s\n", emptyAsDash(result.ResolvedCommit))
 	fmt.Fprintf(out, "path=%s\n", emptyAsDash(result.Path))
+	fmt.Fprintf(out, "limit=%d\n", result.Limit)
+	fmt.Fprintf(out, "truncated=%t\n", result.Truncated)
 	fmt.Fprintf(out, "dry_run=%t\n", result.DryRun)
 	fmt.Fprintf(out, "update_existing=%t\n", result.UpdateExisting)
 	fmt.Fprintf(out, "summary total=%d created=%d updated=%d unchanged=%d would_create=%d would_update=%d conflicted=%d invalid=%d\n",
@@ -1630,12 +1649,25 @@ func listSourceJobsWithOutput(out io.Writer, repositoryID string) error {
 				shortSHA(job.BlobSHA),
 			)
 		}
-		return tw.Flush()
+		if err := tw.Flush(); err != nil {
+			return err
+		}
+
+		return writeSourceTruncatedNotice(out, result.Truncated, result.Limit)
 	case http.StatusNotFound:
 		return fmt.Errorf("source repository %q not found", repositoryID)
 	default:
 		return fmt.Errorf("unexpected status listing source jobs: %s", resp.Status)
 	}
+}
+
+func writeSourceTruncatedNotice(out io.Writer, truncated bool, limit int) error {
+	if !truncated {
+		return nil
+	}
+
+	_, err := fmt.Fprintf(out, "Results truncated at limit=%d; narrow the path/ref or increase --limit.\n", limit)
+	return err
 }
 
 func showSourceJob(cmd *cobra.Command, args []string) {

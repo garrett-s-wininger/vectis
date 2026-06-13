@@ -36,6 +36,11 @@ type ListBranchesOptions struct {
 	Limit  int
 }
 
+type BranchListing struct {
+	Truncated bool
+	Branches  []BranchRef
+}
+
 type BranchRef struct {
 	Name   string
 	Ref    string
@@ -55,6 +60,7 @@ type TreeListing struct {
 	Revision     Revision
 	Path         string
 	Recursive    bool
+	Truncated    bool
 	Entries      []TreeEntry
 }
 
@@ -77,6 +83,7 @@ type DefinitionFileListing struct {
 	RequestedRef string
 	Revision     Revision
 	Path         string
+	Truncated    bool
 	Files        []DefinitionFile
 }
 

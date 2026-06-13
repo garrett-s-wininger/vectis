@@ -326,20 +326,21 @@ func (g *GitCheckout) CommitFile(ctx context.Context, opts CommitFileOptions) (F
 	}, nil
 }
 
-func (g *GitCheckout) ListBranches(ctx context.Context, opts ListBranchesOptions) ([]BranchRef, error) {
+func (g *GitCheckout) ListBranches(ctx context.Context, opts ListBranchesOptions) (BranchListing, error) {
 	if err := g.validateCheckout(); err != nil {
-		return nil, err
+		return BranchListing{}, err
 	}
 
 	prefix, err := normalizeBranchPrefix(opts.Prefix, g.remoteFallback)
 	if err != nil {
-		return nil, err
+		return BranchListing{}, err
 	}
 
 	limit := opts.Limit
 	if limit <= 0 {
 		limit = DefaultBranchListLimit
 	}
+	collectLimit := limit + 1
 
 	scopes := []branchRefScope{{baseRef: "refs/heads"}}
 	if g.remoteFallback != "" {
@@ -352,13 +353,13 @@ func (g *GitCheckout) ListBranches(ctx context.Context, opts ListBranchesOptions
 	branches := make([]BranchRef, 0, min(limit, DefaultBranchListLimit))
 	seen := make(map[string]struct{})
 	for _, scope := range scopes {
-		if len(branches) >= limit {
+		if len(branches) >= collectLimit {
 			break
 		}
 
-		found, err := g.listBranchScope(ctx, scope, prefix, limit-len(branches))
+		found, err := g.listBranchScope(ctx, scope, prefix, collectLimit)
 		if err != nil {
-			return nil, err
+			return BranchListing{}, err
 		}
 
 		for _, branch := range found {
@@ -368,13 +369,21 @@ func (g *GitCheckout) ListBranches(ctx context.Context, opts ListBranchesOptions
 
 			seen[branch.Name] = struct{}{}
 			branches = append(branches, branch)
-			if len(branches) >= limit {
+			if len(branches) >= collectLimit {
 				break
 			}
 		}
 	}
 
-	return branches, nil
+	truncated := len(branches) > limit
+	if truncated {
+		branches = branches[:limit]
+	}
+
+	return BranchListing{
+		Truncated: truncated,
+		Branches:  branches,
+	}, nil
 }
 
 func (g *GitCheckout) ListTree(ctx context.Context, opts ListTreeOptions) (TreeListing, error) {
@@ -402,7 +411,7 @@ func (g *GitCheckout) ListTree(ctx context.Context, opts ListTreeOptions) (TreeL
 		limit = DefaultTreeListLimit
 	}
 
-	entries, err := g.listTreeEntries(ctx, revision.Commit, cleanPath, opts.Recursive, limit)
+	entries, truncated, err := g.listTreeEntries(ctx, revision.Commit, cleanPath, opts.Recursive, limit)
 	if err != nil {
 		return TreeListing{}, err
 	}
@@ -412,6 +421,7 @@ func (g *GitCheckout) ListTree(ctx context.Context, opts ListTreeOptions) (TreeL
 		Revision:     revision,
 		Path:         cleanPath,
 		Recursive:    opts.Recursive,
+		Truncated:    truncated,
 		Entries:      entries,
 	}, nil
 }
@@ -446,7 +456,7 @@ func (g *GitCheckout) ListDefinitionFiles(ctx context.Context, opts ListDefiniti
 		limit = DefaultTreeListLimit
 	}
 
-	files, err := g.listDefinitionFileEntries(ctx, revision.Commit, cleanPath, limit)
+	files, truncated, err := g.listDefinitionFileEntries(ctx, revision.Commit, cleanPath, limit)
 	if err != nil {
 		return DefinitionFileListing{}, err
 	}
@@ -455,6 +465,7 @@ func (g *GitCheckout) ListDefinitionFiles(ctx context.Context, opts ListDefiniti
 		RequestedRef: ref,
 		Revision:     revision,
 		Path:         cleanPath,
+		Truncated:    truncated,
 		Files:        files,
 	}, nil
 }
@@ -527,9 +538,9 @@ func (g *GitCheckout) listBranchScope(ctx context.Context, scope branchRefScope,
 	return branches, nil
 }
 
-func (g *GitCheckout) listTreeEntries(ctx context.Context, commit, treePath string, recursive bool, limit int) ([]TreeEntry, error) {
+func (g *GitCheckout) listTreeEntries(ctx context.Context, commit, treePath string, recursive bool, limit int) ([]TreeEntry, bool, error) {
 	if limit <= 0 {
-		return nil, nil
+		return nil, false, nil
 	}
 
 	treeish := commit
@@ -544,6 +555,7 @@ func (g *GitCheckout) listTreeEntries(ctx context.Context, commit, treePath stri
 
 	args = append(args, treeish)
 	entries := make([]TreeEntry, 0, min(limit, DefaultTreeListLimit))
+	truncated := false
 	err := g.streamGitRecords(ctx, args, func(record []byte) error {
 		entry, ok, err := parseTreeEntryRecord(record, treePath)
 		if err != nil {
@@ -554,28 +566,29 @@ func (g *GitCheckout) listTreeEntries(ctx context.Context, commit, treePath stri
 			return nil
 		}
 
-		entries = append(entries, entry)
 		if len(entries) >= limit {
+			truncated = true
 			return errStopGitStream
 		}
 
+		entries = append(entries, entry)
 		return nil
 	})
 
 	if err != nil {
 		if treePath == "" {
-			return nil, fmt.Errorf("%w: list tree at %s: %v", ErrNotFound, commit, err)
+			return nil, false, fmt.Errorf("%w: list tree at %s: %v", ErrNotFound, commit, err)
 		}
 
-		return nil, fmt.Errorf("%w: list tree %s at %s: %v", ErrNotFound, treePath, commit, err)
+		return nil, false, fmt.Errorf("%w: list tree %s at %s: %v", ErrNotFound, treePath, commit, err)
 	}
 
-	return entries, nil
+	return entries, truncated, nil
 }
 
-func (g *GitCheckout) listDefinitionFileEntries(ctx context.Context, commit, treePath string, limit int) ([]DefinitionFile, error) {
+func (g *GitCheckout) listDefinitionFileEntries(ctx context.Context, commit, treePath string, limit int) ([]DefinitionFile, bool, error) {
 	if limit <= 0 {
-		return nil, nil
+		return nil, false, nil
 	}
 
 	treeish := commit
@@ -584,6 +597,7 @@ func (g *GitCheckout) listDefinitionFileEntries(ctx context.Context, commit, tre
 	}
 
 	files := make([]DefinitionFile, 0, min(limit, DefaultTreeListLimit))
+	truncated := false
 	err := g.streamGitRecords(ctx, []string{"ls-tree", "-z", "--long", "-r", treeish}, func(record []byte) error {
 		entry, ok, err := parseTreeEntryRecord(record, treePath)
 		if err != nil {
@@ -593,27 +607,28 @@ func (g *GitCheckout) listDefinitionFileEntries(ctx context.Context, commit, tre
 			return nil
 		}
 
+		if len(files) >= limit {
+			truncated = true
+			return errStopGitStream
+		}
+
 		files = append(files, DefinitionFile{
 			Path:      entry.Path,
 			Name:      entry.Name,
 			BlobSHA:   entry.ObjectSHA,
 			SizeBytes: entry.SizeBytes,
 		})
-		if len(files) >= limit {
-			return errStopGitStream
-		}
-
 		return nil
 	})
 	if err != nil {
 		if treePath == "" {
-			return nil, fmt.Errorf("%w: list definition files at %s: %v", ErrNotFound, commit, err)
+			return nil, false, fmt.Errorf("%w: list definition files at %s: %v", ErrNotFound, commit, err)
 		}
 
-		return nil, fmt.Errorf("%w: list definition files %s at %s: %v", ErrNotFound, treePath, commit, err)
+		return nil, false, fmt.Errorf("%w: list definition files %s at %s: %v", ErrNotFound, treePath, commit, err)
 	}
 
-	return files, nil
+	return files, truncated, nil
 }
 
 func (g *GitCheckout) resolveBlob(ctx context.Context, commit, filePath string) (string, error) {

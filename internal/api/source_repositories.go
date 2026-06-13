@@ -120,6 +120,7 @@ type sourceRepositoryBranchesResponse struct {
 	RepositoryID string                           `json:"repository_id"`
 	Prefix       string                           `json:"prefix,omitempty"`
 	Limit        int                              `json:"limit"`
+	Truncated    bool                             `json:"truncated"`
 	Branches     []sourceRepositoryBranchResponse `json:"branches"`
 }
 
@@ -139,6 +140,7 @@ type sourceRepositoryTreeResponse struct {
 	Path           string                              `json:"path,omitempty"`
 	Recursive      bool                                `json:"recursive"`
 	Limit          int                                 `json:"limit"`
+	Truncated      bool                                `json:"truncated"`
 	Entries        []sourceRepositoryTreeEntryResponse `json:"entries"`
 }
 
@@ -155,6 +157,7 @@ type sourceRepositoryDefinitionsResponse struct {
 	ResolvedCommit string                                   `json:"resolved_commit"`
 	Path           string                                   `json:"path"`
 	Limit          int                                      `json:"limit"`
+	Truncated      bool                                     `json:"truncated"`
 	Definitions    []sourceRepositoryDefinitionFileResponse `json:"definitions"`
 }
 
@@ -181,6 +184,7 @@ type sourceRepositoryJobsResponse struct {
 	ResolvedCommit string                               `json:"resolved_commit"`
 	Path           string                               `json:"path"`
 	Limit          int                                  `json:"limit"`
+	Truncated      bool                                 `json:"truncated"`
 	Jobs           []sourceRepositoryJobResponse        `json:"jobs"`
 	Invalid        []invalidSourceRepositoryJobResponse `json:"invalid,omitempty"`
 }
@@ -309,6 +313,7 @@ type importedSourceDefinitionsResponse struct {
 	ResolvedCommit string                             `json:"resolved_commit"`
 	Path           string                             `json:"path"`
 	Limit          int                                `json:"limit"`
+	Truncated      bool                               `json:"truncated"`
 	DryRun         bool                               `json:"dry_run"`
 	UpdateExisting bool                               `json:"update_existing"`
 	Summary        importedSourceDefinitionsSummary   `json:"summary"`
@@ -1113,7 +1118,7 @@ func (s *APIServer) ListSourceRepositoryBranches(w http.ResponseWriter, r *http.
 	limit := sourceRepositoryBranchListLimit(r)
 	prefix := strings.TrimSpace(r.URL.Query().Get("prefix"))
 	checkout := newGitCheckoutForSourceRepository(rec)
-	branches, err := checkout.ListBranches(ctx, sourcepkg.ListBranchesOptions{
+	listing, err := checkout.ListBranches(ctx, sourcepkg.ListBranchesOptions{
 		Prefix: prefix,
 		Limit:  limit,
 	})
@@ -1122,8 +1127,8 @@ func (s *APIServer) ListSourceRepositoryBranches(w http.ResponseWriter, r *http.
 		return
 	}
 
-	respBranches := make([]sourceRepositoryBranchResponse, 0, len(branches))
-	for _, branch := range branches {
+	respBranches := make([]sourceRepositoryBranchResponse, 0, len(listing.Branches))
+	for _, branch := range listing.Branches {
 		respBranches = append(respBranches, sourceRepositoryBranchResponse{
 			Name:   branch.Name,
 			Ref:    branch.Ref,
@@ -1136,6 +1141,7 @@ func (s *APIServer) ListSourceRepositoryBranches(w http.ResponseWriter, r *http.
 		RepositoryID: rec.RepositoryID,
 		Prefix:       prefix,
 		Limit:        limit,
+		Truncated:    listing.Truncated,
 		Branches:     respBranches,
 	})
 }
@@ -1203,6 +1209,7 @@ func (s *APIServer) ListSourceRepositoryTree(w http.ResponseWriter, r *http.Requ
 		Path:           listing.Path,
 		Recursive:      listing.Recursive,
 		Limit:          limit,
+		Truncated:      listing.Truncated,
 		Entries:        respEntries,
 	})
 }
@@ -1261,6 +1268,7 @@ func (s *APIServer) ListSourceRepositoryDefinitions(w http.ResponseWriter, r *ht
 		ResolvedCommit: listing.Revision.Commit,
 		Path:           listing.Path,
 		Limit:          limit,
+		Truncated:      listing.Truncated,
 		Definitions:    respFiles,
 	})
 }
@@ -1354,6 +1362,7 @@ func (s *APIServer) ListSourceRepositoryJobs(w http.ResponseWriter, r *http.Requ
 		ResolvedCommit: listing.Revision.Commit,
 		Path:           listing.Path,
 		Limit:          limit,
+		Truncated:      listing.Truncated,
 		Jobs:           jobs,
 		Invalid:        invalid,
 	})
@@ -1643,6 +1652,7 @@ func (s *APIServer) ImportSourceRepositoryDefinitions(w http.ResponseWriter, r *
 		ResolvedCommit: listing.Revision.Commit,
 		Path:           listing.Path,
 		Limit:          limit,
+		Truncated:      listing.Truncated,
 		DryRun:         req.DryRun,
 		UpdateExisting: req.UpdateExisting,
 		Summary:        summary,

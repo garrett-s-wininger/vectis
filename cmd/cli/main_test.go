@@ -558,6 +558,7 @@ func TestListSourceJobs_sendsQueryAndPrintsJobs(t *testing.T) {
 			"resolved_commit": "0123456789abcdef0123456789abcdef01234567",
 			"path":            ".vectis/jobs",
 			"limit":           5,
+			"truncated":       true,
 			"jobs": []map[string]any{
 				{
 					"job_id":   "build",
@@ -582,7 +583,7 @@ func TestListSourceJobs_sendsQueryAndPrintsJobs(t *testing.T) {
 	}
 
 	out := buf.String()
-	for _, want := range []string{"JOB ID", "build", ".vectis/jobs/build.json", "0123456789ab", "abcdef012345"} {
+	for _, want := range []string{"JOB ID", "build", ".vectis/jobs/build.json", "0123456789ab", "abcdef012345", "Results truncated at limit=5"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
 		}
@@ -1492,6 +1493,7 @@ func TestListSourceBranches_sendsQueryAndPrintsBranches(t *testing.T) {
 			"repository_id": "vectis",
 			"prefix":        "feature/",
 			"limit":         3,
+			"truncated":     true,
 			"branches": []map[string]any{
 				{"name": "feature/source", "ref": "refs/remotes/origin/feature/source", "commit": "0123456789abcdef", "remote": "origin"},
 			},
@@ -1504,7 +1506,7 @@ func TestListSourceBranches_sendsQueryAndPrintsBranches(t *testing.T) {
 	}
 
 	out := buf.String()
-	for _, want := range []string{"NAME", "feature/source", "refs/remotes/origin/feature/source", "0123456789ab", "origin"} {
+	for _, want := range []string{"NAME", "feature/source", "refs/remotes/origin/feature/source", "0123456789ab", "origin", "Results truncated at limit=3"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
 		}
@@ -1737,6 +1739,7 @@ func TestImportSourceDefinitions_sendsBodyAndPrintsSummary(t *testing.T) {
 			"resolved_commit": "0123456789abcdef",
 			"path":            ".vectis/jobs",
 			"limit":           5,
+			"truncated":       true,
 			"dry_run":         true,
 			"update_existing": true,
 			"summary":         map[string]any{"total": 1, "would_create": 1},
@@ -1764,7 +1767,7 @@ func TestImportSourceDefinitions_sendsBodyAndPrintsSummary(t *testing.T) {
 	}
 
 	out := buf.String()
-	for _, want := range []string{"repository_id=vectis", "dry_run=true", "update_existing=true", "would_create=1", "JOB ID", "build", "would_create", ".vectis/jobs/build.json"} {
+	for _, want := range []string{"repository_id=vectis", "limit=5", "truncated=true", "dry_run=true", "update_existing=true", "would_create=1", "JOB ID", "build", "would_create", ".vectis/jobs/build.json"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
 		}

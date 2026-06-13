@@ -1307,7 +1307,8 @@ func TestAPIServer_ListSourceRepositoryJobsDerivesTriggerableJobs(t *testing.T) 
 		resp.RequestedRef != "HEAD" ||
 		resp.ResolvedCommit != commit ||
 		resp.Path != ".vectis/jobs" ||
-		resp.Limit != 10 {
+		resp.Limit != 10 ||
+		resp.Truncated {
 		t.Fatalf("source jobs response mismatch: %+v", resp)
 	}
 
@@ -1356,6 +1357,80 @@ func TestAPIServer_ListSourceRepositoryJobsDerivesTriggerableJobs(t *testing.T) 
 
 	if !sawInvalidName || !sawDuplicate {
 		t.Fatalf("expected invalid filename and duplicate derived job id, got %+v", resp.Invalid)
+	}
+
+	treeRec := httptest.NewRecorder()
+	treeReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/vectis-local/tree?path=.vectis/jobs&recursive=true&limit=1", nil)
+	handler.ServeHTTP(treeRec, treeReq)
+	if treeRec.Code != http.StatusOK {
+		t.Fatalf("list limited source tree: status=%d body=%s", treeRec.Code, treeRec.Body.String())
+	}
+
+	var treeResp struct {
+		Limit     int  `json:"limit"`
+		Truncated bool `json:"truncated"`
+		Entries   []struct {
+			Path string `json:"path"`
+		} `json:"entries"`
+	}
+	if err := json.NewDecoder(treeRec.Body).Decode(&treeResp); err != nil {
+		t.Fatalf("decode limited source tree: %v", err)
+	}
+	if treeResp.Limit != 1 || !treeResp.Truncated || len(treeResp.Entries) != 1 {
+		t.Fatalf("limited source tree response mismatch: %+v", treeResp)
+	}
+
+	definitionsRec := httptest.NewRecorder()
+	definitionsReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/vectis-local/definitions?path=.vectis/jobs&limit=1", nil)
+	handler.ServeHTTP(definitionsRec, definitionsReq)
+	if definitionsRec.Code != http.StatusOK {
+		t.Fatalf("list limited source definitions: status=%d body=%s", definitionsRec.Code, definitionsRec.Body.String())
+	}
+
+	var definitionsResp struct {
+		Limit       int  `json:"limit"`
+		Truncated   bool `json:"truncated"`
+		Definitions []struct {
+			Path string `json:"path"`
+		} `json:"definitions"`
+	}
+	if err := json.NewDecoder(definitionsRec.Body).Decode(&definitionsResp); err != nil {
+		t.Fatalf("decode limited source definitions: %v", err)
+	}
+	if definitionsResp.Limit != 1 || !definitionsResp.Truncated || len(definitionsResp.Definitions) != 1 {
+		t.Fatalf("limited source definitions response mismatch: %+v", definitionsResp)
+	}
+
+	limitedJobsRec := httptest.NewRecorder()
+	limitedJobsReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/vectis-local/jobs?limit=1", nil)
+	handler.ServeHTTP(limitedJobsRec, limitedJobsReq)
+	if limitedJobsRec.Code != http.StatusOK {
+		t.Fatalf("list limited source jobs: status=%d body=%s", limitedJobsRec.Code, limitedJobsRec.Body.String())
+	}
+
+	limitedJobsResp := decodeSourceRepositoryJobsResponse(t, limitedJobsRec)
+	if limitedJobsResp.Limit != 1 ||
+		!limitedJobsResp.Truncated ||
+		len(limitedJobsResp.Jobs)+len(limitedJobsResp.Invalid) != 1 {
+		t.Fatalf("limited source jobs response mismatch: %+v", limitedJobsResp)
+	}
+
+	importRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/vectis-local/definitions/import", map[string]any{
+		"path":    ".vectis/jobs",
+		"limit":   1,
+		"dry_run": true,
+	})
+	if importRec.Code != http.StatusOK {
+		t.Fatalf("limited source import: status=%d body=%s", importRec.Code, importRec.Body.String())
+	}
+
+	importResp := decodeSourceDefinitionsImportResponse(t, importRec)
+	if importResp.Limit != 1 ||
+		!importResp.Truncated ||
+		!importResp.DryRun ||
+		importResp.Summary.Total != 1 ||
+		len(importResp.Results) != 1 {
+		t.Fatalf("limited source import response mismatch: %+v", importResp)
 	}
 
 	definitionRec := httptest.NewRecorder()
@@ -1695,6 +1770,7 @@ func TestAPIServer_SyncManagedSourceRepositoryClonesAndFetches(t *testing.T) {
 		RepositoryID string `json:"repository_id"`
 		Prefix       string `json:"prefix"`
 		Limit        int    `json:"limit"`
+		Truncated    bool   `json:"truncated"`
 		Branches     []struct {
 			Name   string `json:"name"`
 			Ref    string `json:"ref"`
@@ -1707,7 +1783,7 @@ func TestAPIServer_SyncManagedSourceRepositoryClonesAndFetches(t *testing.T) {
 		t.Fatalf("decode managed branches: %v", err)
 	}
 
-	if branchesResp.RepositoryID != "managed-repo" || branchesResp.Prefix != "feature/" || branchesResp.Limit != 5 || len(branchesResp.Branches) != 1 {
+	if branchesResp.RepositoryID != "managed-repo" || branchesResp.Prefix != "feature/" || branchesResp.Limit != 5 || branchesResp.Truncated || len(branchesResp.Branches) != 1 {
 		t.Fatalf("managed branches response mismatch: %+v", branchesResp)
 	}
 
@@ -1717,6 +1793,27 @@ func TestAPIServer_SyncManagedSourceRepositoryClonesAndFetches(t *testing.T) {
 		branch.Commit != featureCommit ||
 		branch.Remote != "origin" {
 		t.Fatalf("managed branch mismatch: %+v", branch)
+	}
+
+	limitedBranchesRec := httptest.NewRecorder()
+	limitedBranchesReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/managed-repo/refs/branches?limit=1", nil)
+	handler.ServeHTTP(limitedBranchesRec, limitedBranchesReq)
+	if limitedBranchesRec.Code != http.StatusOK {
+		t.Fatalf("list limited managed branches: status=%d body=%s", limitedBranchesRec.Code, limitedBranchesRec.Body.String())
+	}
+
+	var limitedBranchesResp struct {
+		Limit     int  `json:"limit"`
+		Truncated bool `json:"truncated"`
+		Branches  []struct {
+			Name string `json:"name"`
+		} `json:"branches"`
+	}
+	if err := json.NewDecoder(limitedBranchesRec.Body).Decode(&limitedBranchesResp); err != nil {
+		t.Fatalf("decode limited managed branches: %v", err)
+	}
+	if limitedBranchesResp.Limit != 1 || !limitedBranchesResp.Truncated || len(limitedBranchesResp.Branches) != 1 {
+		t.Fatalf("limited managed branches response mismatch: %+v", limitedBranchesResp)
 	}
 
 	treeRec := httptest.NewRecorder()
@@ -2812,6 +2909,7 @@ func decodeSourceDefinitionsImportResponse(t *testing.T, rec *httptest.ResponseR
 	ResolvedCommit string `json:"resolved_commit"`
 	Path           string `json:"path"`
 	Limit          int    `json:"limit"`
+	Truncated      bool   `json:"truncated"`
 	DryRun         bool   `json:"dry_run"`
 	UpdateExisting bool   `json:"update_existing"`
 	Summary        struct {
@@ -2847,6 +2945,7 @@ func decodeSourceDefinitionsImportResponse(t *testing.T, rec *httptest.ResponseR
 		ResolvedCommit string `json:"resolved_commit"`
 		Path           string `json:"path"`
 		Limit          int    `json:"limit"`
+		Truncated      bool   `json:"truncated"`
 		DryRun         bool   `json:"dry_run"`
 		UpdateExisting bool   `json:"update_existing"`
 		Summary        struct {
@@ -2952,6 +3051,7 @@ func decodeSourceRepositoryJobsResponse(t *testing.T, rec *httptest.ResponseReco
 	ResolvedCommit string `json:"resolved_commit"`
 	Path           string `json:"path"`
 	Limit          int    `json:"limit"`
+	Truncated      bool   `json:"truncated"`
 	Jobs           []struct {
 		JobID   string `json:"job_id"`
 		Path    string `json:"path"`
@@ -2980,6 +3080,7 @@ func decodeSourceRepositoryJobsResponse(t *testing.T, rec *httptest.ResponseReco
 		ResolvedCommit string `json:"resolved_commit"`
 		Path           string `json:"path"`
 		Limit          int    `json:"limit"`
+		Truncated      bool   `json:"truncated"`
 		Jobs           []struct {
 			JobID   string `json:"job_id"`
 			Path    string `json:"path"`

@@ -220,7 +220,7 @@ func TestGitCheckoutListBranches(t *testing.T) {
 	git(t, repo, "checkout", defaultBranch)
 
 	checkout := NewGitCheckout(repo)
-	branches, err := checkout.ListBranches(context.Background(), ListBranchesOptions{
+	listing, err := checkout.ListBranches(context.Background(), ListBranchesOptions{
 		Prefix: "feature/",
 		Limit:  10,
 	})
@@ -229,8 +229,12 @@ func TestGitCheckoutListBranches(t *testing.T) {
 		t.Fatalf("ListBranches: %v", err)
 	}
 
+	branches := listing.Branches
 	if len(branches) != 1 {
 		t.Fatalf("branches with feature prefix: got %+v", branches)
+	}
+	if listing.Truncated {
+		t.Fatalf("feature-prefixed branches should not be truncated: %+v", listing)
 	}
 
 	if branches[0].Name != "feature/list-branches" ||
@@ -240,13 +244,17 @@ func TestGitCheckoutListBranches(t *testing.T) {
 		t.Fatalf("branch response mismatch: %+v", branches[0])
 	}
 
-	branches, err = checkout.ListBranches(context.Background(), ListBranchesOptions{Limit: 1})
+	listing, err = checkout.ListBranches(context.Background(), ListBranchesOptions{Limit: 1})
 	if err != nil {
 		t.Fatalf("ListBranches limit: %v", err)
 	}
 
+	branches = listing.Branches
 	if len(branches) != 1 {
 		t.Fatalf("limited branches: got %+v", branches)
+	}
+	if !listing.Truncated {
+		t.Fatalf("expected limited branches to be truncated: %+v", listing)
 	}
 
 	if _, err := checkout.ListBranches(context.Background(), ListBranchesOptions{Prefix: "feature/*"}); !errors.Is(err, ErrInvalidReference) {
@@ -276,6 +284,7 @@ func TestGitCheckoutListTree(t *testing.T) {
 		listing.Revision.Commit != commit ||
 		listing.Path != ".vectis" ||
 		listing.Recursive ||
+		listing.Truncated ||
 		len(listing.Entries) != 1 {
 		t.Fatalf(".vectis listing mismatch: %+v", listing)
 	}
@@ -317,7 +326,7 @@ func TestGitCheckoutListTree(t *testing.T) {
 		t.Fatalf("ListTree recursive limit: %v", err)
 	}
 
-	if !listing.Recursive || len(listing.Entries) != 2 {
+	if !listing.Recursive || !listing.Truncated || len(listing.Entries) != 2 {
 		t.Fatalf("recursive limited listing mismatch: %+v", listing)
 	}
 
@@ -351,6 +360,7 @@ func TestGitCheckoutListDefinitionFiles(t *testing.T) {
 	if listing.RequestedRef != "HEAD" ||
 		listing.Revision.Commit != commit ||
 		listing.Path != DefaultDefinitionPath ||
+		listing.Truncated ||
 		len(listing.Files) != 2 {
 		t.Fatalf("definition file listing mismatch: %+v", listing)
 	}
@@ -378,6 +388,9 @@ func TestGitCheckoutListDefinitionFiles(t *testing.T) {
 	}
 	if len(listing.Files) != 1 || listing.Files[0].Path != ".vectis/jobs/build.json" {
 		t.Fatalf("limited definition files mismatch: %+v", listing)
+	}
+	if !listing.Truncated {
+		t.Fatalf("expected limited definition listing to be truncated: %+v", listing)
 	}
 
 	if _, err := checkout.ListDefinitionFiles(context.Background(), ListDefinitionFilesOptions{Ref: "HEAD", Path: "../secret"}); !errors.Is(err, ErrInvalidReference) {
