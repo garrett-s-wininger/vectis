@@ -167,24 +167,40 @@ type runTaskRow struct {
 	Attempts     []runTaskAttemptRow `json:"attempts"`
 }
 
+type executionSecurityEventRow struct {
+	ID            int64   `json:"id"`
+	RunID         string  `json:"run_id"`
+	TaskID        string  `json:"task_id,omitempty"`
+	TaskAttemptID string  `json:"task_attempt_id,omitempty"`
+	ExecutionID   string  `json:"execution_id,omitempty"`
+	EventType     string  `json:"event_type"`
+	Outcome       string  `json:"outcome"`
+	Reason        string  `json:"reason,omitempty"`
+	Provider      *string `json:"provider,omitempty"`
+	SecretCount   *int    `json:"secret_count,omitempty"`
+	FileCount     *int    `json:"file_count,omitempty"`
+	CreatedAt     int64   `json:"created_at"`
+}
+
 type runTaskAttemptRow struct {
-	AttemptID       string  `json:"attempt_id"`
-	TaskID          string  `json:"task_id"`
-	RunID           string  `json:"run_id"`
-	ExecutionID     string  `json:"execution_id,omitempty"`
-	ExecutionStatus string  `json:"execution_status,omitempty"`
-	CellID          string  `json:"cell_id"`
-	LeaseOwner      *string `json:"lease_owner,omitempty"`
-	LeaseUntil      *int64  `json:"lease_until,omitempty"`
-	Attempt         int     `json:"attempt"`
-	Status          string  `json:"status"`
-	AcceptedAt      *string `json:"accepted_at,omitempty"`
-	StartedAt       *string `json:"started_at,omitempty"`
-	FinishedAt      *string `json:"finished_at,omitempty"`
-	LastObservedAt  *int64  `json:"last_observed_at,omitempty"`
-	EventSequence   int64   `json:"event_sequence"`
-	CreatedAt       *string `json:"created_at,omitempty"`
-	UpdatedAt       *string `json:"updated_at,omitempty"`
+	AttemptID       string                      `json:"attempt_id"`
+	TaskID          string                      `json:"task_id"`
+	RunID           string                      `json:"run_id"`
+	ExecutionID     string                      `json:"execution_id,omitempty"`
+	ExecutionStatus string                      `json:"execution_status,omitempty"`
+	CellID          string                      `json:"cell_id"`
+	LeaseOwner      *string                     `json:"lease_owner,omitempty"`
+	LeaseUntil      *int64                      `json:"lease_until,omitempty"`
+	Attempt         int                         `json:"attempt"`
+	Status          string                      `json:"status"`
+	AcceptedAt      *string                     `json:"accepted_at,omitempty"`
+	StartedAt       *string                     `json:"started_at,omitempty"`
+	FinishedAt      *string                     `json:"finished_at,omitempty"`
+	LastObservedAt  *int64                      `json:"last_observed_at,omitempty"`
+	EventSequence   int64                       `json:"event_sequence"`
+	CreatedAt       *string                     `json:"created_at,omitempty"`
+	UpdatedAt       *string                     `json:"updated_at,omitempty"`
+	SecurityEvents  []executionSecurityEventRow `json:"security_events,omitempty"`
 }
 
 type runExecutionPayloadResult struct {
@@ -638,7 +654,40 @@ func writeRunTaskAttempt(w io.Writer, attempt runTaskAttemptRow) {
 		fmt.Fprintf(w, " last_observed_at=%s", formatUnixNano(*attempt.LastObservedAt))
 	}
 
+	if len(attempt.SecurityEvents) > 0 {
+		fmt.Fprintf(w, " security=[%s]", formatExecutionSecurityEvents(attempt.SecurityEvents))
+	}
+
 	fmt.Fprintln(w)
+}
+
+func formatExecutionSecurityEvents(events []executionSecurityEventRow) string {
+	parts := make([]string, 0, len(events))
+	for _, event := range events {
+		eventType := textOrDash(event.EventType)
+		outcome := textOrDash(event.Outcome)
+		reason := strings.TrimSpace(event.Reason)
+		if reason == "" {
+			reason = "-"
+		}
+
+		part := fmt.Sprintf("%s:%s/%s", eventType, outcome, reason)
+		if event.Provider != nil && strings.TrimSpace(*event.Provider) != "" {
+			part += " provider=" + strings.TrimSpace(*event.Provider)
+		}
+
+		if event.SecretCount != nil {
+			part += fmt.Sprintf(" secrets=%d", *event.SecretCount)
+		}
+
+		if event.FileCount != nil {
+			part += fmt.Sprintf(" files=%d", *event.FileCount)
+		}
+
+		parts = append(parts, part)
+	}
+
+	return strings.Join(parts, ";")
 }
 
 func getRunArtifacts(runID string, opts runArtifactsListOptions, w io.Writer) error {

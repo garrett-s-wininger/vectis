@@ -1499,7 +1499,75 @@ func (r *SQLRunsRepository) ListRunTasks(ctx context.Context, runID string, curs
 		out = out[:limit]
 	}
 
+	if err := r.attachExecutionSecurityEvents(ctx, runID, out); err != nil {
+		return nil, 0, err
+	}
+
 	return out, nextCursor, nil
+}
+
+func (r *SQLRunsRepository) attachExecutionSecurityEvents(ctx context.Context, runID string, tasks []TaskRecord) error {
+	if len(tasks) == 0 {
+		return nil
+	}
+
+	type attemptRef struct {
+		taskIndex    int
+		attemptIndex int
+	}
+
+	byAttemptID := make(map[string]attemptRef)
+	byExecutionID := make(map[string]attemptRef)
+	for ti := range tasks {
+		for ai := range tasks[ti].Attempts {
+			attempt := tasks[ti].Attempts[ai]
+			ref := attemptRef{taskIndex: ti, attemptIndex: ai}
+			if strings.TrimSpace(attempt.AttemptID) != "" {
+				byAttemptID[attempt.AttemptID] = ref
+			}
+			if strings.TrimSpace(attempt.ExecutionID) != "" {
+				byExecutionID[attempt.ExecutionID] = ref
+			}
+		}
+	}
+
+	if len(byAttemptID) == 0 && len(byExecutionID) == 0 {
+		return nil
+	}
+
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
+		SELECT id, run_id, task_id, task_attempt_id, execution_id, event_type, outcome, reason, provider, secret_count, file_count, created_at
+		FROM execution_security_events
+		WHERE run_id = ?
+		ORDER BY created_at ASC, id ASC
+	`), runID)
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		event, err := scanExecutionSecurityEvent(rows)
+		if err != nil {
+			return err
+		}
+
+		ref, ok := byAttemptID[event.TaskAttemptID]
+		if !ok {
+			ref, ok = byExecutionID[event.ExecutionID]
+		}
+		if !ok {
+			continue
+		}
+
+		tasks[ref.taskIndex].Attempts[ref.attemptIndex].SecurityEvents = append(tasks[ref.taskIndex].Attempts[ref.attemptIndex].SecurityEvents, event)
+	}
+
+	if err := rows.Err(); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	return nil
 }
 
 func (r *SQLRunsRepository) EnsurePlannedTaskExecution(ctx context.Context, create TaskExecutionCreate) (TaskExecutionRecord, bool, error) {

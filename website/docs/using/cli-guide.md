@@ -238,7 +238,7 @@ List the task graph nodes and task attempts recorded for one run:
 ./bin/vectis-cli runs tasks <run-id>
 ```
 
-Attempt rows include execution ID/status and worker lease owner/expiry when the execution is actively owned.
+Attempt rows include execution ID/status and worker lease owner/expiry when the execution is actively owned. If worker-controlled SVID checks or secret resolution ran for an attempt, the row also includes a redacted `security` summary with outcome, reason, provider kind, and counts.
 
 List artifact manifests recorded for one run:
 

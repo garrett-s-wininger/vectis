@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -1648,6 +1649,64 @@ func workerSPIFFESVIDFailureReason(err error) string {
 	}
 }
 
+func workerSPIFFESVIDAttemptReason(identity *workloadidentity.Identity, source spire.X509SVIDSource, err error) string {
+	if err == nil {
+		return observability.WorkerSPIFFESVIDReasonMatched
+	}
+
+	if identity == nil {
+		return observability.WorkerSPIFFESVIDReasonMissingIdentity
+	}
+
+	if source == nil {
+		return observability.WorkerSPIFFESVIDReasonMissingSource
+	}
+
+	return workerSPIFFESVIDFailureReason(err)
+}
+
+func (w *worker) recordExecutionSVIDSecurityEvent(ctx context.Context, env *cell.ExecutionEnvelope, identity *workloadidentity.Identity, source spire.X509SVIDSource, err error) {
+	if !config.WorkerSPIFFEEnabled() {
+		return
+	}
+
+	outcome := observability.WorkerSPIFFESVIDOutcomeSuccess
+	if err != nil {
+		outcome = observability.WorkerSPIFFESVIDOutcomeFailed
+	}
+
+	w.recordExecutionSecurityEvent(ctx, env, dal.RecordExecutionSecurityEventParams{
+		EventType: dal.ExecutionSecurityEventSVIDCheck,
+		Outcome:   outcome,
+		Reason:    workerSPIFFESVIDAttemptReason(identity, source, err),
+	})
+}
+
+func (w *worker) recordExecutionSecurityEvent(ctx context.Context, env *cell.ExecutionEnvelope, event dal.RecordExecutionSecurityEventParams) {
+	if w == nil || w.store == nil || env == nil {
+		return
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	event.RunID = env.RunID
+	event.TaskID = env.TaskID
+	event.TaskAttemptID = env.TaskAttemptID
+	event.ExecutionID = env.ExecutionID
+	if err := w.store.RecordExecutionSecurityEvent(ctx, event); err != nil {
+		w.noteDBError(err)
+		if w.logger != nil {
+			w.logger.Warn("Record execution security event %s for execution %s failed: %v", event.EventType, env.ExecutionID, err)
+		}
+
+		return
+	}
+
+	w.noteDBRecovered()
+}
+
 func (w *worker) markExecutionStarted(ctx context.Context, env *cell.ExecutionEnvelope) {
 	if env == nil {
 		return
@@ -2362,7 +2421,10 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID string, exec
 	}
 
 	if err == nil {
+		identityForSVID := workloadIdentity
+		sourceForSVID := w.spiffeSVIDSource
 		workloadIdentity, err = w.acquireExecutionSVID(execCtx, workloadIdentity)
+		w.recordExecutionSVIDSecurityEvent(execCtx, env, identityForSVID, sourceForSVID, err)
 	}
 
 	stopRenew := make(chan struct{})
@@ -2469,6 +2531,8 @@ func (w *worker) resolveExecutionSecrets(ctx context.Context, runJob *api.Job, e
 		return nil, nil
 	}
 
+	provider := workerSecretProviderKind(refs)
+	secretCount := len(refs)
 	if w == nil {
 		return nil, fmt.Errorf("job declares secrets but worker secrets resolver is not configured")
 	}
@@ -2478,6 +2542,14 @@ func (w *worker) resolveExecutionSecrets(ctx context.Context, runJob *api.Job, e
 	if w.secretResolverForWorkload != nil {
 		workloadResolver, workloadCleanup, err := w.secretResolverForWorkload(workloadIdentity)
 		if err != nil {
+			w.recordExecutionSecurityEvent(ctx, env, dal.RecordExecutionSecurityEventParams{
+				EventType:   dal.ExecutionSecurityEventSecretResolution,
+				Outcome:     observability.SecretsResolveOutcomeFailed,
+				Reason:      observability.SecretsResolveReasonProviderError,
+				Provider:    provider,
+				SecretCount: &secretCount,
+			})
+
 			return nil, err
 		}
 
@@ -2488,6 +2560,14 @@ func (w *worker) resolveExecutionSecrets(ctx context.Context, runJob *api.Job, e
 	}
 
 	if resolver == nil {
+		w.recordExecutionSecurityEvent(ctx, env, dal.RecordExecutionSecurityEventParams{
+			EventType:   dal.ExecutionSecurityEventSecretResolution,
+			Outcome:     observability.SecretsResolveOutcomeFailed,
+			Reason:      observability.SecretsResolveReasonMissingProvider,
+			Provider:    provider,
+			SecretCount: &secretCount,
+		})
+
 		return nil, fmt.Errorf("job declares secrets but worker secrets resolver is not configured")
 	}
 	defer cleanup()
@@ -2501,10 +2581,79 @@ func (w *worker) resolveExecutionSecrets(ctx context.Context, runJob *api.Job, e
 	})
 
 	if err != nil {
+		outcome, reason := workerSecretResolveOutcomeReason(err)
+		w.recordExecutionSecurityEvent(ctx, env, dal.RecordExecutionSecurityEventParams{
+			EventType:   dal.ExecutionSecurityEventSecretResolution,
+			Outcome:     outcome,
+			Reason:      reason,
+			Provider:    provider,
+			SecretCount: &secretCount,
+		})
+
 		return nil, err
 	}
 
+	fileCount := len(bundle.Files)
+	w.recordExecutionSecurityEvent(ctx, env, dal.RecordExecutionSecurityEventParams{
+		EventType:   dal.ExecutionSecurityEventSecretResolution,
+		Outcome:     observability.SecretsResolveOutcomeSuccess,
+		Reason:      observability.SecretsResolveReasonOK,
+		Provider:    provider,
+		SecretCount: &secretCount,
+		FileCount:   &fileCount,
+	})
+
 	return bundle.Files, nil
+}
+
+func workerSecretProviderKind(refs []secrets.Reference) string {
+	provider := ""
+	for _, ref := range refs {
+		scheme := "unknown"
+		if parsed, err := url.Parse(strings.TrimSpace(ref.Ref)); err == nil && strings.TrimSpace(parsed.Scheme) != "" {
+			scheme = strings.ToLower(strings.TrimSpace(parsed.Scheme))
+		}
+
+		if provider == "" {
+			provider = scheme
+			continue
+		}
+
+		if provider != scheme {
+			return "mixed"
+		}
+	}
+
+	if provider == "" {
+		return "unknown"
+	}
+
+	return provider
+}
+
+func workerSecretResolveOutcomeReason(err error) (string, string) {
+	if err == nil {
+		return observability.SecretsResolveOutcomeSuccess, observability.SecretsResolveReasonOK
+	}
+
+	if errors.Is(err, secrets.ErrDenied) {
+		return observability.SecretsResolveOutcomeDenied, observability.SecretsResolveReasonProviderDenied
+	}
+
+	if errors.Is(err, secrets.ErrNotFound) {
+		return observability.SecretsResolveOutcomeNotFound, observability.SecretsResolveReasonProviderNotFound
+	}
+
+	switch status.Code(err) {
+	case codes.PermissionDenied:
+		return observability.SecretsResolveOutcomeDenied, observability.SecretsResolveReasonAuthorizationDenied
+	case codes.NotFound:
+		return observability.SecretsResolveOutcomeNotFound, observability.SecretsResolveReasonProviderNotFound
+	case codes.Unimplemented:
+		return observability.SecretsResolveOutcomeFailed, observability.SecretsResolveReasonMissingProvider
+	default:
+		return observability.SecretsResolveOutcomeFailed, observability.SecretsResolveReasonProviderError
+	}
 }
 
 func (w *worker) cancelRequestLoop(

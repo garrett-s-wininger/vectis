@@ -2430,24 +2430,40 @@ func (s *APIServer) GetRunTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	s.markDBRecovered()
 
+	type executionSecurityEventRow struct {
+		ID            int64   `json:"id"`
+		RunID         string  `json:"run_id"`
+		TaskID        string  `json:"task_id,omitempty"`
+		TaskAttemptID string  `json:"task_attempt_id,omitempty"`
+		ExecutionID   string  `json:"execution_id,omitempty"`
+		EventType     string  `json:"event_type"`
+		Outcome       string  `json:"outcome"`
+		Reason        string  `json:"reason,omitempty"`
+		Provider      *string `json:"provider,omitempty"`
+		SecretCount   *int    `json:"secret_count,omitempty"`
+		FileCount     *int    `json:"file_count,omitempty"`
+		CreatedAt     int64   `json:"created_at"`
+	}
+
 	type taskAttemptRow struct {
-		AttemptID       string  `json:"attempt_id"`
-		TaskID          string  `json:"task_id"`
-		RunID           string  `json:"run_id"`
-		ExecutionID     string  `json:"execution_id,omitempty"`
-		ExecutionStatus string  `json:"execution_status,omitempty"`
-		CellID          string  `json:"cell_id"`
-		LeaseOwner      *string `json:"lease_owner,omitempty"`
-		LeaseUntil      *int64  `json:"lease_until,omitempty"`
-		Attempt         int     `json:"attempt"`
-		Status          string  `json:"status"`
-		AcceptedAt      *string `json:"accepted_at,omitempty"`
-		StartedAt       *string `json:"started_at,omitempty"`
-		FinishedAt      *string `json:"finished_at,omitempty"`
-		LastObservedAt  *int64  `json:"last_observed_at,omitempty"`
-		EventSequence   int64   `json:"event_sequence"`
-		CreatedAt       *string `json:"created_at,omitempty"`
-		UpdatedAt       *string `json:"updated_at,omitempty"`
+		AttemptID       string                      `json:"attempt_id"`
+		TaskID          string                      `json:"task_id"`
+		RunID           string                      `json:"run_id"`
+		ExecutionID     string                      `json:"execution_id,omitempty"`
+		ExecutionStatus string                      `json:"execution_status,omitempty"`
+		CellID          string                      `json:"cell_id"`
+		LeaseOwner      *string                     `json:"lease_owner,omitempty"`
+		LeaseUntil      *int64                      `json:"lease_until,omitempty"`
+		Attempt         int                         `json:"attempt"`
+		Status          string                      `json:"status"`
+		AcceptedAt      *string                     `json:"accepted_at,omitempty"`
+		StartedAt       *string                     `json:"started_at,omitempty"`
+		FinishedAt      *string                     `json:"finished_at,omitempty"`
+		LastObservedAt  *int64                      `json:"last_observed_at,omitempty"`
+		EventSequence   int64                       `json:"event_sequence"`
+		CreatedAt       *string                     `json:"created_at,omitempty"`
+		UpdatedAt       *string                     `json:"updated_at,omitempty"`
+		SecurityEvents  []executionSecurityEventRow `json:"security_events,omitempty"`
 	}
 
 	type taskRow struct {
@@ -2479,6 +2495,24 @@ func (s *APIServer) GetRunTasks(w http.ResponseWriter, r *http.Request) {
 		}
 
 		for _, attempt := range rec.Attempts {
+			securityEvents := make([]executionSecurityEventRow, 0, len(attempt.SecurityEvents))
+			for _, event := range attempt.SecurityEvents {
+				securityEvents = append(securityEvents, executionSecurityEventRow{
+					ID:            event.ID,
+					RunID:         event.RunID,
+					TaskID:        event.TaskID,
+					TaskAttemptID: event.TaskAttemptID,
+					ExecutionID:   event.ExecutionID,
+					EventType:     event.EventType,
+					Outcome:       event.Outcome,
+					Reason:        event.Reason,
+					Provider:      event.Provider,
+					SecretCount:   event.SecretCount,
+					FileCount:     event.FileCount,
+					CreatedAt:     event.CreatedAt,
+				})
+			}
+
 			task.Attempts = append(task.Attempts, taskAttemptRow{
 				AttemptID:       attempt.AttemptID,
 				TaskID:          attempt.TaskID,
@@ -2497,6 +2531,7 @@ func (s *APIServer) GetRunTasks(w http.ResponseWriter, r *http.Request) {
 				EventSequence:   attempt.EventSequence,
 				CreatedAt:       attempt.CreatedAt,
 				UpdatedAt:       attempt.UpdatedAt,
+				SecurityEvents:  securityEvents,
 			})
 		}
 

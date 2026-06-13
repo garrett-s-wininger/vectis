@@ -213,6 +213,7 @@ type MockRunsRepository struct {
 	TouchDispatchedErr            error
 	ListByJobErr                  error
 	ListRunTasksErr               error
+	RecordSecurityEventErr        error
 	EnsureTaskExecutionErr        error
 	ActivateTaskErr               error
 	MarkQueuedContinuationErr     error
@@ -289,38 +290,39 @@ type MockRunsRepository struct {
 	TouchedRunIDs        []string
 	ExecutionTransitions []string
 
-	LastCreateJobID       string
-	LastDefinitionVersion int
-	LastRunAudit          dal.RunAuditMetadata
-	LastCreateTargetCell  string
-	LastCreateTargetCells []string
-	RecordedPayloads      map[string]string
-	ExecutionPayloads     map[string]dal.ExecutionPayloadRecord
-	LastScheduleID        int64
-	LastScheduledFor      time.Time
-	LastListJobID         string
-	LastListAfterIndex    *int
-	LastListSince         *time.Time
-	LastListOwningCell    string
-	LastListRunTasksRunID string
-	LastTaskExecution     dal.TaskExecutionCreate
-	LastActivatedTaskID   string
-	LastActivatedParentID string
-	LastQueuedRunID       string
-	LastExecutionClaimID  string
-	LastExecutionOwner    string
-	LastMirroredExecID    string
-	LastMirroredToken     string
-	LastMirroredLease     time.Time
-	LastExecutionRenewID  string
-	LastEnsuredExecution  string
-	LastEnsuredDeadline   int64
-	LastExpiryCutoff      int64
-	LastExpiryLimit       int
-	LastFinalizedExecID   string
-	LastFinalizedStatus   string
-	LastRunStatusUpdate   dal.RunStatusUpdate
-	LastExecStatusUpdate  dal.ExecutionStatusUpdate
+	LastCreateJobID        string
+	LastDefinitionVersion  int
+	LastRunAudit           dal.RunAuditMetadata
+	LastCreateTargetCell   string
+	LastCreateTargetCells  []string
+	RecordedPayloads       map[string]string
+	ExecutionPayloads      map[string]dal.ExecutionPayloadRecord
+	LastScheduleID         int64
+	LastScheduledFor       time.Time
+	LastListJobID          string
+	LastListAfterIndex     *int
+	LastListSince          *time.Time
+	LastListOwningCell     string
+	LastListRunTasksRunID  string
+	RecordedSecurityEvents []dal.RecordExecutionSecurityEventParams
+	LastTaskExecution      dal.TaskExecutionCreate
+	LastActivatedTaskID    string
+	LastActivatedParentID  string
+	LastQueuedRunID        string
+	LastExecutionClaimID   string
+	LastExecutionOwner     string
+	LastMirroredExecID     string
+	LastMirroredToken      string
+	LastMirroredLease      time.Time
+	LastExecutionRenewID   string
+	LastEnsuredExecution   string
+	LastEnsuredDeadline    int64
+	LastExpiryCutoff       int64
+	LastExpiryLimit        int
+	LastFinalizedExecID    string
+	LastFinalizedStatus    string
+	LastRunStatusUpdate    dal.RunStatusUpdate
+	LastExecStatusUpdate   dal.ExecutionStatusUpdate
 }
 
 func NewMockRunsRepository() *MockRunsRepository {
@@ -741,6 +743,25 @@ func (m *MockRunsRepository) ListRunTasks(ctx context.Context, runID string, cur
 	m.mu.Unlock()
 
 	return append([]dal.TaskRecord(nil), m.TaskRecords...), 0, nil
+}
+
+func (m *MockRunsRepository) RecordExecutionSecurityEvent(ctx context.Context, event dal.RecordExecutionSecurityEventParams) error {
+	if m.RecordSecurityEventErr != nil {
+		return m.RecordSecurityEventErr
+	}
+
+	m.mu.Lock()
+	m.RecordedSecurityEvents = append(m.RecordedSecurityEvents, event)
+	m.mu.Unlock()
+
+	return nil
+}
+
+func (m *MockRunsRepository) SnapshotExecutionSecurityEvents() []dal.RecordExecutionSecurityEventParams {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return append([]dal.RecordExecutionSecurityEventParams(nil), m.RecordedSecurityEvents...)
 }
 
 func (m *MockRunsRepository) CountByStatus(ctx context.Context, status string) (int64, error) {

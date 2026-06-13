@@ -1941,6 +1941,22 @@ func TestGetRunTasks_success(t *testing.T) {
 							"accepted_at":      "2026-06-01T12:01:00Z",
 							"started_at":       "2026-06-01T12:01:01Z",
 							"event_sequence":   2,
+							"security_events": []map[string]any{
+								{
+									"id":              1,
+									"run_id":          "run-1",
+									"task_id":         "run-1:child",
+									"task_attempt_id": "attempt-child",
+									"execution_id":    "attempt-child:execution",
+									"event_type":      "secret_resolution",
+									"outcome":         "success",
+									"reason":          "ok",
+									"provider":        "encryptedfs",
+									"secret_count":    2,
+									"file_count":      1,
+									"created_at":      1780000001,
+								},
+							},
 						},
 					},
 				},
@@ -1959,7 +1975,7 @@ func TestGetRunTasks_success(t *testing.T) {
 		"task_id=run-1:root parent=- key=root name=Root status=succeeded attempts=1",
 		"attempt=1 id=attempt-root cell=local status=succeeded event_sequence=3 finished_at=2026-06-01T12:00:00Z last_observed_at=1970-01-01T00:00:01Z",
 		"task_id=run-1:child parent=run-1:root key=child name=Child status=running attempts=1 spec_hash=sha256:child",
-		"attempt=1 id=attempt-child cell=pdx-b status=running event_sequence=2 execution_id=attempt-child:execution execution_status=running lease_owner=worker-a lease_until=2026-05-28T20:26:40Z accepted_at=2026-06-01T12:01:00Z started_at=2026-06-01T12:01:01Z",
+		"attempt=1 id=attempt-child cell=pdx-b status=running event_sequence=2 execution_id=attempt-child:execution execution_status=running lease_owner=worker-a lease_until=2026-05-28T20:26:40Z accepted_at=2026-06-01T12:01:00Z started_at=2026-06-01T12:01:01Z security=[secret_resolution:success/ok provider=encryptedfs secrets=2 files=1]",
 		"More tasks available. Continue with --cursor 17.",
 	} {
 		if !strings.Contains(out, want) {

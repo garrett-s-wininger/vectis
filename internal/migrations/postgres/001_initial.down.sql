@@ -61,6 +61,7 @@ DROP TABLE IF EXISTS run_dispatch_events;
 DROP TABLE IF EXISTS cell_execution_acceptances;
 DROP TABLE IF EXISTS execution_payloads;
 DROP TABLE IF EXISTS run_artifacts;
+DROP TABLE IF EXISTS execution_security_events;
 DROP TABLE IF EXISTS segment_executions;
 DROP TABLE IF EXISTS run_segments;
 DROP TABLE IF EXISTS task_attempts;

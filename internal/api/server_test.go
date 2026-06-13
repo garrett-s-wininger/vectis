@@ -1447,6 +1447,23 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 		t.Fatalf("expected execution claim before task list, claim=%+v", executionClaim)
 	}
 
+	secretCount := 1
+	fileCount := 1
+	if err := dal.NewSQLRepositories(db).Runs().RecordExecutionSecurityEvent(context.Background(), dal.RecordExecutionSecurityEventParams{
+		RunID:         runID,
+		TaskID:        env.TaskID,
+		TaskAttemptID: env.TaskAttemptID,
+		ExecutionID:   env.ExecutionID,
+		EventType:     dal.ExecutionSecurityEventSecretResolution,
+		Outcome:       "success",
+		Reason:        "ok",
+		Provider:      "encryptedfs",
+		SecretCount:   &secretCount,
+		FileCount:     &fileCount,
+	}); err != nil {
+		t.Fatalf("record execution security event: %v", err)
+	}
+
 	tasksReq := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+runID+"/tasks", nil)
 	tasksReq.SetPathValue("id", runID)
 	tasksRec := httptest.NewRecorder()
@@ -1473,6 +1490,14 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 				LeaseUntil      *int64  `json:"lease_until"`
 				Attempt         int     `json:"attempt"`
 				Status          string  `json:"status"`
+				SecurityEvents  []struct {
+					EventType   string  `json:"event_type"`
+					Outcome     string  `json:"outcome"`
+					Reason      string  `json:"reason"`
+					Provider    *string `json:"provider"`
+					SecretCount *int    `json:"secret_count"`
+					FileCount   *int    `json:"file_count"`
+				} `json:"security_events"`
 			} `json:"attempts"`
 		} `json:"data"`
 	}
@@ -1505,6 +1530,19 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 
 	if rootAttempt.LeaseOwner == nil || *rootAttempt.LeaseOwner != "worker-api-task-list" || rootAttempt.LeaseUntil == nil || *rootAttempt.LeaseUntil != leaseUntil.Unix() {
 		t.Fatalf("unexpected root task lease response: %+v", rootAttempt)
+	}
+
+	if len(rootAttempt.SecurityEvents) != 1 {
+		t.Fatalf("expected one root task security event, got %+v", rootAttempt.SecurityEvents)
+	}
+
+	securityEvent := rootAttempt.SecurityEvents[0]
+	if securityEvent.EventType != dal.ExecutionSecurityEventSecretResolution || securityEvent.Outcome != "success" || securityEvent.Reason != "ok" {
+		t.Fatalf("unexpected root task security event: %+v", securityEvent)
+	}
+
+	if securityEvent.Provider == nil || *securityEvent.Provider != "encryptedfs" || securityEvent.SecretCount == nil || *securityEvent.SecretCount != 1 || securityEvent.FileCount == nil || *securityEvent.FileCount != 1 {
+		t.Fatalf("unexpected root task security event details: %+v", securityEvent)
 	}
 
 	payloadReq := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+runID+"/execution-payload", nil)

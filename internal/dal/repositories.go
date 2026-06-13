@@ -85,6 +85,9 @@ const (
 	ExecutionStatusCancelled      = "cancelled"
 	ExecutionStatusAborted        = "aborted"
 
+	ExecutionSecurityEventSVIDCheck        = "svid_check"
+	ExecutionSecurityEventSecretResolution = "secret_resolution"
+
 	DispatchSourceAPI        = "api"
 	DispatchSourceCron       = "cron"
 	DispatchSourceReconciler = "reconciler"
@@ -170,6 +173,7 @@ type TaskAttemptRecord struct {
 	EventSequence   int64
 	CreatedAt       *string
 	UpdatedAt       *string
+	SecurityEvents  []ExecutionSecurityEvent
 }
 
 type TaskExecutionCreate struct {
@@ -310,6 +314,34 @@ type DispatchEvent struct {
 	EventType string
 	Message   *string
 	CreatedAt int64
+}
+
+type ExecutionSecurityEvent struct {
+	ID            int64
+	RunID         string
+	TaskID        string
+	TaskAttemptID string
+	ExecutionID   string
+	EventType     string
+	Outcome       string
+	Reason        string
+	Provider      *string
+	SecretCount   *int
+	FileCount     *int
+	CreatedAt     int64
+}
+
+type RecordExecutionSecurityEventParams struct {
+	RunID         string
+	TaskID        string
+	TaskAttemptID string
+	ExecutionID   string
+	EventType     string
+	Outcome       string
+	Reason        string
+	Provider      string
+	SecretCount   *int
+	FileCount     *int
 }
 
 type ArtifactCreate struct {
@@ -568,6 +600,7 @@ type RunsRepository interface {
 	GetExecutionPayloadByHash(ctx context.Context, payloadHash string) (ExecutionPayloadRecord, error)
 	ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, owningCell string, cursor int64, limit int) ([]RunRecord, int64, error)
 	ListRunTasks(ctx context.Context, runID string, cursor int64, limit int) ([]TaskRecord, int64, error)
+	RecordExecutionSecurityEvent(ctx context.Context, event RecordExecutionSecurityEventParams) error
 	EnsurePlannedTaskExecution(ctx context.Context, create TaskExecutionCreate) (TaskExecutionRecord, bool, error)
 	EnsurePendingTaskExecution(ctx context.Context, create TaskExecutionCreate) (TaskExecutionRecord, bool, error)
 	ActivatePlannedTaskExecution(ctx context.Context, taskID string) (TaskExecutionRecord, bool, error)

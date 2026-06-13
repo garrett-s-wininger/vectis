@@ -122,7 +122,8 @@ func TestWorkerResolveExecutionSecretsSendsTaskScopedRequest(t *testing.T) {
 		}}},
 	}
 
-	w := &worker{secretResolver: resolver}
+	store := mocks.NewMockRunsRepository()
+	w := &worker{secretResolver: resolver, store: store}
 	workload := &workloadidentity.Identity{SPIFFEID: "spiffe://vectis.internal/execution/run-1"}
 
 	files, err := w.resolveExecutionSecrets(context.Background(), &api.Job{
@@ -155,9 +156,11 @@ func TestWorkerResolveExecutionSecretsSendsTaskScopedRequest(t *testing.T) {
 			},
 		},
 	}, &cell.ExecutionEnvelope{
-		RunID:       "run-1",
-		TaskKey:     "build",
-		ExecutionID: "execution-1",
+		RunID:         "run-1",
+		TaskID:        "run-1:build",
+		TaskKey:       "build",
+		TaskAttemptID: "run-1:build:attempt:1",
+		ExecutionID:   "execution-1",
 	}, "claim-1", workload)
 
 	if err != nil {
@@ -178,6 +181,21 @@ func TestWorkerResolveExecutionSecretsSendsTaskScopedRequest(t *testing.T) {
 
 	if len(resolver.req.Secrets) != 2 || resolver.req.Secrets[0].ID != "global" || resolver.req.Secrets[1].ID != "npm-token" {
 		t.Fatalf("request secrets = %+v", resolver.req.Secrets)
+	}
+
+	events := store.SnapshotExecutionSecurityEvents()
+	if len(events) != 1 {
+		t.Fatalf("security events: got %d want 1: %+v", len(events), events)
+	}
+	event := events[0]
+	if event.RunID != "run-1" || event.TaskID != "run-1:build" || event.TaskAttemptID != "run-1:build:attempt:1" || event.ExecutionID != "execution-1" {
+		t.Fatalf("security event identity = %+v", event)
+	}
+	if event.EventType != dal.ExecutionSecurityEventSecretResolution || event.Outcome != observability.SecretsResolveOutcomeSuccess || event.Reason != observability.SecretsResolveReasonOK || event.Provider != "encryptedfs" {
+		t.Fatalf("security event result = %+v", event)
+	}
+	if event.SecretCount == nil || *event.SecretCount != 2 || event.FileCount == nil || *event.FileCount != 1 {
+		t.Fatalf("security event counts = %+v", event)
 	}
 }
 

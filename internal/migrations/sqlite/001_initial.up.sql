@@ -180,6 +180,25 @@ CREATE INDEX idx_segment_executions_cell_status ON segment_executions(cell_id, s
 CREATE INDEX idx_segment_executions_lease_until ON segment_executions(lease_until);
 CREATE INDEX idx_segment_executions_start_deadline ON segment_executions(start_deadline_unix_nano);
 
+CREATE TABLE execution_security_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL REFERENCES job_runs(run_id) ON DELETE CASCADE,
+    task_id TEXT REFERENCES run_tasks(task_id) ON DELETE SET NULL,
+    task_attempt_id TEXT REFERENCES task_attempts(attempt_id) ON DELETE SET NULL,
+    execution_id TEXT REFERENCES segment_executions(execution_id) ON DELETE SET NULL,
+    event_type TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    reason TEXT NOT NULL DEFAULT '',
+    provider TEXT,
+    secret_count INTEGER,
+    file_count INTEGER,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX idx_execution_security_events_run_id ON execution_security_events(run_id, id);
+CREATE INDEX idx_execution_security_events_attempt ON execution_security_events(task_attempt_id, id);
+CREATE INDEX idx_execution_security_events_execution ON execution_security_events(execution_id, id);
+
 CREATE TABLE run_artifacts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id TEXT NOT NULL REFERENCES job_runs(run_id) ON DELETE CASCADE,

@@ -1093,6 +1093,38 @@ func TestRunsRepository_ListRunTasks_ReturnsRootTaskAndAttempt(t *testing.T) {
 		t.Fatalf("unclaimed execution should not expose lease fields: %+v", attempt)
 	}
 
+	secretCount := 2
+	fileCount := 1
+	if err := repos.Runs().RecordExecutionSecurityEvent(ctx, dal.RecordExecutionSecurityEventParams{
+		RunID:         runID,
+		TaskID:        attempt.TaskID,
+		TaskAttemptID: attempt.AttemptID,
+		ExecutionID:   attempt.ExecutionID,
+		EventType:     dal.ExecutionSecurityEventSecretResolution,
+		Outcome:       "success",
+		Reason:        "ok",
+		Provider:      "encryptedfs",
+		SecretCount:   &secretCount,
+		FileCount:     &fileCount,
+	}); err != nil {
+		t.Fatalf("record execution security event: %v", err)
+	}
+
+	tasks, _, err = repos.Runs().ListRunTasks(ctx, runID, 0, 50)
+	if err != nil {
+		t.Fatalf("list run tasks with security event: %v", err)
+	}
+	if len(tasks) != 1 || len(tasks[0].Attempts) != 1 || len(tasks[0].Attempts[0].SecurityEvents) != 1 {
+		t.Fatalf("listed security events missing: %+v", tasks)
+	}
+	securityEvent := tasks[0].Attempts[0].SecurityEvents[0]
+	if securityEvent.EventType != dal.ExecutionSecurityEventSecretResolution || securityEvent.Outcome != "success" || securityEvent.Reason != "ok" {
+		t.Fatalf("unexpected security event result: %+v", securityEvent)
+	}
+	if securityEvent.Provider == nil || *securityEvent.Provider != "encryptedfs" || securityEvent.SecretCount == nil || *securityEvent.SecretCount != 2 || securityEvent.FileCount == nil || *securityEvent.FileCount != 1 {
+		t.Fatalf("unexpected security event details: %+v", securityEvent)
+	}
+
 	if _, err := db.ExecContext(ctx, `
 		INSERT INTO run_tasks (task_id, run_id, parent_task_id, task_key, name, status)
 		VALUES (?, ?, ?, ?, ?, ?)

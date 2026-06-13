@@ -65,29 +65,31 @@ Use this when `VectisAPISecurityRejectionsSustained` or `VectisAPISecurityReject
 
 Use this when `VectisWorkerSPIFFESVIDCheckFailures` fires or when `vectis_worker_spiffe_svid_checks_total{outcome="failed"}` increases.
 
-1. Start with the `reason` label. It is intentionally low-cardinality: `mismatch`, `source_error`, `source_timeout`, `canceled`, `missing_identity`, `missing_source`, or `invalid_expected_id`.
-2. For `mismatch`, compare the worker's configured `worker.execution_identity.*` template and trust domain with the SPIFFE registration entries that apply to that worker. The worker requires an exact X.509-SVID SPIFFE ID match for the execution, and registration intents should use the same execution SPIFFE ID, parent SPIFFE ID, trusted selectors, and bounded expiry that the registrar applies.
-3. For `source_timeout`, check SPIFFE Workload API responsiveness, socket filesystem health, and whether `worker.spiffe.fetch_timeout` is too low for the deployment.
-4. For `source_error`, check the `vectis-spiffe` process, Workload API socket path, filesystem permissions, and whether the worker can connect to `worker.spiffe.workload_api_address`.
-5. For `canceled`, check whether the run was canceled by API/operator request or worker shutdown while the pre-action check was in progress; the starter alert excludes this reason.
-6. For `missing_identity`, confirm the run reached the worker through cell execution dispatch with an execution envelope and that `worker.execution_identity.enabled=true` is configured consistently.
-7. For `missing_source`, confirm `worker.spiffe.enabled=true` and `worker.spiffe.workload_api_address` are set on the worker process.
-8. For `invalid_expected_id`, validate `worker.execution_identity.trust_domain` and `worker.execution_identity.path_template` against the allowed SPIFFE URI shape.
-9. Do not fix these alerts by exposing the SPIFFE Workload API socket, SVID, private key, or derived identity to shell actions. Repair the worker-controlled SPIFFE registration or configuration path.
-10. After repair, retry only the failed runs that are safe to re-run and confirm the failed-check counter no longer increases.
+1. For a specific impacted run, start with `vectis-cli runs tasks <run-id>` and look for attempt `security` entries with `svid_check`.
+2. For fleet-wide scope, use the `reason` label. It is intentionally low-cardinality: `mismatch`, `source_error`, `source_timeout`, `canceled`, `missing_identity`, `missing_source`, or `invalid_expected_id`.
+3. For `mismatch`, compare the worker's configured `worker.execution_identity.*` template and trust domain with the SPIFFE registration entries that apply to that worker. The worker requires an exact X.509-SVID SPIFFE ID match for the execution, and registration intents should use the same execution SPIFFE ID, parent SPIFFE ID, trusted selectors, and bounded expiry that the registrar applies.
+4. For `source_timeout`, check SPIFFE Workload API responsiveness, socket filesystem health, and whether `worker.spiffe.fetch_timeout` is too low for the deployment.
+5. For `source_error`, check the `vectis-spiffe` process, Workload API socket path, filesystem permissions, and whether the worker can connect to `worker.spiffe.workload_api_address`.
+6. For `canceled`, check whether the run was canceled by API/operator request or worker shutdown while the pre-action check was in progress; the starter alert excludes this reason.
+7. For `missing_identity`, confirm the run reached the worker through cell execution dispatch with an execution envelope and that `worker.execution_identity.enabled=true` is configured consistently.
+8. For `missing_source`, confirm `worker.spiffe.enabled=true` and `worker.spiffe.workload_api_address` are set on the worker process.
+9. For `invalid_expected_id`, validate `worker.execution_identity.trust_domain` and `worker.execution_identity.path_template` against the allowed SPIFFE URI shape.
+10. Do not fix these alerts by exposing the SPIFFE Workload API socket, SVID, private key, or derived identity to shell actions. Repair the worker-controlled SPIFFE registration or configuration path.
+11. After repair, retry only the failed runs that are safe to re-run and confirm the failed-check counter no longer increases.
 
 ## Secret Resolution
 
 Use this when `VectisSecretsResolveFailures` fires or when `vectis_secrets_resolve_requests_total{outcome!="success"}` increases unexpectedly.
 
-1. Start with the alert labels: `outcome`, `reason`, and `provider`. They are intentionally low-cardinality and do not include secret values, requested refs, run IDs, execution IDs, or SPIFFE IDs.
-2. Check `vectis-secrets` logs around the alert window. Resolve logs include run, execution, namespace, job, task, provider, outcome, reason, and secret count metadata.
-3. For `authorization_denied`, check worker SPIFFE SVID failures first with `vectis_worker_spiffe_svid_checks_total`, then compare `worker.execution_identity.*` settings on workers and `vectis-secrets`, and then inspect `--allow-secret` / `VECTIS_SECRETS_POLICY_ALLOW` rules for the run namespace, job, task, and requested refs.
-4. For `provider_not_found`, confirm the requested ref scheme has a provider registered on the broker. For `encryptedfs://` refs, also confirm the envelope exists below `--encryptedfs-root`.
-5. For `provider_denied`, inspect encryptedfs safety checks: unsafe refs, symlink escapes, invalid envelopes, decrypt failures from a wrong key, and oversized secret material.
-6. For `provider_error`, check broker logs and process configuration for encryptedfs root readability, key-file readability, database reachability, TLS, and filesystem availability.
-7. Confirm `vectis-secrets` gRPC health is serving and the metrics listener is scrapeable from the trusted monitoring network.
-8. After repair, retry only runs that are safe to re-run and confirm the failed resolve counter no longer increases.
+1. For a specific impacted run, start with `vectis-cli runs tasks <run-id>` and look for attempt `security` entries with `secret_resolution`.
+2. For fleet-wide scope, use the alert labels: `outcome`, `reason`, and `provider`. They are intentionally low-cardinality and do not include secret values, requested refs, run IDs, execution IDs, or SPIFFE IDs.
+3. Check `vectis-secrets` logs around the alert window. Resolve logs include run, execution, namespace, job, task, provider, outcome, reason, and secret count metadata.
+4. For `authorization_denied`, check worker SPIFFE SVID failures first with `vectis_worker_spiffe_svid_checks_total`, then compare `worker.execution_identity.*` settings on workers and `vectis-secrets`, and then inspect `--allow-secret` / `VECTIS_SECRETS_POLICY_ALLOW` rules for the run namespace, job, task, and requested refs.
+5. For `provider_not_found`, confirm the requested ref scheme has a provider registered on the broker. For `encryptedfs://` refs, also confirm the envelope exists below `--encryptedfs-root`.
+6. For `provider_denied`, inspect encryptedfs safety checks: unsafe refs, symlink escapes, invalid envelopes, decrypt failures from a wrong key, and oversized secret material.
+7. For `provider_error`, check broker logs and process configuration for encryptedfs root readability, key-file readability, database reachability, TLS, and filesystem availability.
+8. Confirm `vectis-secrets` gRPC health is serving and the metrics listener is scrapeable from the trusted monitoring network.
+9. After repair, retry only runs that are safe to re-run and confirm the failed resolve counter no longer increases.
 
 ## Queued Runs Or Backlog
 
