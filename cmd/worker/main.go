@@ -1825,6 +1825,28 @@ func (w *worker) completeExecutionAndFinalizeRunByClaim(ctx context.Context, j *
 }
 
 func (w *worker) completeExecutionEnvelopeWithRetry(ctx context.Context, j *api.Job, env *cell.ExecutionEnvelope, executionClaim *executionClaimState, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
+	result, err := w.completeHotExecutionEnvelopeWithRetry(ctx, j, env, executionClaim, status, failureCode, reason)
+	if err != nil {
+		return dal.ExecutionFinalizationResult{}, err
+	}
+
+	if w.store == nil || choreographerCompletesExecutionDurably(w.executionChoreographer()) {
+		return result, nil
+	}
+
+	durable, err := w.mirrorExecutionFinalizationWithRetry(ctx, env, executionClaim, status, failureCode, reason)
+	if err != nil {
+		return dal.ExecutionFinalizationResult{}, err
+	}
+
+	if err := validateMirroredFinalizationResult(result, durable); err != nil {
+		return dal.ExecutionFinalizationResult{}, err
+	}
+
+	return durable, nil
+}
+
+func (w *worker) completeHotExecutionEnvelopeWithRetry(ctx context.Context, j *api.Job, env *cell.ExecutionEnvelope, executionClaim *executionClaimState, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
 	var lastErr error
 	recoveries := 0
 	for attempt := 1; attempt <= finalizeMaxAttempts; {
@@ -1860,6 +1882,45 @@ func (w *worker) completeExecutionEnvelopeWithRetry(ctx context.Context, j *api.
 	}
 
 	return dal.ExecutionFinalizationResult{}, lastErr
+}
+
+func (w *worker) mirrorExecutionFinalizationWithRetry(ctx context.Context, env *cell.ExecutionEnvelope, executionClaim *executionClaimState, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
+	var lastErr error
+	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
+		result, err := w.store.CompleteExecutionAndFinalizeRunByClaim(w.runCtx, env.ExecutionID, w.workerID, executionClaim.get(), status, failureCode, reason)
+		if err == nil {
+			w.noteDBRecovered()
+			return result, nil
+		}
+
+		lastErr = err
+		w.noteDBError(err)
+		trace.SpanFromContext(ctx).RecordError(err)
+		if attempt == finalizeMaxAttempts {
+			break
+		}
+
+		delay := backoff.ExponentialDelay(finalizeBackoffBase, attempt-1, finalizeBackoffMax)
+		w.logger.Warn("Mirror durable execution finalization %s status %s failed (attempt %d/%d): %v; retrying in %v",
+			env.ExecutionID, status, attempt, finalizeMaxAttempts, err, delay)
+
+		if sleepErr := w.clock.Sleep(w.runCtx, delay); sleepErr != nil {
+			return dal.ExecutionFinalizationResult{}, sleepErr
+		}
+	}
+
+	return dal.ExecutionFinalizationResult{}, lastErr
+}
+
+func validateMirroredFinalizationResult(hot, durable dal.ExecutionFinalizationResult) error {
+	if hot.ExecutionID != "" && durable.ExecutionID != hot.ExecutionID {
+		return fmt.Errorf("durable execution finalization mismatch: hot execution %s durable execution %s", hot.ExecutionID, durable.ExecutionID)
+	}
+	if hot.RunID != "" && durable.RunID != hot.RunID {
+		return fmt.Errorf("durable execution finalization mismatch: hot run %s durable run %s", hot.RunID, durable.RunID)
+	}
+
+	return nil
 }
 
 func (w *worker) recordRunCatalogEventForExecutionFinalization(result dal.ExecutionFinalizationResult, failureCode, reason string) {

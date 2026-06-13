@@ -2724,6 +2724,158 @@ func TestWorkerRunTaskExecution_FinalizeSucceededRetriesOnTransientStoreFailure(
 	}
 }
 
+func TestWorkerRunTaskExecution_DurableFinalizationSurvivesCatalogRecordFailure(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
+	runs := repos.Runs()
+
+	ns, err := repos.Namespaces().Create(ctx, "worker-durable-finalize-catalog-failure", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-worker-durable-finalize-catalog-failure"
+	def := `{"id":"job-worker-durable-finalize-catalog-failure","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo durable"}}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := runs.CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	w := &worker{
+		ctx:           context.Background(),
+		runCtx:        context.Background(),
+		logger:        interfaces.NewLogger("worker-test"),
+		workerID:      "worker-durable-finalize-catalog-failure",
+		cellID:        "local",
+		clock:         mocks.NewMockClock(),
+		renewInterval: time.Hour,
+		queue:         mocks.NewMockQueueClient(),
+		logClient:     mocks.NewMockLogClient(),
+		core:          testWorkerCore(job.NewExecutor()),
+		store:         runs,
+		choreographer: newLocalOrchestratorChoreographer(t),
+		catalog:       cell.NewCatalogEventPublisher("", repos.CatalogEvents()),
+	}
+
+	deliveryID := "delivery-durable-finalize-catalog-failure"
+	rootID := "root"
+	action := "builtins/shell"
+	j := &api.Job{
+		Id:         &jobID,
+		RunId:      &runID,
+		DeliveryId: &deliveryID,
+		Root: &api.Node{
+			Id:   &rootID,
+			Uses: &action,
+			With: map[string]string{"command": "echo durable"},
+		},
+	}
+
+	env := attachPendingExecutionEnvelopeForTest(t, runs, j, runID)
+	outcome := w.runTaskExecution(context.Background(), j, jobID, runID, deliveryID, env)
+	if outcome != observability.WorkerOutcomeSuccess {
+		t.Fatalf("outcome: got %q, want %q", outcome, observability.WorkerOutcomeSuccess)
+	}
+
+	var runStatus string
+	var executionStatus string
+	if err := db.QueryRowContext(ctx, `
+		SELECT jr.status, se.status
+		FROM job_runs jr
+		JOIN segment_executions se ON se.run_id = jr.run_id
+		WHERE jr.run_id = ?
+	`, runID).Scan(&runStatus, &executionStatus); err != nil {
+		t.Fatalf("query durable finalization status: %v", err)
+	}
+
+	if runStatus != dal.RunStatusSucceeded || executionStatus != dal.ExecutionStatusSucceeded {
+		t.Fatalf("durable status: run=%q execution=%q", runStatus, executionStatus)
+	}
+}
+
+func TestWorkerRunTaskExecution_DurableFinalizationFailurePreventsSuccess(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
+	runs := repos.Runs()
+
+	ns, err := repos.Namespaces().Create(ctx, "worker-durable-finalize-required", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-worker-durable-finalize-required"
+	def := `{"id":"job-worker-durable-finalize-required","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo durable-required"}}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := runs.CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	store := &flakyFinalizeRunsStore{
+		RunsRepository:      runs,
+		succeedFailuresLeft: finalizeMaxAttempts,
+	}
+	clock := mocks.NewMockClock()
+	w := &worker{
+		ctx:           context.Background(),
+		runCtx:        context.Background(),
+		logger:        interfaces.NewLogger("worker-test"),
+		workerID:      "worker-durable-finalize-required",
+		cellID:        "local",
+		clock:         clock,
+		renewInterval: time.Hour,
+		queue:         mocks.NewMockQueueClient(),
+		logClient:     mocks.NewMockLogClient(),
+		core:          testWorkerCore(job.NewExecutor()),
+		store:         store,
+		choreographer: newLocalOrchestratorChoreographer(t),
+		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
+	}
+
+	deliveryID := "delivery-durable-finalize-required"
+	rootID := "root"
+	action := "builtins/shell"
+	j := &api.Job{
+		Id:         &jobID,
+		RunId:      &runID,
+		DeliveryId: &deliveryID,
+		Root: &api.Node{
+			Id:   &rootID,
+			Uses: &action,
+			With: map[string]string{"command": "echo durable-required"},
+		},
+	}
+
+	env := attachPendingExecutionEnvelopeForTest(t, runs, j, runID)
+	outcome := w.runTaskExecution(context.Background(), j, jobID, runID, deliveryID, env)
+	if outcome != observability.WorkerOutcomeFailed {
+		t.Fatalf("outcome: got %q, want %q", outcome, observability.WorkerOutcomeFailed)
+	}
+
+	var runStatus string
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&runStatus); err != nil {
+		t.Fatalf("query run status: %v", err)
+	}
+
+	if runStatus == dal.RunStatusSucceeded {
+		t.Fatalf("run reported success without durable finalization")
+	}
+
+	sleeps := clock.GetSleeps()
+	if len(sleeps) != finalizeMaxAttempts-1 {
+		t.Fatalf("durable finalization retries: got %d sleeps, want %d", len(sleeps), finalizeMaxAttempts-1)
+	}
+}
+
 func TestWorkerRunTaskExecution_RecoversOrchestratorRestartDuringFinalize(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()

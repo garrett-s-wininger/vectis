@@ -17,6 +17,15 @@ type executionChoreographer interface {
 	CompleteExecution(ctx context.Context, env *cell.ExecutionEnvelope, owner, claimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error)
 }
 
+type durableCompletionChoreographer interface {
+	completesExecutionDurably() bool
+}
+
+func choreographerCompletesExecutionDurably(ch executionChoreographer) bool {
+	durable, ok := ch.(durableCompletionChoreographer)
+	return ok && durable.completesExecutionDurably()
+}
+
 type grpcExecutionChoreographer struct {
 	client api.OrchestratorServiceClient
 }

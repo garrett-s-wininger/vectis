@@ -21,6 +21,10 @@ type sqlExecutionChoreographer struct {
 	runs dal.RunsRepository
 }
 
+func (c sqlExecutionChoreographer) completesExecutionDurably() bool {
+	return true
+}
+
 func (c sqlExecutionChoreographer) LoadRun(context.Context, *api.Job, *cell.ExecutionEnvelope, []orchestrator.TaskExecutionSnapshot) error {
 	return nil
 }
