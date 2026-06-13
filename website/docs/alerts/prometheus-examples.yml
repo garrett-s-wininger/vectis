@@ -8,7 +8,7 @@ groups:
           severity: warning
         annotations:
           summary: Vectis queue has pending jobs
-          runbook: docs/REPAIR_RUNBOOKS.md#queued-runs-or-backlog
+          runbook: /docs/operating/reliability/repair-runbooks#queued-runs-or-backlog
 
       - alert: VectisQueueDLQNotEmpty
         expr: vectis_queue_dlq_size > 0
@@ -17,7 +17,7 @@ groups:
           severity: warning
         annotations:
           summary: Vectis queue DLQ contains deliveries
-          runbook: docs/REPAIR_RUNBOOKS.md#queued-runs-or-backlog
+          runbook: /docs/operating/reliability/repair-runbooks#queued-runs-or-backlog
 
       - alert: VectisQueueExpiredDispatchDrops
         expr: increase(vectis_queue_expired_dropped_total[10m]) > 0
@@ -25,7 +25,7 @@ groups:
           severity: warning
         annotations:
           summary: Vectis queue dropped deliveries after dispatch start deadlines
-          runbook: docs/REPAIR_RUNBOOKS.md#queued-runs-or-backlog
+          runbook: /docs/operating/reliability/repair-runbooks#queued-runs-or-backlog
 
       - alert: VectisReconcilerReenqueueFailures
         expr: increase(vectis_reconciler_reenqueue_total{outcome!="success"}[10m]) > 0
@@ -33,7 +33,7 @@ groups:
           severity: warning
         annotations:
           summary: Vectis reconciler failed to reenqueue runs
-          runbook: docs/REPAIR_RUNBOOKS.md#reconciler-repair
+          runbook: /docs/operating/reliability/repair-runbooks#reconciler-repair
 
       - alert: VectisReconcilerTaskFinalizationRepairFailures
         expr: increase(vectis_reconciler_task_finalization_repairs_total{outcome="error"}[10m]) > 0
@@ -41,7 +41,7 @@ groups:
           severity: warning
         annotations:
           summary: Vectis reconciler failed to repair orphaned task finalization
-          runbook: docs/REPAIR_RUNBOOKS.md#reconciler-repair
+          runbook: /docs/operating/reliability/repair-runbooks#reconciler-repair
 
       - alert: VectisTaskReduceErrors
         expr: increase(vectis_task_reduce_decisions_total{outcome="error"}[10m]) > 0
@@ -49,7 +49,7 @@ groups:
           severity: warning
         annotations:
           summary: Vectis workers failed to reduce task completion
-          runbook: docs/REPAIR_RUNBOOKS.md#manual-run-intervention
+          runbook: /docs/operating/reliability/repair-runbooks#manual-run-intervention
 
       - alert: VectisTaskGraphRowsHigh
         expr: sum(vectis_storage_records{surface=~"run_tasks|task_attempts|run_segments|segment_executions"}) > 1000000
@@ -58,7 +58,7 @@ groups:
           severity: warning
         annotations:
           summary: Vectis task graph SQL row count is above the example threshold
-          runbook: docs/REPAIR_RUNBOOKS.md#retention-cleanup
+          runbook: /docs/operating/reliability/repair-runbooks#retention-cleanup
 
       - alert: VectisWorkerHighFailureRatio
         expr: |
@@ -71,7 +71,7 @@ groups:
           severity: warning
         annotations:
           summary: Vectis worker failure ratio is high
-          runbook: docs/REPAIR_RUNBOOKS.md#manual-run-intervention
+          runbook: /docs/operating/reliability/repair-runbooks#manual-run-intervention
 
       - alert: VectisWorkerSPIFFESVIDCheckFailures
         expr: increase(vectis_worker_spiffe_svid_checks_total{outcome="failed",reason!="canceled"}[10m]) > 0
@@ -80,7 +80,7 @@ groups:
         annotations:
           summary: Vectis worker SPIFFE execution SVID checks failed
           description: "reason={{ $labels.reason }}"
-          runbook: docs/REPAIR_RUNBOOKS.md#spiffe-execution-svid-checks
+          runbook: /docs/operating/reliability/repair-runbooks#spiffe-execution-svid-checks
 
       - alert: VectisSecretsResolveFailures
         expr: increase(vectis_secrets_resolve_requests_total{outcome!="success"}[10m]) > 0
@@ -89,7 +89,7 @@ groups:
         annotations:
           summary: Vectis secret resolution failed
           description: "outcome={{ $labels.outcome }} reason={{ $labels.reason }} provider={{ $labels.provider }}"
-          runbook: docs/REPAIR_RUNBOOKS.md#secret-resolution
+          runbook: /docs/operating/reliability/repair-runbooks#secret-resolution
 
       - alert: VectisLogAppendFailures
         expr: increase(vectis_log_storage_append_failures_total[10m]) > 0
@@ -97,7 +97,7 @@ groups:
           severity: critical
         annotations:
           summary: Vectis log service failed to append logs
-          runbook: docs/REPAIR_RUNBOOKS.md#log-service-repair
+          runbook: /docs/operating/reliability/repair-runbooks#log-service-repair
 
       - alert: VectisLogDrops
         expr: increase(vectis_log_memory_buffer_drops_total[10m]) + increase(vectis_log_subscriber_channel_drops_total[10m]) > 0
@@ -105,7 +105,7 @@ groups:
           severity: warning
         annotations:
           summary: Vectis log service dropped buffered or subscriber log data
-          runbook: docs/REPAIR_RUNBOOKS.md#log-service-repair
+          runbook: /docs/operating/reliability/repair-runbooks#log-service-repair
 
       - alert: VectisLogShardRoutingFailures
         expr: increase(vectis_log_shard_route_failures_total[10m]) > 0
@@ -113,7 +113,7 @@ groups:
           severity: warning
         annotations:
           summary: Vectis log shard routing failed
-          runbook: docs/REPAIR_RUNBOOKS.md#log-service-repair
+          runbook: /docs/operating/reliability/repair-runbooks#log-service-repair
 
       - alert: VectisLogForwarderSpoolBacklog
         expr: vectis_log_forwarder_spool_files > 0
@@ -122,7 +122,7 @@ groups:
           severity: warning
         annotations:
           summary: Vectis log-forwarder has durable spool backlog
-          runbook: docs/REPAIR_RUNBOOKS.md#log-service-repair
+          runbook: /docs/operating/reliability/repair-runbooks#log-service-repair
 
       - alert: VectisAuditDrops
         expr: increase(vectis_audit_events_dropped_total[10m]) > 0
@@ -130,7 +130,7 @@ groups:
           severity: critical
         annotations:
           summary: Vectis audit events were dropped
-          runbook: docs/REPAIR_RUNBOOKS.md#audit-durability-repair
+          runbook: /docs/operating/reliability/repair-runbooks#audit-durability-repair
 
       - alert: VectisAuditFlushFailures
         expr: increase(vectis_audit_flush_failures_total[10m]) > 0
@@ -138,7 +138,7 @@ groups:
           severity: critical
         annotations:
           summary: Vectis audit flush failed
-          runbook: docs/REPAIR_RUNBOOKS.md#audit-durability-repair
+          runbook: /docs/operating/reliability/repair-runbooks#audit-durability-repair
 
       - alert: VectisRetryExhausted
         expr: increase(vectis_retries_exhausted_total[10m]) > 0
@@ -146,7 +146,7 @@ groups:
           severity: warning
         annotations:
           summary: Vectis retry loop exhausted
-          runbook: docs/REPAIR_RUNBOOKS.md#quick-map
+          runbook: /docs/operating/reliability/repair-runbooks#quick-map
 
       - alert: VectisDatabasePoolSaturated
         expr: db_client_connections_in_use > 20
@@ -155,7 +155,7 @@ groups:
           severity: warning
         annotations:
           summary: Vectis database pool usage is high
-          runbook: docs/REPAIR_RUNBOOKS.md#database-pool-pressure
+          runbook: /docs/operating/reliability/repair-runbooks#database-pool-pressure
 
       - alert: VectisAPISecurityRejectionsSustained
         expr: sum(rate(vectis_api_security_rejections_total[10m])) > 0.1
@@ -164,7 +164,7 @@ groups:
           severity: warning
         annotations:
           summary: Vectis API security rejections are sustained
-          runbook: docs/REPAIR_RUNBOOKS.md#api-security-rejections
+          runbook: /docs/operating/reliability/repair-runbooks#api-security-rejections
 
       - alert: VectisAPISecurityRejectionSpike
         expr: sum by (reason, route, status) (increase(vectis_api_security_rejections_total[5m])) > 25
@@ -173,4 +173,4 @@ groups:
         annotations:
           summary: "Vectis API security rejection spike on {{ $labels.route }}"
           description: "reason={{ $labels.reason }} status={{ $labels.status }}"
-          runbook: docs/REPAIR_RUNBOOKS.md#api-security-rejections
+          runbook: /docs/operating/reliability/repair-runbooks#api-security-rejections

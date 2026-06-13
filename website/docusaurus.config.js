@@ -12,6 +12,10 @@ const config = {
     locales: ['en'],
   },
   markdown: {
+    hooks: {
+      onBrokenMarkdownLinks: 'throw',
+      onBrokenMarkdownImages: 'throw',
+    },
     mermaid: true,
   },
   themes: ['@docusaurus/theme-mermaid'],
